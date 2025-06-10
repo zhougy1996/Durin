@@ -1,7 +1,5 @@
 #pragma once
 
-#define MODULE_NAME "Core"
-
 #include "HAL/Platform.h"
 
 #ifdef CORE_EXPORTS

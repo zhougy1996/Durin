@@ -108,7 +108,7 @@
       <BuildStlModules>true</BuildStlModules>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>PCH.Core.h</PrecompiledHeaderFile>
-      <PrecompiledHeaderOutputFile>PCH.Core.pch</PrecompiledHeaderOutputFile>
+      <PrecompiledHeaderOutputFile>$(DogePCHDir)\PCH.Core.pch</PrecompiledHeaderOutputFile>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -126,7 +126,7 @@
       <BuildStlModules>true</BuildStlModules>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>PCH.Core.h</PrecompiledHeaderFile>
-      <PrecompiledHeaderOutputFile>PCH.Core.pch</PrecompiledHeaderOutputFile>
+      <PrecompiledHeaderOutputFile>$(DogePCHDir)\PCH.Core.pch</PrecompiledHeaderOutputFile>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
