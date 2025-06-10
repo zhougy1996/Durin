@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="Private\Logging\Logger.cpp" />
+    <ClCompile Include="Private\PCH.Core.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Public\CoreMinimal.h" />
+    <ClInclude Include="Public\HAL\Platform.h" />
+    <ClInclude Include="Public\Windows\WindowsPlatform.h" />
+    <ClInclude Include="Public\Misc\AssertionMacros.h" />
+    <ClInclude Include="Public\Logging\LogMacros.h" />
+    <ClInclude Include="Public\Misc\EnumClassFlags.h" />
+    <ClInclude Include="Private\Definitions.h" />
+    <ClInclude Include="Public\Logging\Logger.h" />
+    <ClInclude Include="Private\PCH.Core.h" />
+  </ItemGroup>
+</Project>
