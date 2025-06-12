@@ -24,11 +24,9 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>Private\;Public\;$(VulkanDir)\Include\;$(DogeThirdPartyDir)\spdlog\include\;$(DogeThirdPartyDir)\proxy\;$(DogeThirdPartyDir)\glm\;$(DogeThirdPartyDir)\glfw\include\</AdditionalIncludeDirectories>
-      <PrecompiledHeaderOutputFile>
-      </PrecompiledHeaderOutputFile>
-      <PrecompiledHeaderFile>
-      </PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>$(ProjectDir)Private\;$(ProjectDir)Public\;$(VulkanDir)\Include\;$(DogeThirdPartyDir)\spdlog\include\;$(DogeThirdPartyDir)\proxy\;$(DogeThirdPartyDir)\glm\;$(DogeThirdPartyDir)\glfw\include\</AdditionalIncludeDirectories>
+      <PrecompiledHeaderOutputFile>$(DogePCHDir)\PCH.$(ProjectName).pch</PrecompiledHeaderOutputFile>
+      <PrecompiledHeaderFile>PCH.$(ProjectName).h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <EnableModules>true</EnableModules>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Definitions.h"
+#include "CoreDefinitions.h"
 
 namespace spdlog
 {
