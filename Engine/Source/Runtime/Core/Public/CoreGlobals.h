@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CoreDefinitions.h"
+#include "Definitions.Core.h"
 
 // Don't modify this global variable directly, use the provided functions instead.
 // RequestEngineExit() and IsEngineExitRequested() are the functions to use.

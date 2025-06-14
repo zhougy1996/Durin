@@ -4,4 +4,4 @@
 
 #include "CoreMinimal.h"
 
-#include "CoreDefinitions.h"
+#include "Definitions.Core.h"

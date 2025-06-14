@@ -6,4 +6,4 @@
 	#define CORE_API DLLEXPORT
 #else
 	#define CORE_API DLLIMPORT
-#endif // CORE_EXPORTS
+#endif

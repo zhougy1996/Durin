@@ -1,6 +1,6 @@
 #pragma once
 
-#include "EngineDefinitions.h"
+#include "Definitions.Engine.h"
 
 class ENGINE_API FEngineLoop
 {

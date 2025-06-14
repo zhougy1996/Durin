@@ -129,7 +129,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Public\EngineDefinitions.h" />
+    <ClInclude Include="Public\Definitions.Engine.h" />
     <ClInclude Include="Public\EngineLoop\EngineLoop.h" />
     <ClInclude Include="Private\PCH.Engine.h" />
   </ItemGroup>
