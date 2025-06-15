@@ -137,6 +137,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="Private\Modules\ModuleManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Public\Containers\ContainersFwd.h" />
@@ -155,6 +156,9 @@
     <ClInclude Include="Public\Math\Vector.h" />
     <ClInclude Include="Public\Misc\AssertionMacros.h" />
     <ClInclude Include="Public\Misc\EnumClassFlags.h" />
+    <ClInclude Include="Public\Modules\ModuleManager.h" />
+    <ClInclude Include="Public\Templates\SmartPointers.h" />
+    <ClInclude Include="Public\Templates\StdAlias.h" />
     <ClInclude Include="Public\Windows\WindowsPlatform.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

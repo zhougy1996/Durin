@@ -3,7 +3,7 @@
 
 auto FEngineLoop::PreInit() -> void
 {
-
+	DOGE_INFO("PreInit");
 }
 
 auto FEngineLoop::Init() -> void

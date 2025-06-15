@@ -4,6 +4,7 @@
     <ClCompile Include="Private\Logging\Logger.cpp" />
     <ClCompile Include="Private\Misc\PCH.Core.cpp" />
     <ClCompile Include="Private\Misc\CoreGlobals.cpp" />
+    <ClCompile Include="Private\Modules\ModuleManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Public\CoreMinimal.h" />
@@ -23,5 +24,8 @@
     <ClInclude Include="Public\CoreFwd.h" />
     <ClInclude Include="Public\Containers\ContainersFwd.h" />
     <ClInclude Include="Public\Math\NumericalOperations.h" />
+    <ClInclude Include="Public\Modules\ModuleManager.h" />
+    <ClInclude Include="Public\Templates\SmartPointers.h" />
+    <ClInclude Include="Public\Templates\StdAlias.h" />
   </ItemGroup>
 </Project>

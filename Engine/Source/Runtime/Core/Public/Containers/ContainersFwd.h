@@ -10,8 +10,12 @@
 #include <stack>
 #include <queue>
 #include <string>
+#include <tuple>
 
 // Container types
+template<typename Key, typename Value>
+using TPair = std::pair<Key, Value>;
+
 template<typename T, size_t N>
 using TStaticArray = std::array<T, N>;
 
@@ -41,6 +45,10 @@ using TQueue = std::queue<T>;
 
 template<typename T>
 using TStack = std::stack<T>;
+
+// Tuple type
+template<typename... Types>
+using TTuple = std::tuple<Types...>;
 
 // String types
 using FString = std::string;

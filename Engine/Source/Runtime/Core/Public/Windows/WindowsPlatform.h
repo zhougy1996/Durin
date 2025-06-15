@@ -9,3 +9,5 @@
 #define FORCEINLINE __forceinline
 
 #define PLATFORM_BREAK() (/*__nop(), */__debugbreak())
+
+#define NOMINMAX
