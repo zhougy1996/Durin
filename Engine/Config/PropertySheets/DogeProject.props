@@ -42,6 +42,8 @@
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <LanguageStandard_C>stdclatest</LanguageStandard_C>
       <PreprocessorDefinitions>NOMINMAX;_UNICODE;UNICODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ForcedIncludeFiles>PCH.$(ProjectName).h</ForcedIncludeFiles>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <PostBuildEvent>
       <Command>if EXIST "$(TargetDir)$(ProjectName).dll" xcopy /Y "$(TargetDir)$(ProjectName).dll" "$(DogeBinariesDir)\Doge\$(Platform)\$(Configuration)\"</Command>
