@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Definitions.Core.h"
-
 #include <source_location>
 #include <string>
 #include <memory>

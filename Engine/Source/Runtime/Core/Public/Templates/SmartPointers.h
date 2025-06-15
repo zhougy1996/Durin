@@ -2,8 +2,6 @@
 
 #include <memory>
 
-#include "Definitions.Core.h"
-
 template<typename T>
 using TWeakPtr = std::weak_ptr<T>;
 
