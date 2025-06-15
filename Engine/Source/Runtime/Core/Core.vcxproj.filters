@@ -16,5 +16,12 @@
     <ClInclude Include="Private\PCH.Core.h" />
     <ClInclude Include="Public\CoreGlobals.h" />
     <ClInclude Include="Public\Definitions.Core.h" />
+    <ClInclude Include="Public\Math\Constants.h" />
+    <ClInclude Include="Public\Math\DogeMath.h" />
+    <ClInclude Include="Public\Math\Vector.h" />
+    <ClInclude Include="Public\Math\MathFwd.h" />
+    <ClInclude Include="Public\CoreFwd.h" />
+    <ClInclude Include="Public\Containers\ContainersFwd.h" />
+    <ClInclude Include="Public\Math\NumericalOperations.h" />
   </ItemGroup>
 </Project>
