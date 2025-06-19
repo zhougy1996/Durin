@@ -2,8 +2,6 @@
 
 #include "DynamicRHI.h"
 
-IDynamicRHI* GDynamicRHI = nullptr;
-
 TArray<const char*> GKleeRequiredVulkanInstanceExtensions;
 
 static auto CreateDynamicRHI() -> IDynamicRHI*

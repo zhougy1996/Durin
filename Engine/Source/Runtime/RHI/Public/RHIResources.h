@@ -16,14 +16,14 @@ public:
 
 struct RHI_API FRHIRenderTargetsInfo
 {
-	FRHITexture* ColorRenderTargets[MAX_SIMULTANEOUS_RENDER_TARGETS];
+	FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
 	int32 NumColorRenderTargets;
 	bool bClearColor;
 };
 
 struct RHI_API FRHIRenderPassInfo
 {
-	FRHITexture* ColorRenderTargets[MAX_SIMULTANEOUS_RENDER_TARGETS];
+	FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
 };
 
 class RHI_API FGraphicsPipelineStateInitializer{
@@ -32,5 +32,5 @@ class RHI_API FGraphicsPipelineStateInitializer{
 
 struct RHI_API FRHIVertexBuffer
 {
-	FRHITexture* ColorRenderTargets[MAX_SIMULTANEOUS_RENDER_TARGETS];
+	FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
 };

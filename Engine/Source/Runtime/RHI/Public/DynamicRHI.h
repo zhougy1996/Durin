@@ -2,13 +2,6 @@
 
 #include "RHIGlobals.h"
 
-
-class FRHIGraphicsPipelineState;
-class FGraphicsPipelineStateInitializer;
-class IRHICommandContext;
-class FRHIViewport;
-class FRHITexture;
-
 class RHI_API IDynamicRHI
 {
 public:
@@ -25,6 +18,7 @@ public:
 	virtual auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture> = 0;
 };
 
+extern RHI_API IDynamicRHI* GDynamicRHI;
 
 class RHI_API IDynamicRHIModule : public IModuleInterface
 {

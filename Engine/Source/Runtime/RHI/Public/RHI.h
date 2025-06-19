@@ -1,5 +1,6 @@
 #pragma once
 
-RHI_API auto RHIInit() -> void;
+// RHI interface header file
 
-RHI_API auto RHIExit() -> void;
+#include "RHIGlobals.h"
+#include "DynamicRHI.h"
