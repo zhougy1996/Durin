@@ -1,8 +1,8 @@
-#include "PCH.Engine.h"
 #include "EngineLoop/EngineLoop.h"
 
 auto FEngineLoop::PreInit() -> void
 {
+	LoggerInit();
 	DOGE_INFO("PreInit");
 }
 

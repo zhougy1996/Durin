@@ -132,6 +132,15 @@
     <ClInclude Include="Public\Definitions.RHI.h" />
     <ClInclude Include="Public\DynamicRHI.h" />
     <ClInclude Include="Private\PCH.RHI.h" />
+    <ClInclude Include="Public\RHI.h" />
+    <ClInclude Include="Public\RHICommandList.h" />
+    <ClInclude Include="Public\RHIConstants.h" />
+    <ClInclude Include="Public\RHIContext.h" />
+    <ClInclude Include="Public\RHIDefinitions.h" />
+    <ClInclude Include="Public\RHIFwd.h" />
+    <ClInclude Include="Public\RHIGlobals.h" />
+    <ClInclude Include="Public\RHIPipeline.h" />
+    <ClInclude Include="Public\RHIResources.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\DynamicRHI.cpp" />
@@ -139,6 +148,8 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="Private\RHICommandList.cpp" />
+    <ClCompile Include="Private\RHIGlobals.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Core\Core.vcxproj">

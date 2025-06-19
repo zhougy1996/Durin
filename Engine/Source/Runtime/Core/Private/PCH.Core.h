@@ -2,6 +2,9 @@
 
 #define MODULE_NAME "Core"
 
+#include "Definitions.Core.h"
+
 #include "CoreMinimal.h"
+
 #include "Windows.h"
 

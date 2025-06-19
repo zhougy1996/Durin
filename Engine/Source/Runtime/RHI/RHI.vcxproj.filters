@@ -24,12 +24,45 @@
     <ClInclude Include="Public\DynamicRHI.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="Public\RHIFwd.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Public\RHIGlobals.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Public\RHIResources.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Public\RHIConstants.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Public\RHIContext.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Public\RHIPipeline.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Public\RHIDefinitions.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Public\RHICommandList.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Public\RHI.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\DynamicRHI.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="Private\Misc\PCH.RHI.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Private\RHIGlobals.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Private\RHICommandList.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

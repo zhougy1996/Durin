@@ -12,6 +12,7 @@
     <StdReferenceDir>$(DogeIntermediateDir)\Core\$(Platform)\$(Configuration)\microsoft\STL</StdReferenceDir>
     <GLFWBinariesDir>$(DogeThirdPartyDir)\glfw\build\src</GLFWBinariesDir>
     <DogePCHDir>$(DogeIntermediateDir)\$(ProjectName)\$(Platform)\$(Configuration)\PCHs</DogePCHDir>
+    <DogePCHFileName>PCH.$(ProjectName).pch</DogePCHFileName>
   </PropertyGroup>
   <PropertyGroup>
     <TargetExt>.dll</TargetExt>
@@ -25,7 +26,7 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)Private\;$(ProjectDir)Public\;$(VulkanDir)\Include\;$(DogeThirdPartyDir)\spdlog\include\;$(DogeThirdPartyDir)\glfw\include\</AdditionalIncludeDirectories>
-      <PrecompiledHeaderOutputFile>$(DogePCHDir)\PCH.$(ProjectName).pch</PrecompiledHeaderOutputFile>
+      <PrecompiledHeaderOutputFile>$(DogePCHDir)\$(DogePCHFileName)</PrecompiledHeaderOutputFile>
       <PrecompiledHeaderFile>PCH.$(ProjectName).h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <EnableModules>true</EnableModules>
@@ -87,6 +88,9 @@
     </BuildMacro>
     <BuildMacro Include="DogePCHDir">
       <Value>$(DogePCHDir)</Value>
+    </BuildMacro>
+    <BuildMacro Include="DogePCHFileName">
+      <Value>$(DogePCHFileName)</Value>
     </BuildMacro>
   </ItemGroup>
 </Project>

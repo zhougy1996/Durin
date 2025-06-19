@@ -27,5 +27,6 @@
     <ClInclude Include="Public\Modules\ModuleManager.h" />
     <ClInclude Include="Public\Templates\SmartPointers.h" />
     <ClInclude Include="Public\Templates\StdAlias.h" />
+    <ClInclude Include="Public\Misc\PixelFormat.h" />
   </ItemGroup>
 </Project>

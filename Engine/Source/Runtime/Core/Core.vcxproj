@@ -156,6 +156,7 @@
     <ClInclude Include="Public\Math\Vector.h" />
     <ClInclude Include="Public\Misc\AssertionMacros.h" />
     <ClInclude Include="Public\Misc\EnumClassFlags.h" />
+    <ClInclude Include="Public\Misc\PixelFormat.h" />
     <ClInclude Include="Public\Modules\ModuleManager.h" />
     <ClInclude Include="Public\Templates\SmartPointers.h" />
     <ClInclude Include="Public\Templates\StdAlias.h" />

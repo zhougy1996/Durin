@@ -9,6 +9,8 @@
 
 #include "Math/DogeMath.h"
 #include "Logging/LogMacros.h"
+#include "Modules/ModuleManager.h"
 #include "Misc/AssertionMacros.h"
 #include "Misc/EnumClassFlags.h"
+#include "Misc/PixelFormat.h"
 #include "Templates/SmartPointers.h"
