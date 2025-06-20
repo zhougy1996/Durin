@@ -1,6 +1,6 @@
 #pragma once
 
-export class KLEE_API KWidget : public TSharedFromThis<KWidget>
+class KLEE_API KWidget : public TSharedFromThis<KWidget>
 {
 public:
 	KWidget() = default;

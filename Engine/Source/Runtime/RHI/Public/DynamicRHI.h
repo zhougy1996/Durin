@@ -1,6 +1,9 @@
 #pragma once
 
-#include "RHIGlobals.h"
+class FGraphicsPipelineStateInitializer;
+class FRHIGraphicsPipelineState;
+class IRHICommandContext;
+class FRHITexture;
 
 class RHI_API IDynamicRHI
 {

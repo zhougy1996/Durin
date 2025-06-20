@@ -146,10 +146,17 @@
     <ClInclude Include="Public\Definitions.Mona.h" />
     <ClInclude Include="Public\MonaGlobals.h" />
     <ClInclude Include="Public\Mona.h" />
+    <ClInclude Include="Public\Rendering\MonaRenderer.h" />
+    <ClInclude Include="Public\Rendering\MonaRHIRenderer.h" />
+    <ClInclude Include="Public\Rendering\RenderingCommon.h" />
+    <ClInclude Include="Public\Rendering\SceneViewport.h" />
     <ClInclude Include="Public\ThirdParty\ImGui\imconfig.h" />
     <ClInclude Include="Public\ThirdParty\ImGui\imgui.h" />
     <ClInclude Include="Public\ThirdParty\ImGui\ImGuiCommon.h" />
     <ClInclude Include="Public\ThirdParty\ImGui\imgui_internal.h" />
+    <ClInclude Include="Public\Viewport.h" />
+    <ClInclude Include="Public\ViewportClient.h" />
+    <ClInclude Include="Public\Widgets\KViewport.h" />
     <ClInclude Include="Public\Widgets\KWidget.h" />
     <ClInclude Include="Public\Widgets\KWindow.h" />
     <ClInclude Include="Public\Window\GenericWindow.h" />
@@ -165,17 +172,22 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="Private\Rendering\MonaRHIRenderer.cpp" />
+    <ClCompile Include="Private\Rendering\SceneViewport.cpp" />
     <ClCompile Include="Private\ThirdParty\ImGui\imgui.cpp" />
     <ClCompile Include="Private\ThirdParty\ImGui\imgui_demo.cpp" />
     <ClCompile Include="Private\ThirdParty\ImGui\imgui_draw.cpp" />
     <ClCompile Include="Private\ThirdParty\ImGui\imgui_tables.cpp" />
     <ClCompile Include="Private\ThirdParty\ImGui\imgui_widgets.cpp" />
+    <ClCompile Include="Private\Viewport.cpp" />
+    <ClCompile Include="Private\ViewportClient.cpp" />
     <ClCompile Include="Private\Widgets\KWidget.cpp" />
     <ClCompile Include="Private\Widgets\KWindow.cpp" />
     <ClCompile Include="Private\Window\GenericWindow.cpp" />
     <ClCompile Include="Private\Window\GlfwWindow.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\..\..\..\DogeEngine\Engine\Source\ThirdParty\glfw\build\src\glfw.vcxproj" />
     <ProjectReference Include="..\Core\Core.vcxproj">
       <Project>{2d1b9781-71ed-4d4b-9dc2-ab9e9379f104}</Project>
     </ProjectReference>

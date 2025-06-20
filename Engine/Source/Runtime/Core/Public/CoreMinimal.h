@@ -2,6 +2,8 @@
 
 #include "Definitions.Core.h"
 
+#include <algorithm>
+
 // Forward declarations
 #include "CoreFwd.h"
 

@@ -12,7 +12,7 @@ template<typename T>
 using TSharedPtr = std::shared_ptr<T>;
 
 template<typename T>
-class CORE_API TSharedFromThis : public std::enable_shared_from_this<T>
+class TSharedFromThis : public std::enable_shared_from_this<T>
 {
 public:
 	FORCEINLINE auto AsShared() -> std::shared_ptr<T>

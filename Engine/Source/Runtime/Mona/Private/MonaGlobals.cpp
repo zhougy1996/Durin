@@ -1,6 +1,7 @@
 #include "MonaGlobals.h"
 
 #include "RHI.h"
+#include "Application/MonaApplication.h"
 
 ImGuiContext* GImGuiContext = nullptr;
 

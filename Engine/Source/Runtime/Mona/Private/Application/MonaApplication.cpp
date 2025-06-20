@@ -1,6 +1,12 @@
 #include "Application/MonaApplication.h"
 
+#include "CoreGlobals.h"
+#include "RHIResources.h"
+
 #include "Application/MonaWindowHelper.h"
+#include "Rendering/MonaRHIRenderer.h"
+#include "Widgets/KWindow.h"
+#include "Window/GlfwWindow.h"
 
 TSharedPtr<FKleeApplication> FKleeApplication::CurrentApplication_ = nullptr;
 

@@ -7,7 +7,7 @@ class KWidget;
 class KWindow;
 class FKleeRenderer;
 
-export class KLEE_API FKleeApplication : public FGenericApplication
+class KLEE_API FKleeApplication : public FGenericApplication
 {
 public:
 	virtual ~FKleeApplication();

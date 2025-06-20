@@ -29,6 +29,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RenderCore", "Engine\Source
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Mona", "Engine\Source\Runtime\Mona\Mona.vcxproj", "{403EABFB-E400-4AE1-B50C-1F7D83FC9B78}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MonaCore", "Engine\Source\Runtime\MonaCore\MonaCore.vcxproj", "{CADBA216-D7C5-43FA-9ABB-970F9316607B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -113,6 +115,14 @@ Global
 		{403EABFB-E400-4AE1-B50C-1F7D83FC9B78}.Release|x64.Build.0 = Release|x64
 		{403EABFB-E400-4AE1-B50C-1F7D83FC9B78}.Release|x86.ActiveCfg = Release|Win32
 		{403EABFB-E400-4AE1-B50C-1F7D83FC9B78}.Release|x86.Build.0 = Release|Win32
+		{CADBA216-D7C5-43FA-9ABB-970F9316607B}.Debug|x64.ActiveCfg = Debug|x64
+		{CADBA216-D7C5-43FA-9ABB-970F9316607B}.Debug|x64.Build.0 = Debug|x64
+		{CADBA216-D7C5-43FA-9ABB-970F9316607B}.Debug|x86.ActiveCfg = Debug|Win32
+		{CADBA216-D7C5-43FA-9ABB-970F9316607B}.Debug|x86.Build.0 = Debug|Win32
+		{CADBA216-D7C5-43FA-9ABB-970F9316607B}.Release|x64.ActiveCfg = Release|x64
+		{CADBA216-D7C5-43FA-9ABB-970F9316607B}.Release|x64.Build.0 = Release|x64
+		{CADBA216-D7C5-43FA-9ABB-970F9316607B}.Release|x86.ActiveCfg = Release|Win32
+		{CADBA216-D7C5-43FA-9ABB-970F9316607B}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -128,6 +138,7 @@ Global
 		{E9FE3427-3530-466F-B67A-422F730254A0} = {A7FC97DE-B271-462E-A8C9-B4244F7BCA71}
 		{D3103848-7E94-4C6B-AAF2-E57247426F9B} = {A7FC97DE-B271-462E-A8C9-B4244F7BCA71}
 		{403EABFB-E400-4AE1-B50C-1F7D83FC9B78} = {A7FC97DE-B271-462E-A8C9-B4244F7BCA71}
+		{CADBA216-D7C5-43FA-9ABB-970F9316607B} = {A7FC97DE-B271-462E-A8C9-B4244F7BCA71}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {1A16C4DB-28C1-4B45-AA4C-B50FCF78A9A3}
