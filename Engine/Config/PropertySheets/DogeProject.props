@@ -48,7 +48,7 @@
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <PostBuildEvent>
-      <Command>if EXIST "$(TargetDir)$(DogeOutputName).dll" xcopy /Y "$(TargetDir)$(DogeOutputName).dll" "$(DogeBinariesDir)\Doge\$(Platform)\$(Configuration)\"</Command>
+      <Command>if EXIST "$(TargetDir)$(TargetName).dll" xcopy /Y "$(TargetDir)$(TargetName).dll" "$(DogeBinariesDir)\Doge\$(Platform)\$(Configuration)\"</Command>
     </PostBuildEvent>
     <CustomBuildStep>
       <Outputs>
@@ -57,7 +57,7 @@
       </Inputs>
     </CustomBuildStep>
     <Link>
-      <AdditionalLibraryDirectories>$(DogeThirdPartyDir)\;$(VulkanDir)\Lib;$(StdReferenceDir)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(DogeThirdPartyDir)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>

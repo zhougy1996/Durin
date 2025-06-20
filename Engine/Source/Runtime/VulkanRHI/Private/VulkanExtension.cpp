@@ -61,7 +61,7 @@ auto FVulkanInstanceExtension::GetDogeSupportedInstanceExtensions() -> FVulkanIn
 			OutDogeInstanceExtensions[ExtensionIndex]->SetSupported();
 			OutDogeInstanceExtensions[ExtensionIndex]->SetActivated();
 		}
-		DOGE_DEBUG("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
+		//DOGE_DEBUG("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
 	}
 
 	return OutDogeInstanceExtensions;
@@ -77,7 +77,7 @@ auto FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(FVulkanDevice* Dev
 	}
 
 	TArray<vk::ExtensionProperties> DriverSupportedDeviceExtensions/* = GetDriverSupportedDeviceExtensions(Device->GetGpu())*/;
-	DOGE_DEBUG("Found {} available device extensions:", DriverSupportedDeviceExtensions.size());
+	//DOGE_DEBUG("Found {} available device extensions:", DriverSupportedDeviceExtensions.size());
 
 	for (const vk::ExtensionProperties& Extension : DriverSupportedDeviceExtensions)
 	{
@@ -90,7 +90,7 @@ auto FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(FVulkanDevice* Dev
 			OutDeviceExtensions[ExtensionIndex]->SetSupported();
 			OutDeviceExtensions[ExtensionIndex]->SetActivated();
 		}
-		DOGE_DEBUG("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
+		//DOGE_DEBUG("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
 	}
 
 	return OutDeviceExtensions;
