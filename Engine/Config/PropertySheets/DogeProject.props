@@ -26,7 +26,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)Private\;$(ProjectDir)Public\;$(DogeThirdPartyDir)\glm\;$(DogeThirdPartyDir)\spdlog\include\;$(DogeThirdPartyDir)\glfw\include\</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)Private\;$(ProjectDir)Public\;$(DogeThirdPartyDir)\glm\;$(DogeThirdPartyDir)\spdlog\include\</AdditionalIncludeDirectories>
       <PrecompiledHeaderOutputFile>$(DogePCHDir)\PCH.$(ProjectName).pch</PrecompiledHeaderOutputFile>
       <PrecompiledHeaderFile>PCH.$(ProjectName).h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
