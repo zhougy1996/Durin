@@ -26,7 +26,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)Private\;$(ProjectDir)Public\;$(VulkanDir)\Include\;$(DogeThirdPartyDir)\spdlog\include\;$(DogeThirdPartyDir)\glfw\include\</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)Private\;$(ProjectDir)Public\;$(DogeThirdPartyDir)\glm\;$(DogeThirdPartyDir)\spdlog\include\;$(DogeThirdPartyDir)\glfw\include\</AdditionalIncludeDirectories>
       <PrecompiledHeaderOutputFile>$(DogePCHDir)\PCH.$(ProjectName).pch</PrecompiledHeaderOutputFile>
       <PrecompiledHeaderFile>PCH.$(ProjectName).h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -58,7 +58,7 @@
     </CustomBuildStep>
     <Link>
       <AdditionalLibraryDirectories>$(DogeThirdPartyDir)\;$(VulkanDir)\Lib;$(StdReferenceDir)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>std.ixx.obj;std.compat.ixx.obj;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
