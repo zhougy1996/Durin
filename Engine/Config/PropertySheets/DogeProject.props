@@ -12,7 +12,7 @@
     <StdReferenceDir>$(DogeIntermediateDir)\Core\$(Platform)\$(Configuration)\microsoft\STL</StdReferenceDir>
     <GLFWBinariesDir>$(DogeThirdPartyDir)\glfw\build\src</GLFWBinariesDir>
     <DogePCHDir>$(DogeIntermediateDir)\$(ProjectName)\$(Platform)\$(Configuration)\PCHs</DogePCHDir>
-    <DogePCHFileName>PCH.$(ProjectName).pch</DogePCHFileName>
+    <DogeOutputName>Doge-$(ProjectName)</DogeOutputName>
   </PropertyGroup>
   <PropertyGroup>
     <TargetExt>.dll</TargetExt>
@@ -22,11 +22,12 @@
     <IntDir>$(DogeIntermediateDir)\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
     <PublicIncludeDirectories>Public\</PublicIncludeDirectories>
     <PublicModuleDirectories>MPublic\</PublicModuleDirectories>
+    <TargetName>$(DogeOutputName)</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)Private\;$(ProjectDir)Public\;$(VulkanDir)\Include\;$(DogeThirdPartyDir)\spdlog\include\;$(DogeThirdPartyDir)\glfw\include\</AdditionalIncludeDirectories>
-      <PrecompiledHeaderOutputFile>$(DogePCHDir)\$(DogePCHFileName)</PrecompiledHeaderOutputFile>
+      <PrecompiledHeaderOutputFile>$(DogePCHDir)\PCH.$(ProjectName).pch</PrecompiledHeaderOutputFile>
       <PrecompiledHeaderFile>PCH.$(ProjectName).h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <EnableModules>true</EnableModules>
@@ -47,7 +48,7 @@
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <PostBuildEvent>
-      <Command>if EXIST "$(TargetDir)$(ProjectName).dll" xcopy /Y "$(TargetDir)$(ProjectName).dll" "$(DogeBinariesDir)\Doge\$(Platform)\$(Configuration)\"</Command>
+      <Command>if EXIST "$(TargetDir)$(DogeOutputName).dll" xcopy /Y "$(TargetDir)$(DogeOutputName).dll" "$(DogeBinariesDir)\Doge\$(Platform)\$(Configuration)\"</Command>
     </PostBuildEvent>
     <CustomBuildStep>
       <Outputs>
@@ -89,8 +90,8 @@
     <BuildMacro Include="DogePCHDir">
       <Value>$(DogePCHDir)</Value>
     </BuildMacro>
-    <BuildMacro Include="DogePCHFileName">
-      <Value>$(DogePCHFileName)</Value>
+    <BuildMacro Include="DogeOutputName">
+      <Value>$(DogeOutputName)</Value>
     </BuildMacro>
   </ItemGroup>
 </Project>
