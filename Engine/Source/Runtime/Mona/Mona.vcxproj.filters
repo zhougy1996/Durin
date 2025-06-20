@@ -9,6 +9,18 @@
     <ClInclude Include="Public\ThirdParty\ImGui\imconfig.h" />
     <ClInclude Include="Public\ThirdParty\ImGui\imgui.h" />
     <ClInclude Include="Public\ThirdParty\ImGui\imgui_internal.h" />
+    <ClInclude Include="Public\Mona.h" />
+    <ClInclude Include="Public\ThirdParty\ImGui\ImGuiCommon.h" />
+    <ClInclude Include="Public\MonaGlobals.h" />
+    <ClInclude Include="Private\ThirdParty\Glfw\GlfwCommon.h" />
+    <ClInclude Include="Public\Application\GenericApplication.h" />
+    <ClInclude Include="Public\Application\MonaApplication.h" />
+    <ClInclude Include="Private\Application\MonaWindowHelper.h" />
+    <ClInclude Include="Public\Widgets\KWidget.h" />
+    <ClInclude Include="Public\Widgets\KWindow.h" />
+    <ClInclude Include="Public\Window\GenericWindow.h" />
+    <ClInclude Include="Public\Window\GenericWindowDefinition.h" />
+    <ClInclude Include="Public\Window\GlfwWindow.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.Mona.cpp" />
@@ -17,5 +29,13 @@
     <ClCompile Include="Private\ThirdParty\ImGui\imgui_draw.cpp" />
     <ClCompile Include="Private\ThirdParty\ImGui\imgui_tables.cpp" />
     <ClCompile Include="Private\ThirdParty\ImGui\imgui_widgets.cpp" />
+    <ClCompile Include="Private\MonaGlobals.cpp" />
+    <ClCompile Include="Private\Application\GenericApplication.cpp" />
+    <ClCompile Include="Private\Application\MonaApplication.cpp" />
+    <ClCompile Include="Private\Application\MonaWindowHelper.cpp" />
+    <ClCompile Include="Private\Widgets\KWindow.cpp" />
+    <ClCompile Include="Private\Widgets\KWidget.cpp" />
+    <ClCompile Include="Private\Window\GlfwWindow.cpp" />
+    <ClCompile Include="Private\Window\GenericWindow.cpp" />
   </ItemGroup>
 </Project>
