@@ -3,11 +3,42 @@
   <ItemGroup>
     <ClCompile Include="Private\PCH.VulkanRHI.cpp" />
     <ClCompile Include="Private\VulkanExtension.cpp" />
+    <ClCompile Include="Private\VulkanDevice.cpp" />
+    <ClCompile Include="Private\VulkanCommandBuffer.cpp" />
+    <ClCompile Include="Private\VulkanContext.cpp" />
+    <ClCompile Include="Private\VulkanFramebuffer.cpp" />
+    <ClCompile Include="Private\VulkanGenericPlatform.cpp" />
+    <ClCompile Include="Private\VulkanMemory.cpp" />
+    <ClCompile Include="Private\VulkanPipeline.cpp" />
+    <ClCompile Include="Private\VulkanShader.cpp" />
+    <ClCompile Include="Private\VulkanQueue.cpp" />
+    <ClCompile Include="Private\VulkanRenderPass.cpp" />
+    <ClCompile Include="Private\VulkanTexture.cpp" />
+    <ClCompile Include="Private\VulkanView.cpp" />
+    <ClCompile Include="Private\VulkanViewport.cpp" />
+    <ClCompile Include="Private\VulkanSwapChain.cpp" />
+    <ClCompile Include="Private\VulkanDynamicRHI.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Private\PCH.VulkanRHI.h" />
     <ClInclude Include="Public\Definitions.VulkanRHI.h" />
     <ClInclude Include="Public\VulkanDynamicRHI.h" />
     <ClInclude Include="Private\VulkanExtensions.h" />
+    <ClInclude Include="Private\VulkanDevice.h" />
+    <ClInclude Include="Private\VulkanCommandBuffer.h" />
+    <ClInclude Include="Private\VulkanCommon.h" />
+    <ClInclude Include="Private\VulkanContext.h" />
+    <ClInclude Include="Private\VulkanFramebuffer.h" />
+    <ClInclude Include="Private\VulkanGenericPlatform.h" />
+    <ClInclude Include="Private\VulkanMemory.h" />
+    <ClInclude Include="Private\VulkanPipeline.h" />
+    <ClInclude Include="Private\VulkanShader.h" />
+    <ClInclude Include="Private\VulkanQueue.h" />
+    <ClInclude Include="Private\VulkanRenderPass.h" />
+    <ClInclude Include="Private\VulkanTexture.h" />
+    <ClInclude Include="Private\VulkanView.h" />
+    <ClInclude Include="Private\VulkanViewport.h" />
+    <ClInclude Include="Private\VulkanSwapChain.h" />
+    <ClInclude Include="Private\VulkanRenderTargetLayout.h" />
   </ItemGroup>
 </Project>

@@ -150,6 +150,7 @@
     </ClCompile>
     <ClCompile Include="Private\RHICommandList.cpp" />
     <ClCompile Include="Private\RHIGlobals.cpp" />
+    <ClCompile Include="Private\RHIResources.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Core\Core.vcxproj">

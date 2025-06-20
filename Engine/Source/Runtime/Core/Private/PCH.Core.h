@@ -6,5 +6,8 @@
 
 #include "CoreMinimal.h"
 
-#include "Windows.h"
+#ifdef _WIN32
+	#include "Windows.h"
+#endif
+
 

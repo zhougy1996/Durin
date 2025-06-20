@@ -28,7 +28,7 @@ protected:
 	bool bActivated_ = false;
 };
 
-auto FVulkanExtensionBase::InUse() const -> bool
+inline auto FVulkanExtensionBase::InUse() const -> bool
 {
 	return bSupported_ && bActivated_;
 }

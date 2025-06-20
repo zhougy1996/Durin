@@ -2,6 +2,8 @@
 
 #include "RHI.h"
 
+#include "VulkanExtensions.h"
+
 class FVulkanDevice;
 class FVulkanViewport;
 class FVulkanCommandListContext;
@@ -56,7 +58,7 @@ private:
 	FVulkanDevice* Device_ = nullptr;
 };
 
-FVulkanDynamicRHI* GVulkanRHI = nullptr;
+extern FVulkanDynamicRHI* GVulkanRHI;
 
 class VULKAN_RHI_API FVulkanDynamicRHIModule : public IDynamicRHIModule
 {
