@@ -1,12 +1,12 @@
 #pragma once
 
-class KWindow;
+class MWindow;
 class FGenericWindow;
 
-class FKleeWindowHelper
+class FMonaWindowHelper
 {
 public:
-	static auto FindWindowByPlatformWindow(const TArray<TSharedPtr<KWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<KWindow>;
+	static auto FindWindowByPlatformWindow(const TArray<TSharedPtr<MWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<MWindow>;
 
-	static auto ArrangeWindowToFront(TArray<TSharedPtr<KWindow>>& Windows, TSharedPtr<KWindow> WindowToBringToFront) -> void;
+	static auto ArrangeWindowToFront(TArray<TSharedPtr<MWindow>>& Windows, TSharedPtr<MWindow> WindowToBringToFront) -> void;
 };

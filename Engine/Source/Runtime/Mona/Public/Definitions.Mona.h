@@ -6,7 +6,7 @@
 #include "Definitions.RHI.h"
 
 #ifdef MONA_EXPORTS
-	#define KLEE_API DLLEXPORT
+	#define MONA_API DLLEXPORT
 #else
-	#define KLEE_API DLLIMPORT
+	#define MONA_API DLLIMPORT
 #endif

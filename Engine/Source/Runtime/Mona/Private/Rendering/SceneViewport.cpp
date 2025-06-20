@@ -1,12 +1,12 @@
 #include "Rendering/SceneViewport.h"
 
 #include "Viewport.h"
-#include "Widgets/KWindow.h"
-#include "Widgets/KViewport.h"
+#include "Widgets/MWindow.h"
+#include "Widgets/MViewport.h"
 #include "Application/MonaApplication.h"
 
 
-FSceneViewport::FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<KViewport> ViewportWidget)
+FSceneViewport::FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<MViewport> ViewportWidget)
 	: FViewport(ViewportClient)
 	, ViewportWidget_(ViewportWidget)
 {
@@ -14,6 +14,6 @@ FSceneViewport::FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<KView
 
 auto FSceneViewport::UpdateRHIViewport() -> void
 {
-	TSharedPtr<KWidget> ViewportWidget = ViewportWidget_.lock();
-	TSharedPtr<KWindow> Window = FKleeApplication::Get().FindWidgetWindow(ViewportWidget);
+	TSharedPtr<MWidget> ViewportWidget = ViewportWidget_.lock();
+	TSharedPtr<MWindow> Window = FMonaApplication::Get().FindWidgetWindow(ViewportWidget);
 }

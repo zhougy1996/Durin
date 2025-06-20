@@ -1,6 +1,6 @@
 #pragma once
 
-struct KLEE_API FGenericWindowDefinition
+struct MONA_API FGenericWindowDefinition
 {
 	float XDesiredPositionOnScreen;
 	float YDesiredPositionOnScreen;

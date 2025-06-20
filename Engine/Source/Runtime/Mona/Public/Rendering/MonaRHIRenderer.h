@@ -3,12 +3,12 @@
 #include "Rendering/MonaRenderer.h"
 
 class FRHIViewport;
-class KWindow;
+class MWindow;
 
-class KLEE_API FKleeRHIRenderer : public FKleeRenderer
+class MONA_API FMonaRHIRenderer : public FMonaRenderer
 {
 public:
-	virtual auto GetRHIViewport(KWindow& Window) -> TSharedPtr<FRHIViewport>;
+	virtual auto GetRHIViewport(MWindow& Window) -> TSharedPtr<FRHIViewport>;
 
-	virtual auto CreateViewport(const TSharedPtr<KWindow>& Window) -> void;
+	virtual auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void;
 };

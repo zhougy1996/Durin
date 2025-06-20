@@ -1,42 +1,42 @@
-#include "Widgets/KWindow.h"
+#include "Widgets/MWindow.h"
 
 #include "Application/MonaApplication.h"
 
-KWindow::~KWindow()
+MWindow::~MWindow()
 {
 	NativeWindow_ = nullptr;
 }
 
-auto KWindow::DrawWidget() -> void
+auto MWindow::DrawWidget() -> void
 {
 }
 
-auto KWindow::PollEvents() const -> void
+auto MWindow::PollEvents() const -> void
 {
 	NativeWindow_->PollEvents();
 }
 
-auto KWindow::SetNativeWindow(TSharedPtr<FGenericWindow> InNativeWindow) -> void
+auto MWindow::SetNativeWindow(TSharedPtr<FGenericWindow> InNativeWindow) -> void
 {
 	NativeWindow_ = InNativeWindow;
 }
 
-auto KWindow::GetNativeWindow() const -> TSharedPtr<FGenericWindow>
+auto MWindow::GetNativeWindow() const -> TSharedPtr<FGenericWindow>
 {
 	return NativeWindow_;
 }
 
-auto KWindow::GetChildWindows() const -> const TArray<TSharedPtr<KWindow>>&
+auto MWindow::GetChildWindows() const -> const TArray<TSharedPtr<MWindow>>&
 {
 	return ChildWindows_;
 }
 
-auto KWindow::RequestDestroyWindow() -> void
+auto MWindow::RequestDestroyWindow() -> void
 {
-	FKleeApplication::Get().RequestDestroyWindow(SharedThis(this));
+	FMonaApplication::Get().RequestDestroyWindow(SharedThis(this));
 }
 
-auto KWindow::MoveWindowTo(const FVector2f& NewScreenPosition) -> void
+auto MWindow::MoveWindowTo(const FVector2f& NewScreenPosition) -> void
 {
 	if (NativeWindow_ != nullptr)
 	{
@@ -51,7 +51,7 @@ auto KWindow::MoveWindowTo(const FVector2f& NewScreenPosition) -> void
 	}
 }
 
-auto KWindow::ReshapeWindow(const FVector2f& NewScreenPosition, const FVector2f& NewSize) -> void
+auto MWindow::ReshapeWindow(const FVector2f& NewScreenPosition, const FVector2f& NewSize) -> void
 {
 	// TODO: return when window shape not changed
 	if (NativeWindow_ != nullptr)
@@ -71,7 +71,7 @@ auto KWindow::ReshapeWindow(const FVector2f& NewScreenPosition, const FVector2f&
 	}
 }
 
-auto KWindow::ResizeWindow(const FVector2f& NewSize) -> void
+auto MWindow::ResizeWindow(const FVector2f& NewSize) -> void
 {
 	if (NativeWindow_ == nullptr)
 	{
@@ -85,33 +85,33 @@ auto KWindow::ResizeWindow(const FVector2f& NewSize) -> void
 	NativeWindow_->ReshapeWindow(CurrentPositionTruncated.x, CurrentPositionTruncated.y, NewSizeTruncated.x, NewSizeTruncated.y);
 }
 
-auto KWindow::GetViewportSize() const -> FVector2f
+auto MWindow::GetViewportSize() const -> FVector2f
 {
 	// TODO: Independent viewport size
 	return Size_;
 }
 
-auto KWindow::SetCachedScreenPosition(const FVector2f& NewScreenPosition) -> void
+auto MWindow::SetCachedScreenPosition(const FVector2f& NewScreenPosition) -> void
 {
 	ScreenPosition_ = NewScreenPosition;
 }
 
-auto KWindow::SetCachedSize(const FVector2f& NewSize) -> void
+auto MWindow::SetCachedSize(const FVector2f& NewSize) -> void
 {
 	Size_ = NewSize;
 }
 
-auto KWindow::SetRHIViewport(TSharedPtr<FRHIViewport> RHIViewport) -> void
+auto MWindow::SetRHIViewport(TSharedPtr<FRHIViewport> RHIViewport) -> void
 {
 	RHIViewport_ = std::move(RHIViewport);
 }
 
-auto KWindow::GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&
+auto MWindow::GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&
 {
 	return RHIViewport_;
 }
 
-auto KWindow::GetWindowMode() const -> EWindowMode
+auto MWindow::GetWindowMode() const -> EWindowMode
 {
 	return NativeWindow_->GetWindowMode();
 }

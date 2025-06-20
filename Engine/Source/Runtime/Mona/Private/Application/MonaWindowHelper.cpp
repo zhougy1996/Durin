@@ -1,8 +1,8 @@
 #include "MonaWindowHelper.h"
 
-#include "Widgets/KWindow.h"
+#include "Widgets/MWindow.h"
 
-auto FKleeWindowHelper::FindWindowByPlatformWindow(const TArray<TSharedPtr<KWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<KWindow>
+auto FMonaWindowHelper::FindWindowByPlatformWindow(const TArray<TSharedPtr<MWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<MWindow>
 {
 	for (const auto& window : WindowsToSearch)
 	{
@@ -11,7 +11,7 @@ auto FKleeWindowHelper::FindWindowByPlatformWindow(const TArray<TSharedPtr<KWind
 			return window;
 		}
 
-		TSharedPtr<KWindow> FoundChildWindow = FindWindowByPlatformWindow(window->GetChildWindows(), PlatformWindow);
+		TSharedPtr<MWindow> FoundChildWindow = FindWindowByPlatformWindow(window->GetChildWindows(), PlatformWindow);
 
 		if (FoundChildWindow)
 		{
@@ -22,7 +22,7 @@ auto FKleeWindowHelper::FindWindowByPlatformWindow(const TArray<TSharedPtr<KWind
 	return nullptr;
 }
 
-auto FKleeWindowHelper::ArrangeWindowToFront(TArray<TSharedPtr<KWindow>>& Windows, TSharedPtr<KWindow> WindowToBringToFront) -> void
+auto FMonaWindowHelper::ArrangeWindowToFront(TArray<TSharedPtr<MWindow>>& Windows, TSharedPtr<MWindow> WindowToBringToFront) -> void
 {
 	Windows.erase(std::remove(Windows.begin(), Windows.end(), WindowToBringToFront), Windows.end());
 	Windows.push_back(WindowToBringToFront);

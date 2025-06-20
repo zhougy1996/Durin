@@ -3,32 +3,32 @@
 #include "Application/GenericApplication.h"
 
 class FGenericWindow;
-class KWidget;
-class KWindow;
-class FKleeRenderer;
+class MWidget;
+class MWindow;
+class FMonaRenderer;
 
-class KLEE_API FKleeApplication : public FGenericApplication
+class MONA_API FMonaApplication : public FGenericApplication
 {
 public:
-	virtual ~FKleeApplication();
+	virtual ~FMonaApplication();
 
 	static auto Create() -> void;
 
 	static auto Shutdown() -> void;
 
-	static auto Get() -> FKleeApplication&;
+	static auto Get() -> FMonaApplication&;
 
 	virtual auto Tick() -> void override;
 
-	auto GetActiveTopLevelWindow() -> TSharedPtr<KWindow>;
+	auto GetActiveTopLevelWindow() -> TSharedPtr<MWindow>;
 
-	auto AddWindow(TSharedPtr<KWindow> InKleeWindow, const bool bShowImmediately) -> TSharedPtr<KWindow>;
+	auto AddWindow(TSharedPtr<MWindow> InMonaWindow, const bool bShowImmediately) -> TSharedPtr<MWindow>;
 
 	auto Initialize() -> void;
 
 	auto InitializeRenderer() -> void;
 
-	auto RequestDestroyWindow(TSharedPtr<KWindow> Window) -> void;
+	auto RequestDestroyWindow(TSharedPtr<MWindow> Window) -> void;
 
 	auto CloseAllWindowsImmediately() -> void;
 
@@ -40,12 +40,12 @@ public:
 
 	auto ProcessDeferredEvents() -> void override;
 
-	auto FindWidgetWindow(TSharedPtr<KWidget> Widget) -> TSharedPtr<KWindow>;
+	auto FindWidgetWindow(TSharedPtr<MWidget> Widget) -> TSharedPtr<MWindow>;
 
-	auto GetRenderer() const -> FKleeRenderer*;
+	auto GetRenderer() const -> FMonaRenderer*;
 
 protected:
-	auto MakeWindow(TSharedPtr<KWindow> KleeWindow, const bool bShowImmediately) -> TSharedPtr<FGenericWindow>;
+	auto MakeWindow(TSharedPtr<MWindow> MonaWindow, const bool bShowImmediately) -> TSharedPtr<FGenericWindow>;
 
 	auto TickPlatform() -> void;
 
@@ -53,11 +53,11 @@ protected:
 
 	auto TickAndDrawWidgets() -> void;
 
-	static TSharedPtr<FKleeApplication> CurrentApplication_;
+	static TSharedPtr<FMonaApplication> CurrentApplication_;
 
-	TArray<TSharedPtr<KWindow>> Windows_;
+	TArray<TSharedPtr<MWindow>> Windows_;
 
-	TArray<TSharedPtr<KWindow>> WindowDestroyQueue_;
+	TArray<TSharedPtr<MWindow>> WindowDestroyQueue_;
 
-	TSharedPtr<FKleeRenderer> Renderer_;
+	TSharedPtr<FMonaRenderer> Renderer_;
 };

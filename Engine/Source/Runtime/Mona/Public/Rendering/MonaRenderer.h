@@ -1,9 +1,9 @@
 #pragma once
 
-class KWindow;
+class MWindow;
 
-class KLEE_API FKleeRenderer
+class MONA_API FMonaRenderer
 {
 public:
-	virtual auto CreateViewport(const TSharedPtr<KWindow>& Window) -> void = 0;
+	virtual auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void = 0;
 };

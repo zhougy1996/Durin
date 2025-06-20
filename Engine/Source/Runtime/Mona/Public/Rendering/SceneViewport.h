@@ -4,15 +4,15 @@
 #include "Rendering/RenderingCommon.h"
 
 class FViewportClient;
-class KViewport;
+class MViewport;
 
-class KLEE_API FSceneViewport : public FViewport, public IKleeViewport
+class MONA_API FSceneViewport : public FViewport, public IMonaViewport
 {
 public:
-	FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<KViewport> ViewportWidget);
+	FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<MViewport> ViewportWidget);
 
 	virtual auto UpdateRHIViewport() -> void override;
 
 private:
-	TWeakPtr<KViewport> ViewportWidget_;
+	TWeakPtr<MViewport> ViewportWidget_;
 };

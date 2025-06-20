@@ -2,7 +2,7 @@
 
 #include "DynamicRHI.h"
 
-TArray<const char*> GKleeRequiredVulkanInstanceExtensions;
+TArray<const char*> GMonaRequiredVulkanInstanceExtensions;
 
 static auto CreateDynamicRHI() -> IDynamicRHI*
 {

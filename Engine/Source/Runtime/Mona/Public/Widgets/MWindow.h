@@ -1,15 +1,15 @@
 #pragma once
 
 #include "Window/GenericWindow.h"
-#include "Widgets/KWidget.h"
+#include "Widgets/MWidget.h"
 
 class FRHIViewport;
 class FGenericWindow;
 
-class KLEE_API KWindow : public KWidget
+class MONA_API MWindow : public MWidget
 {
 public:
-	virtual ~KWindow();
+	virtual ~MWindow();
 
 	virtual auto DrawWidget() -> void override;
 
@@ -19,7 +19,7 @@ public:
 
 	auto GetNativeWindow() const -> TSharedPtr<FGenericWindow>;
 
-	auto GetChildWindows() const -> const TArray<TSharedPtr<KWindow>>&;
+	auto GetChildWindows() const -> const TArray<TSharedPtr<MWindow>>&;
 
 	auto RequestDestroyWindow() -> void;
 
@@ -68,7 +68,7 @@ protected:
 
 	TSharedPtr<FGenericWindow> NativeWindow_;
 
-	TArray<TSharedPtr<KWindow>> ChildWindows_;
+	TArray<TSharedPtr<MWindow>> ChildWindows_;
 
 	TSharedPtr<FRHIViewport> RHIViewport_;
 };

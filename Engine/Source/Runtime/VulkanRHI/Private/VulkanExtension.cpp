@@ -48,7 +48,7 @@ auto FVulkanInstanceExtension::GetDogeSupportedInstanceExtensions() -> FVulkanIn
 	{
 		OutDogeInstanceExtensions.push_back(std::make_unique<FVulkanInstanceExtension>(ExtensionName));
 	}
-	AddRequiredExtentions(OutDogeInstanceExtensions, GKleeRequiredVulkanInstanceExtensions);
+	AddRequiredExtentions(OutDogeInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
 
 	TArray<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
 	DOGE_DEBUG("Found {} available instance extensions:", DriverSupportedInstanceExtensions.size());

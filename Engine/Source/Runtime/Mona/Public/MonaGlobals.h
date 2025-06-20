@@ -4,6 +4,6 @@ struct ImGuiContext;
 
 extern ImGuiContext* GImGuiContext;
 
-inline KLEE_API auto GlfwInit() -> void;
+inline MONA_API auto GlfwInit() -> void;
 
-inline KLEE_API auto KleeInit() -> void;
+inline MONA_API auto MonaInit() -> void;

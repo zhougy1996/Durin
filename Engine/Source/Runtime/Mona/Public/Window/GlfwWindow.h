@@ -2,7 +2,7 @@
 
 #include "Window/GenericWindow.h"
 
-class KLEE_API FGlfwWindow final : public FGenericWindow
+class MONA_API FGlfwWindow final : public FGenericWindow
 {
 public:
 	virtual ~FGlfwWindow();

@@ -4,14 +4,14 @@
 
 class FGenericApplication;
 
-enum class KLEE_API EWindowMode : uint32
+enum class MONA_API EWindowMode : uint32
 {
 	Fullscreen,			// Fullscreen with a window border
 	WindowedFullScreen, // Fullscreen without a window border
 	Windowed,			// Stretch the window to the size of the monitor
 };
 
-class KLEE_API FGenericWindow
+class MONA_API FGenericWindow
 {
 public:
 	FGenericWindow();

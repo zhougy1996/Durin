@@ -5,38 +5,38 @@
 
 #include "Application/MonaWindowHelper.h"
 #include "Rendering/MonaRHIRenderer.h"
-#include "Widgets/KWindow.h"
+#include "Widgets/MWindow.h"
 #include "Window/GlfwWindow.h"
 
-TSharedPtr<FKleeApplication> FKleeApplication::CurrentApplication_ = nullptr;
+TSharedPtr<FMonaApplication> FMonaApplication::CurrentApplication_ = nullptr;
 
-FKleeApplication::~FKleeApplication()
+FMonaApplication::~FMonaApplication()
 {
 }
 
-auto FKleeApplication::Create() -> void
+auto FMonaApplication::Create() -> void
 {
-	CurrentApplication_ = std::shared_ptr<FKleeApplication>(new FKleeApplication());
+	CurrentApplication_ = std::shared_ptr<FMonaApplication>(new FMonaApplication());
 }
 
-auto FKleeApplication::Shutdown() -> void
+auto FMonaApplication::Shutdown() -> void
 {
 	CurrentApplication_->CloseAllWindowsImmediately();
 }
 
-auto FKleeApplication::Get() -> FKleeApplication&
+auto FMonaApplication::Get() -> FMonaApplication&
 {
 	return *CurrentApplication_;
 }
 
-auto FKleeApplication::Tick() -> void
+auto FMonaApplication::Tick() -> void
 {
 	TickPlatform();
 	TickTime();
 	TickAndDrawWidgets();
 }
 
-auto FKleeApplication::GetActiveTopLevelWindow() -> TSharedPtr<KWindow>
+auto FMonaApplication::GetActiveTopLevelWindow() -> TSharedPtr<MWindow>
 {
 	// TODO: tmp, implement it later
 	if (Windows_.empty())
@@ -46,40 +46,40 @@ auto FKleeApplication::GetActiveTopLevelWindow() -> TSharedPtr<KWindow>
 	return Windows_[0];
 }
 
-auto FKleeApplication::AddWindow(TSharedPtr<KWindow> InKleeWindow, const bool bShowImmediately) -> TSharedPtr<KWindow>
+auto FMonaApplication::AddWindow(TSharedPtr<MWindow> InMonaWindow, const bool bShowImmediately) -> TSharedPtr<MWindow>
 {
-	FKleeWindowHelper::ArrangeWindowToFront(Windows_, InKleeWindow);
-	TSharedPtr<FGenericWindow> NewWindow = MakeWindow(InKleeWindow, bShowImmediately);
+	FMonaWindowHelper::ArrangeWindowToFront(Windows_, InMonaWindow);
+	TSharedPtr<FGenericWindow> NewWindow = MakeWindow(InMonaWindow, bShowImmediately);
 
-	return InKleeWindow;
+	return InMonaWindow;
 }
 
-auto FKleeApplication::Initialize() -> void
+auto FMonaApplication::Initialize() -> void
 {
 	InitializeRenderer();
 }
 
-auto FKleeApplication::InitializeRenderer() -> void
+auto FMonaApplication::InitializeRenderer() -> void
 {
-	Renderer_ = std::make_shared<FKleeRHIRenderer>();
+	Renderer_ = std::make_shared<FMonaRHIRenderer>();
 }
 
-auto FKleeApplication::RequestDestroyWindow(TSharedPtr<KWindow> Window) -> void
+auto FMonaApplication::RequestDestroyWindow(TSharedPtr<MWindow> Window) -> void
 {
 	WindowDestroyQueue_.push_back(Window);
 	DestroyWindowsImmediately();
 }
 
-auto FKleeApplication::CloseAllWindowsImmediately() -> void
+auto FMonaApplication::CloseAllWindowsImmediately() -> void
 {
 	std::for_each(Windows_.rbegin(), Windows_.rend(), [](auto& window) { window->RequestDestroyWindow(); });
 }
 
-auto FKleeApplication::DestroyWindowsImmediately() -> void
+auto FMonaApplication::DestroyWindowsImmediately() -> void
 {
 	while (!WindowDestroyQueue_.empty())
 	{
-		TSharedPtr<KWindow> Window = WindowDestroyQueue_.front();
+		TSharedPtr<MWindow> Window = WindowDestroyQueue_.front();
 		TSharedPtr<FRHIViewport> Viewport = Window->GetRHIViewport();
 		Viewport->WaitForLastFrameCompletion();
 		WindowDestroyQueue_.erase(WindowDestroyQueue_.begin());
@@ -93,16 +93,16 @@ auto FKleeApplication::DestroyWindowsImmediately() -> void
 	}
 }
 
-auto FKleeApplication::OnWindowClose(TSharedPtr<FGenericWindow> PlatformWindow) -> void
+auto FMonaApplication::OnWindowClose(TSharedPtr<FGenericWindow> PlatformWindow) -> void
 {
-	TSharedPtr<KWindow> Window = FKleeWindowHelper::FindWindowByPlatformWindow(Windows_, PlatformWindow);
+	TSharedPtr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows_, PlatformWindow);
 	if (Window)
 	{
 		Window->RequestDestroyWindow();
 	}
 }
 
-auto FKleeApplication::PollEvents()
+auto FMonaApplication::PollEvents()
 {
 	for (auto& EventWindow : Windows_)
 	{
@@ -110,7 +110,7 @@ auto FKleeApplication::PollEvents()
 	}
 }
 
-auto FKleeApplication::ProcessDeferredEvents() -> void
+auto FMonaApplication::ProcessDeferredEvents() -> void
 {
 	if (Windows_.size())
 	{
@@ -130,14 +130,14 @@ auto FKleeApplication::ProcessDeferredEvents() -> void
 	}
 }
 
-auto FKleeApplication::FindWidgetWindow(TSharedPtr<KWidget> Widget) -> TSharedPtr<KWindow>
+auto FMonaApplication::FindWidgetWindow(TSharedPtr<MWidget> Widget) -> TSharedPtr<MWindow>
 {
-	TSharedPtr<KWidget> Curr = Widget;
+	TSharedPtr<MWidget> Curr = Widget;
 	while (Curr)
 	{
 		if (Curr->IsWindow())
 		{
-			return std::dynamic_pointer_cast<KWindow>(Curr);
+			return std::dynamic_pointer_cast<MWindow>(Curr);
 		}
 		Curr = Curr->GetParent();
 	}
@@ -145,43 +145,43 @@ auto FKleeApplication::FindWidgetWindow(TSharedPtr<KWidget> Widget) -> TSharedPt
 	return nullptr;
 }
 
-auto FKleeApplication::GetRenderer() const -> FKleeRenderer*
+auto FMonaApplication::GetRenderer() const -> FMonaRenderer*
 {
 	return Renderer_.get();
 }
 
-auto FKleeApplication::MakeWindow(TSharedPtr<KWindow> KleeWindow, const bool bShowImmediately) -> TSharedPtr<FGenericWindow>
+auto FMonaApplication::MakeWindow(TSharedPtr<MWindow> MonaWindow, const bool bShowImmediately) -> TSharedPtr<FGenericWindow>
 {
 	TSharedPtr<FGenericWindow> NewWindow = FGlfwWindow::Make();
-	KleeWindow->SetNativeWindow(NewWindow);
+	MonaWindow->SetNativeWindow(NewWindow);
 
 	TSharedPtr<FGenericWindowDefinition> Definition = std::make_shared<FGenericWindowDefinition>();
 
-	Definition->Title = KleeWindow->GetTitle();
+	Definition->Title = MonaWindow->GetTitle();
 
-	const FVector2f DesiredScreenPosition = KleeWindow->GetDesiredScreenPosition();
+	const FVector2f DesiredScreenPosition = MonaWindow->GetDesiredScreenPosition();
 	Definition->XDesiredPositionOnScreen = DesiredScreenPosition.x;
 	Definition->YDesiredPositionOnScreen = DesiredScreenPosition.y;
-	const FVector2f DesiredSize = KleeWindow->GetDesiredSize();
+	const FVector2f DesiredSize = MonaWindow->GetDesiredSize();
 	Definition->WidthDesiredOnScreen = DesiredSize.x;
 	Definition->HeightDesiredOnScreen = DesiredSize.y;
 
 	NewWindow->Initialize(this, Definition);
-	KleeWindow->SetNativeWindow(NewWindow);
+	MonaWindow->SetNativeWindow(NewWindow);
 
 	return NewWindow;
 }
 
-auto FKleeApplication::TickPlatform() -> void
+auto FMonaApplication::TickPlatform() -> void
 {
 	PollEvents();
 	ProcessDeferredEvents();
 }
 
-auto FKleeApplication::TickTime() -> void
+auto FMonaApplication::TickTime() -> void
 {
 }
 
-auto FKleeApplication::TickAndDrawWidgets() -> void
+auto FMonaApplication::TickAndDrawWidgets() -> void
 {
 }

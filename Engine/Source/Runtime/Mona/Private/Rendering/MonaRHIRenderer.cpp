@@ -1,17 +1,17 @@
 #include "Rendering/MonaRHIRenderer.h"
 
 #include "DynamicRHI.h"
-#include "Widgets/KWindow.h"
+#include "Widgets/MWindow.h"
 #include "Window/GlfwWindow.h"
 
-auto FKleeRHIRenderer::GetRHIViewport(KWindow& Window) -> TSharedPtr<FRHIViewport>
+auto FMonaRHIRenderer::GetRHIViewport(MWindow& Window) -> TSharedPtr<FRHIViewport>
 {
 	return Window.GetRHIViewport();
 }
 
 constexpr int32 MIN_VIEWPORT_SIZE = 8;
 
-auto FKleeRHIRenderer::CreateViewport(const TSharedPtr<KWindow>& Window) -> void
+auto FMonaRHIRenderer::CreateViewport(const TSharedPtr<MWindow>& Window) -> void
 {
 	FVector2f ViewportSize = Window->GetViewportSize();
 

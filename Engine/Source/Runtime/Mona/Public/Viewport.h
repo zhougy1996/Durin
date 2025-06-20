@@ -3,7 +3,7 @@
 class FViewportClient;
 class FRHIViewport;
 
-class KLEE_API FViewport
+class MONA_API FViewport
 {
 public:
 	FViewport(FViewportClient* ViewportClient);

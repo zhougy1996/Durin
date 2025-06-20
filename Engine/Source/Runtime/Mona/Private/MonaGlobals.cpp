@@ -19,12 +19,12 @@ auto GlfwInit() -> void
 	uint32_t GlfwExtensionCount = 0;
 	const char** GlfwExtensions;
 	GlfwExtensions = glfwGetRequiredInstanceExtensions(&GlfwExtensionCount);
-	GKleeRequiredVulkanInstanceExtensions.insert(GKleeRequiredVulkanInstanceExtensions.end(), GlfwExtensions, GlfwExtensions + GlfwExtensionCount);
+	GMonaRequiredVulkanInstanceExtensions.insert(GMonaRequiredVulkanInstanceExtensions.end(), GlfwExtensions, GlfwExtensions + GlfwExtensionCount);
 }
 
-auto KleeInit() -> void
+auto MonaInit() -> void
 {
 	ImGuiInit();
-	FKleeApplication::Create();
-	FKleeApplication::Get().Initialize();
+	FMonaApplication::Create();
+	FMonaApplication::Get().Initialize();
 }

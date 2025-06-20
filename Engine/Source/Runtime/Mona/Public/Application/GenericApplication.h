@@ -1,6 +1,6 @@
 #pragma once
 
-class KLEE_API FGenericApplication
+class MONA_API FGenericApplication
 {
 public:
 	virtual ~FGenericApplication() = default;
