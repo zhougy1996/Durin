@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClInclude Include="Public\Definitions.ApplicationCore.h" />
+    <ClInclude Include="Private\PCH.ApplicationCore.h" />
+    <ClInclude Include="Public\Window\GenericWindow.h" />
+    <ClInclude Include="Public\Window\GenericWindowDefinition.h" />
+    <ClInclude Include="Public\Window\GlfwWindow.h" />
+    <ClInclude Include="Public\ThirdParty\Glfw\GlfwCommon.h" />
+    <ClInclude Include="Public\Application\GenericApplication.h" />
+    <ClInclude Include="Public\ApplicationCore.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Private\PCH.ApplicationCore.cpp" />
+    <ClCompile Include="Private\Window\GenericWindow.cpp" />
+    <ClCompile Include="Private\Window\GlfwWindow.cpp" />
+    <ClCompile Include="Private\Application\GenericApplication.cpp" />
+  </ItemGroup>
+</Project>

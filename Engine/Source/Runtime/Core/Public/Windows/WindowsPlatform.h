@@ -11,3 +11,4 @@
 #define PLATFORM_BREAK() (/*__nop(), */__debugbreak())
 
 #define NOMINMAX
+#include "windows.h"

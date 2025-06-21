@@ -1,6 +1,5 @@
-#include "Rendering/SceneViewport.h"
+#include "Mona/SceneViewport.h"
 
-#include "Viewport.h"
 #include "Widgets/MWindow.h"
 #include "Widgets/MViewport.h"
 #include "Application/MonaApplication.h"

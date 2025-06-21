@@ -1,6 +1,6 @@
 #include "VulkanExtensions.h"
 
-#include "RHIGlobals.h"
+#include "CoreGlobals.h"
 
 #include "VulkanDevice.h"
 

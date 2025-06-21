@@ -1,12 +1,12 @@
 #pragma once
-#include "Viewport.h"
 
+#include "Client/Viewport.h"
 #include "Rendering/RenderingCommon.h"
 
 class FViewportClient;
 class MViewport;
 
-class MONA_API FSceneViewport : public FViewport, public IMonaViewport
+class ENGINE_API FSceneViewport : public FViewport, public IMonaViewport
 {
 public:
 	FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<MViewport> ViewportWidget);

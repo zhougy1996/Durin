@@ -21,8 +21,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{403eabfb-e400-4ae1-b50c-1f7d83fc9b78}</ProjectGuid>
-    <RootNamespace>Mona</RootNamespace>
+    <ProjectGuid>{ce082bc8-3653-4791-818c-110fccfc4338}</ProjectGuid>
+    <RootNamespace>ApplicationCore</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -97,8 +97,6 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
@@ -106,10 +104,10 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>MONA_EXPORTS;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>APPLICATION_CORE_EXPORTS;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>Public\ThirdParty\ImGui;$(DogeThirdPartyDir)\glfw\include\;$(VulkanDir)\Include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
+      <AdditionalIncludeDirectories>$(DogeThirdPartyDir)\glfw\include\;$(VulkanDir)\Include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -122,57 +120,41 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>MONA_EXPORTS;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>APPLICATION_CORE_EXPORTS;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>Public\ThirdParty\ImGui;$(DogeThirdPartyDir)\glfw\include\;$(VulkanDir)\Include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
+      <AdditionalIncludeDirectories>$(DogeThirdPartyDir)\glfw\include\;$(VulkanDir)\Include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Private\PCH.Mona.h" />
-    <ClInclude Include="Private\ThirdParty\ImGui\imstb_rectpack.h" />
-    <ClInclude Include="Private\ThirdParty\ImGui\imstb_textedit.h" />
-    <ClInclude Include="Private\ThirdParty\ImGui\imstb_truetype.h" />
-    <ClInclude Include="Public\Definitions.Mona.h" />
-    <ClInclude Include="Public\Mona.h" />
-    <ClInclude Include="Public\MonaGlobals.h" />
-    <ClInclude Include="Public\ThirdParty\ImGui\imconfig.h" />
-    <ClInclude Include="Public\ThirdParty\ImGui\imgui.h" />
-    <ClInclude Include="Public\ThirdParty\ImGui\ImGuiCommon.h" />
-    <ClInclude Include="Public\ThirdParty\ImGui\imgui_internal.h" />
-    <ClInclude Include="Public\Widgets\MViewport.h" />
+    <ClInclude Include="Private\PCH.ApplicationCore.h" />
+    <ClInclude Include="Public\ApplicationCore.h" />
+    <ClInclude Include="Public\Application\GenericApplication.h" />
+    <ClInclude Include="Public\Definitions.ApplicationCore.h" />
+    <ClInclude Include="Public\ThirdParty\Glfw\GlfwCommon.h" />
+    <ClInclude Include="Public\Window\GenericWindow.h" />
+    <ClInclude Include="Public\Window\GenericWindowDefinition.h" />
+    <ClInclude Include="Public\Window\GlfwWindow.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Private\Misc\MonaGlobals.cpp" />
-    <ClCompile Include="Private\Misc\PCH.Mona.cpp">
+    <ClCompile Include="Private\Application\GenericApplication.cpp" />
+    <ClCompile Include="Private\PCH.ApplicationCore.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="Private\ThirdParty\ImGui\imgui.cpp" />
-    <ClCompile Include="Private\ThirdParty\ImGui\imgui_demo.cpp" />
-    <ClCompile Include="Private\ThirdParty\ImGui\imgui_draw.cpp" />
-    <ClCompile Include="Private\ThirdParty\ImGui\imgui_tables.cpp" />
-    <ClCompile Include="Private\ThirdParty\ImGui\imgui_widgets.cpp" />
+    <ClCompile Include="Private\Window\GenericWindow.cpp" />
+    <ClCompile Include="Private\Window\GlfwWindow.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\..\..\DogeEngine\Engine\Source\ThirdParty\glfw\build\src\glfw.vcxproj" />
-    <ProjectReference Include="..\ApplicationCore\ApplicationCore.vcxproj">
-      <Project>{ce082bc8-3653-4791-818c-110fccfc4338}</Project>
+    <ProjectReference Include="..\..\..\..\..\DogeEngine\Engine\Source\ThirdParty\glfw\build\src\glfw.vcxproj">
+      <Project>{665eb1b4-edc2-3d36-81b0-f6b1f447e529}</Project>
     </ProjectReference>
     <ProjectReference Include="..\Core\Core.vcxproj">
       <Project>{2d1b9781-71ed-4d4b-9dc2-ab9e9379f104}</Project>
-    </ProjectReference>
-    <ProjectReference Include="..\MonaCore\MonaCore.vcxproj">
-      <Project>{cadba216-d7c5-43fa-9abb-970f9316607b}</Project>
-    </ProjectReference>
-    <ProjectReference Include="..\RHI\RHI.vcxproj">
-      <Project>{6e1f4f67-c330-4ccf-806f-3dd58f4cae42}</Project>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

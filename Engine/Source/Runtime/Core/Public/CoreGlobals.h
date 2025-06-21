@@ -13,3 +13,5 @@ FORCEINLINE auto IsEngineExitRequested() -> bool
 {
 	return GIsRequestingExit;
 }
+
+extern CORE_API TArray<const char*> GMonaRequiredVulkanInstanceExtensions;

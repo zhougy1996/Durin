@@ -2,7 +2,9 @@
 
 #include "Window/GenericWindow.h"
 
-class MONA_API FGlfwWindow final : public FGenericWindow
+struct GLFWwindow;
+
+class APPLICATION_CORE_API FGlfwWindow final : public FGenericWindow
 {
 public:
 	virtual ~FGlfwWindow();

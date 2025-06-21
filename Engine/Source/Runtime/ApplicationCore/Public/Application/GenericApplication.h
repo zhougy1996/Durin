@@ -1,6 +1,6 @@
 #pragma once
 
-class MONA_API FGenericApplication
+class APPLICATION_CORE_API FGenericApplication
 {
 public:
 	virtual ~FGenericApplication() = default;

@@ -1,6 +1,6 @@
 #pragma once
 
-class MONA_API MWidget : public TSharedFromThis<MWidget>
+class MONA_CORE_API MWidget : public TSharedFromThis<MWidget>
 {
 public:
 	MWidget() = default;

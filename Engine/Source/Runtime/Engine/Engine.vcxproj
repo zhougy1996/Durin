@@ -131,21 +131,38 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="Public\Client\RenderTarget.h" />
+    <ClInclude Include="Public\Client\Viewport.h" />
+    <ClInclude Include="Public\Client\ViewportClient.h" />
     <ClInclude Include="Public\Definitions.Engine.h" />
     <ClInclude Include="Public\EngineLoop\EngineLoop.h" />
     <ClInclude Include="Private\PCH.Engine.h" />
+    <ClInclude Include="Public\Mona\SceneViewport.h" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\ApplicationCore\ApplicationCore.vcxproj">
+      <Project>{ce082bc8-3653-4791-818c-110fccfc4338}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\Core\Core.vcxproj">
       <Project>{2d1b9781-71ed-4d4b-9dc2-ab9e9379f104}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\MonaCore\MonaCore.vcxproj">
+      <Project>{cadba216-d7c5-43fa-9abb-970f9316607b}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\Mona\Mona.vcxproj">
+      <Project>{403eabfb-e400-4ae1-b50c-1f7d83fc9b78}</Project>
     </ProjectReference>
     <ProjectReference Include="..\RHI\RHI.vcxproj">
       <Project>{6e1f4f67-c330-4ccf-806f-3dd58f4cae42}</Project>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Private\Client\RenderTarget.cpp" />
+    <ClCompile Include="Private\Client\Viewport.cpp" />
+    <ClCompile Include="Private\Client\ViewportClient.cpp" />
     <ClCompile Include="Private\EngineLoop\EngineLoop.cpp" />
     <ClCompile Include="Private\Launch\Launch.cpp" />
+    <ClCompile Include="Private\Mona\SceneViewport.cpp" />
     <ClCompile Include="Private\PCH.Engine.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>

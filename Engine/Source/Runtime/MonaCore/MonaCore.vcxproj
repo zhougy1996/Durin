@@ -129,18 +129,36 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="Private\Application\MonaWindowHelper.h" />
     <ClInclude Include="Private\PCH.MonaCore.h" />
+    <ClInclude Include="Public\Application\MonaApplication.h" />
     <ClInclude Include="Public\Definitions.MonaCore.h" />
+    <ClInclude Include="Public\Rendering\MonaRenderer.h" />
+    <ClInclude Include="Public\Rendering\MonaRHIRenderer.h" />
+    <ClInclude Include="Public\Rendering\RenderingCommon.h" />
+    <ClInclude Include="Public\Widgets\MWidget.h" />
+    <ClInclude Include="Public\Widgets\MWindow.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Private\Application\MonaApplication.cpp" />
+    <ClCompile Include="Private\Application\MonaWindowHelper.cpp" />
     <ClCompile Include="Private\PCH.MonaCore.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="Private\Rendering\MonaRHIRenderer.cpp" />
+    <ClCompile Include="Private\Widgets\MWidget.cpp" />
+    <ClCompile Include="Private\Widgets\MWindow.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\ApplicationCore\ApplicationCore.vcxproj">
+      <Project>{ce082bc8-3653-4791-818c-110fccfc4338}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\Core\Core.vcxproj">
       <Project>{2d1b9781-71ed-4d4b-9dc2-ab9e9379f104}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\RHI\RHI.vcxproj">
+      <Project>{6e1f4f67-c330-4ccf-806f-3dd58f4cae42}</Project>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

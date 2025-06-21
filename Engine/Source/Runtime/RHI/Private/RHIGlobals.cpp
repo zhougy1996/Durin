@@ -2,8 +2,6 @@
 
 #include "DynamicRHI.h"
 
-TArray<const char*> GMonaRequiredVulkanInstanceExtensions;
-
 static auto CreateDynamicRHI() -> IDynamicRHI*
 {
 	IDynamicRHIModule* DynamicRHIModule = FModuleManager::LoadModule<IDynamicRHIModule>("VulkanRHI");

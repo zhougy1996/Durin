@@ -4,6 +4,4 @@ struct ImGuiContext;
 
 extern ImGuiContext* GImGuiContext;
 
-inline MONA_API auto GlfwInit() -> void;
-
 inline MONA_API auto MonaInit() -> void;

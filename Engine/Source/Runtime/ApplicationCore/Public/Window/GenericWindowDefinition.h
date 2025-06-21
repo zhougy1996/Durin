@@ -1,6 +1,6 @@
 #pragma once
 
-struct MONA_API FGenericWindowDefinition
+struct APPLICATION_CORE_API FGenericWindowDefinition
 {
 	float XDesiredPositionOnScreen;
 	float YDesiredPositionOnScreen;

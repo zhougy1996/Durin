@@ -3,6 +3,9 @@
 #include "HAL/Platform.h"
 
 #include "Definitions.Core.h"
+#include "Definitions.RHI.h"
+#include "Definitions.MonaCore.h"
+#include "Definitions.ApplicationCore.h"
 
 #ifdef MONA_CORE_EXPORTS
 	#define MONA_CORE_API DLLEXPORT

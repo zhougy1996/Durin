@@ -4,10 +4,18 @@
     <ClInclude Include="Public\Definitions.Engine.h" />
     <ClInclude Include="Private\PCH.Engine.h" />
     <ClInclude Include="Public\EngineLoop\EngineLoop.h" />
+    <ClInclude Include="Public\Client\RenderTarget.h" />
+    <ClInclude Include="Public\Mona\SceneViewport.h" />
+    <ClInclude Include="Public\Client\Viewport.h" />
+    <ClInclude Include="Public\Client\ViewportClient.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\EngineLoop\EngineLoop.cpp" />
     <ClCompile Include="Private\PCH.Engine.cpp" />
     <ClCompile Include="Private\Launch\Launch.cpp" />
+    <ClCompile Include="Private\Client\RenderTarget.cpp" />
+    <ClCompile Include="Private\Client\Viewport.cpp" />
+    <ClCompile Include="Private\Client\ViewportClient.cpp" />
+    <ClCompile Include="Private\Mona\SceneViewport.cpp" />
   </ItemGroup>
 </Project>
