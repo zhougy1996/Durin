@@ -8,6 +8,7 @@
     <ClInclude Include="Public\Mona\SceneViewport.h" />
     <ClInclude Include="Public\Client\Viewport.h" />
     <ClInclude Include="Public\Client\ViewportClient.h" />
+    <ClInclude Include="Private\PrivateDefinitions.Engine.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\EngineLoop\EngineLoop.cpp" />
