@@ -73,6 +73,11 @@ auto FModuleManager::GetModule(const FName& InModuleName) -> IModuleInterface*
 	return nullptr;
 }
 
+static constexpr auto GetDogeModuleFileName(const FName& InModuleName) -> FString
+{
+	return FString("DogeEditor-") + InModuleName + ".dll";
+}
+
 auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
 {
 	IModuleInterface* LoadedModule = nullptr;
@@ -90,13 +95,13 @@ auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
 
 	if (FoundModuleInfo == nullptr)
 	{
-		AddModule(InModuleName, InModuleName + ".dll");
+		AddModule(InModuleName, GetDogeModuleFileName(InModuleName));
 		FoundModuleInfo = FindModule(InModuleName);
 	}
 
 	const auto& Filename = FoundModuleInfo->Filename_;
-	std::wstring DllPath(Filename.begin(), Filename.end());
-	HMODULE ModuleHandle = LoadLibrary(DllPath.c_str());
+	std::wstring DLLPath(Filename.begin(), Filename.end());
+	HMODULE ModuleHandle = LoadLibrary(DLLPath.c_str());
 	if (!ModuleHandle)
 	{
 		DOGE_ERROR("Failed to load module.");

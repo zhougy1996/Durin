@@ -133,6 +133,7 @@
     <ClInclude Include="Private\PCH.MonaCore.h" />
     <ClInclude Include="Public\Application\MonaApplication.h" />
     <ClInclude Include="Public\Definitions.MonaCore.h" />
+    <ClInclude Include="Public\MonaCore.h" />
     <ClInclude Include="Public\Rendering\MonaRenderer.h" />
     <ClInclude Include="Public\Rendering\MonaRHIRenderer.h" />
     <ClInclude Include="Public\Rendering\RenderingCommon.h" />

@@ -9,11 +9,13 @@
     <ClInclude Include="Public\ThirdParty\Glfw\GlfwCommon.h" />
     <ClInclude Include="Public\Application\GenericApplication.h" />
     <ClInclude Include="Public\ApplicationCore.h" />
+    <ClInclude Include="Public\Misc\ApplicationCoreGlobals.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.ApplicationCore.cpp" />
     <ClCompile Include="Private\Window\GenericWindow.cpp" />
     <ClCompile Include="Private\Window\GlfwWindow.cpp" />
     <ClCompile Include="Private\Application\GenericApplication.cpp" />
+    <ClCompile Include="Private\Misc\ApplicationCoreGlobals.cpp" />
   </ItemGroup>
 </Project>

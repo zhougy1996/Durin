@@ -12,7 +12,7 @@
     <StdReferenceDir>$(DogeIntermediateDir)\Core\$(Platform)\$(Configuration)\microsoft\STL</StdReferenceDir>
     <GLFWBinariesDir>$(DogeThirdPartyDir)\glfw\build\src</GLFWBinariesDir>
     <DogePCHDir>$(DogeIntermediateDir)\$(ProjectName)\$(Platform)\$(Configuration)\PCHs</DogePCHDir>
-    <DogeOutputName>Doge-$(ProjectName)</DogeOutputName>
+    <DogeOutputName>DogeEditor-$(ProjectName)</DogeOutputName>
   </PropertyGroup>
   <PropertyGroup>
     <TargetExt>.dll</TargetExt>

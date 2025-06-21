@@ -5,6 +5,8 @@
 
 FVulkanDynamicRHI* GVulkanRHI = nullptr;
 
+IMPLEMENT_MODULE(FVulkanDynamicRHIModule, VulkanRHI)
+
 FVulkanDynamicRHI::FVulkanDynamicRHI()
 {
 	CreateInstance();

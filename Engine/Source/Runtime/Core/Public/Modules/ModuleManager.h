@@ -77,27 +77,15 @@ class CORE_API FDefaultModuleImpl : public IModuleInterface
 
 /**
  * This template function is used to load a module from a DLL.
- * It needs to be instantiated in the module's interface file.
- * For example, in DogeRHI.ixx:
- *
- * export template<>
- * auto InitializeModule<FDefaultModuleImpl>() -> IModuleInterface*;
- *
  * class FDefaultModuleImpl is the default implementation of IModuleInterface.
  * This function will be called by FModuleManager::LoadModule.
  * @return The module interface.
  */
-template<typename ModuleImplClass>
-inline auto DLLEXPORT InitializeModule() -> IModuleInterface*
-{
-	return new ModuleImplClass();
-}
 
 // clang-format off
 #define IMPLEMENT_MODULE(ModuleImplClass, ModuleName) \
+	extern "C" DLLEXPORT IModuleInterface* InitializeModule() \
 	{ \
-		extern "C" DLLEXPORT IModuleInterface* InitializeModule(){ \
-			return InitializeModule<ModuleImplClass>(); \
-		} \
-	}
+		return new ModuleImplClass(); \
+	} \
 // clang-format on

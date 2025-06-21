@@ -10,6 +10,7 @@
     <ClInclude Include="Private\Application\MonaWindowHelper.h" />
     <ClInclude Include="Public\Rendering\MonaRenderer.h" />
     <ClInclude Include="Public\Rendering\MonaRHIRenderer.h" />
+    <ClInclude Include="Public\MonaCore.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.MonaCore.cpp" />
