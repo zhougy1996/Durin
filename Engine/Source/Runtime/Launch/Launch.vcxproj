@@ -21,8 +21,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{75995b8e-3cd2-4adb-938d-3b2fffca32c4}</ProjectGuid>
-    <RootNamespace>Engine</RootNamespace>
+    <ProjectGuid>{ad92a9e4-d824-4bd0-ae01-7727e9d0300b}</ProjectGuid>
+    <RootNamespace>Launch</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -40,17 +40,17 @@
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -74,8 +74,6 @@
     <Import Project="..\..\..\Config\PropertySheets\DogeProject.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -106,10 +104,8 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>ENGINE_EXPORTS;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>LAUNCH_EXPORTS;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <PrecompiledHeader>Use</PrecompiledHeader>
-      <AdditionalIncludeDirectories>$(DogeSourceDir)\Editor\DogeEd\Public\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -122,10 +118,8 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>ENGINE_EXPORTS;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>LAUNCH_EXPORTS;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <PrecompiledHeader>Use</PrecompiledHeader>
-      <AdditionalIncludeDirectories>$(DogeSourceDir)\Editor\DogeEd\Public\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -133,20 +127,21 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="Private\PrivateDefinitions.Engine.h" />
-    <ClInclude Include="Public\Client\RenderTarget.h" />
-    <ClInclude Include="Public\Client\Viewport.h" />
-    <ClInclude Include="Public\Client\ViewportClient.h" />
-    <ClInclude Include="Public\Definitions.Engine.h" />
-    <ClInclude Include="Private\PCH.Engine.h" />
-    <ClInclude Include="Public\Mona\SceneViewport.h" />
+    <ClCompile Include="Private\LaunchEngineLoop.cpp" />
+    <ClCompile Include="Private\Launch.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\Editor\DogeEd\DogeEd.vcxproj">
+      <Project>{a6460b8b-d2e1-4558-9008-74aa3099530e}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\ApplicationCore\ApplicationCore.vcxproj">
       <Project>{ce082bc8-3653-4791-818c-110fccfc4338}</Project>
     </ProjectReference>
     <ProjectReference Include="..\Core\Core.vcxproj">
       <Project>{2d1b9781-71ed-4d4b-9dc2-ab9e9379f104}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\Engine\Engine.vcxproj">
+      <Project>{75995b8e-3cd2-4adb-938d-3b2fffca32c4}</Project>
     </ProjectReference>
     <ProjectReference Include="..\MonaCore\MonaCore.vcxproj">
       <Project>{cadba216-d7c5-43fa-9abb-970f9316607b}</Project>
@@ -159,14 +154,9 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Private\Client\RenderTarget.cpp" />
-    <ClCompile Include="Private\Client\Viewport.cpp" />
-    <ClCompile Include="Private\Client\ViewportClient.cpp" />
-    <ClCompile Include="Private\Mona\SceneViewport.cpp" />
-    <ClCompile Include="Private\PCH.Engine.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
-    </ClCompile>
+    <ClInclude Include="Private\PCH.Launch.h" />
+    <ClInclude Include="Public\Definitions.Launch.h" />
+    <ClInclude Include="Public\LaunchEngineLoop.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

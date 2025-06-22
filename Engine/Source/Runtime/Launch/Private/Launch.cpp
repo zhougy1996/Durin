@@ -1,11 +1,9 @@
-#include "PCH.Engine.h"
-
 #include "CoreGlobals.h"
-#include "EngineLoop/EngineLoop.h"
+#include "LaunchEngineLoop.h"
 
 FEngineLoop GEngineLoop;
 
-int ENGINE_API main()
+int LAUNCH_API main()
 {
 	GEngineLoop.PreInit();
 	GEngineLoop.Init();

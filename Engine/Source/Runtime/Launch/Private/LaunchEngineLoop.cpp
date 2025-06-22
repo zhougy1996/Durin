@@ -1,9 +1,10 @@
-#include "EngineLoop/EngineLoop.h"
+#include "LaunchEngineLoop.h"
 
 #include "CoreGlobals.h"
 #include "ApplicationCore.h"
 #include "RHI.h"
 #include "Mona.h"
+#include "DogeEdGlobals.h"
 
 #include "RHICommandList.h"
 #include "RHIResources.h"
@@ -24,7 +25,7 @@ auto FEngineLoop::Init() -> void
 	ApplicationInit();
 	RHIInit();
 	MonaInit();
-	// EditorInit();
+	EditorInit();
 
 	// test code
 	FGraphicsPipelineStateInitializer Initializer; // empty

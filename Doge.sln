@@ -37,6 +37,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MainFrame", "Engine\Source\
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DogeEd", "Engine\Source\Editor\DogeEd\DogeEd.vcxproj", "{A6460B8B-D2E1-4558-9008-74AA3099530E}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Launch", "Engine\Source\Runtime\Launch\Launch.vcxproj", "{AD92A9E4-D824-4BD0-AE01-7727E9D0300B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -153,6 +155,14 @@ Global
 		{A6460B8B-D2E1-4558-9008-74AA3099530E}.Release|x64.Build.0 = Release|x64
 		{A6460B8B-D2E1-4558-9008-74AA3099530E}.Release|x86.ActiveCfg = Release|Win32
 		{A6460B8B-D2E1-4558-9008-74AA3099530E}.Release|x86.Build.0 = Release|Win32
+		{AD92A9E4-D824-4BD0-AE01-7727E9D0300B}.Debug|x64.ActiveCfg = Debug|x64
+		{AD92A9E4-D824-4BD0-AE01-7727E9D0300B}.Debug|x64.Build.0 = Debug|x64
+		{AD92A9E4-D824-4BD0-AE01-7727E9D0300B}.Debug|x86.ActiveCfg = Debug|Win32
+		{AD92A9E4-D824-4BD0-AE01-7727E9D0300B}.Debug|x86.Build.0 = Debug|Win32
+		{AD92A9E4-D824-4BD0-AE01-7727E9D0300B}.Release|x64.ActiveCfg = Release|x64
+		{AD92A9E4-D824-4BD0-AE01-7727E9D0300B}.Release|x64.Build.0 = Release|x64
+		{AD92A9E4-D824-4BD0-AE01-7727E9D0300B}.Release|x86.ActiveCfg = Release|Win32
+		{AD92A9E4-D824-4BD0-AE01-7727E9D0300B}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -172,6 +182,7 @@ Global
 		{CE082BC8-3653-4791-818C-110FCCFC4338} = {A7FC97DE-B271-462E-A8C9-B4244F7BCA71}
 		{C769F9BA-5B6C-441F-844D-970B4415917C} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{A6460B8B-D2E1-4558-9008-74AA3099530E} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{AD92A9E4-D824-4BD0-AE01-7727E9D0300B} = {A7FC97DE-B271-462E-A8C9-B4244F7BCA71}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {1A16C4DB-28C1-4B45-AA4C-B50FCF78A9A3}

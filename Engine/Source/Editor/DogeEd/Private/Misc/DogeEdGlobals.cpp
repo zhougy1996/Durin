@@ -1,4 +1,4 @@
-#include "Misc/DogeEdGlobals.h"
+#include "DogeEdGlobals.h"
 
 #include "Interfaces/IMainFrameModule.h"
 

@@ -142,7 +142,7 @@
     <ClInclude Include="Private\PrivateDefinitions.DogeEd.h" />
     <ClInclude Include="Public\Definitions.DogeEd.h" />
     <ClInclude Include="Public\DogeEd.h" />
-    <ClInclude Include="Public\Misc\DogeEdGlobals.h" />
+    <ClInclude Include="Public\DogeEdGlobals.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Runtime\ApplicationCore\ApplicationCore.vcxproj">

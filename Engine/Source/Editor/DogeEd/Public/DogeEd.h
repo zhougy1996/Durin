@@ -1,3 +1,3 @@
 #pragma once
 
-#include "Misc/DogeEdGlobals.h"
+#include "DogeEdGlobals.h"

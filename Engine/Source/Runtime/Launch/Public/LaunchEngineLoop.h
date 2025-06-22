@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Definitions.Engine.h"
+#include "Definitions.Launch.h"
 
-class ENGINE_API FEngineLoop
+class FEngineLoop
 {
 public:
 	FEngineLoop() = default;
@@ -14,4 +14,4 @@ public:
 	auto Exit() -> void;
 };
 
-extern ENGINE_API FEngineLoop GEngineLoop;
+extern FEngineLoop GEngineLoop;

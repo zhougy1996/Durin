@@ -2,6 +2,8 @@
 
 #include "Mona.h"
 
+IMPLEMENT_MODULE(FMainFrameModule, MainFrame)
+
 auto FMainFrameModule::StartupModule() -> void
 {
 }
