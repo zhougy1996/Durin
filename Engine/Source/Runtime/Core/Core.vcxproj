@@ -130,6 +130,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Private\Logging\Logger.cpp" />
+    <ClCompile Include="Private\Math\Color.cpp" />
     <ClCompile Include="Private\Misc\CoreGlobals.cpp" />
     <ClCompile Include="Private\Misc\PCH.Core.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
@@ -147,6 +148,7 @@
     <ClInclude Include="Public\HAL\Platform.h" />
     <ClInclude Include="Public\Logging\Logger.h" />
     <ClInclude Include="Public\Logging\LogMacros.h" />
+    <ClInclude Include="Public\Math\Color.h" />
     <ClInclude Include="Public\Math\Constants.h" />
     <ClInclude Include="Public\Math\DogeMath.h" />
     <ClInclude Include="Public\Math\MathFwd.h" />

@@ -5,6 +5,7 @@
     <ClCompile Include="Private\Misc\PCH.Core.cpp" />
     <ClCompile Include="Private\Misc\CoreGlobals.cpp" />
     <ClCompile Include="Private\Modules\ModuleManager.cpp" />
+    <ClCompile Include="Private\Math\Color.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Public\CoreMinimal.h" />
@@ -29,5 +30,6 @@
     <ClInclude Include="Public\Templates\StdAlias.h" />
     <ClInclude Include="Public\Misc\PixelFormat.h" />
     <ClInclude Include="Public\Misc\CoreMiscDefines.h" />
+    <ClInclude Include="Public\Math\Color.h" />
   </ItemGroup>
 </Project>
