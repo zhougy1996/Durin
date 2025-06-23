@@ -3,8 +3,10 @@
   <ItemGroup>
     <ClInclude Include="Public\Definitions.RenderCore.h" />
     <ClInclude Include="Private\PCH.RenderCore.h" />
+    <ClInclude Include="Public\RenderResource.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.RenderCore.cpp" />
+    <ClCompile Include="Private\RenderResource.cpp" />
   </ItemGroup>
 </Project>

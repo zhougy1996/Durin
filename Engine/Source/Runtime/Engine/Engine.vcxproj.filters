@@ -10,6 +10,9 @@
     <ClInclude Include="Public\Engine\StaticMesh.h" />
     <ClInclude Include="Public\Engine\StaticMeshResources.h" />
     <ClInclude Include="Public\Engine\Engine.h" />
+    <ClInclude Include="Public\Engine\StaticMeshVertexData.h" />
+    <ClInclude Include="Public\Rendering\PositionVertexBuffer.h" />
+    <ClInclude Include="Public\Rendering\ColorVertexBuffer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.Engine.cpp" />

@@ -137,6 +137,7 @@
     <ClInclude Include="Public\RHIConstants.h" />
     <ClInclude Include="Public\RHIContext.h" />
     <ClInclude Include="Public\RHIDefinitions.h" />
+    <ClInclude Include="Public\RHIFeatureLevel.h" />
     <ClInclude Include="Public\RHIFwd.h" />
     <ClInclude Include="Public\RHIGlobals.h" />
     <ClInclude Include="Public\RHIPipeline.h" />

@@ -4,6 +4,7 @@
 
 #include "Definitions.Core.h"
 #include "Definitions.Engine.h"
+#include "Definitions.RenderCore.h"
 #include "Definitions.MonaCore.h"
 #include "Definitions.Mona.h"
 
