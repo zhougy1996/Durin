@@ -7,7 +7,6 @@
     <ClInclude Include="Public\Mona\SceneViewport.h" />
     <ClInclude Include="Public\Client\Viewport.h" />
     <ClInclude Include="Public\Client\ViewportClient.h" />
-    <ClInclude Include="Private\PrivateDefinitions.Engine.h" />
     <ClInclude Include="Public\Engine\StaticMesh.h" />
     <ClInclude Include="Public\Engine\StaticMeshResources.h" />
     <ClInclude Include="Public\Engine\Engine.h" />
