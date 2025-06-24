@@ -25,6 +25,4 @@ enum class ERHIFeatureLevel : uint8
 	 *   Resource binding tier 3
 	 */
 	SM6,
-
-	Num,
 };

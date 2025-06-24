@@ -145,6 +145,7 @@
     <ClInclude Include="Public\Mona\SceneViewport.h" />
     <ClInclude Include="Public\Rendering\ColorVertexBuffer.h" />
     <ClInclude Include="Public\Rendering\PositionVertexBuffer.h" />
+    <ClInclude Include="Public\Rendering\StaticMeshVertexData.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ApplicationCore\ApplicationCore.vcxproj">
@@ -176,6 +177,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="Private\Rendering\PositionVertexBuffer.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
