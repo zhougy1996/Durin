@@ -31,5 +31,6 @@
     <ClInclude Include="Public\Misc\PixelFormat.h" />
     <ClInclude Include="Public\Misc\CoreMiscDefines.h" />
     <ClInclude Include="Public\Math\Color.h" />
+    <ClInclude Include="Public\Math\Transform.h" />
   </ItemGroup>
 </Project>

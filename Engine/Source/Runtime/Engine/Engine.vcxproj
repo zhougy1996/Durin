@@ -139,6 +139,7 @@
     <ClInclude Include="Public\Definitions.Engine.h" />
     <ClInclude Include="Private\PCH.Engine.h" />
     <ClInclude Include="Public\Engine\Engine.h" />
+    <ClInclude Include="Public\Engine\PrimitiveSceneProxy.h" />
     <ClInclude Include="Public\Engine\StaticMesh.h" />
     <ClInclude Include="Public\Engine\StaticMeshResources.h" />
     <ClInclude Include="Public\Engine\StaticMeshVertexData.h" />
@@ -178,6 +179,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="Private\Rendering\PositionVertexBuffer.cpp" />
+    <ClCompile Include="Private\Engine\PrimitiveSceneProxy.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

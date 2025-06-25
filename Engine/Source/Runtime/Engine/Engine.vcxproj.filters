@@ -14,6 +14,7 @@
     <ClInclude Include="Public\Rendering\PositionVertexBuffer.h" />
     <ClInclude Include="Public\Rendering\ColorVertexBuffer.h" />
     <ClInclude Include="Public\Rendering\StaticMeshVertexData.h" />
+    <ClInclude Include="Public\Engine\PrimitiveSceneProxy.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.Engine.cpp" />
@@ -23,5 +24,6 @@
     <ClCompile Include="Private\Mona\SceneViewport.cpp" />
     <ClCompile Include="Private\Engine\Engine.cpp" />
     <ClCompile Include="Private\Rendering\PositionVertexBuffer.cpp" />
+    <ClCompile Include="Private\Engine\PrimitiveSceneProxy.cpp" />
   </ItemGroup>
 </Project>

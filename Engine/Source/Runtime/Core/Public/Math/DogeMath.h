@@ -4,3 +4,4 @@
 #include "Math/NumericalOperations.h"
 #include "Math/Vector.h"
 #include "Math/Color.h"
+#include "Math/Transform.h"
