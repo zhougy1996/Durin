@@ -15,6 +15,9 @@
     <ClInclude Include="Public\Rendering\ColorVertexBuffer.h" />
     <ClInclude Include="Public\Rendering\StaticMeshVertexData.h" />
     <ClInclude Include="Public\Engine\PrimitiveSceneProxy.h" />
+    <ClInclude Include="Public\GameFramework\Actor.h" />
+    <ClInclude Include="Public\Components\ActorComponent.h" />
+    <ClInclude Include="Public\Components\SceneComponent.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.Engine.cpp" />
@@ -25,5 +28,8 @@
     <ClCompile Include="Private\Engine\Engine.cpp" />
     <ClCompile Include="Private\Rendering\PositionVertexBuffer.cpp" />
     <ClCompile Include="Private\Engine\PrimitiveSceneProxy.cpp" />
+    <ClCompile Include="Private\GameFramework\Actor.cpp" />
+    <ClCompile Include="Private\Components\ActorComponent.cpp" />
+    <ClCompile Include="Private\Components\SceneComponent.cpp" />
   </ItemGroup>
 </Project>

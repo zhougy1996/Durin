@@ -2,12 +2,15 @@
 
 #include <glm/fwd.hpp>
 
+template<typename T> struct TRotator;
+
 using FReal = double;
 using FVector = glm::dvec3;
 using FMatrix = glm::dmat4x4;
 using FQuat = glm::dquat;
 
 struct FTransform;
+using FRotator = TRotator<FReal>;
 
 using FVector2f = glm::vec2;
 using FVector3f = glm::vec3;
@@ -27,4 +30,3 @@ using FVector4 = FVector4d;
 
 using FPoint2i = glm::i32vec2;
 using FIntPoint = FPoint2i;
-

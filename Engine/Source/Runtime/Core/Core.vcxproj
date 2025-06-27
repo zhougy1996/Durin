@@ -131,6 +131,7 @@
   <ItemGroup>
     <ClCompile Include="Private\Logging\Logger.cpp" />
     <ClCompile Include="Private\Math\Color.cpp" />
+    <ClCompile Include="Private\Math\Transform.cpp" />
     <ClCompile Include="Private\Misc\CoreGlobals.cpp" />
     <ClCompile Include="Private\Misc\PCH.Core.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
@@ -153,6 +154,7 @@
     <ClInclude Include="Public\Math\DogeMath.h" />
     <ClInclude Include="Public\Math\MathFwd.h" />
     <ClInclude Include="Public\Math\NumericalOperations.h" />
+    <ClInclude Include="Public\Math\Rotator.h" />
     <ClInclude Include="Public\Math\Transform.h" />
     <ClInclude Include="Public\Math\Vector.h" />
     <ClInclude Include="Public\Misc\AssertionMacros.h" />

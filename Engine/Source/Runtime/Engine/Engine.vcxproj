@@ -136,6 +136,8 @@
     <ClInclude Include="Public\Client\RenderTarget.h" />
     <ClInclude Include="Public\Client\Viewport.h" />
     <ClInclude Include="Public\Client\ViewportClient.h" />
+    <ClInclude Include="Public\Components\ActorComponent.h" />
+    <ClInclude Include="Public\Components\SceneComponent.h" />
     <ClInclude Include="Public\Definitions.Engine.h" />
     <ClInclude Include="Private\PCH.Engine.h" />
     <ClInclude Include="Public\Engine\Engine.h" />
@@ -143,6 +145,7 @@
     <ClInclude Include="Public\Engine\StaticMesh.h" />
     <ClInclude Include="Public\Engine\StaticMeshResources.h" />
     <ClInclude Include="Public\Engine\StaticMeshVertexData.h" />
+    <ClInclude Include="Public\GameFramework\Actor.h" />
     <ClInclude Include="Public\Mona\SceneViewport.h" />
     <ClInclude Include="Public\Rendering\ColorVertexBuffer.h" />
     <ClInclude Include="Public\Rendering\PositionVertexBuffer.h" />
@@ -172,7 +175,10 @@
     <ClCompile Include="Private\Client\RenderTarget.cpp" />
     <ClCompile Include="Private\Client\Viewport.cpp" />
     <ClCompile Include="Private\Client\ViewportClient.cpp" />
+    <ClCompile Include="Private\Components\ActorComponent.cpp" />
+    <ClCompile Include="Private\Components\SceneComponent.cpp" />
     <ClCompile Include="Private\Engine\Engine.cpp" />
+    <ClCompile Include="Private\GameFramework\Actor.cpp" />
     <ClCompile Include="Private\Mona\SceneViewport.cpp" />
     <ClCompile Include="Private\PCH.Engine.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

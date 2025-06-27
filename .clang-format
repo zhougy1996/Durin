@@ -136,9 +136,12 @@ AllowShortLoopsOnASingleLine: false
 # This flag is mean to make cases where there are multiple multiline strings in a file look more consistent. Thus, it will only take effect if wrapping the string at that point leads to it being indented ContinuationIndentWidth spaces from the start of the line.
 AlwaysBreakBeforeMultilineStrings: false
 
-# AlwaysBreakTemplateDeclarations (bool)
-# If true, always break after the template<...> of a template declaration.
-AlwaysBreakTemplateDeclarations: false
+# BreakTemplateDeclarations
+# Leave : Do not change the line breaking before the declaration.
+# No : Do not force break before declaration.
+# MultiLine : Force break after template declaration only when the following declaration spans multiple lines.
+# Yes : Always break after template declaration.
+BreakTemplateDeclarations : No 
 
 # SpaceAfterTemplateKeyword (bool)
 # If true, a space will be inserted after the template keyword.

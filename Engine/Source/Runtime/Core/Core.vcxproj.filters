@@ -6,6 +6,7 @@
     <ClCompile Include="Private\Misc\CoreGlobals.cpp" />
     <ClCompile Include="Private\Modules\ModuleManager.cpp" />
     <ClCompile Include="Private\Math\Color.cpp" />
+    <ClCompile Include="Private\Math\Transform.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Public\CoreMinimal.h" />
@@ -32,5 +33,6 @@
     <ClInclude Include="Public\Misc\CoreMiscDefines.h" />
     <ClInclude Include="Public\Math\Color.h" />
     <ClInclude Include="Public\Math\Transform.h" />
+    <ClInclude Include="Public\Math\Rotator.h" />
   </ItemGroup>
 </Project>

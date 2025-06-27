@@ -5,3 +5,4 @@
 #include "Math/Vector.h"
 #include "Math/Color.h"
 #include "Math/Transform.h"
+#include "Math/Rotator.h"
