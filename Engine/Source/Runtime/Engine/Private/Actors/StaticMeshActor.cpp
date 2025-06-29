@@ -4,9 +4,10 @@
 
 AStaticMeshActor::AStaticMeshActor()
 {
-	DStaticMeshComponent* StaticMeshComponent = CreateDefaultComponent<DStaticMeshComponent>();
-	RootComponent_ = StaticMeshComponent;
-	StaticMeshComponent_ = StaticMeshComponent;
+	TSharedPtr<DStaticMeshComponent> StaticMeshComponent = std::make_shared<DStaticMeshComponent>(this);
+	OwnedComponents_.push_back(StaticMeshComponent);
+	RootComponent_ = StaticMeshComponent.get();
+	StaticMeshComponent_ = StaticMeshComponent.get();
 }
 
 AStaticMeshActor::~AStaticMeshActor()

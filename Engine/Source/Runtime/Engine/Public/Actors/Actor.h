@@ -14,22 +14,22 @@ private:
 	virtual auto InitializeDefaults() -> void;
 
 protected:
-	template<typename T>
-	auto CreateDefaultComponent() -> T*
-	{
-		static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-		TSharedPtr<T> Component = std::make_shared<T>(this);
-		OwnedComponents_.push_back(std::static_pointer_cast<DActorComponent>(Component));
-		return Component.get();
-	}
+	//template<typename T>
+	//auto CreateDefaultComponent() -> T*
+	//{
+	//	static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
+	//	TSharedPtr<T> Component = std::make_shared<T>(this);
+	//	OwnedComponents_.push_back(std::static_pointer_cast<DActorComponent>(Component));
+	//	return Component.get();
+	//}
 
-	template<typename T>
-	auto CreateDefaultComponent(const FName& ComponentName) -> T*
-	{
-		auto* Component = CreateDefaultComponent<T>();
-		Component->SetName(ComponentName);
-		return Component;
-	}
+	//template<typename T>
+	//auto CreateDefaultComponent(const FName& ComponentName) -> T*
+	//{
+	//	auto* Component = CreateDefaultComponent<T>();
+	//	Component->SetName(ComponentName);
+	//	return Component;
+	//}
 
 	DSceneComponent* RootComponent_ = nullptr;
 
