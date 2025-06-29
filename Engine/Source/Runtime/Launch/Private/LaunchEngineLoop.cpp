@@ -10,9 +10,13 @@
 #include "RHIResources.h"
 #include "RHIPipeline.h"
 
+#include "Actors/StaticMeshActor.h"
+
 constexpr auto DLLModuleDependencies = std::array{"MainFrame"};
 
 TSharedPtr<FRHIGraphicsPipelineState> GTestPipeline;
+
+TSharedPtr<AActor> GTestActor;
 
 auto FEngineLoop::PreInit() -> void
 {
@@ -26,6 +30,8 @@ auto FEngineLoop::Init() -> void
 	RHIInit();
 	MonaInit();
 	EditorInit();
+
+	GTestActor = std::make_shared<AStaticMeshActor>();
 
 	// test code
 	FGraphicsPipelineStateInitializer Initializer; // empty

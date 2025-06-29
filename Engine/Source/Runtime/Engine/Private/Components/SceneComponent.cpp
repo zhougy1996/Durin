@@ -1,5 +1,6 @@
 #include "Components/SceneComponent.h"
 
-DSceneComponent::DSceneComponent()
+DSceneComponent::DSceneComponent(AActor* OwnerActor)
+	: DActorComponent(OwnerActor)
 {
 }

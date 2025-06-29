@@ -5,7 +5,7 @@
 class DSceneComponent : public DActorComponent
 {
 public:
-	ENGINE_API DSceneComponent();
+	ENGINE_API DSceneComponent(AActor* OwnerActor);
 
 protected:
 	FTransform ComponentToWorld_;

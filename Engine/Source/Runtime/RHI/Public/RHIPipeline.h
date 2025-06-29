@@ -11,5 +11,4 @@ enum class ERHIPipeline : uint8
 };
 
 class RHI_API FRHIGraphicsPipelineState{
-
 };
