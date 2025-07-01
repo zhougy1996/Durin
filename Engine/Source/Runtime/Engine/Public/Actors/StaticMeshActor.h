@@ -4,12 +4,12 @@
 
 class DStaticMeshComponent;
 
-class ENGINE_API AStaticMeshActor : public AActor
+class AStaticMeshActor : public AActor
 {
 public:
-	AStaticMeshActor();
+	ENGINE_API AStaticMeshActor();
 
-	virtual ~AStaticMeshActor();
+	ENGINE_API virtual ~AStaticMeshActor();
 
 private:
 

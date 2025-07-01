@@ -11,6 +11,7 @@
 #include "RHIPipeline.h"
 
 #include "Actors/StaticMeshActor.h"
+#include "Components/StaticMeshComponent.h"
 
 constexpr auto DLLModuleDependencies = std::array{"MainFrame"};
 

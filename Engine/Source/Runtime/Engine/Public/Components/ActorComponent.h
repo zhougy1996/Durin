@@ -1,25 +1,30 @@
 #pragma once
 class AActor;
 
-class ENGINE_API DActorComponent
+class DActorComponent
 {
+private:
+	AActor* OwnerActor_;
+
+	FName ComponentName_;
+
 public:
-	DActorComponent(AActor* OwnerActor);
-	virtual ~DActorComponent() = default;
+	ENGINE_API DActorComponent(AActor* OwnerActor);
 
-	virtual FName GetDefaultName() const { return "ActorComponent"; }
+	ENGINE_API virtual ~DActorComponent() = default;
 
-	const FName& GetName() const { return ComponentName_; }
-	void SetName(const FName& NewName) { ComponentName_ = NewName; }
+	ENGINE_API virtual FName GetDefaultName() const { return "ActorComponent"; }
 
-	AActor* GetOwner() const { return OwnerActor_; }
+	ENGINE_API auto GetName() const -> const FName& { return ComponentName_; }
+
+	ENGINE_API auto SetName(const FName& NewName) -> void { ComponentName_ = NewName; }
+
+	ENGINE_API auto GetOwner() -> AActor* const { return OwnerActor_; }
+
 	template<typename T> auto GetOwner() const -> T*
 	{
 		return dynamic_cast<T*>(OwnerActor_);
 	}
 
-private:
-	AActor* OwnerActor_;
-
-	FName ComponentName_;
+	ENGINE_API auto DestroyComponent() -> void;
 };

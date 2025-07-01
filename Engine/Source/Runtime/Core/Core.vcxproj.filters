@@ -34,5 +34,7 @@
     <ClInclude Include="Public\Math\Color.h" />
     <ClInclude Include="Public\Math\Transform.h" />
     <ClInclude Include="Public\Math\Rotator.h" />
+    <ClInclude Include="Public\DObject\DObject.h" />
+    <ClInclude Include="Public\DObject\DObjectItem.h" />
   </ItemGroup>
 </Project>

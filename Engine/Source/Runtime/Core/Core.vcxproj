@@ -146,6 +146,8 @@
     <ClInclude Include="Private\PCH.Core.h" />
     <ClInclude Include="Public\CoreGlobals.h" />
     <ClInclude Include="Public\CoreMinimal.h" />
+    <ClInclude Include="Public\DObject\DObject.h" />
+    <ClInclude Include="Public\DObject\DObjectItem.h" />
     <ClInclude Include="Public\HAL\Platform.h" />
     <ClInclude Include="Public\Logging\Logger.h" />
     <ClInclude Include="Public\Logging\LogMacros.h" />
