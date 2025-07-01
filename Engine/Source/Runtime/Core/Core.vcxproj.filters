@@ -7,6 +7,7 @@
     <ClCompile Include="Private\Modules\ModuleManager.cpp" />
     <ClCompile Include="Private\Math\Color.cpp" />
     <ClCompile Include="Private\Math\Transform.cpp" />
+    <ClCompile Include="Private\DObject\DObject.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Public\CoreMinimal.h" />
@@ -35,6 +36,5 @@
     <ClInclude Include="Public\Math\Transform.h" />
     <ClInclude Include="Public\Math\Rotator.h" />
     <ClInclude Include="Public\DObject\DObject.h" />
-    <ClInclude Include="Public\DObject\DObjectItem.h" />
   </ItemGroup>
 </Project>

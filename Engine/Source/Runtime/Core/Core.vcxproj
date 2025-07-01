@@ -138,6 +138,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="Private\Modules\ModuleManager.cpp" />
+    <ClCompile Include="Private\DObject\DObject.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Public\Containers\ContainersFwd.h" />
@@ -147,7 +148,6 @@
     <ClInclude Include="Public\CoreGlobals.h" />
     <ClInclude Include="Public\CoreMinimal.h" />
     <ClInclude Include="Public\DObject\DObject.h" />
-    <ClInclude Include="Public\DObject\DObjectItem.h" />
     <ClInclude Include="Public\HAL\Platform.h" />
     <ClInclude Include="Public\Logging\Logger.h" />
     <ClInclude Include="Public\Logging\LogMacros.h" />

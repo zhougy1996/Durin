@@ -1,14 +1,92 @@
 #include "Components/ActorComponent.h"
 
 #include "Actors/Actor.h"
+#include "Components/SceneComponent.h"
 
 DActorComponent::DActorComponent(AActor* OwnerActor)
 	: OwnerActor_(OwnerActor)
 {
 }
 
+auto DActorComponent::RegisterComponent() -> void
+{
+	ExecuteRegisterEvents();
+}
+
+auto DActorComponent::UnregisterComponent() -> void
+{
+	OnUnregister();
+}
+
 auto DActorComponent::DestroyComponent() -> void
 {
-	AActor* Owner = GetOwner();
+	if (AActor* Owner = GetOwner())
+	{
+		Owner->RemoveInstanceComponent(this);
+		Owner->RemoveOwnedComponent(this);
+
+		if (Owner->GetRootComponent() == this)
+		{
+			Owner->SetRootComponent(nullptr);
+		}
+	}
+
+	OnComponentDestroyed();
+	check(!bHasBeenCreated && "Failed to route OnComponentDestroyed()");
+
+	GObjectManager->Destroy(this);
+}
+
+auto DActorComponent::InitializeComponent() -> void
+{
+	check(bRegistered);
+	check(bHasBeenCreated);
+	check(!bHasBeenInitialized);
+	bHasBeenInitialized = true;
+}
+
+auto DActorComponent::UninitializeComponent()->void
+{
+	check(bHasBeenInitialized);
+	bHasBeenInitialized = false;
+}
+
+auto DActorComponent::OnRegister() -> void
+{
+	bRegistered = true;
+}
+
+auto DActorComponent::OnUnregister() -> void
+{
+	check(bRegistered);
+	bRegistered = false;
+}
+
+auto DActorComponent::OnComponentCreated() -> void
+{
+	bHasBeenCreated = true;
+}
+
+auto DActorComponent::OnComponentDestroyed() -> void
+{
+	bHasBeenCreated = false;
+}
+
+auto DActorComponent::ExecuteRegisterEvents() -> void
+{
+	if (!bRegistered)
+	{
+		OnRegister();
+		check(bRegistered && "Failed to route OnRegister()");
+	}
+}
+
+auto DActorComponent::ExecuteUnregisterEvents() -> void
+{
+	if (bRegistered)
+	{
+		OnUnregister();
+		check(!bRegistered && "Failed to route OnUnregister()");
+	}
 }
 

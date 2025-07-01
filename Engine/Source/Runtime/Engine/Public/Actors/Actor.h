@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DObject/DObject.h"
+
 class DActorComponent;
 class DSceneComponent;
 
@@ -9,6 +11,16 @@ public:
 	ENGINE_API AActor();
 
 	ENGINE_API virtual ~AActor();
+
+	// Only for internal use, should be called by DActorComponent functions
+	auto RemoveOwnedComponent(DActorComponent* Component) -> void;
+
+	// Only for internal use, should be called by DActorComponent functions
+	auto RemoveInstanceComponent(DActorComponent* Component) -> void;
+
+	FORCEINLINE auto GetRootComponent() const -> DSceneComponent* { return RootComponent_; }
+
+	FORCEINLINE auto SetRootComponent(DSceneComponent* RootComponent) -> void { RootComponent_ = RootComponent; }
 
 	template<typename T>
 	auto FindComponentByStaticClass() -> T*

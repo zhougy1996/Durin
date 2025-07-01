@@ -22,7 +22,7 @@ TSharedPtr<AActor> GTestActor;
 auto FEngineLoop::PreInit() -> void
 {
 	LoggerInit();
-	DOGE_INFO("PreInit");
+	GObjectManager = DObjectManager::Get();
 }
 
 auto FEngineLoop::Init() -> void
@@ -33,6 +33,10 @@ auto FEngineLoop::Init() -> void
 	EditorInit();
 
 	GTestActor = std::make_shared<AStaticMeshActor>();
+
+	DActorComponent* StaticMeshComponent = GTestActor->FindComponentByStaticClass<DStaticMeshComponent>();
+
+	StaticMeshComponent->DestroyComponent();
 
 	// test code
 	FGraphicsPipelineStateInitializer Initializer; // empty
@@ -49,6 +53,8 @@ auto FEngineLoop::Init() -> void
 auto FEngineLoop::Tick() -> void
 {
 	FMonaApplication::Get().Tick();
+	GObjectManager->DestroyPendingObjects();
+
 	if (GIsRequestingExit)
 	{
 		return;
