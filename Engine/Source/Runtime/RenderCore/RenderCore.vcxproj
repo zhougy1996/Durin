@@ -131,6 +131,7 @@
   <ItemGroup>
     <ClInclude Include="Private\PCH.RenderCore.h" />
     <ClInclude Include="Public\Definitions.RenderCore.h" />
+    <ClInclude Include="Public\IRendererModule.h" />
     <ClInclude Include="Public\RenderResource.h" />
   </ItemGroup>
   <ItemGroup>

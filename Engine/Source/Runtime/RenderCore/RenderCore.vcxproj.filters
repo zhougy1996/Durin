@@ -4,6 +4,7 @@
     <ClInclude Include="Public\Definitions.RenderCore.h" />
     <ClInclude Include="Private\PCH.RenderCore.h" />
     <ClInclude Include="Public\RenderResource.h" />
+    <ClInclude Include="Public\IRendererModule.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.RenderCore.cpp" />
