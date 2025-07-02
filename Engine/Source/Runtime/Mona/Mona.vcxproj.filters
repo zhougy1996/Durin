@@ -13,6 +13,7 @@
     <ClInclude Include="Public\ThirdParty\ImGui\ImGuiCommon.h" />
     <ClInclude Include="Public\Widgets\MViewport.h" />
     <ClInclude Include="Public\MonaGlobals.h" />
+    <ClInclude Include="Private\PrivateDefinitions.Mona.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\Misc\PCH.Mona.cpp" />

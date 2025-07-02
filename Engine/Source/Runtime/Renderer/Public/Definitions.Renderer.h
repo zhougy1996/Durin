@@ -4,6 +4,7 @@
 
 #include "Definitions.Core.h"
 #include "Definitions.RHI.h"
+#include "Definitions.Engine.h"
 #include "Definitions.RenderCore.h"
 
 #ifdef RENDERER_EXPORTS

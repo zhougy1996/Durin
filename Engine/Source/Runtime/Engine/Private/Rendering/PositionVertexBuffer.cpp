@@ -1,6 +1,6 @@
 #include "Rendering/PositionVertexBuffer.h"
 
-#include "Rendering/StaticMeshVertexData.h"
+#include "StaticMesh/StaticMeshVertexData.h"
 
 class FPositionVertexData : public TStaticMeshVertexData<FPositionVertex>
 {

@@ -8,3 +8,4 @@
 #include "CoreMinimal.h"
 
 #include "Definitions.Mona.h"
+#include "PrivateDefinitions.Mona.h"

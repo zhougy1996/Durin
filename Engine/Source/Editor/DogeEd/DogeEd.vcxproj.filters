@@ -9,5 +9,6 @@
     <ClInclude Include="Public\Definitions.DogeEd.h" />
     <ClInclude Include="Public\DogeEd.h" />
     <ClInclude Include="Public\DogeEdGlobals.h" />
+    <ClInclude Include="Private\PrivateDefinitions.DogeEd.h" />
   </ItemGroup>
 </Project>

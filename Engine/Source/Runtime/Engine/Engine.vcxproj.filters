@@ -21,6 +21,7 @@
     <ClInclude Include="Public\Components\PrimitiveComponent.h" />
     <ClInclude Include="Public\Components\MeshComponent.h" />
     <ClInclude Include="Public\Actors\StaticMeshActor.h" />
+    <ClInclude Include="Private\PrivateDefinitions.Engine.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.Engine.cpp" />

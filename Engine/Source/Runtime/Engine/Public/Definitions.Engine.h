@@ -3,10 +3,7 @@
 #include "HAL/Platform.h"
 
 #include "Definitions.Core.h"
-#include "Definitions.Engine.h"
-#include "Definitions.RenderCore.h"
-#include "Definitions.MonaCore.h"
-#include "Definitions.Mona.h"
+#include "Definitions.RHI.h"
 
 #ifdef ENGINE_EXPORTS
 	#define ENGINE_API DLLEXPORT

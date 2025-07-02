@@ -8,5 +8,6 @@
     <ClInclude Include="Public\Definitions.Launch.h" />
     <ClInclude Include="Public\LaunchEngineLoop.h" />
     <ClInclude Include="Private\PCH.Launch.h" />
+    <ClInclude Include="Private\PrivateDefinitions.Launch.h" />
   </ItemGroup>
 </Project>

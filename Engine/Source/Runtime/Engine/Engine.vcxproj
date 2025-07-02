@@ -133,6 +133,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="Private\PrivateDefinitions.Engine.h" />
     <ClInclude Include="Public\Actors\StaticMeshActor.h" />
     <ClInclude Include="Public\Client\RenderTarget.h" />
     <ClInclude Include="Public\Client\Viewport.h" />

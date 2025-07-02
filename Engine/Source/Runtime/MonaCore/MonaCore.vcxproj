@@ -131,6 +131,7 @@
   <ItemGroup>
     <ClInclude Include="Private\Application\MonaWindowHelper.h" />
     <ClInclude Include="Private\PCH.MonaCore.h" />
+    <ClInclude Include="Private\PrivateDefinitions.MonaCore.h" />
     <ClInclude Include="Public\Application\MonaApplication.h" />
     <ClInclude Include="Public\Definitions.MonaCore.h" />
     <ClInclude Include="Public\MonaCore.h" />

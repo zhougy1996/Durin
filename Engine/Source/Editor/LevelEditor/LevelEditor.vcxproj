@@ -154,9 +154,6 @@
     <ProjectReference Include="..\..\Runtime\Mona\Mona.vcxproj">
       <Project>{403eabfb-e400-4ae1-b50c-1f7d83fc9b78}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\..\Runtime\RenderCore\RenderCore.vcxproj">
-      <Project>{d3103848-7e94-4c6b-aaf2-e57247426f9b}</Project>
-    </ProjectReference>
     <ProjectReference Include="..\..\Runtime\RHI\RHI.vcxproj">
       <Project>{6e1f4f67-c330-4ccf-806f-3dd58f4cae42}</Project>
     </ProjectReference>

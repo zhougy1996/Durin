@@ -4,7 +4,6 @@
 
 #include "Definitions.Core.h"
 #include "Definitions.RHI.h"
-#include "Definitions.RenderCore.h"
 #include "Definitions.ApplicationCore.h"
 
 #ifdef MONA_CORE_EXPORTS
