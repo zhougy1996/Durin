@@ -3,6 +3,7 @@
   <ItemGroup>
     <ClCompile Include="Private\Launch.cpp" />
     <ClCompile Include="Private\LaunchEngineLoop.cpp" />
+    <ClCompile Include="Private\PCH.Launch.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Public\Definitions.Launch.h" />
