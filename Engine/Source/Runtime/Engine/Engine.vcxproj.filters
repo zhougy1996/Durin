@@ -10,10 +10,9 @@
     <ClInclude Include="Public\StaticMesh\StaticMesh.h" />
     <ClInclude Include="Public\StaticMesh\StaticMeshResources.h" />
     <ClInclude Include="Public\Engine\Engine.h" />
-    <ClInclude Include="Public\StaticMesh\StaticMeshVertexData.h" />
     <ClInclude Include="Public\Rendering\PositionVertexBuffer.h" />
     <ClInclude Include="Public\Rendering\ColorVertexBuffer.h" />
-    <ClInclude Include="Public\Rendering\StaticMeshVertexData.h" />
+    <ClInclude Include="Public\StaticMesh\StaticMeshVertexData.h" />
     <ClInclude Include="Public\Engine\PrimitiveSceneProxy.h" />
     <ClInclude Include="Public\Actors\Actor.h" />
     <ClInclude Include="Public\Components\ActorComponent.h" />
@@ -39,5 +38,6 @@
     <ClCompile Include="Private\Components\PrimitiveComponent.cpp" />
     <ClCompile Include="Private\Components\StaticMeshComponent.cpp" />
     <ClCompile Include="Private\Components\MeshComponent.cpp" />
+    <ClCompile Include="Private\StaticMesh\StaticMesh.cpp" />
   </ItemGroup>
 </Project>

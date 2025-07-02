@@ -15,7 +15,9 @@ public:
 
 	virtual auto ResizeBuffer(uint32 NumVertices, EResizeBufferFlags BufferFlags = EResizeBufferFlags::None) -> void = 0;
 
-	virtual auto Empty() -> void = 0;
+	virtual auto Clear(uint32 NumVertices = 0) -> void = 0;
+
+	virtual bool IsValidIndex(uint32 Index) = 0;
 
 	virtual auto GetStride() -> uint32 const = 0;
 
@@ -50,9 +52,25 @@ public:
 		Data_.resize(NumVertices);
 	}
 
-	virtual auto Empty() -> void override
+	virtual auto IsValidIndex(uint32 Index) -> bool override
 	{
-		Data_.empty();
+		return Index < Data_.size();
+	}
+
+	virtual auto Clear(uint32 NumVertices = 0) -> void override
+	{
+		Data_.clear();
+
+		if (Data_.capacity() < NumVertices * 2)
+		{
+			Data_.reserve(NumVertices);
+		}
+		else
+		{
+			TArray<VertexDataType> temp;
+			temp.reserve(NumVertices);
+			Data_.swap(temp);
+		}
 	}
 
 	virtual auto GetStride() -> uint32 const override
@@ -62,7 +80,7 @@ public:
 
 	virtual auto Num() -> uint32 const override
 	{
-		return Data_.size();
+		return static_cast<uint32>(Data_.size());
 	}
 
 	virtual auto GetDataPointer() -> uint8* override

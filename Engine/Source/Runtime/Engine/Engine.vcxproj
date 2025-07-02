@@ -148,12 +148,11 @@
     <ClInclude Include="Public\Engine\PrimitiveSceneProxy.h" />
     <ClInclude Include="Public\StaticMesh\StaticMesh.h" />
     <ClInclude Include="Public\StaticMesh\StaticMeshResources.h" />
-    <ClInclude Include="Public\StaticMesh\StaticMeshVertexData.h" />
     <ClInclude Include="Public\Actors\Actor.h" />
     <ClInclude Include="Public\Mona\SceneViewport.h" />
     <ClInclude Include="Public\Rendering\ColorVertexBuffer.h" />
     <ClInclude Include="Public\Rendering\PositionVertexBuffer.h" />
-    <ClInclude Include="Public\Rendering\StaticMeshVertexData.h" />
+    <ClInclude Include="Public\StaticMesh\StaticMeshVertexData.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ApplicationCore\ApplicationCore.vcxproj">
@@ -194,6 +193,7 @@
     <ClCompile Include="Private\Rendering\PositionVertexBuffer.cpp" />
     <ClCompile Include="Private\Engine\PrimitiveSceneProxy.cpp" />
     <ClCompile Include="Private\Actors\StaticMeshActor.cpp" />
+    <ClCompile Include="Private\StaticMesh\StaticMesh.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
