@@ -132,6 +132,7 @@
     <ClInclude Include="Private\PCH.Renderer.h" />
     <ClInclude Include="Public\Definitions.Renderer.h" />
     <ClInclude Include="Public\RendererModule.h" />
+    <ClInclude Include="Public\Scene.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.Renderer.cpp">

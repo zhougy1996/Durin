@@ -1,7 +1,5 @@
 #pragma once
 
-#include "DObject/DObject.h"
-
 class DActorComponent;
 class DSceneComponent;
 

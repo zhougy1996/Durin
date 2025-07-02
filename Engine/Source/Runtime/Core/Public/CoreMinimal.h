@@ -11,7 +11,7 @@
 
 #include "Math/DogeMath.h"
 #include "Logging/LogMacros.h"
-#include "DObject/DObject.h"
+#include "DObject.h"
 #include "Modules/ModuleManager.h"
 #include "Misc/AssertionMacros.h"
 #include "Misc/EnumClassFlags.h"

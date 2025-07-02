@@ -1,6 +1,6 @@
 #include "Components/ActorComponent.h"
 
-#include "Actors/Actor.h"
+#include "Engine/Actor.h"
 #include "Components/SceneComponent.h"
 
 DActorComponent::DActorComponent(AActor* OwnerActor)

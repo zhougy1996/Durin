@@ -146,10 +146,13 @@
     <ClInclude Include="Public\Definitions.Engine.h" />
     <ClInclude Include="Private\PCH.Engine.h" />
     <ClInclude Include="Public\Engine\Engine.h" />
+    <ClInclude Include="Public\Engine\Level.h" />
     <ClInclude Include="Public\Engine\PrimitiveSceneProxy.h" />
+    <ClInclude Include="Public\Engine\World.h" />
+    <ClInclude Include="Public\IScene.h" />
     <ClInclude Include="Public\StaticMesh\StaticMesh.h" />
     <ClInclude Include="Public\StaticMesh\StaticMeshResources.h" />
-    <ClInclude Include="Public\Actors\Actor.h" />
+    <ClInclude Include="Public\Engine\Actor.h" />
     <ClInclude Include="Public\Mona\SceneViewport.h" />
     <ClInclude Include="Public\Rendering\ColorVertexBuffer.h" />
     <ClInclude Include="Public\Rendering\PositionVertexBuffer.h" />
@@ -185,7 +188,7 @@
     <ClCompile Include="Private\Components\SceneComponent.cpp" />
     <ClCompile Include="Private\Components\StaticMeshComponent.cpp" />
     <ClCompile Include="Private\Engine\Engine.cpp" />
-    <ClCompile Include="Private\Actors\Actor.cpp" />
+    <ClCompile Include="Private\Engine\Actor.cpp" />
     <ClCompile Include="Private\Mona\SceneViewport.cpp" />
     <ClCompile Include="Private\PCH.Engine.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

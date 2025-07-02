@@ -14,7 +14,7 @@
     <ClInclude Include="Public\Rendering\ColorVertexBuffer.h" />
     <ClInclude Include="Public\StaticMesh\StaticMeshVertexData.h" />
     <ClInclude Include="Public\Engine\PrimitiveSceneProxy.h" />
-    <ClInclude Include="Public\Actors\Actor.h" />
+    <ClInclude Include="Public\Engine\Actor.h" />
     <ClInclude Include="Public\Components\ActorComponent.h" />
     <ClInclude Include="Public\Components\SceneComponent.h" />
     <ClInclude Include="Public\Components\StaticMeshComponent.h" />
@@ -22,6 +22,9 @@
     <ClInclude Include="Public\Components\MeshComponent.h" />
     <ClInclude Include="Public\Actors\StaticMeshActor.h" />
     <ClInclude Include="Private\PrivateDefinitions.Engine.h" />
+    <ClInclude Include="Public\IScene.h" />
+    <ClInclude Include="Public\Engine\World.h" />
+    <ClInclude Include="Public\Engine\Level.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Private\PCH.Engine.cpp" />
@@ -32,7 +35,7 @@
     <ClCompile Include="Private\Engine\Engine.cpp" />
     <ClCompile Include="Private\Rendering\PositionVertexBuffer.cpp" />
     <ClCompile Include="Private\Engine\PrimitiveSceneProxy.cpp" />
-    <ClCompile Include="Private\Actors\Actor.cpp" />
+    <ClCompile Include="Private\Engine\Actor.cpp" />
     <ClCompile Include="Private\Components\ActorComponent.cpp" />
     <ClCompile Include="Private\Components\SceneComponent.cpp" />
     <ClCompile Include="Private\Actors\StaticMeshActor.cpp" />
