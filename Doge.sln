@@ -43,6 +43,10 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "LevelEditor", "Engine\Sourc
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Renderer", "Engine\Source\Runtime\Renderer\Renderer.vcxproj", "{B30938E5-67B2-4802-9E1A-E143DC21D4AD}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DogeDynamicLibrary", "Engine\Source\Template\DogeDynamicLibrary\DogeDynamicLibrary.vcxproj", "{9A076CB1-70D2-428B-808B-F4CFCDABC729}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Template", "Template", "{1FB0DE6F-8BDD-4EDC-BF18-0837F40C36B3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -183,6 +187,12 @@ Global
 		{B30938E5-67B2-4802-9E1A-E143DC21D4AD}.Release|x64.Build.0 = Release|x64
 		{B30938E5-67B2-4802-9E1A-E143DC21D4AD}.Release|x86.ActiveCfg = Release|Win32
 		{B30938E5-67B2-4802-9E1A-E143DC21D4AD}.Release|x86.Build.0 = Release|Win32
+		{9A076CB1-70D2-428B-808B-F4CFCDABC729}.Debug|x64.ActiveCfg = Debug|x64
+		{9A076CB1-70D2-428B-808B-F4CFCDABC729}.Debug|x86.ActiveCfg = Debug|Win32
+		{9A076CB1-70D2-428B-808B-F4CFCDABC729}.Debug|x86.Build.0 = Debug|Win32
+		{9A076CB1-70D2-428B-808B-F4CFCDABC729}.Release|x64.ActiveCfg = Release|x64
+		{9A076CB1-70D2-428B-808B-F4CFCDABC729}.Release|x86.ActiveCfg = Release|Win32
+		{9A076CB1-70D2-428B-808B-F4CFCDABC729}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -205,6 +215,7 @@ Global
 		{AD92A9E4-D824-4BD0-AE01-7727E9D0300B} = {A7FC97DE-B271-462E-A8C9-B4244F7BCA71}
 		{3BEB4FAB-EBE9-434A-A847-5CE14B40E4E3} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{B30938E5-67B2-4802-9E1A-E143DC21D4AD} = {A7FC97DE-B271-462E-A8C9-B4244F7BCA71}
+		{9A076CB1-70D2-428B-808B-F4CFCDABC729} = {1FB0DE6F-8BDD-4EDC-BF18-0837F40C36B3}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {1A16C4DB-28C1-4B45-AA4C-B50FCF78A9A3}
