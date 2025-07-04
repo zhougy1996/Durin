@@ -64,7 +64,6 @@
   <ItemGroup>
     <BuildMacro Include="VulkanDir">
       <Value>$(VulkanDir)</Value>
-      <EnvironmentVariable>true</EnvironmentVariable>
     </BuildMacro>
     <BuildMacro Include="DogeWorkDir">
       <Value>$(DogeWorkDir)</Value>
