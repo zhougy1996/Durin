@@ -1,15 +1,10 @@
-#include "DHTParser.h"
-#include "DHTCodeGenerator.h"
-#include "DHTMetaData.h"
+#include "DogeHeaderTool.h"
 
 int main()
 {
-	std::string TestHeaderFile = "D:/Studyspace/Doge/Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshVertexData.h";
+	std::string TestHeaderFile = "DHTTestHeader.h";
 
-	DHT::DHTParser Parser;
-	DHT::DHTCodeGenerator Generator;
+	DHT::DogeHeaderTool DHT;
 
-	Parser.ParseHeaderFile(TestHeaderFile);
-	DHT::DHTMetaData MetaData;
-	Generator.GenerateDHTHeaderFile(MetaData);
+	DHT.Process(TestHeaderFile);
 }

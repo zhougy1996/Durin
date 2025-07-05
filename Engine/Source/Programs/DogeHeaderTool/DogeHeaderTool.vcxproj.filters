@@ -5,10 +5,14 @@
     <ClCompile Include="DHTParser.cpp" />
     <ClCompile Include="DHTMetaData.cpp" />
     <ClCompile Include="DHTCodeGenerator.cpp" />
+    <ClCompile Include="DogeHeaderTool.cpp" />
+    <ClCompile Include="PCH.DogeHeaderTool.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DHTParser.h" />
     <ClInclude Include="DHTMetaData.h" />
     <ClInclude Include="DHTCodeGenerator.h" />
+    <ClInclude Include="DogeHeaderTool.h" />
+    <ClInclude Include="PCH.DogeHeaderTool.h" />
   </ItemGroup>
 </Project>

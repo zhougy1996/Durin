@@ -1,16 +1,14 @@
 #pragma once
 
-#include <string>
-
 namespace DHT
 {
-struct DHTMetaData;
+struct DHTFile;
 
 class DHTCodeGenerator
 {
 public:
-	bool GenerateDHTHeaderFile(const DHTMetaData& MetaData);
+	bool GenerateDHTHeaderFile(const DHTFile& MetaFile);
 
-	bool GenerateDHTSourceFile(const DHTMetaData& MetaData);
+	bool GenerateDHTSourceFile(const DHTFile& MetaFile);
 };
 } // namespace DHT

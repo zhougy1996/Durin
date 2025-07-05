@@ -113,6 +113,10 @@
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <LanguageStandard_C>stdclatest</LanguageStandard_C>
       <AdditionalIncludeDirectories>$(DogeThirdPartyDir)/clang/include</AdditionalIncludeDirectories>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>PCH.$(ProjectName).h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(DogePCHDir)\PCH.$(ProjectName).pch</PrecompiledHeaderOutputFile>
+      <ForcedIncludeFiles>PCH.$(ProjectName).h</ForcedIncludeFiles>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -132,6 +136,10 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <LanguageStandard_C>stdclatest</LanguageStandard_C>
       <AdditionalIncludeDirectories>$(DogeThirdPartyDir)/clang/include</AdditionalIncludeDirectories>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>PCH.$(ProjectName).h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>$(DogePCHDir)\PCH.$(ProjectName).pch</PrecompiledHeaderOutputFile>
+      <ForcedIncludeFiles>PCH.$(ProjectName).h</ForcedIncludeFiles>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -144,12 +152,19 @@
     <ClCompile Include="DHTCodeGenerator.cpp" />
     <ClCompile Include="DHTMetaData.cpp" />
     <ClCompile Include="DHTParser.cpp" />
+    <ClCompile Include="DogeHeaderTool.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="PCH.DogeHeaderTool.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DHTCodeGenerator.h" />
     <ClInclude Include="DHTMetaData.h" />
     <ClInclude Include="DHTParser.h" />
+    <ClInclude Include="DogeHeaderTool.h" />
+    <ClInclude Include="PCH.DogeHeaderTool.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

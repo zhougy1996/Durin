@@ -1,12 +1,9 @@
 #pragma once
 
-#include <vector>
-#include <string>
-#include <filesystem>
+#include "DHTMetaData.h"
 
 namespace DHT
 {
-namespace FS = std::filesystem;
 
 class DHTParser
 {
@@ -14,9 +11,9 @@ public:
 	DHTParser();
 	~DHTParser() = default;
 
-	bool ParseHeaderFile(const std::string& InFilePath);
+	DHTFile ParseHeaderFile(const std::string& InFilePath);
 
-	bool ParseHeaderFile(const FS::path& InFilePath);
+	DHTFile ParseHeaderFile(const FS::path& InFilePath);
 
 
 private:

@@ -1,14 +1,15 @@
 #include "DHTCodeGenerator.h"
-#include <iostream>
-#include <fstream>
 
 #include "DHTMetaData.h"
 
 namespace DHT
 {
-bool DHTCodeGenerator::GenerateDHTHeaderFile(const DHTMetaData& MetaData)
+static constexpr auto kDHTGeneratedHeaderPrefix = "Generated.";
+
+bool DHTCodeGenerator::GenerateDHTHeaderFile(const DHTFile& MetaFile)
 {
-	std::ofstream HeaderFile("DHTMetaData.h", std::ios::out | std::ios::trunc);
+	std::string GeneratedHeaderFilePath = std::string{kDHTGeneratedHeaderPrefix} + MetaFile.Filename;
+	std::ofstream HeaderFile(GeneratedHeaderFilePath, std::ios::out | std::ios::trunc);
 	if (!HeaderFile.is_open())
 	{
 		std::cerr << "Failed to create DHTMetaData.h" << std::endl;
@@ -25,7 +26,7 @@ bool DHTCodeGenerator::GenerateDHTHeaderFile(const DHTMetaData& MetaData)
 	return true;
 }
 
-bool DHTCodeGenerator::GenerateDHTSourceFile(const DHTMetaData& MetaData)
+bool DHTCodeGenerator::GenerateDHTSourceFile(const DHTFile& MetaFile)
 {
 	return false;
 }

@@ -1,7 +1,5 @@
 #include "DHTParser.h"
 
-#include <iostream>
-
 #include <clang-c/Index.h>
 
 namespace DHT
@@ -24,33 +22,46 @@ DHTParser::DHTParser()
 		 "-o clangLog.txt"};
 }
 
-bool DHTParser::ParseHeaderFile(const std::string& InFilePath)
+DHTFile DHTParser::ParseHeaderFile(const std::string& InFilePath)
 {
 	return ParseHeaderFile(FS::path(InFilePath));
 }
 
-bool DHTParser::ParseHeaderFile(const FS::path& InFilePath)
+static std::string ToString(const FS::path& FilePath)
 {
+	std::u8string FilePathStrU8 = FilePath.u8string();
+	return std::string(FilePathStrU8.begin(), FilePathStrU8.end());
+}
+
+DHTFile DHTParser::ParseHeaderFile(const FS::path& InFilePath)
+{
+	static DHTFile EmptyMetaFile;
+
+	DHTFile MetaFile;
+
 	if (!FS::exists(InFilePath))
 	{
 		std::cerr << "Header file does not exist: " << InFilePath << std::endl;
-		return false;
+		return EmptyMetaFile;
 	}
 
-	std::u8string FilePathStrU8 = InFilePath.u8string();
-	std::string FilePathStr = std::string(FilePathStrU8.begin(), FilePathStrU8.end());
+	const std::string Filename = ToString(InFilePath.filename());
+	const std::string FilePath = ToString(InFilePath);
 
 	auto Index = clang_createIndex(0, 0);
 	CXTranslationUnit TranslationUnit = clang_parseTranslationUnit(
-		Index, FilePathStr.c_str(), ClangArguments_.data(), (int)ClangArguments_.size(), nullptr, 0, CXTranslationUnit_None);
+		Index, FilePath.c_str(), ClangArguments_.data(), (int)ClangArguments_.size(), nullptr, 0, CXTranslationUnit_None);
 	if (!TranslationUnit)
 	{
 		std::cerr << "Failed to parse translation unit." << std::endl;
-		return false;
+		return EmptyMetaFile;
 	}
 
 	clang_disposeTranslationUnit(TranslationUnit);
-	return true;
+
+	MetaFile.Filename = Filename;
+	MetaFile.FilePath = FilePath;
+	return MetaFile;
 }
 
 
