@@ -2,5 +2,13 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="DHTParser.cpp" />
+    <ClCompile Include="DHTMetaData.cpp" />
+    <ClCompile Include="DHTCodeGenerator.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="DHTParser.h" />
+    <ClInclude Include="DHTMetaData.h" />
+    <ClInclude Include="DHTCodeGenerator.h" />
   </ItemGroup>
 </Project>

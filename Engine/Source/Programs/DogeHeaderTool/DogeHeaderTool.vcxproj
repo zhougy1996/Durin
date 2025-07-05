@@ -141,7 +141,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="DHTCodeGenerator.cpp" />
+    <ClCompile Include="DHTMetaData.cpp" />
+    <ClCompile Include="DHTParser.cpp" />
     <ClCompile Include="main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="DHTCodeGenerator.h" />
+    <ClInclude Include="DHTMetaData.h" />
+    <ClInclude Include="DHTParser.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
