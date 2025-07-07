@@ -20,8 +20,14 @@ DogeHeaderTool::~DogeHeaderTool()
 
 bool DogeHeaderTool::Process(const std::string& Filename)
 {
-	DHTFile MetaFile = Parser_->ParseHeaderFile(Filename);
-	Generator_->GenerateDHTHeaderFile(MetaFile);
+	std::optional<DHTFile> MetaFile = Parser_->ParseHeaderFile(Filename);
+	if (!MetaFile.has_value())
+	{
+		std::cerr << "Parse failed: " << Filename << std::endl;
+		return false;
+	}
+
+	Generator_->GenerateDHTHeaderFile(MetaFile.value());
 	return true;
 }
 } // namespace DHT
