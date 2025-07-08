@@ -9,6 +9,7 @@
     <DogeBinariesDir>$(DogeWorkDir)\Binaries</DogeBinariesDir>
     <DogeIntermediateDir>$(DogeWorkDir)\Intermediate</DogeIntermediateDir>
     <DogeThirdPartyDir>$(DogeSourceDir)\ThirdParty</DogeThirdPartyDir>
+    <DogePCHDir>$(DogeIntermediateDir)\$(ProjectName)\$(Platform)\$(Configuration)\PCHs</DogePCHDir>
   </PropertyGroup>
   <PropertyGroup />
   <ItemDefinitionGroup />
@@ -30,6 +31,9 @@
     </BuildMacro>
     <BuildMacro Include="DogeThirdPartyDir">
       <Value>$(DogeThirdPartyDir)</Value>
+    </BuildMacro>
+    <BuildMacro Include="DogePCHDir">
+      <Value>$(DogePCHDir)</Value>
     </BuildMacro>
   </ItemGroup>
 </Project>

@@ -4,11 +4,19 @@
 
 namespace DHT
 {
-static constexpr auto kDHTGeneratedHeaderPrefix = "Generated.";
+static std::string GetFilenameWithoutSuffix(const std::string& Filename)
+{
+	size_t DotPos = Filename.find_last_of('.');
+	if (DotPos == std::string::npos)
+	{
+		return Filename;
+	}
+	return Filename.substr(0, DotPos);
+}
 
 bool DHTCodeGenerator::GenerateDHTHeaderFile(const DHTFile& MetaFile)
 {
-	std::string GeneratedHeaderFilePath = std::string{kDHTGeneratedHeaderPrefix} + MetaFile.Filename;
+	std::string GeneratedHeaderFilePath = GetFilenameWithoutSuffix(MetaFile.Filename) + ".generated.h";
 	std::ofstream HeaderFile(GeneratedHeaderFilePath, std::ios::out | std::ios::trunc);
 	if (!HeaderFile.is_open())
 	{
