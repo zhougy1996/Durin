@@ -3,8 +3,8 @@
 #include "Definitions.Core.h"
 #include "Definitions.RHI.h"
 
-#ifdef VULKAN_RHI_EXPORTS
-	#define VULKAN_RHI_API DLLEXPORT
+#ifdef VULKANRHI_EXPORTS
+	#define VULKANRHI_API DLLEXPORT
 #else
-	#define VULKAN_RHI_API DLLIMPORT
+	#define VULKANRHI_API DLLIMPORT
 #endif

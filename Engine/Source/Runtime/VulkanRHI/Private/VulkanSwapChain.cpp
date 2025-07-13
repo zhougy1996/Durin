@@ -131,7 +131,8 @@ auto FVulkanSwapChain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* Bac
 		.setSwapchains(SwapChain_)
 		.setImageIndices(ImageIndex);
 
-	PresentQueue->GetHandle().presentKHR(PresentInfo);
+	vk::Result Result = PresentQueue->GetHandle().presentKHR(PresentInfo);
+	check(Result == vk::Result::eSuccess);
 
 	CurrentImageIndex_ = -1;
 }

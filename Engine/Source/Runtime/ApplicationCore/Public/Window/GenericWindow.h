@@ -4,14 +4,14 @@
 
 class FGenericApplication;
 
-enum class APPLICATION_CORE_API EWindowMode : uint32
+enum class APPLICATIONCORE_API EWindowMode : uint32
 {
 	Fullscreen,			// Fullscreen with a window border
 	WindowedFullScreen, // Fullscreen without a window border
 	Windowed,			// Stretch the window to the size of the monitor
 };
 
-class APPLICATION_CORE_API FGenericWindow
+class APPLICATIONCORE_API FGenericWindow
 {
 public:
 	FGenericWindow();

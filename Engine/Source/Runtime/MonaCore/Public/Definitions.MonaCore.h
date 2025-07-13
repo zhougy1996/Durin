@@ -6,8 +6,8 @@
 #include "Definitions.RHI.h"
 #include "Definitions.ApplicationCore.h"
 
-#ifdef MONA_CORE_EXPORTS
-	#define MONA_CORE_API DLLEXPORT
+#ifdef MONACORE_EXPORTS
+	#define MONACORE_API DLLEXPORT
 #else
-	#define MONA_CORE_API DLLIMPORT
+	#define MONACORE_API DLLIMPORT
 #endif

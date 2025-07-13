@@ -3,4 +3,4 @@
 #include "HAL/Platform.h"
 
 // API definitions for private includes
-#define MAIN_FRAME_API DLLIMPORT
+#define MAINFRAME_API DLLIMPORT

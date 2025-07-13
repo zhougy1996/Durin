@@ -7,7 +7,7 @@ class MWidget;
 class MWindow;
 class FMonaRenderer;
 
-class MONA_CORE_API FMonaApplication : public FGenericApplication
+class MONACORE_API FMonaApplication : public FGenericApplication
 {
 public:
 	virtual ~FMonaApplication();

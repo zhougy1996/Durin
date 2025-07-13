@@ -4,7 +4,7 @@
 
 struct GLFWwindow;
 
-class APPLICATION_CORE_API FGlfwWindow final : public FGenericWindow
+class APPLICATIONCORE_API FGlfwWindow final : public FGenericWindow
 {
 public:
 	virtual ~FGlfwWindow();

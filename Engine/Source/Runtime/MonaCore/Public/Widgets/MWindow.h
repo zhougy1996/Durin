@@ -6,7 +6,7 @@
 class FRHIViewport;
 class FGenericWindow;
 
-class MONA_CORE_API MWindow : public MWidget
+class MONACORE_API MWindow : public MWidget
 {
 public:
 	virtual ~MWindow();

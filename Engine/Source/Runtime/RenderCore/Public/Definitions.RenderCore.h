@@ -5,8 +5,8 @@
 #include "Definitions.Core.h"
 #include "Definitions.RHI.h"
 
-#ifdef RENDER_CORE_EXPORTS
-	#define RENDER_CORE_API DLLEXPORT
+#ifdef RENDERCORE_EXPORTS
+	#define RENDERCORE_API DLLEXPORT
 #else
-	#define RENDER_CORE_API DLLIMPORT
+	#define RENDERCORE_API DLLIMPORT
 #endif

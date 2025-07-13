@@ -1,6 +1,6 @@
 #pragma once
 
-class APPLICATION_CORE_API FGenericApplication
+class APPLICATIONCORE_API FGenericApplication
 {
 public:
 	virtual ~FGenericApplication() = default;

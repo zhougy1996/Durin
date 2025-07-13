@@ -5,7 +5,7 @@
 class FRHIViewport;
 class MWindow;
 
-class MONA_CORE_API FMonaRHIRenderer : public FMonaRenderer
+class MONACORE_API FMonaRHIRenderer : public FMonaRenderer
 {
 public:
 	virtual auto GetRHIViewport(MWindow& Window) -> TSharedPtr<FRHIViewport>;

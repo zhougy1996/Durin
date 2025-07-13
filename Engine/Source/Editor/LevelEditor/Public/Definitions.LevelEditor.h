@@ -10,8 +10,8 @@
 #include "Definitions.Mona.h"
 #include "Definitions.DogeEd.h"
 
-#ifdef LEVEL_EDITOR_EXPORTS
-	#define LEVEL_EDITOR_API DLLEXPORT
+#ifdef LEVELEDITOR_EXPORTS
+	#define LEVELEDITOR_API DLLEXPORT
 #else
-	#define LEVEL_EDITOR_API DLLIMPORT
+	#define LEVELEDITOR_API DLLIMPORT
 #endif

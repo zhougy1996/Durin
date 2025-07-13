@@ -10,8 +10,8 @@
 #include "Definitions.Mona.h"
 #include "Definitions.DogeEd.h"
 
-#ifdef MAIN_FRAME_EXPORTS
-	#define MAIN_FRAME_API DLLEXPORT
+#ifdef MAINFRAME_EXPORTS
+	#define MAINFRAME_API DLLEXPORT
 #else
-	#define MAIN_FRAME_API DLLIMPORT
+	#define MAINFRAME_API DLLIMPORT
 #endif

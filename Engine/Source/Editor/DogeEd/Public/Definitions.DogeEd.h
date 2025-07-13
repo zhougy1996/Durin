@@ -9,8 +9,8 @@
 #include "Definitions.MonaCore.h"
 #include "Definitions.Mona.h"
 
-#ifdef DOGE_ED_EXPORTS
-	#define DOGE_ED_API DLLEXPORT
+#ifdef DOGEED_EXPORTS
+	#define DOGEED_API DLLEXPORT
 #else
-	#define DOGE_ED_API DLLIMPORT
+	#define DOGEED_API DLLIMPORT
 #endif

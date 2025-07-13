@@ -16,16 +16,16 @@ public:
 	};
 
 	/** Release all render resources that are currently initialized. */
-	static RENDER_CORE_API void ReleaseRHIForAllResources();
+	static RENDERCORE_API void ReleaseRHIForAllResources();
 
-	static RENDER_CORE_API void InitPreRHIResources();
+	static RENDERCORE_API void InitPreRHIResources();
 
-	RENDER_CORE_API FRenderResource();
+	RENDERCORE_API FRenderResource();
 
 	/** Constructor when we know what feature level this resource should support */
-	RENDER_CORE_API FRenderResource(ERHIFeatureLevel InFeatureLevel);
+	RENDERCORE_API FRenderResource(ERHIFeatureLevel InFeatureLevel);
 
-	RENDER_CORE_API virtual ~FRenderResource();
+	RENDERCORE_API virtual ~FRenderResource();
 
 	/**
 	 * Initializes the RHI resources used by this resource.
@@ -45,19 +45,19 @@ public:
 	 * Initializes the resource.
 	 * This is only called by the rendering thread.
 	 */
-	RENDER_CORE_API virtual void InitResource(FRHICommandList& RHICmdList);
+	RENDERCORE_API virtual void InitResource(FRHICommandList& RHICmdList);
 
 	/**
 	 * Prepares the resource for deletion.
 	 * This is only called by the rendering thread.
 	 */
-	RENDER_CORE_API virtual void ReleaseResource();
+	RENDERCORE_API virtual void ReleaseResource();
 
 	/**
 	 * If the resource's RHI resources have been initialized, then release and reinitialize it.  Otherwise, do nothing.
 	 * This is only called by the rendering thread.
 	 */
-	RENDER_CORE_API void UpdateRHI(FRHICommandList& RHICmdList);
+	RENDERCORE_API void UpdateRHI(FRHICommandList& RHICmdList);
 
 	FORCEINLINE bool IsInitialized() const { return ListIndex_ != static_cast<uint32>(INDEX_NONE); }
 
@@ -107,15 +107,15 @@ private:
 class FVertexBuffer : public FRenderResource
 {
 public:
-	RENDER_CORE_API FVertexBuffer();
-	RENDER_CORE_API virtual ~FVertexBuffer();
+	RENDERCORE_API FVertexBuffer();
+	RENDERCORE_API virtual ~FVertexBuffer();
 
-	RENDER_CORE_API virtual void ReleaseRHI() override;
+	RENDERCORE_API virtual void ReleaseRHI() override;
 	virtual FString GetFriendlyName() const override { return "FVertexBuffer"; }
 
 	const TSharedPtr<FRHIBuffer>& GetRHI() const { return VertexBufferRHI_; }
 
-	RENDER_CORE_API void SetRHI(const TSharedPtr<FRHIBuffer>& BufferRHI);
+	RENDERCORE_API void SetRHI(const TSharedPtr<FRHIBuffer>& BufferRHI);
 
 	TSharedPtr<FRHIBuffer> VertexBufferRHI_;
 };

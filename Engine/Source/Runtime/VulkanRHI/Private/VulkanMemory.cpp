@@ -88,20 +88,20 @@ auto FVulkanFenceManager::CheckFenceSignaled(FVulkanFence* Fence) -> bool
 {
 	check(Fence->State_ == FVulkanFence::EState::eNotReady);
 
-	vk::Result result = Device_.GetHandle().getFenceStatus(Fence->GetHandle());
+	vk::Result Result = Device_.GetHandle().getFenceStatus(Fence->GetHandle());
 
-	if (result == vk::Result::eSuccess)
+	if (Result == vk::Result::eSuccess)
 	{
 		Fence->State_ = FVulkanFence::EState::eSignaled;
 		return true;
 	}
-	else if (result == vk::Result::eNotReady)
+	else if (Result == vk::Result::eNotReady)
 	{
 		return false;
 	}
 	else
 	{
-		DOGE_ERROR("Failed to check fence status: {}", vk::to_string(result));
+		DOGE_ERROR("Failed to check fence status: {}", vk::to_string(Result));
 		return false;
 	}
 }

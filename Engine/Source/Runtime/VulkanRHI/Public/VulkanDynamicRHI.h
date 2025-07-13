@@ -8,7 +8,7 @@ class FVulkanDevice;
 class FVulkanViewport;
 class FVulkanCommandListContext;
 
-class VULKAN_RHI_API IVulkanDynamicRHI : public IDynamicRHI
+class VULKANRHI_API IVulkanDynamicRHI : public IDynamicRHI
 {
 public:
 	IVulkanDynamicRHI() = default;
@@ -23,7 +23,7 @@ public:
 	virtual auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture> override = 0;
 };
 
-class VULKAN_RHI_API FVulkanDynamicRHI : public IVulkanDynamicRHI
+class VULKANRHI_API FVulkanDynamicRHI : public IVulkanDynamicRHI
 {
 public:
 	FVulkanDynamicRHI();
@@ -60,7 +60,7 @@ private:
 
 extern FVulkanDynamicRHI* GVulkanRHI;
 
-class VULKAN_RHI_API FVulkanDynamicRHIModule : public IDynamicRHIModule
+class VULKANRHI_API FVulkanDynamicRHIModule : public IDynamicRHIModule
 {
 public:
 	auto CreateRHI() -> IDynamicRHI* override
