@@ -2,6 +2,8 @@
 
 namespace DHT
 {
+using DHTNamespaceStack = std::vector<std::string>;
+
 struct DHTProperty
 {
 	std::string Name;

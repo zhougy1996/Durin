@@ -1,6 +1,5 @@
 #include "DHTParser.h"
 
-#include <clang-c/Index.h>
 
 namespace DHT
 {
@@ -14,9 +13,9 @@ std::string ToString(const FS::path& FilePath)
 
 std::string ToString(CXString str)
 {
-	std::string result = clang_getCString(str);
+	std::string Result = clang_getCString(str);
 	clang_disposeString(str);
-	return result;
+	return Result;
 }
 
 std::ostream& operator<<(std::ostream& stream, const CXString& str)
@@ -45,6 +44,25 @@ bool ShouldSkipCursor(CXCursor Cursor, DHTParseContext& Context)
 	return true;
 }
 
+std::string GetAnnotateAttrText(CXCursor Cursor)
+{
+	std::optional<CXString> Result = std::nullopt;
+
+	auto Visitor = [](CXCursor c, CXCursor parent, CXClientData clientData) {
+		std::optional<CXString>* attrText = static_cast<std::optional<CXString>*>(clientData);
+		if (clang_getCursorKind(c) == CXCursor_AnnotateAttr)
+		{
+			*attrText = clang_getCursorDisplayName(c);
+			return CXChildVisit_Break;
+		}
+		return CXChildVisit_Continue;
+	};
+
+	clang_visitChildren(Cursor, Visitor, &Result);
+
+	return Result.has_value() ? ToString(Result.value()) : "";
+}
+
 bool HasReflectionMacro(CXCursor Cursor, const std::string ReflectionMacro)
 {
 	CXTranslationUnit TranslationUnit = clang_Cursor_getTranslationUnit(Cursor);
@@ -70,9 +88,14 @@ bool HasReflectionMacro(CXCursor Cursor, const std::string ReflectionMacro)
 
 void ParseClass(CXCursor Cursor, DHTParseContext& Context)
 {
-	DHTClass MetaClass;
+	std::string AnnotateAttrText = GetAnnotateAttrText(Cursor);
+
 	std::string ClassName = ToString(clang_getCursorSpelling(Cursor));
-	if (ClassName.empty() || !HasReflectionMacro(Cursor, "DClass"))
+
+	DHTClass MetaClass;
+
+	std::cout << "Annotation: " << AnnotateAttrText << std::endl;
+	if (ClassName.empty())
 	{
 		return;
 	}
@@ -102,32 +125,6 @@ std::optional<DHTFile> DHTParser::ParseHeaderFile(const std::string& InFilePath)
 	return ParseHeaderFile(FS::path(InFilePath));
 }
 
-static CXChildVisitResult DHTHeaderFileParseVisitor(CXCursor Cursor, CXCursor Parent, CXClientData ClientData)
-{
-	DHTParseContext* Context = static_cast<DHTParseContext*>(ClientData);
-	DHTFile* MetaFile = Context->MetaFile;
-	if (ShouldSkipCursor(Cursor, *Context))
-	{
-		return CXChildVisit_Continue;
-	}
-
-	CXCursorKind CursorType = clang_getCursorKind(Cursor);
-
-	std::cout << "Type: " << std::setw(20) << clang_getCursorKindSpelling(clang_getCursorKind(Cursor)) << "\t|\t" << "Cursor: " << std::setw(20) << clang_getCursorSpelling(Cursor) << std::endl;
-
-	switch (CursorType)
-	{
-	case CXCursor_StructDecl:
-	case CXCursor_ClassDecl:
-		ParseClass(Cursor, *Context);
-		break;
-	default:
-		break;
-	}
-
-	return CXChildVisit_Recurse;
-}
-
 std::optional<DHTFile> DHTParser::ParseHeaderFile(const FS::path& InFilePath)
 {
 	DHTFile MetaFile;
@@ -153,18 +150,100 @@ std::optional<DHTFile> DHTParser::ParseHeaderFile(const FS::path& InFilePath)
 	MetaFile.Filename = Filename;
 	MetaFile.FilePath = FilePath;
 
-	DHTParseContext ParseContext = {&MetaFile};
+	auto HeaderFileVisitor = [](CXCursor Child, CXCursor Parent, CXClientData ClientData) -> CXChildVisitResult {
+		DHTParseContext* VisitContext = static_cast<DHTParseContext*>(ClientData);
+
+		if (ShouldSkipCursor(Child, *VisitContext))
+		{
+			return CXChildVisit_Continue;
+		}
+		CXCursorKind CursorType = clang_getCursorKind(Child);
+		switch (CursorType)
+		{
+		case CXCursor_Namespace:
+			{
+				VisitContext->Parser->ParseNamespaceRecursively(Child, *VisitContext);
+			}
+			break;
+		case CXCursor_ClassDecl:
+			{
+				VisitContext->Parser->ParseClass(Child, *VisitContext);
+			}
+			break;
+		default:
+			break;
+		}
+		return CXChildVisit_Continue;
+	};
+
+	DHTParseContext ParseContext;
+	ParseContext.Parser = this;
+	ParseContext.MetaFile = &MetaFile;
+	ParseContext.ParseConfig = nullptr;
+
 	CXCursor RootCursor = clang_getTranslationUnitCursor(TranslationUnit);
-	bool bParseSuccess = clang_visitChildren(RootCursor, DHTHeaderFileParseVisitor, &ParseContext);
-
-	if (!bParseSuccess)
-	{
-		return std::nullopt;
-	}
-
+	clang_visitChildren(RootCursor, HeaderFileVisitor, &ParseContext);
 	clang_disposeTranslationUnit(TranslationUnit);
 
 	return MetaFile;
+}
+
+void DHTParser::ParseNamespaceRecursively(CXCursor NamespaceCursor, DHTParseContext& Context)
+{
+	Context.NamespaceStack.push_back(ToString(clang_getCursorSpelling(NamespaceCursor)));
+
+	auto NamespaceVisitor = [](CXCursor Child, CXCursor Parent, CXClientData ClientData) -> CXChildVisitResult {
+		DHTParseContext* VisitContext = static_cast<DHTParseContext*>(ClientData);
+		CXCursorKind CursorType = clang_getCursorKind(Child);
+		switch (CursorType)
+		{
+		case CXCursor_Namespace:
+			{
+				VisitContext->Parser->ParseNamespaceRecursively(Child, *VisitContext);
+			}
+			break;
+		case CXCursor_ClassDecl:
+			{
+				VisitContext->Parser->ParseClass(Child, *VisitContext);
+			}
+			break;
+		default:
+			break;
+		}
+		return CXChildVisit_Continue;
+	};
+
+	clang_visitChildren(NamespaceCursor, NamespaceVisitor, &Context);
+	Context.NamespaceStack.pop_back();
+}
+
+void DHTParser::ParseClass(CXCursor ClassCursor, DHTParseContext& Context)
+{
+	std::string AnnotateAttrText = GetAnnotateAttrText(ClassCursor);
+	if (!AnnotateAttrText.starts_with("DCLASS"))
+	{
+		return;
+	}
+
+	DHTClass MetaClass;
+	MetaClass.ClassName = ToString(clang_getCursorSpelling(ClassCursor));
+	for (const auto& Namespace : Context.NamespaceStack)
+	{
+		if (MetaClass.Namespace.empty())
+		{
+			MetaClass.Namespace += Namespace;
+		}
+		else
+		{
+			MetaClass.Namespace = MetaClass.Namespace + "::" + Namespace;
+		}
+	}
+
+	std::cout << "Class: " << MetaClass.ClassName << std::endl;
+	std::cout << "- Annotation: " << AnnotateAttrText << std::endl;
+	std::cout << "- Namespace: " << MetaClass.Namespace << std::endl;
+
+	Context.MetaFile->Classes.push_back(std::move(MetaClass));
 }
 
 
