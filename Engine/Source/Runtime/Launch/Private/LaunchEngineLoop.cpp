@@ -1,6 +1,7 @@
 #include "LaunchEngineLoop.h"
 
 #include "CoreGlobals.h"
+#include "Misc/ConfigCacheJson.h"
 #include "ApplicationCore.h"
 #include "RHI.h"
 #include "Mona.h"
@@ -21,6 +22,7 @@ TSharedPtr<AActor> GTestActor;
 
 auto FEngineLoop::PreInit() -> void
 {
+	FConfigCacheJson::LoadAndParseConfig();
 	LoggerInit();
 	GObjectManager = DObjectManager::Get();
 }

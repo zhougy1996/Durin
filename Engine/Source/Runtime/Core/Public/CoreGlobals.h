@@ -15,3 +15,6 @@ FORCEINLINE auto IsEngineExitRequested() -> bool
 }
 
 extern CORE_API TArray<const char*> GMonaRequiredVulkanInstanceExtensions;
+
+extern CORE_API FPath GWorkDirectory;
+extern CORE_API FPath GShaderPath;

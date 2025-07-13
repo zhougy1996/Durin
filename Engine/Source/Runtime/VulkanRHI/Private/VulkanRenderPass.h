@@ -39,7 +39,7 @@ public:
 private:
 	FVulkanDevice& Device_;
 	// tmp, use hash later
-	FVulkanRenderPass* RenderPass_;
+	FVulkanRenderPass* RenderPass_ = nullptr;
 
 	TArray<FVulkanFramebuffer*> FrameBuffers_;
 };

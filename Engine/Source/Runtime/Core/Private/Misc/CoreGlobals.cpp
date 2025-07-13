@@ -4,4 +4,7 @@
 
 bool GIsRequestingExit = false;
 
+FPath GWorkDirectory;
+FPath GShaderPath;
+
 TArray<const char*> GMonaRequiredVulkanInstanceExtensions;

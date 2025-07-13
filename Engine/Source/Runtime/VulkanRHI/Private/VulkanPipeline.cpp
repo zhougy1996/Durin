@@ -14,8 +14,8 @@ FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& Device
 	// State.SetViewport(0.0f, 0.0f, 0.0f, 800.0f, 600.0f, 1.0f);
 	RenderPass_ = RenderPassManager.GetOrCreateRenderPass();
 
-	Shaders_[SHADER_STAGE_VERTEX] = new FVulkanShader(Device_, "Shaders/spv/test_vert.spv", vk::ShaderStageFlagBits::eVertex);
-	Shaders_[SHADER_STAGE_PIXEL] = new FVulkanShader(Device_, "Shaders/spv/test_frag.spv", vk::ShaderStageFlagBits::eFragment);
+	Shaders_[SHADER_STAGE_VERTEX] = new FVulkanShader(Device_, "../../../../Shaders/spv/test_vert.spv", vk::ShaderStageFlagBits::eVertex);
+	Shaders_[SHADER_STAGE_PIXEL] = new FVulkanShader(Device_, "../../../../Shaders/spv/test_frag.spv", vk::ShaderStageFlagBits::eFragment);
 
 	vk::PipelineShaderStageCreateInfo VertShaderInfo;
 	VertShaderInfo
