@@ -17,4 +17,5 @@
 #include "Misc/EnumClassFlags.h"
 #include "Misc/PixelFormat.h"
 #include "Misc/CoreMiscDefines.h"
+#include "Json/Json.h"
 #include "Templates/SmartPointers.h"

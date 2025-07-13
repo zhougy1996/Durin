@@ -13,6 +13,7 @@ target_include_directories(Core PRIVATE
 
 target_include_directories(Core PUBLIC
     ${DOGE_THIRDPARTY_DIR}/glm
+    ${DOGE_THIRDPARTY_DIR}/rapidjson/include
 )
 
 target_link_libraries(Core PRIVATE 

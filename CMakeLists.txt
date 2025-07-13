@@ -6,10 +6,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 add_definitions(-DUNICODE -D_UNICODE)
 
+if(MSVC)
+    add_compile_options(/MP)
+endif()
+
 set(DOGE_ARCH "x64")
 message("Arch: ${DOGE_ARCH}")
 message("CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
-
 message("")
 message("Custom Macros(DOGE):")
 set(DOGE_ROOT_DIR "${PROJECT_SOURCE_DIR}")
