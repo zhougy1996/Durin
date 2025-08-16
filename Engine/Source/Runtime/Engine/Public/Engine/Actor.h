@@ -78,7 +78,7 @@ protected:
 	}
 
 	template<typename T>
-	auto CreateDefaultComponent(const FName& ComponentName) -> T*
+	auto CreateDefaultComponent(const FStringName& ComponentName) -> T*
 	{
 		auto* Component = CreateDefaultComponent<T>();
 		Component->SetName(ComponentName);
@@ -91,5 +91,5 @@ protected:
 
 	TArray<DActorComponent*> InstanceComponents_;
 
-	FName Name_ = "Actor";
+	FStringName Name_ = "Actor";
 };

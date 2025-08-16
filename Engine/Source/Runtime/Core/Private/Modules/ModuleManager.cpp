@@ -6,7 +6,7 @@ auto FModuleManager::Get() -> FModuleManager&
 	return Instance;
 }
 
-auto FModuleManager::AddModule(const FName& InModuleName, const FString& FileName) -> void
+auto FModuleManager::AddModule(const FStringName& InModuleName, const FString& FileName) -> void
 {
 	auto ModuleInfoPtr = std::make_shared<FModuleInfo>();
 	ModuleInfoPtr->ModuleName_ = InModuleName;
@@ -14,7 +14,7 @@ auto FModuleManager::AddModule(const FName& InModuleName, const FString& FileNam
 	Modules_.emplace(InModuleName, ModuleInfoPtr);
 }
 
-auto FModuleManager::FindModule(const FName& InModuleName) -> FModuleInfoPtr
+auto FModuleManager::FindModule(const FStringName& InModuleName) -> FModuleInfoPtr
 {
 	auto Iter = Modules_.find(InModuleName);
 	if (Iter == Modules_.end())
@@ -25,7 +25,7 @@ auto FModuleManager::FindModule(const FName& InModuleName) -> FModuleInfoPtr
 	return Iter->second;
 }
 
-auto FModuleManager::IsModuleLoaded(const FName& InModuleName) -> bool
+auto FModuleManager::IsModuleLoaded(const FStringName& InModuleName) -> bool
 {
 	auto ModuleInfo = FindModule(InModuleName);
 
@@ -41,7 +41,7 @@ auto FModuleManager::IsModuleLoaded(const FName& InModuleName) -> bool
 	return false;
 }
 
-auto FModuleManager::LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&
+auto FModuleManager::LoadModuleChecked(const FStringName& InModuleName) -> IModuleInterface&
 {
 	auto Module = LoadModule(InModuleName);
 
@@ -54,7 +54,7 @@ auto FModuleManager::LoadModuleChecked(const FName& InModuleName) -> IModuleInte
 	return *Module;
 }
 
-auto FModuleManager::GetModule(const FName& InModuleName) -> IModuleInterface*
+auto FModuleManager::GetModule(const FStringName& InModuleName) -> IModuleInterface*
 {
 	auto ModuleInfo = FindModule(InModuleName);
 	if (ModuleInfo == nullptr)
@@ -73,12 +73,12 @@ auto FModuleManager::GetModule(const FName& InModuleName) -> IModuleInterface*
 	return nullptr;
 }
 
-static constexpr auto GetDogeModuleFileName(const FName& InModuleName) -> FString
+static constexpr auto GetDogeModuleFileName(const FStringName& InModuleName) -> FString
 {
 	return FString("DogeEditor-") + InModuleName + ".dll";
 }
 
-auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
+auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInterface*
 {
 	IModuleInterface* LoadedModule = nullptr;
 	FModuleInfoPtr FoundModuleInfo = FindModule(InModuleName);
@@ -131,7 +131,7 @@ auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
 	return Result;
 }
 
-auto FModuleManager::UnloadModule(const FName& InModuleName) -> void
+auto FModuleManager::UnloadModule(const FStringName& InModuleName) -> void
 {
 	DOGE_INFO("Module Unloaded: {}", InModuleName);
 }

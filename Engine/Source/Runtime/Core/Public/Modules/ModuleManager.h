@@ -14,7 +14,7 @@ public:
 class CORE_API FModuleInfo
 {
 public:
-	FName ModuleName_;
+	FStringName ModuleName_;
 
 	FString Filename_;
 
@@ -32,36 +32,36 @@ class CORE_API FModuleManager
 {
 public:
 	using FModuleInfoPtr = TSharedPtr<FModuleInfo>;
-	using FModuleMap = THashMap<FName, FModuleInfoPtr>;
+	using FModuleMap = THashMap<FStringName, FModuleInfoPtr>;
 
 	static auto Get() -> FModuleManager&;
 
 	template<typename TModuleInterface>
-	static auto LoadModule(const FName& InModuleName) -> TModuleInterface*
+	static auto LoadModule(const FStringName& InModuleName) -> TModuleInterface*
 	{
 		return static_cast<TModuleInterface*>(FModuleManager::Get().LoadModule(InModuleName));
 	}
 
 	template<typename TModuleInterface>
-	static auto LoadModuleChecked(const FName& InModuleName) -> TModuleInterface&
+	static auto LoadModuleChecked(const FStringName& InModuleName) -> TModuleInterface&
 	{
 		IModuleInterface& Module = FModuleManager::Get().LoadModuleChecked(InModuleName);
 		return static_cast<TModuleInterface&>(Module);
 	}
 
-	auto AddModule(const FName& InModuleName, const FString& FileName) -> void;
+	auto AddModule(const FStringName& InModuleName, const FString& FileName) -> void;
 
-	auto FindModule(const FName& InModuleName) -> FModuleInfoPtr;
+	auto FindModule(const FStringName& InModuleName) -> FModuleInfoPtr;
 
-	auto LoadModule(const FName& InModuleName) -> IModuleInterface*;
+	auto LoadModule(const FStringName& InModuleName) -> IModuleInterface*;
 
-	auto LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&;
+	auto LoadModuleChecked(const FStringName& InModuleName) -> IModuleInterface&;
 
-	auto IsModuleLoaded(const FName& InModuleName) -> bool;
+	auto IsModuleLoaded(const FStringName& InModuleName) -> bool;
 
-	auto GetModule(const FName& InModuleName) -> IModuleInterface*;
+	auto GetModule(const FStringName& InModuleName) -> IModuleInterface*;
 
-	auto UnloadModule(const FName& InModuleName) -> void;
+	auto UnloadModule(const FStringName& InModuleName) -> void;
 
 private:
 	FModuleMap Modules_;

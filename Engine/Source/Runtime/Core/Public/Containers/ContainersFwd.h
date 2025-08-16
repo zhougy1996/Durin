@@ -52,6 +52,6 @@ using TTuple = std::tuple<Types...>;
 
 // String types
 using FString = std::string;
-using FName = std::string;
+using FStringName = std::string;
 using FText = std::string;
 using FStringView = std::string_view;

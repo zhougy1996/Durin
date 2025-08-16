@@ -6,7 +6,7 @@ class DActorComponent : public DObject
 private:
 	AActor* OwnerActor_;
 
-	FName ComponentName_;
+	FStringName ComponentName_;
 
 	uint8 bRegistered : 1 = false;
 
@@ -19,11 +19,11 @@ public:
 
 	ENGINE_API virtual ~DActorComponent() = default;
 
-	ENGINE_API virtual FName GetDefaultName() const { return "ActorComponent"; }
+	ENGINE_API virtual FStringName GetDefaultName() const { return "ActorComponent"; }
 
-	ENGINE_API auto GetName() const -> const FName& { return ComponentName_; }
+	ENGINE_API auto GetName() const -> const FStringName& { return ComponentName_; }
 
-	ENGINE_API auto SetName(const FName& NewName) -> void { ComponentName_ = NewName; }
+	ENGINE_API auto SetName(const FStringName& NewName) -> void { ComponentName_ = NewName; }
 
 	ENGINE_API auto GetOwner() -> AActor* const { return OwnerActor_; }
 
