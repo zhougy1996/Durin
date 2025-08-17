@@ -2,3 +2,9 @@
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/filereadstream.h"
+
+namespace FJson
+{
+auto ParseJson(const FString& JsonFilePath) -> rapidjson::Document;
+
+} // namespace FJson
