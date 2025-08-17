@@ -1,6 +1,7 @@
 #include "LaunchEngineLoop.h"
 
 #include "CoreGlobals.h"
+#include "Misc/Name.h"
 #include "Misc/ConfigCacheJson.h"
 #include "ApplicationCore.h"
 #include "RHI.h"
@@ -18,8 +19,6 @@ constexpr auto DLLModuleDependencies = std::array{"MainFrame"};
 
 TSharedPtr<FRHIGraphicsPipelineState> GTestPipeline;
 
-TSharedPtr<AActor> GTestActor;
-
 auto FEngineLoop::PreInit() -> void
 {
 	FConfigCacheJson::LoadAndParseConfig();
@@ -34,12 +33,9 @@ auto FEngineLoop::Init() -> void
 	MonaInit();
 	EditorInit();
 
-	GTestActor = std::make_shared<AStaticMeshActor>();
-
-	DActorComponent* StaticMeshComponent = GTestActor->FindComponentByStaticClass<DStaticMeshComponent>();
-
-	StaticMeshComponent->DestroyComponent();
-
+	FName Name(STR("TestName"));
+	FName Name1(STR("TestName_0"));
+	FName Name2(STR("TestName_1"));
 	// test code
 	FGraphicsPipelineStateInitializer Initializer; // empty
 

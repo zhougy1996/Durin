@@ -14,9 +14,9 @@
 
 #define PLATFORM_BREAK() (/*__nop(), */__debugbreak())
 
-using CharT = char;
-using FString = FANSIString;
-using FStringView = FANSIStringView;
+using CharT = UTF8Char;
+using FString = FU8String;
+using FStringView = FU8StringView;
 
 using FStringName = FString; // temporary replacement for FName, which is not defined here
 

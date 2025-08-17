@@ -21,7 +21,7 @@ struct FGenericPlatformTypes
 {
 	using ANSIChar = char;
 	using WChar = wchar_t;
-	using UTF8Char = char8_t;
+	using UTF8Char = char; // Should be char8_t, but the compiler and other libraries have not fully supported it yet.
 	using UTF16Char = char16_t;
 	using UTF32Char = char32_t;
 };
@@ -33,32 +33,52 @@ using UTF16Char = FGenericPlatformTypes::UTF16Char;
 using UTF32Char = FGenericPlatformTypes::UTF32Char;
 
 using FANSIString = std::string;
-using FU8String = std::u8string;
+using FU8String = std::string; // Should be std::u8string, but the compiler and other libraries have not fully supported it yet.
 using FU16String = std::u16string;
 using FU32String = std::u32string;
 
 using FANSIStringView = std::string_view;
-using FU8StringView = std::u8string_view;
+using FU8StringView = std::string_view; // Should be std::u8string_view, but the compiler and other libraries have not fully supported it yet.
 using FU16StringView = std::u16string_view;
 using FU32StringView = std::u32string_view;
 
-#define UTF8TEXT(x) u8##x
+#define UTF8TEXT(x) x // Should be u8##x, but the compiler and other libraries have not fully supported it yet.
 #define UTF16TEXT(x) u##x
 #define UTF32TEXT(x) U##x
 
+// Type CharT will be defined in the platform-specific header
+
 template<typename T>
+concept StringType =
+	std::is_same_v<T, FANSIString> ||
+	std::is_same_v<T, FU8String> ||
+	std::is_same_v<T, FU16String> ||
+	std::is_same_v<T, FU32String>;
+
+template<typename T>
+concept StringViewType =
+	std::is_same_v<T, FANSIStringView> ||
+	std::is_same_v<T, FU8StringView> ||
+	std::is_same_v<T, FU16StringView> ||
+	std::is_same_v<T, FU32StringView>;
+
+template<typename T>
+concept StringOrStringViewType =
+	StringType<T> || StringViewType<T>;
+
+template<StringOrStringViewType T>
 inline const char* ToCStr(const T& Str)
 {
 	return reinterpret_cast<const char*>(Str.data());
 }
 
-template<typename T>
+template<StringOrStringViewType T>
 inline FANSIString ToString_ANSI(const T& Str)
 {
 	return FANSIString(reinterpret_cast<const char*>(Str.data()), Str.size());
 }
 
-template<typename T>
+template<StringOrStringViewType T>
 inline FANSIStringView ToStringView_ANSI(const T& Str)
 {
 	return FANSIStringView(reinterpret_cast<const char*>(Str.data()), Str.size());
