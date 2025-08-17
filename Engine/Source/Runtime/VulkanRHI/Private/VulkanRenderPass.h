@@ -41,5 +41,5 @@ private:
 	// tmp, use hash later
 	FVulkanRenderPass* RenderPass_ = nullptr;
 
-	TArray<FVulkanFramebuffer*> FrameBuffers_;
+	std::vector<FVulkanFramebuffer*> FrameBuffers_;
 };

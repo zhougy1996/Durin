@@ -55,9 +55,9 @@ protected:
 
 	static TSharedPtr<FMonaApplication> CurrentApplication_;
 
-	TArray<TSharedPtr<MWindow>> Windows_;
+	std::vector<TSharedPtr<MWindow>> Windows_;
 
-	TArray<TSharedPtr<MWindow>> WindowDestroyQueue_;
+	std::vector<TSharedPtr<MWindow>> WindowDestroyQueue_;
 
 	TSharedPtr<FMonaRenderer> Renderer_;
 };

@@ -26,7 +26,7 @@ auto MWindow::GetNativeWindow() const -> TSharedPtr<FGenericWindow>
 	return NativeWindow_;
 }
 
-auto MWindow::GetChildWindows() const -> const TArray<TSharedPtr<MWindow>>&
+auto MWindow::GetChildWindows() const -> const std::vector<TSharedPtr<MWindow>>&
 {
 	return ChildWindows_;
 }

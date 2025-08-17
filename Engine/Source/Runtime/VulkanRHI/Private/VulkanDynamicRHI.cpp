@@ -105,7 +105,7 @@ static auto RateDeviceSuitability(vk::PhysicalDevice Device) -> int
 
 auto FVulkanDynamicRHI::SelectDevice() -> void
 {
-	TArray<vk::PhysicalDevice> Gpus = Instance_.enumeratePhysicalDevices();
+	std::vector<vk::PhysicalDevice> Gpus = Instance_.enumeratePhysicalDevices();
 
 	if (Gpus.empty())
 	{
@@ -113,7 +113,7 @@ auto FVulkanDynamicRHI::SelectDevice() -> void
 		return;
 	}
 
-	TMultiMap<int, vk::PhysicalDevice> GpuScores;
+	std::multimap<int, vk::PhysicalDevice> GpuScores;
 
 	for (const auto& Gpu : Gpus)
 	{
@@ -129,6 +129,6 @@ auto FVulkanDynamicRHI::SetupInstanceLayers(const FVulkanInstanceExtensionArray&
 {
 	// TODO: Implement this function.
 	// For now, just return the validation layer.
-	TArray<const char*> Layers = {"VK_LAYER_KHRONOS_validation"};
+	std::vector<const char*> Layers = {"VK_LAYER_KHRONOS_validation"};
 	InstanceLayers_ = Layers;
 }

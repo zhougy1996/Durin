@@ -23,7 +23,7 @@ auto FVulkanQueue::Submit(FVulkanCommandBuffer& CmdBuffer, FVulkanSemaphore* Sig
 	submitInfo.setWaitDstStageMask(waitStages);
 
 	// Set signal semaphores
-	TArray<vk::Semaphore> SignalSemaphoresArray{NumSignalSemaphores};
+	std::vector<vk::Semaphore> SignalSemaphoresArray{NumSignalSemaphores};
 	if (NumSignalSemaphores > 0 && SignalSemaphores != nullptr)
 	{
 		for (uint32 i = 0; i < NumSignalSemaphores; ++i)
@@ -34,8 +34,8 @@ auto FVulkanQueue::Submit(FVulkanCommandBuffer& CmdBuffer, FVulkanSemaphore* Sig
 	}
 
 	// Set wait semaphores
-	TArray<FVulkanSemaphore*>& WaitSemaphores = CmdBuffer.WaitSemaphores_;
-	TArray<vk::Semaphore> WaitSemaphoresArray{WaitSemaphores.size()};
+	std::vector<FVulkanSemaphore*>& WaitSemaphores = CmdBuffer.WaitSemaphores_;
+	std::vector<vk::Semaphore> WaitSemaphoresArray{WaitSemaphores.size()};
 	if (!WaitSemaphores.empty())
 	{
 		for (uint32 i = 0; i < WaitSemaphores.size(); ++i)

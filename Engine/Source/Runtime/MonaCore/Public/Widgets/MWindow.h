@@ -19,7 +19,7 @@ public:
 
 	auto GetNativeWindow() const -> TSharedPtr<FGenericWindow>;
 
-	auto GetChildWindows() const -> const TArray<TSharedPtr<MWindow>>&;
+	auto GetChildWindows() const -> const std::vector<TSharedPtr<MWindow>>&;
 
 	auto RequestDestroyWindow() -> void;
 
@@ -68,7 +68,7 @@ protected:
 
 	TSharedPtr<FGenericWindow> NativeWindow_;
 
-	TArray<TSharedPtr<MWindow>> ChildWindows_;
+	std::vector<TSharedPtr<MWindow>> ChildWindows_;
 
 	TSharedPtr<FRHIViewport> RHIViewport_;
 };

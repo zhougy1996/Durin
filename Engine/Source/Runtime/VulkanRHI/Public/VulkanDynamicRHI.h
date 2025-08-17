@@ -52,8 +52,8 @@ protected:
 
 private:
 	vk::Instance Instance_;
-	TArray<const char*> InstanceExtensions_;
-	TArray<const char*> InstanceLayers_;
+	std::vector<const char*> InstanceExtensions_;
+	std::vector<const char*> InstanceLayers_;
 
 	FVulkanDevice* Device_ = nullptr;
 };

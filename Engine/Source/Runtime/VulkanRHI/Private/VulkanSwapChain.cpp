@@ -4,7 +4,7 @@
 #include "VulkanGenericPlatform.h"
 #include "VulkanQueue.h"
 
-auto ChooseSwapSurfaceFormat(const TArray<vk::SurfaceFormatKHR>& AvailableFormats) -> vk::SurfaceFormatKHR
+auto ChooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& AvailableFormats) -> vk::SurfaceFormatKHR
 {
 	if (AvailableFormats.size() == 1 && AvailableFormats[0].format == vk::Format::eUndefined)
 	{
@@ -20,7 +20,7 @@ auto ChooseSwapSurfaceFormat(const TArray<vk::SurfaceFormatKHR>& AvailableFormat
 	return AvailableFormats[0];
 }
 
-auto ChooseSwapPresentMode(const TArray<vk::PresentModeKHR>& AvailablePresentModes) -> vk::PresentModeKHR
+auto ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& AvailablePresentModes) -> vk::PresentModeKHR
 {
 	return vk::PresentModeKHR::eFifo;
 }
@@ -48,8 +48,8 @@ FVulkanSwapChain::FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device,
 	// Get Swap chain support details
 	vk::PhysicalDevice Gpu = Device_.GetGpu();
 	vk::SurfaceCapabilitiesKHR Capabilities = Gpu.getSurfaceCapabilitiesKHR(Surface_);
-	TArray<vk::SurfaceFormatKHR> Formats = Gpu.getSurfaceFormatsKHR(Surface_);
-	TArray<vk::PresentModeKHR> PresentModes = Gpu.getSurfacePresentModesKHR(Surface_);
+	std::vector<vk::SurfaceFormatKHR> Formats = Gpu.getSurfaceFormatsKHR(Surface_);
+	std::vector<vk::PresentModeKHR> PresentModes = Gpu.getSurfacePresentModesKHR(Surface_);
 
 	vk::SurfaceFormatKHR CurrFormat = ChooseSwapSurfaceFormat(Formats);
 	vk::PresentModeKHR PresentMode = ChooseSwapPresentMode(PresentModes);
@@ -100,7 +100,7 @@ FVulkanSwapChain::~FVulkanSwapChain()
 	Device_.GetHandle().destroySwapchainKHR(SwapChain_);
 }
 
-auto FVulkanSwapChain::GetImages() const -> const TArray<vk::Image>&
+auto FVulkanSwapChain::GetImages() const -> const std::vector<vk::Image>&
 {
 	return SwapChainImages_;
 }

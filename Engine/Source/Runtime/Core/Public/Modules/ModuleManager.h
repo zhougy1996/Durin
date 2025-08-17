@@ -32,7 +32,7 @@ class CORE_API FModuleManager
 {
 public:
 	using FModuleInfoPtr = TSharedPtr<FModuleInfo>;
-	using FModuleMap = THashMap<FStringName, FModuleInfoPtr>;
+	using FModuleMap = std::unordered_map<FStringName, FModuleInfoPtr>;
 
 	static auto Get() -> FModuleManager&;
 

@@ -22,7 +22,7 @@ public:
 
 	ENGINE_API void Init(uint32 NumVertices, bool bInNeedsCPUAccess = true);
 
-	ENGINE_API void Init(const TArray<FVector3f>& InPositions, bool bInNeedsCPUAccess = true);
+	ENGINE_API void Init(const std::vector<FVector3f>& InPositions, bool bInNeedsCPUAccess = true);
 
 	// FRenderResource interface.
 	ENGINE_API virtual void InitRHI(FRHICommandList& RHICmdList) override;

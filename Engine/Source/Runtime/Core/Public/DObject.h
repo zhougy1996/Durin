@@ -19,7 +19,7 @@ public:
 	CORE_API auto DestroyPendingObjects() -> void;
 
 private:
-	TArray<DObject*> PendingDestroyObjects_;
+	std::vector<DObject*> PendingDestroyObjects_;
 };
 
 extern CORE_API DObjectManager* GObjectManager;

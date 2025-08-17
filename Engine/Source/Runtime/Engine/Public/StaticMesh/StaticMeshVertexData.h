@@ -33,7 +33,7 @@ public:
 template<typename VertexDataType>
 class TStaticMeshVertexData : public IStaticMeshVertexData
 {
-	using FVertexDataArray = TArray<VertexDataType>;
+	using FVertexDataArray = std::vector<VertexDataType>;
 
 private:
 	FVertexDataArray Data_;
@@ -67,7 +67,7 @@ public:
 		}
 		else
 		{
-			TArray<VertexDataType> temp;
+			std::vector<VertexDataType> temp;
 			temp.reserve(NumVertices);
 			Data_.swap(temp);
 		}

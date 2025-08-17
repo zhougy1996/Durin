@@ -2,7 +2,7 @@
 
 #include "Widgets/MWindow.h"
 
-auto FMonaWindowHelper::FindWindowByPlatformWindow(const TArray<TSharedPtr<MWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<MWindow>
+auto FMonaWindowHelper::FindWindowByPlatformWindow(const std::vector<TSharedPtr<MWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<MWindow>
 {
 	for (const auto& window : WindowsToSearch)
 	{
@@ -22,7 +22,7 @@ auto FMonaWindowHelper::FindWindowByPlatformWindow(const TArray<TSharedPtr<MWind
 	return nullptr;
 }
 
-auto FMonaWindowHelper::ArrangeWindowToFront(TArray<TSharedPtr<MWindow>>& Windows, TSharedPtr<MWindow> WindowToBringToFront) -> void
+auto FMonaWindowHelper::ArrangeWindowToFront(std::vector<TSharedPtr<MWindow>>& Windows, TSharedPtr<MWindow> WindowToBringToFront) -> void
 {
 	Windows.erase(std::remove(Windows.begin(), Windows.end(), WindowToBringToFront), Windows.end());
 	Windows.push_back(WindowToBringToFront);

@@ -21,7 +21,7 @@ private:
 
 	vk::Extent2D Extent_;
 
-	TArray<FVulkanTextureView> AttachmentTextureViews_;
+	std::vector<FVulkanTextureView> AttachmentTextureViews_;
 
 	// Logical color render targets
 	uint32 NumColorRenderTargets_;

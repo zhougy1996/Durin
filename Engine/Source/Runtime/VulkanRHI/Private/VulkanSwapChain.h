@@ -12,7 +12,7 @@ public:
 
 	~FVulkanSwapChain();
 
-	auto GetImages() const -> const TArray<vk::Image>&;
+	auto GetImages() const -> const std::vector<vk::Image>&;
 
 	// Returns the index of the acquired image
 	auto AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32;
@@ -24,7 +24,7 @@ private:
 
 	vk::SwapchainKHR SwapChain_;
 
-	TArray<vk::Image> SwapChainImages_;
+	std::vector<vk::Image> SwapChainImages_;
 
 	vk::SurfaceKHR Surface_;
 

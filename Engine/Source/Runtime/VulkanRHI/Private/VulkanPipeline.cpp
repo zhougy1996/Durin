@@ -31,7 +31,7 @@ FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& Device
 
 	vk::PipelineShaderStageCreateInfo ShaderStages[] = {VertShaderInfo, FragmentShaderInfo};
 
-	TArray<vk::DynamicState> DynamicStates = {
+	std::vector<vk::DynamicState> DynamicStates = {
 		vk::DynamicState::eViewport,
 		vk::DynamicState::eScissor};
 

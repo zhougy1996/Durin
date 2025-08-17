@@ -33,7 +33,7 @@ FVulkanViewport::FVulkanViewport(FVulkanDevice& Device, void* WindowHandle, uint
 	, bIsFullScreen_(bIsFullScreen)
 {
 	SwapChain_ = new FVulkanSwapChain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), Device, WindowHandle, SizeX, SizeY, bIsFullScreen);
-	const TArray<vk::Image>& Images = SwapChain_->GetImages();
+	const std::vector<vk::Image>& Images = SwapChain_->GetImages();
 
 	vk::ImageViewCreateInfo ImageViewCreateInfo;
 	ImageViewCreateInfo.setViewType(vk::ImageViewType::e2D);

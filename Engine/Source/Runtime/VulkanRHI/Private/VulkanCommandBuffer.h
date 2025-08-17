@@ -54,7 +54,7 @@ public:
 	};
 
 private:
-	auto GetWaitSemaphores() const -> const TArray<FVulkanSemaphore*>& { return WaitSemaphores_; }
+	auto GetWaitSemaphores() const -> const std::vector<FVulkanSemaphore*>& { return WaitSemaphores_; }
 
 	auto MarkSemaphoresAsSubmitted() -> void;
 
@@ -68,7 +68,7 @@ private:
 
 	vk::CommandBuffer CommandBuffer_;
 
-	TArray<FVulkanSemaphore*> WaitSemaphores_;
+	std::vector<FVulkanSemaphore*> WaitSemaphores_;
 
 	FVulkanFence* Fence_;
 
@@ -96,9 +96,9 @@ private:
 
 	FVulkanCommandBufferManager& Manager_;
 
-	TArray<FVulkanCommandBuffer*> CmdBuffers_;
+	std::vector<FVulkanCommandBuffer*> CmdBuffers_;
 
-	TArray<FVulkanCommandBuffer*> FreeCmdBuffers_;
+	std::vector<FVulkanCommandBuffer*> FreeCmdBuffers_;
 };
 
 class FVulkanCommandBufferManager
@@ -134,5 +134,5 @@ private:
 	// Will be used to signal the rendering is done, mainly for upload command buffers
 	// FVulkanSemaphore* ActiveCmdBufferSemaphore;
 	//
-	// TArray<FVulkanSemaphore*> RenderingCompletedSemaphores_;
+	// std::vector<FVulkanSemaphore*> RenderingCompletedSemaphores_;
 };

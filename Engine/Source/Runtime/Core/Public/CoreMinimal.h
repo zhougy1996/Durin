@@ -2,9 +2,6 @@
 
 #include "Definitions.Core.h"
 
-#include <algorithm>
-#include <filesystem>
-
 // Forward declarations
 #include "CoreFwd.h"
 

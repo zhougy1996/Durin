@@ -56,7 +56,7 @@ private:
 
 	vk::PhysicalDeviceProperties GpuProps_;
 
-	TArray<vk::QueueFamilyProperties> QueueFamilyProps_;
+	std::vector<vk::QueueFamilyProperties> QueueFamilyProps_;
 
 	FVulkanFenceManager FenceManager_;
 
@@ -72,9 +72,9 @@ private:
 
 	FVulkanQueue* PresentQueue_ = nullptr;
 
-	TArray<const char*> DeviceExtensions_;
+	std::vector<const char*> DeviceExtensions_;
 
-	TArray<FVulkanCommandListContext*> CommandContexts_;
+	std::vector<FVulkanCommandListContext*> CommandContexts_;
 
 	FVulkanCommandListContext* ImmediateContext_ = nullptr;
 

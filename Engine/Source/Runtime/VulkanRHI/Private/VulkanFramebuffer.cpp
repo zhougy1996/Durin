@@ -36,7 +36,7 @@ FVulkanFramebuffer::FVulkanFramebuffer(FVulkanDevice& Device, const FRHIRenderTa
 		AttachmentTextureViews_.push_back(TextureView);
 	}
 
-	TArray<vk::ImageView> AttachmentViews;
+	std::vector<vk::ImageView> AttachmentViews;
 	for (uint32 i = 0; i < NumColorRenderTargets_; ++i)
 	{
 		AttachmentViews.push_back(AttachmentTextureViews_[i].ImageView);

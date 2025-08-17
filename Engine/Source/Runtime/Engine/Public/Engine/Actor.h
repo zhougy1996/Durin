@@ -50,10 +50,10 @@ public:
 	}
 
 	template<typename T>
-	auto FindComponentsByClass() -> TArray<DActorComponent*>
+	auto FindComponentsByClass() -> std::vector<DActorComponent*>
 	{
 		static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-		TArray<DActorComponent*> FoundComponents;
+		std::vector<DActorComponent*> FoundComponents;
 		for (auto* Component : OwnedComponents_)
 		{
 			if (auto* CastedComponent = dynamic_cast<T*>(Component))
@@ -87,9 +87,9 @@ protected:
 
 	DSceneComponent* RootComponent_ = nullptr;
 
-	TArray<DActorComponent*> OwnedComponents_;
+	std::vector<DActorComponent*> OwnedComponents_;
 
-	TArray<DActorComponent*> InstanceComponents_;
+	std::vector<DActorComponent*> InstanceComponents_;
 
 	FStringName Name_ = "Actor";
 };

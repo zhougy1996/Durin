@@ -33,8 +33,8 @@ inline auto FVulkanExtensionBase::InUse() const -> bool
 	return bSupported_ && bActivated_;
 }
 
-using FVulkanInstanceExtensionArray = TArray<TUniquePtr<FVulkanInstanceExtension>>;
-using FVulkanDeviceExtensionArray = TArray<TUniquePtr<FVulkanDeviceExtension>>;
+using FVulkanInstanceExtensionArray = std::vector<TUniquePtr<FVulkanInstanceExtension>>;
+using FVulkanDeviceExtensionArray = std::vector<TUniquePtr<FVulkanDeviceExtension>>;
 
 class FVulkanInstanceExtension : public FVulkanExtensionBase
 {
@@ -46,7 +46,7 @@ class FVulkanDeviceExtension : public FVulkanExtensionBase
 {
 public:
 	static auto GetDogeSupportedDeviceExtensions(FVulkanDevice* Device) -> FVulkanDeviceExtensionArray;
-	static auto GetDriverSupportedDeviceExtensions(vk::PhysicalDevice Gpu, const char* LayerName = nullptr) -> TArray<vk::ExtensionProperties>;
+	static auto GetDriverSupportedDeviceExtensions(vk::PhysicalDevice Gpu, const char* LayerName = nullptr) -> std::vector<vk::ExtensionProperties>;
 
 protected:
 };

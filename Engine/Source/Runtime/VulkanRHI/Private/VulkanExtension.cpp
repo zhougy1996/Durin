@@ -12,7 +12,7 @@ inline constexpr const char* DogeSupportedDeviceExtensionNames[] = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 template<typename ExtensionType>
-static auto FindExtension(const TArray<TUniquePtr<ExtensionType>>& Extensions, const char* ExtensionName) -> int32
+static auto FindExtension(const std::vector<TUniquePtr<ExtensionType>>& Extensions, const char* ExtensionName) -> int32
 {
 	for (int32 Index = 0; Index < Extensions.size(); ++Index)
 	{
@@ -25,7 +25,7 @@ static auto FindExtension(const TArray<TUniquePtr<ExtensionType>>& Extensions, c
 }
 
 template<typename ExtensionType>
-static auto AddRequiredExtentions(TArray<TUniquePtr<ExtensionType>>& Extensions, const TArray<const char*>& RequiredExtentionNames)
+static auto AddRequiredExtentions(std::vector<TUniquePtr<ExtensionType>>& Extensions, const std::vector<const char*>& RequiredExtentionNames)
 {
 	for (const char* ExtensionName : RequiredExtentionNames)
 	{
@@ -50,7 +50,7 @@ auto FVulkanInstanceExtension::GetDogeSupportedInstanceExtensions() -> FVulkanIn
 	}
 	AddRequiredExtentions(OutDogeInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
 
-	TArray<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
+	std::vector<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
 	DOGE_DEBUG("Found {} available instance extensions:", DriverSupportedInstanceExtensions.size());
 	for (const vk::ExtensionProperties& Extension : DriverSupportedInstanceExtensions)
 	{
@@ -78,7 +78,7 @@ auto FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(FVulkanDevice* Dev
 		OutDeviceExtensions.push_back(std::make_unique<FVulkanDeviceExtension>(ExtensionName));
 	}
 
-	TArray<vk::ExtensionProperties> DriverSupportedDeviceExtensions = GetDriverSupportedDeviceExtensions(Device->GetGpu());
+	std::vector<vk::ExtensionProperties> DriverSupportedDeviceExtensions = GetDriverSupportedDeviceExtensions(Device->GetGpu());
 	DOGE_DEBUG("Found {} available device extensions:", DriverSupportedDeviceExtensions.size());
 
 	for (const vk::ExtensionProperties& Extension : DriverSupportedDeviceExtensions)
@@ -98,7 +98,7 @@ auto FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(FVulkanDevice* Dev
 	return OutDeviceExtensions;
 }
 
-auto FVulkanDeviceExtension::GetDriverSupportedDeviceExtensions(vk::PhysicalDevice Gpu, const char* LayerName) -> TArray<vk::ExtensionProperties>
+auto FVulkanDeviceExtension::GetDriverSupportedDeviceExtensions(vk::PhysicalDevice Gpu, const char* LayerName) -> std::vector<vk::ExtensionProperties>
 {
 	if (LayerName == nullptr)
 	{

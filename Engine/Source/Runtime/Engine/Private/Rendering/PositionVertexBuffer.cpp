@@ -44,7 +44,7 @@ void FPositionVertexBuffer::Init(uint32 InNumVertices, bool bInNeedsCPUAccess)
 	Data_ = NumVertices_ ? VertexData_->GetDataPointer() : nullptr;
 }
 
-void FPositionVertexBuffer::Init(const TArray<FVector3f>& InPositions, bool bInNeedsCPUAccess)
+void FPositionVertexBuffer::Init(const std::vector<FVector3f>& InPositions, bool bInNeedsCPUAccess)
 {
 	NumVertices_ = static_cast<uint32>(InPositions.size());
 	bNeedsCPUAccess_ = bInNeedsCPUAccess;

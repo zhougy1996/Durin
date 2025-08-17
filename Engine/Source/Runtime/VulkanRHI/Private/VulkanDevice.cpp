@@ -57,7 +57,7 @@ auto FVulkanDevice::CreateDevice(FVulkanDeviceExtensionArray& DeviceExtentions) 
 	int32 ComputeQueueIndex = -1;
 	int32 TransferQueueIndex = -1;
 
-	TArray<vk::DeviceQueueCreateInfo> QueueCreateInfos;
+	std::vector<vk::DeviceQueueCreateInfo> QueueCreateInfos;
 	std::vector<float> QueuePriorities = {1.0f};
 
 	for (int32 FamilyIndex = 0; FamilyIndex < QueueFamilyProps_.size(); ++FamilyIndex)

@@ -37,7 +37,7 @@ public:
 
 	auto GetSwapChain() -> FVulkanSwapChain* { return SwapChain_; }
 
-	auto GetBackBufferImages() -> const TArray<vk::Image>& { return BackBufferImages_; }
+	auto GetBackBufferImages() -> const std::vector<vk::Image>& { return BackBufferImages_; }
 
 	auto AcquireBackBufferImage() -> FVulkanTextureView&;
 
@@ -54,13 +54,13 @@ protected:
 
 	FVulkanSwapChain* SwapChain_;
 
-	TArray<vk::Image> BackBufferImages_;
+	std::vector<vk::Image> BackBufferImages_;
 
-	TArray<FVulkanTextureView> TextureViews_;
+	std::vector<FVulkanTextureView> TextureViews_;
 
 	FVulkanCommandBuffer* LastFrameCommandBuffer_ = nullptr;
 
-	TArray<FVulkanSemaphore*> RenderingDoneSemaphores_;
+	std::vector<FVulkanSemaphore*> RenderingDoneSemaphores_;
 
 	TSharedPtr<FVulkanBackBuffer> RHIBackBuffer_;
 
