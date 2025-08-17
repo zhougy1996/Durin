@@ -35,7 +35,6 @@ function(doge_setup_shared_library target)
     set_target_properties(${target} PROPERTIES OUTPUT_NAME "DogeEditor-${target}")
     string(TOUPPER "${target}" uppercase_target)
 
-    target_compile_options(${target} PUBLIC $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/utf-8>)
     # target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-W4>)
 
     target_compile_definitions(${target} PRIVATE ${uppercase_target}_EXPORTS)

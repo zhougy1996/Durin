@@ -46,56 +46,22 @@ using FU32StringView = std::u32string_view;
 #define UTF16TEXT(x) u##x
 #define UTF32TEXT(x) U##x
 
-// Type CharT will be defined in the platform-specific header
-
 template<typename T>
-concept StringType =
-	std::is_same_v<T, FANSIString> ||
-	std::is_same_v<T, FU8String> ||
-	std::is_same_v<T, FU16String> ||
-	std::is_same_v<T, FU32String>;
-
-template<typename T>
-concept StringViewType =
-	std::is_same_v<T, FANSIStringView> ||
-	std::is_same_v<T, FU8StringView> ||
-	std::is_same_v<T, FU16StringView> ||
-	std::is_same_v<T, FU32StringView>;
-
-template<typename T>
-concept StringOrStringViewType =
-	StringType<T> || StringViewType<T>;
-
-template<StringOrStringViewType T>
 inline const char* ToCStr(const T& Str)
 {
 	return reinterpret_cast<const char*>(Str.data());
 }
 
-template<StringOrStringViewType T>
+template<typename T>
 inline FANSIString ToString_ANSI(const T& Str)
 {
 	return FANSIString(reinterpret_cast<const char*>(Str.data()), Str.size());
 }
 
-template<StringOrStringViewType T>
+template<typename T>
 inline FANSIStringView ToStringView_ANSI(const T& Str)
 {
 	return FANSIStringView(reinterpret_cast<const char*>(Str.data()), Str.size());
 }
-
-auto ConvertToStringView_ANSI = [](auto&& arg) -> decltype(auto) {
-	using T = std::decay_t<decltype(arg)>;
-	if constexpr (std::is_constructible_v<std::u8string_view, T>)
-	{
-		return std::string_view(
-			reinterpret_cast<const char*>(std::u8string_view(arg).data()),
-			std::u8string_view(arg).size());
-	}
-	else
-	{
-		return std::forward<decltype(arg)>(arg);
-	}
-};
 
 
