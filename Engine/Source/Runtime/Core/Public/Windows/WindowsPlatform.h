@@ -1,5 +1,12 @@
 #pragma once
 
+#include <string>
+
+#define NOMINMAX
+#include "Windows.h"
+
+#include "HAL/GenericPlatform.h"
+
 #define LINE_TERMINATOR TEXT("\r\n")
 #define LINE_TERMINATOR_ANSI "\r\n"
 
@@ -10,5 +17,11 @@
 
 #define PLATFORM_BREAK() (/*__nop(), */__debugbreak())
 
-#define NOMINMAX
-#include "windows.h"
+using CharT = char;
+using FString = FANSIString;
+using FStringView = FANSIStringView;
+
+using FStringName = FString; // temporary replacement for FName, which is not defined here
+
+// Define a macro to convert string literals
+#define STR(x) x

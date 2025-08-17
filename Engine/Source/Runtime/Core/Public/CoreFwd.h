@@ -24,3 +24,6 @@
 
 namespace FFileSystem = std::filesystem;
 using FPath = FFileSystem::path;
+
+template<typename T>
+concept integral = std::is_integral_v<T>;

@@ -4,10 +4,11 @@
 
 static auto GetShaderPathFromJson(const FString& JsonFilePath) -> FPath
 {
-	FILE* fp = fopen(JsonFilePath.c_str(), "rb");
+	const char* JsonFilePathCStr = ToCStr(JsonFilePath);
+	FILE* fp = fopen(JsonFilePathCStr, "rb");
 	if (!fp)
 	{
-		throw std::runtime_error("Failed to open JSON file: " + JsonFilePath);
+		throw std::runtime_error(std::format("Failed to open JSON file: {}", JsonFilePathCStr));
 	}
 
 	char readBuffer[65536];
@@ -33,6 +34,6 @@ static auto GetShaderPathFromJson(const FString& JsonFilePath) -> FPath
 
 auto FConfigCacheJson::LoadAndParseConfig() -> void
 {
-	GShaderPath = GetShaderPathFromJson("DogeConfig.json");
+	GShaderPath = GetShaderPathFromJson(STR("DogeConfig.json"));
 	FPath test = GShaderPath / "shaders";
 }

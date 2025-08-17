@@ -8,7 +8,7 @@ add_library(Core SHARED ${SRCS})
 doge_setup_shared_library(Core)
 
 target_include_directories(Core PRIVATE
-    ${DOGE_THIRDPARTY_DIR}/spdlog
+    ${DOGE_THIRDPARTY_DIR}/spdlog/include
 )
 
 target_include_directories(Core PUBLIC

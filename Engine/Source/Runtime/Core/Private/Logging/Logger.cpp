@@ -11,34 +11,34 @@ auto FDogeLogger::Get() -> FDogeLogger&
 	return instance;
 }
 
-auto FDogeLogger::Log(ELogLevel Level, const char* ModuleName, const std::string& LogString, std::source_location SourceLocation) -> void
+auto FDogeLogger::Log(ELogLevel Level, FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
 {
 	spdlog::source_loc SpdSourceLocation = spdlog::source_loc{SourceLocation.file_name(), static_cast<int>(SourceLocation.line()), SourceLocation.function_name()};
-	std::string LogStringWithMoudule = std::format("[{}] {}", ModuleName, LogString);
+	FString LogStringWithMoudule = std::format(STR("[{}] {}"), ModuleName, LogString);
 	Logger_->log(SpdSourceLocation, static_cast<spdlog::level::level_enum>(Level), LogStringWithMoudule);
 }
 
-auto FDogeLogger::Trace(const char* ModuleName, const std::string& LogString, std::source_location SourceLocation) -> void
+auto FDogeLogger::Trace(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
 {
 	Get().Log(ELogLevel::Trace, ModuleName, LogString, SourceLocation);
 }
 
-auto FDogeLogger::Debug(const char* ModuleName, const std::string& LogString, std::source_location SourceLocation) -> void
+auto FDogeLogger::Debug(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
 {
 	Get().Log(ELogLevel::Debug, ModuleName, LogString, SourceLocation);
 }
 
-auto FDogeLogger::Info(const char* ModuleName, const std::string& LogString, std::source_location SourceLocation) -> void
+auto FDogeLogger::Info(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
 {
 	Get().Log(ELogLevel::Info, ModuleName, LogString, SourceLocation);
 }
 
-auto FDogeLogger::Warn(const char* ModuleName, const std::string& LogString, std::source_location SourceLocation) -> void
+auto FDogeLogger::Warn(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
 {
 	Get().Log(ELogLevel::Warn, ModuleName, LogString, SourceLocation);
 }
 
-auto FDogeLogger::Error(const char* ModuleName, const std::string& LogString, std::source_location SourceLocation) -> void
+auto FDogeLogger::Error(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
 {
 	Get().Log(ELogLevel::Error, ModuleName, LogString, SourceLocation);
 }

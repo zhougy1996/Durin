@@ -23,17 +23,17 @@ class CORE_API FDogeLogger
 public:
 	static auto Get() -> FDogeLogger&;
 
-	auto Log(ELogLevel Level, const char* ModuleName, const std::string& LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+	auto Log(ELogLevel Level, FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
-	static auto Trace(const char* ModuleName, const std::string& LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+	static auto Trace(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
-	static auto Debug(const char* ModuleName, const std::string& LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+	static auto Debug(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
-	static auto Info(const char* ModuleName, const std::string& LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+	static auto Info(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
-	static auto Warn(const char* ModuleName, const std::string& LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+	static auto Warn(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
-	static auto Error(const char* ModuleName, const std::string& LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+	static auto Error(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
 private:
 	FDogeLogger();
@@ -42,3 +42,4 @@ private:
 };
 
 auto CORE_API LoggerInit() -> void;
+

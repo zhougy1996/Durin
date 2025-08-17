@@ -48,7 +48,7 @@ auto FModuleManager::LoadModuleChecked(const FStringName& InModuleName) -> IModu
 	// TODO: assert if module is null
 	if (Module == nullptr)
 	{
-		DOGE_ERROR("Failed to load module: {}", InModuleName);
+		DOGE_ERROR(STR("Failed to load module: {}"), InModuleName);
 	}
 
 	return *Module;
@@ -68,14 +68,14 @@ auto FModuleManager::GetModule(const FStringName& InModuleName) -> IModuleInterf
 	}
 
 	// If the module is not ready, it is not loaded.
-	DOGE_ERROR("Module {} is not ready when trying to get it.", InModuleName);
+	DOGE_ERROR(STR("Module {} is not ready when trying to get it."), InModuleName);
 
 	return nullptr;
 }
 
 static constexpr auto GetDogeModuleFileName(const FStringName& InModuleName) -> FString
 {
-	return FString("DogeEditor-") + InModuleName + ".dll";
+	return FString(STR("DogeEditor-")) + InModuleName + STR(".dll");
 }
 
 auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInterface*
@@ -88,7 +88,7 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 		LoadedModule = FoundModuleInfo->Module_.get();
 		if (LoadedModule)
 		{
-			DOGE_DEBUG("Module {} is already loaded.", InModuleName);
+			DOGE_DEBUG(STR("Module {} is already loaded."), InModuleName);
 			return LoadedModule;
 		}
 	}
@@ -99,12 +99,12 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 		FoundModuleInfo = FindModule(InModuleName);
 	}
 
-	const auto& Filename = FoundModuleInfo->Filename_;
+	const FString& Filename = FoundModuleInfo->Filename_;
 	std::wstring DLLPath(Filename.begin(), Filename.end());
 	HMODULE ModuleHandle = LoadLibrary(DLLPath.c_str());
 	if (!ModuleHandle)
 	{
-		DOGE_ERROR("Failed to load module.");
+		DOGE_ERROR(STR("Failed to load module."));
 		return nullptr;
 	}
 	IModuleInterface* Result = nullptr;
@@ -114,7 +114,7 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 
 	if (!InitializeModuleFunctionPtr)
 	{
-		DOGE_ERROR("Failed to get module interface from module.");
+		DOGE_ERROR(STR("Failed to get module interface from module."));
 		FreeLibrary(ModuleHandle);
 		return nullptr;
 	}
@@ -122,7 +122,7 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 	FoundModuleInfo->Handle_ = ModuleHandle;
 	Result = InitializeModuleFunctionPtr();
 	FoundModuleInfo->Module_ = TUniquePtr<IModuleInterface>(Result);
-	DOGE_INFO("Module loaded: {}", InModuleName);
+	DOGE_INFO(STR("Module loaded: {}"), InModuleName);
 
 	// Call the module's startup function.
 	Result->StartupModule();
@@ -133,5 +133,5 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 
 auto FModuleManager::UnloadModule(const FStringName& InModuleName) -> void
 {
-	DOGE_INFO("Module Unloaded: {}", InModuleName);
+	DOGE_INFO(STR("Module Unloaded: {}"), InModuleName);
 }
