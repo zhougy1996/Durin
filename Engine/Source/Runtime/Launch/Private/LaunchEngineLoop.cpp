@@ -35,9 +35,14 @@ auto FEngineLoop::Init() -> void
 
 	FName Name(STR("TestName"));
 	FName Name1(STR("TestName_0"));
-	FName Name2(STR("TestName_1"));
-	FName Name2_1(STR("Testname_1"));
+	FName Name2(STR("Test和name_1"));
+	FName Name2_1(STR("Test和name_1"));
 	FName Name3(STR("TestName_01"));
+
+	FString NameString = Name2_1.ToString();
+
+	DOGE_INFO(STR("Name: {}, Name1: {}, Name2: {}, Name2_1: {}, Name3: {}"), 
+		Name.ToString(), Name1.ToString(), Name2.ToString(), Name2_1.ToString(), Name3.ToString());
 
 	bool eq = Name2.Equals(Name2_1);
 	// test code
