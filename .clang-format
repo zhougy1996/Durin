@@ -194,7 +194,7 @@ BraceWrapping:
 #   BOS_None (in configuration: None) Break after operators.
 #   BOS_NonAssignment (in configuration: NonAssignment) Break before operators that aren’t assignments.
 #   BOS_All (in configuration: All) Break before operators.
-BreakBeforeBinaryOperators: false
+BreakBeforeBinaryOperators: NonAssignment
 
 # BreakBeforeBraces (BraceBreakingStyle)
 # The brace breaking style to use.

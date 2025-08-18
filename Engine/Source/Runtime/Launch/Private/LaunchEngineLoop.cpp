@@ -36,6 +36,10 @@ auto FEngineLoop::Init() -> void
 	FName Name(STR("TestName"));
 	FName Name1(STR("TestName_0"));
 	FName Name2(STR("TestName_1"));
+	FName Name2_1(STR("Testname_1"));
+	FName Name3(STR("TestName_01"));
+
+	bool eq = Name2.Equals(Name2_1);
 	// test code
 	FGraphicsPipelineStateInitializer Initializer; // empty
 

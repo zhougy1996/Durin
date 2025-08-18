@@ -38,11 +38,10 @@ struct FNameHelper
 
 	static FName MakeWithNumber(const FU8StringView View, uint32 InternalNumber)
 	{
-		FNameEntryId EntryId = FNamePool::Get().Store(View);
 		FName Name;
 
-		Name.DisplayEntryId_ = EntryId;
-		// Name.ComparisonEntryId_ = EntryId; // Assuming we want to use the same entry for comparison
+		Name.DisplayEntryId_ = FNamePool::Get().Store(View);
+		Name.ComparisonEntryId_ = ResolveComparisonId(Name.DisplayEntryId_);
 		Name.Number_ = InternalNumber;
 
 		return Name;
@@ -58,6 +57,51 @@ struct FNameHelper
 		int Len = View.length();
 		uint32 InternalNumber = ParseNumber(View.data(), /* may be shortened */ Len);
 		return MakeWithNumber(FU8StringView{View.data(), static_cast<size_t>(Len)}, InternalNumber);
+	}
+
+	static auto ResolveComparisonId(FNameEntryId DisplayId) -> FNameEntryId
+	{
+		if (DisplayId.IsNone()) { return FNameEntryId(); }
+
+		FNamePool& Pool = FNamePool::Get();
+
+		return FNamePool::Get().Resolve(DisplayId).ComparisonId_;
+	}
+
+
+};
+
+struct FNameHash
+{
+	// Support for both UTF-8 and UTF-16 strings
+	template<typename CharType>
+	static auto GenerateHash(const CharType* Str, size_t Len) -> uint64
+	{
+		auto HashFunctor = std::hash<FANSIStringView>{};
+		return static_cast<uint64>(HashFunctor(FANSIStringView(reinterpret_cast<const char*>(Str), Len * sizeof(CharType))));
+	}
+
+	template<typename CharType>
+	static auto GenerateLowerCaseHash(const CharType* Str, size_t Len) -> uint64
+	{
+		CharType LowerName[FName::MaxSize];
+
+		for (size_t i = 0; i < Len && i < FName::MaxSize - 1; ++i)
+		{
+			LowerName[i] = std::tolower(Str[i]);
+		}
+
+		return FNameHash::GenerateHash(LowerName, Len);
+	}
+
+	static uint64 GenerateLowerCaseHash(FU8StringView Name)
+	{
+		return GenerateLowerCaseHash(Name.data(), Name.length());
+	}
+
+	static uint64 GenerateHash(FU8StringView Name)
+	{
+		return GenerateHash(Name.data(), Name.length());
 	}
 };
 
@@ -79,41 +123,103 @@ FName::FName(FU8StringView View, int32 Number)
 }
 
 FName::FName(const FName& Other)
-	: DisplayEntryId_(Other.DisplayEntryId_)
+	: ComparisonEntryId_(Other.ComparisonEntryId_)
+	, DisplayEntryId_(Other.DisplayEntryId_)
 	, Number_(Other.Number_)
 {
 }
 
-CORE_API auto FName::Equals(const FName& Other, ENameCase CompareMethod /*= ENameCase::CaseSensitive*/, const bool bCompareNumber /*= true*/) const -> bool
+auto FName::Equals(const FName& Other, ENameCase CompareMethod /*= ENameCase::IgnoreCase*/, const bool bCompareNumber /*= true*/) const -> bool
 {
-	// TODO: // Implement the actual comparison logic based on the CompareMethod
-	return (DisplayEntryId_ == Other.DisplayEntryId_) &&
-		   (!bCompareNumber || Number_ == Other.Number_);
+	return ((CompareMethod == ENameCase::IgnoreCase) ? (GetComparisonIndex() == Other.GetComparisonIndex()) : (GetDisplayIndex() == Other.GetDisplayIndex()))
+		   && (!bCompareNumber || Number_ == Other.Number_);
+}
+
+auto FName::ToString() const -> FString
+{
+	FString PlainNameString = GetDisplayNameEntry()->GetPlainNameString();
+	if (Number_ == NoNumberInternal)
+	{
+		return PlainNameString;
+	}
+	else
+	{
+		return PlainNameString + "_" + std::to_string(NumberInternalToExternal(Number_));
+	}
+}
+
+auto FName::GetComparisonNameEntry() const -> const FNameEntry*
+{
+	return ResolveEntry(ComparisonEntryId_);
+}
+
+auto FName::GetDisplayNameEntry() const -> const FNameEntry*
+{
+	return ResolveEntry(DisplayEntryId_);
+}
+
+auto FName::ResolveEntry(FNameEntryId LookupId) -> const FNameEntry*
+{
+	FNamePool& Pool = FNamePool::Get();
+	return &(Pool.Resolve(LookupId));
 }
 
 auto FNamePool::Store(FU8StringView View) -> FNameEntryId
 {
-	size_t Hash = std::hash<FU8StringView>{}(View);
-	auto It = NameEntries_.find(FNameEntryId(static_cast<uint32>(Hash)));
+	FNameEntryId DisplayId(FNameHash::GenerateHash(View));
+	auto It = NameEntries_.find(DisplayId);
 	if (It != NameEntries_.end())
 	{
-		return It->first; // Return existing entry ID
+		// Display ID already exists, return it
+		// In this case, the comparison ID is also already set in the table
+		return It->first;
 	}
+
+	FNameEntryId ComparisonId(FNameHash::GenerateLowerCaseHash(View));
+
 	FNameEntry NewEntry(View);
-	NameEntries_.emplace(FNameEntryId(static_cast<uint32>(Hash)), NewEntry);
-	return FNameEntryId(static_cast<uint32>(Hash)); // Return new entry ID
+	NewEntry.ComparisonId_ = ComparisonId;
+
+	// Check if the comparison ID already exists
+	if (!NameEntries_.count(ComparisonId))
+	{
+		NameEntries_.emplace(ComparisonId, NewEntry);
+	}
+
+	NameEntries_.emplace(DisplayId, NewEntry);
+	
+	return DisplayId;
 }
 
 auto FNamePool::Find(FU8StringView View) -> FNameEntryId
 {
-	size_t Hash = std::hash<FU8StringView>{}(View);
-	auto It = NameEntries_.find(FNameEntryId(static_cast<uint32>(Hash)));
-	if (It != NameEntries_.end())
+	// First, try to find the display ID
+	FNameEntryId DisplayId(FNameHash::GenerateHash(View));
+	auto DisplayIter = NameEntries_.find(DisplayId);
+
+	if (DisplayIter != NameEntries_.end())
 	{
-		return It->first; // Return existing entry ID
+		// If the display ID exists, return it
+		return DisplayIter->first;
+	}
+
+	// If not found, try to find the comparison ID
+	FNameEntryId ComparisonId(FNameHash::GenerateLowerCaseHash(View));
+	auto ComparisonIter = NameEntries_.find(ComparisonId);
+	if (ComparisonIter != NameEntries_.end())
+	{
+		// If the comparison ID exists, return it
+		return ComparisonIter->first;
 	}
 
 	return FNameEntryId(); // Return an invalid ID if not found
+}
+
+auto FNamePool::Resolve(FNameEntryId Id) -> FNameEntry&
+{
+	auto It = NameEntries_.find(Id);
+	check(It != NameEntries_.end() && "FNamePool::Resolve: Invalid ID");
+	return It->second;
 }
 
 auto FNamePool::Get() -> FNamePool&
