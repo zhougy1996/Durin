@@ -4,7 +4,10 @@ doge_print_project_build_info()
 
 doge_collect_and_organize_source_files(SRCS)
 
-add_library(Core SHARED ${SRCS})
+add_library(Core SHARED
+    ${SRCS}
+    ${DOGE_ENGINE_ROOT_DIR}/Extras/VisualStudioDebugging/Doge.natvis
+)
 doge_setup_shared_library(Core)
 
 target_include_directories(Core PRIVATE

@@ -75,7 +75,7 @@ public:
 
 	[[nodiscard]] FORCEINLINE CORE_API auto Equals(const FName& Other, ENameCase CompareMethod = ENameCase::IgnoreCase, const bool bCompareNumber = false) const -> bool;
 
-	[[nodiscard]] CORE_API auto ToString() const -> FString;
+	CORE_API auto ToString() const -> FString;
 
 	[[nodiscard]] CORE_API auto GetComparisonNameEntry() const -> const FNameEntry*;
 
@@ -98,15 +98,15 @@ private:
 		return ExternalNumber + 1;
 	}
 
-	[[nodiscard]] FORCEINLINE auto GetDisplayIndex() const -> FNameEntryId { return DisplayEntryId_; }
+	[[nodiscard]] FORCEINLINE auto GetDisplayIndex() const -> FNameEntryId { return DisplayIndex_; }
 
-	[[nodiscard]] FORCEINLINE auto GetComparisonIndex() const -> FNameEntryId { return ComparisonEntryId_; }
+	[[nodiscard]] FORCEINLINE auto GetComparisonIndex() const -> FNameEntryId { return ComparisonIndex_; }
 
 
 private:
-	FNameEntryId DisplayEntryId_;
+	FNameEntryId DisplayIndex_;
 
-	FNameEntryId ComparisonEntryId_;
+	FNameEntryId ComparisonIndex_;
 
 	uint32 Number_ = 0;
 

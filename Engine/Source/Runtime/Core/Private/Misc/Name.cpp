@@ -40,8 +40,8 @@ struct FNameHelper
 	{
 		FName Name;
 
-		Name.DisplayEntryId_ = FNamePool::Get().Store(View);
-		Name.ComparisonEntryId_ = ResolveComparisonId(Name.DisplayEntryId_);
+		Name.DisplayIndex_ = FNamePool::Get().Store(View);
+		Name.ComparisonIndex_ = ResolveComparisonId(Name.DisplayIndex_);
 		Name.Number_ = InternalNumber;
 
 		return Name;
@@ -117,14 +117,14 @@ FName::FName(const UTF8Char* Name, int32 Number)
 FName::FName(FU8StringView View, int32 Number)
 {
 	FNameEntryId EntryId = FNamePool::Get().Store(View);
-	DisplayEntryId_ = EntryId;
-	// ComparisonEntryId_ = EntryId; // Assuming we want to use the same entry for comparison
+	DisplayIndex_ = EntryId;
+	// ComparisonIndex_ = EntryId; // Assuming we want to use the same entry for comparison
 	Number_ = Number;
 }
 
 FName::FName(const FName& Other)
-	: ComparisonEntryId_(Other.ComparisonEntryId_)
-	, DisplayEntryId_(Other.DisplayEntryId_)
+	: ComparisonIndex_(Other.ComparisonIndex_)
+	, DisplayIndex_(Other.DisplayIndex_)
 	, Number_(Other.Number_)
 {
 }
@@ -150,12 +150,12 @@ auto FName::ToString() const -> FString
 
 auto FName::GetComparisonNameEntry() const -> const FNameEntry*
 {
-	return ResolveEntry(ComparisonEntryId_);
+	return ResolveEntry(ComparisonIndex_);
 }
 
 auto FName::GetDisplayNameEntry() const -> const FNameEntry*
 {
-	return ResolveEntry(DisplayEntryId_);
+	return ResolveEntry(DisplayIndex_);
 }
 
 auto FName::ResolveEntry(FNameEntryId LookupId) -> const FNameEntry*
