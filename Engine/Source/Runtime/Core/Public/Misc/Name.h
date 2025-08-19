@@ -1,4 +1,11 @@
 #pragma once
+
+inline constexpr uint32 MaxNameSize = 1024;
+
+struct FClangKeepDebugInfo
+{
+};
+
 enum class ENameCase : uint8
 {
 	CaseSensitive,
@@ -9,58 +16,98 @@ struct FNameEntryId
 {
 public:
 	FNameEntryId()
-		: Value_(0)
+		: Value(0)
 	{
 	}
 	explicit FNameEntryId(uint64 Value)
-		: Value_(Value)
+		: Value(Value)
 	{
 	}
 
-	auto IsNone() const -> bool { return Value_ == 0; }
-	auto GetValue() const -> uint64 { return Value_; }
+	auto IsNone() const -> bool { return Value == 0; }
 
-	auto operator==(const FNameEntryId& Other) const -> bool { return Value_ == Other.Value_; }
-	auto operator!=(const FNameEntryId& Other) const -> bool { return Value_ != Other.Value_; }
-	auto operator<(const FNameEntryId& Other) const -> bool { return Value_ < Other.Value_; }
-	auto operator>(const FNameEntryId& Other) const -> bool { return Value_ > Other.Value_; }
+	auto GetValue() const -> uint64 { return Value; }
 
-	struct Hash
+	auto ToInt() const -> uint32 { return static_cast<uint32>(Value); }
+
+	auto operator==(const FNameEntryId& Other) const -> bool { return Value == Other.Value; }
+	auto operator!=(const FNameEntryId& Other) const -> bool { return Value != Other.Value; }
+	auto operator<(const FNameEntryId& Other) const -> bool { return Value < Other.Value; }
+	auto operator>(const FNameEntryId& Other) const -> bool { return Value > Other.Value; }
+
+	struct FHash
 	{
-		std::size_t operator()(const FNameEntryId& Id) const noexcept
-		{
-			return std::hash<uint64>()(Id.Value_);
-		}
+		size_t operator()(const FNameEntryId& Id) const noexcept;
 	};
 
 private:
-	uint64 Value_;
+	uint64 Value; // TODO: 32 bits
+};
+
+struct FNameBuffer;
+
+struct FNameEntryHeader
+{
+	uint16 Len = 0;
 };
 
 struct FNameEntry
 {
+private:
+	FNameEntryId ComparisonId;
+
+	FNameEntryHeader Header;
+
+	union
+	{
+		UTF8Char AnsiName[MaxNameSize];
+		uint8 NameData[0];
+	};
+
 public:
 	FNameEntry() = default;
 
+	// TODO: Remove this constructor
 	FNameEntry(FU8StringView Name)
-		: Name_(Name)
 	{
 	}
 
-	[[nodiscard]] FORCEINLINE auto GetPlainNameString() const -> FString { return Name_; }
+	[[nodiscard]] FORCEINLINE auto GetPlainNameString() const -> FString
+	{
+		return FString{&AnsiName[0]};
+	}
+
+	static constexpr auto GetDataOffset() -> int32 { return offsetof(FNameEntry, NameData); }
+
+	FORCEINLINE auto MakeView(FNameBuffer& Buffer) const -> FU8StringView;
+
+	[[nodiscard]] FORCEINLINE auto GetComparisonId() const -> FNameEntryId { return ComparisonId; }
+
+	[[nodiscard]] FORCEINLINE auto GetHeader() const -> FNameEntryHeader { return Header; }
+
+	[[nodiscard]] FORCEINLINE auto GetLength() const -> uint16 { return Header.Len; }
+
+	[[nodiscard]] FORCEINLINE auto IsValid() const -> bool { return Header.Len > 0; }
 
 private:
-	FNameEntryId ComparisonId_;
+	const UTF8Char* GetUnterminatedName(UTF8Char(&OptionalDecodeBuffer)[MaxNameSize]) const;
 
-	FU8String Name_;
+	FNameEntry(FClangKeepDebugInfo);
+	FNameEntry(const FNameEntry&) = delete;
+	FNameEntry(FNameEntry&&) = delete;
+	FNameEntry& operator=(const FNameEntry&) = delete;
+	FNameEntry& operator=(FNameEntry&&) = delete;
 
 	friend struct FNameHelper;
 	friend struct FNamePool;
+	friend class FNameEntryAllocator;
 };
 
 class FName
 {
 public:
+	static constexpr uint32 MaxSize = MaxNameSize;
+
 	CORE_API FName() = default;
 
 	CORE_API FName(const UTF8Char* Name);
@@ -75,7 +122,7 @@ public:
 
 	[[nodiscard]] FORCEINLINE CORE_API auto Equals(const FName& Other, ENameCase CompareMethod = ENameCase::IgnoreCase, const bool bCompareNumber = false) const -> bool;
 
-	CORE_API auto ToString() const -> FString;
+	[[nodiscard]] CORE_API auto ToString() const -> FString;
 
 	[[nodiscard]] CORE_API auto GetComparisonNameEntry() const -> const FNameEntry*;
 
@@ -84,7 +131,7 @@ public:
 	[[nodiscard]] CORE_API static auto ResolveEntry(FNameEntryId LookupId) -> const FNameEntry*;
 
 private:
-	static constexpr uint32 MaxSize = 1024;
+	static constexpr auto InValidNameCharacters = STR("\"' ,\n\r\t");
 
 	static constexpr uint32 NoNumberInternal = 0;
 
@@ -130,5 +177,5 @@ public:
 	static auto Get() -> FNamePool&;
 
 private:
-	std::unordered_map<FNameEntryId, FNameEntry, FNameEntryId::Hash> NameEntries_;
+	std::unordered_map<FNameEntryId, FNameEntry, FNameEntryId::FHash> NameEntries_;
 };

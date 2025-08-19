@@ -19,6 +19,10 @@
 #include <string>
 #include <tuple>
 
+// Multithreading support
+#include <mutex>
+#include <atomic>
+
 #include "Math/MathFwd.h"
 #include "Containers/ContainersFwd.h"
 

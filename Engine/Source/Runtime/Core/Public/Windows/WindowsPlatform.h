@@ -7,10 +7,13 @@
 
 #include "HAL/GenericPlatform.h"
 
+#define PLATFORM_LITTLE_ENDIAN 1
+
 #define DLLEXPORT __declspec(dllexport)
 #define DLLIMPORT __declspec(dllimport)
 
 #define FORCEINLINE __forceinline
+#define FORCENOINLINE __declspec(noinline)
 
 #define PLATFORM_BREAK() (/*__nop(), */__debugbreak())
 
