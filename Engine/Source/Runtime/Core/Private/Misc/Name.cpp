@@ -304,16 +304,16 @@ public:
 
 	FNameEntryAllocator()
 	{
-		Blocks[0] = AllocBlock();
+		Blocks_[0] = AllocBlock();
 	}
 
 	auto ReserveBlocks(uint32 Num) -> void
 	{
-		std::lock_guard<std::mutex> _(Lock);
+		std::lock_guard<std::mutex> _(Lock_);
 
-		for (uint32 Idx = Num - 1; Idx > CurrentBlock && Blocks[Idx] == nullptr; --Idx)
+		for (uint32 Idx = Num - 1; Idx > CurrentBlock_ && Blocks_[Idx] == nullptr; --Idx)
 		{
-			Blocks[Idx] = AllocBlock();
+			Blocks_[Idx] = AllocBlock();
 		}
 	}
 
@@ -326,14 +326,14 @@ public:
 	// Allocate and store Name.
 	auto AllocateRegular(FU8StringView Name) -> FNameEntryHandle
 	{
-		std::lock_guard<std::mutex> _(Lock);
+		std::lock_guard<std::mutex> _(Lock_);
 
-		uint32 Bytes = TryPlace(BlockSizeBytes - CurrentByteCursor, Name);
+		uint32 Bytes = TryPlace(BlockSizeBytes - CurrentByteCursor_, Name);
 
 		if (Bytes == 0) // Not enough space in the current block
 		{
 			AllocateNewBlock();
-			Bytes = TryPlace(BlockSizeBytes - CurrentByteCursor, Name);
+			Bytes = TryPlace(BlockSizeBytes - CurrentByteCursor_, Name);
 			check(Bytes > 0);
 		}
 
@@ -355,18 +355,18 @@ public:
 	auto Resolve(FNameEntryHandle Handle) const -> FNameEntry&
 	{
 		// Lock not needed
-		return *reinterpret_cast<FNameEntry*>(Blocks[Handle.Block] + Stride * Handle.Offset);
+		return *reinterpret_cast<FNameEntry*>(Blocks_[Handle.Block] + Stride * Handle.Offset);
 	}
 
 	inline FNameEntryHandle Allocate(uint32 Bytes)
 	{
 		check(Bytes % Stride == 0);
-		check(CurrentByteCursor % Stride == 0);
-		check(CurrentByteCursor + Bytes <= BlockSizeBytes);
+		check(CurrentByteCursor_ % Stride == 0);
+		check(CurrentByteCursor_ + Bytes <= BlockSizeBytes);
 
-		uint32 ByteOffset = CurrentByteCursor;
-		CurrentByteCursor += Bytes;
-		return FNameEntryHandle(CurrentBlock, ByteOffset / Stride);
+		uint32 ByteOffset = CurrentByteCursor_;
+		CurrentByteCursor_ += Bytes;
+		return FNameEntryHandle(CurrentBlock_, ByteOffset / Stride);
 	}
 
 	uint8* AllocBlock()
@@ -376,20 +376,23 @@ public:
 
 	void AllocateNewBlock()
 	{
-		++CurrentBlock;
-		CurrentByteCursor = 0;
+		++CurrentBlock_;
+		CurrentByteCursor_ = 0;
 
-		if (Blocks[CurrentBlock] == nullptr)
+		if (Blocks_[CurrentBlock_] == nullptr)
 		{
-			Blocks[CurrentBlock] = AllocBlock();
+			Blocks_[CurrentBlock_] = AllocBlock();
 		}
 	}
 
-	std::mutex Lock;
+	auto GetBlocksForDebugVisualizer() -> uint8** { return (uint8**)Blocks_; }
 
-	std::atomic<uint32> CurrentBlock = 0;
-	uint32 CurrentByteCursor = 0;
-	std::atomic<uint8*> Blocks[FNameMaxBlockCount] = {};
+private:
+	std::mutex Lock_;
+
+	std::atomic<uint32> CurrentBlock_ = 0;
+	uint32 CurrentByteCursor_ = 0;
+	std::atomic<uint8*> Blocks_[FNameMaxBlockCount] = {};
 };
 
 template<ENameCase Sensitivity>
@@ -565,7 +568,7 @@ private:
 		_aligned_free(OldSlots.data());
 	}
 
-		FORCEINLINE auto Probe(const FNameValue<Sensitivity>& Value) const -> FNameSlot&
+	FORCEINLINE auto Probe(const FNameValue<Sensitivity>& Value) const -> FNameSlot&
 	{
 		auto Predicate = [&Value, this](const FNameSlot& Slot) -> bool {
 			return Slot.GetProbeHash() == Value.Hash.SlotProbeHash && EntryEqualsValue<Sensitivity>(Entries_->Resolve(Slot.GetId()), Value);
@@ -602,10 +605,7 @@ private:
 		NewSlot = OldSlot;
 		++UsedSlots_;
 	}
-
-
 };
-
 
 class FNamePool
 {
@@ -617,12 +617,13 @@ public:
 
 	auto Find(FU8StringView Name) -> FNameEntryId;
 
-	[[nodiscard]] auto Resolve(FNameEntryHandle Id) -> FNameEntry&
-	{
-		return Entries_.Resolve(Id);
-	}
+	auto Resolve(FNameEntryHandle Id) -> FNameEntry& { return Entries_.Resolve(Id); }
+
+	static bool bInitialized;
 
 	static auto Get() -> FNamePool&;
+
+	auto GetBlocksForDebugVisualizer() -> uint8**;
 
 private:
 	FNameEntryAllocator Entries_;
@@ -631,6 +632,9 @@ private:
 
 	FNamePoolShard<ENameCase::CaseSensitive> DisplayShards_[FNamePoolShardCount];
 };
+
+bool FNamePool::bInitialized = false;
+alignas(FNamePool) static uint8 NamePoolData[sizeof(FNamePool)];
 
 FNamePool::FNamePool()
 {
@@ -681,8 +685,20 @@ auto FNamePool::Find(FU8StringView Name) -> FNameEntryId
 
 auto FNamePool::Get() -> FNamePool&
 {
-	static FNamePool Instance;
-	return Instance;
+	static FNamePool* Singleton = []() -> FNamePool* {
+		check(!bInitialized);
+
+		bInitialized = true;
+		new (NamePoolData) FNamePool();
+
+		return reinterpret_cast<FNamePool*>(NamePoolData);
+	}();
+	return *Singleton;
+}
+
+auto FNamePool::GetBlocksForDebugVisualizer() -> uint8**
+{
+	return Entries_.GetBlocksForDebugVisualizer();
 }
 
 struct FNameHelper
@@ -811,3 +827,21 @@ auto FName::ResolveEntry(FNameEntryId LookupId) -> const FNameEntry*
 	FNamePool& Pool = FNamePool::Get();
 	return &(Pool.Resolve(LookupId));
 }
+
+FNameDebugVisualizer::FNameDebugVisualizer(FClangKeepDebugInfo)
+{
+}
+
+CORE_API uint8** FNameDebugVisualizer::GetBlocks()
+{
+	static_assert(EntryStride == FNameEntryAllocator::Stride, "Natvis constants out of sync with actual constants");
+	static_assert(BlockBits == FNameMaxBlockBits, "Natvis constants out of sync with actual constants");
+	static_assert(OffsetBits == FNameBlockOffsetBits, "Natvis constants out of sync with actual constants");
+
+	return ((FNamePool*)(NamePoolData))->GetBlocksForDebugVisualizer();
+}
+
+#ifdef DOGE_VISUALIZERS_HELPERS
+uint8** GNameBlocksDebug = FNameDebugVisualizer(FClangKeepDebugInfo{}).GetBlocks();
+int32 GNameDebugTest = 111;
+#endif // DOGE_VISUALIZERS_HELPERS

@@ -17,6 +17,12 @@
 
 #define PLATFORM_BREAK() (/*__nop(), */__debugbreak())
 
+#ifdef _DEBUG
+	#define DOGE_VISUALIZERS_HELPERS
+#endif // _DEBUG
+
+
+
 using CharT = UTF8Char;
 using FString = FU8String;
 using FStringView = FU8StringView;

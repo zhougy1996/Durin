@@ -1,15 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
 
-  <Type Name="FName">
-    <DisplayString Condition="this->Number_">{DisplayIndex_}_{(this->Number_ - 1),d}</DisplayString>
-    <DisplayString>{DisplayIndex_}_test</DisplayString>
-    <!-- <Expand>
-      <ArrayItems>
-        <Size>((FNameEntry&amp;)GNameBlocksDebug[DisplayIndex_.Value &gt;&gt; FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (DisplayIndex_.Value &amp; FNameDebugVisualizer::OffsetMask)]).Header.Len</Size>
-        <ValuePointer>((FNameEntry&amp;)GNameBlocksDebug[DisplayIndex_.Value &gt;&gt; FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (DisplayIndex_.Value &amp; FNameDebugVisualizer::OffsetMask)]).AnsiName</ValuePointer>
-      </ArrayItems>
-    </Expand> -->
-  </Type>
+	<Type Name="FName" Priority="High">
+		<DisplayString Condition="this->Number_">{DisplayIndex_}_{(this->Number_ - 1),d}</DisplayString>
+		<DisplayString>{DisplayIndex_}_FNameEntry</DisplayString>
+		<Expand>
+			<ArrayItems>
+				<Size>((FNameEntry&amp;)GNameBlocksDebug[DisplayIndex_.Value_ &gt;&gt; FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (DisplayIndex_.Value_ &amp; FNameDebugVisualizer::OffsetMask)]).Header.Len</Size>
+				<ValuePointer>((FNameEntry&amp;)GNameBlocksDebug[DisplayIndex_.Value_ &gt;&gt; FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (DisplayIndex_.Value_ &amp; FNameDebugVisualizer::OffsetMask)]).AnsiName</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
+
+	<Type Name="FNameEntryId">
+		<!--<DisplayString Condition="Value_ &amp; FNameDebugVisualizer::UnusedMask">Illegal name (block index out of range)</DisplayString>
+		<DisplayString Condition="!GNameBlocksDebug[Value &gt;&gt; FNameDebugVisualizer::OffsetBits]">Illegal name (null block)</DisplayString>
+		<DisplayString>{(FNameEntry&amp;)GNameBlocksDebug[Value &gt;&gt; FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (Value &amp; FNameDebugVisualizer::OffsetMask)]}</DisplayString>-->
+		<DisplayString>{GNameDebugTest}</DisplayString>
+	</Type>
+	
+	<Type Name="FNameEntry">
+		<DisplayString Condition="Header.Len &gt; FNameDebugVisualizer::MaxLength">Illegal name (length > FNameMaxSize)</DisplayString>
+		<DisplayString>{AnsiName,[Header.Len]s}</DisplayString>
+	</Type>
 
 </AutoVisualizer>

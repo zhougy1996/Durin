@@ -159,3 +159,21 @@ private:
 	friend struct FNameHelper;
 };
 
+struct FNameDebugVisualizer
+{
+	CORE_API FNameDebugVisualizer(FClangKeepDebugInfo);
+	CORE_API uint8** GetBlocks();
+
+private:
+	static constexpr uint32 EntryStride = alignof(FNameEntry);
+	static constexpr uint32 OffsetBits = 16;
+	static constexpr uint32 BlockBits = 13;
+	static constexpr uint32 OffsetMask = (1 << OffsetBits) - 1;
+	static constexpr uint32 UnusedMask = UINT32_MAX << BlockBits << OffsetBits;
+	static constexpr uint32 MaxLength = FNameMaxSize;
+};
+
+
+extern uint8** GNameBlocksDebug;
+extern int32 GNameDebugTest;
+
