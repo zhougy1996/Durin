@@ -1,6 +1,6 @@
 #pragma once
 
-inline constexpr uint32 MaxNameSize = 1024;
+inline constexpr uint32 FNameMaxSize = 1024;
 
 struct FClangKeepDebugInfo
 {
@@ -16,24 +16,26 @@ struct FNameEntryId
 {
 public:
 	FNameEntryId()
-		: Value(0)
+		: Value_(0)
 	{
 	}
 	explicit FNameEntryId(uint64 Value)
-		: Value(Value)
+		: Value_(Value)
 	{
 	}
 
-	auto IsNone() const -> bool { return Value == 0; }
+	auto IsNone() const -> bool { return Value_ == 0; }
 
-	auto GetValue() const -> uint64 { return Value; }
+	auto GetValue() const -> uint64 { return Value_; }
 
-	auto ToInt() const -> uint32 { return static_cast<uint32>(Value); }
+	auto ToInt() const -> uint32 { return Value_; }
 
-	auto operator==(const FNameEntryId& Other) const -> bool { return Value == Other.Value; }
-	auto operator!=(const FNameEntryId& Other) const -> bool { return Value != Other.Value; }
-	auto operator<(const FNameEntryId& Other) const -> bool { return Value < Other.Value; }
-	auto operator>(const FNameEntryId& Other) const -> bool { return Value > Other.Value; }
+	auto operator==(const FNameEntryId& Other) const -> bool { return Value_ == Other.Value_; }
+	auto operator!=(const FNameEntryId& Other) const -> bool { return Value_ != Other.Value_; }
+	auto operator<(const FNameEntryId& Other) const -> bool { return Value_ < Other.Value_; }
+	auto operator>(const FNameEntryId& Other) const -> bool { return Value_ > Other.Value_; }
+
+	explicit operator bool() const { return Value_ != 0; }
 
 	struct FHash
 	{
@@ -41,7 +43,7 @@ public:
 	};
 
 private:
-	uint64 Value; // TODO: 32 bits
+	uint32 Value_; // TODO: 32 bits
 };
 
 struct FNameBuffer;
@@ -60,17 +62,12 @@ private:
 
 	union
 	{
-		UTF8Char AnsiName[MaxNameSize];
+		UTF8Char AnsiName[FNameMaxSize];
 		uint8 NameData[0];
 	};
 
 public:
 	FNameEntry() = default;
-
-	// TODO: Remove this constructor
-	FNameEntry(FU8StringView Name)
-	{
-	}
 
 	[[nodiscard]] FORCEINLINE auto GetPlainNameString() const -> FString
 	{
@@ -79,7 +76,7 @@ public:
 
 	static constexpr auto GetDataOffset() -> int32 { return offsetof(FNameEntry, NameData); }
 
-	FORCEINLINE auto MakeView(FNameBuffer& Buffer) const -> FU8StringView;
+	FORCEINLINE auto MakeView() const -> FU8StringView;
 
 	[[nodiscard]] FORCEINLINE auto GetComparisonId() const -> FNameEntryId { return ComparisonId; }
 
@@ -90,7 +87,7 @@ public:
 	[[nodiscard]] FORCEINLINE auto IsValid() const -> bool { return Header.Len > 0; }
 
 private:
-	const UTF8Char* GetUnterminatedName(UTF8Char(&OptionalDecodeBuffer)[MaxNameSize]) const;
+	const UTF8Char* GetUnterminatedName() const;
 
 	FNameEntry(FClangKeepDebugInfo);
 	FNameEntry(const FNameEntry&) = delete;
@@ -101,12 +98,13 @@ private:
 	friend struct FNameHelper;
 	friend struct FNamePool;
 	friend class FNameEntryAllocator;
+	friend class FNamePoolShardBase;
 };
 
 class FName
 {
 public:
-	static constexpr uint32 MaxSize = MaxNameSize;
+	static constexpr uint32 MaxSize = FNameMaxSize;
 
 	CORE_API FName() = default;
 
@@ -161,21 +159,3 @@ private:
 	friend struct FNameHelper;
 };
 
-class FNamePool
-{
-public:
-	FNamePool() = default;
-	~FNamePool() = default;
-
-	auto Store(FU8StringView View) -> FNameEntryId;
-
-	auto Find(FU8StringView View) -> FNameEntryId;
-
-	// Make sure the ID is valid before calling this
-	[[nodiscard]] auto Resolve(FNameEntryId Id) -> FNameEntry&;
-
-	static auto Get() -> FNamePool&;
-
-private:
-	std::unordered_map<FNameEntryId, FNameEntry, FNameEntryId::FHash> NameEntries_;
-};

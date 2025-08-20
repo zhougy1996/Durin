@@ -84,4 +84,11 @@ inline FANSIStringView ToStringView_ANSI(const T& Str)
 	return FANSIStringView(reinterpret_cast<const char*>(Str.data()), Str.size());
 }
 
+struct FGenericPlatformMisc
+{
+	static void Prefetch(const void* Ptr)
+	{
+		_mm_prefetch(static_cast<const char*>(Ptr), _MM_HINT_T0);
+	}
+};
 

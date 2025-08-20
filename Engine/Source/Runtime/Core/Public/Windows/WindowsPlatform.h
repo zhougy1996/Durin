@@ -25,3 +25,13 @@ using FStringName = FString; // temporary replacement for FName, which is not de
 
 // Define a macro to convert string literals
 #define STR(x) x
+
+struct FWindowsPlatformMisc : public FGenericPlatformMisc
+{
+	static void Prefetch(const void* Ptr)
+	{
+		_mm_prefetch(static_cast<const char*>(Ptr), _MM_HINT_T0);
+	}
+};
+
+using FPlatformMisc = FWindowsPlatformMisc;

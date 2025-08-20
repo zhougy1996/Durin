@@ -34,6 +34,8 @@ auto FEngineLoop::Init() -> void
 	EditorInit();
 
 	FName Name(STR("TestName"));
+	FName Name1(STR("TestName_2"));
+	FName Name2(STR("Testname_2"));
 
 	// test code
 	FGraphicsPipelineStateInitializer Initializer; // empty

@@ -18,6 +18,7 @@
 #include <queue>
 #include <string>
 #include <tuple>
+#include <span>
 
 // Multithreading support
 #include <mutex>

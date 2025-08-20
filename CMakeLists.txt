@@ -12,6 +12,10 @@ if(MSVC)
     add_compile_options($<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/utf-8>)
 endif()
 
+if(CMAKE_GENERATOR STREQUAL "Ninja")
+	message("CMake Generator: Ninja")
+endif()
+
 set(DOGE_ARCH "x64")
 message("Arch: ${DOGE_ARCH}")
 message("CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
