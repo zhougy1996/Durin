@@ -840,8 +840,3 @@ CORE_API uint8** FNameDebugVisualizer::GetBlocks()
 
 	return ((FNamePool*)(NamePoolData))->GetBlocksForDebugVisualizer();
 }
-
-#ifdef DOGE_VISUALIZERS_HELPERS
-uint8** GNameBlocksDebug = FNameDebugVisualizer(FClangKeepDebugInfo{}).GetBlocks();
-int32 GNameDebugTest = 111;
-#endif // DOGE_VISUALIZERS_HELPERS

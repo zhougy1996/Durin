@@ -173,7 +173,11 @@ private:
 	static constexpr uint32 MaxLength = FNameMaxSize;
 };
 
-
 extern uint8** GNameBlocksDebug;
-extern int32 GNameDebugTest;
+extern uint32 GNameDebugTest;
+
+#ifdef DOGE_VISUALIZERS_HELPERS
+uint8** GNameBlocksDebug = FNameDebugVisualizer(FClangKeepDebugInfo{}).GetBlocks();
+uint32 GNameDebugTest = 111;
+#endif // DOGE_VISUALIZERS_HELPERS
 

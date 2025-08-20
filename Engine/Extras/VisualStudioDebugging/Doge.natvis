@@ -13,10 +13,9 @@
 	</Type>
 
 	<Type Name="FNameEntryId">
-		<!--<DisplayString Condition="Value_ &amp; FNameDebugVisualizer::UnusedMask">Illegal name (block index out of range)</DisplayString>
-		<DisplayString Condition="!GNameBlocksDebug[Value &gt;&gt; FNameDebugVisualizer::OffsetBits]">Illegal name (null block)</DisplayString>
-		<DisplayString>{(FNameEntry&amp;)GNameBlocksDebug[Value &gt;&gt; FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (Value &amp; FNameDebugVisualizer::OffsetMask)]}</DisplayString>-->
-		<DisplayString>{GNameDebugTest}</DisplayString>
+		<DisplayString Condition="Value_ &amp; FNameDebugVisualizer::UnusedMask">Illegal name (block index out of range)</DisplayString>
+		<DisplayString Condition="!GNameBlocksDebug[Value_ &gt;&gt; FNameDebugVisualizer::OffsetBits]">Illegal name (null block)</DisplayString>
+		<DisplayString>{(FNameEntry&amp;)GNameBlocksDebug[Value_ &gt;&gt; FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (Value_ &amp; FNameDebugVisualizer::OffsetMask)]}</DisplayString>
 	</Type>
 	
 	<Type Name="FNameEntry">
