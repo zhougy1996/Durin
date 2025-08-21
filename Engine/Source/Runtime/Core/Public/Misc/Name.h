@@ -123,7 +123,7 @@ public:
 
 	[[nodiscard]] FORCEINLINE auto GetNumber() const -> uint32 { return Number_; }
 
-	[[nodiscard]] FORCEINLINE CORE_API auto Equals(const FName& Other, ENameCase CompareMethod = ENameCase::IgnoreCase, const bool bCompareNumber = false) const -> bool;
+	[[nodiscard]] FORCEINLINE CORE_API auto Equals(const FName& Other, ENameCase CompareMethod = ENameCase::IgnoreCase, const bool bCompareNumber = true) const -> bool;
 
 	[[nodiscard]] CORE_API auto ToString() const -> FString;
 

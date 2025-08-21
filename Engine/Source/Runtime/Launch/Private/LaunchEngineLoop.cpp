@@ -34,6 +34,7 @@ auto FEngineLoop::Init() -> void
 	EditorInit();
 
 	FName Name(STR("TestName"));
+	FName Name2(STR("TestName_2"));
 
 	FString NameString = Name.ToString();
 
