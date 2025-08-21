@@ -1,7 +1,6 @@
 #include "LaunchEngineLoop.h"
 
 #include "CoreGlobals.h"
-#include "Misc/Name.h"
 #include "Misc/ConfigCacheJson.h"
 #include "ApplicationCore.h"
 #include "RHI.h"
@@ -23,6 +22,7 @@ auto FEngineLoop::PreInit() -> void
 {
 	FConfigCacheJson::LoadAndParseConfig();
 	LoggerInit();
+	RegisterDogeNames();
 	GObjectManager = DObjectManager::Get();
 }
 
@@ -33,6 +33,7 @@ auto FEngineLoop::Init() -> void
 	MonaInit();
 	EditorInit();
 
+	FName NameNone(STR("None"));
 	FName Name(STR("TestName"));
 	FName Name1(STR("TestName_2"));
 	FName Name2(STR("Testname_2"));

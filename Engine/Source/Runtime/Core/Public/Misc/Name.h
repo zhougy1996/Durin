@@ -12,6 +12,11 @@ enum class ENameCase : uint8
 	IgnoreCase,
 };
 
+enum class EName : uint32
+{
+	None = 0
+};
+
 struct FNameEntryId
 {
 public:
@@ -71,7 +76,7 @@ public:
 
 	[[nodiscard]] FORCEINLINE auto GetPlainNameString() const -> FString
 	{
-		return FString{&AnsiName[0]};
+		return FString{&AnsiName[0], Header.Len};
 	}
 
 	static constexpr auto GetDataOffset() -> int32 { return offsetof(FNameEntry, NameData); }
@@ -159,6 +164,8 @@ private:
 	friend struct FNameHelper;
 };
 
+CORE_API auto RegisterDogeNames() -> void;
+
 struct FNameDebugVisualizer
 {
 	CORE_API FNameDebugVisualizer(FClangKeepDebugInfo);
@@ -174,10 +181,11 @@ private:
 };
 
 extern uint8** GNameBlocksDebug;
-extern uint32 GNameDebugTest;
 
+// It is used in the natvis file for debugging purposes, each .exe or.dll owns this variable, so it is not shared between modules.
+// It will be initialized only once, and it will not be changed during the program execution.
+// So, it is safe to use it in the natvis file for debugging purposes.
 #ifdef DOGE_VISUALIZERS_HELPERS
-uint8** GNameBlocksDebug = FNameDebugVisualizer(FClangKeepDebugInfo{}).GetBlocks();
-uint32 GNameDebugTest = 111;
+inline uint8** GNameBlocksDebug = FNameDebugVisualizer(FClangKeepDebugInfo{}).GetBlocks();
 #endif // DOGE_VISUALIZERS_HELPERS
 

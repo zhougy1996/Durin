@@ -18,6 +18,11 @@ static constexpr uint32 FNameBlockOffsetMask = FNameBlockOffsetCapacity - 1;
 static constexpr uint32 FNameEntryIdBits = FNameMaxBlockBits + FNameBlockOffsetBits;
 static constexpr uint32 FNameEntryIdMask = (1 << FNameEntryIdBits) - 1;
 
+CORE_API auto RegisterDogeNames() -> void
+{
+	FName(STR("None"));
+}
+
 struct FNameBuffer
 {
 	UTF8Char Name[FNameMaxSize];
@@ -317,10 +322,18 @@ public:
 		}
 	}
 
+	static auto GetDefaultNameSize(FU8StringView Name) -> uint32
+	{
+		constexpr uint32 HeaderSize = FNameEntry::GetDataOffset();
+		uint32 Bytes = HeaderSize + Name.length() * sizeof(UTF8Char);
+		return (Bytes + (Stride - 1)) & ~(Stride - 1);
+	}
+
 	static auto TryPlace(uint32 AvailableBytes, FU8StringView Name) -> uint32
 	{
-		uint32 NameBytes = Name.length();					// Length of unterminated name
-		return NameBytes <= AvailableBytes ? NameBytes : 0; // +1 for null terminator
+		constexpr uint32 HeaderSize = FNameEntry::GetDataOffset();
+		uint32 NameBytes = GetDefaultNameSize(Name);
+		return NameBytes <= AvailableBytes ? NameBytes : 0;
 	}
 
 	// Allocate and store Name.
@@ -764,7 +777,8 @@ struct FNameHelper
 
 		FNamePool& Pool = FNamePool::Get();
 
-		return FNamePool::Get().Resolve(DisplayId).ComparisonId;
+		FNameEntry& DisplayEntry = FNamePool::Get().Resolve(DisplayId);
+		return DisplayEntry.ComparisonId;
 	}
 };
 
@@ -832,7 +846,7 @@ FNameDebugVisualizer::FNameDebugVisualizer(FClangKeepDebugInfo)
 {
 }
 
-CORE_API uint8** FNameDebugVisualizer::GetBlocks()
+uint8** FNameDebugVisualizer::GetBlocks()
 {
 	static_assert(EntryStride == FNameEntryAllocator::Stride, "Natvis constants out of sync with actual constants");
 	static_assert(BlockBits == FNameMaxBlockBits, "Natvis constants out of sync with actual constants");
