@@ -22,6 +22,7 @@
 
 // Multithreading support
 #include <mutex>
+#include <shared_mutex>
 #include <atomic>
 
 #include "Math/MathFwd.h"

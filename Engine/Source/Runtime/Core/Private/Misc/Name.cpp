@@ -314,7 +314,7 @@ public:
 
 	auto ReserveBlocks(uint32 Num) -> void
 	{
-		std::lock_guard<std::mutex> _(Lock_);
+		std::unique_lock<std::mutex> _(Lock_);
 
 		for (uint32 Idx = Num - 1; Idx > CurrentBlock_ && Blocks_[Idx] == nullptr; --Idx)
 		{
@@ -339,7 +339,7 @@ public:
 	// Allocate and store Name.
 	auto AllocateRegular(FU8StringView Name) -> FNameEntryHandle
 	{
-		std::lock_guard<std::mutex> _(Lock_);
+		std::unique_lock<std::mutex> _(Lock_);
 
 		uint32 Bytes = TryPlace(BlockSizeBytes - CurrentByteCursor_, Name);
 
@@ -467,6 +467,8 @@ protected:
 	static constexpr uint32 LoadFactorQuotient = 9;
 	static constexpr uint32 LoadFactorDivisor = 10;
 
+	mutable std::shared_mutex Lock_;
+
 	uint32 UsedSlots_ = 0;
 
 	uint32 CapacityMask_ = 0;
@@ -486,7 +488,7 @@ public:
 	{
 		FNameEntryId Result;
 		{
-			// TODO: lock here
+			std::shared_lock<std::shared_mutex> _(Lock_);
 
 			FNameSlot& Slot = Probe(Value);
 			Result = Slot.GetId();
@@ -496,7 +498,8 @@ public:
 
 	FORCEINLINE auto Insert(const FNameValue<Sensitivity>& Value, bool& bCreatedNewEntry) -> FNameEntryId
 	{
-		// TODO: lock here
+		std::unique_lock<std::shared_mutex> _(Lock_);
+
 		FNameSlot& Slot = Probe(Value);
 
 		if (Slot.Used())
@@ -513,7 +516,7 @@ public:
 	{
 		FNameSlot NewLookup(ExistingId, Hash.SlotProbeHash);
 
-		// lock here
+		std::unique_lock<std::shared_mutex> _(Lock_);
 
 		FNameSlot& Slot = Probe(Hash.UnmaskedSlotIndex, [=](FNameSlot Old) { return Old == NewLookup; });
 		if (!Slot.Used())
