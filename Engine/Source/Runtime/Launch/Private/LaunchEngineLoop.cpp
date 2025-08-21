@@ -33,14 +33,9 @@ auto FEngineLoop::Init() -> void
 	MonaInit();
 	EditorInit();
 
-	FName NameNone(STR("None"));
 	FName Name(STR("TestName"));
-	FName Name1(STR("TestName_2"));
-	FName Name2(STR("Testname_2"));
 
 	FString NameString = Name.ToString();
-	FString Name1String = Name1.ToString();
-	FString Name2String = Name2.ToString();
 
 	// test code
 	FGraphicsPipelineStateInitializer Initializer; // empty

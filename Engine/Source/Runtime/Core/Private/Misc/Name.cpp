@@ -358,7 +358,7 @@ public:
 		FNameEntryHandle Handle = AllocateRegular(Name);
 		FNameEntry& Entry = Resolve(Handle);
 
-		Entry.ComparisonId = ComparisonId.value_or(FNameEntryId());
+		Entry.ComparisonId = ComparisonId.value_or(FNameEntryId(Handle));
 		Entry.Header = Header;
 
 		memcpy(Entry.NameData, Name.data(), Name.length());
@@ -423,6 +423,12 @@ static FORCEINLINE auto EqualsSameDimensions(FU8StringView A, FU8StringView B) -
 	{
 		return !strnicmp(A.data(), B.data(), Len);
 	}
+}
+
+template<ENameCase Sensitivity>
+bool EqualsSameDimensions(const FNameEntry& Entry, FU8StringView Name)
+{
+	return EqualsSameDimensions<Sensitivity>(Entry.MakeView(), Name);
 }
 
 class alignas(64) FNamePoolShardBase
@@ -500,6 +506,20 @@ public:
 		bCreatedNewEntry = true;
 
 		return CreateAndInsertEntry(Slot, Value);
+	}
+
+	
+	auto InsertExistingEntry(FNameHash Hash, FNameEntryId ExistingId) -> void
+	{
+		FNameSlot NewLookup(ExistingId, Hash.SlotProbeHash);
+
+		// lock here
+
+		FNameSlot& Slot = Probe(Hash.UnmaskedSlotIndex, [=](FNameSlot Old) { return Old == NewLookup; });
+		if (!Slot.Used())
+		{
+			ClaimSlot(Slot, NewLookup);
+		}
 	}
 
 private:
@@ -638,6 +658,10 @@ public:
 
 	auto GetBlocksForDebugVisualizer() -> uint8**;
 
+	auto ReuseComparisonEntry(const FNameDisplayValue& Value) -> bool;
+
+	auto StoreDisplayValue(const FNameDisplayValue& DisplayValue, bool bAddedComparisonEntry) -> FNameEntryId;
+
 private:
 	FNameEntryAllocator Entries_;
 
@@ -674,11 +698,9 @@ auto FNamePool::Store(FU8StringView Name) -> FNameEntryId
 
 	// Insert comparison name first since display value must contain comparison name
 	FNameComparisonValue ComparisonValue(Name);
-	FNameEntryId ComparisonId = ComparisonShards_[ComparisonValue.Hash.ShardIndex].Insert(ComparisonValue, bAdded);
+	DisplayValue.ComparisonId = ComparisonShards_[ComparisonValue.Hash.ShardIndex].Insert(ComparisonValue, bAdded);
 
-	// TODO: Reuse existing comparison name if it exists
-	DisplayValue.ComparisonId = ComparisonId;
-	FNameEntryId DisplayId = DisplayShards_[DisplayValue.Hash.ShardIndex].Insert(DisplayValue, bAdded);
+	FNameEntryId DisplayId = StoreDisplayValue(DisplayValue, bAdded);
 
 	return DisplayId;
 }
@@ -712,6 +734,28 @@ auto FNamePool::Get() -> FNamePool&
 auto FNamePool::GetBlocksForDebugVisualizer() -> uint8**
 {
 	return Entries_.GetBlocksForDebugVisualizer();
+}
+
+auto FNamePool::ReuseComparisonEntry(const FNameDisplayValue& DisplayValue) -> bool
+{
+	return EqualsSameDimensions<ENameCase::CaseSensitive>(Resolve(DisplayValue.ComparisonId), DisplayValue.Name);
+}
+
+auto FNamePool::StoreDisplayValue(const FNameDisplayValue& DisplayValue, bool bAddedComparisonEntry) -> FNameEntryId
+{
+	FNameEntryId Out = DisplayValue.ComparisonId;
+	auto& DisplayShard = DisplayShards_[DisplayValue.Hash.ShardIndex];
+
+	if (bAddedComparisonEntry || ReuseComparisonEntry(DisplayValue))
+	{
+		DisplayShards_->InsertExistingEntry(DisplayValue.Hash, DisplayValue.ComparisonId);
+	}
+	else
+	{
+		Out = DisplayShard.Insert(DisplayValue, bAddedComparisonEntry);
+	}
+
+	return Out;
 }
 
 struct FNameHelper
