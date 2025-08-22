@@ -33,10 +33,7 @@ auto FEngineLoop::Init() -> void
 	MonaInit();
 	EditorInit();
 
-	FName Name(STR("中文测试"));
-	FName Name2(STR("TestName_2"));
-
-	FString NameString = Name.ToString();
+	DOGE_DEBUG(STR("DogeEd initialized"));
 
 	// test code
 	FGraphicsPipelineStateInitializer Initializer; // empty

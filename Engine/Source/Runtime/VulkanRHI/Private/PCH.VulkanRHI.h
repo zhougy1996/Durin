@@ -1,7 +1,5 @@
 #pragma once
 
-#define MODULE_NAME "VulkanRHI"
-
 #include "CoreMinimal.h"
 
 // Vulkan

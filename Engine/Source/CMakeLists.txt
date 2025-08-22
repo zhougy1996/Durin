@@ -38,6 +38,7 @@ function(doge_setup_shared_library target)
     # target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-W4>)
 
     target_compile_definitions(${target} PRIVATE ${uppercase_target}_EXPORTS)
+    target_compile_definitions(${target} PRIVATE MODULE_NAME="${target}")
 
     target_include_directories(${target} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/Private
