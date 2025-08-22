@@ -11,7 +11,10 @@ set(DOGE_CMAKE_INCLUDE_DIR "${DOGE_ROOT_DIR}/Engine/Configs/CMake")
 include(${DOGE_CMAKE_INCLUDE_DIR}/DogeCommon.cmake)
 include(${DOGE_CMAKE_INCLUDE_DIR}/DogeModules.cmake)
 
-doge_collect_and_organize_source_files(SRCS)
+file(GLOB_RECURSE SRCS
+	"Private/*.h"
+	"Private/*.cpp"
+)
 
 add_executable(DogeHeaderTool
 	${SRCS}
