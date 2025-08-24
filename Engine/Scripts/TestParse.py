@@ -5,6 +5,11 @@ def write_empty_file(file_path):
     with open(file_path, 'w') as file:
         file.write("")
 
+def get_file_name_without_extension(file_path):
+    base_name = os.path.basename(file_path)
+    name, _ = os.path.splitext(base_name)
+    return name
+
 if __name__ == "__main__":
     input_headers = sys.argv[1]
     input_header_list = input_headers.split(";")
@@ -17,7 +22,7 @@ if __name__ == "__main__":
     for header in input_header_list:
         print("Processing header:", header)
         # You can add your processing logic here
-        header_base = os.path.basename(header)
+        header_base = get_file_name_without_extension(header)
         gen_cpp_file_name = f"{header_base}.gen.cpp"
         gen_cpp_file_path = os.path.join(target_directory, gen_cpp_file_name)
         write_empty_file(gen_cpp_file_path)

@@ -19,7 +19,7 @@ function (doge_set_dht_input_headers input_headers output_directory OUT_DHT_GENE
 		list(APPEND generated_files ${gen_h_file})
 
 		add_custom_command(
-			OUTPUT ${gen_cpp_file} ${gen_h_file}
+			OUTPUT ${generated_files}
 			COMMAND python ${DHT_EXE} ${header} ${output_directory}
 			DEPENDS ${header}
 			COMMENT "DHT Parsing ${header_name}.h"
