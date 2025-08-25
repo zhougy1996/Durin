@@ -3,12 +3,16 @@ project(LevelEditor)
 doge_print_project_build_info()
 
 set(DHT_INPUT_HEADERS
-	${CMAKE_CURRENT_SOURCE_DIR}/Private/TestDHT.h
+	"${CMAKE_CURRENT_SOURCE_DIR}/Private/TestDHT.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/Private/TestDHT2.h"
 )
+
+
+message(${DHT_INPUT_HEADERS})
 
 doge_collect_and_organize_source_files(SRCS)
 
-doge_module_add_dht_input_headers(${PROJECT_NAME} ${DHT_INPUT_HEADERS} DHT_GENERATED_FILES)
+doge_module_add_dht_input_headers(${PROJECT_NAME} "${DHT_INPUT_HEADERS}" DHT_GENERATED_FILES)
 
 
 add_library(LevelEditor SHARED

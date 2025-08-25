@@ -7,29 +7,32 @@ function (doge_module_get_dht_output_directory module_name out_directory)
 endfunction()
 
 function (doge_set_dht_input_headers input_headers output_directory out_generated_files)
+	message("input_headers: " ${input_headers})
+	set(_all_generated_files "")
 	foreach(header ${input_headers})
 		message("DHT Input Header: ${header}")
 		get_filename_component(header_name ${header} NAME_WE)
-		set(_gen_cpp_file ${output_directory}/${header_name}.gen.cpp)
-		set(_gen_h_file ${output_directory}/${header_name}.gen.h)
-
-		list(APPEND _generated_files ${_gen_cpp_file})
-		list(APPEND _generated_files ${_gen_h_file})
+		set(_generated_files
+			${output_directory}/${header_name}.gen.h
+			${output_directory}/${header_name}.gen.cpp
+		)
 
 		add_custom_command(
 			OUTPUT ${_generated_files}
-			COMMAND python ${DHT_EXE} ${header} ${output_directory}
+			COMMAND python "${DHT_EXE}" "${header}" "${output_directory}"
 			DEPENDS ${header} ${DHT_EXE}
 			COMMENT "DHT Parsing ${header_name}.h"
+			VERBATIM
 		)
+		list(APPEND _all_generated_files ${_generated_files})
 	endforeach()
-	# set_source_files_properties(${_generated_files} PROPERTIES GENERATED TRUE)
-	set(${out_generated_files} ${_generated_files} PARENT_SCOPE)
+	set(${out_generated_files} ${_all_generated_files} PARENT_SCOPE)
 endfunction()
 
 function (doge_module_add_dht_input_headers module_name input_headers out_generated_files)
+
 	doge_module_get_dht_output_directory(${module_name} _dht_output_directory)
-	doge_set_dht_input_headers(${input_headers} ${_dht_output_directory} _generated_files)
+	doge_set_dht_input_headers("${input_headers}" ${_dht_output_directory} _generated_files)
 
 	set(${out_generated_files} ${_generated_files} PARENT_SCOPE)	
 endfunction()
