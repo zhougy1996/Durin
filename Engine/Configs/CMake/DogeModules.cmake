@@ -7,10 +7,8 @@ function (doge_module_get_dht_output_directory module_name out_directory)
 endfunction()
 
 function (doge_set_dht_input_headers input_headers output_directory out_generated_files)
-	message("input_headers: " ${input_headers})
 	set(_all_generated_files "")
 	foreach(header ${input_headers})
-		message("DHT Input Header: ${header}")
 		get_filename_component(header_name ${header} NAME_WE)
 		set(_generated_files
 			${output_directory}/${header_name}.gen.h
@@ -21,7 +19,7 @@ function (doge_set_dht_input_headers input_headers output_directory out_generate
 			OUTPUT ${_generated_files}
 			COMMAND python "${DHT_EXE}" "${header}" "${output_directory}"
 			DEPENDS ${header} ${DHT_EXE}
-			COMMENT "DHT Parsing ${header_name}.h"
+			COMMENT "[DHT] ${header} -> ${_generated_files}"
 			VERBATIM
 		)
 		list(APPEND _all_generated_files ${_generated_files})
