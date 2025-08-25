@@ -19,11 +19,11 @@ function (doge_set_dht_input_headers input_headers output_directory out_generate
 		add_custom_command(
 			OUTPUT ${_generated_files}
 			COMMAND python ${DHT_EXE} ${header} ${output_directory}
-			DEPENDS ${header}
+			DEPENDS ${header} ${DHT_EXE}
 			COMMENT "DHT Parsing ${header_name}.h"
 		)
 	endforeach()
-	set_source_files_properties(${_generated_files} PROPERTIES GENERATED TRUE)
+	# set_source_files_properties(${_generated_files} PROPERTIES GENERATED TRUE)
 	set(${out_generated_files} ${_generated_files} PARENT_SCOPE)
 endfunction()
 
