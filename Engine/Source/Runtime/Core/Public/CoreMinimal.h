@@ -7,10 +7,11 @@
 
 #include "HAL/Platform.h"
 
+#include "Misc/PreprocessorHelper.h"
 #include "Math/DogeMath.h"
 #include "Logging/LogMacros.h"
 #include "Misc/Name.h"
-#include "DObject.h"
+#include "DObject/DObject.h"
 #include "Modules/ModuleManager.h"
 #include "Misc/AssertionMacros.h"
 #include "Misc/EnumClassFlags.h"
