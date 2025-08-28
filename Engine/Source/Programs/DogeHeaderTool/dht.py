@@ -8,6 +8,19 @@ current_dir = os.path.dirname(current_file_path)
 doge_source_dir = os.path.abspath(os.path.join(current_dir, "../.."))
 doge_root_dir = os.path.abspath(os.path.join(doge_source_dir, "../.."))
 clang_lib_dir = os.path.join(doge_source_dir, "ThirdParty/clang/bin")
+clang_args = [
+    "-x",
+    "c++",
+    "-std=c++20",
+    "-D_DHT_PARSER",
+    "-DNDEBUG",
+    "-D_MSC_VER=1930",
+    "-w",
+    "-MG",
+    "-M",
+    "-ferror-limit=0",
+    "-o clangLog.txt"
+]
 
 
 def init_clang():
@@ -28,25 +41,23 @@ def get_file_name_without_extension(file_path):
     name, _ = os.path.splitext(base_name)
     return name
 
+def parse_dclass_macro(node):
+    macro_map = {}
+    for token in node.get_tokens():
+        macro_map[token.spelling] = token
+    print("DCLASS Macro Tokens:", macro_map)
+
 def parse_header(header_path):
     index = clang.cindex.Index.create()
     print("Parsing header:", header_path)
-    translation_unit = index.parse(header_path, args=[
-        "-x",
-		 "c++",
-		 "-std=c++20",
-		 "-D_DHT_PARSER",
-		 "-DNDEBUG",
-		 "-D_MSC_VER=1930",
-		 "-w",
-		 "-MG",
-		 "-M",
-		 "-ferror-limit=0",
-		 "-o clangLog.txt"
-    ])
-    for node in translation_unit.cursor.get_children():
+    tu = index.parse(header_path, clang_args)
+    for node in tu.cursor.get_children():
+        # Find all DCLASS macro functions
+        if node.kind == clang.cindex.CursorKind.FUNCTION_DECL and node.spelling == "DCLASS":
+            parse_dclass_macro(node)
+
         print("Node:", node.spelling, "Type:", node.kind)
-    return translation_unit
+    return tu
 
 if __name__ == "__main__":
     input_headers = sys.argv[1]
