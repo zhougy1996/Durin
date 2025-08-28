@@ -1,5 +1,5 @@
 # DHT (Doge Header Tool) Integration
-set(DHT_EXE "${DOGE_SCRIPT_DIR}/TestParse.py")
+set(DHT_EXE "${DOGE_SOURCE_DIR}/Programs/DogeHeaderTool/dht.py")
 
 function (doge_module_get_dht_output_directory module_name out_directory)
 	set(_dht_output_directory "${DOGE_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")

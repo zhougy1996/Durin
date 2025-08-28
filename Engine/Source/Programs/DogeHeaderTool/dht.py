@@ -5,8 +5,9 @@ import clang.cindex
 
 current_file_path = os.path.abspath(__file__)
 current_dir = os.path.dirname(current_file_path)
-doge_root_dir = os.path.abspath(os.path.join(current_dir, "../.."))
-clang_lib_dir = os.path.join(doge_root_dir, "Engine/Source/ThirdParty/clang/bin")
+doge_source_dir = os.path.abspath(os.path.join(current_dir, "../.."))
+doge_root_dir = os.path.abspath(os.path.join(doge_source_dir, "../.."))
+clang_lib_dir = os.path.join(doge_source_dir, "ThirdParty/clang/bin")
 
 
 def init_clang():
