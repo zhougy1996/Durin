@@ -4,7 +4,7 @@
 #include "DObject/DogeTypes.h"
 #include "DObject/ObjectMacros.h"
 
-DCLASS(AAA, bbb)
+DCLASS(AAA, bbb=ccc)
 class TestDHT
 {
 private:

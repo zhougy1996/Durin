@@ -41,22 +41,57 @@ def get_file_name_without_extension(file_path):
     name, _ = os.path.splitext(base_name)
     return name
 
-def parse_dclass_macro(node):
-    macro_map = {}
-    for token in node.get_tokens():
-        macro_map[token.spelling] = token
-    print("DCLASS Macro Tokens:", macro_map)
+def parse_annotation(node):
+    tokens = node.get_tokens()
+    if not tokens:
+        return
+    token_strings = [token.spelling for token in tokens]
+    annotation_name = token_strings[0] if token_strings else ""
+
+    print("DCLASS Macro token strings:", token_strings)
+
+def extract_class_meta(class_node) -> dict:
+    class_meta = {
+        "name": class_node.spelling,
+        "methods": [],
+        "members": []
+    }
+    for child in class_node.get_children():
+        if child.kind == clang.cindex.CursorKind.CXX_METHOD:
+            class_meta["methods"].append(child.spelling)
+        elif child.kind == clang.cindex.CursorKind.FIELD_DECL:
+            class_meta["members"].append(child.spelling)
+    return class_meta
+
+def parse_dclass(annotation_node, class_node) -> bool:
+    is_valid_node = False
+    if class_node.kind == clang.cindex.CursorKind.CLASS_DECL:
+        print("Found annotated class:", class_node.spelling)
+        parse_annotation(annotation_node)
+        is_valid_node = True
+    return is_valid_node
 
 def parse_header(header_path):
     index = clang.cindex.Index.create()
     print("Parsing header:", header_path)
     tu = index.parse(header_path, clang_args)
-    for node in tu.cursor.get_children():
-        # Find all DCLASS macro functions
-        if node.kind == clang.cindex.CursorKind.FUNCTION_DECL and node.spelling == "DCLASS":
-            parse_dclass_macro(node)
 
-        print("Node:", node.spelling, "Type:", node.kind)
+    childrens = list(tu.cursor.get_children())
+
+    # Find and parse all annotated classes
+    i = 0
+    while i < (len(childrens) - 1):
+        node = childrens[i]
+        if node.kind == clang.cindex.CursorKind.FUNCTION_DECL and node.spelling == "DCLASS":
+            found_valid_node = parse_dclass(node, childrens[i+1])
+            if found_valid_node:
+                i += 1
+        i += 1
+    
+    # check the last node
+    if childrens and childrens[-1].kind == clang.cindex.CursorKind.FUNCTION_DECL and childrens[-1].spelling == "DCLASS":
+        print("DCLASS macro must be followed by a class declaration and cannot be the last child")
+
     return tu
 
 if __name__ == "__main__":
