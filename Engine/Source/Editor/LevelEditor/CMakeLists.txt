@@ -11,7 +11,6 @@ doge_collect_and_organize_source_files(SRCS)
 
 doge_module_add_dht_input_headers(${PROJECT_NAME} "${DHT_INPUT_HEADERS}" DHT_GENERATED_FILES)
 
-
 add_library(LevelEditor SHARED
 	${SRCS}
 	${DHT_GENERATED_FILES}

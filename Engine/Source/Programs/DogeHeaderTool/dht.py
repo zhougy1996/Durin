@@ -1,5 +1,6 @@
 import sys
 import os
+import logging
 
 import clang.cindex
 
@@ -8,6 +9,7 @@ current_dir = os.path.dirname(current_file_path)
 doge_source_dir = os.path.abspath(os.path.join(current_dir, "../.."))
 doge_root_dir = os.path.abspath(os.path.join(doge_source_dir, "../.."))
 clang_lib_dir = os.path.join(doge_source_dir, "ThirdParty/clang/bin")
+
 clang_args = [
     "-x",
     "c++",
@@ -22,96 +24,211 @@ clang_args = [
     "-o clangLog.txt"
 ]
 
-
 def init_clang():
     clang.cindex.Config.set_library_path(clang_lib_dir)
-    print("Clang Library Directory:", clang_lib_dir)
+
+def init_logging():
+    logging.getLogger().setLevel(logging.DEBUG)
+    logging.basicConfig(format='[%(levelname)s] %(message)s')
+
+def parse_annotation(annotation_cursor) -> dict:
+    tokens = [token.spelling for token in annotation_cursor.get_tokens()]
+    tokens = tokens[2:-1]  # Remove the macro name and parentheses
+    tokens = [token.strip() for token in ' '.join(tokens).split(',') if token.strip()] # split by comma
+    annotations = {}
+    for token in tokens:
+        if '=' in token:
+            key, value = token.split('=', 1)
+            annotations[key.strip()] = value.strip().strip('"')
+        else:
+            annotations[token] = True
+    return annotations
+
+# Property meta info, annotated with DPROPERTY()
+class DHTProperty:
+    name: str
+    type: str
+
+# Function meta info, annotated with DFUNCTION()
+class DHTFunction:
+    name: str
+    return_type: str
+    parameters: list
+
+    def __init__(self, name: str, return_type: str):
+        self.name = name
+        self.return_type = return_type
+        self.parameters = []
+
+# Class meta info, annotated with DCLASS()
+# DCLASS() should not be nested in other classes or namespaces
+class DHTClass:
+    name: str
+    properties: list
+    functions: list
+
+    def __init__(self):
+        pass
+
+    def construct(self, class_cursor, annotation_cursor):
+        self.name = class_cursor.spelling
+        self.properties = []
+        self.functions = []
+        annotations = parse_annotation(annotation_cursor)
+        logging.debug("Found class: %s with annotations: %s", self.name, annotations)
+        self.construct_members(class_cursor)
+
+    def construct_members(self, class_cursor):
+        members = list(class_cursor.get_children())
+        i = 0
+        while i < (len(members) - 1):
+            cursor = members[i]
+            if cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL:
+                member_added = False
+                if cursor.spelling == "DPROPERTY":
+                    member_added = self.add_property(members[i+1], cursor)
+                if member_added:
+                    i += 1
+            i += 1
+                        
+    def add_property(self, property_cursor, annotation_cursor) -> bool:
+        if property_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
+            property_meta = DHTProperty(property_cursor.spelling, property_cursor.type.spelling)
+            self.properties.append(property_meta)
+            return True
+        return False
+
+    def add_function(self, function_cursor, annotation_cursor):
+        pass
 
 
-def write_empty_file(file_path):
-    with open(file_path, 'w') as file:
-        file.write("")
+# Header meta info, contains multiple classes
+class DHTHeader:
+    name: str
+    filepath: str
+    relative_path: str
+    classes: list
 
-def write_empty_header_file(file_path):
-    with open(file_path, 'w') as file:
-        file.write("#pragma once\n")
+    def __init__(self):
+        pass
 
-def get_file_name_without_extension(file_path):
-    base_name = os.path.basename(file_path)
-    name, _ = os.path.splitext(base_name)
-    return name
+    def construct(self, header_path, header_cursor):
+        header_name, _ = os.path.splitext(os.path.basename(header_path))
 
-def parse_annotation(node):
-    tokens = node.get_tokens()
-    if not tokens:
-        return
-    token_strings = [token.spelling for token in tokens]
-    annotation_name = token_strings[0] if token_strings else ""
+        self.name = header_name
+        self.filepath = header_path
+        self.classes = []
 
-    print("DCLASS Macro token strings:", token_strings)
-
-def extract_class_meta(class_node) -> dict:
-    class_meta = {
-        "name": class_node.spelling,
-        "methods": [],
-        "members": []
-    }
-    for child in class_node.get_children():
-        if child.kind == clang.cindex.CursorKind.CXX_METHOD:
-            class_meta["methods"].append(child.spelling)
-        elif child.kind == clang.cindex.CursorKind.FIELD_DECL:
-            class_meta["members"].append(child.spelling)
-    return class_meta
-
-def parse_dclass(annotation_node, class_node) -> bool:
-    is_valid_node = False
-    if class_node.kind == clang.cindex.CursorKind.CLASS_DECL:
-        print("Found annotated class:", class_node.spelling)
-        parse_annotation(annotation_node)
-        is_valid_node = True
-    return is_valid_node
-
-def parse_header(header_path):
-    index = clang.cindex.Index.create()
-    print("Parsing header:", header_path)
-    tu = index.parse(header_path, clang_args)
-
-    childrens = list(tu.cursor.get_children())
-
-    # Find and parse all annotated classes
-    i = 0
-    while i < (len(childrens) - 1):
-        node = childrens[i]
-        if node.kind == clang.cindex.CursorKind.FUNCTION_DECL and node.spelling == "DCLASS":
-            found_valid_node = parse_dclass(node, childrens[i+1])
-            if found_valid_node:
-                i += 1
-        i += 1
+        self.construct_children(header_cursor)
+        return True
     
-    # check the last node
-    if childrens and childrens[-1].kind == clang.cindex.CursorKind.FUNCTION_DECL and childrens[-1].spelling == "DCLASS":
-        print("DCLASS macro must be followed by a class declaration and cannot be the last child")
+    def construct_children(self, header_cursor):
+        cursors = list(header_cursor.get_children())
+        i = 0
+        while i < (len(cursors) - 1):
+            cursor = cursors[i]
+            if cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL:
+                added = False
+                if cursor.spelling == "DCLASS":
+                    added = self.add_class(cursors[i+1], cursor)
+                if added:
+                    i += 1
+            i += 1
 
-    return tu
+    def add_class(self, class_cursor, annotation_cursor) -> bool:
+        if class_cursor.kind == clang.cindex.CursorKind.CLASS_DECL:
+            class_meta = DHTClass()
+            class_meta.construct(class_cursor, annotation_cursor)
+            self.classes.append(class_meta)
+            return True
+        return False
+                
+
+class DHTParser:
+    def __init__(self):
+        pass
+
+    def parse_header(self, header_path) -> DHTHeader:
+        clang_index = clang.cindex.Index.create()
+        logging.info("Parsing header: %s", header_path)
+        tu = clang_index.parse(header_path, clang_args)
+
+        if not tu:
+            logging.error("Unable to load translation unit from %s", header_path)
+            return None
+
+        header_meta = DHTHeader()
+        header_meta.construct(header_path, tu.cursor)
+        return header_meta
+
+class DHTCodeGenerator:
+    output_dir: str = None
+
+    def __init__(self):
+        pass
+
+    def set_output_dir(self, output_dir):
+        self.output_dir = output_dir
+
+    def generate(self, header_meta: DHTHeader) -> None:
+        filename, _ = os.path.splitext(os.path.basename(header_meta.filepath))
+        if self.output_dir is None:
+            raise ValueError("Output directory is not set.")
+        os.makedirs(self.output_dir, exist_ok=True)
+        self.generate_header_file(os.path.join(self.output_dir, f"{filename}.gen.h"), header_meta)
+        self.generate_cpp_file(os.path.join(self.output_dir, f"{filename}.gen.cpp"), header_meta)
+
+    # Generate the header file
+    def generate_header_file(self, filepath, header_meta: DHTHeader) -> None:
+        with open(filepath, 'w') as file:
+            file.write("#pragma once\n")
+
+    # Generate the cpp file
+    def generate_cpp_file(self, filepath, header_meta: DHTHeader) -> None:
+        with open(filepath, 'w') as file:
+            file.write("#include \"" + header_meta.relative_path + "\"\n")
+
+dht_parser = DHTParser()
+dht_code_generator = DHTCodeGenerator()
+
+def get_relative_path(input_header, module_source_dir):
+    if not input_header.startswith(module_source_dir):
+        logging.error("Input header: %s", input_header)
+        logging.error("Module source dir: %s", module_source_dir)
+        sys.exit(1)
+
+    relative_path = os.path.relpath(input_header, module_source_dir).replace("\\", "/")
+    if relative_path.startswith("Public/"):
+        relative_path = relative_path[len("Public/"):]
+    elif relative_path.startswith("Private/"):
+        relative_path = relative_path[len("Private/"):]
+    return relative_path
 
 if __name__ == "__main__":
-    input_headers = sys.argv[1]
-    input_header_list = input_headers.split(";")
+    # Example usage: python dht.py input_header.h target_directory module_source_dir
+    # Parsing command line arguments
+    if len(sys.argv) != 4:
+        print("Usage: python dht.py <input_header> <target_directory> <module_source_dir>")
+        sys.exit(1)
 
+    input_header = sys.argv[1]
     target_directory = sys.argv[2]
-    os.makedirs(target_directory, exist_ok=True)
+    module_source_dir = sys.argv[3]
 
+    init_logging()
     init_clang()
 
-    for header in input_header_list:
-        translation_unit = parse_header(header)
+    # relative path from module source dir to input header
+    relative_path = get_relative_path(input_header, module_source_dir)
 
-        header_base = get_file_name_without_extension(header)
-        gen_cpp_file_name = f"{header_base}.gen.cpp"
-        gen_cpp_file_path = os.path.join(target_directory, gen_cpp_file_name)
-        write_empty_file(gen_cpp_file_path)
+    header_meta = dht_parser.parse_header(input_header)
+    if header_meta is None:
+        logging.error("Failed to parse header.")
+        sys.exit(1)
 
-        gen_h_file_name = f"{header_base}.gen.h"
-        gen_h_file_path = os.path.join(target_directory, gen_h_file_name)
-        write_empty_header_file(gen_h_file_path)
+    # Set the relative path for the header meta, used for includes in generated files
+    header_meta.relative_path = relative_path
+    dht_code_generator.set_output_dir(target_directory)
+    os.makedirs(target_directory, exist_ok=True)
+    dht_code_generator.generate(header_meta)
 

@@ -1,4 +1,6 @@
 # DHT (Doge Header Tool) Integration
+
+set(PYTHON_EXECUTABLE python)
 set(DHT_EXE "${DOGE_SOURCE_DIR}/Programs/DogeHeaderTool/dht.py")
 
 function (doge_module_get_dht_output_directory module_name out_directory)
@@ -17,7 +19,7 @@ function (doge_set_dht_input_headers input_headers output_directory out_generate
 
 		add_custom_command(
 			OUTPUT ${_generated_files}
-			COMMAND python "${DHT_EXE}" "${header}" "${output_directory}"
+			COMMAND ${PYTHON_EXECUTABLE} "${DHT_EXE}" "${header}" "${output_directory}" "${PROJECT_SOURCE_DIR}"
 			DEPENDS ${header} ${DHT_EXE}
 			COMMENT "[DHT] ${header} -> ${_generated_files}"
 			VERBATIM
