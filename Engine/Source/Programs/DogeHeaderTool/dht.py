@@ -85,6 +85,7 @@ class DHTFunction:
 class DHTClass:
     name: str
     api: str
+    superclass: str
     properties: list
     functions: list
 
@@ -93,13 +94,13 @@ class DHTClass:
 
     def construct(self, class_cursor, annotation_cursor):
         self.name = class_cursor.spelling
-        self.api = self.extract_export_api(class_cursor)
         self.properties = []
         self.functions = []
 
         annotations = parse_annotation(annotation_cursor)
         logging.debug("Found class: %s with annotations: %s", self.name, annotations)
 
+        self.construct_class_declaration(class_cursor)
         self.construct_members(class_cursor)
 
     def construct_members(self, class_cursor):
@@ -115,11 +116,24 @@ class DHTClass:
                     i += 1
             i += 1
 
-    def extract_export_api(self, class_cursor) -> str:
+    def construct_class_declaration(self, class_cursor):
         class_tokens = [token.spelling for token in class_cursor.get_tokens()]
-        if module_meta.export_api in class_tokens:
-            return module_meta.export_api
-        return ""
+        declaration_token_end = class_tokens.index("{") if "{" in class_tokens else len(class_tokens)
+        declaration_tokens = class_tokens[:declaration_token_end]
+
+        # Extract export API information
+        if module_meta.export_api in declaration_tokens:
+            self.api = module_meta.export_api
+
+        # Extract the first superclass
+        if ":" in declaration_tokens:
+            colon_index = declaration_tokens.index(":")
+            if declaration_tokens[colon_index + 1] in ["public", "protected", "private"]:
+                assert colon_index + 2 < len(declaration_tokens)
+                self.superclass = declaration_tokens[colon_index + 2]
+            else:
+                assert colon_index + 1 < len(declaration_tokens)
+                self.superclass = declaration_tokens[colon_index + 1]
 
     def add_property(self, property_cursor, annotation_cursor) -> bool:
         if property_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:

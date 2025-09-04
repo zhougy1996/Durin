@@ -16,7 +16,7 @@ function (doge_set_dht_input_headers input_headers output_directory out_generate
 		OUTPUT ${_module_info_file}
 		COMMAND ${PYTHON_EXECUTABLE} ${DHT_PREPARE_MODULE_INTO_EXE} "${input_headers}" "${output_directory}" "${PROJECT_SOURCE_DIR}"
 		DEPENDS ${input_headers} ${DHT_PREPARE_MODULE_INTO_EXE}
-		COMMENT "[DHT] Generating module info file ${_module_info_file}"
+		COMMENT "[DHT] Collecting module information ${_module_info_file}"
 		VERBATIM
 	)
 

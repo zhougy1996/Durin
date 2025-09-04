@@ -6,7 +6,7 @@
 #include "TestDHT.gen.h"
 
 DCLASS(AAA, bbb=ccc)
-class LEVELEDITOR_API TestDHT
+class LEVELEDITOR_API TestDHT : public DObject
 {
 private:
 	DPROPERTY()

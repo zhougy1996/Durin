@@ -57,6 +57,30 @@ def find_dclasses(input_header) -> list[str]:
 
     return found_dclasses
 
+def write_module_info(file, found_dclasses):
+    json.dump({"DClasses": found_dclasses}, file, indent=4)
+
+def update_module_info(module_info_filepath, found_dclasses):
+    # If module info file does not exist, create it
+    if not os.path.exists(module_info_filepath):
+        with open(module_info_filepath, "w") as f:
+            write_module_info(f, found_dclasses)
+        return
+
+    with open(module_info_filepath, "r+") as f:
+        update_needed = False
+        data = json.load(f)
+        old_dclasses = data.get("DClasses", [])
+        new_dclasses = set(found_dclasses)
+        old_dclasses = set(old_dclasses)
+        if new_dclasses != old_dclasses:
+            update_needed = True
+
+        if update_needed:
+            f.seek(0)
+            f.truncate()
+            write_module_info(f, found_dclasses)
+
 if __name__ == "__main__":
     # Example usage: python dht.py <input_headers> <target_directory> <module_source_dir>
     # Parsing command line arguments
@@ -82,7 +106,5 @@ if __name__ == "__main__":
     for input_header in input_headers:
         found_dclasses.extend(find_dclasses(input_header))
 
-    output_file = os.path.join(target_directory, "ModuleInfo.json")
-
-    with open(output_file, "w") as f:
-        json.dump({"DClasses": found_dclasses}, f, indent=4)
+    module_info_filepath = os.path.join(target_directory, "ModuleInfo.json")
+    update_module_info(module_info_filepath, found_dclasses)
