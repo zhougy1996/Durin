@@ -1,14 +1,32 @@
 import sys
 import os
 import logging
+import json
 
 import clang.cindex
 
+# Constants
 current_file_path = os.path.abspath(__file__)
 current_dir = os.path.dirname(current_file_path)
 doge_source_dir = os.path.abspath(os.path.join(current_dir, "../.."))
 doge_root_dir = os.path.abspath(os.path.join(doge_source_dir, "../.."))
 clang_lib_dir = os.path.join(doge_source_dir, "ThirdParty/clang/bin")
+
+class DHTModule:
+    name: str
+    source_dir: str
+    module_info_filepath: str
+    export_api: str
+    dht_output_dir: str
+
+    def __init__(self):
+        self.name = ""
+        self.source_dir = ""
+        self.module_info_filepath = ""
+        self.export_api = ""
+        self.dht_output_dir = ""
+
+module_meta = DHTModule()
 
 clang_args = [
     "-x",
@@ -25,10 +43,12 @@ clang_args = [
 ]
 
 def init_clang():
+    if module_meta.export_api:
+        clang_args.append(f"-D{module_meta.export_api}=")
     clang.cindex.Config.set_library_path(clang_lib_dir)
 
 def init_logging():
-    logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(format='[%(levelname)s] %(message)s')
 
 def parse_annotation(annotation_cursor) -> dict:
@@ -64,6 +84,7 @@ class DHTFunction:
 # DCLASS() should not be nested in other classes or namespaces
 class DHTClass:
     name: str
+    api: str
     properties: list
     functions: list
 
@@ -72,10 +93,13 @@ class DHTClass:
 
     def construct(self, class_cursor, annotation_cursor):
         self.name = class_cursor.spelling
+        self.api = self.extract_export_api(class_cursor)
         self.properties = []
         self.functions = []
+
         annotations = parse_annotation(annotation_cursor)
         logging.debug("Found class: %s with annotations: %s", self.name, annotations)
+
         self.construct_members(class_cursor)
 
     def construct_members(self, class_cursor):
@@ -90,7 +114,13 @@ class DHTClass:
                 if member_added:
                     i += 1
             i += 1
-                        
+
+    def extract_export_api(self, class_cursor) -> str:
+        class_tokens = [token.spelling for token in class_cursor.get_tokens()]
+        if module_meta.export_api in class_tokens:
+            return module_meta.export_api
+        return ""
+
     def add_property(self, property_cursor, annotation_cursor) -> bool:
         if property_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
             property_meta = DHTProperty(property_cursor.spelling, property_cursor.type.spelling)
@@ -150,7 +180,7 @@ class DHTParser:
 
     def parse_header(self, header_path) -> DHTHeader:
         clang_index = clang.cindex.Index.create()
-        logging.info("Parsing header: %s", header_path)
+        logging.debug("Parsing header: %s", header_path)
         tu = clang_index.parse(header_path, clang_args)
 
         if not tu:
@@ -162,21 +192,17 @@ class DHTParser:
         return header_meta
 
 class DHTCodeGenerator:
-    output_dir: str = None
-
     def __init__(self):
         pass
 
-    def set_output_dir(self, output_dir):
-        self.output_dir = output_dir
-
     def generate(self, header_meta: DHTHeader) -> None:
         filename, _ = os.path.splitext(os.path.basename(header_meta.filepath))
-        if self.output_dir is None:
+        output_dir = module_meta.dht_output_dir
+        if output_dir is None:
             raise ValueError("Output directory is not set.")
-        os.makedirs(self.output_dir, exist_ok=True)
-        self.generate_header_file(os.path.join(self.output_dir, f"{filename}.gen.h"), header_meta)
-        self.generate_cpp_file(os.path.join(self.output_dir, f"{filename}.gen.cpp"), header_meta)
+        os.makedirs(output_dir, exist_ok=True)
+        self.generate_header_file(os.path.join(output_dir, f"{filename}.gen.h"), header_meta)
+        self.generate_cpp_file(os.path.join(output_dir, f"{filename}.gen.cpp"), header_meta)
 
     # Generate the header file
     def generate_header_file(self, filepath, header_meta: DHTHeader) -> None:
@@ -212,14 +238,19 @@ if __name__ == "__main__":
         sys.exit(1)
 
     input_header = sys.argv[1]
-    target_directory = sys.argv[2]
-    module_source_dir = sys.argv[3]
+
+    # Initialize module metadata
+    module_meta.dht_output_dir = sys.argv[2]
+    module_meta.source_dir = sys.argv[3]
+    module_meta.name = os.path.basename(module_meta.source_dir)
+    module_meta.module_info_filepath = os.path.join(module_meta.dht_output_dir, f"ModuleInfo.json")
+    module_meta.export_api = module_meta.name.upper() + "_API"
 
     init_logging()
     init_clang()
 
     # relative path from module source dir to input header
-    relative_path = get_relative_path(input_header, module_source_dir)
+    relative_path = get_relative_path(input_header, module_meta.source_dir)
 
     header_meta = dht_parser.parse_header(input_header)
     if header_meta is None:
@@ -228,7 +259,5 @@ if __name__ == "__main__":
 
     # Set the relative path for the header meta, used for includes in generated files
     header_meta.relative_path = relative_path
-    dht_code_generator.set_output_dir(target_directory)
-    os.makedirs(target_directory, exist_ok=True)
     dht_code_generator.generate(header_meta)
 

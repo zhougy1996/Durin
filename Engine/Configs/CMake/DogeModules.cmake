@@ -1,7 +1,9 @@
 # DHT (Doge Header Tool) Integration
 
 set(PYTHON_EXECUTABLE python)
-set(DHT_EXE "${DOGE_SOURCE_DIR}/Programs/DogeHeaderTool/dht.py")
+set(DHT_Dir ${DOGE_SOURCE_DIR}/Programs/DogeHeaderTool)
+set(DHT_EXE "${DHT_Dir}/dht.py")
+set(DHT_PREPARE_MODULE_INTO_EXE "${DHT_Dir}/collect_module_info.py")
 
 function (doge_module_get_dht_output_directory module_name out_directory)
 	set(_dht_output_directory "${DOGE_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
@@ -9,6 +11,15 @@ function (doge_module_get_dht_output_directory module_name out_directory)
 endfunction()
 
 function (doge_set_dht_input_headers input_headers output_directory out_generated_files)
+	set(_module_info_file "${output_directory}/ModuleInfo.json")
+	add_custom_command(
+		OUTPUT ${_module_info_file}
+		COMMAND ${PYTHON_EXECUTABLE} ${DHT_PREPARE_MODULE_INTO_EXE} "${input_headers}" "${output_directory}" "${PROJECT_SOURCE_DIR}"
+		DEPENDS ${input_headers} ${DHT_PREPARE_MODULE_INTO_EXE}
+		COMMENT "[DHT] Generating module info file ${_module_info_file}"
+		VERBATIM
+	)
+
 	set(_all_generated_files "")
 	foreach(header ${input_headers})
 		get_filename_component(header_name ${header} NAME_WE)
@@ -20,7 +31,7 @@ function (doge_set_dht_input_headers input_headers output_directory out_generate
 		add_custom_command(
 			OUTPUT ${_generated_files}
 			COMMAND ${PYTHON_EXECUTABLE} "${DHT_EXE}" "${header}" "${output_directory}" "${PROJECT_SOURCE_DIR}"
-			DEPENDS ${header} ${DHT_EXE}
+			DEPENDS ${header} ${DHT_EXE} ${_module_info_file}
 			COMMENT "[DHT] ${header} -> ${_generated_files}"
 			VERBATIM
 		)
