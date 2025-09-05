@@ -8,6 +8,8 @@
 DCLASS(AAA, bbb=ccc)
 class LEVELEDITOR_API TestDHT : public DObject
 {
+	GENERATED_BODY()
+
 private:
 	DPROPERTY(bbb = ccc)
 	int a;
@@ -16,9 +18,11 @@ private:
 	float a2;
 };
 
-DCLASS(bbb = ccc)
+DCLASS(AAA, bbb = ccc)
 class LEVELEDITOR_API TestDHT2 : public DObject
 {
+	GENERATED_BODY()
+
 private:
 	DPROPERTY(bbb = ccc)
 	int a;

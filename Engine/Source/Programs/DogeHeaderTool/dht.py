@@ -24,11 +24,15 @@ clang_args = [
     "-ferror-limit=0",
     "-o clangLog.txt"
 ]
+macro_newline = " \\\n"
 
 def init_clang():
     if module_meta.export_api:
         clang_args.append(f"-D{module_meta.export_api}=")
-        clang_args.append("-DDCLASS(...)=__attribute__((annotate(\"DCLASS,\" #__VA_ARGS__))) DHT_CLASS();")
+        # DHT_GENERATED_BODY() will be identified as a function declaration
+        clang_args.append("-DGENERATED_BODY(...)=DHT_GENERATED_BODY();")
+        # DHT_CLASS() will be identified as a function declaration
+        clang_args.append("-DDCLASS(...)=__attribute__((annotate(\"DCLASS,\" #__VA_ARGS__))) DHT_CLASS();") 
         clang_args.append("-DDPROPERTY(...)=__attribute__((annotate(\"DPROPERTY,\" #__VA_ARGS__)))")
         clang_args.append("-DDFUNCTION(...)=__attribute__((annotate(\"DFUNCTION,\" #__VA_ARGS__)))")
 
@@ -58,6 +62,16 @@ def extract_annotations(cursor) -> dict:
             annotation_str = child_cursor.spelling
             return parse_annotation(annotation_str)
     return {}
+
+def write_include(file, include_file):
+    file.write(f"#include \"{include_file}\"\n")
+
+def write_macro(file, macro_lines):
+    i = 0
+    while i < len(macro_lines) - 1:
+        file.write(macro_lines[i] + macro_newline)
+        i += 1
+    file.write(macro_lines[i] + "\n")
 
 class DHTModule:
     name: str
@@ -114,7 +128,6 @@ class DHTClass:
     properties: list
     functions: list
 
-
     def __init__(self):
         self.generate_body_line = 0
 
@@ -131,8 +144,11 @@ class DHTClass:
         for child_cursor in class_cursor.get_children():
             if child_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
                 self.add_property(child_cursor)
-            elif child_cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL:
-                self.add_function(child_cursor)
+            elif child_cursor.kind == clang.cindex.CursorKind.CXX_METHOD:
+                if child_cursor.spelling == "DHT_GENERATED_BODY":
+                    self.generate_body_line = child_cursor.location.line
+                else:
+                    self.add_function(child_cursor)
 
     def construct_class_declaration(self, class_cursor):
         class_tokens = [token.spelling for token in class_cursor.get_tokens()]
@@ -143,15 +159,25 @@ class DHTClass:
         if module_meta.export_api in declaration_tokens:
             self.api = module_meta.export_api
 
-        # Extract the first superclass
+        # Extract the first superclass, the super class must be a DObject class
+        superclass_begin = 0
+        superclass_end = len(declaration_tokens)
         if ":" in declaration_tokens:
             colon_index = declaration_tokens.index(":")
             if declaration_tokens[colon_index + 1] in ["public", "protected", "private"]:
                 assert colon_index + 2 < len(declaration_tokens)
-                self.superclass = declaration_tokens[colon_index + 2]
+                superclass_begin = colon_index + 2
             else:
                 assert colon_index + 1 < len(declaration_tokens)
-                self.superclass = declaration_tokens[colon_index + 1]
+                superclass_begin = colon_index + 1
+
+            # end when find the first "," after superclass_begin
+            for i in range(superclass_begin, len(declaration_tokens)):
+                if declaration_tokens[i] == ",":
+                    superclass_end = i
+                    break
+
+            self.superclass = "".join(declaration_tokens[superclass_begin:superclass_end])
 
     def add_property(self, property_cursor):
         if property_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
@@ -168,8 +194,30 @@ class DHTClass:
             logging.warning("No generated body line found for class: %s", self.name)
             return
 
-        file.write("#define " + fid + "_" + self.generate_body_line + "_GENERATED_BODY\n")
+        generated_body_id = fid + "_" + str(self.generate_body_line)
+        generated_body_macro = generated_body_id + "_GENERATED_BODY"
+        enhanced_constructors_macro = generated_body_id + "_ENHANCED_CONSTRUCTORS"
 
+        self.write_code_enhanced_constructors(file, enhanced_constructors_macro)
+
+        lines = []
+        lines.append(f"#define {generated_body_macro}")
+        lines.append("public:")
+        lines.append(f"\t{enhanced_constructors_macro}")
+        lines.append("private:")
+
+        write_macro(file, lines)
+        file.write("\n")
+
+    def write_code_enhanced_constructors(self, file, macro):
+        lines = []
+        lines.append(f"#define {macro}")
+        lines.append(f"/** Deleted move- and copy-constructors, should never be used */")
+        classname = self.name
+        lines.append(f"{classname}({classname}&&) = delete;")
+        lines.append(f"{classname}(const {classname}&) = delete;")
+        write_macro(file, lines)
+        file.write("\n")
 
 # Header meta info, contains multiple classes
 class DHTHeader:
@@ -266,16 +314,22 @@ class DHTCodeGenerator:
     # Generate the header file
     def generate_header_file(self, filepath, header_meta: DHTHeader) -> None:
         with open(filepath, 'w') as file:
+            file.write("// Generated code exported from DogeHeaderTool.\n")
+            file.write("\n")
             file.write("#pragma once\n")
-            file.write("#undef CURRENT_FILE_ID\n")
-            file.write("#define CURRENT_FILE_ID " + header_meta.fid + "\n")
+            file.write("\n")
             for class_meta in header_meta.classes:
                 class_meta.generate_body_code(file, header_meta.fid)
 
+            file.write("#undef CURRENT_FILE_ID\n")
+            file.write("#define CURRENT_FILE_ID " + header_meta.fid + "\n")
+
     # Generate the cpp file
     def generate_cpp_file(self, filepath, header_meta: DHTHeader) -> None:
+        generated_cpp_includes = "DObject/GeneratedCppIncludes.h"
         with open(filepath, 'w') as file:
-            file.write("#include \"" + header_meta.include_path + "\"\n")
+            write_include(file, generated_cpp_includes)
+            write_include(file, header_meta.include_path)
 
 
 if __name__ == "__main__":
