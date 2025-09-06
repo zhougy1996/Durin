@@ -5,30 +5,19 @@
 
 #include "TestDHT.gen.h"
 
-DCLASS(AAA, bbb=ccc)
-class LEVELEDITOR_API TestDHT : public DObject
-{
-	GENERATED_BODY()
-
-private:
-	DPROPERTY(bbb = ccc)
-	int a;
-
-	DPROPERTY(zzz)
-	float a2;
-};
-
 DCLASS(AAA, bbb = ccc)
-class LEVELEDITOR_API TestDHT2 : public DObject
+class LEVELEDITOR_API TestDHT : DObject
 {
 	GENERATED_BODY()
 
+public:
+	DFUNCTION()
+	void Func() {};
+
 private:
 	DPROPERTY(bbb = ccc)
-	int a;
+	std::vector<DObject*> a;
 
 	DPROPERTY(zzz)
-	float a2;
+	int32 a2;
 };
-
-

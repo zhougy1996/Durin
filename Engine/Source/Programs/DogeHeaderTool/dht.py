@@ -26,13 +26,17 @@ clang_args = [
 ]
 macro_newline = " \\\n"
 
+module_meta = None
+header_source = None
+translation_unit = None
+
 def init_clang():
     if module_meta.export_api:
         clang_args.append(f"-D{module_meta.export_api}=")
         # DHT_GENERATED_BODY() will be identified as a function declaration
-        clang_args.append("-DGENERATED_BODY(...)=DHT_GENERATED_BODY();")
+        clang_args.append("-DGENERATED_BODY(...)=void DHT_GENERATED_BODY();")
         # DHT_CLASS() will be identified as a function declaration
-        clang_args.append("-DDCLASS(...)=__attribute__((annotate(\"DCLASS,\" #__VA_ARGS__))) DHT_CLASS();") 
+        clang_args.append("-DDCLASS(...)=__attribute__((annotate(\"DCLASS,\" #__VA_ARGS__))) void DHT_CLASS();") 
         clang_args.append("-DDPROPERTY(...)=__attribute__((annotate(\"DPROPERTY,\" #__VA_ARGS__)))")
         clang_args.append("-DDFUNCTION(...)=__attribute__((annotate(\"DFUNCTION,\" #__VA_ARGS__)))")
 
@@ -41,9 +45,6 @@ def init_clang():
 def init_logging():
     logging.getLogger().setLevel(logging.INFO)
     logging.basicConfig(format='[%(levelname)s] %(message)s')
-
-def extract_tokens(cursor) -> list:
-    return [token.spelling for token in cursor.get_tokens()]
 
 def parse_annotation(annotation_str) -> dict:
     subsections = [subsection.strip() for subsection in annotation_str.split(',') if subsection.strip()]  # split by comma
@@ -93,8 +94,6 @@ class DHTModule:
             self.registered_dclasses = module_info.get("DClasses", [])
             logging.debug("Registered DClasses for module '%s': %s", self.name, self.registered_dclasses)
 
-module_meta = None
-
 # Property meta info, annotated with DPROPERTY()
 class DHTProperty:
     name: str
@@ -121,6 +120,8 @@ class DHTFunction:
 # DCLASS() should not be nested in other classes or namespaces
 class DHTClass:
     name: str
+    cursor: clang.cindex.Cursor
+    clang_tokens: list
     api: str
     superclass: str
     annotations: dict
@@ -136,12 +137,14 @@ class DHTClass:
         self.properties = []
         self.functions = []
         self.annotations = annotations
+        self.cursor = class_cursor
+        self.clang_tokens = list(class_cursor.get_tokens())
 
-        self.construct_class_declaration(class_cursor)
-        self.construct_members(class_cursor)
+        self.construct_class_declaration()
+        self.construct_members()
 
-    def construct_members(self, class_cursor):
-        for child_cursor in class_cursor.get_children():
+    def construct_members(self):
+        for child_cursor in self.cursor.get_children():
             if child_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
                 self.add_property(child_cursor)
             elif child_cursor.kind == clang.cindex.CursorKind.CXX_METHOD:
@@ -150,8 +153,8 @@ class DHTClass:
                 else:
                     self.add_function(child_cursor)
 
-    def construct_class_declaration(self, class_cursor):
-        class_tokens = [token.spelling for token in class_cursor.get_tokens()]
+    def construct_class_declaration(self):
+        class_tokens = [token.spelling for token in self.clang_tokens]
         declaration_token_end = class_tokens.index("{") if "{" in class_tokens else len(class_tokens)
         declaration_tokens = class_tokens[:declaration_token_end]
 
@@ -179,15 +182,62 @@ class DHTClass:
 
             self.superclass = "".join(declaration_tokens[superclass_begin:superclass_end])
 
+    def extract_subtokens(self, extent) -> list:
+        subtokens = []
+        started = False
+        for token in self.clang_tokens:
+            token_start = token.extent.start.offset
+            token_end = token.extent.end.offset
+
+            if not started:
+                if token_end >= extent.start.offset:
+                    started = True
+                else:
+                    continue
+
+            if token_start > extent.end.offset:
+                break
+
+            subtokens.append(token.spelling)
+
+        return subtokens
+
+    def strip_macro_paren_prefix(self, tokens):
+        result = []
+        paren_num = 0
+        for i in range(len(tokens)):
+            if tokens[i] == "(":
+                paren_num += 1
+            elif tokens[i] == ")":
+                paren_num -= 1
+                if paren_num == 0:
+                    result = tokens[i+1:]
+                    break
+        return result
+
+    def extract_property_type(self, property_cursor):
+        if property_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
+            property_name = property_cursor.spelling
+            tokens = self.extract_subtokens(property_cursor.extent)
+            tokens_without_macro = self.strip_macro_paren_prefix(tokens)
+            property_type = "".join(tokens_without_macro[:-2]).strip()
+            return property_type
+
     def add_property(self, property_cursor):
         if property_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
             annotations = extract_annotations(property_cursor)
             if annotations and "DPROPERTY" in annotations:
                 property_meta = DHTProperty(property_cursor.spelling, property_cursor.type.spelling, annotations)
+                property_meta.type = self.extract_property_type(property_cursor)
+                print(property_meta.type)
                 self.properties.append(property_meta)
 
     def add_function(self, function_cursor):
-        pass
+        if function_cursor.kind == clang.cindex.CursorKind.CXX_METHOD:
+            annotations = extract_annotations(function_cursor)
+            if annotations and "DFUNCTION" in annotations:
+                tokens = self.extract_subtokens(function_cursor.extent)
+                # tokens_without_macro = self.strip_macro_paren_prefix(tokens)
 
     def generate_body_code(self, file, fid):
         if self.generate_body_line == 0:
@@ -288,14 +338,28 @@ class DHTParser:
     def parse_header(self, header_path) -> DHTHeader:
         clang_index = clang.cindex.Index.create()
         logging.debug("Parsing header: %s", header_path)
-        tu = clang_index.parse(header_path, clang_args)
 
-        if not tu:
+        global translation_unit
+        translation_unit = clang_index.parse(header_path, clang_args)
+
+        if not translation_unit:
             logging.error("Unable to load translation unit from %s", header_path)
             return None
+        
+        # if translation_unit.diagnostics:
+        #     for diag in translation_unit.diagnostics:
+        #         logging.debug(f"Diagnostic: {diag.spelling}")
 
-        header_meta = DHTHeader(input_header)
-        header_meta.construct(tu.cursor)
+        with open(header_path, 'r') as f:
+            global header_source
+            header_source = f.read()
+            if not header_source:
+                logging.error("Failed to read header source from: %s", header_path)
+                sys.exit(1)
+
+        header_meta = DHTHeader(header_path)
+        header_meta.construct(translation_unit.cursor)
+
         return header_meta
 
 class DHTCodeGenerator:
@@ -308,11 +372,11 @@ class DHTCodeGenerator:
         if output_dir is None:
             raise ValueError("Output directory is not set.")
         os.makedirs(output_dir, exist_ok=True)
-        self.generate_header_file(os.path.join(output_dir, f"{filename}.gen.h"), header_meta)
-        self.generate_cpp_file(os.path.join(output_dir, f"{filename}.gen.cpp"), header_meta)
+        self.generate_header_file(os.path.join(output_dir, f"{filename}.gen.h"))
+        self.generate_cpp_file(os.path.join(output_dir, f"{filename}.gen.cpp"))
 
     # Generate the header file
-    def generate_header_file(self, filepath, header_meta: DHTHeader) -> None:
+    def generate_header_file(self, filepath) -> None:
         with open(filepath, 'w') as file:
             file.write("// Generated code exported from DogeHeaderTool.\n")
             file.write("\n")
@@ -325,7 +389,7 @@ class DHTCodeGenerator:
             file.write("#define CURRENT_FILE_ID " + header_meta.fid + "\n")
 
     # Generate the cpp file
-    def generate_cpp_file(self, filepath, header_meta: DHTHeader) -> None:
+    def generate_cpp_file(self, filepath) -> None:
         generated_cpp_includes = "DObject/GeneratedCppIncludes.h"
         with open(filepath, 'w') as file:
             write_include(file, generated_cpp_includes)
