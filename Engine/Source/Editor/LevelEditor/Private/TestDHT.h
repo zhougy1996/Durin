@@ -16,7 +16,7 @@ public:
 
 private:
 	DPROPERTY(bbb = ccc)
-	std::vector<DObject*> a;
+	const std::vector<const DObject*> a;
 
 	DPROPERTY(zzz)
 	int32 a2;

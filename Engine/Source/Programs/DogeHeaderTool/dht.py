@@ -4,6 +4,7 @@ import logging
 import json
 
 import clang.cindex
+from clang.cindex import TokenKind
 
 # Constants
 current_file_path = os.path.abspath(__file__)
@@ -64,6 +65,19 @@ def extract_annotations(cursor) -> dict:
             return parse_annotation(annotation_str)
     return {}
 
+def strip_macro_paren_prefix(tokens):
+    result = []
+    paren_num = 0
+    for i in range(len(tokens)):
+        if tokens[i].spelling == "(":
+            paren_num += 1
+        elif tokens[i].spelling == ")":
+            paren_num -= 1
+            if paren_num == 0:
+                result = tokens[i+1:]
+                break
+    return result
+
 def write_include(file, include_file):
     file.write(f"#include \"{include_file}\"\n")
 
@@ -99,11 +113,37 @@ class DHTProperty:
     name: str
     type: str
     annotations: dict
+    cursor: clang.cindex.Cursor
+    tokens: list
 
-    def __init__(self, name: str, type: str, annotations: dict):
-        self.name = name
-        self.type = type
+    def __init__(self):
+        self.name = ""
+        self.type = ""
+        self.annotations = {}
+        self.tokens = []
+
+    def construct(self, property_cursor, annotations: dict, tokens: list):
+        assert property_cursor.kind == clang.cindex.CursorKind.FIELD_DECL
+        self.name = property_cursor.spelling
         self.annotations = annotations
+        self.tokens = tokens
+        self.cursor = property_cursor
+        self.type = self.extract_property_type(tokens)
+
+    def extract_property_type(self, tokens) -> str:
+        result = []
+        for i, token in enumerate(tokens[:-2]):
+            spelling = token.spelling
+            if token.kind == TokenKind.KEYWORD:
+                result.append(spelling)
+                result.append(" ")
+            elif token.kind == TokenKind.IDENTIFIER:
+                result.append(spelling)
+                if i + 1 < len(tokens) - 2 and tokens[i+1].kind != TokenKind.PUNCTUATION:
+                    result.append(" ")
+            else:
+                result.append(spelling)
+        return "".join(result).strip()
 
 # Function meta info, annotated with DFUNCTION()
 class DHTFunction:
@@ -115,6 +155,8 @@ class DHTFunction:
         self.name = name
         self.return_type = return_type
         self.parameters = []
+
+
 
 # Class meta info, annotated with DCLASS()
 # DCLASS() should not be nested in other classes or namespaces
@@ -198,45 +240,29 @@ class DHTClass:
             if token_start > extent.end.offset:
                 break
 
-            subtokens.append(token.spelling)
+            subtokens.append(token)
 
         return subtokens
 
-    def strip_macro_paren_prefix(self, tokens):
-        result = []
-        paren_num = 0
-        for i in range(len(tokens)):
-            if tokens[i] == "(":
-                paren_num += 1
-            elif tokens[i] == ")":
-                paren_num -= 1
-                if paren_num == 0:
-                    result = tokens[i+1:]
-                    break
-        return result
-
-    def extract_property_type(self, property_cursor):
-        if property_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
-            property_name = property_cursor.spelling
-            tokens = self.extract_subtokens(property_cursor.extent)
-            tokens_without_macro = self.strip_macro_paren_prefix(tokens)
-            property_type = "".join(tokens_without_macro[:-2]).strip()
-            return property_type
+    def extract_subtokens_without_macro(self, cursor):
+        tokens = self.extract_subtokens(cursor.extent)
+        tokens_without_macro = strip_macro_paren_prefix(tokens)
+        return tokens_without_macro
 
     def add_property(self, property_cursor):
         if property_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
             annotations = extract_annotations(property_cursor)
             if annotations and "DPROPERTY" in annotations:
-                property_meta = DHTProperty(property_cursor.spelling, property_cursor.type.spelling, annotations)
-                property_meta.type = self.extract_property_type(property_cursor)
-                print(property_meta.type)
+                tokens = self.extract_subtokens_without_macro(property_cursor)
+                property_meta = DHTProperty()
+                property_meta.construct(property_cursor, annotations, tokens)
                 self.properties.append(property_meta)
 
     def add_function(self, function_cursor):
         if function_cursor.kind == clang.cindex.CursorKind.CXX_METHOD:
             annotations = extract_annotations(function_cursor)
             if annotations and "DFUNCTION" in annotations:
-                tokens = self.extract_subtokens(function_cursor.extent)
+                pass
                 # tokens_without_macro = self.strip_macro_paren_prefix(tokens)
 
     def generate_body_code(self, file, fid):
