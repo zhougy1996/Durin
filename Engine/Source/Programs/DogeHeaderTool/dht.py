@@ -28,6 +28,7 @@ clang_args = [
 macro_newline = " \\\n"
 
 module_meta = None
+header_meta = None
 header_source = None
 translation_unit = None
 
@@ -265,36 +266,6 @@ class DHTClass:
                 pass
                 # tokens_without_macro = self.strip_macro_paren_prefix(tokens)
 
-    def generate_body_code(self, file, fid):
-        if self.generate_body_line == 0:
-            logging.warning("No generated body line found for class: %s", self.name)
-            return
-
-        generated_body_id = fid + "_" + str(self.generate_body_line)
-        generated_body_macro = generated_body_id + "_GENERATED_BODY"
-        enhanced_constructors_macro = generated_body_id + "_ENHANCED_CONSTRUCTORS"
-
-        self.write_code_enhanced_constructors(file, enhanced_constructors_macro)
-
-        lines = []
-        lines.append(f"#define {generated_body_macro}")
-        lines.append("public:")
-        lines.append(f"\t{enhanced_constructors_macro}")
-        lines.append("private:")
-
-        write_macro(file, lines)
-        file.write("\n")
-
-    def write_code_enhanced_constructors(self, file, macro):
-        lines = []
-        lines.append(f"#define {macro}")
-        lines.append(f"/** Deleted move- and copy-constructors, should never be used */")
-        classname = self.name
-        lines.append(f"{classname}({classname}&&) = delete;")
-        lines.append(f"{classname}(const {classname}&) = delete;")
-        write_macro(file, lines)
-        file.write("\n")
-
 # Header meta info, contains multiple classes
 class DHTHeader:
     name: str
@@ -389,38 +360,76 @@ class DHTParser:
         return header_meta
 
 class DHTCodeGenerator:
+    gen_h_file: str
+    gen_cpp_file: str
+
     def __init__(self):
         pass
 
-    def generate(self, header_meta: DHTHeader) -> None:
+    def generate(self) -> None:
         filename, _ = os.path.splitext(os.path.basename(header_meta.filepath))
         output_dir = module_meta.dht_output_dir
         if output_dir is None:
             raise ValueError("Output directory is not set.")
         os.makedirs(output_dir, exist_ok=True)
-        self.generate_header_file(os.path.join(output_dir, f"{filename}.gen.h"))
-        self.generate_cpp_file(os.path.join(output_dir, f"{filename}.gen.cpp"))
+
+        self.gen_h_file = os.path.join(output_dir, f"{filename}.gen.h")
+        self.gen_cpp_file = os.path.join(output_dir, f"{filename}.gen.cpp")
+
+        self.generate_header_file()
+        self.generate_cpp_file()
 
     # Generate the header file
-    def generate_header_file(self, filepath) -> None:
-        with open(filepath, 'w') as file:
-            file.write("// Generated code exported from DogeHeaderTool.\n")
-            file.write("\n")
-            file.write("#pragma once\n")
-            file.write("\n")
+    def generate_header_file(self) -> None:
+        with open(self.gen_h_file, 'w') as file:
+            file.write("// Generated code exported from DogeHeaderTool.\n\n")
+            file.write("#pragma once\n\n")
             for class_meta in header_meta.classes:
-                class_meta.generate_body_code(file, header_meta.fid)
+                self.write_generate_body_code(file, class_meta, header_meta.fid)
 
-            file.write("#undef CURRENT_FILE_ID\n")
-            file.write("#define CURRENT_FILE_ID " + header_meta.fid + "\n")
+            self.write_fid_definition(file, header_meta.fid)
 
     # Generate the cpp file
-    def generate_cpp_file(self, filepath) -> None:
+    def generate_cpp_file(self) -> None:
         generated_cpp_includes = "DObject/GeneratedCppIncludes.h"
-        with open(filepath, 'w') as file:
+        with open(self.gen_cpp_file, 'w') as file:
             write_include(file, generated_cpp_includes)
             write_include(file, header_meta.include_path)
 
+    def write_generate_body_code(self, file, class_meta, fid) -> None:
+        if class_meta.generate_body_line == 0:
+            logging.warning("No generated body line found for class: %s", class_meta.name)
+            return
+
+        generated_body_id = fid + "_" + str(class_meta.generate_body_line)
+        generated_body_macro_name = generated_body_id + "_GENERATED_BODY"
+
+        enhanced_constructors_macro_name = self.write_code_enhanced_constructors(file, class_meta, generated_body_id)
+
+        lines = []
+        lines.append(f"#define {generated_body_macro_name}")
+        lines.append("public:")
+        lines.append(f"\t{enhanced_constructors_macro_name}")
+        lines.append("private:")
+
+        write_macro(file, lines)
+        file.write("\n")
+
+    def write_code_enhanced_constructors(self, file, class_meta, generated_body_id) -> str:
+        macro_name = generated_body_id + "_ENHANCED_CONSTRUCTORS"
+        lines = []
+        lines.append(f"#define {macro_name}")
+        lines.append(f"/** Deleted move- and copy-constructors, should never be used */")
+        classname = class_meta.name
+        lines.append(f"{classname}({classname}&&) = delete;")
+        lines.append(f"{classname}(const {classname}&) = delete;")
+        write_macro(file, lines)
+        file.write("\n")
+        return macro_name
+
+    def write_fid_definition(self, file, fid) -> None:
+        file.write("#undef CURRENT_FILE_ID\n")
+        file.write("#define CURRENT_FILE_ID " + fid + "\n")
 
 if __name__ == "__main__":
     # Example usage: python dht.py input_header.h target_directory module_source_dir
@@ -444,5 +453,5 @@ if __name__ == "__main__":
         logging.error("Failed to parse header.")
         sys.exit(1)
 
-    dht_code_generator.generate(header_meta)
+    dht_code_generator.generate()
 
