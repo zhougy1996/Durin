@@ -33,8 +33,6 @@ auto DActorComponent::DestroyComponent() -> void
 
 	OnComponentDestroyed();
 	check(!bHasBeenCreated && "Failed to route OnComponentDestroyed()");
-
-	GObjectManager->Destroy(this);
 }
 
 auto DActorComponent::InitializeComponent() -> void

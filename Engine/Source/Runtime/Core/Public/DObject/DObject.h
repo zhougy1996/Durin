@@ -1,25 +1,51 @@
 #pragma once
 
+#include "DObject/ObjectMacros.h"
+
+class DObject;
+class DClass;
+
+struct FClassRegistrationInfo
+{
+	DClass* InnerSingleton = nullptr;
+	DClass* OuterSingleton = nullptr;
+};
+
 class DObject
 {
+	DECLARE_CLASS(DObject, DObject, GetPrivateStaticClass)
 public:
-	CORE_API DObject();
+	auto SetName(FName InName) -> void { NamePrivate = InName; }
 
-	CORE_API virtual ~DObject() = default;
+	auto GetName() const -> FName { return NamePrivate; }
 
-};
+	auto GetClass() const -> DClass* { return ClassPrivate; }
 
-class DObjectManager
-{
-public:
-	CORE_API static DObjectManager* Get();
-
-	CORE_API auto Destroy(DObject* Object) -> void;
-
-	CORE_API auto DestroyPendingObjects() -> void;
+protected:
+	CORE_API auto Register(FName InName) -> void;
 
 private:
-	std::vector<DObject*> PendingDestroyObjects_;
+	static auto GetPrivateStaticClass() -> DClass*;
+
+	// Add a newly created object to the name hash tables and the object array
+	CORE_API auto AddObject(FName InName) -> void;
+
+	FName NamePrivate;
+
+	DClass* ClassPrivate;
+
+	friend CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
+
+	friend CORE_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
 };
 
-extern CORE_API DObjectManager* GObjectManager;
+CORE_API void DObjectForceRegistration(DObject* Object);
+
+struct FRegisterCompiledInInfo
+{
+	template<typename... ArgTypes>
+	FRegisterCompiledInInfo(ArgTypes&&... Args)
+	{
+		RegisterCompiledInInfo(std::forward<ArgTypes>(Args)...);
+	}
+};

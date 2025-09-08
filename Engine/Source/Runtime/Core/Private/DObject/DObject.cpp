@@ -1,34 +1,63 @@
 #include "DObject/DObject.h"
 
-DObject::DObject()
-{
-}
+#include "DObject/ObjectMacros.h"
+#include "DObject/DObjectGlobals.h"
+#include "DObject/DObjectArray.h"
+#include "DObject/Class.h"
 
-DObjectManager* GObjectManager = nullptr;
+CORE_API auto Z_Construct_DClass_DObject() -> DClass*;
+CORE_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
 
-auto DObjectManager::Get() -> DObjectManager*
+FClassRegistrationInfo Z_Registration_Info_DClass_DObject;
+
+auto DObject::GetPrivateStaticClass() -> DClass*
 {
-	static DObjectManager Instance;
-	return &Instance;
-}
-auto DObjectManager::Destroy(DObject* Object) -> void
-{
-	if (Object)
+	DClass*& Singleton = Z_Registration_Info_DClass_DObject.InnerSingleton;
+	if (!Singleton)
 	{
-		PendingDestroyObjects_.push_back(Object);
+		Singleton = GetPrivateStaticClassBody("DObject");
 	}
-	else
-	{
-		DOGE_ERROR("Attempted to add a null object to pending destroy list.");
-	}
+	return Singleton;
 }
 
-auto DObjectManager::DestroyPendingObjects() -> void
+auto DObject::Register(FName InName) -> void
 {
-	for (DObject* Object : PendingDestroyObjects_)
-	{
-		delete Object;
-	}
-	PendingDestroyObjects_.clear();
+	AddObject(InName);
 }
 
+auto DObject::AddObject(FName InName) -> void
+{
+	NamePrivate = InName;
+	GDObjectArray.Add(this);
+}
+
+struct Z_Construct_DClass_DObject_Statics
+{
+	static const DogeCodeGen::FClassParams ClassParams;
+};
+
+const DogeCodeGen::FClassParams Z_Construct_DClass_DObject_Statics::ClassParams = {
+	&DObject::StaticClass,
+	"DObject",
+};
+
+
+auto Z_Construct_DClass_DObject() -> DClass*
+{
+	DClass*& Singleton = Z_Registration_Info_DClass_DObject.OuterSingleton;
+	if (!Singleton)
+	{
+		Singleton = DogeCodeGen::ConstructDClass(Z_Construct_DClass_DObject_Statics::ClassParams);
+	}
+	return Singleton;
+}
+
+auto Z_Construct_DClass_DObject_NoRegister() -> DClass*
+{
+	return DObject::GetPrivateStaticClass();
+}
+
+void DObjectForceRegistration(DObject* Object)
+{
+	Object->Register(Object->NamePrivate);
+}

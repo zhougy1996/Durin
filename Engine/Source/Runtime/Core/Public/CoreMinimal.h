@@ -11,7 +11,6 @@
 #include "Math/DogeMath.h"
 #include "Logging/LogMacros.h"
 #include "Misc/Name.h"
-#include "DObject/DObject.h"
 #include "Modules/ModuleManager.h"
 #include "Misc/AssertionMacros.h"
 #include "Misc/EnumClassFlags.h"
@@ -19,3 +18,6 @@
 #include "Misc/CoreMiscDefines.h"
 #include "Json/Json.h"
 #include "Templates/SmartPointers.h"
+
+#include "DObject/ObjectMacros.h"
+#include "DObject/DObject.h"

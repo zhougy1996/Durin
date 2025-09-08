@@ -77,7 +77,7 @@ AccessModifierOffset: -4
 #   BAS_AlwaysBreak (in configuration: AlwaysBreak) Always break after an open bracket, if the parameters don’t fit on a single line, e.g.:
 #   someLongFunction(
 #       argument1, argument2);
-AlignAfterOpenBracket: Align
+AlignAfterOpenBracket: BlockIndent
 
 # AlignConsecutiveAssignments (bool)
 # If true, aligns consecutive assignments.
@@ -104,7 +104,7 @@ AlignTrailingComments: true
 
 # AllowAllParametersOfDeclarationOnNextLine (bool)
 # Allow putting all parameters of a function declaration onto the next line even if BinPackParameters is false.
-AllowAllParametersOfDeclarationOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: true
 
 # AllowShortBlocksOnASingleLine (bool)
 # Allows contracting simple braced statements to a single line.

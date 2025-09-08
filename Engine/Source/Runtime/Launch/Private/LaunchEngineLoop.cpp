@@ -23,7 +23,6 @@ auto FEngineLoop::PreInit() -> void
 	FConfigCacheJson::LoadAndParseConfig();
 	LoggerInit();
 	RegisterDogeNames();
-	GObjectManager = DObjectManager::Get();
 }
 
 auto FEngineLoop::Init() -> void
@@ -50,7 +49,6 @@ auto FEngineLoop::Init() -> void
 auto FEngineLoop::Tick() -> void
 {
 	FMonaApplication::Get().Tick();
-	GObjectManager->DestroyPendingObjects();
 
 	if (GIsRequestingExit)
 	{
