@@ -2,14 +2,19 @@
 
 #include "DObject/ObjectMacros.h"
 
-class DObject;
 class DClass;
+using FClassRegisterFunc = DClass* (*)();
 
-struct FClassRegistrationInfo
+template<typename T>
+struct FRegistrationInfo
 {
-	DClass* InnerSingleton = nullptr;
-	DClass* OuterSingleton = nullptr;
+	using TType = T;
+
+	TType* InnerSingleton = nullptr;
+	TType* OuterSingleton = nullptr;
 };
+
+using FClassRegistrationInfo = FRegistrationInfo<DClass>;
 
 class DObject
 {
@@ -39,7 +44,12 @@ private:
 	friend CORE_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
 };
 
-CORE_API void DObjectForceRegistration(DObject* Object);
+
+CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
+
+CORE_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const UTF8Char* InName, FClassRegistrationInfo& InInfo) -> void;
+
+CORE_API auto ProcessNewlyLoadedDObjects() -> void;
 
 struct FRegisterCompiledInInfo
 {

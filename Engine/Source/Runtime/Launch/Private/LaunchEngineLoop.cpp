@@ -23,6 +23,7 @@ auto FEngineLoop::PreInit() -> void
 	FConfigCacheJson::LoadAndParseConfig();
 	LoggerInit();
 	RegisterDogeNames();
+	ProcessNewlyLoadedDObjects();
 }
 
 auto FEngineLoop::Init() -> void

@@ -1,7 +1,5 @@
 #pragma once
 
-#include "DObject/DObject.h"
-
 class DClass : public DObject
 {
 public:
@@ -11,3 +9,4 @@ public:
 CORE_API auto GetPrivateStaticClassBody(
 	const UTF8Char* Name
 ) -> DClass*;
+
