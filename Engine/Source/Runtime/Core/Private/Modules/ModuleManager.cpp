@@ -124,6 +124,8 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 	FoundModuleInfo->Module_ = TUniquePtr<IModuleInterface>(Result);
 	DOGE_INFO(STR("Module loaded: {}"), InModuleName);
 
+	ProcessNewlyLoadedDObjects();
+
 	// Call the module's startup function.
 	Result->StartupModule();
 	FoundModuleInfo->bIsReady = true;

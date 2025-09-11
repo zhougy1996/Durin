@@ -69,6 +69,15 @@ auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFu
 	FClassDeferredRegistry::Get().AddRegistration(InOuterRegister, InInnerRegister, InName, InInfo);
 }
 
+auto RegisterCompiledInInfo(const FClassRegisterCompiledInInfo* ClassInfo, size_t NumClassInfo) -> void
+{
+	for (size_t Index = 0; Index < NumClassInfo; ++Index)
+	{
+		const FClassRegisterCompiledInInfo& Info = ClassInfo[Index];
+		RegisterCompiledInInfo(Info.OuterRegister, Info.InnerRegister, Info.Name, *Info.Info);
+	}
+}
+
 static auto RegisterAllCompiledInClasses() -> void
 {
 	std::vector<FClassDeferredRegistry::FRegistrant>& Registrations = FClassDeferredRegistry::Get().GetRegistrations();
@@ -95,11 +104,15 @@ static auto LoadAllCompiledInDefaultProperties() -> void
 
 auto ProcessNewlyLoadedDObjects() -> void
 {
+	FClassDeferredRegistry& ClassRegistry = FClassDeferredRegistry::Get();
+
 	RegisterAllCompiledInClasses();
 	LoadAllCompiledInDefaultProperties();
+
+	ClassRegistry.ClearRegistrations();
 }
 
-// Register
+// Registration
 static FRegisterCompiledInInfo Z_CompiledInDeferRegistration_DObject(
 	&Z_Construct_DClass_DObject,
 	&Z_Construct_DClass_DObject_NoRegister,

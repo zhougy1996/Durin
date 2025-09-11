@@ -1,6 +1,7 @@
 #include "MainFrameModule.h"
 
 #include "Mona.h"
+#include "LevelEditorModule.h"
 
 IMPLEMENT_MODULE(FMainFrameModule, MainFrame)
 
@@ -14,7 +15,7 @@ auto FMainFrameModule::ShutdownModule() -> void
 
 auto FMainFrameModule::CreateDefaultMainFrame() -> void
 {
-	// FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
+	FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 	TSharedPtr<MWindow> RootWindow = std::make_shared<MWindow>();
 
 	RootWindow->SetTitle("Mona");

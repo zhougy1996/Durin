@@ -16,6 +16,14 @@ struct FRegistrationInfo
 
 using FClassRegistrationInfo = FRegistrationInfo<DClass>;
 
+struct FClassRegisterCompiledInInfo
+{
+	DClass* (*OuterRegister)();
+	DClass* (*InnerRegister)();
+	const UTF8Char* Name;
+	FClassRegistrationInfo* Info;
+};
+
 class DObject
 {
 	DECLARE_CLASS(DObject, DObject, GetPrivateStaticClass)
@@ -48,6 +56,8 @@ private:
 CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
 
 CORE_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const UTF8Char* InName, FClassRegistrationInfo& InInfo) -> void;
+
+CORE_API auto RegisterCompiledInInfo(const FClassRegisterCompiledInInfo* ClassInfo, size_t NumClassInfo) -> void;
 
 CORE_API auto ProcessNewlyLoadedDObjects() -> void;
 

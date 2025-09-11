@@ -25,6 +25,12 @@ clang_args = [
     "-ferror-limit=0",
     "-o clangLog.txt"
 ]
+intrinsic_core_objects = [
+    "DObject",
+    "DClass",
+    "DStruct",
+    "DEnum"
+]
 macro_newline = " \\\n"
 
 module_meta = None
@@ -33,8 +39,8 @@ header_source = None
 translation_unit = None
 
 def init_clang():
-    if module_meta.export_api:
-        clang_args.append(f"-D{module_meta.export_api}=")
+    if module_meta.api_macro:
+        clang_args.append(f"-D{module_meta.api_macro}=")
         # DHT_GENERATED_BODY() will be identified as a function declaration
         clang_args.append("-DGENERATED_BODY(...)=void DHT_GENERATED_BODY();")
         # DHT_CLASS() will be identified as a function declaration
@@ -83,31 +89,48 @@ def write_include(file, include_file):
     file.write(f"#include \"{include_file}\"\n")
 
 def write_macro(file, macro_lines):
+    if len(macro_lines) == 0:
+        return
+    
     i = 0
     while i < len(macro_lines) - 1:
         file.write(macro_lines[i] + macro_newline)
         i += 1
     file.write(macro_lines[i] + "\n")
 
+def write_comment_segmentation(file, comment):
+    comment_size = len(comment)
+    star_num = 0 if comment_size > 50 else 50 - comment_size
+    file.write(f"// ********* {comment} {star_num * '*'} \n")
+
+
 class DHTModule:
     name: str
     source_dir: str
     module_info_filepath: str
-    export_api: str
+    api_macro: str
     dht_output_dir: str
-    registered_dclasses: list
+    classes: list
 
     def __init__(self, source_dir, dht_output_dir):
         self.dht_output_dir = dht_output_dir
         self.source_dir = source_dir
         self.name = os.path.basename(self.source_dir)
         self.module_info_filepath = os.path.join(self.dht_output_dir, f"ModuleInfo.json")
-        self.export_api = self.name.upper() + "_API"
+        self.api_macro = self.name.upper() + "_API"
 
         with open(self.module_info_filepath, "r") as f:
             module_info = json.load(f)
-            self.registered_dclasses = module_info.get("DClasses", [])
-            logging.debug("Registered DClasses for module '%s': %s", self.name, self.registered_dclasses)
+            self.classes = module_info.get("DClasses", [])
+            logging.debug("Registered DClasses for module '%s': %s", self.name, self.classes)
+
+    def get_api_macro(self, classname):
+        if classname in intrinsic_core_objects:
+            return "CORE_API"
+        elif classname in self.classes:
+            return self.api_macro
+        else:
+            return "DLLIMPORT"
 
 # Property meta info, annotated with DPROPERTY()
 class DHTProperty:
@@ -171,6 +194,10 @@ class DHTClass:
     generate_body_line: int
     properties: list
     functions: list
+    registration_info_name: str
+    construct_func_name: str
+    construct_noregister_func_name: str
+    construct_statics: str
 
     def __init__(self):
         self.generate_body_line = 0
@@ -182,6 +209,10 @@ class DHTClass:
         self.annotations = annotations
         self.cursor = class_cursor
         self.clang_tokens = list(class_cursor.get_tokens())
+        self.registration_info_name = f"Z_Registration_Info_DClass_{self.name}"
+        self.construct_func_name =  f"Z_Construct_DClass_{self.name}"
+        self.construct_noregister_func_name =  f"{self.construct_func_name}_NoRegister"
+        self.construct_statics = f"{self.construct_func_name}_Statics"
 
         self.construct_class_declaration()
         self.construct_members()
@@ -202,8 +233,8 @@ class DHTClass:
         declaration_tokens = class_tokens[:declaration_token_end]
 
         # Extract export API information
-        if module_meta.export_api in declaration_tokens:
-            self.api = module_meta.export_api
+        if module_meta.api_macro in declaration_tokens:
+            self.api = module_meta.api_macro
 
         # Extract the first superclass, the super class must be a DObject class
         superclass_begin = 0
@@ -361,15 +392,24 @@ class DHTParser:
 
 class DHTCodeGen_H:
     @staticmethod
-    def generate(filepath, header_meta) -> None:
+    def generate(filepath) -> None:
         with open(filepath, 'w') as file:
             file.write("// Generated code exported from DogeHeaderTool.\n\n")
             file.write("#pragma once\n\n")
 
             for class_meta in header_meta.classes:
-                DHTCodeGen_H.write_generate_body_code(file, class_meta, header_meta.fid)
+                DHTCodeGen_H.write_class(file, class_meta, header_meta.fid)
 
             DHTCodeGen_H.write_fid_definition(file, header_meta.fid)
+
+    @staticmethod
+    def write_class(file, class_meta, fid):
+        write_comment_segmentation(file, f"Begin Class {class_meta.name}")
+        file.write(f"{class_meta.api} auto {class_meta.construct_noregister_func_name}() -> DClass*;\n")
+        DHTCodeGen_H.write_generate_body_code(file, class_meta, fid)
+        write_comment_segmentation(file, f"End Class {class_meta.name}")
+        file.write("\n")
+
 
     @staticmethod
     def write_generate_body_code(file, class_meta, fid) -> None:
@@ -380,11 +420,16 @@ class DHTCodeGen_H:
         generated_body_id = fid + "_" + str(class_meta.generate_body_line)
         generated_body_macro_name = generated_body_id + "_GENERATED_BODY"
 
-        enhanced_constructors_macro_name = DHTCodeGen_H.write_code_enhanced_constructors(file, class_meta, generated_body_id)
+        no_pure_decls_macro_name = generated_body_id + "_INCLASS_NO_PURE_DECLS"
+        enhanced_constructors_macro_name = generated_body_id + "_ENHANCED_CONSTRUCTORS"
+
+        DHTCodeGen_H.write_inclass_no_pure_decls(file, no_pure_decls_macro_name, class_meta)
+        DHTCodeGen_H.write_code_enhanced_constructors(file, enhanced_constructors_macro_name, class_meta)
 
         lines = []
         lines.append(f"#define {generated_body_macro_name}")
         lines.append("public:")
+        lines.append(f"\t{no_pure_decls_macro_name}")
         lines.append(f"\t{enhanced_constructors_macro_name}")
         lines.append("private:")
 
@@ -392,8 +437,20 @@ class DHTCodeGen_H:
         file.write("\n")
 
     @staticmethod
-    def write_code_enhanced_constructors(file, class_meta, generated_body_id) -> str:
-        macro_name = generated_body_id + "_ENHANCED_CONSTRUCTORS"
+    def write_inclass_no_pure_decls(file, macro_name, class_meta) -> str:
+        lines = []
+        lines.append(f"#define {macro_name}")
+        lines.append("private:")
+        lines.append(f"\tfriend struct {class_meta.construct_statics};")
+        lines.append("\tstatic DClass* GetPrivateStaticClass();")
+        lines.append(f"\tfriend {class_meta.api} auto {class_meta.construct_noregister_func_name}() -> DClass*;")
+        lines.append("public:")
+        lines.append(f"\tDECLARE_CLASS({class_meta.name}, {class_meta.superclass}, {class_meta.construct_noregister_func_name})")
+        write_macro(file, lines)
+        file.write("\n")
+
+    @staticmethod
+    def write_code_enhanced_constructors(file, macro_name, class_meta) -> str:
         lines = []
         lines.append(f"#define {macro_name}")
         lines.append(f"/** Deleted move- and copy-constructors, should never be used */")
@@ -402,7 +459,6 @@ class DHTCodeGen_H:
         lines.append(f"{classname}(const {classname}&) = delete;")
         write_macro(file, lines)
         file.write("\n")
-        return macro_name
 
     @staticmethod
     def write_fid_definition(file, fid) -> None:
@@ -412,15 +468,123 @@ class DHTCodeGen_H:
 
 class DHTCodeGen_Cpp:
     @staticmethod
-    def generate(filepath, header_meta) -> None:
+    def generate(filepath) -> None:
         with open(filepath, 'w') as file:
             DHTCodeGen_Cpp.write_includes(file)
+            DHTCodeGen_Cpp.write_cross_module_references(file)
+            DHTCodeGen_Cpp.write_classes(file)
+            DHTCodeGen_Cpp.write_registration(file)
 
     @staticmethod
     def write_includes(file) -> None:
         write_include(file, "DObject/GeneratedCppIncludes.h")
         write_include(file, header_meta.include_path)
         file.write("\n")
+
+    @staticmethod
+    def write_cross_module_references(file) -> None:
+        write_comment_segmentation(file, "Begin Cross Module References")
+        for class_meta in header_meta.classes:
+            superclass = class_meta.superclass
+            superclass_api_macro = module_meta.get_api_macro(superclass)
+            file.write(f"{superclass_api_macro} DClass* Z_Construct_DClass_{superclass}();\n")
+            file.write(f"{module_meta.api_macro} DClass* {class_meta.construct_func_name}();\n")
+            file.write(f"{module_meta.api_macro} DClass* {class_meta.construct_noregister_func_name}();\n")
+        write_comment_segmentation(file, "End Cross Module References")
+        file.write("\n")
+    
+    @staticmethod
+    def write_classes(file) -> None:
+        for class_meta in header_meta.classes:
+            classname = class_meta.name
+            
+            write_comment_segmentation(file, f"Begin Class {classname}")
+
+            file.write(f"FClassRegistrationInfo {class_meta.registration_info_name};\n")
+            DHTCodeGen_Cpp.write_class_construct_noregister_function(file, class_meta)
+            DHTCodeGen_Cpp.write_class_construct_function(file, class_meta)
+
+            write_comment_segmentation(file, f"End Class {classname}")
+            file.write("\n")
+        file.write("\n")
+
+    @staticmethod
+    def write_class_construct_noregister_function(file, class_meta) -> None:
+        file.write(f"auto {class_meta.name}::GetPrivateStaticClass() -> DClass*\n")
+        file.write("{\n")
+        file.write(f"\tusing TClass = {class_meta.name};\n")
+        file.write(f"\tDClass*& Singleton = {class_meta.registration_info_name}.InnerSingleton;\n")
+        file.write(f"\tif (!Singleton)\n")
+        file.write("\t{\n")
+
+        file.write(f"\t\tSingleton = GetPrivateStaticClassBody(\n")
+        file.write(f"\t\t\t\"{class_meta.name}\"\n")
+        file.write(f"\t\t);\n")
+
+        file.write("\t}\n")
+        file.write("\treturn Singleton;\n")
+        file.write("}\n")
+        file.write("\n")
+
+        file.write(f"auto {class_meta.construct_noregister_func_name}() -> DClass*\n")
+        file.write("{\n")
+        file.write(f"\treturn {class_meta.name}::GetPrivateStaticClass();\n")
+        file.write("}\n")
+        file.write("\n")
+
+    @staticmethod
+    def write_class_construct_function(file, class_meta) -> None:
+        DHTCodeGen_Cpp.write_class_construct_statics(file, class_meta)
+
+        file.write(f"auto {class_meta.construct_func_name}() -> DClass*\n")
+        file.write("{\n")
+        file.write(f"\tDClass*& Singleton = {class_meta.registration_info_name}.OuterSingleton;\n")
+        file.write(f"\tif (!Singleton)\n")
+        file.write("\t{\n")
+        file.write(f"\t\tSingleton = DogeCodeGen::ConstructDClass({class_meta.construct_func_name}_Statics::ClassParams);\n")
+        file.write("\t}\n")
+        file.write("\treturn Singleton;\n")
+        file.write("}\n")
+        file.write("\n")
+
+    @staticmethod
+    def write_class_construct_statics(file, class_meta) -> None:
+        construct_statics = class_meta.construct_statics
+        file.write(f"struct {construct_statics}\n")
+        file.write("{\n")
+        file.write("\tstatic const DogeCodeGen::FClassParams ClassParams;\n")
+        file.write("};\n")
+        file.write("\n")
+
+        file.write(f"const DogeCodeGen::FClassParams {class_meta.construct_statics}::ClassParams = {{\n")
+        file.write(f"\t{class_meta.name}::StaticClass,\n")
+        file.write(f"\t\"{class_meta.name}\"\n")
+        file.write("};\n")
+        file.write("\n")
+
+    def write_registration(file) -> None:
+        if len(header_meta.classes) == 0:
+            return
+        write_comment_segmentation(file, f"Begin Registration")
+
+        defer_registration_statics = f"Z_CompiledInDeferFile_{header_meta.fid}_Statics"
+
+        file.write(f"struct {defer_registration_statics}\n")
+        file.write("{\n")
+        file.write("\tstatic constexpr FClassRegisterCompiledInInfo ClassInfo[] = {\n")
+        for class_meta in header_meta.classes:
+            file.write(f"\t\t{{ {class_meta.construct_func_name}, {class_meta.name}::StaticClass, \"{class_meta.name}\", &{class_meta.registration_info_name} }},\n")
+        file.write("\t};\n")
+        file.write("};\n")
+        file.write("\n")
+
+        file.write(f"static FRegisterCompiledInInfo Z_CompiledInDeferFile_{header_meta.fid}" + "(\n")
+        file.write(f"\t{defer_registration_statics}::ClassInfo,\n") 
+        file.write(f"\t{len(header_meta.classes)}\n")
+        file.write(");\n")
+        file.write("\n")
+
+        write_comment_segmentation(file, f"End Registration")
 
 
 class DHTCodeGenerator:
@@ -440,8 +604,8 @@ class DHTCodeGenerator:
         self.gen_h_file = os.path.join(output_dir, f"{filename}.gen.h")
         self.gen_cpp_file = os.path.join(output_dir, f"{filename}.gen.cpp")
 
-        DHTCodeGen_H.generate(self.gen_h_file, header_meta)
-        DHTCodeGen_Cpp.generate(self.gen_cpp_file, header_meta)
+        DHTCodeGen_H.generate(self.gen_h_file)
+        DHTCodeGen_Cpp.generate(self.gen_cpp_file)
 
 
 if __name__ == "__main__":

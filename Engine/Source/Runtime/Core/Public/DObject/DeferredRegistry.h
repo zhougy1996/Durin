@@ -38,6 +38,8 @@ public:
 
 	auto GetRegistrations() -> std::vector<FRegistrant>& { return Registrations; }
 
+	auto ClearRegistrations() -> void { std::vector<FRegistrant>().swap(Registrations); }
+
 private:
 	std::vector<FRegistrant> Registrations;
 };
