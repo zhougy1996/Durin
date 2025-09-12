@@ -1,13 +1,11 @@
 #include "DObject/DObject.h"
 
-#include "DObject/ObjectMacros.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Class.h"
 #include "DObject/DeferredRegistry.h"
 
-CORE_API auto Z_Construct_DClass_DObject() -> DClass*;
-CORE_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
+class DClass;
 
 FClassRegistrationInfo Z_Registration_Info_DClass_DObject;
 

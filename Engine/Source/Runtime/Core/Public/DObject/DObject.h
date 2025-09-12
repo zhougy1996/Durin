@@ -52,7 +52,6 @@ private:
 	friend CORE_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
 };
 
-
 CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
 
 CORE_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const UTF8Char* InName, FClassRegistrationInfo& InInfo) -> void;

@@ -1,7 +1,5 @@
 #pragma once
 
-// clang-format off
-
 enum { INDEX_NONE = -1 };
 
 enum EForceInit 
@@ -22,4 +20,3 @@ enum EInPlace {InPlace};
 	TypeName& operator=(const TypeName&) = delete; \
 	TypeName& operator=(TypeName&&) = delete;
 
-// clang-format on

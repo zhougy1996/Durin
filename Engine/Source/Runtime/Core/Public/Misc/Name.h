@@ -42,14 +42,12 @@ public:
 
 	explicit operator bool() const { return Value_ != 0; }
 
-	struct FHash
-	{
-		size_t operator()(const FNameEntryId& Id) const noexcept;
-	};
 
 private:
 	uint32 Value_; // TODO: 32 bits
 };
+
+CORE_API uint64 GetTypeHash(FNameEntryId Id);
 
 struct FNameBuffer;
 
@@ -133,6 +131,11 @@ public:
 
 	[[nodiscard]] CORE_API static auto ResolveEntry(FNameEntryId LookupId) -> const FNameEntry*;
 
+	[[nodiscard]] friend FORCEINLINE auto GetTypeHash(FName Name) -> uint64
+	{
+		return GetTypeHash(Name.GetComparisonIndex()) + Name.GetNumber();
+	}
+
 private:
 	static constexpr auto InValidNameCharacters = STR("\"' ,\n\r\t");
 
@@ -162,6 +165,16 @@ private:
 
 	friend struct FNameHash;
 	friend struct FNameHelper;
+};
+
+
+template<>
+struct std::hash<FName>
+{
+	size_t operator()(FName Name) const noexcept
+	{
+		return GetTypeHash(Name);
+	}
 };
 
 CORE_API auto RegisterDogeNames() -> void;

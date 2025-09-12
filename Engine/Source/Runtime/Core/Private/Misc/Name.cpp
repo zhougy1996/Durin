@@ -256,27 +256,11 @@ struct FNameEntryHandle
 	{
 	}
 
-	static uint32 GetTypeHash(FNameEntryHandle Handle)
-	{
-		uint32 HashValue = (Handle.Block << (32 - FNameMaxBlockBits)) + Handle.Block // Let block index impact most hash bits
-						   + (Handle.Offset << FNameBlockOffsetBits) + Handle.Offset // Let offset impact most hash bits
-						   + (Handle.Offset >> 4);									 // Reduce impact of non-uniformly distributed entry name lengths
-		return HashValue;
-	}
-
 	// Implicit conversion to FNameEntryId
 	operator FNameEntryId() const
 	{
 		return FNameEntryId(Block << FNameBlockOffsetBits | Offset);
 	}
-
-	struct FHash
-	{
-		size_t operator()(const FNameEntryHandle& Handle) const noexcept
-		{
-			return std::hash<uint32>()(GetTypeHash(Handle));
-		}
-	};
 
 	explicit operator bool() const { return Block | Offset; }
 };
@@ -287,7 +271,7 @@ auto FNameEntry::MakeView() const -> FU8StringView
 	return FU8StringView{Data, Header.Len};
 }
 
-const UTF8Char* FNameEntry::GetUnterminatedName() const
+auto FNameEntry::GetUnterminatedName() const -> const UTF8Char*
 {
 	return static_cast<const UTF8Char*>(&AnsiName[0]);
 }
@@ -296,9 +280,26 @@ FNameEntry::FNameEntry(FClangKeepDebugInfo)
 {
 }
 
-size_t FNameEntryId::FHash::operator()(const FNameEntryId& Id) const noexcept
+static auto GetTypeHash(FNameEntryHandle Handle) -> uint64
 {
-	return std::hash<uint32>()(FNameEntryHandle::GetTypeHash(FNameEntryHandle(Id)));
+	uint64 Hash = 0;
+	uint64 Block = Handle.Block;
+	uint64 Offset = Handle.Offset;
+
+	Hash = (Block << (64 - FNameMaxBlockBits)) ^ (Block << 32) ^ (Offset << (32 - FNameBlockOffsetBits)) ^ Offset;
+
+	Hash ^= (Hash >> 33);
+	Hash *= 0xff51afd7ed558ccdULL;
+	Hash ^= (Hash >> 33);
+	Hash *= 0xc4ceb9fe1a85ec53ULL;
+	Hash ^= (Hash >> 33);
+
+	return Hash;
+}
+
+auto GetTypeHash(FNameEntryId Id) -> uint64
+{
+	return GetTypeHash(FNameEntryHandle(Id));
 }
 
 class FNameEntryAllocator
