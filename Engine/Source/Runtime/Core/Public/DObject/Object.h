@@ -30,7 +30,7 @@ class DObject
 public:
 	virtual ~DObject() = default;
 
-	auto SetName(FName InName) -> void { NamePrivate = InName; }
+	auto Rename(FName InName) -> void { NamePrivate = InName; }
 
 	auto GetFName() const -> FName { return NamePrivate; }
 

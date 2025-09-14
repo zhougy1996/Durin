@@ -5,6 +5,6 @@ auto GetPrivateStaticClassBody(
 ) -> DClass*
 {
 	DClass* Class = new DClass();
-	Class->SetName(FName(Name));
+	Class->Rename(FName(Name));
 	return Class;
 }

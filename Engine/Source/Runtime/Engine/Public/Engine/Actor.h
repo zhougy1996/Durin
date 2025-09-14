@@ -78,10 +78,10 @@ protected:
 	}
 
 	template<typename T>
-	auto CreateDefaultComponent(const FStringName& ComponentName) -> T*
+	auto CreateDefaultComponent(const FName& InComponentName) -> T*
 	{
 		auto* Component = CreateDefaultComponent<T>();
-		Component->SetName(ComponentName);
+		Component->Rename(InComponentName);
 		return Component;
 	}
 
