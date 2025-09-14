@@ -7,6 +7,8 @@
 #define BODY_MACRO_COMBINE_INNER(A, B, C, D) A##B##C##D
 #define BODY_MACRO_COMBINE(A, B, C, D) BODY_MACRO_COMBINE_INNER(A, B, C, D)
 
+#define NO_API
+
 #define GENERATED_BODY(...) BODY_MACRO_COMBINE(CURRENT_FILE_ID, _, __LINE__, _GENERATED_BODY)
 
 #define DECLARE_CLASS(TClass, TSuperClass, TPrivateAccessor) \
@@ -16,9 +18,7 @@ private: \
 \
 public: \
 	using Super = TSuperClass; \
-	inline static DClass* StaticClass() { return TPrivateAccessor(); } \
-\
-private:
+	inline static DClass* StaticClass() { return TPrivateAccessor(); }
 
 #define DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(TClass) \
 	static void __DefaultConstructor(const FObjectInitializer& X) { new ((EInternal*)X.GetObj()) TClass(X); }

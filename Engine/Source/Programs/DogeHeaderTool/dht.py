@@ -7,9 +7,9 @@ import clang.cindex
 from clang.cindex import TokenKind
 
 # Constants
-current_file_path = os.path.abspath(__file__)
-current_dir = os.path.dirname(current_file_path)
-doge_source_dir = os.path.abspath(os.path.join(current_dir, "../.."))
+dht_file_path = os.path.abspath(__file__)
+dht_dir = os.path.dirname(dht_file_path)
+doge_source_dir = os.path.abspath(os.path.join(dht_dir, "../.."))
 doge_root_dir = os.path.abspath(os.path.join(doge_source_dir, "../.."))
 clang_lib_dir = os.path.join(doge_source_dir, "ThirdParty/clang/bin")
 clang_args = [
@@ -23,8 +23,21 @@ clang_args = [
     "-MG",
     "-M",
     "-ferror-limit=0",
-    "-o clangLog.txt"
+    "-o clangLog.txt",
 ]
+
+# Forward declaration header for clang parser
+virtual_fwd_header_path = os.path.join(dht_dir, "dht_virtual_fwd.h")
+
+# Content of the forward declaration header
+virtual_fwd_header_content = """
+class FObjectInitializer;
+class DObject;
+class DClass;
+class DStruct;
+class DEnum;
+"""
+
 intrinsic_core_objects = [
     "DObject",
     "DClass",
@@ -47,6 +60,8 @@ def init_clang():
         clang_args.append("-DDCLASS(...)=__attribute__((annotate(\"DCLASS,\" #__VA_ARGS__))) void DHT_CLASS();") 
         clang_args.append("-DDPROPERTY(...)=__attribute__((annotate(\"DPROPERTY,\" #__VA_ARGS__)))")
         clang_args.append("-DDFUNCTION(...)=__attribute__((annotate(\"DFUNCTION,\" #__VA_ARGS__)))")
+        clang_args.append("-DDFUNCTION(...)=__attribute__((annotate(\"DFUNCTION,\" #__VA_ARGS__)))")
+        clang_args.append(f'-include{virtual_fwd_header_path}')
 
     clang.cindex.Config.set_library_path(clang_lib_dir)
 
@@ -103,6 +118,33 @@ def write_comment_segmentation(file, comment):
     star_num = 0 if comment_size > 50 else 50 - comment_size
     file.write(f"// ********* {comment} {star_num * '*'} \n")
 
+def is_object_initializer_constructor(constructor_cursor) -> bool:
+    if constructor_cursor.kind != clang.cindex.CursorKind.CONSTRUCTOR:
+        return False
+
+    params = list(constructor_cursor.get_children())
+    if len(params) != 1:
+        return False
+
+    first_param = params[0]
+    if first_param.kind != clang.cindex.CursorKind.PARM_DECL:
+        return False
+
+    param_type = first_param.type.spelling
+    if param_type.startswith("const FObjectInitializer &") or param_type.startswith("FObjectInitializer &"):
+        return True
+
+    return False
+
+def is_default_constructor(constructor_cursor) -> bool:
+    if constructor_cursor.kind != clang.cindex.CursorKind.CONSTRUCTOR:
+        return False
+
+    params = list(constructor_cursor.get_children())
+    if len(params) != 0:
+        return False
+
+    return True
 
 class DHTModule:
     name: str
@@ -195,6 +237,8 @@ class DHTClass:
     properties: list
     functions: list
     registration_info_name: str
+    has_default_constructor: bool = False
+    has_object_initializer_constructor: bool = False
     construct_func_name: str
     construct_noregister_func_name: str
     construct_statics: str
@@ -221,6 +265,9 @@ class DHTClass:
         for child_cursor in self.cursor.get_children():
             if child_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
                 self.add_property(child_cursor)
+            elif child_cursor.kind == clang.cindex.CursorKind.CONSTRUCTOR:
+                self.has_default_constructor |= is_default_constructor(child_cursor)
+                self.has_object_initializer_constructor |= is_object_initializer_constructor(child_cursor)
             elif child_cursor.kind == clang.cindex.CursorKind.CXX_METHOD:
                 if child_cursor.spelling == "DHT_GENERATED_BODY":
                     self.generate_body_line = child_cursor.location.line
@@ -367,7 +414,7 @@ class DHTParser:
         logging.debug("Parsing header: %s", header_path)
 
         global translation_unit
-        translation_unit = clang_index.parse(header_path, clang_args)
+        translation_unit = clang_index.parse(header_path, clang_args, unsaved_files=[(virtual_fwd_header_path, virtual_fwd_header_content)])
 
         if not translation_unit:
             logging.error("Unable to load translation unit from %s", header_path)
@@ -421,18 +468,15 @@ class DHTCodeGen_H:
 
         no_pure_decls_macro_name = generated_body_id + "_INCLASS_NO_PURE_DECLS"
         enhanced_constructors_macro_name = generated_body_id + "_ENHANCED_CONSTRUCTORS"
-        standard_constructors_macro_name = generated_body_id + "_STANDARD_CONSTRUCTORS"
 
         DHTCodeGen_H.write_inclass_no_pure_decls(file, no_pure_decls_macro_name, class_meta)
-        DHTCodeGen_H.write_code_enhanced_constructors(file, enhanced_constructors_macro_name, class_meta)
-        DHTCodeGen_H.write_code_standard_constructors(file, standard_constructors_macro_name, class_meta)
+        DHTCodeGen_H.write_enhanced_constructors(file, enhanced_constructors_macro_name, class_meta)
 
         lines = []
         lines.append(f"#define {generated_body_macro_name}")
         lines.append("public:")
         lines.append(f"\t{no_pure_decls_macro_name}")
         lines.append(f"\t{enhanced_constructors_macro_name}")
-        lines.append(f"\t{standard_constructors_macro_name}")
         lines.append("private:")
 
         write_macro(file, lines)
@@ -452,9 +496,12 @@ class DHTCodeGen_H:
         file.write("\n")
 
     @staticmethod
-    def write_code_enhanced_constructors(file, macro_name, class_meta) -> str:
+    def write_enhanced_constructors(file, macro_name, class_meta) -> str:
         lines = []
         lines.append(f"#define {macro_name}")
+        if not class_meta.has_object_initializer_constructor:
+            lines.append(f"/** Standard Constructors */")
+            lines.append(f"NO_API {class_meta.name}(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());")
         lines.append(f"/** Deleted move- and copy-constructors, should never be used */")
         classname = class_meta.name
         lines.append(f"{classname}({classname}&&) = delete;")
@@ -513,6 +560,7 @@ class DHTCodeGen_Cpp:
             file.write(f"FClassRegistrationInfo {class_meta.registration_info_name};\n")
             DHTCodeGen_Cpp.write_class_construct_noregister_function(file, class_meta)
             DHTCodeGen_Cpp.write_class_construct_function(file, class_meta)
+            DHTCodeGen_Cpp.write_class_constructor(file, class_meta)
 
             write_comment_segmentation(file, f"End Class {classname}")
             file.write("\n")
@@ -571,7 +619,14 @@ class DHTCodeGen_Cpp:
         file.write(f"\t\"{class_meta.name}\"\n")
         file.write("};\n")
         file.write("\n")
+    
+    @staticmethod
+    def write_class_constructor(file, class_meta) -> None:
+        if not class_meta.has_object_initializer_constructor:
+            file.write(f"{class_meta.name}::{class_meta.name}(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {{}}\n")
+            file.write("\n")
 
+    @staticmethod
     def write_registration(file) -> None:
         if len(header_meta.classes) == 0:
             return

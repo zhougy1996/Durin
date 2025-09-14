@@ -6,6 +6,10 @@ set(DHT_INPUT_HEADERS
 	"${CMAKE_CURRENT_SOURCE_DIR}/Public/Engine/Actor.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Public/Actors/StaticMeshActor.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Public/Components/ActorComponent.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/Public/Components/PrimitiveComponent.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/Public/Components/SceneComponent.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/Public/Components/MeshComponent.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/Public/Components/StaticMeshComponent.h"
 )
 doge_module_add_dht_input_headers(${PROJECT_NAME} "${DHT_INPUT_HEADERS}" DHT_GENERATED_FILES)
 

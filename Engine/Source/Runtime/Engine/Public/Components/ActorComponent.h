@@ -1,9 +1,15 @@
 #pragma once
 
+#include "DObject/CoreDObject.h"
+
+#include "ActorComponent.gen.h"
+
 class AActor;
 
+DCLASS()
 class DActorComponent : public DObject
 {
+	GENERATED_BODY()
 public:
 	ENGINE_API DActorComponent(const FObjectInitializer& ObjectInitializer);
 
