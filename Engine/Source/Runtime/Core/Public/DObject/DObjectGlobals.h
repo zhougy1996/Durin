@@ -12,6 +12,12 @@ struct FStaticConstructObjectParameters
 class FObjectInitializer
 {
 public:
+	auto GetObj() -> DObject* { return Obj; }
+
+	static CORE_API auto Get() -> const FObjectInitializer&;
+
+	DObject* Obj;
+
 	FStaticConstructObjectParameters Params;
 };
 	
@@ -20,13 +26,16 @@ auto NewObject(DObject* Outer, FName Name) -> T*
 {
 	static_assert(std::is_base_of<DObject, T>::value, "T must be derived from DObject");
 
-	FObjectInitializer ObjectInitializer;
-	ObjectInitializer.Params = FStaticConstructObjectParameters{T::StaticClass(), Outer, Name};
-
+	// Allocate memory and zero it out
 	DObject* Obj = nullptr;
 	Obj = (DObject*)std::malloc(sizeof(T));
 	std::memset(Obj, 0, sizeof(T));
-	new (Obj) DObject(ObjectInitializer); // placement new
+
+	FObjectInitializer ObjectInitializer;
+	ObjectInitializer.Obj = Obj;
+	ObjectInitializer.Params = FStaticConstructObjectParameters{T::StaticClass(), Outer, Name};
+
+	new (Obj) DObject(ObjectInitializer);
 
 	// Obj->Register(Name);
 	return (T*)Obj;

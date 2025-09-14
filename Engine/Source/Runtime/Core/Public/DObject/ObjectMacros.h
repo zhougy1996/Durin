@@ -19,3 +19,6 @@ public: \
 	inline static DClass* StaticClass() { return TPrivateAccessor(); } \
 \
 private:
+
+#define DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(TClass) \
+	static void __DefaultConstructor(const FObjectInitializer& X) { new ((EInternal*)X.GetObj()) TClass(X); }

@@ -421,15 +421,18 @@ class DHTCodeGen_H:
 
         no_pure_decls_macro_name = generated_body_id + "_INCLASS_NO_PURE_DECLS"
         enhanced_constructors_macro_name = generated_body_id + "_ENHANCED_CONSTRUCTORS"
+        standard_constructors_macro_name = generated_body_id + "_STANDARD_CONSTRUCTORS"
 
         DHTCodeGen_H.write_inclass_no_pure_decls(file, no_pure_decls_macro_name, class_meta)
         DHTCodeGen_H.write_code_enhanced_constructors(file, enhanced_constructors_macro_name, class_meta)
+        DHTCodeGen_H.write_code_standard_constructors(file, standard_constructors_macro_name, class_meta)
 
         lines = []
         lines.append(f"#define {generated_body_macro_name}")
         lines.append("public:")
         lines.append(f"\t{no_pure_decls_macro_name}")
         lines.append(f"\t{enhanced_constructors_macro_name}")
+        lines.append(f"\t{standard_constructors_macro_name}")
         lines.append("private:")
 
         write_macro(file, lines)
@@ -456,6 +459,14 @@ class DHTCodeGen_H:
         classname = class_meta.name
         lines.append(f"{classname}({classname}&&) = delete;")
         lines.append(f"{classname}(const {classname}&) = delete;")
+        write_macro(file, lines)
+        file.write("\n")
+    
+    @staticmethod
+    def write_code_standard_constructors(file, macro_name, class_meta) -> str:
+        lines = []
+        lines.append(f"#define {macro_name}")
+        lines.append(f"{class_meta.api} {class_meta.name}(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());")
         write_macro(file, lines)
         file.write("\n")
 
