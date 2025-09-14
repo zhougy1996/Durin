@@ -1,6 +1,7 @@
 #include "LaunchEngineLoop.h"
 
 #include "CoreGlobals.h"
+#include "DObject/Object.h"
 #include "Misc/ConfigCacheJson.h"
 #include "ApplicationCore.h"
 #include "RHI.h"

@@ -17,10 +17,7 @@
 
 #include "Templates/SmartPointers.h"
 #include "Math/DogeMath.h"
-
-#include "DObject/ObjectMacros.h"
-#include "DObject/DObject.h"
-
 #include "Misc/PixelFormat.h"
-
 #include "Json/Json.h"
+
+#include "DObject/DObjectFwd.h"

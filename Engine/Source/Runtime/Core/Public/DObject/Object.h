@@ -2,7 +2,6 @@
 
 #include "DObject/ObjectMacros.h"
 
-class DClass;
 using FClassRegisterFunc = DClass* (*)();
 
 template<typename T>
@@ -27,7 +26,10 @@ struct FClassRegisterCompiledInInfo
 class DObject
 {
 	DECLARE_CLASS(DObject, DObject, GetPrivateStaticClass)
+
 public:
+	virtual ~DObject() = default;
+
 	auto SetName(FName InName) -> void { NamePrivate = InName; }
 
 	auto GetFName() const -> FName { return NamePrivate; }

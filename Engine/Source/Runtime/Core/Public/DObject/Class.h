@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DObject/Object.h"
+
 class DClass : public DObject
 {
 public:

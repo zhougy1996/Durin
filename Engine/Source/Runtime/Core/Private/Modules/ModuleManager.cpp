@@ -1,5 +1,7 @@
 #include "Modules/ModuleManager.h"
 
+#include "DObject/Object.h"
+
 auto FModuleManager::Get() -> FModuleManager&
 {
 	static FModuleManager Instance;

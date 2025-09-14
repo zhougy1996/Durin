@@ -1,4 +1,4 @@
-#include "DObject/DObject.h"
+#include "DObject/Object.h"
 
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DObjectArray.h"
