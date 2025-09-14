@@ -9,6 +9,20 @@ class DClass;
 
 FClassRegistrationInfo Z_Registration_Info_DClass_DObject;
 
+DObject::DObject(const FObjectInitializer& ObjectInitializer)
+	: ClassPrivate(ObjectInitializer.Params.Class)
+	, OuterPrivate(ObjectInitializer.Params.Outer)
+	, NamePrivate(ObjectInitializer.Params.Name)
+{
+}
+
+DObject::DObject(DClass* InClass, DObject* InOuter, FName InName)
+	: ClassPrivate(InClass)
+	, OuterPrivate(InOuter)
+	, NamePrivate(InName)
+{
+}
+
 auto DObject::GetPrivateStaticClass() -> DClass*
 {
 	DClass*& Singleton = Z_Registration_Info_DClass_DObject.InnerSingleton;

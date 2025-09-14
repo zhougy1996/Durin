@@ -1,27 +1,19 @@
 #pragma once
+
 class AActor;
 
 class DActorComponent : public DObject
 {
-private:
-	AActor* OwnerActor_;
-
-	uint8 bRegistered : 1 = false;
-
-	uint8 bHasBeenCreated : 1 = false;
-
-	uint8 bHasBeenInitialized : 1 = false;
-
 public:
-	ENGINE_API DActorComponent(AActor* OwnerActor);
+	ENGINE_API DActorComponent(const FObjectInitializer& ObjectInitializer);
 
 	ENGINE_API virtual ~DActorComponent() = default;
 
-	ENGINE_API auto GetOwner() -> AActor* const { return OwnerActor_; }
+	ENGINE_API auto GetOwner() -> AActor* const { return OwnerActorPrivate; }
 
 	template<typename T> auto GetOwner() const -> T*
 	{
-		return dynamic_cast<T*>(OwnerActor_);
+		return dynamic_cast<T*>(OwnerActorPrivate);
 	}
 
 	ENGINE_API auto RegisterComponent() -> void;
@@ -48,4 +40,13 @@ private:
 
 	// Call OnUnregister();
 	auto ExecuteUnregisterEvents() -> void;
+
+private:
+	AActor* OwnerActorPrivate;
+
+	uint8 bRegistered : 1 = false;
+
+	uint8 bHasBeenCreated : 1 = false;
+
+	uint8 bHasBeenInitialized : 1 = false;
 };

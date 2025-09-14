@@ -2,6 +2,8 @@
 
 #include "DObject/ObjectMacros.h"
 
+class FObjectInitializer;
+
 using FClassRegisterFunc = DClass* (*)();
 
 template<typename T>
@@ -23,11 +25,17 @@ struct FClassRegisterCompiledInInfo
 	FClassRegistrationInfo* Info;
 };
 
+CORE_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
+
 class DObject
 {
-	DECLARE_CLASS(DObject, DObject, GetPrivateStaticClass)
+	DECLARE_CLASS(DObject, DObject, Z_Construct_DClass_DObject_NoRegister)
 
 public:
+	CORE_API DObject(const FObjectInitializer& ObjectInitializer);
+
+	CORE_API DObject(DClass* InClass, DObject* InOuter, FName InName);
+
 	virtual ~DObject() = default;
 
 	auto Rename(FName InName) -> void { NamePrivate = InName; }
@@ -48,6 +56,8 @@ private:
 	CORE_API auto AddObject(FName InName) -> void;
 
 	FName NamePrivate;
+
+	DObject* OuterPrivate;
 
 	DClass* ClassPrivate;
 

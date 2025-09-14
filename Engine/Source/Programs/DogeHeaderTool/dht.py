@@ -233,8 +233,7 @@ class DHTClass:
         declaration_tokens = class_tokens[:declaration_token_end]
 
         # Extract export API information
-        if module_meta.api_macro in declaration_tokens:
-            self.api = module_meta.api_macro
+        self.api = module_meta.api_macro
 
         # Extract the first superclass, the super class must be a DObject class
         superclass_begin = 0

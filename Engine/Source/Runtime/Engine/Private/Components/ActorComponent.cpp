@@ -3,11 +3,12 @@
 #include "Engine/Actor.h"
 #include "Components/SceneComponent.h"
 
-DActorComponent::DActorComponent(AActor* OwnerActor)
-	: OwnerActor_(OwnerActor)
+DActorComponent::DActorComponent(const FObjectInitializer& ObjectInitializer)
+	: DObject(ObjectInitializer)
 {
+	// TODO: set OwnerActorPrivate
+	OwnerActorPrivate = nullptr;
 }
-
 auto DActorComponent::RegisterComponent() -> void
 {
 	ExecuteRegisterEvents();

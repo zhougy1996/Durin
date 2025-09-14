@@ -1,12 +1,16 @@
 #pragma once
 
+#include "Actor.gen.h"
+
 class DActorComponent;
 class DSceneComponent;
 
-class AActor
+DCLASS()
+class AActor : public DObject
 {
+	GENERATED_BODY()
 public:
-	ENGINE_API AActor();
+	ENGINE_API AActor(const FObjectInitializer& ObjectInitializer);
 
 	ENGINE_API virtual ~AActor();
 

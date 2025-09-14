@@ -2,9 +2,10 @@
 
 #include "Components/StaticMeshComponent.h"
 
-AStaticMeshActor::AStaticMeshActor()
+AStaticMeshActor::AStaticMeshActor(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
 {
-	StaticMeshComponent = CreateDefaultComponent<DStaticMeshComponent>("DStaticMeshComponent");
+	StaticMeshComponent = NewObject<DStaticMeshComponent>(this, "DStaticMeshComponent");
 	RootComponent = StaticMeshComponent;
 }
 

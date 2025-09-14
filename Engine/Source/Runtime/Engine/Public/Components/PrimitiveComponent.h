@@ -3,6 +3,4 @@
 
 class DPrimitiveComponent : public DSceneComponent
 {
-public:
-	ENGINE_API DPrimitiveComponent(AActor* OwnerActor);
 };
