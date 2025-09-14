@@ -16,15 +16,15 @@ public:
 	// Only for internal use, should be called by DActorComponent functions
 	auto RemoveInstanceComponent(DActorComponent* Component) -> void;
 
-	FORCEINLINE auto GetRootComponent() const -> DSceneComponent* { return RootComponent_; }
+	FORCEINLINE auto GetRootComponent() const -> DSceneComponent* { return RootComponent; }
 
-	FORCEINLINE auto SetRootComponent(DSceneComponent* RootComponent) -> void { RootComponent_ = RootComponent; }
+	FORCEINLINE auto SetRootComponent(DSceneComponent* InRootComponent) -> void { RootComponent = InRootComponent; }
 
 	template<typename T>
 	auto FindComponentByStaticClass() -> T*
 	{
 		static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-		for (auto* Component : OwnedComponents_)
+		for (auto* Component : OwnedComponents)
 		{
 			if (typeid(*Component) == typeid(T))
 			{
@@ -39,7 +39,7 @@ public:
 	auto FindComponentByClass() -> T*
 	{
 		static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-		for (auto* Component : OwnedComponents_)
+		for (auto* Component : OwnedComponents)
 		{
 			if (auto* CastedComponent = dynamic_cast<T*>(Component))
 			{
@@ -54,7 +54,7 @@ public:
 	{
 		static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
 		std::vector<DActorComponent*> FoundComponents;
-		for (auto* Component : OwnedComponents_)
+		for (auto* Component : OwnedComponents)
 		{
 			if (auto* CastedComponent = dynamic_cast<T*>(Component))
 			{
@@ -73,7 +73,7 @@ protected:
 	{
 		static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
 		T* Component = new T(this);
-		OwnedComponents_.push_back(Component);
+		OwnedComponents.push_back(Component);
 		return Component;
 	}
 
@@ -85,11 +85,11 @@ protected:
 		return Component;
 	}
 
-	DSceneComponent* RootComponent_ = nullptr;
+	DSceneComponent* RootComponent = nullptr;
 
-	std::vector<DActorComponent*> OwnedComponents_;
+	std::vector<DActorComponent*> OwnedComponents;
 
-	std::vector<DActorComponent*> InstanceComponents_;
+	std::vector<DActorComponent*> InstanceComponents;
 
 	FStringName Name_ = "Actor";
 };

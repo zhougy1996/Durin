@@ -13,5 +13,5 @@ public:
 
 private:
 
-	DStaticMeshComponent* StaticMeshComponent_ = nullptr;
+	DStaticMeshComponent* StaticMeshComponent = nullptr;
 };

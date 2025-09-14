@@ -10,32 +10,32 @@ AActor::AActor()
 
 AActor::~AActor()
 {
-	InstanceComponents_.clear();
-	RootComponent_ = nullptr;
+	InstanceComponents.clear();
+	RootComponent = nullptr;
 
-	for (auto* Component : OwnedComponents_)
+	for (auto* Component : OwnedComponents)
 	{
 		delete Component;
 	}
 
-	OwnedComponents_.clear();
+	OwnedComponents.clear();
 }
 
 auto AActor::RemoveOwnedComponent(DActorComponent* Component) -> void
 {
-	auto It = std::find(OwnedComponents_.begin(), OwnedComponents_.end(), Component);
-	if (It != OwnedComponents_.end())
+	auto It = std::find(OwnedComponents.begin(), OwnedComponents.end(), Component);
+	if (It != OwnedComponents.end())
 	{
-		OwnedComponents_.erase(It);
+		OwnedComponents.erase(It);
 	}
 }
 
 auto AActor::RemoveInstanceComponent(DActorComponent* Component) -> void
 {
-	auto It = std::find(InstanceComponents_.begin(), InstanceComponents_.end(), Component);
-	if (It != InstanceComponents_.end())
+	auto It = std::find(InstanceComponents.begin(), InstanceComponents.end(), Component);
+	if (It != InstanceComponents.end())
 	{
-		InstanceComponents_.erase(It);
+		InstanceComponents.erase(It);
 	}
 }
 

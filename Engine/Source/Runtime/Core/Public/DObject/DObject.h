@@ -30,7 +30,9 @@ class DObject
 public:
 	auto SetName(FName InName) -> void { NamePrivate = InName; }
 
-	auto GetName() const -> FName { return NamePrivate; }
+	auto GetFName() const -> FName { return NamePrivate; }
+
+	auto GetName() const -> FString { return NamePrivate.ToString(); }
 
 	auto GetClass() const -> DClass* { return ClassPrivate; }
 

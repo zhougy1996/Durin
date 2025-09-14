@@ -4,9 +4,8 @@
 
 AStaticMeshActor::AStaticMeshActor()
 {
-	DStaticMeshComponent* StaticMeshComponent = CreateDefaultComponent<DStaticMeshComponent>("DStaticMeshComponent");
-	RootComponent_ = StaticMeshComponent;
-	StaticMeshComponent_ = StaticMeshComponent;
+	StaticMeshComponent = CreateDefaultComponent<DStaticMeshComponent>("DStaticMeshComponent");
+	RootComponent = StaticMeshComponent;
 }
 
 AStaticMeshActor::~AStaticMeshActor()
