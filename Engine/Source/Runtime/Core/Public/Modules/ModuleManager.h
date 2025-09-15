@@ -14,13 +14,13 @@ public:
 class CORE_API FModuleInfo
 {
 public:
-	FStringName ModuleName_;
+	FStringName ModuleName;
 
-	FString Filename_;
+	FString FileName;
 
-	void* Handle_ = nullptr;
+	HMODULE Handle = nullptr;
 
-	TUniquePtr<IModuleInterface> Module_;
+	TUniquePtr<IModuleInterface> Module;
 
 	// This flag is used to check if the module's startup function has been called.
 	std::atomic<bool> bIsReady = false;
@@ -64,7 +64,7 @@ public:
 	auto UnloadModule(const FStringName& InModuleName) -> void;
 
 private:
-	FModuleMap Modules_;
+	FModuleMap Modules;
 };
 
 /**

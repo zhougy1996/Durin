@@ -11,15 +11,15 @@ auto FModuleManager::Get() -> FModuleManager&
 auto FModuleManager::AddModule(const FStringName& InModuleName, const FString& FileName) -> void
 {
 	auto ModuleInfoPtr = std::make_shared<FModuleInfo>();
-	ModuleInfoPtr->ModuleName_ = InModuleName;
-	ModuleInfoPtr->Filename_ = FileName;
-	Modules_.emplace(InModuleName, ModuleInfoPtr);
+	ModuleInfoPtr->ModuleName = InModuleName;
+	ModuleInfoPtr->FileName = FileName;
+	Modules.emplace(InModuleName, ModuleInfoPtr);
 }
 
 auto FModuleManager::FindModule(const FStringName& InModuleName) -> FModuleInfoPtr
 {
-	auto Iter = Modules_.find(InModuleName);
-	if (Iter == Modules_.end())
+	auto Iter = Modules.find(InModuleName);
+	if (Iter == Modules.end())
 	{
 		return nullptr;
 	}
@@ -35,7 +35,7 @@ auto FModuleManager::IsModuleLoaded(const FStringName& InModuleName) -> bool
 	if (ModuleInfo == nullptr) { return false; }
 
 	// Only if the module is loaded and the module interface is not null, the module is considered loaded.
-	if (ModuleInfo->Module_ != nullptr)
+	if (ModuleInfo->Module != nullptr)
 	{
 		return true;
 	}
@@ -66,7 +66,7 @@ auto FModuleManager::GetModule(const FStringName& InModuleName) -> IModuleInterf
 
 	if (ModuleInfo->bIsReady)
 	{
-		return ModuleInfo->Module_.get();
+		return ModuleInfo->Module.get();
 	}
 
 	// If the module is not ready, it is not loaded.
@@ -87,7 +87,7 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 
 	if (FoundModuleInfo)
 	{
-		LoadedModule = FoundModuleInfo->Module_.get();
+		LoadedModule = FoundModuleInfo->Module.get();
 		if (LoadedModule)
 		{
 			DOGE_DEBUG(STR("Module {} is already loaded."), InModuleName);
@@ -101,8 +101,8 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 		FoundModuleInfo = FindModule(InModuleName);
 	}
 
-	const FString& Filename = FoundModuleInfo->Filename_;
-	std::wstring DLLPath(Filename.begin(), Filename.end());
+	const FString& FileName = FoundModuleInfo->FileName;
+	std::wstring DLLPath(FileName.begin(), FileName.end());
 	HMODULE ModuleHandle = LoadLibrary(DLLPath.c_str());
 	if (!ModuleHandle)
 	{
@@ -121,9 +121,9 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 		return nullptr;
 	}
 
-	FoundModuleInfo->Handle_ = ModuleHandle;
+	FoundModuleInfo->Handle = ModuleHandle;
 	Result = InitializeModuleFunctionPtr();
-	FoundModuleInfo->Module_ = TUniquePtr<IModuleInterface>(Result);
+	FoundModuleInfo->Module = TUniquePtr<IModuleInterface>(Result);
 	DOGE_INFO(STR("Module loaded: {}"), InModuleName);
 
 	ProcessNewlyLoadedDObjects();

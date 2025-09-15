@@ -18,10 +18,10 @@ enum class CORE_API ELogLevel
 	Error,
 };
 
-class CORE_API FDogeLogger
+class CORE_API FLogger
 {
 public:
-	static auto Get() -> FDogeLogger&;
+	static auto Get() -> FLogger&;
 
 	auto Log(ELogLevel Level, FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
@@ -36,9 +36,9 @@ public:
 	static auto Error(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
 private:
-	FDogeLogger();
+	FLogger();
 
-	std::shared_ptr<spdlog::logger> Logger_;
+	std::shared_ptr<spdlog::logger> Logger;
 };
 
 auto CORE_API LoggerInit() -> void;

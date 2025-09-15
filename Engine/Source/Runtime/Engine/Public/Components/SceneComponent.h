@@ -11,5 +11,5 @@ class DSceneComponent : public DActorComponent
 public:
 
 protected:
-	FTransform ComponentToWorld_;
+	FTransform ComponentToWorld;
 };

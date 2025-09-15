@@ -96,6 +96,4 @@ protected:
 	std::vector<DActorComponent*> OwnedComponents;
 
 	std::vector<DActorComponent*> InstanceComponents;
-
-	FStringName Name_ = "Actor";
 };

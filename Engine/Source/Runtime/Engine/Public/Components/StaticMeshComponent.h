@@ -14,5 +14,5 @@ public:
 
 private:
 
-	TSharedPtr<DStaticMesh> StaticMesh_;
+	TSharedPtr<DStaticMesh> StaticMesh;
 };
