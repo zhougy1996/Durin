@@ -1,7 +1,5 @@
 #pragma once
 
-#include "DObject/Class.h"
-
 struct FStaticConstructObjectParameters
 {
 	DClass* Class = nullptr;
@@ -12,7 +10,7 @@ struct FStaticConstructObjectParameters
 class FObjectInitializer
 {
 public:
-	auto GetObj() -> DObject* { return Obj; }
+	FORCEINLINE auto GetObj() const -> DObject* { return Obj; }
 
 	static CORE_API auto Get() -> const FObjectInitializer&;
 
@@ -20,7 +18,9 @@ public:
 
 	FStaticConstructObjectParameters Params;
 };
-	
+
+CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
+
 template <typename T>
 auto NewObject(DObject* Outer, FName Name) -> T*
 {
@@ -29,16 +29,17 @@ auto NewObject(DObject* Outer, FName Name) -> T*
 	// Allocate memory and zero it out
 	DObject* Obj = nullptr;
 	Obj = (DObject*)std::malloc(sizeof(T));
+	assert(Obj && "Memory allocation failed");
 	std::memset(Obj, 0, sizeof(T));
+
+	new (Obj) DObject(T::StaticClass(), Outer, Name);
 
 	FObjectInitializer ObjectInitializer;
 	ObjectInitializer.Obj = Obj;
 	ObjectInitializer.Params = FStaticConstructObjectParameters{T::StaticClass(), Outer, Name};
 
-	new (Obj) DObject(ObjectInitializer);
-
-	// Obj->Register(Name);
-	return (T*)Obj;
+	DObjectForceRegistration(Obj);
+	return static_cast<T*>(Obj);
 }
 
 namespace DogeCodeGen
@@ -46,7 +47,7 @@ namespace DogeCodeGen
 
 struct FClassParams
 {
-	DClass::StaticClassFunctionType ClassNoRegisterFunc;
+	DClass* (*ClassNoRegisterFunc)();
 	const UTF8Char* ClassName;
 };
 

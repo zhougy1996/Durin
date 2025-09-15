@@ -28,7 +28,10 @@ auto DObject::GetPrivateStaticClass() -> DClass*
 	DClass*& Singleton = Z_Registration_Info_DClass_DObject.InnerSingleton;
 	if (!Singleton)
 	{
-		Singleton = GetPrivateStaticClassBody("DObject");
+		Singleton = GetPrivateStaticClassBody(
+			"DObject",
+			nullptr
+		);
 	}
 	return Singleton;
 }

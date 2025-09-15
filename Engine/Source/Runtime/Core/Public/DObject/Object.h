@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DObject/ObjectMacros.h"
+#include "DObject/DObjectGlobals.h"
 
 class FObjectInitializer;
 
@@ -45,6 +46,8 @@ public:
 	auto GetName() const -> FString { return NamePrivate.ToString(); }
 
 	auto GetClass() const -> DClass* { return ClassPrivate; }
+
+	DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(DObject)
 
 protected:
 	CORE_API auto Register(FName InName) -> void;

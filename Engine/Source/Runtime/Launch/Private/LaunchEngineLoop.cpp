@@ -25,6 +25,7 @@ auto FEngineLoop::PreInit() -> void
 	LoggerInit();
 	RegisterDogeNames();
 	ProcessNewlyLoadedDObjects();
+	AActor* TestActor = NewObject<AActor>(nullptr, "TestActor");
 }
 
 auto FEngineLoop::Init() -> void

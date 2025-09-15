@@ -506,6 +506,7 @@ class DHTCodeGen_H:
         classname = class_meta.name
         lines.append(f"{classname}({classname}&&) = delete;")
         lines.append(f"{classname}(const {classname}&) = delete;")
+        lines.append(f"DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL({classname})")
         write_macro(file, lines)
         file.write("\n")
     
@@ -576,7 +577,8 @@ class DHTCodeGen_Cpp:
         file.write("\t{\n")
 
         file.write(f"\t\tSingleton = GetPrivateStaticClassBody(\n")
-        file.write(f"\t\t\t\"{class_meta.name}\"\n")
+        file.write(f"\t\t\t\"{class_meta.name}\",\n")
+        file.write(f"\t\t\tInternalConstructor<{class_meta.name}>\n")
         file.write(f"\t\t);\n")
 
         file.write("\t}\n")

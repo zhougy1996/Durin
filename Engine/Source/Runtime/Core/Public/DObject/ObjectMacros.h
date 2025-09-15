@@ -9,6 +9,10 @@
 
 #define NO_API
 
+// clang-format off
+enum EInternal { EC_InternalUseOnlyConstructor };
+// clang-format on
+
 #define GENERATED_BODY(...) BODY_MACRO_COMBINE(CURRENT_FILE_ID, _, __LINE__, _GENERATED_BODY)
 
 #define DECLARE_CLASS(TClass, TSuperClass, TPrivateAccessor) \
@@ -20,5 +24,6 @@ public: \
 	using Super = TSuperClass; \
 	inline static DClass* StaticClass() { return TPrivateAccessor(); }
 
+
 #define DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(TClass) \
-	static void __DefaultConstructor(const FObjectInitializer& X) { new ((EInternal*)X.GetObj()) TClass(X); }
+	static void __DefaultConstructor(const FObjectInitializer& X) { new (X.GetObj()) TClass(X); }
