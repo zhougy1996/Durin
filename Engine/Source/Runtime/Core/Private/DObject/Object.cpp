@@ -8,9 +8,6 @@
 IMPLEMENT_INTRINSIC_CLASS(DObject, CORE_API, DObject, CORE_API, {})
 
 DObject::DObject(const FObjectInitializer& ObjectInitializer)
-	: ClassPrivate(ObjectInitializer.Params.Class)
-	, OuterPrivate(ObjectInitializer.Params.Outer)
-	, NamePrivate(ObjectInitializer.Params.Name)
 {
 }
 

@@ -25,7 +25,7 @@ auto FEngineLoop::PreInit() -> void
 	LoggerInit();
 	RegisterDogeNames();
 	ProcessNewlyLoadedDObjects();
-	AActor* TestActor = NewObject<AActor>(nullptr, "TestActor");
+	AActor* TestActor = NewObject<AStaticMeshActor>(nullptr, "AStaticMeshActor");
 }
 
 auto FEngineLoop::Init() -> void

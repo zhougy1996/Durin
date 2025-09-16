@@ -3,8 +3,12 @@
 struct FStaticConstructObjectParameters
 {
 	DClass* Class = nullptr;
+
 	DObject* Outer = nullptr;
+
 	FName Name;
+
+	size_t Size = 0;
 };
 
 class FObjectInitializer
@@ -15,28 +19,24 @@ public:
 	static CORE_API auto Get() -> const FObjectInitializer&;
 
 	DObject* Obj;
-
-	FStaticConstructObjectParameters Params;
 };
 
 CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
 
-template <typename T>
+CORE_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
+
+template<typename T>
 auto NewObject(DObject* Outer, FName Name) -> T*
 {
 	static_assert(std::is_base_of<DObject, T>::value, "T must be derived from DObject");
 
-	// Allocate memory and zero it out
-	DObject* Obj = nullptr;
-	Obj = (DObject*)std::malloc(sizeof(T));
-	assert(Obj && "Memory allocation failed");
-	std::memset(Obj, 0, sizeof(T));
+	FStaticConstructObjectParameters Params;
+	Params.Class = T::StaticClass();
+	Params.Outer = Outer;
+	Params.Name = Name;
+	Params.Size = sizeof(T);
 
-	new (Obj) DObject(T::StaticClass(), Outer, Name);
-
-	FObjectInitializer ObjectInitializer;
-	ObjectInitializer.Obj = Obj;
-	ObjectInitializer.Params = FStaticConstructObjectParameters{T::StaticClass(), Outer, Name};
+	DObject* Obj = StaticConstructObject(Params);
 
 	DObjectForceRegistration(Obj);
 	return static_cast<T*>(Obj);
@@ -44,7 +44,6 @@ auto NewObject(DObject* Outer, FName Name) -> T*
 
 namespace DogeCodeGen
 {
-
 struct FClassParams
 {
 	DClass* (*ClassNoRegisterFunc)();

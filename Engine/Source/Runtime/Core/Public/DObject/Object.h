@@ -61,9 +61,9 @@ private:
 
 	FName NamePrivate;
 
-	DObject* OuterPrivate;
+	DObject* OuterPrivate = nullptr;
 
-	DClass* ClassPrivate;
+	DClass* ClassPrivate = nullptr;
 
 	friend CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
 
