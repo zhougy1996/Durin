@@ -136,6 +136,16 @@ public:
 		return GetTypeHash(Name.GetComparisonIndex()) + Name.GetNumber();
 	}
 
+	[[nodiscard]] FORCEINLINE auto operator==(const FName& Other) const -> bool
+	{
+		return ToUnstableInt() == Other.ToUnstableInt();
+	}
+
+	[[nodiscard]] FORCEINLINE bool operator!=(FName Other) const
+	{
+		return !(*this == Other);
+	}
+
 private:
 	static constexpr auto InValidNameCharacters = STR("\"' ,\n\r\t");
 
@@ -155,13 +165,24 @@ private:
 
 	[[nodiscard]] FORCEINLINE auto GetComparisonIndex() const -> FNameEntryId { return ComparisonIndex_; }
 
+	[[nodiscard]] FORCEINLINE auto ToUnstableInt() const -> uint64
+	{
+		static_assert(offsetof(FName, ComparisonIndex_) == 0);
+		static_assert(offsetof(FName, Number_) == 4);
+		static_assert((offsetof(FName, Number_) + sizeof(Number_)) == sizeof(uint64));
+
+		uint64 Result;
+		std::memcpy(&Result, this, sizeof(Result));
+		return Result;
+	}
 
 private:
-	FNameEntryId DisplayIndex_;
 
 	FNameEntryId ComparisonIndex_;
 
 	uint32 Number_ = 0;
+
+	FNameEntryId DisplayIndex_;
 
 	friend struct FNameHash;
 	friend struct FNameHelper;

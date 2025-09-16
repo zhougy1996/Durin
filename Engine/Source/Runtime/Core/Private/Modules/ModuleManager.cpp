@@ -8,7 +8,7 @@ auto FModuleManager::Get() -> FModuleManager&
 	return Instance;
 }
 
-auto FModuleManager::AddModule(const FStringName& InModuleName, const FString& FileName) -> void
+auto FModuleManager::AddModule(const FName& InModuleName, const FString& FileName) -> void
 {
 	auto ModuleInfoPtr = std::make_shared<FModuleInfo>();
 	ModuleInfoPtr->ModuleName = InModuleName;
@@ -16,7 +16,7 @@ auto FModuleManager::AddModule(const FStringName& InModuleName, const FString& F
 	Modules.emplace(InModuleName, ModuleInfoPtr);
 }
 
-auto FModuleManager::FindModule(const FStringName& InModuleName) -> FModuleInfoPtr
+auto FModuleManager::FindModule(const FName& InModuleName) -> FModuleInfoPtr
 {
 	auto Iter = Modules.find(InModuleName);
 	if (Iter == Modules.end())
@@ -27,7 +27,7 @@ auto FModuleManager::FindModule(const FStringName& InModuleName) -> FModuleInfoP
 	return Iter->second;
 }
 
-auto FModuleManager::IsModuleLoaded(const FStringName& InModuleName) -> bool
+auto FModuleManager::IsModuleLoaded(const FName& InModuleName) -> bool
 {
 	auto ModuleInfo = FindModule(InModuleName);
 
@@ -43,20 +43,20 @@ auto FModuleManager::IsModuleLoaded(const FStringName& InModuleName) -> bool
 	return false;
 }
 
-auto FModuleManager::LoadModuleChecked(const FStringName& InModuleName) -> IModuleInterface&
+auto FModuleManager::LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&
 {
 	auto Module = LoadModule(InModuleName);
 
 	// TODO: assert if module is null
 	if (Module == nullptr)
 	{
-		DOGE_ERROR(STR("Failed to load module: {}"), InModuleName);
+		DOGE_ERROR(STR("Failed to load module: {}"), InModuleName.ToString());
 	}
 
 	return *Module;
 }
 
-auto FModuleManager::GetModule(const FStringName& InModuleName) -> IModuleInterface*
+auto FModuleManager::GetModule(const FName& InModuleName) -> IModuleInterface*
 {
 	auto ModuleInfo = FindModule(InModuleName);
 	if (ModuleInfo == nullptr)
@@ -70,17 +70,17 @@ auto FModuleManager::GetModule(const FStringName& InModuleName) -> IModuleInterf
 	}
 
 	// If the module is not ready, it is not loaded.
-	DOGE_ERROR(STR("Module {} is not ready when trying to get it."), InModuleName);
+	DOGE_ERROR(STR("Module {} is not ready when trying to get it."), InModuleName.ToString());
 
 	return nullptr;
 }
 
-static constexpr auto GetDogeModuleFileName(const FStringName& InModuleName) -> FString
+static constexpr auto GetDogeModuleFileName(const FName& InModuleName) -> FString
 {
-	return FString(STR("DogeEditor-")) + InModuleName + STR(".dll");
+	return FString(STR("DogeEditor-")) + InModuleName.ToString() + STR(".dll");
 }
 
-auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInterface*
+auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
 {
 	IModuleInterface* LoadedModule = nullptr;
 	FModuleInfoPtr FoundModuleInfo = FindModule(InModuleName);
@@ -90,7 +90,7 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 		LoadedModule = FoundModuleInfo->Module.get();
 		if (LoadedModule)
 		{
-			DOGE_DEBUG(STR("Module {} is already loaded."), InModuleName);
+			DOGE_DEBUG(STR("Module {} is already loaded."), InModuleName.ToString());
 			return LoadedModule;
 		}
 	}
@@ -124,7 +124,7 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 	FoundModuleInfo->Handle = ModuleHandle;
 	Result = InitializeModuleFunctionPtr();
 	FoundModuleInfo->Module = TUniquePtr<IModuleInterface>(Result);
-	DOGE_INFO(STR("Module loaded: {}"), InModuleName);
+	DOGE_INFO(STR("Module loaded: {}"), InModuleName.ToString());
 
 	ProcessNewlyLoadedDObjects();
 
@@ -135,7 +135,7 @@ auto FModuleManager::LoadModule(const FStringName& InModuleName) -> IModuleInter
 	return Result;
 }
 
-auto FModuleManager::UnloadModule(const FStringName& InModuleName) -> void
+auto FModuleManager::UnloadModule(const FName& InModuleName) -> void
 {
-	DOGE_INFO(STR("Module Unloaded: {}"), InModuleName);
+	DOGE_INFO(STR("Module Unloaded: {}"), InModuleName.ToString());
 }

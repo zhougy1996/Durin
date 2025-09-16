@@ -27,8 +27,6 @@ using CharT = UTF8Char;
 using FString = FU8String;
 using FStringView = FU8StringView;
 
-using FStringName = FString; // temporary replacement for FName, which is not defined here
-
 // Define a macro to convert string literals
 #define STR(x) x
 
