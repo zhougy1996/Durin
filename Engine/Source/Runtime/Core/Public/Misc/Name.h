@@ -21,30 +21,30 @@ struct FNameEntryId
 {
 public:
 	FNameEntryId()
-		: Value_(0)
+		: Value(0)
 	{
 	}
-	explicit FNameEntryId(uint64 Value)
-		: Value_(Value)
+	explicit FNameEntryId(uint64 InValue)
+		: Value(InValue)
 	{
 	}
 
-	auto IsNone() const -> bool { return Value_ == 0; }
+	auto IsNone() const -> bool { return Value == 0; }
 
-	auto GetValue() const -> uint64 { return Value_; }
+	auto GetValue() const -> uint64 { return Value; }
 
-	auto ToInt() const -> uint32 { return Value_; }
+	auto ToInt() const -> uint32 { return Value; }
 
-	auto operator==(const FNameEntryId& Other) const -> bool { return Value_ == Other.Value_; }
-	auto operator!=(const FNameEntryId& Other) const -> bool { return Value_ != Other.Value_; }
-	auto operator<(const FNameEntryId& Other) const -> bool { return Value_ < Other.Value_; }
-	auto operator>(const FNameEntryId& Other) const -> bool { return Value_ > Other.Value_; }
+	auto operator==(const FNameEntryId& Other) const -> bool { return Value == Other.Value; }
+	auto operator!=(const FNameEntryId& Other) const -> bool { return Value != Other.Value; }
+	auto operator<(const FNameEntryId& Other) const -> bool { return Value < Other.Value; }
+	auto operator>(const FNameEntryId& Other) const -> bool { return Value > Other.Value; }
 
-	explicit operator bool() const { return Value_ != 0; }
+	explicit operator bool() const { return Value != 0; }
 
 
 private:
-	uint32 Value_; // TODO: 32 bits
+	uint32 Value;
 };
 
 CORE_API uint64 GetTypeHash(FNameEntryId Id);
@@ -113,13 +113,13 @@ public:
 
 	CORE_API FName(const UTF8Char* Name);
 
-	CORE_API FName(const UTF8Char* Name, int32 Number);
+	CORE_API FName(const UTF8Char* Name, int32 InNumber);
 
-	CORE_API FName(FU8StringView View, int32 Number);
+	CORE_API FName(FU8StringView View, int32 InNumber);
 
 	CORE_API FName(const FName& Other);
 
-	[[nodiscard]] FORCEINLINE auto GetNumber() const -> uint32 { return Number_; }
+	[[nodiscard]] FORCEINLINE auto GetNumber() const -> uint32 { return Number; }
 
 	[[nodiscard]] FORCEINLINE CORE_API auto Equals(const FName& Other, ENameCase CompareMethod = ENameCase::IgnoreCase, const bool bCompareNumber = true) const -> bool;
 
@@ -161,15 +161,15 @@ private:
 		return ExternalNumber + 1;
 	}
 
-	[[nodiscard]] FORCEINLINE auto GetDisplayIndex() const -> FNameEntryId { return DisplayIndex_; }
+	[[nodiscard]] FORCEINLINE auto GetDisplayIndex() const -> FNameEntryId { return DisplayIndex; }
 
-	[[nodiscard]] FORCEINLINE auto GetComparisonIndex() const -> FNameEntryId { return ComparisonIndex_; }
+	[[nodiscard]] FORCEINLINE auto GetComparisonIndex() const -> FNameEntryId { return ComparisonIndex; }
 
 	[[nodiscard]] FORCEINLINE auto ToUnstableInt() const -> uint64
 	{
-		static_assert(offsetof(FName, ComparisonIndex_) == 0);
-		static_assert(offsetof(FName, Number_) == 4);
-		static_assert((offsetof(FName, Number_) + sizeof(Number_)) == sizeof(uint64));
+		static_assert(offsetof(FName, ComparisonIndex) == 0);
+		static_assert(offsetof(FName, Number) == 4);
+		static_assert((offsetof(FName, Number) + sizeof(Number)) == sizeof(uint64));
 
 		uint64 Result;
 		std::memcpy(&Result, this, sizeof(Result));
@@ -178,11 +178,11 @@ private:
 
 private:
 
-	FNameEntryId ComparisonIndex_;
+	FNameEntryId ComparisonIndex;
 
-	uint32 Number_ = 0;
+	uint32 Number = 0;
 
-	FNameEntryId DisplayIndex_;
+	FNameEntryId DisplayIndex;
 
 	friend struct FNameHash;
 	friend struct FNameHelper;

@@ -800,9 +800,9 @@ struct FNameHelper
 	{
 		FName Name;
 
-		Name.DisplayIndex_ = FNamePool::Get().Store(View);
-		Name.ComparisonIndex_ = ResolveComparisonId(Name.DisplayIndex_);
-		Name.Number_ = InternalNumber;
+		Name.DisplayIndex = FNamePool::Get().Store(View);
+		Name.ComparisonIndex = ResolveComparisonId(Name.DisplayIndex);
+		Name.Number = InternalNumber;
 
 		return Name;
 	}
@@ -836,52 +836,52 @@ FName::FName(const UTF8Char* Name)
 {
 }
 
-FName::FName(const UTF8Char* Name, int32 Number)
+FName::FName(const UTF8Char* Name, int32 InNumber)
 {
 }
 
-FName::FName(FU8StringView View, int32 Number)
+FName::FName(FU8StringView View, int32 InNumber)
 {
 	FNameEntryId EntryId = FNamePool::Get().Store(View);
-	DisplayIndex_ = EntryId;
-	// ComparisonIndex_ = EntryId; // Assuming we want to use the same entry for comparison
-	Number_ = Number;
+	DisplayIndex = EntryId;
+	// ComparisonIndex = EntryId; // Assuming we want to use the same entry for comparison
+	Number = InNumber;
 }
 
 FName::FName(const FName& Other)
-	: ComparisonIndex_(Other.ComparisonIndex_)
-	, DisplayIndex_(Other.DisplayIndex_)
-	, Number_(Other.Number_)
+	: ComparisonIndex(Other.ComparisonIndex)
+	, DisplayIndex(Other.DisplayIndex)
+	, Number(Other.Number)
 {
 }
 
 auto FName::Equals(const FName& Other, ENameCase CompareMethod /*= ENameCase::IgnoreCase*/, const bool bCompareNumber /*= true*/) const -> bool
 {
 	return ((CompareMethod == ENameCase::IgnoreCase) ? (GetComparisonIndex() == Other.GetComparisonIndex()) : (GetDisplayIndex() == Other.GetDisplayIndex()))
-		   && (!bCompareNumber || Number_ == Other.Number_);
+		   && (!bCompareNumber || Number == Other.Number);
 }
 
 auto FName::ToString() const -> FString
 {
 	FString PlainNameString = GetDisplayNameEntry()->GetPlainNameString();
-	if (Number_ == NoNumberInternal)
+	if (Number == NoNumberInternal)
 	{
 		return PlainNameString;
 	}
 	else
 	{
-		return PlainNameString + "_" + std::to_string(NumberInternalToExternal(Number_));
+		return PlainNameString + "_" + std::to_string(NumberInternalToExternal(Number));
 	}
 }
 
 auto FName::GetComparisonNameEntry() const -> const FNameEntry*
 {
-	return ResolveEntry(ComparisonIndex_);
+	return ResolveEntry(ComparisonIndex);
 }
 
 auto FName::GetDisplayNameEntry() const -> const FNameEntry*
 {
-	return ResolveEntry(DisplayIndex_);
+	return ResolveEntry(DisplayIndex);
 }
 
 auto FName::ResolveEntry(FNameEntryId LookupId) -> const FNameEntry*
