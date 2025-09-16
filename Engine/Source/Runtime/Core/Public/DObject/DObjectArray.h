@@ -4,10 +4,11 @@ class FDObjectArray
 {
 public:
 
-	void Add(DObject* ObjToAdd)
-	{
-		Objs.push_back(ObjToAdd);
-	}
+	auto Add(DObject* ObjToAdd) -> void { Objs.push_back(ObjToAdd); }
+
+	auto GetNum() const -> uint64 { return Objs.size(); }
+
+	auto GetAll() -> const std::vector<DObject*>& { return Objs; }
 
 private:
 	std::vector<DObject*> Objs;
