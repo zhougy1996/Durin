@@ -6,7 +6,9 @@ class FObjectInitializer;
 
 class DClass : public DObject
 {
+	DECLARE_CLASS_INTRINSIC(DClass, DObject)
 public:
+	CORE_API DClass(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	using StaticClassFunctionType = DClass* (*)();
 	using ClassConstructorType = void (*)(const FObjectInitializer&);

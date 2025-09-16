@@ -31,6 +31,7 @@ CORE_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
 class DObject
 {
 	DECLARE_CLASS(DObject, DObject, Z_Construct_DClass_DObject_NoRegister)
+	DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(DObject)
 
 public:
 	CORE_API DObject(const FObjectInitializer& ObjectInitializer);
@@ -47,7 +48,7 @@ public:
 
 	auto GetClass() const -> DClass* { return ClassPrivate; }
 
-	DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(DObject)
+	static void IntrinsicClassInit(DClass* Class);
 
 protected:
 	CORE_API auto Register(FName InName) -> void;

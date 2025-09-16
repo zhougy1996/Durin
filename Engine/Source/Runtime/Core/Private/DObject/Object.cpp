@@ -5,9 +5,7 @@
 #include "DObject/Class.h"
 #include "DObject/DeferredRegistry.h"
 
-class DClass;
-
-FClassRegistrationInfo Z_Registration_Info_DClass_DObject;
+IMPLEMENT_INTRINSIC_CLASS(DObject, CORE_API, DObject, CORE_API, {})
 
 DObject::DObject(const FObjectInitializer& ObjectInitializer)
 	: ClassPrivate(ObjectInitializer.Params.Class)
@@ -23,19 +21,6 @@ DObject::DObject(DClass* InClass, DObject* InOuter, FName InName)
 {
 }
 
-auto DObject::GetPrivateStaticClass() -> DClass*
-{
-	DClass*& Singleton = Z_Registration_Info_DClass_DObject.InnerSingleton;
-	if (!Singleton)
-	{
-		Singleton = GetPrivateStaticClassBody(
-			"DObject",
-			nullptr
-		);
-	}
-	return Singleton;
-}
-
 auto DObject::Register(FName InName) -> void
 {
 	AddObject(InName);
@@ -45,26 +30,6 @@ auto DObject::AddObject(FName InName) -> void
 {
 	NamePrivate = InName;
 	GDObjectArray.Add(this);
-}
-
-struct Z_Construct_DClass_DObject_Statics
-{
-	static const DogeCodeGen::FClassParams ClassParams;
-};
-
-const DogeCodeGen::FClassParams Z_Construct_DClass_DObject_Statics::ClassParams = {
-	&DObject::StaticClass,
-	"DObject",
-};
-
-auto Z_Construct_DClass_DObject() -> DClass*
-{
-	DClass*& Singleton = Z_Registration_Info_DClass_DObject.OuterSingleton;
-	if (!Singleton)
-	{
-		Singleton = DogeCodeGen::ConstructDClass(Z_Construct_DClass_DObject_Statics::ClassParams);
-	}
-	return Singleton;
 }
 
 auto Z_Construct_DClass_DObject_NoRegister() -> DClass*
@@ -126,11 +91,3 @@ auto ProcessNewlyLoadedDObjects() -> void
 
 	ClassRegistry.ClearRegistrations();
 }
-
-// Registration
-static FRegisterCompiledInInfo Z_CompiledInDeferRegistration_DObject(
-	&Z_Construct_DClass_DObject,
-	&Z_Construct_DClass_DObject_NoRegister,
-	"DObject",
-	Z_Registration_Info_DClass_DObject
-);
