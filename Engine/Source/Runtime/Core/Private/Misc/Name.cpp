@@ -23,11 +23,6 @@ CORE_API auto RegisterDogeNames() -> void
 	FName(STR("None"));
 }
 
-struct FNameBuffer
-{
-	UTF8Char Name[FNameMaxSize];
-};
-
 static bool operator==(FNameEntryHeader A, FNameEntryHeader B)
 {
 	static_assert(sizeof(FNameEntryHeader) == 2, "");
@@ -310,16 +305,16 @@ public:
 
 	FNameEntryAllocator()
 	{
-		Blocks_[0] = AllocBlock();
+		Blocks[0] = AllocBlock();
 	}
 
 	auto ReserveBlocks(uint32 Num) -> void
 	{
-		std::unique_lock<std::mutex> _(Lock_);
+		std::unique_lock<std::mutex> _(Lock);
 
-		for (uint32 Idx = Num - 1; Idx > CurrentBlock_ && Blocks_[Idx] == nullptr; --Idx)
+		for (uint32 Idx = Num - 1; Idx > CurrentBlock && Blocks[Idx] == nullptr; --Idx)
 		{
-			Blocks_[Idx] = AllocBlock();
+			Blocks[Idx] = AllocBlock();
 		}
 	}
 
@@ -340,14 +335,14 @@ public:
 	// Allocate and store Name.
 	auto AllocateRegular(FU8StringView Name) -> FNameEntryHandle
 	{
-		std::unique_lock<std::mutex> _(Lock_);
+		std::unique_lock<std::mutex> _(Lock);
 
-		uint32 Bytes = TryPlace(BlockSizeBytes - CurrentByteCursor_, Name);
+		uint32 Bytes = TryPlace(BlockSizeBytes - CurrentByteCursor, Name);
 
 		if (Bytes == 0) // Not enough space in the current block
 		{
 			AllocateNewBlock();
-			Bytes = TryPlace(BlockSizeBytes - CurrentByteCursor_, Name);
+			Bytes = TryPlace(BlockSizeBytes - CurrentByteCursor, Name);
 			check(Bytes > 0);
 		}
 
@@ -369,18 +364,18 @@ public:
 	auto Resolve(FNameEntryHandle Handle) const -> FNameEntry&
 	{
 		// Lock not needed
-		return *reinterpret_cast<FNameEntry*>(Blocks_[Handle.Block] + Stride * Handle.Offset);
+		return *reinterpret_cast<FNameEntry*>(Blocks[Handle.Block] + Stride * Handle.Offset);
 	}
 
 	inline FNameEntryHandle Allocate(uint32 Bytes)
 	{
 		check(Bytes % Stride == 0);
-		check(CurrentByteCursor_ % Stride == 0);
-		check(CurrentByteCursor_ + Bytes <= BlockSizeBytes);
+		check(CurrentByteCursor % Stride == 0);
+		check(CurrentByteCursor + Bytes <= BlockSizeBytes);
 
-		uint32 ByteOffset = CurrentByteCursor_;
-		CurrentByteCursor_ += Bytes;
-		return FNameEntryHandle(CurrentBlock_, ByteOffset / Stride);
+		uint32 ByteOffset = CurrentByteCursor;
+		CurrentByteCursor += Bytes;
+		return FNameEntryHandle(CurrentBlock, ByteOffset / Stride);
 	}
 
 	uint8* AllocBlock()
@@ -390,23 +385,23 @@ public:
 
 	void AllocateNewBlock()
 	{
-		++CurrentBlock_;
-		CurrentByteCursor_ = 0;
+		++CurrentBlock;
+		CurrentByteCursor = 0;
 
-		if (Blocks_[CurrentBlock_] == nullptr)
+		if (Blocks[CurrentBlock] == nullptr)
 		{
-			Blocks_[CurrentBlock_] = AllocBlock();
+			Blocks[CurrentBlock] = AllocBlock();
 		}
 	}
 
-	auto GetBlocksForDebugVisualizer() -> uint8** { return (uint8**)Blocks_; }
+	auto GetBlocksForDebugVisualizer() -> uint8** { return (uint8**)Blocks; }
 
 private:
-	std::mutex Lock_;
+	std::mutex Lock;
 
-	std::atomic<uint32> CurrentBlock_ = 0;
-	uint32 CurrentByteCursor_ = 0;
-	std::atomic<uint8*> Blocks_[FNameMaxBlockCount] = {};
+	std::atomic<uint32> CurrentBlock = 0;
+	uint32 CurrentByteCursor = 0;
+	std::atomic<uint8*> Blocks[FNameMaxBlockCount] = {};
 };
 
 template<ENameCase Sensitivity>
@@ -437,23 +432,23 @@ class alignas(64) FNamePoolShardBase
 public:
 	void Initialize(FNameEntryAllocator& InEntries)
 	{
-		Entries_ = &InEntries;
+		Entries = &InEntries;
 
-		Slots_ = (FNameSlot*)_aligned_malloc(FNamePoolInitialSlotCountPerShard * sizeof(FNameSlot), alignof(FNameSlot));
-		check(Slots_ != nullptr);
-		memset(Slots_, 0, FNamePoolInitialSlotCountPerShard * sizeof(FNameSlot));
+		Slots = (FNameSlot*)_aligned_malloc(FNamePoolInitialSlotCountPerShard * sizeof(FNameSlot), alignof(FNameSlot));
+		check(Slots != nullptr);
+		memset(Slots, 0, FNamePoolInitialSlotCountPerShard * sizeof(FNameSlot));
 
-		CapacityMask_ = FNamePoolInitialSlotCountPerShard - 1;
+		CapacityMask = FNamePoolInitialSlotCountPerShard - 1;
 	}
 
 	auto Capacity() const -> uint32
 	{
-		return CapacityMask_ + 1;
+		return CapacityMask + 1;
 	}
 
-	auto NumCreatedEntries() const -> uint32
+	auto NumCreated() const -> uint32
 	{
-		return NumCreatedEntries_.load(std::memory_order_relaxed);
+		return NumCreatedEntries.load(std::memory_order_relaxed);
 	}
 
 	template<ENameCase Sensitivity>
@@ -468,17 +463,17 @@ protected:
 	static constexpr uint32 LoadFactorQuotient = 9;
 	static constexpr uint32 LoadFactorDivisor = 10;
 
-	mutable std::shared_mutex Lock_;
+	mutable std::shared_mutex Lock;
 
-	uint32 UsedSlots_ = 0;
+	uint32 UsedSlots = 0;
 
-	uint32 CapacityMask_ = 0;
+	uint32 CapacityMask = 0;
 
-	FNameSlot* Slots_ = nullptr;
+	FNameSlot* Slots = nullptr;
 
-	FNameEntryAllocator* Entries_ = nullptr;
+	FNameEntryAllocator* Entries = nullptr;
 
-	std::atomic<uint32> NumCreatedEntries_{0};
+	std::atomic<uint32> NumCreatedEntries{0};
 };
 
 template<ENameCase Sensitivity>
@@ -489,7 +484,7 @@ public:
 	{
 		FNameEntryId Result;
 		{
-			std::shared_lock<std::shared_mutex> _(Lock_);
+			std::shared_lock<std::shared_mutex> _(Lock);
 
 			FNameSlot& Slot = Probe(Value);
 			Result = Slot.GetId();
@@ -499,7 +494,7 @@ public:
 
 	FORCEINLINE auto Insert(const FNameValue<Sensitivity>& Value, bool& bCreatedNewEntry) -> FNameEntryId
 	{
-		std::unique_lock<std::shared_mutex> _(Lock_);
+		std::unique_lock<std::shared_mutex> _(Lock);
 
 		FNameSlot& Slot = Probe(Value);
 
@@ -517,7 +512,7 @@ public:
 	{
 		FNameSlot NewLookup(ExistingId, Hash.SlotProbeHash);
 
-		std::unique_lock<std::shared_mutex> _(Lock_);
+		std::unique_lock<std::shared_mutex> _(Lock);
 
 		FNameSlot& Slot = Probe(Hash.UnmaskedSlotIndex, [=](FNameSlot Old) { return Old == NewLookup; });
 		if (!Slot.Used())
@@ -533,8 +528,8 @@ private:
 
 		UnusedSlot = NewValue;
 
-		++UsedSlots_;
-		if (UsedSlots_ * LoadFactorDivisor > LoadFactorQuotient * Capacity())
+		++UsedSlots;
+		if (UsedSlots * LoadFactorDivisor > LoadFactorQuotient * Capacity())
 		{
 			Grow();
 		}
@@ -542,11 +537,11 @@ private:
 
 	FNameEntryId CreateAndInsertEntry(FNameSlot& Slot, const FNameValue<Sensitivity>& Value)
 	{
-		FNameEntryId NewEntryId = Entries_->Create(Value.Name, GetExistingComparisonId(Value), Value.Hash.EntryProbeHeader);
+		FNameEntryId NewEntryId = Entries->Create(Value.Name, GetExistingComparisonId(Value), Value.Hash.EntryProbeHeader);
 
 		ClaimSlot(Slot, FNameSlot(NewEntryId, Value.Hash.SlotProbeHash));
 
-		NumCreatedEntries_.fetch_add(1, std::memory_order_relaxed);
+		NumCreatedEntries.fetch_add(1, std::memory_order_relaxed);
 
 		return NewEntryId;
 	}
@@ -560,15 +555,15 @@ private:
 	{
 		check(NewCapacity > Capacity());
 
-		std::span<FNameSlot> OldSlots(Slots_, Capacity());
-		const uint32 OldUsedSlots = UsedSlots_;
+		std::span<FNameSlot> OldSlots(Slots, Capacity());
+		const uint32 OldUsedSlots = UsedSlots;
 
-		Slots_ = (FNameSlot*)_aligned_realloc(Slots_, NewCapacity * sizeof(FNameSlot), alignof(FNameSlot));
-		check(Slots_ != nullptr);
-		memset(Slots_ + Capacity(), 0, (NewCapacity - Capacity()) * sizeof(FNameSlot));
+		Slots = (FNameSlot*)_aligned_realloc(Slots, NewCapacity * sizeof(FNameSlot), alignof(FNameSlot));
+		check(Slots != nullptr);
+		memset(Slots + Capacity(), 0, (NewCapacity - Capacity()) * sizeof(FNameSlot));
 
-		CapacityMask_ = NewCapacity - 1;
-		UsedSlots_ = 0;
+		CapacityMask = NewCapacity - 1;
+		UsedSlots = 0;
 
 		constexpr uint32 PrefetchDepth = 8;
 		FNameSlot PrefetchedSlots[PrefetchDepth];
@@ -578,7 +573,7 @@ private:
 		{
 			if (OldSlot.Used())
 			{
-				FPlatformMisc::Prefetch(&Entries_->Resolve(OldSlot.GetId()));
+				FPlatformMisc::Prefetch(&Entries->Resolve(OldSlot.GetId()));
 				PrefetchedSlots[NumPrefetched] = OldSlot;
 
 				if (++NumPrefetched == PrefetchDepth)
@@ -600,7 +595,7 @@ private:
 			RehashAndInsert(PrefetchedSlot);
 		}
 
-		check(OldUsedSlots == UsedSlots_);
+		check(OldUsedSlots == UsedSlots);
 
 		_aligned_free(OldSlots.data());
 	}
@@ -608,7 +603,7 @@ private:
 	FORCEINLINE auto Probe(const FNameValue<Sensitivity>& Value) const -> FNameSlot&
 	{
 		auto Predicate = [&Value, this](const FNameSlot& Slot) -> bool {
-			return Slot.GetProbeHash() == Value.Hash.SlotProbeHash && EntryEqualsValue<Sensitivity>(Entries_->Resolve(Slot.GetId()), Value);
+			return Slot.GetProbeHash() == Value.Hash.SlotProbeHash && EntryEqualsValue<Sensitivity>(Entries->Resolve(Slot.GetId()), Value);
 		};
 
 		return Probe(Value.Hash.UnmaskedSlotIndex, Predicate);
@@ -617,12 +612,12 @@ private:
 	template<typename PredicateFn>
 	FORCEINLINE auto Probe(uint32 UnmaskedSlotIndex, PredicateFn Predicate) const -> FNameSlot&
 	{
-		const uint32 Mask = CapacityMask_;
+		const uint32 Mask = CapacityMask;
 
 		// Linear probing
 		for (uint32 Index = FNameHash::GetProbeStart(UnmaskedSlotIndex, Mask); true; Index = (Index + 1) & Mask)
 		{
-			FNameSlot& Slot = Slots_[Index];
+			FNameSlot& Slot = Slots[Index];
 			if (!Slot.Used() || Predicate(Slot))
 			{
 				return Slot;
@@ -634,13 +629,13 @@ private:
 	{
 		check(OldSlot.Used());
 
-		const FNameEntry& Entry = Entries_->Resolve(OldSlot.GetId());
+		const FNameEntry& Entry = Entries->Resolve(OldSlot.GetId());
 
 		FU8StringView Name = Entry.MakeView();
 		FNameHash Hash = HashName<Sensitivity>(Name);
 		FNameSlot& NewSlot = Probe(Hash.UnmaskedSlotIndex, [](FNameSlot Slot) { return false; });
 		NewSlot = OldSlot;
-		++UsedSlots_;
+		++UsedSlots;
 	}
 };
 
@@ -654,7 +649,7 @@ public:
 
 	auto Find(FU8StringView Name) -> FNameEntryId;
 
-	auto Resolve(FNameEntryHandle Id) -> FNameEntry& { return Entries_.Resolve(Id); }
+	auto Resolve(FNameEntryHandle Id) -> FNameEntry& { return Entries.Resolve(Id); }
 
 	static bool bInitialized;
 
@@ -667,11 +662,11 @@ public:
 	auto StoreDisplayValue(const FNameDisplayValue& DisplayValue, bool bAddedComparisonEntry) -> FNameEntryId;
 
 private:
-	FNameEntryAllocator Entries_;
+	FNameEntryAllocator Entries;
 
-	FNamePoolShard<ENameCase::IgnoreCase> ComparisonShards_[FNamePoolShardCount];
+	FNamePoolShard<ENameCase::IgnoreCase> ComparisonShards[FNamePoolShardCount];
 
-	FNamePoolShard<ENameCase::CaseSensitive> DisplayShards_[FNamePoolShardCount];
+	FNamePoolShard<ENameCase::CaseSensitive> DisplayShards[FNamePoolShardCount];
 };
 
 bool FNamePool::bInitialized = false;
@@ -679,21 +674,21 @@ alignas(FNamePool) static uint8 NamePoolData[sizeof(FNamePool)];
 
 FNamePool::FNamePool()
 {
-	for (FNamePoolShardBase& Shard : ComparisonShards_)
+	for (FNamePoolShardBase& Shard : ComparisonShards)
 	{
-		Shard.Initialize(Entries_);
+		Shard.Initialize(Entries);
 	}
 
-	for (FNamePoolShardBase& Shard : DisplayShards_)
+	for (FNamePoolShardBase& Shard : DisplayShards)
 	{
-		Shard.Initialize(Entries_);
+		Shard.Initialize(Entries);
 	}
 }
 
 auto FNamePool::Store(FU8StringView Name) -> FNameEntryId
 {
 	FNameDisplayValue DisplayValue(Name);
-	if (FNameEntryId Existing = DisplayShards_[DisplayValue.Hash.ShardIndex].Find(DisplayValue))
+	if (FNameEntryId Existing = DisplayShards[DisplayValue.Hash.ShardIndex].Find(DisplayValue))
 	{
 		return Existing;
 	}
@@ -702,7 +697,7 @@ auto FNamePool::Store(FU8StringView Name) -> FNameEntryId
 
 	// Insert comparison name first since display value must contain comparison name
 	FNameComparisonValue ComparisonValue(Name);
-	DisplayValue.ComparisonId = ComparisonShards_[ComparisonValue.Hash.ShardIndex].Insert(ComparisonValue, bAdded);
+	DisplayValue.ComparisonId = ComparisonShards[ComparisonValue.Hash.ShardIndex].Insert(ComparisonValue, bAdded);
 
 	FNameEntryId DisplayId = StoreDisplayValue(DisplayValue, bAdded);
 
@@ -713,13 +708,13 @@ auto FNamePool::Find(FU8StringView Name) -> FNameEntryId
 {
 	// First try to find the display name, then the comparison name
 	FNameDisplayValue DisplayValue(Name);
-	if (FNameEntryId Existing = DisplayShards_[DisplayValue.Hash.ShardIndex].Find(DisplayValue))
+	if (FNameEntryId Existing = DisplayShards[DisplayValue.Hash.ShardIndex].Find(DisplayValue))
 	{
 		return Existing;
 	}
 
 	FNameComparisonValue ComparisonValue(Name);
-	return ComparisonShards_[ComparisonValue.Hash.ShardIndex].Find(ComparisonValue);
+	return ComparisonShards[ComparisonValue.Hash.ShardIndex].Find(ComparisonValue);
 }
 
 auto FNamePool::Get() -> FNamePool&
@@ -737,7 +732,7 @@ auto FNamePool::Get() -> FNamePool&
 
 auto FNamePool::GetBlocksForDebugVisualizer() -> uint8**
 {
-	return Entries_.GetBlocksForDebugVisualizer();
+	return Entries.GetBlocksForDebugVisualizer();
 }
 
 auto FNamePool::ReuseComparisonEntry(const FNameDisplayValue& DisplayValue) -> bool
@@ -748,11 +743,11 @@ auto FNamePool::ReuseComparisonEntry(const FNameDisplayValue& DisplayValue) -> b
 auto FNamePool::StoreDisplayValue(const FNameDisplayValue& DisplayValue, bool bAddedComparisonEntry) -> FNameEntryId
 {
 	FNameEntryId Out = DisplayValue.ComparisonId;
-	auto& DisplayShard = DisplayShards_[DisplayValue.Hash.ShardIndex];
+	auto& DisplayShard = DisplayShards[DisplayValue.Hash.ShardIndex];
 
 	if (bAddedComparisonEntry || ReuseComparisonEntry(DisplayValue))
 	{
-		DisplayShards_->InsertExistingEntry(DisplayValue.Hash, DisplayValue.ComparisonId);
+		DisplayShards->InsertExistingEntry(DisplayValue.Hash, DisplayValue.ComparisonId);
 	}
 	else
 	{
