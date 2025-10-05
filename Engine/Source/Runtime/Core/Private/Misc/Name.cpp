@@ -826,6 +826,10 @@ struct FNameHelper
 };
 
 
+FName::FName()
+{
+}
+
 FName::FName(const UTF8Char* Name)
 	: FName(FNameHelper::MakeDetectNumber(FU8StringView(Name)))
 {

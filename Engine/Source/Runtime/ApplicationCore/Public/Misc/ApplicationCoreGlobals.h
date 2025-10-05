@@ -1,3 +1,3 @@
 #pragma once
 
-inline APPLICATIONCORE_API auto ApplicationInit() -> void;
+APPLICATIONCORE_API auto ApplicationInit() -> void;

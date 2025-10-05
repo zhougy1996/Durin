@@ -4,7 +4,7 @@
 
 class FGenericApplication;
 
-enum class APPLICATIONCORE_API EWindowMode : uint32
+enum class EWindowMode : uint32
 {
 	Fullscreen,			// Fullscreen with a window border
 	WindowedFullScreen, // Fullscreen without a window border

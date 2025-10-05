@@ -7,6 +7,8 @@
 build/
 Engine/Intermediate/
 Engine/Binaries/
+.idea/
+out/
 
 # vulkan module file
 Engine/Source/ThirdParty/vulkan/

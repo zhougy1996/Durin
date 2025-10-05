@@ -1,6 +1,6 @@
 #pragma once
 
-enum class RHI_API EGpuVendorId
+enum class EGpuVendorId
 {
 	Unknown = -1,
 	NotQueried = 0, // Not queried yet
@@ -15,7 +15,7 @@ enum class RHI_API EGpuVendorId
 	Apple = 0x106B,
 };
 
-inline RHI_API EGpuVendorId RHIConvertToGpuVenderId(uint32 VendorId)
+inline EGpuVendorId RHIConvertToGpuVenderId(uint32 VendorId)
 {
 	switch (static_cast<EGpuVendorId>(VendorId))
 	{

@@ -19,6 +19,8 @@
 #include <string>
 #include <tuple>
 #include <span>
+#include <format>
+#include <cstring>
 
 // Multithreading support
 #include <mutex>

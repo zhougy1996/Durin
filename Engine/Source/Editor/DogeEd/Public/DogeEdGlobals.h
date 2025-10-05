@@ -1,3 +1,3 @@
 #pragma once
 
-inline DOGEED_API auto EditorInit() -> void;
+DOGEED_API auto EditorInit() -> void;

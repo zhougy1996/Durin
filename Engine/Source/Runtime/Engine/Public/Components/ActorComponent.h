@@ -15,7 +15,7 @@ public:
 
 	ENGINE_API virtual ~DActorComponent() = default;
 
-	ENGINE_API auto GetOwner() -> AActor* const { return OwnerActorPrivate; }
+	auto GetOwner() -> AActor* const { return OwnerActorPrivate; }
 
 	template<typename T> auto GetOwner() const -> T*
 	{

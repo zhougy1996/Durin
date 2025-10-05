@@ -1,4 +1,5 @@
 #pragma once
+#include <cstring>
 
 inline constexpr uint32 FNameMaxSize = 1024;
 
@@ -109,7 +110,7 @@ class FName
 public:
 	static constexpr uint32 MaxSize = FNameMaxSize;
 
-	CORE_API FName() = default;
+	CORE_API FName();
 
 	CORE_API FName(const UTF8Char* Name);
 
