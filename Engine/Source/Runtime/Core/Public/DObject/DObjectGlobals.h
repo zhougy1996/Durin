@@ -1,5 +1,8 @@
 #pragma once
 
+class DObject;
+class DClass;
+
 struct FStaticConstructObjectParameters
 {
 	DClass* Class = nullptr;

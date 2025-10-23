@@ -49,14 +49,8 @@ auto FEngineLoop::Init() -> void
 	CommandList.SwitchPipeline(ERHIPipeline::eGraphics);
 }
 
-auto FEngineLoop::Tick() -> void
+static auto DrawTriangle()
 {
-	FMonaApplication::Get().Tick();
-
-	if (GIsRequestingExit)
-	{
-		return;
-	}
 	// Window and viewport
 	TSharedPtr<MWindow> Window = FMonaApplication::Get().GetActiveTopLevelWindow();
 	FRHIViewport* Viewport = Window->GetRHIViewport().get();
@@ -70,7 +64,7 @@ auto FEngineLoop::Tick() -> void
 	TSharedPtr<FRHITexture> BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
 
 	// Render pass
-	FRHIRenderPassInfo PassInfo;
+	FRHIRenderPassInfo PassInfo{};
 	PassInfo.ColorRenderTargets[0] = BackBuffer.get();
 
 	CommandList.BeginFrame();
@@ -89,6 +83,18 @@ auto FEngineLoop::Tick() -> void
 	CommandList.EndDrawingViewport(Viewport, true, false);
 
 	CommandList.EndFrame();
+}
+
+auto FEngineLoop::Tick() -> void
+{
+	FMonaApplication::Get().Tick();
+
+	if (GIsRequestingExit)
+	{
+		return;
+	}
+
+	DrawTriangle();
 }
 
 auto FEngineLoop::Exit() -> void
