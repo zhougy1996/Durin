@@ -3,6 +3,12 @@
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 
+
+AActor::AActor()
+{
+	InitializeDefaults();
+}
+
 AActor::AActor(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

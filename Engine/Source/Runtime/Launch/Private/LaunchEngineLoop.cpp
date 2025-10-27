@@ -94,7 +94,7 @@ auto FEngineLoop::Tick() -> void
 		return;
 	}
 
-	DrawTriangle();
+	// DrawTriangle();
 }
 
 auto FEngineLoop::Exit() -> void

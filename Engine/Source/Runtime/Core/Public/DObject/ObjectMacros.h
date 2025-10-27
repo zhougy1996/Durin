@@ -17,12 +17,15 @@ enum EInternal { EC_InternalUseOnlyConstructor };
 
 #define DECLARE_CLASS(TClass, TSuperClass, TPrivateAccessor) \
 private: \
-	TClass& operator=(TClass&&); \
-	TClass& operator=(const TClass&); \
+	TClass& operator=(TClass&&) = delete; \
+	TClass& operator=(const TClass&) = delete; \
 \
 public: \
 	using Super = TSuperClass; \
 	inline static DClass* StaticClass() { return TPrivateAccessor(); }
+
+#define DEFINE_DEFAULT_CONSTRUCTOR_CALL(TClass) \
+	static void __DefaultConstructor(const FObjectInitializer& X) { new (X.GetObj()) TClass(); }
 
 #define DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(TClass) \
 	static void __DefaultConstructor(const FObjectInitializer& X) { new (X.GetObj()) TClass(X); }

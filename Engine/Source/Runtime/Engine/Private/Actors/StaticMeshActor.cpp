@@ -2,14 +2,9 @@
 
 #include "Components/StaticMeshComponent.h"
 
-AStaticMeshActor::AStaticMeshActor(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
+AStaticMeshActor::AStaticMeshActor()
 {
 	DOGE_INFO(STR("AStaticMeshActor::AStaticMeshActor"));
 	StaticMeshComponent = NewObject<DStaticMeshComponent>(this, "DStaticMeshComponent");
 	RootComponent = StaticMeshComponent;
-}
-
-AStaticMeshActor::~AStaticMeshActor()
-{
 }

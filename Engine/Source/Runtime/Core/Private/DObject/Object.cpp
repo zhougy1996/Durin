@@ -7,6 +7,9 @@
 
 IMPLEMENT_INTRINSIC_CLASS(DObject, CORE_API, DObject, CORE_API, {})
 
+DObject::DObject()
+{
+}
 DObject::DObject(const FObjectInitializer& ObjectInitializer)
 {
 }

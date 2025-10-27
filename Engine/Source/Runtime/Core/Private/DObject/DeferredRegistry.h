@@ -15,7 +15,7 @@ public:
 		FName Name;
 		TRegisterFunc OuterRegister;
 		TRegisterFunc InnerRegister;
-		FClassRegistrationInfo* Info;
+		FClassRegistrationInfo* Info = nullptr;
 	};
 
 	static auto Get() -> TDeferredRegistry&

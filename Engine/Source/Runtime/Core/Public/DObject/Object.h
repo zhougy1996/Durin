@@ -34,6 +34,8 @@ class DObject
 	DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(DObject)
 
 public:
+	CORE_API DObject();
+
 	CORE_API DObject(const FObjectInitializer& ObjectInitializer);
 
 	CORE_API DObject(DClass* InClass, DObject* InOuter, FName InName);

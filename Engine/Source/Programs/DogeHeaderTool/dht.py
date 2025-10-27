@@ -2,6 +2,7 @@ import sys
 import os
 import logging
 import json
+from enum import Enum
 
 import clang.cindex
 from clang.cindex import TokenKind
@@ -223,6 +224,9 @@ class DHTFunction:
         self.parameters = []
 
 
+class DHTConstructorType(Enum):
+    DEFAULT = 1
+    OBJECT_INITIALIZER = 2
 
 # Class meta info, annotated with DCLASS()
 # DCLASS() should not be nested in other classes or namespaces
@@ -239,6 +243,9 @@ class DHTClass:
     registration_info_name: str
     has_default_constructor: bool = False
     has_object_initializer_constructor: bool = False
+    has_destructor: bool = False
+    constructor_type: DHTConstructorType
+
     construct_func_name: str
     construct_noregister_func_name: str
     construct_statics: str
@@ -247,6 +254,7 @@ class DHTClass:
         self.generate_body_line = 0
 
     def construct(self, class_cursor, annotations):
+        # Initialize basic info
         self.name = class_cursor.spelling
         self.properties = []
         self.functions = []
@@ -257,22 +265,38 @@ class DHTClass:
         self.construct_func_name =  f"Z_Construct_DClass_{self.name}"
         self.construct_noregister_func_name =  f"{self.construct_func_name}_NoRegister"
         self.construct_statics = f"{self.construct_func_name}_Statics"
+        self.constructor_type = DHTConstructorType.OBJECT_INITIALIZER
+        self.has_default_constructor = False
+        self.has_object_initializer_constructor = False
+        self.has_destructor = False
 
         self.construct_class_declaration()
         self.construct_members()
 
     def construct_members(self):
         for child_cursor in self.cursor.get_children():
-            if child_cursor.kind == clang.cindex.CursorKind.FIELD_DECL:
-                self.add_property(child_cursor)
-            elif child_cursor.kind == clang.cindex.CursorKind.CONSTRUCTOR:
-                self.has_default_constructor |= is_default_constructor(child_cursor)
-                self.has_object_initializer_constructor |= is_object_initializer_constructor(child_cursor)
-            elif child_cursor.kind == clang.cindex.CursorKind.CXX_METHOD:
-                if child_cursor.spelling == "DHT_GENERATED_BODY":
-                    self.generate_body_line = child_cursor.location.line
-                else:
-                    self.add_function(child_cursor)
+            match child_cursor.kind:
+                case clang.cindex.CursorKind.FIELD_DECL:
+                    self.add_property(child_cursor)
+                    continue
+                case clang.cindex.CursorKind.CONSTRUCTOR:
+                    if is_default_constructor(child_cursor):
+                        self.has_default_constructor = True
+                        self.constructor_type = DHTConstructorType.DEFAULT
+                    elif is_object_initializer_constructor(child_cursor):
+                        self.has_object_initializer_constructor = True
+                    continue
+                case clang.cindex.CursorKind.DESTRUCTOR:
+                    self.has_destructor = True
+                    continue
+                case clang.cindex.CursorKind.CXX_METHOD:
+                    if child_cursor.spelling == "DHT_GENERATED_BODY":
+                        self.generate_body_line = child_cursor.location.line
+                    else:
+                        self.add_function(child_cursor)
+                    continue
+                case _:
+                    continue
 
     def construct_class_declaration(self):
         class_tokens = [token.spelling for token in self.clang_tokens]
@@ -342,6 +366,7 @@ class DHTClass:
             if annotations and "DFUNCTION" in annotations:
                 pass
                 # tokens_without_macro = self.strip_macro_paren_prefix(tokens)
+
 
 # Header meta info, contains multiple classes
 class DHTHeader:
@@ -483,7 +508,7 @@ class DHTCodeGen_H:
         file.write("\n")
 
     @staticmethod
-    def write_inclass_no_pure_decls(file, macro_name, class_meta) -> str:
+    def write_inclass_no_pure_decls(file, macro_name, class_meta) -> None:
         lines = []
         lines.append(f"#define {macro_name}")
         lines.append("private:")
@@ -496,22 +521,37 @@ class DHTCodeGen_H:
         file.write("\n")
 
     @staticmethod
-    def write_enhanced_constructors(file, macro_name, class_meta) -> str:
+    def write_enhanced_constructors(file, macro_name, class_meta) -> None:
         lines = []
         lines.append(f"#define {macro_name}")
-        if not class_meta.has_object_initializer_constructor:
-            lines.append(f"/** Standard Constructors */")
-            lines.append(f"NO_API {class_meta.name}(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());")
+
+        # Append constructor if not declared by original header file
+        if class_meta.constructor_type is DHTConstructorType.OBJECT_INITIALIZER and not class_meta.has_object_initializer_constructor:
+            lines.append(f"/** Default Object Initializer Constructor **/")
+            lines.append(f"NO_API {class_meta.name}(const FObjectInitializer& ObjectInitializer);")
+        
+        # Append destructor if not declared by original header file
+        if not class_meta.has_destructor:
+            lines.append(f"/** Default Destructor **/")
+            lines.append(f"NO_API ~{class_meta.name}() override = default;")
+
+        # Append deleted move- and copy-constructors
         lines.append(f"/** Deleted move- and copy-constructors, should never be used */")
         classname = class_meta.name
         lines.append(f"{classname}({classname}&&) = delete;")
         lines.append(f"{classname}(const {classname}&) = delete;")
-        lines.append(f"DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL({classname})")
+
+        # Add corresponding constructor call function
+        if class_meta.constructor_type is DHTConstructorType.OBJECT_INITIALIZER:
+            lines.append(f"DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL({classname})")
+        elif class_meta.constructor_type is DHTConstructorType.DEFAULT:
+            lines.append(f"DEFINE_DEFAULT_CONSTRUCTOR_CALL({classname})")
+
         write_macro(file, lines)
         file.write("\n")
     
     @staticmethod
-    def write_code_standard_constructors(file, macro_name, class_meta) -> str:
+    def write_code_standard_constructors(file, macro_name, class_meta) -> None:
         lines = []
         lines.append(f"#define {macro_name}")
         lines.append(f"{class_meta.api} {class_meta.name}(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());")
@@ -624,7 +664,7 @@ class DHTCodeGen_Cpp:
     
     @staticmethod
     def write_class_constructor(file, class_meta) -> None:
-        if not class_meta.has_object_initializer_constructor:
+        if class_meta.constructor_type is DHTConstructorType.OBJECT_INITIALIZER and not class_meta.has_object_initializer_constructor:
             file.write(f"{class_meta.name}::{class_meta.name}(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {{}}\n")
             file.write("\n")
 

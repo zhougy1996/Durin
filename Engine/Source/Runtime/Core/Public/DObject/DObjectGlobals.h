@@ -31,7 +31,7 @@ CORE_API auto StaticConstructObject(const FStaticConstructObjectParameters& Para
 template<typename T>
 auto NewObject(DObject* Outer, FName Name) -> T*
 {
-	static_assert(std::is_base_of<DObject, T>::value, "T must be derived from DObject");
+	static_assert(std::is_base_of_v<DObject, T>, "T must be derived from DObject");
 
 	FStaticConstructObjectParameters Params;
 	Params.Class = T::StaticClass();
