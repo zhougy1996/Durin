@@ -20,6 +20,10 @@ DObject::DObject(DClass* InClass, DObject* InOuter, FName InName)
 	, NamePrivate(InName)
 {
 }
+DObject::DObject(EStaticConstructor, EObjectFlags InFlags)
+	: ObjectFlags(InFlags)
+{
+}
 
 auto DObject::Register(FName InName) -> void
 {

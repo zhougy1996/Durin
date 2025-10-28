@@ -2,29 +2,54 @@
 
 #include "DObject/Object.h"
 
+class FField;
 class FObjectInitializer;
 
-class DClass : public DObject
+// Base class for all DObject types that contain properties
+class DStructure : public DObject
 {
-	DECLARE_CLASS_INTRINSIC(DClass, DObject)
 public:
-	CORE_API DClass(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+	DECLARE_CLASS_INTRINSIC(DStructure, DObject)
 
+	DStructure(EStaticConstructor, uint32 InSize, uint32 InMinAlignment, EObjectFlags InFlags)
+		: DObject(EC_StaticConstructor, InFlags)
+		, PropertiesSize(InSize)
+		, MinAlignment(InMinAlignment)
+	{
+	}
+
+	FField* ChildProperties = nullptr;
+
+	uint32 PropertiesSize = 0;
+
+	uint32 MinAlignment = 0;
+};
+
+// Describe a class
+class DClass : public DStructure
+{
+	DECLARE_CLASS_INTRINSIC(DClass, DStructure)
+public:
 	using StaticClassFunctionType = DClass* (*)();
 	using ClassConstructorType = void (*)(const FObjectInitializer&);
 
 	// the Outer is nullptr now , it will be set to a package later maybe
-	DClass
-	(
+	DClass(
+		EStaticConstructor,
 		FName InName,
+		uint32 InSize,
+		uint32 InAlignment,
+		EObjectFlags InFlags,
+		EClassFlags InClassFlags,
+		EClassCastFlags InClassCastFlags,
 		ClassConstructorType InClassConstructor
 	)
-		: DObject(this, nullptr, InName)
+		: DStructure(EC_StaticConstructor, InSize, InAlignment, InFlags)
 		, ClassConstructor(InClassConstructor)
 	{
 	}
 
-	ClassConstructorType ClassConstructor;
+	ClassConstructorType ClassConstructor = nullptr;
 };
 
 template<class T>
@@ -34,7 +59,11 @@ void InternalConstructor(const FObjectInitializer& X)
 }
 
 CORE_API auto GetPrivateStaticClassBody(
+	const UTF8Char* PackageName,
 	const UTF8Char* Name,
+	void (*RegisterNativeFunc)(),
+	uint32 InSize,
+	uint32 InAlignment,
+	EClassFlags InClassFlags,
 	DClass::ClassConstructorType InClassConstructor
 ) -> DClass*;
-

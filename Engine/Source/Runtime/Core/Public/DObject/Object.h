@@ -40,6 +40,9 @@ public:
 
 	CORE_API DObject(DClass* InClass, DObject* InOuter, FName InName);
 
+	// Internal use only for statically-created objects, should not be called directly
+	CORE_API DObject(EStaticConstructor, EObjectFlags InFlags);
+
 	virtual ~DObject() = default;
 
 	auto Rename(FName InName) -> void { NamePrivate = InName; }
@@ -62,6 +65,8 @@ private:
 	CORE_API auto AddObject(FName InName) -> void;
 
 	FName NamePrivate;
+
+	EObjectFlags ObjectFlags = EObjectFlags::NoFlags;
 
 	DObject* OuterPrivate = nullptr;
 

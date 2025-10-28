@@ -12,9 +12,8 @@ DObject* StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t 
 {
 	// Allocate memory and zero it out
 	DObject* Obj = nullptr;
-	Obj = (DObject*)std::malloc(Size);
+	Obj = static_cast<DObject*>(std::malloc(Size));
 	assert(Obj && "Memory allocation failed");
-	std::memset(Obj, 0, Size);
 	new (Obj) DObject(Class, Outer, Name);
 
 	return Obj;
@@ -38,7 +37,6 @@ auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DO
 
 auto DogeCodeGen::ConstructDClass(const FClassParams& Params) -> DClass*
 {
-	const UTF8Char* ClassName = Params.ClassName;
 	DClass* Class = Params.ClassNoRegisterFunc();
 
 	DObjectForceRegistration(Class);

@@ -8,6 +8,10 @@
 #define DOGE_JOIN(TokenA, TokenB) DOGE_PRIVATE_JOIN(TokenA, TokenB)
 #define DOGE_PRIVATE_JOIN(TokenA, TokenB) TokenA##TokenB
 
+// Concatenates the first two preprocessor tokens of a variadic list, after performing macro expansion on them
+#define DOGE_JOIN_FIRST(Token, ...) DOGE_PRIVATE_JOIN_FIRST(Token, __VA_ARGS__)
+#define DOGE_PRIVATE_JOIN_FIRST(Token, ...) Token##__VA_ARGS__
+
 // Expands to the second argument or the third argument if the first argument is 1 or 0 respectively
 #define DOGE_IF(OneOrZero, Token1, Token0) DOGE_JOIN(DOGE_PRIVATE_IF_, OneOrZero)(Token1, Token0)
 #define DOGE_PRIVATE_IF_1(Token1, Token0) Token1

@@ -11,11 +11,11 @@ auto FLogger::Get() -> FLogger&
 	return instance;
 }
 
-auto FLogger::Log(ELogLevel Level, FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
+auto FLogger::Log(ELogLevel Level, FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) const -> void
 {
-	spdlog::source_loc SpdSourceLocation = spdlog::source_loc{SourceLocation.file_name(), static_cast<int>(SourceLocation.line()), SourceLocation.function_name()};
-	FString LogStringWithMoudule = std::format(STR("[{}] {}"), ModuleName, LogString);
-	Logger->log(SpdSourceLocation, static_cast<spdlog::level::level_enum>(Level), LogStringWithMoudule);
+	const auto SpdSourceLocation = spdlog::source_loc{SourceLocation.file_name(), static_cast<int>(SourceLocation.line()), SourceLocation.function_name()};
+	const FString LogStringWithModule = std::format(STR("[{}] {}"), ModuleName, LogString);
+	Logger->log(SpdSourceLocation, static_cast<spdlog::level::level_enum>(Level), LogStringWithModule);
 }
 
 auto FLogger::Trace(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
@@ -45,11 +45,11 @@ auto FLogger::Error(FStringView ModuleName, FStringView LogString, std::source_l
 
 FLogger::FLogger()
 {
-	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+	const auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 	console_sink->set_level(spdlog::level::debug);
 	console_sink->set_pattern("[%H:%M:%S][%^%l%$]%v");
 
-	auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("Logs/Doge.log", true);
+	const auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("Logs/Doge.log", true);
 	file_sink->set_level(spdlog::level::trace);
 	file_sink->set_pattern("[%Y-%m-%d %H:%M:%S][%^%l%$][%s:%#] %v");
 

@@ -2,28 +2,6 @@
 
 class FField;
 
-enum EClassFlags
-{
-	CLASS_None = 0,
-
-	// Class is abstract and can't be instantiated directly
-	CLASS_Abstract = 1,
-
-	// Class was declared in C++ and has no generated code
-	CLASS_Native = 1 << 1,
-};
-ENUM_CLASS_FLAGS(EClassFlags);
-
-enum EClassCastFlags : uint64
-{
-	CASTCLASS_None = 0,
-
-	CASTCLASS_UField = 1,
-	CASTCLASS_FInt8Property = 1 << 1,
-	CASTCLASS_UEnum = 1 << 2,
-	CASTCLASS_FNumericProperty = 1 << 3,
-};
-
 class FFieldClass
 {
 	/** Name of this field class */
@@ -40,10 +18,33 @@ class FFieldClass
 	FField* DefaultObject;
 };
 
+#define DECLARE_FIELD(TClass, TSuperClass, TStaticFlags, TRequiredAPI) \
+public: \
+	TClass& operator=(TClass&&) = delete; \
+	TClass& operator=(const TClass&) = delete; \
+	\
+	using Super = DOGE_REMOVE_OPTIONAL_PARENS(TSuperClass); \
+	static TRequiredAPI FFieldClass* StaticClass(); \
+	/* Internal ClassCastFlags without super class flags */ \
+	inline static constexpr uint64 StaticClassCastFlagsPrivate() { return static_cast<uint64>(TStaticFlags); } \
+	/* ClassCastFlags including super class flags, also used as id in FFieldClass */ \
+	inline static constexpr uint64 StaticClassCastFlags() { return static_cast<uint64>(TStaticFlags) | Super::StaticClassCastFlags(); } \
+
+
 class FField
 {
 public:
 	DOGE_NONCOPYABLE(FField)
+
+	inline static constexpr uint64 StaticClassCastFlagsPrivate()
+	{
+		return static_cast<uint64>(EClassCastFlags::FField);
+	}
+
+	inline static constexpr uint64 StaticClassCastFlags()
+	{
+		return static_cast<uint64>(EClassCastFlags::FField);
+	}
 
 	FFieldClass* ClassPrivate;
 
@@ -51,9 +52,4 @@ public:
 
 	FName NamePrivate;
 };
-
-#define DECLARE_FIELD(TClass, TSuperClass, TStaticFlags, TRequiredAPI) \
-public: \
-	TClass& operator=(TClass&&) = delete; \
-	TClass& operator=(const TClass&) = delete;
 

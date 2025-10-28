@@ -106,7 +106,7 @@ def append_include(builder, include_file):
 
 def append_macro_line(builder, content, indent_level=0, is_last_line=False):
     indent = "\t" * indent_level
-    builder.append(indent + content + ("" if is_last_line else macro_newline))
+    builder.append(indent + content + ("\n" if is_last_line else macro_newline))
 
 def append_comment_segmentation(builder, comment):
     comment_size = len(comment)
@@ -354,7 +354,8 @@ class DHTClass:
                 property_meta.construct(property_cursor, annotations, tokens)
                 self.properties.append(property_meta)
 
-    def add_function(self, function_cursor):
+    @staticmethod
+    def add_function(function_cursor):
         if function_cursor.kind == clang.cindex.CursorKind.CXX_METHOD:
             annotations = extract_annotations(function_cursor)
             if annotations and "DFUNCTION" in annotations:
@@ -428,7 +429,8 @@ class DHTParser:
     def __init__(self):
         pass
 
-    def parse_header(self, header_path) -> DHTHeader:
+    @staticmethod
+    def parse_header(header_path) -> DHTHeader:
         clang_index = clang.cindex.Index.create()
         logging.debug("Parsing header: %s", header_path)
 
@@ -493,54 +495,51 @@ class DHTCodeGen_H:
         DHTCodeGen_H.append_enhanced_constructors(builder, enhanced_constructors_macro_name, class_meta)
 
         append_macro_line(builder, f"#define {generated_body_macro_name}", 0)
-        indent = 1
-        append_macro_line(builder, "public:", indent)
-        append_macro_line(builder, f"\t{no_pure_decls_macro_name}", indent)
-        append_macro_line(builder, f"\t{enhanced_constructors_macro_name}", indent)
-        append_macro_line(builder, "private:", indent, is_last_line=True)
+        append_macro_line(builder, "public:", 1)
+        append_macro_line(builder, f"{no_pure_decls_macro_name}", 2)
+        append_macro_line(builder, f"{enhanced_constructors_macro_name}", 2)
+        append_macro_line(builder, "private:", 1, is_last_line=True)
 
         builder.append("\n")
     
     @staticmethod
     def append_inclass_no_pure_decls(builder, macro_name, class_meta) -> None:
         append_macro_line(builder, f"#define {macro_name}", 0)
-        indent = 1
 
-        append_macro_line(builder, "private:", indent)
-        append_macro_line(builder, f"friend struct {class_meta.construct_statics};", indent)
-        append_macro_line(builder, f"static DClass* GetPrivateStaticClass();", indent)
-        append_macro_line(builder, f"friend {class_meta.api} auto {class_meta.construct_noregister_func_name}() -> DClass*;", indent)
-        append_macro_line(builder, "public:", indent)
-        append_macro_line(builder, f"DECLARE_CLASS({class_meta.name}, {class_meta.superclass}, {class_meta.construct_noregister_func_name})", indent)
+        append_macro_line(builder, "private:", 1)
+        append_macro_line(builder, f"friend struct {class_meta.construct_statics};", 2)
+        append_macro_line(builder, f"static DClass* GetPrivateStaticClass();", 2)
+        append_macro_line(builder, f"friend {class_meta.api} auto {class_meta.construct_noregister_func_name}() -> DClass*;", 2)
+        append_macro_line(builder, "public:", 1)
+        append_macro_line(builder, f"DECLARE_CLASS({class_meta.name}, {class_meta.superclass}, {class_meta.construct_noregister_func_name})", 2, is_last_line=True)
 
         builder.append("\n")
 
     @staticmethod
     def append_enhanced_constructors(builder, macro_name, class_meta) -> None:
         append_macro_line(builder, f"#define {macro_name}", 0)
-        indent = 1
 
         # Append constructor if not declared by original header file
         if class_meta.constructor_type is DHTConstructorType.OBJECT_INITIALIZER and not class_meta.has_object_initializer_constructor:
-            append_macro_line(builder, f"/** Default Object Initializer Constructor **/", indent)
-            append_macro_line(builder, f"NO_API {class_meta.name}(const FObjectInitializer& ObjectInitializer);", indent)
+            append_macro_line(builder, f"/** Default Object Initializer Constructor **/", 1)
+            append_macro_line(builder, f"NO_API {class_meta.name}(const FObjectInitializer& ObjectInitializer);", 1)
 
         # Append destructor if not declared by original header file
         if not class_meta.has_destructor:
-            append_macro_line(builder, f"/** Default Destructor **/", indent)
-            append_macro_line(builder, f"NO_API ~{class_meta.name}() override = default;", indent)
+            append_macro_line(builder, f"/** Default Destructor **/", 1)
+            append_macro_line(builder, f"NO_API ~{class_meta.name}() override = default;", 1)
 
         # Append deleted move- and copy-constructors
-        append_macro_line(builder, f"/** Deleted move- and copy-constructors, should never be used */", indent)
+        append_macro_line(builder, f"/** Deleted move- and copy-constructors, should never be used */", 1)
         classname = class_meta.name
-        append_macro_line(builder, f"{classname}({classname}&&) = delete;", indent)
-        append_macro_line(builder, f"{classname}(const {classname}&) = delete;", indent)
+        append_macro_line(builder, f"{classname}({classname}&&) = delete;", 1)
+        append_macro_line(builder, f"{classname}(const {classname}&) = delete;", 1)
 
         # Add corresponding constructor call function
         if class_meta.constructor_type is DHTConstructorType.OBJECT_INITIALIZER:
-            append_macro_line(builder, f"DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL({classname})", indent)
+            append_macro_line(builder, f"DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL({classname})", 1)
         elif class_meta.constructor_type is DHTConstructorType.DEFAULT:
-            append_macro_line(builder, f"DEFINE_DEFAULT_CONSTRUCTOR_CALL({classname})", indent)
+            append_macro_line(builder, f"DEFINE_DEFAULT_CONSTRUCTOR_CALL({classname})", 1)
 
         builder.append("\n")
 

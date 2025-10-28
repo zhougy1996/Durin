@@ -21,7 +21,7 @@ public:
 
 	static CORE_API auto Get() -> const FObjectInitializer&;
 
-	DObject* Obj;
+	DObject* Obj = nullptr;
 };
 
 CORE_API auto DObjectForceRegistration(DObject* Object) -> void;

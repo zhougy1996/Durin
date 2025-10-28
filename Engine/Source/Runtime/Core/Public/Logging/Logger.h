@@ -23,7 +23,7 @@ class CORE_API FLogger
 public:
 	static auto Get() -> FLogger&;
 
-	auto Log(ELogLevel Level, FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+	auto Log(ELogLevel Level, FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) const -> void;
 
 	static auto Trace(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
