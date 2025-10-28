@@ -101,23 +101,17 @@ def strip_macro_paren_prefix(tokens):
                 break
     return result
 
-def write_include(file, include_file):
-    file.write(f"#include \"{include_file}\"\n")
+def append_include(builder, include_file):
+    builder.append(f'#include "{include_file}"\n')
 
-def write_macro(file, macro_lines):
-    if len(macro_lines) == 0:
-        return
-    
-    i = 0
-    while i < len(macro_lines) - 1:
-        file.write(macro_lines[i] + macro_newline)
-        i += 1
-    file.write(macro_lines[i] + "\n")
+def append_macro_line(builder, content, indent_level=0, is_last_line=False):
+    indent = "\t" * indent_level
+    builder.append(indent + content + ("" if is_last_line else macro_newline))
 
-def write_comment_segmentation(file, comment):
+def append_comment_segmentation(builder, comment):
     comment_size = len(comment)
     star_num = 0 if comment_size > 50 else 50 - comment_size
-    file.write(f"// ********* {comment} {star_num * '*'} \n")
+    builder.append(f"// ********* {comment} {star_num * '*'} \n")
 
 def is_object_initializer_constructor(constructor_cursor) -> bool:
     if constructor_cursor.kind != clang.cindex.CursorKind.CONSTRUCTOR:
@@ -465,25 +459,26 @@ class DHTCodeGen_H:
     @staticmethod
     def generate(filepath) -> None:
         with open(filepath, 'w') as file:
-            file.write("// Generated code exported from DogeHeaderTool.\n\n")
-            file.write("#pragma once\n\n")
+            builder = []
+            builder.append("// Generated code exported from DogeHeaderTool.\n\n")
+            builder.append("#pragma once\n\n")
 
             for class_meta in header_meta.classes:
-                DHTCodeGen_H.write_class(file, class_meta, header_meta.fid)
+                DHTCodeGen_H.append_class(builder, class_meta, header_meta.fid)
 
-            DHTCodeGen_H.write_fid_definition(file, header_meta.fid)
-
-    @staticmethod
-    def write_class(file, class_meta, fid):
-        write_comment_segmentation(file, f"Begin Class {class_meta.name}")
-        file.write(f"{class_meta.api} auto {class_meta.construct_noregister_func_name}() -> DClass*;\n")
-        DHTCodeGen_H.write_generate_body_code(file, class_meta, fid)
-        write_comment_segmentation(file, f"End Class {class_meta.name}")
-        file.write("\n")
-
+            DHTCodeGen_H.append_fid_definition(builder, header_meta.fid)
+            file.writelines(builder)
 
     @staticmethod
-    def write_generate_body_code(file, class_meta, fid) -> None:
+    def append_class(builder, class_meta, fid):
+        append_comment_segmentation(builder, f"Begin Class {class_meta.name}")
+        builder.append(f"{class_meta.api} auto {class_meta.construct_noregister_func_name}() -> DClass*;\n")
+        DHTCodeGen_H.append_generate_body_code(builder, class_meta, fid)
+        append_comment_segmentation(builder, f"End Class {class_meta.name}")
+        builder.append("\n")
+
+    @staticmethod
+    def append_generate_body_code(builder, class_meta, fid) -> None:
         if class_meta.generate_body_line == 0:
             logging.warning("No generated body line found for class: %s", class_meta.name)
             return
@@ -494,205 +489,200 @@ class DHTCodeGen_H:
         no_pure_decls_macro_name = generated_body_id + "_INCLASS_NO_PURE_DECLS"
         enhanced_constructors_macro_name = generated_body_id + "_ENHANCED_CONSTRUCTORS"
 
-        DHTCodeGen_H.write_inclass_no_pure_decls(file, no_pure_decls_macro_name, class_meta)
-        DHTCodeGen_H.write_enhanced_constructors(file, enhanced_constructors_macro_name, class_meta)
+        DHTCodeGen_H.append_inclass_no_pure_decls(builder, no_pure_decls_macro_name, class_meta)
+        DHTCodeGen_H.append_enhanced_constructors(builder, enhanced_constructors_macro_name, class_meta)
 
-        lines = []
-        lines.append(f"#define {generated_body_macro_name}")
-        lines.append("public:")
-        lines.append(f"\t{no_pure_decls_macro_name}")
-        lines.append(f"\t{enhanced_constructors_macro_name}")
-        lines.append("private:")
+        append_macro_line(builder, f"#define {generated_body_macro_name}", 0)
+        indent = 1
+        append_macro_line(builder, "public:", indent)
+        append_macro_line(builder, f"\t{no_pure_decls_macro_name}", indent)
+        append_macro_line(builder, f"\t{enhanced_constructors_macro_name}", indent)
+        append_macro_line(builder, "private:", indent, is_last_line=True)
 
-        write_macro(file, lines)
-        file.write("\n")
+        builder.append("\n")
+    
+    @staticmethod
+    def append_inclass_no_pure_decls(builder, macro_name, class_meta) -> None:
+        append_macro_line(builder, f"#define {macro_name}", 0)
+        indent = 1
+
+        append_macro_line(builder, "private:", indent)
+        append_macro_line(builder, f"friend struct {class_meta.construct_statics};", indent)
+        append_macro_line(builder, f"static DClass* GetPrivateStaticClass();", indent)
+        append_macro_line(builder, f"friend {class_meta.api} auto {class_meta.construct_noregister_func_name}() -> DClass*;", indent)
+        append_macro_line(builder, "public:", indent)
+        append_macro_line(builder, f"DECLARE_CLASS({class_meta.name}, {class_meta.superclass}, {class_meta.construct_noregister_func_name})", indent)
+
+        builder.append("\n")
 
     @staticmethod
-    def write_inclass_no_pure_decls(file, macro_name, class_meta) -> None:
-        lines = []
-        lines.append(f"#define {macro_name}")
-        lines.append("private:")
-        lines.append(f"\tfriend struct {class_meta.construct_statics};")
-        lines.append("\tstatic DClass* GetPrivateStaticClass();")
-        lines.append(f"\tfriend {class_meta.api} auto {class_meta.construct_noregister_func_name}() -> DClass*;")
-        lines.append("public:")
-        lines.append(f"\tDECLARE_CLASS({class_meta.name}, {class_meta.superclass}, {class_meta.construct_noregister_func_name})")
-        write_macro(file, lines)
-        file.write("\n")
-
-    @staticmethod
-    def write_enhanced_constructors(file, macro_name, class_meta) -> None:
-        lines = []
-        lines.append(f"#define {macro_name}")
+    def append_enhanced_constructors(builder, macro_name, class_meta) -> None:
+        append_macro_line(builder, f"#define {macro_name}", 0)
+        indent = 1
 
         # Append constructor if not declared by original header file
         if class_meta.constructor_type is DHTConstructorType.OBJECT_INITIALIZER and not class_meta.has_object_initializer_constructor:
-            lines.append(f"/** Default Object Initializer Constructor **/")
-            lines.append(f"NO_API {class_meta.name}(const FObjectInitializer& ObjectInitializer);")
-        
+            append_macro_line(builder, f"/** Default Object Initializer Constructor **/", indent)
+            append_macro_line(builder, f"NO_API {class_meta.name}(const FObjectInitializer& ObjectInitializer);", indent)
+
         # Append destructor if not declared by original header file
         if not class_meta.has_destructor:
-            lines.append(f"/** Default Destructor **/")
-            lines.append(f"NO_API ~{class_meta.name}() override = default;")
+            append_macro_line(builder, f"/** Default Destructor **/", indent)
+            append_macro_line(builder, f"NO_API ~{class_meta.name}() override = default;", indent)
 
         # Append deleted move- and copy-constructors
-        lines.append(f"/** Deleted move- and copy-constructors, should never be used */")
+        append_macro_line(builder, f"/** Deleted move- and copy-constructors, should never be used */", indent)
         classname = class_meta.name
-        lines.append(f"{classname}({classname}&&) = delete;")
-        lines.append(f"{classname}(const {classname}&) = delete;")
+        append_macro_line(builder, f"{classname}({classname}&&) = delete;", indent)
+        append_macro_line(builder, f"{classname}(const {classname}&) = delete;", indent)
 
         # Add corresponding constructor call function
         if class_meta.constructor_type is DHTConstructorType.OBJECT_INITIALIZER:
-            lines.append(f"DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL({classname})")
+            append_macro_line(builder, f"DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL({classname})", indent)
         elif class_meta.constructor_type is DHTConstructorType.DEFAULT:
-            lines.append(f"DEFINE_DEFAULT_CONSTRUCTOR_CALL({classname})")
+            append_macro_line(builder, f"DEFINE_DEFAULT_CONSTRUCTOR_CALL({classname})", indent)
 
-        write_macro(file, lines)
-        file.write("\n")
-    
-    @staticmethod
-    def write_code_standard_constructors(file, macro_name, class_meta) -> None:
-        lines = []
-        lines.append(f"#define {macro_name}")
-        lines.append(f"{class_meta.api} {class_meta.name}(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());")
-        write_macro(file, lines)
-        file.write("\n")
+        builder.append("\n")
 
     @staticmethod
-    def write_fid_definition(file, fid) -> None:
-        file.write("#undef CURRENT_FILE_ID\n")
-        file.write("#define CURRENT_FILE_ID " + fid + "\n")
+    def append_fid_definition(builder, fid) -> None:
+        builder.append("#undef CURRENT_FILE_ID\n")
+        builder.append("#define CURRENT_FILE_ID " + fid + "\n")
 
 
 class DHTCodeGen_Cpp:
     @staticmethod
     def generate(filepath) -> None:
         with open(filepath, 'w') as file:
-            DHTCodeGen_Cpp.write_includes(file)
-            DHTCodeGen_Cpp.write_cross_module_references(file)
-            DHTCodeGen_Cpp.write_classes(file)
-            DHTCodeGen_Cpp.write_registration(file)
+            builder = []
+            builder.append("// Generated code exported from DogeHeaderTool.\n\n")
+            DHTCodeGen_Cpp.append_includes(builder)
+            DHTCodeGen_Cpp.append_cross_module_references(builder)
+            DHTCodeGen_Cpp.append_classes(builder)
+            DHTCodeGen_Cpp.append_registration(builder)
+            file.writelines(builder)
 
     @staticmethod
-    def write_includes(file) -> None:
-        write_include(file, "DObject/GeneratedCppIncludes.h")
-        write_include(file, header_meta.include_path)
-        file.write("\n")
+    def append_includes(builder) -> None:
+        builder.append("// Generated code exported from DogeHeaderTool.\n\n")
+        append_include(builder, "DObject/GeneratedCppIncludes.h")
+        append_include(builder, header_meta.include_path)
+        builder.append("\n")
+    
 
     @staticmethod
-    def write_cross_module_references(file) -> None:
-        write_comment_segmentation(file, "Begin Cross Module References")
+    def append_cross_module_references(builder) -> None:
+        append_comment_segmentation(builder, "Begin Cross Module References")
         for class_meta in header_meta.classes:
             superclass = class_meta.superclass
             superclass_api_macro = module_meta.get_api_macro(superclass)
-            file.write(f"{superclass_api_macro} DClass* Z_Construct_DClass_{superclass}();\n")
-            file.write(f"{module_meta.api_macro} DClass* {class_meta.construct_func_name}();\n")
-            file.write(f"{module_meta.api_macro} DClass* {class_meta.construct_noregister_func_name}();\n")
-        write_comment_segmentation(file, "End Cross Module References")
-        file.write("\n")
-    
+            builder.append(f"{superclass_api_macro} DClass* Z_Construct_DClass_{superclass}();\n")
+            builder.append(f"{module_meta.api_macro} DClass* {class_meta.construct_func_name}();\n")
+            builder.append(f"{module_meta.api_macro} DClass* {class_meta.construct_noregister_func_name}();\n")
+        append_comment_segmentation(builder, "End Cross Module References")
+        builder.append("\n")
+
     @staticmethod
-    def write_classes(file) -> None:
+    def append_classes(builder) -> None:
         for class_meta in header_meta.classes:
             classname = class_meta.name
             
-            write_comment_segmentation(file, f"Begin Class {classname}")
+            append_comment_segmentation(builder, f"Begin Class {classname}")
 
-            file.write(f"FClassRegistrationInfo {class_meta.registration_info_name};\n")
-            DHTCodeGen_Cpp.write_class_construct_noregister_function(file, class_meta)
-            DHTCodeGen_Cpp.write_class_construct_function(file, class_meta)
-            DHTCodeGen_Cpp.write_class_constructor(file, class_meta)
+            builder.append(f"FClassRegistrationInfo {class_meta.registration_info_name};\n")
+            DHTCodeGen_Cpp.append_class_construct_noregister_function(builder, class_meta)
+            DHTCodeGen_Cpp.append_class_construct_function(builder, class_meta)
+            DHTCodeGen_Cpp.append_default_constructor_impl(builder, class_meta)
 
-            write_comment_segmentation(file, f"End Class {classname}")
-            file.write("\n")
-        file.write("\n")
-
-    @staticmethod
-    def write_class_construct_noregister_function(file, class_meta) -> None:
-        file.write(f"auto {class_meta.name}::GetPrivateStaticClass() -> DClass*\n")
-        file.write("{\n")
-        file.write(f"\tusing TClass = {class_meta.name};\n")
-        file.write(f"\tDClass*& Singleton = {class_meta.registration_info_name}.InnerSingleton;\n")
-        file.write(f"\tif (!Singleton)\n")
-        file.write("\t{\n")
-
-        file.write(f"\t\tSingleton = GetPrivateStaticClassBody(\n")
-        file.write(f"\t\t\t\"{class_meta.name}\",\n")
-        file.write(f"\t\t\tInternalConstructor<{class_meta.name}>\n")
-        file.write(f"\t\t);\n")
-
-        file.write("\t}\n")
-        file.write("\treturn Singleton;\n")
-        file.write("}\n")
-        file.write("\n")
-
-        file.write(f"auto {class_meta.construct_noregister_func_name}() -> DClass*\n")
-        file.write("{\n")
-        file.write(f"\treturn {class_meta.name}::GetPrivateStaticClass();\n")
-        file.write("}\n")
-        file.write("\n")
+            append_comment_segmentation(builder, f"End Class {classname}")
+            builder.append("\n")
+        builder.append("\n")
 
     @staticmethod
-    def write_class_construct_function(file, class_meta) -> None:
-        DHTCodeGen_Cpp.write_class_construct_statics(file, class_meta)
+    def append_class_construct_noregister_function(builder, class_meta) -> None:
+        builder.append(f"auto {class_meta.name}::GetPrivateStaticClass() -> DClass*\n")
+        builder.append("{\n")
+        builder.append(f"\tusing TClass = {class_meta.name};\n")
+        builder.append(f"\tDClass*& Singleton = {class_meta.registration_info_name}.InnerSingleton;\n")
+        builder.append(f"\tif (!Singleton)\n")
+        builder.append("\t{\n")
 
-        file.write(f"auto {class_meta.construct_func_name}() -> DClass*\n")
-        file.write("{\n")
-        file.write(f"\tDClass*& Singleton = {class_meta.registration_info_name}.OuterSingleton;\n")
-        file.write(f"\tif (!Singleton)\n")
-        file.write("\t{\n")
-        file.write(f"\t\tSingleton = DogeCodeGen::ConstructDClass({class_meta.construct_func_name}_Statics::ClassParams);\n")
-        file.write("\t}\n")
-        file.write("\treturn Singleton;\n")
-        file.write("}\n")
-        file.write("\n")
+        builder.append(f"\t\tSingleton = GetPrivateStaticClassBody(\n")
+        builder.append(f"\t\t\t\"{class_meta.name}\",\n")
+        builder.append(f"\t\t\tInternalConstructor<{class_meta.name}>\n")
+        builder.append(f"\t\t);\n")
+
+        builder.append("\t}\n")
+        builder.append("\treturn Singleton;\n")
+        builder.append("}\n")
+        builder.append("\n")
+
+        builder.append(f"auto {class_meta.construct_noregister_func_name}() -> DClass*\n")
+        builder.append("{\n")
+        builder.append(f"\treturn {class_meta.name}::GetPrivateStaticClass();\n")
+        builder.append("}\n")
+        builder.append("\n")
 
     @staticmethod
-    def write_class_construct_statics(file, class_meta) -> None:
+    def append_class_construct_function(builder, class_meta) -> None:
+        DHTCodeGen_Cpp.append_class_construct_statics(builder, class_meta)
+
+        builder.append(f"auto {class_meta.construct_func_name}() -> DClass*\n")
+        builder.append("{\n")
+        builder.append(f"\tDClass*& Singleton = {class_meta.registration_info_name}.OuterSingleton;\n")
+        builder.append(f"\tif (!Singleton)\n")
+        builder.append("\t{\n")
+        builder.append(f"\t\tSingleton = DogeCodeGen::ConstructDClass({class_meta.construct_func_name}_Statics::ClassParams);\n")
+        builder.append("\t}\n")
+        builder.append("\treturn Singleton;\n")
+        builder.append("}\n")
+        builder.append("\n")
+
+    @staticmethod
+    def append_class_construct_statics(builder, class_meta) -> None:
         construct_statics = class_meta.construct_statics
-        file.write(f"struct {construct_statics}\n")
-        file.write("{\n")
-        file.write("\tstatic const DogeCodeGen::FClassParams ClassParams;\n")
-        file.write("};\n")
-        file.write("\n")
+        builder.append(f"struct {construct_statics}\n")
+        builder.append("{\n")
+        builder.append("\tstatic const DogeCodeGen::FClassParams ClassParams;\n")
+        builder.append("};\n")
+        builder.append("\n")
 
-        file.write(f"const DogeCodeGen::FClassParams {class_meta.construct_statics}::ClassParams = {{\n")
-        file.write(f"\t{class_meta.name}::StaticClass,\n")
-        file.write(f"\t\"{class_meta.name}\"\n")
-        file.write("};\n")
-        file.write("\n")
-    
+        builder.append(f"const DogeCodeGen::FClassParams {class_meta.construct_statics}::ClassParams = {{\n")
+        builder.append(f"\t{class_meta.name}::StaticClass,\n")
+        builder.append(f"\t\"{class_meta.name}\"\n")
+        builder.append("};\n")
+        builder.append("\n")
+
     @staticmethod
-    def write_class_constructor(file, class_meta) -> None:
+    def append_default_constructor_impl(builder, class_meta) -> None:
         if class_meta.constructor_type is DHTConstructorType.OBJECT_INITIALIZER and not class_meta.has_object_initializer_constructor:
-            file.write(f"{class_meta.name}::{class_meta.name}(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {{}}\n")
-            file.write("\n")
+            builder.append(f"{class_meta.name}::{class_meta.name}(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {{}}\n")
+            builder.append("\n")
 
     @staticmethod
-    def write_registration(file) -> None:
+    def append_registration(builder) -> None:
         if len(header_meta.classes) == 0:
             return
-        write_comment_segmentation(file, f"Begin Registration")
+        append_comment_segmentation(builder, f"Begin Registration")
 
         defer_registration_statics = f"Z_CompiledInDeferFile_{header_meta.fid}_Statics"
 
-        file.write(f"struct {defer_registration_statics}\n")
-        file.write("{\n")
-        file.write("\tstatic constexpr FClassRegisterCompiledInInfo ClassInfo[] = {\n")
+        builder.append(f"struct {defer_registration_statics}\n")
+        builder.append("{\n")
+        builder.append("\tstatic constexpr FClassRegisterCompiledInInfo ClassInfo[] = {\n")
         for class_meta in header_meta.classes:
-            file.write(f"\t\t{{ {class_meta.construct_func_name}, {class_meta.name}::StaticClass, \"{class_meta.name}\", &{class_meta.registration_info_name} }},\n")
-        file.write("\t};\n")
-        file.write("};\n")
-        file.write("\n")
+            builder.append(f"\t\t{{ {class_meta.construct_func_name}, {class_meta.name}::StaticClass, \"{class_meta.name}\", &{class_meta.registration_info_name} }},\n")
+        builder.append("\t};\n")
+        builder.append("};\n")
+        builder.append("\n")
 
-        file.write(f"static FRegisterCompiledInInfo Z_CompiledInDeferFile_{header_meta.fid}" + "(\n")
-        file.write(f"\t{defer_registration_statics}::ClassInfo,\n") 
-        file.write(f"\t{len(header_meta.classes)}\n")
-        file.write(");\n")
-        file.write("\n")
+        builder.append(f"static FRegisterCompiledInInfo Z_CompiledInDeferFile_{header_meta.fid}" + "(\n")
+        builder.append(f"\t{defer_registration_statics}::ClassInfo,\n")
+        builder.append(f"\t{len(header_meta.classes)}\n")
+        builder.append(");\n")
+        builder.append("\n")
 
-        write_comment_segmentation(file, f"End Registration")
-
+        append_comment_segmentation(builder, f"End Registration")
 
 class DHTCodeGenerator:
     gen_h_file: str
