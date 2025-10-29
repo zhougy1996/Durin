@@ -588,7 +588,6 @@ class DHTCodeGen_Cpp:
             
             append_comment_segmentation(builder, f"Begin Class {classname}")
 
-            builder.append(f"FClassRegistrationInfo {class_meta.registration_info_name};\n")
             DHTCodeGen_Cpp.append_class_construct_noregister_function(builder, class_meta)
             DHTCodeGen_Cpp.append_class_construct_function(builder, class_meta)
             DHTCodeGen_Cpp.append_default_constructor_impl(builder, class_meta)
@@ -599,21 +598,7 @@ class DHTCodeGen_Cpp:
 
     @staticmethod
     def append_class_construct_noregister_function(builder, class_meta) -> None:
-        builder.append(f"auto {class_meta.name}::GetPrivateStaticClass() -> DClass*\n")
-        builder.append("{\n")
-        builder.append(f"\tusing TClass = {class_meta.name};\n")
-        builder.append(f"\tDClass*& Singleton = {class_meta.registration_info_name}.InnerSingleton;\n")
-        builder.append(f"\tif (!Singleton)\n")
-        builder.append("\t{\n")
-
-        builder.append(f"\t\tSingleton = GetPrivateStaticClassBody(\n")
-        builder.append(f"\t\t\t\"{class_meta.name}\",\n")
-        builder.append(f"\t\t\tInternalConstructor<{class_meta.name}>\n")
-        builder.append(f"\t\t);\n")
-
-        builder.append("\t}\n")
-        builder.append("\treturn Singleton;\n")
-        builder.append("}\n")
+        builder.append(f"IMPLEMENT_CLASS_NO_AUTO_REGISTRATION({class_meta.name});\n")
         builder.append("\n")
 
         builder.append(f"auto {class_meta.construct_noregister_func_name}() -> DClass*\n")
