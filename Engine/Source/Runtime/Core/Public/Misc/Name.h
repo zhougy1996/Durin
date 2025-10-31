@@ -132,6 +132,8 @@ public:
 
 	[[nodiscard]] CORE_API static auto ResolveEntry(FNameEntryId LookupId) -> const FNameEntry*;
 
+	[[nodiscard]] FORCEINLINE auto IsNone() const -> bool { return ComparisonIndex.IsNone() && Number == 0; }
+
 	[[nodiscard]] friend FORCEINLINE auto GetTypeHash(FName Name) -> uint64
 	{
 		return GetTypeHash(Name.GetComparisonIndex()) + Name.GetNumber();

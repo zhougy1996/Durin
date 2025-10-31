@@ -3,7 +3,7 @@
 
 #include "DObject/Object.h"
 
-FFieldClass::FFieldClass(const CharT* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFunc InConstructFunc)
+FFieldClass::FFieldClass(const CharT* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFuncType InConstructFunc)
 	: Id(InId)
 	, CastFlags(InCastFlags)
 	, ClassFlags(EClassFlags::None)
@@ -36,6 +36,12 @@ auto FField::StaticClass() -> FFieldClass*
 	static FFieldClass StaticFieldClass(STR("FField"), FField::StaticClassCastFlagsPrivate(), FField::StaticClassCastFlags(), nullptr, nullptr);
 	return &StaticFieldClass;
 }
+FField* FField::Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags /*= EObjectFlags::NoFlags*/)
+{
+	DOGE_ERROR("FField::Construct should not be called directly.");
+	check(false);
+	return nullptr;
+}
 
 auto FFieldVariant::IsA(const DClass* InClass) const -> bool
 {
@@ -49,5 +55,31 @@ FField::FField(FFieldVariant InOwner, FName InName, EObjectFlags InFlags)
 	, Next(nullptr)
 	, NamePrivate(InName)
 	, FlagsPrivate(InFlags)
+	, MetaDataMap(nullptr)
 {
+}
+auto FField::SetMetaData(const FName& InKey, const FString& InValue) -> void
+{
+	if (!MetaDataMap)
+	{
+		MetaDataMap = new std::unordered_map<FName, FString>();
+	}
+	(*MetaDataMap)[InKey] = InValue;
+}
+
+auto FField::GetMetaData(const FName& InKey) const -> const FString&
+{
+	static const FString EmptyString;
+
+	if (InKey.IsNone() || !MetaDataMap)
+	{
+		return EmptyString;
+	}
+
+	auto It = MetaDataMap->find(InKey);
+	if (It != MetaDataMap->end())
+	{
+		return It->second;
+	}
+	return EmptyString;
 }

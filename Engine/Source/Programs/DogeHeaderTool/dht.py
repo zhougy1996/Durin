@@ -563,7 +563,6 @@ class DHTCodeGen_Cpp:
 
     @staticmethod
     def append_includes(builder) -> None:
-        builder.append("// Generated code exported from DogeHeaderTool.\n\n")
         append_include(builder, "DObject/GeneratedCppIncludes.h")
         append_include(builder, header_meta.include_path)
         builder.append("\n")
@@ -628,6 +627,8 @@ class DHTCodeGen_Cpp:
         builder.append(f"struct {construct_statics}\n")
         builder.append("{\n")
         builder.append("\tstatic const DogeCodeGen::FClassParams ClassParams;\n")
+        builder.append("\tstatic const DogeCodeGen::FPropertyParamsBase TestProp;\n")
+        builder.append("\tstatic const DogeCodeGen::FPropertyParamsBase* const PropertyParams[];\n")
         builder.append("};\n")
         builder.append("\n")
 
@@ -635,6 +636,13 @@ class DHTCodeGen_Cpp:
         builder.append(f"\t{class_meta.name}::StaticClass,\n")
         builder.append(f"\t\"{class_meta.name}\"\n")
         builder.append("};\n")
+        builder.append("\n")
+
+        builder.append(f"const DogeCodeGen::FPropertyParamsBase {construct_statics}::TestProp = {{ \"TestProp\", 1}};\n")
+        builder.append(f"const DogeCodeGen::FPropertyParamsBase* const {construct_statics}::PropertyParams[] = {{\n")
+        builder.append(f"\t&{construct_statics}::TestProp,\n")
+        builder.append("};\n")
+
         builder.append("\n")
 
     @staticmethod

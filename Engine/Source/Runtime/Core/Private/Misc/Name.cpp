@@ -20,7 +20,8 @@ static constexpr uint32 FNameEntryIdMask = (1 << FNameEntryIdBits) - 1;
 
 CORE_API auto RegisterDogeNames() -> void
 {
-	FName(STR("None"));
+	const FName NoneName(STR("None"));
+	check(NoneName.IsNone()); // Make sure "None" is registered correctly at startup
 }
 
 static bool operator==(FNameEntryHeader A, FNameEntryHeader B)

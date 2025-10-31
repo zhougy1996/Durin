@@ -47,10 +47,17 @@ auto NewObject(DObject* Outer, FName Name) -> T*
 
 namespace DogeCodeGen
 {
+
 struct FClassParams
 {
 	DClass* (*ClassNoRegisterFunc)();
 	const UTF8Char* ClassName;
+};
+
+struct FPropertyParamsBase
+{
+	const UTF8Char* NameUTF8;
+	uint16 ArrayDim;
 };
 
 CORE_API auto ConstructDClass(const FClassParams& Params) -> DClass*;

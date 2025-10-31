@@ -14,6 +14,7 @@ public:
 	DFUNCTION()
 	void Func() {};
 
+
 private:
 	DPROPERTY(bbb = ccc)
 	const std::vector<const DObject*> a;

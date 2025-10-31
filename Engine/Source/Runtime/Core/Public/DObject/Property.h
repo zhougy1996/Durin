@@ -4,6 +4,6 @@
 
 class FProperty : public FField
 {
-	DECLARE_FIELD(FProperty, FField, EClassCastFlags::FNumericProperty, CORE_API)
+	DECLARE_FIELD(FProperty, FField, EClassCastFlags::FProperty, CORE_API)
 public:
 };

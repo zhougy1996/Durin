@@ -5,7 +5,7 @@
 class FField;
 class FFieldVariant;
 
-using FFieldConstructFunc = FField* (*)(const FFieldVariant&, const FName&, EObjectFlags);
+using FFieldConstructFuncType = FField* (*)(const FFieldVariant&, const FName&, EObjectFlags);
 
 class FFieldClass
 {
@@ -20,13 +20,13 @@ class FFieldClass
 	/** Super of this class */
 	FFieldClass* SuperClass;
 	/** Function to construct an instance of this class */
-	FFieldConstructFunc ConstructFunc;
+	FFieldConstructFuncType ConstructFunc;
 
 	/** Default instance of this class */
 	// FField* DefaultObject;
 
 public:
-	CORE_API FFieldClass(const CharT* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFunc InConstructFunc);
+	CORE_API FFieldClass(const CharT* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFuncType InConstructFunc);
 
 	inline auto GetId() const -> uint64 { return Id; }
 
@@ -41,6 +41,11 @@ public:
 
 	/** Get a mapping from name to field class */
 	static CORE_API auto GetNameToFieldClassMap() -> std::unordered_map<FName, FFieldClass*>;
+
+	auto Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags = EObjectFlags::NoFlags) const -> FField*
+	{
+		return ConstructFunc(InOwner, InName, InFlags);
+	}
 };
 
 #define DECLARE_FIELD(TClass, TSuperClass, TStaticFlags, TRequiredAPI) \
@@ -50,10 +55,22 @@ public: \
 	\
 	using Super = DOGE_REMOVE_OPTIONAL_PARENS(TSuperClass); \
 	static TRequiredAPI auto StaticClass() -> FFieldClass*; \
+	static TRequiredAPI FField* Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags = EObjectFlags::NoFlags); \
 	/* Internal ClassCastFlags without super class flags */ \
 	inline static constexpr auto StaticClassCastFlagsPrivate() -> uint64 { return static_cast<uint64>(TStaticFlags); } \
 	/* ClassCastFlags including super class flags, also used as id in FFieldClass */ \
-	inline static constexpr auto StaticClassCastFlags() -> uint64 { return static_cast<uint64>(TStaticFlags) | Super::StaticClassCastFlags(); } \
+	inline static constexpr auto StaticClassCastFlags() -> uint64 { return static_cast<uint64>(TStaticFlags) | Super::StaticClassCastFlags(); }
+
+#define IMPLEMENT_FIELD(TClass, TSuperClass, TStaticFlags, TRequiredAPI) \
+	TRequiredAPI auto TClass::StaticClass() -> FFieldClass* \
+	{ \
+		static FFieldClass StaticFieldClass(STR(#TClass), TClass::StaticClassCastFlagsPrivate(), TClass::StaticClassCastFlags(), TSuperClass::StaticClass(), &TClass::Construct); \
+		return &StaticFieldClass; \
+	} \
+	TRequiredAPI FField* TClass::Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags) \
+	{ \
+		return new TClass(InOwner, InName, InFlags); \
+	}
 
 class FFieldVariant
 {
@@ -88,13 +105,18 @@ public:
 	{
 	}
 
-	// Returns true if this variant holds a DObject pointer
 	inline auto IsDObject() const -> bool
 	{
 		return !!ToDObjectUnSafe();
 	}
 
-	// For internal use only, return as a DObject pointer without checking if it is actually a DObject
+	/** For internal use only, return as a FField pointer without checking if it is actually a FField */
+	inline auto ToFieldUnSafe() const -> FField*
+	{
+		return Container.Field;
+	}
+
+	/**  For internal use only, return as a DObject pointer without checking if it is actually a DObject */
 	inline auto ToDObjectUnSafe() const -> DObject*
 	{
 		return reinterpret_cast<DObject*>(reinterpret_cast<uintptr_t>(Container.Object) & ~DObjectMask);
@@ -103,6 +125,24 @@ public:
 	inline auto IsValid() const -> bool
 	{
 		return Container.Field != nullptr;
+	}
+
+	auto ToDObject() const -> DObject*
+	{
+		if (IsDObject())
+		{
+			return ToDObjectUnSafe();
+		}
+		return nullptr;
+	}
+
+	auto ToField() const -> FField*
+	{
+		if (!IsDObject())
+		{
+			return Container.Field;
+		}
+		return nullptr;
 	}
 
 	CORE_API auto IsA(const DClass* InClass) const -> bool;
@@ -114,6 +154,8 @@ public:
 	DOGE_NONCOPYABLE(FField)
 
 	static CORE_API auto StaticClass() -> FFieldClass*;
+
+	static CORE_API FField* Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags = EObjectFlags::NoFlags);
 
 	inline static constexpr auto StaticClassCastFlagsPrivate() -> uint64
 	{
@@ -136,5 +178,16 @@ public:
 	EObjectFlags FlagsPrivate;
 
 	CORE_API FField(FFieldVariant InOwner, FName InName, EObjectFlags InFlags);
+
+public:
+
+	CORE_API auto SetMetaData(const FName& InKey, const FString& InValue) -> void;
+
+	CORE_API auto GetMetaData(const FName& InKey) const -> const FString&;
+
+private:
+
+	std::unordered_map<FName, FString>* MetaDataMap;
 };
+
 
