@@ -1,5 +1,8 @@
 #pragma once
 
+#define DHT_DEBUG_BEGIN()
+#define DHT_DEBUG_END()
+
 #define DCLASS(...)
 #define DPROPERTY(...)
 #define DFUNCTION(...)

@@ -45,6 +45,18 @@ intrinsic_core_objects = [
     "DStruct",
     "DEnum"
 ]
+
+propertyparams_map = {
+    "int8": "FInt8PropertyParams",
+    "int16": "FInt16PropertyParams",
+    "int32": "FInt32PropertyParams",
+    "int64": "FInt64PropertyParams",
+    "uint8": "FUInt8PropertyParams",
+    "uint16": "FUInt16PropertyParams",
+    "uint32": "FUInt32PropertyParams",
+    "uint64": "FUInt64PropertyParams",
+}
+
 macro_newline = " \\\n"
 
 module_meta = None
@@ -57,6 +69,8 @@ def init_clang():
         clang_args.append(f"-D{module_meta.api_macro}=")
         # DHT_GENERATED_BODY() will be identified as a function declaration
         clang_args.append("-DGENERATED_BODY(...)=void DHT_GENERATED_BODY();")
+        clang_args.append("-DDHT_DEBUG_BEGIN(...)=static void DHT_DEBUG_BEGIN();")
+        clang_args.append("-DDHT_DEBUG_END(...)=static void DHT_DEBUG_END();")
         # DHT_CLASS() will be identified as a function declaration
         clang_args.append("-DDCLASS(...)=__attribute__((annotate(\"DCLASS,\" #__VA_ARGS__))) void DHT_CLASS();") 
         clang_args.append("-DDPROPERTY(...)=__attribute__((annotate(\"DPROPERTY,\" #__VA_ARGS__)))")
@@ -286,6 +300,10 @@ class DHTClass:
                 case clang.cindex.CursorKind.CXX_METHOD:
                     if child_cursor.spelling == "DHT_GENERATED_BODY":
                         self.generate_body_line = child_cursor.location.line
+                    elif child_cursor.spelling == "DHT_DEBUG_BEGIN":
+                        logging.getLogger().setLevel(logging.DEBUG)
+                    elif child_cursor.spelling == "DHT_DEBUG_END":
+                        logging.getLogger().setLevel(logging.INFO)
                     else:
                         self.add_function(child_cursor)
                     continue
@@ -608,7 +626,7 @@ class DHTCodeGen_Cpp:
 
     @staticmethod
     def append_class_construct_function(builder, class_meta) -> None:
-        DHTCodeGen_Cpp.append_class_construct_statics(builder, class_meta)
+        DHTCodeGen_Cpp.append_class_construct_statics_definition(builder, class_meta)
 
         builder.append(f"auto {class_meta.construct_func_name}() -> DClass*\n")
         builder.append("{\n")
@@ -622,8 +640,9 @@ class DHTCodeGen_Cpp:
         builder.append("\n")
 
     @staticmethod
-    def append_class_construct_statics(builder, class_meta) -> None:
+    def append_class_construct_statics_definition(builder, class_meta) -> None:
         construct_statics = class_meta.construct_statics
+        # Append struct definition
         builder.append(f"struct {construct_statics}\n")
         builder.append("{\n")
         builder.append("\tstatic const DogeCodeGen::FClassParams ClassParams;\n")
@@ -631,18 +650,25 @@ class DHTCodeGen_Cpp:
         builder.append("\tstatic const DogeCodeGen::FPropertyParamsBase* const PropertyParams[];\n")
         builder.append("};\n")
         builder.append("\n")
+        
+        DHTCodeGen_Cpp.append_class_construct_statics_propertyparams_definition(builder, class_meta)
+        DHTCodeGen_Cpp.append_class_construct_statics_classparams_definition(builder, class_meta)
+        builder.append("\n")
 
+    @staticmethod
+    def append_class_construct_statics_classparams_definition(builder, class_meta) -> None:
         builder.append(f"const DogeCodeGen::FClassParams {class_meta.construct_statics}::ClassParams = {{\n")
         builder.append(f"\t{class_meta.name}::StaticClass,\n")
         builder.append(f"\t\"{class_meta.name}\"\n")
         builder.append("};\n")
         builder.append("\n")
 
-        builder.append(f"const DogeCodeGen::FPropertyParamsBase {construct_statics}::TestProp = {{ \"TestProp\", 1}};\n")
-        builder.append(f"const DogeCodeGen::FPropertyParamsBase* const {construct_statics}::PropertyParams[] = {{\n")
-        builder.append(f"\t&{construct_statics}::TestProp,\n")
+    @staticmethod
+    def append_class_construct_statics_propertyparams_definition(builder, class_meta) -> None:
+        builder.append(f"const DogeCodeGen::FPropertyParamsBase {class_meta.construct_statics}::TestProp = {{ \"TestProp\", 1}};\n")
+        builder.append(f"const DogeCodeGen::FPropertyParamsBase* const {class_meta.construct_statics}::PropertyParams[] = {{\n")
+        builder.append(f"\t&{class_meta.construct_statics}::TestProp,\n")
         builder.append("};\n")
-
         builder.append("\n")
 
     @staticmethod
