@@ -323,7 +323,7 @@ MaxEmptyLinesToKeep: 2
 #   NI_None (in configuration: None) Don’t indent in namespaces.
 #   NI_Inner (in configuration: Inner) Indent only in inner namespaces (nested in other namespaces).
 #   NI_All (in configuration: All) Indent in all namespaces.
-NamespaceIndentation: None
+NamespaceIndentation: All
 
 # PenaltyBreakBeforeFirstCallParameter (unsigned)
 # The penalty for breaking a function call after call(.

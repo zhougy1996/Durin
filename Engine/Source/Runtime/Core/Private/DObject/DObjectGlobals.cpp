@@ -8,7 +8,7 @@ auto FObjectInitializer::Get() -> const FObjectInitializer&
 	return Instance;
 }
 
-DObject* StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size)
+auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*
 {
 	// Allocate memory and zero it out
 	DObject* Obj = nullptr;

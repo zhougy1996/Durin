@@ -12,7 +12,7 @@ public:
 
 	struct FRegistrant
 	{
-		FName Name;
+		const UTF8Char* Name;
 		TRegisterFunc OuterRegister;
 		TRegisterFunc InnerRegister;
 		FClassRegistrationInfo* Info = nullptr;
@@ -28,7 +28,7 @@ public:
 	{
 		FRegistrant NewRegistrant;
 
-		NewRegistrant.Name = FName(InName);
+		NewRegistrant.Name = InName;
 		NewRegistrant.OuterRegister = InOuterRegister;
 		NewRegistrant.InnerRegister = InInnerRegister;
 		NewRegistrant.Info = &InInfo;

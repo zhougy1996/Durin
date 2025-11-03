@@ -46,7 +46,7 @@ intrinsic_core_objects = [
     "DEnum"
 ]
 
-propertyparams_map = {
+property_param_dict = {
     "int8": "FInt8PropertyParams",
     "int16": "FInt16PropertyParams",
     "int32": "FInt32PropertyParams",
@@ -55,6 +55,11 @@ propertyparams_map = {
     "uint16": "FUInt16PropertyParams",
     "uint32": "FUInt32PropertyParams",
     "uint64": "FUInt64PropertyParams",
+
+    "float": "FFloatPropertyParams",
+    "double": "FDoublePropertyParams",
+    "bool": "FBoolPropertyParams",
+    "FString": "FStringPropertyParams",
 }
 
 macro_newline = " \\\n"
@@ -190,6 +195,7 @@ class DHTProperty:
     annotations: dict
     cursor: clang.cindex.Cursor
     tokens: list
+    property_param: str
 
     def __init__(self):
         self.name = ""
@@ -204,6 +210,7 @@ class DHTProperty:
         self.tokens = tokens
         self.cursor = property_cursor
         self.type = self.extract_property_type(tokens)
+        self.init_property_param()
 
     def extract_property_type(self, tokens) -> str:
         result = []
@@ -219,6 +226,20 @@ class DHTProperty:
             else:
                 result.append(spelling)
         return "".join(result).strip()
+    
+    def init_property_param(self):
+        if self.type in property_param_dict:
+            self.property_param = property_param_dict[self.type]
+        else:
+            self.property_param = "FUnknownPropertyParams"
+            logging.warning("Property '%s' has unknown type: %s", self.name, self.type)
+
+    def append_param_declaration(self, builder) -> list:
+        builder.append(f"\tstatic const DogeCodeGen::{self.property_param} NewProp_{self.name};\n")
+        return [f"NewProp_{self.name}"]
+
+    def append_param_definition(self, builder, class_meta) -> None:
+        builder.append(f"const DogeCodeGen::{self.property_param} {class_meta.construct_statics}::NewProp_{self.name} = {{ \"{self.name}\", EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16({class_meta.name}, {self.name})}};\n")
 
 # Function meta info, annotated with DFUNCTION()
 class DHTFunction:
@@ -646,12 +667,18 @@ class DHTCodeGen_Cpp:
         builder.append(f"struct {construct_statics}\n")
         builder.append("{\n")
         builder.append("\tstatic const DogeCodeGen::FClassParams ClassParams;\n")
-        builder.append("\tstatic const DogeCodeGen::FPropertyParamsBase TestProp;\n")
-        builder.append("\tstatic const DogeCodeGen::FPropertyParamsBase* const PropertyParams[];\n")
+        prop_param_list = []
+        
+        if len(class_meta.properties) > 0:
+            for property_meta in class_meta.properties:
+                newparams = property_meta.append_param_declaration(builder)
+                prop_param_list.extend(newparams)
+            builder.append("\tstatic const DogeCodeGen::FPropertyParamsBase* const PropertyParams[];\n")
+
         builder.append("};\n")
         builder.append("\n")
-        
-        DHTCodeGen_Cpp.append_class_construct_statics_propertyparams_definition(builder, class_meta)
+
+        DHTCodeGen_Cpp.append_class_construct_statics_propertyparams_definition(builder, class_meta, prop_param_list)
         DHTCodeGen_Cpp.append_class_construct_statics_classparams_definition(builder, class_meta)
         builder.append("\n")
 
@@ -664,10 +691,16 @@ class DHTCodeGen_Cpp:
         builder.append("\n")
 
     @staticmethod
-    def append_class_construct_statics_propertyparams_definition(builder, class_meta) -> None:
-        builder.append(f"const DogeCodeGen::FPropertyParamsBase {class_meta.construct_statics}::TestProp = {{ \"TestProp\", 1}};\n")
+    def append_class_construct_statics_propertyparams_definition(builder, class_meta, prop_param_list) -> None:
+        if len(prop_param_list) == 0:
+            return
+
+        for property_meta in class_meta.properties:
+            property_meta.append_param_definition(builder, class_meta)
+        
         builder.append(f"const DogeCodeGen::FPropertyParamsBase* const {class_meta.construct_statics}::PropertyParams[] = {{\n")
-        builder.append(f"\t&{class_meta.construct_statics}::TestProp,\n")
+        for prop_param in prop_param_list:
+            builder.append(f"\t&{class_meta.construct_statics}::{prop_param},\n")
         builder.append("};\n")
         builder.append("\n")
 

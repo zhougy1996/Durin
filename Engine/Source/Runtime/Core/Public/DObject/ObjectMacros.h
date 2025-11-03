@@ -54,6 +54,15 @@ enum class EClassCastFlags : uint64
 	FStructProperty = 1 << 16,
 };
 
+enum class EPropertyFlags
+{
+	None = 0,
+
+	Edit = 1 << 0,
+	Transient = 1 << 1,
+	EditConst = 1 << 2,
+};
+
 ENUM_CLASS_FLAGS(EObjectFlags)
 
 #define GENERATED_BODY(...) BODY_MACRO_COMBINE(CURRENT_FILE_ID, _, __LINE__, _GENERATED_BODY)

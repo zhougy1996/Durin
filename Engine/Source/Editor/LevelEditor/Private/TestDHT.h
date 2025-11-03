@@ -18,8 +18,10 @@ public:
 
 
 private:
-	DPROPERTY(bbb = ccc)
 	const std::vector<const DObject*> a;
+
+	DPROPERTY(zzz)
+	uint16 a1;
 
 	DPROPERTY(zzz)
 	int32 a2;
