@@ -23,6 +23,14 @@ public:
 	uint32 PropertiesSize = 0;
 
 	uint32 MinAlignment = 0;
+
+private:
+	DStructure* SuperStructure = nullptr;
+
+public:
+	auto SetSuperStructure(DStructure* InSuperStructure) -> void { SuperStructure = InSuperStructure; }
+
+	auto RegisterDependencies() -> void;
 };
 
 // Describe a class
@@ -61,9 +69,11 @@ void InternalConstructor(const FObjectInitializer& X)
 CORE_API auto GetPrivateStaticClassBody(
 	const UTF8Char* PackageName,
 	const UTF8Char* Name,
+	DClass*& ReturnClass,
 	void (*RegisterNativeFunc)(),
 	uint32 InSize,
 	uint32 InAlignment,
 	EClassFlags InClassFlags,
-	DClass::ClassConstructorType InClassConstructor
+	DClass::ClassConstructorType InClassConstructor,
+	DClass::StaticClassFunctionType InSuperClassFn
 ) -> DClass*;

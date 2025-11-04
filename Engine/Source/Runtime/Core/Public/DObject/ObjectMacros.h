@@ -98,14 +98,16 @@ public: \
 	{ \
 		if (!Z_Registration_Info_DClass_##TClass.InnerSingleton) \
 		{ /* this could be handled with templates, but we want it external to avoid code bloat */ \
-			Z_Registration_Info_DClass_##TClass.InnerSingleton = GetPrivateStaticClassBody( \
+			 GetPrivateStaticClassBody( \
 				STR("") , /* PackageName */ \
 				STR(#TClass), \
+				Z_Registration_Info_DClass_##TClass.InnerSingleton, \
 				nullptr, /* RegisterNativeFunc */ \
 				sizeof(TClass), \
 				alignof(TClass), \
 				EClassFlags::None, \
-				(DClass::ClassConstructorType)InternalConstructor<TClass> \
+				(DClass::ClassConstructorType)InternalConstructor<TClass>, \
+				&TClass::Super::StaticClass \
 			); \
 		} \
 		return Z_Registration_Info_DClass_##TClass.InnerSingleton; \

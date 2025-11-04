@@ -21,7 +21,7 @@ static constexpr uint32 FNameEntryIdMask = (1 << FNameEntryIdBits) - 1;
 CORE_API auto FNameInit() -> void
 {
 	const FName NoneName(STR("None"));
-	// check(NoneName.IsNone()); // Make sure "None" is registered correctly at startup
+	check(NoneName.IsNone()); // Make sure "None" is registered correctly at startup and have index zero
 }
 
 static bool operator==(FNameEntryHeader A, FNameEntryHeader B)
