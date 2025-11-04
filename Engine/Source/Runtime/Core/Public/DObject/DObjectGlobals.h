@@ -25,6 +25,8 @@ public:
 	DObject* Obj = nullptr;
 };
 
+CORE_API auto DObjectInit() -> void;
+
 CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
 
 CORE_API auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*;
@@ -94,7 +96,6 @@ namespace DogeCodeGen
 	using FUInt16PropertyParams = FPropertyParamsBase;
 	using FUInt32PropertyParams = FPropertyParamsBase;
 	using FUInt64PropertyParams = FPropertyParamsBase;
-
 
 	CORE_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
 

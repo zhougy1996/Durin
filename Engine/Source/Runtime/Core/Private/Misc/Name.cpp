@@ -18,7 +18,7 @@ static constexpr uint32 FNameBlockOffsetMask = FNameBlockOffsetCapacity - 1;
 static constexpr uint32 FNameEntryIdBits = FNameMaxBlockBits + FNameBlockOffsetBits;
 static constexpr uint32 FNameEntryIdMask = (1 << FNameEntryIdBits) - 1;
 
-CORE_API auto RegisterDogeNames() -> void
+CORE_API auto FNameInit() -> void
 {
 	const FName NoneName(STR("None"));
 	// check(NoneName.IsNone()); // Make sure "None" is registered correctly at startup
@@ -27,7 +27,7 @@ CORE_API auto RegisterDogeNames() -> void
 static bool operator==(FNameEntryHeader A, FNameEntryHeader B)
 {
 	static_assert(sizeof(FNameEntryHeader) == 2, "");
-	return (uint16&)A == (uint16&)B;
+	return reinterpret_cast<uint16&>(A) == reinterpret_cast<uint16&>(B);
 }
 
 struct FNameSlot

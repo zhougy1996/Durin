@@ -98,7 +98,7 @@ public: \
 	{ \
 		if (!Z_Registration_Info_DClass_##TClass.InnerSingleton) \
 		{ /* this could be handled with templates, but we want it external to avoid code bloat */ \
-			GetPrivateStaticClassBody( \
+			Z_Registration_Info_DClass_##TClass.InnerSingleton = GetPrivateStaticClassBody( \
 				STR("") , /* PackageName */ \
 				STR(#TClass), \
 				nullptr, /* RegisterNativeFunc */ \

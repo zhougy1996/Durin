@@ -24,5 +24,8 @@ auto GetPrivateStaticClassBody(
 		EClassCastFlags::DClass,
 		InClassConstructor
 	);
+
+	Class->Register(DClass::StaticClass, PackageName, Name);
+
 	return Class;
 }

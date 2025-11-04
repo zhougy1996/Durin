@@ -55,13 +55,27 @@ public:
 
 	static void IntrinsicClassInit(DClass* Class);
 
-protected:
-	CORE_API auto Register(FName InName) -> void;
+	/**
+	 * This is called to register the class with the object system
+	 * Add the objec
+	 */
+	CORE_API auto Register(FClassRegisterFunc InStaticClassFn, const CharT* InPackageName, const CharT* InName) -> void;
+
+	/**
+	 * Convert a bootstrap registered class into a fully registered class, adding it to the object array
+	 *
+	 * InDClassStaticClass is actually DClass::StaticClass()
+	 */
+	CORE_API auto DeferredRegister(DClass* InDClassStaticClass, const CharT* InPackageName, const CharT* InName) -> void;
+
 
 private:
 	static auto GetPrivateStaticClass() -> DClass*;
 
-	// Add a newly created object to the name hash tables and the object array
+	/**
+	 * Add a newly created object to the object array
+	 * The name of the object is set here
+	 */
 	CORE_API auto AddObject(FName InName) -> void;
 
 	FName NamePrivate;
@@ -77,6 +91,15 @@ private:
 	friend CORE_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
 };
 
+/**
+ *  Process all auto-registered DObjects
+ *  Add them to the DObject array in the order they were registered
+ */
+auto DObjectProcessRegistrants() -> void;
+
+/**
+ *  Force a pending registrant to register now instead of in the natural order
+ */
 CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
 
 CORE_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const UTF8Char* InName, FClassRegistrationInfo& InInfo) -> void;

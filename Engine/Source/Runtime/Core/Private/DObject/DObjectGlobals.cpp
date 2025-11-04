@@ -1,11 +1,19 @@
 #include "DObject/DObjectGlobals.h"
 
 #include "DObject/Class.h"
+#include "DObject/DObjectArray.h"
 
 auto FObjectInitializer::Get() -> const FObjectInitializer&
 {
 	static thread_local FObjectInitializer Instance;
 	return Instance;
+}
+
+auto DObjectInit() -> void
+{
+	ProcessNewlyLoadedDObjects();
+	DObjectProcessRegistrants();
+	auto& array = GDObjectArray;
 }
 
 auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*
@@ -34,6 +42,7 @@ auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DO
 
 	return Obj;
 }
+
 
 auto DogeCodeGen::ConstructDClass(const FClassParams& Params) -> DClass*
 {

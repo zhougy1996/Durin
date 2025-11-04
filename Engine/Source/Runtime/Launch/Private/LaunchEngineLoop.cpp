@@ -2,6 +2,7 @@
 
 #include "CoreGlobals.h"
 #include "DObject/Object.h"
+#include "DObject/DObjectGlobals.h"
 #include "Misc/ConfigCacheJson.h"
 #include "ApplicationCore.h"
 #include "RHI.h"
@@ -23,8 +24,9 @@ auto FEngineLoop::PreInit() -> void
 {
 	FConfigCacheJson::LoadAndParseConfig();
 	LoggerInit();
-	RegisterDogeNames();
-	ProcessNewlyLoadedDObjects();
+	FNameInit();
+	DObjectInit();
+
 	AActor* TestActor = NewObject<AStaticMeshActor>(nullptr, "AStaticMeshActor");
 }
 

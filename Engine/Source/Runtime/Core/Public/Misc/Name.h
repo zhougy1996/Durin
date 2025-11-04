@@ -201,7 +201,7 @@ struct std::hash<FName>
 	}
 };
 
-CORE_API auto RegisterDogeNames() -> void;
+CORE_API auto FNameInit() -> void;
 
 struct FNameDebugVisualizer
 {
