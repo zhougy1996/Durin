@@ -6,7 +6,7 @@ set(DHT_EXE "${DHT_Dir}/dht.py")
 set(DHT_PREPARE_MODULE_INTO_EXE "${DHT_Dir}/collect_module_info.py")
 
 function (doge_module_get_dht_output_directory module_name out_directory)
-	set(_dht_output_directory "${DOGE_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
+	set(_dht_output_directory "${DOGE_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DogeEditor/DHT")
 	set(${out_directory} ${_dht_output_directory} PARENT_SCOPE)
 endfunction()
 
@@ -44,6 +44,9 @@ function (doge_module_add_dht_input_headers module_name input_headers out_genera
 
 	doge_module_get_dht_output_directory(${module_name} _dht_output_directory)
 	doge_set_dht_input_headers("${input_headers}" ${_dht_output_directory} _generated_files)
+
+	string(JOIN "\n" _input_headers_joined ${input_headers})
+	file(WRITE ${_dht_output_directory}/HeaderFiles.txt "${_input_headers_joined}")
 
 	set(${out_generated_files} ${_generated_files} PARENT_SCOPE)	
 endfunction()
