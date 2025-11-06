@@ -1,5 +1,8 @@
 module_name = ""
-dht_dir = ""
+module_source_dir = "D:/Studyspace/Doge/Engine/Source/Runtime/Engine"
+module_dht_dir = ""
+input_headers = []
+
 dependencies = []  # List of dependency module names
 
 intrinsic_core_classes = [
