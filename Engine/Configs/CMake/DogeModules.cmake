@@ -160,3 +160,15 @@ function(doge_setup_shared_library module_name)
 	)
 	install(FILES $<TARGET_FILE:${module_name}> DESTINATION bin)
 endfunction()
+
+function(doge_add_shared_library target_name)
+	doge_print_project_build_info()
+	doge_collect_and_organize_source_files(SRCS)
+	doge_target_set_dht_headers(${PROJECT_NAME} DHT_GENERATED_FILES)
+
+	add_library(${target_name} SHARED
+			${SRCS}
+			${DHT_GENERATED_FILES}
+	)
+	doge_setup_shared_library(${target_name})
+endfunction()
