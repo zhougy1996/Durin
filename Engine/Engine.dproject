@@ -2,7 +2,7 @@
     "ProjectName": "Engine",
     "SourceDir": "Source",
     "ModuleExcludeDirs": [
-        "Source/ThirdParty",
-        "Source/Programs"
+        "ThirdParty",
+        "Programs"
     ]
 }

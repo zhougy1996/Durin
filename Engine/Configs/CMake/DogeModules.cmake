@@ -1,17 +1,18 @@
 # DHT (Doge Header Tool) Integration
 
 set(PYTHON_EXECUTABLE python)
+set(COLLECT_PROJECT_INFO_EXE "${DOGE_SCRIPT_DIR}/DogeBuildTool/collect_project_info.py")
+
 set(DHT_Dir ${DOGE_SOURCE_DIR}/Programs/DogeHeaderTool)
 set(DHT_EXE "${DHT_Dir}/dht.py")
 set(DHT_PREPARE_MODULE_INTO_EXE "${DHT_Dir}/doge_header_tool.py")
-set(DHT_BUILD_MODULE_INDEX_EXE "${DHT_Dir}/build_module_index.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_collect_project_info project_name)
 	add_custom_target(GenerateModuleIndex_${project_name} ALL
-		COMMAND ${PYTHON_EXECUTABLE} ${DHT_BUILD_MODULE_INDEX_EXE} --project_dir ${PROJECT_SOURCE_DIR}
+		COMMAND ${PYTHON_EXECUTABLE} ${COLLECT_PROJECT_INFO_EXE} --project_dir ${PROJECT_SOURCE_DIR}
 		COMMENT "Re-checking modules for project \"${project_name}\"..."
-		DEPENDS ${DHT_BUILD_MODULE_INDEX_EXE}
+		DEPENDS ${COLLECT_PROJECT_INFO_EXE}
 		VERBATIM
 	)
 endfunction()

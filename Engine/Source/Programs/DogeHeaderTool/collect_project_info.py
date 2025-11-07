@@ -53,7 +53,7 @@ def main():
     while folder_stack:
         current_dir = folder_stack.pop()
         folder_name = os.path.basename(current_dir)
-        if any(fnmatch.fnmatch(current_dir, os.path.join(_project_dir, pattern)) for pattern in module_exclude_dirs):
+        if any(fnmatch.fnmatch(current_dir, os.path.join(project_source_dir, pattern)) for pattern in module_exclude_dirs):
             continue
         elif os.path.isfile(os.path.join(current_dir, f"{folder_name}.dmodule")):
             found_modules.append({"Name": folder_name, "Path": os.path.relpath(current_dir, project_source_dir).replace("\\", "/")})
