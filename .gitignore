@@ -10,8 +10,8 @@ Engine/Binaries/
 .idea/
 out/
 
-# vulkan module file
-Engine/Source/ThirdParty/vulkan/
+/Engine/Source/Programs/DogeHeaderTool/ clangLog.txt
+
 
 # User-specific files
 *.rsuser
