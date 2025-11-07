@@ -6,6 +6,16 @@ set(DHT_EXE "${DHT_Dir}/dht.py")
 set(DHT_PREPARE_MODULE_INTO_EXE "${DHT_Dir}/doge_header_tool.py")
 set(DHT_BUILD_MODULE_INDEX_EXE "${DHT_Dir}/build_module_index.py")
 
+# Collect module information for the project (Engine, User custom Game projects, etc.)
+function(doge_collect_project_info project_name)
+	add_custom_target(GenerateModuleIndex_${project_name} ALL
+		COMMAND ${PYTHON_EXECUTABLE} ${DHT_BUILD_MODULE_INDEX_EXE} --project_dir ${PROJECT_SOURCE_DIR}
+		COMMENT "Re-checking modules for project \"${project_name}\"..."
+		DEPENDS ${DHT_BUILD_MODULE_INDEX_EXE}
+		VERBATIM
+	)
+endfunction()
+
 function (doge_module_get_dht_output_directory module_name out_directory)
 	set(_dht_output_directory "${DOGE_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
 	set(${out_directory} ${_dht_output_directory} PARENT_SCOPE)
