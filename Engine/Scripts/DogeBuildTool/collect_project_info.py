@@ -4,9 +4,6 @@ import argparse
 import json
 import fnmatch
 
-_project_dir = ""
-
-
 # File structure:
 # - ProjectDir/
 #   - Source/
@@ -15,20 +12,11 @@ _project_dir = ""
 #   - Intermediate/
 #     - <ProjectName>.dogeproj.json
 
-def process_arguments():
-    parser = argparse.ArgumentParser(description="Build module index")
-    parser.add_argument("--project_dir", help="Project root directory, used to resolve relative paths", required=True)
-    args = parser.parse_args()
+def collect_project_info(project_dir):
 
-    global _project_dir
-    _project_dir = os.path.abspath(args.project_dir)
-                        
-def main():
-    process_arguments()
-
-    project_name = os.path.basename(_project_dir)
-    project_file = os.path.join(_project_dir, f"{project_name}.dproject")
-    project_source_dir = os.path.join(_project_dir, "Source")
+    project_name = os.path.basename(project_dir)
+    project_file = os.path.join(project_dir, f"{project_name}.dproject")
+    project_source_dir = os.path.join(project_dir, "Source")
     module_exclude_dirs = []
 
     # read project file
@@ -39,10 +27,10 @@ def main():
     with open(project_file, "r") as f:
         project_data = json.load(f)
         project_name = project_data.get("ProjectName", project_name)
-        project_source_dir = os.path.join(_project_dir, project_data.get("SourceDir"))
+        project_source_dir = os.path.join(project_dir, project_data.get("SourceDir"))
         module_exclude_dirs = project_data.get("ModuleExcludeDirs", []) # may be patterns
-        
-    output_file = os.path.join(_project_dir, "Intermediate", f"{project_name}.projectinfo")
+
+    output_file = os.path.join(project_dir, "Intermediate", f"{project_name}.projectinfo")
 
     found_modules = []
 
@@ -71,4 +59,11 @@ def main():
         json.dump(data, f, indent=4)
 
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser(description="Collect doge project information, writing to Intermediate/<ProjectName>.projectinfo")
+    parser.add_argument("--project_dir", help="Project directory", required=True)
+    args = parser.parse_args()
+
+    project_dir = os.path.abspath(args.project_dir)
+
+    collect_project_info(project_dir)

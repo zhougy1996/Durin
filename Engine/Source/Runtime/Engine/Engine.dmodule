@@ -1,0 +1,12 @@
+{
+    "ModuleName": "Engine",
+    "DHTHeaderFiles": [
+        "Public/Engine/Actor.h",
+        "Public/Actors/StaticMeshActor.h",
+        "Public/Components/ActorComponent.h",
+        "Public/Components/PrimitiveComponent.h",
+        "Public/Components/SceneComponent.h",
+        "Public/Components/MeshComponent.h",
+        "Public/Components/StaticMeshComponent.h"   
+    ]
+}

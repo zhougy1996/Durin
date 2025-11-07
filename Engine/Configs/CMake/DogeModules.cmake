@@ -5,6 +5,7 @@ set(COLLECT_PROJECT_INFO_EXE "${DOGE_SCRIPT_DIR}/DogeBuildTool/collect_project_i
 
 set(DHT_Dir ${DOGE_SOURCE_DIR}/Programs/DogeHeaderTool)
 set(DHT_EXE "${DHT_Dir}/dht.py")
+set(DHT_MODULE_TOOLS_EXE "${DHT_Dir}/module_tools.py")
 set(DHT_PREPARE_MODULE_INTO_EXE "${DHT_Dir}/doge_header_tool.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
@@ -60,31 +61,38 @@ endfunction()
 #	set(${out_generated_files} ${_generated_files} PARENT_SCOPE)
 #endfunction()
 
-function (doge_target_set_dht_headers module_name input_headers out_generated_files)
+function (doge_target_set_dht_headers module_name out_generated_files)
 	doge_module_get_dht_output_directory(${module_name} _dht_output_directory)
 
-	set(_header_list_file "${_dht_output_directory}/HeaderFiles.txt")
-	string(JOIN "\n" _input_headers_joined ${input_headers})
-	file(WRITE ${_header_list_file} "${_input_headers_joined}")
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+		${PROJECT_SOURCE_DIR}/${PROJECT_NAME}.dmodule
+	)
+
+	execute_process(
+		COMMAND ${PYTHON_EXECUTABLE} ${DHT_MODULE_TOOLS_EXE} --module_dir ${PROJECT_SOURCE_DIR} --function get_dht_headers
+		OUTPUT_VARIABLE dht_input_headers
+		OUTPUT_STRIP_TRAILING_WHITESPACE
+	)
 
 	set(_all_generated_files "")
-	foreach(header ${input_headers})
+
+	foreach(header ${dht_input_headers})
 		get_filename_component(header_name ${header} NAME_WE)
 		set(_generated_files
-				${_dht_output_directory}/${header_name}.gen.h
-				${_dht_output_directory}/${header_name}.gen.cpp
+			${_dht_output_directory}/${header_name}.gen.h
+			${_dht_output_directory}/${header_name}.gen.cpp
 		)
 		list(APPEND _all_generated_files ${_generated_files})
 	endforeach()
 
-	set(_module_info_file "${_dht_output_directory}/${module_name}.json")
-	add_custom_command(
-		OUTPUT ${_module_info_file} ${_all_generated_files}
-		COMMAND ${PYTHON_EXECUTABLE} ${DHT_PREPARE_MODULE_INTO_EXE} --module ${module_name} --source ${PROJECT_SOURCE_DIR} --input "${_header_list_file}" --output "${output_directory}"
-		DEPENDS ${input_headers} ${DHT_PREPARE_MODULE_INTO_EXE}
-		COMMENT "[DHT] Collecting module information ${_module_info_file}"
-		VERBATIM
-	)
+#	set(_module_info_file "${_dht_output_directory}/${module_name}.json")
+#	add_custom_command(
+#		OUTPUT ${_module_info_file} ${_all_generated_files}
+#		COMMAND ${PYTHON_EXECUTABLE} ${DHT_PREPARE_MODULE_INTO_EXE} --module ${module_name} --source ${PROJECT_SOURCE_DIR} --input "${_header_list_file}" --output "${output_directory}"
+#		DEPENDS ${input_headers} ${DHT_PREPARE_MODULE_INTO_EXE}
+#		COMMENT "[DHT] Collecting module information ${_module_info_file}"
+#		VERBATIM
+#	)
 
 	set(${out_generated_files} ${_all_generated_files} PARENT_SCOPE)
 endfunction()

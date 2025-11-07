@@ -1,0 +1,6 @@
+{
+    "ModuleName": "LevelEditor",
+    "DHTHeaderFiles": [
+        "Private/TestDHT.h"
+    ]
+}
