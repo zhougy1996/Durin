@@ -4,6 +4,7 @@ set(PYTHON_EXECUTABLE python)
 set(DHT_Dir ${DOGE_SOURCE_DIR}/Programs/DogeHeaderTool)
 set(DHT_EXE "${DHT_Dir}/dht.py")
 set(DHT_PREPARE_MODULE_INTO_EXE "${DHT_Dir}/doge_header_tool.py")
+set(DHT_BUILD_MODULE_INDEX_EXE "${DHT_Dir}/build_module_index.py")
 
 function (doge_module_get_dht_output_directory module_name out_directory)
 	set(_dht_output_directory "${DOGE_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
