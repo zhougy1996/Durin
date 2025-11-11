@@ -11,21 +11,22 @@ set(DOGE_BUILD_TOOL_EXE "${DOGE_ENGINE_SCRIPT_DIR}/DogeBuildTool/dbt.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
-	set(_output_file ${PROJECT_SOURCE_DIR}/Intermediate/${project_name}.dprojectinfo)
+	set(_output_file ${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/${project_name}.dprojectinfo)
 
 	add_custom_target(GenerateModuleIndex_${project_name} ALL
-		COMMAND ${PYTHON_EXECUTABLE} ${DOGE_BUILD_TOOL_EXE} generate_project_info_file --project "${PROJECT_SOURCE_DIR}/${project_name}.dproject" --output ${_output_file}
+		COMMAND ${PYTHON_EXECUTABLE} ${DOGE_BUILD_TOOL_EXE} generate_project_info_file --project "${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject" --output ${_output_file}
 		COMMENT "Re-checking modules for project \"${project_name}\"..."
 		DEPENDS ${DOGE_BUILD_TOOL_EXE}
 		VERBATIM
 	)
 	# set global variables
-	set(DOGE_PROJECT_DIR ${PROJECT_SOURCE_DIR})
+	set(DOGE_PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 	set(DOGE_PROJECT_CONFIG_DIR "${DOGE_PROJECT_DIR}/Configs" PARENT_SCOPE)
 	set(DOGE_PROJECT_SCRIPT_DIR "${DOGE_PROJECT_DIR}/Scripts" PARENT_SCOPE)
 	set(DOGE_PROJECT_SOURCE_DIR "${DOGE_PROJECT_DIR}/Source" PARENT_SCOPE)
 	set(DOGE_PROJECT_BINARY_DIR "${DOGE_PROJECT_DIR}/Binaries" PARENT_SCOPE)
 	set(DOGE_PROJECT_INTERMEDIATE_DIR "${DOGE_PROJECT_DIR}/Intermediate" PARENT_SCOPE)
+	message(${DOGE_PROJECT_DIR})
 endfunction()
 
 function (doge_module_get_dht_output_directory module_name out_directory)
@@ -37,7 +38,7 @@ endfunction()
 #	set(_module_info_file "${output_directory}/ModuleInfo.json")
 #	add_custom_command(
 #		OUTPUT ${_module_info_file}
-#		COMMAND ${PYTHON_EXECUTABLE} ${DHT_PREPARE_MODULE_INTO_EXE} "${input_headers}" "${output_directory}" "${PROJECT_SOURCE_DIR}"
+#		COMMAND ${PYTHON_EXECUTABLE} ${DHT_PREPARE_MODULE_INTO_EXE} "${input_headers}" "${output_directory}" "${CMAKE_CURRENT_SOURCE_DIR}"
 #		DEPENDS ${input_headers} ${DHT_PREPARE_MODULE_INTO_EXE}
 #		COMMENT "[DHT] Collecting module information ${_module_info_file}"
 #		VERBATIM
@@ -53,7 +54,7 @@ endfunction()
 #
 #		add_custom_command(
 #			OUTPUT ${_generated_files}
-#			COMMAND ${PYTHON_EXECUTABLE} "${DHT_EXE}" "${header}" "${output_directory}" "${PROJECT_SOURCE_DIR}"
+#			COMMAND ${PYTHON_EXECUTABLE} "${DHT_EXE}" "${header}" "${output_directory}" "${CMAKE_CURRENT_SOURCE_DIR}"
 #			DEPENDS ${header} ${DHT_EXE} ${_module_info_file}
 #			COMMENT "[DHT] ${header} -> ${_generated_files}"
 #			VERBATIM
@@ -75,7 +76,7 @@ function (doge_target_set_dht_headers module_name out_generated_files)
 	doge_module_get_dht_output_directory(${module_name} _dht_output_directory)
 
 	execute_process(
-		COMMAND ${PYTHON_EXECUTABLE} ${DHT_MODULE_TOOLS_EXE} --module_dir ${PROJECT_SOURCE_DIR} --function get_dht_headers
+		COMMAND ${PYTHON_EXECUTABLE} ${DHT_MODULE_TOOLS_EXE} --module_dir ${CMAKE_CURRENT_SOURCE_DIR} --function get_dht_headers
 		OUTPUT_VARIABLE dht_input_headers
 		OUTPUT_STRIP_TRAILING_WHITESPACE
 	)
@@ -97,7 +98,7 @@ endfunction()
 # Module Setup Functions
 function(doge_set_module_output target)
 	set_target_properties(${target} PROPERTIES
-		RUNTIME_OUTPUT_DIRECTORY "${DOGE_PROJECT_INTERMEDIATE_DIRBINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
+		RUNTIME_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
 		LIBRARY_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
 		ARCHIVE_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
 		PDB_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
@@ -105,7 +106,7 @@ function(doge_set_module_output target)
 endfunction()
 
 function(doge_print_project_build_info)
-	message("-- Build ${PROJECT_NAME}")
+	message("-- Build a module //  will be replaced by add module")
 endfunction()
 
 function(doge_organize_source_files)
@@ -159,7 +160,11 @@ function(doge_setup_shared_library module_name)
 endfunction()
 
 function(json_get_string_list out_var json_string member)
-	string(JSON _json_array_string GET "${json_string}" ${member})
+	string(JSON _json_array_string ERROR_VARIABLE _error GET "${json_string}" ${member})
+
+	if(_error)
+		set(_json_array_string "[]")
+	endif()
 
 	string(JSON _len LENGTH "${_json_array_string}")
 	set(_result "")
@@ -178,10 +183,10 @@ function(doge_add_module module_name)
 	message("-- Add module: ${module_name}")
 
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-		${PROJECT_SOURCE_DIR}/${module_name}.dmodule
+		${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.dmodule
 	)
 
-	set(_module_file_path ${PROJECT_SOURCE_DIR}/${module_name}.dmodule)
+	set(_module_file_path ${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.dmodule)
 	file(READ ${_module_file_path} _module_file_content)
 
 	# Parse the module file (JSON format)

@@ -1,14 +1,8 @@
-project(Core)
+doge_add_module(Core)
 
-doge_print_project_build_info()
-
-doge_collect_and_organize_source_files(SRCS)
-
-add_library(Core SHARED
-    ${SRCS}
+target_sources(Core PRIVATE
     ${DOGE_ENGINE_DIR}/Extras/VisualStudioDebugging/Doge.natvis
 )
-doge_setup_shared_library(Core)
 
 target_include_directories(Core PRIVATE
     ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/spdlog/include

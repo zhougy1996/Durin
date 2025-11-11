@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-project(Doge LANGUAGES CXX)
+project(DogeEngine LANGUAGES CXX)
 
 set(DOGE_CMAKE_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/Engine/Scripts/CMake")
 

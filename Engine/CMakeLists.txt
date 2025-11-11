@@ -1,4 +1,4 @@
-project(DogeProject_Engine)
+project(Engine)
 
 doge_add_project(Engine)
 
