@@ -1,5 +1,13 @@
 {
     "ModuleName": "Engine",
+    "PrivateDependencies": [
+        "Core",
+        "RHI",
+        "RenderCore",
+        "ApplicationCore",
+        "MonaCore",
+        "Mona"
+    ],
     "DHTHeaderFiles": [
         "Public/Engine/Actor.h",
         "Public/Actors/StaticMeshActor.h",

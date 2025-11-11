@@ -1,19 +1,22 @@
 # DHT (Doge Header Tool) Integration
 
 set(PYTHON_EXECUTABLE python)
-set(COLLECT_PROJECT_INFO_EXE "${DOGE_SCRIPT_DIR}/DogeBuildTool/collect_project_info.py")
 
 set(DHT_Dir ${DOGE_SOURCE_DIR}/Programs/DogeHeaderTool)
 set(DHT_EXE "${DHT_Dir}/dht.py")
 set(DHT_MODULE_TOOLS_EXE "${DHT_Dir}/module_tools.py")
-set(DHT_PREPARE_MODULE_INTO_EXE "${DHT_Dir}/doge_header_tool.py")
+set(DHT_PREPARE_MODULE_INTO_EXE "${DHT_Dir}/dbt.py")
+
+set(DOGE_BUILD_TOOL_EXE "${DOGE_SCRIPT_DIR}/DogeBuildTool/dbt.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
-function(doge_collect_project_info project_name)
+function(doge_add_project project_name)
+	set(_output_file ${PROJECT_SOURCE_DIR}/Intermediate/${project_name}.dprojectinfo)
+
 	add_custom_target(GenerateModuleIndex_${project_name} ALL
-		COMMAND ${PYTHON_EXECUTABLE} ${COLLECT_PROJECT_INFO_EXE} --project_dir ${PROJECT_SOURCE_DIR}
+		COMMAND ${PYTHON_EXECUTABLE} ${DOGE_BUILD_TOOL_EXE} generate_project_info_file --project "${PROJECT_SOURCE_DIR}/${project_name}.dproject" --output ${_output_file}
 		COMMENT "Re-checking modules for project \"${project_name}\"..."
-		DEPENDS ${COLLECT_PROJECT_INFO_EXE}
+		DEPENDS ${DOGE_BUILD_TOOL_EXE}
 		VERBATIM
 	)
 endfunction()
@@ -64,10 +67,6 @@ endfunction()
 function (doge_target_set_dht_headers module_name out_generated_files)
 	doge_module_get_dht_output_directory(${module_name} _dht_output_directory)
 
-	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-		${PROJECT_SOURCE_DIR}/${PROJECT_NAME}.dmodule
-	)
-
 	execute_process(
 		COMMAND ${PYTHON_EXECUTABLE} ${DHT_MODULE_TOOLS_EXE} --module_dir ${PROJECT_SOURCE_DIR} --function get_dht_headers
 		OUTPUT_VARIABLE dht_input_headers
@@ -84,15 +83,6 @@ function (doge_target_set_dht_headers module_name out_generated_files)
 		)
 		list(APPEND _all_generated_files ${_generated_files})
 	endforeach()
-
-#	set(_module_info_file "${_dht_output_directory}/${module_name}.json")
-#	add_custom_command(
-#		OUTPUT ${_module_info_file} ${_all_generated_files}
-#		COMMAND ${PYTHON_EXECUTABLE} ${DHT_PREPARE_MODULE_INTO_EXE} --module ${module_name} --source ${PROJECT_SOURCE_DIR} --input "${_header_list_file}" --output "${output_directory}"
-#		DEPENDS ${input_headers} ${DHT_PREPARE_MODULE_INTO_EXE}
-#		COMMENT "[DHT] Collecting module information ${_module_info_file}"
-#		VERBATIM
-#	)
 
 	set(${out_generated_files} ${_all_generated_files} PARENT_SCOPE)
 endfunction()
@@ -161,14 +151,45 @@ function(doge_setup_shared_library module_name)
 	install(FILES $<TARGET_FILE:${module_name}> DESTINATION bin)
 endfunction()
 
-function(doge_add_shared_library target_name)
-	doge_print_project_build_info()
-	doge_collect_and_organize_source_files(SRCS)
-	doge_target_set_dht_headers(${PROJECT_NAME} DHT_GENERATED_FILES)
+function(json_get_string_list out_var json_string member)
+	string(JSON _json_array_string GET "${json_string}" ${member})
 
-	add_library(${target_name} SHARED
+	string(JSON _len LENGTH "${_json_array_string}")
+	set(_result "")
+	if(_len GREATER 0)
+		math(EXPR _last_index "${_len} - 1")
+		foreach(i RANGE ${_last_index})
+			string(JSON _item GET "${_json_array_string}" ${i})
+			list(APPEND _result "${_item}")
+		endforeach()
+	endif()
+
+	set(${out_var} "${_result}" PARENT_SCOPE)
+endfunction()
+
+function(doge_add_module module_name)
+	message("-- Add module: ${module_name}")
+
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+		${PROJECT_SOURCE_DIR}/${module_name}.dmodule
+	)
+
+	set(_module_file_path ${PROJECT_SOURCE_DIR}/${module_name}.dmodule)
+	file(READ ${_module_file_path} _module_file_content)
+
+	# Parse the module file (JSON format)
+	json_get_string_list(_private_dependencies "${_module_file_content}" PrivateDependencies) # List of private dependencies
+
+	doge_collect_and_organize_source_files(SRCS)
+	doge_target_set_dht_headers(${module_name} DHT_GENERATED_FILES)
+
+	add_library(${module_name} SHARED
 			${SRCS}
 			${DHT_GENERATED_FILES}
 	)
-	doge_setup_shared_library(${target_name})
+	doge_setup_shared_library(${module_name})
+
+	target_link_libraries(${module_name} PRIVATE
+		${_private_dependencies}
+	)
 endfunction()
