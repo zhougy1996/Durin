@@ -11,6 +11,7 @@ set(DOGE_BUILD_TOOL_EXE "${DOGE_ENGINE_SCRIPT_DIR}/DogeBuildTool/dbt.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
+	message("- Project: ${project_name}")
 	set(_output_file ${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/${project_name}.dprojectinfo)
 
 	add_custom_target(GenerateModuleIndex_${project_name} ALL
@@ -26,7 +27,6 @@ function(doge_add_project project_name)
 	set(DOGE_PROJECT_SOURCE_DIR "${DOGE_PROJECT_DIR}/Source" PARENT_SCOPE)
 	set(DOGE_PROJECT_BINARY_DIR "${DOGE_PROJECT_DIR}/Binaries" PARENT_SCOPE)
 	set(DOGE_PROJECT_INTERMEDIATE_DIR "${DOGE_PROJECT_DIR}/Intermediate" PARENT_SCOPE)
-	message(${DOGE_PROJECT_DIR})
 endfunction()
 
 function (doge_module_get_dht_output_directory module_name out_directory)
@@ -180,7 +180,7 @@ function(json_get_string_list out_var json_string member)
 endfunction()
 
 function(doge_add_module module_name)
-	message("-- Add module: ${module_name}")
+	message("-- Module: ${module_name}")
 
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 		${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.dmodule

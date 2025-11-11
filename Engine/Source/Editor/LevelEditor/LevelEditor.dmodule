@@ -1,5 +1,14 @@
 {
     "ModuleName": "LevelEditor",
+    "PrivateDependencies": [
+        "Core",
+        "RHI",
+        "Engine",
+        "ApplicationCore",
+        "MonaCore",
+        "Mona",
+        "DogeEd"
+    ],
     "DHTHeaderFiles": [
         "Private/TestDHT.h"
     ]
