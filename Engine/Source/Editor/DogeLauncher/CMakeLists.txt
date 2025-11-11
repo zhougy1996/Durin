@@ -12,7 +12,7 @@ target_link_libraries(DogeLauncher PRIVATE
 )
 
 # Copy DogeConfig.json to the output directory if it doesn't exist
-set(DEFAULT_DOGE_CONFIG "${DOGE_CONFIG_DIR}/DogeConfig.json")
+set(DEFAULT_DOGE_CONFIG "${DOGE_PROJECT_CONFIG_DIR}/DogeConfig.json")
 set(TARGET_DOGE_CONFIG "$<TARGET_FILE_DIR:DogeLauncher>/DogeConfig.json")
 
 add_custom_command(TARGET DogeLauncher POST_BUILD

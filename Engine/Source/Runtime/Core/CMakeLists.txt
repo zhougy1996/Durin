@@ -6,17 +6,17 @@ doge_collect_and_organize_source_files(SRCS)
 
 add_library(Core SHARED
     ${SRCS}
-    ${DOGE_ENGINE_ROOT_DIR}/Extras/VisualStudioDebugging/Doge.natvis
+    ${DOGE_ENGINE_DIR}/Extras/VisualStudioDebugging/Doge.natvis
 )
 doge_setup_shared_library(Core)
 
 target_include_directories(Core PRIVATE
-    ${DOGE_THIRDPARTY_DIR}/spdlog/include
+    ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/spdlog/include
 )
 
 target_include_directories(Core PUBLIC
-    ${DOGE_THIRDPARTY_DIR}/glm
-    ${DOGE_THIRDPARTY_DIR}/rapidjson/include
+    ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/glm
+    ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/rapidjson/include
 )
 
 target_link_libraries(Core PRIVATE 

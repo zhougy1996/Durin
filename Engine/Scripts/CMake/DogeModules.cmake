@@ -2,12 +2,12 @@
 
 set(PYTHON_EXECUTABLE python)
 
-set(DHT_Dir ${DOGE_SOURCE_DIR}/Programs/DogeHeaderTool)
+set(DHT_Dir ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
 set(DHT_EXE "${DHT_Dir}/dht.py")
 set(DHT_MODULE_TOOLS_EXE "${DHT_Dir}/module_tools.py")
 set(DHT_PREPARE_MODULE_INTO_EXE "${DHT_Dir}/dbt.py")
 
-set(DOGE_BUILD_TOOL_EXE "${DOGE_SCRIPT_DIR}/DogeBuildTool/dbt.py")
+set(DOGE_BUILD_TOOL_EXE "${DOGE_ENGINE_SCRIPT_DIR}/DogeBuildTool/dbt.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
@@ -19,10 +19,17 @@ function(doge_add_project project_name)
 		DEPENDS ${DOGE_BUILD_TOOL_EXE}
 		VERBATIM
 	)
+	# set global variables
+	set(DOGE_PROJECT_DIR ${PROJECT_SOURCE_DIR})
+	set(DOGE_PROJECT_CONFIG_DIR "${DOGE_PROJECT_DIR}/Configs" PARENT_SCOPE)
+	set(DOGE_PROJECT_SCRIPT_DIR "${DOGE_PROJECT_DIR}/Scripts" PARENT_SCOPE)
+	set(DOGE_PROJECT_SOURCE_DIR "${DOGE_PROJECT_DIR}/Source" PARENT_SCOPE)
+	set(DOGE_PROJECT_BINARY_DIR "${DOGE_PROJECT_DIR}/Binaries" PARENT_SCOPE)
+	set(DOGE_PROJECT_INTERMEDIATE_DIR "${DOGE_PROJECT_DIR}/Intermediate" PARENT_SCOPE)
 endfunction()
 
 function (doge_module_get_dht_output_directory module_name out_directory)
-	set(_dht_output_directory "${DOGE_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
+	set(_dht_output_directory "${DOGE_PROJECT_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
 	set(${out_directory} ${_dht_output_directory} PARENT_SCOPE)
 endfunction()
 
@@ -90,10 +97,10 @@ endfunction()
 # Module Setup Functions
 function(doge_set_module_output target)
 	set_target_properties(${target} PROPERTIES
-		RUNTIME_OUTPUT_DIRECTORY "${DOGE_BINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
-		LIBRARY_OUTPUT_DIRECTORY "${DOGE_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
-		ARCHIVE_OUTPUT_DIRECTORY "${DOGE_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
-		PDB_OUTPUT_DIRECTORY "${DOGE_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
+		RUNTIME_OUTPUT_DIRECTORY "${DOGE_PROJECT_INTERMEDIATE_DIRBINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
+		LIBRARY_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
+		ARCHIVE_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
+		PDB_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
 	)
 endfunction()
 

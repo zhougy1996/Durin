@@ -8,7 +8,7 @@ add_library(DogeEd SHARED ${SRCS})
 doge_setup_shared_library(DogeEd)
 
 target_include_directories(DogeEd PRIVATE
-    ${DOGE_SOURCE_DIR}/Editor/MainFrame/Public
+    ${DOGE_PROJECT_SOURCE_DIR}/Editor/MainFrame/Public
 )
 
 target_link_libraries(DogeEd PRIVATE

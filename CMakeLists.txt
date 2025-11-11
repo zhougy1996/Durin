@@ -5,8 +5,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project(Doge LANGUAGES CXX)
 
-set(DOGE_ROOT_DIR "${PROJECT_SOURCE_DIR}")
-set(DOGE_CMAKE_INCLUDE_DIR "${DOGE_ROOT_DIR}/Engine/Configs/CMake")
+set(DOGE_CMAKE_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/Engine/Scripts/CMake")
 
 include(${DOGE_CMAKE_INCLUDE_DIR}/DogeCommon.cmake)
 include(${DOGE_CMAKE_INCLUDE_DIR}/DogeModules.cmake)
