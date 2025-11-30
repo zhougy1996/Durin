@@ -4,5 +4,15 @@
     "ModuleExcludeDirs": [
         "ThirdParty",
         "Programs"
+    ],
+    "Modules": [
+        {
+            "Name": "Core",
+            "Path": "Source/Runtime/Core"
+        },
+        {
+            "Name": "Engine",
+            "Path": "Source/Runtime/Engine"
+        }
     ]
 }

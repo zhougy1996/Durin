@@ -1,5 +1,4 @@
 set(MODULE_LIST
-    Core
     ApplicationCore
     RHI
     VulkanRHI
@@ -7,7 +6,6 @@ set(MODULE_LIST
     MonaCore
     Mona
     Renderer
-    Engine
     Launch
 )
 

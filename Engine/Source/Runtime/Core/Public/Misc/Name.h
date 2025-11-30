@@ -181,6 +181,7 @@ private:
 
 private:
 
+
 	FNameEntryId ComparisonIndex;
 
 	uint32 Number = 0;
@@ -195,7 +196,7 @@ private:
 template<>
 struct std::hash<FName>
 {
-	size_t operator()(FName Name) const noexcept
+	size_t operator()(const FName& Name) const noexcept
 	{
 		return GetTypeHash(Name);
 	}
@@ -205,7 +206,7 @@ CORE_API auto FNameInit() -> void;
 
 struct FNameDebugVisualizer
 {
-	CORE_API FNameDebugVisualizer(FClangKeepDebugInfo);
+	CORE_API explicit FNameDebugVisualizer(FClangKeepDebugInfo);
 	CORE_API uint8** GetBlocks();
 
 private:
