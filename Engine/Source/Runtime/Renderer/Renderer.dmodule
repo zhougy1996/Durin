@@ -1,3 +1,9 @@
 {
-    "ModuleName": "Renderer"
+    "ModuleName": "Renderer",
+    "PrivateDependencies": [
+        "Core",
+        "RHI",
+        "RenderCore",
+        "Engine"
+    ]
 }

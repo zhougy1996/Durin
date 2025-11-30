@@ -1,0 +1,12 @@
+{
+    "ModuleName": "MainFrame",
+    "PrivateDependencies": [
+        "Core",
+        "RHI",
+        "Engine",
+        "ApplicationCore",
+        "MonaCore",
+        "Mona",
+        "DogeEd"
+    ]
+}

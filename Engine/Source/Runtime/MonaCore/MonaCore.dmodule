@@ -1,3 +1,9 @@
 {
-    "ModuleName": "MonaCore"
+    "ModuleName": "MonaCore",
+    "PrivateDependencies": [
+        "Core",
+        "RHI",
+        "ApplicationCore",
+        "RenderCore"
+    ]
 }

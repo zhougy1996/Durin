@@ -91,10 +91,6 @@ function(doge_set_module_output target)
 	)
 endfunction()
 
-function(doge_print_project_build_info)
-	message("-- Build a module //  will be replaced by add module")
-endfunction()
-
 function(doge_organize_source_files)
 	foreach(source ${ARGV})
 		file(RELATIVE_PATH relative_path ${CMAKE_CURRENT_SOURCE_DIR} ${source})
@@ -184,8 +180,8 @@ function(doge_add_module module_name)
 	doge_target_set_dht_headers(${module_name} _dht_generated_files)
 
 	add_library(${module_name} SHARED
-			${_srcs}
-			${_dht_generated_files}
+		${_srcs}
+		${_dht_generated_files}
 	)
 	doge_setup_shared_library(${module_name})
 

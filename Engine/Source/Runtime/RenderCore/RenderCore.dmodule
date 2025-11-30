@@ -1,3 +1,7 @@
 {
-    "ModuleName": "RenderCore"
+    "ModuleName": "RenderCore",
+    "PrivateDependencies": [
+        "Core",
+        "RHI"
+    ]
 }

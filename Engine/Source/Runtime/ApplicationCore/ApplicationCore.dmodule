@@ -1,3 +1,6 @@
 {
-    "ModuleName": "ApplicationCore"
+    "ModuleName": "ApplicationCore",
+    "PrivateDependencies": [
+        "Core"
+    ]
 }

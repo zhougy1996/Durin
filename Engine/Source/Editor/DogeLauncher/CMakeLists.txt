@@ -1,6 +1,4 @@
-project(DogeLauncher)
-
-doge_print_project_build_info()
+message("-- Module: DogeLauncher")
 
 add_executable(DogeLauncher "Private/Hello.cpp")
 doge_set_module_output(DogeLauncher)

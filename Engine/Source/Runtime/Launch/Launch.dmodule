@@ -1,3 +1,12 @@
 {
-    "ModuleName": "Launch"
+    "ModuleName": "Launch",
+    "PrivateDependencies": [
+        "Core",
+        "RHI",
+        "Engine",
+        "ApplicationCore",
+        "MonaCore",
+        "Mona",
+        "DogeEd"
+    ]
 }

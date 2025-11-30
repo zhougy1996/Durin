@@ -1,0 +1,11 @@
+{
+    "ModuleName": "DogeEd",
+    "PrivateDependencies": [
+        "Core",
+        "RHI",
+        "Engine",
+        "ApplicationCore",
+        "MonaCore",
+        "Mona"
+    ]
+}

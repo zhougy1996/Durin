@@ -1,3 +1,7 @@
 {
-    "ModuleName": "VulkanRHI"
+    "ModuleName": "VulkanRHI",
+    "PrivateDependencies": [
+        "Core",
+        "RHI"
+    ]
 }

@@ -17,5 +17,3 @@ target_link_libraries(Core PRIVATE
     #spdlog::spdlog_header_only
     spdlog::spdlog
 )
-
-
