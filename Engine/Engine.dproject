@@ -1,18 +1,61 @@
 {
     "ProjectName": "Engine",
-    "SourceDir": "Source",
-    "ModuleExcludeDirs": [
-        "ThirdParty",
-        "Programs"
-    ],
     "Modules": [
         {
             "Name": "Core",
             "Path": "Source/Runtime/Core"
         },
         {
+            "Name": "ApplicationCore",
+            "Path": "Source/Runtime/ApplicationCore"
+        },
+        {
             "Name": "Engine",
             "Path": "Source/Runtime/Engine"
+        },
+        {
+            "Name": "RHI",
+            "Path": "Source/Runtime/RHI"
+        },
+        {
+            "Name": "VulkanRHI",
+            "Path": "Source/Runtime/VulkanRHI"
+        },
+        {
+            "Name": "RenderCore",
+            "Path": "Source/Runtime/RenderCore"
+        },
+        {
+            "Name": "Renderer",
+            "Path": "Source/Runtime/Renderer"
+        },
+        {
+            "Name": "MonaCore",
+            "Path": "Source/Runtime/MonaCore"
+        },
+        {
+            "Name": "Mona",
+            "Path": "Source/Runtime/Mona"
+        },
+        {
+            "Name": "Launch",
+            "Path": "Source/Runtime/Launch"
+        },
+        {
+            "Name": "DogeEd",
+            "Path": "Source/Editor/DogeEd"
+        },
+        {
+            "Name": "MainFrame",
+            "Path": "Source/Editor/MainFrame"
+        },
+        {
+            "Name": "LevelEditor",
+            "Path": "Source/Editor/LevelEditor"
+        },
+        {
+            "Name": "DogeLauncher",
+            "Path": "Source/Editor/DogeLauncher"
         }
     ]
 }

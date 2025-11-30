@@ -2,4 +2,6 @@ project(Engine)
 
 doge_add_project(Engine)
 
-add_subdirectory(Source)
+# ThirdParty libraries
+# Note: Keep this because ThirdParty libraries is not added via .dproject files
+add_subdirectory(Source/ThirdParty)
