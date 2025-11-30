@@ -58,29 +58,6 @@ function (doge_module_get_dht_output_directory module_name out_directory)
 	set(${out_directory} ${_dht_output_directory} PARENT_SCOPE)
 endfunction()
 
-function (doge_target_set_dht_headers module_name out_generated_files)
-	doge_module_get_dht_output_directory(${module_name} _dht_output_directory)
-
-	execute_process(
-		COMMAND ${PYTHON_EXECUTABLE} ${DHT_MODULE_TOOLS_EXE} --module_dir ${CMAKE_CURRENT_SOURCE_DIR} --function get_dht_headers
-		OUTPUT_VARIABLE dht_input_headers
-		OUTPUT_STRIP_TRAILING_WHITESPACE
-	)
-
-	set(_all_generated_files "")
-
-	foreach(header ${dht_input_headers})
-		get_filename_component(header_name ${header} NAME_WE)
-		set(_generated_files
-			${_dht_output_directory}/${header_name}.gen.h
-			${_dht_output_directory}/${header_name}.gen.cpp
-		)
-		list(APPEND _all_generated_files ${_generated_files})
-	endforeach()
-
-	set(${out_generated_files} ${_all_generated_files} PARENT_SCOPE)
-endfunction()
-
 # Module Setup Functions
 function(doge_set_module_output target)
 	set_target_properties(${target} PROPERTIES
@@ -164,28 +141,34 @@ endfunction()
 function(doge_add_module module_name)
 	message("-- Module: ${module_name}")
 
+	set(module_file ${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.dmodule)
+	set(module_dht_dir "${DOGE_PROJECT_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
+
 	# Make CMake re-configure if the module definition file changes
-	set(_module_file_path ${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.dmodule)
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_file})
 
-	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-		${_module_file_path}
-	)
-
-	file(READ ${_module_file_path} _module_file_content)
+	file(READ ${module_file} module_json)
 
 	# Parse the module file (JSON format)
-	json_get_string_list(_private_dependencies "${_module_file_content}" PrivateDependencies) # List of private dependencies
+	json_get_string_list(private_dependencies "${module_json}" PrivateDependencies) # List of private dependencies
+	json_get_string_list(dht_headers "${module_json}" DHTHeaders) # List of DHT headers
 
-	doge_collect_and_organize_source_files(_srcs)
-	doge_target_set_dht_headers(${module_name} _dht_generated_files)
+	# Collect DHT generated files
+	set(dht_generated_files "")
+	foreach(header ${dht_headers})
+		get_filename_component(header_name ${header} NAME_WE)
+		list(APPEND dht_generated_files ${module_dht_dir}/${header_name}.gen.h)
+		list(APPEND dht_generated_files ${module_dht_dir}/${header_name}.gen.cpp)
+	endforeach()
 
+	doge_collect_and_organize_source_files(module_srcs)
 	add_library(${module_name} SHARED
-		${_srcs}
-		${_dht_generated_files}
+		${module_srcs}
+		${dht_generated_files}
 	)
 	doge_setup_shared_library(${module_name})
 
 	target_link_libraries(${module_name} PRIVATE
-		${_private_dependencies}
+		${private_dependencies}
 	)
 endfunction()
