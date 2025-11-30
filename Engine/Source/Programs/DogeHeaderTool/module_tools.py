@@ -15,7 +15,7 @@ def get_dht_headers(module_dir) -> list:
             return []
         
         module_data = json.loads(content)
-        dht_headers = module_data.get("DHTHeaderFiles", [])
+        dht_headers = module_data.get("DHTHeaders", [])
         return dht_headers
 
 if __name__ == "__main__":
