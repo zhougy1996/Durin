@@ -1,14 +1,17 @@
-module_name = ""
-module_source_dir = "D:/Studyspace/Doge/Engine/Source/Runtime/Engine"
-module_dht_dir = ""
-input_headers = []
+import os
 
-dependencies = []  # List of dependency module names
+DOGE_ARCH = "x64"
 
-intrinsic_core_classes = [
-    "DObject",
-    "DClass",
-    "DStruct",
-    "DEnum"
-]
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+DOGE_DIR = os.path.abspath(os.path.join(_current_dir, "..", "..", "..", ".."))
+DOGE_ENGINE_DIR = os.path.abspath(os.path.join(DOGE_DIR, "Engine"))
+DOGE_ENGINE_SOURCE_DIR = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "Source"))
+DOGE_ENGINE_BINARY_DIR = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "Binaries"))
+DOGE_ENGINE_INTERMEDIATE_DIR = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "Intermediate"))
+DOGE_ENGINE_CONFIG_DIR = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "Configs"))
+DOGE_THIRD_PARTY_DIR = os.path.join(DOGE_ENGINE_SOURCE_DIR, "ThirdParty")
+CLANG_LIB_DIR = os.path.join(DOGE_THIRD_PARTY_DIR, "clang", "bin")
+
+DOGE_ENGINE_PROJECT_FILE = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "DogeEngine.dproj"))
+
 

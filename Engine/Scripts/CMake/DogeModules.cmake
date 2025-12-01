@@ -9,7 +9,7 @@ set(DHT_MODULE_TOOLS_EXE "${DHT_Dir}/module_tools.py")
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
 	message("- Project: ${project_name}")
-	set(dproject_file ${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject)
+	set(dproject_file ${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproj)
 
 	# set global project variables
 	set(DOGE_PROJECT_NAME ${project_name})

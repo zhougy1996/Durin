@@ -2,24 +2,24 @@ import os
 import logging
 import clang.cindex
 
+import config as cfg
 import globals as g
-from config import *
 
 def init_clang():
-    clang.cindex.Config.set_library_path(CLANG_LIB_DIR)
+    clang.cindex.Config.set_library_path(g.CLANG_LIB_DIR)
 
 def init_logging():
-    logging.getLogger().setLevel(logging_level)
-    logging.basicConfig(format='[%(levelname)s] %(message)s')
+    logging.getLogger().setLevel(cfg.logging_level)
+    logging.basicConfig(format='[DBT] [%(levelname)s] %(message)s')
 
 def get_dht_dir(module_name: str) -> str:
-    return DHT_DIR_PATTERN.format(module_name)
+    return cfg.DHT_DIR_PATTERN.format(module_name)
 
 def get_symbol_table_filepath(module_name: str) -> str:
-    return os.path.join(get_dht_dir(module_name), DHT_MODULE_FILENAME_PATTERN.format(module_name))
+    return os.path.join(get_dht_dir(module_name), cfg.DHT_MODULE_FILENAME_PATTERN.format(module_name))
 
 def get_input_headers() -> list[str]:
-    header_list_file = os.path.join(g.module_dht_dir, DHT_HEADER_LIST_FILENAME)
+    header_list_file = os.path.join(g.module_dht_dir, cfg.DHT_HEADER_LIST_FILENAME)
     if not os.path.isfile(header_list_file):
         return []
     with open(header_list_file, "r") as f:
