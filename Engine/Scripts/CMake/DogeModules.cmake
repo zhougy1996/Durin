@@ -1,19 +1,25 @@
 # DHT (Doge Header Tool) Integration
 
-set(PYTHON_EXECUTABLE python)
+set(PYTHON_EXE python)
 
 set(DHT_Dir ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
 set(DHT_EXE "${DHT_Dir}/dht.py")
 set(DHT_MODULE_TOOLS_EXE "${DHT_Dir}/module_tools.py")
-set(DHT_PREPARE_MODULE_INTO_EXE "${DHT_Dir}/dbt.py")
-
-set(DOGE_BUILD_TOOL_EXE "${DOGE_ENGINE_SCRIPT_DIR}/DogeBuildTool/dbt.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
 	message("- Project: ${project_name}")
-
 	set(dproject_file ${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject)
+
+	# set global project variables
+	set(DOGE_PROJECT_NAME ${project_name})
+	set(DOGE_PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+	set(DOGE_PROJECT_CONFIG_DIR "${DOGE_PROJECT_DIR}/Configs")
+	set(DOGE_PROJECT_SCRIPT_DIR "${DOGE_PROJECT_DIR}/Scripts")
+	set(DOGE_PROJECT_SOURCE_DIR "${DOGE_PROJECT_DIR}/Source")
+	set(DOGE_PROJECT_BINARY_DIR "${DOGE_PROJECT_DIR}/Binaries")
+	set(DOGE_PROJECT_INTERMEDIATE_DIR "${DOGE_PROJECT_DIR}/Intermediate")
+
 	# Make CMake re-configure if the project definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 		${dproject_file}
@@ -43,19 +49,6 @@ function(doge_add_project project_name)
 		get_filename_component(module_folder "${module_path}" DIRECTORY)
 		set_target_properties(${module_name} PROPERTIES FOLDER "${project_name}/${module_folder}")
 	endforeach()
-
-	# set global variables
-	set(DOGE_PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR} PARENT_SCOPE)
-	set(DOGE_PROJECT_CONFIG_DIR "${DOGE_PROJECT_DIR}/Configs" PARENT_SCOPE)
-	set(DOGE_PROJECT_SCRIPT_DIR "${DOGE_PROJECT_DIR}/Scripts" PARENT_SCOPE)
-	set(DOGE_PROJECT_SOURCE_DIR "${DOGE_PROJECT_DIR}/Source" PARENT_SCOPE)
-	set(DOGE_PROJECT_BINARY_DIR "${DOGE_PROJECT_DIR}/Binaries" PARENT_SCOPE)
-	set(DOGE_PROJECT_INTERMEDIATE_DIR "${DOGE_PROJECT_DIR}/Intermediate" PARENT_SCOPE)
-endfunction()
-
-function (doge_module_get_dht_output_directory module_name out_directory)
-	set(_dht_output_directory "${DOGE_PROJECT_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
-	set(${out_directory} ${_dht_output_directory} PARENT_SCOPE)
 endfunction()
 
 # Module Setup Functions
@@ -98,7 +91,7 @@ endfunction()
 
 function(doge_setup_shared_library module_name)
 	doge_set_module_output(${module_name})
-	doge_module_get_dht_output_directory(${module_name} _dht_output_directory)
+	set(module_dht_dir "${DOGE_PROJECT_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
 	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DogeEditor-${module_name}")
 	string(TOUPPER "${module_name}" uppercase_module_name)
 
@@ -110,7 +103,7 @@ function(doge_setup_shared_library module_name)
 	)
 	target_include_directories(${module_name} PUBLIC
 		${CMAKE_CURRENT_SOURCE_DIR}/Public
-		${_dht_output_directory}
+		${module_dht_dir}
 	)
 	target_precompile_headers(${module_name} PRIVATE
 		"$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>"
