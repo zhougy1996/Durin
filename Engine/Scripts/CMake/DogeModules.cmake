@@ -3,8 +3,8 @@
 set(PYTHON_EXE python)
 
 set(DHT_Dir ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
-set(DHT_EXE "${DHT_Dir}/dht.py")
-set(DHT_MODULE_TOOLS_EXE "${DHT_Dir}/module_tools.py")
+# set(DHT_EXE "${DHT_Dir}/dht.py")
+set(DOGE_BUILD_TOOL ${PYTHON_EXE} "${DHT_Dir}/build_tool.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
@@ -24,30 +24,15 @@ function(doge_add_project project_name)
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 		${dproject_file}
 	)
-	file(READ ${dproject_file} project_json)
 
-	# Parse the project file (JSON format)
-	string(JSON module_count LENGTH "${project_json}" Modules)
-	message(STATUS "Module count of project \"${project_name}\": ${module_count}")
+	execute_process(
+		COMMAND ${DOGE_BUILD_TOOL} get_module_dirs -p ${dproject_file}
+		OUTPUT_VARIABLE MODULE_DIRS
+		OUTPUT_STRIP_TRAILING_WHITESPACE
+	)
 
-	math(EXPR last_index "${module_count} - 1")
-
-	foreach(index RANGE 0 ${last_index})
-		# Get single module object
-		string(JSON module_json GET "${project_json}" Modules ${index})
-
-		string(JSON module_name GET "${module_json}" Name)
-		string(JSON module_path GET "${module_json}" Path)
-
-		if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${module_path}")
-			message(FATAL_ERROR "Module path not found: ${module_path}")
-		endif()
-
-		add_subdirectory(${module_path})
-
-		# Organize modules into folders in IDEs
-		get_filename_component(module_folder "${module_path}" DIRECTORY)
-		set_target_properties(${module_name} PROPERTIES FOLDER "${project_name}/${module_folder}")
+	foreach(dir IN LISTS MODULE_DIRS)
+		add_subdirectory(${dir})
 	endforeach()
 endfunction()
 
@@ -164,4 +149,7 @@ function(doge_add_module module_name)
 	target_link_libraries(${module_name} PRIVATE
 		${private_dependencies}
 	)
+
+	get_filename_component(module_folder "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)
+	set_target_properties(${module_name} PROPERTIES FOLDER "${DOGE_PROJECT_NAME}/${module_folder}")
 endfunction()

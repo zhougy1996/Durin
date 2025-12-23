@@ -13,6 +13,16 @@
             "args": [
                 "--module", "Engine",
             ]
+        },
+        {
+            "name": "Test build tool",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "get_module_dirs", "-p", "d:/Studyspace/Doge/Engine/Engine.dproject",
+            ]
         }
     ]
 }
