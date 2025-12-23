@@ -6,8 +6,10 @@ import dproject
 def process_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="A tool for the build system of Doge Engine.")
     subparsers = parser.add_subparsers(dest="function", required=True)
+
     parser_get_module_dirs = subparsers.add_parser("get_module_dirs", help="CMake related operations.")
-    parser_get_module_dirs.add_argument("-p", "--project_file", help="Specify the Doge project file (.dproj) to load.", required=True)
+    parser_get_module_dirs.add_argument("-p", "--project_file", help="Specify the Doge project file (.dproject) to load.", required=True)
+    
     args = parser.parse_args()
     return args
 
