@@ -13,6 +13,7 @@ function(doge_add_project project_name)
 
 	# set global project variables
 	set(DOGE_PROJECT_NAME ${project_name})
+	set(DOGE_PROJECT_FILE ${dproject_file})
 	set(DOGE_PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 	set(DOGE_PROJECT_CONFIG_DIR "${DOGE_PROJECT_DIR}/Configs")
 	set(DOGE_PROJECT_SCRIPT_DIR "${DOGE_PROJECT_DIR}/Scripts")
@@ -120,7 +121,7 @@ function(doge_add_module module_name)
 	message("-- Module: ${module_name}")
 
 	set(module_file ${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.dmodule)
-	set(module_dht_dir "${DOGE_PROJECT_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
+	set(module_dht_dir "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/${module_name}/DHT")
 
 	# Make CMake re-configure if the module definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_file})
@@ -139,12 +140,35 @@ function(doge_add_module module_name)
 		list(APPEND dht_generated_files ${module_dht_dir}/${header_name}.gen.cpp)
 	endforeach()
 
+	set(module_dht_stamp "${module_dht_dir}/${module_name}.dht.stamp")
+
+	add_custom_command(
+		OUTPUT ${dht_generated_files} ${module_dht_stamp}
+		COMMAND ${PYTHON_EXE} "${DHT_Dir}/build_tool.py"
+		run_header_tool
+		-p "${DOGE_PROJECT_FILE}"
+		-m "${module_name}"
+		COMMAND ${CMAKE_COMMAND} -E touch ${module_dht_stamp}
+		DEPENDS
+		${dht_headers}
+		${module_file}
+		${DOGE_PROJECT_FILE}
+		WORKING_DIRECTORY ${DOGE_PROJECT_DIR}
+		COMMENT "Running DHT for module: ${module_name}"
+	)
+
+	add_custom_target(${module_name}_DHT_Generation
+		DEPENDS ${module_dht_stamp}
+	)
+
 	doge_collect_and_organize_source_files(module_srcs)
 	add_library(${module_name} SHARED
 		${module_srcs}
 		${dht_generated_files}
 	)
 	doge_setup_shared_library(${module_name})
+
+	add_dependencies(${module_name} ${module_name}_DHT_Generation)
 
 	target_link_libraries(${module_name} PRIVATE
 		${private_dependencies}

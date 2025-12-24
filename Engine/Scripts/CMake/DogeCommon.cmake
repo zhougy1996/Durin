@@ -10,7 +10,7 @@ if(CMAKE_GENERATOR STREQUAL "Ninja")
 	message("CMake Generator: Ninja")
 endif()
 
-set(DOGE_ARCH "x64")
+set(DOGE_ARCH "Win64")
 message("Arch: ${DOGE_ARCH}")
 message("CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
 

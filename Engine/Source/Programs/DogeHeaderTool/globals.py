@@ -14,4 +14,5 @@ CLANG_LIB_DIR = os.path.join(DOGE_THIRD_PARTY_DIR, "clang", "bin")
 
 DOGE_ENGINE_PROJECT_FILE = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "DogeEngine.dproj"))
 
-
+arch = "Win64"
+build_mode = "Editor"
