@@ -4,11 +4,11 @@ set(PYTHON_EXE python)
 
 set(DHT_Dir ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
 # set(DHT_EXE "${DHT_Dir}/dht.py")
-set(DOGE_BUILD_TOOL ${PYTHON_EXE} "${DHT_Dir}/build_tool.py")
+set(DOGE_BUILD_TOOL ${PYTHON_EXE} "${DHT_Dir}/doge_build_tool.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
-	message("- Project: ${project_name}")
+	message("-- Project: ${project_name}")
 	set(dproject_file ${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject)
 
 	# set global project variables
@@ -75,9 +75,8 @@ function(doge_collect_and_organize_source_files OUT_SRCS)
 	set(${OUT_SRCS} ${all_sources} PARENT_SCOPE)
 endfunction()
 
-function(doge_setup_shared_library module_name)
+function(doge_setup_shared_library module_name module_dht_dir)
 	doge_set_module_output(${module_name})
-	set(module_dht_dir "${DOGE_PROJECT_INTERMEDIATE_DIR}/${module_name}/${DOGE_ARCH}/DHT")
 	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DogeEditor-${module_name}")
 	string(TOUPPER "${module_name}" uppercase_module_name)
 
@@ -118,10 +117,10 @@ function(json_get_string_list out_var json_string member)
 endfunction()
 
 function(doge_add_module module_name)
-	message("-- Module: ${module_name}")
+	message("--- Module: ${module_name}")
 
 	set(module_file ${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.dmodule)
-	set(module_dht_dir "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/${module_name}/DHT")
+	set(module_dht_dir "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/Editor/${module_name}/DHT")
 
 	# Make CMake re-configure if the module definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_file})
@@ -166,7 +165,7 @@ function(doge_add_module module_name)
 		${module_srcs}
 		${dht_generated_files}
 	)
-	doge_setup_shared_library(${module_name})
+	doge_setup_shared_library(${module_name} ${module_dht_dir})
 
 	add_dependencies(${module_name} ${module_name}_DHT_Generation)
 

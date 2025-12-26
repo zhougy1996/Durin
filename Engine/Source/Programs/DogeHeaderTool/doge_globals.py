@@ -12,7 +12,12 @@ DOGE_ENGINE_CONFIG_DIR = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "Configs"
 DOGE_THIRD_PARTY_DIR = os.path.join(DOGE_ENGINE_SOURCE_DIR, "ThirdParty")
 CLANG_LIB_DIR = os.path.join(DOGE_THIRD_PARTY_DIR, "clang", "bin")
 
-DOGE_ENGINE_PROJECT_FILE = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "DogeEngine.dproj"))
+DOGE_ENGINE_PROJECT_FILE = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "DogeEngine.dproject"))
 
-arch = "Win64"
-build_mode = "Editor"
+ARCH = "Win64"
+BUILD_MODE = "Editor"
+
+target_project_config = None
+
+project_meta = None
+module_meta = None
