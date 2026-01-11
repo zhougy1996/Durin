@@ -1,10 +1,12 @@
+from dataclasses import asdict
 import sys
 import os
 import logging
 import json
 from enum import Enum
 
-from parser import DHTConstructorType, intrinsic_core_objects
+from doge_parser import DHTConstructorType, intrinsic_core_objects
+from doge_symbols import *
 
 def append_include(builder, include_file):
     builder.append(f'#include "{include_file}"\n')
@@ -139,10 +141,10 @@ class DHTCodeGen_Cpp:
         append_comment_segmentation(builder, "Begin Cross Module References")
         for class_meta in header_meta.classes:
             superclass = class_meta.superclass
-            superclass_api_macro = module_meta.get_api_macro(superclass)
-            builder.append(f"{superclass_api_macro} DClass* Z_Construct_DClass_{superclass}();\n")
-            builder.append(f"{module_meta.api_macro} DClass* {class_meta.construct_func_name}();\n")
-            builder.append(f"{module_meta.api_macro} DClass* {class_meta.construct_noregister_func_name}();\n")
+            # superclass_api_macro = module_meta.get_api_macro(superclass)
+            # builder.append(f"{superclass_api_macro} DClass* Z_Construct_DClass_{superclass}();\n")
+            # builder.append(f"{module_meta.api_macro} DClass* {class_meta.construct_func_name}();\n")
+            # builder.append(f"{module_meta.api_macro} DClass* {class_meta.construct_noregister_func_name}();\n")
         append_comment_segmentation(builder, "End Cross Module References")
         builder.append("\n")
 
@@ -261,3 +263,9 @@ class DHTCodeGen_Cpp:
         builder.append("\n")
 
         append_comment_segmentation(builder, f"End Registration")
+
+def generate_module_exports_file(module_exports: ModuleExports, exports_file: str) -> None:
+    os.makedirs(os.path.dirname(exports_file), exist_ok=True)
+    output_data = module_exports.to_json_dict()
+    with open(exports_file, "w") as f:
+        json.dump(output_data, f, indent=4)

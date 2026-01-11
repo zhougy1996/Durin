@@ -3,7 +3,7 @@ import logging
 import clang.cindex
 
 import config as cfg
-import globals as g
+import doge_globals as g
 
 def init_clang():
     clang.cindex.Config.set_library_path(g.CLANG_LIB_DIR)

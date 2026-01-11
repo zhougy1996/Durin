@@ -1,6 +1,6 @@
 import logging
 import os
-import globals as g
+import doge_globals as g
 
 logging_level = logging.DEBUG
 

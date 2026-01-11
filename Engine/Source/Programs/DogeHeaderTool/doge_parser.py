@@ -8,6 +8,7 @@ from clang.cindex import TokenKind
 
 from doge_project import DogeProjectConfig, DogeModuleConfig, load_project_config, load_module_config
 import doge_globals as g
+from doge_symbols import ClassSymbol, HeaderExports
 
 clang_args = [
     "-x",
@@ -352,3 +353,27 @@ class DHTClass:
             if annotations and "DFUNCTION" in annotations:
                 pass
                 # tokens_without_macro = self.strip_macro_paren_prefix(tokens)
+
+def collect_header_exports(header_file: str) -> HeaderExports:
+    exports = HeaderExports()
+    if os.path.isfile(header_file):
+        index = clang.cindex.Index.create()
+        tu = index.parse(header_file, args=clang_args)
+        cursors = list(tu.cursor.get_children())
+        i = 0
+        while i < (len(cursors) - 1):
+            cursor = cursors[i]
+            if cursor.kind == clang.cindex.CursorKind.FUNCTION_DECL:
+                added = False
+                if cursor.spelling == "DCLASS":
+                    class_cursor = cursors[i + 1]
+                    if class_cursor.kind == clang.cindex.CursorKind.CLASS_DECL:
+                        class_symbol = ClassSymbol(class_cursor.spelling)
+                        exports.classes[class_symbol.name] = class_symbol
+                        added = True
+                if added:
+                    i += 1
+            i += 1
+
+    return exports
+

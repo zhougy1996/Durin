@@ -23,16 +23,23 @@ def parse_common_arguments(args) -> None:
         logging.error(f"Failed to load project file {args.project_file}: {e}")
         sys.exit(1)
 
-# --------------------------------- Begin Get Module Dirs ---------------------------------
+# Get module directories
 def add_subparser_get_module_dirs(subparsers, parent_parser) -> None:
     subparsers.add_parser("get_module_dirs", parents=[parent_parser], help="Get the list of module directories for CMake.")
 
 def exec_get_module_dirs(args) -> None:
     module_dirs = dproject.get_module_dirs(g.target_project_cfg)
     print(";".join(module_dirs))
-# --------------------------------- End Get Module Dirs ---------------------------------
 
-# --------------------------------- Begin Run Header Tool ---------------------------------
+# Generate module exports file
+def add_subparser_generate_module_exports_file(subparsers, parent_parser) -> None:
+    sub = subparsers.add_parser("generate_module_exports_file", parents=[parent_parser], help="Generate module exports file.")
+    sub.add_argument("-m", "--module", help="Specify the module name to process.", required=True)
+
+def exec_generate_module_exports_file(args) -> None:
+    header_tool.generate_module_exports_file(g.target_project_cfg, args.module)
+
+# Run header tool
 def add_subparser_run_header_tool(subparsers, parent_parser) -> None:
     sub = subparsers.add_parser("run_header_tool", parents=[parent_parser], help="Generate necessary files for the reflection system.")
     sub.add_argument("-m", "--module", help="Specify the module name to process.", required=True)
@@ -42,16 +49,16 @@ def add_subparser_run_header_tool(subparsers, parent_parser) -> None:
 def exec_run_header_tool(args) -> None:
     header_tool.setup_environment(args.arch, args.build_mode)
     header_tool.run(args.project_file, args.module)
-# --------------------------------- End Run Header Tool ---------------------------------
 
-# --------------------------------- Begin Generate Module Dependency File ---------------------------------
+# Generate module dependency file
 def add_subparser_generate_module_dependency_file(subparsers, parent_parser) -> None:
     sub = subparsers.add_parser("generate_module_dependency_file", parents=[parent_parser], help="Generate module dependency file.")
     sub.add_argument("-m", "--module", help="Specify the module name to process.", required=True)
 
 def exec_generate_module_dependency_file(args) -> None:
     pass
-    
+
+# Setup Parser
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="A tool for the build system of Doge Engine.")
     subparsers = parser.add_subparsers(dest="function", required=True)
@@ -62,6 +69,7 @@ def setup_parser() -> argparse.ArgumentParser:
     common_parser.add_argument("-l", "--log", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).", default="DEBUG", required=False, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
 
     add_subparser_get_module_dirs(subparsers, common_parser)
+    add_subparser_generate_module_exports_file(subparsers, common_parser)
     add_subparser_generate_module_dependency_file(subparsers, common_parser)
     add_subparser_run_header_tool(subparsers, common_parser)
 
@@ -76,5 +84,11 @@ if __name__ == "__main__":
     if args.function == "get_module_dirs":
         exec_get_module_dirs(args)
     
+    elif args.function == "generate_module_exports_file":
+        exec_generate_module_exports_file(args)
+    
     elif args.function == "run_header_tool":
         exec_run_header_tool(args)
+
+    elif args.function == "generate_module_dependency_file":
+        exec_generate_module_dependency_file(args)
