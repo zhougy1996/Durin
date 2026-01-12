@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict
 
 
 @dataclass
-class EnumSymbol:
+class ExportedEnum:
     name: str
     underlying_type: str
 
@@ -14,7 +14,7 @@ class EnumSymbol:
         }
 
 @dataclass
-class ClassSymbol:
+class ExportedClass:
     name: str
 
     def to_json_dict(self):
@@ -23,7 +23,7 @@ class ClassSymbol:
         }
 
 @dataclass
-class StructSymbol:
+class ExportedStruct:
     name: str
 
     def to_json_dict(self):
@@ -33,9 +33,9 @@ class StructSymbol:
 
 @dataclass
 class HeaderExports:
-    enums: Dict[str, EnumSymbol] = field(default_factory=dict)
-    classes: Dict[str, ClassSymbol] = field(default_factory=dict)
-    structs: Dict[str, StructSymbol] = field(default_factory=dict)
+    enums: Dict[str, ExportedEnum] = field(default_factory=dict)
+    classes: Dict[str, ExportedClass] = field(default_factory=dict)
+    structs: Dict[str, ExportedStruct] = field(default_factory=dict)
 
     def to_json_dict(self):
         return {

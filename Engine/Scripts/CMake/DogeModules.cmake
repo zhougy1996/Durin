@@ -146,10 +146,7 @@ function(doge_add_module module_name)
 		generate_module_exports_file
 		-p "${DOGE_PROJECT_FILE}"
 		-m "${module_name}"
-		DEPENDS
-		${dht_headers}
-		${module_file}
-		${DOGE_PROJECT_FILE}
+		DEPENDS ${dht_headers} ${module_file} ${DOGE_PROJECT_FILE}
 		WORKING_DIRECTORY ${DOGE_PROJECT_DIR}
 	)
 
@@ -161,17 +158,9 @@ function(doge_add_module module_name)
 		run_header_tool
 		-p "${DOGE_PROJECT_FILE}"
 		-m "${module_name}"
-		COMMAND ${CMAKE_COMMAND} -E touch ${module_dht_stamp}
-		DEPENDS
-		${dht_headers}
-		${module_file}
-		${DOGE_PROJECT_FILE}
+		DEPENDS ${module_exports_file} ${DOGE_PROJECT_FILE}
 		WORKING_DIRECTORY ${DOGE_PROJECT_DIR}
-		COMMENT "Running DHT for module: ${module_name}"
-	)
-
-	add_custom_target(${module_name}_DHT_Generation
-		DEPENDS ${module_dht_stamp} ${module_exports_file}
+		# COMMENT "Running DHT for module: ${module_name}"
 	)
 
 	doge_collect_and_organize_source_files(module_srcs)
@@ -180,8 +169,6 @@ function(doge_add_module module_name)
 		${dht_generated_files}
 	)
 	doge_setup_shared_library(${module_name} ${module_dht_dir})
-
-	add_dependencies(${module_name} ${module_name}_DHT_Generation)
 
 	target_link_libraries(${module_name} PRIVATE
 		${private_dependencies}

@@ -8,7 +8,7 @@ from clang.cindex import TokenKind
 
 from doge_project import DogeProjectConfig, DogeModuleConfig, load_project_config, load_module_config
 import doge_globals as g
-from doge_symbols import ClassSymbol, HeaderExports
+from doge_exports import ExportedClass, HeaderExports
 
 clang_args = [
     "-x",
@@ -368,7 +368,7 @@ def collect_header_exports(header_file: str) -> HeaderExports:
                 if cursor.spelling == "DCLASS":
                     class_cursor = cursors[i + 1]
                     if class_cursor.kind == clang.cindex.CursorKind.CLASS_DECL:
-                        class_symbol = ClassSymbol(class_cursor.spelling)
+                        class_symbol = ExportedClass(class_cursor.spelling)
                         exports.classes[class_symbol.name] = class_symbol
                         added = True
                 if added:

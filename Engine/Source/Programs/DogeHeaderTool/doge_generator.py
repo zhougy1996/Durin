@@ -6,7 +6,7 @@ import json
 from enum import Enum
 
 from doge_parser import DHTConstructorType, intrinsic_core_objects
-from doge_symbols import *
+from doge_exports import *
 
 def append_include(builder, include_file):
     builder.append(f'#include "{include_file}"\n')
