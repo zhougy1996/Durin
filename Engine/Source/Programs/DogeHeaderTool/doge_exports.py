@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Dict
-
+import json
 
 @dataclass
 class ExportedEnum:
@@ -31,6 +31,7 @@ class ExportedStruct:
             # "Name": self.name
         }
 
+
 @dataclass
 class HeaderExports:
     enums: Dict[str, ExportedEnum] = field(default_factory=dict)
@@ -44,6 +45,7 @@ class HeaderExports:
             "Structs": {k: v.to_json_dict() for k, v in self.structs.items()},
         }
 
+
 @dataclass
 class ModuleExports:
     module_name: str
@@ -54,3 +56,7 @@ class ModuleExports:
             "ModuleName": self.module_name,
             "Headers": {k: v.to_json_dict() for k, v in self.headers.items()},
         }
+    
+# def load_module_exports_from_file(filepath: str) -> ModuleExports:
+#     with open(filepath, "r") as f:
+#         data = json.load(f)
