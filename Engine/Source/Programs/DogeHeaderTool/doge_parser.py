@@ -20,8 +20,7 @@ clang_args = [
     "-w",
     "-MG",
     "-M",
-    "-ferror-limit=0",
-    "-o clangLog.txt",
+    "-ferror-limit=0"
 ]
 
 intrinsic_core_objects = [

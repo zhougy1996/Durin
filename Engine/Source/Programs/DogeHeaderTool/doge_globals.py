@@ -9,6 +9,8 @@ DOGE_ENGINE_SOURCE_DIR = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "Source")
 DOGE_ENGINE_BINARY_DIR = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "Binaries"))
 DOGE_ENGINE_INTERMEDIATE_DIR = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "Intermediate"))
 DOGE_ENGINE_CONFIG_DIR = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "Configs"))
+DOGE_ENGINE_LOG_DIR = os.path.abspath(os.path.join(DOGE_ENGINE_DIR, "Logs"))
+
 DOGE_THIRD_PARTY_DIR = os.path.join(DOGE_ENGINE_SOURCE_DIR, "ThirdParty")
 CLANG_LIB_DIR = os.path.join(DOGE_THIRD_PARTY_DIR, "clang", "bin")
 

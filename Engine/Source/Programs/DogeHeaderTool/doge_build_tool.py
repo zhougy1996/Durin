@@ -10,18 +10,11 @@ import doge_header_tool as header_tool
 
 # Utility functions
 def init_logging(level: str) -> None:
+    os.makedirs(g.DOGE_ENGINE_LOG_DIR, exist_ok=True)
     numeric_level = getattr(logging, level.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError(f'Invalid log level: {level}')
     logging.basicConfig(level=numeric_level, format='%(asctime)s - %(levelname)s - %(message)s')
-
-def parse_common_arguments(args) -> None:
-    init_logging(args.log)
-    try:
-        g.target_project_cfg = dproject.load_project_config(args.project_file)
-    except Exception as e:
-        logging.error(f"Failed to load project file {args.project_file}: {e}")
-        sys.exit(1)
 
 # Get module directories
 def add_subparser_get_module_dirs(subparsers, parent_parser) -> None:
@@ -79,7 +72,12 @@ if __name__ == "__main__":
     parser = setup_parser()
     args = parser.parse_args()
 
-    parse_common_arguments(args)
+    init_logging(args.log)
+    try:
+        g.target_project_cfg = dproject.load_project_config(args.project_file)
+    except Exception as e:
+        logging.error(f"Failed to load project file {args.project_file}: {e}")
+        sys.exit(1)
 
     if args.function == "get_module_dirs":
         exec_get_module_dirs(args)
