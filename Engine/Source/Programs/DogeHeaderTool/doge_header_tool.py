@@ -22,7 +22,7 @@ def generate_module_exports_file(dproject: DogeProjectConfig, module_name: str) 
 
 def collect_module_exports(module_dir: str, module_info: DogeModuleConfig) -> ModuleExports:
     exports = ModuleExports(module_info.name)
-    for header_file in module_info.dht_headers:
+    for header_file in module_info.reflect_headers:
         full_header_path = os.path.join(module_dir, header_file)
         if not os.path.isfile(full_header_path):
             logging.warning(f"Header file {full_header_path} does not exist. Skipping.")
@@ -35,14 +35,23 @@ def collect_module_exports(module_dir: str, module_info: DogeModuleConfig) -> Mo
 def parse_header(header_filepath: str):
     pass
 
-def generate_files(header_data, output_dir: str):
-    pass
+def generate_files(header_filepath: str, output_dir: str):
+    # output empty files for now
+    header_filename = os.path.splitext(os.path.basename(header_filepath))[0]
+    reflection_header_file = os.path.join(output_dir, f"{header_filename}.gen.h")
+    reflection_source_file = os.path.join(output_dir, f"{header_filename}.gen.cpp")
+    with open(reflection_header_file, "w") as f:
+        f.write("// Generated reflection header file\n")
+
+    with open(reflection_source_file, "w") as f:
+        f.write("// Generated reflection source file\n")
+    
 
 def setup_environment(arch: str, build_mode: str) -> None:
     g.ARCH = arch
     g.BUILD_MODE = build_mode
 
-def run(dproject_filepath: str, module_name: str) -> None:
+def generate_reflection_files(dproject_filepath: str, module_name: str) -> None:
     try:
         project = load_project_config(dproject_filepath)
     except Exception as e:
@@ -66,18 +75,22 @@ def run(dproject_filepath: str, module_name: str) -> None:
     module_dht_dir = project.get_module_dht_dir(module_name)
     os.makedirs(module_dht_dir, exist_ok=True)
 
-    if module_info.dht_headers is None:
+    if module_info.reflect_headers is None:
         logging.debug(f"No DHT headers specified for module {module_name}. Nothing to do.")
         return
     
     parser.init(module_info)
 
-    for header in module_info.dht_headers:
+    reflection_module_source = os.path.join(module_dht_dir, f"{module_name}.module.gen.cpp")
+    with open(reflection_module_source, "w") as f:
+        f.write("// Generated reflection module source file\n")
+
+    for header in module_info.reflect_headers:
         header_path = os.path.join(module_dir, header)
         if not os.path.isfile(header_path):
             logging.warning(f"Header file {header_path} does not exist. Skipping.")
             continue
         
-        header_data = parse_header(header_path)
-        generate_files(header_data, module_dht_dir)
+        # header_data = parse_header(header_path)
+        generate_files(header, module_dht_dir)
 

@@ -13,9 +13,9 @@ class DActorComponent : public DObject
 public:
 	ENGINE_API DActorComponent(const FObjectInitializer& ObjectInitializer);
 
-	ENGINE_API virtual ~DActorComponent() = default;
+	ENGINE_API virtual ~DActorComponent() override = default;
 
-	auto GetOwner() -> AActor* const { return OwnerActorPrivate; }
+	auto GetOwner() const -> AActor* { return OwnerActorPrivate; }
 
 	template<typename T> auto GetOwner() const -> T*
 	{

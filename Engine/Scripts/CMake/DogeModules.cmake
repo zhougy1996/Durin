@@ -119,6 +119,7 @@ function(doge_add_module module_name)
 		list(APPEND dht_generated_files ${module_dht_dir}/${header_name}.gen.h)
 		list(APPEND dht_generated_files ${module_dht_dir}/${header_name}.gen.cpp)
 	endforeach()
+	list(APPEND dht_generated_files ${module_dht_dir}/${module_name}.module.gen.cpp)
 
 	set(module_exports_file "${module_dht_dir}/${module_name}.exports.json")
 	add_custom_command(
@@ -130,10 +131,8 @@ function(doge_add_module module_name)
 		WORKING_DIRECTORY ${DOGE_PROJECT_DIR}
 	)
 
-	set(module_dht_stamp "${module_dht_dir}/${module_name}.dht.stamp")
-
 	add_custom_command(
-		OUTPUT ${dht_generated_files} ${module_dht_stamp}
+		OUTPUT ${dht_generated_files}
 		COMMAND ${DBT_EXE} run_header_tool
 		-p "${DOGE_PROJECT_FILE}"
 		-m "${module_name}"

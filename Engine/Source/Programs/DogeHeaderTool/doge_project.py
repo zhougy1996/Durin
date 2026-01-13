@@ -12,7 +12,7 @@ class DogeModuleConfig:
     dir: str = ""
     owning_project: str = ""
     private_dependencies: list = None
-    dht_headers: list = None
+    reflect_headers: list = None
     api_macro: str = ""
 
     def from_file(self, filepath) -> None:
@@ -24,7 +24,7 @@ class DogeModuleConfig:
             self.name = data.get("ModuleName", "")
             self.dir = os.path.abspath(os.path.dirname(filepath))
             self.private_dependencies = data.get("PrivateDependencies", [])
-            self.dht_headers = data.get("DHTHeaders", [])
+            self.reflect_headers = data.get("DHTHeaders", [])
         
         self.api_macro = f"{self.name.upper()}_API"
 
@@ -86,7 +86,7 @@ class DogeModuleDependencyInfo:
         self.module_name = module_config.name
         self.deps = module_config.private_dependencies if module_config.private_dependencies else []
         self.fingerprint = "" # TODO: compute fingerprint
-        self.reflect_headers = module_config.dht_headers if module_config.dht_headers else []
+        self.reflect_headers = module_config.reflect_headers if module_config.reflect_headers else []
         self.deps_fingerprint = {} # TODO: compute dependencies fingerprint
 
 # load .dproject file
@@ -107,13 +107,13 @@ def get_module_dirs(project_cfg) -> list[str]:
         module_dirs.append(os.path.dirname(module_file))
     return module_dirs
 
-def generate_module_dependency_file(project_cfg, module_name: str) -> None:
+def generate_module_dependency_file(project_cfg: DogeProjectConfig, module_name: str) -> None:
     module_file = project_cfg.modules.get(module_name, "")
     if not module_file:
         logging.error(f"Module {module_name} not found in project {project_cfg.name}.")
         return
     
-    module = load_module_config(module_file)
+    module = load_module_config(os.path.join(project_cfg.dir, module_file))
     dependency_file_path = os.path.join(project_cfg.get_module_dht_dir(module_name), f"{module_name}_Dependencies.txt")
     
     with open(dependency_file_path, "w") as f:
@@ -133,7 +133,7 @@ def generate_module_cmake_file(project_cfg: DogeProjectConfig, module_name: str,
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as f:
         f.write(f"# CMake file for module {module_name} of project {project_cfg.name}\n")
-        reflect_headers = "\n    ".join([f'"{os.path.join(module.dir, header).replace(os.sep, "/")}"' for header in module.dht_headers])
+        reflect_headers = "\n    ".join([f'"{os.path.join(module.dir, header).replace(os.sep, "/")}"' for header in module.reflect_headers])
         f.write(f"set(module_reflect_headers\n    {reflect_headers}\n)\n")
         private_dependencies = "\n    ".join(module.private_dependencies)
         f.write(f"set(module_private_dependencies\n    {private_dependencies}\n)\n")

@@ -50,7 +50,7 @@ def add_subparser_run_header_tool(subparsers, parent_parser) -> None:
 
 def exec_run_header_tool(args) -> None:
     header_tool.setup_environment(args.arch, args.build_mode)
-    header_tool.run(args.project_file, args.module)
+    header_tool.generate_reflection_files(args.project_file, args.module)
 
 # Generate module dependency file
 def add_subparser_generate_module_dependency_file(subparsers, parent_parser) -> None:

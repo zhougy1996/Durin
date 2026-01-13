@@ -65,7 +65,11 @@ enum class EPropertyFlags
 
 ENUM_CLASS_FLAGS(EObjectFlags)
 
-#define GENERATED_BODY(...) BODY_MACRO_COMBINE(CURRENT_FILE_ID, _, __LINE__, _GENERATED_BODY)
+#ifdef CURRENT_FILE_ID
+	#define GENERATED_BODY(...) BODY_MACRO_COMBINE(CURRENT_FILE_ID, _, __LINE__, _GENERATED_BODY)
+#else
+	#define GENERATED_BODY(...)
+#endif
 
 #define DECLARE_CLASS(TClass, TSuperClass, TPrivateAccessor) \
 private: \
