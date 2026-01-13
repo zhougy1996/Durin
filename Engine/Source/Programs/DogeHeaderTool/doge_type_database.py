@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List
 from enum import Enum
+from doge_exports import HeaderExports, ExportedClass, ExportedEnum, ExportedStruct, ModuleExports
 
 class TypeKind(Enum):
     ENUM = "Enum"
@@ -10,7 +11,6 @@ class TypeKind(Enum):
 @dataclass
 class TypeInfo:
     name: str
-    full_name: str
     module: str
     kind: TypeKind
 
@@ -44,6 +44,31 @@ class DogeTypeDatabase:
             self.enums[type_info.name] = type_info
         elif isinstance(type_info, StructInfo):
             self.structs[type_info.name] = type_info
+
+    def add_module_exports(self, module_exports: ModuleExports) -> None:
+        for header_name, header_exports in module_exports.headers.items():
+            for enum_name, enum in header_exports.enums.items():
+                enum_info = EnumInfo(
+                    name=enum_name,
+                    module=module_exports.module_name,
+                    kind=TypeKind.ENUM,
+                    underlying_type=enum.underlying_type
+                )
+                self.add(enum_info)
+            for class_name, cls in header_exports.classes.items():
+                class_info = ClassInfo(
+                    name=class_name,
+                    module=module_exports.module_name,
+                    kind=TypeKind.CLASS
+                )
+                self.add(class_info)
+            for struct_name, struct in header_exports.structs.items():
+                struct_info = StructInfo(
+                    name=struct_name,
+                    module=module_exports.module_name,
+                    kind=TypeKind.STRUCT
+                )
+                self.add(struct_info)
 
     def get(self, type_name: str) -> TypeInfo:
         return self.types.get(type_name)

@@ -121,3 +121,19 @@ def generate_module_dependency_file(project_cfg, module_name: str) -> None:
             f.write(f"{dep}\n")
     
     logging.info(f"Generated dependency file at {dependency_file_path}")
+
+def generate_module_cmake_file(project_cfg: DogeProjectConfig, module_name: str, output_path: str) -> None:
+    module_file = project_cfg.modules.get(module_name, "")
+    if not module_file:
+        logging.error(f"Module {module_name} not found in project {project_cfg.name}.")
+        return
+    
+    module = load_module_config(os.path.join(project_cfg.dir, module_file))
+    # pure data file, no logic yet
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w") as f:
+        f.write(f"# CMake file for module {module_name} of project {project_cfg.name}\n")
+        reflect_headers = "\n    ".join([f'"{os.path.join(module.dir, header).replace(os.sep, "/")}"' for header in module.dht_headers])
+        f.write(f"set(module_reflect_headers\n    {reflect_headers}\n)\n")
+        private_dependencies = "\n    ".join(module.private_dependencies)
+        f.write(f"set(module_private_dependencies\n    {private_dependencies}\n)\n")

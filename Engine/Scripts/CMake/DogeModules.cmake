@@ -4,7 +4,7 @@ set(PYTHON_EXE python)
 
 set(DHT_Dir ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
 # set(DHT_EXE "${DHT_Dir}/dht.py")
-set(DOGE_BUILD_TOOL ${PYTHON_EXE} "${DHT_Dir}/doge_build_tool.py")
+set(DBT_EXE ${PYTHON_EXE} "${DHT_Dir}/doge_build_tool.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
@@ -27,7 +27,7 @@ function(doge_add_project project_name)
 	)
 
 	execute_process(
-		COMMAND ${DOGE_BUILD_TOOL} get_module_dirs -p ${dproject_file}
+		COMMAND ${DBT_EXE} get_module_dirs -p ${dproject_file}
 		OUTPUT_VARIABLE MODULE_DIRS
 		OUTPUT_STRIP_TRAILING_WHITESPACE
 	)
@@ -96,44 +96,25 @@ function(doge_setup_shared_library module_name module_dht_dir)
 	install(FILES $<TARGET_FILE:${module_name}> DESTINATION bin)
 endfunction()
 
-function(json_get_string_list out_var json_string member)
-	string(JSON _json_array_string ERROR_VARIABLE _error GET "${json_string}" ${member})
-
-	if(_error)
-		set(_json_array_string "[]")
-	endif()
-
-	string(JSON _len LENGTH "${_json_array_string}")
-	set(_result "")
-	if(_len GREATER 0)
-		math(EXPR _last_index "${_len} - 1")
-		foreach(i RANGE ${_last_index})
-			string(JSON _item GET "${_json_array_string}" ${i})
-			list(APPEND _result "${_item}")
-		endforeach()
-	endif()
-
-	set(${out_var} "${_result}" PARENT_SCOPE)
-endfunction()
-
 function(doge_add_module module_name)
 	message("--- Module: ${module_name}")
 
 	set(module_file ${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.dmodule)
-	set(module_dht_dir "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/Editor/${module_name}/DHT")
-
 	# Make CMake re-configure if the module definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_file})
 
-	file(READ ${module_file} module_json)
-
-	# Parse the module file (JSON format)
-	json_get_string_list(private_dependencies "${module_json}" PrivateDependencies) # List of private dependencies
-	json_get_string_list(dht_headers "${module_json}" DHTHeaders) # List of DHT headers
+	set(module_dht_dir "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/Editor/${module_name}/DHT")
+	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/Editor/${module_name}/${module_name}.module.cmake")
+	execute_process(
+		COMMAND ${DBT_EXE} generate_module_cmake_file -p ${dproject_file} -m ${module_name} -o ${module_cmake_file}
+		OUTPUT_VARIABLE MODULE_DIRS
+		OUTPUT_STRIP_TRAILING_WHITESPACE
+	)
+	include(${module_cmake_file})
 
 	# Collect DHT generated files
 	set(dht_generated_files "")
-	foreach(header ${dht_headers})
+	foreach(header ${module_reflect_headers})
 		get_filename_component(header_name ${header} NAME_WE)
 		list(APPEND dht_generated_files ${module_dht_dir}/${header_name}.gen.h)
 		list(APPEND dht_generated_files ${module_dht_dir}/${header_name}.gen.cpp)
@@ -142,11 +123,10 @@ function(doge_add_module module_name)
 	set(module_exports_file "${module_dht_dir}/${module_name}.exports.json")
 	add_custom_command(
 		OUTPUT ${module_exports_file}
-		COMMAND ${PYTHON_EXE} "${DHT_Dir}/doge_build_tool.py"
-		generate_module_exports_file
+		COMMAND ${DBT_EXE} generate_module_exports_file
 		-p "${DOGE_PROJECT_FILE}"
 		-m "${module_name}"
-		DEPENDS ${dht_headers} ${module_file} ${DOGE_PROJECT_FILE}
+		DEPENDS ${module_reflect_headers} ${module_file} ${DOGE_PROJECT_FILE}
 		WORKING_DIRECTORY ${DOGE_PROJECT_DIR}
 	)
 
@@ -154,8 +134,7 @@ function(doge_add_module module_name)
 
 	add_custom_command(
 		OUTPUT ${dht_generated_files} ${module_dht_stamp}
-		COMMAND ${PYTHON_EXE} "${DHT_Dir}/doge_build_tool.py"
-		run_header_tool
+		COMMAND ${DBT_EXE} run_header_tool
 		-p "${DOGE_PROJECT_FILE}"
 		-m "${module_name}"
 		DEPENDS ${module_exports_file} ${DOGE_PROJECT_FILE}
@@ -171,7 +150,7 @@ function(doge_add_module module_name)
 	doge_setup_shared_library(${module_name} ${module_dht_dir})
 
 	target_link_libraries(${module_name} PRIVATE
-		${private_dependencies}
+		${module_private_dependencies}
 	)
 
 	get_filename_component(module_folder "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)

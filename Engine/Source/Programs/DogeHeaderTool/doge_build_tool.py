@@ -16,7 +16,16 @@ def init_logging(level: str) -> None:
         raise ValueError(f'Invalid log level: {level}')
     logging.basicConfig(level=numeric_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Get module directories
+# Generate module cmake file
+def add_subparser_generate_module_cmake_file(subparsers, parent_parser) -> None:
+    sub = subparsers.add_parser("generate_module_cmake_file", parents=[parent_parser], help="Generate module CMake file.")
+    sub.add_argument("-m", "--module", help="Specify the module name to process.", required=True)
+    sub.add_argument("-o", "--output", help="Specify the output CMake file path.", required=True)
+
+def exec_generate_module_cmake_file(args) -> None:
+    dproject.generate_module_cmake_file(g.target_project_cfg, args.module, args.output)
+
+# Get module directories, used by CMake to add sub directories
 def add_subparser_get_module_dirs(subparsers, parent_parser) -> None:
     subparsers.add_parser("get_module_dirs", parents=[parent_parser], help="Get the list of module directories for CMake.")
 
@@ -62,6 +71,7 @@ def setup_parser() -> argparse.ArgumentParser:
     common_parser.add_argument("-l", "--log", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).", default="DEBUG", required=False, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
 
     add_subparser_get_module_dirs(subparsers, common_parser)
+    add_subparser_generate_module_cmake_file(subparsers, common_parser)
     add_subparser_generate_module_exports_file(subparsers, common_parser)
     add_subparser_generate_module_dependency_file(subparsers, common_parser)
     add_subparser_run_header_tool(subparsers, common_parser)
@@ -81,6 +91,9 @@ if __name__ == "__main__":
 
     if args.function == "get_module_dirs":
         exec_get_module_dirs(args)
+
+    elif args.function == "generate_module_cmake_file":
+        exec_generate_module_cmake_file(args)
     
     elif args.function == "generate_module_exports_file":
         exec_generate_module_exports_file(args)
