@@ -360,6 +360,7 @@ def collect_header_exports(header_file: str) -> HeaderExports:
 
     clang_args = default_clang_args.copy()
     clang_args.append(f'-DDHT_EXPORTS_PARSER=')
+    clang_args.append('-o /Logs/DHT/DHTExports.log')
     
     if os.path.isfile(header_file):
         index = clang.cindex.Index.create()

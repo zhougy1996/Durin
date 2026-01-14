@@ -74,16 +74,13 @@ def generate_reflection_files(dproject_filepath: str, module_name: str) -> None:
     module_dir = project.get_module_dir(module_name)
     module_dht_dir = project.get_module_dht_dir(module_name)
     os.makedirs(module_dht_dir, exist_ok=True)
-
-    if module_info.reflect_headers is None:
-        logging.debug(f"No DHT headers specified for module {module_name}. Nothing to do.")
-        return
     
-    parser.init(module_info)
-
+    # Generate reflection module source file
     reflection_module_source = os.path.join(module_dht_dir, f"{module_name}.module.gen.cpp")
     with open(reflection_module_source, "w") as f:
         f.write("// Generated reflection module source file\n")
+
+    parser.init(module_info)
 
     for header in module_info.reflect_headers:
         header_path = os.path.join(module_dir, header)
