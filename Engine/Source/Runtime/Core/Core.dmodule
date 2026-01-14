@@ -1,3 +1,6 @@
 {
-    "ModuleName": "Core"
+    "ModuleName": "Core",
+    "DHTHeaders": [
+        "Public/DObject/MirrorExportTypes.h"
+    ]
 }

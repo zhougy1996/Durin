@@ -10,7 +10,7 @@ from doge_project import DogeProjectConfig, DogeModuleConfig, load_project_confi
 import doge_globals as g
 from doge_exports import ExportedClass, HeaderExports
 
-clang_args = [
+default_clang_args = [
     "-x",
     "c++",
     "-std=c++20",
@@ -64,17 +64,19 @@ def init(module_info: DogeModuleConfig):
     global _module_info
     _module_info = module_info
 
-    clang_args.append(f"-D{module_info.api_macro}=")
-    # DHT_GENERATED_BODY() will be identified as a function declaration
-    clang_args.append("-DGENERATED_BODY(...)=void DHT_GENERATED_BODY();")
-    clang_args.append("-DDHT_DEBUG_BEGIN(...)=static void DHT_DEBUG_BEGIN();")
-    clang_args.append("-DDHT_DEBUG_END(...)=static void DHT_DEBUG_END();")
-    # DHT_CLASS() will be identified as a function declaration
-    clang_args.append("-DDCLASS(...)=__attribute__((annotate(\"DCLASS,\" #__VA_ARGS__))) void DHT_CLASS();") 
-    clang_args.append("-DDPROPERTY(...)=__attribute__((annotate(\"DPROPERTY,\" #__VA_ARGS__)))")
-    clang_args.append("-DDFUNCTION(...)=__attribute__((annotate(\"DFUNCTION,\" #__VA_ARGS__)))")
-    clang_args.append("-DDFUNCTION(...)=__attribute__((annotate(\"DFUNCTION,\" #__VA_ARGS__)))")
-    clang_args.append(f'-include{_virtual_fwd_header_path}')
+    # clang_args = default_clang_args.copy()
+
+    # clang_args.append(f"-D{module_info.api_macro}=")
+    # # DHT_GENERATED_BODY() will be identified as a function declaration
+    # clang_args.append("-DGENERATED_BODY(...)=void DHT_GENERATED_BODY();")
+    # clang_args.append("-DDHT_DEBUG_BEGIN(...)=static void DHT_DEBUG_BEGIN();")
+    # clang_args.append("-DDHT_DEBUG_END(...)=static void DHT_DEBUG_END();")
+    # # DHT_CLASS() will be identified as a function declaration
+    # clang_args.append("-DDCLASS(...)=__attribute__((annotate(\"DCLASS,\" #__VA_ARGS__))) void DHT_CLASS();") 
+    # clang_args.append("-DDPROPERTY(...)=__attribute__((annotate(\"DPROPERTY,\" #__VA_ARGS__)))")
+    # clang_args.append("-DDFUNCTION(...)=__attribute__((annotate(\"DFUNCTION,\" #__VA_ARGS__)))")
+    # clang_args.append("-DDFUNCTION(...)=__attribute__((annotate(\"DFUNCTION,\" #__VA_ARGS__)))")
+    # clang_args.append(f'-include{_virtual_fwd_header_path}')
 
 
 def parse_annotation(annotation_str) -> dict:
@@ -355,6 +357,10 @@ class DHTClass:
 
 def collect_header_exports(header_file: str) -> HeaderExports:
     exports = HeaderExports()
+
+    clang_args = default_clang_args.copy()
+    clang_args.append(f'-DDHT_EXPORTS_PARSER=')
+    
     if os.path.isfile(header_file):
         index = clang.cindex.Index.create()
         tu = index.parse(header_file, args=clang_args)
