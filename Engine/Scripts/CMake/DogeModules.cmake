@@ -136,7 +136,7 @@ function(doge_add_module module_name)
 		COMMAND ${DBT_EXE} run_header_tool
 		-p "${DOGE_PROJECT_FILE}"
 		-m "${module_name}"
-		DEPENDS ${module_manifest_file} ${DOGE_PROJECT_FILE}
+		DEPENDS ${module_manifest_file} ${module_dependency_manifests}
 		WORKING_DIRECTORY ${DOGE_PROJECT_DIR}
 		# COMMENT "Running DHT for module: ${module_name}"
 	)

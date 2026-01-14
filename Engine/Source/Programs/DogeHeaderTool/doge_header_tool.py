@@ -2,7 +2,7 @@ import sys
 import os
 import logging
 
-from doge_project import DogeProjectConfig, DogeModuleConfig, load_project_config, load_module_config, find_all_dependent_modules
+from doge_project import DogeProjectConfig, DogeModuleConfig, load_project_config, load_module_config, get_all_dependent_modules
 import doge_globals as g
 import doge_parser as parser
 import doge_generator as generator 
@@ -19,7 +19,8 @@ def generate_module_manifest_file(dproject: DogeProjectConfig, module_name: str)
     module_manifest = ModuleManifest(module_name)
 
     module_manifest.exports = collect_module_exports(module_dir, module_info)
-    module_manifest.all_dependencies = find_all_dependent_modules(dproject, module_name)
+    module_manifest.all_dependencies = [mod.name for mod in get_all_dependent_modules(dproject, module_name)]
+    
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, f"{module_name}.module.manifest")
     generator.generate_module_manifest_file(module_manifest, output_file)

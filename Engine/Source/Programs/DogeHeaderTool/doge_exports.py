@@ -80,7 +80,7 @@ class ModuleManifest:
     def to_json_dict(self):
         return {
             "ModuleName": self.module_name,
-            "Headers": {k: v.to_json_dict() for k, v in self.exports.items()},
+            "Exports": {k: v.to_json_dict() for k, v in self.exports.items()},
             "AllDependencies": self.all_dependencies
         }
     
@@ -88,7 +88,7 @@ class ModuleManifest:
     def from_json_dict(data: dict):
         module_manifest = ModuleManifest(
             module_name=data["ModuleName"],
-            exports={k: HeaderExports.from_json_dict(v) for k, v in data.get("Headers", {}).items()},
+            exports={k: HeaderExports.from_json_dict(v) for k, v in data.get("Exports", {}).items()},
             all_dependencies=data.get("AllDependencies", [])
         )
         return module_manifest

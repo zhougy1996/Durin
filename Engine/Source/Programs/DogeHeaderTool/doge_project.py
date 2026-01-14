@@ -63,6 +63,10 @@ class DogeProjectConfig:
     def get_module_dht_dir(self, module_name: str) -> str:
         intermediate_dir = self.get_intermediate_dir()
         return os.path.join(intermediate_dir, "Build", g.ARCH, g.BUILD_MODE, module_name, "DHT")
+    
+    def get_module_manifest_path(self, module_name: str) -> str:
+        dht_dir = self.get_module_dht_dir(module_name)
+        return os.path.join(dht_dir, f"{module_name}.module.manifest")
 
 @dataclass
 class DogeModuleDependencyInfo:
@@ -130,6 +134,9 @@ def generate_module_cmake_file(project_cfg: DogeProjectConfig, module_name: str,
         logging.error(f"Module {module_name} not found in project {project_cfg.name}.")
         return
     
+    dependent_modules = get_all_dependent_modules(project_cfg, module_name)
+    dep_manifest_files = [project_cfg.get_module_manifest_path(mod.name) for mod in dependent_modules]
+
     module = load_module_config(os.path.join(project_cfg.dir, module_file))
     # pure data file, no logic yet
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -139,8 +146,10 @@ def generate_module_cmake_file(project_cfg: DogeProjectConfig, module_name: str,
         f.write(f"set(module_reflect_headers\n    {reflect_headers}\n)\n")
         private_dependencies = "\n    ".join(module.private_dependencies)
         f.write(f"set(module_private_dependencies\n    {private_dependencies}\n)\n")
+        dep_manifest_files_str = "\n    ".join([f'"{path.replace(os.sep, "/")}"' for path in dep_manifest_files])
+        f.write(f"set(module_dependency_manifests\n    {dep_manifest_files_str}\n)\n")
 
-def find_all_dependent_modules(project_cfg: DogeProjectConfig, module_name: str) -> list[str]:
+def get_all_dependent_modules(project_cfg: DogeProjectConfig, module_name: str) -> list[DogeModuleConfig]:
     visited = set()
     result = []
 
@@ -156,7 +165,7 @@ def find_all_dependent_modules(project_cfg: DogeProjectConfig, module_name: str)
         module = load_module_config(os.path.join(project_cfg.dir, module_file))
         for dep in module.public_dependencies:
             dfs(dep)
-        result.append(mod_name)
+        result.append(module)
 
     input_module_file = project_cfg.modules.get(module_name, "")
     if not input_module_file:
