@@ -12,6 +12,7 @@ class DogeModuleConfig:
     dir: str = ""
     owning_project: str = ""
     private_dependencies: list = None
+    public_dependencies: list = None
     reflect_headers: list = None
     api_macro: str = ""
 
@@ -24,6 +25,7 @@ class DogeModuleConfig:
             self.name = data.get("ModuleName", "")
             self.dir = os.path.abspath(os.path.dirname(filepath))
             self.private_dependencies = data.get("PrivateDependencies", [])
+            self.public_dependencies = data.get("PublicDependencies", [])
             self.reflect_headers = data.get("DHTHeaders", [])
         
         self.api_macro = f"{self.name.upper()}_API"
@@ -137,3 +139,35 @@ def generate_module_cmake_file(project_cfg: DogeProjectConfig, module_name: str,
         f.write(f"set(module_reflect_headers\n    {reflect_headers}\n)\n")
         private_dependencies = "\n    ".join(module.private_dependencies)
         f.write(f"set(module_private_dependencies\n    {private_dependencies}\n)\n")
+
+def find_all_dependent_modules(project_cfg: DogeProjectConfig, module_name: str) -> list[str]:
+    visited = set()
+    result = []
+
+    # Depth-first search to find all dependencies, only public dependencies are considered
+    def dfs(mod_name: str):
+        if mod_name in visited:
+            return
+        visited.add(mod_name)
+        module_file = project_cfg.modules.get(mod_name, "")
+        if not module_file:
+            logging.warning(f"Module {mod_name} not found in project {project_cfg.name}. Skipping.")
+            return
+        module = load_module_config(os.path.join(project_cfg.dir, module_file))
+        for dep in module.public_dependencies:
+            dfs(dep)
+        result.append(mod_name)
+
+    input_module_file = project_cfg.modules.get(module_name, "")
+    if not input_module_file:
+        logging.error(f"Module {module_name} not found in project {project_cfg.name}.")
+        return result
+    
+    input_module = load_module_config(os.path.join(project_cfg.dir, input_module_file))
+    for dep in input_module.private_dependencies:
+        dfs(dep)
+
+    for dep in input_module.public_dependencies:
+        dfs(dep)
+
+    return result

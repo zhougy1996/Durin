@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, List
 import json
 
 @dataclass
@@ -72,18 +72,29 @@ class HeaderExports:
         
 
 @dataclass
-class ModuleExports:
+class ModuleManifest:
     module_name: str
-    headers: Dict[str, HeaderExports] = field(default_factory=dict)
+    exports: Dict[str, HeaderExports] = field(default_factory=dict)
+    all_dependencies: List[str] = field(default_factory=list)
 
     def to_json_dict(self):
         return {
             "ModuleName": self.module_name,
-            "Headers": {k: v.to_json_dict() for k, v in self.headers.items()},
+            "Headers": {k: v.to_json_dict() for k, v in self.exports.items()},
+            "AllDependencies": self.all_dependencies
         }
     
-def load_module_exports_from_file(filepath: str) -> ModuleExports:
+    @staticmethod
+    def from_json_dict(data: dict):
+        module_manifest = ModuleManifest(
+            module_name=data["ModuleName"],
+            exports={k: HeaderExports.from_json_dict(v) for k, v in data.get("Headers", {}).items()},
+            all_dependencies=data.get("AllDependencies", [])
+        )
+        return module_manifest
+
+def load_module_manifest(filepath: str) -> ModuleManifest:
     with open(filepath, "r") as f:
         data = json.load(f)
-    exports = ModuleExports.from_json_dict(data)
-    return exports
+    mainifest = ModuleManifest.from_json_dict(data)
+    return mainifest

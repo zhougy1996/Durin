@@ -33,13 +33,13 @@ def exec_get_module_dirs(args) -> None:
     module_dirs = dproject.get_module_dirs(g.target_project_cfg)
     print(";".join(module_dirs))
 
-# Generate module exports file
-def add_subparser_generate_module_exports_file(subparsers, parent_parser) -> None:
-    sub = subparsers.add_parser("generate_module_exports_file", parents=[parent_parser], help="Generate module exports file.")
+# Generate module manifest file
+def add_subparser_generate_module_manifest_file(subparsers, parent_parser) -> None:
+    sub = subparsers.add_parser("generate_module_manifest_file", parents=[parent_parser], help="Generate module manifest file.")
     sub.add_argument("-m", "--module", help="Specify the module name to process.", required=True)
 
-def exec_generate_module_exports_file(args) -> None:
-    header_tool.generate_module_exports_file(g.target_project_cfg, args.module)
+def exec_generate_module_manifest_file(args) -> None:
+    header_tool.generate_module_manifest_file(g.target_project_cfg, args.module)
 
 # Run header tool
 def add_subparser_run_header_tool(subparsers, parent_parser) -> None:
@@ -72,7 +72,7 @@ def setup_parser() -> argparse.ArgumentParser:
 
     add_subparser_get_module_dirs(subparsers, common_parser)
     add_subparser_generate_module_cmake_file(subparsers, common_parser)
-    add_subparser_generate_module_exports_file(subparsers, common_parser)
+    add_subparser_generate_module_manifest_file(subparsers, common_parser)
     add_subparser_generate_module_dependency_file(subparsers, common_parser)
     add_subparser_run_header_tool(subparsers, common_parser)
 
@@ -95,8 +95,8 @@ if __name__ == "__main__":
     elif args.function == "generate_module_cmake_file":
         exec_generate_module_cmake_file(args)
     
-    elif args.function == "generate_module_exports_file":
-        exec_generate_module_exports_file(args)
+    elif args.function == "generate_module_manifest_file":
+        exec_generate_module_manifest_file(args)
     
     elif args.function == "run_header_tool":
         exec_run_header_tool(args)

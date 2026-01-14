@@ -121,10 +121,10 @@ function(doge_add_module module_name)
 	endforeach()
 	list(APPEND dht_generated_files ${module_dht_dir}/${module_name}.module.gen.cpp)
 
-	set(module_exports_file "${module_dht_dir}/${module_name}.exports.json")
+	set(module_manifest_file "${module_dht_dir}/${module_name}.module.manifest")
 	add_custom_command(
-		OUTPUT ${module_exports_file}
-		COMMAND ${DBT_EXE} generate_module_exports_file
+		OUTPUT ${module_manifest_file}
+		COMMAND ${DBT_EXE} generate_module_manifest_file
 		-p "${DOGE_PROJECT_FILE}"
 		-m "${module_name}"
 		DEPENDS ${module_reflect_headers} ${module_file} ${DOGE_PROJECT_FILE}
@@ -136,7 +136,7 @@ function(doge_add_module module_name)
 		COMMAND ${DBT_EXE} run_header_tool
 		-p "${DOGE_PROJECT_FILE}"
 		-m "${module_name}"
-		DEPENDS ${module_exports_file} ${DOGE_PROJECT_FILE}
+		DEPENDS ${module_manifest_file} ${DOGE_PROJECT_FILE}
 		WORKING_DIRECTORY ${DOGE_PROJECT_DIR}
 		# COMMENT "Running DHT for module: ${module_name}"
 	)
