@@ -52,14 +52,6 @@ def exec_run_header_tool(args) -> None:
     header_tool.setup_environment(args.arch, args.build_mode)
     header_tool.generate_reflection_files(args.project_file, args.module)
 
-# Generate module dependency file
-def add_subparser_generate_module_dependency_file(subparsers, parent_parser) -> None:
-    sub = subparsers.add_parser("generate_module_dependency_file", parents=[parent_parser], help="Generate module dependency file.")
-    sub.add_argument("-m", "--module", help="Specify the module name to process.", required=True)
-
-def exec_generate_module_dependency_file(args) -> None:
-    pass
-
 # Setup Parser
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="A tool for the build system of Doge Engine.")
@@ -73,7 +65,6 @@ def setup_parser() -> argparse.ArgumentParser:
     add_subparser_get_module_dirs(subparsers, common_parser)
     add_subparser_generate_module_cmake_file(subparsers, common_parser)
     add_subparser_generate_module_manifest_file(subparsers, common_parser)
-    add_subparser_generate_module_dependency_file(subparsers, common_parser)
     add_subparser_run_header_tool(subparsers, common_parser)
 
     return parser
@@ -89,6 +80,8 @@ if __name__ == "__main__":
         logging.error(f"Failed to load project file {args.project_file}: {e}")
         sys.exit(1)
 
+    g.projects[g.target_project_cfg.name] = g.target_project_cfg
+
     if args.function == "get_module_dirs":
         exec_get_module_dirs(args)
 
@@ -100,6 +93,3 @@ if __name__ == "__main__":
     
     elif args.function == "run_header_tool":
         exec_run_header_tool(args)
-
-    elif args.function == "generate_module_dependency_file":
-        exec_generate_module_dependency_file(args)

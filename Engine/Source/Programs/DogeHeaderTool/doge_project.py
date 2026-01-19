@@ -30,6 +30,13 @@ class DogeModuleConfig:
         
         self.api_macro = f"{self.name.upper()}_API"
 
+    def get_manifest_path(self) -> str:
+        project : DogeProjectConfig = g.projects.get(self.owning_project)
+        if not project:
+            logging.error(f"Owning project {self.owning_project} not found for module {self.name}.")
+            return ""
+        return project.get_module_manifest_path(self.name)
+
 @dataclass
 class DogeProjectConfig:
     name: str = ""
@@ -67,33 +74,6 @@ class DogeProjectConfig:
     def get_module_manifest_path(self, module_name: str) -> str:
         dht_dir = self.get_module_dht_dir(module_name)
         return os.path.join(dht_dir, f"{module_name}.module.manifest")
-
-@dataclass
-class DogeModuleDependencyInfo:
-    module_name: str
-    deps: list[str]
-    fingerprint: str
-    reflect_headers: list[str]
-    deps_fingerprint: dict[str, str]
-
-    def from_file(self, filepath) -> None:
-        if not os.path.isfile(filepath):
-            raise FileNotFoundError(f"Dependency file {filepath} does not exist.")
-        
-        with open(filepath, "r") as f:
-            data = json.load(f)
-            self.module_name = data.get("ModuleName", "")
-            self.deps = data.get("Dependencies", [])
-            self.fingerprint = data.get("Fingerprint", "")
-            self.reflect_headers = data.get("ReflectHeaders", [])
-            self.deps_fingerprint = data.get("DependenciesFingerprint", {})
-    
-    def from_configs(self, module_config: DogeModuleConfig) -> None:
-        self.module_name = module_config.name
-        self.deps = module_config.private_dependencies if module_config.private_dependencies else []
-        self.fingerprint = "" # TODO: compute fingerprint
-        self.reflect_headers = module_config.reflect_headers if module_config.reflect_headers else []
-        self.deps_fingerprint = {} # TODO: compute dependencies fingerprint
 
 # load .dproject file
 def load_project_config(filepath) -> DogeProjectConfig:
@@ -180,3 +160,5 @@ def get_all_dependent_modules(project_cfg: DogeProjectConfig, module_name: str) 
         dfs(dep)
 
     return result
+
+

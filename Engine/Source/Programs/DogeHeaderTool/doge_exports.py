@@ -14,9 +14,9 @@ class ExportedEnum:
         }
     
     @staticmethod
-    def from_json_dict(data: dict):
+    def from_json_dict(name: str, data: dict):
         return ExportedEnum(
-            name=data["Name"],
+            name=name,
             underlying_type=data["UnderlyingType"]
         )
 
@@ -30,8 +30,8 @@ class ExportedClass:
         }
     
     @staticmethod
-    def from_json_dict(data: dict):
-        return ExportedClass(name=data["Name"])
+    def from_json_dict(name: str, data: dict):
+        return ExportedClass(name=name)
 
 @dataclass
 class ExportedStruct:
@@ -43,11 +43,13 @@ class ExportedStruct:
         }
     
     @staticmethod
-    def from_json_dict(data: dict):
-        return ExportedStruct(name=data["Name"])
+    def from_json_dict(name: str, data: dict):
+        return ExportedStruct(name=name)
 
 @dataclass
 class HeaderExports:
+    name: str
+
     enums: Dict[str, ExportedEnum] = field(default_factory=dict)
     classes: Dict[str, ExportedClass] = field(default_factory=dict)
     structs: Dict[str, ExportedStruct] = field(default_factory=dict)
@@ -60,14 +62,11 @@ class HeaderExports:
         }
     
     @staticmethod
-    def from_json_dict(data: dict):
-        header_exports = HeaderExports()
-        for enum_name, enum_data in data.get("Enums", {}).items():
-            header_exports.enums[enum_name] = ExportedEnum.from_json_dict(enum_data)
-        for class_name, class_data in data.get("Classes", {}).items():
-            header_exports.classes[class_name] = ExportedClass.from_json_dict(class_data)
-        for struct_name, struct_data in data.get("Structs", {}).items():
-            header_exports.structs[struct_name] = ExportedStruct.from_json_dict(struct_data)
+    def from_json_dict(name: str, data: dict):
+        header_exports = HeaderExports(name)
+        header_exports.enums = {k: ExportedEnum.from_json_dict(k, v) for k, v in data.get("Enums", {}).items()}
+        header_exports.classes = {k: ExportedClass.from_json_dict(k, v) for k, v in data.get("Classes", {}).items()}
+        header_exports.structs = {k: ExportedStruct.from_json_dict(k, v) for k, v in data.get("Structs", {}).items()}
         return header_exports
         
 
@@ -76,25 +75,26 @@ class ModuleManifest:
     module_name: str
     exports: Dict[str, HeaderExports] = field(default_factory=dict)
     all_dependencies: List[str] = field(default_factory=list)
+    dependent_manifests: List[str] = field(default_factory=list)
 
     def to_json_dict(self):
         return {
             "ModuleName": self.module_name,
             "Exports": {k: v.to_json_dict() for k, v in self.exports.items()},
-            "AllDependencies": self.all_dependencies
+            "AllDependencies": self.all_dependencies,
         }
     
     @staticmethod
     def from_json_dict(data: dict):
         module_manifest = ModuleManifest(
             module_name=data["ModuleName"],
-            exports={k: HeaderExports.from_json_dict(v) for k, v in data.get("Exports", {}).items()},
-            all_dependencies=data.get("AllDependencies", [])
+            exports={k: HeaderExports.from_json_dict(k, v) for k, v in data.get("Exports", {}).items()},
+            all_dependencies=data.get("AllDependencies", []),
         )
         return module_manifest
 
 def load_module_manifest(filepath: str) -> ModuleManifest:
     with open(filepath, "r") as f:
         data = json.load(f)
-    mainifest = ModuleManifest.from_json_dict(data)
-    return mainifest
+    manifest = ModuleManifest.from_json_dict(data)
+    return manifest

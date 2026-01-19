@@ -356,7 +356,7 @@ class DHTClass:
                 # tokens_without_macro = self.strip_macro_paren_prefix(tokens)
 
 def collect_header_exports(header_file: str) -> HeaderExports:
-    exports = HeaderExports()
+    exports = HeaderExports(header_file) #TODO should be relative path
 
     clang_args = default_clang_args.copy()
     clang_args.append(f'-DDHT_EXPORTS_PARSER=')

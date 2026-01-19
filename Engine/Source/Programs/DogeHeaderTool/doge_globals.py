@@ -21,5 +21,10 @@ BUILD_MODE = "Editor"
 
 target_project_config = None
 
+# Projects
+projects = {}
+
 project_meta = None
 module_meta = None
+
+type_db = None

@@ -7,6 +7,7 @@ import doge_globals as g
 import doge_parser as parser
 import doge_generator as generator 
 from doge_exports import ModuleManifest
+import doge_type_database as db
 
 def generate_module_manifest_file(dproject: DogeProjectConfig, module_name: str) -> None:
     dmodule_filepath = dproject.modules.get(module_name)
@@ -62,6 +63,8 @@ def generate_reflection_files(dproject_filepath: str, module_name: str) -> None:
         logging.error(f"Failed to load project file {dproject_filepath}: {e}")
         return
     
+    g.type_db = db.build_database(project.name, module_name)
+
     # TODO: maybe don't use global variable
     g.project_meta = project
     

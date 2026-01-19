@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
+import os
 from typing import Dict, List
 from enum import Enum
-from doge_exports import HeaderExports, ExportedClass, ExportedEnum, ExportedStruct, ModuleManifest
+from doge_exports import HeaderExports, ExportedClass, ExportedEnum, ExportedStruct, ModuleManifest, load_module_manifest
+import doge_globals as g
+from doge_project import DogeProjectConfig, DogeModuleConfig, load_project_config, load_module_config
 
 class TypeKind(Enum):
     ENUM = "Enum"
@@ -45,12 +48,13 @@ class DogeTypeDatabase:
         elif isinstance(type_info, StructInfo):
             self.structs[type_info.name] = type_info
 
-    def add_module_exports(self, module_exports: ModuleManifest) -> None:
-        for header_name, header_exports in module_exports.exports.items():
+    def append_manifest(self, module_manifest: ModuleManifest) -> None:
+        moudle_name = module_manifest.module_name
+        for header_name, header_exports in module_manifest.exports.items():
             for enum_name, enum in header_exports.enums.items():
                 enum_info = EnumInfo(
                     name=enum_name,
-                    module=module_exports.module_name,
+                    module=moudle_name,
                     kind=TypeKind.ENUM,
                     underlying_type=enum.underlying_type
                 )
@@ -58,14 +62,14 @@ class DogeTypeDatabase:
             for class_name, cls in header_exports.classes.items():
                 class_info = ClassInfo(
                     name=class_name,
-                    module=module_exports.module_name,
+                    module=moudle_name,
                     kind=TypeKind.CLASS
                 )
                 self.add(class_info)
             for struct_name, struct in header_exports.structs.items():
                 struct_info = StructInfo(
                     name=struct_name,
-                    module=module_exports.module_name,
+                    module=moudle_name,
                     kind=TypeKind.STRUCT
                 )
                 self.add(struct_info)
@@ -76,7 +80,21 @@ class DogeTypeDatabase:
     def contains(self, type_name: str) -> bool:
         return type_name in self.types
     
+def build_database(project_name: str, module_name: str) -> DogeTypeDatabase:
+    db = DogeTypeDatabase() 
+    project : DogeProjectConfig = g.projects.get(project_name)
+    if not project:
+        raise ValueError(f"Project {project_name} not found in globals.")
     
+    module_manifest_path = project.get_module_manifest_path(module_name)
+    manifest = load_module_manifest(module_manifest_path)
+
+    for dep_module_name in manifest.all_dependencies:
+        dep_manifest_path = project.get_module_manifest_path(dep_module_name)
+        dep_manifest = load_module_manifest(dep_manifest_path)
+        db.append_manifest(dep_manifest)
+
+    db.append_manifest(manifest)
+    return db
 
 
-    
