@@ -21,8 +21,12 @@ BUILD_MODE = "Editor"
 
 target_project_config = None
 
-# Projects
-projects = {}
+# Project and module config storage
+
+# project name -> DogeProjectConfig
+project_configs = {} 
+# module name -> DogeModuleConfig
+module_configs = {} 
 
 project_meta = None
 module_meta = None

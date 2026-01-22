@@ -162,3 +162,15 @@ def get_all_dependent_modules(project_cfg: DogeProjectConfig, module_name: str) 
     return result
 
 
+def get_project_config(project_name: str) -> DogeProjectConfig:
+    return g.project_configs.get(project_name)
+
+def get_module_config(module_name: str) -> DogeModuleConfig:
+    if module_name in g.module_configs:
+        return g.module_configs[module_name]
+    for project in g.project_configs.values():
+        module_path = project.modules.get(module_name)
+        if module_path:
+            module_cfg = load_module_config(module_path)
+            g.module_configs[module_name] = module_cfg
+            return module_cfg

@@ -80,7 +80,7 @@ if __name__ == "__main__":
         logging.error(f"Failed to load project file {args.project_file}: {e}")
         sys.exit(1)
 
-    g.projects[g.target_project_cfg.name] = g.target_project_cfg
+    g.project_configs[g.target_project_cfg.name] = g.target_project_cfg
 
     if args.function == "get_module_dirs":
         exec_get_module_dirs(args)
