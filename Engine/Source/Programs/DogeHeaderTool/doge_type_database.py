@@ -49,12 +49,12 @@ class DogeTypeDatabase:
             self.structs[type_info.name] = type_info
 
     def append_manifest(self, module_manifest: ModuleManifest) -> None:
-        moudle_name = module_manifest.module_name
+        module_name = module_manifest.module_name
         for header_name, header_exports in module_manifest.exports.items():
             for enum_name, enum in header_exports.enums.items():
                 enum_info = EnumInfo(
                     name=enum_name,
-                    module=moudle_name,
+                    module=module_name,
                     kind=TypeKind.ENUM,
                     underlying_type=enum.underlying_type
                 )
@@ -62,14 +62,14 @@ class DogeTypeDatabase:
             for class_name, cls in header_exports.classes.items():
                 class_info = ClassInfo(
                     name=class_name,
-                    module=moudle_name,
+                    module=module_name,
                     kind=TypeKind.CLASS
                 )
                 self.add(class_info)
             for struct_name, struct in header_exports.structs.items():
                 struct_info = StructInfo(
                     name=struct_name,
-                    module=moudle_name,
+                    module=module_name,
                     kind=TypeKind.STRUCT
                 )
                 self.add(struct_info)
