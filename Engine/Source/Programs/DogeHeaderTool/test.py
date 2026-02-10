@@ -1,8 +1,8 @@
-import config
-import utils
+import sys
 
-config.initialize()
-engine_project_config = config.get_project_config("Engine")
-core_module_config = config.get_module_config("Core")
+import main
 
-non_existent_module_config = config.get_module_config("NonExistentModule")
+sys.argv = ["main.py", "generate_module_cmake_data", "-m", "Core"]
+
+if __name__ == "__main__":
+    main.main()
