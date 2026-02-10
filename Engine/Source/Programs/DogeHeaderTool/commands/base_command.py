@@ -51,3 +51,26 @@ class GenerateModuleCMakeFileCommand(Command):
 
     def execute(self, args):
         print(f"Generating CMake data for module: {args.module}")
+
+
+class GenerateModuleManifestFileCommand(Command):
+    def __init__(self):
+        super().__init__("generate_module_manifest_file", "Generate module manifest file.")
+
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        parser.add_argument("-m","--module", help="The name of the module to generate manifest file for.")
+
+    def execute(self, args):
+        print(f"Generating manifest file for module: {args.module}")
+
+class GenerateReflectionFilesCommand(Command):
+    def __init__(self):
+        super().__init__("generate_reflection_files", "Run the header tool to generate necessary files for the reflection system.")
+
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        parser.add_argument("-m","--module", help="The name of the module to run the header tool for.")
+        parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux).", default="Win64", choices=["Win64", "Linux"])
+        parser.add_argument("-b","--build_mode", help="The build mode.", default="Editor", choices=["Game", "Editor"])
+
+    def execute(self, args):
+        print(f"Running header tool for module: {args.module}, architecture: {args.arch}, build mode: {args.build_mode}")
