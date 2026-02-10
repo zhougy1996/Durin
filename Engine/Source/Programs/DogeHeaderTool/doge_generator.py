@@ -267,5 +267,18 @@ class DHTCodeGen_Cpp:
 def generate_module_manifest_file(module_manifest: ModuleManifest, manifest_file: str) -> None:
     os.makedirs(os.path.dirname(manifest_file), exist_ok=True)
     output_data = module_manifest.to_json_dict()
-    with open(manifest_file, "w") as f:
-        json.dump(output_data, f, indent=4)
+    content = json.dumps(output_data, indent=4)
+    generate_file(manifest_file, content)
+
+def generate_file(filepath: str, content: str, compare: bool = True) -> None:
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    # Only write file if content has changed
+    if compare and os.path.exists(filepath):
+        with open(filepath, "r") as f:
+            existing_content = f.read()
+            if existing_content == content:
+                logging.debug(f"No changes detected for {filepath}. Skipping write.")
+                return
+    # Write new content to file no matter what
+    with open(filepath, "w") as f:
+        f.write(content)

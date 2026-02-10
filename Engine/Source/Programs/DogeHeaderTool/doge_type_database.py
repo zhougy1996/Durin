@@ -4,7 +4,7 @@ from typing import Dict, List
 from enum import Enum
 from doge_exports import HeaderExports, ExportedClass, ExportedEnum, ExportedStruct, ModuleManifest, load_module_manifest
 import doge_globals as g
-from doge_project import DogeProjectConfig, DogeModuleConfig, load_project_config, load_module_config
+from doge_project import *
 
 class TypeKind(Enum):
     ENUM = "Enum"
@@ -82,9 +82,7 @@ class DogeTypeDatabase:
     
 def build_database(project_name: str, module_name: str) -> DogeTypeDatabase:
     db = DogeTypeDatabase() 
-    project : DogeProjectConfig = g.projects.get(project_name)
-    if not project:
-        raise ValueError(f"Project {project_name} not found in globals.")
+    project : DogeProjectConfig = get_project_config(project_name)
     
     module_manifest_path = project.get_module_manifest_path(module_name)
     manifest = load_module_manifest(module_manifest_path)

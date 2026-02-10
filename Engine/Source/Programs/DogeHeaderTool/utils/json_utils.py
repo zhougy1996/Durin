@@ -1,12 +1,13 @@
+from pathlib import Path
 from dataclasses import fields, is_dataclass
 from typing import Dict, Any
 
 import os
 import re
 import json
-
-def load_json_file(file_path: str, required_fields: list = None) -> Dict[str, Any]:
-    if not os.path.exists(file_path):
+    
+def load_json_file(file_path: Path, required_fields: list = None) -> Dict[str, Any]:
+    if not file_path.exists():
         raise FileNotFoundError(f"File {file_path} does not exist.")
     
     with open(file_path, "r", encoding="utf-8") as f:

@@ -93,21 +93,6 @@ def get_module_dirs(project_cfg) -> list[str]:
         module_dirs.append(os.path.dirname(module_file))
     return module_dirs
 
-def generate_module_dependency_file(project_cfg: DogeProjectConfig, module_name: str) -> None:
-    module_file = project_cfg.modules.get(module_name, "")
-    if not module_file:
-        logging.error(f"Module {module_name} not found in project {project_cfg.name}.")
-        return
-    
-    module = load_module_config(os.path.join(project_cfg.dir, module_file))
-    dependency_file_path = os.path.join(project_cfg.get_module_dht_dir(module_name), f"{module_name}_Dependencies.txt")
-    
-    with open(dependency_file_path, "w") as f:
-        for dep in module.private_dependencies:
-            f.write(f"{dep}\n")
-    
-    logging.info(f"Generated dependency file at {dependency_file_path}")
-
 def generate_module_cmake_file(project_cfg: DogeProjectConfig, module_name: str, output_path: str) -> None:
     module_file = project_cfg.modules.get(module_name, "")
     if not module_file:
@@ -117,7 +102,7 @@ def generate_module_cmake_file(project_cfg: DogeProjectConfig, module_name: str,
     dependent_modules = get_all_dependent_modules(project_cfg, module_name)
     dep_manifest_files = [project_cfg.get_module_manifest_path(mod.name) for mod in dependent_modules]
 
-    module = load_module_config(os.path.join(project_cfg.dir, module_file))
+    module = get_module_config(module_name)
     # pure data file, no logic yet
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w") as f:
@@ -161,9 +146,8 @@ def get_all_dependent_modules(project_cfg: DogeProjectConfig, module_name: str) 
 
     return result
 
-
 def get_project_config(project_name: str) -> DogeProjectConfig:
-    return g.project_configs.get(project_name)
+    return g.project_configs[project_name]
 
 def get_module_config(module_name: str) -> DogeModuleConfig:
     if module_name in g.module_configs:

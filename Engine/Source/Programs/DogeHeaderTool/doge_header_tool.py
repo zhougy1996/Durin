@@ -45,11 +45,11 @@ def generate_files(header_filepath: str, output_dir: str):
     header_filename = os.path.splitext(os.path.basename(header_filepath))[0]
     reflection_header_file = os.path.join(output_dir, f"{header_filename}.gen.h")
     reflection_source_file = os.path.join(output_dir, f"{header_filename}.gen.cpp")
-    with open(reflection_header_file, "w") as f:
-        f.write("// Generated reflection header file\n")
 
-    with open(reflection_source_file, "w") as f:
-        f.write("// Generated reflection source file\n")
+    gen_header_content = "// Generated reflection header file\n"
+    gen_source_content = "// Generated reflection source file\n"
+    generator.generate_file(reflection_header_file, gen_header_content)
+    generator.generate_file(reflection_source_file, gen_source_content)
     
 
 def setup_environment(arch: str, build_mode: str) -> None:

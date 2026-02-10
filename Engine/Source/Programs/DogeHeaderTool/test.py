@@ -1,7 +1,9 @@
-import config.base_config
+import config
 
-
-engine_project_config_file_path = "G:/Workspace/Doge/Engine/Engine.dproject"
-
-# engine_project_config = config.project_config.load_project_config_file(engine_project_config_file_path)
-print(config.base_config.LIBCLANG_DLL_PATH)
+config.initialize()
+engine_project_config = config.get_project_config("Engine")
+core_module_config = config.get_module_config("Core")
+engine_module_config = config.get_module_config("Engine")
+print(engine_project_config)
+print(core_module_config)
+print(engine_module_config)

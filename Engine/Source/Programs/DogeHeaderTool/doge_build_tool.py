@@ -60,7 +60,7 @@ def setup_parser() -> argparse.ArgumentParser:
     # Setup common arguments
     common_parser = argparse.ArgumentParser(add_help=False)
     common_parser.add_argument("-p", "--project_file", help="Specify the Doge project file (.dproject), default is the engine project file.", required=True)
-    common_parser.add_argument("-l", "--log", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).", default="DEBUG", required=False, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+    common_parser.add_argument("-l", "--log", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).", default="INFO", required=False, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
 
     add_subparser_get_module_dirs(subparsers, common_parser)
     add_subparser_generate_module_cmake_file(subparsers, common_parser)
