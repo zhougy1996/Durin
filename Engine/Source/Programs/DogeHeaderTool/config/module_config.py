@@ -1,7 +1,7 @@
 from pathlib import Path
 from dataclasses import dataclass, field
 from utils.json_utils import load_json_file, dataclass_from_dict
-from config.project_config import get_project_config, find_module
+from .project_config import get_project_config, find_module
 
 # Stores all loaded module configurations
 MODULE_CONFIGS: dict[str, "DogeModuleConfig"] = {}

@@ -1,8 +1,7 @@
-import os
 from pathlib import Path
 from dataclasses import dataclass, field
-from utils.json_utils import load_json_file, dataclass_from_dict
 from typing import Dict
+from utils.json_utils import load_json_file, dataclass_from_dict
 
 # project name -> project config file path, loaded from the registered projects JSON file
 REGISTERED_DOGE_PROJECTS: Dict[str, Path] = {} 
@@ -33,8 +32,8 @@ class DogeProjectConfig:
 
 # Prepares the registered project config file paths by loading them from the JSON file and caching them in memory    
 def prepare_registered_project_config_file_paths() -> None:
-    from config.base_config import DOGE_ENGINE_PROJECT_FILE_PATH, DOGE_PROJECT_REGISTER_FILE_PATH
-    REGISTERED_DOGE_PROJECTS["Engine"] = DOGE_ENGINE_PROJECT_FILE_PATH
+    from config.base_config import DOGE_ENGINE_PROJECT_DIR, DOGE_PROJECT_REGISTER_FILE_PATH
+    REGISTERED_DOGE_PROJECTS["Engine"] = DOGE_ENGINE_PROJECT_DIR / "Engine.dproject"
     # Load the registered projects from the JSON file
     if DOGE_PROJECT_REGISTER_FILE_PATH.exists():
         registered_projects_data = load_json_file(DOGE_PROJECT_REGISTER_FILE_PATH, required_fields=["Projects"])

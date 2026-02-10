@@ -1,19 +1,37 @@
 from pathlib import Path
 import config
 
-def get_dht_root_dir() -> Path:
+def get_dht_tool_dir() -> Path:
     return config.base_config.DHT_ROOT_DIR
 
-def get_libclang_path() -> str:
-    return config.base_config.LIBCLANG_PATH
+def get_libclang_bin_dir() -> Path:
+    return config.base_config.LIBCLANG_BIN_DIR
 
-def get_project_config_path(project_name: str) -> str:
-    if project_name not in config.project_config.PROJECT_CONFIGS:
-        raise ValueError(f"Project '{project_name}' not found in PROJECT_CONFIGS.")
-    return config.project_config.PROJECT_CONFIGS[project_name].config_file_path
+def get_project_dir(project_name: str) -> Path:
+    project_config = config.get_project_config(project_name)
+    return project_config.project_dir
 
-def get_module_config_path(module_name: str) -> str:
-    if module_name not in config.module_config.MODULE_CONFIGS:
-        raise ValueError(f"Module '{module_name}' not found in MODULE_CONFIGS.")
-    return config.module_config.MODULE_CONFIGS[module_name].config_file_path
+def get_project_source_dir(project_name: str) -> Path:
+    return get_project_dir(project_name) / "Source"
 
+def get_project_intermediate_dir(project_name: str) -> Path:
+    return get_project_dir(project_name) / "Intermediate"
+
+def get_project_binary_dir(project_name: str) -> Path:
+    return get_project_dir(project_name) / "Binaries"
+
+def get_project_config_dir(project_name: str) -> Path:
+    return get_project_dir(project_name) / "Configs"
+
+def get_module_intermediate_dir(module_name: str) -> Path:
+    project_name = config.get_module_config(module_name).owning_project
+    return get_project_intermediate_dir(project_name) / "Build" / config.ARCH / config.BUILD_MODE / module_name
+
+def get_module_cmake_file_path(module_name: str) -> Path:
+    return get_module_intermediate_dir(module_name) / f"{module_name}.cmake"
+
+def get_module_dht_output_dir(module_name: str) -> Path:
+    return get_module_intermediate_dir(module_name) / "DHT"
+    
+def get_module_manifest_file_path(module_name: str) -> Path:
+    return get_module_dht_output_dir(module_name) / f"{module_name}.module.manifest"

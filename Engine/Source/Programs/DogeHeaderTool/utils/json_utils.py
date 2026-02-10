@@ -21,12 +21,12 @@ def load_json_file(file_path: Path, required_fields: list = None) -> Dict[str, A
     return data
 
 # Converts a PascalCase string to snake_case
-def pascal_to_snake(pascal_str: str) -> str:
+def _pascal_to_snake(pascal_str: str) -> str:
     snake_str = re.sub(r'(?<!^)(?=[A-Z])', '_', pascal_str).lower()
     return snake_str
 
 # Converts a snake_case string to PascalCase
-def snake_to_pascal(snake_str: str) -> str:
+def _snake_to_pascal(snake_str: str) -> str:
     pascal_str = ''.join(word.capitalize() for word in snake_str.split('_'))
     return pascal_str
 
@@ -43,7 +43,7 @@ def dataclass_from_dict(cls, data: Dict[str, Any], auto_convert: bool = True) ->
         if json_key:
             field_mapping[field.name] = json_key
         elif auto_convert:
-            field_mapping[field.name] = snake_to_pascal(field.name)
+            field_mapping[field.name] = _snake_to_pascal(field.name)
     
     init_kwargs = {}
     for py_field, json_field in field_mapping.items():
