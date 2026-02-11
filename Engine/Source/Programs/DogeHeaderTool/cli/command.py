@@ -92,4 +92,5 @@ class GenerateReflectionFilesCommand(Command):
         add_common_arguments(parser)
 
     def execute(self, args):
-        print(f"Running header tool for module: {args.module}, architecture: {args.arch}, build mode: {args.build_mode}")
+        from generators.module_reflection_files_generator import generate_reflection_files
+        generate_reflection_files(args.module)
