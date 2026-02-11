@@ -31,6 +31,9 @@ class DogeModuleConfig:
         instance.module_dir = instance.config_file_path.parent
         instance.__post_init__()
         return instance
+    
+    def get_reflect_header_paths(self) -> list[Path]:
+        return [(self.module_dir / header).resolve() for header in self.reflect_headers]
 
 # Load the configuration for a module from a file, and caches it
 def _load_module_config_file(module_config_file_path: Path, owning_project: str) -> DogeModuleConfig:

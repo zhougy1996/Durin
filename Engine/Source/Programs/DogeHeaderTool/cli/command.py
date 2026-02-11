@@ -60,6 +60,18 @@ class GenerateModuleCMakeFileCommand(Command):
         from generators.module_cmake_file_generator import generate_module_cmake_file
         generate_module_cmake_file(args.module)
 
+class GenerateModuleExportFileCommand(Command):
+    def __init__(self):
+        super().__init__("generate_module_export_file", "Generate the module export file containing export information extracted from the module's headers.")
+
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        parser.add_argument("-m","--module", help="The name of the module to generate export file for.", required=True)
+        add_common_arguments(parser)
+
+    def execute(self, args):
+        from generators.module_export_file_generator import generate_module_export_file
+        generate_module_export_file(args.module)
+
 class GenerateModuleManifestFileCommand(Command):
     def __init__(self):
         super().__init__("generate_module_manifest_file", "Generate module manifest file.")
