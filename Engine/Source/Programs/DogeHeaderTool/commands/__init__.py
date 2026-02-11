@@ -1,1 +1,1 @@
-from .base_command import *
+from .command import *
