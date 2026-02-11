@@ -2,11 +2,17 @@ import logging
 import sys
 import argparse
 
+def add_common_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux).", default="Win64", choices=["Win64", "Linux"])
+    parser.add_argument("-b","--build_mode", help="The build mode.", default="Editor", choices=["Game", "Editor"])
+    parser.add_argument("-l", "--log", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).", default="INFO", required=False, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+
 class Command:
     def __init__(self, name: str, description: str):
         self.name = name
         self.description = description
 
+    # Add command-specific arguments to the parser
     def add_arguments(self, parser: argparse.ArgumentParser):
         pass
 
@@ -58,7 +64,7 @@ class GenerateModuleManifestFileCommand(Command):
         super().__init__("generate_module_manifest_file", "Generate module manifest file.")
 
     def add_arguments(self, parser: argparse.ArgumentParser):
-        parser.add_argument("-m","--module", help="The name of the module to generate manifest file for.")
+        parser.add_argument("-m","--module", help="The name of the module to generate manifest file for.", required=True)
 
     def execute(self, args):
         print(f"Generating manifest file for module: {args.module}")
@@ -68,9 +74,8 @@ class GenerateReflectionFilesCommand(Command):
         super().__init__("generate_reflection_files", "Run the header tool to generate necessary files for the reflection system.")
 
     def add_arguments(self, parser: argparse.ArgumentParser):
-        parser.add_argument("-m","--module", help="The name of the module to run the header tool for.")
-        parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux).", default="Win64", choices=["Win64", "Linux"])
-        parser.add_argument("-b","--build_mode", help="The build mode.", default="Editor", choices=["Game", "Editor"])
+        parser.add_argument("-m","--module", help="The name of the module to run the header tool for.", required=True)
+        add_common_arguments(parser)
 
     def execute(self, args):
         print(f"Running header tool for module: {args.module}, architecture: {args.arch}, build mode: {args.build_mode}")
