@@ -57,3 +57,19 @@ def get_module_config(module_name: str) -> DogeModuleConfig:
         module_config = MODULE_CONFIGS[module_name]
         return module_config
     return _load_module_config(module_name)
+
+def collect_all_dependent_modules(module_name: str, visited=None) -> set[str]:
+    if visited is None:
+        visited = set()
+    
+    if module_name in visited:
+        return set()  # Avoid circular dependencies
+    
+    visited.add(module_name)
+    module_config = get_module_config(module_name)
+    all_deps = set(module_config.private_dependencies + module_config.public_dependencies)
+    
+    for dep in all_deps.copy():
+        all_deps.update(collect_all_dependent_modules(dep, visited))
+    
+    return all_deps

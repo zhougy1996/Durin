@@ -50,14 +50,15 @@ class CommandManager:
 
 class GenerateModuleCMakeFileCommand(Command):
     def __init__(self):
-        super().__init__("generate_module_cmake_data", "Generate CMake data for a module.")
+        super().__init__("generate_module_cmake_file", "Generate the CMake data file for a module.")
 
     def add_arguments(self, parser: argparse.ArgumentParser):
         parser.add_argument("-m","--module", help="The name of the module to generate CMake data for.")
+        add_common_arguments(parser)
 
     def execute(self, args):
-        print(f"Generating CMake data for module: {args.module}")
-
+        from generators.module_cmake_file_generator import generate_module_cmake_file
+        generate_module_cmake_file(args.module)
 
 class GenerateModuleManifestFileCommand(Command):
     def __init__(self):
@@ -65,6 +66,7 @@ class GenerateModuleManifestFileCommand(Command):
 
     def add_arguments(self, parser: argparse.ArgumentParser):
         parser.add_argument("-m","--module", help="The name of the module to generate manifest file for.", required=True)
+        add_common_arguments(parser)
 
     def execute(self, args):
         print(f"Generating manifest file for module: {args.module}")

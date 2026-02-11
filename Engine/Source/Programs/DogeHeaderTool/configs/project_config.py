@@ -32,7 +32,7 @@ class DogeProjectConfig:
 
 # Prepares the registered project config file paths by loading them from the JSON file and caching them in memory    
 def prepare_registered_project_config_file_paths() -> None:
-    from config.base_config import DOGE_ENGINE_PROJECT_DIR, DOGE_PROJECT_REGISTER_FILE_PATH
+    from configs.base_config import DOGE_ENGINE_PROJECT_DIR, DOGE_PROJECT_REGISTER_FILE_PATH
     REGISTERED_DOGE_PROJECTS["Engine"] = DOGE_ENGINE_PROJECT_DIR / "Engine.dproject"
     # Load the registered projects from the JSON file
     if DOGE_PROJECT_REGISTER_FILE_PATH.exists():
