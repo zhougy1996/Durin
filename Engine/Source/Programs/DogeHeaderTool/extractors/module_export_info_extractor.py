@@ -13,7 +13,6 @@ _clang_args = [
     "-D_MSC_VER=1930",
     "-w",
     "-MG",
-    "-M",
     "-ferror-limit=0",
     "-D_DHT_EXPORTS_PARSER="
 ]
