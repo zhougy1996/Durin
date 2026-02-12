@@ -104,7 +104,6 @@ function(doge_add_module module_name)
 	# Generate module CMake file using DHT and include it to get module-specific variables
 	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/Editor/${module_name}/${module_name}.module.cmake")
 	execute_process(
-		OUTPUT_FILE ${module_cmake_file}
 		COMMAND ${DHT_MAIN} generate_module_cmake_file -m ${module_name}
 		WORKING_DIRECTORY ${DHT_DIR}
 	)
