@@ -3,9 +3,10 @@
 set(PYTHON_EXE python)
 
 set(DHT_Dir ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
+set(DHT_DIR ${DHT_Dir})
 # set(DHT_EXE "${DHT_Dir}/dht.py")
 set(DBT_EXE ${PYTHON_EXE} "${DHT_Dir}/doge_build_tool.py")
-set(DHT_MAIN ${PYTHON_EXE} "${DHT_Dir}/cli/main.py")
+set(DHT_MAIN ${PYTHON_EXE} "${DHT_Dir}/main.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
@@ -103,7 +104,9 @@ function(doge_add_module module_name)
 	# Generate module CMake file using DHT and include it to get module-specific variables
 	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/Editor/${module_name}/${module_name}.module.cmake")
 	execute_process(
+		OUTPUT_FILE ${module_cmake_file}
 		COMMAND ${DHT_MAIN} generate_module_cmake_file -m ${module_name}
+		WORKING_DIRECTORY ${DHT_DIR}
 	)
 	include(${module_cmake_file})
 
@@ -120,22 +123,24 @@ function(doge_add_module module_name)
 	list(APPEND generated_reflection_files ${module_dht_output_dir}/${module_name}.module.gen.cpp)
 
 	add_custom_command(
+		OUTPUT ${module_export_file}
+		COMMAND ${DHT_MAIN} generate_module_export_file -m "${module_name}"
+		DEPENDS ${module_reflect_headers} ${module_cmake_file}
+		WORKING_DIRECTORY ${DHT_DIR}
+	)
+
+	add_custom_command(
 		OUTPUT ${module_manifest_file}
-		COMMAND ${DBT_EXE} generate_module_manifest_file
-		-p "${DOGE_PROJECT_FILE}"
-		-m "${module_name}"
-		DEPENDS ${module_reflect_headers} ${module_file} ${DOGE_PROJECT_FILE}
-		WORKING_DIRECTORY ${DOGE_PROJECT_DIR}
+		COMMAND ${DHT_MAIN} generate_module_manifest_file -m "${module_name}"
+		DEPENDS ${module_cmake_file} ${module_manifest_dependencies} ${module_export_file}
+		WORKING_DIRECTORY ${DHT_DIR}
 	)
 
 	add_custom_command(
 		OUTPUT ${generated_reflection_files}
-		COMMAND ${DBT_EXE} run_header_tool
-		-p "${DOGE_PROJECT_FILE}"
-		-m "${module_name}"
-		DEPENDS ${module_manifest_file} ${module_dependency_manifests}
-		WORKING_DIRECTORY ${DOGE_PROJECT_DIR}
-		# COMMENT "Running DHT for module: ${module_name}"
+		COMMAND ${DHT_MAIN} generate_reflection_files -m "${module_name}"
+		DEPENDS ${module_reflect_headers} ${module_manifest_file}
+		WORKING_DIRECTORY ${DHT_DIR}
 	)
 
 	doge_collect_and_organize_source_files(module_srcs)

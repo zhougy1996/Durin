@@ -81,7 +81,8 @@ class GenerateModuleManifestFileCommand(Command):
         add_common_arguments(parser)
 
     def execute(self, args):
-        print(f"Generating manifest file for module: {args.module}")
+        from generators.module_manifest_file_generator import generate_module_manifest_file
+        generate_module_manifest_file(args.module)
 
 class GenerateReflectionFilesCommand(Command):
     def __init__(self):

@@ -9,14 +9,18 @@ def _generate_empty_reflection_files(module_name):
 
     empty_cpp_content = "// This is an empty generated reflection source file.\n"
     empty_h_content = "// This is an empty generated reflection header file.\n"
+    output_dir = utils.get_module_dht_output_dir(module_name)
 
     for header in module_config.reflect_headers:
         header_filename = os.path.splitext(os.path.basename(header))[0]
-        output_dir = utils.get_module_dht_output_dir(module_name)
         reflection_header_file = output_dir / f"{header_filename}.gen.h"
         reflection_source_file = output_dir / f"{header_filename}.gen.cpp"
         utils.generate_file(reflection_header_file, empty_h_content)
         utils.generate_file(reflection_source_file, empty_cpp_content)
+
+    empty_module_cpp_content = "// This is an empty generated module source file for reflection.\n"
+    utils.generate_file(output_dir / f"{module_name}.module.gen.cpp", empty_module_cpp_content)
+
 
 def generate_reflection_files(module_name):
     _generate_empty_reflection_files(module_name)
