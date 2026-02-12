@@ -23,15 +23,21 @@ def get_project_binary_dir(project_name: str) -> Path:
 def get_project_config_dir(project_name: str) -> Path:
     return get_project_dir(project_name) / "Configs"
 
-def get_module_intermediate_dir(module_name: str) -> Path:
+def get_project_intermediate_build_dir(project_name: str) -> Path:
+    return get_project_intermediate_dir(project_name) / "Build" / configs.ARCH / configs.BUILD_MODE
+
+def get_project_cmake_file_path(project_name: str) -> Path:
+    return get_project_intermediate_build_dir(project_name) / f"{project_name}.project.cmake"
+
+def get_module_intermediate_build_dir(module_name: str) -> Path:
     project_name = configs.get_module_config(module_name).owning_project
-    return get_project_intermediate_dir(project_name) / "Build" / configs.ARCH / configs.BUILD_MODE / module_name
+    return get_project_intermediate_build_dir(project_name) / module_name
 
 def get_module_cmake_file_path(module_name: str) -> Path:
-    return get_module_intermediate_dir(module_name) / f"{module_name}.module.cmake"
+    return get_module_intermediate_build_dir(module_name) / f"{module_name}.module.cmake"
 
 def get_module_dht_output_dir(module_name: str) -> Path:
-    return get_module_intermediate_dir(module_name) / "DHT"
+    return get_module_intermediate_build_dir(module_name) / "DHT"
 
 def get_module_export_file_path(module_name: str) -> Path:
     return get_module_dht_output_dir(module_name) / f"{module_name}.export"

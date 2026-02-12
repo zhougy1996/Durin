@@ -48,12 +48,24 @@ class CommandManager:
             logging.error(f"Unknown command: {name}")
             sys.exit(1)
 
+class GenerateProjectCMakeFileCommand(Command):
+    def __init__(self):
+        super().__init__("generate_project_cmake_file", "Generate the CMake data file for the entire project.")
+
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        parser.add_argument("-p","--project", help="The name of the project to generate CMake data for.", required=True)
+        add_common_arguments(parser)
+
+    def execute(self, args):
+        from generators.project_cmake_file_generator import generate_project_cmake_file
+        generate_project_cmake_file(args.project)
+
 class GenerateModuleCMakeFileCommand(Command):
     def __init__(self):
         super().__init__("generate_module_cmake_file", "Generate the CMake data file for a module.")
 
     def add_arguments(self, parser: argparse.ArgumentParser):
-        parser.add_argument("-m","--module", help="The name of the module to generate CMake data for.")
+        parser.add_argument("-m","--module", help="The name of the module to generate CMake data for.", required=True)
         add_common_arguments(parser)
 
     def execute(self, args):

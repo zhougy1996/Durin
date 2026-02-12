@@ -2,40 +2,23 @@
 
 set(PYTHON_EXE python)
 
-set(DHT_Dir ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
-set(DHT_DIR ${DHT_Dir})
-# set(DHT_EXE "${DHT_Dir}/dht.py")
-set(DBT_EXE ${PYTHON_EXE} "${DHT_Dir}/doge_build_tool.py")
-set(DHT_MAIN ${PYTHON_EXE} "${DHT_Dir}/main.py")
+set(DHT_DIR ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
+set(DHT_MAIN ${PYTHON_EXE} "${DHT_DIR}/main.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
 	message("-- Project: ${project_name}")
-	set(dproject_file ${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject)
+	set(DOGE_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DOGE_ARCH}/Editor")
 
-	# set global project variables
-	set(DOGE_PROJECT_NAME ${project_name})
-	set(DOGE_PROJECT_FILE ${dproject_file})
-	set(DOGE_PROJECT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-	set(DOGE_PROJECT_CONFIG_DIR "${DOGE_PROJECT_DIR}/Configs")
-	set(DOGE_PROJECT_SCRIPT_DIR "${DOGE_PROJECT_DIR}/Scripts")
-	set(DOGE_PROJECT_SOURCE_DIR "${DOGE_PROJECT_DIR}/Source")
-	set(DOGE_PROJECT_BINARY_DIR "${DOGE_PROJECT_DIR}/Binaries")
-	set(DOGE_PROJECT_INTERMEDIATE_DIR "${DOGE_PROJECT_DIR}/Intermediate")
+	set(project_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${project_name}.project.cmake")
+	execute_process(COMMAND ${DHT_MAIN} generate_project_cmake_file -p ${project_name})
+	include(${project_cmake_file})
 
-	# Make CMake re-configure if the project definition file changes
-	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-		${dproject_file}
-	)
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${project_config_file}) # Make CMake re-configure if the project definition file changes
 
-	execute_process(
-		COMMAND ${DBT_EXE} get_module_dirs -p ${dproject_file}
-		OUTPUT_VARIABLE MODULE_DIRS
-		OUTPUT_STRIP_TRAILING_WHITESPACE
-	)
-
-	foreach(dir IN LISTS MODULE_DIRS)
-		add_subdirectory(${dir})
+	# Add subdirectories for each module
+	foreach(_dir IN LISTS project_module_dirs)
+		add_subdirectory(${_dir})
 	endforeach()
 endfunction()
 
@@ -102,11 +85,8 @@ function(doge_add_module module_name)
 	message("--- Module: ${module_name}")
 
 	# Generate module CMake file using DHT and include it to get module-specific variables
-	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/Editor/${module_name}/${module_name}.module.cmake")
-	execute_process(
-		COMMAND ${DHT_MAIN} generate_module_cmake_file -m ${module_name}
-		WORKING_DIRECTORY ${DHT_DIR}
-	)
+	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
+	execute_process(COMMAND ${DHT_MAIN} generate_module_cmake_file -m ${module_name})
 	include(${module_cmake_file})
 
 	# Make CMake re-configure if the module definition file changes
@@ -125,21 +105,18 @@ function(doge_add_module module_name)
 		OUTPUT ${module_export_file}
 		COMMAND ${DHT_MAIN} generate_module_export_file -m "${module_name}"
 		DEPENDS ${module_reflect_headers} ${module_cmake_file}
-		WORKING_DIRECTORY ${DHT_DIR}
 	)
 
 	add_custom_command(
 		OUTPUT ${module_manifest_file}
 		COMMAND ${DHT_MAIN} generate_module_manifest_file -m "${module_name}"
 		DEPENDS ${module_cmake_file} ${module_manifest_dependencies} ${module_export_file}
-		WORKING_DIRECTORY ${DHT_DIR}
 	)
 
 	add_custom_command(
 		OUTPUT ${generated_reflection_files}
 		COMMAND ${DHT_MAIN} generate_reflection_files -m "${module_name}"
 		DEPENDS ${module_reflect_headers} ${module_manifest_file}
-		WORKING_DIRECTORY ${DHT_DIR}
 	)
 
 	doge_collect_and_organize_source_files(module_srcs)
@@ -153,6 +130,5 @@ function(doge_add_module module_name)
 		${module_private_dependencies}
 	)
 
-	get_filename_component(module_folder "${CMAKE_CURRENT_SOURCE_DIR}" DIRECTORY)
-	set_target_properties(${module_name} PROPERTIES FOLDER "${DOGE_PROJECT_NAME}/${module_folder}")
+	set_target_properties(${module_name} PROPERTIES FOLDER "${project_name}/${module_dir}")
 endfunction()
