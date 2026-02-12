@@ -5,6 +5,7 @@ set(PYTHON_EXE python)
 set(DHT_Dir ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
 # set(DHT_EXE "${DHT_Dir}/dht.py")
 set(DBT_EXE ${PYTHON_EXE} "${DHT_Dir}/doge_build_tool.py")
+set(DHT_MAIN ${PYTHON_EXE} "${DHT_Dir}/cli/main.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
@@ -99,29 +100,25 @@ endfunction()
 function(doge_add_module module_name)
 	message("--- Module: ${module_name}")
 
-	set(module_file ${CMAKE_CURRENT_SOURCE_DIR}/${module_name}.dmodule)
-	# Make CMake re-configure if the module definition file changes
-	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_file})
-
-	set(module_dht_dir "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/Editor/${module_name}/DHT")
+	# Generate module CMake file using DHT and include it to get module-specific variables
 	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_DIR}/Build/${DOGE_ARCH}/Editor/${module_name}/${module_name}.module.cmake")
 	execute_process(
-		COMMAND ${DBT_EXE} generate_module_cmake_file -p ${dproject_file} -m ${module_name} -o ${module_cmake_file}
-		OUTPUT_VARIABLE MODULE_DIRS
-		OUTPUT_STRIP_TRAILING_WHITESPACE
+		COMMAND ${DHT_MAIN} generate_module_cmake_file -m ${module_name}
 	)
 	include(${module_cmake_file})
 
-	# Collect DHT generated files
-	set(dht_generated_files "")
+	# Make CMake re-configure if the module definition file changes
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_config_file})
+
+	# Collect generated reflection files for the module
+	set(module_generated_reflection_files)
 	foreach(header ${module_reflect_headers})
 		get_filename_component(header_name ${header} NAME_WE)
-		list(APPEND dht_generated_files ${module_dht_dir}/${header_name}.gen.h)
-		list(APPEND dht_generated_files ${module_dht_dir}/${header_name}.gen.cpp)
+		list(APPEND generated_reflection_files ${module_dht_output_dir}/${header_name}.gen.h)
+		list(APPEND generated_reflection_files ${module_dht_output_dir}/${header_name}.gen.cpp)
 	endforeach()
-	list(APPEND dht_generated_files ${module_dht_dir}/${module_name}.module.gen.cpp)
+	list(APPEND generated_reflection_files ${module_dht_output_dir}/${module_name}.module.gen.cpp)
 
-	set(module_manifest_file "${module_dht_dir}/${module_name}.module.manifest")
 	add_custom_command(
 		OUTPUT ${module_manifest_file}
 		COMMAND ${DBT_EXE} generate_module_manifest_file
@@ -132,7 +129,7 @@ function(doge_add_module module_name)
 	)
 
 	add_custom_command(
-		OUTPUT ${dht_generated_files}
+		OUTPUT ${generated_reflection_files}
 		COMMAND ${DBT_EXE} run_header_tool
 		-p "${DOGE_PROJECT_FILE}"
 		-m "${module_name}"
@@ -144,9 +141,9 @@ function(doge_add_module module_name)
 	doge_collect_and_organize_source_files(module_srcs)
 	add_library(${module_name} SHARED
 		${module_srcs}
-		${dht_generated_files}
+		${generated_reflection_files}
 	)
-	doge_setup_shared_library(${module_name} ${module_dht_dir})
+	doge_setup_shared_library(${module_name} ${module_dht_output_dir})
 
 	target_link_libraries(${module_name} PRIVATE
 		${module_private_dependencies}
