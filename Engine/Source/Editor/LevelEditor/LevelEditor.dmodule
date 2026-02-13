@@ -9,7 +9,7 @@
         "Mona",
         "DogeEd"
     ],
-    "DHTHeaders": [
+    "ReflectHeaders": [
         "Private/TestDHT.h"
     ]
 }

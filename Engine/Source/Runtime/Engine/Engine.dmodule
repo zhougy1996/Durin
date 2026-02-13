@@ -8,7 +8,7 @@
         "MonaCore",
         "Mona"
     ],
-    "DHTHeaders": [
+    "ReflectHeaders": [
         "Public/Engine/Actor.h",
         "Public/Actors/StaticMeshActor.h",
         "Public/Components/ActorComponent.h",

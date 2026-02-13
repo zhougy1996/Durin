@@ -14,7 +14,7 @@ class DogeModuleConfig:
     owning_project: str = ""
     private_dependencies: list = field(default_factory=list)
     public_dependencies: list = field(default_factory=list)
-    reflect_headers: list = field(default_factory=list, metadata={"json_key": "DHTHeaders"})
+    reflect_headers: list = field(default_factory=list)
     api_macro: str = ""
 
     def __post_init__(self):
