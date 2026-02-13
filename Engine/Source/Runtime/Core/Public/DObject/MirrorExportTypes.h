@@ -2,7 +2,7 @@
 
 // Mirror export types
 // For use in generating code for other modules that need to reference core DObject types
-#ifdef DHT_EXPORTS_PARSER
+#ifdef _DHT_EXPORTS_PARSER
 
 DCLASS()
 class DObject
