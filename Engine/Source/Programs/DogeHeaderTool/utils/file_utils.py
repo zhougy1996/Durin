@@ -5,6 +5,11 @@ import hashlib
 from typing import Optional, Tuple
 
 @dataclass
+class LightFileFingerprint:
+    timestamp: float
+    file_size: int
+
+@dataclass
 class FileFingerprint:
     timestamp: float = 0.0
     file_size: int = 0
@@ -26,23 +31,16 @@ def calc_md5(file_path: Path, chunk_size: int = 8192) -> str:
         return hash_obj.hexdigest()
     except (PermissionError, OSError) as e:
         raise IOError(f"Error reading file {file_path}: {e}")
-
-def get_file_content_and_md5(file_path: Path, chunk_size: int = 8192) -> tuple[str, str]:
+    
+def get_light_file_fingerprint(file_path: Path) -> LightFileFingerprint:
     if not file_path.is_file():
         raise FileNotFoundError(f"File {file_path} does not exist.")
     try:
-        hash_obj = hashlib.md5()
-        content = ""
-        with open(file_path, "r", encoding="utf-8") as f:
-            while True:
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                content += chunk
-                hash_obj.update(chunk.encode("utf-8"))
-        return content, hash_obj.hexdigest()
+        timestamp = file_path.stat().st_mtime
+        file_size = file_path.stat().st_size
+        return LightFileFingerprint(timestamp=timestamp, file_size=file_size)
     except (PermissionError, OSError) as e:
-        raise IOError(f"Error reading file {file_path}: {e}")
+        raise IOError(f"Error accessing file {file_path}: {e}")
     
 def get_file_fingerprint(file_path: Path) -> FileFingerprint:
     if not file_path.is_file():

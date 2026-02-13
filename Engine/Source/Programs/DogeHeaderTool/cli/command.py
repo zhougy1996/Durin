@@ -48,6 +48,17 @@ class CommandManager:
             logging.error(f"Unknown command: {name}")
             sys.exit(1)
 
+
+class EmptyCommand(Command):
+    def __init__(self):
+        super().__init__("empty", "An empty command that does nothing.")
+
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        add_common_arguments(parser)
+
+    def execute(self, args):
+        pass
+
 class GenerateProjectCMakeFileCommand(Command):
     def __init__(self):
         super().__init__("generate_project_cmake_file", "Generate the CMake data file for the entire project.")

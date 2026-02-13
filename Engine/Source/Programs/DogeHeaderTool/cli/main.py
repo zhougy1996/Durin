@@ -8,6 +8,7 @@ def init_logging(log_level_str: str):
 
 def main():
     command_manager = CommandManager()
+    command_manager.register_command(EmptyCommand())
     command_manager.register_command(GenerateProjectCMakeFileCommand())
     command_manager.register_command(GenerateModuleCMakeFileCommand())
     command_manager.register_command(GenerateModuleExportFileCommand())
