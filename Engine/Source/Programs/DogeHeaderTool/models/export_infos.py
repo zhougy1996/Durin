@@ -35,6 +35,11 @@ class ModuleExportInfo:
         module_export_info = utils.dataclass_from_dict(cls, raw_json_data)
         return module_export_info
     
+    def from_string(cls, json_string: str) -> "ModuleExportInfo":
+        raw_json_data = utils.parse_json_content(json_string, required_fields=["ModuleName"])
+        module_export_info = utils.dataclass_from_dict(cls, raw_json_data)
+        return module_export_info
+    
 def load_module_export_file(module_export_file_path: Path) -> ModuleExportInfo:
     return ModuleExportInfo.from_file(module_export_file_path)
 

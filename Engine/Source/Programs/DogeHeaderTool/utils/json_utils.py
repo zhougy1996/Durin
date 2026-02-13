@@ -20,6 +20,19 @@ def load_json_file(file_path: Path, required_fields: list = None) -> Dict[str, A
     
     return data
 
+def parse_json_content(json_content: str, required_fields: list = None) -> Dict[str, Any]:
+    try:
+        data = json.loads(json_content)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON content: {e}")
+    
+    if required_fields:
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+    
+    return data
+
 # Converts a PascalCase string to snake_case
 def _pascal_to_snake(pascal_str: str) -> str:
     snake_str = re.sub(r'(?<!^)(?=[A-Z])', '_', pascal_str).lower()
