@@ -115,7 +115,7 @@ def dataclass_from_dict(
             return None
 
         # Case 1: Target type is a dataclass → recursively parse to dataclass instance
-        if is_dataclass(field_type) and not isinstance(field_type, (type, get_origin(field_type))):
+        if is_dataclass(field_type) and get_origin(field_type) is None and isinstance(field_type, type):
             return dataclass_from_dict(field_type, value, auto_convert)
 
         # Case 2: Target type is Dict (e.g. Dict[str, HeaderExportInfo])

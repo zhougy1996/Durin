@@ -12,7 +12,6 @@ def main():
     command_manager.register_command(GenerateProjectCMakeFileCommand())
     command_manager.register_command(GenerateModuleCMakeFileCommand())
     command_manager.register_command(GenerateModuleExportFileCommand())
-    command_manager.register_command(GenerateModuleManifestFileCommand())
     command_manager.register_command(GenerateReflectionFilesCommand())
 
     parser = argparse.ArgumentParser(description="Doge Header Tool")

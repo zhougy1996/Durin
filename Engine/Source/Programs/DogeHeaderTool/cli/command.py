@@ -95,18 +95,6 @@ class GenerateModuleExportFileCommand(Command):
         from generators.module_export_file_generator import generate_module_export_file
         generate_module_export_file(args.module)
 
-class GenerateModuleManifestFileCommand(Command):
-    def __init__(self):
-        super().__init__("generate_module_manifest_file", "Generate module manifest file.")
-
-    def add_arguments(self, parser: argparse.ArgumentParser):
-        parser.add_argument("-m","--module", help="The name of the module to generate manifest file for.", required=True)
-        add_common_arguments(parser)
-
-    def execute(self, args):
-        from generators.module_manifest_file_generator import generate_module_manifest_file
-        generate_module_manifest_file(args.module)
-
 class GenerateReflectionFilesCommand(Command):
     def __init__(self):
         super().__init__("generate_reflection_files", "Run the header tool to generate necessary files for the reflection system.")

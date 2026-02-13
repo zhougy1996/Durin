@@ -108,15 +108,9 @@ function(doge_add_module module_name)
 	)
 
 	add_custom_command(
-		OUTPUT ${module_manifest_file}
-		COMMAND ${DHT_MAIN} generate_module_manifest_file -m "${module_name}"
-		DEPENDS ${module_cmake_file} ${module_manifest_dependencies} ${module_export_file}
-	)
-
-	add_custom_command(
 		OUTPUT ${generated_reflection_files}
 		COMMAND ${DHT_MAIN} generate_reflection_files -m "${module_name}"
-		DEPENDS ${module_manifest_file}
+		DEPENDS ${module_cmake_file} ${module_manifest_dependencies} ${module_export_file}
 	)
 
 	doge_collect_and_organize_source_files(module_srcs)

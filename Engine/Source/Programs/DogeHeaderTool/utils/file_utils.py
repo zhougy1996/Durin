@@ -54,6 +54,22 @@ def get_file_fingerprint(file_path: Path) -> FileFingerprint:
     except (PermissionError, OSError) as e:
         raise IOError(f"Error accessing file {file_path}: {e}")
 
+def get_file_fingerprint_with_old_cache(file_path: Path, old_fingerprint: FileFingerprint) -> FileFingerprint:
+    if not file_path.is_file():
+        raise FileNotFoundError(f"File {file_path} does not exist.")
+    
+    try:
+        timestamp = file_path.stat().st_mtime
+        file_size = file_path.stat().st_size
+        
+        if old_fingerprint and timestamp == old_fingerprint.timestamp and file_size == old_fingerprint.file_size:
+            return old_fingerprint
+        
+        md5_hash = calc_md5(file_path)
+        return FileFingerprint(timestamp=timestamp, file_size=file_size, md5=md5_hash)
+    except (PermissionError, OSError) as e:
+        raise IOError(f"Error accessing file {file_path}: {e}")
+
 # Returns a tuple indicating whether the file has changed and the fingerprint of the file (either old or new)
 def verify_file_fingerprint(file_path: Path, old_fingerprint: FileFingerprint) -> Tuple[bool, Optional[FileFingerprint]]:
     if not file_path.is_file():
@@ -72,10 +88,19 @@ def verify_file_fingerprint(file_path: Path, old_fingerprint: FileFingerprint) -
     except (PermissionError, OSError) as e:
         raise IOError(f"Error accessing file {file_path}: {e}")
     
-def is_file_changed(file_path: Path, old_fingerprint: FileFingerprint) -> bool:
-    changed, _ = verify_file_fingerprint(file_path, old_fingerprint)
-    return changed
-
+def is_file_changed(file_path: Path, light_fingerprint: LightFileFingerprint) -> bool:
+    if not file_path.is_file():
+        raise FileNotFoundError(f"File {file_path} does not exist.")
+    
+    try:
+        current_timestamp = file_path.stat().st_mtime
+        current_file_size = file_path.stat().st_size
+        
+        return current_timestamp != light_fingerprint.timestamp or current_file_size != light_fingerprint.file_size
+        
+    except (PermissionError, OSError) as e:
+        raise IOError(f"Error accessing file {file_path}: {e}")
+    
 def calculate_file_hash(file_path: Path) -> str:
     if not file_path.exists():
         raise FileNotFoundError(f"File {file_path} does not exist.")
