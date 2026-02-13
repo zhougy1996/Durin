@@ -4,13 +4,9 @@ import utils
 
 # Collects all the dependencies of the module manifest file, which includes the export files of all the modules that the manifest file depends on, directly or indirectly. This is used to set up the dependencies for generating the module manifest file in CMake.
 def _collect_module_manifest_dependencies(module_name: str) -> list[Path]:
-    dependent_modules = list(configs.collect_all_dependent_modules(module_name))
-    dependent_modules.sort()  # Sort to ensure consistent order
-
-    deps = []
-    for dep_module in dependent_modules:
-        deps.append(utils.get_module_export_file_path(dep_module))
-    return deps
+    dep_modules = configs.collect_all_dependent_modules_for_manifest(module_name)
+    dep_file_paths = [utils.get_module_export_file_path(dep_module) for dep_module in dep_modules]
+    return dep_file_paths
 
 def _append_module_configs_to_cmake_content(content: list[str], module_name: str) -> None:
     module_config = configs.get_module_config(module_name)

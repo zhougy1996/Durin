@@ -10,10 +10,14 @@ class FileFingerprint:
     file_size: int = 0
     md5: str = ""
 
+@dataclass
+class FileCacheEntry:
+    content: str
+    fingerprint: FileFingerprint
+
 def calc_md5(file_path: Path, chunk_size: int = 8192) -> str:
     if not file_path.is_file():
         raise FileNotFoundError(f"File {file_path} does not exist.")
-    
     try:
         hash_obj = hashlib.md5()
         with open(file_path, "rb") as f:

@@ -116,7 +116,7 @@ function(doge_add_module module_name)
 	add_custom_command(
 		OUTPUT ${generated_reflection_files}
 		COMMAND ${DHT_MAIN} generate_reflection_files -m "${module_name}"
-		DEPENDS ${module_reflect_headers} ${module_manifest_file}
+		DEPENDS ${module_manifest_file}
 	)
 
 	doge_collect_and_organize_source_files(module_srcs)
