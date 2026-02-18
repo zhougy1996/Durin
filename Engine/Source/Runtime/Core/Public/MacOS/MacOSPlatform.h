@@ -27,7 +27,8 @@ using FModuleHandle = void*;
 
 struct FMacOSPlatformMisc : public FGenericPlatformMisc
 {
-	static constexpr char* FLibraryExtention = ".dylib";
+	static constexpr char* FLibraryPrefix = "lib";
+	static constexpr char* FLibraryExtension = ".dylib";
 
 	static FModuleHandle LoadLibrary(const FString& FileName)
 	{

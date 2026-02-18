@@ -22,6 +22,8 @@ TSharedPtr<FRHIGraphicsPipelineState> GTestPipeline;
 
 auto FEngineLoop::PreInit() -> void
 {
+	std::filesystem::path WorkingDir = std::filesystem::current_path();
+	DOGE_DEBUG(STR("Working directory: {}"), WorkingDir.string());
 	FConfigCacheJson::LoadAndParseConfig();
 	LoggerInit();
 	FNameInit();

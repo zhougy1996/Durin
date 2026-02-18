@@ -71,7 +71,7 @@ auto FModuleManager::GetModule(const FName& InModuleName) -> IModuleInterface*
 
 static constexpr auto GetDogeModuleFileName(const FName& InModuleName) -> FString
 {
-	return FString(STR("DogeEditor-")) + InModuleName.ToString() + FPlatformMisc::FLibraryExtention;
+	return FString(FPlatformMisc::FLibraryPrefix) + FString(STR("DogeEditor-")) + InModuleName.ToString() + FPlatformMisc::FLibraryExtension;
 }
 
 auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
@@ -94,11 +94,11 @@ auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
 		AddModule(InModuleName, GetDogeModuleFileName(InModuleName));
 		FoundModuleInfo = FindModule(InModuleName);
 	}
-
+	DOGE_DEBUG(STR("ModuleFileName: {}"), FoundModuleInfo->FileName);
 	FModuleHandle ModuleHandle = FPlatformMisc::LoadLibrary(FoundModuleInfo->FileName);
 	if (!ModuleHandle)
 	{
-		DOGE_ERROR(STR("Failed to load module."));
+		DOGE_ERROR(STR("Failed to load module \"{}\"."), InModuleName.ToString());
 		return nullptr;
 	}
 	IModuleInterface* Result = nullptr;
