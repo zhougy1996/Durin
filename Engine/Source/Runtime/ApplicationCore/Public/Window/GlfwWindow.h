@@ -23,6 +23,8 @@ public:
 
 	auto GetOSWindowHandle() const -> void* override;
 
+	auto GetGlfwWindow() const -> GLFWwindow* { return GlfwWindow_; }
+
 private:
 	FGlfwWindow();
 

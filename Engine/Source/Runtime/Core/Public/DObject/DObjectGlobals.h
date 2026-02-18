@@ -72,12 +72,12 @@ namespace DogeCodeGen
 	struct FClassParams
 	{
 		DClass* (*ClassNoRegisterFunc)();
-		const UTF8Char* ClassName;
+		const U8Char* ClassName;
 	};
 
 	struct FPropertyParamsBase
 	{
-		const UTF8Char* NameUTF8;
+		const U8Char* NameUTF8;
 		EPropertyFlags Flags;
 		uint16 ArrayDim;
 		uint16 Offset;

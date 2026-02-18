@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DObject/CoreDObject.h"
+#include "Components/ActorComponent.h"
 
 #include "Actor.gen.h"
 

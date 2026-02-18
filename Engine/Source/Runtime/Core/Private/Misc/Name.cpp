@@ -73,12 +73,12 @@ struct FNameHash
 
 	static constexpr uint32 ShardMask = FNamePoolShardCount - 1;
 
-	FNameHash(const UTF8Char* Str, int32 Len)
+	FNameHash(const U8Char* Str, int32 Len)
 		: FNameHash(FNameHash::GenerateLowerCaseHash(Str, Len), Len, IsAnsiNone(Str, Len))
 	{
 	}
 
-	FNameHash(const UTF8Char* Str, int32 Len, uint64 Hash)
+	FNameHash(const U8Char* Str, int32 Len, uint64 Hash)
 		: FNameHash(Hash, Len, IsAnsiNone(Str, Len))
 	{
 	}
@@ -150,7 +150,7 @@ struct FNameHash
 	}
 
 	// Check if the name is "none"
-	static bool IsAnsiNone(const UTF8Char* Str, int32 Len)
+	static bool IsAnsiNone(const U8Char* Str, int32 Len)
 	{
 		if (Len != 4)
 		{
@@ -263,13 +263,13 @@ struct FNameEntryHandle
 
 auto FNameEntry::MakeView() const -> FU8StringView
 {
-	const UTF8Char* Data = GetUnterminatedName();
+	const U8Char* Data = GetUnterminatedName();
 	return FU8StringView{Data, Header.Len};
 }
 
-auto FNameEntry::GetUnterminatedName() const -> const UTF8Char*
+auto FNameEntry::GetUnterminatedName() const -> const U8Char*
 {
-	return static_cast<const UTF8Char*>(&AnsiName[0]);
+	return static_cast<const U8Char*>(&AnsiName[0]);
 }
 
 FNameEntry::FNameEntry(FClangKeepDebugInfo)
@@ -322,7 +322,7 @@ public:
 	static auto GetDefaultNameSize(FU8StringView Name) -> uint32
 	{
 		constexpr uint32 HeaderSize = FNameEntry::GetDataOffset();
-		uint32 Bytes = HeaderSize + Name.length() * sizeof(UTF8Char);
+		uint32 Bytes = HeaderSize + Name.length() * sizeof(U8Char);
 		return (Bytes + (Stride - 1)) & ~(Stride - 1);
 	}
 
@@ -379,9 +379,9 @@ public:
 		return FNameEntryHandle(CurrentBlock, ByteOffset / Stride);
 	}
 
-	uint8* AllocBlock()
+	static uint8* AllocBlock()
 	{
-		return (uint8*)_aligned_malloc(BlockSizeBytes, Stride);
+		return static_cast<uint8*>(FPlatformMisc::AlignedAlloc(BlockSizeBytes, Stride));
 	}
 
 	void AllocateNewBlock()
@@ -418,7 +418,7 @@ static FORCEINLINE auto EqualsSameDimensions(FU8StringView A, FU8StringView B) -
 	}
 	else
 	{
-		return !strnicmp(A.data(), B.data(), Len);
+		return !FPlatformMisc::Strncasecmp(A.data(), B.data(), Len);
 	}
 }
 
@@ -435,7 +435,7 @@ public:
 	{
 		Entries = &InEntries;
 
-		Slots = (FNameSlot*)_aligned_malloc(FNamePoolInitialSlotCountPerShard * sizeof(FNameSlot), alignof(FNameSlot));
+		Slots = (FNameSlot*)FPlatformMisc::AlignedAlloc(FNamePoolInitialSlotCountPerShard * sizeof(FNameSlot), alignof(FNameSlot));
 		check(Slots != nullptr);
 		memset(Slots, 0, FNamePoolInitialSlotCountPerShard * sizeof(FNameSlot));
 
@@ -559,7 +559,7 @@ private:
 		std::span<FNameSlot> OldSlots(Slots, Capacity());
 		const uint32 OldUsedSlots = UsedSlots;
 
-		Slots = (FNameSlot*)_aligned_realloc(Slots, NewCapacity * sizeof(FNameSlot), alignof(FNameSlot));
+		Slots = static_cast<FNameSlot*>(FPlatformMisc::AlignedRealloc(Slots, NewCapacity * sizeof(FNameSlot), alignof(FNameSlot)));
 		check(Slots != nullptr);
 		memset(Slots + Capacity(), 0, (NewCapacity - Capacity()) * sizeof(FNameSlot));
 
@@ -598,7 +598,7 @@ private:
 
 		check(OldUsedSlots == UsedSlots);
 
-		_aligned_free(OldSlots.data());
+		FPlatformMisc::AlignedFree(OldSlots.data());
 	}
 
 	FORCEINLINE auto Probe(const FNameValue<Sensitivity>& Value) const -> FNameSlot&
@@ -831,12 +831,12 @@ FName::FName()
 {
 }
 
-FName::FName(const UTF8Char* Name)
+FName::FName(const U8Char* Name)
 	: FName(FNameHelper::MakeDetectNumber(FU8StringView(Name)))
 {
 }
 
-FName::FName(const UTF8Char* Name, int32 InNumber)
+FName::FName(const U8Char* Name, int32 InNumber)
 {
 }
 

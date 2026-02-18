@@ -14,13 +14,9 @@ set(DEFAULT_DOGE_CONFIG "${DOGE_PROJECT_CONFIG_DIR}/DogeConfig.json")
 set(TARGET_DOGE_CONFIG "$<TARGET_FILE_DIR:DogeLauncher>/DogeConfig.json")
 
 add_custom_command(TARGET DogeLauncher POST_BUILD
-    COMMAND if not exist "${TARGET_DOGE_CONFIG}" (
-        ${CMAKE_COMMAND} -E copy
-        "${DEFAULT_DOGE_CONFIG}"
-        "${TARGET_DOGE_CONFIG}"
-    )
-    COMMENT "Preparing DogeConfig.json"
-    VERBATIM
+        COMMAND ${CMAKE_COMMAND} -E compare_files "${TARGET_DOGE_CONFIG}" "${DEFAULT_DOGE_CONFIG}" || ${CMAKE_COMMAND} -E copy "${DEFAULT_DOGE_CONFIG}" "${TARGET_DOGE_CONFIG}"
+        COMMENT "Preparing DogeConfig.json (copy if not exists or different)"
+        VERBATIM
 )
 
 

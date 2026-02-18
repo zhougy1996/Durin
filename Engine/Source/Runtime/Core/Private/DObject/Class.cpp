@@ -13,8 +13,8 @@ auto DStructure::RegisterDependencies() -> void
 }
 
 auto GetPrivateStaticClassBody(
-	const UTF8Char* PackageName,
-	const UTF8Char* Name,
+	const U8Char* PackageName,
+	const U8Char* Name,
 	DClass*& ReturnClass,
 	void(*RegisterNativeFunc)(),
 	uint32 InSize,

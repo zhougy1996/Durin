@@ -28,9 +28,9 @@ struct FGenericPlatformTypes
 
 using ANSIChar = FGenericPlatformTypes::ANSIChar;
 using WChar = FGenericPlatformTypes::WChar;
-using UTF8Char = FGenericPlatformTypes::UTF8Char;
-using UTF16Char = FGenericPlatformTypes::UTF16Char;
-using UTF32Char = FGenericPlatformTypes::UTF32Char;
+using U8Char = FGenericPlatformTypes::UTF8Char;
+using U16Char = FGenericPlatformTypes::UTF16Char;
+using U32Char = FGenericPlatformTypes::UTF32Char;
 
 using FANSIString = std::string;
 using FU8String = std::string; // Should be std::u8string, but the compiler and other libraries have not fully supported it yet.

@@ -3,8 +3,8 @@
 struct FTransform
 {
 	FQuat Rotation;
-	FVector Translation;
-	FVector Scale3D;
+	FVector3 Translation;
+	FVector3 Scale3D;
 
 	CORE_API FTransform();
 };

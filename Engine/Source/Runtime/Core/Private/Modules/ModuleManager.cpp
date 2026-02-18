@@ -45,14 +45,8 @@ auto FModuleManager::IsModuleLoaded(const FName& InModuleName) -> bool
 
 auto FModuleManager::LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&
 {
-	auto Module = LoadModule(InModuleName);
-
-	// TODO: assert if module is null
-	if (Module == nullptr)
-	{
-		DOGE_ERROR(STR("Failed to load module: {}"), InModuleName.ToString());
-	}
-
+	const auto Module = LoadModule(InModuleName);
+	check(Module != nullptr);
 	return *Module;
 }
 
@@ -77,7 +71,7 @@ auto FModuleManager::GetModule(const FName& InModuleName) -> IModuleInterface*
 
 static constexpr auto GetDogeModuleFileName(const FName& InModuleName) -> FString
 {
-	return FString(STR("DogeEditor-")) + InModuleName.ToString() + STR(".dll");
+	return FString(STR("DogeEditor-")) + InModuleName.ToString() + FPlatformMisc::FLibraryExtention;
 }
 
 auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
@@ -101,9 +95,7 @@ auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
 		FoundModuleInfo = FindModule(InModuleName);
 	}
 
-	const FString& FileName = FoundModuleInfo->FileName;
-	std::wstring DLLPath(FileName.begin(), FileName.end());
-	HMODULE ModuleHandle = LoadLibrary(DLLPath.c_str());
+	FModuleHandle ModuleHandle = FPlatformMisc::LoadLibrary(FoundModuleInfo->FileName);
 	if (!ModuleHandle)
 	{
 		DOGE_ERROR(STR("Failed to load module."));
@@ -112,12 +104,12 @@ auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
 	IModuleInterface* Result = nullptr;
 
 	// InitializeModule is defined by the macro IMPLEMENT_MODULE in the module's source file.
-	InitializeModuleFunc InitializeModuleFunctionPtr = (InitializeModuleFunc)GetProcAddress(ModuleHandle, "InitializeModule");
+	InitializeModuleFunc InitializeModuleFunctionPtr = (InitializeModuleFunc)FPlatformMisc::GetProcAddress(ModuleHandle, "InitializeModule");
 
 	if (!InitializeModuleFunctionPtr)
 	{
 		DOGE_ERROR(STR("Failed to get module interface from module."));
-		FreeLibrary(ModuleHandle);
+		FPlatformMisc::FreeLibrary(ModuleHandle);
 		return nullptr;
 	}
 

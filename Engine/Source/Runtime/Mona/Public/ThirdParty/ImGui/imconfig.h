@@ -28,9 +28,9 @@
 //#define IMGUI_API __attribute__((visibility("default")))  // GCC/Clang: override visibility when set is hidden
 
 #if defined(MONA_EXPORTS)
-	#define IMGUI_API __declspec(dllexport)
+	#define IMGUI_API DLLEXPORT
 #else
-	#define IMGUI_API __declspec(dllimport)
+	#define IMGUI_API DLLIMPORT
 #endif // MONA_EXPORTS
 
 

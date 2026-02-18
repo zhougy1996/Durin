@@ -18,13 +18,15 @@
 
 #define PLATFORM_BREAK() (/*__nop(), */__debugbreak())
 
+using FModuleHandle = HMODULE;
+
 #ifdef _DEBUG
 	#define DOGE_VISUALIZERS_HELPERS
 #endif // _DEBUG
 
 #pragma warning(disable : 4251)
 
-using CharT = UTF8Char;
+using CharT = U8Char;
 using FString = FU8String;
 using FStringView = FU8StringView;
 
@@ -33,10 +35,50 @@ using FStringView = FU8StringView;
 
 struct FWindowsPlatformMisc : public FGenericPlatformMisc
 {
+	static constexpr char* FLibraryExtention = ".dll";
+
+	static FModuleHandle LoadLibrary(const FString& FileName)
+	{
+		std::wstring WideModuleName(FileName.begin(), FileName.end());
+		return ::LoadLibraryW(WideModuleName.c_str());
+	}
+
+	static void FreeLibrary(FModuleHandle ModuleHandle)
+	{
+		::FreeLibrary(ModuleHandle);
+	}
+
+	// GetProcAddress
+	static void* GetProcAddress(FModuleHandle ModuleHandle, const char* ProcName)
+	{
+		return ::GetProcAddress(ModuleHandle, ProcName);
+	}
+
 	static void Prefetch(const void* Ptr)
 	{
 		_mm_prefetch(static_cast<const char*>(Ptr), _MM_HINT_T0);
 	}
+
+	static void* AlignedAlloc(size_t Size, size_t Alignment)
+	{
+		return _aligned_malloc(Size, Alignment);
+	}
+
+	static void* AlignedRealloc(void* Ptr, size_t NewSize, size_t Alignment)
+	{
+		return _aligned_realloc(Ptr, NewSize, Alignment);
+	}
+
+	static void AlignedFree(void* Ptr)
+	{
+		_aligned_free(Ptr);
+	}
+
+	static int Strncasecmp(const char* Str1, const char* Str2, size_t Count)
+	{
+		return _strnicmp(Str1, Str2, Count);
+	}
+
 };
 
 using FPlatformMisc = FWindowsPlatformMisc;

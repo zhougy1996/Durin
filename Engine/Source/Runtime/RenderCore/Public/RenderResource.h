@@ -71,7 +71,7 @@ protected:
 
 	// Helper for submitting a resource array to RHI and freeing eligible CPU memory
 	template<typename T>
-	TSharedPtr<FRHIBuffer> CreateRHIBuffer(FRHICommandList& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const TCHAR* InDebugName)
+	TSharedPtr<FRHIBuffer> CreateRHIBuffer(FRHICommandList& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const CharT* InDebugName)
 	{
 		TSharedPtr<FRHIBuffer> Buffer;
 

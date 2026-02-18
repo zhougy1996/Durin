@@ -4,7 +4,9 @@
 
 auto ApplicationInit() -> void
 {
-	SetConsoleOutputCP(CP_UTF8);
+	#ifdef _WIN32
+		SetConsoleOutputCP(CP_UTF8);
+	#endif
 	glfwInit();
 	// Prepare required Vulkan instance extensions
 	uint32_t GlfwExtensionCount = 0;

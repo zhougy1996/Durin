@@ -22,7 +22,7 @@ struct FClassRegisterCompiledInInfo
 {
 	DClass* (*OuterRegister)();
 	DClass* (*InnerRegister)();
-	const UTF8Char* Name;
+	const U8Char* Name;
 	FClassRegistrationInfo* Info;
 };
 
@@ -102,7 +102,7 @@ auto DObjectProcessRegistrants() -> void;
  */
 CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
 
-CORE_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const UTF8Char* InName, FClassRegistrationInfo& InInfo) -> void;
+CORE_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const U8Char* InName, FClassRegistrationInfo& InInfo) -> void;
 
 CORE_API auto RegisterCompiledInInfo(const FClassRegisterCompiledInInfo* ClassInfo, size_t NumClassInfo) -> void;
 

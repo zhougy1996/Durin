@@ -5,7 +5,6 @@
 template<typename T> struct TRotator;
 
 using FReal = double;
-using FVector = glm::dvec3;
 using FMatrix = glm::dmat4x4;
 using FQuat = glm::dquat;
 

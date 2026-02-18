@@ -12,7 +12,7 @@ public:
 
 	struct FRegistrant
 	{
-		const UTF8Char* Name;
+		const U8Char* Name;
 		TRegisterFunc OuterRegister;
 		TRegisterFunc InnerRegister;
 		FClassRegistrationInfo* Info = nullptr;
@@ -24,7 +24,7 @@ public:
 		return Registry;
 	}
 
-	auto AddRegistration(TRegisterFunc InOuterRegister, TRegisterFunc InInnerRegister, const UTF8Char* InName, TInfo& InInfo) -> void
+	auto AddRegistration(TRegisterFunc InOuterRegister, TRegisterFunc InInnerRegister, const U8Char* InName, TInfo& InInfo) -> void
 	{
 		FRegistrant NewRegistrant;
 

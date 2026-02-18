@@ -66,7 +66,7 @@ private:
 
 	union
 	{
-		UTF8Char AnsiName[FNameMaxSize];
+		U8Char AnsiName[FNameMaxSize];
 		uint8 NameData[0];
 	};
 
@@ -91,7 +91,7 @@ public:
 	[[nodiscard]] FORCEINLINE auto IsValid() const -> bool { return Header.Len > 0; }
 
 private:
-	const UTF8Char* GetUnterminatedName() const;
+	const U8Char* GetUnterminatedName() const;
 
 	FNameEntry(FClangKeepDebugInfo);
 	FNameEntry(const FNameEntry&) = delete;
@@ -112,9 +112,9 @@ public:
 
 	CORE_API FName();
 
-	CORE_API FName(const UTF8Char* Name);
+	CORE_API FName(const U8Char* Name);
 
-	CORE_API FName(const UTF8Char* Name, int32 InNumber);
+	CORE_API FName(const U8Char* Name, int32 InNumber);
 
 	CORE_API FName(FU8StringView View, int32 InNumber);
 

@@ -18,7 +18,7 @@ public:
 
 	FString FileName;
 
-	HMODULE Handle = nullptr;
+	FModuleHandle Handle = nullptr;
 
 	TUniquePtr<IModuleInterface> Module;
 

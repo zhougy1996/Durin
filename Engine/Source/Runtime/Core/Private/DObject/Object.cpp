@@ -157,7 +157,7 @@ auto DObjectForceRegistration(DObject* Object) -> void
 	}
 }
 
-auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const UTF8Char* InName, FClassRegistrationInfo& InInfo) -> void
+auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const U8Char* InName, FClassRegistrationInfo& InInfo) -> void
 {
 	check(InOuterRegister);
 	check(InInnerRegister);

@@ -2,6 +2,7 @@
     "ModuleName": "VulkanRHI",
     "PrivateDependencies": [
         "Core",
+        "ApplicationCore",
         "RHI"
     ]
 }
