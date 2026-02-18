@@ -3,7 +3,7 @@ import sys
 import argparse
 
 def add_common_arguments(parser: argparse.ArgumentParser):
-    parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux).", default="Win64", choices=["Win64", "Linux"])
+    parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux, MacOS).", default="Win64", choices=["Win64", "Linux", "MacOS"])
     parser.add_argument("-b","--build_mode", help="The build mode.", default="Editor", choices=["Game", "Editor"])
     parser.add_argument("-l", "--log", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).", default="INFO", required=False, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
 

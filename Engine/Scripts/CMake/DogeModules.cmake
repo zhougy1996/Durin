@@ -1,9 +1,7 @@
 # DHT (Doge Header Tool) Integration
 
-set(PYTHON_EXE python)
-
 set(DHT_DIR ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
-set(DHT_MAIN ${PYTHON_EXE} "${DHT_DIR}/main.py")
+set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/main.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
@@ -11,7 +9,7 @@ function(doge_add_project project_name)
 	set(DOGE_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DOGE_ARCH}/Editor")
 
 	set(project_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${project_name}.project.cmake")
-	execute_process(COMMAND ${DHT_MAIN} generate_project_cmake_file -p ${project_name})
+	execute_process(COMMAND ${DHT_MAIN} generate_project_cmake_file -p ${project_name} -a ${DOGE_ARCH})
 	include(${project_cmake_file})
 
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${project_config_file}) # Make CMake re-configure if the project definition file changes
@@ -86,7 +84,7 @@ function(doge_add_module module_name)
 
 	# Generate module CMake file using DHT and include it to get module-specific variables
 	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
-	execute_process(COMMAND ${DHT_MAIN} generate_module_cmake_file -m ${module_name})
+	execute_process(COMMAND ${DHT_MAIN} generate_module_cmake_file -m ${module_name} -a ${DOGE_ARCH})
 	include(${module_cmake_file})
 
 	# Make CMake re-configure if the module definition file changes
@@ -103,13 +101,13 @@ function(doge_add_module module_name)
 
 	add_custom_command(
 		OUTPUT ${module_export_file}
-		COMMAND ${DHT_MAIN} generate_module_export_file -m "${module_name}"
+		COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} -a ${DOGE_ARCH}
 		DEPENDS ${module_reflect_headers} ${module_cmake_file}
 	)
 
 	add_custom_command(
 		OUTPUT ${generated_reflection_files}
-		COMMAND ${DHT_MAIN} generate_reflection_files -m "${module_name}"
+		COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} -a ${DOGE_ARCH}
 		DEPENDS ${module_cmake_file} ${module_manifest_dependencies} ${module_export_file}
 	)
 

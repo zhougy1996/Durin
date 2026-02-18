@@ -150,7 +150,7 @@ auto FMonaApplication::GetRenderer() const -> FMonaRenderer*
 	return Renderer_.get();
 }
 
-auto FMonaApplication::MakeWindow(TSharedPtr<MWindow> MonaWindow, const bool bShowImmediately) -> TSharedPtr<FGenericWindow>
+auto FMonaApplication::MakeWindow(TSharedPtr<MWindow> MonaWindow, bool bShowImmediately) -> TSharedPtr<FGenericWindow>
 {
 	TSharedPtr<FGenericWindow> NewWindow = FGlfwWindow::Make();
 	MonaWindow->SetNativeWindow(NewWindow);

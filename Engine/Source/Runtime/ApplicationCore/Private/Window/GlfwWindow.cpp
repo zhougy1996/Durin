@@ -1,5 +1,7 @@
 #include "Window/GlfwWindow.h"
 
+#include "ThirdParty/Glfw/GlfwCommon.h"
+
 FGlfwWindow::FGlfwWindow()
 {
 }

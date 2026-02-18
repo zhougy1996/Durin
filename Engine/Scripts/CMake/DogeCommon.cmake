@@ -10,9 +10,18 @@ if(CMAKE_GENERATOR STREQUAL "Ninja")
 	message("CMake Generator: Ninja")
 endif()
 
-set(DOGE_ARCH "Win64")
+if(MSVC)
+	set(DOGE_ARCH "Win64")
+elseif(APPLE)
+	set(DOGE_ARCH "MacOS")
+	set(CMAKE_OSX_ARCHITECTURES "${CMAKE_HOST_SYSTEM_PROCESSOR}")
+endif()
+
 message("Arch: ${DOGE_ARCH}")
 message("CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
+
+find_package(Python REQUIRED COMPONENTS Interpreter Development)
+message(STATUS "Python：${Python_EXECUTABLE}")
 
 get_filename_component(DOGE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 

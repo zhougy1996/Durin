@@ -18,6 +18,7 @@ def main():
     command_manager.setup_parser(parser)
     args = parser.parse_args()
 
+    configs.ARCH = args.arch
     init_logging(args.log)
     configs.init_configs()
     command_manager.execute_command(args.function, args)

@@ -10,7 +10,7 @@ class FMonaRenderer;
 class MONACORE_API FMonaApplication : public FGenericApplication
 {
 public:
-	virtual ~FMonaApplication();
+	~FMonaApplication() override;
 
 	static auto Create() -> void;
 
@@ -18,7 +18,7 @@ public:
 
 	static auto Get() -> FMonaApplication&;
 
-	virtual auto Tick() -> void override;
+	auto Tick() -> void override;
 
 	auto GetActiveTopLevelWindow() -> TSharedPtr<MWindow>;
 
@@ -45,7 +45,7 @@ public:
 	auto GetRenderer() const -> FMonaRenderer*;
 
 protected:
-	auto MakeWindow(TSharedPtr<MWindow> MonaWindow, const bool bShowImmediately) -> TSharedPtr<FGenericWindow>;
+	auto MakeWindow(TSharedPtr<MWindow> MonaWindow, bool bShowImmediately) -> TSharedPtr<FGenericWindow>;
 
 	auto TickPlatform() -> void;
 

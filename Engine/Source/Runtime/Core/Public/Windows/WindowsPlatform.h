@@ -22,7 +22,7 @@
 	#define DOGE_VISUALIZERS_HELPERS
 #endif // _DEBUG
 
-
+#pragma warning(disable : 4251)
 
 using CharT = UTF8Char;
 using FString = FU8String;

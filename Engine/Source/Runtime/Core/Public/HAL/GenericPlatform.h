@@ -86,9 +86,6 @@ inline FANSIStringView ToStringView_ANSI(const T& Str)
 
 struct FGenericPlatformMisc
 {
-	static void Prefetch(const void* Ptr)
-	{
-		_mm_prefetch(static_cast<const char*>(Ptr), _MM_HINT_T0);
-	}
+
 };
 
