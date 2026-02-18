@@ -1,7 +1,5 @@
 #include "VulkanGenericPlatform.h"
 
-#include "ThirdParty/Glfw/GlfwCommon.h"
-
 auto FVulkanGenericPlatform::CreateSurface(void* WindowHandle, vk::Instance Instance) -> vk::SurfaceKHR
 {
 #if defined _Win32
