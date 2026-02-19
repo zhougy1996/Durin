@@ -36,7 +36,7 @@ using FStringView = FU8StringView;
 struct FWindowsPlatformMisc : public FGenericPlatformMisc
 {
 	static constexpr char* FLibraryPrefix = "";
-	static constexpr char* FLibraryExtention = ".dll";
+	static constexpr char* FLibraryExtension = ".dll";
 
 	static FModuleHandle LoadLibrary(const FString& FileName)
 	{

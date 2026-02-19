@@ -20,8 +20,8 @@ endif()
 message("Arch: ${DOGE_ARCH}")
 message("CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
 
+find_package(Vulkan)
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
-message(STATUS "Python：${Python_EXECUTABLE}")
 
 get_filename_component(DOGE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 
@@ -35,16 +35,5 @@ set(DOGE_ENGINE_INTERMEDIATE_DIR "${DOGE_ENGINE_DIR}/Intermediate")
 set(DOGE_ENGINE_THIRDPARTY_DIR "${DOGE_ENGINE_SOURCE_DIR}/ThirdParty")
 
 list(APPEND CMAKE_PREFIX_PATH "${DOGE_ENGINE_SOURCE_DIR}/ThirdParty")
-
-#message("")
-#message("Project Structure(Doge):")
-#message("DOGE_DIR: ${DOGE_DIR}")
-#message("DOGE_ENGINE_DIR: ${DOGE_ENGINE_DIR}")
-#message("DOGE_ENGINE_CONFIG_DIR: ${DOGE_ENGINE_CONFIG_DIR}")
-#message("DOGE_ENGINE_SCRIPT_DIR: ${DOGE_ENGINE_SCRIPT_DIR}")
-#message("DOGE_ENGINE_SOURCE_DIR: ${DOGE_ENGINE_SOURCE_DIR}")
-#message("DOGE_ENGINE_BINARY_DIR: ${DOGE_ENGINE_BINARY_DIR}")
-#message("DOGE_ENGINE_INTERMEDIATE_DIR: ${DOGE_ENGINE_INTERMEDIATE_DIR}")
-#message("DOGE_ENGINE_THIRDPARTY_DIR: ${DOGE_ENGINE_THIRDPARTY_DIR}")
 
 

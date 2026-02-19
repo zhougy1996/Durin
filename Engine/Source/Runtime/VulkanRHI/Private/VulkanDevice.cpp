@@ -41,11 +41,11 @@ void FVulkanDevice::InitGpu()
 	PipelineManager_ = new FVulkanPipelineManager(*this);
 }
 
-auto FVulkanDevice::CreateDevice(FVulkanDeviceExtensionArray& DeviceExtentions) -> void
+auto FVulkanDevice::CreateDevice(FVulkanDeviceExtensionArray& DeviceExtensions) -> void
 {
 	assert(Device_ == VK_NULL_HANDLE);
 
-	for (const TUniquePtr<FVulkanDeviceExtension>& Extension : DeviceExtentions)
+	for (const TUniquePtr<FVulkanDeviceExtension>& Extension : DeviceExtensions)
 	{
 		if (Extension->InUse())
 		{

@@ -66,6 +66,9 @@ auto FVulkanDynamicRHI::CreateInstance() -> void
 	InstanceInfo.enabledLayerCount = static_cast<uint32>(InstanceLayers_.size());
 	InstanceInfo.ppEnabledLayerNames = InstanceInfo.enabledLayerCount > 0 ? InstanceLayers_.data() : nullptr;
 
+#ifdef __APPLE__
+	InstanceInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
+#endif
 	try
 	{
 		Instance_ = vk::createInstance(InstanceInfo);

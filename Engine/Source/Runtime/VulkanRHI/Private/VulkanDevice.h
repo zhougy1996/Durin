@@ -19,7 +19,7 @@ public:
 
 	auto InitGpu() -> void;
 
-	auto CreateDevice(FVulkanDeviceExtensionArray& DeviceExtentions) -> void;
+	auto CreateDevice(FVulkanDeviceExtensionArray& DeviceExtensions) -> void;
 
 	auto SetupPresentQueue(vk::SurfaceKHR Surface) -> void;
 

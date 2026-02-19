@@ -4,12 +4,25 @@
 
 #include "VulkanDevice.h"
 
+#ifdef __APPLE__
+	#define VKB_ENABLE_PORTABILITY
+#endif
+
 inline constexpr const char* DogeSupportedInstanceExtensionNames[] = {
 	VK_KHR_SURFACE_EXTENSION_NAME,
-	VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
+	VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+#ifdef VKB_ENABLE_PORTABILITY
+	VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+	VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+#endif
+};
 
 inline constexpr const char* DogeSupportedDeviceExtensionNames[] = {
-	VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+#ifdef VKB_ENABLE_PORTABILITY
+	"VK_KHR_portability_subset",
+#endif
+};
 
 template<typename ExtensionType>
 static auto FindExtension(const std::vector<TUniquePtr<ExtensionType>>& Extensions, const char* ExtensionName) -> int32
@@ -25,12 +38,12 @@ static auto FindExtension(const std::vector<TUniquePtr<ExtensionType>>& Extensio
 }
 
 template<typename ExtensionType>
-static auto AddRequiredExtentions(std::vector<TUniquePtr<ExtensionType>>& Extensions, const std::vector<const char*>& RequiredExtentionNames)
+static auto AddRequiredExtensions(std::vector<TUniquePtr<ExtensionType>>& Extensions, const std::vector<const char*>& RequiredExtensionNames)
 {
-	for (const char* ExtensionName : RequiredExtentionNames)
+	for (const char* ExtensionName : RequiredExtensionNames)
 	{
-		auto it = std::find_if(Extensions.begin(), Extensions.end(), [ExtensionName](TUniquePtr<ExtensionType>& Extention) {
-			return Extention->GetExtensionName() == ExtensionName;
+		auto it = std::find_if(Extensions.begin(), Extensions.end(), [ExtensionName](TUniquePtr<ExtensionType>& Extension) {
+			return Extension->GetExtensionName() == ExtensionName;
 		});
 
 		if (it == Extensions.end())
@@ -48,9 +61,9 @@ auto FVulkanInstanceExtension::GetDogeSupportedInstanceExtensions() -> FVulkanIn
 	{
 		OutDogeInstanceExtensions.push_back(std::make_unique<FVulkanInstanceExtension>(ExtensionName));
 	}
-	AddRequiredExtentions(OutDogeInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
+	AddRequiredExtensions(OutDogeInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
 
-	std::vector<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
+	const std::vector<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
 	DOGE_DEBUG("Found {} available instance extensions:", DriverSupportedInstanceExtensions.size());
 	for (const vk::ExtensionProperties& Extension : DriverSupportedInstanceExtensions)
 	{
