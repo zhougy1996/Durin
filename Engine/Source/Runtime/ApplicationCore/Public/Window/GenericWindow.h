@@ -18,7 +18,7 @@ public:
 
 	virtual ~FGenericWindow();
 
-	virtual auto Initialize(FGenericApplication* const Application, const TSharedPtr<FGenericWindowDefinition>& Definition) -> void;
+	virtual auto Initialize(FGenericApplication* InApplication, const TSharedPtr<FGenericWindowDefinition>& InDefinition) -> void;
 
 	virtual auto PollEvents() const -> void;
 

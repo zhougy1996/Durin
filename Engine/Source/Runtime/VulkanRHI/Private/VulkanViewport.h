@@ -27,7 +27,7 @@ private:
 class FVulkanViewport : public FRHIViewport
 {
 public:
-	FVulkanViewport(FVulkanDevice& Device, void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullScreen, EPixelFormat PreferredPixelFormat);
+	FVulkanViewport(FVulkanDevice& InDevice, void* InGlfwWindowHandle, uint32 InSizeX, uint32 InSizeY, bool InbIsFullScreen, EPixelFormat InPreferredPixelFormat);
 
 	virtual ~FVulkanViewport();
 
@@ -74,7 +74,7 @@ protected:
 
 	bool bIsFullScreen_;
 
-	void* WindowHandle_;
+	void* NativeWindowHandle;
 
 	friend class FVulkanBackBuffer;
 };

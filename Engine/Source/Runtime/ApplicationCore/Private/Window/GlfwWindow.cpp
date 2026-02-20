@@ -17,16 +17,21 @@ auto FGlfwWindow::Make() -> TSharedPtr<FGlfwWindow>
 	return std::shared_ptr<FGlfwWindow>(new FGlfwWindow());
 }
 
-auto FGlfwWindow::Initialize(FGenericApplication* const Application, const TSharedPtr<FGenericWindowDefinition>& Definition) -> void
+auto FGlfwWindow::Initialize(FGenericApplication* const InApplication, const TSharedPtr<FGenericWindowDefinition>& InDefinition) -> void
 {
-	OwningApplication_ = Application;
-	Definition_ = Definition;
+	OwningApplication_ = InApplication;
+	Definition_ = InDefinition;
 
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, WindowMode_ == EWindowMode::Windowed);
-	int DesiredWidth = FMath::TruncToInt32(Definition_->WidthDesiredOnScreen);
-	int DesiredHeight = FMath::TruncToInt32(Definition_->HeightDesiredOnScreen);
+#if defined (__APPLE__)
+	glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_TRUE);
+	glfwWindowHint(GLFW_COCOA_GRAPHICS_SWITCHING, GLFW_TRUE);
+#endif
+
+	const int DesiredWidth = FMath::TruncToInt32(Definition_->WidthDesiredOnScreen);
+	const int DesiredHeight = FMath::TruncToInt32(Definition_->HeightDesiredOnScreen);
 	GlfwWindow_ = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition_->Title.c_str(), nullptr, nullptr);
 	glfwSetWindowUserPointer(GlfwWindow_, this);
 	glfwSetFramebufferSizeCallback(GlfwWindow_, nullptr); // TODO: Implement the framebuffer size callback

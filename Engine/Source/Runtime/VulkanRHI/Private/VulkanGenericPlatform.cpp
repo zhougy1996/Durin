@@ -1,18 +1,17 @@
 #include "VulkanGenericPlatform.h"
 
-auto FVulkanGenericPlatform::CreateSurface(void* WindowHandle, vk::Instance Instance) -> vk::SurfaceKHR
-{
-#if defined _Win32
-	vk::Win32SurfaceCreateInfoKHR createInfo;
-	createInfo.hwnd = (HWND)(WindowHandle);
-	createInfo.hinstance = GetModuleHandle(nullptr);
-	vk::SurfaceKHR Surface = Instance.createWin32SurfaceKHR(createInfo);
-#elif defined(__APPLE__)
-	vk::MetalSurfaceCreateInfoEXT createInfo;
-	createInfo.pLayer = static_cast<const CAMetalLayer*>(WindowHandle);
+#include "ThirdParty/Glfw/GlfwCommon.h"
 
-	vk::SurfaceKHR Surface = Instance.createMetalSurfaceEXT(createInfo);
-#endif
+auto FVulkanGenericPlatform::CreateSurface(void* GlfwWindowHandle, vk::Instance Instance) -> vk::SurfaceKHR
+{
+	auto* GlfwWindow = static_cast<GLFWwindow*>(GlfwWindowHandle);
+
+	VkSurfaceKHR Surface;
+	if (glfwCreateWindowSurface(Instance, GlfwWindow, nullptr, &Surface) != VK_SUCCESS)
+	{
+		DOGE_ERROR("Failed to create window surface.");
+		return nullptr;
+	}
 
 	return Surface;
 }

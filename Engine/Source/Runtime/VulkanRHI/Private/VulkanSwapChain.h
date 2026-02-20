@@ -8,7 +8,7 @@ class FVulkanSemaphore;
 class FVulkanSwapChain
 {
 public:
-	FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device, void* WindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen);
+	FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device, void* GlfwWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen);
 
 	~FVulkanSwapChain();
 
@@ -28,9 +28,9 @@ private:
 
 	vk::SurfaceKHR Surface_;
 
-	int32 CurrentImageIndex_;
+	int32 CurrentImageIndex_{};
 
 	FVulkanSemaphore* ImageAcquiredSemaphore_;
 
-	FVulkanFence* ImageAcquiredFence_;
+	FVulkanFence* ImageAcquiredFence_{};
 };

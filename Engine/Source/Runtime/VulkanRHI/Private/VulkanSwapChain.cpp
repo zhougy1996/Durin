@@ -40,10 +40,10 @@ auto ChooseSwapExtent(const vk::SurfaceCapabilitiesKHR& Capabilities, uint32 Wid
 	}
 }
 
-FVulkanSwapChain::FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device, void* WindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen)
+FVulkanSwapChain::FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device, void* GlfwWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen)
 	: Device_(Device)
 {
-	Surface_ = FVulkanGenericPlatform::CreateSurface(WindowHandle, Instance);
+	Surface_ = FVulkanGenericPlatform::CreateSurface(GlfwWindowHandle, Instance);
 
 	// Get Swap chain support details
 	vk::PhysicalDevice Gpu = Device_.GetGpu();

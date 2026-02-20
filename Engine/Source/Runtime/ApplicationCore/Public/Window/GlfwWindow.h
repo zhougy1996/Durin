@@ -11,7 +11,7 @@ public:
 
 	static auto Make() -> TSharedPtr<FGlfwWindow>;
 
-	virtual auto Initialize(FGenericApplication* const Application, const TSharedPtr<FGenericWindowDefinition>& Definition) -> void override;
+	virtual auto Initialize(FGenericApplication* const InApplication, const TSharedPtr<FGenericWindowDefinition>& InDefinition) -> void override;
 
 	virtual auto PollEvents() const -> void override;
 

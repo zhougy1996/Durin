@@ -27,17 +27,17 @@ using FModuleHandle = void*;
 
 struct FMacOSPlatformMisc : public FGenericPlatformMisc
 {
-	static constexpr char* FLibraryPrefix = "lib";
-	static constexpr char* FLibraryExtension = ".dylib";
+	static constexpr auto FLibraryPrefix = "lib";
+	static constexpr auto FLibraryExtension = ".dylib";
 
 	static FModuleHandle LoadLibrary(const FString& FileName)
 	{
 		return dlopen(FileName.c_str(), RTLD_NOW | RTLD_LOCAL);
 	}
 
-	static void FreeLibrary(FModuleHandle ModuleHandle)
+	static void FreeLibrary(FModuleHandle InModuleHandle)
 	{
-		dlclose(ModuleHandle);
+		dlclose(InModuleHandle);
 	}
 
 	// GetProcAddress

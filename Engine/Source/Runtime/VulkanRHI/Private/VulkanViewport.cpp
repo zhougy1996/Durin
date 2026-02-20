@@ -8,6 +8,7 @@
 #include "VulkanContext.h"
 #include "VulkanSwapChain.h"
 #include "VulkanQueue.h"
+#include "ThirdParty/Glfw/GlfwCommon.h"
 
 FVulkanBackBuffer::FVulkanBackBuffer(FVulkanDevice& Device, FVulkanViewport* Viewport)
 	: FVulkanTexture(Device, nullptr)
@@ -25,14 +26,14 @@ auto FVulkanBackBuffer::AcquireBackBufferImage(FVulkanCommandListContext& Contex
 	CmdBuffer->AddWaitSemaphore(Viewport_->AcquiredSemaphore_);
 }
 
-FVulkanViewport::FVulkanViewport(FVulkanDevice& Device, void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullScreen, EPixelFormat PreferredPixelFormat)
-	: Device_(Device)
-	, WindowHandle_(WindowHandle)
-	, SizeX_(SizeX)
-	, SizeY_(SizeY)
-	, bIsFullScreen_(bIsFullScreen)
+FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InGlfwWindowHandle, uint32 InSizeX, uint32 InSizeY, bool InbIsFullScreen, EPixelFormat InPreferredPixelFormat)
+	: Device_(InDevice)
+	, SizeX_(InSizeX)
+	, SizeY_(InSizeY)
+	, bIsFullScreen_(InbIsFullScreen)
 {
-	SwapChain_ = new FVulkanSwapChain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), Device, WindowHandle, SizeX, SizeY, bIsFullScreen);
+	NativeWindowHandle = GetNativeWindowHandle(static_cast<GLFWwindow*>(InGlfwWindowHandle));
+	SwapChain_ = new FVulkanSwapChain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), InDevice, InGlfwWindowHandle, InSizeX, InSizeY, InbIsFullScreen);
 	const std::vector<vk::Image>& Images = SwapChain_->GetImages();
 
 	vk::ImageViewCreateInfo ImageViewCreateInfo;
@@ -71,16 +72,16 @@ FVulkanViewport::~FVulkanViewport()
 
 	DestroySwapChain();
 
-	for (uint32 i = 0; i < RenderingDoneSemaphores_.size(); ++i)
+	for(auto & RenderingDoneSemaphore : RenderingDoneSemaphores_)
 	{
-		delete RenderingDoneSemaphores_[i];
+		delete RenderingDoneSemaphore;
 	}
 	RenderingDoneSemaphores_.clear();
 }
 
 auto FVulkanViewport::GetWindowHandle() -> void*
 {
-	return WindowHandle_;
+	return NativeWindowHandle;
 }
 
 auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanTextureView&
@@ -122,9 +123,9 @@ auto FVulkanViewport::WaitForLastFrameCompletion() -> void
 	}
 }
 
-auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport>
+auto FVulkanDynamicRHI::RHICreateViewport(void* GlfwWindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport>
 {
-	return std::make_shared<FVulkanViewport>(*Device_, WindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat);
+	return std::make_shared<FVulkanViewport>(*Device_, GlfwWindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat);
 }
 
 auto FVulkanDynamicRHI::RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture>

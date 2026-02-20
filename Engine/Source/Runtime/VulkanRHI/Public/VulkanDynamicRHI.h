@@ -17,7 +17,7 @@ public:
 	virtual auto RHIGetVkInstance() const -> vk::Instance = 0;
 	virtual auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice = 0;
 
-	virtual auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> override = 0;
+	virtual auto RHICreateViewport(void* GlfwWindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> override = 0;
 	virtual auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FRHIGraphicsPipelineState> override = 0;
 	virtual auto RHIGetDefaultContext() -> IRHICommandContext* override = 0;
 	virtual auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture> override = 0;
@@ -38,7 +38,7 @@ public:
 	auto RHIGetVkInstance() const -> vk::Instance override;
 	auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice override;
 
-	virtual auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> override;
+	virtual auto RHICreateViewport(void* GlfwWindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> override;
 	virtual auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FRHIGraphicsPipelineState> override;
 	virtual auto RHIGetDefaultContext() -> IRHICommandContext* override;
 	virtual auto RHIGetCommandContext(ERHIPipeline Pipeline) -> IRHICommandContext*;

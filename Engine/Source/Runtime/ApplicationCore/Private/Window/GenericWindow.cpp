@@ -1,14 +1,10 @@
 #include "Window/GenericWindow.h"
 
-FGenericWindow::FGenericWindow()
-{
-}
+FGenericWindow::FGenericWindow() = default;
 
-FGenericWindow::~FGenericWindow()
-{
-}
+FGenericWindow::~FGenericWindow() = default;
 
-auto FGenericWindow::Initialize(FGenericApplication* const Application, const TSharedPtr<FGenericWindowDefinition>& Definition) -> void
+auto FGenericWindow::Initialize(FGenericApplication* const InApplication, const TSharedPtr<FGenericWindowDefinition>& InDefinition) -> void
 {
 }
 
