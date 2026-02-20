@@ -47,7 +47,9 @@ public:
 
 	auto WaitForLastFrameCompletion() -> void override;
 
-	auto GetImageFormat() const -> EPixelFormat override;
+	auto GetFormat() const -> EPixelFormat override;
+
+	auto GetVkFormat() const -> vk::Format;
 
 protected:
 	auto DestroySwapChain() -> void;

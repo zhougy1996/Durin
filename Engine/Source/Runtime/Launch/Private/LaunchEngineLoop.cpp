@@ -18,6 +18,7 @@
 
 constexpr auto DLLModuleDependencies = std::array{"MainFrame"};
 
+// TODO: move this to a more appropriate place
 TSharedPtr<FRHIGraphicsPipelineState> GTestPipeline;
 
 auto FEngineLoop::PreInit() -> void
@@ -40,14 +41,19 @@ auto FEngineLoop::Init() -> void
 	EditorInit();
 
 	DOGE_DEBUG(STR("DogeEd initialized"));
+}
 
-	// test code
-	FGraphicsPipelineStateInitializer Initializer; // empty
+static auto CreateTestPipeline()
+{
+	TSharedPtr<MWindow> Window = FMonaApplication::Get().GetActiveTopLevelWindow();
+	FRHIViewport* Viewport = Window->GetRHIViewport().get();
 
+	FGraphicsPipelineStateInitializer Initializer;
+	Initializer.RenderPassName = "TestRenderPass";
+	Initializer.PixelFormat = Viewport->GetFormat();
 	// Create pipeline
 	// Render pass is created when creating pipeline
 	GTestPipeline = GDynamicRHI->RHICreateGraphicsPipelineState(Initializer);
-
 	FRHICommandList& CommandList = FRHICommandListImmediate::Get();
 	// Switch to graphics pipeline, call this before any other command
 	CommandList.SwitchPipeline(ERHIPipeline::eGraphics);
@@ -96,6 +102,11 @@ auto FEngineLoop::Tick() -> void
 	if (GIsRequestingExit)
 	{
 		return;
+	}
+
+	if (!GTestPipeline)
+	{
+		CreateTestPipeline();
 	}
 
 	DrawTriangle();

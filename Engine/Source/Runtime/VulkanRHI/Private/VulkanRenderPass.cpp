@@ -5,14 +5,14 @@
 #include "VulkanFramebuffer.h"
 #include "VulkanTexture.h"
 
-FVulkanRenderPass::FVulkanRenderPass(FVulkanDevice& Device)
-	: Device_(Device)
+FVulkanRenderPass::FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat)
+	: Device_(InDevice)
 {
 	// Color buffer attachement
 	vk::AttachmentDescription ColorAttachment;
 	ColorAttachment
 		.setSamples(vk::SampleCountFlagBits::e1)
-		.setFormat(vk::Format::eR8G8B8A8Srgb)
+		.setFormat(InFormat)
 		.setLoadOp(vk::AttachmentLoadOp::eClear)
 		.setStoreOp(vk::AttachmentStoreOp::eStore)
 		.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
@@ -57,15 +57,17 @@ FVulkanRenderPassManager::FVulkanRenderPassManager(FVulkanDevice& Device)
 {
 }
 
-auto FVulkanRenderPassManager::GetOrCreateRenderPass() -> FVulkanRenderPass*
+auto FVulkanRenderPassManager::GetOrCreateRenderPass(FName InRenderPassName, vk::Format InFormat) -> FVulkanRenderPass*
 {
-	if (RenderPass_)
+	auto It = RenderPasses.find(InRenderPassName);
+	if (It != RenderPasses.end())
 	{
-		return RenderPass_;
+		return It->second.get();
 	}
 
-	RenderPass_ = new FVulkanRenderPass(Device_);
-	return RenderPass_;
+	std::shared_ptr<FVulkanRenderPass> RenderPass = std::make_unique<FVulkanRenderPass>(Device_, InFormat);
+	RenderPasses.emplace(InRenderPassName, RenderPass);
+	return RenderPass.get();
 }
 
 auto FVulkanRenderPassManager::GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo) -> FVulkanFramebuffer*
@@ -81,7 +83,9 @@ auto FVulkanRenderPassManager::GetOrCreateFrameBuffer(const FRHIRenderTargetsInf
 			return Framebuffer;
 		}
 	}
-	FVulkanFramebuffer* Framebuffer = new FVulkanFramebuffer(Device_, RTInfo, *RenderPass_);
+	//TODO: Render pass should be selected based on render target layout, but now we just use the first one for simplicity
+	FVulkanRenderPass* TestRenderPass = RenderPasses.begin()->second.get();
+	FVulkanFramebuffer* Framebuffer = new FVulkanFramebuffer(Device_, RTInfo, *TestRenderPass);
 	FrameBuffers_.push_back(Framebuffer);
 	return Framebuffer;
 }

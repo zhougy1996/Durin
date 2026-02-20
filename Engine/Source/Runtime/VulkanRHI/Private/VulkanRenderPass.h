@@ -11,7 +11,7 @@ class FVulkanCommandListContext;
 class FVulkanRenderPass
 {
 public:
-	FVulkanRenderPass(FVulkanDevice& Device);
+	FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat);
 
 	~FVulkanRenderPass();
 
@@ -28,7 +28,8 @@ class FVulkanRenderPassManager
 public:
 	FVulkanRenderPassManager(FVulkanDevice& Device);
 
-	auto GetOrCreateRenderPass() -> FVulkanRenderPass*;
+	// TODO: Render pass should be reuse based on render target layout, but now we select by name for simplicity
+	auto GetOrCreateRenderPass(FName InRenderPassName,  vk::Format Format) -> FVulkanRenderPass*;
 
 	auto GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo) -> FVulkanFramebuffer*;
 
@@ -38,8 +39,8 @@ public:
 
 private:
 	FVulkanDevice& Device_;
-	// tmp, use hash later
-	FVulkanRenderPass* RenderPass_ = nullptr;
+
+	std::unordered_map<FName, std::shared_ptr<FVulkanRenderPass>> RenderPasses;
 
 	std::vector<FVulkanFramebuffer*> FrameBuffers_;
 };

@@ -38,7 +38,7 @@ auto FRHICommandList::EndFrame() -> void
 	GetContext().RHIEndFrame();
 }
 
-auto FRHICommandList::BeginRenderPass(const FRHIRenderPassInfo& Info, const char* Name) -> void
+auto FRHICommandList::BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void
 {
 	GetContext().RHIBeginRenderPass(Info, Name);
 }

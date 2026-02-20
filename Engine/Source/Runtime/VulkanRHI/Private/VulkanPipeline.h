@@ -13,7 +13,7 @@ class FGraphicsPipelineStateInitializer;
 class FVulkanGraphicsPipelineState : public FRHIGraphicsPipelineState
 {
 public:
-	FVulkanGraphicsPipelineState(FVulkanDevice& Device);
+	FVulkanGraphicsPipelineState(FVulkanDevice& Device, const FGraphicsPipelineStateInitializer& Initializer);
 
 	auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 

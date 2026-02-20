@@ -19,7 +19,7 @@ public:
 
 	virtual auto RHIEndFrame() -> void override;
 
-	virtual auto RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, const char* Name) -> void override;
+	virtual auto RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName Name) -> void override;
 
 	virtual auto RHIEndRenderPass() -> void override;
 

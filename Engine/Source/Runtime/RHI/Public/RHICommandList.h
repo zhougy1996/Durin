@@ -23,7 +23,7 @@ public:
 
 	auto EndFrame() -> void;
 
-	auto BeginRenderPass(const FRHIRenderPassInfo& Info, const char* Name) -> void;
+	auto BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void;
 
 	auto EndRenderPass() -> void;
 

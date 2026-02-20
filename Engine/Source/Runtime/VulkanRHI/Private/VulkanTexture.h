@@ -11,6 +11,8 @@ public:
 
 	vk::Image Image_;
 
+	vk::Format Format_;
+
 protected:
 	FVulkanDevice& Device_;
 };

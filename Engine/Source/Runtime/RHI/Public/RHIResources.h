@@ -5,7 +5,9 @@
 
 class FRHICommandListImmediate;
 
-class RHI_API FRHITexture{};
+class RHI_API FRHITexture
+{
+};
 
 class RHI_API FRHIViewport
 {
@@ -13,7 +15,7 @@ public:
 	virtual auto Tick(float DeltaTime) -> void {};
 	virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TSharedPtr<FRHITexture> = 0;
 	virtual auto WaitForLastFrameCompletion() -> void = 0;
-	virtual auto GetImageFormat() const -> EPixelFormat = 0;
+	virtual auto GetFormat() const -> EPixelFormat = 0;
 };
 
 struct RHI_API FRHIRenderTargetsInfo
@@ -29,7 +31,10 @@ struct RHI_API FRHIRenderPassInfo
 };
 
 class RHI_API FGraphicsPipelineStateInitializer{
+public:
+	FName RenderPassName;
 
+	EPixelFormat PixelFormat;
 };
 
 struct FRHIBufferDesc

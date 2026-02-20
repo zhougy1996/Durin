@@ -19,7 +19,7 @@ public:
 
 	auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> void;
 
-	auto GetImageFormat() const -> vk::Format { return ImageFormat; }
+	auto GetFormat() const -> vk::Format { return ImageFormat; }
 
 private:
 	FVulkanDevice& Device_;

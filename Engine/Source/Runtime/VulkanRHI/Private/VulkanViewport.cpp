@@ -15,6 +15,7 @@ FVulkanBackBuffer::FVulkanBackBuffer(FVulkanDevice& Device, FVulkanViewport* Vie
 	: FVulkanTexture(Device, nullptr)
 	, Viewport_(Viewport)
 {
+	Format_ = Viewport_->GetVkFormat();
 }
 
 auto FVulkanBackBuffer::AcquireBackBufferImage(FVulkanCommandListContext& Context)
@@ -35,7 +36,7 @@ FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InGlfwWindowHand
 {
 	NativeWindowHandle = GetNativeWindowHandle(static_cast<GLFWwindow*>(InGlfwWindowHandle));
 	SwapChain_ = new FVulkanSwapChain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), InDevice, InGlfwWindowHandle, InSizeX, InSizeY, InbIsFullScreen);
-	vk::Format VkImageFormat = SwapChain_->GetImageFormat();
+	vk::Format VkImageFormat = SwapChain_->GetFormat();
 	ImageFormat = FVulkanPixelFormat::ToPixelFormat(VkImageFormat);
 
 	const std::vector<vk::Image>& Images = SwapChain_->GetImages();
@@ -126,9 +127,14 @@ auto FVulkanViewport::WaitForLastFrameCompletion() -> void
 		Device_.GetFenceManager().ResetFence(LastFrameCommandBuffer_->GetFence());
 	}
 }
-auto FVulkanViewport::GetImageFormat() const -> EPixelFormat
+auto FVulkanViewport::GetFormat() const -> EPixelFormat
 {
 	return ImageFormat;
+}
+
+auto FVulkanViewport::GetVkFormat() const -> vk::Format
+{
+	return SwapChain_->GetFormat();
 }
 
 auto FVulkanDynamicRHI::RHICreateViewport(void* GlfwWindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport>

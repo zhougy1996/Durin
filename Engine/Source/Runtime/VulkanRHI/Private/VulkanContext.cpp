@@ -32,12 +32,14 @@ auto FVulkanCommandListContext::RHIEndFrame() -> void
 	CommandBufferManager_->FreeUnusedCommandBuffers();
 }
 
-auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, const char* Name) -> void
+auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName Name) -> void
 {
 	FVulkanCommandBuffer* CmdBuffer = CommandBufferManager_->GetActiveCommandBuffer();
 
+	FVulkanTexture* VulkanRT = static_cast<FVulkanTexture*>(RenderPassInfo.ColorRenderTargets[0]);
+
 	FVulkanRenderPassManager& RenderPassManager = Device_.GetRenderPassManager();
-	FVulkanRenderPass* RenderPass = Device_.GetRenderPassManager().GetOrCreateRenderPass();
+	FVulkanRenderPass* RenderPass = Device_.GetRenderPassManager().GetOrCreateRenderPass(Name, VulkanRT->Format_);
 
 	FRHIRenderTargetsInfo RTInfo;
 	RTInfo.NumColorRenderTargets = 1;

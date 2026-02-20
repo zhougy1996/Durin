@@ -1,18 +1,21 @@
 #include "VulkanPipeline.h"
 
+#include "RHIResources.h"
 #include "VulkanCommon.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 #include "VulkanRenderPass.h"
 #include "VulkanShader.h"
 
-FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& Device)
+FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& Device, const FGraphicsPipelineStateInitializer& Initializer)
 	: Device_(Device)
 {
 	// TODO: Correctly set the renderpass
 	FVulkanRenderPassManager& RenderPassManager = Device_.GetRenderPassManager();
 	// State.SetViewport(0.0f, 0.0f, 0.0f, 800.0f, 600.0f, 1.0f);
-	RenderPass_ = RenderPassManager.GetOrCreateRenderPass();
+
+	vk::Format VkFormat = FVulkanPixelFormat::FromPixelFormat(Initializer.PixelFormat);
+	RenderPass_ = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat);
 
 	Shaders_[SHADER_STAGE_VERTEX] = new FVulkanShader(Device_, "../../../../Shaders/spv/test_vert.spv", vk::ShaderStageFlagBits::eVertex);
 	Shaders_[SHADER_STAGE_PIXEL] = new FVulkanShader(Device_, "../../../../Shaders/spv/test_frag.spv", vk::ShaderStageFlagBits::eFragment);
@@ -180,7 +183,7 @@ FVulkanPipelineManager::FVulkanPipelineManager(FVulkanDevice& Device)
 
 auto FVulkanPipelineManager::CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FVulkanGraphicsPipelineState>
 {
-	auto State = std::make_shared<FVulkanGraphicsPipelineState>(Device_);
+	auto State = std::make_shared<FVulkanGraphicsPipelineState>(Device_, Initializer);
 
 	return State;
 }
