@@ -20,10 +20,12 @@ endif()
 message("Arch: ${DOGE_ARCH}")
 message("CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
 
-find_package(Vulkan)
-find_package(Python REQUIRED COMPONENTS Interpreter Development)
-
 get_filename_component(DOGE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+message(DOGE_DIR: ${DOGE_DIR})
+
+find_package(Vulkan)
+set(Python_ROOT_DIR "${DOGE_DIR}/.venv")
+find_package(Python REQUIRED COMPONENTS Interpreter Development)
 
 # Define paths for the Doge engine project structure
 set(DOGE_ENGINE_DIR "${DOGE_DIR}/Engine")
