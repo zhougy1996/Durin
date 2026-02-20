@@ -11,3 +11,34 @@ enum EShaderStage : uint32
 	SHADER_STAGE_COMPUTE = NUM_NON_COMPUTE_SHADER_STAGES,
 	NUM_SHADER_STAGES,
 };
+
+namespace FVulkanPixelFormat
+{
+	inline EPixelFormat ToPixelFormat(vk::Format InFormat)
+	{
+		switch (InFormat)
+		{
+		case vk::Format::eR8G8B8A8Srgb:
+			return EPixelFormat::R8G8B8A8;
+		case vk::Format::eB8G8R8A8Srgb:
+			return EPixelFormat::B8G8R8A8;
+		default:
+			DOGE_ERROR("Unsupported pixel format {}", vk::to_string(InFormat));
+		}
+		return EPixelFormat::Unknown;
+	}
+
+	inline vk::Format FromPixelFormat(EPixelFormat InFormat)
+	{
+		switch (InFormat)
+		{
+		case EPixelFormat::R8G8B8A8:
+			return vk::Format::eR8G8B8A8Srgb;
+		case EPixelFormat::B8G8R8A8:
+			return vk::Format::eB8G8R8A8Srgb;
+		default:
+			DOGE_ERROR("Unsupported pixel format {}", static_cast<uint32>(InFormat));
+		}
+		return vk::Format::eUndefined;
+	}
+}

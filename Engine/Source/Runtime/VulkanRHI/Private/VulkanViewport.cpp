@@ -1,6 +1,7 @@
 #include "VulkanViewport.h"
 
 #include "RHICommandList.h"
+#include "VulkanCommon.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 #include "VulkanView.h"
@@ -34,11 +35,14 @@ FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InGlfwWindowHand
 {
 	NativeWindowHandle = GetNativeWindowHandle(static_cast<GLFWwindow*>(InGlfwWindowHandle));
 	SwapChain_ = new FVulkanSwapChain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), InDevice, InGlfwWindowHandle, InSizeX, InSizeY, InbIsFullScreen);
+	vk::Format VkImageFormat = SwapChain_->GetImageFormat();
+	ImageFormat = FVulkanPixelFormat::ToPixelFormat(VkImageFormat);
+
 	const std::vector<vk::Image>& Images = SwapChain_->GetImages();
 
 	vk::ImageViewCreateInfo ImageViewCreateInfo;
 	ImageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
-	ImageViewCreateInfo.setFormat(vk::Format::eR8G8B8A8Srgb);
+	ImageViewCreateInfo.setFormat(VkImageFormat);
 	ImageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
 	ImageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
 
@@ -121,6 +125,10 @@ auto FVulkanViewport::WaitForLastFrameCompletion() -> void
 		Device_.GetFenceManager().WaitForFence(LastFrameCommandBuffer_->GetFence(), UINT64_MAX);
 		Device_.GetFenceManager().ResetFence(LastFrameCommandBuffer_->GetFence());
 	}
+}
+auto FVulkanViewport::GetImageFormat() const -> EPixelFormat
+{
+	return ImageFormat;
 }
 
 auto FVulkanDynamicRHI::RHICreateViewport(void* GlfwWindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport>

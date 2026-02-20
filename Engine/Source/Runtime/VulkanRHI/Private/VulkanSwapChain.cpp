@@ -55,6 +55,8 @@ FVulkanSwapChain::FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device,
 	vk::PresentModeKHR PresentMode = ChooseSwapPresentMode(PresentModes);
 	vk::Extent2D Extent = ChooseSwapExtent(Capabilities, Width, Height);
 
+	ImageFormat = CurrFormat.format;
+
 	uint32 MinImageCount = Capabilities.minImageCount + 1;
 	if (Capabilities.maxImageCount > 0 && MinImageCount > Capabilities.maxImageCount)
 	{

@@ -19,10 +19,15 @@ public:
 
 	auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> void;
 
+	auto GetImageFormat() const -> vk::Format { return ImageFormat; }
+
 private:
 	FVulkanDevice& Device_;
 
 	vk::SwapchainKHR SwapChain_;
+
+	// Format of the swap chain images, which is determined by the surface format selected during swap chain creation.
+	vk::Format ImageFormat;
 
 	std::vector<vk::Image> SwapChainImages_;
 

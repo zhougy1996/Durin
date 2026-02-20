@@ -13,6 +13,7 @@ public:
 	virtual auto Tick(float DeltaTime) -> void {};
 	virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TSharedPtr<FRHITexture> = 0;
 	virtual auto WaitForLastFrameCompletion() -> void = 0;
+	virtual auto GetImageFormat() const -> EPixelFormat = 0;
 };
 
 struct RHI_API FRHIRenderTargetsInfo

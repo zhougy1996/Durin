@@ -47,12 +47,16 @@ public:
 
 	auto WaitForLastFrameCompletion() -> void override;
 
+	auto GetImageFormat() const -> EPixelFormat override;
+
 protected:
 	auto DestroySwapChain() -> void;
 
 	FVulkanDevice& Device_;
 
 	FVulkanSwapChain* SwapChain_;
+
+	EPixelFormat ImageFormat;
 
 	std::vector<vk::Image> BackBufferImages_;
 
