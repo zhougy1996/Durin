@@ -4,9 +4,6 @@ import configs
 def get_dht_tool_dir() -> Path:
     return configs.base_config.DHT_ROOT_DIR
 
-def get_LIBCLANG_DIR() -> Path:
-    return configs.base_config.LIBCLANG_DIR
-
 def get_project_dir(project_name: str) -> Path:
     project_config = configs.get_project_config(project_name)
     return project_config.project_dir
