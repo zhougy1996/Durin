@@ -71,24 +71,16 @@ auto FVulkanCommandBuffer::FreeMemory() -> void
 	State_ = EState::eNotAllocated;
 }
 
-auto FVulkanCommandBuffer::TestDraw() -> void
-{
-	vk::Viewport Viewport{0.0f, 0.0f, 800.0f, 600.0f, 0.0f, 1.0f};
-	CommandBuffer_.setViewport(0, Viewport);
-	vk::Rect2D Scissor{{0, 0}, {800, 600}};
-	CommandBuffer_.setScissor(0, Scissor);
-	CommandBuffer_.draw(3, 1, 0, 0);
-}
-
-auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer) -> void
+auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer) -> void
 {
 	vk::RenderPassBeginInfo BeginInfo;
 
 	vk::ClearValue ClearColorValue{{0.0f, 0.0f, 0.0f, 1.0f}};
+
 	BeginInfo
-		.setRenderPass(RenderPass->GetHandle())
-		.setFramebuffer(Framebuffer->GetHandle())
-		.setRenderArea({{0, 0}, {800, 600}})
+		.setRenderPass(InRenderPass->GetHandle())
+		.setFramebuffer(InFramebuffer->GetHandle())
+		.setRenderArea({{0, 0}, InFramebuffer->GetExtent()})
 		.setClearValues(ClearColorValue);
 
 	// Begin render pass

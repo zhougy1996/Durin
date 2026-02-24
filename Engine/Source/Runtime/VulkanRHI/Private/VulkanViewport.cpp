@@ -11,10 +11,13 @@
 #include "VulkanQueue.h"
 #include "ThirdParty/Glfw/GlfwCommon.h"
 
-FVulkanBackBuffer::FVulkanBackBuffer(FVulkanDevice& Device, FVulkanViewport* Viewport)
-	: FVulkanTexture(Device, nullptr)
-	, Viewport_(Viewport)
+FVulkanBackBuffer::FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport)
+	: FVulkanTexture(InDevice, nullptr)
+	, Viewport_(InViewport)
 {
+	FIntPoint Extent =  InViewport->GetSizeXY();
+	SizeX = Extent.x;
+	SizeY = Extent.y;
 	Format_ = Viewport_->GetVkFormat();
 }
 

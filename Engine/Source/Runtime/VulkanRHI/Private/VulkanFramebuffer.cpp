@@ -13,7 +13,10 @@ FVulkanFramebuffer::FVulkanFramebuffer(FVulkanDevice& Device, const FRHIRenderTa
 
 	// TODO: modify this when MSAA implemented.
 	NumColorAttachments_ = NumColorRenderTargets_;
-	Extent_ = vk::Extent2D(800, 600);
+
+	uint32 Width = RTInfo.ColorRenderTargets[0]->GetSizeX();
+	uint32 Height = RTInfo.ColorRenderTargets[0]->GetSizeY();
+	Extent_ = vk::Extent2D(Width, Height);
 
 	for (uint32 i = 0; i < NumColorRenderTargets_; ++i)
 	{

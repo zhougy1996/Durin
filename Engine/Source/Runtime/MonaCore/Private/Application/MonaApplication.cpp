@@ -153,7 +153,6 @@ auto FMonaApplication::GetRenderer() const -> FMonaRenderer*
 auto FMonaApplication::MakeWindow(TSharedPtr<MWindow> MonaWindow, bool bShowImmediately) -> TSharedPtr<FGenericWindow>
 {
 	TSharedPtr<FGenericWindow> NewWindow = FGlfwWindow::Make();
-	MonaWindow->SetNativeWindow(NewWindow);
 
 	TSharedPtr<FGenericWindowDefinition> Definition = std::make_shared<FGenericWindowDefinition>();
 

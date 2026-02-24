@@ -1,5 +1,7 @@
 #include "Widgets/MWindow.h"
 
+#include <utility>
+
 #include "Application/MonaApplication.h"
 
 MWindow::~MWindow()
@@ -18,7 +20,9 @@ auto MWindow::PollEvents() const -> void
 
 auto MWindow::SetNativeWindow(TSharedPtr<FGenericWindow> InNativeWindow) -> void
 {
-	NativeWindow_ = InNativeWindow;
+	NativeWindow_ = std::move(InNativeWindow);
+	//TODO: set cached screen position and size when creating native window, currently we just set them to zero
+	SetCachedSize({});
 }
 
 auto MWindow::GetNativeWindow() const -> TSharedPtr<FGenericWindow>
@@ -59,9 +63,10 @@ auto MWindow::ReshapeWindow(const FVector2f& NewScreenPosition, const FVector2f&
 		FVector2i NewPositionTruncated = FVector2i(FMath::TruncToInt(NewScreenPosition.x), FMath::TruncToInt(NewScreenPosition.y));
 		FVector2i NewSizeTruncated = FVector2i(FMath::TruncToInt(NewSize.x), FMath::TruncToInt(NewSize.y));
 		SetCachedScreenPosition(NewScreenPosition);
-		SetCachedSize(NewSize);
 
 		NativeWindow_->ReshapeWindow(NewPositionTruncated.x, NewPositionTruncated.y, NewSizeTruncated.x, NewSizeTruncated.y);
+
+		SetCachedSize(NewSize);
 		ScreenPosition_ = NewScreenPosition;
 	}
 	else
@@ -81,14 +86,13 @@ auto MWindow::ResizeWindow(const FVector2f& NewSize) -> void
 	FVector2i CurrentPositionTruncated = FVector2i(FMath::TruncToInt(ScreenPosition_.x), FMath::TruncToInt(ScreenPosition_.y));
 	FVector2i NewSizeTruncated = FVector2i(FMath::TruncToInt(NewSize.x), FMath::TruncToInt(NewSize.y));
 
-	SetCachedSize(NewSize);
 	NativeWindow_->ReshapeWindow(CurrentPositionTruncated.x, CurrentPositionTruncated.y, NewSizeTruncated.x, NewSizeTruncated.y);
+	SetCachedSize(NewSize);
 }
 
 auto MWindow::GetViewportSize() const -> FVector2f
 {
-	// TODO: Independent viewport size
-	return Size_;
+	return ViewportSize_;
 }
 
 auto MWindow::SetCachedScreenPosition(const FVector2f& NewScreenPosition) -> void
@@ -99,6 +103,7 @@ auto MWindow::SetCachedScreenPosition(const FVector2f& NewScreenPosition) -> voi
 auto MWindow::SetCachedSize(const FVector2f& NewSize) -> void
 {
 	Size_ = NewSize;
+	ViewportSize_ = NativeWindow_->GetViewportSize();
 }
 
 auto MWindow::SetRHIViewport(TSharedPtr<FRHIViewport> RHIViewport) -> void

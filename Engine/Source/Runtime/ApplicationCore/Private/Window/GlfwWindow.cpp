@@ -67,3 +67,10 @@ auto FGlfwWindow::GetOSWindowHandle() const -> void*
 		return glfwGetCocoaWindow(GlfwWindow_);
 	#endif
 }
+
+FIntPoint FGlfwWindow::GetViewportSize() const
+{
+	int Width, Height;
+	glfwGetFramebufferSize(GlfwWindow_, &Width, &Height);
+	return {Width, Height};
+}

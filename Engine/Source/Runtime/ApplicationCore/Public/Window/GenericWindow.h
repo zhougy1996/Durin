@@ -36,6 +36,8 @@ public:
 
 	virtual auto Close() -> void;
 
+	virtual auto GetViewportSize() const -> FIntPoint;
+
 protected:
 	TSharedPtr<FGenericWindowDefinition> Definition_;
 };

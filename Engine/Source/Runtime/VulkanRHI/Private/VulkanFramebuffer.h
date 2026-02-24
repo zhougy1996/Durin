@@ -14,6 +14,8 @@ public:
 
 	auto GetHandle() -> vk::Framebuffer { return Framebuffer_; }
 
+	auto GetExtent() -> vk::Extent2D { return Extent_; }
+
 private:
 	FVulkanDevice& Device_;
 

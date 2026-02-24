@@ -28,9 +28,7 @@ public:
 
 	auto FreeMemory() -> void;
 
-	auto TestDraw() -> void;
-
-	auto BeginRenderPass(FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer) -> void;
+	auto BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer) -> void;
 
 	auto EndRenderPass() -> void;
 

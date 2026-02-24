@@ -42,3 +42,9 @@ auto FGenericWindow::ShouldClose() const -> bool
 auto FGenericWindow::Close() -> void
 {
 }
+
+auto FGenericWindow::GetViewportSize() const -> FIntPoint
+{
+	DOGE_ERROR("GetViewportSize() is not implemented for the current platform.");
+	return {0, 0};
+}

@@ -7,6 +7,12 @@ class FRHICommandListImmediate;
 
 class RHI_API FRHITexture
 {
+public:
+	auto GetSizeX() const -> uint32 { return SizeX; }
+	auto GetSizeY() const -> uint32 { return SizeY; }
+protected:
+	uint32 SizeX = 0;
+	uint32 SizeY = 0;
 };
 
 class RHI_API FRHIViewport

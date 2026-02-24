@@ -53,7 +53,7 @@ public:
 
 	auto GetWindowMode() const -> EWindowMode;
 
-	virtual auto IsWindow() -> bool override { return true; }
+	auto IsWindow() -> bool override { return true; }
 
 protected:
 	FString Title_;
@@ -65,6 +65,8 @@ protected:
 	FVector2f ScreenPosition_;
 
 	FVector2f Size_;
+
+	FVector2f ViewportSize_;
 
 	TSharedPtr<FGenericWindow> NativeWindow_;
 

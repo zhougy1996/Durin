@@ -16,7 +16,7 @@ class FVulkanViewport;
 class FVulkanBackBuffer : public FVulkanTexture
 {
 public:
-	FVulkanBackBuffer(FVulkanDevice& Device, FVulkanViewport* Viewport);
+	FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport);
 
 	auto AcquireBackBufferImage(FVulkanCommandListContext& Context);
 
