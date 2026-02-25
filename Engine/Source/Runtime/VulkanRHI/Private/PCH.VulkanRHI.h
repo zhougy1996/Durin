@@ -1,5 +1,7 @@
 #pragma once
 
+#include "VulkanRHI/Definitions.h"
+
 // Vulkan
 #ifdef _WIN32
 	#define VK_USE_PLATFORM_WIN32_KHR
@@ -9,7 +11,6 @@
 #endif
 #include "vulkan/vulkan.hpp"
 
-#include "VulkanRHI/Definitions.h"
 
 #include "CoreMinimal.h"
 
