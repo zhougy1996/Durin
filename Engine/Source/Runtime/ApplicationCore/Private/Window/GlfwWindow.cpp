@@ -61,9 +61,9 @@ bool FGlfwWindow::ShouldClose() const
 
 auto FGlfwWindow::GetOSWindowHandle() const -> void*
 {
-	#if defined(_Win32)
+	#if defined (_WIN32)
 		return glfwGetWin32Window(GlfwWindow_);
-	#elif defined(__APPLE__)
+	#elif defined (__APPLE__)
 		return glfwGetCocoaWindow(GlfwWindow_);
 	#endif
 }
