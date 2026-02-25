@@ -44,6 +44,8 @@ public:
 
 	auto GetRenderer() const -> FMonaRenderer*;
 
+	auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow> override;
+
 protected:
 	auto MakeWindow(TSharedPtr<MWindow> MonaWindow, bool bShowImmediately) -> TSharedPtr<FGenericWindow>;
 

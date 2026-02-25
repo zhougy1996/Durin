@@ -1,17 +1,15 @@
 #include "VulkanGenericPlatform.h"
 
-#include "ThirdParty/Glfw/GlfwCommon.h"
+#include "Misc/ApplicationCoreGlobals.h"
+#include "Application/GenericApplication.h"
+#include "Window/GenericWindow.h"
 
-auto FVulkanGenericPlatform::CreateSurface(void* GlfwWindowHandle, vk::Instance Instance) -> vk::SurfaceKHR
+auto FVulkanGenericPlatform::CreateSurface(void* InWindowHandle, vk::Instance Instance) -> vk::SurfaceKHR
 {
-	auto* GlfwWindow = static_cast<GLFWwindow*>(GlfwWindowHandle);
+	auto Window = GApp->FindWindowByNativeWindowHandle(InWindowHandle);
 
-	VkSurfaceKHR Surface;
-	if (glfwCreateWindowSurface(Instance, GlfwWindow, nullptr, &Surface) != VK_SUCCESS)
-	{
-		DOGE_ERROR("Failed to create window surface.");
-		return nullptr;
-	}
+	void* Surface = Window->CreateVulkanSurface(static_cast<void*>(Instance));
+	VkSurfaceKHR RawSurface = static_cast<VkSurfaceKHR>(Surface);
 
-	return Surface;
+	return vk::SurfaceKHR(RawSurface);
 }

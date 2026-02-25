@@ -1,6 +1,7 @@
 #include "Window/GlfwWindow.h"
 
 #include "ThirdParty/Glfw/GlfwCommon.h"
+#include "vulkan//vulkan.hpp"
 
 FGlfwWindow::FGlfwWindow()
 {
@@ -36,6 +37,12 @@ auto FGlfwWindow::Initialize(FGenericApplication* const InApplication, const TSh
 	glfwSetWindowUserPointer(GlfwWindow_, this);
 	glfwSetFramebufferSizeCallback(GlfwWindow_, nullptr); // TODO: Implement the framebuffer size callback
 	glfwMakeContextCurrent(GlfwWindow_);
+
+#if defined (_WIN32)
+	OSNativeWindowHandle = glfwGetWin32Window(GlfwWindow_);
+#elif defined (__APPLE__)
+	OSNativeWindowHandle = glfwGetCocoaWindow(GlfwWindow_);
+#endif
 }
 
 void FGlfwWindow::PollEvents() const
@@ -59,18 +66,22 @@ bool FGlfwWindow::ShouldClose() const
 	return glfwWindowShouldClose(GlfwWindow_);
 }
 
-auto FGlfwWindow::GetOSWindowHandle() const -> void*
-{
-	#if defined (_WIN32)
-		return glfwGetWin32Window(GlfwWindow_);
-	#elif defined (__APPLE__)
-		return glfwGetCocoaWindow(GlfwWindow_);
-	#endif
-}
-
 FIntPoint FGlfwWindow::GetViewportSize() const
 {
 	int Width, Height;
 	glfwGetFramebufferSize(GlfwWindow_, &Width, &Height);
 	return {Width, Height};
+}
+
+void* FGlfwWindow::CreateVulkanSurface(void* InInstance) const
+{
+	VkSurfaceKHR Surface;
+	VkInstance Instance = static_cast<VkInstance>(InInstance);
+	if (glfwCreateWindowSurface(Instance, GlfwWindow_, nullptr, &Surface) != VK_SUCCESS)
+	{
+		DOGE_ERROR("Failed to create window surface.");
+		return nullptr;
+	}
+
+	return Surface;
 }

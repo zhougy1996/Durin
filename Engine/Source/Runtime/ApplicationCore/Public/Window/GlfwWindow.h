@@ -21,11 +21,11 @@ public:
 
 	virtual auto ShouldClose() const -> bool override;
 
-	auto GetOSWindowHandle() const -> void* override;
-
 	virtual auto GetViewportSize() const -> FIntPoint override;
 
 	auto GetGlfwWindow() const -> GLFWwindow* { return GlfwWindow_; }
+
+	virtual auto CreateVulkanSurface(void* InVulkanInstance) const -> void* override;
 
 private:
 	FGlfwWindow();

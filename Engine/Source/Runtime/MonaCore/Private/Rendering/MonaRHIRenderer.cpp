@@ -26,7 +26,7 @@ auto FMonaRHIRenderer::CreateViewport(const TSharedPtr<MWindow>& Window) -> void
 		bFullScreen = true;
 	}
 
-	TSharedPtr<FRHIViewport> RHIViewport = GDynamicRHI->RHICreateViewport(GLFWWindow->GetGlfwWindow(), Width, Height, bFullScreen, EPixelFormat::R8G8B8A8);
+	TSharedPtr<FRHIViewport> RHIViewport = GDynamicRHI->RHICreateViewport(GLFWWindow->GetOSNativeWindowHandle(), Width, Height, bFullScreen, EPixelFormat::R8G8B8A8);
 
 	Window->SetRHIViewport(RHIViewport);
 }

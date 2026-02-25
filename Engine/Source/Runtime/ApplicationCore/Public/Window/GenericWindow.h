@@ -30,7 +30,7 @@ public:
 
 	virtual auto SetWindowMode(EWindowMode WindowMode) -> void;
 
-	virtual auto GetOSWindowHandle() const -> void*;
+	virtual auto GetOSNativeWindowHandle() const -> void*;
 
 	virtual auto ShouldClose() const -> bool;
 
@@ -38,6 +38,10 @@ public:
 
 	virtual auto GetViewportSize() const -> FIntPoint;
 
+	virtual auto CreateVulkanSurface(void* InVulkanInstance) const -> void* { return nullptr; }
+
 protected:
 	TSharedPtr<FGenericWindowDefinition> Definition_;
+
+	void* OSNativeWindowHandle = nullptr;
 };

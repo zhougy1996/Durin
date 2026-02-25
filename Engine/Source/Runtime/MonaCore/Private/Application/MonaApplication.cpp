@@ -4,6 +4,7 @@
 #include "RHIResources.h"
 
 #include "Application/MonaWindowHelper.h"
+#include "Misc/ApplicationCoreGlobals.h"
 #include "Rendering/MonaRHIRenderer.h"
 #include "Widgets/MWindow.h"
 #include "Window/GlfwWindow.h"
@@ -17,6 +18,7 @@ FMonaApplication::~FMonaApplication()
 auto FMonaApplication::Create() -> void
 {
 	CurrentApplication_ = std::shared_ptr<FMonaApplication>(new FMonaApplication());
+	GApp = CurrentApplication_;
 }
 
 auto FMonaApplication::Shutdown() -> void
@@ -148,6 +150,19 @@ auto FMonaApplication::FindWidgetWindow(TSharedPtr<MWidget> Widget) -> TSharedPt
 auto FMonaApplication::GetRenderer() const -> FMonaRenderer*
 {
 	return Renderer_.get();
+}
+
+auto FMonaApplication::FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow>
+{
+	for (auto& Window : Windows_)
+	{
+		TSharedPtr<FGenericWindow> PlatformWindow = Window->GetNativeWindow();
+		if (PlatformWindow && PlatformWindow->GetOSNativeWindowHandle() == InNativeWindowHandle)
+		{
+			return PlatformWindow;
+		}
+	}
+	return nullptr;
 }
 
 auto FMonaApplication::MakeWindow(TSharedPtr<MWindow> MonaWindow, bool bShowImmediately) -> TSharedPtr<FGenericWindow>

@@ -1,6 +1,9 @@
 #include "Misc/ApplicationCoreGlobals.h"
 
 #include "CoreGlobals.h"
+#include "Application/GenericApplication.h"
+
+TSharedPtr<FGenericApplication> GApp = nullptr;
 
 auto ApplicationInit() -> void
 {

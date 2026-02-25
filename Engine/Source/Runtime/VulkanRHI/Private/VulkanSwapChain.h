@@ -8,7 +8,7 @@ class FVulkanSemaphore;
 class FVulkanSwapChain
 {
 public:
-	FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device, void* GlfwWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen);
+	FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen);
 
 	~FVulkanSwapChain();
 

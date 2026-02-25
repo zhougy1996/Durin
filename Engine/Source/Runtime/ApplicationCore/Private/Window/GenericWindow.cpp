@@ -29,9 +29,9 @@ auto FGenericWindow::SetWindowMode(EWindowMode WindowMode) -> void
 {
 }
 
-auto FGenericWindow::GetOSWindowHandle() const -> void*
+auto FGenericWindow::GetOSNativeWindowHandle() const -> void*
 {
-	return nullptr;
+	return OSNativeWindowHandle;
 }
 
 auto FGenericWindow::ShouldClose() const -> bool
