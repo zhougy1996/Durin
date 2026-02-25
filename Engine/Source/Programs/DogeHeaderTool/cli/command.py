@@ -81,6 +81,8 @@ class GenerateModuleCMakeFileCommand(Command):
 
     def execute(self, args):
         from generators.module_cmake_file_generator import generate_module_cmake_file
+        from generators.module_definitions_header_generator import generate_module_definitions_header
+        generate_module_definitions_header(args.module)
         generate_module_cmake_file(args.module)
 
 class GenerateModuleExportFileCommand(Command):

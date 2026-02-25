@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Definitions.Core.h"
+#include "Core/Definitions.h"
 
 #include "CoreMinimal.h"
 

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "CoreMinimal.h"
+#include "Launch/Definitions.h"
 
-#include "Definitions.Launch.h"
-#include "PrivateDefinitions.Launch.h"
+#include "CoreMinimal.h"

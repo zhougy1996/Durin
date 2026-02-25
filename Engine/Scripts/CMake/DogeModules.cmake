@@ -58,27 +58,6 @@ function(doge_collect_and_organize_source_files OUT_SRCS)
 	set(${OUT_SRCS} ${all_sources} PARENT_SCOPE)
 endfunction()
 
-function(doge_setup_shared_library module_name module_dht_dir)
-	doge_set_module_output(${module_name})
-	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DogeEditor-${module_name}")
-	string(TOUPPER "${module_name}" uppercase_module_name)
-
-	target_compile_definitions(${module_name} PRIVATE ${uppercase_module_name}_EXPORTS)
-	target_compile_definitions(${module_name} PRIVATE MODULE_NAME="${module_name}")
-
-	target_include_directories(${module_name} PRIVATE
-		${CMAKE_CURRENT_SOURCE_DIR}/Private
-	)
-	target_include_directories(${module_name} PUBLIC
-		${CMAKE_CURRENT_SOURCE_DIR}/Public
-		${module_dht_dir}
-	)
-	target_precompile_headers(${module_name} PRIVATE
-		"$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>"
-	)
-	install(FILES $<TARGET_FILE:${module_name}> DESTINATION bin)
-endfunction()
-
 function(doge_add_module module_name)
 	message("--- Module: ${module_name}")
 
@@ -100,7 +79,7 @@ function(doge_add_module module_name)
 	list(APPEND generated_reflection_files ${module_dht_output_dir}/${module_name}.module.gen.cpp)
 
 	add_custom_command(
-		OUTPUT ${module_export_file}
+		OUTPUT ${module_export_file} ${module_definitions_header}
 		COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} -a ${DOGE_ARCH}
 		DEPENDS ${module_reflect_headers} ${module_cmake_file}
 	)
@@ -112,15 +91,43 @@ function(doge_add_module module_name)
 	)
 
 	doge_collect_and_organize_source_files(module_srcs)
+
 	add_library(${module_name} SHARED
 		${module_srcs}
 		${generated_reflection_files}
 	)
-	doge_setup_shared_library(${module_name} ${module_dht_output_dir})
+
+	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DogeEditor-${module_name}")
+
+	string(TOUPPER "${module_name}" uppercase_module_name)
+	target_compile_definitions(${module_name} PRIVATE ${uppercase_module_name}_EXPORTS)
+
+	target_include_directories(${module_name} PRIVATE
+		${project_intermediate_build_dir}
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+	)
+
+	target_include_directories(${module_name} PUBLIC
+		${CMAKE_CURRENT_SOURCE_DIR}/Public
+		${module_dht_output_dir}
+	)
 
 	target_link_libraries(${module_name} PRIVATE
 		${module_private_dependencies}
 	)
 
+	# Set up precompiled headers for the module
+	target_precompile_headers(${module_name} PRIVATE
+		"$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>"
+	)
+
+	set_target_properties(${module_name} PROPERTIES
+		RUNTIME_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
+		LIBRARY_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
+		ARCHIVE_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${module_name}/${DOGE_ARCH}/$<CONFIG>"
+		PDB_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${module_name}/${DOGE_ARCH}/$<CONFIG>"
+	)
+
+	# Organize the module in the IDE's folder structure
 	set_target_properties(${module_name} PROPERTIES FOLDER "${project_name}/${module_dir}")
 endfunction()

@@ -77,6 +77,11 @@ def collect_all_dependent_modules(module_name: str, visited=None) -> set[str]:
     
     return all_deps
 
+def collect_sorted_dependent_modules(module_name: str) -> list[str]:
+    all_deps = collect_all_dependent_modules(module_name)
+    sorted_deps = sorted(all_deps)
+    return sorted_deps
+
 def collect_all_dependent_modules_for_manifest(module_name: str) -> list[str]:
     dependent_modules = collect_all_dependent_modules(module_name)
     dependent_modules.add(module_name)  # Also include the module itself, since its reflect headers are also dependencies for the manifest file

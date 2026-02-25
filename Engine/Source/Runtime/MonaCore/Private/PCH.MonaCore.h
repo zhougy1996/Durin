@@ -1,7 +1,6 @@
 #pragma once
 
-// Doge
+#include "MonaCore/Definitions.h"
+
 #include "CoreMinimal.h"
 
-#include "Definitions.MonaCore.h"
-#include "PrivateDefinitions.MonaCore.h"

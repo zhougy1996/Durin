@@ -1,5 +1,5 @@
 #pragma once
 
-#include "CoreMinimal.h"
+#include "Renderer/Definitions.h"
 
-#include "Definitions.Renderer.h"
+#include "CoreMinimal.h"

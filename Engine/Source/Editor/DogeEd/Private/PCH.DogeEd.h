@@ -1,6 +1,5 @@
 #pragma once
 
-#include "CoreMinimal.h"
+#include "DogeEd/Definitions.h"
 
-#include "Definitions.DogeEd.h"
-#include "PrivateDefinitions.DogeEd.h"
+#include "CoreMinimal.h"

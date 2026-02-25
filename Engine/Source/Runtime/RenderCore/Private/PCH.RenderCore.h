@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RenderCore/Definitions.h"
+
 #include "CoreMinimal.h"
 
-#include "Definitions.RenderCore.h"

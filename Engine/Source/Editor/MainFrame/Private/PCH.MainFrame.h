@@ -1,5 +1,5 @@
 #pragma once
 
-#include "CoreMinimal.h"
+#include "MainFrame/Definitions.h"
 
-#include "Definitions.MainFrame.h"
+#include "CoreMinimal.h"

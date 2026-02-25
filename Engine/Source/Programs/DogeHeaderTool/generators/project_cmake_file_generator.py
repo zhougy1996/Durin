@@ -7,6 +7,7 @@ def _append_project_paths_to_cmake_content(content: list[str], project_name: str
     content.append("# Paths related to this project\n")
     content.append(f"set(project_dir \"{project_config.project_dir.as_posix()}\")\n")
     content.append(f"set(project_config_file \"{project_config.config_file_path.as_posix()}\")\n")
+    content.append(f"set(project_intermediate_build_dir \"{utils.get_project_intermediate_build_dir(project_name).as_posix()}\")\n")
     content.append("\n")
 
 def _append_project_global_variables_to_cmake_content(content: list[str], project_name: str) -> None:

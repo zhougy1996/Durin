@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Definitions.Core.h"
-
 // Forward declarations
 #include "CoreFwd.h"
 

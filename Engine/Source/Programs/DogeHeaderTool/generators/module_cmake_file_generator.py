@@ -40,6 +40,8 @@ def _append_module_paths_to_cmake_content(content: list[str], module_name: str) 
     content.append(f"set(module_dht_output_dir \"{utils.get_module_dht_output_dir(module_name).as_posix()}\")\n")
     content.append(f"set(module_export_file \"{utils.get_module_export_file_path(module_name).as_posix()}\")\n")
     content.append(f"set(module_manifest_file \"{utils.get_module_manifest_file_path(module_name).as_posix()}\")\n")
+    content.append(f"set(module_definitions_header_dir \"{utils.get_module_definitions_header_path(module_name).parent.as_posix()}\")\n")
+    content.append(f"set(module_definitions_header \"{utils.get_module_definitions_header_path(module_name).as_posix()}\")\n")
     content.append("\n")
 
 def _make_module_cmake_file_content(module_name: str) -> str:

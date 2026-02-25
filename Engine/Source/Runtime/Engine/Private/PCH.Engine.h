@@ -1,7 +1,6 @@
 #pragma once
 
+#include "Engine/Definitions.h"
+
 #include "CoreMinimal.h"
 #include "DObject/CoreDObject.h"
-
-#include "Definitions.Engine.h"
-#include "PrivateDefinitions.Engine.h"

@@ -3,6 +3,7 @@
 
 inline constexpr uint32 FNameMaxSize = 1024;
 
+
 struct FClangKeepDebugInfo
 {
 };
