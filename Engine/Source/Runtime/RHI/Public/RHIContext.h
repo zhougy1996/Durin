@@ -10,6 +10,7 @@ namespace Doge
 	class RHI_API IRHICommandContext
 	{
 	public:
+		virtual ~IRHICommandContext() = default;
 		virtual auto RHIBeginFrame() -> void = 0;
 		virtual auto RHIEndFrame() -> void = 0;
 		virtual auto RHIBeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void = 0;
@@ -19,6 +20,6 @@ namespace Doge
 		virtual auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void = 0;
 		virtual auto RHISubmitCommandsHint() -> void = 0;
 		virtual auto RHIDrawPrimitive() -> void = 0;
-		virtual auto RHITestCommandRecord() -> void = 0;
+		virtual auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void = 0;
 	};
 }

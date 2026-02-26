@@ -86,26 +86,8 @@ namespace Doge::VulkanRHI
 	auto FVulkanCommandListContext::RHIDrawPrimitive() -> void
 	{
 		FVulkanCommandBuffer* CmdBuffer = CommandBufferManager_->GetActiveCommandBuffer();
+		PendingGfxPipelineState_->PrepareForDraw(*this);
 		CmdBuffer->GetHandle().draw(3, 1, 0, 0);
-	}
-
-	auto FVulkanCommandListContext::RHITestCommandRecord() -> void
-	{
-		FVulkanCommandBuffer* CmdBuffer = CommandBufferManager_->GetActiveCommandBuffer();
-		vk::Viewport viewport;
-		viewport.x = 0.0f;
-		viewport.y = 0.0f;
-		viewport.width = 800.0f;
-		viewport.height = 600.0f;
-		viewport.minDepth = 0.0f;
-		viewport.maxDepth = 1.0f;
-		CmdBuffer->GetHandle().setViewport(0, viewport);
-
-
-		vk::Rect2D scissor;
-		scissor.setOffset({static_cast<int32>(0), static_cast<int32>(0)});
-		scissor.setExtent({800, 600});
-		CmdBuffer->GetHandle().setScissor(0, scissor);
 	}
 
 	auto FVulkanCommandListContext::RHISubmitCommandsHint() -> void
@@ -114,6 +96,11 @@ namespace Doge::VulkanRHI
 		CmdBuffer->End();
 		FVulkanQueue* GraphicsQueue = Device_.GetGraphicsQueue();
 		GraphicsQueue->Submit(*CmdBuffer, nullptr);
+	}
+
+	auto FVulkanCommandListContext::GetCommandBuffer() const -> FVulkanCommandBuffer*
+	{
+		return CommandBufferManager_->GetActiveCommandBuffer();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetDefaultContext() -> IRHICommandContext*

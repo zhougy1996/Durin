@@ -1,7 +1,9 @@
 #include "VulkanPipeline.h"
 
 #include "RHIResources.h"
+#include "VulkanCommandBuffer.h"
 #include "VulkanCommon.h"
+#include "VulkanContext.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 #include "VulkanRenderPass.h"
@@ -168,6 +170,13 @@ namespace Doge::VulkanRHI
 	auto FVulkanGraphicsPipelineState::Bind(vk::CommandBuffer CmdBuffer) -> void
 	{
 		CmdBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, Pipeline_);
+	}
+
+	auto FVulkanGraphicsPipelineState::PrepareForDraw(FVulkanCommandListContext& Context) -> void
+	{
+		FVulkanCommandBuffer* CmdBuffer = Context.GetCommandBuffer();
+		CmdBuffer->GetHandle().setViewport(0, Viewport_);
+		CmdBuffer->GetHandle().setScissor(0, Scissor_);
 	}
 
 	auto FVulkanGraphicsPipelineState::SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void

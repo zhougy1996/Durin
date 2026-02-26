@@ -9,35 +9,36 @@ namespace Doge::VulkanRHI
 	class FVulkanQueue;
 	class FVulkanGraphicsPipelineState;
 	class FVulkanCommandBufferManager;
+	class FVulkanCommandBuffer;
 
 	class FVulkanCommandListContext : public IRHICommandContext
 	{
 	public:
 		FVulkanCommandListContext(FVulkanDynamicRHI* RHI, FVulkanDevice& Device, FVulkanQueue* Queue);
 
-		virtual auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
+		auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void override;
 
-		virtual auto RHIBeginFrame() -> void override;
+		auto RHIBeginFrame() -> void override;
 
-		virtual auto RHIEndFrame() -> void override;
+		auto RHIEndFrame() -> void override;
 
-		virtual auto RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName Name) -> void override;
+		auto RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName Name) -> void override;
 
-		virtual auto RHIEndRenderPass() -> void override;
+		auto RHIEndRenderPass() -> void override;
 
-		virtual auto RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void override;
+		auto RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void override;
 
-		virtual auto RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void override;
+		auto RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void override;
 
-		virtual auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void override;
+		auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void override;
 
-		virtual auto RHIDrawPrimitive() -> void override;
+		auto RHIDrawPrimitive() -> void override;
 
-		virtual auto RHITestCommandRecord() -> void override;
-
-		virtual auto RHISubmitCommandsHint() -> void override;
+		auto RHISubmitCommandsHint() -> void override;
 
 		auto GetCommandBufferManager() const -> FVulkanCommandBufferManager* { return CommandBufferManager_; }
+
+		auto GetCommandBuffer() const -> FVulkanCommandBuffer*;
 
 		auto GetQueue() const -> FVulkanQueue* { return Queue_; }
 

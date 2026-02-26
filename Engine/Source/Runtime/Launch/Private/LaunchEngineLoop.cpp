@@ -79,7 +79,10 @@ namespace Doge
 
 		CommandList.SetGraphicsPipelineState(*GTestPipeline);
 
-		CommandList.TestCommandRecord();
+		auto Width = BackBuffer->GetSizeX();
+		auto Height = BackBuffer->GetSizeY();
+		CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
+
 		// Draw call
 		CommandList.DrawPrimitive();
 

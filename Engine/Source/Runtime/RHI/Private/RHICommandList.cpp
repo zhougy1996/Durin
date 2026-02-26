@@ -70,9 +70,9 @@ namespace Doge
 		GetContext().RHIDrawPrimitive();
 	}
 
-	auto FRHICommandList::TestCommandRecord() -> void
+	auto FRHICommandList::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
-		GetContext().RHITestCommandRecord();
+		GetContext().RHISetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
 	}
 
 	auto FRHICommandList::SubmitCommandsHint() -> void

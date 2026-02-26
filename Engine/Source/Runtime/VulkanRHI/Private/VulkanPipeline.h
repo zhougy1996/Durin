@@ -22,6 +22,8 @@ namespace Doge::VulkanRHI
 
 		auto Bind(vk::CommandBuffer CmdBuffer) -> void;
 
+		auto PrepareForDraw(FVulkanCommandListContext& Context) -> void;
+
 	private:
 		const FVulkanRenderPass* RenderPass_ = nullptr;
 

@@ -37,7 +37,7 @@ namespace Doge
 
 		auto DrawPrimitive() -> void;
 
-		auto TestCommandRecord() -> void;
+		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 
 		auto GetContext() const -> IRHICommandContext& { return *GraphicsContext_; }
 
