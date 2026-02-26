@@ -82,4 +82,32 @@ namespace Doge
 
 		COUNT,
 	};
-}
+
+	enum class EPixelFormatKind : uint8
+	{
+		Integer,
+		Normalized,
+		Float,
+		DepthStencil
+	};
+
+	struct FPixelFormatInfo
+	{
+		EPixelFormat Format;
+		const char* Name;
+		uint8_t BytesPerBlock;
+		uint8_t BlockSize;
+		EPixelFormatKind Kind;
+		bool bHasRed : 1;
+		bool bHasGreen : 1;
+		bool bHasBlue : 1;
+		bool bHasAlpha : 1;
+		bool bHasDepth : 1;
+		bool bHasStencil : 1;
+		bool bIsSigned : 1;
+		bool bIsSRGB : 1;
+	};
+
+	RHI_API auto GetPixelFormatInfo(EPixelFormat Format) -> const FPixelFormatInfo&;
+
+} // namespace Doge
