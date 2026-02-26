@@ -1,13 +1,14 @@
 #pragma once
 #include <cstring>
 
+struct FClangKeepDebugInfo
+{
+};
+
+inline constexpr uint32 FNameMaxSize = 1024;
+
 namespace Doge
 {
-	inline constexpr uint32 FNameMaxSize = 1024;
-
-	struct FClangKeepDebugInfo
-	{
-	};
 
 	enum class ENameCase : uint8
 	{
@@ -196,28 +197,7 @@ namespace Doge
 
 	CORE_API auto FNameInit() -> void;
 
-	struct FNameDebugVisualizer
-	{
-		CORE_API explicit FNameDebugVisualizer(FClangKeepDebugInfo);
-		CORE_API uint8** GetBlocks();
 
-	private:
-		static constexpr uint32 EntryStride = alignof(FNameEntry);
-		static constexpr uint32 OffsetBits = 16;
-		static constexpr uint32 BlockBits = 13;
-		static constexpr uint32 OffsetMask = (1 << OffsetBits) - 1;
-		static constexpr uint32 UnusedMask = UINT32_MAX << BlockBits << OffsetBits;
-		static constexpr uint32 MaxLength = FNameMaxSize;
-	};
-
-	extern uint8** GNameBlocksDebug;
-
-	// It is used in the natvis file for debugging purposes, each .exe or.dll owns this variable, so it is not shared between modules.
-	// It will be initialized only once, and it will not be changed during the program execution.
-	// So, it is safe to use it in the natvis file for debugging purposes.
-	#ifdef DOGE_VISUALIZERS_HELPERS
-	inline uint8** GNameBlocksDebug = FNameDebugVisualizer(FClangKeepDebugInfo{}).GetBlocks();
-	#endif // DOGE_VISUALIZERS_HELPERS
 }
 
 template<>
@@ -228,3 +208,26 @@ struct std::hash<Doge::FName>
 		return GetTypeHash(Name);
 	}
 };
+
+struct FNameDebugVisualizer
+{
+	CORE_API explicit FNameDebugVisualizer(FClangKeepDebugInfo);
+	CORE_API uint8** GetBlocks();
+
+private:
+	static constexpr uint32 EntryStride = alignof(Doge::FNameEntry);
+	static constexpr uint32 OffsetBits = 16;
+	static constexpr uint32 BlockBits = 13;
+	static constexpr uint32 OffsetMask = (1 << OffsetBits) - 1;
+	static constexpr uint32 UnusedMask = UINT32_MAX << BlockBits << OffsetBits;
+	static constexpr uint32 MaxLength = FNameMaxSize;
+};
+
+extern uint8** GNameBlocksDebug;
+
+// It is used in the natvis file for debugging purposes, each .exe or.dll owns this variable, so it is not shared between modules.
+// It will be initialized only once, and it will not be changed during the program execution.
+// So, it is safe to use it in the natvis file for debugging purposes.
+#ifdef DOGE_VISUALIZERS_HELPERS
+inline uint8** GNameBlocksDebug = FNameDebugVisualizer(FClangKeepDebugInfo{}).GetBlocks();
+#endif // DOGE_VISUALIZERS_HELPERS

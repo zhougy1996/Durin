@@ -24,25 +24,25 @@
 		</Expand>
 	</Type>
 
-	<Type Name="FName" Priority="High">
+	<Type Name="Doge::FName" Priority="High">
 		<DisplayString Condition="this->Number">{DisplayIndex}_{(this->Number - 1),d}</DisplayString>
 		<DisplayString>{DisplayIndex}</DisplayString>
 		<Expand>
 			<ArrayItems>
-				<Size>((FNameEntry&amp;)GNameBlocksDebug[DisplayIndex.Value &gt;&gt; FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (DisplayIndex.Value &amp; FNameDebugVisualizer::OffsetMask)]).Header.Len</Size>
-				<ValuePointer>((FNameEntry&amp;)GNameBlocksDebug[DisplayIndex.Value &gt;&gt; FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (DisplayIndex.Value &amp; FNameDebugVisualizer::OffsetMask)]).AnsiName</ValuePointer>
+				<Size>((FNameEntry&amp;)::GNameBlocksDebug[DisplayIndex.Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits][::FNameDebugVisualizer::EntryStride * (DisplayIndex.Value &amp; ::FNameDebugVisualizer::OffsetMask)]).Header.Len</Size>
+				<ValuePointer>((FNameEntry&amp;)::GNameBlocksDebug[DisplayIndex.Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits][::FNameDebugVisualizer::EntryStride * (DisplayIndex.Value &amp; ::FNameDebugVisualizer::OffsetMask)]).AnsiName</ValuePointer>
 			</ArrayItems>
 		</Expand>
 	</Type>
 
-	<Type Name="FNameEntryId">
-		<DisplayString Condition="Value &amp; FNameDebugVisualizer::UnusedMask">Illegal name (block index out of range)</DisplayString>
-		<DisplayString Condition="!GNameBlocksDebug[Value &gt;&gt; FNameDebugVisualizer::OffsetBits]">Illegal name (null block)</DisplayString>
-		<DisplayString>{(FNameEntry&amp;)GNameBlocksDebug[Value &gt;&gt; FNameDebugVisualizer::OffsetBits][FNameDebugVisualizer::EntryStride * (Value &amp; FNameDebugVisualizer::OffsetMask)]}</DisplayString>
+	<Type Name="Doge::FNameEntryId">
+		<DisplayString Condition="Value &amp; ::FNameDebugVisualizer::UnusedMask">Illegal name (block index out of range)</DisplayString>
+		<DisplayString Condition="!::GNameBlocksDebug[Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits]">Illegal name (null block)</DisplayString>
+		<DisplayString>{(FNameEntry&amp;)::GNameBlocksDebug[Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits][::FNameDebugVisualizer::EntryStride * (Value &amp; ::FNameDebugVisualizer::OffsetMask)]}</DisplayString>
 	</Type>
 	
-	<Type Name="FNameEntry">
-		<DisplayString Condition="Header.Len &gt; FNameDebugVisualizer::MaxLength">Illegal name (length > FNameMaxSize)</DisplayString>
+	<Type Name="Doge::FNameEntry">
+		<DisplayString Condition="Header.Len &gt; ::FNameDebugVisualizer::MaxLength">Illegal name (length > FNameMaxSize)</DisplayString>
 		<DisplayString>{AnsiName,[Header.Len]s8}</DisplayString>
 	</Type>
 

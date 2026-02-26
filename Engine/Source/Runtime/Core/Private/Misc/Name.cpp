@@ -891,17 +891,17 @@ namespace Doge
 		FNamePool& Pool = FNamePool::Get();
 		return &(Pool.Resolve(LookupId));
 	}
+}
 
-	FNameDebugVisualizer::FNameDebugVisualizer(FClangKeepDebugInfo)
-	{
-	}
+FNameDebugVisualizer::FNameDebugVisualizer(FClangKeepDebugInfo)
+{
+}
 
-	uint8** FNameDebugVisualizer::GetBlocks()
-	{
-		static_assert(EntryStride == FNameEntryAllocator::Stride, "Natvis constants out of sync with actual constants");
-		static_assert(BlockBits == FNameMaxBlockBits, "Natvis constants out of sync with actual constants");
-		static_assert(OffsetBits == FNameBlockOffsetBits, "Natvis constants out of sync with actual constants");
+uint8** FNameDebugVisualizer::GetBlocks()
+{
+	static_assert(EntryStride == Doge::FNameEntryAllocator::Stride, "Natvis constants out of sync with actual constants");
+	static_assert(BlockBits == Doge::FNameMaxBlockBits, "Natvis constants out of sync with actual constants");
+	static_assert(OffsetBits == Doge::FNameBlockOffsetBits, "Natvis constants out of sync with actual constants");
 
-		return ((FNamePool*)(NamePoolData))->GetBlocksForDebugVisualizer();
-	}
+	return reinterpret_cast<Doge::FNamePool*>(Doge::NamePoolData)->GetBlocksForDebugVisualizer();
 }
