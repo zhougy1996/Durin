@@ -3,16 +3,19 @@
 #include "Client/Viewport.h"
 #include "Rendering/RenderingCommon.h"
 
-class FViewportClient;
-class MViewport;
-
-class ENGINE_API FSceneViewport : public FViewport, public IMonaViewport
+namespace Doge
 {
-public:
-	FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<MViewport> ViewportWidget);
+	class FViewportClient;
+	class MViewport;
 
-	virtual auto UpdateRHIViewport() -> void override;
+	class ENGINE_API FSceneViewport : public FViewport, public IMonaViewport
+	{
+	public:
+		FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<MViewport> ViewportWidget);
 
-private:
-	TWeakPtr<MViewport> ViewportWidget_;
-};
+		virtual auto UpdateRHIViewport() -> void override;
+
+	private:
+		TWeakPtr<MViewport> ViewportWidget_;
+	};
+}

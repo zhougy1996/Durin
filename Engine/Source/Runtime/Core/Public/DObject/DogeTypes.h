@@ -2,6 +2,9 @@
 
 #include "DObject/Property.h"
 
-class FNumericProperty : public FProperty
+namespace Doge
 {
-};
+	class FNumericProperty : public FProperty
+	{
+	};
+}

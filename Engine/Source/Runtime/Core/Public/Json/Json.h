@@ -3,8 +3,11 @@
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/filereadstream.h"
 
-namespace FJson
+namespace Doge
 {
-auto ParseJson(const FString& JsonFilePath) -> rapidjson::Document;
+	namespace FJson
+	{
+		auto ParseJson(const FString& JsonFilePath) -> rapidjson::Document;
 
-} // namespace FJson
+	}
+}

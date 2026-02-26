@@ -1,15 +1,18 @@
 #pragma once
 
-enum { INDEX_NONE = -1 };
-
-enum EForceInit 
+namespace Doge
 {
-	ForceInit,
-	ForceInitToZero
-};
+	enum { INDEX_NONE = -1 };
 
-enum ENoInit {NoInit};
-enum EInPlace {InPlace};
+	enum EForceInit
+	{
+		ForceInit,
+		ForceInitToZero
+	};
+
+	enum ENoInit {NoInit};
+	enum EInPlace {InPlace};
+}
 
 
 // Helper macro to make a class non-copyable and non-movable

@@ -1,7 +1,10 @@
 #include "Engine/PrimitiveSceneProxy.h"
 
-auto PrimitiveSceneProxy::SetTransform(FRHICommandList& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void
+namespace Doge
 {
-	LocalToWorld_ = InLocalToWorld;
-	ActorPosition_ = InActorPosition;
+	auto PrimitiveSceneProxy::SetTransform(FRHICommandList& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void
+	{
+		LocalToWorld_ = InLocalToWorld;
+		ActorPosition_ = InActorPosition;
+	}
 }

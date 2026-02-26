@@ -6,23 +6,25 @@
 
 #include "TestDHT.gen.h"
 
-
-DCLASS(AAA, bbb = ccc)
-class LEVELEDITOR_API TestDHT : DObject
+namespace Doge
 {
-	GENERATED_BODY()
+	DCLASS(AAA, bbb = ccc)
+	class LEVELEDITOR_API TestDHT : DObject
+	{
+		GENERATED_BODY()
 
-public:
-	DFUNCTION()
-	void Func() {};
+	public:
+		DFUNCTION()
+		void Func() {};
 
 
-private:
-	const std::vector<const DObject*> a;
+	private:
+		const std::vector<const DObject*> a;
 
-	DPROPERTY(zzz)
-	uint16 a1;
+		DPROPERTY(zzz)
+		uint16 a1;
 
-	DPROPERTY(zzz)
-	int32 a2;
-};
+		DPROPERTY(zzz)
+		int32 a2;
+	};
+}

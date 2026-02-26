@@ -1,12 +1,15 @@
 #pragma once
 
-class MWindow;
-class FGenericWindow;
-
-class FMonaWindowHelper
+namespace Doge
 {
-public:
-	static auto FindWindowByPlatformWindow(const std::vector<TSharedPtr<MWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<MWindow>;
+	class MWindow;
+	class FGenericWindow;
 
-	static auto ArrangeWindowToFront(std::vector<TSharedPtr<MWindow>>& Windows, TSharedPtr<MWindow> WindowToBringToFront) -> void;
-};
+	class FMonaWindowHelper
+	{
+	public:
+		static auto FindWindowByPlatformWindow(const std::vector<TSharedPtr<MWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<MWindow>;
+
+		static auto ArrangeWindowToFront(std::vector<TSharedPtr<MWindow>>& Windows, TSharedPtr<MWindow> WindowToBringToFront) -> void;
+	};
+}

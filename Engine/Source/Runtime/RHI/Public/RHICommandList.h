@@ -2,67 +2,70 @@
 
 #include "RHIPipeline.h"
 
-class IRHICommandContext;
-struct FRHIRenderPassInfo;
-class FRHICommandListExecutor;
-class FRHITexture;
-class FRHIViewport;
-
-class RHI_API FRHICommandList
+namespace Doge
 {
-public:
-	FRHICommandList();
+	class IRHICommandContext;
+	struct FRHIRenderPassInfo;
+	class FRHICommandListExecutor;
+	class FRHITexture;
+	class FRHIViewport;
 
-	virtual ~FRHICommandList() = default;
+	class RHI_API FRHICommandList
+	{
+	public:
+		FRHICommandList();
 
-	// Call this function to switch between graphics and compute pipelines
-	// This function will set the context, so call this before any other command
-	auto SwitchPipeline(ERHIPipeline Pipeline) -> void;
+		virtual ~FRHICommandList() = default;
 
-	auto BeginFrame() -> void;
+		// Call this function to switch between graphics and compute pipelines
+		// This function will set the context, so call this before any other command
+		auto SwitchPipeline(ERHIPipeline Pipeline) -> void;
 
-	auto EndFrame() -> void;
+		auto BeginFrame() -> void;
 
-	auto BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void;
+		auto EndFrame() -> void;
 
-	auto EndRenderPass() -> void;
+		auto BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void;
 
-	auto BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void;
+		auto EndRenderPass() -> void;
 
-	auto EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void;
+		auto BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void;
 
-	auto SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void;
+		auto EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void;
 
-	auto DrawPrimitive() -> void;
+		auto SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void;
 
-	auto TestCommandRecord() -> void;
+		auto DrawPrimitive() -> void;
 
-	auto GetContext() const -> IRHICommandContext& { return *GraphicsContext_; }
+		auto TestCommandRecord() -> void;
 
-	auto SubmitCommandsHint() -> void;
+		auto GetContext() const -> IRHICommandContext& { return *GraphicsContext_; }
 
-private:
-	ERHIPipeline ActivePipeline_ = ERHIPipeline::eNone;
+		auto SubmitCommandsHint() -> void;
 
-	IRHICommandContext* GraphicsContext_ = nullptr;
-};
+	private:
+		ERHIPipeline ActivePipeline_ = ERHIPipeline::eNone;
 
-// Singleton command list
-class RHI_API FRHICommandListImmediate : public FRHICommandList
-{
-public:
-	static auto Get() -> FRHICommandListImmediate&;
-};
+		IRHICommandContext* GraphicsContext_ = nullptr;
+	};
 
-class RHI_API FRHICommandListExecutor
-{
-public:
-	FRHICommandListExecutor();
+	// Singleton command list
+	class RHI_API FRHICommandListImmediate : public FRHICommandList
+	{
+	public:
+		static auto Get() -> FRHICommandListImmediate&;
+	};
 
-	static auto GetImmediateCommandList() -> FRHICommandListImmediate&;
+	class RHI_API FRHICommandListExecutor
+	{
+	public:
+		FRHICommandListExecutor();
 
-private:
-	FRHICommandListImmediate CommandListImmediate_;
-};
+		static auto GetImmediateCommandList() -> FRHICommandListImmediate&;
 
-extern RHI_API FRHICommandListExecutor GCommandListExecutor;
+	private:
+		FRHICommandListImmediate CommandListImmediate_;
+	};
+
+	extern RHI_API FRHICommandListExecutor GCommandListExecutor;
+}

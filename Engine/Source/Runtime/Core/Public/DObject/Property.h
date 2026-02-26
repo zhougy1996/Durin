@@ -2,8 +2,11 @@
 
 #include "DObject/Field.h"
 
-class FProperty : public FField
+namespace Doge
 {
-	DECLARE_FIELD(FProperty, FField, EClassCastFlags::FProperty, CORE_API)
-public:
-};
+	class FProperty : public FField
+	{
+		DECLARE_FIELD(FProperty, FField, EClassCastFlags::FProperty, CORE_API)
+	public:
+	};
+}

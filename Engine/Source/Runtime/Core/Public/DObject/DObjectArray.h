@@ -1,17 +1,20 @@
 #pragma once
 
-class FDObjectArray
+namespace Doge
 {
-public:
+	class FDObjectArray
+	{
+	public:
 
-	auto Add(DObject* ObjToAdd) -> void { Objs.push_back(ObjToAdd); }
+		auto Add(DObject* ObjToAdd) -> void { Objs.push_back(ObjToAdd); }
 
-	auto GetNum() const -> uint64 { return Objs.size(); }
+		auto GetNum() const -> uint64 { return Objs.size(); }
 
-	auto GetAll() -> const std::vector<DObject*>& { return Objs; }
+		auto GetAll() -> const std::vector<DObject*>& { return Objs; }
 
-private:
-	std::vector<DObject*> Objs;
-};
+	private:
+		std::vector<DObject*> Objs;
+	};
 
-extern CORE_API FDObjectArray GDObjectArray;
+	extern CORE_API FDObjectArray GDObjectArray;
+}

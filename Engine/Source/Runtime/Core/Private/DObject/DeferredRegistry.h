@@ -2,48 +2,51 @@
 
 #include "DObject/Class.h"
 
-template<typename T>
-class TDeferredRegistry
+namespace Doge
 {
-public:
-	using TInfo = T;
-	using TType = T::TType;
-	using TRegisterFunc = TType* (*)();
-
-	struct FRegistrant
+	template<typename T>
+	class TDeferredRegistry
 	{
-		const U8Char* Name;
-		TRegisterFunc OuterRegister;
-		TRegisterFunc InnerRegister;
-		FClassRegistrationInfo* Info = nullptr;
+	public:
+		using TInfo = T;
+		using TType = T::TType;
+		using TRegisterFunc = TType* (*)();
+
+		struct FRegistrant
+		{
+			const U8Char* Name;
+			TRegisterFunc OuterRegister;
+			TRegisterFunc InnerRegister;
+			FClassRegistrationInfo* Info = nullptr;
+		};
+
+		static auto Get() -> TDeferredRegistry&
+		{
+			static TDeferredRegistry Registry;
+			return Registry;
+		}
+
+		auto AddRegistration(TRegisterFunc InOuterRegister, TRegisterFunc InInnerRegister, const U8Char* InName, TInfo& InInfo) -> void
+		{
+			FRegistrant NewRegistrant;
+
+			NewRegistrant.Name = InName;
+			NewRegistrant.OuterRegister = InOuterRegister;
+			NewRegistrant.InnerRegister = InInnerRegister;
+			NewRegistrant.Info = &InInfo;
+
+			Registrations.push_back(NewRegistrant);
+		}
+
+		auto GetRegistrations() -> std::vector<FRegistrant>& { return Registrations; }
+
+		auto ClearRegistrations() -> void { std::vector<FRegistrant>().swap(Registrations); }
+
+	private:
+		std::vector<FRegistrant> Registrations;
 	};
 
-	static auto Get() -> TDeferredRegistry&
-	{
-		static TDeferredRegistry Registry;
-		return Registry;
-	}
 
-	auto AddRegistration(TRegisterFunc InOuterRegister, TRegisterFunc InInnerRegister, const U8Char* InName, TInfo& InInfo) -> void
-	{
-		FRegistrant NewRegistrant;
-
-		NewRegistrant.Name = InName;
-		NewRegistrant.OuterRegister = InOuterRegister;
-		NewRegistrant.InnerRegister = InInnerRegister;
-		NewRegistrant.Info = &InInfo;
-
-		Registrations.push_back(NewRegistrant);
-	}
-
-	auto GetRegistrations() -> std::vector<FRegistrant>& { return Registrations; }
-
-	auto ClearRegistrations() -> void { std::vector<FRegistrant>().swap(Registrations); }
-
-private:
-	std::vector<FRegistrant> Registrations;
-};
-
-
-using FClassDeferredRegistry = TDeferredRegistry<FClassRegistrationInfo>;
+	using FClassDeferredRegistry = TDeferredRegistry<FClassRegistrationInfo>;
+}
 

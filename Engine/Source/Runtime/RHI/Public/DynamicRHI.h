@@ -1,42 +1,45 @@
 #pragma once
 
-class FGraphicsPipelineStateInitializer;
-class FRHIGraphicsPipelineState;
-class IRHICommandContext;
-class FRHITexture;
-
-class RHI_API IDynamicRHI
+namespace Doge
 {
-public:
-	IDynamicRHI() = default;
+	class FGraphicsPipelineStateInitializer;
+	class FRHIGraphicsPipelineState;
+	class IRHICommandContext;
+	class FRHITexture;
 
-	virtual ~IDynamicRHI() = default;
+	class RHI_API IDynamicRHI
+	{
+	public:
+		IDynamicRHI() = default;
 
-	virtual auto Init() -> void = 0;
-	virtual auto Shutdown() -> void = 0;
+		virtual ~IDynamicRHI() = default;
 
-	virtual auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> = 0;
-	virtual auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FRHIGraphicsPipelineState> = 0;
-	virtual auto RHIGetDefaultContext() -> IRHICommandContext* = 0;
-	virtual auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture> = 0;
-};
+		virtual auto Init() -> void = 0;
+		virtual auto Shutdown() -> void = 0;
 
-extern RHI_API IDynamicRHI* GDynamicRHI;
+		virtual auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> = 0;
+		virtual auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FRHIGraphicsPipelineState> = 0;
+		virtual auto RHIGetDefaultContext() -> IRHICommandContext* = 0;
+		virtual auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture> = 0;
+	};
 
-class RHI_API IDynamicRHIModule : public IModuleInterface
-{
-public:
-	virtual auto CreateRHI() -> IDynamicRHI* = 0;
-};
+	extern RHI_API IDynamicRHI* GDynamicRHI;
 
-template<typename TRHI>
-FORCEINLINE auto CastDynamicRHI(IDynamicRHI* DynamicRHI) -> TRHI*
-{
-	return static_cast<TRHI*>(DynamicRHI);
-}
+	class RHI_API IDynamicRHIModule : public IModuleInterface
+	{
+	public:
+		virtual auto CreateRHI() -> IDynamicRHI* = 0;
+	};
 
-template<typename TRHI>
-FORCEINLINE auto GetDynamicRHI() -> TRHI*
-{
-	return CastDynamicRHI<TRHI>(GDynamicRHI);
+	template<typename TRHI>
+	FORCEINLINE auto CastDynamicRHI(IDynamicRHI* DynamicRHI) -> TRHI*
+	{
+		return static_cast<TRHI*>(DynamicRHI);
+	}
+
+	template<typename TRHI>
+	FORCEINLINE auto GetDynamicRHI() -> TRHI*
+	{
+		return CastDynamicRHI<TRHI>(GDynamicRHI);
+	}
 }

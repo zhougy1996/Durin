@@ -5,98 +5,101 @@
 
 #include "Actor.gen.h"
 
-class DActorComponent;
-class DSceneComponent;
-
-DCLASS()
-class AActor : public DObject
+namespace Doge
 {
-	GENERATED_BODY()
-public:
-	ENGINE_API AActor();
+	class DActorComponent;
+	class DSceneComponent;
 
-	ENGINE_API AActor(const FObjectInitializer& ObjectInitializer);
-
-	ENGINE_API virtual ~AActor();
-
-	// Only for internal use, should be called by DActorComponent functions
-	auto RemoveOwnedComponent(DActorComponent* Component) -> void;
-
-	// Only for internal use, should be called by DActorComponent functions
-	auto RemoveInstanceComponent(DActorComponent* Component) -> void;
-
-	FORCEINLINE auto GetRootComponent() const -> DSceneComponent* { return RootComponent; }
-
-	FORCEINLINE auto SetRootComponent(DSceneComponent* InRootComponent) -> void { RootComponent = InRootComponent; }
-
-	template<typename T>
-	auto FindComponentByStaticClass() -> T*
+	DCLASS()
+	class AActor : public DObject
 	{
-		static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-		for (auto* Component : OwnedComponents)
+		GENERATED_BODY()
+	public:
+		ENGINE_API AActor();
+
+		ENGINE_API AActor(const FObjectInitializer& ObjectInitializer);
+
+		ENGINE_API virtual ~AActor();
+
+		// Only for internal use, should be called by DActorComponent functions
+		auto RemoveOwnedComponent(DActorComponent* Component) -> void;
+
+		// Only for internal use, should be called by DActorComponent functions
+		auto RemoveInstanceComponent(DActorComponent* Component) -> void;
+
+		FORCEINLINE auto GetRootComponent() const -> DSceneComponent* { return RootComponent; }
+
+		FORCEINLINE auto SetRootComponent(DSceneComponent* InRootComponent) -> void { RootComponent = InRootComponent; }
+
+		template<typename T>
+		auto FindComponentByStaticClass() -> T*
 		{
-			if (typeid(*Component) == typeid(T))
+			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
+			for (auto* Component : OwnedComponents)
 			{
-				return static_cast<T*>(Component);
+				if (typeid(*Component) == typeid(T))
+				{
+					return static_cast<T*>(Component);
+				}
+
 			}
-
+			return nullptr;
 		}
-		return nullptr;
-	}
 
-	template<typename T>
-	auto FindComponentByClass() -> T*
-	{
-		static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-		for (auto* Component : OwnedComponents)
+		template<typename T>
+		auto FindComponentByClass() -> T*
 		{
-			if (auto* CastedComponent = dynamic_cast<T*>(Component))
+			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
+			for (auto* Component : OwnedComponents)
 			{
-				return CastedComponent;
+				if (auto* CastedComponent = dynamic_cast<T*>(Component))
+				{
+					return CastedComponent;
+				}
 			}
+			return nullptr;
 		}
-		return nullptr;
-	}
 
-	template<typename T>
-	auto FindComponentsByClass() -> std::vector<DActorComponent*>
-	{
-		static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-		std::vector<DActorComponent*> FoundComponents;
-		for (auto* Component : OwnedComponents)
+		template<typename T>
+		auto FindComponentsByClass() -> std::vector<DActorComponent*>
 		{
-			if (auto* CastedComponent = dynamic_cast<T*>(Component))
+			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
+			std::vector<DActorComponent*> FoundComponents;
+			for (auto* Component : OwnedComponents)
 			{
-				FoundComponents.push_back(CastedComponent);
+				if (auto* CastedComponent = dynamic_cast<T*>(Component))
+				{
+					FoundComponents.push_back(CastedComponent);
+				}
 			}
+			return FoundComponents;
 		}
-		return FoundComponents;
-	}
 
-private:
-	auto InitializeDefaults() -> void;
+	private:
+		auto InitializeDefaults() -> void;
 
-protected:
-	template<typename T>
-	auto CreateDefaultComponent() -> T*
-	{
-		static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-		T* Component = new T(this);
-		OwnedComponents.push_back(Component);
-		return Component;
-	}
+	protected:
+		template<typename T>
+		auto CreateDefaultComponent() -> T*
+		{
+			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
+			T* Component = new T(this);
+			OwnedComponents.push_back(Component);
+			return Component;
+		}
 
-	template<typename T>
-	auto CreateDefaultComponent(const FName& InComponentName) -> T*
-	{
-		auto* Component = CreateDefaultComponent<T>();
-		Component->Rename(InComponentName);
-		return Component;
-	}
+		template<typename T>
+		auto CreateDefaultComponent(const FName& InComponentName) -> T*
+		{
+			auto* Component = CreateDefaultComponent<T>();
+			Component->Rename(InComponentName);
+			return Component;
+		}
 
-	DSceneComponent* RootComponent = nullptr;
+		DSceneComponent* RootComponent = nullptr;
 
-	std::vector<DActorComponent*> OwnedComponents;
+		std::vector<DActorComponent*> OwnedComponents;
 
-	std::vector<DActorComponent*> InstanceComponents;
-};
+		std::vector<DActorComponent*> InstanceComponents;
+	};
+}

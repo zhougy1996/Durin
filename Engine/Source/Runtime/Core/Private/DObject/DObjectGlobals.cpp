@@ -3,51 +3,54 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 
-auto FObjectInitializer::Get() -> const FObjectInitializer&
+namespace Doge
 {
-	static thread_local FObjectInitializer Instance;
-	return Instance;
-}
+	auto FObjectInitializer::Get() -> const FObjectInitializer&
+	{
+		static thread_local FObjectInitializer Instance;
+		return Instance;
+	}
 
-auto DObjectInit() -> void
-{
-	ProcessNewlyLoadedDObjects();
-	DObjectProcessRegistrants();
-	auto& array = GDObjectArray;
-}
+	auto DObjectInit() -> void
+	{
+		ProcessNewlyLoadedDObjects();
+		DObjectProcessRegistrants();
+		auto& array = GDObjectArray;
+	}
 
-auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*
-{
-	// Allocate memory and zero it out
-	DObject* Obj = nullptr;
-	Obj = static_cast<DObject*>(std::malloc(Size));
-	assert(Obj && "Memory allocation failed");
-	new (Obj) DObject(Class, Outer, Name);
+	auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*
+	{
+		// Allocate memory and zero it out
+		DObject* Obj = nullptr;
+		Obj = static_cast<DObject*>(std::malloc(Size));
+		assert(Obj && "Memory allocation failed");
+		new (Obj) DObject(Class, Outer, Name);
 
-	return Obj;
-}
+		return Obj;
+	}
 
-auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*
-{
-	DObject* Obj = StaticAllocateObject(Params.Class, Params.Outer, Params.Name, Params.Size);
+	auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*
+	{
+		DObject* Obj = StaticAllocateObject(Params.Class, Params.Outer, Params.Name, Params.Size);
 
-	DClass* InClass = Params.Class;
+		DClass* InClass = Params.Class;
 
-	assert(InClass && InClass->ClassConstructor);
+		assert(InClass && InClass->ClassConstructor);
 
-	FObjectInitializer ObjectInitializer;
-	ObjectInitializer.Obj = Obj;
+		FObjectInitializer ObjectInitializer;
+		ObjectInitializer.Obj = Obj;
 
-	InClass->ClassConstructor(ObjectInitializer);
+		InClass->ClassConstructor(ObjectInitializer);
 
-	return Obj;
-}
+		return Obj;
+	}
 
 
-auto DogeCodeGen::ConstructDClass(const FClassParams& Params) -> DClass*
-{
-	DClass* Class = Params.ClassNoRegisterFunc();
+	auto DogeCodeGen::ConstructDClass(const FClassParams& Params) -> DClass*
+	{
+		DClass* Class = Params.ClassNoRegisterFunc();
 
-	DObjectForceRegistration(Class);
-	return Class;
+		DObjectForceRegistration(Class);
+		return Class;
+	}
 }

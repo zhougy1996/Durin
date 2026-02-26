@@ -1,3 +1,6 @@
 #pragma once
 
-DOGEED_API auto EditorInit() -> void;
+namespace Doge
+{
+	DOGEED_API auto EditorInit() -> void;
+}

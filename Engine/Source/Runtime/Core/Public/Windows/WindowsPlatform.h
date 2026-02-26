@@ -18,7 +18,8 @@
 
 #define PLATFORM_BREAK() (/*__nop(), */__debugbreak())
 
-using FModuleHandle = HMODULE;
+// Define a macro to convert string literals
+#define STR(x) x
 
 #ifdef _DEBUG
 	#define DOGE_VISUALIZERS_HELPERS
@@ -26,60 +27,62 @@ using FModuleHandle = HMODULE;
 
 #pragma warning(disable : 4251)
 
-using CharT = U8Char;
-using FString = FU8String;
-using FStringView = FU8StringView;
-
-// Define a macro to convert string literals
-#define STR(x) x
-
-struct FWindowsPlatformMisc : public FGenericPlatformMisc
+namespace Doge
 {
-	static constexpr auto FLibraryPrefix = "";
-	static constexpr auto FLibraryExtension = ".dll";
+	using FModuleHandle = HMODULE;
 
-	static FModuleHandle LoadLibrary(const FString& FileName)
+	using CharT = U8Char;
+	using FString = FU8String;
+	using FStringView = FU8StringView;
+
+	struct FWindowsPlatformMisc : public FGenericPlatformMisc
 	{
-		std::wstring WideModuleName(FileName.begin(), FileName.end());
-		return ::LoadLibraryW(WideModuleName.c_str());
-	}
+		static constexpr auto FLibraryPrefix = "";
+		static constexpr auto FLibraryExtension = ".dll";
 
-	static void FreeLibrary(FModuleHandle ModuleHandle)
-	{
-		::FreeLibrary(ModuleHandle);
-	}
+		static FModuleHandle LoadLibrary(const FString& FileName)
+		{
+			std::wstring WideModuleName(FileName.begin(), FileName.end());
+			return ::LoadLibraryW(WideModuleName.c_str());
+		}
 
-	// GetProcAddress
-	static void* GetProcAddress(FModuleHandle ModuleHandle, const char* ProcName)
-	{
-		return ::GetProcAddress(ModuleHandle, ProcName);
-	}
+		static void FreeLibrary(FModuleHandle ModuleHandle)
+		{
+			::FreeLibrary(ModuleHandle);
+		}
 
-	static void Prefetch(const void* Ptr)
-	{
-		_mm_prefetch(static_cast<const char*>(Ptr), _MM_HINT_T0);
-	}
+		// GetProcAddress
+		static void* GetProcAddress(FModuleHandle ModuleHandle, const char* ProcName)
+		{
+			return ::GetProcAddress(ModuleHandle, ProcName);
+		}
 
-	static void* AlignedAlloc(size_t Size, size_t Alignment)
-	{
-		return _aligned_malloc(Size, Alignment);
-	}
+		static void Prefetch(const void* Ptr)
+		{
+			_mm_prefetch(static_cast<const char*>(Ptr), _MM_HINT_T0);
+		}
 
-	static void* AlignedRealloc(void* Ptr, size_t NewSize, size_t Alignment)
-	{
-		return _aligned_realloc(Ptr, NewSize, Alignment);
-	}
+		static void* AlignedAlloc(size_t Size, size_t Alignment)
+		{
+			return _aligned_malloc(Size, Alignment);
+		}
 
-	static void AlignedFree(void* Ptr)
-	{
-		_aligned_free(Ptr);
-	}
+		static void* AlignedRealloc(void* Ptr, size_t NewSize, size_t Alignment)
+		{
+			return _aligned_realloc(Ptr, NewSize, Alignment);
+		}
 
-	static int Strncasecmp(const char* Str1, const char* Str2, size_t Count)
-	{
-		return _strnicmp(Str1, Str2, Count);
-	}
+		static void AlignedFree(void* Ptr)
+		{
+			_aligned_free(Ptr);
+		}
 
-};
+		static int Strncasecmp(const char* Str1, const char* Str2, size_t Count)
+		{
+			return _strnicmp(Str1, Str2, Count);
+		}
 
-using FPlatformMisc = FWindowsPlatformMisc;
+	};
+
+	using FPlatformMisc = FWindowsPlatformMisc;
+}

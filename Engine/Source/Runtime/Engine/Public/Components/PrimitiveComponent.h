@@ -3,8 +3,11 @@
 
 #include "PrimitiveComponent.gen.h"
 
-DCLASS()
-class DPrimitiveComponent : public DSceneComponent
+namespace Doge
 {
-	GENERATED_BODY()
-};
+	DCLASS()
+	class DPrimitiveComponent : public DSceneComponent
+	{
+		GENERATED_BODY()
+	};
+}

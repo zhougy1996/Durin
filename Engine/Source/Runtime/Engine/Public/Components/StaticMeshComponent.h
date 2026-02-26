@@ -4,15 +4,18 @@
 
 #include "StaticMeshComponent.gen.h"
 
-class DStaticMesh;
-
-DCLASS()
-class DStaticMeshComponent : public DMeshComponent
+namespace Doge
 {
-	GENERATED_BODY()
-public:
+	class DStaticMesh;
 
-private:
+	DCLASS()
+	class DStaticMeshComponent : public DMeshComponent
+	{
+		GENERATED_BODY()
+	public:
 
-	TSharedPtr<DStaticMesh> StaticMesh;
-};
+	private:
+
+		TSharedPtr<DStaticMesh> StaticMesh;
+	};
+}

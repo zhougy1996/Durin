@@ -2,9 +2,12 @@
 
 #include "CoreGlobals.h"
 
-bool GIsRequestingExit = false;
+namespace Doge
+{
+	bool GIsRequestingExit = false;
 
-FPath GWorkDirectory;
-FPath GShaderPath;
+	FPath GWorkDirectory;
+	FPath GShaderPath;
 
-std::vector<const char*> GMonaRequiredVulkanInstanceExtensions;
+	std::vector<const char*> GMonaRequiredVulkanInstanceExtensions;
+}

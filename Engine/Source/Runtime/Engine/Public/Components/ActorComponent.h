@@ -4,55 +4,58 @@
 
 #include "ActorComponent.gen.h"
 
-class AActor;
-
-DCLASS()
-class DActorComponent : public DObject
+namespace Doge
 {
-	GENERATED_BODY()
-public:
-	ENGINE_API DActorComponent(const FObjectInitializer& ObjectInitializer);
+	class AActor;
 
-	ENGINE_API virtual ~DActorComponent() override = default;
-
-	auto GetOwner() const -> AActor* { return OwnerActorPrivate; }
-
-	template<typename T> auto GetOwner() const -> T*
+	DCLASS()
+	class DActorComponent : public DObject
 	{
-		return dynamic_cast<T*>(OwnerActorPrivate);
-	}
+		GENERATED_BODY()
+	public:
+		ENGINE_API DActorComponent(const FObjectInitializer& ObjectInitializer);
 
-	ENGINE_API auto RegisterComponent() -> void;
+		ENGINE_API virtual ~DActorComponent() override = default;
 
-	ENGINE_API auto UnregisterComponent() -> void;
+		auto GetOwner() const -> AActor* { return OwnerActorPrivate; }
 
-	ENGINE_API auto DestroyComponent() -> void;
+		template<typename T> auto GetOwner() const -> T*
+		{
+			return dynamic_cast<T*>(OwnerActorPrivate);
+		}
 
-	ENGINE_API virtual auto InitializeComponent() -> void;
+		ENGINE_API auto RegisterComponent() -> void;
 
-	ENGINE_API virtual auto UninitializeComponent() -> void;
+		ENGINE_API auto UnregisterComponent() -> void;
 
-	ENGINE_API virtual auto OnRegister() -> void;
+		ENGINE_API auto DestroyComponent() -> void;
 
-	ENGINE_API virtual auto OnUnregister() -> void;
+		ENGINE_API virtual auto InitializeComponent() -> void;
 
-	ENGINE_API virtual auto OnComponentCreated() -> void;
+		ENGINE_API virtual auto UninitializeComponent() -> void;
 
-	ENGINE_API virtual auto OnComponentDestroyed() -> void;
+		ENGINE_API virtual auto OnRegister() -> void;
 
-private:
-	// Call OnRegister()
-	auto ExecuteRegisterEvents() -> void;
+		ENGINE_API virtual auto OnUnregister() -> void;
 
-	// Call OnUnregister();
-	auto ExecuteUnregisterEvents() -> void;
+		ENGINE_API virtual auto OnComponentCreated() -> void;
 
-private:
-	AActor* OwnerActorPrivate;
+		ENGINE_API virtual auto OnComponentDestroyed() -> void;
 
-	uint8 bRegistered : 1 = false;
+	private:
+		// Call OnRegister()
+		auto ExecuteRegisterEvents() -> void;
 
-	uint8 bHasBeenCreated : 1 = false;
+		// Call OnUnregister();
+		auto ExecuteUnregisterEvents() -> void;
 
-	uint8 bHasBeenInitialized : 1 = false;
-};
+	private:
+		AActor* OwnerActorPrivate;
+
+		uint8 bRegistered : 1 = false;
+
+		uint8 bHasBeenCreated : 1 = false;
+
+		uint8 bHasBeenInitialized : 1 = false;
+	};
+}

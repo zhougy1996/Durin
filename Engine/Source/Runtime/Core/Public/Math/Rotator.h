@@ -1,9 +1,12 @@
 #pragma once
 
-template<typename T>
-struct TRotator
+namespace Doge
 {
-	T Pitch;
-	T Yaw;
-	T Roll;
-};
+	template<typename T>
+	struct TRotator
+	{
+		T Pitch;
+		T Yaw;
+		T Roll;
+	};
+}

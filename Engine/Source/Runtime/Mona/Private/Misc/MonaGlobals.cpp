@@ -3,18 +3,21 @@
 #include "RHI.h"
 #include "Application/MonaApplication.h"
 
-ImGuiContext* GImGuiContext = nullptr;
-
-static auto ImGuiInit() -> void
+namespace Doge
 {
-	check(GDynamicRHI);
-	GImGuiContext = ImGui::CreateContext();
-	ImGui::SetCurrentContext(GImGuiContext);
-}
+	ImGuiContext* GImGuiContext = nullptr;
 
-auto MonaInit() -> void
-{
-	ImGuiInit();
-	FMonaApplication::Create();
-	FMonaApplication::Get().Initialize();
+	static auto ImGuiInit() -> void
+	{
+		check(GDynamicRHI);
+		GImGuiContext = ImGui::CreateContext();
+		ImGui::SetCurrentContext(GImGuiContext);
+	}
+
+	auto MonaInit() -> void
+	{
+		ImGuiInit();
+		FMonaApplication::Create();
+		FMonaApplication::Get().Initialize();
+	}
 }

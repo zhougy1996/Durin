@@ -1,15 +1,18 @@
 #pragma once
 
-class FGenericWindow;
-
-class APPLICATIONCORE_API FGenericApplication
+namespace Doge
 {
-public:
-	virtual ~FGenericApplication() = default;
+	class FGenericWindow;
 
-	virtual auto Tick() -> void;
+	class APPLICATIONCORE_API FGenericApplication
+	{
+	public:
+		virtual ~FGenericApplication() = default;
 
-	virtual auto ProcessDeferredEvents() -> void;
+		virtual auto Tick() -> void;
 
-	virtual auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow>;
-};
+		virtual auto ProcessDeferredEvents() -> void;
+
+		virtual auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow>;
+	};
+}

@@ -2,10 +2,13 @@
 
 #include "Interfaces/IMainFrameModule.h"
 
-DOGEED_API auto EditorInit() -> void
+namespace Doge
 {
-	DOGE_INFO("Initializing the editor.");
-	IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
+	DOGEED_API auto EditorInit() -> void
+	{
+		DOGE_INFO("Initializing the editor.");
+		IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
 
-	MainFrameModule.CreateDefaultMainFrame();
+		MainFrameModule.CreateDefaultMainFrame();
+	}
 }

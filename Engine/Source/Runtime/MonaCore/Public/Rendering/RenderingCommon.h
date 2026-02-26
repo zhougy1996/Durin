@@ -1,5 +1,8 @@
 #pragma once
 
-class IMonaViewport
+namespace Doge
 {
-};
+	class IMonaViewport
+	{
+	};
+}

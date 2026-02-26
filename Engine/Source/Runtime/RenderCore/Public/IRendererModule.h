@@ -1,6 +1,9 @@
 #pragma once
 
-class IRendererModule : public IModuleInterface
+namespace Doge
 {
+	class IRendererModule : public IModuleInterface
+	{
 
-};
+	};
+}

@@ -2,13 +2,16 @@
 
 #include "Rendering/MonaRenderer.h"
 
-class FRHIViewport;
-class MWindow;
-
-class MONACORE_API FMonaRHIRenderer : public FMonaRenderer
+namespace Doge
 {
-public:
-	virtual auto GetRHIViewport(MWindow& Window) -> TSharedPtr<FRHIViewport>;
+	class FRHIViewport;
+	class MWindow;
 
-	virtual auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void;
-};
+	class MONACORE_API FMonaRHIRenderer : public FMonaRenderer
+	{
+	public:
+		virtual auto GetRHIViewport(MWindow& Window) -> TSharedPtr<FRHIViewport>;
+
+		virtual auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void;
+	};
+}

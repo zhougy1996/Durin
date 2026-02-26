@@ -2,13 +2,16 @@
 
 #include "Interfaces/IMainFrameModule.h"
 
-class FMainFrameModule : public IMainFrameModule
+namespace Doge
 {
-public:
-	FMainFrameModule() = default;
-	~FMainFrameModule() = default;
+	class FMainFrameModule : public IMainFrameModule
+	{
+	public:
+		FMainFrameModule() = default;
+		~FMainFrameModule() = default;
 
-	auto StartupModule() -> void override;
-	auto ShutdownModule() -> void override;
-	auto CreateDefaultMainFrame() -> void override;
-};
+		auto StartupModule() -> void override;
+		auto ShutdownModule() -> void override;
+		auto CreateDefaultMainFrame() -> void override;
+	};
+}

@@ -1,24 +1,27 @@
 #include "Client/Viewport.h"
 
-FViewport::FViewport(FViewportClient* ViewportClient)
-	: ViewportClient_(ViewportClient)
+namespace Doge
 {
-}
+	FViewport::FViewport(FViewportClient* ViewportClient)
+		: ViewportClient_(ViewportClient)
+	{
+	}
 
-auto FViewport::SetInitialSize(FIntPoint InitialSizeXY) -> void
-{
-	UpdateRHIViewport();
-}
+	auto FViewport::SetInitialSize(FIntPoint InitialSizeXY) -> void
+	{
+		UpdateRHIViewport();
+	}
 
-auto FViewport::InitRHIViewport() -> void
-{
-}
+	auto FViewport::InitRHIViewport() -> void
+	{
+	}
 
-auto FViewport::UpdateRHIViewport() -> void
-{
-}
+	auto FViewport::UpdateRHIViewport() -> void
+	{
+	}
 
-auto FViewport::GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&
-{
-	return RHIViewport_;
+	auto FViewport::GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&
+	{
+		return RHIViewport_;
+	}
 }

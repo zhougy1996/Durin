@@ -1,3 +1,6 @@
 #pragma once
 
-class ENGINE_API FViewportClient{};
+namespace Doge
+{
+	class ENGINE_API FViewportClient{};
+}

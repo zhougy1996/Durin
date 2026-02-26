@@ -4,16 +4,18 @@
 
 #include "StaticMeshActor.gen.h"
 
-class DStaticMeshComponent;
-
-
-DCLASS()
-class AStaticMeshActor : public AActor
+namespace Doge
 {
-	GENERATED_BODY()
-public:
-	ENGINE_API AStaticMeshActor();
-private:
+	class DStaticMeshComponent;
 
-	DStaticMeshComponent* StaticMeshComponent = nullptr;
-};
+	DCLASS()
+	class AStaticMeshActor : public AActor
+	{
+		GENERATED_BODY()
+	public:
+		ENGINE_API AStaticMeshActor();
+	private:
+
+		DStaticMeshComponent* StaticMeshComponent = nullptr;
+	};
+}

@@ -2,30 +2,33 @@
 
 #include "DynamicRHI.h"
 
-static auto CreateDynamicRHI() -> IDynamicRHI*
+namespace Doge
 {
-	IDynamicRHIModule* DynamicRHIModule = FModuleManager::LoadModule<IDynamicRHIModule>("VulkanRHI");
-	if (!DynamicRHIModule)
+	static auto CreateDynamicRHI() -> IDynamicRHI*
 	{
-		DOGE_ERROR("Failed to load VulkanRHI module");
-		return nullptr;
+		IDynamicRHIModule* DynamicRHIModule = FModuleManager::LoadModule<IDynamicRHIModule>("VulkanRHI");
+		if (!DynamicRHIModule)
+		{
+			DOGE_ERROR("Failed to load VulkanRHI module");
+			return nullptr;
+		}
+		return DynamicRHIModule->CreateRHI();
 	}
-	return DynamicRHIModule->CreateRHI();
-}
 
-auto RHIInit() -> void
-{
-	DOGE_DEBUG("Initializing RHI");
-	GDynamicRHI = CreateDynamicRHI();
-	if (GDynamicRHI == nullptr)
+	auto RHIInit() -> void
 	{
-		DOGE_ERROR("Failed to create dynamic RHI");
-		return;
+		DOGE_DEBUG("Initializing RHI");
+		GDynamicRHI = CreateDynamicRHI();
+		if (GDynamicRHI == nullptr)
+		{
+			DOGE_ERROR("Failed to create dynamic RHI");
+			return;
+		}
+		GDynamicRHI->Init();
 	}
-	GDynamicRHI->Init();
-}
 
-auto RHIExit() -> void
-{
-	delete GDynamicRHI;
+	auto RHIExit() -> void
+	{
+		delete GDynamicRHI;
+	}
 }

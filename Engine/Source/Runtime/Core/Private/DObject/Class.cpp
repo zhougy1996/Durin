@@ -1,46 +1,49 @@
 #include "DObject/Class.h"
 
-IMPLEMENT_INTRINSIC_CLASS(DStructure, CORE_API, DObject, CORE_API, {})
-
-IMPLEMENT_INTRINSIC_CLASS(DClass, CORE_API, DObject, CORE_API, {})
-
-auto DStructure::RegisterDependencies() -> void
+namespace Doge
 {
-	if (SuperStructure)
+	IMPLEMENT_INTRINSIC_CLASS(DStructure, CORE_API, DObject, CORE_API, {})
+
+	IMPLEMENT_INTRINSIC_CLASS(DClass, CORE_API, DObject, CORE_API, {})
+
+	auto DStructure::RegisterDependencies() -> void
 	{
-		SuperStructure->RegisterDependencies();
+		if (SuperStructure)
+		{
+			SuperStructure->RegisterDependencies();
+		}
 	}
-}
 
-auto GetPrivateStaticClassBody(
-	const U8Char* PackageName,
-	const U8Char* Name,
-	DClass*& ReturnClass,
-	void(*RegisterNativeFunc)(),
-	uint32 InSize,
-	uint32 InAlignment,
-	EClassFlags InClassFlags,
-	DClass::ClassConstructorType InClassConstructor,
-	DClass::StaticClassFunctionType InSuperClassFn
-) -> DClass*
-{
-	auto* Class = new DClass(
-		EC_StaticConstructor,
-		FName(Name),
-		InSize,
-		InAlignment,
-		EObjectFlags::NoFlags,
-		InClassFlags,
-		EClassCastFlags::DClass,
-		InClassConstructor
-	);
+	auto GetPrivateStaticClassBody(
+		const U8Char* PackageName,
+		const U8Char* Name,
+		DClass*& ReturnClass,
+		void(*RegisterNativeFunc)(),
+		uint32 InSize,
+		uint32 InAlignment,
+		EClassFlags InClassFlags,
+		DClass::ClassConstructorType InClassConstructor,
+		DClass::StaticClassFunctionType InSuperClassFn
+	) -> DClass*
+	{
+		auto* Class = new DClass(
+			EC_StaticConstructor,
+			FName(Name),
+			InSize,
+			InAlignment,
+			EObjectFlags::NoFlags,
+			InClassFlags,
+			EClassCastFlags::DClass,
+			InClassConstructor
+		);
 
-	ReturnClass = Class; // assign before setting superclass to handle circular dependencies
+		ReturnClass = Class; // assign before setting superclass to handle circular dependencies
 
-	DClass* SuperClass = InSuperClassFn ? InSuperClassFn() : nullptr;
-	Class->SetSuperStructure(SuperClass);
+		DClass* SuperClass = InSuperClassFn ? InSuperClassFn() : nullptr;
+		Class->SetSuperStructure(SuperClass);
 
-	Class->Register(DClass::StaticClass, PackageName, Name);
+		Class->Register(DClass::StaticClass, PackageName, Name);
 
-	return Class;
+		return Class;
+	}
 }

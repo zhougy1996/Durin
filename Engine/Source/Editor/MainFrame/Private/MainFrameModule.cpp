@@ -3,24 +3,27 @@
 #include "Mona.h"
 #include "LevelEditorModule.h"
 
-IMPLEMENT_MODULE(FMainFrameModule, MainFrame)
-
-auto FMainFrameModule::StartupModule() -> void
+namespace Doge
 {
-}
+	IMPLEMENT_MODULE(FMainFrameModule, MainFrame)
 
-auto FMainFrameModule::ShutdownModule() -> void
-{
-}
+	auto FMainFrameModule::StartupModule() -> void
+	{
+	}
 
-auto FMainFrameModule::CreateDefaultMainFrame() -> void
-{
-	FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
-	TSharedPtr<MWindow> RootWindow = std::make_shared<MWindow>();
+	auto FMainFrameModule::ShutdownModule() -> void
+	{
+	}
 
-	RootWindow->SetTitle("Mona");
-	RootWindow->ResizeWindow({800.0f, 600.0f});
+	auto FMainFrameModule::CreateDefaultMainFrame() -> void
+	{
+		FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
+		TSharedPtr<MWindow> RootWindow = std::make_shared<MWindow>();
 
-	FMonaApplication::Get().AddWindow(RootWindow, true);
-	FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
+		RootWindow->SetTitle("Mona");
+		RootWindow->ResizeWindow({800.0f, 600.0f});
+
+		FMonaApplication::Get().AddWindow(RootWindow, true);
+		FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
+	}
 }

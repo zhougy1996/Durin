@@ -9,193 +9,196 @@
 #include "Widgets/MWindow.h"
 #include "Window/GlfwWindow.h"
 
-TSharedPtr<FMonaApplication> FMonaApplication::CurrentApplication_ = nullptr;
-
-FMonaApplication::~FMonaApplication()
+namespace Doge
 {
-}
+	TSharedPtr<FMonaApplication> FMonaApplication::CurrentApplication_ = nullptr;
 
-auto FMonaApplication::Create() -> void
-{
-	CurrentApplication_ = std::shared_ptr<FMonaApplication>(new FMonaApplication());
-	GApp = CurrentApplication_;
-}
-
-auto FMonaApplication::Shutdown() -> void
-{
-	CurrentApplication_->CloseAllWindowsImmediately();
-}
-
-auto FMonaApplication::Get() -> FMonaApplication&
-{
-	return *CurrentApplication_;
-}
-
-auto FMonaApplication::Tick() -> void
-{
-	TickPlatform();
-	TickTime();
-	TickAndDrawWidgets();
-}
-
-auto FMonaApplication::GetActiveTopLevelWindow() -> TSharedPtr<MWindow>
-{
-	// TODO: tmp, implement it later
-	if (Windows_.empty())
+	FMonaApplication::~FMonaApplication()
 	{
-		return nullptr;
 	}
-	return Windows_[0];
-}
 
-auto FMonaApplication::AddWindow(TSharedPtr<MWindow> InMonaWindow, const bool bShowImmediately) -> TSharedPtr<MWindow>
-{
-	FMonaWindowHelper::ArrangeWindowToFront(Windows_, InMonaWindow);
-	TSharedPtr<FGenericWindow> NewWindow = MakeWindow(InMonaWindow, bShowImmediately);
-
-	return InMonaWindow;
-}
-
-auto FMonaApplication::Initialize() -> void
-{
-	InitializeRenderer();
-}
-
-auto FMonaApplication::InitializeRenderer() -> void
-{
-	Renderer_ = std::make_shared<FMonaRHIRenderer>();
-}
-
-auto FMonaApplication::RequestDestroyWindow(TSharedPtr<MWindow> Window) -> void
-{
-	WindowDestroyQueue_.push_back(Window);
-	DestroyWindowsImmediately();
-}
-
-auto FMonaApplication::CloseAllWindowsImmediately() -> void
-{
-	std::for_each(Windows_.rbegin(), Windows_.rend(), [](auto& window) { window->RequestDestroyWindow(); });
-}
-
-auto FMonaApplication::DestroyWindowsImmediately() -> void
-{
-	while (!WindowDestroyQueue_.empty())
+	auto FMonaApplication::Create() -> void
 	{
-		TSharedPtr<MWindow> Window = WindowDestroyQueue_.front();
-		TSharedPtr<FRHIViewport> Viewport = Window->GetRHIViewport();
-		Viewport->WaitForLastFrameCompletion();
-		WindowDestroyQueue_.erase(WindowDestroyQueue_.begin());
-		Windows_.erase(std::remove(Windows_.begin(), Windows_.end(), Window), Windows_.end());
+		CurrentApplication_ = std::shared_ptr<FMonaApplication>(new FMonaApplication());
+		GApp = CurrentApplication_;
 	}
-	WindowDestroyQueue_.clear();
 
-	if (Windows_.empty())
+	auto FMonaApplication::Shutdown() -> void
 	{
-		RequestEngineExit();
+		CurrentApplication_->CloseAllWindowsImmediately();
 	}
-}
 
-auto FMonaApplication::OnWindowClose(TSharedPtr<FGenericWindow> PlatformWindow) -> void
-{
-	TSharedPtr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows_, PlatformWindow);
-	if (Window)
+	auto FMonaApplication::Get() -> FMonaApplication&
 	{
-		Window->RequestDestroyWindow();
+		return *CurrentApplication_;
 	}
-}
 
-auto FMonaApplication::PollEvents()
-{
-	for (auto& EventWindow : Windows_)
+	auto FMonaApplication::Tick() -> void
 	{
-		EventWindow->PollEvents();
+		TickPlatform();
+		TickTime();
+		TickAndDrawWidgets();
 	}
-}
 
-auto FMonaApplication::ProcessDeferredEvents() -> void
-{
-	if (Windows_.size())
+	auto FMonaApplication::GetActiveTopLevelWindow() -> TSharedPtr<MWindow>
 	{
-		TSharedPtr<FGenericWindow> PlatformWindowToClose = nullptr;
+		// TODO: tmp, implement it later
+		if (Windows_.empty())
+		{
+			return nullptr;
+		}
+		return Windows_[0];
+	}
+
+	auto FMonaApplication::AddWindow(TSharedPtr<MWindow> InMonaWindow, const bool bShowImmediately) -> TSharedPtr<MWindow>
+	{
+		FMonaWindowHelper::ArrangeWindowToFront(Windows_, InMonaWindow);
+		TSharedPtr<FGenericWindow> NewWindow = MakeWindow(InMonaWindow, bShowImmediately);
+
+		return InMonaWindow;
+	}
+
+	auto FMonaApplication::Initialize() -> void
+	{
+		InitializeRenderer();
+	}
+
+	auto FMonaApplication::InitializeRenderer() -> void
+	{
+		Renderer_ = std::make_shared<FMonaRHIRenderer>();
+	}
+
+	auto FMonaApplication::RequestDestroyWindow(TSharedPtr<MWindow> Window) -> void
+	{
+		WindowDestroyQueue_.push_back(Window);
+		DestroyWindowsImmediately();
+	}
+
+	auto FMonaApplication::CloseAllWindowsImmediately() -> void
+	{
+		std::for_each(Windows_.rbegin(), Windows_.rend(), [](auto& window) { window->RequestDestroyWindow(); });
+	}
+
+	auto FMonaApplication::DestroyWindowsImmediately() -> void
+	{
+		while (!WindowDestroyQueue_.empty())
+		{
+			TSharedPtr<MWindow> Window = WindowDestroyQueue_.front();
+			TSharedPtr<FRHIViewport> Viewport = Window->GetRHIViewport();
+			Viewport->WaitForLastFrameCompletion();
+			WindowDestroyQueue_.erase(WindowDestroyQueue_.begin());
+			Windows_.erase(std::remove(Windows_.begin(), Windows_.end(), Window), Windows_.end());
+		}
+		WindowDestroyQueue_.clear();
+
+		if (Windows_.empty())
+		{
+			RequestEngineExit();
+		}
+	}
+
+	auto FMonaApplication::OnWindowClose(TSharedPtr<FGenericWindow> PlatformWindow) -> void
+	{
+		TSharedPtr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows_, PlatformWindow);
+		if (Window)
+		{
+			Window->RequestDestroyWindow();
+		}
+	}
+
+	auto FMonaApplication::PollEvents()
+	{
 		for (auto& EventWindow : Windows_)
 		{
-			auto PlatformWindow = EventWindow->GetNativeWindow();
-			if (PlatformWindow && PlatformWindow->ShouldClose())
+			EventWindow->PollEvents();
+		}
+	}
+
+	auto FMonaApplication::ProcessDeferredEvents() -> void
+	{
+		if (Windows_.size())
+		{
+			TSharedPtr<FGenericWindow> PlatformWindowToClose = nullptr;
+			for (auto& EventWindow : Windows_)
 			{
-				PlatformWindowToClose = PlatformWindow;
+				auto PlatformWindow = EventWindow->GetNativeWindow();
+				if (PlatformWindow && PlatformWindow->ShouldClose())
+				{
+					PlatformWindowToClose = PlatformWindow;
+				}
+			}
+			if (PlatformWindowToClose)
+			{
+				OnWindowClose(PlatformWindowToClose);
 			}
 		}
-		if (PlatformWindowToClose)
-		{
-			OnWindowClose(PlatformWindowToClose);
-		}
 	}
-}
 
-auto FMonaApplication::FindWidgetWindow(TSharedPtr<MWidget> Widget) -> TSharedPtr<MWindow>
-{
-	TSharedPtr<MWidget> Curr = Widget;
-	while (Curr)
+	auto FMonaApplication::FindWidgetWindow(TSharedPtr<MWidget> Widget) -> TSharedPtr<MWindow>
 	{
-		if (Curr->IsWindow())
+		TSharedPtr<MWidget> Curr = Widget;
+		while (Curr)
 		{
-			return std::dynamic_pointer_cast<MWindow>(Curr);
+			if (Curr->IsWindow())
+			{
+				return std::dynamic_pointer_cast<MWindow>(Curr);
+			}
+			Curr = Curr->GetParent();
 		}
-		Curr = Curr->GetParent();
+
+		return nullptr;
 	}
 
-	return nullptr;
-}
-
-auto FMonaApplication::GetRenderer() const -> FMonaRenderer*
-{
-	return Renderer_.get();
-}
-
-auto FMonaApplication::FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow>
-{
-	for (auto& Window : Windows_)
+	auto FMonaApplication::GetRenderer() const -> FMonaRenderer*
 	{
-		TSharedPtr<FGenericWindow> PlatformWindow = Window->GetNativeWindow();
-		if (PlatformWindow && PlatformWindow->GetOSNativeWindowHandle() == InNativeWindowHandle)
-		{
-			return PlatformWindow;
-		}
+		return Renderer_.get();
 	}
-	return nullptr;
-}
 
-auto FMonaApplication::MakeWindow(TSharedPtr<MWindow> MonaWindow, bool bShowImmediately) -> TSharedPtr<FGenericWindow>
-{
-	TSharedPtr<FGenericWindow> NewWindow = FGlfwWindow::Make();
+	auto FMonaApplication::FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow>
+	{
+		for (auto& Window : Windows_)
+		{
+			TSharedPtr<FGenericWindow> PlatformWindow = Window->GetNativeWindow();
+			if (PlatformWindow && PlatformWindow->GetOSNativeWindowHandle() == InNativeWindowHandle)
+			{
+				return PlatformWindow;
+			}
+		}
+		return nullptr;
+	}
 
-	TSharedPtr<FGenericWindowDefinition> Definition = std::make_shared<FGenericWindowDefinition>();
+	auto FMonaApplication::MakeWindow(TSharedPtr<MWindow> MonaWindow, bool bShowImmediately) -> TSharedPtr<FGenericWindow>
+	{
+		TSharedPtr<FGenericWindow> NewWindow = FGlfwWindow::Make();
 
-	Definition->Title = MonaWindow->GetTitle();
+		TSharedPtr<FGenericWindowDefinition> Definition = std::make_shared<FGenericWindowDefinition>();
 
-	const FVector2f DesiredScreenPosition = MonaWindow->GetDesiredScreenPosition();
-	Definition->XDesiredPositionOnScreen = DesiredScreenPosition.x;
-	Definition->YDesiredPositionOnScreen = DesiredScreenPosition.y;
-	const FVector2f DesiredSize = MonaWindow->GetDesiredSize();
-	Definition->WidthDesiredOnScreen = DesiredSize.x;
-	Definition->HeightDesiredOnScreen = DesiredSize.y;
+		Definition->Title = MonaWindow->GetTitle();
 
-	NewWindow->Initialize(this, Definition);
-	MonaWindow->SetNativeWindow(NewWindow);
+		const FVector2f DesiredScreenPosition = MonaWindow->GetDesiredScreenPosition();
+		Definition->XDesiredPositionOnScreen = DesiredScreenPosition.x;
+		Definition->YDesiredPositionOnScreen = DesiredScreenPosition.y;
+		const FVector2f DesiredSize = MonaWindow->GetDesiredSize();
+		Definition->WidthDesiredOnScreen = DesiredSize.x;
+		Definition->HeightDesiredOnScreen = DesiredSize.y;
 
-	return NewWindow;
-}
+		NewWindow->Initialize(this, Definition);
+		MonaWindow->SetNativeWindow(NewWindow);
 
-auto FMonaApplication::TickPlatform() -> void
-{
-	PollEvents();
-	ProcessDeferredEvents();
-}
+		return NewWindow;
+	}
 
-auto FMonaApplication::TickTime() -> void
-{
-}
+	auto FMonaApplication::TickPlatform() -> void
+	{
+		PollEvents();
+		ProcessDeferredEvents();
+	}
 
-auto FMonaApplication::TickAndDrawWidgets() -> void
-{
+	auto FMonaApplication::TickTime() -> void
+	{
+	}
+
+	auto FMonaApplication::TickAndDrawWidgets() -> void
+	{
+	}
 }

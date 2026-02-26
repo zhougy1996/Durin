@@ -1,26 +1,29 @@
 #pragma once
 
-struct FStaticMeshVertexBuffer
+namespace Doge
 {
-};
+	struct FStaticMeshVertexBuffer
+	{
+	};
 
-struct FPositionVertexBuffer
-{
-};
+	struct FPositionVertexBuffer
+	{
+	};
 
-struct FColorVertexBuffer
-{
-};
+	struct FColorVertexBuffer
+	{
+	};
 
-struct FStaticMeshVertexBuffers
-{
-	FStaticMeshVertexBuffer StaticMeshVertexBuffer;
+	struct FStaticMeshVertexBuffers
+	{
+		FStaticMeshVertexBuffer StaticMeshVertexBuffer;
 
-	FPositionVertexBuffer PositionVertexBuffer;
+		FPositionVertexBuffer PositionVertexBuffer;
 
-	FColorVertexBuffer ColorVertexBuffer;
-};
+		FColorVertexBuffer ColorVertexBuffer;
+	};
 
-struct FStaticMeshRenderData
-{
-};
+	struct FStaticMeshRenderData
+	{
+	};
+}

@@ -2,49 +2,52 @@
 
 #include "RenderResource.h"
 
-class FPositionVertexData;
-
-struct FPositionVertex
+namespace Doge
 {
-	FVector3f Position;
-};
+	class FPositionVertexData;
 
-class FPositionVertexBuffer : public FVertexBuffer
-{
-public:
-	/** Default constructor. */
-	ENGINE_API FPositionVertexBuffer();
+	struct FPositionVertex
+	{
+		FVector3f Position;
+	};
 
-	/** Destructor. */
-	ENGINE_API ~FPositionVertexBuffer();
+	class FPositionVertexBuffer : public FVertexBuffer
+	{
+	public:
+		/** Default constructor. */
+		ENGINE_API FPositionVertexBuffer();
 
-	ENGINE_API void CleanUp();
+		/** Destructor. */
+		ENGINE_API ~FPositionVertexBuffer();
 
-	ENGINE_API void Init(uint32 NumVertices, bool bInNeedsCPUAccess = true);
+		ENGINE_API void CleanUp();
 
-	ENGINE_API void Init(const std::vector<FVector3f>& InPositions, bool bInNeedsCPUAccess = true);
+		ENGINE_API void Init(uint32 NumVertices, bool bInNeedsCPUAccess = true);
 
-	// FRenderResource interface.
-	ENGINE_API virtual void InitRHI(FRHICommandList& RHICmdList) override;
+		ENGINE_API void Init(const std::vector<FVector3f>& InPositions, bool bInNeedsCPUAccess = true);
 
-	ENGINE_API virtual void ReleaseRHI() override;
+		// FRenderResource interface.
+		ENGINE_API virtual void InitRHI(FRHICommandList& RHICmdList) override;
 
-private:
-	TSharedPtr<FRHIBuffer> CreateRHIBuffer(FRHICommandList& RHICmdList);
+		ENGINE_API virtual void ReleaseRHI() override;
 
-	/** Allocates the vertex data storage type. */
-	void AllocateData(bool bInNeedsCPUAccess = true);
+	private:
+		TSharedPtr<FRHIBuffer> CreateRHIBuffer(FRHICommandList& RHICmdList);
 
-	FPositionVertexData* VertexData_;
+		/** Allocates the vertex data storage type. */
+		void AllocateData(bool bInNeedsCPUAccess = true);
 
-	/** The cached vertex data pointer. */
-	uint8* Data_;
+		FPositionVertexData* VertexData_;
 
-	/** The cached vertex stride. */
-	uint32 Stride_;
+		/** The cached vertex data pointer. */
+		uint8* Data_;
 
-	/** The cached number of vertices. */
-	uint32 NumVertices_;
+		/** The cached vertex stride. */
+		uint32 Stride_;
 
-	bool bNeedsCPUAccess_ = true;
-};
+		/** The cached number of vertices. */
+		uint32 NumVertices_;
+
+		bool bNeedsCPUAccess_ = true;
+	};
+}

@@ -2,9 +2,12 @@
 
 #include "Components/StaticMeshComponent.h"
 
-AStaticMeshActor::AStaticMeshActor()
+namespace Doge
 {
-	DOGE_INFO(STR("AStaticMeshActor::AStaticMeshActor"));
-	StaticMeshComponent = NewObject<DStaticMeshComponent>(this, "DStaticMeshComponent");
-	RootComponent = StaticMeshComponent;
+	AStaticMeshActor::AStaticMeshActor()
+	{
+		DOGE_INFO(STR("AStaticMeshActor::AStaticMeshActor"));
+		StaticMeshComponent = NewObject<DStaticMeshComponent>(this, "DStaticMeshComponent");
+		RootComponent = StaticMeshComponent;
+	}
 }

@@ -1,14 +1,17 @@
 #pragma once
 
-class FRHICommandList;
-
-class PrimitiveSceneProxy
+namespace Doge
 {
-public:
-	ENGINE_API auto SetTransform(FRHICommandList& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void;
+	class FRHICommandList;
 
-private:
-	FMatrix LocalToWorld_;
+	class PrimitiveSceneProxy
+	{
+	public:
+		ENGINE_API auto SetTransform(FRHICommandList& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void;
 
-	FVector3 ActorPosition_;
-};
+	private:
+		FMatrix LocalToWorld_;
+
+		FVector3 ActorPosition_;
+	};
+}

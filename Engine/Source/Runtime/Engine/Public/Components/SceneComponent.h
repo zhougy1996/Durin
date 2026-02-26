@@ -4,12 +4,15 @@
 
 #include "SceneComponent.gen.h"
 
-DCLASS()
-class DSceneComponent : public DActorComponent
+namespace Doge
 {
-	GENERATED_BODY()
-public:
+	DCLASS()
+	class DSceneComponent : public DActorComponent
+	{
+		GENERATED_BODY()
+	public:
 
-protected:
-	FTransform ComponentToWorld;
-};
+	protected:
+		FTransform ComponentToWorld;
+	};
+}

@@ -2,5 +2,8 @@
 
 #include <optional>
 
-template<typename T>
-using TOptional = std::optional<T>;
+namespace Doge
+{
+	template<typename T>
+	using TOptional = std::optional<T>;
+}

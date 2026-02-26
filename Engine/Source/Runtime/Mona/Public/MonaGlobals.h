@@ -2,6 +2,9 @@
 
 struct ImGuiContext;
 
-extern ImGuiContext* GImGuiContext;
+namespace Doge
+{
+	extern ImGuiContext* GImGuiContext;
 
-MONA_API auto MonaInit() -> void;
+	MONA_API auto MonaInit() -> void;
+}

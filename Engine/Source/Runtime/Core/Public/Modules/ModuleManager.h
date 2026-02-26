@@ -2,79 +2,80 @@
 
 #include "Templates/SmartPointers.h"
 
-class CORE_API IModuleInterface
+namespace Doge
 {
-public:
-	virtual ~IModuleInterface() = default;
-
-	virtual void StartupModule() {};
-	virtual void ShutdownModule() {};
-};
-
-class CORE_API FModuleInfo
-{
-public:
-	FName ModuleName;
-
-	FString FileName;
-
-	FModuleHandle Handle = nullptr;
-
-	TUniquePtr<IModuleInterface> Module;
-
-	// This flag is used to check if the module's startup function has been called.
-	std::atomic<bool> bIsReady = false;
-};
-
-using InitializeModuleFunc = IModuleInterface* (*)();
-
-class CORE_API FModuleManager
-{
-public:
-	using FModuleInfoPtr = TSharedPtr<FModuleInfo>;
-	using FModuleMap = std::unordered_map<FName, FModuleInfoPtr>;
-
-	static auto Get() -> FModuleManager&;
-
-	template<typename TModuleInterface>
-	static auto LoadModule(const FName& InModuleName) -> TModuleInterface*
+	class CORE_API IModuleInterface
 	{
-		return static_cast<TModuleInterface*>(FModuleManager::Get().LoadModule(InModuleName));
-	}
+	public:
+		virtual ~IModuleInterface() = default;
 
-	template<typename TModuleInterface>
-	static auto LoadModuleChecked(const FName& InModuleName) -> TModuleInterface&
+		virtual void StartupModule() {};
+		virtual void ShutdownModule() {};
+	};
+
+	class CORE_API FModuleInfo
 	{
-		IModuleInterface& Module = FModuleManager::Get().LoadModuleChecked(InModuleName);
-		return static_cast<TModuleInterface&>(Module);
-	}
+	public:
+		FName ModuleName;
 
-	auto AddModule(const FName& InModuleName, const FString& FileName) -> void;
+		FString FileName;
 
-	auto FindModule(const FName& InModuleName) -> FModuleInfoPtr;
+		FModuleHandle Handle = nullptr;
 
-	auto LoadModule(const FName& InModuleName) -> IModuleInterface*;
+		TUniquePtr<IModuleInterface> Module;
 
-	auto LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&;
+		// This flag is used to check if the module's startup function has been called.
+		std::atomic<bool> bIsReady = false;
+	};
 
-	auto IsModuleLoaded(const FName& InModuleName) -> bool;
+	using InitializeModuleFunc = IModuleInterface* (*)();
 
-	auto GetModule(const FName& InModuleName) -> IModuleInterface*;
+	class CORE_API FModuleManager
+	{
+	public:
+		using FModuleInfoPtr = TSharedPtr<FModuleInfo>;
+		using FModuleMap = std::unordered_map<FName, FModuleInfoPtr>;
 
-	auto UnloadModule(const FName& InModuleName) -> void;
+		static auto Get() -> FModuleManager&;
 
-private:
-	FModuleMap Modules;
-};
+		template<typename TModuleInterface>
+		static auto LoadModule(const FName& InModuleName) -> TModuleInterface*
+		{
+			return static_cast<TModuleInterface*>(FModuleManager::Get().LoadModule(InModuleName));
+		}
 
-/**
- * A default implementation of IModuleInterface that does nothing at startup or shutdown.
- */
-class CORE_API FDefaultModuleImpl : public IModuleInterface
-{
-};
+		template<typename TModuleInterface>
+		static auto LoadModuleChecked(const FName& InModuleName) -> TModuleInterface&
+		{
+			IModuleInterface& Module = FModuleManager::Get().LoadModuleChecked(InModuleName);
+			return static_cast<TModuleInterface&>(Module);
+		}
 
+		auto AddModule(const FName& InModuleName, const FString& FileName) -> void;
 
+		auto FindModule(const FName& InModuleName) -> FModuleInfoPtr;
+
+		auto LoadModule(const FName& InModuleName) -> IModuleInterface*;
+
+		auto LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&;
+
+		auto IsModuleLoaded(const FName& InModuleName) -> bool;
+
+		auto GetModule(const FName& InModuleName) -> IModuleInterface*;
+
+		auto UnloadModule(const FName& InModuleName) -> void;
+
+	private:
+		FModuleMap Modules;
+	};
+
+	/**
+	 * A default implementation of IModuleInterface that does nothing at startup or shutdown.
+	 */
+	class CORE_API FDefaultModuleImpl : public IModuleInterface
+	{
+	};
+}
 /**
  * This template function is used to load a module from a DLL.
  * class FDefaultModuleImpl is the default implementation of IModuleInterface.

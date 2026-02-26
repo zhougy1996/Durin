@@ -1,10 +1,13 @@
 #pragma once
 
-struct FTransform
+namespace Doge
 {
-	FQuat Rotation;
-	FVector3 Translation;
-	FVector3 Scale3D;
+	struct FTransform
+	{
+		FQuat Rotation;
+		FVector3 Translation;
+		FVector3 Scale3D;
 
-	CORE_API FTransform();
-};
+		CORE_API FTransform();
+	};
+}

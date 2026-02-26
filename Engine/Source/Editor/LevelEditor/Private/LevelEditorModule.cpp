@@ -1,3 +1,6 @@
 #include "LevelEditorModule.h"
 
-IMPLEMENT_MODULE(FLevelEditorModule, LevelEditor)
+namespace Doge
+{
+	IMPLEMENT_MODULE(FLevelEditorModule, LevelEditor)
+}

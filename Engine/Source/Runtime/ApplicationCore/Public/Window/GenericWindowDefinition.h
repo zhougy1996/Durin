@@ -1,12 +1,15 @@
 #pragma once
 
-struct APPLICATIONCORE_API FGenericWindowDefinition
+namespace Doge
 {
-	float XDesiredPositionOnScreen;
-	float YDesiredPositionOnScreen;
+	struct APPLICATIONCORE_API FGenericWindowDefinition
+	{
+		float XDesiredPositionOnScreen;
+		float YDesiredPositionOnScreen;
 
-	float WidthDesiredOnScreen;
-	float HeightDesiredOnScreen;
+		float WidthDesiredOnScreen;
+		float HeightDesiredOnScreen;
 
-	FString Title;
-};
+		FString Title;
+	};
+}

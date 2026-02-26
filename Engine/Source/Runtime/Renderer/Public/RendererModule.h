@@ -2,7 +2,10 @@
 
 #include "IRendererModule.h"
 
-class FRendererModule final : public IRendererModule
+namespace Doge
 {
+	class FRendererModule final : public IRendererModule
+	{
 
-};
+	};
+}

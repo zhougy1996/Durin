@@ -3,50 +3,51 @@
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 
-
-AActor::AActor()
+namespace Doge
 {
-	InitializeDefaults();
-}
-
-AActor::AActor(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
-{
-	InitializeDefaults();
-}
-
-AActor::~AActor()
-{
-	InstanceComponents.clear();
-	RootComponent = nullptr;
-
-	for (auto* Component : OwnedComponents)
+	AActor::AActor()
 	{
-		delete Component;
+		InitializeDefaults();
 	}
 
-	OwnedComponents.clear();
-}
-
-auto AActor::RemoveOwnedComponent(DActorComponent* Component) -> void
-{
-	auto It = std::find(OwnedComponents.begin(), OwnedComponents.end(), Component);
-	if (It != OwnedComponents.end())
+	AActor::AActor(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
 	{
-		OwnedComponents.erase(It);
+		InitializeDefaults();
+	}
+
+	AActor::~AActor()
+	{
+		InstanceComponents.clear();
+		RootComponent = nullptr;
+
+		for (auto* Component : OwnedComponents)
+		{
+			delete Component;
+		}
+
+		OwnedComponents.clear();
+	}
+
+	auto AActor::RemoveOwnedComponent(DActorComponent* Component) -> void
+	{
+		auto It = std::find(OwnedComponents.begin(), OwnedComponents.end(), Component);
+		if (It != OwnedComponents.end())
+		{
+			OwnedComponents.erase(It);
+		}
+	}
+
+	auto AActor::RemoveInstanceComponent(DActorComponent* Component) -> void
+	{
+		auto It = std::find(InstanceComponents.begin(), InstanceComponents.end(), Component);
+		if (It != InstanceComponents.end())
+		{
+			InstanceComponents.erase(It);
+		}
+	}
+
+	auto AActor::InitializeDefaults() -> void
+	{
 	}
 }
-
-auto AActor::RemoveInstanceComponent(DActorComponent* Component) -> void
-{
-	auto It = std::find(InstanceComponents.begin(), InstanceComponents.end(), Component);
-	if (It != InstanceComponents.end())
-	{
-		InstanceComponents.erase(It);
-	}
-}
-
-auto AActor::InitializeDefaults() -> void
-{
-}
-

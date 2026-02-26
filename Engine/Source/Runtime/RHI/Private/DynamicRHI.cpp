@@ -1,3 +1,6 @@
 #include "DynamicRHI.h"
 
-IDynamicRHI* GDynamicRHI = nullptr;
+namespace Doge
+{
+	IDynamicRHI* GDynamicRHI = nullptr;
+}

@@ -2,28 +2,31 @@
 
 #include "Widgets/MWindow.h"
 
-auto FMonaWindowHelper::FindWindowByPlatformWindow(const std::vector<TSharedPtr<MWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<MWindow>
+namespace Doge
 {
-	for (const auto& window : WindowsToSearch)
+	auto FMonaWindowHelper::FindWindowByPlatformWindow(const std::vector<TSharedPtr<MWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<MWindow>
 	{
-		if (window->GetNativeWindow() == PlatformWindow)
+		for (const auto& window : WindowsToSearch)
 		{
-			return window;
+			if (window->GetNativeWindow() == PlatformWindow)
+			{
+				return window;
+			}
+
+			TSharedPtr<MWindow> FoundChildWindow = FindWindowByPlatformWindow(window->GetChildWindows(), PlatformWindow);
+
+			if (FoundChildWindow)
+			{
+				return FoundChildWindow;
+			}
 		}
 
-		TSharedPtr<MWindow> FoundChildWindow = FindWindowByPlatformWindow(window->GetChildWindows(), PlatformWindow);
-
-		if (FoundChildWindow)
-		{
-			return FoundChildWindow;
-		}
+		return nullptr;
 	}
 
-	return nullptr;
-}
-
-auto FMonaWindowHelper::ArrangeWindowToFront(std::vector<TSharedPtr<MWindow>>& Windows, TSharedPtr<MWindow> WindowToBringToFront) -> void
-{
-	Windows.erase(std::remove(Windows.begin(), Windows.end(), WindowToBringToFront), Windows.end());
-	Windows.push_back(WindowToBringToFront);
+	auto FMonaWindowHelper::ArrangeWindowToFront(std::vector<TSharedPtr<MWindow>>& Windows, TSharedPtr<MWindow> WindowToBringToFront) -> void
+	{
+		Windows.erase(std::remove(Windows.begin(), Windows.end(), WindowToBringToFront), Windows.end());
+		Windows.push_back(WindowToBringToFront);
+	}
 }

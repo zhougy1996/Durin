@@ -1,3 +1,6 @@
 #include "RendererModule.h"
 
-IMPLEMENT_MODULE(FRendererModule, Renderer)
+namespace Doge
+{
+	IMPLEMENT_MODULE(FRendererModule, Renderer)
+}

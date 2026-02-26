@@ -4,8 +4,11 @@
 
 #include "MeshComponent.gen.h"
 
-DCLASS()
-class DMeshComponent : public DPrimitiveComponent
+namespace Doge
 {
-	GENERATED_BODY()
-};
+	DCLASS()
+	class DMeshComponent : public DPrimitiveComponent
+	{
+		GENERATED_BODY()
+	};
+}

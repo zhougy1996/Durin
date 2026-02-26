@@ -1,23 +1,26 @@
 #pragma once
 
-class FViewportClient;
-class FRHIViewport;
-
-class ENGINE_API FViewport
+namespace Doge
 {
-public:
-	FViewport(FViewportClient* ViewportClient);
+	class FViewportClient;
+	class FRHIViewport;
 
-	virtual auto SetInitialSize(FIntPoint InitialSizeXY) -> void;
+	class ENGINE_API FViewport
+	{
+	public:
+		FViewport(FViewportClient* ViewportClient);
 
-	virtual auto InitRHIViewport() -> void;
+		virtual auto SetInitialSize(FIntPoint InitialSizeXY) -> void;
 
-	virtual auto UpdateRHIViewport() -> void;
+		virtual auto InitRHIViewport() -> void;
 
-	auto GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&;
+		virtual auto UpdateRHIViewport() -> void;
 
-protected:
-	FViewportClient* ViewportClient_;
+		auto GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&;
 
-	TSharedPtr<FRHIViewport> RHIViewport_;
-};
+	protected:
+		FViewportClient* ViewportClient_;
+
+		TSharedPtr<FRHIViewport> RHIViewport_;
+	};
+}

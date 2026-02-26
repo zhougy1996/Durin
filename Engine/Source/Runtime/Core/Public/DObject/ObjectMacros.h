@@ -12,58 +12,61 @@
 
 #define NO_API
 
-// clang-format off
-enum EStaticConstructor { EC_StaticConstructor };
-enum EInternal { EC_InternalUseOnlyConstructor };
-// clang-format on
-
-enum class EObjectFlags
+namespace Doge
 {
-	NoFlags = 0,
-	Intrinsic = 1 << 0,
-	Transient = 1 << 1,
-};
+	// clang-format off
+	enum EStaticConstructor { EC_StaticConstructor };
+	enum EInternal { EC_InternalUseOnlyConstructor };
+	// clang-format on
 
-enum class EClassFlags
-{
-	None = 0,
+	enum class EObjectFlags
+	{
+		NoFlags = 0,
+		Intrinsic = 1 << 0,
+		Transient = 1 << 1,
+	};
 
-	// Class is abstract and can't be instantiated directly
-	Abstract = 1,
+	enum class EClassFlags
+	{
+		None = 0,
 
-	// Class was declared in C++ and has no generated code
-	Native = 1 << 1,
-};
-ENUM_CLASS_FLAGS(EClassFlags);
+		// Class is abstract and can't be instantiated directly
+		Abstract = 1,
 
-enum class EClassCastFlags : uint64
-{
-	None = 0,
+		// Class was declared in C++ and has no generated code
+		Native = 1 << 1,
+	};
+	ENUM_CLASS_FLAGS(EClassFlags);
 
-	DObject = 1 << 0,
-	DStructure = 1 << 1,
-	DClass = 1 << 2,
-	DStruct = 1 << 3,
-	DFunction = 1 << 4,
+	enum class EClassCastFlags : uint64
+	{
+		None = 0,
 
-	FField = 1 << 11,
-	FProperty = 1 << 12,
-	FNumericProperty = 1 << 13,
-	FInt8Property = 1 << 14,
-	FIntProperty = 1 << 15,
-	FStructProperty = 1 << 16,
-};
+		DObject = 1 << 0,
+		DStructure = 1 << 1,
+		DClass = 1 << 2,
+		DStruct = 1 << 3,
+		DFunction = 1 << 4,
 
-enum class EPropertyFlags
-{
-	None = 0,
+		FField = 1 << 11,
+		FProperty = 1 << 12,
+		FNumericProperty = 1 << 13,
+		FInt8Property = 1 << 14,
+		FIntProperty = 1 << 15,
+		FStructProperty = 1 << 16,
+	};
 
-	Edit = 1 << 0,
-	Transient = 1 << 1,
-	EditConst = 1 << 2,
-};
+	enum class EPropertyFlags
+	{
+		None = 0,
 
-ENUM_CLASS_FLAGS(EObjectFlags)
+		Edit = 1 << 0,
+		Transient = 1 << 1,
+		EditConst = 1 << 2,
+	};
+
+	ENUM_CLASS_FLAGS(EObjectFlags)
+}
 
 #ifdef CURRENT_FILE_ID
 	#define GENERATED_BODY(...) BODY_MACRO_COMBINE(CURRENT_FILE_ID, _, __LINE__, _GENERATED_BODY)
@@ -129,11 +132,11 @@ public: \
 #define IMPLEMENT_INTRINSIC_CLASS(TClass, TRequiredAPI, TSuperClass, TSuperRequiredAPI, InitCode) \
 	TRequiredAPI DClass* Z_Construct_DClass_##TClass(); \
 	extern FClassRegistrationInfo Z_Registration_Info_DClass_##TClass; \
+	extern TSuperRequiredAPI DClass* Z_Construct_DClass_##TSuperClass(); \
 	struct Z_Construct_DClass_##TClass##_Statics \
 	{ \
 		static DClass* Construct() \
 		{ \
-			extern TSuperRequiredAPI DClass* Z_Construct_DClass_##TSuperClass(); \
 			DClass* SuperClass = Z_Construct_DClass_##TSuperClass(); \
 			DClass* Class = TClass::StaticClass(); \
 			DObjectForceRegistration(Class); \

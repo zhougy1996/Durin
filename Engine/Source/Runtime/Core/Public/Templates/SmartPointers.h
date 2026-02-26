@@ -2,27 +2,30 @@
 
 #include <memory>
 
-template<typename T>
-using TWeakPtr = std::weak_ptr<T>;
-
-template<typename T, typename D = std::default_delete<T>>
-using TUniquePtr = std::unique_ptr<T, D>;
-
-template<typename T>
-using TSharedPtr = std::shared_ptr<T>;
-
-template<typename T>
-class TSharedFromThis : public std::enable_shared_from_this<T>
+namespace Doge
 {
-public:
-	FORCEINLINE auto AsShared() -> std::shared_ptr<T>
-	{
-		return this->shared_from_this();
-	}
+	template<typename T>
+	using TWeakPtr = std::weak_ptr<T>;
 
-	template<typename OtherType>
-	FORCEINLINE auto SharedThis(OtherType* ThisPtr) -> std::shared_ptr<OtherType>
+	template<typename T, typename D = std::default_delete<T>>
+	using TUniquePtr = std::unique_ptr<T, D>;
+
+	template<typename T>
+	using TSharedPtr = std::shared_ptr<T>;
+
+	template<typename T>
+	class TSharedFromThis : public std::enable_shared_from_this<T>
 	{
-		return std::static_pointer_cast<OtherType>(ThisPtr->AsShared());
-	}
-};
+	public:
+		FORCEINLINE auto AsShared() -> std::shared_ptr<T>
+		{
+			return this->shared_from_this();
+		}
+
+		template<typename OtherType>
+		FORCEINLINE auto SharedThis(OtherType* ThisPtr) -> std::shared_ptr<OtherType>
+		{
+			return std::static_pointer_cast<OtherType>(ThisPtr->AsShared());
+		}
+	};
+}

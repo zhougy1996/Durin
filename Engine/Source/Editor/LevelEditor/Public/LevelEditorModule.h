@@ -1,6 +1,9 @@
 #pragma once
 
-class FLevelEditorModule final : public IModuleInterface
+namespace Doge
 {
+	class FLevelEditorModule final : public IModuleInterface
+	{
 
-};
+	};
+}

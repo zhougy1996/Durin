@@ -1,86 +1,88 @@
 #include "Math/Color.h"
 
-// Common colors.
-const FLinearColor FLinearColor::White(1.f, 1.f, 1.f);
-const FLinearColor FLinearColor::Gray(0.5f, 0.5f, 0.5f);
-const FLinearColor FLinearColor::Black(0, 0, 0);
-const FLinearColor FLinearColor::Transparent(0, 0, 0, 0);
-const FLinearColor FLinearColor::Red(1.f, 0, 0);
-const FLinearColor FLinearColor::Green(0, 1.f, 0);
-const FLinearColor FLinearColor::Blue(0, 0, 1.f);
-const FLinearColor FLinearColor::Yellow(1.f, 1.f, 0);
-
-const FColor FColor::White(255, 255, 255);
-const FColor FColor::Black(0, 0, 0);
-const FColor FColor::Transparent(0, 0, 0, 0);
-const FColor FColor::Red(255, 0, 0);
-const FColor FColor::Green(0, 255, 0);
-const FColor FColor::Blue(0, 0, 255);
-const FColor FColor::Yellow(255, 255, 0);
-const FColor FColor::Cyan(0, 255, 255);
-const FColor FColor::Magenta(255, 0, 255);
-const FColor FColor::Orange(243, 156, 18);
-const FColor FColor::Purple(169, 7, 228);
-const FColor FColor::Turquoise(26, 188, 156);
-const FColor FColor::Silver(189, 195, 199);
-const FColor FColor::Emerald(46, 204, 113);
-
-FLinearColor::FLinearColor(const FVector3f& Vector)
-	: R(Vector.x)
-	, G(Vector.y)
-	, B(Vector.z)
-	, A(1.0f)
+namespace Doge
 {
-}
+	// Common colors.
+	const FLinearColor FLinearColor::White(1.f, 1.f, 1.f);
+	const FLinearColor FLinearColor::Gray(0.5f, 0.5f, 0.5f);
+	const FLinearColor FLinearColor::Black(0, 0, 0);
+	const FLinearColor FLinearColor::Transparent(0, 0, 0, 0);
+	const FLinearColor FLinearColor::Red(1.f, 0, 0);
+	const FLinearColor FLinearColor::Green(0, 1.f, 0);
+	const FLinearColor FLinearColor::Blue(0, 0, 1.f);
+	const FLinearColor FLinearColor::Yellow(1.f, 1.f, 0);
 
-FLinearColor::FLinearColor(const FVector3d& Vector)
-	: R((float)Vector.x)
-	, G((float)Vector.y)
-	, B((float)Vector.z)
-	, A(1.0f)
-{
-}
+	const FColor FColor::White(255, 255, 255);
+	const FColor FColor::Black(0, 0, 0);
+	const FColor FColor::Transparent(0, 0, 0, 0);
+	const FColor FColor::Red(255, 0, 0);
+	const FColor FColor::Green(0, 255, 0);
+	const FColor FColor::Blue(0, 0, 255);
+	const FColor FColor::Yellow(255, 255, 0);
+	const FColor FColor::Cyan(0, 255, 255);
+	const FColor FColor::Magenta(255, 0, 255);
+	const FColor FColor::Orange(243, 156, 18);
+	const FColor FColor::Purple(169, 7, 228);
+	const FColor FColor::Turquoise(26, 188, 156);
+	const FColor FColor::Silver(189, 195, 199);
+	const FColor FColor::Emerald(46, 204, 113);
 
-FLinearColor::FLinearColor(const FVector4f& Vector)
-	: R(Vector.x)
-	, G(Vector.y)
-	, B(Vector.z)
-	, A(Vector.w)
-{
-}
+	FLinearColor::FLinearColor(const FVector3f& Vector)
+		: R(Vector.x)
+		, G(Vector.y)
+		, B(Vector.z)
+		, A(1.0f)
+	{
+	}
 
-FLinearColor::FLinearColor(const FVector4d& Vector)
-	: R((float)Vector.x)
-	, G((float)Vector.y)
-	, B((float)Vector.z)
-	, A((float)Vector.w)
-{
-}
+	FLinearColor::FLinearColor(const FVector3d& Vector)
+		: R((float)Vector.x)
+		, G((float)Vector.y)
+		, B((float)Vector.z)
+		, A(1.0f)
+	{
+	}
 
-FLinearColor FLinearColor::FromPow22Color(const FColor& Color)
-{
-	FLinearColor LinearColor;
-	LinearColor.R = Pow22OneOver255Table[Color.R];
-	LinearColor.G = Pow22OneOver255Table[Color.G];
-	LinearColor.B = Pow22OneOver255Table[Color.B];
-	LinearColor.A = float(Color.A) * (1.0f / 255.0f);
+	FLinearColor::FLinearColor(const FVector4f& Vector)
+		: R(Vector.x)
+		, G(Vector.y)
+		, B(Vector.z)
+		, A(Vector.w)
+	{
+	}
 
-	return LinearColor;
-}
+	FLinearColor::FLinearColor(const FVector4d& Vector)
+		: R((float)Vector.x)
+		, G((float)Vector.y)
+		, B((float)Vector.z)
+		, A((float)Vector.w)
+	{
+	}
+
+	FLinearColor FLinearColor::FromPow22Color(const FColor& Color)
+	{
+		FLinearColor LinearColor;
+		LinearColor.R = Pow22OneOver255Table[Color.R];
+		LinearColor.G = Pow22OneOver255Table[Color.G];
+		LinearColor.B = Pow22OneOver255Table[Color.B];
+		LinearColor.A = float(Color.A) * (1.0f / 255.0f);
+
+		return LinearColor;
+	}
 
 
-FColor FLinearColor::ToFColorSRGB() const
-{
-	//TODO: Use real sRGB here (important)
-	return QuantizeRound();
-}
+	FColor FLinearColor::ToFColorSRGB() const
+	{
+		//TODO: Use real sRGB here (important)
+		return QuantizeRound();
+	}
 
-/**
- * Pow table for fast FColor -> FLinearColor conversion.
- *
- * FMath::Pow( i / 255.f, 2.2f )
- */
-float FLinearColor::Pow22OneOver255Table[256] =
+	/**
+	 * Pow table for fast FColor -> FLinearColor conversion.
+	 *
+	 * FMath::Pow( i / 255.f, 2.2f )
+	 */
+	float FLinearColor::Pow22OneOver255Table[256] =
 	{
 		0.0f, 5.07705190066176E-06f, 2.33280046660989E-05f, 5.69217657121931E-05f, 0.000107187362341244f, 0.000175123977503027f, 0.000261543754548491f, 0.000367136269815943f, 0.000492503787191433f,
 		0.000638182842167022f, 0.000804658499513058f, 0.000992374304074325f, 0.0012017395224384f, 0.00143313458967186f, 0.00168691531678928f, 0.00196341621339647f, 0.00226295316070643f,
@@ -113,12 +115,12 @@ float FLinearColor::Pow22OneOver255Table[256] =
 		0.948964938178195f, 0.957369576199527f, 0.96581465350313f, 0.974300202388861f, 0.982826255053791f, 0.99139284359294f, 1.0f};
 
 
-/**
- * Table for fast FColor -> FLinearColor conversion.
- *
- * Color > 0.04045 ? pow( Color * (1.0 / 1.055) + 0.0521327, 2.4 ) : Color * (1.0 / 12.92);
- */
-float FLinearColor::sRGBToLinearTable[256] =
+	/**
+	 * Table for fast FColor -> FLinearColor conversion.
+	 *
+	 * Color > 0.04045 ? pow( Color * (1.0 / 1.055) + 0.0521327, 2.4 ) : Color * (1.0 / 12.92);
+	 */
+	float FLinearColor::sRGBToLinearTable[256] =
 	{
 		0.0f,
 		0.000303526983548838f, 0.000607053967097675f, 0.000910580950646512f, 0.00121410793419535f, 0.00151763491774419f,
@@ -172,3 +174,4 @@ float FLinearColor::sRGBToLinearTable[256] =
 		0.879622393721502f, 0.887923114698241f, 0.896269350173118f, 0.904661171172551f, 0.913098648557343f,
 		0.921581853023715f, 0.930110855104312f, 0.938685725169219f, 0.947306533426946f, 0.955973349925421f,
 		0.964686244552961f, 0.973445287039244f, 0.982250546956257f, 0.991102093719252f, 1.0f};
+}

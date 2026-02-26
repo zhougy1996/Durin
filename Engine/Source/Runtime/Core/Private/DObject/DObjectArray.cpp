@@ -1,3 +1,6 @@
 #include "DObject/DObjectArray.h"
 
-FDObjectArray GDObjectArray;
+namespace Doge
+{
+	FDObjectArray GDObjectArray;
+}

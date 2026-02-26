@@ -2,64 +2,67 @@
 
 #include "Application/GenericApplication.h"
 
-class FGenericWindow;
-class MWidget;
-class MWindow;
-class FMonaRenderer;
-
-class MONACORE_API FMonaApplication : public FGenericApplication
+namespace Doge
 {
-public:
-	~FMonaApplication() override;
+	class FGenericWindow;
+	class MWidget;
+	class MWindow;
+	class FMonaRenderer;
 
-	static auto Create() -> void;
+	class MONACORE_API FMonaApplication : public FGenericApplication
+	{
+	public:
+		~FMonaApplication() override;
 
-	static auto Shutdown() -> void;
+		static auto Create() -> void;
 
-	static auto Get() -> FMonaApplication&;
+		static auto Shutdown() -> void;
 
-	auto Tick() -> void override;
+		static auto Get() -> FMonaApplication&;
 
-	auto GetActiveTopLevelWindow() -> TSharedPtr<MWindow>;
+		auto Tick() -> void override;
 
-	auto AddWindow(TSharedPtr<MWindow> InMonaWindow, const bool bShowImmediately) -> TSharedPtr<MWindow>;
+		auto GetActiveTopLevelWindow() -> TSharedPtr<MWindow>;
 
-	auto Initialize() -> void;
+		auto AddWindow(TSharedPtr<MWindow> InMonaWindow, const bool bShowImmediately) -> TSharedPtr<MWindow>;
 
-	auto InitializeRenderer() -> void;
+		auto Initialize() -> void;
 
-	auto RequestDestroyWindow(TSharedPtr<MWindow> Window) -> void;
+		auto InitializeRenderer() -> void;
 
-	auto CloseAllWindowsImmediately() -> void;
+		auto RequestDestroyWindow(TSharedPtr<MWindow> Window) -> void;
 
-	auto DestroyWindowsImmediately() -> void;
+		auto CloseAllWindowsImmediately() -> void;
 
-	auto OnWindowClose(TSharedPtr<FGenericWindow> PlatformWindow) -> void;
+		auto DestroyWindowsImmediately() -> void;
 
-	auto PollEvents();
+		auto OnWindowClose(TSharedPtr<FGenericWindow> PlatformWindow) -> void;
 
-	auto ProcessDeferredEvents() -> void override;
+		auto PollEvents();
 
-	auto FindWidgetWindow(TSharedPtr<MWidget> Widget) -> TSharedPtr<MWindow>;
+		auto ProcessDeferredEvents() -> void override;
 
-	auto GetRenderer() const -> FMonaRenderer*;
+		auto FindWidgetWindow(TSharedPtr<MWidget> Widget) -> TSharedPtr<MWindow>;
 
-	auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow> override;
+		auto GetRenderer() const -> FMonaRenderer*;
 
-protected:
-	auto MakeWindow(TSharedPtr<MWindow> MonaWindow, bool bShowImmediately) -> TSharedPtr<FGenericWindow>;
+		auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow> override;
 
-	auto TickPlatform() -> void;
+	protected:
+		auto MakeWindow(TSharedPtr<MWindow> MonaWindow, bool bShowImmediately) -> TSharedPtr<FGenericWindow>;
 
-	auto TickTime() -> void;
+		auto TickPlatform() -> void;
 
-	auto TickAndDrawWidgets() -> void;
+		auto TickTime() -> void;
 
-	static TSharedPtr<FMonaApplication> CurrentApplication_;
+		auto TickAndDrawWidgets() -> void;
 
-	std::vector<TSharedPtr<MWindow>> Windows_;
+		static TSharedPtr<FMonaApplication> CurrentApplication_;
 
-	std::vector<TSharedPtr<MWindow>> WindowDestroyQueue_;
+		std::vector<TSharedPtr<MWindow>> Windows_;
 
-	TSharedPtr<FMonaRenderer> Renderer_;
-};
+		std::vector<TSharedPtr<MWindow>> WindowDestroyQueue_;
+
+		TSharedPtr<FMonaRenderer> Renderer_;
+	};
+}

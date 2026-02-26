@@ -1,21 +1,24 @@
 #include "Widgets/MWidget.h"
 
-MWidget::MWidget(TSharedPtr<MWidget> ParentWidget)
-	: ParentWidget_(ParentWidget)
+namespace Doge
 {
-}
+	MWidget::MWidget(TSharedPtr<MWidget> ParentWidget)
+		: ParentWidget_(ParentWidget)
+	{
+	}
 
-auto MWidget::AsWidget() -> TSharedPtr<MWidget>
-{
-	return AsShared();
-}
+	auto MWidget::AsWidget() -> TSharedPtr<MWidget>
+	{
+		return AsShared();
+	}
 
-auto MWidget::AssignParentWidget(TSharedPtr<MWidget> ParentWidget)
-{
-	ParentWidget_ = ParentWidget;
-}
+	auto MWidget::AssignParentWidget(TSharedPtr<MWidget> ParentWidget)
+	{
+		ParentWidget_ = ParentWidget;
+	}
 
-auto MWidget::GetParent() -> TSharedPtr<MWidget>
-{
-	return ParentWidget_.lock();
+	auto MWidget::GetParent() -> TSharedPtr<MWidget>
+	{
+		return ParentWidget_.lock();
+	}
 }

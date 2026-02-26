@@ -1,6 +1,9 @@
 #pragma once
 
-class ENGINE_API DWorld
+namespace Doge
 {
+	class ENGINE_API DWorld
+	{
 
-};
+	};
+}

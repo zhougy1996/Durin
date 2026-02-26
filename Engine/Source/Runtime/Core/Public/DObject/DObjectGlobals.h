@@ -1,102 +1,105 @@
 #pragma once
 #include "ObjectMacros.h"
 
-class DObject;
-class DClass;
-
-struct FStaticConstructObjectParameters
+namespace Doge
 {
-	DClass* Class = nullptr;
+	class DObject;
+	class DClass;
 
-	DObject* Outer = nullptr;
+	struct FStaticConstructObjectParameters
+	{
+		DClass* Class = nullptr;
 
-	FName Name;
+		DObject* Outer = nullptr;
 
-	size_t Size = 0;
-};
+		FName Name;
 
-class FObjectInitializer
-{
-public:
-	FORCEINLINE auto GetObj() const -> DObject* { return Obj; }
+		size_t Size = 0;
+	};
 
-	static CORE_API auto Get() -> const FObjectInitializer&;
+	class FObjectInitializer
+	{
+	public:
+		FORCEINLINE auto GetObj() const -> DObject* { return Obj; }
 
-	DObject* Obj = nullptr;
-};
+		static CORE_API auto Get() -> const FObjectInitializer&;
 
-CORE_API auto DObjectInit() -> void;
+		DObject* Obj = nullptr;
+	};
 
-CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
+	CORE_API auto DObjectInit() -> void;
 
-CORE_API auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*;
+	CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
 
-CORE_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
+	CORE_API auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*;
 
-template<typename T>
-auto NewObject(DObject* Outer, FName Name) -> T*
-{
-	static_assert(std::is_base_of_v<DObject, T>, "T must be derived from DObject");
+	CORE_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
 
-	FStaticConstructObjectParameters Params;
-	Params.Class = T::StaticClass();
-	Params.Outer = Outer;
-	Params.Name = Name;
-	Params.Size = sizeof(T);
+	template<typename T>
+	auto NewObject(DObject* Outer, FName Name) -> T*
+	{
+		static_assert(std::is_base_of_v<DObject, T>, "T must be derived from DObject");
 
-	DObject* Obj = StaticConstructObject(Params);
+		FStaticConstructObjectParameters Params;
+		Params.Class = T::StaticClass();
+		Params.Outer = Outer;
+		Params.Name = Name;
+		Params.Size = sizeof(T);
 
-	DObjectForceRegistration(Obj);
-	return static_cast<T*>(Obj);
+		DObject* Obj = StaticConstructObject(Params);
+
+		DObjectForceRegistration(Obj);
+		return static_cast<T*>(Obj);
+	}
+
+	namespace DogeCodeGen
+	{
+		enum class EPropertyGenFlags : uint8
+		{
+			None = 0,
+			Bool,
+			Int8,
+			Int16,
+			Int32,
+			Int64,
+			UInt8,
+			UInt16,
+			UInt32,
+			UInt64,
+			Float,
+			Double,
+			Enum
+		};
+
+		struct FClassParams
+		{
+			DClass* (*ClassNoRegisterFunc)();
+			const U8Char* ClassName;
+		};
+
+		struct FPropertyParamsBase
+		{
+			const U8Char* NameUTF8;
+			EPropertyFlags Flags;
+			uint16 ArrayDim;
+			uint16 Offset;
+		};
+
+		struct FGenericPropertyParams : public FPropertyParamsBase
+		{
+			// Meta data
+		};
+
+		using FInt8PropertyParams = FPropertyParamsBase;
+		using FInt16PropertyParams = FPropertyParamsBase;
+		using FInt32PropertyParams = FPropertyParamsBase;
+		using FInt64PropertyParams = FPropertyParamsBase;
+		using FUInt8PropertyParams = FPropertyParamsBase;
+		using FUInt16PropertyParams = FPropertyParamsBase;
+		using FUInt32PropertyParams = FPropertyParamsBase;
+		using FUInt64PropertyParams = FPropertyParamsBase;
+
+		CORE_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
+
+	} // namespace DogeCodeGen
 }
-
-namespace DogeCodeGen
-{
-	enum class EPropertyGenFlags : uint8
-	{
-		None = 0,
-		Bool,
-		Int8,
-		Int16,
-		Int32,
-		Int64,
-		UInt8,
-		UInt16,
-		UInt32,
-		UInt64,
-		Float,
-		Double,
-		Enum
-	};
-
-	struct FClassParams
-	{
-		DClass* (*ClassNoRegisterFunc)();
-		const U8Char* ClassName;
-	};
-
-	struct FPropertyParamsBase
-	{
-		const U8Char* NameUTF8;
-		EPropertyFlags Flags;
-		uint16 ArrayDim;
-		uint16 Offset;
-	};
-
-	struct FGenericPropertyParams : public FPropertyParamsBase
-	{
-		// Meta data
-	};
-
-	using FInt8PropertyParams = FPropertyParamsBase;
-	using FInt16PropertyParams = FPropertyParamsBase;
-	using FInt32PropertyParams = FPropertyParamsBase;
-	using FInt64PropertyParams = FPropertyParamsBase;
-	using FUInt8PropertyParams = FPropertyParamsBase;
-	using FUInt16PropertyParams = FPropertyParamsBase;
-	using FUInt32PropertyParams = FPropertyParamsBase;
-	using FUInt64PropertyParams = FPropertyParamsBase;
-
-	CORE_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
-
-} // namespace DogeCodeGen

@@ -1,9 +1,12 @@
 #pragma once
 
-class MWindow;
-
-class MONACORE_API FMonaRenderer
+namespace Doge
 {
-public:
-	virtual auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void = 0;
-};
+	class MWindow;
+
+	class MONACORE_API FMonaRenderer
+	{
+	public:
+		virtual auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void = 0;
+	};
+}

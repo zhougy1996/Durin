@@ -3,97 +3,100 @@
 #include "RHIConstants.h"
 #include "RHIDefinitions.h"
 
-class FRHICommandListImmediate;
-
-class RHI_API FRHITexture
+namespace Doge
 {
-public:
-	auto GetSizeX() const -> uint32 { return SizeX; }
-	auto GetSizeY() const -> uint32 { return SizeY; }
-protected:
-	uint32 SizeX = 0;
-	uint32 SizeY = 0;
-};
+	class FRHICommandListImmediate;
 
-class RHI_API FRHIViewport
-{
-public:
-	virtual auto Tick(float DeltaTime) -> void {};
-	virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TSharedPtr<FRHITexture> = 0;
-	virtual auto WaitForLastFrameCompletion() -> void = 0;
-	virtual auto GetFormat() const -> EPixelFormat = 0;
-};
-
-struct RHI_API FRHIRenderTargetsInfo
-{
-	FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
-	int32 NumColorRenderTargets;
-	bool bClearColor;
-};
-
-struct RHI_API FRHIRenderPassInfo
-{
-	FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
-};
-
-class RHI_API FGraphicsPipelineStateInitializer{
-public:
-	FName RenderPassName;
-
-	EPixelFormat PixelFormat;
-};
-
-struct FRHIBufferDesc
-{
-	uint32 Size{};
-	uint32 Stride{};
-	EBufferUsageFlags Usage{};
-
-	FRHIBufferDesc() = default;
-	FRHIBufferDesc(uint32 InSize, uint32 InStride, EBufferUsageFlags InUsage)
-		: Size(InSize)
-		, Stride(InStride)
-		, Usage(InUsage)
+	class RHI_API FRHITexture
 	{
-	}
+	public:
+		auto GetSizeX() const -> uint32 { return SizeX; }
+		auto GetSizeY() const -> uint32 { return SizeY; }
+	protected:
+		uint32 SizeX = 0;
+		uint32 SizeY = 0;
+	};
 
-	static auto Null() -> FRHIBufferDesc
+	class RHI_API FRHIViewport
 	{
-		return FRHIBufferDesc(0, 0, BUF_NullResource);
-	}
+	public:
+		virtual auto Tick(float DeltaTime) -> void {};
+		virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TSharedPtr<FRHITexture> = 0;
+		virtual auto WaitForLastFrameCompletion() -> void = 0;
+		virtual auto GetFormat() const -> EPixelFormat = 0;
+	};
 
-	auto IsNull() const -> bool
+	struct RHI_API FRHIRenderTargetsInfo
 	{
-		if (EnumHasAnyFlags(Usage, BUF_NullResource))
+		FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
+		int32 NumColorRenderTargets;
+		bool bClearColor;
+	};
+
+	struct RHI_API FRHIRenderPassInfo
+	{
+		FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
+	};
+
+	class RHI_API FGraphicsPipelineStateInitializer{
+	public:
+		FName RenderPassName;
+
+		EPixelFormat PixelFormat;
+	};
+
+	struct FRHIBufferDesc
+	{
+		uint32 Size{};
+		uint32 Stride{};
+		EBufferUsageFlags Usage{};
+
+		FRHIBufferDesc() = default;
+		FRHIBufferDesc(uint32 InSize, uint32 InStride, EBufferUsageFlags InUsage)
+			: Size(InSize)
+			, Stride(InStride)
+			, Usage(InUsage)
 		{
-			// The null resource descriptor should have its other fields zeroed, and no additional flags.
-			check(Size == 0 && Stride == 0 && Usage == BUF_NullResource);
-			return true;
 		}
 
-		return false;
-	}
-};
+		static auto Null() -> FRHIBufferDesc
+		{
+			return FRHIBufferDesc(0, 0, BUF_NullResource);
+		}
 
-class FRHIBuffer
-{
-public:
-	FRHIBuffer(FRHIBufferDesc const& InDesc)
-		: Desc_(InDesc)
+		auto IsNull() const -> bool
+		{
+			if (EnumHasAnyFlags(Usage, BUF_NullResource))
+			{
+				// The null resource descriptor should have its other fields zeroed, and no additional flags.
+				check(Size == 0 && Stride == 0 && Usage == BUF_NullResource);
+				return true;
+			}
+
+			return false;
+		}
+	};
+
+	class FRHIBuffer
 	{
-	}
+	public:
+		FRHIBuffer(FRHIBufferDesc const& InDesc)
+			: Desc_(InDesc)
+		{
+		}
 
-	FRHIBufferDesc const& GetDesc() const { return Desc_; }
+		FRHIBufferDesc const& GetDesc() const { return Desc_; }
 
-	/** @return The number of bytes in the buffer. */
-	uint32 GetSize() const { return Desc_.Size; }
+		/** @return The number of bytes in the buffer. */
+		uint32 GetSize() const { return Desc_.Size; }
 
-	/** @return The stride in bytes of the buffer. */
-	uint32 GetStride() const { return Desc_.Stride; }
+		/** @return The stride in bytes of the buffer. */
+		uint32 GetStride() const { return Desc_.Stride; }
 
-	/** @return The usage flags used to create the buffer. */
-	EBufferUsageFlags GetUsage() const { return Desc_.Usage; }
+		/** @return The usage flags used to create the buffer. */
+		EBufferUsageFlags GetUsage() const { return Desc_.Usage; }
 
-private:
-	FRHIBufferDesc Desc_;
-};
+	private:
+		FRHIBufferDesc Desc_;
+	};
+}

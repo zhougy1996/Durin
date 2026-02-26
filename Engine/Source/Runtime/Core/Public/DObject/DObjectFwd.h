@@ -1,6 +1,9 @@
 #pragma once
 
-class FObjectInitializer;
+namespace Doge
+{
+	class FObjectInitializer;
 
-class DObject;
-class DClass;
+	class DObject;
+	class DClass;
+}

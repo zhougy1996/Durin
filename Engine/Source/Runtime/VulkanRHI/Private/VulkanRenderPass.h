@@ -1,7 +1,10 @@
 #pragma once
 
-struct FRHIRenderTargetsInfo;
-struct FRHIRenderPassInfo;
+namespace Doge
+{
+	struct FRHIRenderTargetsInfo;
+	struct FRHIRenderPassInfo;
+}
 
 namespace Doge::VulkanRHI
 {
