@@ -3,11 +3,6 @@
 #include "RHIConstants.h"
 #include "VulkanView.h"
 
-namespace Doge
-{
-	struct FRHIRenderTargetsInfo;
-}
-
 namespace Doge::VulkanRHI
 {
 	class FVulkanDevice;

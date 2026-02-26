@@ -1,5 +1,7 @@
 #pragma once
 
+#include "PixelFormat.h"
+
 namespace Doge
 {
 	class FGraphicsPipelineStateInitializer;

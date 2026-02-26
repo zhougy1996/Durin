@@ -897,7 +897,7 @@ FNameDebugVisualizer::FNameDebugVisualizer(FClangKeepDebugInfo)
 {
 }
 
-uint8** FNameDebugVisualizer::GetBlocks()
+uint8_t** FNameDebugVisualizer::GetBlocks()
 {
 	static_assert(EntryStride == Doge::FNameEntryAllocator::Stride, "Natvis constants out of sync with actual constants");
 	static_assert(BlockBits == Doge::FNameMaxBlockBits, "Natvis constants out of sync with actual constants");

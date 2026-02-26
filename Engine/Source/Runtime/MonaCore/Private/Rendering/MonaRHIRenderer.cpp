@@ -28,7 +28,7 @@ namespace Doge
 			bFullScreen = true;
 		}
 
-		TSharedPtr<FRHIViewport> RHIViewport = GDynamicRHI->RHICreateViewport(GLFWWindow->GetOSNativeWindowHandle(), Width, Height, bFullScreen, EPixelFormat::R8G8B8A8);
+		TSharedPtr<FRHIViewport> RHIViewport = GDynamicRHI->RHICreateViewport(GLFWWindow->GetOSNativeWindowHandle(), Width, Height, bFullScreen, EPixelFormat::SRGBA8_UNORM);
 
 		Window->SetRHIViewport(RHIViewport);
 	}

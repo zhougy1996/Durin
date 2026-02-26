@@ -2,6 +2,8 @@
 
 namespace Doge
 {
+	struct FRHIRenderTargetsInfo;
+
 	class FRHIGraphicsPipelineState;
 	class FGraphicsPipelineStateInitializer;
 	class IRHICommandContext;

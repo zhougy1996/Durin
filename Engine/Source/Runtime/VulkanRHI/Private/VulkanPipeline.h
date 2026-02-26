@@ -3,11 +3,6 @@
 #include "RHIPipeline.h"
 #include "VulkanCommon.h"
 
-namespace Doge
-{
-	class FGraphicsPipelineStateInitializer;
-}
-
 namespace Doge::VulkanRHI
 {
 	class FVulkanDevice;

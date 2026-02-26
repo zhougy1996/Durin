@@ -1,5 +1,7 @@
 #pragma once
 
+#include "PixelFormat.h"
+
 namespace Doge::VulkanRHI
 {
 	enum EShaderStage : uint32
@@ -21,22 +23,22 @@ namespace Doge::VulkanRHI
 			switch (InFormat)
 			{
 			case vk::Format::eR8G8B8A8Srgb:
-				return EPixelFormat::R8G8B8A8;
+				return EPixelFormat::SRGBA8_UNORM;
 			case vk::Format::eB8G8R8A8Srgb:
-				return EPixelFormat::B8G8R8A8;
+				return EPixelFormat::SBGRA8_UNORM;
 			default:
 				DOGE_ERROR("Unsupported pixel format {}", vk::to_string(InFormat));
 			}
-			return EPixelFormat::Unknown;
+			return EPixelFormat::UNKNOWN;
 		}
 
 		inline vk::Format FromPixelFormat(EPixelFormat InFormat)
 		{
 			switch (InFormat)
 			{
-			case EPixelFormat::R8G8B8A8:
+			case EPixelFormat::SRGBA8_UNORM:
 				return vk::Format::eR8G8B8A8Srgb;
-			case EPixelFormat::B8G8R8A8:
+			case EPixelFormat::SBGRA8_UNORM:
 				return vk::Format::eB8G8R8A8Srgb;
 			default:
 				DOGE_ERROR("Unsupported pixel format {}", static_cast<uint32>(InFormat));

@@ -1,8 +1,8 @@
 #pragma once
 
-// RHI interface header file
-
 #include "RHIFwd.h"
+
+#include "PixelFormat.h"
 #include "RHIGlobals.h"
 #include "DynamicRHI.h"
 #include "RHIPipeline.h"
