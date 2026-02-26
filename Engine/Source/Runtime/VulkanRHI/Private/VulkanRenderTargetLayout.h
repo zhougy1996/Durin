@@ -1,10 +1,13 @@
 #pragma once
 
-class FVulkanDevice;
-struct FRHIRenderTargetsInfo;
-
-class FVulkanRenderTargetsLayout
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanRenderTargetsLayout(FVulkanDevice& Device, const FRHIRenderTargetsInfo& RenderTargetsInfo);
-};
+	class FVulkanDevice;
+	struct FRHIRenderTargetsInfo;
+
+	class FVulkanRenderTargetsLayout
+	{
+	public:
+		FVulkanRenderTargetsLayout(FVulkanDevice& Device, const FRHIRenderTargetsInfo& RenderTargetsInfo);
+	};
+}

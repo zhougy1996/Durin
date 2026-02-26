@@ -4,79 +4,82 @@
 #include "VulkanMemory.h"
 #include "VulkanExtensions.h"
 
-class FVulkanDynamicRHI;
-class FVulkanQueue;
-class FVulkanCommandListContext;
-class FVulkanRenderPassManager;
-class FVulkanPipelineManager;
-
-class FVulkanDevice
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanDevice(FVulkanDynamicRHI* RHI, vk::PhysicalDevice Gpu);
+	class FVulkanDynamicRHI;
+	class FVulkanQueue;
+	class FVulkanCommandListContext;
+	class FVulkanRenderPassManager;
+	class FVulkanPipelineManager;
 
-	~FVulkanDevice();
+	class FVulkanDevice
+	{
+	public:
+		FVulkanDevice(FVulkanDynamicRHI* RHI, vk::PhysicalDevice Gpu);
 
-	auto InitGpu() -> void;
+		~FVulkanDevice();
 
-	auto CreateDevice(FVulkanDeviceExtensionArray& DeviceExtensions) -> void;
+		auto InitGpu() -> void;
 
-	auto SetupPresentQueue(vk::SurfaceKHR Surface) -> void;
+		auto CreateDevice(FVulkanDeviceExtensionArray& DeviceExtensions) -> void;
 
-	auto WaitUtilIdle() -> void;
+		auto SetupPresentQueue(vk::SurfaceKHR Surface) -> void;
 
-	auto GetHandle() const -> vk::Device;
+		auto WaitUtilIdle() -> void;
 
-	auto GetGpu() const -> vk::PhysicalDevice;
+		auto GetHandle() const -> vk::Device;
 
-	auto GetRenderPassManager() -> FVulkanRenderPassManager&;
+		auto GetGpu() const -> vk::PhysicalDevice;
 
-	auto AcquireDeferredContext() -> FVulkanCommandListContext*;
+		auto GetRenderPassManager() -> FVulkanRenderPassManager&;
 
-	auto GetImmediateContext() -> FVulkanCommandListContext* const { return ImmediateContext_; }
+		auto AcquireDeferredContext() -> FVulkanCommandListContext*;
 
-	auto ReleaseDeferredContext(FVulkanCommandListContext* Context) -> void;
+		auto GetImmediateContext() -> FVulkanCommandListContext* const { return ImmediateContext_; }
 
-	auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue_; }
+		auto ReleaseDeferredContext(FVulkanCommandListContext* Context) -> void;
 
-	auto GetGraphicsQueue() const -> FVulkanQueue* { return GraphicsQueue_; }
+		auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue_; }
 
-	auto GetFenceManager() -> FVulkanFenceManager& { return FenceManager_; }
+		auto GetGraphicsQueue() const -> FVulkanQueue* { return GraphicsQueue_; }
 
-	auto GetPipelineManager() -> FVulkanPipelineManager& { return *PipelineManager_; }
+		auto GetFenceManager() -> FVulkanFenceManager& { return FenceManager_; }
 
-private:
-	auto Destroy() -> void;
+		auto GetPipelineManager() -> FVulkanPipelineManager& { return *PipelineManager_; }
 
-	FVulkanDynamicRHI* RHI_;
+	private:
+		auto Destroy() -> void;
 
-	vk::Device Device_;
+		FVulkanDynamicRHI* RHI_;
 
-	vk::PhysicalDevice Gpu_;
+		vk::Device Device_;
 
-	vk::PhysicalDeviceProperties GpuProps_;
+		vk::PhysicalDevice Gpu_;
 
-	std::vector<vk::QueueFamilyProperties> QueueFamilyProps_;
+		vk::PhysicalDeviceProperties GpuProps_;
 
-	FVulkanFenceManager FenceManager_;
+		std::vector<vk::QueueFamilyProperties> QueueFamilyProps_;
 
-	FVulkanRenderPassManager* RenderPassManager_;
+		FVulkanFenceManager FenceManager_;
 
-	FVulkanPipelineManager* PipelineManager_;
+		FVulkanRenderPassManager* RenderPassManager_;
 
-	FVulkanQueue* GraphicsQueue_ = nullptr;
+		FVulkanPipelineManager* PipelineManager_;
 
-	FVulkanQueue* ComputeQueue_ = nullptr;
+		FVulkanQueue* GraphicsQueue_ = nullptr;
 
-	FVulkanQueue* TransferQueue_ = nullptr;
+		FVulkanQueue* ComputeQueue_ = nullptr;
 
-	FVulkanQueue* PresentQueue_ = nullptr;
+		FVulkanQueue* TransferQueue_ = nullptr;
 
-	std::vector<const char*> DeviceExtensions_;
+		FVulkanQueue* PresentQueue_ = nullptr;
 
-	std::vector<FVulkanCommandListContext*> CommandContexts_;
+		std::vector<const char*> DeviceExtensions_;
 
-	FVulkanCommandListContext* ImmediateContext_ = nullptr;
+		std::vector<FVulkanCommandListContext*> CommandContexts_;
 
-	EGpuVendorId VendorId_ = EGpuVendorId::Unknown;
-};
+		FVulkanCommandListContext* ImmediateContext_ = nullptr;
+
+		EGpuVendorId VendorId_ = EGpuVendorId::Unknown;
+	};
+}

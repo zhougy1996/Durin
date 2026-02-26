@@ -4,36 +4,40 @@
 #include "VulkanView.h"
 
 struct FRHIRenderTargetsInfo;
-class FVulkanDevice;
-class FVulkanRenderPass;
 
-class FVulkanFramebuffer
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanFramebuffer(FVulkanDevice& Device, const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& RenderPass);
+	class FVulkanDevice;
+	class FVulkanRenderPass;
 
-	auto GetHandle() -> vk::Framebuffer { return Framebuffer_; }
+	class FVulkanFramebuffer
+	{
+	public:
+		FVulkanFramebuffer(FVulkanDevice& Device, const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& RenderPass);
 
-	auto GetExtent() -> vk::Extent2D { return Extent_; }
+		auto GetHandle() -> vk::Framebuffer { return Framebuffer_; }
 
-private:
-	FVulkanDevice& Device_;
+		auto GetExtent() -> vk::Extent2D { return Extent_; }
 
-	vk::Framebuffer Framebuffer_;
+	private:
+		FVulkanDevice& Device_;
 
-	vk::Extent2D Extent_;
+		vk::Framebuffer Framebuffer_;
 
-	std::vector<FVulkanTextureView> AttachmentTextureViews_;
+		vk::Extent2D Extent_;
 
-	// Logical color render targets
-	uint32 NumColorRenderTargets_;
+		std::vector<FVulkanTextureView> AttachmentTextureViews_;
 
-	// Actual color attachments required by the render pass, which may be more than the logical color render targets due to multi-sample resolve attachments
-	uint32 NumColorAttachments_;
+		// Logical color render targets
+		uint32 NumColorRenderTargets_;
 
-	vk::Image ColorRenderTargetImages_[kMaxSimultaneousRenderTargets];
-	vk::Image ColorResolveTargetImages_[kMaxSimultaneousRenderTargets];
-	vk::Image DepthStencilRenderTargetImage_;
+		// Actual color attachments required by the render pass, which may be more than the logical color render targets due to multi-sample resolve attachments
+		uint32 NumColorAttachments_;
 
-	friend class FVulkanRenderPassManager;
-};
+		vk::Image ColorRenderTargetImages_[kMaxSimultaneousRenderTargets];
+		vk::Image ColorResolveTargetImages_[kMaxSimultaneousRenderTargets];
+		vk::Image DepthStencilRenderTargetImage_;
+
+		friend class FVulkanRenderPassManager;
+	};
+}

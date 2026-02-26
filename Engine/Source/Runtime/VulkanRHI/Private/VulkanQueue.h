@@ -1,31 +1,34 @@
 #pragma once
 
-class FVulkanDevice;
-class FVulkanCommandBuffer;
-class FVulkanSemaphore;
-
-class FVulkanQueue
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanQueue(FVulkanDevice* Device, uint32 FamilyIndex);
+	class FVulkanDevice;
+	class FVulkanCommandBuffer;
+	class FVulkanSemaphore;
 
-	auto Submit(FVulkanCommandBuffer& CmdBuffer, FVulkanSemaphore* SignalSemaphores, uint32 NumSignalSemaphores = 1) -> void;
+	class FVulkanQueue
+	{
+	public:
+		FVulkanQueue(FVulkanDevice* Device, uint32 FamilyIndex);
 
-	auto GetHandle() const -> vk::Queue;
+		auto Submit(FVulkanCommandBuffer& CmdBuffer, FVulkanSemaphore* SignalSemaphores, uint32 NumSignalSemaphores = 1) -> void;
 
-	auto GetFamilyIndex() const -> uint32;
+		auto GetHandle() const -> vk::Queue;
 
-	auto GetIndex() const -> uint32;
+		auto GetFamilyIndex() const -> uint32;
 
-	auto GetLastSubmittedCommandBuffer() -> FVulkanCommandBuffer* { return LastSubmittedCommandBuffer_; }
+		auto GetIndex() const -> uint32;
 
-private:
-	vk::Queue Queue_;
+		auto GetLastSubmittedCommandBuffer() -> FVulkanCommandBuffer* { return LastSubmittedCommandBuffer_; }
 
-	uint32 FamilyIndex_;
-	uint32 QueueIndex_;
+	private:
+		vk::Queue Queue_;
 
-	FVulkanDevice* Device_;
+		uint32 FamilyIndex_;
+		uint32 QueueIndex_;
 
-	FVulkanCommandBuffer* LastSubmittedCommandBuffer_ = nullptr;
-};
+		FVulkanDevice* Device_;
+
+		FVulkanCommandBuffer* LastSubmittedCommandBuffer_ = nullptr;
+	};
+}

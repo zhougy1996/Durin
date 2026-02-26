@@ -4,12 +4,15 @@
 #include "Application/GenericApplication.h"
 #include "Window/GenericWindow.h"
 
-auto FVulkanGenericPlatform::CreateSurface(void* InWindowHandle, vk::Instance Instance) -> vk::SurfaceKHR
+namespace Doge::VulkanRHI
 {
-	auto Window = GApp->FindWindowByNativeWindowHandle(InWindowHandle);
+	auto FVulkanGenericPlatform::CreateSurface(void* InWindowHandle, vk::Instance Instance) -> vk::SurfaceKHR
+	{
+		auto Window = GApp->FindWindowByNativeWindowHandle(InWindowHandle);
 
-	void* Surface = Window->CreateVulkanSurface(static_cast<void*>(Instance));
-	VkSurfaceKHR RawSurface = static_cast<VkSurfaceKHR>(Surface);
+		void* Surface = Window->CreateVulkanSurface(static_cast<void*>(Instance));
+		VkSurfaceKHR RawSurface = static_cast<VkSurfaceKHR>(Surface);
 
-	return vk::SurfaceKHR(RawSurface);
+		return vk::SurfaceKHR(RawSurface);
+	}
 }

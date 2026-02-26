@@ -1,41 +1,44 @@
 #pragma once
 
-class FVulkanDevice;
-class FVulkanFence;
-class FVulkanQueue;
-class FVulkanSemaphore;
-
-class FVulkanSwapChain
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen);
+	class FVulkanDevice;
+	class FVulkanFence;
+	class FVulkanQueue;
+	class FVulkanSemaphore;
 
-	~FVulkanSwapChain();
+	class FVulkanSwapChain
+	{
+	public:
+		FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen);
 
-	auto GetImages() const -> const std::vector<vk::Image>&;
+		~FVulkanSwapChain();
 
-	// Returns the index of the acquired image
-	auto AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32;
+		auto GetImages() const -> const std::vector<vk::Image>&;
 
-	auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> void;
+		// Returns the index of the acquired image
+		auto AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32;
 
-	auto GetFormat() const -> vk::Format { return ImageFormat; }
+		auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> void;
 
-private:
-	FVulkanDevice& Device_;
+		auto GetFormat() const -> vk::Format { return ImageFormat; }
 
-	vk::SwapchainKHR SwapChain_;
+	private:
+		FVulkanDevice& Device_;
 
-	// Format of the swap chain images, which is determined by the surface format selected during swap chain creation.
-	vk::Format ImageFormat;
+		vk::SwapchainKHR SwapChain_;
 
-	std::vector<vk::Image> SwapChainImages_;
+		// Format of the swap chain images, which is determined by the surface format selected during swap chain creation.
+		vk::Format ImageFormat;
 
-	vk::SurfaceKHR Surface_;
+		std::vector<vk::Image> SwapChainImages_;
 
-	int32 CurrentImageIndex_{};
+		vk::SurfaceKHR Surface_;
 
-	FVulkanSemaphore* ImageAcquiredSemaphore_;
+		int32 CurrentImageIndex_{};
 
-	FVulkanFence* ImageAcquiredFence_{};
-};
+		FVulkanSemaphore* ImageAcquiredSemaphore_;
+
+		FVulkanFence* ImageAcquiredFence_{};
+	};
+}

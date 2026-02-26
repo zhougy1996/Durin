@@ -3,44 +3,47 @@
 struct FRHIRenderTargetsInfo;
 struct FRHIRenderPassInfo;
 
-class FVulkanDevice;
-class FVulkanFramebuffer;
-class FVulkanCommandBuffer;
-class FVulkanCommandListContext;
-
-class FVulkanRenderPass
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat);
+	class FVulkanDevice;
+	class FVulkanFramebuffer;
+	class FVulkanCommandBuffer;
+	class FVulkanCommandListContext;
 
-	~FVulkanRenderPass();
+	class FVulkanRenderPass
+	{
+	public:
+		FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat);
 
-	auto GetHandle() const -> vk::RenderPass { return RenderPass_; }
+		~FVulkanRenderPass();
 
-private:
-	FVulkanDevice& Device_;
+		auto GetHandle() const -> vk::RenderPass { return RenderPass_; }
 
-	vk::RenderPass RenderPass_;
-};
+	private:
+		FVulkanDevice& Device_;
 
-class FVulkanRenderPassManager
-{
-public:
-	FVulkanRenderPassManager(FVulkanDevice& Device);
+		vk::RenderPass RenderPass_;
+	};
 
-	// TODO: Render pass should be reuse based on render target layout, but now we select by name for simplicity
-	auto GetOrCreateRenderPass(FName InRenderPassName,  vk::Format Format) -> FVulkanRenderPass*;
+	class FVulkanRenderPassManager
+	{
+	public:
+		FVulkanRenderPassManager(FVulkanDevice& Device);
 
-	auto GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo) -> FVulkanFramebuffer*;
+		// TODO: Render pass should be reuse based on render target layout, but now we select by name for simplicity
+		auto GetOrCreateRenderPass(FName InRenderPassName,  vk::Format Format) -> FVulkanRenderPass*;
 
-	auto BeginRenderPass(FVulkanCommandListContext& Context, FVulkanDevice& Device, FVulkanCommandBuffer* CmdBuffer, const FRHIRenderPassInfo& RPInfo, /* const FVulkanRenderTargetLayout& RTLayout,*/ FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer) -> void;
+		auto GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo) -> FVulkanFramebuffer*;
 
-	auto EndRenderPass(FVulkanCommandBuffer* CmdBuffer) -> void;
+		auto BeginRenderPass(FVulkanCommandListContext& Context, FVulkanDevice& Device, FVulkanCommandBuffer* CmdBuffer, const FRHIRenderPassInfo& RPInfo, /* const FVulkanRenderTargetLayout& RTLayout,*/ FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer) -> void;
 
-private:
-	FVulkanDevice& Device_;
+		auto EndRenderPass(FVulkanCommandBuffer* CmdBuffer) -> void;
 
-	std::unordered_map<FName, std::shared_ptr<FVulkanRenderPass>> RenderPasses;
+	private:
+		FVulkanDevice& Device_;
 
-	std::vector<FVulkanFramebuffer*> FrameBuffers_;
-};
+		std::unordered_map<FName, std::shared_ptr<FVulkanRenderPass>> RenderPasses;
+
+		std::vector<FVulkanFramebuffer*> FrameBuffers_;
+	};
+}

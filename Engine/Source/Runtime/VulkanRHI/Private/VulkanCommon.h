@@ -1,44 +1,47 @@
 #pragma once
 
-enum EShaderStage : uint32
+namespace Doge::VulkanRHI
 {
-	SHADER_STAGE_VERTEX = 0U,
-	SHADER_STAGE_PIXEL,
-	SHADER_STAGE_GEOMETRY,
-	SHADER_STAGE_MESH,
-	SHADER_STAGE_AMPLIFICATION,
-	NUM_NON_COMPUTE_SHADER_STAGES,
-	SHADER_STAGE_COMPUTE = NUM_NON_COMPUTE_SHADER_STAGES,
-	NUM_SHADER_STAGES,
-};
-
-namespace FVulkanPixelFormat
-{
-	inline EPixelFormat ToPixelFormat(vk::Format InFormat)
+	enum EShaderStage : uint32
 	{
-		switch (InFormat)
-		{
-		case vk::Format::eR8G8B8A8Srgb:
-			return EPixelFormat::R8G8B8A8;
-		case vk::Format::eB8G8R8A8Srgb:
-			return EPixelFormat::B8G8R8A8;
-		default:
-			DOGE_ERROR("Unsupported pixel format {}", vk::to_string(InFormat));
-		}
-		return EPixelFormat::Unknown;
-	}
+		SHADER_STAGE_VERTEX = 0U,
+		SHADER_STAGE_PIXEL,
+		SHADER_STAGE_GEOMETRY,
+		SHADER_STAGE_MESH,
+		SHADER_STAGE_AMPLIFICATION,
+		NUM_NON_COMPUTE_SHADER_STAGES,
+		SHADER_STAGE_COMPUTE = NUM_NON_COMPUTE_SHADER_STAGES,
+		NUM_SHADER_STAGES,
+	};
 
-	inline vk::Format FromPixelFormat(EPixelFormat InFormat)
+	namespace FVulkanPixelFormat
 	{
-		switch (InFormat)
+		inline EPixelFormat ToPixelFormat(vk::Format InFormat)
 		{
-		case EPixelFormat::R8G8B8A8:
-			return vk::Format::eR8G8B8A8Srgb;
-		case EPixelFormat::B8G8R8A8:
-			return vk::Format::eB8G8R8A8Srgb;
-		default:
-			DOGE_ERROR("Unsupported pixel format {}", static_cast<uint32>(InFormat));
+			switch (InFormat)
+			{
+			case vk::Format::eR8G8B8A8Srgb:
+				return EPixelFormat::R8G8B8A8;
+			case vk::Format::eB8G8R8A8Srgb:
+				return EPixelFormat::B8G8R8A8;
+			default:
+				DOGE_ERROR("Unsupported pixel format {}", vk::to_string(InFormat));
+			}
+			return EPixelFormat::Unknown;
 		}
-		return vk::Format::eUndefined;
+
+		inline vk::Format FromPixelFormat(EPixelFormat InFormat)
+		{
+			switch (InFormat)
+			{
+			case EPixelFormat::R8G8B8A8:
+				return vk::Format::eR8G8B8A8Srgb;
+			case EPixelFormat::B8G8R8A8:
+				return vk::Format::eB8G8R8A8Srgb;
+			default:
+				DOGE_ERROR("Unsupported pixel format {}", static_cast<uint32>(InFormat));
+			}
+			return vk::Format::eUndefined;
+		}
 	}
 }

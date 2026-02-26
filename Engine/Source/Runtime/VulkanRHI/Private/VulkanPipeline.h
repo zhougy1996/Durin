@@ -3,52 +3,56 @@
 #include "RHIPipeline.h"
 #include "VulkanCommon.h"
 
-class FVulkanDevice;
-class FVulkanRenderPass;
-class FVulkanCommandListContext;
-class FVulkanCommandBuffer;
-class FVulkanShader;
 class FGraphicsPipelineStateInitializer;
 
-class FVulkanGraphicsPipelineState : public FRHIGraphicsPipelineState
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanGraphicsPipelineState(FVulkanDevice& Device, const FGraphicsPipelineStateInitializer& Initializer);
+	class FVulkanDevice;
+	class FVulkanRenderPass;
+	class FVulkanCommandListContext;
+	class FVulkanCommandBuffer;
+	class FVulkanShader;
 
-	auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
+	class FVulkanGraphicsPipelineState : public FRHIGraphicsPipelineState
+	{
+	public:
+		FVulkanGraphicsPipelineState(FVulkanDevice& Device, const FGraphicsPipelineStateInitializer& Initializer);
 
-	auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
+		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 
-	auto Bind(vk::CommandBuffer CmdBuffer) -> void;
+		auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
 
-private:
-	const FVulkanRenderPass* RenderPass_ = nullptr;
+		auto Bind(vk::CommandBuffer CmdBuffer) -> void;
 
-	auto SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void;
+	private:
+		const FVulkanRenderPass* RenderPass_ = nullptr;
 
-	FVulkanDevice& Device_;
+		auto SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void;
 
-	vk::Viewport Viewport_;
+		FVulkanDevice& Device_;
 
-	vk::Rect2D Scissor_;
+		vk::Viewport Viewport_;
 
-	bool bScissorEnabled_ = false;
+		vk::Rect2D Scissor_;
 
-	FVulkanShader* Shaders_[NUM_SHADER_STAGES];
+		bool bScissorEnabled_ = false;
 
-	vk::Pipeline Pipeline_;
+		FVulkanShader* Shaders_[NUM_SHADER_STAGES];
 
-	friend class FVulkanGraphicsPipelineState;
-	friend class FVulkanPipelineManager;
-};
+		vk::Pipeline Pipeline_;
 
-class FVulkanPipelineManager
-{
-public:
-	FVulkanPipelineManager(FVulkanDevice& Device);
+		friend class FVulkanGraphicsPipelineState;
+		friend class FVulkanPipelineManager;
+	};
 
-	auto CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FVulkanGraphicsPipelineState>;
+	class FVulkanPipelineManager
+	{
+	public:
+		FVulkanPipelineManager(FVulkanDevice& Device);
 
-private:
-	FVulkanDevice& Device_;
-};
+		auto CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FVulkanGraphicsPipelineState>;
+
+	private:
+		FVulkanDevice& Device_;
+	};
+}

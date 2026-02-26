@@ -10,141 +10,144 @@
 #include "VulkanSwapChain.h"
 #include "VulkanQueue.h"
 
-FVulkanBackBuffer::FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport)
-	: FVulkanTexture(InDevice, nullptr)
-	, Viewport_(InViewport)
+namespace Doge::VulkanRHI
 {
-	FIntPoint Extent =  InViewport->GetSizeXY();
-	SizeX = Extent.x;
-	SizeY = Extent.y;
-	Format_ = Viewport_->GetVkFormat();
-}
-
-auto FVulkanBackBuffer::AcquireBackBufferImage(FVulkanCommandListContext& Context)
-{
-	const FVulkanTextureView& View = Viewport_->AcquireBackBufferImage();
-	Image_ = View.Image;
-
-	FVulkanCommandBufferManager* CmdBufferManager = Context.GetCommandBufferManager();
-	FVulkanCommandBuffer* CmdBuffer = CmdBufferManager->GetActiveCommandBuffer();
-	CmdBuffer->AddWaitSemaphore(Viewport_->AcquiredSemaphore_);
-}
-
-FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool InbIsFullScreen, EPixelFormat InPreferredPixelFormat)
-	: Device_(InDevice)
-	, SizeX_(InSizeX)
-	, SizeY_(InSizeY)
-	, bIsFullScreen_(InbIsFullScreen)
-	, NativeWindowHandle(InWindowHandle)
-{
-	SwapChain_ = new FVulkanSwapChain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), InDevice, InWindowHandle, InSizeX, InSizeY, InbIsFullScreen);
-	vk::Format VkImageFormat = SwapChain_->GetFormat();
-	ImageFormat = FVulkanPixelFormat::ToPixelFormat(VkImageFormat);
-
-	const std::vector<vk::Image>& Images = SwapChain_->GetImages();
-
-	vk::ImageViewCreateInfo ImageViewCreateInfo;
-	ImageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
-	ImageViewCreateInfo.setFormat(VkImageFormat);
-	ImageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
-	ImageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-
-	BackBufferImages_.resize(Images.size());
-	for (uint32 i = 0; i < Images.size(); ++i)
+	FVulkanBackBuffer::FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport)
+		: FVulkanTexture(InDevice, nullptr)
+		, Viewport_(InViewport)
 	{
-		BackBufferImages_[i] = Images[i];
-		ImageViewCreateInfo.setImage(Images[i]);
-		vk::ImageView View = Device_.GetHandle().createImageView(ImageViewCreateInfo);
-		TextureViews_.emplace_back(Images[i], View);
+		FIntPoint Extent =  InViewport->GetSizeXY();
+		SizeX = Extent.x;
+		SizeY = Extent.y;
+		Format_ = Viewport_->GetVkFormat();
 	}
 
-	RenderingDoneSemaphores_.resize(Images.size());
-	for (uint32 i = 0; i < Images.size(); ++i)
+	auto FVulkanBackBuffer::AcquireBackBufferImage(FVulkanCommandListContext& Context)
 	{
-		RenderingDoneSemaphores_[i] = new FVulkanSemaphore(Device_);
+		const FVulkanTextureView& View = Viewport_->AcquireBackBufferImage();
+		Image_ = View.Image;
+
+		FVulkanCommandBufferManager* CmdBufferManager = Context.GetCommandBufferManager();
+		FVulkanCommandBuffer* CmdBuffer = CmdBufferManager->GetActiveCommandBuffer();
+		CmdBuffer->AddWaitSemaphore(Viewport_->AcquiredSemaphore_);
 	}
 
-	RHIBackBuffer_ = std::make_shared<FVulkanBackBuffer>(Device_, this);
-
-	DOGE_DEBUG("Vulkan image views created. (size: {})", BackBufferImages_.size());
-}
-
-FVulkanViewport::~FVulkanViewport()
-{
-	for (uint32 i = 0; i < TextureViews_.size(); ++i)
+	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool InbIsFullScreen, EPixelFormat InPreferredPixelFormat)
+		: Device_(InDevice)
+		, SizeX_(InSizeX)
+		, SizeY_(InSizeY)
+		, bIsFullScreen_(InbIsFullScreen)
+		, NativeWindowHandle(InWindowHandle)
 	{
-		Device_.GetHandle().destroyImageView(TextureViews_[i].ImageView);
+		SwapChain_ = new FVulkanSwapChain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), InDevice, InWindowHandle, InSizeX, InSizeY, InbIsFullScreen);
+		vk::Format VkImageFormat = SwapChain_->GetFormat();
+		ImageFormat = FVulkanPixelFormat::ToPixelFormat(VkImageFormat);
+
+		const std::vector<vk::Image>& Images = SwapChain_->GetImages();
+
+		vk::ImageViewCreateInfo ImageViewCreateInfo;
+		ImageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
+		ImageViewCreateInfo.setFormat(VkImageFormat);
+		ImageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
+		ImageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+
+		BackBufferImages_.resize(Images.size());
+		for (uint32 i = 0; i < Images.size(); ++i)
+		{
+			BackBufferImages_[i] = Images[i];
+			ImageViewCreateInfo.setImage(Images[i]);
+			vk::ImageView View = Device_.GetHandle().createImageView(ImageViewCreateInfo);
+			TextureViews_.emplace_back(Images[i], View);
+		}
+
+		RenderingDoneSemaphores_.resize(Images.size());
+		for (uint32 i = 0; i < Images.size(); ++i)
+		{
+			RenderingDoneSemaphores_[i] = new FVulkanSemaphore(Device_);
+		}
+
+		RHIBackBuffer_ = std::make_shared<FVulkanBackBuffer>(Device_, this);
+
+		DOGE_DEBUG("Vulkan image views created. (size: {})", BackBufferImages_.size());
 	}
-	TextureViews_.clear();
 
-	DestroySwapChain();
-
-	for(auto & RenderingDoneSemaphore : RenderingDoneSemaphores_)
+	FVulkanViewport::~FVulkanViewport()
 	{
-		delete RenderingDoneSemaphore;
+		for (uint32 i = 0; i < TextureViews_.size(); ++i)
+		{
+			Device_.GetHandle().destroyImageView(TextureViews_[i].ImageView);
+		}
+		TextureViews_.clear();
+
+		DestroySwapChain();
+
+		for(auto & RenderingDoneSemaphore : RenderingDoneSemaphores_)
+		{
+			delete RenderingDoneSemaphore;
+		}
+		RenderingDoneSemaphores_.clear();
 	}
-	RenderingDoneSemaphores_.clear();
-}
 
-auto FVulkanViewport::GetWindowHandle() -> void*
-{
-	return NativeWindowHandle;
-}
-
-auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanTextureView&
-{
-	AcquiredBackBufferIndex_ = static_cast<int32>(SwapChain_->AcquireImageIndex(&AcquiredSemaphore_));
-	return TextureViews_[AcquiredBackBufferIndex_];
-}
-
-auto FVulkanViewport::DestroySwapChain() -> void
-{
-	Device_.WaitUtilIdle();
-
-	delete SwapChain_;
-	SwapChain_ = nullptr;
-}
-
-auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TSharedPtr<FRHITexture>
-{
-	RHIBackBuffer_->AcquireBackBufferImage(static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext()));
-	return RHIBackBuffer_;
-}
-
-auto FVulkanViewport::Present(FVulkanCommandListContext& Context, FVulkanCommandBuffer& CmdBuffer, FVulkanQueue& PresentQueue, bool bLockToVsync) -> bool
-{
-	FVulkanCommandBufferManager* CmdBufferManager = Context.GetCommandBufferManager();
-	CmdBufferManager->SubmitActiveCmdBufferFromPresent(RenderingDoneSemaphores_[AcquiredBackBufferIndex_]);
-	SwapChain_->Present(&PresentQueue, RenderingDoneSemaphores_[AcquiredBackBufferIndex_]);
-	return true;
-}
-
-auto FVulkanViewport::WaitForLastFrameCompletion() -> void
-{
-	FVulkanQueue* Queue = Device_.GetGraphicsQueue();
-	LastFrameCommandBuffer_ = Queue->GetLastSubmittedCommandBuffer();
-	if (LastFrameCommandBuffer_)
+	auto FVulkanViewport::GetWindowHandle() -> void*
 	{
-		Device_.GetFenceManager().WaitForFence(LastFrameCommandBuffer_->GetFence(), UINT64_MAX);
-		Device_.GetFenceManager().ResetFence(LastFrameCommandBuffer_->GetFence());
+		return NativeWindowHandle;
 	}
-}
-auto FVulkanViewport::GetFormat() const -> EPixelFormat
-{
-	return ImageFormat;
-}
 
-auto FVulkanViewport::GetVkFormat() const -> vk::Format
-{
-	return SwapChain_->GetFormat();
-}
+	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanTextureView&
+	{
+		AcquiredBackBufferIndex_ = static_cast<int32>(SwapChain_->AcquireImageIndex(&AcquiredSemaphore_));
+		return TextureViews_[AcquiredBackBufferIndex_];
+	}
 
-auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport>
-{
-	return std::make_shared<FVulkanViewport>(*Device_, WindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat);
-}
+	auto FVulkanViewport::DestroySwapChain() -> void
+	{
+		Device_.WaitUtilIdle();
 
-auto FVulkanDynamicRHI::RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture>
-{
-	return ViewportRHI->GetBackBuffer(FRHICommandListImmediate::Get());
+		delete SwapChain_;
+		SwapChain_ = nullptr;
+	}
+
+	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TSharedPtr<FRHITexture>
+	{
+		RHIBackBuffer_->AcquireBackBufferImage(static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext()));
+		return RHIBackBuffer_;
+	}
+
+	auto FVulkanViewport::Present(FVulkanCommandListContext& Context, FVulkanCommandBuffer& CmdBuffer, FVulkanQueue& PresentQueue, bool bLockToVsync) -> bool
+	{
+		FVulkanCommandBufferManager* CmdBufferManager = Context.GetCommandBufferManager();
+		CmdBufferManager->SubmitActiveCmdBufferFromPresent(RenderingDoneSemaphores_[AcquiredBackBufferIndex_]);
+		SwapChain_->Present(&PresentQueue, RenderingDoneSemaphores_[AcquiredBackBufferIndex_]);
+		return true;
+	}
+
+	auto FVulkanViewport::WaitForLastFrameCompletion() -> void
+	{
+		FVulkanQueue* Queue = Device_.GetGraphicsQueue();
+		LastFrameCommandBuffer_ = Queue->GetLastSubmittedCommandBuffer();
+		if (LastFrameCommandBuffer_)
+		{
+			Device_.GetFenceManager().WaitForFence(LastFrameCommandBuffer_->GetFence(), UINT64_MAX);
+			Device_.GetFenceManager().ResetFence(LastFrameCommandBuffer_->GetFence());
+		}
+	}
+	auto FVulkanViewport::GetFormat() const -> EPixelFormat
+	{
+		return ImageFormat;
+	}
+
+	auto FVulkanViewport::GetVkFormat() const -> vk::Format
+	{
+		return SwapChain_->GetFormat();
+	}
+
+	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport>
+	{
+		return std::make_shared<FVulkanViewport>(*Device_, WindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat);
+	}
+
+	auto FVulkanDynamicRHI::RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture>
+	{
+		return ViewportRHI->GetBackBuffer(FRHICommandListImmediate::Get());
+	}
 }

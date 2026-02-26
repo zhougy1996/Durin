@@ -2,51 +2,54 @@
 
 #include "RHIContext.h"
 
-class FVulkanDynamicRHI;
-class FVulkanDevice;
-class FVulkanQueue;
-class FVulkanGraphicsPipelineState;
-class FVulkanCommandBufferManager;
-
-class FVulkanCommandListContext : public IRHICommandContext
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanCommandListContext(FVulkanDynamicRHI* RHI, FVulkanDevice& Device, FVulkanQueue* Queue);
+	class FVulkanDynamicRHI;
+	class FVulkanDevice;
+	class FVulkanQueue;
+	class FVulkanGraphicsPipelineState;
+	class FVulkanCommandBufferManager;
 
-	virtual auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
+	class FVulkanCommandListContext : public IRHICommandContext
+	{
+	public:
+		FVulkanCommandListContext(FVulkanDynamicRHI* RHI, FVulkanDevice& Device, FVulkanQueue* Queue);
 
-	virtual auto RHIBeginFrame() -> void override;
+		virtual auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 
-	virtual auto RHIEndFrame() -> void override;
+		virtual auto RHIBeginFrame() -> void override;
 
-	virtual auto RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName Name) -> void override;
+		virtual auto RHIEndFrame() -> void override;
 
-	virtual auto RHIEndRenderPass() -> void override;
+		virtual auto RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName Name) -> void override;
 
-	virtual auto RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void override;
+		virtual auto RHIEndRenderPass() -> void override;
 
-	virtual auto RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void override;
+		virtual auto RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void override;
 
-	virtual auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void override;
+		virtual auto RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void override;
 
-	virtual auto RHIDrawPrimitive() -> void override;
+		virtual auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void override;
 
-	virtual auto RHITestCommandRecord() -> void override;
+		virtual auto RHIDrawPrimitive() -> void override;
 
-	virtual auto RHISubmitCommandsHint() -> void override;
+		virtual auto RHITestCommandRecord() -> void override;
 
-	auto GetCommandBufferManager() const -> FVulkanCommandBufferManager* { return CommandBufferManager_; }
+		virtual auto RHISubmitCommandsHint() -> void override;
 
-	auto GetQueue() const -> FVulkanQueue* { return Queue_; }
+		auto GetCommandBufferManager() const -> FVulkanCommandBufferManager* { return CommandBufferManager_; }
 
-protected:
-	FVulkanDynamicRHI* RHI_;
+		auto GetQueue() const -> FVulkanQueue* { return Queue_; }
 
-	FVulkanDevice& Device_;
+	protected:
+		FVulkanDynamicRHI* RHI_;
 
-	FVulkanQueue* Queue_;
+		FVulkanDevice& Device_;
 
-	FVulkanCommandBufferManager* CommandBufferManager_;
+		FVulkanQueue* Queue_;
 
-	FVulkanGraphicsPipelineState* PendingGfxPipelineState_ = nullptr;
-};
+		FVulkanCommandBufferManager* CommandBufferManager_;
+
+		FVulkanGraphicsPipelineState* PendingGfxPipelineState_ = nullptr;
+	};
+}

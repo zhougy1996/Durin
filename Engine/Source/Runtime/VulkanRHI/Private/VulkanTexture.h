@@ -2,17 +2,20 @@
 
 #include "RHIResources.h"
 
-class FVulkanDevice;
-
-class FVulkanTexture : public FRHITexture
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanTexture(FVulkanDevice& Device, vk::Image Image);
+	class FVulkanDevice;
 
-	vk::Image Image_;
+	class FVulkanTexture : public FRHITexture
+	{
+	public:
+		FVulkanTexture(FVulkanDevice& Device, vk::Image Image);
 
-	vk::Format Format_;
+		vk::Image Image_;
 
-protected:
-	FVulkanDevice& Device_;
-};
+		vk::Format Format_;
+
+	protected:
+		FVulkanDevice& Device_;
+	};
+}

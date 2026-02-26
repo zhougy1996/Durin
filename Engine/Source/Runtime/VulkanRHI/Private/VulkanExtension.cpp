@@ -8,115 +8,118 @@
 	#define VKB_ENABLE_PORTABILITY
 #endif
 
-inline constexpr const char* DogeSupportedInstanceExtensionNames[] = {
-	VK_KHR_SURFACE_EXTENSION_NAME,
-	VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-#ifdef VKB_ENABLE_PORTABILITY
-	VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-	VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-	VK_MVK_MACOS_SURFACE_EXTENSION_NAME,
-#endif
-};
-
-inline constexpr const char* DogeSupportedDeviceExtensionNames[] = {
-	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-#ifdef VKB_ENABLE_PORTABILITY
-	"VK_KHR_portability_subset",
-#endif
-};
-
-template<typename ExtensionType>
-static auto FindExtension(const std::vector<TUniquePtr<ExtensionType>>& Extensions, const char* ExtensionName) -> int32
+namespace Doge::VulkanRHI
 {
-	for (int32 Index = 0; Index < Extensions.size(); ++Index)
+	inline constexpr const char* DogeSupportedInstanceExtensionNames[] = {
+		VK_KHR_SURFACE_EXTENSION_NAME,
+		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+	#ifdef VKB_ENABLE_PORTABILITY
+		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+		VK_MVK_MACOS_SURFACE_EXTENSION_NAME,
+	#endif
+	};
+
+	inline constexpr const char* DogeSupportedDeviceExtensionNames[] = {
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	#ifdef VKB_ENABLE_PORTABILITY
+		"VK_KHR_portability_subset",
+	#endif
+	};
+
+	template<typename ExtensionType>
+	static auto FindExtension(const std::vector<TUniquePtr<ExtensionType>>& Extensions, const char* ExtensionName) -> int32
 	{
-		if (strcmp(ExtensionName, Extensions[Index]->GetExtensionName()) == 0)
+		for (int32 Index = 0; Index < Extensions.size(); ++Index)
 		{
-			return Index;
+			if (strcmp(ExtensionName, Extensions[Index]->GetExtensionName()) == 0)
+			{
+				return Index;
+			}
+		}
+		return INDEX_NONE;
+	}
+
+	template<typename ExtensionType>
+	static auto AddRequiredExtensions(std::vector<TUniquePtr<ExtensionType>>& Extensions, const std::vector<const char*>& RequiredExtensionNames)
+	{
+		for (const char* ExtensionName : RequiredExtensionNames)
+		{
+			auto it = std::find_if(Extensions.begin(), Extensions.end(), [ExtensionName](TUniquePtr<ExtensionType>& Extension) {
+				return Extension->GetExtensionName() == ExtensionName;
+			});
+
+			if (it == Extensions.end())
+			{
+				Extensions.push_back(std::make_unique<ExtensionType>(ExtensionName));
+			}
 		}
 	}
-	return INDEX_NONE;
-}
 
-template<typename ExtensionType>
-static auto AddRequiredExtensions(std::vector<TUniquePtr<ExtensionType>>& Extensions, const std::vector<const char*>& RequiredExtensionNames)
-{
-	for (const char* ExtensionName : RequiredExtensionNames)
+	auto FVulkanInstanceExtension::GetDogeSupportedInstanceExtensions() -> FVulkanInstanceExtensionArray
 	{
-		auto it = std::find_if(Extensions.begin(), Extensions.end(), [ExtensionName](TUniquePtr<ExtensionType>& Extension) {
-			return Extension->GetExtensionName() == ExtensionName;
-		});
+		FVulkanInstanceExtensionArray OutDogeInstanceExtensions;
 
-		if (it == Extensions.end())
+		for (const char* ExtensionName : DogeSupportedInstanceExtensionNames)
 		{
-			Extensions.push_back(std::make_unique<ExtensionType>(ExtensionName));
+			OutDogeInstanceExtensions.push_back(std::make_unique<FVulkanInstanceExtension>(ExtensionName));
 		}
-	}
-}
+		AddRequiredExtensions(OutDogeInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
 
-auto FVulkanInstanceExtension::GetDogeSupportedInstanceExtensions() -> FVulkanInstanceExtensionArray
-{
-	FVulkanInstanceExtensionArray OutDogeInstanceExtensions;
-
-	for (const char* ExtensionName : DogeSupportedInstanceExtensionNames)
-	{
-		OutDogeInstanceExtensions.push_back(std::make_unique<FVulkanInstanceExtension>(ExtensionName));
-	}
-	AddRequiredExtensions(OutDogeInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
-
-	const std::vector<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
-	DOGE_DEBUG("Found {} available instance extensions:", DriverSupportedInstanceExtensions.size());
-	for (const vk::ExtensionProperties& Extension : DriverSupportedInstanceExtensions)
-	{
-		const int32 ExtensionIndex = FindExtension(OutDogeInstanceExtensions, Extension.extensionName);
-		const bool bFound = (ExtensionIndex != INDEX_NONE);
-		if (bFound)
+		const std::vector<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
+		DOGE_DEBUG("Found {} available instance extensions:", DriverSupportedInstanceExtensions.size());
+		for (const vk::ExtensionProperties& Extension : DriverSupportedInstanceExtensions)
 		{
-			// Set the extension as supported and activated temporarily.
-			// TODO: some extensions may not be activated by default.
-			OutDogeInstanceExtensions[ExtensionIndex]->SetSupported();
-			OutDogeInstanceExtensions[ExtensionIndex]->SetActivated();
+			const int32 ExtensionIndex = FindExtension(OutDogeInstanceExtensions, Extension.extensionName);
+			const bool bFound = (ExtensionIndex != INDEX_NONE);
+			if (bFound)
+			{
+				// Set the extension as supported and activated temporarily.
+				// TODO: some extensions may not be activated by default.
+				OutDogeInstanceExtensions[ExtensionIndex]->SetSupported();
+				OutDogeInstanceExtensions[ExtensionIndex]->SetActivated();
+			}
+			DOGE_DEBUG("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
 		}
-		DOGE_DEBUG("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
+
+		return OutDogeInstanceExtensions;
 	}
 
-	return OutDogeInstanceExtensions;
-}
-
-auto FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(FVulkanDevice* Device) -> FVulkanDeviceExtensionArray
-{
-	FVulkanDeviceExtensionArray OutDeviceExtensions;
-
-	for (const char* ExtensionName : DogeSupportedDeviceExtensionNames)
+	auto FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(FVulkanDevice* Device) -> FVulkanDeviceExtensionArray
 	{
-		OutDeviceExtensions.push_back(std::make_unique<FVulkanDeviceExtension>(ExtensionName));
-	}
+		FVulkanDeviceExtensionArray OutDeviceExtensions;
 
-	std::vector<vk::ExtensionProperties> DriverSupportedDeviceExtensions = GetDriverSupportedDeviceExtensions(Device->GetGpu());
-	DOGE_DEBUG("Found {} available device extensions:", DriverSupportedDeviceExtensions.size());
-
-	for (const vk::ExtensionProperties& Extension : DriverSupportedDeviceExtensions)
-	{
-		const int32 ExtensionIndex = FindExtension(OutDeviceExtensions, Extension.extensionName);
-		const bool bFound = (ExtensionIndex != INDEX_NONE);
-		if (bFound)
+		for (const char* ExtensionName : DogeSupportedDeviceExtensionNames)
 		{
-			// Set the extension as supported and activated temporarily.
-			// TODO: some extensions may not be activated by default.
-			OutDeviceExtensions[ExtensionIndex]->SetSupported();
-			OutDeviceExtensions[ExtensionIndex]->SetActivated();
+			OutDeviceExtensions.push_back(std::make_unique<FVulkanDeviceExtension>(ExtensionName));
 		}
-		DOGE_DEBUG("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
+
+		std::vector<vk::ExtensionProperties> DriverSupportedDeviceExtensions = GetDriverSupportedDeviceExtensions(Device->GetGpu());
+		DOGE_DEBUG("Found {} available device extensions:", DriverSupportedDeviceExtensions.size());
+
+		for (const vk::ExtensionProperties& Extension : DriverSupportedDeviceExtensions)
+		{
+			const int32 ExtensionIndex = FindExtension(OutDeviceExtensions, Extension.extensionName);
+			const bool bFound = (ExtensionIndex != INDEX_NONE);
+			if (bFound)
+			{
+				// Set the extension as supported and activated temporarily.
+				// TODO: some extensions may not be activated by default.
+				OutDeviceExtensions[ExtensionIndex]->SetSupported();
+				OutDeviceExtensions[ExtensionIndex]->SetActivated();
+			}
+			DOGE_DEBUG("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
+		}
+
+		return OutDeviceExtensions;
 	}
 
-	return OutDeviceExtensions;
-}
-
-auto FVulkanDeviceExtension::GetDriverSupportedDeviceExtensions(vk::PhysicalDevice Gpu, const char* LayerName) -> std::vector<vk::ExtensionProperties>
-{
-	if (LayerName == nullptr)
+	auto FVulkanDeviceExtension::GetDriverSupportedDeviceExtensions(vk::PhysicalDevice Gpu, const char* LayerName) -> std::vector<vk::ExtensionProperties>
 	{
-		return Gpu.enumerateDeviceExtensionProperties(nullptr);
+		if (LayerName == nullptr)
+		{
+			return Gpu.enumerateDeviceExtensionProperties(nullptr);
+		}
+		return Gpu.enumerateDeviceExtensionProperties(std::string(LayerName));
 	}
-	return Gpu.enumerateDeviceExtensionProperties(std::string(LayerName));
 }

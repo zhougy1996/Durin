@@ -1,7 +1,10 @@
 #pragma once
 
-struct FVulkanTextureView
+namespace Doge::VulkanRHI
 {
-	vk::Image Image;
-	vk::ImageView ImageView;
-};
+	struct FVulkanTextureView
+	{
+		vk::Image Image;
+		vk::ImageView ImageView;
+	};
+}

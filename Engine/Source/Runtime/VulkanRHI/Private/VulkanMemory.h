@@ -1,80 +1,83 @@
 #pragma once
 
-class FVulkanDevice;
-class FVulkanFenceManager;
-
-class FVulkanFence
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanFence(FVulkanDevice& Device, FVulkanFenceManager& Owner, bool bCreateSignaled);
+	class FVulkanDevice;
+	class FVulkanFenceManager;
 
-	~FVulkanFence();
-
-	auto GetHandle() const -> vk::Fence { return Fence_; }
-
-	// Return the cached state of the fence, the state will not be checked or refreshed
-	// If you want to refresh the state of the fence, use FVulkanFenceManager::IsFenceSignaled
-	auto IsSignaled() const -> bool { return State_ == EState::eSignaled; }
-
-private:
-	enum class EState
+	class FVulkanFence
 	{
-		// Initial state
-		eNotReady,
+	public:
+		FVulkanFence(FVulkanDevice& Device, FVulkanFenceManager& Owner, bool bCreateSignaled);
 
-		// After GPU processed it
-		eSignaled,
+		~FVulkanFence();
+
+		auto GetHandle() const -> vk::Fence { return Fence_; }
+
+		// Return the cached state of the fence, the state will not be checked or refreshed
+		// If you want to refresh the state of the fence, use FVulkanFenceManager::IsFenceSignaled
+		auto IsSignaled() const -> bool { return State_ == EState::eSignaled; }
+
+	private:
+		enum class EState
+		{
+			// Initial state
+			eNotReady,
+
+			// After GPU processed it
+			eSignaled,
+		};
+
+
+		auto Wait(uint64 TimeoutInNanoseconds) -> bool;
+
+		auto Reset() -> void;
+
+		FVulkanDevice& Device_;
+
+		FVulkanFenceManager& Owner_;
+
+		vk::Fence Fence_;
+
+		EState State_;
+
+		friend class FVulkanFenceManager;
 	};
 
+	class FVulkanFenceManager
+	{
+	public:
+		FVulkanFenceManager(FVulkanDevice& Device);
 
-	auto Wait(uint64 TimeoutInNanoseconds) -> bool;
+		// Check if the fence is signaled, will check refresh the state of the fence
+		auto IsFenceSignaled(FVulkanFence* Fence) -> bool;
 
-	auto Reset() -> void;
+		auto AllocateFence(bool bCreateSignaled) -> FVulkanFence*;
 
-	FVulkanDevice& Device_;
+		auto ReleaseFence(FVulkanFence*& Fence) -> void;
 
-	FVulkanFenceManager& Owner_;
+		auto WaitForFence(FVulkanFence* Fence, uint64 TimeoutInNanoseconds) -> bool;
 
-	vk::Fence Fence_;
+		auto ResetFence(FVulkanFence* Fence) -> void;
 
-	EState State_;
+	private:
+		auto CheckFenceSignaled(FVulkanFence* Fence) -> bool;
 
-	friend class FVulkanFenceManager;
-};
+		FVulkanDevice& Device_;
+	};
 
-class FVulkanFenceManager
-{
-public:
-	FVulkanFenceManager(FVulkanDevice& Device);
+	class FVulkanSemaphore
+	{
+	public:
+		FVulkanSemaphore(FVulkanDevice& Device);
 
-	// Check if the fence is signaled, will check refresh the state of the fence
-	auto IsFenceSignaled(FVulkanFence* Fence) -> bool;
+		virtual ~FVulkanSemaphore();
 
-	auto AllocateFence(bool bCreateSignaled) -> FVulkanFence*;
+		auto GetHandle() -> vk::Semaphore const { return Semaphore_; }
 
-	auto ReleaseFence(FVulkanFence*& Fence) -> void;
+	private:
+		FVulkanDevice& Device_;
 
-	auto WaitForFence(FVulkanFence* Fence, uint64 TimeoutInNanoseconds) -> bool;
-
-	auto ResetFence(FVulkanFence* Fence) -> void;
-
-private:
-	auto CheckFenceSignaled(FVulkanFence* Fence) -> bool;
-
-	FVulkanDevice& Device_;
-};
-
-class FVulkanSemaphore
-{
-public:
-	FVulkanSemaphore(FVulkanDevice& Device);
-
-	virtual ~FVulkanSemaphore();
-
-	auto GetHandle() -> vk::Semaphore const { return Semaphore_; }
-
-private:
-	FVulkanDevice& Device_;
-
-	vk::Semaphore Semaphore_;
-};
+		vk::Semaphore Semaphore_;
+	};
+}

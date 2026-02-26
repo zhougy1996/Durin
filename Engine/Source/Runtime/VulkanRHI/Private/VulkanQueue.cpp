@@ -4,68 +4,71 @@
 #include "VulkanCommandBuffer.h"
 #include "VulkanMemory.h"
 
-FVulkanQueue::FVulkanQueue(FVulkanDevice* Device, uint32 FamilyIndex)
-	: Device_(Device)
-	, FamilyIndex_(FamilyIndex)
-	, QueueIndex_(0)
+namespace Doge::VulkanRHI
 {
-	Queue_ = Device_->GetHandle().getQueue(FamilyIndex_, QueueIndex_);
-}
-
-auto FVulkanQueue::Submit(FVulkanCommandBuffer& CmdBuffer, FVulkanSemaphore* SignalSemaphores, uint32 NumSignalSemaphores /* = 1*/) -> void
-{
-	vk::CommandBuffer Buffer = CmdBuffer.GetHandle();
-
-	vk::PipelineStageFlags waitStages[] = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
-
-	vk::SubmitInfo submitInfo;
-	submitInfo.setCommandBuffers(Buffer);
-	submitInfo.setWaitDstStageMask(waitStages);
-
-	// Set signal semaphores
-	std::vector<vk::Semaphore> SignalSemaphoresArray{NumSignalSemaphores};
-	if (NumSignalSemaphores > 0 && SignalSemaphores != nullptr)
+	FVulkanQueue::FVulkanQueue(FVulkanDevice* Device, uint32 FamilyIndex)
+		: Device_(Device)
+		, FamilyIndex_(FamilyIndex)
+		, QueueIndex_(0)
 	{
-		for (uint32 i = 0; i < NumSignalSemaphores; ++i)
-		{
-			SignalSemaphoresArray[i] = SignalSemaphores[i].GetHandle();
-		}
-		submitInfo.setSignalSemaphores(SignalSemaphoresArray);
+		Queue_ = Device_->GetHandle().getQueue(FamilyIndex_, QueueIndex_);
 	}
 
-	// Set wait semaphores
-	std::vector<FVulkanSemaphore*>& WaitSemaphores = CmdBuffer.WaitSemaphores_;
-	std::vector<vk::Semaphore> WaitSemaphoresArray{WaitSemaphores.size()};
-	if (!WaitSemaphores.empty())
+	auto FVulkanQueue::Submit(FVulkanCommandBuffer& CmdBuffer, FVulkanSemaphore* SignalSemaphores, uint32 NumSignalSemaphores /* = 1*/) -> void
 	{
-		for (uint32 i = 0; i < WaitSemaphores.size(); ++i)
+		vk::CommandBuffer Buffer = CmdBuffer.GetHandle();
+
+		vk::PipelineStageFlags waitStages[] = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
+
+		vk::SubmitInfo submitInfo;
+		submitInfo.setCommandBuffers(Buffer);
+		submitInfo.setWaitDstStageMask(waitStages);
+
+		// Set signal semaphores
+		std::vector<vk::Semaphore> SignalSemaphoresArray{NumSignalSemaphores};
+		if (NumSignalSemaphores > 0 && SignalSemaphores != nullptr)
 		{
-			WaitSemaphoresArray[i] = WaitSemaphores[i]->GetHandle();
+			for (uint32 i = 0; i < NumSignalSemaphores; ++i)
+			{
+				SignalSemaphoresArray[i] = SignalSemaphores[i].GetHandle();
+			}
+			submitInfo.setSignalSemaphores(SignalSemaphoresArray);
 		}
-		submitInfo.setWaitSemaphores(WaitSemaphoresArray);
+
+		// Set wait semaphores
+		std::vector<FVulkanSemaphore*>& WaitSemaphores = CmdBuffer.WaitSemaphores_;
+		std::vector<vk::Semaphore> WaitSemaphoresArray{WaitSemaphores.size()};
+		if (!WaitSemaphores.empty())
+		{
+			for (uint32 i = 0; i < WaitSemaphores.size(); ++i)
+			{
+				WaitSemaphoresArray[i] = WaitSemaphores[i]->GetHandle();
+			}
+			submitInfo.setWaitSemaphores(WaitSemaphoresArray);
+		}
+		WaitSemaphores.clear();
+
+		FVulkanFence* Fence = CmdBuffer.GetFence();
+
+		// Submit the command buffer
+		Queue_.submit(submitInfo, Fence->GetHandle());
+
+		CmdBuffer.MarkSemaphoresAsSubmitted();
+		LastSubmittedCommandBuffer_ = &CmdBuffer;
 	}
-	WaitSemaphores.clear();
 
-	FVulkanFence* Fence = CmdBuffer.GetFence();
+	auto FVulkanQueue::GetHandle() const -> vk::Queue
+	{
+		return Queue_;
+	}
 
-	// Submit the command buffer
-	Queue_.submit(submitInfo, Fence->GetHandle());
+	auto FVulkanQueue::GetFamilyIndex() const -> uint32
+	{
+		return FamilyIndex_;
+	}
 
-	CmdBuffer.MarkSemaphoresAsSubmitted();
-	LastSubmittedCommandBuffer_ = &CmdBuffer;
-}
-
-auto FVulkanQueue::GetHandle() const -> vk::Queue
-{
-	return Queue_;
-}
-
-auto FVulkanQueue::GetFamilyIndex() const -> uint32
-{
-	return FamilyIndex_;
-}
-
-auto FVulkanQueue::GetIndex() const -> uint32
-{
-	return QueueIndex_;
+	auto FVulkanQueue::GetIndex() const -> uint32
+	{
+		return QueueIndex_;
+	}
 }

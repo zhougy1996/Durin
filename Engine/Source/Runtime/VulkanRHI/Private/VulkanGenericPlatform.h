@@ -1,7 +1,10 @@
 #pragma once
 
-class FVulkanGenericPlatform
+namespace Doge::VulkanRHI
 {
-public:
-	static auto CreateSurface(void* InWindowHandle, vk::Instance Instance) -> vk::SurfaceKHR;
-};
+	class FVulkanGenericPlatform
+	{
+	public:
+		static auto CreateSurface(void* InWindowHandle, vk::Instance Instance) -> vk::SurfaceKHR;
+	};
+}

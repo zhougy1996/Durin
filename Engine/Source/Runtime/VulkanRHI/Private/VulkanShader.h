@@ -1,18 +1,21 @@
 #pragma once
 
-class FVulkanDevice;
-
-class FVulkanShader
+namespace Doge::VulkanRHI
 {
-public:
-	FVulkanShader(FVulkanDevice& Device, const std::string& Filename, vk::ShaderStageFlagBits Stage);
+	class FVulkanDevice;
 
-	~FVulkanShader();
+	class FVulkanShader
+	{
+	public:
+		FVulkanShader(FVulkanDevice& Device, const std::string& Filename, vk::ShaderStageFlagBits Stage);
 
-	auto GetShaderModule() const -> vk::ShaderModule { return ShaderModule_; }
+		~FVulkanShader();
 
-protected:
-	FVulkanDevice& Device_;
+		auto GetShaderModule() const -> vk::ShaderModule { return ShaderModule_; }
 
-	vk::ShaderModule ShaderModule_;
-};
+	protected:
+		FVulkanDevice& Device_;
+
+		vk::ShaderModule ShaderModule_;
+	};
+}
