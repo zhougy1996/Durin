@@ -1,7 +1,6 @@
 #include "LaunchEngineLoop.h"
 
 #include "CoreGlobals.h"
-#include "DObject/Object.h"
 #include "DObject/DObjectGlobals.h"
 #include "Misc/ConfigCacheJson.h"
 #include "ApplicationCore.h"
@@ -13,9 +12,6 @@
 #include "RHIResources.h"
 #include "RHIPipeline.h"
 
-#include "Actors/StaticMeshActor.h"
-#include "Components/StaticMeshComponent.h"
-
 namespace Doge
 {
 	constexpr auto DLLModuleDependencies = std::array{"MainFrame"};
@@ -25,14 +21,12 @@ namespace Doge
 
 	auto FEngineLoop::PreInit() -> void
 	{
-		std::filesystem::path WorkingDir = std::filesystem::current_path();
-		DOGE_DEBUG(STR("Working directory: {}"), WorkingDir.string());
+		GWorkDirectory = std::filesystem::current_path();
+		DOGE_DEBUG(STR("Working directory: {}"), GWorkDirectory.string());
 		FConfigCacheJson::LoadAndParseConfig();
 		LoggerInit();
 		FNameInit();
 		DObjectInit();
-
-		AActor* TestActor = NewObject<AStaticMeshActor>(nullptr, "AStaticMeshActor");
 	}
 
 	auto FEngineLoop::Init() -> void
@@ -47,8 +41,8 @@ namespace Doge
 
 	static auto CreateTestPipeline()
 	{
-		TSharedPtr<MWindow> Window = FMonaApplication::Get().GetActiveTopLevelWindow();
-		FRHIViewport* Viewport = Window->GetRHIViewport().get();
+		const TSharedPtr<MWindow> Window = FMonaApplication::Get().GetActiveTopLevelWindow();
+		const FRHIViewport* Viewport = Window->GetRHIViewport().get();
 
 		FGraphicsPipelineStateInitializer Initializer;
 		Initializer.RenderPassName = "TestRenderPass";
