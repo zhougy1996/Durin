@@ -4,4 +4,5 @@ namespace Doge
 {
 	class FGenericWindow;
 	class FGenericApplication;
+	class FGlfwWindow;
 }

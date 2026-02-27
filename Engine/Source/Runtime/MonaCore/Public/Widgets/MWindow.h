@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RHIFwd.h"
 #include "Window/GenericWindow.h"
 #include "Widgets/MWidget.h"
 

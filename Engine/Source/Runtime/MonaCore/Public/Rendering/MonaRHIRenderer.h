@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RHIFwd.h"
 #include "Rendering/MonaRenderer.h"
 
 namespace Doge::Mona

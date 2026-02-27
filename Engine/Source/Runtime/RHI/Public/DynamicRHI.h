@@ -8,6 +8,7 @@ namespace Doge
 	class FRHIGraphicsPipelineState;
 	class IRHICommandContext;
 	class FRHITexture;
+	class FRHIViewport;
 
 	class RHI_API IDynamicRHI
 	{
