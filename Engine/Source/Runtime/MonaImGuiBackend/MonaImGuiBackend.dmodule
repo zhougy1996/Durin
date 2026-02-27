@@ -1,0 +1,8 @@
+{
+    "ModuleName": "MonaImGuiBackend",
+    "LinkType": "Static",
+    "PrivateDependencies": [
+        "Core",
+        "RHI"
+    ]
+}

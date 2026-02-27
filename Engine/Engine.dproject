@@ -11,6 +11,7 @@
         "Renderer": "Source/Runtime/Renderer",
         "MonaCore": "Source/Runtime/MonaCore",
         "Mona": "Source/Runtime/Mona",
+        "MonaImGuiBackend": "Source/Runtime/MonaImGuiBackend",
         "Launch": "Source/Runtime/Launch",
         "DogeEd": "Source/Editor/DogeEd",
         "MainFrame": "Source/Editor/MainFrame",
