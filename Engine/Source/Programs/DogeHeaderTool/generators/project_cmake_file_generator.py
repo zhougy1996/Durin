@@ -24,9 +24,8 @@ def _append_module_dirs_to_cmake_content(content: list[str], project_name: str) 
     project_config = configs.get_project_config(project_name)
     content.append("# Module directories for this project\n")
     content.append(f"set(project_module_dirs\n")
-    for module_name in project_config.modules:
-        module_config = configs.get_module_config(module_name)
-        content.append(f"    \"{module_config.module_dir.as_posix()}\"\n")
+    for module_name, module_dir in project_config.module_dirs.items():
+        content.append(f"    \"{module_dir}\"\n")
     content.append(")\n\n")
 
 

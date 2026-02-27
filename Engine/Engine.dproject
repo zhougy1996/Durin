@@ -1,19 +1,19 @@
 {
     "ProjectName": "Engine",
-    "Modules": {
-        "Core": "Source/Runtime/Core/Core.dmodule",
-        "ApplicationCore": "Source/Runtime/ApplicationCore/ApplicationCore.dmodule",
-        "Engine": "Source/Runtime/Engine/Engine.dmodule",
-        "RHI": "Source/Runtime/RHI/RHI.dmodule",
-        "VulkanRHI": "Source/Runtime/VulkanRHI/VulkanRHI.dmodule",
-        "RenderCore": "Source/Runtime/RenderCore/RenderCore.dmodule",
-        "Renderer": "Source/Runtime/Renderer/Renderer.dmodule",
-        "MonaCore": "Source/Runtime/MonaCore/MonaCore.dmodule",
-        "Mona": "Source/Runtime/Mona/Mona.dmodule",
-        "Launch": "Source/Runtime/Launch/Launch.dmodule",
-        "DogeEd": "Source/Editor/DogeEd/DogeEd.dmodule",
-        "MainFrame": "Source/Editor/MainFrame/MainFrame.dmodule",
-        "LevelEditor": "Source/Editor/LevelEditor/LevelEditor.dmodule",
-        "DogeLauncher": "Source/Editor/DogeLauncher/DogeLauncher.dmodule"
+    "ModuleDirs": {
+        "Core": "Source/Runtime/Core",
+        "ApplicationCore": "Source/Runtime/ApplicationCore",
+        "Engine": "Source/Runtime/Engine",
+        "RHI": "Source/Runtime/RHI",
+        "VulkanRHI": "Source/Runtime/VulkanRHI",
+        "RenderCore": "Source/Runtime/RenderCore",
+        "Renderer": "Source/Runtime/Renderer",
+        "MonaCore": "Source/Runtime/MonaCore",
+        "Mona": "Source/Runtime/Mona",
+        "Launch": "Source/Runtime/Launch",
+        "DogeEd": "Source/Editor/DogeEd",
+        "MainFrame": "Source/Editor/MainFrame",
+        "LevelEditor": "Source/Editor/LevelEditor",
+        "DogeLauncher": "Source/Editor/DogeLauncher"
     }
 }

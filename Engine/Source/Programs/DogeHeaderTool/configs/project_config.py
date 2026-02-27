@@ -13,10 +13,13 @@ class DogeProjectConfig:
     project_name: Path = Path("")
     project_dir: Path = Path("")
     config_file_path: Path = Path("")
-    modules: dict[str, str] = field(default_factory=dict) # module name -> module config file path
+    module_dirs: dict[str, str] = field(default_factory=dict) # module name -> module dir path relative to project dir
+    modules: dict[str, str] = field(default_factory=dict) # module name -> module config file path relative to project dir
 
     def __post_init__(self):
-        pass
+        self.modules.clear()
+        for module_name, module_dir in self.module_dirs.items():
+            self.modules[module_name] = module_dir + "/" + module_name + ".dmodule"
 
     @classmethod
     def from_file(cls, project_config_file_path: Path) -> "DogeProjectConfig":
