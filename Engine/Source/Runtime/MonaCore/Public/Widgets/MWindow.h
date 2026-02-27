@@ -2,11 +2,11 @@
 
 #include "RHIFwd.h"
 #include "Window/GenericWindow.h"
-#include "Widgets/MWidget.h"
+#include "Widgets/MCompoundWidget.h"
 
 namespace Doge::Mona
 {
-	class MONACORE_API MWindow : public MWidget
+	class MONACORE_API MWindow : public MCompoundWidget
 	{
 	public:
 		~MWindow() override;

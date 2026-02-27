@@ -2,8 +2,8 @@
 
 namespace Doge::Mona
 {
-	MWidget::MWidget(const TSharedPtr<MWidget>& InParentWidget)
-		: ParentWidget(InParentWidget)
+	MWidget::MWidget(TSharedPtr<MWidget> InParentWidget)
+		: ParentWidget(std::move(InParentWidget))
 	{
 	}
 
@@ -19,7 +19,7 @@ namespace Doge::Mona
 
 	auto MWidget::AssignParentWidget(TSharedPtr<MWidget> InParentWidget)
 	{
-		ParentWidget = InParentWidget;
+		ParentWidget = std::move(InParentWidget);
 	}
 
 	auto MWidget::GetParent() const -> TSharedPtr<MWidget>
