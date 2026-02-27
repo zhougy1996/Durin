@@ -10,6 +10,7 @@ MODULE_CONFIGS: dict[str, "DogeModuleConfig"] = {}
 @dataclass
 class DogeModuleConfig:
     module_name: Path = Path("")
+    link_type: str = "Shared"
     module_dir: Path = Path("")
     config_file_path: Path = Path("")
     owning_project: str = ""

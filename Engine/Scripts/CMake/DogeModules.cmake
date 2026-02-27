@@ -59,12 +59,12 @@ function(doge_collect_and_organize_source_files OUT_SRCS)
 endfunction()
 
 function(doge_add_module module_name)
-	message("--- Module: ${module_name}")
-
 	# Generate module CMake file using DHT and include it to get module-specific variables
 	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
 	execute_process(COMMAND ${DHT_MAIN} generate_module_cmake_file -m ${module_name} -a ${DOGE_ARCH})
 	include(${module_cmake_file})
+
+	message("--- Module: ${module_name}")
 
 	# Make CMake re-configure if the module definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_config_file})
@@ -93,7 +93,12 @@ function(doge_add_module module_name)
 		)
 	endif()
 
-	add_library(${module_name} SHARED
+	if("${module_link_type}" STREQUAL "STATIC")
+		set(module_link_type_final STATIC)
+	else()
+		set(module_link_type_final SHARED)
+	endif()
+	add_library(${module_name} ${module_link_type_final}
 		${module_srcs}
 		${generated_reflection_files}
 	)
