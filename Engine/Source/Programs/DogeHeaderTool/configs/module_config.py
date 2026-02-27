@@ -1,5 +1,6 @@
 from pathlib import Path
 from dataclasses import dataclass, field
+import utils
 from utils.json_utils import load_json_file, dataclass_from_dict
 from .project_config import get_project_config, find_module
 
@@ -34,7 +35,10 @@ class DogeModuleConfig:
     
     def get_reflect_header_paths(self) -> list[Path]:
         return [(self.module_dir / header).resolve() for header in self.reflect_headers]
-
+    
+    def has_export_file(self) -> bool:
+        return len(self.reflect_headers) > 0
+    
 # Load the configuration for a module from a file, and caches it
 def _load_module_config_file(module_config_file_path: Path, owning_project: str) -> DogeModuleConfig:
     module_config = DogeModuleConfig.from_file(module_config_file_path)
@@ -82,7 +86,14 @@ def collect_sorted_dependent_modules(module_name: str) -> list[str]:
     sorted_deps = sorted(all_deps)
     return sorted_deps
 
-def collect_all_dependent_modules_for_manifest(module_name: str) -> list[str]:
-    dependent_modules = collect_all_dependent_modules(module_name)
-    dependent_modules.add(module_name)  # Also include the module itself, since its reflect headers are also dependencies for the manifest file
-    return sorted(dependent_modules)
+# Collects all the dependencies of the module manifest file that have export files (self included).
+def collect_all_dependent_module_with_export_file(module_name: str) -> list[str]:
+    all_deps = collect_all_dependent_modules(module_name)
+    all_deps.add(module_name)  # Also include the module itself, since it is also a dependency for the manifest file
+    deps_with_export_file = [dep for dep in all_deps if get_module_config(dep).has_export_file()]
+    sorted_deps_with_export_file = sorted(deps_with_export_file)
+    return sorted_deps_with_export_file
+
+def collect_all_dependent_module_export_files(module_name: str) -> list[Path]:
+    deps = collect_all_dependent_module_with_export_file(module_name)
+    return [utils.get_module_export_file_path(dep) for dep in deps]

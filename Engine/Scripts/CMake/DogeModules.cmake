@@ -69,28 +69,29 @@ function(doge_add_module module_name)
 	# Make CMake re-configure if the module definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_config_file})
 
-	# Collect generated reflection files for the module
-	set(module_generated_reflection_files)
-	foreach(header ${module_reflect_headers})
-		get_filename_component(header_name ${header} NAME_WE)
-		list(APPEND generated_reflection_files ${module_dht_output_dir}/${header_name}.gen.h)
-		list(APPEND generated_reflection_files ${module_dht_output_dir}/${header_name}.gen.cpp)
-	endforeach()
-	list(APPEND generated_reflection_files ${module_dht_output_dir}/${module_name}.module.gen.cpp)
-
-	add_custom_command(
-		OUTPUT ${module_export_file} ${module_definitions_header}
-		COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} -a ${DOGE_ARCH}
-		DEPENDS ${module_reflect_headers} ${module_cmake_file}
-	)
-
-	add_custom_command(
-		OUTPUT ${generated_reflection_files}
-		COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} -a ${DOGE_ARCH}
-		DEPENDS ${module_cmake_file} ${module_manifest_dependencies} ${module_export_file}
-	)
-
 	doge_collect_and_organize_source_files(module_srcs)
+
+	set(generated_reflection_files)
+	if (module_reflect_headers)
+		add_custom_command(
+			OUTPUT ${module_export_file}
+			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} -a ${DOGE_ARCH}
+			DEPENDS ${module_reflect_headers} ${module_cmake_file}
+		)
+		# Collect generated reflection files for the module
+		foreach(header ${module_reflect_headers})
+			get_filename_component(header_name ${header} NAME_WE)
+			list(APPEND generated_reflection_files ${module_dht_output_dir}/${header_name}.gen.h)
+			list(APPEND generated_reflection_files ${module_dht_output_dir}/${header_name}.gen.cpp)
+		endforeach()
+		list(APPEND generated_reflection_files ${module_dht_output_dir}/${module_name}.module.gen.cpp)
+
+		add_custom_command(
+			OUTPUT ${generated_reflection_files}
+			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} -a ${DOGE_ARCH}
+			DEPENDS ${module_cmake_file} ${module_manifest_dependencies} ${module_export_file}
+		)
+	endif()
 
 	add_library(${module_name} SHARED
 		${module_srcs}
@@ -121,13 +122,7 @@ function(doge_add_module module_name)
 		"$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>"
 	)
 
-	set_target_properties(${module_name} PROPERTIES
-		RUNTIME_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
-		LIBRARY_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
-		ARCHIVE_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${module_name}/${DOGE_ARCH}/$<CONFIG>"
-		PDB_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${module_name}/${DOGE_ARCH}/$<CONFIG>"
-	)
-
+	doge_set_module_output(${module_name})
 	# Organize the module in the IDE's folder structure
 	set_target_properties(${module_name} PROPERTIES FOLDER "${project_name}/${module_dir}")
 endfunction()

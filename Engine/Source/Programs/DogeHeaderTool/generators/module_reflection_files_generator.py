@@ -43,9 +43,9 @@ def get_reflection_headers_requiring_regeneration(old_manifest: ModuleManifest, 
 # Reuse the fingerprint for headers from the existing manifest for unchanged headers to avoid unnecessary regeneration of reflection files for those headers
 def make_new_module_manifest(module_name: str, old_manifest: ModuleManifest = None) -> ModuleManifest:
     manifest = ModuleManifest(module_name=module_name)
-    dependent_modules = configs.collect_all_dependent_modules_for_manifest(module_name)
+    dependent_modules_with_export_file = configs.collect_all_dependent_module_with_export_file(module_name)
 
-    for dep_module in dependent_modules:
+    for dep_module in dependent_modules_with_export_file:
         export_file_path = utils.get_module_export_file_path(dep_module)
         if not export_file_path.exists():
             raise FileNotFoundError(f"Export file for dependent module '{dep_module}' not found at expected path: {export_file_path}")
