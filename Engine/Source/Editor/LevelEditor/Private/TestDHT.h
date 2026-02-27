@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../../../Runtime/CoreDObject/Public/DObject/DogeTypes.h"
 #include "DObject/ObjectMacros.h"
 
 
