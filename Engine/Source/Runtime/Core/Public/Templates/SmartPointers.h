@@ -22,6 +22,7 @@ namespace Doge
 			return this->shared_from_this();
 		}
 
+		// This is a helper function to cast the shared pointer to a different type. It is useful when you have a class that inherits from multiple classes that inherit from TSharedFromThis.
 		template<typename OtherType>
 		FORCEINLINE auto SharedThis(OtherType* ThisPtr) -> std::shared_ptr<OtherType>
 		{

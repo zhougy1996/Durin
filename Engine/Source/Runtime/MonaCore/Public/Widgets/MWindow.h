@@ -9,9 +9,7 @@ namespace Doge::Mona
 	class MONACORE_API MWindow : public MWidget
 	{
 	public:
-		virtual ~MWindow();
-
-		virtual auto DrawWidget() -> void override;
+		~MWindow() override;
 
 		auto PollEvents() const -> void;
 
@@ -23,13 +21,13 @@ namespace Doge::Mona
 
 		auto RequestDestroyWindow() -> void;
 
-		auto GetTitle() const -> FString { return Title_; }
+		auto GetTitle() const -> FString { return Title; }
 
-		auto SetTitle(const FString& InTitle) -> void { Title_ = InTitle; }
+		auto SetTitle(const FString& InTitle) -> void { Title = InTitle; }
 
-		auto GetDesiredScreenPosition() const -> FVector2f { return InitialDesiredScreenPosition_; }
+		auto GetDesiredScreenPosition() const -> FVector2f { return InitialDesiredScreenPosition; }
 
-		auto GetDesiredSize() const -> FVector2f { return InitialDesiredSize_; }
+		auto GetDesiredSize() const -> FVector2f { return InitialDesiredSize; }
 
 		auto MoveWindowTo(const FVector2f& NewScreenPosition) -> void;
 
@@ -37,9 +35,9 @@ namespace Doge::Mona
 
 		auto ResizeWindow(const FVector2f& NewSize) -> void;
 
-		auto GetScreenPosition() const -> FVector2f { return ScreenPosition_; }
+		auto GetScreenPosition() const -> FVector2f { return ScreenPosition; }
 
-		auto GetWindowSize() const -> FVector2f { return Size_; }
+		auto GetWindowSize() const -> FVector2f { return Size; }
 
 		auto GetViewportSize() const -> FVector2f;
 
@@ -47,7 +45,7 @@ namespace Doge::Mona
 
 		auto SetCachedSize(const FVector2f& NewSize) -> void;
 
-		auto SetRHIViewport(TSharedPtr<FRHIViewport> RHIViewport) -> void;
+		auto SetRHIViewport(TSharedPtr<FRHIViewport> InRHIViewport) -> void;
 
 		auto GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&;
 
@@ -56,22 +54,24 @@ namespace Doge::Mona
 		auto IsWindow() -> bool override { return true; }
 
 	protected:
-		FString Title_;
+		auto OnRender() -> void override;
 
-		FVector2f InitialDesiredScreenPosition_;
+		FString Title;
 
-		FVector2f InitialDesiredSize_;
+		FVector2f InitialDesiredScreenPosition = {};
 
-		FVector2f ScreenPosition_;
+		FVector2f InitialDesiredSize = {};
 
-		FVector2f Size_;
+		FVector2f ScreenPosition = {};
 
-		FVector2f ViewportSize_;
+		FVector2f Size = {};
 
-		TSharedPtr<FGenericWindow> NativeWindow_;
+		FVector2f ViewportSize = {};
 
-		std::vector<TSharedPtr<MWindow>> ChildWindows_;
+		TSharedPtr<FGenericWindow> NativeWindow;
 
-		TSharedPtr<FRHIViewport> RHIViewport_;
+		std::vector<TSharedPtr<MWindow>> ChildWindows;
+
+		TSharedPtr<FRHIViewport> RHIViewport;
 	};
 }

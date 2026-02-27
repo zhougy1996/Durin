@@ -9,6 +9,5 @@ namespace Doge::Mona
 	public:
 		MViewport() = default;
 		virtual ~MViewport() = default;
-		virtual auto DrawWidget() -> void override {}
 	};
 }

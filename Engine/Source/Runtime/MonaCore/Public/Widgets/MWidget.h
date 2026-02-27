@@ -6,11 +6,11 @@ namespace Doge::Mona
 	{
 	public:
 		MWidget() = default;
-		MWidget(TSharedPtr<MWidget> ParentWidget);
+		MWidget(const TSharedPtr<MWidget>& InParentWidget);
 
 		virtual ~MWidget() = default;
 
-		virtual auto DrawWidget() -> void = 0;
+		auto Render() -> void;
 
 		virtual auto AsWidget() -> TSharedPtr<MWidget>;
 
@@ -18,9 +18,11 @@ namespace Doge::Mona
 
 		auto AssignParentWidget(TSharedPtr<MWidget> ParentWidget);
 
-		auto GetParent() -> TSharedPtr<MWidget>;
+		auto GetParent() const -> TSharedPtr<MWidget>;
 
-	private:
-		TWeakPtr<MWidget> ParentWidget_;
+	protected:
+		virtual auto OnRender() -> void {};
+
+		TWeakPtr<MWidget> ParentWidget;
 	};
 }
