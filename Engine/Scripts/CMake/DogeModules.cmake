@@ -6,6 +6,7 @@ set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/main.py")
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
 	message("-- Project: ${project_name}")
+	project(Engine)
 	set(DOGE_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DOGE_ARCH}/Editor")
 
 	set(project_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${project_name}.project.cmake")
