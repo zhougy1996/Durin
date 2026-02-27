@@ -118,8 +118,4 @@ namespace Doge::Mona
 	{
 		return NativeWindow->GetWindowMode();
 	}
-
-	void MWindow::OnRender()
-	{
-	}
 }

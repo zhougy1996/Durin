@@ -69,6 +69,8 @@ namespace Doge
 		// Acquire image
 		TSharedPtr<FRHITexture> BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
 
+		Window->Render();
+
 		// Render pass
 		FRHIRenderPassInfo PassInfo{};
 		PassInfo.ColorRenderTargets[0] = BackBuffer.get();

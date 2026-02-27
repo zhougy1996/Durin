@@ -54,8 +54,6 @@ namespace Doge::Mona
 		auto IsWindow() -> bool override { return true; }
 
 	protected:
-		auto OnRender() -> void override;
-
 		FString Title;
 
 		FVector2f InitialDesiredScreenPosition = {};
