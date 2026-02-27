@@ -2,7 +2,7 @@
 
 #include "Widgets/MWindow.h"
 
-namespace Doge
+namespace Doge::Mona
 {
 	auto FMonaWindowHelper::FindWindowByPlatformWindow(const std::vector<TSharedPtr<MWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<MWindow>
 	{

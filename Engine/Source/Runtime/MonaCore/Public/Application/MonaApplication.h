@@ -2,9 +2,8 @@
 
 #include "Application/GenericApplication.h"
 
-namespace Doge
+namespace Doge::Mona
 {
-	class FGenericWindow;
 	class MWidget;
 	class MWindow;
 	class FMonaRenderer;

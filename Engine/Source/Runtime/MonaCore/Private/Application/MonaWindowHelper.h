@@ -1,9 +1,8 @@
 #pragma once
 
-namespace Doge
+namespace Doge::Mona
 {
 	class MWindow;
-	class FGenericWindow;
 
 	class FMonaWindowHelper
 	{

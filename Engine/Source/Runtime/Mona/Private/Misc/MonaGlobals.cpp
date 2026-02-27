@@ -3,7 +3,7 @@
 #include "Application/MonaApplication.h"
 #include "MonaBackendGlobals.h"
 
-namespace Doge
+namespace Doge::Mona
 {
 	auto MonaInit() -> void
 	{

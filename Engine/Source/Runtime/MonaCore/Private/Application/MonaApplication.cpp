@@ -9,7 +9,7 @@
 #include "Widgets/MWindow.h"
 #include "Window/GlfwWindow.h"
 
-namespace Doge
+namespace Doge::Mona
 {
 	TSharedPtr<FMonaApplication> FMonaApplication::CurrentApplication_ = nullptr;
 

@@ -4,7 +4,7 @@
 #include "Widgets/MWindow.h"
 #include "Window/GlfwWindow.h"
 
-namespace Doge
+namespace Doge::Mona
 {
 	auto FMonaRHIRenderer::GetRHIViewport(MWindow& Window) -> TSharedPtr<FRHIViewport>
 	{

@@ -6,7 +6,7 @@
 
 namespace Doge
 {
-	FSceneViewport::FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<MViewport> ViewportWidget)
+	FSceneViewport::FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<Mona::MViewport> ViewportWidget)
 		: FViewport(ViewportClient)
 		, ViewportWidget_(ViewportWidget)
 	{
@@ -14,7 +14,7 @@ namespace Doge
 
 	auto FSceneViewport::UpdateRHIViewport() -> void
 	{
-		TSharedPtr<MWidget> ViewportWidget = ViewportWidget_.lock();
-		TSharedPtr<MWindow> Window = FMonaApplication::Get().FindWidgetWindow(ViewportWidget);
+		TSharedPtr<Mona::MWidget> ViewportWidget = ViewportWidget_.lock();
+		TSharedPtr<Mona::MWindow> Window = Mona::FMonaApplication::Get().FindWidgetWindow(ViewportWidget);
 	}
 }

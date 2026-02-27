@@ -109,7 +109,6 @@ function(doge_add_module module_name)
 	target_compile_definitions(${module_name} PRIVATE MODULE_NAME="${module_name}")
 	if("${module_link_type_final}" STREQUAL "SHARED")
 		string(TOUPPER "${module_name}" uppercase_module_name)
-		target_compile_definitions(${module_name} PRIVATE ${uppercase_module_name}_EXPORTS)
 	endif()
 
 	target_include_directories(${module_name} PRIVATE

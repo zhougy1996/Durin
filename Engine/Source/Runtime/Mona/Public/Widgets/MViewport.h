@@ -2,7 +2,7 @@
 
 #include "Widgets/MWidget.h"
 
-namespace Doge
+namespace Doge::Mona
 {
 	class MONA_API MViewport : public MWidget
 	{

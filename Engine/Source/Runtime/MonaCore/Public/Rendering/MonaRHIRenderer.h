@@ -2,9 +2,8 @@
 
 #include "Rendering/MonaRenderer.h"
 
-namespace Doge
+namespace Doge::Mona
 {
-	class FRHIViewport;
 	class MWindow;
 
 	class MONACORE_API FMonaRHIRenderer : public FMonaRenderer

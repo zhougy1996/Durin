@@ -18,12 +18,12 @@ namespace Doge
 	auto FMainFrameModule::CreateDefaultMainFrame() -> void
 	{
 		FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
-		TSharedPtr<MWindow> RootWindow = std::make_shared<MWindow>();
+		TSharedPtr<Mona::MWindow> RootWindow = std::make_shared<Mona::MWindow>();
 
 		RootWindow->SetTitle("Mona");
 		RootWindow->ResizeWindow({800.0f, 600.0f});
 
-		FMonaApplication::Get().AddWindow(RootWindow, true);
-		FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
+		Mona::FMonaApplication::Get().AddWindow(RootWindow, true);
+		Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
 	}
 }

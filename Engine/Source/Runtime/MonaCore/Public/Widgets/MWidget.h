@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Doge
+namespace Doge::Mona
 {
 	class MONACORE_API MWidget : public TSharedFromThis<MWidget>
 	{

@@ -1,7 +1,4 @@
 #pragma once
-#include "MonaImGuiBackend/Definitions.h"
-
-struct ImGuiContext;
 
 namespace Doge::Mona
 {

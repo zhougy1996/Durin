@@ -3,11 +3,8 @@
 #include "Window/GenericWindow.h"
 #include "Widgets/MWidget.h"
 
-namespace Doge
+namespace Doge::Mona
 {
-	class FRHIViewport;
-	class FGenericWindow;
-
 	class MONACORE_API MWindow : public MWidget
 	{
 	public:

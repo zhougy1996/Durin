@@ -4,7 +4,7 @@
 
 #include "Application/MonaApplication.h"
 
-namespace Doge
+namespace Doge::Mona
 {
 	MWindow::~MWindow()
 	{

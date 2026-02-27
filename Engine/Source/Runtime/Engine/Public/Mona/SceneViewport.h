@@ -3,19 +3,20 @@
 #include "Client/Viewport.h"
 #include "Rendering/RenderingCommon.h"
 
+#include "MonaFwd.h"
+
 namespace Doge
 {
 	class FViewportClient;
-	class MViewport;
 
-	class ENGINE_API FSceneViewport : public FViewport, public IMonaViewport
+	class ENGINE_API FSceneViewport : public FViewport, public Mona::IMonaViewport
 	{
 	public:
-		FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<MViewport> ViewportWidget);
+		FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<Mona::MViewport> ViewportWidget);
 
 		virtual auto UpdateRHIViewport() -> void override;
 
 	private:
-		TWeakPtr<MViewport> ViewportWidget_;
+		TWeakPtr<Mona::MViewport> ViewportWidget_;
 	};
 }

@@ -1,6 +1,6 @@
 #include "Widgets/MWidget.h"
 
-namespace Doge
+namespace Doge::Mona
 {
 	MWidget::MWidget(TSharedPtr<MWidget> ParentWidget)
 		: ParentWidget_(ParentWidget)

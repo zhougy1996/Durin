@@ -33,7 +33,7 @@ namespace Doge
 	{
 		ApplicationInit();
 		RHIInit();
-		MonaInit();
+		Mona::MonaInit();
 		EditorInit();
 
 		DOGE_DEBUG(STR("DogeEd initialized"));
@@ -41,7 +41,7 @@ namespace Doge
 
 	static auto CreateTestPipeline()
 	{
-		const TSharedPtr<MWindow> Window = FMonaApplication::Get().GetActiveTopLevelWindow();
+		const TSharedPtr<Mona::MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow();
 		const FRHIViewport* Viewport = Window->GetRHIViewport().get();
 
 		FGraphicsPipelineStateInitializer Initializer;
@@ -58,7 +58,7 @@ namespace Doge
 	static auto DrawTriangle()
 	{
 		// Window and viewport
-		TSharedPtr<MWindow> Window = FMonaApplication::Get().GetActiveTopLevelWindow();
+		TSharedPtr<Mona::MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow();
 		FRHIViewport* Viewport = Window->GetRHIViewport().get();
 
 		FRHICommandList& CommandList = FRHICommandListImmediate::Get();
@@ -96,7 +96,7 @@ namespace Doge
 
 	auto FEngineLoop::Tick() -> void
 	{
-		FMonaApplication::Get().Tick();
+		Mona::FMonaApplication::Get().Tick();
 
 		if (GIsRequestingExit)
 		{
@@ -113,6 +113,6 @@ namespace Doge
 
 	auto FEngineLoop::Exit() -> void
 	{
-		FMonaApplication::Get().Shutdown();
+		Mona::FMonaApplication::Get().Shutdown();
 	}
 }
