@@ -3,7 +3,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Class.h"
-#include "DObject/DeferredRegistry.h"
+#include "DeferredRegistry.h"
 
 namespace Doge
 {
@@ -42,7 +42,7 @@ namespace Doge
 	static FPendingRegistrant* GFirstPendingRegistrant = nullptr;
 	static FPendingRegistrant* GLastPendingRegistrant = nullptr;
 
-	IMPLEMENT_INTRINSIC_CLASS(DObject, CORE_API, DObject, CORE_API, {})
+	IMPLEMENT_INTRINSIC_CLASS(DObject, COREDOBJECT_API, DObject, COREDOBJECT_API, {})
 
 	DObject::DObject()
 	{

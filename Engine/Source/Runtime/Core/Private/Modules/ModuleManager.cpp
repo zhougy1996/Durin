@@ -1,7 +1,5 @@
 #include "Modules/ModuleManager.h"
 
-#include "DObject/Object.h"
-
 namespace Doge
 {
 	auto FModuleManager::Get() -> FModuleManager&
@@ -120,7 +118,10 @@ namespace Doge
 		FoundModuleInfo->Module = TUniquePtr<IModuleInterface>(Result);
 		DOGE_INFO(STR("Module loaded: {}"), InModuleName.ToString());
 
-		ProcessNewlyLoadedDObjects();
+		if (bCanProcessNewlyLoadedObjects)
+		{
+			ProcessLoadedObjectsCallback();
+		}
 
 		// Call the module's startup function.
 		Result->StartupModule();
@@ -132,5 +133,17 @@ namespace Doge
 	auto FModuleManager::UnloadModule(const FName& InModuleName) -> void
 	{
 		DOGE_INFO(STR("Module Unloaded: {}"), InModuleName.ToString());
+	}
+
+	auto FModuleManager::StartProcessingNewlyLoadedObjects() -> void
+	{
+		// Make sure only called once
+		check(bCanProcessNewlyLoadedObjects == false);
+		bCanProcessNewlyLoadedObjects = true;
+	}
+
+	auto FModuleManager::SetProcessLoadedObjectsCallback(std::function<void()> Callback) -> void
+	{
+		ProcessLoadedObjectsCallback = std::move(Callback);
 	}
 }

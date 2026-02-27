@@ -1,8 +1,11 @@
 {
     "ModuleName": "Engine",
-    "PrivateDependencies": [
+    "PublicDependencies": [
         "Core",
-        "RHI",
+        "CoreDObject",
+        "RHI"
+    ],
+    "PrivateDependencies": [
         "RenderCore",
         "ApplicationCore",
         "MonaCore",

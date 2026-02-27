@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DObject/Object.h"
+#include "Object.h"
 
 namespace Doge
 {
@@ -68,7 +68,7 @@ namespace Doge
 		T::__DefaultConstructor(X);
 	}
 
-	CORE_API auto GetPrivateStaticClassBody(
+	COREDOBJECT_API auto GetPrivateStaticClassBody(
 		const U8Char* PackageName,
 		const U8Char* Name,
 		DClass*& ReturnClass,

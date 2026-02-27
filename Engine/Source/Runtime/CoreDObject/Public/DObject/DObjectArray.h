@@ -16,5 +16,5 @@ namespace Doge
 		std::vector<DObject*> Objs;
 	};
 
-	extern CORE_API FDObjectArray GDObjectArray;
+	extern COREDOBJECT_API FDObjectArray GDObjectArray;
 }

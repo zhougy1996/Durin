@@ -1,5 +1,6 @@
 #include "DObject/DObjectGlobals.h"
 
+#include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 
@@ -15,6 +16,10 @@ namespace Doge
 	{
 		ProcessNewlyLoadedDObjects();
 		DObjectProcessRegistrants();
+
+		FModuleManager::Get().SetProcessLoadedObjectsCallback(ProcessNewlyLoadedDObjects);
+		FModuleManager::Get().StartProcessingNewlyLoadedObjects();
+
 		auto& array = GDObjectArray;
 	}
 

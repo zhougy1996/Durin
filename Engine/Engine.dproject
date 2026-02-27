@@ -2,6 +2,7 @@
     "ProjectName": "Engine",
     "ModuleDirs": {
         "Core": "Source/Runtime/Core",
+        "CoreDObject": "Source/Runtime/CoreDObject",
         "ApplicationCore": "Source/Runtime/ApplicationCore",
         "Engine": "Source/Runtime/Engine",
         "RHI": "Source/Runtime/RHI",

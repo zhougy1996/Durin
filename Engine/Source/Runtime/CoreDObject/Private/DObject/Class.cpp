@@ -2,9 +2,9 @@
 
 namespace Doge
 {
-	IMPLEMENT_INTRINSIC_CLASS(DStructure, CORE_API, DObject, CORE_API, {})
+	IMPLEMENT_INTRINSIC_CLASS(DStructure, COREDOBJECT_API, DObject, COREDOBJECT_API, {})
 
-	IMPLEMENT_INTRINSIC_CLASS(DClass, CORE_API, DObject, CORE_API, {})
+	IMPLEMENT_INTRINSIC_CLASS(DClass, COREDOBJECT_API, DObject, COREDOBJECT_API, {})
 
 	auto DStructure::RegisterDependencies() -> void
 	{

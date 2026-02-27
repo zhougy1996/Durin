@@ -22,18 +22,18 @@ namespace Doge
 	public:
 		FORCEINLINE auto GetObj() const -> DObject* { return Obj; }
 
-		static CORE_API auto Get() -> const FObjectInitializer&;
+		static COREDOBJECT_API auto Get() -> const FObjectInitializer&;
 
 		DObject* Obj = nullptr;
 	};
 
-	CORE_API auto DObjectInit() -> void;
+	COREDOBJECT_API auto DObjectInit() -> void;
 
-	CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
+	COREDOBJECT_API auto DObjectForceRegistration(DObject* Object) -> void;
 
-	CORE_API auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*;
+	COREDOBJECT_API auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*;
 
-	CORE_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
+	COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
 
 	template<typename T>
 	auto NewObject(DObject* Outer, FName Name) -> T*
@@ -99,7 +99,7 @@ namespace Doge
 		using FUInt32PropertyParams = FPropertyParamsBase;
 		using FUInt64PropertyParams = FPropertyParamsBase;
 
-		CORE_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
+		COREDOBJECT_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
 
 	} // namespace DogeCodeGen
 }

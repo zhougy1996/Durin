@@ -27,6 +27,8 @@
 #include <shared_mutex>
 #include <atomic>
 
+#include <functional>
+
 #include "Math/MathFwd.h"
 #include "Containers/ContainersFwd.h"
 

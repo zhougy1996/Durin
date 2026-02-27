@@ -1,0 +1,9 @@
+{
+    "ModuleName": "CoreDObject",
+    "PrivateDependencies": [
+        "Core"
+    ],
+    "ReflectHeaders": [
+        "Public/DObject/MirrorExportTypes.h"
+    ]
+}

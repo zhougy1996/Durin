@@ -28,7 +28,7 @@ namespace Doge
 		// FField* DefaultObject;
 
 	public:
-		CORE_API FFieldClass(const CharT* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFuncType InConstructFunc);
+		COREDOBJECT_API FFieldClass(const CharT* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFuncType InConstructFunc);
 
 		inline auto GetId() const -> uint64 { return Id; }
 
@@ -39,10 +39,10 @@ namespace Doge
 		}
 
 		/** Get all registered field classes */
-		static CORE_API auto GetAllFieldClasses() -> std::vector<FFieldClass*>&;
+		static COREDOBJECT_API auto GetAllFieldClasses() -> std::vector<FFieldClass*>&;
 
 		/** Get a mapping from name to field class */
-		static CORE_API auto GetNameToFieldClassMap() -> std::unordered_map<FName, FFieldClass*>;
+		static COREDOBJECT_API auto GetNameToFieldClassMap() -> std::unordered_map<FName, FFieldClass*>;
 
 		auto Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags = EObjectFlags::NoFlags) const -> FField*
 		{
@@ -147,7 +147,7 @@ namespace Doge
 			return nullptr;
 		}
 
-		CORE_API auto IsA(const DClass* InClass) const -> bool;
+		COREDOBJECT_API auto IsA(const DClass* InClass) const -> bool;
 	};
 
 	class FField
@@ -155,9 +155,9 @@ namespace Doge
 	public:
 		DOGE_NONCOPYABLE(FField)
 
-		static CORE_API auto StaticClass() -> FFieldClass*;
+		static COREDOBJECT_API auto StaticClass() -> FFieldClass*;
 
-		static CORE_API FField* Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags = EObjectFlags::NoFlags);
+		static COREDOBJECT_API FField* Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags = EObjectFlags::NoFlags);
 
 		inline static constexpr auto StaticClassCastFlagsPrivate() -> uint64
 		{
@@ -179,13 +179,13 @@ namespace Doge
 
 		EObjectFlags FlagsPrivate;
 
-		CORE_API FField(FFieldVariant InOwner, FName InName, EObjectFlags InFlags);
+		COREDOBJECT_API FField(FFieldVariant InOwner, FName InName, EObjectFlags InFlags);
 
 	public:
 
-		CORE_API auto SetMetaData(const FName& InKey, const FString& InValue) -> void;
+		COREDOBJECT_API auto SetMetaData(const FName& InKey, const FString& InValue) -> void;
 
-		CORE_API auto GetMetaData(const FName& InKey) const -> const FString&;
+		COREDOBJECT_API auto GetMetaData(const FName& InKey) const -> const FString&;
 
 	private:
 

@@ -123,6 +123,10 @@ function(doge_add_module module_name)
 		${module_private_dependencies}
 	)
 
+	target_link_libraries(${module_name} PUBLIC
+		${module_public_dependencies}
+	)
+
 	# Set up precompiled headers for the module
 	target_precompile_headers(${module_name} PRIVATE
 		"$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>"

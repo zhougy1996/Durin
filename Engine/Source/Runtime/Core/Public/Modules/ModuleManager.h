@@ -65,8 +65,16 @@ namespace Doge
 
 		auto UnloadModule(const FName& InModuleName) -> void;
 
+		auto StartProcessingNewlyLoadedObjects() -> void;
+
+		auto SetProcessLoadedObjectsCallback(std::function<void()> Callback) -> void;
+
 	private:
 		FModuleMap Modules;
+
+		bool bCanProcessNewlyLoadedObjects = false;
+
+		std::function<void()> ProcessLoadedObjectsCallback;
 	};
 
 	/**

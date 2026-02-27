@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DObject/ObjectMacros.h"
-#include "DObject/DObjectGlobals.h"
+#include "DObjectGlobals.h"
 
 namespace Doge
 {
@@ -28,7 +28,7 @@ namespace Doge
 		FClassRegistrationInfo* Info;
 	};
 
-	CORE_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
+	COREDOBJECT_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
 
 	class DObject
 	{
@@ -36,14 +36,14 @@ namespace Doge
 		DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(DObject)
 
 	public:
-		CORE_API DObject();
+		COREDOBJECT_API DObject();
 
-		CORE_API DObject(const FObjectInitializer& ObjectInitializer);
+		COREDOBJECT_API DObject(const FObjectInitializer& ObjectInitializer);
 
-		CORE_API DObject(DClass* InClass, DObject* InOuter, FName InName);
+		COREDOBJECT_API DObject(DClass* InClass, DObject* InOuter, FName InName);
 
 		// Internal use only for statically-created objects, should not be called directly
-		CORE_API DObject(EStaticConstructor, EObjectFlags InFlags);
+		COREDOBJECT_API DObject(EStaticConstructor, EObjectFlags InFlags);
 
 		virtual ~DObject() = default;
 
@@ -61,14 +61,14 @@ namespace Doge
 		 * This is called to register the class with the object system
 		 * Add the objec
 		 */
-		CORE_API auto Register(FClassRegisterFunc InStaticClassFn, const CharT* InPackageName, const CharT* InName) -> void;
+		COREDOBJECT_API auto Register(FClassRegisterFunc InStaticClassFn, const CharT* InPackageName, const CharT* InName) -> void;
 
 		/**
 		 * Convert a bootstrap registered class into a fully registered class, adding it to the object array
 		 *
 		 * InDClassStaticClass is actually DClass::StaticClass()
 		 */
-		CORE_API auto DeferredRegister(DClass* InDClassStaticClass, const CharT* InPackageName, const CharT* InName) -> void;
+		COREDOBJECT_API auto DeferredRegister(DClass* InDClassStaticClass, const CharT* InPackageName, const CharT* InName) -> void;
 
 
 	private:
@@ -78,7 +78,7 @@ namespace Doge
 		 * Add a newly created object to the object array
 		 * The name of the object is set here
 		 */
-		CORE_API auto AddObject(FName InName) -> void;
+		COREDOBJECT_API auto AddObject(FName InName) -> void;
 
 		FName NamePrivate;
 
@@ -88,9 +88,9 @@ namespace Doge
 
 		DClass* ClassPrivate = nullptr;
 
-		friend CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
+		friend COREDOBJECT_API auto DObjectForceRegistration(DObject* Object) -> void;
 
-		friend CORE_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
+		friend COREDOBJECT_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
 	};
 
 	/**
@@ -102,13 +102,13 @@ namespace Doge
 	/**
 	 *  Force a pending registrant to register now instead of in the natural order
 	 */
-	CORE_API auto DObjectForceRegistration(DObject* Object) -> void;
+	COREDOBJECT_API auto DObjectForceRegistration(DObject* Object) -> void;
 
-	CORE_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const U8Char* InName, FClassRegistrationInfo& InInfo) -> void;
+	COREDOBJECT_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const U8Char* InName, FClassRegistrationInfo& InInfo) -> void;
 
-	CORE_API auto RegisterCompiledInInfo(const FClassRegisterCompiledInInfo* ClassInfo, size_t NumClassInfo) -> void;
+	COREDOBJECT_API auto RegisterCompiledInInfo(const FClassRegisterCompiledInInfo* ClassInfo, size_t NumClassInfo) -> void;
 
-	CORE_API auto ProcessNewlyLoadedDObjects() -> void;
+	COREDOBJECT_API auto ProcessNewlyLoadedDObjects() -> void;
 
 	struct FRegisterCompiledInInfo
 	{
