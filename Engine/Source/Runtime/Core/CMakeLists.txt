@@ -6,6 +6,7 @@ target_sources(Core PRIVATE
 
 target_include_directories(Core PRIVATE
     ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/spdlog/include
+    ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/xxhash
 )
 
 target_include_directories(Core PUBLIC

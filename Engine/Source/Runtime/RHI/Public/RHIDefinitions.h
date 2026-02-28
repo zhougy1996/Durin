@@ -4,6 +4,25 @@
 
 namespace Doge
 {
+	enum class ERHIInterface
+	{
+		OpenGL,
+		Vulkan,
+		D3D11,
+		D3D12,
+		Metal
+	};
+
+	enum class EShaderType
+	{
+		Vertex,
+		Pixel,
+		Compute,
+		RayGen,
+		RayHitGroup,
+		RayMiss,
+	};
+
 	enum class EGpuVendorId
 	{
 		Unknown = -1,
