@@ -7,6 +7,7 @@
 #include "RHI.h"
 #include "Mona.h"
 #include "DogeEdGlobals.h"
+#include "Engine/Engine.h"
 
 #include "RHICommandList.h"
 #include "RHIResources.h"
@@ -36,7 +37,9 @@ namespace Doge
 		Mona::MonaInit();
 		EditorInit();
 
-		DOGE_DEBUG(STR("DogeEd initialized"));
+		// Create engine instance, this is just for testing, we should have a more robust engine initialization process
+		GEngine = new DEngine();
+		GEngine->Init();
 	}
 
 	static auto CreateTestPipeline()
@@ -98,23 +101,30 @@ namespace Doge
 
 	auto FEngineLoop::Tick() -> void
 	{
-		Mona::FMonaApplication::Get().Tick();
-
-		if (GIsRequestingExit)
-		{
-			return;
-		}
+		// Game logic.
+		GEngine->Tick(0.0f, false);
 
 		if (!GTestPipeline)
 		{
 			CreateTestPipeline();
 		}
 
+		// Render Scene.
+		// TODO
 		DrawTriangle();
+
+		Mona::FMonaApplication::Get().Tick();
+
+		if (GIsRequestingExit)
+		{
+			return;
+		}
 	}
 
 	auto FEngineLoop::Exit() -> void
 	{
+		// TODO: this is just for testing, we should have a more robust shutdown process
+		delete GEngine;
 		Mona::FMonaApplication::Get().Shutdown();
 	}
 }

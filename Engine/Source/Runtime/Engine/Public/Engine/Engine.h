@@ -4,6 +4,7 @@ namespace Doge
 {
 	class ENGINE_API DEngine
 	{
+	public:
 		virtual auto Init() -> void;
 
 		virtual auto Start() -> void;
@@ -12,4 +13,6 @@ namespace Doge
 
 		virtual auto RedrawViewports() -> void {};
 	};
+
+	extern ENGINE_API DEngine* GEngine;
 }

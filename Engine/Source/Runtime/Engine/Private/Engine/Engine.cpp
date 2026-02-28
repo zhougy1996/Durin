@@ -13,4 +13,6 @@ namespace Doge
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 	}
+
+	DEngine* GEngine = nullptr;
 }
