@@ -3,9 +3,60 @@
 #include "RHIConstants.h"
 #include "RHIDefinitions.h"
 
+#include "Hash/XxHash.h"
+
 namespace Doge
 {
 	class FRHICommandListImmediate;
+
+	enum class ERHIResourceType : uint8
+	{
+		VertexShader,
+		PixelShader,
+		ComputeShader,
+	};
+
+	class FRHIResource
+	{
+	public:
+		FRHIResource() = delete;
+		RHI_API FRHIResource(ERHIResourceType InResourceType);
+		RHI_API virtual ~FRHIResource();
+
+		FORCEINLINE auto GetResourceType() const -> ERHIResourceType { return ResourceType; }
+
+	private:
+		ERHIResourceType ResourceType;
+	};
+
+	class FRHIShader : public FRHIResource
+	{
+	public:
+		FRHIShader() = delete;
+		RHI_API FRHIShader(ERHIResourceType InResourceType, EShaderFrequency InFrequency);
+
+		FORCEINLINE auto GetFrequency() const -> EShaderFrequency { return Frequency; }
+
+		auto SetHash(const FXxHash64& InHash) -> void { Hash = InHash; }
+
+		auto GetHash() const -> FXxHash64 { return Hash; }
+
+	protected:
+		FXxHash64 Hash;
+		EShaderFrequency Frequency;
+	};
+
+	class FRHIVertexShader : public FRHIShader
+	{
+	public:
+		FRHIVertexShader(): FRHIShader(ERHIResourceType::VertexShader, EShaderFrequency::Vertex) {}
+	};
+
+	class FRHIPixelShader : public FRHIShader
+	{
+	public:
+		FRHIPixelShader(): FRHIShader(ERHIResourceType::PixelShader, EShaderFrequency::Pixel) {}
+	};
 
 	class RHI_API FRHITexture
 	{
@@ -20,6 +71,7 @@ namespace Doge
 	class RHI_API FRHIViewport
 	{
 	public:
+		virtual ~FRHIViewport() = default;
 		virtual auto Tick(float DeltaTime) -> void {};
 		virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TSharedPtr<FRHITexture> = 0;
 		virtual auto WaitForLastFrameCompletion() -> void = 0;
@@ -80,23 +132,23 @@ namespace Doge
 	class FRHIBuffer
 	{
 	public:
-		FRHIBuffer(FRHIBufferDesc const& InDesc)
-			: Desc_(InDesc)
+		explicit FRHIBuffer(const FRHIBufferDesc& InDesc)
+			: Desc(InDesc)
 		{
 		}
 
-		FRHIBufferDesc const& GetDesc() const { return Desc_; }
+		auto GetDesc() const -> FRHIBufferDesc const& { return Desc; }
 
 		/** @return The number of bytes in the buffer. */
-		uint32 GetSize() const { return Desc_.Size; }
+		auto GetSize() const -> uint32 { return Desc.Size; }
 
 		/** @return The stride in bytes of the buffer. */
-		uint32 GetStride() const { return Desc_.Stride; }
+		auto GetStride() const -> uint32 { return Desc.Stride; }
 
 		/** @return The usage flags used to create the buffer. */
-		EBufferUsageFlags GetUsage() const { return Desc_.Usage; }
+		auto GetUsage() const -> EBufferUsageFlags { return Desc.Usage; }
 
 	private:
-		FRHIBufferDesc Desc_;
+		FRHIBufferDesc Desc;
 	};
 }

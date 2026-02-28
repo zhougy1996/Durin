@@ -13,7 +13,7 @@ namespace Doge
 		Metal
 	};
 
-	enum class EShaderType
+	enum class EShaderFrequency
 	{
 		Vertex,
 		Pixel,
