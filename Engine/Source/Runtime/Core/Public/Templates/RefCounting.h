@@ -1,0 +1,133 @@
+#pragma once
+#include "HAL/Platform.h"
+
+namespace Doge
+{
+	template<typename ReferencedType>
+	class TRefCountPtr
+	{
+	public:
+		FORCEINLINE TRefCountPtr() = default;
+
+		explicit TRefCountPtr(ReferencedType* InReference, bool bAddRef = true)
+			: Reference(InReference)
+		{
+			if (Reference && bAddRef)
+			{
+				Reference->AddRef();
+			}
+		}
+
+		TRefCountPtr(const TRefCountPtr& Copy)
+		{
+			Reference = Copy.Reference;
+			if (Reference)
+			{
+				Reference->AddRef();
+			}
+		}
+
+		template<typename CopyReferencedType>
+		explicit TRefCountPtr(const TRefCountPtr<CopyReferencedType>& Copy)
+		{
+			Reference = static_cast<ReferencedType*>(Copy.Reference);
+			if (Reference)
+			{
+				Reference->AddRef();
+			}
+		}
+
+		TRefCountPtr(TRefCountPtr&& Move) noexcept
+		{
+			Reference = Move.Reference;
+			Move.Reference = nullptr;
+		}
+
+		template<typename MoveReferencedType>
+		explicit TRefCountPtr(TRefCountPtr<MoveReferencedType>&& Move) noexcept
+		{
+			Reference = static_cast<ReferencedType*>(Move.Reference);
+			Move.Reference = nullptr;
+		}
+
+		FORCEINLINE ~TRefCountPtr()
+		{
+			if (Reference)
+			{
+				Reference->Release();
+			}
+		}
+
+		auto operator=(ReferencedType* InReference) -> TRefCountPtr&
+		{
+			if (Reference != InReference)
+			{
+				// Call AddRef() before Release(), in case InReference is the same object as Reference but with a different pointer value (e.g. due to multiple inheritance).
+				// It also handles the case when the release of old reference causes the release of the new reference.
+				ReferencedType* OldReference = Reference;
+				Reference = InReference;
+				if (Reference)
+				{
+					Reference->AddRef();
+				}
+				if (OldReference)
+				{
+					OldReference->Release();
+				}
+			}
+			return *this;
+		}
+
+		FORCEINLINE auto operator=(const TRefCountPtr& Copy) -> TRefCountPtr&
+		{
+			if (this != &Copy)
+			{
+				*this = Copy.Reference;
+			}
+			return *this;
+		}
+
+		template<typename CopyReferencedType>
+		FORCEINLINE auto operator=(const TRefCountPtr<CopyReferencedType>& Copy) -> TRefCountPtr&
+		{
+			*this = Copy.Reference;
+			return *this;
+		}
+
+		auto operator=(TRefCountPtr&& InMovePtr) noexcept -> TRefCountPtr&
+		{
+			if (this != &InMovePtr)
+			{
+				ReferencedType* OldReference = Reference;
+				Reference = InMovePtr.Reference;
+				InMovePtr.Reference = nullptr;
+				if (OldReference)
+				{
+					OldReference->Release();
+				}
+			}
+			return *this;
+		}
+
+		template<typename MoveReferencedType>
+		auto operator=(TRefCountPtr<MoveReferencedType>&& InMovePtr) noexcept -> TRefCountPtr&
+		{
+			// InMovePtr is a different object, so we don't need to check if this != &InMovePtr. We can directly move the reference and release the old one.
+			ReferencedType* OldReference = Reference;
+			Reference = InMovePtr.Reference;
+			InMovePtr.Reference = nullptr;
+			if (OldReference)
+			{
+				OldReference->Release();
+			}
+			return *this;
+		}
+
+		FORCEINLINE auto operator->() const -> ReferencedType* { return Reference; }
+
+		FORCEINLINE auto GetReference() const -> ReferencedType* { return Reference; }
+
+	private:
+		ReferencedType* Reference = nullptr;
+	};
+} // namespace Doge

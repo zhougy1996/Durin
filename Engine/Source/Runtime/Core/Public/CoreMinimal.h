@@ -1,6 +1,5 @@
 #pragma once
 
-// Forward declarations
 #include "CoreFwd.h"
 
 #include "HAL/Platform.h"
@@ -14,5 +13,6 @@
 #include "Modules/ModuleManager.h"
 
 #include "Templates/SmartPointers.h"
+#include "Templates/RefCounting.h"
 #include "Math/DogeMath.h"
 #include "Json/Json.h"
