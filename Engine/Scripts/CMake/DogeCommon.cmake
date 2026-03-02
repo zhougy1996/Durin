@@ -1,3 +1,5 @@
+include_guard(GLOBAL)
+
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 add_definitions(-DUNICODE -D_UNICODE)
 

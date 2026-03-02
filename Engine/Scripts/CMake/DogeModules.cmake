@@ -1,4 +1,5 @@
-# DHT (Doge Header Tool) Integration
+include_guard(GLOBAL)
+include(${CMAKE_CURRENT_LIST_DIR}/DogeTimer.cmake)
 
 set(DHT_DIR ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
 set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/main.py")
@@ -60,12 +61,15 @@ function(doge_collect_and_organize_source_files OUT_SRCS)
 endfunction()
 
 function(doge_add_module module_name)
+	message("--- Module: ${module_name}")
+
+	doge_start(${module_name})
 	# Generate module CMake file using DHT and include it to get module-specific variables
+	doge_start("${module_name}_GenerateModuleCMakeFile")
 	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
 	execute_process(COMMAND ${DHT_MAIN} generate_module_cmake_file -m ${module_name} -a ${DOGE_ARCH})
 	include(${module_cmake_file})
-
-	message("--- Module: ${module_name}")
+	doge_end() # GenerateModuleCMakeFile
 
 	# Make CMake re-configure if the module definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_config_file})
@@ -143,4 +147,6 @@ function(doge_add_module module_name)
 	doge_set_module_output(${module_name})
 	# Organize the module in the IDE's folder structure
 	set_target_properties(${module_name} PROPERTIES FOLDER "${project_name}/${module_dir}")
+
+	doge_end() # ${module_name}
 endfunction()
