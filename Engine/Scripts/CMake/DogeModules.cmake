@@ -111,6 +111,12 @@ function(doge_add_module module_name)
 		string(TOUPPER "${module_name}" uppercase_module_name)
 	endif()
 
+	if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+		target_compile_definitions(${module_name} PRIVATE DOGE_BUILD_DEBUG=1)
+	elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+		target_compile_definitions(${module_name} PRIVATE DOGE_BUILD_DEBUG=1)
+	endif()
+
 	target_include_directories(${module_name} PRIVATE
 		${project_intermediate_build_dir}
 		${CMAKE_CURRENT_SOURCE_DIR}/Private

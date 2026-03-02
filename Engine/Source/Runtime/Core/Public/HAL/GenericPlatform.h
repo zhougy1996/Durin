@@ -4,6 +4,8 @@
 #include <string>
 #include <string_view>
 
+#include "Misc/Build.h"
+
 namespace Doge
 {
 	using uint8 = std::uint8_t;

@@ -2,11 +2,6 @@
 
 #include "HAL/Platform.h"
 
-// clang-format off
-#ifdef _DEBUG
-	#define DO_CHECK
-#endif
-
 #ifdef DO_CHECK
 	#ifndef check
 		#define check(expr) \
@@ -15,5 +10,3 @@
 #else
 	#define check(expr)
 #endif // DO_CHECK
-
-// clang-format on
