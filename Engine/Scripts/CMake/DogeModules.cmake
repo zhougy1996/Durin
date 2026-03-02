@@ -7,11 +7,12 @@ set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/main.py")
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
 	message("-- Project: ${project_name}")
+	doge_start("Project_${project_name}")
 	project(Engine)
 	set(DOGE_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DOGE_ARCH}/Editor")
 
 	set(project_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${project_name}.project.cmake")
-	execute_process(COMMAND ${DHT_MAIN} generate_project_cmake_file -p ${project_name} -a ${DOGE_ARCH})
+	execute_process(COMMAND ${DHT_MAIN} prepare_project_build -p ${project_name} -a ${DOGE_ARCH})
 	include(${project_cmake_file})
 
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${project_config_file}) # Make CMake re-configure if the project definition file changes
@@ -20,6 +21,7 @@ function(doge_add_project project_name)
 	foreach(_dir IN LISTS project_module_dirs)
 		add_subdirectory(${_dir})
 	endforeach()
+	doge_end()
 endfunction()
 
 # Module Setup Functions
@@ -62,14 +64,10 @@ endfunction()
 
 function(doge_add_module module_name)
 	message("--- Module: ${module_name}")
+	doge_start("Module_${module_name}")
 
-	doge_start(${module_name})
-	# Generate module CMake file using DHT and include it to get module-specific variables
-	doge_start("${module_name}_GenerateModuleCMakeFile")
 	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
-	execute_process(COMMAND ${DHT_MAIN} generate_module_cmake_file -m ${module_name} -a ${DOGE_ARCH})
 	include(${module_cmake_file})
-	doge_end() # GenerateModuleCMakeFile
 
 	# Make CMake re-configure if the module definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_config_file})

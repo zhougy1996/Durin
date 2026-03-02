@@ -59,31 +59,24 @@ class EmptyCommand(Command):
     def execute(self, args):
         pass
 
-class GenerateProjectCMakeFileCommand(Command):
+class PrepareProjectBuildCommand(Command):
     def __init__(self):
-        super().__init__("generate_project_cmake_file", "Generate the CMake data file for the entire project.")
+        super().__init__("prepare_project_build", "Prepare the build environment for the entire project.")
 
     def add_arguments(self, parser: argparse.ArgumentParser):
-        parser.add_argument("-p","--project", help="The name of the project to generate CMake data for.", required=True)
+        parser.add_argument("-p","--project", help="The name of the project to prepare the build environment and generate necessary files for.", required=True)
         add_common_arguments(parser)
 
     def execute(self, args):
+        import configs
         from generators.project_cmake_file_generator import generate_project_cmake_file
-        generate_project_cmake_file(args.project)
-
-class GenerateModuleCMakeFileCommand(Command):
-    def __init__(self):
-        super().__init__("generate_module_cmake_file", "Generate the CMake data file for a module.")
-
-    def add_arguments(self, parser: argparse.ArgumentParser):
-        parser.add_argument("-m","--module", help="The name of the module to generate CMake data for.", required=True)
-        add_common_arguments(parser)
-
-    def execute(self, args):
         from generators.module_cmake_file_generator import generate_module_cmake_file
         from generators.module_definitions_header_generator import generate_module_definitions_header
-        generate_module_definitions_header(args.module)
-        generate_module_cmake_file(args.module)
+        project_config = configs.get_project_config(args.project)
+        generate_project_cmake_file(args.project)
+        for module_name in project_config.modules.keys():
+            generate_module_cmake_file(module_name)
+            generate_module_definitions_header(module_name)
 
 class GenerateModuleExportFileCommand(Command):
     def __init__(self):
