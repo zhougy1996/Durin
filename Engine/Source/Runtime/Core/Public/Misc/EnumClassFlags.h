@@ -23,7 +23,7 @@
 	friend constexpr Enum operator&(Enum Lhs, Enum Rhs); \
 	friend constexpr Enum operator^(Enum Lhs, Enum Rhs); \
 	friend constexpr bool operator!(Enum E); \
-	friend constexpr Enum operator~(Enum E);\
+	friend constexpr Enum operator~(Enum E);
 
 namespace Doge
 {
@@ -40,4 +40,18 @@ namespace Doge
 		using UnderlyingType = __underlying_type(Enum);
 		return ((UnderlyingType)Flags & (UnderlyingType)Contains) != 0;
 	}
-}
+
+	template<typename Enum>
+	void EnumAddFlags(Enum& Flags, Enum FlagsToAdd)
+	{
+		using UnderlyingType = __underlying_type(Enum);
+		Flags = (Enum)((UnderlyingType)Flags | (UnderlyingType)FlagsToAdd);
+	}
+
+	template<typename Enum>
+	void EnumRemoveFlags(Enum& Flags, Enum FlagsToRemove)
+	{
+		using UnderlyingType = __underlying_type(Enum);
+		Flags = (Enum)((UnderlyingType)Flags & ~(UnderlyingType)FlagsToRemove);
+	}
+} // namespace Doge
