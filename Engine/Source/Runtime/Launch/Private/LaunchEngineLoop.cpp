@@ -72,7 +72,7 @@ namespace Doge
 		// Acquire image
 		TSharedPtr<FRHITexture> BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
 
-		Window->Render();
+		Window->Paint();
 
 		// Render pass
 		FRHIRenderPassInfo PassInfo{};

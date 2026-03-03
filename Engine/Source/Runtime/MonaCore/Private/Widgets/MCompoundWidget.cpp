@@ -2,8 +2,8 @@
 
 namespace Doge::Mona
 {
-	void MCompoundWidget::OnRender()
+	void MCompoundWidget::OnPaint()
 	{
-		ChildWidget->Render();
+		ChildWidget->Paint();
 	}
 } // namespace Doge::Mona

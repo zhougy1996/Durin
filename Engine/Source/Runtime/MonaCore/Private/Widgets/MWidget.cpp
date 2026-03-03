@@ -7,9 +7,9 @@ namespace Doge::Mona
 	{
 	}
 
-	auto MWidget::Render() -> void
+	auto MWidget::Paint() -> void
 	{
-		OnRender();
+		OnPaint();
 	}
 
 	auto MWidget::AsWidget() -> TSharedPtr<MWidget>

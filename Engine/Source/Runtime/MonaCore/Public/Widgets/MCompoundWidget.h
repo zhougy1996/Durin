@@ -11,7 +11,7 @@ namespace Doge::Mona
 
 		auto GetChild() const -> TSharedPtr<MWidget> { return ChildWidget; }
 	protected:
-		auto OnRender() -> void override;
+		auto OnPaint() -> void override;
 
 		TSharedPtr<MWidget> ChildWidget;
 	};
