@@ -109,16 +109,21 @@ namespace Doge
 			CreateTestPipeline();
 		}
 
-		// Render Scene.
-		// TODO
-		DrawTriangle();
-
+		// Process application events, and paint UI.
 		Mona::FMonaApplication::Get().Tick();
-
 		if (GIsRequestingExit)
 		{
 			return;
 		}
+
+		// Render Scene.
+		// TODO
+		DrawTriangle();
+
+		// Render UI.
+		// TODO
+
+		// Execute RHI commands, this is just for testing, we should have a RHI thread and a more robust rendering process
 	}
 
 	auto FEngineLoop::Exit() -> void
