@@ -20,10 +20,10 @@ namespace Doge
 		virtual auto Init() -> void = 0;
 		virtual auto Shutdown() -> void = 0;
 
-		virtual auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> = 0;
+		virtual auto RHICreateViewport(void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen, EPixelFormat InPreferredPixelFormat) const -> TSharedPtr<FRHIViewport> = 0;
 		virtual auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FRHIGraphicsPipelineState> = 0;
 		virtual auto RHIGetDefaultContext() -> IRHICommandContext* = 0;
-		virtual auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture> = 0;
+		virtual auto RHIGetViewportBackBuffer(FRHIViewport* InViewportRHI) -> TSharedPtr<FRHITexture> = 0;
 	};
 
 	extern RHI_API IDynamicRHI* GDynamicRHI;
@@ -35,9 +35,9 @@ namespace Doge
 	};
 
 	template<typename TRHI>
-	FORCEINLINE auto CastDynamicRHI(IDynamicRHI* DynamicRHI) -> TRHI*
+	FORCEINLINE auto CastDynamicRHI(IDynamicRHI* InDynamicRHI) -> TRHI*
 	{
-		return static_cast<TRHI*>(DynamicRHI);
+		return static_cast<TRHI*>(InDynamicRHI);
 	}
 
 	template<typename TRHI>

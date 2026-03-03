@@ -12,8 +12,8 @@
 
 namespace Doge::VulkanRHI
 {
-	FVulkanCommandListContext::FVulkanCommandListContext(FVulkanDynamicRHI* RHI, FVulkanDevice& Device, FVulkanQueue* Queue)
-		: RHI_(RHI)
+	FVulkanCommandListContext::FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, FVulkanDevice& Device, FVulkanQueue* Queue)
+		: RHI_(InRHI)
 		, Device_(Device)
 		, Queue_(Queue)
 	{
@@ -41,7 +41,7 @@ namespace Doge::VulkanRHI
 		FVulkanTexture* VulkanRT = static_cast<FVulkanTexture*>(RenderPassInfo.ColorRenderTargets[0]);
 
 		FVulkanRenderPassManager& RenderPassManager = Device_.GetRenderPassManager();
-		FVulkanRenderPass* RenderPass = Device_.GetRenderPassManager().GetOrCreateRenderPass(Name, VulkanRT->Format_);
+		FVulkanRenderPass* RenderPass = Device_.GetRenderPassManager().GetOrCreateRenderPass(Name, VulkanRT->Format);
 
 		FRHIRenderTargetsInfo RTInfo;
 		RTInfo.NumColorRenderTargets = 1;
@@ -110,7 +110,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIGetCommandContext(ERHIPipeline Pipeline) -> IRHICommandContext*
 	{
-		if (Pipeline != ERHIPipeline::eGraphics)
+		if (Pipeline != ERHIPipeline::Graphics)
 		{
 			return nullptr;
 		}

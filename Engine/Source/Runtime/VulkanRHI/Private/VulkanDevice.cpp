@@ -9,10 +9,10 @@
 
 namespace Doge::VulkanRHI
 {
-	FVulkanDevice::FVulkanDevice(FVulkanDynamicRHI* RHI, vk::PhysicalDevice Gpu)
-		: RHI_(RHI)
-		, Gpu_(Gpu)
-		, FenceManager_({*this})
+	FVulkanDevice::FVulkanDevice(FVulkanDynamicRHI* InRHI, vk::PhysicalDevice Gpu)
+		: RHI(InRHI)
+		, Gpu(Gpu)
+		, FenceManager({*this})
 	{
 	}
 
@@ -23,35 +23,35 @@ namespace Doge::VulkanRHI
 
 	void FVulkanDevice::InitGpu()
 	{
-		GpuProps_ = Gpu_.getProperties();
+		GpuProps = Gpu.getProperties();
 		DOGE_DEBUG("Vulkan Device Information:");
-		DOGE_DEBUG("- Device Name: {}", GpuProps_.deviceName.data());
-		DOGE_DEBUG("- Device Type: {}", vk::to_string(GpuProps_.deviceType));
-		DOGE_DEBUG("- API Version: {}.{}.{} (0x{:x})", vk::apiVersionMajor(GpuProps_.apiVersion), vk::apiVersionMinor(GpuProps_.apiVersion), vk::apiVersionPatch(GpuProps_.apiVersion), GpuProps_.apiVersion);
-		DOGE_DEBUG("- Vendor ID: 0x{:x}", GpuProps_.vendorID);
-		DOGE_DEBUG("- Driver Version: 0x{:x}", GpuProps_.driverVersion);
+		DOGE_DEBUG("- Device Name: {}", GpuProps.deviceName.data());
+		DOGE_DEBUG("- Device Type: {}", vk::to_string(GpuProps.deviceType));
+		DOGE_DEBUG("- API Version: {}.{}.{} (0x{:x})", vk::apiVersionMajor(GpuProps.apiVersion), vk::apiVersionMinor(GpuProps.apiVersion), vk::apiVersionPatch(GpuProps.apiVersion), GpuProps.apiVersion);
+		DOGE_DEBUG("- Vendor ID: 0x{:x}", GpuProps.vendorID);
+		DOGE_DEBUG("- Driver Version: 0x{:x}", GpuProps.driverVersion);
 
-		QueueFamilyProps_ = Gpu_.getQueueFamilyProperties();
+		QueueFamilyProps = Gpu.getQueueFamilyProperties();
 
-		FVulkanDeviceExtensionArray DeviceExtensions = FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(this);
+		FVulkanDeviceExtensionArray SupportedDeviceExtensions = FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(this);
 
-		CreateDevice(DeviceExtensions);
+		CreateDevice(SupportedDeviceExtensions);
 
-		ImmediateContext_ = new FVulkanCommandListContext(RHI_, *this, GraphicsQueue_);
+		ImmediateContext = new FVulkanCommandListContext(RHI, *this, GraphicsQueue);
 
-		RenderPassManager_ = new FVulkanRenderPassManager(*this);
-		PipelineManager_ = new FVulkanPipelineManager(*this);
+		RenderPassManager = new FVulkanRenderPassManager(*this);
+		PipelineManager = new FVulkanPipelineManager(*this);
 	}
 
-	auto FVulkanDevice::CreateDevice(FVulkanDeviceExtensionArray& DeviceExtensions) -> void
+	auto FVulkanDevice::CreateDevice(const FVulkanDeviceExtensionArray& InDeviceExtensions) -> void
 	{
-		assert(Device_ == VK_NULL_HANDLE);
+		assert(Device == VK_NULL_HANDLE);
 
-		for (const TUniquePtr<FVulkanDeviceExtension>& Extension : DeviceExtensions)
+		for (const TUniquePtr<FVulkanDeviceExtension>& Extension : InDeviceExtensions)
 		{
 			if (Extension->InUse())
 			{
-				DeviceExtensions_.push_back(Extension->GetExtensionName());
+				DeviceExtensions.push_back(Extension->GetExtensionName());
 			}
 		}
 
@@ -62,9 +62,9 @@ namespace Doge::VulkanRHI
 		std::vector<vk::DeviceQueueCreateInfo> QueueCreateInfos;
 		std::vector<float> QueuePriorities = {1.0f};
 
-		for (int32 FamilyIndex = 0; FamilyIndex < QueueFamilyProps_.size(); ++FamilyIndex)
+		for (int32 FamilyIndex = 0; FamilyIndex < QueueFamilyProps.size(); ++FamilyIndex)
 		{
-			const vk::QueueFamilyProperties& QueueFamilyProp = QueueFamilyProps_[FamilyIndex];
+			const vk::QueueFamilyProperties& QueueFamilyProp = QueueFamilyProps[FamilyIndex];
 
 			bool bIsValidQueue = false;
 
@@ -117,12 +117,12 @@ namespace Doge::VulkanRHI
 		vk::DeviceCreateInfo DeviceInfo;
 		DeviceInfo.setQueueCreateInfos(QueueCreateInfos);
 		DeviceInfo.setPEnabledFeatures(&DeviceFeatures);
-		DeviceInfo.setEnabledExtensionCount(static_cast<uint32>(DeviceExtensions_.size()));
-		DeviceInfo.setPpEnabledExtensionNames(DeviceExtensions_.data());
+		DeviceInfo.setEnabledExtensionCount(static_cast<uint32>(DeviceExtensions.size()));
+		DeviceInfo.setPpEnabledExtensionNames(DeviceExtensions.data());
 
 		try
 		{
-			Device_ = Gpu_.createDevice(DeviceInfo);
+			Device = Gpu.createDevice(DeviceInfo);
 			DOGE_INFO("Vulkan device created");
 		}
 		catch (const std::runtime_error& err)
@@ -132,29 +132,29 @@ namespace Doge::VulkanRHI
 
 		DOGE_DEBUG("Queue Indexes:");
 		DOGE_DEBUG("Graphics Queue Index: {}", GraphicsQueueIndex);
-		GraphicsQueue_ = new FVulkanQueue(this, GraphicsQueueIndex);
+		GraphicsQueue = new FVulkanQueue(this, GraphicsQueueIndex);
 
 		if (ComputeQueueIndex == -1)
 		{
 			ComputeQueueIndex = GraphicsQueueIndex;
 		}
 		DOGE_DEBUG("Compute Queue Index: {}", ComputeQueueIndex);
-		ComputeQueue_ = new FVulkanQueue(this, ComputeQueueIndex);
+		ComputeQueue = new FVulkanQueue(this, ComputeQueueIndex);
 
 		if (TransferQueueIndex == -1)
 		{
 			TransferQueueIndex = ComputeQueueIndex;
 		}
 		DOGE_DEBUG("Transfer Queue Index: {}", TransferQueueIndex);
-		TransferQueue_ = new FVulkanQueue(this, TransferQueueIndex);
+		TransferQueue = new FVulkanQueue(this, TransferQueueIndex);
 	}
 
-	auto FVulkanDevice::SetupPresentQueue(vk::SurfaceKHR Surface) -> void
+	auto FVulkanDevice::SetupPresentQueue(vk::SurfaceKHR InSurface) -> void
 	{
 		uint32 QueueFamilyIndex = UINT32_MAX;
-		for (uint32 FamilyIndex = 0; FamilyIndex < QueueFamilyProps_.size(); ++FamilyIndex)
+		for (uint32 FamilyIndex = 0; FamilyIndex < QueueFamilyProps.size(); ++FamilyIndex)
 		{
-			if (Gpu_.getSurfaceSupportKHR(FamilyIndex, Surface))
+			if (Gpu.getSurfaceSupportKHR(FamilyIndex, InSurface))
 			{
 				QueueFamilyIndex = FamilyIndex;
 				break;
@@ -167,36 +167,36 @@ namespace Doge::VulkanRHI
 			return;
 		}
 
-		PresentQueue_ = new FVulkanQueue(this, QueueFamilyIndex);
+		PresentQueue = new FVulkanQueue(this, QueueFamilyIndex);
 	}
 
 	auto FVulkanDevice::WaitUtilIdle() -> void
 	{
-		Device_.waitIdle();
+		Device.waitIdle();
 	}
 
 	vk::Device FVulkanDevice::GetHandle() const
 	{
-		return Device_;
+		return Device;
 	}
 
 	vk::PhysicalDevice FVulkanDevice::GetGpu() const
 	{
-		return Gpu_;
+		return Gpu;
 	}
 
 	auto FVulkanDevice::GetRenderPassManager() -> FVulkanRenderPassManager&
 	{
-		return *RenderPassManager_;
+		return *RenderPassManager;
 	}
 
 	auto FVulkanDevice::AcquireDeferredContext() -> FVulkanCommandListContext*
 	{
-		if (CommandContexts_.empty())
+		if (CommandContexts.empty())
 		{
-			return new FVulkanCommandListContext(GVulkanRHI, *this, GraphicsQueue_);
+			return new FVulkanCommandListContext(GVulkanRHI, *this, GraphicsQueue);
 		}
-		FVulkanCommandListContext* Context = CommandContexts_.back();
+		FVulkanCommandListContext* Context = CommandContexts.back();
 		// CommandContexts_.pop_back();
 
 		return Context;
@@ -204,14 +204,14 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDevice::ReleaseDeferredContext(FVulkanCommandListContext* Context) -> void
 	{
-		CommandContexts_.push_back(Context);
+		CommandContexts.push_back(Context);
 	}
 
 	auto FVulkanDevice::Destroy() -> void
 	{
-		delete RenderPassManager_;
-		RenderPassManager_ = nullptr;
+		delete RenderPassManager;
+		RenderPassManager = nullptr;
 
-		Device_.destroy();
+		Device.destroy();
 	}
 }

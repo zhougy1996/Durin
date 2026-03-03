@@ -14,32 +14,32 @@ namespace Doge::VulkanRHI
 	class FVulkanGraphicsPipelineState : public FRHIGraphicsPipelineState
 	{
 	public:
-		FVulkanGraphicsPipelineState(FVulkanDevice& Device, const FGraphicsPipelineStateInitializer& Initializer);
+		FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer);
 
 		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 
 		auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
 
-		auto Bind(vk::CommandBuffer CmdBuffer) -> void;
+		auto Bind(vk::CommandBuffer InCmdBuffer) -> void;
 
-		auto PrepareForDraw(FVulkanCommandListContext& Context) -> void;
+		auto PrepareForDraw(FVulkanCommandListContext& InContext) -> void;
 
 	private:
-		const FVulkanRenderPass* RenderPass_ = nullptr;
+		const FVulkanRenderPass* RenderPass = nullptr;
 
 		auto SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void;
 
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 
-		vk::Viewport Viewport_;
+		vk::Viewport Viewport;
 
-		vk::Rect2D Scissor_;
+		vk::Rect2D Scissor;
 
-		bool bScissorEnabled_ = false;
+		bool bScissorEnabled = false;
 
-		FVulkanShader* Shaders_[NUM_SHADER_STAGES];
+		FVulkanShader* Shaders[NUM_SHADER_STAGES];
 
-		vk::Pipeline Pipeline_;
+		vk::Pipeline Pipeline;
 
 		friend class FVulkanGraphicsPipelineState;
 		friend class FVulkanPipelineManager;
@@ -48,11 +48,11 @@ namespace Doge::VulkanRHI
 	class FVulkanPipelineManager
 	{
 	public:
-		FVulkanPipelineManager(FVulkanDevice& Device);
+		FVulkanPipelineManager(FVulkanDevice& InDevice);
 
 		auto CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FVulkanGraphicsPipelineState>;
 
 	private:
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 	};
 }

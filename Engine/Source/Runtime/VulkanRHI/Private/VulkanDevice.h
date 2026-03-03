@@ -15,15 +15,15 @@ namespace Doge::VulkanRHI
 	class FVulkanDevice
 	{
 	public:
-		FVulkanDevice(FVulkanDynamicRHI* RHI, vk::PhysicalDevice Gpu);
+		FVulkanDevice(FVulkanDynamicRHI* InRHI, vk::PhysicalDevice InGpu);
 
 		~FVulkanDevice();
 
 		auto InitGpu() -> void;
 
-		auto CreateDevice(FVulkanDeviceExtensionArray& DeviceExtensions) -> void;
+		auto CreateDevice(const FVulkanDeviceExtensionArray& InDeviceExtensions) -> void;
 
-		auto SetupPresentQueue(vk::SurfaceKHR Surface) -> void;
+		auto SetupPresentQueue(vk::SurfaceKHR InSurface) -> void;
 
 		auto WaitUtilIdle() -> void;
 
@@ -35,51 +35,51 @@ namespace Doge::VulkanRHI
 
 		auto AcquireDeferredContext() -> FVulkanCommandListContext*;
 
-		auto GetImmediateContext() -> FVulkanCommandListContext* const { return ImmediateContext_; }
+		auto GetImmediateContext() const -> FVulkanCommandListContext* { return ImmediateContext; }
 
 		auto ReleaseDeferredContext(FVulkanCommandListContext* Context) -> void;
 
-		auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue_; }
+		auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue; }
 
-		auto GetGraphicsQueue() const -> FVulkanQueue* { return GraphicsQueue_; }
+		auto GetGraphicsQueue() const -> FVulkanQueue* { return GraphicsQueue; }
 
-		auto GetFenceManager() -> FVulkanFenceManager& { return FenceManager_; }
+		auto GetFenceManager() -> FVulkanFenceManager& { return FenceManager; }
 
-		auto GetPipelineManager() -> FVulkanPipelineManager& { return *PipelineManager_; }
+		auto GetPipelineManager() const -> FVulkanPipelineManager& { return *PipelineManager; }
 
 	private:
 		auto Destroy() -> void;
 
-		FVulkanDynamicRHI* RHI_;
+		FVulkanDynamicRHI* RHI;
 
-		vk::Device Device_;
+		vk::Device Device;
 
-		vk::PhysicalDevice Gpu_;
+		vk::PhysicalDevice Gpu;
 
-		vk::PhysicalDeviceProperties GpuProps_;
+		vk::PhysicalDeviceProperties GpuProps;
 
-		std::vector<vk::QueueFamilyProperties> QueueFamilyProps_;
+		std::vector<vk::QueueFamilyProperties> QueueFamilyProps;
 
-		FVulkanFenceManager FenceManager_;
+		FVulkanFenceManager FenceManager;
 
-		FVulkanRenderPassManager* RenderPassManager_;
+		FVulkanRenderPassManager* RenderPassManager;
 
-		FVulkanPipelineManager* PipelineManager_;
+		FVulkanPipelineManager* PipelineManager;
 
-		FVulkanQueue* GraphicsQueue_ = nullptr;
+		FVulkanQueue* GraphicsQueue = nullptr;
 
-		FVulkanQueue* ComputeQueue_ = nullptr;
+		FVulkanQueue* ComputeQueue = nullptr;
 
-		FVulkanQueue* TransferQueue_ = nullptr;
+		FVulkanQueue* TransferQueue = nullptr;
 
-		FVulkanQueue* PresentQueue_ = nullptr;
+		FVulkanQueue* PresentQueue = nullptr;
 
-		std::vector<const char*> DeviceExtensions_;
+		std::vector<const char*> DeviceExtensions;
 
-		std::vector<FVulkanCommandListContext*> CommandContexts_;
+		std::vector<FVulkanCommandListContext*> CommandContexts;
 
-		FVulkanCommandListContext* ImmediateContext_ = nullptr;
+		FVulkanCommandListContext* ImmediateContext = nullptr;
 
-		EGpuVendorId VendorId_ = EGpuVendorId::Unknown;
+		EGpuVendorId VendorId = EGpuVendorId::Unknown;
 	};
 }

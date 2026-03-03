@@ -4,11 +4,11 @@ namespace Doge
 {
 	enum class ERHIPipeline : uint8
 	{
-		eGraphics = 1 << 0,
-		eCompute = 1 << 1,
+		Graphics = 1 << 0,
+		Compute = 1 << 1,
 
-		eNone = 0,
-		eAll = eGraphics | eCompute,
+		None = 0,
+		All = Graphics | Compute,
 		Num = 2
 	};
 

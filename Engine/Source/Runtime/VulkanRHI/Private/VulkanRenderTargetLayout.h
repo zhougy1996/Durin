@@ -8,6 +8,6 @@ namespace Doge::VulkanRHI
 	class FVulkanRenderTargetsLayout
 	{
 	public:
-		FVulkanRenderTargetsLayout(FVulkanDevice& Device, const FRHIRenderTargetsInfo& RenderTargetsInfo);
+		FVulkanRenderTargetsLayout(FVulkanDevice& InDevice, const FRHIRenderTargetsInfo& InRenderTargetsInfo);
 	};
 }

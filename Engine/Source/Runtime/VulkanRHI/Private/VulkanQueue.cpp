@@ -6,17 +6,17 @@
 
 namespace Doge::VulkanRHI
 {
-	FVulkanQueue::FVulkanQueue(FVulkanDevice* Device, uint32 FamilyIndex)
-		: Device_(Device)
-		, FamilyIndex_(FamilyIndex)
-		, QueueIndex_(0)
+	FVulkanQueue::FVulkanQueue(FVulkanDevice* InDevice, uint32 InFamilyIndex)
+		: Device(InDevice)
+		, FamilyIndex(InFamilyIndex)
+		, QueueIndex(0)
 	{
-		Queue_ = Device_->GetHandle().getQueue(FamilyIndex_, QueueIndex_);
+		Queue = Device->GetHandle().getQueue(FamilyIndex, QueueIndex);
 	}
 
-	auto FVulkanQueue::Submit(FVulkanCommandBuffer& CmdBuffer, FVulkanSemaphore* SignalSemaphores, uint32 NumSignalSemaphores /* = 1*/) -> void
+	auto FVulkanQueue::Submit(FVulkanCommandBuffer& InCmdBuffer, FVulkanSemaphore* InSignalSemaphores, uint32 NumSignalSemaphores /* = 1*/) -> void
 	{
-		vk::CommandBuffer Buffer = CmdBuffer.GetHandle();
+		vk::CommandBuffer Buffer = InCmdBuffer.GetHandle();
 
 		vk::PipelineStageFlags waitStages[] = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
 
@@ -26,17 +26,17 @@ namespace Doge::VulkanRHI
 
 		// Set signal semaphores
 		std::vector<vk::Semaphore> SignalSemaphoresArray{NumSignalSemaphores};
-		if (NumSignalSemaphores > 0 && SignalSemaphores != nullptr)
+		if (NumSignalSemaphores > 0 && InSignalSemaphores != nullptr)
 		{
 			for (uint32 i = 0; i < NumSignalSemaphores; ++i)
 			{
-				SignalSemaphoresArray[i] = SignalSemaphores[i].GetHandle();
+				SignalSemaphoresArray[i] = InSignalSemaphores[i].GetHandle();
 			}
 			submitInfo.setSignalSemaphores(SignalSemaphoresArray);
 		}
 
 		// Set wait semaphores
-		std::vector<FVulkanSemaphore*>& WaitSemaphores = CmdBuffer.WaitSemaphores_;
+		std::vector<FVulkanSemaphore*>& WaitSemaphores = InCmdBuffer.WaitSemaphores;
 		std::vector<vk::Semaphore> WaitSemaphoresArray{WaitSemaphores.size()};
 		if (!WaitSemaphores.empty())
 		{
@@ -48,27 +48,27 @@ namespace Doge::VulkanRHI
 		}
 		WaitSemaphores.clear();
 
-		FVulkanFence* Fence = CmdBuffer.GetFence();
+		FVulkanFence* Fence = InCmdBuffer.GetFence();
 
 		// Submit the command buffer
-		Queue_.submit(submitInfo, Fence->GetHandle());
+		Queue.submit(submitInfo, Fence->GetHandle());
 
-		CmdBuffer.MarkSemaphoresAsSubmitted();
-		LastSubmittedCommandBuffer_ = &CmdBuffer;
+		InCmdBuffer.MarkSemaphoresAsSubmitted();
+		LastSubmittedCommandBuffer = &InCmdBuffer;
 	}
 
 	auto FVulkanQueue::GetHandle() const -> vk::Queue
 	{
-		return Queue_;
+		return Queue;
 	}
 
 	auto FVulkanQueue::GetFamilyIndex() const -> uint32
 	{
-		return FamilyIndex_;
+		return FamilyIndex;
 	}
 
 	auto FVulkanQueue::GetIndex() const -> uint32
 	{
-		return QueueIndex_;
+		return QueueIndex;
 	}
 }

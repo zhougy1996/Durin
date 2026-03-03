@@ -28,11 +28,11 @@ namespace Doge::VulkanRHI
 	};
 
 	template<typename ExtensionType>
-	static auto FindExtension(const std::vector<TUniquePtr<ExtensionType>>& Extensions, const char* ExtensionName) -> int32
+	static auto FindExtension(const std::vector<TUniquePtr<ExtensionType>>& InExtensions, const char* InExtensionName) -> int32
 	{
-		for (int32 Index = 0; Index < Extensions.size(); ++Index)
+		for (int32 Index = 0; Index < InExtensions.size(); ++Index)
 		{
-			if (strcmp(ExtensionName, Extensions[Index]->GetExtensionName()) == 0)
+			if (strcmp(InExtensionName, InExtensions[Index]->GetExtensionName()) == 0)
 			{
 				return Index;
 			}
@@ -85,7 +85,7 @@ namespace Doge::VulkanRHI
 		return OutDogeInstanceExtensions;
 	}
 
-	auto FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(FVulkanDevice* Device) -> FVulkanDeviceExtensionArray
+	auto FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(FVulkanDevice* InDevice) -> FVulkanDeviceExtensionArray
 	{
 		FVulkanDeviceExtensionArray OutDeviceExtensions;
 
@@ -94,7 +94,7 @@ namespace Doge::VulkanRHI
 			OutDeviceExtensions.push_back(std::make_unique<FVulkanDeviceExtension>(ExtensionName));
 		}
 
-		std::vector<vk::ExtensionProperties> DriverSupportedDeviceExtensions = GetDriverSupportedDeviceExtensions(Device->GetGpu());
+		std::vector<vk::ExtensionProperties> DriverSupportedDeviceExtensions = GetDriverSupportedDeviceExtensions(InDevice->GetGpu());
 		DOGE_DEBUG("Found {} available device extensions:", DriverSupportedDeviceExtensions.size());
 
 		for (const vk::ExtensionProperties& Extension : DriverSupportedDeviceExtensions)

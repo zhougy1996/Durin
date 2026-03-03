@@ -26,8 +26,8 @@ namespace Doge::VulkanRHI
 		return Buffer;
 	}
 
-	FVulkanShader::FVulkanShader(FVulkanDevice& Device, const std::string& Filename, vk::ShaderStageFlagBits Stage)
-		: Device_(Device)
+	FVulkanShader::FVulkanShader(FVulkanDevice& InDevice, const std::string& Filename, vk::ShaderStageFlagBits InStage)
+		: Device(InDevice)
 	{
 		std::vector<char> ShaderCode = ReadShaderFile(Filename);
 
@@ -37,7 +37,7 @@ namespace Doge::VulkanRHI
 
 		try
 		{
-			ShaderModule_ = Device_.GetHandle().createShaderModule(createInfo);
+			ShaderModule = Device.GetHandle().createShaderModule(createInfo);
 		}
 		catch (const std::runtime_error& err)
 		{
@@ -47,6 +47,6 @@ namespace Doge::VulkanRHI
 
 	FVulkanShader::~FVulkanShader()
 	{
-		Device_.GetHandle().destroyShaderModule(ShaderModule_);
+		Device.GetHandle().destroyShaderModule(ShaderModule);
 	}
 }

@@ -10,9 +10,9 @@
 namespace Doge::VulkanRHI
 {
 	FVulkanCommandBuffer::FVulkanCommandBuffer(FVulkanDevice& Device, FVulkanCommandBufferPool* Pool, bool bIsUploadOnly)
-		: Device_(Device)
-		, Pool_(Pool)
-		, bIsUploadOnly_(bIsUploadOnly)
+		: Device(Device)
+		, Pool(Pool)
+		, bIsUploadOnly(bIsUploadOnly)
 	{
 		AllocMemory();
 		Fence_ = Device.GetFenceManager().AllocateFence(false);
@@ -25,22 +25,22 @@ namespace Doge::VulkanRHI
 	auto FVulkanCommandBuffer::Begin() -> void
 	{
 		vk::CommandBufferBeginInfo BeginInfo;
-		CommandBuffer_.begin(BeginInfo);
+		CommandBuffer.begin(BeginInfo);
 	}
 
 	auto FVulkanCommandBuffer::End() -> void
 	{
-		CommandBuffer_.end();
+		CommandBuffer.end();
 	}
 
 	auto FVulkanCommandBuffer::RefreshFenceStatus() -> void
 	{
-		if (State_ == EState::eSubmitted)
+		if (State_ == EState::Submitted)
 		{
-			FVulkanFenceManager& FenceManager = Device_.GetFenceManager();
+			FVulkanFenceManager& FenceManager = Device.GetFenceManager();
 			if (FenceManager.IsFenceSignaled(Fence_))
 			{
-				State_ = EState::eNeedReset;
+				State_ = EState::NeedReset;
 			}
 		}
 		else
@@ -51,26 +51,26 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandBuffer::AllocMemory() -> void
 	{
-		check(State_ == EState::eNotAllocated);
+		check(State_ == EState::NotAllocated);
 
 		vk::CommandBufferAllocateInfo AllocInfo;
 		AllocInfo
-			.setCommandPool(Pool_->GetHandle())
+			.setCommandPool(Pool->GetHandle())
 			.setCommandBufferCount(1)
 			.setLevel(vk::CommandBufferLevel::ePrimary);
 
-		CommandBuffer_ = Device_.GetHandle().allocateCommandBuffers(AllocInfo)[0];
+		CommandBuffer = Device.GetHandle().allocateCommandBuffers(AllocInfo)[0];
 
-		State_ = EState::eReadyForBegin;
+		State_ = EState::ReadyForBegin;
 	}
 
 	auto FVulkanCommandBuffer::FreeMemory() -> void
 	{
-		check(State_ != EState::eNotAllocated);
+		check(State_ != EState::NotAllocated);
 
-		Device_.GetHandle().freeCommandBuffers(Pool_->GetHandle(), CommandBuffer_);
+		Device.GetHandle().freeCommandBuffers(Pool->GetHandle(), CommandBuffer);
 
-		State_ = EState::eNotAllocated;
+		State_ = EState::NotAllocated;
 	}
 
 	auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer) -> void
@@ -86,32 +86,32 @@ namespace Doge::VulkanRHI
 			.setClearValues(ClearColorValue);
 
 		// Begin render pass
-		CommandBuffer_.beginRenderPass(BeginInfo, vk::SubpassContents::eInline);
+		CommandBuffer.beginRenderPass(BeginInfo, vk::SubpassContents::eInline);
 	}
 
 	auto FVulkanCommandBuffer::EndRenderPass() -> void
 	{
-		CommandBuffer_.endRenderPass();
+		CommandBuffer.endRenderPass();
 	}
 
 	auto FVulkanCommandBuffer::IsSubmitted() const -> bool
 	{
-		return State_ == EState::eSubmitted;
+		return State_ == EState::Submitted;
 	}
 
 	auto FVulkanCommandBuffer::AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void
 	{
-		WaitSemaphores_.push_back(Semaphore);
+		WaitSemaphores.push_back(Semaphore);
 	}
 
 	auto FVulkanCommandBuffer::MarkSemaphoresAsSubmitted() -> void
 	{
-		WaitSemaphores_.clear();
+		WaitSemaphores.clear();
 	}
 
-	FVulkanCommandBufferPool::FVulkanCommandBufferPool(FVulkanDevice& Device, FVulkanCommandBufferManager& Manager)
-		: Device_(Device)
-		, Manager_(Manager)
+	FVulkanCommandBufferPool::FVulkanCommandBufferPool(FVulkanDevice& InDevice, FVulkanCommandBufferManager& InManager)
+		: Device(InDevice)
+		, Manager(InManager)
 	{
 	}
 
@@ -124,7 +124,7 @@ namespace Doge::VulkanRHI
 
 		try
 		{
-			Handle_ = Device_.GetHandle().createCommandPool(CmdPoolInfo);
+			Handle = Device.GetHandle().createCommandPool(CmdPoolInfo);
 		}
 		catch (const vk::SystemError& Error)
 		{
@@ -134,71 +134,71 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandBufferPool::Create(bool bIsUploadOnly) -> FVulkanCommandBuffer*
 	{
-		if (!FreeCmdBuffers_.empty())
+		if (!FreeCmdBuffers.empty())
 		{
-			FVulkanCommandBuffer* CmdBuffer = FreeCmdBuffers_.back();
-			FreeCmdBuffers_.pop_back();
+			FVulkanCommandBuffer* CmdBuffer = FreeCmdBuffers.back();
+			FreeCmdBuffers.pop_back();
 			return CmdBuffer;
 		}
 
-		FVulkanCommandBuffer* CmdBuffer = new FVulkanCommandBuffer(Device_, this, bIsUploadOnly);
-		CmdBuffers_.push_back(CmdBuffer);
+		FVulkanCommandBuffer* CmdBuffer = new FVulkanCommandBuffer(Device, this, bIsUploadOnly);
+		CmdBuffers.push_back(CmdBuffer);
 		return CmdBuffer;
 	}
 
 	auto FVulkanCommandBufferPool::FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void
 	{
 		// Check if the command buffer is ready for begin or need reset, from end to begin
-		for (int32 Index = static_cast<int32>(CmdBuffers_.size() - 1); Index >= 0; --Index)
+		for (int32 Index = static_cast<int32>(CmdBuffers.size() - 1); Index >= 0; --Index)
 		{
-			FVulkanCommandBuffer* CmdBuffer = CmdBuffers_[Index];
+			FVulkanCommandBuffer* CmdBuffer = CmdBuffers[Index];
 			CmdBuffer->RefreshFenceStatus();
-			if (CmdBuffer->State_ == FVulkanCommandBuffer::EState::eReadyForBegin || CmdBuffer->State_ == FVulkanCommandBuffer::EState::eNeedReset)
+			if (CmdBuffer->State_ == FVulkanCommandBuffer::EState::ReadyForBegin || CmdBuffer->State_ == FVulkanCommandBuffer::EState::NeedReset)
 			{
 				// remove at swap
-				std::swap(CmdBuffers_[Index], CmdBuffers_.back());
-				CmdBuffers_.pop_back();
+				std::swap(CmdBuffers[Index], CmdBuffers.back());
+				CmdBuffers.pop_back();
 
-				FreeCmdBuffers_.push_back(CmdBuffer);
+				FreeCmdBuffers.push_back(CmdBuffer);
 			}
 		}
 	}
 
-	FVulkanCommandBufferManager::FVulkanCommandBufferManager(FVulkanDevice& Device, FVulkanCommandListContext& Context)
-		: Device_(Device)
-		, Context_(Context)
-		, Queue_(Context.GetQueue())
+	FVulkanCommandBufferManager::FVulkanCommandBufferManager(FVulkanDevice& InDevice, FVulkanCommandListContext& InContext)
+		: Device(InDevice)
+		, Context(InContext)
+		, Queue(InContext.GetQueue())
 	{
-		Pool_ = new FVulkanCommandBufferPool(Device_, *this);
-		Pool_->CreatePool(Queue_->GetFamilyIndex());
-		UploadCommandBuffer_ = Pool_->Create(false);
-		ActiveCommandBuffer_ = Pool_->Create(false);
+		Pool = new FVulkanCommandBufferPool(Device, *this);
+		Pool->CreatePool(Queue->GetFamilyIndex());
+		UploadCommandBuffer = Pool->Create(false);
+		ActiveCommandBuffer = Pool->Create(false);
 	}
 
 	FVulkanCommandBufferManager::~FVulkanCommandBufferManager()
 	{
-		delete UploadCommandBuffer_;
-		delete ActiveCommandBuffer_;
-		delete Pool_;
+		delete UploadCommandBuffer;
+		delete ActiveCommandBuffer;
+		delete Pool;
 	}
 
 	auto FVulkanCommandBufferManager::SubmitActiveCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void
 	{
-		ActiveCommandBuffer_->End();
-		FVulkanQueue* Queue = Context_.GetQueue();
-		Queue->Submit(*ActiveCommandBuffer_, SignalSemaphore);
+		ActiveCommandBuffer->End();
+		FVulkanQueue* Queue = Context.GetQueue();
+		Queue->Submit(*ActiveCommandBuffer, SignalSemaphore);
 
-		ActiveCommandBuffer_ = nullptr;
+		ActiveCommandBuffer = nullptr;
 		PrepareForNewActiveCommandBuffer();
 	}
 
 	auto FVulkanCommandBufferManager::PrepareForNewActiveCommandBuffer() -> void
 	{
-		ActiveCommandBuffer_ = Pool_->Create(false);
+		ActiveCommandBuffer = Pool->Create(false);
 	}
 
 	auto FVulkanCommandBufferManager::FreeUnusedCommandBuffers() -> void
 	{
-		Pool_->FreeUnusedCommandBuffers(Queue_);
+		Pool->FreeUnusedCommandBuffers(Queue);
 	}
 }

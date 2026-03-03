@@ -11,29 +11,29 @@
 
 namespace Doge::VulkanRHI
 {
-	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& Device, const FGraphicsPipelineStateInitializer& Initializer)
-		: Device_(Device)
+	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer)
+		: Device(InDevice)
 	{
 		// TODO: Correctly set the renderpass
-		FVulkanRenderPassManager& RenderPassManager = Device_.GetRenderPassManager();
+		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
 		// State.SetViewport(0.0f, 0.0f, 0.0f, 800.0f, 600.0f, 1.0f);
 
 		vk::Format VkFormat = FVulkanPixelFormat::FromPixelFormat(Initializer.PixelFormat);
-		RenderPass_ = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat);
+		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat);
 
-		Shaders_[SHADER_STAGE_VERTEX] = new FVulkanShader(Device_, "../../../../Shaders/spv/test_vert.spv", vk::ShaderStageFlagBits::eVertex);
-		Shaders_[SHADER_STAGE_PIXEL] = new FVulkanShader(Device_, "../../../../Shaders/spv/test_frag.spv", vk::ShaderStageFlagBits::eFragment);
+		Shaders[SHADER_STAGE_VERTEX] = new FVulkanShader(Device, "../../../../Shaders/spv/test_vert.spv", vk::ShaderStageFlagBits::eVertex);
+		Shaders[SHADER_STAGE_PIXEL] = new FVulkanShader(Device, "../../../../Shaders/spv/test_frag.spv", vk::ShaderStageFlagBits::eFragment);
 
 		vk::PipelineShaderStageCreateInfo VertShaderInfo;
 		VertShaderInfo
 			.setStage(vk::ShaderStageFlagBits::eVertex)
-			.setModule(Shaders_[SHADER_STAGE_VERTEX]->GetShaderModule())
+			.setModule(Shaders[SHADER_STAGE_VERTEX]->GetShaderModule())
 			.setPName("main");
 
 		vk::PipelineShaderStageCreateInfo FragmentShaderInfo;
 		FragmentShaderInfo
 			.setStage(vk::ShaderStageFlagBits::eFragment)
-			.setModule(Shaders_[SHADER_STAGE_PIXEL]->GetShaderModule())
+			.setModule(Shaders[SHADER_STAGE_PIXEL]->GetShaderModule())
 			.setPName("main");
 
 		vk::PipelineShaderStageCreateInfo ShaderStages[] = {VertShaderInfo, FragmentShaderInfo};
@@ -109,7 +109,7 @@ namespace Doge::VulkanRHI
 		vk::PipelineLayout PipelineLayout;
 		try
 		{
-			PipelineLayout = Device_.GetHandle().createPipelineLayout(pipelineLayoutInfo);
+			PipelineLayout = Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
 			DOGE_DEBUG("Vulkan pipeline layout created");
 		}
 		catch (const std::runtime_error& err)
@@ -128,19 +128,19 @@ namespace Doge::VulkanRHI
 			.setPMultisampleState(&MultiSamplingInfo)
 			.setPColorBlendState(&ColorBlending)
 			.setLayout(PipelineLayout)
-			.setRenderPass(RenderPass_->GetHandle())
+			.setRenderPass(RenderPass->GetHandle())
 			.setSubpass(0)
 			.setBasePipelineHandle(nullptr)
 			.setBasePipelineIndex(-1);
 
-		vk::ResultValue<vk::Pipeline> PipelineCreationResult = Device_.GetHandle().createGraphicsPipeline(nullptr, pipelineInfo);
+		vk::ResultValue<vk::Pipeline> PipelineCreationResult = Device.GetHandle().createGraphicsPipeline(nullptr, pipelineInfo);
 		if (PipelineCreationResult.result != vk::Result::eSuccess)
 		{
 			DOGE_ERROR("Failed to create vulkan graphics pipeline: {}", vk::to_string(PipelineCreationResult.result));
 		}
 		else
 		{
-			Pipeline_ = PipelineCreationResult.value;
+			Pipeline = PipelineCreationResult.value;
 			DOGE_DEBUG("Vulkan graphics pipeline created");
 		}
 	}
@@ -149,7 +149,7 @@ namespace Doge::VulkanRHI
 	{
 		float MaxDepth = MinZ == MaxZ ? MinZ + 1.0f : MaxZ;
 
-		Viewport_
+		Viewport
 			.setX(MinX)
 			.setY(MinY)
 			.setWidth(MaxX - MinX)
@@ -158,43 +158,43 @@ namespace Doge::VulkanRHI
 			.setMaxDepth(MaxDepth);
 
 		SetScissorRect(static_cast<uint32>(MinX), static_cast<uint32>(MinY), static_cast<uint32>(MaxX - MinX), static_cast<uint32>(MaxY - MinY));
-		bScissorEnabled_ = false;
+		bScissorEnabled = false;
 	}
 
 	auto FVulkanGraphicsPipelineState::SetScissor(float MinX, float MinY, float Width, float Height) -> void
 	{
 		SetScissorRect(static_cast<uint32>(MinX), static_cast<uint32>(MinY), static_cast<uint32>(Width), static_cast<uint32>(Height));
-		bScissorEnabled_ = true;
+		bScissorEnabled = true;
 	}
 
 	auto FVulkanGraphicsPipelineState::Bind(vk::CommandBuffer CmdBuffer) -> void
 	{
-		CmdBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, Pipeline_);
+		CmdBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, Pipeline);
 	}
 
-	auto FVulkanGraphicsPipelineState::PrepareForDraw(FVulkanCommandListContext& Context) -> void
+	auto FVulkanGraphicsPipelineState::PrepareForDraw(FVulkanCommandListContext& InContext) -> void
 	{
-		FVulkanCommandBuffer* CmdBuffer = Context.GetCommandBuffer();
-		CmdBuffer->GetHandle().setViewport(0, Viewport_);
-		CmdBuffer->GetHandle().setScissor(0, Scissor_);
+		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
+		CmdBuffer->GetHandle().setViewport(0, Viewport);
+		CmdBuffer->GetHandle().setScissor(0, Scissor);
 	}
 
 	auto FVulkanGraphicsPipelineState::SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void
 	{
-		Scissor_
+		Scissor
 			.setOffset({static_cast<int32>(MinX), static_cast<int32>(MinY)})
 			.setExtent({Width, Height});
 	}
 
 
-	FVulkanPipelineManager::FVulkanPipelineManager(FVulkanDevice& Device)
-		: Device_(Device)
+	FVulkanPipelineManager::FVulkanPipelineManager(FVulkanDevice& InDevice)
+		: Device(InDevice)
 	{
 	}
 
 	auto FVulkanPipelineManager::CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FVulkanGraphicsPipelineState>
 	{
-		auto State = std::make_shared<FVulkanGraphicsPipelineState>(Device_, Initializer);
+		auto State = std::make_shared<FVulkanGraphicsPipelineState>(Device, Initializer);
 
 		return State;
 	}

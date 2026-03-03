@@ -34,7 +34,7 @@ namespace Doge::VulkanRHI
 
 		auto EndRenderPass() -> void;
 
-		auto GetHandle() const -> vk::CommandBuffer { return CommandBuffer_; }
+		auto GetHandle() const -> vk::CommandBuffer { return CommandBuffer; }
 
 		auto GetFence() const -> FVulkanFence* { return Fence_; }
 
@@ -44,31 +44,31 @@ namespace Doge::VulkanRHI
 
 		enum class EState : uint8
 		{
-			eReadyForBegin,
-			eIsInsideBegin,
-			eIsInsideRenderPass,
-			eHasEnded,
-			eSubmitted,
-			eNotAllocated,
-			eNeedReset,
+			ReadyForBegin,
+			IsInsideBegin,
+			IsInsideRenderPass,
+			HasEnded,
+			Submitted,
+			NotAllocated,
+			NeedReset,
 		};
 
 	private:
-		auto GetWaitSemaphores() const -> const std::vector<FVulkanSemaphore*>& { return WaitSemaphores_; }
+		auto GetWaitSemaphores() const -> const std::vector<FVulkanSemaphore*>& { return WaitSemaphores; }
 
 		auto MarkSemaphoresAsSubmitted() -> void;
 
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 
-		FVulkanCommandBufferPool* Pool_;
+		FVulkanCommandBufferPool* Pool;
 
-		EState State_ = EState::eNotAllocated;
+		EState State_ = EState::NotAllocated;
 
-		bool bIsUploadOnly_;
+		bool bIsUploadOnly;
 
-		vk::CommandBuffer CommandBuffer_;
+		vk::CommandBuffer CommandBuffer;
 
-		std::vector<FVulkanSemaphore*> WaitSemaphores_;
+		std::vector<FVulkanSemaphore*> WaitSemaphores;
 
 		FVulkanFence* Fence_;
 
@@ -79,9 +79,9 @@ namespace Doge::VulkanRHI
 	class FVulkanCommandBufferPool
 	{
 	public:
-		FVulkanCommandBufferPool(FVulkanDevice& Device, FVulkanCommandBufferManager& Manager);
+		FVulkanCommandBufferPool(FVulkanDevice& InDevice, FVulkanCommandBufferManager& InManager);
 
-		auto GetHandle() const -> vk::CommandPool { return Handle_; }
+		auto GetHandle() const -> vk::CommandPool { return Handle; }
 
 		auto CreatePool(uint32 QueueFamilyIndex) -> void;
 
@@ -90,27 +90,27 @@ namespace Doge::VulkanRHI
 		auto FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void;
 
 	private:
-		vk::CommandPool Handle_;
+		vk::CommandPool Handle;
 
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 
-		FVulkanCommandBufferManager& Manager_;
+		FVulkanCommandBufferManager& Manager;
 
-		std::vector<FVulkanCommandBuffer*> CmdBuffers_;
+		std::vector<FVulkanCommandBuffer*> CmdBuffers;
 
-		std::vector<FVulkanCommandBuffer*> FreeCmdBuffers_;
+		std::vector<FVulkanCommandBuffer*> FreeCmdBuffers;
 	};
 
 	class FVulkanCommandBufferManager
 	{
 	public:
-		FVulkanCommandBufferManager(FVulkanDevice& Device, FVulkanCommandListContext& Context);
+		FVulkanCommandBufferManager(FVulkanDevice& InDevice, FVulkanCommandListContext& InContext);
 
 		~FVulkanCommandBufferManager();
 
-		auto GetUploadCommandBuffer() -> FVulkanCommandBuffer* { return UploadCommandBuffer_; }
+		auto GetUploadCommandBuffer() const -> FVulkanCommandBuffer* { return UploadCommandBuffer; }
 
-		auto GetActiveCommandBuffer() -> FVulkanCommandBuffer* { return ActiveCommandBuffer_; }
+		auto GetActiveCommandBuffer() const -> FVulkanCommandBuffer* { return ActiveCommandBuffer; }
 
 		auto SubmitActiveCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void;
 
@@ -119,21 +119,21 @@ namespace Doge::VulkanRHI
 		auto FreeUnusedCommandBuffers() -> void;
 
 	private:
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 
-		FVulkanCommandListContext& Context_;
+		FVulkanCommandListContext& Context;
 
-		FVulkanQueue* Queue_;
+		FVulkanQueue* Queue;
 
-		FVulkanCommandBufferPool* Pool_;
+		FVulkanCommandBufferPool* Pool;
 
-		FVulkanCommandBuffer* ActiveCommandBuffer_ = nullptr;
+		FVulkanCommandBuffer* ActiveCommandBuffer = nullptr;
 
-		FVulkanCommandBuffer* UploadCommandBuffer_ = nullptr;
+		FVulkanCommandBuffer* UploadCommandBuffer = nullptr;
 
 		// Will be used to signal the rendering is done, mainly for upload command buffers
 		// FVulkanSemaphore* ActiveCmdBufferSemaphore;
 		//
-		// std::vector<FVulkanSemaphore*> RenderingCompletedSemaphores_;
+		// std::vector<FVulkanSemaphore*> RenderingCompletedSemaphores;
 	};
 }

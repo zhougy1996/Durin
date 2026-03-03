@@ -23,29 +23,29 @@ namespace Doge::VulkanRHI
 		auto AcquireBackBufferImage(FVulkanCommandListContext& Context);
 
 	private:
-		FVulkanViewport* Viewport_;
+		FVulkanViewport* Viewport;
 	};
 
 	class FVulkanViewport : public FRHIViewport
 	{
 	public:
-		FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool InbIsFullScreen, EPixelFormat InPreferredPixelFormat);
+		FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat);
 
-		virtual ~FVulkanViewport();
+		~FVulkanViewport() override;
 
 		virtual auto GetWindowHandle() -> void*;
 
-		auto GetSizeXY() -> FIntPoint { return FIntPoint(SizeX_, SizeY_); }
+		auto GetSizeXY() const -> FIntPoint { return FIntPoint(SizeX, SizeY); }
 
-		auto GetSwapChain() -> FVulkanSwapChain* { return SwapChain_; }
+		auto GetSwapChain() const -> FVulkanSwapChain* { return SwapChain; }
 
-		auto GetBackBufferImages() -> const std::vector<vk::Image>& { return BackBufferImages_; }
+		auto GetBackBufferImages() -> const std::vector<vk::Image>& { return BackBufferImages; }
 
 		auto AcquireBackBufferImage() -> FVulkanTextureView&;
 
-		auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TSharedPtr<FRHITexture> override;
+		auto GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TSharedPtr<FRHITexture> override;
 
-		auto Present(FVulkanCommandListContext& Context, FVulkanCommandBuffer& CmdBuffer, FVulkanQueue& PresentQueue, bool bLockToVsync) -> bool;
+		auto Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool;
 
 		auto WaitForLastFrameCompletion() -> void override;
 
@@ -56,31 +56,31 @@ namespace Doge::VulkanRHI
 	protected:
 		auto DestroySwapChain() -> void;
 
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 
-		FVulkanSwapChain* SwapChain_;
+		FVulkanSwapChain* SwapChain;
 
 		EPixelFormat ImageFormat;
 
-		std::vector<vk::Image> BackBufferImages_;
+		std::vector<vk::Image> BackBufferImages;
 
-		std::vector<FVulkanTextureView> TextureViews_;
+		std::vector<FVulkanTextureView> TextureViews;
 
-		FVulkanCommandBuffer* LastFrameCommandBuffer_ = nullptr;
+		FVulkanCommandBuffer* LastFrameCommandBuffer = nullptr;
 
-		std::vector<FVulkanSemaphore*> RenderingDoneSemaphores_;
+		std::vector<FVulkanSemaphore*> RenderingDoneSemaphores;
 
-		TSharedPtr<FVulkanBackBuffer> RHIBackBuffer_;
+		TSharedPtr<FVulkanBackBuffer> RHIBackBuffer;
 
-		int32 AcquiredBackBufferIndex_ = -1;
+		int32 AcquiredBackBufferIndex = -1;
 
-		FVulkanSemaphore* AcquiredSemaphore_ = nullptr;
+		FVulkanSemaphore* AcquiredSemaphore = nullptr;
 
-		uint32 SizeX_;
+		uint32 SizeX;
 
-		uint32 SizeY_;
+		uint32 SizeY;
 
-		bool bIsFullScreen_;
+		bool bIsFullScreen;
 
 		void* NativeWindowHandle;
 

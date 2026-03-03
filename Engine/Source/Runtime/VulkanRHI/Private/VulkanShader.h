@@ -7,15 +7,15 @@ namespace Doge::VulkanRHI
 	class FVulkanShader
 	{
 	public:
-		FVulkanShader(FVulkanDevice& Device, const std::string& Filename, vk::ShaderStageFlagBits Stage);
+		FVulkanShader(FVulkanDevice& InDevice, const std::string& InFilename, vk::ShaderStageFlagBits InStage);
 
 		~FVulkanShader();
 
-		auto GetShaderModule() const -> vk::ShaderModule { return ShaderModule_; }
+		auto GetShaderModule() const -> vk::ShaderModule { return ShaderModule; }
 
 	protected:
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 
-		vk::ShaderModule ShaderModule_;
+		vk::ShaderModule ShaderModule;
 	};
 }

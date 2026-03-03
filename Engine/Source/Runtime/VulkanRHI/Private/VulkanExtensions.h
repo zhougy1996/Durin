@@ -9,30 +9,30 @@ namespace Doge::VulkanRHI
 	class FVulkanExtensionBase
 	{
 	public:
-		FVulkanExtensionBase(const char* ExtensionName)
-			: ExtensionName_(ExtensionName)
+		FVulkanExtensionBase(const char* InExtensionName)
+			: ExtensionName(InExtensionName)
 		{
 		}
 
-		auto SetSupported() -> void { bSupported_ = true; }
-		auto SetActivated() -> void { bActivated_ = true; }
+		auto SetSupported() -> void { bSupported = true; }
+		auto SetActivated() -> void { bActivated = true; }
 
-		auto IsSupported() const -> bool { return bSupported_; }
-		auto GetExtensionName() const -> const char* { return ExtensionName_; }
+		auto IsSupported() const -> bool { return bSupported; }
+		auto GetExtensionName() const -> const char* { return ExtensionName; }
 
 		auto InUse() const -> bool;
 
 	protected:
-		const char* ExtensionName_;
+		const char* ExtensionName;
 
-		bool bSupported_ = false;
+		bool bSupported = false;
 
-		bool bActivated_ = false;
+		bool bActivated = false;
 	};
 
 	inline auto FVulkanExtensionBase::InUse() const -> bool
 	{
-		return bSupported_ && bActivated_;
+		return bSupported && bActivated;
 	}
 
 	using FVulkanInstanceExtensionArray = std::vector<TUniquePtr<FVulkanInstanceExtension>>;
@@ -47,7 +47,7 @@ namespace Doge::VulkanRHI
 	class FVulkanDeviceExtension : public FVulkanExtensionBase
 	{
 	public:
-		static auto GetDogeSupportedDeviceExtensions(FVulkanDevice* Device) -> FVulkanDeviceExtensionArray;
+		static auto GetDogeSupportedDeviceExtensions(FVulkanDevice* InDevice) -> FVulkanDeviceExtensionArray;
 		static auto GetDriverSupportedDeviceExtensions(vk::PhysicalDevice Gpu, const char* LayerName = nullptr) -> std::vector<vk::ExtensionProperties>;
 
 	protected:

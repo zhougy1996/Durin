@@ -55,7 +55,7 @@ namespace Doge
 		GTestPipeline = GDynamicRHI->RHICreateGraphicsPipelineState(Initializer);
 		FRHICommandList& CommandList = FRHICommandListImmediate::Get();
 		// Switch to graphics pipeline, call this before any other command
-		CommandList.SwitchPipeline(ERHIPipeline::eGraphics);
+		CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 	}
 
 	static auto DrawTriangle()

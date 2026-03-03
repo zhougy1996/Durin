@@ -9,13 +9,13 @@ namespace Doge::VulkanRHI
 	class FVulkanTexture : public FRHITexture
 	{
 	public:
-		FVulkanTexture(FVulkanDevice& Device, vk::Image Image);
+		FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage);
 
-		vk::Image Image_;
+		vk::Image Image;
 
-		vk::Format Format_;
+		vk::Format Format;
 
 	protected:
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 	};
 }

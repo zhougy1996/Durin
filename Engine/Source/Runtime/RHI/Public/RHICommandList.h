@@ -44,7 +44,7 @@ namespace Doge
 		auto SubmitCommandsHint() -> void;
 
 	private:
-		ERHIPipeline ActivePipeline_ = ERHIPipeline::eNone;
+		ERHIPipeline ActivePipeline_ = ERHIPipeline::None;
 
 		IRHICommandContext* GraphicsContext_ = nullptr;
 	};

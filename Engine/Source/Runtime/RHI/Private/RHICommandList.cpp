@@ -19,7 +19,7 @@ namespace Doge
 
 		switch (Pipeline)
 		{
-		case ERHIPipeline::eGraphics:
+		case ERHIPipeline::Graphics:
 		{
 			GraphicsContext_ = GDynamicRHI->RHIGetDefaultContext();
 		}

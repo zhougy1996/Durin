@@ -8,7 +8,7 @@
 namespace Doge::VulkanRHI
 {
 	FVulkanRenderPass::FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat)
-		: Device_(InDevice)
+		: Device(InDevice)
 	{
 		// Color buffer attachement
 		vk::AttachmentDescription ColorAttachment;
@@ -40,7 +40,7 @@ namespace Doge::VulkanRHI
 
 		try
 		{
-			RenderPass_ = Device_.GetHandle().createRenderPass(RenderPassInfo);
+			RenderPass = Device.GetHandle().createRenderPass(RenderPassInfo);
 			DOGE_DEBUG("Vulkan render pass created");
 		}
 		catch (const std::runtime_error& err)
@@ -51,11 +51,11 @@ namespace Doge::VulkanRHI
 
 	FVulkanRenderPass::~FVulkanRenderPass()
 	{
-		Device_.GetHandle().destroyRenderPass(RenderPass_);
+		Device.GetHandle().destroyRenderPass(RenderPass);
 	}
 
-	FVulkanRenderPassManager::FVulkanRenderPassManager(FVulkanDevice& Device)
-		: Device_(Device)
+	FVulkanRenderPassManager::FVulkanRenderPassManager(FVulkanDevice& InDevice)
+		: Device(InDevice)
 	{
 	}
 
@@ -67,7 +67,7 @@ namespace Doge::VulkanRHI
 			return It->second.get();
 		}
 
-		std::shared_ptr<FVulkanRenderPass> RenderPass = std::make_unique<FVulkanRenderPass>(Device_, InFormat);
+		std::shared_ptr<FVulkanRenderPass> RenderPass = std::make_unique<FVulkanRenderPass>(Device, InFormat);
 		RenderPasses.emplace(InRenderPassName, RenderPass);
 		return RenderPass.get();
 	}
@@ -78,17 +78,17 @@ namespace Doge::VulkanRHI
 		check(RTInfo.NumColorRenderTargets == 1);
 		FVulkanTexture* RT = static_cast<FVulkanTexture*>(RTInfo.ColorRenderTargets[0]);
 
-		for (FVulkanFramebuffer* Framebuffer : FrameBuffers_)
+		for (FVulkanFramebuffer* Framebuffer : FrameBuffers)
 		{
-			if (Framebuffer->ColorRenderTargetImages_[0] == RT->Image_)
+			if (Framebuffer->ColorRenderTargetImages[0] == RT->Image)
 			{
 				return Framebuffer;
 			}
 		}
 		//TODO: Render pass should be selected based on render target layout, but now we just use the first one for simplicity
 		FVulkanRenderPass* TestRenderPass = RenderPasses.begin()->second.get();
-		FVulkanFramebuffer* Framebuffer = new FVulkanFramebuffer(Device_, RTInfo, *TestRenderPass);
-		FrameBuffers_.push_back(Framebuffer);
+		FVulkanFramebuffer* Framebuffer = new FVulkanFramebuffer(Device, RTInfo, *TestRenderPass);
+		FrameBuffers.push_back(Framebuffer);
 		return Framebuffer;
 	}
 
@@ -97,8 +97,8 @@ namespace Doge::VulkanRHI
 		CmdBuffer->BeginRenderPass(RenderPass, Framebuffer);
 	}
 
-	auto FVulkanRenderPassManager::EndRenderPass(FVulkanCommandBuffer* CmdBuffer) -> void
+	auto FVulkanRenderPassManager::EndRenderPass(FVulkanCommandBuffer* InCmdBuffer) -> void
 	{
-		CmdBuffer->EndRenderPass();
+		InCmdBuffer->EndRenderPass();
 	}
 }

@@ -42,16 +42,16 @@ namespace Doge::VulkanRHI
 		}
 	}
 
-	FVulkanSwapChain::FVulkanSwapChain(vk::Instance Instance, FVulkanDevice& Device, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen)
-		: Device_(Device)
+	FVulkanSwapChain::FVulkanSwapChain(vk::Instance InInstance, FVulkanDevice& Device, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen)
+		: Device(Device)
 	{
-		Surface_ = FVulkanGenericPlatform::CreateSurface(InWindowHandle, Instance);
+		Surface = FVulkanGenericPlatform::CreateSurface(InWindowHandle, InInstance);
 
 		// Get Swap chain support details
-		vk::PhysicalDevice Gpu = Device_.GetGpu();
-		vk::SurfaceCapabilitiesKHR Capabilities = Gpu.getSurfaceCapabilitiesKHR(Surface_);
-		std::vector<vk::SurfaceFormatKHR> Formats = Gpu.getSurfaceFormatsKHR(Surface_);
-		std::vector<vk::PresentModeKHR> PresentModes = Gpu.getSurfacePresentModesKHR(Surface_);
+		vk::PhysicalDevice Gpu = Device.GetGpu();
+		vk::SurfaceCapabilitiesKHR Capabilities = Gpu.getSurfaceCapabilitiesKHR(Surface);
+		std::vector<vk::SurfaceFormatKHR> Formats = Gpu.getSurfaceFormatsKHR(Surface);
+		std::vector<vk::PresentModeKHR> PresentModes = Gpu.getSurfacePresentModesKHR(Surface);
 
 		vk::SurfaceFormatKHR CurrFormat = ChooseSwapSurfaceFormat(Formats);
 		vk::PresentModeKHR PresentMode = ChooseSwapPresentMode(PresentModes);
@@ -67,7 +67,7 @@ namespace Doge::VulkanRHI
 
 		vk::SwapchainCreateInfoKHR SwapChainInfo;
 		SwapChainInfo
-			.setSurface(Surface_)
+			.setSurface(Surface)
 			.setMinImageCount(MinImageCount)
 			.setImageFormat(CurrFormat.format)
 			.setImageColorSpace(CurrFormat.colorSpace)
@@ -83,7 +83,7 @@ namespace Doge::VulkanRHI
 
 		try
 		{
-			SwapChain_ = Device_.GetHandle().createSwapchainKHR(SwapChainInfo);
+			SwapChain = Device.GetHandle().createSwapchainKHR(SwapChainInfo);
 			DOGE_DEBUG("Vulkan swap chain created");
 		}
 		catch (const std::runtime_error& err)
@@ -91,37 +91,37 @@ namespace Doge::VulkanRHI
 			DOGE_ERROR("Failed to create vulkan swap chain: {}", err.what());
 		}
 
-		Device_.SetupPresentQueue(Surface_);
-		SwapChainImages_ = Device_.GetHandle().getSwapchainImagesKHR(SwapChain_);
+		Device.SetupPresentQueue(Surface);
+		SwapChainImages = Device.GetHandle().getSwapchainImagesKHR(SwapChain);
 
 		// TODO: use managed semaphore
-		ImageAcquiredSemaphore_ = new FVulkanSemaphore(Device_);
+		ImageAcquiredSemaphore = new FVulkanSemaphore(Device);
 	}
 
 	FVulkanSwapChain::~FVulkanSwapChain()
 	{
-		delete ImageAcquiredSemaphore_;
-		Device_.GetHandle().destroySwapchainKHR(SwapChain_);
+		delete ImageAcquiredSemaphore;
+		Device.GetHandle().destroySwapchainKHR(SwapChain);
 	}
 
 	auto FVulkanSwapChain::GetImages() const -> const std::vector<vk::Image>&
 	{
-		return SwapChainImages_;
+		return SwapChainImages;
 	}
 
 	auto FVulkanSwapChain::AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32
 	{
 		// TODO: Semaphore
-		vk::ResultValue<uint32> Result = Device_.GetHandle().acquireNextImageKHR(SwapChain_, UINT64_MAX, ImageAcquiredSemaphore_->GetHandle());
+		vk::ResultValue<uint32> Result = Device.GetHandle().acquireNextImageKHR(SwapChain, UINT64_MAX, ImageAcquiredSemaphore->GetHandle());
 		if (Result.result != vk::Result::eSuccess)
 		{
-			CurrentImageIndex_ = -1;
+			CurrentImageIndex = -1;
 			DOGE_ERROR("Failed to acquire swap chain image: {}", vk::to_string(Result.result));
 		}
-		CurrentImageIndex_ = Result.value;
-		*OutImageAcquiredSemaphore = ImageAcquiredSemaphore_;
+		CurrentImageIndex = Result.value;
+		*OutImageAcquiredSemaphore = ImageAcquiredSemaphore;
 
-		return CurrentImageIndex_;
+		return CurrentImageIndex;
 	}
 
 	auto FVulkanSwapChain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> void
@@ -129,15 +129,15 @@ namespace Doge::VulkanRHI
 		vk::PresentInfoKHR PresentInfo;
 		auto Semaphore = BackBufferRenderingDoneSemaphore->GetHandle();
 
-		uint32 ImageIndex = static_cast<uint32>(CurrentImageIndex_);
+		uint32 ImageIndex = static_cast<uint32>(CurrentImageIndex);
 		PresentInfo
 			.setWaitSemaphores(Semaphore)
-			.setSwapchains(SwapChain_)
+			.setSwapchains(SwapChain)
 			.setImageIndices(ImageIndex);
 
 		vk::Result Result = PresentQueue->GetHandle().presentKHR(PresentInfo);
 		check(Result == vk::Result::eSuccess);
 
-		CurrentImageIndex_ = -1;
+		CurrentImageIndex = -1;
 	}
 }

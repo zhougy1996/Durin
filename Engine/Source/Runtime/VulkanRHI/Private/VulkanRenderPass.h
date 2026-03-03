@@ -20,18 +20,18 @@ namespace Doge::VulkanRHI
 
 		~FVulkanRenderPass();
 
-		auto GetHandle() const -> vk::RenderPass { return RenderPass_; }
+		auto GetHandle() const -> vk::RenderPass { return RenderPass; }
 
 	private:
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 
-		vk::RenderPass RenderPass_;
+		vk::RenderPass RenderPass;
 	};
 
 	class FVulkanRenderPassManager
 	{
 	public:
-		FVulkanRenderPassManager(FVulkanDevice& Device);
+		FVulkanRenderPassManager(FVulkanDevice& InDevice);
 
 		// TODO: Render pass should be reuse based on render target layout, but now we select by name for simplicity
 		auto GetOrCreateRenderPass(FName InRenderPassName,  vk::Format Format) -> FVulkanRenderPass*;
@@ -40,13 +40,13 @@ namespace Doge::VulkanRHI
 
 		auto BeginRenderPass(FVulkanCommandListContext& Context, FVulkanDevice& Device, FVulkanCommandBuffer* CmdBuffer, const FRHIRenderPassInfo& RPInfo, /* const FVulkanRenderTargetLayout& RTLayout,*/ FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer) -> void;
 
-		auto EndRenderPass(FVulkanCommandBuffer* CmdBuffer) -> void;
+		auto EndRenderPass(FVulkanCommandBuffer* InCmdBuffer) -> void;
 
 	private:
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 
 		std::unordered_map<FName, std::shared_ptr<FVulkanRenderPass>> RenderPasses;
 
-		std::vector<FVulkanFramebuffer*> FrameBuffers_;
+		std::vector<FVulkanFramebuffer*> FrameBuffers;
 	};
 }

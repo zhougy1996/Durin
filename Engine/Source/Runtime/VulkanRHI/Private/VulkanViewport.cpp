@@ -14,36 +14,36 @@ namespace Doge::VulkanRHI
 {
 	FVulkanBackBuffer::FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport)
 		: FVulkanTexture(InDevice, nullptr)
-		, Viewport_(InViewport)
+		, Viewport(InViewport)
 	{
 		FIntPoint Extent =  InViewport->GetSizeXY();
 		SizeX = Extent.x;
 		SizeY = Extent.y;
-		Format_ = Viewport_->GetVkFormat();
+		Format = Viewport->GetVkFormat();
 	}
 
 	auto FVulkanBackBuffer::AcquireBackBufferImage(FVulkanCommandListContext& Context)
 	{
-		const FVulkanTextureView& View = Viewport_->AcquireBackBufferImage();
-		Image_ = View.Image;
+		const FVulkanTextureView& View = Viewport->AcquireBackBufferImage();
+		Image = View.Image;
 
 		FVulkanCommandBufferManager* CmdBufferManager = Context.GetCommandBufferManager();
 		FVulkanCommandBuffer* CmdBuffer = CmdBufferManager->GetActiveCommandBuffer();
-		CmdBuffer->AddWaitSemaphore(Viewport_->AcquiredSemaphore_);
+		CmdBuffer->AddWaitSemaphore(Viewport->AcquiredSemaphore);
 	}
 
-	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool InbIsFullScreen, EPixelFormat InPreferredPixelFormat)
-		: Device_(InDevice)
-		, SizeX_(InSizeX)
-		, SizeY_(InSizeY)
-		, bIsFullScreen_(InbIsFullScreen)
+	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat)
+		: Device(InDevice)
+		, SizeX(InSizeX)
+		, SizeY(InSizeY)
+		, bIsFullScreen(bInIsFullScreen)
 		, NativeWindowHandle(InWindowHandle)
 	{
-		SwapChain_ = new FVulkanSwapChain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), InDevice, InWindowHandle, InSizeX, InSizeY, InbIsFullScreen);
-		vk::Format VkImageFormat = SwapChain_->GetFormat();
+		SwapChain = new FVulkanSwapChain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), InDevice, InWindowHandle, InSizeX, InSizeY, bInIsFullScreen);
+		vk::Format VkImageFormat = SwapChain->GetFormat();
 		ImageFormat = FVulkanPixelFormat::ToPixelFormat(VkImageFormat);
 
-		const std::vector<vk::Image>& Images = SwapChain_->GetImages();
+		const std::vector<vk::Image>& Images = SwapChain->GetImages();
 
 		vk::ImageViewCreateInfo ImageViewCreateInfo;
 		ImageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
@@ -51,41 +51,41 @@ namespace Doge::VulkanRHI
 		ImageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
 		ImageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
 
-		BackBufferImages_.resize(Images.size());
+		BackBufferImages.resize(Images.size());
 		for (uint32 i = 0; i < Images.size(); ++i)
 		{
-			BackBufferImages_[i] = Images[i];
+			BackBufferImages[i] = Images[i];
 			ImageViewCreateInfo.setImage(Images[i]);
-			vk::ImageView View = Device_.GetHandle().createImageView(ImageViewCreateInfo);
-			TextureViews_.emplace_back(Images[i], View);
+			vk::ImageView View = Device.GetHandle().createImageView(ImageViewCreateInfo);
+			TextureViews.emplace_back(Images[i], View);
 		}
 
-		RenderingDoneSemaphores_.resize(Images.size());
+		RenderingDoneSemaphores.resize(Images.size());
 		for (uint32 i = 0; i < Images.size(); ++i)
 		{
-			RenderingDoneSemaphores_[i] = new FVulkanSemaphore(Device_);
+			RenderingDoneSemaphores[i] = new FVulkanSemaphore(Device);
 		}
 
-		RHIBackBuffer_ = std::make_shared<FVulkanBackBuffer>(Device_, this);
+		RHIBackBuffer = std::make_shared<FVulkanBackBuffer>(Device, this);
 
-		DOGE_DEBUG("Vulkan image views created. (size: {})", BackBufferImages_.size());
+		DOGE_DEBUG("Vulkan image views created. (size: {})", BackBufferImages.size());
 	}
 
 	FVulkanViewport::~FVulkanViewport()
 	{
-		for (uint32 i = 0; i < TextureViews_.size(); ++i)
+		for (uint32 i = 0; i < TextureViews.size(); ++i)
 		{
-			Device_.GetHandle().destroyImageView(TextureViews_[i].ImageView);
+			Device.GetHandle().destroyImageView(TextureViews[i].ImageView);
 		}
-		TextureViews_.clear();
+		TextureViews.clear();
 
 		DestroySwapChain();
 
-		for(auto & RenderingDoneSemaphore : RenderingDoneSemaphores_)
+		for(auto & RenderingDoneSemaphore : RenderingDoneSemaphores)
 		{
 			delete RenderingDoneSemaphore;
 		}
-		RenderingDoneSemaphores_.clear();
+		RenderingDoneSemaphores.clear();
 	}
 
 	auto FVulkanViewport::GetWindowHandle() -> void*
@@ -95,40 +95,40 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanTextureView&
 	{
-		AcquiredBackBufferIndex_ = static_cast<int32>(SwapChain_->AcquireImageIndex(&AcquiredSemaphore_));
-		return TextureViews_[AcquiredBackBufferIndex_];
+		AcquiredBackBufferIndex = static_cast<int32>(SwapChain->AcquireImageIndex(&AcquiredSemaphore));
+		return TextureViews[AcquiredBackBufferIndex];
 	}
 
 	auto FVulkanViewport::DestroySwapChain() -> void
 	{
-		Device_.WaitUtilIdle();
+		Device.WaitUtilIdle();
 
-		delete SwapChain_;
-		SwapChain_ = nullptr;
+		delete SwapChain;
+		SwapChain = nullptr;
 	}
 
-	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TSharedPtr<FRHITexture>
+	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TSharedPtr<FRHITexture>
 	{
-		RHIBackBuffer_->AcquireBackBufferImage(static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext()));
-		return RHIBackBuffer_;
+		RHIBackBuffer->AcquireBackBufferImage(static_cast<FVulkanCommandListContext&>(InRHICmdList.GetContext()));
+		return RHIBackBuffer;
 	}
 
-	auto FVulkanViewport::Present(FVulkanCommandListContext& Context, FVulkanCommandBuffer& CmdBuffer, FVulkanQueue& PresentQueue, bool bLockToVsync) -> bool
+	auto FVulkanViewport::Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
 	{
-		FVulkanCommandBufferManager* CmdBufferManager = Context.GetCommandBufferManager();
-		CmdBufferManager->SubmitActiveCmdBufferFromPresent(RenderingDoneSemaphores_[AcquiredBackBufferIndex_]);
-		SwapChain_->Present(&PresentQueue, RenderingDoneSemaphores_[AcquiredBackBufferIndex_]);
+		FVulkanCommandBufferManager* CmdBufferManager = InContext.GetCommandBufferManager();
+		CmdBufferManager->SubmitActiveCmdBufferFromPresent(RenderingDoneSemaphores[AcquiredBackBufferIndex]);
+		SwapChain->Present(&InPresentQueue, RenderingDoneSemaphores[AcquiredBackBufferIndex]);
 		return true;
 	}
 
 	auto FVulkanViewport::WaitForLastFrameCompletion() -> void
 	{
-		FVulkanQueue* Queue = Device_.GetGraphicsQueue();
-		LastFrameCommandBuffer_ = Queue->GetLastSubmittedCommandBuffer();
-		if (LastFrameCommandBuffer_)
+		FVulkanQueue* Queue = Device.GetGraphicsQueue();
+		LastFrameCommandBuffer = Queue->GetLastSubmittedCommandBuffer();
+		if (LastFrameCommandBuffer)
 		{
-			Device_.GetFenceManager().WaitForFence(LastFrameCommandBuffer_->GetFence(), UINT64_MAX);
-			Device_.GetFenceManager().ResetFence(LastFrameCommandBuffer_->GetFence());
+			Device.GetFenceManager().WaitForFence(LastFrameCommandBuffer->GetFence(), UINT64_MAX);
+			Device.GetFenceManager().ResetFence(LastFrameCommandBuffer->GetFence());
 		}
 	}
 	auto FVulkanViewport::GetFormat() const -> EPixelFormat
@@ -138,7 +138,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanViewport::GetVkFormat() const -> vk::Format
 	{
-		return SwapChain_->GetFormat();
+		return SwapChain->GetFormat();
 	}
 
 	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport>

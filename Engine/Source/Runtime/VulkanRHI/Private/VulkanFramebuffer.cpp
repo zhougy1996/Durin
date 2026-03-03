@@ -8,23 +8,23 @@
 
 namespace Doge::VulkanRHI
 {
-	FVulkanFramebuffer::FVulkanFramebuffer(FVulkanDevice& Device, const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& RenderPass)
-		: Device_(Device)
+	FVulkanFramebuffer::FVulkanFramebuffer(FVulkanDevice& InDevice, const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& InRenderPass)
+		: Device(InDevice)
 	{
-		NumColorRenderTargets_ = RTInfo.NumColorRenderTargets;
+		NumColorRenderTargets = RTInfo.NumColorRenderTargets;
 
 		// TODO: modify this when MSAA implemented.
-		NumColorAttachments_ = NumColorRenderTargets_;
+		NumColorAttachments = NumColorRenderTargets;
 
 		uint32 Width = RTInfo.ColorRenderTargets[0]->GetSizeX();
 		uint32 Height = RTInfo.ColorRenderTargets[0]->GetSizeY();
-		Extent_ = vk::Extent2D(Width, Height);
+		Extent = vk::Extent2D(Width, Height);
 
-		for (uint32 i = 0; i < NumColorRenderTargets_; ++i)
+		for (uint32 i = 0; i < NumColorRenderTargets; ++i)
 		{
 			FVulkanTexture* Texture = static_cast<FVulkanTexture*>(RTInfo.ColorRenderTargets[i]);
-			vk::Image Image = Texture->Image_;
-			vk::Format Format = Texture->Format_;
+			vk::Image Image = Texture->Image;
+			vk::Format Format = Texture->Format;
 
 			vk::ImageViewCreateInfo ImageViewCreateInfo;
 			ImageViewCreateInfo
@@ -34,33 +34,33 @@ namespace Doge::VulkanRHI
 				.setComponents(vk::ComponentMapping())
 				.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
 
-			vk::ImageView ImageView = Device_.GetHandle().createImageView(ImageViewCreateInfo);
+			vk::ImageView ImageView = Device.GetHandle().createImageView(ImageViewCreateInfo);
 
 			FVulkanTextureView TextureView{Image, ImageView};
 
-			ColorRenderTargetImages_[i] = Image;
-			AttachmentTextureViews_.push_back(TextureView);
+			ColorRenderTargetImages[i] = Image;
+			AttachmentTextureViews.push_back(TextureView);
 		}
 
 		std::vector<vk::ImageView> AttachmentViews;
-		for (uint32 i = 0; i < NumColorRenderTargets_; ++i)
+		for (uint32 i = 0; i < NumColorRenderTargets; ++i)
 		{
-			AttachmentViews.push_back(AttachmentTextureViews_[i].ImageView);
+			AttachmentViews.push_back(AttachmentTextureViews[i].ImageView);
 		}
 
 		vk::FramebufferCreateInfo FramebufferCreateInfo;
 
 		FramebufferCreateInfo
-			.setRenderPass(RenderPass.GetHandle())
+			.setRenderPass(InRenderPass.GetHandle())
 			.setAttachments(AttachmentViews)
-			.setWidth(Extent_.width)
-			.setHeight(Extent_.height)
+			.setWidth(Extent.width)
+			.setHeight(Extent.height)
 			.setLayers(1);
 
 		try
 		{
-			Framebuffer_ = Device_.GetHandle().createFramebuffer(FramebufferCreateInfo);
-			DOGE_DEBUG("Vulkan framebuffer created. Render targets count: {}", NumColorRenderTargets_);
+			Framebuffer = Device.GetHandle().createFramebuffer(FramebufferCreateInfo);
+			DOGE_DEBUG("Vulkan framebuffer created. Render targets count: {}", NumColorRenderTargets);
 		}
 		catch (const std::runtime_error& err)
 		{

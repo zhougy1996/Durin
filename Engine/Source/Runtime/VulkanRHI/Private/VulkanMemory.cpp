@@ -4,33 +4,33 @@
 
 namespace Doge::VulkanRHI
 {
-	FVulkanFence::FVulkanFence(FVulkanDevice& Device, FVulkanFenceManager& Owner, bool bCreateSignaled)
-		: Device_(Device)
-		, Owner_(Owner)
-		, State_(EState::eNotReady)
+	FVulkanFence::FVulkanFence(FVulkanDevice& InDevice, FVulkanFenceManager& Owner, bool bInCreateSignaled)
+		: Device(InDevice)
+		, Owner(Owner)
+		, State(EState::NotReady)
 	{
 		vk::FenceCreateInfo fenceInfo;
-		if (bCreateSignaled)
+		if (bInCreateSignaled)
 		{
-			State_ = EState::eSignaled;
+			State = EState::Signaled;
 			fenceInfo.setFlags(vk::FenceCreateFlagBits::eSignaled);
 		}
 
-		Fence_ = Device_.GetHandle().createFence(fenceInfo);
+		Fence = Device.GetHandle().createFence(fenceInfo);
 	}
 
 	FVulkanFence::~FVulkanFence()
 	{
-		Device_.GetHandle().destroyFence(Fence_);
+		Device.GetHandle().destroyFence(Fence);
 	}
 
 	auto FVulkanFence::Wait(uint64 TimeoutInNanoseconds) -> bool
 	{
-		check(State_ == EState::eNotReady);
-		vk::Result result = Device_.GetHandle().waitForFences(Fence_, true, TimeoutInNanoseconds);
+		check(State == EState::NotReady);
+		vk::Result result = Device.GetHandle().waitForFences(Fence, true, TimeoutInNanoseconds);
 		if (result == vk::Result::eSuccess)
 		{
-			State_ = EState::eSignaled;
+			State = EState::Signaled;
 			return true;
 		}
 		else if (result == vk::Result::eTimeout)
@@ -46,12 +46,12 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanFence::Reset() -> void
 	{
-		Device_.GetHandle().resetFences(Fence_);
-		State_ = EState::eNotReady;
+		Device.GetHandle().resetFences(Fence);
+		State = EState::NotReady;
 	}
 
-	FVulkanFenceManager::FVulkanFenceManager(FVulkanDevice& Device)
-		: Device_(Device)
+	FVulkanFenceManager::FVulkanFenceManager(FVulkanDevice& InDevice)
+		: Device(InDevice)
 	{
 	}
 
@@ -65,9 +65,9 @@ namespace Doge::VulkanRHI
 		return CheckFenceSignaled(Fence);
 	}
 
-	auto FVulkanFenceManager::AllocateFence(bool bCreateSignaled) -> FVulkanFence*
+	auto FVulkanFenceManager::AllocateFence(bool bInCreateSignaled) -> FVulkanFence*
 	{
-		return new FVulkanFence(Device_, *this, bCreateSignaled);
+		return new FVulkanFence(Device, *this, bInCreateSignaled);
 	}
 
 	auto FVulkanFenceManager::ReleaseFence(FVulkanFence*& Fence) -> void
@@ -76,25 +76,25 @@ namespace Doge::VulkanRHI
 		Fence = nullptr;
 	}
 
-	auto FVulkanFenceManager::WaitForFence(FVulkanFence* Fence, uint64 TimeoutInNanoseconds) -> bool
+	auto FVulkanFenceManager::WaitForFence(FVulkanFence* InFence, uint64 TimeoutInNanoseconds) -> bool
 	{
-		return Fence->Wait(TimeoutInNanoseconds);
+		return InFence->Wait(TimeoutInNanoseconds);
 	}
 
-	auto FVulkanFenceManager::ResetFence(FVulkanFence* Fence) -> void
+	auto FVulkanFenceManager::ResetFence(FVulkanFence* InFence) -> void
 	{
-		Fence->Reset();
+		InFence->Reset();
 	}
 
-	auto FVulkanFenceManager::CheckFenceSignaled(FVulkanFence* Fence) -> bool
+	auto FVulkanFenceManager::CheckFenceSignaled(FVulkanFence* InFence) const -> bool
 	{
-		check(Fence->State_ == FVulkanFence::EState::eNotReady);
+		check(InFence->State == FVulkanFence::EState::NotReady);
 
-		vk::Result Result = Device_.GetHandle().getFenceStatus(Fence->GetHandle());
+		vk::Result Result = Device.GetHandle().getFenceStatus(InFence->GetHandle());
 
 		if (Result == vk::Result::eSuccess)
 		{
-			Fence->State_ = FVulkanFence::EState::eSignaled;
+			InFence->State = FVulkanFence::EState::Signaled;
 			return true;
 		}
 		else if (Result == vk::Result::eNotReady)
@@ -108,14 +108,14 @@ namespace Doge::VulkanRHI
 		}
 	}
 
-	FVulkanSemaphore::FVulkanSemaphore(FVulkanDevice& Device)
-		: Device_(Device)
+	FVulkanSemaphore::FVulkanSemaphore(FVulkanDevice& InDevice)
+		: Device(InDevice)
 	{
-		Semaphore_ = Device_.GetHandle().createSemaphore(vk::SemaphoreCreateInfo());
+		Semaphore = Device.GetHandle().createSemaphore(vk::SemaphoreCreateInfo());
 	}
 
 	FVulkanSemaphore::~FVulkanSemaphore()
 	{
-		Device_.GetHandle().destroySemaphore(Semaphore_);
+		Device.GetHandle().destroySemaphore(Semaphore);
 	}
 }

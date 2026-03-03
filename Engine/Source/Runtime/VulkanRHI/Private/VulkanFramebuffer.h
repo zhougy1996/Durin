@@ -11,30 +11,30 @@ namespace Doge::VulkanRHI
 	class FVulkanFramebuffer
 	{
 	public:
-		FVulkanFramebuffer(FVulkanDevice& Device, const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& RenderPass);
+		FVulkanFramebuffer(FVulkanDevice& InDevice, const FRHIRenderTargetsInfo& InRTInfo, const FVulkanRenderPass& InRenderPass);
 
-		auto GetHandle() -> vk::Framebuffer { return Framebuffer_; }
+		auto GetHandle() const -> vk::Framebuffer { return Framebuffer; }
 
-		auto GetExtent() -> vk::Extent2D { return Extent_; }
+		auto GetExtent() const -> vk::Extent2D { return Extent; }
 
 	private:
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 
-		vk::Framebuffer Framebuffer_;
+		vk::Framebuffer Framebuffer;
 
-		vk::Extent2D Extent_;
+		vk::Extent2D Extent;
 
-		std::vector<FVulkanTextureView> AttachmentTextureViews_;
+		std::vector<FVulkanTextureView> AttachmentTextureViews;
 
 		// Logical color render targets
-		uint32 NumColorRenderTargets_;
+		uint32 NumColorRenderTargets;
 
 		// Actual color attachments required by the render pass, which may be more than the logical color render targets due to multi-sample resolve attachments
-		uint32 NumColorAttachments_;
+		uint32 NumColorAttachments;
 
-		vk::Image ColorRenderTargetImages_[kMaxSimultaneousRenderTargets];
-		vk::Image ColorResolveTargetImages_[kMaxSimultaneousRenderTargets];
-		vk::Image DepthStencilRenderTargetImage_;
+		vk::Image ColorRenderTargetImages[kMaxSimultaneousRenderTargets];
+		vk::Image ColorResolveTargetImages[kMaxSimultaneousRenderTargets];
+		vk::Image DepthStencilRenderTargetImage;
 
 		friend class FVulkanRenderPassManager;
 	};
