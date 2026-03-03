@@ -46,16 +46,20 @@ namespace Doge
 
 	FLogger::FLogger()
 	{
-		const auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-		console_sink->set_level(spdlog::level::debug);
-		console_sink->set_pattern("[%H:%M:%S][%^%l%$]%v");
+		const auto ConsoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+	#if DOGE_BUILD_DEBUG
+		ConsoleSink->set_level(spdlog::level::debug);
+	#else
+		ConsoleSink->set_level(spdlog::level::info);
+	#endif
+		ConsoleSink->set_pattern("[%H:%M:%S][%^%l%$]%v");
 
-		const auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("Logs/Doge.log", true);
-		file_sink->set_level(spdlog::level::trace);
-		file_sink->set_pattern("[%Y-%m-%d %H:%M:%S][%^%l%$][%s:%#] %v");
+		const auto FileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("Logs/Doge.log", true);
+		FileSink->set_level(spdlog::level::trace);
+		FileSink->set_pattern("[%Y-%m-%d %H:%M:%S][%^%l%$][%s:%#] %v");
 
-		std::vector<spdlog::sink_ptr> sinks{console_sink, file_sink};
-		Logger = std::make_shared<spdlog::logger>("DogeLogger", sinks.begin(), sinks.end());
+		std::vector<spdlog::sink_ptr> Sinks{ConsoleSink, FileSink};
+		Logger = std::make_shared<spdlog::logger>("DogeLogger", Sinks.begin(), Sinks.end());
 
 		spdlog::register_logger(Logger);
 		Logger->set_level(spdlog::level::trace);

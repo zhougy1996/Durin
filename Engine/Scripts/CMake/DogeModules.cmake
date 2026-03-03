@@ -116,7 +116,7 @@ function(doge_add_module module_name)
 	if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 		target_compile_definitions(${module_name} PRIVATE DOGE_BUILD_DEBUG=1)
 	elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
-		target_compile_definitions(${module_name} PRIVATE DOGE_BUILD_DEBUG=1)
+		target_compile_definitions(${module_name} PRIVATE DOGE_BUILD_RELEASE=1)
 	endif()
 
 	target_include_directories(${module_name} PRIVATE
