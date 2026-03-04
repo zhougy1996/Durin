@@ -20,14 +20,14 @@ namespace Doge
 	{
 	public:
 		FRHIResource() = delete;
-		RHI_API FRHIResource(ERHIResourceType InResourceType);
+		RHI_API explicit FRHIResource(ERHIResourceType InResourceType);
 
 	protected:
 		// The destructor is protected to prevent deletion directly.
 		RHI_API virtual ~FRHIResource();
 
 	private:
-		RHI_API auto MarkForDelete() const-> void;
+		RHI_API auto MarkForDelete() const -> void;
 
 	public:
 		FORCEINLINE auto AddRef() const -> uint32
@@ -59,8 +59,8 @@ namespace Doge
 	private:
 		class FAtomicFlags
 		{
-			static constexpr uint32 MarkedForDeleteBit = 1 << 30;
 			static constexpr uint32 DeletingBit = 1 << 31;
+			static constexpr uint32 MarkedForDeleteBit = 1 << 30;
 			static constexpr uint32 NumRefsMask = ~(MarkedForDeleteBit | DeletingBit);
 
 			std::atomic_uint Packed = {0};
@@ -70,13 +70,17 @@ namespace Doge
 			{
 				const uint32 OldPacked = Packed.fetch_add(1, MemoryOrder);
 				check((OldPacked & DeletingBit) == 0); // Resource is being deleted, cannot add reference
-				return (OldPacked & NumRefsMask) + 1;
+				const uint32 OldRefCount = OldPacked & NumRefsMask;
+				check(OldRefCount != NumRefsMask); // Prevent overflow
+				return OldRefCount + 1;
 			}
 
 			auto Release(std::memory_order MemoryOrder) -> uint32
 			{
 				const uint32 OldPacked = Packed.fetch_sub(1, MemoryOrder);
 				check((OldPacked & DeletingBit) == 0); // Resource is being deleted
+				const uint32 OldRefCount = OldPacked & NumRefsMask;
+				check(OldRefCount != 0); // Prevent underflow
 				return (OldPacked & NumRefsMask) - 1;
 			}
 
@@ -92,10 +96,35 @@ namespace Doge
 				return Packed.load(MemoryOrder) & NumRefsMask;
 			}
 
-			auto Deleting() const -> bool
+			auto UnmarkForDelete(std::memory_order MemoryOrder) -> bool
 			{
-				const uint32 OldPacked = Packed.load(std::memory_order_acquire);
-				return (OldPacked & DeletingBit) != 0;
+				const uint32 OldPacked = Packed.fetch_xor(MarkedForDeleteBit, MemoryOrder);
+				check((OldPacked & DeletingBit) == 0);
+				bool OldMarkedForDelete = (OldPacked & MarkedForDeleteBit) != 0;
+				check(OldMarkedForDelete == true);
+				return OldMarkedForDelete;
+			}
+
+			auto Deleting() -> bool
+			{
+				const uint32 LocalPacked = Packed.load(std::memory_order_acquire);
+				check((LocalPacked & MarkedForDeleteBit) != 0);
+				check((LocalPacked & DeletingBit) == 0);
+				const uint32 NumRefs = LocalPacked & NumRefsMask;
+
+				// Allow caches to bring dead objects back to life.
+				if (NumRefs == 0)
+				{
+#if DO_CHECK
+					Packed.fetch_or(DeletingBit, std::memory_order_acquire);
+#endif
+					return true;
+				}
+				else
+				{
+					UnmarkForDelete(std::memory_order_release);
+					return false;
+				}
 			}
 
 			auto IsValid(std::memory_order MemoryOrder) const -> bool
