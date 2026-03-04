@@ -21,11 +21,92 @@ namespace Doge
 	public:
 		FRHIResource() = delete;
 		RHI_API FRHIResource(ERHIResourceType InResourceType);
+
+	protected:
+		// The destructor is protected to prevent deletion directly.
 		RHI_API virtual ~FRHIResource();
+
+	private:
+		RHI_API auto MarkForDelete() const-> void;
+
+	public:
+		FORCEINLINE auto AddRef() const -> uint32
+		{
+			return AtomicFlags.AddRef(std::memory_order_acquire);
+		}
+
+		FORCEINLINE auto Release() const -> uint32
+		{
+			const uint32 NewRefCount = AtomicFlags.Release(std::memory_order_release);
+
+			if (NewRefCount == 0)
+			{
+				MarkForDelete();
+			}
+			return NewRefCount;
+		}
+
+		FORCEINLINE auto GetRefCount() const -> uint32
+		{
+			return AtomicFlags.GetRefCount(std::memory_order_relaxed);
+		}
 
 		FORCEINLINE auto GetResourceType() const -> ERHIResourceType { return ResourceType; }
 
+		static RHI_API auto DeleteResources(const std::vector<FRHIResource*>& ResourcesToDelete) -> void;
+		static RHI_API auto GatherResourcesToDelete(std::vector<FRHIResource*>& OutResourcesToDelete) -> void;
+
 	private:
+		class FAtomicFlags
+		{
+			static constexpr uint32 MarkedForDeleteBit = 1 << 30;
+			static constexpr uint32 DeletingBit = 1 << 31;
+			static constexpr uint32 NumRefsMask = ~(MarkedForDeleteBit | DeletingBit);
+
+			std::atomic_uint Packed = {0};
+
+		public:
+			auto AddRef(std::memory_order MemoryOrder) -> uint32
+			{
+				const uint32 OldPacked = Packed.fetch_add(1, MemoryOrder);
+				check((OldPacked & DeletingBit) == 0); // Resource is being deleted, cannot add reference
+				return (OldPacked & NumRefsMask) + 1;
+			}
+
+			auto Release(std::memory_order MemoryOrder) -> uint32
+			{
+				const uint32 OldPacked = Packed.fetch_sub(1, MemoryOrder);
+				check((OldPacked & DeletingBit) == 0); // Resource is being deleted
+				return (OldPacked & NumRefsMask) - 1;
+			}
+
+			auto MarkForDelete(std::memory_order MemoryOrder) -> bool
+			{
+				uint32 OldPacked = Packed.fetch_or(MarkedForDeleteBit, MemoryOrder);
+				check((OldPacked & DeletingBit) == 0);
+				return (OldPacked & MarkedForDeleteBit) != 0; // Return whether the resource was already marked for delete before this call
+			}
+
+			auto GetRefCount(std::memory_order MemoryOrder) const -> uint32
+			{
+				return Packed.load(MemoryOrder) & NumRefsMask;
+			}
+
+			auto Deleting() const -> bool
+			{
+				const uint32 OldPacked = Packed.load(std::memory_order_acquire);
+				return (OldPacked & DeletingBit) != 0;
+			}
+
+			auto IsValid(std::memory_order MemoryOrder) const -> bool
+			{
+				const uint32 LocalPacked = Packed.load(MemoryOrder);
+				return (LocalPacked & MarkedForDeleteBit) == 0 && (LocalPacked & NumRefsMask) != 0;
+			}
+		};
+
+		mutable FAtomicFlags AtomicFlags;
+
 		ERHIResourceType ResourceType;
 	};
 
@@ -49,13 +130,19 @@ namespace Doge
 	class FRHIVertexShader : public FRHIShader
 	{
 	public:
-		FRHIVertexShader(): FRHIShader(ERHIResourceType::VertexShader, EShaderFrequency::Vertex) {}
+		FRHIVertexShader()
+			: FRHIShader(ERHIResourceType::VertexShader, EShaderFrequency::Vertex)
+		{
+		}
 	};
 
 	class FRHIPixelShader : public FRHIShader
 	{
 	public:
-		FRHIPixelShader(): FRHIShader(ERHIResourceType::PixelShader, EShaderFrequency::Pixel) {}
+		FRHIPixelShader()
+			: FRHIShader(ERHIResourceType::PixelShader, EShaderFrequency::Pixel)
+		{
+		}
 	};
 
 	class RHI_API FRHITexture
@@ -63,6 +150,7 @@ namespace Doge
 	public:
 		auto GetSizeX() const -> uint32 { return SizeX; }
 		auto GetSizeY() const -> uint32 { return SizeY; }
+
 	protected:
 		uint32 SizeX = 0;
 		uint32 SizeY = 0;
@@ -90,7 +178,8 @@ namespace Doge
 		FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
 	};
 
-	class RHI_API FGraphicsPipelineStateInitializer{
+	class RHI_API FGraphicsPipelineStateInitializer
+	{
 	public:
 		FName RenderPassName;
 
@@ -151,4 +240,4 @@ namespace Doge
 	private:
 		FRHIBufferDesc Desc;
 	};
-}
+} // namespace Doge

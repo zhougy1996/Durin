@@ -49,7 +49,7 @@ namespace Doge
 		IRHICommandContext* GraphicsContext_ = nullptr;
 	};
 
-	// Singleton command list
+	// Main command list class that will be used to record commands, and submit to GPU immediately when calling EndFrame
 	class RHI_API FRHICommandListImmediate : public FRHICommandList
 	{
 	public:

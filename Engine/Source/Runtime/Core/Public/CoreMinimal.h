@@ -16,3 +16,5 @@
 #include "Templates/RefCounting.h"
 #include "Math/DogeMath.h"
 #include "Json/Json.h"
+
+#include "CoreGlobals.h"
