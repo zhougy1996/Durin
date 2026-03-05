@@ -20,4 +20,7 @@ namespace Doge
 
 	extern CORE_API FPath GWorkDirectory;
 	extern CORE_API FPath GShaderPath;
+
+	extern CORE_API uint64 GFrameCounter;
+	extern CORE_API uint64 GFrameCounterRenderThread;
 }

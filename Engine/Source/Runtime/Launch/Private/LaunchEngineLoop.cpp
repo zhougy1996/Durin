@@ -115,6 +115,9 @@ namespace Doge
 			return;
 		}
 
+		GFrameCounter++;
+
+		GFrameCounterRenderThread++; //TODO: Use command list to increment this, now we just increment it here for testing.
 		// Render Scene.
 		// TODO
 		DrawTriangle();
