@@ -1,6 +1,5 @@
 #pragma once
 
-#include "RHIPipeline.h"
 #include "VulkanCommon.h"
 
 namespace Doge::VulkanRHI
@@ -50,7 +49,7 @@ namespace Doge::VulkanRHI
 	public:
 		FVulkanPipelineManager(FVulkanDevice& InDevice);
 
-		auto CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FVulkanGraphicsPipelineState>;
+		auto CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>;
 
 	private:
 		FVulkanDevice& Device;

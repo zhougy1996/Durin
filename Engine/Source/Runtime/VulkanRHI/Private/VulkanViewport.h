@@ -43,7 +43,7 @@ namespace Doge::VulkanRHI
 
 		auto AcquireBackBufferImage() -> FVulkanTextureView&;
 
-		auto GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TSharedPtr<FRHITexture> override;
+		auto GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture> override;
 
 		auto Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool;
 
@@ -70,7 +70,7 @@ namespace Doge::VulkanRHI
 
 		std::vector<FVulkanSemaphore*> RenderingDoneSemaphores;
 
-		TSharedPtr<FVulkanBackBuffer> RHIBackBuffer;
+		TRefCountPtr<FVulkanBackBuffer> RHIBackBuffer;
 
 		int32 AcquiredBackBufferIndex = -1;
 

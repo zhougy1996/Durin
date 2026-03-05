@@ -11,9 +11,11 @@ namespace Doge
 
 	enum class ERHIResourceType : uint8
 	{
+		Texture,
 		VertexShader,
 		PixelShader,
 		ComputeShader,
+		PipelineState,
 	};
 
 	class FRHIResource
@@ -174,9 +176,14 @@ namespace Doge
 		}
 	};
 
-	class RHI_API FRHITexture
+	class RHI_API FRHITexture : public FRHIResource
 	{
 	public:
+
+		FRHITexture()
+			: FRHIResource(ERHIResourceType::Texture)
+		{
+		}
 		auto GetSizeX() const -> uint32 { return SizeX; }
 		auto GetSizeY() const -> uint32 { return SizeY; }
 
@@ -190,7 +197,7 @@ namespace Doge
 	public:
 		virtual ~FRHIViewport() = default;
 		virtual auto Tick(float DeltaTime) -> void {};
-		virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TSharedPtr<FRHITexture> = 0;
+		virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TRefCountPtr<FRHITexture> = 0;
 		virtual auto WaitForLastFrameCompletion() -> void = 0;
 		virtual auto GetFormat() const -> EPixelFormat = 0;
 	};
@@ -268,5 +275,15 @@ namespace Doge
 
 	private:
 		FRHIBufferDesc Desc;
+	};
+
+
+	class FRHIGraphicsPipelineState : public FRHIResource
+	{
+	public:
+		FRHIGraphicsPipelineState()
+			: FRHIResource(ERHIResourceType::PipelineState)
+		{
+		}
 	};
 } // namespace Doge

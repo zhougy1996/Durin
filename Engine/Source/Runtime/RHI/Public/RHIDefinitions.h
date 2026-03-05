@@ -23,6 +23,16 @@ namespace Doge
 		RayMiss,
 	};
 
+	enum class ERHIPipeline : uint8
+	{
+		Graphics = 1 << 0,
+		Compute = 1 << 1,
+
+		None = 0,
+		All = Graphics | Compute,
+		Num = 2
+	};
+
 	enum class EGpuVendorId
 	{
 		Unknown = -1,

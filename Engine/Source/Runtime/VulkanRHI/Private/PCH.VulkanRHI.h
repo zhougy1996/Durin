@@ -13,6 +13,6 @@
 
 
 #include "CoreMinimal.h"
-#include "RHIFwd.h"
+#include "RHI.h"
 
 

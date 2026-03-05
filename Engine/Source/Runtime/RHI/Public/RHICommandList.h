@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RHIPipeline.h"
+#include "RHIDefinitions.h"
 
 namespace Doge
 {
@@ -9,6 +9,7 @@ namespace Doge
 	class FRHICommandListExecutor;
 	class FRHITexture;
 	class FRHIViewport;
+	class FRHIGraphicsPipelineState;
 
 	class RHI_API FRHICommandList
 	{

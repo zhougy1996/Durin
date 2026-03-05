@@ -192,14 +192,13 @@ namespace Doge::VulkanRHI
 	{
 	}
 
-	auto FVulkanPipelineManager::CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FVulkanGraphicsPipelineState>
+	auto FVulkanPipelineManager::CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
-		auto State = std::make_shared<FVulkanGraphicsPipelineState>(Device, Initializer);
-
+		auto State = MakeRefCount<FVulkanGraphicsPipelineState>(Device, Initializer);
 		return State;
 	}
 
-	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FRHIGraphicsPipelineState>
+	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
 	{
 		return Device_->GetPipelineManager().CreateGraphicsPipelineState(Initializer);
 	}

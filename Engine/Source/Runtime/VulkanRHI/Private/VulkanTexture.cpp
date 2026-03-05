@@ -3,8 +3,9 @@
 namespace Doge::VulkanRHI
 {
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, vk::Image Image)
-		: Device(InDevice)
+		: FRHITexture()
 		, Image(Image)
+		, Device(InDevice)
 	{
 	}
-}
+} // namespace Doge::VulkanRHI

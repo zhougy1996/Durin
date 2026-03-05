@@ -11,14 +11,13 @@
 
 #include "RHICommandList.h"
 #include "RHIResources.h"
-#include "RHIPipeline.h"
 
 namespace Doge
 {
 	constexpr auto DLLModuleDependencies = std::array{"MainFrame"};
 
 	// TODO: move this to a more appropriate place
-	TSharedPtr<FRHIGraphicsPipelineState> GTestPipeline;
+	TRefCountPtr<FRHIGraphicsPipelineState> GTestPipeline;
 
 	auto FEngineLoop::PreInit() -> void
 	{
@@ -70,27 +69,27 @@ namespace Doge
 		CommandList.BeginDrawingViewport(Viewport, nullptr);
 
 		// Acquire image
-		TSharedPtr<FRHITexture> BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
+		TRefCountPtr<FRHITexture> BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
 
 		Window->Paint();
 
 		// Render pass
 		FRHIRenderPassInfo PassInfo{};
-		PassInfo.ColorRenderTargets[0] = BackBuffer.get();
+		PassInfo.ColorRenderTargets[0] = BackBuffer.GetReference();
 
 		CommandList.BeginFrame();
 
 		CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
-
-		CommandList.SetGraphicsPipelineState(*GTestPipeline);
-
-		auto Width = BackBuffer->GetSizeX();
-		auto Height = BackBuffer->GetSizeY();
-		CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
-
-		// Draw call
-		CommandList.DrawPrimitive();
-
+		//
+		// CommandList.SetGraphicsPipelineState(*GTestPipeline);
+		//
+		// auto Width = BackBuffer->GetSizeX();
+		// auto Height = BackBuffer->GetSizeY();
+		// CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
+		//
+		// // Draw call
+		// CommandList.DrawPrimitive();
+		//
 		CommandList.EndRenderPass();
 
 		// End drawing viewport and present

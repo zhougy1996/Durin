@@ -20,9 +20,9 @@ namespace Doge::VulkanRHI
 		virtual auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice = 0;
 
 		virtual auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> override = 0;
-		virtual auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FRHIGraphicsPipelineState> override = 0;
+		virtual auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override = 0;
 		virtual auto RHIGetDefaultContext() -> IRHICommandContext* override = 0;
-		virtual auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture> override = 0;
+		virtual auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TRefCountPtr<FRHITexture> override = 0;
 	};
 
 	class VULKANRHI_API FVulkanDynamicRHI : public IVulkanDynamicRHI
@@ -41,10 +41,10 @@ namespace Doge::VulkanRHI
 		auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice override;
 
 		virtual auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> override;
-		virtual auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TSharedPtr<FRHIGraphicsPipelineState> override;
+		virtual auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override;
 		virtual auto RHIGetDefaultContext() -> IRHICommandContext* override;
 		virtual auto RHIGetCommandContext(ERHIPipeline Pipeline) -> IRHICommandContext*;
-		virtual auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture> override;
+		virtual auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TRefCountPtr<FRHITexture> override;
 
 	protected:
 		auto CreateInstance() -> void;

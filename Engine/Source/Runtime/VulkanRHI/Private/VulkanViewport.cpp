@@ -66,7 +66,7 @@ namespace Doge::VulkanRHI
 			RenderingDoneSemaphores[i] = new FVulkanSemaphore(Device);
 		}
 
-		RHIBackBuffer = std::make_shared<FVulkanBackBuffer>(Device, this);
+		RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
 
 		DOGE_DEBUG("Vulkan image views created. (size: {})", BackBufferImages.size());
 	}
@@ -107,7 +107,7 @@ namespace Doge::VulkanRHI
 		SwapChain = nullptr;
 	}
 
-	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TSharedPtr<FRHITexture>
+	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture>
 	{
 		RHIBackBuffer->AcquireBackBufferImage(static_cast<FVulkanCommandListContext&>(InRHICmdList.GetContext()));
 		return RHIBackBuffer;
@@ -146,7 +146,7 @@ namespace Doge::VulkanRHI
 		return std::make_shared<FVulkanViewport>(*Device_, WindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat);
 	}
 
-	auto FVulkanDynamicRHI::RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TSharedPtr<FRHITexture>
+	auto FVulkanDynamicRHI::RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TRefCountPtr<FRHITexture>
 	{
 		return ViewportRHI->GetBackBuffer(FRHICommandListImmediate::Get());
 	}

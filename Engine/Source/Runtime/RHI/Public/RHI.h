@@ -4,5 +4,6 @@
 
 #include "PixelFormat.h"
 #include "RHIGlobals.h"
+#include "RHIDefinitions.h"
 #include "DynamicRHI.h"
-#include "RHIPipeline.h"
+#include "RHIResources.h"

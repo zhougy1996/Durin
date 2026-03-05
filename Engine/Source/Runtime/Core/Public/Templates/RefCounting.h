@@ -28,9 +28,9 @@ namespace Doge
 		}
 
 		template<typename CopyReferencedType>
-		explicit TRefCountPtr(const TRefCountPtr<CopyReferencedType>& Copy)
+		TRefCountPtr(const TRefCountPtr<CopyReferencedType>& Copy)
 		{
-			Reference = static_cast<ReferencedType*>(Copy.Reference);
+			Reference = static_cast<ReferencedType*>(Copy.GetReference());
 			if (Reference)
 			{
 				Reference->AddRef();
@@ -127,7 +127,32 @@ namespace Doge
 
 		FORCEINLINE auto GetReference() const -> ReferencedType* { return Reference; }
 
+		FORCEINLINE auto GetRefCount() const -> int32 { return Reference->GetRefCount(); }
+
+		FORCEINLINE void Swap(TRefCountPtr& InPtr)
+		{
+			ReferencedType* OldReference = Reference;
+			Reference = InPtr.Reference;
+			InPtr.Reference = OldReference;
+		}
+
 	private:
 		ReferencedType* Reference = nullptr;
+
+	public:
+		FORCEINLINE operator bool() const { return Reference != nullptr; }
+
+		FORCEINLINE operator ReferencedType*() const { return Reference; }
+
+		FORCEINLINE auto operator==(const TRefCountPtr& Other) const -> bool { return Reference == Other.Reference; }
+
+		FORCEINLINE auto operator==(ReferencedType* Other) const -> bool { return Reference == Other; }
 	};
+
+	template<typename T, typename... Args>
+	auto MakeRefCount(Args&&... InArgs) -> TRefCountPtr<T>
+	{
+		return TRefCountPtr<T>(new T(std::forward<Args>(InArgs)...));
+	}
+
 } // namespace Doge
