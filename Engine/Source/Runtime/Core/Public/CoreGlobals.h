@@ -2,6 +2,8 @@
 
 namespace Doge
 {
+	class FRunnableThread;
+
 	// Don't modify this global variable directly, use the provided functions instead.
 	// RequestEngineExit() and IsEngineExitRequested() are the functions to use.
 	extern CORE_API bool GIsRequestingExit;
@@ -20,6 +22,10 @@ namespace Doge
 
 	extern CORE_API FPath GWorkDirectory;
 	extern CORE_API FPath GShaderPath;
+
+	extern CORE_API std::thread::id GGameThreadId;
+	extern CORE_API bool GIsGameThreadIdInitialized;
+	extern CORE_API FRunnableThread* GRenderingThread;
 
 	extern CORE_API uint64 GFrameCounter;
 	extern CORE_API uint64 GFrameCounterRenderThread;

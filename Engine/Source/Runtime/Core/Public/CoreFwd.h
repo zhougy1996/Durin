@@ -23,6 +23,7 @@
 #include <cstring>
 
 // Multithreading support
+#include <thread>
 #include <mutex>
 #include <shared_mutex>
 #include <atomic>

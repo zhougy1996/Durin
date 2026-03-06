@@ -4,6 +4,7 @@
         "Core",
         "RHI",
         "Engine",
+        "RenderCore",
         "ApplicationCore",
         "MonaCore",
         "Mona",

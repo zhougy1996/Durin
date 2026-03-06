@@ -1,5 +1,6 @@
 #include "LaunchEngineLoop.h"
 
+#include "HAL/RunnableThread.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Misc/ConfigCacheJson.h"
@@ -11,6 +12,8 @@
 
 #include "RHICommandList.h"
 #include "RHIResources.h"
+#include "RenderingThread.h"
+#include "../../RenderCore/Public/RenderingThread.h"
 
 namespace Doge
 {
@@ -24,6 +27,10 @@ namespace Doge
 		GWorkDirectory = std::filesystem::current_path();
 		DOGE_DEBUG(STR("Working directory: {}"), GWorkDirectory.string());
 		FConfigCacheJson::LoadAndParseConfig();
+
+		GGameThreadId = std::this_thread::get_id();
+		GIsGameThreadIdInitialized = true;
+
 		LoggerInit();
 		FNameInit();
 		DObjectInit();
@@ -39,6 +46,8 @@ namespace Doge
 		// Create engine instance, this is just for testing, we should have a more robust engine initialization process
 		GEngine = new DEngine();
 		GEngine->Init();
+
+		InitRenderingThread();
 	}
 
 	static auto CreateTestPipeline()
@@ -130,6 +139,7 @@ namespace Doge
 
 	auto FEngineLoop::Exit() -> void
 	{
+		ShutdownRenderingThread();
 		// TODO: this is just for testing, we should have a more robust shutdown process
 		delete GEngine;
 		Mona::FMonaApplication::Get().Shutdown();
