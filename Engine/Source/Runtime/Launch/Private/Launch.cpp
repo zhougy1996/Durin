@@ -1,11 +1,6 @@
 #include "CoreGlobals.h"
 #include "LaunchEngineLoop.h"
 
-namespace Doge
-{
-	FEngineLoop GEngineLoop;
-}
-
 int LAUNCH_API main()
 {
 	using namespace Doge;

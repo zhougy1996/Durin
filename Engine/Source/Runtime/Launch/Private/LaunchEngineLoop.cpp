@@ -13,10 +13,11 @@
 #include "RHICommandList.h"
 #include "RHIResources.h"
 #include "RenderingThread.h"
-#include "../../RenderCore/Public/RenderingThread.h"
 
 namespace Doge
 {
+	FEngineLoop GEngineLoop;
+
 	constexpr auto DLLModuleDependencies = std::array{"MainFrame"};
 
 	// TODO: move this to a more appropriate place
