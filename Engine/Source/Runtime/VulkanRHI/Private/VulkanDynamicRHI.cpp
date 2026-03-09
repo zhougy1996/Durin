@@ -17,27 +17,27 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::Init() -> void
 	{
-		Device_->InitGpu();
+		Device->InitGpu();
 	}
 
 	auto FVulkanDynamicRHI::Shutdown() -> void
 	{
-		delete Device_;
+		delete Device;
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkDevice() const -> vk::Device
 	{
-		return Device_->GetHandle();
+		return Device->GetHandle();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkInstance() const -> vk::Instance
 	{
-		return Instance_;
+		return Instance;
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice
 	{
-		return Device_->GetGpu();
+		return Device->GetGpu();
 	}
 
 	auto FVulkanDynamicRHI::CreateInstance() -> void
@@ -54,7 +54,7 @@ namespace Doge::VulkanRHI
 		{
 			if (Extension->InUse())
 			{
-				InstanceExtensions_.push_back(Extension->GetExtensionName());
+				InstanceExtensions.push_back(Extension->GetExtensionName());
 			}
 		}
 
@@ -62,25 +62,25 @@ namespace Doge::VulkanRHI
 
 		vk::InstanceCreateInfo InstanceInfo({}, &AppInfo);
 
-		InstanceInfo.enabledExtensionCount = static_cast<uint32>(InstanceExtensions_.size());
-		InstanceInfo.ppEnabledExtensionNames = InstanceExtensions_.data();
+		InstanceInfo.enabledExtensionCount = static_cast<uint32>(InstanceExtensions.size());
+		InstanceInfo.ppEnabledExtensionNames = InstanceExtensions.data();
 
-		InstanceInfo.enabledLayerCount = static_cast<uint32>(InstanceLayers_.size());
-		InstanceInfo.ppEnabledLayerNames = InstanceInfo.enabledLayerCount > 0 ? InstanceLayers_.data() : nullptr;
+		InstanceInfo.enabledLayerCount = static_cast<uint32>(InstanceLayers.size());
+		InstanceInfo.ppEnabledLayerNames = InstanceInfo.enabledLayerCount > 0 ? InstanceLayers.data() : nullptr;
 
 		#ifdef __APPLE__
 		InstanceInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
 		#endif
 		try
 		{
-			Instance_ = vk::createInstance(InstanceInfo);
+			Instance = vk::createInstance(InstanceInfo);
 		}
 		catch (const vk::SystemError& err)
 		{
 			DOGE_ERROR("Failed to create Vulkan instance: {}", err.what());
 		}
 
-		if (Instance_)
+		if (Instance)
 		{
 			DOGE_INFO("Vulkan instance created.");
 		}
@@ -110,7 +110,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::SelectDevice() -> void
 	{
-		std::vector<vk::PhysicalDevice> Gpus = Instance_.enumeratePhysicalDevices();
+		std::vector<vk::PhysicalDevice> Gpus = Instance.enumeratePhysicalDevices();
 
 		if (Gpus.empty())
 		{
@@ -127,7 +127,7 @@ namespace Doge::VulkanRHI
 			GpuScores.insert(std::make_pair(Score, Gpu));
 		}
 
-		Device_ = new FVulkanDevice(this, GpuScores.rbegin()->second);
+		Device = new FVulkanDevice(this, GpuScores.rbegin()->second);
 	}
 
 	auto FVulkanDynamicRHI::SetupInstanceLayers(const FVulkanInstanceExtensionArray& DogeExtensions) -> void
@@ -135,6 +135,6 @@ namespace Doge::VulkanRHI
 		// TODO: Implement this function.
 		// For now, just return the validation layer.
 		std::vector<const char*> Layers = {"VK_LAYER_KHRONOS_validation"};
-		InstanceLayers_ = Layers;
+		InstanceLayers = Layers;
 	}
 }

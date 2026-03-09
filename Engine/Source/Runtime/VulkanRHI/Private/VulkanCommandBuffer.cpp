@@ -9,13 +9,13 @@
 
 namespace Doge::VulkanRHI
 {
-	FVulkanCommandBuffer::FVulkanCommandBuffer(FVulkanDevice& Device, FVulkanCommandBufferPool* Pool, bool bIsUploadOnly)
-		: Device(Device)
-		, Pool(Pool)
-		, bIsUploadOnly(bIsUploadOnly)
+	FVulkanCommandBuffer::FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandBufferPool* InPool, bool bInIsUploadOnly)
+		: Device(InDevice)
+		, Pool(InPool)
+		, bIsUploadOnly(bInIsUploadOnly)
 	{
 		AllocMemory();
-		Fence_ = Device.GetFenceManager().AllocateFence(false);
+		Fence = InDevice.GetFenceManager().AllocateFence(false);
 	}
 
 	FVulkanCommandBuffer::~FVulkanCommandBuffer()
@@ -35,23 +35,23 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandBuffer::RefreshFenceStatus() -> void
 	{
-		if (State_ == EState::Submitted)
+		if (State == EState::Submitted)
 		{
 			FVulkanFenceManager& FenceManager = Device.GetFenceManager();
-			if (FenceManager.IsFenceSignaled(Fence_))
+			if (FenceManager.IsFenceSignaled(Fence))
 			{
-				State_ = EState::NeedReset;
+				State = EState::NeedReset;
 			}
 		}
 		else
 		{
-			check(!Fence_->IsSignaled());
+			check(!Fence->IsSignaled());
 		}
 	}
 
 	auto FVulkanCommandBuffer::AllocMemory() -> void
 	{
-		check(State_ == EState::NotAllocated);
+		check(State == EState::NotAllocated);
 
 		vk::CommandBufferAllocateInfo AllocInfo;
 		AllocInfo
@@ -61,16 +61,16 @@ namespace Doge::VulkanRHI
 
 		CommandBuffer = Device.GetHandle().allocateCommandBuffers(AllocInfo)[0];
 
-		State_ = EState::ReadyForBegin;
+		State = EState::ReadyForBegin;
 	}
 
 	auto FVulkanCommandBuffer::FreeMemory() -> void
 	{
-		check(State_ != EState::NotAllocated);
+		check(State != EState::NotAllocated);
 
 		Device.GetHandle().freeCommandBuffers(Pool->GetHandle(), CommandBuffer);
 
-		State_ = EState::NotAllocated;
+		State = EState::NotAllocated;
 	}
 
 	auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer) -> void
@@ -96,7 +96,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandBuffer::IsSubmitted() const -> bool
 	{
-		return State_ == EState::Submitted;
+		return State == EState::Submitted;
 	}
 
 	auto FVulkanCommandBuffer::AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void
@@ -153,7 +153,7 @@ namespace Doge::VulkanRHI
 		{
 			FVulkanCommandBuffer* CmdBuffer = CmdBuffers[Index];
 			CmdBuffer->RefreshFenceStatus();
-			if (CmdBuffer->State_ == FVulkanCommandBuffer::EState::ReadyForBegin || CmdBuffer->State_ == FVulkanCommandBuffer::EState::NeedReset)
+			if (CmdBuffer->State == FVulkanCommandBuffer::EState::ReadyForBegin || CmdBuffer->State == FVulkanCommandBuffer::EState::NeedReset)
 			{
 				// remove at swap
 				std::swap(CmdBuffers[Index], CmdBuffers.back());

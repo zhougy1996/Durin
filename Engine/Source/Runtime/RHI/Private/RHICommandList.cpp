@@ -80,6 +80,11 @@ namespace Doge
 		GetContext().RHISubmitCommandsHint();
 	}
 
+	auto FRHICommandListImmediate::SubmitAndBlockUntilGPUIdle() -> void
+	{
+		GDynamicRHI->RHIBlockUntilGPUIdle();
+	}
+
 	auto FRHICommandListImmediate::Get() -> FRHICommandListImmediate&
 	{
 		return GCommandListExecutor.GetImmediateCommandList();

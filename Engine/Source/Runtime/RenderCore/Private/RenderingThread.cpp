@@ -1,7 +1,10 @@
 #include "RenderingThread.h"
 
+#include "DynamicRHI.h"
 #include "HAL/Runnable.h"
 #include "HAL/RunnableThread.h"
+
+#include "RHICommandList.h"
 
 namespace Doge
 {
@@ -17,11 +20,11 @@ namespace Doge
 
 		auto Run() -> uint32 override
 		{
-			auto* CurrentThread = GetCurrentThread();
-			check(CurrentThread);
+			check(IsInRenderingThread());
 			DOGE_DEBUG("Rendering thread started. (Thread {}: {})", GetCurrentThread()->GetThreadId(), GetCurrentThread()->GetThreadName());
 			while (!bStopRequested)
 			{
+				FRenderThreadCommandPipe::Launch();
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 			}
 			return 0;
@@ -30,6 +33,10 @@ namespace Doge
 		auto Stop() -> void override
 		{
 			bStopRequested = true;
+		}
+
+		auto Exit() -> void override
+		{
 		}
 
 	private:
@@ -63,5 +70,35 @@ namespace Doge
 	{
 		StopRenderingThread();
 	}
+
+	auto GetImmediateCommandList_ForRenderCommand() -> FRHICommandListImmediate&
+	{
+		return FRHICommandListImmediate::Get();
+	}
+
+	auto FRenderThreadCommandPipe::EnqueueImpl(const CharT* Name, std::function<void(FRHICommandListImmediate&)>&& Function) -> void
+	{
+		std::lock_guard<std::mutex> lock(Mutex);
+		bool bWasEmpty = CommandQueue[ProduceIndex].empty();
+		CommandQueue[ProduceIndex].emplace_back(Name, std::move(Function));
+	}
+
+	auto FRenderThreadCommandPipe::LaunchImpl() -> void
+	{
+		check(IsInRenderingThread());
+		Mutex.lock();
+		std::vector<FRenderThreadCommandPipe::FCommand>& CommandsToExecute = CommandQueue[ProduceIndex];
+		ProduceIndex ^= 1;
+		Mutex.unlock();
+
+		for (const FRenderThreadCommandPipe::FCommand& Command : CommandsToExecute)
+		{
+			Command.Function(FRHICommandListImmediate::Get());
+		}
+
+		CommandsToExecute.clear();
+	}
+
+	FRenderThreadCommandPipe FRenderThreadCommandPipe::Instance;
 
 } // namespace Doge

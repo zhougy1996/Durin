@@ -16,7 +16,7 @@ namespace Doge::VulkanRHI
 	class FVulkanCommandBuffer
 	{
 	public:
-		FVulkanCommandBuffer(FVulkanDevice& Device, FVulkanCommandBufferPool* Pool, bool bIsUploadOnly);
+		FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandBufferPool* InPool, bool bInIsUploadOnly);
 
 		~FVulkanCommandBuffer();
 
@@ -36,7 +36,7 @@ namespace Doge::VulkanRHI
 
 		auto GetHandle() const -> vk::CommandBuffer { return CommandBuffer; }
 
-		auto GetFence() const -> FVulkanFence* { return Fence_; }
+		auto GetFence() const -> FVulkanFence* { return Fence; }
 
 		auto IsSubmitted() const -> bool;
 
@@ -62,7 +62,7 @@ namespace Doge::VulkanRHI
 
 		FVulkanCommandBufferPool* Pool;
 
-		EState State_ = EState::NotAllocated;
+		EState State = EState::NotAllocated;
 
 		bool bIsUploadOnly;
 
@@ -70,7 +70,7 @@ namespace Doge::VulkanRHI
 
 		std::vector<FVulkanSemaphore*> WaitSemaphores;
 
-		FVulkanFence* Fence_;
+		FVulkanFence* Fence;
 
 		friend class FVulkanQueue;
 		friend class FVulkanCommandBufferPool;

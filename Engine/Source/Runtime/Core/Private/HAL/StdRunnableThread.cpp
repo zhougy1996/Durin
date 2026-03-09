@@ -31,7 +31,7 @@ namespace Doge
 		Runnable = InRunnable;
 		Thread = std::thread([this]()
 		{
-			GCurrentThreadTL = this;
+			this->AsCurrentThread();
 			Runnable->Init();
 			Runnable->Run();
 			Runnable->Exit();

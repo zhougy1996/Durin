@@ -24,6 +24,8 @@ namespace Doge
 		virtual auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> = 0;
 		virtual auto RHIGetDefaultContext() -> IRHICommandContext* = 0;
 		virtual auto RHIGetViewportBackBuffer(FRHIViewport* InViewportRHI) -> TRefCountPtr<FRHITexture> = 0;
+
+		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 	};
 
 	extern RHI_API IDynamicRHI* GDynamicRHI;

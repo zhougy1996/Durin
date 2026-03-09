@@ -14,7 +14,7 @@ namespace Doge::VulkanRHI
 	class FVulkanCommandListContext : public IRHICommandContext
 	{
 	public:
-		FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, FVulkanDevice& Device, FVulkanQueue* Queue);
+		FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, FVulkanDevice& InDevice, FVulkanQueue* InQueue);
 
 		auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void override;
 
@@ -36,21 +36,21 @@ namespace Doge::VulkanRHI
 
 		auto RHISubmitCommandsHint() -> void override;
 
-		auto GetCommandBufferManager() const -> FVulkanCommandBufferManager* { return CommandBufferManager_; }
+		auto GetCommandBufferManager() const -> FVulkanCommandBufferManager* { return CommandBufferManager; }
 
 		auto GetCommandBuffer() const -> FVulkanCommandBuffer*;
 
-		auto GetQueue() const -> FVulkanQueue* { return Queue_; }
+		auto GetQueue() const -> FVulkanQueue* { return Queue; }
 
 	protected:
-		FVulkanDynamicRHI* RHI_;
+		FVulkanDynamicRHI* RHI;
 
-		FVulkanDevice& Device_;
+		FVulkanDevice& Device;
 
-		FVulkanQueue* Queue_;
+		FVulkanQueue* Queue;
 
-		FVulkanCommandBufferManager* CommandBufferManager_;
+		FVulkanCommandBufferManager* CommandBufferManager;
 
-		FVulkanGraphicsPipelineState* PendingGfxPipelineState_ = nullptr;
+		FVulkanGraphicsPipelineState* PendingGfxPipelineState = nullptr;
 	};
 }

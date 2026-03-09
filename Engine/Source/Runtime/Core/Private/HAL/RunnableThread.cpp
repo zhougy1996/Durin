@@ -4,22 +4,27 @@
 
 namespace Doge
 {
-	thread_local FRunnableThread* GCurrentThreadTL = nullptr;
+	thread_local FRunnableThread* CurrentThread = nullptr;
 
 	FRunnableThread* GRenderingThread = nullptr;
 
 	std::unordered_map<uint32, FRunnableThread*> GThreads;
 
+	auto FRunnableThread::AsCurrentThread() -> void
+	{
+		CurrentThread = this;
+	}
+
 	auto GetCurrentThread() -> FRunnableThread*
 	{
-		return GCurrentThreadTL;
+		return CurrentThread;
 	}
 
 	auto GetCurrentThreadName() -> const char*
 	{
-		if (GCurrentThreadTL)
+		if (CurrentThread)
 		{
-			return GCurrentThreadTL->GetThreadName();
+			return CurrentThread->GetThreadName();
 		}
 		if (IsInGameThread())
 		{
@@ -36,7 +41,7 @@ namespace Doge
 
 	auto IsInRenderingThread() -> bool
 	{
-		return GCurrentThreadTL == GRenderingThread;
+		return CurrentThread == GRenderingThread;
 	}
 
 	auto FRunnableThread::Create(FRunnable* InRunnable, const char* ThreadName, uint32 StackSize, EThreadPriority ThreadPri) -> FRunnableThread*

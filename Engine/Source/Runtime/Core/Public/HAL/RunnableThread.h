@@ -5,7 +5,6 @@
 namespace Doge
 {
 	class FRunnable;
-	extern thread_local FRunnableThread* GCurrentThreadTL;
 
 	enum class EThreadPriority : uint8
 	{
@@ -33,6 +32,8 @@ namespace Doge
 
 	protected:
 		virtual auto CreateInternal(FRunnable* InRunnable, const char* InThreadName, uint32 InStackSize, EThreadPriority InThreadPriority) -> bool = 0;
+
+		CORE_API auto AsCurrentThread() -> void;
 
 		uint32 ThreadId = 0;
 

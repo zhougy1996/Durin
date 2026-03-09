@@ -54,6 +54,8 @@ namespace Doge
 	class RHI_API FRHICommandListImmediate : public FRHICommandList
 	{
 	public:
+		auto SubmitAndBlockUntilGPUIdle() -> void;
+
 		static auto Get() -> FRHICommandListImmediate&;
 	};
 

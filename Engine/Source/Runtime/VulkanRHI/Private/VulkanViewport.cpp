@@ -143,11 +143,16 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport>
 	{
-		return std::make_shared<FVulkanViewport>(*Device_, WindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat);
+		return std::make_shared<FVulkanViewport>(*Device, WindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat);
 	}
 
 	auto FVulkanDynamicRHI::RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TRefCountPtr<FRHITexture>
 	{
 		return ViewportRHI->GetBackBuffer(FRHICommandListImmediate::Get());
 	}
-}
+
+	auto FVulkanDynamicRHI::RHIBlockUntilGPUIdle() -> void
+	{
+		Device->WaitUtilIdle();
+	}
+} // namespace Doge::VulkanRHI

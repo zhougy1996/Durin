@@ -200,6 +200,6 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
 	{
-		return Device_->GetPipelineManager().CreateGraphicsPipelineState(Initializer);
+		return Device->GetPipelineManager().CreateGraphicsPipelineState(Initializer);
 	}
 }

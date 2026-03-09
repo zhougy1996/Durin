@@ -71,41 +71,41 @@ namespace Doge
 	{
 		// Window and viewport
 		TSharedPtr<Mona::MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow();
-		FRHIViewport* Viewport = Window->GetRHIViewport().get();
+		TSharedPtr<FRHIViewport> SharedViewport = Window->GetRHIViewport();
 
-		FRHICommandList& CommandList = FRHICommandListImmediate::Get();
-		// Draw viewport
-		// Wait submit fence before acquiring image
-		CommandList.BeginDrawingViewport(Viewport, nullptr);
+		ENQUEUE_RENDER_COMMAND(TestDrawTriangle)([SharedViewport](FRHICommandListImmediate& CommandList)
+		{
+			FRHIViewport* Viewport = SharedViewport.get();
+			// Draw viewport
+			// Wait submit fence before acquiring image
+			CommandList.BeginDrawingViewport(Viewport, nullptr);
 
-		// Acquire image
-		TRefCountPtr<FRHITexture> BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
+			// Acquire image
+			TRefCountPtr<FRHITexture> BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
 
-		Window->Paint();
+			FRHIRenderPassInfo PassInfo{};
+			PassInfo.ColorRenderTargets[0] = BackBuffer.GetReference();
 
-		// Render pass
-		FRHIRenderPassInfo PassInfo{};
-		PassInfo.ColorRenderTargets[0] = BackBuffer.GetReference();
+			CommandList.BeginFrame();
 
-		CommandList.BeginFrame();
+			CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
 
-		CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
-		//
-		// CommandList.SetGraphicsPipelineState(*GTestPipeline);
-		//
-		// auto Width = BackBuffer->GetSizeX();
-		// auto Height = BackBuffer->GetSizeY();
-		// CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
-		//
-		// // Draw call
-		// CommandList.DrawPrimitive();
-		//
-		CommandList.EndRenderPass();
+			// CommandList.SetGraphicsPipelineState(*GTestPipeline);
+			//
+			// auto Width = BackBuffer->GetSizeX();
+			// auto Height = BackBuffer->GetSizeY();
+			// CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
+			//
+			// // Draw call
+			// CommandList.DrawPrimitive();
 
-		// End drawing viewport and present
-		CommandList.EndDrawingViewport(Viewport, true, false);
+			CommandList.EndRenderPass();
 
-		CommandList.EndFrame();
+			// End drawing viewport and present
+			CommandList.EndDrawingViewport(Viewport, true, false);
+
+			CommandList.EndFrame();
+		});
 	}
 
 	auto FEngineLoop::Tick() -> void
@@ -125,9 +125,14 @@ namespace Doge
 			return;
 		}
 
+		// Increase frame counter
 		GFrameCounter++;
+		uint64 CurrentFrameCounter = GFrameCounter;
+		ENQUEUE_RENDER_COMMAND(AddFrameCounter)([CurrentFrameCounter](FRHICommandListImmediate& CommandList)
+		{
+			GFrameCounterRenderThread = CurrentFrameCounter;
+		});
 
-		GFrameCounterRenderThread++; //TODO: Use command list to increment this, now we just increment it here for testing.
 		// Render Scene.
 		// TODO
 		DrawTriangle();
