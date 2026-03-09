@@ -5,9 +5,26 @@ namespace Doge
 {
 	class FRHICommandListImmediate;
 
+	class FRenderCommandFence
+	{
+	public:
+		FRenderCommandFence() = default;
+		~FRenderCommandFence() = default;
+
+		RENDERCORE_API auto BeginFence() -> void;
+
+		RENDERCORE_API auto Wait() -> void;
+	private:
+		std::atomic<bool> bIsComplete = true;
+		std::condition_variable CV;
+		std::mutex Mutex;
+	};
+
 	RENDERCORE_API auto InitRenderingThread() -> void;
 
 	RENDERCORE_API auto ShutdownRenderingThread() -> void;
+
+	RENDERCORE_API auto FlushRenderingCommands() -> void;
 
 	class FRenderThreadCommandPipe
 	{

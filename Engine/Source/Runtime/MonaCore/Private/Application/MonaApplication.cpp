@@ -87,7 +87,7 @@ namespace Doge::Mona
 		{
 			TSharedPtr<MWindow> Window = WindowDestroyQueue_.front();
 			TSharedPtr<FRHIViewport> Viewport = Window->GetRHIViewport();
-			Viewport->WaitForLastFrameCompletion();
+			FlushRenderingCommands();
 			WindowDestroyQueue_.erase(WindowDestroyQueue_.begin());
 			Windows_.erase(std::remove(Windows_.begin(), Windows_.end(), Window), Windows_.end());
 		}

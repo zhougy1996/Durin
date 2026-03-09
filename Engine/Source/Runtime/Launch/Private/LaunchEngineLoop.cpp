@@ -86,8 +86,6 @@ namespace Doge
 			FRHIRenderPassInfo PassInfo{};
 			PassInfo.ColorRenderTargets[0] = BackBuffer.GetReference();
 
-			CommandList.BeginFrame();
-
 			CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
 
 			// CommandList.SetGraphicsPipelineState(*GTestPipeline);
@@ -103,8 +101,6 @@ namespace Doge
 
 			// End drawing viewport and present
 			CommandList.EndDrawingViewport(Viewport, true, false);
-
-			CommandList.EndFrame();
 		});
 	}
 
@@ -133,9 +129,19 @@ namespace Doge
 			GFrameCounterRenderThread = CurrentFrameCounter;
 		});
 
+		ENQUEUE_RENDER_COMMAND(BeginFrame)([](FRHICommandListImmediate& CommandList)
+		{
+			CommandList.BeginFrame();
+		});
+
 		// Render Scene.
 		// TODO
 		DrawTriangle();
+
+		ENQUEUE_RENDER_COMMAND(EndFrame)([](FRHICommandListImmediate& CommandList)
+		{
+			CommandList.EndFrame();
+		});
 
 		// Render UI.
 		// TODO

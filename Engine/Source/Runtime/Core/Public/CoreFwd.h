@@ -27,6 +27,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <atomic>
+#include <future>
 
 #include <functional>
 
