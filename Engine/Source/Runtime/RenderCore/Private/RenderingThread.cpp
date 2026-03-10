@@ -15,7 +15,6 @@ namespace Doge
 	public:
 		~FRenderingThread() override
 		{
-			DOGE_DEBUG("Rendering thread shut down.");
 		}
 
 		auto Run() -> uint32 override
@@ -31,11 +30,13 @@ namespace Doge
 
 		auto Stop() -> void override
 		{
+			DOGE_DEBUG("Rendering thread stop requested.");
 			bStopRequested = true;
 		}
 
 		auto Exit() -> void override
 		{
+			DOGE_DEBUG("Rendering thread shut down.");
 		}
 
 	private:
