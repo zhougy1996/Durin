@@ -90,6 +90,9 @@ namespace Doge
 
 	struct FGenericPlatformMisc
 	{
+	};
 
+	struct FGenericPlatformLTS
+	{
 	};
 }

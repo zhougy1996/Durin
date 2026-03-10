@@ -6,7 +6,6 @@ namespace Doge
 {
 	auto FRunnableThreadStd::Kill(bool bShouldWait) -> void
 	{
-
 	}
 
 	auto FRunnableThreadStd::Suspend(bool bShouldPause) -> void
@@ -23,22 +22,30 @@ namespace Doge
 		Thread.join();
 	}
 
+	uint32 PlatformGetThreadIdFromStdThread(std::thread& Thread)
+	{
+		check(Thread.joinable());
+#ifdef _WIN32
+		return static_cast<uint32>(GetThreadId(Thread.native_handle()));
+#elif defined(__linux__) || defined(__APPLE__)
+		pthread_t pthread_id = Thread.native_handle();
+		return static_cast<uint32>(pthread_id);
+#endif
+	}
+
 	auto FRunnableThreadStd::CreateInternal(FRunnable* InRunnable, const char* InThreadName, uint32 InStackSize, EThreadPriority InThreadPriority) -> bool
 	{
-		static std::atomic<uint32> NextThreadId{1};
-
 		ThreadName = InThreadName;
 		Runnable = InRunnable;
-		Thread = std::thread([this]()
-		{
+		Thread = std::thread([this]() {
 			this->AsCurrentThread();
 			Runnable->Init();
 			Runnable->Run();
 			Runnable->Exit();
 		});
 
-		ThreadId = NextThreadId.fetch_add(1, std::memory_order_relaxed);
+		ThreadId = PlatformGetThreadIdFromStdThread(Thread);
 		return true;
 	}
 
-}
+} // namespace Doge

@@ -20,7 +20,7 @@ namespace Doge
 		auto Run() -> uint32 override
 		{
 			check(IsInRenderingThread());
-			DOGE_DEBUG("Rendering thread started. (Thread {}: {})", GetCurrentThread()->GetThreadId(), GetCurrentThread()->GetThreadName());
+			DOGE_DEBUG("Rendering thread started. ({}, id: {})", GetCurrentThread()->GetThreadName(), GetCurrentThread()->GetThreadId());
 			while (!bStopRequested)
 			{
 				FRenderThreadCommandPipe::Launch();

@@ -23,7 +23,7 @@ namespace Doge
 	extern CORE_API FPath GWorkDirectory;
 	extern CORE_API FPath GShaderPath;
 
-	extern CORE_API std::thread::id GGameThreadId;
+	extern CORE_API uint32 GGameThreadId;
 	extern CORE_API bool GIsGameThreadIdInitialized;
 	extern CORE_API FRunnableThread* GRenderingThread;
 

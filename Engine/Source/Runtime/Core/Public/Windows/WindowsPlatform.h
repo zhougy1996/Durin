@@ -85,4 +85,14 @@ namespace Doge
 	};
 
 	using FPlatformMisc = FWindowsPlatformMisc;
+
+	struct FWindowsPlatformLTS : public FWindowsPlatformMisc
+	{
+		static FORCEINLINE auto GetCurrentThreadId() -> uint32
+		{
+			return ::GetCurrentThreadId();
+		}
+	};
+
+	using FPlatformLTS = FWindowsPlatformLTS;
 }

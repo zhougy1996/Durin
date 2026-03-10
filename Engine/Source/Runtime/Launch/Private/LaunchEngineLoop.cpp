@@ -29,7 +29,7 @@ namespace Doge
 		DOGE_DEBUG(STR("Working directory: {}"), GWorkDirectory.string());
 		FConfigCacheJson::LoadAndParseConfig();
 
-		GGameThreadId = std::this_thread::get_id();
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 
 		LoggerInit();

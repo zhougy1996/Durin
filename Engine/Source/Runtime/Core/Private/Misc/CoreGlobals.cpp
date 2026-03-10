@@ -11,7 +11,7 @@ namespace Doge
 
 	std::vector<const char*> GMonaRequiredVulkanInstanceExtensions;
 
-	auto GGameThreadId = std::thread::id();
+	uint32 GGameThreadId = 0;
 	bool GIsGameThreadIdInitialized = false;
 
 
