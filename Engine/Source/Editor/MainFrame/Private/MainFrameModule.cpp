@@ -18,7 +18,7 @@ namespace Doge
 	class MMainFrame final : public Mona::MWidget
 	{
 	private:
-		auto OnPaint() -> void override
+		auto Draw() -> void override
 		{
 			//Mona::Text(FString("Test"));
 		}

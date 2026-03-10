@@ -7,12 +7,13 @@ namespace Doge::Mona
 	class MONACORE_API MCompoundWidget : public MWidget
 	{
 	public:
+		auto Draw() -> void override;
+
 		auto SetChild(TSharedPtr<MWidget> InChild) -> void { ChildWidget = std::move(InChild); }
 
 		auto GetChild() const -> TSharedPtr<MWidget> { return ChildWidget; }
-	protected:
-		auto OnPaint() -> void override;
 
+	protected:
 		TSharedPtr<MWidget> ChildWidget;
 	};
 }

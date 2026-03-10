@@ -10,7 +10,7 @@ namespace Doge::Mona
 
 		virtual ~MWidget() = default;
 
-		auto Paint() -> void;
+		virtual auto Draw() -> void;
 
 		virtual auto AsWidget() -> TSharedPtr<MWidget>;
 
@@ -25,8 +25,6 @@ namespace Doge::Mona
 		auto GetName() const -> FName { return Name; }
 
 	protected:
-		virtual auto OnPaint() -> void {};
-
 		FName Name;
 
 		TWeakPtr<MWidget> ParentWidget;
