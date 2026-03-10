@@ -80,7 +80,7 @@ namespace Doge
 		});
 	}
 
-	namespace FFrameEndSync
+	namespace FFrameSync
 	{
 		struct FRenderThreadFence
 		{
@@ -97,15 +97,34 @@ namespace Doge
 			FRenderCommandFence Fence;
 		};
 
-		std::list<FRenderThreadFence> RenderThreadFences;
+		std::array<std::optional<FRenderThreadFence>, 2> RenderThreadFences;
 
-		auto Sync() -> void
+		static uint32 NextFenceIndex = 0;
+
+		auto Sync(EFlushMode FlushMode) -> void
 		{
 			check(IsInGameThread());
-			RenderThreadFences.emplace_back();
-			while(RenderThreadFences.size() > 1)
+			bool bFullSync = (FlushMode == EFlushMode::Threads);
+
+			RenderThreadFences[NextFenceIndex].emplace();
+			NextFenceIndex ^= 1;
+
+			if (bFullSync)
 			{
-				RenderThreadFences.erase(RenderThreadFences.begin());
+				for (size_t i = 0; i < RenderThreadFences.size(); ++i)
+				{
+					if (RenderThreadFences[i].has_value())
+					{
+						RenderThreadFences[i].reset();
+					}
+				}
+			}
+			else
+			{
+				if (RenderThreadFences[NextFenceIndex].has_value())
+				{
+					RenderThreadFences[NextFenceIndex].reset();
+				}
 			}
 		}
 	}
@@ -122,9 +141,7 @@ namespace Doge
 
 	auto FlushRenderingCommands() -> void
 	{
-		FRenderCommandFence Fence;
-		Fence.BeginFence();
-		Fence.Wait();
+		FFrameSync::Sync(FFrameSync::EFlushMode::Threads);
 	}
 
 	auto GetImmediateCommandList_ForRenderCommand() -> FRHICommandListImmediate&

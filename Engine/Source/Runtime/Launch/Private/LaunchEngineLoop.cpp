@@ -143,7 +143,7 @@ namespace Doge
 			CommandList.EndFrame();
 		});
 
-		FFrameEndSync::Sync();
+		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
 
 		// Render UI.
 		// TODO

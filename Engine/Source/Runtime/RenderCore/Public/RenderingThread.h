@@ -20,10 +20,15 @@ namespace Doge
 		std::mutex Mutex;
 	};
 
-	namespace FFrameEndSync
+	namespace FFrameSync
 	{
-		// Wait for the render thread to finish processing all commands of N-1 Frame.
-		RENDERCORE_API auto Sync() -> void;
+		enum class EFlushMode
+		{
+			EndFrame,
+
+			Threads
+		};
+		RENDERCORE_API auto Sync(EFlushMode FlushMode) -> void;
 	}
 
 	RENDERCORE_API auto InitRenderingThread() -> void;

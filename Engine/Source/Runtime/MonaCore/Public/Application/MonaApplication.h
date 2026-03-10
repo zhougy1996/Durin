@@ -29,7 +29,7 @@ namespace Doge::Mona
 
 		auto InitializeRenderer() -> void;
 
-		auto RequestDestroyWindow(TSharedPtr<MWindow> Window) -> void;
+		auto RequestDestroyWindow(TSharedPtr<MWindow> InWindow) -> void;
 
 		auto CloseAllWindowsImmediately() -> void;
 
@@ -41,14 +41,14 @@ namespace Doge::Mona
 
 		auto ProcessDeferredEvents() -> void override;
 
-		auto FindWidgetWindow(TSharedPtr<MWidget> Widget) -> TSharedPtr<MWindow>;
+		auto FindWidgetWindow(TSharedPtr<MWidget> InWidget) -> TSharedPtr<MWindow>;
 
 		auto GetRenderer() const -> FMonaRenderer*;
 
 		auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow> override;
 
 	protected:
-		auto MakeWindow(TSharedPtr<MWindow> MonaWindow, bool bShowImmediately) -> TSharedPtr<FGenericWindow>;
+		auto MakeWindow(TSharedPtr<MWindow> InMonaWindow, bool bInShowImmediately) -> TSharedPtr<FGenericWindow>;
 
 		auto TickPlatform() -> void;
 
@@ -56,12 +56,12 @@ namespace Doge::Mona
 
 		auto TickAndDrawWidgets() -> void;
 
-		static TSharedPtr<FMonaApplication> CurrentApplication_;
+		static TSharedPtr<FMonaApplication> CurrentApplication;
 
-		std::vector<TSharedPtr<MWindow>> Windows_;
+		std::vector<TSharedPtr<MWindow>> Windows;
 
-		std::vector<TSharedPtr<MWindow>> WindowDestroyQueue_;
+		std::vector<TSharedPtr<MWindow>> WindowDestroyQueue;
 
-		TSharedPtr<FMonaRenderer> Renderer_;
+		TSharedPtr<FMonaRenderer> Renderer;
 	};
 }
