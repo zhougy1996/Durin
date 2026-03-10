@@ -9,6 +9,7 @@
 #include "VulkanContext.h"
 #include "VulkanSwapChain.h"
 #include "VulkanQueue.h"
+#include "HAL/RunnableThread.h"
 
 namespace Doge::VulkanRHI
 {
@@ -143,6 +144,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport>
 	{
+		check(IsInGameThread());
 		return std::make_shared<FVulkanViewport>(*Device, WindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat);
 	}
 
