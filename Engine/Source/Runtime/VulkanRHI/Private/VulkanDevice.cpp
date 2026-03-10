@@ -26,9 +26,9 @@ namespace Doge::VulkanRHI
 		GpuProps = Gpu.getProperties();
 		DOGE_DEBUG("Vulkan Device Information:");
 		DOGE_DEBUG("- Device Name: {}", GpuProps.deviceName.data());
-		DOGE_DEBUG("- Device Type: {}", vk::to_string(GpuProps.deviceType));
+		DOGE_TRACE("- Device Type: {}", vk::to_string(GpuProps.deviceType));
 		DOGE_DEBUG("- API Version: {}.{}.{} (0x{:x})", vk::apiVersionMajor(GpuProps.apiVersion), vk::apiVersionMinor(GpuProps.apiVersion), vk::apiVersionPatch(GpuProps.apiVersion), GpuProps.apiVersion);
-		DOGE_DEBUG("- Vendor ID: 0x{:x}", GpuProps.vendorID);
+		DOGE_TRACE("- Vendor ID: 0x{:x}", GpuProps.vendorID);
 		DOGE_DEBUG("- Driver Version: 0x{:x}", GpuProps.driverVersion);
 
 		QueueFamilyProps = Gpu.getQueueFamilyProperties();
@@ -68,11 +68,11 @@ namespace Doge::VulkanRHI
 
 			bool bIsValidQueue = false;
 
-			DOGE_DEBUG("Queue Family {}:", FamilyIndex);
-			DOGE_DEBUG("- Queue Count: {}", QueueFamilyProp.queueCount);
-			DOGE_DEBUG("- Queue Flags: {}", vk::to_string(QueueFamilyProp.queueFlags));
-			DOGE_DEBUG("- Timestamp Valid Bits: {}", QueueFamilyProp.timestampValidBits);
-			DOGE_DEBUG("- Min Image Transfer Granularity: ({}, {}, {})", QueueFamilyProp.minImageTransferGranularity.width, QueueFamilyProp.minImageTransferGranularity.height, QueueFamilyProp.minImageTransferGranularity.depth);
+			DOGE_TRACE("Queue Family {}:", FamilyIndex);
+			DOGE_TRACE("- Queue Count: {}", QueueFamilyProp.queueCount);
+			DOGE_TRACE("- Queue Flags: {}", vk::to_string(QueueFamilyProp.queueFlags));
+			DOGE_TRACE("- Timestamp Valid Bits: {}", QueueFamilyProp.timestampValidBits);
+			DOGE_TRACE("- Min Image Transfer Granularity: ({}, {}, {})", QueueFamilyProp.minImageTransferGranularity.width, QueueFamilyProp.minImageTransferGranularity.height, QueueFamilyProp.minImageTransferGranularity.depth);
 
 			if (QueueFamilyProp.queueFlags & vk::QueueFlagBits::eGraphics)
 			{
@@ -101,7 +101,7 @@ namespace Doge::VulkanRHI
 
 			if (!bIsValidQueue)
 			{
-				DOGE_DEBUG("Skipping unnecessary Queue Family {}", FamilyIndex);
+				DOGE_TRACE("Skipping unnecessary Queue Family {}", FamilyIndex);
 				continue;
 			}
 
@@ -123,29 +123,29 @@ namespace Doge::VulkanRHI
 		try
 		{
 			Device = Gpu.createDevice(DeviceInfo);
-			DOGE_INFO("Vulkan device created");
+			DOGE_TRACE("Vulkan device created");
 		}
 		catch (const std::runtime_error& err)
 		{
 			DOGE_ERROR("Failed to create Vulkan device: {}", err.what());
 		}
 
-		DOGE_DEBUG("Queue Indexes:");
-		DOGE_DEBUG("Graphics Queue Index: {}", GraphicsQueueIndex);
+		DOGE_TRACE("Queue Indexes:");
+		DOGE_TRACE("Graphics Queue Index: {}", GraphicsQueueIndex);
 		GraphicsQueue = new FVulkanQueue(this, GraphicsQueueIndex);
 
 		if (ComputeQueueIndex == -1)
 		{
 			ComputeQueueIndex = GraphicsQueueIndex;
 		}
-		DOGE_DEBUG("Compute Queue Index: {}", ComputeQueueIndex);
+		DOGE_TRACE("Compute Queue Index: {}", ComputeQueueIndex);
 		ComputeQueue = new FVulkanQueue(this, ComputeQueueIndex);
 
 		if (TransferQueueIndex == -1)
 		{
 			TransferQueueIndex = ComputeQueueIndex;
 		}
-		DOGE_DEBUG("Transfer Queue Index: {}", TransferQueueIndex);
+		DOGE_TRACE("Transfer Queue Index: {}", TransferQueueIndex);
 		TransferQueue = new FVulkanQueue(this, TransferQueueIndex);
 	}
 

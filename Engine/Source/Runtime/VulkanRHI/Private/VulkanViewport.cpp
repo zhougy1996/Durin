@@ -69,7 +69,7 @@ namespace Doge::VulkanRHI
 
 		RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
 
-		DOGE_DEBUG("Vulkan image views created. (size: {})", BackBufferImages.size());
+		DOGE_TRACE("Vulkan image views created. (size: {})", BackBufferImages.size());
 	}
 
 	FVulkanViewport::~FVulkanViewport()

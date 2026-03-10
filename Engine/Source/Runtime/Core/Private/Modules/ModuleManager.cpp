@@ -94,7 +94,7 @@ namespace Doge
 			AddModule(InModuleName, GetDogeModuleFileName(InModuleName));
 			FoundModuleInfo = FindModule(InModuleName);
 		}
-		DOGE_DEBUG(STR("ModuleFileName: {}"), FoundModuleInfo->FileName);
+		DOGE_TRACE(STR("Try load: {}"), FoundModuleInfo->FileName);
 		FModuleHandle ModuleHandle = FPlatformMisc::LoadLibrary(FoundModuleInfo->FileName);
 		if (!ModuleHandle)
 		{
@@ -116,7 +116,7 @@ namespace Doge
 		FoundModuleInfo->Handle = ModuleHandle;
 		Result = InitializeModuleFunctionPtr();
 		FoundModuleInfo->Module = TUniquePtr<IModuleInterface>(Result);
-		DOGE_INFO(STR("Module loaded: {}"), InModuleName.ToString());
+		DOGE_DEBUG(STR("Module loaded: {}"), InModuleName.ToString());
 
 		if (bCanProcessNewlyLoadedObjects)
 		{
@@ -132,7 +132,7 @@ namespace Doge
 
 	auto FModuleManager::UnloadModule(const FName& InModuleName) -> void
 	{
-		DOGE_INFO(STR("Module Unloaded: {}"), InModuleName.ToString());
+		DOGE_DEBUG(STR("Module Unloaded: {}"), InModuleName.ToString());
 	}
 
 	auto FModuleManager::StartProcessingNewlyLoadedObjects() -> void

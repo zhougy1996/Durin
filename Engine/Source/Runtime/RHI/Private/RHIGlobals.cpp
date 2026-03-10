@@ -17,7 +17,6 @@ namespace Doge
 
 	auto RHIInit() -> void
 	{
-		DOGE_DEBUG("Initializing RHI");
 		GDynamicRHI = CreateDynamicRHI();
 		if (GDynamicRHI == nullptr)
 		{
@@ -25,6 +24,7 @@ namespace Doge
 			return;
 		}
 		GDynamicRHI->Init();
+		DOGE_DEBUG("RHI initialized successfully");
 	}
 
 	auto RHIExit() -> void

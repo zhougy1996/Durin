@@ -82,7 +82,7 @@ namespace Doge::VulkanRHI
 
 		if (Instance)
 		{
-			DOGE_INFO("Vulkan instance created.");
+			DOGE_TRACE("Vulkan instance created.");
 		}
 	}
 

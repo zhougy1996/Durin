@@ -60,11 +60,11 @@ namespace Doge::VulkanRHI
 		try
 		{
 			Framebuffer = Device.GetHandle().createFramebuffer(FramebufferCreateInfo);
-			DOGE_DEBUG("Vulkan framebuffer created. Render targets count: {}", NumColorRenderTargets);
+			DOGE_TRACE("Vulkan framebuffer created. Render targets count: {}", NumColorRenderTargets);
 		}
 		catch (const std::runtime_error& err)
 		{
-			DOGE_ERROR("Failed to create vulkan framebuffer: {}", err.what());
+			DOGE_TRACE("Failed to create vulkan framebuffer: {}", err.what());
 		}
 	}
 }

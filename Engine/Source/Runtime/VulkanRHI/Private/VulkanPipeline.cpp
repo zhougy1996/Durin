@@ -110,7 +110,7 @@ namespace Doge::VulkanRHI
 		try
 		{
 			PipelineLayout = Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
-			DOGE_DEBUG("Vulkan pipeline layout created");
+			DOGE_TRACE("Vulkan pipeline layout created");
 		}
 		catch (const std::runtime_error& err)
 		{
@@ -141,7 +141,7 @@ namespace Doge::VulkanRHI
 		else
 		{
 			Pipeline = PipelineCreationResult.value;
-			DOGE_DEBUG("Vulkan graphics pipeline created");
+			DOGE_TRACE("Vulkan graphics pipeline created");
 		}
 	}
 

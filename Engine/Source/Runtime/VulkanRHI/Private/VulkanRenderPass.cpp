@@ -41,7 +41,7 @@ namespace Doge::VulkanRHI
 		try
 		{
 			RenderPass = Device.GetHandle().createRenderPass(RenderPassInfo);
-			DOGE_DEBUG("Vulkan render pass created");
+			DOGE_TRACE("Vulkan render pass created");
 		}
 		catch (const std::runtime_error& err)
 		{

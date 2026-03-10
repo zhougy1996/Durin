@@ -67,7 +67,7 @@ namespace Doge::VulkanRHI
 		AddRequiredExtensions(OutDogeInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
 
 		const std::vector<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
-		DOGE_DEBUG("Found {} available instance extensions:", DriverSupportedInstanceExtensions.size());
+		DOGE_TRACE("Found {} available instance extensions:", DriverSupportedInstanceExtensions.size());
 		for (const vk::ExtensionProperties& Extension : DriverSupportedInstanceExtensions)
 		{
 			const int32 ExtensionIndex = FindExtension(OutDogeInstanceExtensions, Extension.extensionName);
@@ -79,7 +79,7 @@ namespace Doge::VulkanRHI
 				OutDogeInstanceExtensions[ExtensionIndex]->SetSupported();
 				OutDogeInstanceExtensions[ExtensionIndex]->SetActivated();
 			}
-			DOGE_DEBUG("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
+			DOGE_TRACE("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
 		}
 
 		return OutDogeInstanceExtensions;
@@ -95,7 +95,7 @@ namespace Doge::VulkanRHI
 		}
 
 		std::vector<vk::ExtensionProperties> DriverSupportedDeviceExtensions = GetDriverSupportedDeviceExtensions(InDevice->GetGpu());
-		DOGE_DEBUG("Found {} available device extensions:", DriverSupportedDeviceExtensions.size());
+		DOGE_TRACE("Found {} available device extensions:", DriverSupportedDeviceExtensions.size());
 
 		for (const vk::ExtensionProperties& Extension : DriverSupportedDeviceExtensions)
 		{
@@ -108,7 +108,7 @@ namespace Doge::VulkanRHI
 				OutDeviceExtensions[ExtensionIndex]->SetSupported();
 				OutDeviceExtensions[ExtensionIndex]->SetActivated();
 			}
-			DOGE_DEBUG("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
+			DOGE_TRACE("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
 		}
 
 		return OutDeviceExtensions;

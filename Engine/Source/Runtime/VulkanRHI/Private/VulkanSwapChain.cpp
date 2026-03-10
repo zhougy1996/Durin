@@ -84,7 +84,7 @@ namespace Doge::VulkanRHI
 		try
 		{
 			SwapChain = Device.GetHandle().createSwapchainKHR(SwapChainInfo);
-			DOGE_DEBUG("Vulkan swap chain created");
+			DOGE_TRACE("Vulkan swap chain created");
 		}
 		catch (const std::runtime_error& err)
 		{
