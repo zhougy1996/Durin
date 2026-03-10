@@ -80,6 +80,36 @@ namespace Doge
 		});
 	}
 
+	namespace FFrameEndSync
+	{
+		struct FRenderThreadFence
+		{
+			FRenderThreadFence()
+			{
+				Fence.BeginFence();
+			}
+
+			~FRenderThreadFence()
+			{
+				Fence.Wait();
+			}
+
+			FRenderCommandFence Fence;
+		};
+
+		std::list<FRenderThreadFence> RenderThreadFences;
+
+		auto Sync() -> void
+		{
+			check(IsInGameThread());
+			RenderThreadFences.emplace_back();
+			while(RenderThreadFences.size() > 1)
+			{
+				RenderThreadFences.erase(RenderThreadFences.begin());
+			}
+		}
+	}
+
 	auto InitRenderingThread() -> void
 	{
 		StartRenderingThread();
@@ -92,16 +122,9 @@ namespace Doge
 
 	auto FlushRenderingCommands() -> void
 	{
-		auto FlushPromisePtr = std::make_shared<std::promise<void>>();
-		std::future<void> FlushFuture = FlushPromisePtr->get_future();
-
-		ENQUEUE_RENDER_COMMAND(FlushCommand)([FlushPromisePtr](FRHICommandListImmediate& RHICmdList)
-		{
-			DOGE_DEBUG("Rendering thread flush command executed.");
-			FlushPromisePtr->set_value();
-		});
-
-		FlushFuture.wait();
+		FRenderCommandFence Fence;
+		Fence.BeginFence();
+		Fence.Wait();
 	}
 
 	auto GetImmediateCommandList_ForRenderCommand() -> FRHICommandListImmediate&
@@ -111,7 +134,6 @@ namespace Doge
 
 	auto FRenderThreadCommandPipe::EnqueueImpl(const CharT* Name, std::function<void(FRHICommandListImmediate&)>&& Function) -> void
 	{
-		DOGE_DEBUG("Enqueuing render command: {}", Name);
 		std::lock_guard<std::mutex> lock(Mutex);
 		bool bWasEmpty = CommandQueue[ProduceIndex].empty();
 		CommandQueue[ProduceIndex].emplace_back(Name, std::move(Function));

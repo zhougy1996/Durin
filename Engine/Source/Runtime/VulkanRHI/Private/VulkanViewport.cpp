@@ -127,8 +127,7 @@ namespace Doge::VulkanRHI
 		LastFrameCommandBuffer = Queue->GetLastSubmittedCommandBuffer();
 		if (LastFrameCommandBuffer)
 		{
-			bool Result = Device.GetFenceManager().WaitForFence(LastFrameCommandBuffer->GetFence(), UINT64_MAX);
-			DOGE_DEBUG("waited for last frame completion. (result: {})", Result);
+			Device.GetFenceManager().WaitForFence(LastFrameCommandBuffer->GetFence(), UINT64_MAX);
 			Device.GetFenceManager().ResetFence(LastFrameCommandBuffer->GetFence());
 		}
 	}

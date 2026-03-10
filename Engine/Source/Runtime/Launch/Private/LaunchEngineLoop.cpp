@@ -143,6 +143,8 @@ namespace Doge
 			CommandList.EndFrame();
 		});
 
+		FFrameEndSync::Sync();
+
 		// Render UI.
 		// TODO
 
