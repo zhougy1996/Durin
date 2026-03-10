@@ -51,6 +51,17 @@ namespace Doge
 		InitRenderingThread();
 	}
 
+	static auto BeginFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 FrameCounter) -> void
+	{
+		GFrameCounterRenderThread = FrameCounter;
+		CommandList.BeginFrame();
+	}
+
+	static auto EndFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 FrameCounter) -> void
+	{
+		CommandList.EndFrame();
+	}
+
 	static auto CreateTestPipeline()
 	{
 		const TSharedPtr<Mona::MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow();
@@ -88,14 +99,14 @@ namespace Doge
 
 			CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
 
-			// CommandList.SetGraphicsPipelineState(*GTestPipeline);
-			//
-			// auto Width = BackBuffer->GetSizeX();
-			// auto Height = BackBuffer->GetSizeY();
-			// CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
-			//
-			// // Draw call
-			// CommandList.DrawPrimitive();
+			CommandList.SetGraphicsPipelineState(*GTestPipeline);
+
+			auto Width = BackBuffer->GetSizeX();
+			auto Height = BackBuffer->GetSizeY();
+			CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
+
+			// Draw call
+			CommandList.DrawPrimitive();
 
 			CommandList.EndRenderPass();
 
@@ -106,6 +117,8 @@ namespace Doge
 
 	auto FEngineLoop::Tick() -> void
 	{
+		uint64 CurrentFrameCounter = GFrameCounter;
+
 		// Game logic.
 		GEngine->Tick(0.0f, false);
 
@@ -121,34 +134,21 @@ namespace Doge
 			return;
 		}
 
-		// Increase frame counter
-		GFrameCounter++;
-		uint64 CurrentFrameCounter = GFrameCounter;
-		ENQUEUE_RENDER_COMMAND(AddFrameCounter)([CurrentFrameCounter](FRHICommandListImmediate& CommandList)
+		ENQUEUE_RENDER_COMMAND(BeginFrame)([CurrentFrameCounter](FRHICommandListImmediate& CommandList)
 		{
-			GFrameCounterRenderThread = CurrentFrameCounter;
-		});
-
-		ENQUEUE_RENDER_COMMAND(BeginFrame)([](FRHICommandListImmediate& CommandList)
-		{
-			CommandList.BeginFrame();
+			BeginFrameRenderThread(CommandList, CurrentFrameCounter);
 		});
 
 		// Render Scene.
-		// TODO
 		DrawTriangle();
 
-		ENQUEUE_RENDER_COMMAND(EndFrame)([](FRHICommandListImmediate& CommandList)
+		ENQUEUE_RENDER_COMMAND(EndFrame)([CurrentFrameCounter](FRHICommandListImmediate& RHICmdList)
 		{
-			CommandList.EndFrame();
+			EndFrameRenderThread(RHICmdList, CurrentFrameCounter);
 		});
 
 		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
-
-		// Render UI.
-		// TODO
-
-		// Execute RHI commands, this is just for testing, we should have a RHI thread and a more robust rendering process
+		GFrameCounter++;
 	}
 
 	auto FEngineLoop::Exit() -> void
@@ -156,6 +156,6 @@ namespace Doge
 		ShutdownRenderingThread();
 		// TODO: this is just for testing, we should have a more robust shutdown process
 		delete GEngine;
-		Mona::FMonaApplication::Get().Shutdown();
+		Mona::FMonaApplication::Shutdown();
 	}
 }
