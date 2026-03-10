@@ -7,7 +7,7 @@ class logger;
 
 namespace Doge
 {
-	enum class CORE_API ELogLevel
+	enum class ELogLevel
 	{
 		Trace,
 		Debug,
@@ -33,10 +33,14 @@ namespace Doge
 
 		static auto Error(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
+		auto SetLogWithThreadName(bool bInLogWithThreadName) -> void { bLogWithThreadName = bInLogWithThreadName; }
+
 	private:
 		FLogger();
 
 		std::shared_ptr<spdlog::logger> Logger;
+
+		bool bLogWithThreadName = false;
 	};
 
 	auto CORE_API LoggerInit() -> void;

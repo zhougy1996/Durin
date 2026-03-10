@@ -4,8 +4,11 @@
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 
+#include "HAL/RunnableThread.h"
+
 namespace Doge
 {
+
 	auto FLogger::Get() -> FLogger&
 	{
 		static FLogger instance;
@@ -15,8 +18,14 @@ namespace Doge
 	auto FLogger::Log(ELogLevel Level, FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) const -> void
 	{
 		const auto SpdSourceLocation = spdlog::source_loc{SourceLocation.file_name(), static_cast<int>(SourceLocation.line()), SourceLocation.function_name()};
-		const FString LogStringWithModule = std::format(STR("[{}] {}"), ModuleName, LogString);
-		Logger->log(SpdSourceLocation, static_cast<spdlog::level::level_enum>(Level), LogStringWithModule);
+		if (bLogWithThreadName)
+		{
+			Logger->log(SpdSourceLocation, static_cast<spdlog::level::level_enum>(Level), "[{}][{}] {}", GetCurrentThreadName(), ModuleName, LogString);
+		}
+		else
+		{
+			Logger->log(SpdSourceLocation, static_cast<spdlog::level::level_enum>(Level), "[{}] {}", ModuleName, LogString);
+		}
 	}
 
 	auto FLogger::Trace(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
@@ -68,6 +77,7 @@ namespace Doge
 
 	auto LoggerInit() -> void
 	{
-		FLogger::Get();
+		FLogger& Logger = FLogger::Get();
+		Logger.SetLogWithThreadName(false);
 	}
 }

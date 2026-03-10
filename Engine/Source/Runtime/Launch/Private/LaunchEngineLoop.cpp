@@ -25,12 +25,12 @@ namespace Doge
 
 	auto FEngineLoop::PreInit() -> void
 	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+
 		GWorkDirectory = std::filesystem::current_path();
 		DOGE_DEBUG(STR("Working directory: {}"), GWorkDirectory.string());
 		FConfigCacheJson::LoadAndParseConfig();
-
-		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
-		GIsGameThreadIdInitialized = true;
 
 		LoggerInit();
 		FNameInit();
