@@ -2,8 +2,8 @@
 
 namespace Doge
 {
-	FViewport::FViewport(FViewportClient* ViewportClient)
-		: ViewportClient_(ViewportClient)
+	FViewport::FViewport(FViewportClient* InViewportClient)
+		: ViewportClient(InViewportClient)
 	{
 	}
 
@@ -22,6 +22,6 @@ namespace Doge
 
 	auto FViewport::GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&
 	{
-		return RHIViewport_;
+		return ViewportRHI;
 	}
 }

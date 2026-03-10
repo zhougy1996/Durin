@@ -6,11 +6,6 @@
 
 namespace Doge::Mona
 {
-	auto FMonaRHIRenderer::GetRHIViewport(MWindow& Window) -> TSharedPtr<FRHIViewport>
-	{
-		return Window.GetRHIViewport();
-	}
-
 	constexpr int32 MIN_VIEWPORT_SIZE = 8;
 
 	auto FMonaRHIRenderer::CreateViewport(const TSharedPtr<MWindow>& Window) -> void
@@ -28,8 +23,23 @@ namespace Doge::Mona
 			bFullScreen = true;
 		}
 
-		TSharedPtr<FRHIViewport> RHIViewport = GDynamicRHI->RHICreateViewport(GLFWWindow->GetOSNativeWindowHandle(), Width, Height, bFullScreen, EPixelFormat::SRGBA8_UNORM);
+		auto* ViewportInfo = new FMonaViewportInfo();
+		ViewportInfo->ViewportRHI = GDynamicRHI->RHICreateViewport(GLFWWindow->GetOSNativeWindowHandle(), Width, Height, bFullScreen, EPixelFormat::SRGBA8_UNORM);;
+		ViewportInfo->bFullScreen = bFullScreen;
+		WindowToViewportInfoMap.emplace(Window.get(), ViewportInfo);
+	}
 
-		Window->SetRHIViewport(RHIViewport);
+	auto FMonaRHIRenderer::DrawWindows() -> void
+	{
+	}
+
+	auto FMonaRHIRenderer::GetRHIViewport(const MWindow& Window) -> TSharedPtr<FRHIViewport>
+	{
+		const auto ViewportInfoIt = WindowToViewportInfoMap.find(&Window);
+		if (ViewportInfoIt != WindowToViewportInfoMap.end())
+		{
+			return ViewportInfoIt->second->ViewportRHI;
+		}
+		return nullptr;
 	}
 }

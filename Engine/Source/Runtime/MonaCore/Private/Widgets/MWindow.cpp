@@ -104,18 +104,27 @@ namespace Doge::Mona
 		ViewportSize = NativeWindow->GetViewportSize();
 	}
 
-	auto MWindow::SetRHIViewport(TSharedPtr<FRHIViewport> InRHIViewport) -> void
+	auto MWindow::SetViewport(const std::shared_ptr<IMonaViewport>& InViewport) -> void
 	{
-		RHIViewport = std::move(InRHIViewport);
+		Viewport = InViewport;
 	}
 
-	auto MWindow::GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&
+	auto MWindow::GetViewport() const -> std::shared_ptr<IMonaViewport>
 	{
-		return RHIViewport;
+		return Viewport.lock();
 	}
 
 	auto MWindow::GetWindowMode() const -> EWindowMode
 	{
 		return NativeWindow->GetWindowMode();
 	}
-}
+
+	auto MWindow::ShowWindow() -> void
+	{
+
+	}
+
+	auto MWindow::HideWindow() -> void
+	{
+	}
+} // namespace Doge::Mona

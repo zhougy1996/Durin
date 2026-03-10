@@ -7,11 +7,21 @@ namespace Doge::Mona
 {
 	class MWindow;
 
+	struct FMonaViewportInfo
+	{
+		std::shared_ptr<FRHIViewport> ViewportRHI;
+		bool bFullScreen;
+	};
+
+
 	class MONACORE_API FMonaRHIRenderer : public FMonaRenderer
 	{
 	public:
-		virtual auto GetRHIViewport(MWindow& Window) -> TSharedPtr<FRHIViewport>;
+		auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void override;
+		auto DrawWindows() -> void override;
 
-		virtual auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void;
+		auto GetRHIViewport(const MWindow& Window) -> TSharedPtr<FRHIViewport>;
+
+		std::unordered_map<const MWindow*, FMonaViewportInfo*> WindowToViewportInfoMap;
 	};
 }

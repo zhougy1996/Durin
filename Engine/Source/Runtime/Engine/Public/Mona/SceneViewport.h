@@ -12,11 +12,11 @@ namespace Doge
 	class ENGINE_API FSceneViewport : public FViewport, public Mona::IMonaViewport
 	{
 	public:
-		FSceneViewport(FViewportClient* ViewportClient, TSharedPtr<Mona::MViewport> ViewportWidget);
+		FSceneViewport(FViewportClient* InViewportClient, const TSharedPtr<Mona::MViewport>& InViewportWidget);
 
-		virtual auto UpdateRHIViewport() -> void override;
+		auto UpdateRHIViewport() -> void override;
 
 	private:
-		TWeakPtr<Mona::MViewport> ViewportWidget_;
+		TWeakPtr<Mona::MViewport> ViewportWidget;
 	};
 }

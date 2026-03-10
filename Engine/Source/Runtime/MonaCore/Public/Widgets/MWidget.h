@@ -6,7 +6,7 @@ namespace Doge::Mona
 	{
 	public:
 		MWidget() = default;
-		MWidget(TSharedPtr<MWidget> InParentWidget);
+		MWidget(const TSharedPtr<MWidget>& InParentWidget);
 
 		virtual ~MWidget() = default;
 
@@ -16,7 +16,7 @@ namespace Doge::Mona
 
 		virtual auto IsWindow() -> bool { return false; }
 
-		auto AssignParentWidget(TSharedPtr<MWidget> InParentWidget);
+		auto AssignParentWidget(const TSharedPtr<MWidget>& InParentWidget);
 
 		auto GetParent() const -> TSharedPtr<MWidget>;
 

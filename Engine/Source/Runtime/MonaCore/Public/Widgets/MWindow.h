@@ -6,6 +6,8 @@
 
 namespace Doge::Mona
 {
+	class IMonaViewport;
+
 	class MONACORE_API MWindow : public MCompoundWidget
 	{
 	public:
@@ -45,13 +47,17 @@ namespace Doge::Mona
 
 		auto SetCachedSize(const FVector2f& NewSize) -> void;
 
-		auto SetRHIViewport(TSharedPtr<FRHIViewport> InRHIViewport) -> void;
+		auto SetViewport(const std::shared_ptr<IMonaViewport>& InViewport) -> void;
 
-		auto GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&;
+		auto GetViewport() const -> std::shared_ptr<IMonaViewport>;
 
 		auto GetWindowMode() const -> EWindowMode;
 
 		auto IsWindow() -> bool override { return true; }
+
+		auto ShowWindow() -> void;
+
+		auto HideWindow() -> void;
 
 	protected:
 		FString Title;
@@ -66,10 +72,10 @@ namespace Doge::Mona
 
 		FVector2f ViewportSize = {};
 
-		TSharedPtr<FGenericWindow> NativeWindow;
+		std::shared_ptr<FGenericWindow> NativeWindow;
 
-		std::vector<TSharedPtr<MWindow>> ChildWindows;
+		std::vector<std::shared_ptr<MWindow>> ChildWindows;
 
-		TSharedPtr<FRHIViewport> RHIViewport;
+		std::weak_ptr<IMonaViewport> Viewport;
 	};
 }

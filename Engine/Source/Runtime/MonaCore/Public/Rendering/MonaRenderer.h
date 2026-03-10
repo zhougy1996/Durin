@@ -4,9 +4,13 @@ namespace Doge::Mona
 {
 	class MWindow;
 
-	class MONACORE_API FMonaRenderer
+	class FMonaRenderer
 	{
 	public:
-		virtual auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void = 0;
+		virtual ~FMonaRenderer() = default;
+
+		MONACORE_API virtual auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void = 0;
+
+		MONACORE_API virtual auto DrawWindows() -> void = 0;
 	};
 }

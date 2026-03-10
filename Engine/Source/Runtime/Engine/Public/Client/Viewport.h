@@ -8,7 +8,8 @@ namespace Doge
 	class ENGINE_API FViewport
 	{
 	public:
-		FViewport(FViewportClient* ViewportClient);
+		FViewport(FViewportClient* InViewportClient);
+		virtual ~FViewport() = default;
 
 		virtual auto SetInitialSize(FIntPoint InitialSizeXY) -> void;
 
@@ -19,8 +20,8 @@ namespace Doge
 		auto GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&;
 
 	protected:
-		FViewportClient* ViewportClient_;
+		FViewportClient* ViewportClient;
 
-		TSharedPtr<FRHIViewport> RHIViewport_;
+		TSharedPtr<FRHIViewport> ViewportRHI;
 	};
 }

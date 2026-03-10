@@ -64,8 +64,10 @@ namespace Doge
 
 	static auto CreateTestPipeline()
 	{
-		const TSharedPtr<Mona::MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow();
-		const FRHIViewport* Viewport = Window->GetRHIViewport().get();
+		auto& App = Mona::FMonaApplication::Get();
+		const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
+		const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
+		const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).get();
 
 		FGraphicsPipelineStateInitializer Initializer;
 		Initializer.RenderPassName = "TestRenderPass";
@@ -80,9 +82,10 @@ namespace Doge
 
 	static auto DrawTriangle()
 	{
-		// Window and viewport
-		TSharedPtr<Mona::MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow();
-		TSharedPtr<FRHIViewport> SharedViewport = Window->GetRHIViewport();
+		auto& App = Mona::FMonaApplication::Get();
+		const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
+		const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
+		TSharedPtr<FRHIViewport> SharedViewport = Renderer->GetRHIViewport(*MainWindow);
 
 		ENQUEUE_RENDER_COMMAND(TestDrawTriangle)([SharedViewport](FRHICommandListImmediate& CommandList)
 		{

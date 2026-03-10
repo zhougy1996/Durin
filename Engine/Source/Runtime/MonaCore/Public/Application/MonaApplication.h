@@ -35,20 +35,20 @@ namespace Doge::Mona
 
 		auto DestroyWindowsImmediately() -> void;
 
-		auto OnWindowClose(TSharedPtr<FGenericWindow> PlatformWindow) -> void;
+		auto OnWindowClose(const TSharedPtr<FGenericWindow>& PlatformWindow) -> void;
 
 		auto PollEvents();
 
 		auto ProcessDeferredEvents() -> void override;
 
-		auto FindWidgetWindow(TSharedPtr<MWidget> InWidget) -> TSharedPtr<MWindow>;
+		auto FindWidgetWindow(const TSharedPtr<MWidget>& InWidget) -> TSharedPtr<MWindow>;
 
 		auto GetRenderer() const -> FMonaRenderer*;
 
 		auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow> override;
 
 	protected:
-		auto MakeWindow(TSharedPtr<MWindow> InMonaWindow, bool bInShowImmediately) -> TSharedPtr<FGenericWindow>;
+		auto MakeWindow(const TSharedPtr<MWindow>& InMonaWindow, bool bInShowImmediately) -> TSharedPtr<FGenericWindow>;
 
 		auto TickPlatform() -> void;
 

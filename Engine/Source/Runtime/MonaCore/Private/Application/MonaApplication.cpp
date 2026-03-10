@@ -1,7 +1,6 @@
 #include "Application/MonaApplication.h"
 
 #include "CoreGlobals.h"
-#include "RHIResources.h"
 
 #include "Application/MonaWindowHelper.h"
 #include "Misc/ApplicationCoreGlobals.h"
@@ -15,9 +14,7 @@ namespace Doge::Mona
 {
 	TSharedPtr<FMonaApplication> FMonaApplication::CurrentApplication = nullptr;
 
-	FMonaApplication::~FMonaApplication()
-	{
-	}
+	FMonaApplication::~FMonaApplication() = default;
 
 	auto FMonaApplication::Create() -> void
 	{
@@ -98,7 +95,7 @@ namespace Doge::Mona
 		}
 	}
 
-	auto FMonaApplication::OnWindowClose(TSharedPtr<FGenericWindow> PlatformWindow) -> void
+	auto FMonaApplication::OnWindowClose(const TSharedPtr<FGenericWindow>& PlatformWindow) -> void
 	{
 		TSharedPtr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, PlatformWindow);
 		if (Window)
@@ -117,7 +114,7 @@ namespace Doge::Mona
 
 	auto FMonaApplication::ProcessDeferredEvents() -> void
 	{
-		if (Windows.size())
+		if (!Windows.empty())
 		{
 			TSharedPtr<FGenericWindow> PlatformWindowToClose = nullptr;
 			for (auto& EventWindow : Windows)
@@ -135,7 +132,7 @@ namespace Doge::Mona
 		}
 	}
 
-	auto FMonaApplication::FindWidgetWindow(TSharedPtr<MWidget> InWidget) -> TSharedPtr<MWindow>
+	auto FMonaApplication::FindWidgetWindow(const TSharedPtr<MWidget>& InWidget) -> TSharedPtr<MWindow>
 	{
 		TSharedPtr<MWidget> Curr = InWidget;
 		while (Curr)
@@ -168,7 +165,7 @@ namespace Doge::Mona
 		return nullptr;
 	}
 
-	auto FMonaApplication::MakeWindow(TSharedPtr<MWindow> InMonaWindow, bool bInShowImmediately) -> TSharedPtr<FGenericWindow>
+	auto FMonaApplication::MakeWindow(const TSharedPtr<MWindow>& InMonaWindow, bool bInShowImmediately) -> TSharedPtr<FGenericWindow>
 	{
 		TSharedPtr<FGenericWindow> NewWindow = FGlfwWindow::Make();
 

@@ -1,17 +1,20 @@
 #include "Window/GlfwWindow.h"
 
 #include "ThirdParty/Glfw/GlfwCommon.h"
-#include "vulkan//vulkan.hpp"
+#include "vulkan/vulkan.hpp"
 
 namespace Doge
 {
-	FGlfwWindow::FGlfwWindow()
-	{
+	static void WindowResizeCallBack(GLFWwindow* InGlfwWindow, int Width, int Height) {
+		DOGE_DEBUG("Window resized: {}x{}", Width, Height);
+		auto Window = static_cast<FGlfwWindow*>(glfwGetWindowUserPointer(InGlfwWindow));
 	}
+
+	FGlfwWindow::FGlfwWindow() = default;
 
 	FGlfwWindow::~FGlfwWindow()
 	{
-		glfwDestroyWindow(GlfwWindow_);
+		glfwDestroyWindow(GlfwWindow);
 		glfwTerminate();
 	}
 
@@ -22,29 +25,29 @@ namespace Doge
 
 	auto FGlfwWindow::Initialize(FGenericApplication* const InApplication, const TSharedPtr<FGenericWindowDefinition>& InDefinition) -> void
 	{
-		OwningApplication_ = InApplication;
+		OwningApplication = InApplication;
 		Definition_ = InDefinition;
 
 		glfwInit();
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, WindowMode_ == EWindowMode::Windowed);
-		#if defined (__APPLE__)
+		glfwWindowHint(GLFW_RESIZABLE, WindowMode == EWindowMode::Windowed);
+#if defined(__APPLE__)
 		glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_TRUE);
 		glfwWindowHint(GLFW_COCOA_GRAPHICS_SWITCHING, GLFW_TRUE);
-		#endif
+#endif
 
 		const int DesiredWidth = FMath::TruncToInt32(Definition_->WidthDesiredOnScreen);
 		const int DesiredHeight = FMath::TruncToInt32(Definition_->HeightDesiredOnScreen);
-		GlfwWindow_ = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition_->Title.c_str(), nullptr, nullptr);
-		glfwSetWindowUserPointer(GlfwWindow_, this);
-		glfwSetFramebufferSizeCallback(GlfwWindow_, nullptr); // TODO: Implement the framebuffer size callback
-		glfwMakeContextCurrent(GlfwWindow_);
+		GlfwWindow = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition_->Title.c_str(), nullptr, nullptr);
+		glfwSetWindowUserPointer(GlfwWindow, this);
+		glfwSetFramebufferSizeCallback(GlfwWindow, WindowResizeCallBack);
+		glfwMakeContextCurrent(GlfwWindow);
 
-		#if defined (_WIN32)
-		OSNativeWindowHandle = glfwGetWin32Window(GlfwWindow_);
-		#elif defined (__APPLE__)
-		OSNativeWindowHandle = glfwGetCocoaWindow(GlfwWindow_);
-		#endif
+#if defined(_WIN32)
+		OSNativeWindowHandle = glfwGetWin32Window(GlfwWindow);
+#elif defined(__APPLE__)
+		OSNativeWindowHandle = glfwGetCocoaWindow(GlfwWindow);
+#endif
 	}
 
 	void FGlfwWindow::PollEvents() const
@@ -54,32 +57,32 @@ namespace Doge
 
 	auto FGlfwWindow::ReshapeWindow(int32 X, int32 Y, int32 Width, int32 Height) -> void
 	{
-		glfwSetWindowPos(GlfwWindow_, X, Y);
-		glfwSetWindowSize(GlfwWindow_, Width, Height);
+		glfwSetWindowPos(GlfwWindow, X, Y);
+		glfwSetWindowSize(GlfwWindow, Width, Height);
 	}
 
 	void FGlfwWindow::Close()
 	{
-		glfwSetWindowShouldClose(GlfwWindow_, true);
+		glfwSetWindowShouldClose(GlfwWindow, true);
 	}
 
 	bool FGlfwWindow::ShouldClose() const
 	{
-		return glfwWindowShouldClose(GlfwWindow_);
+		return glfwWindowShouldClose(GlfwWindow);
 	}
 
 	FIntPoint FGlfwWindow::GetViewportSize() const
 	{
 		int Width, Height;
-		glfwGetFramebufferSize(GlfwWindow_, &Width, &Height);
+		glfwGetFramebufferSize(GlfwWindow, &Width, &Height);
 		return {Width, Height};
 	}
 
 	void* FGlfwWindow::CreateVulkanSurface(void* InInstance) const
 	{
 		VkSurfaceKHR Surface;
-		VkInstance Instance = static_cast<VkInstance>(InInstance);
-		if (glfwCreateWindowSurface(Instance, GlfwWindow_, nullptr, &Surface) != VK_SUCCESS)
+		auto VulkanInstance = static_cast<VkInstance>(InInstance);
+		if (glfwCreateWindowSurface(VulkanInstance, GlfwWindow, nullptr, &Surface) != VK_SUCCESS)
 		{
 			DOGE_ERROR("Failed to create window surface.");
 			return nullptr;
@@ -87,4 +90,4 @@ namespace Doge
 
 		return Surface;
 	}
-}
+} // namespace Doge
