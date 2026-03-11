@@ -33,7 +33,7 @@ namespace Doge::Mona
 	{
 	}
 
-	auto FMonaRHIRenderer::GetRHIViewport(const MWindow& Window) -> TSharedPtr<FRHIViewport>
+	auto FMonaRHIRenderer::GetRHIViewport(const MWindow& Window) -> TRefCountPtr<FRHIViewport>
 	{
 		const auto ViewportInfoIt = WindowToViewportInfoMap.find(&Window);
 		if (ViewportInfoIt != WindowToViewportInfoMap.end())

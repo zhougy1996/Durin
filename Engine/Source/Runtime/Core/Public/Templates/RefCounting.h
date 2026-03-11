@@ -9,7 +9,7 @@ namespace Doge
 	public:
 		FORCEINLINE TRefCountPtr() = default;
 
-		explicit TRefCountPtr(ReferencedType* InReference, bool bAddRef = true)
+		TRefCountPtr(ReferencedType* InReference, bool bAddRef = true)
 			: Reference(InReference)
 		{
 			if (Reference && bAddRef)
@@ -44,9 +44,9 @@ namespace Doge
 		}
 
 		template<typename MoveReferencedType>
-		explicit TRefCountPtr(TRefCountPtr<MoveReferencedType>&& Move) noexcept
+		TRefCountPtr(TRefCountPtr<MoveReferencedType>&& Move) noexcept
 		{
-			Reference = static_cast<ReferencedType*>(Move.Reference);
+			Reference = static_cast<ReferencedType*>(Move.GetReference());
 			Move.Reference = nullptr;
 		}
 
@@ -90,7 +90,7 @@ namespace Doge
 		template<typename CopyReferencedType>
 		FORCEINLINE auto operator=(const TRefCountPtr<CopyReferencedType>& Copy) -> TRefCountPtr&
 		{
-			*this = Copy.Reference;
+			*this = Copy.GetReference();
 			return *this;
 		}
 
@@ -138,6 +138,9 @@ namespace Doge
 
 	private:
 		ReferencedType* Reference = nullptr;
+
+		template<typename OtherType>
+		friend class TRefCountPtr;
 
 	public:
 		FORCEINLINE operator bool() const { return Reference != nullptr; }

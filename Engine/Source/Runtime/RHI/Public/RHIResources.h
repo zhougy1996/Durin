@@ -11,6 +11,7 @@ namespace Doge
 
 	enum class ERHIResourceType : uint8
 	{
+		Viewport,
 		Texture,
 		VertexShader,
 		PixelShader,
@@ -192,10 +193,11 @@ namespace Doge
 		uint32 SizeY = 0;
 	};
 
-	class RHI_API FRHIViewport
+	class RHI_API FRHIViewport : public FRHIResource
 	{
 	public:
-		virtual ~FRHIViewport() = default;
+		FRHIViewport() : FRHIResource(ERHIResourceType::Viewport) {}
+		~FRHIViewport() override = default;
 		virtual auto Tick(float DeltaTime) -> void {};
 		virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TRefCountPtr<FRHITexture> = 0;
 		virtual auto WaitForLastFrameCompletion() -> void = 0;

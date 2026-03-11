@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RHIFwd.h"
+#include "RHIResources.h"
 #include "Rendering/MonaRenderer.h"
 
 namespace Doge::Mona
@@ -9,7 +9,7 @@ namespace Doge::Mona
 
 	struct FMonaViewportInfo
 	{
-		std::shared_ptr<FRHIViewport> ViewportRHI;
+		TRefCountPtr<FRHIViewport> ViewportRHI;
 		bool bFullScreen;
 	};
 
@@ -20,7 +20,7 @@ namespace Doge::Mona
 		auto CreateViewport(const TSharedPtr<MWindow>& Window) -> void override;
 		auto DrawWindows() -> void override;
 
-		auto GetRHIViewport(const MWindow& Window) -> TSharedPtr<FRHIViewport>;
+		auto GetRHIViewport(const MWindow& Window) -> TRefCountPtr<FRHIViewport>;
 
 		std::unordered_map<const MWindow*, FMonaViewportInfo*> WindowToViewportInfoMap;
 	};

@@ -60,6 +60,21 @@ namespace Doge
 	static auto EndFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 FrameCounter) -> void
 	{
 		CommandList.EndFrame();
+
+		std::vector<FRHIResource*> ResourcesToDelete;
+		while (true)
+		{
+			FRHIResource::GatherResourcesToDelete(ResourcesToDelete);
+			if (!ResourcesToDelete.empty())
+			{
+				FRHIResource::DeleteResources(ResourcesToDelete);
+				ResourcesToDelete.clear();
+			}
+			else
+			{
+				break;
+			}
+		}
 	}
 
 	static auto CreateTestPipeline()
@@ -67,7 +82,7 @@ namespace Doge
 		auto& App = Mona::FMonaApplication::Get();
 		const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
 		const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
-		const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).get();
+		const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).GetReference();
 
 		FGraphicsPipelineStateInitializer Initializer;
 		Initializer.RenderPassName = "TestRenderPass";
@@ -85,11 +100,11 @@ namespace Doge
 		auto& App = Mona::FMonaApplication::Get();
 		const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
 		const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
-		TSharedPtr<FRHIViewport> SharedViewport = Renderer->GetRHIViewport(*MainWindow);
+		TRefCountPtr<FRHIViewport> SharedViewport = Renderer->GetRHIViewport(*MainWindow);
 
 		ENQUEUE_RENDER_COMMAND(TestDrawTriangle)([SharedViewport](FRHICommandListImmediate& CommandList)
 		{
-			FRHIViewport* Viewport = SharedViewport.get();
+			FRHIViewport* Viewport = SharedViewport.GetReference();
 			// Draw viewport
 			// Wait submit fence before acquiring image
 			CommandList.BeginDrawingViewport(Viewport, nullptr);
@@ -102,14 +117,14 @@ namespace Doge
 
 			CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
 
-			CommandList.SetGraphicsPipelineState(*GTestPipeline);
-
-			auto Width = BackBuffer->GetSizeX();
-			auto Height = BackBuffer->GetSizeY();
-			CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
-
-			// Draw call
-			CommandList.DrawPrimitive();
+			// CommandList.SetGraphicsPipelineState(*GTestPipeline);
+			//
+			// auto Width = BackBuffer->GetSizeX();
+			// auto Height = BackBuffer->GetSizeY();
+			// CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
+			//
+			// // Draw call
+			// CommandList.DrawPrimitive();
 
 			CommandList.EndRenderPass();
 

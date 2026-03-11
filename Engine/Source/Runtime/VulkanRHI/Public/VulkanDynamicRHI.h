@@ -19,7 +19,7 @@ namespace Doge::VulkanRHI
 		virtual auto RHIGetVkInstance() const -> vk::Instance = 0;
 		virtual auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice = 0;
 
-		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> override = 0;
+		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TRefCountPtr<FRHIViewport> override = 0;
 		auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override = 0;
 		auto RHIGetDefaultContext() -> IRHICommandContext* override = 0;
 		auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TRefCountPtr<FRHITexture> override = 0;
@@ -42,7 +42,7 @@ namespace Doge::VulkanRHI
 		auto RHIGetVkInstance() const -> vk::Instance override;
 		auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice override;
 
-		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TSharedPtr<FRHIViewport> override;
+		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TRefCountPtr<FRHIViewport> override;
 		auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override;
 		auto RHIGetDefaultContext() -> IRHICommandContext* override;
 		auto RHIGetCommandContext(ERHIPipeline Pipeline) -> IRHICommandContext*;
