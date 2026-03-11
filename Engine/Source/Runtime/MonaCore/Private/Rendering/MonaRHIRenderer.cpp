@@ -4,18 +4,29 @@
 #include "Widgets/MWindow.h"
 #include "Window/GlfwWindow.h"
 
+#include <ranges>
+
 namespace Doge::Mona
 {
 	constexpr int32 MIN_VIEWPORT_SIZE = 8;
 
-	auto FMonaRHIRenderer::CreateViewport(const TSharedPtr<MWindow>& Window) -> void
+	FMonaRHIRenderer::~FMonaRHIRenderer()
+	{
+		for (const auto& Info : WindowToViewportInfoMap | std::views::values)
+		{
+			delete Info;
+		}
+		WindowToViewportInfoMap.clear();
+	}
+
+	auto FMonaRHIRenderer::CreateViewport(const std::shared_ptr<MWindow>& Window) -> void
 	{
 		FVector2f ViewportSize = Window->GetViewportSize();
 
 		int32 Width = FMath::Max(MIN_VIEWPORT_SIZE, FMath::CeilToInt(ViewportSize.x));
 		int32 Height = FMath::Max(MIN_VIEWPORT_SIZE, FMath::CeilToInt(ViewportSize.y));
 
-		TSharedPtr<FGlfwWindow> GLFWWindow = std::dynamic_pointer_cast<FGlfwWindow>(Window->GetNativeWindow());
+		std::shared_ptr<FGlfwWindow> GLFWWindow = std::dynamic_pointer_cast<FGlfwWindow>(Window->GetNativeWindow());
 
 		bool bFullScreen = false;
 		if (Window->GetWindowMode() == EWindowMode::Fullscreen)
