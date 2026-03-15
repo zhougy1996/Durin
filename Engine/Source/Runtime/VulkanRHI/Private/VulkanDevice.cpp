@@ -59,7 +59,7 @@ namespace Doge::VulkanRHI
 
 
 
-	auto FDeferredDeletionQueue::ReleaseResourceImmediately(std::vector<FEntry>& InEntries) -> void
+	auto FDeferredDeletionQueue::ReleaseResourceImmediately(const std::vector<FEntry>& InEntries) const -> void
 	{
 		const vk::Device DeviceHandle = Device->GetHandle();
 

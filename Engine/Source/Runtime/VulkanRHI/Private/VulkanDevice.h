@@ -61,7 +61,7 @@ namespace Doge::VulkanRHI
 
 		auto EnqueueGenericResource(EType Type, uint64 Handle) -> void;
 
-		auto ReleaseResourceImmediately(std::vector<FEntry>& InEntries) -> void;
+		auto ReleaseResourceImmediately(const std::vector<FEntry>& InEntries) const -> void;
 
 		FVulkanDevice* Device;
 
