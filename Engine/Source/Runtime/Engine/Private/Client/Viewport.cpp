@@ -20,7 +20,7 @@ namespace Doge
 	{
 	}
 
-	auto FViewport::GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&
+	auto FViewport::GetRHIViewport() const -> const TRefCountPtr<FRHIViewport>&
 	{
 		return ViewportRHI;
 	}

@@ -1,9 +1,10 @@
 #pragma once
 
+#include "RHIResources.h"
+
 namespace Doge
 {
 	class FViewportClient;
-	class FRHIViewport;
 
 	class ENGINE_API FViewport
 	{
@@ -17,11 +18,11 @@ namespace Doge
 
 		virtual auto UpdateRHIViewport() -> void;
 
-		auto GetRHIViewport() const -> const TSharedPtr<FRHIViewport>&;
+		auto GetRHIViewport() const -> const TRefCountPtr<FRHIViewport>&;
 
 	protected:
 		FViewportClient* ViewportClient;
 
-		TSharedPtr<FRHIViewport> ViewportRHI;
+		TRefCountPtr<FRHIViewport> ViewportRHI;
 	};
 }
