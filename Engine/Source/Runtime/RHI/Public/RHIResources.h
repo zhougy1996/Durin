@@ -179,7 +179,6 @@ namespace Doge
 	class RHI_API FRHITexture : public FRHIResource
 	{
 	public:
-
 		FRHITexture()
 			: FRHIResource(ERHIResourceType::Texture)
 		{

@@ -10,11 +10,9 @@ namespace Doge::VulkanRHI
 	class FVulkanViewport;
 	class FVulkanCommandListContext;
 
-	class VULKANRHI_API IVulkanDynamicRHI : public IDynamicRHI
+	class IVulkanDynamicRHI : public FDynamicRHI
 	{
 	public:
-		IVulkanDynamicRHI() = default;
-
 		virtual auto RHIGetVkDevice() const -> vk::Device = 0;
 		virtual auto RHIGetVkInstance() const -> vk::Instance = 0;
 		virtual auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice = 0;
@@ -27,16 +25,18 @@ namespace Doge::VulkanRHI
 		auto RHIBlockUntilGPUIdle() -> void override = 0;
 	};
 
-	class VULKANRHI_API FVulkanDynamicRHI : public IVulkanDynamicRHI
+	class FVulkanDynamicRHI : public IVulkanDynamicRHI
 	{
 	public:
 		FVulkanDynamicRHI();
-		~FVulkanDynamicRHI() = default;
+		~FVulkanDynamicRHI() override = default;
 
 		static auto Get() -> FVulkanDynamicRHI& { return *GetDynamicRHI<FVulkanDynamicRHI>(); }
 
 		auto Init() -> void override;
 		auto Shutdown() -> void override;
+
+		auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void final;
 
 		auto RHIGetVkDevice() const -> vk::Device override;
 		auto RHIGetVkInstance() const -> vk::Instance override;
@@ -66,14 +66,14 @@ namespace Doge::VulkanRHI
 
 	extern FVulkanDynamicRHI* GVulkanRHI;
 
-	class VULKANRHI_API FVulkanDynamicRHIModule : public IDynamicRHIModule
+	class FVulkanDynamicRHIModule : public IDynamicRHIModule
 	{
 	public:
-		auto CreateRHI() -> IDynamicRHI* override
+		auto CreateRHI() -> FDynamicRHI* override
 		{
 			GVulkanRHI = new FVulkanDynamicRHI();
 			return GVulkanRHI;
 		}
 	};
 
-} // namespace Doge::VulkanRHI
+}

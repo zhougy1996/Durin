@@ -145,6 +145,8 @@ namespace Doge::VulkanRHI
 		}
 	}
 
+	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState() = default;
+
 	auto FVulkanGraphicsPipelineState::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
 		float MaxDepth = MinZ == MaxZ ? MinZ + 1.0f : MaxZ;

@@ -11,6 +11,8 @@ namespace Doge::VulkanRHI
 	public:
 		FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage);
 
+		~FVulkanTexture() override;
+
 		vk::Image Image{};
 
 		vk::Format Format{};

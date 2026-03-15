@@ -2,5 +2,9 @@
 
 namespace Doge
 {
-	IDynamicRHI* GDynamicRHI = nullptr;
+	FDynamicRHI* GDynamicRHI = nullptr;
+
+	auto FDynamicRHI::RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void
+	{
+	}
 }

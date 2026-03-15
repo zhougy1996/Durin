@@ -60,6 +60,7 @@ namespace Doge
 	static auto EndFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 FrameCounter) -> void
 	{
 		CommandList.EndFrame();
+		GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 	}
 
 	static auto CreateTestPipeline()

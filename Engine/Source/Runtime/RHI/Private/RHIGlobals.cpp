@@ -4,7 +4,7 @@
 
 namespace Doge
 {
-	static auto CreateDynamicRHI() -> IDynamicRHI*
+	static auto CreateDynamicRHI() -> FDynamicRHI*
 	{
 		IDynamicRHIModule* DynamicRHIModule = FModuleManager::LoadModule<IDynamicRHIModule>("VulkanRHI");
 		if (!DynamicRHIModule)
@@ -29,6 +29,8 @@ namespace Doge
 
 	auto RHIExit() -> void
 	{
+		GDynamicRHI->Shutdown();
 		delete GDynamicRHI;
+		GDynamicRHI = nullptr;
 	}
 }

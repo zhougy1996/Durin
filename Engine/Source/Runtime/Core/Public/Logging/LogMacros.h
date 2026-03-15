@@ -1,5 +1,6 @@
 #pragma once
 
+#include <format>
 #include "Logging/Logger.h"
 
 #define DOGE_TRACE(...) FLogger::Trace(MODULE_NAME, std::format(__VA_ARGS__))

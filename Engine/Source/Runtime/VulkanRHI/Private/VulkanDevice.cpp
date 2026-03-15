@@ -1,5 +1,6 @@
 #include "VulkanDevice.h"
 
+
 #include "VulkanDynamicRHI.h"
 #include "VulkanExtensions.h"
 #include "VulkanContext.h"
@@ -9,10 +10,63 @@
 
 namespace Doge::VulkanRHI
 {
-	FVulkanDevice::FVulkanDevice(FVulkanDynamicRHI* InRHI, vk::PhysicalDevice Gpu)
+	uint64 GVulkanRHIDeletionFrameNumber = 0;
+
+	constexpr uint64 GVulkanNumFramesToWaitForResourceDelete = 2;
+
+	FDeferredDeletionQueue::FDeferredDeletionQueue(FVulkanDevice* InDevice)
+		: Device(InDevice)
+	{
+	}
+
+	auto FDeferredDeletionQueue::ReleaseResources(bool bDeleteImmediately) -> void
+	{
+		if (bDeleteImmediately)
+		{
+			std::lock_guard<std::mutex> Lock(Mutex);
+			ReleaseResourceImmediately(Entries);
+			Entries.clear();
+		}
+		else
+		{
+			std::vector<FEntry> EntriesToDelete;
+			{
+				std::lock_guard<std::mutex> Lock(Mutex);
+
+				auto DeleteSubRange = std::ranges::partition(Entries, [&](const FEntry& Entry) {
+					// Return true for elements we want to KEEP this Frame
+					return GVulkanRHIDeletionFrameNumber <= Entry.FrameNumber + GVulkanNumFramesToWaitForResourceDelete;
+				});
+
+				if (DeleteSubRange.begin() != Entries.end())
+				{
+					EntriesToDelete.insert(EntriesToDelete.end(), std::make_move_iterator(DeleteSubRange.begin()), std::make_move_iterator(DeleteSubRange.end()));
+					Entries.erase(DeleteSubRange.begin(), DeleteSubRange.end());
+				}
+			}
+
+			if (!EntriesToDelete.empty())
+			{
+				ReleaseResourceImmediately(EntriesToDelete);
+			}
+		}
+	}
+
+	auto FDeferredDeletionQueue::EnqueueGenericResource(EType Type, uint64 Handle) -> void
+	{
+		Entries.emplace_back(Type, GVulkanRHIDeletionFrameNumber, Handle);
+	}
+
+	auto FDeferredDeletionQueue::ReleaseResourceImmediately(std::vector<FEntry>& InEntries) -> void
+	{
+		//TODO
+	}
+
+	FVulkanDevice::FVulkanDevice(FVulkanDynamicRHI* InRHI, vk::PhysicalDevice InGpu)
 		: RHI(InRHI)
-		, Gpu(Gpu)
+		, Gpu(InGpu)
 		, FenceManager({*this})
+		, DeferredDeletionQueue(this)
 	{
 	}
 
@@ -33,7 +87,7 @@ namespace Doge::VulkanRHI
 
 		QueueFamilyProps = Gpu.getQueueFamilyProperties();
 
-		FVulkanDeviceExtensionArray SupportedDeviceExtensions = FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(this);
+		const FVulkanDeviceExtensionArray SupportedDeviceExtensions = FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(this);
 
 		CreateDevice(SupportedDeviceExtensions);
 
@@ -60,7 +114,7 @@ namespace Doge::VulkanRHI
 		int32 TransferQueueIndex = -1;
 
 		std::vector<vk::DeviceQueueCreateInfo> QueueCreateInfos;
-		std::vector<float> QueuePriorities = {1.0f};
+		const std::vector<float> QueuePriorities = {1.0f};
 
 		for (int32 FamilyIndex = 0; FamilyIndex < QueueFamilyProps.size(); ++FamilyIndex)
 		{
@@ -170,7 +224,7 @@ namespace Doge::VulkanRHI
 		PresentQueue = new FVulkanQueue(this, QueueFamilyIndex);
 	}
 
-	auto FVulkanDevice::WaitUtilIdle() -> void
+	auto FVulkanDevice::WaitUtilIdle() const -> void
 	{
 		Device.waitIdle();
 	}
@@ -185,8 +239,10 @@ namespace Doge::VulkanRHI
 		return Gpu;
 	}
 
-	auto FVulkanDevice::GetRenderPassManager() -> FVulkanRenderPassManager&
+	auto FVulkanDevice::GetRenderPassManager() const -> FVulkanRenderPassManager&
 	{
+		check(RenderPassManager);
+		// ReSharper disable once CppDFANullDereference
 		return *RenderPassManager;
 	}
 
@@ -213,5 +269,6 @@ namespace Doge::VulkanRHI
 		RenderPassManager = nullptr;
 
 		Device.destroy();
+		Device = nullptr;
 	}
-}
+} // namespace Doge::VulkanRHI

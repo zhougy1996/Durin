@@ -21,6 +21,7 @@
 #include <span>
 #include <format>
 #include <cstring>
+#include <ranges>
 
 // Multithreading support
 #include <thread>

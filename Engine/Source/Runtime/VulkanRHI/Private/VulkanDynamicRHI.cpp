@@ -23,6 +23,15 @@ namespace Doge::VulkanRHI
 	auto FVulkanDynamicRHI::Shutdown() -> void
 	{
 		delete Device;
+		Instance.destroy();
+	}
+
+	auto FVulkanDynamicRHI::RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void
+	{
+		FDynamicRHI::RHIEndFrame_RenderThread(RHICmdList);
+		GVulkanRHIDeletionFrameNumber++;
+
+		Device->GetDeferredDeletionQueue().ReleaseResources();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkDevice() const -> vk::Device

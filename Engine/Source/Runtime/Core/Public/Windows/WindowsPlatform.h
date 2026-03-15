@@ -21,9 +21,9 @@
 // Define a macro to convert string literals
 #define STR(x) x
 
-#ifdef _DEBUG
+#ifdef DOGE_BUILD_DEBUG
 	#define DOGE_VISUALIZERS_HELPERS
-#endif // _DEBUG
+#endif // DOGE_BUILD_DEBUG
 
 #pragma warning(disable : 4251)
 

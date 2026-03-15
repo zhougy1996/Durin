@@ -1,24 +1,21 @@
 #pragma once
 
+#include "RHIFwd.h"
 #include "PixelFormat.h"
 
 namespace Doge
 {
-	class FGraphicsPipelineStateInitializer;
-	class FRHIGraphicsPipelineState;
-	class IRHICommandContext;
-	class FRHITexture;
-	class FRHIViewport;
-
-	class RHI_API IDynamicRHI
+	class RHI_API FDynamicRHI
 	{
 	public:
-		IDynamicRHI() = default;
+		FDynamicRHI() = default;
 
-		virtual ~IDynamicRHI() = default;
+		virtual ~FDynamicRHI() = default;
 
 		virtual auto Init() -> void = 0;
 		virtual auto Shutdown() -> void = 0;
+
+		virtual auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void;
 
 		// Must be called from the main thread.
 		virtual auto RHICreateViewport(void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen, EPixelFormat InPreferredPixelFormat) const -> TSharedPtr<FRHIViewport> = 0;
@@ -29,16 +26,16 @@ namespace Doge
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 	};
 
-	extern RHI_API IDynamicRHI* GDynamicRHI;
+	extern RHI_API FDynamicRHI* GDynamicRHI;
 
 	class RHI_API IDynamicRHIModule : public IModuleInterface
 	{
 	public:
-		virtual auto CreateRHI() -> IDynamicRHI* = 0;
+		virtual auto CreateRHI() -> FDynamicRHI* = 0;
 	};
 
 	template<typename TRHI>
-	FORCEINLINE auto CastDynamicRHI(IDynamicRHI* InDynamicRHI) -> TRHI*
+	FORCEINLINE auto CastDynamicRHI(FDynamicRHI* InDynamicRHI) -> TRHI*
 	{
 		return static_cast<TRHI*>(InDynamicRHI);
 	}

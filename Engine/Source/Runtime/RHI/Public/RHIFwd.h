@@ -9,4 +9,6 @@ namespace Doge
 	class IRHICommandContext;
 	class FRHIViewport;
 	class FRHITexture;
+	class FRHICommandList;
+	class FRHICommandListImmediate;
 }

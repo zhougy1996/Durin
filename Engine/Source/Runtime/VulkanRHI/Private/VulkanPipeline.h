@@ -15,6 +15,8 @@ namespace Doge::VulkanRHI
 	public:
 		FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer);
 
+		~FVulkanGraphicsPipelineState() override;
+
 		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 
 		auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
