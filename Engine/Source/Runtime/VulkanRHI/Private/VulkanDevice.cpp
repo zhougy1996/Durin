@@ -57,9 +57,42 @@ namespace Doge::VulkanRHI
 		Entries.emplace_back(Type, GVulkanRHIDeletionFrameNumber, Handle);
 	}
 
+
+
 	auto FDeferredDeletionQueue::ReleaseResourceImmediately(std::vector<FEntry>& InEntries) -> void
 	{
-		//TODO
+		const vk::Device DeviceHandle = Device->GetHandle();
+
+#define DOGE_VK_DESTROY_CASE(Type, ...) \
+	case EType::Type: \
+		__VA_ARGS__ \
+		DeviceHandle.destroy##Type(vk::Type{reinterpret_cast<Vk##Type>(Entry.Handle)}); \
+		break
+
+		for (const FEntry& Entry : InEntries)
+		{
+			switch (Entry.Type)
+			{
+				DOGE_VK_DESTROY_CASE(RenderPass);
+				DOGE_VK_DESTROY_CASE(Buffer);
+				DOGE_VK_DESTROY_CASE(BufferView);
+				DOGE_VK_DESTROY_CASE(Image);
+				DOGE_VK_DESTROY_CASE(ImageView);
+				DOGE_VK_DESTROY_CASE(Pipeline);
+				DOGE_VK_DESTROY_CASE(PipelineLayout);
+				DOGE_VK_DESTROY_CASE(Framebuffer);
+				DOGE_VK_DESTROY_CASE(DescriptorSetLayout);
+				DOGE_VK_DESTROY_CASE(Sampler);
+				DOGE_VK_DESTROY_CASE(Semaphore);
+				DOGE_VK_DESTROY_CASE(ShaderModule);
+				DOGE_VK_DESTROY_CASE(Event);
+				//TODO: Others
+			default:
+				DOGE_ERROR("Unknown Vulkan resource type {} in deferred deletion queue", static_cast<uint32>(Entry.Type));
+				break;;
+			}
+		}
+
 	}
 
 	FVulkanDevice::FVulkanDevice(FVulkanDynamicRHI* InRHI, vk::PhysicalDevice InGpu)
