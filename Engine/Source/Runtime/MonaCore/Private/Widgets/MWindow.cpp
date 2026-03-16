@@ -16,19 +16,19 @@ namespace Doge::Mona
 		NativeWindow->PollEvents();
 	}
 
-	auto MWindow::SetNativeWindow(TSharedPtr<FGenericWindow> InNativeWindow) -> void
+	auto MWindow::SetNativeWindow(std::shared_ptr<FGenericWindow> InNativeWindow) -> void
 	{
 		NativeWindow = std::move(InNativeWindow);
 		//TODO: set cached screen position and size when creating native window, currently we just set them to zero
 		SetCachedSize({});
 	}
 
-	auto MWindow::GetNativeWindow() const -> TSharedPtr<FGenericWindow>
+	auto MWindow::GetNativeWindow() const -> std::shared_ptr<FGenericWindow>
 	{
 		return NativeWindow;
 	}
 
-	auto MWindow::GetChildWindows() const -> const std::vector<TSharedPtr<MWindow>>&
+	auto MWindow::GetChildWindows() const -> const std::vector<std::shared_ptr<MWindow>>&
 	{
 		return ChildWindows;
 	}

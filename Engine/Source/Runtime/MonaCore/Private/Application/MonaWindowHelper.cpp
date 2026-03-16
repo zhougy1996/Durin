@@ -4,7 +4,7 @@
 
 namespace Doge::Mona
 {
-	auto FMonaWindowHelper::FindWindowByPlatformWindow(const std::vector<TSharedPtr<MWindow>>& WindowsToSearch, TSharedPtr<FGenericWindow> PlatformWindow) -> TSharedPtr<MWindow>
+	auto FMonaWindowHelper::FindWindowByPlatformWindow(const std::vector<std::shared_ptr<MWindow>>& WindowsToSearch, std::shared_ptr<FGenericWindow> PlatformWindow) -> std::shared_ptr<MWindow>
 	{
 		for (const auto& window : WindowsToSearch)
 		{
@@ -13,7 +13,7 @@ namespace Doge::Mona
 				return window;
 			}
 
-			TSharedPtr<MWindow> FoundChildWindow = FindWindowByPlatformWindow(window->GetChildWindows(), PlatformWindow);
+			std::shared_ptr<MWindow> FoundChildWindow = FindWindowByPlatformWindow(window->GetChildWindows(), PlatformWindow);
 
 			if (FoundChildWindow)
 			{
@@ -24,7 +24,7 @@ namespace Doge::Mona
 		return nullptr;
 	}
 
-	auto FMonaWindowHelper::ArrangeWindowToFront(std::vector<TSharedPtr<MWindow>>& Windows, TSharedPtr<MWindow> WindowToBringToFront) -> void
+	auto FMonaWindowHelper::ArrangeWindowToFront(std::vector<std::shared_ptr<MWindow>>& Windows, std::shared_ptr<MWindow> WindowToBringToFront) -> void
 	{
 		Windows.erase(std::remove(Windows.begin(), Windows.end(), WindowToBringToFront), Windows.end());
 		Windows.push_back(WindowToBringToFront);

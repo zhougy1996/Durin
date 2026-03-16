@@ -9,7 +9,7 @@ namespace Doge
 		return RenderData.get();
 	}
 
-	auto DStaticMesh::SetRenderData(TUniquePtr<FStaticMeshRenderData> InRenderData) -> void
+	auto DStaticMesh::SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void
 	{
 		RenderData = std::move(InRenderData);
 	}

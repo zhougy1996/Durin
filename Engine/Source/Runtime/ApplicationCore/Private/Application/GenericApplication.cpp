@@ -9,7 +9,7 @@ namespace Doge
 	auto FGenericApplication::ProcessDeferredEvents() -> void
 	{
 	}
-	auto FGenericApplication::FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow>
+	auto FGenericApplication::FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow>
 	{
 		return nullptr;
 	}

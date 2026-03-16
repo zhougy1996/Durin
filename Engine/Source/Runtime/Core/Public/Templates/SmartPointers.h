@@ -4,29 +4,9 @@
 
 namespace Doge
 {
-	template<typename T>
-	using TWeakPtr = std::weak_ptr<T>;
-
-	template<typename T, typename D = std::default_delete<T>>
-	using TUniquePtr = std::unique_ptr<T, D>;
-
-	template<typename T>
-	using TSharedPtr = std::shared_ptr<T>;
-
-	template<typename T>
-	class TSharedFromThis : public std::enable_shared_from_this<T>
+	template<typename OtherType>
+	FORCEINLINE auto SharedThis(OtherType* ThisPtr) -> std::shared_ptr<OtherType>
 	{
-	public:
-		FORCEINLINE auto AsShared() -> std::shared_ptr<T>
-		{
-			return this->shared_from_this();
-		}
-
-		// This is a helper function to cast the shared pointer to a different type. It is useful when you have a class that inherits from multiple classes that inherit from TSharedFromThis.
-		template<typename OtherType>
-		FORCEINLINE auto SharedThis(OtherType* ThisPtr) -> std::shared_ptr<OtherType>
-		{
-			return std::static_pointer_cast<OtherType>(ThisPtr->AsShared());
-		}
-	};
+		return std::static_pointer_cast<OtherType>(ThisPtr->shared_from_this());
+	}
 }

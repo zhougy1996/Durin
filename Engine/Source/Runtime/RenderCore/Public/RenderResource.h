@@ -18,9 +18,9 @@ namespace Doge
 		};
 
 		/** Release all render resources that are currently initialized. */
-		static RENDERCORE_API void ReleaseRHIForAllResources();
+		static RENDERCORE_API auto ReleaseRHIForAllResources() -> void;
 
-		static RENDERCORE_API void InitPreRHIResources();
+		static RENDERCORE_API auto InitPreRHIResources() -> void;
 
 		RENDERCORE_API FRenderResource();
 
@@ -34,48 +34,48 @@ namespace Doge
 		 * Called when entering the state where both the resource and the RHI have been initialized.
 		 * This is only called by the rendering thread.
 		 */
-		virtual void InitRHI(FRHICommandList& RHICmdList) {}
+		virtual auto InitRHI(FRHICommandList& RHICmdList) -> void;
 
 		/**
 		 * Releases the RHI resources used by this resource.
 		 * Called when leaving the state where both the resource and the RHI have been initialized.
 		 * This is only called by the rendering thread.
 		 */
-		virtual void ReleaseRHI() {}
+		virtual auto ReleaseRHI() -> void {}
 
 		/**
 		 * Initializes the resource.
 		 * This is only called by the rendering thread.
 		 */
-		RENDERCORE_API virtual void InitResource(FRHICommandList& RHICmdList);
+		RENDERCORE_API virtual auto InitResource(FRHICommandList& RHICmdList) -> void;
 
 		/**
 		 * Prepares the resource for deletion.
 		 * This is only called by the rendering thread.
 		 */
-		RENDERCORE_API virtual void ReleaseResource();
+		RENDERCORE_API virtual auto ReleaseResource() -> void;
 
 		/**
 		 * If the resource's RHI resources have been initialized, then release and reinitialize it.  Otherwise, do nothing.
 		 * This is only called by the rendering thread.
 		 */
-		RENDERCORE_API void UpdateRHI(FRHICommandList& RHICmdList);
+		RENDERCORE_API auto UpdateRHI(FRHICommandList& RHICmdList) -> void;
 
-		FORCEINLINE bool IsInitialized() const { return ListIndex_ != static_cast<uint32>(INDEX_NONE); }
+		FORCEINLINE auto IsInitialized() const -> bool { return ListIndex != static_cast<uint32>(INDEX_NONE); }
 
-		uint32 GetListIndex() const { return ListIndex_; }
+		auto GetListIndex() const -> uint32 { return ListIndex; }
 
-		EInitPhase GetInitPhase() const { return InitPhase_; }
+		auto GetInitPhase() const -> EInitPhase { return InitPhase; }
 
-		virtual FString GetFriendlyName() const { return "undefined"; }
+		virtual auto GetFriendlyName() const -> FString { return "Undefined"; }
 
 	protected:
 
 		// Helper for submitting a resource array to RHI and freeing eligible CPU memory
 		template<typename T>
-		TSharedPtr<FRHIBuffer> CreateRHIBuffer(FRHICommandList& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const CharT* InDebugName)
+		auto CreateRHIBuffer(FRHICommandList& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const CharT* InDebugName) -> std::shared_ptr<FRHIBuffer>
 		{
-			TSharedPtr<FRHIBuffer> Buffer;
+			std::shared_ptr<FRHIBuffer> Buffer;
 
 			//FResourceArrayInterface* RESTRICT ResourceArray = InOutResourceObject ? InOutResourceObject->GetResourceArray() : nullptr;
 			//if (ResourceCount != 0)
@@ -93,32 +93,32 @@ namespace Doge
 			return Buffer;
 		}
 
-		void SetFeatureLevel(ERHIFeatureLevel InFeatureLevel) { FeatureLevel_ = InFeatureLevel; }
+		auto SetFeatureLevel(ERHIFeatureLevel InFeatureLevel) -> void { FeatureLevel = InFeatureLevel; }
 
-		ERHIFeatureLevel GetFeatureLevel() const { return FeatureLevel_; }
+		auto GetFeatureLevel() const -> ERHIFeatureLevel { return FeatureLevel; }
 
 
 	private:
-		uint32 ListIndex_ = static_cast<uint32>(INDEX_NONE);
+		uint32 ListIndex = static_cast<uint32>(INDEX_NONE);
 
-		ERHIFeatureLevel FeatureLevel_ = ERHIFeatureLevel::ES3_1;
+		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::ES3_1;
 
-		EInitPhase InitPhase_ = EInitPhase::Default;
+		EInitPhase InitPhase = EInitPhase::Default;
 	};
 
 	class FVertexBuffer : public FRenderResource
 	{
 	public:
 		RENDERCORE_API FVertexBuffer();
-		RENDERCORE_API virtual ~FVertexBuffer();
+		RENDERCORE_API ~FVertexBuffer() override;
 
-		RENDERCORE_API virtual void ReleaseRHI() override;
-		virtual FString GetFriendlyName() const override { return "FVertexBuffer"; }
+		RENDERCORE_API auto ReleaseRHI() -> void override;
+		auto GetFriendlyName() const -> FString override { return "FVertexBuffer"; }
 
-		const TSharedPtr<FRHIBuffer>& GetRHI() const { return VertexBufferRHI_; }
+		auto GetRHI() const -> const std::shared_ptr<FRHIBuffer>& { return VertexBufferRHI; }
 
-		RENDERCORE_API void SetRHI(const TSharedPtr<FRHIBuffer>& BufferRHI);
+		RENDERCORE_API auto SetRHI(const std::shared_ptr<FRHIBuffer>& BufferRHI) -> void;
 
-		TSharedPtr<FRHIBuffer> VertexBufferRHI_;
+		std::shared_ptr<FRHIBuffer> VertexBufferRHI;
 	};
 }

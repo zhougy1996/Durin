@@ -22,7 +22,7 @@ namespace Doge
 
 		FModuleHandle Handle = nullptr;
 
-		TUniquePtr<IModuleInterface> Module;
+		std::unique_ptr<IModuleInterface> Module;
 
 		// This flag is used to check if the module's startup function has been called.
 		std::atomic<bool> bIsReady = false;
@@ -33,7 +33,7 @@ namespace Doge
 	class CORE_API FModuleManager
 	{
 	public:
-		using FModuleInfoPtr = TSharedPtr<FModuleInfo>;
+		using FModuleInfoPtr = std::shared_ptr<FModuleInfo>;
 		using FModuleMap = std::unordered_map<FName, FModuleInfoPtr>;
 
 		static auto Get() -> FModuleManager&;

@@ -21,34 +21,34 @@ namespace Doge::Mona
 
 		auto Tick() -> void override;
 
-		auto GetActiveTopLevelWindow() -> TSharedPtr<MWindow>;
+		auto GetActiveTopLevelWindow() -> std::shared_ptr<MWindow>;
 
-		auto AddWindow(TSharedPtr<MWindow> InMonaWindow, const bool bShowImmediately) -> TSharedPtr<MWindow>;
+		auto AddWindow(std::shared_ptr<MWindow> InMonaWindow, const bool bShowImmediately) -> std::shared_ptr<MWindow>;
 
 		auto Initialize() -> void;
 
 		auto InitializeRenderer() -> void;
 
-		auto RequestDestroyWindow(TSharedPtr<MWindow> InWindow) -> void;
+		auto RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void;
 
 		auto CloseAllWindowsImmediately() -> void;
 
 		auto DestroyWindowsImmediately() -> void;
 
-		auto OnWindowClose(const TSharedPtr<FGenericWindow>& PlatformWindow) -> void;
+		auto OnWindowClose(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void;
 
 		auto PollEvents();
 
 		auto ProcessDeferredEvents() -> void override;
 
-		auto FindWidgetWindow(const TSharedPtr<MWidget>& InWidget) -> TSharedPtr<MWindow>;
+		auto FindWidgetWindow(const std::shared_ptr<MWidget>& InWidget) -> std::shared_ptr<MWindow>;
 
 		auto GetRenderer() const -> FMonaRenderer*;
 
-		auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow> override;
+		auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow> override;
 
 	protected:
-		auto MakeWindow(const TSharedPtr<MWindow>& InMonaWindow, bool bInShowImmediately) -> TSharedPtr<FGenericWindow>;
+		auto MakeWindow(const std::shared_ptr<MWindow>& InMonaWindow, bool bInShowImmediately) -> std::shared_ptr<FGenericWindow>;
 
 		auto TickPlatform() -> void;
 
@@ -56,12 +56,12 @@ namespace Doge::Mona
 
 		auto TickAndDrawWidgets() -> void;
 
-		static TSharedPtr<FMonaApplication> CurrentApplication;
+		static std::shared_ptr<FMonaApplication> CurrentApplication;
 
-		std::vector<TSharedPtr<MWindow>> Windows;
+		std::vector<std::shared_ptr<MWindow>> Windows;
 
-		std::vector<TSharedPtr<MWindow>> WindowDestroyQueue;
+		std::vector<std::shared_ptr<MWindow>> WindowDestroyQueue;
 
-		TSharedPtr<FMonaRenderer> Renderer;
+		std::shared_ptr<FMonaRenderer> Renderer;
 	};
 }

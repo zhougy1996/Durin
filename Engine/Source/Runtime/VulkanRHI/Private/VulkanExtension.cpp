@@ -28,7 +28,7 @@ namespace Doge::VulkanRHI
 	};
 
 	template<typename ExtensionType>
-	static auto FindExtension(const std::vector<TUniquePtr<ExtensionType>>& InExtensions, const char* InExtensionName) -> int32
+	static auto FindExtension(const std::vector<std::unique_ptr<ExtensionType>>& InExtensions, const char* InExtensionName) -> int32
 	{
 		for (int32 Index = 0; Index < InExtensions.size(); ++Index)
 		{
@@ -41,11 +41,11 @@ namespace Doge::VulkanRHI
 	}
 
 	template<typename ExtensionType>
-	static auto AddRequiredExtensions(std::vector<TUniquePtr<ExtensionType>>& Extensions, const std::vector<const char*>& RequiredExtensionNames)
+	static auto AddRequiredExtensions(std::vector<std::unique_ptr<ExtensionType>>& Extensions, const std::vector<const char*>& RequiredExtensionNames)
 	{
 		for (const char* ExtensionName : RequiredExtensionNames)
 		{
-			auto it = std::find_if(Extensions.begin(), Extensions.end(), [ExtensionName](TUniquePtr<ExtensionType>& Extension) {
+			auto it = std::find_if(Extensions.begin(), Extensions.end(), [ExtensionName](std::unique_ptr<ExtensionType>& Extension) {
 				return Extension->GetExtensionName() == ExtensionName;
 			});
 

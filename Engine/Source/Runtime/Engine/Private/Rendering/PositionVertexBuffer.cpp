@@ -68,7 +68,7 @@ namespace Doge
 	{
 	}
 
-	TSharedPtr<FRHIBuffer> FPositionVertexBuffer::CreateRHIBuffer(FRHICommandList& RHICmdList)
+	std::shared_ptr<FRHIBuffer> FPositionVertexBuffer::CreateRHIBuffer(FRHICommandList& RHICmdList)
 	{
 		return FRenderResource::CreateRHIBuffer(RHICmdList, VertexData_, NumVertices_, BUF_Static | BUF_ShaderResource, STR("FPositionVertexBuffer"));
 	}

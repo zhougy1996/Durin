@@ -12,7 +12,7 @@
 
 namespace Doge::Mona
 {
-	TSharedPtr<FMonaApplication> FMonaApplication::CurrentApplication = nullptr;
+	std::shared_ptr<FMonaApplication> FMonaApplication::CurrentApplication = nullptr;
 
 	FMonaApplication::~FMonaApplication() = default;
 
@@ -39,7 +39,7 @@ namespace Doge::Mona
 		TickAndDrawWidgets();
 	}
 
-	auto FMonaApplication::GetActiveTopLevelWindow() -> TSharedPtr<MWindow>
+	auto FMonaApplication::GetActiveTopLevelWindow() -> std::shared_ptr<MWindow>
 	{
 		// TODO: tmp, implement it later
 		if (Windows.empty())
@@ -49,10 +49,10 @@ namespace Doge::Mona
 		return Windows[0];
 	}
 
-	auto FMonaApplication::AddWindow(TSharedPtr<MWindow> InMonaWindow, const bool bShowImmediately) -> TSharedPtr<MWindow>
+	auto FMonaApplication::AddWindow(std::shared_ptr<MWindow> InMonaWindow, const bool bShowImmediately) -> std::shared_ptr<MWindow>
 	{
 		FMonaWindowHelper::ArrangeWindowToFront(Windows, InMonaWindow);
-		TSharedPtr<FGenericWindow> NewWindow = MakeWindow(InMonaWindow, bShowImmediately);
+		std::shared_ptr<FGenericWindow> NewWindow = MakeWindow(InMonaWindow, bShowImmediately);
 
 		return InMonaWindow;
 	}
@@ -67,7 +67,7 @@ namespace Doge::Mona
 		Renderer = std::make_shared<FMonaRHIRenderer>();
 	}
 
-	auto FMonaApplication::RequestDestroyWindow(TSharedPtr<MWindow> InWindow) -> void
+	auto FMonaApplication::RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void
 	{
 		WindowDestroyQueue.push_back(InWindow);
 		DestroyWindowsImmediately();
@@ -82,7 +82,7 @@ namespace Doge::Mona
 	{
 		while (!WindowDestroyQueue.empty())
 		{
-			TSharedPtr<MWindow> Window = WindowDestroyQueue.front();
+			std::shared_ptr<MWindow> Window = WindowDestroyQueue.front();
 			FlushRenderingCommands();
 			WindowDestroyQueue.erase(WindowDestroyQueue.begin());
 			std::erase(Windows, Window);
@@ -95,9 +95,9 @@ namespace Doge::Mona
 		}
 	}
 
-	auto FMonaApplication::OnWindowClose(const TSharedPtr<FGenericWindow>& PlatformWindow) -> void
+	auto FMonaApplication::OnWindowClose(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void
 	{
-		TSharedPtr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, PlatformWindow);
+		std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, PlatformWindow);
 		if (Window)
 		{
 			Window->RequestDestroyWindow();
@@ -116,7 +116,7 @@ namespace Doge::Mona
 	{
 		if (!Windows.empty())
 		{
-			TSharedPtr<FGenericWindow> PlatformWindowToClose = nullptr;
+			std::shared_ptr<FGenericWindow> PlatformWindowToClose = nullptr;
 			for (auto& EventWindow : Windows)
 			{
 				auto PlatformWindow = EventWindow->GetNativeWindow();
@@ -132,9 +132,9 @@ namespace Doge::Mona
 		}
 	}
 
-	auto FMonaApplication::FindWidgetWindow(const TSharedPtr<MWidget>& InWidget) -> TSharedPtr<MWindow>
+	auto FMonaApplication::FindWidgetWindow(const std::shared_ptr<MWidget>& InWidget) -> std::shared_ptr<MWindow>
 	{
-		TSharedPtr<MWidget> Curr = InWidget;
+		std::shared_ptr<MWidget> Curr = InWidget;
 		while (Curr)
 		{
 			if (Curr->IsWindow())
@@ -152,11 +152,11 @@ namespace Doge::Mona
 		return Renderer.get();
 	}
 
-	auto FMonaApplication::FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow>
+	auto FMonaApplication::FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow>
 	{
 		for (auto& Window : Windows)
 		{
-			TSharedPtr<FGenericWindow> PlatformWindow = Window->GetNativeWindow();
+			std::shared_ptr<FGenericWindow> PlatformWindow = Window->GetNativeWindow();
 			if (PlatformWindow && PlatformWindow->GetOSNativeWindowHandle() == InNativeWindowHandle)
 			{
 				return PlatformWindow;
@@ -165,11 +165,11 @@ namespace Doge::Mona
 		return nullptr;
 	}
 
-	auto FMonaApplication::MakeWindow(const TSharedPtr<MWindow>& InMonaWindow, bool bInShowImmediately) -> TSharedPtr<FGenericWindow>
+	auto FMonaApplication::MakeWindow(const std::shared_ptr<MWindow>& InMonaWindow, bool bInShowImmediately) -> std::shared_ptr<FGenericWindow>
 	{
-		TSharedPtr<FGenericWindow> NewWindow = FGlfwWindow::Make();
+		std::shared_ptr<FGenericWindow> NewWindow = FGlfwWindow::Make();
 
-		TSharedPtr<FGenericWindowDefinition> Definition = std::make_shared<FGenericWindowDefinition>();
+		const auto Definition = std::make_shared<FGenericWindowDefinition>();
 
 		Definition->Title = InMonaWindow->GetTitle();
 

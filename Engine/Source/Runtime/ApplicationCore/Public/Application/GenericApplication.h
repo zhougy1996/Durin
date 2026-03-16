@@ -13,6 +13,6 @@ namespace Doge
 
 		virtual auto ProcessDeferredEvents() -> void;
 
-		virtual auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> TSharedPtr<FGenericWindow>;
+		virtual auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow>;
 	};
 }

@@ -20,7 +20,7 @@ namespace Doge
 
 		virtual ~FGenericWindow();
 
-		virtual auto Initialize(FGenericApplication* InApplication, const TSharedPtr<FGenericWindowDefinition>& InDefinition) -> void;
+		virtual auto Initialize(FGenericApplication* InApplication, const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void;
 
 		virtual auto PollEvents() const -> void;
 
@@ -43,7 +43,7 @@ namespace Doge
 		virtual auto CreateVulkanSurface(void* InVulkanInstance) const -> void* { return nullptr; }
 
 	protected:
-		TSharedPtr<FGenericWindowDefinition> Definition_;
+		std::shared_ptr<FGenericWindowDefinition> Definition_;
 
 		void* OSNativeWindowHandle = nullptr;
 	};

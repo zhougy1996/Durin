@@ -134,7 +134,7 @@ namespace Doge::VulkanRHI
 	{
 		assert(Device == VK_NULL_HANDLE);
 
-		for (const TUniquePtr<FVulkanDeviceExtension>& Extension : InDeviceExtensions)
+		for (const std::unique_ptr<FVulkanDeviceExtension>& Extension : InDeviceExtensions)
 		{
 			if (Extension->InUse())
 			{

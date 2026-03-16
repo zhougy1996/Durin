@@ -16,6 +16,6 @@ namespace Doge
 
 	private:
 
-		TSharedPtr<DStaticMesh> StaticMesh;
+		std::shared_ptr<DStaticMesh> StaticMesh;
 	};
 }

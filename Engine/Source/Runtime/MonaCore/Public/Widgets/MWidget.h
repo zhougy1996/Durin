@@ -2,23 +2,23 @@
 
 namespace Doge::Mona
 {
-	class MONACORE_API MWidget : public TSharedFromThis<MWidget>
+	class MONACORE_API MWidget : public std::enable_shared_from_this<MWidget>
 	{
 	public:
 		MWidget() = default;
-		MWidget(const TSharedPtr<MWidget>& InParentWidget);
+		MWidget(const std::shared_ptr<MWidget>& InParentWidget);
 
 		virtual ~MWidget() = default;
 
 		virtual auto Draw() -> void;
 
-		virtual auto AsWidget() -> TSharedPtr<MWidget>;
+		virtual auto AsWidget() -> std::shared_ptr<MWidget>;
 
 		virtual auto IsWindow() -> bool { return false; }
 
-		auto AssignParentWidget(const TSharedPtr<MWidget>& InParentWidget);
+		auto AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget);
 
-		auto GetParent() const -> TSharedPtr<MWidget>;
+		auto GetParent() const -> std::shared_ptr<MWidget>;
 
 		auto SetName(FName InName) -> MWidget* { Name = InName; return this; }
 
@@ -27,6 +27,6 @@ namespace Doge::Mona
 	protected:
 		FName Name;
 
-		TWeakPtr<MWidget> ParentWidget;
+		std::weak_ptr<MWidget> ParentWidget;
 	};
 }

@@ -5,7 +5,7 @@
 
 namespace Doge
 {
-	TSharedPtr<FGenericApplication> GApp = nullptr;
+	std::shared_ptr<FGenericApplication> GApp = nullptr;
 
 	auto ApplicationInit() -> void
 	{

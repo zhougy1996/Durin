@@ -9,11 +9,11 @@ namespace Doge::Mona
 	public:
 		auto Draw() -> void override;
 
-		auto SetChild(const TSharedPtr<MWidget>& InChild) -> void { ChildWidget = InChild; }
+		auto SetChild(const std::shared_ptr<MWidget>& InChild) -> void { ChildWidget = InChild; }
 
-		auto GetChild() const -> TSharedPtr<MWidget> { return ChildWidget; }
+		auto GetChild() const -> std::shared_ptr<MWidget> { return ChildWidget; }
 
 	protected:
-		TSharedPtr<MWidget> ChildWidget;
+		std::shared_ptr<MWidget> ChildWidget;
 	};
 }

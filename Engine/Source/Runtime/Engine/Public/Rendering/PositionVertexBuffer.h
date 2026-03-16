@@ -32,7 +32,7 @@ namespace Doge
 		ENGINE_API virtual void ReleaseRHI() override;
 
 	private:
-		TSharedPtr<FRHIBuffer> CreateRHIBuffer(FRHICommandList& RHICmdList);
+		std::shared_ptr<FRHIBuffer> CreateRHIBuffer(FRHICommandList& RHICmdList);
 
 		/** Allocates the vertex data storage type. */
 		void AllocateData(bool bInNeedsCPUAccess = true);

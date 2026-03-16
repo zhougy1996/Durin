@@ -115,7 +115,7 @@ namespace Doge
 
 		FoundModuleInfo->Handle = ModuleHandle;
 		Result = InitializeModuleFunctionPtr();
-		FoundModuleInfo->Module = TUniquePtr<IModuleInterface>(Result);
+		FoundModuleInfo->Module = std::unique_ptr<IModuleInterface>(Result);
 		DOGE_DEBUG(STR("Module loaded: {}"), InModuleName.ToString());
 
 		if (bCanProcessNewlyLoadedObjects)

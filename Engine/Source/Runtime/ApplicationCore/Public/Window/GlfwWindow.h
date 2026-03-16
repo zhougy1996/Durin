@@ -11,9 +11,9 @@ namespace Doge
 	public:
 		~FGlfwWindow() override;
 
-		static auto Make() -> TSharedPtr<FGlfwWindow>;
+		static auto Make() -> std::shared_ptr<FGlfwWindow>;
 
-		auto Initialize(FGenericApplication* InApplication, const TSharedPtr<FGenericWindowDefinition>& InDefinition) -> void override;
+		auto Initialize(FGenericApplication* InApplication, const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void override;
 
 		auto PollEvents() const -> void override;
 

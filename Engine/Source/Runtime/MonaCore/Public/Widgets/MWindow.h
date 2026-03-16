@@ -15,11 +15,11 @@ namespace Doge::Mona
 
 		auto PollEvents() const -> void;
 
-		auto SetNativeWindow(TSharedPtr<FGenericWindow> InNativeWindow) -> void;
+		auto SetNativeWindow(std::shared_ptr<FGenericWindow> InNativeWindow) -> void;
 
-		auto GetNativeWindow() const -> TSharedPtr<FGenericWindow>;
+		auto GetNativeWindow() const -> std::shared_ptr<FGenericWindow>;
 
-		auto GetChildWindows() const -> const std::vector<TSharedPtr<MWindow>>&;
+		auto GetChildWindows() const -> const std::vector<std::shared_ptr<MWindow>>&;
 
 		auto RequestDestroyWindow() -> void;
 

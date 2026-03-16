@@ -35,8 +35,8 @@ namespace Doge::VulkanRHI
 		return bSupported && bActivated;
 	}
 
-	using FVulkanInstanceExtensionArray = std::vector<TUniquePtr<FVulkanInstanceExtension>>;
-	using FVulkanDeviceExtensionArray = std::vector<TUniquePtr<FVulkanDeviceExtension>>;
+	using FVulkanInstanceExtensionArray = std::vector<std::unique_ptr<FVulkanInstanceExtension>>;
+	using FVulkanDeviceExtensionArray = std::vector<std::unique_ptr<FVulkanDeviceExtension>>;
 
 	class FVulkanInstanceExtension : public FVulkanExtensionBase
 	{

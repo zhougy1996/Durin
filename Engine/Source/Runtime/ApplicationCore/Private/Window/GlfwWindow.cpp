@@ -18,12 +18,12 @@ namespace Doge
 		glfwTerminate();
 	}
 
-	auto FGlfwWindow::Make() -> TSharedPtr<FGlfwWindow>
+	auto FGlfwWindow::Make() -> std::shared_ptr<FGlfwWindow>
 	{
 		return std::shared_ptr<FGlfwWindow>(new FGlfwWindow());
 	}
 
-	auto FGlfwWindow::Initialize(FGenericApplication* const InApplication, const TSharedPtr<FGenericWindowDefinition>& InDefinition) -> void
+	auto FGlfwWindow::Initialize(FGenericApplication* const InApplication, const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void
 	{
 		OwningApplication = InApplication;
 		Definition_ = InDefinition;
