@@ -6,7 +6,7 @@ namespace Doge
 {
 	enum class EPixelFormat : uint8
 	{
-		UNKNOWN,
+		Unknown,
 
 		R8_UINT,
 		R8_SINT,
@@ -80,8 +80,9 @@ namespace Doge
 		BC7_UNORM,
 		BC7_UNORM_SRGB,
 
-		COUNT,
+		Count,
 	};
+	static_assert(static_cast<uint8>(EPixelFormat::Count) <= 255, "EPixelFormat must fit in uint8");
 
 	enum class EPixelFormatKind : uint8
 	{

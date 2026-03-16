@@ -13,15 +13,15 @@ namespace Doge
 
 	auto FRHICommandList::SwitchPipeline(ERHIPipeline Pipeline) -> void
 	{
-		if (ActivePipeline_ == Pipeline) return;
+		if (ActivePipeline == Pipeline) return;
 
-		ActivePipeline_ = Pipeline;
+		ActivePipeline = Pipeline;
 
 		switch (Pipeline)
 		{
 		case ERHIPipeline::Graphics:
 		{
-			GraphicsContext_ = GDynamicRHI->RHIGetDefaultContext();
+			GraphicsContext = GDynamicRHI->RHIGetDefaultContext();
 		}
 			break;
 			// TODO: compute
@@ -96,6 +96,6 @@ namespace Doge
 
 	auto FRHICommandListExecutor::GetImmediateCommandList() -> FRHICommandListImmediate&
 	{
-		return GCommandListExecutor.CommandListImmediate_;
+		return GCommandListExecutor.CommandListImmediate;
 	}
 }

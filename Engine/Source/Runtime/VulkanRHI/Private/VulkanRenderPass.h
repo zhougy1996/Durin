@@ -1,10 +1,6 @@
 #pragma once
 
-namespace Doge
-{
-	struct FRHIRenderTargetsInfo;
-	struct FRHIRenderPassInfo;
-}
+#include "RHIFwd.h"
 
 namespace Doge::VulkanRHI
 {
@@ -31,7 +27,7 @@ namespace Doge::VulkanRHI
 	class FVulkanRenderPassManager
 	{
 	public:
-		FVulkanRenderPassManager(FVulkanDevice& InDevice);
+		explicit FVulkanRenderPassManager(FVulkanDevice& InDevice);
 
 		// TODO: Render pass should be reuse based on render target layout, but now we select by name for simplicity
 		auto GetOrCreateRenderPass(FName InRenderPassName,  vk::Format Format) -> FVulkanRenderPass*;

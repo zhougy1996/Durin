@@ -16,16 +16,9 @@ namespace Doge::VulkanRHI
 		virtual auto RHIGetVkDevice() const -> vk::Device = 0;
 		virtual auto RHIGetVkInstance() const -> vk::Instance = 0;
 		virtual auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice = 0;
-
-		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TRefCountPtr<FRHIViewport> override = 0;
-		auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override = 0;
-		auto RHIGetDefaultContext() -> IRHICommandContext* override = 0;
-		auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TRefCountPtr<FRHITexture> override = 0;
-
-		auto RHIBlockUntilGPUIdle() -> void override = 0;
 	};
 
-	class FVulkanDynamicRHI : public IVulkanDynamicRHI
+	class FVulkanDynamicRHI final: public IVulkanDynamicRHI
 	{
 	public:
 		FVulkanDynamicRHI();
@@ -36,7 +29,7 @@ namespace Doge::VulkanRHI
 		auto Init() -> void override;
 		auto Shutdown() -> void override;
 
-		auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void final;
+		auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void override;
 
 		auto RHIGetVkDevice() const -> vk::Device override;
 		auto RHIGetVkInstance() const -> vk::Instance override;
@@ -45,8 +38,10 @@ namespace Doge::VulkanRHI
 		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TRefCountPtr<FRHIViewport> override;
 		auto RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override;
 		auto RHIGetDefaultContext() -> IRHICommandContext* override;
-		auto RHIGetCommandContext(ERHIPipeline Pipeline) -> IRHICommandContext*;
+		auto RHIGetCommandContext(ERHIPipeline Pipeline) const -> IRHICommandContext*;
 		auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TRefCountPtr<FRHITexture> override;
+
+		auto RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> override;
 
 		auto RHIBlockUntilGPUIdle() -> void override;
 

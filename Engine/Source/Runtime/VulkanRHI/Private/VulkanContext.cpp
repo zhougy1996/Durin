@@ -108,7 +108,7 @@ namespace Doge::VulkanRHI
 		return Device->GetImmediateContext();
 	}
 
-	auto FVulkanDynamicRHI::RHIGetCommandContext(ERHIPipeline Pipeline) -> IRHICommandContext*
+	auto FVulkanDynamicRHI::RHIGetCommandContext(ERHIPipeline Pipeline) const -> IRHICommandContext*
 	{
 		if (Pipeline != ERHIPipeline::Graphics)
 		{

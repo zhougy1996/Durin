@@ -4,6 +4,7 @@
 #include "RHIDefinitions.h"
 
 #include "Hash/XxHash.h"
+#include "Math/MathFwd.h"
 
 namespace Doge
 {
@@ -84,7 +85,7 @@ namespace Doge
 				check((OldPacked & DeletingBit) == 0); // Resource is being deleted
 				const uint32 OldRefCount = OldPacked & NumRefsMask;
 				check(OldRefCount != 0); // Prevent underflow
-				return (OldPacked & NumRefsMask) - 1;
+				return OldRefCount - 1;
 			}
 
 			auto MarkForDelete(std::memory_order MemoryOrder) -> bool
@@ -177,10 +178,202 @@ namespace Doge
 		}
 	};
 
-	class RHI_API FRHITexture : public FRHIResource
+	enum class EClearBinding
+	{
+		None,  // No clear binding, the render target will not do hardware clears.
+		Color, // Target has a
+		DepthStencil,
+	};
+
+	struct FClearValueBinding
+	{
+		struct FDepthStencilValue
+		{
+			float Depth;
+			uint32 Stencil;
+		};
+
+		FClearValueBinding()
+			: Binding(EClearBinding::Color)
+		{
+			ClearValue.Color[0] = 0.0f;
+			ClearValue.Color[1] = 0.0f;
+			ClearValue.Color[2] = 0.0f;
+			ClearValue.Color[3] = 0.0f;
+		}
+
+		explicit FClearValueBinding(EClearBinding NoBinding)
+			: Binding(NoBinding)
+		{
+			check(Binding == EClearBinding::None);
+			ClearValue.Color[0] = 0.0f;
+			ClearValue.Color[1] = 0.0f;
+			ClearValue.Color[2] = 0.0f;
+			ClearValue.Color[3] = 0.0f;
+
+			ClearValue.DSValue.Depth = 0.0f;
+			ClearValue.DSValue.Stencil = 0;
+		}
+
+		union FClearValue
+		{
+			float Color[4];
+			FDepthStencilValue DSValue{};
+		} ClearValue;
+
+		EClearBinding Binding;
+	};
+
+	struct FRHITextureDesc
+	{
+		FRHITextureDesc() = default;
+
+		explicit FRHITextureDesc(ETextureDimension InDimension)
+			: Dimension(InDimension)
+		{
+		}
+
+		auto IsTexture2D() const -> bool
+		{
+			return Dimension == ETextureDimension::Texture2D || Dimension == ETextureDimension::Texture2DArray;
+		}
+
+		auto IsTexture3D() const -> bool
+		{
+			return Dimension == ETextureDimension::Texture3D;
+		}
+
+		auto IsTextureCube() const -> bool
+		{
+			return Dimension == ETextureDimension::TextureCube;
+		}
+
+		auto IsTextureArray() const -> bool
+		{
+			return Dimension == ETextureDimension::Texture2DArray || Dimension == ETextureDimension::TextureCubeArray;
+		}
+
+		auto IsMipChain() const -> bool
+		{
+			return NumMips > 1;
+		}
+
+		auto IsMultisample() const -> bool
+		{
+			return NumSamples > 1;
+		}
+
+		auto GetSize() const -> FIntVector
+		{
+			return FIntVector(Extent.x, Extent.y, Depth);
+		}
+
+		ETextureDimension Dimension = ETextureDimension::Texture2D;
+
+		ETextureCreateFlags Flags = ETextureCreateFlags::None;
+
+		EPixelFormat Format = EPixelFormat::Unknown;
+
+		FClearValueBinding ClearValue{};
+
+		FIntPoint Extent = FIntPoint(1, 1);
+
+		// Depth of the texture if the dimension is 3D
+		uint16 Depth = 1;
+
+		// The number of array elements in the texture. (Keep at 1 if dimension is 3D).
+		uint16 ArraySize = 1;
+
+		// Number of mips in the texture mip-map chain.
+		uint8 NumMips = 1;
+
+		// Number of samples in the texture.
+		uint8 NumSamples = 1;
+	};
+
+	struct FRHITextureCreateDesc : public FRHITextureDesc
+	{
+		FRHITextureCreateDesc() = default;
+
+		FRHITextureCreateDesc(const char* InDebugName, ETextureDimension InDimension)
+			: FRHITextureDesc(InDimension)
+			, DebugName(InDebugName)
+		{
+		}
+
+		auto SetFlags(ETextureCreateFlags InFlags) -> FRHITextureCreateDesc&
+		{
+			Flags = InFlags;
+			return *this;
+		}
+		auto AddFlags(ETextureCreateFlags InFlags) -> FRHITextureCreateDesc&
+		{
+			Flags |= InFlags;
+			return *this;
+		}
+		auto SetClearValue(FClearValueBinding InClearValue) -> FRHITextureCreateDesc&
+		{
+			ClearValue = InClearValue;
+			return *this;
+		}
+		auto SetExtent(const FIntPoint& InExtent) -> FRHITextureCreateDesc&
+		{
+			Extent = InExtent;
+			return *this;
+		}
+		auto SetExtent(uint32 InWidth, uint32 InHeight) -> FRHITextureCreateDesc&
+		{
+			Extent = FIntPoint(InWidth, InHeight);
+			return *this;
+		}
+		auto SetExtent(int32 InWidth, int32 InHeight) -> FRHITextureCreateDesc&
+		{
+			Extent = FIntPoint(InWidth, InHeight);
+			return *this;
+		}
+		auto SetExtent(uint32 InExtent) -> FRHITextureCreateDesc&
+		{
+			Extent = FIntPoint(InExtent);
+			return *this;
+		}
+		auto SetDepth(uint16 InDepth) -> FRHITextureCreateDesc&
+		{
+			Depth = InDepth;
+			return *this;
+		}
+		auto SetArraySize(uint16 InArraySize) -> FRHITextureCreateDesc&
+		{
+			ArraySize = InArraySize;
+			return *this;
+		}
+		auto SetNumMips(uint8 InNumMips) -> FRHITextureCreateDesc&
+		{
+			NumMips = InNumMips;
+			return *this;
+		}
+		auto SetNumSamples(uint8 InNumSamples) -> FRHITextureCreateDesc&
+		{
+			NumSamples = InNumSamples;
+			return *this;
+		}
+		auto SetFormat(EPixelFormat InFormat) -> FRHITextureCreateDesc&
+		{
+			Format = InFormat;
+			return *this;
+		}
+		auto SetDimension(ETextureDimension InDimension) -> FRHITextureCreateDesc&
+		{
+			Dimension = InDimension;
+			return *this;
+		}
+
+		const char* DebugName;
+	};
+
+	class FRHITexture : public FRHIResource
 	{
 	public:
-		FRHITexture()
+		RHI_API FRHITexture()
 			: FRHIResource(ERHIResourceType::Texture)
 		{
 		}
@@ -195,7 +388,10 @@ namespace Doge
 	class RHI_API FRHIViewport : public FRHIResource
 	{
 	public:
-		FRHIViewport() : FRHIResource(ERHIResourceType::Viewport) {}
+		FRHIViewport()
+			: FRHIResource(ERHIResourceType::Viewport)
+		{
+		}
 		~FRHIViewport() override = default;
 		virtual auto Tick(float DeltaTime) -> void {};
 		virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TRefCountPtr<FRHITexture> = 0;
@@ -220,7 +416,7 @@ namespace Doge
 	public:
 		FName RenderPassName;
 
-		EPixelFormat PixelFormat;
+		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 	};
 
 	struct FRHIBufferDesc

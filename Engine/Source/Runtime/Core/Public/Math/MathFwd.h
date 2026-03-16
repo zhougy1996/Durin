@@ -31,4 +31,5 @@ namespace Doge
 
 	using FPoint2i = glm::i32vec2;
 	using FIntPoint = FPoint2i;
+	using FIntVector = glm::i32vec3;
 }

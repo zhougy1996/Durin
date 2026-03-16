@@ -1,13 +1,17 @@
 #pragma once
 
+#include "DynamicRHI.h"
 #include "RHIDefinitions.h"
+#include "RHIResources.h"
 
 namespace Doge
 {
-	class IRHICommandContext;
+	struct FRHITextureCreateDesc;
 	struct FRHIRenderPassInfo;
-	class FRHICommandListExecutor;
+
 	class FRHITexture;
+	class IRHICommandContext;
+	class FRHICommandListExecutor;
 	class FRHIViewport;
 	class FRHIGraphicsPipelineState;
 
@@ -40,14 +44,14 @@ namespace Doge
 
 		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 
-		auto GetContext() const -> IRHICommandContext& { return *GraphicsContext_; }
+		auto GetContext() const -> IRHICommandContext& { return *GraphicsContext; }
 
 		auto SubmitCommandsHint() -> void;
 
 	private:
-		ERHIPipeline ActivePipeline_ = ERHIPipeline::None;
+		ERHIPipeline ActivePipeline = ERHIPipeline::None;
 
-		IRHICommandContext* GraphicsContext_ = nullptr;
+		IRHICommandContext* GraphicsContext = nullptr;
 	};
 
 	// Main command list class that will be used to record commands, and submit to GPU immediately when calling EndFrame
@@ -67,8 +71,13 @@ namespace Doge
 		static auto GetImmediateCommandList() -> FRHICommandListImmediate&;
 
 	private:
-		FRHICommandListImmediate CommandListImmediate_;
+		FRHICommandListImmediate CommandListImmediate;
 	};
 
 	extern RHI_API FRHICommandListExecutor GCommandListExecutor;
+
+	FORCEINLINE TRefCountPtr<FRHITexture> RHICreateTexture(const FRHITextureCreateDesc& CreateDesc)
+	{
+		return GDynamicRHI->RHICreateTexture(FRHICommandListImmediate::Get(), CreateDesc);
+	}
 }

@@ -48,7 +48,7 @@ namespace Doge
 		Apple = 0x106B,
 	};
 
-	inline EGpuVendorId RHIConvertToGpuVenderId(uint32 VendorId)
+	inline EGpuVendorId RHIConvertToGpuVendorId(uint32 VendorId)
 	{
 		switch (static_cast<EGpuVendorId>(VendorId))
 		{
@@ -69,6 +69,29 @@ namespace Doge
 			return EGpuVendorId::Unknown;
 		}
 	}
+
+	enum class ETextureDimension : uint8
+	{
+		Texture2D,
+		Texture2DArray,
+		Texture3D,
+		TextureCube,
+		TextureCubeArray
+	};
+
+	enum class ETextureCreateFlags : uint64
+	{
+		None = 0,
+		// Texture can be used as a render target
+		RenderTargetable = 1ull << 0,
+		// Texture can be used as a resolve target (MSAA back buffer, or for manual resolves of multisampled render targets).
+		ResolveTargetable = 1ull << 1,
+		// Texture can be used as a depth-stencil target
+		DepthStencilTargetable = 1ull << 2,
+		// Texture can be used as a shader resource.
+		ShaderResource = 1ull << 3
+	};
+	ENUM_CLASS_FLAGS(ETextureCreateFlags);
 
 	/**
 	 *	Resource usage flags - for vertex and index buffers.
@@ -157,27 +180,27 @@ namespace Doge
 
 	ENUM_CLASS_FLAGS(EBufferUsageFlags);
 
-	#define BUF_None EBufferUsageFlags::None
-	#define BUF_Static EBufferUsageFlags::Static
-	#define BUF_Dynamic EBufferUsageFlags::Dynamic
-	#define BUF_Volatile EBufferUsageFlags::Volatile
-	#define BUF_UnorderedAccess EBufferUsageFlags::UnorderedAccess
-	#define BUF_ByteAddressBuffer EBufferUsageFlags::ByteAddressBuffer
-	#define BUF_SourceCopy EBufferUsageFlags::SourceCopy
-	#define BUF_DrawIndirect EBufferUsageFlags::DrawIndirect
-	#define BUF_ShaderResource EBufferUsageFlags::ShaderResource
-	#define BUF_KeepCPUAccessible EBufferUsageFlags::KeepCPUAccessible
-	#define BUF_FastVRAM EBufferUsageFlags::FastVRAM
-	#define BUF_Shared EBufferUsageFlags::Shared
-	#define BUF_AccelerationStructure EBufferUsageFlags::AccelerationStructure
-	#define BUF_RayTracingScratch EBufferUsageFlags::RayTracingScratch
-	#define BUF_VertexBuffer EBufferUsageFlags::VertexBuffer
-	#define BUF_IndexBuffer EBufferUsageFlags::IndexBuffer
-	#define BUF_StructuredBuffer EBufferUsageFlags::StructuredBuffer
-	#define BUF_AnyDynamic EBufferUsageFlags::AnyDynamic
-	#define BUF_MultiGPUAllocate EBufferUsageFlags::MultiGPUAllocate
-	#define BUF_MultiGPUGraphIgnore EBufferUsageFlags::MultiGPUGraphIgnore
-	#define BUF_NullResource EBufferUsageFlags::NullResource
-	#define BUF_UniformBuffer EBufferUsageFlags::UniformBuffer
-	#define BUF_ReservedResource EBufferUsageFlags::ReservedResource
-}
+#define BUF_None EBufferUsageFlags::None
+#define BUF_Static EBufferUsageFlags::Static
+#define BUF_Dynamic EBufferUsageFlags::Dynamic
+#define BUF_Volatile EBufferUsageFlags::Volatile
+#define BUF_UnorderedAccess EBufferUsageFlags::UnorderedAccess
+#define BUF_ByteAddressBuffer EBufferUsageFlags::ByteAddressBuffer
+#define BUF_SourceCopy EBufferUsageFlags::SourceCopy
+#define BUF_DrawIndirect EBufferUsageFlags::DrawIndirect
+#define BUF_ShaderResource EBufferUsageFlags::ShaderResource
+#define BUF_KeepCPUAccessible EBufferUsageFlags::KeepCPUAccessible
+#define BUF_FastVRAM EBufferUsageFlags::FastVRAM
+#define BUF_Shared EBufferUsageFlags::Shared
+#define BUF_AccelerationStructure EBufferUsageFlags::AccelerationStructure
+#define BUF_RayTracingScratch EBufferUsageFlags::RayTracingScratch
+#define BUF_VertexBuffer EBufferUsageFlags::VertexBuffer
+#define BUF_IndexBuffer EBufferUsageFlags::IndexBuffer
+#define BUF_StructuredBuffer EBufferUsageFlags::StructuredBuffer
+#define BUF_AnyDynamic EBufferUsageFlags::AnyDynamic
+#define BUF_MultiGPUAllocate EBufferUsageFlags::MultiGPUAllocate
+#define BUF_MultiGPUGraphIgnore EBufferUsageFlags::MultiGPUGraphIgnore
+#define BUF_NullResource EBufferUsageFlags::NullResource
+#define BUF_UniformBuffer EBufferUsageFlags::UniformBuffer
+#define BUF_ReservedResource EBufferUsageFlags::ReservedResource
+} // namespace Doge

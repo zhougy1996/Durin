@@ -23,6 +23,8 @@ namespace Doge
 		virtual auto RHIGetDefaultContext() -> IRHICommandContext* = 0;
 		virtual auto RHIGetViewportBackBuffer(FRHIViewport* InViewportRHI) -> TRefCountPtr<FRHITexture> = 0;
 
+		virtual auto RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> = 0;
+
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 	};
 

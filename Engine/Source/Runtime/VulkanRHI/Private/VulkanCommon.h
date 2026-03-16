@@ -29,7 +29,7 @@ namespace Doge::VulkanRHI
 			default:
 				DOGE_ERROR("Unsupported pixel format {}", vk::to_string(InFormat));
 			}
-			return EPixelFormat::UNKNOWN;
+			return EPixelFormat::Unknown;
 		}
 
 		inline vk::Format FromPixelFormat(EPixelFormat InFormat)

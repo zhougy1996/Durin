@@ -44,13 +44,13 @@ namespace Doge
 		}
 
 		template<typename MoveReferencedType>
-		TRefCountPtr(TRefCountPtr<MoveReferencedType>&& Move) noexcept
+		explicit TRefCountPtr(TRefCountPtr<MoveReferencedType>&& Move) noexcept
 		{
 			Reference = static_cast<ReferencedType*>(Move.GetReference());
 			Move.Reference = nullptr;
 		}
 
-		FORCEINLINE ~TRefCountPtr()
+		~TRefCountPtr()
 		{
 			if (Reference)
 			{

@@ -153,8 +153,13 @@ namespace Doge::VulkanRHI
 		return ViewportRHI->GetBackBuffer(FRHICommandListImmediate::Get());
 	}
 
+	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
+	{
+		return nullptr;
+	}
+
 	auto FVulkanDynamicRHI::RHIBlockUntilGPUIdle() -> void
 	{
 		Device->WaitUtilIdle();
 	}
-} // namespace Doge::VulkanRHI
+}
