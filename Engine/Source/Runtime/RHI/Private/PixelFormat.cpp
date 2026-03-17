@@ -3,8 +3,8 @@
 namespace Doge
 {
 	 // Format mapping table. The rows must be in the exactly same order as Format enum members are defined.
-    static const FPixelFormatInfo kFormatInfo[] = {
-        { EPixelFormat::Unknown,           "UNKNOWN",           0,   0, EPixelFormatKind::Integer,      false, false, false, false, false, false, false, false },
+    static const FPixelFormatInfo FormatInfo[] = {
+        { EPixelFormat::Unknown,           "Unknown",           0,   0, EPixelFormatKind::Integer,      false, false, false, false, false, false, false, false },
         { EPixelFormat::R8_UINT,           "R8_UINT",           1,   1, EPixelFormatKind::Integer,      true,  false, false, false, false, false, false, false },
         { EPixelFormat::R8_SINT,           "R8_SINT",           1,   1, EPixelFormatKind::Integer,      true,  false, false, false, false, false, true,  false },
         { EPixelFormat::R8_UNORM,          "R8_UNORM",          1,   1, EPixelFormatKind::Normalized,   true,  false, false, false, false, false, false, false },
@@ -78,13 +78,13 @@ namespace Doge
 
 	auto GetPixelFormatInfo(EPixelFormat Format) -> const FPixelFormatInfo&
 	{
-		static_assert(sizeof(kFormatInfo) / sizeof(FPixelFormatInfo) == static_cast<size_t>(EPixelFormat::Count),
+		static_assert(sizeof(FormatInfo) / sizeof(FPixelFormatInfo) == static_cast<size_t>(EPixelFormat::Count),
 		   "The format info table doesn't have the right number of elements");
 
 		if (static_cast<uint32_t>(Format) >= static_cast<uint32_t>(EPixelFormat::Count))
-			return kFormatInfo[0]; // UNKNOWN
+			return FormatInfo[0]; // Unknown
 
-		const FPixelFormatInfo& Info = kFormatInfo[static_cast<size_t>(Format)];
+		const FPixelFormatInfo& Info = FormatInfo[static_cast<size_t>(Format)];
 		check(Info.Format == Format);
 		return Info;
 	}

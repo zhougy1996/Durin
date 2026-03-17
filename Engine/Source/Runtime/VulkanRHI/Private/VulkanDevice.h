@@ -46,7 +46,9 @@ namespace Doge::VulkanRHI
 		auto EnqueueResource(EType Type, T Handle) -> void
 		{
 			static_assert(sizeof(T) <= sizeof(uint64), "Vulkan resource handle type size too large.");
-			EnqueueGenericResource(Type, static_cast<uint64>(Handle));
+			// Convert cpp-style handle to c-style handle
+			typename T::NativeType RawHandle = static_cast<typename T::NativeType>(Handle);
+			EnqueueGenericResource(Type, reinterpret_cast<uint64>(RawHandle));
 		}
 
 		auto ReleaseResources(bool bDeleteImmediately = false) -> void;

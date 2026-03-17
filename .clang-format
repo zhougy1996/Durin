@@ -87,10 +87,6 @@ AlignAfterOpenBracket: BlockIndent
 # int ccc  = 23;
 AlignConsecutiveAssignments: false
 
-# AlignEscapedNewlinesLeft (bool)
-# If true, aligns escaped newlines as far left as possible. Otherwise puts them into the right-most column.
-AlignEscapedNewlinesLeft: DontAlign
-
 # AlignOperands (bool)
 # If true, horizontally align operands of binary and ternary expressions.
 # Specifically, this aligns operands of a single expression that needs to be split over multiple lines, e.g.:
@@ -108,11 +104,13 @@ AllowAllParametersOfDeclarationOnNextLine: true
 
 # AllowShortBlocksOnASingleLine (bool)
 # Allows contracting simple braced statements to a single line.
-AllowShortBlocksOnASingleLine: true
+AllowShortBlocksOnASingleLine: Empty
 
 # AllowShortCaseLabelsOnASingleLine (bool)
 # If true, short case labels will be contracted to a single line.
 AllowShortCaseLabelsOnASingleLine: true
+
+AllowShortLambdasOnASingleLine: All
 
 # AllowShortFunctionsOnASingleLine (ShortFunctionStyle)
 # Dependent on the value, int f() { return 0; } can be put on a single line.
@@ -121,7 +119,7 @@ AllowShortCaseLabelsOnASingleLine: true
 #   SFS_Empty (in configuration: Empty) Only merge empty functions.
 #   SFS_Inline (in configuration: Inline) Only merge functions defined inside a class. Implies “empty”.
 #   SFS_All (in configuration: All) Merge all functions fitting on a single line.
-AllowShortFunctionsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
 
 # AllowShortIfStatementsOnASingleLine (bool)
 # If true, if (a) return; can be put on a single line.

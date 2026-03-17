@@ -233,35 +233,17 @@ namespace Doge
 		{
 		}
 
-		auto IsTexture2D() const -> bool
-		{
-			return Dimension == ETextureDimension::Texture2D || Dimension == ETextureDimension::Texture2DArray;
-		}
+		auto IsTexture2D() const -> bool { return Dimension == ETextureDimension::Texture2D || Dimension == ETextureDimension::Texture2DArray; }
 
-		auto IsTexture3D() const -> bool
-		{
-			return Dimension == ETextureDimension::Texture3D;
-		}
+		auto IsTexture3D() const -> bool { return Dimension == ETextureDimension::Texture3D; }
 
-		auto IsTextureCube() const -> bool
-		{
-			return Dimension == ETextureDimension::TextureCube;
-		}
+		auto IsTextureCube() const -> bool { return Dimension == ETextureDimension::TextureCube; }
 
-		auto IsTextureArray() const -> bool
-		{
-			return Dimension == ETextureDimension::Texture2DArray || Dimension == ETextureDimension::TextureCubeArray;
-		}
+		auto IsTextureArray() const -> bool { return Dimension == ETextureDimension::Texture2DArray || Dimension == ETextureDimension::TextureCubeArray; }
 
-		auto IsMipChain() const -> bool
-		{
-			return NumMips > 1;
-		}
+		auto IsMipChain() const -> bool { return NumMips > 1; }
 
-		auto IsMultisample() const -> bool
-		{
-			return NumSamples > 1;
-		}
+		auto IsMultisample() const -> bool { return NumSamples > 1; }
 
 		auto GetSize() const -> FIntVector
 		{
@@ -293,6 +275,50 @@ namespace Doge
 
 	struct FRHITextureCreateDesc : public FRHITextureDesc
 	{
+		static auto Create(const char* InDebugName, ETextureDimension InDimension) -> FRHITextureCreateDesc
+		{
+			return FRHITextureCreateDesc(InDebugName, InDimension);
+		}
+
+		static auto Create2D(const char* InDebugName) -> FRHITextureCreateDesc
+		{
+			return FRHITextureCreateDesc(InDebugName, ETextureDimension::Texture2D);
+		}
+
+		static auto Create2DArray(const char* InDebugName) -> FRHITextureCreateDesc
+		{
+			return FRHITextureCreateDesc(InDebugName, ETextureDimension::Texture2DArray);
+		}
+
+		static auto Create3D(const char* InDebugName) -> FRHITextureCreateDesc
+		{
+			return FRHITextureCreateDesc(InDebugName, ETextureDimension::Texture3D);
+		}
+
+		static auto CreateCube(const char* InDebugName) -> FRHITextureCreateDesc
+		{
+			return FRHITextureCreateDesc(InDebugName, ETextureDimension::TextureCube);
+		}
+
+		static auto CreateCubeArray(const char* InDebugName) -> FRHITextureCreateDesc
+		{
+			return FRHITextureCreateDesc(InDebugName, ETextureDimension::TextureCubeArray);
+		}
+
+		static auto Create2D(const char* InDebugName, uint32 InWidth, uint32 InHeight, EPixelFormat InFormat) -> FRHITextureCreateDesc
+		{
+			return Create2D(InDebugName)
+				.SetExtent(InWidth, InHeight)
+				.SetFormat(InFormat);
+		}
+
+		static auto Create2D(const char* InDebugName, FIntPoint InExtent, EPixelFormat InFormat) -> FRHITextureCreateDesc
+		{
+			return Create2D(InDebugName)
+				.SetExtent(InExtent)
+				.SetFormat(InFormat);
+		}
+
 		FRHITextureCreateDesc() = default;
 
 		FRHITextureCreateDesc(const char* InDebugName, ETextureDimension InDimension)
@@ -301,71 +327,22 @@ namespace Doge
 		{
 		}
 
-		auto SetFlags(ETextureCreateFlags InFlags) -> FRHITextureCreateDesc&
-		{
-			Flags = InFlags;
-			return *this;
-		}
-		auto AddFlags(ETextureCreateFlags InFlags) -> FRHITextureCreateDesc&
-		{
-			Flags |= InFlags;
-			return *this;
-		}
-		auto SetClearValue(FClearValueBinding InClearValue) -> FRHITextureCreateDesc&
-		{
-			ClearValue = InClearValue;
-			return *this;
-		}
-		auto SetExtent(const FIntPoint& InExtent) -> FRHITextureCreateDesc&
-		{
-			Extent = InExtent;
-			return *this;
-		}
-		auto SetExtent(uint32 InWidth, uint32 InHeight) -> FRHITextureCreateDesc&
-		{
-			Extent = FIntPoint(InWidth, InHeight);
-			return *this;
-		}
-		auto SetExtent(int32 InWidth, int32 InHeight) -> FRHITextureCreateDesc&
-		{
-			Extent = FIntPoint(InWidth, InHeight);
-			return *this;
-		}
-		auto SetExtent(uint32 InExtent) -> FRHITextureCreateDesc&
-		{
-			Extent = FIntPoint(InExtent);
-			return *this;
-		}
-		auto SetDepth(uint16 InDepth) -> FRHITextureCreateDesc&
-		{
-			Depth = InDepth;
-			return *this;
-		}
-		auto SetArraySize(uint16 InArraySize) -> FRHITextureCreateDesc&
-		{
-			ArraySize = InArraySize;
-			return *this;
-		}
-		auto SetNumMips(uint8 InNumMips) -> FRHITextureCreateDesc&
-		{
-			NumMips = InNumMips;
-			return *this;
-		}
-		auto SetNumSamples(uint8 InNumSamples) -> FRHITextureCreateDesc&
-		{
-			NumSamples = InNumSamples;
-			return *this;
-		}
-		auto SetFormat(EPixelFormat InFormat) -> FRHITextureCreateDesc&
-		{
-			Format = InFormat;
-			return *this;
-		}
-		auto SetDimension(ETextureDimension InDimension) -> FRHITextureCreateDesc&
-		{
-			Dimension = InDimension;
-			return *this;
-		}
+		// clang-format off
+		auto SetFlags(ETextureCreateFlags InFlags) -> FRHITextureCreateDesc& { Flags = InFlags; return *this; }
+		auto AddFlags(ETextureCreateFlags InFlags) -> FRHITextureCreateDesc& { Flags |= InFlags; return *this; }
+		auto SetClearValue(FClearValueBinding InClearValue) -> FRHITextureCreateDesc& { ClearValue = InClearValue; return *this; }
+		auto SetExtent(const FIntPoint& InExtent) -> FRHITextureCreateDesc& { Extent = InExtent; return *this; }
+		auto SetExtent(uint32 InWidth, uint32 InHeight) -> FRHITextureCreateDesc& { Extent = FIntPoint(InWidth, InHeight); return *this; }
+		auto SetExtent(int32 InWidth, int32 InHeight) -> FRHITextureCreateDesc& { Extent = FIntPoint(InWidth, InHeight); return *this; }
+		auto SetExtent(uint32 InExtent) -> FRHITextureCreateDesc& { Extent = FIntPoint(InExtent); return *this; }
+		auto SetDepth(uint16 InDepth) -> FRHITextureCreateDesc& { Depth = InDepth; return *this; }
+		auto SetArraySize(uint16 InArraySize) -> FRHITextureCreateDesc& { ArraySize = InArraySize; return *this; }
+		auto SetNumMips(uint8 InNumMips) -> FRHITextureCreateDesc& { NumMips = InNumMips; return *this; }
+		auto SetNumSamples(uint8 InNumSamples) -> FRHITextureCreateDesc& { NumSamples = InNumSamples; return *this; }
+		auto SetFormat(EPixelFormat InFormat) -> FRHITextureCreateDesc& { Format = InFormat; return *this; }
+		auto SetDimension(ETextureDimension InDimension) -> FRHITextureCreateDesc& { Dimension = InDimension; return *this; }
+		// clang-format on
+
 
 		const char* DebugName;
 	};

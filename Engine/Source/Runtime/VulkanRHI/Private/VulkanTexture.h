@@ -9,6 +9,8 @@ namespace Doge::VulkanRHI
 	class FVulkanTexture : public FRHITexture
 	{
 	public:
+		FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc);
+
 		FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage);
 
 		~FVulkanTexture() override;

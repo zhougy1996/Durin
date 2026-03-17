@@ -155,7 +155,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
 	{
-		return nullptr;
+		return new FVulkanTexture(*Device, CreateDesc);
 	}
 
 	auto FVulkanDynamicRHI::RHIBlockUntilGPUIdle() -> void
