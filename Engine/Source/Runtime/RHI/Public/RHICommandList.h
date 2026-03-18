@@ -48,6 +48,8 @@ namespace Doge
 
 		auto SubmitCommandsHint() -> void;
 
+		auto CreateBuffer(const FRHIBufferCreateDesc& InCreateDesc) -> TRefCountPtr<FRHIBuffer>;
+
 	private:
 		ERHIPipeline ActivePipeline = ERHIPipeline::None;
 

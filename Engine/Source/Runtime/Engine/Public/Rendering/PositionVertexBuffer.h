@@ -18,18 +18,18 @@ namespace Doge
 		ENGINE_API FPositionVertexBuffer();
 
 		/** Destructor. */
-		ENGINE_API ~FPositionVertexBuffer();
+		ENGINE_API ~FPositionVertexBuffer() override;
 
 		ENGINE_API void CleanUp();
 
-		ENGINE_API void Init(uint32 NumVertices, bool bInNeedsCPUAccess = true);
+		ENGINE_API void Init(uint32 InNumVertices, bool bInNeedsCPUAccess = true);
 
 		ENGINE_API void Init(const std::vector<FVector3f>& InPositions, bool bInNeedsCPUAccess = true);
 
 		// FRenderResource interface.
-		ENGINE_API virtual void InitRHI(FRHICommandList& RHICmdList) override;
+		ENGINE_API void InitRHI(FRHICommandList& RHICmdList) override;
 
-		ENGINE_API virtual void ReleaseRHI() override;
+		ENGINE_API void ReleaseRHI() override;
 
 	private:
 		std::shared_ptr<FRHIBuffer> CreateRHIBuffer(FRHICommandList& RHICmdList);
@@ -37,17 +37,17 @@ namespace Doge
 		/** Allocates the vertex data storage type. */
 		void AllocateData(bool bInNeedsCPUAccess = true);
 
-		FPositionVertexData* VertexData_;
+		FPositionVertexData* VertexData;
 
 		/** The cached vertex data pointer. */
-		uint8* Data_;
+		uint8* Data;
 
 		/** The cached vertex stride. */
-		uint32 Stride_;
+		uint32 Stride;
 
 		/** The cached number of vertices. */
-		uint32 NumVertices_;
+		uint32 NumVertices;
 
-		bool bNeedsCPUAccess_ = true;
+		bool bNeedsCPUAccess = true;
 	};
 }

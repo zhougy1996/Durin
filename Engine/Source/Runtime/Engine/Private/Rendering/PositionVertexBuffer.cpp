@@ -13,10 +13,10 @@ namespace Doge
 		}
 	};
 	FPositionVertexBuffer::FPositionVertexBuffer()
-		: VertexData_(nullptr)
-		, Data_(nullptr)
-		, Stride_(0)
-		, NumVertices_(0)
+		: VertexData(nullptr)
+		, Data(nullptr)
+		, Stride(0)
+		, NumVertices(0)
 	{
 	}
 
@@ -26,37 +26,37 @@ namespace Doge
 
 	void FPositionVertexBuffer::CleanUp()
 	{
-		if (VertexData_)
+		if (VertexData)
 		{
-			delete VertexData_;
-			VertexData_ = nullptr;
+			delete VertexData;
+			VertexData = nullptr;
 		}
 	}
 
 	void FPositionVertexBuffer::Init(uint32 InNumVertices, bool bInNeedsCPUAccess)
 	{
-		NumVertices_ = InNumVertices;
-		bNeedsCPUAccess_ = bInNeedsCPUAccess;
+		NumVertices = InNumVertices;
+		bNeedsCPUAccess = bInNeedsCPUAccess;
 
 		// Allocate the vertex data storage type.
 		AllocateData(bInNeedsCPUAccess);
 
 		// Allocate the vertex data buffer.
-		VertexData_->ResizeBuffer(NumVertices_);
-		Data_ = NumVertices_ ? VertexData_->GetDataPointer() : nullptr;
+		VertexData->ResizeBuffer(NumVertices);
+		Data = NumVertices ? VertexData->GetDataPointer() : nullptr;
 	}
 
 	void FPositionVertexBuffer::Init(const std::vector<FVector3f>& InPositions, bool bInNeedsCPUAccess)
 	{
-		NumVertices_ = static_cast<uint32>(InPositions.size());
-		bNeedsCPUAccess_ = bInNeedsCPUAccess;
-		if (NumVertices_)
+		NumVertices = static_cast<uint32>(InPositions.size());
+		bNeedsCPUAccess = bInNeedsCPUAccess;
+		if (NumVertices)
 		{
 			AllocateData(bInNeedsCPUAccess);
 			check(Stride_ == sizeof(FVector3f));
-			VertexData_->ResizeBuffer(NumVertices_);
-			Data_ = VertexData_->GetDataPointer();
-			memcpy(Data_, InPositions.data(), Stride_ * NumVertices_);
+			VertexData->ResizeBuffer(NumVertices);
+			Data = VertexData->GetDataPointer();
+			memcpy(Data, InPositions.data(), Stride * NumVertices);
 		}
 	}
 
@@ -70,16 +70,16 @@ namespace Doge
 
 	std::shared_ptr<FRHIBuffer> FPositionVertexBuffer::CreateRHIBuffer(FRHICommandList& RHICmdList)
 	{
-		return FRenderResource::CreateRHIBuffer(RHICmdList, VertexData_, NumVertices_, BUF_Static | BUF_ShaderResource, STR("FPositionVertexBuffer"));
+		return FRenderResource::CreateRHIBuffer(RHICmdList, VertexData, NumVertices, EBufferUsageFlags::Static | EBufferUsageFlags::ShaderResource, STR("FPositionVertexBuffer"));
 	}
 
 	void FPositionVertexBuffer::AllocateData(bool bInNeedsCPUAccess)
 	{
 		CleanUp();
 
-		VertexData_ = new FPositionVertexData(bInNeedsCPUAccess);
+		VertexData = new FPositionVertexData(bInNeedsCPUAccess);
 
-		Stride_ = VertexData_->GetStride();
+		Stride = VertexData->GetStride();
 
 		// NumVertices do not need to be set here, as it will be set when ResizeBuffer is called.
 	}

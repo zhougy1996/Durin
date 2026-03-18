@@ -80,6 +80,11 @@ namespace Doge
 		GetContext().RHISubmitCommandsHint();
 	}
 
+	auto FRHICommandList::CreateBuffer(const FRHIBufferCreateDesc& InCreateDesc) -> TRefCountPtr<FRHIBuffer>
+	{
+		return nullptr;
+	}
+
 	auto FRHICommandListImmediate::SubmitAndBlockUntilGPUIdle() -> void
 	{
 		GDynamicRHI->RHIBlockUntilGPUIdle();

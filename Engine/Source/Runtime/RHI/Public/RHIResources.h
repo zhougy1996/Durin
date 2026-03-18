@@ -13,6 +13,7 @@ namespace Doge
 	enum class ERHIResourceType : uint8
 	{
 		Viewport,
+		Buffer,
 		Texture,
 		VertexShader,
 		PixelShader,
@@ -412,12 +413,12 @@ namespace Doge
 
 		static auto Null() -> FRHIBufferDesc
 		{
-			return FRHIBufferDesc(0, 0, BUF_NullResource);
+			return FRHIBufferDesc(0, 0, EBufferUsageFlags::NullResource);
 		}
 
 		auto IsNull() const -> bool
 		{
-			if (EnumHasAnyFlags(Usage, BUF_NullResource))
+			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::NullResource))
 			{
 				// The null resource descriptor should have its other fields zeroed, and no additional flags.
 				check(Size == 0 && Stride == 0 && Usage == BUF_NullResource);
@@ -428,11 +429,17 @@ namespace Doge
 		}
 	};
 
-	class FRHIBuffer
+	struct FRHIBufferCreateDesc : public FRHIBufferDesc
+	{
+
+	};
+
+	class FRHIBuffer : public FRHIResource
 	{
 	public:
-		explicit FRHIBuffer(const FRHIBufferDesc& InDesc)
-			: Desc(InDesc)
+		explicit FRHIBuffer(const FRHIBufferCreateDesc& InCreateDesc)
+			: FRHIResource(ERHIResourceType::Buffer)
+			, Desc(InCreateDesc)
 		{
 		}
 

@@ -53,6 +53,8 @@ namespace Doge::VulkanRHI
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc)
 		: Device(InDevice)
 	{
+		vk::Device DeviceHandle = InDevice.GetHandle();
+
 		vk::Format ImageFormat = ConvertToVulkanFormat(InCreateDesc.Format);
 		vk::Extent3D ImageExtent = ConvertToExtent3D(InCreateDesc.GetSize());
 
@@ -69,11 +71,17 @@ namespace Doge::VulkanRHI
 			.setSharingMode(vk::SharingMode::eExclusive)
 			.setInitialLayout(vk::ImageLayout::eUndefined);
 
-		vk::Result Result = Device.GetHandle().createImage(&imageInfo, nullptr, &Image);
-		if (Result != vk::Result::eSuccess)
-		{
-			DOGE_ERROR("Failed to create image");
-		}
+		Image = DeviceHandle.createImage(imageInfo, nullptr);
+
+		vk::MemoryRequirements MemReqs = DeviceHandle.getImageMemoryRequirements(Image);
+
+		vk::MemoryAllocateInfo MemAllocInfo{};
+		MemAllocInfo.allocationSize = MemReqs.size;
+
+		vk::DeviceMemory Memory = DeviceHandle.allocateMemory(MemAllocInfo);
+		DeviceHandle.bindImageMemory(Image, Memory, 0);
+
+		DeviceHandle.freeMemory(Memory);
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage)
