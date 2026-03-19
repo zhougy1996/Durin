@@ -9,7 +9,7 @@
 #include "VulkanContext.h"
 #include "VulkanSwapChain.h"
 #include "VulkanQueue.h"
-#include "HAL/RunnableThread.h"
+#include "Threading/RunnableThread.h"
 
 namespace Doge::VulkanRHI
 {

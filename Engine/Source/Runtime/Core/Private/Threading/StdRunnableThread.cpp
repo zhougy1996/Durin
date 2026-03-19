@@ -1,6 +1,6 @@
-#include "HAL/StdRunnableThread.h"
+#include "Threading/StdRunnableThread.h"
 
-#include "HAL/Runnable.h"
+#include "Threading/Runnable.h"
 
 namespace Doge
 {

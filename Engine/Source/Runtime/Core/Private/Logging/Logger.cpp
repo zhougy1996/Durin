@@ -4,7 +4,7 @@
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 
-#include "HAL/RunnableThread.h"
+#include "Threading/RunnableThread.h"
 
 namespace Doge
 {

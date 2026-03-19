@@ -1,8 +1,7 @@
 #include "RenderingThread.h"
 
-#include "DynamicRHI.h"
-#include "HAL/Runnable.h"
-#include "HAL/RunnableThread.h"
+#include "Threading/Runnable.h"
+#include "Threading/RunnableThread.h"
 
 #include "RHICommandList.h"
 
@@ -152,8 +151,7 @@ namespace Doge
 
 	auto FRenderThreadCommandPipe::EnqueueImpl(const CharT* Name, std::function<void(FRHICommandListImmediate&)>&& Function) -> void
 	{
-		std::lock_guard<std::mutex> lock(Mutex);
-		bool bWasEmpty = CommandQueue[ProduceIndex].empty();
+		std::lock_guard lock(Mutex);
 		CommandQueue[ProduceIndex].emplace_back(Name, std::move(Function));
 	}
 
@@ -161,11 +159,11 @@ namespace Doge
 	{
 		check(IsInRenderingThread());
 		Mutex.lock();
-		std::vector<FRenderThreadCommandPipe::FCommand>& CommandsToExecute = CommandQueue[ProduceIndex];
+		std::vector<FCommand>& CommandsToExecute = CommandQueue[ProduceIndex];
 		ProduceIndex ^= 1;
 		Mutex.unlock();
 
-		for (const FRenderThreadCommandPipe::FCommand& Command : CommandsToExecute)
+		for (const FCommand& Command : CommandsToExecute)
 		{
 			Command.Function(FRHICommandListImmediate::Get());
 		}

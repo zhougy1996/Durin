@@ -2,7 +2,6 @@
 
 #include "Misc/ApplicationCoreGlobals.h"
 #include "Application/GenericApplication.h"
-#include "HAL/RunnableThread.h"
 #include "Window/GenericWindow.h"
 
 namespace Doge::VulkanRHI

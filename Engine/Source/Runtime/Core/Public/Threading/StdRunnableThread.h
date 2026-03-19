@@ -1,6 +1,6 @@
 #pragma once
 
-#include "HAL/RunnableThread.h"
+#include "Threading/RunnableThread.h"
 
 namespace Doge
 {
