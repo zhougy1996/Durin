@@ -1,9 +1,49 @@
 #pragma once
 
+#include "vma/vk_mem_alloc.h"
+
 namespace Doge::VulkanRHI
 {
 	class FVulkanDevice;
 	class FVulkanFenceManager;
+
+	struct FVulkanAllocation
+	{
+		VmaAllocation Handle = nullptr;
+		VmaAllocationInfo Info;
+
+		template<typename T>
+		auto GetMappedData() const -> T* { return static_cast<T*>(Info.pMappedData); }
+
+		auto GetSize() const -> vk::DeviceSize { return Info.size; }
+
+		auto GetMemory() const -> vk::DeviceMemory { return Info.deviceMemory; }
+
+		auto GetOffset() const { return Info.offset; }
+
+		auto GetMemoryType() const -> uint32_t { return Info.memoryType; }
+
+		auto IsValid() const -> bool { return Handle != nullptr; }
+	};
+
+	class FVulkanMemoryManager
+	{
+	public:
+		FVulkanMemoryManager();
+
+		void Init(FVulkanDevice* InDevice);
+
+		void Deinit();
+
+		bool CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName = nullptr) const;
+
+		void Destroy(FVulkanAllocation& InAllocation, vk::Image InImage) const;
+
+	private:
+		FVulkanDevice* Device;
+
+		VmaAllocator Allocator;
+	};
 
 	class FVulkanFence
 	{
@@ -80,4 +120,4 @@ namespace Doge::VulkanRHI
 
 		vk::Semaphore Semaphore;
 	};
-}
+} // namespace Doge::VulkanRHI

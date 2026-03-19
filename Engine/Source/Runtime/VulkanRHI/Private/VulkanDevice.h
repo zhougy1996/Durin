@@ -3,6 +3,7 @@
 #include "RHIDefinitions.h"
 #include "VulkanMemory.h"
 #include "VulkanExtensions.h"
+#include "VulkanMemory.h"
 
 namespace Doge::VulkanRHI
 {
@@ -51,6 +52,15 @@ namespace Doge::VulkanRHI
 			EnqueueGenericResource(Type, reinterpret_cast<uint64>(RawHandle));
 		}
 
+		template<typename T>
+		auto EnqueueResource(EType Type, T Handle, const FVulkanAllocation& Allocation) -> void
+		{
+			static_assert(sizeof(T) <= sizeof(uint64), "Vulkan resource handle type size too large.");
+			// Convert cpp-style handle to c-style handle
+			typename T::NativeType RawHandle = static_cast<typename T::NativeType>(Handle);
+			EnqueueAllocatedResource(Type, reinterpret_cast<uint64>(RawHandle), Allocation);
+		}
+
 		auto ReleaseResources(bool bDeleteImmediately = false) -> void;
 
 	private:
@@ -59,11 +69,14 @@ namespace Doge::VulkanRHI
 			EType Type;
 			uint64 FrameNumber;
 			uint64 Handle;
+			FVulkanAllocation Allocation;
 		};
 
 		auto EnqueueGenericResource(EType Type, uint64 Handle) -> void;
 
-		auto ReleaseResourceImmediately(const std::vector<FEntry>& InEntries) const -> void;
+		auto EnqueueAllocatedResource(EType Type, uint64 Handle, const FVulkanAllocation& Allocation) -> void;
+
+		auto ReleaseResourceImmediately(std::vector<FEntry>& InEntries) const -> void;
 
 		FVulkanDevice* Device;
 
@@ -90,6 +103,8 @@ namespace Doge::VulkanRHI
 
 		auto GetGpu() const -> vk::PhysicalDevice;
 
+		auto GetGpuProperties() const -> const vk::PhysicalDeviceProperties& { return GpuProps; }
+
 		auto GetRenderPassManager() const -> FVulkanRenderPassManager&;
 
 		auto AcquireDeferredContext() -> FVulkanCommandListContext*;
@@ -101,6 +116,8 @@ namespace Doge::VulkanRHI
 		auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue; }
 
 		auto GetGraphicsQueue() const -> FVulkanQueue* { return GraphicsQueue; }
+
+		auto GetMemoryManager() -> FVulkanMemoryManager& { return MemoryManager; }
 
 		auto GetFenceManager() -> FVulkanFenceManager& { return FenceManager; }
 
@@ -120,6 +137,8 @@ namespace Doge::VulkanRHI
 		vk::PhysicalDeviceProperties GpuProps;
 
 		std::vector<vk::QueueFamilyProperties> QueueFamilyProps;
+
+		FVulkanMemoryManager MemoryManager;
 
 		FVulkanFenceManager FenceManager;
 

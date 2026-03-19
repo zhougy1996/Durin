@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHIResources.h"
+#include "VulkanMemory.h"
 
 namespace Doge::VulkanRHI
 {
@@ -21,5 +22,7 @@ namespace Doge::VulkanRHI
 
 	protected:
 		FVulkanDevice& Device;
+
+		FVulkanAllocation Allocation;
 	};
 }

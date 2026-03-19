@@ -2,6 +2,7 @@
 
 #include "VulkanDevice.h"
 #include "VulkanRHIPrivate.h"
+#include "VulkanMemory.h"
 
 namespace Doge::VulkanRHI
 {
@@ -71,17 +72,8 @@ namespace Doge::VulkanRHI
 			.setSharingMode(vk::SharingMode::eExclusive)
 			.setInitialLayout(vk::ImageLayout::eUndefined);
 
-		Image = DeviceHandle.createImage(imageInfo, nullptr);
-
-		vk::MemoryRequirements MemReqs = DeviceHandle.getImageMemoryRequirements(Image);
-
-		vk::MemoryAllocateInfo MemAllocInfo{};
-		MemAllocInfo.allocationSize = MemReqs.size;
-
-		vk::DeviceMemory Memory = DeviceHandle.allocateMemory(MemAllocInfo);
-		DeviceHandle.bindImageMemory(Image, Memory, 0);
-
-		DeviceHandle.freeMemory(Memory);
+		FVulkanMemoryManager& MemoryManager = InDevice.GetMemoryManager();
+		MemoryManager.CreateImage(Allocation, Image, imageInfo);
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage)
@@ -93,6 +85,6 @@ namespace Doge::VulkanRHI
 
 	FVulkanTexture::~FVulkanTexture()
 	{
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image);
+		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image, Allocation);
 	}
 } // namespace Doge::VulkanRHI

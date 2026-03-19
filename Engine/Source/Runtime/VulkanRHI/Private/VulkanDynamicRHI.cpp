@@ -77,9 +77,9 @@ namespace Doge::VulkanRHI
 		InstanceInfo.enabledLayerCount = static_cast<uint32>(InstanceLayers.size());
 		InstanceInfo.ppEnabledLayerNames = InstanceInfo.enabledLayerCount > 0 ? InstanceLayers.data() : nullptr;
 
-		#ifdef __APPLE__
+#ifdef __APPLE__
 		InstanceInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
-		#endif
+#endif
 		try
 		{
 			Instance = vk::createInstance(InstanceInfo);

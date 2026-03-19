@@ -1,9 +1,75 @@
 #include "VulkanMemory.h"
 
+#define VMA_IMPLEMENTATION
+#include "vma/vk_mem_alloc.h"
+
+
 #include "VulkanDevice.h"
+#include "VulkanDynamicRHI.h"
 
 namespace Doge::VulkanRHI
 {
+	FVulkanMemoryManager::FVulkanMemoryManager()
+		: Device(nullptr)
+		, Allocator(nullptr)
+	{
+	}
+
+	void FVulkanMemoryManager::Init(FVulkanDevice* InDevice)
+	{
+		Device = InDevice;
+
+		vk::PhysicalDevice Gpu = Device->GetGpu();
+		vk::PhysicalDeviceProperties GpuProps = Device->GetGpuProperties();
+
+		VmaAllocatorCreateInfo allocatorInfo = {};
+		allocatorInfo.vulkanApiVersion = GpuProps.apiVersion;
+		allocatorInfo.physicalDevice = Gpu;
+		allocatorInfo.device = Device->GetHandle();
+		allocatorInfo.instance = FVulkanDynamicRHI::Get().RHIGetVkInstance();
+
+		vmaCreateAllocator(&allocatorInfo, &Allocator);
+	}
+
+	void FVulkanMemoryManager::Deinit()
+	{
+		Allocator = nullptr;
+	}
+
+	bool FVulkanMemoryManager::CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName /* = nullptr */) const
+	{
+		VmaAllocationCreateInfo AllocCreateInfo{};
+		AllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
+		VkImage RawImage;
+		VkResult Result = vmaCreateImage(
+			Allocator,
+			reinterpret_cast<const VkImageCreateInfo*>(&ImageCreateInfo),
+			&AllocCreateInfo,
+			&RawImage,
+			&OutAllocation.Handle,
+			&OutAllocation.Info
+		);
+
+		if (Result != VK_SUCCESS) return false;
+
+		OutImage = RawImage;
+
+		if (DebugName) {
+			vmaSetAllocationName(Allocator, OutAllocation.Handle, DebugName);
+		}
+		return true;
+	}
+
+	void FVulkanMemoryManager::Destroy(FVulkanAllocation& InAllocation, vk::Image InImage) const
+	{
+		check(InImage && InAllocation.Handle != VK_NULL_HANDLE);
+		vmaDestroyImage(Allocator, InImage, InAllocation.Handle);
+
+		InAllocation.Handle = nullptr;
+		InAllocation.Info = {};
+	}
+
 	FVulkanFence::FVulkanFence(FVulkanDevice& InDevice, FVulkanFenceManager& Owner, bool bInCreateSignaled)
 		: Device(InDevice)
 		, Owner(Owner)
@@ -33,15 +99,12 @@ namespace Doge::VulkanRHI
 			State = EState::Signaled;
 			return true;
 		}
-		else if (result == vk::Result::eTimeout)
+		if (result == vk::Result::eTimeout)
 		{
 			return false;
 		}
-		else
-		{
-			DOGE_ERROR("Failed to wait for fence: {}", vk::to_string(result));
-			return false;
-		}
+		DOGE_ERROR("Failed to wait for fence: {}", vk::to_string(result));
+		return false;
 	}
 
 	auto FVulkanFence::Reset() -> void
@@ -97,15 +160,12 @@ namespace Doge::VulkanRHI
 			InFence->State = FVulkanFence::EState::Signaled;
 			return true;
 		}
-		else if (Result == vk::Result::eNotReady)
+		if (Result == vk::Result::eNotReady)
 		{
 			return false;
 		}
-		else
-		{
-			DOGE_ERROR("Failed to check fence status: {}", vk::to_string(Result));
-			return false;
-		}
+		DOGE_ERROR("Failed to check fence status: {}", vk::to_string(Result));
+		return false;
 	}
 
 	FVulkanSemaphore::FVulkanSemaphore(FVulkanDevice& InDevice)
@@ -118,4 +178,4 @@ namespace Doge::VulkanRHI
 	{
 		Device.GetHandle().destroySemaphore(Semaphore);
 	}
-}
+} // namespace Doge::VulkanRHI
