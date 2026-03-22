@@ -96,8 +96,10 @@ namespace Doge
 		// Switch to graphics pipeline, call this before any other command
 		CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 
-		FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("TestTex", 256, 256, EPixelFormat::RGBA8_UNORM);
-		TRefCountPtr<FRHITexture> Texture = RHICreateTexture(TextureCreateDesc);
+		ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
+			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("TestTex", 256, 256, EPixelFormat::RGBA8_UNORM);
+			TRefCountPtr<FRHITexture> Texture = RHICreateTexture(TextureCreateDesc);
+		});
 	}
 
 	static auto DrawTriangle()

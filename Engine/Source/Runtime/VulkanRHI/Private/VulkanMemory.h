@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vma/vk_mem_alloc.h"
+#include "VMA/VulkanMemoryAllocator.h"
 
 namespace Doge::VulkanRHI
 {

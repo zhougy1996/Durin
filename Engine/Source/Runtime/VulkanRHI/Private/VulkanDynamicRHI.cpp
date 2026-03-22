@@ -54,7 +54,7 @@ namespace Doge::VulkanRHI
 		FString EngineName = "Doge";
 
 		// Create application info
-		vk::ApplicationInfo AppInfo(EngineName.c_str(), VK_MAKE_VERSION(1, 0, 0), "Doge Engine", VK_MAKE_VERSION(1, 0, 0), VK_API_VERSION_1_0);
+		vk::ApplicationInfo AppInfo(EngineName.c_str(), VK_MAKE_VERSION(1, 0, 0), "Doge Engine", VK_MAKE_VERSION(1, 0, 0), VK_API_VERSION_1_3);
 
 		// Get instance extensions
 		FVulkanInstanceExtensionArray DogeInstanceExtensions = FVulkanInstanceExtension::GetDogeSupportedInstanceExtensions();
