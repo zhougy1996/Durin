@@ -15,11 +15,13 @@ namespace Doge::VulkanRHI
 		, bIsUploadOnly(bInIsUploadOnly)
 	{
 		AllocMemory();
-		Fence = InDevice.GetFenceManager().AllocateFence(false);
+		Fence = Device.GetFenceManager().AllocateFence(false);
 	}
 
 	FVulkanCommandBuffer::~FVulkanCommandBuffer()
 	{
+		Device.GetFenceManager().ReleaseFence(Fence);
+		Device.GetHandle().freeCommandBuffers(Pool->GetHandle(), CommandBuffer);
 	}
 
 	auto FVulkanCommandBuffer::Begin() -> void
@@ -115,6 +117,21 @@ namespace Doge::VulkanRHI
 	{
 	}
 
+	FVulkanCommandBufferPool::~FVulkanCommandBufferPool()
+	{
+		for (FVulkanCommandBuffer* CmdBuffer : CmdBuffers)
+		{
+			delete CmdBuffer;
+		}
+
+		for (FVulkanCommandBuffer* CmdBuffer : FreeCmdBuffers)
+		{
+			delete CmdBuffer;
+		}
+
+		Device.GetHandle().destroyCommandPool(Handle);
+	}
+
 	auto FVulkanCommandBufferPool::CreatePool(uint32 QueueFamilyIndex) -> void
 	{
 		vk::CommandPoolCreateInfo CmdPoolInfo;
@@ -177,16 +194,16 @@ namespace Doge::VulkanRHI
 
 	FVulkanCommandBufferManager::~FVulkanCommandBufferManager()
 	{
-		delete UploadCommandBuffer;
-		delete ActiveCommandBuffer;
+		UploadCommandBuffer = nullptr;
+		ActiveCommandBuffer = nullptr;
 		delete Pool;
 	}
 
 	auto FVulkanCommandBufferManager::SubmitActiveCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void
 	{
 		ActiveCommandBuffer->End();
-		FVulkanQueue* Queue = Context.GetQueue();
-		Queue->Submit(*ActiveCommandBuffer, SignalSemaphore);
+		FVulkanQueue* CurrentQueue = Context.GetQueue();
+		CurrentQueue->Submit(*ActiveCommandBuffer, SignalSemaphore);
 
 		ActiveCommandBuffer = nullptr;
 		PrepareForNewActiveCommandBuffer();
@@ -197,7 +214,7 @@ namespace Doge::VulkanRHI
 		ActiveCommandBuffer = Pool->Create(false);
 	}
 
-	auto FVulkanCommandBufferManager::FreeUnusedCommandBuffers() -> void
+	auto FVulkanCommandBufferManager::FreeUnusedCommandBuffers() const -> void
 	{
 		Pool->FreeUnusedCommandBuffers(Queue);
 	}

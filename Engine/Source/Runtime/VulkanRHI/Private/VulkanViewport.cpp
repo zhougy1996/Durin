@@ -76,11 +76,13 @@ namespace Doge::VulkanRHI
 	{
 		for (uint32 i = 0; i < TextureViews.size(); ++i)
 		{
-			Device.GetHandle().destroyImageView(TextureViews[i].ImageView);
+			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, TextureViews[i].ImageView);
 		}
 		TextureViews.clear();
 
+		Device.GetDeferredDeletionQueue().ReleaseResources(true);
 		DestroySwapChain();
+		Device.GetDeferredDeletionQueue().ReleaseResources(true);
 
 		for(auto & RenderingDoneSemaphore : RenderingDoneSemaphores)
 		{
@@ -102,8 +104,6 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanViewport::DestroySwapChain() -> void
 	{
-		Device.WaitUtilIdle();
-
 		delete SwapChain;
 		SwapChain = nullptr;
 	}

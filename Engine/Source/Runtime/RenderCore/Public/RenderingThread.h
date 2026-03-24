@@ -35,8 +35,8 @@ namespace Doge
 
 	RENDERCORE_API auto ShutdownRenderingThread() -> void;
 
+	// Waits for the rendering thread to finish processing all enqueued commands. Should only be used from the game thread.
 	RENDERCORE_API auto FlushRenderingCommands() -> void;
-
 
 
 	class FRenderThreadCommandPipe

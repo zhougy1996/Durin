@@ -70,6 +70,8 @@ namespace Doge::Mona
 	auto FMonaApplication::RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void
 	{
 		WindowDestroyQueue.push_back(InWindow);
+		Renderer->OnWindowDestroyed(InWindow);
+		FlushRenderingCommands();
 		DestroyWindowsImmediately();
 	}
 

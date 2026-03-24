@@ -20,6 +20,11 @@ namespace Doge::VulkanRHI
 		CommandBufferManager = new FVulkanCommandBufferManager(Device, *this);
 	}
 
+	FVulkanCommandListContext::~FVulkanCommandListContext()
+	{
+		delete CommandBufferManager;
+	}
+
 	auto FVulkanCommandListContext::RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
 		PendingGfxPipelineState->SetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);

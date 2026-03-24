@@ -16,6 +16,8 @@ namespace Doge::VulkanRHI
 	public:
 		FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, FVulkanDevice& InDevice, FVulkanQueue* InQueue);
 
+		~FVulkanCommandListContext() override;
+
 		auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void override;
 
 		auto RHIBeginFrame() -> void override;

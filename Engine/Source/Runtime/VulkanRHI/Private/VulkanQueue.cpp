@@ -14,6 +14,8 @@ namespace Doge::VulkanRHI
 		Queue = Device->GetHandle().getQueue(FamilyIndex, QueueIndex);
 	}
 
+	FVulkanQueue::~FVulkanQueue() = default;
+
 	auto FVulkanQueue::Submit(FVulkanCommandBuffer& InCmdBuffer, FVulkanSemaphore* InSignalSemaphores, uint32 NumSignalSemaphores /* = 1*/) -> void
 	{
 		vk::CommandBuffer Buffer = InCmdBuffer.GetHandle();

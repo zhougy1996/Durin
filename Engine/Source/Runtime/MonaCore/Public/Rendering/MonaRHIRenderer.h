@@ -17,10 +17,11 @@ namespace Doge::Mona
 	class MONACORE_API FMonaRHIRenderer : public FMonaRenderer
 	{
 	public:
-		virtual ~FMonaRHIRenderer() override;
+		~FMonaRHIRenderer() override;
 
 		auto CreateViewport(const std::shared_ptr<MWindow>& Window) -> void override;
 		auto DrawWindows() -> void override;
+		auto OnWindowDestroyed(const std::shared_ptr<MWindow>& Window) -> void override;
 
 		auto GetRHIViewport(const MWindow& Window) -> TRefCountPtr<FRHIViewport>;
 

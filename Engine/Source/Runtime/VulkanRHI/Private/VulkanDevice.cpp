@@ -310,7 +310,6 @@ namespace Doge::VulkanRHI
 			return new FVulkanCommandListContext(GVulkanRHI, *this, GraphicsQueue);
 		}
 		FVulkanCommandListContext* Context = CommandContexts.back();
-		// CommandContexts_.pop_back();
 
 		return Context;
 	}
@@ -322,10 +321,17 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDevice::Destroy() -> void
 	{
-		DeferredDeletionQueue.ReleaseResources(true);
+		delete GraphicsQueue;
+		delete TransferQueue;
+		delete PresentQueue;
 
 		delete RenderPassManager;
 		RenderPassManager = nullptr;
+
+		delete ImmediateContext;
+		ImmediateContext = nullptr;
+
+		DeferredDeletionQueue.ReleaseResources(true);
 
 		Device.destroy();
 		Device = nullptr;

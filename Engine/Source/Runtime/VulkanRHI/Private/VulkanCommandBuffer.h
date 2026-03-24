@@ -80,6 +80,7 @@ namespace Doge::VulkanRHI
 	{
 	public:
 		FVulkanCommandBufferPool(FVulkanDevice& InDevice, FVulkanCommandBufferManager& InManager);
+		~FVulkanCommandBufferPool();
 
 		auto GetHandle() const -> vk::CommandPool { return Handle; }
 
@@ -116,7 +117,7 @@ namespace Doge::VulkanRHI
 
 		auto PrepareForNewActiveCommandBuffer() -> void;
 
-		auto FreeUnusedCommandBuffers() -> void;
+		auto FreeUnusedCommandBuffers() const -> void;
 
 	private:
 		FVulkanDevice& Device;

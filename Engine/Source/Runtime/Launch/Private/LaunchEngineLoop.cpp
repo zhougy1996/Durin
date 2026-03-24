@@ -108,8 +108,6 @@ namespace Doge
 		GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 	}
 
-
-
 	static auto DrawTriangle()
 	{
 		auto& App = Mona::FMonaApplication::Get();
@@ -152,6 +150,8 @@ namespace Doge
 
 	auto FEngineLoop::Tick() -> void
 	{
+
+
 		uint64 CurrentFrameCounter = GFrameCounter;
 
 		// Game logic.
@@ -159,6 +159,7 @@ namespace Doge
 
 		// Process application events, and paint UI.
 		Mona::FMonaApplication::Get().Tick();
+
 		if (GIsRequestingExit)
 		{
 			return;
@@ -186,6 +187,7 @@ namespace Doge
 		ShutdownRenderingThread();
 		// TODO: this is just for testing, we should have a more robust shutdown process
 		delete GEngine;
+		GDynamicRHI->Shutdown();
 		Mona::FMonaApplication::Shutdown();
 	}
 }

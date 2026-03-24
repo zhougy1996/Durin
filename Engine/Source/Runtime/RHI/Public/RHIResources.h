@@ -360,18 +360,17 @@ namespace Doge
 		uint32 SizeY = 0;
 	};
 
-	class RHI_API FRHIViewport : public FRHIResource
+	class FRHIViewport : public FRHIResource
 	{
 	public:
-		FRHIViewport()
+		RHI_API FRHIViewport()
 			: FRHIResource(ERHIResourceType::Viewport)
 		{
 		}
-		~FRHIViewport() override = default;
-		virtual auto Tick(float DeltaTime) -> void {};
-		virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TRefCountPtr<FRHITexture> = 0;
-		virtual auto WaitForLastFrameCompletion() -> void = 0;
-		virtual auto GetFormat() const -> EPixelFormat = 0;
+		RHI_API virtual auto Tick(float DeltaTime) -> void {};
+		RHI_API virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TRefCountPtr<FRHITexture> = 0;
+		RHI_API virtual auto WaitForLastFrameCompletion() -> void = 0;
+		RHI_API virtual auto GetFormat() const -> EPixelFormat = 0;
 	};
 
 	struct RHI_API FRHIRenderTargetsInfo

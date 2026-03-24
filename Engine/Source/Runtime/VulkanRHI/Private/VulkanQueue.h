@@ -10,6 +10,7 @@ namespace Doge::VulkanRHI
 	{
 	public:
 		FVulkanQueue(FVulkanDevice* InDevice, uint32 InFamilyIndex);
+		~FVulkanQueue();
 
 		auto Submit(FVulkanCommandBuffer& InCmdBuffer, FVulkanSemaphore* InSignalSemaphores, uint32 NumSignalSemaphores = 1) -> void;
 
@@ -19,7 +20,7 @@ namespace Doge::VulkanRHI
 
 		auto GetIndex() const -> uint32;
 
-		auto GetLastSubmittedCommandBuffer() -> FVulkanCommandBuffer* { return LastSubmittedCommandBuffer; }
+		auto GetLastSubmittedCommandBuffer() const -> FVulkanCommandBuffer* { return LastSubmittedCommandBuffer; }
 
 	private:
 		vk::Queue Queue;
