@@ -51,7 +51,7 @@ namespace Doge::VulkanRHI
 
 	FVulkanRenderPass::~FVulkanRenderPass()
 	{
-		Device.GetHandle().destroyRenderPass(RenderPass);
+		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::RenderPass, RenderPass);
 	}
 
 	FVulkanRenderPassManager::FVulkanRenderPassManager(FVulkanDevice& InDevice)

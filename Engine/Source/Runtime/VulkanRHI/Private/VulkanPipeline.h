@@ -51,9 +51,13 @@ namespace Doge::VulkanRHI
 	public:
 		FVulkanPipelineManager(FVulkanDevice& InDevice);
 
-		auto CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>;
+		auto GetGraphicsPipelineState(FName Name) -> TRefCountPtr<FRHIGraphicsPipelineState>;
+
+		auto CreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>;
 
 	private:
 		FVulkanDevice& Device;
+
+		std::unordered_map<FName, TRefCountPtr<FRHIGraphicsPipelineState>> PSOCache;
 	};
 }

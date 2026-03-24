@@ -40,7 +40,8 @@ namespace Doge::VulkanRHI
 
 		std::vector<vk::DynamicState> DynamicStates = {
 			vk::DynamicState::eViewport,
-			vk::DynamicState::eScissor};
+			vk::DynamicState::eScissor
+		};
 
 		vk::PipelineDynamicStateCreateInfo DynamicStateInfo;
 		DynamicStateInfo.setDynamicStates(DynamicStates);
@@ -145,7 +146,12 @@ namespace Doge::VulkanRHI
 		}
 	}
 
-	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState() = default;
+	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
+	{
+		// delete Shaders[SHADER_STAGE_VERTEX];
+		// delete Shaders[SHADER_STAGE_PIXEL];
+		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
+	}
 
 	auto FVulkanGraphicsPipelineState::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
@@ -194,14 +200,37 @@ namespace Doge::VulkanRHI
 	{
 	}
 
-	auto FVulkanPipelineManager::CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>
+	auto FVulkanPipelineManager::GetGraphicsPipelineState(FName Name) -> TRefCountPtr<FRHIGraphicsPipelineState>
 	{
-		auto State = MakeRefCount<FVulkanGraphicsPipelineState>(Device, Initializer);
-		return State;
+		const auto It = PSOCache.find(Name);
+		if (It != PSOCache.end())
+		{
+			return It->second;
+		}
+
+		return nullptr;
 	}
 
-	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
+	auto FVulkanPipelineManager::CreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
 	{
-		return Device->GetPipelineManager().CreateGraphicsPipelineState(Initializer);
+		const auto It = PSOCache.find(Name);
+		if (It != PSOCache.end())
+		{
+			return It->second;
+		}
+
+		auto NewPSO = MakeRefCount<FVulkanGraphicsPipelineState>(Device, Initializer);
+		PSOCache[Name] = NewPSO;
+		return NewPSO;
 	}
-}
+
+	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
+	{
+		return Device->GetPipelineManager().CreateGraphicsPipelineState(Name, Initializer);
+	}
+
+	auto FVulkanDynamicRHI::RHIGetGraphicsPipelineState(FName Name) -> TRefCountPtr<FRHIGraphicsPipelineState>
+	{
+		return Device->GetPipelineManager().GetGraphicsPipelineState(Name);
+	}
+} // namespace Doge::VulkanRHI

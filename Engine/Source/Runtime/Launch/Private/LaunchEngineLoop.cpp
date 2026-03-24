@@ -20,9 +20,6 @@ namespace Doge
 
 	constexpr auto DLLModuleDependencies = std::array{"MainFrame"};
 
-	// TODO: move this to a more appropriate place
-	TRefCountPtr<FRHIGraphicsPipelineState> GTestPipeline;
-
 	auto FEngineLoop::PreInit() -> void
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -37,6 +34,36 @@ namespace Doge
 		DObjectInit();
 	}
 
+	// Test code
+	static auto CreateTestPipeline()
+	{
+		auto& App = Mona::FMonaApplication::Get();
+		const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
+		const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
+		const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).GetReference();
+		EPixelFormat ViewportFormat = Viewport->GetFormat();
+
+		// Create pipeline
+		// Render pass is created when creating pipeline
+		ENQUEUE_RENDER_COMMAND(Pipeline)([ViewportFormat](FRHICommandListImmediate& CommandList) {
+			FGraphicsPipelineStateInitializer Initializer;
+			Initializer.RenderPassName = "TestRenderPass";
+			Initializer.PixelFormat = ViewportFormat;
+			GDynamicRHI->RHICreateGraphicsPipelineState("TestPipeline", Initializer);
+			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+		});
+
+		ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
+			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("TestTex", 256, 256, EPixelFormat::RGBA8_UNORM);
+			TRefCountPtr<FRHITexture> Texture = RHICreateTexture(TextureCreateDesc);
+		});
+
+		ENQUEUE_RENDER_COMMAND(CreateBuffer)([](FRHICommandListImmediate& CommandList) {
+			FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestBuffer", 1024);
+			TRefCountPtr<FRHIBuffer> Buffer = RHICreateBuffer(BufferCreateDesc);
+		});
+	}
+
 	auto FEngineLoop::Init() -> void
 	{
 		ApplicationInit();
@@ -49,6 +76,8 @@ namespace Doge
 		GEngine->Init();
 
 		InitRenderingThread();
+
+		CreateTestPipeline();
 	}
 
 	static auto BeginFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 FrameCounter) -> void
@@ -79,33 +108,7 @@ namespace Doge
 		GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 	}
 
-	static auto CreateTestPipeline()
-	{
-		auto& App = Mona::FMonaApplication::Get();
-		const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
-		const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
-		const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).GetReference();
 
-		FGraphicsPipelineStateInitializer Initializer;
-		Initializer.RenderPassName = "TestRenderPass";
-		Initializer.PixelFormat = Viewport->GetFormat();
-		// Create pipeline
-		// Render pass is created when creating pipeline
-		GTestPipeline = GDynamicRHI->RHICreateGraphicsPipelineState(Initializer);
-		FRHICommandList& CommandList = FRHICommandListImmediate::Get();
-		// Switch to graphics pipeline, call this before any other command
-		CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-
-		ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
-			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("TestTex", 256, 256, EPixelFormat::RGBA8_UNORM);
-			TRefCountPtr<FRHITexture> Texture = RHICreateTexture(TextureCreateDesc);
-		});
-
-		ENQUEUE_RENDER_COMMAND(CreateBuffer)([](FRHICommandListImmediate& CommandList) {
-			FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestBuffer", 1024);
-			TRefCountPtr<FRHIBuffer> Buffer = RHICreateBuffer(BufferCreateDesc);
-		});
-	}
 
 	static auto DrawTriangle()
 	{
@@ -116,6 +119,8 @@ namespace Doge
 
 		ENQUEUE_RENDER_COMMAND(TestDrawTriangle)([SharedViewport](FRHICommandListImmediate& CommandList)
 		{
+			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+
 			FRHIViewport* Viewport = SharedViewport.GetReference();
 			// Draw viewport
 			// Wait submit fence before acquiring image
@@ -151,11 +156,6 @@ namespace Doge
 
 		// Game logic.
 		GEngine->Tick(0.0f, false);
-
-		if (!GTestPipeline)
-		{
-			CreateTestPipeline();
-		}
 
 		// Process application events, and paint UI.
 		Mona::FMonaApplication::Get().Tick();

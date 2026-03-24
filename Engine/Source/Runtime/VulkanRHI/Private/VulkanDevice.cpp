@@ -322,6 +322,8 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDevice::Destroy() -> void
 	{
+		DeferredDeletionQueue.ReleaseResources(true);
+
 		delete RenderPassManager;
 		RenderPassManager = nullptr;
 
