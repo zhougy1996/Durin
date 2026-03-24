@@ -125,11 +125,8 @@ namespace Doge
 #endif
 					return true;
 				}
-				else
-				{
-					UnmarkForDelete(std::memory_order_release);
-					return false;
-				}
+				UnmarkForDelete(std::memory_order_release);
+				return false;
 			}
 
 			auto IsValid(std::memory_order MemoryOrder) const -> bool
@@ -431,7 +428,67 @@ namespace Doge
 
 	struct FRHIBufferCreateDesc : public FRHIBufferDesc
 	{
+		static auto Create(const char* InDebugName, EBufferUsageFlags InUsage) -> FRHIBufferCreateDesc
+		{
+			return FRHIBufferCreateDesc(InDebugName, InUsage);
+		}
 
+		static auto Create(const char* InDebugName, uint32 InSize, uint32 InStride, EBufferUsageFlags InUsage) -> FRHIBufferCreateDesc
+		{
+			return FRHIBufferCreateDesc(InDebugName, InSize, InStride, InUsage);
+		}
+
+		static auto Create(const char* InDebugName, const FRHIBufferDesc& InDesc) -> FRHIBufferCreateDesc
+		{
+			return FRHIBufferCreateDesc(InDebugName, InDesc);
+		}
+
+		static auto CreateNull(const char* InDebugName) -> FRHIBufferCreateDesc
+		{
+			return Create(InDebugName, 0, 0, EBufferUsageFlags::NullResource);
+		}
+
+		static auto CreateVertex(const char* InDebugName) -> FRHIBufferCreateDesc
+		{
+			return Create(InDebugName, EBufferUsageFlags::VertexBuffer);
+		}
+
+		static auto CreateVertex(const char* InDebugName, uint32 InSize) -> FRHIBufferCreateDesc
+		{
+			return Create(InDebugName, InSize, 0, EBufferUsageFlags::VertexBuffer);
+		}
+
+		static auto CreateIndex(const char* InDebugName) -> FRHIBufferCreateDesc
+		{
+			return Create(InDebugName, EBufferUsageFlags::IndexBuffer);
+		}
+
+		static auto CreateIndex(const char* InDebugName, uint32 InSize, uint32 InStride) -> FRHIBufferCreateDesc
+		{
+			return Create(InDebugName, InSize, InStride, EBufferUsageFlags::IndexBuffer);
+		}
+
+		FRHIBufferCreateDesc() = default;
+
+		FRHIBufferCreateDesc(const char* InDebugName, EBufferUsageFlags InUsage)
+			: DebugName(InDebugName)
+		{
+			Usage = InUsage;
+		}
+
+		FRHIBufferCreateDesc(const char* InDebugName, uint32 InSize, uint32 InStride, EBufferUsageFlags InUsage)
+			: FRHIBufferDesc(InSize, InStride, InUsage)
+			, DebugName(InDebugName)
+		{
+		}
+
+		FRHIBufferCreateDesc(const char* InDebugName, const FRHIBufferDesc& InOtherDesc)
+			: FRHIBufferDesc(InOtherDesc)
+			, DebugName(InDebugName)
+		{
+		}
+
+		const char* DebugName;
 	};
 
 	class FRHIBuffer : public FRHIResource

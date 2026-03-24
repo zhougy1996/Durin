@@ -49,6 +49,11 @@ namespace Doge::VulkanRHI
 		return Device->GetGpu();
 	}
 
+	auto FVulkanDynamicRHI::RHIBlockUntilGPUIdle() -> void
+	{
+		Device->WaitUtilIdle();
+	}
+
 	auto FVulkanDynamicRHI::CreateInstance() -> void
 	{
 		FString EngineName = "Doge";
@@ -146,4 +151,5 @@ namespace Doge::VulkanRHI
 		std::vector<const char*> Layers = {"VK_LAYER_KHRONOS_validation"};
 		InstanceLayers = Layers;
 	}
+
 }

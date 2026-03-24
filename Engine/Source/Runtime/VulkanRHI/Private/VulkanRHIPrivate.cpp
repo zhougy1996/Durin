@@ -87,4 +87,9 @@ namespace Doge::VulkanRHI
 		check(VulkanFormatMap[static_cast<uint32>(InFormat)].RhiFormat == InFormat);
 		return VulkanFormatMap[static_cast<uint32>(InFormat)].VulkanFormat;
 	}
+
+	auto ConvertToVulkanBufferUsageFlags(EBufferUsageFlags InUsage) -> vk::BufferUsageFlags
+	{
+		return vk::BufferUsageFlagBits::eIndexBuffer;
+	}
 } // namespace Doge::VulkanRHI

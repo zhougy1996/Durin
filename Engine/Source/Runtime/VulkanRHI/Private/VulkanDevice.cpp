@@ -62,23 +62,22 @@ namespace Doge::VulkanRHI
 		Entries.emplace_back(Type, GVulkanRHIDeletionFrameNumber, Handle, Allocation); // Copy allocation here
 	}
 
-	auto FDeferredDeletionQueue::ReleaseResourceImmediately(std::vector<FEntry>& InEntries) const -> void
-	{
-		const vk::Device DeviceHandle = Device->GetHandle();
-
-		FVulkanMemoryManager& MemoryManager = Device->GetMemoryManager();
-
 #define DOGE_VK_DESTROY_CASE(Type, ...)                                                 \
 	case EType::Type:                                                                   \
 		__VA_ARGS__                                                                     \
 		DeviceHandle.destroy##Type(vk::Type{reinterpret_cast<Vk##Type>(Entry.Handle)}); \
 		break
 
-#define DOGE_VMA_DESTROY_CASE(Type, ...)                                           \
-	case EType::Type:                                                              \
-		__VA_ARGS__                                                                \
-		MemoryManager.Destroy(Entry.Allocation, vk::Type{reinterpret_cast<Vk##Type>(Entry.Handle)}); \
+#define DOGE_VMA_DESTROY_CASE(Type, ...)                                                                   \
+	case EType::Type:                                                                                      \
+		__VA_ARGS__                                                                                        \
+		MemoryManager.Destroy##Type(Entry.Allocation, vk::Type{reinterpret_cast<Vk##Type>(Entry.Handle)}); \
 		break
+
+	auto FDeferredDeletionQueue::ReleaseResourceImmediately(std::vector<FEntry>& InEntries) const -> void
+	{
+		const vk::Device DeviceHandle = Device->GetHandle();
+		FVulkanMemoryManager& MemoryManager = Device->GetMemoryManager();
 
 		for (FEntry& Entry : InEntries)
 		{
@@ -87,6 +86,7 @@ namespace Doge::VulkanRHI
 				switch (Entry.Type)
 				{
 					DOGE_VMA_DESTROY_CASE(Image);
+					DOGE_VMA_DESTROY_CASE(Buffer);
 				default:
 					DOGE_ERROR("Unknown Vulkan resource type {} for vma", static_cast<uint32>(Entry.Type));
 					break;

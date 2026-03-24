@@ -42,6 +42,7 @@ namespace Doge::VulkanRHI
 		auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TRefCountPtr<FRHITexture> override;
 
 		auto RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> override;
+		auto RHICreateBuffer(FRHICommandList& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer> override;
 
 		auto RHIBlockUntilGPUIdle() -> void override;
 

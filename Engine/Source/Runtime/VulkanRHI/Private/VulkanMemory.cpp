@@ -57,10 +57,44 @@ namespace Doge::VulkanRHI
 		return true;
 	}
 
-	void FVulkanMemoryManager::Destroy(FVulkanAllocation& InAllocation, vk::Image InImage) const
+	bool FVulkanMemoryManager::CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName) const
+	{
+		VmaAllocationCreateInfo AllocCreateInfo{};
+		AllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
+		VkBuffer RawBuffer;
+		VkResult Result = vmaCreateBuffer(
+			Allocator,
+			reinterpret_cast<const VkBufferCreateInfo*>(&BufferCreateInfo),
+			&AllocCreateInfo,
+			&RawBuffer,
+			&OutAllocation.Handle,
+			&OutAllocation.Info
+		);
+
+		if (Result != VK_SUCCESS) return false;
+
+		OutBuffer = RawBuffer;
+
+		if (DebugName) {
+			vmaSetAllocationName(Allocator, OutAllocation.Handle, DebugName);
+		}
+		return true;
+	}
+
+	void FVulkanMemoryManager::DestroyImage(FVulkanAllocation& InAllocation, vk::Image InImage) const
 	{
 		check(InImage && InAllocation.Handle != VK_NULL_HANDLE);
 		vmaDestroyImage(Allocator, InImage, InAllocation.Handle);
+
+		InAllocation.Handle = nullptr;
+		InAllocation.Info = {};
+	}
+
+	void FVulkanMemoryManager::DestroyBuffer(FVulkanAllocation& InAllocation, vk::Buffer InBuffer) const
+	{
+		check(InImage && InAllocation.Handle != VK_NULL_HANDLE);
+		vmaDestroyBuffer(Allocator, InBuffer, InAllocation.Handle);
 
 		InAllocation.Handle = nullptr;
 		InAllocation.Info = {};

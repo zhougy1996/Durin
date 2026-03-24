@@ -37,8 +37,13 @@ namespace Doge::VulkanRHI
 
 		bool CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName = nullptr) const;
 
-		void Destroy(FVulkanAllocation& InAllocation, vk::Image InImage) const;
+		bool CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName = nullptr) const;
 
+		void DestroyImage(FVulkanAllocation& InAllocation, vk::Image InImage) const;
+
+		void DestroyBuffer(FVulkanAllocation& InAllocation, vk::Buffer InBuffer) const;
+
+		DOGE_NONCOPYABLE(FVulkanMemoryManager)
 	private:
 		FVulkanDevice* Device;
 

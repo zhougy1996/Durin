@@ -5,6 +5,7 @@ namespace Doge
 	struct FRHIRenderTargetsInfo;
 	struct FRHITextureDesc;
 	struct FRHITextureCreateDesc;
+	struct FRHIBufferCreateDesc;
 
 	class FRHIGraphicsPipelineState;
 	class FGraphicsPipelineStateInitializer;
@@ -13,4 +14,5 @@ namespace Doge
 	class FRHICommandList;
 	class FRHICommandListImmediate;
 	class FRHITexture;
+	class FRHIBuffer;
 }

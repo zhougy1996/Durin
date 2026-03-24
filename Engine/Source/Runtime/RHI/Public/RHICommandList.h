@@ -82,4 +82,9 @@ namespace Doge
 	{
 		return GDynamicRHI->RHICreateTexture(FRHICommandListImmediate::Get(), CreateDesc);
 	}
+
+	FORCEINLINE TRefCountPtr<FRHIBuffer> RHICreateBuffer(const FRHIBufferCreateDesc& CreateDesc)
+	{
+		return GDynamicRHI->RHICreateBuffer(FRHICommandListImmediate::Get(), CreateDesc);
+	}
 }

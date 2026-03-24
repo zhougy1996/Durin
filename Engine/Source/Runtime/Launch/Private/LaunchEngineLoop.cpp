@@ -100,6 +100,11 @@ namespace Doge
 			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("TestTex", 256, 256, EPixelFormat::RGBA8_UNORM);
 			TRefCountPtr<FRHITexture> Texture = RHICreateTexture(TextureCreateDesc);
 		});
+
+		ENQUEUE_RENDER_COMMAND(CreateBuffer)([](FRHICommandListImmediate& CommandList) {
+			FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestBuffer", 1024);
+			TRefCountPtr<FRHIBuffer> Buffer = RHICreateBuffer(BufferCreateDesc);
+		});
 	}
 
 	static auto DrawTriangle()

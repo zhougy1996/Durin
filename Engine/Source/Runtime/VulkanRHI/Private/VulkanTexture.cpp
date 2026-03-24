@@ -1,7 +1,7 @@
 #include "VulkanTexture.h"
 
-#include "VulkanDevice.h"
 #include "VulkanRHIPrivate.h"
+#include "VulkanDevice.h"
 #include "VulkanMemory.h"
 
 namespace Doge::VulkanRHI
@@ -86,5 +86,10 @@ namespace Doge::VulkanRHI
 	FVulkanTexture::~FVulkanTexture()
 	{
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image, Allocation);
+	}
+
+	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
+	{
+		return new FVulkanTexture(*Device, CreateDesc);
 	}
 } // namespace Doge::VulkanRHI
