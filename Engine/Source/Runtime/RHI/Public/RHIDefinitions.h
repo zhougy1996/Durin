@@ -179,28 +179,5 @@ namespace Doge
 	};
 
 	ENUM_CLASS_FLAGS(EBufferUsageFlags);
-//
-// #define BUF_None EBufferUsageFlags::None
-// #define BUF_Static EBufferUsageFlags::Static
-// #define BUF_Dynamic EBufferUsageFlags::Dynamic
-// #define BUF_Volatile EBufferUsageFlags::Volatile
-// #define BUF_UnorderedAccess EBufferUsageFlags::UnorderedAccess
-// #define BUF_ByteAddressBuffer EBufferUsageFlags::ByteAddressBuffer
-// #define BUF_SourceCopy EBufferUsageFlags::SourceCopy
-// #define BUF_DrawIndirect EBufferUsageFlags::DrawIndirect
-// #define BUF_ShaderResource EBufferUsageFlags::ShaderResource
-// #define BUF_KeepCPUAccessible EBufferUsageFlags::KeepCPUAccessible
-// #define BUF_FastVRAM EBufferUsageFlags::FastVRAM
-// #define BUF_Shared EBufferUsageFlags::Shared
-// #define BUF_AccelerationStructure EBufferUsageFlags::AccelerationStructure
-// #define BUF_RayTracingScratch EBufferUsageFlags::RayTracingScratch
-// #define BUF_VertexBuffer EBufferUsageFlags::VertexBuffer
-// #define BUF_IndexBuffer EBufferUsageFlags::IndexBuffer
-// #define BUF_StructuredBuffer EBufferUsageFlags::StructuredBuffer
-// #define BUF_AnyDynamic EBufferUsageFlags::AnyDynamic
-// #define BUF_MultiGPUAllocate EBufferUsageFlags::MultiGPUAllocate
-// #define BUF_MultiGPUGraphIgnore EBufferUsageFlags::MultiGPUGraphIgnore
-// #define BUF_NullResource EBufferUsageFlags::NullResource
-// #define BUF_UniformBuffer EBufferUsageFlags::UniformBuffer
-// #define BUF_ReservedResource EBufferUsageFlags::ReservedResource
+
 } // namespace Doge
