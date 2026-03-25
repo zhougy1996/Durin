@@ -29,6 +29,7 @@ namespace Doge::VulkanRHI
 
 	void FVulkanMemoryManager::Deinit()
 	{
+		vmaDestroyAllocator(Allocator);
 		Allocator = nullptr;
 	}
 

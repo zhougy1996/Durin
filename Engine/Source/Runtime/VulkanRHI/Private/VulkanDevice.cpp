@@ -331,6 +331,7 @@ namespace Doge::VulkanRHI
 		PipelineManager = nullptr;
 		FRHICommandListExecutor::GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 		DeferredDeletionQueue.Clear();
+		MemoryManager.Deinit();
 
 		delete GraphicsQueue;
 		GraphicsQueue = nullptr;
