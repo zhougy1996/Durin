@@ -59,6 +59,15 @@ namespace Doge::VulkanRHI
 	{
 	}
 
+	FVulkanRenderPassManager::~FVulkanRenderPassManager()
+	{
+		for (FVulkanFramebuffer* Framebuffer : FrameBuffers)
+		{
+			delete Framebuffer;
+		}
+		FrameBuffers.clear();
+	}
+
 	auto FVulkanRenderPassManager::GetOrCreateRenderPass(FName InRenderPassName, vk::Format InFormat) -> FVulkanRenderPass*
 	{
 		auto It = RenderPasses.find(InRenderPassName);

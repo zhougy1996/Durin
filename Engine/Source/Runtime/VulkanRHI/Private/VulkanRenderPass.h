@@ -29,6 +29,8 @@ namespace Doge::VulkanRHI
 	public:
 		explicit FVulkanRenderPassManager(FVulkanDevice& InDevice);
 
+		~FVulkanRenderPassManager();
+
 		// TODO: Render pass should be reuse based on render target layout, but now we select by name for simplicity
 		auto GetOrCreateRenderPass(FName InRenderPassName,  vk::Format Format) -> FVulkanRenderPass*;
 

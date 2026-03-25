@@ -107,16 +107,8 @@ namespace Doge::VulkanRHI
 			.setPushConstantRangeCount(0)
 			.setPPushConstantRanges(nullptr);
 
-		vk::PipelineLayout PipelineLayout;
-		try
-		{
-			PipelineLayout = Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
-			DOGE_TRACE("Vulkan pipeline layout created");
-		}
-		catch (const std::runtime_error& err)
-		{
-			DOGE_ERROR("Failed to create vulkan pipeline layout: {}", err.what());
-		}
+		PipelineLayout = Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
+		DOGE_TRACE("Vulkan pipeline layout created");
 
 		vk::GraphicsPipelineCreateInfo pipelineInfo;
 		pipelineInfo
@@ -148,8 +140,9 @@ namespace Doge::VulkanRHI
 
 	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
 	{
-		// delete Shaders[SHADER_STAGE_VERTEX];
-		// delete Shaders[SHADER_STAGE_PIXEL];
+		delete Shaders[SHADER_STAGE_VERTEX];
+		delete Shaders[SHADER_STAGE_PIXEL];
+		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
 	}
 

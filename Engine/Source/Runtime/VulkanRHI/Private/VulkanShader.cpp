@@ -47,6 +47,6 @@ namespace Doge::VulkanRHI
 
 	FVulkanShader::~FVulkanShader()
 	{
-		Device.GetHandle().destroyShaderModule(ShaderModule);
+		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ShaderModule, ShaderModule);
 	}
 }

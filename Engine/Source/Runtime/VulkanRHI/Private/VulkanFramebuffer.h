@@ -13,6 +13,8 @@ namespace Doge::VulkanRHI
 	public:
 		FVulkanFramebuffer(FVulkanDevice& InDevice, const FRHIRenderTargetsInfo& InRTInfo, const FVulkanRenderPass& InRenderPass);
 
+		~FVulkanFramebuffer();
+
 		auto GetHandle() const -> vk::Framebuffer { return Framebuffer; }
 
 		auto GetExtent() const -> vk::Extent2D { return Extent; }

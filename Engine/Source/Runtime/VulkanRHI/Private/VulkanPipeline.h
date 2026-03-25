@@ -40,6 +40,8 @@ namespace Doge::VulkanRHI
 
 		FVulkanShader* Shaders[NUM_SHADER_STAGES];
 
+		vk::PipelineLayout PipelineLayout;
+
 		vk::Pipeline Pipeline;
 
 		friend class FVulkanGraphicsPipelineState;

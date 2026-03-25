@@ -57,14 +57,16 @@ namespace Doge::VulkanRHI
 			.setHeight(Extent.height)
 			.setLayers(1);
 
-		try
-		{
-			Framebuffer = Device.GetHandle().createFramebuffer(FramebufferCreateInfo);
-			DOGE_TRACE("Vulkan framebuffer created. Render targets count: {}", NumColorRenderTargets);
-		}
-		catch (const std::runtime_error& err)
-		{
-			DOGE_TRACE("Failed to create vulkan framebuffer: {}", err.what());
-		}
+		Framebuffer = Device.GetHandle().createFramebuffer(FramebufferCreateInfo);
+		DOGE_TRACE("Vulkan framebuffer created. Render targets count: {}", NumColorRenderTargets);
 	}
-}
+
+	FVulkanFramebuffer::~FVulkanFramebuffer()
+	{
+		for (FVulkanTextureView& View : AttachmentTextureViews)
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, View.ImageView);
+		}
+		Device.GetDeferredDeletionQueue(). EnqueueResource(FDeferredDeletionQueue::EType::Framebuffer, Framebuffer);
+	}
+} // namespace Doge::VulkanRHI
