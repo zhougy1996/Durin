@@ -321,6 +321,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDevice::Destroy() -> void
 	{
+
 		delete GraphicsQueue;
 		delete TransferQueue;
 		delete PresentQueue;
@@ -330,6 +331,8 @@ namespace Doge::VulkanRHI
 
 		delete ImmediateContext;
 		ImmediateContext = nullptr;
+
+		FenceManager.Deinit();
 
 		DeferredDeletionQueue.ReleaseResources(true);
 

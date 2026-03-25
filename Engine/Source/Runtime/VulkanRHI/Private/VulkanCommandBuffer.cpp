@@ -155,6 +155,7 @@ namespace Doge::VulkanRHI
 		{
 			FVulkanCommandBuffer* CmdBuffer = FreeCmdBuffers.back();
 			FreeCmdBuffers.pop_back();
+			CmdBuffers.push_back(CmdBuffer);
 			return CmdBuffer;
 		}
 

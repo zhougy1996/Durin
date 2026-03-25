@@ -112,18 +112,18 @@ namespace Doge::VulkanRHI
 			fenceInfo.setFlags(vk::FenceCreateFlagBits::eSignaled);
 		}
 
-		Fence = Device.GetHandle().createFence(fenceInfo);
+		Handle = Device.GetHandle().createFence(fenceInfo);
 	}
 
 	FVulkanFence::~FVulkanFence()
 	{
-		Device.GetHandle().destroyFence(Fence);
+		Device.GetHandle().destroyFence(Handle);
 	}
 
 	auto FVulkanFence::Wait(uint64 TimeoutInNanoseconds) -> bool
 	{
 		check(State == EState::NotReady);
-		vk::Result result = Device.GetHandle().waitForFences(Fence, true, TimeoutInNanoseconds);
+		vk::Result result = Device.GetHandle().waitForFences(Handle, true, TimeoutInNanoseconds);
 		if (result == vk::Result::eSuccess)
 		{
 			State = EState::Signaled;
@@ -139,13 +139,28 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanFence::Reset() -> void
 	{
-		Device.GetHandle().resetFences(Fence);
+		Device.GetHandle().resetFences(Handle);
 		State = EState::NotReady;
 	}
 
 	FVulkanFenceManager::FVulkanFenceManager(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{
+	}
+	FVulkanFenceManager::~FVulkanFenceManager()
+	{
+		check(UsedFences.empty());
+		check(FreeFences.empty());
+	}
+
+	void FVulkanFenceManager::Deinit()
+	{
+		std::lock_guard Lock(FenceMutex);
+		check(UsedFences.empty());
+		for (FVulkanFence* Fence : FreeFences)
+		{
+			DestroyFence(Fence);
+		}
 	}
 
 	auto FVulkanFenceManager::IsFenceSignaled(FVulkanFence* Fence) -> bool
@@ -160,12 +175,33 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanFenceManager::AllocateFence(bool bInCreateSignaled) -> FVulkanFence*
 	{
-		return new FVulkanFence(Device, *this, bInCreateSignaled);
+		std::lock_guard Lock(FenceMutex);
+
+		if (!FreeFences.empty())
+		{
+			FVulkanFence* Fence = FreeFences.back();
+			if (bInCreateSignaled)
+			{
+				Fence->State = FVulkanFence::EState::Signaled;
+			}
+			FreeFences.pop_back();
+			UsedFences.push_back(Fence);
+			return Fence;
+		}
+
+		FVulkanFence* NewFence = new FVulkanFence(Device, *this, bInCreateSignaled);
+		UsedFences.push_back(NewFence);
+		return NewFence;
 	}
 
 	auto FVulkanFenceManager::ReleaseFence(FVulkanFence*& Fence) -> void
 	{
-		delete Fence;
+		std::lock_guard Lock(FenceMutex);
+		const auto It = std::ranges::find(UsedFences, Fence);
+		check(It != UsedFences.end());
+		UsedFences.erase(It);
+		ResetFence(Fence);
+		FreeFences.push_back(Fence);
 		Fence = nullptr;
 	}
 
@@ -196,6 +232,13 @@ namespace Doge::VulkanRHI
 		}
 		DOGE_ERROR("Failed to check fence status: {}", vk::to_string(Result));
 		return false;
+	}
+
+	auto FVulkanFenceManager::DestroyFence(FVulkanFence* InFence) const -> void
+	{
+		Device.GetHandle().destroyFence(InFence->GetHandle());
+		InFence->Handle = nullptr;
+		delete InFence;
 	}
 
 	FVulkanSemaphore::FVulkanSemaphore(FVulkanDevice& InDevice)

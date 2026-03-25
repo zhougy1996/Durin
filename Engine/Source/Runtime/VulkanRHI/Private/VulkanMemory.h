@@ -57,7 +57,7 @@ namespace Doge::VulkanRHI
 
 		~FVulkanFence();
 
-		auto GetHandle() const -> vk::Fence { return Fence; }
+		auto GetHandle() const -> vk::Fence { return Handle; }
 
 		// Return the cached state of the fence, the state will not be checked or refreshed
 		// If you want to refresh the state of the fence, use FVulkanFenceManager::IsFenceSignaled
@@ -82,7 +82,7 @@ namespace Doge::VulkanRHI
 
 		FVulkanFenceManager& Owner;
 
-		vk::Fence Fence;
+		vk::Fence Handle;
 
 		EState State;
 
@@ -93,6 +93,10 @@ namespace Doge::VulkanRHI
 	{
 	public:
 		FVulkanFenceManager(FVulkanDevice& InDevice);
+
+		~FVulkanFenceManager();
+
+		void Deinit();
 
 		// Check if the fence is signaled, will check refresh the state of the fence
 		auto IsFenceSignaled(FVulkanFence* InFence) -> bool;
@@ -108,7 +112,16 @@ namespace Doge::VulkanRHI
 	private:
 		auto CheckFenceSignaled(FVulkanFence* InFence) const -> bool;
 
+		auto DestroyFence(FVulkanFence* InFence) const -> void;
+
 		FVulkanDevice& Device;
+
+		std::vector<FVulkanFence*> FreeFences;
+
+		std::vector<FVulkanFence*> UsedFences;
+
+		std::mutex FenceMutex;
+
 	};
 
 	class FVulkanSemaphore
