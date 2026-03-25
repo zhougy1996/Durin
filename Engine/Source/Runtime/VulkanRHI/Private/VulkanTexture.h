@@ -31,7 +31,7 @@ namespace Doge::VulkanRHI
 	protected:
 		FVulkanDevice& Device;
 
-		FVulkanAllocation Allocation;
+		FVulkanAllocation Allocation{};
 
 		EImageOwnerType OwnerType = EImageOwnerType::None;
 	};

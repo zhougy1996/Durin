@@ -26,9 +26,9 @@ namespace Doge::VulkanRHI
 		}
 	}
 
-	static auto TextureDimensionToImageViewType(ETextureDimension InDimension) -> vk::ImageViewType
+	static auto TextureDimensionToImageViewType(ETextureDimension Dimension) -> vk::ImageViewType
 	{
-		switch (InDimension)
+		switch (Dimension)
 		{
 		case ETextureDimension::Texture2D:
 			return vk::ImageViewType::e2D;
@@ -55,8 +55,6 @@ namespace Doge::VulkanRHI
 		: Device(InDevice)
 		, OwnerType(EImageOwnerType::LocalOwner)
 	{
-		vk::Device DeviceHandle = InDevice.GetHandle();
-
 		vk::Format ImageFormat = ConvertToVulkanFormat(InCreateDesc.Format);
 		vk::Extent3D ImageExtent = ConvertToExtent3D(InCreateDesc.GetSize());
 
@@ -78,8 +76,7 @@ namespace Doge::VulkanRHI
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage)
-		: FRHITexture()
-		, Image(InImage)
+		: Image(InImage)
 		, Device(InDevice)
 		, OwnerType(EImageOwnerType::ExternalOwner)
 	{
