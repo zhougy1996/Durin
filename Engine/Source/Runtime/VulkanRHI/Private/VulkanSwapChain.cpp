@@ -43,7 +43,8 @@ namespace Doge::VulkanRHI
 	}
 
 	FVulkanSwapChain::FVulkanSwapChain(vk::Instance InInstance, FVulkanDevice& Device, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen)
-		: Device(Device)
+		: Instance(InInstance)
+		, Device(Device)
 	{
 		Surface = FVulkanGenericPlatform::CreateSurface(InWindowHandle, InInstance);
 
@@ -100,8 +101,7 @@ namespace Doge::VulkanRHI
 
 	FVulkanSwapChain::~FVulkanSwapChain()
 	{
-		delete ImageAcquiredSemaphore;
-		Device.GetHandle().destroySwapchainKHR(SwapChain);
+		Destroy();
 	}
 
 	auto FVulkanSwapChain::GetImages() const -> const std::vector<vk::Image>&
@@ -140,4 +140,12 @@ namespace Doge::VulkanRHI
 
 		CurrentImageIndex = -1;
 	}
-}
+
+	auto FVulkanSwapChain::Destroy() -> void
+	{
+		delete ImageAcquiredSemaphore;
+		Device.GetHandle().destroySwapchainKHR(SwapChain);
+		Instance.destroySurfaceKHR(Surface);
+		Surface = nullptr;
+	}
+} // namespace Doge::VulkanRHI

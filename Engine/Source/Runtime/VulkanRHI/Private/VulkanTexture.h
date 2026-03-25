@@ -7,6 +7,14 @@ namespace Doge::VulkanRHI
 {
 	class FVulkanDevice;
 
+	enum class EImageOwnerType : uint8
+	{
+		None,
+		LocalOwner,
+		ExternalOwner,
+		Aliased
+	};
+
 	class FVulkanTexture : public FRHITexture
 	{
 	public:
@@ -24,5 +32,7 @@ namespace Doge::VulkanRHI
 		FVulkanDevice& Device;
 
 		FVulkanAllocation Allocation;
+
+		EImageOwnerType OwnerType = EImageOwnerType::None;
 	};
 }

@@ -63,8 +63,7 @@ namespace Doge
 	auto FRenderCommandFence::BeginFence() -> void
 	{
 		bIsComplete = false;
-		ENQUEUE_RENDER_COMMAND(FenceCommand)([this](FRHICommandListImmediate& RHICmdList)
-		{
+		ENQUEUE_RENDER_COMMAND(FenceCommand)([this](FRHICommandListImmediate& RHICmdList) {
 			this->bIsComplete.store(true, std::memory_order::release);
 			std::unique_lock<std::mutex> Lock(Mutex);
 			this->CV.notify_all();
@@ -74,8 +73,7 @@ namespace Doge
 	auto FRenderCommandFence::Wait() -> void
 	{
 		std::unique_lock<std::mutex> Lock(Mutex);
-		CV.wait(Lock, [this]()
-		{
+		CV.wait(Lock, [this]() {
 			return bIsComplete.load(std::memory_order::acquire);
 		});
 	}
@@ -127,7 +125,7 @@ namespace Doge
 				}
 			}
 		}
-	}
+	} // namespace FFrameSync
 
 	auto InitRenderingThread() -> void
 	{
@@ -141,6 +139,9 @@ namespace Doge
 
 	auto FlushRenderingCommands() -> void
 	{
+		ENQUEUE_RENDER_COMMAND(FlushPendingDeleteRHIResourcesCmd)([](FRHICommandListImmediate& RHICmdList) {
+			RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources, ERHISubmitFlags::EndFrame);
+		});
 		FFrameSync::Sync(FFrameSync::EFlushMode::Threads);
 	}
 

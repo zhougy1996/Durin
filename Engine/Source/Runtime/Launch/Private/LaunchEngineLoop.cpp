@@ -80,32 +80,19 @@ namespace Doge
 		CreateTestPipeline();
 	}
 
+	// Called from render thread
 	static auto BeginFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 FrameCounter) -> void
 	{
 		GFrameCounterRenderThread = FrameCounter;
 		CommandList.BeginFrame();
 	}
 
-	static auto EndFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 FrameCounter) -> void
+	// Called from render thread
+	static auto EndFrameRenderThread(FRHICommandListImmediate& RHICmdList, uint64 FrameCounter) -> void
 	{
-		CommandList.EndFrame();
-
-		std::vector<FRHIResource*> ResourcesToDelete;
-		while (true)
-		{
-			FRHIResource::GatherResourcesToDelete(ResourcesToDelete);
-			if (!ResourcesToDelete.empty())
-			{
-				FRHIResource::DeleteResources(ResourcesToDelete);
-				ResourcesToDelete.clear();
-			}
-			else
-			{
-				break;
-			}
-		}
-
-		GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+		RHICmdList.EndFrame();
+		GDynamicRHI->RHIEndFrame_RenderThread(RHICmdList);
+		RHICmdList.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::EndFrame);
 	}
 
 	static auto DrawTriangle()

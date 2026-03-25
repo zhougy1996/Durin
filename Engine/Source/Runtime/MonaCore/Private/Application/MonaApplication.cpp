@@ -71,7 +71,6 @@ namespace Doge::Mona
 	{
 		WindowDestroyQueue.push_back(InWindow);
 		Renderer->OnWindowDestroyed(InWindow);
-		FlushRenderingCommands();
 		DestroyWindowsImmediately();
 	}
 

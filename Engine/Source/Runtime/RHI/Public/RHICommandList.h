@@ -56,6 +56,27 @@ namespace Doge
 		IRHICommandContext* GraphicsContext = nullptr;
 	};
 
+	enum class EImmediateFlushType
+	{
+		WaitForOutstandingTasksOnly,
+		DispatchToRHIThread,
+		FlushRHIThread,
+		FlushRHIThreadFlushResources
+	};
+
+	enum class ERHISubmitFlags
+	{
+		None = 0,
+		SubmitToGPU = 1 << 0,
+		DeleteResources = 1 << 1,
+		FlushRHIThread = 1 << 2,
+
+		// Mark the end of a engine frame
+		EndFrame = 1 << 3,
+	};
+
+	ENUM_CLASS_FLAGS(ERHISubmitFlags)
+
 	// Main command list class that will be used to record commands, and submit to GPU immediately when calling EndFrame
 	class RHI_API FRHICommandListImmediate : public FRHICommandList
 	{
@@ -63,6 +84,8 @@ namespace Doge
 		auto SubmitAndBlockUntilGPUIdle() -> void;
 
 		static auto Get() -> FRHICommandListImmediate&;
+
+		auto ImmediateFlush(EImmediateFlushType FlushType, ERHISubmitFlags SubmitFlags = ERHISubmitFlags::None) -> void;
 	};
 
 	class RHI_API FRHICommandListExecutor
@@ -71,6 +94,8 @@ namespace Doge
 		FRHICommandListExecutor();
 
 		static auto GetImmediateCommandList() -> FRHICommandListImmediate&;
+
+		auto Submit(const std::vector<FRHICommandList*> AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void;
 
 	private:
 		FRHICommandListImmediate CommandListImmediate;
@@ -87,4 +112,4 @@ namespace Doge
 	{
 		return GDynamicRHI->RHICreateBuffer(FRHICommandListImmediate::Get(), CreateDesc);
 	}
-}
+} // namespace Doge

@@ -23,7 +23,12 @@ namespace Doge::VulkanRHI
 
 		auto GetFormat() const -> vk::Format { return ImageFormat; }
 
+		// TODO: recreate
+		auto Destroy() -> void;
+
 	private:
+		vk::Instance Instance;
+
 		FVulkanDevice& Device;
 
 		vk::SwapchainKHR SwapChain;

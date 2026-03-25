@@ -206,6 +206,6 @@ namespace Doge::VulkanRHI
 
 	FVulkanSemaphore::~FVulkanSemaphore()
 	{
-		Device.GetHandle().destroySemaphore(Semaphore);
+		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Semaphore, Semaphore);
 	}
 } // namespace Doge::VulkanRHI

@@ -74,6 +74,7 @@ namespace Doge::VulkanRHI
 
 	FVulkanViewport::~FVulkanViewport()
 	{
+		Device.WaitUtilIdle();
 		for (uint32 i = 0; i < TextureViews.size(); ++i)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, TextureViews[i].ImageView);

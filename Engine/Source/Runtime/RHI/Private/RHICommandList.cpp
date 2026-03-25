@@ -95,6 +95,15 @@ namespace Doge
 		return GCommandListExecutor.GetImmediateCommandList();
 	}
 
+	auto FRHICommandListImmediate::ImmediateFlush(EImmediateFlushType FlushType, ERHISubmitFlags SubmitFlags/* = ERHISubmitFlags::None */) -> void
+	{
+		if (FlushType >= EImmediateFlushType::FlushRHIThread)
+		{
+			EnumAddFlags(SubmitFlags, ERHISubmitFlags::DeleteResources);
+		}
+		GCommandListExecutor.Submit({}, SubmitFlags);
+	}
+
 	FRHICommandListExecutor::FRHICommandListExecutor()
 	{
 	}
@@ -103,4 +112,25 @@ namespace Doge
 	{
 		return GCommandListExecutor.CommandListImmediate;
 	}
-}
+
+	auto FRHICommandListExecutor::Submit(const std::vector<FRHICommandList*> AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void
+	{
+		if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::DeleteResources))
+		{
+			std::vector<FRHIResource*> ResourcesToDelete;
+			while (true)
+			{
+				FRHIResource::GatherResourcesToDelete(ResourcesToDelete);
+				if (!ResourcesToDelete.empty())
+				{
+					FRHIResource::DeleteResources(ResourcesToDelete);
+					ResourcesToDelete.clear();
+				}
+				else
+				{
+					break;
+				}
+			}
+		}
+	}
+} // namespace Doge

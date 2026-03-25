@@ -53,6 +53,7 @@ namespace Doge::VulkanRHI
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc)
 		: Device(InDevice)
+		, OwnerType(EImageOwnerType::LocalOwner)
 	{
 		vk::Device DeviceHandle = InDevice.GetHandle();
 
@@ -80,12 +81,16 @@ namespace Doge::VulkanRHI
 		: FRHITexture()
 		, Image(InImage)
 		, Device(InDevice)
+		, OwnerType(EImageOwnerType::ExternalOwner)
 	{
 	}
 
 	FVulkanTexture::~FVulkanTexture()
 	{
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image, Allocation);
+		if (OwnerType == EImageOwnerType::LocalOwner)
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image, Allocation);
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
