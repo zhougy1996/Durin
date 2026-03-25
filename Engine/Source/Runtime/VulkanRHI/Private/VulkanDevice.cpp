@@ -1,6 +1,7 @@
 #include "VulkanDevice.h"
 
 
+#include "RHICommandList.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanExtensions.h"
 #include "VulkanContext.h"
@@ -50,6 +51,11 @@ namespace Doge::VulkanRHI
 				ReleaseResourceImmediately(EntriesToDelete);
 			}
 		}
+	}
+
+	auto FDeferredDeletionQueue::Clear() -> void
+	{
+		ReleaseResources(true);
 	}
 
 	auto FDeferredDeletionQueue::EnqueueGenericResource(EType Type, uint64 Handle) -> void
@@ -321,10 +327,17 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDevice::Destroy() -> void
 	{
+		delete PipelineManager;
+		PipelineManager = nullptr;
+		FRHICommandListExecutor::GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		DeferredDeletionQueue.Clear();
 
 		delete GraphicsQueue;
+		GraphicsQueue = nullptr;
 		delete TransferQueue;
+		TransferQueue = nullptr;
 		delete PresentQueue;
+		PresentQueue = nullptr;
 
 		delete RenderPassManager;
 		RenderPassManager = nullptr;

@@ -194,13 +194,17 @@ namespace Doge::VulkanRHI
 			.setExtent({Width, Height});
 	}
 
-
 	FVulkanPipelineManager::FVulkanPipelineManager(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{
 	}
 
-	auto FVulkanPipelineManager::GetGraphicsPipelineState(FName Name) -> TRefCountPtr<FRHIGraphicsPipelineState>
+	FVulkanPipelineManager::~FVulkanPipelineManager()
+	{
+		PSOCache.clear();
+	}
+
+	auto FVulkanPipelineManager::GetGraphicsPipelineState(FName Name) -> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
 		const auto It = PSOCache.find(Name);
 		if (It != PSOCache.end())
@@ -211,7 +215,7 @@ namespace Doge::VulkanRHI
 		return nullptr;
 	}
 
-	auto FVulkanPipelineManager::CreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
+	auto FVulkanPipelineManager::CreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
 		const auto It = PSOCache.find(Name);
 		if (It != PSOCache.end())

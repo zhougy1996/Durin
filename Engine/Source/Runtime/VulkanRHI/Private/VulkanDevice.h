@@ -63,6 +63,10 @@ namespace Doge::VulkanRHI
 
 		auto ReleaseResources(bool bDeleteImmediately = false) -> void;
 
+		// Called from the game thread to clear the queue,
+		// Should only be called when the device is being destroyed at which point the render thread should have already been shut down and all resources should be safe to delete immediately.
+		auto Clear() -> void;
+
 	private:
 		struct FEntry
 		{
