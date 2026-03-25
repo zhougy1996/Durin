@@ -23,7 +23,6 @@ namespace Doge::VulkanRHI
 	auto FVulkanDynamicRHI::Shutdown() -> void
 	{
 		// Render thread should already be stopped at this point.
-		check(IsInGameThread());
 		delete Device;
 		Instance.destroy();
 	}

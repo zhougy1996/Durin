@@ -417,7 +417,7 @@ namespace Doge
 			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::NullResource))
 			{
 				// The null resource descriptor should have its other fields zeroed, and no additional flags.
-				check(Size == 0 && Stride == 0 && Usage == BUF_NullResource);
+				check(Size == 0 && Stride == 0 && Usage == EBufferUsageFlags::NullResource);
 				return true;
 			}
 

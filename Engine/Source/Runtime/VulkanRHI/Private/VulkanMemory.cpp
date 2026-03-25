@@ -93,7 +93,7 @@ namespace Doge::VulkanRHI
 
 	void FVulkanMemoryManager::DestroyBuffer(FVulkanAllocation& InAllocation, vk::Buffer InBuffer) const
 	{
-		check(InImage && InAllocation.Handle != VK_NULL_HANDLE);
+		check(InBuffer && InAllocation.Handle != VK_NULL_HANDLE);
 		vmaDestroyBuffer(Allocator, InBuffer, InAllocation.Handle);
 
 		InAllocation.Handle = nullptr;
@@ -161,6 +161,7 @@ namespace Doge::VulkanRHI
 		{
 			DestroyFence(Fence);
 		}
+		FreeFences.clear();
 	}
 
 	auto FVulkanFenceManager::IsFenceSignaled(FVulkanFence* Fence) -> bool

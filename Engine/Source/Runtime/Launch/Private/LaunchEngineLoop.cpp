@@ -137,8 +137,6 @@ namespace Doge
 
 	auto FEngineLoop::Tick() -> void
 	{
-
-
 		uint64 CurrentFrameCounter = GFrameCounter;
 
 		// Game logic.

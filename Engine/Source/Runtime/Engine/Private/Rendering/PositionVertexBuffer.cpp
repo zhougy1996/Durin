@@ -53,7 +53,7 @@ namespace Doge
 		if (NumVertices)
 		{
 			AllocateData(bInNeedsCPUAccess);
-			check(Stride_ == sizeof(FVector3f));
+			check(Stride == sizeof(FVector3f));
 			VertexData->ResizeBuffer(NumVertices);
 			Data = VertexData->GetDataPointer();
 			memcpy(Data, InPositions.data(), Stride * NumVertices);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Misc/Build.h"
 #include "HAL/Platform.h"
 
 #ifdef DO_CHECK
