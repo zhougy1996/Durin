@@ -105,4 +105,10 @@ namespace Doge::VulkanRHI
 			return vk::BufferUsageFlags();
 		}
 	}
+
+	std::atomic<uint64> GVulkanBufferHandleIdCounter = 0;
+	std::atomic<uint64> GVulkanBufferViewHandleIdCounter = 0;
+	std::atomic<uint64> GVulkanImageViewHandleIdCounter = 0;
+	std::atomic<uint64> GVulkanSamplerHandleIdCounter = 0;
+	std::atomic<uint64> GVulkanDSetLayoutHandleIdCounter = 0;
 } // namespace Doge::VulkanRHI

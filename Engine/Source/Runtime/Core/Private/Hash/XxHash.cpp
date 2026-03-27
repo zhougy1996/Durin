@@ -8,7 +8,7 @@ namespace Doge
 	auto FXxHash64::HashBuffer(const void* Data, uint64 Size) -> FXxHash64
 	{
 		FXxHash64 Result;
-		Result.Hash = XXH3_64bits(Data, Size);
+		Result.HashValue = XXH3_64bits(Data, Size);
 		return Result;
 	}
 

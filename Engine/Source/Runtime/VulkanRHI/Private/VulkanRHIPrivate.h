@@ -9,4 +9,10 @@ namespace Doge::VulkanRHI
 
 	auto ConvertToVulkanBufferUsageFlags(EBufferUsageFlags InUsage) -> vk::BufferUsageFlags;
 
+	extern std::atomic<uint64> GVulkanBufferHandleIdCounter;
+	extern std::atomic<uint64> GVulkanBufferViewHandleIdCounter;
+	extern std::atomic<uint64> GVulkanImageViewHandleIdCounter;
+	extern std::atomic<uint64> GVulkanSamplerHandleIdCounter;
+	extern std::atomic<uint64> GVulkanDSetLayoutHandleIdCounter;
+
 } // namespace Doge::VulkanRHI

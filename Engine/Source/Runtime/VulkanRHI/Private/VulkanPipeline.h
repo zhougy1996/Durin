@@ -1,6 +1,7 @@
 #pragma once
 
 #include "VulkanCommon.h"
+#include "VulkanDescriptorSets.h"
 
 namespace Doge::VulkanRHI
 {
@@ -62,5 +63,11 @@ namespace Doge::VulkanRHI
 		FVulkanDevice& Device;
 
 		std::unordered_map<FName, TRefCountPtr<FVulkanGraphicsPipelineState>> PSOCache;
+	};
+
+	class FPipelineCache
+	{
+	public:
+		FVulkanDescriptorSetLayoutCache DSetLayoutMap;
 	};
 }
