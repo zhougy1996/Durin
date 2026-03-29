@@ -80,7 +80,7 @@ namespace Doge::VulkanRHI
 	class FVulkanDescriptorSetLayoutCache
 	{
 	public:
-		FVulkanDescriptorSetLayoutCache(FVulkanDevice* InDevice) : Device(InDevice) {}
+		explicit FVulkanDescriptorSetLayoutCache(FVulkanDevice* InDevice) : Device(InDevice) {}
 
 		~FVulkanDescriptorSetLayoutCache();
 
@@ -96,25 +96,62 @@ namespace Doge::VulkanRHI
 		std::mutex Mutex;
 	};
 
-	// The runtime object of descriptor set layouts, created from FVulkanDescriptorSetsLayoutInfo
+	// The runtime object of descriptor set layouts(array), created from FVulkanDescriptorSetsLayoutInfo
 	class FVulkanDescriptorSetsLayout
 	{
 	public:
-		FVulkanDescriptorSetsLayout(FVulkanDescriptorSetsLayoutInfo InInfo);
+		explicit FVulkanDescriptorSetsLayout(FVulkanDevice* InDevice, FVulkanDescriptorSetsLayoutInfo InInfo);
 
 		auto GetInfo() const -> const FVulkanDescriptorSetsLayoutInfo& { return Info; }
 	private:
+		FVulkanDevice* Device;
+
 		FVulkanDescriptorSetsLayoutInfo Info;
+
+		std::vector<vk::DescriptorSetLayout> LayoutHandles;
+
+		std::vector<uint64> LayoutHandleIds;
+
+		vk::DescriptorSetAllocateInfo AllocateInfo;
 	};
 
+	class FVulkanDescriptorPool
+	{
+	public:
+		FVulkanDescriptorPool(FVulkanDevice* InDevice, const FVulkanDescriptorSetsLayoutInfo& InLayoutInfo, uint32 MaxSetsAllocations);
+		~FVulkanDescriptorPool();
+
+		auto GetHandle() const -> vk::DescriptorPool { return DescriptorPool; }
+
+
+	private:
+		FVulkanDevice* Device;
+
+		const FVulkanDescriptorSetsLayoutInfo& LayoutInfo;
+
+		vk::DescriptorPool DescriptorPool;
+
+		uint32 MaxDescriptorSets;
+		uint32 NumAllocatedDescriptorSets;
+		uint32 PeakAllocatedDescriptorSets;
+	};
+
+	class FVulkanDescriptorSetCache
+	{
+	public:
+		explicit FVulkanDescriptorSetCache(FVulkanDevice* InDevice);
+
+	private:
+		FVulkanDevice* Device;
+	};
 }
 
-template<>
-struct std::hash<Doge::VulkanRHI::FVulkanDescriptorSetsLayoutInfo>
-{
-	size_t operator()(const Doge::VulkanRHI::FVulkanDescriptorSetsLayoutInfo& Info) const noexcept
-	{
-		return Info.Hash.HashValue;
-	}
-};
+// template<>
+// struct std::hash<Doge::VulkanRHI::FVulkanDescriptorSetsLayoutInfo>
+// {
+// 	size_t operator()(const Doge::VulkanRHI::FVulkanDescriptorSetsLayoutInfo& Info) const noexcept
+// 	{
+// 		return Info.Hash.HashValue;
+// 	}
+// };
 

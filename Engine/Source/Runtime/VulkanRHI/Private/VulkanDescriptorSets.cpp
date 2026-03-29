@@ -67,4 +67,15 @@ namespace Doge::VulkanRHI
 
 		return NewEntry.Handle;
 	}
-}
+
+	FVulkanDescriptorSetsLayout::FVulkanDescriptorSetsLayout(FVulkanDevice* InDevice, FVulkanDescriptorSetsLayoutInfo InInfo)
+		: Device(InDevice)
+		, Info(std::move(InInfo))
+	{
+	}
+
+	FVulkanDescriptorSetCache::FVulkanDescriptorSetCache(FVulkanDevice* InDevice)
+		: Device(InDevice)
+	{
+	}
+} // namespace Doge::VulkanRHI
