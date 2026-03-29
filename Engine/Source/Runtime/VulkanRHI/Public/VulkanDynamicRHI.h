@@ -44,6 +44,7 @@ namespace Doge::VulkanRHI
 
 		auto RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> override;
 		auto RHICreateBuffer(FRHICommandList& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer> override;
+		auto RHICreateVertexShader(std::string_view Code, uint64 Hash) -> TRefCountPtr<FRHIVertexShader> override;
 
 		auto RHIBlockUntilGPUIdle() -> void override;
 

@@ -23,6 +23,9 @@
 #include <cstring>
 #include <ranges>
 
+#include <iostream>
+#include <fstream>
+
 // Multithreading support
 #include <thread>
 #include <mutex>

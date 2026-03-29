@@ -2,6 +2,7 @@
 
 #include "RHIFwd.h"
 #include "PixelFormat.h"
+#include "RHIResources.h"
 
 namespace Doge
 {
@@ -26,6 +27,7 @@ namespace Doge
 
 		virtual auto RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> = 0;
 		virtual auto RHICreateBuffer(FRHICommandList& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer> = 0;
+		virtual auto RHICreateVertexShader(std::string_view Code, uint64 Hash) -> TRefCountPtr<FRHIVertexShader> = 0;
 
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 	};

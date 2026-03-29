@@ -1,9 +1,6 @@
 #include "VulkanShader.h"
 
-#include <iostream>
-#include <fstream>
-
-#include "VulkanDevice.h"
+#include "VulkanRHIPrivate.h"
 
 namespace Doge::VulkanRHI
 {
@@ -48,5 +45,10 @@ namespace Doge::VulkanRHI
 	FVulkanShader::~FVulkanShader()
 	{
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ShaderModule, ShaderModule);
+	}
+
+	auto FVulkanDynamicRHI::RHICreateVertexShader(std::string_view Code, uint64 Hash) -> TRefCountPtr<FRHIVertexShader>
+	{
+		return nullptr;
 	}
 }

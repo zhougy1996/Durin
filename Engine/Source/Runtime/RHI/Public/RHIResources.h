@@ -487,7 +487,7 @@ namespace Doge
 		{
 		}
 
-		const char* DebugName;
+		const char* DebugName = nullptr;
 	};
 
 	class FRHIBuffer : public FRHIResource
@@ -495,7 +495,7 @@ namespace Doge
 	public:
 		explicit FRHIBuffer(const FRHIBufferCreateDesc& InCreateDesc)
 			: FRHIResource(ERHIResourceType::Buffer)
-			, Desc(InCreateDesc)
+			, Desc(static_cast<FRHIBufferDesc>(InCreateDesc))
 		{
 		}
 
@@ -513,7 +513,6 @@ namespace Doge
 	private:
 		FRHIBufferDesc Desc;
 	};
-
 
 	class FRHIGraphicsPipelineState : public FRHIResource
 	{

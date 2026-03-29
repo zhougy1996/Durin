@@ -15,4 +15,6 @@ namespace Doge
 	class FRHICommandListImmediate;
 	class FRHITexture;
 	class FRHIBuffer;
+	class FVertexShader;
+	class FPixelShader;
 }
