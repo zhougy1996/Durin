@@ -141,6 +141,42 @@ namespace Doge
 		ERHIResourceType ResourceType;
 	};
 
+	struct FRHIShaderDesc
+	{
+		explicit FRHIShaderDesc(EShaderFrequency InFrequency)
+			: Frequency(InFrequency)
+		{
+		}
+
+		EShaderFrequency Frequency = EShaderFrequency::Vertex;
+	};
+
+	struct FRHIShaderCreateDesc : public FRHIShaderDesc
+	{
+		static auto Create(const char* InDebugName, EShaderFrequency InFrequency) -> FRHIShaderCreateDesc
+		{
+			return FRHIShaderCreateDesc(InDebugName, InFrequency);
+		}
+
+		static auto CreateVertex(const char* InDebugName) -> FRHIShaderCreateDesc
+		{
+			return FRHIShaderCreateDesc(InDebugName, EShaderFrequency::Vertex);
+		}
+
+		static auto CreatePixel(const char* InDebugName) -> FRHIShaderCreateDesc
+		{
+			return FRHIShaderCreateDesc(InDebugName, EShaderFrequency::Pixel);
+		}
+
+		FRHIShaderCreateDesc(const char* InDebugName, EShaderFrequency InFrequency)
+			: FRHIShaderDesc(InFrequency)
+			, DebugName(InDebugName)
+		{
+		}
+
+		const char* DebugName = nullptr;
+	};
+
 	class FRHIShader : public FRHIResource
 	{
 	public:
@@ -156,24 +192,6 @@ namespace Doge
 	protected:
 		FXxHash64 Hash;
 		EShaderFrequency Frequency;
-	};
-
-	class FRHIVertexShader : public FRHIShader
-	{
-	public:
-		FRHIVertexShader()
-			: FRHIShader(ERHIResourceType::VertexShader, EShaderFrequency::Vertex)
-		{
-		}
-	};
-
-	class FRHIPixelShader : public FRHIShader
-	{
-	public:
-		FRHIPixelShader()
-			: FRHIShader(ERHIResourceType::PixelShader, EShaderFrequency::Pixel)
-		{
-		}
 	};
 
 	enum class EClearBinding

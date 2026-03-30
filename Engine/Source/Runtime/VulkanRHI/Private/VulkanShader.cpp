@@ -47,7 +47,7 @@ namespace Doge::VulkanRHI
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ShaderModule, ShaderModule);
 	}
 
-	auto FVulkanDynamicRHI::RHICreateVertexShader(std::string_view Code, uint64 Hash) -> TRefCountPtr<FRHIVertexShader>
+	auto FVulkanDynamicRHI::RHICreateVertexShader(std::string_view Code, uint64 Hash) -> TRefCountPtr<FRHIShader>
 	{
 		return nullptr;
 	}
