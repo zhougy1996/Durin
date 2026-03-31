@@ -4,17 +4,24 @@
 
 namespace Doge::VulkanRHI
 {
-	enum EShaderStage : uint32
+
+	namespace EShaderStage
 	{
-		SHADER_STAGE_VERTEX = 0U,
-		SHADER_STAGE_PIXEL,
-		SHADER_STAGE_GEOMETRY,
-		SHADER_STAGE_MESH,
-		SHADER_STAGE_AMPLIFICATION,
-		NUM_NON_COMPUTE_SHADER_STAGES,
-		SHADER_STAGE_COMPUTE = NUM_NON_COMPUTE_SHADER_STAGES,
-		NUM_SHADER_STAGES,
-	};
+		enum : uint32
+		{
+			Vertex = 0U,
+			Pixel,
+			Geometry,
+			Mesh,
+			Amplification,
+
+			NonComputeStageCount, // used for counting the number of non-compute shader stages
+
+			Compute = NonComputeStageCount,
+
+			Count
+		};
+	}
 
 	namespace FVulkanPixelFormat
 	{
@@ -45,5 +52,5 @@ namespace Doge::VulkanRHI
 			}
 			return vk::Format::eUndefined;
 		}
-	}
-}
+	} // namespace FVulkanPixelFormat
+} // namespace Doge::VulkanRHI

@@ -21,8 +21,8 @@ namespace Doge::VulkanRHI
 		vk::Format VkFormat = FVulkanPixelFormat::FromPixelFormat(Initializer.PixelFormat);
 		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat);
 
-		Shaders[SHADER_STAGE_VERTEX] = static_cast<FVulkanShader*>(Initializer.VertexShader);
-		Shaders[SHADER_STAGE_PIXEL] = static_cast<FVulkanShader*>(Initializer.PixelShader);
+		Shaders[EShaderStage::Vertex] = static_cast<FVulkanShader*>(Initializer.VertexShader);
+		Shaders[EShaderStage::Pixel] = static_cast<FVulkanShader*>(Initializer.PixelShader);
 
 		for (FVulkanShader* Shader : Shaders)
 		{
@@ -35,13 +35,13 @@ namespace Doge::VulkanRHI
 		vk::PipelineShaderStageCreateInfo VertShaderInfo;
 		VertShaderInfo
 			.setStage(vk::ShaderStageFlagBits::eVertex)
-			.setModule(Shaders[SHADER_STAGE_VERTEX]->GetShaderModule())
+			.setModule(Shaders[EShaderStage::Vertex]->GetShaderModule())
 			.setPName("main");
 
 		vk::PipelineShaderStageCreateInfo FragmentShaderInfo;
 		FragmentShaderInfo
 			.setStage(vk::ShaderStageFlagBits::eFragment)
-			.setModule(Shaders[SHADER_STAGE_PIXEL]->GetShaderModule())
+			.setModule(Shaders[EShaderStage::Pixel]->GetShaderModule())
 			.setPName("main");
 
 		vk::PipelineShaderStageCreateInfo ShaderStages[] = {VertShaderInfo, FragmentShaderInfo};

@@ -40,7 +40,7 @@ namespace Doge::VulkanRHI
 
 		bool bScissorEnabled = false;
 
-		FVulkanShader* Shaders[NUM_SHADER_STAGES] = { nullptr };
+		FVulkanShader* Shaders[EShaderStage::Count] = { nullptr };
 
 		vk::PipelineLayout PipelineLayout;
 
