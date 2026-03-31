@@ -21,8 +21,8 @@ namespace Doge::VulkanRHI
 		vk::Format VkFormat = FVulkanPixelFormat::FromPixelFormat(Initializer.PixelFormat);
 		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat);
 
-		Shaders[SHADER_STAGE_VERTEX] = new FVulkanShader(Device, "../../../../Shaders/spv/test_vert.spv", vk::ShaderStageFlagBits::eVertex);
-		Shaders[SHADER_STAGE_PIXEL] = new FVulkanShader(Device, "../../../../Shaders/spv/test_frag.spv", vk::ShaderStageFlagBits::eFragment);
+		Shaders[SHADER_STAGE_VERTEX] = static_cast<FVulkanShader*>(Initializer.VertexShader);
+		Shaders[SHADER_STAGE_PIXEL] = static_cast<FVulkanShader*>(Initializer.PixelShader);
 
 		vk::PipelineShaderStageCreateInfo VertShaderInfo;
 		VertShaderInfo

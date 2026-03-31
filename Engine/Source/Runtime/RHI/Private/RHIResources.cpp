@@ -65,9 +65,4 @@ namespace Doge
 		);
 	}
 
-	FRHIShader::FRHIShader(ERHIResourceType InResourceType, EShaderFrequency InFrequency)
-		: FRHIResource(InResourceType)
-		, Frequency(InFrequency)
-	{
-	}
 } // namespace Doge

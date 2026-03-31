@@ -4,12 +4,12 @@ namespace Doge::VulkanRHI
 {
 	class FVulkanDevice;
 
-	class FVulkanShader
+	class FVulkanShader : public FRHIShader
 	{
 	public:
-		FVulkanShader(FVulkanDevice& InDevice, const std::string& InFilename, vk::ShaderStageFlagBits InStage);
+		FVulkanShader(FVulkanDevice& InDevice, const FRHIShaderCreateDesc& InCreateDesc);
 
-		~FVulkanShader();
+		~FVulkanShader() override;
 
 		auto GetShaderModule() const -> vk::ShaderModule { return ShaderModule; }
 
@@ -18,4 +18,5 @@ namespace Doge::VulkanRHI
 
 		vk::ShaderModule ShaderModule;
 	};
+
 }

@@ -9,6 +9,7 @@
 #include "Mona.h"
 #include "DogeEdGlobals.h"
 #include "Engine/Engine.h"
+#include "Misc/FileHelper.h"
 
 #include "RHICommandList.h"
 #include "RHIResources.h"
@@ -34,6 +35,9 @@ namespace Doge
 		DObjectInit();
 	}
 
+	FShaderRHIRef GVertexTestShader;
+	FShaderRHIRef GPixelTestShader;
+
 	// Test code
 	static auto CreateTestPipeline()
 	{
@@ -43,11 +47,27 @@ namespace Doge
 		const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).GetReference();
 		EPixelFormat ViewportFormat = Viewport->GetFormat();
 
+		ENQUEUE_RENDER_COMMAND(LoadAndCreateShaders)([](FRHICommandListImmediate& CommandList) {
+			std::vector<uint32> VertexShaderCode;
+			std::vector<uint32> PixelShaderCode;
+			FFileHelper::LoadFileToArray(VertexShaderCode, "../../../../Shaders/spv/test_vert.spv");
+			FFileHelper::LoadFileToArray(PixelShaderCode, "../../../../Shaders/spv/test_frag.spv");
+
+			FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", VertexShaderCode, {});
+			GVertexTestShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
+
+			FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", PixelShaderCode, {});
+			GPixelTestShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
+		});
+
 		// Create pipeline
 		// Render pass is created when creating pipeline
 		ENQUEUE_RENDER_COMMAND(Pipeline)([ViewportFormat](FRHICommandListImmediate& CommandList) {
 			FGraphicsPipelineStateInitializer Initializer;
 			Initializer.RenderPassName = "TestRenderPass";
+			Initializer.VertexShader = GVertexTestShader;
+			Initializer.PixelShader = GPixelTestShader;
+
 			Initializer.PixelFormat = ViewportFormat;
 			GDynamicRHI->RHICreateGraphicsPipelineState("TestPipeline", Initializer);
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
@@ -119,14 +139,14 @@ namespace Doge
 
 			CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
 
-			// CommandList.SetGraphicsPipelineState(*GTestPipeline);
-			//
-			// auto Width = BackBuffer->GetSizeX();
-			// auto Height = BackBuffer->GetSizeY();
-			// CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
-			//
-			// // Draw call
-			// CommandList.DrawPrimitive();
+			CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("TestPipeline"));
+
+			auto Width = BackBuffer->GetSizeX();
+			auto Height = BackBuffer->GetSizeY();
+			CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
+
+			// Draw call
+			CommandList.DrawPrimitive();
 
 			CommandList.EndRenderPass();
 

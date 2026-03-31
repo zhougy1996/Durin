@@ -15,9 +15,7 @@ namespace Doge
 		Viewport,
 		Buffer,
 		Texture,
-		VertexShader,
-		PixelShader,
-		ComputeShader,
+		Shader,
 		PipelineState,
 	};
 
@@ -143,36 +141,64 @@ namespace Doge
 
 	struct FRHIShaderDesc
 	{
-		explicit FRHIShaderDesc(EShaderFrequency InFrequency)
-			: Frequency(InFrequency)
+		explicit FRHIShaderDesc(EShaderFrequency InFrequency, FXxHash128 InHash)
+			: Hash(InHash)
+			, Frequency(InFrequency)
 		{
 		}
+
+		auto operator==(const FRHIShaderDesc& Other) const -> bool
+		{
+			return Frequency == Other.Frequency && Hash == Other.Hash;
+		}
+
+		auto operator!=(const FRHIShaderDesc& Other) const -> bool
+		{
+			return !(*this == Other);
+		}
+
+		FXxHash128 Hash;
 
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
 	};
 
 	struct FRHIShaderCreateDesc : public FRHIShaderDesc
 	{
-		static auto Create(const char* InDebugName, EShaderFrequency InFrequency) -> FRHIShaderCreateDesc
+		using FCodeView = std::span<const uint32>;
+
+		static auto Create(const char* InDebugName, EShaderFrequency InFrequency, FCodeView InCode, FXxHash128 InHash) -> FRHIShaderCreateDesc
 		{
-			return FRHIShaderCreateDesc(InDebugName, InFrequency);
+			auto Desc = FRHIShaderCreateDesc(InDebugName, InFrequency, InCode, InHash);
+			return Desc;
 		}
 
-		static auto CreateVertex(const char* InDebugName) -> FRHIShaderCreateDesc
+		static auto CreateVertex(const char* InDebugName, FCodeView InCode, FXxHash128 InHash) -> FRHIShaderCreateDesc
 		{
-			return FRHIShaderCreateDesc(InDebugName, EShaderFrequency::Vertex);
+			auto Desc = FRHIShaderCreateDesc(InDebugName, EShaderFrequency::Vertex, InCode, InHash);
+			return Desc;
 		}
 
-		static auto CreatePixel(const char* InDebugName) -> FRHIShaderCreateDesc
+		static auto CreatePixel(const char* InDebugName,FCodeView InCode, FXxHash128 InHash) -> FRHIShaderCreateDesc
 		{
-			return FRHIShaderCreateDesc(InDebugName, EShaderFrequency::Pixel);
+			auto Desc = FRHIShaderCreateDesc(InDebugName, EShaderFrequency::Pixel, InCode, InHash);
+			return Desc;
 		}
 
-		FRHIShaderCreateDesc(const char* InDebugName, EShaderFrequency InFrequency)
-			: FRHIShaderDesc(InFrequency)
+		FRHIShaderCreateDesc(const char* InDebugName, EShaderFrequency InFrequency, FCodeView InCode, FXxHash128 InHash)
+			: FRHIShaderDesc(InFrequency, InHash)
+			, Code(InCode)
 			, DebugName(InDebugName)
 		{
 		}
+
+		auto SetEntryPoint(const char* InEntryPoint) -> void
+		{
+			EntryPoint = InEntryPoint;
+		}
+
+		FCodeView Code{};
+
+		const char* EntryPoint = "main";
 
 		const char* DebugName = nullptr;
 	};
@@ -181,18 +207,23 @@ namespace Doge
 	{
 	public:
 		FRHIShader() = delete;
-		RHI_API FRHIShader(ERHIResourceType InResourceType, EShaderFrequency InFrequency);
+		explicit FRHIShader(const FRHIShaderDesc& InCreateDesc)
+			: FRHIResource(ERHIResourceType::Shader)
+			, Frequency(InCreateDesc.Frequency)
+			, Hash(InCreateDesc.Hash)
+		{
+		}
 
-		FORCEINLINE auto GetFrequency() const -> EShaderFrequency { return Frequency; }
+		auto GetFrequency() const -> EShaderFrequency { return Frequency; }
 
-		auto SetHash(const FXxHash64& InHash) -> void { Hash = InHash; }
-
-		auto GetHash() const -> FXxHash64 { return Hash; }
+		auto GetHash() const -> FXxHash128 { return Hash; }
 
 	protected:
-		FXxHash64 Hash;
-		EShaderFrequency Frequency;
+		EShaderFrequency Frequency = EShaderFrequency::Vertex;
+
+		FXxHash128 Hash;
 	};
+
 
 	enum class EClearBinding
 	{
@@ -403,9 +434,13 @@ namespace Doge
 		FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
 	};
 
-	class RHI_API FGraphicsPipelineStateInitializer
+	class FGraphicsPipelineStateInitializer
 	{
 	public:
+		FRHIShader* VertexShader;
+
+		FRHIShader* PixelShader;
+
 		FName RenderPassName;
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
@@ -540,4 +575,10 @@ namespace Doge
 		{
 		}
 	};
+
+	using FViewportRHIRef = TRefCountPtr<FRHIViewport>;
+	using FTextureRHIRef = TRefCountPtr<FRHITexture>;
+	using FBufferRHIRef = TRefCountPtr<FRHIBuffer>;
+	using FShaderRHIRef = TRefCountPtr<FRHIShader>;
+	using FGraphicsPipelineStateRHIRef = TRefCountPtr<FRHIGraphicsPipelineState>;
 } // namespace Doge

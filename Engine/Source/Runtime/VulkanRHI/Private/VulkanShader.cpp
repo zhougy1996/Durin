@@ -4,42 +4,14 @@
 
 namespace Doge::VulkanRHI
 {
-	static std::vector<char> ReadShaderFile(const std::string& filename)
+	FVulkanShader::FVulkanShader(FVulkanDevice& InDevice, const FRHIShaderCreateDesc& InCreateDesc)
+		: FRHIShader(InCreateDesc)
+		, Device(InDevice)
 	{
-		std::ifstream File(filename, std::ios::ate | std::ios::binary);
-
-		if (!File.is_open())
-		{
-			throw std::runtime_error("failed to open file!");
-		}
-
-		size_t FileSize = (size_t)File.tellg();
-		std::vector<char> Buffer(FileSize);
-
-		File.seekg(0);
-		File.read(Buffer.data(), FileSize);
-		File.close();
-
-		return Buffer;
-	}
-
-	FVulkanShader::FVulkanShader(FVulkanDevice& InDevice, const std::string& Filename, vk::ShaderStageFlagBits InStage)
-		: Device(InDevice)
-	{
-		std::vector<char> ShaderCode = ReadShaderFile(Filename);
-
 		vk::ShaderModuleCreateInfo createInfo;
-		createInfo.setCodeSize(ShaderCode.size());
-		createInfo.setPCode(reinterpret_cast<const uint32_t*>(ShaderCode.data()));
+		createInfo.setCode(InCreateDesc.Code);
 
-		try
-		{
-			ShaderModule = Device.GetHandle().createShaderModule(createInfo);
-		}
-		catch (const std::runtime_error& err)
-		{
-			DOGE_ERROR("Failed to create shader {}: {}", Filename, err.what());
-		}
+		ShaderModule = Device.GetHandle().createShaderModule(createInfo);
 	}
 
 	FVulkanShader::~FVulkanShader()
@@ -47,8 +19,8 @@ namespace Doge::VulkanRHI
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ShaderModule, ShaderModule);
 	}
 
-	auto FVulkanDynamicRHI::RHICreateVertexShader(std::string_view Code, uint64 Hash) -> TRefCountPtr<FRHIShader>
+	auto FVulkanDynamicRHI::RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef
 	{
-		return nullptr;
+		return new FVulkanShader(*Device, InCreateDesc);
 	}
 }

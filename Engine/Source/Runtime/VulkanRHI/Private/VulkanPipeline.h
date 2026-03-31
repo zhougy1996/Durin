@@ -2,6 +2,7 @@
 
 #include "VulkanCommon.h"
 #include "VulkanDescriptorSets.h"
+#include "VulkanShader.h"
 
 namespace Doge::VulkanRHI
 {
