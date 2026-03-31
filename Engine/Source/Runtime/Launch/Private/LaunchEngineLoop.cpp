@@ -34,10 +34,6 @@ namespace Doge
 		FNameInit();
 		DObjectInit();
 	}
-
-	FShaderRHIRef GVertexTestShader;
-	FShaderRHIRef GPixelTestShader;
-
 	// Test code
 	static auto CreateTestPipeline()
 	{
@@ -47,26 +43,24 @@ namespace Doge
 		const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).GetReference();
 		EPixelFormat ViewportFormat = Viewport->GetFormat();
 
-		ENQUEUE_RENDER_COMMAND(LoadAndCreateShaders)([](FRHICommandListImmediate& CommandList) {
+		// Create pipeline
+		// Render pass is created when creating pipeline
+		ENQUEUE_RENDER_COMMAND(Pipeline)([ViewportFormat](FRHICommandListImmediate& CommandList) {
 			std::vector<uint32> VertexShaderCode;
 			std::vector<uint32> PixelShaderCode;
 			FFileHelper::LoadFileToArray(VertexShaderCode, "../../../../Shaders/spv/test_vert.spv");
 			FFileHelper::LoadFileToArray(PixelShaderCode, "../../../../Shaders/spv/test_frag.spv");
 
 			FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", VertexShaderCode, {});
-			GVertexTestShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
+			auto VertexTestShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
 
 			FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", PixelShaderCode, {});
-			GPixelTestShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
-		});
+			auto PixelTestShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
 
-		// Create pipeline
-		// Render pass is created when creating pipeline
-		ENQUEUE_RENDER_COMMAND(Pipeline)([ViewportFormat](FRHICommandListImmediate& CommandList) {
 			FGraphicsPipelineStateInitializer Initializer;
 			Initializer.RenderPassName = "TestRenderPass";
-			Initializer.VertexShader = GVertexTestShader;
-			Initializer.PixelShader = GPixelTestShader;
+			Initializer.VertexShader = VertexTestShader;
+			Initializer.PixelShader = PixelTestShader;
 
 			Initializer.PixelFormat = ViewportFormat;
 			GDynamicRHI->RHICreateGraphicsPipelineState("TestPipeline", Initializer);
@@ -122,8 +116,7 @@ namespace Doge
 		const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
 		TRefCountPtr<FRHIViewport> SharedViewport = Renderer->GetRHIViewport(*MainWindow);
 
-		ENQUEUE_RENDER_COMMAND(TestDrawTriangle)([SharedViewport](FRHICommandListImmediate& CommandList)
-		{
+		ENQUEUE_RENDER_COMMAND(TestDrawTriangle)([SharedViewport](FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 
 			FRHIViewport* Viewport = SharedViewport.GetReference();
@@ -170,16 +163,14 @@ namespace Doge
 			return;
 		}
 
-		ENQUEUE_RENDER_COMMAND(BeginFrame)([CurrentFrameCounter](FRHICommandListImmediate& CommandList)
-		{
+		ENQUEUE_RENDER_COMMAND(BeginFrame)([CurrentFrameCounter](FRHICommandListImmediate& CommandList) {
 			BeginFrameRenderThread(CommandList, CurrentFrameCounter);
 		});
 
 		// Render Scene.
 		DrawTriangle();
 
-		ENQUEUE_RENDER_COMMAND(EndFrame)([CurrentFrameCounter](FRHICommandListImmediate& RHICmdList)
-		{
+		ENQUEUE_RENDER_COMMAND(EndFrame)([CurrentFrameCounter](FRHICommandListImmediate& RHICmdList) {
 			EndFrameRenderThread(RHICmdList, CurrentFrameCounter);
 		});
 
@@ -195,4 +186,4 @@ namespace Doge
 		GDynamicRHI->Shutdown();
 		Mona::FMonaApplication::Shutdown();
 	}
-}
+} // namespace Doge

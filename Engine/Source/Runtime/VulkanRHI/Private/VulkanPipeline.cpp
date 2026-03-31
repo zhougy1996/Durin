@@ -24,6 +24,14 @@ namespace Doge::VulkanRHI
 		Shaders[SHADER_STAGE_VERTEX] = static_cast<FVulkanShader*>(Initializer.VertexShader);
 		Shaders[SHADER_STAGE_PIXEL] = static_cast<FVulkanShader*>(Initializer.PixelShader);
 
+		for (FVulkanShader* Shader : Shaders)
+		{
+			if (Shader)
+			{
+				(void)Shader->AddRef();
+			}
+		}
+
 		vk::PipelineShaderStageCreateInfo VertShaderInfo;
 		VertShaderInfo
 			.setStage(vk::ShaderStageFlagBits::eVertex)
@@ -140,8 +148,13 @@ namespace Doge::VulkanRHI
 
 	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
 	{
-		delete Shaders[SHADER_STAGE_VERTEX];
-		delete Shaders[SHADER_STAGE_PIXEL];
+		for (FVulkanShader* Shader : Shaders)
+		{
+			if (Shader)
+			{
+				(void)Shader->Release();
+			}
+		}
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
 	}
