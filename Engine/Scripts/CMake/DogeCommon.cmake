@@ -26,6 +26,7 @@ get_filename_component(DOGE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 message(DOGE_DIR: ${DOGE_DIR})
 
 find_package(Vulkan)
+message("Vulkan found: ${Vulkan_FOUND}")
 set(Python_ROOT_DIR "${DOGE_DIR}/.venv")
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 

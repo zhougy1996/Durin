@@ -11,40 +11,41 @@
 
 namespace Doge::VulkanRHI
 {
+	static auto AppendShaderStageCreateInfo(std::vector<vk::PipelineShaderStageCreateInfo>& ShaderStages, vk::ShaderStageFlagBits ShaderStage, const FRHIShader* ShaderRHI) -> void
+	{
+		if (ShaderRHI)
+		{
+			const FVulkanShader* VulkanShader = static_cast<const FVulkanShader*>(ShaderRHI);
+			vk::PipelineShaderStageCreateInfo ShaderStageInfo;
+			ShaderStageInfo
+				.setStage(ShaderStage)
+				.setModule(VulkanShader->GetShaderModule())
+				.setPName(VulkanShader->GetEntryPoint());
+
+			ShaderStages.push_back(ShaderStageInfo);
+		}
+	}
+
+	static std::vector<vk::PipelineShaderStageCreateInfo> MakeShaderStageCreateInfos(const FBoundShaders& BoundShaders)
+	{
+		std::vector<vk::PipelineShaderStageCreateInfo> ShaderStages;
+
+		AppendShaderStageCreateInfo(ShaderStages, vk::ShaderStageFlagBits::eVertex, BoundShaders.VertexShader);
+		AppendShaderStageCreateInfo(ShaderStages, vk::ShaderStageFlagBits::eFragment, BoundShaders.PixelShader);
+
+		return ShaderStages;
+	}
+
 	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer)
 		: Device(InDevice)
 	{
 		// TODO: Correctly set the renderpass
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
-		// State.SetViewport(0.0f, 0.0f, 0.0f, 800.0f, 600.0f, 1.0f);
 
 		vk::Format VkFormat = FVulkanPixelFormat::FromPixelFormat(Initializer.PixelFormat);
 		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat);
 
-		Shaders[EShaderStage::Vertex] = static_cast<FVulkanShader*>(Initializer.VertexShader);
-		Shaders[EShaderStage::Pixel] = static_cast<FVulkanShader*>(Initializer.PixelShader);
-
-		for (FVulkanShader* Shader : Shaders)
-		{
-			if (Shader)
-			{
-				(void)Shader->AddRef();
-			}
-		}
-
-		vk::PipelineShaderStageCreateInfo VertShaderInfo;
-		VertShaderInfo
-			.setStage(vk::ShaderStageFlagBits::eVertex)
-			.setModule(Shaders[EShaderStage::Vertex]->GetShaderModule())
-			.setPName("main");
-
-		vk::PipelineShaderStageCreateInfo FragmentShaderInfo;
-		FragmentShaderInfo
-			.setStage(vk::ShaderStageFlagBits::eFragment)
-			.setModule(Shaders[EShaderStage::Pixel]->GetShaderModule())
-			.setPName("main");
-
-		vk::PipelineShaderStageCreateInfo ShaderStages[] = {VertShaderInfo, FragmentShaderInfo};
+		std::vector<vk::PipelineShaderStageCreateInfo> ShaderStages = MakeShaderStageCreateInfos(Initializer.BoundShaders);
 
 		std::vector<vk::DynamicState> DynamicStates = {
 			vk::DynamicState::eViewport,
@@ -138,6 +139,7 @@ namespace Doge::VulkanRHI
 		if (PipelineCreationResult.result != vk::Result::eSuccess)
 		{
 			DOGE_ERROR("Failed to create vulkan graphics pipeline: {}", vk::to_string(PipelineCreationResult.result));
+			KeepShadersAlive();
 		}
 		else
 		{
@@ -148,13 +150,7 @@ namespace Doge::VulkanRHI
 
 	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
 	{
-		for (FVulkanShader* Shader : Shaders)
-		{
-			if (Shader)
-			{
-				(void)Shader->Release();
-			}
-		}
+		ReleaseShaders();
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
 	}
@@ -198,6 +194,28 @@ namespace Doge::VulkanRHI
 		Scissor
 			.setOffset({static_cast<int32>(MinX), static_cast<int32>(MinY)})
 			.setExtent({Width, Height});
+	}
+
+	auto FVulkanGraphicsPipelineState::KeepShadersAlive() -> void
+	{
+		for (FVulkanShader* Shader : Shaders)
+		{
+			if (Shader)
+			{
+				(void)Shader->AddRef();
+			}
+		}
+	}
+
+	auto FVulkanGraphicsPipelineState::ReleaseShaders() -> void
+	{
+		for (FVulkanShader* Shader : Shaders)
+		{
+			if (Shader)
+			{
+				(void)Shader->Release();
+			}
+		}
 	}
 
 	FVulkanPipelineManager::FVulkanPipelineManager(FVulkanDevice& InDevice)

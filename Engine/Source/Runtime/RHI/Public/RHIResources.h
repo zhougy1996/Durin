@@ -434,12 +434,16 @@ namespace Doge
 		FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
 	};
 
+	struct FBoundShaders
+	{
+		FRHIShader* VertexShader = nullptr;
+		FRHIShader* PixelShader = nullptr;
+	};
+
 	class FGraphicsPipelineStateInitializer
 	{
 	public:
-		FRHIShader* VertexShader;
-
-		FRHIShader* PixelShader;
+		FBoundShaders BoundShaders;
 
 		FName RenderPassName;
 

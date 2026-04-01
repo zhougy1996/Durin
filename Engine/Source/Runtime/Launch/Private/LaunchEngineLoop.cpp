@@ -59,8 +59,8 @@ namespace Doge
 
 			FGraphicsPipelineStateInitializer Initializer;
 			Initializer.RenderPassName = "TestRenderPass";
-			Initializer.VertexShader = VertexTestShader;
-			Initializer.PixelShader = PixelTestShader;
+			Initializer.BoundShaders.VertexShader = VertexTestShader;
+			Initializer.BoundShaders.PixelShader = PixelTestShader;
 
 			Initializer.PixelFormat = ViewportFormat;
 			GDynamicRHI->RHICreateGraphicsPipelineState("TestPipeline", Initializer);

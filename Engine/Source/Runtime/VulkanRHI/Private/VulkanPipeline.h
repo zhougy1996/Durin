@@ -27,10 +27,14 @@ namespace Doge::VulkanRHI
 
 		auto PrepareForDraw(FVulkanCommandListContext& InContext) -> void;
 
-	private:
+	protected:
 		const FVulkanRenderPass* RenderPass = nullptr;
 
 		auto SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void;
+
+		auto KeepShadersAlive() -> void;
+
+		auto ReleaseShaders() -> void;
 
 		FVulkanDevice& Device;
 

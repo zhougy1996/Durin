@@ -13,8 +13,12 @@ namespace Doge::VulkanRHI
 
 		auto GetShaderModule() const -> vk::ShaderModule { return ShaderModule; }
 
+		auto GetEntryPoint() const -> const char* { return EntryPoint; }
+
 	protected:
 		FVulkanDevice& Device;
+
+		const char* EntryPoint = nullptr;
 
 		vk::ShaderModule ShaderModule;
 	};
