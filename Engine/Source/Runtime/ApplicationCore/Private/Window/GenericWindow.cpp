@@ -50,4 +50,9 @@ namespace Doge
 		DOGE_ERROR("GetViewportSize() is not implemented for the current platform.");
 		return {0, 0};
 	}
-}
+
+	auto FGenericWindow::OnResized() -> void
+	{
+		OnWindowResized.Broadcast();
+	}
+} // namespace Doge

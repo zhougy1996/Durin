@@ -7,7 +7,7 @@ namespace Doge
 {
 	static void WindowResizeCallBack(GLFWwindow* InGlfwWindow, int Width, int Height) {
 		DOGE_DEBUG("Window resized: {}x{}", Width, Height);
-		auto Window = static_cast<FGlfwWindow*>(glfwGetWindowUserPointer(InGlfwWindow));
+		auto* Window = static_cast<FGlfwWindow*>(glfwGetWindowUserPointer(InGlfwWindow));
 	}
 
 	FGlfwWindow::FGlfwWindow() = default;
@@ -26,7 +26,7 @@ namespace Doge
 	auto FGlfwWindow::Initialize(FGenericApplication* const InApplication, const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void
 	{
 		OwningApplication = InApplication;
-		Definition_ = InDefinition;
+		Definition = InDefinition;
 
 		glfwInit();
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -36,9 +36,9 @@ namespace Doge
 		glfwWindowHint(GLFW_COCOA_GRAPHICS_SWITCHING, GLFW_TRUE);
 #endif
 
-		const int DesiredWidth = FMath::TruncToInt32(Definition_->WidthDesiredOnScreen);
-		const int DesiredHeight = FMath::TruncToInt32(Definition_->HeightDesiredOnScreen);
-		GlfwWindow = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition_->Title.c_str(), nullptr, nullptr);
+		const int DesiredWidth = FMath::TruncToInt32(Definition->WidthDesiredOnScreen);
+		const int DesiredHeight = FMath::TruncToInt32(Definition->HeightDesiredOnScreen);
+		GlfwWindow = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition->Title.c_str(), nullptr, nullptr);
 		glfwSetWindowUserPointer(GlfwWindow, this);
 		glfwSetFramebufferSizeCallback(GlfwWindow, WindowResizeCallBack);
 		glfwMakeContextCurrent(GlfwWindow);
@@ -89,5 +89,10 @@ namespace Doge
 		}
 
 		return Surface;
+	}
+
+	auto FGlfwWindow::OnWindowResized(int Width, int Height) -> void
+	{
+		OnWindowResizedDelegate.Broadcast(Width, Height);
 	}
 } // namespace Doge

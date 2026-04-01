@@ -12,6 +12,7 @@
 #include "Misc/Name.h"
 #include "Modules/ModuleManager.h"
 
+#include "Delegates/Delegate.h"
 #include "Templates/SmartPointers.h"
 #include "Templates/RefCounting.h"
 #include "Math/DogeMath.h"
