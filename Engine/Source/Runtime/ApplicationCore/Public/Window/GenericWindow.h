@@ -13,34 +13,36 @@ namespace Doge
 		Windowed,			// Stretch the window to the size of the monitor
 	};
 
-	class APPLICATIONCORE_API FGenericWindow
+	class FGenericWindow
 	{
 	public:
-		FGenericWindow();
+		APPLICATIONCORE_API FGenericWindow();
 
-		virtual ~FGenericWindow();
+		APPLICATIONCORE_API virtual ~FGenericWindow();
 
-		virtual auto Initialize(const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void;
+		APPLICATIONCORE_API virtual auto Initialize(const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void;
 
-		virtual auto PollEvents() const -> void;
+		APPLICATIONCORE_API virtual auto PollEvents() const -> void;
 
-		virtual auto ReshapeWindow(int32 X, int32 Y, int32 Width, int32 Height) -> void;
+		APPLICATIONCORE_API virtual auto ReshapeWindow(int32 X, int32 Y, int32 Width, int32 Height) -> void;
 
-		virtual auto MoveWindowTo(int32 X, int32 Y) -> void;
+		APPLICATIONCORE_API virtual auto MoveWindowTo(int32 X, int32 Y) -> void;
 
-		virtual auto GetWindowMode() const -> EWindowMode;
+		APPLICATIONCORE_API virtual auto GetWindowMode() const -> EWindowMode;
 
-		virtual auto SetWindowMode(EWindowMode WindowMode) -> void;
+		APPLICATIONCORE_API virtual auto SetWindowMode(EWindowMode WindowMode) -> void;
 
-		virtual auto GetOSNativeWindowHandle() const -> void*;
+		APPLICATIONCORE_API virtual auto GetOSNativeWindowHandle() const -> void*;
 
-		virtual auto ShouldClose() const -> bool;
+		APPLICATIONCORE_API virtual auto ShouldClose() const -> bool;
 
-		virtual auto Close() -> void;
+		APPLICATIONCORE_API virtual auto Close() -> void;
 
-		virtual auto GetViewportSize() const -> FIntPoint;
+		APPLICATIONCORE_API virtual auto GetViewportSize() const -> FIntPoint;
 
-		virtual auto CreateVulkanSurface(void* InVulkanInstance) const -> void* { return nullptr; }
+		APPLICATIONCORE_API virtual auto CreateVulkanSurface(void* InVulkanInstance) const -> void*;
+
+		APPLICATIONCORE_API virtual auto IsMinimized() const -> bool;
 
 	protected:
 		std::shared_ptr<FGenericWindowDefinition> Definition;

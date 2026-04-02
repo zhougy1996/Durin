@@ -8,56 +8,58 @@ namespace Doge::Mona
 {
 	class IMonaViewport;
 
-	class MONACORE_API MWindow : public MCompoundWidget
+	class MWindow : public MCompoundWidget
 	{
 	public:
-		~MWindow() override;
+		MONACORE_API ~MWindow() override;
 
-		auto PollEvents() const -> void;
+		MONACORE_API auto IsWindow() -> bool override;
 
-		auto SetNativeWindow(std::shared_ptr<FGenericWindow> InNativeWindow) -> void;
+		MONACORE_API auto PollEvents() const -> void;
 
-		auto GetNativeWindow() const -> std::shared_ptr<FGenericWindow>;
+		MONACORE_API auto SetNativeWindow(std::shared_ptr<FGenericWindow> InNativeWindow) -> void;
 
-		auto GetChildWindows() const -> const std::vector<std::shared_ptr<MWindow>>&;
+		MONACORE_API auto GetNativeWindow() const -> std::shared_ptr<FGenericWindow>;
 
-		auto RequestDestroyWindow() -> void;
+		MONACORE_API auto GetChildWindows() const -> const std::vector<std::shared_ptr<MWindow>>&;
 
-		auto GetTitle() const -> FString { return Title; }
+		MONACORE_API auto RequestDestroyWindow() -> void;
 
-		auto SetTitle(const FString& InTitle) -> void { Title = InTitle; }
+		MONACORE_API auto GetTitle() const -> FString;
 
-		auto GetDesiredScreenPosition() const -> FVector2f { return InitialDesiredScreenPosition; }
+		MONACORE_API auto SetTitle(const FString& InTitle) -> void;
 
-		auto GetDesiredSize() const -> FVector2f { return InitialDesiredSize; }
+		MONACORE_API auto GetDesiredScreenPosition() const -> FVector2f;
 
-		auto MoveWindowTo(const FVector2f& NewScreenPosition) -> void;
+		MONACORE_API auto GetDesiredSize() const -> FVector2f;
 
-		auto ReshapeWindow(const FVector2f& NewScreenPosition, const FVector2f& NewSize) -> void;
+		MONACORE_API auto MoveWindowTo(const FVector2f& NewScreenPosition) -> void;
 
-		auto ResizeWindow(const FVector2f& NewSize) -> void;
+		MONACORE_API auto ReshapeWindow(const FVector2f& NewScreenPosition, const FVector2f& NewSize) -> void;
 
-		auto GetScreenPosition() const -> FVector2f { return ScreenPosition; }
+		MONACORE_API auto ResizeWindow(const FVector2f& NewSize) -> void;
 
-		auto GetWindowSize() const -> FVector2f { return Size; }
+		MONACORE_API auto GetScreenPosition() const -> FVector2f;
 
-		auto GetViewportSize() const -> FVector2f;
+		MONACORE_API auto GetWindowSize() const -> FVector2f;
 
-		auto SetCachedScreenPosition(const FVector2f& NewScreenPosition) -> void;
+		MONACORE_API auto GetViewportSize() const -> FVector2f;
 
-		auto SetCachedSize(const FVector2f& NewSize) -> void;
+		MONACORE_API auto SetCachedScreenPosition(const FVector2f& NewScreenPosition) -> void;
 
-		auto SetViewport(const std::shared_ptr<IMonaViewport>& InViewport) -> void;
+		MONACORE_API auto SetCachedSize(const FVector2f& NewSize) -> void;
 
-		auto GetViewport() const -> std::shared_ptr<IMonaViewport>;
+		MONACORE_API auto SetViewport(const std::shared_ptr<IMonaViewport>& InViewport) -> void;
 
-		auto GetWindowMode() const -> EWindowMode;
+		MONACORE_API auto GetViewport() const -> std::shared_ptr<IMonaViewport>;
 
-		auto IsWindow() -> bool override { return true; }
+		MONACORE_API auto GetWindowMode() const -> EWindowMode;
 
-		auto ShowWindow() -> void;
+		MONACORE_API auto ShowWindow() -> void;
 
-		auto HideWindow() -> void;
+		MONACORE_API auto HideWindow() -> void;
+
+		MONACORE_API auto IsMinimized() const -> bool;
 
 	protected:
 		FString Title;

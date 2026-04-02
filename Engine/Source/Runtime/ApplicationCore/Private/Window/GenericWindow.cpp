@@ -51,4 +51,14 @@ namespace Doge
 		return {0, 0};
 	}
 
+	auto FGenericWindow::CreateVulkanSurface(void* InVulkanInstance) const -> void*
+	{
+		return nullptr;
+	}
+
+	auto FGenericWindow::IsMinimized() const -> bool
+	{
+		return false;
+	}
+
 } // namespace Doge

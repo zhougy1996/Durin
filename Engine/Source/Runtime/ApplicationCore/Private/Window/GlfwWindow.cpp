@@ -10,10 +10,10 @@ namespace Doge
 {
 	static void WindowResizeCallBack(GLFWwindow* InGlfwWindow, int Width, int Height) {
 		auto* Handler = GApp->GetMessageHandler();
-		std::shared_ptr<FGenericWindow> Window = GApp->FindWindowByNativeWindowHandle(glfwGetWindowUserPointer(InGlfwWindow));
-		if (Window)
+		std::shared_ptr<FGenericWindow> PlatformWindow = GApp->FindWindowByNativeWindowHandle(glfwGetWindowUserPointer(InGlfwWindow));
+		if (PlatformWindow)
 		{
-			Handler->OnWindowResize(Window, Width, Height);
+			Handler->OnWindowResize(PlatformWindow, Width, Height, PlatformWindow->IsMinimized());
 		}
 	}
 
@@ -95,5 +95,10 @@ namespace Doge
 		}
 
 		return Surface;
+	}
+
+	bool FGlfwWindow::IsMinimized() const
+	{
+		return glfwGetWindowAttrib(GlfwWindow, GLFW_ICONIFIED);
 	}
 } // namespace Doge

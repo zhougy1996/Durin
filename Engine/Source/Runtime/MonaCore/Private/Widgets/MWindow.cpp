@@ -38,6 +38,26 @@ namespace Doge::Mona
 		FMonaApplication::Get().RequestDestroyWindow(SharedThis(this));
 	}
 
+	auto MWindow::GetTitle() const -> FString
+	{
+		return Title;
+	}
+
+	auto MWindow::SetTitle(const FString& InTitle) -> void
+	{
+		Title = InTitle;
+	}
+
+	auto MWindow::GetDesiredScreenPosition() const -> FVector2f
+	{
+		return InitialDesiredScreenPosition;
+	}
+
+	auto MWindow::GetDesiredSize() const -> FVector2f
+	{
+		return InitialDesiredSize;
+	}
+
 	auto MWindow::MoveWindowTo(const FVector2f& NewScreenPosition) -> void
 	{
 		if (NativeWindow != nullptr)
@@ -91,6 +111,16 @@ namespace Doge::Mona
 		SetCachedSize(NewSize);
 	}
 
+	auto MWindow::GetScreenPosition() const -> FVector2f
+	{
+		return ScreenPosition;
+	}
+
+	auto MWindow::GetWindowSize() const -> FVector2f
+	{
+		return Size;
+	}
+
 	auto MWindow::GetViewportSize() const -> FVector2f
 	{
 		return ViewportSize;
@@ -125,12 +155,21 @@ namespace Doge::Mona
 		return NativeWindow->GetWindowMode();
 	}
 
+	bool MWindow::IsWindow()
+	{
+		return true;
+	}
+
 	auto MWindow::ShowWindow() -> void
 	{
-
 	}
 
 	auto MWindow::HideWindow() -> void
 	{
+	}
+
+	auto MWindow::IsMinimized() const -> bool
+	{
+		return NativeWindow->IsMinimized();
 	}
 } // namespace Doge::Mona

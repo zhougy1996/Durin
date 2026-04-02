@@ -114,6 +114,10 @@ namespace Doge
 		auto& App = Mona::FMonaApplication::Get();
 		const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
 		const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
+		if (!MainWindow || MainWindow->IsMinimized())
+		{
+			return;
+		}
 		TRefCountPtr<FRHIViewport> SharedViewport = Renderer->GetRHIViewport(*MainWindow);
 
 		ENQUEUE_RENDER_COMMAND(TestDrawTriangle)([SharedViewport](FRHICommandListImmediate& CommandList) {
