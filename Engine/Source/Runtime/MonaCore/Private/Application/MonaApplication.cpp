@@ -18,7 +18,7 @@ namespace Doge::Mona
 
 	auto FMonaApplication::Create() -> void
 	{
-		CurrentApplication = std::make_shared<FMonaApplication>();
+		CurrentApplication = std::shared_ptr<FMonaApplication>(new FMonaApplication());
 		GApp = CurrentApplication;
 	}
 
@@ -166,6 +166,11 @@ namespace Doge::Mona
 		return nullptr;
 	}
 
+	FMonaApplication::FMonaApplication()
+	{
+		MessageHandler = this;
+	}
+
 	auto FMonaApplication::MakeWindow(const std::shared_ptr<MWindow>& InMonaWindow, bool bInShowImmediately) -> std::shared_ptr<FGenericWindow>
 	{
 		std::shared_ptr<FGenericWindow> NewWindow = FGlfwWindow::Make();
@@ -200,4 +205,11 @@ namespace Doge::Mona
 	auto FMonaApplication::TickAndDrawWidgets() -> void
 	{
 	}
-}
+
+	auto FMonaApplication::OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight) -> void
+	{
+		std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, InPlatformWindow);
+		FVector2f NewSize = FVector2f(static_cast<float>(InWidth), static_cast<float>(InHeight));
+		Window->ResizeWindow(NewSize);
+	}
+} // namespace Doge::Mona

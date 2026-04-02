@@ -1,13 +1,20 @@
 #include "Window/GlfwWindow.h"
 
+#include "Application/GenericApplication.h"
+#include "Application/GenericApplicationMessageHandler.h"
+#include "Misc/ApplicationCoreGlobals.h"
 #include "ThirdParty/Glfw/GlfwCommon.h"
 #include "vulkan/vulkan.hpp"
 
 namespace Doge
 {
 	static void WindowResizeCallBack(GLFWwindow* InGlfwWindow, int Width, int Height) {
-		DOGE_DEBUG("Window resized: {}x{}", Width, Height);
-		auto* Window = static_cast<FGlfwWindow*>(glfwGetWindowUserPointer(InGlfwWindow));
+		auto* Handler = GApp->GetMessageHandler();
+		std::shared_ptr<FGenericWindow> Window = GApp->FindWindowByNativeWindowHandle(glfwGetWindowUserPointer(InGlfwWindow));
+		if (Window)
+		{
+			Handler->OnWindowResize(Window, Width, Height);
+		}
 	}
 
 	FGlfwWindow::FGlfwWindow() = default;
@@ -38,15 +45,15 @@ namespace Doge
 		const int DesiredWidth = FMath::TruncToInt32(Definition->WidthDesiredOnScreen);
 		const int DesiredHeight = FMath::TruncToInt32(Definition->HeightDesiredOnScreen);
 		GlfwWindow = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition->Title.c_str(), nullptr, nullptr);
-		glfwSetWindowUserPointer(GlfwWindow, this);
-		glfwSetFramebufferSizeCallback(GlfwWindow, WindowResizeCallBack);
-		glfwMakeContextCurrent(GlfwWindow);
-
 #if defined(_WIN32)
 		OSNativeWindowHandle = glfwGetWin32Window(GlfwWindow);
 #elif defined(__APPLE__)
 		OSNativeWindowHandle = glfwGetCocoaWindow(GlfwWindow);
 #endif
+
+		glfwSetWindowUserPointer(GlfwWindow, OSNativeWindowHandle);
+		glfwSetFramebufferSizeCallback(GlfwWindow, WindowResizeCallBack);
+		glfwMakeContextCurrent(GlfwWindow);
 	}
 
 	void FGlfwWindow::PollEvents() const

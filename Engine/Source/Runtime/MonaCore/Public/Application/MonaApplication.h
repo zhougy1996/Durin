@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Application/GenericApplication.h"
+#include "Application/GenericApplicationMessageHandler.h"
 
 namespace Doge::Mona
 {
@@ -8,46 +9,48 @@ namespace Doge::Mona
 	class MWindow;
 	class FMonaRenderer;
 
-	class MONACORE_API FMonaApplication : public FGenericApplication
+	class FMonaApplication : public FGenericApplication, public FGenericApplicationMessageHandler
 	{
 	public:
-		~FMonaApplication() override;
+		MONACORE_API ~FMonaApplication() override;
 
-		static auto Create() -> void;
+		MONACORE_API static auto Create() -> void;
 
-		static auto Shutdown() -> void;
+		MONACORE_API static auto Shutdown() -> void;
 
-		static auto Get() -> FMonaApplication&;
+		MONACORE_API static auto Get() -> FMonaApplication&;
 
-		auto Tick() -> void override;
+		MONACORE_API auto Tick() -> void override;
 
-		auto GetActiveTopLevelWindow() -> std::shared_ptr<MWindow>;
+		MONACORE_API auto GetActiveTopLevelWindow() -> std::shared_ptr<MWindow>;
 
-		auto AddWindow(std::shared_ptr<MWindow> InMonaWindow, const bool bShowImmediately) -> std::shared_ptr<MWindow>;
+		MONACORE_API auto AddWindow(std::shared_ptr<MWindow> InMonaWindow, bool bShowImmediately) -> std::shared_ptr<MWindow>;
 
-		auto Initialize() -> void;
+		MONACORE_API auto Initialize() -> void;
 
-		auto InitializeRenderer() -> void;
+		MONACORE_API auto InitializeRenderer() -> void;
 
-		auto RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void;
+		MONACORE_API auto RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void;
 
-		auto CloseAllWindowsImmediately() -> void;
+		MONACORE_API auto CloseAllWindowsImmediately() -> void;
 
-		auto DestroyWindowsImmediately() -> void;
+		MONACORE_API auto DestroyWindowsImmediately() -> void;
 
-		auto OnWindowClose(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void;
+		MONACORE_API auto OnWindowClose(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void;
 
-		auto PollEvents();
+		MONACORE_API auto PollEvents();
 
-		auto ProcessDeferredEvents() -> void override;
+		MONACORE_API auto FindWidgetWindow(const std::shared_ptr<MWidget>& InWidget) -> std::shared_ptr<MWindow>;
 
-		auto FindWidgetWindow(const std::shared_ptr<MWidget>& InWidget) -> std::shared_ptr<MWindow>;
+		MONACORE_API auto GetRenderer() const -> FMonaRenderer*;
 
-		auto GetRenderer() const -> FMonaRenderer*;
+		MONACORE_API auto ProcessDeferredEvents() -> void override;
 
-		auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow> override;
+		MONACORE_API auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow> override;
 
 	protected:
+		FMonaApplication();
+
 		auto MakeWindow(const std::shared_ptr<MWindow>& InMonaWindow, bool bInShowImmediately) -> std::shared_ptr<FGenericWindow>;
 
 		auto TickPlatform() -> void;
@@ -55,6 +58,9 @@ namespace Doge::Mona
 		auto TickTime() -> void;
 
 		auto TickAndDrawWidgets() -> void;
+
+		// Message handler functions
+		auto OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight) -> void override;
 
 		static std::shared_ptr<FMonaApplication> CurrentApplication;
 
