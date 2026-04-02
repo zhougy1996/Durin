@@ -20,6 +20,7 @@ namespace Doge::Mona
 	auto MWindow::SetNativeWindow(std::shared_ptr<FGenericWindow> InNativeWindow) -> void
 	{
 		NativeWindow = std::move(InNativeWindow);
+		ViewportSize = NativeWindow->GetViewportSize();
 	}
 
 	auto MWindow::GetNativeWindow() const -> std::shared_ptr<FGenericWindow>
@@ -75,15 +76,18 @@ namespace Doge::Mona
 
 	auto MWindow::ResizeWindow(const FVector2f& NewSize) -> void
 	{
-		if (NativeWindow == nullptr)
+		FVector2i NewIntScreenPosition = FVector2i(FMath::TruncToInt(ScreenPosition.x), FMath::TruncToInt(ScreenPosition.y));
+		FVector2i NewIntSize = FVector2i(FMath::TruncToInt(NewSize.x), FMath::TruncToInt(NewSize.y));
+
+		if (NativeWindow)
+		{
+			NativeWindow->ReshapeWindow(NewIntScreenPosition.x, NewIntScreenPosition.y, NewIntSize.x, NewIntSize.y);
+		}
+		else
 		{
 			InitialDesiredSize = NewSize;
-			return;
 		}
-		FVector2i CurrentPositionTruncated = FVector2i(FMath::TruncToInt(ScreenPosition.x), FMath::TruncToInt(ScreenPosition.y));
-		FVector2i NewSizeTruncated = FVector2i(FMath::TruncToInt(NewSize.x), FMath::TruncToInt(NewSize.y));
 
-		NativeWindow->ReshapeWindow(CurrentPositionTruncated.x, CurrentPositionTruncated.y, NewSizeTruncated.x, NewSizeTruncated.y);
 		SetCachedSize(NewSize);
 	}
 
@@ -100,7 +104,10 @@ namespace Doge::Mona
 	auto MWindow::SetCachedSize(const FVector2f& NewSize) -> void
 	{
 		Size = NewSize;
-		ViewportSize = NativeWindow->GetViewportSize();
+		if (NativeWindow)
+		{
+			ViewportSize = NativeWindow->GetViewportSize();
+		}
 	}
 
 	auto MWindow::SetViewport(const std::shared_ptr<IMonaViewport>& InViewport) -> void

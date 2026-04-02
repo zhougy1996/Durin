@@ -106,6 +106,7 @@ namespace Doge::VulkanRHI
 		return true;
 	}
 
+
 	auto FVulkanViewport::WaitForLastFrameCompletion() -> void
 	{
 		FVulkanQueue* Queue = Device.GetGraphicsQueue();

@@ -131,16 +131,16 @@ namespace Doge
 			PassInfo.ColorRenderTargets[0] = BackBuffer.GetReference();
 
 			CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
-			//
-			// CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("TestPipeline"));
-			//
-			// auto Width = BackBuffer->GetSizeX();
-			// auto Height = BackBuffer->GetSizeY();
-			// CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
-			//
-			// // Draw call
-			// CommandList.DrawPrimitive();
-			//
+
+			CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("TestPipeline"));
+
+			auto Width = BackBuffer->GetSizeX();
+			auto Height = BackBuffer->GetSizeY();
+			CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
+
+			// Draw call
+			CommandList.DrawPrimitive();
+
 			CommandList.EndRenderPass();
 
 			// End drawing viewport and present
