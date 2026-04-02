@@ -90,9 +90,4 @@ namespace Doge
 
 		return Surface;
 	}
-
-	auto FGlfwWindow::OnWindowResized(int Width, int Height) -> void
-	{
-		OnWindowResizedDelegate.Broadcast(Width, Height);
-	}
 } // namespace Doge

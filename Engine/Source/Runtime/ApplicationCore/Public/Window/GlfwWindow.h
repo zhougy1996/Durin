@@ -29,10 +29,6 @@ namespace Doge
 
 		auto CreateVulkanSurface(void* InVulkanInstance) const -> void* override;
 
-		auto OnWindowResized(int Width, int Height) -> void;
-
-		auto GetOnWindowResizedDelegate() -> FOnWindowResizedDelegate& { return OnWindowResizedDelegate; }
-
 	private:
 		FGlfwWindow();
 
@@ -41,7 +37,5 @@ namespace Doge
 		FGenericApplication* OwningApplication = nullptr;
 
 		GLFWwindow* GlfwWindow = nullptr;
-
-		FOnWindowResizedDelegate OnWindowResizedDelegate;
 	};
 }

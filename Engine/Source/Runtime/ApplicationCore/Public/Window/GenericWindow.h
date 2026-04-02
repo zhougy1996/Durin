@@ -13,8 +13,6 @@ namespace Doge
 		Windowed,			// Stretch the window to the size of the monitor
 	};
 
-	DECLARE_DELEGATE_TwoParams(FOnWindowResizedDelegate, uint32 /*NewWidth*/, uint32 /*NewHeight*/);
-
 	class APPLICATIONCORE_API FGenericWindow
 	{
 	public:

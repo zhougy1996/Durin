@@ -51,8 +51,4 @@ namespace Doge
 		return {0, 0};
 	}
 
-	auto FGenericWindow::OnResized() -> void
-	{
-		OnWindowResized.Broadcast();
-	}
 } // namespace Doge

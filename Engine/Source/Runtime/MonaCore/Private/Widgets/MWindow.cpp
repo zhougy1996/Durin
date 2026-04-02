@@ -21,11 +21,6 @@ namespace Doge::Mona
 	{
 		NativeWindow = std::move(InNativeWindow);
 		auto* GlfwWindow = dynamic_cast<FGlfwWindow*>(NativeWindow.get());
-		if (GlfwWindow)
-		{
-			auto& OnWindowResizedDelegate = GlfwWindow->GetOnWindowResizedDelegate();
-			OnWindowResizedDelegate.AddWeak(SharedThis(this), );
-		}
 		//TODO: set cached screen position and size when creating native window, currently we just set them to zero
 		SetCachedSize({});
 	}
