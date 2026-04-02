@@ -213,8 +213,11 @@ namespace Doge::Mona
 
 	auto FMonaApplication::OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight) -> void
 	{
-		std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, InPlatformWindow);
-		FVector2f NewSize = FVector2f(static_cast<float>(InWidth), static_cast<float>(InHeight));
-		Window->ResizeWindow(NewSize);
+		if (const std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, InPlatformWindow))
+		{
+			FVector2f NewSize = FVector2f(static_cast<float>(InWidth), static_cast<float>(InHeight));
+			Window->SetCachedSize(NewSize);
+			Renderer->RequestResize(Window, InWidth, InHeight);
+		}
 	}
 } // namespace Doge::Mona

@@ -38,9 +38,18 @@ namespace Doge::Mona
 
 		auto* ViewportInfo = new FMonaViewportInfo();
 		ViewportInfo->ViewportRHI = GDynamicRHI->RHICreateViewport(GLFWWindow->GetOSNativeWindowHandle(), Width, Height, bFullScreen, EPixelFormat::SRGBA8_UNORM);
-		;
 		ViewportInfo->bFullScreen = bFullScreen;
 		WindowToViewportInfoMap.emplace(Window.get(), ViewportInfo);
+	}
+
+	auto FMonaRHIRenderer::RequestResize(const std::shared_ptr<MWindow>& Window, uint32 Width, uint32 Height) -> void
+	{
+		auto ViewportInfoIt = WindowToViewportInfoMap.find(Window.get());
+		if (ViewportInfoIt != WindowToViewportInfoMap.end())
+		{
+			FMonaViewportInfo* ViewportInfo = ViewportInfoIt->second;
+			GDynamicRHI->RHIResizeViewport(ViewportInfo->ViewportRHI.GetReference(), Width, Height, ViewportInfo->bFullScreen);
+		}
 	}
 
 	auto FMonaRHIRenderer::DrawWindows() -> void

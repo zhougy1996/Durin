@@ -20,6 +20,7 @@ namespace Doge::Mona
 		~FMonaRHIRenderer() override;
 
 		auto CreateViewport(const std::shared_ptr<MWindow>& Window) -> void override;
+		auto RequestResize(const std::shared_ptr<MWindow>& Window, uint32 Width, uint32 Height) -> void override;
 		auto DrawWindows() -> void override;
 		auto OnWindowDestroyed(const std::shared_ptr<MWindow>& Window) -> void override;
 
