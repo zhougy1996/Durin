@@ -10,8 +10,8 @@ namespace Doge::VulkanRHI
 	{
 		auto Window = GApp->FindWindowByNativeWindowHandle(InWindowHandle);
 
-		void* Surface = Window->CreateVulkanSurface(static_cast<void*>(Instance));
-		VkSurfaceKHR RawSurface = static_cast<VkSurfaceKHR>(Surface);
+		void* Surface = Window->CreateVulkanSurface(Instance);
+		auto RawSurface = static_cast<VkSurfaceKHR>(Surface);
 
 		return vk::SurfaceKHR(RawSurface);
 	}

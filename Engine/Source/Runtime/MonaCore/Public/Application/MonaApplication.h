@@ -44,6 +44,8 @@ namespace Doge::Mona
 
 		MONACORE_API auto GetRenderer() const -> FMonaRenderer*;
 
+		MONACORE_API auto DrawWindows() -> void;
+
 		MONACORE_API auto ProcessDeferredEvents() -> void override;
 
 		MONACORE_API auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow> override;
@@ -70,4 +72,4 @@ namespace Doge::Mona
 
 		std::shared_ptr<FMonaRenderer> Renderer;
 	};
-}
+} // namespace Doge::Mona

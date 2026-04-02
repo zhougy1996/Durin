@@ -7,9 +7,10 @@
 #include "VulkanView.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanContext.h"
-#include "VulkanSwapChain.h"
+#include "VulkanSwapchain.h"
 #include "VulkanQueue.h"
 #include "Threading/RunnableThread.h"
+#include "RenderingThread.h"
 
 namespace Doge::VulkanRHI
 {
@@ -20,7 +21,7 @@ namespace Doge::VulkanRHI
 		FIntPoint Extent =  InViewport->GetSizeXY();
 		SizeX = Extent.x;
 		SizeY = Extent.y;
-		Format = Viewport->GetVkFormat();
+		Format = Viewport->GetSwapchainImageFormat();
 	}
 
 	auto FVulkanBackBuffer::AcquireBackBufferImage(FVulkanCommandListContext& Context)
@@ -39,57 +40,30 @@ namespace Doge::VulkanRHI
 		, SizeY(InSizeY)
 		, bIsFullScreen(bInIsFullScreen)
 		, NativeWindowHandle(InWindowHandle)
+	 	, PixelFormat(InPreferredPixelFormat)
 	{
-		SwapChain = new FVulkanSwapChain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), InDevice, InWindowHandle, InSizeX, InSizeY, bInIsFullScreen);
-		vk::Format VkImageFormat = SwapChain->GetFormat();
-		ImageFormat = FVulkanPixelFormat::ToPixelFormat(VkImageFormat);
-
-		const std::vector<vk::Image>& Images = SwapChain->GetImages();
-
-		vk::ImageViewCreateInfo ImageViewCreateInfo;
-		ImageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
-		ImageViewCreateInfo.setFormat(VkImageFormat);
-		ImageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
-		ImageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-
-		BackBufferImages.resize(Images.size());
-		for (uint32 i = 0; i < Images.size(); ++i)
-		{
-			BackBufferImages[i] = Images[i];
-			ImageViewCreateInfo.setImage(Images[i]);
-			vk::ImageView View = Device.GetHandle().createImageView(ImageViewCreateInfo);
-			TextureViews.emplace_back(Images[i], View);
-		}
-
-		RenderingDoneSemaphores.resize(Images.size());
-		for (uint32 i = 0; i < Images.size(); ++i)
-		{
-			RenderingDoneSemaphores[i] = new FVulkanSemaphore(Device);
-		}
-
-		RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
-
-		DOGE_TRACE("Vulkan image views created. (size: {})", BackBufferImages.size());
+		CreateSwapchain();
 	}
 
 	FVulkanViewport::~FVulkanViewport()
 	{
 		Device.WaitUtilIdle();
+
 		for (uint32 i = 0; i < TextureViews.size(); ++i)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, TextureViews[i].ImageView);
 		}
 		TextureViews.clear();
 
-		Device.GetDeferredDeletionQueue().ReleaseResources(true);
-		DestroySwapChain();
-		Device.GetDeferredDeletionQueue().ReleaseResources(true);
-
 		for(auto & RenderingDoneSemaphore : RenderingDoneSemaphores)
 		{
 			delete RenderingDoneSemaphore;
 		}
 		RenderingDoneSemaphores.clear();
+
+		Device.GetDeferredDeletionQueue().ReleaseResources(true);
+		DestroySwapchain();
+		Device.GetDeferredDeletionQueue().ReleaseResources(true);
 	}
 
 	auto FVulkanViewport::GetWindowHandle() -> void*
@@ -97,16 +71,25 @@ namespace Doge::VulkanRHI
 		return NativeWindowHandle;
 	}
 
-	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanTextureView&
+	auto FVulkanViewport::Resize(FRHICommandListImmediate& RHICmdList, uint32 InSizeX, uint32 InSizeY) -> void
 	{
-		AcquiredBackBufferIndex = static_cast<int32>(SwapChain->AcquireImageIndex(&AcquiredSemaphore));
-		return TextureViews[AcquiredBackBufferIndex];
+		check(IsInRenderingThread());
+		SizeX = InSizeX;
+		SizeY = InSizeY;
+
+		RecreateSwapchainFromRT(RHICmdList);
 	}
 
-	auto FVulkanViewport::DestroySwapChain() -> void
+	auto FVulkanViewport::RecreateSwapchainFromRT(FRHICommandListImmediate& RHICmdList) -> void
 	{
-		delete SwapChain;
-		SwapChain = nullptr;
+		DestroySwapchain();
+		CreateSwapchain();
+	}
+
+	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanTextureView&
+	{
+		AcquiredBackBufferIndex = static_cast<int32>(Swapchain->AcquireImageIndex(&AcquiredSemaphore));
+		return TextureViews[AcquiredBackBufferIndex];
 	}
 
 	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture>
@@ -115,11 +98,11 @@ namespace Doge::VulkanRHI
 		return RHIBackBuffer;
 	}
 
-	auto FVulkanViewport::Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
+	auto FVulkanViewport::Present(const FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
 	{
 		FVulkanCommandBufferManager* CmdBufferManager = InContext.GetCommandBufferManager();
 		CmdBufferManager->SubmitActiveCmdBufferFromPresent(RenderingDoneSemaphores[AcquiredBackBufferIndex]);
-		SwapChain->Present(&InPresentQueue, RenderingDoneSemaphores[AcquiredBackBufferIndex]);
+		Swapchain->Present(&InPresentQueue, RenderingDoneSemaphores[AcquiredBackBufferIndex]);
 		return true;
 	}
 
@@ -135,18 +118,96 @@ namespace Doge::VulkanRHI
 	}
 	auto FVulkanViewport::GetFormat() const -> EPixelFormat
 	{
-		return ImageFormat;
+		return PixelFormat;
 	}
 
-	auto FVulkanViewport::GetVkFormat() const -> vk::Format
+	auto FVulkanViewport::GetSwapchainImageFormat() const -> vk::Format
 	{
-		return SwapChain->GetFormat();
+		return Swapchain->GetFormat();
+	}
+
+	auto FVulkanViewport::InitImages(const std::vector<vk::Image>& InImages) -> void
+	{
+		BackBufferImages.clear();
+		BackBufferImages.resize(InImages.size());
+
+		for (const auto& TextureView : TextureViews)
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, TextureView.ImageView);
+		}
+		TextureViews.clear();
+
+		vk::ImageViewCreateInfo ImageViewCreateInfo;
+		ImageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
+		ImageViewCreateInfo.setFormat(GetSwapchainImageFormat());
+		ImageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
+		ImageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+
+		for (uint32 i = 0; i < InImages.size(); ++i)
+		{
+			BackBufferImages[i] = InImages[i];
+			ImageViewCreateInfo.setImage(InImages[i]);
+			vk::ImageView View = Device.GetHandle().createImageView(ImageViewCreateInfo);
+			TextureViews.emplace_back(InImages[i], View);
+		}
+	}
+
+	auto FVulkanViewport::CreateSwapchain() -> void
+	{
+		// Release old swapchain resources
+		RHIBackBuffer = nullptr;
+
+		Swapchain = new FVulkanSwapchain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), Device, NativeWindowHandle, SizeX, SizeY, bIsFullScreen);
+
+		const std::vector<vk::Image>& SwapchainImages = Swapchain->GetImages();
+		InitImages(SwapchainImages);
+
+		// Create semaphores for each swapchain image if they haven't been created yet.
+		const bool bCreateSemaphores = RenderingDoneSemaphores.empty();
+		check(bCreateSemaphores || RenderingDoneSemaphores.size() == SwapchainImages.size());  // RenderingDoneSemaphores should be either empty or have the same number of semaphores as swapchain images
+		if (bCreateSemaphores)
+		{
+			RenderingDoneSemaphores.resize(SwapchainImages.size());
+			for (uint32 i = 0; i < SwapchainImages.size(); ++i)
+			{
+				RenderingDoneSemaphores[i] = new FVulkanSemaphore(Device);
+			}
+		}
+
+		RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
+		AcquiredBackBufferIndex = -1;
+	}
+
+	auto FVulkanViewport::DestroySwapchain() -> void
+	{
+		delete Swapchain;
+		Swapchain = nullptr;
+
+		AcquiredBackBufferIndex = -1;
 	}
 
 	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TRefCountPtr<FRHIViewport>
 	{
 		check(IsInGameThread());
 		return MakeRefCount<FVulkanViewport>(*Device, WindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat);
+	}
+
+	auto FVulkanDynamicRHI::RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void
+	{
+		check(IsInGameThread());
+		FVulkanViewport* VulkanViewport = static_cast<FVulkanViewport*>(InViewport);
+		const FIntPoint OldSize = VulkanViewport->GetSizeXY();
+		const FIntPoint NewSize = {InSizeX, InSizeY};
+		if (OldSize != NewSize)
+		{
+			ENQUEUE_RENDER_COMMAND(ResizeViewport)(
+				[VulkanViewport, InSizeX, InSizeY, bInIsFullscreen](FRHICommandListImmediate& RHICmdList)
+				{
+					VulkanViewport->Resize(RHICmdList, InSizeX, InSizeY);
+				});
+
+			FlushRenderingCommands();
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> TRefCountPtr<FRHITexture>

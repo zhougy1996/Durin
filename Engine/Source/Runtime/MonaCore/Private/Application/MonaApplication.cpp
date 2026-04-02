@@ -153,6 +153,11 @@ namespace Doge::Mona
 		return Renderer.get();
 	}
 
+	auto FMonaApplication::DrawWindows() -> void
+	{
+		Renderer->DrawWindows();
+	}
+
 	auto FMonaApplication::FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow>
 	{
 		for (auto& Window : Windows)

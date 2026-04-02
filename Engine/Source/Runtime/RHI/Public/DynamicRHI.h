@@ -20,6 +20,9 @@ namespace Doge
 
 		// Must be called from the main thread.
 		virtual auto RHICreateViewport(void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen, EPixelFormat InPreferredPixelFormat) const -> TRefCountPtr<FRHIViewport> = 0;
+		// Must be called from the main thread.
+		virtual auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bIsFullscreen) -> void = 0;
+
 		virtual auto RHICreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> = 0;
 		virtual auto RHIGetGraphicsPipelineState(FName Name) -> TRefCountPtr<FRHIGraphicsPipelineState> = 0;
 		virtual auto RHIGetDefaultContext() -> IRHICommandContext* = 0;

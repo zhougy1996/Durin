@@ -7,12 +7,12 @@ namespace Doge::VulkanRHI
 	class FVulkanQueue;
 	class FVulkanSemaphore;
 
-	class FVulkanSwapChain
+	class FVulkanSwapchain
 	{
 	public:
-		FVulkanSwapChain(vk::Instance InInstance, FVulkanDevice& InDevice, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen);
+		FVulkanSwapchain(vk::Instance InInstance, FVulkanDevice& InDevice, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen);
 
-		~FVulkanSwapChain();
+		~FVulkanSwapchain();
 
 		auto GetImages() const -> const std::vector<vk::Image>&;
 
@@ -31,12 +31,12 @@ namespace Doge::VulkanRHI
 
 		FVulkanDevice& Device;
 
-		vk::SwapchainKHR SwapChain;
+		vk::SwapchainKHR Swapchain;
 
 		// Format of the swap chain images, which is determined by the surface format selected during swap chain creation.
 		vk::Format ImageFormat;
 
-		std::vector<vk::Image> SwapChainImages;
+		std::vector<vk::Image> SwapchainImages;
 
 		vk::SurfaceKHR Surface;
 

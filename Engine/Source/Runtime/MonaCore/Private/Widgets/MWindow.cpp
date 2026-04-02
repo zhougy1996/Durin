@@ -20,9 +20,6 @@ namespace Doge::Mona
 	auto MWindow::SetNativeWindow(std::shared_ptr<FGenericWindow> InNativeWindow) -> void
 	{
 		NativeWindow = std::move(InNativeWindow);
-		auto* GlfwWindow = dynamic_cast<FGlfwWindow*>(NativeWindow.get());
-		//TODO: set cached screen position and size when creating native window, currently we just set them to zero
-		SetCachedSize({});
 	}
 
 	auto MWindow::GetNativeWindow() const -> std::shared_ptr<FGenericWindow>

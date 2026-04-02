@@ -36,6 +36,7 @@ namespace Doge::VulkanRHI
 		auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice override;
 
 		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> FViewportRHIRef override;
+		auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void override;
 		auto RHICreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override;
 		auto RHIGetGraphicsPipelineState(FName Name) -> TRefCountPtr<FRHIGraphicsPipelineState> override;
 		auto RHIGetDefaultContext() -> IRHICommandContext* override;

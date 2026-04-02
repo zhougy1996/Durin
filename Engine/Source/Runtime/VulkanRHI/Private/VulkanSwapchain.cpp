@@ -1,4 +1,4 @@
-#include "VulkanSwapChain.h"
+#include "VulkanSwapchain.h"
 
 #include "VulkanDevice.h"
 #include "VulkanGenericPlatform.h"
@@ -42,7 +42,7 @@ namespace Doge::VulkanRHI
 		}
 	}
 
-	FVulkanSwapChain::FVulkanSwapChain(vk::Instance InInstance, FVulkanDevice& Device, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen)
+	FVulkanSwapchain::FVulkanSwapchain(vk::Instance InInstance, FVulkanDevice& Device, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen)
 		: Instance(InInstance)
 		, Device(Device)
 	{
@@ -66,8 +66,8 @@ namespace Doge::VulkanRHI
 			MinImageCount = Capabilities.maxImageCount;
 		}
 
-		vk::SwapchainCreateInfoKHR SwapChainInfo;
-		SwapChainInfo
+		vk::SwapchainCreateInfoKHR SwapchainInfo;
+		SwapchainInfo
 			.setSurface(Surface)
 			.setMinImageCount(MinImageCount)
 			.setImageFormat(CurrFormat.format)
@@ -81,10 +81,9 @@ namespace Doge::VulkanRHI
 			.setClipped(vk::True)
 			.setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
 			.setOldSwapchain(VK_NULL_HANDLE);
-
 		try
 		{
-			SwapChain = Device.GetHandle().createSwapchainKHR(SwapChainInfo);
+			Swapchain = Device.GetHandle().createSwapchainKHR(SwapchainInfo);
 			DOGE_TRACE("Vulkan swap chain created");
 		}
 		catch (const std::runtime_error& err)
@@ -93,26 +92,26 @@ namespace Doge::VulkanRHI
 		}
 
 		Device.SetupPresentQueue(Surface);
-		SwapChainImages = Device.GetHandle().getSwapchainImagesKHR(SwapChain);
+		SwapchainImages = Device.GetHandle().getSwapchainImagesKHR(Swapchain);
 
 		// TODO: use managed semaphore
 		ImageAcquiredSemaphore = new FVulkanSemaphore(Device);
 	}
 
-	FVulkanSwapChain::~FVulkanSwapChain()
+	FVulkanSwapchain::~FVulkanSwapchain()
 	{
 		Destroy();
 	}
 
-	auto FVulkanSwapChain::GetImages() const -> const std::vector<vk::Image>&
+	auto FVulkanSwapchain::GetImages() const -> const std::vector<vk::Image>&
 	{
-		return SwapChainImages;
+		return SwapchainImages;
 	}
 
-	auto FVulkanSwapChain::AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32
+	auto FVulkanSwapchain::AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32
 	{
 		// TODO: Semaphore
-		vk::ResultValue<uint32> Result = Device.GetHandle().acquireNextImageKHR(SwapChain, UINT64_MAX, ImageAcquiredSemaphore->GetHandle());
+		vk::ResultValue<uint32> Result = Device.GetHandle().acquireNextImageKHR(Swapchain, UINT64_MAX, ImageAcquiredSemaphore->GetHandle());
 		if (Result.result != vk::Result::eSuccess)
 		{
 			CurrentImageIndex = -1;
@@ -124,7 +123,7 @@ namespace Doge::VulkanRHI
 		return CurrentImageIndex;
 	}
 
-	auto FVulkanSwapChain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> void
+	auto FVulkanSwapchain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> void
 	{
 		vk::PresentInfoKHR PresentInfo;
 		auto Semaphore = BackBufferRenderingDoneSemaphore->GetHandle();
@@ -132,7 +131,7 @@ namespace Doge::VulkanRHI
 		uint32 ImageIndex = static_cast<uint32>(CurrentImageIndex);
 		PresentInfo
 			.setWaitSemaphores(Semaphore)
-			.setSwapchains(SwapChain)
+			.setSwapchains(Swapchain)
 			.setImageIndices(ImageIndex);
 
 		vk::Result Result = PresentQueue->GetHandle().presentKHR(PresentInfo);
@@ -141,10 +140,10 @@ namespace Doge::VulkanRHI
 		CurrentImageIndex = -1;
 	}
 
-	auto FVulkanSwapChain::Destroy() -> void
+	auto FVulkanSwapchain::Destroy() -> void
 	{
 		delete ImageAcquiredSemaphore;
-		Device.GetHandle().destroySwapchainKHR(SwapChain);
+		Device.GetHandle().destroySwapchainKHR(Swapchain);
 		Instance.destroySurfaceKHR(Surface);
 		Surface = nullptr;
 	}

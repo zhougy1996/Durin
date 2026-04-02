@@ -62,8 +62,6 @@ namespace Doge::VulkanRHI
 			.setTopology(vk::PrimitiveTopology::eTriangleList)
 			.setPrimitiveRestartEnable(vk::False);
 
-		vk::Extent2D SwapChainExtent = {800, 600};
-
 		// Will be set dynamically
 		vk::PipelineViewportStateCreateInfo ViewportStateInfo;
 		ViewportStateInfo.setViewportCount(1).setScissorCount(1);
