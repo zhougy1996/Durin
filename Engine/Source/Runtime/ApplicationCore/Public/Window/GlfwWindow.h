@@ -13,7 +13,7 @@ namespace Doge
 
 		static auto Make() -> std::shared_ptr<FGlfwWindow>;
 
-		auto Initialize(FGenericApplication* InApplication, const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void override;
+		auto Initialize(const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void override;
 
 		auto PollEvents() const -> void override;
 
@@ -33,8 +33,6 @@ namespace Doge
 		FGlfwWindow();
 
 		EWindowMode WindowMode = EWindowMode::Windowed;
-
-		FGenericApplication* OwningApplication = nullptr;
 
 		GLFWwindow* GlfwWindow = nullptr;
 	};

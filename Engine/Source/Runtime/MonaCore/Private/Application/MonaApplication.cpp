@@ -181,7 +181,7 @@ namespace Doge::Mona
 		Definition->WidthDesiredOnScreen = DesiredSize.x;
 		Definition->HeightDesiredOnScreen = DesiredSize.y;
 
-		NewWindow->Initialize(this, Definition);
+		NewWindow->Initialize(Definition);
 		InMonaWindow->SetNativeWindow(NewWindow);
 
 		return NewWindow;

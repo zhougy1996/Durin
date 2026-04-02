@@ -6,7 +6,7 @@ namespace Doge
 
 	FGenericWindow::~FGenericWindow() = default;
 
-	auto FGenericWindow::Initialize(FGenericApplication* const InApplication, const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void
+	auto FGenericWindow::Initialize(const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void
 	{
 	}
 

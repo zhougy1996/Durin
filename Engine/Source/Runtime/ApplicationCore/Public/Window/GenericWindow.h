@@ -20,7 +20,7 @@ namespace Doge
 
 		virtual ~FGenericWindow();
 
-		virtual auto Initialize(FGenericApplication* InApplication, const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void;
+		virtual auto Initialize(const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void;
 
 		virtual auto PollEvents() const -> void;
 
