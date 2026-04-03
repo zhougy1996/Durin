@@ -9,7 +9,6 @@ inline constexpr uint32_t FNameMaxSize = 1024;
 
 namespace Doge
 {
-
 	enum class ENameCase : uint8
 	{
 		CaseSensitive,
@@ -46,7 +45,6 @@ namespace Doge
 
 		explicit operator bool() const { return Value != 0; }
 
-
 	private:
 		uint32 Value;
 	};
@@ -69,21 +67,21 @@ namespace Doge
 
 		union
 		{
-			U8Char AnsiName[FNameMaxSize];
+			char Utf8Name[FNameMaxSize];
 			uint8 NameData[0];
 		};
 
 	public:
 		FNameEntry() = default;
 
-		[[nodiscard]] FORCEINLINE auto GetPlainNameString() const -> FString
+		[[nodiscard]] FORCEINLINE auto GetPlainNameString() const -> std::string
 		{
-			return FString{&AnsiName[0], Header.Len};
+			return std::string{&Utf8Name[0], Header.Len};
 		}
 
 		static constexpr auto GetDataOffset() -> int32 { return offsetof(FNameEntry, NameData); }
 
-		FORCEINLINE auto MakeView() const -> FU8StringView;
+		FORCEINLINE auto MakeView() const -> std::string_view;
 
 		[[nodiscard]] FORCEINLINE auto GetComparisonId() const -> FNameEntryId { return ComparisonId; }
 
@@ -94,7 +92,7 @@ namespace Doge
 		[[nodiscard]] FORCEINLINE auto IsValid() const -> bool { return Header.Len > 0; }
 
 	private:
-		const U8Char* GetUnterminatedName() const;
+		const char* GetUnterminatedName() const;
 
 		FNameEntry(FClangKeepDebugInfo);
 		FNameEntry(const FNameEntry&) = delete;
@@ -103,7 +101,7 @@ namespace Doge
 		FNameEntry& operator=(FNameEntry&&) = delete;
 
 		friend struct FNameHelper;
-		friend struct FNamePool;
+		friend class FNamePool;
 		friend class FNameEntryAllocator;
 		friend class FNamePoolShardBase;
 	};
@@ -115,11 +113,11 @@ namespace Doge
 
 		CORE_API FName();
 
-		CORE_API FName(const U8Char* Name);
+		CORE_API FName(const char* Name);
 
-		CORE_API FName(const U8Char* Name, int32 InNumber);
+		CORE_API FName(const char* Name, int32 InNumber);
 
-		CORE_API FName(FU8StringView View, int32 InNumber);
+		CORE_API FName(std::string_view View, int32 InNumber);
 
 		CORE_API FName(const FName& Other);
 
@@ -127,7 +125,7 @@ namespace Doge
 
 		[[nodiscard]] FORCEINLINE CORE_API auto Equals(const FName& Other, ENameCase CompareMethod = ENameCase::IgnoreCase, const bool bCompareNumber = true) const -> bool;
 
-		[[nodiscard]] CORE_API auto ToString() const -> FString;
+		[[nodiscard]] CORE_API auto ToString() const -> std::string;
 
 		[[nodiscard]] CORE_API auto GetComparisonNameEntry() const -> const FNameEntry*;
 
@@ -157,12 +155,12 @@ namespace Doge
 
 		static constexpr uint32 NoNumberInternal = 0;
 
-		static inline constexpr auto NumberInternalToExternal(uint32 InternalNumber) -> uint32
+		static FORCEINLINE constexpr auto NumberInternalToExternal(uint32 InternalNumber) -> uint32
 		{
 			return InternalNumber - 1;
 		};
 
-		static inline constexpr auto NumberExternalToInternal(int32 ExternalNumber) -> uint32
+		static FORCEINLINE constexpr auto NumberExternalToInternal(int32 ExternalNumber) -> uint32
 		{
 			return ExternalNumber + 1;
 		}
@@ -182,9 +180,6 @@ namespace Doge
 			return Result;
 		}
 
-	private:
-
-
 		FNameEntryId ComparisonIndex;
 
 		uint32 Number = 0;
@@ -196,8 +191,6 @@ namespace Doge
 	};
 
 	CORE_API auto FNameInit() -> void;
-
-
 }
 
 template<>

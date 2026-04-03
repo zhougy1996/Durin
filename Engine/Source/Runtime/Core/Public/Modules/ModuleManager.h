@@ -18,7 +18,7 @@ namespace Doge
 	public:
 		FName ModuleName;
 
-		FString FileName;
+		std::string FileName;
 
 		FModuleHandle Handle = nullptr;
 
@@ -51,7 +51,7 @@ namespace Doge
 			return static_cast<TModuleInterface&>(Module);
 		}
 
-		auto AddModule(const FName& InModuleName, const FString& FileName) -> void;
+		auto AddModule(const FName& InModuleName, const std::string& FileName) -> void;
 
 		auto FindModule(const FName& InModuleName) -> FModuleInfoPtr;
 

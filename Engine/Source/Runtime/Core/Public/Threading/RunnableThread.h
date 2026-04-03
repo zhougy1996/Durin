@@ -37,7 +37,7 @@ namespace Doge
 
 		uint32 ThreadId = 0;
 
-		FString ThreadName{};
+		std::string ThreadName{};
 
 		FRunnable* Runnable = nullptr;
 

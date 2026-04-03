@@ -24,7 +24,7 @@ namespace Doge
 	{
 		DClass* (*OuterRegister)();
 		DClass* (*InnerRegister)();
-		const U8Char* Name;
+		const char* Name;
 		FClassRegistrationInfo* Info;
 	};
 
@@ -51,7 +51,7 @@ namespace Doge
 
 		auto GetFName() const -> FName { return NamePrivate; }
 
-		auto GetName() const -> FString { return NamePrivate.ToString(); }
+		auto GetName() const -> std::string { return NamePrivate.ToString(); }
 
 		auto GetClass() const -> DClass* { return ClassPrivate; }
 
@@ -61,14 +61,14 @@ namespace Doge
 		 * This is called to register the class with the object system
 		 * Add the objec
 		 */
-		COREDOBJECT_API auto Register(FClassRegisterFunc InStaticClassFn, const CharT* InPackageName, const CharT* InName) -> void;
+		COREDOBJECT_API auto Register(FClassRegisterFunc InStaticClassFn, const char* InPackageName, const char* InName) -> void;
 
 		/**
 		 * Convert a bootstrap registered class into a fully registered class, adding it to the object array
 		 *
 		 * InDClassStaticClass is actually DClass::StaticClass()
 		 */
-		COREDOBJECT_API auto DeferredRegister(DClass* InDClassStaticClass, const CharT* InPackageName, const CharT* InName) -> void;
+		COREDOBJECT_API auto DeferredRegister(DClass* InDClassStaticClass, const char* InPackageName, const char* InName) -> void;
 
 
 	private:
@@ -104,7 +104,7 @@ namespace Doge
 	 */
 	COREDOBJECT_API auto DObjectForceRegistration(DObject* Object) -> void;
 
-	COREDOBJECT_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const U8Char* InName, FClassRegistrationInfo& InInfo) -> void;
+	COREDOBJECT_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const char* InName, FClassRegistrationInfo& InInfo) -> void;
 
 	COREDOBJECT_API auto RegisterCompiledInInfo(const FClassRegisterCompiledInInfo* ClassInfo, size_t NumClassInfo) -> void;
 

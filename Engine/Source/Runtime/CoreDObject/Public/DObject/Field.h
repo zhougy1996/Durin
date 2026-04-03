@@ -28,7 +28,7 @@ namespace Doge
 		// FField* DefaultObject;
 
 	public:
-		COREDOBJECT_API FFieldClass(const CharT* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFuncType InConstructFunc);
+		COREDOBJECT_API FFieldClass(const char* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFuncType InConstructFunc);
 
 		inline auto GetId() const -> uint64 { return Id; }
 
@@ -183,13 +183,13 @@ namespace Doge
 
 	public:
 
-		COREDOBJECT_API auto SetMetaData(const FName& InKey, const FString& InValue) -> void;
+		COREDOBJECT_API auto SetMetaData(const FName& InKey, const std::string& InValue) -> void;
 
-		COREDOBJECT_API auto GetMetaData(const FName& InKey) const -> const FString&;
+		COREDOBJECT_API auto GetMetaData(const FName& InKey) const -> const std::string&;
 
 	private:
 
-		std::unordered_map<FName, FString>* MetaDataMap;
+		std::unordered_map<FName, std::string>* MetaDataMap;
 	};
 }
 

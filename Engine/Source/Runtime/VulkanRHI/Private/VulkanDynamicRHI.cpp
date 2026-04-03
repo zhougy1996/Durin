@@ -57,7 +57,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::CreateInstance() -> void
 	{
-		FString EngineName = "Doge";
+		std::string EngineName = "Doge";
 
 		// Create application info
 		vk::ApplicationInfo AppInfo(EngineName.c_str(), VK_MAKE_VERSION(1, 0, 0), "Doge Engine", VK_MAKE_VERSION(1, 0, 0), VK_API_VERSION_1_3);

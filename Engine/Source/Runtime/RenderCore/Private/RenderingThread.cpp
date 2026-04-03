@@ -150,7 +150,7 @@ namespace Doge
 		return FRHICommandListImmediate::Get();
 	}
 
-	auto FRenderThreadCommandPipe::EnqueueImpl(const CharT* Name, std::function<void(FRHICommandListImmediate&)>&& Function) -> void
+	auto FRenderThreadCommandPipe::EnqueueImpl(const char* Name, std::function<void(FRHICommandListImmediate&)>&& Function) -> void
 	{
 		std::lock_guard lock(Mutex);
 		CommandQueue[ProduceIndex].emplace_back(Name, std::move(Function));

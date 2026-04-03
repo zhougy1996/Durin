@@ -10,6 +10,6 @@ namespace Doge
 		float WidthDesiredOnScreen;
 		float HeightDesiredOnScreen;
 
-		FString Title;
+		std::string Title;
 	};
 }

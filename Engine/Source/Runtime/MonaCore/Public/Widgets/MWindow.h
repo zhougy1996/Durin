@@ -25,9 +25,9 @@ namespace Doge::Mona
 
 		MONACORE_API auto RequestDestroyWindow() -> void;
 
-		MONACORE_API auto GetTitle() const -> FString;
+		MONACORE_API auto GetTitle() const -> std::string;
 
-		MONACORE_API auto SetTitle(const FString& InTitle) -> void;
+		MONACORE_API auto SetTitle(const std::string& InTitle) -> void;
 
 		MONACORE_API auto GetDesiredScreenPosition() const -> FVector2f;
 
@@ -62,7 +62,7 @@ namespace Doge::Mona
 		MONACORE_API auto IsMinimized() const -> bool;
 
 	protected:
-		FString Title;
+		std::string Title;
 
 		FVector2f InitialDesiredScreenPosition = {};
 

@@ -75,12 +75,12 @@ namespace Doge
 
 		static constexpr uint32 ShardMask = FNamePoolShardCount - 1;
 
-		FNameHash(const U8Char* Str, int32 Len)
+		FNameHash(const char* Str, int32 Len)
 			: FNameHash(FNameHash::GenerateLowerCaseHash(Str, Len), Len, IsAnsiNone(Str, Len))
 		{
 		}
 
-		FNameHash(const U8Char* Str, int32 Len, uint64 Hash)
+		FNameHash(const char* Str, int32 Len, uint64 Hash)
 			: FNameHash(Hash, Len, IsAnsiNone(Str, Len))
 		{
 		}
@@ -120,12 +120,10 @@ namespace Doge
 			return (UnmaskedSlotIndex & SlotMask);
 		}
 
-		// Support for both UTF-8 and UTF-16 strings
-		template<typename CharType>
-		static auto GenerateHash(const CharType* Str, size_t Len) -> uint64
+		static auto GenerateHash(const char* Str, size_t Len) -> uint64
 		{
-			auto HashFunctor = std::hash<FANSIStringView>{};
-			return static_cast<uint64>(HashFunctor(FANSIStringView(reinterpret_cast<const char*>(Str), Len * sizeof(CharType))));
+			auto HashFunctor = std::hash<std::string_view>{};
+			return HashFunctor(std::string_view(Str, Len * sizeof(char)));
 		}
 
 		template<typename CharType>
@@ -141,18 +139,18 @@ namespace Doge
 			return FNameHash::GenerateHash(LowerName, Len);
 		}
 
-		static uint64 GenerateLowerCaseHash(FU8StringView Name)
+		static uint64 GenerateLowerCaseHash(std::string_view Name)
 		{
 			return GenerateLowerCaseHash(Name.data(), Name.length());
 		}
 
-		static uint64 GenerateHash(FU8StringView Name)
+		static uint64 GenerateHash(std::string_view Name)
 		{
 			return GenerateHash(Name.data(), Name.length());
 		}
 
 		// Check if the name is "none"
-		static bool IsAnsiNone(const U8Char* Str, int32 Len)
+		static bool IsAnsiNone(const char* Str, int32 Len)
 		{
 			if (Len != 4)
 			{
@@ -187,15 +185,15 @@ namespace Doge
 	}
 
 	template<ENameCase Sensitivity>
-	FNameHash HashName(FU8StringView Name);
+	FNameHash HashName(std::string_view Name);
 
 	template<>
-	FNameHash HashName<ENameCase::IgnoreCase>(FU8StringView Name)
+	FNameHash HashName<ENameCase::IgnoreCase>(std::string_view Name)
 	{
 		return HashLowerCase(Name.data(), Name.length());
 	}
 	template<>
-	FNameHash HashName<ENameCase::CaseSensitive>(FU8StringView Name)
+	FNameHash HashName<ENameCase::CaseSensitive>(std::string_view Name)
 	{
 		return FNameHash(Name.data(), Name.length());
 	}
@@ -203,25 +201,25 @@ namespace Doge
 	template<ENameCase Sensitivity>
 	struct FNameValue
 	{
-		FU8StringView Name;
+		std::string_view Name;
 
 		FNameHash Hash;
 
 		FNameEntryId ComparisonId;
 
-		explicit FNameValue(FU8StringView InName)
+		explicit FNameValue(std::string_view InName)
 			: Name(InName)
 			, Hash(HashName<Sensitivity>(InName))
 		{
 		}
 
-		FNameValue(FU8StringView InName, FNameHash InHash)
+		FNameValue(std::string_view InName, FNameHash InHash)
 			: Name(InName)
 			, Hash(InHash)
 		{
 		}
 
-		FNameValue(FU8StringView InName, uint64 InHash)
+		FNameValue(std::string_view InName, uint64 InHash)
 			: Name(InName)
 			, Hash(InName.data(), InName.length(), InHash)
 		{
@@ -263,15 +261,15 @@ namespace Doge
 		explicit operator bool() const { return Block | Offset; }
 	};
 
-	auto FNameEntry::MakeView() const -> FU8StringView
+	auto FNameEntry::MakeView() const -> std::string_view
 	{
-		const U8Char* Data = GetUnterminatedName();
-		return FU8StringView{Data, Header.Len};
+		const char* Data = GetUnterminatedName();
+		return std::string_view{Data, Header.Len};
 	}
 
-	auto FNameEntry::GetUnterminatedName() const -> const U8Char*
+	auto FNameEntry::GetUnterminatedName() const -> const char*
 	{
-		return static_cast<const U8Char*>(&AnsiName[0]);
+		return static_cast<const char*>(&Utf8Name[0]);
 	}
 
 	FNameEntry::FNameEntry(FClangKeepDebugInfo)
@@ -321,14 +319,14 @@ namespace Doge
 			}
 		}
 
-		static auto GetDefaultNameSize(FU8StringView Name) -> uint32
+		static auto GetDefaultNameSize(std::string_view Name) -> uint32
 		{
 			constexpr uint32 HeaderSize = FNameEntry::GetDataOffset();
-			uint32 Bytes = HeaderSize + Name.length() * sizeof(U8Char);
+			uint32 Bytes = HeaderSize + Name.length() * sizeof(char);
 			return (Bytes + (Stride - 1)) & ~(Stride - 1);
 		}
 
-		static auto TryPlace(uint32 AvailableBytes, FU8StringView Name) -> uint32
+		static auto TryPlace(uint32 AvailableBytes, std::string_view Name) -> uint32
 		{
 			constexpr uint32 HeaderSize = FNameEntry::GetDataOffset();
 			uint32 NameBytes = GetDefaultNameSize(Name);
@@ -336,7 +334,7 @@ namespace Doge
 		}
 
 		// Allocate and store Name.
-		auto AllocateRegular(FU8StringView Name) -> FNameEntryHandle
+		auto AllocateRegular(std::string_view Name) -> FNameEntryHandle
 		{
 			std::unique_lock<std::mutex> _(Lock);
 
@@ -352,7 +350,7 @@ namespace Doge
 			return Allocate(Bytes);
 		}
 
-		auto Create(FU8StringView Name, std::optional<FNameEntryId> ComparisonId, FNameEntryHeader Header) -> FNameEntryHandle
+		auto Create(std::string_view Name, std::optional<FNameEntryId> ComparisonId, FNameEntryHeader Header) -> FNameEntryHandle
 		{
 			FNameEntryHandle Handle = AllocateRegular(Name);
 			FNameEntry& Entry = Resolve(Handle);
@@ -408,7 +406,7 @@ namespace Doge
 	};
 
 	template<ENameCase Sensitivity>
-	static FORCEINLINE auto EqualsSameDimensions(FU8StringView A, FU8StringView B) -> bool
+	static FORCEINLINE auto EqualsSameDimensions(std::string_view A, std::string_view B) -> bool
 	{
 		check(A.length() == B.length());
 
@@ -425,7 +423,7 @@ namespace Doge
 	}
 
 	template<ENameCase Sensitivity>
-	bool EqualsSameDimensions(const FNameEntry& Entry, FU8StringView Name)
+	bool EqualsSameDimensions(const FNameEntry& Entry, std::string_view Name)
 	{
 		return EqualsSameDimensions<Sensitivity>(Entry.MakeView(), Name);
 	}
@@ -634,7 +632,7 @@ namespace Doge
 
 			const FNameEntry& Entry = Entries->Resolve(OldSlot.GetId());
 
-			FU8StringView Name = Entry.MakeView();
+			std::string_view Name = Entry.MakeView();
 			FNameHash Hash = HashName<Sensitivity>(Name);
 			FNameSlot& NewSlot = Probe(Hash.UnmaskedSlotIndex, [](FNameSlot Slot) { return false; });
 			NewSlot = OldSlot;
@@ -648,9 +646,9 @@ namespace Doge
 		FNamePool();
 		~FNamePool() = default;
 
-		auto Store(FU8StringView Name) -> FNameEntryId;
+		auto Store(std::string_view Name) -> FNameEntryId;
 
-		auto Find(FU8StringView Name) -> FNameEntryId;
+		auto Find(std::string_view Name) const -> FNameEntryId;
 
 		auto Resolve(FNameEntryHandle Id) -> FNameEntry& { return Entries.Resolve(Id); }
 
@@ -688,7 +686,7 @@ namespace Doge
 		}
 	}
 
-	auto FNamePool::Store(FU8StringView Name) -> FNameEntryId
+	auto FNamePool::Store(std::string_view Name) -> FNameEntryId
 	{
 		FNameDisplayValue DisplayValue(Name);
 		if (FNameEntryId Existing = DisplayShards[DisplayValue.Hash.ShardIndex].Find(DisplayValue))
@@ -707,7 +705,7 @@ namespace Doge
 		return DisplayId;
 	}
 
-	auto FNamePool::Find(FU8StringView Name) -> FNameEntryId
+	auto FNamePool::Find(std::string_view Name) const -> FNameEntryId
 	{
 		// First try to find the display name, then the comparison name
 		FNameDisplayValue DisplayValue(Name);
@@ -794,7 +792,7 @@ namespace Doge
 			return FNameNoNumberInternal;
 		}
 
-		static FName MakeWithNumber(const FU8StringView View, uint32 InternalNumber)
+		static FName MakeWithNumber(const std::string_view View, uint32 InternalNumber)
 		{
 			FName Name;
 
@@ -805,7 +803,7 @@ namespace Doge
 			return Name;
 		}
 
-		static FName MakeDetectNumber(FU8StringView View)
+		static FName MakeDetectNumber(std::string_view View)
 		{
 			if (View.length() == 0)
 			{
@@ -814,7 +812,7 @@ namespace Doge
 
 			int Len = View.length();
 			uint32 InternalNumber = ParseNumber(View.data(), /* may be shortened */ Len);
-			return MakeWithNumber(FU8StringView{View.data(), static_cast<size_t>(Len)}, InternalNumber);
+			return MakeWithNumber(std::string_view{View.data(), static_cast<size_t>(Len)}, InternalNumber);
 		}
 
 		static auto ResolveComparisonId(FNameEntryId DisplayId) -> FNameEntryId
@@ -833,16 +831,16 @@ namespace Doge
 	{
 	}
 
-	FName::FName(const U8Char* Name)
-		: FName(FNameHelper::MakeDetectNumber(FU8StringView(Name)))
+	FName::FName(const char* Name)
+		: FName(FNameHelper::MakeDetectNumber(std::string_view(Name)))
 	{
 	}
 
-	FName::FName(const U8Char* Name, int32 InNumber)
+	FName::FName(const char* Name, int32 InNumber)
 	{
 	}
 
-	FName::FName(FU8StringView View, int32 InNumber)
+	FName::FName(std::string_view View, int32 InNumber)
 	{
 		FNameEntryId EntryId = FNamePool::Get().Store(View);
 		DisplayIndex = EntryId;
@@ -863,9 +861,9 @@ namespace Doge
 			   && (!bCompareNumber || Number == Other.Number);
 	}
 
-	auto FName::ToString() const -> FString
+	auto FName::ToString() const -> std::string
 	{
-		FString PlainNameString = GetDisplayNameEntry()->GetPlainNameString();
+		std::string PlainNameString = GetDisplayNameEntry()->GetPlainNameString();
 		if (Number == NoNumberInternal)
 		{
 			return PlainNameString;

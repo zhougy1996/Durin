@@ -4,6 +4,7 @@
 
 #include "HAL/Platform.h"
 
+#include "Misc/CoreTypes.h"
 #include "Misc/CoreMiscDefines.h"
 #include "Misc/PreprocessorHelper.h"
 #include "Misc/AssertionMacros.h"

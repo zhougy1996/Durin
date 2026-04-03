@@ -8,7 +8,7 @@ namespace Doge
 		return Instance;
 	}
 
-	auto FModuleManager::AddModule(const FName& InModuleName, const FString& FileName) -> void
+	auto FModuleManager::AddModule(const FName& InModuleName, const std::string& FileName) -> void
 	{
 		auto ModuleInfoPtr = std::make_shared<FModuleInfo>();
 		ModuleInfoPtr->ModuleName = InModuleName;
@@ -69,9 +69,9 @@ namespace Doge
 		return nullptr;
 	}
 
-	static constexpr auto GetDogeModuleFileName(const FName& InModuleName) -> FString
+	static constexpr auto GetDogeModuleFileName(const FName& InModuleName) -> std::string
 	{
-		return FString(FPlatformMisc::FLibraryPrefix) + FString(STR("DogeEditor-")) + InModuleName.ToString() + FPlatformMisc::FLibraryExtension;
+		return std::string(FPlatformMisc::FLibraryPrefix) + std::string(STR("DogeEditor-")) + InModuleName.ToString() + FPlatformMisc::FLibraryExtension;
 	}
 
 	auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*

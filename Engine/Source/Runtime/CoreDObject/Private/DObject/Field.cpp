@@ -5,7 +5,7 @@
 
 namespace Doge
 {
-	FFieldClass::FFieldClass(const CharT* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFuncType InConstructFunc)
+	FFieldClass::FFieldClass(const char* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFuncType InConstructFunc)
 		: Id(InId)
 		, CastFlags(InCastFlags)
 		, ClassFlags(EClassFlags::None)
@@ -60,18 +60,18 @@ namespace Doge
 		, MetaDataMap(nullptr)
 	{
 	}
-	auto FField::SetMetaData(const FName& InKey, const FString& InValue) -> void
+	auto FField::SetMetaData(const FName& InKey, const std::string& InValue) -> void
 	{
 		if (!MetaDataMap)
 		{
-			MetaDataMap = new std::unordered_map<FName, FString>();
+			MetaDataMap = new std::unordered_map<FName, std::string>();
 		}
 		(*MetaDataMap)[InKey] = InValue;
 	}
 
-	auto FField::GetMetaData(const FName& InKey) const -> const FString&
+	auto FField::GetMetaData(const FName& InKey) const -> const std::string&
 	{
-		static const FString EmptyString;
+		static const std::string EmptyString;
 
 		if (InKey.IsNone() || !MetaDataMap)
 		{

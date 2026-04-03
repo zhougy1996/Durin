@@ -54,7 +54,7 @@ namespace Doge
 		}
 
 	private:
-		RENDERCORE_API auto EnqueueImpl(const CharT* Name, std::function<void(FRHICommandListImmediate&)>&& Function) -> void;
+		RENDERCORE_API auto EnqueueImpl(const char* Name, std::function<void(FRHICommandListImmediate&)>&& Function) -> void;
 
 		RENDERCORE_API auto LaunchImpl() -> void;
 
@@ -62,12 +62,12 @@ namespace Doge
 
 		struct FCommand
 		{
-			FCommand(const CharT* InName, std::function<void(FRHICommandListImmediate&)>&& InFunction)
+			FCommand(const char* InName, std::function<void(FRHICommandListImmediate&)>&& InFunction)
 				: Name(InName)
 				, Function(std::move(InFunction))
 			{
 			}
-			const CharT* Name;
+			const char* Name;
 			std::function<void(FRHICommandListImmediate&)> Function;
 		};
 
@@ -98,7 +98,7 @@ namespace Doge
 #define DECLARE_RENDER_COMMAND_TAG(Type, Name) \
 	struct Type \
 	{ \
-		static constexpr const CharT* GetName() { return STR(#Name); } \
+		static constexpr const char* GetName() { return STR(#Name); } \
 	};
 
 #define ENQUEUE_RENDER_COMMAND(Name) \

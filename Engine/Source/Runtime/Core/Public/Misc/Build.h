@@ -9,3 +9,7 @@
 		#define DO_CHECK 1
 	#endif
 #endif
+
+#ifdef DOGE_BUILD_DEBUG
+	#define DOGE_VISUALIZERS_HELPERS
+#endif

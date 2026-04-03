@@ -1,5 +1,7 @@
 #pragma once
 
+#define PLATFORM_HEADER_NAME MacOS
+
 #include <cassert>
 #include <malloc/malloc.h>
 #include <dlfcn.h>
@@ -20,9 +22,7 @@
 
 namespace Doge
 {
-	using CharT = U8Char;
-	using FString = FU8String;
-	using FStringView = FU8StringView;
+	using CharT = char;
 
 	// Define a macro to convert string literals
 
@@ -33,7 +33,7 @@ namespace Doge
 		static constexpr auto FLibraryPrefix = "lib";
 		static constexpr auto FLibraryExtension = ".dylib";
 
-		static FModuleHandle LoadLibrary(const FString& FileName)
+		static FModuleHandle LoadLibrary(const std::string& FileName)
 		{
 			return dlopen(FileName.c_str(), RTLD_NOW | RTLD_LOCAL);
 		}

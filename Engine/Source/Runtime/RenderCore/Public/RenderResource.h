@@ -67,13 +67,13 @@ namespace Doge
 
 		auto GetInitPhase() const -> EInitPhase { return InitPhase; }
 
-		virtual auto GetFriendlyName() const -> FString { return "Undefined"; }
+		virtual auto GetFriendlyName() const -> std::string { return "Undefined"; }
 
 	protected:
 
 		// Helper for submitting a resource array to RHI and freeing eligible CPU memory
 		template<typename T>
-		auto CreateRHIBuffer(FRHICommandList& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const CharT* InDebugName) -> std::shared_ptr<FRHIBuffer>
+		auto CreateRHIBuffer(FRHICommandList& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const char* InDebugName) -> std::shared_ptr<FRHIBuffer>
 		{
 			std::shared_ptr<FRHIBuffer> Buffer;
 
@@ -113,7 +113,7 @@ namespace Doge
 		RENDERCORE_API ~FVertexBuffer() override;
 
 		RENDERCORE_API auto ReleaseRHI() -> void override;
-		auto GetFriendlyName() const -> FString override { return "FVertexBuffer"; }
+		auto GetFriendlyName() const -> std::string override { return "FVertexBuffer"; }
 
 		auto GetRHI() const -> const std::shared_ptr<FRHIBuffer>& { return VertexBufferRHI; }
 

@@ -4,7 +4,7 @@
 
 namespace Doge::Mona
 {
-	auto Text(const FString& InText) -> void
+	auto Text(const std::string& InText) -> void
 	{
 		ImGui::Text("Test text {%s}", InText.c_str());
 	}

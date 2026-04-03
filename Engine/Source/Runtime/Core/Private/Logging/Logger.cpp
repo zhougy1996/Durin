@@ -15,7 +15,7 @@ namespace Doge
 		return instance;
 	}
 
-	auto FLogger::Log(ELogLevel Level, FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) const -> void
+	auto FLogger::Log(ELogLevel Level, std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) const -> void
 	{
 		const auto SpdSourceLocation = spdlog::source_loc{SourceLocation.file_name(), static_cast<int>(SourceLocation.line()), SourceLocation.function_name()};
 		if (bLogWithThreadName)
@@ -28,27 +28,27 @@ namespace Doge
 		}
 	}
 
-	auto FLogger::Trace(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
+	auto FLogger::Trace(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) -> void
 	{
 		Get().Log(ELogLevel::Trace, ModuleName, LogString, SourceLocation);
 	}
 
-	auto FLogger::Debug(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
+	auto FLogger::Debug(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) -> void
 	{
 		Get().Log(ELogLevel::Debug, ModuleName, LogString, SourceLocation);
 	}
 
-	auto FLogger::Info(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
+	auto FLogger::Info(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) -> void
 	{
 		Get().Log(ELogLevel::Info, ModuleName, LogString, SourceLocation);
 	}
 
-	auto FLogger::Warn(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
+	auto FLogger::Warn(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) -> void
 	{
 		Get().Log(ELogLevel::Warn, ModuleName, LogString, SourceLocation);
 	}
 
-	auto FLogger::Error(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation) -> void
+	auto FLogger::Error(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) -> void
 	{
 		Get().Log(ELogLevel::Error, ModuleName, LogString, SourceLocation);
 	}

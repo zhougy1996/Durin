@@ -1,5 +1,6 @@
 #pragma once
 
+
 // Turns an preprocessor token into a real string (see UBT_COMPILED_PLATFORM)
 #define DOGE_STRINGIZE(Token) DOGE_PRIVATE_STRINGIZE(Token)
 #define DOGE_PRIVATE_STRINGIZE(Token) #Token
@@ -22,6 +23,9 @@
 
 // Expands to nothing when used as a function - used as a placeholder
 #define DOGE_EMPTY_FUNCTION(...)
+
+#define COMPILED_PLATFORM_HEADER(Suffix) DOGE_STRINGIZE(DOGE_JOIN(PLATFORM_HEADER_NAME/PLATFORM_HEADER_NAME, Suffix))
+
 
 // Removes a single layer of parentheses from a macro argument if they are present - used to allow
 // brackets to be optionally added when the argument contains commas, e.g.:

@@ -1,11 +1,14 @@
 #pragma once
 
+#define PLATFORM_HEADER_NAME Windows
+
 #include <string>
 
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include "Windows.h"
 
+#include "Misc/CoreTypes.h"
 #include "HAL/GenericPlatform.h"
 
 #define PLATFORM_LITTLE_ENDIAN 1
@@ -20,24 +23,16 @@
 
 #define STR(x) x
 
-#ifdef DOGE_BUILD_DEBUG
-	#define DOGE_VISUALIZERS_HELPERS
-#endif // DOGE_BUILD_DEBUG
-
 namespace Doge
 {
 	using FModuleHandle = HMODULE;
-
-	using CharT = U8Char;
-	using FString = FU8String;
-	using FStringView = FU8StringView;
 
 	struct FWindowsPlatformMisc : public FGenericPlatformMisc
 	{
 		static constexpr auto FLibraryPrefix = "";
 		static constexpr auto FLibraryExtension = ".dll";
 
-		static FModuleHandle LoadLibrary(const FString& FileName)
+		static FModuleHandle LoadLibrary(const std::string& FileName)
 		{
 			std::wstring WideModuleName(FileName.begin(), FileName.end());
 			return ::LoadLibraryW(WideModuleName.c_str());

@@ -38,12 +38,12 @@ namespace Doge::Mona
 		FMonaApplication::Get().RequestDestroyWindow(SharedThis(this));
 	}
 
-	auto MWindow::GetTitle() const -> FString
+	auto MWindow::GetTitle() const -> std::string
 	{
 		return Title;
 	}
 
-	auto MWindow::SetTitle(const FString& InTitle) -> void
+	auto MWindow::SetTitle(const std::string& InTitle) -> void
 	{
 		Title = InTitle;
 	}

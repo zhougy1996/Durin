@@ -14,7 +14,7 @@ namespace Doge
 
 		struct FRegistrant
 		{
-			const U8Char* Name;
+			const char* Name;
 			TRegisterFunc OuterRegister;
 			TRegisterFunc InnerRegister;
 			FClassRegistrationInfo* Info = nullptr;
@@ -26,7 +26,7 @@ namespace Doge
 			return Registry;
 		}
 
-		auto AddRegistration(TRegisterFunc InOuterRegister, TRegisterFunc InInnerRegister, const U8Char* InName, TInfo& InInfo) -> void
+		auto AddRegistration(TRegisterFunc InOuterRegister, TRegisterFunc InInnerRegister, const char* InName, TInfo& InInfo) -> void
 		{
 			FRegistrant NewRegistrant;
 

@@ -5,6 +5,6 @@
 
 namespace Doge::Mona
 {
-	MONA_API auto Text(const FString& InText) -> void;
+	MONA_API auto Text(const std::string& InText) -> void;
 
 } // namespace Doge::Mona

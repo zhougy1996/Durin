@@ -69,8 +69,8 @@ namespace Doge
 	}
 
 	COREDOBJECT_API auto GetPrivateStaticClassBody(
-		const U8Char* PackageName,
-		const U8Char* Name,
+		const char* PackageName,
+		const char* Name,
 		DClass*& ReturnClass,
 		void (*RegisterNativeFunc)(),
 		uint32 InSize,

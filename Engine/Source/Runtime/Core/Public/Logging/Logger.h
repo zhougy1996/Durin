@@ -21,17 +21,17 @@ namespace Doge
 	public:
 		static auto Get() -> FLogger&;
 
-		auto Log(ELogLevel Level, FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) const -> void;
+		auto Log(ELogLevel Level, std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) const -> void;
 
-		static auto Trace(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+		static auto Trace(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
-		static auto Debug(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+		static auto Debug(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
-		static auto Info(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+		static auto Info(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
-		static auto Warn(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+		static auto Warn(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
-		static auto Error(FStringView ModuleName, FStringView LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+		static auto Error(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
 
 		auto SetLogWithThreadName(bool bInLogWithThreadName) -> void { bLogWithThreadName = bInLogWithThreadName; }
 

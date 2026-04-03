@@ -9,11 +9,11 @@ namespace Doge
 {
 	struct FPendingRegistrantInfo
 	{
-		const CharT* Name;
-		const CharT* PackageName;
+		const char* Name;
+		const char* PackageName;
 		FClassRegisterFunc StaticClassFn;
 
-		FPendingRegistrantInfo(FClassRegisterFunc InStaticClassFn, const CharT* InPackageName, const CharT* InName)
+		FPendingRegistrantInfo(FClassRegisterFunc InStaticClassFn, const char* InPackageName, const char* InName)
 			: Name(InName)
 			, PackageName(InPackageName)
 			, StaticClassFn(InStaticClassFn)
@@ -64,7 +64,7 @@ namespace Doge
 	}
 
 
-	auto DObject::Register(FClassRegisterFunc InStaticClassFn, const CharT* InPackageName, const CharT* InName) -> void
+	auto DObject::Register(FClassRegisterFunc InStaticClassFn, const char* InPackageName, const char* InName) -> void
 	{
 		// Add FPendingRegistrantInfo
 		FPendingRegistrantInfo::GetMap().emplace(this, FPendingRegistrantInfo(InStaticClassFn, InPackageName, InName));
@@ -82,7 +82,7 @@ namespace Doge
 		GLastPendingRegistrant = NewRegistrant;
 	}
 
-	auto DObject::DeferredRegister(DClass* InDClassStaticClass, const CharT* InPackageName, const CharT* InName) -> void
+	auto DObject::DeferredRegister(DClass* InDClassStaticClass, const char* InPackageName, const char* InName) -> void
 	{
 		check(!OuterPrivate);
 		OuterPrivate = nullptr; // Packages are not implemented yet
@@ -150,8 +150,8 @@ namespace Doge
 			const FPendingRegistrantInfo& Info = It->second;
 
 			DClass* StaticClass = Info.StaticClassFn();
-			const CharT* PackageName = Info.PackageName;
-			const CharT* Name = Info.Name;
+			const char* PackageName = Info.PackageName;
+			const char* Name = Info.Name;
 			Object->DeferredRegister(StaticClass, PackageName, Name);
 
 			// Remove from pending registrants
@@ -159,7 +159,7 @@ namespace Doge
 		}
 	}
 
-	auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const U8Char* InName, FClassRegistrationInfo& InInfo) -> void
+	auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const char* InName, FClassRegistrationInfo& InInfo) -> void
 	{
 		check(InOuterRegister);
 		check(InInnerRegister);

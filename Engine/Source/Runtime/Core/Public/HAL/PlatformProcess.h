@@ -1,3 +1,3 @@
 #pragma once
 
-#include "Windows/WindowsPlatformProcess.h"
+#include COMPILED_PLATFORM_HEADER(PlatformProcess.h)

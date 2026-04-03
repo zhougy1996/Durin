@@ -74,12 +74,12 @@ namespace Doge
 		struct FClassParams
 		{
 			DClass* (*ClassNoRegisterFunc)();
-			const U8Char* ClassName;
+			const char* ClassName;
 		};
 
 		struct FPropertyParamsBase
 		{
-			const U8Char* NameUTF8;
+			const char* NameUTF8;
 			EPropertyFlags Flags;
 			uint16 ArrayDim;
 			uint16 Offset;
