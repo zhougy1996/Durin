@@ -14,6 +14,8 @@
 #include "RHICommandList.h"
 #include "RHIResources.h"
 #include "RenderingThread.h"
+#include "Json/Json.h"
+#include "Misc/Paths.h"
 
 namespace Doge
 {
@@ -26,12 +28,13 @@ namespace Doge
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 
-		GWorkDirectory = std::filesystem::current_path();
-		DOGE_DEBUG(STR("Working directory: {}"), GWorkDirectory.string());
-		FConfigCacheJson::LoadAndParseConfig();
+		DOGE_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
+		DOGE_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
+
+		FNameInit();
+		GlobalConfigsInit();
 
 		LoggerInit();
-		FNameInit();
 		DObjectInit();
 	}
 	// Test code
@@ -143,7 +146,7 @@ namespace Doge
 			CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 
 			// Draw call
-			CommandList.DrawPrimitive();
+			// CommandList.DrawPrimitive();
 
 			CommandList.EndRenderPass();
 
@@ -189,5 +192,7 @@ namespace Doge
 		delete GEngine;
 		GDynamicRHI->Shutdown();
 		Mona::FMonaApplication::Shutdown();
+
+		GlobalConfigsDeinit();
 	}
 } // namespace Doge

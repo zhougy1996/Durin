@@ -3,6 +3,7 @@
 namespace Doge
 {
 	class FRunnableThread;
+	class FConfigCacheJson;
 
 	// Don't modify this global variable directly, use the provided functions instead.
 	// RequestEngineExit() and IsEngineExitRequested() are the functions to use.
@@ -20,8 +21,7 @@ namespace Doge
 
 	extern CORE_API std::vector<const char*> GMonaRequiredVulkanInstanceExtensions;
 
-	extern CORE_API FPath GWorkDirectory;
-	extern CORE_API FPath GShaderPath;
+	extern CORE_API FConfigCacheJson* GConfigs;
 
 	extern CORE_API uint32 GGameThreadId;
 	extern CORE_API bool GIsGameThreadIdInitialized;

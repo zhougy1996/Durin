@@ -15,7 +15,7 @@ namespace Doge
 			FPath FilePath(FileName);
 			if (!FFileSystem::exists(FilePath))
 			{
-				DOGE_WARN("File {} does not exist.", FileName);
+				DOGE_WARN("Failed to load file. File {} does not exist.", FileName);
 				return false;
 			}
 
@@ -47,6 +47,28 @@ namespace Doge
 		bool LoadFileToArray(std::vector<uint32>& Result, std::string_view FileName)
 		{
 			return LoadFileToArrayInternal(Result, FileName);
+		}
+
+		bool LoadFileToString(std::string& Result, std::string_view FileName)
+		{
+			FPath FilePath(FileName);
+			if (!FFileSystem::exists(FilePath))
+			{
+				DOGE_WARN("Failed to load file. File {} does not exist.", FileName);
+				return false;
+			}
+
+			std::ifstream File(FilePath);
+			if (!File.is_open())
+			{
+				return false;
+			}
+
+			std::stringstream StringStream;
+			StringStream << File.rdbuf();
+			Result = StringStream.str();
+
+			return true;
 		}
 	} // namespace FFileHelper
 }

@@ -6,9 +6,6 @@ namespace Doge
 {
 	bool GIsRequestingExit = false;
 
-	FPath GWorkDirectory;
-	FPath GShaderPath;
-
 	std::vector<const char*> GMonaRequiredVulkanInstanceExtensions;
 
 	uint32 GGameThreadId = 0;

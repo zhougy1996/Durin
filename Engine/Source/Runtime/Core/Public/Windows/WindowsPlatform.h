@@ -18,14 +18,11 @@
 
 #define PLATFORM_BREAK() (/*__nop(), */__debugbreak())
 
-// Define a macro to convert string literals
 #define STR(x) x
 
 #ifdef DOGE_BUILD_DEBUG
 	#define DOGE_VISUALIZERS_HELPERS
 #endif // DOGE_BUILD_DEBUG
-
-#pragma warning(disable : 4251)
 
 namespace Doge
 {
@@ -54,7 +51,7 @@ namespace Doge
 		// GetProcAddress
 		static void* GetProcAddress(FModuleHandle ModuleHandle, const char* ProcName)
 		{
-			return ::GetProcAddress(ModuleHandle, ProcName);
+			return reinterpret_cast<void*>(::GetProcAddress(ModuleHandle, ProcName));
 		}
 
 		static void Prefetch(const void* Ptr)
@@ -84,7 +81,6 @@ namespace Doge
 
 	};
 
-	using FPlatformMisc = FWindowsPlatformMisc;
 
 	struct FWindowsPlatformLTS : public FWindowsPlatformMisc
 	{
@@ -94,5 +90,6 @@ namespace Doge
 		}
 	};
 
+	using FPlatformMisc = FWindowsPlatformMisc;
 	using FPlatformLTS = FWindowsPlatformLTS;
 }
