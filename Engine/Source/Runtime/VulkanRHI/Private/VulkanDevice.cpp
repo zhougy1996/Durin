@@ -329,7 +329,7 @@ namespace Doge::VulkanRHI
 	{
 		delete PipelineManager;
 		PipelineManager = nullptr;
-		FRHICommandListExecutor::GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		GCommandListExecutor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 		DeferredDeletionQueue.Clear();
 		MemoryManager.Deinit();
 

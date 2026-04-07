@@ -90,20 +90,50 @@ namespace Doge::VulkanRHI
 
 	auto ConvertToVulkanBufferUsageFlags(EBufferUsageFlags InUsage) -> vk::BufferUsageFlags
 	{
-		switch (InUsage)
+		vk::BufferUsageFlags UsageFlags{};
+
+		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::Static | EBufferUsageFlags::Dynamic))
 		{
-		case EBufferUsageFlags::VertexBuffer:		return vk::BufferUsageFlagBits::eVertexBuffer;
-		case EBufferUsageFlags::IndexBuffer:		return vk::BufferUsageFlagBits::eIndexBuffer;
-		case EBufferUsageFlags::UniformBuffer:		return vk::BufferUsageFlagBits::eUniformBuffer;
-		case EBufferUsageFlags::StructuredBuffer:	return vk::BufferUsageFlagBits::eStorageBuffer;
-		case EBufferUsageFlags::ByteAddressBuffer:	return vk::BufferUsageFlagBits::eStorageBuffer; // Vulkan doesn't have a specific flag for byte address buffers, but we can treat them as storage buffers
-		case EBufferUsageFlags::DrawIndirect:		return vk::BufferUsageFlagBits::eIndirectBuffer;
-		case EBufferUsageFlags::ShaderResource:		return vk::BufferUsageFlagBits::eUniformTexelBuffer | vk::BufferUsageFlagBits::eStorageTexelBuffer; // Depending on the buffer type, it could be either uniform texel buffer or storage texel buffer. The RHI should ensure the correct usage is set
-		case EBufferUsageFlags::KeepCPUAccessible:	return vk::BufferUsageFlagBits::eTransferSrc; // This flag is a hint for the buffer to be CPU accessible, we can use it as a transfer source for staging buffers.
-		default:
-			DOGE_ERROR("Unsupported buffer usage flag: {}", static_cast<uint32>(InUsage));
-			return vk::BufferUsageFlags();
+			check(!EnumHasAllFlags(InUsage, EBufferUsageFlags::Static | EBufferUsageFlags::Dynamic));  // A buffer cannot be both static and dynamic
+			UsageFlags |= vk::BufferUsageFlagBits::eTransferDst;
 		}
+
+		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::VertexBuffer))
+		{
+			UsageFlags |= vk::BufferUsageFlagBits::eVertexBuffer;
+		}
+
+		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::IndexBuffer))
+		{
+			UsageFlags |= vk::BufferUsageFlagBits::eIndexBuffer;
+		}
+
+		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::DrawIndirect))
+		{
+			UsageFlags |= vk::BufferUsageFlagBits::eIndirectBuffer;
+		}
+
+		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::UniformBuffer))
+		{
+			UsageFlags |= vk::BufferUsageFlagBits::eUniformBuffer;
+		}
+
+		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::SourceCopy))
+		{
+			UsageFlags |= vk::BufferUsageFlagBits::eTransferSrc;
+		}
+
+		if (EnumHasAnyFlags(InUsage,
+			EBufferUsageFlags::UnorderedAccess |
+			EBufferUsageFlags::StructuredBuffer |
+			EBufferUsageFlags::ByteAddressBuffer |
+			EBufferUsageFlags::ShaderResource))
+		{
+			UsageFlags |= vk::BufferUsageFlagBits::eStorageBuffer;
+		}
+
+		check(UsageFlags != vk::BufferUsageFlags{} || EnumHasAnyFlags(InUsage, EBufferUsageFlags::NullResource));
+		return UsageFlags;
 	}
 
 	std::atomic<uint64> GVulkanBufferHandleIdCounter = 0;

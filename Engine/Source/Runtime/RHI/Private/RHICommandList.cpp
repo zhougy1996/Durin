@@ -123,7 +123,7 @@ namespace Doge
 		return GCommandListExecutor.CommandListImmediate;
 	}
 
-	auto FRHICommandListExecutor::Submit(const std::vector<FRHICommandList*> AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void
+	auto FRHICommandListExecutor::Submit(const std::vector<FRHICommandList*>& AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void
 	{
 		if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::DeleteResources))
 		{

@@ -46,7 +46,13 @@ namespace Doge::VulkanRHI
 
 		~FStagingBuffer();
 
+		auto GetHandle() const -> vk::Buffer { return Buffer; }
+
 		auto GetSize() const -> uint32 { return BufferSize; }
+
+		auto Map() -> void*;
+
+		auto Unmap() -> void;
 
 		auto GetMappedData() const -> void*;
 

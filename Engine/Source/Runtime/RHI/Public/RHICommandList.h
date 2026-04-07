@@ -97,9 +97,9 @@ namespace Doge
 	public:
 		FRHICommandListExecutor();
 
-		static auto GetImmediateCommandList() -> FRHICommandListImmediate&;
+		auto GetImmediateCommandList() -> FRHICommandListImmediate&;
 
-		auto Submit(const std::vector<FRHICommandList*> AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void;
+		auto Submit(const std::vector<FRHICommandList*>& AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void;
 
 	private:
 		FRHICommandListImmediate CommandListImmediate;

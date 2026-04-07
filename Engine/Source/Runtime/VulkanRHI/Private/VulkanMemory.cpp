@@ -28,7 +28,7 @@ namespace Doge::VulkanRHI
 		MemoryProperties = Gpu.getMemoryProperties();
 
 		VmaAllocatorCreateInfo allocatorInfo = {};
-		allocatorInfo.vulkanApiVersion = GpuProps.apiVersion;
+		allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
 		allocatorInfo.physicalDevice = Gpu;
 		allocatorInfo.device = Device->GetHandle();
 		allocatorInfo.instance = FVulkanDynamicRHI::Get().RHIGetVkInstance();
@@ -61,16 +61,26 @@ namespace Doge::VulkanRHI
 
 		OutImage = RawImage;
 
-		if (DebugName) {
+		if (DebugName)
+		{
 			vmaSetAllocationName(Allocator, OutAllocation.Handle, DebugName);
 		}
 		return true;
 	}
 
-	auto FVulkanMemoryManager::CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName) const -> bool
+	auto FVulkanMemoryManager::CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, EVulkanAllocationFlags AllocFlags, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName) const -> bool
 	{
+		VmaAllocationCreateFlags VmaFlags = 0;
+		VmaFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+
 		VmaAllocationCreateInfo AllocCreateInfo{};
 		AllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		AllocCreateInfo.flags = VmaFlags;
+
+		if (EnumHasAnyFlags(AllocFlags, EVulkanAllocationFlags::HostVisible))
+		{
+			AllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+		}
 
 		VkBuffer RawBuffer;
 		VkResult Result = vmaCreateBuffer(
@@ -82,11 +92,16 @@ namespace Doge::VulkanRHI
 			&OutAllocation.Info
 		);
 
-		if (Result != VK_SUCCESS) return false;
+		if (Result != VK_SUCCESS)
+		{
+			DOGE_ERROR("Failed to create buffer: {}", vk::to_string(static_cast<vk::Result>(Result)));
+			return false;
+		}
 
 		OutBuffer = RawBuffer;
 
-		if (DebugName) {
+		if (DebugName)
+		{
 			vmaSetAllocationName(Allocator, OutAllocation.Handle, DebugName);
 		}
 		return true;
@@ -110,7 +125,7 @@ namespace Doge::VulkanRHI
 		InAllocation.Info = {};
 	}
 
-	auto FVulkanMemoryManager::MapMemory(const FVulkanAllocation& Allocation) const -> void*
+	auto FVulkanMemoryManager::MapMemory(FVulkanAllocation& Allocation) const -> void*
 	{
 		if (!Allocation.IsValid())
 		{
@@ -130,16 +145,19 @@ namespace Doge::VulkanRHI
 			DOGE_ERROR("Memory property flags: {}", vk::to_string(MemoryType.propertyFlags));
 			return nullptr;
 		}
+
+		vmaGetAllocationInfo(Allocator, Allocation.Handle, &Allocation.Info);
 		return Data;
 	}
 
-	auto FVulkanMemoryManager::UnmapMemory(const FVulkanAllocation& Allocation) const -> void
+	auto FVulkanMemoryManager::UnmapMemory(FVulkanAllocation& Allocation) const -> void
 	{
 		if (!Allocation.IsValid())
 		{
 			return;
 		}
 		vmaUnmapMemory(Allocator, Allocation.Handle);
+		vmaGetAllocationInfo(Allocator, Allocation.Handle, &Allocation.Info);
 	}
 
 	auto FVulkanMemoryManager::Flush(const FVulkanAllocation& Allocation, vk::DeviceSize Offset, vk::DeviceSize Size) const -> void

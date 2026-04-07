@@ -1,8 +1,10 @@
 #include "VulkanBuffer.h"
 
 #include "RHICommandList.h"
+#include "VulkanCommandBuffer.h"
 #include "VulkanDevice.h"
 #include "VulkanRHIPrivate.h"
+#include "VulkanContext.h"
 
 namespace Doge::VulkanRHI
 {
@@ -35,7 +37,7 @@ namespace Doge::VulkanRHI
 			std::lock_guard Lock(GPendingLocksMutex);
 			const auto It = GPendingLocks.find(Buffer);
 			check(It != GPendingLocks.end() && "Buffer Lock/Unlock mismatch.");
-			FVulkanPendingBufferLock Result = std::move(It->second);
+			FVulkanPendingBufferLock Result = It->second;
 			GPendingLocks.erase(It);
 			return Result;
 		}
@@ -50,8 +52,10 @@ namespace Doge::VulkanRHI
 		BufferInfo.setUsage(ConvertToVulkanBufferUsageFlags(InCreateDesc.Usage));
 		BufferInfo.setSharingMode(vk::SharingMode::eExclusive);
 
+		EVulkanAllocationFlags AllocFlags{};
+
 		const FVulkanMemoryManager& MemoryManager = Device->GetMemoryManager();
-		MemoryManager.CreateBuffer(Allocation, Buffer, BufferInfo);
+		MemoryManager.CreateBuffer(Allocation, Buffer, AllocFlags, BufferInfo);
 	}
 
 	FVulkanBuffer::~FVulkanBuffer()
@@ -74,8 +78,8 @@ namespace Doge::VulkanRHI
 		{
 			if (IsStatic())
 			{
-				FStagingBuffer* StagingBuffer = new FStagingBuffer(*Device, Size);
-				Data = StagingBuffer->GetMappedData();
+				auto* StagingBuffer = new FStagingBuffer(*Device, Size);
+				Data = StagingBuffer->Map();
 				AddPendingLock(this, FVulkanPendingBufferLock{StagingBuffer, Offset, Size, LockMode, true});
 			}
 		}
@@ -99,7 +103,15 @@ namespace Doge::VulkanRHI
 		if (LockMode == EResourceLockMode::WriteOnly)
 		{
 			StagingBuffer->FlushMappedMemory();
+			auto& Context = static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext());
+			vk::CommandBuffer CmdBufferHandle = Context.GetCommandBuffer()->GetHandle();
+			vk::BufferCopy CopyRegion;
+			CopyRegion.setSrcOffset(BufferLock.Offset);
+			CopyRegion.setDstOffset(BufferLock.Offset);
+			CopyRegion.setSize(BufferLock.Size);
+			CmdBufferHandle.copyBuffer(StagingBuffer->GetHandle(), Buffer, CopyRegion);
 		}
+		StagingBuffer->Unmap();
 		delete StagingBuffer;
 	}
 
@@ -119,16 +131,31 @@ namespace Doge::VulkanRHI
 	{
 		vk::BufferCreateInfo BufferInfo;
 		BufferInfo.setSize(InBufferSize);
-		BufferInfo.setUsage(vk::BufferUsageFlagBits::eTransferSrc);
+		BufferInfo.setUsage(vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferSrc);
 		BufferInfo.setSharingMode(vk::SharingMode::eExclusive);
 
+		EVulkanAllocationFlags AllocFlags = EVulkanAllocationFlags::HostVisible | EVulkanAllocationFlags::Mapped;
+
 		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
-		MemoryManager.CreateBuffer(Allocation, Buffer, BufferInfo);
+		MemoryManager.CreateBuffer(Allocation, Buffer, AllocFlags, BufferInfo);
 	}
 
 	FStagingBuffer::~FStagingBuffer()
 	{
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
+	}
+
+	auto FStagingBuffer::Map() -> void*
+	{
+		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
+		MemoryManager.MapMemory(Allocation);
+		return Allocation.GetMappedData();
+	}
+
+	auto FStagingBuffer::Unmap() -> void
+	{
+		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
+		MemoryManager.UnmapMemory(Allocation);
 	}
 
 	auto FStagingBuffer::GetMappedData() const -> void*

@@ -8,6 +8,15 @@ namespace Doge::VulkanRHI
 	class FVulkanDevice;
 	class FVulkanFenceManager;
 
+	enum class EVulkanAllocationFlags
+	{
+		None = 0,
+
+		HostVisible = 1 << 0,
+		Mapped = 1 << 1,
+	};
+	ENUM_CLASS_FLAGS(EVulkanAllocationFlags)
+
 	struct FVulkanAllocation
 	{
 		VmaAllocation Handle = nullptr;
@@ -40,15 +49,15 @@ namespace Doge::VulkanRHI
 
 		auto CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName = nullptr) const -> bool;
 
-		auto CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName = nullptr) const -> bool;
+		auto CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, EVulkanAllocationFlags AllocFlags, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName = nullptr) const -> bool;
 
 		auto DestroyImage(FVulkanAllocation& InAllocation, vk::Image InImage) const -> void;
 
 		auto DestroyBuffer(FVulkanAllocation& InAllocation, vk::Buffer InBuffer) const -> void;
 
-		auto MapMemory(const FVulkanAllocation& Allocation) const -> void*;
+		auto MapMemory(FVulkanAllocation& Allocation) const -> void*;
 
-		auto UnmapMemory(const FVulkanAllocation& Allocation) const -> void;
+		auto UnmapMemory(FVulkanAllocation& Allocation) const -> void;
 
 		auto Flush(const FVulkanAllocation& Allocation, vk::DeviceSize Offset = 0, vk::DeviceSize Size = VK_WHOLE_SIZE) const -> void;
 
