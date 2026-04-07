@@ -19,7 +19,7 @@
 #define FORCEINLINE __forceinline
 #define FORCENOINLINE __declspec(noinline)
 
-#define PLATFORM_BREAK() (/*__nop(), */__debugbreak())
+#define PLATFORM_BREAK() (__nop(), __debugbreak())
 
 #define STR(x) x
 

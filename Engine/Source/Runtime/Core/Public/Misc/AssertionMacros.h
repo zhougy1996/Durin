@@ -6,7 +6,11 @@
 #ifdef DO_CHECK
 	#ifndef check
 		#define check(expr) \
-			if (!(expr)) PLATFORM_BREAK()
+			if (!(expr)) \
+			{ \
+				PLATFORM_BREAK(); \
+				__assume(0); \
+			}
 	#endif // !check
 #else
 	#define check(expr)

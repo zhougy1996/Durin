@@ -14,10 +14,51 @@ namespace Doge::VulkanRHI
 
 		~FVulkanBuffer() override;
 
-	private:
+		auto Lock(const FRHICommandList& RHICmdList, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
+
+		auto Unlock(const FRHICommandList& RHICmdList) -> void;
+
+		auto IsDynamic() const -> bool;
+
+		auto IsStatic() const -> bool;
+
+	protected:
+		enum class ELockStatus : uint8
+		{
+			Unlocked,
+			Locked,
+			PersistentMapping,
+		};
+
 		FVulkanDevice* Device;
 
 		vk::Buffer Buffer{};
+
+		FVulkanAllocation Allocation{};
+
+		ELockStatus LockStatus = ELockStatus::Unlocked;
+	};
+
+	class FStagingBuffer
+	{
+	public:
+		FStagingBuffer(FVulkanDevice& InDevice, uint32 InBufferSize);
+
+		~FStagingBuffer();
+
+		auto GetSize() const -> uint32 { return BufferSize; }
+
+		auto GetMappedData() const -> void*;
+
+		auto FlushMappedMemory() -> void;
+
+	private:
+		FVulkanDevice& Device;
+
+		vk::Buffer Buffer{};
+
+		// The size of the staging buffer in bytes.
+		uint32 BufferSize{};
 
 		FVulkanAllocation Allocation{};
 	};

@@ -50,6 +50,10 @@ namespace Doge
 
 		auto CreateBuffer(const FRHIBufferCreateDesc& InCreateDesc) -> TRefCountPtr<FRHIBuffer>;
 
+		auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
+
+		auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
+
 	private:
 		ERHIPipeline ActivePipeline = ERHIPipeline::None;
 

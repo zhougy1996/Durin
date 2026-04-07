@@ -567,7 +567,7 @@ namespace Doge
 		/** @return The usage flags used to create the buffer. */
 		auto GetUsage() const -> EBufferUsageFlags { return Desc.Usage; }
 
-	private:
+	protected:
 		FRHIBufferDesc Desc;
 	};
 

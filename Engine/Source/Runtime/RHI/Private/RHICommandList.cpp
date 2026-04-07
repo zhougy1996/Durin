@@ -85,6 +85,16 @@ namespace Doge
 		return nullptr;
 	}
 
+	auto FRHICommandList::LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
+	{
+		return GDynamicRHI->RHILockBuffer(*this, Buffer, Offset, Size, LockMode);
+	}
+
+	auto FRHICommandList::UnlockBuffer(FRHIBuffer* Buffer) -> void
+	{
+		return GDynamicRHI->RHIUnlockBuffer(*this, Buffer);
+	}
+
 	auto FRHICommandListImmediate::SubmitAndBlockUntilGPUIdle() -> void
 	{
 		GDynamicRHI->RHIBlockUntilGPUIdle();

@@ -180,4 +180,11 @@ namespace Doge
 
 	ENUM_CLASS_FLAGS(EBufferUsageFlags);
 
+	enum class EResourceLockMode
+	{
+		ReadOnly,
+		WriteOnly,
+		WriteOnly_NoOverwrite
+	};
+
 } // namespace Doge

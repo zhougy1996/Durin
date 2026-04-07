@@ -3,20 +3,29 @@
 #include "VulkanDevice.h"
 #include "VulkanDynamicRHI.h"
 
+
 namespace Doge::VulkanRHI
 {
+	auto FVulkanAllocation::FlushMappedMemory(FVulkanDevice* Device) const -> void
+	{
+		auto& MemoryManager = Device->GetMemoryManager();
+		MemoryManager.Flush(*this);
+	}
+
 	FVulkanMemoryManager::FVulkanMemoryManager()
 		: Device(nullptr)
 		, Allocator(nullptr)
 	{
 	}
 
-	void FVulkanMemoryManager::Init(FVulkanDevice* InDevice)
+	auto FVulkanMemoryManager::Init(FVulkanDevice* InDevice) -> void
 	{
 		Device = InDevice;
 
 		vk::PhysicalDevice Gpu = Device->GetGpu();
 		vk::PhysicalDeviceProperties GpuProps = Device->GetGpuProperties();
+
+		MemoryProperties = Gpu.getMemoryProperties();
 
 		VmaAllocatorCreateInfo allocatorInfo = {};
 		allocatorInfo.vulkanApiVersion = GpuProps.apiVersion;
@@ -27,13 +36,13 @@ namespace Doge::VulkanRHI
 		vmaCreateAllocator(&allocatorInfo, &Allocator);
 	}
 
-	void FVulkanMemoryManager::Deinit()
+	auto FVulkanMemoryManager::Deinit() -> void
 	{
 		vmaDestroyAllocator(Allocator);
 		Allocator = nullptr;
 	}
 
-	bool FVulkanMemoryManager::CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName /* = nullptr */) const
+	auto FVulkanMemoryManager::CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName /* = nullptr */) const -> bool
 	{
 		VmaAllocationCreateInfo AllocCreateInfo{};
 		AllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
@@ -58,7 +67,7 @@ namespace Doge::VulkanRHI
 		return true;
 	}
 
-	bool FVulkanMemoryManager::CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName) const
+	auto FVulkanMemoryManager::CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName) const -> bool
 	{
 		VmaAllocationCreateInfo AllocCreateInfo{};
 		AllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
@@ -83,7 +92,7 @@ namespace Doge::VulkanRHI
 		return true;
 	}
 
-	void FVulkanMemoryManager::DestroyImage(FVulkanAllocation& InAllocation, vk::Image InImage) const
+	auto FVulkanMemoryManager::DestroyImage(FVulkanAllocation& InAllocation, vk::Image InImage) const -> void
 	{
 		check(InImage && InAllocation.Handle != VK_NULL_HANDLE);
 		vmaDestroyImage(Allocator, InImage, InAllocation.Handle);
@@ -92,13 +101,67 @@ namespace Doge::VulkanRHI
 		InAllocation.Info = {};
 	}
 
-	void FVulkanMemoryManager::DestroyBuffer(FVulkanAllocation& InAllocation, vk::Buffer InBuffer) const
+	auto FVulkanMemoryManager::DestroyBuffer(FVulkanAllocation& InAllocation, vk::Buffer InBuffer) const -> void
 	{
 		check(InBuffer && InAllocation.Handle != VK_NULL_HANDLE);
 		vmaDestroyBuffer(Allocator, InBuffer, InAllocation.Handle);
 
 		InAllocation.Handle = nullptr;
 		InAllocation.Info = {};
+	}
+
+	auto FVulkanMemoryManager::MapMemory(const FVulkanAllocation& Allocation) const -> void*
+	{
+		if (!Allocation.IsValid())
+		{
+			DOGE_ERROR("Attempted to map an invalid allocation.");
+			return nullptr;
+		}
+
+		void* Data = nullptr;
+		VkResult Result = vmaMapMemory(Allocator, Allocation.Handle, &Data);
+		if (Result != VK_SUCCESS)
+		{
+			DOGE_ERROR("Failed to map memory: {}", vk::to_string(static_cast<vk::Result>(Result)));
+			const vk::MemoryType MemoryType = GetMemoryType(Allocation);
+			const vk::MemoryHeap MemoryHeap = GetMemoryHeap(MemoryType.heapIndex);
+			DOGE_ERROR("Allocation size: {}", Allocation.GetSize());
+			DOGE_ERROR("Memory Heap: {}", vk::to_string(MemoryHeap.flags));
+			DOGE_ERROR("Memory property flags: {}", vk::to_string(MemoryType.propertyFlags));
+			return nullptr;
+		}
+		return Data;
+	}
+
+	auto FVulkanMemoryManager::UnmapMemory(const FVulkanAllocation& Allocation) const -> void
+	{
+		if (!Allocation.IsValid())
+		{
+			return;
+		}
+		vmaUnmapMemory(Allocator, Allocation.Handle);
+	}
+
+	auto FVulkanMemoryManager::Flush(const FVulkanAllocation& Allocation, vk::DeviceSize Offset, vk::DeviceSize Size) const -> void
+	{
+		vmaFlushAllocation(Allocator, Allocation.Handle, Offset, Size);
+	}
+
+	auto FVulkanMemoryManager::GetMemoryType(uint32 MemoryTypeIndex) const -> vk::MemoryType
+	{
+		check(MemoryTypeIndex < MemoryProperties.memoryTypeCount);
+		return MemoryProperties.memoryTypes[MemoryTypeIndex];
+	}
+
+	auto FVulkanMemoryManager::GetMemoryType(const FVulkanAllocation& Allocation) const -> vk::MemoryType
+	{
+		return GetMemoryType(Allocation.GetMemoryTypeIndex());
+	}
+
+	auto FVulkanMemoryManager::GetMemoryHeap(uint32 MemoryHeapIndex) const -> vk::MemoryHeap
+	{
+		check(MemoryHeapIndex < MemoryProperties.memoryHeapCount);
+		return MemoryProperties.memoryHeaps[MemoryHeapIndex];
 	}
 
 	FVulkanFence::FVulkanFence(FVulkanDevice& InDevice, FVulkanFenceManager& Owner, bool bInCreateSignaled)
@@ -154,7 +217,7 @@ namespace Doge::VulkanRHI
 		check(FreeFences.empty());
 	}
 
-	void FVulkanFenceManager::Deinit()
+	auto FVulkanFenceManager::Deinit() -> void
 	{
 		std::lock_guard Lock(FenceMutex);
 		check(UsedFences.empty());

@@ -31,6 +31,8 @@ namespace Doge
 		virtual auto RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> = 0;
 		virtual auto RHICreateBuffer(FRHICommandList& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer> = 0;
 		virtual auto RHICreateShader(const FRHIShaderCreateDesc& CreateDesc) -> TRefCountPtr<FRHIShader> = 0;
+		virtual auto RHILockBuffer(FRHICommandList& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void* = 0;
+		virtual auto RHIUnlockBuffer(FRHICommandList& RHICmdList, FRHIBuffer* Buffer) -> void = 0;
 
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 	};

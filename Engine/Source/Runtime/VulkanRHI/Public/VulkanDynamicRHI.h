@@ -46,6 +46,8 @@ namespace Doge::VulkanRHI
 		auto RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> FTextureRHIRef override;
 		auto RHICreateBuffer(FRHICommandList& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> FBufferRHIRef override;
 		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef override;
+		auto RHILockBuffer(FRHICommandList& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void* override;
+		auto RHIUnlockBuffer(FRHICommandList& RHICmdList, FRHIBuffer* Buffer) -> void override;
 
 		auto RHIBlockUntilGPUIdle() -> void override;
 
