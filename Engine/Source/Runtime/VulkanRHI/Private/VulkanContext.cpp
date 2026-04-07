@@ -43,12 +43,12 @@ namespace Doge::VulkanRHI
 	{
 		FVulkanCommandBuffer* CmdBuffer = CommandBufferManager->GetActiveCommandBuffer();
 
-		FVulkanTexture* VulkanRT = static_cast<FVulkanTexture*>(RenderPassInfo.ColorRenderTargets[0]);
+		const auto* VulkanRT = static_cast<FVulkanTexture*>(RenderPassInfo.ColorRenderTargets[0]);
 
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
 		FVulkanRenderPass* RenderPass = Device.GetRenderPassManager().GetOrCreateRenderPass(Name, VulkanRT->Format);
 
-		FRHIRenderTargetsInfo RTInfo;
+		FRHIRenderTargetsInfo RTInfo{};
 		RTInfo.NumColorRenderTargets = 1;
 		RTInfo.ColorRenderTargets[0] = RenderPassInfo.ColorRenderTargets[0];
 		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RTInfo);
@@ -65,7 +65,7 @@ namespace Doge::VulkanRHI
 	{
 		// TODO: Now only use one command buffer repeatly
 		// Try use a new one each frame
-		FVulkanViewport* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
+		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
 		VulkanViewport->WaitForLastFrameCompletion();
 		FVulkanCommandBuffer* CmdBuffer = CommandBufferManager->GetActiveCommandBuffer();
 		CmdBuffer->Begin();
@@ -74,7 +74,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void
 	{
-		FVulkanViewport* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
+		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
 
 		FVulkanQueue* PresentQueue = Device.GetPresentQueue();
 		VulkanViewport->Present(*this, *CommandBufferManager->GetActiveCommandBuffer(), *PresentQueue, bLockToVsync);
