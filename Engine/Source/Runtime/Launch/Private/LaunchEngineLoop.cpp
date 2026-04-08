@@ -38,58 +38,127 @@ namespace Doge
 		DObjectInit();
 	}
 	// Test code
-	static auto CreateTestPipeline()
+
+	struct FPipelineData
 	{
-		auto& App = Mona::FMonaApplication::Get();
-		const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
-		const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
-		const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).GetReference();
-		EPixelFormat ViewportFormat = Viewport->GetFormat();
+		FName PipelineName;
+		FName VertexShaderPath;
+		FName PixelShaderPath;
+	};
 
-		// Create pipeline
-		// Render pass is created when creating pipeline
-		ENQUEUE_RENDER_COMMAND(Pipeline)([ViewportFormat](FRHICommandListImmediate& CommandList) {
-			std::vector<uint32> VertexShaderCode;
-			std::vector<uint32> PixelShaderCode;
-			FFileHelper::LoadFileToArray(VertexShaderCode, "../../../../Shaders/spv/test_vert.spv");
-			FFileHelper::LoadFileToArray(PixelShaderCode, "../../../../Shaders/spv/test_frag.spv");
+	class FTestRenderData
+	{
+	public:
+		auto Prepare() -> void
+		{
+			PipelineData.PipelineName = "TestPipeline";
+			PipelineData.VertexShaderPath = "../../../../Shaders/spv/test_vert.spv";
+			PipelineData.PixelShaderPath = "../../../../Shaders/spv/test_frag.spv";
 
-			FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", VertexShaderCode, {});
-			auto VertexTestShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
+			auto& App = Mona::FMonaApplication::Get();
+			const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
+			const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
+			const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).GetReference();
+			EPixelFormat ViewportFormat = Viewport->GetFormat();
+			// Create pipeline
 
-			FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", PixelShaderCode, {});
-			auto PixelTestShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
+			FPipelineData LocalPipelineData = PipelineData;
+			ENQUEUE_RENDER_COMMAND(Pipeline)([ViewportFormat, LocalPipelineData](FRHICommandListImmediate& CommandList) {
+				std::vector<uint32> VertexShaderCode;
+				std::vector<uint32> PixelShaderCode;
+				FFileHelper::LoadFileToArray(VertexShaderCode, LocalPipelineData.VertexShaderPath.ToString());
+				FFileHelper::LoadFileToArray(PixelShaderCode, LocalPipelineData.PixelShaderPath.ToString());
 
-			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderPassName = "TestRenderPass";
-			Initializer.BoundShaders.VertexShader = VertexTestShader;
-			Initializer.BoundShaders.PixelShader = PixelTestShader;
+				FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", VertexShaderCode, {});
+				auto VertexTestShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
 
-			Initializer.PixelFormat = ViewportFormat;
-			GDynamicRHI->RHICreateGraphicsPipelineState("TestPipeline", Initializer);
-			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-		});
+				FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", PixelShaderCode, {});
+				auto PixelTestShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
 
-		ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
-			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("TestTex", 256, 256, EPixelFormat::RGBA8_UNORM);
-			TRefCountPtr<FRHITexture> Texture = RHICreateTexture(TextureCreateDesc);
-		});
+				FGraphicsPipelineStateInitializer Initializer;
+				Initializer.RenderPassName = "TestRenderPass";
+				Initializer.BoundShaders.VertexShader = VertexTestShader;
+				Initializer.BoundShaders.PixelShader = PixelTestShader;
 
-		ENQUEUE_RENDER_COMMAND(CreateBuffer)([](FRHICommandListImmediate& CommandList) {
-			FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestBuffer", 1024);
-			BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
-			TRefCountPtr<FRHIBuffer> Buffer = RHICreateBuffer(BufferCreateDesc);
-			// void* Data = CommandList.LockBuffer(Buffer.GetReference(), 0, Buffer->GetSize(), EResourceLockMode::WriteOnly);
-			// const std::vector<glm::vec3> TestVertices = {
-			// 	{-0.5f, -0.5f, 0.0f},
-			// 	{0.5f, -0.5f, 0.0f},
-			// 	{0.0f, 0.5f, 0.0f},
-			// };
-			// check(Data != nullptr);
-			// std::memcpy(Data, &TestVertices[0], TestVertices.size() * sizeof(glm::vec3));
-			// CommandList.UnlockBuffer(Buffer.GetReference());
-		});
-	}
+				Initializer.PixelFormat = ViewportFormat;
+				GDynamicRHI->RHICreateGraphicsPipelineState(LocalPipelineData.PipelineName, Initializer);
+				CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+			});
+
+			ENQUEUE_RENDER_COMMAND(CreateBuffer)([](FRHICommandListImmediate& CommandList) {
+				FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestBuffer", 1024);
+				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
+				TRefCountPtr<FRHIBuffer> Buffer = RHICreateBuffer(BufferCreateDesc);
+				// void* Data = CommandList.LockBuffer(Buffer.GetReference(), 0, Buffer->GetSize(), EResourceLockMode::WriteOnly);
+				// const std::vector<glm::vec3> TestVertices = {
+				// 	{-0.5f, -0.5f, 0.0f},
+				// 	{0.5f, -0.5f, 0.0f},
+				// 	{0.0f, 0.5f, 0.0f},
+				// };
+				// check(Data != nullptr);
+				// std::memcpy(Data, &TestVertices[0], TestVertices.size() * sizeof(glm::vec3));
+				// CommandList.UnlockBuffer(Buffer.GetReference());
+			});
+
+			ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
+				FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("TestTex", 256, 256, EPixelFormat::RGBA8_UNORM);
+				TRefCountPtr<FRHITexture> Texture = RHICreateTexture(TextureCreateDesc);
+			});
+
+			bIsReady = true;
+		}
+
+		auto Render() -> void
+		{
+			auto& App = Mona::FMonaApplication::Get();
+			const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
+			const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
+			if (!MainWindow || MainWindow->IsMinimized())
+			{
+				return;
+			}
+			TRefCountPtr<FRHIViewport> SharedViewport = Renderer->GetRHIViewport(*MainWindow);
+
+			ENQUEUE_RENDER_COMMAND(TestDrawTriangle)([SharedViewport](FRHICommandListImmediate& CommandList) {
+				CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+
+				FRHIViewport* Viewport = SharedViewport.GetReference();
+				// Draw viewport
+				// Wait submit fence before acquiring image
+				CommandList.BeginDrawingViewport(Viewport, nullptr);
+
+				// Acquire image
+				TRefCountPtr<FRHITexture> BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
+
+				FRHIRenderPassInfo PassInfo{};
+				PassInfo.ColorRenderTargets[0] = BackBuffer.GetReference();
+
+				CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
+
+				CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("TestPipeline"));
+
+				auto Width = BackBuffer->GetSizeX();
+				auto Height = BackBuffer->GetSizeY();
+				CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
+
+				// Draw call
+				// CommandList.DrawPrimitive();
+
+				CommandList.EndRenderPass();
+
+				// End drawing viewport and present
+				CommandList.EndDrawingViewport(Viewport, true, false);
+			});
+		}
+
+		bool IsReady() const { return bIsReady; }
+	private:
+		FPipelineData PipelineData;
+
+		bool bIsReady = false;
+	};
+
+	FTestRenderData GTestRenderData;
 
 	auto FEngineLoop::Init() -> void
 	{
@@ -103,66 +172,25 @@ namespace Doge
 		GEngine->Init();
 
 		InitRenderingThread();
-
-		CreateTestPipeline();
 	}
 
 	// Called from render thread
 	static auto BeginFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 FrameCounter) -> void
 	{
+		check(IsInRenderingThread());
 		GFrameCounterRenderThread = FrameCounter;
+		CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 		CommandList.BeginFrame();
 	}
 
 	// Called from render thread
 	static auto EndFrameRenderThread(FRHICommandListImmediate& RHICmdList, uint64 FrameCounter) -> void
 	{
+		check(IsInRenderingThread());
+		check(GFrameCounterRenderThread == FrameCounter);
 		RHICmdList.EndFrame();
 		GDynamicRHI->RHIEndFrame_RenderThread(RHICmdList);
 		RHICmdList.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::EndFrame);
-	}
-
-	static auto DrawTriangle()
-	{
-		auto& App = Mona::FMonaApplication::Get();
-		const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
-		const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
-		if (!MainWindow || MainWindow->IsMinimized())
-		{
-			return;
-		}
-		TRefCountPtr<FRHIViewport> SharedViewport = Renderer->GetRHIViewport(*MainWindow);
-
-		ENQUEUE_RENDER_COMMAND(TestDrawTriangle)([SharedViewport](FRHICommandListImmediate& CommandList) {
-			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-
-			FRHIViewport* Viewport = SharedViewport.GetReference();
-			// Draw viewport
-			// Wait submit fence before acquiring image
-			CommandList.BeginDrawingViewport(Viewport, nullptr);
-
-			// Acquire image
-			TRefCountPtr<FRHITexture> BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
-
-			FRHIRenderPassInfo PassInfo{};
-			PassInfo.ColorRenderTargets[0] = BackBuffer.GetReference();
-
-			CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
-
-			CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("TestPipeline"));
-
-			auto Width = BackBuffer->GetSizeX();
-			auto Height = BackBuffer->GetSizeY();
-			CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
-
-			// Draw call
-			// CommandList.DrawPrimitive();
-
-			CommandList.EndRenderPass();
-
-			// End drawing viewport and present
-			CommandList.EndDrawingViewport(Viewport, true, false);
-		});
 	}
 
 	auto FEngineLoop::Tick() -> void
@@ -180,12 +208,16 @@ namespace Doge
 			return;
 		}
 
+		if (!GTestRenderData.IsReady())
+		{
+			GTestRenderData.Prepare();
+		}
+
 		ENQUEUE_RENDER_COMMAND(BeginFrame)([CurrentFrameCounter](FRHICommandListImmediate& CommandList) {
 			BeginFrameRenderThread(CommandList, CurrentFrameCounter);
 		});
 
-		// Render Scene.
-		DrawTriangle();
+		GTestRenderData.Render();
 
 		ENQUEUE_RENDER_COMMAND(EndFrame)([CurrentFrameCounter](FRHICommandListImmediate& RHICmdList) {
 			EndFrameRenderThread(RHICmdList, CurrentFrameCounter);
