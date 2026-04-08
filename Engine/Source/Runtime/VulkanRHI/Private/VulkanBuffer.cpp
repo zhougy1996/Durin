@@ -65,7 +65,8 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanBuffer::Lock(const FRHICommandList& RHICmdList, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
 	{
-		check(Offset + Size <= Desc.Size);
+		check(LockStatus == ELockStatus::Unlocked);
+		check(Size != 0 && Offset + Size <= Desc.Size);
 		void* Data = nullptr;
 
 		if (LockMode == EResourceLockMode::ReadOnly)
@@ -89,6 +90,7 @@ namespace Doge::VulkanRHI
 			DOGE_ERROR("Failed to lock buffer.");
 			return nullptr;
 		}
+		LockStatus = ELockStatus::Locked;
 		return static_cast<uint8*>(Data) + Offset;
 	}
 
@@ -110,6 +112,22 @@ namespace Doge::VulkanRHI
 			CopyRegion.setDstOffset(BufferLock.Offset);
 			CopyRegion.setSize(BufferLock.Size);
 			CmdBufferHandle.copyBuffer(StagingBuffer->GetHandle(), Buffer, CopyRegion);
+
+			// Insert a memory barrier to ensure the copy is visible to subsequent buffer reads.
+			vk::BufferMemoryBarrier BufferBarrier;
+			BufferBarrier.setBuffer(Buffer);
+			BufferBarrier.setOffset(BufferLock.Offset);
+			BufferBarrier.setSize(BufferLock.Size);
+			BufferBarrier.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite);
+			BufferBarrier.setDstAccessMask(vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite);
+
+			CmdBufferHandle.pipelineBarrier(
+				vk::PipelineStageFlagBits::eTransfer,
+				vk::PipelineStageFlagBits::eAllCommands,
+				{},
+				{},
+				BufferBarrier,
+				{});
 		}
 		StagingBuffer->Unmap();
 		delete StagingBuffer;

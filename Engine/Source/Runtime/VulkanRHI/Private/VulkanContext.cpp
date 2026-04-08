@@ -63,7 +63,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void
 	{
-		// TODO: Now only use one command buffer repeatly
+		// TODO: Now only use one command buffer repeatedly
 		// Try use a new one each frame
 		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
 		VulkanViewport->WaitForLastFrameCompletion();

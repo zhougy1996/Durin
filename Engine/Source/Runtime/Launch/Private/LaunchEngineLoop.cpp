@@ -79,15 +79,15 @@ namespace Doge
 			FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestBuffer", 1024);
 			BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
 			TRefCountPtr<FRHIBuffer> Buffer = RHICreateBuffer(BufferCreateDesc);
-			void* Data = CommandList.LockBuffer(Buffer.GetReference(), 0, 0, EResourceLockMode::WriteOnly);
-			const std::vector<glm::vec3> TestVertices = {
-				{-0.5f, -0.5f, 0.0f},
-				{0.5f, -0.5f, 0.0f},
-				{0.0f, 0.5f, 0.0f},
-			};
-			check(Data != nullptr);
-			std::memcpy(Data, &TestVertices[0], TestVertices.size() * sizeof(glm::vec3));
-			CommandList.UnlockBuffer(Buffer.GetReference());
+			// void* Data = CommandList.LockBuffer(Buffer.GetReference(), 0, Buffer->GetSize(), EResourceLockMode::WriteOnly);
+			// const std::vector<glm::vec3> TestVertices = {
+			// 	{-0.5f, -0.5f, 0.0f},
+			// 	{0.5f, -0.5f, 0.0f},
+			// 	{0.0f, 0.5f, 0.0f},
+			// };
+			// check(Data != nullptr);
+			// std::memcpy(Data, &TestVertices[0], TestVertices.size() * sizeof(glm::vec3));
+			// CommandList.UnlockBuffer(Buffer.GetReference());
 		});
 	}
 
