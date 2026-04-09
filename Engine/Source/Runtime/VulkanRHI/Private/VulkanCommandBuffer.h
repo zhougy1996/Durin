@@ -10,13 +10,13 @@ namespace Doge::VulkanRHI
 	class FVulkanQueue;
 	class FVulkanFence;
 
-	class FVulkanCommandBufferPool;
+	class FVulkanCommandPool;
 	class FVulkanCommandBufferManager;
 
 	class FVulkanCommandBuffer
 	{
 	public:
-		FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandBufferPool* InPool, bool bInIsUploadOnly);
+		FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandPool* InPool, bool bInIsUploadOnly);
 
 		~FVulkanCommandBuffer();
 
@@ -60,7 +60,7 @@ namespace Doge::VulkanRHI
 
 		FVulkanDevice& Device;
 
-		FVulkanCommandBufferPool* Pool;
+		FVulkanCommandPool* Pool;
 
 		EState State = EState::NotAllocated;
 
@@ -73,14 +73,14 @@ namespace Doge::VulkanRHI
 		FVulkanFence* Fence;
 
 		friend class FVulkanQueue;
-		friend class FVulkanCommandBufferPool;
+		friend class FVulkanCommandPool;
 	};
 
-	class FVulkanCommandBufferPool
+	class FVulkanCommandPool
 	{
 	public:
-		FVulkanCommandBufferPool(FVulkanDevice& InDevice, FVulkanCommandBufferManager& InManager);
-		~FVulkanCommandBufferPool();
+		FVulkanCommandPool(FVulkanDevice& InDevice);
+		~FVulkanCommandPool();
 
 		auto GetHandle() const -> vk::CommandPool { return Handle; }
 
@@ -95,46 +95,8 @@ namespace Doge::VulkanRHI
 
 		FVulkanDevice& Device;
 
-		FVulkanCommandBufferManager& Manager;
-
 		std::vector<FVulkanCommandBuffer*> CmdBuffers;
 
 		std::vector<FVulkanCommandBuffer*> FreeCmdBuffers;
-	};
-
-	class FVulkanCommandBufferManager
-	{
-	public:
-		FVulkanCommandBufferManager(FVulkanDevice& InDevice, FVulkanCommandListContext& InContext);
-
-		~FVulkanCommandBufferManager();
-
-		auto GetUploadCommandBuffer() const -> FVulkanCommandBuffer* { return UploadCommandBuffer; }
-
-		auto GetActiveCommandBuffer() const -> FVulkanCommandBuffer* { return ActiveCommandBuffer; }
-
-		auto SubmitActiveCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void;
-
-		auto PrepareForNewActiveCommandBuffer() -> void;
-
-		auto FreeUnusedCommandBuffers() const -> void;
-
-	private:
-		FVulkanDevice& Device;
-
-		FVulkanCommandListContext& Context;
-
-		FVulkanQueue* Queue;
-
-		FVulkanCommandBufferPool* Pool;
-
-		FVulkanCommandBuffer* ActiveCommandBuffer = nullptr;
-
-		FVulkanCommandBuffer* UploadCommandBuffer = nullptr;
-
-		// Will be used to signal the rendering is done, mainly for upload command buffers
-		// FVulkanSemaphore* ActiveCmdBufferSemaphore;
-		//
-		// std::vector<FVulkanSemaphore*> RenderingCompletedSemaphores;
 	};
 }

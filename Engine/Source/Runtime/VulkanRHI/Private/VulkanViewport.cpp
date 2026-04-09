@@ -29,8 +29,7 @@ namespace Doge::VulkanRHI
 		const FVulkanTextureView& View = Viewport->AcquireBackBufferImage();
 		Image = View.Image;
 
-		FVulkanCommandBufferManager* CmdBufferManager = Context.GetCommandBufferManager();
-		FVulkanCommandBuffer* CmdBuffer = CmdBufferManager->GetActiveCommandBuffer();
+		FVulkanCommandBuffer* CmdBuffer = Context.GetCommandBuffer();
 		CmdBuffer->AddWaitSemaphore(Viewport->AcquiredSemaphore);
 	}
 
@@ -98,10 +97,9 @@ namespace Doge::VulkanRHI
 		return RHIBackBuffer;
 	}
 
-	auto FVulkanViewport::Present(const FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
+	auto FVulkanViewport::Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
 	{
-		FVulkanCommandBufferManager* CmdBufferManager = InContext.GetCommandBufferManager();
-		CmdBufferManager->SubmitActiveCmdBufferFromPresent(RenderingDoneSemaphores[AcquiredBackBufferIndex]);
+		InContext.SubmitCmdBufferFromPresent(RenderingDoneSemaphores[AcquiredBackBufferIndex]);
 		Swapchain->Present(&InPresentQueue, RenderingDoneSemaphores[AcquiredBackBufferIndex]);
 		return true;
 	}

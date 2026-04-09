@@ -9,7 +9,7 @@
 
 namespace Doge::VulkanRHI
 {
-	FVulkanCommandBuffer::FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandBufferPool* InPool, bool bInIsUploadOnly)
+	FVulkanCommandBuffer::FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandPool* InPool, bool bInIsUploadOnly)
 		: Device(InDevice)
 		, Pool(InPool)
 		, bIsUploadOnly(bInIsUploadOnly)
@@ -111,13 +111,12 @@ namespace Doge::VulkanRHI
 		WaitSemaphores.clear();
 	}
 
-	FVulkanCommandBufferPool::FVulkanCommandBufferPool(FVulkanDevice& InDevice, FVulkanCommandBufferManager& InManager)
+	FVulkanCommandPool::FVulkanCommandPool(FVulkanDevice& InDevice)
 		: Device(InDevice)
-		, Manager(InManager)
 	{
 	}
 
-	FVulkanCommandBufferPool::~FVulkanCommandBufferPool()
+	FVulkanCommandPool::~FVulkanCommandPool()
 	{
 		for (FVulkanCommandBuffer* CmdBuffer : CmdBuffers)
 		{
@@ -132,7 +131,7 @@ namespace Doge::VulkanRHI
 		Device.GetHandle().destroyCommandPool(Handle);
 	}
 
-	auto FVulkanCommandBufferPool::CreatePool(uint32 QueueFamilyIndex) -> void
+	auto FVulkanCommandPool::CreatePool(uint32 QueueFamilyIndex) -> void
 	{
 		vk::CommandPoolCreateInfo CmdPoolInfo;
 		CmdPoolInfo
@@ -149,7 +148,7 @@ namespace Doge::VulkanRHI
 		}
 	}
 
-	auto FVulkanCommandBufferPool::Create(bool bIsUploadOnly) -> FVulkanCommandBuffer*
+	auto FVulkanCommandPool::Create(bool bIsUploadOnly) -> FVulkanCommandBuffer*
 	{
 		if (!FreeCmdBuffers.empty())
 		{
@@ -164,7 +163,7 @@ namespace Doge::VulkanRHI
 		return CmdBuffer;
 	}
 
-	auto FVulkanCommandBufferPool::FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void
+	auto FVulkanCommandPool::FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void
 	{
 		// Check if the command buffer is ready for begin or need reset, from end to begin
 		for (int32 Index = static_cast<int32>(CmdBuffers.size() - 1); Index >= 0; --Index)
@@ -180,43 +179,5 @@ namespace Doge::VulkanRHI
 				FreeCmdBuffers.push_back(CmdBuffer);
 			}
 		}
-	}
-
-	FVulkanCommandBufferManager::FVulkanCommandBufferManager(FVulkanDevice& InDevice, FVulkanCommandListContext& InContext)
-		: Device(InDevice)
-		, Context(InContext)
-		, Queue(InContext.GetQueue())
-	{
-		Pool = new FVulkanCommandBufferPool(Device, *this);
-		Pool->CreatePool(Queue->GetFamilyIndex());
-		UploadCommandBuffer = Pool->Create(false);
-		ActiveCommandBuffer = Pool->Create(false);
-	}
-
-	FVulkanCommandBufferManager::~FVulkanCommandBufferManager()
-	{
-		UploadCommandBuffer = nullptr;
-		ActiveCommandBuffer = nullptr;
-		delete Pool;
-	}
-
-	auto FVulkanCommandBufferManager::SubmitActiveCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void
-	{
-		ActiveCommandBuffer->End();
-		FVulkanQueue* CurrentQueue = Context.GetQueue();
-		CurrentQueue->Submit(*ActiveCommandBuffer, SignalSemaphore);
-
-		ActiveCommandBuffer = nullptr;
-		PrepareForNewActiveCommandBuffer();
-	}
-
-	auto FVulkanCommandBufferManager::PrepareForNewActiveCommandBuffer() -> void
-	{
-		ActiveCommandBuffer = Pool->Create(false);
-	}
-
-	auto FVulkanCommandBufferManager::FreeUnusedCommandBuffers() const -> void
-	{
-		Pool->FreeUnusedCommandBuffers(Queue);
 	}
 }

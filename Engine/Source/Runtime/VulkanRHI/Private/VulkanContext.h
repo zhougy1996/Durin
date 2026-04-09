@@ -10,6 +10,8 @@ namespace Doge::VulkanRHI
 	class FVulkanGraphicsPipelineState;
 	class FVulkanCommandBufferManager;
 	class FVulkanCommandBuffer;
+	class FVulkanCommandPool;
+	class FVulkanSemaphore;
 
 	class FVulkanCommandListContext : public IRHICommandContext
 	{
@@ -36,22 +38,26 @@ namespace Doge::VulkanRHI
 
 		auto RHIDrawPrimitive() -> void override;
 
-		auto RHISubmitCommandsHint() -> void override;
+		auto SubmitCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void;
 
-		auto GetCommandBufferManager() const -> FVulkanCommandBufferManager* { return CommandBufferManager; }
+		auto RHISubmitCommandsHint() -> void override;
 
 		auto GetCommandBuffer() const -> FVulkanCommandBuffer*;
 
 		auto GetQueue() const -> FVulkanQueue* { return Queue; }
 
 	protected:
+		auto PrepareForNewCommandBuffer() -> void;
+
 		FVulkanDynamicRHI* RHI;
 
 		FVulkanDevice& Device;
 
 		FVulkanQueue* Queue;
 
-		FVulkanCommandBufferManager* CommandBufferManager;
+		FVulkanCommandPool* Pool;
+
+		FVulkanCommandBuffer* CommandBuffer;
 
 		FVulkanGraphicsPipelineState* PendingGfxPipelineState = nullptr;
 	};

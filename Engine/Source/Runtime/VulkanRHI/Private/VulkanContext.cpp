@@ -17,12 +17,14 @@ namespace Doge::VulkanRHI
 		, Device(InDevice)
 		, Queue(InQueue)
 	{
-		CommandBufferManager = new FVulkanCommandBufferManager(Device, *this);
+		Pool = new FVulkanCommandPool(Device);
+		Pool->CreatePool(Queue->GetFamilyIndex());
+		CommandBuffer = Pool->Create(false);
 	}
 
 	FVulkanCommandListContext::~FVulkanCommandListContext()
 	{
-		delete CommandBufferManager;
+		delete Pool;
 	}
 
 	auto FVulkanCommandListContext::RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
@@ -36,13 +38,11 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIEndFrame() -> void
 	{
-		CommandBufferManager->FreeUnusedCommandBuffers();
+		Pool->FreeUnusedCommandBuffers(Queue);
 	}
 
 	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName Name) -> void
 	{
-		FVulkanCommandBuffer* CmdBuffer = CommandBufferManager->GetActiveCommandBuffer();
-
 		const auto* VulkanRT = static_cast<FVulkanTexture*>(RenderPassInfo.ColorRenderTargets[0]);
 
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
@@ -52,13 +52,12 @@ namespace Doge::VulkanRHI
 		RTInfo.NumColorRenderTargets = 1;
 		RTInfo.ColorRenderTargets[0] = RenderPassInfo.ColorRenderTargets[0];
 		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RTInfo);
-		RenderPassManager.BeginRenderPass(*this, Device, CmdBuffer, RenderPassInfo, RenderPass, Framebuffer);
+		RenderPassManager.BeginRenderPass(*this, Device, CommandBuffer, RenderPassInfo, RenderPass, Framebuffer);
 	}
 
 	auto FVulkanCommandListContext::RHIEndRenderPass() -> void
 	{
-		FVulkanCommandBuffer* CmdBuffer = CommandBufferManager->GetActiveCommandBuffer();
-		Device.GetRenderPassManager().EndRenderPass(CmdBuffer);
+		Device.GetRenderPassManager().EndRenderPass(CommandBuffer);
 	}
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void
@@ -67,8 +66,7 @@ namespace Doge::VulkanRHI
 		// Try use a new one each frame
 		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
 		VulkanViewport->WaitForLastFrameCompletion();
-		FVulkanCommandBuffer* CmdBuffer = CommandBufferManager->GetActiveCommandBuffer();
-		CmdBuffer->Begin();
+		CommandBuffer->Begin();
 		// End() is called before submit
 	}
 
@@ -77,35 +75,44 @@ namespace Doge::VulkanRHI
 		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
 
 		FVulkanQueue* PresentQueue = Device.GetPresentQueue();
-		VulkanViewport->Present(*this, *CommandBufferManager->GetActiveCommandBuffer(), *PresentQueue, bLockToVsync);
+		VulkanViewport->Present(*this, *CommandBuffer, *PresentQueue, bLockToVsync);
 	}
 
 	auto FVulkanCommandListContext::RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void
 	{
 		PendingGfxPipelineState = static_cast<FVulkanGraphicsPipelineState*>(&GraphicsPipelineState);
-		FVulkanCommandBuffer* CmdBuffer = CommandBufferManager->GetActiveCommandBuffer();
-
-		PendingGfxPipelineState->Bind(CmdBuffer->GetHandle());
+		PendingGfxPipelineState->Bind(CommandBuffer->GetHandle());
 	}
 
 	auto FVulkanCommandListContext::RHIDrawPrimitive() -> void
 	{
-		FVulkanCommandBuffer* CmdBuffer = CommandBufferManager->GetActiveCommandBuffer();
 		PendingGfxPipelineState->PrepareForDraw(*this);
-		CmdBuffer->GetHandle().draw(3, 1, 0, 0);
+		CommandBuffer->GetHandle().draw(3, 1, 0, 0);
+	}
+
+	auto FVulkanCommandListContext::SubmitCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void
+	{
+		CommandBuffer->End();
+		Queue->Submit(*CommandBuffer, SignalSemaphore);
+		CommandBuffer = nullptr;
+		PrepareForNewCommandBuffer();
 	}
 
 	auto FVulkanCommandListContext::RHISubmitCommandsHint() -> void
 	{
-		FVulkanCommandBuffer* CmdBuffer = CommandBufferManager->GetActiveCommandBuffer();
-		CmdBuffer->End();
+		CommandBuffer->End();
 		FVulkanQueue* GraphicsQueue = Device.GetGraphicsQueue();
-		GraphicsQueue->Submit(*CmdBuffer, nullptr);
+		GraphicsQueue->Submit(*CommandBuffer, nullptr);
 	}
 
 	auto FVulkanCommandListContext::GetCommandBuffer() const -> FVulkanCommandBuffer*
 	{
-		return CommandBufferManager->GetActiveCommandBuffer();
+		return CommandBuffer;
+	}
+
+	auto FVulkanCommandListContext::PrepareForNewCommandBuffer() -> void
+	{
+		CommandBuffer = Pool->Create(false);
 	}
 
 	auto FVulkanDynamicRHI::RHIGetDefaultContext() -> IRHICommandContext*
