@@ -42,7 +42,7 @@ namespace Doge::VulkanRHI
 
 		int32 CurrentImageIndex{};
 
-		FVulkanSemaphore* ImageAcquiredSemaphore;
+		std::array<FVulkanSemaphore*, 3> ImageAcquiredSemaphores;
 
 		FVulkanFence* ImageAcquiredFence{};
 	};

@@ -17,9 +17,9 @@ namespace Doge::VulkanRHI
 		, Device(InDevice)
 		, Queue(InQueue)
 	{
-		Pool = new FVulkanCommandPool(Device);
+		Pool = new FVulkanCommandBufferPool(Device);
 		Pool->CreatePool(Queue->GetFamilyIndex());
-		CommandBuffer = Pool->Create(false);
+		PrepareForNewCommandBuffer();
 	}
 
 	FVulkanCommandListContext::~FVulkanCommandListContext()
@@ -62,12 +62,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void
 	{
-		// TODO: Now only use one command buffer repeatedly
-		// Try use a new one each frame
-		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
-		VulkanViewport->WaitForLastFrameCompletion();
 		CommandBuffer->Begin();
-		// End() is called before submit
 	}
 
 	auto FVulkanCommandListContext::RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void
@@ -112,7 +107,8 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandListContext::PrepareForNewCommandBuffer() -> void
 	{
-		CommandBuffer = Pool->Create(false);
+		check(CommandBuffer == nullptr);
+		CommandBuffer = Pool->Create();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetDefaultContext() -> IRHICommandContext*

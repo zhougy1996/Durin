@@ -104,17 +104,6 @@ namespace Doge::VulkanRHI
 		return true;
 	}
 
-
-	auto FVulkanViewport::WaitForLastFrameCompletion() -> void
-	{
-		FVulkanQueue* Queue = Device.GetGraphicsQueue();
-		LastFrameCommandBuffer = Queue->GetLastSubmittedCommandBuffer();
-		if (LastFrameCommandBuffer)
-		{
-			Device.GetFenceManager().WaitForFence(LastFrameCommandBuffer->GetFence(), UINT64_MAX);
-			Device.GetFenceManager().ResetFence(LastFrameCommandBuffer->GetFence());
-		}
-	}
 	auto FVulkanViewport::GetFormat() const -> EPixelFormat
 	{
 		return PixelFormat;

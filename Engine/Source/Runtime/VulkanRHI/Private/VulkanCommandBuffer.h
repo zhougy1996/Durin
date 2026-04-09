@@ -10,13 +10,13 @@ namespace Doge::VulkanRHI
 	class FVulkanQueue;
 	class FVulkanFence;
 
-	class FVulkanCommandPool;
+	class FVulkanCommandBufferPool;
 	class FVulkanCommandBufferManager;
 
 	class FVulkanCommandBuffer
 	{
 	public:
-		FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandPool* InPool, bool bInIsUploadOnly);
+		FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandBufferPool* InPool);
 
 		~FVulkanCommandBuffer();
 
@@ -26,15 +26,15 @@ namespace Doge::VulkanRHI
 
 		auto RefreshFenceStatus() -> void;
 
-		auto AllocMemory() -> void;
+		auto Reset() -> void;
 
-		auto FreeMemory() -> void;
+		auto SetSubmitted() -> void;
 
 		auto BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer) -> void;
 
 		auto EndRenderPass() -> void;
 
-		auto GetHandle() const -> vk::CommandBuffer { return CommandBuffer; }
+		auto GetHandle() const -> vk::CommandBuffer { return Handle; }
 
 		auto GetFence() const -> FVulkanFence* { return Fence; }
 
@@ -58,35 +58,37 @@ namespace Doge::VulkanRHI
 
 		auto MarkSemaphoresAsSubmitted() -> void;
 
+		auto AllocMemory() -> void;
+
+		auto FreeMemory() -> void;
+
 		FVulkanDevice& Device;
 
-		FVulkanCommandPool* Pool;
+		FVulkanCommandBufferPool* Pool;
 
 		EState State = EState::NotAllocated;
 
-		bool bIsUploadOnly;
-
-		vk::CommandBuffer CommandBuffer;
+		vk::CommandBuffer Handle;
 
 		std::vector<FVulkanSemaphore*> WaitSemaphores;
 
 		FVulkanFence* Fence;
 
 		friend class FVulkanQueue;
-		friend class FVulkanCommandPool;
+		friend class FVulkanCommandBufferPool;
 	};
 
-	class FVulkanCommandPool
+	class FVulkanCommandBufferPool
 	{
 	public:
-		FVulkanCommandPool(FVulkanDevice& InDevice);
-		~FVulkanCommandPool();
+		FVulkanCommandBufferPool(FVulkanDevice& InDevice);
+		~FVulkanCommandBufferPool();
 
 		auto GetHandle() const -> vk::CommandPool { return Handle; }
 
 		auto CreatePool(uint32 QueueFamilyIndex) -> void;
 
-		auto Create(bool bIsUploadOnly) -> FVulkanCommandBuffer*;
+		auto Create() -> FVulkanCommandBuffer*;
 
 		auto FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void;
 

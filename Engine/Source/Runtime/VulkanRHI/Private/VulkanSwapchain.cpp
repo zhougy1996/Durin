@@ -94,8 +94,11 @@ namespace Doge::VulkanRHI
 		Device.SetupPresentQueue(Surface);
 		SwapchainImages = Device.GetHandle().getSwapchainImagesKHR(Swapchain);
 
-		// TODO: use managed semaphore
-		ImageAcquiredSemaphore = new FVulkanSemaphore(Device);
+		// init semaphores
+		for (uint32 i = 0; i < SwapchainImages.size(); i++)
+		{
+			ImageAcquiredSemaphores[i] = new FVulkanSemaphore(Device);
+		}
 	}
 
 	FVulkanSwapchain::~FVulkanSwapchain()
@@ -111,14 +114,15 @@ namespace Doge::VulkanRHI
 	auto FVulkanSwapchain::AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32
 	{
 		// TODO: Semaphore
-		vk::ResultValue<uint32> Result = Device.GetHandle().acquireNextImageKHR(Swapchain, UINT64_MAX, ImageAcquiredSemaphore->GetHandle());
+		FVulkanSemaphore* CurrentImageAcquiredSemaphore = ImageAcquiredSemaphores[GFrameCounterRenderThread % ImageAcquiredSemaphores.size()];
+		vk::ResultValue<uint32> Result = Device.GetHandle().acquireNextImageKHR(Swapchain, UINT64_MAX, CurrentImageAcquiredSemaphore->GetHandle());
 		if (Result.result != vk::Result::eSuccess)
 		{
 			CurrentImageIndex = -1;
 			DOGE_ERROR("Failed to acquire swap chain image: {}", vk::to_string(Result.result));
 		}
 		CurrentImageIndex = Result.value;
-		*OutImageAcquiredSemaphore = ImageAcquiredSemaphore;
+		*OutImageAcquiredSemaphore = CurrentImageAcquiredSemaphore;
 
 		return CurrentImageIndex;
 	}
@@ -142,7 +146,10 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanSwapchain::Destroy() -> void
 	{
-		delete ImageAcquiredSemaphore;
+		for (FVulkanSemaphore* Semaphore : ImageAcquiredSemaphores)
+		{
+			delete Semaphore;
+		}
 		Device.GetHandle().destroySwapchainKHR(Swapchain);
 		Instance.destroySurfaceKHR(Surface);
 		Surface = nullptr;

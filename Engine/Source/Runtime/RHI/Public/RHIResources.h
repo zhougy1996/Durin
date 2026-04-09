@@ -418,7 +418,6 @@ namespace Doge
 		}
 		RHI_API virtual auto Tick(float DeltaTime) -> void {};
 		RHI_API virtual auto GetBackBuffer(FRHICommandListImmediate& RHICmdList) -> TRefCountPtr<FRHITexture> = 0;
-		RHI_API virtual auto WaitForLastFrameCompletion() -> void = 0;
 		RHI_API virtual auto GetFormat() const -> EPixelFormat = 0;
 	};
 

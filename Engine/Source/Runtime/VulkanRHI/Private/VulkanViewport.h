@@ -51,8 +51,6 @@ namespace Doge::VulkanRHI
 
 		auto Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool;
 
-		auto WaitForLastFrameCompletion() -> void override;
-
 		auto GetFormat() const -> EPixelFormat override;
 
 		auto GetSwapchainImageFormat() const -> vk::Format;

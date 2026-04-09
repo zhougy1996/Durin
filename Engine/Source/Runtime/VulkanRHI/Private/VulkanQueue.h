@@ -20,8 +20,6 @@ namespace Doge::VulkanRHI
 
 		auto GetIndex() const -> uint32;
 
-		auto GetLastSubmittedCommandBuffer() const -> FVulkanCommandBuffer* { return LastSubmittedCommandBuffer; }
-
 	private:
 		vk::Queue Queue;
 
@@ -29,7 +27,5 @@ namespace Doge::VulkanRHI
 		uint32 QueueIndex;
 
 		FVulkanDevice* Device;
-
-		FVulkanCommandBuffer* LastSubmittedCommandBuffer = nullptr;
 	};
 }

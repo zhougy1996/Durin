@@ -56,7 +56,7 @@ namespace Doge::VulkanRHI
 		Queue.submit(submitInfo, Fence->GetHandle());
 
 		InCmdBuffer.MarkSemaphoresAsSubmitted();
-		LastSubmittedCommandBuffer = &InCmdBuffer;
+		InCmdBuffer.SetSubmitted();
 	}
 
 	auto FVulkanQueue::GetHandle() const -> vk::Queue

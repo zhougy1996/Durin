@@ -9,10 +9,9 @@
 
 namespace Doge::VulkanRHI
 {
-	FVulkanCommandBuffer::FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandPool* InPool, bool bInIsUploadOnly)
+	FVulkanCommandBuffer::FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandBufferPool* InPool)
 		: Device(InDevice)
 		, Pool(InPool)
-		, bIsUploadOnly(bInIsUploadOnly)
 	{
 		AllocMemory();
 		Fence = Device.GetFenceManager().AllocateFence(false);
@@ -21,18 +20,25 @@ namespace Doge::VulkanRHI
 	FVulkanCommandBuffer::~FVulkanCommandBuffer()
 	{
 		Device.GetFenceManager().ReleaseFence(Fence);
-		Device.GetHandle().freeCommandBuffers(Pool->GetHandle(), CommandBuffer);
+		if (State != EState::NotAllocated)
+		{
+			FreeMemory();
+		}
 	}
 
 	auto FVulkanCommandBuffer::Begin() -> void
 	{
+		check(State == EState::ReadyForBegin);
 		vk::CommandBufferBeginInfo BeginInfo;
-		CommandBuffer.begin(BeginInfo);
+		Handle.begin(BeginInfo);
+		State = EState::IsInsideBegin;
 	}
 
 	auto FVulkanCommandBuffer::End() -> void
 	{
-		CommandBuffer.end();
+		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
+		Handle.end();
+		State = EState::HasEnded;
 	}
 
 	auto FVulkanCommandBuffer::RefreshFenceStatus() -> void
@@ -61,7 +67,7 @@ namespace Doge::VulkanRHI
 			.setCommandBufferCount(1)
 			.setLevel(vk::CommandBufferLevel::ePrimary);
 
-		CommandBuffer = Device.GetHandle().allocateCommandBuffers(AllocInfo)[0];
+		Handle = Device.GetHandle().allocateCommandBuffers(AllocInfo)[0];
 
 		State = EState::ReadyForBegin;
 	}
@@ -69,10 +75,26 @@ namespace Doge::VulkanRHI
 	auto FVulkanCommandBuffer::FreeMemory() -> void
 	{
 		check(State != EState::NotAllocated);
-
-		Device.GetHandle().freeCommandBuffers(Pool->GetHandle(), CommandBuffer);
-
+		check(Handle != VK_NULL_HANDLE);
+		Device.GetHandle().freeCommandBuffers(Pool->GetHandle(), Handle);
 		State = EState::NotAllocated;
+	}
+
+	auto FVulkanCommandBuffer::Reset() -> void
+	{
+		check(State != EState::NotAllocated);
+		check(Handle != nullptr);
+		vk::CommandBufferResetFlags ResetFlags = vk::CommandBufferResetFlagBits::eReleaseResources;
+		Handle.reset(ResetFlags);
+		Device.GetFenceManager().ResetFence(Fence);
+		WaitSemaphores.clear();
+		State = EState::ReadyForBegin;
+	}
+
+	auto FVulkanCommandBuffer::SetSubmitted() -> void
+	{
+		check(State == EState::HasEnded);
+		State = EState::Submitted;
 	}
 
 	auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer) -> void
@@ -88,12 +110,12 @@ namespace Doge::VulkanRHI
 			.setClearValues(ClearColorValue);
 
 		// Begin render pass
-		CommandBuffer.beginRenderPass(BeginInfo, vk::SubpassContents::eInline);
+		Handle.beginRenderPass(BeginInfo, vk::SubpassContents::eInline);
 	}
 
 	auto FVulkanCommandBuffer::EndRenderPass() -> void
 	{
-		CommandBuffer.endRenderPass();
+		Handle.endRenderPass();
 	}
 
 	auto FVulkanCommandBuffer::IsSubmitted() const -> bool
@@ -111,12 +133,12 @@ namespace Doge::VulkanRHI
 		WaitSemaphores.clear();
 	}
 
-	FVulkanCommandPool::FVulkanCommandPool(FVulkanDevice& InDevice)
+	FVulkanCommandBufferPool::FVulkanCommandBufferPool(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{
 	}
 
-	FVulkanCommandPool::~FVulkanCommandPool()
+	FVulkanCommandBufferPool::~FVulkanCommandBufferPool()
 	{
 		for (FVulkanCommandBuffer* CmdBuffer : CmdBuffers)
 		{
@@ -131,24 +153,17 @@ namespace Doge::VulkanRHI
 		Device.GetHandle().destroyCommandPool(Handle);
 	}
 
-	auto FVulkanCommandPool::CreatePool(uint32 QueueFamilyIndex) -> void
+	auto FVulkanCommandBufferPool::CreatePool(uint32 QueueFamilyIndex) -> void
 	{
 		vk::CommandPoolCreateInfo CmdPoolInfo;
 		CmdPoolInfo
 			.setQueueFamilyIndex(QueueFamilyIndex)
 			.setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
 
-		try
-		{
-			Handle = Device.GetHandle().createCommandPool(CmdPoolInfo);
-		}
-		catch (const vk::SystemError& Error)
-		{
-			DOGE_ERROR("Vulkan", "Failed to create vulkan command pool: {}", Error.what());
-		}
+		Handle = Device.GetHandle().createCommandPool(CmdPoolInfo);
 	}
 
-	auto FVulkanCommandPool::Create(bool bIsUploadOnly) -> FVulkanCommandBuffer*
+	auto FVulkanCommandBufferPool::Create() -> FVulkanCommandBuffer*
 	{
 		if (!FreeCmdBuffers.empty())
 		{
@@ -158,12 +173,12 @@ namespace Doge::VulkanRHI
 			return CmdBuffer;
 		}
 
-		FVulkanCommandBuffer* CmdBuffer = new FVulkanCommandBuffer(Device, this, bIsUploadOnly);
+		FVulkanCommandBuffer* CmdBuffer = new FVulkanCommandBuffer(Device, this);
 		CmdBuffers.push_back(CmdBuffer);
 		return CmdBuffer;
 	}
 
-	auto FVulkanCommandPool::FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void
+	auto FVulkanCommandBufferPool::FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void
 	{
 		// Check if the command buffer is ready for begin or need reset, from end to begin
 		for (int32 Index = static_cast<int32>(CmdBuffers.size() - 1); Index >= 0; --Index)
@@ -172,7 +187,7 @@ namespace Doge::VulkanRHI
 			CmdBuffer->RefreshFenceStatus();
 			if (CmdBuffer->State == FVulkanCommandBuffer::EState::ReadyForBegin || CmdBuffer->State == FVulkanCommandBuffer::EState::NeedReset)
 			{
-				// remove at swap
+				CmdBuffer->Reset();
 				std::swap(CmdBuffers[Index], CmdBuffers.back());
 				CmdBuffers.pop_back();
 
