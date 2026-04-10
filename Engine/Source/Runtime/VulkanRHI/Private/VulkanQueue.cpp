@@ -16,7 +16,7 @@ namespace Doge::VulkanRHI
 
 	FVulkanQueue::~FVulkanQueue() = default;
 
-	auto FVulkanQueue::Submit(FVulkanCommandBuffer& InCmdBuffer, FVulkanSemaphore* InSignalSemaphores, uint32 NumSignalSemaphores /* = 1*/) -> void
+	auto FVulkanQueue::Submit(FVulkanCommandBuffer& InCmdBuffer, std::vector<FVulkanSemaphore*>& WaitSemaphores, FVulkanSemaphore* InSignalSemaphores, uint32 NumSignalSemaphores /* = 1*/) -> void
 	{
 		vk::CommandBuffer Buffer = InCmdBuffer.GetHandle();
 
@@ -38,7 +38,6 @@ namespace Doge::VulkanRHI
 		}
 
 		// Set wait semaphores
-		std::vector<FVulkanSemaphore*>& WaitSemaphores = InCmdBuffer.WaitSemaphores;
 		std::vector<vk::Semaphore> WaitSemaphoresArray{WaitSemaphores.size()};
 		if (!WaitSemaphores.empty())
 		{
@@ -55,7 +54,6 @@ namespace Doge::VulkanRHI
 		// Submit the command buffer
 		Queue.submit(submitInfo, Fence->GetHandle());
 
-		InCmdBuffer.MarkSemaphoresAsSubmitted();
 		InCmdBuffer.SetSubmitted();
 	}
 

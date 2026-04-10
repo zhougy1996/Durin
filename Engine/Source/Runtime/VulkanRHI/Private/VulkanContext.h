@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHIContext.h"
+#include "VulkanMemory.h"
 
 namespace Doge::VulkanRHI
 {
@@ -44,6 +45,8 @@ namespace Doge::VulkanRHI
 
 		auto GetCommandBuffer() const -> FVulkanCommandBuffer*;
 
+		auto AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void;
+
 		auto GetQueue() const -> FVulkanQueue* { return Queue; }
 
 	protected:
@@ -58,6 +61,8 @@ namespace Doge::VulkanRHI
 		FVulkanCommandBufferPool* Pool = nullptr;
 
 		FVulkanCommandBuffer* CommandBuffer = nullptr;
+
+		std::vector<FVulkanSemaphore*> WaitSemaphores;
 
 		FVulkanGraphicsPipelineState* PendingGfxPipelineState = nullptr;
 	};

@@ -24,7 +24,7 @@ namespace Doge::VulkanRHI
 
 	auto ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& AvailablePresentModes) -> vk::PresentModeKHR
 	{
-		return vk::PresentModeKHR::eFifo;
+		return vk::PresentModeKHR::eFifo; // Provides VSync.
 	}
 
 	auto ChooseSwapExtent(const vk::SurfaceCapabilitiesKHR& Capabilities, uint32 Width, uint32 Height) -> vk::Extent2D
@@ -95,9 +95,16 @@ namespace Doge::VulkanRHI
 		SwapchainImages = Device.GetHandle().getSwapchainImagesKHR(Swapchain);
 
 		// init semaphores
+		ImageAcquiredSemaphores.resize(SwapchainImages.size());
 		for (uint32 i = 0; i < SwapchainImages.size(); i++)
 		{
 			ImageAcquiredSemaphores[i] = new FVulkanSemaphore(Device);
+		}
+
+		// Init fences
+		for (uint32 i = 0; i < SwapchainImages.size(); i++)
+		{
+			ImageAcquiredFences.push_back(Device.GetFenceManager().AllocateFence(false));
 		}
 	}
 
@@ -113,16 +120,23 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanSwapchain::AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32
 	{
-		// TODO: Semaphore
-		FVulkanSemaphore* CurrentImageAcquiredSemaphore = ImageAcquiredSemaphores[GFrameCounterRenderThread % ImageAcquiredSemaphores.size()];
-		vk::ResultValue<uint32> Result = Device.GetHandle().acquireNextImageKHR(Swapchain, UINT64_MAX, CurrentImageAcquiredSemaphore->GetHandle());
+		FVulkanSemaphore* CurrentSemaphore = ImageAcquiredSemaphores[NextSemaphoreIndex];
+		FVulkanFence* CurrentFence = ImageAcquiredFences[NextSemaphoreIndex];
+		NextSemaphoreIndex = (NextSemaphoreIndex + 1) % ImageAcquiredSemaphores.size();
+
+		auto& FenceManager = Device.GetFenceManager();
+		FenceManager.ResetFence(CurrentFence);
+
+		vk::ResultValue<uint32> Result = Device.GetHandle().acquireNextImageKHR(Swapchain, UINT64_MAX, CurrentSemaphore->GetHandle(), CurrentFence->GetHandle());
 		if (Result.result != vk::Result::eSuccess)
 		{
 			CurrentImageIndex = -1;
 			DOGE_ERROR("Failed to acquire swap chain image: {}", vk::to_string(Result.result));
 		}
 		CurrentImageIndex = Result.value;
-		*OutImageAcquiredSemaphore = CurrentImageAcquiredSemaphore;
+		*OutImageAcquiredSemaphore = CurrentSemaphore;
+
+		FenceManager.WaitForFence(CurrentFence, UINT64_MAX);
 
 		return CurrentImageIndex;
 	}
@@ -132,7 +146,7 @@ namespace Doge::VulkanRHI
 		vk::PresentInfoKHR PresentInfo;
 		auto Semaphore = BackBufferRenderingDoneSemaphore->GetHandle();
 
-		uint32 ImageIndex = static_cast<uint32>(CurrentImageIndex);
+		uint32 ImageIndex = CurrentImageIndex;
 		PresentInfo
 			.setWaitSemaphores(Semaphore)
 			.setSwapchains(Swapchain)
@@ -149,6 +163,11 @@ namespace Doge::VulkanRHI
 		for (FVulkanSemaphore* Semaphore : ImageAcquiredSemaphores)
 		{
 			delete Semaphore;
+		}
+
+		for (FVulkanFence* Fence : ImageAcquiredFences)
+		{
+			Device.GetFenceManager().ReleaseFence(Fence);
 		}
 		Device.GetHandle().destroySwapchainKHR(Swapchain);
 		Instance.destroySurfaceKHR(Surface);

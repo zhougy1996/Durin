@@ -87,7 +87,7 @@ namespace Doge::VulkanRHI
 	auto FVulkanCommandListContext::SubmitCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void
 	{
 		CommandBuffer->End();
-		Queue->Submit(*CommandBuffer, SignalSemaphore);
+		Queue->Submit(*CommandBuffer, WaitSemaphores, SignalSemaphore);
 		CommandBuffer = nullptr;
 		PrepareForNewCommandBuffer();
 	}
@@ -99,6 +99,11 @@ namespace Doge::VulkanRHI
 	auto FVulkanCommandListContext::GetCommandBuffer() const -> FVulkanCommandBuffer*
 	{
 		return CommandBuffer;
+	}
+
+	auto FVulkanCommandListContext::AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void
+	{
+		WaitSemaphores.push_back(Semaphore);
 	}
 
 	auto FVulkanCommandListContext::PrepareForNewCommandBuffer() -> void

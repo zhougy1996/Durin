@@ -91,7 +91,6 @@ namespace Doge::VulkanRHI
 		vk::CommandBufferResetFlags ResetFlags = vk::CommandBufferResetFlagBits::eReleaseResources;
 		Handle.reset(ResetFlags);
 		Device.GetFenceManager().ResetFence(Fence);
-		WaitSemaphores.clear();
 		State = EState::ReadyForBegin;
 	}
 
@@ -125,16 +124,6 @@ namespace Doge::VulkanRHI
 	auto FVulkanCommandBuffer::IsSubmitted() const -> bool
 	{
 		return State == EState::Submitted;
-	}
-
-	auto FVulkanCommandBuffer::AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void
-	{
-		WaitSemaphores.push_back(Semaphore);
-	}
-
-	auto FVulkanCommandBuffer::MarkSemaphoresAsSubmitted() -> void
-	{
-		WaitSemaphores.clear();
 	}
 
 	FVulkanCommandBufferPool::FVulkanCommandBufferPool(FVulkanDevice& InDevice)
@@ -201,4 +190,4 @@ namespace Doge::VulkanRHI
 		FreeCmdBuffers.insert(FreeCmdBuffers.end(), RangeToFree.begin(), RangeToFree.end());
 		CmdBuffers.erase(RangeToFree.begin(), RangeToFree.end());
 	}
-} // namespace Doge::VulkanRHI
+}

@@ -40,10 +40,12 @@ namespace Doge::VulkanRHI
 
 		vk::SurfaceKHR Surface;
 
-		int32 CurrentImageIndex{};
+		uint32 CurrentImageIndex{};
 
-		std::array<FVulkanSemaphore*, 3> ImageAcquiredSemaphores;
+		uint32 NextSemaphoreIndex{};
 
-		FVulkanFence* ImageAcquiredFence{};
+		std::vector<FVulkanSemaphore*> ImageAcquiredSemaphores;
+
+		std::vector<FVulkanFence*> ImageAcquiredFences;
 	};
 }

@@ -42,8 +42,6 @@ namespace Doge::VulkanRHI
 
 		auto IsReadyForBegin() const -> bool { return State == EState::ReadyForBegin; }
 
-		auto AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void;
-
 		enum class EState : uint8
 		{
 			ReadyForBegin,
@@ -56,10 +54,6 @@ namespace Doge::VulkanRHI
 		};
 
 	private:
-		auto GetWaitSemaphores() const -> const std::vector<FVulkanSemaphore*>& { return WaitSemaphores; }
-
-		auto MarkSemaphoresAsSubmitted() -> void;
-
 		auto AllocMemory() -> void;
 
 		auto FreeMemory() -> void;
@@ -71,8 +65,6 @@ namespace Doge::VulkanRHI
 		EState State = EState::NotAllocated;
 
 		vk::CommandBuffer Handle;
-
-		std::vector<FVulkanSemaphore*> WaitSemaphores;
 
 		FVulkanFence* Fence;
 
