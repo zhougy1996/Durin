@@ -73,8 +73,6 @@ namespace Doge::VulkanRHI
 
 		std::vector<FVulkanTextureView> TextureViews;
 
-		FVulkanCommandBuffer* LastFrameCommandBuffer = nullptr;
-
 		// These semaphores will be signaled when rendering to the corresponding swapchain image is done, and will be waited on before presenting that image.
 		std::vector<FVulkanSemaphore*> RenderingDoneSemaphores;
 

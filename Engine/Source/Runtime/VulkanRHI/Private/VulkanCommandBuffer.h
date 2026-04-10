@@ -40,6 +40,8 @@ namespace Doge::VulkanRHI
 
 		auto IsSubmitted() const -> bool;
 
+		auto IsReadyForBegin() const -> bool { return State == EState::ReadyForBegin; }
+
 		auto AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void;
 
 		enum class EState : uint8

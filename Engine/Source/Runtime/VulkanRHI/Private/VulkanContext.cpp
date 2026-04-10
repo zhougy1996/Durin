@@ -62,7 +62,6 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void
 	{
-		CommandBuffer->Begin();
 	}
 
 	auto FVulkanCommandListContext::RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void
@@ -95,9 +94,6 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISubmitCommandsHint() -> void
 	{
-		CommandBuffer->End();
-		FVulkanQueue* GraphicsQueue = Device.GetGraphicsQueue();
-		GraphicsQueue->Submit(*CommandBuffer, nullptr);
 	}
 
 	auto FVulkanCommandListContext::GetCommandBuffer() const -> FVulkanCommandBuffer*
@@ -109,6 +105,7 @@ namespace Doge::VulkanRHI
 	{
 		check(CommandBuffer == nullptr);
 		CommandBuffer = Pool->Create();
+		CommandBuffer->Begin();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetDefaultContext() -> IRHICommandContext*

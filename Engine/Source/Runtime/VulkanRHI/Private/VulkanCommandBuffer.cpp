@@ -83,6 +83,10 @@ namespace Doge::VulkanRHI
 	auto FVulkanCommandBuffer::Reset() -> void
 	{
 		check(State != EState::NotAllocated);
+		if (State == EState::ReadyForBegin)
+		{
+			return;
+		}
 		check(Handle != nullptr);
 		vk::CommandBufferResetFlags ResetFlags = vk::CommandBufferResetFlagBits::eReleaseResources;
 		Handle.reset(ResetFlags);
@@ -165,34 +169,36 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandBufferPool::Create() -> FVulkanCommandBuffer*
 	{
+		FVulkanCommandBuffer* CmdBuffer = nullptr;
+
 		if (!FreeCmdBuffers.empty())
 		{
-			FVulkanCommandBuffer* CmdBuffer = FreeCmdBuffers.back();
+			CmdBuffer = FreeCmdBuffers.back();
 			FreeCmdBuffers.pop_back();
 			CmdBuffers.push_back(CmdBuffer);
+
 			return CmdBuffer;
 		}
 
-		FVulkanCommandBuffer* CmdBuffer = new FVulkanCommandBuffer(Device, this);
+		CmdBuffer = new FVulkanCommandBuffer(Device, this);
 		CmdBuffers.push_back(CmdBuffer);
 		return CmdBuffer;
 	}
 
 	auto FVulkanCommandBufferPool::FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void
 	{
-		// Check if the command buffer is ready for begin or need reset, from end to begin
-		for (int32 Index = static_cast<int32>(CmdBuffers.size() - 1); Index >= 0; --Index)
-		{
-			FVulkanCommandBuffer* CmdBuffer = CmdBuffers[Index];
+		auto RangeToFree = std::ranges::partition(CmdBuffers, [](FVulkanCommandBuffer* CmdBuffer) {
 			CmdBuffer->RefreshFenceStatus();
 			if (CmdBuffer->State == FVulkanCommandBuffer::EState::ReadyForBegin || CmdBuffer->State == FVulkanCommandBuffer::EState::NeedReset)
 			{
 				CmdBuffer->Reset();
-				std::swap(CmdBuffers[Index], CmdBuffers.back());
-				CmdBuffers.pop_back();
-
-				FreeCmdBuffers.push_back(CmdBuffer);
+				check(CmdBuffer->IsReadyForBegin());
+				return false;
 			}
-		}
+			return true;
+		});
+
+		FreeCmdBuffers.insert(FreeCmdBuffers.end(), RangeToFree.begin(), RangeToFree.end());
+		CmdBuffers.erase(RangeToFree.begin(), RangeToFree.end());
 	}
-}
+} // namespace Doge::VulkanRHI
