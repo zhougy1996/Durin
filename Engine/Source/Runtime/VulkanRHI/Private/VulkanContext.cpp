@@ -9,6 +9,7 @@
 #include "VulkanRenderPass.h"
 #include "VulkanViewport.h"
 #include "VulkanQueue.h"
+#include "FVulkanSubmission.h"
 
 namespace Doge::VulkanRHI
 {
@@ -19,7 +20,6 @@ namespace Doge::VulkanRHI
 	{
 		Pool = new FVulkanCommandBufferPool(Device);
 		Pool->CreatePool(Queue->GetFamilyIndex());
-		PrepareForNewCommandBuffer();
 	}
 
 	FVulkanCommandListContext::~FVulkanCommandListContext()
@@ -52,12 +52,12 @@ namespace Doge::VulkanRHI
 		RTInfo.NumColorRenderTargets = 1;
 		RTInfo.ColorRenderTargets[0] = RenderPassInfo.ColorRenderTargets[0];
 		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RTInfo);
-		RenderPassManager.BeginRenderPass(*this, Device, CommandBuffer, RenderPassInfo, RenderPass, Framebuffer);
+		RenderPassManager.BeginRenderPass(*this, Device, GetCommandBuffer(), RenderPassInfo, RenderPass, Framebuffer);
 	}
 
 	auto FVulkanCommandListContext::RHIEndRenderPass() -> void
 	{
-		Device.GetRenderPassManager().EndRenderPass(CommandBuffer);
+		Device.GetRenderPassManager().EndRenderPass(GetCommandBuffer());
 	}
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void
@@ -69,36 +69,34 @@ namespace Doge::VulkanRHI
 		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
 
 		FVulkanQueue* PresentQueue = Device.GetPresentQueue();
-		VulkanViewport->Present(*this, *CommandBuffer, *PresentQueue, bLockToVsync);
+		VulkanViewport->Present(*this, *GetCommandBuffer(), *PresentQueue, bLockToVsync);
 	}
 
 	auto FVulkanCommandListContext::RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void
 	{
 		PendingGfxPipelineState = static_cast<FVulkanGraphicsPipelineState*>(&GraphicsPipelineState);
-		PendingGfxPipelineState->Bind(CommandBuffer->GetHandle());
+		PendingGfxPipelineState->Bind(GetCommandBuffer()->GetHandle());
 	}
 
 	auto FVulkanCommandListContext::RHIDrawPrimitive() -> void
 	{
 		PendingGfxPipelineState->PrepareForDraw(*this);
-		CommandBuffer->GetHandle().draw(3, 1, 0, 0);
+		GetCommandBuffer()->GetHandle().draw(3, 1, 0, 0);
 	}
 
 	auto FVulkanCommandListContext::SubmitCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void
 	{
-		CommandBuffer->End();
-		Queue->Submit(*CommandBuffer, WaitSemaphores, SignalSemaphore);
-		CommandBuffer = nullptr;
-		PrepareForNewCommandBuffer();
+		GetCommandBuffer()->End();
+		// Queue->Submit(*CommandBuffer, WaitSemaphores, SignalSemaphore);
 	}
 
 	auto FVulkanCommandListContext::RHISubmitCommandsHint() -> void
 	{
 	}
 
-	auto FVulkanCommandListContext::GetCommandBuffer() const -> FVulkanCommandBuffer*
+	auto FVulkanCommandListContext::GetCommandBuffer() -> FVulkanCommandBuffer*
 	{
-		return CommandBuffer;
+		return GetPayload().CommandBuffers.back();
 	}
 
 	auto FVulkanCommandListContext::AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void
@@ -106,11 +104,22 @@ namespace Doge::VulkanRHI
 		WaitSemaphores.push_back(Semaphore);
 	}
 
-	auto FVulkanCommandListContext::PrepareForNewCommandBuffer() -> void
+	auto FVulkanCommandListContext::PrepareNewCommandBuffer(FVulkanPayload& InPayLoad) -> void
 	{
-		check(CommandBuffer == nullptr);
-		CommandBuffer = Pool->Create();
-		CommandBuffer->Begin();
+		check(InPayLoad.CommandBuffers.empty());
+		FVulkanCommandBuffer* NewCmdBuffer = Pool->Create();
+		InPayLoad.CommandBuffers.push_back(NewCmdBuffer);
+		NewCmdBuffer->Begin();
+	}
+
+	auto FVulkanCommandListContext::GetPayload() -> FVulkanPayload&
+	{
+		// Currently only support one payload per submit.
+		if (PayLoads.empty())
+		{
+			PayLoads.push_back(new FVulkanPayload(*Queue));
+		}
+		return *PayLoads.back();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetDefaultContext() -> IRHICommandContext*

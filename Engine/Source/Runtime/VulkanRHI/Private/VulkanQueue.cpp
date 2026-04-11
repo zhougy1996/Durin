@@ -3,6 +3,7 @@
 #include "VulkanDevice.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanMemory.h"
+#include "FVulkanSubmission.h"
 
 namespace Doge::VulkanRHI
 {
@@ -57,6 +58,59 @@ namespace Doge::VulkanRHI
 		InCmdBuffer.SetSubmitted();
 	}
 
+	struct FVulkanSubmitInfoStorage
+	{
+		std::vector<vk::CommandBuffer> CmdBuffers;
+		std::vector<vk::Semaphore> WaitSemaphores;
+		std::vector<vk::Semaphore> SignalSemaphores;
+	};
+
+	auto FVulkanQueue::SubmitPayloads(std::vector<FVulkanPayload*> Payloads)
+	{
+		std::vector<FVulkanSubmitInfoStorage> SubmitInfoStorages;
+		SubmitInfoStorages.reserve(Payloads.size());
+		vk::Fence Fence = VK_NULL_HANDLE;
+
+		std::vector<vk::SubmitInfo> SubmitInfos;
+		SubmitInfos.reserve(Payloads.size());
+
+		for (FVulkanPayload* Payload : Payloads)
+		{
+			auto& Storage = SubmitInfoStorages.emplace_back();
+			vk::SubmitInfo SubmitInfo;
+
+			auto& WaitSemaphores = Storage.WaitSemaphores;
+			auto& CmdBuffers = Storage.CmdBuffers;
+			auto& SignalSemaphores = Storage.SignalSemaphores;
+
+			std::ranges::transform(Payload->WaitSemaphores, std::back_inserter(WaitSemaphores), &FVulkanSemaphore::GetHandle);
+			SubmitInfo.setWaitDstStageMask(Payload->WaitFlags);
+			SubmitInfo.setWaitSemaphores(WaitSemaphores);
+
+			std::ranges::transform(Payload->CommandBuffers, std::back_inserter(CmdBuffers), &FVulkanCommandBuffer::GetHandle);
+			std::ranges::for_each(Payload->CommandBuffers, &FVulkanCommandBuffer::SetSubmitted);
+			SubmitInfo.setCommandBuffers(CmdBuffers);
+
+			std::ranges::transform(Payload->SignalSemaphores, std::back_inserter(SignalSemaphores), &FVulkanSemaphore::GetHandle);
+			SubmitInfo.setSignalSemaphores(SignalSemaphores);
+
+			if (Payload->Fence)
+			{
+				check(Fence == VK_NULL_HANDLE); // Only one fence per submit.
+				Fence = Payload->Fence->GetHandle();
+			}
+			SubmitInfos.push_back(SubmitInfo);
+		}
+
+		Queue.submit(SubmitInfos, Fence);
+
+		for (const FVulkanPayload* Payload : Payloads)
+		{
+			delete Payload;
+		}
+		Payloads.clear();
+	}
+
 	auto FVulkanQueue::GetHandle() const -> vk::Queue
 	{
 		return Queue;
@@ -71,4 +125,4 @@ namespace Doge::VulkanRHI
 	{
 		return QueueIndex;
 	}
-}
+} // namespace Doge::VulkanRHI

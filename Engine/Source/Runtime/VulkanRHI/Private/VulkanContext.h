@@ -13,6 +13,7 @@ namespace Doge::VulkanRHI
 	class FVulkanCommandBuffer;
 	class FVulkanCommandBufferPool;
 	class FVulkanSemaphore;
+	class FVulkanPayload;
 
 	class FVulkanCommandListContext : public IRHICommandContext
 	{
@@ -43,14 +44,16 @@ namespace Doge::VulkanRHI
 
 		auto RHISubmitCommandsHint() -> void override;
 
-		auto GetCommandBuffer() const -> FVulkanCommandBuffer*;
+		auto GetCommandBuffer() -> FVulkanCommandBuffer*;
 
 		auto AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void;
 
 		auto GetQueue() const -> FVulkanQueue* { return Queue; }
 
 	protected:
-		auto PrepareForNewCommandBuffer() -> void;
+		auto PrepareNewCommandBuffer(FVulkanPayload& InPayLoad) -> void;
+
+		auto GetPayload() -> FVulkanPayload&;
 
 		FVulkanDynamicRHI* RHI = nullptr;
 
@@ -60,10 +63,10 @@ namespace Doge::VulkanRHI
 
 		FVulkanCommandBufferPool* Pool = nullptr;
 
-		FVulkanCommandBuffer* CommandBuffer = nullptr;
-
 		std::vector<FVulkanSemaphore*> WaitSemaphores;
 
 		FVulkanGraphicsPipelineState* PendingGfxPipelineState = nullptr;
+
+		std::vector<FVulkanPayload*> PayLoads;
 	};
 }

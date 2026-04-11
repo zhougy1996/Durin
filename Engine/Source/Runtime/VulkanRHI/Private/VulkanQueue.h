@@ -5,6 +5,7 @@ namespace Doge::VulkanRHI
 	class FVulkanDevice;
 	class FVulkanCommandBuffer;
 	class FVulkanSemaphore;
+	class FVulkanPayload;
 
 	class FVulkanQueue
 	{
@@ -13,6 +14,8 @@ namespace Doge::VulkanRHI
 		~FVulkanQueue();
 
 		auto Submit(FVulkanCommandBuffer& InCmdBuffer, std::vector<FVulkanSemaphore*>& WaitSemaphores, FVulkanSemaphore* InSignalSemaphores, uint32 NumSignalSemaphores = 1) -> void;
+
+		auto SubmitPayloads(std::vector<FVulkanPayload*> Payloads);
 
 		auto GetHandle() const -> vk::Queue;
 
