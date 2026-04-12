@@ -26,10 +26,6 @@ namespace Doge
 		// This function will set the context, so call this before any other command
 		auto SwitchPipeline(ERHIPipeline Pipeline) -> void;
 
-		auto BeginFrame() -> void;
-
-		auto EndFrame() -> void;
-
 		auto BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void;
 
 		auto EndRenderPass() -> void;

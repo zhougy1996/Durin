@@ -4,6 +4,7 @@
 #include "VulkanCommandBuffer.h"
 #include "VulkanMemory.h"
 #include "FVulkanSubmission.h"
+#include "VulkanRHIPrivate.h"
 
 namespace Doge::VulkanRHI
 {
@@ -50,10 +51,8 @@ namespace Doge::VulkanRHI
 		}
 		WaitSemaphores.clear();
 
-		FVulkanFence* Fence = InCmdBuffer.GetFence();
-
 		// Submit the command buffer
-		Queue.submit(submitInfo, Fence->GetHandle());
+		Queue.submit(submitInfo, nullptr);
 
 		InCmdBuffer.SetSubmitted();
 	}
@@ -65,7 +64,7 @@ namespace Doge::VulkanRHI
 		std::vector<vk::Semaphore> SignalSemaphores;
 	};
 
-	auto FVulkanQueue::SubmitPayloads(std::vector<FVulkanPayload*> Payloads)
+	auto FVulkanQueue::SubmitPayloads(std::vector<FVulkanPayload*>& Payloads) -> void
 	{
 		std::vector<FVulkanSubmitInfoStorage> SubmitInfoStorages;
 		SubmitInfoStorages.reserve(Payloads.size());
@@ -104,11 +103,9 @@ namespace Doge::VulkanRHI
 
 		Queue.submit(SubmitInfos, Fence);
 
-		for (const FVulkanPayload* Payload : Payloads)
-		{
-			delete Payload;
-		}
-		Payloads.clear();
+		auto& FrameContext = Device->GetCurrentFrame();
+
+		FrameContext.TrackInFlightPayload(Payloads);
 	}
 
 	auto FVulkanQueue::GetHandle() const -> vk::Queue

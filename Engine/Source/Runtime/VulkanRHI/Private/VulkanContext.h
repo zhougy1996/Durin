@@ -40,15 +40,16 @@ namespace Doge::VulkanRHI
 
 		auto RHIDrawPrimitive() -> void override;
 
-		auto SubmitCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void;
-
-		auto RHISubmitCommandsHint() -> void override;
-
 		auto GetCommandBuffer() -> FVulkanCommandBuffer*;
 
-		auto AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void;
+		auto AddSignalSemaphore(FVulkanSemaphore* SignalSemaphore) -> void;
+
+		auto AddWaitSemaphore(FVulkanSemaphore* Semaphore, vk::PipelineStageFlags WaitFlag = vk::PipelineStageFlagBits::eColorAttachmentOutput) -> void;
 
 		auto GetQueue() const -> FVulkanQueue* { return Queue; }
+
+		// Submit and reset context
+		auto Finalize() -> void;
 
 	protected:
 		auto PrepareNewCommandBuffer(FVulkanPayload& InPayLoad) -> void;
@@ -63,10 +64,8 @@ namespace Doge::VulkanRHI
 
 		FVulkanCommandBufferPool* Pool = nullptr;
 
-		std::vector<FVulkanSemaphore*> WaitSemaphores;
-
 		FVulkanGraphicsPipelineState* PendingGfxPipelineState = nullptr;
 
-		std::vector<FVulkanPayload*> PayLoads;
+		std::vector<FVulkanPayload*> Payloads;
 	};
 }

@@ -8,6 +8,7 @@
 #include "VulkanRenderPass.h"
 #include "VulkanPipeline.h"
 #include "VulkanQueue.h"
+#include "VulkanRHIPrivate.h"
 
 namespace Doge::VulkanRHI
 {
@@ -158,6 +159,11 @@ namespace Doge::VulkanRHI
 
 		RenderPassManager = new FVulkanRenderPassManager(*this);
 		PipelineManager = new FVulkanPipelineManager(*this);
+
+		for (auto& Frame : Frames)
+		{
+			Frame = new FVulkanFrame(*this);
+		}
 	}
 
 	auto FVulkanDevice::CreateDevice(const FVulkanDeviceExtensionArray& InDeviceExtensions) -> void
@@ -325,8 +331,19 @@ namespace Doge::VulkanRHI
 		CommandContexts.push_back(Context);
 	}
 
+	auto FVulkanDevice::GetCurrentFrame() -> FVulkanFrame&
+	{
+		return *Frames[GFrameCounterRenderThread % Frames.size()];
+	}
+
 	auto FVulkanDevice::Destroy() -> void
 	{
+		for (auto*& Frame : Frames)
+		{
+			delete Frame;
+			Frame = nullptr;
+		}
+
 		delete PipelineManager;
 		PipelineManager = nullptr;
 		GCommandListExecutor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);

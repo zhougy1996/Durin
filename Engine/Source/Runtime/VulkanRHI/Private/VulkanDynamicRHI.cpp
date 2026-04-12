@@ -1,7 +1,10 @@
 #include "VulkanDynamicRHI.h"
 
+#include "RHICommandList.h"
+#include "RHIContext.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
+#include "VulkanRHIPrivate.h"
 
 namespace Doge::VulkanRHI
 {
@@ -25,6 +28,18 @@ namespace Doge::VulkanRHI
 		// Render thread should already be stopped at this point.
 		delete Device;
 		Instance.destroy();
+	}
+
+	auto FVulkanDynamicRHI::RHIBeginFrame() -> void
+	{
+		FVulkanFrame& Frame = Device->GetCurrentFrame();
+		Frame.Prepare();
+	}
+
+	auto FVulkanDynamicRHI::RHIEndFrame() -> void
+	{
+		auto& Context = FRHICommandListImmediate::Get().GetContext();
+		Context.RHIEndFrame();
 	}
 
 	auto FVulkanDynamicRHI::RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void

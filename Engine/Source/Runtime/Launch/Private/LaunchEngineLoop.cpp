@@ -180,7 +180,7 @@ namespace Doge
 		check(IsInRenderingThread());
 		GFrameCounterRenderThread = FrameCounter;
 		CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-		CommandList.BeginFrame();
+		GDynamicRHI->RHIBeginFrame();
 	}
 
 	// Called from render thread
@@ -188,7 +188,6 @@ namespace Doge
 	{
 		check(IsInRenderingThread());
 		check(GFrameCounterRenderThread == FrameCounter);
-		RHICmdList.EndFrame();
 		GDynamicRHI->RHIEndFrame_RenderThread(RHICmdList);
 		RHICmdList.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::EndFrame);
 	}

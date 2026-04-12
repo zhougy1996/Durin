@@ -29,6 +29,8 @@ namespace Doge::VulkanRHI
 		auto Init() -> void override;
 		auto Shutdown() -> void override;
 
+		auto RHIBeginFrame() -> void override;
+		auto RHIEndFrame() -> void override;
 		auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void override;
 
 		auto RHIGetVkDevice() const -> vk::Device override;

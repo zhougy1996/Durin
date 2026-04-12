@@ -4,8 +4,6 @@
 #include "VulkanMemory.h"
 #include "VulkanRenderPass.h"
 #include "VulkanFramebuffer.h"
-#include "VulkanContext.h"
-#include "VulkanQueue.h"
 
 namespace Doge::VulkanRHI
 {
@@ -14,12 +12,10 @@ namespace Doge::VulkanRHI
 		, Pool(InPool)
 	{
 		AllocMemory();
-		Fence = Device.GetFenceManager().AllocateFence(false);
 	}
 
 	FVulkanCommandBuffer::~FVulkanCommandBuffer()
 	{
-		Device.GetFenceManager().ReleaseFence(Fence);
 		if (State != EState::NotAllocated)
 		{
 			FreeMemory();
@@ -36,25 +32,13 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandBuffer::End() -> void
 	{
+		if (State == EState::HasEnded)
+		{
+			return;
+		}
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
 		Handle.end();
 		State = EState::HasEnded;
-	}
-
-	auto FVulkanCommandBuffer::RefreshFenceStatus() -> void
-	{
-		if (State == EState::Submitted)
-		{
-			FVulkanFenceManager& FenceManager = Device.GetFenceManager();
-			if (FenceManager.IsFenceSignaled(Fence))
-			{
-				State = EState::NeedReset;
-			}
-		}
-		else
-		{
-			check(!Fence->IsSignaled());
-		}
 	}
 
 	auto FVulkanCommandBuffer::AllocMemory() -> void
@@ -90,7 +74,6 @@ namespace Doge::VulkanRHI
 		check(Handle != nullptr);
 		vk::CommandBufferResetFlags ResetFlags = vk::CommandBufferResetFlagBits::eReleaseResources;
 		Handle.reset(ResetFlags);
-		Device.GetFenceManager().ResetFence(Fence);
 		State = EState::ReadyForBegin;
 	}
 
@@ -177,7 +160,6 @@ namespace Doge::VulkanRHI
 	auto FVulkanCommandBufferPool::FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void
 	{
 		auto RangeToFree = std::ranges::partition(CmdBuffers, [](FVulkanCommandBuffer* CmdBuffer) {
-			CmdBuffer->RefreshFenceStatus();
 			if (CmdBuffer->State == FVulkanCommandBuffer::EState::ReadyForBegin || CmdBuffer->State == FVulkanCommandBuffer::EState::NeedReset)
 			{
 				CmdBuffer->Reset();

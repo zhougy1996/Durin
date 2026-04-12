@@ -15,7 +15,7 @@ namespace Doge::VulkanRHI
 
 		auto Submit(FVulkanCommandBuffer& InCmdBuffer, std::vector<FVulkanSemaphore*>& WaitSemaphores, FVulkanSemaphore* InSignalSemaphores, uint32 NumSignalSemaphores = 1) -> void;
 
-		auto SubmitPayloads(std::vector<FVulkanPayload*> Payloads);
+		auto SubmitPayloads(std::vector<FVulkanPayload*>& Payloads) -> void;
 
 		auto GetHandle() const -> vk::Queue;
 

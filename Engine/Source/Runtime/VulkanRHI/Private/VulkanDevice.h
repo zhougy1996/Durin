@@ -3,7 +3,6 @@
 #include "RHIDefinitions.h"
 #include "VulkanMemory.h"
 #include "VulkanExtensions.h"
-#include "VulkanMemory.h"
 
 namespace Doge::VulkanRHI
 {
@@ -13,6 +12,9 @@ namespace Doge::VulkanRHI
 	class FVulkanCommandListContext;
 	class FVulkanRenderPassManager;
 	class FVulkanPipelineManager;
+	class FVulkanFrame;
+
+	constexpr uint32 kFrameInFlight = 3;
 
 	extern uint64 GVulkanRHIDeletionFrameNumber;
 
@@ -129,6 +131,8 @@ namespace Doge::VulkanRHI
 
 		auto GetDeferredDeletionQueue() -> FDeferredDeletionQueue& { return DeferredDeletionQueue; }
 
+		auto GetCurrentFrame() -> FVulkanFrame&;
+
 	private:
 		auto Destroy() -> void;
 
@@ -149,6 +153,8 @@ namespace Doge::VulkanRHI
 		FVulkanRenderPassManager* RenderPassManager = nullptr;
 
 		FVulkanPipelineManager* PipelineManager = nullptr;
+
+		std::array<FVulkanFrame*, kFrameInFlight> Frames = {};
 
 		FVulkanQueue* GraphicsQueue = nullptr;
 

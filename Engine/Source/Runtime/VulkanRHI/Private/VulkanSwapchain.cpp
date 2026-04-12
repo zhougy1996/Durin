@@ -66,6 +66,8 @@ namespace Doge::VulkanRHI
 			MinImageCount = Capabilities.maxImageCount;
 		}
 
+		check(MinImageCount >= kFrameInFlight);
+
 		vk::SwapchainCreateInfoKHR SwapchainInfo;
 		SwapchainInfo
 			.setSurface(Surface)
@@ -95,14 +97,14 @@ namespace Doge::VulkanRHI
 		SwapchainImages = Device.GetHandle().getSwapchainImagesKHR(Swapchain);
 
 		// init semaphores
-		ImageAcquiredSemaphores.resize(SwapchainImages.size());
+		ImageAcquiredSemaphores.resize(kFrameInFlight);
 		for (uint32 i = 0; i < SwapchainImages.size(); i++)
 		{
 			ImageAcquiredSemaphores[i] = new FVulkanSemaphore(Device);
 		}
 
 		// Init fences
-		for (uint32 i = 0; i < SwapchainImages.size(); i++)
+		for (uint32 i = 0; i < kFrameInFlight; i++)
 		{
 			ImageAcquiredFences.push_back(Device.GetFenceManager().AllocateFence(false));
 		}

@@ -16,6 +16,8 @@ namespace Doge
 		virtual auto Init() -> void = 0;
 		virtual auto Shutdown() -> void = 0;
 
+		virtual auto RHIBeginFrame() -> void = 0;
+		virtual auto RHIEndFrame() -> void = 0;
 		virtual auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void;
 
 		// Must be called from the main thread.

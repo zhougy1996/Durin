@@ -97,7 +97,8 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanViewport::Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
 	{
-		InContext.SubmitCmdBufferFromPresent(RenderingDoneSemaphores[AcquiredBackBufferIndex]);
+		InContext.AddSignalSemaphore(RenderingDoneSemaphores[AcquiredBackBufferIndex]);
+		InContext.Finalize();
 		Swapchain->Present(&InPresentQueue, RenderingDoneSemaphores[AcquiredBackBufferIndex]);
 		return true;
 	}

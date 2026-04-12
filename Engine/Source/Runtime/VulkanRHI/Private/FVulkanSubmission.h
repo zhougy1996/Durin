@@ -11,6 +11,7 @@ namespace Doge::VulkanRHI
 	{
 		friend class FVulkanQueue;
 		friend class FVulkanCommandListContext;
+		friend class FVulkanFrame;
 
 	public:
 		FVulkanPayload(FVulkanQueue& InQueue)

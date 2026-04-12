@@ -10,6 +10,7 @@
 #include "VulkanViewport.h"
 #include "VulkanQueue.h"
 #include "FVulkanSubmission.h"
+#include "VulkanRHIPrivate.h"
 
 namespace Doge::VulkanRHI
 {
@@ -38,6 +39,11 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIEndFrame() -> void
 	{
+		FVulkanFrame& Frame = Device.GetCurrentFrame();
+		FVulkanPayload& Payload = GetPayload();
+		Payload.Fence = Frame.GetFrameFence();
+		Finalize();
+
 		Pool->FreeUnusedCommandBuffers(Queue);
 	}
 
@@ -84,24 +90,34 @@ namespace Doge::VulkanRHI
 		GetCommandBuffer()->GetHandle().draw(3, 1, 0, 0);
 	}
 
-	auto FVulkanCommandListContext::SubmitCmdBufferFromPresent(FVulkanSemaphore* SignalSemaphore) -> void
-	{
-		GetCommandBuffer()->End();
-		// Queue->Submit(*CommandBuffer, WaitSemaphores, SignalSemaphore);
-	}
-
-	auto FVulkanCommandListContext::RHISubmitCommandsHint() -> void
-	{
-	}
-
 	auto FVulkanCommandListContext::GetCommandBuffer() -> FVulkanCommandBuffer*
 	{
-		return GetPayload().CommandBuffers.back();
+		FVulkanPayload& Payload = GetPayload();
+		if (Payload.CommandBuffers.empty())
+		{
+			PrepareNewCommandBuffer(Payload);;
+		}
+		return Payload.CommandBuffers.back();
 	}
 
-	auto FVulkanCommandListContext::AddWaitSemaphore(FVulkanSemaphore* Semaphore) -> void
+	auto FVulkanCommandListContext::AddSignalSemaphore(FVulkanSemaphore* SignalSemaphore) -> void
 	{
-		WaitSemaphores.push_back(Semaphore);
+		auto& Payload = GetPayload();
+		Payload.SignalSemaphores.push_back(SignalSemaphore);
+	}
+
+	auto FVulkanCommandListContext::AddWaitSemaphore(FVulkanSemaphore* Semaphore, vk::PipelineStageFlags WaitFlag) -> void
+	{
+		auto& Payload = GetPayload();
+		Payload.WaitSemaphores.push_back(Semaphore);
+		Payload.WaitFlags.push_back(WaitFlag);
+	}
+
+	auto FVulkanCommandListContext::Finalize() -> void
+	{
+		GetCommandBuffer()->End();
+		Queue->SubmitPayloads(Payloads);
+		Payloads.clear();
 	}
 
 	auto FVulkanCommandListContext::PrepareNewCommandBuffer(FVulkanPayload& InPayLoad) -> void
@@ -115,11 +131,11 @@ namespace Doge::VulkanRHI
 	auto FVulkanCommandListContext::GetPayload() -> FVulkanPayload&
 	{
 		// Currently only support one payload per submit.
-		if (PayLoads.empty())
+		if (Payloads.empty())
 		{
-			PayLoads.push_back(new FVulkanPayload(*Queue));
+			Payloads.push_back(new FVulkanPayload(*Queue));
 		}
-		return *PayLoads.back();
+		return *Payloads.back();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetDefaultContext() -> IRHICommandContext*

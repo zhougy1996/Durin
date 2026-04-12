@@ -7,8 +7,6 @@ namespace Doge::VulkanRHI
 	class FVulkanFramebuffer;
 	class FVulkanCommandListContext;
 	class FVulkanSemaphore;
-	class FVulkanQueue;
-	class FVulkanFence;
 
 	class FVulkanCommandBufferPool;
 	class FVulkanCommandBufferManager;
@@ -24,8 +22,6 @@ namespace Doge::VulkanRHI
 
 		auto End() -> void;
 
-		auto RefreshFenceStatus() -> void;
-
 		auto Reset() -> void;
 
 		auto SetSubmitted() -> void;
@@ -35,8 +31,6 @@ namespace Doge::VulkanRHI
 		auto EndRenderPass() -> void;
 
 		auto GetHandle() const -> vk::CommandBuffer { return Handle; }
-
-		auto GetFence() const -> FVulkanFence* { return Fence; }
 
 		auto IsSubmitted() const -> bool;
 
@@ -64,9 +58,9 @@ namespace Doge::VulkanRHI
 
 		EState State = EState::NotAllocated;
 
-		vk::CommandBuffer Handle;
+		double SubmittedTime = 0.0;
 
-		FVulkanFence* Fence;
+		vk::CommandBuffer Handle;
 
 		friend class FVulkanQueue;
 		friend class FVulkanCommandBufferPool;

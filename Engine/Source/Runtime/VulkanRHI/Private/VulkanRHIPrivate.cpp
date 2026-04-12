@@ -1,5 +1,9 @@
 #include "VulkanRHIPrivate.h"
 
+#include "VulkanDevice.h"
+#include "FVulkanSubmission.h"
+#include "VulkanCommandBuffer.h"
+
 namespace Doge::VulkanRHI
 {
 	struct FVulkanFormatMapping
@@ -80,6 +84,47 @@ namespace Doge::VulkanRHI
 		{EPixelFormat::BC7_UNORM, vk::Format::eBc7UnormBlock},
 		{EPixelFormat::BC7_UNORM_SRGB, vk::Format::eBc7SrgbBlock},
 	}};
+
+	FVulkanFrame::FVulkanFrame(FVulkanDevice& Device)
+	: Device(Device)
+	{
+		FrameFence = Device.GetFenceManager().AllocateFence(true);
+	}
+
+	FVulkanFrame::~FVulkanFrame()
+	{
+		Device.GetFenceManager().ReleaseFence(FrameFence);
+	}
+
+	auto FVulkanFrame::TrackInFlightPayload(std::vector<FVulkanPayload*>& Payload) -> void
+	{
+		InFlightPayloads.insert(InFlightPayloads.end(), Payload.begin(), Payload.end());
+	}
+
+	auto FVulkanFrame::Prepare() -> void
+	{
+		if (!FrameFence->IsSignaled())
+		{
+			Device.GetFenceManager().WaitForFence(FrameFence, UINT64_MAX);
+		}
+		Reset();
+	}
+
+	auto FVulkanFrame::Reset() -> void
+	{
+		Device.GetFenceManager().ResetFence(FrameFence);
+		for (FVulkanPayload* Payload : InFlightPayloads)
+		{
+			for (FVulkanCommandBuffer* CommandBuffer : Payload->CommandBuffers)
+			{
+				CommandBuffer->Reset();
+			}
+
+			delete Payload;
+		}
+		InFlightPayloads.clear();
+	}
+
 
 	auto ConvertToVulkanFormat(EPixelFormat InFormat) -> vk::Format
 	{

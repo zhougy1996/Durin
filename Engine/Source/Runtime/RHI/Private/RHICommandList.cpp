@@ -30,16 +30,6 @@ namespace Doge
 		}
 	}
 
-	auto FRHICommandList::BeginFrame() -> void
-	{
-		GetContext().RHIBeginFrame();
-	}
-
-	auto FRHICommandList::EndFrame() -> void
-	{
-		GetContext().RHIEndFrame();
-	}
-
 	auto FRHICommandList::BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void
 	{
 		GetContext().RHIBeginRenderPass(Info, Name);
@@ -73,11 +63,6 @@ namespace Doge
 	auto FRHICommandList::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
 		GetContext().RHISetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
-	}
-
-	auto FRHICommandList::SubmitCommandsHint() -> void
-	{
-		GetContext().RHISubmitCommandsHint();
 	}
 
 	auto FRHICommandList::CreateBuffer(const FRHIBufferCreateDesc& InCreateDesc) -> TRefCountPtr<FRHIBuffer>
@@ -141,6 +126,11 @@ namespace Doge
 					break;
 				}
 			}
+		}
+
+		if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::EndFrame))
+		{
+			GDynamicRHI->RHIEndFrame();
 		}
 	}
 } // namespace Doge
