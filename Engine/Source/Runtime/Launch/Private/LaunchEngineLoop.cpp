@@ -189,7 +189,6 @@ namespace Doge
 		check(IsInRenderingThread());
 		check(GFrameCounterRenderThread == FrameCounter);
 		GDynamicRHI->RHIEndFrame_RenderThread(RHICmdList);
-		RHICmdList.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::EndFrame);
 	}
 
 	auto FEngineLoop::Tick() -> void

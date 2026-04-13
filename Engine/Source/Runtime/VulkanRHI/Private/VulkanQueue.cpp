@@ -18,45 +18,6 @@ namespace Doge::VulkanRHI
 
 	FVulkanQueue::~FVulkanQueue() = default;
 
-	auto FVulkanQueue::Submit(FVulkanCommandBuffer& InCmdBuffer, std::vector<FVulkanSemaphore*>& WaitSemaphores, FVulkanSemaphore* InSignalSemaphores, uint32 NumSignalSemaphores /* = 1*/) -> void
-	{
-		vk::CommandBuffer Buffer = InCmdBuffer.GetHandle();
-
-		vk::PipelineStageFlags waitStages[] = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
-
-		vk::SubmitInfo submitInfo;
-		submitInfo.setCommandBuffers(Buffer);
-		submitInfo.setWaitDstStageMask(waitStages);
-
-		// Set signal semaphores
-		std::vector<vk::Semaphore> SignalSemaphoresArray{NumSignalSemaphores};
-		if (NumSignalSemaphores > 0 && InSignalSemaphores != nullptr)
-		{
-			for (uint32 i = 0; i < NumSignalSemaphores; ++i)
-			{
-				SignalSemaphoresArray[i] = InSignalSemaphores[i].GetHandle();
-			}
-			submitInfo.setSignalSemaphores(SignalSemaphoresArray);
-		}
-
-		// Set wait semaphores
-		std::vector<vk::Semaphore> WaitSemaphoresArray{WaitSemaphores.size()};
-		if (!WaitSemaphores.empty())
-		{
-			for (uint32 i = 0; i < WaitSemaphores.size(); ++i)
-			{
-				WaitSemaphoresArray[i] = WaitSemaphores[i]->GetHandle();
-			}
-			submitInfo.setWaitSemaphores(WaitSemaphoresArray);
-		}
-		WaitSemaphores.clear();
-
-		// Submit the command buffer
-		Queue.submit(submitInfo, nullptr);
-
-		InCmdBuffer.SetSubmitted();
-	}
-
 	struct FVulkanSubmitInfoStorage
 	{
 		std::vector<vk::CommandBuffer> CmdBuffers;
@@ -97,6 +58,7 @@ namespace Doge::VulkanRHI
 			{
 				check(Fence == VK_NULL_HANDLE); // Only one fence per submit.
 				Fence = Payload->Fence->GetHandle();
+				check(!Payload->Fence->IsSignaled());
 			}
 			SubmitInfos.push_back(SubmitInfo);
 		}

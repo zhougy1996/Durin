@@ -45,7 +45,5 @@ namespace Doge::VulkanRHI
 		uint32 NextSemaphoreIndex{};
 
 		std::vector<FVulkanSemaphore*> ImageAcquiredSemaphores;
-
-		std::vector<FVulkanFence*> ImageAcquiredFences;
 	};
 }

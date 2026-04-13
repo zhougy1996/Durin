@@ -120,11 +120,11 @@ namespace Doge::VulkanRHI
 		Payloads.clear();
 	}
 
-	auto FVulkanCommandListContext::PrepareNewCommandBuffer(FVulkanPayload& InPayLoad) -> void
+	auto FVulkanCommandListContext::PrepareNewCommandBuffer(FVulkanPayload& InPayload) -> void
 	{
-		check(InPayLoad.CommandBuffers.empty());
+		check(InPayload.CommandBuffers.empty());
 		FVulkanCommandBuffer* NewCmdBuffer = Pool->Create();
-		InPayLoad.CommandBuffers.push_back(NewCmdBuffer);
+		InPayload.CommandBuffers.push_back(NewCmdBuffer);
 		NewCmdBuffer->Begin();
 	}
 

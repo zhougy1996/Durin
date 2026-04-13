@@ -2,5 +2,4 @@
 
 namespace Doge::VulkanRHI
 {
-	std::vector<FVulkanFence*> GFrameFences;
 }

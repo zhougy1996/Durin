@@ -52,7 +52,7 @@ namespace Doge::VulkanRHI
 		auto Finalize() -> void;
 
 	protected:
-		auto PrepareNewCommandBuffer(FVulkanPayload& InPayLoad) -> void;
+		auto PrepareNewCommandBuffer(FVulkanPayload& InPayload) -> void;
 
 		auto GetPayload() -> FVulkanPayload&;
 
