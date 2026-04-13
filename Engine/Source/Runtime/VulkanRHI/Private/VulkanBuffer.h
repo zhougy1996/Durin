@@ -22,6 +22,8 @@ namespace Doge::VulkanRHI
 
 		auto IsStatic() const -> bool;
 
+		auto GetHandle() const -> vk::Buffer { return Buffer; }
+
 	protected:
 		enum class ELockStatus : uint8
 		{

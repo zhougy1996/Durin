@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RHIConstants.h"
+#include "RHIDefinitions.h"
 #include "VulkanView.h"
 
 namespace Doge::VulkanRHI
@@ -34,8 +34,8 @@ namespace Doge::VulkanRHI
 		// Actual color attachments required by the render pass, which may be more than the logical color render targets due to multi-sample resolve attachments
 		uint32 NumColorAttachments;
 
-		vk::Image ColorRenderTargetImages[kMaxSimultaneousRenderTargets];
-		vk::Image ColorResolveTargetImages[kMaxSimultaneousRenderTargets];
+		vk::Image ColorRenderTargetImages[MaxSimultaneousRenderTargets];
+		vk::Image ColorResolveTargetImages[MaxSimultaneousRenderTargets];
 		vk::Image DepthStencilRenderTargetImage;
 
 		friend class FVulkanRenderPassManager;

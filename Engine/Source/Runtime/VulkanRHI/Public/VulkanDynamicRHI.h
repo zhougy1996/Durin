@@ -45,6 +45,7 @@ namespace Doge::VulkanRHI
 		auto RHIGetCommandContext(ERHIPipeline Pipeline) const -> IRHICommandContext*;
 		auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> FTextureRHIRef override;
 
+		auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> TRefCountPtr<FRHIVertexDeclaration> override;
 		auto RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> FTextureRHIRef override;
 		auto RHICreateBuffer(FRHICommandList& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> FBufferRHIRef override;
 		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef override;

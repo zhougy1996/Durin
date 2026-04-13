@@ -55,7 +55,38 @@ namespace Doge::VulkanRHI
 		vk::PipelineDynamicStateCreateInfo DynamicStateInfo;
 		DynamicStateInfo.setDynamicStates(DynamicStates);
 
+		std::vector<vk::VertexInputBindingDescription> BindingDescriptions;
+		std::vector<vk::VertexInputAttributeDescription> AttributeDescriptions;
+
+		const FRHIVertexDeclaration* VertexDeclarationElements = Initializer.VertexDeclaration;
+		for (auto& Element : VertexDeclarationElements->GetElements())
+		{
+			if (Element.Type == EVertexElementType::None)
+			{
+				break;
+			}
+
+			vk::VertexInputBindingDescription BindingDescription;
+			BindingDescription
+				.setBinding(Element.StreamIndex)
+				.setStride(sizeof(glm::vec3)) // TODO: Support different vertex element types and calculate stride correctly
+				.setInputRate(vk::VertexInputRate::eVertex);
+
+			vk::VertexInputAttributeDescription AttributeDescription;
+			AttributeDescription
+				.setLocation(Element.AttributeIndex)
+				.setBinding(Element.StreamIndex)
+				.setFormat(vk::Format::eR32G32B32Sfloat) // TODO: Support different vertex element types and convert to correct Vulkan format
+				.setOffset(0);
+
+			BindingDescriptions.push_back(BindingDescription);
+			AttributeDescriptions.push_back(AttributeDescription);
+		}
+
 		vk::PipelineVertexInputStateCreateInfo VertexInputInfo;
+		VertexInputInfo
+			.setVertexBindingDescriptions(BindingDescriptions)
+			.setVertexAttributeDescriptions(AttributeDescriptions);
 
 		vk::PipelineInputAssemblyStateCreateInfo InputAssemblyInfo;
 		InputAssemblyInfo

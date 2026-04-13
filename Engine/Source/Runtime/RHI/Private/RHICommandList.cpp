@@ -55,6 +55,11 @@ namespace Doge
 		GetContext().RHISetGraphicsPipelineState(State);
 	}
 
+	auto FRHICommandList::BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
+	{
+		GetContext().RHIBindVertexBuffer(StreamIndex, VertexBuffer, Offset);
+	}
+
 	auto FRHICommandList::DrawPrimitive() -> void
 	{
 		GetContext().RHIDrawPrimitive();

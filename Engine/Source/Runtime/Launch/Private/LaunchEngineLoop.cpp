@@ -48,6 +48,7 @@ namespace Doge
 
 	struct FTestRenderProxy
 	{
+		FVertexDeclarationRHIRef VertexDeclaration;
 		FBufferRHIRef VertexBuffer;
 	};
 
@@ -84,10 +85,15 @@ namespace Doge
 				FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", PixelShaderCode, {});
 				auto PixelTestShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
 
+				FVertexDeclarationElementList VertexDeclElements;
+				VertexDeclElements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, sizeof(glm::vec3));
+				GTestRenderProxy.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
+
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderPassName = "TestRenderPass";
 				Initializer.BoundShaders.VertexShader = VertexTestShader;
 				Initializer.BoundShaders.PixelShader = PixelTestShader;
+				Initializer.VertexDeclaration = GTestRenderProxy.VertexDeclaration;
 
 				Initializer.PixelFormat = ViewportFormat;
 				GDynamicRHI->RHICreateGraphicsPipelineState(LocalPipelineData.PipelineName, Initializer);
@@ -151,8 +157,9 @@ namespace Doge
 				auto Height = BackBuffer->GetSizeY();
 				CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 
+				CommandList.BindVertexBuffer(0, GTestRenderProxy.VertexBuffer, 0);
 				// Draw call
-				// CommandList.DrawPrimitive();
+				CommandList.DrawPrimitive();
 
 				CommandList.EndRenderPass();
 

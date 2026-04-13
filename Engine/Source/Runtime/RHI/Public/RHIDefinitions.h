@@ -4,6 +4,12 @@
 
 namespace Doge
 {
+	constexpr uint32 MaxSimultaneousRenderTargets = 8U;
+
+	constexpr uint32 MaxVertexElementCount = 17U;
+	constexpr uint8 MaxVertexElementCount_NumBits = 5U;
+	static_assert(MaxVertexElementCount <= (1U << MaxVertexElementCount_NumBits), "MaxVertexElementCount exceeds the number of bits allocated for it.");
+
 	enum class ERHIInterface
 	{
 		OpenGL,
@@ -69,6 +75,33 @@ namespace Doge
 			return EGpuVendorId::Unknown;
 		}
 	}
+
+	enum class EVertexElementType : uint8
+	{
+		None = 0,
+		Float1,
+		Float2,
+		Float3,
+		Float4,
+		PackedNormal,
+		UByte4,
+		UByte4N,
+		Color,
+		Short2,
+		Short4,
+		Short2N,
+		Half2,
+		Half4,
+		Short4N,
+		UShort2,
+		UShort4,
+		UShort2N,
+		UShort4N,
+		URGB10A2N,
+		UInt,
+
+		Count
+	};
 
 	enum class ETextureDimension : uint8
 	{

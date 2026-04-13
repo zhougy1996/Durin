@@ -6,7 +6,7 @@
 
 namespace Doge
 {
-	class RHI_API FDynamicRHI
+	class FDynamicRHI
 	{
 	public:
 		FDynamicRHI() = default;
@@ -18,7 +18,7 @@ namespace Doge
 
 		virtual auto RHIBeginFrame() -> void = 0;
 		virtual auto RHIEndFrame() -> void = 0;
-		virtual auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void;
+		RHI_API virtual auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void;
 
 		// Must be called from the main thread.
 		virtual auto RHICreateViewport(void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen, EPixelFormat InPreferredPixelFormat) const -> TRefCountPtr<FRHIViewport> = 0;
@@ -30,6 +30,7 @@ namespace Doge
 		virtual auto RHIGetDefaultContext() -> IRHICommandContext* = 0;
 		virtual auto RHIGetViewportBackBuffer(FRHIViewport* InViewportRHI) -> TRefCountPtr<FRHITexture> = 0;
 
+		virtual auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> TRefCountPtr<FRHIVertexDeclaration> = 0;
 		virtual auto RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> = 0;
 		virtual auto RHICreateBuffer(FRHICommandList& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer> = 0;
 		virtual auto RHICreateShader(const FRHIShaderCreateDesc& CreateDesc) -> TRefCountPtr<FRHIShader> = 0;
@@ -41,10 +42,10 @@ namespace Doge
 
 	extern RHI_API FDynamicRHI* GDynamicRHI;
 
-	class RHI_API IDynamicRHIModule : public IModuleInterface
+	class IDynamicRHIModule : public IModuleInterface
 	{
 	public:
-		virtual auto CreateRHI() -> FDynamicRHI* = 0;
+		RHI_API virtual auto CreateRHI() -> FDynamicRHI* = 0;
 	};
 
 	template<typename TRHI>

@@ -10,6 +10,7 @@
 #include "VulkanViewport.h"
 #include "VulkanQueue.h"
 #include "FVulkanSubmission.h"
+#include "VulkanBuffer.h"
 #include "VulkanRHIPrivate.h"
 
 namespace Doge::VulkanRHI
@@ -82,6 +83,12 @@ namespace Doge::VulkanRHI
 	{
 		PendingGfxPipelineState = static_cast<FVulkanGraphicsPipelineState*>(&GraphicsPipelineState);
 		PendingGfxPipelineState->Bind(GetCommandBuffer()->GetHandle());
+	}
+
+	auto FVulkanCommandListContext::RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
+	{
+		vk::Buffer BufferHandle = static_cast<FVulkanBuffer*>(VertexBuffer)->GetHandle();
+		GetCommandBuffer()->GetHandle().bindVertexBuffers(StreamIndex, BufferHandle, {Offset});
 	}
 
 	auto FVulkanCommandListContext::RHIDrawPrimitive() -> void

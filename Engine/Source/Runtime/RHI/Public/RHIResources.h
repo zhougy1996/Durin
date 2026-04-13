@@ -1,6 +1,5 @@
 #pragma once
 
-#include "RHIConstants.h"
 #include "RHIDefinitions.h"
 
 #include "Hash/XxHash.h"
@@ -16,6 +15,7 @@ namespace Doge
 		Buffer,
 		Texture,
 		Shader,
+		VertexDeclaration,
 		PipelineState,
 	};
 
@@ -421,16 +421,29 @@ namespace Doge
 		RHI_API virtual auto GetFormat() const -> EPixelFormat = 0;
 	};
 
-	struct RHI_API FRHIRenderTargetsInfo
+	struct FRHIRenderTargetsInfo
 	{
-		FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
+		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets];
 		int32 NumColorRenderTargets;
 		bool bClearColor;
 	};
 
-	struct RHI_API FRHIRenderPassInfo
+	struct FRHIRenderPassInfo
 	{
-		FRHITexture* ColorRenderTargets[kMaxSimultaneousRenderTargets];
+		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets];
+	};
+
+	using FVertexDeclarationElementList = std::array<struct FVertexElement, MaxVertexElementCount>;
+
+	class FRHIVertexDeclaration : public FRHIResource
+	{
+	public:
+		FRHIVertexDeclaration()
+			: FRHIResource(ERHIResourceType::VertexDeclaration)
+		{
+		}
+
+		virtual auto GetElements() const -> const FVertexDeclarationElementList& = 0;
 	};
 
 	struct FBoundShaders
@@ -447,6 +460,8 @@ namespace Doge
 		FName RenderPassName;
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
+
+		FRHIVertexDeclaration* VertexDeclaration = nullptr;
 	};
 
 	struct FRHIBufferDesc
@@ -579,6 +594,7 @@ namespace Doge
 		}
 	};
 
+	using FVertexDeclarationRHIRef = TRefCountPtr<FRHIVertexDeclaration>;
 	using FViewportRHIRef = TRefCountPtr<FRHIViewport>;
 	using FTextureRHIRef = TRefCountPtr<FRHITexture>;
 	using FBufferRHIRef = TRefCountPtr<FRHIBuffer>;
