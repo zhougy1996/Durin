@@ -20,7 +20,7 @@ namespace Doge
 	{
 		static std::string CachedRootDir = []() -> std::string {
 			const std::string LaunchDir = FPaths::LaunchDir();
-			FPath RootDir = FPath{LaunchDir}.parent_path().parent_path().parent_path().parent_path().parent_path();
+			FPath RootDir = FPath{LaunchDir}.parent_path().parent_path().parent_path().parent_path().parent_path().parent_path();
 			return RootDir.generic_string() + "/";
 		}();
 		return CachedRootDir;

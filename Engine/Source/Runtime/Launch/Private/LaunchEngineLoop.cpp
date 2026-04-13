@@ -59,8 +59,10 @@ namespace Doge
 		auto Prepare() -> void
 		{
 			PipelineData.PipelineName = "TestPipeline";
-			PipelineData.VertexShaderPath = "../../../../Shaders/spv/test_vert.spv";
-			PipelineData.PixelShaderPath = "../../../../Shaders/spv/test_frag.spv";
+
+			std::string ShaderDir = FPaths::EngineDir() + "Shaders/spv/";
+			PipelineData.VertexShaderPath = (ShaderDir + "test_vert.spv").c_str();
+			PipelineData.PixelShaderPath = (ShaderDir + "test_frag.spv").c_str();
 
 			auto& App = Mona::FMonaApplication::Get();
 			const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
