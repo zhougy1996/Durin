@@ -79,6 +79,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanViewport::RecreateSwapchainFromRT(FRHICommandListImmediate& RHICmdList) -> void
 	{
+		check(IsInRenderingThread());
 		DestroySwapchain();
 		CreateSwapchain();
 	}

@@ -42,8 +42,6 @@ namespace Doge
 
 		auto GetContext() const -> IRHICommandContext& { return *GraphicsContext; }
 
-		auto SubmitCommandsHint() -> void;
-
 		auto CreateBuffer(const FRHIBufferCreateDesc& InCreateDesc) -> TRefCountPtr<FRHIBuffer>;
 
 		auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
@@ -81,8 +79,6 @@ namespace Doge
 	class RHI_API FRHICommandListImmediate : public FRHICommandList
 	{
 	public:
-		auto SubmitAndBlockUntilGPUIdle() -> void;
-
 		static auto Get() -> FRHICommandListImmediate&;
 
 		auto ImmediateFlush(EImmediateFlushType FlushType, ERHISubmitFlags SubmitFlags = ERHISubmitFlags::None) -> void;

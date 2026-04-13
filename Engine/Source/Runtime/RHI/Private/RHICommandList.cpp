@@ -80,11 +80,6 @@ namespace Doge
 		return GDynamicRHI->RHIUnlockBuffer(*this, Buffer);
 	}
 
-	auto FRHICommandListImmediate::SubmitAndBlockUntilGPUIdle() -> void
-	{
-		GDynamicRHI->RHIBlockUntilGPUIdle();
-	}
-
 	auto FRHICommandListImmediate::Get() -> FRHICommandListImmediate&
 	{
 		return GCommandListExecutor.GetImmediateCommandList();

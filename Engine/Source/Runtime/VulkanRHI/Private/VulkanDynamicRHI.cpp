@@ -67,6 +67,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIBlockUntilGPUIdle() -> void
 	{
+
 		Device->WaitUtilIdle();
 	}
 
