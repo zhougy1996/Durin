@@ -98,7 +98,7 @@ namespace Doge::VulkanRHI
 
 		// init semaphores
 		ImageAcquiredSemaphores.resize(kFrameInFlight);
-		for (uint32 i = 0; i < SwapchainImages.size(); i++)
+		for (uint32 i = 0; i < kFrameInFlight; i++)
 		{
 			ImageAcquiredSemaphores[i] = new FVulkanSemaphore(Device);
 		}
