@@ -39,7 +39,7 @@ namespace Doge::VulkanRHI
 	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer)
 		: Device(InDevice)
 	{
-		// TODO: Correctly set the renderpass
+		// TODO: Correctly set the render pass
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
 
 		vk::Format VkFormat = FVulkanPixelFormat::FromPixelFormat(Initializer.PixelFormat);
@@ -139,11 +139,24 @@ namespace Doge::VulkanRHI
 			.setAttachments(ColorBlendAttachment)
 			.setBlendConstants({0.0f, 0.0f, 0.0f, 0.0f});
 
+		vk::DescriptorSetLayoutBinding TestLayoutBinding;
+		TestLayoutBinding.setBinding(0)
+			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
+			.setDescriptorCount(1)
+			.setStageFlags(vk::ShaderStageFlagBits::eVertex)
+			.setImmutableSamplers(nullptr);
+
+		vk::DescriptorSetLayoutCreateInfo LayoutInfo;
+		LayoutInfo.setBindings(TestLayoutBinding);
+
+		DescriptorSetLayout = Device.GetHandle().createDescriptorSetLayout(LayoutInfo);
+
 		vk::PipelineLayoutCreateInfo pipelineLayoutInfo;
 		pipelineLayoutInfo
-			.setSetLayouts(nullptr)
+			.setSetLayouts(DescriptorSetLayout)
 			.setPushConstantRangeCount(0)
 			.setPPushConstantRanges(nullptr);
+
 
 		PipelineLayout = Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
 		DOGE_TRACE("Vulkan pipeline layout created");
@@ -180,6 +193,7 @@ namespace Doge::VulkanRHI
 	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
 	{
 		ReleaseShaders();
+		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, DescriptorSetLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
 	}

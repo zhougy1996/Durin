@@ -46,6 +46,8 @@ namespace Doge::VulkanRHI
 
 		FVulkanShader* Shaders[EShaderStage::Count] = { nullptr };
 
+		vk::DescriptorSetLayout DescriptorSetLayout; // TODO: cache and share
+
 		vk::PipelineLayout PipelineLayout;
 
 		vk::Pipeline Pipeline;
