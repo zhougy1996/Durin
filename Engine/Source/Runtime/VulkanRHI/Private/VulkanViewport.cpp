@@ -168,6 +168,8 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanViewport::DestroySwapchain() -> void
 	{
+		GDynamicRHI->RHIBlockUntilGPUIdle();
+
 		delete Swapchain;
 		Swapchain = nullptr;
 

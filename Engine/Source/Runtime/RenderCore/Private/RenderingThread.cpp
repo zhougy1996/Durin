@@ -140,7 +140,7 @@ namespace Doge
 	auto FlushRenderingCommands() -> void
 	{
 		ENQUEUE_RENDER_COMMAND(FlushPendingDeleteRHIResourcesCmd)([](FRHICommandListImmediate& RHICmdList) {
-			RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources, ERHISubmitFlags::EndFrame);
+			RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources, ERHISubmitFlags::FlushRHIThread);
 		});
 		FFrameSync::Sync(FFrameSync::EFlushMode::Threads);
 	}
