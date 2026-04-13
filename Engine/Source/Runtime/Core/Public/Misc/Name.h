@@ -113,9 +113,13 @@ namespace Doge
 
 		CORE_API FName();
 
+		CORE_API FName(std::string_view View);
+
 		CORE_API FName(const char* Name);
 
 		CORE_API FName(const char* Name, int32 InNumber);
+
+		CORE_API FName(const std::string& Name);
 
 		CORE_API FName(std::string_view View, int32 InNumber);
 

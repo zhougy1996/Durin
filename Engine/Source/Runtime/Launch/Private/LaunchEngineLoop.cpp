@@ -61,8 +61,8 @@ namespace Doge
 			PipelineData.PipelineName = "TestPipeline";
 
 			std::string ShaderDir = FPaths::EngineDir() + "Shaders/spv/";
-			PipelineData.VertexShaderPath = (ShaderDir + "test_vert.spv").c_str();
-			PipelineData.PixelShaderPath = (ShaderDir + "test_frag.spv").c_str();
+			PipelineData.VertexShaderPath = ShaderDir + "test_vert.spv";
+			PipelineData.PixelShaderPath = ShaderDir + "test_frag.spv";
 
 			auto& App = Mona::FMonaApplication::Get();
 			const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());

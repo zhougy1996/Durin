@@ -831,12 +831,23 @@ namespace Doge
 	{
 	}
 
+
+	FName::FName(std::string_view View)
+		: FName(FNameHelper::MakeDetectNumber(View))
+	{
+	}
+
 	FName::FName(const char* Name)
-		: FName(FNameHelper::MakeDetectNumber(std::string_view(Name)))
+		: FName(std::string_view(Name))
 	{
 	}
 
 	FName::FName(const char* Name, int32 InNumber)
+	{
+	}
+
+	FName::FName(const std::string& Name)
+		: FName(Name.c_str())
 	{
 	}
 
