@@ -14,7 +14,7 @@ namespace Doge::VulkanRHI
 {
 	uint64 GVulkanRHIDeletionFrameNumber = 0;
 
-	constexpr uint64 GVulkanNumFramesToWaitForResourceDelete = 2;
+	constexpr uint64 GVulkanNumFramesToWaitForResourceDelete =  kFrameInFlight;
 
 	FDeferredDeletionQueue::FDeferredDeletionQueue(FVulkanDevice* InDevice)
 		: Device(InDevice)

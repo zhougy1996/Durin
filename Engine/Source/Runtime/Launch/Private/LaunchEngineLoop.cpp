@@ -46,6 +46,13 @@ namespace Doge
 		FName PixelShaderPath;
 	};
 
+	struct FTestRenderProxy
+	{
+		FBufferRHIRef VertexBuffer;
+	};
+
+	FTestRenderProxy GTestRenderProxy; // Render thread data that will be used to store render resources, and other data that can only be accessed from render thread
+
 	class FTestRenderData
 	{
 	public:
@@ -88,16 +95,17 @@ namespace Doge
 			ENQUEUE_RENDER_COMMAND(CreateBuffer)([](FRHICommandListImmediate& CommandList) {
 				FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestBuffer", 1024);
 				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
-				TRefCountPtr<FRHIBuffer> Buffer = RHICreateBuffer(BufferCreateDesc);
-				// void* Data = CommandList.LockBuffer(Buffer.GetReference(), 0, Buffer->GetSize(), EResourceLockMode::WriteOnly);
-				// const std::vector<glm::vec3> TestVertices = {
-				// 	{-0.5f, -0.5f, 0.0f},
-				// 	{0.5f, -0.5f, 0.0f},
-				// 	{0.0f, 0.5f, 0.0f},
-				// };
-				// check(Data != nullptr);
-				// std::memcpy(Data, &TestVertices[0], TestVertices.size() * sizeof(glm::vec3));
-				// CommandList.UnlockBuffer(Buffer.GetReference());
+				GTestRenderProxy.VertexBuffer = RHICreateBuffer(BufferCreateDesc);
+				auto Buffer = GTestRenderProxy.VertexBuffer;
+				void* Data = CommandList.LockBuffer(Buffer.GetReference(), 0, Buffer->GetSize(), EResourceLockMode::WriteOnly);
+				const std::vector<glm::vec3> TestVertices = {
+					{-0.5f, -0.5f, 0.0f},
+					{0.5f, -0.5f, 0.0f},
+					{0.0f, 0.5f, 0.0f},
+				};
+				check(Data != nullptr);
+				std::memcpy(Data, &TestVertices[0], TestVertices.size() * sizeof(glm::vec3));
+				CommandList.UnlockBuffer(Buffer.GetReference());
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
@@ -151,14 +159,19 @@ namespace Doge
 			});
 		}
 
-		bool IsReady() const { return bIsReady; }
+		auto IsReady() const -> bool { return bIsReady; }
+
+		auto Release()
+		{
+			bIsReady = false;
+		}
 	private:
 		FPipelineData PipelineData;
 
 		bool bIsReady = false;
 	};
 
-	FTestRenderData GTestRenderData;
+	FTestRenderData GTestRenderData; // Main thread data that will be used to prepare and submit render commands
 
 	auto FEngineLoop::Init() -> void
 	{
@@ -227,6 +240,10 @@ namespace Doge
 
 	auto FEngineLoop::Exit() -> void
 	{
+		ENQUEUE_RENDER_COMMAND(ReleaseTestProxy)([](FRHICommandListImmediate& RHICmdList) {
+			GTestRenderProxy.VertexBuffer = nullptr;
+		});
+
 		ShutdownRenderingThread();
 		// TODO: this is just for testing, we should have a more robust shutdown process
 		delete GEngine;
