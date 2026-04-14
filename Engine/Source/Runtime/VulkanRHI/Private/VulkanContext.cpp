@@ -85,16 +85,29 @@ namespace Doge::VulkanRHI
 		PendingGfxPipelineState->Bind(GetCommandBuffer()->GetHandle());
 	}
 
-	auto FVulkanCommandListContext::RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
+	auto FVulkanCommandListContext::RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* InVertexBuffer, uint32 Offset) -> void
 	{
-		vk::Buffer BufferHandle = static_cast<FVulkanBuffer*>(VertexBuffer)->GetHandle();
+		vk::Buffer BufferHandle = static_cast<FVulkanBuffer*>(InVertexBuffer)->GetHandle();
 		GetCommandBuffer()->GetHandle().bindVertexBuffers(StreamIndex, BufferHandle, {Offset});
+	}
+
+	static constexpr auto DeduceIndexType(uint32 Stride) -> vk::IndexType
+	{
+		if (Stride == 2) { return vk::IndexType::eUint16; }
+		if (Stride == 4) { return vk::IndexType::eUint32; }
+		checkf(false, "Unsupported index buffer stride: {}", Stride);
+	}
+
+	auto FVulkanCommandListContext::RHIBindIndexBuffer(FRHIBuffer* InIndexBuffer, uint32 Offset) -> void
+	{
+		const FVulkanBuffer* IndexBuffer = static_cast<FVulkanBuffer*>(InIndexBuffer);
+		GetCommandBuffer()->GetHandle().bindIndexBuffer(IndexBuffer->GetHandle(), Offset, DeduceIndexType(IndexBuffer->GetStride()));
 	}
 
 	auto FVulkanCommandListContext::RHIDrawPrimitive() -> void
 	{
 		PendingGfxPipelineState->PrepareForDraw(*this);
-		GetCommandBuffer()->GetHandle().draw(3, 1, 0, 0);
+		GetCommandBuffer()->GetHandle().drawIndexed(6, 1, 0, 0, 0);
 	}
 
 	auto FVulkanCommandListContext::GetCommandBuffer() -> FVulkanCommandBuffer*
@@ -102,7 +115,7 @@ namespace Doge::VulkanRHI
 		FVulkanPayload& Payload = GetPayload();
 		if (Payload.CommandBuffers.empty())
 		{
-			PrepareNewCommandBuffer(Payload);;
+			PrepareNewCommandBuffer(Payload);
 		}
 		return Payload.CommandBuffers.back();
 	}
@@ -159,4 +172,4 @@ namespace Doge::VulkanRHI
 
 		return Device->GetImmediateContext();
 	}
-}
+} // namespace Doge::VulkanRHI

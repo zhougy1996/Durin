@@ -50,6 +50,7 @@ namespace Doge
 	{
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FBufferRHIRef VertexBuffer;
+		FBufferRHIRef IndexBuffer;
 	};
 
 	FTestRenderProxy GTestRenderProxy; // Render thread data that will be used to store render resources, and other data that can only be accessed from render thread
@@ -100,20 +101,35 @@ namespace Doge
 				CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 			});
 
-			ENQUEUE_RENDER_COMMAND(CreateBuffer)([](FRHICommandListImmediate& CommandList) {
-				FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestBuffer", 1024);
-				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
-				GTestRenderProxy.VertexBuffer = RHICreateBuffer(BufferCreateDesc);
-				auto Buffer = GTestRenderProxy.VertexBuffer;
-				void* Data = CommandList.LockBuffer(Buffer.GetReference(), 0, Buffer->GetSize(), EResourceLockMode::WriteOnly);
+			ENQUEUE_RENDER_COMMAND(CreateVertexBuffer)([](FRHICommandListImmediate& CommandList) {
 				const std::vector<glm::vec3> TestVertices = {
 					{-0.5f, -0.5f, 0.0f},
 					{0.5f, -0.5f, 0.0f},
-					{0.0f, 0.5f, 0.0f},
+					{0.5f, 0.5f, 0.0f},
+					{-0.5f, 0.5f, 0.0f}
 				};
-				check(Data != nullptr);
+
+				FRHIBufferCreateDesc BufferCreateDesc =
+					FRHIBufferCreateDesc::CreateVertex("TestVertexBuffer", TestVertices.size() * sizeof(glm::vec3));
+				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
+				auto VertexBuffer= RHICreateBuffer(BufferCreateDesc);
+				void* Data = CommandList.LockBuffer(VertexBuffer, 0, VertexBuffer->GetSize(), EResourceLockMode::WriteOnly);
 				std::memcpy(Data, &TestVertices[0], TestVertices.size() * sizeof(glm::vec3));
-				CommandList.UnlockBuffer(Buffer.GetReference());
+				CommandList.UnlockBuffer(VertexBuffer);
+				GTestRenderProxy.VertexBuffer = VertexBuffer;
+			});
+
+			ENQUEUE_RENDER_COMMAND(CreateIndexBuffer)([](FRHICommandListImmediate& CommandList) {
+				const std::vector<uint16> TestIndices = { 0, 1, 2, 2, 3, 0 };
+				auto BufferSize = TestIndices.size() * sizeof(uint16);
+				FRHIBufferCreateDesc BufferCreateDesc =
+					FRHIBufferCreateDesc::CreateIndex("TestIndexBuffer", BufferSize, sizeof(uint16));
+				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::IndexBuffer;
+				auto IndexBuffer = RHICreateBuffer(BufferCreateDesc);
+				void* Data = CommandList.LockBuffer(IndexBuffer, 0, IndexBuffer->GetSize(), EResourceLockMode::WriteOnly);
+				std::memcpy(Data, &TestIndices[0], BufferSize);
+				CommandList.UnlockBuffer(IndexBuffer);
+				GTestRenderProxy.IndexBuffer = IndexBuffer;
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
@@ -158,6 +174,7 @@ namespace Doge
 				CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 
 				CommandList.BindVertexBuffer(0, GTestRenderProxy.VertexBuffer, 0);
+				CommandList.BindIndexBuffer(GTestRenderProxy.IndexBuffer, 0);
 				// Draw call
 				CommandList.DrawPrimitive();
 
@@ -174,6 +191,7 @@ namespace Doge
 		{
 			bIsReady = false;
 		}
+
 	private:
 		FPipelineData PipelineData;
 
@@ -251,6 +269,7 @@ namespace Doge
 	{
 		ENQUEUE_RENDER_COMMAND(ReleaseTestProxy)([](FRHICommandListImmediate& RHICmdList) {
 			GTestRenderProxy.VertexBuffer = nullptr;
+			GTestRenderProxy.IndexBuffer = nullptr;
 		});
 
 		ShutdownRenderingThread();

@@ -178,7 +178,7 @@ namespace Doge
 			return Desc;
 		}
 
-		static auto CreatePixel(const char* InDebugName,FCodeView InCode, FXxHash128 InHash) -> FRHIShaderCreateDesc
+		static auto CreatePixel(const char* InDebugName, FCodeView InCode, FXxHash128 InHash) -> FRHIShaderCreateDesc
 		{
 			auto Desc = FRHIShaderCreateDesc(InDebugName, EShaderFrequency::Pixel, InCode, InHash);
 			return Desc;
@@ -294,7 +294,7 @@ namespace Doge
 
 		auto GetSize() const -> FIntVector
 		{
-			return FIntVector(Extent.x, Extent.y, Depth);
+			return {Extent.x, Extent.y, Depth};
 		}
 
 		ETextureDimension Dimension = ETextureDimension::Texture2D;
@@ -324,32 +324,32 @@ namespace Doge
 	{
 		static auto Create(const char* InDebugName, ETextureDimension InDimension) -> FRHITextureCreateDesc
 		{
-			return FRHITextureCreateDesc(InDebugName, InDimension);
+			return {InDebugName, InDimension};
 		}
 
 		static auto Create2D(const char* InDebugName) -> FRHITextureCreateDesc
 		{
-			return FRHITextureCreateDesc(InDebugName, ETextureDimension::Texture2D);
+			return {InDebugName, ETextureDimension::Texture2D};
 		}
 
 		static auto Create2DArray(const char* InDebugName) -> FRHITextureCreateDesc
 		{
-			return FRHITextureCreateDesc(InDebugName, ETextureDimension::Texture2DArray);
+			return {InDebugName, ETextureDimension::Texture2DArray};
 		}
 
 		static auto Create3D(const char* InDebugName) -> FRHITextureCreateDesc
 		{
-			return FRHITextureCreateDesc(InDebugName, ETextureDimension::Texture3D);
+			return {InDebugName, ETextureDimension::Texture3D};
 		}
 
 		static auto CreateCube(const char* InDebugName) -> FRHITextureCreateDesc
 		{
-			return FRHITextureCreateDesc(InDebugName, ETextureDimension::TextureCube);
+			return {InDebugName, ETextureDimension::TextureCube};
 		}
 
 		static auto CreateCubeArray(const char* InDebugName) -> FRHITextureCreateDesc
 		{
-			return FRHITextureCreateDesc(InDebugName, ETextureDimension::TextureCubeArray);
+			return {InDebugName, ETextureDimension::TextureCubeArray};
 		}
 
 		static auto Create2D(const char* InDebugName, uint32 InWidth, uint32 InHeight, EPixelFormat InFormat) -> FRHITextureCreateDesc
@@ -381,7 +381,7 @@ namespace Doge
 		auto SetExtent(const FIntPoint& InExtent) -> FRHITextureCreateDesc& { Extent = InExtent; return *this; }
 		auto SetExtent(uint32 InWidth, uint32 InHeight) -> FRHITextureCreateDesc& { Extent = FIntPoint(InWidth, InHeight); return *this; }
 		auto SetExtent(int32 InWidth, int32 InHeight) -> FRHITextureCreateDesc& { Extent = FIntPoint(InWidth, InHeight); return *this; }
-		auto SetExtent(uint32 InExtent) -> FRHITextureCreateDesc& { Extent = FIntPoint(InExtent); return *this; }
+		auto SetExtent(uint32 InExtent) -> FRHITextureCreateDesc& { Extent = FIntPoint(static_cast<int32>(InExtent)); return *this; }
 		auto SetDepth(uint16 InDepth) -> FRHITextureCreateDesc& { Depth = InDepth; return *this; }
 		auto SetArraySize(uint16 InArraySize) -> FRHITextureCreateDesc& { ArraySize = InArraySize; return *this; }
 		auto SetNumMips(uint8 InNumMips) -> FRHITextureCreateDesc& { NumMips = InNumMips; return *this; }
@@ -390,8 +390,7 @@ namespace Doge
 		auto SetDimension(ETextureDimension InDimension) -> FRHITextureCreateDesc& { Dimension = InDimension; return *this; }
 		// clang-format on
 
-
-		const char* DebugName;
+		const char* DebugName = nullptr;
 	};
 
 	class FRHITexture : public FRHIResource
@@ -480,7 +479,7 @@ namespace Doge
 
 		static auto Null() -> FRHIBufferDesc
 		{
-			return FRHIBufferDesc(0, 0, EBufferUsageFlags::NullResource);
+			return {0, 0, EBufferUsageFlags::NullResource};
 		}
 
 		auto IsNull() const -> bool
@@ -500,17 +499,17 @@ namespace Doge
 	{
 		static auto Create(const char* InDebugName, EBufferUsageFlags InUsage) -> FRHIBufferCreateDesc
 		{
-			return FRHIBufferCreateDesc(InDebugName, InUsage);
+			return {InDebugName, InUsage};
 		}
 
 		static auto Create(const char* InDebugName, uint32 InSize, uint32 InStride, EBufferUsageFlags InUsage) -> FRHIBufferCreateDesc
 		{
-			return FRHIBufferCreateDesc(InDebugName, InSize, InStride, InUsage);
+			return {InDebugName, InSize, InStride, InUsage};
 		}
 
 		static auto Create(const char* InDebugName, const FRHIBufferDesc& InDesc) -> FRHIBufferCreateDesc
 		{
-			return FRHIBufferCreateDesc(InDebugName, InDesc);
+			return {InDebugName, InDesc};
 		}
 
 		static auto CreateNull(const char* InDebugName) -> FRHIBufferCreateDesc
@@ -566,7 +565,7 @@ namespace Doge
 	public:
 		explicit FRHIBuffer(const FRHIBufferCreateDesc& InCreateDesc)
 			: FRHIResource(ERHIResourceType::Buffer)
-			, Desc(static_cast<FRHIBufferDesc>(InCreateDesc))
+			, Desc(static_cast<FRHIBufferDesc>(InCreateDesc)) // NOLINT Slice off the DebugName and only keep the FRHIBufferDesc part of the create desc
 		{
 		}
 

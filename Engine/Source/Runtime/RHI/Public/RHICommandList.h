@@ -38,6 +38,8 @@ namespace Doge
 
 		auto BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void;
 
+		auto BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void;
+
 		auto DrawPrimitive() -> void;
 
 		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;

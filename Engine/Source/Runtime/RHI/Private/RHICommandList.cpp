@@ -8,8 +8,7 @@ namespace Doge
 	FRHICommandListExecutor GCommandListExecutor;
 
 	FRHICommandList::FRHICommandList()
-	{
-	}
+	= default;
 
 	auto FRHICommandList::SwitchPipeline(ERHIPipeline Pipeline) -> void
 	{
@@ -58,6 +57,11 @@ namespace Doge
 	auto FRHICommandList::BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
 	{
 		GetContext().RHIBindVertexBuffer(StreamIndex, VertexBuffer, Offset);
+	}
+
+	auto FRHICommandList::BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void
+	{
+		GetContext().RHIBindIndexBuffer(Buffer, Offset);
 	}
 
 	auto FRHICommandList::DrawPrimitive() -> void
