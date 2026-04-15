@@ -1,13 +1,13 @@
 include_guard(GLOBAL)
 
-include(${CMAKE_CURRENT_LIST_DIR}/DogeBuildConfigs.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/BuildConfigs.cmake)
 
 if(NOT DEFINED ENABLE_DOGE_TIMER)
     set(ENABLE_DOGE_TIMER OFF)
 endif()
 
 if(ENABLE_DOGE_TIMER)
-    message(STATUS "[DogeTimer] Profiling is ENABLED")
+    message(STATUS "[Timer] Profiling is ENABLED")
 else()
     function(doge_start BLOCK_NAME)
     endfunction()

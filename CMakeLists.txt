@@ -5,10 +5,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 project(DogeEngine LANGUAGES CXX)
 
-set(DOGE_CMAKE_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/Engine/Scripts/CMake")
+set(DOGE_CMAKE_DIR "${PROJECT_SOURCE_DIR}/CMake")
 
-include(${DOGE_CMAKE_INCLUDE_DIR}/DogeCommon.cmake)
-include(${DOGE_CMAKE_INCLUDE_DIR}/DogeModules.cmake)
+include(${DOGE_CMAKE_DIR}/Common.cmake)
+include(${DOGE_CMAKE_DIR}/Modules.cmake)
 
 add_subdirectory(Engine)
 

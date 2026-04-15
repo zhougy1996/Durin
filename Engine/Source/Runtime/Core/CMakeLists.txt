@@ -1,7 +1,7 @@
 doge_add_module(Core)
 
 target_sources(Core PRIVATE
-    ${DOGE_ENGINE_DIR}/Extras/VisualStudioDebugging/Doge.natvis
+    ${DOGE_PROJECT_DIR}/Extras/VisualStudioDebugging/Doge.natvis
 )
 
 target_include_directories(Core PRIVATE

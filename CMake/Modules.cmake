@@ -1,7 +1,7 @@
 include_guard(GLOBAL)
-include(${CMAKE_CURRENT_LIST_DIR}/DogeTimer.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/Timer.cmake)
 
-set(DHT_DIR ${DOGE_ENGINE_SOURCE_DIR}/Programs/DogeHeaderTool)
+set(DHT_DIR ${DOGE_DIR}/Engine/Source/Programs/DogeHeaderTool)
 set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/main.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
