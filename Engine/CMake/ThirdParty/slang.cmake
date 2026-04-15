@@ -1,3 +1,4 @@
+include_guard(GLOBAL)
 message(STATUS "  ThirdParty: SlangInterface (Alias: Slang::slang)")
 
 add_library(SlangInterface INTERFACE)
@@ -18,3 +19,13 @@ if (WIN32)
             slang
     )
 endif()
+
+function(add_copy_slang_runtime_command target)
+    if (WIN32)
+        add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${SLANG_ROOT}/bin/slang.dll"
+                "$<TARGET_FILE_DIR:${target}>/slang.dll"
+        )
+    endif()
+endfunction()
