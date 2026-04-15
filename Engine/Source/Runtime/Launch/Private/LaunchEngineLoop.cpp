@@ -17,6 +17,7 @@
 #include "Json/Json.h"
 #include "Misc/Paths.h"
 
+#include "Shader/ShaderCompiler.h"
 namespace Doge
 {
 	FEngineLoop GEngineLoop;
@@ -35,6 +36,7 @@ namespace Doge
 		GlobalConfigsInit();
 
 		LoggerInit();
+		InitShaderCompiler();
 		DObjectInit();
 	}
 	// Test code
@@ -176,7 +178,7 @@ namespace Doge
 				CommandList.BindVertexBuffer(0, GTestRenderProxy.VertexBuffer, 0);
 				CommandList.BindIndexBuffer(GTestRenderProxy.IndexBuffer, 0);
 				// Draw call
-				CommandList.DrawPrimitive();
+				// CommandList.DrawPrimitive();
 
 				CommandList.EndRenderPass();
 
@@ -278,6 +280,7 @@ namespace Doge
 		GDynamicRHI->Shutdown();
 		Mona::FMonaApplication::Shutdown();
 
+		DestroyShaderCompiler();
 		GlobalConfigsDeinit();
 	}
 } // namespace Doge

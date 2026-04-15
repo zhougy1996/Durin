@@ -27,5 +27,10 @@ function(add_copy_slang_runtime_command target)
                 "${SLANG_ROOT}/bin/slang.dll"
                 "$<TARGET_FILE_DIR:${target}>/slang.dll"
         )
+        add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${SLANG_ROOT}/bin/slang-compiler.dll"
+                "$<TARGET_FILE_DIR:${target}>/slang-compiler.dll"
+        )
     endif()
 endfunction()
