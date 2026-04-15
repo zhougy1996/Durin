@@ -120,17 +120,27 @@ namespace Doge::VulkanRHI
 		return Payload.CommandBuffers.back();
 	}
 
-	auto FVulkanCommandListContext::AddSignalSemaphore(FVulkanSemaphore* SignalSemaphore) -> void
+	auto FVulkanCommandListContext::AddWaitSemaphore(vk::PipelineStageFlags InWaitFlag, FVulkanSemaphore* InWaitSemaphore) -> void
 	{
-		auto& Payload = GetPayload();
-		Payload.SignalSemaphores.push_back(SignalSemaphore);
+		AddWaitSemaphores(InWaitFlag, std::span(&InWaitSemaphore, 1));
 	}
 
-	auto FVulkanCommandListContext::AddWaitSemaphore(FVulkanSemaphore* Semaphore, vk::PipelineStageFlags WaitFlag) -> void
+	auto FVulkanCommandListContext::AddWaitSemaphores(vk::PipelineStageFlags InWaitFlag, std::span<FVulkanSemaphore*> InWaitSemaphores) -> void
 	{
 		auto& Payload = GetPayload();
-		Payload.WaitSemaphores.push_back(Semaphore);
-		Payload.WaitFlags.push_back(WaitFlag);
+		Payload.WaitSemaphores.insert(Payload.WaitSemaphores.end(), InWaitSemaphores.begin(), InWaitSemaphores.end());
+		Payload.WaitFlags.insert(Payload.WaitFlags.end(), InWaitSemaphores.size(), InWaitFlag);
+	}
+
+	auto FVulkanCommandListContext::AddSignalSemaphore(FVulkanSemaphore* InSignalSemaphore) -> void
+	{
+ 		AddSignalSemaphores(std::span(&InSignalSemaphore, 1));
+	}
+
+	auto FVulkanCommandListContext::AddSignalSemaphores(std::span<FVulkanSemaphore*> InSignalSemaphores) -> void
+	{
+		auto& Payload = GetPayload();
+		Payload.SignalSemaphores.insert(Payload.SignalSemaphores.end(), InSignalSemaphores.begin(), InSignalSemaphores.end());
 	}
 
 	auto FVulkanCommandListContext::Finalize() -> void

@@ -46,9 +46,13 @@ namespace Doge::VulkanRHI
 
 		auto GetCommandBuffer() -> FVulkanCommandBuffer*;
 
-		auto AddSignalSemaphore(FVulkanSemaphore* SignalSemaphore) -> void;
+		auto AddWaitSemaphore(vk::PipelineStageFlags InWaitFlag, FVulkanSemaphore* InWaitSemaphore) -> void;
 
-		auto AddWaitSemaphore(FVulkanSemaphore* Semaphore, vk::PipelineStageFlags WaitFlag = vk::PipelineStageFlagBits::eColorAttachmentOutput) -> void;
+		auto AddWaitSemaphores(vk::PipelineStageFlags InWaitFlag, std::span<FVulkanSemaphore*> InWaitSemaphores) -> void;
+
+		auto AddSignalSemaphore(FVulkanSemaphore* InSignalSemaphore) -> void;
+
+		auto AddSignalSemaphores(std::span<FVulkanSemaphore*> InSignalSemaphores) -> void;
 
 		auto GetQueue() const -> FVulkanQueue* { return Queue; }
 

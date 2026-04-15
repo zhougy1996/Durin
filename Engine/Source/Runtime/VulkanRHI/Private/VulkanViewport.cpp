@@ -28,7 +28,7 @@ namespace Doge::VulkanRHI
 	{
 		const FVulkanTextureView& View = Viewport->AcquireBackBufferImage();
 		Image = View.Image;
-		Context.AddWaitSemaphore(Viewport->AcquiredSemaphore);
+		Context.AddWaitSemaphore(vk::PipelineStageFlagBits::eColorAttachmentOutput, Viewport->AcquiredSemaphore);
 	}
 
 	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat)
