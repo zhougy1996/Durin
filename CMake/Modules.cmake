@@ -6,7 +6,7 @@ set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/main.py")
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(doge_add_project project_name)
-	message("-- Project: ${project_name}")
+	message(STATUS "Project: ${project_name}")
 	doge_start("Project_${project_name}")
 	project(Engine)
 	set(DOGE_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DOGE_ARCH}/Editor")
@@ -63,7 +63,7 @@ function(doge_collect_and_organize_source_files OUT_SRCS)
 endfunction()
 
 function(doge_add_module module_name)
-	message("--- Module: ${module_name}")
+	message(STATUS "  Module: ${module_name}")
 	doge_start("Module_${module_name}")
 
 	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
