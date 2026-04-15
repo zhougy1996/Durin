@@ -4,7 +4,7 @@
 
 namespace Doge
 {
-	class CORE_API IModuleInterface
+	class IModuleInterface
 	{
 	public:
 		virtual ~IModuleInterface() = default;
@@ -13,7 +13,7 @@ namespace Doge
 		virtual void ShutdownModule() {};
 	};
 
-	class CORE_API FModuleInfo
+	class FModuleInfo
 	{
 	public:
 		FName ModuleName;
@@ -26,48 +26,54 @@ namespace Doge
 
 		// This flag is used to check if the module's startup function has been called.
 		std::atomic<bool> bIsReady = false;
+
+		// This is used to record the order in which the modules are loaded, so that we can call their shutdown functions in the reverse order of loading.
+		uint32 LoadOrder = 0;
 	};
 
 	using InitializeModuleFunc = IModuleInterface* (*)();
 
-	class CORE_API FModuleManager
+	class FModuleManager
 	{
 	public:
 		using FModuleInfoPtr = std::shared_ptr<FModuleInfo>;
 		using FModuleMap = std::unordered_map<FName, FModuleInfoPtr>;
 
-		static auto Get() -> FModuleManager&;
+		CORE_API static auto Get() -> FModuleManager&;
 
 		template<typename TModuleInterface>
 		static auto LoadModule(const FName& InModuleName) -> TModuleInterface*
 		{
-			return static_cast<TModuleInterface*>(FModuleManager::Get().LoadModule(InModuleName));
+			return static_cast<TModuleInterface*>(Get().LoadModule(InModuleName));
 		}
 
 		template<typename TModuleInterface>
 		static auto LoadModuleChecked(const FName& InModuleName) -> TModuleInterface&
 		{
-			IModuleInterface& Module = FModuleManager::Get().LoadModuleChecked(InModuleName);
+			IModuleInterface& Module = Get().LoadModuleChecked(InModuleName);
 			return static_cast<TModuleInterface&>(Module);
 		}
 
-		auto AddModule(const FName& InModuleName, const std::string& FileName) -> void;
+		CORE_API auto AddModule(const FName& InModuleName, const std::string& FileName) -> void;
 
-		auto FindModule(const FName& InModuleName) -> FModuleInfoPtr;
+		CORE_API auto FindModule(const FName& InModuleName) -> FModuleInfoPtr;
 
-		auto LoadModule(const FName& InModuleName) -> IModuleInterface*;
+		CORE_API auto LoadModule(const FName& InModuleName) -> IModuleInterface*;
 
-		auto LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&;
+		CORE_API auto LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&;
 
-		auto IsModuleLoaded(const FName& InModuleName) -> bool;
+		CORE_API auto IsModuleLoaded(const FName& InModuleName) -> bool;
 
-		auto GetModule(const FName& InModuleName) -> IModuleInterface*;
+		CORE_API auto GetModule(const FName& InModuleName) -> IModuleInterface*;
 
-		auto UnloadModule(const FName& InModuleName) -> void;
+		CORE_API auto UnloadModule(const FName& InModuleName) -> void;
 
-		auto StartProcessingNewlyLoadedObjects() -> void;
+		CORE_API auto StartProcessingNewlyLoadedObjects() -> void;
 
-		auto SetProcessLoadedObjectsCallback(std::function<void()> Callback) -> void;
+		CORE_API auto SetProcessLoadedObjectsCallback(std::function<void()> Callback) -> void;
+
+		// Does not actually unload the modules, but calls their shutdown functions in the reverse order of loading. The modules will be unloaded when the process exits.
+		CORE_API auto UnloadModulesAtShutdown() -> void;
 
 	private:
 		FModuleMap Modules;
@@ -80,7 +86,7 @@ namespace Doge
 	/**
 	 * A default implementation of IModuleInterface that does nothing at startup or shutdown.
 	 */
-	class CORE_API FDefaultModuleImpl : public IModuleInterface
+	class FDefaultModuleImpl : public IModuleInterface
 	{
 	};
 }

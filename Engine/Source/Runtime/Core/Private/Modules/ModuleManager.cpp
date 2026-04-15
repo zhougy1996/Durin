@@ -10,9 +10,12 @@ namespace Doge
 
 	auto FModuleManager::AddModule(const FName& InModuleName, const std::string& FileName) -> void
 	{
+		static uint32 ModuleIndex = 0;
+
 		auto ModuleInfoPtr = std::make_shared<FModuleInfo>();
 		ModuleInfoPtr->ModuleName = InModuleName;
 		ModuleInfoPtr->FileName = FileName;
+		ModuleInfoPtr->LoadOrder = ModuleIndex++;
 		Modules.emplace(InModuleName, ModuleInfoPtr);
 	}
 
@@ -146,4 +149,32 @@ namespace Doge
 	{
 		ProcessLoadedObjectsCallback = std::move(Callback);
 	}
-}
+
+	auto FModuleManager::UnloadModulesAtShutdown() -> void
+	{
+		std::vector<FModuleInfoPtr> ModulesToUnload;
+
+		ModulesToUnload.reserve(Modules.size());
+		for (const auto& ModuleInfo : Modules | std::views::values)
+		{
+			ModulesToUnload.push_back(ModuleInfo);
+		}
+
+		std::ranges::sort(ModulesToUnload, [](const FModuleInfoPtr& A, const FModuleInfoPtr& B) {
+			return A->LoadOrder > B->LoadOrder;
+		});
+
+		for (const auto& ModuleInfo : ModulesToUnload)
+		{
+			if (ModuleInfo->bIsReady)
+			{
+				ModuleInfo->Module->ShutdownModule();
+				ModuleInfo->bIsReady = false;
+				DOGE_DEBUG(STR("Module shutdown: {}"), ModuleInfo->ModuleName.ToString());
+			}
+		}
+
+		ModulesToUnload.clear();
+		Modules.clear();
+	}
+} // namespace Doge

@@ -281,6 +281,9 @@ namespace Doge
 		Mona::FMonaApplication::Shutdown();
 
 		DestroyShaderCompiler();
+
+		FModuleManager::Get().UnloadModulesAtShutdown();
+
 		GlobalConfigsDeinit();
 	}
 } // namespace Doge
