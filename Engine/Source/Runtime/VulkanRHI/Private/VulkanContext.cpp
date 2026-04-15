@@ -96,6 +96,7 @@ namespace Doge::VulkanRHI
 		if (Stride == 2) { return vk::IndexType::eUint16; }
 		if (Stride == 4) { return vk::IndexType::eUint32; }
 		checkf(false, "Unsupported index buffer stride: {}", Stride);
+		return vk::IndexType::eUint16;
 	}
 
 	auto FVulkanCommandListContext::RHIBindIndexBuffer(FRHIBuffer* InIndexBuffer, uint32 Offset) -> void

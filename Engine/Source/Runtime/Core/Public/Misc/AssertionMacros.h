@@ -24,4 +24,5 @@
 	#endif // !checkf
 #else
 	#define check(expr)
+	#define checkf(expr, format, ...)
 #endif // DO_CHECK
