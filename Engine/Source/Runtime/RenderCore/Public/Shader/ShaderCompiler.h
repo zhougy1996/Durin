@@ -11,8 +11,4 @@ namespace Doge
 	};
 
 	RENDERCORE_API extern FShaderCompiler* GShaderCompiler;
-
-	RENDERCORE_API extern void InitShaderCompiler();
-
-	RENDERCORE_API extern void DestroyShaderCompiler();
 }

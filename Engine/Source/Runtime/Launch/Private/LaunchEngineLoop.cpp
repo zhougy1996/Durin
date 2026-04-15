@@ -17,7 +17,6 @@
 #include "Json/Json.h"
 #include "Misc/Paths.h"
 
-#include "Shader/ShaderCompiler.h"
 namespace Doge
 {
 	FEngineLoop GEngineLoop;
@@ -36,7 +35,7 @@ namespace Doge
 		GlobalConfigsInit();
 
 		LoggerInit();
-		InitShaderCompiler();
+		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
 	}
 	// Test code
@@ -279,8 +278,6 @@ namespace Doge
 		delete GEngine;
 		GDynamicRHI->Shutdown();
 		Mona::FMonaApplication::Shutdown();
-
-		DestroyShaderCompiler();
 
 		FModuleManager::Get().UnloadModulesAtShutdown();
 
