@@ -11,6 +11,9 @@
 #include "Misc/CoreTypes.h"
 #include "HAL/GenericPlatform.h"
 
+#define DOGE_BUILD_PLATFORM Win64
+#define DOGE_BUILD_PLATFORM_STRING "Win64"
+
 #define PLATFORM_LITTLE_ENDIAN 1
 
 #define DLLEXPORT __declspec(dllexport)
@@ -31,6 +34,11 @@ namespace Doge
 	{
 		static constexpr auto FLibraryPrefix = "";
 		static constexpr auto FLibraryExtension = ".dll";
+
+		static auto EnableUserBinaryDirectoriesSearch() -> void
+		{
+			SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
+		}
 
 		static FModuleHandle LoadLibrary(const std::string& FileName)
 		{

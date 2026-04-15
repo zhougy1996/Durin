@@ -16,6 +16,7 @@
 #include "RenderingThread.h"
 #include "Json/Json.h"
 #include "Misc/Paths.h"
+#include "Misc/StringConvert.h"
 
 namespace Doge
 {
@@ -27,6 +28,9 @@ namespace Doge
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
+
+		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
+		AddDllDirectory(StringConvert::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
 
 		DOGE_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DOGE_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());

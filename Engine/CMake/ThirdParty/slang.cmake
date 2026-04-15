@@ -22,15 +22,17 @@ endif()
 
 function(add_copy_slang_runtime_command target)
     if (WIN32)
+        set(SLANG_STAGE_DIR "${DOGE_PROJECT_BINARY_DIR}/ThirdParty/${DOGE_ARCH}/$<CONFIG>")
+
         add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${SLANG_STAGE_DIR}"
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${SLANG_ROOT}/bin/slang.dll"
-                "$<TARGET_FILE_DIR:${target}>/slang.dll"
-        )
-        add_custom_command(TARGET ${target} POST_BUILD
+                "${SLANG_STAGE_DIR}/slang.dll"
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${SLANG_ROOT}/bin/slang-compiler.dll"
-                "$<TARGET_FILE_DIR:${target}>/slang-compiler.dll"
+                "${SLANG_STAGE_DIR}/slang-compiler.dll"
+                VERBATIM
         )
     endif()
 endfunction()

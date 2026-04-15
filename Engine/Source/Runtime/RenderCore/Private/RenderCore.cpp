@@ -1,5 +1,8 @@
 #include "RenderCore.h"
+
+#include "Misc/Paths.h"
 #include "Shader/SlangShaderCompiler.h"
+#include "Misc/StringConvert.h"
 
 namespace Doge
 {
@@ -17,7 +20,6 @@ namespace Doge
 	class FRenderCoreModule : public FDefaultModuleImpl
 	{
 	public:
-
 		auto StartupModule() -> void override
 		{
 			InitShaderCompiler();

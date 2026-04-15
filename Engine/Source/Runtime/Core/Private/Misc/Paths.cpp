@@ -7,8 +7,7 @@ namespace Doge
 {
 	auto FPaths::LaunchDir() -> std::string
 	{
-		static std::string CachedLaunchDir = []() -> std::string
-		{
+		static std::string CachedLaunchDir = []() -> std::string {
 			std::string ExePath = FPlatformProcess::ExecutablePath();
 			std::string LaunchDir = FPath{ExePath}.parent_path().generic_string() + "/";
 			return LaunchDir;
@@ -28,8 +27,7 @@ namespace Doge
 
 	auto FPaths::EngineDir() -> std::string
 	{
-		static std::string CachedEngineDir = []() -> std::string
-		{
+		static std::string CachedEngineDir = []() -> std::string {
 			const std::string RootDir = FPaths::RootDir();
 			return RootDir + "Engine/";
 		}();
@@ -38,10 +36,19 @@ namespace Doge
 
 	auto FPaths::EngineContentDir() -> std::string
 	{
-		static std::string EngineContentDir = []() -> std::string
-		{
+		static std::string EngineContentDir = []() -> std::string {
 			return FPath(EngineDir()).append("Content/").generic_string();
 		}();
 		return EngineContentDir;
+	}
+
+	auto FPaths::EngineBinariesDir() -> std::string
+	{
+		return EngineDir() + "Binaries/";
+	}
+
+	auto FPaths::EngineThirdPartyRuntimeBinariesDir() -> std::string
+	{
+		return EngineBinariesDir() + std::format("ThirdParty/{}/{}/", DOGE_BUILD_PLATFORM_STRING, DOGE_BUILD_TYPE_STRING);
 	}
 } // namespace Doge

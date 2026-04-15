@@ -12,5 +12,9 @@ namespace Doge
 		static CORE_API auto EngineDir() -> std::string;
 
 		static CORE_API auto EngineContentDir() -> std::string;
+
+		static CORE_API auto EngineBinariesDir() -> std::string;
+
+		static CORE_API auto EngineThirdPartyRuntimeBinariesDir() -> std::string;
 	};
 }
