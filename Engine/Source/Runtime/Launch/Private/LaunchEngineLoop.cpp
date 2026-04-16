@@ -44,13 +44,10 @@ namespace Doge
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
 	}
-	// Test code
 
 	struct FPipelineData
 	{
 		FName PipelineName;
-		FName VertexShaderPath;
-		FName PixelShaderPath;
 		std::vector<uint32> VertexShaderCode;
 		std::vector<uint32> PixelShaderCode;
 	};
@@ -65,6 +62,14 @@ namespace Doge
 
 	FTestRenderProxy GTestRenderProxy; // Render thread data that will be used to store render resources, and other data that can only be accessed from render thread
 
+	static auto MakeCompiledShaderCachePath(const std::string& ShaderFilename, const std::string& EntryPoint) -> std::string
+	{
+		std::filesystem::path ShaderFilePath(ShaderFilename);
+		const std::string ShaderCacheDir = FPaths::EngineDir() + "ShaderCache/SPIR-V/";
+		std::string CompiledSpvFilePath = ShaderCacheDir + ShaderFilePath.stem().generic_string() + "_" + EntryPoint + ".spv";
+		return CompiledSpvFilePath;
+	}
+
 	class FTestRenderData
 	{
 	public:
@@ -72,9 +77,9 @@ namespace Doge
 		{
 			std::string ShaderFilename = FPaths::EngineDir() + "Shaders/Slang/Test.slang";
 			std::string ShaderCacheDir = FPaths::EngineDir() + "ShaderCache/SPIR-V/";
-			std::string CompiledVertexShaderPath = ShaderCacheDir + "Test_vertexMain.spv";
-			std::string CompiledPixelShaderPath = ShaderCacheDir + "Test_fragmentMain.spv";
-			GShaderCompiler->Compile(ShaderFilename.c_str(), "vertexMain", PipelineData.VertexShaderCode);
+			std::string CompiledVertexShaderPath = MakeCompiledShaderCachePath(ShaderFilename, "vertexMain");
+			std::string CompiledPixelShaderPath = MakeCompiledShaderCachePath(ShaderFilename, "fragmentMain");
+			GShaderCompiler->Compile(CompiledVertexShaderPath.c_str(), "vertexMain", PipelineData.VertexShaderCode);
 			GShaderCompiler->Compile(ShaderFilename.c_str(), "fragmentMain", PipelineData.PixelShaderCode);
 			FFileHelper::SaveArrayToFile(PipelineData.VertexShaderCode, CompiledVertexShaderPath);
 			FFileHelper::SaveArrayToFile(PipelineData.PixelShaderCode, CompiledPixelShaderPath);

@@ -13,8 +13,6 @@ namespace Doge
 		FSlangShaderCompiler();
 		~FSlangShaderCompiler() override;
 
-		auto CompileShader(const char8* InShaderFilename, const char8* InEntryPoint) -> bool override;
-
 		auto Compile(const char8* InShaderFilename, const char8* InEntryPoint, std::vector<uint32>& OutCode) -> bool override;
 
 	private:

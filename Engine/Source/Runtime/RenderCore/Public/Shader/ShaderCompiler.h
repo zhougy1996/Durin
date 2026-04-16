@@ -8,8 +8,6 @@ namespace Doge
 		FShaderCompiler() = default;
 		virtual ~FShaderCompiler() = default;
 
-		RENDERCORE_API virtual auto CompileShader(const char8* InShaderFilename, const char8* InEntryPoint) -> bool = 0;
-
 		RENDERCORE_API virtual auto Compile(const char8* InShaderFilename, const char8* InEntryPoint, std::vector<uint32>& OutCode) -> bool = 0;
 
 		DOGE_NONCOPYABLE(FShaderCompiler);

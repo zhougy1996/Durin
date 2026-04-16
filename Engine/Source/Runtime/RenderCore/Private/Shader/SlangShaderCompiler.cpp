@@ -1,8 +1,5 @@
 #include "SlangShaderCompiler.h"
 
-#include "Misc/FileHelper.h"
-#include "Misc/Paths.h"
-
 namespace Doge
 {
 	FSlangShaderCompiler::FSlangShaderCompiler()
@@ -25,25 +22,6 @@ namespace Doge
 
 	FSlangShaderCompiler::~FSlangShaderCompiler()
 	{
-	}
-
-	auto FSlangShaderCompiler::CompileShader(const char8* InShaderFilename, const char8* InEntryPoint) -> bool
-	{
-		Slang::ComPtr<slang::IBlob> CompiledCode;
-		Slang::Result CompileResult = CompileShaderInternal(InShaderFilename, InEntryPoint, CompiledCode);
-		if (SLANG_FAILED(CompileResult))
-		{
-			DOGE_ERROR("Failed to compile shader: {}, entry point: {}", InShaderFilename, InEntryPoint);
-			DOGE_ERROR("Slang error code: {}", CompileResult);
-			return false;
-		}
-
-		const std::filesystem::path ShaderFilePath(InShaderFilename);
-		const std::string ShaderCacheDir = FPaths::EngineDir() + "ShaderCache/SPIR-V/";
-		std::string CompiledSpvFilePath = ShaderCacheDir + ShaderFilePath.stem().generic_string() + "_" + InEntryPoint + ".spv";
-
-		FFileHelper::SaveArrayToFile(std::span{static_cast<const std::byte*>(CompiledCode->getBufferPointer()), CompiledCode->getBufferSize()}, CompiledSpvFilePath);
-		return true;
 	}
 
 	auto FSlangShaderCompiler::Compile(const char8* InShaderFilename, const char8* InEntryPoint, std::vector<uint32>& OutCode) -> bool
