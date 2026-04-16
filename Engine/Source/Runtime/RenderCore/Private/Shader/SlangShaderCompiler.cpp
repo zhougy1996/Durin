@@ -2,6 +2,15 @@
 
 namespace Doge
 {
+	static auto DiagnoseIfNeeded(const Slang::ComPtr<slang::IBlob>& DiagnosticsBlob, std::source_location SourceLocation = std::source_location::current())
+	{
+		if (DiagnosticsBlob != nullptr)
+		{
+			std::string LocationString = std::format("{}:{}:{}", SourceLocation.file_name(), SourceLocation.line(), SourceLocation.column());
+			DOGE_WARN("Slang diagnostics in {} : \n{}", LocationString, static_cast<const char*>(DiagnosticsBlob->getBufferPointer()));
+		}
+	}
+
 	FSlangShaderCompiler::FSlangShaderCompiler()
 	{
 		InitGlobalSession();
@@ -26,18 +35,20 @@ namespace Doge
 
 	auto FSlangShaderCompiler::Compile(const char8* InShaderFilename, const char8* InEntryPoint, std::vector<uint32>& OutCode) -> bool
 	{
-		Slang::ComPtr<slang::IBlob> CompiledCode;
-		Slang::Result CompileResult = CompileShaderInternal(InShaderFilename, InEntryPoint, CompiledCode);
-
-		if (SLANG_FAILED(CompileResult))
+		std::vector<std::vector<uint32>> Codes;
+		if (Compile(InShaderFilename, std::span(&InEntryPoint, 1), Codes))
 		{
-			DOGE_ERROR("Failed to compile shader: {}, entry point: {}", InShaderFilename, InEntryPoint);
-			return false;
+			OutCode = std::move(Codes[0]);
+			return true;
 		}
+		return false;
+	}
 
+	static auto ConvertBlobToArray(const Slang::ComPtr<slang::IBlob>& FromBlob, std::vector<uint32>& OutCode) -> bool
+	{
 		// Get the raw pointer and size in bytes
-		const void* BufferPtr = CompiledCode->getBufferPointer();
-		const size_t BufferSize = CompiledCode->getBufferSize();
+		const void* BufferPtr = FromBlob->getBufferPointer();
+		const size_t BufferSize = FromBlob->getBufferSize();
 
 		if (BufferSize == 0 || BufferSize % sizeof(uint32) != 0)
 		{
@@ -45,7 +56,6 @@ namespace Doge
 			return false;
 		}
 
-		check(BufferSize % sizeof(uint32) == 0); // SPIR-V should be a sequence of 32-bit words
 		// Calculate number of uint32 elements
 		const size_t ElementCount = BufferSize / sizeof(uint32);
 
@@ -59,48 +69,86 @@ namespace Doge
 		return true;
 	}
 
-	static auto DiagnoseIfNeeded(const Slang::ComPtr<slang::IBlob>& DiagnosticsBlob, std::source_location SourceLocation = std::source_location::current())
+	auto FSlangShaderCompiler::Compile(const char8* InShaderFilename, const std::span<const char8*>& InEntryPoints, std::vector<std::vector<uint32>>& OutCodes) -> bool
 	{
-		if (DiagnosticsBlob != nullptr)
+		const size_t EntryPointCount = InEntryPoints.size();
+		if (EntryPointCount == 0)
 		{
-			std::string LocationString = std::format("{}:{}:{}", SourceLocation.file_name(), SourceLocation.line(), SourceLocation.column());
-			DOGE_WARN("Slang diagnostics in {} : \n{}", LocationString, static_cast<const char*>(DiagnosticsBlob->getBufferPointer()));
+			DOGE_WARN("No entry point specified");
+			return false;
 		}
+
+		Slang::ComPtr<slang::IBlob> DiagnosticsBlob;
+		std::vector<Slang::ComPtr<slang::IBlob>> CompiledCodeBlobs;
+		Slang::Result CompileResult = CompileInternal(InShaderFilename, InEntryPoints, CompiledCodeBlobs, DiagnosticsBlob);
+		DiagnoseIfNeeded(DiagnosticsBlob);
+		if (SLANG_FAILED(CompileResult))
+		{
+			std::stringstream EntryPointsStream;
+			for (size_t i = 0; i < InEntryPoints.size(); ++i)
+			{
+				if (i > 0) EntryPointsStream << ", ";
+				EntryPointsStream << InEntryPoints[i];
+			}
+			DOGE_ERROR("Failed to compile shader: {}, entry points: {}", InShaderFilename, EntryPointsStream.str());
+			return false;
+		}
+
+		OutCodes.resize(EntryPointCount);
+		for (size_t i = 0; i < EntryPointCount; ++i)
+		{
+			if (!ConvertBlobToArray(CompiledCodeBlobs[i], OutCodes[i]))
+			{
+				DOGE_ERROR("Failed to convert compiled code blob to array for shader: {}, entry point: {}", InShaderFilename, InEntryPoints[i]);
+				OutCodes.clear();
+				return false;
+			}
+		}
+		return true;
 	}
 
-	auto FSlangShaderCompiler::CompileShaderInternal(const char8* InShaderFilePath, const char8* InEntryPoint, Slang::ComPtr<slang::IBlob>& OutCode) const -> Slang::Result
+	auto FSlangShaderCompiler::CompileInternal(
+		const char8* InShaderFilePath,
+		const std::span<const char8*>& InEntryPoints,
+		std::vector<Slang::ComPtr<slang::IBlob>>& OutCodes,
+		Slang::ComPtr<slang::IBlob>& OutDiagnostics
+	) const -> Slang::Result
 	{
-		Slang::ComPtr<slang::IBlob> DiagnosticsBlob;
-		slang::IModule* Module = Session->loadModule(InShaderFilePath, DiagnosticsBlob.writeRef());
-		DiagnoseIfNeeded(DiagnosticsBlob);
-
-		if (Module == nullptr)
-		{
-			return SLANG_FAIL;
-		}
-
-		Slang::ComPtr<slang::IEntryPoint> EntryPoint;
-		SLANG_RETURN_ON_FAIL(Module->findEntryPointByName(InEntryPoint, EntryPoint.writeRef()));
+		slang::IModule* Module = Session->loadModule(InShaderFilePath, OutDiagnostics.writeRef());
+		if (!Module) return SLANG_FAIL;
 
 		std::vector<slang::IComponentType*> ComponentTypes;
 		ComponentTypes.push_back(Module);
-		ComponentTypes.push_back(EntryPoint);
 
+		// Find entry point objects for the given entry point names
+		std::vector<Slang::ComPtr<slang::IEntryPoint>> EntryPointObjects;
+		for (const char8* Name : InEntryPoints)
+		{
+			Slang::ComPtr<slang::IEntryPoint> EntryPoint;
+			SLANG_RETURN_ON_FAIL(Module->findEntryPointByName(Name, EntryPoint.writeRef()));
+			EntryPointObjects.push_back(EntryPoint);
+			ComponentTypes.push_back(EntryPoint.get());
+		}
+
+		// Compose the program from the module and entry points
 		Slang::ComPtr<slang::IComponentType> ComposedProgram;
-		SlangResult Result = Session->createCompositeComponentType(
+		SLANG_RETURN_ON_FAIL(Session->createCompositeComponentType(
 			ComponentTypes.data(),
 			ComponentTypes.size(),
 			ComposedProgram.writeRef(),
-			DiagnosticsBlob.writeRef());
-		DiagnoseIfNeeded(DiagnosticsBlob);
-		SLANG_RETURN_ON_FAIL(Result);
+			OutDiagnostics.writeRef()
+		));
 
-		SLANG_RETURN_ON_FAIL(ComposedProgram->getEntryPointCode(0, 0, OutCode.writeRef(), DiagnosticsBlob.writeRef()));
-		DiagnoseIfNeeded(DiagnosticsBlob);
-
-		if (!OutCode || OutCode->getBufferSize() == 0)
+		// Get code for each entry point
+		OutCodes.resize(InEntryPoints.size());
+		for (size_t i = 0; i < InEntryPoints.size(); ++i)
 		{
-			return SLANG_FAIL;
+			SLANG_RETURN_ON_FAIL(ComposedProgram->getEntryPointCode(
+				i,
+				0,
+				OutCodes[i].writeRef(),
+				OutDiagnostics.writeRef()
+			));
 		}
 
 		return SLANG_OK;

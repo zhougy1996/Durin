@@ -48,8 +48,7 @@ namespace Doge
 	struct FPipelineData
 	{
 		FName PipelineName;
-		std::vector<uint32> VertexShaderCode;
-		std::vector<uint32> PixelShaderCode;
+		std::vector<std::vector<uint32>> CompiledCodes;
 	};
 
 	struct FTestRenderProxy
@@ -79,10 +78,16 @@ namespace Doge
 			std::string ShaderCacheDir = FPaths::EngineDir() + "ShaderCache/SPIR-V/";
 			std::string CompiledVertexShaderPath = MakeCompiledShaderCachePath(ShaderFilename, "vertexMain");
 			std::string CompiledPixelShaderPath = MakeCompiledShaderCachePath(ShaderFilename, "fragmentMain");
-			GShaderCompiler->Compile(CompiledVertexShaderPath.c_str(), "vertexMain", PipelineData.VertexShaderCode);
-			GShaderCompiler->Compile(ShaderFilename.c_str(), "fragmentMain", PipelineData.PixelShaderCode);
-			FFileHelper::SaveArrayToFile(PipelineData.VertexShaderCode, CompiledVertexShaderPath);
-			FFileHelper::SaveArrayToFile(PipelineData.PixelShaderCode, CompiledPixelShaderPath);
+
+			std::array<const char8*, 2> EntryPoints = {"vertexMain", "fragmentMain"};
+			if (GShaderCompiler->Compile(ShaderFilename.c_str(), EntryPoints, PipelineData.CompiledCodes))
+			{
+				for (size_t i = 0; i < EntryPoints.size(); ++i)
+				{
+					std::string CompiledSpvFilePath = MakeCompiledShaderCachePath(ShaderFilename, EntryPoints[i]);
+					FFileHelper::SaveArrayToFile(PipelineData.CompiledCodes[i], CompiledSpvFilePath);
+				}
+			}
 
 			PipelineData.PipelineName = "TestPipeline";
 
@@ -94,10 +99,10 @@ namespace Doge
 			// Create pipeline
 			FPipelineData LocalPipelineData = PipelineData;
 			ENQUEUE_RENDER_COMMAND(Pipeline)([Viewport, LocalPipelineData](FRHICommandListImmediate& CommandList) {
-				FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", LocalPipelineData.VertexShaderCode, {});
+				FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", LocalPipelineData.CompiledCodes[0], {});
 				auto VertexTestShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
 
-				FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", LocalPipelineData.PixelShaderCode, {});
+				FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", LocalPipelineData.CompiledCodes[1], {});
 				auto PixelTestShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
 
 				FVertexDeclarationElementList VertexDeclElements;
