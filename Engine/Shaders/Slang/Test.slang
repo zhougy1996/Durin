@@ -5,28 +5,19 @@ struct Coords
     float3 color : COLOR;     // Custom semantic for interpolated color
 };
 
-// Global constant array
-static const float3 kColors[4] = 
-{
-    float3(1.0, 0.0, 0.0),
-    float3(0.0, 1.0, 0.0),
-    float3(0.0, 0.0, 1.0),
-    float3(1.0, 1.0, 1.0)
-};
-
 // --- Vertex Shader ---
 [shader("vertex")]
 Coords vertexMain(
     float3 inPosition : POSITION, 
-    uint vertexIndex : SV_VertexID)
+    float3 inColor : COLOR)
 {
     Coords output;
 
     // gl_Position equivalent
     output.pos = float4(inPosition, 1.0);
     
-    // Assign color based on vertex index
-    output.color = kColors[vertexIndex];
+    // Assign color based on vertex input
+    output.color = inColor;
 
     return output;
 }

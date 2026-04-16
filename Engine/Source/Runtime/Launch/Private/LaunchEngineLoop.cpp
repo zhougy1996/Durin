@@ -34,13 +34,13 @@ namespace Doge
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		AddDllDirectory(StringConvert::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
 
-		DOGE_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
-		DOGE_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
-
 		FNameInit();
 		GlobalConfigsInit();
 
 		LoggerInit();
+		DOGE_INFO(STR("Launching Doge engine..."));
+		DOGE_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
+		DOGE_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
 	}
@@ -58,7 +58,8 @@ namespace Doge
 	struct FTestRenderProxy
 	{
 		FVertexDeclarationRHIRef VertexDeclaration;
-		FBufferRHIRef VertexBuffer;
+		FBufferRHIRef VertexPositionBuffer;
+		FBufferRHIRef VertexColorBuffer;
 		FBufferRHIRef IndexBuffer;
 	};
 
@@ -83,12 +84,11 @@ namespace Doge
 			auto& App = Mona::FMonaApplication::Get();
 			const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
 			const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
-			const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).GetReference();
-			EPixelFormat ViewportFormat = Viewport->GetFormat();
+			FViewportRHIRef Viewport = Renderer->GetRHIViewport(*MainWindow);
 
 			// Create pipeline
 			FPipelineData LocalPipelineData = PipelineData;
-			ENQUEUE_RENDER_COMMAND(Pipeline)([ViewportFormat, LocalPipelineData](FRHICommandListImmediate& CommandList) {
+			ENQUEUE_RENDER_COMMAND(Pipeline)([Viewport, LocalPipelineData](FRHICommandListImmediate& CommandList) {
 				FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", LocalPipelineData.VertexShaderCode, {});
 				auto VertexTestShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
 
@@ -97,6 +97,7 @@ namespace Doge
 
 				FVertexDeclarationElementList VertexDeclElements;
 				VertexDeclElements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, sizeof(glm::vec3));
+				VertexDeclElements[1] = FVertexElement(1, 0, EVertexElementType::Float3, 1, sizeof(glm::vec3));
 				GTestRenderProxy.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
 
 				FGraphicsPipelineStateInitializer Initializer;
@@ -105,40 +106,50 @@ namespace Doge
 				Initializer.BoundShaders.PixelShader = PixelTestShader;
 				Initializer.VertexDeclaration = GTestRenderProxy.VertexDeclaration;
 
-				Initializer.PixelFormat = ViewportFormat;
+				Initializer.PixelFormat = Viewport->GetFormat();
 				GDynamicRHI->RHICreateGraphicsPipelineState(LocalPipelineData.PipelineName, Initializer);
 				CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateVertexBuffer)([](FRHICommandListImmediate& CommandList) {
-				const std::vector<glm::vec3> TestVertices = {
-					{-0.5f, -0.5f, 0.0f},
-					{0.5f, -0.5f, 0.0f},
-					{0.5f, 0.5f, 0.0f},
-					{-0.5f, 0.5f, 0.0f}
-				};
+				{
+					const std::vector<glm::vec3> TestVertices = {
+						{-0.5f, -0.5f, 0.0f},
+						{0.5f, -0.5f, 0.0f},
+						{0.5f, 0.5f, 0.0f},
+						{-0.5f, 0.5f, 0.0f}
+					};
 
-				FRHIBufferCreateDesc BufferCreateDesc =
-					FRHIBufferCreateDesc::CreateVertex("TestVertexBuffer", TestVertices.size() * sizeof(glm::vec3));
-				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
-				auto VertexBuffer= RHICreateBuffer(BufferCreateDesc);
-				void* Data = CommandList.LockBuffer(VertexBuffer, 0, VertexBuffer->GetSize(), EResourceLockMode::WriteOnly);
-				std::memcpy(Data, &TestVertices[0], TestVertices.size() * sizeof(glm::vec3));
-				CommandList.UnlockBuffer(VertexBuffer);
-				GTestRenderProxy.VertexBuffer = VertexBuffer;
+					FRHIBufferCreateDesc BufferCreateDesc =
+						FRHIBufferCreateDesc::CreateVertex("TestPositionVertexBuffer", TestVertices.size() * sizeof(glm::vec3));
+					BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
+					GTestRenderProxy.VertexPositionBuffer = RHICreateBuffer(BufferCreateDesc);
+					CommandList.WriteBuffer(GTestRenderProxy.VertexPositionBuffer, &TestVertices[0], TestVertices.size() * sizeof(glm::vec3), 0);
+				}
+
+				{
+					const std::vector<glm::vec3> TestColors = {
+						{1.0f, 0.0f, 0.0f},
+						{0.0f, 1.0f, 0.0f},
+						{0.0f, 0.0f, 1.0f},
+						{1.0f, 1.0f, 1.0f}
+					};
+					FRHIBufferCreateDesc BufferCreateDesc =
+						FRHIBufferCreateDesc::CreateVertex("TestVertexColorBuffer", TestColors.size() * sizeof(glm::vec3));
+					BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
+					GTestRenderProxy.VertexColorBuffer = RHICreateBuffer(BufferCreateDesc);
+					CommandList.WriteBuffer(GTestRenderProxy.VertexColorBuffer, &TestColors[0], TestColors.size() * sizeof(glm::vec3), 0);
+				}
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateIndexBuffer)([](FRHICommandListImmediate& CommandList) {
-				const std::vector<uint16> TestIndices = { 0, 1, 2, 2, 3, 0 };
+				const std::vector<uint16> TestIndices = {0, 1, 2, 2, 3, 0};
 				auto BufferSize = TestIndices.size() * sizeof(uint16);
 				FRHIBufferCreateDesc BufferCreateDesc =
 					FRHIBufferCreateDesc::CreateIndex("TestIndexBuffer", BufferSize, sizeof(uint16));
 				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::IndexBuffer;
-				auto IndexBuffer = RHICreateBuffer(BufferCreateDesc);
-				void* Data = CommandList.LockBuffer(IndexBuffer, 0, IndexBuffer->GetSize(), EResourceLockMode::WriteOnly);
-				std::memcpy(Data, &TestIndices[0], BufferSize);
-				CommandList.UnlockBuffer(IndexBuffer);
-				GTestRenderProxy.IndexBuffer = IndexBuffer;
+				GTestRenderProxy.IndexBuffer = RHICreateBuffer(BufferCreateDesc);
+				CommandList.WriteBuffer(GTestRenderProxy.IndexBuffer, &TestIndices[0], BufferSize, 0);
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
@@ -182,10 +193,11 @@ namespace Doge
 				auto Height = BackBuffer->GetSizeY();
 				CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 
-				CommandList.BindVertexBuffer(0, GTestRenderProxy.VertexBuffer, 0);
+				CommandList.BindVertexBuffer(0, GTestRenderProxy.VertexPositionBuffer, 0);
+				CommandList.BindVertexBuffer(1, GTestRenderProxy.VertexColorBuffer, 0);
 				CommandList.BindIndexBuffer(GTestRenderProxy.IndexBuffer, 0);
 				// Draw call
-				// CommandList.DrawPrimitive();
+				CommandList.DrawPrimitive();
 
 				CommandList.EndRenderPass();
 
@@ -221,6 +233,7 @@ namespace Doge
 		GEngine->Init();
 
 		InitRenderingThread();
+		DOGE_INFO(STR("Doge engine initialized."));
 	}
 
 	// Called from render thread
@@ -277,7 +290,8 @@ namespace Doge
 	auto FEngineLoop::Exit() -> void
 	{
 		ENQUEUE_RENDER_COMMAND(ReleaseTestProxy)([](FRHICommandListImmediate& RHICmdList) {
-			GTestRenderProxy.VertexBuffer = nullptr;
+			GTestRenderProxy.VertexPositionBuffer = nullptr;
+			GTestRenderProxy.VertexColorBuffer = nullptr;
 			GTestRenderProxy.IndexBuffer = nullptr;
 		});
 
@@ -290,5 +304,7 @@ namespace Doge
 		FModuleManager::Get().UnloadModulesAtShutdown();
 
 		GlobalConfigsDeinit();
+
+		DOGE_INFO(STR("Doge engine exited."));
 	}
 } // namespace Doge

@@ -52,6 +52,8 @@ namespace Doge
 
 		auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
 
+		auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
+
 	private:
 		ERHIPipeline ActivePipeline = ERHIPipeline::None;
 

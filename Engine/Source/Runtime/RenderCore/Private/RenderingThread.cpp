@@ -29,7 +29,7 @@ namespace Doge
 
 		auto Stop() -> void override
 		{
-			DOGE_DEBUG("Rendering thread stop requested.");
+			DOGE_TRACE("Rendering thread stop requested.");
 			bStopRequested = true;
 		}
 

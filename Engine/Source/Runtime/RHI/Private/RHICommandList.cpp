@@ -89,6 +89,13 @@ namespace Doge
 		return GDynamicRHI->RHIUnlockBuffer(*this, Buffer);
 	}
 
+	auto FRHICommandList::WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void
+	{
+		void* MappedPointer = LockBuffer(Buffer, OffsetBytes, Size, EResourceLockMode::WriteOnly);
+		std::memcpy(MappedPointer, Data, Size);
+		UnlockBuffer(Buffer);
+	}
+
 	auto FRHICommandListImmediate::Get() -> FRHICommandListImmediate&
 	{
 		return GCommandListExecutor.GetImmediateCommandList();

@@ -93,12 +93,9 @@ namespace Doge::VulkanRHI
 			.setTopology(vk::PrimitiveTopology::eTriangleList)
 			.setPrimitiveRestartEnable(vk::False);
 
-		// Will be set dynamically
+		// Viewports and scissors will be set dynamically, so we don't need to specify them here, but we still need to specify the count
 		vk::PipelineViewportStateCreateInfo ViewportStateInfo;
 		ViewportStateInfo.setViewportCount(1).setScissorCount(1);
-		// ViewportStateInfo
-		//	.setViewports(Viewport_)
-		//	.setScissors(Scissor_);
 
 		vk::PipelineRasterizationStateCreateInfo RasterizerInfo;
 		RasterizerInfo
