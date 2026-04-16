@@ -9,7 +9,7 @@ namespace Doge
 	{
 		static std::string CachedLaunchDir = []() -> std::string {
 			std::string ExePath = FPlatformProcess::ExecutablePath();
-			std::string LaunchDir = FPath{ExePath}.parent_path().generic_string() + "/";
+			std::string LaunchDir = std::filesystem::path{ExePath}.parent_path().generic_string() + "/";
 			return LaunchDir;
 		}();
 		return CachedLaunchDir;
@@ -19,7 +19,7 @@ namespace Doge
 	{
 		static std::string CachedRootDir = []() -> std::string {
 			const std::string LaunchDir = FPaths::LaunchDir();
-			FPath RootDir = FPath{LaunchDir}.parent_path().parent_path().parent_path().parent_path().parent_path().parent_path();
+			const std::filesystem::path RootDir = std::filesystem::path{LaunchDir}.parent_path().parent_path().parent_path().parent_path().parent_path().parent_path();
 			return RootDir.generic_string() + "/";
 		}();
 		return CachedRootDir;
@@ -37,7 +37,7 @@ namespace Doge
 	auto FPaths::EngineContentDir() -> std::string
 	{
 		static std::string EngineContentDir = []() -> std::string {
-			return FPath(EngineDir()).append("Content/").generic_string();
+			return std::filesystem::path{EngineDir()}.append("Content/").generic_string();
 		}();
 		return EngineContentDir;
 	}

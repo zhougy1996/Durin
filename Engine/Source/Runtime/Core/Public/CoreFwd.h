@@ -38,8 +38,3 @@
 #include "Math/MathFwd.h"
 #include "Containers/ContainersFwd.h"
 
-namespace Doge
-{
-	namespace FFileSystem = std::filesystem;
-	using FPath = FFileSystem::path;
-}

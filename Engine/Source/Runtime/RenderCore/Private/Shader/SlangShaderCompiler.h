@@ -13,7 +13,15 @@ namespace Doge
 		FSlangShaderCompiler();
 		~FSlangShaderCompiler() override;
 
+		auto CompileShader(const char8* InShaderFilename, const char8* InEntryPoint) -> bool override;
+
 	private:
-		Slang::ComPtr<slang::ISession> SlangSession;
+		auto CompileShaderInternal(const char8* InShaderFilePath, const char8* InEntryPoint, Slang::ComPtr<slang::IBlob>& OutCode) const -> Slang::Result;
+
+		auto InitGlobalSession() -> void;
+
+		Slang::ComPtr<slang::IGlobalSession> GlobalSession;
+
+		Slang::ComPtr<slang::ISession> Session;
 	};
 }

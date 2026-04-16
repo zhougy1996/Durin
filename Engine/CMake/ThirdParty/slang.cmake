@@ -26,12 +26,9 @@ function(add_copy_slang_runtime_command target)
 
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E make_directory "${SLANG_STAGE_DIR}"
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${SLANG_ROOT}/bin/slang.dll"
-                "${SLANG_STAGE_DIR}/slang.dll"
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${SLANG_ROOT}/bin/slang-compiler.dll"
-                "${SLANG_STAGE_DIR}/slang-compiler.dll"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SLANG_ROOT}/bin/slang.dll" "${SLANG_STAGE_DIR}/slang.dll"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SLANG_ROOT}/bin/slang-compiler.dll" "${SLANG_STAGE_DIR}/slang-compiler.dll"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SLANG_ROOT}/bin/slang-glslang.dll" "${SLANG_STAGE_DIR}/slang-glslang.dll"
                 VERBATIM
         )
     endif()

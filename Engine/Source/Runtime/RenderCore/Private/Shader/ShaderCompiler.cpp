@@ -3,5 +3,6 @@
 namespace Doge
 {
 	FShaderCompiler* GShaderCompiler = nullptr;
+
 }
 

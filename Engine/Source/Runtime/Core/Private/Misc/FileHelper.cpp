@@ -6,14 +6,14 @@ namespace Doge
 	{
 		bool FileExists(std::string_view FileName)
 		{
-			return FFileSystem::exists(FileName);
+			return std::filesystem::exists(FileName);
 		}
 
 		template<typename ElementType>
 		static auto LoadFileToArrayInternal(std::vector<ElementType>& Result, std::string_view FileName) -> bool
 		{
-			FPath FilePath(FileName);
-			if (!FFileSystem::exists(FilePath))
+			std::filesystem::path FilePath(FileName);
+			if (!std::filesystem::exists(FilePath))
 			{
 				DOGE_WARN("Failed to load file. File {} does not exist.", FileName);
 				return false;
@@ -25,7 +25,7 @@ namespace Doge
 				return false;
 			}
 
-			const auto FileSize = FFileSystem::file_size(FileName);
+			const auto FileSize = std::filesystem::file_size(FileName);
 
 			if (FileSize > 0)
 			{
@@ -51,8 +51,8 @@ namespace Doge
 
 		bool LoadFileToString(std::string& Result, std::string_view FileName)
 		{
-			FPath FilePath(FileName);
-			if (!FFileSystem::exists(FilePath))
+			std::filesystem::path FilePath(FileName);
+			if (!std::filesystem::exists(FilePath))
 			{
 				DOGE_WARN("Failed to load file. File {} does not exist.", FileName);
 				return false;
@@ -68,7 +68,51 @@ namespace Doge
 			StringStream << File.rdbuf();
 			Result = StringStream.str();
 
+			File.close();
 			return true;
 		}
+
+		bool SaveArrayToFile(const std::span<const std::byte>& Array, const std::filesystem::path& FilePath)
+		{
+			// Ensure the parent directory exists
+			if (FilePath.has_parent_path())
+			{
+				std::error_code ErrorCode;
+				std::filesystem::create_directories(FilePath.parent_path(), ErrorCode);
+				if (ErrorCode)
+				{
+					DOGE_ERROR("Failed to create directories for path {}: {}", FilePath.parent_path().string(), ErrorCode.message());
+					return false;
+				}
+			}
+
+			// Open the file stream in binary mode
+			std::ofstream File(FilePath, std::ios::binary | std::ios::out);
+
+			if (!File.is_open())
+			{
+				DOGE_ERROR("Failed to open file for writing: {}", FilePath.string());
+				return false;
+			}
+
+			File.write(reinterpret_cast<const char*>(Array.data()), Array.size_bytes());
+
+			if (File.fail())
+			{
+				DOGE_ERROR("Failed to write data to file {}", FilePath.string());
+				return false;
+			}
+
+			File.close();
+
+			if (File.fail())
+			{
+				DOGE_ERROR("Failed to close file {} after writing", FilePath.string());
+				return false;
+			}
+
+			return true;
+		}
+
 	} // namespace FFileHelper
-}
+} // namespace Doge

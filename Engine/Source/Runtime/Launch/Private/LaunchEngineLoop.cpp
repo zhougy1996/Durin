@@ -18,6 +18,8 @@
 #include "Misc/Paths.h"
 #include "Misc/StringConvert.h"
 
+#include "Shader/ShaderCompiler.h"
+
 namespace Doge
 {
 	FEngineLoop GEngineLoop;
@@ -65,6 +67,10 @@ namespace Doge
 	public:
 		auto Prepare() -> void
 		{
+			// Test compiler
+			std::string ShaderFilename = FPaths::EngineDir() + "Shaders/Slang/HelloWorld.slang";
+			GShaderCompiler->CompileShader(ShaderFilename.c_str(), "computeMain");
+
 			PipelineData.PipelineName = "TestPipeline";
 
 			std::string ShaderDir = FPaths::EngineDir() + "Shaders/spv/";
