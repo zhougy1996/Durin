@@ -15,6 +15,8 @@ namespace Doge
 
 		auto CompileShader(const char8* InShaderFilename, const char8* InEntryPoint) -> bool override;
 
+		auto Compile(const char8* InShaderFilename, const char8* InEntryPoint, std::vector<uint32>& OutCode) -> bool override;
+
 	private:
 		auto CompileShaderInternal(const char8* InShaderFilePath, const char8* InEntryPoint, Slang::ComPtr<slang::IBlob>& OutCode) const -> Slang::Result;
 

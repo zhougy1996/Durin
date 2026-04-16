@@ -51,6 +51,8 @@ namespace Doge
 		FName PipelineName;
 		FName VertexShaderPath;
 		FName PixelShaderPath;
+		std::vector<uint32> VertexShaderCode;
+		std::vector<uint32> PixelShaderCode;
 	};
 
 	struct FTestRenderProxy
@@ -67,34 +69,30 @@ namespace Doge
 	public:
 		auto Prepare() -> void
 		{
-			// Test compiler
-			std::string ShaderFilename = FPaths::EngineDir() + "Shaders/Slang/HelloWorld.slang";
-			GShaderCompiler->CompileShader(ShaderFilename.c_str(), "computeMain");
+			std::string ShaderFilename = FPaths::EngineDir() + "Shaders/Slang/Test.slang";
+			std::string ShaderCacheDir = FPaths::EngineDir() + "ShaderCache/SPIR-V/";
+			std::string CompiledVertexShaderPath = ShaderCacheDir + "Test_vertexMain.spv";
+			std::string CompiledPixelShaderPath = ShaderCacheDir + "Test_fragmentMain.spv";
+			GShaderCompiler->Compile(ShaderFilename.c_str(), "vertexMain", PipelineData.VertexShaderCode);
+			GShaderCompiler->Compile(ShaderFilename.c_str(), "fragmentMain", PipelineData.PixelShaderCode);
+			FFileHelper::SaveArrayToFile(PipelineData.VertexShaderCode, CompiledVertexShaderPath);
+			FFileHelper::SaveArrayToFile(PipelineData.PixelShaderCode, CompiledPixelShaderPath);
 
 			PipelineData.PipelineName = "TestPipeline";
-
-			std::string ShaderDir = FPaths::EngineDir() + "Shaders/spv/";
-			PipelineData.VertexShaderPath = ShaderDir + "test_vert.spv";
-			PipelineData.PixelShaderPath = ShaderDir + "test_frag.spv";
 
 			auto& App = Mona::FMonaApplication::Get();
 			const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
 			const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
 			const FRHIViewport* Viewport = Renderer->GetRHIViewport(*MainWindow).GetReference();
 			EPixelFormat ViewportFormat = Viewport->GetFormat();
-			// Create pipeline
 
+			// Create pipeline
 			FPipelineData LocalPipelineData = PipelineData;
 			ENQUEUE_RENDER_COMMAND(Pipeline)([ViewportFormat, LocalPipelineData](FRHICommandListImmediate& CommandList) {
-				std::vector<uint32> VertexShaderCode;
-				std::vector<uint32> PixelShaderCode;
-				FFileHelper::LoadFileToArray(VertexShaderCode, LocalPipelineData.VertexShaderPath.ToString());
-				FFileHelper::LoadFileToArray(PixelShaderCode, LocalPipelineData.PixelShaderPath.ToString());
-
-				FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", VertexShaderCode, {});
+				FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", LocalPipelineData.VertexShaderCode, {});
 				auto VertexTestShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
 
-				FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", PixelShaderCode, {});
+				FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", LocalPipelineData.PixelShaderCode, {});
 				auto PixelTestShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
 
 				FVertexDeclarationElementList VertexDeclElements;

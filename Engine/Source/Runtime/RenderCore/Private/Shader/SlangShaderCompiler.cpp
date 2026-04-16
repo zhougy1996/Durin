@@ -46,6 +46,41 @@ namespace Doge
 		return true;
 	}
 
+	auto FSlangShaderCompiler::Compile(const char8* InShaderFilename, const char8* InEntryPoint, std::vector<uint32>& OutCode) -> bool
+	{
+		Slang::ComPtr<slang::IBlob> CompiledCode;
+		Slang::Result CompileResult = CompileShaderInternal(InShaderFilename, InEntryPoint, CompiledCode);
+
+		if (SLANG_FAILED(CompileResult))
+		{
+			DOGE_ERROR("Failed to compile shader: {}, entry point: {}", InShaderFilename, InEntryPoint);
+			return false;
+		}
+
+		// Get the raw pointer and size in bytes
+		const void* BufferPtr = CompiledCode->getBufferPointer();
+		const size_t BufferSize = CompiledCode->getBufferSize();
+
+		if (BufferSize == 0 || BufferSize % sizeof(uint32) != 0)
+		{
+			DOGE_ERROR("Invalid SPIR-V size: {} bytes", BufferSize);
+			return false;
+		}
+
+		check(BufferSize % sizeof(uint32) == 0); // SPIR-V should be a sequence of 32-bit words
+		// Calculate number of uint32 elements
+		const size_t ElementCount = BufferSize / sizeof(uint32);
+
+		// Minimize reallocations: clear and resize
+		OutCode.clear();
+		OutCode.resize(ElementCount);
+
+		// Since SPIR-V is already a binary format, this is a direct bit-copy.
+		std::memcpy(OutCode.data(), BufferPtr, BufferSize);
+
+		return true;
+	}
+
 	static auto DiagnoseIfNeeded(const Slang::ComPtr<slang::IBlob>& DiagnosticsBlob, std::source_location SourceLocation = std::source_location::current())
 	{
 		if (DiagnosticsBlob != nullptr)

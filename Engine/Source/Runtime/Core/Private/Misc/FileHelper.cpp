@@ -114,5 +114,10 @@ namespace Doge
 			return true;
 		}
 
+		bool SaveArrayToFile(const std::span<const uint32>& Array, const std::filesystem::path& FilePath)
+		{
+			return SaveArrayToFile(std::span{reinterpret_cast<const std::byte*>(Array.data()), Array.size() * sizeof(uint32)}, FilePath);
+		}
+
 	} // namespace FFileHelper
 } // namespace Doge
