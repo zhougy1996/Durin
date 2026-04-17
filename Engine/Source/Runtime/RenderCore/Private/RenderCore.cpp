@@ -1,8 +1,7 @@
 #include "RenderCore.h"
 
-#include "Misc/Paths.h"
+#include "Shader/ShaderPaths.h"
 #include "Shader/SlangShaderCompiler.h"
-#include "Misc/StringConvert.h"
 
 namespace Doge
 {
@@ -22,6 +21,7 @@ namespace Doge
 	public:
 		auto StartupModule() -> void override
 		{
+			FShaderPaths::InitDefaultMountPoints();
 			InitShaderCompiler();
 		}
 

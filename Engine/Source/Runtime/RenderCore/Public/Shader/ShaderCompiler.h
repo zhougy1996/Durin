@@ -2,13 +2,6 @@
 
 namespace Doge
 {
-	struct FShaderSource
-	{
-		// The relative shader file path. For example, "Engine/Shaders/MyShader.slang".
-		std::string Filename;
-		std::string EntryPoint;
-	};
-
 	class FShaderCompiler
 	{
 	public:

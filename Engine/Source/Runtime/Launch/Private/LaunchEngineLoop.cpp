@@ -18,6 +18,7 @@
 #include "Misc/Paths.h"
 #include "Misc/StringConvert.h"
 
+#include "Shader/ShaderPaths.h"
 #include "Shader/ShaderCompiler.h"
 
 namespace Doge
@@ -63,27 +64,19 @@ namespace Doge
 
 	FTestRenderProxy GTestRenderProxy; // Render thread data that will be used to store render resources, and other data that can only be accessed from render thread
 
-	static auto MakeCompiledShaderCachePath(const std::string& ShaderFilename, const std::string& EntryPoint) -> std::string
-	{
-		std::filesystem::path ShaderFilePath(ShaderFilename);
-		const std::string ShaderCacheDir = FPaths::EngineDir() + "ShaderCache/SPIR-V/";
-		std::string CompiledSpvFilePath = ShaderCacheDir + ShaderFilePath.stem().generic_string() + "_" + EntryPoint + ".spv";
-		return CompiledSpvFilePath;
-	}
-
 	class FTestRenderData
 	{
 	public:
 		auto Prepare() -> void
 		{
-			std::string ShaderFilename = FPaths::Resolve("/Engine/Shaders/Slang/Test.slang");
-
+			std::string ShaderName = "/Engine/Test";
+			std::string ShaderSourceFilePath = FShaderPaths::SourcePath(ShaderName);
 			std::array<const char8*, 2> EntryPoints = {"vertexMain", "fragmentMain"};
-			if (GShaderCompiler->Compile(ShaderFilename.c_str(), EntryPoints, PipelineData.CompiledCodes))
+			if (GShaderCompiler->Compile(ShaderSourceFilePath.c_str(), EntryPoints, PipelineData.CompiledCodes))
 			{
 				for (size_t i = 0; i < EntryPoints.size(); ++i)
 				{
-					std::string CompiledSpvFilePath = MakeCompiledShaderCachePath(ShaderFilename, EntryPoints[i]);
+					std::string CompiledSpvFilePath = FShaderPaths::BinaryPath(ShaderName, EntryPoints[i], std::hash<std::string_view>{}(ShaderName));
 					FFileHelper::SaveArrayToFile(PipelineData.CompiledCodes[i], CompiledSpvFilePath);
 				}
 			}
