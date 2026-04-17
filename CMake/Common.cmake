@@ -6,6 +6,7 @@ add_definitions(-DUNICODE -D_UNICODE)
 if(MSVC)
 	add_compile_options(/MP)
 	add_compile_options($<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/utf-8>)
+	add_compile_options(/Zc:preprocessor)
 endif()
 
 if(CMAKE_GENERATOR STREQUAL "Ninja")

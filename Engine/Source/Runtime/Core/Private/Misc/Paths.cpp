@@ -1,10 +1,54 @@
 #include "Misc/Paths.h"
 
-#include "Misc/ConfigCacheJson.h"
 #include "HAL/PlatformProcess.h"
+#include "Threading/RunnableThread.h"
 
 namespace Doge
 {
+	namespace PathUtilities
+	{
+		static std::vector<FMountPoint> MountPoints;
+
+		auto GetRegisteredMountPoints() -> const std::vector<FMountPoint>&
+		{
+			return MountPoints;
+		}
+
+		static auto RegisterMountPointWithoutSorting(std::string_view VirtualRoot, std::string_view PhysicalPath) -> void
+		{
+			const auto FoundIt = std::ranges::find_if(MountPoints, [VirtualRoot](const FMountPoint& MountPoint) {
+				return MountPoint.VirtualRoot == VirtualRoot;
+			});
+
+			if (FoundIt != MountPoints.end())
+			{
+				FoundIt->PhysicalPath = PhysicalPath;
+			}
+			else
+			{
+				MountPoints.push_back({std::string(VirtualRoot), std::string(PhysicalPath)});
+				DOGE_DEBUG("Mount point: {} -> {}", VirtualRoot, PhysicalPath);
+			}
+		}
+
+		auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view PhysicalPath) -> void
+		{
+			checkf(IsInGameThread(), "AddMountPoint must be called from the game thread.");
+			RegisterMountPointWithoutSorting(VirtualRoot, PhysicalPath);
+
+			// Sort the mount points by the length of their virtual root in descending order, so that we can match the longest virtual root first when resolving paths.
+			std::ranges::sort(MountPoints, [](const FMountPoint& A, const FMountPoint& B) {
+				return A.VirtualRoot.length() > B.VirtualRoot.length();
+			});
+		}
+
+		auto InitDefaultMountPoints() -> void
+		{
+			checkf(IsInGameThread(), "InitDefaultMountPoints must be called from the game thread.");
+			RegisterMountPointWithoutSorting("/Engine/", FPaths::EngineDir());
+		}
+	} // namespace PathUtilities
+
 	auto FPaths::LaunchDir() -> std::string
 	{
 		static std::string CachedLaunchDir = []() -> std::string {
@@ -34,6 +78,12 @@ namespace Doge
 		return CachedEngineDir;
 	}
 
+	auto FPaths::ProjectDir() -> std::string
+	{
+		// TODO: Implement this function to return the actual project directory.
+		return EngineDir();
+	}
+
 	auto FPaths::EngineContentDir() -> std::string
 	{
 		static std::string EngineContentDir = []() -> std::string {
@@ -51,4 +101,20 @@ namespace Doge
 	{
 		return EngineBinariesDir() + std::format("ThirdParty/{}/{}/", DOGE_BUILD_PLATFORM_STRING, DOGE_BUILD_TYPE_STRING);
 	}
+
+	auto FPaths::Resolve(std::string_view VirtualPath) -> std::string
+	{
+		std::string NormalizedVirtualPath = std::filesystem::path{VirtualPath}.lexically_normal().generic_string();
+		for (const auto& MountPoint : PathUtilities::MountPoints)
+		{
+			if (NormalizedVirtualPath.starts_with(MountPoint.VirtualRoot))
+			{
+				std::string RelativePath = std::string(NormalizedVirtualPath.substr(MountPoint.VirtualRoot.size()));
+				return MountPoint.PhysicalPath + RelativePath;
+			}
+		}
+
+		return NormalizedVirtualPath;
+	}
+
 } // namespace Doge

@@ -34,13 +34,15 @@ namespace Doge
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		AddDllDirectory(StringConvert::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
 
-		FNameInit();
+		FNameInit(); // Initialize FName system.
 		GlobalConfigsInit();
 
 		LoggerInit();
 		DOGE_INFO(STR("Launching Doge engine..."));
 		DOGE_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DOGE_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
+		PathUtilities::InitDefaultMountPoints(); // Initialize default mount points to enable path resolving.
+
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
 	}
@@ -74,10 +76,7 @@ namespace Doge
 	public:
 		auto Prepare() -> void
 		{
-			std::string ShaderFilename = FPaths::EngineDir() + "Shaders/Slang/Test.slang";
-			std::string ShaderCacheDir = FPaths::EngineDir() + "ShaderCache/SPIR-V/";
-			std::string CompiledVertexShaderPath = MakeCompiledShaderCachePath(ShaderFilename, "vertexMain");
-			std::string CompiledPixelShaderPath = MakeCompiledShaderCachePath(ShaderFilename, "fragmentMain");
+			std::string ShaderFilename = FPaths::Resolve("/Engine/Shaders/Slang/Test.slang");
 
 			std::array<const char8*, 2> EntryPoints = {"vertexMain", "fragmentMain"};
 			if (GShaderCompiler->Compile(ShaderFilename.c_str(), EntryPoints, PipelineData.CompiledCodes))
@@ -207,7 +206,7 @@ namespace Doge
 				CommandList.BindVertexBuffer(1, GTestRenderProxy.VertexColorBuffer, 0);
 				CommandList.BindIndexBuffer(GTestRenderProxy.IndexBuffer, 0);
 				// Draw call
-				CommandList.DrawPrimitive();
+				// CommandList.DrawPrimitive();
 
 				CommandList.EndRenderPass();
 

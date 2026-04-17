@@ -17,7 +17,7 @@
 		#define checkf(expr, format, ...) \
 			if (!(expr)) \
 			{ \
-				DOGE_ERROR(format, ##__VA_ARGS__); \
+				DOGE_ERROR(format __VA_OPT__(,) ##__VA_ARGS__); \
 				PLATFORM_BREAK(); \
 				__assume(0); \
 			}

@@ -16,4 +16,6 @@
 	#define DOGE_BUILD_TYPE_STRING "Release"
 #endif
 
-#define DOGE_VISUALIZERS_HELPERS
+#if DOGE_BUILD_DEBUG
+	#define DOGE_VISUALIZERS_HELPERS
+#endif
