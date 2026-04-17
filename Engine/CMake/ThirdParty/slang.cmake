@@ -1,21 +1,23 @@
 include_guard(GLOBAL)
-message(STATUS "  ThirdParty: SlangInterface (Alias: Slang::slang)")
 
-add_library(SlangInterface INTERFACE)
-add_library(Slang::slang ALIAS SlangInterface)
+set(target_name Doge_Slang)
+message(STATUS "  ThirdParty: ${target_name} (Alias: Slang::slang)")
+
+add_library(${target_name} INTERFACE)
+add_library(Slang::slang ALIAS ${target_name})
 
 set(SLANG_ROOT "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/slang")
 
-target_include_directories(SlangInterface INTERFACE
+target_include_directories(${target_name} INTERFACE
         "${SLANG_ROOT}/include"
 )
 
 if (WIN32)
-    target_link_directories(SlangInterface INTERFACE
+    target_link_directories(${target_name} INTERFACE
             "${SLANG_ROOT}/lib"
     )
 
-    target_link_libraries(SlangInterface INTERFACE
+    target_link_libraries(${target_name} INTERFACE
             slang
     )
 endif()
