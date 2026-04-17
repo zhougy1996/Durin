@@ -18,6 +18,7 @@ def _append_project_global_variables_to_cmake_content(content: list[str], projec
     content.append(f"set(DOGE_PROJECT_INTERMEDIATE_DIR \"{utils.get_project_intermediate_dir(project_name).as_posix()}\")\n")
     content.append(f"set(DOGE_PROJECT_BINARY_DIR \"{utils.get_project_binary_dir(project_name).as_posix()}\")\n")
     content.append(f"set(DOGE_PROJECT_CONFIG_DIR \"{utils.get_project_config_dir(project_name).as_posix()}\")\n")
+    content.append(f"set(DOGE_PROJECT_CMAKE_DIR \"{utils.get_project_cmake_dir(project_name).as_posix()}\")\n")
     content.append("\n")
 
 def _append_module_dirs_to_cmake_content(content: list[str], project_name: str) -> None:

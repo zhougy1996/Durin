@@ -1,10 +1,9 @@
 include_guard(GLOBAL)
 
 set(target_name Doge_Slang)
-message(STATUS "  ThirdParty: ${target_name} (Alias: Slang::slang)")
+message(STATUS "  ThirdParty: ${target_name}")
 
 add_library(${target_name} INTERFACE)
-add_library(Slang::slang ALIAS ${target_name})
 
 set(SLANG_ROOT "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/slang")
 

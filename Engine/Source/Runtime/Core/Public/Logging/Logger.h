@@ -2,7 +2,7 @@
 
 namespace spdlog
 {
-class logger;
+	class logger;
 }
 
 namespace Doge

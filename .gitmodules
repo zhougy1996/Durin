@@ -1,9 +1,6 @@
 [submodule "glm"]
 	path = Engine/Source/ThirdParty/glm
 	url = https://github.com/g-truc/glm.git
-[submodule "spdlog"]
-	path = Engine/Source/ThirdParty/spdlog
-	url = https://github.com/gabime/spdlog
 [submodule "rapidjson"]
 	path = Engine/Source/ThirdParty/rapidjson
 	url = https://github.com/Tencent/rapidjson.git

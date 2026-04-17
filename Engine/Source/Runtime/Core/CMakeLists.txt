@@ -1,3 +1,4 @@
+include(${DOGE_PROJECT_CMAKE_DIR}/ThirdParty/spdlog.cmake)
 doge_add_module(Core)
 
 target_sources(Core PRIVATE
@@ -5,7 +6,6 @@ target_sources(Core PRIVATE
 )
 
 target_include_directories(Core PRIVATE
-    ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/spdlog/include
     ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/xxhash
 )
 
@@ -15,6 +15,5 @@ target_include_directories(Core PUBLIC
 )
 
 target_link_libraries(Core PRIVATE 
-    #spdlog::spdlog_header_only
-    spdlog::spdlog
+    Doge_spdlog
 )

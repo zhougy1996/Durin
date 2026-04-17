@@ -20,6 +20,9 @@ def get_project_binary_dir(project_name: str) -> Path:
 def get_project_config_dir(project_name: str) -> Path:
     return get_project_dir(project_name) / "Configs"
 
+def get_project_cmake_dir(project_name: str) -> Path:
+    return get_project_dir(project_name) / "CMake"
+
 def get_project_intermediate_build_dir(project_name: str) -> Path:
     return get_project_intermediate_dir(project_name) / "Build" / configs.ARCH / configs.BUILD_MODE
 
