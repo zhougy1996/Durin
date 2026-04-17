@@ -3,7 +3,6 @@
 #include "Threading/RunnableThread.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
-#include "Misc/ConfigCacheJson.h"
 #include "ApplicationCore.h"
 #include "RHI.h"
 #include "Mona.h"
@@ -36,7 +35,7 @@ namespace Doge
 		AddDllDirectory(StringConvert::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
 
 		FNameInit(); // Initialize FName system.
-		GlobalConfigsInit();
+		// GlobalConfigsInit();
 
 		LoggerInit();
 		DOGE_INFO(STR("Launching Doge engine..."));
@@ -304,8 +303,6 @@ namespace Doge
 		Mona::FMonaApplication::Shutdown();
 
 		FModuleManager::Get().UnloadModulesAtShutdown();
-
-		GlobalConfigsDeinit();
 
 		DOGE_INFO(STR("Doge engine exited."));
 	}

@@ -10,7 +10,6 @@ target_include_directories(Core PRIVATE
 
 target_include_directories(Core PUBLIC
     ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/glm
-    ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/rapidjson/include
 )
 
 include(${DOGE_PROJECT_CMAKE_DIR}/ThirdParty/spdlog.cmake)
