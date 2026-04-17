@@ -8,3 +8,9 @@ git submodule add --name spdlog https://github.com/gabime/spdlog Engine/Source/T
 git submodule add --name rapidjson https://github.com/Tencent/rapidjson.git Engine/Source/ThirdParty/rapidjson
 # git submodule add --name fmt https://github.com/fmtlib/fmt.git Engine/Source/ThirdParty/fmt
 ```
+
+##### Remove a submodule from Doge
+```bash
+git rm -f Engine/Source/ThirdParty/imgui
+rm -rf .git/modules/Engine/Source/ThirdParty/imgui
+```

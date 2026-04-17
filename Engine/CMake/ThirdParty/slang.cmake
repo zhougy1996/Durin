@@ -8,18 +8,10 @@ add_library(Slang::slang ALIAS ${target_name})
 
 set(SLANG_ROOT "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/slang")
 
-target_include_directories(${target_name} INTERFACE
-        "${SLANG_ROOT}/include"
-)
-
+target_include_directories(${target_name} INTERFACE "${SLANG_ROOT}/include")
 if (WIN32)
-    target_link_directories(${target_name} INTERFACE
-            "${SLANG_ROOT}/lib"
-    )
-
-    target_link_libraries(${target_name} INTERFACE
-            slang
-    )
+    target_link_directories(${target_name} INTERFACE "${SLANG_ROOT}/lib")
+    target_link_libraries(${target_name} INTERFACE slang)
 endif()
 
 function(add_copy_slang_runtime_command target)
