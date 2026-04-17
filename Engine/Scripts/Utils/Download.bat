@@ -36,17 +36,16 @@ echo --------------------------------------------------------
 :: If the target directory already exists, skip the download and extraction. (optionally)
 if exist "%TARGET_DIR%" (echo [%LIB_NAME%] already exists, skipping. & exit /b 0)
 
-echo [1/4] Preparing directories...
-if exist "%TMP_DIR%" rmdir /s /q "%TMP_DIR%"
-mkdir "%TMP_DIR%"
-if not exist "%TARGET_DIR%" mkdir "%TARGET_DIR%"
-
-echo [2/4] Downloading from %URL%...
+echo [1/4] Downloading from %URL%...
 curl -L --fail --retry 3 -o "%ZIP_PATH%" "%URL%"
 if errorlevel 1 (
     echo [ERROR] Failed to download %LIB_NAME%
     exit /b 1
 )
+
+echo [2/4] Preparing directories...
+if exist "%TMP_DIR%" rmdir /s /q "%TMP_DIR%"
+mkdir "%TMP_DIR%"
 
 echo [3/4] Extracting to %TARGET_DIR%...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^

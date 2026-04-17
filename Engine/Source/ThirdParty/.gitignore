@@ -1,4 +1,5 @@
 slang/
 glfw/
 spdlog/
+glm/
 *.zip
