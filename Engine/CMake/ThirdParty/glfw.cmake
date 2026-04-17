@@ -1,7 +1,6 @@
 include_guard(GLOBAL)
 
 set(target_name Doge_Glfw3)
-message(STATUS "  ThirdParty: ${target_name}")
 
 add_library(${target_name} INTERFACE)
 
