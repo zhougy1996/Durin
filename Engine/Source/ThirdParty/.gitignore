@@ -2,4 +2,5 @@ slang/
 glfw/
 spdlog/
 glm/
+glaze/
 *.zip
