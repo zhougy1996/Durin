@@ -35,9 +35,6 @@
 
 #include <functional>
 
-#include <glaze/glaze.hpp>
-#include <glaze/yaml.hpp>
-
 #include "Math/MathFwd.h"
 #include "Containers/ContainersFwd.h"
 
