@@ -1,9 +1,12 @@
 include_guard(GLOBAL)
 
-set(target_name Doge_spdlog)
+include(FetchContent)
 
-set(SPDLOG_ROOT "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/spdlog/spdlog-1.17.0")
+FetchContent_Declare(
+    spdlog
+    URL https://github.com/gabime/spdlog/archive/refs/tags/v1.17.0.zip
+    URL_HASH SHA256=b11912a82d149792fef33fabd0503b13d54aeac25c1464755461d4108ea71fc2
+    SOURCE_DIR "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/spdlog"
+)
 
-add_library(${target_name} INTERFACE)
-
-target_include_directories(${target_name} INTERFACE "${SPDLOG_ROOT}/include")
+FetchContent_MakeAvailable(spdlog)
