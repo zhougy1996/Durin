@@ -16,6 +16,6 @@ target_link_libraries(Core PRIVATE
     spdlog::spdlog
 )
 target_link_libraries(Core PUBLIC
-    Doge_glm
+    glm::glm
     glaze::glaze
 )
