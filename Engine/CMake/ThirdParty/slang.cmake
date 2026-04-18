@@ -1,6 +1,6 @@
 include_guard(GLOBAL)
 
-set(target_name Doge_Slang)
+set(target_name Slang_Interface)
 
 add_library(${target_name} INTERFACE)
 
