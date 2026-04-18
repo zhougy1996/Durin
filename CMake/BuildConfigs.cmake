@@ -1,3 +1,4 @@
 include_guard(GLOBAL)
 
+set(FETCHCONTENT_QUIET OFF)
 set(ENABLE_DOGE_TIMER OFF)

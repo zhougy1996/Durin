@@ -1,13 +1,13 @@
 include_guard(GLOBAL)
 
-set(target_name Doge_Glfw3)
+include(FetchContent)
 
-add_library(${target_name} INTERFACE)
+FetchContent_Declare(
+    glfw
+    URL https://github.com/glfw/glfw/releases/download/3.4/glfw-3.4.zip
+    URL_HASH SHA256=b5ec004b2712fd08e8861dc271428f048775200a2df719ccf575143ba749a3e9
+    SOURCE_DIR "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/glfw"
+    DOWNLOAD_EXTRACT_TIMESTAMP ON
+)
 
-set(GLFW_ROOT "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/glfw/glfw-3.4.bin.WIN64")
-
-target_include_directories(${target_name} INTERFACE "${GLFW_ROOT}/include")
-if (WIN32)
-    target_link_directories(${target_name} INTERFACE "${GLFW_ROOT}/lib-vc2022")
-    target_link_libraries(${target_name} INTERFACE glfw3)
-endif()
+FetchContent_MakeAvailable(glfw)
