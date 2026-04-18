@@ -35,6 +35,8 @@ namespace Doge
 
 		auto SetLogWithThreadName(bool bInLogWithThreadName) -> void { bLogWithThreadName = bInLogWithThreadName; }
 
+		auto SetLogLevel(ELogLevel Level) -> void;
+
 	private:
 		FLogger();
 

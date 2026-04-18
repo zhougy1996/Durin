@@ -14,6 +14,7 @@
 #include "RHIResources.h"
 #include "RenderingThread.h"
 #include "Json/Json.h"
+#include "Misc/AppConfigCache.h"
 #include "Misc/Paths.h"
 #include "Misc/StringConvert.h"
 
@@ -34,10 +35,11 @@ namespace Doge
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		AddDllDirectory(StringConvert::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
 
-		FNameInit(); // Initialize FName system.
-		// GlobalConfigsInit();
+		CoreInternal::LoadApplicationConfig(FPaths::LaunchDir() + "DogeConfig.yaml");
 
+		FNameInit(); // Initialize FName system.
 		LoggerInit();
+		DOGE_DEBUG("Application name: {}", GAppConfig.AppName);
 		DOGE_INFO(STR("Launching Doge engine..."));
 		DOGE_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DOGE_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());

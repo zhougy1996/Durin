@@ -1,5 +1,6 @@
 #include "Logging/Logger.h"
 
+#include "Misc/AppConfigCache.h"
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -8,7 +9,6 @@
 
 namespace Doge
 {
-
 	auto FLogger::Get() -> FLogger&
 	{
 		static FLogger instance;
@@ -53,6 +53,18 @@ namespace Doge
 		Get().Log(ELogLevel::Error, ModuleName, LogString, SourceLocation);
 	}
 
+	auto FLogger::SetLogLevel(ELogLevel Level) -> void
+	{
+		for (auto& Sink : Logger->sinks())
+		{
+			if (auto ConsoleSink = std::dynamic_pointer_cast<spdlog::sinks::stdout_color_sink_mt>(Sink))
+			{
+				ConsoleSink->set_level(static_cast<spdlog::level::level_enum>(Level));
+				break;
+			}
+		}
+	}
+
 	FLogger::FLogger()
 	{
 		const auto ConsoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -75,9 +87,30 @@ namespace Doge
 		spdlog::flush_every(std::chrono::seconds(5));
 	}
 
+	static auto StringToLogLevel(const std::string& LogLevelStr) -> ELogLevel
+	{
+		static const std::unordered_map<std::string_view, ELogLevel> LevelMap = {
+			{"Trace", ELogLevel::Trace},
+			{"Debug", ELogLevel::Debug},
+			{"Info",  ELogLevel::Info},
+			{"Warn",  ELogLevel::Warn},
+			{"Error", ELogLevel::Error}
+		};
+
+		if (auto it = LevelMap.find(LogLevelStr); it != LevelMap.end())
+		{
+			return it->second;
+		}
+
+		DOGE_WARN("Invalid log level in config: {}, defaulting to Debug", LogLevelStr);
+		return ELogLevel::Debug;
+	}
+
 	auto LoggerInit() -> void
 	{
+		check(IsAppConfigLoaded());
 		FLogger& Logger = FLogger::Get();
+		Logger.SetLogLevel(StringToLogLevel(GAppConfig.LogLevel));
 		Logger.SetLogWithThreadName(false);
 	}
 }

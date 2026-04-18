@@ -10,14 +10,12 @@ target_link_libraries(DogeLauncher PRIVATE
 )
 
 # Copy the config file to the output directory after building if it doesn't exist
-set(doge_config_filename "DogeConfig.yaml")
-set(doge_runtime_dir "$<TARGET_FILE_DIR:DogeLauncher>")
-
+set(config_file "$<TARGET_FILE_DIR:DogeLauncher>/DogeConfig.yaml")
 add_custom_command(TARGET DogeLauncher POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E env
     ${CMAKE_COMMAND} -P "${DOGE_DIR}/CMake/CopyIfMissing.cmake"
-    "${DOGE_PROJECT_CONFIG_DIR}/${doge_config_filename}" # template file
-    "${doge_runtime_dir}/${doge_config_filename}"
+    "${DOGE_PROJECT_CONFIG_DIR}/TP_DogeConfig.yaml" # template file
+    ${config_file} # destination file
     VERBATIM
 )
 
