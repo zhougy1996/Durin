@@ -4,7 +4,6 @@ target_link_options(RenderCore PRIVATE
     "/DELAYLOAD:slang.dll"
 )
 
-include(${DOGE_PROJECT_CMAKE_DIR}/ThirdParty/slang.cmake)
 target_link_libraries(RenderCore PRIVATE Slang_Interface)
 target_link_libraries(RenderCore PRIVATE delayimp)
 

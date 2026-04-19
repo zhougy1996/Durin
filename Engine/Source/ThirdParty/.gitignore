@@ -3,4 +3,8 @@
 /spdlog/
 /glm/
 /glaze/
+/rapidyaml/
+
+/*.7z
+/*.tar.gz
 /*.zip

@@ -4,7 +4,7 @@ set(target_name Slang_Interface)
 
 add_library(${target_name} INTERFACE)
 
-set(SLANG_ROOT "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/slang")
+set(SLANG_ROOT "${DOGE_PROJECT_THIRD_PARTY_SOURCE_DIR}/slang")
 
 target_include_directories(${target_name} INTERFACE "${SLANG_ROOT}/include")
 if (WIN32)
