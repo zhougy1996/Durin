@@ -110,7 +110,7 @@ namespace Doge
 	{
 		check(IsAppConfigLoaded());
 		FLogger& Logger = FLogger::Get();
-		Logger.SetLogLevel(StringToLogLevel(GAppConfig.LogLevel));
+		Logger.SetLogLevel(StringToLogLevel(GAppConfig.GetString("LogLevel")));
 		Logger.SetLogWithThreadName(false);
 	}
 }

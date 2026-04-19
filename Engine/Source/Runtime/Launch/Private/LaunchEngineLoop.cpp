@@ -39,7 +39,7 @@ namespace Doge
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
-		DOGE_DEBUG("Application name: {}", GAppConfig.AppName);
+		DOGE_DEBUG("Application name: {}", GAppConfig.GetString("AppName"));
 		DOGE_INFO(STR("Launching Doge engine..."));
 		DOGE_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DOGE_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());

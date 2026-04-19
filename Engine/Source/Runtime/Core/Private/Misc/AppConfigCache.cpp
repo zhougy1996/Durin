@@ -7,7 +7,15 @@
 
 namespace Doge
 {
-	FAppConfigCache GAppConfig;
+	auto FConfigView::GetString(const std::string& Name) const -> std::string
+	{
+		std::string Value;
+		ryml::NodeRef Node = ryml::NodeRef{static_cast<ryml::Tree*>(TreePtr), NodeIndex};
+		Node[Name.c_str()] >> Value;
+		return Value;
+	}
+
+	FConfigView GAppConfig;
 
 	static std::string AppConfigContent{};
 
@@ -29,11 +37,7 @@ namespace Doge
 			}
 
 			ryml::parse_in_place(AppConfigContent.data(), AppConfigTree.get());
-			ryml::ConstNodeRef RootNode = AppConfigTree->rootref();
-			RootNode["AppName"] >> GAppConfig.AppName;
-			RootNode["LogLevel"] >> GAppConfig.LogLevel;
-
-			DOGE_DEBUG("Application config loaded successfully. AppName: {}, LogLevel: {}", GAppConfig.AppName, GAppConfig.LogLevel);
+			GAppConfig = {AppConfigTree.get(), AppConfigTree->root_id()};
 
 			return true;
 		}
