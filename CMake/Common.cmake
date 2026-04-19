@@ -7,6 +7,7 @@ if(MSVC)
 	add_compile_options(/MP)
 	add_compile_options($<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:MSVC>>:/utf-8>)
 	add_compile_options(/Zc:preprocessor)
+	add_compile_options(/FS)
 endif()
 
 get_filename_component(DOGE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
