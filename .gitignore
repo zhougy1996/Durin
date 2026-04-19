@@ -4,12 +4,12 @@
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
 # Build Directories
-build/
-Engine/Intermediate/
-Engine/Binaries/
-Engine/ShaderCache/
+/Build/
+/Engine/Intermediate/
+/Engine/Binaries/
+/Engine/ShaderCache/
 .idea/
-out/
+/out/
 
 /Engine/Source/Programs/DogeHeaderTool/ clangLog.txt
 

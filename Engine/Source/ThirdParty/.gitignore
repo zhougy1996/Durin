@@ -1,6 +1,6 @@
-slang/
-glfw/
-spdlog/
-glm/
-glaze/
-*.zip
+/slang/
+/glfw/
+/spdlog/
+/glm/
+/glaze/
+/*.zip
