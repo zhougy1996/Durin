@@ -2,8 +2,9 @@
 
 namespace Doge
 {
-	struct FAppConfigCache
+	class FAppConfigCache
 	{
+	public:
 		std::string AppName = "Doge";
 
 		std::string LogLevel = "Debug";

@@ -1,52 +1,48 @@
 #include "Misc/AppConfigCache.h"
 
-#include <glaze/glaze.hpp>
-#include <glaze/yaml.hpp>
-
 #include "Misc/FileHelper.h"
 
-template<>
-struct glz::meta<Doge::FAppConfigCache>
-{
-	using T = Doge::FAppConfigCache;
-	static constexpr auto value = object(&T::AppName, &T::LogLevel);
-};
+#include <ryml.hpp>
+#include <ryml_std.hpp>
 
 namespace Doge
 {
 	FAppConfigCache GAppConfig;
 
-	static bool bIsAppConfigLoaded = false;
+	static std::string AppConfigContent{};
+
+	static std::unique_ptr<ryml::Tree> AppConfigTree;
+
+	namespace CoreInternal
+	{
+		auto LoadApplicationConfig(const std::string& ConfigFile) -> bool
+		{
+			check(!AppConfigTree); // Ensure this function is only called once.
+
+			AppConfigTree = std::make_unique<ryml::Tree>();
+
+			bool bLoadSuccess = FFileHelper::LoadFileToString(AppConfigContent, ConfigFile);
+			if (!bLoadSuccess)
+			{
+				DOGE_ERROR("Failed to load application config file: {}", ConfigFile);
+				return false;
+			}
+
+			ryml::parse_in_place(AppConfigContent.data(), AppConfigTree.get());
+			ryml::ConstNodeRef RootNode = AppConfigTree->rootref();
+			RootNode["AppName"] >> GAppConfig.AppName;
+			RootNode["LogLevel"] >> GAppConfig.LogLevel;
+
+			DOGE_DEBUG("Application config loaded successfully. AppName: {}, LogLevel: {}", GAppConfig.AppName, GAppConfig.LogLevel);
+
+			return true;
+		}
+	} // namespace CoreInternal
 
 	auto IsAppConfigLoaded() -> bool
 	{
-		return bIsAppConfigLoaded;
+		return AppConfigTree != nullptr;
 	}
 
-	auto CoreInternal::LoadApplicationConfig(const std::string& ConfigFile) -> bool
-	{
-		std::string ConfigContent;
-		bool bLoadSuccess = FFileHelper::LoadFileToString(ConfigContent, ConfigFile);
-		if (!bLoadSuccess)
-		{
-			DOGE_ERROR("Failed to load application config file: {}", ConfigFile);
-			return false;
-		}
 
-		if (ConfigContent.empty())
-		{
-			DOGE_ERROR("Application config file is empty: {}", ConfigFile);
-			return false;
-		}
-
-		glz::error_ctx ErrorCode = glz::read_yaml(GAppConfig, ConfigContent);
-		if (ErrorCode)
-		{
-			std::string ErrorMsg = glz::format_error(ErrorCode, ConfigFile);
-			DOGE_ERROR("Failed to parse application config file: {}\nError: {}", ConfigFile, ErrorMsg);
-			return false;
-		}
-		bIsAppConfigLoaded = true;
-		return true;
-	}
 } // namespace Doge
