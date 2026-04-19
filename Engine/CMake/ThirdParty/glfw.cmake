@@ -9,4 +9,7 @@ FetchContent_Declare(
     SOURCE_DIR "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/glfw"
 )
 
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(CMAKE_MESSAGE_LOG_LEVEL NOTICE)
 FetchContent_MakeAvailable(glfw)
+set(CMAKE_MESSAGE_LOG_LEVEL STATUS)

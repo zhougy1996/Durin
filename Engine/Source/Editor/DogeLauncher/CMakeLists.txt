@@ -1,4 +1,4 @@
-message(STATUS "  Module: DogeLauncher")
+doge_log_module(${project_name} "DogeLauncher")
 
 add_executable(DogeLauncher "Private/Hello.cpp")
 doge_set_module_output(DogeLauncher)

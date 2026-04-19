@@ -9,9 +9,8 @@ if(MSVC)
 	add_compile_options(/Zc:preprocessor)
 endif()
 
-if(CMAKE_GENERATOR STREQUAL "Ninja")
-	message("CMake Generator: Ninja")
-endif()
+get_filename_component(DOGE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+message(STATUS "Doge root: ${DOGE_DIR}")
 
 if(MSVC)
 	set(DOGE_ARCH "Win64")
@@ -20,15 +19,15 @@ elseif(APPLE)
 	set(CMAKE_OSX_ARCHITECTURES "${CMAKE_HOST_SYSTEM_PROCESSOR}")
 endif()
 
-message("Arch: ${DOGE_ARCH}")
-message("CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
+message(STATUS "Arch: ${DOGE_ARCH}")
 
-get_filename_component(DOGE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-message(DOGE_DIR: ${DOGE_DIR})
+message(STATUS "Generator: ${CMAKE_GENERATOR}")
 
 find_package(Vulkan)
-message("Vulkan found: ${Vulkan_FOUND}")
+message(STATUS "Vulkan: ${Vulkan_VERSION} (${Vulkan_LIBRARY})")
+
 set(Python_ROOT_DIR "${DOGE_DIR}/.venv")
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
+message(STATUS "Python: ${Python_VERSION} (${Python_EXECUTABLE})")
 
 
