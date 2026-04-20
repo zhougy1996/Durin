@@ -13,11 +13,7 @@ target_link_libraries(Core PRIVATE
     spdlog::spdlog
 )
 
-get_target_property(_t ryml::ryml TYPE)
-message(STATUS "ryml target exists: ${_t}")
-
 target_link_libraries(Core PUBLIC
     glm::glm
-    glaze::glaze
     ryml::ryml
 )
