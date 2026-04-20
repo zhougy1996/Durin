@@ -4,7 +4,7 @@ set(target_name Slang_Interface)
 
 add_library(${target_name} INTERFACE)
 
-set(SLANG_ROOT "${DOGE_PROJECT_THIRD_PARTY_SOURCE_DIR}/slang")
+set(SLANG_ROOT "${DOGE_PROJECT_THIRD_PARTY_SOURCE_DIR}/slang" CACHE PATH "Path to Slang SDK")
 
 target_include_directories(${target_name} INTERFACE "${SLANG_ROOT}/include")
 if (WIN32)
@@ -14,7 +14,7 @@ endif()
 
 function(add_copy_slang_runtime_command target)
     if (WIN32)
-        set(SLANG_STAGE_DIR "${DOGE_PROJECT_BINARY_DIR}/ThirdParty/${DOGE_ARCH}/$<CONFIG>")
+        set(SLANG_STAGE_DIR "${DOGE_ENGINE_DIR}/Binaries/ThirdParty/${DOGE_ARCH}/$<CONFIG>")
 
         add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E make_directory "${SLANG_STAGE_DIR}"
