@@ -16,31 +16,32 @@ namespace Doge
 		Error,
 	};
 
-	class CORE_API FLogger
+	CORE_API auto StringToLogLevel(const std::string& InLogLevel) -> ELogLevel;
+
+	class FLogger
 	{
 	public:
-		static auto Get() -> FLogger&;
+		FLogger();
+		~FLogger();
 
-		auto Log(ELogLevel Level, std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) const -> void;
+		CORE_API static auto Get() -> FLogger&;
 
-		static auto Trace(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+		template<typename... Args>
+		void Log(ELogLevel Level, std::source_location Loc, std::string_view Module, std::format_string<Args...> Fmt, Args&&... args) {
+			LogInternal(Level, Loc, Module, Fmt.get(), std::make_format_args(args...));
+		}
 
-		static auto Debug(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
+		CORE_API auto SetConsoleLogLevel(ELogLevel Level);
 
-		static auto Info(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
-
-		static auto Warn(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
-
-		static auto Error(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation = std::source_location::current()) -> void;
-
-		auto SetLogWithThreadName(bool bInLogWithThreadName) -> void { bLogWithThreadName = bInLogWithThreadName; }
-
-		auto SetLogLevel(ELogLevel Level) -> void;
+		auto Initialize() -> void;
 
 	private:
-		FLogger();
+		CORE_API void LogInternal(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string_view Fmt, std::format_args Args) const;
+		class FImpl;
 
-		std::shared_ptr<spdlog::logger> Logger;
+		std::unique_ptr<FImpl> Impl;
+
+		ELogLevel ConsoleLogLevel = ELogLevel::Debug;
 
 		bool bLogWithThreadName = false;
 	};

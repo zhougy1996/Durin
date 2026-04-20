@@ -9,53 +9,16 @@
 
 namespace Doge
 {
-	auto FLogger::Get() -> FLogger&
+	class FLogger::FImpl
 	{
-		static FLogger instance;
-		return instance;
-	}
+		std::shared_ptr<spdlog::logger> SpdLogger;
 
-	auto FLogger::Log(ELogLevel Level, std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) const -> void
-	{
-		const auto SpdSourceLocation = spdlog::source_loc{SourceLocation.file_name(), static_cast<int>(SourceLocation.line()), SourceLocation.function_name()};
-		if (bLogWithThreadName)
-		{
-			Logger->log(SpdSourceLocation, static_cast<spdlog::level::level_enum>(Level), "[{}][{}] {}", GetCurrentThreadName(), ModuleName, LogString);
-		}
-		else
-		{
-			Logger->log(SpdSourceLocation, static_cast<spdlog::level::level_enum>(Level), "[{}] {}", ModuleName, LogString);
-		}
-	}
+		friend class FLogger;
+	};
 
-	auto FLogger::Trace(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) -> void
+	auto FLogger::SetConsoleLogLevel(ELogLevel Level)
 	{
-		Get().Log(ELogLevel::Trace, ModuleName, LogString, SourceLocation);
-	}
-
-	auto FLogger::Debug(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) -> void
-	{
-		Get().Log(ELogLevel::Debug, ModuleName, LogString, SourceLocation);
-	}
-
-	auto FLogger::Info(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) -> void
-	{
-		Get().Log(ELogLevel::Info, ModuleName, LogString, SourceLocation);
-	}
-
-	auto FLogger::Warn(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) -> void
-	{
-		Get().Log(ELogLevel::Warn, ModuleName, LogString, SourceLocation);
-	}
-
-	auto FLogger::Error(std::string_view ModuleName, std::string_view LogString, std::source_location SourceLocation) -> void
-	{
-		Get().Log(ELogLevel::Error, ModuleName, LogString, SourceLocation);
-	}
-
-	auto FLogger::SetLogLevel(ELogLevel Level) -> void
-	{
-		for (auto& Sink : Logger->sinks())
+		for (auto& Sink : Impl->SpdLogger->sinks())
 		{
 			if (auto ConsoleSink = std::dynamic_pointer_cast<spdlog::sinks::stdout_color_sink_mt>(Sink))
 			{
@@ -65,14 +28,13 @@ namespace Doge
 		}
 	}
 
-	FLogger::FLogger()
+	auto FLogger::Initialize() -> void
 	{
+		auto& SpdLogger = Impl->SpdLogger;
+		std::filesystem::create_directories("Logs");
+
 		const auto ConsoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-	#if DOGE_BUILD_DEBUG
 		ConsoleSink->set_level(spdlog::level::debug);
-	#else
-		ConsoleSink->set_level(spdlog::level::info);
-	#endif
 		ConsoleSink->set_pattern("[%H:%M:%S][%^%l%$]%v");
 
 		const auto FileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("Logs/Doge.log", true);
@@ -80,14 +42,41 @@ namespace Doge
 		FileSink->set_pattern("[%Y-%m-%d %H:%M:%S][%^%l%$][%s:%#] %v");
 
 		std::vector<spdlog::sink_ptr> Sinks{ConsoleSink, FileSink};
-		Logger = std::make_shared<spdlog::logger>("DogeLogger", Sinks.begin(), Sinks.end());
+		SpdLogger = std::make_shared<spdlog::logger>("DogeLogger", Sinks.begin(), Sinks.end());
 
-		spdlog::register_logger(Logger);
-		Logger->set_level(spdlog::level::trace);
+		spdlog::register_logger(SpdLogger);
+		SpdLogger->set_level(spdlog::level::trace);
 		spdlog::flush_every(std::chrono::seconds(5));
 	}
 
-	static auto StringToLogLevel(const std::string& LogLevelStr) -> ELogLevel
+	FLogger::FLogger()
+	{
+		Impl = std::make_unique<FImpl>();
+		// Create a simple console logger as default, will be replaced with a more complex one in LoggerInit
+		Impl->SpdLogger = spdlog::stdout_color_mt("Default");
+	}
+
+	FLogger::~FLogger()
+	{
+	}
+
+	auto FLogger::Get() -> FLogger&
+	{
+		static FLogger Instance;
+		return Instance;
+	}
+
+	void FLogger::LogInternal(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string_view Fmt, std::format_args Args) const
+	{
+		if (Impl->SpdLogger->should_log(static_cast<spdlog::level::level_enum>(Level)))
+		{
+			const auto SpdLoc = spdlog::source_loc{Loc.file_name(), static_cast<int>(Loc.line()), Loc.function_name()};
+			std::string Message = std::format("[{}] {}", Module, std::vformat(Fmt, Args));
+			Impl->SpdLogger->log(SpdLoc, static_cast<spdlog::level::level_enum>(Level), Message);
+		}
+	}
+
+	auto StringToLogLevel(const std::string& InLogLevel) -> ELogLevel
 	{
 		static const std::unordered_map<std::string_view, ELogLevel> LevelMap = {
 			{"Trace", ELogLevel::Trace},
@@ -97,12 +86,12 @@ namespace Doge
 			{"Error", ELogLevel::Error}
 		};
 
-		if (auto it = LevelMap.find(LogLevelStr); it != LevelMap.end())
+		if (auto it = LevelMap.find(InLogLevel); it != LevelMap.end())
 		{
 			return it->second;
 		}
 
-		DOGE_WARN("Invalid log level in config: {}, defaulting to Debug", LogLevelStr);
+		DOGE_WARN("Invalid log level in config: {}, defaulting to Debug", InLogLevel);
 		return ELogLevel::Debug;
 	}
 
@@ -110,7 +99,7 @@ namespace Doge
 	{
 		check(IsAppConfigLoaded());
 		FLogger& Logger = FLogger::Get();
-		Logger.SetLogLevel(StringToLogLevel(GAppConfig.GetString("LogLevel")));
-		Logger.SetLogWithThreadName(false);
+		Logger.Initialize();
+		Logger.SetConsoleLogLevel(StringToLogLevel(GAppConfig.GetString("LogLevel")));
 	}
 }
