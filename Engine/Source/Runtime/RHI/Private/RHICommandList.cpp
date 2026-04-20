@@ -64,9 +64,9 @@ namespace Doge
 		GetContext().RHIBindIndexBuffer(Buffer, Offset);
 	}
 
-	auto FRHICommandList::DrawPrimitive() -> void
+	auto FRHICommandList::DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void
 	{
-		GetContext().RHIDrawPrimitive();
+		GetContext().RHIDrawIndexed(IndexCount, StartIndexLocation, VertexOffset);
 	}
 
 	auto FRHICommandList::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void

@@ -105,10 +105,10 @@ namespace Doge::VulkanRHI
 		GetCommandBuffer()->GetHandle().bindIndexBuffer(IndexBuffer->GetHandle(), Offset, DeduceIndexType(IndexBuffer->GetStride()));
 	}
 
-	auto FVulkanCommandListContext::RHIDrawPrimitive() -> void
+	auto FVulkanCommandListContext::RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void
 	{
 		PendingGfxPipelineState->PrepareForDraw(*this);
-		GetCommandBuffer()->GetHandle().drawIndexed(6, 1, 0, 0, 0);
+		GetCommandBuffer()->GetHandle().drawIndexed(IndexCount, 1, StartIndexLocation, VertexOffset, 0);
 	}
 
 	auto FVulkanCommandListContext::GetCommandBuffer() -> FVulkanCommandBuffer*
