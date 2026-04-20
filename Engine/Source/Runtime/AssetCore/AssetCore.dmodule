@@ -1,0 +1,7 @@
+{
+    "ModuleName": "AssetCore",
+    "LinkType": "Dynamic",
+    "PrivateDependencies": [
+        "Core"
+    ]
+}

@@ -45,7 +45,7 @@ namespace Doge
 		auto InitDefaultMountPoints() -> void
 		{
 			checkf(IsInGameThread(), "InitDefaultMountPoints must be called from the game thread.");
-			RegisterMountPointWithoutSorting("/Engine/", FPaths::EngineDir());
+			RegisterMountPointWithoutSorting("/Engine/", FPaths::EngineDir() + "Content/");
 		}
 	} // namespace PathUtilities
 
