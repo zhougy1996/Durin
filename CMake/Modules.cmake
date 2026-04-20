@@ -156,3 +156,27 @@ function(doge_add_module module_name)
 
 	doge_end() # ${module_name}
 endfunction()
+
+function(doge_copy_external_target_binary target dependent_target)
+	get_filename_component(file_name "$<TARGET_FILE_NAME:${dependent_target}>" NAME)
+	add_custom_command(TARGET ${target} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		"$<TARGET_FILE:${dependent_target}>"
+		"${DOGE_PROJECT_EXTERNAL_RUNTIME_DIR}/${file_name}"
+		COMMENT "Deploying target binary: ${file_name}"
+		VERBATIM
+	)
+endfunction()
+
+function(doge_copy_external_binaries target file_list)
+	foreach(file_path ${file_list})
+		get_filename_component(file_name "${file_path}" NAME)
+		add_custom_command(TARGET ${target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${file_path}"
+			"${DOGE_PROJECT_EXTERNAL_RUNTIME_DIR}/${file_name}"
+			COMMENT "Deploying external file: ${file_name}"
+			VERBATIM
+		)
+	endforeach()
+endfunction()

@@ -4,8 +4,10 @@ target_link_options(RenderCore PRIVATE
     "/DELAYLOAD:slang.dll"
 )
 
-target_link_libraries(RenderCore PRIVATE Slang_Imported)
-target_link_libraries(RenderCore PRIVATE delayimp)
+target_link_libraries(RenderCore PRIVATE
+    Slang_Imported
+    delayimp
+)
 
 set(destination_dir "${DOGE_PROJECT_DIR}/Binaries/ThirdParty/${DOGE_ARCH}/$<CONFIG>")
 set(SLANG_ROOT "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/slang")

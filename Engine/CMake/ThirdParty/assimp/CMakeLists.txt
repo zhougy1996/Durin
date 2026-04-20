@@ -8,7 +8,10 @@ FetchContent_Declare(
     GIT_SHALLOW    ON
 )
 
-set(ASSIMP_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE) # Build as static library
+# Build as shared library
+set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+
 set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "")
 set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "") # .obj
 set(ASSIMP_BUILD_FBX_IMPORTER ON CACHE BOOL "") # .fbx
@@ -21,3 +24,6 @@ set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "")
 set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "")
 set(ASSIMP_INSTALL_PDB OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(assimp)
+
+get_target_property(lib_type assimp::assimp TYPE)
+message(STATUS "assimp type is: ${lib_type}")
