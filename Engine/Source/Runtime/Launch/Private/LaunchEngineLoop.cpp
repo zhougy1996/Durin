@@ -80,7 +80,7 @@ namespace Doge
 				for (size_t i = 0; i < EntryPoints.size(); ++i)
 				{
 					std::string CompiledSpvFilePath = FShaderPaths::BinaryPath(ShaderName, EntryPoints[i], std::hash<std::string_view>{}(ShaderName));
-					FFileHelper::SaveArrayToFile(PipelineData.CompiledCodes[i], CompiledSpvFilePath);
+					//FFileHelper::SaveArrayToFile(PipelineData.CompiledCodes[i], CompiledSpvFilePath);
 				}
 			}
 

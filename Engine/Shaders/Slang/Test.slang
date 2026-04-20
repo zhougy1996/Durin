@@ -14,7 +14,8 @@ Coords vertexMain(
     Coords output;
 
     // gl_Position equivalent
-    output.pos = float4(inPosition, 1.0);
+    float3 transformedPosition = inPosition * 0.1; // Scale down the position
+    output.pos = float4(transformedPosition.x, -transformedPosition.y, transformedPosition.z + 0.5, 1.0);
     
     // Assign color based on vertex input
     output.color = inColor;
