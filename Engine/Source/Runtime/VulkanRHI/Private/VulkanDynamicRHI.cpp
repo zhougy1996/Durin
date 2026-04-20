@@ -4,7 +4,7 @@
 #include "RHIContext.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
-#include "VulkanRHIPrivate.h"
+#include "VulkanSubmission.h"
 
 namespace Doge::VulkanRHI
 {

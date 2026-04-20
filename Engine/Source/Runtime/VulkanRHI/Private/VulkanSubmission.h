@@ -2,6 +2,7 @@
 
 namespace Doge::VulkanRHI
 {
+	class FVulkanDevice;
 	class FVulkanCommandBuffer;
 	class FVulkanFence;
 	class FVulkanQueue;
@@ -33,5 +34,25 @@ namespace Doge::VulkanRHI
 
 		// Fence for this payload, will be signaled when the GPU finishes executing the command buffer associated with this payload
 		FVulkanFence* Fence = nullptr;
+	};
+
+	class FVulkanFrame
+	{
+	public:
+		explicit FVulkanFrame(FVulkanDevice& device);
+		~FVulkanFrame();
+
+		auto TrackInFlightPayload(std::vector<FVulkanPayload*>& Payload) -> void;
+
+		auto Prepare() -> void;
+
+		auto GetFrameFence() const -> FVulkanFence* { return FrameFence; }
+
+	private:
+		auto Reset() -> void;
+
+		FVulkanDevice& Device;
+		FVulkanFence* FrameFence = nullptr;
+		std::vector<FVulkanPayload*> InFlightPayloads;
 	};
 }

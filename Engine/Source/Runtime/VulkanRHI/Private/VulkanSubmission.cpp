@@ -1,0 +1,48 @@
+#include "VulkanSubmission.h"
+
+#include "VulkanCommandBuffer.h"
+#include "VulkanDevice.h"
+
+namespace Doge::VulkanRHI
+{
+
+	FVulkanFrame::FVulkanFrame(FVulkanDevice& Device)
+	: Device(Device)
+	{
+		FrameFence = Device.GetFenceManager().AllocateFence(true);
+	}
+
+	FVulkanFrame::~FVulkanFrame()
+	{
+		Device.GetFenceManager().ReleaseFence(FrameFence);
+	}
+
+	auto FVulkanFrame::TrackInFlightPayload(std::vector<FVulkanPayload*>& Payload) -> void
+	{
+		InFlightPayloads.insert(InFlightPayloads.end(), Payload.begin(), Payload.end());
+	}
+
+	auto FVulkanFrame::Prepare() -> void
+	{
+		if (!FrameFence->IsSignaled())
+		{
+			Device.GetFenceManager().WaitForFence(FrameFence, UINT64_MAX);
+		}
+		Reset();
+	}
+
+	auto FVulkanFrame::Reset() -> void
+	{
+		Device.GetFenceManager().ResetFence(FrameFence);
+		for (FVulkanPayload* Payload : InFlightPayloads)
+		{
+			for (FVulkanCommandBuffer* CommandBuffer : Payload->CommandBuffers)
+			{
+				CommandBuffer->Reset();
+			}
+
+			delete Payload;
+		}
+		InFlightPayloads.clear();
+	}
+}

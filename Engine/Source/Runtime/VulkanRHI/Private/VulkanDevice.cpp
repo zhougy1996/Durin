@@ -8,7 +8,7 @@
 #include "VulkanRenderPass.h"
 #include "VulkanPipeline.h"
 #include "VulkanQueue.h"
-#include "VulkanRHIPrivate.h"
+#include "VulkanSubmission.h"
 
 namespace Doge::VulkanRHI
 {

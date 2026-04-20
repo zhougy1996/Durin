@@ -2,10 +2,10 @@
 
 #include "RHIResources.h"
 #include "VulkanCommandBuffer.h"
-#include "VulkanCommon.h"
 #include "VulkanContext.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
+#include "VulkanRHIPrivate.h"
 #include "VulkanRenderPass.h"
 #include "VulkanShader.h"
 
@@ -42,7 +42,7 @@ namespace Doge::VulkanRHI
 		// TODO: Correctly set the render pass
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
 
-		vk::Format VkFormat = FVulkanPixelFormat::FromPixelFormat(Initializer.PixelFormat);
+		vk::Format VkFormat = ConvertToVulkanFormat(Initializer.PixelFormat);
 		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat);
 
 		std::vector<vk::PipelineShaderStageCreateInfo> ShaderStages = MakeShaderStageCreateInfos(Initializer.BoundShaders);
