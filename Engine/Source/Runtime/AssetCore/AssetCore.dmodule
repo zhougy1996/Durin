@@ -1,6 +1,6 @@
 {
     "ModuleName": "AssetCore",
-    "LinkType": "Dynamic",
+    "LinkType": "Shared",
     "PrivateDependencies": [
         "Core"
     ]

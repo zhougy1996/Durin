@@ -13,13 +13,13 @@
 #include "RHICommandList.h"
 #include "RHIResources.h"
 #include "RenderingThread.h"
-#include "Json/Json.h"
 #include "Misc/AppConfigCache.h"
 #include "Misc/Paths.h"
 #include "Misc/StringConvert.h"
 
 #include "Shader/ShaderPaths.h"
 #include "Shader/ShaderCompiler.h"
+#include "AssetCore.h"
 
 namespace Doge
 {
@@ -61,6 +61,8 @@ namespace Doge
 		FBufferRHIRef VertexPositionBuffer;
 		FBufferRHIRef VertexColorBuffer;
 		FBufferRHIRef IndexBuffer;
+
+		std::vector<Asset::FTestAssetData> TestAssetDatas;
 	};
 
 	FTestRenderProxy GTestRenderProxy; // Render thread data that will be used to store render resources, and other data that can only be accessed from render thread
@@ -89,6 +91,21 @@ namespace Doge
 			const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
 			FViewportRHIRef Viewport = Renderer->GetRHIViewport(*MainWindow);
 
+			// Prepare data before creating render resources, because we need to compile shaders and load assets on the main thread
+			std::string TestAssetFilePath = FPaths::Resolve("/Engine/Test/teapot.obj");
+			Asset::ImportFromFile(TestAssetFilePath, GTestRenderProxy.TestAssetDatas);
+
+			// Normal to color
+			for (auto& AssetData : GTestRenderProxy.TestAssetDatas)
+			{
+				AssetData.Colors.reserve(AssetData.Normals.size());
+				for (const auto& Normal : AssetData.Normals)
+				{
+					glm::vec3 Color = (Normal + glm::vec3(1.0f)) * 0.5f; // Map normal from [-1, 1] to [0, 1] for visualization
+					AssetData.Colors.push_back(Color);
+				}
+			}
+
 			// Create pipeline
 			FPipelineData LocalPipelineData = PipelineData;
 			ENQUEUE_RENDER_COMMAND(Pipeline)([Viewport, LocalPipelineData](FRHICommandListImmediate& CommandList) {
@@ -116,13 +133,7 @@ namespace Doge
 
 			ENQUEUE_RENDER_COMMAND(CreateVertexBuffer)([](FRHICommandListImmediate& CommandList) {
 				{
-					const std::vector<glm::vec3> TestVertices = {
-						{-0.5f, -0.5f, 0.0f},
-						{0.5f, -0.5f, 0.0f},
-						{0.5f, 0.5f, 0.0f},
-						{-0.5f, 0.5f, 0.0f}
-					};
-
+					const auto& TestVertices = GTestRenderProxy.TestAssetDatas[0].Positions;
 					FRHIBufferCreateDesc BufferCreateDesc =
 						FRHIBufferCreateDesc::CreateVertex("TestPositionVertexBuffer", TestVertices.size() * sizeof(glm::vec3));
 					BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
@@ -131,12 +142,7 @@ namespace Doge
 				}
 
 				{
-					const std::vector<glm::vec3> TestColors = {
-						{1.0f, 0.0f, 0.0f},
-						{0.0f, 1.0f, 0.0f},
-						{0.0f, 0.0f, 1.0f},
-						{1.0f, 1.0f, 1.0f}
-					};
+					const auto& TestColors = GTestRenderProxy.TestAssetDatas[0].Colors;
 					FRHIBufferCreateDesc BufferCreateDesc =
 						FRHIBufferCreateDesc::CreateVertex("TestVertexColorBuffer", TestColors.size() * sizeof(glm::vec3));
 					BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
@@ -146,10 +152,10 @@ namespace Doge
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateIndexBuffer)([](FRHICommandListImmediate& CommandList) {
-				const std::vector<uint16> TestIndices = {0, 1, 2, 2, 3, 0};
-				auto BufferSize = TestIndices.size() * sizeof(uint16);
+				const auto& TestIndices = GTestRenderProxy.TestAssetDatas[0].Indices;
+				auto BufferSize = TestIndices.size() * sizeof(uint32);
 				FRHIBufferCreateDesc BufferCreateDesc =
-					FRHIBufferCreateDesc::CreateIndex("TestIndexBuffer", BufferSize, sizeof(uint16));
+					FRHIBufferCreateDesc::CreateIndex("TestIndexBuffer", BufferSize, sizeof(uint32));
 				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::IndexBuffer;
 				GTestRenderProxy.IndexBuffer = RHICreateBuffer(BufferCreateDesc);
 				CommandList.WriteBuffer(GTestRenderProxy.IndexBuffer, &TestIndices[0], BufferSize, 0);
@@ -200,7 +206,7 @@ namespace Doge
 				CommandList.BindVertexBuffer(1, GTestRenderProxy.VertexColorBuffer, 0);
 				CommandList.BindIndexBuffer(GTestRenderProxy.IndexBuffer, 0);
 				// Draw call
-				// CommandList.DrawPrimitive();
+				CommandList.DrawPrimitive();
 
 				CommandList.EndRenderPass();
 

@@ -31,6 +31,7 @@ namespace Doge::VulkanRHI
 		allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
 		allocatorInfo.physicalDevice = Gpu;
 		allocatorInfo.device = Device->GetHandle();
+		DOGE_DEBUG("FVulkanDynamicRHI: {}", static_cast<const void*>(GDynamicRHI));
 		allocatorInfo.instance = FVulkanDynamicRHI::Get().RHIGetVkInstance();
 
 		vmaCreateAllocator(&allocatorInfo, &Allocator);
