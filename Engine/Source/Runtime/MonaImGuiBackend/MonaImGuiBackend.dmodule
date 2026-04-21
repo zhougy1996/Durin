@@ -1,6 +1,7 @@
 {
     "ModuleName": "MonaImGuiBackend",
     "LinkType": "Static",
+    "PCH": "Self",
     "PrivateDependencies": [
         "Core",
         "RHI"

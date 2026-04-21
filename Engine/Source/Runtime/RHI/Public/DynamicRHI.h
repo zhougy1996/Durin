@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RHI/API.h"
 #include "RHIFwd.h"
 #include "PixelFormat.h"
 #include "RHIResources.h"

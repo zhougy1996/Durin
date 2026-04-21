@@ -1,5 +1,7 @@
 {
     "ModuleName": "Engine",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
     "PublicDependencies": [
         "Core",
         "CoreDObject",

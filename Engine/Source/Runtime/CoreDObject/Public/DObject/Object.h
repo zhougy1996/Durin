@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CoreDObject/API.h"
 #include "DObject/ObjectMacros.h"
 #include "DObjectGlobals.h"
 

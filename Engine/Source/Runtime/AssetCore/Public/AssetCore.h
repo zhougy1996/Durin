@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AssetCore/API.h"
+
 namespace Doge
 {
 	namespace Asset

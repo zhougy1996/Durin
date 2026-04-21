@@ -1,4 +1,6 @@
 #pragma once
+
+#include "RenderCore/API.h"
 #include "Threading/RunnableThread.h"
 
 namespace Doge

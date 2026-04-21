@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CoreDObject/API.h"
 #include "Field.h"
 
 namespace Doge

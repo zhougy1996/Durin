@@ -1,4 +1,5 @@
 #pragma once
+#include "RHI/API.h"
 
 namespace Doge
 {

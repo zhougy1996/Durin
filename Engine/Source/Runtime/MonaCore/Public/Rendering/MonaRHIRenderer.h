@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MonaCore/API.h"
 #include "RHIResources.h"
 #include "Rendering/MonaRenderer.h"
 

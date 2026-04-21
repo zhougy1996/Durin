@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Engine/API.h"
 #include "RHIResources.h"
 
 namespace Doge

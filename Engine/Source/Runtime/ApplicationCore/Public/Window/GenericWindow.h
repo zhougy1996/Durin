@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ApplicationCore/API.h"
 #include "Window/GenericWindowDefinition.h"
 
 namespace Doge

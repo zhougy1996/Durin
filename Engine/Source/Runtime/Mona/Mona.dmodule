@@ -1,5 +1,7 @@
 {
     "ModuleName": "Mona",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
     "PrivateDependencies": [
         "Core",
         "RHI",

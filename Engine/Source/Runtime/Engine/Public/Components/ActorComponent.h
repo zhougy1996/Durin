@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Engine/API.h"
 #include "DObject/CoreDObject.h"
 
 #include "ActorComponent.gen.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Engine/API.h"
+
 namespace Doge
 {
 	struct FStaticMeshRenderData;

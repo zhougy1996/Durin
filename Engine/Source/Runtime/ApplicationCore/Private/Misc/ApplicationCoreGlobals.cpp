@@ -2,6 +2,7 @@
 
 #include "CoreGlobals.h"
 #include "Application/GenericApplication.h"
+#include "ThirdParty/Glfw/GlfwCommon.h"
 
 namespace Doge
 {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "RenderCore/API.h"
+
 namespace Doge
 {
 	class FShaderCompiler

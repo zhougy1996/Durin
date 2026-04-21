@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RHI/API.h"
 #include "DynamicRHI.h"
 #include "RHIDefinitions.h"
 #include "RHIResources.h"

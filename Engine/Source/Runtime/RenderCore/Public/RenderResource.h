@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RenderCore/API.h"
 #include "RHIFeatureLevel.h"
 #include "RHIResources.h"
 

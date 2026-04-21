@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MonaCore/API.h"
 #include "RHIFwd.h"
 #include "Window/GenericWindow.h"
 #include "Widgets/MCompoundWidget.h"

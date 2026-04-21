@@ -1,9 +1,9 @@
 #include "Window/GlfwWindow.h"
 
+#include "ThirdParty/Glfw/GlfwCommon.h"
 #include "Application/GenericApplication.h"
 #include "Application/GenericApplicationMessageHandler.h"
 #include "Misc/ApplicationCoreGlobals.h"
-#include "ThirdParty/Glfw/GlfwCommon.h"
 #include "vulkan/vulkan.hpp"
 
 namespace Doge

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MonaCore/API.h"
+
 namespace Doge::Mona
 {
 	class MWindow;

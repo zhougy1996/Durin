@@ -1,9 +1,12 @@
 #pragma once
 
+#include "CoreDObject/API.h"
 #include "ObjectMacros.h"
 
 namespace Doge
 {
+	class DObject;
+	class DClass;
 	class FField;
 	class FFieldVariant;
 

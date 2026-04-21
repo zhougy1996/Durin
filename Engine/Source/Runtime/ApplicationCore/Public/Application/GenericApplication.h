@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ApplicationCore/API.h"
+
 namespace Doge
 {
 	class FGenericWindow;

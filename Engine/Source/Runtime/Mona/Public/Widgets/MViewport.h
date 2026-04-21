@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Mona/API.h"
 #include "Widgets/MWidget.h"
 
 namespace Doge::Mona

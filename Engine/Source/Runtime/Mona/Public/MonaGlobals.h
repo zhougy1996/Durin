@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Mona/API.h"
 struct ImGuiContext;
 
 namespace Doge::Mona

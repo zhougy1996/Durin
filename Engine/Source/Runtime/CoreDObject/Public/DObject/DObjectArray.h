@@ -1,7 +1,11 @@
 #pragma once
 
+#include "CoreDObject/API.h"
+
 namespace Doge
 {
+	class DObject;
+
 	class FDObjectArray
 	{
 	public:

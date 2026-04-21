@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Engine/API.h"
 #include "Engine/Actor.h"
 
 #include "StaticMeshActor.gen.h"

@@ -1,5 +1,7 @@
 {
     "ModuleName": "CoreDObject",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
     "PrivateDependencies": [
         "Core"
     ],

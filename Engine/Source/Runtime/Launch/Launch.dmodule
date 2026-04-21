@@ -1,5 +1,7 @@
 {
     "ModuleName": "Launch",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
     "PrivateDependencies": [
         "Core",
         "RHI",

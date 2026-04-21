@@ -1,6 +1,7 @@
 {
     "ModuleName": "AssetCore",
     "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
     "PrivateDependencies": [
         "Core"
     ]

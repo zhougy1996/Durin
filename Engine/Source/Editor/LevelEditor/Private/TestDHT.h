@@ -1,7 +1,9 @@
 #pragma once
 
-#include "DObject/ObjectMacros.h"
+#include "LevelEditor/API.h"
 
+#include "DObject/ObjectMacros.h"
+#include "DObject/Object.h"
 
 #include "TestDHT.gen.h"
 
@@ -21,9 +23,9 @@ namespace Doge
 		const std::vector<const DObject*> a;
 
 		DPROPERTY(zzz)
-		uint16 a1;
+		uint16 a1 = 0;
 
 		DPROPERTY(zzz)
-		int32 a2;
+		int32 a2 = 0;
 	};
 }

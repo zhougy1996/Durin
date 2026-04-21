@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RHI/API.h"
 #include "HAL/GenericPlatform.h"
 
 namespace Doge
