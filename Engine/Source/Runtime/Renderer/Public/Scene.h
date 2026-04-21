@@ -1,4 +1,5 @@
 #pragma once
+#include "Renderer/Definitions.h"
 
 #include "IScene.h"
 namespace Doge

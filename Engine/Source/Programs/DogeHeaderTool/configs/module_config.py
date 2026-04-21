@@ -11,6 +11,7 @@ MODULE_CONFIGS: dict[str, "DogeModuleConfig"] = {}
 class DogeModuleConfig:
     module_name: Path = Path("")
     link_type: str = "Shared"
+    pch: str = field(default="Self", metadata={"json_key": "PCH"})
     module_dir: Path = Path("")
     config_file_path: Path = Path("")
     owning_project: str = ""

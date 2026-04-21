@@ -121,11 +121,10 @@ function(doge_add_module module_name)
 		string(TOUPPER "${module_name}" uppercase_module_name)
 	endif()
 
-	if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-		target_compile_definitions(${module_name} PRIVATE DOGE_BUILD_DEBUG=1)
-	elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
-		target_compile_definitions(${module_name} PRIVATE DOGE_BUILD_RELEASE=1)
-	endif()
+	target_compile_definitions(${module_name} PRIVATE
+		$<$<CONFIG:Debug>:DOGE_BUILD_DEBUG=1>
+		$<$<CONFIG:Release>:DOGE_BUILD_RELEASE=1>
+	)
 
 	target_include_directories(${module_name} PRIVATE
 		${project_intermediate_build_dir}
@@ -137,18 +136,16 @@ function(doge_add_module module_name)
 		${module_dht_output_dir}
 	)
 
-	target_link_libraries(${module_name} PRIVATE
-		${module_private_dependencies}
-	)
-
-	target_link_libraries(${module_name} PUBLIC
-		${module_public_dependencies}
-	)
+	target_link_libraries(${module_name} PRIVATE ${module_private_dependencies})
+	target_link_libraries(${module_name} PUBLIC ${module_public_dependencies})
 
 	# Set up precompiled headers for the module
-	target_precompile_headers(${module_name} PRIVATE
-		"$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>"
-	)
+	if(module_pch_target)
+		target_precompile_headers(${module_name} REUSE_FROM ${module_pch_target})
+		target_link_libraries(${module_name} PRIVATE ${module_pch_target})
+	else()
+		target_precompile_headers(${module_name} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>")
+	endif()
 
 	doge_set_module_output(${module_name})
 	# Organize the module in the IDE's folder structure
