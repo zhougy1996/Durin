@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MonaCore/API.h"
+#include "MonaCoreAPI.h"
 #include "Application/GenericApplication.h"
 #include "Application/GenericApplicationMessageHandler.h"
 

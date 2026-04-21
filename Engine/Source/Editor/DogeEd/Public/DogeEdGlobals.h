@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DogeEd/API.h"
+#include "DogeEdAPI.h"
 
 namespace Doge
 {

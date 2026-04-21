@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoreAPI.h"
 #include <cstring>
 
 struct FClangKeepDebugInfo

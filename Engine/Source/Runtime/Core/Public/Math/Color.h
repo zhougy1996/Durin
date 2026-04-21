@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreAPI.h"
+
 #include "Math/Vector.h"
 #include "Misc/CoreMiscDefines.h"
 

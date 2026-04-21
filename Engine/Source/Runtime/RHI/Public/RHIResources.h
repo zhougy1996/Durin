@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RHI/API.h"
+#include "RHIAPI.h"
 #include "RHIDefinitions.h"
 
 #include "Hash/XxHash.h"

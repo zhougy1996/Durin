@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreAPI.h"
+
 namespace Doge
 {
 	/**  A 64-bit hash from XXH3. */

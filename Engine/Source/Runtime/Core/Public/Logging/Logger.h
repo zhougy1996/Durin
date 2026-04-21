@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreAPI.h"
+
 namespace spdlog
 {
 	class logger;

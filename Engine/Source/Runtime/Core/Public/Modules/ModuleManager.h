@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreAPI.h"
+
 #include "Templates/SmartPointers.h"
 
 namespace Doge

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CoreAPI.h"
+
 #include "GenericPlatform/GenericPlatformProcess.h"
 
 namespace Doge

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CoreDObject/API.h"
+#include "CoreDObjectAPI.h"
 #include "ObjectMacros.h"
 
 namespace Doge
