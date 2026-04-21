@@ -116,15 +116,17 @@ function(doge_add_module module_name)
 
 	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DogeEditor-${module_name}")
 
-	target_compile_definitions(${module_name} PRIVATE MODULE_NAME="${module_name}")
 	if("${module_link_type_final}" STREQUAL "SHARED")
 		string(TOUPPER "${module_name}" uppercase_module_name)
+		target_compile_definitions(${module_name} PRIVATE "${uppercase_module_name}_EXPORTS")
 	endif()
 
 	target_compile_definitions(${module_name} PRIVATE
 		$<$<CONFIG:Debug>:DOGE_BUILD_DEBUG=1>
 		$<$<CONFIG:Release>:DOGE_BUILD_RELEASE=1>
+		MODULE_NAME="${module_name}"
 	)
+
 
 	target_include_directories(${module_name} PRIVATE
 		${project_intermediate_build_dir}

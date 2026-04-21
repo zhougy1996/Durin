@@ -1,11 +1,10 @@
 #pragma once
-#include "Renderer/Definitions.h"
-
+#include "Renderer/API.h"
 #include "IRendererModule.h"
 
 namespace Doge
 {
-	class FRendererModule final : public IRendererModule
+	class RENDERER_API FRendererModule final : public IRendererModule
 	{
 
 	};

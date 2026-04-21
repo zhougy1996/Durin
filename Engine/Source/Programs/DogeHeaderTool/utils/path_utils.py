@@ -39,6 +39,9 @@ def get_module_cmake_file_path(module_name: str) -> Path:
 def get_module_definitions_header_path(module_name: str) -> Path:
     return get_module_intermediate_build_dir(module_name) / "Definitions.h"
 
+def get_module_api_header_path(module_name: str) -> Path:
+    return get_module_intermediate_build_dir(module_name) / "API.h"
+
 def get_module_dht_output_dir(module_name: str) -> Path:
     return get_module_intermediate_build_dir(module_name) / "DHT"
 
