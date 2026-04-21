@@ -71,12 +71,10 @@ class PrepareProjectBuildCommand(Command):
         import configs
         from generators.project_cmake_file_generator import generate_project_cmake_file
         from generators.module_cmake_file_generator import generate_module_cmake_file
-        from generators.module_definitions_header_generator import generate_module_definitions_header
         project_config = configs.get_project_config(args.project)
         generate_project_cmake_file(args.project)
         for module_name in project_config.modules.keys():
             generate_module_cmake_file(module_name)
-            generate_module_definitions_header(module_name)
 
 class GenerateModuleExportFileCommand(Command):
     def __init__(self):

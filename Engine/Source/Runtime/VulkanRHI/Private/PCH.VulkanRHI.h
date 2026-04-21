@@ -1,6 +1,6 @@
 #pragma once
 
-#include "VulkanRHI/Definitions.h"
+#include "VulkanRHIAPI.h"
 
 // Vulkan
 #ifdef _WIN32

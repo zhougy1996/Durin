@@ -12,20 +12,6 @@ def append_dependent_module_api_macros(content: list[str], module_name: str) -> 
         content.append(f"#define {api_macro} DLLIMPORT\n")
     content.append("\n")
 
-def generate_module_definitions_header_v2(module_name: str) -> None:
-    module_config = configs.get_module_config(module_name)
-    content = [f"// Auto-generated header for module {module_name} of project {module_config.owning_project}. Do not edit manually.\n\n"]
-    content.append(f"#pragma once\n\n")
-    content.append(f"#include \"HAL/Platform.h\"\n\n")
-    if (module_config.link_type.upper() == "SHARED") or (module_config.link_type.upper() == "INTERFACE"):
-        content.append(f"#if defined({module_name.upper()}_EXPORTS)\n")
-        content.append(f"\t#define {get_module_api_macro(module_name)} DLLEXPORT\n")
-        content.append(f"#else\n")
-        content.append(f"\t#define {get_module_api_macro(module_name)} DLLIMPORT\n")
-        content.append(f"#endif\n\n")
-    output_path = utils.get_module_api_header_path(module_name)
-    utils.generate_file(output_path, "".join(content))
-
 def generate_module_definitions_header(module_name: str) -> None:
     module_config = configs.get_module_config(module_name)
     content = [f"// Auto-generated header for module {module_name} of project {module_config.owning_project}. Do not edit manually.\n\n"]
@@ -36,4 +22,3 @@ def generate_module_definitions_header(module_name: str) -> None:
     append_dependent_module_api_macros(content, module_name)
     output_path = utils.get_module_definitions_header_path(module_name)
     utils.generate_file(output_path, "".join(content))
-    generate_module_definitions_header_v2(module_name)
