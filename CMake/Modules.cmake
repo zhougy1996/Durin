@@ -80,22 +80,12 @@ function(doge_add_module module_name)
 	# Make CMake re-configure if the module definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_config_file})
 
-	doge_collect_and_organize_source_files(module_srcs)
-
-	set(generated_reflection_files)
 	if (module_reflect_headers)
 		add_custom_command(
 			OUTPUT ${module_export_file}
 			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} -a ${DOGE_ARCH}
 			DEPENDS ${module_reflect_headers} ${module_cmake_file}
 		)
-		# Collect generated reflection files for the module
-		foreach(header ${module_reflect_headers})
-			get_filename_component(header_name ${header} NAME_WE)
-			list(APPEND generated_reflection_files ${module_dht_output_dir}/${header_name}.gen.h)
-			list(APPEND generated_reflection_files ${module_dht_output_dir}/${header_name}.gen.cpp)
-		endforeach()
-		list(APPEND generated_reflection_files ${module_dht_output_dir}/${module_name}.module.gen.cpp)
 
 		add_custom_command(
 			OUTPUT ${generated_reflection_files}
@@ -109,10 +99,9 @@ function(doge_add_module module_name)
 	else()
 		set(module_link_type_final SHARED)
 	endif()
-	add_library(${module_name} ${module_link_type_final}
-		${module_srcs}
-		${generated_reflection_files}
-	)
+	add_library(${module_name} ${module_link_type_final})
+
+	target_sources(${module_name} PUBLIC ${module_public_srcs} PRIVATE ${module_private_srcs} ${generated_reflection_files})
 
 	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DogeEditor-${module_name}")
 
@@ -126,7 +115,6 @@ function(doge_add_module module_name)
 		$<$<CONFIG:Release>:DOGE_BUILD_RELEASE=1>
 		MODULE_NAME="${module_name}"
 	)
-
 
 	target_include_directories(${module_name} PRIVATE
 		${project_intermediate_build_dir}

@@ -7,5 +7,3 @@ target_include_directories(VulkanRHI PRIVATE
 target_link_libraries(VulkanRHI PRIVATE
     Vulkan::Vulkan
 )
-
-
