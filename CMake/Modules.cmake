@@ -42,34 +42,6 @@ function(doge_set_module_output target)
 	)
 endfunction()
 
-function(doge_organize_source_files)
-	foreach(source ${ARGV})
-		file(RELATIVE_PATH relative_path ${CMAKE_CURRENT_SOURCE_DIR} ${source})
-		get_filename_component(group_dir ${relative_path} DIRECTORY)
-
-		if(NOT group_dir)
-			set(group_name "Source Files")
-		else()
-			string(REPLACE "/" "\\" group_name ${group_dir})
-		endif()
-
-		source_group("${group_name}" FILES ${source})
-	endforeach()
-endfunction()
-
-function(doge_collect_and_organize_source_files OUT_SRCS)
-	set(patterns ${ARGN})
-		if(NOT patterns)
-			set(patterns 
-				"*.h" "*.hpp" "*.hxx"
-				"*.c" "*.cpp" "*.cxx" "*.cc"
-			)
-	endif()
-	file(GLOB_RECURSE all_sources CONFIGURE_DEPENDS ${patterns})
-	doge_organize_source_files(${all_sources})
-	set(${OUT_SRCS} ${all_sources} PARENT_SCOPE)
-endfunction()
-
 function(doge_add_module module_name)
 	doge_log_module(${project_name} ${module_name})
 	doge_start("Module_${module_name}")
@@ -88,7 +60,7 @@ function(doge_add_module module_name)
 		)
 
 		add_custom_command(
-			OUTPUT ${generated_reflection_files}
+			OUTPUT ${module_generated_srcs}
 			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} -a ${DOGE_ARCH}
 			DEPENDS ${module_cmake_file} ${module_manifest_dependencies} ${module_export_file}
 		)
@@ -99,9 +71,9 @@ function(doge_add_module module_name)
 	else()
 		set(module_link_type_final SHARED)
 	endif()
-	add_library(${module_name} ${module_link_type_final})
 
-	target_sources(${module_name} PUBLIC ${module_public_srcs} PRIVATE ${module_private_srcs} ${generated_reflection_files})
+	add_library(${module_name} ${module_link_type_final})
+	target_sources(${module_name} PUBLIC ${module_public_srcs} PRIVATE ${module_private_srcs} ${module_generated_srcs})
 
 	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DogeEditor-${module_name}")
 

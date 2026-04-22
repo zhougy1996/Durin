@@ -83,22 +83,13 @@ def _append_generated_sources(content: list[str], module_name: str) -> None:
         return
     
     module_dht_output_dir = utils.get_module_dht_output_dir(module_name)
-    generated_files = []
-    for header in module_config.reflect_headers:
-        if not (module_config.module_dir / header).exists():
-            raise FileNotFoundError(f"Reflect header {header} specified in module {module_name} does not exist.")
-        filename_stem = Path(header).stem
-        generated_files.append(module_dht_output_dir / f"{filename_stem}.gen.cpp")
-        generated_files.append(module_dht_output_dir / f"{filename_stem}.gen.h")
-
+    
     content.append("# Generated source files for this module\n")
-    content.append("set(generated_reflection_files\n")
+    content.append("set(module_generated_srcs\n")
     for header in module_config.reflect_headers:
         filename_stem = Path(header).stem
-        generated_cpp = module_dht_output_dir / f"{filename_stem}.gen.cpp"
-        generated_h = module_dht_output_dir / f"{filename_stem}.gen.h"
-        content.append(f"    \"{generated_cpp.as_posix()}\"\n")
-        content.append(f"    \"{generated_h.as_posix()}\"\n")
+        content.append(f"    \"{(module_dht_output_dir / f'{filename_stem}.gen.cpp').as_posix()}\"\n")
+        content.append(f"    \"{(module_dht_output_dir / f'{filename_stem}.gen.h').as_posix()}\"\n")
     content.append(")\n\n")
 
 def _make_module_cmake_file_content(module_name: str) -> str:

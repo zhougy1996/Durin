@@ -25,5 +25,3 @@ set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "")
 set(ASSIMP_INSTALL_PDB OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(assimp)
 
-get_target_property(lib_type assimp::assimp TYPE)
-message(STATUS "assimp type is: ${lib_type}")

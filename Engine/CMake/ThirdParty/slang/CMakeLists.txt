@@ -7,6 +7,5 @@ set_target_properties(Slang_Imported PROPERTIES
     IMPORTED_IMPLIB   "${SLANG_ROOT}/lib/slang.lib"
     INTERFACE_INCLUDE_DIRECTORIES "${SLANG_ROOT}/include"
 )
-
-get_target_property(SLANG_TYPE Slang_Imported TYPE)
-message(STATUS "slang type is: ${SLANG_TYPE}")
+#get_target_property(SLANG_TYPE Slang_Imported TYPE)
+#message(STATUS "slang type is: ${SLANG_TYPE}")
