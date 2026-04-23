@@ -11,6 +11,7 @@ namespace Doge::VulkanRHI
 	class FVulkanCommandListContext;
 	class FVulkanCommandBuffer;
 	class FVulkanShader;
+	class FVulkanBuffer;
 
 	class FVulkanGraphicsPipelineState : public FRHIGraphicsPipelineState
 	{
@@ -26,6 +27,10 @@ namespace Doge::VulkanRHI
 		auto Bind(vk::CommandBuffer InCmdBuffer) -> void;
 
 		auto PrepareForDraw(FVulkanCommandListContext& InContext) -> void;
+
+		auto GetPipelineLayout() const -> vk::PipelineLayout { return PipelineLayout; }
+
+		auto SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void;
 
 	protected:
 		const FVulkanRenderPass* RenderPass = nullptr;
@@ -49,6 +54,10 @@ namespace Doge::VulkanRHI
 		vk::DescriptorSetLayout DescriptorSetLayout; // TODO: cache and share
 
 		vk::PipelineLayout PipelineLayout;
+
+		vk::DescriptorPool DescriptorPool; // TODO: cache and share
+
+		std::vector<vk::DescriptorSet> DescriptorSets; // TODO: cache and share
 
 		vk::Pipeline Pipeline;
 

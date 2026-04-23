@@ -4,6 +4,7 @@
 #include "DynamicRHI.h"
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
+#include "RHIShaderParameters.h"
 
 namespace Doge
 {
@@ -54,6 +55,8 @@ namespace Doge
 		auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
 
 		auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
+
+		auto SetShaderParameters(FRHIGraphicsPipelineState* PipelineState, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void;
 
 	private:
 		ERHIPipeline ActivePipeline = ERHIPipeline::None;

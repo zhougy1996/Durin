@@ -96,6 +96,10 @@ namespace Doge
 		UnlockBuffer(Buffer);
 	}
 
+	auto FRHICommandList::SetShaderParameters(FRHIGraphicsPipelineState* PipelineState, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
+	{
+	}
+
 	auto FRHICommandListImmediate::Get() -> FRHICommandListImmediate&
 	{
 		return GCommandListExecutor.GetImmediateCommandList();

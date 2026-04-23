@@ -185,6 +185,23 @@ namespace Doge::VulkanRHI
 			Pipeline = PipelineCreationResult.value;
 			DOGE_TRACE("Vulkan graphics pipeline created");
 		}
+
+		std::vector<vk::DescriptorPoolSize> PoolSizes;
+		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, kFrameInFlight});
+
+		vk::DescriptorPoolCreateInfo DescriptorPoolCreateInfo;
+		DescriptorPoolCreateInfo
+			.setPoolSizes(PoolSizes)
+			.setMaxSets(1) // TODO: Calculate max sets based on actual usage
+			.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
+
+		DescriptorPool = Device.GetHandle().createDescriptorPool(DescriptorPoolCreateInfo);
+		vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo;
+		DescriptorSetAllocInfo
+			.setDescriptorPool(DescriptorPool)
+			.setSetLayouts(DescriptorSetLayout);
+
+		DescriptorSets = Device.GetHandle().allocateDescriptorSets(DescriptorSetAllocInfo);
 	}
 
 	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
@@ -227,6 +244,12 @@ namespace Doge::VulkanRHI
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
 		CmdBuffer->GetHandle().setViewport(0, Viewport);
 		CmdBuffer->GetHandle().setScissor(0, Scissor);
+	}
+
+	auto FVulkanGraphicsPipelineState::SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void
+	{
+		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
+		CmdBuffer->GetHandle().bindDescriptorSets(vk::PipelineBindPoint::eGraphics, PipelineLayout, 0, DescriptorSets[GFrameCounterRenderThread % kFrameInFlight], {});
 	}
 
 	auto FVulkanGraphicsPipelineState::SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void

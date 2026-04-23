@@ -105,6 +105,10 @@ namespace Doge::VulkanRHI
 		GetCommandBuffer()->GetHandle().bindIndexBuffer(IndexBuffer->GetHandle(), Offset, DeduceIndexType(IndexBuffer->GetStride()));
 	}
 
+	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
+	{
+	}
+
 	auto FVulkanCommandListContext::RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void
 	{
 		PendingGfxPipelineState->PrepareForDraw(*this);
@@ -119,6 +123,13 @@ namespace Doge::VulkanRHI
 			PrepareNewCommandBuffer(Payload);
 		}
 		return Payload.CommandBuffers.back();
+	}
+
+	auto FVulkanCommandListContext::RHISetShaderUniformBuffer(FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FRHIBuffer* InUniformBuffer) -> void
+	{
+		FVulkanBuffer* UniformBuffer = static_cast<FVulkanBuffer*>(InUniformBuffer);
+		vk::CommandBuffer CmdBuffer = GetCommandBuffer()->GetHandle();
+		// CmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, PendingGfxPipelineState->GetPipelineLayout(), SetIndex, UniformBuffer->GetDescriptorSet(BindIndex), {});
 	}
 
 	auto FVulkanCommandListContext::AddWaitSemaphore(vk::PipelineStageFlags InWaitFlag, FVulkanSemaphore* InWaitSemaphore) -> void
