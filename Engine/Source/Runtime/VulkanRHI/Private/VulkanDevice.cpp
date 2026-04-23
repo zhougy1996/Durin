@@ -110,6 +110,7 @@ namespace Doge::VulkanRHI
 					DOGE_VK_DESTROY_CASE(ImageView);
 					DOGE_VK_DESTROY_CASE(Pipeline);
 					DOGE_VK_DESTROY_CASE(PipelineLayout);
+					DOGE_VK_DESTROY_CASE(DescriptorPool);
 					DOGE_VK_DESTROY_CASE(Framebuffer);
 					DOGE_VK_DESTROY_CASE(DescriptorSetLayout);
 					DOGE_VK_DESTROY_CASE(Sampler);

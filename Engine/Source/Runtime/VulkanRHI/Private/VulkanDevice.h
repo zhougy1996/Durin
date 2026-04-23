@@ -32,6 +32,8 @@ namespace Doge::VulkanRHI
 			PipelineLayout,
 			Framebuffer,
 			DescriptorSetLayout,
+			DescriptorSet,
+			DescriptorPool,
 			Sampler,
 			Semaphore,
 			ShaderModule,

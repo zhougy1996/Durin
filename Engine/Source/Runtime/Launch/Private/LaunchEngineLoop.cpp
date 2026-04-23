@@ -8,7 +8,6 @@
 #include "Mona.h"
 #include "DogeEdGlobals.h"
 #include "Engine/Engine.h"
-#include "Misc/FileHelper.h"
 
 #include "RHICommandList.h"
 #include "RHIResources.h"
@@ -62,7 +61,19 @@ namespace Doge
 		FBufferRHIRef VertexColorBuffer;
 		FBufferRHIRef IndexBuffer;
 
+		FShaderRHIRef VertexShader;
+		FShaderRHIRef PixelShader;
+
+		std::vector<FBufferRHIRef> UniformBuffers;
+
 		std::vector<Asset::FTestAssetData> TestAssetDatas;
+	};
+
+	struct FTestUniformBufferObject
+	{
+		glm::mat4 Model;
+		glm::mat4 View;
+		glm::mat4 Proj;
 	};
 
 	FTestRenderProxy GTestRenderProxy; // Render thread data that will be used to store render resources, and other data that can only be accessed from render thread
@@ -110,10 +121,10 @@ namespace Doge
 			FPipelineData LocalPipelineData = PipelineData;
 			ENQUEUE_RENDER_COMMAND(Pipeline)([Viewport, LocalPipelineData](FRHICommandListImmediate& CommandList) {
 				FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", LocalPipelineData.CompiledCodes[0], {});
-				auto VertexTestShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
+				GTestRenderProxy.VertexShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
 
 				FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", LocalPipelineData.CompiledCodes[1], {});
-				auto PixelTestShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
+				GTestRenderProxy.PixelShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
 
 				FVertexDeclarationElementList VertexDeclElements;
 				VertexDeclElements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, sizeof(glm::vec3));
@@ -122,8 +133,8 @@ namespace Doge
 
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderPassName = "TestRenderPass";
-				Initializer.BoundShaders.VertexShader = VertexTestShader;
-				Initializer.BoundShaders.PixelShader = PixelTestShader;
+				Initializer.BoundShaders.VertexShader = GTestRenderProxy.VertexShader;
+				Initializer.BoundShaders.PixelShader = GTestRenderProxy.PixelShader;
 				Initializer.VertexDeclaration = GTestRenderProxy.VertexDeclaration;
 
 				Initializer.PixelFormat = Viewport->GetFormat();
@@ -159,6 +170,33 @@ namespace Doge
 				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::IndexBuffer;
 				GTestRenderProxy.IndexBuffer = RHICreateBuffer(BufferCreateDesc);
 				CommandList.WriteBuffer(GTestRenderProxy.IndexBuffer, &TestIndices[0], BufferSize, 0);
+			});
+
+			ENQUEUE_RENDER_COMMAND(CreateIndexBuffer)([](FRHICommandListImmediate& CommandList) {
+				const auto& TestIndices = GTestRenderProxy.TestAssetDatas[0].Indices;
+				auto BufferSize = TestIndices.size() * sizeof(uint32);
+				FRHIBufferCreateDesc BufferCreateDesc =
+					FRHIBufferCreateDesc::CreateIndex("TestIndexBuffer", BufferSize, sizeof(uint32));
+				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::IndexBuffer;
+				GTestRenderProxy.IndexBuffer = RHICreateBuffer(BufferCreateDesc);
+				CommandList.WriteBuffer(GTestRenderProxy.IndexBuffer, &TestIndices[0], BufferSize, 0);
+			});
+
+			ENQUEUE_RENDER_COMMAND(CreateUniformBuffers)([](FRHICommandListImmediate& CommandList) {
+				FRHIBufferCreateDesc BufferCreateDesc =
+					FRHIBufferCreateDesc::Create("TestUniformBuffer", EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Static);
+				check(sizeof(FTestUniformBufferObject) % 16 == 0); // Uniform buffer size must be a multiple of 16 bytes
+				BufferCreateDesc.Size = sizeof(FTestUniformBufferObject);
+				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
+				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
+
+				FTestUniformBufferObject TestUBO;
+				TestUBO.Model = rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+				TestUBO.View = glm::mat4(1.0f);
+				TestUBO.Proj = glm::mat4(1.0f);
+
+				CommandList.WriteBuffer(GTestRenderProxy.UniformBuffers[0], &TestUBO, sizeof(FTestUniformBufferObject), 0); // Just initialize the buffer with empty data
+				CommandList.WriteBuffer(GTestRenderProxy.UniformBuffers[1], &TestUBO, sizeof(FTestUniformBufferObject), 0);
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
@@ -202,6 +240,14 @@ namespace Doge
 				auto Height = BackBuffer->GetSizeY();
 				CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 
+				FRHIShaderParameterResource ShaderParameterResource;
+				ShaderParameterResource.Type = FRHIShaderParameterResource::EType::UniformBuffer;
+				ShaderParameterResource.SetIndex = 0;
+				ShaderParameterResource.BindIndex = 0;
+				ShaderParameterResource.Resource = GTestRenderProxy.UniformBuffers[GFrameCounterRenderThread % GTestRenderProxy.UniformBuffers.size()];
+
+				std::vector<FRHIShaderParameterResource> ShaderParameterResources = {ShaderParameterResource};
+				CommandList.SetShaderParameters(GTestRenderProxy.VertexShader,  ShaderParameterResources);
 				CommandList.BindVertexBuffer(0, GTestRenderProxy.VertexPositionBuffer, 0);
 				CommandList.BindVertexBuffer(1, GTestRenderProxy.VertexColorBuffer, 0);
 				CommandList.BindIndexBuffer(GTestRenderProxy.IndexBuffer, 0);
@@ -302,6 +348,9 @@ namespace Doge
 			GTestRenderProxy.VertexPositionBuffer = nullptr;
 			GTestRenderProxy.VertexColorBuffer = nullptr;
 			GTestRenderProxy.IndexBuffer = nullptr;
+			GTestRenderProxy.VertexShader = nullptr;
+			GTestRenderProxy.PixelShader = nullptr;
+			GTestRenderProxy.UniformBuffers.clear();
 		});
 
 		ShutdownRenderingThread();

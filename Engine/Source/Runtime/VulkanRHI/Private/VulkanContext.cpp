@@ -107,6 +107,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
+		PendingGfxPipelineState->SetUniformBuffer(*this, InShader, InResourceParameters[0].SetIndex, InResourceParameters[0].BindIndex, static_cast<FVulkanBuffer*>(InResourceParameters[0].Resource));
 	}
 
 	auto FVulkanCommandListContext::RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void

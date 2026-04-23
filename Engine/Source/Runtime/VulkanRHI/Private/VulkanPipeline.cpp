@@ -1,6 +1,7 @@
 #include "VulkanPipeline.h"
 
 #include "RHIResources.h"
+#include "VulkanBuffer.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanContext.h"
 #include "VulkanDynamicRHI.h"
@@ -139,9 +140,8 @@ namespace Doge::VulkanRHI
 		vk::DescriptorSetLayoutBinding TestLayoutBinding;
 		TestLayoutBinding.setBinding(0)
 			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
-			.setDescriptorCount(1)
 			.setStageFlags(vk::ShaderStageFlagBits::eVertex)
-			.setImmutableSamplers(nullptr);
+			.setDescriptorCount(1);
 
 		vk::DescriptorSetLayoutCreateInfo LayoutInfo;
 		LayoutInfo.setBindings(TestLayoutBinding);
@@ -192,14 +192,15 @@ namespace Doge::VulkanRHI
 		vk::DescriptorPoolCreateInfo DescriptorPoolCreateInfo;
 		DescriptorPoolCreateInfo
 			.setPoolSizes(PoolSizes)
-			.setMaxSets(1) // TODO: Calculate max sets based on actual usage
+			.setMaxSets(2) // TODO: Calculate max sets based on actual usage
 			.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
 
 		DescriptorPool = Device.GetHandle().createDescriptorPool(DescriptorPoolCreateInfo);
+		std::vector<vk::DescriptorSetLayout> Layouts(kFrameInFlight, DescriptorSetLayout);
 		vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo;
 		DescriptorSetAllocInfo
 			.setDescriptorPool(DescriptorPool)
-			.setSetLayouts(DescriptorSetLayout);
+			.setSetLayouts(Layouts);
 
 		DescriptorSets = Device.GetHandle().allocateDescriptorSets(DescriptorSetAllocInfo);
 	}
@@ -207,6 +208,8 @@ namespace Doge::VulkanRHI
 	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
 	{
 		ReleaseShaders();
+		DescriptorSets.clear();
+		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorPool, DescriptorPool);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, DescriptorSetLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
@@ -249,6 +252,21 @@ namespace Doge::VulkanRHI
 	auto FVulkanGraphicsPipelineState::SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void
 	{
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
+		vk::DescriptorBufferInfo bufferInfo{};
+		bufferInfo.setBuffer(InUniformBuffer->GetHandle())
+				  .setOffset(0)
+				  .setRange(InUniformBuffer->GetSize());
+
+		vk::WriteDescriptorSet descriptorWrite{};
+		descriptorWrite.setDstSet(DescriptorSets[GFrameCounterRenderThread % kFrameInFlight])
+					   .setDstBinding(0)
+					   .setDstArrayElement(0)
+					   .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+					   .setDescriptorCount(1)
+					   .setBufferInfo(bufferInfo);
+
+		Device.GetHandle().updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
+
 		CmdBuffer->GetHandle().bindDescriptorSets(vk::PipelineBindPoint::eGraphics, PipelineLayout, 0, DescriptorSets[GFrameCounterRenderThread % kFrameInFlight], {});
 	}
 

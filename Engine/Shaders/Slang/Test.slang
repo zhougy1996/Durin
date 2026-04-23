@@ -5,6 +5,13 @@ struct Coords
     float3 color : COLOR;     // Custom semantic for interpolated color
 };
 
+struct UniformBuffer {
+    float4x4 model;
+    float4x4 view;
+    float4x4 proj;
+};
+ConstantBuffer<UniformBuffer> ubo;
+
 // --- Vertex Shader ---
 [shader("vertex")]
 Coords vertexMain(
@@ -15,7 +22,7 @@ Coords vertexMain(
 
     // gl_Position equivalent
     float3 transformedPosition = inPosition * 0.1; // Scale down the position
-    output.pos = float4(transformedPosition.x, -transformedPosition.y, transformedPosition.z + 0.5, 1.0);
+    output.pos = mul(ubo.model, float4(transformedPosition.x, -transformedPosition.y, transformedPosition.z + 0.5, 1.0));
     
     // Assign color based on vertex input
     output.color = inColor;
