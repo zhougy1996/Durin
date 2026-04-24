@@ -91,7 +91,7 @@ namespace Doge
 				for (size_t i = 0; i < EntryPoints.size(); ++i)
 				{
 					std::string CompiledSpvFilePath = FShaderPaths::BinaryPath(ShaderName, EntryPoints[i], std::hash<std::string_view>{}(ShaderName));
-					//FFileHelper::SaveArrayToFile(PipelineData.CompiledCodes[i], CompiledSpvFilePath);
+					// FFileHelper::SaveArrayToFile(PipelineData.CompiledCodes[i], CompiledSpvFilePath);
 				}
 			}
 
@@ -145,58 +145,49 @@ namespace Doge
 			ENQUEUE_RENDER_COMMAND(CreateVertexBuffer)([](FRHICommandListImmediate& CommandList) {
 				{
 					const auto& TestVertices = GTestRenderProxy.TestAssetDatas[0].Positions;
-					FRHIBufferCreateDesc BufferCreateDesc =
-						FRHIBufferCreateDesc::CreateVertex("TestPositionVertexBuffer", TestVertices.size() * sizeof(glm::vec3));
+					uint32 BufferSize = TestVertices.size() * sizeof(glm::vec3);
+					FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestPositionVertexBuffer", BufferSize);
 					BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
+					BufferCreateDesc.InitialData = FResourceArrayUploadInfo{&TestVertices[0], BufferSize};
+
 					GTestRenderProxy.VertexPositionBuffer = RHICreateBuffer(BufferCreateDesc);
-					CommandList.WriteBuffer(GTestRenderProxy.VertexPositionBuffer, &TestVertices[0], TestVertices.size() * sizeof(glm::vec3), 0);
 				}
 
 				{
 					const auto& TestColors = GTestRenderProxy.TestAssetDatas[0].Colors;
-					FRHIBufferCreateDesc BufferCreateDesc =
-						FRHIBufferCreateDesc::CreateVertex("TestVertexColorBuffer", TestColors.size() * sizeof(glm::vec3));
+					uint32 BufferSize = TestColors.size() * sizeof(glm::vec3);
+					FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestVertexColorBuffer", BufferSize);
 					BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
+					BufferCreateDesc.InitialData = FResourceArrayUploadInfo{&TestColors[0], BufferSize};
+
 					GTestRenderProxy.VertexColorBuffer = RHICreateBuffer(BufferCreateDesc);
-					CommandList.WriteBuffer(GTestRenderProxy.VertexColorBuffer, &TestColors[0], TestColors.size() * sizeof(glm::vec3), 0);
 				}
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateIndexBuffer)([](FRHICommandListImmediate& CommandList) {
 				const auto& TestIndices = GTestRenderProxy.TestAssetDatas[0].Indices;
-				auto BufferSize = TestIndices.size() * sizeof(uint32);
-				FRHIBufferCreateDesc BufferCreateDesc =
-					FRHIBufferCreateDesc::CreateIndex("TestIndexBuffer", BufferSize, sizeof(uint32));
-				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::IndexBuffer;
-				GTestRenderProxy.IndexBuffer = RHICreateBuffer(BufferCreateDesc);
-				CommandList.WriteBuffer(GTestRenderProxy.IndexBuffer, &TestIndices[0], BufferSize, 0);
-			});
+				uint32 BufferSize = TestIndices.size() * sizeof(uint32);
 
-			ENQUEUE_RENDER_COMMAND(CreateIndexBuffer)([](FRHICommandListImmediate& CommandList) {
-				const auto& TestIndices = GTestRenderProxy.TestAssetDatas[0].Indices;
-				auto BufferSize = TestIndices.size() * sizeof(uint32);
-				FRHIBufferCreateDesc BufferCreateDesc =
-					FRHIBufferCreateDesc::CreateIndex("TestIndexBuffer", BufferSize, sizeof(uint32));
+				FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateIndex("TestIndexBuffer", BufferSize, sizeof(uint32));
 				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::IndexBuffer;
+				BufferCreateDesc.InitialData = FResourceArrayUploadInfo{&TestIndices[0], BufferSize};
+
 				GTestRenderProxy.IndexBuffer = RHICreateBuffer(BufferCreateDesc);
-				CommandList.WriteBuffer(GTestRenderProxy.IndexBuffer, &TestIndices[0], BufferSize, 0);
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateUniformBuffers)([](FRHICommandListImmediate& CommandList) {
-				FRHIBufferCreateDesc BufferCreateDesc =
-					FRHIBufferCreateDesc::Create("TestUniformBuffer", EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Static);
-				check(sizeof(FTestUniformBufferObject) % 16 == 0); // Uniform buffer size must be a multiple of 16 bytes
-				BufferCreateDesc.Size = sizeof(FTestUniformBufferObject);
-				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
-				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
-
 				FTestUniformBufferObject TestUBO;
 				TestUBO.Model = rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 				TestUBO.View = glm::mat4(1.0f);
 				TestUBO.Proj = glm::mat4(1.0f);
+				check(sizeof(FTestUniformBufferObject) % 16 == 0); // Uniform buffer size must be a multiple of 16 bytes
 
-				CommandList.WriteBuffer(GTestRenderProxy.UniformBuffers[0], &TestUBO, sizeof(FTestUniformBufferObject), 0); // Just initialize the buffer with empty data
-				CommandList.WriteBuffer(GTestRenderProxy.UniformBuffers[1], &TestUBO, sizeof(FTestUniformBufferObject), 0);
+				FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::Create("TestUniformBuffer", EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Static);
+				BufferCreateDesc.Size = sizeof(FTestUniformBufferObject);
+				BufferCreateDesc.InitialData = FResourceArrayUploadInfo{&TestUBO, sizeof(FTestUniformBufferObject)};
+
+				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
+				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
@@ -247,7 +238,7 @@ namespace Doge
 				ShaderParameterResource.Resource = GTestRenderProxy.UniformBuffers[GFrameCounterRenderThread % GTestRenderProxy.UniformBuffers.size()];
 
 				std::vector<FRHIShaderParameterResource> ShaderParameterResources = {ShaderParameterResource};
-				CommandList.SetShaderParameters(GTestRenderProxy.VertexShader,  ShaderParameterResources);
+				CommandList.SetShaderParameters(GTestRenderProxy.VertexShader, ShaderParameterResources);
 				CommandList.BindVertexBuffer(0, GTestRenderProxy.VertexPositionBuffer, 0);
 				CommandList.BindVertexBuffer(1, GTestRenderProxy.VertexColorBuffer, 0);
 				CommandList.BindIndexBuffer(GTestRenderProxy.IndexBuffer, 0);

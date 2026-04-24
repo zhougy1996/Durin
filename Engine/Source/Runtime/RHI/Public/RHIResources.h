@@ -496,6 +496,12 @@ namespace Doge
 		}
 	};
 
+	struct FResourceArrayUploadInfo
+	{
+		const void* Data = nullptr;
+		uint32 Size = 0;
+	};
+
 	struct FRHIBufferCreateDesc : public FRHIBufferDesc
 	{
 		static auto Create(const char* InDebugName, EBufferUsageFlags InUsage) -> FRHIBufferCreateDesc
@@ -557,6 +563,8 @@ namespace Doge
 			, DebugName(InDebugName)
 		{
 		}
+
+		FResourceArrayUploadInfo InitialData{};
 
 		const char* DebugName = nullptr;
 	};

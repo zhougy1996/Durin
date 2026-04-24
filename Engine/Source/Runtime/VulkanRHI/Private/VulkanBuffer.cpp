@@ -188,7 +188,13 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandList& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer>
 	{
-		return new FVulkanBuffer(Device, CreateDesc);
+		FVulkanBuffer* CreatedBuffer = new FVulkanBuffer(Device, CreateDesc);
+		auto& InitialData = CreateDesc.InitialData;
+		if (InitialData.Data)
+		{
+			RHICmdList.WriteBuffer(CreatedBuffer, InitialData.Data, InitialData.Size, 0);
+		}
+		return CreatedBuffer;
 	}
 
 	auto FVulkanDynamicRHI::RHILockBuffer(FRHICommandList& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
