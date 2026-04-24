@@ -14,9 +14,9 @@ namespace Doge::VulkanRHI
 
 		~FVulkanBuffer() override;
 
-		auto Lock(const FRHICommandListBase& RHICmdList, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
+		auto Lock(const FRHICommandListImmediate& RHICmdList, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 
-		auto Unlock(const FRHICommandListBase& RHICmdList) -> void;
+		auto Unlock(const FRHICommandListImmediate& RHICmdList) -> void;
 
 		auto IsDynamic() const -> bool;
 

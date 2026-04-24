@@ -64,7 +64,7 @@ namespace Doge::VulkanRHI
 		Device->GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
 	}
 
-	auto FVulkanBuffer::Lock(const FRHICommandListBase& RHICmdList, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
+	auto FVulkanBuffer::Lock(const FRHICommandListImmediate& RHICmdList, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
 	{
 		check(LockStatus == ELockStatus::Unlocked);
 		check(Size != 0 && Offset + Size <= Desc.Size);
@@ -95,7 +95,7 @@ namespace Doge::VulkanRHI
 		return static_cast<uint8*>(Data) + Offset;
 	}
 
-	auto FVulkanBuffer::Unlock(const FRHICommandListBase& RHICmdList) -> void
+	auto FVulkanBuffer::Unlock(const FRHICommandListImmediate& RHICmdList) -> void
 	{
 		check(LockStatus != ELockStatus::Unlocked);
 		FVulkanPendingBufferLock BufferLock = RetrievePendingLock(this);
