@@ -1,6 +1,6 @@
 #include "VulkanShader.h"
 
-#include "VulkanRHIPrivate.h"
+#include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 
 namespace Doge::VulkanRHI

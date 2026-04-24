@@ -1,7 +1,7 @@
 #pragma once
 
-#include "RHI.h"
-#include "VulkanDynamicRHI.h"
+#include "PixelFormat.h"
+#include "RHIDefinitions.h"
 
 namespace Doge::VulkanRHI
 {

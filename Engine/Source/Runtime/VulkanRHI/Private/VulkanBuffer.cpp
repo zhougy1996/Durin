@@ -1,9 +1,10 @@
 #include "VulkanBuffer.h"
 
 #include "RHICommandList.h"
+#include "VulkanDynamicRHI.h"
+#include "VulkanRHIPrivate.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanDevice.h"
-#include "VulkanRHIPrivate.h"
 #include "VulkanContext.h"
 
 namespace Doge::VulkanRHI

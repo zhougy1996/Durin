@@ -1,5 +1,6 @@
 #include "VulkanTexture.h"
 
+#include "VulkanDynamicRHI.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanDevice.h"
 #include "VulkanMemory.h"
