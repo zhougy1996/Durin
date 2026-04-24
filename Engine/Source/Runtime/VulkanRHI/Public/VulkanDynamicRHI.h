@@ -34,6 +34,7 @@ namespace Doge::VulkanRHI
 		auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void override;
 
 		auto RHIGetVkDevice() const -> vk::Device override;
+		auto RHIGetDynamicLoader() -> vk::DynamicLoader& { return DynamicLoader; }
 		auto RHIGetVkInstance() const -> vk::Instance override;
 		auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice override;
 
@@ -61,6 +62,7 @@ namespace Doge::VulkanRHI
 		auto SetupInstanceLayers(const FVulkanInstanceExtensionArray& DogeExtensions) -> void;
 
 	private:
+		vk::DynamicLoader DynamicLoader{};
 		vk::Instance Instance;
 		std::vector<const char*> InstanceExtensions;
 		std::vector<const char*> InstanceLayers;

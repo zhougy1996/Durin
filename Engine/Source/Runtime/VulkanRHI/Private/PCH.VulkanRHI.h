@@ -9,6 +9,11 @@
 	#define VK_USE_PLATFORM_MACOS_MVK
 	#define VK_USE_PLATFORM_METAL_EXT
 #endif
+
+// Use dynamic dispatch loader to load Vulkan functions at runtime.
+#ifndef VULKAN_HPP_DISPATCH_LOADER_DYNAMIC
+	#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
+#endif
 #include "vulkan/vulkan.hpp"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS 0

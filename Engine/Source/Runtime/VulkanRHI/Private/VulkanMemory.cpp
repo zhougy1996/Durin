@@ -24,21 +24,21 @@ namespace Doge::VulkanRHI
 	auto FVulkanMemoryManager::Init(FVulkanDevice* InDevice) -> void
 	{
 		Device = InDevice;
-
 		vk::PhysicalDevice Gpu = Device->GetGpu();
-
 		MemoryProperties = Gpu.getMemoryProperties();
 
+		FVulkanDynamicRHI& DynamicRHI = FVulkanDynamicRHI::Get();
+		const vk::DynamicLoader& DynamicLoader = DynamicRHI.RHIGetDynamicLoader();
 		VmaVulkanFunctions vmaFuncs = {};
-		vmaFuncs.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
-		vmaFuncs.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
+		vmaFuncs.vkGetInstanceProcAddr = DynamicLoader.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
+		vmaFuncs.vkGetDeviceProcAddr = DynamicLoader.getProcAddress<PFN_vkGetDeviceProcAddr>("vkGetDeviceProcAddr");
 
 		VmaAllocatorCreateInfo allocatorInfo = {};
 		allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
 		allocatorInfo.physicalDevice = Gpu;
 		allocatorInfo.device = Device->GetHandle();
 		allocatorInfo.pVulkanFunctions = &vmaFuncs;
-		allocatorInfo.instance = FVulkanDynamicRHI::Get().RHIGetVkInstance();
+		allocatorInfo.instance = DynamicRHI.RHIGetVkInstance();
 
 		vmaCreateAllocator(&allocatorInfo, &Allocator);
 	}

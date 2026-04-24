@@ -6,6 +6,9 @@
 #include "VulkanDevice.h"
 #include "VulkanSubmission.h"
 
+// Define the default dispatch loader storage for Vulkan-Hpp. This will allow us to load Vulkan functions at runtime.
+VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
+
 namespace Doge::VulkanRHI
 {
 	FVulkanDynamicRHI* GVulkanRHI = nullptr;
@@ -14,13 +17,16 @@ namespace Doge::VulkanRHI
 
 	FVulkanDynamicRHI::FVulkanDynamicRHI()
 	{
-		CreateInstance();
-		SelectDevice();
+		VULKAN_HPP_DEFAULT_DISPATCHER.init(DynamicLoader);
 	}
 
 	auto FVulkanDynamicRHI::Init() -> void
 	{
+		CreateInstance();
+		VULKAN_HPP_DEFAULT_DISPATCHER.init(Instance);
+		SelectDevice();
 		Device->InitGpu();
+		VULKAN_HPP_DEFAULT_DISPATCHER.init(Device->GetHandle());
 	}
 
 	auto FVulkanDynamicRHI::Shutdown() -> void
