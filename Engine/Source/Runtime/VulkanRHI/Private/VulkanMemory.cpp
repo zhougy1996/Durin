@@ -1,5 +1,8 @@
 #include "VulkanMemory.h"
 
+#define VMA_IMPLEMENTATION
+#include "vma/vk_mem_alloc.h"
+
 #include "VulkanDevice.h"
 #include "VulkanDynamicRHI.h"
 
@@ -23,15 +26,18 @@ namespace Doge::VulkanRHI
 		Device = InDevice;
 
 		vk::PhysicalDevice Gpu = Device->GetGpu();
-		vk::PhysicalDeviceProperties GpuProps = Device->GetGpuProperties();
 
 		MemoryProperties = Gpu.getMemoryProperties();
+
+		VmaVulkanFunctions vmaFuncs = {};
+		vmaFuncs.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
+		vmaFuncs.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
 
 		VmaAllocatorCreateInfo allocatorInfo = {};
 		allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
 		allocatorInfo.physicalDevice = Gpu;
 		allocatorInfo.device = Device->GetHandle();
-		DOGE_DEBUG("FVulkanDynamicRHI: {}", static_cast<const void*>(GDynamicRHI));
+		allocatorInfo.pVulkanFunctions = &vmaFuncs;
 		allocatorInfo.instance = FVulkanDynamicRHI::Get().RHIGetVkInstance();
 
 		vmaCreateAllocator(&allocatorInfo, &Allocator);

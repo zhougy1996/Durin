@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "VulkanQueue.h"
-#include "VMA/VulkanMemoryAllocator.h"
 
 namespace Doge::VulkanRHI
 {
