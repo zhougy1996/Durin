@@ -29,12 +29,12 @@ namespace Doge
 		ENGINE_API void Init(const std::vector<FVector3f>& InPositions, bool bInNeedsCPUAccess = true);
 
 		// FRenderResource interface.
-		ENGINE_API void InitRHI(FRHICommandList& RHICmdList) override;
+		ENGINE_API void InitRHI(FRHICommandListBase& RHICmdList) override;
 
 		ENGINE_API void ReleaseRHI() override;
 
 	private:
-		std::shared_ptr<FRHIBuffer> CreateRHIBuffer(FRHICommandList& RHICmdList);
+		std::shared_ptr<FRHIBuffer> CreateRHIBuffer(FRHICommandListBase& RHICmdList);
 
 		/** Allocates the vertex data storage type. */
 		void AllocateData(bool bInNeedsCPUAccess = true);

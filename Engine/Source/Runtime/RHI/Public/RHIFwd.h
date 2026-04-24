@@ -11,7 +11,7 @@ namespace Doge
 	class FGraphicsPipelineStateInitializer;
 	class IRHICommandContext;
 	class FRHIViewport;
-	class FRHICommandList;
+	class FRHICommandListBase;
 	class FRHICommandListImmediate;
 	class FRHITexture;
 	class FRHIBuffer;

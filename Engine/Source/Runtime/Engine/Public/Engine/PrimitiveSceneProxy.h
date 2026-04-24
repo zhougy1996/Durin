@@ -4,12 +4,12 @@
 
 namespace Doge
 {
-	class FRHICommandList;
+	class FRHICommandListBase;
 
 	class PrimitiveSceneProxy
 	{
 	public:
-		ENGINE_API auto SetTransform(FRHICommandList& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void;
+		ENGINE_API auto SetTransform(FRHICommandListBase& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void;
 
 	private:
 		FMatrix LocalToWorld_;

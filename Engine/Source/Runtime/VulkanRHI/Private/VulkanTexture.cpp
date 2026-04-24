@@ -90,7 +90,7 @@ namespace Doge::VulkanRHI
 		}
 	}
 
-	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandList& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
+	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
 	{
 		return new FVulkanTexture(*Device, CreateDesc);
 	}

@@ -25,9 +25,9 @@ namespace Doge
 			DOGE_ERROR("A FRenderResource was not released before destruction.");
 		}
 	}
-	void FRenderResource::InitRHI(FRHICommandList& RHICmdList) {}
+	void FRenderResource::InitRHI(FRHICommandListBase& RHICmdList) {}
 
-	void FRenderResource::InitResource(FRHICommandList& RHICmdList)
+	void FRenderResource::InitResource(FRHICommandListBase& RHICmdList)
 	{
 	}
 
@@ -35,7 +35,7 @@ namespace Doge
 	{
 	}
 
-	void FRenderResource::UpdateRHI(FRHICommandList& RHICmdList)
+	void FRenderResource::UpdateRHI(FRHICommandListBase& RHICmdList)
 	{
 	}
 

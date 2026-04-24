@@ -2,7 +2,7 @@
 
 namespace Doge
 {
-	auto PrimitiveSceneProxy::SetTransform(FRHICommandList& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void
+	auto PrimitiveSceneProxy::SetTransform(FRHICommandListBase& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void
 	{
 		LocalToWorld_ = InLocalToWorld;
 		ActorPosition_ = InActorPosition;

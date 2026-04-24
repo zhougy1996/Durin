@@ -7,10 +7,10 @@ namespace Doge
 {
 	FRHICommandListExecutor GCommandListExecutor;
 
-	FRHICommandList::FRHICommandList()
+	FRHICommandListBase::FRHICommandListBase()
 	= default;
 
-	auto FRHICommandList::SwitchPipeline(ERHIPipeline Pipeline) -> void
+	auto FRHICommandListBase::SwitchPipeline(ERHIPipeline Pipeline) -> void
 	{
 		if (ActivePipeline == Pipeline) return;
 
@@ -29,52 +29,52 @@ namespace Doge
 		}
 	}
 
-	auto FRHICommandList::BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void
+	auto FRHICommandListBase::BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void
 	{
 		GetContext().RHIBeginRenderPass(Info, Name);
 	}
 
-	auto FRHICommandList::EndRenderPass() -> void
+	auto FRHICommandListBase::EndRenderPass() -> void
 	{
 		GetContext().RHIEndRenderPass();
 	}
 
-	auto FRHICommandList::BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void
+	auto FRHICommandListBase::BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void
 	{
 		GetContext().RHIBeginDrawingViewport(Viewport, RenderTargetTexture);
 	}
 
-	auto FRHICommandList::EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void
+	auto FRHICommandListBase::EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void
 	{
 		GetContext().RHIEndDrawingViewport(Viewport, bPresent, bLockToVsync);
 	}
 
-	auto FRHICommandList::SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void
+	auto FRHICommandListBase::SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void
 	{
 		GetContext().RHISetGraphicsPipelineState(State);
 	}
 
-	auto FRHICommandList::BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
+	auto FRHICommandListBase::BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
 	{
 		GetContext().RHIBindVertexBuffer(StreamIndex, VertexBuffer, Offset);
 	}
 
-	auto FRHICommandList::BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void
+	auto FRHICommandListBase::BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void
 	{
 		GetContext().RHIBindIndexBuffer(Buffer, Offset);
 	}
 
-	auto FRHICommandList::DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void
+	auto FRHICommandListBase::DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void
 	{
 		GetContext().RHIDrawIndexed(IndexCount, StartIndexLocation, VertexOffset);
 	}
 
-	auto FRHICommandList::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
+	auto FRHICommandListBase::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
 		GetContext().RHISetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
 	}
 
-	auto FRHICommandList::SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void
+	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void
 	{
 		GetContext().RHISetShaderParameters(InShader, InResourceParameters);
 	}
@@ -119,7 +119,7 @@ namespace Doge
 		return GCommandListExecutor.CommandListImmediate;
 	}
 
-	auto FRHICommandListExecutor::Submit(const std::vector<FRHICommandList*>& AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void
+	auto FRHICommandListExecutor::Submit(const std::vector<FRHICommandListBase*>& AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void
 	{
 		if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::DeleteResources))
 		{

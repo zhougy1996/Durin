@@ -17,38 +17,38 @@ namespace Doge
 	class FRHIViewport;
 	class FRHIGraphicsPipelineState;
 
-	class RHI_API FRHICommandList
+	class FRHICommandListBase
 	{
 	public:
-		FRHICommandList();
+		RHI_API FRHICommandListBase();
 
-		virtual ~FRHICommandList() = default;
+		virtual ~FRHICommandListBase() = default;
 
 		// Call this function to switch between graphics and compute pipelines
 		// This function will set the context, so call this before any other command
-		auto SwitchPipeline(ERHIPipeline Pipeline) -> void;
+		RHI_API auto SwitchPipeline(ERHIPipeline Pipeline) -> void;
 
-		auto BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void;
+		RHI_API auto BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void;
 
-		auto EndRenderPass() -> void;
+		RHI_API auto EndRenderPass() -> void;
 
-		auto BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void;
+		RHI_API auto BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void;
 
-		auto EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void;
+		RHI_API auto EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void;
 
-		auto SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void;
+		RHI_API auto SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void;
 
-		auto BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void;
+		RHI_API auto BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void;
 
-		auto BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void;
+		RHI_API auto BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void;
 
-		auto DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void;
+		RHI_API auto DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void;
 
-		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
+		RHI_API auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 
-		auto GetContext() const -> IRHICommandContext& { return *GraphicsContext; }
+		RHI_API auto GetContext() const -> IRHICommandContext& { return *GraphicsContext; }
 
-		auto SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void;
+		RHI_API auto SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void;
 
 	private:
 		ERHIPipeline ActivePipeline = ERHIPipeline::None;
@@ -77,28 +77,28 @@ namespace Doge
 
 	ENUM_CLASS_FLAGS(ERHISubmitFlags)
 
-	class RHI_API FRHICommandListImmediate : public FRHICommandList
+	class FRHICommandListImmediate : public FRHICommandListBase
 	{
 	public:
-		static auto Get() -> FRHICommandListImmediate&;
+		RHI_API static auto Get() -> FRHICommandListImmediate&;
 
-		auto ImmediateFlush(EImmediateFlushType FlushType, ERHISubmitFlags SubmitFlags = ERHISubmitFlags::None) -> void;
+		RHI_API auto ImmediateFlush(EImmediateFlushType FlushType, ERHISubmitFlags SubmitFlags = ERHISubmitFlags::None) -> void;
 
-		auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
+		RHI_API auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 
-		auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
+		RHI_API auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
 
-		auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
+		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
 	};
 
-	class RHI_API FRHICommandListExecutor
+	class FRHICommandListExecutor
 	{
 	public:
-		FRHICommandListExecutor();
+		RHI_API FRHICommandListExecutor();
 
-		auto GetImmediateCommandList() -> FRHICommandListImmediate&;
+		RHI_API auto GetImmediateCommandList() -> FRHICommandListImmediate&;
 
-		auto Submit(const std::vector<FRHICommandList*>& AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void;
+		RHI_API auto Submit(const std::vector<FRHICommandListBase*>& AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void;
 
 	private:
 		FRHICommandListImmediate CommandListImmediate;

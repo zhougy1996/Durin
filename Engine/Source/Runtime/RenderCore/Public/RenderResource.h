@@ -6,7 +6,7 @@
 
 namespace Doge
 {
-	class FRHICommandList;
+	class FRHICommandListBase;
 
 	class FRenderResource
 	{
@@ -35,7 +35,7 @@ namespace Doge
 		 * Called when entering the state where both the resource and the RHI have been initialized.
 		 * This is only called by the rendering thread.
 		 */
-		virtual auto InitRHI(FRHICommandList& RHICmdList) -> void;
+		virtual auto InitRHI(FRHICommandListBase& RHICmdList) -> void;
 
 		/**
 		 * Releases the RHI resources used by this resource.
@@ -48,7 +48,7 @@ namespace Doge
 		 * Initializes the resource.
 		 * This is only called by the rendering thread.
 		 */
-		RENDERCORE_API virtual auto InitResource(FRHICommandList& RHICmdList) -> void;
+		RENDERCORE_API virtual auto InitResource(FRHICommandListBase& RHICmdList) -> void;
 
 		/**
 		 * Prepares the resource for deletion.
@@ -60,7 +60,7 @@ namespace Doge
 		 * If the resource's RHI resources have been initialized, then release and reinitialize it.  Otherwise, do nothing.
 		 * This is only called by the rendering thread.
 		 */
-		RENDERCORE_API auto UpdateRHI(FRHICommandList& RHICmdList) -> void;
+		RENDERCORE_API auto UpdateRHI(FRHICommandListBase& RHICmdList) -> void;
 
 		FORCEINLINE auto IsInitialized() const -> bool { return ListIndex != static_cast<uint32>(INDEX_NONE); }
 
@@ -74,7 +74,7 @@ namespace Doge
 
 		// Helper for submitting a resource array to RHI and freeing eligible CPU memory
 		template<typename T>
-		auto CreateRHIBuffer(FRHICommandList& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const char* InDebugName) -> std::shared_ptr<FRHIBuffer>
+		auto CreateRHIBuffer(FRHICommandListBase& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const char* InDebugName) -> std::shared_ptr<FRHIBuffer>
 		{
 			std::shared_ptr<FRHIBuffer> Buffer;
 
