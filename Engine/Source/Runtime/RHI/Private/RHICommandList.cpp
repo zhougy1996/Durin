@@ -74,28 +74,6 @@ namespace Doge
 		GetContext().RHISetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
 	}
 
-	auto FRHICommandList::CreateBuffer(const FRHIBufferCreateDesc& InCreateDesc) -> TRefCountPtr<FRHIBuffer>
-	{
-		return nullptr;
-	}
-
-	auto FRHICommandList::LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
-	{
-		return GDynamicRHI->RHILockBuffer(*this, Buffer, Offset, Size, LockMode);
-	}
-
-	auto FRHICommandList::UnlockBuffer(FRHIBuffer* Buffer) -> void
-	{
-		return GDynamicRHI->RHIUnlockBuffer(*this, Buffer);
-	}
-
-	auto FRHICommandList::WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void
-	{
-		void* MappedPointer = LockBuffer(Buffer, OffsetBytes, Size, EResourceLockMode::WriteOnly);
-		std::memcpy(MappedPointer, Data, Size);
-		UnlockBuffer(Buffer);
-	}
-
 	auto FRHICommandList::SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void
 	{
 		GetContext().RHISetShaderParameters(InShader, InResourceParameters);
@@ -113,6 +91,23 @@ namespace Doge
 			EnumAddFlags(SubmitFlags, ERHISubmitFlags::DeleteResources);
 		}
 		GCommandListExecutor.Submit({}, SubmitFlags);
+	}
+
+	auto FRHICommandListImmediate::LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
+	{
+		return GDynamicRHI->RHILockBuffer(*this, Buffer, Offset, Size, LockMode);
+	}
+
+	auto FRHICommandListImmediate::UnlockBuffer(FRHIBuffer* Buffer) -> void
+	{
+		return GDynamicRHI->RHIUnlockBuffer(*this, Buffer);
+	}
+
+	auto FRHICommandListImmediate::WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void
+	{
+		void* MappedPointer = LockBuffer(Buffer, OffsetBytes, Size, EResourceLockMode::WriteOnly);
+		std::memcpy(MappedPointer, Data, Size);
+		UnlockBuffer(Buffer);
 	}
 
 	FRHICommandListExecutor::FRHICommandListExecutor()

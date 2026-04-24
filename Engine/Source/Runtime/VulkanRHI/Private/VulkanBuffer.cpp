@@ -186,7 +186,7 @@ namespace Doge::VulkanRHI
 		Allocation.FlushMappedMemory(&Device);
 	}
 
-	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandList& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer>
+	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer>
 	{
 		FVulkanBuffer* CreatedBuffer = new FVulkanBuffer(Device, CreateDesc);
 		auto& InitialData = CreateDesc.InitialData;
@@ -197,12 +197,12 @@ namespace Doge::VulkanRHI
 		return CreatedBuffer;
 	}
 
-	auto FVulkanDynamicRHI::RHILockBuffer(FRHICommandList& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
+	auto FVulkanDynamicRHI::RHILockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
 	{
 		return static_cast<FVulkanBuffer*>(Buffer)->Lock(RHICmdList, Offset, Size, LockMode);
 	}
 
-	auto FVulkanDynamicRHI::RHIUnlockBuffer(FRHICommandList& RHICmdList, FRHIBuffer* Buffer) -> void
+	auto FVulkanDynamicRHI::RHIUnlockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer) -> void
 	{
 		return static_cast<FVulkanBuffer*>(Buffer)->Unlock(RHICmdList);
 	}

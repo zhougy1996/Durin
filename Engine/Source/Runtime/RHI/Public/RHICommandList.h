@@ -48,14 +48,6 @@ namespace Doge
 
 		auto GetContext() const -> IRHICommandContext& { return *GraphicsContext; }
 
-		auto CreateBuffer(const FRHIBufferCreateDesc& InCreateDesc) -> TRefCountPtr<FRHIBuffer>;
-
-		auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
-
-		auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
-
-		auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
-
 		auto SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void;
 
 	private:
@@ -85,13 +77,18 @@ namespace Doge
 
 	ENUM_CLASS_FLAGS(ERHISubmitFlags)
 
-	// Main command list class that will be used to record commands, and submit to GPU immediately when calling EndFrame
 	class RHI_API FRHICommandListImmediate : public FRHICommandList
 	{
 	public:
 		static auto Get() -> FRHICommandListImmediate&;
 
 		auto ImmediateFlush(EImmediateFlushType FlushType, ERHISubmitFlags SubmitFlags = ERHISubmitFlags::None) -> void;
+
+		auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
+
+		auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
+
+		auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
 	};
 
 	class RHI_API FRHICommandListExecutor
