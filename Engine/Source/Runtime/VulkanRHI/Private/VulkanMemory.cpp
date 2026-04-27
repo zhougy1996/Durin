@@ -89,6 +89,11 @@ namespace Doge::VulkanRHI
 			AllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
 		}
 
+		if (EnumHasAnyFlags(AllocFlags, EVulkanAllocationFlags::Mapped))
+		{
+			AllocCreateInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+		}
+
 		VkBuffer RawBuffer;
 		VkResult Result = vmaCreateBuffer(
 			Allocator,

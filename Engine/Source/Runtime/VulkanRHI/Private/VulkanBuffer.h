@@ -52,11 +52,7 @@ namespace Doge::VulkanRHI
 
 		auto GetSize() const -> uint32 { return BufferSize; }
 
-		auto Map() -> void*;
-
-		auto Unmap() -> void;
-
-		auto GetMappedData() const -> void*;
+		auto GetMappedPointer() const -> void*;
 
 		auto FlushMappedMemory() -> void;
 

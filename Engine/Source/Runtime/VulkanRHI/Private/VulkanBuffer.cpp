@@ -81,7 +81,7 @@ namespace Doge::VulkanRHI
 			if (IsStatic())
 			{
 				auto* StagingBuffer = new FStagingBuffer(*Device, Size);
-				Data = StagingBuffer->Map();
+				Data = StagingBuffer->GetMappedPointer();
 				AddPendingLock(this, FVulkanPendingBufferLock{StagingBuffer, Offset, Size, LockMode, true});
 			}
 		}
@@ -130,7 +130,6 @@ namespace Doge::VulkanRHI
 				BufferBarrier,
 				{});
 		}
-		StagingBuffer->Unmap();
 		delete StagingBuffer;
 	}
 
@@ -164,20 +163,7 @@ namespace Doge::VulkanRHI
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
 	}
 
-	auto FStagingBuffer::Map() -> void*
-	{
-		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
-		MemoryManager.MapMemory(Allocation);
-		return Allocation.GetMappedData();
-	}
-
-	auto FStagingBuffer::Unmap() -> void
-	{
-		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
-		MemoryManager.UnmapMemory(Allocation);
-	}
-
-	auto FStagingBuffer::GetMappedData() const -> void*
+	auto FStagingBuffer::GetMappedPointer() const -> void*
 	{
 		return Allocation.GetMappedData();
 	}
