@@ -182,7 +182,7 @@ namespace Doge
 				TestUBO.Proj = glm::mat4(1.0f);
 				check(sizeof(FTestUniformBufferObject) % 16 == 0); // Uniform buffer size must be a multiple of 16 bytes
 
-				FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::Create("TestUniformBuffer", EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Static);
+				FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::Create("TestUniformBuffer", EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Dynamic);
 				BufferCreateDesc.Size = sizeof(FTestUniformBufferObject);
 				BufferCreateDesc.InitialData = FResourceArrayUploadInfo{&TestUBO, sizeof(FTestUniformBufferObject)};
 

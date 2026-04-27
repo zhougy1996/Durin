@@ -13,7 +13,7 @@ namespace Doge::VulkanRHI
 		None = 0,
 
 		HostVisible = 1 << 0,
-		Mapped = 1 << 1,
+		PersistentMapped = 1 << 1,
 	};
 	ENUM_CLASS_FLAGS(EVulkanAllocationFlags)
 

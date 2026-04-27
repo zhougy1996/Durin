@@ -44,7 +44,7 @@ namespace Doge::VulkanRHI
 		}
 	} // namespace
 
-	FVulkanBuffer::FVulkanBuffer(FVulkanDevice* InDevice, const FRHIBufferCreateDesc& InCreateDesc)
+	FVulkanBuffer::FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc)
 		: FRHIBuffer(InCreateDesc)
 		, Device(InDevice)
 	{
@@ -54,57 +54,78 @@ namespace Doge::VulkanRHI
 		BufferInfo.setSharingMode(vk::SharingMode::eExclusive);
 
 		EVulkanAllocationFlags AllocFlags{};
+		if (EnumHasAnyFlags(InCreateDesc.Usage, EBufferUsageFlags::Dynamic))
+		{
+			AllocFlags |= EVulkanAllocationFlags::HostVisible | EVulkanAllocationFlags::PersistentMapped;
+		}
 
-		const FVulkanMemoryManager& MemoryManager = Device->GetMemoryManager();
+		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
 		MemoryManager.CreateBuffer(Allocation, Buffer, AllocFlags, BufferInfo);
 	}
 
 	FVulkanBuffer::~FVulkanBuffer()
 	{
-		Device->GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
+		check(LockStatus != ELockStatus::Locked);
+		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
 	}
 
 	auto FVulkanBuffer::Lock(const FRHICommandListImmediate& RHICmdList, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
 	{
 		check(LockStatus == ELockStatus::Unlocked);
 		check(Size != 0 && Offset + Size <= Desc.Size);
+
+		LockStatus = ELockStatus::Locked;
 		void* Data = nullptr;
 
 		if (LockMode == EResourceLockMode::ReadOnly)
 		{
 			DOGE_ERROR("Read-only buffer locking is not supported yet.");
+			LockStatus = ELockStatus::Unlocked;
 			return nullptr;
 		}
 
 		if (LockMode == EResourceLockMode::WriteOnly)
 		{
-			if (IsStatic())
+			if (IsStatic()) // Static buffers require a staging buffer for locking.
 			{
-				auto* StagingBuffer = new FStagingBuffer(*Device, Size);
+				auto* StagingBuffer = new FStagingBuffer(Device, Size);
 				Data = StagingBuffer->GetMappedPointer();
 				AddPendingLock(this, FVulkanPendingBufferLock{StagingBuffer, Offset, Size, LockMode, true});
 			}
+			else
+			{
+				Data = Allocation.GetMappedData();
+				if (Data != nullptr)
+				{
+					// For dynamic buffers, we can return the mapped pointer directly.
+					LockStatus = ELockStatus::PersistentMapping;
+				}
+				else
+				{
+					checkf(false, "Failed to map buffer memory for dynamic buffer. This should not happen as the buffer was created with persistent mapping.");
+				}
+			}
 		}
 
-		if (Data == nullptr)
-		{
-			DOGE_ERROR("Failed to lock buffer.");
-			return nullptr;
-		}
-		LockStatus = ELockStatus::Locked;
+		check(Data);
 		return static_cast<uint8*>(Data) + Offset;
 	}
 
 	auto FVulkanBuffer::Unlock(const FRHICommandListImmediate& RHICmdList) -> void
 	{
 		check(LockStatus != ELockStatus::Unlocked);
-		FVulkanPendingBufferLock BufferLock = RetrievePendingLock(this);
-		FStagingBuffer* StagingBuffer = BufferLock.StagingBuffer;
-		check(StagingBuffer);
-		EResourceLockMode LockMode = BufferLock.LockMode;
 
-		if (LockMode == EResourceLockMode::WriteOnly)
+		if (LockStatus == ELockStatus::PersistentMapping)
 		{
+			// do nothing
+		}
+		else
+		{
+			FVulkanPendingBufferLock BufferLock = RetrievePendingLock(this);
+
+			FStagingBuffer* StagingBuffer = BufferLock.StagingBuffer;
+
+			check(StagingBuffer);
 			StagingBuffer->FlushMappedMemory();
 			auto& Context = static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext());
 			vk::CommandBuffer CmdBufferHandle = Context.GetCommandBuffer()->GetHandle();
@@ -129,8 +150,10 @@ namespace Doge::VulkanRHI
 				{},
 				BufferBarrier,
 				{});
+
+			delete StagingBuffer;
 		}
-		delete StagingBuffer;
+		LockStatus = ELockStatus::Unlocked;
 	}
 
 	auto FVulkanBuffer::IsDynamic() const -> bool
@@ -152,7 +175,7 @@ namespace Doge::VulkanRHI
 		BufferInfo.setUsage(vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferSrc);
 		BufferInfo.setSharingMode(vk::SharingMode::eExclusive);
 
-		EVulkanAllocationFlags AllocFlags = EVulkanAllocationFlags::HostVisible | EVulkanAllocationFlags::Mapped;
+		EVulkanAllocationFlags AllocFlags = EVulkanAllocationFlags::HostVisible | EVulkanAllocationFlags::PersistentMapped;
 
 		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
 		MemoryManager.CreateBuffer(Allocation, Buffer, AllocFlags, BufferInfo);
@@ -175,7 +198,7 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer>
 	{
-		FVulkanBuffer* CreatedBuffer = new FVulkanBuffer(Device, CreateDesc);
+		FVulkanBuffer* CreatedBuffer = new FVulkanBuffer(*Device, CreateDesc);
 		auto& InitialData = CreateDesc.InitialData;
 		if (InitialData.Data)
 		{

@@ -10,7 +10,7 @@ namespace Doge::VulkanRHI
 	class FVulkanBuffer : public FRHIBuffer
 	{
 	public:
-		FVulkanBuffer(FVulkanDevice* InDevice, const FRHIBufferCreateDesc& InCreateDesc);
+		FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc);
 
 		~FVulkanBuffer() override;
 
@@ -32,7 +32,7 @@ namespace Doge::VulkanRHI
 			PersistentMapping,
 		};
 
-		FVulkanDevice* Device;
+		FVulkanDevice& Device;
 
 		vk::Buffer Buffer{};
 
