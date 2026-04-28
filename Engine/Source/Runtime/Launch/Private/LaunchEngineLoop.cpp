@@ -237,6 +237,15 @@ namespace Doge
 				ShaderParameterResource.BindIndex = 0;
 				ShaderParameterResource.Resource = GTestRenderProxy.UniformBuffers[GFrameCounterRenderThread % GTestRenderProxy.UniformBuffers.size()];
 
+				static const auto GStartTime = std::chrono::steady_clock::now();
+				float Time = std::chrono::duration<float>(std::chrono::steady_clock::now() - GStartTime).count();
+				FTestUniformBufferObject TmpUBO;
+				TmpUBO.Model = rotate(glm::mat4(1.0f), glm::radians(50.0f * Time), glm::vec3(0.0f, 0.0f, 1.0f));
+				TmpUBO.View = glm::mat4(1.0f);
+				TmpUBO.Proj = glm::mat4(1.0f);
+
+				CommandList.WriteBuffer(GTestRenderProxy.UniformBuffers[GFrameCounterRenderThread % GTestRenderProxy.UniformBuffers.size()], &TmpUBO, sizeof(FTestUniformBufferObject), 0);
+
 				std::vector<FRHIShaderParameterResource> ShaderParameterResources = {ShaderParameterResource};
 				CommandList.SetShaderParameters(GTestRenderProxy.VertexShader, ShaderParameterResources);
 				CommandList.BindVertexBuffer(0, GTestRenderProxy.VertexPositionBuffer, 0);
@@ -331,6 +340,23 @@ namespace Doge
 
 		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
 		GFrameCounter++;
+
+		// FPS counter: accumulate frames and log once per second
+		{
+			static uint64 FPSFrameCount = 0;
+			static std::chrono::steady_clock::time_point FPSLastTime = std::chrono::steady_clock::now();
+
+			++FPSFrameCount;
+			auto Now = std::chrono::steady_clock::now();
+			auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Now - FPSLastTime).count();
+			if (Elapsed >= 1000)
+			{
+				double FPS = static_cast<double>(FPSFrameCount) * 1000.0 / static_cast<double>(Elapsed);
+				DOGE_DEBUG("FPS: {:.1f}", FPS);
+				FPSFrameCount = 0;
+				FPSLastTime = Now;
+			}
+		}
 	}
 
 	auto FEngineLoop::Exit() -> void
