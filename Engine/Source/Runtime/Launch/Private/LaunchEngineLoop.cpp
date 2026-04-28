@@ -20,6 +20,8 @@
 #include "Shader/ShaderCompiler.h"
 #include "AssetCore.h"
 
+#include "Misc/Time.h"
+
 namespace Doge
 {
 	FEngineLoop GEngineLoop;
@@ -176,15 +178,8 @@ namespace Doge
 			});
 
 			ENQUEUE_RENDER_COMMAND(CreateUniformBuffers)([](FRHICommandListImmediate& CommandList) {
-				FTestUniformBufferObject TestUBO;
-				TestUBO.Model = rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-				TestUBO.View = glm::mat4(1.0f);
-				TestUBO.Proj = glm::mat4(1.0f);
-				check(sizeof(FTestUniformBufferObject) % 16 == 0); // Uniform buffer size must be a multiple of 16 bytes
-
 				FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::Create("TestUniformBuffer", EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Dynamic);
 				BufferCreateDesc.Size = sizeof(FTestUniformBufferObject);
-				BufferCreateDesc.InitialData = FResourceArrayUploadInfo{&TestUBO, sizeof(FTestUniformBufferObject)};
 
 				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
 				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
@@ -237,14 +232,13 @@ namespace Doge
 				ShaderParameterResource.BindIndex = 0;
 				ShaderParameterResource.Resource = GTestRenderProxy.UniformBuffers[GFrameCounterRenderThread % GTestRenderProxy.UniformBuffers.size()];
 
-				static const auto GStartTime = std::chrono::steady_clock::now();
-				float Time = std::chrono::duration<float>(std::chrono::steady_clock::now() - GStartTime).count();
+				double DeltaTime = FTime::Seconds() - GStartTime;
 				FTestUniformBufferObject TmpUBO;
-				TmpUBO.Model = rotate(glm::mat4(1.0f), glm::radians(50.0f * Time), glm::vec3(0.0f, 0.0f, 1.0f));
+				TmpUBO.Model = rotate(glm::mat4(1.0f), glm::radians(50.0f * static_cast<float>(DeltaTime)), glm::vec3(0.0f, 0.0f, 1.0f));
 				TmpUBO.View = glm::mat4(1.0f);
 				TmpUBO.Proj = glm::mat4(1.0f);
 
-				CommandList.WriteBuffer(GTestRenderProxy.UniformBuffers[GFrameCounterRenderThread % GTestRenderProxy.UniformBuffers.size()], &TmpUBO, sizeof(FTestUniformBufferObject), 0);
+				CommandList.UpdateUniformBuffer(GTestRenderProxy.UniformBuffers[GFrameCounterRenderThread % GTestRenderProxy.UniformBuffers.size()], &TmpUBO, sizeof(FTestUniformBufferObject), 0);
 
 				std::vector<FRHIShaderParameterResource> ShaderParameterResources = {ShaderParameterResource};
 				CommandList.SetShaderParameters(GTestRenderProxy.VertexShader, ShaderParameterResources);

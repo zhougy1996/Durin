@@ -110,6 +110,12 @@ namespace Doge
 		UnlockBuffer(Buffer);
 	}
 
+	auto FRHICommandListImmediate::UpdateUniformBuffer(FRHIBuffer* UniformBuffer, const void* Data, uint32 Size, uint32 Offset) -> void
+	{
+		check(Size % 16 == 0 && Offset % 16 == 0);
+		WriteBuffer(UniformBuffer, Data, Size, Offset);
+	}
+
 	FRHICommandListExecutor::FRHICommandListExecutor()
 	{
 	}

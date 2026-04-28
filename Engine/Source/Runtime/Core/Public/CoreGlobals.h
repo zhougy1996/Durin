@@ -23,6 +23,8 @@ namespace Doge
 
 	extern CORE_API std::vector<const char*> GMonaRequiredVulkanInstanceExtensions;
 
+	extern CORE_API double GStartTime;
+
 	extern CORE_API uint32 GGameThreadId;
 	extern CORE_API bool GIsGameThreadIdInitialized;
 	extern CORE_API FRunnableThread* GRenderingThread;
