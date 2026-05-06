@@ -1,9 +1,13 @@
 #include "VulkanTexture.h"
 
+#include "RHICommandList.h"
+#include "VulkanBuffer.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanDevice.h"
 #include "VulkanMemory.h"
+#include "VulkanContext.h"
+#include "VulkanCommandBuffer.h"
 
 namespace Doge::VulkanRHI
 {
@@ -74,6 +78,15 @@ namespace Doge::VulkanRHI
 
 		FVulkanMemoryManager& MemoryManager = InDevice.GetMemoryManager();
 		MemoryManager.CreateImage(Allocation, Image, imageInfo);
+
+		// Create default image view
+		vk::ImageViewCreateInfo ViewInfo;
+		ViewInfo.setImage(Image)
+			.setViewType(TextureDimensionToImageViewType(InCreateDesc.Dimension))
+			.setFormat(ImageFormat)
+			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, InCreateDesc.NumMips, 0, InCreateDesc.ArraySize));
+
+		ImageView = InDevice.GetHandle().createImageView(ViewInfo);
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage)
@@ -88,11 +101,62 @@ namespace Doge::VulkanRHI
 		if (OwnerType == EImageOwnerType::LocalOwner)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image, Allocation);
+			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, ImageView);
 		}
 	}
 
 	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
 	{
 		return new FVulkanTexture(*Device, CreateDesc);
+	}
+
+	auto FVulkanDynamicRHI::RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, const void* Data, uint32 DataSize, uint32 RowPitch) -> void
+	{
+		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
+		auto& Context = static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext());
+		auto* CmdBuffer = Context.GetCommandBuffer();
+		vk::CommandBuffer Cmd = CmdBuffer->GetHandle();
+
+		// Create staging buffer
+		FStagingBuffer StagingBuffer(*Device, DataSize);
+		void* Mapped = StagingBuffer.GetMappedPointer();
+		std::memcpy(Mapped, Data, DataSize);
+
+		// Transition image to transfer destination
+		vk::ImageMemoryBarrier PreCopyBarrier;
+		PreCopyBarrier.setSrcAccessMask(vk::AccessFlagBits::eNone)
+			.setDstAccessMask(vk::AccessFlagBits::eTransferWrite)
+			.setOldLayout(vk::ImageLayout::eUndefined)
+			.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setImage(VulkanTexture->Image)
+			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, 0, 1));
+
+		Cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, PreCopyBarrier);
+
+		// Copy buffer to image
+		vk::BufferImageCopy CopyRegion;
+		CopyRegion.setBufferOffset(0)
+			.setBufferRowLength(0)
+			.setBufferImageHeight(0)
+			.setImageSubresource(vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, MipIndex, 0, 1))
+			.setImageOffset(vk::Offset3D{0, 0, 0})
+			.setImageExtent(vk::Extent3D{VulkanTexture->GetSizeX(), VulkanTexture->GetSizeY(), 1});
+
+		Cmd.copyBufferToImage(StagingBuffer.GetHandle(), VulkanTexture->Image, vk::ImageLayout::eTransferDstOptimal, CopyRegion);
+
+		// Transition image to shader read
+		vk::ImageMemoryBarrier PostCopyBarrier;
+		PostCopyBarrier.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+			.setDstAccessMask(vk::AccessFlagBits::eShaderRead)
+			.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+			.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setImage(VulkanTexture->Image)
+			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, 0, 1));
+
+		Cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
 	}
 } // namespace Doge::VulkanRHI

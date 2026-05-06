@@ -12,6 +12,7 @@ namespace Doge::VulkanRHI
 	class FVulkanCommandBuffer;
 	class FVulkanShader;
 	class FVulkanBuffer;
+	class FVulkanTexture;
 
 	class FVulkanGraphicsPipelineState : public FRHIGraphicsPipelineState
 	{
@@ -31,6 +32,10 @@ namespace Doge::VulkanRHI
 		auto GetPipelineLayout() const -> vk::PipelineLayout { return PipelineLayout; }
 
 		auto SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void;
+
+		auto SetTexture(FVulkanCommandListContext& InContext, uint32 BindIndex, FVulkanTexture* InTexture) -> void;
+
+		auto SetSampler(FVulkanCommandListContext& InContext, uint32 BindIndex, vk::Sampler InSampler) -> void;
 
 	protected:
 		const FVulkanRenderPass* RenderPass = nullptr;

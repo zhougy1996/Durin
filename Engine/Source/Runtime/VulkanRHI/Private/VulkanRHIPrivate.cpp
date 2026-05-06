@@ -92,13 +92,41 @@ namespace Doge::VulkanRHI
 		return VulkanFormatMap[static_cast<uint32>(InFormat)].VulkanFormat;
 	}
 
+	auto ConvertToVulkanFormat(EVertexElementType InType) -> vk::Format
+	{
+		switch (InType)
+		{
+		case EVertexElementType::Float1: return vk::Format::eR32Sfloat;
+		case EVertexElementType::Float2: return vk::Format::eR32G32Sfloat;
+		case EVertexElementType::Float3: return vk::Format::eR32G32B32Sfloat;
+		case EVertexElementType::Float4: return vk::Format::eR32G32B32A32Sfloat;
+		case EVertexElementType::Color: return vk::Format::eR8G8B8A8Unorm;
+		case EVertexElementType::UByte4N: return vk::Format::eR8G8B8A8Unorm;
+		case EVertexElementType::Half2: return vk::Format::eR16G16Sfloat;
+		case EVertexElementType::Half4: return vk::Format::eR16G16B16A16Sfloat;
+		case EVertexElementType::Short2: return vk::Format::eR16G16Sint;
+		case EVertexElementType::Short4: return vk::Format::eR16G16B16A16Sint;
+		case EVertexElementType::Short2N: return vk::Format::eR16G16Snorm;
+		case EVertexElementType::Short4N: return vk::Format::eR16G16B16A16Snorm;
+		case EVertexElementType::UShort2: return vk::Format::eR16G16Uint;
+		case EVertexElementType::UShort4: return vk::Format::eR16G16B16A16Uint;
+		case EVertexElementType::UShort2N: return vk::Format::eR16G16Unorm;
+		case EVertexElementType::UShort4N: return vk::Format::eR16G16B16A16Unorm;
+		case EVertexElementType::UInt: return vk::Format::eR32Uint;
+		case EVertexElementType::URGB10A2N: return vk::Format::eA2B10G10R10UnormPack32;
+		default:
+			DOGE_ERROR("Unknown vertex element type: {}", static_cast<int>(InType));
+			return vk::Format::eR32G32B32Sfloat;
+		}
+	}
+
 	auto ConvertToVulkanBufferUsageFlags(EBufferUsageFlags InUsage) -> vk::BufferUsageFlags
 	{
 		vk::BufferUsageFlags UsageFlags{};
 
 		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::Static | EBufferUsageFlags::Dynamic))
 		{
-			check(!EnumHasAllFlags(InUsage, EBufferUsageFlags::Static | EBufferUsageFlags::Dynamic));  // A buffer cannot be both static and dynamic
+			check(!EnumHasAllFlags(InUsage, EBufferUsageFlags::Static | EBufferUsageFlags::Dynamic)); // A buffer cannot be both static and dynamic
 			UsageFlags |= vk::BufferUsageFlagBits::eTransferDst;
 		}
 
@@ -127,11 +155,7 @@ namespace Doge::VulkanRHI
 			UsageFlags |= vk::BufferUsageFlagBits::eTransferSrc;
 		}
 
-		if (EnumHasAnyFlags(InUsage,
-			EBufferUsageFlags::UnorderedAccess |
-			EBufferUsageFlags::StructuredBuffer |
-			EBufferUsageFlags::ByteAddressBuffer |
-			EBufferUsageFlags::ShaderResource))
+		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ByteAddressBuffer | EBufferUsageFlags::ShaderResource))
 		{
 			UsageFlags |= vk::BufferUsageFlagBits::eStorageBuffer;
 		}

@@ -10,6 +10,7 @@ namespace Doge::VulkanRHI
 	class FVulkanPayload;
 
 	auto ConvertToVulkanFormat(EPixelFormat InFormat) -> vk::Format;
+	auto ConvertToVulkanFormat(EVertexElementType InType) -> vk::Format;
 	auto ConvertToVulkanBufferUsageFlags(EBufferUsageFlags InUsage) -> vk::BufferUsageFlags;
 
 	extern std::atomic<uint64> GVulkanBufferHandleIdCounter;

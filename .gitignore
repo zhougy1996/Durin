@@ -8,8 +8,9 @@
 /Engine/Intermediate/
 /Engine/Binaries/
 /Engine/ShaderCache/
-.idea/
+/.idea/
 /out/
+/.claude/
 
 /Engine/Source/Programs/DogeHeaderTool/ clangLog.txt
 

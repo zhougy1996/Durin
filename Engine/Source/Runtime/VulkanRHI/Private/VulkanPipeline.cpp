@@ -9,6 +9,7 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanRenderPass.h"
 #include "VulkanShader.h"
+#include "VulkanTexture.h"
 
 namespace Doge::VulkanRHI
 {
@@ -67,20 +68,33 @@ namespace Doge::VulkanRHI
 				break;
 			}
 
-			vk::VertexInputBindingDescription BindingDescription;
-			BindingDescription
-				.setBinding(Element.StreamIndex)
-				.setStride(sizeof(glm::vec3)) // TODO: Support different vertex element types and calculate stride correctly
-				.setInputRate(vk::VertexInputRate::eVertex);
+			// Check if this stream index already has a binding
+			bool bBindingExists = false;
+			for (auto& Existing : BindingDescriptions)
+			{
+				if (Existing.binding == Element.StreamIndex)
+				{
+					bBindingExists = true;
+					break;
+				}
+			}
+			if (!bBindingExists)
+			{
+				vk::VertexInputBindingDescription BindingDescription;
+				BindingDescription
+					.setBinding(Element.StreamIndex)
+					.setStride(Element.Stride)
+					.setInputRate(vk::VertexInputRate::eVertex);
+				BindingDescriptions.push_back(BindingDescription);
+			}
 
 			vk::VertexInputAttributeDescription AttributeDescription;
 			AttributeDescription
 				.setLocation(Element.AttributeIndex)
 				.setBinding(Element.StreamIndex)
-				.setFormat(vk::Format::eR32G32B32Sfloat) // TODO: Support different vertex element types and convert to correct Vulkan format
-				.setOffset(0);
+				.setFormat(ConvertToVulkanFormat(Element.Type))
+				.setOffset(Element.Offset);
 
-			BindingDescriptions.push_back(BindingDescription);
 			AttributeDescriptions.push_back(AttributeDescription);
 		}
 
@@ -137,14 +151,31 @@ namespace Doge::VulkanRHI
 			.setAttachments(ColorBlendAttachment)
 			.setBlendConstants({0.0f, 0.0f, 0.0f, 0.0f});
 
-		vk::DescriptorSetLayoutBinding TestLayoutBinding;
-		TestLayoutBinding.setBinding(0)
+		std::vector<vk::DescriptorSetLayoutBinding> LayoutBindings;
+
+		vk::DescriptorSetLayoutBinding UboLayoutBinding;
+		UboLayoutBinding.setBinding(0)
 			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
 			.setStageFlags(vk::ShaderStageFlagBits::eVertex)
 			.setDescriptorCount(1);
+		LayoutBindings.push_back(UboLayoutBinding);
+
+		vk::DescriptorSetLayoutBinding ImageLayoutBinding;
+		ImageLayoutBinding.setBinding(1)
+			.setDescriptorType(vk::DescriptorType::eSampledImage)
+			.setStageFlags(vk::ShaderStageFlagBits::eFragment)
+			.setDescriptorCount(1);
+		LayoutBindings.push_back(ImageLayoutBinding);
+
+		vk::DescriptorSetLayoutBinding SamplerLayoutBinding;
+		SamplerLayoutBinding.setBinding(2)
+			.setDescriptorType(vk::DescriptorType::eSampler)
+			.setStageFlags(vk::ShaderStageFlagBits::eFragment)
+			.setDescriptorCount(1);
+		LayoutBindings.push_back(SamplerLayoutBinding);
 
 		vk::DescriptorSetLayoutCreateInfo LayoutInfo;
-		LayoutInfo.setBindings(TestLayoutBinding);
+		LayoutInfo.setBindings(LayoutBindings);
 
 		DescriptorSetLayout = Device.GetHandle().createDescriptorSetLayout(LayoutInfo);
 
@@ -188,6 +219,8 @@ namespace Doge::VulkanRHI
 
 		std::vector<vk::DescriptorPoolSize> PoolSizes;
 		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, kFrameInFlight});
+		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, kFrameInFlight});
+		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eSampler, kFrameInFlight});
 
 		vk::DescriptorPoolCreateInfo DescriptorPoolCreateInfo;
 		DescriptorPoolCreateInfo
@@ -259,7 +292,7 @@ namespace Doge::VulkanRHI
 
 		vk::WriteDescriptorSet descriptorWrite{};
 		descriptorWrite.setDstSet(DescriptorSets[GFrameCounterRenderThread % kFrameInFlight])
-					   .setDstBinding(0)
+					   .setDstBinding(BindIndex)
 					   .setDstArrayElement(0)
 					   .setDescriptorType(vk::DescriptorType::eUniformBuffer)
 					   .setDescriptorCount(1)
@@ -268,6 +301,39 @@ namespace Doge::VulkanRHI
 		Device.GetHandle().updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
 
 		CmdBuffer->GetHandle().bindDescriptorSets(vk::PipelineBindPoint::eGraphics, PipelineLayout, 0, DescriptorSets[GFrameCounterRenderThread % kFrameInFlight], {});
+	}
+
+	auto FVulkanGraphicsPipelineState::SetTexture(FVulkanCommandListContext& InContext, uint32 BindIndex, FVulkanTexture* InTexture) -> void
+	{
+		vk::DescriptorImageInfo imageInfo{};
+		imageInfo.setImageView(InTexture->ImageView)
+				 .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+
+		vk::WriteDescriptorSet descriptorWrite{};
+		descriptorWrite.setDstSet(DescriptorSets[GFrameCounterRenderThread % kFrameInFlight])
+					   .setDstBinding(BindIndex)
+					   .setDstArrayElement(0)
+					   .setDescriptorType(vk::DescriptorType::eSampledImage)
+					   .setDescriptorCount(1)
+					   .setImageInfo(imageInfo);
+
+		Device.GetHandle().updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
+	}
+
+	auto FVulkanGraphicsPipelineState::SetSampler(FVulkanCommandListContext& InContext, uint32 BindIndex, vk::Sampler InSampler) -> void
+	{
+		vk::DescriptorImageInfo imageInfo{};
+		imageInfo.setSampler(InSampler);
+
+		vk::WriteDescriptorSet descriptorWrite{};
+		descriptorWrite.setDstSet(DescriptorSets[GFrameCounterRenderThread % kFrameInFlight])
+					   .setDstBinding(BindIndex)
+					   .setDstArrayElement(0)
+					   .setDescriptorType(vk::DescriptorType::eSampler)
+					   .setDescriptorCount(1)
+					   .setImageInfo(imageInfo);
+
+		Device.GetHandle().updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
 	}
 
 	auto FVulkanGraphicsPipelineState::SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void

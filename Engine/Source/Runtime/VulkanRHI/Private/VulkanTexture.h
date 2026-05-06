@@ -26,6 +26,8 @@ namespace Doge::VulkanRHI
 
 		vk::Image Image{};
 
+		vk::ImageView ImageView{};
+
 		vk::Format Format{};
 
 	protected:
