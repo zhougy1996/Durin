@@ -31,11 +31,15 @@ namespace Doge
 
 		APPLICATIONCORE_API auto IsMinimized() const -> bool override;
 
+		APPLICATIONCORE_API auto SetCursor(EMouseCursor Cursor) -> void override;
+
 	private:
 		FGlfwWindow();
 
 		EWindowMode WindowMode = EWindowMode::Windowed;
 
 		GLFWwindow* GlfwWindow = nullptr;
+
+		void* CachedCursors[10] = {};
 	};
 }

@@ -14,6 +14,21 @@ namespace Doge
 		Windowed,			// Stretch the window to the size of the monitor
 	};
 
+	// Enumeration specifying the type of mouse cursor to display.
+	enum class EMouseCursor : uint8
+	{
+		None = 0,
+		Arrow,
+		TextInput,
+		ResizeAll,
+		ResizeNS,	// top to bottom.
+		ResizeEW,	// left to right.
+		ResizeNESW, // top-right to the bottom-left.
+		ResizeNWSE, // top-left to the bottom-right.
+		Hand,
+		NotAllowed
+	};
+
 	class FGenericWindow
 	{
 	public:
@@ -44,6 +59,8 @@ namespace Doge
 		APPLICATIONCORE_API virtual auto CreateVulkanSurface(void* InVulkanInstance) const -> void*;
 
 		APPLICATIONCORE_API virtual auto IsMinimized() const -> bool;
+
+		APPLICATIONCORE_API virtual auto SetCursor(EMouseCursor Cursor) -> void;
 
 	protected:
 		std::shared_ptr<FGenericWindowDefinition> Definition;

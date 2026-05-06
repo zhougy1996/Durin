@@ -61,4 +61,8 @@ namespace Doge
 		return false;
 	}
 
+	auto FGenericWindow::SetCursor(EMouseCursor Cursor) -> void
+	{
+	}
+
 } // namespace Doge
