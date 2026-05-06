@@ -7,7 +7,7 @@ namespace Doge
 {
 	class FGenericApplication;
 
-	enum class EWindowMode : uint32
+	enum class EWindowMode : uint8
 	{
 		Fullscreen,			// Fullscreen with a window border
 		WindowedFullScreen, // Fullscreen without a window border
@@ -27,6 +27,131 @@ namespace Doge
 		ResizeNWSE, // top-left to the bottom-right.
 		Hand,
 		NotAllowed
+	};
+
+	enum class EMouseButton : uint8
+	{
+		Left,
+		Middle,
+		Right,
+	};
+
+	enum class EKey : uint16
+	{
+		None = 0,
+
+		// Control keys
+		Escape,
+		CapsLock,
+		LShift,
+		RShift,
+		LAlt,
+		RAlt,
+		LControl,
+		RControl,
+
+		// Whitespace keys
+		Tab,
+		Space,
+		Enter,
+		Backspace,
+
+		// Arrow keys
+		Left,
+		Right,
+		Up,
+		Down,
+
+		// Navigation keys
+		PageUp,
+		PageDown,
+		Home,
+		End,
+		Insert,
+		Delete,
+
+		// Function keys
+		F1 = 51,
+		F2,
+		F3,
+		F4,
+		F5,
+		F6,
+		F7,
+		F8,
+		F9,
+		F10,
+		F11,
+		F12 = 62,
+
+		// Letters, using ASCII values for easy conversion
+		A = 65,
+		B,
+		C,
+		D,
+		E,
+		F,
+		G,
+		H,
+		I,
+		J,
+		K,
+		L,
+		M,
+		N,
+		O,
+		P,
+		Q,
+		R,
+		S,
+		T,
+		U,
+		V,
+		W,
+		X,
+		Y,
+		Z = 90,
+
+		Comma = 91,		  // Comma ',' or Less '<'
+		Period,			  // Period '.' or Greater '>'
+		Apostrophe,		  // Apostrophe ''' or Quote '"'
+		Semicolon,		  // Semicolon ';' or Colon ':'
+		Slash,			  // Slash '/' or Question Mark '?'
+		Backslash,		  // Backslash '\' or Vertical Bar '|'
+		LeftBracket,	  // Left Bracket '[' or Left Brace '{'
+		RightBracket,	  // Right Bracket ']' or Right Brace '}'
+		GraveAccent = 99, // Grave Accent '`' or Tilde '~'
+
+		// Numbers
+		Num0 = 100,
+		Num1,
+		Num2,
+		Num3,
+		Num4,
+		Num5,
+		Num6,
+		Num7,
+		Num8,
+		Num9,
+		Minus,
+		Equal,
+
+		Keypad0 = 200,
+		Keypad1,
+		Keypad2,
+		Keypad3,
+		Keypad4,
+		Keypad5,
+		Keypad6,
+		Keypad7,
+		Keypad8,
+		Keypad9,
+		KeypadDecimal,
+		KeypadDivide,
+		KeypadMultiply,
+		KeypadPlus,
+		KeypadMinus,
+		KeypadEquals,
 	};
 
 	class FGenericWindow

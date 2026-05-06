@@ -8,9 +8,12 @@
 
 namespace Doge
 {
-	static void KeyCallBack(GLFWwindow* InGlfwWindow, int Key, int Scancode, int Action, int Mods)
+	namespace
 	{
-		GApp->GetMessageHandler()->OnKeyEvent(Key, Scancode, Action, Mods);
+		void KeyCallBack(GLFWwindow* InGlfwWindow, int Key, int Scancode, int Action, int Mods)
+		{
+			GApp->GetMessageHandler()->OnKeyEvent(Key, Scancode, Action, Mods);
+		}
 	}
 
 	static void CharCallBack(GLFWwindow* InGlfwWindow, unsigned int Codepoint)

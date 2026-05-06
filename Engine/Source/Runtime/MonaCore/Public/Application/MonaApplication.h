@@ -51,6 +51,9 @@ namespace Doge::Mona
 
 		MONACORE_API auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow> override;
 
+		// Message handler functions
+		auto OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
+
 	protected:
 		FMonaApplication();
 
@@ -61,9 +64,6 @@ namespace Doge::Mona
 		auto TickTime() -> void;
 
 		auto TickAndDrawWidgets() -> void;
-
-		// Message handler functions
-		auto OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
 
 		static std::shared_ptr<FMonaApplication> CurrentApplication;
 
