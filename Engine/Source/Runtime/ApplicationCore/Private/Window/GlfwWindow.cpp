@@ -134,7 +134,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnKeyEvent(PlatformWindow.get(), ConvertGlfwKey(Key), ConvertGlfwAction(Action), ConvertGlfwKeyModFlags(Mods));
+				GApp->GetMessageHandler()->OnKeyEvent(PlatformWindow, ConvertGlfwKey(Key), ConvertGlfwAction(Action), ConvertGlfwKeyModFlags(Mods));
 			}
 		}
 
@@ -142,7 +142,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnCharEvent(PlatformWindow.get(), Codepoint);
+				GApp->GetMessageHandler()->OnCharEvent(PlatformWindow, Codepoint);
 			}
 		}
 
@@ -150,7 +150,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnMouseButton(PlatformWindow.get(), Button, Action, Mods);
+				GApp->GetMessageHandler()->OnMouseButton(PlatformWindow, Button, Action, Mods);
 			}
 		}
 
@@ -158,7 +158,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnMouseMove(PlatformWindow.get(), static_cast<float>(XPos), static_cast<float>(YPos));
+				GApp->GetMessageHandler()->OnMouseMove(PlatformWindow, static_cast<float>(XPos), static_cast<float>(YPos));
 			}
 		}
 
@@ -166,7 +166,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnMouseWheel(PlatformWindow.get(), static_cast<float>(XOffset), static_cast<float>(YOffset));
+				GApp->GetMessageHandler()->OnMouseWheel(PlatformWindow, static_cast<float>(XOffset), static_cast<float>(YOffset));
 			}
 		}
 
@@ -174,7 +174,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnWindowFocus(PlatformWindow.get(), Focused != 0);
+				GApp->GetMessageHandler()->OnWindowFocus(PlatformWindow, Focused != 0);
 			}
 		}
 
@@ -182,7 +182,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnWindowResize(PlatformWindow.get(), Width, Height, PlatformWindow->IsMinimized());
+				GApp->GetMessageHandler()->OnWindowResize(PlatformWindow, Width, Height, PlatformWindow->IsMinimized());
 			}
 		}
 

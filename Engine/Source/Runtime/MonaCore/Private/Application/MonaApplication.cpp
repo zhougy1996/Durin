@@ -103,7 +103,7 @@ namespace Doge::Mona
 
 	auto FMonaApplication::OnWindowClose(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void
 	{
-		std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, PlatformWindow.get());
+		std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, PlatformWindow);
 		if (Window)
 		{
 			Window->RequestDestroyWindow();
@@ -222,7 +222,7 @@ namespace Doge::Mona
 	{
 	}
 
-	auto FMonaApplication::OnWindowResize(const FGenericWindow* InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void
+	auto FMonaApplication::OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void
 	{
 		if (const std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, InPlatformWindow))
 		{
@@ -236,7 +236,7 @@ namespace Doge::Mona
 		}
 	}
 
-	void FMonaApplication::OnKeyEvent(const FGenericWindow* InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods)
+	void FMonaApplication::OnKeyEvent(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods)
 	{
 		MonaEventHandler->OnKeyEvent(InPlatformWindow, Key, Action, Mods);
 	}

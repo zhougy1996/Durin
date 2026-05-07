@@ -58,9 +58,9 @@ namespace Doge::Mona
 		MONACORE_API auto SetMonaEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
 
 		// Message handler functions
-		auto OnWindowResize(const FGenericWindow* InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
+		auto OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
 
-		auto OnKeyEvent(const FGenericWindow* InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods) -> void override;
+		auto OnKeyEvent(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods) -> void override;
 
 	protected:
 		FMonaApplication();

@@ -14,7 +14,7 @@ namespace Doge::Mona
 
 		~FMonaImGuiEventHandler() override {}
 
-		auto OnKeyEvent(const FGenericWindow* InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods) -> void override;
+		auto OnKeyEvent(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods) -> void override;
 
 	private:
 	};

@@ -105,7 +105,7 @@ namespace Doge::Mona
 		}
 	} // namespace
 
-	void FMonaImGuiEventHandler::OnKeyEvent(const FGenericWindow* InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods)
+	void FMonaImGuiEventHandler::OnKeyEvent(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods)
 	{
 		auto IO = ImGui::GetIO();
 		const bool bDown = Action != EKeyAction::Release;
