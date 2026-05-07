@@ -15,17 +15,17 @@ namespace Doge::Mona
 	};
 
 
-	class MONACORE_API FMonaRHIRenderer : public FMonaRenderer
+	class FMonaRHIRenderer : public FMonaRenderer
 	{
 	public:
-		~FMonaRHIRenderer() override;
+		MONACORE_API ~FMonaRHIRenderer() override;
 
-		auto CreateViewport(const std::shared_ptr<MWindow>& Window) -> void override;
-		auto RequestResize(const std::shared_ptr<MWindow>& Window, uint32 Width, uint32 Height) -> void override;
-		auto DrawWindows() -> void override;
-		auto OnWindowDestroyed(const std::shared_ptr<MWindow>& Window) -> void override;
+		MONACORE_API auto CreateViewport(const std::shared_ptr<MWindow>& Window) -> void override;
+		MONACORE_API auto RequestResize(const std::shared_ptr<MWindow>& Window, uint32 Width, uint32 Height) -> void override;
+		MONACORE_API auto DrawWindows() -> void override;
+		MONACORE_API auto OnWindowDestroyed(const std::shared_ptr<MWindow>& Window) -> void override;
 
-		auto GetRHIViewport(const MWindow& Window) -> TRefCountPtr<FRHIViewport>;
+		MONACORE_API auto GetRHIViewport(const MWindow& Window) -> TRefCountPtr<FRHIViewport>;
 
 		std::unordered_map<const MWindow*, FMonaViewportInfo*> WindowToViewportInfoMap;
 	};

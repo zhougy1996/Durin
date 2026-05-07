@@ -10,6 +10,7 @@ namespace Doge
 	class FGenericApplication
 	{
 	public:
+		FGenericApplication() = default;
 		virtual ~FGenericApplication() = default;
 
 		APPLICATIONCORE_API virtual auto Tick() -> void;
@@ -21,6 +22,8 @@ namespace Doge
 		auto GetMessageHandler() const -> FGenericApplicationMessageHandler* { return MessageHandler; }
 
 		auto SetMessageHandler(FGenericApplicationMessageHandler* InMessageHandler) -> void { MessageHandler = InMessageHandler; }
+
+		DOGE_NONCOPYABLE(FGenericApplication)
 
 	protected:
 		FGenericApplicationMessageHandler* MessageHandler = nullptr;

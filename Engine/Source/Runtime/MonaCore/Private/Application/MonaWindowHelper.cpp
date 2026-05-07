@@ -4,18 +4,16 @@
 
 namespace Doge::Mona
 {
-	auto FMonaWindowHelper::FindWindowByPlatformWindow(const std::vector<std::shared_ptr<MWindow>>& WindowsToSearch, const std::shared_ptr<FGenericWindow>& PlatformWindow) -> std::shared_ptr<MWindow>
+	auto FMonaWindowHelper::FindWindowByPlatformWindow(const std::vector<std::shared_ptr<MWindow>>& WindowsToSearch, const FGenericWindow* InPlatformWindow) -> std::shared_ptr<MWindow>
 	{
 		for (const auto& window : WindowsToSearch)
 		{
-			if (window->GetNativeWindow() == PlatformWindow)
+			if (window->GetNativeWindow().get() == InPlatformWindow)
 			{
 				return window;
 			}
 
-			std::shared_ptr<MWindow> FoundChildWindow = FindWindowByPlatformWindow(window->GetChildWindows(), PlatformWindow);
-
-			if (FoundChildWindow)
+			if (std::shared_ptr<MWindow> FoundChildWindow = FindWindowByPlatformWindow(window->GetChildWindows(), InPlatformWindow))
 			{
 				return FoundChildWindow;
 			}

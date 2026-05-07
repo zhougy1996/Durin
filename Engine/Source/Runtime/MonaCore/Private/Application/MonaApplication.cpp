@@ -98,7 +98,7 @@ namespace Doge::Mona
 
 	auto FMonaApplication::OnWindowClose(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void
 	{
-		std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, PlatformWindow);
+		std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, PlatformWindow.get());
 		if (Window)
 		{
 			Window->RequestDestroyWindow();
@@ -211,11 +211,11 @@ namespace Doge::Mona
 	{
 	}
 
-	auto FMonaApplication::OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void
+	auto FMonaApplication::OnWindowResize(const FGenericWindow* InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void
 	{
 		if (const std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, InPlatformWindow))
 		{
-			FVector2f NewSize = FVector2f(static_cast<float>(InWidth), static_cast<float>(InHeight));
+			const FVector2f NewSize = FVector2f(static_cast<float>(InWidth), static_cast<float>(InHeight));
 			Window->SetCachedSize(NewSize);
 
 			if (!bInWasMinimized)

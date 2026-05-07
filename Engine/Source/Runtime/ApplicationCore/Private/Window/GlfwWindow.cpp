@@ -10,64 +10,87 @@ namespace Doge
 {
 	namespace
 	{
-		void KeyCallBack(GLFWwindow* InGlfwWindow, int Key, int Scancode, int Action, int Mods)
+		FORCEINLINE auto FindPlatformWindow(GLFWwindow* InGlfwWindow) -> std::shared_ptr<FGenericWindow>
 		{
-			GApp->GetMessageHandler()->OnKeyEvent(Key, Scancode, Action, Mods);
+			return GApp->FindWindowByNativeWindowHandle(glfwGetWindowUserPointer(InGlfwWindow));
+		}
+
+		auto KeyCallBack(GLFWwindow* InGlfwWindow, int Key, int Scancode, int Action, int Mods) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				GApp->GetMessageHandler()->OnKeyEvent(PlatformWindow.get(), Key, Scancode, Action, Mods);
+			}
+		}
+
+		auto CharCallBack(GLFWwindow* InGlfwWindow, uint32 Codepoint) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				GApp->GetMessageHandler()->OnCharEvent(PlatformWindow.get(), Codepoint);
+			}
+		}
+
+		auto MouseButtonCallBack(GLFWwindow* InGlfwWindow, int Button, int Action, int Mods) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				GApp->GetMessageHandler()->OnMouseButton(PlatformWindow.get(), Button, Action, Mods);
+			}
+		}
+
+		auto CursorPosCallBack(GLFWwindow* InGlfwWindow, double XPos, double YPos) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				GApp->GetMessageHandler()->OnMouseMove(PlatformWindow.get(), static_cast<float>(XPos), static_cast<float>(YPos));
+			}
+		}
+
+		auto ScrollCallBack(GLFWwindow* InGlfwWindow, double XOffset, double YOffset) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				GApp->GetMessageHandler()->OnMouseWheel(PlatformWindow.get(), static_cast<float>(XOffset), static_cast<float>(YOffset));
+			}
+		}
+
+		auto WindowFocusCallBack(GLFWwindow* InGlfwWindow, int Focused) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				GApp->GetMessageHandler()->OnWindowFocus(PlatformWindow.get(), Focused != 0);
+			}
+		}
+
+		auto WindowResizeCallBack(GLFWwindow* InGlfwWindow, int Width, int Height) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				GApp->GetMessageHandler()->OnWindowResize(PlatformWindow.get(), Width, Height, PlatformWindow->IsMinimized());
+			}
+		}
+
+		auto MapToGlfwCursorShape(EMouseCursor Cursor) -> int
+		{
+			switch (Cursor)
+			{
+			case EMouseCursor::Arrow: return GLFW_ARROW_CURSOR;
+			case EMouseCursor::TextInput: return GLFW_IBEAM_CURSOR;
+			case EMouseCursor::ResizeAll: return GLFW_RESIZE_ALL_CURSOR;
+			case EMouseCursor::ResizeNS: return GLFW_VRESIZE_CURSOR;
+			case EMouseCursor::ResizeEW: return GLFW_HRESIZE_CURSOR;
+			case EMouseCursor::ResizeNESW: return GLFW_RESIZE_NESW_CURSOR;
+			case EMouseCursor::ResizeNWSE: return GLFW_RESIZE_NWSE_CURSOR;
+			case EMouseCursor::Hand: return GLFW_POINTING_HAND_CURSOR;
+			case EMouseCursor::NotAllowed: return GLFW_NOT_ALLOWED_CURSOR;
+			case EMouseCursor::None: return -1;
+			default: return GLFW_ARROW_CURSOR;
+			}
 		}
 	}
 
-	static void CharCallBack(GLFWwindow* InGlfwWindow, unsigned int Codepoint)
-	{
-		GApp->GetMessageHandler()->OnCharEvent(Codepoint);
-	}
 
-	static void MouseButtonCallBack(GLFWwindow* InGlfwWindow, int Button, int Action, int Mods)
-	{
-		GApp->GetMessageHandler()->OnMouseButton(Button, Action, Mods);
-	}
-
-	static void CursorPosCallBack(GLFWwindow* InGlfwWindow, double XPos, double YPos)
-	{
-		GApp->GetMessageHandler()->OnMouseMove(static_cast<float>(XPos), static_cast<float>(YPos));
-	}
-
-	static void ScrollCallBack(GLFWwindow* InGlfwWindow, double XOffset, double YOffset)
-	{
-		GApp->GetMessageHandler()->OnMouseWheel(static_cast<float>(XOffset), static_cast<float>(YOffset));
-	}
-
-	static void WindowFocusCallBack(GLFWwindow* InGlfwWindow, int Focused)
-	{
-		GApp->GetMessageHandler()->OnWindowFocus(Focused != 0);
-	}
-
-	static auto MapToGlfwCursorShape(EMouseCursor Cursor) -> int
-	{
-		switch (Cursor)
-		{
-		case EMouseCursor::Arrow: return GLFW_ARROW_CURSOR;
-		case EMouseCursor::TextInput: return GLFW_IBEAM_CURSOR;
-		case EMouseCursor::ResizeAll: return GLFW_RESIZE_ALL_CURSOR;
-		case EMouseCursor::ResizeNS: return GLFW_VRESIZE_CURSOR;
-		case EMouseCursor::ResizeEW: return GLFW_HRESIZE_CURSOR;
-		case EMouseCursor::ResizeNESW: return GLFW_RESIZE_NESW_CURSOR;
-		case EMouseCursor::ResizeNWSE: return GLFW_RESIZE_NWSE_CURSOR;
-		case EMouseCursor::Hand: return GLFW_POINTING_HAND_CURSOR;
-		case EMouseCursor::NotAllowed: return GLFW_NOT_ALLOWED_CURSOR;
-		case EMouseCursor::None: return -1;
-		default: return GLFW_ARROW_CURSOR;
-		}
-	}
-
-	static void WindowResizeCallBack(GLFWwindow* InGlfwWindow, int Width, int Height)
-	{
-		auto* Handler = GApp->GetMessageHandler();
-		std::shared_ptr<FGenericWindow> PlatformWindow = GApp->FindWindowByNativeWindowHandle(glfwGetWindowUserPointer(InGlfwWindow));
-		if (PlatformWindow)
-		{
-			Handler->OnWindowResize(PlatformWindow, Width, Height, PlatformWindow->IsMinimized());
-		}
-	}
 
 	FGlfwWindow::FGlfwWindow() = default;
 

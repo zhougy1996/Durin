@@ -10,6 +10,14 @@ namespace Doge::Mona
 	class MWindow;
 	class FMonaRenderer;
 
+	class FMonaEventHandler
+	{
+	public:
+		virtual ~FMonaEventHandler() = default;
+
+		DOGE_NONCOPYABLE(FMonaEventHandler)
+	};
+
 	class FMonaApplication : public FGenericApplication, public FGenericApplicationMessageHandler
 	{
 	public:
@@ -52,7 +60,7 @@ namespace Doge::Mona
 		MONACORE_API auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow> override;
 
 		// Message handler functions
-		auto OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
+		auto OnWindowResize(const FGenericWindow* InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
 
 	protected:
 		FMonaApplication();
