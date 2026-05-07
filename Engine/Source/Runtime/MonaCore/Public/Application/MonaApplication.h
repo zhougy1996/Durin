@@ -3,20 +3,14 @@
 #include "MonaCoreAPI.h"
 #include "Application/GenericApplication.h"
 #include "Application/GenericApplicationMessageHandler.h"
+#include "Application/MonaEventHandler.h"
 
 namespace Doge::Mona
 {
 	class MWidget;
 	class MWindow;
 	class FMonaRenderer;
-
-	class FMonaEventHandler
-	{
-	public:
-		virtual ~FMonaEventHandler() = default;
-
-		DOGE_NONCOPYABLE(FMonaEventHandler)
-	};
+	class FMonaEventHandler;
 
 	class FMonaApplication : public FGenericApplication, public FGenericApplicationMessageHandler
 	{
@@ -28,6 +22,8 @@ namespace Doge::Mona
 		MONACORE_API static auto Shutdown() -> void;
 
 		MONACORE_API static auto Get() -> FMonaApplication&;
+
+		MONACORE_API static auto IsInitialized() -> bool;
 
 		MONACORE_API auto Tick() -> void override;
 
@@ -59,6 +55,8 @@ namespace Doge::Mona
 
 		MONACORE_API auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow> override;
 
+		MONACORE_API auto SetMonaEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
+
 		// Message handler functions
 		auto OnWindowResize(const FGenericWindow* InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
 
@@ -81,6 +79,8 @@ namespace Doge::Mona
 
 		std::vector<std::shared_ptr<MWindow>> WindowDestroyQueue;
 
-		std::shared_ptr<FMonaRenderer> Renderer;
+		std::shared_ptr<FMonaRenderer> Renderer{};
+
+		std::unique_ptr<FMonaEventHandler> MonaEventHandler{};
 	};
 } // namespace Doge::Mona

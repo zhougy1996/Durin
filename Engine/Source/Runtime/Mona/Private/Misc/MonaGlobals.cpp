@@ -7,8 +7,10 @@ namespace Doge::Mona
 {
 	auto MonaInit() -> void
 	{
-		Mona::BackendInit();
+		BackendInit();
 		FMonaApplication::Create();
 		FMonaApplication::Get().Initialize();
+
+		InitMonaBackendEventHandler();
 	}
 }

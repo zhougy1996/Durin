@@ -32,6 +32,11 @@ namespace Doge::Mona
 		return *CurrentApplication;
 	}
 
+	auto FMonaApplication::IsInitialized() -> bool
+	{
+		return CurrentApplication != nullptr;
+	}
+
 	auto FMonaApplication::Tick() -> void
 	{
 		TickPlatform();
@@ -171,9 +176,15 @@ namespace Doge::Mona
 		return nullptr;
 	}
 
+	auto FMonaApplication::SetMonaEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void
+	{
+		MonaEventHandler = std::move(InHandler);
+	}
+
 	FMonaApplication::FMonaApplication()
 	{
 		MessageHandler = this;
+		MonaEventHandler = std::make_unique<FMonaEventHandler>(); // Default handler, does nothing
 	}
 
 	auto FMonaApplication::MakeWindow(const std::shared_ptr<MWindow>& InMonaWindow, bool bInShowImmediately) -> std::shared_ptr<FGenericWindow>
@@ -227,5 +238,6 @@ namespace Doge::Mona
 
 	void FMonaApplication::OnKeyEvent(const FGenericWindow* InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods)
 	{
+		MonaEventHandler->OnKeyEvent(InPlatformWindow, Key, Action, Mods);
 	}
-} // namespace Doge::Mona
+}

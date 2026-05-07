@@ -4,6 +4,7 @@
     "PCH": "Self",
     "PrivateDependencies": [
         "Core",
-        "RHI"
+        "RHI",
+        "MonaCore"
     ]
 }

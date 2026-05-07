@@ -1,23 +1,35 @@
 #include "MonaBackendGlobals.h"
 
 #include "RHI.h"
+#include "Application/MonaApplication.h"
+#include "MonaImGuiEventHandler.h"
+
 
 namespace Doge::Mona
 {
-	namespace ImGuiBackend
-	{
-		ImGuiContext* GImGuiContext = nullptr;
+	static ImGuiContext* GImGuiContext = nullptr;
 
-		auto ImGuiInit() -> void
-		{
-			check(GDynamicRHI);
-			GImGuiContext = ImGui::CreateContext();
-			ImGui::SetCurrentContext(GImGuiContext);
-		}
+	static auto ImGuiInit() -> void
+	{
+		check(GDynamicRHI);
+		GImGuiContext = ImGui::CreateContext();
+		ImGui::SetCurrentContext(GImGuiContext);
 	}
 
 	auto BackendInit() -> void
 	{
-		ImGuiBackend::ImGuiInit();
+		ImGuiInit();
 	}
-}
+
+	auto BackendClose() -> void
+	{
+	}
+
+	auto InitMonaBackendEventHandler() -> void
+	{
+		check(FMonaApplication::IsInitialized());
+		auto& App = FMonaApplication::Get();
+		App.SetMonaEventHandler(std::make_unique<FMonaImGuiEventHandler>());
+	}
+
+} // namespace Doge::Mona
