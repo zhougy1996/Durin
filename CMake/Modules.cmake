@@ -77,9 +77,10 @@ function(doge_add_module module_name)
 
 	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DogeEditor-${module_name}")
 
+	# Define export symbol for shared libraries, e.g. CORE_API
 	if("${module_link_type_final}" STREQUAL "SHARED")
-		string(TOUPPER "${module_name}" uppercase_module_name)
-		target_compile_definitions(${module_name} PRIVATE "${uppercase_module_name}_EXPORTS")
+		string(TOUPPER ${module_name} module_name_upper)
+		set_target_properties(${module_name} PROPERTIES DEFINE_SYMBOL "${module_name_upper}_EXPORTS")
 	endif()
 
 	target_compile_definitions(${module_name} PRIVATE
@@ -104,7 +105,6 @@ function(doge_add_module module_name)
 	# Set up precompiled headers for the module
 	if(module_pch_target)
 		target_precompile_headers(${module_name} REUSE_FROM ${module_pch_target})
-		target_link_libraries(${module_name} PRIVATE ${module_pch_target})
 	else()
 		target_precompile_headers(${module_name} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>")
 	endif()
