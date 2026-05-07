@@ -10,6 +10,121 @@ namespace Doge
 {
 	namespace
 	{
+		const std::unordered_map<int32, EKey> GlfwKeyMap = {
+			{GLFW_KEY_ESCAPE, EKey::Escape},
+			{GLFW_KEY_CAPS_LOCK, EKey::CapsLock},
+			{GLFW_KEY_LEFT_SHIFT, EKey::LShift},
+			{GLFW_KEY_RIGHT_SHIFT, EKey::RShift},
+			{GLFW_KEY_LEFT_ALT, EKey::LAlt},
+			{GLFW_KEY_RIGHT_ALT, EKey::RAlt},
+			{GLFW_KEY_LEFT_CONTROL, EKey::LControl},
+			{GLFW_KEY_RIGHT_CONTROL, EKey::RControl},
+			{GLFW_KEY_TAB, EKey::Tab},
+			{GLFW_KEY_SPACE, EKey::Space},
+			{GLFW_KEY_ENTER, EKey::Enter},
+			{GLFW_KEY_BACKSPACE, EKey::Backspace},
+			{GLFW_KEY_LEFT, EKey::Left},
+			{GLFW_KEY_RIGHT, EKey::Right},
+			{GLFW_KEY_UP, EKey::Up},
+			{GLFW_KEY_DOWN, EKey::Down},
+			{GLFW_KEY_PAGE_UP, EKey::PageUp},
+			{GLFW_KEY_PAGE_DOWN, EKey::PageDown},
+			{GLFW_KEY_HOME, EKey::Home},
+			{GLFW_KEY_END, EKey::End},
+			{GLFW_KEY_INSERT, EKey::Insert},
+			{GLFW_KEY_DELETE, EKey::Delete},
+			{GLFW_KEY_F1, EKey::F1},
+			{GLFW_KEY_F2, EKey::F2},
+			{GLFW_KEY_F3, EKey::F3},
+			{GLFW_KEY_F4, EKey::F4},
+			{GLFW_KEY_F5, EKey::F5},
+			{GLFW_KEY_F6, EKey::F6},
+			{GLFW_KEY_F7, EKey::F7},
+			{GLFW_KEY_F8, EKey::F8},
+			{GLFW_KEY_F9, EKey::F9},
+			{GLFW_KEY_F10, EKey::F10},
+			{GLFW_KEY_F11, EKey::F11},
+			{GLFW_KEY_F12, EKey::F12},
+			{GLFW_KEY_COMMA, EKey::Comma},
+			{GLFW_KEY_PERIOD, EKey::Period},
+			{GLFW_KEY_APOSTROPHE, EKey::Apostrophe},
+			{GLFW_KEY_SEMICOLON, EKey::Semicolon},
+			{GLFW_KEY_SLASH, EKey::Slash},
+			{GLFW_KEY_BACKSLASH, EKey::Backslash},
+			{GLFW_KEY_LEFT_BRACKET, EKey::LeftBracket},
+			{GLFW_KEY_RIGHT_BRACKET, EKey::RightBracket},
+			{GLFW_KEY_GRAVE_ACCENT, EKey::GraveAccent},
+			{GLFW_KEY_MINUS, EKey::Minus},
+			{GLFW_KEY_EQUAL, EKey::Equal},
+			{GLFW_KEY_KP_0, EKey::Keypad0},
+			{GLFW_KEY_KP_1, EKey::Keypad1},
+			{GLFW_KEY_KP_2, EKey::Keypad2},
+			{GLFW_KEY_KP_3, EKey::Keypad3},
+			{GLFW_KEY_KP_4, EKey::Keypad4},
+			{GLFW_KEY_KP_5, EKey::Keypad5},
+			{GLFW_KEY_KP_6, EKey::Keypad6},
+			{GLFW_KEY_KP_7, EKey::Keypad7},
+			{GLFW_KEY_KP_8, EKey::Keypad8},
+			{GLFW_KEY_KP_9, EKey::Keypad9},
+			{GLFW_KEY_KP_DECIMAL, EKey::KeypadDecimal},
+			{GLFW_KEY_KP_DIVIDE, EKey::KeypadDivide},
+			{GLFW_KEY_KP_MULTIPLY, EKey::KeypadMultiply},
+			{GLFW_KEY_KP_ADD, EKey::KeypadPlus},
+			{GLFW_KEY_KP_SUBTRACT, EKey::KeypadMinus},
+			{GLFW_KEY_KP_EQUAL, EKey::KeypadEquals},
+		};
+
+		auto ConvertGlfwKey(int32 GlfwKey) -> EKey
+		{
+			if (const auto It = GlfwKeyMap.find(GlfwKey); It != GlfwKeyMap.end())
+			{
+				return It->second;
+			}
+
+			if (GlfwKey >= GLFW_KEY_A && GlfwKey <= GLFW_KEY_Z)
+			{
+				return static_cast<EKey>(GlfwKey);
+			}
+
+			if (GlfwKey >= GLFW_KEY_0 && GlfwKey <= GLFW_KEY_9)
+			{
+				const uint16 NumKey = static_cast<uint16>(EKey::Num0) + static_cast<uint16>(GlfwKey - GLFW_KEY_0);
+				return static_cast<EKey>(NumKey);
+			}
+
+			return EKey::None;
+		}
+
+		auto ConvertGlfwKeyModFlags(int32 InGlfwMods) -> EKeyModFlags
+		{
+			auto Modifier = EKeyModFlags::None;
+
+			if (InGlfwMods & GLFW_MOD_SHIFT)
+			{
+				Modifier |= EKeyModFlags::Shift;
+			}
+			if (InGlfwMods & GLFW_MOD_CONTROL)
+			{
+				Modifier |= EKeyModFlags::Control;
+			}
+			if (InGlfwMods & GLFW_MOD_ALT)
+			{
+				Modifier |= EKeyModFlags::Alt;
+			}
+			return Modifier;
+		}
+
+		auto ConvertGlfwAction(int32 GlfwAction) -> EKeyAction
+		{
+			switch (GlfwAction)
+			{
+			case GLFW_PRESS: return EKeyAction::Press;
+			case GLFW_RELEASE: return EKeyAction::Release;
+			case GLFW_REPEAT: return EKeyAction::Repeat;
+			default: return EKeyAction::Press;
+			}
+		}
+
 		FORCEINLINE auto FindPlatformWindow(GLFWwindow* InGlfwWindow) -> std::shared_ptr<FGenericWindow>
 		{
 			return GApp->FindWindowByNativeWindowHandle(glfwGetWindowUserPointer(InGlfwWindow));
@@ -19,7 +134,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnKeyEvent(PlatformWindow.get(), Key, Scancode, Action, Mods);
+				GApp->GetMessageHandler()->OnKeyEvent(PlatformWindow.get(), ConvertGlfwKey(Key), ConvertGlfwAction(Action), ConvertGlfwKeyModFlags(Mods));
 			}
 		}
 
@@ -88,9 +203,7 @@ namespace Doge
 			default: return GLFW_ARROW_CURSOR;
 			}
 		}
-	}
-
-
+	} // namespace
 
 	FGlfwWindow::FGlfwWindow() = default;
 

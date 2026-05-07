@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ApplicationCoreAPI.h"
+#include "Input/InputCoreTypes.h"
 
 namespace Doge
 {
@@ -12,7 +13,7 @@ namespace Doge
 		virtual ~FGenericApplicationMessageHandler() = default;
 
 		virtual auto OnWindowResize(const FGenericWindow* InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void {};
-		virtual auto OnKeyEvent(const FGenericWindow* InPlatformWindow, int32 Key, int32 Scancode, int32 Action, int32 Mods) -> void {}
+		virtual auto OnKeyEvent(const FGenericWindow* InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods) -> void {}
 		virtual auto OnCharEvent(const FGenericWindow* InPlatformWindow, uint32 Codepoint) -> void {}
 		virtual auto OnMouseButton(const FGenericWindow* InPlatformWindow, int32 Button, int32 Action, int32 Mods) -> void {}
 		virtual auto OnMouseMove(const FGenericWindow* InPlatformWindow, float X, float Y) -> void {}

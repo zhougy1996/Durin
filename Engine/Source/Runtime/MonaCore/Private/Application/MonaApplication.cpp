@@ -224,4 +224,8 @@ namespace Doge::Mona
 			}
 		}
 	}
+
+	void FMonaApplication::OnKeyEvent(const FGenericWindow* InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods)
+	{
+	}
 } // namespace Doge::Mona

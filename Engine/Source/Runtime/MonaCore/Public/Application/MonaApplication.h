@@ -62,6 +62,8 @@ namespace Doge::Mona
 		// Message handler functions
 		auto OnWindowResize(const FGenericWindow* InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
 
+		auto OnKeyEvent(const FGenericWindow* InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods) -> void override;
+
 	protected:
 		FMonaApplication();
 
