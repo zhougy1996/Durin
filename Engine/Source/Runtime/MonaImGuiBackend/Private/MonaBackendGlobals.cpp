@@ -7,13 +7,13 @@
 
 namespace Doge::Mona
 {
-	static ImGuiContext* GImGuiContext = nullptr;
+	ImGuiContext* GMonaImGuiContext = nullptr;
 
 	static auto ImGuiInit() -> void
 	{
 		check(GDynamicRHI);
-		GImGuiContext = ImGui::CreateContext();
-		ImGui::SetCurrentContext(GImGuiContext);
+		GMonaImGuiContext = ImGui::CreateContext();
+		ImGui::SetCurrentContext(GMonaImGuiContext);
 	}
 
 	auto BackendInit() -> void

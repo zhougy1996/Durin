@@ -1,5 +1,8 @@
 #include "MonaImGuiEventHandler.h"
 
+#include "MonaBackendGlobals.h"
+#include "Misc/StringConvert.h"
+
 namespace Doge::Mona
 {
 	namespace
@@ -103,13 +106,36 @@ namespace Doge::Mona
 			IO.AddKeyEvent(ImGuiMod_Ctrl, EnumHasAnyFlags(Mods, EKeyModFlags::Control));
 			IO.AddKeyEvent(ImGuiMod_Super, EnumHasAnyFlags(Mods, EKeyModFlags::Super));
 		}
+
+		auto GetImGuiIO(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> ImGuiIO&
+		{
+			return ImGui::GetIO(GMonaImGuiContext);
+		}
 	} // namespace
 
-	void FMonaImGuiEventHandler::OnKeyEvent(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods)
+	bool FMonaImGuiEventHandler::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat)
 	{
-		auto IO = ImGui::GetIO();
-		const bool bDown = Action != EKeyAction::Release;
-		IO.AddKeyEvent(ConvertKeyToImGuiType(Key), bDown);
+		// IsRepeat parameter is not used here because ImGui handles key repeats internally based on the state of the keys. We just need to update the key state and modifiers.
+		auto& IO = GetImGuiIO(InPlatformWindow);
+		IO.AddKeyEvent(ConvertKeyToImGuiType(Key), true);
 		UpdateKeyModifiers(IO, Mods);
+		return IO.WantCaptureKeyboard;
+	}
+
+	bool FMonaImGuiEventHandler::OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods)
+	{
+		auto& IO = GetImGuiIO(InPlatformWindow);
+		IO.AddKeyEvent(ConvertKeyToImGuiType(Key), false);
+		UpdateKeyModifiers(IO, Mods);
+		return IO.WantCaptureKeyboard;
+	}
+
+	bool FMonaImGuiEventHandler::OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint)
+	{
+		// std::string Input = StringConvert::CodepointToUtf8(Codepoint);
+		// DOGE_DEBUG(STR("Received character input: {} (codepoint: {})"), Input, Codepoint);
+		auto& IO = GetImGuiIO(InPlatformWindow);
+		IO.AddInputCharacter(Codepoint);
+		return IO.WantTextInput;
 	}
 } // namespace Doge::Mona

@@ -246,7 +246,7 @@ namespace Doge
 				CommandList.BindVertexBuffer(1, GTestRenderProxy.VertexColorBuffer, 0);
 				CommandList.BindIndexBuffer(GTestRenderProxy.IndexBuffer, 0);
 				// Draw call
-				CommandList.DrawIndexed(GTestRenderProxy.TestAssetDatas[0].Indices.size(), 0, 0);
+				// CommandList.DrawIndexed(GTestRenderProxy.TestAssetDatas[0].Indices.size(), 0, 0);
 
 				CommandList.EndRenderPass();
 

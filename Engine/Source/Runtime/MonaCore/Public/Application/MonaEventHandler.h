@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Input/InputCoreTypes.h"
-#include "ApplicationCoreFwd.h"
 
 namespace Doge::Mona
 {
@@ -13,6 +12,10 @@ namespace Doge::Mona
 
 		DOGE_NONCOPYABLE(FMonaEventHandler)
 
-		virtual auto OnKeyEvent(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods) -> void {}
+		virtual auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool { return false; }
+
+		virtual auto OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool { return false; }
+
+		virtual auto OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint) -> bool { return false; }
 	};
-}
+} // namespace Doge::Mona

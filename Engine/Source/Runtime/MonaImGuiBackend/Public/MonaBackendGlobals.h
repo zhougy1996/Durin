@@ -1,8 +1,12 @@
 #pragma once
 
+struct ImGuiContext;
+
 namespace Doge::Mona
 {
 	class FMonaApplication;
+
+	extern ImGuiContext* GMonaImGuiContext;
 
 	auto BackendInit() -> void;
 

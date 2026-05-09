@@ -130,11 +130,23 @@ namespace Doge
 			return GApp->FindWindowByNativeWindowHandle(glfwGetWindowUserPointer(InGlfwWindow));
 		}
 
-		auto KeyCallBack(GLFWwindow* InGlfwWindow, int Key, int Scancode, int Action, int Mods) -> void
+		auto KeyCallBack(GLFWwindow* InGlfwWindow, int InKey, int Scancode, int InAction, int InMods) -> void
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnKeyEvent(PlatformWindow, ConvertGlfwKey(Key), ConvertGlfwAction(Action), ConvertGlfwKeyModFlags(Mods));
+				auto* Handler = GApp->GetMessageHandler();
+				const EKeyAction Action = ConvertGlfwAction(InAction);
+				const EKey Key = ConvertGlfwKey(InKey);
+				const EKeyModFlags Mods = ConvertGlfwKeyModFlags(InMods);
+
+				if (Action == EKeyAction::Press || Action == EKeyAction::Repeat)
+				{
+					Handler->OnKeyDown(PlatformWindow, Key, Mods, Action == EKeyAction::Repeat);
+				}
+				else if (Action == EKeyAction::Release)
+				{
+					Handler->OnKeyUp(PlatformWindow, Key, Mods);
+				}
 			}
 		}
 
@@ -142,7 +154,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnCharEvent(PlatformWindow, Codepoint);
+				GApp->GetMessageHandler()->OnKeyChar(PlatformWindow, Codepoint);
 			}
 		}
 

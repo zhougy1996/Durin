@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ApplicationCoreFwd.h"
 #include "Application/MonaEventHandler.h"
 
 namespace Doge::Mona
@@ -14,8 +15,10 @@ namespace Doge::Mona
 
 		~FMonaImGuiEventHandler() override {}
 
-		auto OnKeyEvent(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods) -> void override;
+		auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool override;
 
-	private:
+		auto OnKeyUp(const std::shared_ptr<FGenericWindow> &InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool override;
+
+		auto OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint) -> bool override;
 	};
 } // namespace Doge::Mona

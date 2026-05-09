@@ -236,8 +236,18 @@ namespace Doge::Mona
 		}
 	}
 
-	void FMonaApplication::OnKeyEvent(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods)
+	auto FMonaApplication::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool
 	{
-		MonaEventHandler->OnKeyEvent(InPlatformWindow, Key, Action, Mods);
+		return MonaEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat);
 	}
-}
+
+	auto FMonaApplication::OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool
+	{
+		return MonaEventHandler->OnKeyUp(InPlatformWindow, Key, Mods);
+	}
+
+	bool FMonaApplication::OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint)
+	{
+		return MonaEventHandler->OnKeyChar(InPlatformWindow, Codepoint);
+	}
+} // namespace Doge::Mona

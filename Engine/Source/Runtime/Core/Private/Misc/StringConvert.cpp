@@ -21,5 +21,26 @@ namespace Doge
 			MultiByteToWideChar(CP_UTF8, 0, Utf8Str.data(), static_cast<int>(Utf8Str.size()), Result.data(), SizeNeeded);
 			return Result;
 		}
-	}
+
+		auto CodepointToUtf8(uint32 Codepoint) -> std::string
+		{
+			std::string Result;
+			if (Codepoint <= 0x7F) {
+				Result += static_cast<char>(Codepoint);
+			} else if (Codepoint <= 0x7FF) {
+				Result += static_cast<char>(0xC0 | (Codepoint >> 6));
+				Result += static_cast<char>(0x80 | (Codepoint & 0x3F));
+			} else if (Codepoint <= 0xFFFF) {
+				Result += static_cast<char>(0xE0 | (Codepoint >> 12));
+				Result += static_cast<char>(0x80 | ((Codepoint >> 6) & 0x3F));
+				Result += static_cast<char>(0x80 | (Codepoint & 0x3F));
+			} else if (Codepoint <= 0x10FFFF) {
+				Result += static_cast<char>(0xF0 | (Codepoint >> 18));
+				Result += static_cast<char>(0x80 | ((Codepoint >> 12) & 0x3F));
+				Result += static_cast<char>(0x80 | ((Codepoint >> 6) & 0x3F));
+				Result += static_cast<char>(0x80 | (Codepoint & 0x3F));
+			}
+			return Result;
+		}
+	} // namespace StringConvert
 }

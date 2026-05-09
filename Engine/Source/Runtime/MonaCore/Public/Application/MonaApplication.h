@@ -60,7 +60,11 @@ namespace Doge::Mona
 		// Message handler functions
 		auto OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
 
-		auto OnKeyEvent(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyAction Action, EKeyModFlags Mods) -> void override;
+		auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool override;
+
+		auto OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool override;
+
+		auto OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint) -> bool override;
 
 	protected:
 		FMonaApplication();
@@ -81,6 +85,7 @@ namespace Doge::Mona
 
 		std::shared_ptr<FMonaRenderer> Renderer{};
 
+		// UI event handler
 		std::unique_ptr<FMonaEventHandler> MonaEventHandler{};
 	};
 } // namespace Doge::Mona
