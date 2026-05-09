@@ -27,6 +27,8 @@ namespace Doge
 {
 	FEngineLoop GEngineLoop;
 
+	bool GEnableTestRender = true;
+
 	constexpr auto DLLModuleDependencies = std::array{"MainFrame"};
 
 	auto FEngineLoop::PreInit() -> void
@@ -41,7 +43,7 @@ namespace Doge
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
-		DOGE_DEBUG("Application name: {}", GAppConfig.GetString("AppName"));
+		DOGE_DEBUG("Application name: {}", GAppConfig.GetStringValue("AppName"));
 		DOGE_INFO(STR("Launching Doge engine..."));
 		DOGE_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DOGE_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
@@ -247,7 +249,10 @@ namespace Doge
 				CommandList.BindVertexBuffer(1, GTestRenderProxy.VertexColorBuffer, 0);
 				CommandList.BindIndexBuffer(GTestRenderProxy.IndexBuffer, 0);
 				// Draw call
-				// CommandList.DrawIndexed(GTestRenderProxy.TestAssetDatas[0].Indices.size(), 0, 0);
+				if (GEnableTestRender)
+				{
+					CommandList.DrawIndexed(GTestRenderProxy.TestAssetDatas[0].Indices.size(), 0, 0);
+				}
 
 				CommandList.EndRenderPass();
 
@@ -281,6 +286,8 @@ namespace Doge
 		// Create engine instance, this is just for testing, we should have a more robust engine initialization process
 		GEngine = new DEngine();
 		GEngine->Init();
+
+		GEnableTestRender = GAppConfig.GetBoolValue("EnableTestRender", true);
 
 		InitRenderingThread();
 		DOGE_INFO(STR("Doge engine initialized."));

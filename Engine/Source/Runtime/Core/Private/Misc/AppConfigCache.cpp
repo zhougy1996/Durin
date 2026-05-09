@@ -7,15 +7,62 @@
 
 namespace Doge
 {
-	auto FConfigView::GetString(const std::string& Name) const -> std::string
+	static FORCEINLINE auto MakeRymlNodeRef(void* TreePtr, size_t NodeIndex) -> ryml::NodeRef
+	{
+		return ryml::NodeRef{static_cast<ryml::Tree*>(TreePtr), NodeIndex};
+	}
+
+	auto FYamlNodeView::GetStringValue(std::string_view InKey, std::string DefaultValue) const -> std::string
 	{
 		std::string Value;
-		ryml::NodeRef Node = ryml::NodeRef{static_cast<ryml::Tree*>(TreePtr), NodeIndex};
-		Node[Name.c_str()] >> Value;
+		auto Node = MakeRymlNodeRef(TreePtr, NodeIndex)[InKey.data()];
+		if (Node.readable())
+		{
+			Node >> Value;
+		}
 		return Value;
 	}
 
-	FConfigView GAppConfig;
+	auto FYamlNodeView::GetBoolValue(std::string_view InKey, bool DefaultValue) const -> bool
+	{
+		bool Value = DefaultValue;
+		auto Node = MakeRymlNodeRef(TreePtr, NodeIndex)[InKey.data()];
+		if (Node.readable())
+		{
+			Node >> Value;
+		}
+		return Value;
+	}
+
+	auto FYamlNodeView::GetFloatValue(std::string_view InKey, float DefaultValue) const -> float
+	{
+		float Value = 0.f;
+		auto Node = MakeRymlNodeRef(TreePtr, NodeIndex)[InKey.data()];
+		if (Node.readable())
+		{
+			Node >> Value;
+		}
+		return Value;
+	}
+
+	auto FYamlNodeView::GetIntValue(std::string_view InKey, int DefaultValue) const -> int
+	{
+		int Value = DefaultValue;
+		auto Node = MakeRymlNodeRef(TreePtr, NodeIndex)[InKey.data()];
+		if (Node.readable())
+		{
+			Node >> Value;
+		}
+		return Value;
+	}
+
+	auto FYamlNodeView::GetView(std::string_view InKey) const -> FYamlNodeView
+	{
+		const auto Node = MakeRymlNodeRef(TreePtr, NodeIndex)[InKey.data()];
+		return FYamlNodeView{TreePtr, Node.id()};
+	}
+
+	FYamlNodeView GAppConfig;
 
 	static std::string AppConfigContent{};
 
