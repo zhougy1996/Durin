@@ -125,6 +125,17 @@ namespace Doge
 			}
 		}
 
+		auto ConvertGlfwMouseButton(int32 GlfwButton) -> EMouseButton
+		{
+			switch (GlfwButton)
+			{
+			case GLFW_MOUSE_BUTTON_LEFT: return EMouseButton::Left;
+			case GLFW_MOUSE_BUTTON_RIGHT: return EMouseButton::Right;
+			case GLFW_MOUSE_BUTTON_MIDDLE: return EMouseButton::Middle;
+			default: return EMouseButton::Left;
+			}
+		}
+
 		FORCEINLINE auto FindPlatformWindow(GLFWwindow* InGlfwWindow) -> std::shared_ptr<FGenericWindow>
 		{
 			return GApp->FindWindowByNativeWindowHandle(glfwGetWindowUserPointer(InGlfwWindow));
@@ -162,7 +173,18 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnMouseButton(PlatformWindow, Button, Action, Mods);
+				auto* Handler = GApp->GetMessageHandler();
+				EMouseButton MouseButton = ConvertGlfwMouseButton(Button);
+				FVector2d CursorPos;
+				glfwGetCursorPos(InGlfwWindow, &CursorPos.x, &CursorPos.y);
+				if (Action == GLFW_PRESS)
+				{
+					Handler->OnMouseDown(PlatformWindow, MouseButton, CursorPos);
+				}
+				else if (Action == GLFW_RELEASE)
+				{
+					Handler->OnMouseUp(PlatformWindow, MouseButton, CursorPos);
+				}
 			}
 		}
 
@@ -170,7 +192,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnMouseMove(PlatformWindow, static_cast<float>(XPos), static_cast<float>(YPos));
+				GApp->GetMessageHandler()->OnMouseMove(PlatformWindow, {XPos, YPos});
 			}
 		}
 

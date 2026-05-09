@@ -246,8 +246,23 @@ namespace Doge::Mona
 		return MonaEventHandler->OnKeyUp(InPlatformWindow, Key, Mods);
 	}
 
-	bool FMonaApplication::OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint)
+	auto FMonaApplication::OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint) -> bool
 	{
 		return MonaEventHandler->OnKeyChar(InPlatformWindow, Codepoint);
+	}
+
+	auto FMonaApplication::OnMouseMove(const std::shared_ptr<FGenericWindow>& InPlatformWindow, const FVector2d CursorPos) -> bool
+	{
+		return MonaEventHandler->OnMouseMove(InPlatformWindow, CursorPos);
+	}
+
+	auto FMonaApplication::OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
+	{
+		return MonaEventHandler->OnMouseDown(InPlatformWindow, Button, CursorPos);
+	}
+
+	auto FMonaApplication::OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
+	{
+		return MonaEventHandler->OnMouseUp(InPlatformWindow, Button, CursorPos);
 	}
 } // namespace Doge::Mona

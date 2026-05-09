@@ -99,6 +99,18 @@ namespace Doge::Mona
 		}
 		// clang-format on
 
+		auto ConvertMouseButtonToImGuiType(EMouseButton Button) -> int32
+		{
+			switch (Button)
+			{
+			case EMouseButton::Left: return ImGuiMouseButton_Left;
+			case EMouseButton::Right: return ImGuiMouseButton_Right;
+			case EMouseButton::Middle: return ImGuiMouseButton_Middle;
+			default:
+				return -1;
+			}
+		}
+
 		auto UpdateKeyModifiers(ImGuiIO& IO, EKeyModFlags Mods) -> void
 		{
 			IO.AddKeyEvent(ImGuiMod_Shift, EnumHasAnyFlags(Mods, EKeyModFlags::Shift));
@@ -137,5 +149,29 @@ namespace Doge::Mona
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		IO.AddInputCharacter(Codepoint);
 		return IO.WantTextInput;
+	}
+
+	bool FMonaImGuiEventHandler::OnMouseMove(const std::shared_ptr<FGenericWindow>& InPlatformWindow, FVector2d CursorPos)
+	{
+		auto& IO = GetImGuiIO(InPlatformWindow);
+		IO.AddMousePosEvent(static_cast<float>(CursorPos.x), static_cast<float>(CursorPos.y));
+		// DOGE_DEBUG(STR("Mouse moved to position ({}, {}), CaptureMouse: {}"), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
+		return IO.WantCaptureMouse;
+	}
+
+	bool FMonaImGuiEventHandler::OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos)
+	{
+		auto& IO = GetImGuiIO(InPlatformWindow);
+		IO.AddMouseButtonEvent(ConvertMouseButtonToImGuiType(Button), true);
+		// DOGE_DEBUG(STR("Mouse button {} pressed at position ({}, {}), CaptureMouse: {}"), static_cast<int>(Button), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
+		return IO.WantCaptureMouse;
+	}
+
+	bool FMonaImGuiEventHandler::OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos)
+	{
+		auto& IO = GetImGuiIO(InPlatformWindow);
+		IO.AddMouseButtonEvent(ConvertMouseButtonToImGuiType(Button), false);
+		// (STR("Mouse button {} released at position ({}, {}), CaptureMouse: {}"), static_cast<int>(Button), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
+		return IO.WantCaptureMouse;
 	}
 } // namespace Doge::Mona

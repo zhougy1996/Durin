@@ -21,15 +21,14 @@ namespace Doge
 	using FVector3d = glm::dvec3;
 	using FVector4d = glm::dvec4;
 
-	using FVector2i = glm::ivec2;
-	using FVector3i = glm::ivec3;
-	using FVector4i = glm::ivec4;
+	using FVector2i = glm::i32vec2;
+	using FVector3i = glm::i32vec3;
+	using FVector4i = glm::i32vec4;
 
 	using FVector2 = FVector2d;
 	using FVector3 = FVector3d;
 	using FVector4 = FVector4d;
 
-	using FPoint2i = glm::i32vec2;
-	using FIntPoint = FPoint2i;
-	using FIntVector = glm::i32vec3;
+	using FIntPoint = FVector2i;
+	using FIntVector = FVector3i;
 }
