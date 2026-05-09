@@ -19,6 +19,7 @@
 #include "Shader/ShaderPaths.h"
 #include "Shader/ShaderCompiler.h"
 #include "AssetCore.h"
+#include "DogeEngine.h"
 
 #include "Misc/Time.h"
 
@@ -335,22 +336,7 @@ namespace Doge
 		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
 		GFrameCounter++;
 
-		// FPS counter: accumulate frames and log once per second
-		{
-			static uint64 FPSFrameCount = 0;
-			static std::chrono::steady_clock::time_point FPSLastTime = std::chrono::steady_clock::now();
-
-			++FPSFrameCount;
-			auto Now = std::chrono::steady_clock::now();
-			auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Now - FPSLastTime).count();
-			if (Elapsed >= 1000)
-			{
-				double FPS = static_cast<double>(FPSFrameCount) * 1000.0 / static_cast<double>(Elapsed);
-				DOGE_DEBUG("FPS: {:.1f}", FPS);
-				FPSFrameCount = 0;
-				FPSLastTime = Now;
-			}
-		}
+		CalculateFPSTimings();
 	}
 
 	auto FEngineLoop::Exit() -> void
