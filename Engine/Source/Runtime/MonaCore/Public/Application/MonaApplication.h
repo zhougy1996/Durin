@@ -57,7 +57,11 @@ namespace Doge::Mona
 
 		MONACORE_API auto SetMonaEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
 
+		MONACORE_API auto GetActiveTopLevelWindow() const -> std::shared_ptr<MWindow>;
+
 		// Message handler functions
+		auto OnWindowFocus(const std::shared_ptr<FGenericWindow> &InPlatformWindow, bool bFocused) -> void override;
+
 		auto OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
 
 		auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool override;
@@ -71,6 +75,8 @@ namespace Doge::Mona
 		auto OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool override;
 
 		auto OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool override;
+
+		auto OnMouseWheel(const std::shared_ptr<FGenericWindow>& InPlatformWindow, double DeltaX, double DeltaY) -> bool override;
 
 	protected:
 		FMonaApplication();
@@ -86,6 +92,8 @@ namespace Doge::Mona
 		static std::shared_ptr<FMonaApplication> CurrentApplication;
 
 		std::vector<std::shared_ptr<MWindow>> Windows;
+
+		std::weak_ptr<MWindow> ActiveTopLevelWindow;
 
 		std::vector<std::shared_ptr<MWindow>> WindowDestroyQueue;
 

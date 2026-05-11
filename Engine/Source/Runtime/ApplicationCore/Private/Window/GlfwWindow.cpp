@@ -200,7 +200,7 @@ namespace Doge
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnMouseWheel(PlatformWindow, static_cast<float>(XOffset), static_cast<float>(YOffset));
+				GApp->GetMessageHandler()->OnMouseWheel(PlatformWindow, XOffset, YOffset);
 			}
 		}
 

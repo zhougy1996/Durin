@@ -15,6 +15,8 @@ namespace Doge::Mona
 
 		~FMonaImGuiEventHandler() override {}
 
+		auto OnWindowFocused(const std::shared_ptr<FGenericWindow> &InPlatformWindow, bool bFocused) -> void override;
+
 		auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool override;
 
 		auto OnKeyUp(const std::shared_ptr<FGenericWindow> &InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool override;
@@ -26,5 +28,7 @@ namespace Doge::Mona
 		auto OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos ) -> bool override;
 
 		auto OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool override;
+
+		auto OnMouseWheel(const std::shared_ptr<FGenericWindow> &InPlatformWindow, double DeltaX, double DeltaY) -> bool override;
 	};
 } // namespace Doge::Mona

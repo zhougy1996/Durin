@@ -125,6 +125,12 @@ namespace Doge::Mona
 		}
 	} // namespace
 
+	void FMonaImGuiEventHandler::OnWindowFocused(const std::shared_ptr<FGenericWindow>& InPlatformWindow, bool bFocused)
+	{
+		auto& IO = GetImGuiIO(InPlatformWindow);
+		IO.AddFocusEvent(bFocused);
+	}
+
 	bool FMonaImGuiEventHandler::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat)
 	{
 		// IsRepeat parameter is not used here because ImGui handles key repeats internally based on the state of the keys. We just need to update the key state and modifiers.
@@ -151,7 +157,7 @@ namespace Doge::Mona
 		return IO.WantTextInput;
 	}
 
-	bool FMonaImGuiEventHandler::OnMouseMove(const std::shared_ptr<FGenericWindow>& InPlatformWindow, FVector2d CursorPos)
+	auto FMonaImGuiEventHandler::OnMouseMove(const std::shared_ptr<FGenericWindow>& InPlatformWindow, FVector2d CursorPos) -> bool
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		IO.AddMousePosEvent(static_cast<float>(CursorPos.x), static_cast<float>(CursorPos.y));
@@ -159,7 +165,7 @@ namespace Doge::Mona
 		return IO.WantCaptureMouse;
 	}
 
-	bool FMonaImGuiEventHandler::OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos)
+	auto FMonaImGuiEventHandler::OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		IO.AddMouseButtonEvent(ConvertMouseButtonToImGuiType(Button), true);
@@ -167,11 +173,19 @@ namespace Doge::Mona
 		return IO.WantCaptureMouse;
 	}
 
-	bool FMonaImGuiEventHandler::OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos)
+	auto FMonaImGuiEventHandler::OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		IO.AddMouseButtonEvent(ConvertMouseButtonToImGuiType(Button), false);
-		// (STR("Mouse button {} released at position ({}, {}), CaptureMouse: {}"), static_cast<int>(Button), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
+		// DOGE_DEBUG(STR("Mouse button {} released at position ({}, {}), CaptureMouse: {}"), static_cast<int>(Button), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
+		return IO.WantCaptureMouse;
+	}
+
+	bool FMonaImGuiEventHandler::OnMouseWheel(const std::shared_ptr<FGenericWindow>& InPlatformWindow, double DeltaX, double DeltaY)
+	{
+		auto& IO = GetImGuiIO(InPlatformWindow);
+		IO.AddMouseWheelEvent(static_cast<float>(DeltaX), static_cast<float>(DeltaY));
+		// DOGE_DEBUG(STR("Mouse wheel scrolled with delta ({}, {}), CaptureMouse: {}"), DeltaX, DeltaY, IO.WantCaptureMouse);
 		return IO.WantCaptureMouse;
 	}
 } // namespace Doge::Mona

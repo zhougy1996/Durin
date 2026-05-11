@@ -57,6 +57,7 @@ namespace Doge::Mona
 	auto FMonaApplication::AddWindow(std::shared_ptr<MWindow> InMonaWindow, const bool bShowImmediately) -> std::shared_ptr<MWindow>
 	{
 		FMonaWindowHelper::ArrangeWindowToFront(Windows, InMonaWindow);
+		ActiveTopLevelWindow = InMonaWindow;
 		std::shared_ptr<FGenericWindow> NewWindow = MakeWindow(InMonaWindow, bShowImmediately);
 
 		return InMonaWindow;
@@ -74,6 +75,10 @@ namespace Doge::Mona
 
 	auto FMonaApplication::RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void
 	{
+		if (ActiveTopLevelWindow.lock() == InWindow)
+		{
+			ActiveTopLevelWindow.reset();
+		}
 		WindowDestroyQueue.push_back(InWindow);
 		Renderer->OnWindowDestroyed(InWindow);
 		DestroyWindowsImmediately();
@@ -181,6 +186,37 @@ namespace Doge::Mona
 		MonaEventHandler = std::move(InHandler);
 	}
 
+	auto FMonaApplication::GetActiveTopLevelWindow() const -> std::shared_ptr<MWindow>
+	{
+		return ActiveTopLevelWindow.lock();
+	}
+
+	void FMonaApplication::OnWindowFocus(const std::shared_ptr<FGenericWindow>& InPlatformWindow, bool bFocused)
+	{
+		const std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, InPlatformWindow);
+
+		if (bFocused)
+		{
+			if (Window)
+			{
+				FMonaWindowHelper::ArrangeWindowToFront(Windows, Window);
+				ActiveTopLevelWindow = Window;
+				DOGE_DEBUG(STR("Window gained focus, setting active top level window to: {}"), Window->GetTitle());
+			}
+		}
+		else
+		{
+			std::shared_ptr<MWindow> PinnedActiveTopLevelWindow = ActiveTopLevelWindow.lock();
+			if (PinnedActiveTopLevelWindow && PinnedActiveTopLevelWindow->GetNativeWindow() == InPlatformWindow)
+			{
+				ActiveTopLevelWindow.reset();
+				DOGE_DEBUG(STR("Window lost focus, resetting active top level window"));
+			}
+		}
+
+		MonaEventHandler->OnWindowFocused(InPlatformWindow, bFocused);
+	}
+
 	FMonaApplication::FMonaApplication()
 	{
 		MessageHandler = this;
@@ -264,5 +300,10 @@ namespace Doge::Mona
 	auto FMonaApplication::OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
 		return MonaEventHandler->OnMouseUp(InPlatformWindow, Button, CursorPos);
+	}
+
+	bool FMonaApplication::OnMouseWheel(const std::shared_ptr<FGenericWindow>& InPlatformWindow, double DeltaX, double DeltaY)
+	{
+		return MonaEventHandler->OnMouseWheel(InPlatformWindow, DeltaX, DeltaY);
 	}
 } // namespace Doge::Mona
