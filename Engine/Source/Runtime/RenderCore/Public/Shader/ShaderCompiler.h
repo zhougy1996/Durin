@@ -4,15 +4,29 @@
 
 namespace Doge
 {
+	using FShaderCode = std::vector<uint32>;
+
+	struct FShaderCompileOptions
+	{
+		std::vector<const char8*> EntryPoints;
+	};
+
+	struct FShaderCompilerOutput
+	{
+		bool bSucceeded = false;
+		std::vector<FShaderCode> Codes;
+		std::string ErrorMessage;
+
+		operator bool() const { return bSucceeded; }
+	};
+
 	class FShaderCompiler
 	{
 	public:
 		FShaderCompiler() = default;
 		virtual ~FShaderCompiler() = default;
 
-		RENDERCORE_API virtual auto Compile(const char8* InShaderFilename, const char8* InEntryPoint, std::vector<uint32>& OutCode) -> bool = 0;
-
-		RENDERCORE_API virtual auto Compile(const char8* InShaderFilename, const std::span<const char8*>& InEntryPoints, std::vector<std::vector<uint32>>& OutCodes) -> bool = 0;
+		RENDERCORE_API virtual auto Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput = 0;
 
 		DOGE_NONCOPYABLE(FShaderCompiler);
 	};

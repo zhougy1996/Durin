@@ -90,14 +90,11 @@ namespace Doge
 		{
 			std::string ShaderName = "/Engine/Test";
 			std::string ShaderSourceFilePath = FShaderPaths::SourcePath(ShaderName);
-			std::array<const char8*, 2> EntryPoints = {"vertexMain", "fragmentMain"};
-			if (GShaderCompiler->Compile(ShaderSourceFilePath.c_str(), EntryPoints, PipelineData.CompiledCodes))
+			FShaderCompileOptions CompileOptions;
+			CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
+			if (FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(ShaderSourceFilePath, CompileOptions))
 			{
-				for (size_t i = 0; i < EntryPoints.size(); ++i)
-				{
-					std::string CompiledSpvFilePath = FShaderPaths::BinaryPath(ShaderName, EntryPoints[i], std::hash<std::string_view>{}(ShaderName));
-					// FFileHelper::SaveArrayToFile(PipelineData.CompiledCodes[i], CompiledSpvFilePath);
-				}
+				PipelineData.CompiledCodes = std::move(CompileResult.Codes);
 			}
 
 			PipelineData.PipelineName = "TestPipeline";

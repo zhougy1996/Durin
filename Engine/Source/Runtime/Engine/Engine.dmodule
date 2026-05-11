@@ -4,12 +4,12 @@
     "PCH": "SharedPCH_Core",
     "PublicDependencies": [
         "Core",
+        "ApplicationCore",
         "CoreDObject",
+        "RenderCore",
         "RHI"
     ],
     "PrivateDependencies": [
-        "RenderCore",
-        "ApplicationCore",
         "MonaCore",
         "Mona"
     ],

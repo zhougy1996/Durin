@@ -2,15 +2,6 @@
 
 namespace Doge
 {
-	static auto DiagnoseIfNeeded(const Slang::ComPtr<slang::IBlob>& DiagnosticsBlob, std::source_location SourceLocation = std::source_location::current())
-	{
-		if (DiagnosticsBlob != nullptr)
-		{
-			std::string LocationString = std::format("{}:{}:{}", SourceLocation.file_name(), SourceLocation.line(), SourceLocation.column());
-			DOGE_WARN("Slang diagnostics in {} : \n{}", LocationString, static_cast<const char*>(DiagnosticsBlob->getBufferPointer()));
-		}
-	}
-
 	FSlangShaderCompiler::FSlangShaderCompiler()
 	{
 		InitGlobalSession();
@@ -31,17 +22,6 @@ namespace Doge
 
 	FSlangShaderCompiler::~FSlangShaderCompiler()
 	{
-	}
-
-	auto FSlangShaderCompiler::Compile(const char8* InShaderFilename, const char8* InEntryPoint, std::vector<uint32>& OutCode) -> bool
-	{
-		std::vector<std::vector<uint32>> Codes;
-		if (Compile(InShaderFilename, std::span(&InEntryPoint, 1), Codes))
-		{
-			OutCode = std::move(Codes[0]);
-			return true;
-		}
-		return false;
 	}
 
 	static auto ConvertBlobToArray(const Slang::ComPtr<slang::IBlob>& FromBlob, std::vector<uint32>& OutCode) -> bool
@@ -69,47 +49,57 @@ namespace Doge
 		return true;
 	}
 
-	auto FSlangShaderCompiler::Compile(const char8* InShaderFilename, const std::span<const char8*>& InEntryPoints, std::vector<std::vector<uint32>>& OutCodes) -> bool
+
+	FShaderCompilerOutput FSlangShaderCompiler::Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options)
 	{
-		const size_t EntryPointCount = InEntryPoints.size();
+		FShaderCompilerOutput Output;
+
+		const auto& EntryPoints = Options.EntryPoints;
+		const uint32 EntryPointCount = EntryPoints.size();
 		if (EntryPointCount == 0)
 		{
-			DOGE_WARN("No entry point specified");
-			return false;
+			Output.ErrorMessage = "No entry points found";
+			return Output;
 		}
 
 		Slang::ComPtr<slang::IBlob> DiagnosticsBlob;
 		std::vector<Slang::ComPtr<slang::IBlob>> CompiledCodeBlobs;
-		Slang::Result CompileResult = CompileInternal(InShaderFilename, InEntryPoints, CompiledCodeBlobs, DiagnosticsBlob);
-		DiagnoseIfNeeded(DiagnosticsBlob);
+		const Slang::Result CompileResult = CompileInternal(ShaderSourceFilePath.data(), EntryPoints, CompiledCodeBlobs, DiagnosticsBlob);
+
+		// If compilation failed, fill the error message and return
+		// The user might want to handle the error message in different ways, for example, showing it in the UI, or writing it to a log file, etc.
+		// So we don't log error message here, just fill it in the output and let the user decide how to handle it.
 		if (SLANG_FAILED(CompileResult))
 		{
-			std::stringstream EntryPointsStream;
-			for (size_t i = 0; i < InEntryPoints.size(); ++i)
+			if (DiagnosticsBlob != nullptr)
 			{
-				if (i > 0) EntryPointsStream << ", ";
-				EntryPointsStream << InEntryPoints[i];
+				Output.ErrorMessage = static_cast<const char*>(DiagnosticsBlob->getBufferPointer());
 			}
-			DOGE_ERROR("Failed to compile shader: {}, entry points: {}", InShaderFilename, EntryPointsStream.str());
-			return false;
+			return Output;
 		}
 
+		// If compilation succeeded, convert the compiled code blobs to arrays and fill the output
+		check(CompiledCodeBlobs.size() == EntryPointCount);
+		auto& OutCodes = Output.Codes;
+		Output.bSucceeded = true;
 		OutCodes.resize(EntryPointCount);
 		for (size_t i = 0; i < EntryPointCount; ++i)
 		{
 			if (!ConvertBlobToArray(CompiledCodeBlobs[i], OutCodes[i]))
 			{
-				DOGE_ERROR("Failed to convert compiled code blob to array for shader: {}, entry point: {}", InShaderFilename, InEntryPoints[i]);
+				Output.bSucceeded = false;
+				Output.ErrorMessage = "Failed to convert compiled code blob to array for shader: " + std::string(ShaderSourceFilePath) + ", entry point: " + std::string(EntryPoints[i]);
 				OutCodes.clear();
-				return false;
+				return Output;
 			}
 		}
-		return true;
+
+		return Output;
 	}
 
 	auto FSlangShaderCompiler::CompileInternal(
 		const char8* InShaderFilePath,
-		const std::span<const char8*>& InEntryPoints,
+		const std::span<const char8* const>& InEntryPoints,
 		std::vector<Slang::ComPtr<slang::IBlob>>& OutCodes,
 		Slang::ComPtr<slang::IBlob>& OutDiagnostics
 	) const -> Slang::Result

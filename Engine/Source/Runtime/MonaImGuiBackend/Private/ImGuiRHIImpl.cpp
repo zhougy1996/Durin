@@ -1,21 +1,59 @@
 #include "ImGuiRHIImpl.h"
 
 #include "DynamicRHI.h"
+#include "Shader/ShaderPaths.h"
+
+#include <Shader/ShaderCompiler.h>
 
 namespace Doge::Mona::ImGuiBackend
 {
+	static auto CalcOrthoProj(float L, float R, float B, float T) -> FMatrix
+	{
+		FMatrix Result(1.0f);
+		Result[0][0] = 2.0f / (R - L);
+		Result[1][1] = 2.0f / (T - B);
+		Result[2][2] = -1.0f;
+		Result[3][0] = -(R + L) / (R - L);
+		Result[3][1] = -(T + B) / (T - B);
+		return Result;
+	}
 
+	struct FImGuiRHIBackendState
+	{
+		FShaderRHIRef VertexShader;
+		FShaderRHIRef PixelShader;
+		FVertexDeclarationRHIRef VertexDeclaration;
+		FGraphicsPipelineStateRHIRef PipelineState;
+		FBufferRHIRef ProjectionUBO;
+
+		// Font atlas
+		FTextureRHIRef FontAtlasTexture;
+
+		bool bInitialized = false;
+	};
 
 	auto ImGuiRHIImpl_Init() -> void
 	{
 		ImGuiIO& IO = ImGui::GetIO();
 		IMGUI_CHECKVERSION();
-		assert(GDynamicRHI); // Make sure the RHI is initialized before initializing the ImGui RHI backend
+		check(GDynamicRHI);
 
 		IO.BackendRendererUserData = GDynamicRHI;
-		IO.BackendRendererName = "RHI";
+		IO.BackendRendererName = "DogeRHI";
 		IO.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
 		IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;   // We can honor ImGuiPlatformIO::Textures[] requests during render.
+
+		// Get font atlas pixel data on main thread
+		unsigned char* FontPixels = nullptr;
+		int FontWidth = 0, FontHeight = 0;
+		IO.Fonts->GetTexDataAsRGBA32(&FontPixels, &FontWidth, &FontHeight);
+		const uint32 FontDataSize = FontWidth * FontHeight * 4;
+
+		// Compile shader
+		std::string ShaderName = "/Engine/ImGui";
+		FShaderCompileOptions CompileOptions;
+		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
+		FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(ShaderName, CompileOptions);
 	}
 
 	auto ImGuiRHIImpl_Shutdown() -> void
