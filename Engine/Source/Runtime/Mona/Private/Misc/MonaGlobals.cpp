@@ -1,16 +1,22 @@
 #include "MonaGlobals.h"
 
 #include "Application/MonaApplication.h"
-#include "MonaBackendGlobals.h"
+#include "MonaBackend.h"
 
 namespace Doge::Mona
 {
 	auto MonaInit() -> void
 	{
-		BackendInit();
 		FMonaApplication::Create();
 		FMonaApplication::Get().Initialize();
+		FMonaBackend::Initialize();
+		DOGE_DEBUG(STR("Mona initialized successfully."));
+	}
 
-		InitMonaBackendEventHandler();
+	auto MonaShutdown() -> void
+	{
+		FMonaBackend::Shutdown();
+		FMonaApplication::Shutdown();
+		DOGE_DEBUG(STR("Mona shutdown."));
 	}
 }

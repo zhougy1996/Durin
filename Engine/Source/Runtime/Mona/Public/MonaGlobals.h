@@ -6,4 +6,6 @@ struct ImGuiContext;
 namespace Doge::Mona
 {
 	MONA_API auto MonaInit() -> void;
+
+	MONA_API auto MonaShutdown() -> void;
 }

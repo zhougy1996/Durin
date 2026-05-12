@@ -358,7 +358,7 @@ namespace Doge
 		// TODO: this is just for testing, we should have a more robust shutdown process
 		delete GEngine;
 		GDynamicRHI->Shutdown();
-		Mona::FMonaApplication::Shutdown();
+		Mona::MonaShutdown();
 
 		FModuleManager::Get().UnloadModulesAtShutdown();
 

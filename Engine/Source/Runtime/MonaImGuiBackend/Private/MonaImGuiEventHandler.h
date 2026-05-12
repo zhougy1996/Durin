@@ -31,4 +31,6 @@ namespace Doge::Mona
 
 		auto OnMouseWheel(const std::shared_ptr<FGenericWindow> &InPlatformWindow, double DeltaX, double DeltaY) -> bool override;
 	};
-} // namespace Doge::Mona
+
+	using FMonaBackendEventHandler = FMonaImGuiEventHandler;
+}

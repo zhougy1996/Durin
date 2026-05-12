@@ -1,7 +1,9 @@
 #pragma once
 
-namespace Doge::Mona::ImGuiBackend
+namespace Doge::Mona::MonaImGuiBackend
 {
+	extern ImGuiContext* GMonaImGuiContext;
+
 	auto ImGuiRHIImpl_Init() -> void;
 
 	auto ImGuiRHIImpl_Shutdown() -> void;

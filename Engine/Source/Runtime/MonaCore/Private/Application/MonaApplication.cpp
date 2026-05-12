@@ -25,6 +25,8 @@ namespace Doge::Mona
 	auto FMonaApplication::Shutdown() -> void
 	{
 		CurrentApplication->CloseAllWindowsImmediately();
+		CurrentApplication.reset();
+		GApp.reset();
 	}
 
 	auto FMonaApplication::Get() -> FMonaApplication&

@@ -1,12 +1,13 @@
 #include "ImGuiRHIImpl.h"
 
 #include "DynamicRHI.h"
+#include "Shader/ShaderCompiler.h"
 #include "Shader/ShaderPaths.h"
 
-#include <Shader/ShaderCompiler.h>
-
-namespace Doge::Mona::ImGuiBackend
+namespace Doge::Mona::MonaImGuiBackend
 {
+	ImGuiContext* GMonaImGuiContext = nullptr;
+
 	static auto CalcOrthoProj(float L, float R, float B, float T) -> FMatrix
 	{
 		FMatrix Result(1.0f);
@@ -32,16 +33,17 @@ namespace Doge::Mona::ImGuiBackend
 		bool bInitialized = false;
 	};
 
+
 	auto ImGuiRHIImpl_Init() -> void
 	{
+		check(GDynamicRHI);
 		ImGuiIO& IO = ImGui::GetIO();
 		IMGUI_CHECKVERSION();
-		check(GDynamicRHI);
 
 		IO.BackendRendererUserData = GDynamicRHI;
 		IO.BackendRendererName = "DogeRHI";
-		IO.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
-		IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;   // We can honor ImGuiPlatformIO::Textures[] requests during render.
+		IO.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset; // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
+		IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;  // We can honor ImGuiPlatformIO::Textures[] requests during render.
 
 		// Get font atlas pixel data on main thread
 		unsigned char* FontPixels = nullptr;
@@ -53,7 +55,11 @@ namespace Doge::Mona::ImGuiBackend
 		std::string ShaderName = "/Engine/ImGui";
 		FShaderCompileOptions CompileOptions;
 		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
-		FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(ShaderName, CompileOptions);
+		FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(FShaderPaths::SourcePath(ShaderName), CompileOptions);
+		if (!CompileResult)
+		{
+			DOGE_ERROR("Failed to compile ImGui shader: {}", CompileResult.ErrorMessage);
+		}
 	}
 
 	auto ImGuiRHIImpl_Shutdown() -> void
@@ -61,7 +67,10 @@ namespace Doge::Mona::ImGuiBackend
 		ImGuiIO& IO = ImGui::GetIO();
 		IO.BackendRendererUserData = nullptr;
 		IO.BackendRendererName = nullptr;
-		IO.BackendFlags&= ~(ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasTextures);
+		IO.BackendFlags &= ~(ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasTextures);
+
+		ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
+		PlatformIO.ClearPlatformHandlers();
 	}
 
 	auto ImGuiRHIImpl_NewFrame() -> void
@@ -86,4 +95,4 @@ namespace Doge::Mona::ImGuiBackend
 	auto ImGuiRHIImpl_UpdateTexture(ImTextureData* TextureData) -> void
 	{
 	}
-} // namespace Doge::Mona::ImGuiBackend
+} // namespace Doge::Mona::MonaImGuiBackend

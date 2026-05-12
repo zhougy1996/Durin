@@ -1,7 +1,8 @@
 #include "MonaImGuiEventHandler.h"
 
-#include "MonaBackendGlobals.h"
-#include "Misc/StringConvert.h"
+// #include "Misc/StringConvert.h"
+
+#include "ImGuiRHIImpl.h"
 
 namespace Doge::Mona
 {
@@ -121,7 +122,7 @@ namespace Doge::Mona
 
 		auto GetImGuiIO(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> ImGuiIO&
 		{
-			return ImGui::GetIO(GMonaImGuiContext);
+			return ImGui::GetIO(MonaImGuiBackend::GMonaImGuiContext);
 		}
 	} // namespace
 
