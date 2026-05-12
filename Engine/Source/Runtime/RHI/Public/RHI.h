@@ -7,6 +7,7 @@
 #include "RHIDefinitions.h"
 #include "DynamicRHI.h"
 #include "RHIResources.h"
+#include "RHICommandList.h"
 
 namespace Doge
 {

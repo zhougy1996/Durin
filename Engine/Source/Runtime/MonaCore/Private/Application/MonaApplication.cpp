@@ -203,7 +203,7 @@ namespace Doge::Mona
 			{
 				FMonaWindowHelper::ArrangeWindowToFront(Windows, Window);
 				ActiveTopLevelWindow = Window;
-				DOGE_DEBUG(STR("Window gained focus, setting active top level window to: {}"), Window->GetTitle());
+				// DOGE_DEBUG(STR("Window gained focus, setting active top level window to: {}"), Window->GetTitle());
 			}
 		}
 		else
@@ -212,7 +212,7 @@ namespace Doge::Mona
 			if (PinnedActiveTopLevelWindow && PinnedActiveTopLevelWindow->GetNativeWindow() == InPlatformWindow)
 			{
 				ActiveTopLevelWindow.reset();
-				DOGE_DEBUG(STR("Window lost focus, resetting active top level window"));
+				// DOGE_DEBUG(STR("Window lost focus, resetting active top level window"));
 			}
 		}
 

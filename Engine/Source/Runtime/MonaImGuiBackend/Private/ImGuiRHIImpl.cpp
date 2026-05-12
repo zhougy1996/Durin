@@ -8,6 +8,13 @@ namespace Doge::Mona::MonaImGuiBackend
 {
 	ImGuiContext* GMonaImGuiContext = nullptr;
 
+	// Reusable buffers used for rendering 1 current in-flight frame
+	struct FFrameBuffers
+	{
+		FBufferRHIRef VertexBuffer;
+		FBufferRHIRef IndexBuffer;
+	};
+
 	static auto CalcOrthoProj(float L, float R, float B, float T) -> FMatrix
 	{
 		FMatrix Result(1.0f);
@@ -93,6 +100,10 @@ namespace Doge::Mona::MonaImGuiBackend
 	}
 
 	auto ImGuiRHIImpl_UpdateTexture(ImTextureData* TextureData) -> void
+	{
+	}
+
+	auto ImGuiRHIImpl_CreateMainPipeline() -> void
 	{
 	}
 } // namespace Doge::Mona::MonaImGuiBackend

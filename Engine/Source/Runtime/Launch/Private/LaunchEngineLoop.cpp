@@ -327,11 +327,15 @@ namespace Doge
 			GTestRenderData.Prepare();
 		}
 
+		Mona::MonaUI_NewFrame();
+
+		// Start recording render commands for the current frame.
 		ENQUEUE_RENDER_COMMAND(BeginFrame)([CurrentFrameCounter](FRHICommandListImmediate& CommandList) {
 			BeginFrameRenderThread(CommandList, CurrentFrameCounter);
 		});
 
 		GTestRenderData.Render();
+		Mona::MonaUI_Render();
 
 		ENQUEUE_RENDER_COMMAND(EndFrame)([CurrentFrameCounter](FRHICommandListImmediate& RHICmdList) {
 			EndFrameRenderThread(RHICmdList, CurrentFrameCounter);
