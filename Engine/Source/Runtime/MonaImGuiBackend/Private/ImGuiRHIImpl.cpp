@@ -19,6 +19,15 @@ namespace Doge::Mona::MonaImGuiBackend
 	struct FImGuiRHIImpl_WindowRenderBuffers
 	{
 		std::array<FImGuiRHIImpl_FrameRenderBuffers, kFrameInFlight> FrameRenderBuffers;
+
+		auto Clear() -> void
+		{
+			for (FImGuiRHIImpl_FrameRenderBuffers& Buffers : FrameRenderBuffers)
+			{
+				Buffers.VertexBuffer = nullptr;
+				Buffers.IndexBuffer = nullptr;
+			}
+		}
 	};
 
 	static auto CalcOrthoProj(float L, float R, float B, float T) -> FMatrix
@@ -109,6 +118,7 @@ namespace Doge::Mona::MonaImGuiBackend
 			GBackendState.PipelineState = nullptr;
 			GBackendState.ProjectionUBO = nullptr;
 			GBackendState.FontAtlasTexture = nullptr;
+			GBackendState.MainWindowRenderBuffers.Clear();
 		});
 	}
 
@@ -149,12 +159,42 @@ namespace Doge::Mona::MonaImGuiBackend
 	{
 	}
 
-	static auto RenderDrawData_RenderThread(ImDrawData* DrawData) -> void
+	static auto RenderDrawData_RenderThread(FRHICommandListImmediate& CommandList, const ImDrawData* DrawData, FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers) -> void
 	{
 		check(IsInRenderingThread());
 
+		// Update buffers
 		if (DrawData->TotalVtxCount > 0)
 		{
+			if (RenderBuffers.VertexBuffer == nullptr || RenderBuffers.VertexBuffer->GetSize() < DrawData->TotalVtxCount * sizeof(ImDrawVert))
+			{
+				FRHIBufferCreateDesc VertexBufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("ImGuiVertexBuffer", DrawData->TotalVtxCount * sizeof(ImDrawVert));
+				VertexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
+				RenderBuffers.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, VertexBufferCreateDesc);
+			}
+			if (RenderBuffers.IndexBuffer == nullptr || RenderBuffers.IndexBuffer->GetSize() < DrawData->TotalIdxCount * sizeof(ImDrawIdx))
+			{
+				FRHIBufferCreateDesc IndexBufferCreateDesc = FRHIBufferCreateDesc::CreateIndex("ImGuiIndexBuffer", DrawData->TotalIdxCount * sizeof(ImDrawIdx), sizeof(ImDrawIdx));
+				IndexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
+				RenderBuffers.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexBufferCreateDesc);
+			}
+
+			void* VertexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.VertexBuffer, 0, RenderBuffers.VertexBuffer->GetSize(), EResourceLockMode::WriteOnly);
+			void* IndexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.IndexBuffer, 0, RenderBuffers.IndexBuffer->GetSize(), EResourceLockMode::WriteOnly);
+
+			auto VertexBufferDst = static_cast<ImDrawVert*>(VertexBufferData);
+			auto IndexBufferDst = static_cast<ImDrawIdx*>(IndexBufferData);
+
+			for (const ImDrawList* DrawList : DrawData->CmdLists)
+			{
+				memcpy(VertexBufferDst, DrawList->VtxBuffer.Data, DrawList->VtxBuffer.Size * sizeof(ImDrawVert));
+				memcpy(IndexBufferDst, DrawList->IdxBuffer.Data, DrawList->IdxBuffer.Size * sizeof(ImDrawIdx));
+				VertexBufferDst += DrawList->VtxBuffer.Size;
+				IndexBufferDst += DrawList->IdxBuffer.Size;
+			}
+
+			GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.VertexBuffer);
+			GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.IndexBuffer);
 		}
 	}
 
@@ -168,7 +208,8 @@ namespace Doge::Mona::MonaImGuiBackend
 		}
 
 		ENQUEUE_RENDER_COMMAND(RenderDrawData)([DrawData](FRHICommandListImmediate& CommandList) {
-			RenderDrawData_RenderThread(DrawData);
+			auto& RenderBuffersCurrentFrame = GBackendState.MainWindowRenderBuffers.FrameRenderBuffers[GFrameCounterRenderThread % kFrameInFlight];
+			RenderDrawData_RenderThread(CommandList, DrawData, RenderBuffersCurrentFrame);
 		});
 	}
 

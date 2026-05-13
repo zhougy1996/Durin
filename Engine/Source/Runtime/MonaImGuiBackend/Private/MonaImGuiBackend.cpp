@@ -85,9 +85,7 @@ namespace Doge::Mona
 		ImDrawDataSnapshot& Snapshot = GDrawDataSnapshots[GFrameCounter % 2];
 		Snapshot.SnapUsingSwap(DrawData, FTime::Seconds());
 
-		ENQUEUE_RENDER_COMMAND(RenderImGui)([&Snapshot](FRHICommandListImmediate& CommandList) {
-			ImDrawData* DrawData = &Snapshot.DrawData;
-		});
+		MonaImGuiBackend::ImGuiRHIImpl_RenderDrawData(&Snapshot.DrawData);
 	}
 
 }
