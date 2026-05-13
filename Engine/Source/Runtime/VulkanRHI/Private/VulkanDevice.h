@@ -13,6 +13,7 @@ namespace Doge::VulkanRHI
 	class FVulkanRenderPassManager;
 	class FVulkanPipelineManager;
 	class FVulkanFrame;
+	class FVulkanGlobalDescriptorPool;
 
 	extern uint64 GVulkanRHIDeletionFrameNumber;
 
@@ -129,6 +130,8 @@ namespace Doge::VulkanRHI
 
 		auto GetPipelineManager() const -> FVulkanPipelineManager& { return *PipelineManager; }
 
+		auto GetGlobalDescriptorPool() const -> FVulkanGlobalDescriptorPool& { return *GlobalDescriptorPool; }
+
 		auto GetDeferredDeletionQueue() -> FDeferredDeletionQueue& { return DeferredDeletionQueue; }
 
 		auto GetCurrentFrame() -> FVulkanFrame&;
@@ -153,6 +156,8 @@ namespace Doge::VulkanRHI
 		FVulkanRenderPassManager* RenderPassManager = nullptr;
 
 		FVulkanPipelineManager* PipelineManager = nullptr;
+
+		FVulkanGlobalDescriptorPool* GlobalDescriptorPool = nullptr;
 
 		std::array<FVulkanFrame*, kFrameInFlight> Frames = {};
 

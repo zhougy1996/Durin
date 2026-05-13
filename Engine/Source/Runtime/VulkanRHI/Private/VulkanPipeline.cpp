@@ -1,6 +1,5 @@
 #include "VulkanPipeline.h"
 
-#include "RHIResources.h"
 #include "VulkanBuffer.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanContext.h"
@@ -10,6 +9,7 @@
 #include "VulkanRenderPass.h"
 #include "VulkanShader.h"
 #include "VulkanTexture.h"
+#include "VulkanDescriptorSets.h"
 
 namespace Doge::VulkanRHI
 {
@@ -217,18 +217,7 @@ namespace Doge::VulkanRHI
 			DOGE_TRACE("Vulkan graphics pipeline created");
 		}
 
-		std::vector<vk::DescriptorPoolSize> PoolSizes;
-		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, kFrameInFlight});
-		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, kFrameInFlight});
-		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eSampler, kFrameInFlight});
-
-		vk::DescriptorPoolCreateInfo DescriptorPoolCreateInfo;
-		DescriptorPoolCreateInfo
-			.setPoolSizes(PoolSizes)
-			.setMaxSets(2) // TODO: Calculate max sets based on actual usage
-			.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
-
-		DescriptorPool = Device.GetHandle().createDescriptorPool(DescriptorPoolCreateInfo);
+		auto DescriptorPool = Device.GetGlobalDescriptorPool().GetHandle();
 		std::vector<vk::DescriptorSetLayout> Layouts(kFrameInFlight, DescriptorSetLayout);
 		vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo;
 		DescriptorSetAllocInfo
@@ -242,7 +231,6 @@ namespace Doge::VulkanRHI
 	{
 		ReleaseShaders();
 		DescriptorSets.clear();
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorPool, DescriptorPool);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, DescriptorSetLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);

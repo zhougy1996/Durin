@@ -60,8 +60,6 @@ namespace Doge::VulkanRHI
 
 		vk::PipelineLayout PipelineLayout;
 
-		vk::DescriptorPool DescriptorPool; // TODO: cache and share
-
 		std::vector<vk::DescriptorSet> DescriptorSets; // TODO: cache and share
 
 		vk::Pipeline Pipeline;

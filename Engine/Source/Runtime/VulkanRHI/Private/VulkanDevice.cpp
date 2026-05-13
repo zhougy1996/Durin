@@ -1,6 +1,5 @@
 #include "VulkanDevice.h"
 
-
 #include "RHICommandList.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanExtensions.h"
@@ -9,6 +8,7 @@
 #include "VulkanPipeline.h"
 #include "VulkanQueue.h"
 #include "VulkanSubmission.h"
+#include "VulkanDescriptorSets.h"
 
 namespace Doge::VulkanRHI
 {
@@ -160,6 +160,7 @@ namespace Doge::VulkanRHI
 
 		RenderPassManager = new FVulkanRenderPassManager(*this);
 		PipelineManager = new FVulkanPipelineManager(*this);
+		GlobalDescriptorPool = new FVulkanGlobalDescriptorPool(*this);
 
 		for (auto& Frame : Frames)
 		{
@@ -344,6 +345,8 @@ namespace Doge::VulkanRHI
 			delete Frame;
 			Frame = nullptr;
 		}
+		delete GlobalDescriptorPool;
+		GlobalDescriptorPool = nullptr;
 
 		delete PipelineManager;
 		PipelineManager = nullptr;

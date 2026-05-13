@@ -144,6 +144,22 @@ namespace Doge::VulkanRHI
 	private:
 		FVulkanDevice* Device;
 	};
+
+	// tmp
+	class FVulkanGlobalDescriptorPool
+	{
+	public:
+		explicit FVulkanGlobalDescriptorPool(FVulkanDevice& InDevice);
+
+		~FVulkanGlobalDescriptorPool();
+
+		auto GetHandle() const -> vk::DescriptorPool { return DescriptorPool; }
+
+	private:
+		FVulkanDevice& Device;
+
+		vk::DescriptorPool DescriptorPool;
+	};
 }
 
 // template<>

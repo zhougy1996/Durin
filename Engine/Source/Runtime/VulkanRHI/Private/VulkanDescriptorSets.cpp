@@ -78,4 +78,29 @@ namespace Doge::VulkanRHI
 		: Device(InDevice)
 	{
 	}
-} // namespace Doge::VulkanRHI
+
+	FVulkanGlobalDescriptorPool::FVulkanGlobalDescriptorPool(FVulkanDevice& InDevice)
+		: Device(InDevice)
+	{
+		constexpr auto MaxSets = 256;
+
+		std::vector<vk::DescriptorPoolSize> PoolSizes;
+		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, MaxSets});
+		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, MaxSets});
+		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eSampler, MaxSets});
+
+		vk::DescriptorPoolCreateInfo DescriptorPoolCreateInfo;
+		DescriptorPoolCreateInfo
+			.setPoolSizes(PoolSizes)
+			.setMaxSets(MaxSets)
+			.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
+
+		DescriptorPool = Device.GetHandle().createDescriptorPool(DescriptorPoolCreateInfo);
+	}
+
+	FVulkanGlobalDescriptorPool::~FVulkanGlobalDescriptorPool()
+	{
+		// Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorPool, DescriptorPool);
+		Device.GetHandle().destroyDescriptorPool(DescriptorPool);
+	}
+}
