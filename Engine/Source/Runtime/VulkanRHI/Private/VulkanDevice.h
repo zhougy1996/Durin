@@ -14,8 +14,6 @@ namespace Doge::VulkanRHI
 	class FVulkanPipelineManager;
 	class FVulkanFrame;
 
-	constexpr uint32 kFrameInFlight = 2;
-
 	extern uint64 GVulkanRHIDeletionFrameNumber;
 
 	class FDeferredDeletionQueue

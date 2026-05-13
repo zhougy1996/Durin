@@ -3,6 +3,7 @@
 
 namespace Doge
 {
+	constexpr uint32 kFrameInFlight = 2;
 	constexpr uint32 MaxSimultaneousRenderTargets = 8U;
 
 	constexpr uint32 MaxVertexElementCount = 17U;

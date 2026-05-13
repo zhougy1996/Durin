@@ -1,18 +1,24 @@
 #include "ImGuiRHIImpl.h"
 
-#include "DynamicRHI.h"
-#include "Shader/ShaderCompiler.h"
+#include "RHI.h"
+#include "RenderingThread.h"
 #include "Shader/ShaderPaths.h"
+#include "Shader/ShaderCompiler.h"
 
 namespace Doge::Mona::MonaImGuiBackend
 {
 	ImGuiContext* GMonaImGuiContext = nullptr;
 
 	// Reusable buffers used for rendering 1 current in-flight frame
-	struct FFrameBuffers
+	struct FImGuiRHIImpl_FrameRenderBuffers
 	{
 		FBufferRHIRef VertexBuffer;
 		FBufferRHIRef IndexBuffer;
+	};
+
+	struct FImGuiRHIImpl_WindowRenderBuffers
+	{
+		std::array<FImGuiRHIImpl_FrameRenderBuffers, kFrameInFlight> FrameRenderBuffers;
 	};
 
 	static auto CalcOrthoProj(float L, float R, float B, float T) -> FMatrix
@@ -26,7 +32,7 @@ namespace Doge::Mona::MonaImGuiBackend
 		return Result;
 	}
 
-	struct FImGuiRHIBackendState
+	struct FImGuiRHIImpl_BackendState
 	{
 		FShaderRHIRef VertexShader;
 		FShaderRHIRef PixelShader;
@@ -37,9 +43,74 @@ namespace Doge::Mona::MonaImGuiBackend
 		// Font atlas
 		FTextureRHIRef FontAtlasTexture;
 
+		// Render buffers for main window
+		FImGuiRHIImpl_WindowRenderBuffers MainWindowRenderBuffers;
+
 		bool bInitialized = false;
 	};
 
+	static FImGuiRHIImpl_BackendState GBackendState;
+
+	static auto ImGuiRHIImpl_CreateMainPipeline()
+	{
+		// Compile shaders
+		auto VertexShaderCode = std::make_shared<std::vector<uint32>>();
+		auto PixelShaderCode = std::make_shared<std::vector<uint32>>();
+
+		const std::string ImGuiShaderName = "/Engine/ImGui";
+		FShaderCompileOptions CompileOptions;
+		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
+		if (FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(FShaderPaths::SourcePath(ImGuiShaderName), CompileOptions))
+		{
+			CompileResult.Codes[0].swap(*VertexShaderCode);
+			CompileResult.Codes[1].swap(*PixelShaderCode);
+		}
+		else
+		{
+			DOGE_ERROR("Failed to compile ImGui shader: {}", CompileResult.ErrorMessage);
+		}
+
+		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([VertexShaderCode, PixelShaderCode](FRHICommandListImmediate& CommandList) {
+			const FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("ImGuiVertexShader", *VertexShaderCode, {});
+			GBackendState.VertexShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
+
+			const FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("ImGuiPixelShader", *PixelShaderCode, {});
+			GBackendState.PixelShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
+
+			FVertexDeclarationElementList VertexDeclElements;
+			constexpr uint32 VertexStride = sizeof(ImDrawVert);
+			VertexDeclElements[0] = FVertexElement(0, 0, EVertexElementType::Float2, 0, VertexStride);
+			VertexDeclElements[1] = FVertexElement(0, 0, EVertexElementType::Float2, 1, VertexStride);
+			VertexDeclElements[2] = FVertexElement(0, 0, EVertexElementType::Float4, 2, VertexStride);
+			GBackendState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
+
+			FGraphicsPipelineStateInitializer Initializer;
+			Initializer.RenderPassName = "ImGuiRenderPass";
+			Initializer.BoundShaders.VertexShader = GBackendState.VertexShader;
+			Initializer.BoundShaders.PixelShader = GBackendState.PixelShader;
+			Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
+
+			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
+			GDynamicRHI->RHICreateGraphicsPipelineState("ImGuiMainPipeline", Initializer);
+		});
+	}
+
+	static auto ImGuiRHIImpl_CreateRHIResources()
+	{
+		ImGuiRHIImpl_CreateMainPipeline();
+	}
+
+	static auto ImGuiRHIImpl_ClearRHIResources() -> void
+	{
+		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([](FRHICommandListImmediate& CommandList) {
+			GBackendState.VertexShader = nullptr;
+			GBackendState.PixelShader = nullptr;
+			GBackendState.VertexDeclaration = nullptr;
+			GBackendState.PipelineState = nullptr;
+			GBackendState.ProjectionUBO = nullptr;
+			GBackendState.FontAtlasTexture = nullptr;
+		});
+	}
 
 	auto ImGuiRHIImpl_Init() -> void
 	{
@@ -58,19 +129,13 @@ namespace Doge::Mona::MonaImGuiBackend
 		IO.Fonts->GetTexDataAsRGBA32(&FontPixels, &FontWidth, &FontHeight);
 		const uint32 FontDataSize = FontWidth * FontHeight * 4;
 
-		// Compile shader
-		std::string ShaderName = "/Engine/ImGui";
-		FShaderCompileOptions CompileOptions;
-		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
-		FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(FShaderPaths::SourcePath(ShaderName), CompileOptions);
-		if (!CompileResult)
-		{
-			DOGE_ERROR("Failed to compile ImGui shader: {}", CompileResult.ErrorMessage);
-		}
+		ImGuiRHIImpl_CreateRHIResources();
 	}
 
 	auto ImGuiRHIImpl_Shutdown() -> void
 	{
+		ImGuiRHIImpl_ClearRHIResources();
+
 		ImGuiIO& IO = ImGui::GetIO();
 		IO.BackendRendererUserData = nullptr;
 		IO.BackendRendererName = nullptr;
@@ -84,26 +149,32 @@ namespace Doge::Mona::MonaImGuiBackend
 	{
 	}
 
+	static auto RenderDrawData_RenderThread(ImDrawData* DrawData) -> void
+	{
+		check(IsInRenderingThread());
+
+		if (DrawData->TotalVtxCount > 0)
+		{
+		}
+	}
+
 	auto ImGuiRHIImpl_RenderDrawData(ImDrawData* DrawData) -> void
 	{
-		int FrameBufferWidth = static_cast<int>(DrawData->DisplaySize.x * DrawData->FramebufferScale.x);
-		int FrameBufferHeight = static_cast<int>(DrawData->DisplaySize.y * DrawData->FramebufferScale.y);
+		const int32 FrameBufferWidth = static_cast<int32>(DrawData->DisplaySize.x * DrawData->FramebufferScale.x);
+		const int32 FrameBufferHeight = static_cast<int32>(DrawData->DisplaySize.y * DrawData->FramebufferScale.y);
 		if (FrameBufferWidth <= 0 || FrameBufferHeight <= 0)
 		{
 			return;
 		}
 
-		if (DrawData->Textures != nullptr)
-			for (ImTextureData* TextureData : *DrawData->Textures)
-				if (TextureData->Status != ImTextureStatus_OK)
-					ImGuiRHIImpl_UpdateTexture(TextureData);
+		ENQUEUE_RENDER_COMMAND(RenderDrawData)([DrawData](FRHICommandListImmediate& CommandList) {
+			RenderDrawData_RenderThread(DrawData);
+		});
 	}
 
 	auto ImGuiRHIImpl_UpdateTexture(ImTextureData* TextureData) -> void
 	{
 	}
 
-	auto ImGuiRHIImpl_CreateMainPipeline() -> void
-	{
-	}
+
 } // namespace Doge::Mona::MonaImGuiBackend

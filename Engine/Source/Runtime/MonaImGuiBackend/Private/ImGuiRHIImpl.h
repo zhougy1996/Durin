@@ -14,5 +14,4 @@ namespace Doge::Mona::MonaImGuiBackend
 
 	auto ImGuiRHIImpl_UpdateTexture(ImTextureData* TextureData) -> void;
 
-	auto ImGuiRHIImpl_CreateMainPipeline() -> void;
 }

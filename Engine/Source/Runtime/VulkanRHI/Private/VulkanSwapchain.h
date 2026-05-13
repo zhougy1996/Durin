@@ -21,6 +21,8 @@ namespace Doge::VulkanRHI
 
 		auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> void;
 
+		// Return the actual format of the swap chain images, which is determined by the surface format selected during swap chain creation.
+		// This may be different from the preferred pixel format specified when creating the viewport.
 		auto GetFormat() const -> vk::Format { return ImageFormat; }
 
 		// TODO: recreate

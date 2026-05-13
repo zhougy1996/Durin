@@ -51,8 +51,10 @@ namespace Doge::VulkanRHI
 
 		auto Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool;
 
+		// Get the specified preferred pixel format when creating the viewport.
 		auto GetFormat() const -> EPixelFormat override;
 
+		// Get the actual swapchain image format, which may be different from the preferred pixel format specified when creating the viewport if the preferred format is not supported.
 		auto GetSwapchainImageFormat() const -> vk::Format;
 
 	protected:
