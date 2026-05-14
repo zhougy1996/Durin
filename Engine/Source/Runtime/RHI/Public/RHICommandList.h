@@ -48,6 +48,10 @@ namespace Doge
 
 		RHI_API auto GetContext() const -> IRHICommandContext&;
 
+		RHI_API auto PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void;
+
+		RHI_API auto SetShaderParameters(FRHIShader* InShader, std::span<uint8> InParametersData) -> void;
+
 		RHI_API auto SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void;
 
 	private:

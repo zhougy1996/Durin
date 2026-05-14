@@ -7,8 +7,7 @@ namespace Doge
 {
 	FRHICommandListExecutor GCommandListExecutor;
 
-	FRHICommandListBase::FRHICommandListBase()
-	= default;
+	FRHICommandListBase::FRHICommandListBase() = default;
 
 	auto FRHICommandListBase::SwitchPipeline(ERHIPipeline Pipeline) -> void
 	{
@@ -19,9 +18,9 @@ namespace Doge
 		switch (Pipeline)
 		{
 		case ERHIPipeline::Graphics:
-		{
-			GraphicsContext = GDynamicRHI->RHIGetDefaultContext();
-		}
+			{
+				GraphicsContext = GDynamicRHI->RHIGetDefaultContext();
+			}
 			break;
 			// TODO: compute
 		default:
@@ -80,6 +79,15 @@ namespace Doge
 		return *GraphicsContext;
 	}
 
+	auto FRHICommandListBase::PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
+	{
+		GetContext().RHIPushConstants(StageFlags, Offset, Size, Data);
+	}
+
+	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, std::span<uint8> InParametersData) -> void
+	{
+	}
+
 	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void
 	{
 		GetContext().RHISetShaderParameters(InShader, InResourceParameters);
@@ -90,7 +98,7 @@ namespace Doge
 		return GCommandListExecutor.GetImmediateCommandList();
 	}
 
-	auto FRHICommandListImmediate::ImmediateFlush(EImmediateFlushType FlushType, ERHISubmitFlags SubmitFlags/* = ERHISubmitFlags::None */) -> void
+	auto FRHICommandListImmediate::ImmediateFlush(EImmediateFlushType FlushType, ERHISubmitFlags SubmitFlags /* = ERHISubmitFlags::None */) -> void
 	{
 		if (FlushType >= EImmediateFlushType::FlushRHIThread)
 		{

@@ -273,11 +273,7 @@ namespace Doge::Mona::MonaImGuiBackend
 
 		if (InTex->Status == ImTextureStatus_WantDestroy)
 		{
-			check(InTex->BackendUserData != nullptr);
-			auto Texture = static_cast<FRHITexture*>(InTex->BackendUserData);
-			// ReSharper disable once CppExpressionWithoutSideEffects
-			Texture->Release();
-			InTex->BackendUserData = nullptr;
+			ImGuiRHIImpl_DestroyTexture(InTex);
 		}
 	}
 
@@ -315,7 +311,14 @@ namespace Doge::Mona::MonaImGuiBackend
 		{
 			CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
 			CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
-			// CommandList.DrawIndexed(DrawData->TotalIdxCount, 0, 0);
+
+			FImGuiRHIImpl_ConstantBufferData DataToPush;
+			DataToPush.Scale.x = 2.0f / DrawData->DisplaySize.x;
+			DataToPush.Scale.y = 2.0f / DrawData->DisplaySize.y;
+			DataToPush.Translation.x = -1.0f - DrawData->DisplayPos.x * DataToPush.Scale.x;
+			DataToPush.Translation.y = -1.0f - DrawData->DisplayPos.y * DataToPush.Scale.y;
+			CommandList.PushConstants(EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData), &DataToPush);
+			CommandList.DrawIndexed(DrawData->TotalIdxCount, 0, 0);
 		}
 
 		CommandList.EndRenderPass();

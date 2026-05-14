@@ -42,6 +42,10 @@ namespace Doge::VulkanRHI
 
 		auto RHIBindIndexBuffer(FRHIBuffer* InIndexBuffer, uint32 Offset) -> void override;
 
+		auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void override;
+
+		auto RHISetShaderParameters(FRHIShader* InShader, std::span<uint8> InParametersData) -> void override;
+
 		auto RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void override;
 
 		auto RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void override;

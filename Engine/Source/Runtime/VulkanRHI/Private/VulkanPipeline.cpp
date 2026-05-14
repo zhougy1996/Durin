@@ -271,6 +271,12 @@ namespace Doge::VulkanRHI
 		CmdBuffer->GetHandle().setScissor(0, Scissor);
 	}
 
+	auto FVulkanGraphicsPipelineState::PushConstants(FVulkanCommandListContext& InContext, EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* pValues) const -> void
+	{
+		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
+		CmdBuffer->GetHandle().pushConstants(PipelineLayout, ConvertToVulkanType(StageFlags), Offset, Size, pValues);
+	}
+
 	auto FVulkanGraphicsPipelineState::SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void
 	{
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();

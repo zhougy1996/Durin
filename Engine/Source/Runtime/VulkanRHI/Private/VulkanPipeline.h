@@ -31,6 +31,8 @@ namespace Doge::VulkanRHI
 
 		auto GetPipelineLayout() const -> vk::PipelineLayout { return PipelineLayout; }
 
+		auto PushConstants(FVulkanCommandListContext& InContext, EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* pValues) const -> void;
+
 		auto SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void;
 
 		auto SetTexture(FVulkanCommandListContext& InContext, uint32 BindIndex, FVulkanTexture* InTexture) -> void;

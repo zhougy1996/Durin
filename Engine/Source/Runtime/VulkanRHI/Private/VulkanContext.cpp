@@ -111,6 +111,15 @@ namespace Doge::VulkanRHI
 		}
 	}
 
+	auto FVulkanCommandListContext::RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
+	{
+		PendingGfxPipelineState->PushConstants(*this, StageFlags, Offset, Size, Data);
+	}
+
+	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, std::span<uint8> InParametersData) -> void
+	{
+	}
+
 	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
 		PendingGfxPipelineState->SetUniformBuffer(*this, InShader, InResourceParameters[0].SetIndex, InResourceParameters[0].BindIndex, static_cast<FVulkanBuffer*>(InResourceParameters[0].Resource));
