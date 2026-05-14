@@ -153,22 +153,15 @@ namespace Doge::VulkanRHI
 
 		std::vector<vk::DescriptorSetLayoutBinding> LayoutBindings;
 
-		// vk::DescriptorSetLayoutBinding UboLayoutBinding;
-		// UboLayoutBinding.setBinding(0)
-		// 	.setDescriptorType(vk::DescriptorType::eUniformBuffer)
-		// 	.setStageFlags(vk::ShaderStageFlagBits::eVertex)
-		// 	.setDescriptorCount(1);
-		// LayoutBindings.push_back(UboLayoutBinding);
-
 		vk::DescriptorSetLayoutBinding ImageLayoutBinding;
-		ImageLayoutBinding.setBinding(1)
+		ImageLayoutBinding.setBinding(0)
 			.setDescriptorType(vk::DescriptorType::eSampledImage)
 			.setStageFlags(vk::ShaderStageFlagBits::eFragment)
 			.setDescriptorCount(1);
 		LayoutBindings.push_back(ImageLayoutBinding);
 
 		vk::DescriptorSetLayoutBinding SamplerLayoutBinding;
-		SamplerLayoutBinding.setBinding(2)
+		SamplerLayoutBinding.setBinding(1)
 			.setDescriptorType(vk::DescriptorType::eSampler)
 			.setStageFlags(vk::ShaderStageFlagBits::eFragment)
 			.setDescriptorCount(1);

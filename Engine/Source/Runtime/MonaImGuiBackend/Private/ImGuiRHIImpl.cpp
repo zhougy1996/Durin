@@ -2,6 +2,7 @@
 
 #include "RHI.h"
 #include "RenderingThread.h"
+#include "Misc/FileHelper.h"
 #include "Shader/ShaderPaths.h"
 #include "Shader/ShaderCompiler.h"
 
@@ -97,6 +98,8 @@ namespace Doge::Mona::MonaImGuiBackend
 		{
 			CompileResult.Codes[0].swap(*VertexShaderCode);
 			CompileResult.Codes[1].swap(*PixelShaderCode);
+			FFileHelper::SaveArrayToFile(*VertexShaderCode, FShaderPaths::BinaryPath(ImGuiShaderName, CompileOptions.EntryPoints[0], 0));
+			FFileHelper::SaveArrayToFile(*PixelShaderCode, FShaderPaths::BinaryPath(ImGuiShaderName, CompileOptions.EntryPoints[1], 0));
 		}
 		else
 		{

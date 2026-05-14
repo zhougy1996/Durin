@@ -21,7 +21,7 @@ struct PushConstant {
 
 [[vk::push_constant]] ConstantBuffer<PushConstant> pc;
 [[vk::binding(0, 0)]] Texture2D<float4> fontTexture;
-[[vk::binding(0, 1)]] SamplerState fontSampler;
+[[vk::binding(1, 0)]] SamplerState fontSampler;
 
 [shader("vertex")]
 VSOutput vertexMain(VSInput input)

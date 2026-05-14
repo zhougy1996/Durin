@@ -317,11 +317,6 @@ namespace Doge
 			return;
 		}
 
-		if (!GTestRenderData.IsReady())
-		{
-			GTestRenderData.Prepare();
-		}
-
 		Mona::NewFrame();
 
 		// Start recording render commands for the current frame.
@@ -329,7 +324,6 @@ namespace Doge
 			BeginFrameRenderThread(CommandList, CurrentFrameCounter);
 		});
 
-		// GTestRenderData.Render();
 		Mona::Render();
 
 		ENQUEUE_RENDER_COMMAND(EndFrame)([CurrentFrameCounter](FRHICommandListImmediate& RHICmdList) {

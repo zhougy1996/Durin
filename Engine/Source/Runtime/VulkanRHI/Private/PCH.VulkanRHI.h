@@ -12,6 +12,7 @@
 #ifndef VULKAN_HPP_DISPATCH_LOADER_DYNAMIC
 	#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #endif
+#define NOMINMAX
 #include "vulkan/vulkan.hpp"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
