@@ -20,12 +20,12 @@ namespace Doge::Mona
 		DOGE_DEBUG(STR("Mona shutdown."));
 	}
 
-	auto MonaUI_NewFrame() -> void
+	auto NewFrame() -> void
 	{
 		FMonaBackend::NewFrame();
 	}
 
-	auto MonaUI_Render() -> void
+	auto Render() -> void
 	{
 		FMonaBackend::Render();
 	}

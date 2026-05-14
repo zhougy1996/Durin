@@ -4,9 +4,9 @@
 
 #include "RHI.h"
 #include "RenderingThread.h"
+#include "Rendering/MonaRHIRenderer.h"
 #include "Application/MonaApplication.h"
 #include "Widgets/MWindow.h"
-
 #include "ImGuiRHIImpl.h"
 #include "MonaImGuiEventHandler.h"
 
@@ -74,18 +74,24 @@ namespace Doge::Mona
 	auto FMonaImGuiBackend::Render() -> void
 	{
 		ImGui::Render();
+
+		//TODO: multiple windows
 		ImDrawData* DrawData = ImGui::GetDrawData();
 
-		// Check if the window is minimized or has a zero display size, in which case we should skip rendering to avoid unnecessary work.
-		if ((DrawData->DisplaySize.x <= 0.0f || DrawData->DisplaySize.y <= 0.0f))
+		auto& App = FMonaApplication::Get();
+		const auto Renderer = dynamic_cast<FMonaRHIRenderer*>(App.GetRenderer());
+		const std::shared_ptr<MWindow> MainWindow = App.GetActiveTopLevelWindow();
+		if (!MainWindow || MainWindow->IsMinimized())
 		{
 			return;
 		}
 
+		FViewportRHIRef ViewportRHI = Renderer->GetRHIViewport(*MainWindow);
+
 		ImDrawDataSnapshot& Snapshot = GDrawDataSnapshots[GFrameCounter % 2];
 		Snapshot.SnapUsingSwap(DrawData, FTime::Seconds());
 
-		MonaImGuiBackend::ImGuiRHIImpl_RenderDrawData(&Snapshot.DrawData);
+		MonaImGuiBackend::ImGuiRHIImpl_RenderDrawData(ViewportRHI, &Snapshot.DrawData);
 	}
 
 }

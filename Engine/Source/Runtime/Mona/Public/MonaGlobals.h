@@ -9,7 +9,7 @@ namespace Doge::Mona
 
 	MONA_API auto MonaShutdown() -> void;
 
-	MONA_API auto MonaUI_NewFrame() -> void;
+	MONA_API auto NewFrame() -> void;
 
-	MONA_API auto MonaUI_Render() -> void;
+	MONA_API auto Render() -> void;
 }

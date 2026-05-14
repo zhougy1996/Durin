@@ -159,7 +159,7 @@ namespace Doge::Mona::MonaImGuiBackend
 	{
 	}
 
-	static auto RenderDrawData_RenderThread(FRHICommandListImmediate& CommandList, const ImDrawData* DrawData, FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers) -> void
+	static auto RenderDrawData_RenderThread(FRHICommandListImmediate& CommandList, FRHITexture* InTargetFrameBuffer, const ImDrawData* DrawData, FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers) -> void
 	{
 		check(IsInRenderingThread());
 
@@ -196,9 +196,25 @@ namespace Doge::Mona::MonaImGuiBackend
 			GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.VertexBuffer);
 			GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.IndexBuffer);
 		}
+
+		// Render pass
+		FRHIRenderPassInfo PassInfo{};
+		PassInfo.ColorRenderTargets[0] = InTargetFrameBuffer;
+
+		CommandList.BeginRenderPass(PassInfo, "ImGuiRenderPass");
+		CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("ImGuiMainPipeline"));
+
+		if (RenderBuffers.IndexBuffer)
+		{
+			CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
+			CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
+			// CommandList.DrawIndexed(RenderBuffers.IndexBuffer->GetSize(), 0, 0);
+		}
+
+		CommandList.EndRenderPass();
 	}
 
-	auto ImGuiRHIImpl_RenderDrawData(ImDrawData* DrawData) -> void
+	auto ImGuiRHIImpl_RenderDrawData(const FViewportRHIRef& InViewport, ImDrawData* DrawData) -> void
 	{
 		const int32 FrameBufferWidth = static_cast<int32>(DrawData->DisplaySize.x * DrawData->FramebufferScale.x);
 		const int32 FrameBufferHeight = static_cast<int32>(DrawData->DisplaySize.y * DrawData->FramebufferScale.y);
@@ -207,9 +223,14 @@ namespace Doge::Mona::MonaImGuiBackend
 			return;
 		}
 
-		ENQUEUE_RENDER_COMMAND(RenderDrawData)([DrawData](FRHICommandListImmediate& CommandList) {
+		ENQUEUE_RENDER_COMMAND(RenderWindowFrame)([ViewportRHI = InViewport, DrawData](FRHICommandListImmediate& CommandList) {
 			auto& RenderBuffersCurrentFrame = GBackendState.MainWindowRenderBuffers.FrameRenderBuffers[GFrameCounterRenderThread % kFrameInFlight];
-			RenderDrawData_RenderThread(CommandList, DrawData, RenderBuffersCurrentFrame);
+			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+
+			CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
+			FTextureRHIRef BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(ViewportRHI);
+			RenderDrawData_RenderThread(CommandList, BackBuffer, DrawData, RenderBuffersCurrentFrame);
+			CommandList.EndDrawingViewport(ViewportRHI, true, false);
 		});
 	}
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "RHIResources.h"
+
 namespace Doge::Mona::MonaImGuiBackend
 {
 	extern ImGuiContext* GMonaImGuiContext;
@@ -10,7 +12,7 @@ namespace Doge::Mona::MonaImGuiBackend
 
 	auto ImGuiRHIImpl_NewFrame() -> void;
 
-	auto ImGuiRHIImpl_RenderDrawData(ImDrawData* DrawData) -> void;
+	auto ImGuiRHIImpl_RenderDrawData(const FViewportRHIRef& InViewport, ImDrawData* DrawData) -> void;
 
 	auto ImGuiRHIImpl_UpdateTexture(ImTextureData* TextureData) -> void;
 
