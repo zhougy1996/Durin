@@ -166,6 +166,28 @@ namespace Doge::VulkanRHI
 		return UsageFlags;
 	}
 
+	auto ConvertToVulkanType(EShaderStageFlags InFlags) -> vk::ShaderStageFlags
+	{
+		vk::ShaderStageFlags Result;
+		if (EnumHasAnyFlags(InFlags, EShaderStageFlags::Vertex))
+		{
+			Result |= vk::ShaderStageFlagBits::eVertex;
+		}
+		if (EnumHasAnyFlags(InFlags, EShaderStageFlags::Fragment))
+		{
+			Result |= vk::ShaderStageFlagBits::eFragment;
+		}
+		if (EnumHasAnyFlags(InFlags, EShaderStageFlags::Geometry))
+		{
+			Result |= vk::ShaderStageFlagBits::eGeometry;
+		}
+		if (EnumHasAnyFlags(InFlags, EShaderStageFlags::Compute))
+		{
+			Result |= vk::ShaderStageFlagBits::eCompute;
+		}
+		return Result;
+	}
+
 	auto GetFormatElementSize(vk::Format InFormat) -> uint32
 	{
 		return vkuFormatElementSize(static_cast<VkFormat>(InFormat));

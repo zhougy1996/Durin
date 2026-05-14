@@ -210,8 +210,17 @@ namespace Doge
 		// Helper bit-masks
 		AnyDynamic = (Dynamic | Volatile),
 	};
-
 	ENUM_CLASS_FLAGS(EBufferUsageFlags);
+
+	enum class EShaderStageFlags
+	{
+		None = 0,
+		Vertex = 1 << 0,
+		Fragment = 1 << 1,
+		Compute = 1 << 2,
+		Geometry = 1 << 3,
+	};
+	ENUM_CLASS_FLAGS(EShaderStageFlags);
 
 	enum class EResourceLockMode
 	{

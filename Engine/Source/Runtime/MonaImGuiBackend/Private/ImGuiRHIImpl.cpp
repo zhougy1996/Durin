@@ -14,6 +14,7 @@ namespace Doge::Mona::MonaImGuiBackend
 	{
 		FBufferRHIRef VertexBuffer;
 		FBufferRHIRef IndexBuffer;
+		FBufferRHIRef ProjectionUniform;
 	};
 
 	struct FImGuiRHIImpl_WindowRenderBuffers
@@ -26,6 +27,7 @@ namespace Doge::Mona::MonaImGuiBackend
 			{
 				Buffers.VertexBuffer = nullptr;
 				Buffers.IndexBuffer = nullptr;
+				Buffers.ProjectionUniform = nullptr;
 			}
 		}
 	};
@@ -49,7 +51,6 @@ namespace Doge::Mona::MonaImGuiBackend
 		FShaderRHIRef PixelShader;
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateRHIRef PipelineState;
-		FBufferRHIRef ProjectionUBO;
 
 		// Font atlas
 		FTextureRHIRef FontAtlasTexture;
@@ -58,6 +59,12 @@ namespace Doge::Mona::MonaImGuiBackend
 		FImGuiRHIImpl_WindowRenderBuffers MainWindowRenderBuffers;
 
 		bool bInitialized = false;
+	};
+
+	struct FImGuiRHIImpl_ConstantBufferData
+	{
+		FVector2f Scale;
+		FVector2f Translation;
 	};
 
 	static FImGuiRHIImplRT_BackendState GBackendState;
@@ -117,6 +124,9 @@ namespace Doge::Mona::MonaImGuiBackend
 			Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
 
 			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
+			Initializer.PushConstantRanges = {
+				FRHIPushConstantRange{EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData)}
+			};
 			GDynamicRHI->RHICreateGraphicsPipelineState("ImGuiMainPipeline", Initializer);
 		});
 	}
@@ -155,7 +165,6 @@ namespace Doge::Mona::MonaImGuiBackend
 			GBackendState.PixelShader = nullptr;
 			GBackendState.VertexDeclaration = nullptr;
 			GBackendState.PipelineState = nullptr;
-			GBackendState.ProjectionUBO = nullptr;
 			GBackendState.FontAtlasTexture = nullptr;
 			GBackendState.MainWindowRenderBuffers.Clear();
 		});
@@ -171,12 +180,6 @@ namespace Doge::Mona::MonaImGuiBackend
 		IO.BackendRendererName = "DogeRHI";
 		IO.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset; // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
 		IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;  // We can honor ImGuiPlatformIO::Textures[] requests during render.
-
-		// Get font atlas pixel data on main thread
-		unsigned char* FontPixels = nullptr;
-		int FontWidth = 0, FontHeight = 0;
-		IO.Fonts->GetTexDataAsRGBA32(&FontPixels, &FontWidth, &FontHeight);
-		const uint32 FontDataSize = FontWidth * FontHeight * 4;
 
 		ImGuiRHIImpl_CreateRHIResources();
 	}
@@ -309,7 +312,7 @@ namespace Doge::Mona::MonaImGuiBackend
 		{
 			CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
 			CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
-			// CommandList.DrawIndexed(RenderBuffers.IndexBuffer->GetSize(), 0, 0);
+			// CommandList.DrawIndexed(DrawData->TotalIdxCount, 0, 0);
 		}
 
 		CommandList.EndRenderPass();

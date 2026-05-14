@@ -480,6 +480,13 @@ namespace Doge
 		FRHIShader* PixelShader = nullptr;
 	};
 
+	struct FRHIPushConstantRange
+	{
+		EShaderStageFlags StageFlags;
+		uint32 Offset;
+		uint32 Size;
+	};
+
 	class FGraphicsPipelineStateInitializer
 	{
 	public:
@@ -490,6 +497,8 @@ namespace Doge
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 
 		FRHIVertexDeclaration* VertexDeclaration = nullptr;
+
+		std::vector<FRHIPushConstantRange> PushConstantRanges;
 	};
 
 	struct FRHIBufferDesc

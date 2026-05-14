@@ -31,27 +31,27 @@ namespace Doge
 	constexpr bool EnumHasAllFlags(Enum Flags, Enum Contains)
 	{
 		using UnderlyingType = __underlying_type(Enum);
-		return ((UnderlyingType)Flags & (UnderlyingType)Contains) == (UnderlyingType)Contains;
+		return (static_cast<UnderlyingType>(Flags) & static_cast<UnderlyingType>(Contains)) == static_cast<UnderlyingType>(Contains);
 	}
 
 	template<typename Enum>
 	constexpr bool EnumHasAnyFlags(Enum Flags, Enum Contains)
 	{
 		using UnderlyingType = __underlying_type(Enum);
-		return ((UnderlyingType)Flags & (UnderlyingType)Contains) != 0;
+		return (static_cast<UnderlyingType>(Flags) & static_cast<UnderlyingType>(Contains)) != 0;
 	}
 
 	template<typename Enum>
 	void EnumAddFlags(Enum& Flags, Enum FlagsToAdd)
 	{
 		using UnderlyingType = __underlying_type(Enum);
-		Flags = (Enum)((UnderlyingType)Flags | (UnderlyingType)FlagsToAdd);
+		Flags = static_cast<Enum>(static_cast<UnderlyingType>(Flags) | static_cast<UnderlyingType>(FlagsToAdd));
 	}
 
 	template<typename Enum>
 	void EnumRemoveFlags(Enum& Flags, Enum FlagsToRemove)
 	{
 		using UnderlyingType = __underlying_type(Enum);
-		Flags = (Enum)((UnderlyingType)Flags & ~(UnderlyingType)FlagsToRemove);
+		Flags = static_cast<Enum>(static_cast<UnderlyingType>(Flags) & ~static_cast<UnderlyingType>(FlagsToRemove));
 	}
 } // namespace Doge

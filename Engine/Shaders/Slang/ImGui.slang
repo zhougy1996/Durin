@@ -14,20 +14,20 @@ struct VSOutput
     float4 col : COLOR;
 };
 
-struct ProjectionUBO
-{
-    float4x4 projection;
+struct PushConstant {
+    float2 uScale;
+    float2 uTranslate;
 };
-[[vk::binding(0, 0)]] ConstantBuffer<ProjectionUBO> ubo;
 
-[[vk::binding(1, 0)]] Texture2D<float4> fontTexture;
-[[vk::binding(2, 0)]] SamplerState fontSampler;
+[[vk::push_constant]] ConstantBuffer<PushConstant> pc;
+[[vk::binding(0, 0)]] Texture2D<float4> fontTexture;
+[[vk::binding(0, 1)]] SamplerState fontSampler;
 
 [shader("vertex")]
 VSOutput vertexMain(VSInput input)
 {
     VSOutput output;
-    output.pos = mul(ubo.projection, float4(input.pos, 0.0, 1.0));
+    output.pos = float4(input.pos * pc.uScale + pc.uTranslate, 0.0, 1.0);
     output.uv  = input.uv;
     output.col = input.col;
     return output;

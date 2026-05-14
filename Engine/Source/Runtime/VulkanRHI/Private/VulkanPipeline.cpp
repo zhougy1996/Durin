@@ -153,12 +153,12 @@ namespace Doge::VulkanRHI
 
 		std::vector<vk::DescriptorSetLayoutBinding> LayoutBindings;
 
-		vk::DescriptorSetLayoutBinding UboLayoutBinding;
-		UboLayoutBinding.setBinding(0)
-			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
-			.setStageFlags(vk::ShaderStageFlagBits::eVertex)
-			.setDescriptorCount(1);
-		LayoutBindings.push_back(UboLayoutBinding);
+		// vk::DescriptorSetLayoutBinding UboLayoutBinding;
+		// UboLayoutBinding.setBinding(0)
+		// 	.setDescriptorType(vk::DescriptorType::eUniformBuffer)
+		// 	.setStageFlags(vk::ShaderStageFlagBits::eVertex)
+		// 	.setDescriptorCount(1);
+		// LayoutBindings.push_back(UboLayoutBinding);
 
 		vk::DescriptorSetLayoutBinding ImageLayoutBinding;
 		ImageLayoutBinding.setBinding(1)
@@ -179,12 +179,20 @@ namespace Doge::VulkanRHI
 
 		DescriptorSetLayout = Device.GetHandle().createDescriptorSetLayout(LayoutInfo);
 
-		vk::PipelineLayoutCreateInfo pipelineLayoutInfo;
-		pipelineLayoutInfo
-			.setSetLayouts(DescriptorSetLayout)
-			.setPushConstantRangeCount(0)
-			.setPPushConstantRanges(nullptr);
+		std::vector<vk::PushConstantRange> PushConstantRanges;
+		for (const auto& PushConstantRange : Initializer.PushConstantRanges)
+		{
+			vk::PushConstantRange NewPushConstantRange;
+			NewPushConstantRange
+				.setStageFlags(ConvertToVulkanType(PushConstantRange.StageFlags))
+				.setOffset(PushConstantRange.Offset)
+				.setSize(PushConstantRange.Size);
+			PushConstantRanges.push_back(NewPushConstantRange);
+		}
 
+		vk::PipelineLayoutCreateInfo pipelineLayoutInfo;
+		pipelineLayoutInfo.setSetLayouts(DescriptorSetLayout);
+		pipelineLayoutInfo.setPushConstantRanges(PushConstantRanges);
 
 		PipelineLayout = Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
 		DOGE_TRACE("Vulkan pipeline layout created");
