@@ -13,6 +13,8 @@ namespace Doge::VulkanRHI
 	auto ConvertToVulkanFormat(EVertexElementType InType) -> vk::Format;
 	auto ConvertToVulkanBufferUsageFlags(EBufferUsageFlags InUsage) -> vk::BufferUsageFlags;
 
+	auto GetFormatElementSize(vk::Format InFormat) -> uint32;
+
 	extern std::atomic<uint64> GVulkanBufferHandleIdCounter;
 	extern std::atomic<uint64> GVulkanBufferViewHandleIdCounter;
 	extern std::atomic<uint64> GVulkanImageViewHandleIdCounter;

@@ -41,7 +41,9 @@ namespace Doge::Mona::MonaImGuiBackend
 		return Result;
 	}
 
-	struct FImGuiRHIImpl_BackendState
+	// State of the ImGui RHI backend, stored in a struct to ensure proper initialization order of static variables.
+	// Only accessed from the render thread, so no synchronization is needed.
+	struct FImGuiRHIImplRT_BackendState
 	{
 		FShaderRHIRef VertexShader;
 		FShaderRHIRef PixelShader;
@@ -58,7 +60,22 @@ namespace Doge::Mona::MonaImGuiBackend
 		bool bInitialized = false;
 	};
 
-	static FImGuiRHIImpl_BackendState GBackendState;
+	static FImGuiRHIImplRT_BackendState GBackendState;
+
+	static auto ImGuiRHIImpl_CreateFontAtlasTexture() -> void
+	{
+		ImGuiIO& IO = ImGui::GetIO();
+		unsigned char* FontPixels = nullptr;
+		int FontWidth = 0, FontHeight = 0;
+		IO.Fonts->GetTexDataAsRGBA32(&FontPixels, &FontWidth, &FontHeight);
+
+		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([FontWidth, FontHeight, FontPixels](FRHICommandListImmediate& CommandList) {
+			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiFontAtlas", FontWidth, FontHeight, EPixelFormat::RGBA8_UNORM);
+			GBackendState.FontAtlasTexture = RHICreateTexture(TextureCreateDesc);
+			FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, FontWidth, FontHeight);
+			GDynamicRHI->RHIUpdateTexture2D(CommandList, GBackendState.FontAtlasTexture, 0, UpdateRegion, FontWidth * 4, FontPixels);
+		});
+	}
 
 	static auto ImGuiRHIImpl_CreateMainPipeline()
 	{
@@ -106,11 +123,33 @@ namespace Doge::Mona::MonaImGuiBackend
 
 	static auto ImGuiRHIImpl_CreateRHIResources()
 	{
+		ENQUEUE_RENDER_COMMAND(SwitchPipeline)([](FRHICommandListImmediate& CommandList) {
+			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+		});
+		ImGuiRHIImpl_CreateFontAtlasTexture();
 		ImGuiRHIImpl_CreateMainPipeline();
 	}
 
-	static auto ImGuiRHIImpl_ClearRHIResources() -> void
+	static auto ImGuiRHIImpl_DestroyTexture(ImTextureData* Tex) -> void
 	{
+		if (Tex->BackendUserData)
+		{
+			FRHITexture* Texture = static_cast<FRHITexture*>(Tex->BackendUserData);
+			// ReSharper disable once CppExpressionWithoutSideEffects
+			Texture->Release();
+			Tex->BackendUserData = nullptr;
+			Tex->TexID = ImTextureID_Invalid;
+			Tex->Status = ImTextureStatus_Destroyed;
+		}
+	}
+
+	static auto ImGuiRHIImpl_DestroyRHIResources() -> void
+	{
+		for (ImTextureData* Tex : ImGui::GetPlatformIO().Textures)
+		{
+			ImGuiRHIImpl_DestroyTexture(Tex);
+		}
+
 		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([](FRHICommandListImmediate& CommandList) {
 			GBackendState.VertexShader = nullptr;
 			GBackendState.PixelShader = nullptr;
@@ -144,7 +183,7 @@ namespace Doge::Mona::MonaImGuiBackend
 
 	auto ImGuiRHIImpl_Shutdown() -> void
 	{
-		ImGuiRHIImpl_ClearRHIResources();
+		ImGuiRHIImpl_DestroyRHIResources();
 
 		ImGuiIO& IO = ImGui::GetIO();
 		IO.BackendRendererUserData = nullptr;
@@ -159,43 +198,105 @@ namespace Doge::Mona::MonaImGuiBackend
 	{
 	}
 
-	static auto RenderDrawData_RenderThread(FRHICommandListImmediate& CommandList, FRHITexture* InTargetFrameBuffer, const ImDrawData* DrawData, FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers) -> void
+	static auto ImGuiRHIImplRT_UpdateBuffers(FRHICommandListImmediate& CommandList, const ImDrawData* DrawData, FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers) -> void
 	{
 		check(IsInRenderingThread());
 
-		// Update buffers
-		if (DrawData->TotalVtxCount > 0)
+		if (DrawData->TotalVtxCount <= 0) return;
+
+		if (RenderBuffers.VertexBuffer == nullptr || RenderBuffers.VertexBuffer->GetSize() < DrawData->TotalVtxCount * sizeof(ImDrawVert))
 		{
-			if (RenderBuffers.VertexBuffer == nullptr || RenderBuffers.VertexBuffer->GetSize() < DrawData->TotalVtxCount * sizeof(ImDrawVert))
-			{
-				FRHIBufferCreateDesc VertexBufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("ImGuiVertexBuffer", DrawData->TotalVtxCount * sizeof(ImDrawVert));
-				VertexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
-				RenderBuffers.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, VertexBufferCreateDesc);
-			}
-			if (RenderBuffers.IndexBuffer == nullptr || RenderBuffers.IndexBuffer->GetSize() < DrawData->TotalIdxCount * sizeof(ImDrawIdx))
-			{
-				FRHIBufferCreateDesc IndexBufferCreateDesc = FRHIBufferCreateDesc::CreateIndex("ImGuiIndexBuffer", DrawData->TotalIdxCount * sizeof(ImDrawIdx), sizeof(ImDrawIdx));
-				IndexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
-				RenderBuffers.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexBufferCreateDesc);
-			}
-
-			void* VertexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.VertexBuffer, 0, RenderBuffers.VertexBuffer->GetSize(), EResourceLockMode::WriteOnly);
-			void* IndexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.IndexBuffer, 0, RenderBuffers.IndexBuffer->GetSize(), EResourceLockMode::WriteOnly);
-
-			auto VertexBufferDst = static_cast<ImDrawVert*>(VertexBufferData);
-			auto IndexBufferDst = static_cast<ImDrawIdx*>(IndexBufferData);
-
-			for (const ImDrawList* DrawList : DrawData->CmdLists)
-			{
-				memcpy(VertexBufferDst, DrawList->VtxBuffer.Data, DrawList->VtxBuffer.Size * sizeof(ImDrawVert));
-				memcpy(IndexBufferDst, DrawList->IdxBuffer.Data, DrawList->IdxBuffer.Size * sizeof(ImDrawIdx));
-				VertexBufferDst += DrawList->VtxBuffer.Size;
-				IndexBufferDst += DrawList->IdxBuffer.Size;
-			}
-
-			GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.VertexBuffer);
-			GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.IndexBuffer);
+			FRHIBufferCreateDesc VertexBufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("ImGuiVertexBuffer", DrawData->TotalVtxCount * sizeof(ImDrawVert));
+			VertexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
+			RenderBuffers.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, VertexBufferCreateDesc);
 		}
+		if (RenderBuffers.IndexBuffer == nullptr || RenderBuffers.IndexBuffer->GetSize() < DrawData->TotalIdxCount * sizeof(ImDrawIdx))
+		{
+			FRHIBufferCreateDesc IndexBufferCreateDesc = FRHIBufferCreateDesc::CreateIndex("ImGuiIndexBuffer", DrawData->TotalIdxCount * sizeof(ImDrawIdx), sizeof(ImDrawIdx));
+			IndexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
+			RenderBuffers.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexBufferCreateDesc);
+		}
+
+		void* VertexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.VertexBuffer, 0, RenderBuffers.VertexBuffer->GetSize(), EResourceLockMode::WriteOnly);
+		void* IndexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.IndexBuffer, 0, RenderBuffers.IndexBuffer->GetSize(), EResourceLockMode::WriteOnly);
+
+		auto VertexBufferDst = static_cast<ImDrawVert*>(VertexBufferData);
+		auto IndexBufferDst = static_cast<ImDrawIdx*>(IndexBufferData);
+
+		for (const ImDrawList* DrawList : DrawData->CmdLists)
+		{
+			memcpy(VertexBufferDst, DrawList->VtxBuffer.Data, DrawList->VtxBuffer.Size * sizeof(ImDrawVert));
+			memcpy(IndexBufferDst, DrawList->IdxBuffer.Data, DrawList->IdxBuffer.Size * sizeof(ImDrawIdx));
+			VertexBufferDst += DrawList->VtxBuffer.Size;
+			IndexBufferDst += DrawList->IdxBuffer.Size;
+		}
+
+		GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.VertexBuffer);
+		GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.IndexBuffer);
+	}
+
+	static auto ImGuiRHIImplRT_UpdateTexture(FRHICommandListImmediate& CommandList, ImTextureData* InTex) -> void
+	{
+		check(IsInRenderingThread());
+
+		// Create if needed
+		if (InTex->Status == ImTextureStatus_WantCreate)
+		{
+			check(InTex->TexID == ImTextureID_Invalid && InTex->BackendUserData == nullptr);
+			check(InTex->Format == ImTextureFormat_RGBA32);
+
+			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiCreatedTexture", InTex->Width, InTex->Height, EPixelFormat::RGBA8_UNORM);
+			FTextureRHIRef Texture = RHICreateTexture(TextureCreateDesc);
+			// ReSharper disable once CppExpressionWithoutSideEffects
+			Texture->AddRef();
+			InTex->BackendUserData = Texture.GetReference();
+		}
+
+		if (InTex->Status == ImTextureStatus_WantCreate || InTex->Status == ImTextureStatus_WantUpdates)
+		{
+			const int UploadX = (InTex->Status == ImTextureStatus_WantCreate) ? 0 : InTex->UpdateRect.x;
+			const int UploadY = (InTex->Status == ImTextureStatus_WantCreate) ? 0 : InTex->UpdateRect.y;
+			const int UploadW = (InTex->Status == ImTextureStatus_WantCreate) ? InTex->Width : InTex->UpdateRect.w;
+			const int UploadH = (InTex->Status == ImTextureStatus_WantCreate) ? InTex->Height : InTex->UpdateRect.h;
+
+			FUpdateTextureRegion2D UpdateRegion(UploadX, UploadY, UploadX, UploadY, UploadW, UploadH);
+			GDynamicRHI->RHIUpdateTexture2D(CommandList, GBackendState.FontAtlasTexture, 0, UpdateRegion, UploadW * 4, InTex->Pixels);
+
+			InTex->SetStatus(ImTextureStatus_OK);
+		}
+
+		if (InTex->Status == ImTextureStatus_WantDestroy)
+		{
+			check(InTex->BackendUserData != nullptr);
+			auto Texture = static_cast<FRHITexture*>(InTex->BackendUserData);
+			// ReSharper disable once CppExpressionWithoutSideEffects
+			Texture->Release();
+			InTex->BackendUserData = nullptr;
+		}
+	}
+
+	static auto ImGuiRHIImplRT_RenderDrawData(
+		FRHICommandListImmediate& CommandList,
+		FRHITexture* InTargetFrameBuffer,
+		const ImDrawData* DrawData,
+		FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers
+	) -> void
+	{
+		check(IsInRenderingThread());
+		// Update textures
+		if (DrawData->Textures != nullptr)
+		{
+			for (ImTextureData* Tex : *DrawData->Textures)
+			{
+				if (Tex->Status != ImTextureStatus_OK)
+				{
+					ImGuiRHIImplRT_UpdateTexture(CommandList, Tex);
+				}
+			}
+		}
+
+		// Update vertex/index buffers
+		ImGuiRHIImplRT_UpdateBuffers(CommandList, DrawData, RenderBuffers);
 
 		// Render pass
 		FRHIRenderPassInfo PassInfo{};
@@ -223,20 +324,15 @@ namespace Doge::Mona::MonaImGuiBackend
 			return;
 		}
 
-		ENQUEUE_RENDER_COMMAND(RenderWindowFrame)([ViewportRHI = InViewport, DrawData](FRHICommandListImmediate& CommandList) {
+		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData](FRHICommandListImmediate& CommandList) {
 			auto& RenderBuffersCurrentFrame = GBackendState.MainWindowRenderBuffers.FrameRenderBuffers[GFrameCounterRenderThread % kFrameInFlight];
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 
 			CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
 			FTextureRHIRef BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(ViewportRHI);
-			RenderDrawData_RenderThread(CommandList, BackBuffer, DrawData, RenderBuffersCurrentFrame);
+			ImGuiRHIImplRT_RenderDrawData(CommandList, BackBuffer, DrawData, RenderBuffersCurrentFrame);
 			CommandList.EndDrawingViewport(ViewportRHI, true, false);
 		});
 	}
-
-	auto ImGuiRHIImpl_UpdateTexture(ImTextureData* TextureData) -> void
-	{
-	}
-
 
 } // namespace Doge::Mona::MonaImGuiBackend

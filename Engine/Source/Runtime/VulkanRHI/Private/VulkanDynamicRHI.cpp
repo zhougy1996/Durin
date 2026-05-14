@@ -1,10 +1,10 @@
 #include "VulkanDynamicRHI.h"
 
-#include "RHICommandList.h"
-#include "RHIContext.h"
+#include "VulkanContext.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
 #include "VulkanSubmission.h"
+#include "VulkanCommandBuffer.h"
 
 // Define the default dispatch loader storage for Vulkan-Hpp. This will allow us to load Vulkan functions at runtime.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -69,6 +69,12 @@ namespace Doge::VulkanRHI
 	auto FVulkanDynamicRHI::RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice
 	{
 		return Device->GetGpu();
+	}
+
+	auto FVulkanDynamicRHI::RHIGetVkCommandBuffer(FRHICommandListBase& RHICmdList) const -> vk::CommandBuffer
+	{
+		auto& Context = static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext());
+		return Context.GetCommandBuffer()->GetHandle();
 	}
 
 	auto FVulkanDynamicRHI::RHIBlockUntilGPUIdle() -> void

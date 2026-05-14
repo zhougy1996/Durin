@@ -395,6 +395,33 @@ namespace Doge
 		const char* DebugName = nullptr;
 	};
 
+	/** Specifies an update region for a texture */
+	struct FUpdateTextureRegion2D
+	{
+		/** offset in texture */
+		uint32 DestX = 0;
+		uint32 DestY = 0;
+
+		/** offset in source image data */
+		int32 SrcX = 0;
+		int32 SrcY = 0;
+
+		/** size of region to copy */
+		uint32 Width = 0;
+		uint32 Height = 0;
+
+		FUpdateTextureRegion2D() = default;
+		FUpdateTextureRegion2D(uint32 InDestX, uint32 InDestY, int32 InSrcX, int32 InSrcY, uint32 InWidth, uint32 InHeight)
+			: DestX(InDestX)
+			, DestY(InDestY)
+			, SrcX(InSrcX)
+			, SrcY(InSrcY)
+			, Width(InWidth)
+			, Height(InHeight)
+		{
+		}
+	};
+
 	class FRHITexture : public FRHIResource
 	{
 	public:

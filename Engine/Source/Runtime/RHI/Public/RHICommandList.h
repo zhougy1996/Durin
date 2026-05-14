@@ -46,7 +46,7 @@ namespace Doge
 
 		RHI_API auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 
-		RHI_API auto GetContext() const -> IRHICommandContext& { return *GraphicsContext; }
+		RHI_API auto GetContext() const -> IRHICommandContext&;
 
 		RHI_API auto SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void;
 

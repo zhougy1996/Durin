@@ -59,14 +59,14 @@ namespace Doge::VulkanRHI
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc)
 		: Device(InDevice)
 		, OwnerType(EImageOwnerType::LocalOwner)
+		, Format(ConvertToVulkanFormat(InCreateDesc.Format))
 	{
-		vk::Format ImageFormat = ConvertToVulkanFormat(InCreateDesc.Format);
 		vk::Extent3D ImageExtent = ConvertToExtent3D(InCreateDesc.GetSize());
 
 		vk::ImageCreateInfo imageInfo{};
 		imageInfo
 			.setImageType(vk::ImageType::e2D)
-			.setFormat(ImageFormat)
+			.setFormat(Format)
 			.setExtent(ImageExtent)
 			.setArrayLayers(InCreateDesc.ArraySize)
 			.setMipLevels(InCreateDesc.NumMips)
@@ -83,7 +83,7 @@ namespace Doge::VulkanRHI
 		vk::ImageViewCreateInfo ViewInfo;
 		ViewInfo.setImage(Image)
 			.setViewType(TextureDimensionToImageViewType(InCreateDesc.Dimension))
-			.setFormat(ImageFormat)
+			.setFormat(Format)
 			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, InCreateDesc.NumMips, 0, InCreateDesc.ArraySize));
 
 		ImageView = InDevice.GetHandle().createImageView(ViewInfo);
@@ -110,19 +110,17 @@ namespace Doge::VulkanRHI
 		return new FVulkanTexture(*Device, CreateDesc);
 	}
 
-	auto FVulkanDynamicRHI::RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, const void* Data, uint32 DataSize, uint32 RowPitch) -> void
+	auto FVulkanDynamicRHI::RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void
 	{
-		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
-		auto& Context = static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext());
-		auto* CmdBuffer = Context.GetCommandBuffer();
-		vk::CommandBuffer Cmd = CmdBuffer->GetHandle();
+		const auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
+		const auto CmdBuffer = RHIGetVkCommandBuffer(RHICmdList);
 
 		// Create staging buffer
+		const uint32 DataSize = UpdateRegion.Height * SourcePitch;
 		FStagingBuffer StagingBuffer(*Device, DataSize);
 		void* Mapped = StagingBuffer.GetMappedPointer();
-		std::memcpy(Mapped, Data, DataSize);
+		std::memcpy(Mapped, SourceData, DataSize);
 
-		// Transition image to transfer destination
 		vk::ImageMemoryBarrier PreCopyBarrier;
 		PreCopyBarrier.setSrcAccessMask(vk::AccessFlagBits::eNone)
 			.setDstAccessMask(vk::AccessFlagBits::eTransferWrite)
@@ -133,18 +131,19 @@ namespace Doge::VulkanRHI
 			.setImage(VulkanTexture->Image)
 			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, 0, 1));
 
-		Cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, PreCopyBarrier);
+		CmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, PreCopyBarrier);
 
 		// Copy buffer to image
+		uint32 ElementSize = GetFormatElementSize(VulkanTexture->Format);
 		vk::BufferImageCopy CopyRegion;
 		CopyRegion.setBufferOffset(0)
-			.setBufferRowLength(0)
+			.setBufferRowLength(SourcePitch / ElementSize)
 			.setBufferImageHeight(0)
 			.setImageSubresource(vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, MipIndex, 0, 1))
-			.setImageOffset(vk::Offset3D{0, 0, 0})
-			.setImageExtent(vk::Extent3D{VulkanTexture->GetSizeX(), VulkanTexture->GetSizeY(), 1});
+			.setImageOffset(vk::Offset3D{static_cast<int32>(UpdateRegion.DestX), static_cast<int32>(UpdateRegion.DestY), 0})
+			.setImageExtent(vk::Extent3D{UpdateRegion.Width, UpdateRegion.Height, 1});
 
-		Cmd.copyBufferToImage(StagingBuffer.GetHandle(), VulkanTexture->Image, vk::ImageLayout::eTransferDstOptimal, CopyRegion);
+		CmdBuffer.copyBufferToImage(StagingBuffer.GetHandle(), VulkanTexture->Image, vk::ImageLayout::eTransferDstOptimal, CopyRegion);
 
 		// Transition image to shader read
 		vk::ImageMemoryBarrier PostCopyBarrier;
@@ -157,6 +156,6 @@ namespace Doge::VulkanRHI
 			.setImage(VulkanTexture->Image)
 			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, 0, 1));
 
-		Cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
+		CmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
 	}
 } // namespace Doge::VulkanRHI

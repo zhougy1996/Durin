@@ -185,11 +185,6 @@ namespace Doge
 				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
 			});
 
-			ENQUEUE_RENDER_COMMAND(CreateTexture)([](FRHICommandListImmediate& CommandList) {
-				FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("TestTex", 256, 256, EPixelFormat::RGBA8_UNORM);
-				TRefCountPtr<FRHITexture> Texture = RHICreateTexture(TextureCreateDesc);
-			});
-
 			bIsReady = true;
 		}
 

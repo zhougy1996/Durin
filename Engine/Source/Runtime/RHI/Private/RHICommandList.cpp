@@ -74,6 +74,12 @@ namespace Doge
 		GetContext().RHISetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
 	}
 
+	auto FRHICommandListBase::GetContext() const -> IRHICommandContext&
+	{
+		check(GraphicsContext && "No active pipeline or pipeline not supported yet.");
+		return *GraphicsContext;
+	}
+
 	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void
 	{
 		GetContext().RHISetShaderParameters(InShader, InResourceParameters);

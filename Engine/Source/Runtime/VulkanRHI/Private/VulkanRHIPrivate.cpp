@@ -1,5 +1,7 @@
 #include "VulkanRHIPrivate.h"
 
+#include "Vulkan/utility/vk_format_utils.h"
+
 #include "VulkanDevice.h"
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"
@@ -162,6 +164,11 @@ namespace Doge::VulkanRHI
 
 		check(UsageFlags != vk::BufferUsageFlags{} || EnumHasAnyFlags(InUsage, EBufferUsageFlags::NullResource));
 		return UsageFlags;
+	}
+
+	auto GetFormatElementSize(vk::Format InFormat) -> uint32
+	{
+		return vkuFormatElementSize(static_cast<VkFormat>(InFormat));
 	}
 
 	std::atomic<uint64> GVulkanBufferHandleIdCounter = 0;

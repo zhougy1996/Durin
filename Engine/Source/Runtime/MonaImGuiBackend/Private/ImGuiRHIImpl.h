@@ -14,6 +14,4 @@ namespace Doge::Mona::MonaImGuiBackend
 
 	auto ImGuiRHIImpl_RenderDrawData(const FViewportRHIRef& InViewport, ImDrawData* DrawData) -> void;
 
-	auto ImGuiRHIImpl_UpdateTexture(ImTextureData* TextureData) -> void;
-
 }
