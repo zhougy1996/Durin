@@ -38,6 +38,7 @@ namespace Doge::VulkanRHI
 		return ShaderStages;
 	}
 
+
 	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer)
 		: Device(InDevice)
 	{
@@ -170,7 +171,7 @@ namespace Doge::VulkanRHI
 		vk::DescriptorSetLayoutCreateInfo LayoutInfo;
 		LayoutInfo.setBindings(LayoutBindings);
 
-		DescriptorSetLayout = Device.GetHandle().createDescriptorSetLayout(LayoutInfo);
+		DescriptorSetLayouts.push_back(Device.GetHandle().createDescriptorSetLayout(LayoutInfo));
 
 		std::vector<vk::PushConstantRange> PushConstantRanges;
 		for (const auto& PushConstantRange : Initializer.PushConstantRanges)
@@ -184,7 +185,7 @@ namespace Doge::VulkanRHI
 		}
 
 		vk::PipelineLayoutCreateInfo pipelineLayoutInfo;
-		pipelineLayoutInfo.setSetLayouts(DescriptorSetLayout);
+		pipelineLayoutInfo.setSetLayouts(DescriptorSetLayouts);
 		pipelineLayoutInfo.setPushConstantRanges(PushConstantRanges);
 
 		PipelineLayout = Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
@@ -219,7 +220,7 @@ namespace Doge::VulkanRHI
 		}
 
 		auto DescriptorPool = Device.GetGlobalDescriptorPool().GetHandle();
-		std::vector<vk::DescriptorSetLayout> Layouts(kFrameInFlight, DescriptorSetLayout);
+		std::vector<vk::DescriptorSetLayout> Layouts(kFrameInFlight, DescriptorSetLayouts[0]);
 		vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo;
 		DescriptorSetAllocInfo
 			.setDescriptorPool(DescriptorPool)
@@ -232,7 +233,10 @@ namespace Doge::VulkanRHI
 	{
 		ReleaseShaders();
 		DescriptorSets.clear();
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, DescriptorSetLayout);
+		for (auto& DescriptorSetLayout : DescriptorSetLayouts)
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, DescriptorSetLayout);
+		}
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
 	}
@@ -282,16 +286,16 @@ namespace Doge::VulkanRHI
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
 		vk::DescriptorBufferInfo bufferInfo{};
 		bufferInfo.setBuffer(InUniformBuffer->GetHandle())
-				  .setOffset(0)
-				  .setRange(InUniformBuffer->GetSize());
+			.setOffset(0)
+			.setRange(InUniformBuffer->GetSize());
 
 		vk::WriteDescriptorSet descriptorWrite{};
 		descriptorWrite.setDstSet(DescriptorSets[GFrameCounterRenderThread % kFrameInFlight])
-					   .setDstBinding(BindIndex)
-					   .setDstArrayElement(0)
-					   .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-					   .setDescriptorCount(1)
-					   .setBufferInfo(bufferInfo);
+			.setDstBinding(BindIndex)
+			.setDstArrayElement(0)
+			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
+			.setDescriptorCount(1)
+			.setBufferInfo(bufferInfo);
 
 		Device.GetHandle().updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
 
@@ -302,15 +306,15 @@ namespace Doge::VulkanRHI
 	{
 		vk::DescriptorImageInfo imageInfo{};
 		imageInfo.setImageView(InTexture->ImageView)
-				 .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+			.setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 
 		vk::WriteDescriptorSet descriptorWrite{};
 		descriptorWrite.setDstSet(DescriptorSets[GFrameCounterRenderThread % kFrameInFlight])
-					   .setDstBinding(BindIndex)
-					   .setDstArrayElement(0)
-					   .setDescriptorType(vk::DescriptorType::eSampledImage)
-					   .setDescriptorCount(1)
-					   .setImageInfo(imageInfo);
+			.setDstBinding(BindIndex)
+			.setDstArrayElement(0)
+			.setDescriptorType(vk::DescriptorType::eSampledImage)
+			.setDescriptorCount(1)
+			.setImageInfo(imageInfo);
 
 		Device.GetHandle().updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
 	}
@@ -322,11 +326,11 @@ namespace Doge::VulkanRHI
 
 		vk::WriteDescriptorSet descriptorWrite{};
 		descriptorWrite.setDstSet(DescriptorSets[GFrameCounterRenderThread % kFrameInFlight])
-					   .setDstBinding(BindIndex)
-					   .setDstArrayElement(0)
-					   .setDescriptorType(vk::DescriptorType::eSampler)
-					   .setDescriptorCount(1)
-					   .setImageInfo(imageInfo);
+			.setDstBinding(BindIndex)
+			.setDstArrayElement(0)
+			.setDescriptorType(vk::DescriptorType::eSampler)
+			.setDescriptorCount(1)
+			.setImageInfo(imageInfo);
 
 		Device.GetHandle().updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
 	}

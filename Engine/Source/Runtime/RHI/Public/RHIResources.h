@@ -18,6 +18,7 @@ namespace Doge
 		Texture,
 		Shader,
 		VertexDeclaration,
+		BindingSet,
 		PipelineState,
 	};
 
@@ -226,7 +227,6 @@ namespace Doge
 		FXxHash128 Hash;
 	};
 
-
 	enum class EClearBinding
 	{
 		None,  // No clear binding, the render target will not do hardware clears.
@@ -425,7 +425,7 @@ namespace Doge
 	class FRHITexture : public FRHIResource
 	{
 	public:
-		RHI_API FRHITexture()
+		FRHITexture()
 			: FRHIResource(ERHIResourceType::Texture)
 		{
 		}
@@ -440,7 +440,7 @@ namespace Doge
 	class FRHIViewport : public FRHIResource
 	{
 	public:
-		RHI_API FRHIViewport()
+		FRHIViewport()
 			: FRHIResource(ERHIResourceType::Viewport)
 		{
 		}
@@ -487,6 +487,37 @@ namespace Doge
 		uint32 Size;
 	};
 
+	struct FBindingLayoutItem
+	{
+		uint32 Slot;
+		ERHIResourceType ResourceType;
+	};
+
+	struct FBindingLayoutDesc
+	{
+		std::vector<FBindingLayoutItem> BindingLayouts;
+	};
+
+	struct FBindingSetItem
+	{
+		FRHIResource* Resource;
+		uint32 BindingSlot;
+	};
+
+	struct BindingSetDesc
+	{
+		std::vector<FBindingSetItem> Bindings;
+	};
+
+	class FRHIBindingSet : public FRHIResource
+	{
+	public:
+		FRHIBindingSet()
+			: FRHIResource(ERHIResourceType::BindingSet)
+		{
+		}
+	};
+
 	class FGraphicsPipelineStateInitializer
 	{
 	public:
@@ -499,6 +530,8 @@ namespace Doge
 		FRHIVertexDeclaration* VertexDeclaration = nullptr;
 
 		std::vector<FRHIPushConstantRange> PushConstantRanges;
+
+		std::vector<FBindingLayoutDesc> BindingLayouts;
 	};
 
 	struct FRHIBufferDesc
@@ -639,6 +672,7 @@ namespace Doge
 		}
 	};
 
+	using FBindingSetRHIRef = TRefCountPtr<FRHIBindingSet>;
 	using FVertexDeclarationRHIRef = TRefCountPtr<FRHIVertexDeclaration>;
 	using FViewportRHIRef = TRefCountPtr<FRHIViewport>;
 	using FTextureRHIRef = TRefCountPtr<FRHITexture>;

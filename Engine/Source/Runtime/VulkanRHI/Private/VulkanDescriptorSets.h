@@ -123,7 +123,6 @@ namespace Doge::VulkanRHI
 
 		auto GetHandle() const -> vk::DescriptorPool { return DescriptorPool; }
 
-
 	private:
 		FVulkanDevice* Device;
 
