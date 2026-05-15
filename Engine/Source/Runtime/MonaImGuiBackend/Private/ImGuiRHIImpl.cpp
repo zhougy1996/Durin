@@ -260,13 +260,14 @@ namespace Doge::Mona::MonaImGuiBackend
 
 		if (InTex->Status == ImTextureStatus_WantCreate || InTex->Status == ImTextureStatus_WantUpdates)
 		{
+			FRHITexture* Texture = static_cast<FRHITexture*>(InTex->BackendUserData);
 			const int UploadX = (InTex->Status == ImTextureStatus_WantCreate) ? 0 : InTex->UpdateRect.x;
 			const int UploadY = (InTex->Status == ImTextureStatus_WantCreate) ? 0 : InTex->UpdateRect.y;
 			const int UploadW = (InTex->Status == ImTextureStatus_WantCreate) ? InTex->Width : InTex->UpdateRect.w;
 			const int UploadH = (InTex->Status == ImTextureStatus_WantCreate) ? InTex->Height : InTex->UpdateRect.h;
 
 			FUpdateTextureRegion2D UpdateRegion(UploadX, UploadY, UploadX, UploadY, UploadW, UploadH);
-			GDynamicRHI->RHIUpdateTexture2D(CommandList, GBackendState.FontAtlasTexture, 0, UpdateRegion, UploadW * 4, InTex->Pixels);
+			GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, UpdateRegion, UploadW * 4, InTex->Pixels);
 
 			InTex->SetStatus(ImTextureStatus_OK);
 		}
@@ -318,7 +319,7 @@ namespace Doge::Mona::MonaImGuiBackend
 			DataToPush.Translation.x = -1.0f - DrawData->DisplayPos.x * DataToPush.Scale.x;
 			DataToPush.Translation.y = -1.0f - DrawData->DisplayPos.y * DataToPush.Scale.y;
 			CommandList.PushConstants(EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData), &DataToPush);
-			CommandList.DrawIndexed(DrawData->TotalIdxCount, 0, 0);
+			// CommandList.DrawIndexed(DrawData->TotalIdxCount, 0, 0);
 		}
 
 		CommandList.EndRenderPass();
