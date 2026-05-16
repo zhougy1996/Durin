@@ -9,11 +9,12 @@ namespace Doge::VulkanRHI
 	class FVulkanFence;
 	class FVulkanPayload;
 
-	auto ConvertToVulkanFormat(EPixelFormat InFormat) -> vk::Format;
-	auto ConvertToVulkanFormat(EVertexElementType InType) -> vk::Format;
-	auto ConvertToVulkanBufferUsageFlags(EBufferUsageFlags InUsage) -> vk::BufferUsageFlags;
+	auto ToVulkan_PixelFormat(EPixelFormat InFormat) -> vk::Format;
+	auto ToVulkan_VertexElementType(EVertexElementType InType) -> vk::Format;
+	auto ToVulkan_BufferUsageFlags(EBufferUsageFlags InUsage) -> vk::BufferUsageFlags;
 
-	auto ConvertToVulkanType(EShaderStageFlags InFlags) -> vk::ShaderStageFlags;
+	auto ToVulkan_ShaderStageFlags(EShaderStageFlags InFlags) -> vk::ShaderStageFlags;
+	auto ToVulkan_RHIBindingType(ERHIBindingType InType) -> vk::DescriptorType;
 
 	auto GetFormatElementSize(vk::Format InFormat) -> uint32;
 

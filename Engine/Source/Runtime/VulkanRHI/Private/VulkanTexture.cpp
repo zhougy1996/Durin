@@ -59,7 +59,7 @@ namespace Doge::VulkanRHI
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc)
 		: Device(InDevice)
 		, OwnerType(EImageOwnerType::LocalOwner)
-		, Format(ConvertToVulkanFormat(InCreateDesc.Format))
+		, Format(ToVulkan_PixelFormat(InCreateDesc.Format))
 	{
 		vk::Extent3D ImageExtent = ConvertToExtent3D(InCreateDesc.GetSize());
 

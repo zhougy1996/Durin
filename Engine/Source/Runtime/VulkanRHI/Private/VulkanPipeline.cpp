@@ -38,6 +38,27 @@ namespace Doge::VulkanRHI
 		return ShaderStages;
 	}
 
+	static auto CreateDescriptorSetLayout(FVulkanDevice& Device, const FBindingLayoutDesc& InDesc) -> vk::DescriptorSetLayout
+	{
+		vk::DescriptorSetLayoutCreateInfo LayoutInfo;
+
+		std::vector<vk::DescriptorSetLayoutBinding> Bindings;
+
+		for (const auto& Item : InDesc.BindingLayouts)
+		{
+			vk::DescriptorSetLayoutBinding Binding;
+			Binding
+				.setStageFlags(ToVulkan_ShaderStageFlags(Item.StageFlags))
+				.setBinding(Item.Slot)
+				.setDescriptorCount(Item.ArraySize)
+				.setDescriptorType(ToVulkan_RHIBindingType(Item.Type));
+
+			Bindings.push_back(Binding);
+		}
+		LayoutInfo.setBindings(Bindings);
+
+		return Device.GetHandle().createDescriptorSetLayout(LayoutInfo);
+	}
 
 	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer)
 		: Device(InDevice)
@@ -45,7 +66,7 @@ namespace Doge::VulkanRHI
 		// TODO: Correctly set the render pass
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
 
-		vk::Format VkFormat = ConvertToVulkanFormat(Initializer.PixelFormat);
+		vk::Format VkFormat = ToVulkan_PixelFormat(Initializer.PixelFormat);
 		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat);
 
 		std::vector<vk::PipelineShaderStageCreateInfo> ShaderStages = MakeShaderStageCreateInfos(Initializer.BoundShaders);
@@ -93,7 +114,7 @@ namespace Doge::VulkanRHI
 			AttributeDescription
 				.setLocation(Element.AttributeIndex)
 				.setBinding(Element.StreamIndex)
-				.setFormat(ConvertToVulkanFormat(Element.Type))
+				.setFormat(ToVulkan_VertexElementType(Element.Type))
 				.setOffset(Element.Offset);
 
 			AttributeDescriptions.push_back(AttributeDescription);
@@ -152,33 +173,17 @@ namespace Doge::VulkanRHI
 			.setAttachments(ColorBlendAttachment)
 			.setBlendConstants({0.0f, 0.0f, 0.0f, 0.0f});
 
-		std::vector<vk::DescriptorSetLayoutBinding> LayoutBindings;
-
-		vk::DescriptorSetLayoutBinding ImageLayoutBinding;
-		ImageLayoutBinding.setBinding(0)
-			.setDescriptorType(vk::DescriptorType::eSampledImage)
-			.setStageFlags(vk::ShaderStageFlagBits::eFragment)
-			.setDescriptorCount(1);
-		LayoutBindings.push_back(ImageLayoutBinding);
-
-		vk::DescriptorSetLayoutBinding SamplerLayoutBinding;
-		SamplerLayoutBinding.setBinding(1)
-			.setDescriptorType(vk::DescriptorType::eSampler)
-			.setStageFlags(vk::ShaderStageFlagBits::eFragment)
-			.setDescriptorCount(1);
-		LayoutBindings.push_back(SamplerLayoutBinding);
-
-		vk::DescriptorSetLayoutCreateInfo LayoutInfo;
-		LayoutInfo.setBindings(LayoutBindings);
-
-		DescriptorSetLayouts.push_back(Device.GetHandle().createDescriptorSetLayout(LayoutInfo));
+		for (const auto& BindingLayoutDesc : Initializer.BindingLayouts)
+		{
+			DescriptorSetLayouts.push_back(CreateDescriptorSetLayout(Device, BindingLayoutDesc));
+		}
 
 		std::vector<vk::PushConstantRange> PushConstantRanges;
 		for (const auto& PushConstantRange : Initializer.PushConstantRanges)
 		{
 			vk::PushConstantRange NewPushConstantRange;
 			NewPushConstantRange
-				.setStageFlags(ConvertToVulkanType(PushConstantRange.StageFlags))
+				.setStageFlags(ToVulkan_ShaderStageFlags(PushConstantRange.StageFlags))
 				.setOffset(PushConstantRange.Offset)
 				.setSize(PushConstantRange.Size);
 			PushConstantRanges.push_back(NewPushConstantRange);
@@ -278,7 +283,7 @@ namespace Doge::VulkanRHI
 	auto FVulkanGraphicsPipelineState::PushConstants(FVulkanCommandListContext& InContext, EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* pValues) const -> void
 	{
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
-		CmdBuffer->GetHandle().pushConstants(PipelineLayout, ConvertToVulkanType(StageFlags), Offset, Size, pValues);
+		CmdBuffer->GetHandle().pushConstants(PipelineLayout, ToVulkan_ShaderStageFlags(StageFlags), Offset, Size, pValues);
 	}
 
 	auto FVulkanGraphicsPipelineState::SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void

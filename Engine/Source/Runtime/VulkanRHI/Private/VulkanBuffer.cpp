@@ -50,7 +50,7 @@ namespace Doge::VulkanRHI
 	{
 		vk::BufferCreateInfo BufferInfo;
 		BufferInfo.setSize(InCreateDesc.Size);
-		BufferInfo.setUsage(ConvertToVulkanBufferUsageFlags(InCreateDesc.Usage));
+		BufferInfo.setUsage(ToVulkan_BufferUsageFlags(InCreateDesc.Usage));
 		BufferInfo.setSharingMode(vk::SharingMode::eExclusive);
 
 		EVulkanAllocationFlags AllocFlags{};

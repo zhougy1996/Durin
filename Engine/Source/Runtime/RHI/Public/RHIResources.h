@@ -22,6 +22,13 @@ namespace Doge
 		PipelineState,
 	};
 
+	enum class ERHIBindingType : uint8
+	{
+		UniformBuffer,
+		Texture,
+		Sampler,
+	};
+
 	class FRHIResource
 	{
 	public:
@@ -489,8 +496,18 @@ namespace Doge
 
 	struct FBindingLayoutItem
 	{
-		uint32 Slot;
-		ERHIResourceType ResourceType;
+		EShaderStageFlags StageFlags;
+		uint32 Slot = 0;
+		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
+		uint32 ArraySize = 1;
+
+		FBindingLayoutItem(EShaderStageFlags InStageFlags, uint32 InSlot, ERHIBindingType InType, uint32 InArraySize = 1)
+			: StageFlags(InStageFlags)
+			, Slot(InSlot)
+			, Type(InType)
+			, ArraySize(InArraySize)
+		{
+		}
 	};
 
 	struct FBindingLayoutDesc

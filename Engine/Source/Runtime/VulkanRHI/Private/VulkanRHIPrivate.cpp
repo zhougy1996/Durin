@@ -87,14 +87,14 @@ namespace Doge::VulkanRHI
 		{EPixelFormat::BC7_UNORM_SRGB, vk::Format::eBc7SrgbBlock},
 	}};
 
-	auto ConvertToVulkanFormat(EPixelFormat InFormat) -> vk::Format
+	auto ToVulkan_PixelFormat(EPixelFormat InFormat) -> vk::Format
 	{
 		check(InFormat < EPixelFormat::Count);
 		check(VulkanFormatMap[static_cast<uint32>(InFormat)].RhiFormat == InFormat);
 		return VulkanFormatMap[static_cast<uint32>(InFormat)].VulkanFormat;
 	}
 
-	auto ConvertToVulkanFormat(EVertexElementType InType) -> vk::Format
+	auto ToVulkan_VertexElementType(EVertexElementType InType) -> vk::Format
 	{
 		switch (InType)
 		{
@@ -122,7 +122,7 @@ namespace Doge::VulkanRHI
 		}
 	}
 
-	auto ConvertToVulkanBufferUsageFlags(EBufferUsageFlags InUsage) -> vk::BufferUsageFlags
+	auto ToVulkan_BufferUsageFlags(EBufferUsageFlags InUsage) -> vk::BufferUsageFlags
 	{
 		vk::BufferUsageFlags UsageFlags{};
 
@@ -166,7 +166,7 @@ namespace Doge::VulkanRHI
 		return UsageFlags;
 	}
 
-	auto ConvertToVulkanType(EShaderStageFlags InFlags) -> vk::ShaderStageFlags
+	auto ToVulkan_ShaderStageFlags(EShaderStageFlags InFlags) -> vk::ShaderStageFlags
 	{
 		vk::ShaderStageFlags Result;
 		if (EnumHasAnyFlags(InFlags, EShaderStageFlags::Vertex))
@@ -186,6 +186,19 @@ namespace Doge::VulkanRHI
 			Result |= vk::ShaderStageFlagBits::eCompute;
 		}
 		return Result;
+	}
+
+	auto ToVulkan_RHIBindingType(ERHIBindingType InType) -> vk::DescriptorType
+	{
+		switch (InType)
+		{
+		case ERHIBindingType::UniformBuffer: return vk::DescriptorType::eUniformBuffer;
+		case ERHIBindingType::Texture: return vk::DescriptorType::eSampledImage;
+		case ERHIBindingType::Sampler: return vk::DescriptorType::eSampler;
+		default:
+			DOGE_ERROR("Unknown binding type: {}", static_cast<int>(InType));
+			return vk::DescriptorType::eUniformBuffer;
+		}
 	}
 
 	auto GetFormatElementSize(vk::Format InFormat) -> uint32

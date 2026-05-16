@@ -127,6 +127,14 @@ namespace Doge::Mona::MonaImGuiBackend
 			Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
 
 			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
+
+			FBindingLayoutDesc LayoutDesc;
+			LayoutDesc.BindingLayouts = {
+				FBindingLayoutItem{EShaderStageFlags::Fragment, 0, ERHIBindingType::Texture},
+				FBindingLayoutItem{EShaderStageFlags::Fragment, 1, ERHIBindingType::Sampler}
+			};
+			Initializer.BindingLayouts = {LayoutDesc};
+
 			Initializer.PushConstantRanges = {
 				FRHIPushConstantRange{EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData)}
 			};
