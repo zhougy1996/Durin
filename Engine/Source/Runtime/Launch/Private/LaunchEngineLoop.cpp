@@ -27,10 +27,6 @@ namespace Doge
 {
 	FEngineLoop GEngineLoop;
 
-	bool GEnableTestRender = true;
-
-	constexpr auto DLLModuleDependencies = std::array{"MainFrame"};
-
 	auto FEngineLoop::PreInit() -> void
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -53,221 +49,6 @@ namespace Doge
 		DObjectInit();
 	}
 
-	struct FPipelineData
-	{
-		FName PipelineName;
-		std::vector<std::vector<uint32>> CompiledCodes;
-	};
-
-	struct FTestRenderProxy
-	{
-		FVertexDeclarationRHIRef VertexDeclaration;
-		FBufferRHIRef VertexPositionBuffer;
-		FBufferRHIRef VertexColorBuffer;
-		FBufferRHIRef IndexBuffer;
-
-		FShaderRHIRef VertexShader;
-		FShaderRHIRef PixelShader;
-
-		std::vector<FBufferRHIRef> UniformBuffers;
-
-		std::vector<Asset::FTestAssetData> TestAssetDatas;
-	};
-
-	struct FTestUniformBufferObject
-	{
-		glm::mat4 Model;
-		glm::mat4 View;
-		glm::mat4 Proj;
-	};
-
-	FTestRenderProxy GTestRenderProxy; // Render thread data that will be used to store render resources, and other data that can only be accessed from render thread
-
-	class FTestRenderData
-	{
-	public:
-		auto Prepare() -> void
-		{
-			std::string ShaderName = "/Engine/Test";
-			std::string ShaderSourceFilePath = FShaderPaths::SourcePath(ShaderName);
-			FShaderCompileOptions CompileOptions;
-			CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
-			if (FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(ShaderSourceFilePath, CompileOptions))
-			{
-				PipelineData.CompiledCodes = std::move(CompileResult.Codes);
-			}
-
-			PipelineData.PipelineName = "TestPipeline";
-
-			auto& App = Mona::FMonaApplication::Get();
-			const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
-			const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
-			FViewportRHIRef Viewport = Renderer->GetRHIViewport(*MainWindow);
-
-			// Prepare data before creating render resources, because we need to compile shaders and load assets on the main thread
-			std::string TestAssetFilePath = FPaths::Resolve("/Engine/Test/teapot.obj");
-			Asset::ImportFromFile(TestAssetFilePath, GTestRenderProxy.TestAssetDatas);
-
-			// Normal to color
-			for (auto& AssetData : GTestRenderProxy.TestAssetDatas)
-			{
-				AssetData.Colors.reserve(AssetData.Normals.size());
-				for (const auto& Normal : AssetData.Normals)
-				{
-					glm::vec3 Color = (Normal + glm::vec3(1.0f)) * 0.5f; // Map normal from [-1, 1] to [0, 1] for visualization
-					AssetData.Colors.push_back(Color);
-				}
-			}
-
-			// Create pipeline
-			FPipelineData LocalPipelineData = PipelineData;
-			ENQUEUE_RENDER_COMMAND(Pipeline)([Viewport, LocalPipelineData](FRHICommandListImmediate& CommandList) {
-				FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("TestVertexShader", LocalPipelineData.CompiledCodes[0], {});
-				GTestRenderProxy.VertexShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
-
-				FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("TestPixelShader", LocalPipelineData.CompiledCodes[1], {});
-				GTestRenderProxy.PixelShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
-
-				FVertexDeclarationElementList VertexDeclElements;
-				VertexDeclElements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, sizeof(glm::vec3));
-				VertexDeclElements[1] = FVertexElement(1, 0, EVertexElementType::Float3, 1, sizeof(glm::vec3));
-				GTestRenderProxy.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
-
-				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderPassName = "TestRenderPass";
-				Initializer.BoundShaders.VertexShader = GTestRenderProxy.VertexShader;
-				Initializer.BoundShaders.PixelShader = GTestRenderProxy.PixelShader;
-				Initializer.VertexDeclaration = GTestRenderProxy.VertexDeclaration;
-
-				Initializer.PixelFormat = Viewport->GetFormat();
-				GDynamicRHI->RHICreateGraphicsPipelineState(LocalPipelineData.PipelineName, Initializer);
-				CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-			});
-
-			ENQUEUE_RENDER_COMMAND(CreateVertexBuffer)([](FRHICommandListImmediate& CommandList) {
-				{
-					const auto& TestVertices = GTestRenderProxy.TestAssetDatas[0].Positions;
-					uint32 BufferSize = TestVertices.size() * sizeof(glm::vec3);
-					FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestPositionVertexBuffer", BufferSize);
-					BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
-					BufferCreateDesc.InitialData = FResourceArrayUploadInfo{&TestVertices[0], BufferSize};
-
-					GTestRenderProxy.VertexPositionBuffer = RHICreateBuffer(BufferCreateDesc);
-				}
-
-				{
-					const auto& TestColors = GTestRenderProxy.TestAssetDatas[0].Colors;
-					uint32 BufferSize = TestColors.size() * sizeof(glm::vec3);
-					FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("TestVertexColorBuffer", BufferSize);
-					BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer;
-					BufferCreateDesc.InitialData = FResourceArrayUploadInfo{&TestColors[0], BufferSize};
-
-					GTestRenderProxy.VertexColorBuffer = RHICreateBuffer(BufferCreateDesc);
-				}
-			});
-
-			ENQUEUE_RENDER_COMMAND(CreateIndexBuffer)([](FRHICommandListImmediate& CommandList) {
-				const auto& TestIndices = GTestRenderProxy.TestAssetDatas[0].Indices;
-				uint32 BufferSize = TestIndices.size() * sizeof(uint32);
-
-				FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::CreateIndex("TestIndexBuffer", BufferSize, sizeof(uint32));
-				BufferCreateDesc.Usage = EBufferUsageFlags::Static | EBufferUsageFlags::IndexBuffer;
-				BufferCreateDesc.InitialData = FResourceArrayUploadInfo{&TestIndices[0], BufferSize};
-
-				GTestRenderProxy.IndexBuffer = RHICreateBuffer(BufferCreateDesc);
-			});
-
-			ENQUEUE_RENDER_COMMAND(CreateUniformBuffers)([](FRHICommandListImmediate& CommandList) {
-				FRHIBufferCreateDesc BufferCreateDesc = FRHIBufferCreateDesc::Create("TestUniformBuffer", EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Dynamic);
-				BufferCreateDesc.Size = sizeof(FTestUniformBufferObject);
-
-				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
-				GTestRenderProxy.UniformBuffers.push_back(RHICreateBuffer(BufferCreateDesc));
-			});
-
-			bIsReady = true;
-		}
-
-		auto Render() -> void
-		{
-			auto& App = Mona::FMonaApplication::Get();
-			const auto Renderer = dynamic_cast<Mona::FMonaRHIRenderer*>(App.GetRenderer());
-			const std::shared_ptr<Mona::MWindow> MainWindow = App.GetActiveTopLevelWindow();
-			if (!MainWindow || MainWindow->IsMinimized())
-			{
-				return;
-			}
-			TRefCountPtr<FRHIViewport> SharedViewport = Renderer->GetRHIViewport(*MainWindow);
-
-			ENQUEUE_RENDER_COMMAND(TestDrawTriangle)([SharedViewport](FRHICommandListImmediate& CommandList) {
-				CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-
-				FRHIViewport* Viewport = SharedViewport.GetReference();
-				// Draw viewport
-				// Wait submit fence before acquiring image
-				CommandList.BeginDrawingViewport(Viewport, nullptr);
-
-				// Acquire image
-				TRefCountPtr<FRHITexture> BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
-
-				FRHIRenderPassInfo PassInfo{};
-				PassInfo.ColorRenderTargets[0] = BackBuffer.GetReference();
-
-				CommandList.BeginRenderPass(PassInfo, "TestRenderPass");
-
-				CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("TestPipeline"));
-
-				auto Width = BackBuffer->GetSizeX();
-				auto Height = BackBuffer->GetSizeY();
-				CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
-
-				FRHIShaderParameterResource ShaderParameterResource;
-				ShaderParameterResource.Type = FRHIShaderParameterResource::EType::UniformBuffer;
-				ShaderParameterResource.SetIndex = 0;
-				ShaderParameterResource.BindIndex = 0;
-				ShaderParameterResource.Resource = GTestRenderProxy.UniformBuffers[GFrameCounterRenderThread % GTestRenderProxy.UniformBuffers.size()];
-
-				double DeltaTime = FTime::Seconds() - GStartTime;
-				FTestUniformBufferObject TmpUBO;
-				TmpUBO.Model = rotate(glm::mat4(1.0f), glm::radians(50.0f * static_cast<float>(DeltaTime)), glm::vec3(0.0f, 0.0f, 1.0f));
-				TmpUBO.View = glm::mat4(1.0f);
-				TmpUBO.Proj = glm::mat4(1.0f);
-
-				CommandList.UpdateUniformBuffer(GTestRenderProxy.UniformBuffers[GFrameCounterRenderThread % GTestRenderProxy.UniformBuffers.size()], &TmpUBO, sizeof(FTestUniformBufferObject), 0);
-
-				std::vector<FRHIShaderParameterResource> ShaderParameterResources = {ShaderParameterResource};
-				CommandList.SetShaderParameters(GTestRenderProxy.VertexShader, ShaderParameterResources);
-				CommandList.BindVertexBuffer(0, GTestRenderProxy.VertexPositionBuffer, 0);
-				CommandList.BindVertexBuffer(1, GTestRenderProxy.VertexColorBuffer, 0);
-				CommandList.BindIndexBuffer(GTestRenderProxy.IndexBuffer, 0);
-				// Draw call
-				if (GEnableTestRender)
-				{
-					CommandList.DrawIndexed(GTestRenderProxy.TestAssetDatas[0].Indices.size(), 0, 0);
-				}
-
-				CommandList.EndRenderPass();
-
-				// End drawing viewport and present
-				CommandList.EndDrawingViewport(Viewport, true, false);
-			});
-		}
-
-		auto IsReady() const -> bool { return bIsReady; }
-
-		auto Release()
-		{
-			bIsReady = false;
-		}
-
-	private:
-		FPipelineData PipelineData;
-
-		bool bIsReady = false;
-	};
-
-	FTestRenderData GTestRenderData; // Main thread data that will be used to prepare and submit render commands
-
 	auto FEngineLoop::Init() -> void
 	{
 		ApplicationInit();
@@ -278,8 +59,6 @@ namespace Doge
 		// Create engine instance, this is just for testing, we should have a more robust engine initialization process
 		GEngine = new DEngine();
 		GEngine->Init();
-
-		GEnableTestRender = GAppConfig.GetBoolValue("EnableTestRender", true);
 
 		InitRenderingThread();
 		DOGE_INFO(STR("Doge engine initialized."));
@@ -312,10 +91,7 @@ namespace Doge
 		// Process application events, and paint UI.
 		Mona::FMonaApplication::Get().Tick();
 
-		if (GIsRequestingExit)
-		{
-			return;
-		}
+		if (GIsRequestingExit) return;
 
 		Mona::NewFrame();
 
@@ -338,19 +114,12 @@ namespace Doge
 
 	auto FEngineLoop::Exit() -> void
 	{
-		ENQUEUE_RENDER_COMMAND(ReleaseTestProxy)([](FRHICommandListImmediate& RHICmdList) {
-			GTestRenderProxy.VertexPositionBuffer = nullptr;
-			GTestRenderProxy.VertexColorBuffer = nullptr;
-			GTestRenderProxy.IndexBuffer = nullptr;
-			GTestRenderProxy.VertexShader = nullptr;
-			GTestRenderProxy.PixelShader = nullptr;
-			GTestRenderProxy.UniformBuffers.clear();
-		});
-
 		ShutdownRenderingThread();
-		// TODO: this is just for testing, we should have a more robust shutdown process
+
 		delete GEngine;
+
 		Mona::MonaShutdown();
+
 		GDynamicRHI->Shutdown();
 
 		FModuleManager::Get().UnloadModulesAtShutdown();
