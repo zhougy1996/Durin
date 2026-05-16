@@ -6,6 +6,8 @@
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"
 
+#include "VulkanDescriptorSets.h"
+
 // Define the default dispatch loader storage for Vulkan-Hpp. This will allow us to load Vulkan functions at runtime.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
@@ -40,6 +42,7 @@ namespace Doge::VulkanRHI
 	{
 		FVulkanFrame& Frame = Device->GetCurrentFrame();
 		Frame.Prepare();
+		Device->GetGlobalDescriptorPool().ResetPoolsForCurrentFrame();
 	}
 
 	auto FVulkanDynamicRHI::RHIEndFrame() -> void

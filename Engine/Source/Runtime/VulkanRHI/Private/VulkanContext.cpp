@@ -122,7 +122,26 @@ namespace Doge::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
-		PendingGfxPipelineState->SetUniformBuffer(*this, InShader, InResourceParameters[0].SetIndex, InResourceParameters[0].BindIndex, static_cast<FVulkanBuffer*>(InResourceParameters[0].Resource));
+		for (const auto& ResourceParameter : InResourceParameters)
+		{
+			if (ResourceParameter.Resource == nullptr)
+			{
+				continue;
+			}
+
+			switch (ResourceParameter.Type)
+			{
+			case FRHIShaderParameterResource::EType::UniformBuffer:
+				PendingGfxPipelineState->SetUniformBuffer(*this, InShader, ResourceParameter.SetIndex, ResourceParameter.BindIndex, static_cast<FVulkanBuffer*>(ResourceParameter.Resource));
+				break;
+			case FRHIShaderParameterResource::EType::Texture:
+				PendingGfxPipelineState->SetTexture(*this, ResourceParameter.SetIndex, ResourceParameter.BindIndex, static_cast<FVulkanTexture*>(ResourceParameter.Resource));
+				break;
+			default:
+				checkf(false, "Unsupported shader parameter resource type: {}", static_cast<uint32>(ResourceParameter.Type));
+				break;
+			}
+		}
 	}
 
 	auto FVulkanCommandListContext::RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void

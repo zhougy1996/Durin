@@ -35,9 +35,10 @@ namespace Doge::VulkanRHI
 
 		auto SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void;
 
-		auto SetTexture(FVulkanCommandListContext& InContext, uint32 BindIndex, FVulkanTexture* InTexture) -> void;
+		auto SetTexture(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, FVulkanTexture* InTexture) -> void;
 
-		auto SetSampler(FVulkanCommandListContext& InContext, uint32 BindIndex, vk::Sampler InSampler) -> void;
+		auto SetSampler(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, vk::Sampler InSampler) -> void;
+
 
 	protected:
 		const FVulkanRenderPass* RenderPass = nullptr;
@@ -47,6 +48,8 @@ namespace Doge::VulkanRHI
 		auto KeepShadersAlive() -> void;
 
 		auto ReleaseShaders() -> void;
+
+		auto PrepareDescriptorSets() -> void;
 
 		FVulkanDevice& Device;
 
@@ -62,9 +65,13 @@ namespace Doge::VulkanRHI
 
 		vk::PipelineLayout PipelineLayout;
 
-		std::vector<vk::DescriptorSet> DescriptorSets; // TODO: cache and share
-
 		vk::Pipeline Pipeline;
+
+		std::vector<vk::WriteDescriptorSet> DescriptorWrites;
+
+		std::vector<vk::DescriptorSet> DescriptorSets;
+
+		uint64 DescriptorSetsFrameCounter = UINT64_MAX;
 
 		friend class FVulkanGraphicsPipelineState;
 		friend class FVulkanPipelineManager;

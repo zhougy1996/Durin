@@ -82,6 +82,32 @@ namespace Doge::VulkanRHI
 	FVulkanGlobalDescriptorPool::FVulkanGlobalDescriptorPool(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{
+		for (uint32 i = 0; i < kFrameInFlight; ++i)
+		{
+			Pools[i] = CreatePool();
+		}
+	}
+
+	FVulkanGlobalDescriptorPool::~FVulkanGlobalDescriptorPool()
+	{
+		for (const auto& Pool : Pools)
+		{
+			Device.GetHandle().destroyDescriptorPool(Pool);
+		}
+	}
+
+	auto FVulkanGlobalDescriptorPool::GetPool() const -> vk::DescriptorPool
+	{
+		return Pools[GFrameCounterRenderThread % Pools.size()];
+	}
+
+	auto FVulkanGlobalDescriptorPool::ResetPoolsForCurrentFrame() const -> void
+	{
+		Device.GetHandle().resetDescriptorPool(Pools[GFrameCounterRenderThread % Pools.size()]);
+	}
+
+	auto FVulkanGlobalDescriptorPool::CreatePool() -> vk::DescriptorPool
+	{
 		constexpr auto MaxSets = 256;
 
 		std::vector<vk::DescriptorPoolSize> PoolSizes;
@@ -95,12 +121,6 @@ namespace Doge::VulkanRHI
 			.setMaxSets(MaxSets)
 			.setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet);
 
-		DescriptorPool = Device.GetHandle().createDescriptorPool(DescriptorPoolCreateInfo);
+		return Device.GetHandle().createDescriptorPool(DescriptorPoolCreateInfo);
 	}
-
-	FVulkanGlobalDescriptorPool::~FVulkanGlobalDescriptorPool()
-	{
-		// Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorPool, DescriptorPool);
-		Device.GetHandle().destroyDescriptorPool(DescriptorPool);
-	}
-}
+} // namespace Doge::VulkanRHI

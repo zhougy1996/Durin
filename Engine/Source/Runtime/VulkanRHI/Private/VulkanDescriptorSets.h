@@ -1,4 +1,5 @@
 #pragma once
+#include <VulkanDevice.h>
 
 namespace Doge::VulkanRHI
 {
@@ -152,12 +153,16 @@ namespace Doge::VulkanRHI
 
 		~FVulkanGlobalDescriptorPool();
 
-		auto GetHandle() const -> vk::DescriptorPool { return DescriptorPool; }
+		auto GetPool() const -> vk::DescriptorPool;
+
+		auto ResetPoolsForCurrentFrame() const -> void;
 
 	private:
+		auto CreatePool() -> vk::DescriptorPool;
+
 		FVulkanDevice& Device;
 
-		vk::DescriptorPool DescriptorPool;
+		std::array<vk::DescriptorPool, kFrameInFlight> Pools;
 	};
 }
 
