@@ -70,21 +70,6 @@ namespace Doge::Mona::MonaImGuiBackend
 
 	static FImGuiRHIImplRT_BackendState GBackendState;
 
-	static auto ImGuiRHIImpl_CreateFontAtlasTexture() -> void
-	{
-		ImGuiIO& IO = ImGui::GetIO();
-		unsigned char* FontPixels = nullptr;
-		int FontWidth = 0, FontHeight = 0;
-		IO.Fonts->GetTexDataAsRGBA32(&FontPixels, &FontWidth, &FontHeight);
-
-		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([FontWidth, FontHeight, FontPixels](FRHICommandListImmediate& CommandList) {
-			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiFontAtlas", FontWidth, FontHeight, EPixelFormat::RGBA8_UNORM);
-			GBackendState.FontAtlasTexture = RHICreateTexture(TextureCreateDesc);
-			FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, FontWidth, FontHeight);
-			GDynamicRHI->RHIUpdateTexture2D(CommandList, GBackendState.FontAtlasTexture, 0, UpdateRegion, FontWidth * 4, FontPixels);
-		});
-	}
-
 	static auto ImGuiRHIImpl_CreateMainPipeline()
 	{
 		// Compile shaders
@@ -146,7 +131,6 @@ namespace Doge::Mona::MonaImGuiBackend
 		ENQUEUE_RENDER_COMMAND(SwitchPipeline)([](FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 		});
-		ImGuiRHIImpl_CreateFontAtlasTexture();
 		ImGuiRHIImpl_CreateMainPipeline();
 	}
 
@@ -319,6 +303,21 @@ namespace Doge::Mona::MonaImGuiBackend
 		{
 			CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
 			CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
+
+			FRHIShaderParameterResource Binding_0_0;
+			Binding_0_0.Type = FRHIShaderParameterResource::EType::Texture;
+			Binding_0_0.SetIndex = 0;
+			Binding_0_0.BindIndex = 0;
+			Binding_0_0.Resource = GBackendState.FontAtlasTexture;
+
+			// FRHIShaderParameterResource Binding_0_1;
+			// Binding_0_1.Type = FRHIShaderParameterResource::EType::Texture;
+			// Binding_0_1.SetIndex = 0;
+			// Binding_0_1.BindIndex = 1;
+			// Binding_0_1.Resource = nullptr; //TODO: sampler
+
+			// std::vector<FRHIShaderParameterResource> ShaderParameters = {Binding_0_0};
+			// CommandList.SetShaderParameters(GBackendState.PixelShader, ShaderParameters);
 
 			FImGuiRHIImpl_ConstantBufferData DataToPush;
 			DataToPush.Scale.x = 2.0f / DrawData->DisplaySize.x;
