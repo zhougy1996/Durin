@@ -128,15 +128,14 @@ namespace Doge::Mona::MonaImGuiBackend
 
 			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
 
-			FBindingLayoutDesc LayoutDesc;
-			LayoutDesc.BindingLayouts = {
+			FBindingLayout Set_0;
+			Set_0.BindingLayouts = {
 				FBindingLayoutItem{EShaderStageFlags::Fragment, 0, ERHIBindingType::Texture},
 				FBindingLayoutItem{EShaderStageFlags::Fragment, 1, ERHIBindingType::Sampler}
 			};
-			Initializer.BindingLayouts = {LayoutDesc};
-
-			Initializer.PushConstantRanges = {
-				FRHIPushConstantRange{EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData)}
+			Initializer.PipelineLayout.BindingLayouts.push_back(Set_0);
+			Initializer.PipelineLayout.PushConstantRanges = {
+				FPushConstantRange{EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData)}
 			};
 			GDynamicRHI->RHICreateGraphicsPipelineState("ImGuiMainPipeline", Initializer);
 		});

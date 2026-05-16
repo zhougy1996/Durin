@@ -38,7 +38,7 @@ namespace Doge::VulkanRHI
 		return ShaderStages;
 	}
 
-	static auto CreateDescriptorSetLayout(FVulkanDevice& Device, const FBindingLayoutDesc& InDesc) -> vk::DescriptorSetLayout
+	static auto CreateDescriptorSetLayout(FVulkanDevice& Device, const FBindingLayout& InDesc) -> vk::DescriptorSetLayout
 	{
 		vk::DescriptorSetLayoutCreateInfo LayoutInfo;
 
@@ -58,6 +58,22 @@ namespace Doge::VulkanRHI
 		LayoutInfo.setBindings(Bindings);
 
 		return Device.GetHandle().createDescriptorSetLayout(LayoutInfo);
+	}
+
+	static auto CreatePushConstantRanges(const FPipelineLayoutDesc Desc) -> std::vector<vk::PushConstantRange>
+	{
+		std::vector<vk::PushConstantRange> Ranges;
+		for (const auto& RangeDesc : Desc.PushConstantRanges)
+		{
+			vk::PushConstantRange Range;
+			Range
+				.setStageFlags(ToVulkan_ShaderStageFlags(RangeDesc.StageFlags))
+				.setOffset(RangeDesc.Offset)
+				.setSize(RangeDesc.Size);
+
+			Ranges.push_back(Range);
+		}
+		return Ranges;
 	}
 
 	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer)
@@ -173,21 +189,14 @@ namespace Doge::VulkanRHI
 			.setAttachments(ColorBlendAttachment)
 			.setBlendConstants({0.0f, 0.0f, 0.0f, 0.0f});
 
-		for (const auto& BindingLayoutDesc : Initializer.BindingLayouts)
+		// Create pipeline layout
+		const uint32 DescriptorSetCount = BindingDescriptions.size();
+		DescriptorSetLayouts.reserve(DescriptorSetCount);
+		for (const auto& BindingLayoutDesc : Initializer.PipelineLayout.BindingLayouts)
 		{
 			DescriptorSetLayouts.push_back(CreateDescriptorSetLayout(Device, BindingLayoutDesc));
 		}
-
-		std::vector<vk::PushConstantRange> PushConstantRanges;
-		for (const auto& PushConstantRange : Initializer.PushConstantRanges)
-		{
-			vk::PushConstantRange NewPushConstantRange;
-			NewPushConstantRange
-				.setStageFlags(ToVulkan_ShaderStageFlags(PushConstantRange.StageFlags))
-				.setOffset(PushConstantRange.Offset)
-				.setSize(PushConstantRange.Size);
-			PushConstantRanges.push_back(NewPushConstantRange);
-		}
+		std::vector<vk::PushConstantRange> PushConstantRanges = CreatePushConstantRanges(Initializer.PipelineLayout);
 
 		vk::PipelineLayoutCreateInfo pipelineLayoutInfo;
 		pipelineLayoutInfo.setSetLayouts(DescriptorSetLayouts);

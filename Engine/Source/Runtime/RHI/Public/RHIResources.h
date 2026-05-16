@@ -487,7 +487,7 @@ namespace Doge
 		FRHIShader* PixelShader = nullptr;
 	};
 
-	struct FRHIPushConstantRange
+	struct FPushConstantRange
 	{
 		EShaderStageFlags StageFlags;
 		uint32 Offset;
@@ -510,9 +510,15 @@ namespace Doge
 		}
 	};
 
-	struct FBindingLayoutDesc
+	struct FBindingLayout
 	{
 		std::vector<FBindingLayoutItem> BindingLayouts;
+	};
+
+	struct FPipelineLayoutDesc
+	{
+		std::vector<FBindingLayout> BindingLayouts;
+		std::vector<FPushConstantRange> PushConstantRanges;
 	};
 
 	struct FBindingSetItem
@@ -546,9 +552,7 @@ namespace Doge
 
 		FRHIVertexDeclaration* VertexDeclaration = nullptr;
 
-		std::vector<FRHIPushConstantRange> PushConstantRanges;
-
-		std::vector<FBindingLayoutDesc> BindingLayouts;
+		FPipelineLayoutDesc PipelineLayout;
 	};
 
 	struct FRHIBufferDesc
