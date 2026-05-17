@@ -2,7 +2,7 @@
 
 #include "PixelFormat.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	namespace EShaderStage
 	{

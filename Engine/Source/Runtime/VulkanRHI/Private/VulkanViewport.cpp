@@ -12,7 +12,7 @@
 #include "Threading/RunnableThread.h"
 #include "RenderingThread.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	FVulkanBackBuffer::FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport)
 		: FVulkanTexture(InDevice, nullptr)

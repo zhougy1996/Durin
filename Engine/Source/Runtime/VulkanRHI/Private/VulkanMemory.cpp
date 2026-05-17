@@ -7,7 +7,7 @@
 #include "VulkanDynamicRHI.h"
 
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	auto FVulkanAllocation::FlushMappedMemory(FVulkanDevice* Device) const -> void
 	{
@@ -106,7 +106,7 @@ namespace Doge::VulkanRHI
 
 		if (Result != VK_SUCCESS)
 		{
-			DOGE_ERROR("Failed to create buffer: {}", vk::to_string(static_cast<vk::Result>(Result)));
+			DURIN_ERROR("Failed to create buffer: {}", vk::to_string(static_cast<vk::Result>(Result)));
 			return false;
 		}
 
@@ -141,7 +141,7 @@ namespace Doge::VulkanRHI
 	{
 		if (!Allocation.IsValid())
 		{
-			DOGE_ERROR("Attempted to map an invalid allocation.");
+			DURIN_ERROR("Attempted to map an invalid allocation.");
 			return nullptr;
 		}
 
@@ -149,12 +149,12 @@ namespace Doge::VulkanRHI
 		VkResult Result = vmaMapMemory(Allocator, Allocation.Handle, &Data);
 		if (Result != VK_SUCCESS)
 		{
-			DOGE_ERROR("Failed to map memory: {}", vk::to_string(static_cast<vk::Result>(Result)));
+			DURIN_ERROR("Failed to map memory: {}", vk::to_string(static_cast<vk::Result>(Result)));
 			const vk::MemoryType MemoryType = GetMemoryType(Allocation);
 			const vk::MemoryHeap MemoryHeap = GetMemoryHeap(MemoryType.heapIndex);
-			DOGE_ERROR("Allocation size: {}", Allocation.GetSize());
-			DOGE_ERROR("Memory Heap: {}", vk::to_string(MemoryHeap.flags));
-			DOGE_ERROR("Memory property flags: {}", vk::to_string(MemoryType.propertyFlags));
+			DURIN_ERROR("Allocation size: {}", Allocation.GetSize());
+			DURIN_ERROR("Memory Heap: {}", vk::to_string(MemoryHeap.flags));
+			DURIN_ERROR("Memory property flags: {}", vk::to_string(MemoryType.propertyFlags));
 			return nullptr;
 		}
 
@@ -227,7 +227,7 @@ namespace Doge::VulkanRHI
 		{
 			return false;
 		}
-		DOGE_ERROR("Failed to wait for fence: {}", vk::to_string(result));
+		DURIN_ERROR("Failed to wait for fence: {}", vk::to_string(result));
 		return false;
 	}
 
@@ -325,7 +325,7 @@ namespace Doge::VulkanRHI
 		{
 			return false;
 		}
-		DOGE_ERROR("Failed to check fence status: {}", vk::to_string(Result));
+		DURIN_ERROR("Failed to check fence status: {}", vk::to_string(Result));
 		return false;
 	}
 

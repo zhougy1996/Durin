@@ -1,6 +1,6 @@
 #include "PixelFormat.h"
 
-namespace Doge
+namespace Durin
 {
 	 // Format mapping table. The rows must be in the exactly same order as Format enum members are defined.
     static const FPixelFormatInfo FormatInfo[] = {

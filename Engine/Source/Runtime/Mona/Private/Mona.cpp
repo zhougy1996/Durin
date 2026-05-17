@@ -2,7 +2,7 @@
 
 #include "ThirdParty/ImGui/ImGuiCommon.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	auto Text(const std::string& InText) -> void
 	{

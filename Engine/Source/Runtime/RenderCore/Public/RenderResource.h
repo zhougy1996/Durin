@@ -4,7 +4,7 @@
 #include "RHIFeatureLevel.h"
 #include "RHIResources.h"
 
-namespace Doge
+namespace Durin
 {
 	class FRHICommandListBase;
 

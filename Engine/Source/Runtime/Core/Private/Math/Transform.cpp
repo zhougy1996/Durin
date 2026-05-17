@@ -1,6 +1,6 @@
 #include "Math/Transform.h"
 
-namespace Doge
+namespace Durin
 {
 	FTransform::FTransform()
 		: Rotation(FQuatConstants::Identity)

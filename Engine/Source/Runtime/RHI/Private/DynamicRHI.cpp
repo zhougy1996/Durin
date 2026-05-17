@@ -2,7 +2,7 @@
 
 #include "RHICommandList.h"
 
-namespace Doge
+namespace Durin
 {
 	FDynamicRHI* GDynamicRHI = nullptr;
 

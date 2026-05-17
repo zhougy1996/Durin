@@ -1,6 +1,6 @@
 #include "TestDHT.h"
 
-namespace Doge
+namespace Durin
 {
 
 }

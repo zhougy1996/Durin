@@ -7,7 +7,7 @@
 
 #include <ranges>
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	constexpr int32 MIN_VIEWPORT_SIZE = 8;
 

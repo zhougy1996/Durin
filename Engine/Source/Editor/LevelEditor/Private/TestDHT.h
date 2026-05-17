@@ -7,7 +7,7 @@
 
 #include "TestDHT.gen.h"
 
-namespace Doge
+namespace Durin
 {
 	DCLASS(AAA, bbb = ccc)
 	class LEVELEDITOR_API TestDHT : DObject

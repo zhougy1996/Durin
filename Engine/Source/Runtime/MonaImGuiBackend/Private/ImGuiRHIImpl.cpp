@@ -6,7 +6,7 @@
 #include "Shader/ShaderPaths.h"
 #include "Shader/ShaderCompiler.h"
 
-namespace Doge::Mona::MonaImGuiBackend
+namespace Durin::Mona::MonaImGuiBackend
 {
 	ImGuiContext* GMonaImGuiContext = nullptr;
 
@@ -88,7 +88,7 @@ namespace Doge::Mona::MonaImGuiBackend
 		}
 		else
 		{
-			DOGE_ERROR("Failed to compile ImGui shader: {}", CompileResult.ErrorMessage);
+			DURIN_ERROR("Failed to compile ImGui shader: {}", CompileResult.ErrorMessage);
 		}
 
 		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([VertexShaderCode, PixelShaderCode](FRHICommandListImmediate& CommandList) {

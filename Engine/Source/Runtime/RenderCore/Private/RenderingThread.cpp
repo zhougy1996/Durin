@@ -5,7 +5,7 @@
 
 #include "RHICommandList.h"
 
-namespace Doge
+namespace Durin
 {
 	FRunnable* GRenderingThreadRunnable = nullptr;
 
@@ -19,7 +19,7 @@ namespace Doge
 		auto Run() -> uint32 override
 		{
 			check(IsInRenderingThread());
-			DOGE_DEBUG("Rendering thread started. ({}, id: {})", GetCurrentThread()->GetThreadName(), GetCurrentThread()->GetThreadId());
+			DURIN_DEBUG("Rendering thread started. ({}, id: {})", GetCurrentThread()->GetThreadName(), GetCurrentThread()->GetThreadId());
 			while (!bStopRequested)
 			{
 				FRenderThreadCommandPipe::Launch();
@@ -29,13 +29,13 @@ namespace Doge
 
 		auto Stop() -> void override
 		{
-			DOGE_TRACE("Rendering thread stop requested.");
+			DURIN_TRACE("Rendering thread stop requested.");
 			bStopRequested = true;
 		}
 
 		auto Exit() -> void override
 		{
-			DOGE_DEBUG("Rendering thread shut down.");
+			DURIN_DEBUG("Rendering thread shut down.");
 		}
 
 	private:

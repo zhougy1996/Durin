@@ -3,7 +3,7 @@
 #include "EngineAPI.h"
 #include "RHIResources.h"
 
-namespace Doge
+namespace Durin
 {
 	class FViewportClient;
 

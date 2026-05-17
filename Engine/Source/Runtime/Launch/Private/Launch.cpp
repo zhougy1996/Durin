@@ -4,7 +4,7 @@
 
 int LAUNCH_API main()
 {
-	using namespace Doge;
+	using namespace Durin;
 
 	GEngineLoop.PreInit();
 	GEngineLoop.Init();

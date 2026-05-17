@@ -1,6 +1,6 @@
 #include "Client/Viewport.h"
 
-namespace Doge
+namespace Durin
 {
 	FViewport::FViewport(FViewportClient* InViewportClient)
 		: ViewportClient(InViewportClient)

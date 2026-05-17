@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Doge
+namespace Durin
 {
 	enum { INDEX_NONE = -1 };
 

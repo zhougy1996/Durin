@@ -9,7 +9,7 @@ struct FClangKeepDebugInfo
 
 inline constexpr uint32_t FNameMaxSize = 1024;
 
-namespace Doge
+namespace Durin
 {
 	enum class ENameCase : uint8
 	{
@@ -200,9 +200,9 @@ namespace Doge
 }
 
 template<>
-struct std::hash<Doge::FName>
+struct std::hash<Durin::FName>
 {
-	size_t operator()(const Doge::FName& Name) const noexcept
+	size_t operator()(const Durin::FName& Name) const noexcept
 	{
 		return GetTypeHash(Name);
 	}
@@ -214,7 +214,7 @@ struct FNameDebugVisualizer
 	CORE_API uint8_t** GetBlocks();
 
 private:
-	static constexpr uint32_t EntryStride = alignof(Doge::FNameEntry);
+	static constexpr uint32_t EntryStride = alignof(Durin::FNameEntry);
 	static constexpr uint32_t OffsetBits = 16;
 	static constexpr uint32_t BlockBits = 13;
 	static constexpr uint32_t OffsetMask = (1 << OffsetBits) - 1;

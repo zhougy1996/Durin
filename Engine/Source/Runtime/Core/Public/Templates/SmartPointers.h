@@ -2,7 +2,7 @@
 
 #include <memory>
 
-namespace Doge
+namespace Durin
 {
 	template<typename OtherType>
 	FORCEINLINE auto SharedThis(OtherType* ThisPtr) -> std::shared_ptr<OtherType>

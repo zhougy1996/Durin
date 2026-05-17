@@ -5,7 +5,7 @@
 #include "Application/GenericApplicationMessageHandler.h"
 #include "Application/MonaEventHandler.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class MWidget;
 	class MWindow;

@@ -3,7 +3,7 @@
 #include "RHIResources.h"
 #include "VulkanTexture.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 	class FVulkanSwapchain;

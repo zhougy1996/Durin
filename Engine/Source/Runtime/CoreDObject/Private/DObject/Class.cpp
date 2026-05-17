@@ -1,6 +1,6 @@
 #include "DObject/Class.h"
 
-namespace Doge
+namespace Durin
 {
 	IMPLEMENT_INTRINSIC_CLASS(DStructure, COREDOBJECT_API, DObject, COREDOBJECT_API, {})
 

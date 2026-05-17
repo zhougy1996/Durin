@@ -4,7 +4,7 @@
 
 #include "StaticMeshComponent.gen.h"
 
-namespace Doge
+namespace Durin
 {
 	class DStaticMesh;
 

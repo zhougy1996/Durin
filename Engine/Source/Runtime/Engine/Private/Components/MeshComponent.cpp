@@ -1,6 +1,6 @@
 #include "Components/MeshComponent.h"
 
-namespace Doge
+namespace Durin
 {
 
 }

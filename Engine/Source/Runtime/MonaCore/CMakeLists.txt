@@ -1,3 +1,3 @@
-doge_add_module(MonaCore)
+durin_add_module(MonaCore)
 
 

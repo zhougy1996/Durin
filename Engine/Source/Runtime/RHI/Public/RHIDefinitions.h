@@ -1,7 +1,7 @@
 #pragma once
 
 
-namespace Doge
+namespace Durin
 {
 	constexpr uint32 kFrameInFlight = 2;
 	constexpr uint32 MaxSimultaneousRenderTargets = 8U;

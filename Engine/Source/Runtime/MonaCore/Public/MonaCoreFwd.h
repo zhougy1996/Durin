@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class MWidget;
 	class MWindow;

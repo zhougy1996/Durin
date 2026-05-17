@@ -1,7 +1,7 @@
-doge_log_module(${project_name} "DogeLauncher")
+durin_log_module(${project_name} "DogeLauncher")
 
 add_executable(DogeLauncher "Private/Hello.cpp")
-doge_set_module_output(DogeLauncher)
+durin_set_module_output(DogeLauncher)
 
 set_target_properties(DogeLauncher PROPERTIES OUTPUT_NAME "Doge")
 

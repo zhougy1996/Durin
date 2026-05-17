@@ -1,2 +1,2 @@
-doge_add_module(RHI)
+durin_add_module(RHI)
 

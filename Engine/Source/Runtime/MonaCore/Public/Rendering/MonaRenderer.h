@@ -2,7 +2,7 @@
 
 #include "MonaCoreAPI.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class MWindow;
 

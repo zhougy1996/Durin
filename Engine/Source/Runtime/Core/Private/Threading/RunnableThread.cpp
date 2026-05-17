@@ -2,7 +2,7 @@
 
 #include "Threading/StdRunnableThread.h"
 
-namespace Doge
+namespace Durin
 {
 	thread_local FRunnableThread* CurrentThread = nullptr;
 

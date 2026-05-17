@@ -1,4 +1,4 @@
-doge_add_module(RenderCore)
+durin_add_module(RenderCore)
 
 target_link_options(RenderCore PRIVATE
     "/DELAYLOAD:slang.dll"

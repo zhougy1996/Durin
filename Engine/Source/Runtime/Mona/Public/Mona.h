@@ -3,7 +3,7 @@
 #include "MonaCore.h"
 #include "MonaGlobals.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	MONA_API auto Text(const std::string& InText) -> void;
 

@@ -1,7 +1,7 @@
 #include "Windows/WindowsPlatformProcess.h"
 #include "Misc/StringConvert.h"
 
-namespace Doge
+namespace Durin
 {
 	auto FWindowsPlatformProcess::ExecutablePath() -> const char*
 	{

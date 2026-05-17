@@ -2,7 +2,7 @@
 
 #include "CoreGlobals.h"
 
-namespace Doge
+namespace Durin
 {
 	bool GIsRequestingExit = false;
 

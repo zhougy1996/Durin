@@ -3,7 +3,7 @@
 #include "Engine/Actor.h"
 #include "Components/SceneComponent.h"
 
-namespace Doge
+namespace Durin
 {
 	DActorComponent::DActorComponent(const FObjectInitializer& ObjectInitializer)
 		: DObject(ObjectInitializer)

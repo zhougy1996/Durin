@@ -3,7 +3,7 @@
 #include "VulkanCommandBuffer.h"
 #include "VulkanDevice.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 
 	FVulkanFrame::FVulkanFrame(FVulkanDevice& Device)

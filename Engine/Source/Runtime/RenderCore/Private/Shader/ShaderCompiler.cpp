@@ -1,6 +1,6 @@
 #include "Shader/ShaderCompiler.h"
 
-namespace Doge
+namespace Durin
 {
 	FShaderCompiler* GShaderCompiler = nullptr;
 

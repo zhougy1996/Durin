@@ -3,7 +3,7 @@
 #include "MonaAPI.h"
 struct ImGuiContext;
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	MONA_API auto MonaInit() -> void;
 

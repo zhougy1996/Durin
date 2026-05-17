@@ -3,7 +3,7 @@
 #include "ApplicationCoreAPI.h"
 #include "Input/InputCoreTypes.h"
 
-namespace Doge
+namespace Durin
 {
 	class FGenericWindow;
 

@@ -2,7 +2,7 @@
 
 #include "CoreDObjectAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	class DObject;
 

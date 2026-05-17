@@ -10,7 +10,7 @@
 
 #include "RenderingThread.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	std::shared_ptr<FMonaApplication> FMonaApplication::CurrentApplication = nullptr;
 

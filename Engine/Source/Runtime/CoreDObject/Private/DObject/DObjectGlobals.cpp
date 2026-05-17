@@ -4,7 +4,7 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 
-namespace Doge
+namespace Durin
 {
 	auto FObjectInitializer::Get() -> const FObjectInitializer&
 	{

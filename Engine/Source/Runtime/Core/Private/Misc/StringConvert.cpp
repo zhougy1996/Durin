@@ -1,6 +1,6 @@
 #include "Misc/StringConvert.h"
 
-namespace Doge
+namespace Durin
 {
 	namespace StringConvert
 	{

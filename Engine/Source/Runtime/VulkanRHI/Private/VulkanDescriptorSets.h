@@ -1,7 +1,7 @@
 #pragma once
 #include <VulkanDevice.h>
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 

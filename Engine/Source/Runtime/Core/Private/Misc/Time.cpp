@@ -1,6 +1,6 @@
 #include "Misc/Time.h"
 
-namespace Doge
+namespace Durin
 {
 	double GStartTime = FTime::Seconds();
 

@@ -1,7 +1,7 @@
 #pragma once
 #include "RHIAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	RHI_API auto RHIInit() -> void;
 

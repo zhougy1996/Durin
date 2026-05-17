@@ -9,7 +9,7 @@
 #include "VulkanContext.h"
 #include "VulkanCommandBuffer.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	static auto PickSampleCount(const FRHITextureCreateDesc& InCreateDesc) -> vk::SampleCountFlagBits
 	{
@@ -26,7 +26,7 @@ namespace Doge::VulkanRHI
 		case 16:
 			return vk::SampleCountFlagBits::e16;
 		default:
-			DOGE_ERROR("Unsupported sample count: {}", InCreateDesc.NumSamples);
+			DURIN_ERROR("Unsupported sample count: {}", InCreateDesc.NumSamples);
 			return vk::SampleCountFlagBits::e1;
 		}
 	}
@@ -46,7 +46,7 @@ namespace Doge::VulkanRHI
 		case ETextureDimension::TextureCubeArray:
 			return vk::ImageViewType::eCubeArray;
 		default:
-			DOGE_ERROR("Unsupported texture dimension");
+			DURIN_ERROR("Unsupported texture dimension");
 			return vk::ImageViewType::e2D;
 		}
 	}

@@ -1,1 +1,1 @@
-doge_add_module(Mona)
+durin_add_module(Mona)

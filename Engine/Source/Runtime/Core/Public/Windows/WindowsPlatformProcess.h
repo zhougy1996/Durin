@@ -4,7 +4,7 @@
 
 #include "GenericPlatform/GenericPlatformProcess.h"
 
-namespace Doge
+namespace Durin
 {
 	struct FWindowsPlatformProcess : public FGenericPlatformProcess
 	{

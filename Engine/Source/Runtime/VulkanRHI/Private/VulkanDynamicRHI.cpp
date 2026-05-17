@@ -11,7 +11,7 @@
 // Define the default dispatch loader storage for Vulkan-Hpp. This will allow us to load Vulkan functions at runtime.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	FVulkanDynamicRHI* GVulkanRHI = nullptr;
 
@@ -123,12 +123,12 @@ namespace Doge::VulkanRHI
 		}
 		catch (const vk::SystemError& err)
 		{
-			DOGE_ERROR("Failed to create Vulkan instance: {}", err.what());
+			DURIN_ERROR("Failed to create Vulkan instance: {}", err.what());
 		}
 
 		if (Instance)
 		{
-			DOGE_TRACE("Vulkan instance created.");
+			DURIN_TRACE("Vulkan instance created.");
 		}
 	}
 
@@ -160,7 +160,7 @@ namespace Doge::VulkanRHI
 
 		if (Gpus.empty())
 		{
-			DOGE_ERROR("No physical device found.");
+			DURIN_ERROR("No physical device found.");
 			return;
 		}
 

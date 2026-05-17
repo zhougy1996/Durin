@@ -1,11 +1,11 @@
 #pragma once
 
-namespace Doge
+namespace Durin
 {
 	class FGenericWindow;
 }
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class MWindow;
 

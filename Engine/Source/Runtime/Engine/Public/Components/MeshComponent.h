@@ -4,7 +4,7 @@
 
 #include "MeshComponent.gen.h"
 
-namespace Doge
+namespace Durin
 {
 	DCLASS()
 	class DMeshComponent : public DPrimitiveComponent

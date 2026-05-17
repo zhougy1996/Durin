@@ -1,6 +1,6 @@
 #include "Components/PrimitiveComponent.h"
 
-namespace Doge
+namespace Durin
 {
 
 }

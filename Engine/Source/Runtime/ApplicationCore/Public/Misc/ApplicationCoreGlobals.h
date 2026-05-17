@@ -2,7 +2,7 @@
 
 #include "ApplicationCoreAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	class FGenericApplication;
 

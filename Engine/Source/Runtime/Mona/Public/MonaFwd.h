@@ -4,7 +4,7 @@
 #include "ApplicationCoreFwd.h"
 #include "MonaCoreFwd.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class MViewport;
 }

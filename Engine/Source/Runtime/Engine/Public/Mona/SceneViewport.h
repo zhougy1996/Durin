@@ -5,7 +5,7 @@
 
 #include "MonaFwd.h"
 
-namespace Doge
+namespace Durin
 {
 	class FViewportClient;
 

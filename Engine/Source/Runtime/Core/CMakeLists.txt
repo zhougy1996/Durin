@@ -1,8 +1,8 @@
 
-doge_add_module(Core)
+durin_add_module(Core)
 
 target_sources(Core PRIVATE
-    ${DOGE_PROJECT_DIR}/Extras/VisualStudioDebugging/Doge.natvis
+    ${DOGE_PROJECT_DIR}/Extras/VisualStudioDebugging/Durin.natvis
 )
 
 target_include_directories(Core PRIVATE

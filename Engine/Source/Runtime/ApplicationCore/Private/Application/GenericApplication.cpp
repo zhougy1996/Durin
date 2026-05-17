@@ -1,6 +1,6 @@
 #include "Application/GenericApplication.h"
 
-namespace Doge
+namespace Durin
 {
 	auto FGenericApplication::Tick() -> void
 	{

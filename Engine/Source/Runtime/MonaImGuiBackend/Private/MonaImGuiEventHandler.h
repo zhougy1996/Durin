@@ -3,7 +3,7 @@
 #include "ApplicationCoreFwd.h"
 #include "Application/MonaEventHandler.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class FMonaImGuiEventHandler : public FMonaEventHandler
 	{

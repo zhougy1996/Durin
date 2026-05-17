@@ -2,7 +2,7 @@
 
 #include "MonaCoreAPI.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class MONACORE_API MWidget : public std::enable_shared_from_this<MWidget>
 	{

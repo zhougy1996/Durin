@@ -7,7 +7,7 @@
 #include "Hash/XxHash.h"
 #include "Math/MathFwd.h"
 
-namespace Doge
+namespace Durin
 {
 	class FRHICommandListImmediate;
 

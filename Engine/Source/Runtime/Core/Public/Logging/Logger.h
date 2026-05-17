@@ -7,7 +7,7 @@ namespace spdlog
 	class logger;
 }
 
-namespace Doge
+namespace Durin
 {
 	enum class ELogLevel
 	{

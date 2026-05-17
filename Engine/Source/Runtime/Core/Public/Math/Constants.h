@@ -2,7 +2,7 @@
 
 #include <cfloat>
 
-namespace Doge
+namespace Durin
 {
 	inline constexpr auto kPi = 3.1415926535897932f;
 	inline constexpr auto kSmallNumber = 1.e-8f;

@@ -23,7 +23,7 @@
 
 #include "Misc/Time.h"
 
-namespace Doge
+namespace Durin
 {
 	FEngineLoop GEngineLoop;
 
@@ -39,10 +39,10 @@ namespace Doge
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
-		DOGE_DEBUG("Application name: {}", GAppConfig.GetStringValue("AppName"));
-		DOGE_INFO(STR("Launching Doge engine..."));
-		DOGE_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
-		DOGE_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
+		DURIN_DEBUG("Application name: {}", GAppConfig.GetStringValue("AppName"));
+		DURIN_INFO(STR("Launching Doge engine..."));
+		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
+		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		PathUtilities::InitDefaultMountPoints(); // Initialize default mount points to enable path resolving.
 
 		FModuleManager::Get().LoadModule("RenderCore");
@@ -61,7 +61,7 @@ namespace Doge
 		GEngine->Init();
 
 		InitRenderingThread();
-		DOGE_INFO(STR("Doge engine initialized."));
+		DURIN_INFO(STR("Doge engine initialized."));
 	}
 
 	// Called from render thread
@@ -124,6 +124,6 @@ namespace Doge
 
 		FModuleManager::Get().UnloadModulesAtShutdown();
 
-		DOGE_INFO(STR("Doge engine exited."));
+		DURIN_INFO(STR("Doge engine exited."));
 	}
 } // namespace Doge

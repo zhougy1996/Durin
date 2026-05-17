@@ -5,7 +5,7 @@
 #include "PixelFormat.h"
 #include "RHIResources.h"
 
-namespace Doge
+namespace Durin
 {
 	class FDynamicRHI
 	{

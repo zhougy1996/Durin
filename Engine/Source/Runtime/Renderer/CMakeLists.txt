@@ -1,2 +1,2 @@
-doge_add_module(Renderer)
+durin_add_module(Renderer)
 

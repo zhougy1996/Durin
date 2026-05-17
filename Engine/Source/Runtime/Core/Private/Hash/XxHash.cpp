@@ -3,7 +3,7 @@
 #define XXH_INLINE_ALL
 #include "xxhash.h"
 
-namespace Doge
+namespace Durin
 {
 	auto FXxHash64::HashBuffer(const void* Data, uint64 Size) -> FXxHash64
 	{

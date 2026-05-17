@@ -3,7 +3,7 @@
 
 #include "PrimitiveComponent.gen.h"
 
-namespace Doge
+namespace Durin
 {
 	DCLASS()
 	class DPrimitiveComponent : public DSceneComponent

@@ -4,7 +4,7 @@
 #include "RHIResources.h"
 #include "Rendering/MonaRenderer.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class MWindow;
 

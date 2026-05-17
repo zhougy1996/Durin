@@ -2,7 +2,7 @@
 
 #include "EngineAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	extern ENGINE_API float GAverageFPS;
 	extern ENGINE_API float GAverageMS;

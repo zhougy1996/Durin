@@ -2,7 +2,7 @@
 
 #include "DogeEdAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	DOGEED_API auto EditorInit() -> void;
 }

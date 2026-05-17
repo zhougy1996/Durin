@@ -1,6 +1,6 @@
 #include "RHIResources.h"
 
-namespace Doge
+namespace Durin
 {
 	// May use a multiple producer single consumer queue here if the contention is high, but currently we don't have that many threads creating resources, so a simple vector with mutex should be fine.
 	std::vector<FRHIResource*> PendingDeletes;

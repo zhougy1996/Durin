@@ -1,6 +1,6 @@
 #include "Window/GenericWindow.h"
 
-namespace Doge
+namespace Durin
 {
 	FGenericWindow::FGenericWindow() = default;
 
@@ -47,7 +47,7 @@ namespace Doge
 
 	auto FGenericWindow::GetViewportSize() const -> FIntPoint
 	{
-		DOGE_ERROR("GetViewportSize() is not implemented for the current platform.");
+		DURIN_ERROR("GetViewportSize() is not implemented for the current platform.");
 		return {0, 0};
 	}
 

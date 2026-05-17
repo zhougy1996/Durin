@@ -6,7 +6,7 @@
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	struct FVulkanFormatMapping
 	{
@@ -117,7 +117,7 @@ namespace Doge::VulkanRHI
 		case EVertexElementType::UInt: return vk::Format::eR32Uint;
 		case EVertexElementType::URGB10A2N: return vk::Format::eA2B10G10R10UnormPack32;
 		default:
-			DOGE_ERROR("Unknown vertex element type: {}", static_cast<int>(InType));
+			DURIN_ERROR("Unknown vertex element type: {}", static_cast<int>(InType));
 			return vk::Format::eR32G32B32Sfloat;
 		}
 	}
@@ -196,7 +196,7 @@ namespace Doge::VulkanRHI
 		case ERHIBindingType::Texture: return vk::DescriptorType::eSampledImage;
 		case ERHIBindingType::Sampler: return vk::DescriptorType::eSampler;
 		default:
-			DOGE_ERROR("Unknown binding type: {}", static_cast<int>(InType));
+			DURIN_ERROR("Unknown binding type: {}", static_cast<int>(InType));
 			return vk::DescriptorType::eUniformBuffer;
 		}
 	}

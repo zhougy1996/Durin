@@ -6,7 +6,7 @@
 #include "RHIResources.h"
 #include "RHIShaderParameters.h"
 
-namespace Doge
+namespace Durin
 {
 	struct FRHITextureCreateDesc;
 	struct FRHIRenderPassInfo;

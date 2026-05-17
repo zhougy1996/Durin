@@ -13,7 +13,7 @@
 #include "VulkanBuffer.h"
 #include "VulkanRHIPrivate.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	FVulkanCommandListContext::FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, FVulkanDevice& InDevice, FVulkanQueue* InQueue)
 		: RHI(InRHI)

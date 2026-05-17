@@ -1,6 +1,6 @@
 #include "RendererModule.h"
 
-namespace Doge
+namespace Durin
 {
 	IMPLEMENT_MODULE(FRendererModule, Renderer)
 }

@@ -4,7 +4,7 @@
 #include "Window/GenericWindowDefinition.h"
 #include "Input/InputCoreTypes.h"
 
-namespace Doge
+namespace Durin
 {
 	class FGenericApplication;
 

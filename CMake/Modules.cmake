@@ -4,18 +4,18 @@ include(${CMAKE_CURRENT_LIST_DIR}/Timer.cmake)
 set(DHT_DIR ${DOGE_DIR}/Engine/Source/Programs/DogeHeaderTool)
 set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/main.py")
 
-function(doge_log_project project_name)
-	message(STATUS "[Doge] Project: ${project_name}")
+function(durin_log_project project_name)
+	message(STATUS "[Durin] Project: ${project_name}")
 endfunction()
 
-function(doge_log_module project_name module_name)
+function(durin_log_module project_name module_name)
 	message(STATUS "[${project_name}] Module: ${module_name}")
 endfunction()
 
 # Collect module information for the project (Engine, User custom Game projects, etc.)
-function(doge_add_project project_name)
-	doge_log_project(${project_name})
-	doge_start("Project_${project_name}")
+function(durin_add_project project_name)
+	durin_log_project(${project_name})
+	durin_start("Project_${project_name}")
 	project(Engine)
 	set(DOGE_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DOGE_ARCH}/Editor")
 
@@ -29,11 +29,11 @@ function(doge_add_project project_name)
 	foreach(_dir IN LISTS project_module_dirs)
 		add_subdirectory(${_dir})
 	endforeach()
-	doge_end()
+	durin_end()
 endfunction()
 
 # Module Setup Functions
-function(doge_set_module_output target)
+function(durin_set_module_output target)
 	set_target_properties(${target} PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
 		LIBRARY_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
@@ -42,9 +42,9 @@ function(doge_set_module_output target)
 	)
 endfunction()
 
-function(doge_add_module module_name)
-	doge_log_module(${project_name} ${module_name})
-	doge_start("Module_${module_name}")
+function(durin_add_module module_name)
+	durin_log_module(${project_name} ${module_name})
+	durin_start("Module_${module_name}")
 
 	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
 	include(${module_cmake_file})
@@ -75,7 +75,7 @@ function(doge_add_module module_name)
 	add_library(${module_name} ${module_link_type_final})
 	target_sources(${module_name} PUBLIC ${module_public_srcs} PRIVATE ${module_private_srcs} ${module_generated_srcs})
 
-	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DogeEditor-${module_name}")
+	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DurinEditor-${module_name}")
 
 	# Define export symbol for shared libraries, e.g. CORE_API
 	if("${module_link_type_final}" STREQUAL "SHARED")
@@ -109,14 +109,14 @@ function(doge_add_module module_name)
 		target_precompile_headers(${module_name} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>")
 	endif()
 
-	doge_set_module_output(${module_name})
+	durin_set_module_output(${module_name})
 	# Organize the module in the IDE's folder structure
 	set_target_properties(${module_name} PROPERTIES FOLDER "${project_name}/${module_dir}")
 
-	doge_end() # ${module_name}
+	durin_end() # ${module_name}
 endfunction()
 
-function(doge_copy_external_target_binary target dependent_target)
+function(durin_copy_external_target_binary target dependent_target)
 	get_filename_component(file_name "$<TARGET_FILE_NAME:${dependent_target}>" NAME)
 	add_custom_command(TARGET ${target} POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -127,7 +127,7 @@ function(doge_copy_external_target_binary target dependent_target)
 	)
 endfunction()
 
-function(doge_copy_external_binaries target file_list)
+function(durin_copy_external_binaries target file_list)
 	foreach(file_path ${file_list})
 		get_filename_component(file_name "${file_path}" NAME)
 		add_custom_command(TARGET ${target} POST_BUILD

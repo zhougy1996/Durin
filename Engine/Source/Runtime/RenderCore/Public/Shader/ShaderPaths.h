@@ -2,7 +2,7 @@
 
 #include "RenderCoreAPI.h"
 
-namespace Doge::FShaderPaths
+namespace Durin::FShaderPaths
 {
 	struct FShaderMountPoint
 	{

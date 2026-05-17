@@ -6,7 +6,7 @@
 #include "VulkanView.h"
 #include "VulkanRenderPass.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	FVulkanFramebuffer::FVulkanFramebuffer(FVulkanDevice& InDevice, const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& InRenderPass)
 		: Device(InDevice)
@@ -58,7 +58,7 @@ namespace Doge::VulkanRHI
 			.setLayers(1);
 
 		Framebuffer = Device.GetHandle().createFramebuffer(FramebufferCreateInfo);
-		DOGE_TRACE("Vulkan framebuffer created. Render targets count: {}", NumColorRenderTargets);
+		DURIN_TRACE("Vulkan framebuffer created. Render targets count: {}", NumColorRenderTargets);
 	}
 
 	FVulkanFramebuffer::~FVulkanFramebuffer()

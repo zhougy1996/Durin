@@ -1,6 +1,6 @@
 #include "Components/SceneComponent.h"
 
-namespace Doge
+namespace Durin
 {
 
 }

@@ -2,7 +2,7 @@
 
 #include "Object.h"
 
-namespace Doge
+namespace Durin
 {
 	class FField;
 	class FObjectInitializer;

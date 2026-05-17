@@ -2,7 +2,7 @@
 
 #include "RHIShaderParameters.h"
 
-namespace Doge
+namespace Durin
 {
 	struct FRHIRenderPassInfo;
 	class FRHIGraphicsPipelineState;

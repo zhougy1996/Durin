@@ -25,7 +25,7 @@
 	friend constexpr bool operator!(Enum E); \
 	friend constexpr Enum operator~(Enum E);
 
-namespace Doge
+namespace Durin
 {
 	template<typename Enum>
 	constexpr bool EnumHasAllFlags(Enum Flags, Enum Contains)

@@ -2,7 +2,7 @@
 
 #include "RHIResources.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	class FVulkanVertexDeclaration : public FRHIVertexDeclaration
 	{

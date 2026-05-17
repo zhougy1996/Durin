@@ -3,7 +3,7 @@
 #include "MonaAPI.h"
 #include "Widgets/MWidget.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class MONA_API MViewport : public MWidget
 	{

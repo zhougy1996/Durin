@@ -2,7 +2,7 @@
 
 #include "Misc/CoreTypes.h"
 
-namespace Doge
+namespace Durin
 {
 	enum class EMouseButton : uint8
 	{

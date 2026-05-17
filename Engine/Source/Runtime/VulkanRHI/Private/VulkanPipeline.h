@@ -4,7 +4,7 @@
 #include "VulkanDescriptorSets.h"
 #include "VulkanShader.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 	class FVulkanRenderPass;

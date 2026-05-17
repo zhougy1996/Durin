@@ -1,6 +1,6 @@
 #include "Delegates/Delegate.h"
 
-namespace Doge
+namespace Durin
 {
 	static std::atomic<uint32> GNextDelegateHandleId = 0;
 

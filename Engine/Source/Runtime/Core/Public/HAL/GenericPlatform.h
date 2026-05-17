@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Doge
+namespace Durin
 {
 	struct FGenericPlatformTypes
 	{

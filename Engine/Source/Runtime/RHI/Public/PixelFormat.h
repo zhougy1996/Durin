@@ -3,7 +3,7 @@
 #include "RHIAPI.h"
 #include "HAL/GenericPlatform.h"
 
-namespace Doge
+namespace Durin
 {
 	enum class EPixelFormat : uint8
 	{

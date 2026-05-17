@@ -2,7 +2,7 @@
 
 #include "DObject/Class.h"
 
-namespace Doge
+namespace Durin
 {
 	template<typename T>
 	class TDeferredRegistry

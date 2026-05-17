@@ -3,7 +3,7 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	FVulkanShader::FVulkanShader(FVulkanDevice& InDevice, const FRHIShaderCreateDesc& InCreateDesc)
 		: FRHIShader(InCreateDesc)

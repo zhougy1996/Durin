@@ -2,7 +2,7 @@
 
 #include "Threading/RunnableThread.h"
 
-namespace Doge
+namespace Durin
 {
 	class FRunnableThreadStd final : public FRunnableThread
 	{

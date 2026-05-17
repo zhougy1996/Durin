@@ -1,6 +1,6 @@
 #include "Modules/ModuleManager.h"
 
-namespace Doge
+namespace Durin
 {
 	auto FModuleManager::Get() -> FModuleManager&
 	{
@@ -67,14 +67,14 @@ namespace Doge
 		}
 
 		// If the module is not ready, it is not loaded.
-		DOGE_ERROR(STR("Module {} is not ready when trying to get it."), InModuleName.ToString());
+		DURIN_ERROR(STR("Module {} is not ready when trying to get it."), InModuleName.ToString());
 
 		return nullptr;
 	}
 
 	static constexpr auto GetDogeModuleFileName(const FName& InModuleName) -> std::string
 	{
-		return std::string(FPlatformMisc::FLibraryPrefix) + std::string(STR("DogeEditor-")) + InModuleName.ToString() + FPlatformMisc::FLibraryExtension;
+		return std::string(FPlatformMisc::FLibraryPrefix) + std::string(STR("DurinEditor-")) + InModuleName.ToString() + FPlatformMisc::FLibraryExtension;
 	}
 
 	auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
@@ -87,7 +87,7 @@ namespace Doge
 			LoadedModule = FoundModuleInfo->Module.get();
 			if (LoadedModule)
 			{
-				DOGE_DEBUG(STR("Module {} is already loaded."), InModuleName.ToString());
+				DURIN_DEBUG(STR("Module {} is already loaded."), InModuleName.ToString());
 				return LoadedModule;
 			}
 		}
@@ -97,11 +97,11 @@ namespace Doge
 			AddModule(InModuleName, GetDogeModuleFileName(InModuleName));
 			FoundModuleInfo = FindModule(InModuleName);
 		}
-		DOGE_TRACE(STR("Try load: {}"), FoundModuleInfo->FileName);
+		DURIN_TRACE(STR("Try load: {}"), FoundModuleInfo->FileName);
 		FModuleHandle ModuleHandle = FPlatformMisc::LoadLibrary(FoundModuleInfo->FileName);
 		if (!ModuleHandle)
 		{
-			DOGE_ERROR(STR("Failed to load module \"{}\"."), InModuleName.ToString());
+			DURIN_ERROR(STR("Failed to load module \"{}\"."), InModuleName.ToString());
 			return nullptr;
 		}
 		IModuleInterface* Result = nullptr;
@@ -111,7 +111,7 @@ namespace Doge
 
 		if (!InitializeModuleFunctionPtr)
 		{
-			DOGE_ERROR(STR("Failed to get module interface from module."));
+			DURIN_ERROR(STR("Failed to get module interface from module."));
 			FPlatformMisc::FreeLibrary(ModuleHandle);
 			return nullptr;
 		}
@@ -119,7 +119,7 @@ namespace Doge
 		FoundModuleInfo->Handle = ModuleHandle;
 		Result = InitializeModuleFunctionPtr();
 		FoundModuleInfo->Module = std::unique_ptr<IModuleInterface>(Result);
-		DOGE_DEBUG(STR("Module loaded: {}"), InModuleName.ToString());
+		DURIN_DEBUG(STR("Module loaded: {}"), InModuleName.ToString());
 
 		if (bCanProcessNewlyLoadedObjects)
 		{
@@ -135,7 +135,7 @@ namespace Doge
 
 	auto FModuleManager::UnloadModule(const FName& InModuleName) -> void
 	{
-		DOGE_DEBUG(STR("Module Unloaded: {}"), InModuleName.ToString());
+		DURIN_DEBUG(STR("Module Unloaded: {}"), InModuleName.ToString());
 	}
 
 	auto FModuleManager::StartProcessingNewlyLoadedObjects() -> void
@@ -170,7 +170,7 @@ namespace Doge
 			{
 				ModuleInfo->Module->ShutdownModule();
 				ModuleInfo->bIsReady = false;
-				DOGE_DEBUG(STR("Module shutdown: {}"), ModuleInfo->ModuleName.ToString());
+				DURIN_DEBUG(STR("Module shutdown: {}"), ModuleInfo->ModuleName.ToString());
 			}
 		}
 

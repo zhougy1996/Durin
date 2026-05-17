@@ -5,7 +5,7 @@
 #include "Math/Vector.h"
 #include "Misc/CoreMiscDefines.h"
 
-namespace Doge
+namespace Durin
 {
 	struct FColor;
 

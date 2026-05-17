@@ -3,7 +3,7 @@
 #include "VulkanDevice.h"
 #include "VulkanRHIPrivate.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	static constexpr std::array DescriptorTypes = {
 		vk::DescriptorType::eSampler,

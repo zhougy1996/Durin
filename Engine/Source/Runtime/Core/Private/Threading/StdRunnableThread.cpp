@@ -2,7 +2,7 @@
 
 #include "Threading/Runnable.h"
 
-namespace Doge
+namespace Durin
 {
 	auto FRunnableThreadStd::Kill(bool bShouldWait) -> void
 	{

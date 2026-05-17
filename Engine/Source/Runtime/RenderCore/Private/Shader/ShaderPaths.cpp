@@ -3,7 +3,7 @@
 #include "Misc/Paths.h"
 #include "Threading/RunnableThread.h"
 
-namespace Doge::FShaderPaths
+namespace Durin::FShaderPaths
 {
 	static std::vector<FShaderMountPoint> ShaderMountPoints;
 
@@ -22,12 +22,12 @@ namespace Doge::FShaderPaths
 		{
 			FoundIt->SourceDir = SourceDir;
 			FoundIt->BinaryDir = BinaryDir;
-			DOGE_DEBUG("Shader mount point updated: {} -> {} (binary: {})", VirtualRoot, SourceDir, BinaryDir);
+			DURIN_DEBUG("Shader mount point updated: {} -> {} (binary: {})", VirtualRoot, SourceDir, BinaryDir);
 		}
 		else
 		{
 			ShaderMountPoints.push_back({std::string(VirtualRoot), std::string(SourceDir), std::string(BinaryDir)});
-			DOGE_DEBUG("Shader mount point: {} -> {} (binary: {})", VirtualRoot, SourceDir, BinaryDir);
+			DURIN_DEBUG("Shader mount point: {} -> {} (binary: {})", VirtualRoot, SourceDir, BinaryDir);
 		}
 	}
 
@@ -57,7 +57,7 @@ namespace Doge::FShaderPaths
 			}
 		}
 
-		DOGE_WARN("Failed to resolve shader name. Make sure the shader name is correct and a mount point is registered for it. Shader name: {}", ShaderName);
+		DURIN_WARN("Failed to resolve shader name. Make sure the shader name is correct and a mount point is registered for it. Shader name: {}", ShaderName);
 		return {ShaderName.data()};
 	}
 
@@ -77,7 +77,7 @@ namespace Doge::FShaderPaths
 			}
 		}
 
-		DOGE_WARN("Failed to resolve shader name. Make sure the shader name is correct and a mount point is registered for it. Shader name: {}", ShaderName);
+		DURIN_WARN("Failed to resolve shader name. Make sure the shader name is correct and a mount point is registered for it. Shader name: {}", ShaderName);
 		return MakeFullShaderBinaryPath(std::string(ShaderName), EntryPoint, ShaderHash);
 	}
 

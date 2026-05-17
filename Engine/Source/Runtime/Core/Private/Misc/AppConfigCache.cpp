@@ -5,7 +5,7 @@
 #include <ryml.hpp>
 #include <ryml_std.hpp>
 
-namespace Doge
+namespace Durin
 {
 	static FORCEINLINE auto MakeRymlNodeRef(void* TreePtr, size_t NodeIndex) -> ryml::NodeRef
 	{
@@ -79,7 +79,7 @@ namespace Doge
 			bool bLoadSuccess = FFileHelper::LoadFileToString(AppConfigContent, ConfigFile);
 			if (!bLoadSuccess)
 			{
-				DOGE_ERROR("Failed to load application config file: {}", ConfigFile);
+				DURIN_ERROR("Failed to load application config file: {}", ConfigFile);
 				return false;
 			}
 

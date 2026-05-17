@@ -2,7 +2,7 @@
 
 #include "Misc/Time.h"
 
-namespace Doge
+namespace Durin
 {
 	float GAverageFPS = 0.0f;
 	float GAverageMS = 0.0f;

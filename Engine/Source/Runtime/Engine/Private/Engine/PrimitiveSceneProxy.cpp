@@ -1,6 +1,6 @@
 #include "Engine/PrimitiveSceneProxy.h"
 
-namespace Doge
+namespace Durin
 {
 	auto PrimitiveSceneProxy::SetTransform(FRHICommandListBase& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void
 	{

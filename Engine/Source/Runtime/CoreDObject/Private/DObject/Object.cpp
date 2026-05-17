@@ -5,7 +5,7 @@
 #include "DObject/Class.h"
 #include "DeferredRegistry.h"
 
-namespace Doge
+namespace Durin
 {
 	struct FPendingRegistrantInfo
 	{

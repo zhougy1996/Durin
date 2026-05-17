@@ -26,7 +26,7 @@
 
 #define STR(x) x
 
-namespace Doge
+namespace Durin
 {
 	using FModuleHandle = HMODULE;
 

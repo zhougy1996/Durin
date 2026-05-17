@@ -2,7 +2,7 @@
 
 #include "MonaImGuiBackend.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	namespace FMonaBackend = FMonaImGuiBackend;
 }

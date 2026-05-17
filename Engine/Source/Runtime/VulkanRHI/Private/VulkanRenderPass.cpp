@@ -5,7 +5,7 @@
 #include "VulkanFramebuffer.h"
 #include "VulkanTexture.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	FVulkanRenderPass::FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat)
 		: Device(InDevice)
@@ -41,11 +41,11 @@ namespace Doge::VulkanRHI
 		try
 		{
 			RenderPass = Device.GetHandle().createRenderPass(RenderPassInfo);
-			DOGE_TRACE("Vulkan render pass created");
+			DURIN_TRACE("Vulkan render pass created");
 		}
 		catch (const std::runtime_error& err)
 		{
-			DOGE_ERROR("Failed to create vulkan render pass: {}", err.what());
+			DURIN_ERROR("Failed to create vulkan render pass: {}", err.what());
 		}
 	}
 

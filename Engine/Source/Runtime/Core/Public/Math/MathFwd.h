@@ -2,7 +2,7 @@
 
 #include <glm/fwd.hpp>
 
-namespace Doge
+namespace Durin
 {
 	template<typename T> struct TRotator;
 

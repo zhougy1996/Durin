@@ -1,6 +1,6 @@
 #include "Engine/Engine.h"
 
-namespace Doge
+namespace Durin
 {
 	auto DEngine::Init() -> void
 	{

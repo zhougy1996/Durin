@@ -7,7 +7,7 @@
 #include "VulkanDevice.h"
 #include "VulkanContext.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	struct FVulkanPendingBufferLock
 	{
@@ -79,7 +79,7 @@ namespace Doge::VulkanRHI
 
 		if (LockMode == EResourceLockMode::ReadOnly)
 		{
-			DOGE_ERROR("Read-only buffer locking is not supported yet.");
+			DURIN_ERROR("Read-only buffer locking is not supported yet.");
 			LockStatus = ELockStatus::Unlocked;
 			return nullptr;
 		}

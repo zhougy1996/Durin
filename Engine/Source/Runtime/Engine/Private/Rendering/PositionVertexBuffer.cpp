@@ -2,7 +2,7 @@
 
 #include "StaticMesh/StaticMeshVertexData.h"
 
-namespace Doge
+namespace Durin
 {
 	class FPositionVertexData : public TStaticMeshVertexData<FPositionVertex>
 	{

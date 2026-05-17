@@ -1,6 +1,6 @@
 #include "VulkanView.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 
 }

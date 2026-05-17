@@ -4,7 +4,7 @@
 
 struct GLFWwindow;
 
-namespace Doge
+namespace Durin
 {
 	class FGlfwWindow final : public FGenericWindow
 	{

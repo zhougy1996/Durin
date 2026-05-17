@@ -4,7 +4,7 @@
 #include "DObject/ObjectMacros.h"
 #include "DObjectGlobals.h"
 
-namespace Doge
+namespace Durin
 {
 	class FObjectInitializer;
 

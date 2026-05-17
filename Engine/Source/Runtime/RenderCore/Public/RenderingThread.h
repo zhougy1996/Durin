@@ -3,7 +3,7 @@
 #include "RenderCoreAPI.h"
 #include "Threading/RunnableThread.h"
 
-namespace Doge
+namespace Durin
 {
 	class FRHICommandListImmediate;
 

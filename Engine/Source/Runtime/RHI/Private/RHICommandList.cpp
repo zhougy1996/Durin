@@ -3,7 +3,7 @@
 #include "DynamicRHI.h"
 #include "RHIContext.h"
 
-namespace Doge
+namespace Durin
 {
 	FRHICommandListExecutor GCommandListExecutor;
 

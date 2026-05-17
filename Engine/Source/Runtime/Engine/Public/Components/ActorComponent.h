@@ -5,7 +5,7 @@
 
 #include "ActorComponent.gen.h"
 
-namespace Doge
+namespace Durin
 {
 	class AActor;
 

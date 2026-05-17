@@ -1,6 +1,6 @@
 #include "Json/Json.h"
 
-namespace Doge
+namespace Durin
 {
 
 }

@@ -6,7 +6,7 @@
 #include "Misc/ApplicationCoreGlobals.h"
 #include "vulkan/vulkan.hpp"
 
-namespace Doge
+namespace Durin
 {
 	namespace
 	{
@@ -321,7 +321,7 @@ namespace Doge
 		auto VulkanInstance = static_cast<VkInstance>(InInstance);
 		if (glfwCreateWindowSurface(VulkanInstance, GlfwWindow, nullptr, &Surface) != VK_SUCCESS)
 		{
-			DOGE_ERROR("Failed to create window surface.");
+			DURIN_ERROR("Failed to create window surface.");
 			return nullptr;
 		}
 

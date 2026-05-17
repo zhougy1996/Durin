@@ -1,5 +1,5 @@
 #include "Application/GenericApplicationMessageHandler.h"
 
-namespace Doge
+namespace Durin
 {
 } // namespace Doge

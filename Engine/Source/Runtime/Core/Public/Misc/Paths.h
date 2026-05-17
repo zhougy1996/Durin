@@ -2,7 +2,7 @@
 
 #include "CoreAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	namespace PathUtilities
 	{

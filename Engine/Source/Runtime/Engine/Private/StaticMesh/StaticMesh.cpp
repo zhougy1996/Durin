@@ -2,7 +2,7 @@
 
 #include "StaticMesh/StaticMeshResources.h"
 
-namespace Doge
+namespace Durin
 {
 	auto DStaticMesh::GetRenderData() const -> const FStaticMeshRenderData*
 	{

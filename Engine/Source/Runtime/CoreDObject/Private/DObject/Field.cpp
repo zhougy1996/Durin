@@ -3,7 +3,7 @@
 
 #include "DObject/Object.h"
 
-namespace Doge
+namespace Durin
 {
 	FFieldClass::FFieldClass(const char* InCPPName, uint64 InId, uint64 InCastFlags, FFieldClass* InSuperClass, FFieldConstructFuncType InConstructFunc)
 		: Id(InId)
@@ -40,7 +40,7 @@ namespace Doge
 	}
 	FField* FField::Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags /*= EObjectFlags::NoFlags*/)
 	{
-		DOGE_ERROR("FField::Construct should not be called directly.");
+		DURIN_ERROR("FField::Construct should not be called directly.");
 		check(false);
 		return nullptr;
 	}

@@ -1,6 +1,6 @@
 #include "Misc/FileHelper.h"
 
-namespace Doge
+namespace Durin
 {
 	namespace FFileHelper
 	{
@@ -15,7 +15,7 @@ namespace Doge
 			std::filesystem::path FilePath(FileName);
 			if (!std::filesystem::exists(FilePath))
 			{
-				DOGE_WARN("Failed to load file. File {} does not exist.", FileName);
+				DURIN_WARN("Failed to load file. File {} does not exist.", FileName);
 				return false;
 			}
 
@@ -54,7 +54,7 @@ namespace Doge
 			std::filesystem::path FilePath(FileName);
 			if (!std::filesystem::exists(FilePath))
 			{
-				DOGE_WARN("Failed to load file. File {} does not exist.", FileName);
+				DURIN_WARN("Failed to load file. File {} does not exist.", FileName);
 				return false;
 			}
 
@@ -81,7 +81,7 @@ namespace Doge
 				std::filesystem::create_directories(FilePath.parent_path(), ErrorCode);
 				if (ErrorCode)
 				{
-					DOGE_ERROR("Failed to create directories for path {}: {}", FilePath.parent_path().string(), ErrorCode.message());
+					DURIN_ERROR("Failed to create directories for path {}: {}", FilePath.parent_path().string(), ErrorCode.message());
 					return false;
 				}
 			}
@@ -91,7 +91,7 @@ namespace Doge
 
 			if (!File.is_open())
 			{
-				DOGE_ERROR("Failed to open file for writing: {}", FilePath.string());
+				DURIN_ERROR("Failed to open file for writing: {}", FilePath.string());
 				return false;
 			}
 
@@ -99,7 +99,7 @@ namespace Doge
 
 			if (File.fail())
 			{
-				DOGE_ERROR("Failed to write data to file {}", FilePath.string());
+				DURIN_ERROR("Failed to write data to file {}", FilePath.string());
 				return false;
 			}
 
@@ -107,7 +107,7 @@ namespace Doge
 
 			if (File.fail())
 			{
-				DOGE_ERROR("Failed to close file {} after writing", FilePath.string());
+				DURIN_ERROR("Failed to close file {} after writing", FilePath.string());
 				return false;
 			}
 

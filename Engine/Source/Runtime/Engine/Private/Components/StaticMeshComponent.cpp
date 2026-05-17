@@ -1,6 +1,6 @@
 #include "Components/StaticMeshComponent.h"
 
-namespace Doge
+namespace Durin
 {
 
 }

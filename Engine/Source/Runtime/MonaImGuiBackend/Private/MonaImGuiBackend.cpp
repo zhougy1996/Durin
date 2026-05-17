@@ -10,7 +10,7 @@
 #include "ImGuiRHIImpl.h"
 #include "MonaImGuiEventHandler.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	// Double buffer for draw data snapshots for the render thread.
 	static std::array<ImDrawDataSnapshot, 2> GDrawDataSnapshots;

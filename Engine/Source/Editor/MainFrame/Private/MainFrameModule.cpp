@@ -3,7 +3,7 @@
 #include "Mona.h"
 #include "LevelEditorModule.h"
 
-namespace Doge
+namespace Durin
 {
 	IMPLEMENT_MODULE(FMainFrameModule, MainFrame)
 

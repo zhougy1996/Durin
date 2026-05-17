@@ -2,7 +2,7 @@
 
 #include "EngineAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	struct FStaticMeshRenderData;
 

@@ -5,7 +5,7 @@
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
 
-namespace Doge
+namespace Durin
 {
 	namespace FVectorConstants
 	{

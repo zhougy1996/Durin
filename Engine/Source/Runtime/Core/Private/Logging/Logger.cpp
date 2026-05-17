@@ -7,7 +7,7 @@
 
 #include "Threading/RunnableThread.h"
 
-namespace Doge
+namespace Durin
 {
 	class FLogger::FImpl
 	{
@@ -91,7 +91,7 @@ namespace Doge
 			return it->second;
 		}
 
-		DOGE_WARN("Invalid log level in config: {}, defaulting to Debug", InLogLevel);
+		DURIN_WARN("Invalid log level in config: {}, defaulting to Debug", InLogLevel);
 		return ELogLevel::Debug;
 	}
 

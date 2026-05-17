@@ -2,7 +2,7 @@
 
 #include "Interfaces/IMainFrameModule.h"
 
-namespace Doge
+namespace Durin
 {
 	class FMainFrameModule : public IMainFrameModule
 	{

@@ -1,6 +1,6 @@
 #include "RenderResource.h"
 
-namespace Doge
+namespace Durin
 {
 	void FRenderResource::ReleaseRHIForAllResources()
 	{
@@ -22,7 +22,7 @@ namespace Doge
 	{
 		if (IsInitialized())
 		{
-			DOGE_ERROR("A FRenderResource was not released before destruction.");
+			DURIN_ERROR("A FRenderResource was not released before destruction.");
 		}
 	}
 	void FRenderResource::InitRHI(FRHICommandListBase& RHICmdList) {}

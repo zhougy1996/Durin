@@ -3,7 +3,7 @@
 #include "Shader/ShaderPaths.h"
 #include "Shader/SlangShaderCompiler.h"
 
-namespace Doge
+namespace Durin
 {
 	auto InitShaderCompiler() -> void
 	{

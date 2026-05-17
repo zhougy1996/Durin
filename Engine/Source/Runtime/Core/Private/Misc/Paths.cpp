@@ -3,7 +3,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Threading/RunnableThread.h"
 
-namespace Doge
+namespace Durin
 {
 	namespace PathUtilities
 	{
@@ -27,7 +27,7 @@ namespace Doge
 			else
 			{
 				MountPoints.push_back({std::string(VirtualRoot), std::string(PhysicalPath)});
-				DOGE_DEBUG("Mount point: {} -> {}", VirtualRoot, PhysicalPath);
+				DURIN_DEBUG("Mount point: {} -> {}", VirtualRoot, PhysicalPath);
 			}
 		}
 

@@ -9,7 +9,7 @@
 #include "RHIResources.h"
 #include "RHICommandList.h"
 
-namespace Doge
+namespace Durin
 {
 	struct FVertexElement
 	{

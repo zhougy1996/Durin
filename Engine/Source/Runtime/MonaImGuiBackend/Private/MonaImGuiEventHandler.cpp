@@ -4,7 +4,7 @@
 
 #include "ImGuiRHIImpl.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	namespace
 	{

@@ -2,7 +2,7 @@
 #include "RendererAPI.h"
 #include "IRendererModule.h"
 
-namespace Doge
+namespace Durin
 {
 	class RENDERER_API FRendererModule final : public IRendererModule
 	{

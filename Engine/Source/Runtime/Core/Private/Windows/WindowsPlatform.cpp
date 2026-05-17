@@ -1,5 +1,5 @@
 #include "Windows/WindowsPlatform.h"
 
-namespace Doge
+namespace Durin
 {
 }

@@ -1,6 +1,6 @@
 #include "DObject/DObjectArray.h"
 
-namespace Doge
+namespace Durin
 {
 	FDObjectArray GDObjectArray;
 }

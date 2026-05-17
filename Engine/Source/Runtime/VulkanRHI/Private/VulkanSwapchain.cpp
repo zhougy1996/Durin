@@ -4,7 +4,7 @@
 #include "VulkanGenericPlatform.h"
 #include "VulkanQueue.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	auto ChooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& AvailableFormats) -> vk::SurfaceFormatKHR
 	{
@@ -86,11 +86,11 @@ namespace Doge::VulkanRHI
 		try
 		{
 			Swapchain = Device.GetHandle().createSwapchainKHR(SwapchainInfo);
-			DOGE_TRACE("Vulkan swap chain created");
+			DURIN_TRACE("Vulkan swap chain created");
 		}
 		catch (const std::runtime_error& err)
 		{
-			DOGE_ERROR("Failed to create vulkan swap chain: {}", err.what());
+			DURIN_ERROR("Failed to create vulkan swap chain: {}", err.what());
 		}
 
 		Device.SetupPresentQueue(Surface);
@@ -124,7 +124,7 @@ namespace Doge::VulkanRHI
 		if (Result.result != vk::Result::eSuccess)
 		{
 			CurrentImageIndex = -1;
-			DOGE_ERROR("Failed to acquire swap chain image: {}", vk::to_string(Result.result));
+			DURIN_ERROR("Failed to acquire swap chain image: {}", vk::to_string(Result.result));
 		}
 		CurrentImageIndex = Result.value;
 		*OutImageAcquiredSemaphore = CurrentSemaphore;

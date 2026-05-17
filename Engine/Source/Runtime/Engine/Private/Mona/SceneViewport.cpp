@@ -4,7 +4,7 @@
 #include "Widgets/MViewport.h"
 #include "Application/MonaApplication.h"
 
-namespace Doge
+namespace Durin
 {
 	FSceneViewport::FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<Mona::MViewport>& InViewportWidget)
 		: FViewport(InViewportClient)

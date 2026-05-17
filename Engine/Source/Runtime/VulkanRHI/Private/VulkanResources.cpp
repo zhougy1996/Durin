@@ -2,7 +2,7 @@
 
 #include "VulkanDynamicRHI.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	FVulkanVertexDeclaration::FVulkanVertexDeclaration(const FVertexDeclarationElementList& InElements)
 		: Elements(InElements)

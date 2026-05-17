@@ -11,7 +11,7 @@
 #include "VulkanTexture.h"
 #include "VulkanDescriptorSets.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	static auto AppendShaderStageCreateInfo(std::vector<vk::PipelineShaderStageCreateInfo>& ShaderStages, vk::ShaderStageFlagBits ShaderStage, const FRHIShader* ShaderRHI) -> void
 	{
@@ -203,7 +203,7 @@ namespace Doge::VulkanRHI
 		pipelineLayoutInfo.setPushConstantRanges(PushConstantRanges);
 
 		PipelineLayout = Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
-		DOGE_TRACE("Vulkan pipeline layout created");
+		DURIN_TRACE("Vulkan pipeline layout created");
 
 		vk::GraphicsPipelineCreateInfo pipelineInfo;
 		pipelineInfo
@@ -224,13 +224,13 @@ namespace Doge::VulkanRHI
 		vk::ResultValue<vk::Pipeline> PipelineCreationResult = Device.GetHandle().createGraphicsPipeline(nullptr, pipelineInfo);
 		if (PipelineCreationResult.result != vk::Result::eSuccess)
 		{
-			DOGE_ERROR("Failed to create vulkan graphics pipeline: {}", vk::to_string(PipelineCreationResult.result));
+			DURIN_ERROR("Failed to create vulkan graphics pipeline: {}", vk::to_string(PipelineCreationResult.result));
 			KeepShadersAlive();
 		}
 		else
 		{
 			Pipeline = PipelineCreationResult.value;
-			DOGE_TRACE("Vulkan graphics pipeline created");
+			DURIN_TRACE("Vulkan graphics pipeline created");
 		}
 	}
 

@@ -2,7 +2,7 @@
 
 #include "HAL/Platform.h"
 
-namespace Doge
+namespace Durin
 {
 	class FRunnable
 	{

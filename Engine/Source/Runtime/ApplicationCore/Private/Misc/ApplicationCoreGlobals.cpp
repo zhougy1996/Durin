@@ -4,7 +4,7 @@
 #include "Application/GenericApplication.h"
 #include "ThirdParty/Glfw/GlfwCommon.h"
 
-namespace Doge
+namespace Durin
 {
 	std::shared_ptr<FGenericApplication> GApp = nullptr;
 

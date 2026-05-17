@@ -1,6 +1,6 @@
 #include "LevelEditorModule.h"
 
-namespace Doge
+namespace Durin
 {
 	IMPLEMENT_MODULE(FLevelEditorModule, LevelEditor)
 }

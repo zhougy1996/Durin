@@ -1,7 +1,7 @@
 #pragma once
 #include "HAL/Platform.h"
 
-namespace Doge
+namespace Durin
 {
 	template<typename ReferencedType>
 	class TRefCountPtr

@@ -6,7 +6,7 @@
 #include "VulkanSubmission.h"
 #include "VulkanRHIPrivate.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	FVulkanQueue::FVulkanQueue(FVulkanDevice* InDevice, uint32 InFamilyIndex)
 		: Device(InDevice)

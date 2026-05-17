@@ -1,1 +1,1 @@
-doge_add_module(CoreDObject)
+durin_add_module(CoreDObject)

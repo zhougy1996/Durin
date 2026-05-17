@@ -3,7 +3,7 @@
 #include "CoreDObjectAPI.h"
 #include "ObjectMacros.h"
 
-namespace Doge
+namespace Durin
 {
 	class DObject;
 	class DClass;

@@ -5,7 +5,7 @@
 #include "Window/GenericWindow.h"
 #include "Widgets/MCompoundWidget.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class IMonaViewport;
 

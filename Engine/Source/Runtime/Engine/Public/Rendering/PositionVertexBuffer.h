@@ -4,7 +4,7 @@
 
 #include "RenderResource.h"
 
-namespace Doge
+namespace Durin
 {
 	class FPositionVertexData;
 

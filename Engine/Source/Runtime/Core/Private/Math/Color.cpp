@@ -1,6 +1,6 @@
 #include "Math/Color.h"
 
-namespace Doge
+namespace Durin
 {
 	// Common colors.
 	const FLinearColor FLinearColor::White(1.f, 1.f, 1.f);

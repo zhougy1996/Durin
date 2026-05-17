@@ -1,6 +1,6 @@
 #include "Client/ViewportClient.h"
 
-namespace Doge
+namespace Durin
 {
 
 }

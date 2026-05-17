@@ -4,7 +4,7 @@
 
 #include "SceneComponent.gen.h"
 
-namespace Doge
+namespace Durin
 {
 	DCLASS()
 	class DSceneComponent : public DActorComponent

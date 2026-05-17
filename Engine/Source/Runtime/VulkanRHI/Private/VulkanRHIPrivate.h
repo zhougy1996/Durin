@@ -3,7 +3,7 @@
 #include "PixelFormat.h"
 #include "RHIDefinitions.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 	class FVulkanFence;

@@ -2,7 +2,7 @@
 
 #include "RHIResources.h"
 
-namespace Doge::Mona::MonaImGuiBackend
+namespace Durin::Mona::MonaImGuiBackend
 {
 	extern ImGuiContext* GMonaImGuiContext;
 

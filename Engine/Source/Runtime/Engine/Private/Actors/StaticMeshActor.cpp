@@ -2,11 +2,11 @@
 
 #include "Components/StaticMeshComponent.h"
 
-namespace Doge
+namespace Durin
 {
 	AStaticMeshActor::AStaticMeshActor()
 	{
-		DOGE_INFO(STR("AStaticMeshActor::AStaticMeshActor"));
+		DURIN_INFO(STR("AStaticMeshActor::AStaticMeshActor"));
 		StaticMeshComponent = NewObject<DStaticMeshComponent>(this, "DStaticMeshComponent");
 		RootComponent = StaticMeshComponent;
 	}

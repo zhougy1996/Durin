@@ -5,7 +5,7 @@
 #include "Application/MonaApplication.h"
 #include "Window/GlfwWindow.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	MWindow::~MWindow()
 	{

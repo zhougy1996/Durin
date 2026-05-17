@@ -1,6 +1,6 @@
 #include "Widgets/MCompoundWidget.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	void MCompoundWidget::Draw()
 	{

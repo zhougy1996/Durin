@@ -2,7 +2,7 @@
 
 #include "Input/InputCoreTypes.h"
 
-namespace Doge::Mona
+namespace Durin::Mona
 {
 	class FMonaEventHandler
 	{

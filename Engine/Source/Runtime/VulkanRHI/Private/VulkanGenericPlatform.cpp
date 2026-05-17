@@ -4,7 +4,7 @@
 #include "Application/GenericApplication.h"
 #include "Window/GenericWindow.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	auto FVulkanGenericPlatform::CreateSurface(void* InWindowHandle, vk::Instance Instance) -> vk::SurfaceKHR
 	{

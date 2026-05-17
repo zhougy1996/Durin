@@ -2,7 +2,7 @@
 
 #include "CoreAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	/**  A 64-bit hash from XXH3. */
 	struct FXxHash64
@@ -106,18 +106,18 @@ namespace Doge
 }
 
 template <>
-struct std::hash<Doge::FXxHash64>
+struct std::hash<Durin::FXxHash64>
 {
-	auto operator()(const Doge::FXxHash64& Hash) const noexcept -> size_t
+	auto operator()(const Durin::FXxHash64& Hash) const noexcept -> size_t
 	{
 		return Hash.HashValue;
 	}
 };
 
 template <>
-struct std::hash<Doge::FXxHash128>
+struct std::hash<Durin::FXxHash128>
 {
-	auto operator()(const Doge::FXxHash128& Hash) const noexcept -> size_t
+	auto operator()(const Durin::FXxHash128& Hash) const noexcept -> size_t
 	{
 		return Hash.HashLow;
 	}

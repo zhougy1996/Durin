@@ -3,7 +3,7 @@
 #include "RHIContext.h"
 #include "VulkanMemory.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	class FVulkanDynamicRHI;
 	class FVulkanDevice;

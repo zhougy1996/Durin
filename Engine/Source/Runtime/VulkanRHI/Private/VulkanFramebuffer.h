@@ -3,7 +3,7 @@
 #include "RHIDefinitions.h"
 #include "VulkanView.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 	class FVulkanRenderPass;

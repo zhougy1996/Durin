@@ -2,7 +2,7 @@
 
 #include "RenderCoreAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	using FShaderCode = std::vector<uint32>;
 

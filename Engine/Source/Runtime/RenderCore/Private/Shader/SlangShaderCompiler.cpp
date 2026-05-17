@@ -1,6 +1,6 @@
 #include "SlangShaderCompiler.h"
 
-namespace Doge
+namespace Durin
 {
 	FSlangShaderCompiler::FSlangShaderCompiler()
 	{
@@ -32,7 +32,7 @@ namespace Doge
 
 		if (BufferSize == 0 || BufferSize % sizeof(uint32) != 0)
 		{
-			DOGE_ERROR("Invalid SPIR-V size: {} bytes", BufferSize);
+			DURIN_ERROR("Invalid SPIR-V size: {} bytes", BufferSize);
 			return false;
 		}
 

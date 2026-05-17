@@ -2,7 +2,7 @@
 
 #include "ApplicationCoreAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	struct APPLICATIONCORE_API FGenericWindowDefinition
 	{

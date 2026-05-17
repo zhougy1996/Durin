@@ -3,7 +3,7 @@
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 
-namespace Doge
+namespace Durin
 {
 	AActor::AActor()
 	{

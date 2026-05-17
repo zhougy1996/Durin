@@ -12,7 +12,7 @@
 
 #define NO_API
 
-namespace Doge
+namespace Durin
 {
 	// clang-format off
 	enum EStaticConstructor { EC_StaticConstructor };

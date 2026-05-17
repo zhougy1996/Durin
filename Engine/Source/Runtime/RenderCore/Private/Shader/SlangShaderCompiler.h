@@ -5,7 +5,7 @@
 #include "slang.h"
 #include "slang-com-ptr.h"
 
-namespace Doge
+namespace Durin
 {
 	class FSlangShaderCompiler : public FShaderCompiler
 	{

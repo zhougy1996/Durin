@@ -2,7 +2,7 @@
 
 #include "AssetCoreAPI.h"
 
-namespace Doge
+namespace Durin
 {
 	namespace Asset
 	{

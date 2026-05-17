@@ -1,1 +1,1 @@
-doge_add_module(Launch)
+durin_add_module(Launch)

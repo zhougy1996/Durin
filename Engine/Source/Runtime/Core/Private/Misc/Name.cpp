@@ -1,7 +1,7 @@
 #include "Misc/Name.h"
 #include <cstdlib>
 
-namespace Doge
+namespace Durin
 {
 	static constexpr uint32 FNameNoNumberInternal = 0;
 
@@ -908,9 +908,9 @@ FNameDebugVisualizer::FNameDebugVisualizer(FClangKeepDebugInfo)
 
 uint8_t** FNameDebugVisualizer::GetBlocks()
 {
-	static_assert(EntryStride == Doge::FNameEntryAllocator::Stride, "Natvis constants out of sync with actual constants");
-	static_assert(BlockBits == Doge::FNameMaxBlockBits, "Natvis constants out of sync with actual constants");
-	static_assert(OffsetBits == Doge::FNameBlockOffsetBits, "Natvis constants out of sync with actual constants");
+	static_assert(EntryStride == Durin::FNameEntryAllocator::Stride, "Natvis constants out of sync with actual constants");
+	static_assert(BlockBits == Durin::FNameMaxBlockBits, "Natvis constants out of sync with actual constants");
+	static_assert(OffsetBits == Durin::FNameBlockOffsetBits, "Natvis constants out of sync with actual constants");
 
-	return reinterpret_cast<Doge::FNamePool*>(Doge::NamePoolData)->GetBlocksForDebugVisualizer();
+	return reinterpret_cast<Durin::FNamePool*>(Durin::NamePoolData)->GetBlocksForDebugVisualizer();
 }

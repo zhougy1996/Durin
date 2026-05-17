@@ -5,7 +5,7 @@
 #include "VulkanRenderPass.h"
 #include "VulkanFramebuffer.h"
 
-namespace Doge::VulkanRHI
+namespace Durin::VulkanRHI
 {
 	FVulkanCommandBuffer::FVulkanCommandBuffer(FVulkanDevice& InDevice, FVulkanCommandBufferPool* InPool)
 		: Device(InDevice)
