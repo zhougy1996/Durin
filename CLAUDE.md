@@ -10,14 +10,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - Debug: `cmake --preset x64-Debug`
   - Release: `cmake --preset x64-Release`
 - Build with CMake:
-  - Debug launcher: `cmake --build --preset x64-Debug --target DogeLauncher`
-  - Release launcher: `cmake --build --preset x64-Release --target DogeLauncher`
+  - Debug launcher: `cmake --build --preset x64-Debug --target DurinLauncher`
+  - Release launcher: `cmake --build --preset x64-Release --target DurinLauncher`
   - Build a single module target: `cmake --build --preset x64-Debug --target VulkanRHI`
 - Run the editor/launcher after build:
-  - `./Build/Doge/x64/Debug/Doge.exe`
-  - The launcher target is `DogeLauncher`, but its output name is `Doge`.
+  - `./Build/Durin/x64/Debug/Durin.exe`
+  - The launcher target is `DurinLauncher`, but its output name is `Durin`.
 - Config file behavior:
-  - Building `DogeLauncher` copies `TP_DogeConfig.yaml` into the output directory as `DogeConfig.yaml` if it is missing.
+  - Building `DurinLauncher` copies `TP_DurinConfig.yaml` into the output directory as `DurinConfig.yaml` if it is missing.
 - There is no verified repo-wide lint command or test harness configured in the top-level CMake files.
   - `CMakePresets.json` defines configure presets only, not build/test presets.
   - I did not find `enable_testing()` / `add_test()` in the main project files.
@@ -26,8 +26,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - The repo is driven by CMake at the root, which delegates into `Engine/CMakeLists.txt`.
 - `CMake/Modules.cmake` is the key file for understanding builds:
-  - `doge_add_project(...)` prepares project metadata by invoking the Python-based DogeHeaderTool (`Engine/Source/Programs/DogeHeaderTool/main.py`).
-  - `doge_add_module(...)` includes generated per-module CMake, wires reflection/generated sources, sets precompiled headers, and emits shared libraries named `DogeEditor-<ModuleName>`.
+  - `durin_add_project(...)` prepares project metadata by invoking the Python-based DurinHeaderTool (`Engine/Source/Programs/DurinHeaderTool/main.py`).
+  - `durin_add_module(...)` includes generated per-module CMake, wires reflection/generated sources, sets precompiled headers, and emits shared libraries named `DurinEditor-<ModuleName>`.
 - Most engine/editor code is built as modules loaded at runtime through the custom module system, not linked monolithically.
 - `RenderCore` has an important post-build step that copies Slang DLLs into `Binaries/ThirdParty/...`; shader/compiler issues often come from this deployment path.
 
@@ -47,7 +47,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Module system
 
 - `Core/Modules/ModuleManager.*` implements the engine’s runtime module loader.
-- Modules are loaded by name, translated to shared library filenames like `DogeEditor-<Module>.dll`, and initialized through the `IMPLEMENT_MODULE(...)` export path.
+- Modules are loaded by name, translated to shared library filenames like `DurinEditor-<Module>.dll`, and initialized through the `IMPLEMENT_MODULE(...)` export path.
 - Shutdown order is reverse load order.
 - When you add or change cross-module behavior, check both the CMake module dependencies and the runtime `FModuleManager` loading path.
 
@@ -75,6 +75,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Important repo-specific behaviors
 
 - This codebase relies on generated build metadata and generated reflection/export files. If a module looks incomplete from static files alone, inspect the generated/intermediate CMake and DHT outputs before assuming the source is missing.
-- Shared library naming matters: runtime module loading expects the `DogeEditor-<Module>` naming convention established in `CMake/Modules.cmake`.
+- Shared library naming matters: runtime module loading expects the `DurinEditor-<Module>` naming convention established in `CMake/Modules.cmake`.
 - The active rendering backend is effectively Vulkan-first today; changes in `RHI` often need matching updates in `VulkanRHI` and sometimes in the Mona ImGui backend.
-- Because the launcher creates a real windowed application, UI/rendering changes should be validated by building and running `Doge`, not only by compiling.
+- Because the launcher creates a real windowed application, UI/rendering changes should be validated by building and running `Durin`, not only by compiling.

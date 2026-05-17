@@ -170,10 +170,10 @@ namespace Durin
 
 		std::mutex Mutex;
 	};
-} // namespace Doge
+} // namespace Durin
 
 #define DECLARE_DELEGATE(DelegateName, ...) \
-	using DelegateName = Doge::TDelegate<__VA_ARGS__>;
+	using DelegateName = Durin::TDelegate<__VA_ARGS__>;
 
 #define DECLARE_DELEGATE_OneParam(DelegateName, Param1Type) \
 	DECLARE_DELEGATE(DelegateName, Param1Type)

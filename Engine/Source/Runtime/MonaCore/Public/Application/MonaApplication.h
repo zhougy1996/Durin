@@ -102,4 +102,4 @@ namespace Durin::Mona
 		// UI event handler
 		std::unique_ptr<FMonaEventHandler> MonaEventHandler{};
 	};
-} // namespace Doge::Mona
+} // namespace Durin::Mona

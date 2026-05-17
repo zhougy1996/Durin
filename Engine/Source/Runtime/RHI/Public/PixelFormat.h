@@ -112,4 +112,4 @@ namespace Durin
 
 	RHI_API auto GetPixelFormatInfo(EPixelFormat Format) -> const FPixelFormatInfo&;
 
-} // namespace Doge
+} // namespace Durin

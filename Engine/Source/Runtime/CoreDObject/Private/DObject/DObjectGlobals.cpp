@@ -51,7 +51,7 @@ namespace Durin
 	}
 
 
-	auto DogeCodeGen::ConstructDClass(const FClassParams& Params) -> DClass*
+	auto DurinCodeGen::ConstructDClass(const FClassParams& Params) -> DClass*
 	{
 		DClass* Class = Params.ClassNoRegisterFunc();
 

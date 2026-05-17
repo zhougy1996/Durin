@@ -227,6 +227,6 @@ extern uint8_t** GNameBlocksDebug;
 // It is used in the natvis file for debugging purposes, each .exe or.dll owns this variable, so it is not shared between modules.
 // It will be initialized only once, and it will not be changed during the program execution.
 // So, it is safe to use it in the natvis file for debugging purposes.
-#ifdef DOGE_VISUALIZERS_HELPERS
+#ifdef DURIN_VISUALIZERS_HELPERS
 inline uint8_t** GNameBlocksDebug = FNameDebugVisualizer(FClangKeepDebugInfo{}).GetBlocks();
-#endif // DOGE_VISUALIZERS_HELPERS
+#endif // DURIN_VISUALIZERS_HELPERS

@@ -18,4 +18,4 @@ namespace Durin
 		uint16 BindIndex = 0;
 		EType Type;
 	};
-} // namespace Doge
+} // namespace Durin

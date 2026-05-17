@@ -164,4 +164,4 @@ namespace Durin
 			GDynamicRHI->RHIEndFrame();
 		}
 	}
-} // namespace Doge
+} // namespace Durin

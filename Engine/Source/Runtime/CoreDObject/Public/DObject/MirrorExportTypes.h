@@ -4,7 +4,7 @@
 // For use in generating code for other modules that need to reference core DObject types
 #ifdef _DHT_EXPORTS_PARSER
 
-namespace Doge
+namespace Durin
 {
 	DCLASS()
 	class DObject

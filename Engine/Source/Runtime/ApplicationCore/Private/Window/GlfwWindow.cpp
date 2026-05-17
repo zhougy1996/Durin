@@ -352,4 +352,4 @@ namespace Durin
 
 		glfwSetCursor(GlfwWindow, static_cast<GLFWcursor*>(CachedCursors[CursorIndex]));
 	}
-} // namespace Doge
+} // namespace Durin

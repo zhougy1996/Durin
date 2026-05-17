@@ -172,4 +172,4 @@ namespace Durin::Mona
 	{
 		return NativeWindow->IsMinimized();
 	}
-} // namespace Doge::Mona
+} // namespace Durin::Mona

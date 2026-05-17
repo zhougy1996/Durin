@@ -43,4 +43,4 @@ namespace Durin
 				   && Stride == Other.Stride;
 		}
 	};
-} // namespace Doge
+} // namespace Durin

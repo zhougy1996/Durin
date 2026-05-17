@@ -37,12 +37,12 @@ namespace Durin
 		ConsoleSink->set_level(spdlog::level::debug);
 		ConsoleSink->set_pattern("[%H:%M:%S][%^%l%$]%v");
 
-		const auto FileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("Logs/Doge.log", true);
+		const auto FileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("Logs/Durin.log", true);
 		FileSink->set_level(spdlog::level::trace);
 		FileSink->set_pattern("[%Y-%m-%d %H:%M:%S][%^%l%$][%s:%#] %v");
 
 		std::vector<spdlog::sink_ptr> Sinks{ConsoleSink, FileSink};
-		SpdLogger = std::make_shared<spdlog::logger>("DogeLogger", Sinks.begin(), Sinks.end());
+		SpdLogger = std::make_shared<spdlog::logger>("DurinLogger", Sinks.begin(), Sinks.end());
 
 		spdlog::register_logger(SpdLogger);
 		SpdLogger->set_level(spdlog::level::trace);

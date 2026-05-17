@@ -171,7 +171,7 @@ namespace Durin::Mona::MonaImGuiBackend
 		IMGUI_CHECKVERSION();
 
 		IO.BackendRendererUserData = GDynamicRHI;
-		IO.BackendRendererName = "DogeRHI";
+		IO.BackendRendererName = "DurinRHI";
 		IO.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset; // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
 		IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;  // We can honor ImGuiPlatformIO::Textures[] requests during render.
 
@@ -351,4 +351,4 @@ namespace Durin::Mona::MonaImGuiBackend
 		});
 	}
 
-} // namespace Doge::Mona::MonaImGuiBackend
+} // namespace Durin::Mona::MonaImGuiBackend

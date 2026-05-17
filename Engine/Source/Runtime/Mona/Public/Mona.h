@@ -7,4 +7,4 @@ namespace Durin::Mona
 {
 	MONA_API auto Text(const std::string& InText) -> void;
 
-} // namespace Doge::Mona
+} // namespace Durin::Mona

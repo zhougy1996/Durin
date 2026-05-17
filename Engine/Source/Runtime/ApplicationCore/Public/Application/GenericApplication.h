@@ -23,7 +23,7 @@ namespace Durin
 
 		auto SetMessageHandler(FGenericApplicationMessageHandler* InMessageHandler) -> void { MessageHandler = InMessageHandler; }
 
-		DOGE_NONCOPYABLE(FGenericApplication)
+		DURIN_NONCOPYABLE(FGenericApplication)
 
 	protected:
 		FGenericApplicationMessageHandler* MessageHandler = nullptr;

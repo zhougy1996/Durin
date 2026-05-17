@@ -2,11 +2,11 @@
 durin_add_module(Core)
 
 target_sources(Core PRIVATE
-    ${DOGE_PROJECT_DIR}/Extras/VisualStudioDebugging/Durin.natvis
+    ${DURIN_PROJECT_DIR}/Extras/VisualStudioDebugging/Durin.natvis
 )
 
 target_include_directories(Core PRIVATE
-    ${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/xxhash
+    ${DURIN_PROJECT_SOURCE_DIR}/ThirdParty/xxhash
 )
 
 target_link_libraries(Core PRIVATE

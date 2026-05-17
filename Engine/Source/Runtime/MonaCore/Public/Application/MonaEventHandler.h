@@ -10,7 +10,7 @@ namespace Durin::Mona
 		FMonaEventHandler() = default;
 		virtual ~FMonaEventHandler() = default;
 
-		DOGE_NONCOPYABLE(FMonaEventHandler)
+		DURIN_NONCOPYABLE(FMonaEventHandler)
 
 		virtual auto OnWindowFocused(const std::shared_ptr<FGenericWindow>& InPlatformWindow, bool bFocused) -> void {}
 
@@ -28,4 +28,4 @@ namespace Durin::Mona
 
 		virtual auto OnMouseWheel(const std::shared_ptr<FGenericWindow>& InPlatformWindow, double DeltaX, double DeltaY) -> bool { return false; }
 	};
-} // namespace Doge::Mona
+} // namespace Durin::Mona

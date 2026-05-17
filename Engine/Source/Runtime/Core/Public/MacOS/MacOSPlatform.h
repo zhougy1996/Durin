@@ -20,7 +20,7 @@
 
 #define STR(x) x
 
-namespace Doge
+namespace Durin
 {
 	using CharT = char;
 

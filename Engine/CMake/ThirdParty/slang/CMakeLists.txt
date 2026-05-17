@@ -1,6 +1,6 @@
 add_library(Slang_Imported SHARED IMPORTED GLOBAL)
 
-set(SLANG_ROOT "${DOGE_PROJECT_DIR}/Source/ThirdParty/slang")
+set(SLANG_ROOT "${DURIN_PROJECT_DIR}/Source/ThirdParty/slang")
 
 set_target_properties(Slang_Imported PROPERTIES
     IMPORTED_LOCATION "${SLANG_ROOT}/bin/slang.dll"

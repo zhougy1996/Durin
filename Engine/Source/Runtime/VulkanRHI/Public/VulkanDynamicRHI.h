@@ -63,7 +63,7 @@ namespace Durin::VulkanRHI
 		auto CreateInstance() -> void;
 		auto SelectDevice() -> void;
 
-		auto SetupInstanceLayers(const FVulkanInstanceExtensionArray& DogeExtensions) -> void;
+		auto SetupInstanceLayers(const FVulkanInstanceExtensionArray& DurinExtensions) -> void;
 
 	private:
 		vk::DynamicLoader DynamicLoader{};

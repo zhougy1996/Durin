@@ -37,7 +37,7 @@ namespace Durin
 		static CORE_API auto EngineThirdPartyRuntimeBinariesDir() -> std::string;
 
 		// Resolve virtual path to physical path.
-		// For example,  "/Engine/" to "DOGE_ROOT/Engine/", or "/MyProject/" to "MyProject_Dir/".
+		// For example,  "/Engine/" to "DURIN_ROOT/Engine/", or "/MyProject/" to "MyProject_Dir/".
 		static CORE_API auto Resolve(std::string_view VirtualPath) -> std::string;
 	};
 }

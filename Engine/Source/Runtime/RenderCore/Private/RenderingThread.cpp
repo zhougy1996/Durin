@@ -174,4 +174,4 @@ namespace Durin
 
 	FRenderThreadCommandPipe FRenderThreadCommandPipe::Instance;
 
-} // namespace Doge
+} // namespace Durin

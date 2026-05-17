@@ -22,4 +22,4 @@ namespace Durin::VulkanRHI
 		};
 	}
 
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

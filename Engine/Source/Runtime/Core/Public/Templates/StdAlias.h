@@ -2,7 +2,7 @@
 
 #include <optional>
 
-namespace Doge
+namespace Durin
 {
 	template<typename T>
 	using TOptional = std::optional<T>;

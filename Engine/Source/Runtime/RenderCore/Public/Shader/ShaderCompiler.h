@@ -28,8 +28,8 @@ namespace Durin
 
 		RENDERCORE_API virtual auto Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput = 0;
 
-		DOGE_NONCOPYABLE(FShaderCompiler);
+		DURIN_NONCOPYABLE(FShaderCompiler);
 	};
 
 	RENDERCORE_API extern FShaderCompiler* GShaderCompiler;
-} // namespace Doge
+} // namespace Durin

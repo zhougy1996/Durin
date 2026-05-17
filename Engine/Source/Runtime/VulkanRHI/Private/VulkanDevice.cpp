@@ -69,13 +69,13 @@ namespace Durin::VulkanRHI
 		Entries.emplace_back(Type, GVulkanRHIDeletionFrameNumber, Handle, Allocation); // Copy allocation here
 	}
 
-#define DOGE_VK_DESTROY_CASE(Type, ...)                                                 \
+#define DURIN_VK_DESTROY_CASE(Type, ...)                                                 \
 	case EType::Type:                                                                   \
 		__VA_ARGS__                                                                     \
 		DeviceHandle.destroy##Type(vk::Type{reinterpret_cast<Vk##Type>(Entry.Handle)}); \
 		break
 
-#define DOGE_VMA_DESTROY_CASE(Type, ...)                                                                   \
+#define DURIN_VMA_DESTROY_CASE(Type, ...)                                                                   \
 	case EType::Type:                                                                                      \
 		__VA_ARGS__                                                                                        \
 		MemoryManager.Destroy##Type(Entry.Allocation, vk::Type{reinterpret_cast<Vk##Type>(Entry.Handle)}); \
@@ -92,8 +92,8 @@ namespace Durin::VulkanRHI
 			{
 				switch (Entry.Type)
 				{
-					DOGE_VMA_DESTROY_CASE(Image);
-					DOGE_VMA_DESTROY_CASE(Buffer);
+					DURIN_VMA_DESTROY_CASE(Image);
+					DURIN_VMA_DESTROY_CASE(Buffer);
 				default:
 					DURIN_ERROR("Unknown Vulkan resource type {} for vma", static_cast<uint32>(Entry.Type));
 					break;
@@ -103,20 +103,20 @@ namespace Durin::VulkanRHI
 			{
 				switch (Entry.Type)
 				{
-					DOGE_VK_DESTROY_CASE(RenderPass);
-					DOGE_VK_DESTROY_CASE(Buffer);
-					DOGE_VK_DESTROY_CASE(BufferView);
-					DOGE_VK_DESTROY_CASE(Image);
-					DOGE_VK_DESTROY_CASE(ImageView);
-					DOGE_VK_DESTROY_CASE(Pipeline);
-					DOGE_VK_DESTROY_CASE(PipelineLayout);
-					DOGE_VK_DESTROY_CASE(DescriptorPool);
-					DOGE_VK_DESTROY_CASE(Framebuffer);
-					DOGE_VK_DESTROY_CASE(DescriptorSetLayout);
-					DOGE_VK_DESTROY_CASE(Sampler);
-					DOGE_VK_DESTROY_CASE(Semaphore);
-					DOGE_VK_DESTROY_CASE(ShaderModule);
-					DOGE_VK_DESTROY_CASE(Event);
+					DURIN_VK_DESTROY_CASE(RenderPass);
+					DURIN_VK_DESTROY_CASE(Buffer);
+					DURIN_VK_DESTROY_CASE(BufferView);
+					DURIN_VK_DESTROY_CASE(Image);
+					DURIN_VK_DESTROY_CASE(ImageView);
+					DURIN_VK_DESTROY_CASE(Pipeline);
+					DURIN_VK_DESTROY_CASE(PipelineLayout);
+					DURIN_VK_DESTROY_CASE(DescriptorPool);
+					DURIN_VK_DESTROY_CASE(Framebuffer);
+					DURIN_VK_DESTROY_CASE(DescriptorSetLayout);
+					DURIN_VK_DESTROY_CASE(Sampler);
+					DURIN_VK_DESTROY_CASE(Semaphore);
+					DURIN_VK_DESTROY_CASE(ShaderModule);
+					DURIN_VK_DESTROY_CASE(Event);
 					// TODO: Others
 				default:
 					DURIN_ERROR("Unknown Vulkan resource type {} in deferred deletion queue", static_cast<uint32>(Entry.Type));
@@ -151,7 +151,7 @@ namespace Durin::VulkanRHI
 
 		QueueFamilyProps = Gpu.getQueueFamilyProperties();
 
-		const FVulkanDeviceExtensionArray SupportedDeviceExtensions = FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(this);
+		const FVulkanDeviceExtensionArray SupportedDeviceExtensions = FVulkanDeviceExtension::GetDurinSupportedDeviceExtensions(this);
 
 		CreateDevice(SupportedDeviceExtensions);
 		MemoryManager.Init(this);
@@ -374,4 +374,4 @@ namespace Durin::VulkanRHI
 		Device.destroy();
 		Device = nullptr;
 	}
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

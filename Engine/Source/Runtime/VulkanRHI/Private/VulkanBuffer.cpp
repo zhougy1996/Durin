@@ -217,4 +217,4 @@ namespace Durin::VulkanRHI
 		return static_cast<FVulkanBuffer*>(Buffer)->Unlock(RHICmdList);
 	}
 
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

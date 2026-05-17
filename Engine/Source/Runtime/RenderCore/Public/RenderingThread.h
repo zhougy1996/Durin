@@ -104,8 +104,8 @@ namespace Durin
 	};
 
 #define ENQUEUE_RENDER_COMMAND(Name) \
-	DECLARE_RENDER_COMMAND_TAG(DOGE_JOIN(FRenderCommandTag_, DOGE_JOIN(Name, __LINE__)), Name) \
-	EnqueueRenderCommand<DOGE_JOIN(FRenderCommandTag_, DOGE_JOIN(Name, __LINE__))>
+	DECLARE_RENDER_COMMAND_TAG(DURIN_JOIN(FRenderCommandTag_, DURIN_JOIN(Name, __LINE__)), Name) \
+	EnqueueRenderCommand<DURIN_JOIN(FRenderCommandTag_, DURIN_JOIN(Name, __LINE__))>
 
 
-} // namespace Doge
+} // namespace Durin

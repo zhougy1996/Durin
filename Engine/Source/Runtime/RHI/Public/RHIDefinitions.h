@@ -229,4 +229,4 @@ namespace Durin
 		WriteOnly_NoOverwrite
 	};
 
-} // namespace Doge
+} // namespace Durin

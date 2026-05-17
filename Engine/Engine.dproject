@@ -14,9 +14,9 @@
         "Mona": "Source/Runtime/Mona",
         "MonaImGuiBackend": "Source/Runtime/MonaImGuiBackend",
         "Launch": "Source/Runtime/Launch",
-        "DogeEd": "Source/Editor/DogeEd",
+        "DurinEd": "Source/Editor/DurinEd",
         "MainFrame": "Source/Editor/MainFrame",
         "LevelEditor": "Source/Editor/LevelEditor",
-        "DogeLauncher": "Source/Editor/DogeLauncher"
+        "DurinLauncher": "Source/Editor/DurinLauncher"
     }
 }

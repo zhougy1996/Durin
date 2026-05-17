@@ -2,7 +2,7 @@
 
 #include "DObject/Property.h"
 
-namespace Doge
+namespace Durin
 {
 	class FNumericProperty : public FProperty
 	{

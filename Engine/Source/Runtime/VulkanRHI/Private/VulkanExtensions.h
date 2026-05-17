@@ -41,13 +41,13 @@ namespace Durin::VulkanRHI
 	class FVulkanInstanceExtension : public FVulkanExtensionBase
 	{
 	public:
-		static auto GetDogeSupportedInstanceExtensions() -> FVulkanInstanceExtensionArray;
+		static auto GetDurinSupportedInstanceExtensions() -> FVulkanInstanceExtensionArray;
 	};
 
 	class FVulkanDeviceExtension : public FVulkanExtensionBase
 	{
 	public:
-		static auto GetDogeSupportedDeviceExtensions(FVulkanDevice* InDevice) -> FVulkanDeviceExtensionArray;
+		static auto GetDurinSupportedDeviceExtensions(FVulkanDevice* InDevice) -> FVulkanDeviceExtensionArray;
 		static auto GetDriverSupportedDeviceExtensions(vk::PhysicalDevice Gpu, const char* LayerName = nullptr) -> std::vector<vk::ExtensionProperties>;
 
 	protected:

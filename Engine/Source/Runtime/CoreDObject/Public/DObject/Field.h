@@ -58,7 +58,7 @@ namespace Durin
 		TClass& operator=(TClass&&) = delete; \
 		TClass& operator=(const TClass&) = delete; \
 		\
-		using Super = DOGE_REMOVE_OPTIONAL_PARENS(TSuperClass); \
+		using Super = DURIN_REMOVE_OPTIONAL_PARENS(TSuperClass); \
 		static TRequiredAPI auto StaticClass() -> FFieldClass*; \
 		static TRequiredAPI FField* Construct(const FFieldVariant& InOwner, const FName& InName, EObjectFlags InFlags = EObjectFlags::NoFlags); \
 		/* Internal ClassCastFlags without super class flags */ \
@@ -156,7 +156,7 @@ namespace Durin
 	class FField
 	{
 	public:
-		DOGE_NONCOPYABLE(FField)
+		DURIN_NONCOPYABLE(FField)
 
 		static COREDOBJECT_API auto StaticClass() -> FFieldClass*;
 

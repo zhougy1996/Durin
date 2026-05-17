@@ -8,4 +8,4 @@ To use BuildInsight in CLion, you need to set up a external tool that will run t
 3. Fill in the fields as follows(take Debug configuration as an example):
    - **Name**: BuildInsight_Debug
    - **Program**: cmd.exe
-   - **Arguments**: "path\to\Doge\Engine\Scripts\Build\BuildInsight.bat" Debug"
+   - **Arguments**: "path\to\Durin\Engine\Scripts\Build\BuildInsight.bat" Debug"

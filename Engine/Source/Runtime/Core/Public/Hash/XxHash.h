@@ -44,7 +44,7 @@ namespace Durin
 
 		[[nodiscard]] CORE_API auto Finalize() const -> FXxHash64;
 
-		DOGE_NONCOPYABLE(FXxHash64Builder);
+		DURIN_NONCOPYABLE(FXxHash64Builder);
 
 	private:
 		alignas(64) char StateBytes[576];
@@ -97,7 +97,7 @@ namespace Durin
 
 		[[nodiscard]] CORE_API auto Finalize() const -> FXxHash128;
 
-		DOGE_NONCOPYABLE(FXxHash128Builder);
+		DURIN_NONCOPYABLE(FXxHash128Builder);
 
 	private:
 		alignas(64) char StateBytes[576];

@@ -6,4 +6,4 @@ namespace Durin::Mona
 	{
 		ChildWidget->Draw();
 	}
-} // namespace Doge::Mona
+} // namespace Durin::Mona

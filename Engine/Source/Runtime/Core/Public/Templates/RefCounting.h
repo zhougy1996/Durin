@@ -158,4 +158,4 @@ namespace Durin
 		return TRefCountPtr<T>(new T(std::forward<Args>(InArgs)...));
 	}
 
-} // namespace Doge
+} // namespace Durin

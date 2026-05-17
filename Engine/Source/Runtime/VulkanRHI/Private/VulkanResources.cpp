@@ -13,4 +13,4 @@ namespace Durin::VulkanRHI
 	{
 		return new FVulkanVertexDeclaration(Elements);
 	}
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

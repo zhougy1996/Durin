@@ -24,7 +24,7 @@
 		</Expand>
 	</Type>
 
-	<Type Name="Doge::FName" Priority="High">
+	<Type Name="Durin::FName" Priority="High">
 		<DisplayString Condition="this->Number">{DisplayIndex}_{(this->Number - 1),d}</DisplayString>
 		<DisplayString>{DisplayIndex}</DisplayString>
 		<Expand>
@@ -35,13 +35,13 @@
 		</Expand>
 	</Type>
 
-	<Type Name="Doge::FNameEntryId">
+	<Type Name="Durin::FNameEntryId">
 		<DisplayString Condition="Value &amp; ::FNameDebugVisualizer::UnusedMask">Illegal name (block index out of range)</DisplayString>
 		<DisplayString Condition="!::GNameBlocksDebug[Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits]">Illegal name (null block)</DisplayString>
 		<DisplayString>{(FNameEntry&amp;)::GNameBlocksDebug[Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits][::FNameDebugVisualizer::EntryStride * (Value &amp; ::FNameDebugVisualizer::OffsetMask)]}</DisplayString>
 	</Type>
 	
-	<Type Name="Doge::FNameEntry">
+	<Type Name="Durin::FNameEntry">
 		<DisplayString Condition="Header.Len &gt; ::FNameDebugVisualizer::MaxLength">Illegal name (length > FNameMaxSize)</DisplayString>
 		<DisplayString>{AnsiName,[Header.Len]s8}</DisplayString>
 	</Type>

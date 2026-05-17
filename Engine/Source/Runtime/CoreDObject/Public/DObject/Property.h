@@ -3,7 +3,7 @@
 #include "CoreDObjectAPI.h"
 #include "Field.h"
 
-namespace Doge
+namespace Durin
 {
 	class FProperty : public FField
 	{

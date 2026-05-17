@@ -88,15 +88,15 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::CreateInstance() -> void
 	{
-		std::string EngineName = "Doge";
+		std::string EngineName = "Durin";
 
 		// Create application info
-		vk::ApplicationInfo AppInfo(EngineName.c_str(), VK_MAKE_VERSION(1, 0, 0), "Doge Engine", VK_MAKE_VERSION(1, 0, 0), VK_API_VERSION_1_3);
+		vk::ApplicationInfo AppInfo(EngineName.c_str(), VK_MAKE_VERSION(1, 0, 0), "Durin Engine", VK_MAKE_VERSION(1, 0, 0), VK_API_VERSION_1_3);
 
 		// Get instance extensions
-		FVulkanInstanceExtensionArray DogeInstanceExtensions = FVulkanInstanceExtension::GetDogeSupportedInstanceExtensions();
+		FVulkanInstanceExtensionArray DurinInstanceExtensions = FVulkanInstanceExtension::GetDurinSupportedInstanceExtensions();
 
-		for (const auto& Extension : DogeInstanceExtensions)
+		for (const auto& Extension : DurinInstanceExtensions)
 		{
 			if (Extension->InUse())
 			{
@@ -104,7 +104,7 @@ namespace Durin::VulkanRHI
 			}
 		}
 
-		SetupInstanceLayers(DogeInstanceExtensions);
+		SetupInstanceLayers(DurinInstanceExtensions);
 
 		vk::InstanceCreateInfo InstanceInfo({}, &AppInfo);
 
@@ -176,7 +176,7 @@ namespace Durin::VulkanRHI
 		Device = new FVulkanDevice(this, GpuScores.rbegin()->second);
 	}
 
-	auto FVulkanDynamicRHI::SetupInstanceLayers(const FVulkanInstanceExtensionArray& DogeExtensions) -> void
+	auto FVulkanDynamicRHI::SetupInstanceLayers(const FVulkanInstanceExtensionArray& DurinExtensions) -> void
 	{
 		// TODO: Implement this function.
 		// For now, just return the validation layer.

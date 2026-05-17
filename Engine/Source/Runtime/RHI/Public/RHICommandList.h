@@ -121,4 +121,4 @@ namespace Durin
 	{
 		return GDynamicRHI->RHICreateBuffer(FRHICommandListImmediate::Get(), CreateDesc);
 	}
-} // namespace Doge
+} // namespace Durin

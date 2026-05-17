@@ -57,4 +57,4 @@ namespace Durin
 			return nullptr;
 		}
 	}
-} // namespace Doge
+} // namespace Durin

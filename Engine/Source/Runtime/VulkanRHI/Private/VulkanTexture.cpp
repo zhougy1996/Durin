@@ -158,4 +158,4 @@ namespace Durin::VulkanRHI
 
 		CmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
 	}
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

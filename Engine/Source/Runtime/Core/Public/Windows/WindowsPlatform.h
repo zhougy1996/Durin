@@ -11,8 +11,8 @@
 #include "Misc/CoreTypes.h"
 #include "HAL/GenericPlatform.h"
 
-#define DOGE_BUILD_PLATFORM Win64
-#define DOGE_BUILD_PLATFORM_STRING "Win64"
+#define DURIN_BUILD_PLATFORM Win64
+#define DURIN_BUILD_PLATFORM_STRING "Win64"
 
 #define PLATFORM_LITTLE_ENDIAN 1
 

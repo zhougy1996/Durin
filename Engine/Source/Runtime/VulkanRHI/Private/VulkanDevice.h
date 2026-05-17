@@ -179,4 +179,4 @@ namespace Durin::VulkanRHI
 
 		FDeferredDeletionQueue DeferredDeletionQueue;
 	};
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

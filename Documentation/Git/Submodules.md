@@ -1,5 +1,5 @@
 
-##### Add a submodule to Doge
+##### Add a submodule to Durin
 ```bash
 git submodule add --name imgui -b docking https://github.com/ocornut/imgui.git Engine/Source/ThirdParty/imgui
 git submodule add --name glm https://github.com/g-truc/glm.git Engine/Source/ThirdParty/glm
@@ -9,7 +9,7 @@ git submodule add --name rapidjson https://github.com/Tencent/rapidjson.git Engi
 # git submodule add --name fmt https://github.com/fmtlib/fmt.git Engine/Source/ThirdParty/fmt
 ```
 
-##### Remove a submodule from Doge
+##### Remove a submodule from Durin
 ```bash
 git rm -f Engine/Source/ThirdParty/imgui
 rm -rf .git/modules/Engine/Source/ThirdParty/imgui

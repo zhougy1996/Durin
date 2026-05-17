@@ -54,4 +54,4 @@ namespace Durin
 		using UnderlyingType = __underlying_type(Enum);
 		Flags = static_cast<Enum>(static_cast<UnderlyingType>(Flags) & ~static_cast<UnderlyingType>(FlagsToRemove));
 	}
-} // namespace Doge
+} // namespace Durin

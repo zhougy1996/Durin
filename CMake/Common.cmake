@@ -12,24 +12,24 @@ if(MSVC)
 	add_compile_options(/FS)
 endif()
 
-get_filename_component(DOGE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-message(STATUS "Doge root: ${DOGE_DIR}")
+get_filename_component(DURIN_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+message(STATUS "Durin root: ${DURIN_DIR}")
 
 if(MSVC)
-	set(DOGE_ARCH "Win64")
+	set(DURIN_ARCH "Win64")
 elseif(APPLE)
-	set(DOGE_ARCH "MacOS")
+	set(DURIN_ARCH "MacOS")
 	set(CMAKE_OSX_ARCHITECTURES "${CMAKE_HOST_SYSTEM_PROCESSOR}")
 endif()
 
-message(STATUS "Arch: ${DOGE_ARCH}")
+message(STATUS "Arch: ${DURIN_ARCH}")
 
 message(STATUS "Generator: ${CMAKE_GENERATOR}")
 
 find_package(Vulkan)
 message(STATUS "Vulkan: ${Vulkan_VERSION} (${Vulkan_LIBRARY})")
 
-set(Python_ROOT_DIR "${DOGE_DIR}/.venv")
+set(Python_ROOT_DIR "${DURIN_DIR}/.venv")
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 message(STATUS "Python: ${Python_VERSION} (${Python_EXECUTABLE})")
 

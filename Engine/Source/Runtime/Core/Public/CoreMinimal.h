@@ -17,6 +17,6 @@
 #include "Delegates/Delegate.h"
 #include "Templates/SmartPointers.h"
 #include "Templates/RefCounting.h"
-#include "Math/DogeMath.h"
+#include "Math/DurinMath.h"
 
 #include "CoreGlobals.h"

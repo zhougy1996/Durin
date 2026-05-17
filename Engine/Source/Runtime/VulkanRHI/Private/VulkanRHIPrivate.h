@@ -24,4 +24,4 @@ namespace Durin::VulkanRHI
 	extern std::atomic<uint64> GVulkanSamplerHandleIdCounter;
 	extern std::atomic<uint64> GVulkanDSetLayoutHandleIdCounter;
 
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

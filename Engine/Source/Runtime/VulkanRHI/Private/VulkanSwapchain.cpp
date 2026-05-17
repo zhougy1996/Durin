@@ -160,4 +160,4 @@ namespace Durin::VulkanRHI
 		Instance.destroySurfaceKHR(Surface);
 		Surface = nullptr;
 	}
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

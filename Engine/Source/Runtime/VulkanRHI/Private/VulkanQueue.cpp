@@ -84,4 +84,4 @@ namespace Durin::VulkanRHI
 	{
 		return QueueIndex;
 	}
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

@@ -152,7 +152,7 @@ namespace Durin::Mona
 	bool FMonaImGuiEventHandler::OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint)
 	{
 		// std::string Input = StringConvert::CodepointToUtf8(Codepoint);
-		// DOGE_DEBUG(STR("Received character input: {} (codepoint: {})"), Input, Codepoint);
+		// DURIN_DEBUG(STR("Received character input: {} (codepoint: {})"), Input, Codepoint);
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		IO.AddInputCharacter(Codepoint);
 		return IO.WantTextInput;
@@ -162,7 +162,7 @@ namespace Durin::Mona
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		IO.AddMousePosEvent(static_cast<float>(CursorPos.x), static_cast<float>(CursorPos.y));
-		// DOGE_DEBUG(STR("Mouse moved to position ({}, {}), CaptureMouse: {}"), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
+		// DURIN_DEBUG(STR("Mouse moved to position ({}, {}), CaptureMouse: {}"), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
 		return IO.WantCaptureMouse;
 	}
 
@@ -170,7 +170,7 @@ namespace Durin::Mona
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		IO.AddMouseButtonEvent(ConvertMouseButtonToImGuiType(Button), true);
-		// DOGE_DEBUG(STR("Mouse button {} pressed at position ({}, {}), CaptureMouse: {}"), static_cast<int>(Button), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
+		// DURIN_DEBUG(STR("Mouse button {} pressed at position ({}, {}), CaptureMouse: {}"), static_cast<int>(Button), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
 		return IO.WantCaptureMouse;
 	}
 
@@ -178,7 +178,7 @@ namespace Durin::Mona
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		IO.AddMouseButtonEvent(ConvertMouseButtonToImGuiType(Button), false);
-		// DOGE_DEBUG(STR("Mouse button {} released at position ({}, {}), CaptureMouse: {}"), static_cast<int>(Button), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
+		// DURIN_DEBUG(STR("Mouse button {} released at position ({}, {}), CaptureMouse: {}"), static_cast<int>(Button), CursorPos.x, CursorPos.y, IO.WantCaptureMouse);
 		return IO.WantCaptureMouse;
 	}
 
@@ -186,7 +186,7 @@ namespace Durin::Mona
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		IO.AddMouseWheelEvent(static_cast<float>(DeltaX), static_cast<float>(DeltaY));
-		// DOGE_DEBUG(STR("Mouse wheel scrolled with delta ({}, {}), CaptureMouse: {}"), DeltaX, DeltaY, IO.WantCaptureMouse);
+		// DURIN_DEBUG(STR("Mouse wheel scrolled with delta ({}, {}), CaptureMouse: {}"), DeltaX, DeltaY, IO.WantCaptureMouse);
 		return IO.WantCaptureMouse;
 	}
-} // namespace Doge::Mona
+} // namespace Durin::Mona

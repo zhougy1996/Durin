@@ -203,7 +203,7 @@ namespace Durin::Mona
 			{
 				FMonaWindowHelper::ArrangeWindowToFront(Windows, Window);
 				ActiveTopLevelWindow = Window;
-				// DOGE_DEBUG(STR("Window gained focus, setting active top level window to: {}"), Window->GetTitle());
+				// DURIN_DEBUG(STR("Window gained focus, setting active top level window to: {}"), Window->GetTitle());
 			}
 		}
 		else
@@ -212,7 +212,7 @@ namespace Durin::Mona
 			if (PinnedActiveTopLevelWindow && PinnedActiveTopLevelWindow->GetNativeWindow() == InPlatformWindow)
 			{
 				ActiveTopLevelWindow.reset();
-				// DOGE_DEBUG(STR("Window lost focus, resetting active top level window"));
+				// DURIN_DEBUG(STR("Window lost focus, resetting active top level window"));
 			}
 		}
 
@@ -308,4 +308,4 @@ namespace Durin::Mona
 	{
 		return MonaEventHandler->OnMouseWheel(InPlatformWindow, DeltaX, DeltaY);
 	}
-} // namespace Doge::Mona
+} // namespace Durin::Mona

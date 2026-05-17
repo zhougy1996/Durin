@@ -211,4 +211,4 @@ namespace Durin::VulkanRHI
 	std::atomic<uint64> GVulkanImageViewHandleIdCounter = 0;
 	std::atomic<uint64> GVulkanSamplerHandleIdCounter = 0;
 	std::atomic<uint64> GVulkanDSetLayoutHandleIdCounter = 0;
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

@@ -2,7 +2,7 @@
 #include "Renderer/Definitions.h"
 
 #include "IScene.h"
-namespace Doge
+namespace Durin
 {
 	class FScene : public IScene
 	{

@@ -67,7 +67,7 @@ namespace Durin::VulkanRHI
 
 		auto GetMemoryHeap(uint32 MemoryHeapIndex) const -> vk::MemoryHeap;
 
-		DOGE_NONCOPYABLE(FVulkanMemoryManager)
+		DURIN_NONCOPYABLE(FVulkanMemoryManager)
 	private:
 		FVulkanDevice* Device;
 
@@ -164,4 +164,4 @@ namespace Durin::VulkanRHI
 
 		vk::Semaphore Semaphore;
 	};
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

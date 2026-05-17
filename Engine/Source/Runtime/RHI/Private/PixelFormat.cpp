@@ -88,4 +88,4 @@ namespace Durin
 		check(Info.Format == Format);
 		return Info;
 	}
-} // namespace Doge
+} // namespace Durin

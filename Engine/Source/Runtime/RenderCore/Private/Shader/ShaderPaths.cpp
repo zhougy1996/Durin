@@ -88,4 +88,4 @@ namespace Durin::FShaderPaths
 		RegisterMountPointWithoutSorting("/Engine/", EngineShaderSourceDir, EngineShaderBinaryDir);
 		Sort(ShaderMountPoints);
 	}
-} // namespace Doge::ShaderPaths
+} // namespace Durin::ShaderPaths

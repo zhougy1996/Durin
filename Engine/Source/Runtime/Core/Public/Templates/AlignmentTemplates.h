@@ -3,7 +3,7 @@
 #include "HAL/Platform.h"
 #include "Templates/IsIntegral.h"
 
-namespace Doge
+namespace Durin
 {
 	template<typename T>
 	requires Integral<T>

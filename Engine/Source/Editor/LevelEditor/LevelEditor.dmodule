@@ -9,7 +9,7 @@
         "ApplicationCore",
         "MonaCore",
         "Mona",
-        "DogeEd"
+        "DurinEd"
     ],
     "ReflectHeaders": [
         "Private/TestDHT.h"

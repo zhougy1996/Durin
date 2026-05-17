@@ -8,4 +8,4 @@ namespace Durin
 		: Id(GNextDelegateHandleId++)
 	{
 	}
-} // namespace Doge
+} // namespace Durin

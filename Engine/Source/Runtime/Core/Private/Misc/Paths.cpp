@@ -99,7 +99,7 @@ namespace Durin
 
 	auto FPaths::EngineThirdPartyRuntimeBinariesDir() -> std::string
 	{
-		return EngineBinariesDir() + std::format("ThirdParty/{}/{}/", DOGE_BUILD_PLATFORM_STRING, DOGE_BUILD_TYPE_STRING);
+		return EngineBinariesDir() + std::format("ThirdParty/{}/{}/", DURIN_BUILD_PLATFORM_STRING, DURIN_BUILD_TYPE_STRING);
 	}
 
 	auto FPaths::Resolve(std::string_view VirtualPath) -> std::string
@@ -117,4 +117,4 @@ namespace Durin
 		return NormalizedVirtualPath;
 	}
 
-} // namespace Doge
+} // namespace Durin

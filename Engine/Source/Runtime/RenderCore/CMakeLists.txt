@@ -9,8 +9,8 @@ target_link_libraries(RenderCore PRIVATE
     delayimp
 )
 
-set(destination_dir "${DOGE_PROJECT_DIR}/Binaries/ThirdParty/${DOGE_ARCH}/$<CONFIG>")
-set(SLANG_ROOT "${DOGE_PROJECT_SOURCE_DIR}/ThirdParty/slang")
+set(destination_dir "${DURIN_PROJECT_DIR}/Binaries/ThirdParty/${DURIN_ARCH}/$<CONFIG>")
+set(SLANG_ROOT "${DURIN_PROJECT_SOURCE_DIR}/ThirdParty/slang")
 add_custom_command(TARGET RenderCore POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${destination_dir}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SLANG_ROOT}/bin/slang.dll" "${destination_dir}/slang.dll"

@@ -700,4 +700,4 @@ namespace Durin
 	using FBufferRHIRef = TRefCountPtr<FRHIBuffer>;
 	using FShaderRHIRef = TRefCountPtr<FRHIShader>;
 	using FGraphicsPipelineStateRHIRef = TRefCountPtr<FRHIGraphicsPipelineState>;
-} // namespace Doge
+} // namespace Durin

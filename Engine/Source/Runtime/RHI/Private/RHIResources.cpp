@@ -65,4 +65,4 @@ namespace Durin
 		);
 	}
 
-} // namespace Doge
+} // namespace Durin

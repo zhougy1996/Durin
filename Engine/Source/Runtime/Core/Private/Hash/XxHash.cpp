@@ -57,4 +57,4 @@ namespace Durin
 		const XXH128_hash_t Hash = XXH3_128bits_digest(&State);
 		return {Hash.low64, Hash.high64};
 	}
-} // namespace Doge
+} // namespace Durin

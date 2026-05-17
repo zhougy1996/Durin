@@ -69,4 +69,4 @@ namespace Durin::VulkanRHI
 		}
 		Device.GetDeferredDeletionQueue(). EnqueueResource(FDeferredDeletionQueue::EType::Framebuffer, Framebuffer);
 	}
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

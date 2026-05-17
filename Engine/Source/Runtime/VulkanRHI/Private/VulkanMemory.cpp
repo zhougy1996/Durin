@@ -346,4 +346,4 @@ namespace Durin::VulkanRHI
 	{
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Semaphore, Semaphore);
 	}
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

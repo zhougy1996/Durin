@@ -24,4 +24,4 @@ namespace Durin
 		virtual auto OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool { return false; }
 		virtual auto OnMouseWheel(const std::shared_ptr<FGenericWindow>& InPlatformWindow, double DeltaX, double DeltaY) -> bool { return false; }
 	};
-} // namespace Doge
+} // namespace Durin

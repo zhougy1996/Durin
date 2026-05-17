@@ -17,4 +17,4 @@ namespace Durin
 
 		ASSETCORE_API auto ImportFromFile(std::string_view FilePath, std::vector<FTestAssetData>& OutData) -> bool;
 	} // namespace AssetImport
-} // namespace Doge
+} // namespace Durin

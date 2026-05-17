@@ -1,7 +1,7 @@
 include_guard(GLOBAL)
 include(${CMAKE_CURRENT_LIST_DIR}/Timer.cmake)
 
-set(DHT_DIR ${DOGE_DIR}/Engine/Source/Programs/DogeHeaderTool)
+set(DHT_DIR ${DURIN_DIR}/Engine/Source/Programs/DurinHeaderTool)
 set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/main.py")
 
 function(durin_log_project project_name)
@@ -17,10 +17,10 @@ function(durin_add_project project_name)
 	durin_log_project(${project_name})
 	durin_start("Project_${project_name}")
 	project(Engine)
-	set(DOGE_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DOGE_ARCH}/Editor")
+	set(DURIN_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_ARCH}/Editor")
 
-	set(project_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${project_name}.project.cmake")
-	execute_process(COMMAND ${DHT_MAIN} prepare_project_build -p ${project_name} -a ${DOGE_ARCH})
+	set(project_cmake_file "${DURIN_PROJECT_INTERMEDIATE_BUILD_DIR}/${project_name}.project.cmake")
+	execute_process(COMMAND ${DHT_MAIN} prepare_project_build -p ${project_name} -a ${DURIN_ARCH})
 	include(${project_cmake_file})
 
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${project_config_file}) # Make CMake re-configure if the project definition file changes
@@ -35,10 +35,10 @@ endfunction()
 # Module Setup Functions
 function(durin_set_module_output target)
 	set_target_properties(${target} PROPERTIES
-		RUNTIME_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
-		LIBRARY_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/Doge/${DOGE_ARCH}/$<CONFIG>"
-		ARCHIVE_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
-		PDB_OUTPUT_DIRECTORY "${DOGE_PROJECT_BINARY_DIR}/${target}/${DOGE_ARCH}/$<CONFIG>"
+		RUNTIME_OUTPUT_DIRECTORY "${DURIN_PROJECT_BINARY_DIR}/Durin/${DURIN_ARCH}/$<CONFIG>"
+		LIBRARY_OUTPUT_DIRECTORY "${DURIN_PROJECT_BINARY_DIR}/Durin/${DURIN_ARCH}/$<CONFIG>"
+		ARCHIVE_OUTPUT_DIRECTORY "${DURIN_PROJECT_BINARY_DIR}/${target}/${DURIN_ARCH}/$<CONFIG>"
+		PDB_OUTPUT_DIRECTORY "${DURIN_PROJECT_BINARY_DIR}/${target}/${DURIN_ARCH}/$<CONFIG>"
 	)
 endfunction()
 
@@ -46,7 +46,7 @@ function(durin_add_module module_name)
 	durin_log_module(${project_name} ${module_name})
 	durin_start("Module_${module_name}")
 
-	set(module_cmake_file "${DOGE_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
+	set(module_cmake_file "${DURIN_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
 	include(${module_cmake_file})
 
 	# Make CMake re-configure if the module definition file changes
@@ -55,13 +55,13 @@ function(durin_add_module module_name)
 	if (module_reflect_headers)
 		add_custom_command(
 			OUTPUT ${module_export_file}
-			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} -a ${DOGE_ARCH}
+			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} -a ${DURIN_ARCH}
 			DEPENDS ${module_reflect_headers} ${module_cmake_file}
 		)
 
 		add_custom_command(
 			OUTPUT ${module_generated_srcs}
-			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} -a ${DOGE_ARCH}
+			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} -a ${DURIN_ARCH}
 			DEPENDS ${module_cmake_file} ${module_manifest_dependencies} ${module_export_file}
 		)
 	endif()
@@ -84,8 +84,8 @@ function(durin_add_module module_name)
 	endif()
 
 	target_compile_definitions(${module_name} PRIVATE
-		$<$<CONFIG:Debug>:DOGE_BUILD_DEBUG=1>
-		$<$<CONFIG:Release>:DOGE_BUILD_RELEASE=1>
+		$<$<CONFIG:Debug>:DURIN_BUILD_DEBUG=1>
+		$<$<CONFIG:Release>:DURIN_BUILD_RELEASE=1>
 		MODULE_NAME="${module_name}"
 	)
 
@@ -121,7 +121,7 @@ function(durin_copy_external_target_binary target dependent_target)
 	add_custom_command(TARGET ${target} POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		"$<TARGET_FILE:${dependent_target}>"
-		"${DOGE_PROJECT_EXTERNAL_RUNTIME_DIR}/${file_name}"
+		"${DURIN_PROJECT_EXTERNAL_RUNTIME_DIR}/${file_name}"
 		COMMENT "Deploying target binary: ${file_name}"
 		VERBATIM
 	)
@@ -133,7 +133,7 @@ function(durin_copy_external_binaries target file_list)
 		add_custom_command(TARGET ${target} POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_if_different
 			"${file_path}"
-			"${DOGE_PROJECT_EXTERNAL_RUNTIME_DIR}/${file_name}"
+			"${DURIN_PROJECT_EXTERNAL_RUNTIME_DIR}/${file_name}"
 			COMMENT "Deploying external file: ${file_name}"
 			VERBATIM
 		)

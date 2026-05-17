@@ -167,9 +167,9 @@ namespace Durin::VulkanRHI
 }
 
 // template<>
-// struct std::hash<Doge::VulkanRHI::FVulkanDescriptorSetsLayoutInfo>
+// struct std::hash<Durin::VulkanRHI::FVulkanDescriptorSetsLayoutInfo>
 // {
-// 	size_t operator()(const Doge::VulkanRHI::FVulkanDescriptorSetsLayoutInfo& Info) const noexcept
+// 	size_t operator()(const Durin::VulkanRHI::FVulkanDescriptorSetsLayoutInfo& Info) const noexcept
 // 	{
 // 		return Info.Hash.HashValue;
 // 	}

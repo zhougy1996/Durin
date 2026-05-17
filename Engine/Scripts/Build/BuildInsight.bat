@@ -18,12 +18,12 @@ vcperf /stopnoanalyze >nul 2>&1
 xperf -stop >nul 2>&1
 
 echo CONFIG=%CONFIG%
-vcperf /start Doge_%CONFIG%
+vcperf /start Durin_%CONFIG%
 
 :: Ninja
 set BUILD_DIR="%ROOT_DIR%\Build\x64-%CONFIG%"
 cmake --build "%BUILD_DIR%" --target all -j 18
 
-vcperf /stop Doge_%CONFIG% "%BUILD_DIR%\Doge.etl"
+vcperf /stop Durin_%CONFIG% "%BUILD_DIR%\Durin.etl"
 
 pause

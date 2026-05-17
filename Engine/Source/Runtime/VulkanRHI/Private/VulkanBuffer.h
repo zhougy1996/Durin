@@ -66,4 +66,4 @@ namespace Durin::VulkanRHI
 
 		FVulkanAllocation Allocation{};
 	};
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

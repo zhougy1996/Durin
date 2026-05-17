@@ -54,7 +54,7 @@ namespace Durin
 		return static_cast<T*>(Obj);
 	}
 
-	namespace DogeCodeGen
+	namespace DurinCodeGen
 	{
 		enum class EPropertyGenFlags : uint8
 		{
@@ -103,5 +103,5 @@ namespace Durin
 
 		COREDOBJECT_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
 
-	} // namespace DogeCodeGen
+	} // namespace DurinCodeGen
 }

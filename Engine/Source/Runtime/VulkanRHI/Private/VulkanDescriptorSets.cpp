@@ -123,4 +123,4 @@ namespace Durin::VulkanRHI
 
 		return Device.GetHandle().createDescriptorPool(DescriptorPoolCreateInfo);
 	}
-} // namespace Doge::VulkanRHI
+} // namespace Durin::VulkanRHI

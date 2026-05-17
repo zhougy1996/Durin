@@ -10,7 +10,7 @@
 
 namespace Durin::VulkanRHI
 {
-	inline constexpr const char* DogeSupportedInstanceExtensionNames[] = {
+	inline constexpr const char* DurinSupportedInstanceExtensionNames[] = {
 		VK_KHR_SURFACE_EXTENSION_NAME,
 		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
 		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
@@ -20,7 +20,7 @@ namespace Durin::VulkanRHI
 	#endif
 	};
 
-	inline constexpr const char* DogeSupportedDeviceExtensionNames[] = {
+	inline constexpr const char* DurinSupportedDeviceExtensionNames[] = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 		VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
 		VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
@@ -59,40 +59,40 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanInstanceExtension::GetDogeSupportedInstanceExtensions() -> FVulkanInstanceExtensionArray
+	auto FVulkanInstanceExtension::GetDurinSupportedInstanceExtensions() -> FVulkanInstanceExtensionArray
 	{
-		FVulkanInstanceExtensionArray OutDogeInstanceExtensions;
+		FVulkanInstanceExtensionArray OutDurinInstanceExtensions;
 
-		for (const char* ExtensionName : DogeSupportedInstanceExtensionNames)
+		for (const char* ExtensionName : DurinSupportedInstanceExtensionNames)
 		{
-			OutDogeInstanceExtensions.push_back(std::make_unique<FVulkanInstanceExtension>(ExtensionName));
+			OutDurinInstanceExtensions.push_back(std::make_unique<FVulkanInstanceExtension>(ExtensionName));
 		}
-		AddRequiredExtensions(OutDogeInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
+		AddRequiredExtensions(OutDurinInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
 
 		const std::vector<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
 		DURIN_TRACE("Found {} available instance extensions:", DriverSupportedInstanceExtensions.size());
 		for (const vk::ExtensionProperties& Extension : DriverSupportedInstanceExtensions)
 		{
-			const int32 ExtensionIndex = FindExtension(OutDogeInstanceExtensions, Extension.extensionName);
+			const int32 ExtensionIndex = FindExtension(OutDurinInstanceExtensions, Extension.extensionName);
 			const bool bFound = (ExtensionIndex != INDEX_NONE);
 			if (bFound)
 			{
 				// Set the extension as supported and activated temporarily.
 				// TODO: some extensions may not be activated by default.
-				OutDogeInstanceExtensions[ExtensionIndex]->SetSupported();
-				OutDogeInstanceExtensions[ExtensionIndex]->SetActivated();
+				OutDurinInstanceExtensions[ExtensionIndex]->SetSupported();
+				OutDurinInstanceExtensions[ExtensionIndex]->SetActivated();
 			}
 			DURIN_TRACE("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
 		}
 
-		return OutDogeInstanceExtensions;
+		return OutDurinInstanceExtensions;
 	}
 
-	auto FVulkanDeviceExtension::GetDogeSupportedDeviceExtensions(FVulkanDevice* InDevice) -> FVulkanDeviceExtensionArray
+	auto FVulkanDeviceExtension::GetDurinSupportedDeviceExtensions(FVulkanDevice* InDevice) -> FVulkanDeviceExtensionArray
 	{
 		FVulkanDeviceExtensionArray OutDeviceExtensions;
 
-		for (const char* ExtensionName : DogeSupportedDeviceExtensionNames)
+		for (const char* ExtensionName : DurinSupportedDeviceExtensionNames)
 		{
 			OutDeviceExtensions.push_back(std::make_unique<FVulkanDeviceExtension>(ExtensionName));
 		}

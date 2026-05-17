@@ -24,4 +24,4 @@ namespace Durin
 
 		Slang::ComPtr<slang::ISession> Session;
 	};
-} // namespace Doge
+} // namespace Durin

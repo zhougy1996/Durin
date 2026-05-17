@@ -4,7 +4,7 @@
 
 #include <type_traits>
 
-namespace Doge
+namespace Durin
 {
 	template<typename T>
 	concept Integral = std::is_integral_v<T>;

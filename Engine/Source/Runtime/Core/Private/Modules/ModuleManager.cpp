@@ -72,7 +72,7 @@ namespace Durin
 		return nullptr;
 	}
 
-	static constexpr auto GetDogeModuleFileName(const FName& InModuleName) -> std::string
+	static constexpr auto GetDurinModuleFileName(const FName& InModuleName) -> std::string
 	{
 		return std::string(FPlatformMisc::FLibraryPrefix) + std::string(STR("DurinEditor-")) + InModuleName.ToString() + FPlatformMisc::FLibraryExtension;
 	}
@@ -94,7 +94,7 @@ namespace Durin
 
 		if (FoundModuleInfo == nullptr)
 		{
-			AddModule(InModuleName, GetDogeModuleFileName(InModuleName));
+			AddModule(InModuleName, GetDurinModuleFileName(InModuleName));
 			FoundModuleInfo = FindModule(InModuleName);
 		}
 		DURIN_TRACE(STR("Try load: {}"), FoundModuleInfo->FileName);
@@ -177,4 +177,4 @@ namespace Durin
 		ModulesToUnload.clear();
 		Modules.clear();
 	}
-} // namespace Doge
+} // namespace Durin

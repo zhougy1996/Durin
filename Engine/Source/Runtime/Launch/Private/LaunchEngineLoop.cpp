@@ -6,7 +6,7 @@
 #include "ApplicationCore.h"
 #include "RHI.h"
 #include "Mona.h"
-#include "DogeEdGlobals.h"
+#include "DurinEdGlobals.h"
 #include "Engine/Engine.h"
 
 #include "RHICommandList.h"
@@ -19,7 +19,7 @@
 #include "Shader/ShaderPaths.h"
 #include "Shader/ShaderCompiler.h"
 #include "AssetCore.h"
-#include "DogeEngine.h"
+#include "DurinEngine.h"
 
 #include "Misc/Time.h"
 
@@ -35,12 +35,12 @@ namespace Durin
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		AddDllDirectory(StringConvert::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
 
-		CoreInternal::LoadApplicationConfig(FPaths::LaunchDir() + "DogeConfig.yaml");
+		CoreInternal::LoadApplicationConfig(FPaths::LaunchDir() + "DurinConfig.yaml");
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
 		DURIN_DEBUG("Application name: {}", GAppConfig.GetStringValue("AppName"));
-		DURIN_INFO(STR("Launching Doge engine..."));
+		DURIN_INFO(STR("Launching Durin engine..."));
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		PathUtilities::InitDefaultMountPoints(); // Initialize default mount points to enable path resolving.
@@ -61,7 +61,7 @@ namespace Durin
 		GEngine->Init();
 
 		InitRenderingThread();
-		DURIN_INFO(STR("Doge engine initialized."));
+		DURIN_INFO(STR("Durin engine initialized."));
 	}
 
 	// Called from render thread
@@ -124,6 +124,6 @@ namespace Durin
 
 		FModuleManager::Get().UnloadModulesAtShutdown();
 
-		DURIN_INFO(STR("Doge engine exited."));
+		DURIN_INFO(STR("Durin engine exited."));
 	}
-} // namespace Doge
+} // namespace Durin

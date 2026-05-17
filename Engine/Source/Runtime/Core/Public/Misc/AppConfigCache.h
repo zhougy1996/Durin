@@ -39,4 +39,4 @@ namespace Durin
 	{
 		CORE_API auto LoadApplicationConfig(const std::string& ConfigFile) -> bool;
 	}
-} // namespace Doge
+} // namespace Durin
