@@ -33,17 +33,6 @@ namespace Durin::Mona::MonaImGuiBackend
 		}
 	};
 
-	static auto CalcOrthoProj(float L, float R, float B, float T) -> FMatrix
-	{
-		FMatrix Result(1.0f);
-		Result[0][0] = 2.0f / (R - L);
-		Result[1][1] = 2.0f / (T - B);
-		Result[2][2] = -1.0f;
-		Result[3][0] = -(R + L) / (R - L);
-		Result[3][1] = -(T + B) / (T - B);
-		return Result;
-	}
-
 	// State of the ImGui RHI backend, stored in a struct to ensure proper initialization order of static variables.
 	// Only accessed from the render thread, so no synchronization is needed.
 	struct FImGuiRHIImplRT_BackendState
@@ -58,8 +47,6 @@ namespace Durin::Mona::MonaImGuiBackend
 
 		// Render buffers for main window
 		FImGuiRHIImpl_WindowRenderBuffers MainWindowRenderBuffers;
-
-		bool bInitialized = false;
 	};
 
 	struct FImGuiRHIImpl_ConstantBufferData
@@ -134,16 +121,15 @@ namespace Durin::Mona::MonaImGuiBackend
 		ImGuiRHIImpl_CreateMainPipeline();
 	}
 
-	static auto ImGuiRHIImpl_DestroyTexture(ImTextureData* Tex) -> void
+	static auto ImGuiRHIImpl_DestroyTexture(ImTextureData* InTex) -> void
 	{
-		if (Tex->BackendUserData)
+		if (InTex->BackendUserData)
 		{
-			FRHITexture* Texture = static_cast<FRHITexture*>(Tex->BackendUserData);
-			// ReSharper disable once CppExpressionWithoutSideEffects
-			Texture->Release();
-			Tex->BackendUserData = nullptr;
-			Tex->TexID = ImTextureID_Invalid;
-			Tex->Status = ImTextureStatus_Destroyed;
+			const auto* TextureRefPtr = static_cast<FTextureRHIRef*>(InTex->BackendUserData);
+			delete TextureRefPtr;
+			InTex->BackendUserData = nullptr;
+			InTex->TexID = ImTextureID_Invalid;
+			InTex->Status = ImTextureStatus_Destroyed;
 		}
 	}
 
@@ -232,34 +218,37 @@ namespace Durin::Mona::MonaImGuiBackend
 		GDynamicRHI->RHIUnlockBuffer(CommandList, RenderBuffers.IndexBuffer);
 	}
 
-	static auto ImGuiRHIImplRT_UpdateTexture(FRHICommandListImmediate& CommandList, ImTextureData* InTex) -> void
+	static auto ImGuiRHIImpl_UpdateTexture(ImTextureData* InTex) -> void
 	{
-		check(IsInRenderingThread());
-
-		// Create if needed
 		if (InTex->Status == ImTextureStatus_WantCreate)
 		{
 			check(InTex->TexID == ImTextureID_Invalid && InTex->BackendUserData == nullptr);
 			check(InTex->Format == ImTextureFormat_RGBA32);
 
-			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiCreatedTexture", InTex->Width, InTex->Height, EPixelFormat::RGBA8_UNORM);
-			FTextureRHIRef Texture = RHICreateTexture(TextureCreateDesc);
-			// ReSharper disable once CppExpressionWithoutSideEffects
-			Texture->AddRef();
-			InTex->BackendUserData = Texture.GetReference();
+			auto* TextureRefPtr = new FTextureRHIRef();
+			ENQUEUE_RENDER_COMMAND(ImGuiImpl_CreateTexture)([InTex, TextureRefPtr](FRHICommandListImmediate& CommandList) {
+				FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiCreatedTexture", InTex->Width, InTex->Height, EPixelFormat::RGBA8_UNORM);
+				*TextureRefPtr = RHICreateTexture(TextureCreateDesc);
+			});
+
+			InTex->BackendUserData = TextureRefPtr;
 		}
 
 		if (InTex->Status == ImTextureStatus_WantCreate || InTex->Status == ImTextureStatus_WantUpdates)
 		{
-			FRHITexture* Texture = static_cast<FRHITexture*>(InTex->BackendUserData);
+			auto* TextureRefPtr = static_cast<FTextureRHIRef*>(InTex->BackendUserData);
 			const int UploadX = (InTex->Status == ImTextureStatus_WantCreate) ? 0 : InTex->UpdateRect.x;
 			const int UploadY = (InTex->Status == ImTextureStatus_WantCreate) ? 0 : InTex->UpdateRect.y;
 			const int UploadW = (InTex->Status == ImTextureStatus_WantCreate) ? InTex->Width : InTex->UpdateRect.w;
 			const int UploadH = (InTex->Status == ImTextureStatus_WantCreate) ? InTex->Height : InTex->UpdateRect.h;
-
 			FUpdateTextureRegion2D UpdateRegion(UploadX, UploadY, UploadX, UploadY, UploadW, UploadH);
-			GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, UpdateRegion, UploadW * 4, InTex->Pixels);
+			uint32 SourcePitch = UploadW * 4; // 4 bytes per pixel for RGBA8
 
+			ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTexture)([InTex, TextureRefPtr, UpdateRegion, SourcePitch](FRHICommandListImmediate& CommandList) {
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, *TextureRefPtr, 0, UpdateRegion, SourcePitch, InTex->Pixels);
+			});
+
+			FlushRenderingCommands();
 			InTex->SetStatus(ImTextureStatus_OK);
 		}
 
@@ -277,17 +266,6 @@ namespace Durin::Mona::MonaImGuiBackend
 	) -> void
 	{
 		check(IsInRenderingThread());
-		// Update textures
-		if (DrawData->Textures != nullptr)
-		{
-			for (ImTextureData* Tex : *DrawData->Textures)
-			{
-				if (Tex->Status != ImTextureStatus_OK)
-				{
-					ImGuiRHIImplRT_UpdateTexture(CommandList, Tex);
-				}
-			}
-		}
 
 		// Update vertex/index buffers
 		ImGuiRHIImplRT_UpdateBuffers(CommandList, DrawData, RenderBuffers);
@@ -338,6 +316,18 @@ namespace Durin::Mona::MonaImGuiBackend
 		if (FrameBufferWidth <= 0 || FrameBufferHeight <= 0)
 		{
 			return;
+		}
+
+		// Update textures
+		if (DrawData->Textures != nullptr)
+		{
+			for (ImTextureData* Tex : *DrawData->Textures)
+			{
+				if (Tex->Status != ImTextureStatus_OK)
+				{
+					ImGuiRHIImpl_UpdateTexture(Tex);
+				}
+			}
 		}
 
 		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData](FRHICommandListImmediate& CommandList) {
