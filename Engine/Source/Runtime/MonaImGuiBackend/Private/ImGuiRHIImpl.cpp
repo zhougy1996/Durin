@@ -106,9 +106,9 @@ namespace Durin::Mona::MonaImGuiBackend
 
 			FVertexDeclarationElementList VertexDeclElements;
 			constexpr uint32 VertexStride = sizeof(ImDrawVert);
-			VertexDeclElements[0] = FVertexElement(0, 0, EVertexElementType::Float2, 0, VertexStride);
-			VertexDeclElements[1] = FVertexElement(0, 0, EVertexElementType::Float2, 1, VertexStride);
-			VertexDeclElements[2] = FVertexElement(0, 0, EVertexElementType::Float4, 2, VertexStride);
+			VertexDeclElements[0] = FVertexElement(0, offsetof(ImDrawVert, pos), EVertexElementType::Float2, 0, VertexStride);
+			VertexDeclElements[1] = FVertexElement(0, offsetof(ImDrawVert, uv), EVertexElementType::Float2, 1, VertexStride);
+			VertexDeclElements[2] = FVertexElement(0, offsetof(ImDrawVert, col), EVertexElementType::UByte4N, 2, VertexStride);
 			GBackendState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
 
 			FGraphicsPipelineStateInitializer Initializer;
@@ -208,21 +208,24 @@ namespace Durin::Mona::MonaImGuiBackend
 
 		if (DrawData->TotalVtxCount <= 0) return;
 
-		if (RenderBuffers.VertexBuffer == nullptr || RenderBuffers.VertexBuffer->GetSize() < DrawData->TotalVtxCount * sizeof(ImDrawVert))
+		uint32 RequiredVertexBufferSize = DrawData->TotalVtxCount * sizeof(ImDrawVert);
+		uint32 RequiredIndexBufferSize = DrawData->TotalIdxCount * sizeof(ImDrawIdx);
+
+		if (RenderBuffers.VertexBuffer == nullptr || RenderBuffers.VertexBuffer->GetSize() < RequiredVertexBufferSize)
 		{
-			FRHIBufferCreateDesc VertexBufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("ImGuiVertexBuffer", DrawData->TotalVtxCount * sizeof(ImDrawVert));
+			FRHIBufferCreateDesc VertexBufferCreateDesc = FRHIBufferCreateDesc::CreateVertex("ImGuiVertexBuffer", RequiredVertexBufferSize);
 			VertexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
 			RenderBuffers.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, VertexBufferCreateDesc);
 		}
-		if (RenderBuffers.IndexBuffer == nullptr || RenderBuffers.IndexBuffer->GetSize() < DrawData->TotalIdxCount * sizeof(ImDrawIdx))
+		if (RenderBuffers.IndexBuffer == nullptr || RenderBuffers.IndexBuffer->GetSize() < RequiredIndexBufferSize)
 		{
-			FRHIBufferCreateDesc IndexBufferCreateDesc = FRHIBufferCreateDesc::CreateIndex("ImGuiIndexBuffer", DrawData->TotalIdxCount * sizeof(ImDrawIdx), sizeof(ImDrawIdx));
+			FRHIBufferCreateDesc IndexBufferCreateDesc = FRHIBufferCreateDesc::CreateIndex("ImGuiIndexBuffer", RequiredIndexBufferSize, sizeof(ImDrawIdx));
 			IndexBufferCreateDesc.Usage |= EBufferUsageFlags::Dynamic;
 			RenderBuffers.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexBufferCreateDesc);
 		}
 
-		void* VertexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.VertexBuffer, 0, RenderBuffers.VertexBuffer->GetSize(), EResourceLockMode::WriteOnly);
-		void* IndexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.IndexBuffer, 0, RenderBuffers.IndexBuffer->GetSize(), EResourceLockMode::WriteOnly);
+		void* VertexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.VertexBuffer, 0, RequiredVertexBufferSize, EResourceLockMode::WriteOnly);
+		void* IndexBufferData = GDynamicRHI->RHILockBuffer(CommandList, RenderBuffers.IndexBuffer, 0, RequiredIndexBufferSize, EResourceLockMode::WriteOnly);
 
 		auto VertexBufferDst = static_cast<ImDrawVert*>(VertexBufferData);
 		auto IndexBufferDst = static_cast<ImDrawIdx*>(IndexBufferData);
