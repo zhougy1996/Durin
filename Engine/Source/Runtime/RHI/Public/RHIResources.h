@@ -16,6 +16,7 @@ namespace Durin
 		Viewport,
 		Buffer,
 		Texture,
+		Sampler,
 		Shader,
 		VertexDeclaration,
 		BindingSet,
@@ -541,6 +542,140 @@ namespace Durin
 		}
 	};
 
+	enum class ESamplerFilter : uint8
+	{
+		Nearest,
+		Linear,
+	};
+
+	enum class ESamplerMipmapMode : uint8
+	{
+		Nearest,
+		Linear,
+	};
+
+	enum class ESamplerAddressMode : uint8
+	{
+		Repeat,
+		MirroredRepeat,
+		ClampToEdge,
+		ClampToBorder,
+	};
+
+	enum class ESamplerCompareOp : uint8
+	{
+		Never,
+		Less,
+		Equal,
+		LessOrEqual,
+		Greater,
+		NotEqual,
+		GreaterOrEqual,
+		Always,
+	};
+
+	enum class ESamplerBorderColor : uint8
+	{
+		FloatTransparentBlack,
+		IntTransparentBlack,
+		FloatOpaqueBlack,
+		IntOpaqueBlack,
+		FloatOpaqueWhite,
+		IntOpaqueWhite,
+	};
+
+	struct FRHISamplerDesc
+	{
+		static auto PointClamp() -> FRHISamplerDesc
+		{
+			FRHISamplerDesc Desc;
+			Desc.MinFilter = ESamplerFilter::Nearest;
+			Desc.MagFilter = ESamplerFilter::Nearest;
+			Desc.MipmapMode = ESamplerMipmapMode::Nearest;
+			Desc.AddressU = ESamplerAddressMode::ClampToEdge;
+			Desc.AddressV = ESamplerAddressMode::ClampToEdge;
+			Desc.AddressW = ESamplerAddressMode::ClampToEdge;
+			return Desc;
+		}
+
+		static auto PointRepeat() -> FRHISamplerDesc
+		{
+			FRHISamplerDesc Desc = PointClamp();
+			Desc.AddressU = ESamplerAddressMode::Repeat;
+			Desc.AddressV = ESamplerAddressMode::Repeat;
+			Desc.AddressW = ESamplerAddressMode::Repeat;
+			return Desc;
+		}
+
+		static auto LinearClamp() -> FRHISamplerDesc
+		{
+			FRHISamplerDesc Desc;
+			Desc.MinFilter = ESamplerFilter::Linear;
+			Desc.MagFilter = ESamplerFilter::Linear;
+			Desc.MipmapMode = ESamplerMipmapMode::Linear;
+			Desc.AddressU = ESamplerAddressMode::ClampToEdge;
+			Desc.AddressV = ESamplerAddressMode::ClampToEdge;
+			Desc.AddressW = ESamplerAddressMode::ClampToEdge;
+			return Desc;
+		}
+
+		static auto LinearRepeat() -> FRHISamplerDesc
+		{
+			FRHISamplerDesc Desc = LinearClamp();
+			Desc.AddressU = ESamplerAddressMode::Repeat;
+			Desc.AddressV = ESamplerAddressMode::Repeat;
+			Desc.AddressW = ESamplerAddressMode::Repeat;
+			return Desc;
+		}
+
+		static auto AnisotropicClamp(float InMaxAnisotropy = 8.0f) -> FRHISamplerDesc
+		{
+			FRHISamplerDesc Desc = LinearClamp();
+			Desc.bEnableAnisotropy = true;
+			Desc.MaxAnisotropy = InMaxAnisotropy;
+			return Desc;
+		}
+
+		static auto AnisotropicRepeat(float InMaxAnisotropy = 8.0f) -> FRHISamplerDesc
+		{
+			FRHISamplerDesc Desc = LinearRepeat();
+			Desc.bEnableAnisotropy = true;
+			Desc.MaxAnisotropy = InMaxAnisotropy;
+			return Desc;
+		}
+
+		ESamplerFilter MinFilter = ESamplerFilter::Linear;
+		ESamplerFilter MagFilter = ESamplerFilter::Linear;
+		ESamplerMipmapMode MipmapMode = ESamplerMipmapMode::Linear;
+
+		ESamplerAddressMode AddressU = ESamplerAddressMode::ClampToEdge;
+		ESamplerAddressMode AddressV = ESamplerAddressMode::ClampToEdge;
+		ESamplerAddressMode AddressW = ESamplerAddressMode::ClampToEdge;
+
+		float MipLodBias = 0.0f;
+		bool bEnableAnisotropy = false;
+		float MaxAnisotropy = 1.0f;
+
+		bool bEnableCompare = false;
+		ESamplerCompareOp CompareOp = ESamplerCompareOp::Always;
+
+		float MinLod = 0.0f;
+		float MaxLod = 1000.0f;
+		ESamplerBorderColor BorderColor = ESamplerBorderColor::FloatTransparentBlack;
+		bool bUnnormalizedCoordinates = false;
+	};
+
+	class FRHISampler : public FRHIResource
+	{
+	public:
+		FRHISampler()
+			: FRHIResource(ERHIResourceType::Sampler)
+		{
+		}
+
+		virtual auto IsImmutable() const -> bool { return false; }
+	};
+
 	class FGraphicsPipelineStateInitializer
 	{
 	public:
@@ -697,6 +832,7 @@ namespace Durin
 	using FVertexDeclarationRHIRef = TRefCountPtr<FRHIVertexDeclaration>;
 	using FViewportRHIRef = TRefCountPtr<FRHIViewport>;
 	using FTextureRHIRef = TRefCountPtr<FRHITexture>;
+	using FSamplerRHIRef = TRefCountPtr<FRHISampler>;
 	using FBufferRHIRef = TRefCountPtr<FRHIBuffer>;
 	using FShaderRHIRef = TRefCountPtr<FRHIShader>;
 	using FGraphicsPipelineStateRHIRef = TRefCountPtr<FRHIGraphicsPipelineState>;

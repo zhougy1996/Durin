@@ -13,6 +13,7 @@ namespace Durin::VulkanRHI
 	class FVulkanShader;
 	class FVulkanBuffer;
 	class FVulkanTexture;
+	class FVulkanSampler;
 
 	class FVulkanGraphicsPipelineState : public FRHIGraphicsPipelineState
 	{
@@ -37,8 +38,7 @@ namespace Durin::VulkanRHI
 
 		auto SetTexture(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, FVulkanTexture* InTexture) -> void;
 
-		auto SetSampler(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, vk::Sampler InSampler) -> void;
-
+		auto SetSampler(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, FVulkanSampler* InSampler) -> void;
 
 	protected:
 		const FVulkanRenderPass* RenderPass = nullptr;
@@ -68,6 +68,7 @@ namespace Durin::VulkanRHI
 		vk::Pipeline Pipeline;
 
 		std::vector<vk::WriteDescriptorSet> DescriptorWrites;
+		std::list<vk::DescriptorImageInfo> ImageInfos;
 
 		std::vector<vk::DescriptorSet> DescriptorSets;
 

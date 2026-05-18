@@ -15,6 +15,7 @@ namespace Durin::VulkanRHI
 		Aliased
 	};
 
+
 	class FVulkanTexture : public FRHITexture
 	{
 	public:
@@ -37,4 +38,18 @@ namespace Durin::VulkanRHI
 
 		EImageOwnerType OwnerType = EImageOwnerType::None;
 	};
+
+	class FVulkanSampler : public FRHISampler
+	{
+	public:
+		FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc);
+		~FVulkanSampler() override;
+
+		auto GetHandle() const -> vk::Sampler { return Sampler; }
+
+	private:
+		FVulkanDevice& Device;
+		vk::Sampler Sampler{};
+	};
+
 }

@@ -44,6 +44,7 @@ namespace Durin::Mona::MonaImGuiBackend
 
 		// Font atlas
 		FTextureRHIRef FontAtlasTexture;
+		FSamplerRHIRef FontAtlasSampler;
 
 		// Render buffers for main window
 		FImGuiRHIImpl_WindowRenderBuffers MainWindowRenderBuffers;
@@ -56,6 +57,24 @@ namespace Durin::Mona::MonaImGuiBackend
 	};
 
 	static FImGuiRHIImplRT_BackendState GBackendState;
+
+	static auto ImGuiRHIImpl_CreateFontAtlasTexture() -> void
+	{
+		ImGuiIO& IO = ImGui::GetIO();
+		unsigned char* FontPixels = nullptr;
+		int FontWidth = 0, FontHeight = 0;
+		IO.Fonts->GetTexDataAsRGBA32(&FontPixels, &FontWidth, &FontHeight);
+
+		ENQUEUE_RENDER_COMMAND(CreateImGuiFontAtlas)([FontWidth, FontHeight, FontPixels](FRHICommandListImmediate& CommandList) {
+			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiFontAtlas", FontWidth, FontHeight, EPixelFormat::RGBA8_UNORM);
+			GBackendState.FontAtlasTexture = RHICreateTexture(TextureCreateDesc);
+			FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, FontWidth, FontHeight);
+			GDynamicRHI->RHIUpdateTexture2D(CommandList, GBackendState.FontAtlasTexture, 0, UpdateRegion, FontWidth * 4, FontPixels);
+
+			FRHISamplerDesc SamplerCreateDesc = FRHISamplerDesc::PointClamp();
+			GBackendState.FontAtlasSampler = RHICreateSampler(SamplerCreateDesc);
+		});
+	}
 
 	static auto ImGuiRHIImpl_CreateMainPipeline()
 	{
@@ -118,6 +137,7 @@ namespace Durin::Mona::MonaImGuiBackend
 		ENQUEUE_RENDER_COMMAND(SwitchPipeline)([](FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 		});
+		ImGuiRHIImpl_CreateFontAtlasTexture();
 		ImGuiRHIImpl_CreateMainPipeline();
 	}
 
@@ -146,6 +166,7 @@ namespace Durin::Mona::MonaImGuiBackend
 			GBackendState.VertexDeclaration = nullptr;
 			GBackendState.PipelineState = nullptr;
 			GBackendState.FontAtlasTexture = nullptr;
+			GBackendState.FontAtlasSampler = nullptr;
 			GBackendState.MainWindowRenderBuffers.Clear();
 		});
 	}
@@ -288,14 +309,14 @@ namespace Durin::Mona::MonaImGuiBackend
 			Binding_0_0.BindIndex = 0;
 			Binding_0_0.Resource = GBackendState.FontAtlasTexture;
 
-			// FRHIShaderParameterResource Binding_0_1;
-			// Binding_0_1.Type = FRHIShaderParameterResource::EType::Texture;
-			// Binding_0_1.SetIndex = 0;
-			// Binding_0_1.BindIndex = 1;
-			// Binding_0_1.Resource = nullptr; //TODO: sampler
+			FRHIShaderParameterResource Binding_0_1;
+			Binding_0_1.Type = FRHIShaderParameterResource::EType::Sampler;
+			Binding_0_1.SetIndex = 0;
+			Binding_0_1.BindIndex = 1;
+			Binding_0_1.Resource = GBackendState.FontAtlasSampler;
 
-			// std::vector<FRHIShaderParameterResource> ShaderParameters = {Binding_0_0};
-			// CommandList.SetShaderParameters(GBackendState.PixelShader, ShaderParameters);
+			std::vector<FRHIShaderParameterResource> ShaderParameters = {Binding_0_0, Binding_0_1};
+			CommandList.SetShaderParameters(GBackendState.PixelShader, ShaderParameters);
 
 			FImGuiRHIImpl_ConstantBufferData DataToPush;
 			DataToPush.Scale.x = 2.0f / DrawData->DisplaySize.x;
@@ -303,7 +324,7 @@ namespace Durin::Mona::MonaImGuiBackend
 			DataToPush.Translation.x = -1.0f - DrawData->DisplayPos.x * DataToPush.Scale.x;
 			DataToPush.Translation.y = -1.0f - DrawData->DisplayPos.y * DataToPush.Scale.y;
 			CommandList.PushConstants(EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData), &DataToPush);
-			// CommandList.DrawIndexed(DrawData->TotalIdxCount, 0, 0);
+			CommandList.DrawIndexed(DrawData->TotalIdxCount, 0, 0);
 		}
 
 		CommandList.EndRenderPass();
@@ -336,6 +357,10 @@ namespace Durin::Mona::MonaImGuiBackend
 
 			CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
 			FTextureRHIRef BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(ViewportRHI);
+			CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("ImGuiMainPipeline"));
+			auto Width = BackBuffer->GetSizeX();
+			auto Height = BackBuffer->GetSizeY();
+			CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 			ImGuiRHIImplRT_RenderDrawData(CommandList, BackBuffer, DrawData, RenderBuffersCurrentFrame);
 			CommandList.EndDrawingViewport(ViewportRHI, true, false);
 		});

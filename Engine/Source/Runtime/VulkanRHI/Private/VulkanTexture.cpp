@@ -31,37 +31,12 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	static auto TextureDimensionToImageViewType(ETextureDimension Dimension) -> vk::ImageViewType
-	{
-		switch (Dimension)
-		{
-		case ETextureDimension::Texture2D:
-			return vk::ImageViewType::e2D;
-		case ETextureDimension::Texture3D:
-			return vk::ImageViewType::e3D;
-		case ETextureDimension::TextureCube:
-			return vk::ImageViewType::eCube;
-		case ETextureDimension::Texture2DArray:
-			return vk::ImageViewType::e2DArray;
-		case ETextureDimension::TextureCubeArray:
-			return vk::ImageViewType::eCubeArray;
-		default:
-			DURIN_ERROR("Unsupported texture dimension");
-			return vk::ImageViewType::e2D;
-		}
-	}
-
-	static auto ConvertToExtent3D(const FIntVector& Size) -> vk::Extent3D
-	{
-		return vk::Extent3D{static_cast<uint32>(Size.x), static_cast<uint32>(Size.y), static_cast<uint32>(Size.z)};
-	}
-
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc)
 		: Device(InDevice)
 		, OwnerType(EImageOwnerType::LocalOwner)
 		, Format(ToVulkan_PixelFormat(InCreateDesc.Format))
 	{
-		vk::Extent3D ImageExtent = ConvertToExtent3D(InCreateDesc.GetSize());
+		vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
 
 		vk::ImageCreateInfo imageInfo{};
 		imageInfo
@@ -82,7 +57,7 @@ namespace Durin::VulkanRHI
 		// Create default image view
 		vk::ImageViewCreateInfo ViewInfo;
 		ViewInfo.setImage(Image)
-			.setViewType(TextureDimensionToImageViewType(InCreateDesc.Dimension))
+			.setViewType(ToVulkan_TextureDimension(InCreateDesc.Dimension))
 			.setFormat(Format)
 			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, InCreateDesc.NumMips, 0, InCreateDesc.ArraySize));
 
@@ -105,9 +80,44 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	FVulkanSampler::FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc)
+		: Device(InDevice)
+	{
+		const float MaxAnisotropy = InDesc.MaxAnisotropy >= 1.0f ? InDesc.MaxAnisotropy : 1.0f;
+
+		vk::SamplerCreateInfo SamplerInfo;
+		SamplerInfo.setMagFilter(ToVulkan_SamplerFilter(InDesc.MagFilter))
+			.setMinFilter(ToVulkan_SamplerFilter(InDesc.MinFilter))
+			.setMipmapMode(ToVulkan_SamplerMipmapMode(InDesc.MipmapMode))
+			.setAddressModeU(ToVulkan_SamplerAddressMode(InDesc.AddressU))
+			.setAddressModeV(ToVulkan_SamplerAddressMode(InDesc.AddressV))
+			.setAddressModeW(ToVulkan_SamplerAddressMode(InDesc.AddressW))
+			.setMipLodBias(InDesc.MipLodBias)
+			.setAnisotropyEnable(InDesc.bEnableAnisotropy)
+			.setMaxAnisotropy(MaxAnisotropy)
+			.setCompareEnable(InDesc.bEnableCompare)
+			.setCompareOp(ToVulkan_SamplerCompareOp(InDesc.CompareOp))
+			.setMinLod(InDesc.MinLod)
+			.setMaxLod(InDesc.MaxLod)
+			.setBorderColor(ToVulkan_SamplerBorderColor(InDesc.BorderColor))
+			.setUnnormalizedCoordinates(InDesc.bUnnormalizedCoordinates);
+
+		Sampler = Device.GetHandle().createSampler(SamplerInfo);
+	}
+
+	FVulkanSampler::~FVulkanSampler()
+	{
+		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Sampler, Sampler);
+	}
+
 	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
 	{
 		return new FVulkanTexture(*Device, CreateDesc);
+	}
+
+	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler>
+	{
+		return new FVulkanSampler(*Device, CreateDesc);
 	}
 
 	auto FVulkanDynamicRHI::RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void

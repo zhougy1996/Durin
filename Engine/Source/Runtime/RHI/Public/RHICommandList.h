@@ -117,6 +117,11 @@ namespace Durin
 		return GDynamicRHI->RHICreateTexture(FRHICommandListImmediate::Get(), CreateDesc);
 	}
 
+	FORCEINLINE TRefCountPtr<FRHISampler> RHICreateSampler(const FRHISamplerDesc& CreateDesc)
+	{
+		return GDynamicRHI->RHICreateSampler(CreateDesc);
+	}
+
 	FORCEINLINE TRefCountPtr<FRHIBuffer> RHICreateBuffer(const FRHIBufferCreateDesc& CreateDesc)
 	{
 		return GDynamicRHI->RHICreateBuffer(FRHICommandListImmediate::Get(), CreateDesc);

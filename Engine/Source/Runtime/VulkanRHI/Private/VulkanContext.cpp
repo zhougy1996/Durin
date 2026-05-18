@@ -137,6 +137,9 @@ namespace Durin::VulkanRHI
 			case FRHIShaderParameterResource::EType::Texture:
 				PendingGfxPipelineState->SetTexture(*this, ResourceParameter.SetIndex, ResourceParameter.BindIndex, static_cast<FVulkanTexture*>(ResourceParameter.Resource));
 				break;
+			case FRHIShaderParameterResource::EType::Sampler:
+				PendingGfxPipelineState->SetSampler(*this, ResourceParameter.SetIndex, ResourceParameter.BindIndex, static_cast<FVulkanSampler*>(ResourceParameter.Resource));
+				break;
 			default:
 				checkf(false, "Unsupported shader parameter resource type: {}", static_cast<uint32>(ResourceParameter.Type));
 				break;

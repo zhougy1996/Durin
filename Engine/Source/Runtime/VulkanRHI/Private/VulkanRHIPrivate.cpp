@@ -87,6 +87,31 @@ namespace Durin::VulkanRHI
 		{EPixelFormat::BC7_UNORM_SRGB, vk::Format::eBc7SrgbBlock},
 	}};
 
+	auto ToVulkan_Extent3D(const FIntVector& Size) -> vk::Extent3D
+	{
+		return vk::Extent3D{static_cast<uint32>(Size.x), static_cast<uint32>(Size.y), static_cast<uint32>(Size.z)};
+	}
+
+	auto ToVulkan_TextureDimension(ETextureDimension Dimension) -> vk::ImageViewType
+	{
+		switch (Dimension)
+		{
+		case ETextureDimension::Texture2D:
+			return vk::ImageViewType::e2D;
+		case ETextureDimension::Texture3D:
+			return vk::ImageViewType::e3D;
+		case ETextureDimension::TextureCube:
+			return vk::ImageViewType::eCube;
+		case ETextureDimension::Texture2DArray:
+			return vk::ImageViewType::e2DArray;
+		case ETextureDimension::TextureCubeArray:
+			return vk::ImageViewType::eCubeArray;
+		default:
+			DURIN_ERROR("Unsupported texture dimension");
+			return vk::ImageViewType::e2D;
+		}
+	}
+
 	auto ToVulkan_PixelFormat(EPixelFormat InFormat) -> vk::Format
 	{
 		check(InFormat < EPixelFormat::Count);
@@ -198,6 +223,100 @@ namespace Durin::VulkanRHI
 		default:
 			DURIN_ERROR("Unknown binding type: {}", static_cast<int>(InType));
 			return vk::DescriptorType::eUniformBuffer;
+		}
+	}
+
+	auto ToVulkan_SamplerFilter(ESamplerFilter InFilter) -> vk::Filter
+	{
+		switch (InFilter)
+		{
+		case ESamplerFilter::Nearest:
+			return vk::Filter::eNearest;
+		case ESamplerFilter::Linear:
+			return vk::Filter::eLinear;
+		default:
+			DURIN_ERROR("Unsupported sampler filter");
+			return vk::Filter::eLinear;
+		}
+	}
+
+	auto ToVulkan_SamplerMipmapMode(ESamplerMipmapMode InMode) -> vk::SamplerMipmapMode
+	{
+		switch (InMode)
+		{
+		case ESamplerMipmapMode::Nearest:
+			return vk::SamplerMipmapMode::eNearest;
+		case ESamplerMipmapMode::Linear:
+			return vk::SamplerMipmapMode::eLinear;
+		default:
+			DURIN_ERROR("Unsupported sampler mipmap mode");
+			return vk::SamplerMipmapMode::eLinear;
+		}
+	}
+
+	auto ToVulkan_SamplerAddressMode(ESamplerAddressMode InMode) -> vk::SamplerAddressMode
+	{
+		switch (InMode)
+		{
+		case ESamplerAddressMode::Repeat:
+			return vk::SamplerAddressMode::eRepeat;
+		case ESamplerAddressMode::MirroredRepeat:
+			return vk::SamplerAddressMode::eMirroredRepeat;
+		case ESamplerAddressMode::ClampToEdge:
+			return vk::SamplerAddressMode::eClampToEdge;
+		case ESamplerAddressMode::ClampToBorder:
+			return vk::SamplerAddressMode::eClampToBorder;
+		default:
+			DURIN_ERROR("Unsupported sampler address mode");
+			return vk::SamplerAddressMode::eClampToEdge;
+		}
+	}
+
+	auto ToVulkan_SamplerCompareOp(ESamplerCompareOp InCompareOp) -> vk::CompareOp
+	{
+		switch (InCompareOp)
+		{
+		case ESamplerCompareOp::Never:
+			return vk::CompareOp::eNever;
+		case ESamplerCompareOp::Less:
+			return vk::CompareOp::eLess;
+		case ESamplerCompareOp::Equal:
+			return vk::CompareOp::eEqual;
+		case ESamplerCompareOp::LessOrEqual:
+			return vk::CompareOp::eLessOrEqual;
+		case ESamplerCompareOp::Greater:
+			return vk::CompareOp::eGreater;
+		case ESamplerCompareOp::NotEqual:
+			return vk::CompareOp::eNotEqual;
+		case ESamplerCompareOp::GreaterOrEqual:
+			return vk::CompareOp::eGreaterOrEqual;
+		case ESamplerCompareOp::Always:
+			return vk::CompareOp::eAlways;
+		default:
+			DURIN_ERROR("Unsupported sampler compare op");
+			return vk::CompareOp::eAlways;
+		}
+	}
+
+	auto ToVulkan_SamplerBorderColor(ESamplerBorderColor InBorderColor) -> vk::BorderColor
+	{
+		switch (InBorderColor)
+		{
+		case ESamplerBorderColor::FloatTransparentBlack:
+			return vk::BorderColor::eFloatTransparentBlack;
+		case ESamplerBorderColor::IntTransparentBlack:
+			return vk::BorderColor::eIntTransparentBlack;
+		case ESamplerBorderColor::FloatOpaqueBlack:
+			return vk::BorderColor::eFloatOpaqueBlack;
+		case ESamplerBorderColor::IntOpaqueBlack:
+			return vk::BorderColor::eIntOpaqueBlack;
+		case ESamplerBorderColor::FloatOpaqueWhite:
+			return vk::BorderColor::eFloatOpaqueWhite;
+		case ESamplerBorderColor::IntOpaqueWhite:
+			return vk::BorderColor::eIntOpaqueWhite;
+		default:
+			DURIN_ERROR("Unsupported sampler border color");
+			return vk::BorderColor::eFloatTransparentBlack;
 		}
 	}
 

@@ -1,7 +1,6 @@
 #include "LaunchEngineLoop.h"
 
 #include "Threading/RunnableThread.h"
-#include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "ApplicationCore.h"
 #include "RHI.h"
@@ -10,18 +9,14 @@
 #include "Engine/Engine.h"
 
 #include "RHICommandList.h"
-#include "RHIResources.h"
 #include "RenderingThread.h"
 #include "Misc/AppConfigCache.h"
 #include "Misc/Paths.h"
 #include "Misc/StringConvert.h"
 
 #include "Shader/ShaderPaths.h"
-#include "Shader/ShaderCompiler.h"
-#include "AssetCore.h"
 #include "DurinEngine.h"
 
-#include "Misc/Time.h"
 
 namespace Durin
 {
