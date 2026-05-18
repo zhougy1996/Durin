@@ -3,6 +3,7 @@
 #include "RHI.h"
 #include "RenderingThread.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "Shader/ShaderPaths.h"
 #include "Shader/ShaderCompiler.h"
 
@@ -63,6 +64,11 @@ namespace Durin::Mona::MonaImGuiBackend
 		ImGuiIO& IO = ImGui::GetIO();
 		unsigned char* FontPixels = nullptr;
 		int FontWidth = 0, FontHeight = 0;
+		std::string FontDir = FPaths::EngineDir() + "Content/ImGuiFonts/";
+		const std::string FontPath = FontDir + "DroidSans.ttf";
+		ImFontConfig config;
+		IO.Fonts->AddFontFromFileTTF(FontPath.c_str(), 0.0f, &config);           // Merge into first font to add e.g. Asian characters
+
 		IO.Fonts->GetTexDataAsRGBA32(&FontPixels, &FontWidth, &FontHeight);
 
 		ENQUEUE_RENDER_COMMAND(CreateImGuiFontAtlas)([FontWidth, FontHeight, FontPixels](FRHICommandListImmediate& CommandList) {
@@ -71,7 +77,7 @@ namespace Durin::Mona::MonaImGuiBackend
 			FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, FontWidth, FontHeight);
 			GDynamicRHI->RHIUpdateTexture2D(CommandList, GBackendState.FontAtlasTexture, 0, UpdateRegion, FontWidth * 4, FontPixels);
 
-			FRHISamplerDesc SamplerCreateDesc = FRHISamplerDesc::PointClamp();
+			FRHISamplerDesc SamplerCreateDesc = FRHISamplerDesc::LinearClamp();
 			GBackendState.FontAtlasSampler = RHICreateSampler(SamplerCreateDesc);
 		});
 	}
@@ -139,6 +145,7 @@ namespace Durin::Mona::MonaImGuiBackend
 		});
 		ImGuiRHIImpl_CreateFontAtlasTexture();
 		ImGuiRHIImpl_CreateMainPipeline();
+		FlushRenderingCommands();
 	}
 
 	static auto ImGuiRHIImpl_DestroyTexture(ImTextureData* InTex) -> void
@@ -155,6 +162,8 @@ namespace Durin::Mona::MonaImGuiBackend
 
 	static auto ImGuiRHIImpl_DestroyRHIResources() -> void
 	{
+		ImGui::GetIO().Fonts->SetTexID(ImTextureID_Invalid);
+
 		for (ImTextureData* Tex : ImGui::GetPlatformIO().Textures)
 		{
 			ImGuiRHIImpl_DestroyTexture(Tex);
