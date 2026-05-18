@@ -226,11 +226,11 @@ namespace Durin::Mona::MonaImGuiBackend
 			check(InTex->Format == ImTextureFormat_RGBA32);
 
 			auto* TextureRefPtr = new FTextureRHIRef();
-			ENQUEUE_RENDER_COMMAND(ImGuiImpl_CreateTexture)([InTex, TextureRefPtr](FRHICommandListImmediate& CommandList) {
-				FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiCreatedTexture", InTex->Width, InTex->Height, EPixelFormat::RGBA8_UNORM);
+			ENQUEUE_RENDER_COMMAND(ImGuiImpl_CreateTexture)([TextureRefPtr, Width = InTex->Width, Height = InTex->Height](FRHICommandListImmediate& CommandList) {
+				FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiCreatedTexture", Width, Height, EPixelFormat::RGBA8_UNORM);
 				*TextureRefPtr = RHICreateTexture(TextureCreateDesc);
 			});
-
+			// The created texture will be uploaded in the next step, so the rendering commands will be flushed to ensure the texture is ready before it's used for rendering.
 			InTex->BackendUserData = TextureRefPtr;
 		}
 
@@ -242,13 +242,13 @@ namespace Durin::Mona::MonaImGuiBackend
 			const int UploadW = (InTex->Status == ImTextureStatus_WantCreate) ? InTex->Width : InTex->UpdateRect.w;
 			const int UploadH = (InTex->Status == ImTextureStatus_WantCreate) ? InTex->Height : InTex->UpdateRect.h;
 			FUpdateTextureRegion2D UpdateRegion(UploadX, UploadY, UploadX, UploadY, UploadW, UploadH);
-			uint32 SourcePitch = UploadW * 4; // 4 bytes per pixel for RGBA8
-
-			ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTexture)([InTex, TextureRefPtr, UpdateRegion, SourcePitch](FRHICommandListImmediate& CommandList) {
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, *TextureRefPtr, 0, UpdateRegion, SourcePitch, InTex->Pixels);
+			const uint32 SourcePitch = UploadW * 4; // 4 bytes per pixel for RGBA8
+			const auto* TexPixels = InTex->Pixels;
+			ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTexture)([=](FRHICommandListImmediate& CommandList) {
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, *TextureRefPtr, 0, UpdateRegion, SourcePitch, TexPixels);
 			});
 
-			FlushRenderingCommands();
+			FlushRenderingCommands(); // Make sure the texture update is processed before the texture is used for rendering in the next frame.
 			InTex->SetStatus(ImTextureStatus_OK);
 		}
 
