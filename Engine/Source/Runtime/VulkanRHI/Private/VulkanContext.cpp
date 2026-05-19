@@ -34,6 +34,11 @@ namespace Durin::VulkanRHI
 		PendingGfxPipelineState->SetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
 	}
 
+	auto FVulkanCommandListContext::RHISetScissor(float MinX, float MinY, float Width, float Height) -> void
+	{
+		PendingGfxPipelineState->SetScissor(MinX, MinY, Width, Height);
+	}
+
 	auto FVulkanCommandListContext::RHIBeginFrame() -> void
 	{
 	}

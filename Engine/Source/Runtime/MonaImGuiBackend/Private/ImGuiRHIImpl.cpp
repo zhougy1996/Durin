@@ -3,7 +3,6 @@
 #include "RHI.h"
 #include "RenderingThread.h"
 #include "Misc/FileHelper.h"
-#include "Misc/Paths.h"
 #include "Shader/ShaderPaths.h"
 #include "Shader/ShaderCompiler.h"
 
@@ -283,6 +282,10 @@ namespace Durin::Mona::MonaImGuiBackend
 	) -> void
 	{
 		check(IsInRenderingThread());
+		const ImVec2 ClipOff = DrawData->DisplayPos;
+		const ImVec2 ClipScale = DrawData->FramebufferScale;
+		const float FrameBufferWidth = DrawData->DisplaySize.x * ClipScale.x;
+		const float FrameBufferHeight = DrawData->DisplaySize.y * ClipScale.y;
 
 		// Update vertex/index buffers
 		ImGuiRHIImplRT_UpdateBuffers(CommandList, DrawData, RenderBuffers);
@@ -317,6 +320,19 @@ namespace Durin::Mona::MonaImGuiBackend
 				}
 				else
 				{
+					ImVec2 ClipMin((Cmd->ClipRect.x - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.y - ClipOff.y) * ClipScale.y);
+					ImVec2 ClipMax((Cmd->ClipRect.z - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.w - ClipOff.y) * ClipScale.y);
+					ClipMin.x = std::max(0.0f, ClipMin.x);
+					ClipMin.y = std::max(0.0f, ClipMin.y);
+					ClipMax.x = std::min(FrameBufferWidth, ClipMax.x);
+					ClipMax.y = std::min(FrameBufferHeight, ClipMax.y);
+					if (ClipMax.x <= ClipMin.x || ClipMax.y <= ClipMin.y)
+					{
+						continue;
+					}
+
+					CommandList.SetScissor(ClipMin.x, ClipMin.y, ClipMax.x - ClipMin.x, ClipMax.y - ClipMin.y);
+
 					CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
 					CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
 

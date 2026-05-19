@@ -73,6 +73,11 @@ namespace Durin
 		GetContext().RHISetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
 	}
 
+	auto FRHICommandListBase::SetScissor(float MinX, float MinY, float Width, float Height) -> void
+	{
+		GetContext().RHISetScissor(MinX, MinY, Width, Height);
+	}
+
 	auto FRHICommandListBase::GetContext() const -> IRHICommandContext&
 	{
 		check(GraphicsContext && "No active pipeline or pipeline not supported yet.");

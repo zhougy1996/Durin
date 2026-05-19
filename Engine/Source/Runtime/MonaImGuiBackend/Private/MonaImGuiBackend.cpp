@@ -73,13 +73,28 @@ namespace Durin::Mona
 	auto FMonaImGuiBackend::NewFrame() -> void
 	{
 		auto& App = FMonaApplication::Get();
+		const auto Renderer = dynamic_cast<FMonaRHIRenderer*>(App.GetRenderer());
 		const std::shared_ptr<MWindow> MainWindow = App.GetActiveTopLevelWindow();
+		if (!MainWindow)
+		{
+			return;
+		}
 		FVector2f ViewportSize = MainWindow->GetViewportSize();
 
 		static double LastTime = FTime::Seconds();
 		const double CurrentTime = FTime::Seconds();
-		ImGui::GetIO().DeltaTime = static_cast<float>(CurrentTime - LastTime);
-		ImGui::GetIO().DisplaySize = ImVec2(ViewportSize.x, ViewportSize.y);
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.DeltaTime = static_cast<float>(CurrentTime - LastTime);
+		LastTime = CurrentTime;
+		IO.DisplaySize = ImVec2(ViewportSize.x, ViewportSize.y);
+		// Keep ImGui in sync with framebuffer pixel size to avoid half-pixel edge artifacts on high-DPI setups.
+		IO.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
+		if (Renderer && MainWindow && ViewportSize.x > 0.0f && ViewportSize.y > 0.0f)
+		{
+			const float FrameBufferWidth = ViewportSize.x;
+			const float FrameBufferHeight = ViewportSize.y;
+			IO.DisplayFramebufferScale = ImVec2(FrameBufferWidth / ViewportSize.x, FrameBufferHeight / ViewportSize.y);
+		}
 
 		MonaImGuiBackend::ImGuiRHIImpl_NewFrame();
 		ImGui::NewFrame();

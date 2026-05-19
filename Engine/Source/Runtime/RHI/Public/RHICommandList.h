@@ -46,6 +46,8 @@ namespace Durin
 
 		RHI_API auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 
+		RHI_API auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
+
 		RHI_API auto GetContext() const -> IRHICommandContext&;
 
 		RHI_API auto PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void;
