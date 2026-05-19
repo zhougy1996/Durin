@@ -151,12 +151,13 @@ namespace Durin::VulkanRHI
 		ViewportStateInfo.setViewportCount(1).setScissorCount(1);
 
 		vk::PipelineRasterizationStateCreateInfo RasterizerInfo;
+		const vk::CullModeFlags CullMode = Initializer.bEnableBackFaceCulling ? vk::CullModeFlagBits::eBack : vk::CullModeFlagBits::eNone;
 		RasterizerInfo
 			.setDepthClampEnable(vk::False)
 			.setLineWidth(1.0f)
 			.setRasterizerDiscardEnable(vk::False)
 			.setPolygonMode(vk::PolygonMode::eFill)
-			.setCullMode(vk::CullModeFlagBits::eBack)
+			.setCullMode(CullMode)
 			.setFrontFace(vk::FrontFace::eClockwise)
 			.setDepthBiasEnable(vk::False)
 			.setDepthBiasConstantFactor(0.0f)

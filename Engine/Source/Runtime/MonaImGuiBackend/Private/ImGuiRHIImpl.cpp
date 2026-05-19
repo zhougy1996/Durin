@@ -107,6 +107,7 @@ namespace Durin::Mona::MonaImGuiBackend
 
 			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
 			Initializer.bEnableAlphaBlend = true;
+			Initializer.bEnableBackFaceCulling = false;
 
 			FBindingLayout Set_0;
 			Set_0.BindingLayouts = {

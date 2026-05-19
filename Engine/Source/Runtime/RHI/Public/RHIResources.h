@@ -690,6 +690,8 @@ namespace Durin
 		FPipelineLayoutDesc PipelineLayout;
 
 		bool bEnableAlphaBlend = false;
+
+		bool bEnableBackFaceCulling = true;
 	};
 
 	struct FRHIBufferDesc
