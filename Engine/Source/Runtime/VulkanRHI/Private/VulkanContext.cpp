@@ -122,6 +122,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
+		PendingGfxPipelineState->PrepareDescriptorSets();
 		for (const auto& ResourceParameter : InResourceParameters)
 		{
 			if (ResourceParameter.Resource == nullptr)
@@ -165,9 +166,6 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetShaderUniformBuffer(FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FRHIBuffer* InUniformBuffer) -> void
 	{
-		FVulkanBuffer* UniformBuffer = static_cast<FVulkanBuffer*>(InUniformBuffer);
-		vk::CommandBuffer CmdBuffer = GetCommandBuffer()->GetHandle();
-		// CmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, PendingGfxPipelineState->GetPipelineLayout(), SetIndex, UniformBuffer->GetDescriptorSet(BindIndex), {});
 	}
 
 	auto FVulkanCommandListContext::AddWaitSemaphore(vk::PipelineStageFlags InWaitFlag, FVulkanSemaphore* InWaitSemaphore) -> void

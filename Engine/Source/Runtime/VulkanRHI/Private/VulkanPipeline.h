@@ -40,6 +40,8 @@ namespace Durin::VulkanRHI
 
 		auto SetSampler(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, FVulkanSampler* InSampler) -> void;
 
+		auto PrepareDescriptorSets() -> void;
+
 	protected:
 		const FVulkanRenderPass* RenderPass = nullptr;
 
@@ -48,8 +50,6 @@ namespace Durin::VulkanRHI
 		auto KeepShadersAlive() -> void;
 
 		auto ReleaseShaders() -> void;
-
-		auto PrepareDescriptorSets() -> void;
 
 		FVulkanDevice& Device;
 

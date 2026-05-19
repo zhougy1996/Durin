@@ -43,8 +43,6 @@ namespace Durin::Mona::MonaImGuiBackend
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateRHIRef PipelineState;
 
-		// Font atlas
-		FTextureRHIRef FontAtlasTexture;
 		FSamplerRHIRef FontAtlasSampler;
 
 		// Render buffers for main window
@@ -61,22 +59,7 @@ namespace Durin::Mona::MonaImGuiBackend
 
 	static auto ImGuiRHIImpl_CreateFontAtlasTexture() -> void
 	{
-		ImGuiIO& IO = ImGui::GetIO();
-		unsigned char* FontPixels = nullptr;
-		int FontWidth = 0, FontHeight = 0;
-		std::string FontDir = FPaths::EngineDir() + "Content/ImGuiFonts/";
-		const std::string FontPath = FontDir + "DroidSans.ttf";
-		ImFontConfig config;
-		IO.Fonts->AddFontFromFileTTF(FontPath.c_str(), 0.0f, &config);           // Merge into first font to add e.g. Asian characters
-
-		IO.Fonts->GetTexDataAsRGBA32(&FontPixels, &FontWidth, &FontHeight);
-
-		ENQUEUE_RENDER_COMMAND(CreateImGuiFontAtlas)([FontWidth, FontHeight, FontPixels](FRHICommandListImmediate& CommandList) {
-			FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiFontAtlas", FontWidth, FontHeight, EPixelFormat::RGBA8_UNORM);
-			GBackendState.FontAtlasTexture = RHICreateTexture(TextureCreateDesc);
-			FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, FontWidth, FontHeight);
-			GDynamicRHI->RHIUpdateTexture2D(CommandList, GBackendState.FontAtlasTexture, 0, UpdateRegion, FontWidth * 4, FontPixels);
-
+		ENQUEUE_RENDER_COMMAND(CreateImGuiFontAtlas)([](FRHICommandListImmediate& CommandList) {
 			FRHISamplerDesc SamplerCreateDesc = FRHISamplerDesc::LinearClamp();
 			GBackendState.FontAtlasSampler = RHICreateSampler(SamplerCreateDesc);
 		});
@@ -124,6 +107,7 @@ namespace Durin::Mona::MonaImGuiBackend
 			Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
 
 			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
+			Initializer.bEnableAlphaBlend = true;
 
 			FBindingLayout Set_0;
 			Set_0.BindingLayouts = {
@@ -143,9 +127,8 @@ namespace Durin::Mona::MonaImGuiBackend
 		ENQUEUE_RENDER_COMMAND(SwitchPipeline)([](FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 		});
-		ImGuiRHIImpl_CreateFontAtlasTexture();
 		ImGuiRHIImpl_CreateMainPipeline();
-		FlushRenderingCommands();
+		ImGuiRHIImpl_CreateFontAtlasTexture();
 	}
 
 	static auto ImGuiRHIImpl_DestroyTexture(ImTextureData* InTex) -> void
@@ -174,7 +157,6 @@ namespace Durin::Mona::MonaImGuiBackend
 			GBackendState.PixelShader = nullptr;
 			GBackendState.VertexDeclaration = nullptr;
 			GBackendState.PipelineState = nullptr;
-			GBackendState.FontAtlasTexture = nullptr;
 			GBackendState.FontAtlasSampler = nullptr;
 			GBackendState.MainWindowRenderBuffers.Clear();
 		});
@@ -264,6 +246,7 @@ namespace Durin::Mona::MonaImGuiBackend
 				*TextureRefPtr = RHICreateTexture(TextureCreateDesc);
 			});
 			// The created texture will be uploaded in the next step, so the rendering commands will be flushed to ensure the texture is ready before it's used for rendering.
+			InTex->SetTexID(reinterpret_cast<ImTextureID>(TextureRefPtr));
 			InTex->BackendUserData = TextureRefPtr;
 		}
 
@@ -277,6 +260,7 @@ namespace Durin::Mona::MonaImGuiBackend
 			FUpdateTextureRegion2D UpdateRegion(UploadX, UploadY, UploadX, UploadY, UploadW, UploadH);
 			const uint32 SourcePitch = UploadW * 4; // 4 bytes per pixel for RGBA8
 			const auto* TexPixels = InTex->Pixels;
+
 			ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTexture)([=](FRHICommandListImmediate& CommandList) {
 				GDynamicRHI->RHIUpdateTexture2D(CommandList, *TextureRefPtr, 0, UpdateRegion, SourcePitch, TexPixels);
 			});
@@ -310,33 +294,60 @@ namespace Durin::Mona::MonaImGuiBackend
 		CommandList.BeginRenderPass(PassInfo, "ImGuiRenderPass");
 		CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("ImGuiMainPipeline"));
 
-		if (RenderBuffers.IndexBuffer)
+		int GlobalVertexOffset = 0;
+		int GlobalIndexOffset = 0;
+
+		for (const ImDrawList* DrawList : DrawData->CmdLists)
 		{
-			CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
-			CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
+			for (int CmdIndex = 0; CmdIndex < DrawList->CmdBuffer.Size; CmdIndex++)
+			{
+				const ImDrawCmd* Cmd = &DrawList->CmdBuffer[CmdIndex];
+				if (Cmd->UserCallback != nullptr)
+				{
+					// User callback, registered via ImDrawList::AddCallback()
+					// (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
+					if (Cmd->UserCallback == ImDrawCallback_ResetRenderState)
+					{
+						// ImGui_ImplVulkan_SetupRenderState(draw_data, pipeline, command_buffer, rb, fb_width, fb_height);
+					}
+					else
+					{
+						Cmd->UserCallback(DrawList, Cmd);
+					}
+				}
+				else
+				{
+					CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
+					CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
 
-			FRHIShaderParameterResource Binding_0_0;
-			Binding_0_0.Type = FRHIShaderParameterResource::EType::Texture;
-			Binding_0_0.SetIndex = 0;
-			Binding_0_0.BindIndex = 0;
-			Binding_0_0.Resource = GBackendState.FontAtlasTexture;
+					auto* TextureRefPtr = reinterpret_cast<FTextureRHIRef*>(Cmd->GetTexID());
 
-			FRHIShaderParameterResource Binding_0_1;
-			Binding_0_1.Type = FRHIShaderParameterResource::EType::Sampler;
-			Binding_0_1.SetIndex = 0;
-			Binding_0_1.BindIndex = 1;
-			Binding_0_1.Resource = GBackendState.FontAtlasSampler;
+					FRHIShaderParameterResource Binding_0_0;
+					Binding_0_0.Type = FRHIShaderParameterResource::EType::Texture;
+					Binding_0_0.SetIndex = 0;
+					Binding_0_0.BindIndex = 0;
+					Binding_0_0.Resource = *TextureRefPtr;
 
-			std::vector<FRHIShaderParameterResource> ShaderParameters = {Binding_0_0, Binding_0_1};
-			CommandList.SetShaderParameters(GBackendState.PixelShader, ShaderParameters);
+					FRHIShaderParameterResource Binding_0_1;
+					Binding_0_1.Type = FRHIShaderParameterResource::EType::Sampler;
+					Binding_0_1.SetIndex = 0;
+					Binding_0_1.BindIndex = 1;
+					Binding_0_1.Resource = GBackendState.FontAtlasSampler;
 
-			FImGuiRHIImpl_ConstantBufferData DataToPush;
-			DataToPush.Scale.x = 2.0f / DrawData->DisplaySize.x;
-			DataToPush.Scale.y = 2.0f / DrawData->DisplaySize.y;
-			DataToPush.Translation.x = -1.0f - DrawData->DisplayPos.x * DataToPush.Scale.x;
-			DataToPush.Translation.y = -1.0f - DrawData->DisplayPos.y * DataToPush.Scale.y;
-			CommandList.PushConstants(EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData), &DataToPush);
-			CommandList.DrawIndexed(DrawData->TotalIdxCount, 0, 0);
+					std::vector<FRHIShaderParameterResource> ShaderParameters = {Binding_0_0, Binding_0_1};
+					CommandList.SetShaderParameters(GBackendState.PixelShader, ShaderParameters);
+
+					FImGuiRHIImpl_ConstantBufferData DataToPush;
+					DataToPush.Scale.x = 2.0f / DrawData->DisplaySize.x;
+					DataToPush.Scale.y = 2.0f / DrawData->DisplaySize.y;
+					DataToPush.Translation.x = -1.0f - DrawData->DisplayPos.x * DataToPush.Scale.x;
+					DataToPush.Translation.y = -1.0f - DrawData->DisplayPos.y * DataToPush.Scale.y;
+					CommandList.PushConstants(EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData), &DataToPush);
+					CommandList.DrawIndexed(Cmd->ElemCount,  Cmd->IdxOffset + GlobalIndexOffset, Cmd->VtxOffset + GlobalVertexOffset);
+				}
+			}
+			GlobalIndexOffset += DrawList->IdxBuffer.Size;
+			GlobalVertexOffset += DrawList->VtxBuffer.Size;
 		}
 
 		CommandList.EndRenderPass();

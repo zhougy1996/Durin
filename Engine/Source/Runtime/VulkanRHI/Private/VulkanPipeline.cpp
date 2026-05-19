@@ -173,13 +173,15 @@ namespace Durin::VulkanRHI
 			.setAlphaToOneEnable(vk::False);
 
 		vk::PipelineColorBlendAttachmentState ColorBlendAttachment;
+		const bool bEnableAlphaBlend = Initializer.bEnableAlphaBlend;
 		ColorBlendAttachment
 			.setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA)
-			.setBlendEnable(vk::False)
+			.setBlendEnable(bEnableAlphaBlend ? vk::True : vk::False)
+			.setSrcColorBlendFactor(bEnableAlphaBlend ? vk::BlendFactor::eSrcAlpha : vk::BlendFactor::eOne)
 			.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
 			.setColorBlendOp(vk::BlendOp::eAdd)
 			.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-			.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+			.setDstAlphaBlendFactor(bEnableAlphaBlend ? vk::BlendFactor::eOneMinusSrcAlpha : vk::BlendFactor::eZero)
 			.setAlphaBlendOp(vk::BlendOp::eAdd);
 
 		vk::PipelineColorBlendStateCreateInfo ColorBlending;
@@ -278,8 +280,6 @@ namespace Durin::VulkanRHI
 		CmdBuffer->GetHandle().setViewport(0, Viewport);
 		CmdBuffer->GetHandle().setScissor(0, Scissor);
 
-		PrepareDescriptorSets();
-
 		Device.GetHandle().updateDescriptorSets(DescriptorWrites, {});
 		DescriptorWrites.clear();
 		ImageInfos.clear();
@@ -294,8 +294,6 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGraphicsPipelineState::SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void
 	{
-		PrepareDescriptorSets();
-
 		vk::DescriptorBufferInfo BufferInfo{};
 		BufferInfo.setBuffer(InUniformBuffer->GetHandle())
 			.setOffset(0)
@@ -314,8 +312,6 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGraphicsPipelineState::SetTexture(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, FVulkanTexture* InTexture) -> void
 	{
-		PrepareDescriptorSets();
-
 		ImageInfos.emplace_back();
 		vk::DescriptorImageInfo& ImageInfo = ImageInfos.back();
 		ImageInfo.setImageView(InTexture->ImageView)
@@ -334,8 +330,6 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGraphicsPipelineState::SetSampler(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, FVulkanSampler* InSampler) -> void
 	{
-		PrepareDescriptorSets();
-
 		ImageInfos.emplace_back();
 		vk::DescriptorImageInfo& ImageInfo = ImageInfos.back();
 		ImageInfo.setSampler(InSampler->GetHandle());
@@ -382,11 +376,6 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGraphicsPipelineState::PrepareDescriptorSets() -> void
 	{
-		if (DescriptorSetsFrameCounter == GFrameCounterRenderThread)
-		{
-			return;
-		}
-
 		auto DescriptorPool = Device.GetGlobalDescriptorPool().GetPool();
 		vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo;
 		DescriptorSetAllocInfo
@@ -394,7 +383,6 @@ namespace Durin::VulkanRHI
 			.setSetLayouts(DescriptorSetLayouts);
 
 		DescriptorSets = Device.GetHandle().allocateDescriptorSets(DescriptorSetAllocInfo);
-		DescriptorSetsFrameCounter = GFrameCounterRenderThread;
 	}
 
 	FVulkanPipelineManager::FVulkanPipelineManager(FVulkanDevice& InDevice)

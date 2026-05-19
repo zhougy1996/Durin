@@ -9,11 +9,35 @@
 #include "Widgets/MWindow.h"
 #include "ImGuiRHIImpl.h"
 #include "MonaImGuiEventHandler.h"
+#include "Misc/Paths.h"
 
 namespace Durin::Mona
 {
 	// Double buffer for draw data snapshots for the render thread.
 	static std::array<ImDrawDataSnapshot, 2> GDrawDataSnapshots;
+
+	static auto InitFonts() -> void
+	{
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.Fonts->AddFontDefaultVector();
+
+		const ImWchar* ChineseGlyphRanges = IO.Fonts->GetGlyphRangesChineseSimplifiedCommon();
+		std::string FontDir = FPaths::EngineDir() + "Content/ImGuiFonts/";
+		std::string FontPath_DroidSans = FontDir + "DroidSans.ttf";
+		std::string FontPath_NotoSansSC = FontDir + "NotoSansSC-Regular.ttf";
+
+		ImFont* FallbackLatinFont = IO.Fonts->AddFontFromFileTTF(FontPath_DroidSans.c_str(), 20.0f);
+		ImFont* ChineseFont = IO.Fonts->AddFontFromFileTTF(FontPath_NotoSansSC.c_str(), 20.0f, nullptr, ChineseGlyphRanges);
+		if (ChineseFont)
+		{
+			IO.FontDefault = ChineseFont;
+		}
+		else if (FallbackLatinFont)
+		{
+			IO.FontDefault = FallbackLatinFont;
+		}
+		IO.Fonts->Build();
+	}
 
 	auto FMonaImGuiBackend::Initialize() -> void
 	{
@@ -22,6 +46,7 @@ namespace Durin::Mona
 		ImGui::SetCurrentContext(MonaImGuiBackend::GMonaImGuiContext);
 
 		MonaImGuiBackend::ImGuiRHIImpl_Init();
+		InitFonts();
 
 		// Set the Mona event handler to the application. This will allow us to receive input events and forward them to ImGui.
 		auto& App = FMonaApplication::Get();
@@ -64,8 +89,9 @@ namespace Durin::Mona
 		{
 			return;
 		}
-		ImGui::Begin("Test Window");
+		ImGui::Begin("你好");
 		ImGui::Text("Hello from another window!");
+		ImGui::TextUnformatted("你好世界");
 		if (ImGui::Button("Close Me")) {}
 		ImGui::End();
 	}

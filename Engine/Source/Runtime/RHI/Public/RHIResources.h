@@ -688,6 +688,8 @@ namespace Durin
 		FRHIVertexDeclaration* VertexDeclaration = nullptr;
 
 		FPipelineLayoutDesc PipelineLayout;
+
+		bool bEnableAlphaBlend = false;
 	};
 
 	struct FRHIBufferDesc
