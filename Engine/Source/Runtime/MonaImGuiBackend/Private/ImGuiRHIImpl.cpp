@@ -238,11 +238,12 @@ namespace Durin::Mona::MonaImGuiBackend
 		if (InTex->Status == ImTextureStatus_WantCreate)
 		{
 			check(InTex->TexID == ImTextureID_Invalid && InTex->BackendUserData == nullptr);
-			check(InTex->Format == ImTextureFormat_RGBA32);
+			check(InTex->Format == ImTextureFormat_RGBA32 || InTex->Format == ImTextureFormat_Alpha8);
 
 			auto* TextureRefPtr = new FTextureRHIRef();
-			ENQUEUE_RENDER_COMMAND(ImGuiImpl_CreateTexture)([TextureRefPtr, Width = InTex->Width, Height = InTex->Height](FRHICommandListImmediate& CommandList) {
-				FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiCreatedTexture", Width, Height, EPixelFormat::RGBA8_UNORM);
+			const EPixelFormat TextureFormat = (InTex->Format == ImTextureFormat_Alpha8) ? EPixelFormat::R8_UNORM : EPixelFormat::RGBA8_UNORM;
+			ENQUEUE_RENDER_COMMAND(ImGuiImpl_CreateTexture)([TextureRefPtr, Width = InTex->Width, Height = InTex->Height, TextureFormat](FRHICommandListImmediate& CommandList) {
+				FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiCreatedTexture", Width, Height, TextureFormat);
 				*TextureRefPtr = RHICreateTexture(TextureCreateDesc);
 			});
 			// The created texture will be uploaded in the next step, so the rendering commands will be flushed to ensure the texture is ready before it's used for rendering.
@@ -250,16 +251,12 @@ namespace Durin::Mona::MonaImGuiBackend
 			InTex->BackendUserData = TextureRefPtr;
 		}
 
-		if (InTex->Status == ImTextureStatus_WantCreate || InTex->Status == ImTextureStatus_WantUpdates)
+		if (InTex->Status == ImTextureStatus_WantCreate)
 		{
 			auto* TextureRefPtr = static_cast<FTextureRHIRef*>(InTex->BackendUserData);
-			const int UploadX = (InTex->Status == ImTextureStatus_WantCreate) ? 0 : InTex->UpdateRect.x;
-			const int UploadY = (InTex->Status == ImTextureStatus_WantCreate) ? 0 : InTex->UpdateRect.y;
-			const int UploadW = (InTex->Status == ImTextureStatus_WantCreate) ? InTex->Width : InTex->UpdateRect.w;
-			const int UploadH = (InTex->Status == ImTextureStatus_WantCreate) ? InTex->Height : InTex->UpdateRect.h;
-			FUpdateTextureRegion2D UpdateRegion(UploadX, UploadY, UploadX, UploadY, UploadW, UploadH);
-			const uint32 SourcePitch = UploadW * 4; // 4 bytes per pixel for RGBA8
-			const auto* TexPixels = InTex->Pixels;
+			FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, InTex->Width, InTex->Height);
+			const uint32 SourcePitch = static_cast<uint32>(InTex->GetPitch());
+			const uint8* TexPixels = InTex->Pixels;
 
 			ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTexture)([=](FRHICommandListImmediate& CommandList) {
 				GDynamicRHI->RHIUpdateTexture2D(CommandList, *TextureRefPtr, 0, UpdateRegion, SourcePitch, TexPixels);
@@ -269,10 +266,58 @@ namespace Durin::Mona::MonaImGuiBackend
 			InTex->SetStatus(ImTextureStatus_OK);
 		}
 
+		if (InTex->Status == ImTextureStatus_WantUpdates)
+		{
+			auto* TextureRefPtr = static_cast<FTextureRHIRef*>(InTex->BackendUserData);
+			const uint32 SourcePitch = static_cast<uint32>(InTex->GetPitch());
+			const uint32 BytesPerPixel = static_cast<uint32>(InTex->BytesPerPixel);
+			for (const ImTextureRect& UpdateRect : InTex->Updates)
+			{
+				if (UpdateRect.w <= 0 || UpdateRect.h <= 0)
+				{
+					continue;
+				}
+
+				FUpdateTextureRegion2D UpdateRegion(UpdateRect.x, UpdateRect.y, UpdateRect.x, UpdateRect.y, UpdateRect.w, UpdateRect.h);
+				const uint8* UpdatePixels = InTex->Pixels + static_cast<size_t>(UpdateRect.y) * SourcePitch + static_cast<size_t>(UpdateRect.x) * BytesPerPixel;
+				ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTextureRegion)([=](FRHICommandListImmediate& CommandList) {
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, *TextureRefPtr, 0, UpdateRegion, SourcePitch, UpdatePixels);
+				});
+			}
+
+			FlushRenderingCommands(); // Ensure atlas updates are visible before rendering new glyphs.
+			InTex->SetStatus(ImTextureStatus_OK);
+		}
+
 		if (InTex->Status == ImTextureStatus_WantDestroy)
 		{
 			ImGuiRHIImpl_DestroyTexture(InTex);
 		}
+	}
+
+	static auto ImGuiRHIImplRT_SetupRenderState(
+		FRHICommandListImmediate& CommandList,
+		const ImDrawData* DrawData,
+		FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers
+	) -> void
+	{
+		const int32 FrameBufferWidth = static_cast<int32>(DrawData->DisplaySize.x * DrawData->FramebufferScale.x);
+		const int32 FrameBufferHeight = static_cast<int32>(DrawData->DisplaySize.y * DrawData->FramebufferScale.y);
+
+		CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("ImGuiMainPipeline"));
+		CommandList.SetViewport(0.0f, 0.0f, 0.0f, FrameBufferWidth, FrameBufferHeight, 1.0f);
+		CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
+		CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
+
+		FImGuiRHIImpl_ConstantBufferData DataToPush;
+		DataToPush.Scale.x = 2.0f / DrawData->DisplaySize.x;
+		DataToPush.Scale.y = 2.0f / DrawData->DisplaySize.y;
+		DataToPush.Translation.x = -1.0f - DrawData->DisplayPos.x * DataToPush.Scale.x;
+		DataToPush.Translation.y = -1.0f - DrawData->DisplayPos.y * DataToPush.Scale.y;
+		CommandList.PushConstants(EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData), &DataToPush);
+
+		// Reset to a full-frame scissor so the next draw command starts from known state.
+		CommandList.SetScissor(0.0f, 0.0f, FrameBufferWidth, FrameBufferHeight);
 	}
 
 	static auto ImGuiRHIImplRT_RenderDrawData(
@@ -285,8 +330,11 @@ namespace Durin::Mona::MonaImGuiBackend
 		check(IsInRenderingThread());
 		const ImVec2 ClipOff = DrawData->DisplayPos;
 		const ImVec2 ClipScale = DrawData->FramebufferScale;
-		const float FrameBufferWidth = DrawData->DisplaySize.x * ClipScale.x;
-		const float FrameBufferHeight = DrawData->DisplaySize.y * ClipScale.y;
+
+		int FrameBufferWidth = static_cast<int>(DrawData->DisplaySize.x * DrawData->FramebufferScale.x);
+		int FrameBufferHeight = static_cast<int>(DrawData->DisplaySize.y * DrawData->FramebufferScale.y);
+		if (FrameBufferWidth <= 0 || FrameBufferHeight <= 0)
+			return;
 
 		// Update vertex/index buffers
 		ImGuiRHIImplRT_UpdateBuffers(CommandList, DrawData, RenderBuffers);
@@ -296,7 +344,7 @@ namespace Durin::Mona::MonaImGuiBackend
 		PassInfo.ColorRenderTargets[0] = InTargetFrameBuffer;
 
 		CommandList.BeginRenderPass(PassInfo, "ImGuiRenderPass");
-		CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("ImGuiMainPipeline"));
+		ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers);
 
 		int GlobalVertexOffset = 0;
 		int GlobalIndexOffset = 0;
@@ -312,7 +360,7 @@ namespace Durin::Mona::MonaImGuiBackend
 					// (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
 					if (Cmd->UserCallback == ImDrawCallback_ResetRenderState)
 					{
-						// ImGui_ImplVulkan_SetupRenderState(draw_data, pipeline, command_buffer, rb, fb_width, fb_height);
+						ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers);
 					}
 					else
 					{
@@ -321,21 +369,20 @@ namespace Durin::Mona::MonaImGuiBackend
 				}
 				else
 				{
-					ImVec2 ClipMin((Cmd->ClipRect.x - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.y - ClipOff.y) * ClipScale.y);
-					ImVec2 ClipMax((Cmd->ClipRect.z - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.w - ClipOff.y) * ClipScale.y);
-					ClipMin.x = std::max(0.0f, ClipMin.x);
-					ClipMin.y = std::max(0.0f, ClipMin.y);
-					ClipMax.x = std::min(FrameBufferWidth, ClipMax.x);
-					ClipMax.y = std::min(FrameBufferHeight, ClipMax.y);
-					if (ClipMax.x <= ClipMin.x || ClipMax.y <= ClipMin.y)
+					ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers);
+
+					const ImVec2 ClipMin((Cmd->ClipRect.x - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.y - ClipOff.y) * ClipScale.y);
+					const ImVec2 ClipMax((Cmd->ClipRect.z - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.w - ClipOff.y) * ClipScale.y);
+
+					const float ScissorMinX = std::max(0.0f, ClipMin.x);
+					const float ScissorMinY = std::max(0.0f, ClipMin.y);
+					const float ScissorMaxX = std::min(static_cast<float>(FrameBufferWidth), ClipMax.x);
+					const float ScissorMaxY = std::min(static_cast<float>(FrameBufferHeight), ClipMax.y);
+					if (ScissorMaxX <= ScissorMinX || ScissorMaxY <= ScissorMinY)
 					{
 						continue;
 					}
-
-					CommandList.SetScissor(ClipMin.x, ClipMin.y, ClipMax.x - ClipMin.x, ClipMax.y - ClipMin.y);
-
-					CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
-					CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
+					CommandList.SetScissor(ScissorMinX, ScissorMinY, ScissorMaxX - ScissorMinX, ScissorMaxY - ScissorMinY);
 
 					auto* TextureRefPtr = reinterpret_cast<FTextureRHIRef*>(Cmd->GetTexID());
 
@@ -354,13 +401,7 @@ namespace Durin::Mona::MonaImGuiBackend
 					std::vector<FRHIShaderParameterResource> ShaderParameters = {Binding_0_0, Binding_0_1};
 					CommandList.SetShaderParameters(GBackendState.PixelShader, ShaderParameters);
 
-					FImGuiRHIImpl_ConstantBufferData DataToPush;
-					DataToPush.Scale.x = 2.0f / DrawData->DisplaySize.x;
-					DataToPush.Scale.y = 2.0f / DrawData->DisplaySize.y;
-					DataToPush.Translation.x = -1.0f - DrawData->DisplayPos.x * DataToPush.Scale.x;
-					DataToPush.Translation.y = -1.0f - DrawData->DisplayPos.y * DataToPush.Scale.y;
-					CommandList.PushConstants(EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData), &DataToPush);
-					CommandList.DrawIndexed(Cmd->ElemCount,  Cmd->IdxOffset + GlobalIndexOffset, Cmd->VtxOffset + GlobalVertexOffset);
+					CommandList.DrawIndexed(Cmd->ElemCount, Cmd->IdxOffset + GlobalIndexOffset, Cmd->VtxOffset + GlobalVertexOffset);
 				}
 			}
 			GlobalIndexOffset += DrawList->IdxBuffer.Size;
@@ -396,12 +437,10 @@ namespace Durin::Mona::MonaImGuiBackend
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 
 			CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
+
 			FTextureRHIRef BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(ViewportRHI);
-			CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("ImGuiMainPipeline"));
-			auto Width = BackBuffer->GetSizeX();
-			auto Height = BackBuffer->GetSizeY();
-			CommandList.SetViewport(0, 0, 0, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 			ImGuiRHIImplRT_RenderDrawData(CommandList, BackBuffer, DrawData, RenderBuffersCurrentFrame);
+
 			CommandList.EndDrawingViewport(ViewportRHI, true, false);
 		});
 	}

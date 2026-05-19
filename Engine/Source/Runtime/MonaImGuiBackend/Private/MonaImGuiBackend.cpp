@@ -104,11 +104,7 @@ namespace Durin::Mona
 		{
 			return;
 		}
-		ImGui::Begin("你好");
-		ImGui::Text("Hello from another window!");
-		ImGui::TextUnformatted("你好世界");
-		if (ImGui::Button("Close Me")) {}
-		ImGui::End();
+		ImGui::ShowDemoWindow();
 	}
 
 
