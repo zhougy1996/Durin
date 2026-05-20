@@ -20,30 +20,36 @@ namespace Durin::VulkanRHI
 		vk::DescriptorType::eAccelerationStructureKHR
 	};
 
-	static const std::unordered_map<vk::DescriptorType, uint32> GEmptyLayoutTypes = []() {
-		std::unordered_map<vk::DescriptorType, uint32> result;
-		result.reserve(DescriptorTypes.size());
-		for (vk::DescriptorType Type : DescriptorTypes)
+	FVulkanDescriptorSetsLayoutInfo::FVulkanDescriptorSetsLayoutInfo(const std::vector<FBindingLayout>& InBindingLayouts)
+	{
+		for (const auto& InBindingLayout : InBindingLayouts)
 		{
-			result[Type] = 0;
+			FSetLayout SetLayout;
+			for (const auto& InBinding : InBindingLayout.BindingLayouts)
+			{
+				vk::DescriptorSetLayoutBinding LayoutBinding{};
+				LayoutBinding.binding = InBinding.Slot;
+				LayoutBinding.descriptorType = ToVulkan_RHIBindingType(InBinding.Type);
+				LayoutBinding.descriptorCount = InBinding.ArraySize;
+				LayoutBinding.stageFlags = ToVulkan_ShaderStageFlags(InBinding.StageFlags);
+
+				SetLayout.LayoutBindings.push_back(LayoutBinding);
+				LayoutTypes[ToVulkan_RHIBindingType(InBinding.Type)] += 1;
+			}
+			std::ranges::sort(SetLayout.LayoutBindings, [](const vk::DescriptorSetLayoutBinding& A, const vk::DescriptorSetLayoutBinding& B) {
+				return A.binding < B.binding;
+			});
+			SetLayout.GenerateHash();
+			SetLayouts.push_back(std::move(SetLayout));
 		}
-		return result;
-	}();
-
-	FVulkanDescriptorSetsLayoutInfo::FVulkanDescriptorSetsLayoutInfo()
-		: LayoutTypes(GEmptyLayoutTypes)
-	{
-	}
-
-	void FVulkanDescriptorSetsLayoutInfo::GenerateHash()
-	{
+		GenerateHash();
 	}
 
 	FVulkanDescriptorSetLayoutCache::~FVulkanDescriptorSetLayoutCache()
 	{
 		for (const auto& Entry : DLayoutMap | std::views::values)
 		{
-			Device->GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, Entry.Handle);
+			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, Entry.Handle);
 		}
 	}
 
@@ -61,17 +67,31 @@ namespace Durin::VulkanRHI
 		CreateInfo.setBindings(Layout.LayoutBindings);
 
 		FVulkanDescriptorSetLayoutEntry NewEntry;
-		NewEntry.Handle = Device->GetHandle().createDescriptorSetLayout(CreateInfo);
+		NewEntry.Handle = Device.GetHandle().createDescriptorSetLayout(CreateInfo);
 		NewEntry.HandleId = ++GVulkanDSetLayoutHandleIdCounter;
 		DLayoutMap[Layout] = NewEntry;
 
 		return NewEntry.Handle;
 	}
 
-	FVulkanDescriptorSetsLayout::FVulkanDescriptorSetsLayout(FVulkanDevice* InDevice, FVulkanDescriptorSetsLayoutInfo InInfo)
+	void FVulkanDescriptorSetsLayoutInfo::GenerateHash()
+	{
+		FXxHash64Builder HashBuilder;
+		for (const auto& SetLayout : SetLayouts)
+		{
+			HashBuilder.Update(&SetLayout.Hash, sizeof(SetLayout.Hash));
+		}
+		Hash = HashBuilder.Finalize();
+	}
+
+	FVulkanDescriptorSetsLayout::FVulkanDescriptorSetsLayout(FVulkanDevice& InDevice, FVulkanDescriptorSetsLayoutInfo InInfo)
 		: Device(InDevice)
 		, Info(std::move(InInfo))
 	{
+		for (const auto& SetLayout : Info.GetLayouts())
+		{
+			LayoutHandles.push_back(Device.GetDescriptorSetLayoutCache().GetOrCreateDescriptorSetLayout(SetLayout));
+		}
 	}
 
 	FVulkanDescriptorSetCache::FVulkanDescriptorSetCache(FVulkanDevice* InDevice)

@@ -159,7 +159,8 @@ namespace Durin::VulkanRHI
 		ImmediateContext = new FVulkanCommandListContext(RHI, *this, GraphicsQueue);
 
 		RenderPassManager = new FVulkanRenderPassManager(*this);
-		PipelineManager = new FVulkanPipelineManager(*this);
+		PipelineManager = new FVulkanPipelineStateCacheManager(*this);
+		DescriptorSetCache = new FVulkanDescriptorSetLayoutCache(*this);
 		GlobalDescriptorPool = new FVulkanGlobalDescriptorPool(*this);
 
 		for (auto& Frame : Frames)
@@ -347,6 +348,9 @@ namespace Durin::VulkanRHI
 		}
 		delete GlobalDescriptorPool;
 		GlobalDescriptorPool = nullptr;
+
+		delete DescriptorSetCache;
+		DescriptorSetCache = nullptr;
 
 		delete PipelineManager;
 		PipelineManager = nullptr;

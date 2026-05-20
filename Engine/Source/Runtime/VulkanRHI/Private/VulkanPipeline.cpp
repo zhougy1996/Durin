@@ -193,16 +193,12 @@ namespace Durin::VulkanRHI
 			.setBlendConstants({0.0f, 0.0f, 0.0f, 0.0f});
 
 		// Create pipeline layout
-		const uint32 DescriptorSetCount = BindingDescriptions.size();
-		DescriptorSetLayouts.reserve(DescriptorSetCount);
-		for (const auto& BindingLayoutDesc : Initializer.PipelineLayout.BindingLayouts)
-		{
-			DescriptorSetLayouts.push_back(CreateDescriptorSetLayout(Device, BindingLayoutDesc));
-		}
+		FVulkanDescriptorSetsLayoutInfo DescriptorSetsLayoutInfo(Initializer.PipelineLayout.BindingLayouts);
+		Layout = Device.GetPipelineManager().FindOrAddLayout(DescriptorSetsLayoutInfo);
 		std::vector<vk::PushConstantRange> PushConstantRanges = CreatePushConstantRanges(Initializer.PipelineLayout);
 
 		vk::PipelineLayoutCreateInfo pipelineLayoutInfo;
-		pipelineLayoutInfo.setSetLayouts(DescriptorSetLayouts);
+		pipelineLayoutInfo.setSetLayouts(Layout->GetDescriptorSetsLayout().GetLayoutHandles());
 		pipelineLayoutInfo.setPushConstantRanges(PushConstantRanges);
 
 		PipelineLayout = Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
@@ -240,10 +236,6 @@ namespace Durin::VulkanRHI
 	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
 	{
 		ReleaseShaders();
-		for (auto& DescriptorSetLayout : DescriptorSetLayouts)
-		{
-			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, DescriptorSetLayout);
-		}
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
 	}
@@ -381,22 +373,22 @@ namespace Durin::VulkanRHI
 		vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo;
 		DescriptorSetAllocInfo
 			.setDescriptorPool(DescriptorPool)
-			.setSetLayouts(DescriptorSetLayouts);
+			.setSetLayouts(Layout->GetDescriptorSetsLayout().GetLayoutHandles());
 
 		DescriptorSets = Device.GetHandle().allocateDescriptorSets(DescriptorSetAllocInfo);
 	}
 
-	FVulkanPipelineManager::FVulkanPipelineManager(FVulkanDevice& InDevice)
+	FVulkanPipelineStateCacheManager::FVulkanPipelineStateCacheManager(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{
 	}
 
-	FVulkanPipelineManager::~FVulkanPipelineManager()
+	FVulkanPipelineStateCacheManager::~FVulkanPipelineStateCacheManager()
 	{
 		PSOCache.clear();
 	}
 
-	auto FVulkanPipelineManager::GetGraphicsPipelineState(FName Name) -> TRefCountPtr<FVulkanGraphicsPipelineState>
+	auto FVulkanPipelineStateCacheManager::GetGraphicsPipelineState(FName Name) -> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
 		const auto It = PSOCache.find(Name);
 		if (It != PSOCache.end())
@@ -407,7 +399,7 @@ namespace Durin::VulkanRHI
 		return nullptr;
 	}
 
-	auto FVulkanPipelineManager::CreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>
+	auto FVulkanPipelineStateCacheManager::CreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
 		const auto It = PSOCache.find(Name);
 		if (It != PSOCache.end())
@@ -418,6 +410,20 @@ namespace Durin::VulkanRHI
 		auto NewPSO = MakeRefCount<FVulkanGraphicsPipelineState>(Device, Initializer);
 		PSOCache[Name] = NewPSO;
 		return NewPSO;
+	}
+
+	auto FVulkanPipelineStateCacheManager::FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> FVulkanLayout*
+	{
+		const auto It = LayoutMap.find(LayoutInfo);
+		if (It != LayoutMap.end())
+		{
+			return It->second;
+		}
+
+		FVulkanLayout* NewLayout = new FVulkanLayout(Device);
+		NewLayout->DSetsLayout = FVulkanDescriptorSetsLayout(Device, LayoutInfo);
+		LayoutMap[LayoutInfo] = NewLayout;
+		return NewLayout;
 	}
 
 	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>

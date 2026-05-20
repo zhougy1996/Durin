@@ -1,16 +1,17 @@
 #pragma once
-#include <VulkanDevice.h>
 
 namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
+	class FVulkanLayout;
 
 	// Describes the array of descriptor set layouts which will be used to create pipeline layouts.
 	// Only describe the information, does not hold any runtime object
 	class FVulkanDescriptorSetsLayoutInfo
 	{
 	public:
-		FVulkanDescriptorSetsLayoutInfo();
+		FVulkanDescriptorSetsLayoutInfo() = default;
+		FVulkanDescriptorSetsLayoutInfo(const std::vector<FBindingLayout>& InBindingLayouts);
 
 		struct FSetLayout
 		{
@@ -57,9 +58,31 @@ namespace Durin::VulkanRHI
 
 		auto GetLayouts() const -> const std::vector<FSetLayout>& { return SetLayouts; }
 
-		void GenerateHash();
+		auto GetHash() const -> uint64 { return Hash.HashValue; }
+
+		auto operator==( const FVulkanDescriptorSetsLayoutInfo& Other) const -> bool
+		{
+			if (Hash != Other.Hash || SetLayouts.size() != Other.SetLayouts.size())
+			{
+				return false;
+			}
+
+			for (size_t i = 0; i < SetLayouts.size(); ++i)
+			{
+				if (SetLayouts[i] != Other.SetLayouts[i])
+				{
+					return false;
+				}
+			}
+
+			return true;
+		}
+
+		FVulkanDescriptorSetsLayoutInfo(const FVulkanDescriptorSetsLayoutInfo& Other) = default;
 
 	private:
+		void GenerateHash();
+
 		// The number of descriptors of each type in the layout, used for descriptor pool creation
 		std::unordered_map<vk::DescriptorType, uint32> LayoutTypes;
 
@@ -81,7 +104,7 @@ namespace Durin::VulkanRHI
 	class FVulkanDescriptorSetLayoutCache
 	{
 	public:
-		explicit FVulkanDescriptorSetLayoutCache(FVulkanDevice* InDevice) : Device(InDevice) {}
+		explicit FVulkanDescriptorSetLayoutCache(FVulkanDevice& InDevice) : Device(InDevice) {}
 
 		~FVulkanDescriptorSetLayoutCache();
 
@@ -90,30 +113,65 @@ namespace Durin::VulkanRHI
 	private:
 		using FVulkanDescriptorSetLayoutMap = std::unordered_map<FVulkanDescriptorSetsLayoutInfo::FSetLayout, FVulkanDescriptorSetLayoutEntry, FVulkanDescriptorSetsLayoutInfo::FSetLayoutHasher>;
 
-		FVulkanDevice* Device;
+		FVulkanDevice& Device;
 
+		// Will not remove any entry from the cache, even when the layout is destroyed, since the handle may be reused by Vulkan and cause confusion. The cache will only be cleared when the device is destroyed.
 		FVulkanDescriptorSetLayoutMap DLayoutMap;
 
 		std::mutex Mutex;
 	};
 
-	// The runtime object of descriptor set layouts(array), created from FVulkanDescriptorSetsLayoutInfo
+	// The runtime object of descriptor set layouts
 	class FVulkanDescriptorSetsLayout
 	{
 	public:
-		explicit FVulkanDescriptorSetsLayout(FVulkanDevice* InDevice, FVulkanDescriptorSetsLayoutInfo InInfo);
+		FVulkanDescriptorSetsLayout(FVulkanDevice& InDevice)
+			: Device(InDevice)
+		{
+		}
+		explicit FVulkanDescriptorSetsLayout(FVulkanDevice& InDevice, FVulkanDescriptorSetsLayoutInfo InInfo);
 
 		auto GetInfo() const -> const FVulkanDescriptorSetsLayoutInfo& { return Info; }
+
+		auto GetLayoutHandles() const -> const std::vector<vk::DescriptorSetLayout>& { return LayoutHandles; }
+
+		auto GetHash() const -> uint64 { return Info.GetHash(); }
+
+		FVulkanDescriptorSetsLayout(const FVulkanDescriptorSetsLayout& Other) = default;
+		auto operator=(const FVulkanDescriptorSetsLayout& Other) -> FVulkanDescriptorSetsLayout&
+		{
+			if (this != &Other)
+			{
+				Info = Other.Info;
+				LayoutHandles = Other.LayoutHandles;
+			}
+			return *this;
+		}
+
 	private:
-		FVulkanDevice* Device;
+		FVulkanDevice& Device;
 
 		FVulkanDescriptorSetsLayoutInfo Info;
 
 		std::vector<vk::DescriptorSetLayout> LayoutHandles;
+	};
 
-		std::vector<uint64> LayoutHandleIds;
+	class FVulkanLayout
+	{
+	public:
+		FVulkanLayout(FVulkanDevice& InDevice)
+			: Device(InDevice)
+			, DSetsLayout(InDevice)
+		{
+		}
 
-		vk::DescriptorSetAllocateInfo AllocateInfo;
+		auto GetDescriptorSetsLayout() const -> const FVulkanDescriptorSetsLayout& { return DSetsLayout; }
+
+	private:
+		FVulkanDevice& Device;
+		FVulkanDescriptorSetsLayout DSetsLayout;
+
+		friend class FVulkanPipelineStateCacheManager;
 	};
 
 	class FVulkanDescriptorPool
@@ -164,14 +222,14 @@ namespace Durin::VulkanRHI
 
 		std::array<vk::DescriptorPool, kFrameInFlight> Pools;
 	};
-}
+} // namespace Durin::VulkanRHI
 
-// template<>
-// struct std::hash<Durin::VulkanRHI::FVulkanDescriptorSetsLayoutInfo>
-// {
-// 	size_t operator()(const Durin::VulkanRHI::FVulkanDescriptorSetsLayoutInfo& Info) const noexcept
-// 	{
-// 		return Info.Hash.HashValue;
-// 	}
-// };
+template<>
+struct std::hash<Durin::VulkanRHI::FVulkanDescriptorSetsLayoutInfo>
+{
+	size_t operator()(const Durin::VulkanRHI::FVulkanDescriptorSetsLayoutInfo& Info) const noexcept
+	{
+		return Info.Hash.HashValue;
+	}
+};
 
