@@ -11,9 +11,10 @@ namespace Durin::VulkanRHI
 	class FVulkanQueue;
 	class FVulkanCommandListContext;
 	class FVulkanRenderPassManager;
-	class FVulkanPipelineManager;
+	class FVulkanPipelineStateCacheManager;
 	class FVulkanFrame;
 	class FVulkanGlobalDescriptorPool;
+	class FVulkanDescriptorSetLayoutCache;
 
 	extern uint64 GVulkanRHIDeletionFrameNumber;
 
@@ -128,9 +129,11 @@ namespace Durin::VulkanRHI
 
 		auto GetFenceManager() -> FVulkanFenceManager& { return FenceManager; }
 
-		auto GetPipelineManager() const -> FVulkanPipelineManager& { return *PipelineManager; }
+		auto GetPipelineManager() const -> FVulkanPipelineStateCacheManager& { return *PipelineManager; }
 
 		auto GetGlobalDescriptorPool() const -> FVulkanGlobalDescriptorPool& { return *GlobalDescriptorPool; }
+
+		auto GetDescriptorSetLayoutCache() const -> FVulkanDescriptorSetLayoutCache& { return *DescriptorSetCache; }
 
 		auto GetDeferredDeletionQueue() -> FDeferredDeletionQueue& { return DeferredDeletionQueue; }
 
@@ -155,9 +158,11 @@ namespace Durin::VulkanRHI
 
 		FVulkanRenderPassManager* RenderPassManager = nullptr;
 
-		FVulkanPipelineManager* PipelineManager = nullptr;
+		FVulkanPipelineStateCacheManager* PipelineManager = nullptr;
 
 		FVulkanGlobalDescriptorPool* GlobalDescriptorPool = nullptr;
+
+		FVulkanDescriptorSetLayoutCache* DescriptorSetCache = nullptr;
 
 		std::array<FVulkanFrame*, kFrameInFlight> Frames = {};
 

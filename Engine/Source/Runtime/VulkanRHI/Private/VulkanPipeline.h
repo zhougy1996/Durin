@@ -61,7 +61,7 @@ namespace Durin::VulkanRHI
 
 		FVulkanShader* Shaders[EShaderStage::Count] = { nullptr };
 
-		std::vector<vk::DescriptorSetLayout> DescriptorSetLayouts;
+		FVulkanLayout* Layout;
 
 		vk::PipelineLayout PipelineLayout;
 
@@ -75,21 +75,24 @@ namespace Durin::VulkanRHI
 		uint64 DescriptorSetsFrameCounter = UINT64_MAX;
 
 		friend class FVulkanGraphicsPipelineState;
-		friend class FVulkanPipelineManager;
+		friend class FVulkanPipelineStateCacheManager;
 	};
 
-	class FVulkanPipelineManager
+	class FVulkanPipelineStateCacheManager
 	{
 	public:
-		FVulkanPipelineManager(FVulkanDevice& InDevice);
-		~FVulkanPipelineManager();
+		FVulkanPipelineStateCacheManager(FVulkanDevice& InDevice);
+		~FVulkanPipelineStateCacheManager();
 
 		auto GetGraphicsPipelineState(FName Name) -> TRefCountPtr<FVulkanGraphicsPipelineState>;
 
 		auto CreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>;
 
+		auto FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> FVulkanLayout*;
 	private:
 		FVulkanDevice& Device;
+
+		std::unordered_map<FVulkanDescriptorSetsLayoutInfo, FVulkanLayout*> LayoutMap;
 
 		std::unordered_map<FName, TRefCountPtr<FVulkanGraphicsPipelineState>> PSOCache;
 	};
