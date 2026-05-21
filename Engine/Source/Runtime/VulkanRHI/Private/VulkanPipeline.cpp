@@ -396,6 +396,13 @@ namespace Durin::VulkanRHI
 			return It->second;
 		}
 
+		// clear LayoutMap
+		for (const auto& Layout : LayoutMap | std::views::values)
+		{
+			delete Layout;
+		}
+		LayoutMap.clear();
+
 		return nullptr;
 	}
 

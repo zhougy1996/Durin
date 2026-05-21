@@ -131,6 +131,8 @@ namespace Durin::VulkanRHI
 		}
 		explicit FVulkanDescriptorSetsLayout(FVulkanDevice& InDevice, FVulkanDescriptorSetsLayoutInfo InInfo);
 
+		~FVulkanDescriptorSetsLayout() = default;
+
 		auto GetInfo() const -> const FVulkanDescriptorSetsLayoutInfo& { return Info; }
 
 		auto GetLayoutHandles() const -> const std::vector<vk::DescriptorSetLayout>& { return LayoutHandles; }
