@@ -13,10 +13,17 @@ namespace Durin
 		FSlangShaderCompiler();
 		~FSlangShaderCompiler() override;
 
-		auto Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions &Options) -> FShaderCompilerOutput override;
+		auto Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput override;
 
 	private:
 		auto CompileInternal(const char8* InShaderFilePath, const std::span<const char8* const>& InEntryPoints, std::vector<Slang::ComPtr<slang::IBlob>>& OutCodes, Slang::ComPtr<slang::IBlob>& OutDiagnostics) const -> Slang::Result;
+
+		auto CompileInternal(
+			const char8* InShaderFilePath,
+			const std::span<const char8* const>& InEntryPoints,
+			Slang::ComPtr<slang::IComponentType>& OutComposedProgram,
+			Slang::ComPtr<slang::IBlob>& OutDiagnostics
+		) const -> Slang::Result;
 
 		auto InitGlobalSession() -> void;
 

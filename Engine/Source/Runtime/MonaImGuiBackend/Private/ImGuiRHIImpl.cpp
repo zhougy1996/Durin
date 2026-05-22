@@ -73,12 +73,13 @@ namespace Durin::Mona::MonaImGuiBackend
 		const std::string ImGuiShaderName = "/Engine/ImGui";
 		FShaderCompileOptions CompileOptions;
 		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
+		CompileOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Pixel};
 		if (FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(FShaderPaths::SourcePath(ImGuiShaderName), CompileOptions))
 		{
-			CompileResult.Codes[0].swap(*VertexShaderCode);
-			CompileResult.Codes[1].swap(*PixelShaderCode);
-			FFileHelper::SaveArrayToFile(*VertexShaderCode, FShaderPaths::BinaryPath(ImGuiShaderName, CompileOptions.EntryPoints[0], 0));
-			FFileHelper::SaveArrayToFile(*PixelShaderCode, FShaderPaths::BinaryPath(ImGuiShaderName, CompileOptions.EntryPoints[1], 0));
+			VertexShaderCode = CompileResult.CompiledShaders[0].Code;
+			PixelShaderCode = CompileResult.CompiledShaders[1].Code;
+			// FFileHelper::SaveArrayToFile(*VertexShaderCode, FShaderPaths::BinaryPath(ImGuiShaderName, CompileOptions.EntryPoints[0], 0));
+			// FFileHelper::SaveArrayToFile(*PixelShaderCode, FShaderPaths::BinaryPath(ImGuiShaderName, CompileOptions.EntryPoints[1], 0));
 		}
 		else
 		{

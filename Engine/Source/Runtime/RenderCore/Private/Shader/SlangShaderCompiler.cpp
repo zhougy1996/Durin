@@ -46,6 +46,28 @@ namespace Durin
 		return true;
 	}
 
+	static auto FillCompilerOutput(Slang::ComPtr<slang::IComponentType>& ComposedProgram, const FShaderCompileOptions& Options, FShaderCompilerOutput& Output) -> Slang::Result
+	{
+		const uint32 EntryPointCount = Options.EntryPoints.size();
+		Output.CompiledShaders.resize(EntryPointCount);
+		for (uint32 i = 0; i < EntryPointCount; ++i)
+		{
+			Slang::ComPtr<slang::IBlob> CodeBlob;
+			Slang::ComPtr<slang::IBlob> CodeHashBlob;
+			ComposedProgram->getEntryPointCode(i, 0, CodeBlob.writeRef(), nullptr);
+			ComposedProgram->getEntryPointHash(i, 0, CodeHashBlob.writeRef());
+
+			auto& CompiledShader = Output.CompiledShaders[i];
+			CompiledShader.Frequency = Options.Frequencies[i];
+			CompiledShader.Code = std::make_shared<FShaderCode>();
+			CompiledShader.Hash = FXxHash64(*static_cast<const uint64_t*>(CodeHashBlob->getBufferPointer()));
+			if (!ConvertBlobToArray(CodeBlob, *CompiledShader.Code))
+			{
+				return SLANG_FAIL;
+			}
+		}
+		return SLANG_OK;
+	}
 
 	FShaderCompilerOutput FSlangShaderCompiler::Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options)
 	{
@@ -60,8 +82,8 @@ namespace Durin
 		}
 
 		Slang::ComPtr<slang::IBlob> DiagnosticsBlob;
-		std::vector<Slang::ComPtr<slang::IBlob>> CompiledCodeBlobs;
-		const Slang::Result CompileResult = CompileInternal(ShaderSourceFilePath.data(), EntryPoints, CompiledCodeBlobs, DiagnosticsBlob);
+		Slang::ComPtr<slang::IComponentType> ComposedProgram;
+		const Slang::Result CompileResult = CompileInternal(ShaderSourceFilePath.data(), EntryPoints, ComposedProgram, DiagnosticsBlob);
 
 		// If compilation failed, fill the error message and return
 		// The user might want to handle the error message in different ways, for example, showing it in the UI, or writing it to a log file, etc.
@@ -70,27 +92,20 @@ namespace Durin
 		{
 			if (DiagnosticsBlob != nullptr)
 			{
-				Output.ErrorMessage = static_cast<const char*>(DiagnosticsBlob->getBufferPointer());
+				Output.ErrorMessage = std::string{"Failed to compile shader. Diagnostics: \n"} + static_cast<const char*>(DiagnosticsBlob->getBufferPointer());
 			}
 			return Output;
 		}
 
 		// If compilation succeeded, convert the compiled code blobs to arrays and fill the output
-		check(CompiledCodeBlobs.size() == EntryPointCount);
-		auto& OutCodes = Output.Codes;
-		Output.bSucceeded = true;
-		OutCodes.resize(EntryPointCount);
-		for (size_t i = 0; i < EntryPointCount; ++i)
+		Slang::Result OutputFillResult = FillCompilerOutput(ComposedProgram, Options, Output);
+		if (SLANG_FAILED(OutputFillResult))
 		{
-			if (!ConvertBlobToArray(CompiledCodeBlobs[i], OutCodes[i]))
-			{
-				Output.bSucceeded = false;
-				Output.ErrorMessage = "Failed to convert compiled code blob to array for shader: " + std::string(ShaderSourceFilePath) + ", entry point: " + std::string(EntryPoints[i]);
-				OutCodes.clear();
-				return Output;
-			}
+			Output.ErrorMessage = "Failed to fill shader compiler output";
+			return Output;
 		}
 
+		Output.bSucceeded = true;
 		return Output;
 	}
 
@@ -137,6 +152,40 @@ namespace Durin
 				OutDiagnostics.writeRef()
 			));
 		}
+
+		return SLANG_OK;
+	}
+
+	auto FSlangShaderCompiler::CompileInternal(
+		const char8* InShaderFilePath,
+		const std::span<const char8* const>& InEntryPoints,
+		Slang::ComPtr<slang::IComponentType>& OutComposedProgram,
+		Slang::ComPtr<slang::IBlob>& OutDiagnostics
+	) const -> Slang::Result
+	{
+		slang::IModule* Module = Session->loadModule(InShaderFilePath, OutDiagnostics.writeRef());
+		if (!Module) return SLANG_FAIL;
+
+		std::vector<slang::IComponentType*> ComponentTypes;
+		ComponentTypes.push_back(Module);
+
+		// Find entry point objects for the given entry point names
+		std::vector<Slang::ComPtr<slang::IEntryPoint>> EntryPointObjects;
+		for (const char8* Name : InEntryPoints)
+		{
+			Slang::ComPtr<slang::IEntryPoint> EntryPoint;
+			SLANG_RETURN_ON_FAIL(Module->findEntryPointByName(Name, EntryPoint.writeRef()));
+			EntryPointObjects.push_back(EntryPoint);
+			ComponentTypes.push_back(EntryPoint.get());
+		}
+
+		// Compose the program from the module and entry points
+		SLANG_RETURN_ON_FAIL(Session->createCompositeComponentType(
+			ComponentTypes.data(),
+			ComponentTypes.size(),
+			OutComposedProgram.writeRef(),
+			OutDiagnostics.writeRef()
+		));
 
 		return SLANG_OK;
 	}
