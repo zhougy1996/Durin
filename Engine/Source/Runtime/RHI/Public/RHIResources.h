@@ -175,7 +175,7 @@ namespace Durin
 
 	struct FRHIShaderCreateDesc : public FRHIShaderDesc
 	{
-		using FCodeView = std::span<const uint32>;
+		using FCodeView = std::span<const std::byte>;
 
 		static auto Create(const char* InDebugName, EShaderFrequency InFrequency, FCodeView InCode, FXxHash128 InHash) -> FRHIShaderCreateDesc
 		{

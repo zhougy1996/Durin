@@ -24,7 +24,7 @@ namespace Durin
 	{
 	}
 
-	static auto ConvertBlobToArray(const Slang::ComPtr<slang::IBlob>& FromBlob, std::vector<uint32>& OutCode) -> bool
+	static auto ConvertBlobToArray(const Slang::ComPtr<slang::IBlob>& FromBlob, FShaderCode& OutCode) -> bool
 	{
 		// Get the raw pointer and size in bytes
 		const void* BufferPtr = FromBlob->getBufferPointer();
@@ -36,12 +36,9 @@ namespace Durin
 			return false;
 		}
 
-		// Calculate number of uint32 elements
-		const size_t ElementCount = BufferSize / sizeof(uint32);
-
 		// Minimize reallocations: clear and resize
 		OutCode.clear();
-		OutCode.resize(ElementCount);
+		OutCode.resize(BufferSize);
 
 		// Since SPIR-V is already a binary format, this is a direct bit-copy.
 		std::memcpy(OutCode.data(), BufferPtr, BufferSize);

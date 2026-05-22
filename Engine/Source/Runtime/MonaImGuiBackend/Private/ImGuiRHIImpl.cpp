@@ -67,8 +67,8 @@ namespace Durin::Mona::MonaImGuiBackend
 	static auto ImGuiRHIImpl_CreateMainPipeline()
 	{
 		// Compile shaders
-		auto VertexShaderCode = std::make_shared<std::vector<uint32>>();
-		auto PixelShaderCode = std::make_shared<std::vector<uint32>>();
+		auto VertexShaderCode = std::make_shared<FShaderCode>();
+		auto PixelShaderCode = std::make_shared<FShaderCode>();
 
 		const std::string ImGuiShaderName = "/Engine/ImGui";
 		FShaderCompileOptions CompileOptions;

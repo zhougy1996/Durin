@@ -4,7 +4,7 @@
 
 namespace Durin
 {
-	using FShaderCode = std::vector<uint32>;
+	using FShaderCode = std::vector<std::byte>;
 
 	struct FShaderCompileOptions
 	{
