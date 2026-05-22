@@ -2,19 +2,27 @@
 
 #include "RenderCoreAPI.h"
 
+#include "Shader/Shader.h"
+
 namespace Durin
 {
-	using FShaderCode = std::vector<std::byte>;
+	struct FCompiledShader
+	{
+		EShaderFrequency Frequency;
+		std::shared_ptr<FShaderCode> Code;
+		FXxHash64 Hash;
+	};
 
 	struct FShaderCompileOptions
 	{
 		std::vector<const char8*> EntryPoints;
+		std::vector<EShaderFrequency> Frequencies;
 	};
 
 	struct FShaderCompilerOutput
 	{
 		bool bSucceeded = false;
-		std::vector<FShaderCode> Codes;
+		std::vector<FCompiledShader> CompiledShaders;
 		std::string ErrorMessage;
 
 		operator bool() const { return bSucceeded; }
