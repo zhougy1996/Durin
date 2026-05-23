@@ -72,6 +72,7 @@ namespace Durin::Mona::MonaImGuiBackend
 
 		const std::string ImGuiShaderName = "/Engine/ImGui";
 		FShaderCompileOptions CompileOptions;
+		CompileOptions.ShaderName = ImGuiShaderName;
 		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
 		CompileOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Pixel};
 		if (FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(FShaderPaths::SourcePath(ImGuiShaderName), CompileOptions))

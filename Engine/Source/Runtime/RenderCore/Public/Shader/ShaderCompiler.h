@@ -15,8 +15,10 @@ namespace Durin
 
 	struct FShaderCompileOptions
 	{
+		std::string ShaderName;
 		std::vector<const char8*> EntryPoints;
 		std::vector<EShaderFrequency> Frequencies;
+		bool bForceRecompile = false;
 	};
 
 	struct FShaderCompilerOutput
@@ -28,15 +30,23 @@ namespace Durin
 		operator bool() const { return bSucceeded; }
 	};
 
+	struct FShaderCompilerSettings
+	{
+		bool bForceRecompile = false;
+	};
+
 	class FShaderCompiler
 	{
 	public:
-		FShaderCompiler() = default;
+		FShaderCompiler();
 		virtual ~FShaderCompiler() = default;
 
 		RENDERCORE_API virtual auto Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput = 0;
 
 		DURIN_NONCOPYABLE(FShaderCompiler);
+
+	protected:
+		FShaderCompilerSettings Settings;
 	};
 
 	RENDERCORE_API extern FShaderCompiler* GShaderCompiler;

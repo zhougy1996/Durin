@@ -31,6 +31,41 @@ namespace Durin
 
 	class FShaderType
 	{
+	public:
+		FShaderType(
+			const char8* InName,
+			FName InFName,
+			const char8* InSourceFilePath,
+			EShaderFrequency InFrequency,
+			const char8* InEntryPoint
+		)
+			: Name(InName)
+			, TypeName(InFName)
+			, SourceFilePath(InSourceFilePath)
+
+			, Frequency(InFrequency)
+			, EntryPoint(InEntryPoint)
+		{
+		}
+
+		auto GetName() const -> const char8* { return Name; }
+
+		auto GetFName() const -> FName { return TypeName; }
+
+		auto GetFrequency() const -> EShaderFrequency { return Frequency; }
+
+		auto GetEntryPoint() const -> const char* { return EntryPoint; }
+
+	private:
+		const char8* Name;
+
+		FName TypeName;
+
+		const char8* SourceFilePath;
+
+		EShaderFrequency Frequency;
+
+		const char* EntryPoint;
 	};
 
 	class FShader
