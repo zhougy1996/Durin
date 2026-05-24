@@ -45,7 +45,13 @@ namespace Durin::Mona
 
 		MONACORE_API auto PollEvents();
 
+		MONACORE_API auto GetWindows() const -> const std::vector<std::shared_ptr<MWindow>>&;
+
 		MONACORE_API auto FindWidgetWindow(const std::shared_ptr<MWidget>& InWidget) -> std::shared_ptr<MWindow>;
+
+		MONACORE_API auto FindWindowByPlatformWindow(const std::shared_ptr<FGenericWindow>& InPlatformWindow) const -> std::shared_ptr<MWindow>;
+
+		MONACORE_API auto FindMonaWindowByNativeWindowHandle(void* InNativeWindowHandle) const -> std::shared_ptr<MWindow>;
 
 		MONACORE_API auto GetRenderer() const -> FMonaRenderer*;
 

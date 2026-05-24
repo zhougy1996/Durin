@@ -22,6 +22,16 @@ namespace Durin
 	{
 	}
 
+	auto FGenericWindow::GetWindowPosition() const -> FIntPoint
+	{
+		return {0, 0};
+	}
+
+	auto FGenericWindow::GetWindowSize() const -> FIntPoint
+	{
+		return {0, 0};
+	}
+
 	auto FGenericWindow::GetWindowMode() const -> EWindowMode
 	{
 		return EWindowMode::Windowed;
@@ -45,6 +55,18 @@ namespace Durin
 	{
 	}
 
+	auto FGenericWindow::Show() -> void
+	{
+	}
+
+	auto FGenericWindow::Hide() -> void
+	{
+	}
+
+	auto FGenericWindow::Focus() -> void
+	{
+	}
+
 	auto FGenericWindow::GetViewportSize() const -> FIntPoint
 	{
 		DURIN_ERROR("GetViewportSize() is not implemented for the current platform.");
@@ -59,6 +81,36 @@ namespace Durin
 	auto FGenericWindow::IsMinimized() const -> bool
 	{
 		return false;
+	}
+
+	auto FGenericWindow::IsFocused() const -> bool
+	{
+		return false;
+	}
+
+	auto FGenericWindow::SetTitle(const std::string& InTitle) -> void
+	{
+	}
+
+	auto FGenericWindow::SetOpacity(float InOpacity) -> void
+	{
+	}
+
+	auto FGenericWindow::SetWindowDecorated(bool bDecorated) -> void
+	{
+	}
+
+	auto FGenericWindow::SetMousePassthrough(bool bPassthrough) -> void
+	{
+	}
+
+	auto FGenericWindow::SetFocusOnShow(bool bFocusOnShow) -> void
+	{
+	}
+
+	auto FGenericWindow::GetDpiScale() const -> float
+	{
+		return 1.0f;
 	}
 
 	auto FGenericWindow::SetCursor(EMouseCursor Cursor) -> void

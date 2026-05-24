@@ -16,10 +16,10 @@ namespace Durin::VulkanRHI
 
 		auto GetImages() const -> const std::vector<vk::Image>&;
 
-		// Returns the index of the acquired image
+		// Returns the index of the acquired image, or UINT32_MAX if the swapchain must be recreated.
 		auto AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32;
 
-		auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> void;
+		auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> bool;
 
 		// Return the actual format of the swap chain images, which is determined by the surface format selected during swap chain creation.
 		// This may be different from the preferred pixel format specified when creating the viewport.
@@ -42,7 +42,7 @@ namespace Durin::VulkanRHI
 
 		vk::SurfaceKHR Surface;
 
-		uint32 CurrentImageIndex{};
+		int32 CurrentImageIndex = -1;
 
 		uint32 NextSemaphoreIndex{};
 

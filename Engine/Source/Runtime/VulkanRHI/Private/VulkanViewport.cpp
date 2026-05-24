@@ -26,9 +26,13 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanBackBuffer::AcquireBackBufferImage(FVulkanCommandListContext& Context)
 	{
-		const FVulkanTextureView& View = Viewport->AcquireBackBufferImage();
+		check(Viewport->AcquiredBackBufferIndex >= 0 && Viewport->AcquiredBackBufferIndex < static_cast<int32>(Viewport->TextureViews.size()));
+		const FVulkanTextureView& View = Viewport->TextureViews[Viewport->AcquiredBackBufferIndex];
 		Image = View.Image;
-		Context.AddWaitSemaphore(vk::PipelineStageFlagBits::eColorAttachmentOutput, Viewport->AcquiredSemaphore);
+		if (Viewport->AcquiredSemaphore != nullptr)
+		{
+			Context.AddWaitSemaphore(vk::PipelineStageFlagBits::eColorAttachmentOutput, Viewport->AcquiredSemaphore);
+		}
 	}
 
 	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat)
@@ -87,21 +91,51 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanTextureView&
 	{
 		AcquiredBackBufferIndex = static_cast<int32>(Swapchain->AcquireImageIndex(&AcquiredSemaphore));
+		check(AcquiredBackBufferIndex >= 0 && AcquiredBackBufferIndex < static_cast<int32>(TextureViews.size()));
 		return TextureViews[AcquiredBackBufferIndex];
 	}
 
 	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture>
 	{
+		const uint32 AcquiredImageIndex = Swapchain->AcquireImageIndex(&AcquiredSemaphore);
+		if (AcquiredImageIndex == UINT32_MAX)
+		{
+			RecreateSwapchainFromRT(InRHICmdList);
+			const uint32 RetryImageIndex = Swapchain->AcquireImageIndex(&AcquiredSemaphore);
+			if (RetryImageIndex == UINT32_MAX)
+			{
+				AcquiredBackBufferIndex = -1;
+				AcquiredSemaphore = nullptr;
+				return nullptr;
+			}
+			AcquiredBackBufferIndex = static_cast<int32>(RetryImageIndex);
+		}
+		else
+		{
+			AcquiredBackBufferIndex = static_cast<int32>(AcquiredImageIndex);
+		}
+
 		RHIBackBuffer->AcquireBackBufferImage(static_cast<FVulkanCommandListContext&>(InRHICmdList.GetContext()));
 		return RHIBackBuffer;
 	}
 
 	auto FVulkanViewport::Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
 	{
+		if (AcquiredBackBufferIndex < 0 || AcquiredBackBufferIndex >= static_cast<int32>(RenderingDoneSemaphores.size()))
+		{
+			return false;
+		}
+
 		InContext.AddSignalSemaphore(RenderingDoneSemaphores[AcquiredBackBufferIndex]);
 		InContext.Finalize();
-		Swapchain->Present(&InPresentQueue, RenderingDoneSemaphores[AcquiredBackBufferIndex]);
-		return true;
+		const bool bPresented = Swapchain->Present(&InPresentQueue, RenderingDoneSemaphores[AcquiredBackBufferIndex]);
+		if (!bPresented)
+		{
+			RecreateSwapchainFromRT(FRHICommandListImmediate::Get());
+		}
+		AcquiredBackBufferIndex = -1;
+		AcquiredSemaphore = nullptr;
+		return bPresented;
 	}
 
 	auto FVulkanViewport::GetFormat() const -> EPixelFormat

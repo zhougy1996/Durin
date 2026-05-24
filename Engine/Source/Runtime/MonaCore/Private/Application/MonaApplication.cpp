@@ -48,18 +48,16 @@ namespace Durin::Mona
 
 	auto FMonaApplication::GetActiveTopLevelWindow() -> std::shared_ptr<MWindow>
 	{
-		// TODO: tmp, implement it later
-		if (Windows.empty())
-		{
-			return nullptr;
-		}
-		return Windows[0];
+		return ActiveTopLevelWindow.lock();
 	}
 
 	auto FMonaApplication::AddWindow(std::shared_ptr<MWindow> InMonaWindow, const bool bShowImmediately) -> std::shared_ptr<MWindow>
 	{
 		FMonaWindowHelper::ArrangeWindowToFront(Windows, InMonaWindow);
-		ActiveTopLevelWindow = InMonaWindow;
+		if (bShowImmediately)
+		{
+			ActiveTopLevelWindow = InMonaWindow;
+		}
 		std::shared_ptr<FGenericWindow> NewWindow = MakeWindow(InMonaWindow, bShowImmediately);
 
 		return InMonaWindow;
@@ -125,6 +123,11 @@ namespace Durin::Mona
 		}
 	}
 
+	auto FMonaApplication::GetWindows() const -> const std::vector<std::shared_ptr<MWindow>>&
+	{
+		return Windows;
+	}
+
 	auto FMonaApplication::ProcessDeferredEvents() -> void
 	{
 		if (!Windows.empty())
@@ -170,15 +173,29 @@ namespace Durin::Mona
 		Renderer->DrawWindows();
 	}
 
-	auto FMonaApplication::FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow>
+	auto FMonaApplication::FindWindowByPlatformWindow(const std::shared_ptr<FGenericWindow>& InPlatformWindow) const -> std::shared_ptr<MWindow>
 	{
-		for (auto& Window : Windows)
+		return FMonaWindowHelper::FindWindowByPlatformWindow(Windows, InPlatformWindow);
+	}
+
+	auto FMonaApplication::FindMonaWindowByNativeWindowHandle(void* InNativeWindowHandle) const -> std::shared_ptr<MWindow>
+	{
+		for (const auto& Window : Windows)
 		{
 			std::shared_ptr<FGenericWindow> PlatformWindow = Window->GetNativeWindow();
 			if (PlatformWindow && PlatformWindow->GetOSNativeWindowHandle() == InNativeWindowHandle)
 			{
-				return PlatformWindow;
+				return Window;
 			}
+		}
+		return nullptr;
+	}
+
+	auto FMonaApplication::FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow>
+	{
+		if (const std::shared_ptr<MWindow> Window = FindMonaWindowByNativeWindowHandle(InNativeWindowHandle))
+		{
+			return Window->GetNativeWindow();
 		}
 		return nullptr;
 	}
@@ -216,7 +233,10 @@ namespace Durin::Mona
 			}
 		}
 
-		MonaEventHandler->OnWindowFocused(InPlatformWindow, bFocused);
+		if (MonaEventHandler)
+		{
+			MonaEventHandler->OnWindowFocused(InPlatformWindow, bFocused);
+		}
 	}
 
 	FMonaApplication::FMonaApplication()
@@ -232,6 +252,7 @@ namespace Durin::Mona
 		const auto Definition = std::make_shared<FGenericWindowDefinition>();
 
 		Definition->Title = InMonaWindow->GetTitle();
+		Definition->bHasOSWindowBorder = InMonaWindow->IsWindowDecorated();
 
 		const FVector2f DesiredScreenPosition = InMonaWindow->GetDesiredScreenPosition();
 		Definition->XDesiredPositionOnScreen = DesiredScreenPosition.x;
@@ -242,6 +263,13 @@ namespace Durin::Mona
 
 		NewWindow->Initialize(Definition);
 		InMonaWindow->SetNativeWindow(NewWindow);
+		InMonaWindow->SetCachedScreenPosition(DesiredScreenPosition);
+		InMonaWindow->SetCachedSize(DesiredSize);
+
+		if (bInShowImmediately)
+		{
+			NewWindow->Show();
+		}
 
 		return NewWindow;
 	}
@@ -276,36 +304,36 @@ namespace Durin::Mona
 
 	auto FMonaApplication::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool
 	{
-		return MonaEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat);
+		return MonaEventHandler ? MonaEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat) : false;
 	}
 
 	auto FMonaApplication::OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool
 	{
-		return MonaEventHandler->OnKeyUp(InPlatformWindow, Key, Mods);
+		return MonaEventHandler ? MonaEventHandler->OnKeyUp(InPlatformWindow, Key, Mods) : false;
 	}
 
 	auto FMonaApplication::OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint) -> bool
 	{
-		return MonaEventHandler->OnKeyChar(InPlatformWindow, Codepoint);
+		return MonaEventHandler ? MonaEventHandler->OnKeyChar(InPlatformWindow, Codepoint) : false;
 	}
 
 	auto FMonaApplication::OnMouseMove(const std::shared_ptr<FGenericWindow>& InPlatformWindow, const FVector2d CursorPos) -> bool
 	{
-		return MonaEventHandler->OnMouseMove(InPlatformWindow, CursorPos);
+		return MonaEventHandler ? MonaEventHandler->OnMouseMove(InPlatformWindow, CursorPos) : false;
 	}
 
 	auto FMonaApplication::OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
-		return MonaEventHandler->OnMouseDown(InPlatformWindow, Button, CursorPos);
+		return MonaEventHandler ? MonaEventHandler->OnMouseDown(InPlatformWindow, Button, CursorPos) : false;
 	}
 
 	auto FMonaApplication::OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
-		return MonaEventHandler->OnMouseUp(InPlatformWindow, Button, CursorPos);
+		return MonaEventHandler ? MonaEventHandler->OnMouseUp(InPlatformWindow, Button, CursorPos) : false;
 	}
 
 	bool FMonaApplication::OnMouseWheel(const std::shared_ptr<FGenericWindow>& InPlatformWindow, double DeltaX, double DeltaY)
 	{
-		return MonaEventHandler->OnMouseWheel(InPlatformWindow, DeltaX, DeltaY);
+		return MonaEventHandler ? MonaEventHandler->OnMouseWheel(InPlatformWindow, DeltaX, DeltaY) : false;
 	}
 } // namespace Durin::Mona

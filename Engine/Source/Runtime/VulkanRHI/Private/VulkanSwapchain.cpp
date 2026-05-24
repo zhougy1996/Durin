@@ -6,6 +6,19 @@
 
 namespace Durin::VulkanRHI
 {
+	namespace
+	{
+		auto IsRecoverableSwapchainResult(const vk::Result Result) -> bool
+		{
+			return Result == vk::Result::eErrorOutOfDateKHR || Result == vk::Result::eSuboptimalKHR;
+		}
+
+		auto GetSystemErrorResult(const vk::SystemError& Error) -> vk::Result
+		{
+			return static_cast<vk::Result>(Error.code().value());
+		}
+	}
+
 	auto ChooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& AvailableFormats) -> vk::SurfaceFormatKHR
 	{
 		if (AvailableFormats.size() == 1 && AvailableFormats[0].format == vk::Format::eUndefined)
@@ -120,33 +133,83 @@ namespace Durin::VulkanRHI
 		FVulkanSemaphore* CurrentSemaphore = ImageAcquiredSemaphores[NextSemaphoreIndex];
 		NextSemaphoreIndex = (NextSemaphoreIndex + 1) % ImageAcquiredSemaphores.size();
 
-		vk::ResultValue<uint32> Result = Device.GetHandle().acquireNextImageKHR(Swapchain, UINT64_MAX, CurrentSemaphore->GetHandle(), nullptr);
-		if (Result.result != vk::Result::eSuccess)
+		vk::ResultValue<uint32> Result(vk::Result::eSuccess, 0);
+		try
+		{
+			Result = Device.GetHandle().acquireNextImageKHR(Swapchain, UINT64_MAX, CurrentSemaphore->GetHandle(), nullptr);
+		}
+		catch (const vk::SystemError& Error)
+		{
+			const vk::Result ErrorResult = GetSystemErrorResult(Error);
+			CurrentImageIndex = -1;
+			*OutImageAcquiredSemaphore = nullptr;
+			if (!IsRecoverableSwapchainResult(ErrorResult))
+			{
+				DURIN_ERROR("Failed to acquire swap chain image: {}", Error.what());
+			}
+			return UINT32_MAX;
+		}
+
+		if (Result.result != vk::Result::eSuccess && Result.result != vk::Result::eSuboptimalKHR)
 		{
 			CurrentImageIndex = -1;
-			DURIN_ERROR("Failed to acquire swap chain image: {}", vk::to_string(Result.result));
+			if (!IsRecoverableSwapchainResult(Result.result))
+			{
+				DURIN_ERROR("Failed to acquire swap chain image: {}", vk::to_string(Result.result));
+			}
+			*OutImageAcquiredSemaphore = nullptr;
+			return UINT32_MAX;
 		}
-		CurrentImageIndex = Result.value;
+		CurrentImageIndex = static_cast<int32>(Result.value);
 		*OutImageAcquiredSemaphore = CurrentSemaphore;
 
-		return CurrentImageIndex;
+		return static_cast<uint32>(CurrentImageIndex);
 	}
 
-	auto FVulkanSwapchain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> void
+	auto FVulkanSwapchain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> bool
 	{
+		if (CurrentImageIndex < 0)
+		{
+			return false;
+		}
+
 		vk::PresentInfoKHR PresentInfo;
 		auto Semaphore = BackBufferRenderingDoneSemaphore->GetHandle();
 
-		uint32 ImageIndex = CurrentImageIndex;
+		uint32 ImageIndex = static_cast<uint32>(CurrentImageIndex);
 		PresentInfo
 			.setWaitSemaphores(Semaphore)
 			.setSwapchains(Swapchain)
 			.setImageIndices(ImageIndex);
 
-		vk::Result Result = PresentQueue->GetHandle().presentKHR(PresentInfo);
-		check(Result == vk::Result::eSuccess);
+		vk::Result Result = vk::Result::eSuccess;
+		try
+		{
+			Result = PresentQueue->GetHandle().presentKHR(PresentInfo);
+		}
+		catch (const vk::SystemError& Error)
+		{
+			const vk::Result ErrorResult = GetSystemErrorResult(Error);
+			CurrentImageIndex = -1;
+			if (!IsRecoverableSwapchainResult(ErrorResult))
+			{
+				DURIN_ERROR("Failed to present swap chain image: {}", Error.what());
+			}
+			return false;
+		}
+
+		if (Result != vk::Result::eSuccess && Result != vk::Result::eSuboptimalKHR)
+		{
+			if (!IsRecoverableSwapchainResult(Result))
+			{
+				DURIN_ERROR("Failed to present swap chain image: {}", vk::to_string(Result));
+			}
+			CurrentImageIndex = -1;
+			return false;
+		}
 
 		CurrentImageIndex = -1;
+		return true;
 	}
 
 	auto FVulkanSwapchain::Destroy() -> void

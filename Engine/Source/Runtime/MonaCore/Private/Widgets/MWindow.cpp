@@ -46,6 +46,24 @@ namespace Durin::Mona
 	auto MWindow::SetTitle(const std::string& InTitle) -> void
 	{
 		Title = InTitle;
+		if (NativeWindow != nullptr)
+		{
+			NativeWindow->SetTitle(InTitle);
+		}
+	}
+
+	auto MWindow::SetWindowDecorated(bool bDecorated) -> void
+	{
+		bWindowDecorated = bDecorated;
+		if (NativeWindow != nullptr)
+		{
+			NativeWindow->SetWindowDecorated(bDecorated);
+		}
+	}
+
+	auto MWindow::IsWindowDecorated() const -> bool
+	{
+		return bWindowDecorated;
 	}
 
 	auto MWindow::GetDesiredScreenPosition() const -> FVector2f
@@ -162,10 +180,18 @@ namespace Durin::Mona
 
 	auto MWindow::ShowWindow() -> void
 	{
+		if (NativeWindow != nullptr)
+		{
+			NativeWindow->Show();
+		}
 	}
 
 	auto MWindow::HideWindow() -> void
 	{
+		if (NativeWindow != nullptr)
+		{
+			NativeWindow->Hide();
+		}
 	}
 
 	auto MWindow::IsMinimized() const -> bool

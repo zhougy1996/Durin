@@ -30,6 +30,10 @@ namespace Durin
 
 		APPLICATIONCORE_API virtual auto MoveWindowTo(int32 X, int32 Y) -> void;
 
+		APPLICATIONCORE_API virtual auto GetWindowPosition() const -> FIntPoint;
+
+		APPLICATIONCORE_API virtual auto GetWindowSize() const -> FIntPoint;
+
 		APPLICATIONCORE_API virtual auto GetWindowMode() const -> EWindowMode;
 
 		APPLICATIONCORE_API virtual auto SetWindowMode(EWindowMode WindowMode) -> void;
@@ -40,11 +44,31 @@ namespace Durin
 
 		APPLICATIONCORE_API virtual auto Close() -> void;
 
+		APPLICATIONCORE_API virtual auto Show() -> void;
+
+		APPLICATIONCORE_API virtual auto Hide() -> void;
+
+		APPLICATIONCORE_API virtual auto Focus() -> void;
+
 		APPLICATIONCORE_API virtual auto GetViewportSize() const -> FIntPoint;
 
 		APPLICATIONCORE_API virtual auto CreateVulkanSurface(void* InVulkanInstance) const -> void*;
 
 		APPLICATIONCORE_API virtual auto IsMinimized() const -> bool;
+
+		APPLICATIONCORE_API virtual auto IsFocused() const -> bool;
+
+		APPLICATIONCORE_API virtual auto SetTitle(const std::string& InTitle) -> void;
+
+		APPLICATIONCORE_API virtual auto SetOpacity(float InOpacity) -> void;
+
+		APPLICATIONCORE_API virtual auto SetWindowDecorated(bool bDecorated) -> void;
+
+		APPLICATIONCORE_API virtual auto SetMousePassthrough(bool bPassthrough) -> void;
+
+		APPLICATIONCORE_API virtual auto SetFocusOnShow(bool bFocusOnShow) -> void;
+
+		APPLICATIONCORE_API virtual auto GetDpiScale() const -> float;
 
 		APPLICATIONCORE_API virtual auto SetCursor(EMouseCursor Cursor) -> void;
 

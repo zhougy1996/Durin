@@ -13,5 +13,7 @@ namespace Durin
 		float HeightDesiredOnScreen;
 
 		std::string Title;
+
+		bool bHasOSWindowBorder = true;
 	};
 }

@@ -78,6 +78,11 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void
 	{
+		if (!bPresent)
+		{
+			return;
+		}
+
 		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
 
 		FVulkanQueue* PresentQueue = Device.GetPresentQueue();

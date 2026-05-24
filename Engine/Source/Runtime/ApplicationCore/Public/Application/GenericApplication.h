@@ -7,6 +7,18 @@ namespace Durin
 	class FGenericWindow;
 	class FGenericApplicationMessageHandler;
 
+	struct FMonitorInfo
+	{
+		FIntPoint MainPosition = {0, 0};
+		FIntPoint MainSize = {0, 0};
+		FIntPoint WorkPosition = {0, 0};
+		FIntPoint WorkSize = {0, 0};
+		float DpiScale = 1.0f;
+		void* NativeHandle = nullptr;
+	};
+
+	APPLICATIONCORE_API auto EnumerateMonitors() -> std::vector<FMonitorInfo>;
+
 	class FGenericApplication
 	{
 	public:

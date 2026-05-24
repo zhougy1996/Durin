@@ -22,12 +22,18 @@ namespace Durin::Mona
 
 	auto FMonaRHIRenderer::CreateViewport(const std::shared_ptr<MWindow>& Window) -> void
 	{
+		if (WindowToViewportInfoMap.contains(Window.get()))
+		{
+			return;
+		}
+
 		FVector2f ViewportSize = Window->GetViewportSize();
 
 		int32 Width = FMath::Max(MIN_VIEWPORT_SIZE, FMath::CeilToInt(ViewportSize.x));
 		int32 Height = FMath::Max(MIN_VIEWPORT_SIZE, FMath::CeilToInt(ViewportSize.y));
 
 		std::shared_ptr<FGlfwWindow> GLFWWindow = std::dynamic_pointer_cast<FGlfwWindow>(Window->GetNativeWindow());
+		check(GLFWWindow != nullptr);
 
 		bool bFullScreen = false;
 
@@ -48,7 +54,9 @@ namespace Durin::Mona
 		if (ViewportInfoIt != WindowToViewportInfoMap.end())
 		{
 			FMonaViewportInfo* ViewportInfo = ViewportInfoIt->second;
-			GDynamicRHI->RHIResizeViewport(ViewportInfo->ViewportRHI.GetReference(), Width, Height, ViewportInfo->bFullScreen);
+			const uint32 ClampedWidth = static_cast<uint32>(FMath::Max(MIN_VIEWPORT_SIZE, static_cast<int32>(Width)));
+			const uint32 ClampedHeight = static_cast<uint32>(FMath::Max(MIN_VIEWPORT_SIZE, static_cast<int32>(Height)));
+			GDynamicRHI->RHIResizeViewport(ViewportInfo->ViewportRHI.GetReference(), ClampedWidth, ClampedHeight, ViewportInfo->bFullScreen);
 		}
 	}
 

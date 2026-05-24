@@ -30,6 +30,10 @@ namespace Durin::Mona
 
 		MONACORE_API auto SetTitle(const std::string& InTitle) -> void;
 
+		MONACORE_API auto SetWindowDecorated(bool bDecorated) -> void;
+
+		MONACORE_API auto IsWindowDecorated() const -> bool;
+
 		MONACORE_API auto GetDesiredScreenPosition() const -> FVector2f;
 
 		MONACORE_API auto GetDesiredSize() const -> FVector2f;
@@ -64,6 +68,8 @@ namespace Durin::Mona
 
 	protected:
 		std::string Title;
+
+		bool bWindowDecorated = true;
 
 		FVector2f InitialDesiredScreenPosition = {};
 

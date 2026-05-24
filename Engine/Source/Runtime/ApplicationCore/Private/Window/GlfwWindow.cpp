@@ -10,6 +10,8 @@ namespace Durin
 {
 	namespace
 	{
+		int32 GGlfwWindowCount = 0;
+
 		const std::unordered_map<int32, EKey> GlfwKeyMap = {
 			{GLFW_KEY_ESCAPE, EKey::Escape},
 			{GLFW_KEY_CAPS_LOCK, EKey::CapsLock},
@@ -239,12 +241,74 @@ namespace Durin
 		}
 	} // namespace
 
+	auto EnumerateMonitors() -> std::vector<FMonitorInfo>
+	{
+		std::vector<FMonitorInfo> Monitors;
+
+		int32 MonitorCount = 0;
+		GLFWmonitor** GlfwMonitors = glfwGetMonitors(&MonitorCount);
+		if (GlfwMonitors == nullptr || MonitorCount <= 0)
+		{
+			return Monitors;
+		}
+
+		Monitors.reserve(static_cast<size_t>(MonitorCount));
+		for (int32 MonitorIndex = 0; MonitorIndex < MonitorCount; ++MonitorIndex)
+		{
+			GLFWmonitor* GlfwMonitor = GlfwMonitors[MonitorIndex];
+			const GLFWvidmode* VideoMode = glfwGetVideoMode(GlfwMonitor);
+			if (VideoMode == nullptr)
+			{
+				continue;
+			}
+
+			FMonitorInfo& MonitorInfo = Monitors.emplace_back();
+			MonitorInfo.NativeHandle = GlfwMonitor;
+
+			int32 PositionX = 0;
+			int32 PositionY = 0;
+			glfwGetMonitorPos(GlfwMonitor, &PositionX, &PositionY);
+			MonitorInfo.MainPosition = {PositionX, PositionY};
+			MonitorInfo.MainSize = {VideoMode->width, VideoMode->height};
+
+			int32 WorkX = PositionX;
+			int32 WorkY = PositionY;
+			int32 WorkWidth = VideoMode->width;
+			int32 WorkHeight = VideoMode->height;
+			glfwGetMonitorWorkarea(GlfwMonitor, &WorkX, &WorkY, &WorkWidth, &WorkHeight);
+			MonitorInfo.WorkPosition = {WorkX, WorkY};
+			MonitorInfo.WorkSize = {WorkWidth, WorkHeight};
+
+			float ScaleX = 1.0f;
+			float ScaleY = 1.0f;
+			glfwGetMonitorContentScale(GlfwMonitor, &ScaleX, &ScaleY);
+			MonitorInfo.DpiScale = ScaleX;
+		}
+
+		return Monitors;
+	}
+
 	FGlfwWindow::FGlfwWindow() = default;
 
 	FGlfwWindow::~FGlfwWindow()
 	{
+		for (void*& Cursor : CachedCursors)
+		{
+			if (Cursor != nullptr)
+			{
+				glfwDestroyCursor(static_cast<GLFWcursor*>(Cursor));
+				Cursor = nullptr;
+			}
+		}
+
 		glfwDestroyWindow(GlfwWindow);
-		glfwTerminate();
+		GlfwWindow = nullptr;
+
+		--GGlfwWindowCount;
+		if (GGlfwWindowCount == 0)
+		{
+			glfwTerminate();
+		}
 	}
 
 	auto FGlfwWindow::Make() -> std::shared_ptr<FGlfwWindow>
@@ -256,9 +320,15 @@ namespace Durin
 	{
 		Definition = InDefinition;
 
-		glfwInit();
+		if (GGlfwWindowCount == 0)
+		{
+			glfwInit();
+		}
+		++GGlfwWindowCount;
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, WindowMode == EWindowMode::Windowed);
+		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+		glfwWindowHint(GLFW_DECORATED, Definition->bHasOSWindowBorder ? GLFW_TRUE : GLFW_FALSE);
 #if defined(__APPLE__)
 		glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_TRUE);
 		glfwWindowHint(GLFW_COCOA_GRAPHICS_SWITCHING, GLFW_TRUE);
@@ -298,9 +368,45 @@ namespace Durin
 		glfwSetWindowSize(GlfwWindow, Width, Height);
 	}
 
+	auto FGlfwWindow::MoveWindowTo(int32 X, int32 Y) -> void
+	{
+		glfwSetWindowPos(GlfwWindow, X, Y);
+	}
+
+	auto FGlfwWindow::GetWindowPosition() const -> FIntPoint
+	{
+		int32 X = 0;
+		int32 Y = 0;
+		glfwGetWindowPos(GlfwWindow, &X, &Y);
+		return {X, Y};
+	}
+
+	auto FGlfwWindow::GetWindowSize() const -> FIntPoint
+	{
+		int32 Width = 0;
+		int32 Height = 0;
+		glfwGetWindowSize(GlfwWindow, &Width, &Height);
+		return {Width, Height};
+	}
+
 	void FGlfwWindow::Close()
 	{
 		glfwSetWindowShouldClose(GlfwWindow, true);
+	}
+
+	auto FGlfwWindow::Show() -> void
+	{
+		glfwShowWindow(GlfwWindow);
+	}
+
+	auto FGlfwWindow::Hide() -> void
+	{
+		glfwHideWindow(GlfwWindow);
+	}
+
+	auto FGlfwWindow::Focus() -> void
+	{
+		glfwFocusWindow(GlfwWindow);
 	}
 
 	bool FGlfwWindow::ShouldClose() const
@@ -333,6 +439,48 @@ namespace Durin
 		return glfwGetWindowAttrib(GlfwWindow, GLFW_ICONIFIED);
 	}
 
+	auto FGlfwWindow::IsFocused() const -> bool
+	{
+		return glfwGetWindowAttrib(GlfwWindow, GLFW_FOCUSED) != 0;
+	}
+
+	auto FGlfwWindow::SetTitle(const std::string& InTitle) -> void
+	{
+		glfwSetWindowTitle(GlfwWindow, InTitle.c_str());
+	}
+
+	auto FGlfwWindow::SetOpacity(float InOpacity) -> void
+	{
+		glfwSetWindowOpacity(GlfwWindow, InOpacity);
+	}
+
+	auto FGlfwWindow::SetWindowDecorated(bool bDecorated) -> void
+	{
+		glfwSetWindowAttrib(GlfwWindow, GLFW_DECORATED, bDecorated ? GLFW_TRUE : GLFW_FALSE);
+		if (Definition != nullptr)
+		{
+			Definition->bHasOSWindowBorder = bDecorated;
+		}
+	}
+
+	auto FGlfwWindow::SetMousePassthrough(bool bPassthrough) -> void
+	{
+		glfwSetWindowAttrib(GlfwWindow, GLFW_MOUSE_PASSTHROUGH, bPassthrough ? GLFW_TRUE : GLFW_FALSE);
+	}
+
+	auto FGlfwWindow::SetFocusOnShow(bool bFocusOnShow) -> void
+	{
+		glfwSetWindowAttrib(GlfwWindow, GLFW_FOCUS_ON_SHOW, bFocusOnShow ? GLFW_TRUE : GLFW_FALSE);
+	}
+
+	auto FGlfwWindow::GetDpiScale() const -> float
+	{
+		float ScaleX = 1.0f;
+		float ScaleY = 1.0f;
+		glfwGetWindowContentScale(GlfwWindow, &ScaleX, &ScaleY);
+		return ScaleX;
+	}
+
 	auto FGlfwWindow::SetCursor(EMouseCursor Cursor) -> void
 	{
 		const int CursorIndex = static_cast<int>(Cursor);
@@ -352,4 +500,7 @@ namespace Durin
 
 		glfwSetCursor(GlfwWindow, static_cast<GLFWcursor*>(CachedCursors[CursorIndex]));
 	}
+
+
+
 } // namespace Durin
