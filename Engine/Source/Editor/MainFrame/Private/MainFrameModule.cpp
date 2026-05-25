@@ -21,7 +21,7 @@ namespace Durin
 		std::shared_ptr<Mona::MWindow> RootWindow = std::make_shared<Mona::MWindow>();
 
 		RootWindow->SetTitle("Mona");
-		RootWindow->ResizeWindow({800.0f, 600.0f});
+		RootWindow->ReshapeWindow({100.0f, 100.0f}, {800.0f, 600.0f});
 
 		class MMainFrame final : public Mona::MWidget
 		{

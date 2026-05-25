@@ -344,12 +344,16 @@ namespace Durin
 
 		const int DesiredWidth = FMath::TruncToInt32(Definition->WidthDesiredOnScreen);
 		const int DesiredHeight = FMath::TruncToInt32(Definition->HeightDesiredOnScreen);
+		const int DesiredX = FMath::TruncToInt32(Definition->XDesiredPositionOnScreen);
+		const int DesiredY = FMath::TruncToInt32(Definition->YDesiredPositionOnScreen);
 		GlfwWindow = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition->Title.c_str(), nullptr, nullptr);
 #if defined(_WIN32)
 		OSNativeWindowHandle = glfwGetWin32Window(GlfwWindow);
 #elif defined(__APPLE__)
 		OSNativeWindowHandle = glfwGetCocoaWindow(GlfwWindow);
 #endif
+
+		glfwSetWindowPos(GlfwWindow, DesiredX, DesiredY);
 
 		glfwSetWindowUserPointer(GlfwWindow, OSNativeWindowHandle);
 
