@@ -1,7 +1,5 @@
 #pragma once
 
-#include "CoreAPI.h"
-
 #include "HAL/Platform.h"
 
 #if defined(CORE_EXPORTS)

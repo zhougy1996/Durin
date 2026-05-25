@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <variant>
 #include <source_location>
 #include <memory>
 

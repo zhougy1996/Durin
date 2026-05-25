@@ -1,10 +1,8 @@
 #pragma once
 
-#include "ApplicationCoreAPI.h"
-
 namespace Durin
 {
-	struct APPLICATIONCORE_API FGenericWindowDefinition
+	struct FGenericWindowDefinition
 	{
 		float XDesiredPositionOnScreen;
 		float YDesiredPositionOnScreen;
@@ -12,8 +10,8 @@ namespace Durin
 		float WidthDesiredOnScreen;
 		float HeightDesiredOnScreen;
 
-		std::string Title;
-
 		bool bHasOSWindowBorder = true;
+
+		std::string Title;
 	};
 }

@@ -2,6 +2,7 @@
 
 #include "Window/GenericWindow.h"
 
+// The forward declaration of GLFWwindow in the glfw library.
 struct GLFWwindow;
 
 namespace Durin
@@ -39,8 +40,6 @@ namespace Durin
 
 		APPLICATIONCORE_API auto CreateVulkanSurface(void* InVulkanInstance) const -> void* override;
 
-		auto GetGlfwWindow() const -> GLFWwindow* { return GlfwWindow; }
-
 		APPLICATIONCORE_API auto IsMinimized() const -> bool override;
 
 		APPLICATIONCORE_API auto IsFocused() const -> bool override;
@@ -61,8 +60,6 @@ namespace Durin
 
 	private:
 		FGlfwWindow();
-
-		EWindowMode WindowMode = EWindowMode::Windowed;
 
 		GLFWwindow* GlfwWindow = nullptr;
 

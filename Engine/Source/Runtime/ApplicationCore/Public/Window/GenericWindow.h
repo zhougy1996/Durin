@@ -75,6 +75,8 @@ namespace Durin
 	protected:
 		std::shared_ptr<FGenericWindowDefinition> Definition;
 
+		EWindowMode WindowMode = EWindowMode::Windowed;
+
 		void* OSNativeWindowHandle = nullptr;
 	};
 }
