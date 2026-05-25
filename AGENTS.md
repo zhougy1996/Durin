@@ -3,28 +3,17 @@
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Build and run
-
+- Win64 as example platform; other platforms may have different setup steps.
 - Machine-local overrides:
   - If present, read `LOCAL_ENV.md` for machine-specific tool paths or build commands that should not be shared in the repo.
 - Initial setup on Windows: `./Setup.bat`
-  - This runs `Engine/Scripts/Bootstrap/Bootstrap.bat` to prepare dependencies.
 - Configure with CMake presets:
   - Debug: `cmake --preset x64-Debug`
   - Release: `cmake --preset x64-Release`
-  - macOS Debug: `cmake --preset MacOS-Debug`
-  - macOS Release: `cmake --preset MacOS-Release`
-- Build with CMake:
-  - Debug launcher: `cmake --build --preset x64-Debug --target DurinLauncher`
-  - Release launcher: `cmake --build --preset x64-Release --target DurinLauncher`
-  - Build a single module target: `cmake --build --preset x64-Debug --target VulkanRHI`
-- Run the editor/launcher after build:
+- Run the editor/launcher after build (Win64):
   - `./Engine/Binaries/Durin/Win64/Debug/Durin.exe`
   - The launcher target is `DurinLauncher`, but its output name is `Durin`.
-- Config file behavior:
-  - Building `DurinLauncher` copies `TP_DurinConfig.yaml` into the output directory as `DurinConfig.yaml` if it is missing.
-- There is no verified repo-wide lint command or test harness configured in the top-level CMake files.
-  - `CMakePresets.json` defines configure presets only, not build/test presets.
-  - I did not find `enable_testing()` / `add_test()` in the main project files.
+- Config file: `DurinConfig.yaml` in the output directory.
 
 ## Build system shape
 

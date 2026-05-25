@@ -11,6 +11,7 @@
 /.idea/
 /out/
 /.claude/
+/LOCAL_ENV.md
 
 /Engine/Source/Programs/DurinHeaderTool/ clangLog.txt
 
