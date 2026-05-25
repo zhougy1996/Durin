@@ -4,7 +4,7 @@
 
 #include <array>
 
-namespace Durin::Mona::MonaImGuiBackend
+namespace Durin::Mona
 {
 	struct FImGuiRHIImpl_FrameRenderBuffers
 	{
@@ -19,8 +19,6 @@ namespace Durin::Mona::MonaImGuiBackend
 
 		auto Clear() -> void;
 	};
-
-	extern ImGuiContext* GMonaImGuiContext;
 
 	auto ImGuiRHIImpl_Init() -> void;
 

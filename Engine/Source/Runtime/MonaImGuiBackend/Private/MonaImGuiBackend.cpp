@@ -11,21 +11,21 @@
 #include "MonaImGuiEventHandler.h"
 #include "Misc/Paths.h"
 
-#include <memory>
-
 namespace Durin::Mona
 {
+	ImGuiContext* GMonaImGuiContext = nullptr;
+
 	struct FMonaImGuiViewportData
 	{
 		std::shared_ptr<MWindow> Window;
-		MonaImGuiBackend::FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
+		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
 		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
 	};
 
 	struct FMonaImGuiMainViewportState
 	{
 		std::weak_ptr<MWindow> Window;
-		MonaImGuiBackend::FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
+		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
 		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
 	};
 
@@ -67,7 +67,7 @@ namespace Durin::Mona
 			return NativeWindow != nullptr ? NativeWindow.get() : nullptr;
 		}
 
-		auto GetViewportRenderBuffers(ImGuiViewport* Viewport) -> MonaImGuiBackend::FImGuiRHIImpl_WindowRenderBuffers*
+		auto GetViewportRenderBuffers(ImGuiViewport* Viewport) -> FImGuiRHIImpl_WindowRenderBuffers*
 		{
 			if (Viewport == ImGui::GetMainViewport())
 			{
@@ -146,7 +146,7 @@ namespace Durin::Mona
 			}
 		}
 
-		auto RenderViewport(ImGuiViewport* Viewport, ImDrawData* DrawData, MonaImGuiBackend::FImGuiRHIImpl_WindowRenderBuffers& RenderBuffers) -> void
+		auto RenderViewport(ImGuiViewport* Viewport, ImDrawData* DrawData, FImGuiRHIImpl_WindowRenderBuffers& RenderBuffers) -> void
 		{
 			if (DrawData == nullptr)
 			{
@@ -173,7 +173,7 @@ namespace Durin::Mona
 			ImDrawDataSnapshot& Snapshot = (*Snapshots)[GFrameCounter % 2];
 			Snapshot.SnapUsingSwap(DrawData, FTime::Seconds());
 
-			MonaImGuiBackend::ImGuiRHIImpl_RenderDrawData(ViewportRHI, &Snapshot.DrawData, &RenderBuffers);
+			ImGuiRHIImpl_RenderDrawData(ViewportRHI, &Snapshot.DrawData, &RenderBuffers);
 		}
 
 		auto ApplyViewportWindowStyle(ImGuiViewport* Viewport, const std::shared_ptr<MWindow>& Window) -> void
@@ -503,11 +503,11 @@ namespace Durin::Mona
 	auto FMonaImGuiBackend::Initialize() -> void
 	{
 		check(GDynamicRHI);
-		MonaImGuiBackend::GMonaImGuiContext = ImGui::CreateContext();
-		ImGui::SetCurrentContext(MonaImGuiBackend::GMonaImGuiContext);
+		GMonaImGuiContext = ImGui::CreateContext();
+		ImGui::SetCurrentContext(GMonaImGuiContext);
 
 		ConfigureDefaultImGuiBehavior();
-		MonaImGuiBackend::ImGuiRHIImpl_Init();
+		ImGuiRHIImpl_Init();
 		InitializePlatformInterface();
 		InitFonts();
 
@@ -519,7 +519,7 @@ namespace Durin::Mona
 
 	auto FMonaImGuiBackend::Shutdown() -> void
 	{
-		ImGui::SetCurrentContext(MonaImGuiBackend::GMonaImGuiContext);
+		ImGui::SetCurrentContext(GMonaImGuiContext);
 
 		auto& App = FMonaApplication::Get();
 
@@ -531,8 +531,8 @@ namespace Durin::Mona
 
 		ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
 		PlatformIO.ClearPlatformHandlers();
-		MonaImGuiBackend::ImGuiRHIImpl_Shutdown();
-		MonaImGuiBackend::GMonaImGuiContext = nullptr;
+		ImGuiRHIImpl_Shutdown();
+		GMonaImGuiContext = nullptr;
 
 		FlushRenderingCommands();
 		for (ImDrawDataSnapshot& Snapshot : GMainViewportState.DrawDataSnapshots)
@@ -546,7 +546,7 @@ namespace Durin::Mona
 
 	auto FMonaImGuiBackend::NewFrame() -> void
 	{
-		ImGui::SetCurrentContext(MonaImGuiBackend::GMonaImGuiContext);
+		ImGui::SetCurrentContext(GMonaImGuiContext);
 
 		const std::shared_ptr<MWindow> MainWindow = GetMainMonaWindow();
 		if (!MainWindow)
@@ -563,7 +563,7 @@ namespace Durin::Mona
 		SyncMainViewport(ImGui::GetMainViewport());
 		UpdateMonitors();
 
-		MonaImGuiBackend::ImGuiRHIImpl_NewFrame();
+		ImGuiRHIImpl_NewFrame();
 		ImGui::NewFrame();
 
 		// Test content
@@ -577,7 +577,7 @@ namespace Durin::Mona
 
 	auto FMonaImGuiBackend::Render() -> void
 	{
-		ImGui::SetCurrentContext(MonaImGuiBackend::GMonaImGuiContext);
+		ImGui::SetCurrentContext(GMonaImGuiContext);
 		ImGui::Render();
 
 		ImGuiIO& IO = ImGui::GetIO();

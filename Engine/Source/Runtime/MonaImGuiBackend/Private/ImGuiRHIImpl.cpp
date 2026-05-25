@@ -6,10 +6,8 @@
 #include "Shader/ShaderPaths.h"
 #include "Shader/ShaderCompiler.h"
 
-namespace Durin::Mona::MonaImGuiBackend
+namespace Durin::Mona
 {
-	ImGuiContext* GMonaImGuiContext = nullptr;
-
 	// State of the ImGui RHI backend, stored in a struct to ensure proper initialization order of static variables.
 	// Only accessed from the render thread, so no synchronization is needed.
 	struct FImGuiRHIImplRT_BackendState
@@ -19,16 +17,16 @@ namespace Durin::Mona::MonaImGuiBackend
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateRHIRef PipelineState;
 
-		FSamplerRHIRef FontAtlasSampler;
+		FSamplerRHIRef LinearSampler;
 	};
+
+	static FImGuiRHIImplRT_BackendState GBackendState;
 
 	struct FImGuiRHIImpl_ConstantBufferData
 	{
 		FVector2f Scale;
 		FVector2f Translation;
 	};
-
-	static FImGuiRHIImplRT_BackendState GBackendState;
 
 	auto FImGuiRHIImpl_WindowRenderBuffers::Clear() -> void
 	{
@@ -44,7 +42,7 @@ namespace Durin::Mona::MonaImGuiBackend
 	{
 		ENQUEUE_RENDER_COMMAND(CreateImGuiFontAtlas)([](FRHICommandListImmediate& CommandList) {
 			FRHISamplerDesc SamplerCreateDesc = FRHISamplerDesc::LinearClamp();
-			GBackendState.FontAtlasSampler = RHICreateSampler(SamplerCreateDesc);
+			GBackendState.LinearSampler = RHICreateSampler(SamplerCreateDesc);
 		});
 	}
 
@@ -63,8 +61,6 @@ namespace Durin::Mona::MonaImGuiBackend
 		{
 			VertexShaderCode = CompileResult.CompiledShaders[0].Code;
 			PixelShaderCode = CompileResult.CompiledShaders[1].Code;
-			// FFileHelper::SaveArrayToFile(*VertexShaderCode, FShaderPaths::BinaryPath(ImGuiShaderName, CompileOptions.EntryPoints[0], 0));
-			// FFileHelper::SaveArrayToFile(*PixelShaderCode, FShaderPaths::BinaryPath(ImGuiShaderName, CompileOptions.EntryPoints[1], 0));
 		}
 		else
 		{
@@ -143,7 +139,7 @@ namespace Durin::Mona::MonaImGuiBackend
 			GBackendState.PixelShader = nullptr;
 			GBackendState.VertexDeclaration = nullptr;
 			GBackendState.PipelineState = nullptr;
-			GBackendState.FontAtlasSampler = nullptr;
+			GBackendState.LinearSampler = nullptr;
 		});
 	}
 
@@ -381,7 +377,7 @@ namespace Durin::Mona::MonaImGuiBackend
 					Binding_0_1.Type = FRHIShaderParameterResource::EType::Sampler;
 					Binding_0_1.SetIndex = 0;
 					Binding_0_1.BindIndex = 1;
-					Binding_0_1.Resource = GBackendState.FontAtlasSampler;
+					Binding_0_1.Resource = GBackendState.LinearSampler;
 
 					std::vector<FRHIShaderParameterResource> ShaderParameters = {Binding_0_0, Binding_0_1};
 					CommandList.SetShaderParameters(GBackendState.PixelShader, ShaderParameters);

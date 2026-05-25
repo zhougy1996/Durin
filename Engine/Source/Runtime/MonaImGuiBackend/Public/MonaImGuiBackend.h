@@ -2,6 +2,8 @@
 
 namespace Durin::Mona
 {
+	extern ImGuiContext* GMonaImGuiContext;
+
 	namespace FMonaImGuiBackend
 	{
 		auto Initialize() -> void;

@@ -3,7 +3,7 @@
 // #include "Misc/StringConvert.h"
 
 #include "Application/MonaApplication.h"
-#include "ImGuiRHIImpl.h"
+#include "MonaImGuiBackend.h"
 #include "Widgets/MWindow.h"
 
 namespace Durin::Mona
@@ -124,7 +124,7 @@ namespace Durin::Mona
 
 		auto GetImGuiIO(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> ImGuiIO&
 		{
-			return ImGui::GetIO(MonaImGuiBackend::GMonaImGuiContext);
+			return ImGui::GetIO(GMonaImGuiContext);
 		}
 
 		auto ConvertMousePositionToImGuiSpace(const std::shared_ptr<FGenericWindow>& InPlatformWindow, FVector2d CursorPos) -> FVector2d
