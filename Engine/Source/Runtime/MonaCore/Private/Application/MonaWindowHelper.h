@@ -3,17 +3,21 @@
 namespace Durin
 {
 	class FGenericWindow;
-}
 
-namespace Durin::Mona
-{
-	class MWindow;
-
-	class FMonaWindowHelper
+	namespace Mona
 	{
-	public:
-		static auto FindWindowByPlatformWindow(const std::vector<std::shared_ptr<MWindow>>& WindowsToSearch, const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> std::shared_ptr<MWindow>;
+		class MWindow;
 
-		static auto ArrangeWindowToFront(std::vector<std::shared_ptr<MWindow>>& Windows, const std::shared_ptr<MWindow>& WindowToBringToFront) -> void;
-	};
+		class FMonaWindowHelper
+		{
+		public:
+			static auto FindWindowByPlatformWindow(const std::vector<std::shared_ptr<MWindow>>& WindowsToSearch, const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> std::shared_ptr<MWindow>;
+
+			static auto CollectWindowAndDescendants(const std::shared_ptr<MWindow>& Window, std::vector<std::shared_ptr<MWindow>>& OutWindows) -> void;
+
+			static auto ArrangeWindowToFront(std::vector<std::shared_ptr<MWindow>>& Windows, const std::shared_ptr<MWindow>& WindowToBringToFront) -> void;
+		};
+	}
 }
+
+

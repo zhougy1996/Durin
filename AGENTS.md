@@ -4,6 +4,8 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Build and run
 
+- Machine-local overrides:
+  - If present, read `LOCAL_ENV.md` for machine-specific tool paths or build commands that should not be shared in the repo.
 - Initial setup on Windows: `./Setup.bat`
   - This runs `Engine/Scripts/Bootstrap/Bootstrap.bat` to prepare dependencies.
 - Configure with CMake presets:

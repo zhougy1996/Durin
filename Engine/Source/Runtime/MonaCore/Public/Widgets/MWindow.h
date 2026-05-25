@@ -16,11 +16,19 @@ namespace Durin::Mona
 
 		MONACORE_API auto IsWindow() -> bool override;
 
-		MONACORE_API auto PollEvents() const -> void;
+		MONACORE_API auto PollEvents() const ->  void;
 
 		MONACORE_API auto SetNativeWindow(std::shared_ptr<FGenericWindow> InNativeWindow) -> void;
 
 		MONACORE_API auto GetNativeWindow() const -> std::shared_ptr<FGenericWindow>;
+
+		MONACORE_API auto SetParentWindow(const std::shared_ptr<MWindow>& InParentWindow) -> void;
+
+		MONACORE_API auto GetParentWindow() const -> std::shared_ptr<MWindow>;
+
+		MONACORE_API auto AddChildWindow(const std::shared_ptr<MWindow>& InChildWindow) -> void;
+
+		MONACORE_API auto RemoveChildWindow(const std::shared_ptr<MWindow>& InChildWindow) -> void;
 
 		MONACORE_API auto GetChildWindows() const -> const std::vector<std::shared_ptr<MWindow>>&;
 
@@ -82,6 +90,8 @@ namespace Durin::Mona
 		FVector2f ViewportSize = {};
 
 		std::shared_ptr<FGenericWindow> NativeWindow;
+
+		std::weak_ptr<MWindow> ParentWindow;
 
 		std::vector<std::shared_ptr<MWindow>> ChildWindows;
 

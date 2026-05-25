@@ -224,6 +224,22 @@ namespace Durin::Mona
 			auto Window = std::make_shared<MWindow>();
 			Window->SetTitle("ImGui");
 			Window->ReshapeWindow({Viewport->Pos.x, Viewport->Pos.y}, {Viewport->Size.x, Viewport->Size.y});
+
+			std::shared_ptr<MWindow> ParentWindow = nullptr;
+			if (Viewport->ParentViewport != nullptr)
+			{
+				ParentWindow = GetViewportWindow(Viewport->ParentViewport);
+			}
+			else
+			{
+				ParentWindow = GetMainMonaWindow();
+			}
+
+			if (ParentWindow != nullptr && ParentWindow != Window)
+			{
+				ParentWindow->AddChildWindow(Window);
+			}
+
 			ApplyViewportWindowStyle(Viewport, Window);
 
 			auto& App = FMonaApplication::Get();
@@ -453,6 +469,7 @@ namespace Durin::Mona
 			IO.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
 			IO.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
 			IO.BackendFlags |= ImGuiBackendFlags_HasMouseHoveredViewport;
+			IO.BackendFlags |= ImGuiBackendFlags_HasParentViewport;
 
 			ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
 			PlatformIO.Platform_CreateWindow = ImGuiMona_CreateWindow;
@@ -484,6 +501,7 @@ namespace Durin::Mona
 			IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 			IO.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 			IO.ConfigViewportsNoAutoMerge = false;
+			IO.ConfigViewportsNoDefaultParent = false;
 			IO.ConfigViewportsNoTaskBarIcon = true;
 			IO.ConfigViewportsNoDecoration = true;
 

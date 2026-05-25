@@ -1,5 +1,7 @@
 #include "Widgets/MWindow.h"
 
+#include <algorithm>
+#include <ranges>
 #include <utility>
 
 #include "Application/MonaApplication.h"
@@ -26,6 +28,61 @@ namespace Durin::Mona
 	auto MWindow::GetNativeWindow() const -> std::shared_ptr<FGenericWindow>
 	{
 		return NativeWindow;
+	}
+
+	auto MWindow::SetParentWindow(const std::shared_ptr<MWindow>& InParentWindow) -> void
+	{
+		const std::shared_ptr<MWindow> ThisWindow = SharedThis(this);
+		const std::shared_ptr<MWindow> CurrentParentWindow = ParentWindow.lock();
+
+		if (CurrentParentWindow == InParentWindow)
+		{
+			return;
+		}
+
+		if (CurrentParentWindow != nullptr)
+		{
+			std::erase(CurrentParentWindow->ChildWindows, ThisWindow);
+		}
+
+		ParentWindow.reset();
+
+		if (InParentWindow != nullptr)
+		{
+			ParentWindow = InParentWindow;
+			if (std::ranges::find(InParentWindow->ChildWindows, ThisWindow) == InParentWindow->ChildWindows.end())
+			{
+				InParentWindow->ChildWindows.push_back(ThisWindow);
+			}
+		}
+	}
+
+	auto MWindow::GetParentWindow() const -> std::shared_ptr<MWindow>
+	{
+		return ParentWindow.lock();
+	}
+
+	auto MWindow::AddChildWindow(const std::shared_ptr<MWindow>& InChildWindow) -> void
+	{
+		if (InChildWindow == nullptr || InChildWindow.get() == this)
+		{
+			return;
+		}
+
+		InChildWindow->SetParentWindow(SharedThis(this));
+	}
+
+	auto MWindow::RemoveChildWindow(const std::shared_ptr<MWindow>& InChildWindow) -> void
+	{
+		if (InChildWindow == nullptr)
+		{
+			return;
+		}
+
+		if (InChildWindow->GetParentWindow().get() == this)
+		{
+			InChildWindow->SetParentWindow(nullptr);
+		}
 	}
 
 	auto MWindow::GetChildWindows() const -> const std::vector<std::shared_ptr<MWindow>>&

@@ -1,5 +1,8 @@
 #include "Application/MonaApplication.h"
 
+#include <algorithm>
+#include <ranges>
+
 #include "CoreGlobals.h"
 
 #include "Application/MonaWindowHelper.h"
@@ -12,6 +15,43 @@
 
 namespace Durin::Mona
 {
+	namespace
+	{
+		auto GetRootWindow(const std::shared_ptr<MWindow>& InWindow) -> std::shared_ptr<MWindow>
+		{
+			std::shared_ptr<MWindow> RootWindow = InWindow;
+			while (RootWindow != nullptr)
+			{
+				const std::shared_ptr<MWindow> ParentWindow = RootWindow->GetParentWindow();
+				if (ParentWindow == nullptr)
+				{
+					break;
+				}
+				RootWindow = ParentWindow;
+			}
+			return RootWindow;
+		}
+
+		auto QueueWindowHierarchyForDestroy(const std::shared_ptr<MWindow>& InWindow, std::vector<std::shared_ptr<MWindow>>& WindowDestroyQueue, std::vector<std::shared_ptr<MWindow>>& NewlyQueuedWindows) -> void
+		{
+			if (InWindow == nullptr)
+			{
+				return;
+			}
+
+			if (std::ranges::find(WindowDestroyQueue, InWindow) == WindowDestroyQueue.end())
+			{
+				WindowDestroyQueue.push_back(InWindow);
+				NewlyQueuedWindows.push_back(InWindow);
+			}
+
+			for (const std::shared_ptr<MWindow>& ChildWindow : InWindow->GetChildWindows())
+			{
+				QueueWindowHierarchyForDestroy(ChildWindow, WindowDestroyQueue, NewlyQueuedWindows);
+			}
+		}
+	}
+
 	std::shared_ptr<FMonaApplication> FMonaApplication::CurrentApplication = nullptr;
 
 	FMonaApplication::~FMonaApplication() = default;
@@ -56,7 +96,7 @@ namespace Durin::Mona
 		FMonaWindowHelper::ArrangeWindowToFront(Windows, InMonaWindow);
 		if (bShowImmediately)
 		{
-			ActiveTopLevelWindow = InMonaWindow;
+			ActiveTopLevelWindow = GetRootWindow(InMonaWindow);
 		}
 		std::shared_ptr<FGenericWindow> NewWindow = MakeWindow(InMonaWindow, bShowImmediately);
 
@@ -75,18 +115,33 @@ namespace Durin::Mona
 
 	auto FMonaApplication::RequestDestroyWindow(std::shared_ptr<MWindow> InWindow) -> void
 	{
-		if (ActiveTopLevelWindow.lock() == InWindow)
+		if (InWindow == nullptr)
 		{
-			ActiveTopLevelWindow.reset();
+			return;
 		}
-		WindowDestroyQueue.push_back(InWindow);
-		Renderer->OnWindowDestroyed(InWindow);
+
+		std::vector<std::shared_ptr<MWindow>> NewlyQueuedWindows;
+		QueueWindowHierarchyForDestroy(InWindow, WindowDestroyQueue, NewlyQueuedWindows);
+
+		for (const std::shared_ptr<MWindow>& WindowToDestroy : NewlyQueuedWindows)
+		{
+			if (ActiveTopLevelWindow.lock() == WindowToDestroy)
+			{
+				ActiveTopLevelWindow.reset();
+			}
+			Renderer->OnWindowDestroyed(WindowToDestroy);
+		}
+
 		DestroyWindowsImmediately();
 	}
 
 	auto FMonaApplication::CloseAllWindowsImmediately() -> void
 	{
-		std::for_each(Windows.rbegin(), Windows.rend(), [](auto& window) { window->RequestDestroyWindow(); });
+		const std::vector<std::shared_ptr<MWindow>> WindowsToDestroy(Windows.rbegin(), Windows.rend());
+		for (const std::shared_ptr<MWindow>& Window : WindowsToDestroy)
+		{
+			RequestDestroyWindow(Window);
+		}
 	}
 
 	auto FMonaApplication::DestroyWindowsImmediately() -> void
@@ -96,6 +151,12 @@ namespace Durin::Mona
 			std::shared_ptr<MWindow> Window = WindowDestroyQueue.front();
 			FlushRenderingCommands();
 			WindowDestroyQueue.erase(WindowDestroyQueue.begin());
+			Window->SetParentWindow(nullptr);
+			const std::vector<std::shared_ptr<MWindow>> ChildWindows = Window->GetChildWindows();
+			for (const std::shared_ptr<MWindow>& ChildWindow : ChildWindows)
+			{
+				ChildWindow->SetParentWindow(nullptr);
+			}
 			std::erase(Windows, Window);
 		}
 		WindowDestroyQueue.clear();
@@ -227,7 +288,7 @@ namespace Durin::Mona
 			if (Window)
 			{
 				FMonaWindowHelper::ArrangeWindowToFront(Windows, Window);
-				ActiveTopLevelWindow = Window;
+				ActiveTopLevelWindow = GetRootWindow(Window);
 				// DURIN_DEBUG(STR("Window gained focus, setting active top level window to: {}"), Window->GetTitle());
 			}
 		}

@@ -22,9 +22,40 @@ namespace Durin::Mona
 		return nullptr;
 	}
 
+	auto FMonaWindowHelper::CollectWindowAndDescendants(const std::shared_ptr<MWindow>& Window, std::vector<std::shared_ptr<MWindow>>& OutWindows) -> void
+	{
+		if (Window == nullptr)
+		{
+			return;
+		}
+
+		OutWindows.push_back(Window);
+		for (const std::shared_ptr<MWindow>& ChildWindow : Window->GetChildWindows())
+		{
+			CollectWindowAndDescendants(ChildWindow, OutWindows);
+		}
+	}
+
 	auto FMonaWindowHelper::ArrangeWindowToFront(std::vector<std::shared_ptr<MWindow>>& Windows, const std::shared_ptr<MWindow>& WindowToBringToFront) -> void
 	{
-		Windows.erase(std::remove(Windows.begin(), Windows.end(), WindowToBringToFront), Windows.end());
-		Windows.push_back(WindowToBringToFront);
+		if (WindowToBringToFront == nullptr)
+		{
+			return;
+		}
+
+		std::shared_ptr<MWindow> RootWindow = WindowToBringToFront;
+		while (const std::shared_ptr<MWindow> ParentWindow = RootWindow->GetParentWindow())
+		{
+			RootWindow = ParentWindow;
+		}
+
+		std::vector<std::shared_ptr<MWindow>> WindowHierarchy;
+		CollectWindowAndDescendants(RootWindow, WindowHierarchy);
+		for (const std::shared_ptr<MWindow>& Window : WindowHierarchy)
+		{
+			Windows.erase(std::remove(Windows.begin(), Windows.end(), Window), Windows.end());
+		}
+
+		Windows.insert(Windows.end(), WindowHierarchy.begin(), WindowHierarchy.end());
 	}
 }
