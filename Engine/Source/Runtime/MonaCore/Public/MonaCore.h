@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Widgets/MFunctionWidget.h"
 #include "Widgets/MWidget.h"
 #include "Widgets/MWindow.h"
 #include "Application/MonaApplication.h"

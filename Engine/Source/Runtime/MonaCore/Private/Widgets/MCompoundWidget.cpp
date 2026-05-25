@@ -4,6 +4,9 @@ namespace Durin::Mona
 {
 	void MCompoundWidget::Draw()
 	{
-		ChildWidget->Draw();
+		if (ChildWidget)
+		{
+			ChildWidget->Draw();
+		}
 	}
 } // namespace Durin::Mona

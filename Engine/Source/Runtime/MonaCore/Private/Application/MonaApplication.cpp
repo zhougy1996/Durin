@@ -170,6 +170,14 @@ namespace Durin::Mona
 
 	auto FMonaApplication::DrawWindows() -> void
 	{
+		for (const std::shared_ptr<MWindow>& Window : Windows)
+		{
+			if (Window != nullptr)
+			{
+				Window->Draw();
+			}
+		}
+
 		Renderer->DrawWindows();
 	}
 

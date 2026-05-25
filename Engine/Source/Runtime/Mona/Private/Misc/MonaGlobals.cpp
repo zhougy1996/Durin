@@ -35,4 +35,9 @@ namespace Durin::Mona
 	{
 		FMonaImGuiBackend::BindMainViewportToWindow(Window);
 	}
+
+	auto ShowDemoWindow() -> void
+	{
+		FMonaBackend::ShowDemoWindow();
+	}
 } // namespace Durin::Mona

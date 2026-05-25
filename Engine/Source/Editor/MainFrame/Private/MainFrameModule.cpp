@@ -15,15 +15,6 @@ namespace Durin
 	{
 	}
 
-	class MMainFrame final : public Mona::MWidget
-	{
-	private:
-		auto Draw() -> void override
-		{
-			//Mona::Text(FString("Test"));
-		}
-	};
-
 	auto FMainFrameModule::CreateDefaultMainFrame() -> void
 	{
 		FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
@@ -32,7 +23,16 @@ namespace Durin
 		RootWindow->SetTitle("Mona");
 		RootWindow->ResizeWindow({800.0f, 600.0f});
 
-		std::shared_ptr<MMainFrame> MainFrame = std::make_shared<MMainFrame>();
+		class MMainFrame final : public Mona::MWidget
+		{
+		public:
+			auto Draw() -> void override
+			{
+				Mona::ShowDemoWindow();
+			}
+		};
+
+		auto MainFrame = std::make_shared<MMainFrame>();
 		RootWindow->SetChild(MainFrame);
 
 		Mona::FMonaApplication::Get().AddWindow(RootWindow, true);

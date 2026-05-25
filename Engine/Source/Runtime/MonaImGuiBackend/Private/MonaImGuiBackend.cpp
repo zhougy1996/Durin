@@ -576,15 +576,10 @@ namespace Durin::Mona
 		SyncMainViewportFrameState(MainWindow);
 		UpdateMonitors();
 
+		auto& App = FMonaApplication::Get();
 		ImGuiRHIImpl_NewFrame();
 		ImGui::NewFrame();
-
-		// Test content
-		if (!MainWindow || MainWindow->IsMinimized())
-		{
-			return;
-		}
-		ImGui::ShowDemoWindow();
+		App.DrawWindows();
 	}
 
 
@@ -617,6 +612,12 @@ namespace Durin::Mona
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 		BindMainViewportToWindowInternal(Window);
+	}
+
+	auto FMonaImGuiBackend::ShowDemoWindow() -> void
+	{
+		ImGui::SetCurrentContext(GMonaImGuiContext);
+		ImGui::ShowDemoWindow();
 	}
 
 }

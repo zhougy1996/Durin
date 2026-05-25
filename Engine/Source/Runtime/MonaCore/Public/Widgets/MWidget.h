@@ -4,23 +4,26 @@
 
 namespace Durin::Mona
 {
-	class MONACORE_API MWidget : public std::enable_shared_from_this<MWidget>
+	class MWidget : public std::enable_shared_from_this<MWidget>
 	{
 	public:
 		MWidget() = default;
-		MWidget(const std::shared_ptr<MWidget>& InParentWidget);
 
-		virtual ~MWidget() = default;
+		MONACORE_API MWidget(const std::shared_ptr<MWidget>& InParentWidget);
 
-		virtual auto Draw() -> void;
+		MONACORE_API virtual ~MWidget() = default;
 
-		virtual auto AsWidget() -> std::shared_ptr<MWidget>;
+		MONACORE_API virtual auto Construct() -> void;
+
+		MONACORE_API virtual auto Draw() -> void;
+
+		MONACORE_API virtual auto AsWidget() -> std::shared_ptr<MWidget>;
 
 		virtual auto IsWindow() -> bool { return false; }
 
-		auto AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget);
+		MONACORE_API auto AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget);
 
-		auto GetParent() const -> std::shared_ptr<MWidget>;
+		MONACORE_API auto GetParent() const -> std::shared_ptr<MWidget>;
 
 		auto SetName(FName InName) -> MWidget* { Name = InName; return this; }
 

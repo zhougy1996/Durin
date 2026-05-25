@@ -7,6 +7,10 @@ namespace Durin::Mona
 	{
 	}
 
+	auto MWidget::Construct() -> void
+	{
+	}
+
 	auto MWidget::Draw() -> void
 	{
 	}

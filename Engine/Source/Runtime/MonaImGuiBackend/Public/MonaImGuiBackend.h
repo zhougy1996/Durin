@@ -16,5 +16,7 @@ namespace Durin::Mona
 		auto Render() -> void;
 
 		auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void;
+
+		auto ShowDemoWindow() -> void;
 	};
 }

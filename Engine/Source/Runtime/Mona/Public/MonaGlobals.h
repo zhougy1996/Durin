@@ -1,7 +1,5 @@
 #pragma once
 
-#include <memory>
-
 #include "MonaAPI.h"
 struct ImGuiContext;
 
@@ -18,4 +16,6 @@ namespace Durin::Mona
 	MONA_API auto Render() -> void;
 
 	MONA_API auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void;
+
+	MONA_API auto ShowDemoWindow() -> void;
 }
