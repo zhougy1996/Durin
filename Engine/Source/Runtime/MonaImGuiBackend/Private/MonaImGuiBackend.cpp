@@ -506,6 +506,7 @@ namespace Durin::Mona
 			ImGuiIO& IO = ImGui::GetIO();
 			IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 			IO.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+			IO.ConfigDockingTransparentPayload = true;
 			IO.ConfigViewportsNoAutoMerge = false;
 			IO.ConfigViewportsNoDefaultParent = false;
 			IO.ConfigViewportsNoTaskBarIcon = true;
