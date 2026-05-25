@@ -28,6 +28,8 @@ namespace Durin
 
 		APPLICATIONCORE_API auto Close() -> void override;
 
+		APPLICATIONCORE_API auto SetShouldClose(bool bShouldClose) -> void override;
+
 		APPLICATIONCORE_API auto Show() -> void override;
 
 		APPLICATIONCORE_API auto Hide() -> void override;

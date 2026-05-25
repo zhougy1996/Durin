@@ -222,6 +222,14 @@ namespace Durin
 			}
 		}
 
+		auto WindowCloseCallBack(GLFWwindow* InGlfwWindow) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				GApp->GetMessageHandler()->OnWindowCloseRequested(PlatformWindow);
+			}
+		}
+
 		auto MapToGlfwCursorShape(EMouseCursor Cursor) -> int
 		{
 			switch (Cursor)
@@ -353,6 +361,7 @@ namespace Durin
 		glfwSetCursorPosCallback(GlfwWindow, CursorPosCallBack);
 		glfwSetScrollCallback(GlfwWindow, ScrollCallBack);
 		glfwSetWindowFocusCallback(GlfwWindow, WindowFocusCallBack);
+		glfwSetWindowCloseCallback(GlfwWindow, WindowCloseCallBack);
 
 		glfwMakeContextCurrent(GlfwWindow);
 	}
@@ -391,7 +400,12 @@ namespace Durin
 
 	void FGlfwWindow::Close()
 	{
-		glfwSetWindowShouldClose(GlfwWindow, true);
+		SetShouldClose(true);
+	}
+
+	void FGlfwWindow::SetShouldClose(bool bShouldClose)
+	{
+		glfwSetWindowShouldClose(GlfwWindow, bShouldClose ? GLFW_TRUE : GLFW_FALSE);
 	}
 
 	auto FGlfwWindow::Show() -> void

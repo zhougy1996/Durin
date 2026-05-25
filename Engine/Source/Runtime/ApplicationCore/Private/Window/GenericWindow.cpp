@@ -51,6 +51,10 @@ namespace Durin
 		return false;
 	}
 
+	auto FGenericWindow::SetShouldClose(bool bShouldClose) -> void
+	{
+	}
+
 	auto FGenericWindow::Close() -> void
 	{
 	}

@@ -161,7 +161,33 @@ namespace Durin::Mona
 				IO.AddMouseViewportEvent(Viewport->ID);
 			}
 		}
+
+		auto GetPlatformViewport(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> ImGuiViewport*
+		{
+			return ImGui::FindViewportByPlatformHandle(GetPlatformHandleForImGui(InPlatformWindow));
+		}
 	} // namespace
+
+	bool FMonaImGuiEventHandler::OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& InPlatformWindow)
+	{
+		if (InPlatformWindow == nullptr)
+		{
+			return false;
+		}
+
+		ImGuiViewport* Viewport = GetPlatformViewport(InPlatformWindow);
+		if (Viewport == nullptr || (Viewport->Flags & ImGuiViewportFlags_OwnedByApp) != 0)
+		{
+			return false;
+		}
+
+		Viewport->PlatformRequestClose = true;
+
+		// Turn an OS-level close into an ImGui-managed close request
+		// Allowing ImGui to handle the close request ensures that any necessary cleanup or state management can occur within ImGui's viewport system, rather than abruptly closing the window at the OS level which might bypass important logic in ImGui.
+		InPlatformWindow->SetShouldClose(false);
+		return true;
+	}
 
 	void FMonaImGuiEventHandler::OnWindowFocused(const std::shared_ptr<FGenericWindow>& InPlatformWindow, bool bFocused)
 	{

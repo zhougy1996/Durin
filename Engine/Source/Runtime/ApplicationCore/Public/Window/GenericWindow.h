@@ -42,6 +42,8 @@ namespace Durin
 
 		APPLICATIONCORE_API virtual auto ShouldClose() const -> bool;
 
+		APPLICATIONCORE_API virtual auto SetShouldClose(bool bShouldClose) -> void;
+
 		APPLICATIONCORE_API virtual auto Close() -> void;
 
 		APPLICATIONCORE_API virtual auto Show() -> void;

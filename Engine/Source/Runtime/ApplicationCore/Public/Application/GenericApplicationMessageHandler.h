@@ -12,6 +12,8 @@ namespace Durin
 	public:
 		virtual ~FGenericApplicationMessageHandler() = default;
 
+		virtual auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void {};
+
 		virtual auto OnWindowResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void {};
 
 		virtual auto OnWindowFocus(const std::shared_ptr<FGenericWindow>& InPlatformWindow, bool bFocused) -> void {}

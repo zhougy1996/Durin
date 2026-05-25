@@ -1,8 +1,5 @@
 #include "Application/MonaApplication.h"
 
-#include <algorithm>
-#include <ranges>
-
 #include "CoreGlobals.h"
 
 #include "Application/MonaWindowHelper.h"
@@ -131,8 +128,6 @@ namespace Durin::Mona
 			}
 			Renderer->OnWindowDestroyed(WindowToDestroy);
 		}
-
-		DestroyWindowsImmediately();
 	}
 
 	auto FMonaApplication::CloseAllWindowsImmediately() -> void
@@ -142,6 +137,8 @@ namespace Durin::Mona
 		{
 			RequestDestroyWindow(Window);
 		}
+
+		FlushPendingWindowDestroys();
 	}
 
 	auto FMonaApplication::DestroyWindowsImmediately() -> void
@@ -167,8 +164,13 @@ namespace Durin::Mona
 		}
 	}
 
-	auto FMonaApplication::OnWindowClose(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void
+	auto FMonaApplication::OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void
 	{
+		if (MonaEventHandler && MonaEventHandler->OnWindowCloseRequested(PlatformWindow))
+		{
+			return;
+		}
+
 		std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, PlatformWindow);
 		if (Window)
 		{
@@ -176,12 +178,25 @@ namespace Durin::Mona
 		}
 	}
 
+	auto FMonaApplication::FlushPendingWindowDestroys() -> void
+	{
+		DestroyWindowsImmediately();
+	}
+
 	auto FMonaApplication::PollEvents()
 	{
-		for (auto& EventWindow : Windows)
+		if (Windows.empty())
+		{
+			return;
+		}
+
+		// GLFW event pumping is process-global, so one poll dispatches callbacks for all Mona windows.
+		if (const std::shared_ptr<MWindow>& EventWindow = Windows.front())
 		{
 			EventWindow->PollEvents();
 		}
+
+		FlushPendingWindowDestroys();
 	}
 
 	auto FMonaApplication::GetWindows() const -> const std::vector<std::shared_ptr<MWindow>>&
@@ -191,22 +206,6 @@ namespace Durin::Mona
 
 	auto FMonaApplication::ProcessDeferredEvents() -> void
 	{
-		if (!Windows.empty())
-		{
-			std::shared_ptr<FGenericWindow> PlatformWindowToClose = nullptr;
-			for (auto& EventWindow : Windows)
-			{
-				auto PlatformWindow = EventWindow->GetNativeWindow();
-				if (PlatformWindow && PlatformWindow->ShouldClose())
-				{
-					PlatformWindowToClose = PlatformWindow;
-				}
-			}
-			if (PlatformWindowToClose)
-			{
-				OnWindowClose(PlatformWindowToClose);
-			}
-		}
 	}
 
 	auto FMonaApplication::FindWidgetWindow(const std::shared_ptr<MWidget>& InWidget) -> std::shared_ptr<MWindow>

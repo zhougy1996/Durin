@@ -15,6 +15,8 @@ namespace Durin::Mona
 
 		~FMonaImGuiEventHandler() override {}
 
+		auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> bool override;
+
 		auto OnWindowFocused(const std::shared_ptr<FGenericWindow> &InPlatformWindow, bool bFocused) -> void override;
 
 		auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool override;

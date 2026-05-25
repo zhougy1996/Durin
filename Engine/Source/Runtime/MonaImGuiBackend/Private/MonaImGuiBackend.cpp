@@ -392,6 +392,12 @@ namespace Durin::Mona
 
 				if (const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow())
 				{
+					if (NativeWindow->ShouldClose() && (Viewport->Flags & ImGuiViewportFlags_OwnedByApp) == 0)
+					{
+						Viewport->PlatformRequestClose = true;
+						NativeWindow->SetShouldClose(false);
+					}
+
 					const FIntPoint WindowPositionInt = NativeWindow->GetWindowPosition();
 					const FIntPoint WindowSizeInt = NativeWindow->GetWindowSize();
 					const ImVec2 PlatformPos(static_cast<float>(WindowPositionInt.x), static_cast<float>(WindowPositionInt.y));
