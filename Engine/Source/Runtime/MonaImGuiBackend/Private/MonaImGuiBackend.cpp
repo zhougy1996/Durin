@@ -22,22 +22,18 @@ namespace Durin::Mona
 		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
 	};
 
-	struct FMonaImGuiMainViewportState
-	{
-		std::weak_ptr<MWindow> Window;
-		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
-		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
-	};
-
-	static FMonaImGuiMainViewportState GMainViewportState;
-
 	namespace
 	{
+		auto GetViewportData(ImGuiViewport* Viewport) -> FMonaImGuiViewportData*
+		{
+			return static_cast<FMonaImGuiViewportData*>(Viewport->PlatformUserData);
+		}
+
 		auto GetMainMonaWindow() -> std::shared_ptr<MWindow>
 		{
-			if (std::shared_ptr<MWindow> MainWindow = GMainViewportState.Window.lock())
+			if (auto* ViewportData = GetViewportData(ImGui::GetMainViewport()))
 			{
-				return MainWindow;
+				return ViewportData->Window;
 			}
 
 			auto& App = FMonaApplication::Get();
@@ -47,18 +43,12 @@ namespace Durin::Mona
 				return nullptr;
 			}
 
-			GMainViewportState.Window = Windows.front();
 			return Windows.front();
 		}
 
 		auto GetViewportWindow(ImGuiViewport* Viewport) -> std::shared_ptr<MWindow>
 		{
-			if (Viewport == ImGui::GetMainViewport())
-			{
-				return GetMainMonaWindow();
-			}
-
-			const auto* ViewportData = static_cast<FMonaImGuiViewportData*>(Viewport->PlatformUserData);
+			const auto* ViewportData = GetViewportData(Viewport);
 			return ViewportData != nullptr ? ViewportData->Window : nullptr;
 		}
 
@@ -69,35 +59,24 @@ namespace Durin::Mona
 
 		auto GetViewportRenderBuffers(ImGuiViewport* Viewport) -> FImGuiRHIImpl_WindowRenderBuffers*
 		{
-			if (Viewport == ImGui::GetMainViewport())
-			{
-				return &GMainViewportState.RenderBuffers;
-			}
-
-			auto* ViewportData = static_cast<FMonaImGuiViewportData*>(Viewport->PlatformUserData);
+			auto* ViewportData = GetViewportData(Viewport);
 			return ViewportData != nullptr ? &ViewportData->RenderBuffers : nullptr;
 		}
 
 		auto GetViewportSnapshots(ImGuiViewport* Viewport) -> std::array<ImDrawDataSnapshot, 2>*
 		{
-			if (Viewport == ImGui::GetMainViewport())
-			{
-				return &GMainViewportState.DrawDataSnapshots;
-			}
-
-			auto* ViewportData = static_cast<FMonaImGuiViewportData*>(Viewport->PlatformUserData);
+			auto* ViewportData = GetViewportData(Viewport);
 			return ViewportData != nullptr ? &ViewportData->DrawDataSnapshots : nullptr;
 		}
 
-		auto SyncMainViewport(ImGuiViewport* MainViewport) -> void
+		auto UpdateViewportFromWindow(ImGuiViewport* Viewport, const std::shared_ptr<MWindow>& Window) -> void
 		{
-			const std::shared_ptr<MWindow> MainWindow = GetMainMonaWindow();
-			if (!MainWindow)
+			if (!Window)
 			{
 				return;
 			}
 
-			const std::shared_ptr<FGenericWindow> NativeWindow = MainWindow->GetNativeWindow();
+			const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow();
 			if (!NativeWindow)
 			{
 				return;
@@ -105,27 +84,70 @@ namespace Durin::Mona
 
 			const FIntPoint WindowPositionInt = NativeWindow->GetWindowPosition();
 			const FIntPoint WindowSizeInt = NativeWindow->GetWindowSize();
-			FVector2f ViewportSize = MainWindow->GetViewportSize();
+			const FVector2f ViewportSize = Window->GetViewportSize();
 			const FVector2f WindowPosition(static_cast<float>(WindowPositionInt.x), static_cast<float>(WindowPositionInt.y));
 			const FVector2f WindowSize(static_cast<float>(WindowSizeInt.x), static_cast<float>(WindowSizeInt.y));
-			MainWindow->SetCachedScreenPosition(WindowPosition);
-			MainWindow->SetCachedSize(WindowSize);
+			Window->SetCachedScreenPosition(WindowPosition);
+			Window->SetCachedSize(WindowSize);
 
-			MainViewport->PlatformHandle = GetImGuiPlatformHandle(NativeWindow);
-			MainViewport->PlatformHandleRaw = NativeWindow->GetOSNativeWindowHandle();
-			MainViewport->Pos = ImVec2(WindowPosition.x, WindowPosition.y);
-			MainViewport->Size = ImVec2(WindowSize.x, WindowSize.y);
-			MainViewport->WorkPos = MainViewport->Pos;
-			MainViewport->WorkSize = MainViewport->Size;
-			MainViewport->DpiScale = NativeWindow->GetDpiScale();
+			Viewport->PlatformHandle = GetImGuiPlatformHandle(NativeWindow);
+			Viewport->PlatformHandleRaw = NativeWindow->GetOSNativeWindowHandle();
+			Viewport->Pos = ImVec2(WindowPosition.x, WindowPosition.y);
+			Viewport->Size = ImVec2(WindowSize.x, WindowSize.y);
+			Viewport->WorkPos = Viewport->Pos;
+			Viewport->WorkSize = Viewport->Size;
+			Viewport->DpiScale = NativeWindow->GetDpiScale();
 
-			ImGuiIO& IO = ImGui::GetIO();
-			IO.DisplaySize = ImVec2(WindowSize.x, WindowSize.y);
-			IO.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
-			if (WindowSize.x > 0.0f && WindowSize.y > 0.0f && ViewportSize.x > 0.0f && ViewportSize.y > 0.0f)
+			if (Viewport == ImGui::GetMainViewport())
 			{
-				IO.DisplayFramebufferScale = ImVec2(ViewportSize.x / WindowSize.x, ViewportSize.y / WindowSize.y);
+				ImGuiIO& IO = ImGui::GetIO();
+				IO.DisplaySize = ImVec2(WindowSize.x, WindowSize.y);
+				IO.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
+				if (WindowSize.x > 0.0f && WindowSize.y > 0.0f && ViewportSize.x > 0.0f && ViewportSize.y > 0.0f)
+				{
+					IO.DisplayFramebufferScale = ImVec2(ViewportSize.x / WindowSize.x, ViewportSize.y / WindowSize.y);
+				}
 			}
+		}
+
+		auto SyncMainViewportFrameState(const std::shared_ptr<MWindow>& MainWindow) -> void
+		{
+			UpdateViewportFromWindow(ImGui::GetMainViewport(), MainWindow);
+		}
+
+		auto BindViewportToWindow(ImGuiViewport* Viewport, const std::shared_ptr<MWindow>& Window) -> void
+		{
+			if (!Viewport || !Window)
+			{
+				return;
+			}
+
+			auto* ViewportData = GetViewportData(Viewport);
+			if (ViewportData == nullptr)
+			{
+				ViewportData = new FMonaImGuiViewportData();
+				Viewport->PlatformUserData = ViewportData;
+			}
+
+			ViewportData->Window = Window;
+			UpdateViewportFromWindow(Viewport, Window);
+		}
+
+		auto BindMainViewportToWindowInternal(const std::shared_ptr<MWindow>& MainWindow) -> void
+		{
+			if (!MainWindow)
+			{
+				return;
+			}
+
+			ImGuiViewport* MainViewport = ImGui::GetMainViewport();
+			if (MainViewport == nullptr)
+			{
+				return;
+			}
+
+			BindViewportToWindow(MainViewport, MainWindow);
+			MainViewport->Flags |= ImGuiViewportFlags_OwnedByApp;
 		}
 
 		auto UpdateMonitors() -> void
@@ -209,17 +231,14 @@ namespace Durin::Mona
 			Window->HideWindow();
 
 			auto* ViewportData = new FMonaImGuiViewportData();
-			ViewportData->Window = Window;
-
 			Viewport->PlatformUserData = ViewportData;
-			Viewport->PlatformHandle = GetImGuiPlatformHandle(Window->GetNativeWindow());
-			Viewport->PlatformHandleRaw = Window->GetNativeWindow()->GetOSNativeWindowHandle();
+			BindViewportToWindow(Viewport, Window);
 		}
 
 		auto ImGuiMona_DestroyWindow(ImGuiViewport* Viewport) -> void
 		{
-			auto* ViewportData = static_cast<FMonaImGuiViewportData*>(Viewport->PlatformUserData);
-			if (ViewportData != nullptr && ViewportData->Window != nullptr)
+			auto* ViewportData = GetViewportData(Viewport);
+			if (ViewportData != nullptr && ViewportData->Window != nullptr && (Viewport->Flags & ImGuiViewportFlags_OwnedByApp) == 0)
 			{
 				ViewportData->Window->RequestDestroyWindow();
 			}
@@ -535,12 +554,6 @@ namespace Durin::Mona
 		GMonaImGuiContext = nullptr;
 
 		FlushRenderingCommands();
-		for (ImDrawDataSnapshot& Snapshot : GMainViewportState.DrawDataSnapshots)
-		{
-			Snapshot.Clear();
-		}
-		GMainViewportState.RenderBuffers.Clear();
-		GMainViewportState.Window.reset();
 		ImGui::DestroyContext();
 	}
 
@@ -560,7 +573,7 @@ namespace Durin::Mona
 		IO.DeltaTime = static_cast<float>(CurrentTime - LastTime);
 		LastTime = CurrentTime;
 
-		SyncMainViewport(ImGui::GetMainViewport());
+		SyncMainViewportFrameState(MainWindow);
 		UpdateMonitors();
 
 		ImGuiRHIImpl_NewFrame();
@@ -586,15 +599,24 @@ namespace Durin::Mona
 			ImGui::UpdatePlatformWindows();
 		}
 
-		if (const std::shared_ptr<MWindow> MainWindow = GetMainMonaWindow())
+		if (ImGuiViewport* MainViewport = ImGui::GetMainViewport())
 		{
-			RenderViewport(ImGui::GetMainViewport(), ImGui::GetMainViewport()->DrawData, GMainViewportState.RenderBuffers);
+			if (auto* RenderBuffers = GetViewportRenderBuffers(MainViewport))
+			{
+				RenderViewport(MainViewport, MainViewport->DrawData, *RenderBuffers);
+			}
 		}
 
 		if ((IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
 		{
 			ImGui::RenderPlatformWindowsDefault();
 		}
+	}
+
+	auto FMonaImGuiBackend::BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void
+	{
+		ImGui::SetCurrentContext(GMonaImGuiContext);
+		BindMainViewportToWindowInternal(Window);
 	}
 
 }

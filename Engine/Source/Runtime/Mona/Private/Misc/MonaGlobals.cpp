@@ -2,6 +2,7 @@
 
 #include "Application/MonaApplication.h"
 #include "MonaBackend.h"
+#include "MonaImGuiBackend.h"
 
 namespace Durin::Mona
 {
@@ -28,5 +29,10 @@ namespace Durin::Mona
 	auto Render() -> void
 	{
 		FMonaBackend::Render();
+	}
+
+	auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void
+	{
+		FMonaImGuiBackend::BindMainViewportToWindow(Window);
 	}
 } // namespace Durin::Mona

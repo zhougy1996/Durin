@@ -2,6 +2,7 @@
 
 namespace Durin::Mona
 {
+	class MWindow;
 	extern ImGuiContext* GMonaImGuiContext;
 
 	namespace FMonaImGuiBackend
@@ -13,5 +14,7 @@ namespace Durin::Mona
 		auto NewFrame() -> void;
 
 		auto Render() -> void;
+
+		auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void;
 	};
 }

@@ -36,6 +36,7 @@ namespace Durin
 		RootWindow->SetChild(MainFrame);
 
 		Mona::FMonaApplication::Get().AddWindow(RootWindow, true);
+		Mona::BindMainViewportToWindow(RootWindow);
 		Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
 	}
 }
