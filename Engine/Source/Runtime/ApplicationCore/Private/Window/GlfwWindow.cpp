@@ -9,8 +9,6 @@ namespace Durin
 {
 	namespace
 	{
-		int32 GGlfwWindowCount = 0;
-
 		const std::unordered_map<int32, EKey> GlfwKeyMap = {
 			{GLFW_KEY_ESCAPE, EKey::Escape},
 			{GLFW_KEY_CAPS_LOCK, EKey::CapsLock},
@@ -96,21 +94,25 @@ namespace Durin
 			return EKey::None;
 		}
 
-		auto ConvertGlfwKeyModFlags(int32 InGlfwMods) -> EKeyModFlags
+		auto FromGlfw_KeyModFlags(int32 InGlfwMods) -> EKeyModFlags
 		{
 			auto Modifier = EKeyModFlags::None;
 
 			if (InGlfwMods & GLFW_MOD_SHIFT)
 			{
-				Modifier |= EKeyModFlags::Shift;
+				Modifier = Modifier | EKeyModFlags::Shift;
 			}
 			if (InGlfwMods & GLFW_MOD_CONTROL)
 			{
-				Modifier |= EKeyModFlags::Control;
+				Modifier = Modifier | EKeyModFlags::Control;
 			}
 			if (InGlfwMods & GLFW_MOD_ALT)
 			{
-				Modifier |= EKeyModFlags::Alt;
+				Modifier = Modifier | EKeyModFlags::Alt;
+			}
+			if (InGlfwMods & GLFW_MOD_SUPER)
+			{
+				Modifier = Modifier | EKeyModFlags::Alt;
 			}
 			return Modifier;
 		}
@@ -149,14 +151,15 @@ namespace Durin
 				auto* Handler = GApp->GetMessageHandler();
 				const EKeyAction Action = ConvertGlfwAction(InAction);
 				const EKey Key = ConvertGlfwKey(InKey);
-				const EKeyModFlags Mods = ConvertGlfwKeyModFlags(InMods);
+				const EKeyModFlags Mods = FromGlfw_KeyModFlags(InMods);
 
 				if (Action == EKeyAction::Press || Action == EKeyAction::Repeat)
 				{
 					Handler->OnKeyDown(PlatformWindow, Key, Mods, Action == EKeyAction::Repeat);
 				}
-				else if (Action == EKeyAction::Release)
+				else // if (Action == EKeyAction::Release)
 				{
+					check(Action == EKeyAction::Release)
 					Handler->OnKeyUp(PlatformWindow, Key, Mods);
 				}
 			}
@@ -309,12 +312,6 @@ namespace Durin
 
 		glfwDestroyWindow(GlfwWindow);
 		GlfwWindow = nullptr;
-
-		--GGlfwWindowCount;
-		if (GGlfwWindowCount == 0)
-		{
-			glfwTerminate();
-		}
 	}
 
 	auto FGlfwWindow::Make() -> std::shared_ptr<FGlfwWindow>
@@ -326,11 +323,6 @@ namespace Durin
 	{
 		Definition = InDefinition;
 
-		if (GGlfwWindowCount == 0)
-		{
-			glfwInit();
-		}
-		++GGlfwWindowCount;
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, WindowMode == EWindowMode::Windowed);
 		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);

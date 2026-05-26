@@ -8,7 +8,7 @@ namespace Durin
 {
 	std::shared_ptr<FGenericApplication> GApp = nullptr;
 
-	auto ApplicationInit() -> void
+	auto ApplicationCoreInit() -> void
 	{
 		#ifdef _WIN32
 		SetConsoleOutputCP(CP_UTF8);
@@ -19,5 +19,10 @@ namespace Durin
 		const char** GlfwExtensions;
 		GlfwExtensions = glfwGetRequiredInstanceExtensions(&GlfwExtensionCount);
 		GMonaRequiredVulkanInstanceExtensions.insert(GMonaRequiredVulkanInstanceExtensions.end(), GlfwExtensions, GlfwExtensions + GlfwExtensionCount);
+	}
+
+	auto ApplicationCoreShutdown() -> void
+	{
+		glfwTerminate();
 	}
 }

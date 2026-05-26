@@ -46,7 +46,7 @@ namespace Durin
 
 	auto FEngineLoop::Init() -> void
 	{
-		ApplicationInit();
+		ApplicationCoreInit();
 		RHIInit();
 		Mona::MonaInit();
 		EditorInit();
@@ -119,6 +119,7 @@ namespace Durin
 
 		FModuleManager::Get().UnloadModulesAtShutdown();
 
-		DURIN_INFO(STR("Durin engine exited."));
+		ApplicationCoreShutdown();
+		DURIN_INFO(STR("Durin Engine exited."));
 	}
 } // namespace Durin
