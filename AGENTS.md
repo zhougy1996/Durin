@@ -46,10 +46,8 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ### Rendering stack
 
-- `RHI` is the renderer abstraction layer.
-- `RHIGlobals.cpp` currently hardwires the dynamic RHI backend to `VulkanRHI` by loading the `VulkanRHI` module and calling `CreateRHI()`.
+- `RHI` is the abstract rendering interface, defining the API and resource types for viewports, command buffers, pipelines, textures, etc.
 - `VulkanRHI` owns the concrete backend: instance creation, physical-device selection, device lifetime, swapchain/viewport resources, command buffers, descriptor sets, pipelines, textures, and deferred deletion.
-- `FDynamicRHI::RHIEndFrame_RenderThread()` flushes command submission; Vulkan extends this to advance frame-based deferred deletion.
 
 ### UI / windowing stack
 
@@ -58,6 +56,11 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - `MonaImGuiBackend` integrates Dear ImGui on top of Mona + RHI. It snapshots ImGui draw data and submits rendering work to the render thread.
 - The current editor shell is module-driven:
   - `MainFrame` creates the root `MWindow` and viewport.
+
+### Code style and conventions
+
+- C++20 is the baseline language standard.
+- Most standard libraries are available and already included in the precompiled header. So do not need to include them in individual files, but can be used freely.
 
 ## Important repo-specific behaviors
 
