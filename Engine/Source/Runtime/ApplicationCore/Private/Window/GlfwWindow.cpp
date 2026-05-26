@@ -236,6 +236,7 @@ namespace Durin
 		{
 			switch (Cursor)
 			{
+			case EMouseCursor::None: return 0;
 			case EMouseCursor::Arrow: return GLFW_ARROW_CURSOR;
 			case EMouseCursor::TextInput: return GLFW_IBEAM_CURSOR;
 			case EMouseCursor::ResizeAll: return GLFW_RESIZE_ALL_CURSOR;
@@ -250,7 +251,7 @@ namespace Durin
 		}
 	} // namespace
 
-	GLFWcursor* GGlfwCursors[static_cast<int32>(EMouseCursor::Count)] = {};
+	GLFWcursor* GGlfwCursors[static_cast<int32>(EMouseCursor::Count)] = {nullptr};
 
 	auto InitGlfwCursors() -> void
 	{

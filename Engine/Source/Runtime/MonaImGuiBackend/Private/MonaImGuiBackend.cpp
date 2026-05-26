@@ -52,6 +52,27 @@ namespace Durin::Mona
 			return ViewportData != nullptr ? ViewportData->Window : nullptr;
 		}
 
+		auto FromImGuiMouseCursor(ImGuiMouseCursor Cursor) -> EMouseCursor
+		{
+			switch (Cursor)
+			{
+			case ImGuiMouseCursor_None: return EMouseCursor::None;
+			case ImGuiMouseCursor_Arrow: return EMouseCursor::Arrow;
+			case ImGuiMouseCursor_TextInput: return EMouseCursor::TextInput;
+			case ImGuiMouseCursor_ResizeAll: return EMouseCursor::ResizeAll;
+			case ImGuiMouseCursor_ResizeNS: return EMouseCursor::ResizeNS;
+			case ImGuiMouseCursor_ResizeEW: return EMouseCursor::ResizeEW;
+			case ImGuiMouseCursor_ResizeNESW: return EMouseCursor::ResizeNESW;
+			case ImGuiMouseCursor_ResizeNWSE: return EMouseCursor::ResizeNWSE;
+			case ImGuiMouseCursor_Hand: return EMouseCursor::Hand;
+			case ImGuiMouseCursor_NotAllowed: return EMouseCursor::NotAllowed;
+			case ImGuiMouseCursor_Wait:
+			case ImGuiMouseCursor_Progress:
+			default:
+				return EMouseCursor::Arrow;
+			}
+		}
+
 		auto GetImGuiPlatformHandle(const std::shared_ptr<FGenericWindow>& NativeWindow) -> void*
 		{
 			return NativeWindow != nullptr ? NativeWindow.get() : nullptr;
@@ -165,6 +186,39 @@ namespace Durin::Mona
 				Monitor.WorkSize = ImVec2(static_cast<float>(MonitorInfo.WorkSize.x), static_cast<float>(MonitorInfo.WorkSize.y));
 				Monitor.DpiScale = MonitorInfo.DpiScale;
 				Monitor.PlatformHandle = MonitorInfo.NativeHandle;
+			}
+		}
+
+		auto UpdateMouseCursor() -> void
+		{
+			const ImGuiIO& IO = ImGui::GetIO();
+			if ((IO.ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange) != 0)
+			{
+				return;
+			}
+
+			const EMouseCursor DesiredCursor = FromImGuiMouseCursor(ImGui::GetMouseCursor());
+
+			ImGuiViewport* HoveredViewport = nullptr;
+			if (IO.MouseHoveredViewport != 0)
+			{
+				HoveredViewport = ImGui::FindViewportByID(IO.MouseHoveredViewport);
+			}
+
+			if (HoveredViewport)
+			{
+				FGenericWindow* NativeWindow = static_cast<FGenericWindow*>(HoveredViewport->PlatformHandle);
+				if (NativeWindow)
+				{
+					if (DesiredCursor == EMouseCursor::None || IO.MouseDrawCursor)
+					{
+						NativeWindow->SetCursor(EMouseCursor::None);
+					}
+					else
+					{
+						NativeWindow->SetCursor(DesiredCursor);
+					}
+				}
 			}
 		}
 
@@ -474,6 +528,7 @@ namespace Durin::Mona
 			IO.BackendPlatformName = "Mona";
 			IO.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;
 			IO.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+			IO.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;
 			IO.BackendFlags |= ImGuiBackendFlags_HasMouseHoveredViewport;
 			IO.BackendFlags |= ImGuiBackendFlags_HasParentViewport;
 
@@ -571,7 +626,7 @@ namespace Durin::Mona
 		App.SetMonaEventHandler(nullptr);
 		ImGuiIO& IO = ImGui::GetIO();
 		IO.BackendPlatformName = nullptr;
-		IO.BackendFlags &= ~(ImGuiBackendFlags_PlatformHasViewports | ImGuiBackendFlags_HasMouseHoveredViewport);
+		IO.BackendFlags &= ~(ImGuiBackendFlags_PlatformHasViewports | ImGuiBackendFlags_HasMouseCursors | ImGuiBackendFlags_HasMouseHoveredViewport);
 
 		ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
 		PlatformIO.ClearPlatformHandlers();
@@ -600,10 +655,12 @@ namespace Durin::Mona
 
 		SyncMainViewportFrameState(MainWindow);
 		UpdateMonitors();
+		UpdateMouseCursor();
 
-		auto& App = FMonaApplication::Get();
 		ImGuiRHIImpl_NewFrame();
 		ImGui::NewFrame();
+
+		auto& App = FMonaApplication::Get();
 		App.DrawWindows();
 	}
 
@@ -645,4 +702,4 @@ namespace Durin::Mona
 		ImGui::ShowDemoWindow();
 	}
 
-}
+} // namespace Durin::Mona
