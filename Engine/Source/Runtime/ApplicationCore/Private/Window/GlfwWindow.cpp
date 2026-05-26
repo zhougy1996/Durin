@@ -4,7 +4,6 @@
 #include "Application/GenericApplication.h"
 #include "Application/GenericApplicationMessageHandler.h"
 #include "Misc/ApplicationCoreGlobals.h"
-#include "vulkan/vulkan.hpp"
 
 namespace Durin
 {
@@ -230,7 +229,7 @@ namespace Durin
 			}
 		}
 
-		auto MapToGlfwCursorShape(EMouseCursor Cursor) -> int
+		auto ToGlfw_MouseCursor(EMouseCursor Cursor) -> int
 		{
 			switch (Cursor)
 			{
@@ -243,7 +242,6 @@ namespace Durin
 			case EMouseCursor::ResizeNWSE: return GLFW_RESIZE_NWSE_CURSOR;
 			case EMouseCursor::Hand: return GLFW_POINTING_HAND_CURSOR;
 			case EMouseCursor::NotAllowed: return GLFW_NOT_ALLOWED_CURSOR;
-			case EMouseCursor::None: return -1;
 			default: return GLFW_ARROW_CURSOR;
 			}
 		}
@@ -512,7 +510,7 @@ namespace Durin
 
 		if (!CachedCursors[CursorIndex])
 		{
-			const int GlfwShape = MapToGlfwCursorShape(Cursor);
+			const int GlfwShape = ToGlfw_MouseCursor(Cursor);
 			CachedCursors[CursorIndex] = glfwCreateStandardCursor(GlfwShape);
 		}
 

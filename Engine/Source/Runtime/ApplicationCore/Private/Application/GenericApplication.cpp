@@ -1,5 +1,7 @@
 #include "Application/GenericApplication.h"
 
+#include "Window/GlfwWindow.h"
+
 namespace Durin
 {
 	auto FGenericApplication::Tick() -> void
@@ -13,4 +15,9 @@ namespace Durin
 	{
 		return nullptr;
 	}
-}
+
+	auto MakePlatformWindow() -> std::shared_ptr<FGenericWindow>
+	{
+		return FGlfwWindow::Make();
+	}
+} // namespace Durin

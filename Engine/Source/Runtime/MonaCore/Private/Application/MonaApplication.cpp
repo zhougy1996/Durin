@@ -6,7 +6,6 @@
 #include "Misc/ApplicationCoreGlobals.h"
 #include "Rendering/MonaRHIRenderer.h"
 #include "Widgets/MWindow.h"
-#include "Window/GlfwWindow.h"
 
 #include "RenderingThread.h"
 
@@ -315,7 +314,7 @@ namespace Durin::Mona
 
 	auto FMonaApplication::MakeWindow(const std::shared_ptr<MWindow>& InMonaWindow, bool bInShowImmediately) -> std::shared_ptr<FGenericWindow>
 	{
-		std::shared_ptr<FGenericWindow> NewWindow = FGlfwWindow::Make();
+		std::shared_ptr<FGenericWindow> NewWindow = MakePlatformWindow();
 
 		const auto Definition = std::make_shared<FGenericWindowDefinition>();
 

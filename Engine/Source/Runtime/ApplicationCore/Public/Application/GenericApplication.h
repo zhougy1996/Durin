@@ -40,4 +40,7 @@ namespace Durin
 	protected:
 		FGenericApplicationMessageHandler* MessageHandler = nullptr;
 	};
-}
+
+	APPLICATIONCORE_API auto MakePlatformWindow() -> std::shared_ptr<FGenericWindow>;
+
+} // namespace Durin

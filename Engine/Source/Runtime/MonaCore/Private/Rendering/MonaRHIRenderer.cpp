@@ -2,10 +2,6 @@
 
 #include "DynamicRHI.h"
 #include "Widgets/MWindow.h"
-#include "Window/GlfwWindow.h"
-#include "RenderingThread.h"
-
-#include <ranges>
 
 namespace Durin::Mona
 {
@@ -32,8 +28,8 @@ namespace Durin::Mona
 		int32 Width = FMath::Max(MIN_VIEWPORT_SIZE, FMath::CeilToInt(ViewportSize.x));
 		int32 Height = FMath::Max(MIN_VIEWPORT_SIZE, FMath::CeilToInt(ViewportSize.y));
 
-		std::shared_ptr<FGlfwWindow> GLFWWindow = std::dynamic_pointer_cast<FGlfwWindow>(Window->GetNativeWindow());
-		check(GLFWWindow != nullptr);
+		std::shared_ptr<FGenericWindow> PlatformWindow = Window->GetNativeWindow();
+		check(PlatformWindow != nullptr);
 
 		bool bFullScreen = false;
 
@@ -43,7 +39,7 @@ namespace Durin::Mona
 		}
 
 		auto* ViewportInfo = new FMonaViewportInfo();
-		ViewportInfo->ViewportRHI = GDynamicRHI->RHICreateViewport(GLFWWindow->GetOSNativeWindowHandle(), Width, Height, bFullScreen, EPixelFormat::SRGBA8_UNORM);
+		ViewportInfo->ViewportRHI = GDynamicRHI->RHICreateViewport(PlatformWindow->GetOSNativeWindowHandle(), Width, Height, bFullScreen, EPixelFormat::SRGBA8_UNORM);
 		ViewportInfo->bFullScreen = bFullScreen;
 		WindowToViewportInfoMap.emplace(Window.get(), ViewportInfo);
 	}
