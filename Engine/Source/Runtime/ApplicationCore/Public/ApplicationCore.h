@@ -1,3 +1,3 @@
 #pragma once
 
-#include "Misc/ApplicationCoreGlobals.h"
+#include "ApplicationCoreGlobals.h"

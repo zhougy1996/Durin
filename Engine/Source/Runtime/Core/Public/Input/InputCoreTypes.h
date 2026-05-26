@@ -23,7 +23,9 @@ namespace Durin
 		ResizeNESW, // top-right to the bottom-left.
 		ResizeNWSE, // top-left to the bottom-right.
 		Hand,
-		NotAllowed
+		NotAllowed,
+
+		Count
 	};
 
 	enum class EKey : uint16

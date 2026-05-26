@@ -3,7 +3,7 @@
 #include "CoreGlobals.h"
 
 #include "Application/MonaWindowHelper.h"
-#include "Misc/ApplicationCoreGlobals.h"
+#include "ApplicationCore.h"
 #include "Rendering/MonaRHIRenderer.h"
 #include "Widgets/MWindow.h"
 

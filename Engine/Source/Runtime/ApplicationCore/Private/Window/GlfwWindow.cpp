@@ -3,7 +3,7 @@
 #include "ThirdParty/Glfw/GlfwCommon.h"
 #include "Application/GenericApplication.h"
 #include "Application/GenericApplicationMessageHandler.h"
-#include "Misc/ApplicationCoreGlobals.h"
+#include "ApplicationCore.h"
 
 namespace Durin
 {
@@ -73,7 +73,7 @@ namespace Durin
 			{GLFW_KEY_KP_EQUAL, EKey::KeypadEquals},
 		};
 
-		auto ConvertGlfwKey(int32 GlfwKey) -> EKey
+		auto FromGlfw_Key(int32 GlfwKey) -> EKey
 		{
 			if (const auto It = GlfwKeyMap.find(GlfwKey); It != GlfwKeyMap.end())
 			{
@@ -117,7 +117,7 @@ namespace Durin
 			return Modifier;
 		}
 
-		auto ConvertGlfwAction(int32 GlfwAction) -> EKeyAction
+		auto FromGlfw_KeyAction(int32 GlfwAction) -> EKeyAction
 		{
 			switch (GlfwAction)
 			{
@@ -128,7 +128,7 @@ namespace Durin
 			}
 		}
 
-		auto ConvertGlfwMouseButton(int32 GlfwButton) -> EMouseButton
+		auto FromGlfw_MouseButton(int32 GlfwButton) -> EMouseButton
 		{
 			switch (GlfwButton)
 			{
@@ -149,8 +149,8 @@ namespace Durin
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
 				auto* Handler = GApp->GetMessageHandler();
-				const EKeyAction Action = ConvertGlfwAction(InAction);
-				const EKey Key = ConvertGlfwKey(InKey);
+				const EKeyAction Action = FromGlfw_KeyAction(InAction);
+				const EKey Key = FromGlfw_Key(InKey);
 				const EKeyModFlags Mods = FromGlfw_KeyModFlags(InMods);
 
 				if (Action == EKeyAction::Press || Action == EKeyAction::Repeat)
@@ -178,7 +178,7 @@ namespace Durin
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
 				auto* Handler = GApp->GetMessageHandler();
-				EMouseButton MouseButton = ConvertGlfwMouseButton(Button);
+				EMouseButton MouseButton = FromGlfw_MouseButton(Button);
 				FVector2d CursorPos;
 				glfwGetCursorPos(InGlfwWindow, &CursorPos.x, &CursorPos.y);
 				if (Action == GLFW_PRESS)
@@ -250,6 +250,28 @@ namespace Durin
 		}
 	} // namespace
 
+	GLFWcursor* GGlfwCursors[static_cast<int32>(EMouseCursor::Count)] = {};
+
+	auto InitGlfwCursors() -> void
+	{
+		for (int32 CursorIndex = 0; CursorIndex < static_cast<int32>(EMouseCursor::Count); ++CursorIndex)
+		{
+			GGlfwCursors[CursorIndex] = glfwCreateStandardCursor(ToGlfw_MouseCursor(static_cast<EMouseCursor>(CursorIndex)));
+		}
+	}
+
+	auto DestroyGlfwCursors() -> void
+	{
+		for (GLFWcursor*& Cursor : GGlfwCursors)
+		{
+			if (Cursor != nullptr)
+			{
+				glfwDestroyCursor(Cursor);
+				Cursor = nullptr;
+			}
+		}
+	}
+
 	auto EnumerateMonitors() -> std::vector<FMonitorInfo>
 	{
 		std::vector<FMonitorInfo> Monitors;
@@ -301,15 +323,6 @@ namespace Durin
 
 	FGlfwWindow::~FGlfwWindow()
 	{
-		for (void*& Cursor : CachedCursors)
-		{
-			if (Cursor != nullptr)
-			{
-				glfwDestroyCursor(static_cast<GLFWcursor*>(Cursor));
-				Cursor = nullptr;
-			}
-		}
-
 		glfwDestroyWindow(GlfwWindow);
 		GlfwWindow = nullptr;
 	}
@@ -499,14 +512,7 @@ namespace Durin
 		}
 
 		glfwSetInputMode(GlfwWindow, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-
-		if (!CachedCursors[CursorIndex])
-		{
-			const int GlfwShape = ToGlfw_MouseCursor(Cursor);
-			CachedCursors[CursorIndex] = glfwCreateStandardCursor(GlfwShape);
-		}
-
-		glfwSetCursor(GlfwWindow, static_cast<GLFWcursor*>(CachedCursors[CursorIndex]));
+		glfwSetCursor(GlfwWindow, GGlfwCursors[CursorIndex]);
 	}
 
 

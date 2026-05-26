@@ -7,6 +7,10 @@ struct GLFWwindow;
 
 namespace Durin
 {
+	auto InitGlfwCursors() -> void;
+
+	auto DestroyGlfwCursors() -> void;
+
 	class FGlfwWindow final : public FGenericWindow
 	{
 	public:
@@ -64,7 +68,6 @@ namespace Durin
 		FGlfwWindow();
 
 		GLFWwindow* GlfwWindow = nullptr;
-
-		void* CachedCursors[10] = {};
 	};
+
 }

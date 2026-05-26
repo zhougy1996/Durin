@@ -1,7 +1,6 @@
 #include "MonaGlobals.h"
 
 #include "Application/MonaApplication.h"
-#include "Misc/ApplicationCoreGlobals.h"
 #include "MonaBackend.h"
 #include "MonaImGuiBackend.h"
 

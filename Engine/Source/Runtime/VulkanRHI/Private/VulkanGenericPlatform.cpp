@@ -1,6 +1,6 @@
 #include "VulkanGenericPlatform.h"
 
-#include "Misc/ApplicationCoreGlobals.h"
+#include "ApplicationCore.h"
 #include "Application/GenericApplication.h"
 #include "Window/GenericWindow.h"
 
