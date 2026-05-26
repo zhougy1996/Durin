@@ -363,13 +363,8 @@ namespace Durin::Mona
 		{
 			if (const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport))
 			{
-				if (const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow())
-				{
-					const FIntPoint SizeInt = NativeWindow->GetWindowSize();
-					const FVector2f Size(static_cast<float>(SizeInt.x), static_cast<float>(SizeInt.y));
-					Window->SetCachedSize(Size);
-					return {Size.x, Size.y};
-				}
+				auto Size = Window->GetWindowSize();
+				return {Size.x, Size.y};
 			}
 			return {};
 		}
@@ -671,10 +666,6 @@ namespace Durin::Mona
 		ImGui::Render();
 
 		ImGuiIO& IO = ImGui::GetIO();
-		if ((IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
-		{
-			ImGui::UpdatePlatformWindows();
-		}
 
 		if (ImGuiViewport* MainViewport = ImGui::GetMainViewport())
 		{
@@ -686,8 +677,10 @@ namespace Durin::Mona
 
 		if ((IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
 		{
+			ImGui::UpdatePlatformWindows();
 			ImGui::RenderPlatformWindowsDefault();
 		}
+
 	}
 
 	auto FMonaImGuiBackend::BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void
