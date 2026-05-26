@@ -371,7 +371,11 @@ namespace Durin::Mona
 
 	auto FMonaApplication::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool
 	{
-		return MonaEventHandler ? MonaEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat) : false;
+		if (MonaEventHandler && MonaEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat))
+		{
+			return true;
+		}
+		return false;
 	}
 
 	auto FMonaApplication::OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool

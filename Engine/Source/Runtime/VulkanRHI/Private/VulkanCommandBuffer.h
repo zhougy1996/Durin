@@ -26,7 +26,7 @@ namespace Durin::VulkanRHI
 
 		auto SetSubmitted() -> void;
 
-		auto BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer) -> void;
+		auto BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer, const vk::ClearValue& InClearValue) -> void;
 
 		auto EndRenderPass() -> void;
 

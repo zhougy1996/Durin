@@ -83,17 +83,15 @@ namespace Durin::VulkanRHI
 		State = EState::Submitted;
 	}
 
-	auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer) -> void
+	auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer, const vk::ClearValue& InClearValue) -> void
 	{
 		vk::RenderPassBeginInfo BeginInfo;
-
-		vk::ClearValue ClearColorValue{{0.0f, 0.0f, 0.0f, 1.0f}};
 
 		BeginInfo
 			.setRenderPass(InRenderPass->GetHandle())
 			.setFramebuffer(InFramebuffer->GetHandle())
 			.setRenderArea({{0, 0}, InFramebuffer->GetExtent()})
-			.setClearValues(ClearColorValue);
+			.setClearValues(InClearValue);
 
 		// Begin render pass
 		Handle.beginRenderPass(BeginInfo, vk::SubpassContents::eInline);

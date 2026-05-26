@@ -305,7 +305,8 @@ namespace Durin::Mona
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* InTargetFrameBuffer,
 		const ImDrawData* DrawData,
-		FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers
+		FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers,
+		const FClearValueBinding& ClearValue
 	) -> void
 	{
 		check(IsInRenderingThread());
@@ -323,6 +324,7 @@ namespace Durin::Mona
 		// Render pass
 		FRHIRenderPassInfo PassInfo{};
 		PassInfo.ColorRenderTargets[0] = InTargetFrameBuffer;
+		PassInfo.ColorClearValue = ClearValue;
 
 		CommandList.BeginRenderPass(PassInfo, "ImGuiRenderPass");
 		ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers);
@@ -394,11 +396,13 @@ namespace Durin::Mona
 
 	static auto ImGuiRHIImplRT_ClearViewport(
 		FRHICommandListImmediate& CommandList,
-		FRHITexture* InTargetFrameBuffer
+		FRHITexture* InTargetFrameBuffer,
+		const FClearValueBinding& ClearValue
 	) -> void
 	{
 		FRHIRenderPassInfo PassInfo{};
 		PassInfo.ColorRenderTargets[0] = InTargetFrameBuffer;
+		PassInfo.ColorClearValue = ClearValue;
 		CommandList.BeginRenderPass(PassInfo, "ImGuiRenderPass");
 		CommandList.EndRenderPass();
 	}
@@ -419,7 +423,10 @@ namespace Durin::Mona
 			}
 		}
 
-		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData, WindowRenderBuffers](FRHICommandListImmediate& CommandList) {
+		const ImVec4 WindowBgColor = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+		const FClearValueBinding ClearValue(WindowBgColor.x, WindowBgColor.y, WindowBgColor.z, 1.0f);
+
+		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData, WindowRenderBuffers, ClearValue](FRHICommandListImmediate& CommandList) {
 			check(WindowRenderBuffers != nullptr);
 			auto& RenderBuffersCurrentFrame = WindowRenderBuffers->FrameRenderBuffers[GFrameCounterRenderThread % kFrameInFlight];
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
@@ -435,11 +442,11 @@ namespace Durin::Mona
 
 			if (DrawData != nullptr && DrawData->TotalVtxCount > 0 && DrawData->TotalIdxCount > 0)
 			{
-				ImGuiRHIImplRT_RenderDrawData(CommandList, BackBuffer, DrawData, RenderBuffersCurrentFrame);
+				ImGuiRHIImplRT_RenderDrawData(CommandList, BackBuffer, DrawData, RenderBuffersCurrentFrame, ClearValue);
 			}
 			else
 			{
-				ImGuiRHIImplRT_ClearViewport(CommandList, BackBuffer);
+				ImGuiRHIImplRT_ClearViewport(CommandList, BackBuffer, ClearValue);
 			}
 
 			CommandList.EndDrawingViewport(ViewportRHI, true, false);

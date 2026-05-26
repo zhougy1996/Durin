@@ -3,6 +3,8 @@
 #include "Mona.h"
 #include "LevelEditorModule.h"
 
+#include "DurinEngine.h"
+
 namespace Durin
 {
 	IMPLEMENT_MODULE(FMainFrameModule, MainFrame)
@@ -28,6 +30,7 @@ namespace Durin
 		public:
 			auto Draw() -> void override
 			{
+				// DURIN_DEBUG("FPS: {}", GAverageFPS);
 				Mona::ShowDemoWindow();
 			}
 		};

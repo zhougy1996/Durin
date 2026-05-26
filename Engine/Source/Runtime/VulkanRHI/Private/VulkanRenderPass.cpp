@@ -103,7 +103,15 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanRenderPassManager::BeginRenderPass(FVulkanCommandListContext& Context, FVulkanDevice& Device, FVulkanCommandBuffer* CmdBuffer, const FRHIRenderPassInfo& RPInfo, FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer) -> void
 	{
-		CmdBuffer->BeginRenderPass(RenderPass, Framebuffer);
+		const FClearValueBinding& ClearValue = RPInfo.ColorClearValue;
+		check(ClearValue.Binding == EClearBinding::Color);
+		const vk::ClearValue VulkanClearValue{{
+			ClearValue.ClearValue.Color[0],
+			ClearValue.ClearValue.Color[1],
+			ClearValue.ClearValue.Color[2],
+			ClearValue.ClearValue.Color[3]
+		}};
+		CmdBuffer->BeginRenderPass(RenderPass, Framebuffer, VulkanClearValue);
 	}
 
 	auto FVulkanRenderPassManager::EndRenderPass(FVulkanCommandBuffer* InCmdBuffer) -> void

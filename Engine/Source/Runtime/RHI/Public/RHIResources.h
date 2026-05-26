@@ -272,6 +272,15 @@ namespace Durin
 			ClearValue.DSValue.Stencil = 0;
 		}
 
+		constexpr FClearValueBinding(float R, float G, float B, float A = 1.0f)
+			: Binding(EClearBinding::Color)
+		{
+			ClearValue.Color[0] = R;
+			ClearValue.Color[1] = G;
+			ClearValue.Color[2] = B;
+			ClearValue.Color[3] = A;
+		}
+
 		union FClearValue
 		{
 			float Color[4];
@@ -467,6 +476,7 @@ namespace Durin
 	struct FRHIRenderPassInfo
 	{
 		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets];
+		FClearValueBinding ColorClearValue;
 	};
 
 	using FVertexDeclarationElementList = std::array<struct FVertexElement, MaxVertexElementCount>;
