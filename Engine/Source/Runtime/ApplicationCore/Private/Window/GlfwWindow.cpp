@@ -112,7 +112,7 @@ namespace Durin
 			}
 			if (InGlfwMods & GLFW_MOD_SUPER)
 			{
-				Modifier = Modifier | EKeyModFlags::Alt;
+				Modifier = Modifier | EKeyModFlags::Super;
 			}
 			return Modifier;
 		}
