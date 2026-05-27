@@ -1,0 +1,13 @@
+{
+    "name": "yyjson smoke test",
+    "version": 1,
+    "features": [
+        "parse",
+        "load-file",
+        "errors"
+    ],
+    "flags": {
+        "enabled": true,
+        "threshold": 0.75
+    }
+}

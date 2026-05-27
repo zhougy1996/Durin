@@ -11,6 +11,7 @@ target_include_directories(Core PRIVATE
 
 target_link_libraries(Core PRIVATE
     spdlog::spdlog
+    yyjson::yyjson
 )
 
 target_link_libraries(Core PUBLIC

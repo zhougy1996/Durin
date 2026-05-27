@@ -14,6 +14,7 @@
         "Mona": "Source/Runtime/Mona",
         "MonaImGuiBackend": "Source/Runtime/MonaImGuiBackend",
         "Launch": "Source/Runtime/Launch",
+        "JsonSmokeTest": "Source/Programs/JsonSmokeTest",
         "DurinEd": "Source/Editor/DurinEd",
         "MainFrame": "Source/Editor/MainFrame",
         "LevelEditor": "Source/Editor/LevelEditor",
