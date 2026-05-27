@@ -27,7 +27,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanBackBuffer::AcquireBackBufferImage(FVulkanCommandListContext& Context)
 	{
 		check(Viewport->AcquiredBackBufferIndex >= 0 && Viewport->AcquiredBackBufferIndex < static_cast<int32>(Viewport->TextureViews.size()));
-		const FVulkanTextureView& View = Viewport->TextureViews[Viewport->AcquiredBackBufferIndex];
+		const FVulkanView& View = Viewport->TextureViews[Viewport->AcquiredBackBufferIndex];
 		Image = View.Image;
 		if (Viewport->AcquiredSemaphore != nullptr)
 		{
@@ -88,7 +88,7 @@ namespace Durin::VulkanRHI
 		CreateSwapchain();
 	}
 
-	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanTextureView&
+	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanView&
 	{
 		AcquiredBackBufferIndex = static_cast<int32>(Swapchain->AcquireImageIndex(&AcquiredSemaphore));
 		check(AcquiredBackBufferIndex >= 0 && AcquiredBackBufferIndex < static_cast<int32>(TextureViews.size()));

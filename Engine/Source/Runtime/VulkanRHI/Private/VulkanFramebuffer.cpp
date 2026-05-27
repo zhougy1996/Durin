@@ -36,7 +36,7 @@ namespace Durin::VulkanRHI
 
 			vk::ImageView ImageView = Device.GetHandle().createImageView(ImageViewCreateInfo);
 
-			FVulkanTextureView TextureView{Image, ImageView};
+			FVulkanView TextureView{Image, ImageView};
 
 			ColorRenderTargetImages[i] = Image;
 			AttachmentTextureViews.push_back(TextureView);
@@ -63,10 +63,23 @@ namespace Durin::VulkanRHI
 
 	FVulkanFramebuffer::~FVulkanFramebuffer()
 	{
-		for (FVulkanTextureView& View : AttachmentTextureViews)
+		for (FVulkanView& View : AttachmentTextureViews)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, View.ImageView);
 		}
 		Device.GetDeferredDeletionQueue(). EnqueueResource(FDeferredDeletionQueue::EType::Framebuffer, Framebuffer);
+	}
+
+	auto FVulkanFramebuffer::ContainsRenderTarget(vk::Image Image) const -> bool
+	{
+		for (uint32 i = 0; i < NumColorAttachments; ++i)
+		{
+			if (ColorRenderTargetImages[i] == Image)
+			{
+				return true;
+			}
+		}
+
+		return DepthStencilRenderTargetImage == Image;
 	}
 } // namespace Durin::VulkanRHI

@@ -11,7 +11,7 @@ namespace Durin::VulkanRHI
 	class FVulkanCommandBuffer;
 	class FVulkanQueue;
 	class FVulkanSemaphore;
-	struct FVulkanTextureView;
+	struct FVulkanView;
 
 	class FVulkanViewport;
 
@@ -45,7 +45,7 @@ namespace Durin::VulkanRHI
 
 		auto GetBackBufferImages() -> const std::vector<vk::Image>& { return BackBufferImages; }
 
-		auto AcquireBackBufferImage() -> FVulkanTextureView&;
+		auto AcquireBackBufferImage() -> FVulkanView&;
 
 		auto GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture> override;
 
@@ -73,7 +73,7 @@ namespace Durin::VulkanRHI
 
 		std::vector<vk::Image> BackBufferImages;
 
-		std::vector<FVulkanTextureView> TextureViews;
+		std::vector<FVulkanView> TextureViews;
 
 		// These semaphores will be signaled when rendering to the corresponding swapchain image is done, and will be waited on before presenting that image.
 		std::vector<FVulkanSemaphore*> RenderingDoneSemaphores;

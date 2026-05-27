@@ -5,6 +5,8 @@ namespace Durin
 {
 	constexpr uint32 kFrameInFlight = 2;
 	constexpr uint32 MaxSimultaneousRenderTargets = 8U;
+	constexpr uint32 MaxSimultaneousRenderTargets_NumBits = 3U;
+	static_assert(MaxSimultaneousRenderTargets <= (1U << MaxSimultaneousRenderTargets), "MaxSimultaneousRenderTargets exceeds the number of bits allocated for it.");
 
 	constexpr uint32 MaxVertexElementCount = 17U;
 	constexpr uint8 MaxVertexElementCount_NumBits = 5U;

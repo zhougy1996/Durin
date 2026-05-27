@@ -2,7 +2,7 @@
 
 namespace Durin::VulkanRHI
 {
-	struct FVulkanTextureView
+	struct FVulkanView
 	{
 		vk::Image Image;
 		vk::ImageView ImageView;

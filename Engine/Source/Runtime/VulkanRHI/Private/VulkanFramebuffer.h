@@ -19,6 +19,8 @@ namespace Durin::VulkanRHI
 
 		auto GetExtent() const -> vk::Extent2D { return Extent; }
 
+		auto ContainsRenderTarget(vk::Image Image) const -> bool;
+
 	private:
 		FVulkanDevice& Device;
 
@@ -26,12 +28,12 @@ namespace Durin::VulkanRHI
 
 		vk::Extent2D Extent;
 
-		std::vector<FVulkanTextureView> AttachmentTextureViews;
+		std::vector<FVulkanView> AttachmentTextureViews;
 
-		// Logical color render targets
+		// How many logical color outputs the pass has
 		uint32 NumColorRenderTargets;
-
-		// Actual color attachments required by the render pass, which may be more than the logical color render targets due to multi-sample resolve attachments
+		// How many color-related attachment entries the Vulkan framebuffer actually contains, which may be more than NumColorRenderTargets if any of the render targets is also used as a resolve target.
+		// NumColorAttachments = NumColorRenderTargets + NumColorResolveTargets, but we store it separately for convenience.
 		uint32 NumColorAttachments;
 
 		vk::Image ColorRenderTargetImages[MaxSimultaneousRenderTargets];
