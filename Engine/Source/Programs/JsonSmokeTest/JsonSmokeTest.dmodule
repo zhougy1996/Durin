@@ -1,6 +1,0 @@
-{
-    "ModuleName": "JsonSmokeTest",
-    "PrivateDependencies": [
-        "Core"
-    ]
-}

@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(Durin LANGUAGES CXX)
+include(CTest)
 
 set(DURIN_CMAKE_DIR "${PROJECT_SOURCE_DIR}/CMake")
 

@@ -116,6 +116,23 @@ function(durin_add_module module_name)
 	durin_end() # ${module_name}
 endfunction()
 
+function(durin_add_test_target target_name)
+	add_executable(${target_name} ${ARGN})
+
+	target_compile_definitions(${target_name} PRIVATE
+		$<$<CONFIG:Debug>:DURIN_BUILD_DEBUG=1>
+		$<$<CONFIG:Release>:DURIN_BUILD_RELEASE=1>
+		MODULE_NAME="${target_name}"
+	)
+
+	if(TARGET SharedPCH_Core)
+		target_precompile_headers(${target_name} REUSE_FROM SharedPCH_Core)
+	endif()
+
+	durin_set_module_output(${target_name})
+	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}")
+endfunction()
+
 function(durin_copy_external_target_binary target dependent_target)
 	get_filename_component(file_name "$<TARGET_FILE_NAME:${dependent_target}>" NAME)
 	add_custom_command(TARGET ${target} POST_BUILD

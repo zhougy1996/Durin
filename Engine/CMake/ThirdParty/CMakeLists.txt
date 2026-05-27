@@ -7,3 +7,7 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/rapidyaml)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/assimp)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/slang)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/yyjson)
+
+if(BUILD_TESTING)
+	add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/googletest)
+endif()
