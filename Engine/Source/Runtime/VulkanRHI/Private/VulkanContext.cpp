@@ -201,6 +201,10 @@ namespace Durin::VulkanRHI
 		Payload.SignalSemaphores.insert(Payload.SignalSemaphores.end(), InSignalSemaphores.begin(), InSignalSemaphores.end());
 	}
 
+	auto FVulkanCommandListContext::NotifyDeleted_Image(vk::Image Image) -> void
+	{
+	}
+
 	auto FVulkanCommandListContext::Finalize() -> void
 	{
 		GetCommandBuffer()->End();

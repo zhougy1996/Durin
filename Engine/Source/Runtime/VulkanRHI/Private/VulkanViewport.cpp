@@ -5,7 +5,6 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 #include "VulkanView.h"
-#include "VulkanCommandBuffer.h"
 #include "VulkanContext.h"
 #include "VulkanSwapchain.h"
 #include "VulkanQueue.h"
@@ -203,6 +202,12 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::DestroySwapchain() -> void
 	{
 		GDynamicRHI->RHIBlockUntilGPUIdle();
+
+		const std::vector<vk::Image>& SwapchainImages = Swapchain->GetImages();
+		for (uint32 i = 0; i < SwapchainImages.size(); ++i)
+		{
+			Device.NotifyDeleted_Image(SwapchainImages[i]);
+		}
 
 		delete Swapchain;
 		Swapchain = nullptr;

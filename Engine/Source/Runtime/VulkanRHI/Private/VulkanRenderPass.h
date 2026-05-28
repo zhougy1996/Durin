@@ -40,11 +40,13 @@ namespace Durin::VulkanRHI
 
 		auto EndRenderPass(FVulkanCommandBuffer* InCmdBuffer) -> void;
 
+		auto NotifyDeleted_Image(vk::Image Image) -> void;
+
 	private:
 		FVulkanDevice& Device;
 
-		std::unordered_map<FName, std::shared_ptr<FVulkanRenderPass>> RenderPasses;
+		std::unordered_map<FName, std::unique_ptr<FVulkanRenderPass>> RenderPasses;
 
-		std::vector<FVulkanFramebuffer*> FrameBuffers;
+		std::vector<std::unique_ptr<FVulkanFramebuffer>> FrameBuffers;
 	};
 }

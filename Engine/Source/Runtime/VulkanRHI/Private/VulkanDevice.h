@@ -139,6 +139,8 @@ namespace Durin::VulkanRHI
 
 		auto GetCurrentFrame() -> FVulkanFrame&;
 
+		auto NotifyDeleted_Image(vk::Image Image) -> void;
+
 	private:
 		auto Destroy() -> void;
 

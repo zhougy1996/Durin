@@ -133,22 +133,7 @@ namespace Durin::VulkanRHI
 		FVulkanSemaphore* CurrentSemaphore = ImageAcquiredSemaphores[NextSemaphoreIndex];
 		NextSemaphoreIndex = (NextSemaphoreIndex + 1) % ImageAcquiredSemaphores.size();
 
-		vk::ResultValue<uint32> Result(vk::Result::eSuccess, 0);
-		try
-		{
-			Result = Device.GetHandle().acquireNextImageKHR(Swapchain, UINT64_MAX, CurrentSemaphore->GetHandle(), nullptr);
-		}
-		catch (const vk::SystemError& Error)
-		{
-			const vk::Result ErrorResult = GetSystemErrorResult(Error);
-			CurrentImageIndex = -1;
-			*OutImageAcquiredSemaphore = nullptr;
-			if (!IsRecoverableSwapchainResult(ErrorResult))
-			{
-				DURIN_ERROR("Failed to acquire swap chain image: {}", Error.what());
-			}
-			return UINT32_MAX;
-		}
+		const vk::ResultValue<uint32> Result = Device.GetHandle().acquireNextImageKHR(Swapchain, UINT64_MAX, CurrentSemaphore->GetHandle(), nullptr);
 
 		if (Result.result != vk::Result::eSuccess && Result.result != vk::Result::eSuboptimalKHR)
 		{

@@ -66,6 +66,8 @@ namespace Durin::VulkanRHI
 
 		auto GetQueue() const -> FVulkanQueue* { return Queue; }
 
+		auto NotifyDeleted_Image(vk::Image Image) -> void;
+
 		// Submit and reset context
 		auto Finalize() -> void;
 

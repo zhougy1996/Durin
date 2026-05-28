@@ -339,6 +339,11 @@ namespace Durin::VulkanRHI
 		return *Frames[GFrameCounterRenderThread % Frames.size()];
 	}
 
+	auto FVulkanDevice::NotifyDeleted_Image(vk::Image Image) -> void
+	{
+		GetRenderPassManager().NotifyDeleted_Image(Image);
+	}
+
 	auto FVulkanDevice::Destroy() -> void
 	{
 		for (auto*& Frame : Frames)

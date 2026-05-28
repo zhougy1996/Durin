@@ -61,10 +61,6 @@ namespace Durin::VulkanRHI
 
 	FVulkanRenderPassManager::~FVulkanRenderPassManager()
 	{
-		for (FVulkanFramebuffer* Framebuffer : FrameBuffers)
-		{
-			delete Framebuffer;
-		}
 		FrameBuffers.clear();
 	}
 
@@ -76,9 +72,8 @@ namespace Durin::VulkanRHI
 			return It->second.get();
 		}
 
-		std::shared_ptr<FVulkanRenderPass> RenderPass = std::make_unique<FVulkanRenderPass>(Device, InFormat);
-		RenderPasses.emplace(InRenderPassName, RenderPass);
-		return RenderPass.get();
+		RenderPasses.emplace(InRenderPassName, std::make_unique<FVulkanRenderPass>(Device, InFormat));
+		return RenderPasses[InRenderPassName].get();
 	}
 
 	auto FVulkanRenderPassManager::GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo) -> FVulkanFramebuffer*
@@ -87,30 +82,24 @@ namespace Durin::VulkanRHI
 		check(RTInfo.NumColorRenderTargets == 1);
 		FVulkanTexture* RT = static_cast<FVulkanTexture*>(RTInfo.ColorRenderTargets[0]);
 
-		for (FVulkanFramebuffer* Framebuffer : FrameBuffers)
+		for (auto& Framebuffer : FrameBuffers)
 		{
 			if (Framebuffer->ColorRenderTargetImages[0] == RT->Image)
 			{
-				return Framebuffer;
+				return Framebuffer.get();
 			}
 		}
-		//TODO: Render pass should be selected based on render target layout, but now we just use the first one for simplicity
+		// TODO: Render pass should be selected based on render target layout, but now we just use the first one for simplicity
 		FVulkanRenderPass* TestRenderPass = RenderPasses.begin()->second.get();
-		FVulkanFramebuffer* Framebuffer = new FVulkanFramebuffer(Device, RTInfo, *TestRenderPass);
-		FrameBuffers.push_back(Framebuffer);
-		return Framebuffer;
+		FrameBuffers.push_back(std::make_unique<FVulkanFramebuffer>(Device, RTInfo, *TestRenderPass));
+		return FrameBuffers.back().get();
 	}
 
 	auto FVulkanRenderPassManager::BeginRenderPass(FVulkanCommandListContext& Context, FVulkanDevice& Device, FVulkanCommandBuffer* CmdBuffer, const FRHIRenderPassInfo& RPInfo, FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer) -> void
 	{
 		const FClearValueBinding& ClearValue = RPInfo.ColorClearValue;
 		check(ClearValue.Binding == EClearBinding::Color);
-		const vk::ClearValue VulkanClearValue{{
-			ClearValue.ClearValue.Color[0],
-			ClearValue.ClearValue.Color[1],
-			ClearValue.ClearValue.Color[2],
-			ClearValue.ClearValue.Color[3]
-		}};
+		const vk::ClearValue VulkanClearValue{{ClearValue.ClearValue.Color[0], ClearValue.ClearValue.Color[1], ClearValue.ClearValue.Color[2], ClearValue.ClearValue.Color[3]}};
 		CmdBuffer->BeginRenderPass(RenderPass, Framebuffer, VulkanClearValue);
 	}
 
@@ -118,4 +107,16 @@ namespace Durin::VulkanRHI
 	{
 		InCmdBuffer->EndRenderPass();
 	}
-}
+
+	auto FVulkanRenderPassManager::NotifyDeleted_Image(vk::Image Image) -> void
+	{
+		auto ToErase = std::ranges::remove_if(
+			FrameBuffers,
+			[Image](const std::unique_ptr<FVulkanFramebuffer>& Framebuffer) {
+				return Framebuffer->ContainsRenderTarget(Image);
+			}
+		);
+
+		FrameBuffers.erase(ToErase.begin(), ToErase.end());
+	}
+} // namespace Durin::VulkanRHI
