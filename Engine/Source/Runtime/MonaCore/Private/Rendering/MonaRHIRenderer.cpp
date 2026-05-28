@@ -56,7 +56,7 @@ namespace Durin::Mona
 		}
 	}
 
-	auto FMonaRHIRenderer::DrawWindows() -> void
+	auto FMonaRHIRenderer::RenderViewports() -> void
 	{
 	}
 

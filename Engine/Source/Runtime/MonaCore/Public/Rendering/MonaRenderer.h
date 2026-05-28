@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MonaCoreAPI.h"
+#include "RHIResources.h"
 
 namespace Durin::Mona
 {
@@ -15,8 +16,10 @@ namespace Durin::Mona
 
 		MONACORE_API virtual auto RequestResize(const std::shared_ptr<MWindow>& Window, uint32 Width, uint32 Height) -> void = 0;
 
-		MONACORE_API virtual auto DrawWindows() -> void = 0;
+		MONACORE_API virtual auto RenderViewports() -> void = 0;
 
 		MONACORE_API virtual auto OnWindowDestroyed(const std::shared_ptr<MWindow>& Window) -> void = 0;
+
+		MONACORE_API virtual auto GetRHIViewport(const MWindow& Window) -> TRefCountPtr<FRHIViewport> = 0;
 	};
 }

@@ -4,7 +4,7 @@
 
 #include "RHI.h"
 #include "RenderingThread.h"
-#include "Rendering/MonaRHIRenderer.h"
+#include "Rendering/MonaRenderer.h"
 #include "Application/MonaApplication.h"
 #include "Widgets/MWindow.h"
 #include "ImGuiRHIImpl.h"
@@ -230,7 +230,7 @@ namespace Durin::Mona
 			}
 
 			auto& App = FMonaApplication::Get();
-			auto* Renderer = dynamic_cast<FMonaRHIRenderer*>(App.GetRenderer());
+			FMonaRenderer* Renderer = App.GetRenderer();
 			const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport);
 			if (Renderer == nullptr || Window == nullptr || Window->IsMinimized())
 			{
@@ -468,7 +468,7 @@ namespace Durin::Mona
 		auto ImGuiMona_RendererCreateWindow(ImGuiViewport* Viewport) -> void
 		{
 			auto& App = FMonaApplication::Get();
-			auto* Renderer = dynamic_cast<FMonaRHIRenderer*>(App.GetRenderer());
+			FMonaRenderer* Renderer = App.GetRenderer();
 			const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport);
 			if (Renderer != nullptr && Window != nullptr)
 			{
@@ -487,7 +487,7 @@ namespace Durin::Mona
 		auto ImGuiMona_RendererSetWindowSize(ImGuiViewport* Viewport, ImVec2 Size) -> void
 		{
 			auto& App = FMonaApplication::Get();
-			auto* Renderer = dynamic_cast<FMonaRHIRenderer*>(App.GetRenderer());
+			FMonaRenderer* Renderer = App.GetRenderer();
 			const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport);
 			if (Renderer != nullptr && Window != nullptr)
 			{
