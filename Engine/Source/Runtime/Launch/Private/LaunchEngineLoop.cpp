@@ -95,6 +95,8 @@ namespace Durin
 			BeginFrameRenderThread(CommandList, CurrentFrameCounter);
 		});
 
+		GEngine->RedrawViewports();
+
 		Mona::Render();
 
 		ENQUEUE_RENDER_COMMAND(EndFrame)([CurrentFrameCounter](FRHICommandListImmediate& RHICmdList) {

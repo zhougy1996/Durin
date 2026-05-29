@@ -4,6 +4,7 @@
 
 #include "RHI.h"
 #include "RenderingThread.h"
+#include "Rendering/RenderingCommon.h"
 #include "Rendering/MonaRenderer.h"
 #include "Application/MonaApplication.h"
 #include "Widgets/MWindow.h"
@@ -44,6 +45,18 @@ namespace Durin::Mona
 			}
 
 			return Windows.front();
+		}
+
+		auto ShouldRenderMainViewportWithImGui() -> bool
+		{
+			const std::shared_ptr<MWindow> MainWindow = GetMainMonaWindow();
+			if (MainWindow == nullptr)
+			{
+				return true;
+			}
+
+			const std::shared_ptr<IMonaViewport> Viewport = MainWindow->GetViewport();
+			return Viewport == nullptr || Viewport->GetRenderMode() != EMonaViewportRenderMode::Window;
 		}
 
 		auto GetViewportWindow(ImGuiViewport* Viewport) -> std::shared_ptr<MWindow>
@@ -669,9 +682,12 @@ namespace Durin::Mona
 
 		if (ImGuiViewport* MainViewport = ImGui::GetMainViewport())
 		{
-			if (auto* RenderBuffers = GetViewportRenderBuffers(MainViewport))
+			if (ShouldRenderMainViewportWithImGui())
 			{
-				RenderViewport(MainViewport, MainViewport->DrawData, *RenderBuffers);
+				if (auto* RenderBuffers = GetViewportRenderBuffers(MainViewport))
+				{
+					RenderViewport(MainViewport, MainViewport->DrawData, *RenderBuffers);
+				}
 			}
 		}
 

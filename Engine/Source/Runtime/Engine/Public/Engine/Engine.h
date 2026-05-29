@@ -4,6 +4,8 @@
 
 namespace Durin
 {
+	class FSceneViewport;
+
 	class ENGINE_API DEngine
 	{
 	public:
@@ -13,7 +15,10 @@ namespace Durin
 
 		virtual auto Tick(float DeltaSeconds, bool bIdleMode) -> void;
 
-		virtual auto RedrawViewports() -> void {};
+		virtual auto RedrawViewports() -> void;
+
+	protected:
+		std::shared_ptr<FSceneViewport> MainSceneViewport;
 	};
 
 	extern ENGINE_API DEngine* GEngine;

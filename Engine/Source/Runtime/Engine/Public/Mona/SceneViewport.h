@@ -9,14 +9,26 @@ namespace Durin
 {
 	class FViewportClient;
 
-	class ENGINE_API FSceneViewport : public FViewport, public Mona::IMonaViewport
+	class FSceneViewport : public FViewport, public Mona::IMonaViewport
 	{
 	public:
-		FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<Mona::MViewport>& InViewportWidget);
+		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<Mona::MWindow>& InWindow);
 
-		auto UpdateRHIViewport() -> void override;
+		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<Mona::MViewport>& InViewportWidget);
+
+		ENGINE_API auto UpdateRHIViewport() -> void override;
+
+		ENGINE_API auto GetRenderMode() const -> Mona::EMonaViewportRenderMode override;
+
+		ENGINE_API auto IsWindowBacked() const -> bool override;
+
+		ENGINE_API auto GetDesiredSize() const -> FVector2f override;
 
 	private:
+		Mona::EMonaViewportRenderMode RenderMode = Mona::EMonaViewportRenderMode::Window;
+
+		std::weak_ptr<Mona::MWindow> Window;
+
 		std::weak_ptr<Mona::MViewport> ViewportWidget;
 	};
 }

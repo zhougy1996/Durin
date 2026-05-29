@@ -6,5 +6,6 @@
 
 namespace Durin::Mona
 {
+	class MWindow;
 	class MViewport;
 }
