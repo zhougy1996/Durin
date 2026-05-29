@@ -8,11 +8,17 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
   - If present, read `LOCAL_ENV.md` for machine-specific tool paths or build commands that should not be shared in the repo.
 - Initial setup on Windows: `./Setup.bat`
 - Configure with CMake presets:
-  - Debug: `cmake --preset x64-Debug`
-  - Release: `cmake --preset x64-Release`
+  - Editor Debug: `cmake --preset Win64-Debug-DurinEditor`
+  - Editor Release: `cmake --preset Win64-Release-DurinEditor`
+  - Game Debug: `cmake --preset Win64-Debug-DurinGame`
+  - Game Release: `cmake --preset Win64-Release-DurinGame`
+- Third-party assimp bootstrap:
+  - `Engine/Scripts/Bootstrap/Setup_assimp.bat`
+  - Build tree: `Build/ThirdParty/Build/Win64-<Config>-assimp`
+  - Install tree: `Build/ThirdParty/Install/Win64/<Config>/assimp`
 - Run the editor/launcher after build (Win64):
-  - `./Engine/Binaries/Durin/Win64/Debug/Durin.exe`
-  - The launcher target is `DurinLauncher`, but its output name is `Durin`.
+  - `./Engine/Binaries/Durin/Win64/Debug/DurinEditor.exe`
+  - The launcher target is `DurinLauncher`, and its output name matches the active profile name.
 - Config file: `DurinConfig.yaml` in the output directory.
 
 ## Build system shape
@@ -39,7 +45,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ### Module system
 
-- `Core/Modules/ModuleManager.*` implements the engine’s runtime module loader.
+- `Core/Modules/ModuleManager.*` implements the engine's runtime module loader.
 - Modules are loaded by name, translated to shared library filenames like `DurinEditor-<Module>.dll`, and initialized through the `IMPLEMENT_MODULE(...)` export path.
 - Shutdown order is reverse load order.
 - When you add or change cross-module behavior, check both the CMake module dependencies and the runtime `FModuleManager` loading path.
@@ -67,4 +73,4 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - This codebase relies on generated build metadata and generated reflection/export files. If a module looks incomplete from static files alone, inspect the generated/intermediate CMake and DHT outputs before assuming the source is missing.
 - Shared library naming matters: runtime module loading expects the `DurinEditor-<Module>` naming convention established in `CMake/Modules.cmake`.
 - The active rendering backend is effectively Vulkan-first today; changes in `RHI` often need matching updates in `VulkanRHI` and sometimes in the Mona ImGui backend.
-- Because the launcher creates a real windowed application, UI/rendering changes should be validated by building and running `Durin`, not only by compiling.
+- Because the launcher creates a real windowed application, UI/rendering changes should be validated by building and running `DurinEditor`, not only by compiling.

@@ -5,7 +5,9 @@ This file is gitignored and is intended for machine-specific instructions that s
 ## CMake
 
 - Use: `D:\Programs\JetBrains\CLion 2025.2.3\bin\cmake\win\x64\bin\cmake.exe`
-- Build directory: `\Build\x64-Debug`
+- Preferred editor build directory: `\Build\Win64-Debug-DurinEditor`
+- Third-party build directory: `\Build\ThirdParty\Build\Win64-Debug-assimp`
+- Third-party install directory: `\Build\ThirdParty\Install\Win64\Debug\assimp`
 
 ## Visual Studio environment
 
@@ -18,12 +20,15 @@ This file is gitignored and is intended for machine-specific instructions that s
 - Prefer building only the target needed for the current change instead of `--target all`.
 - Example target-focused build commands:
   `& "<cmake path above>" --build "<build dir above>" --target MonaCore -j 18`
+- Example configure presets:
+  `& "<cmake path above>" --preset Win64-Debug-DurinEditor`
+  `& "<cmake path above>" --preset Win64-Debug-DurinGame`
 - Use `--target all` only when a full rebuild is actually needed.
 - Verified working from a shell initialized by `VsDevCmd.bat`.
 
 ## Codex notes
 
-- In the Codex shell, writing to `\Build\x64-Debug` may require escalated execution even though source-file edits in the workspace do not.
+- In the Codex shell, writing to `\Build\Win64-Debug-DurinEditor` or `\Build\ThirdParty\...` may require escalated execution even though source-file edits in the workspace do not.
 - If a build is run from Codex, prefer invoking `VsDevCmd.bat` first and then calling the CLion CMake binary.
 
 ## Notes

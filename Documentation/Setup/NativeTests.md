@@ -40,7 +40,7 @@ When `BUILD_TESTING=OFF`:
 ```powershell
 cmake `
   -S . `
-  -B Build/x64-Debug `
+  -B Build/Win64-Debug-Tests `
   -G Ninja `
   -DCMAKE_BUILD_TYPE=Debug `
   -DBUILD_TESTING=ON
@@ -51,7 +51,7 @@ cmake `
 ```powershell
 cmake `
   -S . `
-  -B Build/x64-Debug-NoTests `
+  -B Build/Win64-Debug-NoTests `
   -G Ninja `
   -DCMAKE_BUILD_TYPE=Debug `
   -DBUILD_TESTING=OFF
@@ -63,7 +63,7 @@ Build a specific test target:
 
 ```powershell
 cmake `
-  --build Build/x64-Debug `
+  --build Build/Win64-Debug-Tests `
   --target CoreTests `
   -j 4
 ```
@@ -78,7 +78,7 @@ The test executable is emitted into the normal Durin binaries directory so it ca
 
 ```powershell
 ctest `
-  --test-dir Build/x64-Debug `
+  --test-dir Build/Win64-Debug-Tests `
   -C Debug `
   --output-on-failure
 ```
@@ -87,7 +87,7 @@ ctest `
 
 ```powershell
 ctest `
-  --test-dir Build/x64-Debug `
+  --test-dir Build/Win64-Debug-Tests `
   -C Debug `
   --output-on-failure `
   -R FJsonDocumentTests

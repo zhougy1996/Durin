@@ -6,3 +6,7 @@ setlocal
 :: Some dependencies may take a very long time ang very sophisticated steps to build, such as slang, so we can use this batch file to download the pre-built binaries of these dependencies.
 
 call "%~dp0\Setup_slang.bat"
+if errorlevel 1 exit /b 1
+
+call "%~dp0\Setup_assimp.bat"
+if errorlevel 1 exit /b 1
