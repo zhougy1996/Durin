@@ -69,13 +69,13 @@ function(durin_add_module module_name)
 	if (module_reflect_headers)
 		add_custom_command(
 			OUTPUT ${module_export_file}
-			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} -a ${DURIN_ARCH}
+			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} -a ${DURIN_ARCH} --profile ${DURIN_PROFILE_NAME}
 			DEPENDS ${module_reflect_headers} ${module_cmake_file}
 		)
 
 		add_custom_command(
 			OUTPUT ${module_generated_srcs}
-			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} -a ${DURIN_ARCH}
+			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} -a ${DURIN_ARCH} --profile ${DURIN_PROFILE_NAME}
 			DEPENDS ${module_cmake_file} ${module_manifest_dependencies} ${module_export_file}
 		)
 	endif()
