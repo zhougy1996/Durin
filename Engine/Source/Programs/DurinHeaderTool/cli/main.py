@@ -18,6 +18,7 @@ def main():
     args = parser.parse_args()
 
     configs.ARCH = args.arch
+    configs.PROFILE_NAME = args.profile
     init_logging(args.log)
     configs.init_configs()
     command_manager.execute_command(args.function, args)

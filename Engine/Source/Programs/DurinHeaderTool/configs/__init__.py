@@ -1,5 +1,6 @@
 from .base_config import *
 from .project_config import *
+from .profile_config import *
 from .module_config import *
 
 def init_configs():

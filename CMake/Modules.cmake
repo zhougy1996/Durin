@@ -17,13 +17,27 @@ function(durin_add_project project_name)
 	durin_log_project(${project_name})
 	durin_start("Project_${project_name}")
 	project(Engine)
-	set(DURIN_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_ARCH}/Editor")
+	set(DURIN_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_ARCH}/${DURIN_PROFILE_NAME}")
 
 	set(project_cmake_file "${DURIN_PROJECT_INTERMEDIATE_BUILD_DIR}/${project_name}.project.cmake")
-	execute_process(COMMAND ${DHT_MAIN} prepare_project_build -p ${project_name} -a ${DURIN_ARCH})
+	execute_process(COMMAND ${DHT_MAIN} prepare_project_build -p ${project_name} -a ${DURIN_ARCH} --profile ${DURIN_PROFILE_NAME})
 	include(${project_cmake_file})
 
+	if(NOT DURIN_PROJECT_PROFILE_EXISTS)
+		message(FATAL_ERROR "Project ${project_name} does not define profile ${DURIN_PROFILE_NAME}. Expected a dprofile file in ${DURIN_PROJECT_PROFILE_DIR}.")
+	endif()
+
+	if(DURIN_PROJECT_PROFILE_WITH_EDITOR)
+		set(DURIN_WITH_EDITOR 1)
+	else()
+		set(DURIN_WITH_EDITOR 0)
+	endif()
+	set(DURIN_APP_CONFIG_NAME "${DURIN_PROJECT_PROFILE_APP_CONFIG_NAME}")
+
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${project_config_file}) # Make CMake re-configure if the project definition file changes
+	if(DURIN_PROJECT_PROFILE_EXISTS)
+		set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_PROJECT_PROFILE_FILE})
+	endif()
 
 	# Add subdirectories for each module
 	foreach(_dir IN LISTS project_module_dirs)
@@ -75,7 +89,7 @@ function(durin_add_module module_name)
 	add_library(${module_name} ${module_link_type_final})
 	target_sources(${module_name} PUBLIC ${module_public_srcs} PRIVATE ${module_private_srcs} ${module_generated_srcs})
 
-	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "DurinEditor-${module_name}")
+	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "${DURIN_PROFILE_NAME}-${module_name}")
 
 	# Define export symbol for shared libraries, e.g. CORE_API
 	if("${module_link_type_final}" STREQUAL "SHARED")
@@ -86,7 +100,10 @@ function(durin_add_module module_name)
 	target_compile_definitions(${module_name} PRIVATE
 		$<$<CONFIG:Debug>:DURIN_BUILD_DEBUG=1>
 		$<$<CONFIG:Release>:DURIN_BUILD_RELEASE=1>
+		DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
 		MODULE_NAME="${module_name}"
+		DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
+		DURIN_APP_CONFIG_NAME="${DURIN_APP_CONFIG_NAME}"
 	)
 
 	target_include_directories(${module_name} PRIVATE
@@ -122,7 +139,10 @@ function(durin_add_test_target target_name)
 	target_compile_definitions(${target_name} PRIVATE
 		$<$<CONFIG:Debug>:DURIN_BUILD_DEBUG=1>
 		$<$<CONFIG:Release>:DURIN_BUILD_RELEASE=1>
+		DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
 		MODULE_NAME="${target_name}"
+		DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
+		DURIN_APP_CONFIG_NAME="${DURIN_APP_CONFIG_NAME}"
 	)
 
 	if(TARGET SharedPCH_Core)

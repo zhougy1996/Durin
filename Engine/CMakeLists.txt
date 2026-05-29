@@ -1,6 +1,7 @@
 # Prepare third party dependencies
 set(DURIN_PROJECT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(DURIN_PROJECT_BINARY_DIR "${DURIN_PROJECT_DIR}/Binaries")
+set(DURIN_PROFILE_NAME "DurinEditor" CACHE STRING "Durin profile name used for generated metadata and intermediate paths.")
 add_subdirectory(${DURIN_PROJECT_DIR}/CMake/ThirdParty)
 
 include(${DURIN_CMAKE_DIR}/Common.cmake)

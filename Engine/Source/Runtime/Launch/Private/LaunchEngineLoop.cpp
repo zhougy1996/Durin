@@ -20,6 +20,20 @@
 
 namespace Durin
 {
+	namespace
+	{
+		constexpr std::string_view GDefaultAppConfigName = "DurinConfig.yaml";
+
+		constexpr auto GetAppConfigFileName() -> std::string_view
+		{
+#ifdef DURIN_APP_CONFIG_NAME
+			return DURIN_APP_CONFIG_NAME;
+#else
+			return GDefaultAppConfigName;
+#endif
+		}
+	}
+
 	FEngineLoop GEngineLoop;
 
 	auto FEngineLoop::PreInit() -> void
@@ -30,7 +44,7 @@ namespace Durin
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		AddDllDirectory(StringConvert::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
 
-		CoreInternal::LoadApplicationConfig(FPaths::LaunchDir() + "DurinConfig.yaml");
+		CoreInternal::LoadApplicationConfig(FPaths::LaunchDir() + std::string(GetAppConfigFileName()));
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();

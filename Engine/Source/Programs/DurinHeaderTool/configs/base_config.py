@@ -1,7 +1,7 @@
 from pathlib import Path
 
 ARCH = "Win64"
-BUILD_MODE = "Editor"
+PROFILE_NAME = "DurinEditor"
 
 DHT_ROOT_DIR = Path(__file__).resolve().parents[1]
 DURIN_ROOT_DIR = DHT_ROOT_DIR.parents[3]

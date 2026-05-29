@@ -2,16 +2,12 @@
   "version": 3,
   "configurePresets": [
     {
-      "name": "x64-Debug",
+      "name": "windows-base",
+      "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/Build/${presetName}",
       "architecture": {
         "value": "x64",
         "strategy": "external"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}"
       },
       "vendor": {
         "microsoft.com/VisualStudioSettings/CMake/1.0": {
@@ -22,33 +18,58 @@
       }
     },
     {
-      "name": "x64-Release",
-      "generator": "Ninja",
+      "name": "Win64-Debug-DurinEditor",
+      "inherits": "windows-base",
       "binaryDir": "${sourceDir}/Build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "DURIN_PROFILE_NAME": "DurinEditor"
+      }
+    },
+    {
+      "name": "Win64-Debug-DurinGame",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/Build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "DURIN_PROFILE_NAME": "DurinGame"
+      }
+    },
+    {
+      "name": "Win64-Release-DurinEditor",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/Build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "DURIN_PROFILE_NAME": "DurinEditor"
+      }
+    },
+    {
+      "name": "Win64-Release-DurinGame",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/Build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "DURIN_PROFILE_NAME": "DurinGame"
+      }
+    },
+    {
+      "name": "macos-base",
+      "hidden": true,
+      "generator": "Ninja",
       "architecture": {
         "value": "x64",
         "strategy": "external"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}"
-      },
-      "vendor": {
-        "microsoft.com/VisualStudioSettings/CMake/1.0": {
-          "hostOS": [
-            "Windows"
-          ]
-        }
       }
     },
     {
       "name": "MacOS-Debug",
-      "generator": "Ninja",
+      "inherits": "macos-base",
       "binaryDir": "${sourceDir}/Build/${presetName}",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}"
@@ -56,12 +77,8 @@
     },
     {
       "name": "MacOS-Release",
-      "generator": "Ninja",
+      "inherits": "macos-base",
       "binaryDir": "${sourceDir}/Build/${presetName}",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}"

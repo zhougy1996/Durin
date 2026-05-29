@@ -3,14 +3,20 @@ durin_log_module(${project_name} "DurinLauncher")
 add_executable(DurinLauncher "Private/Hello.cpp")
 durin_set_module_output(DurinLauncher)
 
-set_target_properties(DurinLauncher PROPERTIES OUTPUT_NAME "Durin")
+set_target_properties(DurinLauncher PROPERTIES OUTPUT_NAME "${DURIN_PROFILE_NAME}")
+
+target_compile_definitions(DurinLauncher PRIVATE
+    DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
+    DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
+    DURIN_APP_CONFIG_NAME="${DURIN_APP_CONFIG_NAME}"
+)
 
 target_link_libraries(DurinLauncher PRIVATE
     Launch
 )
 
 # Copy the config file to the output directory after building if it doesn't exist
-set(config_file "$<TARGET_FILE_DIR:DurinLauncher>/DurinConfig.yaml")
+set(config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_APP_CONFIG_NAME}")
 add_custom_command(TARGET DurinLauncher POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E env
     ${CMAKE_COMMAND} -P "${DURIN_DIR}/CMake/CopyIfMissing.cmake"
