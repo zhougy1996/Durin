@@ -1,0 +1,25 @@
+{
+  "name": "slang",
+  "order": 10,
+  "kind": "prebuilt_sdk",
+  "source_dir": "Engine/External/Packages/slang",
+  "source": {
+    "type": "archive",
+    "platforms": {
+      "Win64": {
+        "url": "https://github.com/shader-slang/slang/releases/download/v2026.5.2/slang-2026.5.2-windows-x86_64.zip",
+        "archive_name": "slang-2026.5.2-windows-x86_64.zip",
+        "required_files": [
+          "bin/slang.dll",
+          "bin/slang-compiler.dll"
+        ]
+      }
+    }
+  },
+  "required_files_by_platform": {
+    "Win64": [
+      "bin/slang.dll",
+      "bin/slang-compiler.dll"
+    ]
+  }
+}

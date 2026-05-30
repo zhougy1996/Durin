@@ -13,25 +13,27 @@ This document summarizes the current third-party library workflow in Durin. It i
 
 ### Source
 
-Third-party source or package contents live under:
+Third-party assets live under:
 
-- `Engine/Source/ThirdParty/<Library>`
+- `Engine/External/Source/<Library>`
+- `Engine/External/Packages/<Library>`
+- `Engine/External/Install/<Platform>/<Config>/<Library>`
 
 Current examples:
 
-- `Engine/Source/ThirdParty/slang`
-- `Engine/Source/ThirdParty/glm`
-- `Engine/Source/ThirdParty/googletest`
-- `Engine/Source/ThirdParty/spdlog`
-- `Engine/Source/ThirdParty/glfw`
-- `Engine/Source/ThirdParty/rapidyaml`
-- `Engine/Source/ThirdParty/assimp`
+- `Engine/External/Packages/slang`
+- `Engine/External/Source/glm`
+- `Engine/External/Source/googletest`
+- `Engine/External/Source/spdlog`
+- `Engine/External/Source/glfw`
+- `Engine/External/Source/rapidyaml`
+- `Engine/External/Source/assimp`
 
 Notes:
 
 - `slang` is treated as a downloaded prebuilt package.
-- `glm` is treated as source prepared ahead of configure and consumed directly from `Engine/Source/ThirdParty/glm`.
-- `googletest` is treated as source prepared ahead of configure and consumed directly from `Engine/Source/ThirdParty/googletest` when tests are enabled.
+- `glm` is treated as source prepared ahead of configure and consumed directly from `Engine/External/Source/glm`.
+- `googletest` is treated as source prepared ahead of configure and consumed directly from `Engine/External/Source/googletest` when tests are enabled.
 - `spdlog` is treated as source prepared ahead of configure and then built into a shared install tree.
 - `assimp`, `glfw`, and `rapidyaml` are treated as source code cloned by `git clone`.
 
@@ -39,18 +41,18 @@ Notes:
 
 Dedicated third-party build trees live under:
 
-- `Build/ThirdParty/Build/<Platform>-<Config>-<Library>`
+- `Build/ThirdParty/<Platform>-<Config>-<Library>`
 
 Current example:
 
-- `Build/ThirdParty/Build/<Platform>-Debug-spdlog`
-- `Build/ThirdParty/Build/<Platform>-Release-spdlog`
-- `Build/ThirdParty/Build/<Platform>-Debug-glfw`
-- `Build/ThirdParty/Build/<Platform>-Release-glfw`
-- `Build/ThirdParty/Build/<Platform>-Debug-rapidyaml`
-- `Build/ThirdParty/Build/<Platform>-Release-rapidyaml`
-- `Build/ThirdParty/Build/<Platform>-Debug-assimp`
-- `Build/ThirdParty/Build/<Platform>-Release-assimp`
+- `Build/ThirdParty/<Platform>-Debug-spdlog`
+- `Build/ThirdParty/<Platform>-Release-spdlog`
+- `Build/ThirdParty/<Platform>-Debug-glfw`
+- `Build/ThirdParty/<Platform>-Release-glfw`
+- `Build/ThirdParty/<Platform>-Debug-rapidyaml`
+- `Build/ThirdParty/<Platform>-Release-rapidyaml`
+- `Build/ThirdParty/<Platform>-Debug-assimp`
+- `Build/ThirdParty/<Platform>-Release-assimp`
 
 These build trees are independent from the main project profile build trees such as:
 
@@ -61,18 +63,18 @@ These build trees are independent from the main project profile build trees such
 
 Shared install outputs live under:
 
-- `Build/ThirdParty/Install/<Platform>/<Config>/<Library>`
+- `Engine/External/Install/<Platform>/<Config>/<Library>`
 
 Current example:
 
-- `Build/ThirdParty/Install/<Platform>/Debug/spdlog`
-- `Build/ThirdParty/Install/<Platform>/Release/spdlog`
-- `Build/ThirdParty/Install/<Platform>/Debug/glfw`
-- `Build/ThirdParty/Install/<Platform>/Release/glfw`
-- `Build/ThirdParty/Install/<Platform>/Debug/rapidyaml`
-- `Build/ThirdParty/Install/<Platform>/Release/rapidyaml`
-- `Build/ThirdParty/Install/<Platform>/Debug/assimp`
-- `Build/ThirdParty/Install/<Platform>/Release/assimp`
+- `Engine/External/Install/<Platform>/Debug/spdlog`
+- `Engine/External/Install/<Platform>/Release/spdlog`
+- `Engine/External/Install/<Platform>/Debug/glfw`
+- `Engine/External/Install/<Platform>/Release/glfw`
+- `Engine/External/Install/<Platform>/Debug/rapidyaml`
+- `Engine/External/Install/<Platform>/Release/rapidyaml`
+- `Engine/External/Install/<Platform>/Debug/assimp`
+- `Engine/External/Install/<Platform>/Release/assimp`
 
 This is the path the main project consumes when importing installed third-party targets.
 
@@ -91,10 +93,11 @@ This path is for copied runtime binaries only. It is not the install prefix for 
 Relevant bootstrap script:
 
 - `Engine/Scripts/Bootstrap/Setup_slang.bat`
+- `Engine/Scripts/Bootstrap/setup_third_party.py`
 
 Behavior:
 
-- Checks whether the expected files already exist under `Engine/Source/ThirdParty/slang`
+- Checks whether the expected files already exist under `Engine/External/Packages/slang`
 - Downloads and extracts a prebuilt package only if missing
 - Logs normalized absolute paths
 
@@ -111,11 +114,11 @@ Relevant files:
 
 Behavior:
 
-- `Setup_glm.bat` clones source into `Engine/Source/ThirdParty/glm`.
-- `Setup_googletest.bat` clones source into `Engine/Source/ThirdParty/googletest`.
+- `Setup_glm.bat` clones source into `Engine/External/Source/glm`.
+- `Setup_googletest.bat` clones source into `Engine/External/Source/googletest`.
 - Main project consumes `glm` directly from that prepared source directory.
 - Test builds consume `googletest` directly from that prepared source directory when `BUILD_TESTING` is enabled.
-- No shared install tree is needed because `glm` is header-only.
+- No shared install tree is needed for the current direct-source libraries.
 
 Use this pattern for header-only or otherwise lightweight source dependencies that should still be prepared ahead of configure.
 
@@ -123,11 +126,8 @@ Use this pattern for header-only or otherwise lightweight source dependencies th
 
 Relevant files:
 
-- `Engine/Scripts/Bootstrap/Setup_spdlog.bat`
-- `Engine/Scripts/Bootstrap/Setup_glfw.bat`
-- `Engine/Scripts/Bootstrap/Setup_rapidyaml.bat`
-- `Engine/Scripts/Bootstrap/Setup_assimp.bat`
-- `Engine/Scripts/Bootstrap/Setup_installed_thirdparty.bat`
+- `Engine/Scripts/Bootstrap/setup_third_party.py`
+- `Engine/Scripts/Bootstrap/thirdparty/*.json`
 - `Engine/CMake/ThirdParty/DurinThirdParty.cmake`
 - `Engine/CMake/ThirdParty/spdlog/CMakeLists.txt`
 - `Engine/CMake/ThirdParty/glfw/CMakeLists.txt`
@@ -136,9 +136,9 @@ Relevant files:
 
 Behavior:
 
-- `Setup_installed_thirdparty.bat` owns shared install flow such as config parsing, build/install directory layout, `cmake -S/-B/-DCMAKE_INSTALL_PREFIX`, and install verification.
-- `Setup_spdlog.bat`, `Setup_glfw.bat`, and `Setup_rapidyaml.bat` clone source into `Engine/Source/ThirdParty/<Library>` if missing, then install from their third-party CMake wrapper directories into `Build/ThirdParty/Install/...`.
-- `Setup_assimp.bat` clones source into `Engine/Source/ThirdParty/assimp` if missing, then uses the same shared install helper.
+- `setup_third_party.py` owns shared install flow such as config parsing, platform naming, build/install directory layout, `cmake -S/-B/-DCMAKE_INSTALL_PREFIX`, and install verification.
+- Per-library manifests under `Engine/Scripts/Bootstrap/thirdparty` declare source, build, and validation rules.
+- Windows `Setup_<Library>.bat` wrappers forward into the Python bootstrap instead of carrying their own dependency logic.
 - Main project imports installed targets from the shared install tree instead of building them once per profile.
 - Current imported targets include `spdlog::spdlog`, `glfw`, `ryml::ryml`, and `assimp::assimp`.
 
@@ -152,6 +152,8 @@ Bootstrap scripts live under:
 
 Current scripts:
 
+- `setup_third_party.py`
+- `Bootstrap.bat`
 - `Setup_slang.bat`
 - `Setup_glm.bat`
 - `Setup_googletest.bat`
@@ -159,7 +161,6 @@ Current scripts:
 - `Setup_glfw.bat`
 - `Setup_rapidyaml.bat`
 - `Setup_assimp.bat`
-- `Setup_installed_thirdparty.bat`
 
 General expectations:
 
@@ -167,20 +168,14 @@ General expectations:
 - Scripts should check for already-installed content and return quickly when possible.
 - Scripts should print absolute paths in logs.
 - Scripts should own third-party preparation, not profile-specific build trees.
+- The Python bootstrap is the source of truth for third-party platform naming and manifest interpretation.
 
 `Setup.bat` calls:
 
 - `Engine/Scripts/Bootstrap/Bootstrap.bat`
 
-And `Bootstrap.bat` currently calls:
-
-- `Setup_slang.bat`
-- `Setup_glm.bat`
-- `Setup_googletest.bat`
-- `Setup_spdlog.bat`
-- `Setup_glfw.bat`
-- `Setup_rapidyaml.bat`
-- `Setup_assimp.bat`
+`Bootstrap.bat` is a Windows wrapper that forwards into `setup_third_party.py --all --with-tests`.
+Per-library Windows wrappers such as `Setup_glfw.bat` and `Setup_assimp.bat` forward into `setup_third_party.py --libs <Library>`.
 
 ## CMake Consumption Rules
 
@@ -191,7 +186,7 @@ The main project should not directly `FetchContent` third-party libraries that a
 Instead:
 
 - prepare the dependency once via bootstrap
-- build/install it into `Build/ThirdParty/Install/...`
+- build/install it into `Engine/External/Install/...`
 - import it from there
 
 For current shared libraries, imported targets are:
@@ -220,12 +215,13 @@ And should fail configuration with a clear message if the installed dependency i
 
 ### Keep unless intentionally rebuilding third-party installs
 
-- `Engine/Source/ThirdParty/assimp`
-- `Engine/Source/ThirdParty/glm`
-- `Engine/Source/ThirdParty/googletest`
-- `Engine/Source/ThirdParty/spdlog`
-- `Build/ThirdParty/Build/...`
-- `Build/ThirdParty/Install/...`
+- `Engine/External/Source/assimp`
+- `Engine/External/Source/glm`
+- `Engine/External/Source/googletest`
+- `Engine/External/Source/spdlog`
+- `Engine/External/Packages/...`
+- `Engine/External/Install/...`
+- `Build/ThirdParty/...`
 
 ### Legacy cleanup
 
@@ -254,7 +250,7 @@ When adding a new third-party dependency, choose one of these patterns:
 
 Use this for SDK-like libraries:
 
-- place package contents in `Engine/Source/ThirdParty/<Library>`
+- place package contents in `Engine/External/Packages/<Library>`
 - add a bootstrap script that downloads and extracts the package
 - deploy required runtime files into `Engine/Binaries/ThirdParty/...` as needed
 
@@ -262,12 +258,13 @@ Use this for SDK-like libraries:
 
 Use this for compile-from-source libraries:
 
-- clone or otherwise prepare source into `Engine/Source/ThirdParty/<Library>`
+- clone or otherwise prepare source into `Engine/External/Source/<Library>`
 - create a dedicated `Engine/CMake/ThirdParty/<Library>` entry
 - wire imported-target path discovery through `Engine/CMake/ThirdParty/DurinThirdParty.cmake`
-- reuse `Engine/Scripts/Bootstrap/Setup_installed_thirdparty.bat` for the common install flow
-- build in `Build/ThirdParty/Build/...`
-- install in `Build/ThirdParty/Install/...`
+- declare source/build/install behavior in a manifest under `Engine/Scripts/Bootstrap/thirdparty`
+- reuse `Engine/Scripts/Bootstrap/setup_third_party.py` for the common install flow
+- build in `Build/ThirdParty/...`
+- install in `Engine/External/Install/...`
 - import the installed target from the main project
 
 Use direct source consumption instead of a shared install when the dependency is header-only and does not benefit from a separate install tree.
@@ -276,5 +273,5 @@ Use direct source consumption instead of a shared install when the dependency is
 
 - Shared third-party installs are keyed by platform and configuration, not by profile.
 - `DurinEditor` and `DurinGame` should reuse the same third-party install when ABI-compatible.
-- Third-party source should remain outside main project build trees.
-- Shared third-party installs are driven by bootstrap scripts and direct `cmake -S/-B/-DCMAKE_INSTALL_PREFIX` commands, not by per-library CMake presets.
+- Third-party assets should remain outside main project build trees.
+- Shared third-party installs are driven by the Python bootstrap, manifest metadata, and direct `cmake -S/-B/-DCMAKE_INSTALL_PREFIX` commands, not by per-library CMake presets.

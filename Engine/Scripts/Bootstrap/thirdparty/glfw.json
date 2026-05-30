@@ -1,0 +1,51 @@
+{
+  "name": "glfw",
+  "order": 50,
+  "kind": "shared_install",
+  "source_dir": "Engine/External/Source/glfw",
+  "cmake_dir": "Engine/CMake/ThirdParty/glfw",
+  "source": {
+    "type": "git",
+    "url": "https://github.com/glfw/glfw.git",
+    "tag": "3.4",
+    "marker": "CMakeLists.txt"
+  },
+  "install_required_file_sets": {
+    "Debug": [
+      [
+        "include/GLFW/glfw3.h",
+        "lib/glfw3.lib"
+      ],
+      [
+        "include/GLFW/glfw3.h",
+        "lib/glfw.lib"
+      ],
+      [
+        "include/GLFW/glfw3.h",
+        "lib/libglfw3.a"
+      ],
+      [
+        "include/GLFW/glfw3.h",
+        "lib/libglfw.a"
+      ]
+    ],
+    "Release": [
+      [
+        "include/GLFW/glfw3.h",
+        "lib/glfw3.lib"
+      ],
+      [
+        "include/GLFW/glfw3.h",
+        "lib/glfw.lib"
+      ],
+      [
+        "include/GLFW/glfw3.h",
+        "lib/libglfw3.a"
+      ],
+      [
+        "include/GLFW/glfw3.h",
+        "lib/libglfw.a"
+      ]
+    ]
+  }
+}

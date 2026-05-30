@@ -36,7 +36,7 @@ function(durin_glfw_configure_source_build)
 	project(DurinThirdPartyGlfw LANGUAGES C)
 
 	get_filename_component(durin_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
-	set(glfw_source_dir "${durin_root}/Engine/Source/ThirdParty/glfw")
+	set(glfw_source_dir "${durin_root}/Engine/External/Source/glfw")
 
 	if(NOT EXISTS "${glfw_source_dir}/CMakeLists.txt")
 		message(FATAL_ERROR

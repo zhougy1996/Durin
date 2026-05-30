@@ -37,7 +37,7 @@ function(durin_spdlog_configure_source_build)
 	project(DurinThirdPartySpdlog LANGUAGES CXX)
 
 	get_filename_component(durin_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
-	set(spdlog_source_dir "${durin_root}/Engine/Source/ThirdParty/spdlog")
+	set(spdlog_source_dir "${durin_root}/Engine/External/Source/spdlog")
 
 	if(NOT EXISTS "${spdlog_source_dir}/CMakeLists.txt")
 		message(FATAL_ERROR

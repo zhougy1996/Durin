@@ -1,0 +1,39 @@
+{
+  "name": "assimp",
+  "order": 70,
+  "kind": "shared_install",
+  "source_dir": "Engine/External/Source/assimp",
+  "cmake_dir": "Engine/CMake/ThirdParty/assimp",
+  "source": {
+    "type": "git",
+    "url": "https://github.com/assimp/assimp.git",
+    "tag": "v6.0.4",
+    "marker": "CMakeLists.txt"
+  },
+  "install_required_file_sets": {
+    "Debug": [
+      [
+        "include/assimp/Importer.hpp",
+        "lib/assimp-vc143-mt.lib",
+        "bin/assimp-vc143-mt.dll"
+      ],
+      [
+        "include/assimp/Importer.hpp",
+        "lib/assimp.lib",
+        "bin/assimp.dll"
+      ]
+    ],
+    "Release": [
+      [
+        "include/assimp/Importer.hpp",
+        "lib/assimp-vc143-mt.lib",
+        "bin/assimp-vc143-mt.dll"
+      ],
+      [
+        "include/assimp/Importer.hpp",
+        "lib/assimp.lib",
+        "bin/assimp.dll"
+      ]
+    ]
+  }
+}

@@ -40,7 +40,7 @@ function(durin_assimp_configure_source_build)
 	project(DurinThirdPartyAssimp LANGUAGES C CXX)
 
 	get_filename_component(durin_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
-	set(assimp_source_dir "${durin_root}/Engine/Source/ThirdParty/assimp")
+	set(assimp_source_dir "${durin_root}/Engine/External/Source/assimp")
 
 	if(NOT EXISTS "${assimp_source_dir}/CMakeLists.txt")
 		message(FATAL_ERROR

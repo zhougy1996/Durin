@@ -6,8 +6,8 @@ This file is gitignored and is intended for machine-specific instructions that s
 
 - Use: `D:\Programs\JetBrains\CLion 2025.2.3\bin\cmake\win\x64\bin\cmake.exe`
 - Preferred editor build directory: `\Build\Win64-Debug-DurinEditor`
-- Third-party build directory: `\Build\ThirdParty\Build\Win64-Debug-assimp`
-- Third-party install directory: `\Build\ThirdParty\Install\Win64\Debug\assimp`
+- Third-party build directory: `\Build\ThirdParty\Win64-Debug-assimp`
+- Third-party install directory: `\Engine\External\Install\Win64\Debug\assimp`
 
 ## Visual Studio environment
 
@@ -28,7 +28,7 @@ This file is gitignored and is intended for machine-specific instructions that s
 
 ## Codex notes
 
-- In the Codex shell, writing to `\Build\Win64-Debug-DurinEditor` or `\Build\ThirdParty\...` may require escalated execution even though source-file edits in the workspace do not.
+- In the Codex shell, writing to `\Build\Win64-Debug-DurinEditor`, `\Build\ThirdParty\...`, or `\Engine\External\...` may require escalated execution even though source-file edits in the workspace do not.
 - If a build is run from Codex, prefer invoking `VsDevCmd.bat` first and then calling the CLion CMake binary.
 
 ## Notes

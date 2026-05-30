@@ -166,4 +166,5 @@ TEST(FExampleTests, BasicExpectation)
 - First suite: `Engine/Source/Programs/Tests/CoreTests`
 - Shared helper: `CMake/Modules.cmake`
 - Test dependency source wrapper: `Engine/CMake/ThirdParty/googletest`
-- Prepare test dependency source ahead of configure with: `Engine/Scripts/Bootstrap/Setup_googletest.bat`
+- Prepare test dependency source ahead of configure with: `python Engine/Scripts/Bootstrap/setup_third_party.py --libs googletest`
+- Prepared test dependency source lives under: `Engine/External/Source/googletest`

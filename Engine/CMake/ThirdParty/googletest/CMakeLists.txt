@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 get_filename_component(durin_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
-set(googletest_source_dir "${durin_root}/Engine/Source/ThirdParty/googletest")
+set(googletest_source_dir "${durin_root}/Engine/External/Source/googletest")
 
 if(NOT EXISTS "${googletest_source_dir}/CMakeLists.txt")
 	message(FATAL_ERROR

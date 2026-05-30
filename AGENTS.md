@@ -13,14 +13,16 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
   - Game Debug: `cmake --preset Win64-Debug-DurinGame`
   - Game Release: `cmake --preset Win64-Release-DurinGame`
 - Third-party bootstrap:
-  - Run `Engine/Scripts/Bootstrap/Bootstrap.bat` during setup, or call `Setup_<Library>.bat` directly for a specific dependency.
+  - Primary cross-platform entry is `Engine/Scripts/Bootstrap/setup_third_party.py`.
+  - On Windows, `Engine/Scripts/Bootstrap/Bootstrap.bat` and `Setup_<Library>.bat` are thin wrappers around that Python entry.
+  - Run `Engine/Scripts/Bootstrap/Bootstrap.bat` during setup on Windows, or invoke `python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-tests` directly.
   - Source-prepared libraries currently include `glm`, `googletest`, `spdlog`, `glfw`, `rapidyaml`, and `assimp`.
-  - `glm` is consumed directly from `Engine/Source/ThirdParty/glm`.
-  - `googletest` is consumed directly from `Engine/Source/ThirdParty/googletest` when `BUILD_TESTING` is enabled.
-  - `spdlog`, `glfw`, `rapidyaml`, and `assimp` are built once into shared install trees and then imported by the main project.
-  - Third-party installs are prepared by command-line `cmake -S/-B/-DCMAKE_INSTALL_PREFIX` invocations from the bootstrap scripts; per-library CMake presets are not used.
-  - Build tree: `Build/ThirdParty/Build/Win64-<Config>-<Library>`
-  - Install tree: `Build/ThirdParty/Install/Win64/<Config>/<Library>`
+  - Direct-source libraries are consumed from `Engine/External/Source/<Library>`.
+  - Prebuilt SDK packages are consumed from `Engine/External/Packages/<Library>`.
+  - Shared-install libraries are built once into `Engine/External/Install/<Platform>/<Config>/<Library>` and then imported by the main project.
+  - Third-party installs are prepared by the Python bootstrap using per-library manifests and command-line `cmake -S/-B/-DCMAKE_INSTALL_PREFIX`; per-library CMake presets are not used.
+  - Build tree: `Build/ThirdParty/<Platform>-<Config>-<Library>`
+  - Install tree: `Engine/External/Install/<Platform>/<Config>/<Library>`
 - Run the editor/launcher after build (Win64):
   - `./Engine/Binaries/Durin/Win64/Debug/DurinEditor.exe`
   - The launcher target is `DurinLauncher`, and its output name matches the active profile name.
