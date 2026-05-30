@@ -11,7 +11,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - For profile semantics and generated metadata flow, read `Documentation/Architecture/Profiles.md`.
 - For workspace, project, module, and workspace-global profile rules, read `Documentation/Architecture/WorkspaceProjects.md`.
 - For runtime boot flow and subsystem relationships, read `Documentation/Architecture/RuntimeArchitecture.md`.
-- If present, read `LOCAL_ENV.md` for machine-specific tool paths and non-portable command examples.
+- If present, read `AGENTS_LOCAL.md` for machine-specific tool paths and non-portable command examples.
 
 ## Important repo-specific behaviors
 

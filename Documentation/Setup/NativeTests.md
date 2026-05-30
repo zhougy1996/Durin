@@ -164,7 +164,7 @@ TEST(FExampleTests, BasicExpectation)
 ## Practical Notes
 
 - On Windows, build and test commands should be run from the Visual Studio developer environment so standard library and SDK paths are available.
-- If `cmake` is not on `PATH` on your machine, use the machine-local command documented in `LOCAL_ENV.md`.
+- If `cmake` is not on `PATH` on your machine, use the machine-local command documented in `AGENTS_LOCAL.md`.
 - `gtest_discover_tests()` registers individual GoogleTest cases with CTest, so `ctest -R` filters match test case names, not only executable names.
 - Keep the test working directory as `$<TARGET_FILE_DIR:...>` so `gtest_discover_tests()` runs against the deployed test output, not the build-tree executable path.
 - Test executables are separate programs. They should not depend on editor startup, real windows, or renderer boot unless that is explicitly the point of the test.

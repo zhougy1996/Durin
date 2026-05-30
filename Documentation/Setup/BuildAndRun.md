@@ -5,7 +5,7 @@ This document is the primary reference for configuring, building, and running Du
 ## Prerequisites
 
 - Run `./Setup.bat` on Windows for initial dependency preparation.
-- If present, read `LOCAL_ENV.md` for machine-specific tool paths and command examples.
+- If present, read `AGENTS_LOCAL.md` for machine-specific tool paths and command examples.
 - Run configure and build commands from a Visual Studio developer environment on Windows, or call `VsDevCmd.bat` first.
 
 Recommended bootstrap entrypoints:
@@ -95,4 +95,3 @@ If `RenderCore` fails to load, check both locations first.
 - Third-party bootstrap and dependency layout: `Documentation/Setup/ThirdPartyBootstrap.md`
 - Native tests: `Documentation/Setup/NativeTests.md`
 - CLion BuildInsight notes: `Documentation/Setup/BuildInsightClion.md`
-
