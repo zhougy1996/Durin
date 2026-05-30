@@ -33,6 +33,20 @@ function(durin_add_project project_name)
 		set(DURIN_WITH_EDITOR 0)
 	endif()
 	set(DURIN_APP_CONFIG_NAME "${DURIN_PROJECT_PROFILE_APP_CONFIG_NAME}")
+	set(DURIN_BIN_ROOT "${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/$<CONFIG>")
+	set(DURIN_RUNTIME_OUTPUT_DIR "${DURIN_BIN_ROOT}/Runtime/${DURIN_PROJECT_PROFILE_NAME}")
+	set(DURIN_THIRDPARTY_RUNTIME_DIR "${DURIN_BIN_ROOT}/ThirdParty")
+	set(DURIN_TEST_OUTPUT_DIR "${DURIN_BIN_ROOT}/Tests")
+	set(DURIN_LIB_OUTPUT_ROOT "${DURIN_BIN_ROOT}/Lib")
+	set(DURIN_SYMBOL_OUTPUT_ROOT "${DURIN_BIN_ROOT}/Symbols")
+	set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR "${DURIN_THIRDPARTY_RUNTIME_DIR}")
+	set(DURIN_BIN_ROOT "${DURIN_BIN_ROOT}" PARENT_SCOPE)
+	set(DURIN_RUNTIME_OUTPUT_DIR "${DURIN_RUNTIME_OUTPUT_DIR}" PARENT_SCOPE)
+	set(DURIN_THIRDPARTY_RUNTIME_DIR "${DURIN_THIRDPARTY_RUNTIME_DIR}" PARENT_SCOPE)
+	set(DURIN_TEST_OUTPUT_DIR "${DURIN_TEST_OUTPUT_DIR}" PARENT_SCOPE)
+	set(DURIN_LIB_OUTPUT_ROOT "${DURIN_LIB_OUTPUT_ROOT}" PARENT_SCOPE)
+	set(DURIN_SYMBOL_OUTPUT_ROOT "${DURIN_SYMBOL_OUTPUT_ROOT}" PARENT_SCOPE)
+	set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR "${DURIN_PROJECT_EXTERNAL_RUNTIME_DIR}" PARENT_SCOPE)
 
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${project_config_file}) # Make CMake re-configure if the project definition file changes
 	if(DURIN_PROJECT_PROFILE_EXISTS)
@@ -49,10 +63,21 @@ endfunction()
 # Module Setup Functions
 function(durin_set_module_output target)
 	set_target_properties(${target} PROPERTIES
-		RUNTIME_OUTPUT_DIRECTORY "${DURIN_PROJECT_BINARY_DIR}/Durin/${DURIN_ARCH}/$<CONFIG>"
-		LIBRARY_OUTPUT_DIRECTORY "${DURIN_PROJECT_BINARY_DIR}/Durin/${DURIN_ARCH}/$<CONFIG>"
-		ARCHIVE_OUTPUT_DIRECTORY "${DURIN_PROJECT_BINARY_DIR}/${target}/${DURIN_ARCH}/$<CONFIG>"
-		PDB_OUTPUT_DIRECTORY "${DURIN_PROJECT_BINARY_DIR}/${target}/${DURIN_ARCH}/$<CONFIG>"
+		RUNTIME_OUTPUT_DIRECTORY "${DURIN_RUNTIME_OUTPUT_DIR}"
+		LIBRARY_OUTPUT_DIRECTORY "${DURIN_RUNTIME_OUTPUT_DIR}"
+		ARCHIVE_OUTPUT_DIRECTORY "${DURIN_LIB_OUTPUT_ROOT}/${target}"
+		PDB_OUTPUT_DIRECTORY "${DURIN_SYMBOL_OUTPUT_ROOT}/${target}"
+	)
+endfunction()
+
+function(durin_apply_common_compile_definitions target module_name)
+	target_compile_definitions(${target} PRIVATE
+		$<$<CONFIG:Debug>:DURIN_BUILD_DEBUG=1>
+		$<$<CONFIG:Release>:DURIN_BUILD_RELEASE=1>
+		DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
+		MODULE_NAME="${module_name}"
+		DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
+		DURIN_APP_CONFIG_NAME="${DURIN_APP_CONFIG_NAME}"
 	)
 endfunction()
 
@@ -97,14 +122,7 @@ function(durin_add_module module_name)
 		set_target_properties(${module_name} PROPERTIES DEFINE_SYMBOL "${module_name_upper}_EXPORTS")
 	endif()
 
-	target_compile_definitions(${module_name} PRIVATE
-		$<$<CONFIG:Debug>:DURIN_BUILD_DEBUG=1>
-		$<$<CONFIG:Release>:DURIN_BUILD_RELEASE=1>
-		DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
-		MODULE_NAME="${module_name}"
-		DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
-		DURIN_APP_CONFIG_NAME="${DURIN_APP_CONFIG_NAME}"
-	)
+	durin_apply_common_compile_definitions(${module_name} ${module_name})
 
 	target_include_directories(${module_name} PRIVATE
 		${project_intermediate_build_dir}
@@ -136,20 +154,18 @@ endfunction()
 function(durin_add_test_target target_name)
 	add_executable(${target_name} ${ARGN})
 
-	target_compile_definitions(${target_name} PRIVATE
-		$<$<CONFIG:Debug>:DURIN_BUILD_DEBUG=1>
-		$<$<CONFIG:Release>:DURIN_BUILD_RELEASE=1>
-		DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
-		MODULE_NAME="${target_name}"
-		DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
-		DURIN_APP_CONFIG_NAME="${DURIN_APP_CONFIG_NAME}"
-	)
+	durin_apply_common_compile_definitions(${target_name} ${target_name})
 
 	if(TARGET SharedPCH_Core)
 		target_precompile_headers(${target_name} REUSE_FROM SharedPCH_Core)
 	endif()
 
-	durin_set_module_output(${target_name})
+	set_target_properties(${target_name} PROPERTIES
+		RUNTIME_OUTPUT_DIRECTORY "${DURIN_TEST_OUTPUT_DIR}"
+		LIBRARY_OUTPUT_DIRECTORY "${DURIN_TEST_OUTPUT_DIR}"
+		ARCHIVE_OUTPUT_DIRECTORY "${DURIN_LIB_OUTPUT_ROOT}/${target_name}"
+		PDB_OUTPUT_DIRECTORY "${DURIN_SYMBOL_OUTPUT_ROOT}/${target_name}"
+	)
 	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}")
 endfunction()
 
@@ -162,6 +178,30 @@ function(durin_copy_external_target_binary target dependent_target)
 		COMMENT "Deploying target binary: ${file_name}"
 		VERBATIM
 	)
+endfunction()
+
+function(durin_copy_target_binary_to_output_dir target dependent_target)
+	get_filename_component(file_name "$<TARGET_FILE_NAME:${dependent_target}>" NAME)
+	add_custom_command(TARGET ${target} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		"$<TARGET_FILE:${dependent_target}>"
+		"$<TARGET_FILE_DIR:${target}>/${file_name}"
+		COMMENT "Deploying target binary to output dir: ${file_name}"
+		VERBATIM
+	)
+endfunction()
+
+function(durin_copy_external_binaries_to_output_dir target file_list)
+	foreach(file_path ${file_list})
+		get_filename_component(file_name "${file_path}" NAME)
+		add_custom_command(TARGET ${target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${file_path}"
+			"$<TARGET_FILE_DIR:${target}>/${file_name}"
+			COMMENT "Deploying external file to output dir: ${file_name}"
+			VERBATIM
+		)
+	endforeach()
 endfunction()
 
 function(durin_copy_external_binaries target file_list)

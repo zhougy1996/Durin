@@ -13,6 +13,8 @@ target_link_libraries(CoreTests PRIVATE
 	GTest::gtest_main
 )
 
+durin_copy_target_binary_to_output_dir(CoreTests Core)
+
 gtest_discover_tests(CoreTests
 	WORKING_DIRECTORY $<TARGET_FILE_DIR:CoreTests>
 )

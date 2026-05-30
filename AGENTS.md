@@ -2,31 +2,13 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
-## Build and run
-- Win64 as example platform; other platforms may have different setup steps.
-- Machine-local overrides:
-  - If present, read `LOCAL_ENV.md` for machine-specific tool paths or build commands that should not be shared in the repo.
-- Initial setup on Windows: `./Setup.bat`
-- Configure with CMake presets:
-  - Editor Debug: `cmake --preset Win64-Debug-DurinEditor`
-  - Editor Release: `cmake --preset Win64-Release-DurinEditor`
-  - Game Debug: `cmake --preset Win64-Debug-DurinGame`
-  - Game Release: `cmake --preset Win64-Release-DurinGame`
-- Third-party bootstrap:
-  - Primary cross-platform entry is `Engine/Scripts/Bootstrap/setup_third_party.py`.
-  - On Windows, `Engine/Scripts/Bootstrap/Bootstrap.bat` and `Setup_<Library>.bat` are thin wrappers around that Python entry.
-  - Run `Engine/Scripts/Bootstrap/Bootstrap.bat` during setup on Windows, or invoke `python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-tests` directly.
-  - Source-prepared libraries currently include `glm`, `googletest`, `spdlog`, `glfw`, `rapidyaml`, and `assimp`.
-  - Direct-source libraries are consumed from `Engine/External/Source/<Library>`.
-  - Prebuilt SDK packages are consumed from `Engine/External/Packages/<Library>`.
-  - Shared-install libraries are built once into `Engine/External/Install/<Platform>/<Config>/<Library>` and then imported by the main project.
-  - Third-party installs are prepared by the Python bootstrap using per-library manifests and command-line `cmake -S/-B/-DCMAKE_INSTALL_PREFIX`; per-library CMake presets are not used.
-  - Build tree: `Build/ThirdParty/<Platform>-<Config>-<Library>`
-  - Install tree: `Engine/External/Install/<Platform>/<Config>/<Library>`
-- Run the editor/launcher after build (Win64):
-  - `./Engine/Binaries/Durin/Win64/Debug/DurinEditor.exe`
-  - The launcher target is `DurinLauncher`, and its output name matches the active profile name.
-- Config file: `DurinConfig.yaml` in the output directory.
+## Read first
+
+- For configure, build, run, and binary layout, read `Documentation/Setup/BuildAndRun.md`.
+- For third-party bootstrap and dependency deployment, read `Documentation/Setup/ThirdPartyBootstrap.md`.
+- For native tests, read `Documentation/Setup/NativeTests.md`.
+- For profile semantics and generated metadata flow, read `Documentation/Architecture/Profiles.md`.
+- If present, read `LOCAL_ENV.md` for machine-specific tool paths and non-portable command examples.
 
 ## Build system shape
 
@@ -34,8 +16,8 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - `CMake/Modules.cmake` is the key file for understanding builds:
   - `durin_add_project(...)` prepares project metadata by invoking the Python-based DurinHeaderTool (`Engine/Source/Programs/DurinHeaderTool/main.py`).
   - `durin_add_module(...)` includes generated per-module CMake, wires reflection/generated sources, sets precompiled headers, and emits shared libraries named `DurinEditor-<ModuleName>`.
+  - `durin_add_test_target(...)` is the helper for native test executables.
 - Most engine/editor code is built as modules loaded at runtime through the custom module system, not linked monolithically.
-- `RenderCore` has an important post-build step that copies Slang DLLs into `Binaries/ThirdParty/...`; shader/compiler issues often come from this deployment path.
 
 ## Runtime architecture
 

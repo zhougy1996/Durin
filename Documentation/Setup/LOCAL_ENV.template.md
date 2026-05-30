@@ -1,6 +1,6 @@
 # Local machine config
 
-This file is gitignored and is intended for machine-specific instructions that should not be shared in the repository.
+This file is intended as a template for a gitignored `LOCAL_ENV.md` file in the repository root.
 
 ## CMake
 
@@ -11,7 +11,7 @@ This file is gitignored and is intended for machine-specific instructions that s
 
 ## Visual Studio environment
 
-- Run configure/build commands from `x64 Native Tools Command Prompt for VS 2022`, or call:
+- Run configure and build commands from `x64 Native Tools Command Prompt for VS 2022`, or call:
   `D:\Programs\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat`
 - `cl.exe` may be discoverable outside that environment, but standard library and SDK include paths are not reliable there.
 
@@ -33,4 +33,4 @@ This file is gitignored and is intended for machine-specific instructions that s
 
 ## Notes
 
-- Keep this file limited to machine-local paths, environment quirks, and non-portable commands.
+- Keep the real `LOCAL_ENV.md` limited to machine-local paths, environment quirks, and non-portable commands.

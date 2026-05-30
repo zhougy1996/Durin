@@ -5,11 +5,7 @@ durin_set_module_output(DurinLauncher)
 
 set_target_properties(DurinLauncher PROPERTIES OUTPUT_NAME "${DURIN_PROFILE_NAME}")
 
-target_compile_definitions(DurinLauncher PRIVATE
-    DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
-    DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
-    DURIN_APP_CONFIG_NAME="${DURIN_APP_CONFIG_NAME}"
-)
+durin_apply_common_compile_definitions(DurinLauncher "DurinLauncher")
 
 target_link_libraries(DurinLauncher PRIVATE
     Launch

@@ -5,6 +5,38 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto IsEngineDirCandidate(const std::filesystem::path& Candidate) -> bool
+		{
+			return std::filesystem::is_directory(Candidate)
+				&& std::filesystem::is_directory(Candidate / "Content")
+				&& std::filesystem::is_directory(Candidate / "Binaries");
+		}
+
+		auto FindEngineDirFromLaunchDir() -> std::filesystem::path
+		{
+			const std::filesystem::path LaunchPath(FPaths::LaunchDir());
+
+			for (auto Current = LaunchPath; !Current.empty(); Current = Current.parent_path())
+			{
+				const std::filesystem::path EngineDir = Current / "Engine";
+				if (IsEngineDirCandidate(EngineDir))
+				{
+					return EngineDir;
+				}
+
+				if (Current == Current.parent_path())
+				{
+					break;
+				}
+			}
+
+			checkf(false, "Failed to locate Engine directory from launch directory.");
+			return {};
+		}
+	}
+
 	namespace PathUtilities
 	{
 		static std::vector<FMountPoint> MountPoints;
@@ -62,8 +94,7 @@ namespace Durin
 	auto FPaths::RootDir() -> std::string
 	{
 		static std::string CachedRootDir = []() -> std::string {
-			const std::string LaunchDir = FPaths::LaunchDir();
-			const std::filesystem::path RootDir = std::filesystem::path{LaunchDir}.parent_path().parent_path().parent_path().parent_path().parent_path().parent_path();
+			const std::filesystem::path RootDir = std::filesystem::path{FPaths::EngineDir()}.parent_path();
 			return RootDir.generic_string() + "/";
 		}();
 		return CachedRootDir;
@@ -72,8 +103,7 @@ namespace Durin
 	auto FPaths::EngineDir() -> std::string
 	{
 		static std::string CachedEngineDir = []() -> std::string {
-			const std::string RootDir = FPaths::RootDir();
-			return RootDir + "Engine/";
+			return FindEngineDirFromLaunchDir().generic_string() + "/";
 		}();
 		return CachedEngineDir;
 	}
@@ -99,7 +129,12 @@ namespace Durin
 
 	auto FPaths::EngineThirdPartyRuntimeBinariesDir() -> std::string
 	{
-		return EngineBinariesDir() + std::format("ThirdParty/{}/{}/", DURIN_BUILD_PLATFORM_STRING, DURIN_BUILD_TYPE_STRING);
+		static std::string CachedThirdPartyDir = []() -> std::string {
+			const std::filesystem::path LaunchPath(FPaths::LaunchDir());
+			const std::filesystem::path ConfigDir = LaunchPath.parent_path().parent_path();
+			return (ConfigDir / "ThirdParty").generic_string() + "/";
+		}();
+		return CachedThirdPartyDir;
 	}
 
 	auto FPaths::Resolve(std::string_view VirtualPath) -> std::string

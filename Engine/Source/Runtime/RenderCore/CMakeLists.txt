@@ -9,11 +9,12 @@ target_link_libraries(RenderCore PRIVATE
     delayimp
 )
 
-set(destination_dir "${DURIN_PROJECT_DIR}/Binaries/ThirdParty/${DURIN_ARCH}/$<CONFIG>")
-set(SLANG_ROOT "${DURIN_PROJECT_SOURCE_DIR}/ThirdParty/slang")
-add_custom_command(TARGET RenderCore POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${destination_dir}"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SLANG_ROOT}/bin/slang.dll" "${destination_dir}/slang.dll"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SLANG_ROOT}/bin/slang-compiler.dll" "${destination_dir}/slang-compiler.dll"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SLANG_ROOT}/bin/slang-glslang.dll" "${destination_dir}/slang-glslang.dll"
+set(SLANG_ROOT "${DURIN_PROJECT_DIR}/External/Packages/slang")
+set(SLANG_RUNTIME_DLLS
+    "${SLANG_ROOT}/bin/slang.dll"
+    "${SLANG_ROOT}/bin/slang-compiler.dll"
+    "${SLANG_ROOT}/bin/slang-glslang.dll"
 )
+
+durin_copy_external_binaries(RenderCore "${SLANG_RUNTIME_DLLS}")
+durin_copy_external_binaries_to_output_dir(RenderCore "${SLANG_RUNTIME_DLLS}")

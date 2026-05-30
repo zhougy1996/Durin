@@ -68,9 +68,15 @@ cmake `
   -j 4
 ```
 
-The test executable is emitted into the normal Durin binaries directory so it can find engine DLLs:
+The test executable is emitted into the dedicated test output directory:
 
-- `Engine/Binaries/Durin/Win64/Debug/CoreTests.exe`
+- `Engine/Binaries/Win64/Debug/Tests/CoreTests.exe`
+
+If a test target links against engine module DLLs, copy the required runtime DLLs beside the test executable. `CoreTests` currently does this with:
+
+```cmake
+durin_copy_target_binary_to_output_dir(CoreTests Core)
+```
 
 ## Run Tests
 
@@ -96,13 +102,13 @@ ctest `
 ### Run the executable directly
 
 ```powershell
-.\Engine\Binaries\Durin\Win64\Debug\CoreTests.exe
+.\Engine\Binaries\Win64\Debug\Tests\CoreTests.exe
 ```
 
 Or run a single GoogleTest case:
 
 ```powershell
-.\Engine\Binaries\Durin\Win64\Debug\CoreTests.exe `
+.\Engine\Binaries\Win64\Debug\Tests\CoreTests.exe `
   --gtest_filter=FJsonDocumentTests.ParseObjectFromString
 ```
 
@@ -112,7 +118,8 @@ Or run a single GoogleTest case:
 2. Add a `CMakeLists.txt` file for that target.
 3. Use `durin_add_test_target(...)` instead of calling `add_executable(...)` directly.
 4. Link the target against the engine modules it needs and `GTest::gtest_main`.
-5. Register the tests with `gtest_discover_tests(...)`.
+5. Copy any required engine DLLs beside the test executable.
+6. Register the tests with `gtest_discover_tests(...)`.
 
 Example:
 
@@ -127,6 +134,8 @@ target_link_libraries(AssetCoreTests PRIVATE
     AssetCore
     GTest::gtest_main
 )
+
+durin_copy_target_binary_to_output_dir(AssetCoreTests AssetCore)
 
 gtest_discover_tests(AssetCoreTests
     WORKING_DIRECTORY $<TARGET_FILE_DIR:AssetCoreTests>
@@ -157,6 +166,7 @@ TEST(FExampleTests, BasicExpectation)
 - On Windows, build and test commands should be run from the Visual Studio developer environment so standard library and SDK paths are available.
 - If `cmake` is not on `PATH` on your machine, use the machine-local command documented in `LOCAL_ENV.md`.
 - `gtest_discover_tests()` registers individual GoogleTest cases with CTest, so `ctest -R` filters match test case names, not only executable names.
+- Keep the test working directory as `$<TARGET_FILE_DIR:...>` so `gtest_discover_tests()` runs against the deployed test output, not the build-tree executable path.
 - Test executables are separate programs. They should not depend on editor startup, real windows, or renderer boot unless that is explicitly the point of the test.
 - The preferred first targets for native testing are low-level modules such as `Core` and `AssetCore`.
 
