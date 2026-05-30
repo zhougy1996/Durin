@@ -17,4 +17,3 @@ set(SLANG_RUNTIME_DLLS
 )
 
 durin_copy_external_binaries(RenderCore "${SLANG_RUNTIME_DLLS}")
-durin_copy_external_binaries_to_output_dir(RenderCore "${SLANG_RUNTIME_DLLS}")
