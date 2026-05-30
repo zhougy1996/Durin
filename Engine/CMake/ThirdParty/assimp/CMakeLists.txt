@@ -33,6 +33,7 @@ function(durin_assimp_configure_imported_target)
 		IMPORTED_LOCATION "${assimp_runtime_dll}"
 		IMPORTED_IMPLIB "${assimp_import_lib}"
 		INTERFACE_INCLUDE_DIRECTORIES "${assimp_include_dir}"
+		DURIN_RUNTIME_DEPLOY_FILES "${assimp_runtime_dll}"
 	)
 endfunction()
 

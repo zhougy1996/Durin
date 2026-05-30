@@ -216,3 +216,21 @@ function(durin_copy_external_binaries target file_list)
 		)
 	endforeach()
 endfunction()
+
+function(durin_deploy_runtime_files_for_target target dependent_target)
+	get_target_property(runtime_files ${dependent_target} DURIN_RUNTIME_DEPLOY_FILES)
+	if(NOT runtime_files OR runtime_files STREQUAL "runtime_files-NOTFOUND")
+		return()
+	endif()
+
+	durin_copy_external_binaries(${target} "${runtime_files}")
+endfunction()
+
+function(durin_enable_delay_load target dll_name)
+	if(NOT WIN32)
+		return()
+	endif()
+
+	target_link_options(${target} PRIVATE "/DELAYLOAD:${dll_name}")
+	target_link_libraries(${target} PRIVATE delayimp)
+endfunction()
