@@ -96,6 +96,12 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture>
 	{
+		if (AcquiredBackBufferIndex >= 0)
+		{
+			check(AcquiredBackBufferIndex < static_cast<int32>(TextureViews.size()));
+			return RHIBackBuffer;
+		}
+
 		const uint32 AcquiredImageIndex = Swapchain->AcquireImageIndex(&AcquiredSemaphore);
 		if (AcquiredImageIndex == UINT32_MAX)
 		{
