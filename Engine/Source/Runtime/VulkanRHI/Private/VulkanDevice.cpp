@@ -346,6 +346,11 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::Destroy() -> void
 	{
+		if (Device)
+		{
+			WaitUtilIdle();
+		}
+
 		for (auto*& Frame : Frames)
 		{
 			delete Frame;

@@ -24,7 +24,8 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanFrame::Prepare() -> void
 	{
-		if (!FrameFence->IsSignaled())
+		// Refresh the cached fence state before deciding whether it is safe to reset.
+		if (!Device.GetFenceManager().IsFenceSignaled(FrameFence))
 		{
 			Device.GetFenceManager().WaitForFence(FrameFence, UINT64_MAX);
 		}

@@ -6,7 +6,6 @@
         "Core",
         "RHI",
         "ApplicationCore",
-        "MonaCore",
-        "MonaImGuiBackend"
+        "MonaCore"
     ]
 }

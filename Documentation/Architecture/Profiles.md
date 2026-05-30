@@ -92,6 +92,7 @@ Current Win64 presets:
 - `Win64-Release-DurinEditor`
 - `Win64-Debug-DurinGame`
 - `Win64-Release-DurinGame`
+- `Win64-Shipping-DurinGame`
 
 Each preset sets:
 
@@ -155,8 +156,13 @@ Currently exposed semantic compile definitions include:
 - `DURIN_PROFILE_NAME`
 - `DURIN_APP_CONFIG_NAME`
 - `DURIN_WITH_EDITOR`
+- `DURIN_WITH_DEVELOPER_TOOLS`
+- `DURIN_BUILD_DEBUG`
+- `DURIN_BUILD_RELEASE`
+- `DURIN_BUILD_SHIPPING`
 
 `DURIN_WITH_EDITOR` is the primary semantic branch for code-level editor vs non-editor behavior.
+`DURIN_WITH_DEVELOPER_TOOLS` is derived from the build configuration: editor builds and non-shipping game builds enable developer tools, while shipping game builds disable them.
 
 ## Runtime Rule
 
@@ -198,7 +204,7 @@ Profiles already control:
 - build partitioning
 - editor/non-editor compile-time branching
 
-Profiles do not yet fully control every runtime behavior split. `DurinGame` exists as a profile, but not every initialization path has been fully separated into editor and game flows yet.
+Build configuration controls developer tooling. `Debug` and `Release` game builds include developer tools; `Shipping` game builds exclude them.
 
 ## Adding A New Profile
 

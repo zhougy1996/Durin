@@ -4,6 +4,7 @@
 #include "Widgets/MWindow.h"
 #include "Widgets/MViewport.h"
 #include "Application/MonaApplication.h"
+#include "RHICommandList.h"
 
 namespace Durin
 {
@@ -39,6 +40,15 @@ namespace Durin
 			return;
 		}
 
+		const FVector2f DesiredSize = GetDesiredSize();
+		const uint32 Width = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.x)));
+		const uint32 Height = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.y)));
+		if (RenderTargetRHI == nullptr || RenderTargetRHI->GetSizeX() != Width || RenderTargetRHI->GetSizeY() != Height)
+		{
+			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("SceneViewportRenderTarget", Width, Height, EPixelFormat::SRGBA8_UNORM);
+			Desc.AddFlags(ETextureCreateFlags::RenderTargetable);
+			RenderTargetRHI = RHICreateTexture(Desc);
+		}
 		ViewportRHI = nullptr;
 	}
 

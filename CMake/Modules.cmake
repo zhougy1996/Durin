@@ -32,6 +32,12 @@ function(durin_add_project project_name)
 	else()
 		set(DURIN_WITH_EDITOR 0)
 	endif()
+
+	if(DURIN_WITH_EDITOR OR NOT CMAKE_BUILD_TYPE STREQUAL "Shipping")
+		set(DURIN_WITH_DEVELOPER_TOOLS 1)
+	else()
+		set(DURIN_WITH_DEVELOPER_TOOLS 0)
+	endif()
 	set(DURIN_APP_CONFIG_NAME "${DURIN_PROJECT_PROFILE_APP_CONFIG_NAME}")
 	set(DURIN_BIN_ROOT "${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/$<CONFIG>")
 	set(DURIN_RUNTIME_OUTPUT_DIR "${DURIN_BIN_ROOT}/Runtime/${DURIN_PROJECT_PROFILE_NAME}")
@@ -55,6 +61,9 @@ function(durin_add_project project_name)
 
 	# Add subdirectories for each module
 	foreach(_dir IN LISTS project_module_dirs)
+		if(NOT DURIN_WITH_DEVELOPER_TOOLS AND _dir MATCHES "MonaImGuiBackend$")
+			continue()
+		endif()
 		add_subdirectory(${_dir})
 	endforeach()
 	durin_end()
@@ -74,7 +83,9 @@ function(durin_apply_common_compile_definitions target module_name)
 	target_compile_definitions(${target} PRIVATE
 		$<$<CONFIG:Debug>:DURIN_BUILD_DEBUG=1>
 		$<$<CONFIG:Release>:DURIN_BUILD_RELEASE=1>
+		$<$<CONFIG:Shipping>:DURIN_BUILD_SHIPPING=1>
 		DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
+		DURIN_WITH_DEVELOPER_TOOLS=${DURIN_WITH_DEVELOPER_TOOLS}
 		MODULE_NAME="${module_name}"
 		DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
 		DURIN_APP_CONFIG_NAME="${DURIN_APP_CONFIG_NAME}"
@@ -87,6 +98,11 @@ function(durin_add_module module_name)
 
 	set(module_cmake_file "${DURIN_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
 	include(${module_cmake_file})
+
+	if(NOT DURIN_WITH_DEVELOPER_TOOLS)
+		list(REMOVE_ITEM module_private_dependencies MonaImGuiBackend)
+		list(REMOVE_ITEM module_public_dependencies MonaImGuiBackend)
+	endif()
 
 	# Make CMake re-configure if the module definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_config_file})

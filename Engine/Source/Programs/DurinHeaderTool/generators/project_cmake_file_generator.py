@@ -41,9 +41,14 @@ def _append_project_profile_to_cmake_content(content: list[str], project_name: s
 
 def _append_module_dirs_to_cmake_content(content: list[str], project_name: str) -> None:
     project_config = configs.get_project_config(project_name)
+    profile_config = configs.get_profile_config(project_name, configs.PROFILE_NAME)
     content.append("# Module directories for this project\n")
     content.append(f"set(project_module_dirs\n")
     for module_name, module_dir in project_config.module_dirs.items():
+        module_dir_normalized = module_dir.replace("\\", "/")
+        if profile_config is not None:
+            if not profile_config.with_editor and module_name != "DurinLauncher" and "/Editor/" in f"/{module_dir_normalized}/":
+                continue
         content.append(f"    \"{module_dir}\"\n")
     content.append(")\n\n")
 

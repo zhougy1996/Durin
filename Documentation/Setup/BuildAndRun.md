@@ -21,11 +21,13 @@ Current main presets:
 - `cmake --preset Win64-Release-DurinEditor`
 - `cmake --preset Win64-Debug-DurinGame`
 - `cmake --preset Win64-Release-DurinGame`
+- `cmake --preset Win64-Shipping-DurinGame`
 
 Main project build trees are profile-specific:
 
 - `Build/Win64-Debug-DurinEditor`
 - `Build/Win64-Debug-DurinGame`
+- `Build/Win64-Shipping-DurinGame`
 
 ## Build
 
@@ -54,6 +56,7 @@ Engine binaries are organized by platform and configuration:
 Examples for Win64 Debug:
 
 - `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`
+- `Engine/Binaries/Win64/Debug/Runtime/DurinGame/DurinGame.exe`
 - `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor-Core.dll`
 - `Engine/Binaries/Win64/Debug/ThirdParty/slang.dll`
 - `Engine/Binaries/Win64/Debug/Tests/CoreTests.exe`

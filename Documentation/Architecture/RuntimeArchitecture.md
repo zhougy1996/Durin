@@ -86,7 +86,7 @@ Responsibilities:
 
 - `Mona` and `MonaCore` provide the app, widget, window, and renderer integration layer
 - `FMonaRHIRenderer` bridges Mona windows to `FRHIViewport` objects
-- `MonaImGuiBackend` integrates Dear ImGui on top of Mona and RHI
+- `MonaImGuiBackend` integrates Dear ImGui on top of Mona and RHI when developer tools are enabled
 - `MainFrame` creates the root `MWindow` and viewport for the editor shell
 
 Window creation and resize events map directly to RHI viewport creation and resize calls.
@@ -107,4 +107,3 @@ Window creation and resize events map directly to RHI viewport creation and resi
 - Build system structure: `Documentation/Architecture/BuildSystem.md`
 - Profile system: `Documentation/Architecture/Profiles.md`
 - Build and run workflow: `Documentation/Setup/BuildAndRun.md`
-

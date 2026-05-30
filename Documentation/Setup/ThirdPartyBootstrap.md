@@ -36,6 +36,8 @@ python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 - Shared build: `Build/ThirdParty/<Platform>-<Config>-<Library>`
 - Runtime deployment: `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
 
+`Shipping` main-project builds import shared-install third-party packages from the `Release` install tree.
+
 Platform names are normalized as:
 
 - Windows: `Win64`

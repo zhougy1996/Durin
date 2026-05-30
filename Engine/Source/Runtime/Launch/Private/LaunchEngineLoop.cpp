@@ -5,8 +5,9 @@
 #include "ApplicationCore.h"
 #include "RHI.h"
 #include "Mona.h"
-#include "DurinEdGlobals.h"
 #include "Engine/Engine.h"
+#include "Mona/SceneViewport.h"
+#include "Widgets/MWindow.h"
 
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -16,6 +17,14 @@
 
 #include "Shader/ShaderPaths.h"
 #include "DurinEngine.h"
+
+#if DURIN_WITH_EDITOR
+#include "DurinEdGlobals.h"
+#endif
+
+#if DURIN_WITH_DEVELOPER_TOOLS
+#include "MonaImGuiBackend.h"
+#endif
 
 
 namespace Durin
@@ -31,6 +40,28 @@ namespace Durin
 #else
 			return GDefaultAppConfigName;
 #endif
+		}
+
+		auto CreateStandaloneGameWindow() -> void
+		{
+			std::shared_ptr<Mona::MWindow> GameWindow = std::make_shared<Mona::MWindow>();
+			GameWindow->SetTitle(GAppConfig.GetStringValue("AppName"));
+			GameWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 720.0f});
+
+			auto& MonaApp = Mona::FMonaApplication::Get();
+			MonaApp.AddWindow(GameWindow, true);
+			MonaApp.GetRenderer()->CreateViewport(GameWindow);
+
+#if DURIN_WITH_DEVELOPER_TOOLS
+			Mona::BindMainViewportToWindow(GameWindow);
+#endif
+
+			std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, GameWindow);
+			GameWindow->SetViewport(SceneViewport);
+			if (GEngine != nullptr)
+			{
+				GEngine->SetMainSceneViewport(SceneViewport);
+			}
 		}
 	}
 
@@ -62,12 +93,20 @@ namespace Durin
 	{
 		ApplicationCoreInit();
 		RHIInit();
+#if DURIN_WITH_DEVELOPER_TOOLS
+		Mona::SetUIBackend(std::make_unique<Mona::FMonaImGuiUIBackend>());
+#endif
 		Mona::MonaInit();
-		EditorInit();
 
 		// Create engine instance, this is just for testing, we should have a more robust engine initialization process
 		GEngine = new DEngine();
 		GEngine->Init();
+
+#if DURIN_WITH_EDITOR
+		EditorInit();
+#else
+		CreateStandaloneGameWindow();
+#endif
 
 		InitRenderingThread();
 		DURIN_INFO(STR("Durin engine initialized."));
@@ -103,6 +142,9 @@ namespace Durin
 		if (GIsRequestingExit) return;
 
 		Mona::NewFrame();
+#if DURIN_WITH_DEVELOPER_TOOLS && !DURIN_WITH_EDITOR
+		Mona::ShowDemoWindow();
+#endif
 
 		// Start recording render commands for the current frame.
 		ENQUEUE_RENDER_COMMAND(BeginFrame)([CurrentFrameCounter](FRHICommandListImmediate& CommandList) {

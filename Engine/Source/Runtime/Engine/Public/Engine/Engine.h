@@ -17,6 +17,8 @@ namespace Durin
 
 		virtual auto RedrawViewports() -> void;
 
+		virtual auto SetMainSceneViewport(std::shared_ptr<FSceneViewport> InSceneViewport) -> void;
+
 	protected:
 		std::shared_ptr<FSceneViewport> MainSceneViewport;
 	};

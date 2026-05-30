@@ -2,27 +2,14 @@
 
 #include "Mona/SceneViewport.h"
 
-#include "Application/MonaApplication.h"
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Rendering/MonaRenderer.h"
-#include "Widgets/MWindow.h"
 
 namespace Durin
 {
 	auto DEngine::Init() -> void
 	{
-		auto& App = Mona::FMonaApplication::Get();
-		const auto& Windows = App.GetWindows();
-		if (Windows.empty())
-		{
-			return;
-		}
-
-		MainSceneViewport = std::make_shared<FSceneViewport>(nullptr, Windows.front());
-		Windows.front()->SetViewport(MainSceneViewport);
-		MainSceneViewport->UpdateRHIViewport();
 	}
 
 	auto DEngine::Start() -> void
@@ -65,9 +52,24 @@ namespace Durin
 				CommandList.BeginRenderPass(PassInfo, "RuntimeSceneViewportClearPass");
 				CommandList.EndRenderPass();
 
-				CommandList.EndDrawingViewport(ViewportRHI, true, false);
+				constexpr bool bPresentSceneViewport =
+#if DURIN_WITH_DEVELOPER_TOOLS && !DURIN_WITH_EDITOR
+					false;
+#else
+					true;
+#endif
+				CommandList.EndDrawingViewport(ViewportRHI, bPresentSceneViewport, false);
 			}
 		);
+	}
+
+	auto DEngine::SetMainSceneViewport(std::shared_ptr<FSceneViewport> InSceneViewport) -> void
+	{
+		MainSceneViewport = std::move(InSceneViewport);
+		if (MainSceneViewport)
+		{
+			MainSceneViewport->UpdateRHIViewport();
+		}
 	}
 
 	DEngine* GEngine = nullptr;

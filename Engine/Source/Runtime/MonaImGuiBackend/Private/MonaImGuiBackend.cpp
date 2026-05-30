@@ -49,6 +49,9 @@ namespace Durin::Mona
 
 		auto ShouldRenderMainViewportWithImGui() -> bool
 		{
+#if DURIN_WITH_DEVELOPER_TOOLS && !DURIN_WITH_EDITOR
+			return true;
+#else
 			const std::shared_ptr<MWindow> MainWindow = GetMainMonaWindow();
 			if (MainWindow == nullptr)
 			{
@@ -57,6 +60,7 @@ namespace Durin::Mona
 
 			const std::shared_ptr<IMonaViewport> Viewport = MainWindow->GetViewport();
 			return Viewport == nullptr || Viewport->GetRenderMode() != EMonaViewportRenderMode::Window;
+#endif
 		}
 
 		auto GetViewportWindow(ImGuiViewport* Viewport) -> std::shared_ptr<MWindow>
@@ -709,6 +713,36 @@ namespace Durin::Mona
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 		ImGui::ShowDemoWindow();
+	}
+
+	auto FMonaImGuiUIBackend::Initialize() -> void
+	{
+		FMonaImGuiBackend::Initialize();
+	}
+
+	auto FMonaImGuiUIBackend::Shutdown() -> void
+	{
+		FMonaImGuiBackend::Shutdown();
+	}
+
+	auto FMonaImGuiUIBackend::NewFrame() -> void
+	{
+		FMonaImGuiBackend::NewFrame();
+	}
+
+	auto FMonaImGuiUIBackend::Render() -> void
+	{
+		FMonaImGuiBackend::Render();
+	}
+
+	auto FMonaImGuiUIBackend::BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void
+	{
+		FMonaImGuiBackend::BindMainViewportToWindow(Window);
+	}
+
+	auto FMonaImGuiUIBackend::ShowDemoWindow() -> void
+	{
+		FMonaImGuiBackend::ShowDemoWindow();
 	}
 
 } // namespace Durin::Mona

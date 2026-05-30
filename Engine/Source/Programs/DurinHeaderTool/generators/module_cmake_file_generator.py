@@ -5,6 +5,16 @@ import utils
 
 def _append_module_configs_to_cmake_content(content: list[str], module_name: str) -> None:
     module_config: configs.DurinModuleConfig = configs.get_module_config(module_name)
+    profile_config = configs.get_profile_config(module_config.owning_project, configs.PROFILE_NAME)
+
+    def _is_dependency_enabled(dep: str) -> bool:
+        if profile_config is None:
+            return True
+        dep_config = configs.get_module_config(dep)
+        dep_dir = dep_config.module_dir.as_posix()
+        if not profile_config.with_editor and dep != "DurinLauncher" and "/Source/Editor/" in dep_dir:
+            return False
+        return True
 
     if len(module_config.reflect_headers) > 0:
         reflect_header_file_paths = [(module_config.module_dir / header).resolve().as_posix() for header in module_config.reflect_headers]
@@ -14,17 +24,19 @@ def _append_module_configs_to_cmake_content(content: list[str], module_name: str
             content.append(f"    \"{header_path}\"\n")
         content.append(")\n\n")
 
-    if len(module_config.public_dependencies) > 0:
+    public_dependencies = [dep for dep in module_config.public_dependencies if _is_dependency_enabled(dep)]
+    if len(public_dependencies) > 0:
         content.append("# Public dependencies for this module\n")
         content.append("set(module_public_dependencies\n")
-        for dep in module_config.public_dependencies:
+        for dep in public_dependencies:
             content.append(f"    {dep}\n")
         content.append(")\n\n")
 
-    if len(module_config.private_dependencies) > 0:
+    private_dependencies = [dep for dep in module_config.private_dependencies if _is_dependency_enabled(dep)]
+    if len(private_dependencies) > 0:
         content.append("# Private dependencies for this module\n")
         content.append("set(module_private_dependencies\n")
-        for dep in module_config.private_dependencies:
+        for dep in private_dependencies:
             content.append(f"    {dep}\n")
         content.append(")\n\n")
 

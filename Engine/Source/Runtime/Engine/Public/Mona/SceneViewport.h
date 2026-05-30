@@ -30,5 +30,7 @@ namespace Durin
 		std::weak_ptr<Mona::MWindow> Window;
 
 		std::weak_ptr<Mona::MViewport> ViewportWidget;
+
+		FTextureRHIRef RenderTargetRHI;
 	};
 }

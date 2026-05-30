@@ -1,43 +1,71 @@
 #include "MonaGlobals.h"
 
 #include "Application/MonaApplication.h"
-#include "MonaBackend.h"
-#include "MonaImGuiBackend.h"
+#include "IMonaUIBackend.h"
 
 namespace Durin::Mona
 {
+	namespace
+	{
+		std::unique_ptr<IMonaUIBackend> GUIBackend;
+	}
+
 	auto MonaInit() -> void
 	{
 		FMonaApplication::Create();
 		FMonaApplication::Get().Initialize();
-		FMonaBackend::Initialize();
+		if (GUIBackend)
+		{
+			GUIBackend->Initialize();
+		}
 		DURIN_DEBUG(STR("Mona initialized successfully."));
 	}
 
 	auto MonaShutdown() -> void
 	{
-		FMonaBackend::Shutdown();
+		if (GUIBackend)
+		{
+			GUIBackend->Shutdown();
+			GUIBackend.reset();
+		}
 		FMonaApplication::Shutdown();
 		DURIN_DEBUG(STR("Mona shutdown."));
 	}
 
 	auto NewFrame() -> void
 	{
-		FMonaBackend::NewFrame();
+		if (GUIBackend)
+		{
+			GUIBackend->NewFrame();
+		}
 	}
 
 	auto Render() -> void
 	{
-		FMonaBackend::Render();
+		if (GUIBackend)
+		{
+			GUIBackend->Render();
+		}
+	}
+
+	auto SetUIBackend(std::unique_ptr<IMonaUIBackend> InBackend) -> void
+	{
+		GUIBackend = std::move(InBackend);
 	}
 
 	auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void
 	{
-		FMonaImGuiBackend::BindMainViewportToWindow(Window);
+		if (GUIBackend)
+		{
+			GUIBackend->BindMainViewportToWindow(Window);
+		}
 	}
 
 	auto ShowDemoWindow() -> void
 	{
-		FMonaBackend::ShowDemoWindow();
+		if (GUIBackend)
+		{
+			GUIBackend->ShowDemoWindow();
+		}
 	}
 } // namespace Durin::Mona

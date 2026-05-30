@@ -58,6 +58,16 @@
       }
     },
     {
+      "name": "Win64-Shipping-DurinGame",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/Build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Shipping",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "DURIN_PROFILE_NAME": "DurinGame"
+      }
+    },
+    {
       "name": "macos-base",
       "hidden": true,
       "generator": "Ninja",

@@ -89,12 +89,28 @@ namespace Durin::Mona
 
 	auto FMonaApplication::AddWindow(std::shared_ptr<MWindow> InMonaWindow, const bool bShowImmediately) -> std::shared_ptr<MWindow>
 	{
+		if (InMonaWindow == nullptr)
+		{
+			return nullptr;
+		}
+
+		const std::shared_ptr<MWindow> RootWindow = GetRootWindow(InMonaWindow);
+		std::vector<std::shared_ptr<MWindow>> WindowHierarchy;
+		FMonaWindowHelper::CollectWindowAndDescendants(RootWindow, WindowHierarchy);
+		for (const std::shared_ptr<MWindow>& Window : WindowHierarchy)
+		{
+			if (std::ranges::find(Windows, Window) == Windows.end())
+			{
+				Windows.push_back(Window);
+			}
+		}
+
 		FMonaWindowHelper::ArrangeWindowToFront(Windows, InMonaWindow);
 		if (bShowImmediately)
 		{
-			ActiveTopLevelWindow = GetRootWindow(InMonaWindow);
+			ActiveTopLevelWindow = RootWindow;
 		}
-		std::shared_ptr<FGenericWindow> NewWindow = MakeWindow(InMonaWindow, bShowImmediately);
+		MakeWindow(InMonaWindow, bShowImmediately);
 
 		return InMonaWindow;
 	}
