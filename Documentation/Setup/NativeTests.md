@@ -29,7 +29,7 @@ At the root CMake level:
 
 When `BUILD_TESTING=OFF`:
 
-- GoogleTest is not fetched
+- GoogleTest is not added to the build
 - test targets are not added
 - normal engine/editor builds continue to work without the test layer
 
@@ -165,4 +165,5 @@ TEST(FExampleTests, BasicExpectation)
 - Test root: `Engine/Source/Programs/Tests`
 - First suite: `Engine/Source/Programs/Tests/CoreTests`
 - Shared helper: `CMake/Modules.cmake`
-- Test-only dependency fetch: `Engine/CMake/ThirdParty/googletest`
+- Test dependency source wrapper: `Engine/CMake/ThirdParty/googletest`
+- Prepare test dependency source ahead of configure with: `Engine/Scripts/Bootstrap/Setup_googletest.bat`

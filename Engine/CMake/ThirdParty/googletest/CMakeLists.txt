@@ -1,12 +1,18 @@
-include(FetchContent)
+cmake_minimum_required(VERSION 3.24)
 
-FetchContent_Declare(
-	googletest
-	URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
-)
+get_filename_component(durin_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+set(googletest_source_dir "${durin_root}/Engine/Source/ThirdParty/googletest")
+
+if(NOT EXISTS "${googletest_source_dir}/CMakeLists.txt")
+	message(FATAL_ERROR
+		"googletest source was not found at ${googletest_source_dir}.\n"
+		"Run Engine/Scripts/Bootstrap/Setup_googletest.bat first to clone the source."
+	)
+endif()
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
+
+add_subdirectory("${googletest_source_dir}" "${CMAKE_BINARY_DIR}/googletest")

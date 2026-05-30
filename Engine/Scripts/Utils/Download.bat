@@ -1,8 +1,8 @@
 @echo off
 :: Download.bat -- A utility script for downloading and extracting ZIP files for third-party dependencies.
 
-:: Currently not use this batch file to download dependencies, since we can directly use FetchContent in CMakeLists.txt to download and extract the dependencies.
-:: However, we can keep this batch file as a backup plan in case we need to manually download the dependencies in the future.
+:: This helper is kept for package-style dependencies that still need manual download/extract behavior.
+:: Shared source-built dependencies should use the bootstrap install flow under Engine/Scripts/Bootstrap instead of ad-hoc in-project integration.
 
 call "%~dp0\..\Env.bat"
 

@@ -1,0 +1,32 @@
+include_guard(GLOBAL)
+
+function(durin_third_party_find_single_file out_var base_dir)
+	foreach(candidate IN LISTS ARGN)
+		if(EXISTS "${base_dir}/${candidate}")
+			set(${out_var} "${base_dir}/${candidate}" PARENT_SCOPE)
+			return()
+		endif()
+	endforeach()
+
+	set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+function(durin_third_party_get_arch out_var)
+	if(MSVC)
+		set(${out_var} "Win64" PARENT_SCOPE)
+	elseif(APPLE)
+		set(${out_var} "MacOS" PARENT_SCOPE)
+	else()
+		set(${out_var} "${CMAKE_SYSTEM_NAME}" PARENT_SCOPE)
+	endif()
+endfunction()
+
+function(durin_third_party_get_install_dir out_var package_name)
+	if(NOT CMAKE_BUILD_TYPE)
+		message(FATAL_ERROR "Durin requires CMAKE_BUILD_TYPE to import installed third-party packages.")
+	endif()
+
+	get_filename_component(durin_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+	durin_third_party_get_arch(durin_arch)
+	set(${out_var} "${durin_root}/Build/ThirdParty/Install/${durin_arch}/${CMAKE_BUILD_TYPE}/${package_name}" PARENT_SCOPE)
+endfunction()

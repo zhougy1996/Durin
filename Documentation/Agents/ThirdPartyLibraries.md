@@ -20,12 +20,20 @@ Third-party source or package contents live under:
 Current examples:
 
 - `Engine/Source/ThirdParty/slang`
+- `Engine/Source/ThirdParty/glm`
+- `Engine/Source/ThirdParty/googletest`
+- `Engine/Source/ThirdParty/spdlog`
+- `Engine/Source/ThirdParty/glfw`
+- `Engine/Source/ThirdParty/rapidyaml`
 - `Engine/Source/ThirdParty/assimp`
 
 Notes:
 
 - `slang` is treated as a downloaded prebuilt package.
-- `assimp` is treated as source code cloned by `git clone`.
+- `glm` is treated as source prepared ahead of configure and consumed directly from `Engine/Source/ThirdParty/glm`.
+- `googletest` is treated as source prepared ahead of configure and consumed directly from `Engine/Source/ThirdParty/googletest` when tests are enabled.
+- `spdlog` is treated as source prepared ahead of configure and then built into a shared install tree.
+- `assimp`, `glfw`, and `rapidyaml` are treated as source code cloned by `git clone`.
 
 ### Third-Party Build Trees
 
@@ -35,6 +43,12 @@ Dedicated third-party build trees live under:
 
 Current example:
 
+- `Build/ThirdParty/Build/<Platform>-Debug-spdlog`
+- `Build/ThirdParty/Build/<Platform>-Release-spdlog`
+- `Build/ThirdParty/Build/<Platform>-Debug-glfw`
+- `Build/ThirdParty/Build/<Platform>-Release-glfw`
+- `Build/ThirdParty/Build/<Platform>-Debug-rapidyaml`
+- `Build/ThirdParty/Build/<Platform>-Release-rapidyaml`
 - `Build/ThirdParty/Build/<Platform>-Debug-assimp`
 - `Build/ThirdParty/Build/<Platform>-Release-assimp`
 
@@ -51,6 +65,12 @@ Shared install outputs live under:
 
 Current example:
 
+- `Build/ThirdParty/Install/<Platform>/Debug/spdlog`
+- `Build/ThirdParty/Install/<Platform>/Release/spdlog`
+- `Build/ThirdParty/Install/<Platform>/Debug/glfw`
+- `Build/ThirdParty/Install/<Platform>/Release/glfw`
+- `Build/ThirdParty/Install/<Platform>/Debug/rapidyaml`
+- `Build/ThirdParty/Install/<Platform>/Release/rapidyaml`
 - `Build/ThirdParty/Install/<Platform>/Debug/assimp`
 - `Build/ThirdParty/Install/<Platform>/Release/assimp`
 
@@ -80,20 +100,47 @@ Behavior:
 
 Use this pattern for libraries that are primarily consumed as prebuilt SDKs or binary packages.
 
-### Assimp
+### Direct Source Libraries
 
 Relevant files:
 
-- `Engine/Scripts/Bootstrap/Setup_assimp.bat`
-- `Engine/CMake/ThirdParty/assimp/CMakeLists.txt`
-- `Engine/CMake/ThirdParty/assimp/CMakePresets.json`
+- `Engine/Scripts/Bootstrap/Setup_glm.bat`
+- `Engine/Scripts/Bootstrap/Setup_googletest.bat`
+- `Engine/CMake/ThirdParty/glm/CMakeLists.txt`
+- `Engine/CMake/ThirdParty/googletest/CMakeLists.txt`
 
 Behavior:
 
-- Clones source into `Engine/Source/ThirdParty/assimp` if missing
-- Builds with dedicated third-party presets such as `<Platform>-Debug-assimp`
-- Installs into `Build/ThirdParty/Install/...`
-- Main project imports the installed library via `assimp::assimp`
+- `Setup_glm.bat` clones source into `Engine/Source/ThirdParty/glm`.
+- `Setup_googletest.bat` clones source into `Engine/Source/ThirdParty/googletest`.
+- Main project consumes `glm` directly from that prepared source directory.
+- Test builds consume `googletest` directly from that prepared source directory when `BUILD_TESTING` is enabled.
+- No shared install tree is needed because `glm` is header-only.
+
+Use this pattern for header-only or otherwise lightweight source dependencies that should still be prepared ahead of configure.
+
+### Shared Source-Build Libraries
+
+Relevant files:
+
+- `Engine/Scripts/Bootstrap/Setup_spdlog.bat`
+- `Engine/Scripts/Bootstrap/Setup_glfw.bat`
+- `Engine/Scripts/Bootstrap/Setup_rapidyaml.bat`
+- `Engine/Scripts/Bootstrap/Setup_assimp.bat`
+- `Engine/Scripts/Bootstrap/Setup_installed_thirdparty.bat`
+- `Engine/CMake/ThirdParty/DurinThirdParty.cmake`
+- `Engine/CMake/ThirdParty/spdlog/CMakeLists.txt`
+- `Engine/CMake/ThirdParty/glfw/CMakeLists.txt`
+- `Engine/CMake/ThirdParty/rapidyaml/CMakeLists.txt`
+- `Engine/CMake/ThirdParty/assimp/CMakeLists.txt`
+
+Behavior:
+
+- `Setup_installed_thirdparty.bat` owns shared install flow such as config parsing, build/install directory layout, `cmake -S/-B/-DCMAKE_INSTALL_PREFIX`, and install verification.
+- `Setup_spdlog.bat`, `Setup_glfw.bat`, and `Setup_rapidyaml.bat` clone source into `Engine/Source/ThirdParty/<Library>` if missing, then install from their third-party CMake wrapper directories into `Build/ThirdParty/Install/...`.
+- `Setup_assimp.bat` clones source into `Engine/Source/ThirdParty/assimp` if missing, then uses the same shared install helper.
+- Main project imports installed targets from the shared install tree instead of building them once per profile.
+- Current imported targets include `spdlog::spdlog`, `glfw`, `ryml::ryml`, and `assimp::assimp`.
 
 Use this pattern for libraries that are built from source and shared across multiple main project profiles.
 
@@ -106,7 +153,13 @@ Bootstrap scripts live under:
 Current scripts:
 
 - `Setup_slang.bat`
+- `Setup_glm.bat`
+- `Setup_googletest.bat`
+- `Setup_spdlog.bat`
+- `Setup_glfw.bat`
+- `Setup_rapidyaml.bat`
 - `Setup_assimp.bat`
+- `Setup_installed_thirdparty.bat`
 
 General expectations:
 
@@ -119,9 +172,14 @@ General expectations:
 
 - `Engine/Scripts/Bootstrap/Bootstrap.bat`
 
-And `Bootstrap.bat` currently calls both:
+And `Bootstrap.bat` currently calls:
 
 - `Setup_slang.bat`
+- `Setup_glm.bat`
+- `Setup_googletest.bat`
+- `Setup_spdlog.bat`
+- `Setup_glfw.bat`
+- `Setup_rapidyaml.bat`
 - `Setup_assimp.bat`
 
 ## CMake Consumption Rules
@@ -136,8 +194,11 @@ Instead:
 - build/install it into `Build/ThirdParty/Install/...`
 - import it from there
 
-For `assimp`, the imported target is:
+For current shared libraries, imported targets are:
 
+- `spdlog::spdlog`
+- `glfw`
+- `ryml::ryml`
 - `assimp::assimp`
 
 ### Imported Library Expectations
@@ -160,18 +221,30 @@ And should fail configuration with a clear message if the installed dependency i
 ### Keep unless intentionally rebuilding third-party installs
 
 - `Engine/Source/ThirdParty/assimp`
+- `Engine/Source/ThirdParty/glm`
+- `Engine/Source/ThirdParty/googletest`
+- `Engine/Source/ThirdParty/spdlog`
 - `Build/ThirdParty/Build/...`
 - `Build/ThirdParty/Install/...`
 
 ### Legacy cleanup
 
-Old `FetchContent`-style `assimp` directories such as:
+Old profile-local or `_deps`-style third-party build directories such as:
 
+- `_deps/spdlog-build`
+- `_deps/spdlog-src`
+- `_deps/spdlog-subbuild`
+- `_deps/glfw-build`
+- `_deps/glfw-src`
+- `_deps/glfw-subbuild`
+- `_deps/rapidyaml-build`
+- `_deps/rapidyaml-src`
+- `_deps/rapidyaml-subbuild`
 - `_deps/assimp-build`
 - `_deps/assimp-src`
 - `_deps/assimp-subbuild`
 
-have been removed from the current workspace and should not be reintroduced for shared libraries like `assimp`.
+have been removed from the current workflow and should not be reintroduced for shared libraries meant to be reused across profiles.
 
 ## Recommendations for New Libraries
 
@@ -191,12 +264,17 @@ Use this for compile-from-source libraries:
 
 - clone or otherwise prepare source into `Engine/Source/ThirdParty/<Library>`
 - create a dedicated `Engine/CMake/ThirdParty/<Library>` entry
+- wire imported-target path discovery through `Engine/CMake/ThirdParty/DurinThirdParty.cmake`
+- reuse `Engine/Scripts/Bootstrap/Setup_installed_thirdparty.bat` for the common install flow
 - build in `Build/ThirdParty/Build/...`
 - install in `Build/ThirdParty/Install/...`
 - import the installed target from the main project
+
+Use direct source consumption instead of a shared install when the dependency is header-only and does not benefit from a separate install tree.
 
 ## Current Assumptions
 
 - Shared third-party installs are keyed by platform and configuration, not by profile.
 - `DurinEditor` and `DurinGame` should reuse the same third-party install when ABI-compatible.
 - Third-party source should remain outside main project build trees.
+- Shared third-party installs are driven by bootstrap scripts and direct `cmake -S/-B/-DCMAKE_INSTALL_PREFIX` commands, not by per-library CMake presets.

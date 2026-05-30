@@ -1,11 +1,26 @@
 @echo off
 setlocal
 
-:: Durin use FetchContent in CMakeLists.txt to download and extract the dependencies.
-:: However, some dependencies may be not based on CMakeLists.txt, so we can keep this batch file as a backup plan in case we need to manually download the dependencies.
-:: Some dependencies may take a very long time ang very sophisticated steps to build, such as slang, so we can use this batch file to download the pre-built binaries of these dependencies.
+:: Durin mixes source-built and prebuilt third-party dependencies.
+:: Use this script to prepare reusable third-party install trees and downloaded binaries ahead of project configuration.
+:: Shared source-built libraries are installed via the Setup_<Library>.bat scripts with direct cmake -S/-B/-DCMAKE_INSTALL_PREFIX invocations.
 
 call "%~dp0\Setup_slang.bat"
+if errorlevel 1 exit /b 1
+
+call "%~dp0\Setup_glm.bat"
+if errorlevel 1 exit /b 1
+
+call "%~dp0\Setup_googletest.bat"
+if errorlevel 1 exit /b 1
+
+call "%~dp0\Setup_spdlog.bat"
+if errorlevel 1 exit /b 1
+
+call "%~dp0\Setup_glfw.bat"
+if errorlevel 1 exit /b 1
+
+call "%~dp0\Setup_rapidyaml.bat"
 if errorlevel 1 exit /b 1
 
 call "%~dp0\Setup_assimp.bat"

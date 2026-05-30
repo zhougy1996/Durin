@@ -1,53 +1,30 @@
 cmake_minimum_required(VERSION 3.24)
 
-function(durin_assimp_find_single_file out_var base_dir)
-	foreach(candidate IN LISTS ARGN)
-		if(EXISTS "${base_dir}/${candidate}")
-			set(${out_var} "${base_dir}/${candidate}" PARENT_SCOPE)
-			return()
-		endif()
-	endforeach()
-
-	set(${out_var} "" PARENT_SCOPE)
-endfunction()
+include(${CMAKE_CURRENT_LIST_DIR}/../DurinThirdParty.cmake)
 
 function(durin_assimp_configure_imported_target)
-	get_filename_component(durin_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
-
-	if(MSVC)
-		set(durin_arch "Win64")
-	elseif(APPLE)
-		set(durin_arch "MacOS")
-	else()
-		set(durin_arch "${CMAKE_SYSTEM_NAME}")
-	endif()
-
-	if(NOT CMAKE_BUILD_TYPE)
-		message(FATAL_ERROR "Durin requires CMAKE_BUILD_TYPE to import the shared assimp installation.")
-	endif()
-
-	set(assimp_install_dir "${durin_root}/Build/ThirdParty/Install/${durin_arch}/${CMAKE_BUILD_TYPE}/assimp")
+	durin_third_party_get_install_dir(assimp_install_dir "assimp")
 	set(assimp_include_dir "${assimp_install_dir}/include")
 	set(assimp_lib_dir "${assimp_install_dir}/lib")
 	set(assimp_bin_dir "${assimp_install_dir}/bin")
 
-	durin_assimp_find_single_file(assimp_import_lib "${assimp_lib_dir}"
+	durin_third_party_find_single_file(assimp_import_lib "${assimp_lib_dir}"
 		"assimp-vc143-mt.lib"
 		"assimp.lib"
 	)
-	durin_assimp_find_single_file(assimp_runtime_dll "${assimp_bin_dir}"
+	durin_third_party_find_single_file(assimp_runtime_dll "${assimp_bin_dir}"
 		"assimp-vc143-mt.dll"
 		"assimp.dll"
 	)
 
 	if(NOT EXISTS "${assimp_include_dir}/assimp/Importer.hpp" OR NOT assimp_import_lib OR NOT assimp_runtime_dll)
+		durin_third_party_get_arch(durin_arch)
 		message(FATAL_ERROR
-			"Shared assimp installation was not found for ${durin_arch} ${CMAKE_BUILD_TYPE}.\n"
+			"Installed assimp package was not found for ${durin_arch} ${CMAKE_BUILD_TYPE}.\n"
 			"Expected install root: ${assimp_install_dir}\n"
 			"Prepare assimp first, for example:\n"
-			"  cmake --preset ${durin_arch}-${CMAKE_BUILD_TYPE}-assimp\n"
-			"  cmake --build --preset ${durin_arch}-${CMAKE_BUILD_TYPE}-assimp\n"
-			"from ${CMAKE_CURRENT_LIST_DIR}, or use an equivalent -S/-B/-DCMAKE_INSTALL_PREFIX command."
+			"  Engine/Scripts/Bootstrap/Setup_assimp.bat ${CMAKE_BUILD_TYPE}\n"
+			"or use an equivalent cmake -S/-B/-DCMAKE_INSTALL_PREFIX flow."
 		)
 	endif()
 
