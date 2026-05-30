@@ -1,0 +1,9 @@
+{
+    "ModuleName": "SandBox",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
+    "PrivateDependencies": [
+        "Core",
+        "Engine"
+    ]
+}

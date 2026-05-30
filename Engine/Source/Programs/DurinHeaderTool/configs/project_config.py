@@ -35,13 +35,16 @@ class DurinProjectConfig:
 
 # Prepares the registered project config file paths by loading them from the JSON file and caching them in memory    
 def prepare_registered_project_config_file_paths() -> None:
-    from configs.base_config import DURIN_ENGINE_PROJECT_DIR, DURIN_PROJECT_REGISTER_FILE_PATH
+    from configs.base_config import DURIN_ENGINE_PROJECT_DIR, DURIN_PROJECT_REGISTER_FILE_PATH, DURIN_ROOT_DIR
     REGISTERED_DURIN_PROJECTS["Engine"] = DURIN_ENGINE_PROJECT_DIR / "Engine.dproject"
     # Load the registered projects from the JSON file
     if DURIN_PROJECT_REGISTER_FILE_PATH.exists():
         registered_projects_data = load_json_file(DURIN_PROJECT_REGISTER_FILE_PATH, required_fields=["Projects"])
         for project_name, project_path in registered_projects_data["Projects"].items():
-            REGISTERED_DURIN_PROJECTS[project_name] = Path(project_path)
+            registered_project_path = Path(project_path)
+            if not registered_project_path.is_absolute():
+                registered_project_path = DURIN_ROOT_DIR / registered_project_path
+            REGISTERED_DURIN_PROJECTS[project_name] = registered_project_path
 
 def is_project_config_registered(project_name: str) -> bool:
     return project_name in REGISTERED_DURIN_PROJECTS

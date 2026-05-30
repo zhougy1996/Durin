@@ -2,6 +2,10 @@
 
 This document summarizes the current `Profile` system in Durin.
 
+For the relationship between workspace, projects, modules, and the workspace-global profile name, also read:
+
+- `Documentation/Architecture/WorkspaceProjects.md`
+
 ## Overview
 
 Durin separates three concepts:
@@ -205,4 +209,3 @@ Minimum steps:
 3. Verify generated intermediate output under `Engine/Intermediate/Build/<Platform>/<ProfileName>/`.
 4. Decide whether `WithEditor` should be true or false.
 5. Verify launcher naming, module naming, and config naming.
-
