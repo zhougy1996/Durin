@@ -35,6 +35,21 @@ namespace Durin
 			checkf(false, "Failed to locate Engine directory from launch directory.");
 			return {};
 		}
+
+		auto FindRuntimeConfigDirFromLaunchDir() -> std::filesystem::path
+		{
+			const std::filesystem::path LaunchPath = std::filesystem::path(FPaths::LaunchDir()).lexically_normal();
+			const std::filesystem::path ProfileDir = LaunchPath.filename().empty()
+				? LaunchPath.parent_path()
+				: LaunchPath;
+			const std::filesystem::path RuntimeDir = ProfileDir.parent_path();
+
+			checkf(RuntimeDir.filename() == "Runtime",
+				"Expected launch directory to be under a Runtime/<Profile> layout. LaunchDir={}",
+				FPaths::LaunchDir());
+
+			return RuntimeDir.parent_path();
+		}
 	}
 
 	namespace PathUtilities
@@ -130,8 +145,7 @@ namespace Durin
 	auto FPaths::EngineThirdPartyRuntimeBinariesDir() -> std::string
 	{
 		static std::string CachedThirdPartyDir = []() -> std::string {
-			const std::filesystem::path LaunchPath(FPaths::LaunchDir());
-			const std::filesystem::path ConfigDir = LaunchPath.parent_path().parent_path();
+			const std::filesystem::path ConfigDir = FindRuntimeConfigDirFromLaunchDir();
 			return (ConfigDir / "ThirdParty").generic_string() + "/";
 		}();
 		return CachedThirdPartyDir;
