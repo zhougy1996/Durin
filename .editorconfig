@@ -1,3 +1,13 @@
-[*.{c++,cc,cpp,cppm,cxx,h,h++,hh,hpp,hxx,inl,ipp,ixx,tlh,tli,lua}]
+root = true
+
+[*]
 end_of_line = crlf
 charset = utf-8
+
+[*.{py,sh,cmake,txt,md,json,yaml,yml}]
+indent_style = space
+indent_size = 4
+
+[CMakeLists.txt,*.cmake]
+indent_style = space
+indent_size = 4
