@@ -60,44 +60,17 @@ function(durin_add_project project_name)
 
 	set(_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_ARCH}/${DURIN_PROFILE_NAME}")
 	set(project_cmake_file "${_project_intermediate_build_dir}/${project_name}.project.cmake")
-	execute_process(COMMAND ${DHT_MAIN} prepare_project_build -p ${project_name} -a ${DURIN_ARCH} --profile ${DURIN_PROFILE_NAME})
+	execute_process(
+		COMMAND ${DHT_MAIN} prepare_project_build -p ${project_name} -a ${DURIN_ARCH} --profile ${DURIN_PROFILE_NAME}
+		RESULT_VARIABLE _prepare_project_build_result
+	)
+	if(NOT _prepare_project_build_result EQUAL 0)
+		message(FATAL_ERROR "Failed to prepare build metadata for project ${project_name} and profile ${DURIN_PROFILE_NAME}.")
+	endif()
 	include(${project_cmake_file})
 
-	if(NOT DURIN_PROJECT_PROFILE_EXISTS)
-		message(FATAL_ERROR "Project ${project_name} does not define profile ${DURIN_PROFILE_NAME}. Expected a dprofile file in ${DURIN_PROJECT_PROFILE_DIR}.")
-	endif()
-
-	if(DURIN_PROJECT_PROFILE_WITH_EDITOR)
-		set(DURIN_WITH_EDITOR 1)
-	else()
-		set(DURIN_WITH_EDITOR 0)
-	endif()
-
-	if(DURIN_WITH_EDITOR OR NOT CMAKE_BUILD_TYPE STREQUAL "Shipping")
-		set(DURIN_WITH_DEVELOPER_TOOLS 1)
-	else()
-		set(DURIN_WITH_DEVELOPER_TOOLS 0)
-	endif()
-	set(DURIN_APP_CONFIG_NAME "${DURIN_PROJECT_PROFILE_APP_CONFIG_NAME}")
-	set(DURIN_BIN_ROOT "${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/$<CONFIG>")
-	set(DURIN_RUNTIME_OUTPUT_DIR "${DURIN_BIN_ROOT}/Runtime/${DURIN_PROJECT_PROFILE_NAME}")
-	set(DURIN_THIRDPARTY_RUNTIME_DIR "${DURIN_BIN_ROOT}/ThirdParty")
-	set(DURIN_TEST_OUTPUT_DIR "${DURIN_BIN_ROOT}/Tests")
-	set(DURIN_LIB_OUTPUT_ROOT "${DURIN_BIN_ROOT}/Lib")
-	set(DURIN_SYMBOL_OUTPUT_ROOT "${DURIN_BIN_ROOT}/Symbols")
-	set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR "${DURIN_THIRDPARTY_RUNTIME_DIR}")
-	set(DURIN_BIN_ROOT "${DURIN_BIN_ROOT}" PARENT_SCOPE)
-	set(DURIN_RUNTIME_OUTPUT_DIR "${DURIN_RUNTIME_OUTPUT_DIR}" PARENT_SCOPE)
-	set(DURIN_THIRDPARTY_RUNTIME_DIR "${DURIN_THIRDPARTY_RUNTIME_DIR}" PARENT_SCOPE)
-	set(DURIN_TEST_OUTPUT_DIR "${DURIN_TEST_OUTPUT_DIR}" PARENT_SCOPE)
-	set(DURIN_LIB_OUTPUT_ROOT "${DURIN_LIB_OUTPUT_ROOT}" PARENT_SCOPE)
-	set(DURIN_SYMBOL_OUTPUT_ROOT "${DURIN_SYMBOL_OUTPUT_ROOT}" PARENT_SCOPE)
-	set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR "${DURIN_PROJECT_EXTERNAL_RUNTIME_DIR}" PARENT_SCOPE)
-
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_PROJECT_CONFIG_FILE}) # Make CMake re-configure if the project definition file changes
-	if(DURIN_PROJECT_PROFILE_EXISTS)
-		set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_PROJECT_PROFILE_FILE})
-	endif()
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_PROJECT_PROFILE_FILE})
 
 	# Add always-enabled modules first.
 	foreach(_dir IN LISTS project_module_dirs)

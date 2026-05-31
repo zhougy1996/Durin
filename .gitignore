@@ -5,16 +5,10 @@
 
 # Build Directories
 /Build/
-/Engine/Intermediate/
-/Engine/Binaries/
-/Engine/ShaderCache/
 /.idea/
 /out/
 /.claude/
 /AGENTS_LOCAL.md
-
-/Engine/Source/Programs/DurinHeaderTool/ clangLog.txt
-
 
 # User-specific files
 *.rsuser

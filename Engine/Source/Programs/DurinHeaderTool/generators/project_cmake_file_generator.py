@@ -27,15 +27,54 @@ def _append_project_profile_to_cmake_content(content: list[str], project_name: s
     profile_config = configs.get_profile_config(project_name, configs.PROFILE_NAME)
     content.append("# Active profile for this project/build mode\n")
     if profile_config is None:
-        content.append("set(DURIN_PROJECT_PROFILE_EXISTS OFF)\n")
-        content.append("\n")
-        return
+        raise ValueError(
+            f"Project {project_name} does not define profile {configs.PROFILE_NAME}. "
+            f"Expected a dprofile file in {utils.get_project_profile_dir(project_name).as_posix()}."
+        )
 
-    content.append("set(DURIN_PROJECT_PROFILE_EXISTS ON)\n")
     content.append(f"set(DURIN_PROJECT_PROFILE_NAME \"{profile_config.profile_name}\")\n")
     content.append(f"set(DURIN_PROJECT_PROFILE_FILE \"{profile_config.config_file_path.as_posix()}\")\n")
     content.append(f"set(DURIN_PROJECT_PROFILE_WITH_EDITOR {'ON' if profile_config.with_editor else 'OFF'})\n")
     content.append(f"set(DURIN_PROJECT_PROFILE_APP_CONFIG_NAME \"{profile_config.app_config_name}\")\n")
+    content.append("\n")
+
+
+def _append_project_build_variables_to_cmake_content(content: list[str], project_name: str) -> None:
+    profile_config = configs.get_profile_config(project_name, configs.PROFILE_NAME)
+    if profile_config is None:
+        raise ValueError(
+            f"Project {project_name} does not define profile {configs.PROFILE_NAME}. "
+            f"Expected a dprofile file in {utils.get_project_profile_dir(project_name).as_posix()}."
+        )
+    with_editor = 1 if profile_config.with_editor else 0
+
+    content.append("# Derived build variables for this project/profile\n")
+    content.append(f"set(DURIN_WITH_EDITOR {with_editor})\n")
+    content.append("set(DURIN_WITH_EDITOR ${DURIN_WITH_EDITOR} PARENT_SCOPE)\n")
+    content.append("\n")
+    content.append("if(DURIN_WITH_EDITOR OR NOT CMAKE_BUILD_TYPE STREQUAL \"Shipping\")\n")
+    content.append("    set(DURIN_WITH_DEVELOPER_TOOLS 1)\n")
+    content.append("else()\n")
+    content.append("    set(DURIN_WITH_DEVELOPER_TOOLS 0)\n")
+    content.append("endif()\n")
+    content.append("set(DURIN_WITH_DEVELOPER_TOOLS ${DURIN_WITH_DEVELOPER_TOOLS} PARENT_SCOPE)\n")
+    content.append("\n")
+    content.append("set(DURIN_APP_CONFIG_NAME \"${DURIN_PROJECT_PROFILE_APP_CONFIG_NAME}\")\n")
+    content.append("set(DURIN_BIN_ROOT \"${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/$<CONFIG>\")\n")
+    content.append("set(DURIN_RUNTIME_OUTPUT_DIR \"${DURIN_BIN_ROOT}/Runtime/${DURIN_PROJECT_PROFILE_NAME}\")\n")
+    content.append("set(DURIN_THIRDPARTY_RUNTIME_DIR \"${DURIN_BIN_ROOT}/ThirdParty\")\n")
+    content.append("set(DURIN_TEST_OUTPUT_DIR \"${DURIN_BIN_ROOT}/Tests\")\n")
+    content.append("set(DURIN_LIB_OUTPUT_ROOT \"${DURIN_BIN_ROOT}/Lib\")\n")
+    content.append("set(DURIN_SYMBOL_OUTPUT_ROOT \"${DURIN_BIN_ROOT}/Symbols\")\n")
+    content.append("set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR \"${DURIN_THIRDPARTY_RUNTIME_DIR}\")\n")
+    content.append("set(DURIN_APP_CONFIG_NAME \"${DURIN_APP_CONFIG_NAME}\" PARENT_SCOPE)\n")
+    content.append("set(DURIN_BIN_ROOT \"${DURIN_BIN_ROOT}\" PARENT_SCOPE)\n")
+    content.append("set(DURIN_RUNTIME_OUTPUT_DIR \"${DURIN_RUNTIME_OUTPUT_DIR}\" PARENT_SCOPE)\n")
+    content.append("set(DURIN_THIRDPARTY_RUNTIME_DIR \"${DURIN_THIRDPARTY_RUNTIME_DIR}\" PARENT_SCOPE)\n")
+    content.append("set(DURIN_TEST_OUTPUT_DIR \"${DURIN_TEST_OUTPUT_DIR}\" PARENT_SCOPE)\n")
+    content.append("set(DURIN_LIB_OUTPUT_ROOT \"${DURIN_LIB_OUTPUT_ROOT}\" PARENT_SCOPE)\n")
+    content.append("set(DURIN_SYMBOL_OUTPUT_ROOT \"${DURIN_SYMBOL_OUTPUT_ROOT}\" PARENT_SCOPE)\n")
+    content.append("set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR \"${DURIN_PROJECT_EXTERNAL_RUNTIME_DIR}\" PARENT_SCOPE)\n")
     content.append("\n")
 
 def _append_module_dirs_to_cmake_content(content: list[str], project_name: str) -> None:
@@ -81,6 +120,7 @@ def generate_project_cmake_file(project_name: str) -> None:
     _append_project_paths_to_cmake_content(content, project_name)
     _append_project_global_variables_to_cmake_content(content, project_name)
     _append_project_profile_to_cmake_content(content, project_name)
+    _append_project_build_variables_to_cmake_content(content, project_name)
     _append_module_dirs_to_cmake_content(content, project_name)
     output_path = utils.get_project_cmake_file_path(project_name)
     utils.generate_file(output_path, "".join(content))
