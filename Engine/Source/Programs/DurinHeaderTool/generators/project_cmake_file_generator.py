@@ -50,31 +50,21 @@ def _append_project_build_variables_to_cmake_content(content: list[str], project
 
     content.append("# Derived build variables for this project/profile\n")
     content.append(f"set(DURIN_WITH_EDITOR {with_editor})\n")
-    content.append("set(DURIN_WITH_EDITOR ${DURIN_WITH_EDITOR} PARENT_SCOPE)\n")
     content.append("\n")
     content.append("if(DURIN_WITH_EDITOR OR NOT CMAKE_BUILD_TYPE STREQUAL \"Shipping\")\n")
     content.append("    set(DURIN_WITH_DEVELOPER_TOOLS 1)\n")
     content.append("else()\n")
     content.append("    set(DURIN_WITH_DEVELOPER_TOOLS 0)\n")
     content.append("endif()\n")
-    content.append("set(DURIN_WITH_DEVELOPER_TOOLS ${DURIN_WITH_DEVELOPER_TOOLS} PARENT_SCOPE)\n")
     content.append("\n")
-    content.append("set(DURIN_APP_CONFIG_NAME \"${DURIN_PROJECT_PROFILE_APP_CONFIG_NAME}\")\n")
-    content.append("set(DURIN_BIN_ROOT \"${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/$<CONFIG>\")\n")
-    content.append("set(DURIN_RUNTIME_OUTPUT_DIR \"${DURIN_BIN_ROOT}/Runtime/${DURIN_PROJECT_PROFILE_NAME}\")\n")
-    content.append("set(DURIN_THIRDPARTY_RUNTIME_DIR \"${DURIN_BIN_ROOT}/ThirdParty\")\n")
-    content.append("set(DURIN_TEST_OUTPUT_DIR \"${DURIN_BIN_ROOT}/Tests\")\n")
-    content.append("set(DURIN_LIB_OUTPUT_ROOT \"${DURIN_BIN_ROOT}/Lib\")\n")
-    content.append("set(DURIN_SYMBOL_OUTPUT_ROOT \"${DURIN_BIN_ROOT}/Symbols\")\n")
-    content.append("set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR \"${DURIN_THIRDPARTY_RUNTIME_DIR}\")\n")
-    content.append("set(DURIN_APP_CONFIG_NAME \"${DURIN_APP_CONFIG_NAME}\" PARENT_SCOPE)\n")
-    content.append("set(DURIN_BIN_ROOT \"${DURIN_BIN_ROOT}\" PARENT_SCOPE)\n")
-    content.append("set(DURIN_RUNTIME_OUTPUT_DIR \"${DURIN_RUNTIME_OUTPUT_DIR}\" PARENT_SCOPE)\n")
-    content.append("set(DURIN_THIRDPARTY_RUNTIME_DIR \"${DURIN_THIRDPARTY_RUNTIME_DIR}\" PARENT_SCOPE)\n")
-    content.append("set(DURIN_TEST_OUTPUT_DIR \"${DURIN_TEST_OUTPUT_DIR}\" PARENT_SCOPE)\n")
-    content.append("set(DURIN_LIB_OUTPUT_ROOT \"${DURIN_LIB_OUTPUT_ROOT}\" PARENT_SCOPE)\n")
-    content.append("set(DURIN_SYMBOL_OUTPUT_ROOT \"${DURIN_SYMBOL_OUTPUT_ROOT}\" PARENT_SCOPE)\n")
-    content.append("set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR \"${DURIN_PROJECT_EXTERNAL_RUNTIME_DIR}\" PARENT_SCOPE)\n")
+    content.append("set(DURIN_PROJECT_APP_CONFIG_NAME \"${DURIN_PROJECT_PROFILE_APP_CONFIG_NAME}\")\n")
+    content.append("set(DURIN_PROJECT_BIN_ROOT \"${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/$<CONFIG>\")\n")
+    content.append("set(DURIN_PROJECT_RUNTIME_OUTPUT_DIR \"${DURIN_PROJECT_BIN_ROOT}/Runtime/${DURIN_PROJECT_PROFILE_NAME}\")\n")
+    content.append("set(DURIN_PROJECT_THIRDPARTY_RUNTIME_DIR \"${DURIN_PROJECT_BIN_ROOT}/ThirdParty\")\n")
+    content.append("set(DURIN_PROJECT_TEST_OUTPUT_DIR \"${DURIN_PROJECT_BIN_ROOT}/Tests\")\n")
+    content.append("set(DURIN_PROJECT_LIB_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Lib\")\n")
+    content.append("set(DURIN_PROJECT_SYMBOL_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Symbols\")\n")
+    content.append("set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR \"${DURIN_PROJECT_THIRDPARTY_RUNTIME_DIR}\")\n")
     content.append("\n")
 
 def _append_module_dirs_to_cmake_content(content: list[str], project_name: str) -> None:
@@ -94,20 +84,20 @@ def _append_module_dirs_to_cmake_content(content: list[str], project_name: str) 
             enabled_module_dirs.append(module_dir)
 
     content.append("# Module directories for this project\n")
-    content.append("set(project_module_dirs\n")
+    content.append("set(DURIN_PROJECT_MODULE_DIRS\n")
     for module_dir in enabled_module_dirs:
         content.append(f"    \"{module_dir}\"\n")
     content.append(")\n\n")
 
     if conditional_module_items:
         content.append("# Feature-gated modules for this project\n")
-        content.append("set(project_conditional_modules\n")
+        content.append("set(DURIN_PROJECT_CONDITIONAL_MODULES\n")
         for module_name, _, _ in conditional_module_items:
             content.append(f"    {module_name}\n")
         content.append(")\n\n")
 
     for module_name, module_dir, module_config in conditional_module_items:
-        content.append(f"set(project_module_dir_{module_name} \"{module_dir}\")\n")
+        content.append(f"set(DURIN_PROJECT_MODULE_DIR_{module_name} \"{module_dir}\")\n")
         content.append(f"set(DURIN_MODULE_REQUIRED_FEATURES_{module_name}\n")
         for feature in module_config.required_features:
             content.append(f"    {feature}\n")

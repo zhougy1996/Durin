@@ -12,7 +12,7 @@ target_link_libraries(DurinLauncher PRIVATE
 )
 
 # Copy the config file to the output directory after building if it doesn't exist
-set(config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_APP_CONFIG_NAME}")
+set(config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_PROJECT_APP_CONFIG_NAME}")
 add_custom_command(TARGET DurinLauncher POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E env
     ${CMAKE_COMMAND} -P "${DURIN_DIR}/CMake/CopyIfMissing.cmake"

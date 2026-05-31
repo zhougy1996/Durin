@@ -73,29 +73,36 @@ function(durin_add_project project_name)
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_PROJECT_PROFILE_FILE})
 
 	# Add always-enabled modules first.
-	foreach(_dir IN LISTS project_module_dirs)
+	foreach(_dir IN LISTS DURIN_PROJECT_MODULE_DIRS)
 		add_subdirectory(${_dir})
 	endforeach()
 
 	# Add feature-gated modules that are enabled for the active build.
-	foreach(_module IN LISTS project_conditional_modules)
+	foreach(_module IN LISTS DURIN_PROJECT_CONDITIONAL_MODULES)
 		durin_is_module_enabled(_module_enabled ${_module})
 		if(NOT _module_enabled)
 			continue()
 		endif()
-		set(_module_dir_var "project_module_dir_${_module}")
+		set(_module_dir_var "DURIN_PROJECT_MODULE_DIR_${_module}")
 		add_subdirectory(${${_module_dir_var}})
 	endforeach()
+
+	if(BUILD_TESTING)
+		set(_project_tests_dir "${DURIN_PROJECT_SOURCE_DIR}/Programs/Tests")
+		if(EXISTS "${_project_tests_dir}/CMakeLists.txt")
+			add_subdirectory("${_project_tests_dir}")
+		endif()
+	endif()
 	durin_end()
 endfunction()
 
 # Module Setup Functions
 function(durin_set_module_output target)
 	set_target_properties(${target} PROPERTIES
-		RUNTIME_OUTPUT_DIRECTORY "${DURIN_RUNTIME_OUTPUT_DIR}"
-		LIBRARY_OUTPUT_DIRECTORY "${DURIN_RUNTIME_OUTPUT_DIR}"
-		ARCHIVE_OUTPUT_DIRECTORY "${DURIN_LIB_OUTPUT_ROOT}/${target}"
-		PDB_OUTPUT_DIRECTORY "${DURIN_SYMBOL_OUTPUT_ROOT}/${target}"
+		RUNTIME_OUTPUT_DIRECTORY "${DURIN_PROJECT_RUNTIME_OUTPUT_DIR}"
+		LIBRARY_OUTPUT_DIRECTORY "${DURIN_PROJECT_RUNTIME_OUTPUT_DIR}"
+		ARCHIVE_OUTPUT_DIRECTORY "${DURIN_PROJECT_LIB_OUTPUT_ROOT}/${target}"
+		PDB_OUTPUT_DIRECTORY "${DURIN_PROJECT_SYMBOL_OUTPUT_ROOT}/${target}"
 	)
 endfunction()
 
@@ -108,7 +115,7 @@ function(durin_apply_common_compile_definitions target module_name)
 		DURIN_WITH_DEVELOPER_TOOLS=${DURIN_WITH_DEVELOPER_TOOLS}
 		MODULE_NAME="${module_name}"
 		DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
-		DURIN_APP_CONFIG_NAME="${DURIN_APP_CONFIG_NAME}"
+		DURIN_APP_CONFIG_NAME="${DURIN_PROJECT_APP_CONFIG_NAME}"
 	)
 endfunction()
 
@@ -197,10 +204,10 @@ function(durin_add_test_target target_name)
 	endif()
 
 	set_target_properties(${target_name} PROPERTIES
-		RUNTIME_OUTPUT_DIRECTORY "${DURIN_TEST_OUTPUT_DIR}"
-		LIBRARY_OUTPUT_DIRECTORY "${DURIN_TEST_OUTPUT_DIR}"
-		ARCHIVE_OUTPUT_DIRECTORY "${DURIN_LIB_OUTPUT_ROOT}/${target_name}"
-		PDB_OUTPUT_DIRECTORY "${DURIN_SYMBOL_OUTPUT_ROOT}/${target_name}"
+		RUNTIME_OUTPUT_DIRECTORY "${DURIN_PROJECT_TEST_OUTPUT_DIR}"
+		LIBRARY_OUTPUT_DIRECTORY "${DURIN_PROJECT_TEST_OUTPUT_DIR}"
+		ARCHIVE_OUTPUT_DIRECTORY "${DURIN_PROJECT_LIB_OUTPUT_ROOT}/${target_name}"
+		PDB_OUTPUT_DIRECTORY "${DURIN_PROJECT_SYMBOL_OUTPUT_ROOT}/${target_name}"
 	)
 	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}")
 endfunction()
