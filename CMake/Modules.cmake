@@ -12,14 +12,54 @@ function(durin_log_module project_name module_name)
 	message(STATUS "[${project_name}] Module: ${module_name}")
 endfunction()
 
+function(durin_is_feature_enabled out_var feature_name)
+	if("${feature_name}" STREQUAL "DeveloperTools")
+		set(${out_var} ${DURIN_WITH_DEVELOPER_TOOLS} PARENT_SCOPE)
+	else()
+		message(FATAL_ERROR "Unknown Durin build feature '${feature_name}'.")
+	endif()
+endfunction()
+
+function(durin_are_features_enabled out_var)
+	foreach(_feature IN LISTS ARGN)
+		durin_is_feature_enabled(_feature_enabled ${_feature})
+		if(NOT _feature_enabled)
+			set(${out_var} OFF PARENT_SCOPE)
+			return()
+		endif()
+	endforeach()
+	set(${out_var} ON PARENT_SCOPE)
+endfunction()
+
+function(durin_is_module_enabled out_var module_name)
+	set(_required_features_var "DURIN_MODULE_REQUIRED_FEATURES_${module_name}")
+	if(DEFINED ${_required_features_var})
+		durin_are_features_enabled(_module_enabled ${${_required_features_var}})
+	else()
+		set(_module_enabled ON)
+	endif()
+	set(${out_var} ${_module_enabled} PARENT_SCOPE)
+endfunction()
+
+function(durin_filter_enabled_modules out_var)
+	set(_enabled_modules)
+	foreach(_module IN LISTS ARGN)
+		durin_is_module_enabled(_module_enabled ${_module})
+		if(_module_enabled)
+			list(APPEND _enabled_modules ${_module})
+		endif()
+	endforeach()
+	set(${out_var} ${_enabled_modules} PARENT_SCOPE)
+endfunction()
+
 # Collect module information for the project (Engine, User custom Game projects, etc.)
 function(durin_add_project project_name)
 	durin_log_project(${project_name})
 	durin_start("Project_${project_name}")
 	project(Engine)
-	set(DURIN_PROJECT_INTERMEDIATE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_ARCH}/${DURIN_PROFILE_NAME}")
 
-	set(project_cmake_file "${DURIN_PROJECT_INTERMEDIATE_BUILD_DIR}/${project_name}.project.cmake")
+	set(_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_ARCH}/${DURIN_PROFILE_NAME}")
+	set(project_cmake_file "${_project_intermediate_build_dir}/${project_name}.project.cmake")
 	execute_process(COMMAND ${DHT_MAIN} prepare_project_build -p ${project_name} -a ${DURIN_ARCH} --profile ${DURIN_PROFILE_NAME})
 	include(${project_cmake_file})
 
@@ -54,17 +94,24 @@ function(durin_add_project project_name)
 	set(DURIN_SYMBOL_OUTPUT_ROOT "${DURIN_SYMBOL_OUTPUT_ROOT}" PARENT_SCOPE)
 	set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR "${DURIN_PROJECT_EXTERNAL_RUNTIME_DIR}" PARENT_SCOPE)
 
-	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${project_config_file}) # Make CMake re-configure if the project definition file changes
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_PROJECT_CONFIG_FILE}) # Make CMake re-configure if the project definition file changes
 	if(DURIN_PROJECT_PROFILE_EXISTS)
 		set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_PROJECT_PROFILE_FILE})
 	endif()
 
-	# Add subdirectories for each module
+	# Add always-enabled modules first.
 	foreach(_dir IN LISTS project_module_dirs)
-		if(NOT DURIN_WITH_DEVELOPER_TOOLS AND _dir MATCHES "MonaImGuiBackend$")
+		add_subdirectory(${_dir})
+	endforeach()
+
+	# Add feature-gated modules that are enabled for the active build.
+	foreach(_module IN LISTS project_conditional_modules)
+		durin_is_module_enabled(_module_enabled ${_module})
+		if(NOT _module_enabled)
 			continue()
 		endif()
-		add_subdirectory(${_dir})
+		set(_module_dir_var "project_module_dir_${_module}")
+		add_subdirectory(${${_module_dir_var}})
 	endforeach()
 	durin_end()
 endfunction()
@@ -99,10 +146,10 @@ function(durin_add_module module_name)
 	set(module_cmake_file "${DURIN_PROJECT_INTERMEDIATE_BUILD_DIR}/${module_name}/${module_name}.module.cmake")
 	include(${module_cmake_file})
 
-	if(NOT DURIN_WITH_DEVELOPER_TOOLS)
-		list(REMOVE_ITEM module_private_dependencies MonaImGuiBackend)
-		list(REMOVE_ITEM module_public_dependencies MonaImGuiBackend)
-	endif()
+	list(APPEND module_private_dependencies ${module_optional_private_dependencies})
+	list(APPEND module_public_dependencies ${module_optional_public_dependencies})
+	durin_filter_enabled_modules(module_private_dependencies ${module_private_dependencies})
+	durin_filter_enabled_modules(module_public_dependencies ${module_public_dependencies})
 
 	# Make CMake re-configure if the module definition file changes
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${module_config_file})
@@ -141,7 +188,7 @@ function(durin_add_module module_name)
 	durin_apply_common_compile_definitions(${module_name} ${module_name})
 
 	target_include_directories(${module_name} PRIVATE
-		${project_intermediate_build_dir}
+		${DURIN_PROJECT_INTERMEDIATE_BUILD_DIR}
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 	)
 

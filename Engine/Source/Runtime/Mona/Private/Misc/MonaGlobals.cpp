@@ -3,17 +3,32 @@
 #include "Application/MonaApplication.h"
 #include "IMonaUIBackend.h"
 
+#if DURIN_WITH_DEVELOPER_TOOLS
+	#include "MonaImGuiBackend.h"
+#endif
+
 namespace Durin::Mona
 {
 	namespace
 	{
 		std::unique_ptr<IMonaUIBackend> GUIBackend;
+
+		auto InstallDefaultUIBackend() -> void
+		{
+#if DURIN_WITH_DEVELOPER_TOOLS
+			if (!GUIBackend)
+			{
+				GUIBackend = std::make_unique<FMonaImGuiUIBackend>();
+			}
+#endif
+		}
 	}
 
 	auto MonaInit() -> void
 	{
 		FMonaApplication::Create();
 		FMonaApplication::Get().Initialize();
+		InstallDefaultUIBackend();
 		if (GUIBackend)
 		{
 			GUIBackend->Initialize();
@@ -38,6 +53,9 @@ namespace Durin::Mona
 		{
 			GUIBackend->NewFrame();
 		}
+#if DURIN_WITH_DEVELOPER_TOOLS && !DURIN_WITH_EDITOR
+		FMonaImGuiBackend::ShowDemoWindow();
+#endif
 	}
 
 	auto Render() -> void
@@ -61,11 +79,4 @@ namespace Durin::Mona
 		}
 	}
 
-	auto ShowDemoWindow() -> void
-	{
-		if (GUIBackend)
-		{
-			GUIBackend->ShowDemoWindow();
-		}
-	}
 } // namespace Durin::Mona

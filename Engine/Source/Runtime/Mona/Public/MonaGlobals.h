@@ -1,8 +1,6 @@
 #pragma once
 
 #include "MonaAPI.h"
-struct ImGuiContext;
-
 namespace Durin::Mona
 {
 	class IMonaUIBackend;
@@ -19,6 +17,4 @@ namespace Durin::Mona
 	MONA_API auto SetUIBackend(std::unique_ptr<IMonaUIBackend> InBackend) -> void;
 
 	MONA_API auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void;
-
-	MONA_API auto ShowDemoWindow() -> void;
 }

@@ -24,6 +24,13 @@ def _append_module_configs_to_cmake_content(content: list[str], module_name: str
             content.append(f"    \"{header_path}\"\n")
         content.append(")\n\n")
 
+    if len(module_config.required_features) > 0:
+        content.append("# Build features required by this module\n")
+        content.append("set(module_required_features\n")
+        for feature in module_config.required_features:
+            content.append(f"    {feature}\n")
+        content.append(")\n\n")
+
     public_dependencies = [dep for dep in module_config.public_dependencies if _is_dependency_enabled(dep)]
     if len(public_dependencies) > 0:
         content.append("# Public dependencies for this module\n")
@@ -32,11 +39,27 @@ def _append_module_configs_to_cmake_content(content: list[str], module_name: str
             content.append(f"    {dep}\n")
         content.append(")\n\n")
 
+    optional_public_dependencies = [dep for dep in module_config.optional_public_dependencies if _is_dependency_enabled(dep)]
+    if len(optional_public_dependencies) > 0:
+        content.append("# Optional public dependencies for this module\n")
+        content.append("set(module_optional_public_dependencies\n")
+        for dep in optional_public_dependencies:
+            content.append(f"    {dep}\n")
+        content.append(")\n\n")
+
     private_dependencies = [dep for dep in module_config.private_dependencies if _is_dependency_enabled(dep)]
     if len(private_dependencies) > 0:
         content.append("# Private dependencies for this module\n")
         content.append("set(module_private_dependencies\n")
         for dep in private_dependencies:
+            content.append(f"    {dep}\n")
+        content.append(")\n\n")
+
+    optional_private_dependencies = [dep for dep in module_config.optional_private_dependencies if _is_dependency_enabled(dep)]
+    if len(optional_private_dependencies) > 0:
+        content.append("# Optional private dependencies for this module\n")
+        content.append("set(module_optional_private_dependencies\n")
+        for dep in optional_private_dependencies:
             content.append(f"    {dep}\n")
         content.append(")\n\n")
 

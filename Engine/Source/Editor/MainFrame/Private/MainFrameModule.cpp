@@ -7,6 +7,7 @@
 #include "Engine/Engine.h"
 #include "Mona/SceneViewport.h"
 #include "Widgets/MFunctionWidget.h"
+#include "MonaImGuiBackend.h"
 
 namespace Durin
 {
@@ -30,7 +31,7 @@ namespace Durin
 
 		std::shared_ptr<Mona::MFunctionWidget> DemoWidget = std::make_shared<Mona::MFunctionWidget>();
 		DemoWidget->Construct([]() {
-			Mona::ShowDemoWindow();
+			Mona::FMonaImGuiBackend::ShowDemoWindow();
 		});
 		RootWindow->SetChild(DemoWidget);
 

@@ -15,6 +15,7 @@ namespace Durin::Mona
 
 		MONACORE_API virtual auto Construct() -> void;
 
+		// Immediate UI paint hook used by the active Mona UI backend.
 		MONACORE_API virtual auto Draw() -> void;
 
 		MONACORE_API virtual auto AsWidget() -> std::shared_ptr<MWidget>;

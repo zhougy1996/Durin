@@ -1,12 +1,16 @@
 {
     "ModuleName": "MonaImGuiBackend",
-    "LinkType": "Static",
+    "LinkType": "Shared",
     "PCH": "Self",
+    "RequiredFeatures": [
+        "DeveloperTools"
+    ],
     "PrivateDependencies": [
         "Core",
         "RHI",
-        "Mona",
-        "MonaCore",
         "RenderCore"
+    ],
+    "PublicDependencies": [
+        "MonaCore"
     ]
 }

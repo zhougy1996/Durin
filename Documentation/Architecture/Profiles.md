@@ -216,6 +216,16 @@ Profiles already control:
 
 Build configuration controls developer tooling. `Debug` and `Release` game builds include developer tools; `Shipping` game builds exclude them.
 
+Modules may declare required build features in their `.dmodule` metadata. For example, a module with:
+
+```json
+{
+    "RequiredFeatures": ["DeveloperTools"]
+}
+```
+
+is only added when the corresponding feature is enabled. Dependencies on disabled modules are filtered by the generated CMake metadata, so common build logic should not special-case concrete module names.
+
 ## Adding A New Profile
 
 Minimum steps:

@@ -6,9 +6,8 @@ import utils
 def _append_project_paths_to_cmake_content(content: list[str], project_name: str) -> None:
     project_config = configs.get_project_config(project_name)
     content.append("# Paths related to this project\n")
-    content.append(f"set(project_dir \"{project_config.project_dir.as_posix()}\")\n")
-    content.append(f"set(project_config_file \"{project_config.config_file_path.as_posix()}\")\n")
-    content.append(f"set(project_intermediate_build_dir \"{utils.get_project_intermediate_build_dir(project_name).as_posix()}\")\n")
+    content.append(f"set(DURIN_PROJECT_CONFIG_FILE \"{project_config.config_file_path.as_posix()}\")\n")
+    content.append(f"set(DURIN_PROJECT_INTERMEDIATE_BUILD_DIR \"{utils.get_project_intermediate_build_dir(project_name).as_posix()}\")\n")
     content.append("\n")
 
 def _append_project_global_variables_to_cmake_content(content: list[str], project_name: str) -> None:
@@ -42,15 +41,39 @@ def _append_project_profile_to_cmake_content(content: list[str], project_name: s
 def _append_module_dirs_to_cmake_content(content: list[str], project_name: str) -> None:
     project_config = configs.get_project_config(project_name)
     profile_config = configs.get_profile_config(project_name, configs.PROFILE_NAME)
-    content.append("# Module directories for this project\n")
-    content.append(f"set(project_module_dirs\n")
+    enabled_module_dirs: list[str] = []
+    conditional_module_items: list[tuple[str, str, configs.DurinModuleConfig]] = []
     for module_name, module_dir in project_config.module_dirs.items():
         module_dir_normalized = module_dir.replace("\\", "/")
         if profile_config is not None:
             if not profile_config.with_editor and module_name != "DurinLauncher" and "/Editor/" in f"/{module_dir_normalized}/":
                 continue
+        module_config = configs.get_module_config(module_name)
+        if module_config.required_features:
+            conditional_module_items.append((module_name, module_dir, module_config))
+        else:
+            enabled_module_dirs.append(module_dir)
+
+    content.append("# Module directories for this project\n")
+    content.append("set(project_module_dirs\n")
+    for module_dir in enabled_module_dirs:
         content.append(f"    \"{module_dir}\"\n")
     content.append(")\n\n")
+
+    if conditional_module_items:
+        content.append("# Feature-gated modules for this project\n")
+        content.append("set(project_conditional_modules\n")
+        for module_name, _, _ in conditional_module_items:
+            content.append(f"    {module_name}\n")
+        content.append(")\n\n")
+
+    for module_name, module_dir, module_config in conditional_module_items:
+        content.append(f"set(project_module_dir_{module_name} \"{module_dir}\")\n")
+        content.append(f"set(DURIN_MODULE_REQUIRED_FEATURES_{module_name}\n")
+        for feature in module_config.required_features:
+            content.append(f"    {feature}\n")
+        content.append(")\n")
+        content.append("\n")
 
 
 def generate_project_cmake_file(project_name: str) -> None:

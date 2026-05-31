@@ -740,9 +740,4 @@ namespace Durin::Mona
 		FMonaImGuiBackend::BindMainViewportToWindow(Window);
 	}
 
-	auto FMonaImGuiUIBackend::ShowDemoWindow() -> void
-	{
-		FMonaImGuiBackend::ShowDemoWindow();
-	}
-
 } // namespace Durin::Mona

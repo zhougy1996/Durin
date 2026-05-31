@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MonaAPI.h"
+#include "MonaCoreAPI.h"
 
 namespace Durin::Mona
 {
@@ -20,7 +20,5 @@ namespace Durin::Mona
 		virtual auto Render() -> void = 0;
 
 		virtual auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void { (void)Window; }
-
-		virtual auto ShowDemoWindow() -> void {}
 	};
 }

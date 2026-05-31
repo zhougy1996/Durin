@@ -39,7 +39,7 @@ Common runtime startup is owned by `FEngineLoop::Init()`:
 - selecting the concrete engine implementation for the active build
 - initializing `ApplicationCore`
 - initializing `RHI`
-- installing `MonaImGuiBackend` as the UI backend when developer tools are enabled
+- initializing `Mona`, which installs the default developer-tools UI backend when enabled
 - initializing `Mona`
 - constructing and initializing `GEngine`
 - starting the rendering thread
@@ -116,7 +116,9 @@ Responsibilities:
 
 - `Mona` and `MonaCore` provide the app, widget, window, and renderer integration layer
 - `FMonaRHIRenderer` bridges Mona windows to `FRHIViewport` objects
-- `MonaImGuiBackend` integrates Dear ImGui on top of Mona and RHI when developer tools are enabled
+- `Mona` owns the active UI backend lifecycle and frame dispatch
+- `MonaImGuiBackend` integrates Dear ImGui on top of MonaCore and RHI when developer tools are enabled
+- editor/tool modules that call Dear ImGui directly should explicitly depend on `MonaImGuiBackend`
 - `MainFrame` creates the root `MWindow` and viewport for the editor shell
 - `DGameEngine` creates the standalone runtime `MWindow` and scene viewport for non-editor startup
 

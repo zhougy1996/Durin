@@ -17,6 +17,9 @@ class DurinModuleConfig:
     owning_project: str = ""
     private_dependencies: list = field(default_factory=list)
     public_dependencies: list = field(default_factory=list)
+    optional_private_dependencies: list = field(default_factory=list)
+    optional_public_dependencies: list = field(default_factory=list)
+    required_features: list = field(default_factory=list)
     reflect_headers: list = field(default_factory=list)
     api_macro: str = ""
 

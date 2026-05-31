@@ -23,11 +23,6 @@
 #endif
 
 
-#if DURIN_WITH_DEVELOPER_TOOLS
-	#include "MonaImGuiBackend.h"
-#endif
-
-
 namespace Durin
 {
 	namespace
@@ -78,9 +73,6 @@ namespace Durin
 
 		ApplicationCoreInit();
 		RHIInit();
-#if DURIN_WITH_DEVELOPER_TOOLS
-		Mona::SetUIBackend(std::make_unique<Mona::FMonaImGuiUIBackend>());
-#endif
 		Mona::MonaInit();
 
 		GEngine->Init();
@@ -119,10 +111,6 @@ namespace Durin
 		if (GIsRequestingExit) return;
 
 		Mona::NewFrame();
-#if DURIN_WITH_DEVELOPER_TOOLS && !DURIN_WITH_EDITOR
-		Mona::ShowDemoWindow();
-#endif
-
 		// Start recording render commands for the current frame.
 		ENQUEUE_RENDER_COMMAND(BeginFrame)([CurrentFrameCounter](FRHICommandListImmediate& CommandList) {
 			BeginFrameRenderThread(CommandList, CurrentFrameCounter);
