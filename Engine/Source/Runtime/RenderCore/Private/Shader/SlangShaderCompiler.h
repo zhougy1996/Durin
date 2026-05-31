@@ -7,13 +7,6 @@
 
 namespace Durin
 {
-	struct FShaderCacheMetaData
-	{
-		int64 LastWriteTicks = 0;
-		uint64 FileSize = 0;
-		FXxHash64 ContentHash{};
-	};
-
 	class FSlangShaderCompiler : public FShaderCompiler
 	{
 	public:
@@ -23,24 +16,53 @@ namespace Durin
 		auto Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput override;
 
 	private:
-		auto NormalizePath(const std::filesystem::path& InPath) const -> std::string;
-		auto GetDependencyMetaRootDir(std::string_view ShaderName) const -> std::filesystem::path;
-		auto GetDependencyMetaFilePath(std::string_view ShaderName, std::string_view ShaderSourceFilePath) const -> std::filesystem::path;
-		auto SaveShaderDependencyMeta(
-			std::string_view ShaderName,
-			std::string_view ShaderSourceFilePath,
-			FXxHash64 SourceSignatureHash,
-			const std::vector<std::string>& DependencyPaths
-		) const -> void;
-		auto ResolveDependencyFiles(const char8* InShaderFilePath, std::vector<std::string>& OutDependencyPaths, std::string& OutDiagnostics) const -> Slang::Result;
-		auto ComputeShaderSourceSignatureHash(const std::vector<std::string>& InDependencyPaths, const FShaderCompileOptions& Options) -> FXxHash64;
-		auto GetOrComputeFileHash(std::string_view InPath) -> FXxHash64;
-		auto TryLoadShaderCache(std::string_view ShaderName, const FShaderCompileOptions& Options, FXxHash64 SourceSignatureHash, FShaderCompilerOutput& OutOutput) -> bool;
-		auto SaveCompiledShaderCache(std::string_view ShaderName, const FShaderCompileOptions& Options, FXxHash64 SourceSignatureHash, const FShaderCompilerOutput& Output) const -> void;
+		auto TryMakeShaderVirtualPath(std::string_view PhysicalSourcePath, std::string& OutVirtualSourcePath) const -> bool;
+		struct FShaderDependencyInfo
+		{
+			std::string Path;
+			uint64 FileSize = 0;
+			FXxHash64 ContentHash{};
+		};
 
-		auto CompileInternal(const char8* InShaderFilePath, const std::span<const char8* const>& InEntryPoints, std::vector<Slang::ComPtr<slang::IBlob>>& OutCodes, Slang::ComPtr<slang::IBlob>& OutDiagnostics) const -> Slang::Result;
+		struct FShaderMetaData
+		{
+			// Source-level cache identity shared by all entry points and frequencies compiled from the same shader file.
+			std::string VirtualShaderPath;
+			FXxHash64 MainSourceHash{};
+			FXxHash128 SourceTreeSignature{};
+			std::vector<FShaderDependencyInfo> Dependencies;
+		};
+
+		struct FShaderVariantKey
+		{
+			FXxHash128 Value{};
+			std::string Hex;
+		};
+
+		auto NormalizePath(const std::filesystem::path& InPath) const -> std::string;
+		auto CreateSession(const FShaderCompileOptions& Options, Slang::ComPtr<slang::ISession>& OutSession, std::string& OutErrorMessage) const -> bool;
+		auto ResolveDependencyFiles(slang::ISession* InSession, const char8* InShaderFilePath, std::vector<std::string>& OutDependencyPaths, std::string& OutDiagnostics) const -> Slang::Result;
+		auto NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros, std::string& OutErrorMessage) const -> bool;
+		auto BuildShaderMetaData(
+			std::string_view VirtualShaderPath,
+			std::string_view ShaderSourceFilePath,
+			const std::vector<std::string>& InDependencyPaths,
+			FShaderMetaData& OutMetaData,
+			std::string& OutErrorMessage
+		) const -> bool;
+		auto BuildVariantKey(
+			const FShaderMetaData& MetaData,
+			const std::vector<FShaderMacroDefinition>& Macros,
+			FShaderVariantKey& OutVariantKey
+		) const -> void;
+		auto LoadMetaData(std::string_view VirtualShaderPath, FShaderMetaData& OutMetaData) const -> bool;
+		auto IsMetaDataCurrent(const FShaderMetaData& CurrentMetaData, const FShaderMetaData& CachedMetaData) const -> bool;
+		auto TryLoadShaderCache(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, FShaderCompilerOutput& OutOutput) const -> bool;
+		auto SaveMetaData(const FShaderMetaData& MetaData) const -> bool;
+		auto SaveCompiledShaderCache(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, const FShaderCompilerOutput& Output) const -> bool;
 
 		auto CompileInternal(
+			slang::ISession* InSession,
 			const char8* InShaderFilePath,
 			const std::span<const char8* const>& InEntryPoints,
 			Slang::ComPtr<slang::IComponentType>& OutComposedProgram,
@@ -50,9 +72,5 @@ namespace Durin
 		auto InitGlobalSession() -> void;
 
 		Slang::ComPtr<slang::IGlobalSession> GlobalSession;
-
-		Slang::ComPtr<slang::ISession> Session;
-
-		std::unordered_map<std::string, FShaderCacheMetaData> FileHashCache;
 	};
 } // namespace Durin

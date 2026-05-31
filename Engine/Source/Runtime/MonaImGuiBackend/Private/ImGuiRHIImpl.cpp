@@ -52,12 +52,12 @@ namespace Durin::Mona
 		auto VertexShaderCode = std::make_shared<FShaderCode>();
 		auto PixelShaderCode = std::make_shared<FShaderCode>();
 
-		const std::string ImGuiShaderName = "/Engine/ImGui";
+		const std::string ImGuiVirtualShaderPath = "/Engine/ImGui";
 		FShaderCompileOptions CompileOptions;
-		CompileOptions.ShaderName = ImGuiShaderName;
+		CompileOptions.VirtualShaderPath = ImGuiVirtualShaderPath;
 		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
 		CompileOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Pixel};
-		if (FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(FShaderPaths::SourcePath(ImGuiShaderName), CompileOptions))
+		if (FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(FShaderPaths::SourcePath(ImGuiVirtualShaderPath), CompileOptions))
 		{
 			VertexShaderCode = CompileResult.CompiledShaders[0].Code;
 			PixelShaderCode = CompileResult.CompiledShaders[1].Code;

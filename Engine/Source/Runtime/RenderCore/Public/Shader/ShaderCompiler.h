@@ -13,11 +13,21 @@ namespace Durin
 		FXxHash64 Hash;
 	};
 
+	struct FShaderMacroDefinition
+	{
+		std::string Name;
+		std::string Value;
+		// When false, the macro behaves like a presence define and is materialized as Name=1 for Slang.
+		bool bHasExplicitValue = false;
+	};
+
 	struct FShaderCompileOptions
 	{
-		std::string ShaderName;
+		// Stable shader identity used for cache lookup and metadata. Prefer virtual shader paths such as /Engine/ImGui.
+		std::string VirtualShaderPath;
 		std::vector<const char8*> EntryPoints;
 		std::vector<EShaderFrequency> Frequencies;
+		std::vector<FShaderMacroDefinition> Macros;
 		bool bForceRecompile = false;
 	};
 
