@@ -2,9 +2,6 @@
     "ModuleName": "MonaImGuiBackend",
     "LinkType": "Shared",
     "PCH": "Self",
-    "RequiredFeatures": [
-        "DeveloperTools"
-    ],
     "PrivateDependencies": [
         "Core",
         "RHI",

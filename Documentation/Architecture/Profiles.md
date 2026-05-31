@@ -98,6 +98,17 @@ Relevant code:
 - `Engine/Source/Programs/DurinHeaderTool/configs/profile_config.py`
 - `CMake/Modules.cmake`
 
+## Module Selection
+
+Each project's `.dproject` file defines:
+
+- `BaseModules`
+- optional per-profile `ExtraModules.<ProfileName>.Modules`
+
+DurinHeaderTool treats those entries as the root module set for the active profile and then resolves transitive public/private dependencies to determine which modules from that project participate in the build.
+
+`BaseModules` should remain a minimal root set: modules explicitly selected at startup or otherwise architecturally required as build roots. It is not intended to mirror every runtime module that is reachable through dependencies.
+
 ## Derived Build Behavior
 
 ### Module naming
@@ -146,7 +157,7 @@ Currently exposed semantic compile definitions include:
 - `DURIN_BUILD_SHIPPING`
 
 `DURIN_WITH_EDITOR` is the primary semantic branch for code-level editor vs non-editor behavior.
-`DURIN_WITH_DEVELOPER_TOOLS` is derived from the build configuration: editor builds and non-shipping game builds enable developer tools, while shipping game builds disable them.
+`DURIN_WITH_DEVELOPER_TOOLS` is derived from the active module set for the current profile. In the current engine project, it is enabled when the selected profile includes the default developer UI backend.
 
 In the current startup flow, `DURIN_WITH_EDITOR` also controls which concrete engine implementation `FEngineLoop::Init()` creates:
 
@@ -197,25 +208,16 @@ Profiles already control:
 - naming
 - build partitioning
 - editor/non-editor compile-time branching
-
-Build configuration controls developer tooling. `Debug` and `Release` game builds include developer tools; `Shipping` game builds exclude them.
-
-Modules may declare required build features in their `.dmodule` metadata. For example, a module with:
-
-```json
-{
-    "RequiredFeatures": ["DeveloperTools"]
-}
-```
-
-is only added when the corresponding feature is enabled. Dependencies on disabled modules are filtered by the generated CMake metadata, so common build logic should not special-case concrete module names.
+- project-local root module selection through `.dproject`
+- transitive dependency closure from those root modules
 
 ## Adding A New Profile
 
 Minimum steps:
 
 1. Add a new built-in profile entry in `Engine/Source/Programs/DurinHeaderTool/configs/profile_config.py`.
-2. Add matching presets in `CMakePresets.json`.
-3. Verify generated intermediate output under `Engine/Intermediate/Build/<Platform>/<ProfileName>/`.
-4. Decide whether `WithEditor` should be true or false.
-5. Verify launcher naming, module naming, and config naming.
+2. Add or update matching `ExtraModules.<ProfileName>.Modules` entries in the relevant `.dproject` files if the module set should differ by profile.
+3. Add matching presets in `CMakePresets.json`.
+4. Verify generated intermediate output under `Engine/Intermediate/Build/<Platform>/<ProfileName>/`.
+5. Decide whether `WithEditor` should be true or false.
+6. Verify launcher naming, module naming, and config naming.

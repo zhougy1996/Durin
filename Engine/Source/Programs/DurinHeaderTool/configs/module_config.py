@@ -6,6 +6,7 @@ from .project_config import get_project_config, find_module
 
 # Stores all loaded module configurations
 MODULE_CONFIGS: dict[str, "DurinModuleConfig"] = {}
+ENABLED_MODULES: dict[tuple[str, str], set[str]] = {}
 
 @dataclass
 class DurinModuleConfig:
@@ -19,7 +20,6 @@ class DurinModuleConfig:
     public_dependencies: list = field(default_factory=list)
     optional_private_dependencies: list = field(default_factory=list)
     optional_public_dependencies: list = field(default_factory=list)
-    required_features: list = field(default_factory=list)
     reflect_headers: list = field(default_factory=list)
     api_macro: str = ""
 
@@ -85,6 +85,42 @@ def collect_all_dependent_modules(module_name: str, visited=None) -> set[str]:
         all_deps.update(collect_all_dependent_modules(dep, visited))
     
     return all_deps
+
+
+def collect_enabled_modules_for_project(project_name: str, profile_name: str) -> set[str]:
+    cache_key = (project_name, profile_name)
+    if cache_key in ENABLED_MODULES:
+        return ENABLED_MODULES[cache_key]
+
+    project_config = get_project_config(project_name)
+    enabled_modules: set[str] = set()
+    visited_modules: set[str] = set()
+
+    def _visit(module_name: str) -> None:
+        if module_name in visited_modules:
+            return
+        visited_modules.add(module_name)
+
+        module_config = get_module_config(module_name)
+        if module_config.owning_project == project_name:
+            enabled_modules.add(module_name)
+
+        for dep in module_config.private_dependencies + module_config.public_dependencies:
+            _visit(dep)
+
+    for root_module in project_config.get_enabled_root_modules(profile_name):
+        _visit(root_module)
+
+    ENABLED_MODULES[cache_key] = enabled_modules
+    return enabled_modules
+
+
+def is_module_enabled_for_active_profile(module_name: str, profile_name: str | None = None) -> bool:
+    if profile_name is None:
+        import configs
+        profile_name = configs.PROFILE_NAME
+    owning_project = get_module_config(module_name).owning_project
+    return module_name in collect_enabled_modules_for_project(owning_project, profile_name)
 
 def collect_sorted_dependent_modules(module_name: str) -> list[str]:
     all_deps = collect_all_dependent_modules(module_name)

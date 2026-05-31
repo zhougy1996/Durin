@@ -9,7 +9,9 @@
         "RenderCore",
         "ApplicationCore",
         "MonaCore",
-        "Mona",
+        "Mona"
+    ],
+    "OptionalPrivateDependencies": [
         "DurinEd"
     ]
 }

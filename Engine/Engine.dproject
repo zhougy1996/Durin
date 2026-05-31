@@ -18,5 +18,21 @@
         "MainFrame": "Source/Editor/MainFrame",
         "LevelEditor": "Source/Editor/LevelEditor",
         "DurinLauncher": "Source/Editor/DurinLauncher"
+    },
+    "BaseModules": [
+        "DurinLauncher",
+        "VulkanRHI"
+    ],
+    "ExtraModules": {
+        "DurinEditor": {
+            "Modules": [
+                "DurinEd",
+                "MainFrame",
+                "LevelEditor"
+            ]
+        },
+        "DurinGame": {
+            "Modules": []
+        }
     }
 }

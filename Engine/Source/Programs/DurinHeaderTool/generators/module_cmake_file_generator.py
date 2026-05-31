@@ -1,20 +1,14 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import shutil
 import configs
 import utils
 
 def _append_module_configs_to_cmake_content(content: list[str], module_name: str) -> None:
     module_config: configs.DurinModuleConfig = configs.get_module_config(module_name)
-    profile_config = configs.get_profile_config(module_config.owning_project, configs.PROFILE_NAME)
 
     def _is_dependency_enabled(dep: str) -> bool:
-        if profile_config is None:
-            return True
-        dep_config = configs.get_module_config(dep)
-        dep_dir = dep_config.module_dir.as_posix()
-        if not profile_config.with_editor and dep != "DurinLauncher" and "/Source/Editor/" in dep_dir:
-            return False
-        return True
+        return configs.is_module_enabled_for_active_profile(dep)
 
     if len(module_config.reflect_headers) > 0:
         reflect_header_file_paths = [(module_config.module_dir / header).resolve().as_posix() for header in module_config.reflect_headers]
@@ -22,13 +16,6 @@ def _append_module_configs_to_cmake_content(content: list[str], module_name: str
         content.append("set(module_reflect_headers\n")
         for header_path in reflect_header_file_paths:
             content.append(f"    \"{header_path}\"\n")
-        content.append(")\n\n")
-
-    if len(module_config.required_features) > 0:
-        content.append("# Build features required by this module\n")
-        content.append("set(module_required_features\n")
-        for feature in module_config.required_features:
-            content.append(f"    {feature}\n")
         content.append(")\n\n")
 
     public_dependencies = [dep for dep in module_config.public_dependencies if _is_dependency_enabled(dep)]
@@ -154,12 +141,20 @@ def generate_module_cmake_file(module_name: str) -> None:
 # Generate the CMake files for all modules in a project parallely, to speed up the generation process. This is especially useful for projects with a large number of modules.
 def generate_all_module_cmake_files_for_project(project_name: str) -> None:
     project_config = configs.get_project_config(project_name)
+    enabled_module_names = sorted(configs.collect_enabled_modules_for_project(project_name, configs.PROFILE_NAME))
+    disabled_module_names = sorted(set(project_config.modules.keys()) - set(enabled_module_names))
+
+    for module_name in disabled_module_names:
+        stale_module_build_dir = utils.get_module_intermediate_build_dir(module_name)
+        if stale_module_build_dir.exists():
+            shutil.rmtree(stale_module_build_dir)
+
     # preload all module configs to avoid multiple loading of the same module config in different processes
-    for module_name in project_config.modules.keys():
+    for module_name in enabled_module_names:
         configs.get_module_config(module_name)
         
     with ThreadPoolExecutor() as executor:
-        futures_list = [executor.submit(generate_module_cmake_file, module_name) for module_name in project_config.modules.keys()]
+        futures_list = [executor.submit(generate_module_cmake_file, module_name) for module_name in enabled_module_names]
 
         for future in as_completed(futures_list):
             future.result()

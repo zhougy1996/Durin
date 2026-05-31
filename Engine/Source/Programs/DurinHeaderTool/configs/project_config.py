@@ -9,10 +9,17 @@ REGISTERED_DURIN_PROJECTS: Dict[str, Path] = {}
 PROJECT_CONFIGS: Dict[str, "DurinProjectConfig"] = {}
 
 @dataclass
+class DurinProjectProfileConfig:
+    modules: list[str] = field(default_factory=list)
+
+
+@dataclass
 class DurinProjectConfig:
     project_name: Path = Path("")
     project_dir: Path = Path("")
     config_file_path: Path = Path("")
+    base_modules: list[str] = field(default_factory=list)
+    extra_modules: dict[str, DurinProjectProfileConfig] = field(default_factory=dict)
     module_dirs: dict[str, str] = field(default_factory=dict) # module name -> module dir path relative to project dir
     modules: dict[str, str] = field(default_factory=dict) # module name -> module config file path relative to project dir
 
@@ -20,6 +27,25 @@ class DurinProjectConfig:
         self.modules.clear()
         for module_name, module_dir in self.module_dirs.items():
             self.modules[module_name] = module_dir + "/" + module_name + ".dmodule"
+        if not self.base_modules:
+            self.base_modules = list(self.module_dirs.keys())
+
+    def get_enabled_root_modules(self, profile_name: str) -> list[str]:
+        enabled_root_modules = list(self.base_modules)
+        profile_config = self.extra_modules.get(profile_name)
+        if profile_config is not None:
+            enabled_root_modules.extend(profile_config.modules)
+
+        deduplicated_roots: list[str] = []
+        seen_modules: set[str] = set()
+        for module_name in enabled_root_modules:
+            if module_name in seen_modules:
+                continue
+            if module_name not in self.modules:
+                raise ValueError(f"Project '{self.project_name}' does not define root module '{module_name}' for profile '{profile_name}'.")
+            seen_modules.add(module_name)
+            deduplicated_roots.append(module_name)
+        return deduplicated_roots
 
     @classmethod
     def from_file(cls, project_config_file_path: Path) -> "DurinProjectConfig":
@@ -66,6 +92,10 @@ def get_project_config(project_name: str) -> DurinProjectConfig:
     if project_name in PROJECT_CONFIGS:
         return PROJECT_CONFIGS[project_name]
     return _load_project_config(project_name)
+
+
+def get_registered_project_names() -> list[str]:
+    return list(REGISTERED_DURIN_PROJECTS.keys())
 
 # return the owning project name for a given module name, by searching through all loaded project configs
 def find_module(module_name: str) -> str:

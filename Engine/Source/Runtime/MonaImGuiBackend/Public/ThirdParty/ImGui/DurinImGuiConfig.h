@@ -21,6 +21,3 @@ namespace Durin::Mona
     #define IMGUI_DEFINE_MATH_OPERATORS
 #endif
 
-#ifndef GImGui
-    #define GImGui Durin::Mona::GMonaImGuiContext
-#endif
