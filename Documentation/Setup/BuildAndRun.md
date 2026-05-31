@@ -74,6 +74,11 @@ The launcher target is `DurinLauncher`, but the output executable name matches t
 
 `DurinConfig.yaml` is copied beside the launcher into the active runtime output directory.
 
+At runtime, `Launch.cpp` enters `FEngineLoop`, and `FEngineLoop::Init()` constructs the concrete engine implementation for the active build:
+
+- editor builds construct `DEditorEngine`
+- non-editor builds construct `DGameEngine`
+
 ## Runtime Path Assumptions
 
 Runtime path discovery assumes the executable stays inside the repository-relative binary layout:

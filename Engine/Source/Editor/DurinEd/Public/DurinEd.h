@@ -1,3 +1,3 @@
 #pragma once
 
-#include "DurinEdGlobals.h"
+#include "Editor/EditorEngine.h"

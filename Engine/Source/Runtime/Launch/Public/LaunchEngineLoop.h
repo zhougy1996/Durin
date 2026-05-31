@@ -5,9 +5,6 @@ namespace Durin
 	class FEngineLoop
 	{
 	public:
-		FEngineLoop() = default;
-		~FEngineLoop() = default;
-
 		auto PreInit() -> void;
 		auto Init() -> void;
 		auto Tick() -> void;

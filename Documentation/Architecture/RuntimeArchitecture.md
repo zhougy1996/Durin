@@ -15,6 +15,8 @@ Process entry is:
 - `Tick()` until exit
 - `Exit()`
 
+`Launch.cpp` is intentionally thin. It enters the runtime through `GEngineLoop`, and the concrete engine type is selected inside `FEngineLoop::Init()`.
+
 ## `FEngineLoop::PreInit()`
 
 Early startup is responsible for:
@@ -29,6 +31,34 @@ Early startup is responsible for:
 Relevant implementation:
 
 - `Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp`
+
+## `FEngineLoop::Init()`
+
+Common runtime startup is owned by `FEngineLoop::Init()`:
+
+- selecting the concrete engine implementation for the active build
+- initializing `ApplicationCore`
+- initializing `RHI`
+- installing `MonaImGuiBackend` as the UI backend when developer tools are enabled
+- initializing `Mona`
+- constructing and initializing `GEngine`
+- starting the rendering thread
+
+Current engine selection uses semantic compile-time branching:
+
+- editor builds construct `DEditorEngine`
+- non-editor builds construct `DGameEngine`
+
+Host-specific startup then lives in the concrete engine `Init()` overrides:
+
+- `DEditorEngine::Init()` loads `MainFrame` and creates the editor root window
+- `DGameEngine::Init()` creates the standalone game window and binds the main scene viewport
+
+Relevant implementation:
+
+- `Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp`
+- `Engine/Source/Editor/DurinEd/Private/Editor/EditorEngine.cpp`
+- `Engine/Source/Runtime/Engine/Private/Engine/GameEngine.cpp`
 
 ## Module System
 
@@ -88,6 +118,7 @@ Responsibilities:
 - `FMonaRHIRenderer` bridges Mona windows to `FRHIViewport` objects
 - `MonaImGuiBackend` integrates Dear ImGui on top of Mona and RHI when developer tools are enabled
 - `MainFrame` creates the root `MWindow` and viewport for the editor shell
+- `DGameEngine` creates the standalone runtime `MWindow` and scene viewport for non-editor startup
 
 Window creation and resize events map directly to RHI viewport creation and resize calls.
 

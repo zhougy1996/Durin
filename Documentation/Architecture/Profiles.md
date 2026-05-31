@@ -164,6 +164,11 @@ Currently exposed semantic compile definitions include:
 `DURIN_WITH_EDITOR` is the primary semantic branch for code-level editor vs non-editor behavior.
 `DURIN_WITH_DEVELOPER_TOOLS` is derived from the build configuration: editor builds and non-shipping game builds enable developer tools, while shipping game builds disable them.
 
+In the current startup flow, `DURIN_WITH_EDITOR` also controls which concrete engine implementation `FEngineLoop::Init()` creates:
+
+- editor builds create `DEditorEngine`
+- non-editor builds create `DGameEngine`
+
 ## Runtime Rule
 
 At runtime, module loading derives filenames from the configured profile name.
@@ -195,6 +200,11 @@ Use the profile name for:
 - launcher naming
 - runtime module filename construction
 - startup selection
+
+Use `DURIN_WITH_EDITOR` for:
+
+- choosing editor-only vs non-editor code paths
+- deciding whether startup constructs `DEditorEngine` or `DGameEngine`
 
 ## Limitations
 

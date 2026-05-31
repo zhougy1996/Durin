@@ -6,8 +6,6 @@
 #include "RHI.h"
 #include "Mona.h"
 #include "Engine/Engine.h"
-#include "Mona/SceneViewport.h"
-#include "Widgets/MWindow.h"
 
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -19,11 +17,14 @@
 #include "DurinEngine.h"
 
 #if DURIN_WITH_EDITOR
-#include "DurinEdGlobals.h"
+	#include "Editor/EditorEngine.h"
+#else
+	#include "Engine/GameEngine.h"
 #endif
 
+
 #if DURIN_WITH_DEVELOPER_TOOLS
-#include "MonaImGuiBackend.h"
+	#include "MonaImGuiBackend.h"
 #endif
 
 
@@ -41,29 +42,7 @@ namespace Durin
 			return GDefaultAppConfigName;
 #endif
 		}
-
-		auto CreateStandaloneGameWindow() -> void
-		{
-			std::shared_ptr<Mona::MWindow> GameWindow = std::make_shared<Mona::MWindow>();
-			GameWindow->SetTitle(GAppConfig.GetStringValue("AppName"));
-			GameWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 720.0f});
-
-			auto& MonaApp = Mona::FMonaApplication::Get();
-			MonaApp.AddWindow(GameWindow, true);
-			MonaApp.GetRenderer()->CreateViewport(GameWindow);
-
-#if DURIN_WITH_DEVELOPER_TOOLS
-			Mona::BindMainViewportToWindow(GameWindow);
-#endif
-
-			std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, GameWindow);
-			GameWindow->SetViewport(SceneViewport);
-			if (GEngine != nullptr)
-			{
-				GEngine->SetMainSceneViewport(SceneViewport);
-			}
-		}
-	}
+	} // namespace
 
 	FEngineLoop GEngineLoop;
 
@@ -91,6 +70,12 @@ namespace Durin
 
 	auto FEngineLoop::Init() -> void
 	{
+#if DURIN_WITH_EDITOR
+		GEngine = new DEditorEngine();
+#else
+		GEngine = new DGameEngine();
+#endif
+
 		ApplicationCoreInit();
 		RHIInit();
 #if DURIN_WITH_DEVELOPER_TOOLS
@@ -98,15 +83,7 @@ namespace Durin
 #endif
 		Mona::MonaInit();
 
-		// Create engine instance, this is just for testing, we should have a more robust engine initialization process
-		GEngine = new DEngine();
 		GEngine->Init();
-
-#if DURIN_WITH_EDITOR
-		EditorInit();
-#else
-		CreateStandaloneGameWindow();
-#endif
 
 		InitRenderingThread();
 		DURIN_INFO(STR("Durin engine initialized."));
@@ -170,6 +147,7 @@ namespace Durin
 		ShutdownRenderingThread();
 
 		delete GEngine;
+		GEngine = nullptr;
 
 		Mona::MonaShutdown();
 

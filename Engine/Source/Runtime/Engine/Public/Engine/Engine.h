@@ -9,9 +9,9 @@ namespace Durin
 	class ENGINE_API DEngine
 	{
 	public:
-		virtual auto Init() -> void;
+		virtual ~DEngine() = default;
 
-		virtual auto Start() -> void;
+		virtual auto Init() -> void;
 
 		virtual auto Tick(float DeltaSeconds, bool bIdleMode) -> void;
 
