@@ -70,7 +70,6 @@ function(durin_add_project project_name)
 	include(${project_cmake_file})
 
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_PROJECT_CONFIG_FILE}) # Make CMake re-configure if the project definition file changes
-	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_PROJECT_PROFILE_FILE})
 
 	# Add always-enabled modules first.
 	foreach(_dir IN LISTS DURIN_PROJECT_MODULE_DIRS)
@@ -78,13 +77,15 @@ function(durin_add_project project_name)
 	endforeach()
 
 	# Add feature-gated modules that are enabled for the active build.
-	foreach(_module IN LISTS DURIN_PROJECT_CONDITIONAL_MODULES)
+	foreach(_module_entry IN LISTS DURIN_PROJECT_FEATURE_GATED_MODULES)
+		string(REPLACE "|" ";" _module_entry_fields "${_module_entry}")
+		list(GET _module_entry_fields 0 _module)
+		list(GET _module_entry_fields 1 _module_dir)
 		durin_is_module_enabled(_module_enabled ${_module})
 		if(NOT _module_enabled)
 			continue()
 		endif()
-		set(_module_dir_var "DURIN_PROJECT_MODULE_DIR_${_module}")
-		add_subdirectory(${${_module_dir_var}})
+		add_subdirectory(${_module_dir})
 	endforeach()
 
 	if(BUILD_TESTING)

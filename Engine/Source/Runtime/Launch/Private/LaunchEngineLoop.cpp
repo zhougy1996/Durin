@@ -27,14 +27,16 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr std::string_view GDefaultAppConfigName = "DurinConfig.yaml";
-
 		constexpr auto GetAppConfigFileName() -> std::string_view
 		{
 #ifdef DURIN_APP_CONFIG_NAME
 			return DURIN_APP_CONFIG_NAME;
 #else
-			return GDefaultAppConfigName;
+#if DURIN_WITH_EDITOR
+			return "DurinEditorConfig.yaml";
+#else
+			return "DurinGameConfig.yaml";
+#endif
 #endif
 		}
 	} // namespace

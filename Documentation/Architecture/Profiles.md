@@ -30,17 +30,16 @@ Project metadata is stored in:
 
 ### Profile
 
-A profile describes how a project is built and hosted.
+A profile describes the workspace-wide host/runtime mode used for the build.
 
 Current examples:
 
 - `DurinEditor`
 - `DurinGame`
 
-Profile metadata is stored in:
+Profile metadata is built into DurinHeaderTool:
 
-- `Engine/Profiles/DurinEditor.dprofile`
-- `Engine/Profiles/DurinGame.dprofile`
+- [profile_config.py](/G:/Workspace/Durin/Engine/Source/Programs/DurinHeaderTool/configs/profile_config.py)
 
 ### CMake target
 
@@ -52,33 +51,18 @@ Examples:
 - `Launch`
 - `DurinLauncher`
 
-## Profile Files
+## Built-In Profiles
 
-Example `DurinEditor.dprofile`:
+Durin currently defines profiles as built-in constants rather than per-project data files.
 
-```json
-{
-    "ProfileName": "DurinEditor",
-    "WithEditor": true,
-    "AppConfigName": "DurinConfig.yaml"
-}
-```
+Current built-in values:
 
-Example `DurinGame.dprofile`:
-
-```json
-{
-    "ProfileName": "DurinGame",
-    "WithEditor": false,
-    "AppConfigName": "DurinConfig.yaml"
-}
-```
-
-Current fields:
-
-- `ProfileName`
-- `WithEditor`
-- `AppConfigName`
+- `DurinEditor`
+  - `WithEditor = true`
+  - `AppConfigName = DurinEditorConfig.yaml`
+- `DurinGame`
+  - `WithEditor = false`
+  - `AppConfigName = DurinGameConfig.yaml`
 
 ## Presets And Generated Metadata
 
@@ -230,7 +214,7 @@ is only added when the corresponding feature is enabled. Dependencies on disable
 
 Minimum steps:
 
-1. Add a new `.dprofile` file under `Engine/Profiles`.
+1. Add a new built-in profile entry in `Engine/Source/Programs/DurinHeaderTool/configs/profile_config.py`.
 2. Add matching presets in `CMakePresets.json`.
 3. Verify generated intermediate output under `Engine/Intermediate/Build/<Platform>/<ProfileName>/`.
 4. Decide whether `WithEditor` should be true or false.

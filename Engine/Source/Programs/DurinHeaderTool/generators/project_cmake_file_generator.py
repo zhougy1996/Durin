@@ -19,21 +19,16 @@ def _append_project_global_variables_to_cmake_content(content: list[str], projec
     content.append(f"set(DURIN_PROJECT_BINARY_DIR \"{utils.get_project_binary_dir(project_name).as_posix()}\")\n")
     content.append(f"set(DURIN_PROJECT_CONFIG_DIR \"{utils.get_project_config_dir(project_name).as_posix()}\")\n")
     content.append(f"set(DURIN_PROJECT_CMAKE_DIR \"{utils.get_project_cmake_dir(project_name).as_posix()}\")\n")
-    content.append(f"set(DURIN_PROJECT_PROFILE_DIR \"{utils.get_project_profile_dir(project_name).as_posix()}\")\n")
     content.append("\n")
 
 
 def _append_project_profile_to_cmake_content(content: list[str], project_name: str) -> None:
     profile_config = configs.get_profile_config(project_name, configs.PROFILE_NAME)
-    content.append("# Active profile for this project/build mode\n")
+    content.append("# Active built-in profile for this project/build mode\n")
     if profile_config is None:
-        raise ValueError(
-            f"Project {project_name} does not define profile {configs.PROFILE_NAME}. "
-            f"Expected a dprofile file in {utils.get_project_profile_dir(project_name).as_posix()}."
-        )
+        raise ValueError(f"Unknown built-in profile '{configs.PROFILE_NAME}' for project {project_name}.")
 
     content.append(f"set(DURIN_PROJECT_PROFILE_NAME \"{profile_config.profile_name}\")\n")
-    content.append(f"set(DURIN_PROJECT_PROFILE_FILE \"{profile_config.config_file_path.as_posix()}\")\n")
     content.append(f"set(DURIN_PROJECT_PROFILE_WITH_EDITOR {'ON' if profile_config.with_editor else 'OFF'})\n")
     content.append(f"set(DURIN_PROJECT_PROFILE_APP_CONFIG_NAME \"{profile_config.app_config_name}\")\n")
     content.append("\n")
@@ -42,10 +37,7 @@ def _append_project_profile_to_cmake_content(content: list[str], project_name: s
 def _append_project_build_variables_to_cmake_content(content: list[str], project_name: str) -> None:
     profile_config = configs.get_profile_config(project_name, configs.PROFILE_NAME)
     if profile_config is None:
-        raise ValueError(
-            f"Project {project_name} does not define profile {configs.PROFILE_NAME}. "
-            f"Expected a dprofile file in {utils.get_project_profile_dir(project_name).as_posix()}."
-        )
+        raise ValueError(f"Unknown built-in profile '{configs.PROFILE_NAME}' for project {project_name}.")
     with_editor = 1 if profile_config.with_editor else 0
 
     content.append("# Derived build variables for this project/profile\n")
@@ -71,7 +63,7 @@ def _append_module_dirs_to_cmake_content(content: list[str], project_name: str) 
     project_config = configs.get_project_config(project_name)
     profile_config = configs.get_profile_config(project_name, configs.PROFILE_NAME)
     enabled_module_dirs: list[str] = []
-    conditional_module_items: list[tuple[str, str, configs.DurinModuleConfig]] = []
+    feature_gated_module_entries: list[str] = []
     for module_name, module_dir in project_config.module_dirs.items():
         module_dir_normalized = module_dir.replace("\\", "/")
         if profile_config is not None:
@@ -79,7 +71,7 @@ def _append_module_dirs_to_cmake_content(content: list[str], project_name: str) 
                 continue
         module_config = configs.get_module_config(module_name)
         if module_config.required_features:
-            conditional_module_items.append((module_name, module_dir, module_config))
+            feature_gated_module_entries.append(f"{module_name}|{module_dir}")
         else:
             enabled_module_dirs.append(module_dir)
 
@@ -89,15 +81,15 @@ def _append_module_dirs_to_cmake_content(content: list[str], project_name: str) 
         content.append(f"    \"{module_dir}\"\n")
     content.append(")\n\n")
 
-    if conditional_module_items:
+    if feature_gated_module_entries:
         content.append("# Feature-gated modules for this project\n")
-        content.append("set(DURIN_PROJECT_CONDITIONAL_MODULES\n")
-        for module_name, _, _ in conditional_module_items:
-            content.append(f"    {module_name}\n")
+        content.append("set(DURIN_PROJECT_FEATURE_GATED_MODULES\n")
+        for module_entry in feature_gated_module_entries:
+            content.append(f"    \"{module_entry}\"\n")
         content.append(")\n\n")
 
-    for module_name, module_dir, module_config in conditional_module_items:
-        content.append(f"set(DURIN_PROJECT_MODULE_DIR_{module_name} \"{module_dir}\")\n")
+    for module_name, module_dir in [entry.split("|", 1) for entry in feature_gated_module_entries]:
+        module_config = configs.get_module_config(module_name)
         content.append(f"set(DURIN_MODULE_REQUIRED_FEATURES_{module_name}\n")
         for feature in module_config.required_features:
             content.append(f"    {feature}\n")

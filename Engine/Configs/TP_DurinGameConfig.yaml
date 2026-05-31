@@ -1,0 +1,5 @@
+AppName: DurinApp
+
+LogLevel: Debug
+
+ForceRecompileShaders: false

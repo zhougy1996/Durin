@@ -16,7 +16,7 @@ set(config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_PROJECT_APP_CONFIG_NAM
 add_custom_command(TARGET DurinLauncher POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E env
     ${CMAKE_COMMAND} -P "${DURIN_DIR}/CMake/CopyIfMissing.cmake"
-    "${DURIN_PROJECT_CONFIG_DIR}/TP_DurinConfig.yaml" # template file
+    "${DURIN_PROJECT_CONFIG_DIR}/TP_${DURIN_PROJECT_APP_CONFIG_NAME}" # template file
     ${config_file} # destination file
     VERBATIM
 )

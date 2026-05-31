@@ -1,11 +1,8 @@
-from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict
 
-from utils.json_utils import load_json_file, dataclass_from_dict
-from .project_config import get_project_config
-
 PROFILE_CONFIGS: Dict[tuple[str, str], "DurinProfileConfig"] = {}
+BUILTIN_PROFILES: Dict[str, "DurinProfileConfig"] = {}
 
 
 @dataclass
@@ -14,23 +11,21 @@ class DurinProfileConfig:
     with_editor: bool = False
     app_config_name: str = ""
     project_name: str = ""
-    config_file_path: Path = Path("")
-    profile_dir: Path = Path("")
-
-    @classmethod
-    def from_file(cls, profile_config_file_path: Path) -> "DurinProfileConfig":
-        profile_config_file_path = profile_config_file_path.resolve()
-
-        raw_json_data = load_json_file(profile_config_file_path, required_fields=["ProfileName"])
-        instance = dataclass_from_dict(cls, raw_json_data)
-        instance.config_file_path = profile_config_file_path
-        instance.profile_dir = profile_config_file_path.parent
-        return instance
 
 
-def _get_profile_config_file_path(project_name: str, profile_name: str) -> Path:
-    project_config = get_project_config(project_name)
-    return project_config.project_dir / "Profiles" / f"{profile_name}.dprofile"
+def _build_builtin_profiles() -> Dict[str, DurinProfileConfig]:
+    return {
+        "DurinEditor": DurinProfileConfig(
+            profile_name="DurinEditor",
+            with_editor=True,
+            app_config_name="DurinEditorConfig.yaml",
+        ),
+        "DurinGame": DurinProfileConfig(
+            profile_name="DurinGame",
+            with_editor=False,
+            app_config_name="DurinGameConfig.yaml",
+        ),
+    }
 
 
 def get_profile_config(project_name: str, profile_name: str) -> DurinProfileConfig | None:
@@ -38,11 +33,18 @@ def get_profile_config(project_name: str, profile_name: str) -> DurinProfileConf
     if cache_key in PROFILE_CONFIGS:
         return PROFILE_CONFIGS[cache_key]
 
-    profile_config_file_path = _get_profile_config_file_path(project_name, profile_name)
-    if not profile_config_file_path.exists():
+    builtin_profile = BUILTIN_PROFILES.get(profile_name)
+    if builtin_profile is None:
         return None
 
-    profile_config = DurinProfileConfig.from_file(profile_config_file_path)
-    profile_config.project_name = project_name
+    profile_config = DurinProfileConfig(
+        profile_name=builtin_profile.profile_name,
+        with_editor=builtin_profile.with_editor,
+        app_config_name=builtin_profile.app_config_name,
+        project_name=project_name,
+    )
     PROFILE_CONFIGS[cache_key] = profile_config
     return profile_config
+
+
+BUILTIN_PROFILES = _build_builtin_profiles()

@@ -43,7 +43,6 @@ A project typically owns its own:
 
 - `.dproject`
 - `Source/`
-- `Profiles/`
 - `Configs/`
 - `Intermediate/`
 - `Binaries/`
@@ -93,21 +92,14 @@ Examples:
 - `Win64-Debug-DurinEditor` builds both `Engine` and `SandBox` in `DurinEditor` mode
 - `Win64-Debug-DurinGame` builds both `Engine` and `SandBox` in `DurinGame` mode
 
-## Why Project Profiles Still Use `DurinEditor` / `DurinGame`
+## Why Profiles Still Use `DurinEditor` / `DurinGame`
 
-Even though each project has its own `Profiles/` directory, profile names are currently shared across the workspace because the active profile is selected globally through CMake presets and `DURIN_PROFILE_NAME`.
-
-So this is intentional and currently correct:
-
-- `Engine/Profiles/DurinEditor.dprofile`
-- `SandBox/Profiles/DurinEditor.dprofile`
-
-The profile files belong to different projects, but the active profile name is the same workspace-wide host identity.
+Profiles are currently built into DurinHeaderTool and selected globally through CMake presets and `DURIN_PROFILE_NAME`.
 
 In other words:
 
-- profile files are project-local
-- profile names are currently workspace-global
+- profile definitions are workspace-global
+- profile names are workspace-global
 
 ## CLion Workflow
 
@@ -162,4 +154,3 @@ If Durin later grows an installed-engine workflow, then a game-root model may be
 - project-specific host identities such as `SandBoxEditor`
 
 That is not the current model.
-
