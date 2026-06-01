@@ -84,4 +84,47 @@ namespace Durin
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};
+
+	// Lightweight JSON builder backed by yyjson's mutable document API.
+	// The root is always an object. Nested objects/arrays are managed via Begin / End pairs.
+	class FJsonWriter
+	{
+	public:
+		CORE_API FJsonWriter();
+		CORE_API ~FJsonWriter();
+
+		FJsonWriter(const FJsonWriter&) = delete;
+		auto operator=(const FJsonWriter&) -> FJsonWriter& = delete;
+		CORE_API FJsonWriter(FJsonWriter&& Other) noexcept;
+		CORE_API auto operator=(FJsonWriter&& Other) noexcept -> FJsonWriter&;
+
+		// --- Object field setters (active when current container is an object) ---
+		CORE_API auto AddFieldUInt(std::string_view Key, uint64 Value) -> FJsonWriter&;
+		CORE_API auto AddFieldString(std::string_view Key, std::string_view Value) -> FJsonWriter&;
+
+		// Begin a nested object field. Returns *this; call EndNested() to return to the parent.
+		CORE_API auto BeginObjectField(std::string_view Key) -> FJsonWriter&;
+		// Begin a nested array field. Returns *this; call EndNested() to return to the parent.
+		CORE_API auto BeginArrayField(std::string_view Key) -> FJsonWriter&;
+
+		// --- Array element setters (active when current container is an array) ---
+		CORE_API auto AddElementUInt(uint64 Value) -> FJsonWriter&;
+		CORE_API auto AddElementString(std::string_view Value) -> FJsonWriter&;
+		// Begin a new object as the next array element.
+		CORE_API auto BeginElementObject() -> FJsonWriter&;
+		// Begin a new array as the next array element.
+		CORE_API auto BeginElementArray() -> FJsonWriter&;
+
+		// Pop the current nesting level and return to the parent container.
+		CORE_API auto EndNested() -> FJsonWriter&;
+
+		// --- Serialization ---
+		CORE_API auto ToString() const -> std::string;
+		CORE_API auto SaveToFile(std::string_view FilePath) const -> bool;
+		CORE_API auto IsValid() const -> bool;
+
+	private:
+		struct FImpl;
+		std::unique_ptr<FImpl> Impl;
+	};
 }

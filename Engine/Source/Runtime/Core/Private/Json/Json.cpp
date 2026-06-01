@@ -236,4 +236,192 @@ namespace Durin
 		return ToJsonValueView(yyjson_doc_get_root(Impl->Document));
 	}
 
+	// --- FJsonWriter ---
+
+	static auto ToMutVal(void* Ptr) -> yyjson_mut_val*
+	{
+		return static_cast<yyjson_mut_val*>(Ptr);
+	}
+
+	struct FJsonWriter::FImpl
+	{
+		yyjson_mut_doc* Document = nullptr;
+		std::vector<yyjson_mut_val*> ContainerStack;
+
+		~FImpl()
+		{
+			if (Document)
+			{
+				yyjson_mut_doc_free(Document);
+				Document = nullptr;
+			}
+		}
+
+		auto CurrentContainer() -> yyjson_mut_val*
+		{
+			return ContainerStack.empty() ? nullptr : ContainerStack.back();
+		}
+
+		auto PushContainer(yyjson_mut_val* Container) -> void
+		{
+			if (!ContainerStack.empty())
+			{
+				yyjson_mut_val* Parent = ContainerStack.back();
+				if (yyjson_mut_is_arr(Parent))
+				{
+					yyjson_mut_arr_append(Parent, Container);
+				}
+			}
+			ContainerStack.push_back(Container);
+		}
+
+		auto PopContainer() -> yyjson_mut_val*
+		{
+			if (ContainerStack.empty())
+			{
+				return nullptr;
+			}
+			const yyjson_mut_val* Popped = ContainerStack.back();
+			ContainerStack.pop_back();
+			return ContainerStack.empty() ? nullptr : ContainerStack.back();
+		}
+	};
+
+	FJsonWriter::FJsonWriter()
+		: Impl(std::make_unique<FImpl>())
+	{
+		Impl->Document = yyjson_mut_doc_new(nullptr);
+		yyjson_mut_val* Root = yyjson_mut_obj(Impl->Document);
+		yyjson_mut_doc_set_root(Impl->Document, Root);
+		Impl->ContainerStack.push_back(Root);
+	}
+
+	FJsonWriter::~FJsonWriter() = default;
+
+	FJsonWriter::FJsonWriter(FJsonWriter&& Other) noexcept = default;
+	auto FJsonWriter::operator=(FJsonWriter&& Other) noexcept -> FJsonWriter& = default;
+
+	auto FJsonWriter::AddFieldUInt(std::string_view Key, uint64 Value) -> FJsonWriter&
+	{
+		if (yyjson_mut_val* Container = Impl->CurrentContainer())
+		{
+			yyjson_mut_obj_add_uint(Impl->Document, Container, Key.data(), Value);
+		}
+		return *this;
+	}
+
+	auto FJsonWriter::AddFieldString(std::string_view Key, std::string_view Value) -> FJsonWriter&
+	{
+		if (yyjson_mut_val* Container = Impl->CurrentContainer())
+		{
+			yyjson_mut_obj_add_strcpy(Impl->Document, Container, Key.data(), Value.data());
+		}
+		return *this;
+	}
+
+	auto FJsonWriter::BeginObjectField(std::string_view Key) -> FJsonWriter&
+	{
+		yyjson_mut_val* Container = Impl->CurrentContainer();
+		if (Container && yyjson_mut_is_obj(Container))
+		{
+			yyjson_mut_val* NestedObj = yyjson_mut_obj(Impl->Document);
+			yyjson_mut_obj_add_val(Impl->Document, Container, Key.data(), NestedObj);
+			Impl->ContainerStack.push_back(NestedObj);
+		}
+		return *this;
+	}
+
+	auto FJsonWriter::BeginArrayField(std::string_view Key) -> FJsonWriter&
+	{
+		yyjson_mut_val* Container = Impl->CurrentContainer();
+		if (Container && yyjson_mut_is_obj(Container))
+		{
+			yyjson_mut_val* NestedArr = yyjson_mut_arr(Impl->Document);
+			yyjson_mut_obj_add_val(Impl->Document, Container, Key.data(), NestedArr);
+			Impl->ContainerStack.push_back(NestedArr);
+		}
+		return *this;
+	}
+
+	auto FJsonWriter::AddElementUInt(uint64 Value) -> FJsonWriter&
+	{
+		if (yyjson_mut_val* Container = Impl->CurrentContainer())
+		{
+			yyjson_mut_arr_add_uint(Impl->Document, Container, Value);
+		}
+		return *this;
+	}
+
+	auto FJsonWriter::AddElementString(std::string_view Value) -> FJsonWriter&
+	{
+		if (yyjson_mut_val* Container = Impl->CurrentContainer())
+		{
+			yyjson_mut_arr_add_strcpy(Impl->Document, Container, Value.data());
+		}
+		return *this;
+	}
+
+	auto FJsonWriter::BeginElementObject() -> FJsonWriter&
+	{
+		yyjson_mut_val* Container = Impl->CurrentContainer();
+		if (Container && yyjson_mut_is_arr(Container))
+		{
+			yyjson_mut_val* NestedObj = yyjson_mut_obj(Impl->Document);
+			yyjson_mut_arr_append(Container, NestedObj);
+			Impl->ContainerStack.push_back(NestedObj);
+		}
+		return *this;
+	}
+
+	auto FJsonWriter::BeginElementArray() -> FJsonWriter&
+	{
+		yyjson_mut_val* Container = Impl->CurrentContainer();
+		if (Container && yyjson_mut_is_arr(Container))
+		{
+			yyjson_mut_val* NestedArr = yyjson_mut_arr(Impl->Document);
+			yyjson_mut_arr_append(Container, NestedArr);
+			Impl->ContainerStack.push_back(NestedArr);
+		}
+		return *this;
+	}
+
+	auto FJsonWriter::EndNested() -> FJsonWriter&
+	{
+		Impl->PopContainer();
+		return *this;
+	}
+
+	auto FJsonWriter::ToString() const -> std::string
+	{
+		if (!Impl->Document)
+		{
+			return "{}";
+		}
+		const yyjson_write_flag Flags = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_UNICODE;
+		size_t Length = 0;
+		char* Raw = yyjson_mut_write_opts(Impl->Document, Flags, nullptr, &Length, nullptr);
+		if (!Raw)
+		{
+			return "{}";
+		}
+		std::string Result(Raw, Length);
+		std::free(Raw);
+		return Result;
+	}
+
+	auto FJsonWriter::SaveToFile(std::string_view FilePath) const -> bool
+	{
+		if (!Impl->Document)
+		{
+			return false;
+		}
+		const yyjson_write_flag Flags = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_UNICODE;
+		return yyjson_mut_write_file(std::string(FilePath).c_str(), Impl->Document, Flags, nullptr, nullptr);
+	}
+
+	auto FJsonWriter::IsValid() const -> bool
+	{
+		return Impl->Document != nullptr;
+	}
+
 }
