@@ -1,7 +1,6 @@
 #include "SlangShaderCompiler.h"
 
 #include "Hash/XxHash.h"
-#include "Json/Json.h"
 #include "Misc/FileHelper.h"
 #include "Shader/ShaderPaths.h"
 
@@ -16,26 +15,6 @@ namespace Durin
 		constexpr std::string_view GSlangTargetFormat = "SPIR-V";
 		constexpr std::string_view GSlangTargetProfile = "spirv_1_5";
 
-		auto ToHex(FXxHash64 Hash) -> std::string
-		{
-			return std::format("{:016x}", Hash.HashValue);
-		}
-
-		auto ToHex(FXxHash128 Hash) -> std::string
-		{
-			return std::format("{:016x}{:016x}", Hash.HashHigh, Hash.HashLow);
-		}
-
-		auto EntryPointToString(const char8* EntryPoint) -> std::string
-		{
-			return EntryPoint != nullptr ? std::string(EntryPoint) : std::string();
-		}
-
-		auto FrequencyToInt(EShaderFrequency Frequency) -> int32
-		{
-			return static_cast<int32>(Frequency);
-		}
-
 		auto HashShaderCode(FShaderCodeView Code) -> FXxHash64
 		{
 			return FXxHash64::HashBuffer(Code.empty() ? nullptr : Code.data(), static_cast<uint64>(Code.size_bytes()));
@@ -46,60 +25,9 @@ namespace Durin
 			return FXxHash64::HashBuffer(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
 		}
 
-		auto EscapeJsonString(std::string_view Value) -> std::string
+		auto FrequencyToInt(EShaderFrequency Frequency) -> int32
 		{
-			std::string Result;
-			Result.reserve(Value.size() + 8);
-			for (const char Char : Value)
-			{
-				switch (Char)
-				{
-				case '\\':
-					Result += "\\\\";
-					break;
-				case '"':
-					Result += "\\\"";
-					break;
-				case '\b':
-					Result += "\\b";
-					break;
-				case '\f':
-					Result += "\\f";
-					break;
-				case '\n':
-					Result += "\\n";
-					break;
-				case '\r':
-					Result += "\\r";
-					break;
-				case '\t':
-					Result += "\\t";
-					break;
-				default:
-					if (static_cast<unsigned char>(Char) < 0x20)
-					{
-						Result += std::format("\\u{:04x}", static_cast<unsigned char>(Char));
-					}
-					else
-					{
-						Result.push_back(Char);
-					}
-					break;
-				}
-			}
-			return Result;
-		}
-
-		auto AppendJsonStringField(std::string& Json, std::string_view Key, std::string_view Value, bool bTrailingComma) -> void
-		{
-			Json += std::format("  \"{}\": \"{}\"", Key, EscapeJsonString(Value));
-			Json += bTrailingComma ? ",\n" : "\n";
-		}
-
-		auto AppendJsonUIntField(std::string& Json, std::string_view Key, uint64 Value, bool bTrailingComma) -> void
-		{
-			Json += std::format("  \"{}\": {}", Key, Value);
-			Json += bTrailingComma ? ",\n" : "\n";
+			return static_cast<int32>(Frequency);
 		}
 
 		auto UpdateString(FXxHash128Builder& Builder, std::string_view Value) -> void
@@ -109,38 +37,6 @@ namespace Durin
 			if (Length > 0)
 			{
 				Builder.Update(Value.data(), Length);
-			}
-		}
-
-		auto ParseHex64(std::string_view Value, FXxHash64& OutHash) -> bool
-		{
-			try
-			{
-				OutHash.HashValue = static_cast<size_t>(std::stoull(std::string(Value), nullptr, 16));
-				return true;
-			}
-			catch (...)
-			{
-				return false;
-			}
-		}
-
-		auto ParseHex128(std::string_view Value, FXxHash128& OutHash) -> bool
-		{
-			if (Value.size() != 32)
-			{
-				return false;
-			}
-
-			try
-			{
-				OutHash.HashHigh = std::stoull(std::string(Value.substr(0, 16)), nullptr, 16);
-				OutHash.HashLow = std::stoull(std::string(Value.substr(16, 16)), nullptr, 16);
-				return true;
-			}
-			catch (...)
-			{
-				return false;
 			}
 		}
 	}
@@ -173,7 +69,6 @@ namespace Durin
 	auto FSlangShaderCompiler::NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros, std::string& OutErrorMessage) const -> bool
 	{
 		OutMacros = Options.Macros;
-		// Normalize macro ordering before both hashing and Slang session creation so cache keys and compiler inputs stay aligned.
 		std::ranges::sort(OutMacros, [](const FShaderMacroDefinition& A, const FShaderMacroDefinition& B) {
 			if (A.Name != B.Name)
 			{
@@ -293,7 +188,6 @@ namespace Durin
 		OutMetaData.Dependencies.reserve(InDependencyPaths.size());
 
 		FXxHash128Builder TreeSignatureBuilder;
-		// The source tree signature tracks the full dependency graph content, not just the root .slang file.
 		UpdateString(TreeSignatureBuilder, GShaderVariantKeyVersion);
 
 		for (size_t DependencyIndex = 0; DependencyIndex < InDependencyPaths.size(); ++DependencyIndex)
@@ -345,7 +239,6 @@ namespace Durin
 		Builder.Update(&MetaData.SourceTreeSignature.HashLow, sizeof(MetaData.SourceTreeSignature.HashLow));
 		Builder.Update(&MetaData.SourceTreeSignature.HashHigh, sizeof(MetaData.SourceTreeSignature.HashHigh));
 
-		// Entry point and frequency do not participate in the variant directory hash. They are separated at the artifact file name level.
 		const uint64 MacroCount = static_cast<uint64>(Macros.size());
 		Builder.Update(&MacroCount, sizeof(MacroCount));
 		for (const FShaderMacroDefinition& Macro : Macros)
@@ -356,68 +249,10 @@ namespace Durin
 		}
 
 		OutVariantKey.Value = Builder.Finalize();
-		OutVariantKey.Hex = ToHex(OutVariantKey.Value);
+		OutVariantKey.Hex = std::format("{:016x}{:016x}", OutVariantKey.Value.HashHigh, OutVariantKey.Value.HashLow);
 	}
 
-	auto FSlangShaderCompiler::LoadMetaData(std::string_view VirtualShaderPath, FShaderMetaData& OutMetaData) const -> bool
-	{
-		FJsonDocument Document;
-		if (!Document.LoadFromFile(FShaderPaths::MetaPath(VirtualShaderPath)))
-		{
-			return false;
-		}
-
-		const FJsonValueView Root = Document.GetRootView();
-		if (!Root.IsObject()
-			|| Root.GetUIntValue("version") != GShaderMetaVersion
-			|| Root.GetUIntValue("macroSchemaVersion") != GShaderMacroSchemaVersion
-			|| Root.GetStringValue("backend") != GSlangBackendName
-			|| Root.GetStringValue("targetFormat") != GSlangTargetFormat
-			|| Root.GetStringValue("targetProfile") != GSlangTargetProfile
-			|| Root.GetStringValue("virtualShaderPath") != VirtualShaderPath)
-		{
-			return false;
-		}
-
-		OutMetaData = {};
-		OutMetaData.VirtualShaderPath = Root.GetStringValue("virtualShaderPath");
-
-		if (!ParseHex64(Root.GetStringValue("mainSourceHash"), OutMetaData.MainSourceHash)
-			|| !ParseHex128(Root.GetStringValue("sourceTreeSignature"), OutMetaData.SourceTreeSignature))
-		{
-			return false;
-		}
-
-		const FJsonValueView DependenciesView = Root.GetView("dependencies");
-		if (!DependenciesView.IsArray())
-		{
-			return false;
-		}
-
-		OutMetaData.Dependencies.reserve(DependenciesView.Num());
-		for (size_t DependencyIndex = 0; DependencyIndex < DependenciesView.Num(); ++DependencyIndex)
-		{
-			const FJsonValueView DependencyView = DependenciesView.GetView(DependencyIndex);
-			if (!DependencyView.IsObject())
-			{
-				return false;
-			}
-
-			FShaderDependencyInfo Dependency;
-			Dependency.Path = DependencyView.GetStringValue("path");
-			Dependency.FileSize = DependencyView.GetUIntValue("size");
-			if (Dependency.Path.empty() || !ParseHex64(DependencyView.GetStringValue("hash"), Dependency.ContentHash))
-			{
-				return false;
-			}
-
-			OutMetaData.Dependencies.push_back(std::move(Dependency));
-		}
-
-		return true;
-	}
-
-	auto FSlangShaderCompiler::IsMetaDataCurrent(const FShaderMetaData& CurrentMetaData, const FShaderMetaData& CachedMetaData) const -> bool
+	static auto IsMetaDataCurrent(const FShaderMetaData& CurrentMetaData, const FShaderMetaData& CachedMetaData) -> bool
 	{
 		if (CurrentMetaData.VirtualShaderPath != CachedMetaData.VirtualShaderPath
 			|| CurrentMetaData.MainSourceHash != CachedMetaData.MainSourceHash
@@ -442,110 +277,40 @@ namespace Durin
 		return true;
 	}
 
-	auto FSlangShaderCompiler::TryLoadShaderCache(
-		std::string_view VirtualShaderPath,
-		const FShaderCompileOptions& Options,
-		const FShaderVariantKey& VariantKey,
-		FShaderCompilerOutput& OutOutput
-	) const -> bool
+	auto FSlangShaderCompiler::CompileInternal(
+		slang::ISession* InSession,
+		const char8* InShaderFilePath,
+		const std::span<const char8* const>& InEntryPoints,
+		Slang::ComPtr<slang::IComponentType>& OutComposedProgram,
+		Slang::ComPtr<slang::IBlob>& OutDiagnostics
+	) const -> Slang::Result
 	{
-		const uint32 EntryPointCount = static_cast<uint32>(Options.EntryPoints.size());
-		OutOutput.CompiledShaders.clear();
-		OutOutput.CompiledShaders.resize(EntryPointCount);
-
-		// Meta validation happens before this path. Here we only verify the expected per-entry artifact still exists and can be loaded.
-		for (uint32 EntryPointIndex = 0; EntryPointIndex < EntryPointCount; ++EntryPointIndex)
+		slang::IModule* Module = InSession->loadModule(InShaderFilePath, OutDiagnostics.writeRef());
+		if (!Module)
 		{
-			const std::string EntryPoint = EntryPointToString(Options.EntryPoints[EntryPointIndex]);
-			const std::string CachePath = FShaderPaths::BinaryPath(VirtualShaderPath, EntryPoint, Options.Frequencies[EntryPointIndex], VariantKey.Hex);
-
-			std::vector<uint8> ShaderBytes;
-			if (!FFileHelper::LoadFileToArray(ShaderBytes, CachePath))
-			{
-				return false;
-			}
-
-			auto& CompiledShader = OutOutput.CompiledShaders[EntryPointIndex];
-			CompiledShader.Frequency = Options.Frequencies[EntryPointIndex];
-			CompiledShader.Code = std::make_shared<FShaderCode>();
-			CompiledShader.Code->resize(ShaderBytes.size());
-			if (!ShaderBytes.empty())
-			{
-				std::memcpy(CompiledShader.Code->data(), ShaderBytes.data(), ShaderBytes.size());
-			}
-			CompiledShader.Hash = HashBytes(ShaderBytes);
+			return SLANG_FAIL;
 		}
 
-		OutOutput.bSucceeded = true;
-		return true;
-	}
+		std::vector<slang::IComponentType*> ComponentTypes;
+		ComponentTypes.push_back(Module);
 
-	auto FSlangShaderCompiler::SaveMetaData(const FShaderMetaData& MetaData) const -> bool
-	{
-		std::string Json;
-		Json.reserve(1024 + MetaData.Dependencies.size() * 96);
-		Json += "{\n";
-		AppendJsonUIntField(Json, "version", GShaderMetaVersion, true);
-		AppendJsonUIntField(Json, "macroSchemaVersion", GShaderMacroSchemaVersion, true);
-		AppendJsonStringField(Json, "virtualShaderPath", MetaData.VirtualShaderPath, true);
-		AppendJsonStringField(Json, "backend", GSlangBackendName, true);
-		AppendJsonStringField(Json, "targetFormat", GSlangTargetFormat, true);
-		AppendJsonStringField(Json, "targetProfile", GSlangTargetProfile, true);
-		AppendJsonStringField(Json, "mainSourceHash", ToHex(MetaData.MainSourceHash), true);
-		AppendJsonStringField(Json, "sourceTreeSignature", ToHex(MetaData.SourceTreeSignature), true);
-		Json += "  \"dependencies\": [\n";
-		for (size_t DependencyIndex = 0; DependencyIndex < MetaData.Dependencies.size(); ++DependencyIndex)
+		std::vector<Slang::ComPtr<slang::IEntryPoint>> EntryPointObjects;
+		for (const char8* Name : InEntryPoints)
 		{
-			const FShaderDependencyInfo& Dependency = MetaData.Dependencies[DependencyIndex];
-			Json += "    {\n";
-			Json += std::format("      \"path\": \"{}\",\n", EscapeJsonString(Dependency.Path));
-			Json += std::format("      \"size\": {},\n", Dependency.FileSize);
-			Json += std::format("      \"hash\": \"{}\"\n", ToHex(Dependency.ContentHash));
-			Json += DependencyIndex + 1 < MetaData.Dependencies.size() ? "    },\n" : "    }\n";
-		}
-		Json += "  ]\n";
-		Json += "}\n";
-
-		const std::string MetaPath = FShaderPaths::MetaPath(MetaData.VirtualShaderPath);
-		const std::span<const std::byte> Bytes(
-			reinterpret_cast<const std::byte*>(Json.data()),
-			Json.size()
-		);
-		return FFileHelper::SaveArrayToFile(Bytes, MetaPath);
-	}
-
-	auto FSlangShaderCompiler::SaveCompiledShaderCache(
-		std::string_view VirtualShaderPath,
-		const FShaderCompileOptions& Options,
-		const FShaderVariantKey& VariantKey,
-		const FShaderCompilerOutput& Output
-	) const -> bool
-	{
-		if (Output.CompiledShaders.size() != Options.EntryPoints.size())
-		{
-			DURIN_WARN("Shader cache save skipped because compiler output count does not match requested entry point count.");
-			return false;
+			Slang::ComPtr<slang::IEntryPoint> EntryPoint;
+			SLANG_RETURN_ON_FAIL(Module->findEntryPointByName(Name, EntryPoint.writeRef()));
+			EntryPointObjects.push_back(EntryPoint);
+			ComponentTypes.push_back(EntryPoint.get());
 		}
 
-		for (uint32 EntryPointIndex = 0; EntryPointIndex < Output.CompiledShaders.size(); ++EntryPointIndex)
-		{
-			const FCompiledShader& CompiledShader = Output.CompiledShaders[EntryPointIndex];
-			if (!CompiledShader.Code)
-			{
-				DURIN_WARN("Shader cache save skipped because compiled shader code is null.");
-				return false;
-			}
+		SLANG_RETURN_ON_FAIL(InSession->createCompositeComponentType(
+			ComponentTypes.data(),
+			ComponentTypes.size(),
+			OutComposedProgram.writeRef(),
+			OutDiagnostics.writeRef()
+		));
 
-			const std::string EntryPoint = EntryPointToString(Options.EntryPoints[EntryPointIndex]);
-			const std::string CachePath = FShaderPaths::BinaryPath(VirtualShaderPath, EntryPoint, Options.Frequencies[EntryPointIndex], VariantKey.Hex);
-			if (!FFileHelper::SaveArrayToFile(*CompiledShader.Code, CachePath))
-			{
-				DURIN_WARN("Failed to write shader cache artifact: {}", CachePath);
-				return false;
-			}
-		}
-
-		return true;
+		return SLANG_OK;
 	}
 
 	static auto ConvertBlobToArray(const Slang::ComPtr<slang::IBlob>& FromBlob, FShaderCode& OutCode) -> bool
@@ -612,7 +377,6 @@ namespace Durin
 
 		const bool bForceRecompile = Options.bForceRecompile || Settings.bForceRecompile;
 		const std::string SourceFilePath(ShaderSourceFilePath);
-		// Callers should pass a virtual path, but we still fall back to the physical source path so ad hoc compiles remain usable.
 		const std::string VirtualShaderPath = !Options.VirtualShaderPath.empty() ? Options.VirtualShaderPath : SourceFilePath;
 
 		Slang::ComPtr<slang::ISession> CompileSession;
@@ -639,8 +403,8 @@ namespace Durin
 		BuildVariantKey(CurrentMetaData, NormalizedMacros, VariantKey);
 
 		FShaderMetaData CachedMetaData;
-		const bool bMetaDataCurrent = LoadMetaData(VirtualShaderPath, CachedMetaData) && IsMetaDataCurrent(CurrentMetaData, CachedMetaData);
-		if (!bForceRecompile && bMetaDataCurrent && TryLoadShaderCache(VirtualShaderPath, Options, VariantKey, Output))
+		const bool bMetaDataCurrent = CacheStore.LoadMetaData(VirtualShaderPath, CachedMetaData) && IsMetaDataCurrent(CurrentMetaData, CachedMetaData);
+		if (!bForceRecompile && bMetaDataCurrent && CacheStore.TryLoad(VirtualShaderPath, Options, VariantKey, Output))
 		{
 			return Output;
 		}
@@ -664,53 +428,17 @@ namespace Durin
 			return Output;
 		}
 
-		if (!SaveCompiledShaderCache(VirtualShaderPath, Options, VariantKey, Output))
+		if (!CacheStore.Save(VirtualShaderPath, Options, VariantKey, Output))
 		{
 			DURIN_WARN("Shader compiled successfully, but cache write failed for {}", VirtualShaderPath);
 		}
-		if (!SaveMetaData(CurrentMetaData))
+		if (!CacheStore.SaveMetaData(CurrentMetaData))
 		{
 			DURIN_WARN("Shader compiled successfully, but meta write failed for {}", VirtualShaderPath);
 		}
 
 		Output.bSucceeded = true;
 		return Output;
-	}
-
-	auto FSlangShaderCompiler::CompileInternal(
-		slang::ISession* InSession,
-		const char8* InShaderFilePath,
-		const std::span<const char8* const>& InEntryPoints,
-		Slang::ComPtr<slang::IComponentType>& OutComposedProgram,
-		Slang::ComPtr<slang::IBlob>& OutDiagnostics
-	) const -> Slang::Result
-	{
-		slang::IModule* Module = InSession->loadModule(InShaderFilePath, OutDiagnostics.writeRef());
-		if (!Module)
-		{
-			return SLANG_FAIL;
-		}
-
-		std::vector<slang::IComponentType*> ComponentTypes;
-		ComponentTypes.push_back(Module);
-
-		std::vector<Slang::ComPtr<slang::IEntryPoint>> EntryPointObjects;
-		for (const char8* Name : InEntryPoints)
-		{
-			Slang::ComPtr<slang::IEntryPoint> EntryPoint;
-			SLANG_RETURN_ON_FAIL(Module->findEntryPointByName(Name, EntryPoint.writeRef()));
-			EntryPointObjects.push_back(EntryPoint);
-			ComponentTypes.push_back(EntryPoint.get());
-		}
-
-		SLANG_RETURN_ON_FAIL(InSession->createCompositeComponentType(
-			ComponentTypes.data(),
-			ComponentTypes.size(),
-			OutComposedProgram.writeRef(),
-			OutDiagnostics.writeRef()
-		));
-
-		return SLANG_OK;
 	}
 
 	auto FSlangShaderCompiler::InitGlobalSession() -> void

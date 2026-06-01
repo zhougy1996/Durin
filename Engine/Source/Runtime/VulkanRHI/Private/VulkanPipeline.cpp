@@ -386,6 +386,14 @@ namespace Durin::VulkanRHI
 	FVulkanPipelineStateCacheManager::~FVulkanPipelineStateCacheManager()
 	{
 		PSOCache.clear();
+		for (const auto& Layout : LayoutMap | std::views::values)
+		{
+			// LayoutMap owns the FVulkanLayout objects; clean them up.
+			// The layouts' descriptor set handles will be released by the
+			// DescriptorSetLayoutCache (owned by FVulkanDevice) which outlives us.
+			delete Layout;
+		}
+		LayoutMap.clear();
 	}
 
 	auto FVulkanPipelineStateCacheManager::GetGraphicsPipelineState(FName Name) -> TRefCountPtr<FVulkanGraphicsPipelineState>
@@ -395,14 +403,6 @@ namespace Durin::VulkanRHI
 		{
 			return It->second;
 		}
-
-		// clear LayoutMap
-		for (const auto& Layout : LayoutMap | std::views::values)
-		{
-			delete Layout;
-		}
-		LayoutMap.clear();
-
 		return nullptr;
 	}
 

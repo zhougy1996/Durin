@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Shader/ShaderCacheStore.h"
 #include "Shader/ShaderCompiler.h"
 
 #include "slang.h"
@@ -17,28 +18,6 @@ namespace Durin
 
 	private:
 		auto TryMakeShaderVirtualPath(std::string_view PhysicalSourcePath, std::string& OutVirtualSourcePath) const -> bool;
-		struct FShaderDependencyInfo
-		{
-			std::string Path;
-			uint64 FileSize = 0;
-			FXxHash64 ContentHash{};
-		};
-
-		struct FShaderMetaData
-		{
-			// Source-level cache identity shared by all entry points and frequencies compiled from the same shader file.
-			std::string VirtualShaderPath;
-			FXxHash64 MainSourceHash{};
-			FXxHash128 SourceTreeSignature{};
-			std::vector<FShaderDependencyInfo> Dependencies;
-		};
-
-		struct FShaderVariantKey
-		{
-			FXxHash128 Value{};
-			std::string Hex;
-		};
-
 		auto NormalizePath(const std::filesystem::path& InPath) const -> std::string;
 		auto CreateSession(const FShaderCompileOptions& Options, Slang::ComPtr<slang::ISession>& OutSession, std::string& OutErrorMessage) const -> bool;
 		auto ResolveDependencyFiles(slang::ISession* InSession, const char8* InShaderFilePath, std::vector<std::string>& OutDependencyPaths, std::string& OutDiagnostics) const -> Slang::Result;
@@ -55,11 +34,6 @@ namespace Durin
 			const std::vector<FShaderMacroDefinition>& Macros,
 			FShaderVariantKey& OutVariantKey
 		) const -> void;
-		auto LoadMetaData(std::string_view VirtualShaderPath, FShaderMetaData& OutMetaData) const -> bool;
-		auto IsMetaDataCurrent(const FShaderMetaData& CurrentMetaData, const FShaderMetaData& CachedMetaData) const -> bool;
-		auto TryLoadShaderCache(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, FShaderCompilerOutput& OutOutput) const -> bool;
-		auto SaveMetaData(const FShaderMetaData& MetaData) const -> bool;
-		auto SaveCompiledShaderCache(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, const FShaderCompilerOutput& Output) const -> bool;
 
 		auto CompileInternal(
 			slang::ISession* InSession,
@@ -72,5 +46,6 @@ namespace Durin
 		auto InitGlobalSession() -> void;
 
 		Slang::ComPtr<slang::IGlobalSession> GlobalSession;
+		FShaderCacheStore CacheStore;
 	};
 } // namespace Durin
