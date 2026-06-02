@@ -79,7 +79,7 @@ namespace Durin::VulkanRHI
 		FXxHash64Builder HashBuilder;
 		for (const auto& SetLayout : SetLayouts)
 		{
-			HashBuilder.Update(&SetLayout.Hash, sizeof(SetLayout.Hash));
+			HashBuilder.UpdateValue(SetLayout.Hash);
 		}
 		Hash = HashBuilder.Finalize();
 	}

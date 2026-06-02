@@ -15,29 +15,11 @@ namespace Durin
 		constexpr std::string_view GSlangTargetFormat = "SPIR-V";
 		constexpr std::string_view GSlangTargetProfile = "spirv_1_5";
 
-		auto HashShaderCode(FShaderCodeView Code) -> FXxHash64
+		template <typename TBuilder>
+		auto UpdateHashStringField(TBuilder& Builder, std::string_view Value) -> void
 		{
-			return FXxHash64::HashBuffer(Code.empty() ? nullptr : Code.data(), static_cast<uint64>(Code.size_bytes()));
-		}
-
-		auto HashBytes(std::span<const uint8> Bytes) -> FXxHash64
-		{
-			return FXxHash64::HashBuffer(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
-		}
-
-		auto FrequencyToInt(EShaderFrequency Frequency) -> int32
-		{
-			return static_cast<int32>(Frequency);
-		}
-
-		auto UpdateString(FXxHash128Builder& Builder, std::string_view Value) -> void
-		{
-			const uint64 Length = static_cast<uint64>(Value.size());
-			Builder.Update(&Length, sizeof(Length));
-			if (Length > 0)
-			{
-				Builder.Update(Value.data(), Length);
-			}
+			Builder.UpdateValue(static_cast<uint64>(Value.size()));
+			Builder.Update(Value);
 		}
 	}
 
@@ -188,7 +170,7 @@ namespace Durin
 		OutMetaData.Dependencies.reserve(InDependencyPaths.size());
 
 		FXxHash128Builder TreeSignatureBuilder;
-		UpdateString(TreeSignatureBuilder, GShaderVariantKeyVersion);
+		UpdateHashStringField(TreeSignatureBuilder, GShaderVariantKeyVersion);
 
 		for (size_t DependencyIndex = 0; DependencyIndex < InDependencyPaths.size(); ++DependencyIndex)
 		{
@@ -207,15 +189,15 @@ namespace Durin
 				DURIN_WARN("Failed to map shader dependency path to a virtual shader path, falling back to normalized path: {}", DependencyPath);
 			}
 			Dependency.FileSize = static_cast<uint64>(FileBytes.size());
-			Dependency.ContentHash = HashBytes(FileBytes);
+			Dependency.ContentHash = FXxHash64::HashBuffer(std::span<const uint8>(FileBytes));
 			if (DependencyIndex == 0)
 			{
 				OutMetaData.MainSourceHash = Dependency.ContentHash;
 			}
 
-			UpdateString(TreeSignatureBuilder, Dependency.Path);
-			TreeSignatureBuilder.Update(&Dependency.FileSize, sizeof(Dependency.FileSize));
-			TreeSignatureBuilder.Update(&Dependency.ContentHash.HashValue, sizeof(Dependency.ContentHash.HashValue));
+			UpdateHashStringField(TreeSignatureBuilder, Dependency.Path);
+			TreeSignatureBuilder.UpdateValue(Dependency.FileSize);
+			TreeSignatureBuilder.UpdateValue(Dependency.ContentHash);
 
 			OutMetaData.Dependencies.push_back(Dependency);
 		}
@@ -231,25 +213,24 @@ namespace Durin
 	) const -> void
 	{
 		FXxHash128Builder Builder;
-		UpdateString(Builder, GShaderVariantKeyVersion);
-		UpdateString(Builder, GSlangBackendName);
-		UpdateString(Builder, GSlangTargetFormat);
-		UpdateString(Builder, GSlangTargetProfile);
-		UpdateString(Builder, MetaData.VirtualShaderPath);
-		Builder.Update(&MetaData.SourceTreeSignature.HashLow, sizeof(MetaData.SourceTreeSignature.HashLow));
-		Builder.Update(&MetaData.SourceTreeSignature.HashHigh, sizeof(MetaData.SourceTreeSignature.HashHigh));
+		UpdateHashStringField(Builder, GShaderVariantKeyVersion);
+		UpdateHashStringField(Builder, GSlangBackendName);
+		UpdateHashStringField(Builder, GSlangTargetFormat);
+		UpdateHashStringField(Builder, GSlangTargetProfile);
+		UpdateHashStringField(Builder, MetaData.VirtualShaderPath);
+		Builder.UpdateValue(MetaData.SourceTreeSignature);
 
 		const uint64 MacroCount = static_cast<uint64>(Macros.size());
-		Builder.Update(&MacroCount, sizeof(MacroCount));
+		Builder.UpdateValue(MacroCount);
 		for (const FShaderMacroDefinition& Macro : Macros)
 		{
-			UpdateString(Builder, Macro.Name);
-			UpdateString(Builder, Macro.Value);
-			Builder.Update(&Macro.bHasExplicitValue, sizeof(Macro.bHasExplicitValue));
+			UpdateHashStringField(Builder, Macro.Name);
+			UpdateHashStringField(Builder, Macro.Value);
+			Builder.UpdateValue(Macro.bHasExplicitValue);
 		}
 
 		OutVariantKey.Value = Builder.Finalize();
-		OutVariantKey.Hex = std::format("{:016x}{:016x}", OutVariantKey.Value.HashHigh, OutVariantKey.Value.HashLow);
+		OutVariantKey.Hex = OutVariantKey.Value.ToString();
 	}
 
 	static auto IsMetaDataCurrent(const FShaderMetaData& CurrentMetaData, const FShaderMetaData& CachedMetaData) -> bool
@@ -346,7 +327,7 @@ namespace Durin
 			{
 				return SLANG_FAIL;
 			}
-			CompiledShader.Hash = HashShaderCode(*CompiledShader.Code);
+			CompiledShader.Hash = FXxHash64::HashBuffer(*CompiledShader.Code);
 		}
 		return SLANG_OK;
 	}

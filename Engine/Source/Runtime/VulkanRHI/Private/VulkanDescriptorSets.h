@@ -30,7 +30,7 @@ namespace Durin::VulkanRHI
 					return false;
 				}
 
-				if (!LayoutBindings.empty() && !std::memcmp(LayoutBindings.data(), Other.LayoutBindings.data(), LayoutBindings.size() * sizeof(vk::DescriptorSetLayoutBinding)))
+				if (!LayoutBindings.empty() && std::memcmp(LayoutBindings.data(), Other.LayoutBindings.data(), LayoutBindings.size() * sizeof(vk::DescriptorSetLayoutBinding)) != 0)
 				{
 					return false;
 				}

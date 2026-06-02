@@ -10,52 +10,6 @@ namespace Durin
 {
 	namespace
 	{
-		auto HashBytes(std::span<const std::byte> Bytes) -> FXxHash64
-		{
-			return FXxHash64::HashBuffer(Bytes.empty() ? nullptr : Bytes.data(), static_cast<uint64>(Bytes.size_bytes()));
-		}
-
-		auto ToHex(FXxHash64 Hash) -> std::string
-		{
-			return std::format("{:016x}", Hash.HashValue);
-		}
-
-		auto ToHex(FXxHash128 Hash) -> std::string
-		{
-			return std::format("{:016x}{:016x}", Hash.HashHigh, Hash.HashLow);
-		}
-
-		auto ParseHex64(std::string_view Value, FXxHash64& OutHash) -> bool
-		{
-			try
-			{
-				OutHash.HashValue = static_cast<size_t>(std::stoull(std::string(Value), nullptr, 16));
-				return true;
-			}
-			catch (...)
-			{
-				return false;
-			}
-		}
-
-		auto ParseHex128(std::string_view Value, FXxHash128& OutHash) -> bool
-		{
-			if (Value.size() != 32)
-			{
-				return false;
-			}
-			try
-			{
-				OutHash.HashHigh = std::stoull(std::string(Value.substr(0, 16)), nullptr, 16);
-				OutHash.HashLow = std::stoull(std::string(Value.substr(16, 16)), nullptr, 16);
-				return true;
-			}
-			catch (...)
-			{
-				return false;
-			}
-		}
-
 		auto EntryPointToString(const char8* EntryPoint) -> std::string
 		{
 			return EntryPoint != nullptr ? std::string(EntryPoint) : std::string();
@@ -95,8 +49,8 @@ namespace Durin
 		OutMetaData = {};
 		OutMetaData.VirtualShaderPath = Root.GetStringValue("virtualShaderPath");
 
-		if (!ParseHex64(Root.GetStringValue("mainSourceHash"), OutMetaData.MainSourceHash)
-			|| !ParseHex128(Root.GetStringValue("sourceTreeSignature"), OutMetaData.SourceTreeSignature))
+		if (!FXxHash64::TryFromString(Root.GetStringValue("mainSourceHash"), OutMetaData.MainSourceHash)
+			|| !FXxHash128::TryFromString(Root.GetStringValue("sourceTreeSignature"), OutMetaData.SourceTreeSignature))
 		{
 			return false;
 		}
@@ -119,7 +73,7 @@ namespace Durin
 			FShaderDependencyInfo Dependency;
 			Dependency.Path = DependencyView.GetStringValue("path");
 			Dependency.FileSize = DependencyView.GetUIntValue("size");
-			if (Dependency.Path.empty() || !ParseHex64(DependencyView.GetStringValue("hash"), Dependency.ContentHash))
+			if (Dependency.Path.empty() || !FXxHash64::TryFromString(DependencyView.GetStringValue("hash"), Dependency.ContentHash))
 			{
 				return false;
 			}
@@ -140,8 +94,8 @@ namespace Durin
 			.AddFieldString("backend", GSlangBackendName)
 			.AddFieldString("targetFormat", GSlangTargetFormat)
 			.AddFieldString("targetProfile", GSlangTargetProfile)
-			.AddFieldString("mainSourceHash", ToHex(MetaData.MainSourceHash))
-			.AddFieldString("sourceTreeSignature", ToHex(MetaData.SourceTreeSignature));
+			.AddFieldString("mainSourceHash", MetaData.MainSourceHash.ToString())
+			.AddFieldString("sourceTreeSignature", MetaData.SourceTreeSignature.ToString());
 
 		Writer.BeginArrayField("dependencies");
 		for (const FShaderDependencyInfo& Dependency : MetaData.Dependencies)
@@ -150,7 +104,7 @@ namespace Durin
 				.BeginElementObject()
 				.AddFieldString("path", Dependency.Path)
 				.AddFieldUInt("size", Dependency.FileSize)
-				.AddFieldString("hash", ToHex(Dependency.ContentHash))
+				.AddFieldString("hash", Dependency.ContentHash.ToString())
 				.EndNested();
 		}
 		Writer.EndNested();
@@ -183,7 +137,7 @@ namespace Durin
 			{
 				std::memcpy(CompiledShader.Code->data(), ShaderBytes.data(), ShaderBytes.size());
 			}
-			CompiledShader.Hash = HashBytes(*CompiledShader.Code);
+			CompiledShader.Hash = FXxHash64::HashBuffer(*CompiledShader.Code);
 		}
 
 		OutOutput.bSucceeded = true;
