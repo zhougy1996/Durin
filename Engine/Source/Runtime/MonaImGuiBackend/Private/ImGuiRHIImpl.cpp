@@ -2,17 +2,32 @@
 
 #include "RHI.h"
 #include "RenderingThread.h"
-#include "Misc/FileHelper.h"
-#include "Shader/ShaderCompileService.h"
+#include "Shader/Shader.h"
+#include "Shader/ShaderCompiler.h"
 
 namespace Durin::Mona
 {
+	namespace
+	{
+		auto GetImGuiVertexShaderType() -> FShaderType&
+		{
+			static FShaderType ShaderType("ImGuiVertexShader", "/Engine/ImGui", EShaderFrequency::Vertex, "vertexMain");
+			return ShaderType;
+		}
+
+		auto GetImGuiPixelShaderType() -> FShaderType&
+		{
+			static FShaderType ShaderType("ImGuiPixelShader", "/Engine/ImGui", EShaderFrequency::Pixel, "fragmentMain");
+			return ShaderType;
+		}
+	}
+
 	// State of the ImGui RHI backend, stored in a struct to ensure proper initialization order of static variables.
-	// Only accessed from the render thread, so no synchronization is needed.
 	struct FImGuiRHIImplRT_BackendState
 	{
-		FShaderRHIRef VertexShader;
-		FShaderRHIRef PixelShader;
+		std::shared_ptr<FShaderMapBase> ShaderMap;
+		TShaderRef<FShader> VertexShader;
+		TShaderRef<FShader> PixelShader;
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateRHIRef PipelineState;
 
@@ -47,45 +62,32 @@ namespace Durin::Mona
 
 	static auto ImGuiRHIImpl_CreateMainPipeline()
 	{
-		// Compile shaders
-		auto VertexShaderCode = std::make_shared<FShaderCode>();
-		auto PixelShaderCode = std::make_shared<FShaderCode>();
-		FPipelineLayoutDesc ReflectedPipelineLayout;
-		bool bHasReflectedPipelineLayout = false;
-
-		const std::string ImGuiVirtualShaderPath = "/Engine/ImGui";
 		FShaderCompileOptions CompileOptions;
-		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
-		CompileOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Pixel};
-		if (FShaderCompilerOutput CompileResult = GetOrCompileShader(ImGuiVirtualShaderPath, CompileOptions))
+		FShaderType& VertexShaderType = GetImGuiVertexShaderType();
+		FShaderType& PixelShaderType = GetImGuiPixelShaderType();
+		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &PixelShaderType};
+		std::shared_ptr<FShaderMapBase> ShaderMap = std::make_shared<FShaderMapBase>();
+		std::string ErrorMessage;
+		if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
 		{
-			VertexShaderCode = CompileResult.CompiledShaders[0].Code;
-			PixelShaderCode = CompileResult.CompiledShaders[1].Code;
+			DURIN_ERROR("Failed to initialize ImGui shader map: {}", ErrorMessage);
+			return;
+		}
 
-			std::string PipelineLayoutError;
-			bHasReflectedPipelineLayout = BuildPipelineLayoutFromShaders(CompileResult.CompiledShaders, ReflectedPipelineLayout, PipelineLayoutError);
-			if (!bHasReflectedPipelineLayout)
-			{
-				DURIN_WARN("Failed to build reflected ImGui pipeline layout: {}", PipelineLayoutError);
-			}
-		}
-		else
-		{
-			DURIN_ERROR("Failed to compile ImGui shader: {}", CompileResult.ErrorMessage);
-		}
+		FShader* VertexShader = ShaderMap->GetShader(&VertexShaderType);
+		FShader* PixelShader = ShaderMap->GetShader(&PixelShaderType);
+		check(VertexShader);
+		check(PixelShader);
+
+		GBackendState.ShaderMap = ShaderMap;
+		GBackendState.VertexShader = TShaderRef<FShader>(VertexShader, ShaderMap.get());
+		GBackendState.PixelShader = TShaderRef<FShader>(PixelShader, ShaderMap.get());
 
 		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([
-			VertexShaderCode,
-			PixelShaderCode,
-			ReflectedPipelineLayout,
-			bHasReflectedPipelineLayout
+			ShaderMap,
+			VertexShaderRef = GBackendState.VertexShader,
+			PixelShaderRef = GBackendState.PixelShader
 		](FRHICommandListImmediate& CommandList) {
-			const FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("ImGuiVertexShader", *VertexShaderCode, {});
-			GBackendState.VertexShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
-
-			const FRHIShaderCreateDesc PixelShaderCreateDesc = FRHIShaderCreateDesc::CreatePixel("ImGuiPixelShader", *PixelShaderCode, {});
-			GBackendState.PixelShader = GDynamicRHI->RHICreateShader(PixelShaderCreateDesc);
-
 			FVertexDeclarationElementList VertexDeclElements;
 			constexpr uint32 VertexStride = sizeof(ImDrawVert);
 			VertexDeclElements[0] = FVertexElement(0, offsetof(ImDrawVert, pos), EVertexElementType::Float2, 0, VertexStride);
@@ -95,31 +97,15 @@ namespace Durin::Mona
 
 			FGraphicsPipelineStateInitializer Initializer;
 			Initializer.RenderPassName = "ImGuiRenderPass";
-			Initializer.BoundShaders.VertexShader = GBackendState.VertexShader;
-			Initializer.BoundShaders.PixelShader = GBackendState.PixelShader;
+			Initializer.BoundShaders.VertexShader = VertexShaderRef.GetRHIShader();
+			Initializer.BoundShaders.PixelShader = PixelShaderRef.GetRHIShader();
 			Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
 
 			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
 			Initializer.bEnableAlphaBlend = true;
 			Initializer.bEnableBackFaceCulling = false;
-
-			if (bHasReflectedPipelineLayout)
-			{
-				Initializer.PipelineLayout = ReflectedPipelineLayout;
-			}
-			else
-			{
-				FBindingLayout Set_0;
-				Set_0.BindingLayouts = {
-					FBindingLayoutItem{EShaderStageFlags::Fragment, 0, ERHIBindingType::Texture},
-					FBindingLayoutItem{EShaderStageFlags::Fragment, 1, ERHIBindingType::Sampler}
-				};
-				Initializer.PipelineLayout.BindingLayouts.push_back(Set_0);
-				Initializer.PipelineLayout.PushConstantRanges = {
-					FPushConstantRange{EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData)}
-				};
-			}
-			GDynamicRHI->RHICreateGraphicsPipelineState("ImGuiMainPipeline", Initializer);
+			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
+			GBackendState.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("ImGuiMainPipeline", Initializer);
 		});
 	}
 
@@ -154,8 +140,9 @@ namespace Durin::Mona
 		}
 
 		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([](FRHICommandListImmediate& CommandList) {
-			GBackendState.VertexShader = nullptr;
-			GBackendState.PixelShader = nullptr;
+			GBackendState.ShaderMap.reset();
+			GBackendState.VertexShader = {};
+			GBackendState.PixelShader = {};
 			GBackendState.VertexDeclaration = nullptr;
 			GBackendState.PipelineState = nullptr;
 			GBackendState.LinearSampler = nullptr;
@@ -304,7 +291,7 @@ namespace Durin::Mona
 		const int32 FrameBufferWidth = static_cast<int32>(DrawData->DisplaySize.x * DrawData->FramebufferScale.x);
 		const int32 FrameBufferHeight = static_cast<int32>(DrawData->DisplaySize.y * DrawData->FramebufferScale.y);
 
-		CommandList.SetGraphicsPipelineState(*GDynamicRHI->RHIGetGraphicsPipelineState("ImGuiMainPipeline"));
+		CommandList.SetGraphicsPipelineState(*GBackendState.PipelineState);
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f, FrameBufferWidth, FrameBufferHeight, 1.0f);
 		CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
 		CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
@@ -401,7 +388,7 @@ namespace Durin::Mona
 					Binding_0_1.Resource = GBackendState.LinearSampler;
 
 					std::vector<FRHIShaderParameterResource> ShaderParameters = {Binding_0_0, Binding_0_1};
-					CommandList.SetShaderParameters(GBackendState.PixelShader, ShaderParameters);
+					CommandList.SetShaderParameters(GBackendState.PixelShader.GetRHIShader(), ShaderParameters);
 
 					CommandList.DrawIndexed(Cmd->ElemCount, Cmd->IdxOffset + GlobalIndexOffset, Cmd->VtxOffset + GlobalVertexOffset);
 				}
@@ -459,7 +446,12 @@ namespace Durin::Mona
 				return;
 			}
 
-			if (DrawData != nullptr && DrawData->TotalVtxCount > 0 && DrawData->TotalIdxCount > 0)
+			if (DrawData != nullptr
+				&& DrawData->TotalVtxCount > 0
+				&& DrawData->TotalIdxCount > 0
+				&& GBackendState.PipelineState
+				&& GBackendState.VertexShader
+				&& GBackendState.PixelShader)
 			{
 				ImGuiRHIImplRT_RenderDrawData(CommandList, BackBuffer, DrawData, RenderBuffersCurrentFrame, ClearValue);
 			}

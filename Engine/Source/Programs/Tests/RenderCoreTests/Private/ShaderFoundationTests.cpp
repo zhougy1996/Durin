@@ -99,6 +99,76 @@ namespace Durin
 		EXPECT_EQ(PixelShaderRef.GetShader()->GetType(), &PixelShaderType);
 	}
 
+	TEST(FShaderFoundationTests, ShaderMapInitializeReusesCachedResourcesForEquivalentIdentity)
+	{
+		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
+		FShaderType PixelShaderType("UnitPixelShader", "/Unit/TestShader", EShaderFrequency::Pixel, "fragmentMain");
+
+		FShaderCompilerOutput Output;
+		Output.bSucceeded = true;
+		Output.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 1),
+			MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShader", 21)
+		};
+
+		FShaderCompileOptions CompileOptions;
+		CompileOptions.VirtualShaderPath = "/Unit/TestShader";
+		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
+		CompileOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Pixel};
+
+		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &PixelShaderType};
+		FShaderMapBase ShaderMapA;
+		FShaderMapBase ShaderMapB;
+		std::string ErrorMessage;
+		ASSERT_TRUE(ShaderMapA.Initialize(ShaderTypes, Output, CompileOptions, ErrorMessage)) << ErrorMessage;
+		ASSERT_TRUE(ShaderMapB.Initialize(ShaderTypes, Output, CompileOptions, ErrorMessage)) << ErrorMessage;
+
+		EXPECT_FALSE(ShaderMapA.GetCacheKey().IsZero());
+		EXPECT_EQ(ShaderMapA.GetCacheKey(), ShaderMapB.GetCacheKey());
+		EXPECT_EQ(ShaderMapA.GetCode(), ShaderMapB.GetCode());
+		EXPECT_EQ(ShaderMapA.GetResource(), ShaderMapB.GetResource());
+		ASSERT_EQ(ShaderMapA.GetMergedPipelineLayout().BindingLayouts.size(), ShaderMapB.GetMergedPipelineLayout().BindingLayouts.size());
+		ASSERT_EQ(ShaderMapA.GetMergedPipelineLayout().PushConstantRanges.size(), ShaderMapB.GetMergedPipelineLayout().PushConstantRanges.size());
+	}
+
+	TEST(FShaderFoundationTests, ShaderMapInitializeSeparatesCachedResourcesForMacroOrBytecodeChanges)
+	{
+		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
+		FShaderType PixelShaderType("UnitPixelShader", "/Unit/TestShader", EShaderFrequency::Pixel, "fragmentMain");
+		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &PixelShaderType};
+
+		FShaderCompilerOutput OutputA;
+		OutputA.bSucceeded = true;
+		OutputA.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 2),
+			MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShader", 22)
+		};
+
+		FShaderCompilerOutput OutputB = OutputA;
+		OutputB.CompiledShaders[1] = MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShaderVariant", 23);
+
+		FShaderCompileOptions BaseOptions;
+		BaseOptions.VirtualShaderPath = "/Unit/TestShader";
+		BaseOptions.EntryPoints = {"vertexMain", "fragmentMain"};
+		BaseOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Pixel};
+
+		FShaderCompileOptions MacroOptions = BaseOptions;
+		MacroOptions.Macros.push_back({"USE_VARIANT", "1", true});
+
+		FShaderMapBase ShaderMapBaseIdentity;
+		FShaderMapBase ShaderMapMacroVariant;
+		FShaderMapBase ShaderMapBytecodeVariant;
+		std::string ErrorMessage;
+		ASSERT_TRUE(ShaderMapBaseIdentity.Initialize(ShaderTypes, OutputA, BaseOptions, ErrorMessage)) << ErrorMessage;
+		ASSERT_TRUE(ShaderMapMacroVariant.Initialize(ShaderTypes, OutputA, MacroOptions, ErrorMessage)) << ErrorMessage;
+		ASSERT_TRUE(ShaderMapBytecodeVariant.Initialize(ShaderTypes, OutputB, BaseOptions, ErrorMessage)) << ErrorMessage;
+
+		EXPECT_NE(ShaderMapBaseIdentity.GetCacheKey(), ShaderMapMacroVariant.GetCacheKey());
+		EXPECT_NE(ShaderMapBaseIdentity.GetResource(), ShaderMapMacroVariant.GetResource());
+		EXPECT_NE(ShaderMapBaseIdentity.GetCacheKey(), ShaderMapBytecodeVariant.GetCacheKey());
+		EXPECT_NE(ShaderMapBaseIdentity.GetResource(), ShaderMapBytecodeVariant.GetResource());
+	}
+
 	TEST(FShaderFoundationTests, MakeShaderCreateDescPreservesFrequencyHashAndEntryPoint)
 	{
 		const FCompiledShader CompiledShader = MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShader", 7);

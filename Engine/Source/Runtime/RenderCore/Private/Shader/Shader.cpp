@@ -1,6 +1,8 @@
 #include "Shader/Shader.h"
 
 #include "DynamicRHI.h"
+#include "ShaderCompileUtilities.h"
+#include "Shader/ShaderCompileService.h"
 #include "Shader/ShaderCompiler.h"
 
 namespace Durin
@@ -72,6 +74,241 @@ namespace Durin
 		) -> std::unique_ptr<FShader>
 		{
 			return std::make_unique<FShader>(ShaderType, ShaderMap, ShaderIndex, Reflection);
+		}
+
+		struct FShaderMapCacheEntry
+		{
+			std::shared_ptr<FShaderMapResourceCode> Code;
+			std::shared_ptr<FShaderMapResource> Resource;
+		};
+
+		class FShaderMapResourceCache
+		{
+		public:
+			auto Find(const FXxHash128& Key) -> FShaderMapCacheEntry
+			{
+				std::lock_guard Lock(Mutex);
+				const auto FoundIt = Entries.find(Key);
+				return FoundIt != Entries.end() ? FoundIt->second : FShaderMapCacheEntry{};
+			}
+
+			auto FindOrAdd(const FXxHash128& Key, const FShaderCompilerOutput& Output) -> FShaderMapCacheEntry
+			{
+				std::lock_guard Lock(Mutex);
+				if (const auto FoundIt = Entries.find(Key); FoundIt != Entries.end())
+				{
+					return FoundIt->second;
+				}
+
+				FShaderMapCacheEntry Entry;
+				Entry.Code = std::make_shared<FShaderMapResourceCode>();
+				Entry.Resource = std::make_shared<FShaderMapResource>(Entry.Code);
+				Entry.Resource->AddShaderCompilerOutput(Output);
+				Entries.emplace(Key, Entry);
+				return Entry;
+			}
+
+			auto Clear() -> void
+			{
+				std::lock_guard Lock(Mutex);
+				Entries.clear();
+			}
+
+		private:
+			std::mutex Mutex;
+			std::unordered_map<FXxHash128, FShaderMapCacheEntry> Entries;
+		};
+
+		auto GetShaderMapResourceCache() -> FShaderMapResourceCache&
+		{
+			static FShaderMapResourceCache Cache;
+			return Cache;
+		}
+
+		template <typename TBuilder>
+		auto UpdateHashStringField(TBuilder& Builder, std::string_view Value) -> void
+		{
+			Builder.UpdateValue(static_cast<uint64>(Value.size()));
+			Builder.Update(Value);
+		}
+
+		auto BuildShaderMapCompileOptions(
+			std::span<const FShaderType* const> ShaderTypes,
+			const FShaderCompileOptions* InCompileOptions,
+			FShaderCompileOptions& OutCompileOptions,
+			std::string& OutErrorMessage
+		) -> bool
+		{
+			OutCompileOptions = {};
+			OutErrorMessage.clear();
+
+			if (InCompileOptions)
+			{
+				OutCompileOptions.Macros = InCompileOptions->Macros;
+				OutCompileOptions.bForceRecompile = InCompileOptions->bForceRecompile;
+			}
+
+			if (ShaderTypes.empty())
+			{
+				if (InCompileOptions && !InCompileOptions->VirtualShaderPath.empty())
+				{
+					OutCompileOptions.VirtualShaderPath = InCompileOptions->VirtualShaderPath;
+				}
+				return true;
+			}
+
+			const FShaderType* FirstShaderType = ShaderTypes.front();
+			checkf(FirstShaderType, "Shader type must not be null");
+
+			const std::string_view ShaderPath = FirstShaderType->GetVirtualShaderPath();
+			if (ShaderPath.empty())
+			{
+				OutErrorMessage = "Shader type virtual shader path must not be empty";
+				return false;
+			}
+
+			if (InCompileOptions && !InCompileOptions->VirtualShaderPath.empty() && InCompileOptions->VirtualShaderPath != ShaderPath)
+			{
+				OutErrorMessage = std::format(
+					"Shader compile options virtual path '{}' does not match shader type virtual path '{}'",
+					InCompileOptions->VirtualShaderPath,
+					ShaderPath
+				);
+				return false;
+			}
+
+			OutCompileOptions.VirtualShaderPath = std::string(ShaderPath);
+			OutCompileOptions.EntryPoints.reserve(ShaderTypes.size());
+			OutCompileOptions.Frequencies.reserve(ShaderTypes.size());
+
+			for (size_t ShaderTypeIndex = 0; ShaderTypeIndex < ShaderTypes.size(); ++ShaderTypeIndex)
+			{
+				const FShaderType* ShaderType = ShaderTypes[ShaderTypeIndex];
+				checkf(ShaderType, "Shader type must not be null");
+
+				if (ShaderType->GetVirtualShaderPath() != ShaderPath)
+				{
+					OutErrorMessage = std::format(
+						"Shader type '{}' uses path '{}' but shader map expects '{}'",
+						ShaderType->GetName(),
+						ShaderType->GetVirtualShaderPath(),
+						ShaderPath
+					);
+					return false;
+				}
+
+				OutCompileOptions.EntryPoints.push_back(ShaderType->GetEntryPoint().data());
+				OutCompileOptions.Frequencies.push_back(ShaderType->GetFrequency());
+
+				if (InCompileOptions && !InCompileOptions->EntryPoints.empty())
+				{
+					if (ShaderTypeIndex >= InCompileOptions->EntryPoints.size()
+						|| std::string_view(InCompileOptions->EntryPoints[ShaderTypeIndex]) != ShaderType->GetEntryPoint())
+					{
+						OutErrorMessage = std::format(
+							"Shader compile options entry point at index {} does not match shader type '{}'",
+							ShaderTypeIndex,
+							ShaderType->GetName()
+						);
+						return false;
+					}
+				}
+
+				if (InCompileOptions && !InCompileOptions->Frequencies.empty())
+				{
+					if (ShaderTypeIndex >= InCompileOptions->Frequencies.size()
+						|| InCompileOptions->Frequencies[ShaderTypeIndex] != ShaderType->GetFrequency())
+					{
+						OutErrorMessage = std::format(
+							"Shader compile options frequency at index {} does not match shader type '{}'",
+							ShaderTypeIndex,
+							ShaderType->GetName()
+						);
+						return false;
+					}
+				}
+			}
+
+			if (InCompileOptions && !InCompileOptions->EntryPoints.empty() && InCompileOptions->EntryPoints.size() != ShaderTypes.size())
+			{
+				OutErrorMessage = std::format(
+					"Shader compile options entry point count ({}) does not match shader type count ({})",
+					InCompileOptions->EntryPoints.size(),
+					ShaderTypes.size()
+				);
+				return false;
+			}
+
+			if (InCompileOptions && !InCompileOptions->Frequencies.empty() && InCompileOptions->Frequencies.size() != ShaderTypes.size())
+			{
+				OutErrorMessage = std::format(
+					"Shader compile options frequency count ({}) does not match shader type count ({})",
+					InCompileOptions->Frequencies.size(),
+					ShaderTypes.size()
+				);
+				return false;
+			}
+
+			return true;
+		}
+
+		auto BuildShaderMapCacheKey(
+			const FShaderCompileOptions& CompileOptions,
+			const FShaderCompilerOutput& Output,
+			FXxHash128& OutCacheKey,
+			std::string& OutErrorMessage
+		) -> bool
+		{
+			OutCacheKey = {};
+			OutErrorMessage.clear();
+
+			if (CompileOptions.VirtualShaderPath.empty())
+			{
+				return true;
+			}
+
+			std::vector<FShaderMacroDefinition> NormalizedMacros;
+			if (!ShaderCompileUtilities::NormalizeMacros(CompileOptions, NormalizedMacros, OutErrorMessage))
+			{
+				return false;
+			}
+
+			FXxHash128Builder Builder;
+			UpdateHashStringField(Builder, "DurinShaderMapCacheKey_v1");
+			UpdateHashStringField(Builder, CompileOptions.VirtualShaderPath);
+
+			const uint64 EntryPointCount = static_cast<uint64>(CompileOptions.EntryPoints.size());
+			Builder.UpdateValue(EntryPointCount);
+			for (const char8* EntryPoint : CompileOptions.EntryPoints)
+			{
+				UpdateHashStringField(Builder, EntryPoint ? std::string_view(EntryPoint) : std::string_view{});
+			}
+
+			const uint64 FrequencyCount = static_cast<uint64>(CompileOptions.Frequencies.size());
+			Builder.UpdateValue(FrequencyCount);
+			for (EShaderFrequency Frequency : CompileOptions.Frequencies)
+			{
+				Builder.UpdateValue(Frequency);
+			}
+
+			const uint64 MacroCount = static_cast<uint64>(NormalizedMacros.size());
+			Builder.UpdateValue(MacroCount);
+			for (const FShaderMacroDefinition& Macro : NormalizedMacros)
+			{
+				UpdateHashStringField(Builder, Macro.Name);
+				UpdateHashStringField(Builder, Macro.Value);
+				Builder.UpdateValue(Macro.bHasExplicitValue);
+			}
+
+			const uint64 ShaderCount = static_cast<uint64>(Output.CompiledShaders.size());
+			Builder.UpdateValue(ShaderCount);
+			for (const FCompiledShader& CompiledShader : Output.CompiledShaders)
+			{
+				Builder.UpdateValue(CompiledShader.Hash);
+			}
+
+			OutCacheKey = Builder.Finalize();
+			return true;
 		}
 	} // namespace
 
@@ -152,7 +389,9 @@ namespace Durin
 			*CompiledShader.Code,
 			CompiledShader.Hash
 		);
-		CreateDesc.SetEntryPoint(CompiledShader.EntryPoint.empty() ? "main" : CompiledShader.EntryPoint.c_str());
+		// Slang's single-entry-point SPIR-V output currently exposes "main" as the Vulkan entry point,
+		// even when the requested source-level entry point name is vertexMain/fragmentMain.
+		CreateDesc.SetEntryPoint("main");
 		return CreateDesc;
 	}
 
@@ -318,6 +557,7 @@ namespace Durin
 	auto FShaderMapResource::GetShader(uint32 ShaderIndex, bool bRequired) const -> FRHIShader*
 	{
 		check(ShaderIndex < Code->GetNumShaders());
+		std::lock_guard Lock(Mutex);
 		if (ShaderIndex >= Shaders.size())
 		{
 			Shaders.resize(Code->GetNumShaders());
@@ -325,7 +565,16 @@ namespace Durin
 
 		if (!Shaders[ShaderIndex])
 		{
-			return CreateRHIShader(ShaderIndex, bRequired);
+			checkf(GDynamicRHI, "Cannot create RHI shader without an active DynamicRHI");
+
+			const FCompiledShader& CompiledShader = Code->GetCompiledShader(ShaderIndex);
+			const FRHIShaderCreateDesc ShaderCreateDesc = MakeShaderCreateDesc(CompiledShader);
+			Shaders[ShaderIndex] = GDynamicRHI->RHICreateShader(ShaderCreateDesc);
+
+			if (bRequired)
+			{
+				checkf(Shaders[ShaderIndex], "Failed to create required shader '{}'", CompiledShader.DebugName);
+			}
 		}
 
 		return Shaders[ShaderIndex];
@@ -333,24 +582,7 @@ namespace Durin
 
 	auto FShaderMapResource::CreateRHIShader(uint32 ShaderIndex, bool bRequired) const -> FRHIShader*
 	{
-		check(ShaderIndex < Code->GetNumShaders());
-		checkf(GDynamicRHI, "Cannot create RHI shader without an active DynamicRHI");
-
-		const FCompiledShader& CompiledShader = Code->GetCompiledShader(ShaderIndex);
-		const FRHIShaderCreateDesc ShaderCreateDesc = MakeShaderCreateDesc(CompiledShader);
-		FShaderRHIRef RHIShader = GDynamicRHI->RHICreateShader(ShaderCreateDesc);
-
-		if (bRequired)
-		{
-			checkf(RHIShader, "Failed to create required shader '{}'", CompiledShader.DebugName);
-		}
-
-		if (ShaderIndex >= Shaders.size())
-		{
-			Shaders.resize(Code->GetNumShaders());
-		}
-		Shaders[ShaderIndex] = std::move(RHIShader);
-		return Shaders[ShaderIndex];
+		return GetShader(ShaderIndex, bRequired);
 	}
 
 	auto FShaderMapResource::ReleaseRHIShader(uint32 ShaderIndex) -> FRHIShader*
@@ -368,8 +600,31 @@ namespace Durin
 
 	auto FShaderMapBase::Initialize(std::span<const FShaderType* const> ShaderTypes, const FShaderCompilerOutput& Output, std::string& OutErrorMessage) -> bool
 	{
+		FShaderCompileOptions CompileOptions;
+		if (!BuildShaderMapCompileOptions(ShaderTypes, nullptr, CompileOptions, OutErrorMessage))
+		{
+			Reset();
+			return false;
+		}
+		return Initialize(ShaderTypes, Output, CompileOptions, OutErrorMessage);
+	}
+
+	auto FShaderMapBase::Initialize(
+		std::span<const FShaderType* const> ShaderTypes,
+		const FShaderCompilerOutput& Output,
+		const FShaderCompileOptions& CompileOptions,
+		std::string& OutErrorMessage
+	) -> bool
+	{
 		Reset();
 		OutErrorMessage.clear();
+
+		FShaderCompileOptions EffectiveCompileOptions;
+		if (!BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions, OutErrorMessage))
+		{
+			Reset();
+			return false;
+		}
 
 		if (ShaderTypes.size() != Output.CompiledShaders.size())
 		{
@@ -381,7 +636,26 @@ namespace Durin
 			return false;
 		}
 
-		Resource->AddShaderCompilerOutput(Output);
+		if (!BuildShaderMapCacheKey(EffectiveCompileOptions, Output, CacheKey, OutErrorMessage))
+		{
+			Reset();
+			return false;
+		}
+
+		if (CacheKey.IsZero())
+		{
+			Code = std::make_shared<FShaderMapResourceCode>();
+			Resource = std::make_shared<FShaderMapResource>(Code);
+			Resource->AddShaderCompilerOutput(Output);
+		}
+		else
+		{
+			FShaderMapCacheEntry CacheEntry = GetShaderMapResourceCache().FindOrAdd(CacheKey, Output);
+			checkf(CacheEntry.Code && CacheEntry.Resource, "Shader map cache entry must contain valid code and resource");
+			Code = std::move(CacheEntry.Code);
+			Resource = std::move(CacheEntry.Resource);
+		}
+
 		std::vector<FCompiledShader> CompiledShaders;
 		CompiledShaders.reserve(Output.CompiledShaders.size());
 
@@ -435,6 +709,30 @@ namespace Durin
 		return true;
 	}
 
+	auto FShaderMapBase::InitializeFromShaderTypes(
+		std::span<const FShaderType* const> ShaderTypes,
+		const FShaderCompileOptions& CompileOptions,
+		std::string& OutErrorMessage
+	) -> bool
+	{
+		FShaderCompileOptions EffectiveCompileOptions;
+		if (!BuildShaderMapCompileOptions(ShaderTypes, &CompileOptions, EffectiveCompileOptions, OutErrorMessage))
+		{
+			Reset();
+			return false;
+		}
+
+		const FShaderCompilerOutput Output = GetOrCompileShader(EffectiveCompileOptions.VirtualShaderPath, EffectiveCompileOptions);
+		if (!Output)
+		{
+			Reset();
+			OutErrorMessage = Output.ErrorMessage;
+			return false;
+		}
+
+		return Initialize(ShaderTypes, Output, EffectiveCompileOptions, OutErrorMessage);
+	}
+
 	auto FShaderMapBase::FindShaderIndex(const FShaderType* ShaderType) const -> const uint32*
 	{
 		const auto FoundIt = ShaderTypeToIndex.find(ShaderType);
@@ -469,7 +767,13 @@ namespace Durin
 		ShaderTypeToIndex.clear();
 		ShaderInstances.clear();
 		MergedPipelineLayout = {};
+		CacheKey = {};
 		Code = std::make_shared<FShaderMapResourceCode>();
 		Resource = std::make_shared<FShaderMapResource>(Code);
+	}
+
+	auto ClearShaderMapResourceCache() -> void
+	{
+		GetShaderMapResourceCache().Clear();
 	}
 } // namespace Durin

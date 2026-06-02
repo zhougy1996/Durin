@@ -150,6 +150,7 @@ namespace Durin
 		FPipelineLayoutDesc& OutPipelineLayout,
 		std::string& OutErrorMessage
 	) -> bool;
+	RENDERCORE_API auto ClearShaderMapResourceCache() -> void;
 
 	class FShaderMapResourceCode
 	{
@@ -192,6 +193,7 @@ namespace Durin
 
 		std::shared_ptr<FShaderMapResourceCode> Code;
 		mutable std::vector<FShaderRHIRef> Shaders;
+		mutable std::mutex Mutex;
 	};
 
 	class FShaderMapBase
@@ -203,8 +205,20 @@ namespace Durin
 		auto GetResource() const -> FShaderMapResource* { return Resource.get(); }
 		auto GetCode() const -> FShaderMapResourceCode* { return Code.get(); }
 		auto GetMergedPipelineLayout() const -> const FPipelineLayoutDesc& { return MergedPipelineLayout; }
+		auto GetCacheKey() const -> FXxHash128 { return CacheKey; }
 
 		RENDERCORE_API auto Initialize(std::span<const FShaderType* const> ShaderTypes, const FShaderCompilerOutput& Output, std::string& OutErrorMessage) -> bool;
+		RENDERCORE_API auto Initialize(
+			std::span<const FShaderType* const> ShaderTypes,
+			const FShaderCompilerOutput& Output,
+			const FShaderCompileOptions& CompileOptions,
+			std::string& OutErrorMessage
+		) -> bool;
+		RENDERCORE_API auto InitializeFromShaderTypes(
+			std::span<const FShaderType* const> ShaderTypes,
+			const FShaderCompileOptions& CompileOptions,
+			std::string& OutErrorMessage
+		) -> bool;
 		RENDERCORE_API auto FindShaderIndex(const FShaderType* ShaderType) const -> const uint32*;
 		RENDERCORE_API auto GetShader(const FShaderType* ShaderType) const -> FShader*;
 		RENDERCORE_API auto GetOrCreateShaderRHI(const FShaderType* ShaderType, bool bRequired = true) -> FRHIShader*;
@@ -217,6 +231,7 @@ namespace Durin
 		std::unordered_map<const FShaderType*, uint32> ShaderTypeToIndex;
 		std::unordered_map<const FShaderType*, std::unique_ptr<FShader>> ShaderInstances;
 		FPipelineLayoutDesc MergedPipelineLayout;
+		FXxHash128 CacheKey{};
 	};
 
 	template<typename ShaderType>

@@ -14,6 +14,7 @@
 #include "Misc/StringConvert.h"
 
 #include "Shader/ShaderPaths.h"
+#include "Shader/Shader.h"
 #include "DurinEngine.h"
 
 #if DURIN_WITH_EDITOR
@@ -140,6 +141,9 @@ namespace Durin
 		GEngine = nullptr;
 
 		Mona::MonaShutdown();
+
+		ClearShaderMapResourceCache();
+		GCommandListExecutor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 
 		GDynamicRHI->Shutdown();
 
