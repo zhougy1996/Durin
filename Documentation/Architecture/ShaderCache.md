@@ -37,7 +37,7 @@ Examples:
 Each shader directory contains:
 
 ```text
-Shader.slang.meta
+<ShaderName>.slang.meta
 <VariantKey>/
   vertexMain.spv
   fragmentMain.spv
@@ -47,7 +47,14 @@ Old layouts such as `SPIR-V/ImGui/ImGui.slang.meta`, `vertexMain.vs.spv`, or `fr
 
 ## Metadata
 
-The metadata file is fixed as `Shader.slang.meta` inside the shader cache directory.
+The metadata file uses the same base name as the shader cache directory inside that directory.
+
+Examples:
+
+```text
+Engine/ShaderCache/SPIR-V/ImGui.slang/ImGui.slang.meta
+Engine/ShaderCache/SPIR-V/ImGui/Button.slang/Button.slang.meta
+```
 
 Current schema:
 

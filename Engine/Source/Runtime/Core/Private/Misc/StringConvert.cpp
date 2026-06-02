@@ -107,6 +107,29 @@ namespace Durin
 			return Result;
 		}
 
+		auto SanitizeFileName(std::string_view Value, std::string_view Fallback) -> std::string
+		{
+			std::string Result;
+			Result.reserve(Value.size());
+			for (const char Character : Value)
+			{
+				const bool bAlphaNumeric =
+					(Character >= 'a' && Character <= 'z') ||
+					(Character >= 'A' && Character <= 'Z') ||
+					(Character >= '0' && Character <= '9');
+				if (bAlphaNumeric || Character == '_' || Character == '-' || Character == '.')
+				{
+					Result.push_back(Character);
+				}
+				else
+				{
+					Result.push_back('_');
+				}
+			}
+
+			return Result.empty() ? std::string(Fallback) : Result;
+		}
+
 		auto HexToBytes(std::string_view Hex, std::span<uint8> OutBytes) -> void
 		{
 			check(Hex.size() == OutBytes.size() * 2);

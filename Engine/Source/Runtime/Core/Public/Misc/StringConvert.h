@@ -17,6 +17,8 @@ namespace Durin
 
 		[[nodiscard]] CORE_API auto BytesToHex(std::span<const uint8> Bytes) -> std::string;
 
+		[[nodiscard]] CORE_API auto SanitizeFileName(std::string_view Value, std::string_view Fallback = "File") -> std::string;
+
 		[[nodiscard]] FORCEINLINE auto BytesToHex(std::span<const std::byte> Bytes) -> std::string
 		{
 			return BytesToHex(std::span<const uint8>(reinterpret_cast<const uint8*>(Bytes.data()), Bytes.size()));

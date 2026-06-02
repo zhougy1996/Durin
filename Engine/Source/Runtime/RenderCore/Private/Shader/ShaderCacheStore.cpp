@@ -18,15 +18,30 @@ namespace Durin
 			return EntryPoint != nullptr ? std::string(EntryPoint) : std::string();
 		}
 
-		auto AreBinaryCachePathsUnique(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey) -> bool
+		auto ValidateEntryPointCounts(const FShaderCompileOptions& Options, std::string_view OperationName) -> bool
 		{
-			std::unordered_set<std::string> CachePaths;
-			CachePaths.reserve(Options.EntryPoints.size());
+			if (Options.EntryPoints.size() != Options.Frequencies.size())
+			{
+				DURIN_WARN("Shader cache {} skipped because entry point count does not match shader frequency count.", OperationName);
+				return false;
+			}
+
+			return true;
+		}
+
+		auto BuildBinaryCachePaths(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, std::vector<std::string>& OutCachePaths) -> bool
+		{
+			OutCachePaths.clear();
+			OutCachePaths.reserve(Options.EntryPoints.size());
+
+			std::unordered_set<std::string> UniqueCachePaths;
+			UniqueCachePaths.reserve(Options.EntryPoints.size());
 
 			for (const char8* EntryPoint : Options.EntryPoints)
 			{
-				const std::string CachePath = FShaderPaths::BinaryPath(VirtualShaderPath, EntryPointToString(EntryPoint), VariantKey.Hex);
-				if (!CachePaths.insert(CachePath).second)
+				OutCachePaths.push_back(FShaderPaths::BinaryPath(VirtualShaderPath, EntryPointToString(EntryPoint), VariantKey.Hex));
+				const std::string& CachePath = OutCachePaths.back();
+				if (!UniqueCachePaths.insert(CachePath).second)
 				{
 					DURIN_WARN("Shader binary cache skipped because multiple entry points map to the same file: {}", CachePath);
 					return false;
@@ -89,12 +104,13 @@ namespace Durin
 	auto FShaderCacheStore::TryLoad(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, FShaderCompilerOutput& OutOutput) -> bool
 	{
 		const uint32 EntryPointCount = static_cast<uint32>(Options.EntryPoints.size());
-		if (Options.EntryPoints.size() != Options.Frequencies.size())
+		if (!ValidateEntryPointCounts(Options, "load"))
 		{
-			DURIN_WARN("Shader cache load skipped because entry point count does not match shader frequency count.");
 			return false;
 		}
-		if (!AreBinaryCachePathsUnique(VirtualShaderPath, Options, VariantKey))
+
+		std::vector<std::string> CachePaths;
+		if (!BuildBinaryCachePaths(VirtualShaderPath, Options, VariantKey, CachePaths))
 		{
 			return false;
 		}
@@ -104,11 +120,8 @@ namespace Durin
 
 		for (uint32 EntryPointIndex = 0; EntryPointIndex < EntryPointCount; ++EntryPointIndex)
 		{
-			const std::string EntryPoint = EntryPointToString(Options.EntryPoints[EntryPointIndex]);
-			const std::string CachePath = FShaderPaths::BinaryPath(VirtualShaderPath, EntryPoint, VariantKey.Hex);
-
 			std::vector<uint8> ShaderBytes;
-			if (!FFileHelper::LoadFileToArray(ShaderBytes, CachePath))
+			if (!FFileHelper::LoadFileToArray(ShaderBytes, CachePaths[EntryPointIndex]))
 			{
 				return false;
 			}
@@ -135,12 +148,13 @@ namespace Durin
 			DURIN_WARN("Shader cache save skipped because compiler output count does not match requested entry point count.");
 			return false;
 		}
-		if (Options.EntryPoints.size() != Options.Frequencies.size())
+		if (!ValidateEntryPointCounts(Options, "save"))
 		{
-			DURIN_WARN("Shader cache save skipped because entry point count does not match shader frequency count.");
 			return false;
 		}
-		if (!AreBinaryCachePathsUnique(VirtualShaderPath, Options, VariantKey))
+
+		std::vector<std::string> CachePaths;
+		if (!BuildBinaryCachePaths(VirtualShaderPath, Options, VariantKey, CachePaths))
 		{
 			return false;
 		}
@@ -154,11 +168,9 @@ namespace Durin
 				return false;
 			}
 
-			const std::string EntryPoint = EntryPointToString(Options.EntryPoints[EntryPointIndex]);
-			const std::string CachePath = FShaderPaths::BinaryPath(VirtualShaderPath, EntryPoint, VariantKey.Hex);
-			if (!FFileHelper::SaveArrayToFile(*CompiledShader.Code, CachePath))
+			if (!FFileHelper::SaveArrayToFile(*CompiledShader.Code, CachePaths[EntryPointIndex]))
 			{
-				DURIN_WARN("Failed to write shader cache artifact: {}", CachePath);
+				DURIN_WARN("Failed to write shader cache artifact: {}", CachePaths[EntryPointIndex]);
 				return false;
 			}
 		}
