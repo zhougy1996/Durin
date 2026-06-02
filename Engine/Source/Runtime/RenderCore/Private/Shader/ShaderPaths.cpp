@@ -6,88 +6,125 @@
 
 namespace Durin::FShaderPaths
 {
-	static std::vector<FShaderMountPoint> ShaderMountPoints;
-
-	static auto NormalizeVirtualRoot(std::string_view VirtualRoot) -> std::string
+	namespace
 	{
-		std::string Result(VirtualRoot);
-		std::ranges::replace(Result, '\\', '/');
-		while (!Result.empty() && Result.back() == '/')
+		class FShaderMountRegistry
 		{
-			Result.pop_back();
-		}
+		public:
+			auto GetMountPoints() const -> const std::vector<FShaderMountPoint>&
+			{
+				return MountPoints;
+			}
 
-		if (Result.empty())
-		{
-			return "/";
-		}
-		if (Result.front() != '/')
-		{
-			Result.insert(Result.begin(), '/');
-		}
+			auto IsFrozen() const -> bool
+			{
+				return bFrozen;
+			}
 
-		Result.push_back('/');
-		return Result;
-	}
+			auto AddOrUpdateMountPoint(std::string_view VirtualRoot, std::string_view SourceDir, std::string_view BinaryDir) -> void
+			{
+				checkf(!bFrozen, "Shader mount points are immutable after finalization.");
 
-	static auto NormalizePathString(std::string_view PathString) -> std::string
-	{
-		return std::filesystem::path(std::string(PathString)).lexically_normal().generic_string();
-	}
+				const std::string NormalizedVirtualRoot = NormalizeVirtualRoot(VirtualRoot);
+				const std::string NormalizedSourceDir = NormalizeDirectory(SourceDir);
+				const std::string NormalizedBinaryDir = NormalizeDirectory(BinaryDir);
 
-	static auto NormalizeDirectory(std::string_view Directory) -> std::string
-	{
-		std::string Result = NormalizePathString(Directory);
-		if (!Result.empty() && !Result.ends_with('/'))
-		{
-			Result.push_back('/');
-		}
-		return Result;
+				const auto FoundIt = std::ranges::find_if(MountPoints, [&NormalizedVirtualRoot](const FShaderMountPoint& MountPoint) {
+					return MountPoint.VirtualRoot == NormalizedVirtualRoot;
+				});
+
+				if (FoundIt != MountPoints.end())
+				{
+					FoundIt->SourceDir = NormalizedSourceDir;
+					FoundIt->BinaryDir = NormalizedBinaryDir;
+					DURIN_DEBUG("Shader mount point updated: {} -> {} (binary: {})", NormalizedVirtualRoot, NormalizedSourceDir, NormalizedBinaryDir);
+				}
+				else
+				{
+					MountPoints.push_back({NormalizedVirtualRoot, NormalizedSourceDir, NormalizedBinaryDir});
+					DURIN_DEBUG("Shader mount point: {} -> {} (binary: {})", NormalizedVirtualRoot, NormalizedSourceDir, NormalizedBinaryDir);
+				}
+			}
+
+			auto AddDefaultProjectMountPoint(std::string_view VirtualRoot, std::string_view ProjectDir) -> void
+			{
+				const std::string NormalizedProjectDir = NormalizeDirectory(ProjectDir);
+				AddOrUpdateMountPoint(
+					VirtualRoot,
+					NormalizedProjectDir + "Shaders/Slang/",
+					NormalizedProjectDir + "ShaderCache/SPIR-V/");
+			}
+
+			auto Finalize() -> void
+			{
+				if (bFrozen)
+				{
+					return;
+				}
+
+				std::ranges::sort(MountPoints, [](const FShaderMountPoint& A, const FShaderMountPoint& B) {
+					return A.VirtualRoot.length() > B.VirtualRoot.length();
+				});
+				bFrozen = true;
+			}
+
+			auto Find(std::string_view VirtualShaderPath) const -> const FShaderMountPoint*
+			{
+				const auto FoundIt = std::ranges::find_if(MountPoints, [VirtualShaderPath](const FShaderMountPoint& MountPoint) {
+					return VirtualShaderPath.starts_with(MountPoint.VirtualRoot);
+				});
+
+				return FoundIt != MountPoints.end() ? &*FoundIt : nullptr;
+			}
+
+		private:
+			static auto NormalizeVirtualRoot(std::string_view VirtualRoot) -> std::string
+			{
+				std::string Result(VirtualRoot);
+				std::ranges::replace(Result, '\\', '/');
+				while (!Result.empty() && Result.back() == '/')
+				{
+					Result.pop_back();
+				}
+
+				if (Result.empty())
+				{
+					return "/";
+				}
+				if (Result.front() != '/')
+				{
+					Result.insert(Result.begin(), '/');
+				}
+
+				Result.push_back('/');
+				return Result;
+			}
+
+			static auto NormalizePathString(std::string_view PathString) -> std::string
+			{
+				return std::filesystem::path(std::string(PathString)).lexically_normal().generic_string();
+			}
+
+			static auto NormalizeDirectory(std::string_view Directory) -> std::string
+			{
+				std::string Result = NormalizePathString(Directory);
+				if (!Result.empty() && !Result.ends_with('/'))
+				{
+					Result.push_back('/');
+				}
+				return Result;
+			}
+
+			std::vector<FShaderMountPoint> MountPoints;
+			bool bFrozen = false;
+		};
+
+		FShaderMountRegistry GShaderMountRegistry;
 	}
 
 	auto GetRegisteredMountPoints() -> const std::vector<FShaderMountPoint>&
 	{
-		return ShaderMountPoints;
-	}
-
-	static auto RegisterMountPointWithoutSorting(std::string_view VirtualRoot, std::string_view SourceDir, std::string_view BinaryDir) -> void
-	{
-		const std::string NormalizedVirtualRoot = NormalizeVirtualRoot(VirtualRoot);
-		const std::string NormalizedSourceDir = NormalizeDirectory(SourceDir);
-		const std::string NormalizedBinaryDir = NormalizeDirectory(BinaryDir);
-
-		const auto FoundIt = std::ranges::find_if(ShaderMountPoints, [&NormalizedVirtualRoot](const FShaderMountPoint& MountPoint) {
-			return MountPoint.VirtualRoot == NormalizedVirtualRoot;
-		});
-
-		if (FoundIt != ShaderMountPoints.end())
-		{
-			FoundIt->SourceDir = NormalizedSourceDir;
-			FoundIt->BinaryDir = NormalizedBinaryDir;
-			DURIN_DEBUG("Shader mount point updated: {} -> {} (binary: {})", NormalizedVirtualRoot, NormalizedSourceDir, NormalizedBinaryDir);
-		}
-		else
-		{
-			ShaderMountPoints.push_back({NormalizedVirtualRoot, NormalizedSourceDir, NormalizedBinaryDir});
-			DURIN_DEBUG("Shader mount point: {} -> {} (binary: {})", NormalizedVirtualRoot, NormalizedSourceDir, NormalizedBinaryDir);
-		}
-	}
-
-	// Sort the mount points by the length of their virtual root in descending order, so that we can match the longest virtual root first when resolving paths.
-	static auto Sort(std::vector<FShaderMountPoint>& InMountPoints) -> void
-	{
-		std::ranges::sort(InMountPoints, [](const FShaderMountPoint& A, const FShaderMountPoint& B) {
-			return A.VirtualRoot.length() > B.VirtualRoot.length();
-		});
-	}
-
-	static auto FindMountPoint(std::string_view VirtualShaderPath) -> const FShaderMountPoint*
-	{
-		const auto FoundIt = std::ranges::find_if(ShaderMountPoints, [VirtualShaderPath](const FShaderMountPoint& MountPoint) {
-			return VirtualShaderPath.starts_with(MountPoint.VirtualRoot);
-		});
-
-		return FoundIt != ShaderMountPoints.end() ? &*FoundIt : nullptr;
+		return GShaderMountRegistry.GetMountPoints();
 	}
 
 	static auto GetRelativeVirtualShaderPath(std::string_view VirtualShaderPath, const FShaderMountPoint& MountPoint) -> std::string_view
@@ -105,13 +142,14 @@ namespace Durin::FShaderPaths
 	auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view SourceDir, std::string_view BinaryDir) -> void
 	{
 		checkf(IsInGameThread(), "AddShaderMountPoint must be called from the game thread.");
-		RegisterMountPointWithoutSorting(VirtualRoot, SourceDir, BinaryDir);
-		Sort(ShaderMountPoints);
+		checkf(!GShaderMountRegistry.IsFrozen(),
+			"Shader mount points are immutable after FShaderPaths::InitDefaultMountPoints(). Register all shader mount points during startup and restart to change them.");
+		GShaderMountRegistry.AddOrUpdateMountPoint(VirtualRoot, SourceDir, BinaryDir);
 	}
 
 	auto SourcePath(std::string_view VirtualShaderPath) -> std::string
 	{
-		if (const FShaderMountPoint* MountPoint = FindMountPoint(VirtualShaderPath))
+		if (const FShaderMountPoint* MountPoint = GShaderMountRegistry.Find(VirtualShaderPath))
 		{
 			return MountPoint->SourceDir + std::string(GetRelativeVirtualShaderPath(VirtualShaderPath, *MountPoint)) + ".slang";
 		}
@@ -122,8 +160,8 @@ namespace Durin::FShaderPaths
 
 	auto TryMakeVirtualSourcePath(std::string_view PhysicalSourcePath, std::string& OutVirtualSourcePath) -> bool
 	{
-		const std::string NormalizedPhysical = NormalizePathString(PhysicalSourcePath);
-		for (const auto& MountPoint : ShaderMountPoints)
+		const std::string NormalizedPhysical = std::filesystem::path(std::string(PhysicalSourcePath)).lexically_normal().generic_string();
+		for (const auto& MountPoint : GShaderMountRegistry.GetMountPoints())
 		{
 			if (NormalizedPhysical.starts_with(MountPoint.SourceDir))
 			{
@@ -185,7 +223,7 @@ namespace Durin::FShaderPaths
 
 	static auto ResolveShaderDirectoryPath(std::string_view VirtualShaderPath) -> std::filesystem::path
 	{
-		if (const FShaderMountPoint* MountPoint = FindMountPoint(VirtualShaderPath))
+		if (const FShaderMountPoint* MountPoint = GShaderMountRegistry.Find(VirtualShaderPath))
 		{
 			const std::string_view RelativeVirtualShaderPath = GetRelativeVirtualShaderPath(VirtualShaderPath, *MountPoint);
 			return (std::filesystem::path(MountPoint->BinaryDir) / GetRelativeShaderCacheDirectory(RelativeVirtualShaderPath)).lexically_normal();
@@ -220,9 +258,20 @@ namespace Durin::FShaderPaths
 
 	auto InitDefaultMountPoints() -> void
 	{
-		const std::string EngineShaderSourceDir = FPaths::EngineDir() + "Shaders/" + "Slang/";
-		const std::string EngineShaderBinaryDir = FPaths::EngineDir() + "ShaderCache/" + "SPIR-V/";
-		RegisterMountPointWithoutSorting("/Engine/", EngineShaderSourceDir, EngineShaderBinaryDir);
-		Sort(ShaderMountPoints);
+		checkf(IsInGameThread(), "InitDefaultMountPoints must be called from the game thread.");
+		if (GShaderMountRegistry.IsFrozen())
+		{
+			return;
+		}
+
+		GShaderMountRegistry.AddDefaultProjectMountPoint("/Engine/", FPaths::EngineDir());
+
+		const std::string ProjectDir = FPaths::ProjectDir();
+		if (ProjectDir != FPaths::EngineDir())
+		{
+			GShaderMountRegistry.AddDefaultProjectMountPoint("/Project/", ProjectDir);
+		}
+
+		GShaderMountRegistry.Finalize();
 	}
 } // namespace Durin::ShaderPaths
