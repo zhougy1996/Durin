@@ -18,6 +18,7 @@
 
 #if DURIN_WITH_EDITOR
 	#include "Editor/EditorEngine.h"
+	#include "MonaImGuiBackend.h"
 #else
 	#include "Engine/GameEngine.h"
 #endif
@@ -112,7 +113,11 @@ namespace Durin
 
 		if (GIsRequestingExit) return;
 
+#if DURIN_WITH_EDITOR
+		Mona::FMonaImGuiBackend::NewFrame();
+#else
 		Mona::NewFrame();
+#endif
 		// Start recording render commands for the current frame.
 		ENQUEUE_RENDER_COMMAND(BeginFrame)([CurrentFrameCounter](FRHICommandListImmediate& CommandList) {
 			BeginFrameRenderThread(CommandList, CurrentFrameCounter);
@@ -120,7 +125,11 @@ namespace Durin
 
 		GEngine->RedrawViewports();
 
+#if DURIN_WITH_EDITOR
+		Mona::FMonaImGuiBackend::Render();
+#else
 		Mona::Render();
+#endif
 
 		ENQUEUE_RENDER_COMMAND(EndFrame)([CurrentFrameCounter](FRHICommandListImmediate& RHICmdList) {
 			EndFrameRenderThread(RHICmdList, CurrentFrameCounter);
@@ -139,6 +148,9 @@ namespace Durin
 		delete GEngine;
 		GEngine = nullptr;
 
+#if DURIN_WITH_EDITOR
+		Mona::FMonaImGuiBackend::Shutdown();
+#endif
 		Mona::MonaShutdown();
 
 		FModuleManager::Get().UnloadModulesAtShutdown();

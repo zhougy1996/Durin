@@ -3,9 +3,7 @@
 #include "Mona.h"
 #include "LevelEditorModule.h"
 
-#include "DurinEngine.h"
-#include "Engine/Engine.h"
-#include "Mona/SceneViewport.h"
+#include "imgui.h"
 #include "Widgets/MFunctionWidget.h"
 #include "MonaImGuiBackend.h"
 
@@ -25,25 +23,21 @@ namespace Durin
 	{
 		FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 		std::shared_ptr<Mona::MWindow> RootWindow = std::make_shared<Mona::MWindow>();
+		std::shared_ptr<Mona::MFunctionWidget> EditorRootWidget = std::make_shared<Mona::MFunctionWidget>();
 
 		RootWindow->SetTitle("Mona");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {800.0f, 600.0f});
 
-		std::shared_ptr<Mona::MFunctionWidget> DemoWidget = std::make_shared<Mona::MFunctionWidget>();
-		DemoWidget->Construct([]() {
+		EditorRootWidget->Construct([]() {
+			ImGuiViewport* MainViewport = ImGui::GetMainViewport();
+			ImGui::DockSpaceOverViewport(0, MainViewport, ImGuiDockNodeFlags_None);
 			Mona::FMonaImGuiBackend::ShowDemoWindow();
 		});
-		RootWindow->SetChild(DemoWidget);
+		RootWindow->SetChild(EditorRootWidget);
 
 		Mona::FMonaApplication::Get().AddWindow(RootWindow, true);
-		Mona::BindMainViewportToWindow(RootWindow);
 		Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
-
-		std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, RootWindow);
-		RootWindow->SetViewport(SceneViewport);
-		if (GEngine != nullptr)
-		{
-			GEngine->SetMainSceneViewport(SceneViewport);
-		}
+		Mona::FMonaImGuiBackend::Initialize();
+		Mona::FMonaImGuiBackend::BindMainViewportToWindow(RootWindow);
 	}
 }

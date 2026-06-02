@@ -116,10 +116,9 @@ Responsibilities:
 
 - `Mona` and `MonaCore` provide the app, widget, window, and renderer integration layer
 - `FMonaRHIRenderer` bridges Mona windows to `FRHIViewport` objects
-- `Mona` owns the active UI backend lifecycle and frame dispatch
-- `MonaImGuiBackend` integrates Dear ImGui on top of MonaCore and RHI when developer tools are enabled
+- `MonaImGuiBackend` integrates Dear ImGui on top of MonaCore and RHI for editor builds
 - editor/tool modules that call Dear ImGui directly should explicitly depend on `MonaImGuiBackend`
-- `MainFrame` creates the root `MWindow` and viewport for the editor shell
+- `MainFrame` creates the root `MWindow` and main ImGui dockspace host for the editor shell
 - `DGameEngine` creates the standalone runtime `MWindow` and scene viewport for non-editor startup
 
 Window creation and resize events map directly to RHI viewport creation and resize calls.

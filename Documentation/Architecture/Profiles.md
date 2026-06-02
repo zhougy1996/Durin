@@ -151,13 +151,11 @@ Currently exposed semantic compile definitions include:
 - `DURIN_PROFILE_NAME`
 - `DURIN_APP_CONFIG_NAME`
 - `DURIN_WITH_EDITOR`
-- `DURIN_WITH_DEVELOPER_TOOLS`
 - `DURIN_BUILD_DEBUG`
 - `DURIN_BUILD_RELEASE`
 - `DURIN_BUILD_SHIPPING`
 
 `DURIN_WITH_EDITOR` is the primary semantic branch for code-level editor vs non-editor behavior.
-`DURIN_WITH_DEVELOPER_TOOLS` is derived from the active module set for the current profile. In the current engine project, it is enabled when the selected profile includes the default developer UI backend.
 
 In the current startup flow, `DURIN_WITH_EDITOR` also controls which concrete engine implementation `FEngineLoop::Init()` creates:
 

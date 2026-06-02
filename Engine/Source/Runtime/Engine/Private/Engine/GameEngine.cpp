@@ -19,10 +19,6 @@ namespace Durin
 		MonaApp.AddWindow(GameWindow, true);
 		MonaApp.GetRenderer()->CreateViewport(GameWindow);
 
-#if DURIN_WITH_DEVELOPER_TOOLS
-		Mona::BindMainViewportToWindow(GameWindow);
-#endif
-
 		std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, GameWindow);
 		GameWindow->SetViewport(SceneViewport);
 		SetMainSceneViewport(SceneViewport);

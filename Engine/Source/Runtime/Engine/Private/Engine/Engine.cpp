@@ -48,13 +48,7 @@ namespace Durin
 				CommandList.BeginRenderPass(PassInfo, "RuntimeSceneViewportClearPass");
 				CommandList.EndRenderPass();
 
-				constexpr bool bPresentSceneViewport =
-#if DURIN_WITH_DEVELOPER_TOOLS && !DURIN_WITH_EDITOR
-					false;
-#else
-					true;
-#endif
-				CommandList.EndDrawingViewport(ViewportRHI, bPresentSceneViewport, false);
+				CommandList.EndDrawingViewport(ViewportRHI, true, false);
 			}
 		);
 	}
