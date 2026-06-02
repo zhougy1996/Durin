@@ -23,7 +23,7 @@ namespace Durin
 
 	struct FShaderCompileOptions
 	{
-		// Stable shader identity used for cache lookup and metadata. Prefer virtual shader paths such as /Engine/ImGui.
+		// Stable cache identity resolved by the caller. Leave empty to disable disk-backed shader cache reads and writes.
 		std::string VirtualShaderPath;
 		std::vector<const char8*> EntryPoints;
 		std::vector<EShaderFrequency> Frequencies;

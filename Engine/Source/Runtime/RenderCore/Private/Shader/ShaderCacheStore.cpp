@@ -7,6 +7,8 @@
 #include "Shader/ShaderCompiler.h"
 #include "Shader/ShaderPaths.h"
 
+#include <unordered_set>
+
 namespace Durin
 {
 	namespace
@@ -16,12 +18,26 @@ namespace Durin
 			return EntryPoint != nullptr ? std::string(EntryPoint) : std::string();
 		}
 
+		auto AreBinaryCachePathsUnique(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey) -> bool
+		{
+			std::unordered_set<std::string> CachePaths;
+			CachePaths.reserve(Options.EntryPoints.size());
+
+			for (const char8* EntryPoint : Options.EntryPoints)
+			{
+				const std::string CachePath = FShaderPaths::BinaryPath(VirtualShaderPath, EntryPointToString(EntryPoint), VariantKey.Hex);
+				if (!CachePaths.insert(CachePath).second)
+				{
+					DURIN_WARN("Shader binary cache skipped because multiple entry points map to the same file: {}", CachePath);
+					return false;
+				}
+			}
+
+			return true;
+		}
+
 		// Parser constants — must match what FJsonWriter emits.
-		constexpr uint32 GShaderMetaVersion = 1;
-		constexpr uint32 GShaderMacroSchemaVersion = 1;
-		constexpr std::string_view GSlangBackendName = "slang";
-		constexpr std::string_view GSlangTargetFormat = "SPIR-V";
-		constexpr std::string_view GSlangTargetProfile = "spirv_1_5";
+		constexpr uint32 GShaderMetaVersion = 2;
 	}
 
 	FShaderCacheStore::FShaderCacheStore() = default;
@@ -37,98 +53,53 @@ namespace Durin
 
 		const FJsonValueView Root = Document.GetRootView();
 		if (!Root.IsObject()
-			|| Root.GetUIntValue("version") != GShaderMetaVersion
-			|| Root.GetUIntValue("macroSchemaVersion") != GShaderMacroSchemaVersion
-			|| Root.GetStringValue("backend") != GSlangBackendName
-			|| Root.GetStringValue("targetFormat") != GSlangTargetFormat
-			|| Root.GetStringValue("targetProfile") != GSlangTargetProfile
-			|| Root.GetStringValue("virtualShaderPath") != VirtualShaderPath)
+			|| Root.GetUIntValue("Version") != GShaderMetaVersion)
 		{
 			return false;
 		}
 
 		OutMetaData = {};
-		OutMetaData.VirtualShaderPath = Root.GetStringValue("virtualShaderPath");
 
-		const std::string MainSourceHash = Root.GetStringValue("mainSourceHash");
-		const std::string SourceTreeSignature = Root.GetStringValue("sourceTreeSignature");
-		if (!String::IsHex(MainSourceHash, 16)
-			|| !String::IsHex(SourceTreeSignature, 32))
+		const std::string SourceTreeSignature = Root.GetStringValue("SourceTreeSignature");
+		if (!String::IsHex(SourceTreeSignature, 32))
 		{
 			return false;
 		}
-		OutMetaData.MainSourceHash = FXxHash64::FromString(MainSourceHash);
 		OutMetaData.SourceTreeSignature = FXxHash128::FromString(SourceTreeSignature);
-
-		const FJsonValueView DependenciesView = Root.GetView("dependencies");
-		if (!DependenciesView.IsArray())
-		{
-			return false;
-		}
-
-		OutMetaData.Dependencies.reserve(DependenciesView.Num());
-		for (size_t DependencyIndex = 0; DependencyIndex < DependenciesView.Num(); ++DependencyIndex)
-		{
-			const FJsonValueView DependencyView = DependenciesView.GetView(DependencyIndex);
-			if (!DependencyView.IsObject())
-			{
-				return false;
-			}
-
-			FShaderDependencyInfo Dependency;
-			Dependency.Path = DependencyView.GetStringValue("path");
-			Dependency.FileSize = DependencyView.GetUIntValue("size");
-			const std::string DependencyHash = DependencyView.GetStringValue("hash");
-			if (Dependency.Path.empty() || !String::IsHex(DependencyHash, 16))
-			{
-				return false;
-			}
-			Dependency.ContentHash = FXxHash64::FromString(DependencyHash);
-
-			OutMetaData.Dependencies.push_back(std::move(Dependency));
-		}
 
 		return true;
 	}
 
-	auto FShaderCacheStore::SaveMetaData(const FShaderMetaData& MetaData) -> bool
+	auto FShaderCacheStore::SaveMetaData(std::string_view VirtualShaderPath, const FShaderMetaData& MetaData) -> bool
 	{
 		FJsonWriter Writer;
 		Writer
-			.AddFieldUInt("version", GShaderMetaVersion)
-			.AddFieldUInt("macroSchemaVersion", GShaderMacroSchemaVersion)
-			.AddFieldString("virtualShaderPath", MetaData.VirtualShaderPath)
-			.AddFieldString("backend", GSlangBackendName)
-			.AddFieldString("targetFormat", GSlangTargetFormat)
-			.AddFieldString("targetProfile", GSlangTargetProfile)
-			.AddFieldString("mainSourceHash", MetaData.MainSourceHash.ToString())
-			.AddFieldString("sourceTreeSignature", MetaData.SourceTreeSignature.ToString());
+			.AddFieldUInt("Version", GShaderMetaVersion)
+			.AddFieldString("SourceTreeSignature", MetaData.SourceTreeSignature.ToString());
 
-		Writer.BeginArrayField("dependencies");
-		for (const FShaderDependencyInfo& Dependency : MetaData.Dependencies)
-		{
-			Writer
-				.BeginElementObject()
-				.AddFieldString("path", Dependency.Path)
-				.AddFieldUInt("size", Dependency.FileSize)
-				.AddFieldString("hash", Dependency.ContentHash.ToString())
-				.EndNested();
-		}
-		Writer.EndNested();
-
-		return Writer.SaveToFile(FShaderPaths::MetaPath(MetaData.VirtualShaderPath));
+		return Writer.SaveToFile(FShaderPaths::MetaPath(VirtualShaderPath));
 	}
 
 	auto FShaderCacheStore::TryLoad(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, FShaderCompilerOutput& OutOutput) -> bool
 	{
 		const uint32 EntryPointCount = static_cast<uint32>(Options.EntryPoints.size());
+		if (Options.EntryPoints.size() != Options.Frequencies.size())
+		{
+			DURIN_WARN("Shader cache load skipped because entry point count does not match shader frequency count.");
+			return false;
+		}
+		if (!AreBinaryCachePathsUnique(VirtualShaderPath, Options, VariantKey))
+		{
+			return false;
+		}
+
 		OutOutput.CompiledShaders.clear();
 		OutOutput.CompiledShaders.resize(EntryPointCount);
 
 		for (uint32 EntryPointIndex = 0; EntryPointIndex < EntryPointCount; ++EntryPointIndex)
 		{
 			const std::string EntryPoint = EntryPointToString(Options.EntryPoints[EntryPointIndex]);
-			const std::string CachePath = FShaderPaths::BinaryPath(VirtualShaderPath, EntryPoint, Options.Frequencies[EntryPointIndex], VariantKey.Hex);
+			const std::string CachePath = FShaderPaths::BinaryPath(VirtualShaderPath, EntryPoint, VariantKey.Hex);
 
 			std::vector<uint8> ShaderBytes;
 			if (!FFileHelper::LoadFileToArray(ShaderBytes, CachePath))
@@ -158,6 +129,15 @@ namespace Durin
 			DURIN_WARN("Shader cache save skipped because compiler output count does not match requested entry point count.");
 			return false;
 		}
+		if (Options.EntryPoints.size() != Options.Frequencies.size())
+		{
+			DURIN_WARN("Shader cache save skipped because entry point count does not match shader frequency count.");
+			return false;
+		}
+		if (!AreBinaryCachePathsUnique(VirtualShaderPath, Options, VariantKey))
+		{
+			return false;
+		}
 
 		for (uint32 EntryPointIndex = 0; EntryPointIndex < Output.CompiledShaders.size(); ++EntryPointIndex)
 		{
@@ -169,7 +149,7 @@ namespace Durin
 			}
 
 			const std::string EntryPoint = EntryPointToString(Options.EntryPoints[EntryPointIndex]);
-			const std::string CachePath = FShaderPaths::BinaryPath(VirtualShaderPath, EntryPoint, Options.Frequencies[EntryPointIndex], VariantKey.Hex);
+			const std::string CachePath = FShaderPaths::BinaryPath(VirtualShaderPath, EntryPoint, VariantKey.Hex);
 			if (!FFileHelper::SaveArrayToFile(*CompiledShader.Code, CachePath))
 			{
 				DURIN_WARN("Failed to write shader cache artifact: {}", CachePath);

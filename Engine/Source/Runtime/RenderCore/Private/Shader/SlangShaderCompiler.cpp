@@ -1,26 +1,14 @@
 #include "SlangShaderCompiler.h"
 
+#include "ShaderCompileUtilities.h"
+
 #include "Hash/XxHash.h"
-#include "Misc/FileHelper.h"
-#include "Shader/ShaderPaths.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr uint32 GShaderMetaVersion = 1;
-		constexpr uint32 GShaderMacroSchemaVersion = 1;
-		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v3";
-		constexpr std::string_view GSlangBackendName = "slang";
-		constexpr std::string_view GSlangTargetFormat = "SPIR-V";
 		constexpr std::string_view GSlangTargetProfile = "spirv_1_5";
-
-		template <typename TBuilder>
-		auto UpdateHashStringField(TBuilder& Builder, std::string_view Value) -> void
-		{
-			Builder.UpdateValue(static_cast<uint64>(Value.size()));
-			Builder.Update(Value);
-		}
 	}
 
 	FSlangShaderCompiler::FSlangShaderCompiler()
@@ -30,6 +18,8 @@ namespace Durin
 
 	FSlangShaderCompiler::~FSlangShaderCompiler()
 	{
+		FileFingerprintCache.Clear();
+		GlobalSession.setNull();
 	}
 
 	auto FSlangShaderCompiler::NormalizePath(const std::filesystem::path& InPath) const -> std::string
@@ -43,42 +33,10 @@ namespace Durin
 		return InPath.lexically_normal().generic_string();
 	}
 
-	auto FSlangShaderCompiler::TryMakeShaderVirtualPath(std::string_view PhysicalSourcePath, std::string& OutVirtualSourcePath) const -> bool
-	{
-		return FShaderPaths::TryMakeVirtualSourcePath(PhysicalSourcePath, OutVirtualSourcePath);
-	}
-
-	auto FSlangShaderCompiler::NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros, std::string& OutErrorMessage) const -> bool
-	{
-		OutMacros = Options.Macros;
-		std::ranges::sort(OutMacros, [](const FShaderMacroDefinition& A, const FShaderMacroDefinition& B) {
-			if (A.Name != B.Name)
-			{
-				return A.Name < B.Name;
-			}
-			if (A.Value != B.Value)
-			{
-				return A.Value < B.Value;
-			}
-			return A.bHasExplicitValue < B.bHasExplicitValue;
-		});
-
-		for (size_t Index = 1; Index < OutMacros.size(); ++Index)
-		{
-			if (OutMacros[Index - 1].Name == OutMacros[Index].Name)
-			{
-				OutErrorMessage = std::format("Duplicate shader macro definition is not allowed: {}", OutMacros[Index].Name);
-				return false;
-			}
-		}
-
-		return true;
-	}
-
 	auto FSlangShaderCompiler::CreateSession(const FShaderCompileOptions& Options, Slang::ComPtr<slang::ISession>& OutSession, std::string& OutErrorMessage) const -> bool
 	{
 		std::vector<FShaderMacroDefinition> NormalizedMacros;
-		if (!NormalizeMacros(Options, NormalizedMacros, OutErrorMessage))
+		if (!ShaderCompileUtilities::NormalizeMacros(Options, NormalizedMacros, OutErrorMessage))
 		{
 			return false;
 		}
@@ -147,115 +105,6 @@ namespace Durin
 		const auto UniqueEnd = std::ranges::unique(OutDependencyPaths).begin();
 		OutDependencyPaths.erase(UniqueEnd, OutDependencyPaths.end());
 		return SLANG_OK;
-	}
-
-	auto FSlangShaderCompiler::BuildShaderMetaData(
-		std::string_view VirtualShaderPath,
-		std::string_view ShaderSourceFilePath,
-		const std::vector<std::string>& InDependencyPaths,
-		FShaderMetaData& OutMetaData,
-		std::string& OutErrorMessage
-	) const -> bool
-	{
-		OutMetaData = {};
-		OutMetaData.VirtualShaderPath = std::string(VirtualShaderPath);
-		const std::string NormalizedSourcePath = NormalizePath(std::filesystem::path(std::string(ShaderSourceFilePath)));
-		std::string ResolvedVirtualShaderPath;
-		if (!TryMakeShaderVirtualPath(NormalizedSourcePath, ResolvedVirtualShaderPath))
-		{
-			DURIN_WARN("Failed to map shader source path to a virtual shader path, falling back to normalized path: {}", NormalizedSourcePath);
-			ResolvedVirtualShaderPath = NormalizedSourcePath;
-		}
-		OutMetaData.VirtualShaderPath = std::move(ResolvedVirtualShaderPath);
-		OutMetaData.Dependencies.reserve(InDependencyPaths.size());
-
-		FXxHash128Builder TreeSignatureBuilder;
-		UpdateHashStringField(TreeSignatureBuilder, GShaderVariantKeyVersion);
-
-		for (size_t DependencyIndex = 0; DependencyIndex < InDependencyPaths.size(); ++DependencyIndex)
-		{
-			const std::string& DependencyPath = InDependencyPaths[DependencyIndex];
-			std::vector<uint8> FileBytes;
-			if (!FFileHelper::LoadFileToArray(FileBytes, DependencyPath))
-			{
-				OutErrorMessage = std::format("Failed to read shader dependency file: {}", DependencyPath);
-				return false;
-			}
-
-			FShaderDependencyInfo Dependency;
-			if (!TryMakeShaderVirtualPath(DependencyPath, Dependency.Path))
-			{
-				Dependency.Path = DependencyPath;
-				DURIN_WARN("Failed to map shader dependency path to a virtual shader path, falling back to normalized path: {}", DependencyPath);
-			}
-			Dependency.FileSize = static_cast<uint64>(FileBytes.size());
-			Dependency.ContentHash = FXxHash64::HashBuffer(std::span<const uint8>(FileBytes));
-			if (DependencyIndex == 0)
-			{
-				OutMetaData.MainSourceHash = Dependency.ContentHash;
-			}
-
-			UpdateHashStringField(TreeSignatureBuilder, Dependency.Path);
-			TreeSignatureBuilder.UpdateValue(Dependency.FileSize);
-			TreeSignatureBuilder.UpdateValue(Dependency.ContentHash);
-
-			OutMetaData.Dependencies.push_back(Dependency);
-		}
-
-		OutMetaData.SourceTreeSignature = TreeSignatureBuilder.Finalize();
-		return true;
-	}
-
-	auto FSlangShaderCompiler::BuildVariantKey(
-		const FShaderMetaData& MetaData,
-		const std::vector<FShaderMacroDefinition>& Macros,
-		FShaderVariantKey& OutVariantKey
-	) const -> void
-	{
-		FXxHash128Builder Builder;
-		UpdateHashStringField(Builder, GShaderVariantKeyVersion);
-		UpdateHashStringField(Builder, GSlangBackendName);
-		UpdateHashStringField(Builder, GSlangTargetFormat);
-		UpdateHashStringField(Builder, GSlangTargetProfile);
-		UpdateHashStringField(Builder, MetaData.VirtualShaderPath);
-		Builder.UpdateValue(MetaData.SourceTreeSignature);
-
-		const uint64 MacroCount = static_cast<uint64>(Macros.size());
-		Builder.UpdateValue(MacroCount);
-		for (const FShaderMacroDefinition& Macro : Macros)
-		{
-			UpdateHashStringField(Builder, Macro.Name);
-			UpdateHashStringField(Builder, Macro.Value);
-			Builder.UpdateValue(Macro.bHasExplicitValue);
-		}
-
-		OutVariantKey.Value = Builder.Finalize();
-		OutVariantKey.Hex = OutVariantKey.Value.ToString();
-	}
-
-	static auto IsMetaDataCurrent(const FShaderMetaData& CurrentMetaData, const FShaderMetaData& CachedMetaData) -> bool
-	{
-		if (CurrentMetaData.VirtualShaderPath != CachedMetaData.VirtualShaderPath
-			|| CurrentMetaData.MainSourceHash != CachedMetaData.MainSourceHash
-			|| CurrentMetaData.SourceTreeSignature != CachedMetaData.SourceTreeSignature
-			|| CurrentMetaData.Dependencies.size() != CachedMetaData.Dependencies.size())
-		{
-			return false;
-		}
-
-		for (size_t DependencyIndex = 0; DependencyIndex < CurrentMetaData.Dependencies.size(); ++DependencyIndex)
-		{
-			const FShaderDependencyInfo& CurrentDependency = CurrentMetaData.Dependencies[DependencyIndex];
-			const FShaderDependencyInfo& CachedDependency = CachedMetaData.Dependencies[DependencyIndex];
-			if (CurrentDependency.Path != CachedDependency.Path
-				|| CurrentDependency.FileSize != CachedDependency.FileSize
-				|| CurrentDependency.ContentHash != CachedDependency.ContentHash)
-			{
-				return false;
-			}
-		}
-
-		return true;
 	}
 
 	auto FSlangShaderCompiler::CompileInternal(
@@ -351,14 +200,15 @@ namespace Durin
 		}
 
 		std::vector<FShaderMacroDefinition> NormalizedMacros;
-		if (!NormalizeMacros(Options, NormalizedMacros, Output.ErrorMessage))
+		if (!ShaderCompileUtilities::NormalizeMacros(Options, NormalizedMacros, Output.ErrorMessage))
 		{
 			return Output;
 		}
 
 		const bool bForceRecompile = Options.bForceRecompile || Settings.bForceRecompile;
 		const std::string SourceFilePath(ShaderSourceFilePath);
-		const std::string VirtualShaderPath = !Options.VirtualShaderPath.empty() ? Options.VirtualShaderPath : SourceFilePath;
+		const std::string VirtualShaderPath = Options.VirtualShaderPath;
+		const bool bUseDiskCache = !VirtualShaderPath.empty();
 
 		Slang::ComPtr<slang::ISession> CompileSession;
 		if (!CreateSession(Options, CompileSession, Output.ErrorMessage))
@@ -375,19 +225,23 @@ namespace Durin
 		}
 
 		FShaderMetaData CurrentMetaData;
-		if (!BuildShaderMetaData(VirtualShaderPath, SourceFilePath, DependencyPaths, CurrentMetaData, Output.ErrorMessage))
+		if (!ShaderCompileUtilities::BuildShaderMetaData(DependencyPaths, FileFingerprintCache, CurrentMetaData, Output.ErrorMessage))
 		{
 			return Output;
 		}
 
 		FShaderVariantKey VariantKey;
-		BuildVariantKey(CurrentMetaData, NormalizedMacros, VariantKey);
-
-		FShaderMetaData CachedMetaData;
-		const bool bMetaDataCurrent = CacheStore.LoadMetaData(VirtualShaderPath, CachedMetaData) && IsMetaDataCurrent(CurrentMetaData, CachedMetaData);
-		if (!bForceRecompile && bMetaDataCurrent && CacheStore.TryLoad(VirtualShaderPath, Options, VariantKey, Output))
+		if (bUseDiskCache)
 		{
-			return Output;
+			ShaderCompileUtilities::BuildVariantKey(VirtualShaderPath, CurrentMetaData, NormalizedMacros, VariantKey);
+
+			FShaderMetaData CachedMetaData;
+			const bool bMetaDataCurrent = CacheStore.LoadMetaData(VirtualShaderPath, CachedMetaData)
+				&& ShaderCompileUtilities::IsMetaDataCurrent(CurrentMetaData, CachedMetaData);
+			if (!bForceRecompile && bMetaDataCurrent && CacheStore.TryLoad(VirtualShaderPath, Options, VariantKey, Output))
+			{
+				return Output;
+			}
 		}
 
 		Slang::ComPtr<slang::IBlob> DiagnosticsBlob;
@@ -409,11 +263,11 @@ namespace Durin
 			return Output;
 		}
 
-		if (!CacheStore.Save(VirtualShaderPath, Options, VariantKey, Output))
+		if (bUseDiskCache && !CacheStore.Save(VirtualShaderPath, Options, VariantKey, Output))
 		{
 			DURIN_WARN("Shader compiled successfully, but cache write failed for {}", VirtualShaderPath);
 		}
-		if (!CacheStore.SaveMetaData(CurrentMetaData))
+		if (bUseDiskCache && !CacheStore.SaveMetaData(VirtualShaderPath, CurrentMetaData))
 		{
 			DURIN_WARN("Shader compiled successfully, but meta write failed for {}", VirtualShaderPath);
 		}

@@ -106,27 +106,6 @@ namespace Durin::FShaderPaths
 		return Result.empty() ? "Shader" : Result;
 	}
 
-	static auto GetStageSuffix(EShaderFrequency Frequency) -> std::string_view
-	{
-		switch (Frequency)
-		{
-		case EShaderFrequency::Vertex:
-			return "vs";
-		case EShaderFrequency::Pixel:
-			return "ps";
-		case EShaderFrequency::Compute:
-			return "cs";
-		case EShaderFrequency::RayGen:
-			return "rgen";
-		case EShaderFrequency::RayHitGroup:
-			return "rhit";
-		case EShaderFrequency::RayMiss:
-			return "rmiss";
-		default:
-			return "shader";
-		}
-	}
-
 	static auto MakeDirectoryString(const std::filesystem::path& InPath) -> std::string
 	{
 		std::string Result = InPath.lexically_normal().generic_string();
@@ -179,9 +158,9 @@ namespace Durin::FShaderPaths
 		return (ShaderDir / (SanitizeFileName(ShaderBaseName) + ".slang.meta")).generic_string();
 	}
 
-	auto BinaryPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, EShaderFrequency Frequency, std::string_view CacheKey) -> std::string
+	auto BinaryPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, std::string_view CacheKey) -> std::string
 	{
-		const std::string FileName = std::format("{}.{}.spv", SanitizeFileName(EntryPoint), GetStageSuffix(Frequency));
+		const std::string FileName = std::format("{}.spv", SanitizeFileName(EntryPoint));
 		return (std::filesystem::path(CacheDirectory(VirtualShaderPath, CacheKey)) / FileName).generic_string();
 	}
 

@@ -12,8 +12,14 @@ namespace Durin
 
 	auto ShutdownShaderCompiler() -> void
 	{
-		delete GShaderCompiler;
+		if (!GShaderCompiler)
+		{
+			return;
+		}
+
+		FShaderCompiler* ShaderCompiler = GShaderCompiler;
 		GShaderCompiler = nullptr;
+		delete ShaderCompiler;
 	}
 
 	class FRenderCoreModule : public FDefaultModuleImpl

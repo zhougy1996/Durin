@@ -1,7 +1,5 @@
 #pragma once
 
-#include "RenderCoreAPI.h"
-
 #include "Hash/XxHash.h"
 
 namespace Durin
@@ -9,21 +7,10 @@ namespace Durin
 	struct FShaderCompileOptions;
 	struct FShaderCompilerOutput;
 
-	// Record of a single file in the shader dependency graph.
-	struct FShaderDependencyInfo
-	{
-		std::string Path;
-		uint64 FileSize = 0;
-		FXxHash64 ContentHash{};
-	};
-
 	// Source-level cache identity shared by all entry points and frequencies compiled from the same shader file.
 	struct FShaderMetaData
 	{
-		std::string VirtualShaderPath;
-		FXxHash64 MainSourceHash{};
 		FXxHash128 SourceTreeSignature{};
-		std::vector<FShaderDependencyInfo> Dependencies;
 	};
 
 	// Identifies a specific compiled variant (source tree + macros).
@@ -48,7 +35,7 @@ namespace Durin
 		auto LoadMetaData(std::string_view VirtualShaderPath, FShaderMetaData& OutMetaData) -> bool;
 
 		// Write the .slang.meta file.
-		auto SaveMetaData(const FShaderMetaData& MetaData) -> bool;
+		auto SaveMetaData(std::string_view VirtualShaderPath, const FShaderMetaData& MetaData) -> bool;
 
 		// Try to load pre-compiled .spv artifacts from the variant directory.
 		// Metadata validation must be performed by the caller before invoking this.
