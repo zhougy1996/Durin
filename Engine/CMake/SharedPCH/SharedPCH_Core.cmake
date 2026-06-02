@@ -3,7 +3,6 @@ include_guard(GLOBAL)
 # Create a shared PCH target
 set(DUMMY_SRC "${CMAKE_CURRENT_LIST_DIR}/DummyForPCH.cpp")
 add_library(SharedPCH_Core STATIC ${DUMMY_SRC})
-set_source_files_properties(${DUMMY_SRC} PROPERTIES GENERATED TRUE)
 target_link_libraries(SharedPCH_Core PUBLIC
     glm::glm
 )

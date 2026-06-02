@@ -50,6 +50,8 @@ namespace Durin::Mona
 		// Compile shaders
 		auto VertexShaderCode = std::make_shared<FShaderCode>();
 		auto PixelShaderCode = std::make_shared<FShaderCode>();
+		FPipelineLayoutDesc ReflectedPipelineLayout;
+		bool bHasReflectedPipelineLayout = false;
 
 		const std::string ImGuiVirtualShaderPath = "/Engine/ImGui";
 		FShaderCompileOptions CompileOptions;
@@ -59,13 +61,25 @@ namespace Durin::Mona
 		{
 			VertexShaderCode = CompileResult.CompiledShaders[0].Code;
 			PixelShaderCode = CompileResult.CompiledShaders[1].Code;
+
+			std::string PipelineLayoutError;
+			bHasReflectedPipelineLayout = BuildPipelineLayoutFromShaders(CompileResult.CompiledShaders, ReflectedPipelineLayout, PipelineLayoutError);
+			if (!bHasReflectedPipelineLayout)
+			{
+				DURIN_WARN("Failed to build reflected ImGui pipeline layout: {}", PipelineLayoutError);
+			}
 		}
 		else
 		{
 			DURIN_ERROR("Failed to compile ImGui shader: {}", CompileResult.ErrorMessage);
 		}
 
-		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([VertexShaderCode, PixelShaderCode](FRHICommandListImmediate& CommandList) {
+		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([
+			VertexShaderCode,
+			PixelShaderCode,
+			ReflectedPipelineLayout,
+			bHasReflectedPipelineLayout
+		](FRHICommandListImmediate& CommandList) {
 			const FRHIShaderCreateDesc VertexShaderCreateDesc = FRHIShaderCreateDesc::CreateVertex("ImGuiVertexShader", *VertexShaderCode, {});
 			GBackendState.VertexShader = GDynamicRHI->RHICreateShader(VertexShaderCreateDesc);
 
@@ -89,15 +103,22 @@ namespace Durin::Mona
 			Initializer.bEnableAlphaBlend = true;
 			Initializer.bEnableBackFaceCulling = false;
 
-			FBindingLayout Set_0;
-			Set_0.BindingLayouts = {
-				FBindingLayoutItem{EShaderStageFlags::Fragment, 0, ERHIBindingType::Texture},
-				FBindingLayoutItem{EShaderStageFlags::Fragment, 1, ERHIBindingType::Sampler}
-			};
-			Initializer.PipelineLayout.BindingLayouts.push_back(Set_0);
-			Initializer.PipelineLayout.PushConstantRanges = {
-				FPushConstantRange{EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData)}
-			};
+			if (bHasReflectedPipelineLayout)
+			{
+				Initializer.PipelineLayout = ReflectedPipelineLayout;
+			}
+			else
+			{
+				FBindingLayout Set_0;
+				Set_0.BindingLayouts = {
+					FBindingLayoutItem{EShaderStageFlags::Fragment, 0, ERHIBindingType::Texture},
+					FBindingLayoutItem{EShaderStageFlags::Fragment, 1, ERHIBindingType::Sampler}
+				};
+				Initializer.PipelineLayout.BindingLayouts.push_back(Set_0);
+				Initializer.PipelineLayout.PushConstantRanges = {
+					FPushConstantRange{EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData)}
+				};
+			}
 			GDynamicRHI->RHICreateGraphicsPipelineState("ImGuiMainPipeline", Initializer);
 		});
 	}

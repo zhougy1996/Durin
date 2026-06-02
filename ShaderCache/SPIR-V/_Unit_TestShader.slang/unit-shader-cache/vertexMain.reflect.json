@@ -1,0 +1,24 @@
+{
+    "Version": 3,
+    "Frequency": 0,
+    "EntryPoint": "vertexMain",
+    "DebugName": "CacheVertexShader",
+    "Hash": "d4ff2d28696d5b88f1ea018550f1f3eb",
+    "ResourceBindings": [
+        {
+            "Name": "FontTexture",
+            "StageFlags": 2,
+            "SetIndex": 0,
+            "BindingIndex": 0,
+            "Type": 1,
+            "ArraySize": 1
+        }
+    ],
+    "PushConstantRanges": [
+        {
+            "StageFlags": 1,
+            "Offset": 0,
+            "Size": 16
+        }
+    ]
+}

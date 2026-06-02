@@ -40,7 +40,9 @@ Each shader directory contains:
 <ShaderName>.slang.meta
 <VariantKey>/
   vertexMain.spv
+  vertexMain.reflect.json
   fragmentMain.spv
+  fragmentMain.reflect.json
 ```
 
 Old layouts such as `SPIR-V/ImGui/ImGui.slang.meta`, `vertexMain.vs.spv`, or `fragmentMain.ps.spv` are not migrated or read for compatibility.
@@ -60,7 +62,7 @@ Current schema:
 
 ```json
 {
-  "Version": 2,
+  "Version": 4,
   "SourceTreeSignature": "..."
 }
 ```
@@ -87,6 +89,25 @@ fragmentMain.spv
 main.spv
 ```
 
+Each compiled artifact also stores a reflection sidecar with the same base name:
+
+```text
+vertexMain.reflect.json
+fragmentMain.reflect.json
+main.reflect.json
+```
+
+Reflection sidecars persist the per-stage runtime metadata needed by `Shader.h`:
+
+- shader frequency
+- entry point
+- debug name
+- compiled bytecode hash
+- reflected resource bindings
+- reflected push-constant ranges
+
+Reflection is extracted from a Slang composite program built for one entry point at a time, so stage flags on bindings and push constants only include the stages that actually use those globals.
+
 If two requested entry points sanitize to the same file name, binary cache load/save is skipped for that compile request and real compilation still proceeds.
 
 ## Cache Flow
@@ -97,9 +118,9 @@ If two requested entry points sanitize to the same file name, binary cache load/
 2. Resolve Slang dependency files through the private dependency resolver.
 3. Build current source metadata using `FFileFingerprintCache`.
 4. Build the variant key from virtual identity, source signature, and normalized macros.
-5. If metadata exists and matches, try to load all expected `.spv` artifacts.
-6. On cache miss or forced recompile, log a debug message and invoke `FSlangShaderCompiler` for real physical compilation.
-7. After successful compilation, write binary artifacts and save `Shader.slang.meta`.
+5. If metadata exists and matches, try to load all expected `.spv` artifacts and `.reflect.json` sidecars.
+6. On cache miss or forced recompile, log a debug message and invoke `FSlangShaderCompiler` for real physical compilation and reflection extraction.
+7. After successful compilation, write binary artifacts, write reflection sidecars, and save `Shader.slang.meta`.
 
 `bForceRecompile` skips binary cache load, but still resolves dependencies and updates metadata/artifacts after a successful compile.
 

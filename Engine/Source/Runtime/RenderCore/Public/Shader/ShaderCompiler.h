@@ -6,13 +6,6 @@
 
 namespace Durin
 {
-	struct FCompiledShader
-	{
-		EShaderFrequency Frequency;
-		std::shared_ptr<FShaderCode> Code;
-		FXxHash64 Hash;
-	};
-
 	struct FShaderMacroDefinition
 	{
 		std::string Name;

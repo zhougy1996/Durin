@@ -29,6 +29,12 @@ namespace Durin
 			return true;
 		}
 
+		auto ReflectionPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, const FShaderVariantKey& VariantKey) -> std::string
+		{
+			const std::string FileName = String::SanitizeFileName(EntryPoint, "Shader") + ".reflect.json";
+			return (std::filesystem::path(FShaderPaths::CacheDirectory(VirtualShaderPath, VariantKey.Hex)) / FileName).generic_string();
+		}
+
 		auto BuildBinaryCachePaths(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, std::vector<std::string>& OutCachePaths) -> bool
 		{
 			OutCachePaths.clear();
@@ -51,8 +57,122 @@ namespace Durin
 			return true;
 		}
 
-		// Parser constants — must match what FJsonWriter emits.
-		constexpr uint32 GShaderMetaVersion = 2;
+		constexpr uint32 GShaderReflectionVersion = 3;
+
+		auto SaveShaderReflection(const std::string& FilePath, const FCompiledShader& CompiledShader) -> bool
+		{
+			FJsonWriter Writer;
+			Writer
+				.AddFieldUInt("Version", GShaderReflectionVersion)
+				.AddFieldUInt("Frequency", static_cast<uint32>(CompiledShader.Frequency))
+				.AddFieldString("EntryPoint", CompiledShader.EntryPoint)
+				.AddFieldString("DebugName", CompiledShader.DebugName)
+				.AddFieldString("Hash", CompiledShader.Hash.ToString());
+
+			Writer.BeginArrayField("ResourceBindings");
+			for (const FShaderResourceBinding& Binding : CompiledShader.Reflection.ResourceBindings)
+			{
+				Writer.BeginElementObject()
+					.AddFieldString("Name", Binding.Name)
+					.AddFieldUInt("StageFlags", static_cast<uint32>(Binding.StageFlags))
+					.AddFieldUInt("SetIndex", Binding.SetIndex)
+					.AddFieldUInt("BindingIndex", Binding.BindingIndex)
+					.AddFieldUInt("Type", static_cast<uint32>(Binding.Type))
+					.AddFieldUInt("ArraySize", Binding.ArraySize)
+					.EndNested();
+			}
+			Writer.EndNested();
+
+			Writer.BeginArrayField("PushConstantRanges");
+			for (const FPushConstantRange& Range : CompiledShader.Reflection.PushConstantRanges)
+			{
+				Writer.BeginElementObject()
+					.AddFieldUInt("StageFlags", static_cast<uint32>(Range.StageFlags))
+					.AddFieldUInt("Offset", Range.Offset)
+					.AddFieldUInt("Size", Range.Size)
+					.EndNested();
+			}
+			Writer.EndNested();
+
+			return Writer.SaveToFile(FilePath);
+		}
+
+		auto LoadShaderReflection(const std::string& FilePath, FCompiledShader& OutCompiledShader) -> bool
+		{
+			FJsonDocument Document;
+			if (!Document.LoadFromFile(FilePath))
+			{
+				return false;
+			}
+
+			const FJsonValueView Root = Document.GetRootView();
+			if (!Root.IsObject() || Root.GetUIntValue("Version") != GShaderReflectionVersion)
+			{
+				return false;
+			}
+
+			const std::string HashString = Root.GetStringValue("Hash");
+			if (!String::IsHex(HashString, 32))
+			{
+				return false;
+			}
+
+			OutCompiledShader.Frequency = static_cast<EShaderFrequency>(Root.GetUIntValue("Frequency"));
+			OutCompiledShader.EntryPoint = Root.GetStringValue("EntryPoint");
+			OutCompiledShader.DebugName = Root.GetStringValue("DebugName");
+			OutCompiledShader.Hash = FXxHash128::FromString(HashString);
+			OutCompiledShader.Reflection = {};
+
+			const FJsonValueView ResourceBindings = Root.GetView("ResourceBindings");
+			if (!ResourceBindings.IsArray())
+			{
+				return false;
+			}
+
+			for (size_t Index = 0; Index < ResourceBindings.Num(); ++Index)
+			{
+				const FJsonValueView BindingView = ResourceBindings.GetView(Index);
+				if (!BindingView.IsObject())
+				{
+					return false;
+				}
+
+				FShaderResourceBinding Binding;
+				Binding.Name = BindingView.GetStringValue("Name");
+				Binding.StageFlags = static_cast<EShaderStageFlags>(BindingView.GetUIntValue("StageFlags"));
+				Binding.SetIndex = static_cast<uint32>(BindingView.GetUIntValue("SetIndex"));
+				Binding.BindingIndex = static_cast<uint32>(BindingView.GetUIntValue("BindingIndex"));
+				Binding.Type = static_cast<ERHIBindingType>(BindingView.GetUIntValue("Type"));
+				Binding.ArraySize = static_cast<uint32>(BindingView.GetUIntValue("ArraySize", 1));
+				OutCompiledShader.Reflection.ResourceBindings.push_back(std::move(Binding));
+			}
+
+			const FJsonValueView PushConstantRanges = Root.GetView("PushConstantRanges");
+			if (!PushConstantRanges.IsArray())
+			{
+				return false;
+			}
+
+			for (size_t Index = 0; Index < PushConstantRanges.Num(); ++Index)
+			{
+				const FJsonValueView RangeView = PushConstantRanges.GetView(Index);
+				if (!RangeView.IsObject())
+				{
+					return false;
+				}
+
+				FPushConstantRange Range{};
+				Range.StageFlags = static_cast<EShaderStageFlags>(RangeView.GetUIntValue("StageFlags"));
+				Range.Offset = static_cast<uint32>(RangeView.GetUIntValue("Offset"));
+				Range.Size = static_cast<uint32>(RangeView.GetUIntValue("Size"));
+				OutCompiledShader.Reflection.PushConstantRanges.push_back(Range);
+			}
+
+			return true;
+		}
+
+		// Parser constants must match what FJsonWriter emits.
+		constexpr uint32 GShaderMetaVersion = 4;
 	}
 
 	FShaderCacheStore::FShaderCacheStore() = default;
@@ -127,14 +247,18 @@ namespace Durin
 			}
 
 			auto& CompiledShader = OutOutput.CompiledShaders[EntryPointIndex];
-			CompiledShader.Frequency = Options.Frequencies[EntryPointIndex];
 			CompiledShader.Code = std::make_shared<FShaderCode>();
 			CompiledShader.Code->resize(ShaderBytes.size());
 			if (!ShaderBytes.empty())
 			{
 				std::memcpy(CompiledShader.Code->data(), ShaderBytes.data(), ShaderBytes.size());
 			}
-			CompiledShader.Hash = FXxHash64::HashBuffer(*CompiledShader.Code);
+
+			const std::string SidecarPath = ReflectionPath(VirtualShaderPath, EntryPointToString(Options.EntryPoints[EntryPointIndex]), VariantKey);
+			if (!LoadShaderReflection(SidecarPath, CompiledShader))
+			{
+				return false;
+			}
 		}
 
 		OutOutput.bSucceeded = true;
@@ -171,6 +295,13 @@ namespace Durin
 			if (!FFileHelper::SaveArrayToFile(*CompiledShader.Code, CachePaths[EntryPointIndex]))
 			{
 				DURIN_WARN("Failed to write shader cache artifact: {}", CachePaths[EntryPointIndex]);
+				return false;
+			}
+
+			const std::string SidecarPath = ReflectionPath(VirtualShaderPath, EntryPointToString(Options.EntryPoints[EntryPointIndex]), VariantKey);
+			if (!SaveShaderReflection(SidecarPath, CompiledShader))
+			{
+				DURIN_WARN("Failed to write shader reflection cache artifact: {}", SidecarPath);
 				return false;
 			}
 		}
