@@ -1,8 +1,15 @@
 #pragma once
 
+#include "CoreStd.h"
+#include "Misc/CoreTypes.h"
+
 namespace Durin
 {
-	enum { INDEX_NONE = -1 };
+	template<std::integral IndexType>
+	inline constexpr IndexType TIndexNone = static_cast<IndexType>(-1);
+
+	inline constexpr int32 INDEX_NONE = TIndexNone<int32>;
+	inline constexpr uint32 INDEX_NONE_U32 = std::numeric_limits<uint32>::max();
 
 	enum EForceInit
 	{

@@ -103,11 +103,11 @@ namespace Durin::VulkanRHI
 		}
 
 		const uint32 AcquiredImageIndex = Swapchain->AcquireImageIndex(&AcquiredSemaphore);
-		if (AcquiredImageIndex == UINT32_MAX)
+		if (AcquiredImageIndex == INDEX_NONE_U32)
 		{
 			RecreateSwapchainFromRT(InRHICmdList);
 			const uint32 RetryImageIndex = Swapchain->AcquireImageIndex(&AcquiredSemaphore);
-			if (RetryImageIndex == UINT32_MAX)
+			if (RetryImageIndex == INDEX_NONE_U32)
 			{
 				AcquiredBackBufferIndex = -1;
 				AcquiredSemaphore = nullptr;

@@ -62,7 +62,7 @@ namespace Durin
 		 */
 		RENDERCORE_API auto UpdateRHI(FRHICommandListBase& RHICmdList) -> void;
 
-		FORCEINLINE auto IsInitialized() const -> bool { return ListIndex != static_cast<uint32>(INDEX_NONE); }
+		FORCEINLINE auto IsInitialized() const -> bool { return ListIndex != INDEX_NONE_U32; }
 
 		auto GetListIndex() const -> uint32 { return ListIndex; }
 
@@ -100,7 +100,7 @@ namespace Durin
 
 
 	private:
-		uint32 ListIndex = static_cast<uint32>(INDEX_NONE);
+		uint32 ListIndex = INDEX_NONE_U32;
 
 		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::ES3_1;
 

@@ -143,7 +143,7 @@ namespace Durin::VulkanRHI
 				DURIN_ERROR("Failed to acquire swap chain image: {}", vk::to_string(Result.result));
 			}
 			*OutImageAcquiredSemaphore = nullptr;
-			return UINT32_MAX;
+			return INDEX_NONE_U32;
 		}
 		CurrentImageIndex = static_cast<int32>(Result.value);
 		*OutImageAcquiredSemaphore = CurrentSemaphore;

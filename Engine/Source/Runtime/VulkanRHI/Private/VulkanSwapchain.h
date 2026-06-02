@@ -16,7 +16,7 @@ namespace Durin::VulkanRHI
 
 		auto GetImages() const -> const std::vector<vk::Image>&;
 
-		// Returns the index of the acquired image, or UINT32_MAX if the swapchain must be recreated.
+		// Returns the index of the acquired image, or INDEX_NONE_U32 if the swapchain must be recreated.
 		auto AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32;
 
 		auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> bool;

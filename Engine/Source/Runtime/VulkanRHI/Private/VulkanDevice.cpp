@@ -277,7 +277,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::SetupPresentQueue(vk::SurfaceKHR InSurface) -> void
 	{
-		uint32 QueueFamilyIndex = UINT32_MAX;
+		uint32 QueueFamilyIndex = INDEX_NONE_U32;
 		for (uint32 FamilyIndex = 0; FamilyIndex < QueueFamilyProps.size(); ++FamilyIndex)
 		{
 			if (Gpu.getSurfaceSupportKHR(FamilyIndex, InSurface))
@@ -287,7 +287,7 @@ namespace Durin::VulkanRHI
 			}
 		}
 
-		if (QueueFamilyIndex == UINT32_MAX)
+		if (QueueFamilyIndex == INDEX_NONE_U32)
 		{
 			DURIN_ERROR("Failed to find a queue family that supports presentation");
 			return;
