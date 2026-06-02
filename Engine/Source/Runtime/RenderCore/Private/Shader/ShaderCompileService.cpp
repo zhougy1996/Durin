@@ -77,6 +77,8 @@ namespace Durin
 					return Output;
 				}
 
+				DURIN_DEBUG("Shader compiled (Virtual: {}, Hash: {})", VirtualShaderPath, VariantKey.Hex);
+
 				if (!CacheStore.Save(VirtualShaderPath, EffectiveOptions, VariantKey, Output))
 				{
 					DURIN_WARN("Shader compiled successfully, but cache write failed for {}", VirtualShaderPath);

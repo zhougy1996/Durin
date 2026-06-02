@@ -45,8 +45,14 @@ namespace Durin
 
 	auto FShaderCacheStore::LoadMetaData(std::string_view VirtualShaderPath, FShaderMetaData& OutMetaData) -> bool
 	{
+		const std::string MetaPath = FShaderPaths::MetaPath(VirtualShaderPath);
+		if (!FFileHelper::FileExists(MetaPath))
+		{
+			return false;
+		}
+
 		FJsonDocument Document;
-		if (!Document.LoadFromFile(FShaderPaths::MetaPath(VirtualShaderPath)))
+		if (!Document.LoadFromFile(MetaPath))
 		{
 			return false;
 		}

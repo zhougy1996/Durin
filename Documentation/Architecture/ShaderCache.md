@@ -1,107 +1,104 @@
 # Shader Cache
 
-This document describes the current Slang shader cache layout used by `RenderCore`.
+This document describes the current Slang shader cache strategy used by `RenderCore`.
 
 ## Overview
 
-The cache is split into two layers:
+Shader cache lookup is owned by the RenderCore shader compile service, exposed through `GetOrCompileShader()`. Backend compilers such as `FSlangShaderCompiler` compile physical source files only; they do not resolve virtual shader paths or read/write disk cache.
 
-- Source-level metadata stored once per virtual shader path
-- Variant artifacts stored in per-hash subdirectories
+The cache has two layers:
 
-The intent is to keep dependency tracking and artifact lookup separate:
+- Source metadata stored once per virtual shader path.
+- Compiled SPIR-V artifacts stored under one variant directory per source tree and macro set.
 
-- `*.slang.meta` answers whether the shader source tree still matches the last known state
-- Variant directories answer whether a specific macro set has already produced compiled binaries
+`FFileFingerprintCache` caches physical dependency fingerprints in memory for the lifetime of the shader compile service. It avoids repeated file reads and hash calculations when multiple shaders depend on the same physical file.
 
 ## Paths
 
-For a virtual shader path such as `/Engine/ImGui`, the cache layout is:
+The cache root comes from the registered shader mount point. For the default engine mount:
 
 ```text
-Engine/ShaderCache/SPIR-V/ImGui/
-  ImGui.slang.meta
-  <variant-hash>/
-    vertexMain.vs.spv
-    fragmentMain.ps.spv
+/Engine/ -> Engine/Shaders/Slang/
+cache   -> Engine/ShaderCache/SPIR-V/
 ```
 
-The root directory comes from the registered shader mount point. The file and directory naming rules are implemented in [ShaderPaths.cpp](G:/Workspace/Durin/Engine/Source/Runtime/RenderCore/Private/Shader/ShaderPaths.cpp).
+Cache directories preserve the virtual shader path hierarchy, but the final shader node gets a `.slang` suffix so a shader file does not conflict with a same-named folder.
 
-## Metadata File
+Examples:
 
-Each shader root directory contains one JSON metadata file named `<ShaderName>.slang.meta`.
+```text
+/Engine/ImGui
+=> Engine/ShaderCache/SPIR-V/ImGui.slang/
 
-Example shape:
+/Engine/ImGui/Button
+=> Engine/ShaderCache/SPIR-V/ImGui/Button.slang/
+```
+
+Each shader directory contains:
+
+```text
+Shader.slang.meta
+<VariantKey>/
+  vertexMain.spv
+  fragmentMain.spv
+```
+
+Old layouts such as `SPIR-V/ImGui/ImGui.slang.meta`, `vertexMain.vs.spv`, or `fragmentMain.ps.spv` are not migrated or read for compatibility.
+
+## Metadata
+
+The metadata file is fixed as `Shader.slang.meta` inside the shader cache directory.
+
+Current schema:
 
 ```json
 {
-  "version": 1,
-  "macroSchemaVersion": 1,
-  "virtualShaderPath": "/Engine/ImGui",
-  "backend": "slang",
-  "targetFormat": "SPIR-V",
-  "targetProfile": "spirv_1_5",
-  "mainSourceHash": "...",
-  "sourceTreeSignature": "...",
-  "dependencies": [
-    {
-      "path": "/Engine/ImGui",
-      "size": 1234,
-      "hash": "..."
-    }
-  ]
+  "Version": 2,
+  "SourceTreeSignature": "..."
 }
 ```
 
-Field semantics:
+`SourceTreeSignature` is built from the normalized physical paths, file sizes, and content hashes of the root shader file and every resolved dependency. If the metadata file does not exist, cache lookup treats it as a normal miss and does not log a file-load warning.
 
-- `virtualShaderPath`: stable shader identity used by callers and cache lookup
-- `mainSourceHash`: hash of the root `.slang` file contents
-- `sourceTreeSignature`: combined signature of the root file and every resolved dependency
-- `dependencies`: dependency list recorded as virtual shader paths when possible, otherwise normalized physical paths
+## Variant Key And Artifacts
 
-## Variant Hash
+The variant key includes:
 
-The variant directory hash is computed from:
+- Key version.
+- Backend, target format, and target profile.
+- Virtual shader path.
+- Current source tree signature.
+- Normalized macro definitions.
 
-- cache key version
-- backend, target format, and target profile
-- `virtualShaderPath`
-- `sourceTreeSignature`
-- normalized macro definitions
+Entry points and shader frequencies are intentionally not part of the variant key. Multiple entry points compiled from the same source tree and macro set share one variant directory.
 
-It intentionally does not include:
+Compiled artifacts are named only by entry point:
 
-- entry point
-- shader frequency
+```text
+vertexMain.spv
+fragmentMain.spv
+main.spv
+```
 
-That allows multiple entry points compiled from the same source tree and macro set to share one variant directory.
-
-## Artifact Naming
-
-Artifacts are separated by entry point and stage suffix:
-
-- `vertexMain.vs.spv`
-- `fragmentMain.ps.spv`
-- `main.cs.spv`
-
-The stage suffix comes from `EShaderFrequency`.
+If two requested entry points sanitize to the same file name, binary cache load/save is skipped for that compile request and real compilation still proceeds.
 
 ## Cache Flow
 
-At compile time, `FSlangShaderCompiler` does the following:
+`GetOrCompileShader()` performs the full cache flow:
 
-1. Create a fresh Slang session and inject normalized macros
-2. Resolve the shader dependency graph
-3. Compute `mainSourceHash`, `sourceTreeSignature`, and the variant hash
-4. Load `<ShaderName>.slang.meta`
-5. Compare the current source-level metadata with the cached metadata
-6. If metadata matches, try to load the expected `.spv` artifacts from the variant directory
-7. Otherwise compile, then write the `.spv` artifacts and overwrite the root metadata file
+1. Resolve the virtual shader path to a physical `.slang` source path.
+2. Resolve Slang dependency files through the private dependency resolver.
+3. Build current source metadata using `FFileFingerprintCache`.
+4. Build the variant key from virtual identity, source signature, and normalized macros.
+5. If metadata exists and matches, try to load all expected `.spv` artifacts.
+6. On cache miss or forced recompile, log a debug message and invoke `FSlangShaderCompiler` for real physical compilation.
+7. After successful compilation, write binary artifacts and save `Shader.slang.meta`.
+
+`bForceRecompile` skips binary cache load, but still resolves dependencies and updates metadata/artifacts after a successful compile.
 
 ## Notes
 
-- Duplicate macro names are rejected before compilation.
-- Old `manifest.txt` layouts are not migrated automatically and are no longer read by the current implementation.
-- Virtual shader paths are preferred in metadata to avoid embedding machine-specific absolute source paths in normal cache records.
+- Duplicate macro names are rejected before dependency resolution or compilation.
+- Virtual shader paths are cache identities owned by callers of `GetOrCompileShader()`.
+- Physical source paths are consumed only by the private compile and dependency-resolution steps.
+- The current schema intentionally does not support old metadata compatibility or migration.
