@@ -1,12 +1,8 @@
 #include "SlangShaderCompiler.h"
 
-#include "ShaderCompileUtilities.h"
-
 #include "Hash/XxHash.h"
-
-#include <array>
-#include <ranges>
-#include <unordered_map>
+#include "RHIResources.h"
+#include "ShaderCompileUtilities.h"
 
 namespace Durin
 {
@@ -551,7 +547,7 @@ namespace Durin
 		return SLANG_OK;
 	}
 
-	static auto ConvertBlobToArray(const Slang::ComPtr<slang::IBlob>& FromBlob, FShaderCode& OutCode) -> bool
+	static auto ConvertBlobToArray(const Slang::ComPtr<slang::IBlob>& FromBlob, std::vector<std::byte>& OutCode) -> bool
 	{
 		const void* BufferPtr = FromBlob->getBufferPointer();
 		const size_t BufferSize = FromBlob->getBufferSize();
@@ -610,7 +606,7 @@ namespace Durin
 		OutCompiledShader.DebugName = VirtualShaderPath.empty()
 			? OutCompiledShader.SourceEntryPoint
 			: std::format("{}::{}", VirtualShaderPath, OutCompiledShader.SourceEntryPoint);
-		OutCompiledShader.Code = std::make_shared<FShaderCode>();
+		OutCompiledShader.Code = std::make_shared<std::vector<std::byte>>();
 		if (!ConvertBlobToArray(CodeBlob, *OutCompiledShader.Code))
 		{
 			OutErrorMessage = "Failed to convert Slang SPIR-V output";

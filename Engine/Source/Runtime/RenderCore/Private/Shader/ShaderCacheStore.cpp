@@ -253,7 +253,7 @@ namespace Durin
 			}
 
 			auto& CompiledShader = OutOutput.CompiledShaders[EntryPointIndex];
-			CompiledShader.Code = std::make_shared<FShaderCode>();
+			CompiledShader.Code = std::make_shared<std::vector<std::byte>>();
 			CompiledShader.Code->resize(ShaderBytes.size());
 			if (!ShaderBytes.empty())
 			{

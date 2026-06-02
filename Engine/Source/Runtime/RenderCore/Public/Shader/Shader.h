@@ -3,53 +3,10 @@
 #include "RenderCoreAPI.h"
 #include "RHIResources.h"
 
+#include "ShaderCompilerCore.h"
+
 namespace Durin
 {
-	struct FShaderCompileOptions;
-	struct FShaderCompilerOutput;
-
-	using FShaderCode = std::vector<std::byte>;
-	using FShaderCodeView = std::span<const std::byte>;
-
-	struct FShaderResourceBinding
-	{
-		std::string Name;
-		EShaderStageFlags StageFlags = EShaderStageFlags::None;
-		uint32 SetIndex = 0;
-		uint32 BindingIndex = 0;
-		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
-		uint32 ArraySize = 1;
-
-		auto operator==(const FShaderResourceBinding& Other) const -> bool
-		{
-			return Name == Other.Name
-				&& StageFlags == Other.StageFlags
-				&& SetIndex == Other.SetIndex
-				&& BindingIndex == Other.BindingIndex
-				&& Type == Other.Type
-				&& ArraySize == Other.ArraySize;
-		}
-	};
-
-	struct FShaderReflectionData
-	{
-		std::vector<FShaderResourceBinding> ResourceBindings;
-		std::vector<FPushConstantRange> PushConstantRanges;
-	};
-
-	struct FCompiledShader
-	{
-		EShaderFrequency Frequency = EShaderFrequency::Vertex;
-		// Source-level entry point requested by the caller, such as `vertexMain`.
-		std::string SourceEntryPoint;
-		// Backend-visible entry point exported by the compiled binary, such as Vulkan SPIR-V `main`.
-		std::string BinaryEntryPoint = "main";
-		std::string DebugName;
-		std::shared_ptr<FShaderCode> Code;
-		FXxHash128 Hash{};
-		FShaderReflectionData Reflection;
-	};
-
 	class FShaderType;
 	class FShader;
 	class FShaderMapBase;
@@ -160,7 +117,7 @@ namespace Durin
 			return CompiledShaders[ShaderIndex];
 		}
 
-		auto GetCodeView(uint32 ShaderIndex) const -> FShaderCodeView
+		auto GetCodeView(uint32 ShaderIndex) const -> std::span<const std::byte>
 		{
 			const FCompiledShader& CompiledShader = GetCompiledShader(ShaderIndex);
 			checkf(CompiledShader.Code, "Compiled shader code must not be null");
