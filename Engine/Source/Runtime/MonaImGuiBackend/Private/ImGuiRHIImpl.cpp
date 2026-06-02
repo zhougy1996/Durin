@@ -3,8 +3,7 @@
 #include "RHI.h"
 #include "RenderingThread.h"
 #include "Misc/FileHelper.h"
-#include "Shader/ShaderPaths.h"
-#include "Shader/ShaderCompiler.h"
+#include "Shader/ShaderCompileService.h"
 
 namespace Durin::Mona
 {
@@ -54,10 +53,9 @@ namespace Durin::Mona
 
 		const std::string ImGuiVirtualShaderPath = "/Engine/ImGui";
 		FShaderCompileOptions CompileOptions;
-		CompileOptions.VirtualShaderPath = ImGuiVirtualShaderPath;
 		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
 		CompileOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Pixel};
-		if (FShaderCompilerOutput CompileResult = GShaderCompiler->Compile(FShaderPaths::SourcePath(ImGuiVirtualShaderPath), CompileOptions))
+		if (FShaderCompilerOutput CompileResult = GetOrCompileShader(ImGuiVirtualShaderPath, CompileOptions))
 		{
 			VertexShaderCode = CompileResult.CompiledShaders[0].Code;
 			PixelShaderCode = CompileResult.CompiledShaders[1].Code;

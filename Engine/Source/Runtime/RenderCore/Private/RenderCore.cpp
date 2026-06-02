@@ -1,26 +1,11 @@
 #include "RenderCore.h"
 
 #include "Shader/ShaderPaths.h"
-#include "Shader/SlangShaderCompiler.h"
 
 namespace Durin
 {
-	auto InitShaderCompiler() -> void
-	{
-		GShaderCompiler = new FSlangShaderCompiler();
-	}
-
-	auto ShutdownShaderCompiler() -> void
-	{
-		if (!GShaderCompiler)
-		{
-			return;
-		}
-
-		FShaderCompiler* ShaderCompiler = GShaderCompiler;
-		GShaderCompiler = nullptr;
-		delete ShaderCompiler;
-	}
+	auto InitShaderCompileService() -> void;
+	auto ShutdownShaderCompileService() -> void;
 
 	class FRenderCoreModule : public FDefaultModuleImpl
 	{
@@ -28,12 +13,12 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 			FShaderPaths::InitDefaultMountPoints();
-			InitShaderCompiler();
+			InitShaderCompileService();
 		}
 
 		auto ShutdownModule() -> void override
 		{
-			ShutdownShaderCompiler();
+			ShutdownShaderCompileService();
 		}
 	};
 

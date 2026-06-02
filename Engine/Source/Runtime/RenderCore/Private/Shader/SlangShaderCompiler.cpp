@@ -18,19 +18,7 @@ namespace Durin
 
 	FSlangShaderCompiler::~FSlangShaderCompiler()
 	{
-		FileFingerprintCache.Clear();
 		GlobalSession.setNull();
-	}
-
-	auto FSlangShaderCompiler::NormalizePath(const std::filesystem::path& InPath) const -> std::string
-	{
-		std::error_code ErrorCode;
-		const std::filesystem::path CanonicalPath = std::filesystem::weakly_canonical(InPath, ErrorCode);
-		if (!ErrorCode)
-		{
-			return CanonicalPath.generic_string();
-		}
-		return InPath.lexically_normal().generic_string();
 	}
 
 	auto FSlangShaderCompiler::CreateSession(const FShaderCompileOptions& Options, Slang::ComPtr<slang::ISession>& OutSession, std::string& OutErrorMessage) const -> bool
@@ -68,43 +56,6 @@ namespace Durin
 		}
 
 		return true;
-	}
-
-	auto FSlangShaderCompiler::ResolveDependencyFiles(
-		slang::ISession* InSession,
-		const char8* InShaderFilePath,
-		std::vector<std::string>& OutDependencyPaths,
-		std::string& OutDiagnostics
-	) const -> Slang::Result
-	{
-		Slang::ComPtr<slang::IBlob> DiagnosticsBlob;
-		slang::IModule* Module = InSession->loadModule(InShaderFilePath, DiagnosticsBlob.writeRef());
-		if (!Module)
-		{
-			if (DiagnosticsBlob)
-			{
-				OutDiagnostics = static_cast<const char*>(DiagnosticsBlob->getBufferPointer());
-			}
-			return SLANG_FAIL;
-		}
-
-		OutDependencyPaths.clear();
-		OutDependencyPaths.push_back(NormalizePath(std::filesystem::path(InShaderFilePath)));
-
-		const SlangInt DependencyCount = Module->getDependencyFileCount();
-		for (SlangInt DependencyIndex = 0; DependencyIndex < DependencyCount; ++DependencyIndex)
-		{
-			const char* DependencyPath = Module->getDependencyFilePath(DependencyIndex);
-			if (DependencyPath && DependencyPath[0] != '\0')
-			{
-				OutDependencyPaths.push_back(NormalizePath(std::filesystem::path(DependencyPath)));
-			}
-		}
-
-		std::ranges::sort(OutDependencyPaths);
-		const auto UniqueEnd = std::ranges::unique(OutDependencyPaths).begin();
-		OutDependencyPaths.erase(UniqueEnd, OutDependencyPaths.end());
-		return SLANG_OK;
 	}
 
 	auto FSlangShaderCompiler::CompileInternal(
@@ -199,49 +150,12 @@ namespace Durin
 			return Output;
 		}
 
-		std::vector<FShaderMacroDefinition> NormalizedMacros;
-		if (!ShaderCompileUtilities::NormalizeMacros(Options, NormalizedMacros, Output.ErrorMessage))
-		{
-			return Output;
-		}
-
-		const bool bForceRecompile = Options.bForceRecompile || Settings.bForceRecompile;
 		const std::string SourceFilePath(ShaderSourceFilePath);
-		const std::string VirtualShaderPath = Options.VirtualShaderPath;
-		const bool bUseDiskCache = !VirtualShaderPath.empty();
 
 		Slang::ComPtr<slang::ISession> CompileSession;
 		if (!CreateSession(Options, CompileSession, Output.ErrorMessage))
 		{
 			return Output;
-		}
-
-		std::vector<std::string> DependencyPaths;
-		std::string DependencyDiagnostics;
-		if (SLANG_FAILED(ResolveDependencyFiles(CompileSession.get(), SourceFilePath.data(), DependencyPaths, DependencyDiagnostics)))
-		{
-			Output.ErrorMessage = DependencyDiagnostics.empty() ? "Failed to parse shader dependency graph" : DependencyDiagnostics;
-			return Output;
-		}
-
-		FShaderMetaData CurrentMetaData;
-		if (!ShaderCompileUtilities::BuildShaderMetaData(DependencyPaths, FileFingerprintCache, CurrentMetaData, Output.ErrorMessage))
-		{
-			return Output;
-		}
-
-		FShaderVariantKey VariantKey;
-		if (bUseDiskCache)
-		{
-			ShaderCompileUtilities::BuildVariantKey(VirtualShaderPath, CurrentMetaData, NormalizedMacros, VariantKey);
-
-			FShaderMetaData CachedMetaData;
-			const bool bMetaDataCurrent = CacheStore.LoadMetaData(VirtualShaderPath, CachedMetaData)
-				&& ShaderCompileUtilities::IsMetaDataCurrent(CurrentMetaData, CachedMetaData);
-			if (!bForceRecompile && bMetaDataCurrent && CacheStore.TryLoad(VirtualShaderPath, Options, VariantKey, Output))
-			{
-				return Output;
-			}
 		}
 
 		Slang::ComPtr<slang::IBlob> DiagnosticsBlob;
@@ -261,15 +175,6 @@ namespace Durin
 		{
 			Output.ErrorMessage = "Failed to fill shader compiler output";
 			return Output;
-		}
-
-		if (bUseDiskCache && !CacheStore.Save(VirtualShaderPath, Options, VariantKey, Output))
-		{
-			DURIN_WARN("Shader compiled successfully, but cache write failed for {}", VirtualShaderPath);
-		}
-		if (bUseDiskCache && !CacheStore.SaveMetaData(VirtualShaderPath, CurrentMetaData))
-		{
-			DURIN_WARN("Shader compiled successfully, but meta write failed for {}", VirtualShaderPath);
 		}
 
 		Output.bSucceeded = true;
