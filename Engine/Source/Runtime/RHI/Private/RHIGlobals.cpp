@@ -29,6 +29,7 @@ namespace Durin
 
 	auto RHIExit() -> void
 	{
+		check(GDynamicRHI);
 		GDynamicRHI->Shutdown();
 		delete GDynamicRHI;
 		GDynamicRHI = nullptr;

@@ -149,7 +149,29 @@ namespace Durin
 
 	auto FModuleManager::UnloadModule(const FName& InModuleName) -> void
 	{
-		DURIN_DEBUG(STR("Module Unloaded: {}"), InModuleName.ToString());
+		auto ModuleIt = Modules.find(InModuleName);
+		if (ModuleIt == Modules.end())
+		{
+			return;
+		}
+
+		FModuleInfoPtr ModuleInfo = ModuleIt->second;
+		if (ModuleInfo->bIsReady && ModuleInfo->Module)
+		{
+			ModuleInfo->Module->ShutdownModule();
+			ModuleInfo->bIsReady = false;
+			DURIN_DEBUG(STR("Module shutdown: {}"), InModuleName.ToString());
+		}
+
+		ModuleInfo->Module.reset();
+		if (ModuleInfo->Handle)
+		{
+			FPlatformMisc::FreeLibrary(ModuleInfo->Handle);
+			ModuleInfo->Handle = nullptr;
+		}
+
+		Modules.erase(ModuleIt);
+		DURIN_DEBUG(STR("Module unloaded: {}"), InModuleName.ToString());
 	}
 
 	auto FModuleManager::StartProcessingNewlyLoadedObjects() -> void

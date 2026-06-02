@@ -169,14 +169,14 @@ namespace Durin
 		EXPECT_NE(ShaderMapBaseIdentity.GetResource(), ShaderMapBytecodeVariant.GetResource());
 	}
 
-	TEST(FShaderFoundationTests, MakeShaderCreateDescPreservesFrequencyHashAndEntryPoint)
+	TEST(FShaderFoundationTests, MakeShaderCreateDescPreservesFrequencyHashAndUsesBackendEntryPoint)
 	{
 		const FCompiledShader CompiledShader = MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShader", 7);
 		const FRHIShaderCreateDesc CreateDesc = MakeShaderCreateDesc(CompiledShader);
 
 		EXPECT_EQ(CreateDesc.Frequency, EShaderFrequency::Pixel);
 		EXPECT_EQ(CreateDesc.Hash, CompiledShader.Hash);
-		EXPECT_STREQ(CreateDesc.EntryPoint, "fragmentMain");
+		EXPECT_STREQ(CreateDesc.EntryPoint, "main");
 		EXPECT_STREQ(CreateDesc.DebugName, "UnitPixelShader");
 		ASSERT_EQ(CreateDesc.Code.size(), CompiledShader.Code->size());
 		EXPECT_EQ(std::memcmp(CreateDesc.Code.data(), CompiledShader.Code->data(), CreateDesc.Code.size_bytes()), 0);

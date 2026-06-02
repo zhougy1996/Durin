@@ -373,11 +373,7 @@ namespace Durin
 
 	auto FShader::GetOrCreateRHIShader(bool bRequired) -> FRHIShader*
 	{
-		if (!ShaderRHI && ShaderMap && Type)
-		{
-			ShaderRHI = ShaderMap->GetOrCreateShaderRHI(Type, bRequired);
-		}
-		return ShaderRHI;
+		return (ShaderMap && Type) ? ShaderMap->GetOrCreateShaderRHI(Type, bRequired) : nullptr;
 	}
 
 	auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc
@@ -749,17 +745,7 @@ namespace Durin
 	{
 		const uint32* ShaderIndex = FindShaderIndex(ShaderType);
 		checkf(ShaderIndex, "Shader type '{}' is not part of this shader map", ShaderType ? ShaderType->GetName() : std::string_view("<null>"));
-		FRHIShader* RHIShader = Resource ? Resource->GetShader(*ShaderIndex, bRequired) : nullptr;
-
-		if (RHIShader)
-		{
-			if (FShader* ShaderInstance = GetShader(ShaderType))
-			{
-				ShaderInstance->SetShaderRHI(FShaderRHIRef(RHIShader));
-			}
-		}
-
-		return RHIShader;
+		return Resource ? Resource->GetShader(*ShaderIndex, bRequired) : nullptr;
 	}
 
 	auto FShaderMapBase::Reset() -> void

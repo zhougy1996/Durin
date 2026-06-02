@@ -125,18 +125,12 @@ namespace Durin
 		auto GetReflection() const -> const FShaderReflectionData& { return Reflection; }
 
 		RENDERCORE_API auto GetOrCreateRHIShader(bool bRequired = true) -> FRHIShader*;
-		auto GetShaderRHI() const -> FRHIShader* { return ShaderRHI; }
 
 	protected:
-		auto SetShaderRHI(FShaderRHIRef InShaderRHI) -> void { ShaderRHI = std::move(InShaderRHI); }
-
 		const FShaderType* Type = nullptr;
 		FShaderMapBase* ShaderMap = nullptr;
 		uint32 ShaderIndex = 0;
 		FShaderReflectionData Reflection;
-		FShaderRHIRef ShaderRHI;
-
-		friend class FShaderMapBase;
 	};
 
 	RENDERCORE_API auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc;
