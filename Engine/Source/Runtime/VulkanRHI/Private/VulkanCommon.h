@@ -9,7 +9,7 @@ namespace Durin::VulkanRHI
 		enum : uint32
 		{
 			Vertex = 0U,
-			Pixel,
+			Fragment,
 			Geometry,
 			Mesh,
 			Amplification,

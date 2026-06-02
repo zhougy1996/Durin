@@ -72,53 +72,53 @@ namespace Durin
 	TEST(FShaderFoundationTests, ShaderMapLookupByTypeIsStable)
 	{
 		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
-		FShaderType PixelShaderType("UnitPixelShader", "/Unit/TestShader", EShaderFrequency::Pixel, "fragmentMain");
+		FShaderType FragmentShaderType("UnitFragmentShader", "/Unit/TestShader", EShaderFrequency::Fragment, "fragmentMain");
 
 		FShaderCompilerOutput Output;
 		Output.bSucceeded = true;
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 1),
-			MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShader", 21)
+			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 21)
 		};
 
-		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &PixelShaderType};
+		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 		FShaderMapBase ShaderMap;
 		std::string ErrorMessage;
 		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
 
 		const uint32* VertexIndex = ShaderMap.FindShaderIndex(&VertexShaderType);
-		const uint32* PixelIndex = ShaderMap.FindShaderIndex(&PixelShaderType);
+		const uint32* FragmentIndex = ShaderMap.FindShaderIndex(&FragmentShaderType);
 		ASSERT_NE(VertexIndex, nullptr);
-		ASSERT_NE(PixelIndex, nullptr);
+		ASSERT_NE(FragmentIndex, nullptr);
 		EXPECT_EQ(*VertexIndex, 0u);
-		EXPECT_EQ(*PixelIndex, 1u);
+		EXPECT_EQ(*FragmentIndex, 1u);
 
-		auto* PixelShader = ShaderMap.GetShader(&PixelShaderType);
-		ASSERT_NE(PixelShader, nullptr);
-		TShaderRef<FShader> PixelShaderRef(PixelShader, &ShaderMap);
-		ASSERT_TRUE(PixelShaderRef);
-		EXPECT_EQ(PixelShaderRef.GetShader()->GetShaderIndex(), 1u);
-		EXPECT_EQ(PixelShaderRef.GetShader()->GetType(), &PixelShaderType);
+		auto* FragmentShader = ShaderMap.GetShader(&FragmentShaderType);
+		ASSERT_NE(FragmentShader, nullptr);
+		TShaderRef<FShader> FragmentShaderRef(FragmentShader, &ShaderMap);
+		ASSERT_TRUE(FragmentShaderRef);
+		EXPECT_EQ(FragmentShaderRef.GetShader()->GetShaderIndex(), 1u);
+		EXPECT_EQ(FragmentShaderRef.GetShader()->GetType(), &FragmentShaderType);
 	}
 
 	TEST(FShaderFoundationTests, ShaderMapInitializeReusesCachedResourcesForEquivalentIdentity)
 	{
 		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
-		FShaderType PixelShaderType("UnitPixelShader", "/Unit/TestShader", EShaderFrequency::Pixel, "fragmentMain");
+		FShaderType FragmentShaderType("UnitFragmentShader", "/Unit/TestShader", EShaderFrequency::Fragment, "fragmentMain");
 
 		FShaderCompilerOutput Output;
 		Output.bSucceeded = true;
 		Output.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 1),
-			MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShader", 21)
+			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 21)
 		};
 
 		FShaderCompileOptions CompileOptions;
 		CompileOptions.VirtualShaderPath = "/Unit/TestShader";
 		CompileOptions.EntryPoints = {"vertexMain", "fragmentMain"};
-		CompileOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Pixel};
+		CompileOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
 
-		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &PixelShaderType};
+		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 		FShaderMapBase ShaderMapA;
 		FShaderMapBase ShaderMapB;
 		std::string ErrorMessage;
@@ -136,23 +136,23 @@ namespace Durin
 	TEST(FShaderFoundationTests, ShaderMapInitializeSeparatesCachedResourcesForMacroOrBytecodeChanges)
 	{
 		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
-		FShaderType PixelShaderType("UnitPixelShader", "/Unit/TestShader", EShaderFrequency::Pixel, "fragmentMain");
-		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &PixelShaderType};
+		FShaderType FragmentShaderType("UnitFragmentShader", "/Unit/TestShader", EShaderFrequency::Fragment, "fragmentMain");
+		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 
 		FShaderCompilerOutput OutputA;
 		OutputA.bSucceeded = true;
 		OutputA.CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 2),
-			MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShader", 22)
+			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 22)
 		};
 
 		FShaderCompilerOutput OutputB = OutputA;
-		OutputB.CompiledShaders[1] = MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShaderVariant", 23);
+		OutputB.CompiledShaders[1] = MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShaderVariant", 23);
 
 		FShaderCompileOptions BaseOptions;
 		BaseOptions.VirtualShaderPath = "/Unit/TestShader";
 		BaseOptions.EntryPoints = {"vertexMain", "fragmentMain"};
-		BaseOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Pixel};
+		BaseOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Fragment};
 
 		FShaderCompileOptions MacroOptions = BaseOptions;
 		MacroOptions.Macros.emplace_back("USE_VARIANT");
@@ -220,13 +220,13 @@ namespace Durin
 
 	TEST(FShaderFoundationTests, MakeShaderCreateDescPreservesFrequencyHashAndUsesBackendEntryPoint)
 	{
-		const FCompiledShader CompiledShader = MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShader", 7);
+		const FCompiledShader CompiledShader = MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 7);
 		const FRHIShaderCreateDesc CreateDesc = MakeShaderCreateDesc(CompiledShader);
 
-		EXPECT_EQ(CreateDesc.Frequency, EShaderFrequency::Pixel);
+		EXPECT_EQ(CreateDesc.Frequency, EShaderFrequency::Fragment);
 		EXPECT_EQ(CreateDesc.Hash, CompiledShader.Hash);
 		EXPECT_STREQ(CreateDesc.EntryPoint, "main");
-		EXPECT_STREQ(CreateDesc.DebugName, "UnitPixelShader");
+		EXPECT_STREQ(CreateDesc.DebugName, "UnitFragmentShader");
 		ASSERT_EQ(CreateDesc.Code.size(), CompiledShader.Code->size());
 		EXPECT_EQ(std::memcmp(CreateDesc.Code.data(), CompiledShader.Code->data(), CreateDesc.Code.size_bytes()), 0);
 	}
@@ -248,8 +248,8 @@ namespace Durin
 			.Size = 16
 		});
 
-		FShaderReflectionData PixelReflection;
-		PixelReflection.ResourceBindings.push_back({
+		FShaderReflectionData FragmentReflection;
+		FragmentReflection.ResourceBindings.push_back({
 			.Name = "SceneUniform",
 			.StageFlags = EShaderStageFlags::Fragment,
 			.SetIndex = 0,
@@ -257,7 +257,7 @@ namespace Durin
 			.Type = ERHIBindingType::UniformBuffer,
 			.ArraySize = 1
 		});
-		PixelReflection.ResourceBindings.push_back({
+		FragmentReflection.ResourceBindings.push_back({
 			.Name = "FontTexture",
 			.StageFlags = EShaderStageFlags::Fragment,
 			.SetIndex = 0,
@@ -265,7 +265,7 @@ namespace Durin
 			.Type = ERHIBindingType::Texture,
 			.ArraySize = 1
 		});
-		PixelReflection.ResourceBindings.push_back({
+		FragmentReflection.ResourceBindings.push_back({
 			.Name = "FontSampler",
 			.StageFlags = EShaderStageFlags::Fragment,
 			.SetIndex = 0,
@@ -276,7 +276,7 @@ namespace Durin
 
 		std::vector<FCompiledShader> CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 3, VertexReflection),
-			MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShader", 4, PixelReflection)
+			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 4, FragmentReflection)
 		};
 
 		FPipelineLayoutDesc PipelineLayout;
@@ -315,8 +315,8 @@ namespace Durin
 			.ArraySize = 1
 		});
 
-		FShaderReflectionData PixelReflection;
-		PixelReflection.ResourceBindings.push_back({
+		FShaderReflectionData FragmentReflection;
+		FragmentReflection.ResourceBindings.push_back({
 			.Name = "ResourceA",
 			.StageFlags = EShaderStageFlags::Fragment,
 			.SetIndex = 0,
@@ -327,7 +327,7 @@ namespace Durin
 
 		std::vector<FCompiledShader> CompiledShaders = {
 			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 8, VertexReflection),
-			MakeCompiledShader(EShaderFrequency::Pixel, "fragmentMain", "UnitPixelShader", 9, PixelReflection)
+			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 9, FragmentReflection)
 		};
 
 		FPipelineLayoutDesc PipelineLayout;

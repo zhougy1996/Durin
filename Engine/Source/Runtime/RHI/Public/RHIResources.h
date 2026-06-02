@@ -189,9 +189,9 @@ namespace Durin
 			return Desc;
 		}
 
-		static auto CreatePixel(const char* InDebugName, FCodeView InCode, FXxHash128 InHash) -> FRHIShaderCreateDesc
+		static auto CreateFragment(const char* InDebugName, FCodeView InCode, FXxHash128 InHash) -> FRHIShaderCreateDesc
 		{
-			auto Desc = FRHIShaderCreateDesc(InDebugName, EShaderFrequency::Pixel, InCode, InHash);
+			auto Desc = FRHIShaderCreateDesc(InDebugName, EShaderFrequency::Fragment, InCode, InHash);
 			return Desc;
 		}
 
@@ -495,7 +495,7 @@ namespace Durin
 	struct FBoundShaders
 	{
 		FRHIShader* VertexShader = nullptr;
-		FRHIShader* PixelShader = nullptr;
+		FRHIShader* FragmentShader = nullptr;
 	};
 
 	struct FPushConstantRange

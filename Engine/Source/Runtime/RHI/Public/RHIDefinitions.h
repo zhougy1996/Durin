@@ -24,7 +24,7 @@ namespace Durin
 	enum class EShaderFrequency
 	{
 		Vertex,
-		Pixel,
+		Fragment,
 		Compute,
 		RayGen,
 		RayHitGroup,

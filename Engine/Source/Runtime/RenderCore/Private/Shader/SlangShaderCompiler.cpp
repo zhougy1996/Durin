@@ -16,7 +16,7 @@ namespace Durin
 			{
 			case EShaderFrequency::Vertex:
 				return EShaderStageFlags::Vertex;
-			case EShaderFrequency::Pixel:
+			case EShaderFrequency::Fragment:
 				return EShaderStageFlags::Fragment;
 			case EShaderFrequency::Compute:
 				return EShaderStageFlags::Compute;

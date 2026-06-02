@@ -15,9 +15,9 @@ namespace Durin::Mona
 			return ShaderType;
 		}
 
-		auto GetImGuiPixelShaderType() -> FShaderType&
+		auto GetImGuiFragmentShaderType() -> FShaderType&
 		{
-			static FShaderType ShaderType("ImGuiPixelShader", "/Engine/ImGui", EShaderFrequency::Pixel, "fragmentMain");
+			static FShaderType ShaderType("ImGuiFragmentShader", "/Engine/ImGui", EShaderFrequency::Fragment, "fragmentMain");
 			return ShaderType;
 		}
 	}
@@ -27,7 +27,7 @@ namespace Durin::Mona
 	{
 		std::shared_ptr<FShaderMapBase> ShaderMap;
 		TShaderRef<FShader> VertexShader;
-		TShaderRef<FShader> PixelShader;
+		TShaderRef<FShader> FragmentShader;
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateRHIRef PipelineState;
 
@@ -64,8 +64,8 @@ namespace Durin::Mona
 	{
 		FShaderCompileOptions CompileOptions;
 		FShaderType& VertexShaderType = GetImGuiVertexShaderType();
-		FShaderType& PixelShaderType = GetImGuiPixelShaderType();
-		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &PixelShaderType};
+		FShaderType& FragmentShaderType = GetImGuiFragmentShaderType();
+		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 		std::shared_ptr<FShaderMapBase> ShaderMap = std::make_shared<FShaderMapBase>();
 		std::string ErrorMessage;
 		if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
@@ -75,18 +75,18 @@ namespace Durin::Mona
 		}
 
 		FShader* VertexShader = ShaderMap->GetShader(&VertexShaderType);
-		FShader* PixelShader = ShaderMap->GetShader(&PixelShaderType);
+		FShader* FragmentShader = ShaderMap->GetShader(&FragmentShaderType);
 		check(VertexShader);
-		check(PixelShader);
+		check(FragmentShader);
 
 		GBackendState.ShaderMap = ShaderMap;
 		GBackendState.VertexShader = TShaderRef<FShader>(VertexShader, ShaderMap.get());
-		GBackendState.PixelShader = TShaderRef<FShader>(PixelShader, ShaderMap.get());
+		GBackendState.FragmentShader = TShaderRef<FShader>(FragmentShader, ShaderMap.get());
 
 		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([
 			ShaderMap,
 			VertexShaderRef = GBackendState.VertexShader,
-			PixelShaderRef = GBackendState.PixelShader
+			FragmentShaderRef = GBackendState.FragmentShader
 		](FRHICommandListImmediate& CommandList) {
 			FVertexDeclarationElementList VertexDeclElements;
 			constexpr uint32 VertexStride = sizeof(ImDrawVert);
@@ -98,7 +98,7 @@ namespace Durin::Mona
 			FGraphicsPipelineStateInitializer Initializer;
 			Initializer.RenderPassName = "ImGuiRenderPass";
 			Initializer.BoundShaders.VertexShader = VertexShaderRef.GetRHIShader();
-			Initializer.BoundShaders.PixelShader = PixelShaderRef.GetRHIShader();
+			Initializer.BoundShaders.FragmentShader = FragmentShaderRef.GetRHIShader();
 			Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
 
 			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
@@ -142,7 +142,7 @@ namespace Durin::Mona
 		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([](FRHICommandListImmediate& CommandList) {
 			GBackendState.ShaderMap.reset();
 			GBackendState.VertexShader = {};
-			GBackendState.PixelShader = {};
+			GBackendState.FragmentShader = {};
 			GBackendState.VertexDeclaration = nullptr;
 			GBackendState.PipelineState = nullptr;
 			GBackendState.LinearSampler = nullptr;
@@ -388,7 +388,7 @@ namespace Durin::Mona
 					Binding_0_1.Resource = GBackendState.LinearSampler;
 
 					std::vector<FRHIShaderParameterResource> ShaderParameters = {Binding_0_0, Binding_0_1};
-					CommandList.SetShaderParameters(GBackendState.PixelShader.GetRHIShader(), ShaderParameters);
+					CommandList.SetShaderParameters(GBackendState.FragmentShader.GetRHIShader(), ShaderParameters);
 
 					CommandList.DrawIndexed(Cmd->ElemCount, Cmd->IdxOffset + GlobalIndexOffset, Cmd->VtxOffset + GlobalVertexOffset);
 				}
@@ -451,7 +451,7 @@ namespace Durin::Mona
 				&& DrawData->TotalIdxCount > 0
 				&& GBackendState.PipelineState
 				&& GBackendState.VertexShader
-				&& GBackendState.PixelShader)
+				&& GBackendState.FragmentShader)
 			{
 				ImGuiRHIImplRT_RenderDrawData(CommandList, BackBuffer, DrawData, RenderBuffersCurrentFrame, ClearValue);
 			}

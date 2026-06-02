@@ -33,7 +33,7 @@ namespace Durin::VulkanRHI
 		std::vector<vk::PipelineShaderStageCreateInfo> ShaderStages;
 
 		AppendShaderStageCreateInfo(ShaderStages, vk::ShaderStageFlagBits::eVertex, BoundShaders.VertexShader);
-		AppendShaderStageCreateInfo(ShaderStages, vk::ShaderStageFlagBits::eFragment, BoundShaders.PixelShader);
+		AppendShaderStageCreateInfo(ShaderStages, vk::ShaderStageFlagBits::eFragment, BoundShaders.FragmentShader);
 
 		return ShaderStages;
 	}
