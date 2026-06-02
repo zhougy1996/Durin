@@ -2,13 +2,6 @@
 
 #include "MonaImGuiBackendAPI.h"
 
-struct ImGuiContext;
-
-namespace Durin::Mona
-{
-    extern MONAIMGUIBACKEND_API ImGuiContext* GMonaImGuiContext;
-}
-
 #ifndef IMGUI_API
     #define IMGUI_API MONAIMGUIBACKEND_API
 #endif
