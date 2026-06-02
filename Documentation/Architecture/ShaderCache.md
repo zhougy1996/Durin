@@ -97,14 +97,21 @@ fragmentMain.reflect.json
 main.reflect.json
 ```
 
+The artifact file name is derived from the requested source entry point, not from the backend-visible entry point exported by the compiled binary.
+For example, the cache file may be `vertexMain.spv` while the SPIR-V module itself still exposes `main` as its Vulkan entry point.
+
 Reflection sidecars persist the per-stage runtime metadata needed by `Shader.h`:
 
 - shader frequency
-- entry point
+- source entry point
+- binary entry point
 - debug name
 - compiled bytecode hash
 - reflected resource bindings
 - reflected push-constant ranges
+
+`source entry point` is the source-level function selected by the caller, such as `vertexMain`.
+`binary entry point` is the name exported by the compiled backend artifact, such as Vulkan SPIR-V `main`.
 
 Reflection is extracted from a Slang composite program built for one entry point at a time, so stage flags on bindings and push constants only include the stages that actually use those globals.
 
@@ -122,7 +129,9 @@ If two requested entry points sanitize to the same file name, binary cache load/
 6. On cache miss or forced recompile, log a debug message and invoke `FSlangShaderCompiler` for real physical compilation and reflection extraction.
 7. After successful compilation, write binary artifacts, write reflection sidecars, and save `Shader.slang.meta`.
 
-`bForceRecompile` skips binary cache load, but still resolves dependencies and updates metadata/artifacts after a successful compile.
+`bForceRecompile` is a per-request override on `FShaderCompileOptions`. It skips binary cache load for that request, but still resolves dependencies and updates metadata/artifacts after a successful compile.
+
+`FShaderMacroDefinition` preserves whether a macro is presence-only or has an explicit value. Use the one-argument constructor for presence-style defines, or the two-argument constructor for an explicit value.
 
 ## Notes
 

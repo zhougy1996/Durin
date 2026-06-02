@@ -44,7 +44,7 @@ namespace Durin
 		{
 			slang::PreprocessorMacroDesc MacroDesc = {};
 			MacroDesc.name = Macro.Name.c_str();
-			MacroDesc.value = Macro.bHasExplicitValue ? Macro.Value.c_str() : "1";
+			MacroDesc.value = Macro.Value ? Macro.Value->c_str() : nullptr;
 			SlangMacros.push_back(MacroDesc);
 		}
 

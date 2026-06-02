@@ -1,10 +1,10 @@
-#include "Shader/ShaderCacheStore.h"
+#include "ShaderCacheStore.h"
 
 #include "Hash/XxHash.h"
 #include "Json/Json.h"
 #include "Misc/FileHelper.h"
 #include "Misc/StringConvert.h"
-#include "Shader/ShaderCompiler.h"
+#include "Shader/ShaderCompilerCore.h"
 #include "Shader/ShaderPaths.h"
 
 #include <unordered_set>
@@ -57,7 +57,7 @@ namespace Durin
 			return true;
 		}
 
-		constexpr uint32 GShaderReflectionVersion = 3;
+		constexpr uint32 GShaderReflectionVersion = 4;
 
 		auto SaveShaderReflection(const std::string& FilePath, const FCompiledShader& CompiledShader) -> bool
 		{
@@ -65,7 +65,8 @@ namespace Durin
 			Writer
 				.AddFieldUInt("Version", GShaderReflectionVersion)
 				.AddFieldUInt("Frequency", static_cast<uint32>(CompiledShader.Frequency))
-				.AddFieldString("EntryPoint", CompiledShader.EntryPoint)
+				.AddFieldString("SourceEntryPoint", CompiledShader.SourceEntryPoint)
+				.AddFieldString("BinaryEntryPoint", CompiledShader.BinaryEntryPoint)
 				.AddFieldString("DebugName", CompiledShader.DebugName)
 				.AddFieldString("Hash", CompiledShader.Hash.ToString());
 
@@ -118,7 +119,12 @@ namespace Durin
 			}
 
 			OutCompiledShader.Frequency = static_cast<EShaderFrequency>(Root.GetUIntValue("Frequency"));
-			OutCompiledShader.EntryPoint = Root.GetStringValue("EntryPoint");
+			OutCompiledShader.SourceEntryPoint = Root.GetStringValue("SourceEntryPoint");
+			OutCompiledShader.BinaryEntryPoint = Root.GetStringValue("BinaryEntryPoint");
+			if (OutCompiledShader.BinaryEntryPoint.empty())
+			{
+				OutCompiledShader.BinaryEntryPoint = "main";
+			}
 			OutCompiledShader.DebugName = Root.GetStringValue("DebugName");
 			OutCompiledShader.Hash = FXxHash128::FromString(HashString);
 			OutCompiledShader.Reflection = {};

@@ -40,7 +40,10 @@ namespace Durin
 	struct FCompiledShader
 	{
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
-		std::string EntryPoint;
+		// Source-level entry point requested by the caller, such as `vertexMain`.
+		std::string SourceEntryPoint;
+		// Backend-visible entry point exported by the compiled binary, such as Vulkan SPIR-V `main`.
+		std::string BinaryEntryPoint = "main";
 		std::string DebugName;
 		std::shared_ptr<FShaderCode> Code;
 		FXxHash128 Hash{};

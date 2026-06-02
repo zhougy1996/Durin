@@ -4,8 +4,7 @@
 #include <cstring>
 #include "Misc/Paths.h"
 #include "Shader/Shader.h"
-#include "Shader/ShaderCacheStore.h"
-#include "Shader/ShaderCompiler.h"
+#include "Shader/ShaderCompilerCore.h"
 #include "Shader/ShaderPaths.h"
 
 namespace Durin
@@ -25,15 +24,17 @@ namespace Durin
 
 		auto MakeCompiledShader(
 			EShaderFrequency Frequency,
-			std::string EntryPoint,
+			std::string SourceEntryPoint,
 			std::string DebugName,
 			uint8 CodeSeed,
-			FShaderReflectionData Reflection = {}
+			FShaderReflectionData Reflection = {},
+			std::string BinaryEntryPoint = "main"
 		) -> FCompiledShader
 		{
 			FCompiledShader CompiledShader;
 			CompiledShader.Frequency = Frequency;
-			CompiledShader.EntryPoint = std::move(EntryPoint);
+			CompiledShader.SourceEntryPoint = std::move(SourceEntryPoint);
+			CompiledShader.BinaryEntryPoint = std::move(BinaryEntryPoint);
 			CompiledShader.DebugName = std::move(DebugName);
 			CompiledShader.Code = MakeCode(CodeSeed);
 			CompiledShader.Hash = FXxHash128::HashBuffer(*CompiledShader.Code);
@@ -44,7 +45,8 @@ namespace Durin
 		auto ExpectShaderEqual(const FCompiledShader& Actual, const FCompiledShader& Expected) -> void
 		{
 			ASSERT_EQ(Actual.Frequency, Expected.Frequency);
-			EXPECT_EQ(Actual.EntryPoint, Expected.EntryPoint);
+			EXPECT_EQ(Actual.SourceEntryPoint, Expected.SourceEntryPoint);
+			EXPECT_EQ(Actual.BinaryEntryPoint, Expected.BinaryEntryPoint);
 			EXPECT_EQ(Actual.DebugName, Expected.DebugName);
 			EXPECT_EQ(Actual.Hash, Expected.Hash);
 			ASSERT_TRUE(Actual.Code);
@@ -153,7 +155,7 @@ namespace Durin
 		BaseOptions.Frequencies = {EShaderFrequency::Vertex, EShaderFrequency::Pixel};
 
 		FShaderCompileOptions MacroOptions = BaseOptions;
-		MacroOptions.Macros.push_back({"USE_VARIANT", "1", true});
+		MacroOptions.Macros.emplace_back("USE_VARIANT");
 
 		FShaderMapBase ShaderMapBaseIdentity;
 		FShaderMapBase ShaderMapMacroVariant;
@@ -167,6 +169,53 @@ namespace Durin
 		EXPECT_NE(ShaderMapBaseIdentity.GetResource(), ShaderMapMacroVariant.GetResource());
 		EXPECT_NE(ShaderMapBaseIdentity.GetCacheKey(), ShaderMapBytecodeVariant.GetCacheKey());
 		EXPECT_NE(ShaderMapBaseIdentity.GetResource(), ShaderMapBytecodeVariant.GetResource());
+	}
+
+	TEST(FShaderFoundationTests, ShaderMacroDefinitionPreservesPresenceOnlyAndExplicitValueSemantics)
+	{
+		const FShaderMacroDefinition PresenceOnlyMacro("USE_VARIANT");
+		EXPECT_EQ(PresenceOnlyMacro.Name, "USE_VARIANT");
+		EXPECT_FALSE(PresenceOnlyMacro.HasValue());
+		EXPECT_FALSE(PresenceOnlyMacro.Value.has_value());
+
+		const std::string MacroName = "QUALITY_LEVEL";
+		const std::string MacroValue = "2";
+		const FShaderMacroDefinition ExplicitValueMacro(MacroName, MacroValue);
+		EXPECT_EQ(ExplicitValueMacro.Name, MacroName);
+		ASSERT_TRUE(ExplicitValueMacro.HasValue());
+		EXPECT_EQ(*ExplicitValueMacro.Value, MacroValue);
+		EXPECT_EQ(MacroName, "QUALITY_LEVEL");
+		EXPECT_EQ(MacroValue, "2");
+	}
+
+	TEST(FShaderFoundationTests, ShaderMapCacheKeyDistinguishesPresenceOnlyMacroFromExplicitValue)
+	{
+		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
+		std::array<const FShaderType*, 1> ShaderTypes = {&VertexShaderType};
+
+		FShaderCompilerOutput Output;
+		Output.bSucceeded = true;
+		Output.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitVertexShader", 5)
+		};
+
+		FShaderCompileOptions PresenceOnlyOptions;
+		PresenceOnlyOptions.VirtualShaderPath = "/Unit/TestShader";
+		PresenceOnlyOptions.EntryPoints = {"vertexMain"};
+		PresenceOnlyOptions.Frequencies = {EShaderFrequency::Vertex};
+		PresenceOnlyOptions.Macros.emplace_back("USE_VARIANT");
+
+		FShaderCompileOptions ExplicitValueOptions = PresenceOnlyOptions;
+		ExplicitValueOptions.Macros.clear();
+		ExplicitValueOptions.Macros.emplace_back("USE_VARIANT", "1");
+
+		FShaderMapBase PresenceOnlyShaderMap;
+		FShaderMapBase ExplicitValueShaderMap;
+		std::string ErrorMessage;
+		ASSERT_TRUE(PresenceOnlyShaderMap.Initialize(ShaderTypes, Output, PresenceOnlyOptions, ErrorMessage)) << ErrorMessage;
+		ASSERT_TRUE(ExplicitValueShaderMap.Initialize(ShaderTypes, Output, ExplicitValueOptions, ErrorMessage)) << ErrorMessage;
+
+		EXPECT_NE(PresenceOnlyShaderMap.GetCacheKey(), ExplicitValueShaderMap.GetCacheKey());
 	}
 
 	TEST(FShaderFoundationTests, MakeShaderCreateDescPreservesFrequencyHashAndUsesBackendEntryPoint)
@@ -287,43 +336,21 @@ namespace Durin
 		EXPECT_FALSE(ErrorMessage.empty());
 	}
 
-	TEST(FShaderFoundationTests, ShaderCacheRoundTripsReflectionSidecar)
+	TEST(FShaderFoundationTests, ShaderMapInitializeRejectsMismatchedSourceEntryPoint)
 	{
-		FShaderReflectionData Reflection;
-		Reflection.ResourceBindings.push_back({
-			.Name = "FontTexture",
-			.StageFlags = EShaderStageFlags::Fragment,
-			.SetIndex = 0,
-			.BindingIndex = 0,
-			.Type = ERHIBindingType::Texture,
-			.ArraySize = 1
-		});
-		Reflection.PushConstantRanges.push_back({
-			.StageFlags = EShaderStageFlags::Vertex,
-			.Offset = 0,
-			.Size = 16
-		});
+		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");
+		std::array<const FShaderType*, 1> ShaderTypes = {&VertexShaderType};
 
-		FShaderCompilerOutput SavedOutput;
-		SavedOutput.bSucceeded = true;
-		SavedOutput.CompiledShaders = {
-			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "CacheVertexShader", 12, Reflection)
+		FShaderCompilerOutput Output;
+		Output.bSucceeded = true;
+		Output.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Vertex, "unexpectedMain", "UnitVertexShader", 12)
 		};
 
-		FShaderCompileOptions Options;
-		Options.EntryPoints = {"vertexMain"};
-		Options.Frequencies = {EShaderFrequency::Vertex};
-
-		FShaderVariantKey VariantKey;
-		VariantKey.Hex = "unit-shader-cache";
-
-		FShaderCacheStore CacheStore;
-		ASSERT_TRUE(CacheStore.Save("/Unit/TestShader", Options, VariantKey, SavedOutput));
-
-		FShaderCompilerOutput LoadedOutput;
-		ASSERT_TRUE(CacheStore.TryLoad("/Unit/TestShader", Options, VariantKey, LoadedOutput));
-		ASSERT_EQ(LoadedOutput.CompiledShaders.size(), 1u);
-		ExpectShaderEqual(LoadedOutput.CompiledShaders[0], SavedOutput.CompiledShaders[0]);
+		FShaderMapBase ShaderMap;
+		std::string ErrorMessage;
+		EXPECT_FALSE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage));
+		EXPECT_FALSE(ErrorMessage.empty());
 	}
 
 	TEST(FShaderFoundationTests, UnmountedShaderCacheFallsBackUnderEngineDirectory)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Shader/ShaderCompiler.h"
+#include "ShaderCompiler.h"
 
 #include "slang.h"
 #include "slang-com-ptr.h"

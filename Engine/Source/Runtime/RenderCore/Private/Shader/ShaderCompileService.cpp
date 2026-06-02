@@ -1,12 +1,11 @@
-#include "Shader/ShaderCompileService.h"
+#include "ShaderCompileService.h"
 
 #include "ShaderCompileUtilities.h"
 #include "SlangShaderCompiler.h"
 #include "SlangShaderDependencyResolver.h"
 
-#include "Misc/AppConfigCache.h"
 #include "Misc/FileFingerprintCache.h"
-#include "Shader/ShaderCacheStore.h"
+#include "ShaderCacheStore.h"
 #include "Shader/ShaderPaths.h"
 
 namespace Durin
@@ -16,11 +15,6 @@ namespace Durin
 		class FShaderCompileService
 		{
 		public:
-			FShaderCompileService()
-				: bForceRecompile(GAppConfig.GetBoolValue("ForceRecompileShaders", false))
-			{
-			}
-
 			~FShaderCompileService()
 			{
 				FileFingerprintCache.Clear();
@@ -65,8 +59,7 @@ namespace Durin
 				FShaderMetaData CachedMetaData;
 				const bool bMetaDataCurrent = CacheStore.LoadMetaData(VirtualShaderPath, CachedMetaData)
 					&& ShaderCompileUtilities::IsMetaDataCurrent(CurrentMetaData, CachedMetaData);
-				const bool bSkipBinaryCacheLoad = EffectiveOptions.bForceRecompile || bForceRecompile;
-				if (!bSkipBinaryCacheLoad && bMetaDataCurrent && CacheStore.TryLoad(VirtualShaderPath, EffectiveOptions, VariantKey, Output))
+				if (!EffectiveOptions.bForceRecompile && bMetaDataCurrent && CacheStore.TryLoad(VirtualShaderPath, EffectiveOptions, VariantKey, Output))
 				{
 					return Output;
 				}
@@ -91,14 +84,11 @@ namespace Durin
 				return Output;
 			}
 
-			auto GetCompiler() -> FShaderCompiler* { return &Compiler; }
-
 		private:
 			FSlangShaderCompiler Compiler;
 			FSlangShaderDependencyResolver DependencyResolver;
 			FShaderCacheStore CacheStore;
 			FFileFingerprintCache FileFingerprintCache;
-			bool bForceRecompile = false;
 		};
 
 		std::unique_ptr<FShaderCompileService> GShaderCompileService;
@@ -107,12 +97,10 @@ namespace Durin
 	auto InitShaderCompileService() -> void
 	{
 		GShaderCompileService = std::make_unique<FShaderCompileService>();
-		GShaderCompiler = GShaderCompileService->GetCompiler();
 	}
 
 	auto ShutdownShaderCompileService() -> void
 	{
-		GShaderCompiler = nullptr;
 		GShaderCompileService.reset();
 	}
 

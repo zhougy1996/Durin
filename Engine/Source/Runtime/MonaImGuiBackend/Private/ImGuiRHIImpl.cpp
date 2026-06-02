@@ -3,7 +3,7 @@
 #include "RHI.h"
 #include "RenderingThread.h"
 #include "Shader/Shader.h"
-#include "Shader/ShaderCompiler.h"
+#include "Shader/ShaderCompilerCore.h"
 
 namespace Durin::Mona
 {

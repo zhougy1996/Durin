@@ -1,23 +1,38 @@
 #pragma once
 
-#include "RenderCoreAPI.h"
-
 #include "Shader/Shader.h"
 
 namespace Durin
 {
 	struct FShaderMacroDefinition
 	{
+		FShaderMacroDefinition() = default;
+
+		FShaderMacroDefinition(std::string_view InName)
+			: Name(InName)
+		{
+		}
+
+		FShaderMacroDefinition(std::string_view InName, std::string_view InValue)
+			: Name(InName)
+			, Value(InValue)
+		{
+		}
+
+		auto HasValue() const -> bool
+		{
+			return Value.has_value();
+		}
+
 		std::string Name;
-		std::string Value;
-		// When false, the macro behaves like a presence define and is materialized as Name=1 for Slang.
-		bool bHasExplicitValue = false;
+		std::optional<std::string> Value;
 	};
 
 	struct FShaderCompileOptions
 	{
 		// Stable cache identity resolved by the caller. Leave empty to disable disk-backed shader cache reads and writes.
 		std::string VirtualShaderPath;
+		// Requested source-level entry points, such as `vertexMain` or `fragmentMain`.
 		std::vector<const char8*> EntryPoints;
 		std::vector<EShaderFrequency> Frequencies;
 		std::vector<FShaderMacroDefinition> Macros;
@@ -32,25 +47,4 @@ namespace Durin
 
 		operator bool() const { return bSucceeded; }
 	};
-
-	struct FShaderCompilerSettings
-	{
-		bool bForceRecompile = false;
-	};
-
-	class FShaderCompiler
-	{
-	public:
-		FShaderCompiler();
-		virtual ~FShaderCompiler() = default;
-
-		RENDERCORE_API virtual auto Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput = 0;
-
-		DURIN_NONCOPYABLE(FShaderCompiler);
-
-	protected:
-		FShaderCompilerSettings Settings;
-	};
-
-	RENDERCORE_API extern FShaderCompiler* GShaderCompiler;
 } // namespace Durin

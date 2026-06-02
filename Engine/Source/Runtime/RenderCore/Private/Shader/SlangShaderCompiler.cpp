@@ -492,7 +492,7 @@ namespace Durin
 		{
 			slang::PreprocessorMacroDesc MacroDesc = {};
 			MacroDesc.name = Macro.Name.c_str();
-			MacroDesc.value = Macro.bHasExplicitValue ? Macro.Value.c_str() : "1";
+			MacroDesc.value = Macro.Value ? Macro.Value->c_str() : nullptr;
 			SlangMacros.push_back(MacroDesc);
 		}
 
@@ -604,10 +604,12 @@ namespace Durin
 
 		OutCompiledShader = {};
 		OutCompiledShader.Frequency = Frequency;
-		OutCompiledShader.EntryPoint = EntryPointName ? std::string(EntryPointName) : std::string();
+		OutCompiledShader.SourceEntryPoint = EntryPointName ? std::string(EntryPointName) : std::string();
+		// Slang's single-entry-point SPIR-V path currently emits `main` as the binary entry point.
+		OutCompiledShader.BinaryEntryPoint = "main";
 		OutCompiledShader.DebugName = VirtualShaderPath.empty()
-			? OutCompiledShader.EntryPoint
-			: std::format("{}::{}", VirtualShaderPath, OutCompiledShader.EntryPoint);
+			? OutCompiledShader.SourceEntryPoint
+			: std::format("{}::{}", VirtualShaderPath, OutCompiledShader.SourceEntryPoint);
 		OutCompiledShader.Code = std::make_shared<FShaderCode>();
 		if (!ConvertBlobToArray(CodeBlob, *OutCompiledShader.Code))
 		{
@@ -622,7 +624,7 @@ namespace Durin
 		std::string ReflectionErrorMessage;
 		if (!BuildReflectionData(ProgramLayout, Metadata.get(), SpirvWords, 0, OutCompiledShader.Frequency, OutCompiledShader.Reflection, ReflectionErrorMessage))
 		{
-			OutErrorMessage = std::format("Failed to reflect shader '{}': {}", OutCompiledShader.EntryPoint, ReflectionErrorMessage);
+			OutErrorMessage = std::format("Failed to reflect shader '{}': {}", OutCompiledShader.SourceEntryPoint, ReflectionErrorMessage);
 			return false;
 		}
 

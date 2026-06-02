@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Shader/ShaderCacheStore.h"
-#include "Shader/ShaderCompiler.h"
+#include "ShaderCacheStore.h"
+#include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
 {

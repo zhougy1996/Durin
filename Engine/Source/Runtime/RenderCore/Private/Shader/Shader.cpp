@@ -1,9 +1,8 @@
 #include "Shader/Shader.h"
 
 #include "DynamicRHI.h"
+#include "ShaderCompileService.h"
 #include "ShaderCompileUtilities.h"
-#include "Shader/ShaderCompileService.h"
-#include "Shader/ShaderCompiler.h"
 
 namespace Durin
 {
@@ -296,8 +295,11 @@ namespace Durin
 			for (const FShaderMacroDefinition& Macro : NormalizedMacros)
 			{
 				UpdateHashStringField(Builder, Macro.Name);
-				UpdateHashStringField(Builder, Macro.Value);
-				Builder.UpdateValue(Macro.bHasExplicitValue);
+				Builder.UpdateValue(Macro.HasValue());
+				if (Macro.Value)
+				{
+					UpdateHashStringField(Builder, *Macro.Value);
+				}
 			}
 
 			const uint64 ShaderCount = static_cast<uint64>(Output.CompiledShaders.size());
@@ -385,9 +387,7 @@ namespace Durin
 			*CompiledShader.Code,
 			CompiledShader.Hash
 		);
-		// Slang's single-entry-point SPIR-V output currently exposes "main" as the Vulkan entry point,
-		// even when the requested source-level entry point name is vertexMain/fragmentMain.
-		CreateDesc.SetEntryPoint("main");
+		CreateDesc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
 		return CreateDesc;
 	}
 
@@ -672,11 +672,11 @@ namespace Durin
 				return false;
 			}
 
-			if (!ShaderType->GetEntryPoint().empty() && CompiledShader.EntryPoint != ShaderType->GetEntryPoint())
+			if (!ShaderType->GetEntryPoint().empty() && CompiledShader.SourceEntryPoint != ShaderType->GetEntryPoint())
 			{
 				OutErrorMessage = std::format(
 					"Compiled shader entry point '{}' does not match shader type '{}' entry point '{}'",
-					CompiledShader.EntryPoint,
+					CompiledShader.SourceEntryPoint,
 					ShaderType->GetName(),
 					ShaderType->GetEntryPoint()
 				);

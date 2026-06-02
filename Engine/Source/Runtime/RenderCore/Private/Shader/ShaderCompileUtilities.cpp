@@ -29,11 +29,11 @@ namespace Durin::ShaderCompileUtilities
 			{
 				return A.Name < B.Name;
 			}
-			if (A.Value != B.Value)
+			if (A.HasValue() != B.HasValue())
 			{
-				return A.Value < B.Value;
+				return !A.HasValue();
 			}
-			return A.bHasExplicitValue < B.bHasExplicitValue;
+			return A.Value < B.Value;
 		});
 
 		for (size_t Index = 1; Index < OutMacros.size(); ++Index)
@@ -97,8 +97,11 @@ namespace Durin::ShaderCompileUtilities
 		for (const FShaderMacroDefinition& Macro : Macros)
 		{
 			UpdateHashStringField(Builder, Macro.Name);
-			UpdateHashStringField(Builder, Macro.Value);
-			Builder.UpdateValue(Macro.bHasExplicitValue);
+			Builder.UpdateValue(Macro.HasValue());
+			if (Macro.Value)
+			{
+				UpdateHashStringField(Builder, *Macro.Value);
+			}
 		}
 
 		OutVariantKey.Value = Builder.Finalize();
