@@ -616,6 +616,8 @@ namespace Durin::Mona
 		check(GDynamicRHI);
 		GMonaImGuiContext = ImGui::CreateContext();
 		ImGui::SetCurrentContext(GMonaImGuiContext);
+		static std::string GImGuiIniPath = FPaths::LaunchDir() + "imgui.ini";
+		ImGui::GetIO().IniFilename = GImGuiIniPath.c_str();
 
 		ConfigureDefaultImGuiBehavior();
 		ImGuiRHIImpl_Init();

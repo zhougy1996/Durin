@@ -2,10 +2,11 @@
 
 #include <array>
 #include <cstring>
-
+#include "Misc/Paths.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCacheStore.h"
 #include "Shader/ShaderCompiler.h"
+#include "Shader/ShaderPaths.h"
 
 namespace Durin
 {
@@ -254,4 +255,11 @@ namespace Durin
 		ASSERT_EQ(LoadedOutput.CompiledShaders.size(), 1u);
 		ExpectShaderEqual(LoadedOutput.CompiledShaders[0], SavedOutput.CompiledShaders[0]);
 	}
+
+	TEST(FShaderFoundationTests, UnmountedShaderCacheFallsBackUnderEngineDirectory)
+	{
+		const std::string MetaPath = FShaderPaths::MetaPath("/Unit/TestShader");
+		EXPECT_TRUE(MetaPath.starts_with(FPaths::EngineDir() + "ShaderCache/SPIR-V/"));
+	}
+
 } // namespace Durin

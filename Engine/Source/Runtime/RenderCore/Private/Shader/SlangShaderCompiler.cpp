@@ -5,6 +5,7 @@
 #include "Hash/XxHash.h"
 
 #include <array>
+#include <ranges>
 #include <unordered_map>
 
 namespace Durin
@@ -100,10 +101,229 @@ namespace Durin
 			}
 		}
 
+		auto AppendResourceBinding(FShaderReflectionData& OutReflection, FShaderResourceBinding Binding) -> void
+		{
+			const auto FoundIt = std::ranges::find_if(OutReflection.ResourceBindings, [&Binding](const FShaderResourceBinding& ExistingBinding) {
+				return ExistingBinding.SetIndex == Binding.SetIndex
+					&& ExistingBinding.BindingIndex == Binding.BindingIndex
+					&& ExistingBinding.Type == Binding.Type
+					&& ExistingBinding.ArraySize == Binding.ArraySize;
+			});
+			if (FoundIt == OutReflection.ResourceBindings.end())
+			{
+				OutReflection.ResourceBindings.push_back(std::move(Binding));
+				return;
+			}
+
+			FoundIt->StageFlags |= Binding.StageFlags;
+			if (FoundIt->Name.empty())
+			{
+				FoundIt->Name = std::move(Binding.Name);
+			}
+		}
+
+		auto AppendPushConstantRange(FShaderReflectionData& OutReflection, FPushConstantRange Range) -> void
+		{
+			const auto FoundIt = std::ranges::find_if(OutReflection.PushConstantRanges, [&Range](const FPushConstantRange& ExistingRange) {
+				return ExistingRange.Offset == Range.Offset && ExistingRange.Size == Range.Size;
+			});
+			if (FoundIt == OutReflection.PushConstantRanges.end())
+			{
+				OutReflection.PushConstantRanges.push_back(Range);
+				return;
+			}
+
+			FoundIt->StageFlags |= Range.StageFlags;
+		}
+
+		auto CollectUsedPushConstantVariableNamesFromSpirv(std::span<const uint32> SpirvWords, std::unordered_set<std::string>& OutNames) -> bool
+		{
+			OutNames.clear();
+			if (SpirvWords.size() < 5)
+			{
+				return false;
+			}
+
+			constexpr uint32 SpvMagicNumber = 0x07230203u;
+			constexpr uint16 OpName = 5u;
+			constexpr uint16 OpVariable = 59u;
+			constexpr uint32 StorageClassPushConstant = 9u;
+
+			std::unordered_map<uint32, std::string> DebugNames;
+			std::unordered_set<uint32> PushConstantVariableIds;
+
+			for (size_t WordIndex = 5; WordIndex < SpirvWords.size();)
+			{
+				const uint32 InstructionWord = SpirvWords[WordIndex];
+				const uint16 WordCount = static_cast<uint16>(InstructionWord >> 16);
+				const uint16 Opcode = static_cast<uint16>(InstructionWord & 0xffffu);
+				if (WordCount == 0 || WordIndex + WordCount > SpirvWords.size())
+				{
+					return false;
+				}
+
+				switch (Opcode)
+				{
+				case OpName:
+				{
+					if (WordCount >= 3)
+					{
+						const uint32 TargetId = SpirvWords[WordIndex + 1];
+						const char* NameChars = reinterpret_cast<const char*>(SpirvWords.data() + WordIndex + 2);
+						DebugNames[TargetId] = NameChars ? std::string(NameChars) : std::string();
+					}
+					break;
+				}
+				case OpVariable:
+				{
+					if (WordCount >= 4)
+					{
+						const uint32 ResultId = SpirvWords[WordIndex + 2];
+						const uint32 StorageClass = SpirvWords[WordIndex + 3];
+						if (StorageClass == StorageClassPushConstant)
+						{
+							PushConstantVariableIds.insert(ResultId);
+						}
+					}
+					break;
+				}
+				default:
+					break;
+				}
+
+				WordIndex += WordCount;
+			}
+
+			if (SpirvWords[0] != SpvMagicNumber)
+			{
+				return false;
+			}
+
+			for (const uint32 VariableId : PushConstantVariableIds)
+			{
+				if (const auto FoundIt = DebugNames.find(VariableId); FoundIt != DebugNames.end())
+				{
+					OutNames.insert(FoundIt->second);
+				}
+			}
+
+			return !PushConstantVariableIds.empty();
+		}
+
+		auto AppendUsedPushConstantRanges(
+			const std::unordered_map<std::string, FPushConstantRange>& PushConstantRanges,
+			std::span<const uint32> SpirvWords,
+			FShaderReflectionData& OutReflection
+		) -> void
+		{
+			std::unordered_set<std::string> UsedVariableNames;
+			const bool bHasPushConstantVariables = CollectUsedPushConstantVariableNamesFromSpirv(SpirvWords, UsedVariableNames);
+			if (!bHasPushConstantVariables)
+			{
+				return;
+			}
+
+			if (UsedVariableNames.empty())
+			{
+				for (const auto& [Name, Range] : PushConstantRanges)
+				{
+					AppendPushConstantRange(OutReflection, Range);
+				}
+				return;
+			}
+
+			for (const std::string& UsedName : UsedVariableNames)
+			{
+				if (const auto FoundIt = PushConstantRanges.find(UsedName); FoundIt != PushConstantRanges.end())
+				{
+					AppendPushConstantRange(OutReflection, FoundIt->second);
+				}
+			}
+		}
+
+		auto IsBindingRangeUsed(
+			slang::TypeLayoutReflection* TypeLayout,
+			SlangInt BindingRangeIndex,
+			slang::IMetadata* Metadata,
+			std::string_view BindingName,
+			std::string& OutErrorMessage,
+			bool& bOutUsed
+		) -> bool
+		{
+			bOutUsed = true;
+			if (!TypeLayout || !Metadata)
+			{
+				return true;
+			}
+
+			const slang::BindingType BindingType = TypeLayout->getBindingRangeType(BindingRangeIndex);
+			SlangInt SpaceIndex = 0;
+			SlangInt RegisterIndex = 0;
+			slang::ParameterCategory Category = slang::ParameterCategory::None;
+
+			switch (BindingType)
+			{
+			case slang::BindingType::ConstantBuffer:
+			case slang::BindingType::Texture:
+			case slang::BindingType::MutableTexture:
+			case slang::BindingType::Sampler:
+			{
+				const SlangInt DescriptorSetIndex = TypeLayout->getBindingRangeDescriptorSetIndex(BindingRangeIndex);
+				const SlangInt DescriptorRangeIndex = TypeLayout->getBindingRangeFirstDescriptorRangeIndex(BindingRangeIndex);
+				if (DescriptorSetIndex < 0 || DescriptorRangeIndex < 0)
+				{
+					OutErrorMessage = std::format("Invalid descriptor set information for shader binding '{}'", BindingName);
+					return false;
+				}
+
+				SpaceIndex = DescriptorSetIndex;
+				RegisterIndex = TypeLayout->getDescriptorSetDescriptorRangeIndexOffset(DescriptorSetIndex, DescriptorRangeIndex);
+				Category = TypeLayout->getDescriptorSetDescriptorRangeCategory(DescriptorSetIndex, DescriptorRangeIndex);
+				break;
+			}
+			case slang::BindingType::VaryingInput:
+			case slang::BindingType::VaryingOutput:
+			case slang::BindingType::PushConstant:
+				bOutUsed = false;
+				return true;
+			default:
+				OutErrorMessage = std::format(
+					"Unsupported Slang binding type {} for shader binding '{}'",
+					static_cast<uint32>(BindingType),
+					BindingName
+				);
+				return false;
+			}
+
+			if (RegisterIndex < 0)
+			{
+				OutErrorMessage = std::format("Invalid register index for shader binding '{}'", BindingName);
+				return false;
+			}
+
+			bool bUsed = false;
+			if (SLANG_FAILED(Metadata->isParameterLocationUsed(
+				static_cast<SlangParameterCategory>(Category),
+				static_cast<SlangUInt>(SpaceIndex),
+				static_cast<SlangUInt>(RegisterIndex),
+				bUsed)))
+			{
+				// Some Slang paths do not expose per-entry-point usage metadata for every
+				// binding category. Fall back to keeping the binding instead of failing
+				// shader compilation and blocking cache generation.
+				bOutUsed = true;
+				return true;
+			}
+
+			bOutUsed = bUsed;
+			return true;
+		}
+
 		auto ExtractBindingsFromTypeLayout(
 			slang::TypeLayoutReflection* TypeLayout,
 			EShaderStageFlags StageFlags,
 			const std::unordered_map<std::string, FPushConstantRange>& PushConstantRanges,
+			slang::IMetadata* Metadata,
 			FShaderReflectionData& OutReflection,
 			std::string& OutErrorMessage
 		) -> bool
@@ -118,6 +338,15 @@ namespace Durin
 				const slang::BindingType BindingType = TypeLayout->getBindingRangeType(BindingRangeIndex);
 				slang::VariableReflection* LeafVariable = TypeLayout->getBindingRangeLeafVariable(BindingRangeIndex);
 				const std::string BindingName = (LeafVariable && LeafVariable->getName()) ? LeafVariable->getName() : "";
+				bool bBindingUsed = true;
+				if (!IsBindingRangeUsed(TypeLayout, BindingRangeIndex, Metadata, BindingName, OutErrorMessage, bBindingUsed))
+				{
+					return false;
+				}
+				if (!bBindingUsed)
+				{
+					continue;
+				}
 
 				switch (BindingType)
 				{
@@ -157,7 +386,7 @@ namespace Durin
 						break;
 					}
 
-					OutReflection.ResourceBindings.push_back(std::move(Binding));
+					AppendResourceBinding(OutReflection, std::move(Binding));
 					break;
 				}
 				case slang::BindingType::PushConstant:
@@ -180,7 +409,7 @@ namespace Durin
 						Range.Offset = FoundIt->second.Offset;
 						Range.Size = FoundIt->second.Size;
 					}
-					OutReflection.PushConstantRanges.push_back(Range);
+					AppendPushConstantRange(OutReflection, Range);
 					break;
 				}
 				case slang::BindingType::VaryingInput:
@@ -201,6 +430,8 @@ namespace Durin
 
 		auto BuildReflectionData(
 			slang::ProgramLayout* ProgramLayout,
+			slang::IMetadata* Metadata,
+			std::span<const uint32> SpirvWords,
 			uint32 EntryPointIndex,
 			EShaderFrequency Frequency,
 			FShaderReflectionData& OutReflection,
@@ -222,14 +453,16 @@ namespace Durin
 			CollectPushConstantOffsets(ProgramLayout->getGlobalParamsVarLayout(), StageFlags, PushConstantRanges);
 			CollectPushConstantOffsets(EntryPointReflection->getVarLayout(), StageFlags, PushConstantRanges);
 
-			if (!ExtractBindingsFromTypeLayout(ProgramLayout->getGlobalParamsTypeLayout(), StageFlags, PushConstantRanges, OutReflection, OutErrorMessage))
+			if (!ExtractBindingsFromTypeLayout(ProgramLayout->getGlobalParamsTypeLayout(), StageFlags, PushConstantRanges, Metadata, OutReflection, OutErrorMessage))
 			{
 				return false;
 			}
-			if (!ExtractBindingsFromTypeLayout(EntryPointReflection->getTypeLayout(), StageFlags, PushConstantRanges, OutReflection, OutErrorMessage))
+			if (!ExtractBindingsFromTypeLayout(EntryPointReflection->getTypeLayout(), StageFlags, PushConstantRanges, Metadata, OutReflection, OutErrorMessage))
 			{
 				return false;
 			}
+
+			AppendUsedPushConstantRanges(PushConstantRanges, SpirvWords, OutReflection);
 
 			return true;
 		}
@@ -366,6 +599,9 @@ namespace Durin
 			return false;
 		}
 
+		Slang::ComPtr<slang::IMetadata> Metadata;
+		ComposedProgram->getEntryPointMetadata(0, 0, Metadata.writeRef(), nullptr);
+
 		OutCompiledShader = {};
 		OutCompiledShader.Frequency = Frequency;
 		OutCompiledShader.EntryPoint = EntryPointName ? std::string(EntryPointName) : std::string();
@@ -380,8 +616,11 @@ namespace Durin
 		}
 		OutCompiledShader.Hash = FXxHash128::HashBuffer(*OutCompiledShader.Code);
 
+		std::vector<uint32> SpirvWords(OutCompiledShader.Code->size() / sizeof(uint32));
+		std::memcpy(SpirvWords.data(), OutCompiledShader.Code->data(), OutCompiledShader.Code->size());
+
 		std::string ReflectionErrorMessage;
-		if (!BuildReflectionData(ProgramLayout, 0, OutCompiledShader.Frequency, OutCompiledShader.Reflection, ReflectionErrorMessage))
+		if (!BuildReflectionData(ProgramLayout, Metadata.get(), SpirvWords, 0, OutCompiledShader.Frequency, OutCompiledShader.Reflection, ReflectionErrorMessage))
 		{
 			OutErrorMessage = std::format("Failed to reflect shader '{}': {}", OutCompiledShader.EntryPoint, ReflectionErrorMessage);
 			return false;

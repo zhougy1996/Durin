@@ -1,6 +1,7 @@
 #include "Logging/Logger.h"
 
 #include "Misc/AppConfigCache.h"
+#include "Misc/Paths.h"
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -31,13 +32,15 @@ namespace Durin
 	auto FLogger::Initialize() -> void
 	{
 		auto& SpdLogger = Impl->SpdLogger;
-		std::filesystem::create_directories("Logs");
+		const std::filesystem::path LogDirectory = std::filesystem::path(FPaths::LaunchDir()) / "Logs";
+		std::filesystem::create_directories(LogDirectory);
+		const std::filesystem::path LogFilePath = LogDirectory / "Durin.log";
 
 		const auto ConsoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 		ConsoleSink->set_level(spdlog::level::debug);
 		ConsoleSink->set_pattern("[%H:%M:%S][%^%l%$]%v");
 
-		const auto FileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("Logs/Durin.log", true);
+		const auto FileSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(LogFilePath.string(), true);
 		FileSink->set_level(spdlog::level::trace);
 		FileSink->set_pattern("[%Y-%m-%d %H:%M:%S][%^%l%$][%s:%#] %v");
 

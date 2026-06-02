@@ -221,17 +221,17 @@ namespace Durin::FShaderPaths
 		return (ParentPath / ShaderDirectoryName).lexically_normal();
 	}
 
-	static auto ResolveShaderDirectoryPath(std::string_view VirtualShaderPath) -> std::filesystem::path
-	{
-		if (const FShaderMountPoint* MountPoint = GShaderMountRegistry.Find(VirtualShaderPath))
+		static auto ResolveShaderDirectoryPath(std::string_view VirtualShaderPath) -> std::filesystem::path
 		{
-			const std::string_view RelativeVirtualShaderPath = GetRelativeVirtualShaderPath(VirtualShaderPath, *MountPoint);
-			return (std::filesystem::path(MountPoint->BinaryDir) / GetRelativeShaderCacheDirectory(RelativeVirtualShaderPath)).lexically_normal();
-		}
+			if (const FShaderMountPoint* MountPoint = GShaderMountRegistry.Find(VirtualShaderPath))
+			{
+				const std::string_view RelativeVirtualShaderPath = GetRelativeVirtualShaderPath(VirtualShaderPath, *MountPoint);
+				return (std::filesystem::path(MountPoint->BinaryDir) / GetRelativeShaderCacheDirectory(RelativeVirtualShaderPath)).lexically_normal();
+			}
 
-		DURIN_WARN("Failed to resolve virtual shader path. Make sure the path is correct and a mount point is registered for it. Virtual shader path: {}", VirtualShaderPath);
-		return std::filesystem::path("ShaderCache") / "SPIR-V" / (String::SanitizeFileName(VirtualShaderPath, "Shader") + ".slang");
-	}
+			DURIN_WARN("Failed to resolve virtual shader path. Make sure the path is correct and a mount point is registered for it. Virtual shader path: {}", VirtualShaderPath);
+			return std::filesystem::path(FPaths::EngineDir()) / "ShaderCache" / "SPIR-V" / (String::SanitizeFileName(VirtualShaderPath, "Shader") + ".slang");
+		}
 
 	auto ShaderDirectory(std::string_view VirtualShaderPath) -> std::string
 	{
