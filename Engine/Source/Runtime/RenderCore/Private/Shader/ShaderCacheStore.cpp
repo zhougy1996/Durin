@@ -3,6 +3,7 @@
 #include "Hash/XxHash.h"
 #include "Json/Json.h"
 #include "Misc/FileHelper.h"
+#include "Misc/StringConvert.h"
 #include "Shader/ShaderCompiler.h"
 #include "Shader/ShaderPaths.h"
 
@@ -49,11 +50,15 @@ namespace Durin
 		OutMetaData = {};
 		OutMetaData.VirtualShaderPath = Root.GetStringValue("virtualShaderPath");
 
-		if (!FXxHash64::TryFromString(Root.GetStringValue("mainSourceHash"), OutMetaData.MainSourceHash)
-			|| !FXxHash128::TryFromString(Root.GetStringValue("sourceTreeSignature"), OutMetaData.SourceTreeSignature))
+		const std::string MainSourceHash = Root.GetStringValue("mainSourceHash");
+		const std::string SourceTreeSignature = Root.GetStringValue("sourceTreeSignature");
+		if (!String::IsHex(MainSourceHash, 16)
+			|| !String::IsHex(SourceTreeSignature, 32))
 		{
 			return false;
 		}
+		OutMetaData.MainSourceHash = FXxHash64::FromString(MainSourceHash);
+		OutMetaData.SourceTreeSignature = FXxHash128::FromString(SourceTreeSignature);
 
 		const FJsonValueView DependenciesView = Root.GetView("dependencies");
 		if (!DependenciesView.IsArray())
@@ -73,10 +78,12 @@ namespace Durin
 			FShaderDependencyInfo Dependency;
 			Dependency.Path = DependencyView.GetStringValue("path");
 			Dependency.FileSize = DependencyView.GetUIntValue("size");
-			if (Dependency.Path.empty() || !FXxHash64::TryFromString(DependencyView.GetStringValue("hash"), Dependency.ContentHash))
+			const std::string DependencyHash = DependencyView.GetStringValue("hash");
+			if (Dependency.Path.empty() || !String::IsHex(DependencyHash, 16))
 			{
 				return false;
 			}
+			Dependency.ContentHash = FXxHash64::FromString(DependencyHash);
 
 			OutMetaData.Dependencies.push_back(std::move(Dependency));
 		}

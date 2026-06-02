@@ -1,9 +1,43 @@
 #include "Misc/StringConvert.h"
 
+#include "Misc/AssertionMacros.h"
+
 namespace Durin
 {
-	namespace StringConvert
+	namespace String
 	{
+		namespace
+		{
+			constexpr char GHexDigits[] = "0123456789abcdef";
+
+			auto IsHexChar(const char Value) -> bool
+			{
+				return (Value >= '0' && Value <= '9')
+					|| (Value >= 'a' && Value <= 'f')
+					|| (Value >= 'A' && Value <= 'F');
+			}
+
+			auto HexCharToNibbleUnchecked(const char Value) -> uint8
+			{
+				if (Value >= '0' && Value <= '9')
+				{
+					return static_cast<uint8>(Value - '0');
+				}
+
+				if (Value >= 'a' && Value <= 'f')
+				{
+					return static_cast<uint8>(10 + Value - 'a');
+				}
+
+				if (Value >= 'A' && Value <= 'F')
+				{
+					return static_cast<uint8>(10 + Value - 'A');
+				}
+
+				return 0;
+			}
+		}
+
 		auto WideToUtf8(std::wstring_view WideStr) -> std::string
 		{
 			if (WideStr.empty()) return {};
@@ -41,6 +75,48 @@ namespace Durin
 				Result += static_cast<char>(0x80 | (Codepoint & 0x3F));
 			}
 			return Result;
+		}
+
+		auto IsHex(std::string_view Value, std::optional<size_t> ExpectedLength) -> bool
+		{
+			if (ExpectedLength.has_value() && Value.size() != *ExpectedLength)
+			{
+				return false;
+			}
+
+			for (const char Character : Value)
+			{
+				if (!IsHexChar(Character))
+				{
+					return false;
+				}
+			}
+
+			return true;
+		}
+
+		auto BytesToHex(std::span<const uint8> Bytes) -> std::string
+		{
+			std::string Result;
+			Result.reserve(Bytes.size() * 2);
+			for (const uint8 Byte : Bytes)
+			{
+				Result.push_back(GHexDigits[(Byte >> 4) & 0xf]);
+				Result.push_back(GHexDigits[Byte & 0xf]);
+			}
+			return Result;
+		}
+
+		auto HexToBytes(std::string_view Hex, std::span<uint8> OutBytes) -> void
+		{
+			check(Hex.size() == OutBytes.size() * 2);
+
+			for (size_t Index = 0; Index < OutBytes.size(); ++Index)
+			{
+				const uint8 HighNibble = HexCharToNibbleUnchecked(Hex[Index * 2]);
+				const uint8 LowNibble = HexCharToNibbleUnchecked(Hex[Index * 2 + 1]);
+				OutBytes[Index] = static_cast<uint8>((HighNibble << 4) | LowNibble);
+			}
 		}
 	} // namespace StringConvert
 }

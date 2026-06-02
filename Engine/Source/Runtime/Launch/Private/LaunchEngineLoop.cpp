@@ -49,7 +49,7 @@ namespace Durin
 		GIsGameThreadIdInitialized = true;
 
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
-		AddDllDirectory(StringConvert::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
+		AddDllDirectory(String::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
 
 		CoreInternal::LoadApplicationConfig(FPaths::LaunchDir() + std::string(GetAppConfigFileName()));
 

@@ -1,8 +1,7 @@
 #include "Hash/XxHash.h"
+#include "Misc/StringConvert.h"
 
 #include <gtest/gtest.h>
-
-#include <array>
 
 namespace
 {
@@ -19,50 +18,33 @@ namespace
 		const Durin::FXxHash64 Hash64{0x0123456789abcdefull};
 		const std::string Hex64 = Hash64.ToString();
 		EXPECT_EQ(Hex64, "0123456789abcdef");
-
-		Durin::FXxHash64 Parsed64;
-		ASSERT_TRUE(Durin::FXxHash64::TryFromString(Hex64, Parsed64));
-		EXPECT_EQ(Parsed64, Hash64);
+		ASSERT_TRUE(Durin::String::IsHex(Hex64, 16));
 		EXPECT_EQ(Durin::FXxHash64::FromString(Hex64), Hash64);
 
 		const Durin::FXxHash128 Hash128{0x0123456789abcdefull, 0xfedcba9876543210ull};
 		const std::string Hex128 = Hash128.ToString();
 		EXPECT_EQ(Hex128, "fedcba98765432100123456789abcdef");
-
-		Durin::FXxHash128 Parsed128;
-		ASSERT_TRUE(Durin::FXxHash128::TryFromString(Hex128, Parsed128));
-		EXPECT_EQ(Parsed128, Hash128);
+		ASSERT_TRUE(Durin::String::IsHex(Hex128, 32));
 		EXPECT_EQ(Durin::FXxHash128::FromString(Hex128), Hash128);
 	}
 
-	TEST(FXxHashTests, TryFromStringRejectsInvalidInput)
+	TEST(FXxHashTests, IsHexRejectsInvalidInput)
 	{
-		Durin::FXxHash64 Hash64;
-		EXPECT_FALSE(Durin::FXxHash64::TryFromString("", Hash64));
-		EXPECT_FALSE(Durin::FXxHash64::TryFromString("xyz", Hash64));
-
-		Durin::FXxHash128 Hash128;
-		EXPECT_FALSE(Durin::FXxHash128::TryFromString("", Hash128));
-		EXPECT_FALSE(Durin::FXxHash128::TryFromString("0123456789abcdef", Hash128));
-		EXPECT_FALSE(Durin::FXxHash128::TryFromString("0123456789abcdef0123456789abcdeg", Hash128));
+		EXPECT_TRUE(Durin::String::IsHex(""));
+		EXPECT_FALSE(Durin::String::IsHex("xyz"));
+		EXPECT_FALSE(Durin::String::IsHex("0123456789abcdef", 32));
+		EXPECT_FALSE(Durin::String::IsHex("0123456789abcdef0123456789abcdeg", 32));
 	}
 
 	TEST(FXxHashTests, BytesToHexAndHexToBytesRoundTrip)
 	{
 		const std::array<Durin::uint8, 4> Bytes = {0x00, 0x12, 0xab, 0xff};
-		EXPECT_EQ(Durin::BytesToHex(std::span<const Durin::uint8>(Bytes)), "0012abff");
+		EXPECT_EQ(Durin::String::BytesToHex(std::span<const Durin::uint8>(Bytes)), "0012abff");
 
 		std::array<Durin::uint8, 4> ParsedBytes = {};
-		ASSERT_TRUE(Durin::HexToBytes("0012ABff", ParsedBytes));
+		ASSERT_TRUE(Durin::String::IsHex("0012ABff", 8));
+		Durin::String::HexToBytes("0012ABff", ParsedBytes);
 		EXPECT_EQ(ParsedBytes, Bytes);
-	}
-
-	TEST(FXxHashTests, HexToBytesRejectsInvalidInput)
-	{
-		std::array<Durin::uint8, 2> Bytes = {};
-		EXPECT_FALSE(Durin::HexToBytes("0", Bytes));
-		EXPECT_FALSE(Durin::HexToBytes("001122", Bytes));
-		EXPECT_FALSE(Durin::HexToBytes("00g1", Bytes));
 	}
 
 	TEST(FXxHashTests, StructuredStringHashingCanPreserveFieldBoundariesAtCallSite)
