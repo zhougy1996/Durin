@@ -87,9 +87,12 @@ features:
 		Features.AppendString("parse");
 		Features.AppendInt(12);
 		Features.AppendBool(false);
+		EXPECT_EQ(Features.GetView(0).GetString(), "parse");
 
 		Durin::FYamlNodeRef Nested = Features.AppendMap();
 		Nested.SetStringValue("label", "nested");
+		EXPECT_EQ(Root.GetRef("flags").GetUIntValue("count"), 3U);
+		EXPECT_EQ(Features.GetRef(3).GetStringValue("label"), "nested");
 
 		const std::filesystem::path OutputPath = std::filesystem::current_path() / "YamlRoundTrip.yaml";
 		ASSERT_TRUE(Document.SaveToFile(OutputPath.string()));

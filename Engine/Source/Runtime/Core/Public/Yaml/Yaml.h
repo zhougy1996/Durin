@@ -15,15 +15,12 @@ namespace Durin
 		std::string Message;
 	};
 
+	struct FYamlNodeAccess;
+
 	class FYamlNodeView
 	{
 	public:
 		FYamlNodeView() = default;
-
-		static auto FromOpaque(void* InTreePtr, size_t InNodeIndex) -> FYamlNodeView
-		{
-			return FYamlNodeView(InTreePtr, InNodeIndex);
-		}
 
 		CORE_API auto IsValid() const -> bool;
 		CORE_API auto IsScalar() const -> bool;
@@ -34,9 +31,12 @@ namespace Durin
 		CORE_API auto Contains(std::string_view InKey) const -> bool;
 		CORE_API auto GetKey() const -> std::string;
 
+		// Returns an invalid view when this node is not a map or when the key is missing.
 		CORE_API auto GetView(std::string_view InKey) const -> FYamlNodeView;
+		// Returns an invalid view when this node is not a sequence/container or the index is out of range.
 		CORE_API auto GetView(size_t Index) const -> FYamlNodeView;
 
+		// Scalar getters return DefaultValue when the node is invalid, not scalar, or cannot be converted.
 		CORE_API auto GetString(std::string DefaultValue = "") const -> std::string;
 		CORE_API auto GetBool(bool DefaultValue = false) const -> bool;
 		CORE_API auto GetInt(int64 DefaultValue = 0) const -> int64;
@@ -49,7 +49,7 @@ namespace Durin
 		CORE_API auto GetUIntValue(std::string_view InKey, uint64 DefaultValue = 0) const -> uint64;
 		CORE_API auto GetDoubleValue(std::string_view InKey, double DefaultValue = 0.0) const -> double;
 
-	private:
+	protected:
 		FYamlNodeView(void* InTreePtr, size_t InNodeIndex)
 			: TreePtr(InTreePtr)
 			, NodeIndex(InNodeIndex)
@@ -59,41 +59,51 @@ namespace Durin
 		void* TreePtr = nullptr;
 		size_t NodeIndex = 0;
 
+	private:
+		static auto FromOpaque(void* InTreePtr, size_t InNodeIndex) -> FYamlNodeView
+		{
+			return FYamlNodeView(InTreePtr, InNodeIndex);
+		}
+
+		friend struct FYamlNodeAccess;
 		friend class FYamlNodeRef;
 		friend class FYamlDocument;
 	};
 
 	class FYamlNodeRef
+		: public FYamlNodeView
 	{
 	public:
 		FYamlNodeRef() = default;
 
-		static auto FromOpaque(void* InTreePtr, size_t InNodeIndex) -> FYamlNodeRef
-		{
-			return FYamlNodeRef(InTreePtr, InNodeIndex);
-		}
+		// Returns an invalid ref when this node is not a map or when the key is missing.
+		CORE_API auto GetRef(std::string_view InKey) const -> FYamlNodeRef;
+		// Returns an invalid ref when this node is not a sequence/container or the index is out of range.
+		CORE_API auto GetRef(size_t Index) const -> FYamlNodeRef;
 
-		CORE_API auto IsValid() const -> bool;
-		CORE_API auto AsView() const -> FYamlNodeView;
-
+		// Converts this node into a map/sequence in place, clearing any previous scalar or container contents.
 		CORE_API auto EnsureMap() -> FYamlNodeRef&;
 		CORE_API auto EnsureSequence() -> FYamlNodeRef&;
 
+		// Replaces this node with a scalar value.
 		CORE_API auto SetString(std::string_view InValue) -> FYamlNodeRef&;
 		CORE_API auto SetBool(bool bInValue) -> FYamlNodeRef&;
 		CORE_API auto SetInt(int64 InValue) -> FYamlNodeRef&;
 		CORE_API auto SetUInt(uint64 InValue) -> FYamlNodeRef&;
 		CORE_API auto SetDouble(double InValue) -> FYamlNodeRef&;
 
+		// Ensures this node is a map, then writes the scalar field at InKey.
 		CORE_API auto SetStringValue(std::string_view InKey, std::string_view InValue) -> FYamlNodeRef&;
 		CORE_API auto SetBoolValue(std::string_view InKey, bool bInValue) -> FYamlNodeRef&;
 		CORE_API auto SetIntValue(std::string_view InKey, int64 InValue) -> FYamlNodeRef&;
 		CORE_API auto SetUIntValue(std::string_view InKey, uint64 InValue) -> FYamlNodeRef&;
 		CORE_API auto SetDoubleValue(std::string_view InKey, double InValue) -> FYamlNodeRef&;
 
+		// Ensures this node is a map, then replaces any existing value at InKey with a new empty map/sequence.
 		CORE_API auto AddMap(std::string_view InKey) -> FYamlNodeRef;
 		CORE_API auto AddSequence(std::string_view InKey) -> FYamlNodeRef;
 
+		// Ensures this node is a sequence, then appends a new scalar/container element.
 		CORE_API auto AppendString(std::string_view InValue) -> FYamlNodeRef&;
 		CORE_API auto AppendBool(bool bInValue) -> FYamlNodeRef&;
 		CORE_API auto AppendInt(int64 InValue) -> FYamlNodeRef&;
@@ -105,14 +115,16 @@ namespace Durin
 
 	private:
 		FYamlNodeRef(void* InTreePtr, size_t InNodeIndex)
-			: TreePtr(InTreePtr)
-			, NodeIndex(InNodeIndex)
+			: FYamlNodeView(InTreePtr, InNodeIndex)
 		{
 		}
 
-		void* TreePtr = nullptr;
-		size_t NodeIndex = 0;
+		static auto FromOpaque(void* InTreePtr, size_t InNodeIndex) -> FYamlNodeRef
+		{
+			return FYamlNodeRef(InTreePtr, InNodeIndex);
+		}
 
+		friend struct FYamlNodeAccess;
 		friend class FYamlDocument;
 	};
 

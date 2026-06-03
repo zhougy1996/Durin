@@ -9,6 +9,19 @@
 
 namespace Durin
 {
+	struct FYamlNodeAccess
+	{
+		static auto MakeView(void* InTreePtr, size_t InNodeIndex) -> FYamlNodeView
+		{
+			return FYamlNodeView::FromOpaque(InTreePtr, InNodeIndex);
+		}
+
+		static auto MakeRef(void* InTreePtr, size_t InNodeIndex) -> FYamlNodeRef
+		{
+			return FYamlNodeRef::FromOpaque(InTreePtr, InNodeIndex);
+		}
+	};
+
 	namespace
 	{
 		constexpr size_t InvalidNodeIndex = static_cast<size_t>(ryml::NONE);
@@ -46,14 +59,14 @@ namespace Durin
 		auto ToNodeView(const ryml::ConstNodeRef& InNode) -> FYamlNodeView
 		{
 			return InNode.readable()
-				? FYamlNodeView::FromOpaque(const_cast<ryml::Tree*>(InNode.tree()), ToNodeIndex(InNode.id()))
+				? FYamlNodeAccess::MakeView(const_cast<ryml::Tree*>(InNode.tree()), ToNodeIndex(InNode.id()))
 				: FYamlNodeView{};
 		}
 
 		auto ToNodeRef(const ryml::NodeRef& InNode) -> FYamlNodeRef
 		{
 			return InNode.readable()
-				? FYamlNodeRef::FromOpaque(const_cast<ryml::Tree*>(InNode.tree()), ToNodeIndex(InNode.id()))
+				? FYamlNodeAccess::MakeRef(const_cast<ryml::Tree*>(InNode.tree()), ToNodeIndex(InNode.id()))
 				: FYamlNodeRef{};
 		}
 
@@ -458,14 +471,38 @@ namespace Durin
 		return GetView(InKey).GetDouble(DefaultValue);
 	}
 
-	auto FYamlNodeRef::IsValid() const -> bool
+	auto FYamlNodeRef::GetRef(std::string_view InKey) const -> FYamlNodeRef
 	{
-		return MakeNode(TreePtr, NodeIndex).readable();
+		const auto Node = MakeConstNode(TreePtr, NodeIndex);
+		if (!Node.readable() || !Node.is_map())
+		{
+			return {};
+		}
+
+		const ryml::ConstNodeRef ChildNode = Node.find_child(ToCSubstr(InKey));
+		if (!ChildNode.readable())
+		{
+			return {};
+		}
+
+		return FYamlNodeAccess::MakeRef(TreePtr, ToNodeIndex(ChildNode.id()));
 	}
 
-	auto FYamlNodeRef::AsView() const -> FYamlNodeView
+	auto FYamlNodeRef::GetRef(size_t Index) const -> FYamlNodeRef
 	{
-		return FYamlNodeView::FromOpaque(TreePtr, NodeIndex);
+		const auto Node = MakeConstNode(TreePtr, NodeIndex);
+		if (!Node.readable() || !Node.is_container() || Index >= Node.num_children())
+		{
+			return {};
+		}
+
+		const ryml::ConstNodeRef ChildNode = Node.child(static_cast<ryml::id_type>(Index));
+		if (!ChildNode.readable())
+		{
+			return {};
+		}
+
+		return FYamlNodeAccess::MakeRef(TreePtr, ToNodeIndex(ChildNode.id()));
 	}
 
 	auto FYamlNodeRef::EnsureMap() -> FYamlNodeRef&
@@ -776,14 +813,14 @@ namespace Durin
 			return {};
 		}
 
-		return FYamlNodeView::FromOpaque(const_cast<ryml::Tree*>(&Impl->Tree), ToNodeIndex(Impl->Tree.root_id()));
+		return FYamlNodeAccess::MakeView(const_cast<ryml::Tree*>(&Impl->Tree), ToNodeIndex(Impl->Tree.root_id()));
 	}
 
 	auto FYamlDocument::GetMutableRoot() -> FYamlNodeRef
 	{
 		Impl->EnsureRoot();
 		Impl->bIsValid = true;
-		return FYamlNodeRef::FromOpaque(&Impl->Tree, ToNodeIndex(Impl->Tree.root_id()));
+		return FYamlNodeAccess::MakeRef(&Impl->Tree, ToNodeIndex(Impl->Tree.root_id()));
 	}
 
 	auto FYamlDocument::ToString() const -> std::string
