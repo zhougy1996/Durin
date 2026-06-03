@@ -6,7 +6,7 @@ for %%I in ("%SCRIPT_DIR%..\..\..") do set "REPO_ROOT=%%~fI"
 set "PYTHON_EXE=%REPO_ROOT%\.venv\Scripts\python.exe"
 
 if exist "%PYTHON_EXE%" (
-  call "%PYTHON_EXE%" "%SCRIPT_DIR%link_external.py" %*
+  call "%PYTHON_EXE%" "%SCRIPT_DIR%prepare_worktree.py" %*
   exit /b %errorlevel%
 )
 
@@ -16,5 +16,5 @@ if errorlevel 1 (
   exit /b 1
 )
 
-call python "%SCRIPT_DIR%link_external.py" %*
+call python "%SCRIPT_DIR%prepare_worktree.py" %*
 exit /b %errorlevel%

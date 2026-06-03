@@ -19,6 +19,7 @@ Windows convenience wrappers:
 
 - `Engine/Scripts/Bootstrap/Bootstrap.bat`
 - `Engine/Scripts/Bootstrap/Setup_<Library>.bat`
+- `Engine/Scripts/Bootstrap/PrepareWorktree.bat`
 
 Recommended examples:
 
@@ -31,22 +32,29 @@ python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 ## Worktree Sharing
 
 When using Git worktrees, dependency payloads can be shared by linking the ignored
-`Engine/External` directory from a prepared sibling `Durin` worktree:
+`Engine/External` directory from a prepared sibling `Durin` worktree. The helper
+also copies `AGENTS_LOCAL.md` from that sibling worktree:
 
 ```powershell
-Engine\Scripts\Bootstrap\LinkExternal.bat
+Engine\Scripts\Bootstrap\PrepareWorktree.bat
 ```
 
 By default, the script links this worktree's `Engine/External` to
-`..\Durin\Engine\External`. On Windows, `LinkExternal.bat` creates a directory
-junction by default. To preview the operation first, run:
+`..\Durin\Engine\External`. On Windows, `PrepareWorktree.bat` creates a
+directory junction by default. To preview the operation first, run:
 
 ```powershell
-Engine\Scripts\Bootstrap\LinkExternal.bat --dry-run
+Engine\Scripts\Bootstrap\PrepareWorktree.bat --dry-run
 ```
 
 If the prepared dependency worktree is somewhere else, pass either its root or
 its `Engine/External` directory with `--source`.
+
+On Windows, root `Setup.bat` only switches to `PrepareWorktree.bat` when Git
+explicitly reports a linked worktree. If `.git` is missing, Git is unavailable,
+or the Git query fails, `Setup.bat` falls back to the normal full bootstrap.
+The detection compares `git rev-parse --git-dir` and
+`git rev-parse --git-common-dir` after expanding both to absolute paths.
 
 Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` per-worktree.
 Those directories contain generated state and outputs that can depend on the

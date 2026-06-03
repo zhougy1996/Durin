@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -12,11 +13,12 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
 
-ENV_SOURCE_NAMES = ("DURIN_EXTERNAL_SOURCE", "DURIN_EXTERNAL_ROOT")
+ENV_SOURCE_NAMES = ("DURIN_WORKTREE_SOURCE", "DURIN_EXTERNAL_SOURCE", "DURIN_EXTERNAL_ROOT")
 DEFAULT_SOURCE_WORKTREE_NAME = "Durin"
+AGENTS_LOCAL_NAME = "AGENTS_LOCAL.md"
 
 
-class LinkExternalError(RuntimeError):
+class PrepareWorktreeError(RuntimeError):
     pass
 
 
@@ -28,7 +30,7 @@ def normalize_path(path: Path) -> Path:
     return path.expanduser().resolve()
 
 
-def find_source_argument(args: argparse.Namespace) -> str | None:
+def find_source_argument(args: argparse.Namespace) -> str:
     if args.source:
         return args.source
 
@@ -40,40 +42,31 @@ def find_source_argument(args: argparse.Namespace) -> str | None:
     return str(REPO_ROOT.parent / DEFAULT_SOURCE_WORKTREE_NAME)
 
 
-def resolve_external_dir(path_value: str) -> Path:
+def resolve_source_worktree(path_value: str) -> Path:
     path = normalize_path(Path(path_value))
 
     if path.name.lower() == "external":
-        if not path.is_dir():
-            raise LinkExternalError(f"External directory does not exist: \"{path}\"")
-        return path
+        candidate = path.parent.parent
+    else:
+        candidate = path
 
-    repo_external = path / "Engine" / "External"
-    if repo_external.exists():
-        return normalize_path(repo_external)
+    external_dir = candidate / "Engine" / "External"
+    if external_dir.exists():
+        return normalize_path(candidate)
 
-    raise LinkExternalError(
+    raise PrepareWorktreeError(
         f"Could not find an Engine/External directory under \"{path}\".\n"
         "Pass either a Durin worktree root or an Engine/External directory."
     )
 
 
-def resolve_source_external(args: argparse.Namespace) -> Path:
-    source_value = find_source_argument(args)
-    if not source_value:
-        raise LinkExternalError(
-            "Missing source External directory.\n"
-            "Use --source <main-worktree-root-or-Engine/External>, or set DURIN_EXTERNAL_SOURCE."
-        )
+def resolve_source(args: argparse.Namespace) -> Path:
+    source_worktree = resolve_source_worktree(find_source_argument(args))
 
-    source_external = resolve_external_dir(source_value)
-    target_external = normalize_path(REPO_ROOT / "Engine" / "External")
-    if same_path(source_external, target_external):
-        raise LinkExternalError(
-            f"Source External is the same as this worktree's External: \"{source_external}\"."
-        )
+    if same_path(source_worktree, REPO_ROOT):
+        raise PrepareWorktreeError(f"Source worktree is the same as this worktree: \"{source_worktree}\".")
 
-    return source_external
+    return source_worktree
 
 
 def is_reparse_point(path: Path) -> bool:
@@ -123,7 +116,7 @@ def remove_link_or_empty_dir(path: Path, *, dry_run: bool) -> None:
         path.rmdir()
         return
 
-    raise LinkExternalError(f"Refusing to remove non-empty real directory: \"{path}\"")
+    raise PrepareWorktreeError(f"Refusing to remove non-empty real directory: \"{path}\"")
 
 
 def create_junction(source: Path, target: Path, *, dry_run: bool) -> None:
@@ -134,7 +127,7 @@ def create_junction(source: Path, target: Path, *, dry_run: bool) -> None:
 
     result = subprocess.run(command)
     if result.returncode != 0:
-        raise LinkExternalError(
+        raise PrepareWorktreeError(
             f"Failed to create junction \"{target}\" -> \"{source}\" "
             f"(exit code {result.returncode})."
         )
@@ -157,7 +150,7 @@ def choose_link_type(requested: str) -> str:
 def create_link(source: Path, target: Path, *, link_type: str, dry_run: bool) -> None:
     if link_type == "junction":
         if not is_windows():
-            raise LinkExternalError("Directory junctions are only supported on Windows.")
+            raise PrepareWorktreeError("Directory junctions are only supported on Windows.")
         create_junction(source, target, dry_run=dry_run)
         return
 
@@ -165,12 +158,15 @@ def create_link(source: Path, target: Path, *, link_type: str, dry_run: bool) ->
         create_symlink(source, target, dry_run=dry_run)
         return
 
-    raise LinkExternalError(f"Unsupported link type: {link_type}")
+    raise PrepareWorktreeError(f"Unsupported link type: {link_type}")
 
 
-def link_external(source_external: Path, target_external: Path, *, link_type: str, dry_run: bool) -> None:
+def prepare_external_link(source_worktree: Path, *, link_type: str, dry_run: bool) -> None:
+    source_external = normalize_path(source_worktree / "Engine" / "External")
+    target_external = normalize_path(REPO_ROOT / "Engine" / "External")
+
     if not source_external.is_dir():
-        raise LinkExternalError(f"Source External directory does not exist: \"{source_external}\"")
+        raise PrepareWorktreeError(f"Source External directory does not exist: \"{source_external}\"")
 
     if linked_to(target_external, source_external):
         print(f"External is already linked to \"{source_external}\".")
@@ -180,7 +176,7 @@ def link_external(source_external: Path, target_external: Path, *, link_type: st
         if is_link_like(target_external) or is_empty_directory(target_external):
             remove_link_or_empty_dir(target_external, dry_run=dry_run)
         else:
-            raise LinkExternalError(
+            raise PrepareWorktreeError(
                 f"Target External already exists and is not an empty directory or link: \"{target_external}\"\n"
                 "Move it aside manually if you really want to replace it."
             )
@@ -194,18 +190,35 @@ def link_external(source_external: Path, target_external: Path, *, link_type: st
     print(f"Linked External: \"{target_external}\" -> \"{source_external}\"")
 
 
+def copy_agents_local(source_worktree: Path, *, dry_run: bool) -> None:
+    source_file = source_worktree / AGENTS_LOCAL_NAME
+    target_file = REPO_ROOT / AGENTS_LOCAL_NAME
+
+    if not source_file.is_file():
+        print(f"{AGENTS_LOCAL_NAME} was not found in \"{source_worktree}\"; skipping.")
+        return
+
+    if dry_run:
+        print(f"[dry-run] copy \"{source_file}\" -> \"{target_file}\"")
+        return
+
+    shutil.copy2(source_file, target_file)
+    print(f"Copied {AGENTS_LOCAL_NAME}: \"{target_file}\"")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Link this Durin worktree's Engine/External directory to another "
-            "worktree's prepared third-party dependency directory."
+            "Prepare a Durin Git worktree by linking Engine/External and copying "
+            "machine-local AGENTS_LOCAL.md from a prepared sibling worktree."
         )
     )
     parser.add_argument(
         "--source",
         help=(
             "Source Durin worktree root or Engine/External directory. "
-            "Defaults to DURIN_EXTERNAL_SOURCE, DURIN_EXTERNAL_ROOT, or a sibling Durin worktree."
+            "Defaults to DURIN_WORKTREE_SOURCE, DURIN_EXTERNAL_SOURCE, "
+            "DURIN_EXTERNAL_ROOT, or a sibling Durin worktree."
         ),
     )
     parser.add_argument(
@@ -225,17 +238,17 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     try:
         args = parse_args()
-        source_external = resolve_source_external(args)
-        target_external = normalize_path(REPO_ROOT / "Engine" / "External")
+        source_worktree = resolve_source(args)
         link_type = choose_link_type(args.link_type)
 
-        print(f"Source External: \"{source_external}\"")
-        print(f"Target External: \"{target_external}\"")
+        print(f"Source worktree: \"{source_worktree}\"")
+        print(f"Target worktree: \"{REPO_ROOT}\"")
         print(f"Link type: {link_type}")
 
-        link_external(source_external, target_external, link_type=link_type, dry_run=args.dry_run)
+        prepare_external_link(source_worktree, link_type=link_type, dry_run=args.dry_run)
+        copy_agents_local(source_worktree, dry_run=args.dry_run)
 
-    except LinkExternalError as exc:
+    except PrepareWorktreeError as exc:
         print(exc, file=sys.stderr)
         return 1
     except OSError as exc:
