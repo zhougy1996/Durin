@@ -61,41 +61,38 @@ namespace Durin
 
 		auto SaveShaderReflection(const std::string& FilePath, const FCompiledShader& CompiledShader) -> bool
 		{
-			FJsonWriter Writer;
-			Writer
-				.AddFieldUInt("Version", GShaderReflectionVersion)
-				.AddFieldUInt("Frequency", static_cast<uint32>(CompiledShader.Frequency))
-				.AddFieldString("SourceEntryPoint", CompiledShader.SourceEntryPoint)
-				.AddFieldString("BinaryEntryPoint", CompiledShader.BinaryEntryPoint)
-				.AddFieldString("DebugName", CompiledShader.DebugName)
-				.AddFieldString("Hash", CompiledShader.Hash.ToString());
+			FJsonDocument Document;
+			FJsonNodeRef Root = Document.GetMutableRoot();
+			Root.EnsureObject();
+			Root.SetUIntValue("Version", GShaderReflectionVersion);
+			Root.SetUIntValue("Frequency", static_cast<uint32>(CompiledShader.Frequency));
+			Root.SetStringValue("SourceEntryPoint", CompiledShader.SourceEntryPoint);
+			Root.SetStringValue("BinaryEntryPoint", CompiledShader.BinaryEntryPoint);
+			Root.SetStringValue("DebugName", CompiledShader.DebugName);
+			Root.SetStringValue("Hash", CompiledShader.Hash.ToString());
 
-			Writer.BeginArrayField("ResourceBindings");
+			FJsonNodeRef ResourceBindings = Root.AddArray("ResourceBindings");
 			for (const FShaderResourceBinding& Binding : CompiledShader.Reflection.ResourceBindings)
 			{
-				Writer.BeginElementObject()
-					.AddFieldString("Name", Binding.Name)
-					.AddFieldUInt("StageFlags", static_cast<uint32>(Binding.StageFlags))
-					.AddFieldUInt("SetIndex", Binding.SetIndex)
-					.AddFieldUInt("BindingIndex", Binding.BindingIndex)
-					.AddFieldUInt("Type", static_cast<uint32>(Binding.Type))
-					.AddFieldUInt("ArraySize", Binding.ArraySize)
-					.EndNested();
+				FJsonNodeRef BindingNode = ResourceBindings.AppendObject();
+				BindingNode.SetStringValue("Name", Binding.Name);
+				BindingNode.SetUIntValue("StageFlags", static_cast<uint32>(Binding.StageFlags));
+				BindingNode.SetUIntValue("SetIndex", Binding.SetIndex);
+				BindingNode.SetUIntValue("BindingIndex", Binding.BindingIndex);
+				BindingNode.SetUIntValue("Type", static_cast<uint32>(Binding.Type));
+				BindingNode.SetUIntValue("ArraySize", Binding.ArraySize);
 			}
-			Writer.EndNested();
 
-			Writer.BeginArrayField("PushConstantRanges");
+			FJsonNodeRef PushConstantRanges = Root.AddArray("PushConstantRanges");
 			for (const FPushConstantRange& Range : CompiledShader.Reflection.PushConstantRanges)
 			{
-				Writer.BeginElementObject()
-					.AddFieldUInt("StageFlags", static_cast<uint32>(Range.StageFlags))
-					.AddFieldUInt("Offset", Range.Offset)
-					.AddFieldUInt("Size", Range.Size)
-					.EndNested();
+				FJsonNodeRef RangeNode = PushConstantRanges.AppendObject();
+				RangeNode.SetUIntValue("StageFlags", static_cast<uint32>(Range.StageFlags));
+				RangeNode.SetUIntValue("Offset", Range.Offset);
+				RangeNode.SetUIntValue("Size", Range.Size);
 			}
-			Writer.EndNested();
 
-			return Writer.SaveToFile(FilePath);
+			return Document.SaveToFile(FilePath);
 		}
 
 		auto LoadShaderReflection(const std::string& FilePath, FCompiledShader& OutCompiledShader) -> bool
@@ -106,7 +103,7 @@ namespace Durin
 				return false;
 			}
 
-			const FJsonValueView Root = Document.GetRootView();
+			const FJsonNodeView Root = Document.GetRootView();
 			if (!Root.IsObject() || Root.GetUIntValue("Version") != GShaderReflectionVersion)
 			{
 				return false;
@@ -129,7 +126,7 @@ namespace Durin
 			OutCompiledShader.Hash = FXxHash128::FromString(HashString);
 			OutCompiledShader.Reflection = {};
 
-			const FJsonValueView ResourceBindings = Root.GetView("ResourceBindings");
+			const FJsonNodeView ResourceBindings = Root.GetView("ResourceBindings");
 			if (!ResourceBindings.IsArray())
 			{
 				return false;
@@ -137,7 +134,7 @@ namespace Durin
 
 			for (size_t Index = 0; Index < ResourceBindings.Num(); ++Index)
 			{
-				const FJsonValueView BindingView = ResourceBindings.GetView(Index);
+				const FJsonNodeView BindingView = ResourceBindings.GetView(Index);
 				if (!BindingView.IsObject())
 				{
 					return false;
@@ -153,7 +150,7 @@ namespace Durin
 				OutCompiledShader.Reflection.ResourceBindings.push_back(std::move(Binding));
 			}
 
-			const FJsonValueView PushConstantRanges = Root.GetView("PushConstantRanges");
+			const FJsonNodeView PushConstantRanges = Root.GetView("PushConstantRanges");
 			if (!PushConstantRanges.IsArray())
 			{
 				return false;
@@ -161,7 +158,7 @@ namespace Durin
 
 			for (size_t Index = 0; Index < PushConstantRanges.Num(); ++Index)
 			{
-				const FJsonValueView RangeView = PushConstantRanges.GetView(Index);
+				const FJsonNodeView RangeView = PushConstantRanges.GetView(Index);
 				if (!RangeView.IsObject())
 				{
 					return false;
@@ -177,7 +174,7 @@ namespace Durin
 			return true;
 		}
 
-		// Parser constants must match what FJsonWriter emits.
+		// Parser constants must match the JSON document serialization schema.
 		constexpr uint32 GShaderMetaVersion = 4;
 	}
 
@@ -198,7 +195,7 @@ namespace Durin
 			return false;
 		}
 
-		const FJsonValueView Root = Document.GetRootView();
+		const FJsonNodeView Root = Document.GetRootView();
 		if (!Root.IsObject()
 			|| Root.GetUIntValue("Version") != GShaderMetaVersion)
 		{
@@ -219,12 +216,12 @@ namespace Durin
 
 	auto FShaderCacheStore::SaveMetaData(std::string_view VirtualShaderPath, const FShaderMetaData& MetaData) -> bool
 	{
-		FJsonWriter Writer;
-		Writer
-			.AddFieldUInt("Version", GShaderMetaVersion)
-			.AddFieldString("SourceTreeSignature", MetaData.SourceTreeSignature.ToString());
-
-		return Writer.SaveToFile(FShaderPaths::MetaPath(VirtualShaderPath));
+		FJsonDocument Document;
+		FJsonNodeRef Root = Document.GetMutableRoot();
+		Root.EnsureObject();
+		Root.SetUIntValue("Version", GShaderMetaVersion);
+		Root.SetStringValue("SourceTreeSignature", MetaData.SourceTreeSignature.ToString());
+		return Document.SaveToFile(FShaderPaths::MetaPath(VirtualShaderPath));
 	}
 
 	auto FShaderCacheStore::TryLoad(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, FShaderCompilerOutput& OutOutput) -> bool

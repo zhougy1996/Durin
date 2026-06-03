@@ -6,19 +6,81 @@
 
 namespace Durin
 {
+	struct FJsonNodeAccess
+	{
+		static auto MakeView(void* InDocumentPtr, void* InValuePtr, bool bInIsMutable) -> FJsonNodeView
+		{
+			return FJsonNodeView::FromOpaque(InDocumentPtr, InValuePtr, bInIsMutable);
+		}
+
+		static auto MakeRef(
+			void* InDocumentPtr,
+			void* InValuePtr,
+			void* InParentPtr,
+			std::string InKey,
+			size_t InIndex,
+			bool bInIsRoot,
+			EJsonNodeLink InLink
+		) -> FJsonNodeRef
+		{
+			return FJsonNodeRef::FromOpaque(InDocumentPtr, InValuePtr, InParentPtr, std::move(InKey), InIndex, bInIsRoot, InLink);
+		}
+	};
+
 	namespace
 	{
-		static auto MakeJsonValue(void* ValuePtr) -> yyjson_val*
+		constexpr size_t InvalidJsonIndex = static_cast<size_t>(-1);
+
+		auto MakeJsonDocument(void* InDocumentPtr) -> yyjson_doc*
 		{
-			return static_cast<yyjson_val*>(ValuePtr);
+			return static_cast<yyjson_doc*>(InDocumentPtr);
 		}
 
-		static auto ToJsonValueView(yyjson_val* Value) -> FJsonValueView
+		auto MakeJsonValue(void* InValuePtr) -> yyjson_val*
 		{
-			return FJsonValueView::FromOpaque(static_cast<void*>(Value));
+			return static_cast<yyjson_val*>(InValuePtr);
 		}
 
-		static auto PopulateParseError(FJsonParseError* OutError, const yyjson_read_err& ReadError, std::string_view JsonText) -> void
+		auto MakeMutableDocument(void* InDocumentPtr) -> yyjson_mut_doc*
+		{
+			return static_cast<yyjson_mut_doc*>(InDocumentPtr);
+		}
+
+		auto MakeMutableValue(void* InValuePtr) -> yyjson_mut_val*
+		{
+			return static_cast<yyjson_mut_val*>(InValuePtr);
+		}
+
+		auto ToNodeView(yyjson_doc* InDocument, yyjson_val* InValue) -> FJsonNodeView
+		{
+			return InValue != nullptr
+				? FJsonNodeAccess::MakeView(InDocument, InValue, false)
+				: FJsonNodeView{};
+		}
+
+		auto ToNodeView(yyjson_mut_doc* InDocument, yyjson_mut_val* InValue) -> FJsonNodeView
+		{
+			return InValue != nullptr
+				? FJsonNodeAccess::MakeView(InDocument, InValue, true)
+				: FJsonNodeView{};
+		}
+
+		auto ToNodeRef(
+			yyjson_mut_doc* InDocument,
+			yyjson_mut_val* InValue,
+			yyjson_mut_val* InParent,
+			std::string InKey,
+			size_t InIndex,
+			bool bInIsRoot,
+			EJsonNodeLink InLink
+		) -> FJsonNodeRef
+		{
+			return InValue != nullptr
+				? FJsonNodeAccess::MakeRef(InDocument, InValue, InParent, std::move(InKey), InIndex, bInIsRoot, InLink)
+				: FJsonNodeRef{};
+		}
+
+		auto PopulateParseError(FJsonParseError* OutError, const yyjson_read_err& ReadError, std::string_view JsonText) -> void
 		{
 			if (!OutError)
 			{
@@ -39,11 +101,62 @@ namespace Durin
 				OutError->Character = Character;
 			}
 		}
+
+		auto IsObject(void* InValuePtr, bool bInIsMutable) -> bool
+		{
+			return bInIsMutable ? yyjson_mut_is_obj(MakeMutableValue(InValuePtr)) : yyjson_is_obj(MakeJsonValue(InValuePtr));
+		}
+
+		auto IsArray(void* InValuePtr, bool bInIsMutable) -> bool
+		{
+			return bInIsMutable ? yyjson_mut_is_arr(MakeMutableValue(InValuePtr)) : yyjson_is_arr(MakeJsonValue(InValuePtr));
+		}
+
+		auto MakeMutableNull(yyjson_mut_doc* InDocument) -> yyjson_mut_val*
+		{
+			return yyjson_mut_null(InDocument);
+		}
+
+		auto MakeMutableString(yyjson_mut_doc* InDocument, std::string_view InValue) -> yyjson_mut_val*
+		{
+			return yyjson_mut_strncpy(InDocument, InValue.data(), InValue.size());
+		}
+
+		auto MakeMutableBool(yyjson_mut_doc* InDocument, bool bInValue) -> yyjson_mut_val*
+		{
+			return yyjson_mut_bool(InDocument, bInValue);
+		}
+
+		auto MakeMutableInt(yyjson_mut_doc* InDocument, int64 InValue) -> yyjson_mut_val*
+		{
+			return yyjson_mut_sint(InDocument, InValue);
+		}
+
+		auto MakeMutableUInt(yyjson_mut_doc* InDocument, uint64 InValue) -> yyjson_mut_val*
+		{
+			return yyjson_mut_uint(InDocument, InValue);
+		}
+
+		auto MakeMutableDouble(yyjson_mut_doc* InDocument, double InValue) -> yyjson_mut_val*
+		{
+			return yyjson_mut_real(InDocument, InValue);
+		}
+
+		auto MakeMutableObject(yyjson_mut_doc* InDocument) -> yyjson_mut_val*
+		{
+			return yyjson_mut_obj(InDocument);
+		}
+
+		auto MakeMutableArray(yyjson_mut_doc* InDocument) -> yyjson_mut_val*
+		{
+			return yyjson_mut_arr(InDocument);
+		}
 	} // namespace
 
 	struct FJsonDocument::FImpl
 	{
-		yyjson_doc* Document = nullptr;
+		yyjson_doc* ImmutableDocument = nullptr;
+		yyjson_mut_doc* MutableDocument = nullptr;
 
 		~FImpl()
 		{
@@ -52,126 +165,590 @@ namespace Durin
 
 		auto Reset() -> void
 		{
-			if (Document)
+			if (ImmutableDocument)
 			{
-				yyjson_doc_free(Document);
-				Document = nullptr;
+				yyjson_doc_free(ImmutableDocument);
+				ImmutableDocument = nullptr;
 			}
+			if (MutableDocument)
+			{
+				yyjson_mut_doc_free(MutableDocument);
+				MutableDocument = nullptr;
+			}
+		}
+
+		auto IsValid() const -> bool
+		{
+			return ImmutableDocument != nullptr || MutableDocument != nullptr;
+		}
+
+		auto EnsureMutableDocument() -> yyjson_mut_doc*
+		{
+			if (MutableDocument)
+			{
+				return MutableDocument;
+			}
+
+			if (ImmutableDocument)
+			{
+				MutableDocument = yyjson_doc_mut_copy(ImmutableDocument, nullptr);
+				return MutableDocument;
+			}
+
+			MutableDocument = yyjson_mut_doc_new(nullptr);
+			if (!MutableDocument)
+			{
+				return nullptr;
+			}
+
+			yyjson_mut_val* Root = yyjson_mut_null(MutableDocument);
+			yyjson_mut_doc_set_root(MutableDocument, Root);
+			return MutableDocument;
 		}
 	};
 
-	auto FJsonValueView::IsValid() const -> bool
+	auto FJsonNodeView::IsValid() const -> bool
 	{
 		return ValuePtr != nullptr;
 	}
 
-	auto FJsonValueView::IsNull() const -> bool
+	auto FJsonNodeView::IsNull() const -> bool
 	{
-		return yyjson_is_null(MakeJsonValue(ValuePtr));
+		return bIsMutable ? yyjson_mut_is_null(MakeMutableValue(ValuePtr)) : yyjson_is_null(MakeJsonValue(ValuePtr));
 	}
 
-	auto FJsonValueView::IsObject() const -> bool
+	auto FJsonNodeView::IsObject() const -> bool
 	{
-		return yyjson_is_obj(MakeJsonValue(ValuePtr));
+		return ::Durin::IsObject(ValuePtr, bIsMutable);
 	}
 
-	auto FJsonValueView::IsArray() const -> bool
+	auto FJsonNodeView::IsArray() const -> bool
 	{
-		return yyjson_is_arr(MakeJsonValue(ValuePtr));
+		return ::Durin::IsArray(ValuePtr, bIsMutable);
 	}
 
-	auto FJsonValueView::IsString() const -> bool
+	auto FJsonNodeView::IsString() const -> bool
 	{
-		return yyjson_is_str(MakeJsonValue(ValuePtr));
+		return bIsMutable ? yyjson_mut_is_str(MakeMutableValue(ValuePtr)) : yyjson_is_str(MakeJsonValue(ValuePtr));
 	}
 
-	auto FJsonValueView::IsBool() const -> bool
+	auto FJsonNodeView::IsBool() const -> bool
 	{
-		return yyjson_is_bool(MakeJsonValue(ValuePtr));
+		return bIsMutable ? yyjson_mut_is_bool(MakeMutableValue(ValuePtr)) : yyjson_is_bool(MakeJsonValue(ValuePtr));
 	}
 
-	auto FJsonValueView::IsInt() const -> bool
+	auto FJsonNodeView::IsInt() const -> bool
 	{
-		return yyjson_is_int(MakeJsonValue(ValuePtr));
+		return bIsMutable ? yyjson_mut_is_int(MakeMutableValue(ValuePtr)) : yyjson_is_int(MakeJsonValue(ValuePtr));
 	}
 
-	auto FJsonValueView::IsUInt() const -> bool
+	auto FJsonNodeView::IsUInt() const -> bool
 	{
-		return yyjson_is_uint(MakeJsonValue(ValuePtr));
+		return bIsMutable ? yyjson_mut_is_uint(MakeMutableValue(ValuePtr)) : yyjson_is_uint(MakeJsonValue(ValuePtr));
 	}
 
-	auto FJsonValueView::IsNumber() const -> bool
+	auto FJsonNodeView::IsNumber() const -> bool
 	{
-		return yyjson_is_num(MakeJsonValue(ValuePtr));
+		return bIsMutable ? yyjson_mut_is_num(MakeMutableValue(ValuePtr)) : yyjson_is_num(MakeJsonValue(ValuePtr));
 	}
 
-	auto FJsonValueView::Num() const -> size_t
+	auto FJsonNodeView::Num() const -> size_t
 	{
-		return yyjson_get_len(MakeJsonValue(ValuePtr));
+		return bIsMutable ? yyjson_mut_get_len(MakeMutableValue(ValuePtr)) : yyjson_get_len(MakeJsonValue(ValuePtr));
 	}
 
-	auto FJsonValueView::GetView(std::string_view InKey) const -> FJsonValueView
+	auto FJsonNodeView::Contains(std::string_view InKey) const -> bool
 	{
-		return ToJsonValueView(yyjson_obj_getn(MakeJsonValue(ValuePtr), InKey.data(), InKey.size()));
+		return bIsMutable
+			? (IsObject() && yyjson_mut_obj_getn(MakeMutableValue(ValuePtr), InKey.data(), InKey.size()) != nullptr)
+			: (IsObject() && yyjson_obj_getn(MakeJsonValue(ValuePtr), InKey.data(), InKey.size()) != nullptr);
 	}
 
-	auto FJsonValueView::GetView(size_t Index) const -> FJsonValueView
+	auto FJsonNodeView::GetView(std::string_view InKey) const -> FJsonNodeView
 	{
-		return ToJsonValueView(yyjson_arr_get(MakeJsonValue(ValuePtr), Index));
+		return bIsMutable
+			? ToNodeView(MakeMutableDocument(DocumentPtr), yyjson_mut_obj_getn(MakeMutableValue(ValuePtr), InKey.data(), InKey.size()))
+			: ToNodeView(MakeJsonDocument(DocumentPtr), yyjson_obj_getn(MakeJsonValue(ValuePtr), InKey.data(), InKey.size()));
 	}
 
-	auto FJsonValueView::GetString(std::string DefaultValue) const -> std::string
+	auto FJsonNodeView::GetView(size_t Index) const -> FJsonNodeView
 	{
-		if (const char* Value = yyjson_get_str(MakeJsonValue(ValuePtr)))
+		return bIsMutable
+			? ToNodeView(MakeMutableDocument(DocumentPtr), yyjson_mut_arr_get(MakeMutableValue(ValuePtr), Index))
+			: ToNodeView(MakeJsonDocument(DocumentPtr), yyjson_arr_get(MakeJsonValue(ValuePtr), Index));
+	}
+
+	auto FJsonNodeView::GetString(std::string DefaultValue) const -> std::string
+	{
+		const char* Value = bIsMutable
+			? yyjson_mut_get_str(MakeMutableValue(ValuePtr))
+			: yyjson_get_str(MakeJsonValue(ValuePtr));
+		return Value ? std::string(Value) : DefaultValue;
+	}
+
+	auto FJsonNodeView::GetBool(bool DefaultValue) const -> bool
+	{
+		if (IsBool())
 		{
-			return Value;
+			return bIsMutable ? yyjson_mut_get_bool(MakeMutableValue(ValuePtr)) : yyjson_get_bool(MakeJsonValue(ValuePtr));
 		}
 		return DefaultValue;
 	}
 
-	auto FJsonValueView::GetBool(bool DefaultValue) const -> bool
+	auto FJsonNodeView::GetInt(int64 DefaultValue) const -> int64
 	{
-		return IsBool() ? yyjson_get_bool(MakeJsonValue(ValuePtr)) : DefaultValue;
+		if (IsInt())
+		{
+			return bIsMutable ? yyjson_mut_get_sint(MakeMutableValue(ValuePtr)) : yyjson_get_sint(MakeJsonValue(ValuePtr));
+		}
+		return DefaultValue;
 	}
 
-	auto FJsonValueView::GetInt(int64 DefaultValue) const -> int64
+	auto FJsonNodeView::GetUInt(uint64 DefaultValue) const -> uint64
 	{
-		return IsInt() ? yyjson_get_sint(MakeJsonValue(ValuePtr)) : DefaultValue;
+		if (IsUInt())
+		{
+			return bIsMutable ? yyjson_mut_get_uint(MakeMutableValue(ValuePtr)) : yyjson_get_uint(MakeJsonValue(ValuePtr));
+		}
+		return DefaultValue;
 	}
 
-	auto FJsonValueView::GetUInt(uint64 DefaultValue) const -> uint64
+	auto FJsonNodeView::GetDouble(double DefaultValue) const -> double
 	{
-		return IsUInt() ? yyjson_get_uint(MakeJsonValue(ValuePtr)) : DefaultValue;
+		if (IsNumber())
+		{
+			return bIsMutable ? yyjson_mut_get_num(MakeMutableValue(ValuePtr)) : yyjson_get_num(MakeJsonValue(ValuePtr));
+		}
+		return DefaultValue;
 	}
 
-	auto FJsonValueView::GetDouble(double DefaultValue) const -> double
-	{
-		return IsNumber() ? yyjson_get_num(MakeJsonValue(ValuePtr)) : DefaultValue;
-	}
-
-	auto FJsonValueView::GetStringValue(std::string_view InKey, std::string DefaultValue) const -> std::string
+	auto FJsonNodeView::GetStringValue(std::string_view InKey, std::string DefaultValue) const -> std::string
 	{
 		return GetView(InKey).GetString(std::move(DefaultValue));
 	}
 
-	auto FJsonValueView::GetBoolValue(std::string_view InKey, bool DefaultValue) const -> bool
+	auto FJsonNodeView::GetBoolValue(std::string_view InKey, bool DefaultValue) const -> bool
 	{
 		return GetView(InKey).GetBool(DefaultValue);
 	}
 
-	auto FJsonValueView::GetIntValue(std::string_view InKey, int64 DefaultValue) const -> int64
+	auto FJsonNodeView::GetIntValue(std::string_view InKey, int64 DefaultValue) const -> int64
 	{
 		return GetView(InKey).GetInt(DefaultValue);
 	}
 
-	auto FJsonValueView::GetUIntValue(std::string_view InKey, uint64 DefaultValue) const -> uint64
+	auto FJsonNodeView::GetUIntValue(std::string_view InKey, uint64 DefaultValue) const -> uint64
 	{
 		return GetView(InKey).GetUInt(DefaultValue);
 	}
 
-	auto FJsonValueView::GetDoubleValue(std::string_view InKey, double DefaultValue) const -> double
+	auto FJsonNodeView::GetDoubleValue(std::string_view InKey, double DefaultValue) const -> double
 	{
 		return GetView(InKey).GetDouble(DefaultValue);
+	}
+
+	auto FJsonNodeRef::ReplaceWith(void* InNewValuePtr) -> void*
+	{
+		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
+		yyjson_mut_val* NewValue = MakeMutableValue(InNewValuePtr);
+		if (!Document || !NewValue)
+		{
+			return nullptr;
+		}
+
+		if (bIsRoot)
+		{
+			yyjson_mut_doc_set_root(Document, NewValue);
+			ValuePtr = NewValue;
+			return NewValue;
+		}
+
+		yyjson_mut_val* Parent = MakeMutableValue(ParentPtr);
+		if (!Parent)
+		{
+			return nullptr;
+		}
+
+		switch (Link)
+		{
+		case EJsonNodeLink::ObjectKey:
+		{
+			yyjson_mut_val* KeyValue = yyjson_mut_strncpy(Document, Key.data(), Key.size());
+			if (!KeyValue || !yyjson_mut_obj_put(Parent, KeyValue, NewValue))
+			{
+				return nullptr;
+			}
+			ValuePtr = yyjson_mut_obj_getn(Parent, Key.data(), Key.size());
+			return ValuePtr;
+		}
+		case EJsonNodeLink::ArrayIndex:
+			if (!yyjson_mut_arr_replace(Parent, Index, NewValue))
+			{
+				return nullptr;
+			}
+			ValuePtr = yyjson_mut_arr_get(Parent, Index);
+			return ValuePtr;
+		default:
+			return nullptr;
+		}
+	}
+
+	auto FJsonNodeRef::SetObjectEntryInternal(std::string_view InKey, void* InValuePtr) -> void*
+	{
+		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
+		yyjson_mut_val* ObjectValue = MakeMutableValue(ValuePtr);
+		yyjson_mut_val* NewValue = MakeMutableValue(InValuePtr);
+		if (!Document || !ObjectValue || !yyjson_mut_is_obj(ObjectValue) || !NewValue)
+		{
+			return nullptr;
+		}
+
+		yyjson_mut_val* KeyValue = yyjson_mut_strncpy(Document, InKey.data(), InKey.size());
+		if (!KeyValue || !yyjson_mut_obj_put(ObjectValue, KeyValue, NewValue))
+		{
+			return nullptr;
+		}
+
+		return yyjson_mut_obj_getn(ObjectValue, InKey.data(), InKey.size());
+	}
+
+	auto FJsonNodeRef::AppendArrayEntryInternal(void* InValuePtr, size_t* OutIndex) -> void*
+	{
+		yyjson_mut_val* ArrayValue = MakeMutableValue(ValuePtr);
+		yyjson_mut_val* NewValue = MakeMutableValue(InValuePtr);
+		if (!ArrayValue || !yyjson_mut_is_arr(ArrayValue) || !NewValue)
+		{
+			return nullptr;
+		}
+
+		const size_t EntryIndex = yyjson_mut_get_len(ArrayValue);
+		if (!yyjson_mut_arr_append(ArrayValue, NewValue))
+		{
+			return nullptr;
+		}
+
+		if (OutIndex)
+		{
+			*OutIndex = EntryIndex;
+		}
+
+		return NewValue;
+	}
+
+	auto FJsonNodeRef::GetRef(std::string_view InKey) const -> FJsonNodeRef
+	{
+		if (!bIsMutable)
+		{
+			return {};
+		}
+
+		yyjson_mut_val* Node = MakeMutableValue(ValuePtr);
+		if (!Node || !yyjson_mut_is_obj(Node))
+		{
+			return {};
+		}
+
+		return ToNodeRef(MakeMutableDocument(DocumentPtr), yyjson_mut_obj_getn(Node, InKey.data(), InKey.size()), Node, std::string(InKey), InvalidJsonIndex, false, EJsonNodeLink::ObjectKey);
+	}
+
+	auto FJsonNodeRef::GetRef(size_t InIndex) const -> FJsonNodeRef
+	{
+		if (!bIsMutable)
+		{
+			return {};
+		}
+
+		yyjson_mut_val* Node = MakeMutableValue(ValuePtr);
+		if (!Node || !yyjson_mut_is_arr(Node))
+		{
+			return {};
+		}
+
+		return ToNodeRef(MakeMutableDocument(DocumentPtr), yyjson_mut_arr_get(Node, InIndex), Node, {}, InIndex, false, EJsonNodeLink::ArrayIndex);
+	}
+
+	auto FJsonNodeRef::EnsureObject() -> FJsonNodeRef&
+	{
+		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
+		if (!Document)
+		{
+			return *this;
+		}
+
+		if (!ValuePtr)
+		{
+			if (bIsRoot)
+			{
+				ReplaceWith(MakeMutableObject(Document));
+			}
+			return *this;
+		}
+
+		yyjson_mut_set_obj(MakeMutableValue(ValuePtr));
+		return *this;
+	}
+
+	auto FJsonNodeRef::EnsureArray() -> FJsonNodeRef&
+	{
+		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
+		if (!Document)
+		{
+			return *this;
+		}
+
+		if (!ValuePtr)
+		{
+			if (bIsRoot)
+			{
+				ReplaceWith(MakeMutableArray(Document));
+			}
+			return *this;
+		}
+
+		yyjson_mut_set_arr(MakeMutableValue(ValuePtr));
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetNull() -> FJsonNodeRef&
+	{
+		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
+		if (!Document)
+		{
+			return *this;
+		}
+
+		if (!ValuePtr)
+		{
+			if (bIsRoot)
+			{
+				ReplaceWith(MakeMutableNull(Document));
+			}
+			return *this;
+		}
+
+		yyjson_mut_set_null(MakeMutableValue(ValuePtr));
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetString(std::string_view InValue) -> FJsonNodeRef&
+	{
+		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
+		if (!Document)
+		{
+			return *this;
+		}
+
+		yyjson_mut_val* NewValue = MakeMutableString(Document, InValue);
+		if (!NewValue)
+		{
+			return *this;
+		}
+
+		if (!ValuePtr && !bIsRoot)
+		{
+			return *this;
+		}
+
+		ReplaceWith(NewValue);
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetBool(bool bInValue) -> FJsonNodeRef&
+	{
+		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
+		if (!Document)
+		{
+			return *this;
+		}
+
+		if (!ValuePtr)
+		{
+			if (bIsRoot)
+			{
+				ReplaceWith(MakeMutableBool(Document, bInValue));
+			}
+			return *this;
+		}
+
+		yyjson_mut_set_bool(MakeMutableValue(ValuePtr), bInValue);
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetInt(int64 InValue) -> FJsonNodeRef&
+	{
+		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
+		if (!Document)
+		{
+			return *this;
+		}
+
+		if (!ValuePtr)
+		{
+			if (bIsRoot)
+			{
+				ReplaceWith(MakeMutableInt(Document, InValue));
+			}
+			return *this;
+		}
+
+		yyjson_mut_set_sint(MakeMutableValue(ValuePtr), InValue);
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetUInt(uint64 InValue) -> FJsonNodeRef&
+	{
+		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
+		if (!Document)
+		{
+			return *this;
+		}
+
+		if (!ValuePtr)
+		{
+			if (bIsRoot)
+			{
+				ReplaceWith(MakeMutableUInt(Document, InValue));
+			}
+			return *this;
+		}
+
+		yyjson_mut_set_uint(MakeMutableValue(ValuePtr), InValue);
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetDouble(double InValue) -> FJsonNodeRef&
+	{
+		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
+		if (!Document)
+		{
+			return *this;
+		}
+
+		if (!ValuePtr)
+		{
+			if (bIsRoot)
+			{
+				ReplaceWith(MakeMutableDouble(Document, InValue));
+			}
+			return *this;
+		}
+
+		yyjson_mut_set_real(MakeMutableValue(ValuePtr), InValue);
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetNullValue(std::string_view InKey) -> FJsonNodeRef&
+	{
+		EnsureObject();
+		SetObjectEntryInternal(InKey, MakeMutableNull(MakeMutableDocument(DocumentPtr)));
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetStringValue(std::string_view InKey, std::string_view InValue) -> FJsonNodeRef&
+	{
+		EnsureObject();
+		SetObjectEntryInternal(InKey, MakeMutableString(MakeMutableDocument(DocumentPtr), InValue));
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetBoolValue(std::string_view InKey, bool bInValue) -> FJsonNodeRef&
+	{
+		EnsureObject();
+		SetObjectEntryInternal(InKey, MakeMutableBool(MakeMutableDocument(DocumentPtr), bInValue));
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetIntValue(std::string_view InKey, int64 InValue) -> FJsonNodeRef&
+	{
+		EnsureObject();
+		SetObjectEntryInternal(InKey, MakeMutableInt(MakeMutableDocument(DocumentPtr), InValue));
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetUIntValue(std::string_view InKey, uint64 InValue) -> FJsonNodeRef&
+	{
+		EnsureObject();
+		SetObjectEntryInternal(InKey, MakeMutableUInt(MakeMutableDocument(DocumentPtr), InValue));
+		return *this;
+	}
+
+	auto FJsonNodeRef::SetDoubleValue(std::string_view InKey, double InValue) -> FJsonNodeRef&
+	{
+		EnsureObject();
+		SetObjectEntryInternal(InKey, MakeMutableDouble(MakeMutableDocument(DocumentPtr), InValue));
+		return *this;
+	}
+
+	auto FJsonNodeRef::AddObject(std::string_view InKey) -> FJsonNodeRef
+	{
+		EnsureObject();
+		yyjson_mut_val* Value = MakeMutableValue(SetObjectEntryInternal(InKey, MakeMutableObject(MakeMutableDocument(DocumentPtr))));
+		return ToNodeRef(MakeMutableDocument(DocumentPtr), Value, MakeMutableValue(ValuePtr), std::string(InKey), InvalidJsonIndex, false, EJsonNodeLink::ObjectKey);
+	}
+
+	auto FJsonNodeRef::AddArray(std::string_view InKey) -> FJsonNodeRef
+	{
+		EnsureObject();
+		yyjson_mut_val* Value = MakeMutableValue(SetObjectEntryInternal(InKey, MakeMutableArray(MakeMutableDocument(DocumentPtr))));
+		return ToNodeRef(MakeMutableDocument(DocumentPtr), Value, MakeMutableValue(ValuePtr), std::string(InKey), InvalidJsonIndex, false, EJsonNodeLink::ObjectKey);
+	}
+
+	auto FJsonNodeRef::AppendNull() -> FJsonNodeRef&
+	{
+		EnsureArray();
+		AppendArrayEntryInternal(MakeMutableNull(MakeMutableDocument(DocumentPtr)));
+		return *this;
+	}
+
+	auto FJsonNodeRef::AppendString(std::string_view InValue) -> FJsonNodeRef&
+	{
+		EnsureArray();
+		AppendArrayEntryInternal(MakeMutableString(MakeMutableDocument(DocumentPtr), InValue));
+		return *this;
+	}
+
+	auto FJsonNodeRef::AppendBool(bool bInValue) -> FJsonNodeRef&
+	{
+		EnsureArray();
+		AppendArrayEntryInternal(MakeMutableBool(MakeMutableDocument(DocumentPtr), bInValue));
+		return *this;
+	}
+
+	auto FJsonNodeRef::AppendInt(int64 InValue) -> FJsonNodeRef&
+	{
+		EnsureArray();
+		AppendArrayEntryInternal(MakeMutableInt(MakeMutableDocument(DocumentPtr), InValue));
+		return *this;
+	}
+
+	auto FJsonNodeRef::AppendUInt(uint64 InValue) -> FJsonNodeRef&
+	{
+		EnsureArray();
+		AppendArrayEntryInternal(MakeMutableUInt(MakeMutableDocument(DocumentPtr), InValue));
+		return *this;
+	}
+
+	auto FJsonNodeRef::AppendDouble(double InValue) -> FJsonNodeRef&
+	{
+		EnsureArray();
+		AppendArrayEntryInternal(MakeMutableDouble(MakeMutableDocument(DocumentPtr), InValue));
+		return *this;
+	}
+
+	auto FJsonNodeRef::AppendObject() -> FJsonNodeRef
+	{
+		EnsureArray();
+		size_t Index = InvalidJsonIndex;
+		yyjson_mut_val* Value = MakeMutableValue(AppendArrayEntryInternal(MakeMutableObject(MakeMutableDocument(DocumentPtr)), &Index));
+		return ToNodeRef(MakeMutableDocument(DocumentPtr), Value, MakeMutableValue(ValuePtr), {}, Index, false, EJsonNodeLink::ArrayIndex);
+	}
+
+	auto FJsonNodeRef::AppendArray() -> FJsonNodeRef
+	{
+		EnsureArray();
+		size_t Index = InvalidJsonIndex;
+		yyjson_mut_val* Value = MakeMutableValue(AppendArrayEntryInternal(MakeMutableArray(MakeMutableDocument(DocumentPtr)), &Index));
+		return ToNodeRef(MakeMutableDocument(DocumentPtr), Value, MakeMutableValue(ValuePtr), {}, Index, false, EJsonNodeLink::ArrayIndex);
 	}
 
 	FJsonDocument::FJsonDocument()
@@ -195,8 +772,8 @@ namespace Durin
 		}
 
 		yyjson_read_err ReadError{};
-		Impl->Document = yyjson_read_opts(const_cast<char*>(JsonText.data()), JsonText.size(), YYJSON_READ_NOFLAG, nullptr, &ReadError);
-		if (!Impl->Document)
+		Impl->ImmutableDocument = yyjson_read_opts(const_cast<char*>(JsonText.data()), JsonText.size(), YYJSON_READ_NOFLAG, nullptr, &ReadError);
+		if (!Impl->ImmutableDocument)
 		{
 			PopulateParseError(OutError, ReadError, JsonText);
 			return false;
@@ -228,200 +805,72 @@ namespace Durin
 
 	auto FJsonDocument::IsValid() const -> bool
 	{
-		return Impl->Document != nullptr;
+		return Impl->IsValid();
 	}
 
-	auto FJsonDocument::GetRootView() const -> FJsonValueView
+	auto FJsonDocument::GetRootView() const -> FJsonNodeView
 	{
-		return ToJsonValueView(yyjson_doc_get_root(Impl->Document));
+		if (Impl->MutableDocument)
+		{
+			return ToNodeView(Impl->MutableDocument, yyjson_mut_doc_get_root(Impl->MutableDocument));
+		}
+
+		if (Impl->ImmutableDocument)
+		{
+			return ToNodeView(Impl->ImmutableDocument, yyjson_doc_get_root(Impl->ImmutableDocument));
+		}
+
+		return {};
 	}
 
-	// --- FJsonWriter ---
-
-	static auto ToMutVal(void* Ptr) -> yyjson_mut_val*
+	auto FJsonDocument::GetMutableRoot() -> FJsonNodeRef
 	{
-		return static_cast<yyjson_mut_val*>(Ptr);
+		yyjson_mut_doc* Document = Impl->EnsureMutableDocument();
+		if (!Document)
+		{
+			return {};
+		}
+
+		yyjson_mut_val* Root = yyjson_mut_doc_get_root(Document);
+		if (!Root)
+		{
+			Root = yyjson_mut_null(Document);
+			yyjson_mut_doc_set_root(Document, Root);
+		}
+
+		return ToNodeRef(Document, Root, nullptr, {}, InvalidJsonIndex, true, EJsonNodeLink::None);
 	}
 
-	struct FJsonWriter::FImpl
+	auto FJsonDocument::ToString() const -> std::string
 	{
-		yyjson_mut_doc* Document = nullptr;
-		std::vector<yyjson_mut_val*> ContainerStack;
-
-		~FImpl()
+		yyjson_mut_doc* Document = const_cast<FImpl*>(Impl.get())->EnsureMutableDocument();
+		if (!Document)
 		{
-			if (Document)
-			{
-				yyjson_mut_doc_free(Document);
-				Document = nullptr;
-			}
+			return {};
 		}
 
-		auto CurrentContainer() -> yyjson_mut_val*
-		{
-			return ContainerStack.empty() ? nullptr : ContainerStack.back();
-		}
-
-		auto PushContainer(yyjson_mut_val* Container) -> void
-		{
-			if (!ContainerStack.empty())
-			{
-				yyjson_mut_val* Parent = ContainerStack.back();
-				if (yyjson_mut_is_arr(Parent))
-				{
-					yyjson_mut_arr_append(Parent, Container);
-				}
-			}
-			ContainerStack.push_back(Container);
-		}
-
-		auto PopContainer() -> yyjson_mut_val*
-		{
-			if (ContainerStack.empty())
-			{
-				return nullptr;
-			}
-			const yyjson_mut_val* Popped = ContainerStack.back();
-			ContainerStack.pop_back();
-			return ContainerStack.empty() ? nullptr : ContainerStack.back();
-		}
-	};
-
-	FJsonWriter::FJsonWriter()
-		: Impl(std::make_unique<FImpl>())
-	{
-		Impl->Document = yyjson_mut_doc_new(nullptr);
-		yyjson_mut_val* Root = yyjson_mut_obj(Impl->Document);
-		yyjson_mut_doc_set_root(Impl->Document, Root);
-		Impl->ContainerStack.push_back(Root);
-	}
-
-	FJsonWriter::~FJsonWriter() = default;
-
-	FJsonWriter::FJsonWriter(FJsonWriter&& Other) noexcept = default;
-	auto FJsonWriter::operator=(FJsonWriter&& Other) noexcept -> FJsonWriter& = default;
-
-	auto FJsonWriter::AddFieldUInt(std::string_view Key, uint64 Value) -> FJsonWriter&
-	{
-		if (yyjson_mut_val* Container = Impl->CurrentContainer())
-		{
-			yyjson_mut_obj_add_uint(Impl->Document, Container, Key.data(), Value);
-		}
-		return *this;
-	}
-
-	auto FJsonWriter::AddFieldString(std::string_view Key, std::string_view Value) -> FJsonWriter&
-	{
-		if (yyjson_mut_val* Container = Impl->CurrentContainer())
-		{
-			yyjson_mut_obj_add_strcpy(Impl->Document, Container, Key.data(), Value.data());
-		}
-		return *this;
-	}
-
-	auto FJsonWriter::BeginObjectField(std::string_view Key) -> FJsonWriter&
-	{
-		yyjson_mut_val* Container = Impl->CurrentContainer();
-		if (Container && yyjson_mut_is_obj(Container))
-		{
-			yyjson_mut_val* NestedObj = yyjson_mut_obj(Impl->Document);
-			yyjson_mut_obj_add_val(Impl->Document, Container, Key.data(), NestedObj);
-			Impl->ContainerStack.push_back(NestedObj);
-		}
-		return *this;
-	}
-
-	auto FJsonWriter::BeginArrayField(std::string_view Key) -> FJsonWriter&
-	{
-		yyjson_mut_val* Container = Impl->CurrentContainer();
-		if (Container && yyjson_mut_is_obj(Container))
-		{
-			yyjson_mut_val* NestedArr = yyjson_mut_arr(Impl->Document);
-			yyjson_mut_obj_add_val(Impl->Document, Container, Key.data(), NestedArr);
-			Impl->ContainerStack.push_back(NestedArr);
-		}
-		return *this;
-	}
-
-	auto FJsonWriter::AddElementUInt(uint64 Value) -> FJsonWriter&
-	{
-		if (yyjson_mut_val* Container = Impl->CurrentContainer())
-		{
-			yyjson_mut_arr_add_uint(Impl->Document, Container, Value);
-		}
-		return *this;
-	}
-
-	auto FJsonWriter::AddElementString(std::string_view Value) -> FJsonWriter&
-	{
-		if (yyjson_mut_val* Container = Impl->CurrentContainer())
-		{
-			yyjson_mut_arr_add_strcpy(Impl->Document, Container, Value.data());
-		}
-		return *this;
-	}
-
-	auto FJsonWriter::BeginElementObject() -> FJsonWriter&
-	{
-		yyjson_mut_val* Container = Impl->CurrentContainer();
-		if (Container && yyjson_mut_is_arr(Container))
-		{
-			yyjson_mut_val* NestedObj = yyjson_mut_obj(Impl->Document);
-			yyjson_mut_arr_append(Container, NestedObj);
-			Impl->ContainerStack.push_back(NestedObj);
-		}
-		return *this;
-	}
-
-	auto FJsonWriter::BeginElementArray() -> FJsonWriter&
-	{
-		yyjson_mut_val* Container = Impl->CurrentContainer();
-		if (Container && yyjson_mut_is_arr(Container))
-		{
-			yyjson_mut_val* NestedArr = yyjson_mut_arr(Impl->Document);
-			yyjson_mut_arr_append(Container, NestedArr);
-			Impl->ContainerStack.push_back(NestedArr);
-		}
-		return *this;
-	}
-
-	auto FJsonWriter::EndNested() -> FJsonWriter&
-	{
-		Impl->PopContainer();
-		return *this;
-	}
-
-	auto FJsonWriter::ToString() const -> std::string
-	{
-		if (!Impl->Document)
-		{
-			return "{}";
-		}
 		const yyjson_write_flag Flags = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_UNICODE;
 		size_t Length = 0;
-		char* Raw = yyjson_mut_write_opts(Impl->Document, Flags, nullptr, &Length, nullptr);
+		char* Raw = yyjson_mut_write_opts(Document, Flags, nullptr, &Length, nullptr);
 		if (!Raw)
 		{
-			return "{}";
+			return {};
 		}
+
 		std::string Result(Raw, Length);
 		std::free(Raw);
 		return Result;
 	}
 
-	auto FJsonWriter::SaveToFile(std::string_view FilePath) const -> bool
+	auto FJsonDocument::SaveToFile(std::string_view FilePath) const -> bool
 	{
-		if (!Impl->Document)
+		yyjson_mut_doc* Document = const_cast<FImpl*>(Impl.get())->EnsureMutableDocument();
+		if (!Document)
 		{
 			return false;
 		}
+
 		const yyjson_write_flag Flags = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_UNICODE;
-		return yyjson_mut_write_file(std::string(FilePath).c_str(), Impl->Document, Flags, nullptr, nullptr);
+		return yyjson_mut_write_file(std::string(FilePath).c_str(), Document, Flags, nullptr, nullptr);
 	}
-
-	auto FJsonWriter::IsValid() const -> bool
-	{
-		return Impl->Document != nullptr;
-	}
-
 }
