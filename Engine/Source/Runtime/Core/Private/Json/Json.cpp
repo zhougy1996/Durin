@@ -322,29 +322,84 @@ namespace Durin
 		return DefaultValue;
 	}
 
-	auto FJsonNodeView::GetStringValue(std::string_view InKey, std::string DefaultValue) const -> std::string
+	auto FJsonNodeView::GetValue(std::string& OutValue) const -> bool
 	{
-		return GetView(InKey).GetString(std::move(DefaultValue));
+		if (!IsString())
+		{
+			return false;
+		}
+
+		OutValue = GetString();
+		return true;
 	}
 
-	auto FJsonNodeView::GetBoolValue(std::string_view InKey, bool DefaultValue) const -> bool
+	auto FJsonNodeView::GetValue(bool& bOutValue) const -> bool
 	{
-		return GetView(InKey).GetBool(DefaultValue);
+		if (!IsBool())
+		{
+			return false;
+		}
+
+		bOutValue = GetBool();
+		return true;
 	}
 
-	auto FJsonNodeView::GetIntValue(std::string_view InKey, int64 DefaultValue) const -> int64
+	auto FJsonNodeView::GetValue(int64& OutValue) const -> bool
 	{
-		return GetView(InKey).GetInt(DefaultValue);
+		if (!IsInt())
+		{
+			return false;
+		}
+
+		OutValue = GetInt();
+		return true;
 	}
 
-	auto FJsonNodeView::GetUIntValue(std::string_view InKey, uint64 DefaultValue) const -> uint64
+	auto FJsonNodeView::GetValue(uint64& OutValue) const -> bool
 	{
-		return GetView(InKey).GetUInt(DefaultValue);
+		if (!IsUInt())
+		{
+			return false;
+		}
+
+		OutValue = GetUInt();
+		return true;
 	}
 
-	auto FJsonNodeView::GetDoubleValue(std::string_view InKey, double DefaultValue) const -> double
+	auto FJsonNodeView::GetValue(double& OutValue) const -> bool
 	{
-		return GetView(InKey).GetDouble(DefaultValue);
+		if (!IsNumber())
+		{
+			return false;
+		}
+
+		OutValue = GetDouble();
+		return true;
+	}
+
+	auto FJsonNodeView::GetChildValue(std::string_view InKey, std::string& OutValue) const -> bool
+	{
+		return GetView(InKey).GetValue(OutValue);
+	}
+
+	auto FJsonNodeView::GetChildValue(std::string_view InKey, bool& bOutValue) const -> bool
+	{
+		return GetView(InKey).GetValue(bOutValue);
+	}
+
+	auto FJsonNodeView::GetChildValue(std::string_view InKey, int64& OutValue) const -> bool
+	{
+		return GetView(InKey).GetValue(OutValue);
+	}
+
+	auto FJsonNodeView::GetChildValue(std::string_view InKey, uint64& OutValue) const -> bool
+	{
+		return GetView(InKey).GetValue(OutValue);
+	}
+
+	auto FJsonNodeView::GetChildValue(std::string_view InKey, double& OutValue) const -> bool
+	{
+		return GetView(InKey).GetValue(OutValue);
 	}
 
 	auto FJsonNodeRef::ReplaceWith(void* InNewValuePtr) -> void*
@@ -484,7 +539,10 @@ namespace Durin
 			return *this;
 		}
 
-		yyjson_mut_set_obj(MakeMutableValue(ValuePtr));
+		if (!yyjson_mut_is_obj(MakeMutableValue(ValuePtr)))
+		{
+			yyjson_mut_set_obj(MakeMutableValue(ValuePtr));
+		}
 		return *this;
 	}
 
@@ -505,16 +563,19 @@ namespace Durin
 			return *this;
 		}
 
-		yyjson_mut_set_arr(MakeMutableValue(ValuePtr));
+		if (!yyjson_mut_is_arr(MakeMutableValue(ValuePtr)))
+		{
+			yyjson_mut_set_arr(MakeMutableValue(ValuePtr));
+		}
 		return *this;
 	}
 
-	auto FJsonNodeRef::SetNull() -> FJsonNodeRef&
+	auto FJsonNodeRef::SetValue(std::nullptr_t) -> void
 	{
 		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
 		if (!Document)
 		{
-			return *this;
+			return;
 		}
 
 		if (!ValuePtr)
@@ -523,42 +584,45 @@ namespace Durin
 			{
 				ReplaceWith(MakeMutableNull(Document));
 			}
-			return *this;
+			return;
 		}
 
 		yyjson_mut_set_null(MakeMutableValue(ValuePtr));
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetString(std::string_view InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetValue(std::string_view InValue) -> void
 	{
 		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
 		if (!Document)
 		{
-			return *this;
+			return;
 		}
 
 		yyjson_mut_val* NewValue = MakeMutableString(Document, InValue);
 		if (!NewValue)
 		{
-			return *this;
+			return;
 		}
 
 		if (!ValuePtr && !bIsRoot)
 		{
-			return *this;
+			return;
 		}
 
 		ReplaceWith(NewValue);
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetBool(bool bInValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetValue(const char* InValue) -> void
+	{
+		SetValue(InValue != nullptr ? std::string_view(InValue) : std::string_view{});
+	}
+
+	auto FJsonNodeRef::SetValue(bool bInValue) -> void
 	{
 		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
 		if (!Document)
 		{
-			return *this;
+			return;
 		}
 
 		if (!ValuePtr)
@@ -567,19 +631,23 @@ namespace Durin
 			{
 				ReplaceWith(MakeMutableBool(Document, bInValue));
 			}
-			return *this;
+			return;
 		}
 
 		yyjson_mut_set_bool(MakeMutableValue(ValuePtr), bInValue);
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetInt(int64 InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetValue(int32 InValue) -> void
+	{
+		SetValue(static_cast<int64>(InValue));
+	}
+
+	auto FJsonNodeRef::SetValue(int64 InValue) -> void
 	{
 		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
 		if (!Document)
 		{
-			return *this;
+			return;
 		}
 
 		if (!ValuePtr)
@@ -588,19 +656,23 @@ namespace Durin
 			{
 				ReplaceWith(MakeMutableInt(Document, InValue));
 			}
-			return *this;
+			return;
 		}
 
 		yyjson_mut_set_sint(MakeMutableValue(ValuePtr), InValue);
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetUInt(uint64 InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetValue(uint32 InValue) -> void
+	{
+		SetValue(static_cast<uint64>(InValue));
+	}
+
+	auto FJsonNodeRef::SetValue(uint64 InValue) -> void
 	{
 		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
 		if (!Document)
 		{
-			return *this;
+			return;
 		}
 
 		if (!ValuePtr)
@@ -609,19 +681,18 @@ namespace Durin
 			{
 				ReplaceWith(MakeMutableUInt(Document, InValue));
 			}
-			return *this;
+			return;
 		}
 
 		yyjson_mut_set_uint(MakeMutableValue(ValuePtr), InValue);
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetDouble(double InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetValue(double InValue) -> void
 	{
 		yyjson_mut_doc* Document = MakeMutableDocument(DocumentPtr);
 		if (!Document)
 		{
-			return *this;
+			return;
 		}
 
 		if (!ValuePtr)
@@ -630,53 +701,61 @@ namespace Durin
 			{
 				ReplaceWith(MakeMutableDouble(Document, InValue));
 			}
-			return *this;
+			return;
 		}
 
 		yyjson_mut_set_real(MakeMutableValue(ValuePtr), InValue);
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetNullValue(std::string_view InKey) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetChildValue(std::string_view InKey, std::nullptr_t) -> void
 	{
 		EnsureObject();
 		SetObjectEntryInternal(InKey, MakeMutableNull(MakeMutableDocument(DocumentPtr)));
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetStringValue(std::string_view InKey, std::string_view InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetChildValue(std::string_view InKey, std::string_view InValue) -> void
 	{
 		EnsureObject();
 		SetObjectEntryInternal(InKey, MakeMutableString(MakeMutableDocument(DocumentPtr), InValue));
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetBoolValue(std::string_view InKey, bool bInValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetChildValue(std::string_view InKey, const char* InValue) -> void
+	{
+		SetChildValue(InKey, InValue != nullptr ? std::string_view(InValue) : std::string_view{});
+	}
+
+	auto FJsonNodeRef::SetChildValue(std::string_view InKey, bool bInValue) -> void
 	{
 		EnsureObject();
 		SetObjectEntryInternal(InKey, MakeMutableBool(MakeMutableDocument(DocumentPtr), bInValue));
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetIntValue(std::string_view InKey, int64 InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetChildValue(std::string_view InKey, int32 InValue) -> void
+	{
+		SetChildValue(InKey, static_cast<int64>(InValue));
+	}
+
+	auto FJsonNodeRef::SetChildValue(std::string_view InKey, int64 InValue) -> void
 	{
 		EnsureObject();
 		SetObjectEntryInternal(InKey, MakeMutableInt(MakeMutableDocument(DocumentPtr), InValue));
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetUIntValue(std::string_view InKey, uint64 InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetChildValue(std::string_view InKey, uint32 InValue) -> void
+	{
+		SetChildValue(InKey, static_cast<uint64>(InValue));
+	}
+
+	auto FJsonNodeRef::SetChildValue(std::string_view InKey, uint64 InValue) -> void
 	{
 		EnsureObject();
 		SetObjectEntryInternal(InKey, MakeMutableUInt(MakeMutableDocument(DocumentPtr), InValue));
-		return *this;
 	}
 
-	auto FJsonNodeRef::SetDoubleValue(std::string_view InKey, double InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::SetChildValue(std::string_view InKey, double InValue) -> void
 	{
 		EnsureObject();
 		SetObjectEntryInternal(InKey, MakeMutableDouble(MakeMutableDocument(DocumentPtr), InValue));
-		return *this;
 	}
 
 	auto FJsonNodeRef::AddObject(std::string_view InKey) -> FJsonNodeRef
@@ -693,42 +772,57 @@ namespace Durin
 		return ToNodeRef(MakeMutableDocument(DocumentPtr), Value, MakeMutableValue(ValuePtr), std::string(InKey), InvalidJsonIndex, false, EJsonNodeLink::ObjectKey);
 	}
 
-	auto FJsonNodeRef::AppendNull() -> FJsonNodeRef&
+	auto FJsonNodeRef::AppendValue(std::nullptr_t) -> FJsonNodeRef&
 	{
 		EnsureArray();
 		AppendArrayEntryInternal(MakeMutableNull(MakeMutableDocument(DocumentPtr)));
 		return *this;
 	}
 
-	auto FJsonNodeRef::AppendString(std::string_view InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::AppendValue(std::string_view InValue) -> FJsonNodeRef&
 	{
 		EnsureArray();
 		AppendArrayEntryInternal(MakeMutableString(MakeMutableDocument(DocumentPtr), InValue));
 		return *this;
 	}
 
-	auto FJsonNodeRef::AppendBool(bool bInValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::AppendValue(const char* InValue) -> FJsonNodeRef&
+	{
+		return AppendValue(InValue != nullptr ? std::string_view(InValue) : std::string_view{});
+	}
+
+	auto FJsonNodeRef::AppendValue(bool bInValue) -> FJsonNodeRef&
 	{
 		EnsureArray();
 		AppendArrayEntryInternal(MakeMutableBool(MakeMutableDocument(DocumentPtr), bInValue));
 		return *this;
 	}
 
-	auto FJsonNodeRef::AppendInt(int64 InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::AppendValue(int32 InValue) -> FJsonNodeRef&
+	{
+		return AppendValue(static_cast<int64>(InValue));
+	}
+
+	auto FJsonNodeRef::AppendValue(int64 InValue) -> FJsonNodeRef&
 	{
 		EnsureArray();
 		AppendArrayEntryInternal(MakeMutableInt(MakeMutableDocument(DocumentPtr), InValue));
 		return *this;
 	}
 
-	auto FJsonNodeRef::AppendUInt(uint64 InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::AppendValue(uint32 InValue) -> FJsonNodeRef&
+	{
+		return AppendValue(static_cast<uint64>(InValue));
+	}
+
+	auto FJsonNodeRef::AppendValue(uint64 InValue) -> FJsonNodeRef&
 	{
 		EnsureArray();
 		AppendArrayEntryInternal(MakeMutableUInt(MakeMutableDocument(DocumentPtr), InValue));
 		return *this;
 	}
 
-	auto FJsonNodeRef::AppendDouble(double InValue) -> FJsonNodeRef&
+	auto FJsonNodeRef::AppendValue(double InValue) -> FJsonNodeRef&
 	{
 		EnsureArray();
 		AppendArrayEntryInternal(MakeMutableDouble(MakeMutableDocument(DocumentPtr), InValue));

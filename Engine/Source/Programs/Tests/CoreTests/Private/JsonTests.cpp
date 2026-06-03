@@ -27,13 +27,17 @@ namespace
 		const Durin::FJsonNodeView Root = Document.GetRootView();
 		ASSERT_TRUE(Root.IsObject());
 		EXPECT_TRUE(Root.Contains("flags"));
-		EXPECT_EQ(Root.GetStringValue("name"), "yyjson smoke test");
-		EXPECT_EQ(Root.GetIntValue("version"), 1);
+		std::string Name;
+		Durin::int64 Version = 0;
+		EXPECT_TRUE(Root.GetChildValue("name", Name));
+		EXPECT_TRUE(Root.GetChildValue("version", Version));
+		EXPECT_EQ(Name, "yyjson smoke test");
+		EXPECT_EQ(Version, 1);
 
 		const Durin::FJsonNodeView Flags = Root.GetView("flags");
 		ASSERT_TRUE(Flags.IsObject());
-		EXPECT_TRUE(Flags.GetBoolValue("enabled"));
-		EXPECT_DOUBLE_EQ(Flags.GetDoubleValue("threshold"), 0.75);
+		EXPECT_TRUE(Flags.GetView("enabled").GetBool());
+		EXPECT_DOUBLE_EQ(Flags.GetView("threshold").GetDouble(), 0.75);
 	}
 
 	TEST(FJsonDocumentTests, ParseArrayAndDefaults)
@@ -63,7 +67,7 @@ namespace
 
 		const Durin::FJsonNodeView Root = Document.GetRootView();
 		ASSERT_TRUE(Root.IsObject());
-		EXPECT_EQ(Root.GetStringValue("name"), "yyjson smoke test");
+		EXPECT_EQ(Root.GetView("name").GetString(), "yyjson smoke test");
 
 		const Durin::FJsonNodeView Features = Root.GetView("features");
 		ASSERT_TRUE(Features.IsArray());
@@ -78,31 +82,31 @@ namespace
 		Durin::FJsonDocument Document;
 		Durin::FJsonNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureObject();
-		Root.SetStringValue("name", "writer");
-		Root.SetBoolValue("enabled", true);
-		Root.SetDoubleValue("threshold", 1.5);
-		Root.SetNullValue("optional");
+		Root.SetChildValue("name", "writer");
+		Root.SetChildValue("enabled", true);
+		Root.SetChildValue("threshold", 1.5);
+		Root.SetChildValue("optional", nullptr);
 
 		Durin::FJsonNodeRef Flags = Root.AddObject("flags");
-		Flags.SetUIntValue("count", 3);
+		Flags.SetChildValue("count", 3U);
 
 		Durin::FJsonNodeRef Features = Root.AddArray("features");
-		Features.AppendString("parse");
-		Features.AppendInt(12);
-		Features.AppendBool(false);
-		Features.AppendNull();
+		Features.AppendValue("parse");
+		Features.AppendValue(12);
+		Features.AppendValue(false);
+		Features.AppendValue(nullptr);
 
 		Durin::FJsonNodeRef NestedObject = Features.AppendObject();
-		NestedObject.SetStringValue("label", "nested");
+		NestedObject.SetChildValue("label", "nested");
 
 		Durin::FJsonNodeRef NestedArray = Features.AppendArray();
-		NestedArray.AppendUInt(7);
-		NestedArray.AppendString("tail");
+		NestedArray.AppendValue(7U);
+		NestedArray.AppendValue("tail");
 
-		EXPECT_EQ(Root.GetRef("flags").GetUIntValue("count"), 3U);
+		EXPECT_EQ(Root.GetRef("flags").GetView("count").GetUInt(), 3U);
 		EXPECT_TRUE(Root.GetView("optional").IsNull());
 		EXPECT_TRUE(Features.GetView(3).IsNull());
-		EXPECT_EQ(Features.GetRef(4).GetStringValue("label"), "nested");
+		EXPECT_EQ(Features.GetRef(4).GetView("label").GetString(), "nested");
 		EXPECT_EQ(Features.GetRef(5).GetView(1).GetString(), "tail");
 
 		const std::filesystem::path OutputPath = MakeJsonTestPath("JsonRoundTripObject.json");
@@ -115,11 +119,11 @@ namespace
 
 		const Durin::FJsonNodeView ReloadedRoot = ReloadedDocument.GetRootView();
 		ASSERT_TRUE(ReloadedRoot.IsObject());
-		EXPECT_EQ(ReloadedRoot.GetStringValue("name"), "writer");
-		EXPECT_TRUE(ReloadedRoot.GetBoolValue("enabled"));
-		EXPECT_DOUBLE_EQ(ReloadedRoot.GetDoubleValue("threshold"), 1.5);
+		EXPECT_EQ(ReloadedRoot.GetView("name").GetString(), "writer");
+		EXPECT_TRUE(ReloadedRoot.GetView("enabled").GetBool());
+		EXPECT_DOUBLE_EQ(ReloadedRoot.GetView("threshold").GetDouble(), 1.5);
 		EXPECT_TRUE(ReloadedRoot.GetView("optional").IsNull());
-		EXPECT_EQ(ReloadedRoot.GetView("flags").GetUIntValue("count"), 3U);
+		EXPECT_EQ(ReloadedRoot.GetView("flags").GetView("count").GetUInt(), 3U);
 
 		const Durin::FJsonNodeView ReloadedFeatures = ReloadedRoot.GetView("features");
 		ASSERT_TRUE(ReloadedFeatures.IsArray());
@@ -128,7 +132,7 @@ namespace
 		EXPECT_EQ(ReloadedFeatures.GetView(1).GetInt(), 12);
 		EXPECT_FALSE(ReloadedFeatures.GetView(2).GetBool(true));
 		EXPECT_TRUE(ReloadedFeatures.GetView(3).IsNull());
-		EXPECT_EQ(ReloadedFeatures.GetView(4).GetStringValue("label"), "nested");
+		EXPECT_EQ(ReloadedFeatures.GetView(4).GetView("label").GetString(), "nested");
 		EXPECT_EQ(ReloadedFeatures.GetView(5).GetView(0).GetUInt(), 7U);
 		EXPECT_EQ(ReloadedFeatures.GetView(5).GetView(1).GetString(), "tail");
 
@@ -142,10 +146,10 @@ namespace
 			Durin::FJsonDocument Document;
 			Durin::FJsonNodeRef Root = Document.GetMutableRoot();
 			Root.EnsureArray();
-			Root.AppendString("array-root");
-			Root.AppendNull();
+			Root.AppendValue("array-root");
+			Root.AppendValue(nullptr);
 			Durin::FJsonNodeRef ObjectValue = Root.AppendObject();
-			ObjectValue.SetBoolValue("enabled", true);
+			ObjectValue.SetChildValue("enabled", true);
 
 			const std::filesystem::path OutputPath = MakeJsonTestPath("JsonArrayRoot.json");
 			ASSERT_TRUE(Document.SaveToFile(OutputPath.string()));
@@ -157,7 +161,7 @@ namespace
 			ASSERT_EQ(ReloadedRoot.Num(), 3U);
 			EXPECT_EQ(ReloadedRoot.GetView(0).GetString(), "array-root");
 			EXPECT_TRUE(ReloadedRoot.GetView(1).IsNull());
-			EXPECT_TRUE(ReloadedRoot.GetView(2).GetBoolValue("enabled"));
+			EXPECT_TRUE(ReloadedRoot.GetView(2).GetView("enabled").GetBool());
 
 			std::error_code ErrorCode;
 			std::filesystem::remove(OutputPath, ErrorCode);
@@ -166,7 +170,7 @@ namespace
 		{
 			Durin::FJsonDocument Document;
 			Durin::FJsonNodeRef Root = Document.GetMutableRoot();
-			Root.SetString("scalar-root");
+			Root.SetValue("scalar-root");
 
 			const std::filesystem::path OutputPath = MakeJsonTestPath("JsonScalarRoot.json");
 			ASSERT_TRUE(Document.SaveToFile(OutputPath.string()));
@@ -191,12 +195,12 @@ namespace
 		})"));
 
 		Durin::FJsonNodeRef Root = Document.GetMutableRoot();
-		Root.SetStringValue("name", "after");
-		Root.SetNullValue("optional");
+		Root.SetChildValue("name", "after");
+		Root.SetChildValue("optional", nullptr);
 
 		Durin::FJsonNodeRef Items = Root.GetRef("items");
 		ASSERT_TRUE(Items.IsArray());
-		Items.AppendInt(3);
+		Items.AppendValue(3);
 
 		const std::string JsonText = Document.ToString();
 		EXPECT_FALSE(JsonText.empty());
@@ -204,7 +208,7 @@ namespace
 		Durin::FJsonDocument ReloadedDocument;
 		ASSERT_TRUE(ReloadedDocument.Parse(JsonText));
 		const Durin::FJsonNodeView ReloadedRoot = ReloadedDocument.GetRootView();
-		EXPECT_EQ(ReloadedRoot.GetStringValue("name"), "after");
+		EXPECT_EQ(ReloadedRoot.GetView("name").GetString(), "after");
 		EXPECT_TRUE(ReloadedRoot.GetView("optional").IsNull());
 		ASSERT_TRUE(ReloadedRoot.GetView("items").IsArray());
 		EXPECT_EQ(ReloadedRoot.GetView("items").GetView(2).GetInt(), 3);

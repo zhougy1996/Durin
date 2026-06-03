@@ -446,29 +446,65 @@ namespace Durin
 		return TryGetScalarText(MakeConstNode(TreePtr, NodeIndex), &ScalarText) && TryParseDouble(ScalarText, &ParsedValue) ? ParsedValue : DefaultValue;
 	}
 
-	auto FYamlNodeView::GetStringValue(std::string_view InKey, std::string DefaultValue) const -> std::string
+	auto FYamlNodeView::GetValue(std::string& OutValue) const -> bool
 	{
-		return GetView(InKey).GetString(std::move(DefaultValue));
+		std::string_view ScalarText;
+		if (!TryGetScalarText(MakeConstNode(TreePtr, NodeIndex), &ScalarText))
+		{
+			return false;
+		}
+
+		OutValue.assign(ScalarText.data(), ScalarText.size());
+		return true;
 	}
 
-	auto FYamlNodeView::GetBoolValue(std::string_view InKey, bool DefaultValue) const -> bool
+	auto FYamlNodeView::GetValue(bool& bOutValue) const -> bool
 	{
-		return GetView(InKey).GetBool(DefaultValue);
+		std::string_view ScalarText;
+		return TryGetScalarText(MakeConstNode(TreePtr, NodeIndex), &ScalarText) && TryParseBool(ScalarText, &bOutValue);
 	}
 
-	auto FYamlNodeView::GetIntValue(std::string_view InKey, int64 DefaultValue) const -> int64
+	auto FYamlNodeView::GetValue(int64& OutValue) const -> bool
 	{
-		return GetView(InKey).GetInt(DefaultValue);
+		std::string_view ScalarText;
+		return TryGetScalarText(MakeConstNode(TreePtr, NodeIndex), &ScalarText) && TryParseInteger(ScalarText, &OutValue);
 	}
 
-	auto FYamlNodeView::GetUIntValue(std::string_view InKey, uint64 DefaultValue) const -> uint64
+	auto FYamlNodeView::GetValue(uint64& OutValue) const -> bool
 	{
-		return GetView(InKey).GetUInt(DefaultValue);
+		std::string_view ScalarText;
+		return TryGetScalarText(MakeConstNode(TreePtr, NodeIndex), &ScalarText) && TryParseInteger(ScalarText, &OutValue);
 	}
 
-	auto FYamlNodeView::GetDoubleValue(std::string_view InKey, double DefaultValue) const -> double
+	auto FYamlNodeView::GetValue(double& OutValue) const -> bool
 	{
-		return GetView(InKey).GetDouble(DefaultValue);
+		std::string_view ScalarText;
+		return TryGetScalarText(MakeConstNode(TreePtr, NodeIndex), &ScalarText) && TryParseDouble(ScalarText, &OutValue);
+	}
+
+	auto FYamlNodeView::GetChildValue(std::string_view InKey, std::string& OutValue) const -> bool
+	{
+		return GetView(InKey).GetValue(OutValue);
+	}
+
+	auto FYamlNodeView::GetChildValue(std::string_view InKey, bool& bOutValue) const -> bool
+	{
+		return GetView(InKey).GetValue(bOutValue);
+	}
+
+	auto FYamlNodeView::GetChildValue(std::string_view InKey, int64& OutValue) const -> bool
+	{
+		return GetView(InKey).GetValue(OutValue);
+	}
+
+	auto FYamlNodeView::GetChildValue(std::string_view InKey, uint64& OutValue) const -> bool
+	{
+		return GetView(InKey).GetValue(OutValue);
+	}
+
+	auto FYamlNodeView::GetChildValue(std::string_view InKey, double& OutValue) const -> bool
+	{
+		return GetView(InKey).GetValue(OutValue);
 	}
 
 	auto FYamlNodeRef::GetRef(std::string_view InKey) const -> FYamlNodeRef
@@ -517,7 +553,7 @@ namespace Durin
 		return *this;
 	}
 
-	auto FYamlNodeRef::SetString(std::string_view InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::SetValue(std::string_view InValue) -> void
 	{
 		ryml::NodeRef Node = MakeNode(TreePtr, NodeIndex);
 		if (Node.readable())
@@ -525,34 +561,44 @@ namespace Durin
 			Node.clear();
 			Node << ToCSubstr(InValue);
 		}
-		return *this;
 	}
 
-	auto FYamlNodeRef::SetBool(bool bInValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::SetValue(const char* InValue) -> void
+	{
+		SetValue(InValue != nullptr ? std::string_view(InValue) : std::string_view{});
+	}
+
+	auto FYamlNodeRef::SetValue(bool bInValue) -> void
 	{
 		SetNodeScalar(MakeNode(TreePtr, NodeIndex), bInValue);
-		return *this;
 	}
 
-	auto FYamlNodeRef::SetInt(int64 InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::SetValue(int32 InValue) -> void
+	{
+		SetNodeScalar(MakeNode(TreePtr, NodeIndex), static_cast<int64>(InValue));
+	}
+
+	auto FYamlNodeRef::SetValue(int64 InValue) -> void
 	{
 		SetNodeScalar(MakeNode(TreePtr, NodeIndex), InValue);
-		return *this;
 	}
 
-	auto FYamlNodeRef::SetUInt(uint64 InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::SetValue(uint32 InValue) -> void
+	{
+		SetNodeScalar(MakeNode(TreePtr, NodeIndex), static_cast<uint64>(InValue));
+	}
+
+	auto FYamlNodeRef::SetValue(uint64 InValue) -> void
 	{
 		SetNodeScalar(MakeNode(TreePtr, NodeIndex), InValue);
-		return *this;
 	}
 
-	auto FYamlNodeRef::SetDouble(double InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::SetValue(double InValue) -> void
 	{
 		SetNodeScalar(MakeNode(TreePtr, NodeIndex), InValue);
-		return *this;
 	}
 
-	auto FYamlNodeRef::SetStringValue(std::string_view InKey, std::string_view InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::SetChildValue(std::string_view InKey, std::string_view InValue) -> void
 	{
 		ryml::NodeRef Node = MakeNode(TreePtr, NodeIndex);
 		EnsureMapNode(Node);
@@ -565,31 +611,41 @@ namespace Durin
 			}
 			ChildNode << ToCSubstr(InValue);
 		}
-		return *this;
 	}
 
-	auto FYamlNodeRef::SetBoolValue(std::string_view InKey, bool bInValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::SetChildValue(std::string_view InKey, const char* InValue) -> void
+	{
+		SetChildValue(InKey, InValue != nullptr ? std::string_view(InValue) : std::string_view{});
+	}
+
+	auto FYamlNodeRef::SetChildValue(std::string_view InKey, bool bInValue) -> void
 	{
 		SetChildScalar(MakeNode(TreePtr, NodeIndex), InKey, bInValue);
-		return *this;
 	}
 
-	auto FYamlNodeRef::SetIntValue(std::string_view InKey, int64 InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::SetChildValue(std::string_view InKey, int32 InValue) -> void
 	{
-		SetChildScalar(MakeNode(TreePtr, NodeIndex), InKey, InValue);
-		return *this;
+		SetChildScalar(MakeNode(TreePtr, NodeIndex), InKey, static_cast<int64>(InValue));
 	}
 
-	auto FYamlNodeRef::SetUIntValue(std::string_view InKey, uint64 InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::SetChildValue(std::string_view InKey, int64 InValue) -> void
 	{
 		SetChildScalar(MakeNode(TreePtr, NodeIndex), InKey, InValue);
-		return *this;
 	}
 
-	auto FYamlNodeRef::SetDoubleValue(std::string_view InKey, double InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::SetChildValue(std::string_view InKey, uint32 InValue) -> void
+	{
+		SetChildScalar(MakeNode(TreePtr, NodeIndex), InKey, static_cast<uint64>(InValue));
+	}
+
+	auto FYamlNodeRef::SetChildValue(std::string_view InKey, uint64 InValue) -> void
 	{
 		SetChildScalar(MakeNode(TreePtr, NodeIndex), InKey, InValue);
-		return *this;
+	}
+
+	auto FYamlNodeRef::SetChildValue(std::string_view InKey, double InValue) -> void
+	{
+		SetChildScalar(MakeNode(TreePtr, NodeIndex), InKey, InValue);
 	}
 
 	auto FYamlNodeRef::AddMap(std::string_view InKey) -> FYamlNodeRef
@@ -628,7 +684,7 @@ namespace Durin
 		return ToNodeRef(ChildNode);
 	}
 
-	auto FYamlNodeRef::AppendString(std::string_view InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::AppendValue(std::string_view InValue) -> FYamlNodeRef&
 	{
 		ryml::NodeRef Node = MakeNode(TreePtr, NodeIndex);
 		EnsureSequenceNode(Node);
@@ -640,25 +696,42 @@ namespace Durin
 		return *this;
 	}
 
-	auto FYamlNodeRef::AppendBool(bool bInValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::AppendValue(const char* InValue) -> FYamlNodeRef&
+	{
+		return AppendValue(InValue != nullptr ? std::string_view(InValue) : std::string_view{});
+	}
+
+	auto FYamlNodeRef::AppendValue(bool bInValue) -> FYamlNodeRef&
 	{
 		AppendScalar(MakeNode(TreePtr, NodeIndex), bInValue);
 		return *this;
 	}
 
-	auto FYamlNodeRef::AppendInt(int64 InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::AppendValue(int32 InValue) -> FYamlNodeRef&
+	{
+		AppendScalar(MakeNode(TreePtr, NodeIndex), static_cast<int64>(InValue));
+		return *this;
+	}
+
+	auto FYamlNodeRef::AppendValue(int64 InValue) -> FYamlNodeRef&
 	{
 		AppendScalar(MakeNode(TreePtr, NodeIndex), InValue);
 		return *this;
 	}
 
-	auto FYamlNodeRef::AppendUInt(uint64 InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::AppendValue(uint32 InValue) -> FYamlNodeRef&
+	{
+		AppendScalar(MakeNode(TreePtr, NodeIndex), static_cast<uint64>(InValue));
+		return *this;
+	}
+
+	auto FYamlNodeRef::AppendValue(uint64 InValue) -> FYamlNodeRef&
 	{
 		AppendScalar(MakeNode(TreePtr, NodeIndex), InValue);
 		return *this;
 	}
 
-	auto FYamlNodeRef::AppendDouble(double InValue) -> FYamlNodeRef&
+	auto FYamlNodeRef::AppendValue(double InValue) -> FYamlNodeRef&
 	{
 		AppendScalar(MakeNode(TreePtr, NodeIndex), InValue);
 		return *this;

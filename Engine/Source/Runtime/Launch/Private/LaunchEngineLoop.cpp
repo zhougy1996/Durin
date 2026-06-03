@@ -48,7 +48,7 @@ namespace Durin
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
-		DURIN_DEBUG("Application name: {}", GAppConfig.GetStringValue("AppName"));
+		DURIN_DEBUG("Application name: {}", GAppConfig.GetView("AppName").GetString());
 		DURIN_INFO(STR("Launching Durin engine..."));
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());

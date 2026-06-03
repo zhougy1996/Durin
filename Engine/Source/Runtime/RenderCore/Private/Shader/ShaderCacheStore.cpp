@@ -64,32 +64,32 @@ namespace Durin
 			FJsonDocument Document;
 			FJsonNodeRef Root = Document.GetMutableRoot();
 			Root.EnsureObject();
-			Root.SetUIntValue("Version", GShaderReflectionVersion);
-			Root.SetUIntValue("Frequency", static_cast<uint32>(CompiledShader.Frequency));
-			Root.SetStringValue("SourceEntryPoint", CompiledShader.SourceEntryPoint);
-			Root.SetStringValue("BinaryEntryPoint", CompiledShader.BinaryEntryPoint);
-			Root.SetStringValue("DebugName", CompiledShader.DebugName);
-			Root.SetStringValue("Hash", CompiledShader.Hash.ToString());
+			Root.SetChildValue("Version", GShaderReflectionVersion);
+			Root.SetChildValue("Frequency", static_cast<uint32>(CompiledShader.Frequency));
+			Root.SetChildValue("SourceEntryPoint", CompiledShader.SourceEntryPoint);
+			Root.SetChildValue("BinaryEntryPoint", CompiledShader.BinaryEntryPoint);
+			Root.SetChildValue("DebugName", CompiledShader.DebugName);
+			Root.SetChildValue("Hash", CompiledShader.Hash.ToString());
 
 			FJsonNodeRef ResourceBindings = Root.AddArray("ResourceBindings");
 			for (const FShaderResourceBinding& Binding : CompiledShader.Reflection.ResourceBindings)
 			{
 				FJsonNodeRef BindingNode = ResourceBindings.AppendObject();
-				BindingNode.SetStringValue("Name", Binding.Name);
-				BindingNode.SetUIntValue("StageFlags", static_cast<uint32>(Binding.StageFlags));
-				BindingNode.SetUIntValue("SetIndex", Binding.SetIndex);
-				BindingNode.SetUIntValue("BindingIndex", Binding.BindingIndex);
-				BindingNode.SetUIntValue("Type", static_cast<uint32>(Binding.Type));
-				BindingNode.SetUIntValue("ArraySize", Binding.ArraySize);
+				BindingNode.SetChildValue("Name", Binding.Name);
+				BindingNode.SetChildValue("StageFlags", static_cast<uint32>(Binding.StageFlags));
+				BindingNode.SetChildValue("SetIndex", Binding.SetIndex);
+				BindingNode.SetChildValue("BindingIndex", Binding.BindingIndex);
+				BindingNode.SetChildValue("Type", static_cast<uint32>(Binding.Type));
+				BindingNode.SetChildValue("ArraySize", Binding.ArraySize);
 			}
 
 			FJsonNodeRef PushConstantRanges = Root.AddArray("PushConstantRanges");
 			for (const FPushConstantRange& Range : CompiledShader.Reflection.PushConstantRanges)
 			{
 				FJsonNodeRef RangeNode = PushConstantRanges.AppendObject();
-				RangeNode.SetUIntValue("StageFlags", static_cast<uint32>(Range.StageFlags));
-				RangeNode.SetUIntValue("Offset", Range.Offset);
-				RangeNode.SetUIntValue("Size", Range.Size);
+				RangeNode.SetChildValue("StageFlags", static_cast<uint32>(Range.StageFlags));
+				RangeNode.SetChildValue("Offset", Range.Offset);
+				RangeNode.SetChildValue("Size", Range.Size);
 			}
 
 			return Document.SaveToFile(FilePath);
@@ -104,25 +104,25 @@ namespace Durin
 			}
 
 			const FJsonNodeView Root = Document.GetRootView();
-			if (!Root.IsObject() || Root.GetUIntValue("Version") != GShaderReflectionVersion)
+			if (!Root.IsObject() || Root.GetView("Version").GetUInt() != GShaderReflectionVersion)
 			{
 				return false;
 			}
 
-			const std::string HashString = Root.GetStringValue("Hash");
+			const std::string HashString = Root.GetView("Hash").GetString();
 			if (!String::IsHex(HashString, 32))
 			{
 				return false;
 			}
 
-			OutCompiledShader.Frequency = static_cast<EShaderFrequency>(Root.GetUIntValue("Frequency"));
-			OutCompiledShader.SourceEntryPoint = Root.GetStringValue("SourceEntryPoint");
-			OutCompiledShader.BinaryEntryPoint = Root.GetStringValue("BinaryEntryPoint");
+			OutCompiledShader.Frequency = static_cast<EShaderFrequency>(Root.GetView("Frequency").GetUInt());
+			OutCompiledShader.SourceEntryPoint = Root.GetView("SourceEntryPoint").GetString();
+			OutCompiledShader.BinaryEntryPoint = Root.GetView("BinaryEntryPoint").GetString();
 			if (OutCompiledShader.BinaryEntryPoint.empty())
 			{
 				OutCompiledShader.BinaryEntryPoint = "main";
 			}
-			OutCompiledShader.DebugName = Root.GetStringValue("DebugName");
+			OutCompiledShader.DebugName = Root.GetView("DebugName").GetString();
 			OutCompiledShader.Hash = FXxHash128::FromString(HashString);
 			OutCompiledShader.Reflection = {};
 
@@ -141,12 +141,12 @@ namespace Durin
 				}
 
 				FShaderResourceBinding Binding;
-				Binding.Name = BindingView.GetStringValue("Name");
-				Binding.StageFlags = static_cast<EShaderStageFlags>(BindingView.GetUIntValue("StageFlags"));
-				Binding.SetIndex = static_cast<uint32>(BindingView.GetUIntValue("SetIndex"));
-				Binding.BindingIndex = static_cast<uint32>(BindingView.GetUIntValue("BindingIndex"));
-				Binding.Type = static_cast<ERHIBindingType>(BindingView.GetUIntValue("Type"));
-				Binding.ArraySize = static_cast<uint32>(BindingView.GetUIntValue("ArraySize", 1));
+				Binding.Name = BindingView.GetView("Name").GetString();
+				Binding.StageFlags = static_cast<EShaderStageFlags>(BindingView.GetView("StageFlags").GetUInt());
+				Binding.SetIndex = static_cast<uint32>(BindingView.GetView("SetIndex").GetUInt());
+				Binding.BindingIndex = static_cast<uint32>(BindingView.GetView("BindingIndex").GetUInt());
+				Binding.Type = static_cast<ERHIBindingType>(BindingView.GetView("Type").GetUInt());
+				Binding.ArraySize = static_cast<uint32>(BindingView.GetView("ArraySize").GetUInt(1));
 				OutCompiledShader.Reflection.ResourceBindings.push_back(std::move(Binding));
 			}
 
@@ -165,9 +165,9 @@ namespace Durin
 				}
 
 				FPushConstantRange Range{};
-				Range.StageFlags = static_cast<EShaderStageFlags>(RangeView.GetUIntValue("StageFlags"));
-				Range.Offset = static_cast<uint32>(RangeView.GetUIntValue("Offset"));
-				Range.Size = static_cast<uint32>(RangeView.GetUIntValue("Size"));
+				Range.StageFlags = static_cast<EShaderStageFlags>(RangeView.GetView("StageFlags").GetUInt());
+				Range.Offset = static_cast<uint32>(RangeView.GetView("Offset").GetUInt());
+				Range.Size = static_cast<uint32>(RangeView.GetView("Size").GetUInt());
 				OutCompiledShader.Reflection.PushConstantRanges.push_back(Range);
 			}
 
@@ -197,14 +197,14 @@ namespace Durin
 
 		const FJsonNodeView Root = Document.GetRootView();
 		if (!Root.IsObject()
-			|| Root.GetUIntValue("Version") != GShaderMetaVersion)
+			|| Root.GetView("Version").GetUInt() != GShaderMetaVersion)
 		{
 			return false;
 		}
 
 		OutMetaData = {};
 
-		const std::string SourceTreeSignature = Root.GetStringValue("SourceTreeSignature");
+		const std::string SourceTreeSignature = Root.GetView("SourceTreeSignature").GetString();
 		if (!String::IsHex(SourceTreeSignature, 32))
 		{
 			return false;
@@ -219,8 +219,8 @@ namespace Durin
 		FJsonDocument Document;
 		FJsonNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureObject();
-		Root.SetUIntValue("Version", GShaderMetaVersion);
-		Root.SetStringValue("SourceTreeSignature", MetaData.SourceTreeSignature.ToString());
+		Root.SetChildValue("Version", GShaderMetaVersion);
+		Root.SetChildValue("SourceTreeSignature", MetaData.SourceTreeSignature.ToString());
 		return Document.SaveToFile(FShaderPaths::MetaPath(VirtualShaderPath));
 	}
 

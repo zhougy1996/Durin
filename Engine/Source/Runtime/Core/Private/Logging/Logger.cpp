@@ -103,6 +103,6 @@ namespace Durin
 		check(IsAppConfigLoaded());
 		FLogger& Logger = FLogger::Get();
 		Logger.Initialize();
-		Logger.SetConsoleLogLevel(StringToLogLevel(GAppConfig.GetStringValue("LogLevel")));
+		Logger.SetConsoleLogLevel(StringToLogLevel(GAppConfig.GetView("LogLevel").GetString()));
 	}
 }

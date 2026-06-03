@@ -43,11 +43,17 @@ namespace Durin
 		CORE_API auto GetUInt(uint64 DefaultValue = 0) const -> uint64;
 		CORE_API auto GetDouble(double DefaultValue = 0.0) const -> double;
 
-		CORE_API auto GetStringValue(std::string_view InKey, std::string DefaultValue = "") const -> std::string;
-		CORE_API auto GetBoolValue(std::string_view InKey, bool DefaultValue = false) const -> bool;
-		CORE_API auto GetIntValue(std::string_view InKey, int64 DefaultValue = 0) const -> int64;
-		CORE_API auto GetUIntValue(std::string_view InKey, uint64 DefaultValue = 0) const -> uint64;
-		CORE_API auto GetDoubleValue(std::string_view InKey, double DefaultValue = 0.0) const -> double;
+		CORE_API auto GetValue(std::string& OutValue) const -> bool;
+		CORE_API auto GetValue(bool& bOutValue) const -> bool;
+		CORE_API auto GetValue(int64& OutValue) const -> bool;
+		CORE_API auto GetValue(uint64& OutValue) const -> bool;
+		CORE_API auto GetValue(double& OutValue) const -> bool;
+
+		CORE_API auto GetChildValue(std::string_view InKey, std::string& OutValue) const -> bool;
+		CORE_API auto GetChildValue(std::string_view InKey, bool& bOutValue) const -> bool;
+		CORE_API auto GetChildValue(std::string_view InKey, int64& OutValue) const -> bool;
+		CORE_API auto GetChildValue(std::string_view InKey, uint64& OutValue) const -> bool;
+		CORE_API auto GetChildValue(std::string_view InKey, double& OutValue) const -> bool;
 
 	protected:
 		FYamlNodeView(void* InTreePtr, size_t InNodeIndex)
@@ -86,29 +92,38 @@ namespace Durin
 		CORE_API auto EnsureSequence() -> FYamlNodeRef&;
 
 		// Replaces this node with a scalar value.
-		CORE_API auto SetString(std::string_view InValue) -> FYamlNodeRef&;
-		CORE_API auto SetBool(bool bInValue) -> FYamlNodeRef&;
-		CORE_API auto SetInt(int64 InValue) -> FYamlNodeRef&;
-		CORE_API auto SetUInt(uint64 InValue) -> FYamlNodeRef&;
-		CORE_API auto SetDouble(double InValue) -> FYamlNodeRef&;
+		CORE_API auto SetValue(std::string_view InValue) -> void;
+		CORE_API auto SetValue(const char* InValue) -> void;
+		CORE_API auto SetValue(bool bInValue) -> void;
+		CORE_API auto SetValue(int32 InValue) -> void;
+		CORE_API auto SetValue(int64 InValue) -> void;
+		CORE_API auto SetValue(uint32 InValue) -> void;
+		CORE_API auto SetValue(uint64 InValue) -> void;
+		CORE_API auto SetValue(double InValue) -> void;
 
-		// Ensures this node is a map, then writes the scalar field at InKey.
-		CORE_API auto SetStringValue(std::string_view InKey, std::string_view InValue) -> FYamlNodeRef&;
-		CORE_API auto SetBoolValue(std::string_view InKey, bool bInValue) -> FYamlNodeRef&;
-		CORE_API auto SetIntValue(std::string_view InKey, int64 InValue) -> FYamlNodeRef&;
-		CORE_API auto SetUIntValue(std::string_view InKey, uint64 InValue) -> FYamlNodeRef&;
-		CORE_API auto SetDoubleValue(std::string_view InKey, double InValue) -> FYamlNodeRef&;
+		// Ensures this node is a map, then writes the scalar child at InKey.
+		CORE_API auto SetChildValue(std::string_view InKey, std::string_view InValue) -> void;
+		CORE_API auto SetChildValue(std::string_view InKey, const char* InValue) -> void;
+		CORE_API auto SetChildValue(std::string_view InKey, bool bInValue) -> void;
+		CORE_API auto SetChildValue(std::string_view InKey, int32 InValue) -> void;
+		CORE_API auto SetChildValue(std::string_view InKey, int64 InValue) -> void;
+		CORE_API auto SetChildValue(std::string_view InKey, uint32 InValue) -> void;
+		CORE_API auto SetChildValue(std::string_view InKey, uint64 InValue) -> void;
+		CORE_API auto SetChildValue(std::string_view InKey, double InValue) -> void;
 
 		// Ensures this node is a map, then replaces any existing value at InKey with a new empty map/sequence.
 		CORE_API auto AddMap(std::string_view InKey) -> FYamlNodeRef;
 		CORE_API auto AddSequence(std::string_view InKey) -> FYamlNodeRef;
 
 		// Ensures this node is a sequence, then appends a new scalar/container element.
-		CORE_API auto AppendString(std::string_view InValue) -> FYamlNodeRef&;
-		CORE_API auto AppendBool(bool bInValue) -> FYamlNodeRef&;
-		CORE_API auto AppendInt(int64 InValue) -> FYamlNodeRef&;
-		CORE_API auto AppendUInt(uint64 InValue) -> FYamlNodeRef&;
-		CORE_API auto AppendDouble(double InValue) -> FYamlNodeRef&;
+		CORE_API auto AppendValue(std::string_view InValue) -> FYamlNodeRef&;
+		CORE_API auto AppendValue(const char* InValue) -> FYamlNodeRef&;
+		CORE_API auto AppendValue(bool bInValue) -> FYamlNodeRef&;
+		CORE_API auto AppendValue(int32 InValue) -> FYamlNodeRef&;
+		CORE_API auto AppendValue(int64 InValue) -> FYamlNodeRef&;
+		CORE_API auto AppendValue(uint32 InValue) -> FYamlNodeRef&;
+		CORE_API auto AppendValue(uint64 InValue) -> FYamlNodeRef&;
+		CORE_API auto AppendValue(double InValue) -> FYamlNodeRef&;
 
 		CORE_API auto AppendMap() -> FYamlNodeRef;
 		CORE_API auto AppendSequence() -> FYamlNodeRef;
