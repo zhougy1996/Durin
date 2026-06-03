@@ -21,6 +21,7 @@ namespace Durin
 		CORE_API auto Destroy(bool bWaitForQueuedWork = true) -> void;
 
 		CORE_API auto Enqueue(const char* TaskName, FQueuedWorkFunction&& Work) -> bool;
+		CORE_API auto TryExecuteOneQueuedTask() -> bool;
 
 		CORE_API auto WaitForIdle() -> void;
 

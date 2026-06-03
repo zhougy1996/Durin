@@ -179,6 +179,18 @@ namespace Durin
 			return true;
 		}
 
+		auto TryExecuteOneQueuedTask() -> bool
+		{
+			FQueuedWork Work;
+			if (!TryDequeueWork(Work))
+			{
+				return false;
+			}
+
+			ExecuteQueuedWork(std::move(Work));
+			return true;
+		}
+
 		auto WaitForIdle() -> void
 		{
 			std::unique_lock Lock(Mutex);
@@ -249,15 +261,39 @@ namespace Durin
 					++ActiveTaskCount;
 				}
 
-				DURIN_TRACE("Queued task started. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
-				Work.Function();
-				DURIN_TRACE("Queued task finished. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
+				ExecuteQueuedWork(std::move(Work));
+			}
+		}
 
-				{
-					std::lock_guard Lock(Mutex);
-					--ActiveTaskCount;
-					NotifyIdleIfNeeded();
-				}
+		auto TryDequeueWork(FQueuedWork& OutWork) -> bool
+		{
+			std::lock_guard Lock(Mutex);
+			if (Queue.empty())
+			{
+				return false;
+			}
+
+			if (bStopRequested && !bDrainQueuedWorkOnStop)
+			{
+				return false;
+			}
+
+			OutWork = std::move(Queue.front());
+			Queue.pop_front();
+			++ActiveTaskCount;
+			return true;
+		}
+
+		auto ExecuteQueuedWork(FQueuedWork&& Work) -> void
+		{
+			DURIN_TRACE("Queued task started. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
+			Work.Function();
+			DURIN_TRACE("Queued task finished. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
+
+			{
+				std::lock_guard Lock(Mutex);
+				--ActiveTaskCount;
+				NotifyIdleIfNeeded();
 			}
 		}
 
@@ -305,6 +341,11 @@ namespace Durin
 	auto FQueuedThreadPool::Enqueue(const char* TaskName, FQueuedWorkFunction&& Work) -> bool
 	{
 		return Impl->Enqueue(TaskName, std::move(Work));
+	}
+
+	auto FQueuedThreadPool::TryExecuteOneQueuedTask() -> bool
+	{
+		return Impl->TryExecuteOneQueuedTask();
 	}
 
 	auto FQueuedThreadPool::WaitForIdle() -> void

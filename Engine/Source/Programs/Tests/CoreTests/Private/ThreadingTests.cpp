@@ -3,6 +3,7 @@
 #include "Threading/QueuedThreadPool.h"
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
+#include "Threading/Task.h"
 #include "Threading/ThreadEvent.h"
 
 namespace Durin
@@ -340,5 +341,137 @@ namespace Durin
 
 		EXPECT_EQ(GThreadPool, nullptr);
 		EXPECT_TRUE(bObservedWorkerThread.load(std::memory_order::acquire));
+	}
+
+	TEST(FTaskTests, LaunchTaskReturnsValidHandleAndCompletes)
+	{
+		ShutdownEngineThreadPool(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitEngineThreadPool(2));
+
+		std::atomic<bool> bTaskRan = false;
+		FTaskHandle Handle = LaunchTask("HandleCompletion", [&]() {
+			bTaskRan.store(true, std::memory_order::release);
+		});
+
+		ASSERT_TRUE(Handle.IsValid());
+		EXPECT_STREQ("HandleCompletion", Handle.GetDebugName());
+
+		WaitTask(Handle);
+
+		EXPECT_TRUE(Handle.IsComplete());
+		EXPECT_TRUE(bTaskRan.load(std::memory_order::acquire));
+	}
+
+	TEST(FTaskTests, WaitAllWaitsForManyTasks)
+	{
+		ShutdownEngineThreadPool(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitEngineThreadPool(4));
+
+		constexpr uint32 TaskCount = 32;
+		std::atomic<uint32> CompletedTaskCount = 0;
+		std::vector<FTaskHandle> Handles;
+		Handles.reserve(TaskCount);
+
+		for (uint32 TaskIndex = 0; TaskIndex < TaskCount; ++TaskIndex)
+		{
+			Handles.push_back(LaunchTask("WaitAllTask", [&]() {
+				CompletedTaskCount.fetch_add(1, std::memory_order::acq_rel);
+			}));
+			ASSERT_TRUE(Handles.back().IsValid());
+		}
+
+		WaitAll(std::span<const FTaskHandle>(Handles.data(), Handles.size()));
+
+		EXPECT_EQ(TaskCount, CompletedTaskCount.load(std::memory_order::acquire));
+		for (const FTaskHandle& Handle : Handles)
+		{
+			EXPECT_TRUE(Handle.IsComplete());
+		}
+	}
+
+	TEST(FTaskTests, WaitingOneHandleDoesNotRequirePoolIdle)
+	{
+		ShutdownEngineThreadPool(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitEngineThreadPool(1));
+
+		FThreadEvent ReleaseBlockedTask;
+		FThreadEvent BlockedTaskStarted;
+		std::atomic<bool> bTargetTaskRan = false;
+
+		FTaskHandle TargetHandle = LaunchTask("TargetTask", [&]() {
+			bTargetTaskRan.store(true, std::memory_order::release);
+		});
+		ASSERT_TRUE(TargetHandle.IsValid());
+
+		FTaskHandle BlockedHandle = LaunchTask("BlockedTask", [&]() {
+			BlockedTaskStarted.Trigger();
+			ReleaseBlockedTask.Wait();
+		});
+		ASSERT_TRUE(BlockedHandle.IsValid());
+
+		WaitTask(TargetHandle);
+
+		EXPECT_TRUE(TargetHandle.IsComplete());
+		EXPECT_TRUE(bTargetTaskRan.load(std::memory_order::acquire));
+		ASSERT_TRUE(BlockedTaskStarted.WaitFor(1.0));
+		EXPECT_FALSE(BlockedHandle.IsComplete());
+
+		ReleaseBlockedTask.Trigger();
+		WaitTask(BlockedHandle);
+	}
+
+	TEST(FTaskTests, WorkerWaitHelpsNestedTaskOnSingleWorkerPool)
+	{
+		ShutdownEngineThreadPool(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitEngineThreadPool(1));
+
+		std::atomic<bool> bChildTaskRan = false;
+		std::atomic<bool> bChildHandleWasValid = false;
+		std::atomic<bool> bParentTaskFinished = false;
+
+		FTaskHandle ParentHandle = LaunchTask("ParentTask", [&]() {
+			FTaskHandle ChildHandle = LaunchTask("ChildTask", [&]() {
+				bChildTaskRan.store(true, std::memory_order::release);
+			});
+
+			bChildHandleWasValid.store(ChildHandle.IsValid(), std::memory_order::release);
+			WaitTask(ChildHandle);
+			bParentTaskFinished.store(true, std::memory_order::release);
+		});
+		ASSERT_TRUE(ParentHandle.IsValid());
+
+		WaitTask(ParentHandle);
+
+		EXPECT_TRUE(ParentHandle.IsComplete());
+		EXPECT_TRUE(bChildHandleWasValid.load(std::memory_order::acquire));
+		EXPECT_TRUE(bChildTaskRan.load(std::memory_order::acquire));
+		EXPECT_TRUE(bParentTaskFinished.load(std::memory_order::acquire));
+	}
+
+	TEST(FTaskTests, InvalidHandlesAreNoOp)
+	{
+		FTaskHandle InvalidHandle;
+
+		EXPECT_FALSE(InvalidHandle.IsValid());
+		EXPECT_FALSE(InvalidHandle.IsComplete());
+		EXPECT_STREQ("", InvalidHandle.GetDebugName());
+
+		WaitTask(InvalidHandle);
+		WaitAll(std::span<const FTaskHandle>(&InvalidHandle, 1));
+	}
+
+	TEST(FTaskTests, LaunchTaskReturnsInvalidHandleWhenGlobalPoolIsStopped)
+	{
+		ShutdownEngineThreadPool(false);
+		FEngineThreadPoolTestGuard Guard;
+
+		FTaskHandle Handle = LaunchTask("RejectedTask", []() {});
+
+		EXPECT_FALSE(Handle.IsValid());
+		EXPECT_FALSE(Handle.IsComplete());
 	}
 }

@@ -4,6 +4,7 @@ durin_add_module(Core)
 target_sources(Core PRIVATE
     ${DURIN_PROJECT_DIR}/Extras/VisualStudioDebugging/Durin.natvis
     Private/Threading/QueuedThreadPool.cpp
+    Private/Threading/Task.cpp
 )
 
 target_include_directories(Core PRIVATE
