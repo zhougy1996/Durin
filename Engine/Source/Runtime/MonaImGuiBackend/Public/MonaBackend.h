@@ -4,5 +4,5 @@
 
 namespace Durin::Mona
 {
-	namespace FMonaBackend = FMonaImGuiBackend;
+	using FMonaBackend = FMonaImGuiBackend;
 }

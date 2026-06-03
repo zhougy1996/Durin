@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MonaAPI.h"
+#include "MonaCoreFwd.h"
 namespace Durin::Mona
 {
 	MONA_API auto MonaInit() -> void;

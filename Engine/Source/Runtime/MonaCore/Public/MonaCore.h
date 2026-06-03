@@ -4,6 +4,8 @@
 #include "Widgets/MWidget.h"
 #include "Widgets/MWindow.h"
 #include "Application/MonaApplication.h"
+#include "MonaCoreGlobals.h"
+#include "MonaUIBackend.h"
 #include "Rendering/MonaRenderer.h"
 #include "Rendering/MonaRHIRenderer.h"
 
