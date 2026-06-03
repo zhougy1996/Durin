@@ -2,6 +2,7 @@ include(GoogleTest)
 
 durin_add_test_target(CoreTests
 	Private/JsonTests.cpp
+	Private/ThreadingTests.cpp
 	Private/YamlTests.cpp
 	Private/XxHashTests.cpp
 )

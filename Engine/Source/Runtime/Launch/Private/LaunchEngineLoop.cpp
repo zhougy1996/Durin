@@ -135,15 +135,16 @@ namespace Durin
 
 	auto FEngineLoop::Exit() -> void
 	{
-		ShutdownRenderingThread();
-
-		delete GEngine;
-		GEngine = nullptr;
-
 #if DURIN_WITH_EDITOR
 		Mona::FMonaImGuiBackend::Shutdown();
 #endif
 		Mona::MonaShutdown();
+
+		delete GEngine;
+		GEngine = nullptr;
+
+		FlushRenderingCommands();
+		ShutdownRenderingThread();
 
 		FModuleManager::Get().UnloadModulesAtShutdown();
 		RHIExit();
