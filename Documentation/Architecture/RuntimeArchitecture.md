@@ -138,4 +138,5 @@ Window creation and resize events map directly to RHI viewport creation and resi
 
 - Build system structure: `Documentation/Architecture/BuildSystem.md`
 - Profile system: `Documentation/Architecture/Profiles.md`
+- Multithreading roadmap: `Documentation/Architecture/MultithreadingRoadmap.md`
 - Build and run workflow: `Documentation/Setup/BuildAndRun.md`
