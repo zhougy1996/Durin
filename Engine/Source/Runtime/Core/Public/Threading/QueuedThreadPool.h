@@ -33,4 +33,10 @@ namespace Durin
 
 		std::unique_ptr<FImpl> Impl;
 	};
+
+	extern CORE_API FQueuedThreadPool* GThreadPool;
+
+	CORE_API auto GetDefaultThreadPoolThreadCount() -> uint32;
+	CORE_API auto InitEngineThreadPool(uint32 InNumThreads = 0) -> bool;
+	CORE_API auto ShutdownEngineThreadPool(bool bWaitForQueuedWork = true) -> void;
 }

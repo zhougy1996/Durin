@@ -12,7 +12,12 @@ namespace Durin
 			std::string Name;
 			FQueuedWorkFunction Function;
 		};
+
+		std::mutex GThreadPoolMutex;
+		std::unique_ptr<FQueuedThreadPool> GThreadPoolStorage;
 	}
+
+	FQueuedThreadPool* GThreadPool = nullptr;
 
 	class FQueuedThreadPool::FImpl
 	{
@@ -320,5 +325,55 @@ namespace Durin
 	auto FQueuedThreadPool::IsRunning() const -> bool
 	{
 		return Impl->IsRunning();
+	}
+
+	auto GetDefaultThreadPoolThreadCount() -> uint32
+	{
+		const uint32 HardwareThreadCount = std::thread::hardware_concurrency();
+		if (HardwareThreadCount <= 2)
+		{
+			return 1;
+		}
+
+		return HardwareThreadCount - 2;
+	}
+
+	auto InitEngineThreadPool(uint32 InNumThreads) -> bool
+	{
+		std::lock_guard Lock(GThreadPoolMutex);
+		if (GThreadPool && GThreadPool->IsRunning())
+		{
+			DURIN_WARN("Engine thread pool initialization ignored because it is already running. (workers: {})", GThreadPool->GetNumThreads());
+			return true;
+		}
+
+		const uint32 NumThreads = InNumThreads > 0 ? InNumThreads : GetDefaultThreadPoolThreadCount();
+		GThreadPoolStorage = std::make_unique<FQueuedThreadPool>();
+		if (!GThreadPoolStorage->Create(NumThreads, "EngineWorker"))
+		{
+			GThreadPoolStorage.reset();
+			GThreadPool = nullptr;
+			return false;
+		}
+
+		GThreadPool = GThreadPoolStorage.get();
+		DURIN_DEBUG("Engine thread pool initialized. (workers: {})", GThreadPool->GetNumThreads());
+		return true;
+	}
+
+	auto ShutdownEngineThreadPool(bool bWaitForQueuedWork) -> void
+	{
+		std::unique_ptr<FQueuedThreadPool> ThreadPoolToDestroy;
+		{
+			std::lock_guard Lock(GThreadPoolMutex);
+			ThreadPoolToDestroy = std::move(GThreadPoolStorage);
+			GThreadPool = nullptr;
+		}
+
+		if (ThreadPoolToDestroy)
+		{
+			ThreadPoolToDestroy->Destroy(bWaitForQueuedWork);
+			DURIN_DEBUG("Engine thread pool shut down. (drained: {})", bWaitForQueuedWork);
+		}
 	}
 }

@@ -52,6 +52,15 @@ namespace Durin
 			FThreadEvent StopEvent;
 			std::atomic<bool> bStopCalled = false;
 		};
+
+		class FEngineThreadPoolTestGuard
+		{
+		public:
+			~FEngineThreadPoolTestGuard()
+			{
+				ShutdownEngineThreadPool(false);
+			}
+		};
 	}
 
 	TEST(FThreadEventTests, StartsUnsignaledAndWakesAfterTrigger)
@@ -304,5 +313,32 @@ namespace Durin
 		EXPECT_TRUE(Pool.IsRunning());
 
 		Pool.Destroy(true);
+	}
+
+	TEST(FEngineThreadPoolTests, InitializesGlobalPoolAndRunsWork)
+	{
+		ShutdownEngineThreadPool(false);
+		FEngineThreadPoolTestGuard Guard;
+
+		EXPECT_GE(GetDefaultThreadPoolThreadCount(), 1u);
+		ASSERT_TRUE(InitEngineThreadPool(2));
+		ASSERT_NE(GThreadPool, nullptr);
+		EXPECT_TRUE(GThreadPool->IsRunning());
+		EXPECT_EQ(2u, GThreadPool->GetNumThreads());
+
+		FThreadEvent TaskFinished;
+		std::atomic<bool> bObservedWorkerThread = false;
+		ASSERT_TRUE(GThreadPool->Enqueue("EnginePoolTask", [&]() {
+			bObservedWorkerThread.store(IsInWorkerThread(), std::memory_order::release);
+			TaskFinished.Trigger();
+		}));
+
+		ASSERT_TRUE(TaskFinished.WaitFor(1.0));
+		GThreadPool->WaitForIdle();
+
+		ShutdownEngineThreadPool(true);
+
+		EXPECT_EQ(GThreadPool, nullptr);
+		EXPECT_TRUE(bObservedWorkerThread.load(std::memory_order::acquire));
 	}
 }

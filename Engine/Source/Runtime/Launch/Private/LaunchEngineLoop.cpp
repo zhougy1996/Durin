@@ -1,5 +1,6 @@
 #include "LaunchEngineLoop.h"
 
+#include "Threading/QueuedThreadPool.h"
 #include "Threading/RunnableThread.h"
 #include "DObject/DObjectGlobals.h"
 #include "ApplicationCore.h"
@@ -53,6 +54,7 @@ namespace Durin
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		PathUtilities::InitDefaultMountPoints(); // Initialize default mount points to enable path resolving.
+		InitEngineThreadPool();
 
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
@@ -139,6 +141,8 @@ namespace Durin
 		Mona::FMonaImGuiBackend::Shutdown();
 #endif
 		Mona::MonaShutdown();
+
+		ShutdownEngineThreadPool(true);
 
 		delete GEngine;
 		GEngine = nullptr;
