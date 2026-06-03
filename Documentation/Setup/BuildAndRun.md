@@ -74,8 +74,8 @@ The launcher target is `DurinLauncher`, but the output executable name matches t
 
 The active profile's app config is copied beside the launcher into the runtime output directory:
 
-- `DurinEditorConfig.yaml`
-- `DurinGameConfig.yaml`
+- `DurinEditor.yaml`
+- `DurinGame.yaml`
 
 At runtime, `Launch.cpp` enters `FEngineLoop`, and `FEngineLoop::Init()` constructs the concrete engine implementation for the active build:
 

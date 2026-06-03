@@ -11,12 +11,14 @@ target_link_libraries(DurinLauncher PRIVATE
     Launch
 )
 
-# Copy the config file to the output directory after building if it doesn't exist
-set(config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_PROJECT_APP_CONFIG_NAME}")
+# Remove the legacy config filename and copy the new one if it doesn't exist.
+set(config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_PROJECT_APP_CONFIG_FILE}")
+set(legacy_config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_PROJECT_PROFILE_NAME}Config.yaml")
 add_custom_command(TARGET DurinLauncher POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E rm -f ${legacy_config_file}
     COMMAND ${CMAKE_COMMAND} -E env
     ${CMAKE_COMMAND} -P "${DURIN_DIR}/CMake/CopyIfMissing.cmake"
-    "${DURIN_PROJECT_CONFIG_DIR}/TP_${DURIN_PROJECT_APP_CONFIG_NAME}" # template file
+    "${DURIN_PROJECT_CONFIG_DIR}/TP_${DURIN_PROJECT_APP_CONFIG_FILE}" # template file
     ${config_file} # destination file
     VERBATIM
 )

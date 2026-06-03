@@ -1,0 +1,11 @@
+name: yaml smoke test
+version: 7
+enabled: true
+threshold: 0.75
+flags:
+  feature: true
+  retries: 3
+features:
+  - parse
+  - 12
+  - false

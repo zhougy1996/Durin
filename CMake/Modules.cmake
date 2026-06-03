@@ -63,7 +63,6 @@ function(durin_apply_common_compile_definitions target module_name)
 		DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
 		MODULE_NAME="${module_name}"
 		DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
-		DURIN_APP_CONFIG_NAME="${DURIN_PROJECT_APP_CONFIG_NAME}"
 	)
 endfunction()
 

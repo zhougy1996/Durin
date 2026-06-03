@@ -59,10 +59,8 @@ Current built-in values:
 
 - `DurinEditor`
   - `WithEditor = true`
-  - `AppConfigName = DurinEditorConfig.yaml`
 - `DurinGame`
   - `WithEditor = false`
-  - `AppConfigName = DurinGameConfig.yaml`
 
 ## Presets And Generated Metadata
 
@@ -149,7 +147,6 @@ Examples:
 Currently exposed semantic compile definitions include:
 
 - `DURIN_PROFILE_NAME`
-- `DURIN_APP_CONFIG_NAME`
 - `DURIN_WITH_EDITOR`
 - `DURIN_BUILD_DEBUG`
 - `DURIN_BUILD_RELEASE`
@@ -218,4 +215,4 @@ Minimum steps:
 3. Add matching presets in `CMakePresets.json`.
 4. Verify generated intermediate output under `Engine/Intermediate/Build/<Platform>/<ProfileName>/`.
 5. Decide whether `WithEditor` should be true or false.
-6. Verify launcher naming, module naming, and config naming.
+6. Verify launcher naming, module naming, and `profileName.yaml` config naming.
