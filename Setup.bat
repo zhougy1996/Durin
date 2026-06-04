@@ -1,31 +1,36 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 
 set "ROOT=%~dp0"
-for %%I in ("%ROOT%") do set "ROOT_ABS=%%~fI"
-set "GIT_DIR="
-set "GIT_COMMON_DIR="
+set "GIT_ENTRY=%ROOT%\.git"
+set "GIT_DIR_VALUE="
 set "GIT_DIR_ABS="
-set "GIT_COMMON_DIR_ABS="
 
-if not exist "%ROOT%\.git" goto bootstrap
+if exist "%GIT_ENTRY%\" goto bootstrap
+if not exist "%GIT_ENTRY%" goto bootstrap
 
-where git >nul 2>nul
-if errorlevel 1 goto bootstrap
+for /f "usebackq tokens=1,* delims=:" %%A in ("%GIT_ENTRY%") do (
+  if /I "%%A"=="gitdir" (
+    set "GIT_DIR_VALUE=%%B"
+    goto resolve_gitdir
+  )
+)
+goto bootstrap
 
-for /f "usebackq delims=" %%I in (`git -C "%ROOT%" rev-parse --git-dir 2^>nul`) do set "GIT_DIR=%%I"
-for /f "usebackq delims=" %%I in (`git -C "%ROOT%" rev-parse --git-common-dir 2^>nul`) do set "GIT_COMMON_DIR=%%I"
+:resolve_gitdir
+for /f "tokens=* delims= " %%I in ("!GIT_DIR_VALUE!") do set "GIT_DIR_VALUE=%%I"
+if not defined GIT_DIR_VALUE goto bootstrap
 
-if not defined GIT_DIR goto bootstrap
-if not defined GIT_COMMON_DIR goto bootstrap
+if "!GIT_DIR_VALUE:~1,1!"==":" (
+  set "GIT_DIR_ABS=!GIT_DIR_VALUE!"
+) else if "!GIT_DIR_VALUE:~0,2!"=="\\" (
+  set "GIT_DIR_ABS=!GIT_DIR_VALUE!"
+) else (
+  for %%I in ("%ROOT%!GIT_DIR_VALUE!") do set "GIT_DIR_ABS=%%~fI"
+)
 
-for %%I in ("%ROOT_ABS%%GIT_DIR%") do set "GIT_DIR_ABS=%%~fI"
-for %%I in ("%ROOT_ABS%%GIT_COMMON_DIR%") do set "GIT_COMMON_DIR_ABS=%%~fI"
-
-if not defined GIT_DIR_ABS goto bootstrap
-if not defined GIT_COMMON_DIR_ABS goto bootstrap
-
-if /I not "%GIT_DIR_ABS%"=="%GIT_COMMON_DIR_ABS%" goto prepare_worktree
+if not exist "!GIT_DIR_ABS!\commondir" goto bootstrap
+goto prepare_worktree
 
 :bootstrap
 call "%ROOT%Engine\Scripts\Bootstrap\Bootstrap.bat"

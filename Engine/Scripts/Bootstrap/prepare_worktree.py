@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -28,6 +30,10 @@ def is_windows() -> bool:
 
 def normalize_path(path: Path) -> Path:
     return path.expanduser().resolve()
+
+
+def absolute_path(path: Path) -> Path:
+    return path.expanduser().absolute()
 
 
 def read_gitdir_pointer(repo_root: Path) -> Path | None:
@@ -205,6 +211,14 @@ def create_symlink(source: Path, target: Path, *, target_is_directory: bool, dry
     os.symlink(source, target, target_is_directory=target_is_directory)
 
 
+def should_fallback_to_file_copy(exc: OSError) -> bool:
+    if not is_windows():
+        return False
+
+    winerror = getattr(exc, "winerror", None)
+    return winerror == 1314 or exc.errno in (errno.EPERM, errno.EACCES)
+
+
 def choose_link_type(requested: str) -> str:
     if requested == "auto":
         return "junction" if is_windows() else "symlink"
@@ -236,7 +250,7 @@ def prepare_directory_link(
     dry_run: bool,
 ) -> None:
     source_dir = normalize_path(source_dir)
-    target_dir = normalize_path(target_dir)
+    target_dir = absolute_path(target_dir)
 
     if not source_dir.is_dir():
         raise PrepareWorktreeError(f"Source {label} directory does not exist: \"{source_dir}\"")
@@ -303,7 +317,19 @@ def prepare_agents_local_link(source_worktree: Path, *, dry_run: bool) -> None:
     else:
         target_file.parent.mkdir(parents=True, exist_ok=True)
 
-    create_link(source_file, target_file, link_type="symlink", target_is_directory=False, dry_run=dry_run)
+    try:
+        create_link(source_file, target_file, link_type="symlink", target_is_directory=False, dry_run=dry_run)
+    except OSError as exc:
+        if not should_fallback_to_file_copy(exc):
+            raise
+
+        shutil.copy2(source_file, target_file)
+        print(
+            f"Copied {AGENTS_LOCAL_NAME}: \"{target_file}\" <- \"{source_file}\" "
+            "(file symlink privilege was not available)."
+        )
+        return
+
     print(f"Linked {AGENTS_LOCAL_NAME}: \"{target_file}\" -> \"{source_file}\"")
 
 
