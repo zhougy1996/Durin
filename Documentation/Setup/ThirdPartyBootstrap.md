@@ -33,7 +33,7 @@ python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 
 When using Git worktrees, dependency payloads can be shared by linking the ignored
 `Engine/External` directory from a prepared sibling `Durin` worktree. The helper
-also copies `AGENTS_LOCAL.md` from that sibling worktree:
+also symlinks `AGENTS_LOCAL.md` from that sibling worktree:
 
 ```powershell
 Engine\Scripts\Bootstrap\PrepareWorktree.bat
@@ -41,7 +41,8 @@ Engine\Scripts\Bootstrap\PrepareWorktree.bat
 
 By default, the script links this worktree's `Engine/External` to
 `..\Durin\Engine\External`. On Windows, `PrepareWorktree.bat` creates a
-directory junction by default. To preview the operation first, run:
+directory junction for `Engine/External` by default, and always creates a
+symlink for `AGENTS_LOCAL.md`. To preview the operation first, run:
 
 ```powershell
 Engine\Scripts\Bootstrap\PrepareWorktree.bat --dry-run
@@ -59,6 +60,9 @@ The detection compares `git rev-parse --git-dir` and
 Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` per-worktree.
 Those directories contain generated state and outputs that can depend on the
 current branch and absolute worktree path.
+
+If you need a starter file for machine-local agent notes, see
+`Documentation/Setup/TP_AGENTS_LOCAL.md`.
 
 ## Directory Layout
 

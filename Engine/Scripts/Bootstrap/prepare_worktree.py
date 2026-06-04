@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import stat
 import subprocess
 import sys
@@ -119,6 +118,17 @@ def remove_link_or_empty_dir(path: Path, *, dry_run: bool) -> None:
     raise PrepareWorktreeError(f"Refusing to remove non-empty real directory: \"{path}\"")
 
 
+def remove_file_or_link(path: Path, *, dry_run: bool) -> None:
+    if dry_run:
+        print(f"[dry-run] remove \"{path}\"")
+        return
+
+    if path.is_dir() and not is_link_like(path):
+        raise PrepareWorktreeError(f"Refusing to remove directory for file link target: \"{path}\"")
+
+    path.unlink()
+
+
 def create_junction(source: Path, target: Path, *, dry_run: bool) -> None:
     command = ["cmd", "/c", "mklink", "/J", str(target), str(source)]
     if dry_run:
@@ -133,12 +143,12 @@ def create_junction(source: Path, target: Path, *, dry_run: bool) -> None:
         )
 
 
-def create_symlink(source: Path, target: Path, *, dry_run: bool) -> None:
+def create_symlink(source: Path, target: Path, *, target_is_directory: bool, dry_run: bool) -> None:
     if dry_run:
         print(f"[dry-run] symlink \"{target}\" -> \"{source}\"")
         return
 
-    os.symlink(source, target, target_is_directory=True)
+    os.symlink(source, target, target_is_directory=target_is_directory)
 
 
 def choose_link_type(requested: str) -> str:
@@ -147,15 +157,17 @@ def choose_link_type(requested: str) -> str:
     return requested
 
 
-def create_link(source: Path, target: Path, *, link_type: str, dry_run: bool) -> None:
+def create_link(source: Path, target: Path, *, link_type: str, target_is_directory: bool, dry_run: bool) -> None:
     if link_type == "junction":
         if not is_windows():
             raise PrepareWorktreeError("Directory junctions are only supported on Windows.")
+        if not target_is_directory:
+            raise PrepareWorktreeError("Directory junctions are only supported for directories.")
         create_junction(source, target, dry_run=dry_run)
         return
 
     if link_type == "symlink":
-        create_symlink(source, target, dry_run=dry_run)
+        create_symlink(source, target, target_is_directory=target_is_directory, dry_run=dry_run)
         return
 
     raise PrepareWorktreeError(f"Unsupported link type: {link_type}")
@@ -186,11 +198,11 @@ def prepare_external_link(source_worktree: Path, *, link_type: str, dry_run: boo
     else:
         target_external.parent.mkdir(parents=True, exist_ok=True)
 
-    create_link(source_external, target_external, link_type=link_type, dry_run=dry_run)
+    create_link(source_external, target_external, link_type=link_type, target_is_directory=True, dry_run=dry_run)
     print(f"Linked External: \"{target_external}\" -> \"{source_external}\"")
 
 
-def copy_agents_local(source_worktree: Path, *, dry_run: bool) -> None:
+def prepare_agents_local_link(source_worktree: Path, *, dry_run: bool) -> None:
     source_file = source_worktree / AGENTS_LOCAL_NAME
     target_file = REPO_ROOT / AGENTS_LOCAL_NAME
 
@@ -198,18 +210,26 @@ def copy_agents_local(source_worktree: Path, *, dry_run: bool) -> None:
         print(f"{AGENTS_LOCAL_NAME} was not found in \"{source_worktree}\"; skipping.")
         return
 
-    if dry_run:
-        print(f"[dry-run] copy \"{source_file}\" -> \"{target_file}\"")
+    if linked_to(target_file, source_file):
+        print(f"{AGENTS_LOCAL_NAME} is already linked to \"{source_file}\".")
         return
 
-    shutil.copy2(source_file, target_file)
-    print(f"Copied {AGENTS_LOCAL_NAME}: \"{target_file}\"")
+    if target_file.exists() or is_link_like(target_file):
+        remove_file_or_link(target_file, dry_run=dry_run)
+
+    if dry_run:
+        print(f"[dry-run] link \"{target_file}\" -> \"{source_file}\"")
+    else:
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+
+    create_link(source_file, target_file, link_type="symlink", target_is_directory=False, dry_run=dry_run)
+    print(f"Linked {AGENTS_LOCAL_NAME}: \"{target_file}\" -> \"{source_file}\"")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Prepare a Durin Git worktree by linking Engine/External and copying "
+            "Prepare a Durin Git worktree by linking Engine/External and linking "
             "machine-local AGENTS_LOCAL.md from a prepared sibling worktree."
         )
     )
@@ -246,7 +266,7 @@ def main() -> int:
         print(f"Link type: {link_type}")
 
         prepare_external_link(source_worktree, link_type=link_type, dry_run=args.dry_run)
-        copy_agents_local(source_worktree, dry_run=args.dry_run)
+        prepare_agents_local_link(source_worktree, dry_run=args.dry_run)
 
     except PrepareWorktreeError as exc:
         print(exc, file=sys.stderr)
