@@ -15,6 +15,7 @@ REPO_ROOT = SCRIPT_DIR.parents[2]
 ENV_SOURCE_NAMES = ("DURIN_WORKTREE_SOURCE", "DURIN_EXTERNAL_SOURCE", "DURIN_EXTERNAL_ROOT")
 DEFAULT_SOURCE_WORKTREE_NAME = "Durin"
 AGENTS_LOCAL_NAME = "AGENTS_LOCAL.md"
+VENV_DIR_NAME = ".venv"
 
 
 class PrepareWorktreeError(RuntimeError):
@@ -226,33 +227,60 @@ def create_link(source: Path, target: Path, *, link_type: str, target_is_directo
     raise PrepareWorktreeError(f"Unsupported link type: {link_type}")
 
 
-def prepare_external_link(source_worktree: Path, *, link_type: str, dry_run: bool) -> None:
-    source_external = normalize_path(source_worktree / "Engine" / "External")
-    target_external = normalize_path(REPO_ROOT / "Engine" / "External")
+def prepare_directory_link(
+    source_dir: Path,
+    target_dir: Path,
+    *,
+    label: str,
+    link_type: str,
+    dry_run: bool,
+) -> None:
+    source_dir = normalize_path(source_dir)
+    target_dir = normalize_path(target_dir)
 
-    if not source_external.is_dir():
-        raise PrepareWorktreeError(f"Source External directory does not exist: \"{source_external}\"")
+    if not source_dir.is_dir():
+        raise PrepareWorktreeError(f"Source {label} directory does not exist: \"{source_dir}\"")
 
-    if linked_to(target_external, source_external):
-        print(f"External is already linked to \"{source_external}\".")
+    if linked_to(target_dir, source_dir):
+        print(f"{label} is already linked to \"{source_dir}\".")
         return
 
-    if target_external.exists() or is_link_like(target_external):
-        if is_link_like(target_external) or is_empty_directory(target_external):
-            remove_link_or_empty_dir(target_external, dry_run=dry_run)
+    if target_dir.exists() or is_link_like(target_dir):
+        if is_link_like(target_dir) or is_empty_directory(target_dir):
+            remove_link_or_empty_dir(target_dir, dry_run=dry_run)
         else:
             raise PrepareWorktreeError(
-                f"Target External already exists and is not an empty directory or link: \"{target_external}\"\n"
+                f"Target {label} already exists and is not an empty directory or link: \"{target_dir}\"\n"
                 "Move it aside manually if you really want to replace it."
             )
 
     if dry_run:
-        print(f"[dry-run] link External: \"{target_external}\" -> \"{source_external}\"")
+        print(f"[dry-run] link {label}: \"{target_dir}\" -> \"{source_dir}\"")
     else:
-        target_external.parent.mkdir(parents=True, exist_ok=True)
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    create_link(source_external, target_external, link_type=link_type, target_is_directory=True, dry_run=dry_run)
-    print(f"Linked External: \"{target_external}\" -> \"{source_external}\"")
+    create_link(source_dir, target_dir, link_type=link_type, target_is_directory=True, dry_run=dry_run)
+    print(f"Linked {label}: \"{target_dir}\" -> \"{source_dir}\"")
+
+
+def prepare_external_link(source_worktree: Path, *, link_type: str, dry_run: bool) -> None:
+    prepare_directory_link(
+        source_worktree / "Engine" / "External",
+        REPO_ROOT / "Engine" / "External",
+        label="External",
+        link_type=link_type,
+        dry_run=dry_run,
+    )
+
+
+def prepare_venv_link(source_worktree: Path, *, link_type: str, dry_run: bool) -> None:
+    prepare_directory_link(
+        source_worktree / VENV_DIR_NAME,
+        REPO_ROOT / VENV_DIR_NAME,
+        label=VENV_DIR_NAME,
+        link_type=link_type,
+        dry_run=dry_run,
+    )
 
 
 def prepare_agents_local_link(source_worktree: Path, *, dry_run: bool) -> None:
@@ -282,8 +310,8 @@ def prepare_agents_local_link(source_worktree: Path, *, dry_run: bool) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Prepare a Durin Git worktree by linking Engine/External and linking "
-            "machine-local AGENTS_LOCAL.md from a prepared sibling worktree."
+            "Prepare a Durin Git worktree by linking shared dependency directories "
+            "and linking machine-local AGENTS_LOCAL.md from a prepared worktree."
         )
     )
     parser.add_argument(
@@ -320,6 +348,7 @@ def main() -> int:
         print(f"Link type: {link_type}")
 
         prepare_external_link(source_worktree, link_type=link_type, dry_run=args.dry_run)
+        prepare_venv_link(source_worktree, link_type=link_type, dry_run=args.dry_run)
         prepare_agents_local_link(source_worktree, dry_run=args.dry_run)
 
     except PrepareWorktreeError as exc:

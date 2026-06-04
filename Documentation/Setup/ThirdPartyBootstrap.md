@@ -20,9 +20,9 @@ python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 
 ## Worktree Sharing
 
-- `PrepareWorktree.bat` links this worktree's `Engine/External` to a prepared dependency worktree.
+- `PrepareWorktree.bat` links this worktree's `Engine/External` and `.venv` to a prepared dependency worktree.
 - The same helper also symlinks the root `AGENTS_LOCAL.md` from that dependency worktree.
-- On Windows, `Engine/External` uses a directory junction by default; `AGENTS_LOCAL.md` always uses a symlink.
+- On Windows, shared directories use directory junctions by default; `AGENTS_LOCAL.md` always uses a symlink.
 - Preview the operation with `Engine\Scripts\Bootstrap\PrepareWorktree.bat --dry-run`.
 - By default, linked Git worktrees pull those links from the main worktree root.
 - Use `--source` when the prepared dependency worktree is not the main worktree root.
