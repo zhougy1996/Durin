@@ -29,6 +29,12 @@ function(durin_add_project project_name)
 	endif()
 	include(${project_cmake_file})
 
+	set(_project_shared_pch_file "${DURIN_PROJECT_CMAKE_DIR}/SharedPCH/SharedPCH.cmake")
+	if(EXISTS "${_project_shared_pch_file}")
+		include("${_project_shared_pch_file}")
+		set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_project_shared_pch_file}")
+	endif()
+
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_PROJECT_CONFIG_FILE}) # Make CMake re-configure if the project definition file changes
 
 	# Add always-enabled modules first.
@@ -55,14 +61,49 @@ function(durin_set_module_output target)
 	)
 endfunction()
 
-function(durin_apply_common_compile_definitions target module_name)
+function(durin_apply_shared_pch_compile_definitions target)
 	target_compile_definitions(${target} PRIVATE
 		$<$<CONFIG:Debug>:DURIN_BUILD_DEBUG=1>
 		$<$<CONFIG:Release>:DURIN_BUILD_RELEASE=1>
 		$<$<CONFIG:Shipping>:DURIN_BUILD_SHIPPING=1>
 		DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
-		MODULE_NAME="${module_name}"
 		DURIN_PROFILE_NAME="${DURIN_PROFILE_NAME}"
+	)
+endfunction()
+
+function(durin_apply_common_compile_definitions target module_name)
+	durin_apply_shared_pch_compile_definitions(${target})
+
+	target_compile_definitions(${target} PRIVATE
+		MODULE_NAME="${module_name}"
+	)
+endfunction()
+
+function(durin_add_shared_pch_target target_name)
+	set(options)
+	set(one_value_args HEADER)
+	set(multi_value_args INCLUDE_DIRECTORIES LINK_LIBRARIES)
+	cmake_parse_arguments(DURIN_SHARED_PCH "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
+
+	if(NOT DURIN_SHARED_PCH_HEADER)
+		message(FATAL_ERROR "durin_add_shared_pch_target(${target_name}) requires HEADER.")
+	endif()
+
+	set(_dummy_src "${DURIN_PROJECT_DIR}/CMake/SharedPCH/DummyForPCH.cpp")
+	add_library(${target_name} STATIC "${_dummy_src}")
+
+	durin_apply_shared_pch_compile_definitions(${target_name})
+
+	if(DURIN_SHARED_PCH_INCLUDE_DIRECTORIES)
+		target_include_directories(${target_name} PUBLIC ${DURIN_SHARED_PCH_INCLUDE_DIRECTORIES})
+	endif()
+
+	if(DURIN_SHARED_PCH_LINK_LIBRARIES)
+		target_link_libraries(${target_name} PUBLIC ${DURIN_SHARED_PCH_LINK_LIBRARIES})
+	endif()
+
+	target_precompile_headers(${target_name} PUBLIC
+		"$<$<COMPILE_LANGUAGE:CXX>:${DURIN_SHARED_PCH_HEADER}>"
 	)
 endfunction()
 
