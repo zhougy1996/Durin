@@ -6,7 +6,12 @@ namespace
 {
 	auto MakeJsonTestPath(std::string_view FileName) -> std::filesystem::path
 	{
-		return std::filesystem::current_path() / std::string(FileName);
+		return std::filesystem::path{DURIN_TEST_WORK_DIR} / std::string(FileName);
+	}
+
+	auto MakeJsonTestDataPath(std::string_view FileName) -> std::filesystem::path
+	{
+		return std::filesystem::path{DURIN_TEST_DATA_DIR} / std::string(FileName);
 	}
 
 	TEST(FJsonDocumentTests, ParseObjectFromString)
@@ -62,7 +67,7 @@ namespace
 		Durin::FJsonDocument Document;
 		Durin::FJsonParseError Error;
 
-		ASSERT_TRUE(Document.LoadFromFile(CORE_TEST_SAMPLE_JSON_FILE, &Error));
+		ASSERT_TRUE(Document.LoadFromFile(MakeJsonTestDataPath("Sample.json").string(), &Error));
 		EXPECT_EQ(Error.Code, 0);
 
 		const Durin::FJsonNodeView Root = Document.GetRootView();

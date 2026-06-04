@@ -7,19 +7,17 @@ add_durin_test(CoreTests
 	Private/XxHashTests.cpp
 )
 
-target_compile_definitions(CoreTests PRIVATE
-	CORE_TEST_SAMPLE_JSON_FILE="${CMAKE_CURRENT_SOURCE_DIR}/TestData/Sample.json"
-	CORE_TEST_SAMPLE_YAML_FILE="${CMAKE_CURRENT_SOURCE_DIR}/TestData/Sample.yaml"
-	CORE_TEST_SAMPLE_APP_CONFIG_FILE="${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml"
-)
-
 target_link_libraries(CoreTests PRIVATE
 	Core
 	GTest::gtest_main
 )
 
-durin_target_copy_binary_to_output_dir(CoreTests Core)
+durin_test_deploy_target_binary(CoreTests Core)
+durin_test_deploy_directory_to_data(CoreTests "${CMAKE_CURRENT_SOURCE_DIR}/TestData")
+durin_test_deploy_files_to_data(CoreTests "${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml")
+
+get_target_property(_durin_core_tests_work_dir CoreTests DURIN_TEST_WORK_DIR)
 
 gtest_discover_tests(CoreTests
-	WORKING_DIRECTORY $<TARGET_FILE_DIR:CoreTests>
+	WORKING_DIRECTORY "${_durin_core_tests_work_dir}"
 )

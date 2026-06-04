@@ -18,6 +18,7 @@ Recommended bootstrap entrypoints:
 Current main presets:
 
 - `cmake --preset Win64-Debug-DurinEditor`
+- `cmake --preset Win64-Debug-DurinEditor-Tests`
 - `cmake --preset Win64-Release-DurinEditor`
 - `cmake --preset Win64-Debug-DurinGame`
 - `cmake --preset Win64-Release-DurinGame`
@@ -26,8 +27,11 @@ Current main presets:
 Main project build trees are profile-specific:
 
 - `Build/Win64-Debug-DurinEditor`
+- `Build/Win64-Debug-DurinEditor-Tests`
 - `Build/Win64-Debug-DurinGame`
 - `Build/Win64-Shipping-DurinGame`
+
+Main Editor/Game presets keep `BUILD_TESTING=OFF`. Use `Win64-Debug-DurinEditor-Tests` when native test targets are needed.
 
 ## Build
 
@@ -37,7 +41,7 @@ Examples:
 
 ```powershell
 cmake --build Build/Win64-Debug-DurinEditor --target DurinLauncher -j 4
-cmake --build Build/Win64-Debug-DurinEditor --target CoreTests -j 4
+cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests -j 4
 cmake --build Build/Win64-Debug-DurinEditor --target RenderCore -j 4
 ```
 
@@ -49,7 +53,8 @@ Engine binaries are organized by platform and configuration:
 
 - Runtime launcher and module DLLs: `Engine/Binaries/<Platform>/<Config>/Runtime/<Profile>/`
 - Runtime third-party DLLs: `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
-- Native test executables: `Engine/Binaries/<Platform>/<Config>/Tests/`
+- Native test shared binaries: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
+- Native test data and working directories: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/<TestTarget>/`
 - Import and static libraries: `Engine/Binaries/<Platform>/<Config>/Lib/<Target>/`
 - Debug symbols: `Engine/Binaries/<Platform>/<Config>/Symbols/<Target>/`
 
@@ -59,7 +64,7 @@ Examples for Win64 Debug:
 - `Engine/Binaries/Win64/Debug/Runtime/DurinGame/DurinGame.exe`
 - `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor-Core.dll`
 - `Engine/Binaries/Win64/Debug/ThirdParty/slang.dll`
-- `Engine/Binaries/Win64/Debug/Tests/CoreTests.exe`
+- `Engine/Binaries/Win64/Debug/Tests/DurinEditor/Bin/CoreTests.exe`
 
 ## Run
 
@@ -87,6 +92,7 @@ At runtime, `Launch.cpp` enters `FEngineLoop`, and `FEngineLoop::Init()` constru
 Runtime path discovery assumes the executable stays inside the repository-relative binary layout:
 
 - `Engine/Binaries/<Platform>/<Config>/Runtime/<Profile>/`
+- `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
 
 At startup, Durin resolves `Engine/` by walking upward from `LaunchDir()`. Moving the whole repository is fine as long as the relative structure stays intact. Moving only the built runtime tree away from the repository root is not supported by the current path logic.
 

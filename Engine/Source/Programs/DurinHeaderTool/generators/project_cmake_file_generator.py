@@ -46,7 +46,7 @@ def _append_project_build_variables_to_cmake_content(content: list[str], project
     content.append("set(DURIN_PROJECT_BIN_ROOT \"${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/$<CONFIG>\")\n")
     content.append("set(DURIN_PROJECT_RUNTIME_OUTPUT_DIR \"${DURIN_PROJECT_BIN_ROOT}/Runtime/${DURIN_PROJECT_PROFILE_NAME}\")\n")
     content.append("set(DURIN_PROJECT_THIRDPARTY_RUNTIME_DIR \"${DURIN_PROJECT_BIN_ROOT}/ThirdParty\")\n")
-    content.append("set(DURIN_PROJECT_TEST_OUTPUT_DIR \"${DURIN_PROJECT_BIN_ROOT}/Tests\")\n")
+    content.append("set(DURIN_PROJECT_TEST_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Tests/${DURIN_PROJECT_PROFILE_NAME}\")\n")
     content.append("set(DURIN_PROJECT_LIB_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Lib\")\n")
     content.append("set(DURIN_PROJECT_SYMBOL_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Symbols\")\n")
     content.append("set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR \"${DURIN_PROJECT_THIRDPARTY_RUNTIME_DIR}\")\n")

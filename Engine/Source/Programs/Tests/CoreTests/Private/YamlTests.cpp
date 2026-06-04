@@ -4,6 +4,16 @@
 
 namespace
 {
+	auto MakeYamlTestPath(std::string_view FileName) -> std::filesystem::path
+	{
+		return std::filesystem::path{DURIN_TEST_WORK_DIR} / std::string(FileName);
+	}
+
+	auto MakeYamlTestDataPath(std::string_view FileName) -> std::filesystem::path
+	{
+		return std::filesystem::path{DURIN_TEST_DATA_DIR} / std::string(FileName);
+	}
+
 	TEST(FYamlDocumentTests, ParseObjectAndDefaults)
 	{
 		Durin::FYamlDocument Document;
@@ -61,7 +71,7 @@ features:
 		Durin::FYamlDocument Document;
 		Durin::FYamlParseError Error;
 
-		ASSERT_TRUE(Document.LoadFromFile(CORE_TEST_SAMPLE_YAML_FILE, &Error));
+		ASSERT_TRUE(Document.LoadFromFile(MakeYamlTestDataPath("Sample.yaml").string(), &Error));
 		EXPECT_EQ(Error.Code, 0);
 
 		const auto Root = Document.GetRootView();
@@ -70,7 +80,7 @@ features:
 		EXPECT_EQ(Root.GetView("version").GetInt(), 7);
 
 		Durin::FYamlDocument AppConfigDocument;
-		ASSERT_TRUE(AppConfigDocument.LoadFromFile(CORE_TEST_SAMPLE_APP_CONFIG_FILE, &Error));
+		ASSERT_TRUE(AppConfigDocument.LoadFromFile(MakeYamlTestDataPath("TP_DurinEditor.yaml").string(), &Error));
 		EXPECT_EQ(Error.Code, 0);
 
 		const auto AppConfig = AppConfigDocument.GetRootView();
@@ -102,7 +112,7 @@ features:
 		EXPECT_EQ(Root.GetRef("flags").GetView("count").GetUInt(), 3U);
 		EXPECT_EQ(Features.GetRef(3).GetView("label").GetString(), "nested");
 
-		const std::filesystem::path OutputPath = std::filesystem::current_path() / "YamlRoundTrip.yaml";
+		const std::filesystem::path OutputPath = MakeYamlTestPath("YamlRoundTrip.yaml");
 		ASSERT_TRUE(Document.SaveToFile(OutputPath.string()));
 
 		Durin::FYamlDocument ReloadedDocument;

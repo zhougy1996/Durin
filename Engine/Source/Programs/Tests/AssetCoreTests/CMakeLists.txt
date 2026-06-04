@@ -4,21 +4,19 @@ add_durin_test(AssetCoreTests
 	Private/AssetImportTests.cpp
 )
 
-target_compile_definitions(AssetCoreTests PRIVATE
-	ASSETCORE_TEST_SAMPLE_OBJ_FILE="${CMAKE_CURRENT_SOURCE_DIR}/TestData/Triangle.obj"
-)
-
 target_link_libraries(AssetCoreTests PRIVATE
 	Core
 	AssetCore
 	GTest::gtest_main
 )
 
-durin_target_copy_binary_to_output_dir(AssetCoreTests Core)
-durin_target_copy_binary_to_output_dir(AssetCoreTests AssetCore)
-durin_target_copy_binary_to_output_dir(AssetCoreTests assimp::assimp)
-durin_target_deploy_runtime_files(AssetCoreTests assimp::assimp)
+durin_test_deploy_target_binary(AssetCoreTests Core)
+durin_test_deploy_target_binary(AssetCoreTests AssetCore)
+durin_test_deploy_runtime_files(AssetCoreTests assimp::assimp)
+durin_test_deploy_directory_to_data(AssetCoreTests "${CMAKE_CURRENT_SOURCE_DIR}/TestData")
+
+get_target_property(_durin_asset_core_tests_work_dir AssetCoreTests DURIN_TEST_WORK_DIR)
 
 gtest_discover_tests(AssetCoreTests
-	WORKING_DIRECTORY $<TARGET_FILE_DIR:AssetCoreTests>
+	WORKING_DIRECTORY "${_durin_asset_core_tests_work_dir}"
 )

@@ -75,13 +75,18 @@ namespace Durin::Asset
 				ExpectVec2Eq(Expected.UVs[Index], Actual.UVs[Index]);
 			}
 		}
+
+		auto TestDataPath(std::string_view FileName) -> std::string
+		{
+			return (std::filesystem::path{DURIN_TEST_DATA_DIR} / std::string(FileName)).string();
+		}
 	}
 
 	TEST(FAssetImportTests, ImportFromFileLoadsTriangleMesh)
 	{
 		std::vector<FTestAssetData> Meshes;
 
-		ASSERT_TRUE(ImportFromFile(ASSETCORE_TEST_SAMPLE_OBJ_FILE, Meshes));
+		ASSERT_TRUE(ImportFromFile(TestDataPath("Triangle.obj"), Meshes));
 		ASSERT_EQ(1u, Meshes.size());
 
 		ExpectTriangleMesh(Meshes[0]);
@@ -94,9 +99,9 @@ namespace Durin::Asset
 		ASSERT_TRUE(InitEngineThreadPool(2));
 
 		std::vector<FTestAssetData> SyncMeshes;
-		ASSERT_TRUE(ImportFromFile(ASSETCORE_TEST_SAMPLE_OBJ_FILE, SyncMeshes));
+		ASSERT_TRUE(ImportFromFile(TestDataPath("Triangle.obj"), SyncMeshes));
 
-		FAsyncMeshImportHandle Handle = ImportFromFileAsync(ASSETCORE_TEST_SAMPLE_OBJ_FILE);
+		FAsyncMeshImportHandle Handle = ImportFromFileAsync(TestDataPath("Triangle.obj"));
 		ASSERT_TRUE(Handle.IsValid());
 		EXPECT_STREQ("AssetImport.Mesh", Handle.GetDebugName());
 		EXPECT_FALSE(Handle.IsComplete());
@@ -139,7 +144,7 @@ namespace Durin::Asset
 		ShutdownEngineThreadPool(false);
 		FEngineThreadPoolTestGuard Guard;
 
-		FAsyncMeshImportHandle Handle = ImportFromFileAsync(ASSETCORE_TEST_SAMPLE_OBJ_FILE);
+		FAsyncMeshImportHandle Handle = ImportFromFileAsync(TestDataPath("Triangle.obj"));
 		EXPECT_FALSE(Handle.IsValid());
 		EXPECT_FALSE(Handle.IsComplete());
 		EXPECT_STREQ("", Handle.GetDebugName());

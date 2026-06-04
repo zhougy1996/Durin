@@ -80,15 +80,41 @@ function(add_durin_test target_name)
 
 	durin_target_apply_common_definitions(${target_name} ${target_name})
 
+	set(_durin_test_root_dir "${DURIN_PROJECT_TEST_OUTPUT_ROOT}/${target_name}")
+	set(_durin_test_bin_dir "${DURIN_PROJECT_TEST_OUTPUT_ROOT}/Bin")
+	set(_durin_test_data_dir "${_durin_test_root_dir}/Data")
+	set(_durin_test_work_dir "${_durin_test_root_dir}/Work")
+
+	target_compile_definitions(${target_name} PRIVATE
+		DURIN_TEST_ROOT_DIR="${_durin_test_root_dir}"
+		DURIN_TEST_BIN_DIR="${_durin_test_bin_dir}"
+		DURIN_TEST_DATA_DIR="${_durin_test_data_dir}"
+		DURIN_TEST_WORK_DIR="${_durin_test_work_dir}"
+	)
+
 	if(TARGET SharedPCH_Core)
 		target_precompile_headers(${target_name} REUSE_FROM SharedPCH_Core)
 	endif()
 
 	set_target_properties(${target_name} PROPERTIES
-		RUNTIME_OUTPUT_DIRECTORY "${DURIN_PROJECT_TEST_OUTPUT_DIR}"
-		LIBRARY_OUTPUT_DIRECTORY "${DURIN_PROJECT_TEST_OUTPUT_DIR}"
+		RUNTIME_OUTPUT_DIRECTORY "${_durin_test_bin_dir}"
+		LIBRARY_OUTPUT_DIRECTORY "${_durin_test_bin_dir}"
 		ARCHIVE_OUTPUT_DIRECTORY "${DURIN_PROJECT_LIB_OUTPUT_ROOT}/${target_name}"
 		PDB_OUTPUT_DIRECTORY "${DURIN_PROJECT_SYMBOL_OUTPUT_ROOT}/${target_name}"
+		DURIN_TEST_ROOT_DIR "${_durin_test_root_dir}"
+		DURIN_TEST_BIN_DIR "${_durin_test_bin_dir}"
+		DURIN_TEST_DATA_DIR "${_durin_test_data_dir}"
+		DURIN_TEST_WORK_DIR "${_durin_test_work_dir}"
 	)
+
+	add_custom_command(TARGET ${target_name} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E make_directory
+		"${_durin_test_bin_dir}"
+		"${_durin_test_data_dir}"
+		"${_durin_test_work_dir}"
+		COMMENT "Preparing test sandbox: ${target_name}"
+		VERBATIM
+	)
+
 	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}")
 endfunction()

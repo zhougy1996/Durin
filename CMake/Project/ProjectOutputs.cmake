@@ -46,6 +46,75 @@ function(durin_target_copy_files_to_output_dir target file_list)
 	endforeach()
 endfunction()
 
+function(durin_test_get_sandbox_dir target property_name out_var)
+	get_target_property(sandbox_dir ${target} ${property_name})
+	if(NOT sandbox_dir OR sandbox_dir STREQUAL "sandbox_dir-NOTFOUND")
+		message(FATAL_ERROR "Target ${target} is missing ${property_name}. Use add_durin_test() for native test targets.")
+	endif()
+
+	set(${out_var} "${sandbox_dir}" PARENT_SCOPE)
+endfunction()
+
+function(durin_test_deploy_target_binary target dependent_target)
+	durin_test_get_sandbox_dir(${target} DURIN_TEST_BIN_DIR test_bin_dir)
+	get_filename_component(file_name "$<TARGET_FILE_NAME:${dependent_target}>" NAME)
+	add_custom_command(TARGET ${target} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		"$<TARGET_FILE:${dependent_target}>"
+		"${test_bin_dir}/${file_name}"
+		COMMENT "Deploying test binary dependency: ${file_name}"
+		VERBATIM
+	)
+endfunction()
+
+function(durin_test_deploy_files_to_bin target file_list)
+	durin_test_get_sandbox_dir(${target} DURIN_TEST_BIN_DIR test_bin_dir)
+	foreach(file_path ${file_list})
+		get_filename_component(file_name "${file_path}" NAME)
+		add_custom_command(TARGET ${target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${file_path}"
+			"${test_bin_dir}/${file_name}"
+			COMMENT "Deploying test runtime file: ${file_name}"
+			VERBATIM
+		)
+	endforeach()
+endfunction()
+
+function(durin_test_deploy_runtime_files target dependent_target)
+	get_target_property(runtime_files ${dependent_target} DURIN_RUNTIME_DEPLOY_FILES)
+	if(NOT runtime_files OR runtime_files STREQUAL "runtime_files-NOTFOUND")
+		return()
+	endif()
+
+	durin_test_deploy_files_to_bin(${target} "${runtime_files}")
+endfunction()
+
+function(durin_test_deploy_files_to_data target file_list)
+	durin_test_get_sandbox_dir(${target} DURIN_TEST_DATA_DIR test_data_dir)
+	foreach(file_path ${file_list})
+		get_filename_component(file_name "${file_path}" NAME)
+		add_custom_command(TARGET ${target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${file_path}"
+			"${test_data_dir}/${file_name}"
+			COMMENT "Deploying test data file: ${file_name}"
+			VERBATIM
+		)
+	endforeach()
+endfunction()
+
+function(durin_test_deploy_directory_to_data target source_dir)
+	durin_test_get_sandbox_dir(${target} DURIN_TEST_DATA_DIR test_data_dir)
+	add_custom_command(TARGET ${target} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+		"${source_dir}"
+		"${test_data_dir}"
+		COMMENT "Deploying test data directory: ${source_dir}"
+		VERBATIM
+	)
+endfunction()
+
 function(durin_target_deploy_files target file_list)
 	foreach(file_path ${file_list})
 		get_filename_component(file_name "${file_path}" NAME)
