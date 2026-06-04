@@ -1,81 +1,185 @@
 #include "AssetCore.h"
 
+#include "Logging/LogMacros.h"
+#include "Threading/Task.h"
+
 #include <assimp/Importer.hpp>
-#include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <assimp/scene.h>
 
 namespace Durin
 {
-
 	namespace Asset
 	{
-		auto ImportFromFile(std::string_view FilePath,  std::vector<FTestAssetData>& OutDatas) -> bool
+		struct FAsyncMeshImportSharedState
 		{
-			Assimp::Importer importer;
+			FTaskHandle Task;
+			mutable std::mutex Mutex;
+			std::optional<FAsyncMeshImportResult> Result;
+		};
 
-			// Read the file with post-processing flags
-			// aiProcess_Triangulate: Force polygons to triangles
-			// aiProcess_FlipUVs: Flip texture coordinates on Y axis (common for Vulkan/DirectX)
-			// aiProcess_GenNormals: Generate smooth normals if they are missing
-			const aiScene* scene = importer.ReadFile(FilePath.data(),
-				aiProcess_Triangulate |
-				aiProcess_FlipUVs |
-				aiProcess_GenNormals |
-				aiProcess_JoinIdenticalVertices);
+		namespace
+		{
+			auto ImportMeshesFromFile(std::string_view FilePath) -> FAsyncMeshImportResult
+			{
+				FAsyncMeshImportResult Result;
+				std::string OwnedFilePath(FilePath);
+				Assimp::Importer Importer;
 
-			// Check if the scene was loaded successfully
-			if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
-				std::cerr << "ASSIMP ERROR: " << importer.GetErrorString() << std::endl;
+				const aiScene* Scene = Importer.ReadFile(OwnedFilePath.c_str(),
+					aiProcess_Triangulate |
+					aiProcess_FlipUVs |
+					aiProcess_GenNormals |
+					aiProcess_JoinIdenticalVertices);
+
+				if (!Scene || (Scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) != 0 || !Scene->mRootNode)
+				{
+					Result.ErrorMessage = Importer.GetErrorString();
+					if (Result.ErrorMessage.empty())
+					{
+						Result.ErrorMessage = "Unknown mesh import failure.";
+					}
+
+					DURIN_ERROR("Asset import failed. (file: {}, error: {})", FilePath, Result.ErrorMessage);
+					return Result;
+				}
+
+				Result.Meshes.resize(Scene->mNumMeshes);
+				for (unsigned int MeshIndex = 0; MeshIndex < Scene->mNumMeshes; ++MeshIndex)
+				{
+					aiMesh* Mesh = Scene->mMeshes[MeshIndex];
+					FTestAssetData& OutMesh = Result.Meshes[MeshIndex];
+
+					OutMesh.Positions.reserve(Mesh->mNumVertices);
+					OutMesh.Normals.reserve(Mesh->mNumVertices);
+					OutMesh.Colors.reserve(Mesh->mNumVertices);
+					OutMesh.UVs.reserve(Mesh->mNumVertices);
+					for (unsigned int VertexIndex = 0; VertexIndex < Mesh->mNumVertices; ++VertexIndex)
+					{
+						OutMesh.Positions.emplace_back(
+							Mesh->mVertices[VertexIndex].x,
+							Mesh->mVertices[VertexIndex].y,
+							Mesh->mVertices[VertexIndex].z);
+
+						if (Mesh->HasNormals())
+						{
+							OutMesh.Normals.emplace_back(
+								Mesh->mNormals[VertexIndex].x,
+								Mesh->mNormals[VertexIndex].y,
+								Mesh->mNormals[VertexIndex].z);
+						}
+
+						if (Mesh->HasVertexColors(0))
+						{
+							OutMesh.Colors.emplace_back(
+								Mesh->mColors[0][VertexIndex].r,
+								Mesh->mColors[0][VertexIndex].g,
+								Mesh->mColors[0][VertexIndex].b);
+						}
+
+						if (Mesh->mTextureCoords[0])
+						{
+							OutMesh.UVs.emplace_back(
+								Mesh->mTextureCoords[0][VertexIndex].x,
+								Mesh->mTextureCoords[0][VertexIndex].y);
+						}
+					}
+
+					OutMesh.Indices.reserve(Mesh->mNumFaces * 3);
+					for (unsigned int FaceIndex = 0; FaceIndex < Mesh->mNumFaces; ++FaceIndex)
+					{
+						const aiFace& Face = Mesh->mFaces[FaceIndex];
+						for (unsigned int IndexIndex = 0; IndexIndex < Face.mNumIndices; ++IndexIndex)
+						{
+							OutMesh.Indices.emplace_back(Face.mIndices[IndexIndex]);
+						}
+					}
+				}
+
+				Result.bSucceeded = true;
+				return Result;
+			}
+		}
+
+		FAsyncMeshImportHandle::FAsyncMeshImportHandle() = default;
+
+		FAsyncMeshImportHandle::FAsyncMeshImportHandle(std::shared_ptr<FAsyncMeshImportSharedState> InState)
+			: State(std::move(InState))
+		{
+		}
+
+		auto FAsyncMeshImportHandle::IsValid() const -> bool
+		{
+			return State && State->Task.IsValid();
+		}
+
+		auto FAsyncMeshImportHandle::IsComplete() const -> bool
+		{
+			return State && State->Task.IsComplete();
+		}
+
+		auto FAsyncMeshImportHandle::Wait() const -> void
+		{
+			if (!State)
+			{
+				return;
+			}
+
+			WaitTask(State->Task);
+		}
+
+		auto FAsyncMeshImportHandle::GetDebugName() const -> const char*
+		{
+			return State ? State->Task.GetDebugName() : "";
+		}
+
+		auto FAsyncMeshImportHandle::TryGetResult(FAsyncMeshImportResult& OutResult) const -> bool
+		{
+			if (!State || !State->Task.IsComplete())
+			{
 				return false;
 			}
 
-			OutDatas.clear();
-			OutDatas.resize(scene->mNumMeshes);
-			// Process all meshes in the scene
-			for (unsigned int i = 0; i < scene->mNumMeshes; i++) {
-				aiMesh* mesh = scene->mMeshes[i];
-				auto& OutMesh = OutDatas[i];
-
-				// Extract vertex data
-				OutMesh.Positions.reserve(OutMesh.Positions.size() + mesh->mNumVertices);
-				OutMesh.Normals.reserve(OutMesh.Normals.size() + mesh->mNumVertices);
-				OutMesh.UVs.reserve(OutMesh.UVs.size() + mesh->mNumVertices);
-				for (unsigned int j = 0; j < mesh->mNumVertices; j++) {
-					// Position
-					float px = mesh->mVertices[j].x;
-					float py = mesh->mVertices[j].y;
-					float pz = mesh->mVertices[j].z;
-					OutMesh.Positions.emplace_back(px, py, pz);
-
-					// Normal (if available)
-					if (mesh->HasNormals()) {
-						float nx = mesh->mNormals[j].x;
-						float ny = mesh->mNormals[j].y;
-						float nz = mesh->mNormals[j].z;
-						OutMesh.Normals.emplace_back(nx, ny, nz);
-					}
-
-					// UVs (if available)
-					if (mesh->mTextureCoords[0]) {
-						float u = mesh->mTextureCoords[0][j].x;
-						float v = mesh->mTextureCoords[0][j].y;
-						OutMesh.UVs.emplace_back(u, v);
-					}
-				}
-
-				// Extract index data
-				OutMesh.Indices.reserve(OutMesh.Indices.size() + mesh->mNumFaces * 3);
-				for (unsigned int j = 0; j < mesh->mNumFaces; j++) {
-					aiFace face = mesh->mFaces[j];
-					for (unsigned int k = 0; k < face.mNumIndices; k++) {
-						uint32_t index = face.mIndices[k];
-						// ... store to your index buffer
-						OutMesh.Indices.emplace_back(index);
-					}
-				}
+			std::lock_guard Lock(State->Mutex);
+			if (!State->Result.has_value())
+			{
+				return false;
 			}
 
+			OutResult = *State->Result;
 			return true;
+		}
+
+		auto ImportFromFile(std::string_view FilePath, std::vector<FTestAssetData>& OutDatas) -> bool
+		{
+			FAsyncMeshImportResult Result = ImportMeshesFromFile(FilePath);
+			if (!Result.bSucceeded)
+			{
+				OutDatas.clear();
+				return false;
+			}
+
+			OutDatas = std::move(Result.Meshes);
+			return true;
+		}
+
+		auto ImportFromFileAsync(std::string_view FilePath) -> FAsyncMeshImportHandle
+		{
+			auto SharedState = std::make_shared<FAsyncMeshImportSharedState>();
+			std::string OwnedFilePath(FilePath);
+			SharedState->Task = LaunchTask("AssetImport.Mesh", [SharedState, FilePath = std::move(OwnedFilePath)]() mutable {
+				FAsyncMeshImportResult Result = ImportMeshesFromFile(FilePath);
+
+				std::lock_guard Lock(SharedState->Mutex);
+				SharedState->Result = std::move(Result);
+			});
+
+			if (!SharedState->Task.IsValid())
+			{
+				return {};
+			}
+
+			return FAsyncMeshImportHandle(std::move(SharedState));
 		}
 	}
 } // namespace Durin
