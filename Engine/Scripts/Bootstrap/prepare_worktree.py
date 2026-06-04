@@ -29,6 +29,55 @@ def normalize_path(path: Path) -> Path:
     return path.expanduser().resolve()
 
 
+def read_gitdir_pointer(repo_root: Path) -> Path | None:
+    git_entry = repo_root / ".git"
+    if git_entry.is_dir():
+        return git_entry
+
+    if not git_entry.is_file():
+        return None
+
+    try:
+        content = git_entry.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+    prefix = "gitdir:"
+    if not content.lower().startswith(prefix):
+        return None
+
+    gitdir_value = content[len(prefix) :].strip()
+    if not gitdir_value:
+        return None
+
+    return normalize_path(repo_root / gitdir_value)
+
+
+def infer_main_worktree_root(repo_root: Path) -> Path | None:
+    git_dir = read_gitdir_pointer(repo_root)
+    if git_dir is None:
+        return None
+
+    worktrees_dir = git_dir.parent
+    if worktrees_dir.name != "worktrees":
+        return None
+
+    commondir_file = git_dir / "commondir"
+    if not commondir_file.is_file():
+        return None
+
+    try:
+        commondir_value = commondir_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+    if not commondir_value:
+        return None
+
+    common_git_dir = normalize_path(git_dir / commondir_value)
+    return common_git_dir.parent
+
+
 def find_source_argument(args: argparse.Namespace) -> str:
     if args.source:
         return args.source
@@ -37,6 +86,10 @@ def find_source_argument(args: argparse.Namespace) -> str:
         env_value = os.environ.get(env_name)
         if env_value:
             return env_value
+
+    main_worktree_root = infer_main_worktree_root(REPO_ROOT)
+    if main_worktree_root is not None:
+        return str(main_worktree_root)
 
     return str(REPO_ROOT.parent / DEFAULT_SOURCE_WORKTREE_NAME)
 
@@ -238,7 +291,8 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Source Durin worktree root or Engine/External directory. "
             "Defaults to DURIN_WORKTREE_SOURCE, DURIN_EXTERNAL_SOURCE, "
-            "DURIN_EXTERNAL_ROOT, or a sibling Durin worktree."
+            "DURIN_EXTERNAL_ROOT, the main Git worktree root, "
+            "or a sibling Durin worktree."
         ),
     )
     parser.add_argument(
