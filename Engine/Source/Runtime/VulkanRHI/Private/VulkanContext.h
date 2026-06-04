@@ -46,8 +46,6 @@ namespace Durin::VulkanRHI
 
 		auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void override;
 
-		auto RHISetShaderParameters(FRHIShader* InShader, std::span<uint8> InParametersData) -> void override;
-
 		auto RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void override;
 
 		auto RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void override;
@@ -72,9 +70,26 @@ namespace Durin::VulkanRHI
 		auto Finalize() -> void;
 
 	protected:
+		struct FVulkanDescriptorSetCacheEntry
+		{
+			uint64 Hash = 0;
+			uint64 LayoutHash = 0;
+			std::vector<FRHIShaderParameterResource> Resources;
+			std::vector<vk::DescriptorSet> DescriptorSets;
+		};
+
 		auto PrepareNewCommandBuffer(FVulkanPayload& InPayload) -> void;
 
 		auto GetPayload() -> FVulkanPayload&;
+
+		auto GetOrCreateDescriptorSetsForDraw() -> const std::vector<vk::DescriptorSet>&;
+
+		auto CalculatePendingDescriptorHash(uint64 LayoutHash) const -> uint64;
+
+		static auto AreDescriptorResourcesEqual(
+			const std::vector<FRHIShaderParameterResource>& A,
+			const std::vector<FRHIShaderParameterResource>& B
+		) -> bool;
 
 		FVulkanDynamicRHI* RHI = nullptr;
 
@@ -85,6 +100,10 @@ namespace Durin::VulkanRHI
 		FVulkanCommandBufferPool* Pool = nullptr;
 
 		FVulkanGraphicsPipelineState* PendingGfxPipelineState = nullptr;
+
+		std::vector<FRHIShaderParameterResource> PendingShaderResources;
+
+		std::vector<FVulkanDescriptorSetCacheEntry> DescriptorSetCache;
 
 		std::vector<FVulkanPayload*> Payloads;
 	};

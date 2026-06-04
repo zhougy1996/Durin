@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RenderCoreAPI.h"
+#include "RHICommandList.h"
 #include "RHIResources.h"
 
 #include "ShaderCompilerCore.h"
@@ -40,7 +41,8 @@ namespace Durin
 			std::string_view InDebugName = {},
 			FShaderFactoryFunction InFactory = nullptr,
 			FShouldCompilePermutationFunction InShouldCompilePermutation = nullptr,
-			FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment = nullptr
+			FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment = nullptr,
+			std::span<const FShaderParameterMetadata> InParameterMetadata = {}
 		);
 
 		RENDERCORE_API ~FShaderType();
@@ -54,6 +56,7 @@ namespace Durin
 		auto GetFrequency() const -> EShaderFrequency { return Frequency; }
 		auto GetEntryPoint() const -> std::string_view { return EntryPoint; }
 		auto GetDebugName() const -> std::string_view { return DebugName; }
+		auto GetParameterMetadata() const -> std::span<const FShaderParameterMetadata> { return ParameterMetadata; }
 
 		RENDERCORE_API auto CreateShaderInstance(FShaderMapBase* ShaderMap, uint32 ShaderIndex, const FShaderReflectionData& Reflection) const -> std::unique_ptr<FShader>;
 		RENDERCORE_API auto ShouldCompilePermutation(const FShaderPermutationParameters& Parameters) const -> bool;
@@ -68,6 +71,7 @@ namespace Durin
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
 		std::string EntryPoint;
 		std::string DebugName;
+		std::vector<FShaderParameterMetadata> ParameterMetadata;
 		FShaderFactoryFunction Factory = nullptr;
 		FShouldCompilePermutationFunction ShouldCompilePermutationFn = nullptr;
 		FModifyCompilationEnvironmentFunction ModifyCompilationEnvironmentFn = nullptr;
@@ -83,15 +87,28 @@ namespace Durin
 		auto GetShaderMap() const -> FShaderMapBase* { return ShaderMap; }
 		auto GetShaderIndex() const -> uint32 { return ShaderIndex; }
 		auto GetReflection() const -> const FShaderReflectionData& { return Reflection; }
+		auto GetParameterBindings() const -> std::span<const FShaderParameterBinding> { return ParameterBindings; }
 
 		RENDERCORE_API auto GetOrCreateRHIShader(bool bRequired = true) -> FRHIShader*;
+		RENDERCORE_API auto InitializeParameterBindings(std::string& OutErrorMessage) -> bool;
 
 	protected:
 		const FShaderType* Type = nullptr;
 		FShaderMapBase* ShaderMap = nullptr;
 		uint32 ShaderIndex = 0;
 		FShaderReflectionData Reflection;
+		std::vector<FShaderParameterBinding> ParameterBindings;
 	};
+
+	RENDERCORE_API auto BuildShaderParameterBindings(
+		std::span<const FShaderParameterMetadata> ParameterMetadata,
+		const FShaderReflectionData& Reflection,
+		std::vector<FShaderParameterBinding>& OutBindings,
+		std::string& OutErrorMessage
+	) -> bool;
+
+	#define DURIN_SHADER_PARAMETER(MemberName, BindingType) \
+		FShaderParameterMetadata{#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName)), BindingType, 1}
 
 	RENDERCORE_API auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc;
 	RENDERCORE_API auto BuildPipelineLayoutFromReflection(
@@ -223,4 +240,28 @@ namespace Durin
 		ShaderType* ShaderContent = nullptr;
 		FShaderMapBase* ShaderMap = nullptr;
 	};
+
+	template<typename ShaderType>
+	auto SetShaderParameters(FRHICommandListBase& RHICmdList, const TShaderRef<ShaderType>& Shader, const typename ShaderType::FParameters& Parameters) -> void
+	{
+		const ShaderType* ShaderContent = Shader.GetShader();
+		check(ShaderContent);
+
+		std::vector<FRHIShaderParameterResource> ResourceParameters;
+		ResourceParameters.reserve(ShaderContent->GetParameterBindings().size());
+
+		const auto* ParameterBytes = reinterpret_cast<const uint8*>(&Parameters);
+		for (const FShaderParameterBinding& Binding : ShaderContent->GetParameterBindings())
+		{
+			const auto* ResourceField = reinterpret_cast<FRHIResource* const*>(ParameterBytes + Binding.Offset);
+			FRHIShaderParameterResource ResourceParameter;
+			ResourceParameter.Resource = *ResourceField;
+			ResourceParameter.SetIndex = Binding.SetIndex;
+			ResourceParameter.BindingIndex = Binding.BindingIndex;
+			ResourceParameter.Type = Binding.Type;
+			ResourceParameters.push_back(ResourceParameter);
+		}
+
+		RHICmdList.SetShaderParameters(Shader.GetRHIShader(), ResourceParameters);
+	}
 } // namespace Durin

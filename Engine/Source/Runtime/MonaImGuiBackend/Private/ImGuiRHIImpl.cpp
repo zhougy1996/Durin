@@ -9,6 +9,37 @@ namespace Durin::Mona
 {
 	namespace
 	{
+		class FImGuiFragmentShader : public FShader
+		{
+		public:
+			using FShader::FShader;
+
+			struct FParameters
+			{
+				FRHITexture* fontTexture = nullptr;
+				FRHISampler* fontSampler = nullptr;
+			};
+
+			static auto GetParametersMetadata() -> std::span<const FShaderParameterMetadata>
+			{
+				static const std::array Parameters = {
+					DURIN_SHADER_PARAMETER(fontTexture, ERHIBindingType::Texture),
+					DURIN_SHADER_PARAMETER(fontSampler, ERHIBindingType::Sampler)
+				};
+				return Parameters;
+			}
+		};
+
+		auto CreateImGuiFragmentShader(
+			const FShaderType* ShaderType,
+			FShaderMapBase* ShaderMap,
+			uint32 ShaderIndex,
+			const FShaderReflectionData& Reflection
+		) -> std::unique_ptr<FShader>
+		{
+			return std::make_unique<FImGuiFragmentShader>(ShaderType, ShaderMap, ShaderIndex, Reflection);
+		}
+
 		auto GetImGuiVertexShaderType() -> FShaderType&
 		{
 			static FShaderType ShaderType("ImGuiVertexShader", "/Engine/ImGui", EShaderFrequency::Vertex, "vertexMain");
@@ -17,7 +48,17 @@ namespace Durin::Mona
 
 		auto GetImGuiFragmentShaderType() -> FShaderType&
 		{
-			static FShaderType ShaderType("ImGuiFragmentShader", "/Engine/ImGui", EShaderFrequency::Fragment, "fragmentMain");
+			static FShaderType ShaderType(
+				"ImGuiFragmentShader",
+				"/Engine/ImGui",
+				EShaderFrequency::Fragment,
+				"fragmentMain",
+				{},
+				&CreateImGuiFragmentShader,
+				nullptr,
+				nullptr,
+				FImGuiFragmentShader::GetParametersMetadata()
+			);
 			return ShaderType;
 		}
 	}
@@ -27,7 +68,7 @@ namespace Durin::Mona
 	{
 		std::shared_ptr<FShaderMapBase> ShaderMap;
 		TShaderRef<FShader> VertexShader;
-		TShaderRef<FShader> FragmentShader;
+		TShaderRef<FImGuiFragmentShader> FragmentShader;
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateRHIRef PipelineState;
 
@@ -75,13 +116,13 @@ namespace Durin::Mona
 		}
 
 		FShader* VertexShader = ShaderMap->GetShader(&VertexShaderType);
-		FShader* FragmentShader = ShaderMap->GetShader(&FragmentShaderType);
+		auto* FragmentShader = static_cast<FImGuiFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType));
 		check(VertexShader);
 		check(FragmentShader);
 
 		GBackendState.ShaderMap = ShaderMap;
 		GBackendState.VertexShader = TShaderRef<FShader>(VertexShader, ShaderMap.get());
-		GBackendState.FragmentShader = TShaderRef<FShader>(FragmentShader, ShaderMap.get());
+		GBackendState.FragmentShader = TShaderRef<FImGuiFragmentShader>(FragmentShader, ShaderMap.get());
 
 		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([
 			ShaderMap,
@@ -375,20 +416,10 @@ namespace Durin::Mona
 
 					auto* TextureRefPtr = reinterpret_cast<FTextureRHIRef*>(Cmd->GetTexID());
 
-					FRHIShaderParameterResource Binding_0_0;
-					Binding_0_0.Type = FRHIShaderParameterResource::EType::Texture;
-					Binding_0_0.SetIndex = 0;
-					Binding_0_0.BindIndex = 0;
-					Binding_0_0.Resource = *TextureRefPtr;
-
-					FRHIShaderParameterResource Binding_0_1;
-					Binding_0_1.Type = FRHIShaderParameterResource::EType::Sampler;
-					Binding_0_1.SetIndex = 0;
-					Binding_0_1.BindIndex = 1;
-					Binding_0_1.Resource = GBackendState.LinearSampler;
-
-					std::vector<FRHIShaderParameterResource> ShaderParameters = {Binding_0_0, Binding_0_1};
-					CommandList.SetShaderParameters(GBackendState.FragmentShader.GetRHIShader(), ShaderParameters);
+					FImGuiFragmentShader::FParameters ShaderParameters;
+					ShaderParameters.fontTexture = *TextureRefPtr;
+					ShaderParameters.fontSampler = GBackendState.LinearSampler;
+					SetShaderParameters(CommandList, GBackendState.FragmentShader, ShaderParameters);
 
 					CommandList.DrawIndexed(Cmd->ElemCount, Cmd->IdxOffset + GlobalIndexOffset, Cmd->VtxOffset + GlobalVertexOffset);
 				}

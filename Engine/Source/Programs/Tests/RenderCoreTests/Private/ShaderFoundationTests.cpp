@@ -336,6 +336,142 @@ namespace Durin
 		EXPECT_FALSE(ErrorMessage.empty());
 	}
 
+	TEST(FShaderFoundationTests, BuildShaderParameterBindingsResolvesReflectionSlots)
+	{
+		struct FParameters
+		{
+			FRHITexture* FontTexture = nullptr;
+			FRHISampler* FontSampler = nullptr;
+		};
+
+		const std::array Metadata = {
+			FShaderParameterMetadata{"FontTexture", static_cast<uint32>(offsetof(FParameters, FontTexture)), ERHIBindingType::Texture, 1},
+			FShaderParameterMetadata{"FontSampler", static_cast<uint32>(offsetof(FParameters, FontSampler)), ERHIBindingType::Sampler, 1}
+		};
+
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({
+			.Name = "FontTexture",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 2,
+			.BindingIndex = 4,
+			.Type = ERHIBindingType::Texture,
+			.ArraySize = 1
+		});
+		Reflection.ResourceBindings.push_back({
+			.Name = "FontSampler",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 2,
+			.BindingIndex = 5,
+			.Type = ERHIBindingType::Sampler,
+			.ArraySize = 1
+		});
+
+		std::vector<FShaderParameterBinding> Bindings;
+		std::string ErrorMessage;
+		ASSERT_TRUE(BuildShaderParameterBindings(Metadata, Reflection, Bindings, ErrorMessage)) << ErrorMessage;
+		ASSERT_EQ(Bindings.size(), 2u);
+		EXPECT_STREQ(Bindings[0].Name, "FontTexture");
+		EXPECT_EQ(Bindings[0].Offset, offsetof(FParameters, FontTexture));
+		EXPECT_EQ(Bindings[0].SetIndex, 2u);
+		EXPECT_EQ(Bindings[0].BindingIndex, 4u);
+		EXPECT_EQ(Bindings[0].Type, ERHIBindingType::Texture);
+		EXPECT_STREQ(Bindings[1].Name, "FontSampler");
+		EXPECT_EQ(Bindings[1].SetIndex, 2u);
+		EXPECT_EQ(Bindings[1].BindingIndex, 5u);
+		EXPECT_EQ(Bindings[1].Type, ERHIBindingType::Sampler);
+	}
+
+	TEST(FShaderFoundationTests, BuildShaderParameterBindingsRejectsMissingReflectionBinding)
+	{
+		const std::array Metadata = {
+			FShaderParameterMetadata{"MissingTexture", 0, ERHIBindingType::Texture, 1}
+		};
+
+		FShaderReflectionData Reflection;
+		std::vector<FShaderParameterBinding> Bindings;
+		std::string ErrorMessage;
+		EXPECT_FALSE(BuildShaderParameterBindings(Metadata, Reflection, Bindings, ErrorMessage));
+		EXPECT_FALSE(ErrorMessage.empty());
+		EXPECT_TRUE(Bindings.empty());
+	}
+
+	TEST(FShaderFoundationTests, BuildShaderParameterBindingsRejectsTypeMismatch)
+	{
+		const std::array Metadata = {
+			FShaderParameterMetadata{"FontTexture", 0, ERHIBindingType::Texture, 1}
+		};
+
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({
+			.Name = "FontTexture",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 0,
+			.BindingIndex = 0,
+			.Type = ERHIBindingType::Sampler,
+			.ArraySize = 1
+		});
+
+		std::vector<FShaderParameterBinding> Bindings;
+		std::string ErrorMessage;
+		EXPECT_FALSE(BuildShaderParameterBindings(Metadata, Reflection, Bindings, ErrorMessage));
+		EXPECT_FALSE(ErrorMessage.empty());
+		EXPECT_TRUE(Bindings.empty());
+	}
+
+	TEST(FShaderFoundationTests, ShaderMapInitializeCachesParameterBindingsOnShaderInstance)
+	{
+		struct FParameters
+		{
+			FRHITexture* FontTexture = nullptr;
+		};
+
+		const std::array Metadata = {
+			FShaderParameterMetadata{"FontTexture", static_cast<uint32>(offsetof(FParameters, FontTexture)), ERHIBindingType::Texture, 1}
+		};
+		FShaderType FragmentShaderType(
+			"UnitFragmentShader",
+			"/Unit/TestShader",
+			EShaderFrequency::Fragment,
+			"fragmentMain",
+			{},
+			nullptr,
+			nullptr,
+			nullptr,
+			Metadata
+		);
+		std::array<const FShaderType*, 1> ShaderTypes = {&FragmentShaderType};
+
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({
+			.Name = "FontTexture",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 0,
+			.BindingIndex = 3,
+			.Type = ERHIBindingType::Texture,
+			.ArraySize = 1
+		});
+
+		FShaderCompilerOutput Output;
+		Output.bSucceeded = true;
+		Output.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "UnitFragmentShader", 13, Reflection)
+		};
+
+		FShaderMapBase ShaderMap;
+		std::string ErrorMessage;
+		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+		const FShader* Shader = ShaderMap.GetShader(&FragmentShaderType);
+		ASSERT_NE(Shader, nullptr);
+
+		const auto FirstBindings = Shader->GetParameterBindings();
+		const auto SecondBindings = Shader->GetParameterBindings();
+		ASSERT_EQ(FirstBindings.size(), 1u);
+		EXPECT_EQ(FirstBindings.data(), SecondBindings.data());
+		EXPECT_EQ(FirstBindings[0].BindingIndex, 3u);
+		EXPECT_EQ(FirstBindings[0].Offset, offsetof(FParameters, FontTexture));
+	}
+
 	TEST(FShaderFoundationTests, ShaderMapInitializeRejectsMismatchedSourceEntryPoint)
 	{
 		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");

@@ -32,15 +32,9 @@ namespace Durin::VulkanRHI
 
 		auto GetPipelineLayout() const -> vk::PipelineLayout { return PipelineLayout; }
 
+		auto GetDescriptorSetsLayout() const -> const FVulkanDescriptorSetsLayout&;
+
 		auto PushConstants(FVulkanCommandListContext& InContext, EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* pValues) const -> void;
-
-		auto SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void;
-
-		auto SetTexture(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, FVulkanTexture* InTexture) -> void;
-
-		auto SetSampler(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, FVulkanSampler* InSampler) -> void;
-
-		auto PrepareDescriptorSets() -> void;
 
 	protected:
 		const FVulkanRenderPass* RenderPass = nullptr;
@@ -66,13 +60,6 @@ namespace Durin::VulkanRHI
 		vk::PipelineLayout PipelineLayout;
 
 		vk::Pipeline Pipeline;
-
-		std::vector<vk::WriteDescriptorSet> DescriptorWrites;
-		std::list<vk::DescriptorImageInfo> ImageInfos;
-
-		std::vector<vk::DescriptorSet> DescriptorSets;
-
-		uint64 DescriptorSetsFrameCounter = UINT64_MAX;
 
 		friend class FVulkanGraphicsPipelineState;
 		friend class FVulkanPipelineStateCacheManager;

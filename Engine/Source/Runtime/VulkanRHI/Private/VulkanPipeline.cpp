@@ -272,70 +272,17 @@ namespace Durin::VulkanRHI
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
 		CmdBuffer->GetHandle().setViewport(0, Viewport);
 		CmdBuffer->GetHandle().setScissor(0, Scissor);
+	}
 
-		Device.GetHandle().updateDescriptorSets(DescriptorWrites, {});
-		DescriptorWrites.clear();
-		ImageInfos.clear();
-		CmdBuffer->GetHandle().bindDescriptorSets(vk::PipelineBindPoint::eGraphics, PipelineLayout, 0, DescriptorSets, {});
+	auto FVulkanGraphicsPipelineState::GetDescriptorSetsLayout() const -> const FVulkanDescriptorSetsLayout&
+	{
+		return Layout->GetDescriptorSetsLayout();
 	}
 
 	auto FVulkanGraphicsPipelineState::PushConstants(FVulkanCommandListContext& InContext, EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* pValues) const -> void
 	{
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
 		CmdBuffer->GetHandle().pushConstants(PipelineLayout, ToVulkan_ShaderStageFlags(StageFlags), Offset, Size, pValues);
-	}
-
-	auto FVulkanGraphicsPipelineState::SetUniformBuffer(FVulkanCommandListContext& InContext, FRHIShader* InShader, uint32 SetIndex, uint32 BindIndex, FVulkanBuffer* InUniformBuffer) -> void
-	{
-		vk::DescriptorBufferInfo BufferInfo{};
-		BufferInfo.setBuffer(InUniformBuffer->GetHandle())
-			.setOffset(0)
-			.setRange(InUniformBuffer->GetSize());
-
-		vk::WriteDescriptorSet DescriptorWrite{};
-		DescriptorWrite.setDstSet(DescriptorSets[SetIndex])
-			.setDstBinding(BindIndex)
-			.setDstArrayElement(0)
-			.setDescriptorType(vk::DescriptorType::eUniformBuffer)
-			.setDescriptorCount(1)
-			.setBufferInfo(BufferInfo);
-
-		DescriptorWrites.push_back(DescriptorWrite);
-	}
-
-	auto FVulkanGraphicsPipelineState::SetTexture(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, FVulkanTexture* InTexture) -> void
-	{
-		ImageInfos.emplace_back();
-		vk::DescriptorImageInfo& ImageInfo = ImageInfos.back();
-		ImageInfo.setImageView(InTexture->ImageView)
-			.setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-
-		vk::WriteDescriptorSet DescriptorWrite{};
-		DescriptorWrite.setDstSet(DescriptorSets[SetIndex])
-			.setDstBinding(BindIndex)
-			.setDstArrayElement(0)
-			.setDescriptorType(vk::DescriptorType::eSampledImage)
-			.setDescriptorCount(1)
-			.setImageInfo(ImageInfo);
-
-		DescriptorWrites.push_back(DescriptorWrite);
-	}
-
-	auto FVulkanGraphicsPipelineState::SetSampler(FVulkanCommandListContext& InContext, uint32 SetIndex, uint32 BindIndex, FVulkanSampler* InSampler) -> void
-	{
-		ImageInfos.emplace_back();
-		vk::DescriptorImageInfo& ImageInfo = ImageInfos.back();
-		ImageInfo.setSampler(InSampler->GetHandle());
-
-		vk::WriteDescriptorSet DescriptorWrite{};
-		DescriptorWrite.setDstSet(DescriptorSets[SetIndex])
-			.setDstBinding(BindIndex)
-			.setDstArrayElement(0)
-			.setDescriptorType(vk::DescriptorType::eSampler)
-			.setDescriptorCount(1)
-			.setImageInfo(ImageInfo);
-
-		DescriptorWrites.push_back(DescriptorWrite);
 	}
 
 	auto FVulkanGraphicsPipelineState::SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void
@@ -365,17 +312,6 @@ namespace Durin::VulkanRHI
 				(void)Shader->Release();
 			}
 		}
-	}
-
-	auto FVulkanGraphicsPipelineState::PrepareDescriptorSets() -> void
-	{
-		auto DescriptorPool = Device.GetGlobalDescriptorPool().GetPool();
-		vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo;
-		DescriptorSetAllocInfo
-			.setDescriptorPool(DescriptorPool)
-			.setSetLayouts(Layout->GetDescriptorSetsLayout().GetLayoutHandles());
-
-		DescriptorSets = Device.GetHandle().allocateDescriptorSets(DescriptorSetAllocInfo);
 	}
 
 	FVulkanPipelineStateCacheManager::FVulkanPipelineStateCacheManager(FVulkanDevice& InDevice)

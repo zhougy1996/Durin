@@ -1,21 +1,34 @@
 #pragma once
 
+#include "RHIResources.h"
+
 namespace Durin
 {
 	class FRHIResource;
 
+	struct FShaderParameterMetadata
+	{
+		const char* Name = nullptr;
+		uint32 Offset = 0;
+		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
+		uint32 ArraySize = 1;
+	};
+
+	struct FShaderParameterBinding
+	{
+		const char* Name = nullptr;
+		uint32 Offset = 0;
+		uint32 SetIndex = 0;
+		uint32 BindingIndex = 0;
+		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
+		uint32 ArraySize = 1;
+	};
+
 	struct FRHIShaderParameterResource
 	{
-		enum class EType
-		{
-			UniformBuffer,
-			Texture,
-			Sampler,
-		};
-
 		FRHIResource* Resource = nullptr;
-		uint16 SetIndex = 0;
-		uint16 BindIndex = 0;
-		EType Type;
+		uint32 SetIndex = 0;
+		uint32 BindingIndex = 0;
+		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
 	};
 } // namespace Durin
