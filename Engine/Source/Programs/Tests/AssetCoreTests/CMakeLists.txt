@@ -1,6 +1,6 @@
 include(GoogleTest)
 
-durin_add_test_target(AssetCoreTests
+add_durin_test(AssetCoreTests
 	Private/AssetImportTests.cpp
 )
 
@@ -14,10 +14,10 @@ target_link_libraries(AssetCoreTests PRIVATE
 	GTest::gtest_main
 )
 
-durin_copy_target_binary_to_output_dir(AssetCoreTests Core)
-durin_copy_target_binary_to_output_dir(AssetCoreTests AssetCore)
-durin_copy_target_binary_to_output_dir(AssetCoreTests assimp::assimp)
-durin_deploy_runtime_files_for_target(AssetCoreTests assimp::assimp)
+durin_target_copy_binary_to_output_dir(AssetCoreTests Core)
+durin_target_copy_binary_to_output_dir(AssetCoreTests AssetCore)
+durin_target_copy_binary_to_output_dir(AssetCoreTests assimp::assimp)
+durin_target_deploy_runtime_files(AssetCoreTests assimp::assimp)
 
 gtest_discover_tests(AssetCoreTests
 	WORKING_DIRECTORY $<TARGET_FILE_DIR:AssetCoreTests>
