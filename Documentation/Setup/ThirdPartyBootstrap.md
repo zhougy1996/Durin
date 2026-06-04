@@ -1,27 +1,16 @@
 # Cross-Platform Third-Party Bootstrap
 
-This document describes Durin's third-party bootstrap, install, and runtime deployment workflow.
-
-## Goals
-
-- Prepare third-party dependencies before main-project `cmake --preset ...` runs.
-- Keep network/download behavior out of normal project configure.
-- Reuse the same dependency layout across `DurinEditor` and `DurinGame`.
-- Share one bootstrap entrypoint across Windows, macOS, and Linux.
+This document covers dependency preparation, shared external layout, and worktree sharing.
 
 ## Entry Points
 
-Primary bootstrap entry:
+- Primary script: `Engine/Scripts/Bootstrap/setup_third_party.py`
+- Windows wrappers:
+  - `Engine/Scripts/Bootstrap/Bootstrap.bat`
+  - `Engine/Scripts/Bootstrap/Setup_<Library>.bat`
+  - `Engine/Scripts/Bootstrap/PrepareWorktree.bat`
 
-- `Engine/Scripts/Bootstrap/setup_third_party.py`
-
-Windows convenience wrappers:
-
-- `Engine/Scripts/Bootstrap/Bootstrap.bat`
-- `Engine/Scripts/Bootstrap/Setup_<Library>.bat`
-- `Engine/Scripts/Bootstrap/PrepareWorktree.bat`
-
-Recommended examples:
+Common commands:
 
 ```powershell
 python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-tests
@@ -31,141 +20,74 @@ python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 
 ## Worktree Sharing
 
-When using Git worktrees, dependency payloads can be shared by linking the ignored
-`Engine/External` directory from a prepared sibling `Durin` worktree. The helper
-also symlinks `AGENTS_LOCAL.md` from that sibling worktree:
+- `PrepareWorktree.bat` links this worktree's `Engine/External` to a prepared sibling worktree.
+- The same helper also symlinks the root `AGENTS_LOCAL.md` from that sibling worktree.
+- On Windows, `Engine/External` uses a directory junction by default; `AGENTS_LOCAL.md` always uses a symlink.
+- Preview the operation with `Engine\Scripts\Bootstrap\PrepareWorktree.bat --dry-run`.
+- Use `--source` when the prepared dependency worktree is not the default sibling `..\Durin`.
+- `Setup.bat` switches to `PrepareWorktree.bat` only when Git reports that the current checkout is a linked worktree; otherwise it falls back to the normal full bootstrap.
 
-```powershell
-Engine\Scripts\Bootstrap\PrepareWorktree.bat
-```
+Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` per worktree.
 
-By default, the script links this worktree's `Engine/External` to
-`..\Durin\Engine\External`. On Windows, `PrepareWorktree.bat` creates a
-directory junction for `Engine/External` by default, and always creates a
-symlink for `AGENTS_LOCAL.md`. To preview the operation first, run:
-
-```powershell
-Engine\Scripts\Bootstrap\PrepareWorktree.bat --dry-run
-```
-
-If the prepared dependency worktree is somewhere else, pass either its root or
-its `Engine/External` directory with `--source`.
-
-On Windows, root `Setup.bat` only switches to `PrepareWorktree.bat` when Git
-explicitly reports a linked worktree. If `.git` is missing, Git is unavailable,
-or the Git query fails, `Setup.bat` falls back to the normal full bootstrap.
-The detection compares `git rev-parse --git-dir` and
-`git rev-parse --git-common-dir` after expanding both to absolute paths.
-
-Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` per-worktree.
-Those directories contain generated state and outputs that can depend on the
-current branch and absolute worktree path.
-
-If you need a starter file for machine-local agent notes, see
-`Documentation/Setup/TP_AGENTS_LOCAL.md`.
+`Documentation/Setup/TP_AGENTS_LOCAL.md` is only a starter template for machine-local notes. It is not part of the required reading chain.
 
 ## Directory Layout
 
 - Direct source: `Engine/External/Source/<Library>`
 - Prebuilt packages: `Engine/External/Packages/<Library>`
 - Shared install: `Engine/External/Install/<Platform>/<Config>/<Library>`
-- Shared build: `Build/ThirdParty/<Platform>-<Config>-<Library>`
+- Shared third-party build tree: `Build/ThirdParty/<Platform>-<Config>-<Library>`
 - Runtime deployment: `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
 
 `Shipping` main-project builds import shared-install third-party packages from the `Release` install tree.
 
-Platform names are normalized as:
-
-- Windows: `Win64`
-- macOS: `MacOS`
-- Linux: `Linux`
-
-## Dependency Classes
+## Dependency Models
 
 ### Prebuilt SDK
 
-Current example:
+Current example: `slang`
 
-- `slang`
-
-Behavior:
-
-- bootstrap downloads/extracts a prepared package into `Engine/External/Packages/<Library>`
-- main project imports binaries and headers from that prepared source directory
-- runtime deployment is handled by consuming module build rules when DLLs must be copied into `Engine/Binaries/...`
+- Source location: `Engine/External/Packages/<Library>`
+- Build or install behavior: bootstrap downloads or extracts a prepared package
+- Runtime implications: consuming modules deploy required runtime DLLs into `Engine/Binaries/...`
 
 ### Direct Source
 
-Current examples:
+Current examples: `glm`, `googletest`
 
-- `glm`
-- `googletest`
-
-Behavior:
-
-- bootstrap clones source into `Engine/External/Source/<Library>`
-- main project consumes that source directly with `add_subdirectory(...)`
-- no shared install tree is generated
+- Source location: `Engine/External/Source/<Library>`
+- Build or install behavior: bootstrap clones source and the main project consumes it with `add_subdirectory(...)`
+- Runtime implications: no shared install tree is produced
 
 ### Shared Install
 
-Current examples:
+Current examples: `spdlog`, `glfw`, `rapidyaml`, `assimp`
 
-- `spdlog`
-- `glfw`
-- `rapidyaml`
-- `assimp`
+- Source location: `Engine/External/Source/<Library>`
+- Build or install behavior: bootstrap clones source, configures it, and installs it into the shared install tree
+- Runtime implications: the main project imports the installed targets from `Engine/External/Install/...`
 
-Behavior:
+## Runtime DLL Notes
 
-- bootstrap clones source into `Engine/External/Source/<Library>`
-- bootstrap configures and installs the library into the shared install tree
-- main project imports the installed target from `Engine/External/Install/...`
-
-## Runtime Deployment
-
-Runtime deployment is separate from bootstrap and install trees.
-
-Current runtime-only output locations:
-
-- `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
-- `Engine/Binaries/<Platform>/<Config>/Runtime/<Profile>/`
-
-Use the third-party directory for shared runtime DLLs that should be available through the process DLL search path.
-
-If a library is delay-loaded or sensitive to Windows DLL search behavior, also copy it beside the consuming runtime binary.
-
-Current example:
-
-- `slang.dll`
-- `slang-compiler.dll`
-- `slang-glslang.dll`
-
-`RenderCore` currently copies those files into both:
-
-- `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
-- `Engine/Binaries/<Platform>/<Config>/Runtime/<Profile>/`
+- Use `Engine/Binaries/<Platform>/<Config>/ThirdParty/` for shared third-party runtime DLLs.
+- If a library is delay-loaded or path-sensitive on Windows, also copy it beside the consuming runtime binary.
+- `RenderCore` currently depends on Slang DLL deployment, and those DLLs may need to exist in both the shared third-party directory and the active runtime directory.
 
 ## Manifest Model
 
-Library definitions live under:
+Third-party manifests live under `Engine/Scripts/Bootstrap/thirdparty/*.json` and declare:
 
-- `Engine/Scripts/Bootstrap/thirdparty/*.json`
-
-Each manifest declares:
-
-- library name
+- library identity
 - dependency kind
 - source acquisition details
 - source directory
-- third-party CMake wrapper directory if needed
-- required file checks
-- per-config install validation for shared-install libraries
+- wrapper CMake directory when needed
+- required-file checks
+- per-config install validation for shared-install packages
 
 ## Notes
 
 - `--all` skips test-only dependencies unless `--with-tests` is supplied.
-- `googletest` is marked test-only.
-- The root `CMakePresets.json` remains the entry for main-project configure/build.
-- Third-party bootstrap is intentionally separate from those presets.
-- Legacy assets can be cleaned with `python Engine/Scripts/Bootstrap/cleanup_legacy_thirdparty.py --dry-run` and then rerun without `--dry-run`.
+- `googletest` is test-only.
+- Main project configure and build still start from `CMakePresets.json`.
+- Legacy third-party assets can be inspected with `python Engine/Scripts/Bootstrap/cleanup_legacy_thirdparty.py --dry-run`.
