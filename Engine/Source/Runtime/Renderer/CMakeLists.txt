@@ -1,2 +1,2 @@
-durin_add_module(Renderer)
+add_durin_module(Renderer)
 

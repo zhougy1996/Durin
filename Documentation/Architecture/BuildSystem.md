@@ -14,15 +14,18 @@ Most engine and editor code is built as loadable modules rather than a monolithi
 
 The most important build logic lives in:
 
-- `CMake/Modules.cmake`
+- `CMake/DurinWorkspaceSetup.cmake`
+- `CMake/DurinBuildApi.cmake`
+- `CMake/Project/ProjectSetup.cmake`
+- `CMake/Project/ProjectTargets.cmake`
 
 Important helpers:
 
-- `durin_add_project(...)`
-- `durin_add_module(...)`
-- `durin_add_test_target(...)`
+- `add_durin_project(...)`
+- `add_durin_module(...)`
+- `add_durin_test(...)`
 
-### `durin_add_project(...)`
+### `add_durin_project(...)`
 
 This helper:
 
@@ -31,11 +34,14 @@ This helper:
 - resolves active profile-derived values used by the rest of the build
 - adds module subdirectories for the current project
 
+Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMake/SandBoxSetup.cmake`
+run before this helper and are allowed to perform project-specific setup work like third-party registration.
+
 Relevant tool:
 
 - `Engine/Source/Programs/DurinHeaderTool/main.py`
 
-### `durin_add_module(...)`
+### `add_durin_module(...)`
 
 This helper:
 
@@ -45,7 +51,7 @@ This helper:
 - builds a shared or static library based on module metadata
 - emits shared library outputs named like `DurinEditor-<ModuleName>`
 
-### `durin_add_test_target(...)`
+### `add_durin_test(...)`
 
 This helper is the common path for native C++ tests under:
 
@@ -99,4 +105,10 @@ The runtime module loader expects the `<ProfileName>-<ModuleName>` naming conven
 - Build and run workflow: `Documentation/Setup/BuildAndRun.md`
 - Profile system: `Documentation/Architecture/Profiles.md`
 - Runtime architecture: `Documentation/Architecture/RuntimeArchitecture.md`
+
+## Naming Notes
+
+- `DurinWorkspaceSetup.cmake` is the executable workspace-level setup entrypoint.
+- `DurinBuildApi.cmake` is the shared helper/API bundle for project build logic.
+- `<Project>/CMake/<Project>Setup.cmake` is a project entry script that may execute project-specific setup.
 

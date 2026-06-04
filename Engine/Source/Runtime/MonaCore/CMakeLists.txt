@@ -1,3 +1,3 @@
-durin_add_module(MonaCore)
+add_durin_module(MonaCore)
 
 

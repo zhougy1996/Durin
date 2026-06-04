@@ -75,7 +75,7 @@ The test executable is emitted into the dedicated test output directory:
 If a test target links against engine module DLLs, copy the required runtime DLLs beside the test executable. `CoreTests` currently does this with:
 
 ```cmake
-durin_copy_target_binary_to_output_dir(CoreTests Core)
+durin_target_copy_binary_to_output_dir(CoreTests Core)
 ```
 
 ## Run Tests
@@ -116,7 +116,7 @@ Or run a single GoogleTest case:
 
 1. Create a new folder under `Engine/Source/Programs/Tests`, for example `AssetCoreTests`.
 2. Add a `CMakeLists.txt` file for that target.
-3. Use `durin_add_test_target(...)` instead of calling `add_executable(...)` directly.
+3. Use `add_durin_test(...)` instead of calling `add_executable(...)` directly.
 4. Link the target against the engine modules it needs and `GTest::gtest_main`.
 5. Copy any required engine DLLs beside the test executable.
 6. Register the tests with `gtest_discover_tests(...)`.
@@ -126,7 +126,7 @@ Example:
 ```cmake
 include(GoogleTest)
 
-durin_add_test_target(AssetCoreTests
+add_durin_test(AssetCoreTests
     Private/AssetImportTests.cpp
 )
 
@@ -135,7 +135,7 @@ target_link_libraries(AssetCoreTests PRIVATE
     GTest::gtest_main
 )
 
-durin_copy_target_binary_to_output_dir(AssetCoreTests AssetCore)
+durin_target_copy_binary_to_output_dir(AssetCoreTests AssetCore)
 
 gtest_discover_tests(AssetCoreTests
     WORKING_DIRECTORY $<TARGET_FILE_DIR:AssetCoreTests>
@@ -174,7 +174,7 @@ TEST(FExampleTests, BasicExpectation)
 
 - Test root: `Engine/Source/Programs/Tests`
 - First suite: `Engine/Source/Programs/Tests/CoreTests`
-- Shared helper: `CMake/Modules.cmake`
+- Shared helper: `CMake/Project/ProjectTargets.cmake`
 - Test dependency source wrapper: `Engine/CMake/ThirdParty/googletest`
 - Prepare test dependency source ahead of configure with: `python Engine/Scripts/Bootstrap/setup_third_party.py --libs googletest`
 - Prepared test dependency source lives under: `Engine/External/Source/googletest`

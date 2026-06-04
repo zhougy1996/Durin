@@ -1,1 +1,1 @@
-durin_add_module(Engine)
+add_durin_module(Engine)

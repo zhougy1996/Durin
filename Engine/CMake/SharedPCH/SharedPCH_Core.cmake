@@ -1,8 +1,10 @@
+# Shared PCH target rooted at CoreMinimal.h for engine/runtime modules.
+
 include_guard(GLOBAL)
 
-set(CORE_PUBLIC_DIR "${DURIN_PROJECT_DIR}/Source/Runtime/Core/Public")
+set(CORE_PUBLIC_DIR "${DURIN_PROJECT_ROOT_DIR}/Source/Runtime/Core/Public")
 
-durin_add_shared_pch_target(SharedPCH_Core
+add_durin_shared_pch(SharedPCH_Core
     HEADER "${CORE_PUBLIC_DIR}/CoreMinimal.h"
     INCLUDE_DIRECTORIES
         "${CORE_PUBLIC_DIR}"

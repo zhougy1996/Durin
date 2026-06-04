@@ -1,4 +1,4 @@
-durin_add_module(MonaImGuiBackend)
+add_durin_module(MonaImGuiBackend)
 
 target_include_directories(MonaImGuiBackend PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/Public/ThirdParty/ImGui

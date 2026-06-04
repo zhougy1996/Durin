@@ -94,7 +94,9 @@ Examples:
 Relevant code:
 
 - `Engine/Source/Programs/DurinHeaderTool/configs/profile_config.py`
-- `CMake/Modules.cmake`
+- `CMake/DurinWorkspaceSetup.cmake`
+- `CMake/Project/ProjectSetup.cmake`
+- `CMake/Project/SharedPCH.cmake`
 
 ## Module Selection
 

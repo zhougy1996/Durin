@@ -1,1 +1,1 @@
-durin_add_module(Mona)
+add_durin_module(Mona)

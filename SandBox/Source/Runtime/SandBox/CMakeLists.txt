@@ -1,1 +1,1 @@
-durin_add_module(SandBox)
+add_durin_module(SandBox)

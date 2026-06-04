@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../DurinThirdParty.cmake)
-
 function(durin_spdlog_configure_imported_target)
 	durin_third_party_get_install_dir(spdlog_install_dir "spdlog")
 	set(spdlog_include_dir "${spdlog_install_dir}/include")

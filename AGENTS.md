@@ -16,7 +16,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 ## Important repo-specific behaviors
 
 - This codebase relies on generated build metadata and generated reflection/export files. If a module looks incomplete from static files alone, inspect the generated/intermediate CMake and DHT outputs before assuming the source is missing.
-- Shared library naming matters: runtime module loading expects the `DurinEditor-<Module>` naming convention established in `CMake/Modules.cmake`.
+- Shared library naming matters: runtime module loading expects the `DurinEditor-<Module>` naming convention established in `CMake/Project/ProjectTargets.cmake`.
 - The active rendering backend is effectively Vulkan-first today; changes in `RHI` often need matching updates in `VulkanRHI` and sometimes in the Mona ImGui backend.
 - Because the launcher creates a real windowed application, UI/rendering changes should be validated by building and running `DurinEditor`, not only by compiling.
 - `CoreStd.h` already pulls in the standard library headers used across the codebase. Do not add manual standard-library includes unless the compiler explicitly reports a missing header in that translation unit.
