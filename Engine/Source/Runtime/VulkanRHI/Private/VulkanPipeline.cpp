@@ -240,38 +240,9 @@ namespace Durin::VulkanRHI
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
 	}
 
-	auto FVulkanGraphicsPipelineState::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
-	{
-		float MaxDepth = MinZ == MaxZ ? MinZ + 1.0f : MaxZ;
-
-		Viewport
-			.setX(MinX)
-			.setY(MinY)
-			.setWidth(MaxX - MinX)
-			.setHeight(MaxY - MinY)
-			.setMinDepth(MinZ)
-			.setMaxDepth(MaxDepth);
-
-		SetScissorRect(static_cast<uint32>(MinX), static_cast<uint32>(MinY), static_cast<uint32>(MaxX - MinX), static_cast<uint32>(MaxY - MinY));
-		bScissorEnabled = false;
-	}
-
-	auto FVulkanGraphicsPipelineState::SetScissor(float MinX, float MinY, float Width, float Height) -> void
-	{
-		SetScissorRect(static_cast<uint32>(MinX), static_cast<uint32>(MinY), static_cast<uint32>(Width), static_cast<uint32>(Height));
-		bScissorEnabled = true;
-	}
-
 	auto FVulkanGraphicsPipelineState::Bind(vk::CommandBuffer CmdBuffer) -> void
 	{
 		CmdBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, Pipeline);
-	}
-
-	auto FVulkanGraphicsPipelineState::PrepareForDraw(FVulkanCommandListContext& InContext) -> void
-	{
-		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
-		CmdBuffer->GetHandle().setViewport(0, Viewport);
-		CmdBuffer->GetHandle().setScissor(0, Scissor);
 	}
 
 	auto FVulkanGraphicsPipelineState::GetDescriptorSetsLayout() const -> const FVulkanDescriptorSetsLayout&
@@ -283,13 +254,6 @@ namespace Durin::VulkanRHI
 	{
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
 		CmdBuffer->GetHandle().pushConstants(PipelineLayout, ToVulkan_ShaderStageFlags(StageFlags), Offset, Size, pValues);
-	}
-
-	auto FVulkanGraphicsPipelineState::SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void
-	{
-		Scissor
-			.setOffset({static_cast<int32>(MinX), static_cast<int32>(MinY)})
-			.setExtent({Width, Height});
 	}
 
 	auto FVulkanGraphicsPipelineState::KeepShadersAlive() -> void

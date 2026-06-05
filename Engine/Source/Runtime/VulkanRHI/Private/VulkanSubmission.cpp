@@ -35,6 +35,11 @@ namespace Durin::VulkanRHI
 	auto FVulkanFrame::Reset() -> void
 	{
 		Device.GetFenceManager().ResetFence(FrameFence);
+		ReleaseInFlightPayloadsAfterDeviceIdle();
+	}
+
+	auto FVulkanFrame::ReleaseInFlightPayloadsAfterDeviceIdle() -> void
+	{
 		for (FVulkanPayload* Payload : InFlightPayloads)
 		{
 			for (FVulkanCommandBuffer* CommandBuffer : Payload->CommandBuffers)

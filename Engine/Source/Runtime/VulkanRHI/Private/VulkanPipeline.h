@@ -9,7 +9,6 @@ namespace Durin::VulkanRHI
 	class FVulkanDevice;
 	class FVulkanRenderPass;
 	class FVulkanCommandListContext;
-	class FVulkanCommandBuffer;
 	class FVulkanShader;
 	class FVulkanBuffer;
 	class FVulkanTexture;
@@ -22,13 +21,7 @@ namespace Durin::VulkanRHI
 
 		~FVulkanGraphicsPipelineState() override;
 
-		auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
-
-		auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
-
 		auto Bind(vk::CommandBuffer InCmdBuffer) -> void;
-
-		auto PrepareForDraw(FVulkanCommandListContext& InContext) -> void;
 
 		auto GetPipelineLayout() const -> vk::PipelineLayout { return PipelineLayout; }
 
@@ -39,19 +32,11 @@ namespace Durin::VulkanRHI
 	protected:
 		const FVulkanRenderPass* RenderPass = nullptr;
 
-		auto SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void;
-
 		auto KeepShadersAlive() -> void;
 
 		auto ReleaseShaders() -> void;
 
 		FVulkanDevice& Device;
-
-		vk::Viewport Viewport;
-
-		vk::Rect2D Scissor;
-
-		bool bScissorEnabled = false;
 
 		FVulkanShader* Shaders[EShaderStage::Count] = { nullptr };
 
