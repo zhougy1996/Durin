@@ -31,6 +31,8 @@ namespace Durin::VulkanRHI
 
 		vk::Format Format{};
 
+		ETextureCreateFlags CreateFlags = ETextureCreateFlags::None;
+
 	protected:
 		FVulkanDevice& Device;
 

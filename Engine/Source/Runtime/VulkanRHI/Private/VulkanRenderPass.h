@@ -12,7 +12,7 @@ namespace Durin::VulkanRHI
 	class FVulkanRenderPass
 	{
 	public:
-		FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat);
+		FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat, vk::ImageLayout InFinalLayout);
 
 		~FVulkanRenderPass();
 

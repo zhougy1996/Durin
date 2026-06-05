@@ -706,4 +706,14 @@ namespace Durin::Mona
 		ImGui::ShowDemoWindow();
 	}
 
+	auto FMonaImGuiBackend::GetTextureID(const FTextureRHIRef& Texture) const -> ImTextureID
+	{
+		if (Texture == nullptr)
+		{
+			return ImTextureID_Invalid;
+		}
+
+		return reinterpret_cast<ImTextureID>(const_cast<FTextureRHIRef*>(&Texture));
+	}
+
 } // namespace Durin::Mona

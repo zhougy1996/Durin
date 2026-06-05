@@ -24,6 +24,12 @@ namespace Durin
 
 		ENGINE_API auto GetDesiredSize() const -> FVector2f override;
 
+		ENGINE_API auto GetRenderTargetRHI() const -> const FTextureRHIRef&;
+
+		ENGINE_API auto IsRenderTargetReady() const -> bool;
+
+		ENGINE_API auto MarkRenderTargetReady() -> void;
+
 	private:
 		Mona::EMonaViewportRenderMode RenderMode = Mona::EMonaViewportRenderMode::Window;
 
@@ -32,5 +38,7 @@ namespace Durin
 		std::weak_ptr<Mona::MViewport> ViewportWidget;
 
 		FTextureRHIRef RenderTargetRHI;
+
+		bool bRenderTargetReady = false;
 	};
 }

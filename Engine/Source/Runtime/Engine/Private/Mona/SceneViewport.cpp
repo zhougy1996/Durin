@@ -48,6 +48,7 @@ namespace Durin
 			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("SceneViewportRenderTarget", Width, Height, EPixelFormat::SRGBA8_UNORM);
 			Desc.AddFlags(ETextureCreateFlags::RenderTargetable);
 			RenderTargetRHI = RHICreateTexture(Desc);
+			bRenderTargetReady = false;
 		}
 		ViewportRHI = nullptr;
 	}
@@ -79,5 +80,20 @@ namespace Durin
 		}
 
 		return {};
+	}
+
+	auto FSceneViewport::GetRenderTargetRHI() const -> const FTextureRHIRef&
+	{
+		return RenderTargetRHI;
+	}
+
+	auto FSceneViewport::IsRenderTargetReady() const -> bool
+	{
+		return bRenderTargetReady;
+	}
+
+	auto FSceneViewport::MarkRenderTargetReady() -> void
+	{
+		bRenderTargetReady = true;
 	}
 }

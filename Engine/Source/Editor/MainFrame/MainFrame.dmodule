@@ -10,6 +10,7 @@
         "MonaCore",
         "Mona",
         "MonaImGuiBackend",
+        "LevelEditor",
         "DurinEd"
     ]
 }
