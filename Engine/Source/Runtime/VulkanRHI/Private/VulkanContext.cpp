@@ -29,7 +29,6 @@ namespace Durin::VulkanRHI
 
 	FVulkanCommandListContext::~FVulkanCommandListContext()
 	{
-		PendingGfxState->Reset();
 		PendingGfxState.reset();
 		delete Pool;
 	}

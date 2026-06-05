@@ -18,8 +18,9 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPendingGraphicsState::SetGraphicsPipelineState(FVulkanGraphicsPipelineState& InPipelineState, vk::CommandBuffer InCmdBuffer) -> void
 	{
-		PipelineState = &InPipelineState;
-		PipelineState->Bind(InCmdBuffer);
+		CurrentPipelineState = &InPipelineState;
+		CurrentDescriptorState = &FindOrAddDescriptorState(InPipelineState);
+		CurrentPipelineState->Bind(InCmdBuffer);
 	}
 
 	auto FVulkanPendingGraphicsState::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
@@ -34,6 +35,7 @@ namespace Durin::VulkanRHI
 			.setMinDepth(MinZ)
 			.setMaxDepth(MaxDepth);
 
+		// Match the common RHI behavior where setting viewport also restores a full-viewport scissor.
 		SetScissorRect(static_cast<uint32>(MinX), static_cast<uint32>(MinY), static_cast<uint32>(MaxX - MinX), static_cast<uint32>(MaxY - MinY));
 	}
 
@@ -43,6 +45,13 @@ namespace Durin::VulkanRHI
 	}
 
 	auto FVulkanPendingGraphicsState::SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
+	{
+		// Shader resource state is scoped to the currently bound PSO descriptor state.
+		check(CurrentDescriptorState);
+		CurrentDescriptorState->SetShaderParameters(InShader, InResourceParameters);
+	}
+
+	auto FVulkanGraphicsPipelineDescriptorState::SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
 		for (const auto& ResourceParameter : InResourceParameters)
 		{
@@ -64,18 +73,19 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPendingGraphicsState::PrepareForDraw(FVulkanCommandListContext& InContext) -> void
 	{
-		check(PipelineState);
+		check(CurrentPipelineState);
+		check(CurrentDescriptorState);
 
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
 		CmdBuffer->GetHandle().setViewport(0, Viewport);
 		CmdBuffer->GetHandle().setScissor(0, Scissor);
 
-		const std::vector<vk::DescriptorSet>& DescriptorSets = GetOrCreateDescriptorSetsForDraw();
+		const std::vector<vk::DescriptorSet>& DescriptorSets = CurrentDescriptorState->GetOrCreateDescriptorSetsForDraw(Device, *CurrentPipelineState);
 		if (!DescriptorSets.empty())
 		{
 			CmdBuffer->GetHandle().bindDescriptorSets(
 				vk::PipelineBindPoint::eGraphics,
-				PipelineState->GetPipelineLayout(),
+				CurrentPipelineState->GetPipelineLayout(),
 				0,
 				DescriptorSets,
 				{}
@@ -85,12 +95,31 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPendingGraphicsState::ClearDescriptorSetCache() -> void
 	{
-		DescriptorSetCache.clear();
+		for (const auto& Entry : PipelineStates)
+		{
+			Entry.second->ClearDescriptorSetCache();
+		}
 	}
 
 	auto FVulkanPendingGraphicsState::Reset() -> void
 	{
-		PipelineState = nullptr;
+		CurrentPipelineState = nullptr;
+		CurrentDescriptorState = nullptr;
+		// PipelineStates owns its values; keys are non-owning PSO pointers.
+		for (const auto& State : PipelineStates | std::views::values)
+		{
+			delete State;
+		}
+		PipelineStates.clear();
+	}
+
+	auto FVulkanGraphicsPipelineDescriptorState::ClearDescriptorSetCache() -> void
+	{
+		DescriptorSetCache.clear();
+	}
+
+	auto FVulkanGraphicsPipelineDescriptorState::Reset() -> void
+	{
 		PendingShaderResources.clear();
 		DescriptorSetCache.clear();
 	}
@@ -102,8 +131,21 @@ namespace Durin::VulkanRHI
 			.setExtent({Width, Height});
 	}
 
+	auto FVulkanPendingGraphicsState::FindOrAddDescriptorState(FVulkanGraphicsPipelineState& InPipelineState) -> FVulkanGraphicsPipelineDescriptorState&
+	{
+		if (const auto FoundIt = PipelineStates.find(&InPipelineState); FoundIt != PipelineStates.end())
+		{
+			return *FoundIt->second;
+		}
+
+		FVulkanGraphicsPipelineDescriptorState* NewDescriptorState = new FVulkanGraphicsPipelineDescriptorState();
+		PipelineStates.emplace(&InPipelineState, NewDescriptorState);
+		return *NewDescriptorState;
+	}
+
 	static auto SortDescriptorResources(std::vector<FRHIShaderParameterResource>& Resources) -> void
 	{
+		// Deterministic ordering makes descriptor hashes independent of shader parameter update order.
 		std::ranges::sort(Resources, [](const FRHIShaderParameterResource& A, const FRHIShaderParameterResource& B) {
 			if (A.SetIndex != B.SetIndex)
 			{
@@ -113,10 +155,9 @@ namespace Durin::VulkanRHI
 		});
 	}
 
-	auto FVulkanPendingGraphicsState::CalculatePendingDescriptorHash(uint64 LayoutHash) const -> uint64
+	auto FVulkanGraphicsPipelineDescriptorState::CalculatePendingDescriptorHash() const -> uint64
 	{
 		FXxHash64Builder HashBuilder;
-		HashBuilder.UpdateValue(LayoutHash);
 		for (const FRHIShaderParameterResource& Resource : PendingShaderResources)
 		{
 			HashBuilder.UpdateValue(Resource.SetIndex);
@@ -127,7 +168,7 @@ namespace Durin::VulkanRHI
 		return HashBuilder.Finalize().HashValue;
 	}
 
-	auto FVulkanPendingGraphicsState::AreDescriptorResourcesEqual(
+	auto FVulkanGraphicsPipelineDescriptorState::AreDescriptorResourcesEqual(
 		const std::vector<FRHIShaderParameterResource>& A,
 		const std::vector<FRHIShaderParameterResource>& B
 	) -> bool
@@ -150,11 +191,9 @@ namespace Durin::VulkanRHI
 		return true;
 	}
 
-	auto FVulkanPendingGraphicsState::GetOrCreateDescriptorSetsForDraw() -> const std::vector<vk::DescriptorSet>&
+	auto FVulkanGraphicsPipelineDescriptorState::GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> const std::vector<vk::DescriptorSet>&
 	{
-		check(PipelineState);
-
-		const FVulkanDescriptorSetsLayout& DescriptorSetsLayout = PipelineState->GetDescriptorSetsLayout();
+		const FVulkanDescriptorSetsLayout& DescriptorSetsLayout = PipelineState.GetDescriptorSetsLayout();
 		const std::vector<vk::DescriptorSetLayout>& LayoutHandles = DescriptorSetsLayout.GetLayoutHandles();
 		static const std::vector<vk::DescriptorSet> EmptyDescriptorSets;
 		if (LayoutHandles.empty())
@@ -163,13 +202,12 @@ namespace Durin::VulkanRHI
 		}
 
 		SortDescriptorResources(PendingShaderResources);
-		const uint64 LayoutHash = DescriptorSetsLayout.GetHash();
-		const uint64 DescriptorHash = CalculatePendingDescriptorHash(LayoutHash);
+		const uint64 DescriptorHash = CalculatePendingDescriptorHash();
 
+		// Hash is a fast reject only; resource equality is still checked before cache reuse.
 		for (FVulkanDescriptorSetCacheEntry& Entry : DescriptorSetCache)
 		{
 			if (Entry.Hash == DescriptorHash
-				&& Entry.LayoutHash == LayoutHash
 				&& AreDescriptorResourcesEqual(Entry.Resources, PendingShaderResources))
 			{
 				return Entry.DescriptorSets;
@@ -178,7 +216,6 @@ namespace Durin::VulkanRHI
 
 		FVulkanDescriptorSetCacheEntry& NewEntry = DescriptorSetCache.emplace_back();
 		NewEntry.Hash = DescriptorHash;
-		NewEntry.LayoutHash = LayoutHash;
 		NewEntry.Resources = PendingShaderResources;
 
 		vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo;
@@ -188,6 +225,7 @@ namespace Durin::VulkanRHI
 
 		NewEntry.DescriptorSets = Device.GetHandle().allocateDescriptorSets(DescriptorSetAllocInfo);
 
+		// Vulkan write descriptors store pointers into these arrays until updateDescriptorSets returns.
 		std::vector<vk::DescriptorBufferInfo> BufferInfos;
 		std::vector<vk::DescriptorImageInfo> ImageInfos;
 		std::vector<vk::WriteDescriptorSet> DescriptorWrites;
