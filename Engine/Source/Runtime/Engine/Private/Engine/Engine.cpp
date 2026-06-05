@@ -24,6 +24,29 @@ namespace Durin
 		}
 
 		MainSceneViewport->UpdateRHIViewport();
+		if (!MainSceneViewport->IsWindowBacked())
+		{
+			FTextureRHIRef RenderTargetRHI = MainSceneViewport->GetRenderTargetRHI();
+			if (RenderTargetRHI == nullptr)
+			{
+				return;
+			}
+
+			ENQUEUE_RENDER_COMMAND(RenderMainSceneRenderTarget)(
+				[RenderTargetRHI](FRHICommandListImmediate& CommandList) {
+					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+
+					FRHIRenderPassInfo PassInfo{};
+					PassInfo.ColorRenderTargets[0] = RenderTargetRHI;
+					PassInfo.ColorClearValue = FClearValueBinding(0.05f, 0.09f, 0.14f, 1.0f);
+					CommandList.BeginRenderPass(PassInfo, "EditorSceneViewportClearPass");
+					CommandList.EndRenderPass();
+				}
+			);
+			MainSceneViewport->MarkRenderTargetReady();
+			return;
+		}
+
 		const TRefCountPtr<FRHIViewport>& ViewportRHI = MainSceneViewport->GetRHIViewport();
 		if (ViewportRHI == nullptr)
 		{
@@ -48,13 +71,7 @@ namespace Durin
 				CommandList.BeginRenderPass(PassInfo, "RuntimeSceneViewportClearPass");
 				CommandList.EndRenderPass();
 
-				constexpr bool bPresentSceneViewport =
-#if DURIN_WITH_DEVELOPER_TOOLS && !DURIN_WITH_EDITOR
-					false;
-#else
-					true;
-#endif
-				CommandList.EndDrawingViewport(ViewportRHI, bPresentSceneViewport, false);
+				CommandList.EndDrawingViewport(ViewportRHI, true, false);
 			}
 		);
 	}

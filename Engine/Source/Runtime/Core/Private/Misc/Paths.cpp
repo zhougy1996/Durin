@@ -42,15 +42,24 @@ namespace Durin
 			const std::filesystem::path OutputDir = LaunchPath.filename().empty()
 				? LaunchPath.parent_path()
 				: LaunchPath;
-			if (OutputDir.filename() == "Tests")
+
+			for (auto Current = OutputDir; !Current.empty(); Current = Current.parent_path())
 			{
-				return OutputDir.parent_path();
+				if (Current.filename() == "Tests")
+				{
+					return Current.parent_path();
+				}
+
+				if (Current == Current.parent_path())
+				{
+					break;
+				}
 			}
 
 			const std::filesystem::path RuntimeDir = OutputDir.parent_path();
 
 			checkf(RuntimeDir.filename() == "Runtime",
-				"Expected launch directory to be under a Runtime/<Profile> or Tests layout. LaunchDir={}",
+				"Expected launch directory to be under a Runtime/<Profile> or Tests/<Profile>/<Target>/Bin layout. LaunchDir={}",
 				FPaths::LaunchDir());
 
 			return RuntimeDir.parent_path();

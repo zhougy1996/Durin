@@ -1,7 +1,32 @@
 ###############################################################################
-# Set default behavior to automatically normalize line endings.
+# Set default behavior to automatically normalize line endings on LF.
 ###############################################################################
-* text=auto
+* text=auto eol=lf
+
+###############################################################################
+# Keep cross-platform source and build files on LF to avoid noisy renormalization
+# on Windows while preserving predictable behavior across tools and platforms.
+###############################################################################
+*.c           text eol=lf
+*.cc          text eol=lf
+*.cpp         text eol=lf
+*.cxx         text eol=lf
+*.h           text eol=lf
+*.hh          text eol=lf
+*.hpp         text eol=lf
+*.hxx         text eol=lf
+*.inl         text eol=lf
+*.ixx         text eol=lf
+*.cppm        text eol=lf
+*.cmake       text eol=lf
+CMakeLists.txt text eol=lf
+*.natvis      text eol=lf
+*.json        text eol=lf
+*.toml        text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.md          text eol=lf
+*.txt         text eol=lf
 
 ###############################################################################
 # Set default behavior for command prompt diff.

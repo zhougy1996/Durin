@@ -30,7 +30,6 @@ def _append_project_profile_to_cmake_content(content: list[str], project_name: s
 
     content.append(f"set(DURIN_PROJECT_PROFILE_NAME \"{profile_config.profile_name}\")\n")
     content.append(f"set(DURIN_PROJECT_PROFILE_WITH_EDITOR {'ON' if profile_config.with_editor else 'OFF'})\n")
-    content.append(f"set(DURIN_PROJECT_PROFILE_APP_CONFIG_NAME \"{profile_config.app_config_name}\")\n")
     content.append("\n")
 
 
@@ -39,17 +38,15 @@ def _append_project_build_variables_to_cmake_content(content: list[str], project
     if profile_config is None:
         raise ValueError(f"Unknown built-in profile '{configs.PROFILE_NAME}' for project {project_name}.")
     with_editor = 1 if profile_config.with_editor else 0
-    with_developer_tools = 1 if configs.is_module_enabled_for_active_profile("MonaImGuiBackend") else 0
 
     content.append("# Derived build variables for this project/profile\n")
     content.append(f"set(DURIN_WITH_EDITOR {with_editor})\n")
-    content.append(f"set(DURIN_WITH_DEVELOPER_TOOLS {with_developer_tools})\n")
     content.append("\n")
-    content.append("set(DURIN_PROJECT_APP_CONFIG_NAME \"${DURIN_PROJECT_PROFILE_APP_CONFIG_NAME}\")\n")
+    content.append("set(DURIN_PROJECT_APP_CONFIG_FILE \"${DURIN_PROJECT_PROFILE_NAME}.yaml\")\n")
     content.append("set(DURIN_PROJECT_BIN_ROOT \"${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/$<CONFIG>\")\n")
     content.append("set(DURIN_PROJECT_RUNTIME_OUTPUT_DIR \"${DURIN_PROJECT_BIN_ROOT}/Runtime/${DURIN_PROJECT_PROFILE_NAME}\")\n")
     content.append("set(DURIN_PROJECT_THIRDPARTY_RUNTIME_DIR \"${DURIN_PROJECT_BIN_ROOT}/ThirdParty\")\n")
-    content.append("set(DURIN_PROJECT_TEST_OUTPUT_DIR \"${DURIN_PROJECT_BIN_ROOT}/Tests\")\n")
+    content.append("set(DURIN_PROJECT_TEST_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Tests/${DURIN_PROJECT_PROFILE_NAME}\")\n")
     content.append("set(DURIN_PROJECT_LIB_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Lib\")\n")
     content.append("set(DURIN_PROJECT_SYMBOL_OUTPUT_ROOT \"${DURIN_PROJECT_BIN_ROOT}/Symbols\")\n")
     content.append("set(DURIN_PROJECT_EXTERNAL_RUNTIME_DIR \"${DURIN_PROJECT_THIRDPARTY_RUNTIME_DIR}\")\n")

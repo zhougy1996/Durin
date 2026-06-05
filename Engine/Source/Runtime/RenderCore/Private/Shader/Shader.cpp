@@ -322,7 +322,8 @@ namespace Durin
 		std::string_view InDebugName,
 		FShaderFactoryFunction InFactory,
 		FShouldCompilePermutationFunction InShouldCompilePermutation,
-		FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment
+		FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment,
+		std::span<const FShaderParameterMetadata> InParameterMetadata
 	)
 		: Name(InName)
 		, TypeName(Name)
@@ -330,6 +331,7 @@ namespace Durin
 		, Frequency(InFrequency)
 		, EntryPoint(InEntryPoint)
 		, DebugName(InDebugName.empty() ? InName : InDebugName)
+		, ParameterMetadata(InParameterMetadata.begin(), InParameterMetadata.end())
 		, Factory(InFactory ? InFactory : &MakeDefaultShaderInstance)
 		, ShouldCompilePermutationFn(InShouldCompilePermutation)
 		, ModifyCompilationEnvironmentFn(InModifyCompilationEnvironment)
@@ -376,6 +378,65 @@ namespace Durin
 	auto FShader::GetOrCreateRHIShader(bool bRequired) -> FRHIShader*
 	{
 		return (ShaderMap && Type) ? ShaderMap->GetOrCreateShaderRHI(Type, bRequired) : nullptr;
+	}
+
+	auto FShader::InitializeParameterBindings(std::string& OutErrorMessage) -> bool
+	{
+		ParameterBindings.clear();
+		return BuildShaderParameterBindings(Type ? Type->GetParameterMetadata() : std::span<const FShaderParameterMetadata>{}, Reflection, ParameterBindings, OutErrorMessage);
+	}
+
+	auto BuildShaderParameterBindings(
+		std::span<const FShaderParameterMetadata> ParameterMetadata,
+		const FShaderReflectionData& Reflection,
+		std::vector<FShaderParameterBinding>& OutBindings,
+		std::string& OutErrorMessage
+	) -> bool
+	{
+		OutBindings.clear();
+		OutErrorMessage.clear();
+
+		for (const FShaderParameterMetadata& Parameter : ParameterMetadata)
+		{
+			if (Parameter.Name == nullptr || Parameter.Name[0] == '\0')
+			{
+				OutErrorMessage = "Shader parameter metadata contains an empty name";
+				return false;
+			}
+
+			const auto FoundIt = std::ranges::find_if(Reflection.ResourceBindings, [&Parameter](const FShaderResourceBinding& Binding) {
+				return Binding.Name == Parameter.Name;
+			});
+
+			if (FoundIt == Reflection.ResourceBindings.end())
+			{
+				OutErrorMessage = std::format("Shader parameter '{}' was not found in shader reflection", Parameter.Name);
+				return false;
+			}
+
+			if (FoundIt->Type != Parameter.Type)
+			{
+				OutErrorMessage = std::format("Shader parameter '{}' type does not match reflection", Parameter.Name);
+				return false;
+			}
+
+			if (FoundIt->ArraySize != Parameter.ArraySize)
+			{
+				OutErrorMessage = std::format("Shader parameter '{}' array size does not match reflection", Parameter.Name);
+				return false;
+			}
+
+			FShaderParameterBinding Binding;
+			Binding.Name = Parameter.Name;
+			Binding.Offset = Parameter.Offset;
+			Binding.SetIndex = FoundIt->SetIndex;
+			Binding.BindingIndex = FoundIt->BindingIndex;
+			Binding.Type = FoundIt->Type;
+			Binding.ArraySize = FoundIt->ArraySize;
+			OutBindings.push_back(Binding);
+		}
+
+		return true;
 	}
 
 	auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc
@@ -689,6 +750,12 @@ namespace Durin
 			if (!ShaderInstance)
 			{
 				OutErrorMessage = std::format("Shader type '{}' failed to create a shader instance", ShaderType->GetName());
+				Reset();
+				return false;
+			}
+			if (!ShaderInstance->InitializeParameterBindings(OutErrorMessage))
+			{
+				OutErrorMessage = std::format("Shader type '{}' parameter binding failed: {}", ShaderType->GetName(), OutErrorMessage);
 				Reset();
 				return false;
 			}

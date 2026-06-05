@@ -1,0 +1,13 @@
+{
+    "ModuleName": "MonaImGui",
+    "LinkType": "Shared",
+    "PCH": "Self",
+    "PrivateDependencies": [
+        "Core",
+        "RHI",
+        "RenderCore"
+    ],
+    "PublicDependencies": [
+        "MonaCore"
+    ]
+}

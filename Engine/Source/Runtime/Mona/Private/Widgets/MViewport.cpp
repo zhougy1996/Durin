@@ -1,6 +1,8 @@
 #include "Widgets/MViewport.h"
 
-namespace Durin::Mona
+#include "MonaUIInterface.h"
+
+namespace Durin
 {
 	auto MViewport::SetDesiredSize(const FVector2f& InDesiredSize) -> void
 	{
@@ -12,17 +14,37 @@ namespace Durin::Mona
 		return DesiredSize;
 	}
 
-	auto MViewport::SetViewport(const std::shared_ptr<IMonaViewport>& InViewport) -> void
+	auto MViewport::SetViewportInterface(const std::shared_ptr<Mona::IMonaViewport>& InViewport) -> void
 	{
-		Viewport = InViewport;
+		ViewportInterface = InViewport;
 	}
 
-	auto MViewport::GetViewport() const -> std::shared_ptr<IMonaViewport>
+	auto MViewport::GetViewportInterface() const -> std::shared_ptr<Mona::IMonaViewport>
 	{
-		return Viewport.lock();
+		return ViewportInterface.lock();
+	}
+
+	auto MViewport::WasTextureDrawn() const -> bool
+	{
+		return bLastDrawSucceeded;
 	}
 
 	auto MViewport::Draw() -> void
 	{
+		bLastDrawSucceeded = false;
+
+		const std::shared_ptr<Mona::IMonaViewport> ViewportPtr = ViewportInterface.lock();
+		if (ViewportPtr == nullptr)
+		{
+			return;
+		}
+
+		ViewportPtr->UpdateRHIViewport();
+		if (ViewportPtr->IsWindowBacked())
+		{
+			return;
+		}
+
+		bLastDrawSucceeded = MonaUI::DrawTexture(ViewportPtr->GetDisplayTexture(), DesiredSize);
 	}
 }

@@ -2,7 +2,7 @@
 
 #include "MonaCoreAPI.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	class MWidget : public std::enable_shared_from_this<MWidget>
 	{
@@ -22,7 +22,7 @@ namespace Durin::Mona
 
 		virtual auto IsWindow() -> bool { return false; }
 
-		MONACORE_API auto AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget);
+		MONACORE_API auto AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget) -> void;
 
 		MONACORE_API auto GetParent() const -> std::shared_ptr<MWidget>;
 

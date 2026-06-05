@@ -12,6 +12,7 @@
         "Mona"
     ],
     "OptionalPrivateDependencies": [
+        "MonaImGui",
         "DurinEd"
     ]
 }

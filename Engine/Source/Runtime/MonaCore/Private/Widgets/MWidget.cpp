@@ -1,6 +1,6 @@
 #include "Widgets/MWidget.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	MWidget::MWidget(const std::shared_ptr<MWidget>& InParentWidget)
 		: ParentWidget(InParentWidget)
@@ -20,7 +20,7 @@ namespace Durin::Mona
 		return shared_from_this();
 	}
 
-	auto MWidget::AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget)
+	auto MWidget::AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget) -> void
 	{
 		ParentWidget = InParentWidget;
 	}

@@ -9,6 +9,7 @@
         "ApplicationCore",
         "MonaCore",
         "Mona",
+        "MonaImGui",
         "DurinEd"
     ],
     "ReflectHeaders": [

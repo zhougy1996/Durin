@@ -1,8 +1,6 @@
-include(${CMAKE_CURRENT_LIST_DIR}/../DurinThirdParty.cmake)
-
 add_library(Slang_Imported SHARED IMPORTED GLOBAL)
 
-set(SLANG_ROOT "${DURIN_PROJECT_DIR}/External/Packages/slang")
+set(SLANG_ROOT "${DURIN_PROJECT_ROOT_DIR}/External/Packages/slang")
 set(SLANG_INCLUDE_DIR "${SLANG_ROOT}/include")
 set(SLANG_RUNTIME_DEPLOY_FILES "")
 

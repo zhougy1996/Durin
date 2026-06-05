@@ -1,99 +1,41 @@
 #include "Misc/AppConfigCache.h"
 
-#include "Misc/FileHelper.h"
-
-#include <ryml.hpp>
-#include <ryml_std.hpp>
-
 namespace Durin
 {
-	static FORCEINLINE auto MakeRymlNodeRef(void* TreePtr, size_t NodeIndex) -> ryml::NodeRef
-	{
-		return ryml::NodeRef{static_cast<ryml::Tree*>(TreePtr), NodeIndex};
-	}
-
-	auto FYamlNodeView::GetStringValue(std::string_view InKey, std::string DefaultValue) const -> std::string
-	{
-		std::string Value;
-		auto Node = MakeRymlNodeRef(TreePtr, NodeIndex)[InKey.data()];
-		if (Node.readable())
-		{
-			Node >> Value;
-		}
-		return Value;
-	}
-
-	auto FYamlNodeView::GetBoolValue(std::string_view InKey, bool DefaultValue) const -> bool
-	{
-		bool Value = DefaultValue;
-		auto Node = MakeRymlNodeRef(TreePtr, NodeIndex)[InKey.data()];
-		if (Node.readable())
-		{
-			Node >> Value;
-		}
-		return Value;
-	}
-
-	auto FYamlNodeView::GetFloatValue(std::string_view InKey, float DefaultValue) const -> float
-	{
-		float Value = 0.f;
-		auto Node = MakeRymlNodeRef(TreePtr, NodeIndex)[InKey.data()];
-		if (Node.readable())
-		{
-			Node >> Value;
-		}
-		return Value;
-	}
-
-	auto FYamlNodeView::GetIntValue(std::string_view InKey, int DefaultValue) const -> int
-	{
-		int Value = DefaultValue;
-		auto Node = MakeRymlNodeRef(TreePtr, NodeIndex)[InKey.data()];
-		if (Node.readable())
-		{
-			Node >> Value;
-		}
-		return Value;
-	}
-
-	auto FYamlNodeView::GetView(std::string_view InKey) const -> FYamlNodeView
-	{
-		const auto Node = MakeRymlNodeRef(TreePtr, NodeIndex)[InKey.data()];
-		return FYamlNodeView{TreePtr, Node.id()};
-	}
-
 	FYamlNodeView GAppConfig;
 
-	static std::string AppConfigContent{};
-
-	static std::unique_ptr<ryml::Tree> AppConfigTree;
+	namespace
+	{
+		auto GetAppConfigDocument() -> FYamlDocument&
+		{
+			static FYamlDocument AppConfigDocument;
+			return AppConfigDocument;
+		}
+	}
 
 	namespace CoreInternal
 	{
-		auto LoadApplicationConfig(const std::string& ConfigFile) -> bool
+		auto LoadApplicationConfig(std::string_view ConfigFile) -> bool
 		{
-			check(!AppConfigTree); // Ensure this function is only called once.
+			FYamlDocument& GAppConfigDocument = GetAppConfigDocument();
+			check(!GAppConfigDocument.IsValid());
 
-			AppConfigTree = std::make_unique<ryml::Tree>();
-
-			bool bLoadSuccess = FFileHelper::LoadFileToString(AppConfigContent, ConfigFile);
-			if (!bLoadSuccess)
+			FYamlParseError ParseError;
+			if (!GAppConfigDocument.LoadFromFile(ConfigFile, &ParseError))
 			{
-				DURIN_ERROR("Failed to load application config file: {}", ConfigFile);
+				GAppConfig = {};
+				DURIN_ERROR("Failed to load application config file {}: {}", ConfigFile, ParseError.Message);
 				return false;
 			}
 
-			ryml::parse_in_place(AppConfigContent.data(), AppConfigTree.get());
-			GAppConfig = {AppConfigTree.get(), AppConfigTree->root_id()};
-
+			GAppConfig = GAppConfigDocument.GetRootView();
 			return true;
 		}
 	} // namespace CoreInternal
 
 	auto IsAppConfigLoaded() -> bool
 	{
-		return AppConfigTree != nullptr;
+		const FYamlDocument& GAppConfigDocument = GetAppConfigDocument();
+		return GAppConfigDocument.IsValid();
 	}
-
-
 } // namespace Durin

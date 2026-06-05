@@ -6,20 +6,43 @@ namespace Durin
 {
 	auto FRunnableThreadStd::Kill(bool bShouldWait) -> void
 	{
+		if (bStopRequested.exchange(true, std::memory_order::acq_rel))
+		{
+			if (bShouldWait)
+			{
+				WaitForCompletion();
+			}
+			return;
+		}
+
+		DURIN_TRACE("Thread stop requested. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
+		if (Runnable)
+		{
+			Runnable->Stop();
+		}
+
+		if (bShouldWait)
+		{
+			WaitForCompletion();
+		}
 	}
 
 	auto FRunnableThreadStd::Suspend(bool bShouldPause) -> void
 	{
+		DURIN_WARN("Thread suspension is unsupported. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
 	}
 
 	auto FRunnableThreadStd::Resume() -> void
 	{
+		DURIN_WARN("Thread resume is unsupported. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
 	}
 
 	auto FRunnableThreadStd::WaitForCompletion() -> void
 	{
-		check(Thread.joinable());
-		Thread.join();
+		if (Thread.joinable())
+		{
+			Thread.join();
+		}
 	}
 
 	uint32 PlatformGetThreadIdFromStdThread(std::thread& Thread)
@@ -33,18 +56,30 @@ namespace Durin
 #endif
 	}
 
-	auto FRunnableThreadStd::CreateInternal(FRunnable* InRunnable, const char* InThreadName, uint32 InStackSize, EThreadPriority InThreadPriority) -> bool
+	auto FRunnableThreadStd::CreateInternal(FRunnable* InRunnable, const char* InThreadName, uint32 InStackSize, EThreadPriority InThreadPriority, EThreadRole InThreadRole) -> bool
 	{
 		ThreadName = InThreadName;
 		Runnable = InRunnable;
+		ThreadPriority = InThreadPriority;
+		ThreadRole = InThreadRole;
+		bStopRequested.store(false, std::memory_order::release);
+
 		Thread = std::thread([this]() {
+			ThreadId.store(FPlatformLTS::GetCurrentThreadId(), std::memory_order::release);
 			this->AsCurrentThread();
-			Runnable->Init();
-			Runnable->Run();
+			DURIN_DEBUG("Thread started. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
+
+			const bool bInitialized = Runnable->Init();
+			if (bInitialized)
+			{
+				Runnable->Run();
+			}
 			Runnable->Exit();
+
+			DURIN_DEBUG("Thread exited. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
 		});
 
-		ThreadId = PlatformGetThreadIdFromStdThread(Thread);
+		ThreadId.store(PlatformGetThreadIdFromStdThread(Thread), std::memory_order::release);
 		return true;
 	}
 

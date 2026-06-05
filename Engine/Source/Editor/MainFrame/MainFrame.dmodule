@@ -9,7 +9,8 @@
         "ApplicationCore",
         "MonaCore",
         "Mona",
-        "MonaImGuiBackend",
+        "MonaImGui",
+        "LevelEditor",
         "DurinEd"
     ]
 }

@@ -16,5 +16,5 @@ namespace Durin
 	class FRHITexture;
 	class FRHIBuffer;
 	class FVertexShader;
-	class FPixelShader;
+	class FFragmentShader;
 }

@@ -5,10 +5,14 @@
 #include "Application/GenericApplicationMessageHandler.h"
 #include "Application/MonaEventHandler.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	class MWidget;
 	class MWindow;
+}
+
+namespace Durin::Mona
+{
 	class FMonaRenderer;
 	class FMonaEventHandler;
 

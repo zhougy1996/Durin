@@ -4,7 +4,7 @@
 #include "Rendering/RenderingCommon.h"
 #include "Widgets/MWidget.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	class MViewport : public MWidget
 	{
@@ -18,13 +18,17 @@ namespace Durin::Mona
 
 		MONA_API auto GetDesiredSize() const -> FVector2f;
 
-		MONA_API auto SetViewport(const std::shared_ptr<IMonaViewport>& InViewport) -> void;
+		MONA_API auto SetViewportInterface(const std::shared_ptr<Mona::IMonaViewport>& InViewport) -> void;
 
-		MONA_API auto GetViewport() const -> std::shared_ptr<IMonaViewport>;
+		MONA_API auto GetViewportInterface() const -> std::shared_ptr<Mona::IMonaViewport>;
+
+		MONA_API auto WasTextureDrawn() const -> bool;
 
 	private:
 		FVector2f DesiredSize = {640.0f, 360.0f};
 
-		std::weak_ptr<IMonaViewport> Viewport;
+		std::weak_ptr<Mona::IMonaViewport> ViewportInterface;
+
+		bool bLastDrawSucceeded = false;
 	};
 }

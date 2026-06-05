@@ -1,2 +1,2 @@
-durin_add_module(RHI)
+add_durin_module(RHI)
 

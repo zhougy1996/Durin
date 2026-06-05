@@ -2,12 +2,11 @@
 
 #include "Mona.h"
 #include "LevelEditorModule.h"
+#include "MonaImGui.h"
+#include "MonaCoreGlobals.h"
 
-#include "DurinEngine.h"
-#include "Engine/Engine.h"
-#include "Mona/SceneViewport.h"
+#include "imgui.h"
 #include "Widgets/MFunctionWidget.h"
-#include "MonaImGuiBackend.h"
 
 namespace Durin
 {
@@ -23,27 +22,29 @@ namespace Durin
 
 	auto FMainFrameModule::CreateDefaultMainFrame() -> void
 	{
-		FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
-		std::shared_ptr<Mona::MWindow> RootWindow = std::make_shared<Mona::MWindow>();
+		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
+		check(Mona::GMonaUI);
+		const auto ImGuiBackend = static_cast<Mona::FMonaImGui*>(Mona::GMonaUI);
+		auto RootWindow = std::make_shared<MWindow>();
+		ImGuiBackend->BindMainViewportToWindow(RootWindow);
+
+		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
+		std::shared_ptr<MWidget> LevelEditorWidget = LevelEditorModule.CreateLevelEditorWidget();
 
 		RootWindow->SetTitle("Mona");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {800.0f, 600.0f});
 
-		std::shared_ptr<Mona::MFunctionWidget> DemoWidget = std::make_shared<Mona::MFunctionWidget>();
-		DemoWidget->Construct([]() {
-			Mona::FMonaImGuiBackend::ShowDemoWindow();
+		EditorRootWidget->Construct([LevelEditorWidget]() {
+			ImGuiViewport* MainViewport = ImGui::GetMainViewport();
+			ImGui::DockSpaceOverViewport(0, MainViewport, ImGuiDockNodeFlags_None);
+			if (LevelEditorWidget != nullptr)
+			{
+				LevelEditorWidget->Draw();
+			}
 		});
-		RootWindow->SetChild(DemoWidget);
+		RootWindow->SetChild(EditorRootWidget);
 
 		Mona::FMonaApplication::Get().AddWindow(RootWindow, true);
-		Mona::BindMainViewportToWindow(RootWindow);
 		Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
-
-		std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, RootWindow);
-		RootWindow->SetViewport(SceneViewport);
-		if (GEngine != nullptr)
-		{
-			GEngine->SetMainSceneViewport(SceneViewport);
-		}
 	}
 }

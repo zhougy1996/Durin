@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../DurinThirdParty.cmake)
-
 function(durin_assimp_configure_imported_target)
 	durin_third_party_get_install_dir(assimp_install_dir "assimp")
 	set(assimp_include_dir "${assimp_install_dir}/include")

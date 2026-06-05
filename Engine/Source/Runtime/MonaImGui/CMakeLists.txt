@@ -1,0 +1,9 @@
+add_durin_module(MonaImGui)
+
+target_include_directories(MonaImGui PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/Public/ThirdParty/ImGui
+)
+
+target_compile_definitions(MonaImGui PUBLIC
+    IMGUI_USER_CONFIG=\"DurinImGuiConfig.h\"
+)

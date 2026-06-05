@@ -7,8 +7,5 @@
         "RHI",
         "ApplicationCore",
         "MonaCore"
-    ],
-    "OptionalPrivateDependencies": [
-        "MonaImGuiBackend"
     ]
 }

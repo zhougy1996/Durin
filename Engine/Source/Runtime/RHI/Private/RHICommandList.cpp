@@ -89,11 +89,7 @@ namespace Durin
 		GetContext().RHIPushConstants(StageFlags, Offset, Size, Data);
 	}
 
-	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, std::span<uint8> InParametersData) -> void
-	{
-	}
-
-	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, std::span<FRHIShaderParameterResource> InResourceParameters) -> void
+	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
 		GetContext().RHISetShaderParameters(InShader, InResourceParameters);
 	}

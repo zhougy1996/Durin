@@ -7,7 +7,7 @@
 
 namespace Durin::VulkanRHI
 {
-	FVulkanRenderPass::FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat)
+	FVulkanRenderPass::FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat, vk::ImageLayout InFinalLayout)
 		: Device(InDevice)
 	{
 		// Color buffer attachement
@@ -20,7 +20,7 @@ namespace Durin::VulkanRHI
 			.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
 			.setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
 			.setInitialLayout(vk::ImageLayout::eUndefined)
-			.setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
+			.setFinalLayout(InFinalLayout);
 
 		vk::AttachmentReference ColorAttachmentRef{};
 		ColorAttachmentRef
@@ -72,7 +72,9 @@ namespace Durin::VulkanRHI
 			return It->second.get();
 		}
 
-		RenderPasses.emplace(InRenderPassName, std::make_unique<FVulkanRenderPass>(Device, InFormat));
+		const bool bIsOffscreenRenderPass = InRenderPassName != "ImGuiRenderPass" && InRenderPassName != "RuntimeSceneViewportClearPass";
+		const vk::ImageLayout FinalLayout = bIsOffscreenRenderPass ? vk::ImageLayout::eShaderReadOnlyOptimal : vk::ImageLayout::ePresentSrcKHR;
+		RenderPasses.emplace(InRenderPassName, std::make_unique<FVulkanRenderPass>(Device, InFormat, FinalLayout));
 		return RenderPasses[InRenderPassName].get();
 	}
 

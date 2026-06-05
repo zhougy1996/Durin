@@ -1,1 +1,1 @@
-durin_add_module(LevelEditor)
+add_durin_module(LevelEditor)

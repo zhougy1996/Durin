@@ -1,102 +1,44 @@
 # Build System
 
-This document summarizes how the Durin build is organized and where generated build metadata fits into the pipeline.
+This document explains where Durin's CMake entrypoints live, how generated metadata flows through the build, and where module output naming is defined.
 
 ## Overview
 
-The repository is driven by CMake at the root and delegates into:
+The repository configures from the root `CMakeLists.txt` and delegates into `Engine/CMakeLists.txt`. Most engine and editor code is built as loadable modules rather than a monolithic executable.
 
-- `Engine/CMakeLists.txt`
+The main build entrypoints are:
 
-Most engine and editor code is built as loadable modules rather than a monolithic executable.
+- `CMake/DurinWorkspaceSetup.cmake`
+- `CMake/DurinBuildApi.cmake`
+- `CMake/Project/ProjectSetup.cmake`
+- `CMake/Project/ProjectTargets.cmake`
 
-## Key CMake Entry Points
+Important helper APIs:
 
-The most important build logic lives in:
+- `add_durin_project(...)`
+- `add_durin_module(...)`
+- `add_durin_test(...)`
 
-- `CMake/Modules.cmake`
+## Generated Metadata Flow
 
-Important helpers:
+`add_durin_project(...)` invokes DurinHeaderTool, imports generated project metadata from `Engine/Intermediate/Build/<Platform>/<Profile>/...`, resolves active profile-derived values, and then adds module subdirectories for the current project.
 
-- `durin_add_project(...)`
-- `durin_add_module(...)`
-- `durin_add_test_target(...)`
+Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMake/SandBoxSetup.cmake` run before that helper and may perform project-specific setup such as third-party registration.
 
-### `durin_add_project(...)`
+`add_durin_module(...)` imports generated per-module CMake metadata, wires reflection-generated sources and export files, applies shared PCH settings, and builds the resulting shared or static library.
 
-This helper:
+## Module Output Naming
 
-- invokes DurinHeaderTool to prepare generated project metadata
-- imports generated project metadata from `Engine/Intermediate/Build/<Platform>/<Profile>/...`
-- resolves active profile-derived values used by the rest of the build
-- adds module subdirectories for the current project
-
-Relevant tool:
-
-- `Engine/Source/Programs/DurinHeaderTool/main.py`
-
-### `durin_add_module(...)`
-
-This helper:
-
-- imports generated per-module CMake metadata
-- wires reflection-generated sources and export files
-- sets precompiled headers
-- builds a shared or static library based on module metadata
-- emits shared library outputs named like `DurinEditor-<ModuleName>`
-
-### `durin_add_test_target(...)`
-
-This helper is the common path for native C++ tests under:
-
-- `Engine/Source/Programs/Tests`
-
-It applies the shared test output layout and common compile definitions used by native tests.
-
-## Generated Metadata
-
-Durin relies on generated project and module metadata under:
-
-- `Engine/Intermediate/Build/<Platform>/<Profile>/`
-
-Common examples:
-
-- generated project CMake metadata
-- generated module CMake metadata
-- reflection export files
-- generated reflection source files
-
-If a module appears incomplete from static source inspection alone, check the generated intermediate metadata before assuming the source tree is missing something.
-
-## Module-Based Build Shape
-
-Durin currently uses runtime-loaded modules for much of the engine/editor stack.
-
-Examples:
-
-- `Core`
-- `RenderCore`
-- `RHI`
-- `VulkanRHI`
-- `MainFrame`
-
-The launcher executable loads modules dynamically at runtime through the module system rather than linking every subsystem directly into a single host binary.
-
-## Output Naming
-
-Shared module naming matters because runtime loading depends on it.
-
-Current pattern:
+Shared module naming is part of the runtime contract. Current outputs follow `<ProfileName>-<ModuleName>`, for example:
 
 - `DurinEditor-Core.dll`
 - `DurinEditor-RenderCore.dll`
 - `DurinGame-Core.dll`
 
-The runtime module loader expects the `<ProfileName>-<ModuleName>` naming convention established by the build system.
+The runtime module loader expects that naming convention.
 
 ## Related Docs
 
-- Build and run workflow: `Documentation/Setup/BuildAndRun.md`
-- Profile system: `Documentation/Architecture/Profiles.md`
-- Runtime architecture: `Documentation/Architecture/RuntimeArchitecture.md`
-
+- `Documentation/Setup/BuildAndRun.md`
+- `Documentation/Architecture/Profiles.md`
+- `Documentation/Architecture/RuntimeArchitecture.md`

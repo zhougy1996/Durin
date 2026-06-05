@@ -43,6 +43,7 @@ namespace Durin::VulkanRHI
 		FVulkanFrame& Frame = Device->GetCurrentFrame();
 		Frame.Prepare();
 		Device->GetGlobalDescriptorPool().ResetPoolsForCurrentFrame();
+		Device->GetImmediateContext()->RHIBeginFrame();
 	}
 
 	auto FVulkanDynamicRHI::RHIEndFrame() -> void

@@ -1,22 +1,37 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This is the repository entrypoint for Codex-style agents. Read only the docs
+that match the task at hand.
 
-## Read first
+## Start Here
 
-- For configure, build, run, and binary layout, read `Documentation/Setup/BuildAndRun.md`.
-- For third-party bootstrap and dependency deployment, read `Documentation/Setup/ThirdPartyBootstrap.md`.
-- For native tests, read `Documentation/Setup/NativeTests.md`.
-- For build-system structure and generated metadata flow, read `Documentation/Architecture/BuildSystem.md`.
-- For profile semantics and generated metadata flow, read `Documentation/Architecture/Profiles.md`.
-- For workspace, project, module, and workspace-global profile rules, read `Documentation/Architecture/WorkspaceProjects.md`.
-- For runtime boot flow and subsystem relationships, read `Documentation/Architecture/RuntimeArchitecture.md`.
-- If present, read `AGENTS_LOCAL.md` for machine-specific tool paths and non-portable command examples.
+- Build, run, third-party bootstrap, and native tests:
+  `Documentation/Setup/BuildAndRun.md`,
+  `Documentation/Setup/ThirdPartyBootstrap.md`,
+  `Documentation/Setup/NativeTests.md`
+- Build metadata, profiles, and workspace structure:
+  `Documentation/Architecture/BuildSystem.md`,
+  `Documentation/Architecture/Profiles.md`,
+  `Documentation/Architecture/WorkspaceProjects.md`
+- Runtime boot flow and subsystem relationships:
+  `Documentation/Architecture/RuntimeArchitecture.md`
+- Machine-local notes:
+  `AGENTS_LOCAL.md` when present; it is not team policy and is shared across worktrees by setup.
 
-## Important repo-specific behaviors
+## Repository Rules
 
-- This codebase relies on generated build metadata and generated reflection/export files. If a module looks incomplete from static files alone, inspect the generated/intermediate CMake and DHT outputs before assuming the source is missing.
-- Shared library naming matters: runtime module loading expects the `DurinEditor-<Module>` naming convention established in `CMake/Modules.cmake`.
-- The active rendering backend is effectively Vulkan-first today; changes in `RHI` often need matching updates in `VulkanRHI` and sometimes in the Mona ImGui backend.
-- Because the launcher creates a real windowed application, UI/rendering changes should be validated by building and running `DurinEditor`, not only by compiling.
-- `CoreStd.h` already pulls in the standard library headers used across the codebase. Do not add manual standard-library includes unless the compiler explicitly reports a missing header in that translation unit.
+- Generated metadata is part of the source of truth. If a module looks incomplete, inspect `Engine/Intermediate/Build/...` and DHT outputs before assuming files are missing.
+- Runtime-loaded module binaries must keep the `<Profile>-<Module>` naming convention from `CMake/Project/ProjectTargets.cmake`.
+- Rendering changes usually span `RHI`, `VulkanRHI`.
+- UI or rendering changes should be validated by building and running `DurinEditor`, not only by compiling.
+- `CoreStd.h` already supplies the common standard-library headers used across the codebase; do not add new STL includes unless the compiler requires one in that translation unit.
+
+## When To Open Which Doc
+
+- Open `BuildAndRun.md` for local setup, configure, build, run, and output layout.
+- Open `ThirdPartyBootstrap.md` for dependency preparation, worktree sharing, and external layout.
+- Open `NativeTests.md` for test presets, test execution, and adding native test targets.
+- Open `BuildSystem.md` for generated metadata flow and the CMake entrypoints that own it.
+- Open `Profiles.md` for profile semantics, presets, compile definitions, and adding a new profile.
+- Open `WorkspaceProjects.md` for workspace/project/module/profile boundaries.
+- Open `RuntimeArchitecture.md` for startup flow, module loading, and render/UI subsystem ownership.

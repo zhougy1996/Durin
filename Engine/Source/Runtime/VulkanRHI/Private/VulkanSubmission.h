@@ -46,6 +46,8 @@ namespace Durin::VulkanRHI
 
 		auto Prepare() -> void;
 
+		auto ReleaseInFlightPayloadsAfterDeviceIdle() -> void;
+
 		auto GetFrameFence() const -> FVulkanFence* { return FrameFence; }
 
 	private:

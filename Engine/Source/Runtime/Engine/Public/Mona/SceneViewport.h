@@ -12,9 +12,9 @@ namespace Durin
 	class FSceneViewport : public FViewport, public Mona::IMonaViewport
 	{
 	public:
-		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<Mona::MWindow>& InWindow);
+		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MWindow>& InWindow);
 
-		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<Mona::MViewport>& InViewportWidget);
+		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MViewport>& InViewportWidget);
 
 		ENGINE_API auto UpdateRHIViewport() -> void override;
 
@@ -24,13 +24,25 @@ namespace Durin
 
 		ENGINE_API auto GetDesiredSize() const -> FVector2f override;
 
+		ENGINE_API auto GetRenderTargetRHI() const -> const FTextureRHIRef&;
+
+		ENGINE_API auto GetDisplayTexture() const -> FRHITexture* override;
+
+		ENGINE_API auto IsRenderTargetReady() const -> bool;
+
+		ENGINE_API auto MarkRenderTargetReady() -> void;
+
 	private:
 		Mona::EMonaViewportRenderMode RenderMode = Mona::EMonaViewportRenderMode::Window;
 
-		std::weak_ptr<Mona::MWindow> Window;
+		std::weak_ptr<MWindow> Window;
 
-		std::weak_ptr<Mona::MViewport> ViewportWidget;
+		std::weak_ptr<MViewport> ViewportWidget;
 
 		FTextureRHIRef RenderTargetRHI;
+
+		FTextureRHIRef DisplayTextureRHI;
+
+		bool bRenderTargetReady = false;
 	};
 }

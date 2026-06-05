@@ -35,8 +35,19 @@ namespace Durin::VulkanRHI
 		: Device(InDevice)
 		, OwnerType(EImageOwnerType::LocalOwner)
 		, Format(ToVulkan_PixelFormat(InCreateDesc.Format))
+		, CreateFlags(InCreateDesc.Flags)
 	{
+		SizeX = static_cast<uint32>(FMath::Max(1, InCreateDesc.Extent.x));
+		SizeY = static_cast<uint32>(FMath::Max(1, InCreateDesc.Extent.y));
 		vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
+		ImageExtent.width = FMath::Max(1u, ImageExtent.width);
+		ImageExtent.height = FMath::Max(1u, ImageExtent.height);
+
+		vk::ImageUsageFlags ImageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
+		if (EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::RenderTargetable))
+		{
+			ImageUsage |= vk::ImageUsageFlagBits::eColorAttachment;
+		}
 
 		vk::ImageCreateInfo imageInfo{};
 		imageInfo
@@ -47,7 +58,7 @@ namespace Durin::VulkanRHI
 			.setMipLevels(InCreateDesc.NumMips)
 			.setSamples(PickSampleCount(InCreateDesc))
 			.setTiling(vk::ImageTiling::eOptimal)
-			.setUsage(vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst)
+			.setUsage(ImageUsage)
 			.setSharingMode(vk::SharingMode::eExclusive)
 			.setInitialLayout(vk::ImageLayout::eUndefined);
 
@@ -68,6 +79,7 @@ namespace Durin::VulkanRHI
 		: Image(InImage)
 		, Device(InDevice)
 		, OwnerType(EImageOwnerType::ExternalOwner)
+		, CreateFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
 	{
 	}
 

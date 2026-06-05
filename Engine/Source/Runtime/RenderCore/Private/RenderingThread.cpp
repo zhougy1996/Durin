@@ -20,7 +20,7 @@ namespace Durin
 		{
 			check(IsInRenderingThread());
 			DURIN_DEBUG("Rendering thread started. ({}, id: {})", GetCurrentThread()->GetThreadName(), GetCurrentThread()->GetThreadId());
-			while (!bStopRequested)
+			while (!bStopRequested.load(std::memory_order::relaxed))
 			{
 				FRenderThreadCommandPipe::Launch();
 			}
@@ -30,7 +30,7 @@ namespace Durin
 		auto Stop() -> void override
 		{
 			DURIN_TRACE("Rendering thread stop requested.");
-			bStopRequested = true;
+			bStopRequested.store(true, std::memory_order::relaxed);
 		}
 
 		auto Exit() -> void override
@@ -39,19 +39,18 @@ namespace Durin
 		}
 
 	private:
-		bool bStopRequested = false;
+		std::atomic<bool> bStopRequested = false;
 	};
 
 	static auto StartRenderingThread() -> void
 	{
 		GRenderingThreadRunnable = new FRenderingThread();
-		GRenderingThread = FRunnableThread::Create(GRenderingThreadRunnable, "RenderingThread", 0, EThreadPriority::Normal);
+		GRenderingThread = FRunnableThread::Create(GRenderingThreadRunnable, "RenderingThread", 0, EThreadPriority::Normal, EThreadRole::RenderingThread);
 	}
 
 	static auto StopRenderingThread() -> void
 	{
-		GRenderingThreadRunnable->Stop();
-		GRenderingThread->WaitForCompletion();
+		GRenderingThread->Kill(true);
 
 		delete GRenderingThread;
 		GRenderingThread = nullptr;

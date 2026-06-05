@@ -8,14 +8,14 @@
 
 namespace Durin
 {
-	FSceneViewport::FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<Mona::MWindow>& InWindow)
+	FSceneViewport::FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MWindow>& InWindow)
 		: FViewport(InViewportClient)
 		, RenderMode(Mona::EMonaViewportRenderMode::Window)
 		, Window(InWindow)
 	{
 	}
 
-	FSceneViewport::FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<Mona::MViewport>& InViewportWidget)
+	FSceneViewport::FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MViewport>& InViewportWidget)
 		: FViewport(InViewportClient)
 		, RenderMode(Mona::EMonaViewportRenderMode::RenderTarget)
 		, ViewportWidget(InViewportWidget)
@@ -26,7 +26,7 @@ namespace Durin
 	{
 		if (RenderMode == Mona::EMonaViewportRenderMode::Window)
 		{
-			const std::shared_ptr<Mona::MWindow> WindowPtr = Window.lock();
+			const std::shared_ptr<MWindow> WindowPtr = Window.lock();
 			if (WindowPtr == nullptr)
 			{
 				ViewportRHI = nullptr;
@@ -48,6 +48,7 @@ namespace Durin
 			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("SceneViewportRenderTarget", Width, Height, EPixelFormat::SRGBA8_UNORM);
 			Desc.AddFlags(ETextureCreateFlags::RenderTargetable);
 			RenderTargetRHI = RHICreateTexture(Desc);
+			bRenderTargetReady = false;
 		}
 		ViewportRHI = nullptr;
 	}
@@ -66,18 +67,39 @@ namespace Durin
 	{
 		if (RenderMode == Mona::EMonaViewportRenderMode::Window)
 		{
-			if (const std::shared_ptr<Mona::MWindow> WindowPtr = Window.lock())
+			if (const std::shared_ptr<MWindow> WindowPtr = Window.lock())
 			{
 				return WindowPtr->GetViewportSize();
 			}
 			return {};
 		}
 
-		if (const std::shared_ptr<Mona::MViewport> ViewportWidgetPtr = ViewportWidget.lock())
+		if (const std::shared_ptr<MViewport> ViewportWidgetPtr = ViewportWidget.lock())
 		{
 			return ViewportWidgetPtr->GetDesiredSize();
 		}
 
 		return {};
+	}
+
+	auto FSceneViewport::GetRenderTargetRHI() const -> const FTextureRHIRef&
+	{
+		return RenderTargetRHI;
+	}
+
+	auto FSceneViewport::GetDisplayTexture() const -> FRHITexture*
+	{
+		return DisplayTextureRHI.GetReference();
+	}
+
+	auto FSceneViewport::IsRenderTargetReady() const -> bool
+	{
+		return bRenderTargetReady;
+	}
+
+	auto FSceneViewport::MarkRenderTargetReady() -> void
+	{
+		bRenderTargetReady = true;
+		DisplayTextureRHI = RenderTargetRHI;
 	}
 }

@@ -246,7 +246,7 @@ namespace Durin::FShaderPaths
 	auto MetaPath(std::string_view VirtualShaderPath) -> std::string
 	{
 		const std::filesystem::path ShaderDirectoryPath = ResolveShaderDirectoryPath(VirtualShaderPath);
-		const std::string MetaFileName = ShaderDirectoryPath.filename().generic_string() + ".meta";
+		const std::string MetaFileName = ShaderDirectoryPath.filename().generic_string() + ".dmeta";
 		return (ShaderDirectoryPath / MetaFileName).generic_string();
 	}
 

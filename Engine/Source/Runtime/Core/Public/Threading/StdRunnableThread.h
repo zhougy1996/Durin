@@ -15,8 +15,9 @@ namespace Durin
 		auto WaitForCompletion() -> void override;
 
 	protected:
-		auto CreateInternal(FRunnable* InRunnable, const char* InThreadName, uint32 InStackSize, EThreadPriority InThreadPriority) -> bool override;
+		auto CreateInternal(FRunnable* InRunnable, const char* InThreadName, uint32 InStackSize, EThreadPriority InThreadPriority, EThreadRole InThreadRole) -> bool override;
 
 		std::thread Thread;
+		std::atomic<bool> bStopRequested = false;
 	};
 }

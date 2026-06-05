@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../DurinThirdParty.cmake)
-
 function(durin_rapidyaml_configure_imported_target)
 	durin_third_party_get_install_dir(rapidyaml_install_dir "rapidyaml")
 	set(rapidyaml_include_dir "${rapidyaml_install_dir}/include")

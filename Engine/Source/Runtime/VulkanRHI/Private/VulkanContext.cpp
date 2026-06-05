@@ -6,11 +6,13 @@
 #include "VulkanDevice.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanPipeline.h"
+#include "VulkanPendingState.h"
 #include "VulkanRenderPass.h"
 #include "VulkanViewport.h"
 #include "VulkanQueue.h"
 #include "VulkanSubmission.h"
 #include "VulkanBuffer.h"
+#include "VulkanTexture.h"
 #include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
@@ -19,6 +21,7 @@ namespace Durin::VulkanRHI
 		: RHI(InRHI)
 		, Device(InDevice)
 		, Queue(InQueue)
+		, PendingGfxState(std::make_unique<FVulkanPendingGraphicsState>(InDevice))
 	{
 		Pool = new FVulkanCommandBufferPool(Device);
 		Pool->CreatePool(Queue->GetFamilyIndex());
@@ -26,21 +29,23 @@ namespace Durin::VulkanRHI
 
 	FVulkanCommandListContext::~FVulkanCommandListContext()
 	{
+		PendingGfxState.reset();
 		delete Pool;
 	}
 
 	auto FVulkanCommandListContext::RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
-		PendingGfxPipelineState->SetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
+		PendingGfxState->SetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
 	}
 
 	auto FVulkanCommandListContext::RHISetScissor(float MinX, float MinY, float Width, float Height) -> void
 	{
-		PendingGfxPipelineState->SetScissor(MinX, MinY, Width, Height);
+		PendingGfxState->SetScissor(MinX, MinY, Width, Height);
 	}
 
 	auto FVulkanCommandListContext::RHIBeginFrame() -> void
 	{
+		PendingGfxState->ClearDescriptorSetCache();
 	}
 
 	auto FVulkanCommandListContext::RHIEndFrame() -> void
@@ -91,8 +96,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void
 	{
-		PendingGfxPipelineState = static_cast<FVulkanGraphicsPipelineState*>(&GraphicsPipelineState);
-		PendingGfxPipelineState->Bind(GetCommandBuffer()->GetHandle());
+		PendingGfxState->SetGraphicsPipelineState(static_cast<FVulkanGraphicsPipelineState&>(GraphicsPipelineState), GetCommandBuffer()->GetHandle());
 	}
 
 	auto FVulkanCommandListContext::RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* InVertexBuffer, uint32 Offset) -> void
@@ -123,44 +127,19 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
 	{
-		PendingGfxPipelineState->PushConstants(*this, StageFlags, Offset, Size, Data);
-	}
-
-	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, std::span<uint8> InParametersData) -> void
-	{
+		FVulkanGraphicsPipelineState* PipelineState = PendingGfxState->GetPipelineState();
+		check(PipelineState);
+		PipelineState->PushConstants(*this, StageFlags, Offset, Size, Data);
 	}
 
 	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
-		PendingGfxPipelineState->PrepareDescriptorSets();
-		for (const auto& ResourceParameter : InResourceParameters)
-		{
-			if (ResourceParameter.Resource == nullptr)
-			{
-				continue;
-			}
-
-			switch (ResourceParameter.Type)
-			{
-			case FRHIShaderParameterResource::EType::UniformBuffer:
-				PendingGfxPipelineState->SetUniformBuffer(*this, InShader, ResourceParameter.SetIndex, ResourceParameter.BindIndex, static_cast<FVulkanBuffer*>(ResourceParameter.Resource));
-				break;
-			case FRHIShaderParameterResource::EType::Texture:
-				PendingGfxPipelineState->SetTexture(*this, ResourceParameter.SetIndex, ResourceParameter.BindIndex, static_cast<FVulkanTexture*>(ResourceParameter.Resource));
-				break;
-			case FRHIShaderParameterResource::EType::Sampler:
-				PendingGfxPipelineState->SetSampler(*this, ResourceParameter.SetIndex, ResourceParameter.BindIndex, static_cast<FVulkanSampler*>(ResourceParameter.Resource));
-				break;
-			default:
-				checkf(false, "Unsupported shader parameter resource type: {}", static_cast<uint32>(ResourceParameter.Type));
-				break;
-			}
-		}
+		PendingGfxState->SetShaderParameters(InShader, InResourceParameters);
 	}
 
 	auto FVulkanCommandListContext::RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void
 	{
-		PendingGfxPipelineState->PrepareForDraw(*this);
+		PendingGfxState->PrepareForDraw(*this);
 		GetCommandBuffer()->GetHandle().drawIndexed(IndexCount, 1, StartIndexLocation, VertexOffset, 0);
 	}
 

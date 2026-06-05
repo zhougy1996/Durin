@@ -2,7 +2,7 @@
     "ModuleName": "AssetCore",
     "LinkType": "Shared",
     "PCH": "SharedPCH_Core",
-    "PrivateDependencies": [
+    "PublicDependencies": [
         "Core"
     ]
 }

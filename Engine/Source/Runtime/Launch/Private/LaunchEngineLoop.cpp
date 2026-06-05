@@ -1,5 +1,6 @@
 #include "LaunchEngineLoop.h"
 
+#include "Threading/QueuedThreadPool.h"
 #include "Threading/RunnableThread.h"
 #include "DObject/DObjectGlobals.h"
 #include "ApplicationCore.h"
@@ -29,15 +30,7 @@ namespace Durin
 	{
 		constexpr auto GetAppConfigFileName() -> std::string_view
 		{
-#ifdef DURIN_APP_CONFIG_NAME
-			return DURIN_APP_CONFIG_NAME;
-#else
-#if DURIN_WITH_EDITOR
-			return "DurinEditorConfig.yaml";
-#else
-			return "DurinGameConfig.yaml";
-#endif
-#endif
+			return DURIN_PROFILE_NAME ".yaml";
 		}
 	} // namespace
 
@@ -55,11 +48,12 @@ namespace Durin
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
-		DURIN_DEBUG("Application name: {}", GAppConfig.GetStringValue("AppName"));
+		DURIN_DEBUG("Application name: {}", GAppConfig.GetView("AppName").GetString());
 		DURIN_INFO(STR("Launching Durin engine..."));
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		PathUtilities::InitDefaultMountPoints(); // Initialize default mount points to enable path resolving.
+		InitEngineThreadPool();
 
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
@@ -134,12 +128,15 @@ namespace Durin
 
 	auto FEngineLoop::Exit() -> void
 	{
-		ShutdownRenderingThread();
+		Mona::MonaShutdown();
+
+		ShutdownEngineThreadPool(true);
 
 		delete GEngine;
 		GEngine = nullptr;
 
-		Mona::MonaShutdown();
+		FlushRenderingCommands();
+		ShutdownRenderingThread();
 
 		FModuleManager::Get().UnloadModulesAtShutdown();
 		RHIExit();

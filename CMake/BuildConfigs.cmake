@@ -1,4 +1,0 @@
-include_guard(GLOBAL)
-
-set(FETCHCONTENT_QUIET OFF)
-set(ENABLE_DURIN_TIMER OFF)

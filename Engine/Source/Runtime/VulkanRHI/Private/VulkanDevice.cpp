@@ -353,6 +353,23 @@ namespace Durin::VulkanRHI
 
 		for (auto*& Frame : Frames)
 		{
+			if (Frame)
+			{
+				Frame->ReleaseInFlightPayloadsAfterDeviceIdle();
+			}
+		}
+
+		delete ImmediateContext;
+		ImmediateContext = nullptr;
+
+		for (FVulkanCommandListContext* Context : CommandContexts)
+		{
+			delete Context;
+		}
+		CommandContexts.clear();
+
+		for (auto*& Frame : Frames)
+		{
 			delete Frame;
 			Frame = nullptr;
 		}
@@ -377,9 +394,6 @@ namespace Durin::VulkanRHI
 
 		delete RenderPassManager;
 		RenderPassManager = nullptr;
-
-		delete ImmediateContext;
-		ImmediateContext = nullptr;
 
 		FenceManager.Deinit();
 
