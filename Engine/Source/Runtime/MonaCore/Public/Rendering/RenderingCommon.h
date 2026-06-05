@@ -23,8 +23,6 @@ namespace Durin::Mona
 
 		virtual auto UpdateRHIViewport() -> void = 0;
 
-		virtual auto GetRenderTargetTexture() const -> FRHITexture* = 0;
-
-		virtual auto IsRenderTargetReady() const -> bool = 0;
+		virtual auto GetDisplayTexture() const -> FRHITexture* = 0;
 	};
 }

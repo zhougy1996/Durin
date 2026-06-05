@@ -87,9 +87,9 @@ namespace Durin
 		return RenderTargetRHI;
 	}
 
-	auto FSceneViewport::GetRenderTargetTexture() const -> FRHITexture*
+	auto FSceneViewport::GetDisplayTexture() const -> FRHITexture*
 	{
-		return RenderTargetRHI.GetReference();
+		return DisplayTextureRHI.GetReference();
 	}
 
 	auto FSceneViewport::IsRenderTargetReady() const -> bool
@@ -100,5 +100,6 @@ namespace Durin
 	auto FSceneViewport::MarkRenderTargetReady() -> void
 	{
 		bRenderTargetReady = true;
+		DisplayTextureRHI = RenderTargetRHI;
 	}
 }

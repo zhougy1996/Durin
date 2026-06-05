@@ -26,9 +26,9 @@ namespace Durin
 
 		ENGINE_API auto GetRenderTargetRHI() const -> const FTextureRHIRef&;
 
-		ENGINE_API auto GetRenderTargetTexture() const -> FRHITexture* override;
+		ENGINE_API auto GetDisplayTexture() const -> FRHITexture* override;
 
-		ENGINE_API auto IsRenderTargetReady() const -> bool override;
+		ENGINE_API auto IsRenderTargetReady() const -> bool;
 
 		ENGINE_API auto MarkRenderTargetReady() -> void;
 
@@ -40,6 +40,8 @@ namespace Durin
 		std::weak_ptr<MViewport> ViewportWidget;
 
 		FTextureRHIRef RenderTargetRHI;
+
+		FTextureRHIRef DisplayTextureRHI;
 
 		bool bRenderTargetReady = false;
 	};

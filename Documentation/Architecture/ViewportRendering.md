@@ -92,11 +92,11 @@ DEngine::RedrawViewports()
 
 MViewport::Draw()
   updates the referenced viewport
-  keeps the last ready render target alive
+  asks the viewport interface for the display texture
   calls MonaUI::DrawTexture(...)
 ```
 
-`MViewport` caches the last ready render target with `FTextureRHIRef`. This is deliberate: during resize, a newly-created render target may not yet have been rendered and transitioned for UI sampling. Continuing to display the last ready texture avoids showing an undefined image layout to ImGui.
+`FSceneViewport` keeps the last ready display texture alive with `FTextureRHIRef`. This is deliberate: during resize, a newly-created render target may not yet have been rendered and transitioned for UI sampling. Continuing to display the last ready texture avoids showing an undefined image layout to ImGui.
 
 ## Interface Boundary
 
@@ -108,8 +108,7 @@ MViewport::Draw()
 - `IsWindowBacked()`
 - `GetDesiredSize()`
 - `UpdateRHIViewport()`
-- `GetRenderTargetTexture()`
-- `IsRenderTargetReady()`
+- `GetDisplayTexture()`
 
 This prevents the Mona widget layer from depending on the Engine module. `FSceneViewport` implements the interface on the Engine side.
 
@@ -140,4 +139,3 @@ For game window viewports, `FSceneViewport::UpdateRHIViewport()` asks `FMonaRend
 - `Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp`
 - `Engine/Source/Runtime/Engine/Private/Engine/GameEngine.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`
-

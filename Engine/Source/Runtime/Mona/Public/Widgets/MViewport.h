@@ -1,7 +1,6 @@
 #pragma once
 
 #include "MonaAPI.h"
-#include "RHIResources.h"
 #include "Rendering/RenderingCommon.h"
 #include "Widgets/MWidget.h"
 
@@ -26,13 +25,9 @@ namespace Durin
 		MONA_API auto WasTextureDrawn() const -> bool;
 
 	private:
-		auto UpdateDisplayedRenderTarget() -> void;
-
 		FVector2f DesiredSize = {640.0f, 360.0f};
 
 		std::weak_ptr<Mona::IMonaViewport> ViewportInterface;
-
-		FTextureRHIRef DisplayedRenderTarget;
 
 		bool bLastDrawSucceeded = false;
 	};

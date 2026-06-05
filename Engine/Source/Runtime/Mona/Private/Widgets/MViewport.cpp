@@ -45,23 +45,6 @@ namespace Durin
 			return;
 		}
 
-		UpdateDisplayedRenderTarget();
-
-		bLastDrawSucceeded = MonaUI::DrawTexture(DisplayedRenderTarget.GetReference(), DesiredSize);
-	}
-
-	auto MViewport::UpdateDisplayedRenderTarget() -> void
-	{
-		const std::shared_ptr<Mona::IMonaViewport> ViewportPtr = ViewportInterface.lock();
-		if (ViewportPtr == nullptr)
-		{
-			return;
-		}
-
-		FRHITexture* RenderTargetTexture = ViewportPtr->GetRenderTargetTexture();
-		if (ViewportPtr->IsRenderTargetReady() && RenderTargetTexture != nullptr)
-		{
-			DisplayedRenderTarget = RenderTargetTexture;
-		}
+		bLastDrawSucceeded = MonaUI::DrawTexture(ViewportPtr->GetDisplayTexture(), DesiredSize);
 	}
 }
