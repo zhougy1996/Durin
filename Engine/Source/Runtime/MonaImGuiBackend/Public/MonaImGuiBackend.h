@@ -2,8 +2,6 @@
 
 #include "MonaImGuiBackendAPI.h"
 #include "MonaUIBackend.h"
-#include "RHIResources.h"
-#include "ThirdParty/ImGui/imgui.h"
 
 struct ImGuiContext;
 
@@ -22,6 +20,6 @@ namespace Durin::Mona
 
 		MONAIMGUIBACKEND_API auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void;
 		MONAIMGUIBACKEND_API auto ShowDemoWindow() -> void;
-		MONAIMGUIBACKEND_API auto GetTextureID(const FTextureRHIRef& Texture) const -> ImTextureID;
+		MONAIMGUIBACKEND_API auto DrawTexture(FRHITexture* Texture, const FVector2f& Size) -> bool override;
 	};
 }

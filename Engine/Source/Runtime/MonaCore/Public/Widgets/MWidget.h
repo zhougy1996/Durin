@@ -22,7 +22,7 @@ namespace Durin::Mona
 
 		virtual auto IsWindow() -> bool { return false; }
 
-		MONACORE_API auto AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget);
+		MONACORE_API auto AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget) -> void;
 
 		MONACORE_API auto GetParent() const -> std::shared_ptr<MWidget>;
 

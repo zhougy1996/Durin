@@ -10,9 +10,18 @@ namespace Durin::Mona
 	public:
 		auto Draw() -> void override;
 
-		auto SetChild(const std::shared_ptr<MWidget>& InChild) -> void { ChildWidget = InChild; }
+		auto SetChild(const std::shared_ptr<MWidget>& InChild) -> void;
 
-		auto GetChild() const -> std::shared_ptr<MWidget> { return ChildWidget; }
+		auto GetChild() const -> std::shared_ptr<MWidget>;
+
+		auto SetContent(const std::shared_ptr<MWidget>& InContent) -> MCompoundWidget&;
+
+		auto ClearContent() -> void;
+
+		auto GetContent() const -> std::shared_ptr<MWidget>;
+
+	protected:
+		auto DrawChild() -> void;
 
 	protected:
 		std::shared_ptr<MWidget> ChildWidget;

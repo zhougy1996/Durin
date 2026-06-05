@@ -20,7 +20,7 @@ namespace Durin::Mona
 		return shared_from_this();
 	}
 
-	auto MWidget::AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget)
+	auto MWidget::AssignParentWidget(const std::shared_ptr<MWidget>& InParentWidget) -> void
 	{
 		ParentWidget = InParentWidget;
 	}

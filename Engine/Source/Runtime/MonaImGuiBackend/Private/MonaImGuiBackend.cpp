@@ -16,6 +16,11 @@ namespace Durin::Mona
 {
 	ImGuiContext* GMonaImGuiContext = nullptr;
 
+	namespace
+	{
+		std::unordered_map<FRHITexture*, FTextureRHIRef> GExternalTextureRefs;
+	}
+
 	struct FMonaImGuiViewportData
 	{
 		std::shared_ptr<MWindow> Window;
@@ -94,6 +99,21 @@ namespace Durin::Mona
 		{
 			auto* ViewportData = GetViewportData(Viewport);
 			return ViewportData != nullptr ? &ViewportData->DrawDataSnapshots : nullptr;
+		}
+
+		auto GetTextureID(FRHITexture* Texture) -> ImTextureID
+		{
+			if (Texture == nullptr)
+			{
+				return ImTextureID_Invalid;
+			}
+
+			FTextureRHIRef& TextureRef = GExternalTextureRefs[Texture];
+			if (TextureRef == nullptr)
+			{
+				TextureRef = Texture;
+			}
+			return reinterpret_cast<ImTextureID>(&TextureRef);
 		}
 
 		auto UpdateViewportFromWindow(ImGuiViewport* Viewport, const std::shared_ptr<MWindow>& Window) -> void
@@ -637,6 +657,7 @@ namespace Durin::Mona
 		GMonaImGuiContext = nullptr;
 
 		FlushRenderingCommands();
+		GExternalTextureRefs.clear();
 		ImGui::DestroyContext();
 	}
 
@@ -706,14 +727,16 @@ namespace Durin::Mona
 		ImGui::ShowDemoWindow();
 	}
 
-	auto FMonaImGuiBackend::GetTextureID(const FTextureRHIRef& Texture) const -> ImTextureID
+	auto FMonaImGuiBackend::DrawTexture(FRHITexture* Texture, const FVector2f& Size) -> bool
 	{
-		if (Texture == nullptr)
+		const ImTextureID TextureID = GetTextureID(Texture);
+		if (TextureID == ImTextureID_Invalid)
 		{
-			return ImTextureID_Invalid;
+			return false;
 		}
 
-		return reinterpret_cast<ImTextureID>(const_cast<FTextureRHIRef*>(&Texture));
+		ImGui::Image(TextureID, {Size.x, Size.y});
+		return true;
 	}
 
 } // namespace Durin::Mona
