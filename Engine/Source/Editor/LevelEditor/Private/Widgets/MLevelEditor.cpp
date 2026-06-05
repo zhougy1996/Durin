@@ -2,7 +2,6 @@
 
 #include "Engine/Engine.h"
 #include "Mona/SceneViewport.h"
-#include "MonaUIBackend.h"
 #include "Widgets/MViewport.h"
 
 #include "imgui.h"
@@ -12,8 +11,8 @@ namespace Durin
 	auto MLevelEditor::Construct() -> void
 	{
 		ViewportWidget = std::make_shared<MViewport>();
-		SceneViewport = std::make_shared<FSceneViewport>(nullptr, ViewportWidget);
-		ViewportWidget->SetViewport(SceneViewport);
+		const std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, ViewportWidget);
+		ViewportWidget->SetViewportInterface(SceneViewport);
 
 		if (GEngine != nullptr)
 		{
@@ -30,11 +29,13 @@ namespace Durin
 	{
 		ImGui::Begin("Level Editor");
 
-		const FVector2f ViewportSize = UpdateViewportSize();
-		UpdateDisplayedRenderTarget();
+		UpdateViewportSize();
 
-		const bool bDrawn = MonaUI::DrawTexture(DisplayedRenderTargetRHI.GetReference(), ViewportSize);
-		if (!bDrawn)
+		if (ViewportWidget != nullptr)
+		{
+			ViewportWidget->Draw();
+		}
+		if (ViewportWidget == nullptr || !ViewportWidget->WasTextureDrawn())
 		{
 			ImGui::TextUnformatted("Viewport initializing...");
 		}
@@ -42,7 +43,7 @@ namespace Durin
 		ImGui::End();
 	}
 
-	auto MLevelEditor::UpdateViewportSize() -> FVector2f
+	auto MLevelEditor::UpdateViewportSize() -> void
 	{
 		ImVec2 AvailableSize = ImGui::GetContentRegionAvail();
 		AvailableSize.x = FMath::Max(8.0f, AvailableSize.x);
@@ -52,26 +53,6 @@ namespace Durin
 		if (ViewportWidget != nullptr)
 		{
 			ViewportWidget->SetDesiredSize(ViewportSize);
-		}
-		if (SceneViewport != nullptr)
-		{
-			SceneViewport->UpdateRHIViewport();
-		}
-
-		return ViewportSize;
-	}
-
-	auto MLevelEditor::UpdateDisplayedRenderTarget() -> void
-	{
-		if (SceneViewport == nullptr)
-		{
-			return;
-		}
-
-		const FTextureRHIRef& RenderTargetRHI = SceneViewport->GetRenderTargetRHI();
-		if (SceneViewport->IsRenderTargetReady() && RenderTargetRHI != nullptr)
-		{
-			DisplayedRenderTargetRHI = RenderTargetRHI;
 		}
 	}
 }

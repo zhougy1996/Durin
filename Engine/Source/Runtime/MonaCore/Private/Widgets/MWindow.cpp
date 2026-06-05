@@ -210,16 +210,6 @@ namespace Durin
 		}
 	}
 
-	auto MWindow::SetViewport(const std::shared_ptr<Mona::IMonaViewport>& InViewport) -> void
-	{
-		Viewport = InViewport;
-	}
-
-	auto MWindow::GetViewport() const -> std::shared_ptr<Mona::IMonaViewport>
-	{
-		return Viewport.lock();
-	}
-
 	auto MWindow::GetWindowMode() const -> EWindowMode
 	{
 		return NativeWindow->GetWindowMode();

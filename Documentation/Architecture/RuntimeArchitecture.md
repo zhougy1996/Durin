@@ -75,4 +75,5 @@ Main UI and windowing layers:
 - `Documentation/Architecture/BuildSystem.md`
 - `Documentation/Architecture/Profiles.md`
 - `Documentation/Architecture/MultithreadingRoadmap.md`
+- `Documentation/Architecture/ViewportRendering.md`
 - `Documentation/Setup/BuildAndRun.md`

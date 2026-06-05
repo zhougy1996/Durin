@@ -26,7 +26,9 @@ namespace Durin
 
 		ENGINE_API auto GetRenderTargetRHI() const -> const FTextureRHIRef&;
 
-		ENGINE_API auto IsRenderTargetReady() const -> bool;
+		ENGINE_API auto GetRenderTargetTexture() const -> FRHITexture* override;
+
+		ENGINE_API auto IsRenderTargetReady() const -> bool override;
 
 		ENGINE_API auto MarkRenderTargetReady() -> void;
 

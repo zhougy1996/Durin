@@ -1,14 +1,8 @@
 #pragma once
 
 #include "MonaCoreAPI.h"
-#include "RHIFwd.h"
 #include "Window/GenericWindow.h"
 #include "Widgets/MCompoundWidget.h"
-
-namespace Durin::Mona
-{
-	class IMonaViewport;
-}
 
 namespace Durin
 {
@@ -65,10 +59,6 @@ namespace Durin
 
 		MONACORE_API auto SetCachedSize(const FVector2f& NewSize) -> void;
 
-		MONACORE_API auto SetViewport(const std::shared_ptr<Mona::IMonaViewport>& InViewport) -> void;
-
-		MONACORE_API auto GetViewport() const -> std::shared_ptr<Mona::IMonaViewport>;
-
 		MONACORE_API auto GetWindowMode() const -> EWindowMode;
 
 		MONACORE_API auto ShowWindow() -> void;
@@ -97,7 +87,5 @@ namespace Durin
 		std::weak_ptr<MWindow> ParentWindow;
 
 		std::vector<std::shared_ptr<MWindow>> ChildWindows;
-
-		std::weak_ptr<Mona::IMonaViewport> Viewport;
 	};
 }
