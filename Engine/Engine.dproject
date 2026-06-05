@@ -12,7 +12,7 @@
         "Renderer": "Source/Runtime/Renderer",
         "MonaCore": "Source/Runtime/MonaCore",
         "Mona": "Source/Runtime/Mona",
-        "MonaImGuiBackend": "Source/Runtime/MonaImGuiBackend",
+        "MonaImGui": "Source/Runtime/MonaImGui",
         "Launch": "Source/Runtime/Launch",
         "DurinEd": "Source/Editor/DurinEd",
         "MainFrame": "Source/Editor/MainFrame",

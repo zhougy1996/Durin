@@ -2,7 +2,7 @@
 
 #include "Mona.h"
 #include "LevelEditorModule.h"
-#include "MonaImGuiBackend.h"
+#include "MonaImGui.h"
 #include "MonaCoreGlobals.h"
 
 #include "imgui.h"
@@ -23,12 +23,12 @@ namespace Durin
 	auto FMainFrameModule::CreateDefaultMainFrame() -> void
 	{
 		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
-		check(Mona::GMonaUIBackend);
-		Mona::FMonaImGuiBackend* ImGuiBackend = static_cast<Mona::FMonaImGuiBackend*>(Mona::GMonaUIBackend);
-		std::shared_ptr<MWindow> RootWindow = std::make_shared<MWindow>();
+		check(Mona::GMonaUI);
+		const auto ImGuiBackend = static_cast<Mona::FMonaImGui*>(Mona::GMonaUI);
+		auto RootWindow = std::make_shared<MWindow>();
 		ImGuiBackend->BindMainViewportToWindow(RootWindow);
 
-		std::shared_ptr<MFunctionWidget> EditorRootWidget = std::make_shared<MFunctionWidget>();
+		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
 		std::shared_ptr<MWidget> LevelEditorWidget = LevelEditorModule.CreateLevelEditorWidget();
 
 		RootWindow->SetTitle("Mona");

@@ -1,17 +1,17 @@
 #include "MonaCoreGlobals.h"
 
-#include "MonaUIBackend.h"
+#include "MonaUIInterface.h"
 
 namespace Durin::Mona
 {
-	IMonaUIBackend* GMonaUIBackend = nullptr;
+	IMonaUIInterface* GMonaUI = nullptr;
 }
 
 namespace Durin::MonaUI
 {
 	auto DrawTexture(FRHITexture* Texture, const FVector2f& Size) -> bool
 	{
-		return Mona::GMonaUIBackend != nullptr
-			&& Mona::GMonaUIBackend->DrawTexture(Texture, Size);
+		return Mona::GMonaUI != nullptr
+			&& Mona::GMonaUI->DrawTexture(Texture, Size);
 	}
 }

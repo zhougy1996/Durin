@@ -1,4 +1,4 @@
-#include "MonaImGuiBackend.h"
+#include "MonaImGui.h"
 
 #include "ThirdParty/ImGui/imgui_threaded_rendering.h"
 
@@ -620,7 +620,7 @@ namespace Durin::Mona
 		IO.Fonts->Build();
 	}
 
-	auto FMonaImGuiBackend::Initialize() -> void
+	auto FMonaImGui::Initialize() -> void
 	{
 		check(GDynamicRHI);
 		GMonaImGuiContext = ImGui::CreateContext();
@@ -639,7 +639,7 @@ namespace Durin::Mona
 		App.SetMonaEventHandler(std::make_unique<FMonaBackendEventHandler>());
 	}
 
-	auto FMonaImGuiBackend::Shutdown() -> void
+	auto FMonaImGui::Shutdown() -> void
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 
@@ -661,7 +661,7 @@ namespace Durin::Mona
 		ImGui::DestroyContext();
 	}
 
-	auto FMonaImGuiBackend::NewFrame() -> void
+	auto FMonaImGui::NewFrame() -> void
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 
@@ -689,7 +689,7 @@ namespace Durin::Mona
 	}
 
 
-	auto FMonaImGuiBackend::Render() -> void
+	auto FMonaImGui::Render() -> void
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 		ImGui::Render();
@@ -715,19 +715,19 @@ namespace Durin::Mona
 
 	}
 
-	auto FMonaImGuiBackend::BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void
+	auto FMonaImGui::BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 		BindMainViewportToWindowInternal(Window);
 	}
 
-	auto FMonaImGuiBackend::ShowDemoWindow() -> void
+	auto FMonaImGui::ShowDemoWindow() -> void
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 		ImGui::ShowDemoWindow();
 	}
 
-	auto FMonaImGuiBackend::DrawTexture(FRHITexture* Texture, const FVector2f& Size) -> bool
+	auto FMonaImGui::DrawTexture(FRHITexture* Texture, const FVector2f& Size) -> bool
 	{
 		const ImTextureID TextureID = GetTextureID(Texture);
 		if (TextureID == ImTextureID_Invalid)

@@ -5,5 +5,5 @@
 
 namespace Durin::Mona
 {
-	extern MONACORE_API IMonaUIBackend* GMonaUIBackend;
+	extern MONACORE_API IMonaUIInterface* GMonaUI;
 }

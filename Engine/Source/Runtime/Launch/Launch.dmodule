@@ -12,7 +12,7 @@
         "Mona"
     ],
     "OptionalPrivateDependencies": [
-        "MonaImGuiBackend",
+        "MonaImGui",
         "DurinEd"
     ]
 }

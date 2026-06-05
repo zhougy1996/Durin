@@ -2,7 +2,7 @@
 
 #include "Application/MonaApplication.h"
 #include "MonaCoreGlobals.h"
-#include "MonaUIBackend.h"
+#include "MonaUIInterface.h"
 
 namespace Durin::Mona
 {
@@ -11,14 +11,14 @@ namespace Durin::Mona
 		FMonaApplication::Create();
 		FMonaApplication::Get().Initialize();
 
-		FModuleManager::Get().LoadModule("MonaImGuiBackend");
+		FModuleManager::Get().LoadModule("MonaImGui");
 
 		DURIN_DEBUG(STR("Mona initialized successfully."));
 	}
 
 	auto MonaShutdown() -> void
 	{
-		FModuleManager::Get().UnloadModule("MonaImGuiBackend");
+		FModuleManager::Get().UnloadModule("MonaImGui");
 
 		FMonaApplication::Shutdown();
 		DURIN_DEBUG(STR("Mona shutdown."));
@@ -26,17 +26,17 @@ namespace Durin::Mona
 
 	auto NewFrame() -> void
 	{
-		if (GMonaUIBackend)
+		if (GMonaUI)
 		{
-			GMonaUIBackend->NewFrame();
+			GMonaUI->NewFrame();
 		}
 	}
 
 	auto Render() -> void
 	{
-		if (GMonaUIBackend)
+		if (GMonaUI)
 		{
-			GMonaUIBackend->Render();
+			GMonaUI->Render();
 		}
 	}
 } // namespace Durin::Mona

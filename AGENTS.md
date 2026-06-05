@@ -22,7 +22,7 @@ that match the task at hand.
 
 - Generated metadata is part of the source of truth. If a module looks incomplete, inspect `Engine/Intermediate/Build/...` and DHT outputs before assuming files are missing.
 - Runtime-loaded module binaries must keep the `<Profile>-<Module>` naming convention from `CMake/Project/ProjectTargets.cmake`.
-- Rendering changes usually span `RHI`, `VulkanRHI`, and sometimes `MonaImGuiBackend`.
+- Rendering changes usually span `RHI`, `VulkanRHI`.
 - UI or rendering changes should be validated by building and running `DurinEditor`, not only by compiling.
 - `CoreStd.h` already supplies the common standard-library headers used across the codebase; do not add new STL includes unless the compiler requires one in that translation unit.
 

@@ -1,5 +1,5 @@
 {
-    "ModuleName": "MonaImGuiBackend",
+    "ModuleName": "MonaImGui",
     "LinkType": "Shared",
     "PCH": "Self",
     "PrivateDependencies": [

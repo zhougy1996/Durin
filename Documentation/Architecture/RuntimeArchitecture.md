@@ -53,14 +53,14 @@ Main render layers:
 - `RenderCore`
 - `Renderer`
 
-The active backend is effectively Vulkan-first today, so `RHI` changes often require matching work in `VulkanRHI` and sometimes `MonaImGuiBackend`.
+The active backend is effectively Vulkan-first today, so `RHI` changes often require matching work in `VulkanRHI` and sometimes `MonaImGui`.
 
 Main UI and windowing layers:
 
 - `ApplicationCore`
 - `MonaCore`
 - `Mona`
-- `MonaImGuiBackend`
+- `MonaImGui`
 
 `MainFrame` owns the editor root window. `DGameEngine` owns the standalone runtime window and scene viewport for non-editor startup.
 

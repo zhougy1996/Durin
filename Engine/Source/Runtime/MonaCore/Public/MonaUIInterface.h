@@ -6,10 +6,10 @@
 
 namespace Durin::Mona
 {
-	class IMonaUIBackend
+	class IMonaUIInterface
 	{
 	public:
-		virtual ~IMonaUIBackend() = default;
+		virtual ~IMonaUIInterface() = default;
 
 		virtual auto Initialize() -> void = 0;
 		virtual auto Shutdown() -> void = 0;

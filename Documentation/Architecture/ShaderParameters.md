@@ -217,7 +217,7 @@ These vectors live for the duration of `updateDescriptorSets(...)`, which fixes 
 
 ## Example: ImGui Migration
 
-`MonaImGuiBackend` is the first migrated caller.
+`MonaImGui` is the first migrated caller.
 
 Its fragment shader now uses a typed parameter struct:
 

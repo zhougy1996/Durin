@@ -9,7 +9,7 @@
         "ApplicationCore",
         "MonaCore",
         "Mona",
-        "MonaImGuiBackend",
+        "MonaImGui",
         "DurinEd"
     ],
     "ReflectHeaders": [

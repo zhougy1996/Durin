@@ -1,13 +1,13 @@
 #pragma once
 
-#include "MonaImGuiBackendAPI.h"
+#include "MonaImGuiAPI.h"
 
 #ifndef IMGUI_API
-    #define IMGUI_API MONAIMGUIBACKEND_API
+    #define IMGUI_API MONAIMGUI_API
 #endif
 
 #ifndef IMGUI_IMPL_API
-    #define IMGUI_IMPL_API MONAIMGUIBACKEND_API
+    #define IMGUI_IMPL_API MONAIMGUI_API
 #endif
 
 #ifndef IMGUI_DEFINE_MATH_OPERATORS
