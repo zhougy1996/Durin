@@ -11,7 +11,7 @@ namespace Durin
 {
 	auto MLevelEditor::Construct() -> void
 	{
-		ViewportWidget = std::make_shared<Mona::MViewport>();
+		ViewportWidget = std::make_shared<MViewport>();
 		SceneViewport = std::make_shared<FSceneViewport>(nullptr, ViewportWidget);
 		ViewportWidget->SetViewport(SceneViewport);
 
@@ -19,7 +19,6 @@ namespace Durin
 		{
 			GEngine->SetMainSceneViewport(SceneViewport);
 		}
-
 	}
 
 	auto MLevelEditor::Draw() -> void

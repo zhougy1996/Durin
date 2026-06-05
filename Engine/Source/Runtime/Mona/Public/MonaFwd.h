@@ -4,8 +4,7 @@
 #include "ApplicationCoreFwd.h"
 #include "MonaCoreFwd.h"
 
-namespace Durin::Mona
+namespace Durin
 {
-	class MWindow;
 	class MViewport;
 }

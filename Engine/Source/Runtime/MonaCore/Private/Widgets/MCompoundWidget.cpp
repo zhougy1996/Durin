@@ -1,6 +1,6 @@
 #include "Widgets/MCompoundWidget.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	void MCompoundWidget::Draw()
 	{
@@ -55,4 +55,4 @@ namespace Durin::Mona
 			ChildWidget->Draw();
 		}
 	}
-} // namespace Durin::Mona
+} // namespace Durin

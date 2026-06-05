@@ -2,7 +2,7 @@
 
 #include "MonaCoreAPI.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	class MWidget : public std::enable_shared_from_this<MWidget>
 	{

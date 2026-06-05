@@ -4,10 +4,13 @@
 #include "RHIResources.h"
 #include "Rendering/MonaRenderer.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	class MWindow;
+}
 
+namespace Durin::Mona
+{
 	struct FMonaViewportInfo
 	{
 		TRefCountPtr<FRHIViewport> ViewportRHI;

@@ -5,9 +5,13 @@
 
 struct ImGuiContext;
 
-namespace Durin::Mona
+namespace Durin
 {
 	class MWindow;
+}
+
+namespace Durin::Mona
+{
 	extern MONAIMGUIBACKEND_API ImGuiContext* GMonaImGuiContext;
 
 	class FMonaImGuiBackend : public IMonaUIBackend

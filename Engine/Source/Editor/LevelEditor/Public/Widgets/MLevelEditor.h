@@ -7,16 +7,9 @@
 namespace Durin
 {
 	class FSceneViewport;
-}
-
-namespace Durin::Mona
-{
 	class MViewport;
-}
 
-namespace Durin
-{
-	class MLevelEditor final : public Mona::MCompoundWidget
+	class MLevelEditor final : public MCompoundWidget
 	{
 	public:
 		LEVELEDITOR_API auto Construct() -> void override;
@@ -27,7 +20,7 @@ namespace Durin
 		auto UpdateViewportSize() -> FVector2f;
 		auto UpdateDisplayedRenderTarget() -> void;
 
-		std::shared_ptr<Mona::MViewport> ViewportWidget;
+		std::shared_ptr<MViewport> ViewportWidget;
 		std::shared_ptr<FSceneViewport> SceneViewport;
 		FTextureRHIRef DisplayedRenderTargetRHI;
 	};

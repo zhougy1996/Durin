@@ -12,9 +12,9 @@ namespace Durin
 	class FSceneViewport : public FViewport, public Mona::IMonaViewport
 	{
 	public:
-		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<Mona::MWindow>& InWindow);
+		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MWindow>& InWindow);
 
-		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<Mona::MViewport>& InViewportWidget);
+		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MViewport>& InViewportWidget);
 
 		ENGINE_API auto UpdateRHIViewport() -> void override;
 
@@ -33,9 +33,9 @@ namespace Durin
 	private:
 		Mona::EMonaViewportRenderMode RenderMode = Mona::EMonaViewportRenderMode::Window;
 
-		std::weak_ptr<Mona::MWindow> Window;
+		std::weak_ptr<MWindow> Window;
 
-		std::weak_ptr<Mona::MViewport> ViewportWidget;
+		std::weak_ptr<MViewport> ViewportWidget;
 
 		FTextureRHIRef RenderTargetRHI;
 

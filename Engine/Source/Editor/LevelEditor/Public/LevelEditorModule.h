@@ -9,7 +9,7 @@ namespace Durin
 	class FLevelEditorModule final : public IModuleInterface
 	{
 	public:
-		LEVELEDITOR_API auto CreateLevelEditorWidget() -> std::shared_ptr<Mona::MWidget>;
+		LEVELEDITOR_API auto CreateLevelEditorWidget() -> std::shared_ptr<MWidget>;
 
 	};
 }

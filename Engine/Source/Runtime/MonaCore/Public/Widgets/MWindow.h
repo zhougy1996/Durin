@@ -8,7 +8,10 @@
 namespace Durin::Mona
 {
 	class IMonaViewport;
+}
 
+namespace Durin
+{
 	class MWindow : public MCompoundWidget
 	{
 	public:
@@ -62,9 +65,9 @@ namespace Durin::Mona
 
 		MONACORE_API auto SetCachedSize(const FVector2f& NewSize) -> void;
 
-		MONACORE_API auto SetViewport(const std::shared_ptr<IMonaViewport>& InViewport) -> void;
+		MONACORE_API auto SetViewport(const std::shared_ptr<Mona::IMonaViewport>& InViewport) -> void;
 
-		MONACORE_API auto GetViewport() const -> std::shared_ptr<IMonaViewport>;
+		MONACORE_API auto GetViewport() const -> std::shared_ptr<Mona::IMonaViewport>;
 
 		MONACORE_API auto GetWindowMode() const -> EWindowMode;
 
@@ -95,6 +98,6 @@ namespace Durin::Mona
 
 		std::vector<std::shared_ptr<MWindow>> ChildWindows;
 
-		std::weak_ptr<IMonaViewport> Viewport;
+		std::weak_ptr<Mona::IMonaViewport> Viewport;
 	};
 }

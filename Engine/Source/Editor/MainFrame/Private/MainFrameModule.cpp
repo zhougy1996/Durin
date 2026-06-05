@@ -25,11 +25,11 @@ namespace Durin
 		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 		check(Mona::GMonaUIBackend);
 		Mona::FMonaImGuiBackend* ImGuiBackend = static_cast<Mona::FMonaImGuiBackend*>(Mona::GMonaUIBackend);
-		std::shared_ptr<Mona::MWindow> RootWindow = std::make_shared<Mona::MWindow>();
+		std::shared_ptr<MWindow> RootWindow = std::make_shared<MWindow>();
 		ImGuiBackend->BindMainViewportToWindow(RootWindow);
 
-		std::shared_ptr<Mona::MFunctionWidget> EditorRootWidget = std::make_shared<Mona::MFunctionWidget>();
-		std::shared_ptr<Mona::MWidget> LevelEditorWidget = LevelEditorModule.CreateLevelEditorWidget();
+		std::shared_ptr<MFunctionWidget> EditorRootWidget = std::make_shared<MFunctionWidget>();
+		std::shared_ptr<MWidget> LevelEditorWidget = LevelEditorModule.CreateLevelEditorWidget();
 
 		RootWindow->SetTitle("Mona");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {800.0f, 600.0f});

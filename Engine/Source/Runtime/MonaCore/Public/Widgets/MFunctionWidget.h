@@ -2,7 +2,7 @@
 
 #include "Widgets/MWidget.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	class MFunctionWidget : public MWidget
 	{

@@ -11,7 +11,7 @@ namespace Durin
 	{
 		DEngine::Init();
 
-		std::shared_ptr<Mona::MWindow> GameWindow = std::make_shared<Mona::MWindow>();
+		std::shared_ptr<MWindow> GameWindow = std::make_shared<MWindow>();
 		GameWindow->SetTitle(GAppConfig.GetView("AppName").GetString());
 		GameWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 720.0f});
 

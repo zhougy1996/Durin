@@ -1,6 +1,6 @@
 #include "Widgets/MWidget.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	MWidget::MWidget(const std::shared_ptr<MWidget>& InParentWidget)
 		: ParentWidget(InParentWidget)

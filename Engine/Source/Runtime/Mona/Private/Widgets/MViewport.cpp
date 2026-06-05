@@ -1,6 +1,6 @@
 #include "Widgets/MViewport.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	auto MViewport::SetDesiredSize(const FVector2f& InDesiredSize) -> void
 	{
@@ -12,12 +12,12 @@ namespace Durin::Mona
 		return DesiredSize;
 	}
 
-	auto MViewport::SetViewport(const std::shared_ptr<IMonaViewport>& InViewport) -> void
+	auto MViewport::SetViewport(const std::shared_ptr<Mona::IMonaViewport>& InViewport) -> void
 	{
 		Viewport = InViewport;
 	}
 
-	auto MViewport::GetViewport() const -> std::shared_ptr<IMonaViewport>
+	auto MViewport::GetViewport() const -> std::shared_ptr<Mona::IMonaViewport>
 	{
 		return Viewport.lock();
 	}

@@ -3,11 +3,10 @@
 namespace Durin
 {
 	class FGenericWindow;
+	class MWindow;
 
 	namespace Mona
 	{
-		class MWindow;
-
 		class FMonaWindowHelper
 		{
 		public:

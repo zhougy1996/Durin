@@ -3,10 +3,13 @@
 #include "MonaCoreAPI.h"
 #include "RHIResources.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	class MWindow;
+}
 
+namespace Durin::Mona
+{
 	class FMonaRenderer
 	{
 	public:

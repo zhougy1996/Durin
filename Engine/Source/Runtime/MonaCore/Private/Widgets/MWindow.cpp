@@ -2,7 +2,7 @@
 
 #include "Application/MonaApplication.h"
 
-namespace Durin::Mona
+namespace Durin
 {
 	MWindow::~MWindow()
 	{
@@ -87,7 +87,7 @@ namespace Durin::Mona
 
 	auto MWindow::RequestDestroyWindow() -> void
 	{
-		FMonaApplication::Get().RequestDestroyWindow(SharedThis(this));
+		Mona::FMonaApplication::Get().RequestDestroyWindow(SharedThis(this));
 	}
 
 	auto MWindow::GetTitle() const -> std::string
@@ -210,12 +210,12 @@ namespace Durin::Mona
 		}
 	}
 
-	auto MWindow::SetViewport(const std::shared_ptr<IMonaViewport>& InViewport) -> void
+	auto MWindow::SetViewport(const std::shared_ptr<Mona::IMonaViewport>& InViewport) -> void
 	{
 		Viewport = InViewport;
 	}
 
-	auto MWindow::GetViewport() const -> std::shared_ptr<IMonaViewport>
+	auto MWindow::GetViewport() const -> std::shared_ptr<Mona::IMonaViewport>
 	{
 		return Viewport.lock();
 	}
@@ -250,4 +250,4 @@ namespace Durin::Mona
 	{
 		return NativeWindow->IsMinimized();
 	}
-} // namespace Durin::Mona
+} // namespace Durin
