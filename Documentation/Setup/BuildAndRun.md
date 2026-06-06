@@ -13,9 +13,12 @@ This is the operational guide for configuring, building, and running Durin local
 Common presets:
 
 - `cmake --preset Win64-Debug-DurinEditor`
+- `cmake --preset Win64-Debug-DurinEditor-FastConfigure`
 - `cmake --preset Win64-Debug-DurinEditor-Tests`
 - `cmake --preset Win64-Debug-DurinGame`
 - `cmake --preset Win64-Shipping-DurinGame`
+
+`Win64-Debug-DurinEditor-FastConfigure` disables precompiled headers for a faster IDE reload/code-model configure pass. Use the normal `Win64-Debug-DurinEditor` preset for full editor builds.
 
 Main build trees stay profile-specific under `Build/`, for example:
 

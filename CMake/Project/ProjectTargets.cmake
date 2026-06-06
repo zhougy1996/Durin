@@ -6,6 +6,18 @@ function(durin_module_log project_name module_name)
 	message(STATUS "[${project_name}] Module: ${module_name}")
 endfunction()
 
+function(durin_target_force_include_pch target_name header_path)
+	if(NOT DURIN_FORCE_INCLUDE_PCH)
+		return()
+	endif()
+
+	if(MSVC)
+		target_compile_options(${target_name} PRIVATE
+			"$<$<COMPILE_LANGUAGE:CXX>:/FI${header_path}>"
+		)
+	endif()
+endfunction()
+
 function(add_durin_module module_name)
 	durin_module_log(${DURIN_PROJECT_NAME} ${module_name})
 	durin_start("Module_${module_name}")
@@ -63,10 +75,19 @@ function(add_durin_module module_name)
 	target_link_libraries(${module_name} PRIVATE ${module_private_dependencies})
 	target_link_libraries(${module_name} PUBLIC ${module_public_dependencies})
 
-	if(module_pch_target)
-		target_precompile_headers(${module_name} REUSE_FROM ${module_pch_target})
+	if(DURIN_ENABLE_PCH)
+		if(module_pch_target)
+			target_precompile_headers(${module_name} REUSE_FROM ${module_pch_target})
+		else()
+			target_precompile_headers(${module_name} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>")
+		endif()
+	elseif(module_pch_target)
+		get_property(_durin_shared_pch_header GLOBAL PROPERTY "DURIN_SHARED_PCH_HEADER_${module_pch_target}")
+		if(_durin_shared_pch_header)
+			durin_target_force_include_pch(${module_name} "${_durin_shared_pch_header}")
+		endif()
 	else()
-		target_precompile_headers(${module_name} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h>")
+		durin_target_force_include_pch(${module_name} "${CMAKE_CURRENT_SOURCE_DIR}/Private/PCH.${module_name}.h")
 	endif()
 
 	durin_target_set_runtime_outputs(${module_name})
@@ -92,8 +113,13 @@ function(add_durin_test target_name)
 		DURIN_TEST_WORK_DIR="${_durin_test_work_dir}"
 	)
 
-	if(TARGET SharedPCH_Core)
+	if(DURIN_ENABLE_PCH AND TARGET SharedPCH_Core)
 		target_precompile_headers(${target_name} REUSE_FROM SharedPCH_Core)
+	elseif(DURIN_FORCE_INCLUDE_PCH)
+		get_property(_durin_shared_pch_header GLOBAL PROPERTY "DURIN_SHARED_PCH_HEADER_SharedPCH_Core")
+		if(_durin_shared_pch_header)
+			durin_target_force_include_pch(${target_name} "${_durin_shared_pch_header}")
+		endif()
 	endif()
 
 	set_target_properties(${target_name} PROPERTIES

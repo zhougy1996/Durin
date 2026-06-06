@@ -29,6 +29,18 @@
       }
     },
     {
+      "name": "Win64-Debug-DurinEditor-FastConfigure",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/Build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "DURIN_PROFILE_NAME": "DurinEditor",
+        "BUILD_TESTING": "OFF",
+        "DURIN_ENABLE_PCH": "OFF"
+      }
+    },
+    {
       "name": "Win64-Debug-DurinEditor-Tests",
       "inherits": "windows-base",
       "binaryDir": "${sourceDir}/Build/${presetName}",

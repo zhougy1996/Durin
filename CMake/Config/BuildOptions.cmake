@@ -8,6 +8,14 @@ if(NOT DEFINED ENABLE_DURIN_TIMER)
 	set(ENABLE_DURIN_TIMER OFF)
 endif()
 
+if(NOT DEFINED DURIN_ENABLE_PCH)
+	set(DURIN_ENABLE_PCH ON CACHE BOOL "Enable precompiled headers for Durin targets.")
+endif()
+
+if(NOT DEFINED DURIN_FORCE_INCLUDE_PCH)
+	set(DURIN_FORCE_INCLUDE_PCH ON CACHE BOOL "Force-include PCH headers even when PCH artifacts are disabled.")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

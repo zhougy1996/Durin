@@ -30,6 +30,12 @@ function(add_durin_shared_pch target_name)
 		message(FATAL_ERROR "add_durin_shared_pch(${target_name}) requires HEADER.")
 	endif()
 
+	set_property(GLOBAL PROPERTY "DURIN_SHARED_PCH_HEADER_${target_name}" "${DURIN_SHARED_PCH_HEADER}")
+
+	if(NOT DURIN_ENABLE_PCH)
+		return()
+	endif()
+
 	set(_durin_shared_pch_dummy_src "${DURIN_PROJECT_ROOT_DIR}/CMake/SharedPCH/SharedPCHDummy.cpp")
 	add_library(${target_name} STATIC "${_durin_shared_pch_dummy_src}")
 
