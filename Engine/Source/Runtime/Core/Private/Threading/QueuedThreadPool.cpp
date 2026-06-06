@@ -1,5 +1,6 @@
 #include "Threading/QueuedThreadPool.h"
 
+#include "HAL/PlatformLTS.h"
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
 

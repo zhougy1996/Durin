@@ -117,13 +117,10 @@ namespace Durin
 			free(Ptr);
 		}
 
-		// strncasecmp is a POSIX function that compares two strings ignoring case, up to a specified number of characters.
-		static int Strncasecmp(const char* Str1, const char* Str2, size_t Count)
+		static int Strnicmp(const char* Str1, const char* Str2, size_t Count)
 		{
 			return strncasecmp(Str1, Str2, Count);
 		}
 
 	};
-
-	using FPlatformMisc = FMacOSPlatformMisc;
 }

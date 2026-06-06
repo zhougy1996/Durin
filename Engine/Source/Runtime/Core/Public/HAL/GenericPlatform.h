@@ -9,20 +9,7 @@ namespace Durin
 	};
 
 	using char8 = FGenericPlatformTypes::UTF8Char;
-
-	struct FGenericPlatformMisc
-	{
-		static auto EnableUserBinaryDirectoriesSearch() -> void
-		{
-		}
-
-		static auto AddRuntimeBinaryDirectory(const char* Directory) -> void
-		{
-			(void)Directory;
-		}
-	};
-
-	struct FGenericPlatformLTS
-	{
-	};
 }
+
+#include "GenericPlatform/GenericPlatformMisc.h"
+#include "GenericPlatform/GenericPlatformLTS.h"

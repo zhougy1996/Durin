@@ -6,4 +6,6 @@
 	#include "MacOS/MacOSPlatform.h"
 #endif
 
+#include "HAL/PlatformMisc.h"
+#include "HAL/PlatformLTS.h"
 

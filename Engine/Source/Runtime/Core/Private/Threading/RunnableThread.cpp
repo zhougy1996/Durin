@@ -1,5 +1,6 @@
 #include "Threading/RunnableThread.h"
 
+#include "HAL/PlatformLTS.h"
 #include "Threading/StdRunnableThread.h"
 
 namespace Durin

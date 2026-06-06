@@ -1,4 +1,7 @@
 #include "Misc/Name.h"
+
+#include "HAL/PlatformMisc.h"
+
 #include <cstdlib>
 
 namespace Durin
@@ -418,7 +421,7 @@ namespace Durin
 		}
 		else
 		{
-			return !FPlatformMisc::Strncasecmp(A.data(), B.data(), Len);
+			return !FPlatformMisc::Strnicmp(A.data(), B.data(), Len);
 		}
 	}
 
