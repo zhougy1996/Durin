@@ -232,14 +232,6 @@ namespace Durin
 			}
 		}
 
-		auto WindowRefreshCallBack(GLFWwindow* InGlfwWindow) -> void
-		{
-			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
-			{
-				GApp->GetMessageHandler()->OnWindowRefresh(PlatformWindow);
-			}
-		}
-
 		auto WindowCloseCallBack(GLFWwindow* InGlfwWindow) -> void
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
@@ -380,7 +372,6 @@ namespace Durin
 		// Register all GLFW callbacks
 		glfwSetWindowSizeCallback(GlfwWindow, WindowSizeCallBack);
 		glfwSetFramebufferSizeCallback(GlfwWindow, FramebufferSizeCallBack);
-		glfwSetWindowRefreshCallback(GlfwWindow, WindowRefreshCallBack);
 		glfwSetKeyCallback(GlfwWindow, KeyCallBack);
 		glfwSetCharCallback(GlfwWindow, CharCallBack);
 		glfwSetMouseButtonCallback(GlfwWindow, MouseButtonCallBack);

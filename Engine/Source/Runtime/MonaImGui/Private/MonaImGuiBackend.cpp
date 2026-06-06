@@ -27,8 +27,6 @@ namespace Durin::Mona
 		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
 		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
 		uint32 NextSnapshotIndex = 0;
-		uint32 LatestSnapshotIndex = 0;
-		bool bHasValidSnapshot = false;
 	};
 
 	namespace
@@ -98,32 +96,6 @@ namespace Durin::Mona
 			return ViewportData != nullptr ? &ViewportData->RenderBuffers : nullptr;
 		}
 
-		auto GetViewportSnapshots(ImGuiViewport* Viewport) -> std::array<ImDrawDataSnapshot, 2>*
-		{
-			auto* ViewportData = GetViewportData(Viewport);
-			return ViewportData != nullptr ? &ViewportData->DrawDataSnapshots : nullptr;
-		}
-
-		auto FindViewportByPlatformHandleRaw(void* PlatformHandleRaw) -> ImGuiViewport*
-		{
-			if (PlatformHandleRaw == nullptr)
-			{
-				return nullptr;
-			}
-
-			ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
-			for (int32 ViewportIndex = 0; ViewportIndex < PlatformIO.Viewports.Size; ++ViewportIndex)
-			{
-				ImGuiViewport* Viewport = PlatformIO.Viewports[ViewportIndex];
-				if (Viewport != nullptr && Viewport->PlatformHandleRaw == PlatformHandleRaw)
-				{
-					return Viewport;
-				}
-			}
-
-			return nullptr;
-		}
-
 		auto SnapshotViewportDrawData(ImGuiViewport* Viewport, ImDrawData* DrawData) -> ImDrawData*
 		{
 			auto* ViewportData = GetViewportData(Viewport);
@@ -135,22 +107,8 @@ namespace Durin::Mona
 			const uint32 SnapshotIndex = ViewportData->NextSnapshotIndex;
 			ImDrawDataSnapshot& Snapshot = ViewportData->DrawDataSnapshots[SnapshotIndex];
 			Snapshot.SnapUsingSwap(DrawData, FTime::Seconds());
-
-			ViewportData->LatestSnapshotIndex = SnapshotIndex;
 			ViewportData->NextSnapshotIndex = (SnapshotIndex + 1) % ViewportData->DrawDataSnapshots.size();
-			ViewportData->bHasValidSnapshot = true;
 			return &Snapshot.DrawData;
-		}
-
-		auto GetLatestViewportSnapshotDrawData(ImGuiViewport* Viewport) -> ImDrawData*
-		{
-			auto* ViewportData = GetViewportData(Viewport);
-			if (ViewportData == nullptr || !ViewportData->bHasValidSnapshot)
-			{
-				return nullptr;
-			}
-
-			return &ViewportData->DrawDataSnapshots[ViewportData->LatestSnapshotIndex].DrawData;
 		}
 
 		auto GetTextureID(FRHITexture* Texture) -> ImTextureID
@@ -299,7 +257,7 @@ namespace Durin::Mona
 			}
 		}
 
-		auto RenderViewport(ImGuiViewport* Viewport, ImDrawData* DrawData, FImGuiRHIImpl_WindowRenderBuffers& RenderBuffers, bool bUpdateSnapshot = true) -> void
+		auto RenderViewport(ImGuiViewport* Viewport, ImDrawData* DrawData, FImGuiRHIImpl_WindowRenderBuffers& RenderBuffers) -> void
 		{
 			if (DrawData == nullptr)
 			{
@@ -320,17 +278,13 @@ namespace Durin::Mona
 				return;
 			}
 
-			ImDrawData* DrawDataToRender = DrawData;
-			if (bUpdateSnapshot)
+			ImDrawData* SnapshotDrawData = SnapshotViewportDrawData(Viewport, DrawData);
+			if (SnapshotDrawData == nullptr)
 			{
-				DrawDataToRender = SnapshotViewportDrawData(Viewport, DrawData);
-				if (DrawDataToRender == nullptr)
-				{
-					return;
-				}
+				return;
 			}
 
-			ImGuiRHIImpl_RenderDrawData(ViewportRHI, DrawDataToRender, &RenderBuffers);
+			ImGuiRHIImpl_RenderDrawData(ViewportRHI, SnapshotDrawData, &RenderBuffers);
 		}
 
 		auto ApplyViewportWindowStyle(ImGuiViewport* Viewport, const std::shared_ptr<MWindow>& Window) -> void
@@ -765,37 +719,6 @@ namespace Durin::Mona
 			ImGui::UpdatePlatformWindows();
 			ImGui::RenderPlatformWindowsDefault();
 		}
-	}
-
-	auto FMonaImGuiBackend::RenderWindowRefresh(void* NativeWindowHandle) -> bool
-	{
-		if (GMonaImGuiContext == nullptr || NativeWindowHandle == nullptr)
-		{
-			return false;
-		}
-
-		ImGui::SetCurrentContext(GMonaImGuiContext);
-		ImGuiViewport* Viewport = FindViewportByPlatformHandleRaw(NativeWindowHandle);
-		if (Viewport == nullptr || Viewport == ImGui::GetMainViewport())
-		{
-			return false;
-		}
-
-		auto* ViewportData = GetViewportData(Viewport);
-		if (ViewportData == nullptr || ViewportData->Window == nullptr || ViewportData->Window->IsMinimized())
-		{
-			return false;
-		}
-
-		ImDrawData* SnapshotDrawData = GetLatestViewportSnapshotDrawData(Viewport);
-		if (SnapshotDrawData == nullptr)
-		{
-			return false;
-		}
-
-		UpdateViewportFromWindow(Viewport, ViewportData->Window);
-		RenderViewport(Viewport, SnapshotDrawData, ViewportData->RenderBuffers, false);
-		return true;
 	}
 
 	auto FMonaImGuiBackend::DrawTexture(FRHITexture* Texture, const FVector2f& Size) -> bool

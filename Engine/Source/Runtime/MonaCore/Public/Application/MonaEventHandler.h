@@ -14,8 +14,6 @@ namespace Durin::Mona
 
 		virtual auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> bool { return false; }
 
-		virtual auto OnWindowRefresh(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void {}
-
 		virtual auto OnWindowFocused(const std::shared_ptr<FGenericWindow>& InPlatformWindow, bool bFocused) -> void {}
 
 		virtual auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool { return false; }

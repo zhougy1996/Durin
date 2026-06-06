@@ -58,7 +58,6 @@ namespace Durin::VulkanRHI
 			.setLayers(1);
 
 		Framebuffer = Device.GetHandle().createFramebuffer(FramebufferCreateInfo);
-		DURIN_TRACE("Vulkan framebuffer created. Render targets count: {}", NumColorRenderTargets);
 	}
 
 	FVulkanFramebuffer::~FVulkanFramebuffer()
