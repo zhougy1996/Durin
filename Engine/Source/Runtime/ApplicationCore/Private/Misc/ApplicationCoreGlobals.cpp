@@ -7,22 +7,35 @@
 
 namespace Durin
 {
-	std::shared_ptr<FGenericApplication> GApp = nullptr;
-
-	auto ApplicationCoreInit() -> void
+	namespace
 	{
-		#ifdef _WIN32
-		SetConsoleOutputCP(CP_UTF8);
-		#endif
-		glfwInit();
-		InitGlfwCursors();
-		// Prepare required Vulkan instance extensions
-		uint32_t GlfwExtensionCount = 0;
-		const char** GlfwExtensions = glfwGetRequiredInstanceExtensions(&GlfwExtensionCount);
-		GMonaRequiredVulkanInstanceExtensions.insert(GMonaRequiredVulkanInstanceExtensions.end(), GlfwExtensions, GlfwExtensions + GlfwExtensionCount);
+		auto ConfigureConsoleOutputEncoding() -> void
+		{
+			#ifdef _WIN32
+			SetConsoleOutputCP(CP_UTF8);
+			#endif
+		}
+
+		auto AppendRequiredGlfwVulkanInstanceExtensions() -> void
+		{
+			// Collect the platform extensions GLFW needs before Vulkan startup.
+			uint32_t GlfwExtensionCount = 0;
+			const char** GlfwExtensions = glfwGetRequiredInstanceExtensions(&GlfwExtensionCount);
+			GMonaRequiredVulkanInstanceExtensions.insert(GMonaRequiredVulkanInstanceExtensions.end(), GlfwExtensions, GlfwExtensions + GlfwExtensionCount);
+		}
 	}
 
-	auto ApplicationCoreShutdown() -> void
+	std::shared_ptr<FGenericApplication> GApp = nullptr;
+
+	auto InitializeApplicationCore() -> void
+	{
+		ConfigureConsoleOutputEncoding();
+		glfwInit();
+		InitGlfwCursors();
+		AppendRequiredGlfwVulkanInstanceExtensions();
+	}
+
+	auto ShutdownApplicationCore() -> void
 	{
 		DestroyGlfwCursors();
 		glfwTerminate();

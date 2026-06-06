@@ -26,14 +26,7 @@
 
 namespace Durin
 {
-	namespace
-	{
-		constexpr auto GetAppConfigFileName() -> std::string_view
-		{
-			return DURIN_PROFILE_NAME ".yaml";
-		}
-
-	} // namespace
+	constexpr std::string_view AppConfigFileName = DURIN_PROFILE_NAME ".yaml";
 
 	FEngineLoop GEngineLoop;
 
@@ -45,7 +38,7 @@ namespace Durin
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		AddDllDirectory(String::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
 
-		CoreInternal::LoadApplicationConfig(FPaths::LaunchDir() + std::string(GetAppConfigFileName()));
+		CoreInternal::LoadApplicationConfig(FPaths::LaunchDir() + std::string(AppConfigFileName));
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
@@ -68,7 +61,7 @@ namespace Durin
 		GEngine = new DGameEngine();
 #endif
 
-		ApplicationCoreInit();
+		InitializeApplicationCore();
 		RHIInit();
 		Mona::MonaInit();
 
@@ -97,88 +90,48 @@ namespace Durin
 		GDynamicRHI->RHIEndFrame_RenderThread(RHICmdList);
 	}
 
-	namespace
+	static auto RenderFrame() -> void
 	{
-		struct FScopedRenderFrameSubmission
+		if (GDynamicRHI == nullptr)
 		{
-			explicit FScopedRenderFrameSubmission(bool& bInIsSubmitting)
-				: bIsSubmitting(bInIsSubmitting)
-			{
-				check(!bIsSubmitting);
-				bIsSubmitting = true;
-			}
-
-			~FScopedRenderFrameSubmission()
-			{
-				bIsSubmitting = false;
-			}
-
-			bool& bIsSubmitting;
-		};
-	}
-
-	auto FEngineLoop::SubmitRenderFrame(
-		const uint64 LogicFrameCounter,
-		const uint64 RenderFrameCounter,
-		const bool bRenderSceneViewports,
-		const std::function<void()>& QueueUiRenderWork
-	) -> bool
-	{
-		if (bIsSubmittingRenderFrame || GDynamicRHI == nullptr)
-		{
-			return false;
+			return;
 		}
 
-		FScopedRenderFrameSubmission RenderFrameSubmission(bIsSubmittingRenderFrame);
+		const uint64 LogicFrameCounter = GFrameCounter;
+		const uint64 RenderFrameCounter = GRenderFrameCounter;
 
 		ENQUEUE_RENDER_COMMAND(BeginFrame)([LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& CommandList) {
 			BeginFrameRenderThread(CommandList, LogicFrameCounter, RenderFrameCounter);
 		});
 
-		if (bRenderSceneViewports && GEngine != nullptr)
+		if (GEngine != nullptr)
 		{
 			GEngine->RedrawViewports();
 		}
 
-		if (QueueUiRenderWork)
-		{
-			QueueUiRenderWork();
-		}
+		Mona::Render();
 
 		ENQUEUE_RENDER_COMMAND(EndFrame)([LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& RHICmdList) {
 			EndFrameRenderThread(RHICmdList, LogicFrameCounter, RenderFrameCounter);
 		});
 
 		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
-		return true;
+		GRenderFrameCounter++;
 	}
 
 	auto FEngineLoop::Tick() -> void
 	{
-		const uint64 CurrentLogicFrameCounter = GFrameCounter;
-
 		// Game logic.
 		GEngine->Tick(0.0f, false);
+		GFrameCounter++;
 
 		// Process application events, and paint UI.
 		Mona::FMonaApplication::Get().Tick();
 
 		if (GIsRequestingExit) return;
 
-		const uint64 CurrentRenderFrameCounter = GRenderFrameCounter;
 		Mona::NewFrame();
-		if (SubmitRenderFrame(
-			CurrentLogicFrameCounter,
-			CurrentRenderFrameCounter,
-			true,
-			[]() {
-				Mona::Render();
-			}
-		))
-		{
-			GFrameCounter++;
-			GRenderFrameCounter++;
-		}
+		RenderFrame();
 
 		CalculateFPSTimings();
 	}
@@ -198,7 +151,7 @@ namespace Durin
 		FModuleManager::Get().UnloadModulesAtShutdown();
 		RHIExit();
 
-		ApplicationCoreShutdown();
+		ShutdownApplicationCore();
 		DURIN_INFO(STR("Durin Engine exited."));
 	}
 } // namespace Durin

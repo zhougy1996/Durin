@@ -8,7 +8,7 @@ namespace Durin
 
 	extern APPLICATIONCORE_API std::shared_ptr<FGenericApplication> GApp;
 
-	APPLICATIONCORE_API auto ApplicationCoreInit() -> void;
+	APPLICATIONCORE_API auto InitializeApplicationCore() -> void;
 
-	APPLICATIONCORE_API auto ApplicationCoreShutdown() -> void;
+	APPLICATIONCORE_API auto ShutdownApplicationCore() -> void;
 }
