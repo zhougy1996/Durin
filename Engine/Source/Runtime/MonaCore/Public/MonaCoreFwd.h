@@ -12,6 +12,5 @@ namespace Durin::Mona
 	class FMonaApplication;
 	class FMonaRenderer;
 	class FMonaRHIRenderer;
-	class IMonaUIInterface;
+	class IMonaUIBackend;
 }
-

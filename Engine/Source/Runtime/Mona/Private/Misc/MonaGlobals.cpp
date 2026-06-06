@@ -1,8 +1,8 @@
 #include "MonaGlobals.h"
 
 #include "Application/MonaApplication.h"
+#include "MonaUIBackend.h"
 #include "MonaCoreGlobals.h"
-#include "MonaUIInterface.h"
 
 namespace Durin::Mona
 {
@@ -26,17 +26,17 @@ namespace Durin::Mona
 
 	auto NewFrame() -> void
 	{
-		if (GMonaUI)
+		if (GActiveUIBackend)
 		{
-			GMonaUI->NewFrame();
+			GActiveUIBackend->NewFrame();
 		}
 	}
 
 	auto Render() -> void
 	{
-		if (GMonaUI)
+		if (GActiveUIBackend)
 		{
-			GMonaUI->Render();
+			GActiveUIBackend->Render();
 		}
 	}
 } // namespace Durin::Mona

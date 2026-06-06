@@ -1,6 +1,7 @@
 #include "Widgets/MViewport.h"
 
-#include "MonaUIInterface.h"
+#include "MonaCoreGlobals.h"
+#include "MonaUIBackend.h"
 
 namespace Durin
 {
@@ -45,6 +46,7 @@ namespace Durin
 			return;
 		}
 
-		bLastDrawSucceeded = MonaUI::DrawTexture(ViewportPtr->GetDisplayTexture(), DesiredSize);
+		bLastDrawSucceeded = Mona::GActiveUIBackend != nullptr
+			&& Mona::GActiveUIBackend->DrawTexture(ViewportPtr->GetDisplayTexture(), DesiredSize);
 	}
 }

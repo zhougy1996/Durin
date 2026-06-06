@@ -1,5 +1,5 @@
 #include "MonaCoreGlobals.h"
-#include "MonaImGui.h"
+#include "MonaImGuiBackend.h"
 
 namespace Durin
 {
@@ -8,17 +8,17 @@ namespace Durin
 	public:
 		auto StartupModule() -> void override
 		{
-			check(Mona::GMonaUI == nullptr);
-			Mona::GMonaUI = new Mona::FMonaImGui();
-			Mona::GMonaUI->Initialize();
+			check(Mona::GActiveUIBackend == nullptr);
+			Mona::GActiveUIBackend = new Mona::FMonaImGuiBackend();
+			Mona::GActiveUIBackend->Initialize();
 		}
 
 		auto ShutdownModule() -> void override
 		{
-			check(Mona::GMonaUI)
-			Mona::GMonaUI->Shutdown();
-			delete Mona::GMonaUI;
-			Mona::GMonaUI = nullptr;
+			check(Mona::GActiveUIBackend)
+			Mona::GActiveUIBackend->Shutdown();
+			delete Mona::GActiveUIBackend;
+			Mona::GActiveUIBackend = nullptr;
 		}
 	};
 
