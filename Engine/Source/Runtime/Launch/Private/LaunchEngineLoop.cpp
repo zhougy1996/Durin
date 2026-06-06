@@ -10,9 +10,9 @@
 
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Misc/AppConfigCache.h"
+#include "CoreGlobals.h"
+#include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
-#include "Misc/StringConvert.h"
 
 #include "Shader/ShaderPaths.h"
 #include "DurinEngine.h"
@@ -36,9 +36,9 @@ namespace Durin
 		GIsGameThreadIdInitialized = true;
 
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
-		AddDllDirectory(String::Utf8ToWide(FPaths::EngineThirdPartyRuntimeBinariesDir()).c_str());
+		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
 
-		CoreInternal::LoadApplicationConfig(FPaths::LaunchDir() + std::string(AppConfigFileName));
+		LoadAppConfig(FPaths::LaunchDir() + std::string(AppConfigFileName));
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();

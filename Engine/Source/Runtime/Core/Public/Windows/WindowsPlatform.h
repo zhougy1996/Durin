@@ -26,6 +26,8 @@
 
 #define STR(x) x
 
+#include "Misc/StringConvert.h"
+
 namespace Durin
 {
 	using FModuleHandle = HMODULE;
@@ -38,6 +40,11 @@ namespace Durin
 		static auto EnableUserBinaryDirectoriesSearch() -> void
 		{
 			SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
+		}
+
+		static auto AddRuntimeBinaryDirectory(const char* Directory) -> void
+		{
+			AddDllDirectory(String::Utf8ToWide(Directory).c_str());
 		}
 
 		static FModuleHandle LoadLibrary(const std::string& FileName)

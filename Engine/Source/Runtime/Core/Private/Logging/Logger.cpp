@@ -1,6 +1,7 @@
 #include "Logging/Logger.h"
 
-#include "Misc/AppConfigCache.h"
+#include "CoreGlobals.h"
+#include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/basic_file_sink.h"
@@ -100,7 +101,6 @@ namespace Durin
 
 	auto LoggerInit() -> void
 	{
-		check(IsAppConfigLoaded());
 		FLogger& Logger = FLogger::Get();
 		Logger.Initialize();
 		Logger.SetConsoleLogLevel(StringToLogLevel(GAppConfig.GetView("LogLevel").GetString()));

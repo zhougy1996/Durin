@@ -12,6 +12,14 @@ namespace Durin
 
 	struct FGenericPlatformMisc
 	{
+		static auto EnableUserBinaryDirectoriesSearch() -> void
+		{
+		}
+
+		static auto AddRuntimeBinaryDirectory(const char* Directory) -> void
+		{
+			(void)Directory;
+		}
 	};
 
 	struct FGenericPlatformLTS
