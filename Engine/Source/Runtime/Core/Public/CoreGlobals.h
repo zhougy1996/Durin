@@ -31,4 +31,9 @@ namespace Durin
 
 	extern CORE_API uint64 GFrameCounter;
 	extern CORE_API uint64 GFrameCounterRenderThread;
+	extern CORE_API uint64 GRenderFrameCounter;
+	extern CORE_API uint64 GRenderFrameCounterRenderThread;
+
+	using FRefreshRenderFrameHandler = void(*)(void* NativeWindowHandle);
+	extern CORE_API FRefreshRenderFrameHandler GRefreshRenderFrameHandler;
 }

@@ -18,6 +18,8 @@ namespace Durin
 
 		virtual auto OnWindowViewportResize(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void {};
 
+		virtual auto OnWindowRefresh(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void {}
+
 		virtual auto OnWindowFocus(const std::shared_ptr<FGenericWindow>& InPlatformWindow, bool bFocused) -> void {}
 		virtual auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool { return false; }
 		virtual auto OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool { return false; }

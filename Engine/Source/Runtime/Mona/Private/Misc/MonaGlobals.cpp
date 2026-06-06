@@ -39,4 +39,14 @@ namespace Durin::Mona
 			GActiveUIBackend->Render();
 		}
 	}
+
+	auto RenderWindowRefresh(void* NativeWindowHandle) -> bool
+	{
+		if (GActiveUIBackend)
+		{
+			return GActiveUIBackend->RenderWindowRefresh(NativeWindowHandle);
+		}
+
+		return false;
+	}
 } // namespace Durin::Mona

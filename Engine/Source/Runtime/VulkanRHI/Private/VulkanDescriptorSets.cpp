@@ -118,12 +118,12 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGlobalDescriptorPool::GetPool() const -> vk::DescriptorPool
 	{
-		return Pools[GFrameCounterRenderThread % Pools.size()];
+		return Pools[GRenderFrameCounterRenderThread % Pools.size()];
 	}
 
 	auto FVulkanGlobalDescriptorPool::ResetPoolsForCurrentFrame() const -> void
 	{
-		Device.GetHandle().resetDescriptorPool(Pools[GFrameCounterRenderThread % Pools.size()]);
+		Device.GetHandle().resetDescriptorPool(Pools[GRenderFrameCounterRenderThread % Pools.size()]);
 	}
 
 	auto FVulkanGlobalDescriptorPool::CreatePool() -> vk::DescriptorPool

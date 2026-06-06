@@ -465,7 +465,7 @@ namespace Durin::Mona
 
 		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData, WindowRenderBuffers, ClearValue](FRHICommandListImmediate& CommandList) {
 			check(WindowRenderBuffers != nullptr);
-			auto& RenderBuffersCurrentFrame = WindowRenderBuffers->FrameRenderBuffers[GFrameCounterRenderThread % kFrameInFlight];
+			auto& RenderBuffersCurrentFrame = WindowRenderBuffers->FrameRenderBuffers[GRenderFrameCounterRenderThread % kFrameInFlight];
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 
 			CommandList.BeginDrawingViewport(ViewportRHI, nullptr);

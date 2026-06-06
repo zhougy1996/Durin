@@ -394,6 +394,24 @@ namespace Durin::Mona
 		}
 	}
 
+	auto FMonaApplication::OnWindowRefresh(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void
+	{
+		if (MonaEventHandler)
+		{
+			MonaEventHandler->OnWindowRefresh(InPlatformWindow);
+		}
+
+		if (InPlatformWindow == nullptr || InPlatformWindow->IsMinimized())
+		{
+			return;
+		}
+
+		if (GRefreshRenderFrameHandler != nullptr)
+		{
+			GRefreshRenderFrameHandler(InPlatformWindow->GetOSNativeWindowHandle());
+		}
+	}
+
 	auto FMonaApplication::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool
 	{
 		if (MonaEventHandler && MonaEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat))

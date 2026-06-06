@@ -14,4 +14,8 @@ namespace Durin
 
 	uint64 GFrameCounter = 0;
 	uint64 GFrameCounterRenderThread = 0;
+	uint64 GRenderFrameCounter = 0;
+	uint64 GRenderFrameCounterRenderThread = 0;
+
+	FRefreshRenderFrameHandler GRefreshRenderFrameHandler = nullptr;
 }

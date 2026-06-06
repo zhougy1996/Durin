@@ -336,7 +336,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::GetCurrentFrame() -> FVulkanFrame&
 	{
-		return *Frames[GFrameCounterRenderThread % Frames.size()];
+		return *Frames[GRenderFrameCounterRenderThread % Frames.size()];
 	}
 
 	auto FVulkanDevice::NotifyDeleted_Image(vk::Image Image) -> void

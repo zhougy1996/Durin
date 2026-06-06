@@ -28,10 +28,33 @@ namespace Durin
 {
 	namespace
 	{
+		enum class ERenderFrameReason : uint8
+		{
+			Tick,
+			WindowRefresh
+		};
+
+		bool GIsSubmittingRenderFrame = false;
+
 		constexpr auto GetAppConfigFileName() -> std::string_view
 		{
 			return DURIN_PROFILE_NAME ".yaml";
 		}
+
+		auto ToString(const ERenderFrameReason Reason) -> const char*
+		{
+			switch (Reason)
+			{
+			case ERenderFrameReason::Tick:
+				return "Tick";
+			case ERenderFrameReason::WindowRefresh:
+				return "WindowRefresh";
+			default:
+				return "Unknown";
+			}
+		}
+
+		auto RefreshRenderFrameFromWindow(void* NativeWindowHandle) -> void;
 	} // namespace
 
 	FEngineLoop GEngineLoop;
@@ -74,29 +97,110 @@ namespace Durin
 		GEngine->Init();
 
 		InitRenderingThread();
+		GRefreshRenderFrameHandler = &RefreshRenderFrameFromWindow;
 		DURIN_INFO(STR("Durin engine initialized."));
 	}
 
 	// Called from render thread
-	static auto BeginFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 FrameCounter) -> void
+	static auto BeginFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 LogicFrameCounter, uint64 RenderFrameCounter) -> void
 	{
 		check(IsInRenderingThread());
-		GFrameCounterRenderThread = FrameCounter;
+		GFrameCounterRenderThread = LogicFrameCounter;
+		GRenderFrameCounterRenderThread = RenderFrameCounter;
 		CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 		GDynamicRHI->RHIBeginFrame();
 	}
 
 	// Called from render thread
-	static auto EndFrameRenderThread(FRHICommandListImmediate& RHICmdList, uint64 FrameCounter) -> void
+	static auto EndFrameRenderThread(FRHICommandListImmediate& RHICmdList, uint64 LogicFrameCounter, uint64 RenderFrameCounter) -> void
 	{
 		check(IsInRenderingThread());
-		check(GFrameCounterRenderThread == FrameCounter);
+		check(GFrameCounterRenderThread == LogicFrameCounter);
+		check(GRenderFrameCounterRenderThread == RenderFrameCounter);
 		GDynamicRHI->RHIEndFrame_RenderThread(RHICmdList);
+	}
+
+	namespace
+	{
+		struct FScopedRenderFrameSubmission
+		{
+			FScopedRenderFrameSubmission()
+			{
+				check(!GIsSubmittingRenderFrame);
+				GIsSubmittingRenderFrame = true;
+			}
+
+			~FScopedRenderFrameSubmission()
+			{
+				GIsSubmittingRenderFrame = false;
+			}
+		};
+
+		auto SubmitRenderFrame(
+			const uint64 LogicFrameCounter,
+			const uint64 RenderFrameCounter,
+			const ERenderFrameReason Reason,
+			const bool bRenderSceneViewports,
+			const std::function<void()>& QueueUiRenderWork
+		) -> bool
+		{
+			if (GIsSubmittingRenderFrame || GDynamicRHI == nullptr)
+			{
+				return false;
+			}
+
+			FScopedRenderFrameSubmission RenderFrameSubmission;
+			DURIN_TRACE("Submitting render frame. Reason={}, LogicFrame={}, RenderFrame={}", ToString(Reason), LogicFrameCounter, RenderFrameCounter);
+
+			ENQUEUE_RENDER_COMMAND(BeginFrame)([LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& CommandList) {
+				BeginFrameRenderThread(CommandList, LogicFrameCounter, RenderFrameCounter);
+			});
+
+			if (bRenderSceneViewports && GEngine != nullptr)
+			{
+				GEngine->RedrawViewports();
+			}
+
+			if (QueueUiRenderWork)
+			{
+				QueueUiRenderWork();
+			}
+
+			ENQUEUE_RENDER_COMMAND(EndFrame)([LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& RHICmdList) {
+				EndFrameRenderThread(RHICmdList, LogicFrameCounter, RenderFrameCounter);
+			});
+
+			FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
+			return true;
+		}
+
+		auto RefreshRenderFrameFromWindow(void* NativeWindowHandle) -> void
+		{
+			if (NativeWindowHandle == nullptr || GIsRequestingExit || GDynamicRHI == nullptr)
+			{
+				return;
+			}
+
+			const uint64 CurrentLogicFrameCounter = GFrameCounter;
+			const uint64 CurrentRenderFrameCounter = GRenderFrameCounter;
+			if (SubmitRenderFrame(
+				CurrentLogicFrameCounter,
+				CurrentRenderFrameCounter,
+				ERenderFrameReason::WindowRefresh,
+				false,
+				[NativeWindowHandle]() {
+					Mona::RenderWindowRefresh(NativeWindowHandle);
+				}
+			))
+			{
+				GRenderFrameCounter++;
+			}
+		}
 	}
 
 	auto FEngineLoop::Tick() -> void
 	{
-		uint64 CurrentFrameCounter = GFrameCounter;
+		const uint64 CurrentLogicFrameCounter = GFrameCounter;
 
 		// Game logic.
 		GEngine->Tick(0.0f, false);
@@ -106,28 +210,28 @@ namespace Durin
 
 		if (GIsRequestingExit) return;
 
+		const uint64 CurrentRenderFrameCounter = GRenderFrameCounter;
 		Mona::NewFrame();
-		// Start recording render commands for the current frame.
-		ENQUEUE_RENDER_COMMAND(BeginFrame)([CurrentFrameCounter](FRHICommandListImmediate& CommandList) {
-			BeginFrameRenderThread(CommandList, CurrentFrameCounter);
-		});
-
-		GEngine->RedrawViewports();
-
-		Mona::Render();
-
-		ENQUEUE_RENDER_COMMAND(EndFrame)([CurrentFrameCounter](FRHICommandListImmediate& RHICmdList) {
-			EndFrameRenderThread(RHICmdList, CurrentFrameCounter);
-		});
-
-		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
-		GFrameCounter++;
+		if (SubmitRenderFrame(
+			CurrentLogicFrameCounter,
+			CurrentRenderFrameCounter,
+			ERenderFrameReason::Tick,
+			true,
+			[]() {
+				Mona::Render();
+			}
+		))
+		{
+			GFrameCounter++;
+			GRenderFrameCounter++;
+		}
 
 		CalculateFPSTimings();
 	}
 
 	auto FEngineLoop::Exit() -> void
 	{
+		GRefreshRenderFrameHandler = nullptr;
 		Mona::MonaShutdown();
 
 		ShutdownEngineThreadPool(true);

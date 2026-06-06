@@ -11,4 +11,6 @@ namespace Durin::Mona
 	MONA_API auto NewFrame() -> void;
 
 	MONA_API auto Render() -> void;
+
+	MONA_API auto RenderWindowRefresh(void* NativeWindowHandle) -> bool;
 }
