@@ -48,7 +48,6 @@ namespace Durin
 			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("SceneViewportRenderTarget", Width, Height, EPixelFormat::SRGBA8_UNORM);
 			Desc.AddFlags(ETextureCreateFlags::RenderTargetable);
 			RenderTargetRHI = RHICreateTexture(Desc);
-			bRenderTargetReady = false;
 		}
 		ViewportRHI = nullptr;
 	}
@@ -89,17 +88,14 @@ namespace Durin
 
 	auto FSceneViewport::GetDisplayTexture() const -> FRHITexture*
 	{
-		return DisplayTextureRHI.GetReference();
-	}
+		if (RenderMode == Mona::EMonaViewportRenderMode::RenderTarget && RenderTargetRHI != nullptr)
+		{
+			// The editor viewport UI is built before scene rendering commands are enqueued,
+			// but ImGui samples the texture later in the same frame. Returning the current
+			// render target here lets resize changes show up without the extra-frame delay.
+			return RenderTargetRHI.GetReference();
+		}
 
-	auto FSceneViewport::IsRenderTargetReady() const -> bool
-	{
-		return bRenderTargetReady;
-	}
-
-	auto FSceneViewport::MarkRenderTargetReady() -> void
-	{
-		bRenderTargetReady = true;
-		DisplayTextureRHI = RenderTargetRHI;
+		return nullptr;
 	}
 }

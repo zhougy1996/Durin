@@ -43,7 +43,6 @@ namespace Durin
 					CommandList.EndRenderPass();
 				}
 			);
-			MainSceneViewport->MarkRenderTargetReady();
 			return;
 		}
 

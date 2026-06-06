@@ -28,10 +28,6 @@ namespace Durin
 
 		ENGINE_API auto GetDisplayTexture() const -> FRHITexture* override;
 
-		ENGINE_API auto IsRenderTargetReady() const -> bool;
-
-		ENGINE_API auto MarkRenderTargetReady() -> void;
-
 	private:
 		Mona::EMonaViewportRenderMode RenderMode = Mona::EMonaViewportRenderMode::Window;
 
@@ -40,9 +36,5 @@ namespace Durin
 		std::weak_ptr<MViewport> ViewportWidget;
 
 		FTextureRHIRef RenderTargetRHI;
-
-		FTextureRHIRef DisplayTextureRHI;
-
-		bool bRenderTargetReady = false;
 	};
 }

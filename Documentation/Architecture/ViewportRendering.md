@@ -88,7 +88,6 @@ DEngine::RedrawViewports()
   updates FSceneViewport
   creates/resizes the offscreen render target when needed
   clears/renders the offscreen render target
-  marks the render target ready
 
 MViewport::Draw()
   updates the referenced viewport
@@ -96,7 +95,7 @@ MViewport::Draw()
   calls MonaUI::DrawTexture(...)
 ```
 
-`FSceneViewport` keeps the last ready display texture alive with `FTextureRHIRef`. This is deliberate: during resize, a newly-created render target may not yet have been rendered and transitioned for UI sampling. Continuing to display the last ready texture avoids showing an undefined image layout to ImGui.
+For editor render-target viewports, `FSceneViewport::GetDisplayTexture()` simply exposes the current offscreen render target. The UI frame is built before scene rendering commands are enqueued, while ImGui samples the texture later in the same frame, so using the current render target removes the extra-frame resize lag while still letting the render pass populate it before sampling.
 
 ## Interface Boundary
 
