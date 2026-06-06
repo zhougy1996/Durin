@@ -1,7 +1,7 @@
 {
     "ModuleName": "LevelEditor",
     "LinkType": "Shared",
-    "PCH": "SharedPCH_Core",
+    "PCH": "SharedPCH_MonaEditor",
     "PrivateDependencies": [
         "Core",
         "RHI",
