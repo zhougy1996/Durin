@@ -59,6 +59,8 @@ namespace Durin
 
 		MONACORE_API auto SetCachedSize(const FVector2f& NewSize) -> void;
 
+		MONACORE_API auto SetCachedViewportSize(const FVector2f& NewViewportSize) -> void;
+
 		MONACORE_API auto GetWindowMode() const -> EWindowMode;
 
 		MONACORE_API auto ShowWindow() -> void;

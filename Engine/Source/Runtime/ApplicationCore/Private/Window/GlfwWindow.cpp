@@ -216,11 +216,19 @@ namespace Durin
 			}
 		}
 
-		auto WindowResizeCallBack(GLFWwindow* InGlfwWindow, int Width, int Height) -> void
+		auto WindowSizeCallBack(GLFWwindow* InGlfwWindow, int Width, int Height) -> void
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
 				GApp->GetMessageHandler()->OnWindowResize(PlatformWindow, Width, Height, PlatformWindow->IsMinimized());
+			}
+		}
+
+		auto FramebufferSizeCallBack(GLFWwindow* InGlfwWindow, int Width, int Height) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				GApp->GetMessageHandler()->OnWindowViewportResize(PlatformWindow, Width, Height, PlatformWindow->IsMinimized());
 			}
 		}
 
@@ -362,7 +370,8 @@ namespace Durin
 		glfwSetWindowUserPointer(GlfwWindow, OSNativeWindowHandle);
 
 		// Register all GLFW callbacks
-		glfwSetFramebufferSizeCallback(GlfwWindow, WindowResizeCallBack);
+		glfwSetWindowSizeCallback(GlfwWindow, WindowSizeCallBack);
+		glfwSetFramebufferSizeCallback(GlfwWindow, FramebufferSizeCallBack);
 		glfwSetKeyCallback(GlfwWindow, KeyCallBack);
 		glfwSetCharCallback(GlfwWindow, CharCallBack);
 		glfwSetMouseButtonCallback(GlfwWindow, MouseButtonCallBack);

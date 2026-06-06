@@ -130,12 +130,11 @@ namespace Durin::Mona
 			}
 
 			const FIntPoint WindowPositionInt = NativeWindow->GetWindowPosition();
-			const FIntPoint WindowSizeInt = NativeWindow->GetWindowSize();
 			const FVector2f ViewportSize = Window->GetViewportSize();
 			const FVector2f WindowPosition(static_cast<float>(WindowPositionInt.x), static_cast<float>(WindowPositionInt.y));
-			const FVector2f WindowSize(static_cast<float>(WindowSizeInt.x), static_cast<float>(WindowSizeInt.y));
+			const FVector2f WindowSize = Window->GetWindowSize();
 			Window->SetCachedScreenPosition(WindowPosition);
-			Window->SetCachedSize(WindowSize);
+			Window->SetCachedViewportSize(ViewportSize);
 
 			Viewport->PlatformHandle = GetImGuiPlatformHandle(NativeWindow);
 			Viewport->PlatformHandleRaw = NativeWindow->GetOSNativeWindowHandle();

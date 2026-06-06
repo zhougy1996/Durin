@@ -204,10 +204,11 @@ namespace Durin
 	auto MWindow::SetCachedSize(const FVector2f& NewSize) -> void
 	{
 		Size = NewSize;
-		if (NativeWindow)
-		{
-			ViewportSize = NativeWindow->GetViewportSize();
-		}
+	}
+
+	auto MWindow::SetCachedViewportSize(const FVector2f& NewViewportSize) -> void
+	{
+		ViewportSize = NewViewportSize;
 	}
 
 	auto MWindow::GetWindowMode() const -> EWindowMode
