@@ -1,14 +1,11 @@
 #pragma once
 
+#include "ImGuiMonaImpl.h"
 #include "MonaImGui.h"
 #include "MonaUIBackend.h"
 
-struct ImGuiContext;
-
 namespace Durin::Mona
 {
-	extern ImGuiContext* GMonaImGuiContext;
-
 	class FMonaImGuiBackend : public IMonaUIBackend
 	{
 	public:

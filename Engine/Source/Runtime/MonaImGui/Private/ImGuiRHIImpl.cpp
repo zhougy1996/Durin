@@ -211,10 +211,7 @@ namespace Durin::Mona
 		ImGuiIO& IO = ImGui::GetIO();
 		IO.BackendRendererUserData = nullptr;
 		IO.BackendRendererName = nullptr;
-		IO.BackendFlags &= ~(ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasTextures | ImGuiBackendFlags_RendererHasViewports);
-
-		ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
-		PlatformIO.ClearRendererHandlers();
+		IO.BackendFlags &= ~(ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasTextures);
 	}
 
 	auto ImGuiRHIImpl_NewFrame() -> void
