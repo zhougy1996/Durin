@@ -7,6 +7,18 @@ namespace Durin::VulkanRHI
 {
 	namespace
 	{
+		auto GetPreferredPresentModes(EViewportPresentModePolicy Policy) -> std::vector<vk::PresentModeKHR>
+		{
+			switch (Policy)
+			{
+			case EViewportPresentModePolicy::ImGuiDetachedViewport:
+				return {vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eFifo};
+			case EViewportPresentModePolicy::MainWindow:
+			default:
+				return {vk::PresentModeKHR::eFifo};
+			}
+		}
+
 		auto IsRecoverableSwapchainResult(const vk::Result Result) -> bool
 		{
 			return Result == vk::Result::eErrorOutOfDateKHR || Result == vk::Result::eSuboptimalKHR;
@@ -34,9 +46,29 @@ namespace Durin::VulkanRHI
 		return AvailableFormats[0];
 	}
 
-	auto ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& AvailablePresentModes) -> vk::PresentModeKHR
+	auto ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& AvailablePresentModes, EViewportPresentModePolicy Policy) -> vk::PresentModeKHR
 	{
-		return vk::PresentModeKHR::eFifo; // Provides VSync.
+		for (const vk::PresentModeKHR RequestedMode : GetPreferredPresentModes(Policy))
+		{
+			if (std::ranges::find(AvailablePresentModes, RequestedMode) != AvailablePresentModes.end())
+			{
+				return RequestedMode;
+			}
+		}
+		return vk::PresentModeKHR::eFifo;
+	}
+
+	auto GetMinImageCountForPresentMode(vk::PresentModeKHR PresentMode) -> uint32
+	{
+		switch (PresentMode)
+		{
+		case vk::PresentModeKHR::eMailbox:
+			return 3;
+		case vk::PresentModeKHR::eImmediate:
+		case vk::PresentModeKHR::eFifo:
+		default:
+			return 2;
+		}
 	}
 
 	auto ChooseSwapExtent(const vk::SurfaceCapabilitiesKHR& Capabilities, uint32 Width, uint32 Height) -> vk::Extent2D
@@ -54,9 +86,10 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	FVulkanSwapchain::FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, vk::SwapchainKHR InOldSwapchain)
+	FVulkanSwapchain::FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentModePolicy InPresentModePolicy, vk::SwapchainKHR InOldSwapchain)
 		: Device(InDevice)
 		, Surface(InSurface)
+		, PresentModePolicy(InPresentModePolicy)
 	{
 		// Get Swap chain support details
 		vk::PhysicalDevice Gpu = Device.GetGpu();
@@ -65,12 +98,13 @@ namespace Durin::VulkanRHI
 		std::vector<vk::PresentModeKHR> PresentModes = Gpu.getSurfacePresentModesKHR(Surface);
 
 		vk::SurfaceFormatKHR CurrFormat = ChooseSwapSurfaceFormat(Formats);
-		vk::PresentModeKHR PresentMode = ChooseSwapPresentMode(PresentModes);
+		vk::PresentModeKHR PresentMode = ChooseSwapPresentMode(PresentModes, PresentModePolicy);
 		Extent = ChooseSwapExtent(Capabilities, Width, Height);
 
 		ImageFormat = CurrFormat.format;
 
-		uint32 MinImageCount = Capabilities.minImageCount + 1;
+		uint32 MinImageCount = GetMinImageCountForPresentMode(PresentMode);
+		MinImageCount = FMath::Max(MinImageCount, Capabilities.minImageCount);
 		if (Capabilities.maxImageCount > 0 && MinImageCount > Capabilities.maxImageCount)
 		{
 			MinImageCount = Capabilities.maxImageCount;

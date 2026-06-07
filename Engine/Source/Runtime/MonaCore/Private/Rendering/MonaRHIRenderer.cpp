@@ -39,7 +39,14 @@ namespace Durin::Mona
 		}
 
 		auto* ViewportInfo = new FMonaViewportInfo();
-		ViewportInfo->ViewportRHI = GDynamicRHI->RHICreateViewport(PlatformWindow->GetOSNativeWindowHandle(), Width, Height, bFullScreen, EPixelFormat::SRGBA8_UNORM);
+		ViewportInfo->ViewportRHI = GDynamicRHI->RHICreateViewport(
+			PlatformWindow->GetOSNativeWindowHandle(),
+			Width,
+			Height,
+			bFullScreen,
+			EPixelFormat::SRGBA8_UNORM,
+			Window->GetViewportPresentModePolicy()
+		);
 		ViewportInfo->bFullScreen = bFullScreen;
 		ViewportInfo->CurrentWidth = Width;
 		ViewportInfo->CurrentHeight = Height;

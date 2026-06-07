@@ -10,7 +10,7 @@ namespace Durin::VulkanRHI
 	class FVulkanSwapchain
 	{
 	public:
-		FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, vk::SwapchainKHR InOldSwapchain = VK_NULL_HANDLE);
+		FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentModePolicy InPresentModePolicy, vk::SwapchainKHR InOldSwapchain = VK_NULL_HANDLE);
 
 		~FVulkanSwapchain();
 
@@ -53,6 +53,8 @@ namespace Durin::VulkanRHI
 		std::vector<vk::Image> SwapchainImages;
 
 		vk::SurfaceKHR Surface;
+
+		EViewportPresentModePolicy PresentModePolicy = EViewportPresentModePolicy::MainWindow;
 
 		int32 CurrentImageIndex = -1;
 

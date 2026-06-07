@@ -34,7 +34,7 @@ namespace Durin::VulkanRHI
 	class FVulkanViewport : public FRHIViewport
 	{
 	public:
-		FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat);
+		FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy);
 
 		~FVulkanViewport() override;
 
@@ -89,6 +89,8 @@ namespace Durin::VulkanRHI
 
 		// The preferred pixel format specified when creating the viewport, this may be different from the actual swapchain image format if the preferred format is not supported.
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
+
+		EViewportPresentModePolicy PresentModePolicy = EViewportPresentModePolicy::MainWindow;
 
 		std::vector<vk::Image> BackBufferImages;
 

@@ -2,6 +2,7 @@
 
 #include "RHIAPI.h"
 #include "RHIFwd.h"
+#include "Misc/ViewportPresentModePolicy.h"
 #include "PixelFormat.h"
 #include "RHIResources.h"
 
@@ -22,7 +23,7 @@ namespace Durin
 		RHI_API virtual auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void;
 
 		// Must be called from the main thread.
-		virtual auto RHICreateViewport(void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen, EPixelFormat InPreferredPixelFormat) const -> TRefCountPtr<FRHIViewport> = 0;
+		virtual auto RHICreateViewport(void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen, EPixelFormat InPreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> TRefCountPtr<FRHIViewport> = 0;
 		// Must be called from the main thread.
 		virtual auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bIsFullscreen) -> void = 0;
 

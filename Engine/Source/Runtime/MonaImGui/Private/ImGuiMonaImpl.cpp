@@ -435,6 +435,7 @@ namespace Durin::Mona
 	{
 		auto Window = std::make_shared<MWindow>();
 		Window->SetTitle("ImGui");
+		Window->SetViewportPresentModePolicy(EViewportPresentModePolicy::ImGuiDetachedViewport);
 		Window->ReshapeWindow({Viewport->Pos.x, Viewport->Pos.y}, {Viewport->Size.x, Viewport->Size.y});
 
 		std::shared_ptr<MWindow> ParentWindow = nullptr;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MonaCoreAPI.h"
+#include "Misc/ViewportPresentModePolicy.h"
 #include "Window/GenericWindow.h"
 #include "Widgets/MCompoundWidget.h"
 
@@ -63,6 +64,10 @@ namespace Durin
 
 		MONACORE_API auto GetWindowMode() const -> EWindowMode;
 
+		MONACORE_API auto SetViewportPresentModePolicy(EViewportPresentModePolicy InPolicy) -> void;
+
+		MONACORE_API auto GetViewportPresentModePolicy() const -> EViewportPresentModePolicy;
+
 		MONACORE_API auto ShowWindow() -> void;
 
 		MONACORE_API auto HideWindow() -> void;
@@ -83,6 +88,8 @@ namespace Durin
 		FVector2f Size = {};
 
 		FVector2f ViewportSize = {};
+
+		EViewportPresentModePolicy ViewportPresentModePolicy = EViewportPresentModePolicy::MainWindow;
 
 		std::shared_ptr<FGenericWindow> NativeWindow;
 

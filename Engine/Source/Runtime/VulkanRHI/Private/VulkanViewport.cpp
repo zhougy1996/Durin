@@ -35,13 +35,14 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat)
+	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy)
 		: Device(InDevice)
 		, SizeX(InSizeX)
 		, SizeY(InSizeY)
 		, bIsFullScreen(bInIsFullScreen)
 		, NativeWindowHandle(InWindowHandle)
 	 	, PixelFormat(InPreferredPixelFormat)
+		, PresentModePolicy(InPresentModePolicy)
 	{
 		Surface = FVulkanGenericPlatform::CreateSurface(InWindowHandle, FVulkanDynamicRHI::Get().RHIGetVkInstance());
 		CreateSwapchain();
@@ -275,7 +276,7 @@ namespace Durin::VulkanRHI
 		// Release old swapchain resources
 		RHIBackBuffer = nullptr;
 
-		Swapchain = new FVulkanSwapchain(Device, Surface, SizeX, SizeY, bIsFullScreen, InOldSwapchain);
+		Swapchain = new FVulkanSwapchain(Device, Surface, SizeX, SizeY, bIsFullScreen, PresentModePolicy, InOldSwapchain);
 		const vk::Extent2D SwapchainExtent = Swapchain->GetExtent();
 		SizeX = SwapchainExtent.width;
 		SizeY = SwapchainExtent.height;
@@ -332,10 +333,10 @@ namespace Durin::VulkanRHI
 		FrameResources.clear();
 	}
 
-	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TRefCountPtr<FRHIViewport>
+	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> TRefCountPtr<FRHIViewport>
 	{
 		check(IsInGameThread());
-		return MakeRefCount<FVulkanViewport>(*Device, WindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat);
+		return MakeRefCount<FVulkanViewport>(*Device, WindowHandle, SizeX, SizeY, bIsFullscreen, PreferredPixelFormat, InPresentModePolicy);
 	}
 
 	auto FVulkanDynamicRHI::RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void
