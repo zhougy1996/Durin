@@ -15,7 +15,7 @@ namespace Durin::Mona
 {
 	namespace
 	{
-		std::unordered_map<FRHITexture*, FTextureRHIRef> GExternalTextureRefs;
+		std::unordered_map<FRHITexture*, FTextureRHIRef*> GExternalTextureRefs;
 	}
 
 	struct FMonaImGuiRendererViewportData
@@ -97,12 +97,30 @@ namespace Durin::Mona
 				return ImTextureID_Invalid;
 			}
 
-			FTextureRHIRef& TextureRef = GExternalTextureRefs[Texture];
-			if (TextureRef == nullptr)
+			if (auto It = GExternalTextureRefs.find(Texture); It != GExternalTextureRefs.end())
 			{
-				TextureRef = Texture;
+				return reinterpret_cast<ImTextureID>(It->second);
 			}
-			return reinterpret_cast<ImTextureID>(&TextureRef);
+
+			auto* Ref = new FTextureRHIRef(Texture);
+			GExternalTextureRefs[Texture] = Ref;
+			return reinterpret_cast<ImTextureID>(Ref);
+		}
+
+		auto PruneExternalTextureRefs() -> void
+		{
+			for (auto It = GExternalTextureRefs.begin(); It != GExternalTextureRefs.end(); )
+			{
+				if (It->second->GetRefCount() == 1)
+				{
+					delete It->second;
+					It = GExternalTextureRefs.erase(It);
+				}
+				else
+				{
+					++It;
+				}
+			}
 		}
 
 		auto RenderViewport(ImGuiViewport* Viewport, ImDrawData* DrawData, FImGuiRHIImpl_WindowRenderBuffers& RenderBuffers) -> void
@@ -237,6 +255,10 @@ namespace Durin::Mona
 		GMonaImGuiContext = nullptr;
 
 		FlushRenderingCommands();
+		for (auto& [_, Ref] : GExternalTextureRefs)
+		{
+			delete Ref;
+		}
 		GExternalTextureRefs.clear();
 		ImGui::DestroyContext();
 	}
@@ -245,6 +267,7 @@ namespace Durin::Mona
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 
+		PruneExternalTextureRefs();
 		ImGuiMonaImpl_NewFrame();
 		ImGuiRHIImpl_NewFrame();
 		ImGui::NewFrame();
