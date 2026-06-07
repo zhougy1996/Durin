@@ -57,11 +57,7 @@ namespace Durin::VulkanRHI
 		}
 		TextureViews.clear();
 
-		for(auto & RenderingDoneSemaphore : RenderingDoneSemaphores)
-		{
-			delete RenderingDoneSemaphore;
-		}
-		RenderingDoneSemaphores.clear();
+		DestroyFrameResources();
 
 		Device.GetDeferredDeletionQueue().ReleaseResources(true);
 		DestroySwapchain();
@@ -82,22 +78,78 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::Resize(FRHICommandListImmediate& RHICmdList, uint32 InSizeX, uint32 InSizeY) -> void
 	{
 		check(IsInRenderingThread());
+		RequestResize(InSizeX, InSizeY);
+	}
+
+	auto FVulkanViewport::BeginDrawing(FRHICommandListImmediate& RHICmdList) -> void
+	{
+		check(IsInRenderingThread());
+		PrepareSwapchain(RHICmdList);
+	}
+
+	auto FVulkanViewport::RequestResize(uint32 InSizeX, uint32 InSizeY) -> void
+	{
 		if (InSizeX == 0 || InSizeY == 0)
 		{
 			return;
 		}
 
-		SizeX = InSizeX;
-		SizeY = InSizeY;
+		if (SizeX == InSizeX && SizeY == InSizeY && !bHasPendingResize)
+		{
+			return;
+		}
+
+		PendingSizeX = InSizeX;
+		PendingSizeY = InSizeY;
+		bHasPendingResize = true;
+		bSwapchainNeedsRecreate = true;
+	}
+
+	auto FVulkanViewport::PrepareSwapchain(FRHICommandListImmediate& RHICmdList) -> void
+	{
+		if (Swapchain != nullptr && Swapchain->NeedsRecreate())
+		{
+			bSwapchainNeedsRecreate = true;
+		}
+
+		if (!bSwapchainNeedsRecreate && !bHasPendingResize)
+		{
+			return;
+		}
+
+		if (bHasPendingResize)
+		{
+			SizeX = PendingSizeX;
+			SizeY = PendingSizeY;
+			PendingSizeX = 0;
+			PendingSizeY = 0;
+			bHasPendingResize = false;
+		}
+
+		if (SizeX == 0 || SizeY == 0)
+		{
+			return;
+		}
 
 		RecreateSwapchainFromRT(RHICmdList);
+		bSwapchainNeedsRecreate = false;
+	}
+
+	auto FVulkanViewport::MarkSwapchainNeedsRecreate() -> void
+	{
+		bSwapchainNeedsRecreate = true;
 	}
 
 	auto FVulkanViewport::RecreateSwapchainFromRT(FRHICommandListImmediate& RHICmdList) -> void
 	{
 		check(IsInRenderingThread());
-
-		GDynamicRHI->RHIBlockUntilGPUIdle();
+		AcquiredBackBufferIndex = -1;
+		AcquiredSemaphore = nullptr;
+		Device.GetGraphicsQueue()->GetHandle().waitIdle();
+		if (Device.GetPresentQueue() != Device.GetGraphicsQueue())
+		{
+			Device.GetPresentQueue()->GetHandle().waitIdle();
+		}
 
 		// Detach old swapchain handle — it must stay alive until the new swapchain
 		// is created with it as VkSwapchainCreateInfoKHR::oldSwapchain for a smooth transition.
@@ -129,6 +181,8 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture>
 	{
+		PrepareSwapchain(InRHICmdList);
+
 		if (AcquiredBackBufferIndex >= 0)
 		{
 			check(AcquiredBackBufferIndex < static_cast<int32>(TextureViews.size()));
@@ -137,21 +191,17 @@ namespace Durin::VulkanRHI
 
 		if (Swapchain->NeedsRecreate())
 		{
-			RecreateSwapchainFromRT(InRHICmdList);
+			MarkSwapchainNeedsRecreate();
+			return nullptr;
 		}
 
 		const uint32 AcquiredImageIndex = Swapchain->AcquireImageIndex(&AcquiredSemaphore);
 		if (AcquiredImageIndex == INDEX_NONE_U32)
 		{
-			RecreateSwapchainFromRT(InRHICmdList);
-			const uint32 RetryImageIndex = Swapchain->AcquireImageIndex(&AcquiredSemaphore);
-			if (RetryImageIndex == INDEX_NONE_U32)
-			{
-				AcquiredBackBufferIndex = -1;
-				AcquiredSemaphore = nullptr;
-				return nullptr;
-			}
-			AcquiredBackBufferIndex = static_cast<int32>(RetryImageIndex);
+			MarkSwapchainNeedsRecreate();
+			AcquiredBackBufferIndex = -1;
+			AcquiredSemaphore = nullptr;
+			return nullptr;
 		}
 		else
 		{
@@ -164,18 +214,20 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
 	{
-		if (AcquiredBackBufferIndex < 0 || AcquiredBackBufferIndex >= static_cast<int32>(RenderingDoneSemaphores.size()))
+		if (AcquiredBackBufferIndex < 0 || AcquiredBackBufferIndex >= static_cast<int32>(FrameResources.size()))
 		{
 			return false;
 		}
 
-		InContext.AddSignalSemaphore(RenderingDoneSemaphores[AcquiredBackBufferIndex]);
+		FVulkanSemaphore* RenderingDoneSemaphore = FrameResources[AcquiredBackBufferIndex].RenderingDoneSemaphore;
+		check(RenderingDoneSemaphore != nullptr);
+		InContext.AddSignalSemaphore(RenderingDoneSemaphore);
 		InContext.Finalize();
-		const bool bPresented = Swapchain->Present(&InPresentQueue, RenderingDoneSemaphores[AcquiredBackBufferIndex]);
+		const bool bPresented = Swapchain->Present(&InPresentQueue, RenderingDoneSemaphore);
 		const bool bNeedsRecreate = Swapchain->NeedsRecreate();
 		if (!bPresented || bNeedsRecreate)
 		{
-			RecreateSwapchainFromRT(FRHICommandListImmediate::Get());
+			MarkSwapchainNeedsRecreate();
 		}
 		AcquiredBackBufferIndex = -1;
 		AcquiredSemaphore = nullptr;
@@ -231,7 +283,7 @@ namespace Durin::VulkanRHI
 		const std::vector<vk::Image>& SwapchainImages = Swapchain->GetImages();
 		InitImages(SwapchainImages);
 
-		RecreateRenderingDoneSemaphores(static_cast<uint32>(SwapchainImages.size()));
+		RecreateFrameResources(static_cast<uint32>(SwapchainImages.size()));
 
 		RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
 		AcquiredBackBufferIndex = -1;
@@ -254,24 +306,30 @@ namespace Durin::VulkanRHI
 		AcquiredBackBufferIndex = -1;
 	}
 
-	auto FVulkanViewport::RecreateRenderingDoneSemaphores(uint32 NumSwapchainImages) -> void
+	auto FVulkanViewport::RecreateFrameResources(uint32 NumSwapchainImages) -> void
 	{
-		if (RenderingDoneSemaphores.size() == NumSwapchainImages)
+		if (FrameResources.size() == NumSwapchainImages)
 		{
 			return;
 		}
 
-		for (FVulkanSemaphore* RenderingDoneSemaphore : RenderingDoneSemaphores)
-		{
-			delete RenderingDoneSemaphore;
-		}
-		RenderingDoneSemaphores.clear();
+		DestroyFrameResources();
 
-		RenderingDoneSemaphores.resize(NumSwapchainImages);
+		FrameResources.resize(NumSwapchainImages);
 		for (uint32 i = 0; i < NumSwapchainImages; ++i)
 		{
-			RenderingDoneSemaphores[i] = new FVulkanSemaphore(Device);
+			FrameResources[i].RenderingDoneSemaphore = new FVulkanSemaphore(Device);
 		}
+	}
+
+	auto FVulkanViewport::DestroyFrameResources() -> void
+	{
+		for (FVulkanViewportFrameResources& FrameResource : FrameResources)
+		{
+			delete FrameResource.RenderingDoneSemaphore;
+			FrameResource.RenderingDoneSemaphore = nullptr;
+		}
+		FrameResources.clear();
 	}
 
 	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TRefCountPtr<FRHIViewport>
@@ -298,8 +356,6 @@ namespace Durin::VulkanRHI
 				{
 					VulkanViewport->Resize(RHICmdList, InSizeX, InSizeY);
 				});
-
-			FlushRenderingCommands();
 		}
 	}
 

@@ -79,6 +79,8 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void
 	{
+		auto* VulkanViewport = static_cast<FVulkanViewport*>(Viewport);
+		VulkanViewport->BeginDrawing(FRHICommandListImmediate::Get());
 	}
 
 	auto FVulkanCommandListContext::RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void

@@ -13,6 +13,11 @@ namespace Durin::VulkanRHI
 	class FVulkanSemaphore;
 	struct FVulkanView;
 
+	struct FVulkanViewportFrameResources
+	{
+		FVulkanSemaphore* RenderingDoneSemaphore = nullptr;
+	};
+
 	class FVulkanViewport;
 
 	class FVulkanBackBuffer : public FVulkanTexture
@@ -39,6 +44,8 @@ namespace Durin::VulkanRHI
 
 		auto Resize(FRHICommandListImmediate& RHICmdList, uint32 InSizeX, uint32 InSizeY) -> void;
 
+		auto BeginDrawing(FRHICommandListImmediate& RHICmdList) -> void;
+
 		auto RecreateSwapchainFromRT(FRHICommandListImmediate& RHICmdList) -> void;
 
 		auto GetSwapchain() const -> FVulkanSwapchain* { return Swapchain; }
@@ -58,13 +65,21 @@ namespace Durin::VulkanRHI
 		auto GetSwapchainImageFormat() const -> vk::Format;
 
 	protected:
+		auto RequestResize(uint32 InSizeX, uint32 InSizeY) -> void;
+
+		auto PrepareSwapchain(FRHICommandListImmediate& RHICmdList) -> void;
+
+		auto MarkSwapchainNeedsRecreate() -> void;
+
 		auto InitImages(const std::vector<vk::Image>& InImages) -> void;
 
 		auto CreateSwapchain(vk::SwapchainKHR InOldSwapchain = VK_NULL_HANDLE) -> void;
 
 		auto DestroySwapchain() -> void;
 
-		auto RecreateRenderingDoneSemaphores(uint32 NumSwapchainImages) -> void;
+		auto RecreateFrameResources(uint32 NumSwapchainImages) -> void;
+
+		auto DestroyFrameResources() -> void;
 
 		FVulkanDevice& Device;
 
@@ -79,8 +94,7 @@ namespace Durin::VulkanRHI
 
 		std::vector<FVulkanView> TextureViews;
 
-		// These semaphores will be signaled when rendering to the corresponding swapchain image is done, and will be waited on before presenting that image.
-		std::vector<FVulkanSemaphore*> RenderingDoneSemaphores;
+		std::vector<FVulkanViewportFrameResources> FrameResources;
 
 		TRefCountPtr<FVulkanBackBuffer> RHIBackBuffer;
 
@@ -91,6 +105,14 @@ namespace Durin::VulkanRHI
 		uint32 SizeX;
 
 		uint32 SizeY;
+
+		uint32 PendingSizeX = 0;
+
+		uint32 PendingSizeY = 0;
+
+		bool bHasPendingResize = false;
+
+		bool bSwapchainNeedsRecreate = false;
 
 		bool bIsFullScreen;
 
