@@ -88,6 +88,10 @@ namespace Durin::Mona
 
 		auto OnMouseMove(const std::shared_ptr<FGenericWindow>& InPlatformWindow, FVector2d CursorPos) -> bool override;
 
+		auto OnMouseEnter(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void override;
+
+		auto OnMouseLeave(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void override;
+
 		auto OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool override;
 
 		auto OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool override;

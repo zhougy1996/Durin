@@ -6,6 +6,10 @@
 #include "Misc/Paths.h"
 #include "Widgets/MWindow.h"
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 namespace Durin::Mona
 {
 	ImGuiContext* GMonaImGuiContext = nullptr;
@@ -27,6 +31,8 @@ namespace Durin::Mona
 		auto OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool override;
 		auto OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint) -> bool override;
 		auto OnMouseMove(const std::shared_ptr<FGenericWindow>& InPlatformWindow, FVector2d CursorPos) -> bool override;
+		auto OnMouseEnter(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void override;
+		auto OnMouseLeave(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void override;
 		auto OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool override;
 		auto OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool override;
 		auto OnMouseWheel(const std::shared_ptr<FGenericWindow>& InPlatformWindow, double DeltaX, double DeltaY) -> bool override;
@@ -41,7 +47,23 @@ namespace Durin::Mona
 		std::shared_ptr<MWindow> Window;
 		int32 IgnoreWindowPosEventFrame = -1;
 		int32 IgnoreWindowSizeEventFrame = -1;
+#if defined(_WIN32)
+		WNDPROC PrevWndProc = nullptr;
+#endif
 	};
+
+	struct FMonaImGuiMouseState
+	{
+		std::weak_ptr<FGenericWindow> MouseWindow;
+		ImVec2 LastValidMousePos = ImVec2(-FLT_MAX, -FLT_MAX);
+	};
+
+	static FMonaImGuiMouseState GMonaImGuiMouseState;
+
+#if defined(_WIN32)
+	static constexpr const char* MonaImGuiViewportProp = "DURIN_MONA_IMGUI_VIEWPORT";
+	static constexpr const char* MonaImGuiPrevWndProcProp = "DURIN_MONA_IMGUI_PREV_WNDPROC";
+#endif
 
 	static auto GetPlatformViewportData(ImGuiViewport* Viewport) -> ImGuiMonaImpl_ViewportData*
 	{
@@ -63,6 +85,22 @@ namespace Durin::Mona
 
 	static auto DestroyPlatformViewportData(ImGuiViewport* Viewport) -> void
 	{
+#if defined(_WIN32)
+		if (Viewport != nullptr)
+		{
+			if (auto* ViewportData = GetPlatformViewportData(Viewport))
+			{
+				if (ViewportData->PrevWndProc != nullptr && Viewport->PlatformHandleRaw != nullptr)
+				{
+					HWND WindowHandle = static_cast<HWND>(Viewport->PlatformHandleRaw);
+					::SetWindowLongPtrW(WindowHandle, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ViewportData->PrevWndProc));
+					::RemovePropA(WindowHandle, MonaImGuiViewportProp);
+					::RemovePropA(WindowHandle, MonaImGuiPrevWndProcProp);
+					ViewportData->PrevWndProc = nullptr;
+				}
+			}
+		}
+#endif
 		delete GetPlatformViewportData(Viewport);
 		Viewport->PlatformUserData = nullptr;
 		Viewport->PlatformHandle = nullptr;
@@ -176,14 +214,55 @@ namespace Durin::Mona
 
 	static auto SyncAllViewportsFrameStates() -> void
 	{
-		if (ImGuiViewport* MainViewport = ImGui::GetMainViewport())
+		ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
+		for (ImGuiViewport* Viewport : PlatformIO.Viewports)
 		{
-			if (const std::shared_ptr<MWindow> Window = GetViewportWindow(MainViewport))
+			if (const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport))
 			{
-				UpdateViewportFromWindow(MainViewport, Window);
+				UpdateViewportFromWindow(Viewport, Window);
 			}
 		}
 	}
+
+#if defined(_WIN32)
+	static LRESULT CALLBACK ImGuiMonaImpl_WndProc(HWND WindowHandle, UINT Message, WPARAM WParam, LPARAM LParam)
+	{
+		ImGuiViewport* Viewport = reinterpret_cast<ImGuiViewport*>(::GetPropA(WindowHandle, MonaImGuiViewportProp));
+		WNDPROC PrevWndProc = reinterpret_cast<WNDPROC>(::GetPropA(WindowHandle, MonaImGuiPrevWndProcProp));
+
+		if (Message == WM_NCHITTEST && Viewport != nullptr && (Viewport->Flags & ImGuiViewportFlags_NoInputs) != 0)
+		{
+			return HTTRANSPARENT;
+		}
+
+		if (PrevWndProc != nullptr)
+		{
+			return ::CallWindowProcW(PrevWndProc, WindowHandle, Message, WParam, LParam);
+		}
+		return ::DefWindowProcW(WindowHandle, Message, WParam, LParam);
+	}
+
+	static auto HookViewportWindow(ImGuiViewport* Viewport) -> void
+	{
+		if (Viewport == nullptr || Viewport->PlatformHandleRaw == nullptr)
+		{
+			return;
+		}
+
+		auto* ViewportData = GetPlatformViewportData(Viewport);
+		if (ViewportData == nullptr || ViewportData->PrevWndProc != nullptr)
+		{
+			return;
+		}
+
+		HWND WindowHandle = static_cast<HWND>(Viewport->PlatformHandleRaw);
+		ViewportData->PrevWndProc = reinterpret_cast<WNDPROC>(::GetWindowLongPtrW(WindowHandle, GWLP_WNDPROC));
+		check(ViewportData->PrevWndProc != nullptr);
+		::SetPropA(WindowHandle, MonaImGuiViewportProp, Viewport);
+		::SetPropA(WindowHandle, MonaImGuiPrevWndProcProp, reinterpret_cast<HANDLE>(ViewportData->PrevWndProc));
+		::SetWindowLongPtrW(WindowHandle, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ImGuiMonaImpl_WndProc));
+	}
+#endif
 
 	static auto BindViewportToWindow(ImGuiViewport* Viewport, const std::shared_ptr<MWindow>& Window) -> void
 	{
@@ -194,6 +273,9 @@ namespace Durin::Mona
 
 		CreatePlatformViewportData(Viewport, Window);
 		UpdateViewportFromWindow(Viewport, Window);
+#if defined(_WIN32)
+		HookViewportWindow(Viewport);
+#endif
 	}
 
 	static auto BindMainViewportToWindowInternal(const std::shared_ptr<MWindow>& MainWindow) -> void
@@ -273,8 +355,8 @@ namespace Durin::Mona
 		ImGuiIO& IO = ImGui::GetIO();
 		ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
 
-		ImGuiViewport* MousePosViewport = nullptr;
 		ImGuiViewport* HoveredViewport = nullptr;
+		ImGuiViewport* FocusedViewport = nullptr;
 		for (ImGuiViewport* Viewport : PlatformIO.Viewports)
 		{
 			const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport);
@@ -292,19 +374,17 @@ namespace Durin::Mona
 			if (NativeWindow->IsHovered() && (Viewport->Flags & ImGuiViewportFlags_NoInputs) == 0)
 			{
 				HoveredViewport = Viewport;
-				MousePosViewport = Viewport;
-				break;
 			}
 
-			if (MousePosViewport == nullptr && NativeWindow->IsFocused())
+			if (FocusedViewport == nullptr && NativeWindow->IsFocused())
 			{
-				MousePosViewport = Viewport;
+				FocusedViewport = Viewport;
 			}
 		}
 
-		if (MousePosViewport != nullptr)
+		if (GMonaImGuiMouseState.MouseWindow.expired() && FocusedViewport != nullptr)
 		{
-			const std::shared_ptr<MWindow> Window = GetViewportWindow(MousePosViewport);
+			const std::shared_ptr<MWindow> Window = GetViewportWindow(FocusedViewport);
 			const std::shared_ptr<FGenericWindow> NativeWindow = Window != nullptr ? Window->GetNativeWindow() : nullptr;
 			if (NativeWindow != nullptr)
 			{
@@ -315,6 +395,7 @@ namespace Durin::Mona
 					CursorPos.x += WindowPosition.x;
 					CursorPos.y += WindowPosition.y;
 				}
+				GMonaImGuiMouseState.LastValidMousePos = ImVec2(static_cast<float>(CursorPos.x), static_cast<float>(CursorPos.y));
 				IO.AddMousePosEvent(static_cast<float>(CursorPos.x), static_cast<float>(CursorPos.y));
 			}
 		}
@@ -877,15 +958,38 @@ namespace Durin::Mona
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		const FVector2d ImGuiCursorPos = ConvertMousePositionToImGuiSpace(InPlatformWindow, CursorPos);
+		GMonaImGuiMouseState.LastValidMousePos = ImVec2(static_cast<float>(ImGuiCursorPos.x), static_cast<float>(ImGuiCursorPos.y));
 		UpdateHoveredViewport(IO, InPlatformWindow);
 		IO.AddMousePosEvent(static_cast<float>(ImGuiCursorPos.x), static_cast<float>(ImGuiCursorPos.y));
 		return IO.WantCaptureMouse;
+	}
+
+	auto FMonaImGuiEventHandler::OnMouseEnter(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void
+	{
+		auto& IO = GetImGuiIO(InPlatformWindow);
+		GMonaImGuiMouseState.MouseWindow = InPlatformWindow;
+		IO.AddMousePosEvent(GMonaImGuiMouseState.LastValidMousePos.x, GMonaImGuiMouseState.LastValidMousePos.y);
+	}
+
+	auto FMonaImGuiEventHandler::OnMouseLeave(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void
+	{
+		if (const std::shared_ptr<FGenericWindow> MouseWindow = GMonaImGuiMouseState.MouseWindow.lock())
+		{
+			if (MouseWindow == InPlatformWindow)
+			{
+				auto& IO = GetImGuiIO(InPlatformWindow);
+				GMonaImGuiMouseState.LastValidMousePos = IO.MousePos;
+				GMonaImGuiMouseState.MouseWindow.reset();
+				IO.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+			}
+		}
 	}
 
 	auto FMonaImGuiEventHandler::OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		const FVector2d ImGuiCursorPos = ConvertMousePositionToImGuiSpace(InPlatformWindow, CursorPos);
+		GMonaImGuiMouseState.LastValidMousePos = ImVec2(static_cast<float>(ImGuiCursorPos.x), static_cast<float>(ImGuiCursorPos.y));
 		UpdateHoveredViewport(IO, InPlatformWindow);
 		IO.AddMousePosEvent(static_cast<float>(ImGuiCursorPos.x), static_cast<float>(ImGuiCursorPos.y));
 		IO.AddMouseButtonEvent(ConvertMouseButtonToImGuiType(Button), true);
@@ -896,6 +1000,7 @@ namespace Durin::Mona
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		const FVector2d ImGuiCursorPos = ConvertMousePositionToImGuiSpace(InPlatformWindow, CursorPos);
+		GMonaImGuiMouseState.LastValidMousePos = ImVec2(static_cast<float>(ImGuiCursorPos.x), static_cast<float>(ImGuiCursorPos.y));
 		UpdateHoveredViewport(IO, InPlatformWindow);
 		IO.AddMousePosEvent(static_cast<float>(ImGuiCursorPos.x), static_cast<float>(ImGuiCursorPos.y));
 		IO.AddMouseButtonEvent(ConvertMouseButtonToImGuiType(Button), false);
@@ -951,6 +1056,7 @@ namespace Durin::Mona
 	{
 		auto& App = FMonaApplication::Get();
 		App.SetMonaEventHandler(nullptr);
+		GMonaImGuiMouseState = {};
 
 		if (ImGuiViewport* MainViewport = ImGui::GetMainViewport())
 		{

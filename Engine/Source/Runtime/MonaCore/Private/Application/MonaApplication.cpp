@@ -441,6 +441,22 @@ namespace Durin::Mona
 		return MonaEventHandler ? MonaEventHandler->OnMouseMove(InPlatformWindow, CursorPos) : false;
 	}
 
+	auto FMonaApplication::OnMouseEnter(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void
+	{
+		if (MonaEventHandler)
+		{
+			MonaEventHandler->OnMouseEnter(InPlatformWindow);
+		}
+	}
+
+	auto FMonaApplication::OnMouseLeave(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void
+	{
+		if (MonaEventHandler)
+		{
+			MonaEventHandler->OnMouseLeave(InPlatformWindow);
+		}
+	}
+
 	auto FMonaApplication::OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
 		return MonaEventHandler ? MonaEventHandler->OnMouseDown(InPlatformWindow, Button, CursorPos) : false;

@@ -30,6 +30,8 @@ namespace Durin
 
 		UpdateViewportSize();
 
+		ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+
 		if (ViewportWidget != nullptr)
 		{
 			ViewportWidget->Draw();

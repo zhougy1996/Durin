@@ -24,6 +24,8 @@ namespace Durin
 		virtual auto OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint) -> bool { return false; }
 
 		virtual auto OnMouseMove(const std::shared_ptr<FGenericWindow>& InPlatformWindow, FVector2d CursorPos) -> bool { return false; }
+		virtual auto OnMouseEnter(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void {}
+		virtual auto OnMouseLeave(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void {}
 		virtual auto OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos ) -> bool { return false; }
 		virtual auto OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool { return false; }
 		virtual auto OnMouseWheel(const std::shared_ptr<FGenericWindow>& InPlatformWindow, double DeltaX, double DeltaY) -> bool { return false; }

@@ -200,6 +200,21 @@ namespace Durin
 			}
 		}
 
+		auto CursorEnterCallBack(GLFWwindow* InGlfwWindow, int Entered) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				if (Entered != 0)
+				{
+					GApp->GetMessageHandler()->OnMouseEnter(PlatformWindow);
+				}
+				else
+				{
+					GApp->GetMessageHandler()->OnMouseLeave(PlatformWindow);
+				}
+			}
+		}
+
 		auto ScrollCallBack(GLFWwindow* InGlfwWindow, double XOffset, double YOffset) -> void
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
@@ -385,6 +400,7 @@ namespace Durin
 		glfwSetCharCallback(GlfwWindow, CharCallBack);
 		glfwSetMouseButtonCallback(GlfwWindow, MouseButtonCallBack);
 		glfwSetCursorPosCallback(GlfwWindow, CursorPosCallBack);
+		glfwSetCursorEnterCallback(GlfwWindow, CursorEnterCallBack);
 		glfwSetScrollCallback(GlfwWindow, ScrollCallBack);
 		glfwSetWindowFocusCallback(GlfwWindow, WindowFocusCallBack);
 		glfwSetWindowCloseCallback(GlfwWindow, WindowCloseCallBack);
