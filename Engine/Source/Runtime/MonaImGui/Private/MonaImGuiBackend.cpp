@@ -196,6 +196,7 @@ namespace Durin::Mona
 				Height = static_cast<uint32>(FMath::Max(8.0f, Size.y));
 			}
 			Renderer->RequestResize(Window, Width, Height);
+			Renderer->GetRHIViewport(*Window);
 		}
 
 		auto ImGuiMona_RendererRenderWindow(ImGuiViewport* Viewport, void* RenderArg) -> void

@@ -40,6 +40,8 @@ namespace Durin::Mona
 		struct ImGuiMonaImpl_ViewportData
 		{
 			std::shared_ptr<MWindow> Window;
+			int32 IgnoreWindowPosEventFrame = -1;
+			int32 IgnoreWindowSizeEventFrame = -1;
 		};
 
 		auto GetPlatformViewportData(ImGuiViewport* Viewport) -> ImGuiMonaImpl_ViewportData*
@@ -72,6 +74,18 @@ namespace Durin::Mona
 		{
 			const auto* ViewportData = GetPlatformViewportData(Viewport);
 			return ViewportData != nullptr ? ViewportData->Window : nullptr;
+		}
+
+		auto ShouldIgnoreWindowPosEvent(ImGuiViewport* Viewport) -> bool
+		{
+			const auto* ViewportData = GetPlatformViewportData(Viewport);
+			return ViewportData != nullptr && ImGui::GetFrameCount() <= ViewportData->IgnoreWindowPosEventFrame + 1;
+		}
+
+		auto ShouldIgnoreWindowSizeEvent(ImGuiViewport* Viewport) -> bool
+		{
+			const auto* ViewportData = GetPlatformViewportData(Viewport);
+			return ViewportData != nullptr && ImGui::GetFrameCount() <= ViewportData->IgnoreWindowSizeEventFrame + 1;
 		}
 
 		auto GetMainMonaWindow() -> std::shared_ptr<MWindow>
@@ -163,12 +177,11 @@ namespace Durin::Mona
 
 		auto SyncAllViewportsFrameStates() -> void
 		{
-			ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
-			for (ImGuiViewport* Viewport : PlatformIO.Viewports)
+			if (ImGuiViewport* MainViewport = ImGui::GetMainViewport())
 			{
-				if (const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport))
+				if (const std::shared_ptr<MWindow> Window = GetViewportWindow(MainViewport))
 				{
-					UpdateViewportFromWindow(Viewport, Window);
+					UpdateViewportFromWindow(MainViewport, Window);
 				}
 			}
 		}
@@ -335,6 +348,10 @@ namespace Durin::Mona
 		{
 			if (const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport))
 			{
+				if (auto* ViewportData = GetPlatformViewportData(Viewport))
+				{
+					ViewportData->IgnoreWindowPosEventFrame = ImGui::GetFrameCount();
+				}
 				Window->MoveWindowTo({Position.x, Position.y});
 			}
 		}
@@ -358,6 +375,10 @@ namespace Durin::Mona
 		{
 			if (const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport))
 			{
+				if (auto* ViewportData = GetPlatformViewportData(Viewport))
+				{
+					ViewportData->IgnoreWindowSizeEventFrame = ImGui::GetFrameCount();
+				}
 				Window->ResizeWindow({Size.x, Size.y});
 			}
 		}
@@ -481,12 +502,12 @@ namespace Durin::Mona
 					const ImVec2 PlatformPos(static_cast<float>(WindowPositionInt.x), static_cast<float>(WindowPositionInt.y));
 					const ImVec2 PlatformSize(static_cast<float>(WindowSizeInt.x), static_cast<float>(WindowSizeInt.y));
 
-					if (PlatformPos.x != Viewport->Pos.x || PlatformPos.y != Viewport->Pos.y)
+					if ((PlatformPos.x != Viewport->Pos.x || PlatformPos.y != Viewport->Pos.y) && !ShouldIgnoreWindowPosEvent(Viewport))
 					{
 						Viewport->PlatformRequestMove = true;
 					}
 
-					if (PlatformSize.x != Viewport->Size.x || PlatformSize.y != Viewport->Size.y)
+					if ((PlatformSize.x != Viewport->Size.x || PlatformSize.y != Viewport->Size.y) && !ShouldIgnoreWindowSizeEvent(Viewport))
 					{
 						Viewport->PlatformRequestResize = true;
 					}
@@ -734,7 +755,10 @@ namespace Durin::Mona
 
 		if (ImGuiViewport* Viewport = GetPlatformViewport(InPlatformWindow))
 		{
-			Viewport->PlatformRequestResize = true;
+			if (!ShouldIgnoreWindowSizeEvent(Viewport))
+			{
+				Viewport->PlatformRequestResize = true;
+			}
 			return true;
 		}
 		return false;
@@ -749,7 +773,10 @@ namespace Durin::Mona
 
 		if (ImGuiViewport* Viewport = GetPlatformViewport(InPlatformWindow))
 		{
-			Viewport->PlatformRequestResize = true;
+			if (!ShouldIgnoreWindowSizeEvent(Viewport))
+			{
+				Viewport->PlatformRequestResize = true;
+			}
 			return true;
 		}
 		return false;
