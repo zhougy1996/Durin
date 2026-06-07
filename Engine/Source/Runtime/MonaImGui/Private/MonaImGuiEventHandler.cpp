@@ -195,6 +195,32 @@ namespace Durin::Mona
 		IO.AddFocusEvent(bFocused);
 	}
 
+	void FMonaImGuiEventHandler::OnWindowResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized)
+	{
+		if (bInWasMinimized)
+		{
+			return;
+		}
+
+		if (ImGuiViewport* Viewport = GetPlatformViewport(InPlatformWindow))
+		{
+			Viewport->PlatformRequestResize = true;
+		}
+	}
+
+	void FMonaImGuiEventHandler::OnWindowViewportResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized)
+	{
+		if (bInWasMinimized)
+		{
+			return;
+		}
+
+		if (ImGuiViewport* Viewport = GetPlatformViewport(InPlatformWindow))
+		{
+			Viewport->PlatformRequestResize = true;
+		}
+	}
+
 	bool FMonaImGuiEventHandler::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat)
 	{
 		// IsRepeat parameter is not used here because ImGui handles key repeats internally based on the state of the keys. We just need to update the key state and modifiers.

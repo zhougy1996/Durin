@@ -28,6 +28,8 @@ namespace Durin
 
 		APPLICATIONCORE_API virtual auto ReshapeWindow(int32 X, int32 Y, int32 Width, int32 Height) -> void;
 
+		APPLICATIONCORE_API virtual auto ResizeWindow(int32 Width, int32 Height) -> void;
+
 		APPLICATIONCORE_API virtual auto MoveWindowTo(int32 X, int32 Y) -> void;
 
 		APPLICATIONCORE_API virtual auto GetWindowPosition() const -> FIntPoint;

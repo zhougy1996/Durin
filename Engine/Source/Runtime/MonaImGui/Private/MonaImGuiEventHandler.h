@@ -19,6 +19,10 @@ namespace Durin::Mona
 
 		auto OnWindowFocused(const std::shared_ptr<FGenericWindow> &InPlatformWindow, bool bFocused) -> void override;
 
+		auto OnWindowResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
+
+		auto OnWindowViewportResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
+
 		auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool override;
 
 		auto OnKeyUp(const std::shared_ptr<FGenericWindow> &InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool override;

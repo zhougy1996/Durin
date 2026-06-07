@@ -166,12 +166,11 @@ namespace Durin
 
 	auto MWindow::ResizeWindow(const FVector2f& NewSize) -> void
 	{
-		FVector2i NewIntScreenPosition = FVector2i(FMath::TruncToInt(ScreenPosition.x), FMath::TruncToInt(ScreenPosition.y));
 		FVector2i NewIntSize = FVector2i(FMath::TruncToInt(NewSize.x), FMath::TruncToInt(NewSize.y));
 
 		if (NativeWindow)
 		{
-			NativeWindow->ReshapeWindow(NewIntScreenPosition.x, NewIntScreenPosition.y, NewIntSize.x, NewIntSize.y);
+			NativeWindow->ResizeWindow(NewIntSize.x, NewIntSize.y);
 		}
 		else
 		{

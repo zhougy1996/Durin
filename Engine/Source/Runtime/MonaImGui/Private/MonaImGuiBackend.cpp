@@ -398,8 +398,13 @@ namespace Durin::Mona
 		{
 			if (const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport))
 			{
-				auto Size = Window->GetWindowSize();
-				return {Size.x, Size.y};
+				if (const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow())
+				{
+					const FIntPoint SizeInt = NativeWindow->GetWindowSize();
+					const FVector2f Size(static_cast<float>(SizeInt.x), static_cast<float>(SizeInt.y));
+					Window->SetCachedSize(Size);
+					return {Size.x, Size.y};
+				}
 			}
 			return {};
 		}
@@ -468,6 +473,27 @@ namespace Durin::Mona
 			return 1.0f;
 		}
 
+		auto ImGuiMona_GetWindowFramebufferScale(ImGuiViewport* Viewport) -> ImVec2
+		{
+			if (const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport))
+			{
+				if (const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow())
+				{
+					const FIntPoint WindowSize = NativeWindow->GetWindowSize();
+					const FIntPoint ViewportSize = NativeWindow->GetViewportSize();
+					Window->SetCachedViewportSize(FVector2f(static_cast<float>(ViewportSize.x), static_cast<float>(ViewportSize.y)));
+					if (WindowSize.x > 0 && WindowSize.y > 0 && ViewportSize.x > 0 && ViewportSize.y > 0)
+					{
+						return {
+							static_cast<float>(ViewportSize.x) / static_cast<float>(WindowSize.x),
+							static_cast<float>(ViewportSize.y) / static_cast<float>(WindowSize.y)
+						};
+					}
+				}
+			}
+			return {1.0f, 1.0f};
+		}
+
 		auto ImGuiMona_UpdateWindow(ImGuiViewport* Viewport) -> void
 		{
 			if (const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport))
@@ -526,8 +552,16 @@ namespace Durin::Mona
 			const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport);
 			if (Renderer != nullptr && Window != nullptr)
 			{
-				const uint32 Width = static_cast<uint32>(FMath::Max(8.0f, Size.x));
-				const uint32 Height = static_cast<uint32>(FMath::Max(8.0f, Size.y));
+				FVector2f RenderTargetSize = Window->GetViewportSize();
+				if (const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow())
+				{
+					const FIntPoint ViewportSize = NativeWindow->GetViewportSize();
+					RenderTargetSize = FVector2f(static_cast<float>(ViewportSize.x), static_cast<float>(ViewportSize.y));
+					Window->SetCachedViewportSize(RenderTargetSize);
+				}
+
+				const uint32 Width = static_cast<uint32>(FMath::Max(8.0f, RenderTargetSize.x));
+				const uint32 Height = static_cast<uint32>(FMath::Max(8.0f, RenderTargetSize.y));
 				Renderer->RequestResize(Window, Width, Height);
 			}
 		}
@@ -576,6 +610,7 @@ namespace Durin::Mona
 			PlatformIO.Platform_SetWindowTitle = ImGuiMona_SetWindowTitle;
 			PlatformIO.Platform_SetWindowAlpha = ImGuiMona_SetWindowAlpha;
 			PlatformIO.Platform_GetWindowDpiScale = ImGuiMona_GetWindowDpiScale;
+			PlatformIO.Platform_GetWindowFramebufferScale = ImGuiMona_GetWindowFramebufferScale;
 			PlatformIO.Platform_UpdateWindow = ImGuiMona_UpdateWindow;
 			PlatformIO.Renderer_CreateWindow = ImGuiMona_RendererCreateWindow;
 			PlatformIO.Renderer_DestroyWindow = ImGuiMona_RendererDestroyWindow;

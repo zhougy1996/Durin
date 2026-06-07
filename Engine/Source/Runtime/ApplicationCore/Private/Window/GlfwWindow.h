@@ -24,6 +24,8 @@ namespace Durin
 
 		APPLICATIONCORE_API auto ReshapeWindow(int32 X, int32 Y, int32 Width, int32 Height) -> void override;
 
+		APPLICATIONCORE_API auto ResizeWindow(int32 Width, int32 Height) -> void override;
+
 		APPLICATIONCORE_API auto MoveWindowTo(int32 X, int32 Y) -> void override;
 
 		APPLICATIONCORE_API auto GetWindowPosition() const -> FIntPoint override;

@@ -18,6 +18,10 @@ namespace Durin
 	{
 	}
 
+	auto FGenericWindow::ResizeWindow(int32 Width, int32 Height) -> void
+	{
+	}
+
 	auto FGenericWindow::MoveWindowTo(int32 X, int32 Y) -> void
 	{
 	}

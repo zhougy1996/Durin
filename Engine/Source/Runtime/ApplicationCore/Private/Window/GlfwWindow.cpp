@@ -394,6 +394,11 @@ namespace Durin
 		glfwSetWindowSize(GlfwWindow, Width, Height);
 	}
 
+	auto FGlfwWindow::ResizeWindow(int32 Width, int32 Height) -> void
+	{
+		glfwSetWindowSize(GlfwWindow, Width, Height);
+	}
+
 	auto FGlfwWindow::MoveWindowTo(int32 X, int32 Y) -> void
 	{
 		glfwSetWindowPos(GlfwWindow, X, Y);
