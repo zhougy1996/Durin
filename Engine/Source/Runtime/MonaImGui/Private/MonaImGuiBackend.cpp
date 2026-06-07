@@ -178,20 +178,24 @@ namespace Durin::Mona
 			auto& App = FMonaApplication::Get();
 			FMonaRenderer* Renderer = App.GetRenderer();
 			const std::shared_ptr<MWindow> Window = ImGuiMonaImpl_GetViewportWindow(Viewport);
-			if (Renderer != nullptr && Window != nullptr)
+			if (Renderer == nullptr || Window == nullptr)
 			{
-				FVector2f RenderTargetSize = Window->GetViewportSize();
-				if (const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow())
-				{
-					const FIntPoint ViewportSize = NativeWindow->GetViewportSize();
-					RenderTargetSize = FVector2f(static_cast<float>(ViewportSize.x), static_cast<float>(ViewportSize.y));
-					Window->SetCachedViewportSize(RenderTargetSize);
-				}
-
-				const uint32 Width = static_cast<uint32>(FMath::Max(8.0f, RenderTargetSize.x));
-				const uint32 Height = static_cast<uint32>(FMath::Max(8.0f, RenderTargetSize.y));
-				Renderer->RequestResize(Window, Width, Height);
+				return;
 			}
+
+			uint32 Width, Height;
+			if (const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow())
+			{
+				const FIntPoint ViewportSize = NativeWindow->GetViewportSize();
+				Width = static_cast<uint32>(FMath::Max(8, ViewportSize.x));
+				Height = static_cast<uint32>(FMath::Max(8, ViewportSize.y));
+			}
+			else
+			{
+				Width = static_cast<uint32>(FMath::Max(8.0f, Size.x));
+				Height = static_cast<uint32>(FMath::Max(8.0f, Size.y));
+			}
+			Renderer->RequestResize(Window, Width, Height);
 		}
 
 		auto ImGuiMona_RendererRenderWindow(ImGuiViewport* Viewport, void* RenderArg) -> void
@@ -289,6 +293,20 @@ namespace Durin::Mona
 			{
 				if (auto* RenderBuffers = GetViewportRenderBuffers(MainViewport))
 				{
+					// Ensure main viewport swapchain matches current window framebuffer size.
+					// The main viewport is skipped by UpdatePlatformWindows() (index 0),
+					// so its swapchain must be resized here.
+					auto& App = FMonaApplication::Get();
+					FMonaRenderer* Renderer = App.GetRenderer();
+					if (const std::shared_ptr<MWindow> MainWindow = ImGuiMonaImpl_GetViewportWindow(MainViewport))
+					{
+						if (const std::shared_ptr<FGenericWindow> NativeWindow = MainWindow->GetNativeWindow())
+						{
+							const FIntPoint ViewportSize = NativeWindow->GetViewportSize();
+							Renderer->RequestResize(MainWindow, ViewportSize.x, ViewportSize.y);
+						}
+					}
+
 					RenderViewport(MainViewport, MainViewport->DrawData, *RenderBuffers);
 				}
 			}

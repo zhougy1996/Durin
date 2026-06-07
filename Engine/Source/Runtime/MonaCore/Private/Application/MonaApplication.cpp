@@ -392,15 +392,16 @@ namespace Durin::Mona
 			const FVector2f NewViewportSize = FVector2f(static_cast<float>(InWidth), static_cast<float>(InHeight));
 			Window->SetCachedViewportSize(NewViewportSize);
 
-			if (!bInWasMinimized)
+			bool bHandled = false;
+			if (MonaEventHandler)
+			{
+				bHandled = MonaEventHandler->OnWindowViewportResized(InPlatformWindow, InWidth, InHeight, bInWasMinimized);
+			}
+
+			if (!bHandled && !bInWasMinimized)
 			{
 				Renderer->RequestResize(Window, InWidth, InHeight);
 			}
-		}
-
-		if (MonaEventHandler)
-		{
-			MonaEventHandler->OnWindowViewportResized(InPlatformWindow, InWidth, InHeight, bInWasMinimized);
 		}
 	}
 

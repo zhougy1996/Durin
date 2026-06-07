@@ -20,8 +20,8 @@ namespace Durin::Mona
 
 		auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> bool override;
 		auto OnWindowFocused(const std::shared_ptr<FGenericWindow>& InPlatformWindow, bool bFocused) -> void override;
-		auto OnWindowResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
-		auto OnWindowViewportResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> void override;
+		auto OnWindowResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> bool override;
+		auto OnWindowViewportResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> bool override;
 		auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool override;
 		auto OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool override;
 		auto OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint) -> bool override;
@@ -718,30 +718,34 @@ namespace Durin::Mona
 		IO.AddFocusEvent(bFocused);
 	}
 
-	void FMonaImGuiEventHandler::OnWindowResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized)
+	bool FMonaImGuiEventHandler::OnWindowResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized)
 	{
 		if (bInWasMinimized)
 		{
-			return;
+			return false;
 		}
 
 		if (ImGuiViewport* Viewport = GetPlatformViewport(InPlatformWindow))
 		{
 			Viewport->PlatformRequestResize = true;
+			return true;
 		}
+		return false;
 	}
 
-	void FMonaImGuiEventHandler::OnWindowViewportResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized)
+	bool FMonaImGuiEventHandler::OnWindowViewportResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized)
 	{
 		if (bInWasMinimized)
 		{
-			return;
+			return false;
 		}
 
 		if (ImGuiViewport* Viewport = GetPlatformViewport(InPlatformWindow))
 		{
 			Viewport->PlatformRequestResize = true;
+			return true;
 		}
+		return false;
 	}
 
 	bool FMonaImGuiEventHandler::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat)
