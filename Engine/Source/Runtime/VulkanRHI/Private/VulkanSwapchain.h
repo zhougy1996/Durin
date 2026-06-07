@@ -21,6 +21,8 @@ namespace Durin::VulkanRHI
 
 		auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> bool;
 
+		auto NeedsRecreate() const -> bool { return bNeedsRecreate; }
+
 		// Return the actual format of the swap chain images, which is determined by the surface format selected during swap chain creation.
 		// This may be different from the preferred pixel format specified when creating the viewport.
 		auto GetFormat() const -> vk::Format { return ImageFormat; }
@@ -45,6 +47,8 @@ namespace Durin::VulkanRHI
 		int32 CurrentImageIndex = -1;
 
 		uint32 NextSemaphoreIndex{};
+
+		bool bNeedsRecreate = false;
 
 		std::vector<FVulkanSemaphore*> ImageAcquiredSemaphores;
 	};

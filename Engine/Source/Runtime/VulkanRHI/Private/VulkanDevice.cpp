@@ -293,6 +293,16 @@ namespace Durin::VulkanRHI
 			return;
 		}
 
+		if (PresentQueue != nullptr)
+		{
+			if (PresentQueue->GetFamilyIndex() == QueueFamilyIndex)
+			{
+				return;
+			}
+			delete PresentQueue;
+			PresentQueue = nullptr;
+		}
+
 		PresentQueue = new FVulkanQueue(this, QueueFamilyIndex);
 	}
 

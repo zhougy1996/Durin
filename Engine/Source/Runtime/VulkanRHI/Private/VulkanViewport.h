@@ -64,6 +64,8 @@ namespace Durin::VulkanRHI
 
 		auto DestroySwapchain() -> void;
 
+		auto RecreateRenderingDoneSemaphores(uint32 NumSwapchainImages) -> void;
+
 		FVulkanDevice& Device;
 
 		FVulkanSwapchain* Swapchain;

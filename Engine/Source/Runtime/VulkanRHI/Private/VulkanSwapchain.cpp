@@ -138,12 +138,17 @@ namespace Durin::VulkanRHI
 		if (Result.result != vk::Result::eSuccess && Result.result != vk::Result::eSuboptimalKHR)
 		{
 			CurrentImageIndex = -1;
+			bNeedsRecreate = IsRecoverableSwapchainResult(Result.result);
 			if (!IsRecoverableSwapchainResult(Result.result))
 			{
 				DURIN_ERROR("Failed to acquire swap chain image: {}", vk::to_string(Result.result));
 			}
 			*OutImageAcquiredSemaphore = nullptr;
 			return INDEX_NONE_U32;
+		}
+		if (Result.result == vk::Result::eSuboptimalKHR)
+		{
+			bNeedsRecreate = true;
 		}
 		CurrentImageIndex = static_cast<int32>(Result.value);
 		*OutImageAcquiredSemaphore = CurrentSemaphore;
@@ -176,6 +181,7 @@ namespace Durin::VulkanRHI
 		{
 			const vk::Result ErrorResult = GetSystemErrorResult(Error);
 			CurrentImageIndex = -1;
+			bNeedsRecreate = IsRecoverableSwapchainResult(ErrorResult);
 			if (!IsRecoverableSwapchainResult(ErrorResult))
 			{
 				DURIN_ERROR("Failed to present swap chain image: {}", Error.what());
@@ -185,12 +191,17 @@ namespace Durin::VulkanRHI
 
 		if (Result != vk::Result::eSuccess && Result != vk::Result::eSuboptimalKHR)
 		{
+			bNeedsRecreate = IsRecoverableSwapchainResult(Result);
 			if (!IsRecoverableSwapchainResult(Result))
 			{
 				DURIN_ERROR("Failed to present swap chain image: {}", vk::to_string(Result));
 			}
 			CurrentImageIndex = -1;
 			return false;
+		}
+		if (Result == vk::Result::eSuboptimalKHR)
+		{
+			bNeedsRecreate = true;
 		}
 
 		CurrentImageIndex = -1;

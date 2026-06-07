@@ -102,6 +102,11 @@ namespace Durin::VulkanRHI
 			return RHIBackBuffer;
 		}
 
+		if (Swapchain->NeedsRecreate())
+		{
+			RecreateSwapchainFromRT(InRHICmdList);
+		}
+
 		const uint32 AcquiredImageIndex = Swapchain->AcquireImageIndex(&AcquiredSemaphore);
 		if (AcquiredImageIndex == INDEX_NONE_U32)
 		{
@@ -134,7 +139,8 @@ namespace Durin::VulkanRHI
 		InContext.AddSignalSemaphore(RenderingDoneSemaphores[AcquiredBackBufferIndex]);
 		InContext.Finalize();
 		const bool bPresented = Swapchain->Present(&InPresentQueue, RenderingDoneSemaphores[AcquiredBackBufferIndex]);
-		if (!bPresented)
+		const bool bNeedsRecreate = Swapchain->NeedsRecreate();
+		if (!bPresented || bNeedsRecreate)
 		{
 			RecreateSwapchainFromRT(FRHICommandListImmediate::Get());
 		}
@@ -189,17 +195,7 @@ namespace Durin::VulkanRHI
 		const std::vector<vk::Image>& SwapchainImages = Swapchain->GetImages();
 		InitImages(SwapchainImages);
 
-		// Create semaphores for each swapchain image if they haven't been created yet.
-		const bool bCreateSemaphores = RenderingDoneSemaphores.empty();
-		check(bCreateSemaphores || RenderingDoneSemaphores.size() == SwapchainImages.size());  // RenderingDoneSemaphores should be either empty or have the same number of semaphores as swapchain images
-		if (bCreateSemaphores)
-		{
-			RenderingDoneSemaphores.resize(SwapchainImages.size());
-			for (uint32 i = 0; i < SwapchainImages.size(); ++i)
-			{
-				RenderingDoneSemaphores[i] = new FVulkanSemaphore(Device);
-			}
-		}
+		RecreateRenderingDoneSemaphores(static_cast<uint32>(SwapchainImages.size()));
 
 		RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
 		AcquiredBackBufferIndex = -1;
@@ -219,6 +215,26 @@ namespace Durin::VulkanRHI
 		Swapchain = nullptr;
 
 		AcquiredBackBufferIndex = -1;
+	}
+
+	auto FVulkanViewport::RecreateRenderingDoneSemaphores(uint32 NumSwapchainImages) -> void
+	{
+		if (RenderingDoneSemaphores.size() == NumSwapchainImages)
+		{
+			return;
+		}
+
+		for (FVulkanSemaphore* RenderingDoneSemaphore : RenderingDoneSemaphores)
+		{
+			delete RenderingDoneSemaphore;
+		}
+		RenderingDoneSemaphores.clear();
+
+		RenderingDoneSemaphores.resize(NumSwapchainImages);
+		for (uint32 i = 0; i < NumSwapchainImages; ++i)
+		{
+			RenderingDoneSemaphores[i] = new FVulkanSemaphore(Device);
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat) const -> TRefCountPtr<FRHIViewport>
