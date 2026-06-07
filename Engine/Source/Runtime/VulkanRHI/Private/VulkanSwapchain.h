@@ -27,6 +27,8 @@ namespace Durin::VulkanRHI
 		// This may be different from the preferred pixel format specified when creating the viewport.
 		auto GetFormat() const -> vk::Format { return ImageFormat; }
 
+		auto GetExtent() const -> vk::Extent2D { return Extent; }
+
 		auto Destroy() -> void;
 
 		auto GetHandle() const -> vk::SwapchainKHR { return Swapchain; }
@@ -45,6 +47,8 @@ namespace Durin::VulkanRHI
 
 		// Format of the swap chain images, which is determined by the surface format selected during swap chain creation.
 		vk::Format ImageFormat;
+
+		vk::Extent2D Extent{};
 
 		std::vector<vk::Image> SwapchainImages;
 

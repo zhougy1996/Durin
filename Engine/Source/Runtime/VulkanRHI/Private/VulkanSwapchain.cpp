@@ -66,7 +66,7 @@ namespace Durin::VulkanRHI
 
 		vk::SurfaceFormatKHR CurrFormat = ChooseSwapSurfaceFormat(Formats);
 		vk::PresentModeKHR PresentMode = ChooseSwapPresentMode(PresentModes);
-		vk::Extent2D Extent = ChooseSwapExtent(Capabilities, Width, Height);
+		Extent = ChooseSwapExtent(Capabilities, Width, Height);
 
 		ImageFormat = CurrFormat.format;
 
@@ -106,9 +106,9 @@ namespace Durin::VulkanRHI
 		Device.SetupPresentQueue(Surface);
 		SwapchainImages = Device.GetHandle().getSwapchainImagesKHR(Swapchain);
 
-		// init semaphores
-		ImageAcquiredSemaphores.resize(kFrameInFlight);
-		for (uint32 i = 0; i < kFrameInFlight; i++)
+		// Each acquire semaphore must not be reused while a previous acquire/submit using it is still pending.
+		ImageAcquiredSemaphores.resize(SwapchainImages.size());
+		for (uint32 i = 0; i < ImageAcquiredSemaphores.size(); i++)
 		{
 			ImageAcquiredSemaphores[i] = new FVulkanSemaphore(Device);
 		}

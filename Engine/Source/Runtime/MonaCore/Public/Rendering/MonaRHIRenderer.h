@@ -15,6 +15,11 @@ namespace Durin::Mona
 	{
 		TRefCountPtr<FRHIViewport> ViewportRHI;
 		bool bFullScreen;
+		uint32 CurrentWidth = 0;
+		uint32 CurrentHeight = 0;
+		uint32 PendingResizeWidth = 0;
+		uint32 PendingResizeHeight = 0;
+		bool bResizeRequested = false;
 	};
 
 

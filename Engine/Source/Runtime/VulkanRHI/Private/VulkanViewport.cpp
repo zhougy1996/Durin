@@ -18,9 +18,9 @@ namespace Durin::VulkanRHI
 		: FVulkanTexture(InDevice, nullptr)
 		, Viewport(InViewport)
 	{
-		FIntPoint Extent =  InViewport->GetSizeXY();
-		SizeX = Extent.x;
-		SizeY = Extent.y;
+		const vk::Extent2D Extent = Viewport->GetSwapchain()->GetExtent();
+		SizeX = Extent.width;
+		SizeY = Extent.height;
 		Format = Viewport->GetSwapchainImageFormat();
 	}
 
@@ -82,6 +82,11 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::Resize(FRHICommandListImmediate& RHICmdList, uint32 InSizeX, uint32 InSizeY) -> void
 	{
 		check(IsInRenderingThread());
+		if (InSizeX == 0 || InSizeY == 0)
+		{
+			return;
+		}
+
 		SizeX = InSizeX;
 		SizeY = InSizeY;
 
@@ -219,6 +224,9 @@ namespace Durin::VulkanRHI
 		RHIBackBuffer = nullptr;
 
 		Swapchain = new FVulkanSwapchain(Device, Surface, SizeX, SizeY, bIsFullScreen, InOldSwapchain);
+		const vk::Extent2D SwapchainExtent = Swapchain->GetExtent();
+		SizeX = SwapchainExtent.width;
+		SizeY = SwapchainExtent.height;
 
 		const std::vector<vk::Image>& SwapchainImages = Swapchain->GetImages();
 		InitImages(SwapchainImages);
@@ -275,6 +283,11 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void
 	{
 		check(IsInGameThread());
+		if (InSizeX == 0 || InSizeY == 0)
+		{
+			return;
+		}
+
 		FVulkanViewport* VulkanViewport = static_cast<FVulkanViewport*>(InViewport);
 		const FIntPoint OldSize = VulkanViewport->GetSizeXY();
 		const FIntPoint NewSize = {InSizeX, InSizeY};

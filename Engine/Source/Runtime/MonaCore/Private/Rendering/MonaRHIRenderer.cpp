@@ -41,18 +41,32 @@ namespace Durin::Mona
 		auto* ViewportInfo = new FMonaViewportInfo();
 		ViewportInfo->ViewportRHI = GDynamicRHI->RHICreateViewport(PlatformWindow->GetOSNativeWindowHandle(), Width, Height, bFullScreen, EPixelFormat::SRGBA8_UNORM);
 		ViewportInfo->bFullScreen = bFullScreen;
+		ViewportInfo->CurrentWidth = Width;
+		ViewportInfo->CurrentHeight = Height;
 		WindowToViewportInfoMap.emplace(Window.get(), ViewportInfo);
 	}
 
 	auto FMonaRHIRenderer::RequestResize(const std::shared_ptr<MWindow>& Window, uint32 Width, uint32 Height) -> void
 	{
+		if (Width == 0 || Height == 0)
+		{
+			return;
+		}
+
 		auto ViewportInfoIt = WindowToViewportInfoMap.find(Window.get());
 		if (ViewportInfoIt != WindowToViewportInfoMap.end())
 		{
 			FMonaViewportInfo* ViewportInfo = ViewportInfoIt->second;
 			const uint32 ClampedWidth = static_cast<uint32>(FMath::Max(MIN_VIEWPORT_SIZE, static_cast<int32>(Width)));
 			const uint32 ClampedHeight = static_cast<uint32>(FMath::Max(MIN_VIEWPORT_SIZE, static_cast<int32>(Height)));
-			GDynamicRHI->RHIResizeViewport(ViewportInfo->ViewportRHI.GetReference(), ClampedWidth, ClampedHeight, ViewportInfo->bFullScreen);
+			if (ViewportInfo->CurrentWidth == ClampedWidth && ViewportInfo->CurrentHeight == ClampedHeight)
+			{
+				return;
+			}
+
+			ViewportInfo->PendingResizeWidth = ClampedWidth;
+			ViewportInfo->PendingResizeHeight = ClampedHeight;
+			ViewportInfo->bResizeRequested = true;
 		}
 	}
 
@@ -75,7 +89,20 @@ namespace Durin::Mona
 		const auto ViewportInfoIt = WindowToViewportInfoMap.find(&Window);
 		if (ViewportInfoIt != WindowToViewportInfoMap.end())
 		{
-			return ViewportInfoIt->second->ViewportRHI;
+			FMonaViewportInfo* ViewportInfo = ViewportInfoIt->second;
+			if (ViewportInfo->bResizeRequested)
+			{
+				ViewportInfo->bResizeRequested = false;
+				GDynamicRHI->RHIResizeViewport(
+					ViewportInfo->ViewportRHI.GetReference(),
+					ViewportInfo->PendingResizeWidth,
+					ViewportInfo->PendingResizeHeight,
+					ViewportInfo->bFullScreen
+				);
+				ViewportInfo->CurrentWidth = ViewportInfo->PendingResizeWidth;
+				ViewportInfo->CurrentHeight = ViewportInfo->PendingResizeHeight;
+			}
+			return ViewportInfo->ViewportRHI;
 		}
 		return nullptr;
 	}
