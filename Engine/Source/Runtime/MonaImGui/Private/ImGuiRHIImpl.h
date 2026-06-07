@@ -26,6 +26,8 @@ namespace Durin::Mona
 
 	auto ImGuiRHIImpl_NewFrame() -> void;
 
-	auto ImGuiRHIImpl_RenderDrawData(const FViewportRHIRef& InViewport, ImDrawData* DrawData, FImGuiRHIImpl_WindowRenderBuffers* WindowRenderBuffers = nullptr) -> void;
+	auto ImGuiRHIImpl_RenderDrawData(const FViewportRHIRef& InViewport, ImDrawData* DrawData, FImGuiRHIImpl_WindowRenderBuffers* WindowRenderBuffers = nullptr, bool bPresent = true) -> void;
+
+	auto ImGuiRHIImpl_PresentViewport(const FViewportRHIRef& InViewport) -> void;
 
 }

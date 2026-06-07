@@ -224,6 +224,14 @@ namespace Durin
 			}
 		}
 
+		auto WindowPosCallBack(GLFWwindow* InGlfwWindow, int X, int Y) -> void
+		{
+			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
+			{
+				GApp->GetMessageHandler()->OnWindowMoved(PlatformWindow, X, Y);
+			}
+		}
+
 		auto FramebufferSizeCallBack(GLFWwindow* InGlfwWindow, int Width, int Height) -> void
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
@@ -370,6 +378,7 @@ namespace Durin
 		glfwSetWindowUserPointer(GlfwWindow, OSNativeWindowHandle);
 
 		// Register all GLFW callbacks
+		glfwSetWindowPosCallback(GlfwWindow, WindowPosCallBack);
 		glfwSetWindowSizeCallback(GlfwWindow, WindowSizeCallBack);
 		glfwSetFramebufferSizeCallback(GlfwWindow, FramebufferSizeCallBack);
 		glfwSetKeyCallback(GlfwWindow, KeyCallBack);
@@ -418,6 +427,13 @@ namespace Durin
 		int32 Height = 0;
 		glfwGetWindowSize(GlfwWindow, &Width, &Height);
 		return {Width, Height};
+	}
+
+	auto FGlfwWindow::GetCursorPosition() const -> FVector2d
+	{
+		FVector2d CursorPos;
+		glfwGetCursorPos(GlfwWindow, &CursorPos.x, &CursorPos.y);
+		return CursorPos;
 	}
 
 	void FGlfwWindow::Close()
@@ -478,6 +494,11 @@ namespace Durin
 	auto FGlfwWindow::IsFocused() const -> bool
 	{
 		return glfwGetWindowAttrib(GlfwWindow, GLFW_FOCUSED) != 0;
+	}
+
+	auto FGlfwWindow::IsHovered() const -> bool
+	{
+		return glfwGetWindowAttrib(GlfwWindow, GLFW_HOVERED) != 0;
 	}
 
 	auto FGlfwWindow::SetTitle(const std::string& InTitle) -> void

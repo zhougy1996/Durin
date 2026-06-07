@@ -441,7 +441,7 @@ namespace Durin::Mona
 		CommandList.EndRenderPass();
 	}
 
-	auto ImGuiRHIImpl_RenderDrawData(const FViewportRHIRef& InViewport, ImDrawData* DrawData, FImGuiRHIImpl_WindowRenderBuffers* WindowRenderBuffers) -> void
+	auto ImGuiRHIImpl_RenderDrawData(const FViewportRHIRef& InViewport, ImDrawData* DrawData, FImGuiRHIImpl_WindowRenderBuffers* WindowRenderBuffers, bool bPresent) -> void
 	{
 		const bool bHasDrawData = DrawData != nullptr;
 
@@ -460,7 +460,7 @@ namespace Durin::Mona
 		const ImVec4 WindowBgColor = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
 		const FClearValueBinding ClearValue(WindowBgColor.x, WindowBgColor.y, WindowBgColor.z, 1.0f);
 
-		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData, WindowRenderBuffers, ClearValue](FRHICommandListImmediate& CommandList) {
+		ENQUEUE_RENDER_COMMAND(RenderWindow)([ViewportRHI = InViewport, DrawData, WindowRenderBuffers, ClearValue, bPresent](FRHICommandListImmediate& CommandList) {
 			check(WindowRenderBuffers != nullptr);
 			auto& RenderBuffersCurrentFrame = WindowRenderBuffers->FrameRenderBuffers[GRenderFrameCounterRenderThread % kFrameInFlight];
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
@@ -488,6 +488,13 @@ namespace Durin::Mona
 				ImGuiRHIImplRT_ClearViewport(CommandList, BackBuffer, ClearValue);
 			}
 
+			CommandList.EndDrawingViewport(ViewportRHI, bPresent, false);
+		});
+	}
+
+	auto ImGuiRHIImpl_PresentViewport(const FViewportRHIRef& InViewport) -> void
+	{
+		ENQUEUE_RENDER_COMMAND(PresentWindow)([ViewportRHI = InViewport](FRHICommandListImmediate& CommandList) {
 			CommandList.EndDrawingViewport(ViewportRHI, true, false);
 		});
 	}

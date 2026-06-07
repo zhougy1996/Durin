@@ -76,6 +76,10 @@ namespace Durin
 
 		APPLICATIONCORE_API virtual auto SetCursor(EMouseCursor Cursor) -> void;
 
+		APPLICATIONCORE_API virtual auto GetCursorPosition() const -> FVector2d;
+
+		APPLICATIONCORE_API virtual auto IsHovered() const -> bool;
+
 	protected:
 		std::shared_ptr<FGenericWindowDefinition> Definition;
 

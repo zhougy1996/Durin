@@ -22,6 +22,7 @@ namespace Durin::Mona
 	{
 		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
 		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
+		FViewportRHIRef ViewportRHI;
 		uint32 NextSnapshotIndex = 0;
 	};
 
@@ -59,6 +60,7 @@ namespace Durin::Mona
 			if (auto* ViewportData = GetRendererViewportData(Viewport))
 			{
 				ViewportData->RenderBuffers.Clear();
+				ViewportData->ViewportRHI = nullptr;
 				delete ViewportData;
 			}
 			Viewport->RendererUserData = nullptr;
@@ -123,10 +125,11 @@ namespace Durin::Mona
 			}
 		}
 
-		auto RenderViewport(ImGuiViewport* Viewport, ImDrawData* DrawData, FImGuiRHIImpl_WindowRenderBuffers& RenderBuffers) -> void
+		auto RenderViewport(ImGuiViewport* Viewport, ImDrawData* DrawData, FMonaImGuiRendererViewportData& ViewportData, bool bPresent) -> void
 		{
 			if (DrawData == nullptr)
 			{
+				ViewportData.ViewportRHI = nullptr;
 				return;
 			}
 
@@ -135,11 +138,12 @@ namespace Durin::Mona
 			const std::shared_ptr<MWindow> Window = ImGuiMonaImpl_GetViewportWindow(Viewport);
 			if (Renderer == nullptr || Window == nullptr || Window->IsMinimized())
 			{
+				ViewportData.ViewportRHI = nullptr;
 				return;
 			}
 
-			FViewportRHIRef ViewportRHI = Renderer->GetRHIViewport(*Window);
-			if (ViewportRHI == nullptr)
+			ViewportData.ViewportRHI = Renderer->GetRHIViewport(*Window);
+			if (ViewportData.ViewportRHI == nullptr)
 			{
 				return;
 			}
@@ -150,7 +154,7 @@ namespace Durin::Mona
 				return;
 			}
 
-			ImGuiRHIImpl_RenderDrawData(ViewportRHI, SnapshotDrawData, &RenderBuffers);
+			ImGuiRHIImpl_RenderDrawData(ViewportData.ViewportRHI, SnapshotDrawData, &ViewportData.RenderBuffers, bPresent);
 		}
 
 		// ---- Renderer Callbacks (ImGuiPlatformIO) --------------------------
@@ -201,17 +205,24 @@ namespace Durin::Mona
 
 		auto ImGuiMona_RendererRenderWindow(ImGuiViewport* Viewport, void* RenderArg) -> void
 		{
-			auto* RenderBuffers = GetViewportRenderBuffers(Viewport);
-			if (RenderBuffers == nullptr)
+			auto* ViewportData = GetRendererViewportData(Viewport);
+			if (ViewportData == nullptr)
 			{
 				return;
 			}
 
-			RenderViewport(Viewport, Viewport->DrawData, *RenderBuffers);
+			RenderViewport(Viewport, Viewport->DrawData, *ViewportData, false);
 		}
 
 		auto ImGuiMona_RendererSwapBuffers(ImGuiViewport* Viewport, void* RenderArg) -> void
 		{
+			if (auto* ViewportData = GetRendererViewportData(Viewport))
+			{
+				if (ViewportData->ViewportRHI != nullptr)
+				{
+					ImGuiRHIImpl_PresentViewport(ViewportData->ViewportRHI);
+				}
+			}
 		}
 	}
 
@@ -308,7 +319,10 @@ namespace Durin::Mona
 						}
 					}
 
-					RenderViewport(MainViewport, MainViewport->DrawData, *RenderBuffers);
+					if (auto* ViewportData = GetRendererViewportData(MainViewport))
+					{
+						RenderViewport(MainViewport, MainViewport->DrawData, *ViewportData, true);
+					}
 				}
 			}
 		}

@@ -66,6 +66,10 @@ namespace Durin
 
 		APPLICATIONCORE_API auto SetCursor(EMouseCursor Cursor) -> void override;
 
+		APPLICATIONCORE_API auto GetCursorPosition() const -> FVector2d override;
+
+		APPLICATIONCORE_API auto IsHovered() const -> bool override;
+
 	private:
 		FGlfwWindow();
 

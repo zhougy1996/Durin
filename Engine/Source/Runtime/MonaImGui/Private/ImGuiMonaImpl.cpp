@@ -22,6 +22,7 @@ namespace Durin::Mona
 		auto OnWindowFocused(const std::shared_ptr<FGenericWindow>& InPlatformWindow, bool bFocused) -> void override;
 		auto OnWindowResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> bool override;
 		auto OnWindowViewportResized(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InWidth, int32 InHeight, bool bInWasMinimized) -> bool override;
+		auto OnWindowMoved(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InX, int32 InY) -> bool override;
 		auto OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool override;
 		auto OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool override;
 		auto OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint) -> bool override;
@@ -266,6 +267,63 @@ namespace Durin::Mona
 						NativeWindow->SetCursor(DesiredCursor);
 					}
 				}
+			}
+		}
+
+		auto UpdateMouseData() -> void
+		{
+			ImGuiIO& IO = ImGui::GetIO();
+			ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
+
+			ImGuiViewport* MousePosViewport = nullptr;
+			ImGuiViewport* HoveredViewport = nullptr;
+			for (ImGuiViewport* Viewport : PlatformIO.Viewports)
+			{
+				const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport);
+				if (Window == nullptr)
+				{
+					continue;
+				}
+
+				const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow();
+				if (NativeWindow == nullptr || NativeWindow->IsMinimized())
+				{
+					continue;
+				}
+
+				if (NativeWindow->IsHovered() && (Viewport->Flags & ImGuiViewportFlags_NoInputs) == 0)
+				{
+					HoveredViewport = Viewport;
+					MousePosViewport = Viewport;
+					break;
+				}
+
+				if (MousePosViewport == nullptr && NativeWindow->IsFocused())
+				{
+					MousePosViewport = Viewport;
+				}
+			}
+
+			if (MousePosViewport != nullptr)
+			{
+				const std::shared_ptr<MWindow> Window = GetViewportWindow(MousePosViewport);
+				const std::shared_ptr<FGenericWindow> NativeWindow = Window != nullptr ? Window->GetNativeWindow() : nullptr;
+				if (NativeWindow != nullptr)
+				{
+					FVector2d CursorPos = NativeWindow->GetCursorPosition();
+					if ((IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
+					{
+						const FIntPoint WindowPosition = NativeWindow->GetWindowPosition();
+						CursorPos.x += WindowPosition.x;
+						CursorPos.y += WindowPosition.y;
+					}
+					IO.AddMousePosEvent(static_cast<float>(CursorPos.x), static_cast<float>(CursorPos.y));
+				}
+			}
+
+			if ((IO.BackendFlags & ImGuiBackendFlags_HasMouseHoveredViewport) != 0)
+			{
+				IO.AddMouseViewportEvent(HoveredViewport != nullptr ? HoveredViewport->ID : 0);
 			}
 		}
 
@@ -782,6 +840,19 @@ namespace Durin::Mona
 		return false;
 	}
 
+	bool FMonaImGuiEventHandler::OnWindowMoved(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InX, int32 InY)
+	{
+		if (ImGuiViewport* Viewport = GetPlatformViewport(InPlatformWindow))
+		{
+			if (!ShouldIgnoreWindowPosEvent(Viewport))
+			{
+				Viewport->PlatformRequestMove = true;
+			}
+			return true;
+		}
+		return false;
+	}
+
 	bool FMonaImGuiEventHandler::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat)
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
@@ -913,6 +984,7 @@ namespace Durin::Mona
 
 		SyncAllViewportsFrameStates();
 		UpdateMonitors();
+		UpdateMouseData();
 		UpdateMouseCursor();
 	}
 

@@ -36,6 +36,11 @@ namespace Durin
 		return {0, 0};
 	}
 
+	auto FGenericWindow::GetCursorPosition() const -> FVector2d
+	{
+		return {0.0, 0.0};
+	}
+
 	auto FGenericWindow::GetWindowMode() const -> EWindowMode
 	{
 		return EWindowMode::Windowed;
@@ -92,6 +97,11 @@ namespace Durin
 	}
 
 	auto FGenericWindow::IsFocused() const -> bool
+	{
+		return false;
+	}
+
+	auto FGenericWindow::IsHovered() const -> bool
 	{
 		return false;
 	}

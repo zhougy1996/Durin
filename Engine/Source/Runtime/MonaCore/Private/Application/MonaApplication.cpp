@@ -404,6 +404,19 @@ namespace Durin::Mona
 		}
 	}
 
+	auto FMonaApplication::OnWindowMoved(const std::shared_ptr<FGenericWindow>& InPlatformWindow, int32 InX, int32 InY) -> void
+	{
+		if (const std::shared_ptr<MWindow> Window = FMonaWindowHelper::FindWindowByPlatformWindow(Windows, InPlatformWindow))
+		{
+			Window->SetCachedScreenPosition(FVector2f(static_cast<float>(InX), static_cast<float>(InY)));
+		}
+
+		if (MonaEventHandler)
+		{
+			MonaEventHandler->OnWindowMoved(InPlatformWindow, InX, InY);
+		}
+	}
+
 	auto FMonaApplication::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool
 	{
 		if (MonaEventHandler && MonaEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat))
