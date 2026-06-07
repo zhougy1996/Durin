@@ -21,9 +21,13 @@ namespace Durin::Mona
 		std::unordered_map<FRHITexture*, FTextureRHIRef> GExternalTextureRefs;
 	}
 
-	struct FMonaImGuiViewportData
+	struct FMonaImGuiPlatformViewportData
 	{
 		std::shared_ptr<MWindow> Window;
+	};
+
+	struct FMonaImGuiRendererViewportData
+	{
 		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
 		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
 		uint32 NextSnapshotIndex = 0;
@@ -31,14 +35,72 @@ namespace Durin::Mona
 
 	namespace
 	{
-		auto GetViewportData(ImGuiViewport* Viewport) -> FMonaImGuiViewportData*
+		auto GetPlatformViewportData(ImGuiViewport* Viewport) -> FMonaImGuiPlatformViewportData*
 		{
-			return static_cast<FMonaImGuiViewportData*>(Viewport->PlatformUserData);
+			return Viewport != nullptr ? static_cast<FMonaImGuiPlatformViewportData*>(Viewport->PlatformUserData) : nullptr;
+		}
+
+		auto GetRendererViewportData(ImGuiViewport* Viewport) -> FMonaImGuiRendererViewportData*
+		{
+			return Viewport != nullptr ? static_cast<FMonaImGuiRendererViewportData*>(Viewport->RendererUserData) : nullptr;
+		}
+
+		auto CreatePlatformViewportData(ImGuiViewport* Viewport, const std::shared_ptr<MWindow>& Window) -> FMonaImGuiPlatformViewportData*
+		{
+			auto* ViewportData = GetPlatformViewportData(Viewport);
+			if (ViewportData == nullptr)
+			{
+				ViewportData = new FMonaImGuiPlatformViewportData();
+				Viewport->PlatformUserData = ViewportData;
+			}
+
+			ViewportData->Window = Window;
+			return ViewportData;
+		}
+
+		auto DestroyPlatformViewportData(ImGuiViewport* Viewport) -> void
+		{
+			delete GetPlatformViewportData(Viewport);
+			Viewport->PlatformUserData = nullptr;
+			Viewport->PlatformHandle = nullptr;
+			Viewport->PlatformHandleRaw = nullptr;
+		}
+
+		auto CreateRendererViewportData(ImGuiViewport* Viewport) -> FMonaImGuiRendererViewportData*
+		{
+			if (Viewport == nullptr)
+			{
+				return nullptr;
+			}
+
+			auto* ViewportData = GetRendererViewportData(Viewport);
+			if (ViewportData == nullptr)
+			{
+				ViewportData = new FMonaImGuiRendererViewportData();
+				Viewport->RendererUserData = ViewportData;
+			}
+
+			return ViewportData;
+		}
+
+		auto DestroyRendererViewportData(ImGuiViewport* Viewport) -> void
+		{
+			if (Viewport == nullptr)
+			{
+				return;
+			}
+
+			if (auto* ViewportData = GetRendererViewportData(Viewport))
+			{
+				ViewportData->RenderBuffers.Clear();
+				delete ViewportData;
+			}
+			Viewport->RendererUserData = nullptr;
 		}
 
 		auto GetMainMonaWindow() -> std::shared_ptr<MWindow>
 		{
-			if (auto* ViewportData = GetViewportData(ImGui::GetMainViewport()))
+			if (auto* ViewportData = GetPlatformViewportData(ImGui::GetMainViewport()))
 			{
 				return ViewportData->Window;
 			}
@@ -60,7 +122,7 @@ namespace Durin::Mona
 
 		auto GetViewportWindow(ImGuiViewport* Viewport) -> std::shared_ptr<MWindow>
 		{
-			const auto* ViewportData = GetViewportData(Viewport);
+			const auto* ViewportData = GetPlatformViewportData(Viewport);
 			return ViewportData != nullptr ? ViewportData->Window : nullptr;
 		}
 
@@ -92,13 +154,13 @@ namespace Durin::Mona
 
 		auto GetViewportRenderBuffers(ImGuiViewport* Viewport) -> FImGuiRHIImpl_WindowRenderBuffers*
 		{
-			auto* ViewportData = GetViewportData(Viewport);
+			auto* ViewportData = GetRendererViewportData(Viewport);
 			return ViewportData != nullptr ? &ViewportData->RenderBuffers : nullptr;
 		}
 
 		auto SnapshotViewportDrawData(ImGuiViewport* Viewport, ImDrawData* DrawData) -> ImDrawData*
 		{
-			auto* ViewportData = GetViewportData(Viewport);
+			auto* ViewportData = GetRendererViewportData(Viewport);
 			if (ViewportData == nullptr || DrawData == nullptr)
 			{
 				return nullptr;
@@ -178,14 +240,8 @@ namespace Durin::Mona
 				return;
 			}
 
-			auto* ViewportData = GetViewportData(Viewport);
-			if (ViewportData == nullptr)
-			{
-				ViewportData = new FMonaImGuiViewportData();
-				Viewport->PlatformUserData = ViewportData;
-			}
-
-			ViewportData->Window = Window;
+			CreatePlatformViewportData(Viewport, Window);
+			CreateRendererViewportData(Viewport);
 			UpdateViewportFromWindow(Viewport, Window);
 		}
 
@@ -335,23 +391,18 @@ namespace Durin::Mona
 			App.AddWindow(Window, false);
 			Window->HideWindow();
 
-			auto* ViewportData = new FMonaImGuiViewportData();
-			Viewport->PlatformUserData = ViewportData;
 			BindViewportToWindow(Viewport, Window);
 		}
 
 		auto ImGuiMona_DestroyWindow(ImGuiViewport* Viewport) -> void
 		{
-			auto* ViewportData = GetViewportData(Viewport);
+			auto* ViewportData = GetPlatformViewportData(Viewport);
 			if (ViewportData != nullptr && ViewportData->Window != nullptr && (Viewport->Flags & ImGuiViewportFlags_OwnedByApp) == 0)
 			{
 				ViewportData->Window->RequestDestroyWindow();
 			}
 
-			delete ViewportData;
-			Viewport->PlatformUserData = nullptr;
-			Viewport->PlatformHandle = nullptr;
-			Viewport->PlatformHandleRaw = nullptr;
+			DestroyPlatformViewportData(Viewport);
 		}
 
 		auto ImGuiMona_ShowWindow(ImGuiViewport* Viewport) -> void
@@ -528,6 +579,8 @@ namespace Durin::Mona
 
 		auto ImGuiMona_RendererCreateWindow(ImGuiViewport* Viewport) -> void
 		{
+			CreateRendererViewportData(Viewport);
+
 			auto& App = FMonaApplication::Get();
 			FMonaRenderer* Renderer = App.GetRenderer();
 			const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport);
@@ -539,10 +592,7 @@ namespace Durin::Mona
 
 		auto ImGuiMona_RendererDestroyWindow(ImGuiViewport* Viewport) -> void
 		{
-			if (auto* RenderBuffers = GetViewportRenderBuffers(Viewport))
-			{
-				RenderBuffers->Clear();
-			}
+			DestroyRendererViewportData(Viewport);
 		}
 
 		auto ImGuiMona_RendererSetWindowSize(ImGuiViewport* Viewport, ImVec2 Size) -> void
@@ -568,11 +618,6 @@ namespace Durin::Mona
 
 		auto ImGuiMona_RendererRenderWindow(ImGuiViewport* Viewport, void* RenderArg) -> void
 		{
-			if (Viewport == ImGui::GetMainViewport())
-			{
-				return;
-			}
-
 			auto* RenderBuffers = GetViewportRenderBuffers(Viewport);
 			if (RenderBuffers == nullptr)
 			{
@@ -689,6 +734,11 @@ namespace Durin::Mona
 		auto& App = FMonaApplication::Get();
 
 		ImGui::DestroyPlatformWindows();
+		if (ImGuiViewport* MainViewport = ImGui::GetMainViewport())
+		{
+			DestroyRendererViewportData(MainViewport);
+			DestroyPlatformViewportData(MainViewport);
+		}
 		App.SetMonaEventHandler(nullptr);
 		ImGuiIO& IO = ImGui::GetIO();
 		IO.BackendPlatformName = nullptr;
