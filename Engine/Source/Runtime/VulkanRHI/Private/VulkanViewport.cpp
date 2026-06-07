@@ -4,6 +4,7 @@
 #include "VulkanCommon.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
+#include "VulkanGenericPlatform.h"
 #include "VulkanView.h"
 #include "VulkanContext.h"
 #include "VulkanSwapchain.h"
@@ -42,6 +43,7 @@ namespace Durin::VulkanRHI
 		, NativeWindowHandle(InWindowHandle)
 	 	, PixelFormat(InPreferredPixelFormat)
 	{
+		Surface = FVulkanGenericPlatform::CreateSurface(InWindowHandle, FVulkanDynamicRHI::Get().RHIGetVkInstance());
 		CreateSwapchain();
 	}
 
@@ -64,6 +66,12 @@ namespace Durin::VulkanRHI
 		Device.GetDeferredDeletionQueue().ReleaseResources(true);
 		DestroySwapchain();
 		Device.GetDeferredDeletionQueue().ReleaseResources(true);
+
+		if (Surface != VK_NULL_HANDLE)
+		{
+			FVulkanDynamicRHI::Get().RHIGetVkInstance().destroySurfaceKHR(Surface);
+			Surface = VK_NULL_HANDLE;
+		}
 	}
 
 	auto FVulkanViewport::GetWindowHandle() -> void*
@@ -83,8 +91,28 @@ namespace Durin::VulkanRHI
 	auto FVulkanViewport::RecreateSwapchainFromRT(FRHICommandListImmediate& RHICmdList) -> void
 	{
 		check(IsInRenderingThread());
+
+		GDynamicRHI->RHIBlockUntilGPUIdle();
+
+		// Detach old swapchain handle — it must stay alive until the new swapchain
+		// is created with it as VkSwapchainCreateInfoKHR::oldSwapchain for a smooth transition.
+		vk::SwapchainKHR OldSwapchainHandle = VK_NULL_HANDLE;
+		if (Swapchain != nullptr)
+		{
+			OldSwapchainHandle = Swapchain->DetachSwapchain();
+		}
+
+		// Destroy old per-frame resources (images, views, etc.) but NOT the VkSwapchainKHR
 		DestroySwapchain();
-		CreateSwapchain();
+
+		// Create new swapchain referencing the old one
+		CreateSwapchain(OldSwapchainHandle);
+
+		// Now the old swapchain can be safely destroyed — the new one has taken over
+		if (OldSwapchainHandle != VK_NULL_HANDLE)
+		{
+			Device.GetHandle().destroySwapchainKHR(OldSwapchainHandle);
+		}
 	}
 
 	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanView&
@@ -185,12 +213,12 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanViewport::CreateSwapchain() -> void
+	auto FVulkanViewport::CreateSwapchain(vk::SwapchainKHR InOldSwapchain) -> void
 	{
 		// Release old swapchain resources
 		RHIBackBuffer = nullptr;
 
-		Swapchain = new FVulkanSwapchain(FVulkanDynamicRHI::Get().RHIGetVkInstance(), Device, NativeWindowHandle, SizeX, SizeY, bIsFullScreen);
+		Swapchain = new FVulkanSwapchain(Device, Surface, SizeX, SizeY, bIsFullScreen, InOldSwapchain);
 
 		const std::vector<vk::Image>& SwapchainImages = Swapchain->GetImages();
 		InitImages(SwapchainImages);
@@ -203,16 +231,17 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::DestroySwapchain() -> void
 	{
-		GDynamicRHI->RHIBlockUntilGPUIdle();
-
-		const std::vector<vk::Image>& SwapchainImages = Swapchain->GetImages();
-		for (uint32 i = 0; i < SwapchainImages.size(); ++i)
+		if (Swapchain != nullptr)
 		{
-			Device.NotifyDeleted_Image(SwapchainImages[i]);
-		}
+			const std::vector<vk::Image>& OldImages = Swapchain->GetImages();
+			for (uint32 i = 0; i < OldImages.size(); ++i)
+			{
+				Device.NotifyDeleted_Image(OldImages[i]);
+			}
 
-		delete Swapchain;
-		Swapchain = nullptr;
+			delete Swapchain;
+			Swapchain = nullptr;
+		}
 
 		AcquiredBackBufferIndex = -1;
 	}

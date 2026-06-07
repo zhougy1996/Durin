@@ -161,9 +161,16 @@ namespace Durin::Mona
 			}
 		}
 
-		auto SyncMainViewportFrameState(const std::shared_ptr<MWindow>& MainWindow) -> void
+		auto SyncAllViewportsFrameStates() -> void
 		{
-			UpdateViewportFromWindow(ImGui::GetMainViewport(), MainWindow);
+			ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
+			for (ImGuiViewport* Viewport : PlatformIO.Viewports)
+			{
+				if (const std::shared_ptr<MWindow> Window = GetViewportWindow(Viewport))
+				{
+					UpdateViewportFromWindow(Viewport, Window);
+				}
+			}
 		}
 
 		auto BindViewportToWindow(ImGuiViewport* Viewport, const std::shared_ptr<MWindow>& Window) -> void
@@ -877,7 +884,7 @@ namespace Durin::Mona
 		IO.DeltaTime = static_cast<float>(CurrentTime - LastTime);
 		LastTime = CurrentTime;
 
-		SyncMainViewportFrameState(MainWindow);
+		SyncAllViewportsFrameStates();
 		UpdateMonitors();
 		UpdateMouseCursor();
 	}

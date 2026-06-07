@@ -1,7 +1,6 @@
 #include "VulkanSwapchain.h"
 
 #include "VulkanDevice.h"
-#include "VulkanGenericPlatform.h"
 #include "VulkanQueue.h"
 
 namespace Durin::VulkanRHI
@@ -55,12 +54,10 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	FVulkanSwapchain::FVulkanSwapchain(vk::Instance InInstance, FVulkanDevice& Device, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen)
-		: Instance(InInstance)
-		, Device(Device)
+	FVulkanSwapchain::FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, vk::SwapchainKHR InOldSwapchain)
+		: Device(InDevice)
+		, Surface(InSurface)
 	{
-		Surface = FVulkanGenericPlatform::CreateSurface(InWindowHandle, InInstance);
-
 		// Get Swap chain support details
 		vk::PhysicalDevice Gpu = Device.GetGpu();
 		vk::SurfaceCapabilitiesKHR Capabilities = Gpu.getSurfaceCapabilitiesKHR(Surface);
@@ -95,7 +92,7 @@ namespace Durin::VulkanRHI
 			.setPresentMode(PresentMode)
 			.setClipped(vk::True)
 			.setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
-			.setOldSwapchain(VK_NULL_HANDLE);
+			.setOldSwapchain(InOldSwapchain);
 		try
 		{
 			Swapchain = Device.GetHandle().createSwapchainKHR(SwapchainInfo);
@@ -214,9 +211,12 @@ namespace Durin::VulkanRHI
 		{
 			delete Semaphore;
 		}
+		ImageAcquiredSemaphores.clear();
 
-		Device.GetHandle().destroySwapchainKHR(Swapchain);
-		Instance.destroySurfaceKHR(Surface);
-		Surface = nullptr;
+		if (Swapchain != VK_NULL_HANDLE)
+		{
+			Device.GetHandle().destroySwapchainKHR(Swapchain);
+			Swapchain = VK_NULL_HANDLE;
+		}
 	}
 } // namespace Durin::VulkanRHI

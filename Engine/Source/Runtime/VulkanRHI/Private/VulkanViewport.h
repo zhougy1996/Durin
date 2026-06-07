@@ -60,7 +60,7 @@ namespace Durin::VulkanRHI
 	protected:
 		auto InitImages(const std::vector<vk::Image>& InImages) -> void;
 
-		auto CreateSwapchain() -> void;
+		auto CreateSwapchain(vk::SwapchainKHR InOldSwapchain = VK_NULL_HANDLE) -> void;
 
 		auto DestroySwapchain() -> void;
 
@@ -69,6 +69,8 @@ namespace Durin::VulkanRHI
 		FVulkanDevice& Device;
 
 		FVulkanSwapchain* Swapchain;
+
+		vk::SurfaceKHR Surface = VK_NULL_HANDLE;
 
 		// The preferred pixel format specified when creating the viewport, this may be different from the actual swapchain image format if the preferred format is not supported.
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;

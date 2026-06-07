@@ -10,7 +10,7 @@ namespace Durin::VulkanRHI
 	class FVulkanSwapchain
 	{
 	public:
-		FVulkanSwapchain(vk::Instance InInstance, FVulkanDevice& InDevice, void* InWindowHandle, uint32 Width, uint32 Height, bool bIsFullScreen);
+		FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, vk::SwapchainKHR InOldSwapchain = VK_NULL_HANDLE);
 
 		~FVulkanSwapchain();
 
@@ -27,12 +27,18 @@ namespace Durin::VulkanRHI
 		// This may be different from the preferred pixel format specified when creating the viewport.
 		auto GetFormat() const -> vk::Format { return ImageFormat; }
 
-		// TODO: recreate
 		auto Destroy() -> void;
 
-	private:
-		vk::Instance Instance;
+		auto GetHandle() const -> vk::SwapchainKHR { return Swapchain; }
 
+		auto DetachSwapchain() -> vk::SwapchainKHR
+		{
+			vk::SwapchainKHR Handle = Swapchain;
+			Swapchain = VK_NULL_HANDLE;
+			return Handle;
+		}
+
+	private:
 		FVulkanDevice& Device;
 
 		vk::SwapchainKHR Swapchain;
