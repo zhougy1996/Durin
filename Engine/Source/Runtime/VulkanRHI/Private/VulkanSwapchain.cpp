@@ -130,7 +130,6 @@ namespace Durin::VulkanRHI
 		try
 		{
 			Swapchain = Device.GetHandle().createSwapchainKHR(SwapchainInfo);
-			DURIN_TRACE("Vulkan swap chain created");
 		}
 		catch (const std::runtime_error& err)
 		{

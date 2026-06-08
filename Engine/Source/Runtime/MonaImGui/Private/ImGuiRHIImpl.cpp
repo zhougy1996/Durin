@@ -4,7 +4,6 @@
 
 #include "Application/MonaApplication.h"
 #include "CoreGlobals.h"
-#include "ApplicationCoreFwd.h"
 #include "ImGuiMonaImpl.h"
 #include "RHI.h"
 #include "Rendering/MonaRenderer.h"
@@ -93,17 +92,10 @@ namespace Durin::Mona
 		FTextureRHIRef Texture;
 	};
 
-	struct FImGuiRHIImpl_DelayedTextureRelease
-	{
-		FTextureRHIRef Texture;
-		uint64 ReleaseAfterFrame = 0;
-	};
-
 	struct FImGuiRHIImpl_RendererViewportData
 	{
 		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
 		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
-		std::array<std::vector<FTextureRHIRef>, 2> PinnedTextureSnapshots;
 		FViewportRHIRef ViewportRHI;
 		uint32 NextSnapshotIndex = 0;
 	};
@@ -118,53 +110,25 @@ namespace Durin::Mona
 		}
 	}
 
-	static std::unordered_map<FRHITexture*, FTextureRHIRef> GRegisteredTextures;
-	static std::vector<FImGuiRHIImpl_DelayedTextureRelease> GDelayedTextureReleases;
+	static std::unordered_map<FRHITexture*, FImGuiRHIImpl_Texture> GRegisteredTextures;
+	static std::vector<FImGuiRHIImpl_Texture> GDelayedTextureReleases;
 
-	static auto EnqueueDelayedTextureRelease(FTextureRHIRef&& Texture) -> void
+	static auto SweepDelayedTextureReleases() -> void
 	{
-		if (Texture == nullptr)
-		{
-			return;
-		}
-
-		FImGuiRHIImpl_DelayedTextureRelease ReleaseEntry;
-		ReleaseEntry.Texture = std::move(Texture);
-		ReleaseEntry.ReleaseAfterFrame = GFrameCounter;
-		GDelayedTextureReleases.push_back(std::move(ReleaseEntry));
+		GDelayedTextureReleases.clear();
 	}
 
-	static auto SweepDelayedTextureReleases(uint64 CurrentFrame) -> void
+	static auto UnregisterTextureImpl(FRHITexture* InTexture) -> void
 	{
-		for (auto It = GDelayedTextureReleases.begin(); It != GDelayedTextureReleases.end();)
-		{
-			if (CurrentFrame > It->ReleaseAfterFrame)
-			{
-				It = GDelayedTextureReleases.erase(It);
-				continue;
-			}
-
-			++It;
-		}
-	}
-
-	static auto UnregisterTextureImpl(const FTextureRHIRef& Texture) -> void
-	{
-		if (Texture == nullptr)
-		{
-			return;
-		}
-
-		FRHITexture* TexturePtr = Texture.GetReference();
-		auto It = GRegisteredTextures.find(TexturePtr);
+		const auto It = GRegisteredTextures.find(InTexture);
 		if (It == GRegisteredTextures.end())
 		{
 			return;
 		}
 
-		FTextureRHIRef ReleasedTexture = std::move(It->second);
+		GDelayedTextureReleases.push_back(std::move(It->second));
 		GRegisteredTextures.erase(It);
-		EnqueueDelayedTextureRelease(std::move(ReleasedTexture));
+
 	}
 
 	static auto GetRendererViewportData(ImGuiViewport* Viewport) -> FImGuiRHIImpl_RendererViewportData*
@@ -199,10 +163,6 @@ namespace Durin::Mona
 		if (auto* ViewportData = GetRendererViewportData(Viewport))
 		{
 			ViewportData->RenderBuffers.Clear();
-			for (auto& PinnedTextures : ViewportData->PinnedTextureSnapshots)
-			{
-				PinnedTextures.clear();
-			}
 			ViewportData->ViewportRHI = nullptr;
 			delete ViewportData;
 		}
@@ -212,31 +172,11 @@ namespace Durin::Mona
 	static auto SnapshotViewportDrawData(ImGuiViewport* Viewport, ImDrawData* DrawData) -> ImDrawData*
 	{
 		auto* ViewportData = GetRendererViewportData(Viewport);
+		check(ViewportData != nullptr);
 
 		const uint32 SnapshotIndex = ViewportData->NextSnapshotIndex;
 		ImDrawDataSnapshot& Snapshot = ViewportData->DrawDataSnapshots[SnapshotIndex];
-		std::vector<FTextureRHIRef>& PinnedTextures = ViewportData->PinnedTextureSnapshots[SnapshotIndex];
 		Snapshot.SnapUsingSwap(DrawData, FTime::Seconds());
-		PinnedTextures.clear();
-		for (ImDrawList* DrawList : Snapshot.DrawData.CmdLists)
-		{
-			for (ImDrawCmd& Cmd : DrawList->CmdBuffer)
-			{
-				if (Cmd.TexRef._TexData != nullptr)
-				{
-					continue;
-				}
-
-				FRHITexture* TexturePtr = reinterpret_cast<FRHITexture*>(Cmd.TexRef._TexID);
-				auto It = GRegisteredTextures.find(TexturePtr);
-				if (It == GRegisteredTextures.end() || It->second == nullptr)
-				{
-					continue;
-				}
-
-				PinnedTextures.push_back(It->second);
-			}
-		}
 		ViewportData->NextSnapshotIndex = (SnapshotIndex + 1) % ViewportData->DrawDataSnapshots.size();
 		return &Snapshot.DrawData;
 	}
@@ -481,7 +421,7 @@ namespace Durin::Mona
 
 	auto ImGuiRHIImpl_NewFrame() -> void
 	{
-		SweepDelayedTextureReleases(GFrameCounter);
+		SweepDelayedTextureReleases();
 	}
 
 	auto ImGuiRHIImpl_RegisterTexture(const FTextureRHIRef& Texture) -> void
@@ -491,24 +431,18 @@ namespace Durin::Mona
 			return;
 		}
 
-		GRegisteredTextures[Texture.GetReference()] = Texture;
+		GRegisteredTextures[Texture.GetReference()].Texture = Texture;
 	}
 
-	auto ImGuiRHIImpl_UnregisterTexture(const FTextureRHIRef& Texture) -> void
+	auto ImGuiRHIImpl_UnregisterTexture(FRHITexture* InRHITexture) -> void
 	{
-		UnregisterTextureImpl(Texture);
+		UnregisterTextureImpl(InRHITexture);
 	}
 
-	auto ImGuiRHIImpl_GetTextureID(const FTextureRHIRef& Texture) -> ImTextureID
+	auto ImGuiRHIImpl_GetTextureID(FRHITexture* InRHITexture) -> ImTextureID
 	{
-		if (Texture == nullptr)
-		{
-			return ImTextureID_Invalid;
-		}
-
-		FRHITexture* TexturePtr = Texture.GetReference();
-		return GRegisteredTextures.find(TexturePtr) != GRegisteredTextures.end()
-			? reinterpret_cast<ImTextureID>(TexturePtr)
+		return GRegisteredTextures.contains(InRHITexture)
+			? reinterpret_cast<ImTextureID>(InRHITexture)
 			: ImTextureID_Invalid;
 	}
 
