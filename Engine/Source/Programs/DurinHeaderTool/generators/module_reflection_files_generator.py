@@ -185,11 +185,6 @@ def make_new_module_manifest(module_name: str, old_manifest: ModuleManifest = No
         old_header_fingerprint = old_manifest.reflect_headers.get(header) if old_manifest else None
         manifest.reflect_headers[header] = utils.get_file_fingerprint_with_old_cache(header_file_path, old_header_fingerprint)
 
-        output_dir = utils.get_module_dht_output_dir(module_name)
-        manifest.generated_outputs.append(str(output_dir / f"{Path(header).stem}.gen.h"))
-        manifest.generated_outputs.append(str(output_dir / f"{Path(header).stem}.gen.cpp"))
-
-    manifest.generated_outputs.append(str(utils.get_module_dht_output_dir(module_name) / f"{module_name}.module.gen.cpp"))
     return manifest
 
 

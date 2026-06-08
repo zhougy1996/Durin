@@ -49,17 +49,10 @@ class ModuleExportManifest:
     platform: str = ""
     generatorOptionsHash: str = ""
     reflectHeaders: dict[str, FileFingerprint] = field(default_factory=dict)
-    headerSymbols: dict[str, dict[str, ExportedSymbolInfo]] = field(default_factory=dict)
 
     @classmethod
     def from_file(cls, module_export_manifest_file_path: Path) -> "ModuleExportManifest":
         raw_json_data = utils.load_json_file(module_export_manifest_file_path)
-        header_symbols = {}
-        for header, symbols_data in raw_json_data.get("headerSymbols", {}).items():
-            header_symbols[header] = {
-                qualified_name: ExportedSymbolInfo(**symbol_data)
-                for qualified_name, symbol_data in symbols_data.items()
-            }
         return cls(
             schemaVersion=raw_json_data.get("schemaVersion", 0),
             toolVersion=raw_json_data.get("toolVersion", ""),
@@ -72,7 +65,6 @@ class ModuleExportManifest:
                 header: FileFingerprint(**fingerprint)
                 for header, fingerprint in raw_json_data.get("reflectHeaders", {}).items()
             },
-            headerSymbols=header_symbols,
         )
 
 
@@ -112,13 +104,6 @@ def save_module_export_manifest_file(manifest: ModuleExportManifest) -> str:
         "reflectHeaders": {
             header: asdict(fingerprint)
             for header, fingerprint in sorted(manifest.reflectHeaders.items())
-        },
-        "headerSymbols": {
-            header: {
-                qualified_name: asdict(symbol)
-                for qualified_name, symbol in sorted(symbols.items())
-            }
-            for header, symbols in sorted(manifest.headerSymbols.items())
         },
     }
     content = json.dumps(json_data, indent=4)

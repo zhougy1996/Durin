@@ -18,7 +18,6 @@ class ModuleManifest:
     dep_module_exports: dict[str, LightFileFingerprint] = field(default_factory=dict)
     reflect_headers: dict[str, FileFingerprint] = field(default_factory=dict)
     resolved_symbol_dependencies: dict[str, dict[str, dict[str, str]]] = field(default_factory=dict)
-    generated_outputs: list[str] = field(default_factory=list)
 
 
 def _fingerprint_from_dict(cls, value):
@@ -53,7 +52,6 @@ def load_module_manifest_file(module_name: str) -> ModuleManifest:
             for key, value in data.get("reflectHeaders", {}).items()
         },
         resolved_symbol_dependencies=data.get("resolvedSymbolDependencies", {}),
-        generated_outputs=data.get("generatedOutputs", []),
     )
 
 
@@ -76,7 +74,6 @@ def save_module_manifest_file(manifest: ModuleManifest) -> str:
             }
             for header, symbols in sorted(manifest.resolved_symbol_dependencies.items())
         },
-        "generatedOutputs": sorted(manifest.generated_outputs),
     }
     content = json.dumps(json_data, indent=4)
     utils.generate_file(output_path, content)

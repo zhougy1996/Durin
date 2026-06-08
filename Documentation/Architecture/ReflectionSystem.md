@@ -114,7 +114,7 @@ DurinHeaderTool stores export-generation input fingerprints in a private sibling
 <Module>.export.manifest
 ```
 
-The module export manifest records the schema/tool/options/profile/platform, reflected-header fingerprints, and the exported symbols last produced by each header. It lets `generate_module_export_file` skip entirely when no inputs changed. If only some headers changed, DurinHeaderTool reuses unchanged header symbols from the manifest, reparses only changed or missing entries, then assembles the public `.export` file. When multiple headers require parsing, the export generator parses them in a bounded worker pool and merges results in module header order. Other modules should not depend on or read this private cache file.
+The module export manifest records the schema/tool/options/profile/platform and reflected-header fingerprints. It lets `generate_module_export_file` skip entirely when no inputs changed. If only some headers changed, DurinHeaderTool reparses those headers and reuses unchanged header symbols by grouping entries from the previous public `.export` file, then assembles the new public `.export` file. When multiple headers require parsing, the export generator parses them in a bounded worker pool and merges results in module header order. Other modules should not depend on or read this private cache file.
 
 `CoreDObject` uses `DObject/MirrorExportTypes.h` under `_DHT_EXPORTS_PARSER` to publish intrinsic core types such as `Durin::DObject`, `Durin::DStructure`, and `Durin::DClass` without generating duplicate runtime class registration for those intrinsic types.
 
@@ -138,7 +138,6 @@ The manifest is schema v1 JSON and is private to DurinHeaderTool. It records:
 - reflected header fingerprints
 - dependency export fingerprints
 - resolved reflected-symbol dependencies per header
-- generated output paths
 
 Changing the tool version, schema, symbol-name scheme, profile, platform, options hash, dependency exports, or reflected header fingerprints invalidates generated reflection outputs.
 
