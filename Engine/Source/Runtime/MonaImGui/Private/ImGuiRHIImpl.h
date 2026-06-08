@@ -27,9 +27,11 @@ namespace Durin::Mona
 
 	auto ImGuiRHIImpl_NewFrame() -> void;
 
-	auto ImGuiRHIImpl_GetTextureID(FRHITexture* Texture) -> ImTextureID;
+	auto ImGuiRHIImpl_RegisterTexture(const FTextureRHIRef& Texture) -> void;
 
-	auto ImGuiRHIImpl_PruneExternalTextureRefs() -> void;
+	auto ImGuiRHIImpl_UnregisterTexture(const FTextureRHIRef& Texture) -> void;
+
+	auto ImGuiRHIImpl_GetTextureID(const FTextureRHIRef& Texture) -> ImTextureID;
 
 	auto ImGuiRHIImpl_EnsureMainViewportData(ImGuiViewport* Viewport) -> void;
 

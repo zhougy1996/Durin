@@ -13,7 +13,9 @@ namespace Durin::Mona
 		MONAIMGUI_API auto Shutdown() -> void override;
 		MONAIMGUI_API auto NewFrame() -> void override;
 		MONAIMGUI_API auto Render() -> void override;
-		MONAIMGUI_API auto DrawTexture(FRHITexture* Texture, const FVector2f& Size) -> bool override;
+		MONAIMGUI_API auto RegisterTexture(const FTextureRHIRef& Texture) -> void override;
+		MONAIMGUI_API auto UnregisterTexture(const FTextureRHIRef& Texture) -> void override;
+		MONAIMGUI_API auto DrawTexture(const FTextureRHIRef& Texture, const FVector2f& Size) -> bool override;
 
 		MONAIMGUI_API auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void;
 		MONAIMGUI_API auto ShowDemoWindow() -> void;

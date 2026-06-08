@@ -13,7 +13,7 @@ namespace Durin::MonaImGui
 		}
 	}
 
-	auto DrawTexture(FRHITexture* Texture, const FVector2f& Size) -> bool
+	auto DrawTexture(const FTextureRHIRef& Texture, const FVector2f& Size) -> bool
 	{
 		if (Mona::FMonaImGuiBackend* Backend = GetActiveImGuiBackend())
 		{

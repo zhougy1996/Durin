@@ -2,7 +2,7 @@
 
 #include "MonaCoreAPI.h"
 #include "Math/MathFwd.h"
-#include "RHIFwd.h"
+#include "RHIResources.h"
 
 namespace Durin::Mona
 {
@@ -15,6 +15,8 @@ namespace Durin::Mona
 		virtual auto Shutdown() -> void = 0;
 		virtual auto NewFrame() -> void = 0;
 		virtual auto Render() -> void = 0;
-		virtual auto DrawTexture(FRHITexture* Texture, const FVector2f& Size) -> bool = 0;
+		virtual auto RegisterTexture(const FTextureRHIRef& Texture) -> void = 0;
+		virtual auto UnregisterTexture(const FTextureRHIRef& Texture) -> void = 0;
+		virtual auto DrawTexture(const FTextureRHIRef& Texture, const FVector2f& Size) -> bool = 0;
 	};
 }

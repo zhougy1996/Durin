@@ -16,6 +16,8 @@ namespace Durin
 
 		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MViewport>& InViewportWidget);
 
+		ENGINE_API ~FSceneViewport() override;
+
 		ENGINE_API auto UpdateRHIViewport() -> void override;
 
 		ENGINE_API auto GetRenderMode() const -> Mona::EMonaViewportRenderMode override;
@@ -26,9 +28,11 @@ namespace Durin
 
 		ENGINE_API auto GetRenderTargetRHI() const -> const FTextureRHIRef&;
 
-		ENGINE_API auto GetDisplayTexture() const -> FRHITexture* override;
+		ENGINE_API auto GetDisplayTexture() const -> const FTextureRHIRef& override;
 
 	private:
+		ENGINE_API auto UnregisterDisplayTexture() -> void;
+
 		Mona::EMonaViewportRenderMode RenderMode = Mona::EMonaViewportRenderMode::Window;
 
 		std::weak_ptr<MWindow> Window;

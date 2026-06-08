@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RHIFwd.h"
+#include "RHIResources.h"
 
 namespace Durin::Mona
 {
@@ -23,6 +23,6 @@ namespace Durin::Mona
 
 		virtual auto UpdateRHIViewport() -> void = 0;
 
-		virtual auto GetDisplayTexture() const -> FRHITexture* = 0;
+		virtual auto GetDisplayTexture() const -> const FTextureRHIRef& = 0;
 	};
 }

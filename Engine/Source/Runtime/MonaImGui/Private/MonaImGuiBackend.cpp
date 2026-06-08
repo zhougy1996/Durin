@@ -41,7 +41,6 @@ namespace Durin::Mona
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 
-		ImGuiRHIImpl_PruneExternalTextureRefs();
 		ImGuiMonaImpl_NewFrame();
 		ImGuiRHIImpl_NewFrame();
 		ImGui::NewFrame();
@@ -72,7 +71,17 @@ namespace Durin::Mona
 		}
 	}
 
-	auto FMonaImGuiBackend::DrawTexture(FRHITexture* Texture, const FVector2f& Size) -> bool
+	auto FMonaImGuiBackend::RegisterTexture(const FTextureRHIRef& Texture) -> void
+	{
+		ImGuiRHIImpl_RegisterTexture(Texture);
+	}
+
+	auto FMonaImGuiBackend::UnregisterTexture(const FTextureRHIRef& Texture) -> void
+	{
+		ImGuiRHIImpl_UnregisterTexture(Texture);
+	}
+
+	auto FMonaImGuiBackend::DrawTexture(const FTextureRHIRef& Texture, const FVector2f& Size) -> bool
 	{
 		const ImTextureID TextureID = ImGuiRHIImpl_GetTextureID(Texture);
 		if (TextureID == ImTextureID_Invalid)

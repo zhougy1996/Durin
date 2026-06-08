@@ -1,5 +1,7 @@
 #include "Mona/SceneViewport.h"
 
+#include "MonaCoreGlobals.h"
+#include "MonaUIBackend.h"
 #include "Rendering/MonaRenderer.h"
 #include "Widgets/MWindow.h"
 #include "Widgets/MViewport.h"
@@ -20,6 +22,11 @@ namespace Durin
 		, RenderMode(Mona::EMonaViewportRenderMode::RenderTarget)
 		, ViewportWidget(InViewportWidget)
 	{
+	}
+
+	FSceneViewport::~FSceneViewport()
+	{
+		UnregisterDisplayTexture();
 	}
 
 	auto FSceneViewport::UpdateRHIViewport() -> void
@@ -45,9 +52,14 @@ namespace Durin
 		const uint32 Height = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.y)));
 		if (RenderTargetRHI == nullptr || RenderTargetRHI->GetSizeX() != Width || RenderTargetRHI->GetSizeY() != Height)
 		{
+			UnregisterDisplayTexture();
 			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("SceneViewportRenderTarget", Width, Height, EPixelFormat::SRGBA8_UNORM);
 			Desc.AddFlags(ETextureCreateFlags::RenderTargetable);
 			RenderTargetRHI = RHICreateTexture(Desc);
+			if (Mona::GActiveUIBackend != nullptr)
+			{
+				Mona::GActiveUIBackend->RegisterTexture(RenderTargetRHI);
+			}
 		}
 		ViewportRHI = nullptr;
 	}
@@ -86,16 +98,16 @@ namespace Durin
 		return RenderTargetRHI;
 	}
 
-	auto FSceneViewport::GetDisplayTexture() const -> FRHITexture*
+	auto FSceneViewport::GetDisplayTexture() const -> const FTextureRHIRef&
 	{
-		if (RenderMode == Mona::EMonaViewportRenderMode::RenderTarget && RenderTargetRHI != nullptr)
-		{
-			// The editor viewport UI is built before scene rendering commands are enqueued,
-			// but ImGui samples the texture later in the same frame. Returning the current
-			// render target here lets resize changes show up without the extra-frame delay.
-			return RenderTargetRHI.GetReference();
-		}
+		return RenderTargetRHI;
+	}
 
-		return nullptr;
+	auto FSceneViewport::UnregisterDisplayTexture() -> void
+	{
+		if (RenderTargetRHI != nullptr && Mona::GActiveUIBackend != nullptr)
+		{
+			Mona::GActiveUIBackend->UnregisterTexture(RenderTargetRHI);
+		}
 	}
 }

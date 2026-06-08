@@ -3,6 +3,7 @@
 #include "ThirdParty/ImGui/imgui_threaded_rendering.h"
 
 #include "Application/MonaApplication.h"
+#include "CoreGlobals.h"
 #include "ApplicationCoreFwd.h"
 #include "ImGuiMonaImpl.h"
 #include "RHI.h"
@@ -87,10 +88,22 @@ namespace Durin::Mona
 		FVector2f Translation;
 	};
 
+	struct FImGuiRHIImpl_Texture
+	{
+		FTextureRHIRef Texture;
+	};
+
+	struct FImGuiRHIImpl_DelayedTextureRelease
+	{
+		FTextureRHIRef Texture;
+		uint64 ReleaseAfterFrame = 0;
+	};
+
 	struct FImGuiRHIImpl_RendererViewportData
 	{
 		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
 		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
+		std::array<std::vector<FTextureRHIRef>, 2> PinnedTextureSnapshots;
 		FViewportRHIRef ViewportRHI;
 		uint32 NextSnapshotIndex = 0;
 	};
@@ -105,7 +118,54 @@ namespace Durin::Mona
 		}
 	}
 
-	static std::unordered_map<FRHITexture*, FTextureRHIRef*> GExternalTextureRefs;
+	static std::unordered_map<FRHITexture*, FTextureRHIRef> GRegisteredTextures;
+	static std::vector<FImGuiRHIImpl_DelayedTextureRelease> GDelayedTextureReleases;
+
+	static auto EnqueueDelayedTextureRelease(FTextureRHIRef&& Texture) -> void
+	{
+		if (Texture == nullptr)
+		{
+			return;
+		}
+
+		FImGuiRHIImpl_DelayedTextureRelease ReleaseEntry;
+		ReleaseEntry.Texture = std::move(Texture);
+		ReleaseEntry.ReleaseAfterFrame = GFrameCounter;
+		GDelayedTextureReleases.push_back(std::move(ReleaseEntry));
+	}
+
+	static auto SweepDelayedTextureReleases(uint64 CurrentFrame) -> void
+	{
+		for (auto It = GDelayedTextureReleases.begin(); It != GDelayedTextureReleases.end();)
+		{
+			if (CurrentFrame > It->ReleaseAfterFrame)
+			{
+				It = GDelayedTextureReleases.erase(It);
+				continue;
+			}
+
+			++It;
+		}
+	}
+
+	static auto UnregisterTextureImpl(const FTextureRHIRef& Texture) -> void
+	{
+		if (Texture == nullptr)
+		{
+			return;
+		}
+
+		FRHITexture* TexturePtr = Texture.GetReference();
+		auto It = GRegisteredTextures.find(TexturePtr);
+		if (It == GRegisteredTextures.end())
+		{
+			return;
+		}
+
+		FTextureRHIRef ReleasedTexture = std::move(It->second);
+		GRegisteredTextures.erase(It);
+		EnqueueDelayedTextureRelease(std::move(ReleasedTexture));
+	}
 
 	static auto GetRendererViewportData(ImGuiViewport* Viewport) -> FImGuiRHIImpl_RendererViewportData*
 	{
@@ -139,6 +199,10 @@ namespace Durin::Mona
 		if (auto* ViewportData = GetRendererViewportData(Viewport))
 		{
 			ViewportData->RenderBuffers.Clear();
+			for (auto& PinnedTextures : ViewportData->PinnedTextureSnapshots)
+			{
+				PinnedTextures.clear();
+			}
 			ViewportData->ViewportRHI = nullptr;
 			delete ViewportData;
 		}
@@ -151,7 +215,28 @@ namespace Durin::Mona
 
 		const uint32 SnapshotIndex = ViewportData->NextSnapshotIndex;
 		ImDrawDataSnapshot& Snapshot = ViewportData->DrawDataSnapshots[SnapshotIndex];
+		std::vector<FTextureRHIRef>& PinnedTextures = ViewportData->PinnedTextureSnapshots[SnapshotIndex];
 		Snapshot.SnapUsingSwap(DrawData, FTime::Seconds());
+		PinnedTextures.clear();
+		for (ImDrawList* DrawList : Snapshot.DrawData.CmdLists)
+		{
+			for (ImDrawCmd& Cmd : DrawList->CmdBuffer)
+			{
+				if (Cmd.TexRef._TexData != nullptr)
+				{
+					continue;
+				}
+
+				FRHITexture* TexturePtr = reinterpret_cast<FRHITexture*>(Cmd.TexRef._TexID);
+				auto It = GRegisteredTextures.find(TexturePtr);
+				if (It == GRegisteredTextures.end() || It->second == nullptr)
+				{
+					continue;
+				}
+
+				PinnedTextures.push_back(It->second);
+			}
+		}
 		ViewportData->NextSnapshotIndex = (SnapshotIndex + 1) % ViewportData->DrawDataSnapshots.size();
 		return &Snapshot.DrawData;
 	}
@@ -324,8 +409,8 @@ namespace Durin::Mona
 	{
 		if (InTex->BackendUserData)
 		{
-			const auto* TextureRefPtr = static_cast<FTextureRHIRef*>(InTex->BackendUserData);
-			delete TextureRefPtr;
+			const auto* BackendTexture = static_cast<FImGuiRHIImpl_Texture*>(InTex->BackendUserData);
+			delete BackendTexture;
 			InTex->BackendUserData = nullptr;
 			InTex->TexID = ImTextureID_Invalid;
 			InTex->Status = ImTextureStatus_Destroyed;
@@ -390,48 +475,41 @@ namespace Durin::Mona
 		ImGui::GetPlatformIO().ClearRendererHandlers();
 
 		FlushRenderingCommands();
-		for (auto& [_, Ref] : GExternalTextureRefs)
-		{
-			delete Ref;
-		}
-		GExternalTextureRefs.clear();
+		GRegisteredTextures.clear();
+		GDelayedTextureReleases.clear();
 	}
 
 	auto ImGuiRHIImpl_NewFrame() -> void
 	{
+		SweepDelayedTextureReleases(GFrameCounter);
 	}
 
-	auto ImGuiRHIImpl_GetTextureID(FRHITexture* Texture) -> ImTextureID
+	auto ImGuiRHIImpl_RegisterTexture(const FTextureRHIRef& Texture) -> void
+	{
+		if (Texture == nullptr)
+		{
+			return;
+		}
+
+		GRegisteredTextures[Texture.GetReference()] = Texture;
+	}
+
+	auto ImGuiRHIImpl_UnregisterTexture(const FTextureRHIRef& Texture) -> void
+	{
+		UnregisterTextureImpl(Texture);
+	}
+
+	auto ImGuiRHIImpl_GetTextureID(const FTextureRHIRef& Texture) -> ImTextureID
 	{
 		if (Texture == nullptr)
 		{
 			return ImTextureID_Invalid;
 		}
 
-		if (auto It = GExternalTextureRefs.find(Texture); It != GExternalTextureRefs.end())
-		{
-			return reinterpret_cast<ImTextureID>(It->second);
-		}
-
-		auto* Ref = new FTextureRHIRef(Texture);
-		GExternalTextureRefs[Texture] = Ref;
-		return reinterpret_cast<ImTextureID>(Ref);
-	}
-
-	auto ImGuiRHIImpl_PruneExternalTextureRefs() -> void
-	{
-		for (auto It = GExternalTextureRefs.begin(); It != GExternalTextureRefs.end();)
-		{
-			if (It->second->GetRefCount() == 1)
-			{
-				delete It->second;
-				It = GExternalTextureRefs.erase(It);
-			}
-			else
-			{
-				++It;
-			}
-		}
+		FRHITexture* TexturePtr = Texture.GetReference();
+		return GRegisteredTextures.find(TexturePtr) != GRegisteredTextures.end()
+			? reinterpret_cast<ImTextureID>(TexturePtr)
+			: ImTextureID_Invalid;
 	}
 
 	auto ImGuiRHIImpl_EnsureMainViewportData(ImGuiViewport* Viewport) -> void
@@ -501,35 +579,34 @@ namespace Durin::Mona
 			check(InTex->TexID == ImTextureID_Invalid && InTex->BackendUserData == nullptr);
 			check(InTex->Format == ImTextureFormat_RGBA32 || InTex->Format == ImTextureFormat_Alpha8);
 
-			auto* TextureRefPtr = new FTextureRHIRef();
+			auto* BackendTexture = new FImGuiRHIImpl_Texture();
 			const EPixelFormat TextureFormat = (InTex->Format == ImTextureFormat_Alpha8) ? EPixelFormat::R8_UNORM : EPixelFormat::RGBA8_UNORM;
-			ENQUEUE_RENDER_COMMAND(ImGuiImpl_CreateTexture)([TextureRefPtr, Width = InTex->Width, Height = InTex->Height, TextureFormat](FRHICommandListImmediate& CommandList) {
+			ENQUEUE_RENDER_COMMAND(ImGuiImpl_CreateTexture)([BackendTexture, Width = InTex->Width, Height = InTex->Height, TextureFormat](FRHICommandListImmediate& CommandList) {
 				FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiCreatedTexture", Width, Height, TextureFormat);
-				*TextureRefPtr = RHICreateTexture(TextureCreateDesc);
+				BackendTexture->Texture = RHICreateTexture(TextureCreateDesc);
 			});
-			// The created texture will be uploaded in the next step, so the rendering commands will be flushed to ensure the texture is ready before it's used for rendering.
-			InTex->SetTexID(reinterpret_cast<ImTextureID>(TextureRefPtr));
-			InTex->BackendUserData = TextureRefPtr;
+			InTex->BackendUserData = BackendTexture;
 		}
 
 		if (InTex->Status == ImTextureStatus_WantCreate)
 		{
-			auto* TextureRefPtr = static_cast<FTextureRHIRef*>(InTex->BackendUserData);
+			auto* BackendTexture = static_cast<FImGuiRHIImpl_Texture*>(InTex->BackendUserData);
 			FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, InTex->Width, InTex->Height);
 			const uint32 SourcePitch = static_cast<uint32>(InTex->GetPitch());
 			const uint8* TexPixels = InTex->Pixels;
 
 			ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTexture)([=](FRHICommandListImmediate& CommandList) {
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, *TextureRefPtr, 0, UpdateRegion, SourcePitch, TexPixels);
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, BackendTexture->Texture, 0, UpdateRegion, SourcePitch, TexPixels);
 			});
 
 			FlushRenderingCommands(); // Make sure the texture update is processed before the texture is used for rendering in the next frame.
+			InTex->SetTexID(reinterpret_cast<ImTextureID>(BackendTexture->Texture.GetReference()));
 			InTex->SetStatus(ImTextureStatus_OK);
 		}
 
 		if (InTex->Status == ImTextureStatus_WantUpdates)
 		{
-			auto* TextureRefPtr = static_cast<FTextureRHIRef*>(InTex->BackendUserData);
+			auto* BackendTexture = static_cast<FImGuiRHIImpl_Texture*>(InTex->BackendUserData);
 			const uint32 SourcePitch = static_cast<uint32>(InTex->GetPitch());
 			const uint32 BytesPerPixel = static_cast<uint32>(InTex->BytesPerPixel);
 			for (const ImTextureRect& UpdateRect : InTex->Updates)
@@ -542,7 +619,7 @@ namespace Durin::Mona
 				FUpdateTextureRegion2D UpdateRegion(UpdateRect.x, UpdateRect.y, UpdateRect.x, UpdateRect.y, UpdateRect.w, UpdateRect.h);
 				const uint8* UpdatePixels = InTex->Pixels + static_cast<size_t>(UpdateRect.y) * SourcePitch + static_cast<size_t>(UpdateRect.x) * BytesPerPixel;
 				ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTextureRegion)([=](FRHICommandListImmediate& CommandList) {
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, *TextureRefPtr, 0, UpdateRegion, SourcePitch, UpdatePixels);
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, BackendTexture->Texture, 0, UpdateRegion, SourcePitch, UpdatePixels);
 				});
 			}
 
@@ -647,10 +724,8 @@ namespace Durin::Mona
 					}
 					CommandList.SetScissor(ScissorMinX, ScissorMinY, ScissorMaxX - ScissorMinX, ScissorMaxY - ScissorMinY);
 
-					auto* TextureRefPtr = reinterpret_cast<FTextureRHIRef*>(Cmd->GetTexID());
-
 					FImGuiFragmentShader::FParameters ShaderParameters;
-					ShaderParameters.fontTexture = *TextureRefPtr;
+					ShaderParameters.fontTexture = reinterpret_cast<FRHITexture*>(Cmd->GetTexID());
 					ShaderParameters.fontSampler = GBackendState.LinearSampler;
 					SetShaderParameters(CommandList, GBackendState.FragmentShader, ShaderParameters);
 
