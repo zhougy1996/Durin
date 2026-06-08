@@ -1,4 +1,6 @@
 from pathlib import Path
+import logging
+import time
 
 import configs
 import utils
@@ -35,12 +37,15 @@ _PROPERTY_PARAM_BY_KIND = {
 
 def _load_available_symbols(module_name: str) -> dict[str, object]:
     symbols: dict[str, object] = {}
-    for dep_module in configs.collect_all_dependent_module_with_export_file(module_name):
+    dep_modules = configs.collect_all_dependent_module_with_export_file(module_name)
+    logging.info("[DHT] Reflection %s: loading exports from %d modules", module_name, len(dep_modules))
+    for dep_module in dep_modules:
         export_file_path = utils.get_module_export_file_path(dep_module)
         if not export_file_path.exists():
             raise FileNotFoundError(f"Export file for module '{dep_module}' not found at expected path: {export_file_path}")
         export_info = load_module_export_file(export_file_path)
         symbols.update(export_info.symbols)
+    logging.info("[DHT] Reflection %s: loaded %d reflected symbols", module_name, len(symbols))
     return symbols
 
 
@@ -323,21 +328,46 @@ def _write_reflection_files(module_name: str, headers_to_regenerate: list[str], 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for header in headers_to_regenerate:
+        header_start_time = time.perf_counter()
+        logging.info("[DHT] Reflection %s: parsing %s", module_name, header)
         header_info = parse_reflection_header(module_name, header, exported_symbols=symbols)
         _resolve_header(header_info, symbols)
 
         header_filename = Path(header).stem
         utils.generate_file(output_dir / f"{header_filename}.gen.h", _generate_header_content(header_info))
         utils.generate_file(output_dir / f"{header_filename}.gen.cpp", _generate_cpp_content(header_info, symbols))
+        elapsed_ms = (time.perf_counter() - header_start_time) * 1000.0
+        property_count = sum(len(class_info.properties) for class_info in header_info.classes)
+        logging.info(
+            "[DHT] Reflection %s: wrote %s.gen.* (%d classes, %d properties) in %.0f ms",
+            module_name,
+            header_filename,
+            len(header_info.classes),
+            property_count,
+            elapsed_ms,
+        )
 
     utils.generate_file(output_dir / f"{module_name}.module.gen.cpp", "// Generated module reflection source.\n")
 
 
 def generate_reflection_files(module_name: str) -> None:
+    start_time = time.perf_counter()
+    logging.info("[DHT] Reflection %s: preparing manifest", module_name)
     manifest_file_path = utils.get_module_manifest_file_path(module_name)
     old_manifest: ModuleManifest = load_module_manifest_file(module_name) if manifest_file_path.exists() else None
     new_manifest = make_new_module_manifest(module_name, old_manifest)
     headers_to_regenerate = get_reflection_headers_requiring_regeneration(old_manifest, new_manifest)
+    total_headers = len(new_manifest.reflect_headers)
+    skipped_headers = total_headers - len(headers_to_regenerate)
+    logging.info(
+        "[DHT] Reflection %s: %d/%d headers require regeneration (%d skipped)",
+        module_name,
+        len(headers_to_regenerate),
+        total_headers,
+        skipped_headers,
+    )
     symbols = _load_available_symbols(module_name)
     _write_reflection_files(module_name, headers_to_regenerate, symbols)
     save_module_manifest_file(new_manifest)
+    elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+    logging.info("[DHT] Reflection %s: finished in %.0f ms", module_name, elapsed_ms)
