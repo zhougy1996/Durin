@@ -17,6 +17,7 @@ class ModuleManifest:
     generator_options_hash: str = ""
     dep_module_exports: dict[str, LightFileFingerprint] = field(default_factory=dict)
     reflect_headers: dict[str, FileFingerprint] = field(default_factory=dict)
+    resolved_symbol_dependencies: dict[str, dict[str, dict[str, str]]] = field(default_factory=dict)
     generated_outputs: list[str] = field(default_factory=list)
 
 
@@ -51,6 +52,7 @@ def load_module_manifest_file(module_name: str) -> ModuleManifest:
             key: _fingerprint_from_dict(FileFingerprint, value)
             for key, value in data.get("reflectHeaders", {}).items()
         },
+        resolved_symbol_dependencies=data.get("resolvedSymbolDependencies", {}),
         generated_outputs=data.get("generatedOutputs", []),
     )
 
@@ -67,6 +69,13 @@ def save_module_manifest_file(manifest: ModuleManifest) -> str:
         "generatorOptionsHash": manifest.generator_options_hash,
         "reflectHeaders": {key: asdict(value) for key, value in sorted(manifest.reflect_headers.items())},
         "dependencyExports": {key: asdict(value) for key, value in sorted(manifest.dep_module_exports.items())},
+        "resolvedSymbolDependencies": {
+            header: {
+                symbol_name: dict(symbol_data)
+                for symbol_name, symbol_data in sorted(symbols.items())
+            }
+            for header, symbols in sorted(manifest.resolved_symbol_dependencies.items())
+        },
         "generatedOutputs": sorted(manifest.generated_outputs),
     }
     content = json.dumps(json_data, indent=4)

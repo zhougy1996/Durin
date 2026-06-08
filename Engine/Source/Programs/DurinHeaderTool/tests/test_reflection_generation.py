@@ -62,6 +62,8 @@ class ReflectionGenerationTests(unittest.TestCase):
         self.assertEqual(data["moduleName"], "Engine")
         self.assertEqual(data["profile"], "DurinEditor")
         self.assertEqual(data["platform"], "Win64")
+        actor_dependencies = data["resolvedSymbolDependencies"]["Public/Engine/Actor.h"]
+        self.assertEqual(actor_dependencies["Durin::DObject"]["generatedHelperName"], "Z_Construct_DClass_Durin_DObject")
 
 
 if __name__ == "__main__":

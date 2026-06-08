@@ -6,10 +6,8 @@ from models.export_infos import ExportedSymbolInfo, ModuleExportInfo
 from models.reflection_info import parse_reflection_header
 
 
-def extract_header_export_symbols(module_name: str, header: str) -> dict[str, ExportedSymbolInfo]:
+def _extract_header_export_symbols_impl(module_name: str, header: str) -> dict[str, ExportedSymbolInfo]:
     symbols: dict[str, ExportedSymbolInfo] = {}
-    header_start_time = time.perf_counter()
-    logging.info("[DHT] Export %s: parsing %s", module_name, header)
     header_info = parse_reflection_header(module_name, header, export_mode=True)
     for class_info in header_info.classes:
         symbols[class_info.qualified_name] = ExportedSymbolInfo(
@@ -22,6 +20,13 @@ def extract_header_export_symbols(module_name: str, header: str) -> dict[str, Ex
             api=class_info.api,
             baseQualifiedName=class_info.base_qualified_name,
         )
+    return symbols
+
+
+def extract_header_export_symbols(module_name: str, header: str) -> dict[str, ExportedSymbolInfo]:
+    header_start_time = time.perf_counter()
+    logging.info("[DHT] Export %s: parsing %s", module_name, header)
+    symbols = _extract_header_export_symbols_impl(module_name, header)
     elapsed_ms = (time.perf_counter() - header_start_time) * 1000.0
     logging.info(
         "[DHT] Export %s: scanned %s (%d symbols) in %.0f ms",

@@ -1,8 +1,9 @@
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
+import os
 import time
 
 import configs
-from extractors.module_export_info_extractor import extract_header_export_symbols
 from models.export_infos import (
     ModuleExportInfo,
     ModuleExportManifest,
@@ -13,6 +14,22 @@ from models.export_infos import (
 )
 from models.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 import utils
+
+
+def _parse_header_export_worker(args):
+    module_name, header, arch, profile = args
+
+    import configs as worker_configs
+    from extractors.module_export_info_extractor import _extract_header_export_symbols_impl as worker_extract
+
+    worker_configs.ARCH = arch
+    worker_configs.PROFILE_NAME = profile
+    worker_configs.init_configs()
+
+    start_time = time.perf_counter()
+    symbols = worker_extract(module_name, header)
+    elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+    return header, symbols, elapsed_ms
 
 
 def _make_current_export_manifest(module_name: str, old_manifest: ModuleExportManifest = None) -> ModuleExportManifest:
@@ -105,9 +122,7 @@ def _load_or_parse_header_export(
             return symbols
         logging.info("[DHT] Export %s: cache miss for unchanged %s", module_name, header)
 
-    symbols = extract_header_export_symbols(module_name, header)
-    new_manifest.headerSymbols[header] = symbols
-    return symbols
+    return None
 
 
 def _build_module_export_from_manifest_cache(
@@ -116,9 +131,52 @@ def _build_module_export_from_manifest_cache(
     new_manifest: ModuleExportManifest,
     old_export_info: ModuleExportInfo,
 ) -> ModuleExportInfo:
+    module_config = configs.get_module_config(module_name)
     export_info = ModuleExportInfo(module=module_name)
-    for header in configs.get_module_config(module_name).reflect_headers:
-        export_info.symbols.update(_load_or_parse_header_export(module_name, header, old_manifest, new_manifest, old_export_info))
+    headers_to_parse: list[str] = []
+
+    for header in module_config.reflect_headers:
+        symbols = _load_or_parse_header_export(module_name, header, old_manifest, new_manifest, old_export_info)
+        if symbols is None:
+            headers_to_parse.append(header)
+        else:
+            export_info.symbols.update(symbols)
+
+    if headers_to_parse:
+        worker_count = min(len(headers_to_parse), os.cpu_count() or 1, 8)
+        logging.info(
+            "[DHT] Export %s: parsing %d headers with %d workers",
+            module_name,
+            len(headers_to_parse),
+            worker_count,
+        )
+        parsed_symbols_by_header = {}
+        worker_args = [
+            (module_name, header, configs.ARCH, configs.PROFILE_NAME)
+            for header in headers_to_parse
+        ]
+        if worker_count == 1:
+            results = [_parse_header_export_worker(args) for args in worker_args]
+        else:
+            with ProcessPoolExecutor(max_workers=worker_count) as executor:
+                futures = [executor.submit(_parse_header_export_worker, args) for args in worker_args]
+                results = [future.result() for future in as_completed(futures)]
+
+        for header, symbols, elapsed_ms in sorted(results, key=lambda result: module_config.reflect_headers.index(result[0])):
+            parsed_symbols_by_header[header] = symbols
+            new_manifest.headerSymbols[header] = symbols
+            logging.info(
+                "[DHT] Export %s: scanned %s (%d symbols) in %.0f ms",
+                module_name,
+                header,
+                len(symbols),
+                elapsed_ms,
+            )
+
+        for header in module_config.reflect_headers:
+            if header in parsed_symbols_by_header:
+                export_info.symbols.update(parsed_symbols_by_header[header])
+
     return export_info
 
 

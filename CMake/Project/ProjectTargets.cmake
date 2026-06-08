@@ -40,7 +40,7 @@ function(add_durin_module module_name)
 		add_custom_command(
 			OUTPUT ${module_generated_srcs}
 			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} -a ${DURIN_TARGET_PLATFORM} --profile ${DURIN_PROFILE_NAME}
-			DEPENDS "${_durin_module_cmake_file}" ${module_manifest_dependencies} ${module_export_file}
+			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}" ${module_manifest_dependencies} ${module_export_file}
 		)
 	endif()
 

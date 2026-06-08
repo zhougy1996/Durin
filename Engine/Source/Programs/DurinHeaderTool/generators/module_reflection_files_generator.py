@@ -1,5 +1,7 @@
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
+import os
 import time
 
 import configs
@@ -12,7 +14,6 @@ from models.reflection_info import (
     ReflectedClassInfo,
     ReflectedHeaderInfo,
     ReflectedPropertyInfo,
-    make_generated_helper_name,
     parse_reflection_header,
 )
 
@@ -63,30 +64,99 @@ def _resolve_header(header: ReflectedHeaderInfo, symbols: dict[str, object]) -> 
             prop.referenced_type = _resolve_short_symbol(prop.referenced_type, symbols)
 
 
-def get_reflection_headers_requiring_regeneration(old_manifest: ModuleManifest, new_manifest: ModuleManifest) -> list[str]:
-    if old_manifest is None:
-        return list(new_manifest.reflect_headers.keys())
-
-    if (
+def _manifest_contract_changed(old_manifest: ModuleManifest, new_manifest: ModuleManifest) -> bool:
+    return (
         old_manifest.schema_version != new_manifest.schema_version
         or old_manifest.tool_version != new_manifest.tool_version
         or old_manifest.symbol_name_scheme != new_manifest.symbol_name_scheme
         or old_manifest.profile != new_manifest.profile
         or old_manifest.platform != new_manifest.platform
         or old_manifest.generator_options_hash != new_manifest.generator_options_hash
-    ):
-        return list(new_manifest.reflect_headers.keys())
+    )
 
+
+def _dependency_exports_changed(old_manifest: ModuleManifest, new_manifest: ModuleManifest) -> bool:
+    if set(old_manifest.dep_module_exports.keys()) != set(new_manifest.dep_module_exports.keys()):
+        return True
     for dep_module, new_fingerprint in new_manifest.dep_module_exports.items():
         old_fingerprint = old_manifest.dep_module_exports.get(dep_module)
         if old_fingerprint != new_fingerprint:
-            return list(new_manifest.reflect_headers.keys())
+            return True
+    return False
+
+
+def _generated_output_paths(module_name: str, header: str) -> list[Path]:
+    output_dir = utils.get_module_dht_output_dir(module_name)
+    header_filename = Path(header).stem
+    return [
+        output_dir / f"{header_filename}.gen.h",
+        output_dir / f"{header_filename}.gen.cpp",
+    ]
+
+
+def _generated_outputs_missing(module_name: str, header: str) -> bool:
+    return any(not output_path.exists() for output_path in _generated_output_paths(module_name, header))
+
+
+def _symbol_dependency_snapshot(symbol: object) -> dict[str, str]:
+    return {
+        "generatedHelperName": getattr(symbol, "generatedHelperName", ""),
+        "api": getattr(symbol, "api", ""),
+        "baseQualifiedName": getattr(symbol, "baseQualifiedName", ""),
+    }
+
+
+def _resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, symbols: dict[str, object]) -> dict[str, dict[str, str]]:
+    dependencies: dict[str, dict[str, str]] = {}
+    for class_info in header_info.classes:
+        if class_info.base_qualified_name in symbols:
+            dependencies[class_info.base_qualified_name] = _symbol_dependency_snapshot(symbols[class_info.base_qualified_name])
+        for prop in class_info.properties:
+            if prop.referenced_type in symbols:
+                dependencies[prop.referenced_type] = _symbol_dependency_snapshot(symbols[prop.referenced_type])
+    return dependencies
+
+
+def _header_symbol_dependencies_changed(header: str, old_manifest: ModuleManifest, symbols: dict[str, object]) -> bool:
+    if header not in old_manifest.resolved_symbol_dependencies:
+        return True
+    for symbol_name, old_snapshot in old_manifest.resolved_symbol_dependencies[header].items():
+        current_symbol = symbols.get(symbol_name)
+        if current_symbol is None:
+            return True
+        if _symbol_dependency_snapshot(current_symbol) != old_snapshot:
+            return True
+    return False
+
+
+def get_reflection_headers_requiring_regeneration(
+    module_name: str,
+    old_manifest: ModuleManifest,
+    new_manifest: ModuleManifest,
+    symbols: dict[str, object] | None = None,
+) -> list[str]:
+    if old_manifest is None:
+        return list(new_manifest.reflect_headers.keys())
+
+    if _manifest_contract_changed(old_manifest, new_manifest):
+        return list(new_manifest.reflect_headers.keys())
 
     headers_requiring_regeneration = []
+    dependency_exports_changed = _dependency_exports_changed(old_manifest, new_manifest)
+    if dependency_exports_changed and symbols is None:
+        return list(new_manifest.reflect_headers.keys())
+
     for header, new_fingerprint in new_manifest.reflect_headers.items():
         old_fingerprint = old_manifest.reflect_headers.get(header)
-        if old_fingerprint != new_fingerprint:
+        if (
+            old_fingerprint != new_fingerprint
+            or _generated_outputs_missing(module_name, header)
+            or header not in old_manifest.resolved_symbol_dependencies
+            or (dependency_exports_changed and _header_symbol_dependencies_changed(header, old_manifest, symbols))
+        ):
             headers_requiring_regeneration.append(header)
+        else:
+            new_manifest.resolved_symbol_dependencies[header] = old_manifest.resolved_symbol_dependencies.get(header, {})
     return headers_requiring_regeneration
 
 
@@ -97,7 +167,7 @@ def make_new_module_manifest(module_name: str, old_manifest: ModuleManifest = No
         platform=configs.ARCH,
         tool_version=TOOL_VERSION,
         symbol_name_scheme=SYMBOL_NAME_SCHEME,
-        generator_options_hash="default",
+        generator_options_hash="resolved-symbol-dependencies-v1",
     )
     dependent_modules_with_export_file = configs.collect_all_dependent_module_with_export_file(module_name)
 
@@ -323,28 +393,94 @@ def _generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object
     return "".join(builder)
 
 
-def _write_reflection_files(module_name: str, headers_to_regenerate: list[str], symbols: dict[str, object]) -> None:
+def _generate_reflection_output_impl(module_name: str, header: str, symbols: dict[str, object]) -> dict[str, object]:
+    header_info = parse_reflection_header(module_name, header, exported_symbols=symbols)
+    _resolve_header(header_info, symbols)
+    return {
+        "header": header,
+        "header_content": _generate_header_content(header_info),
+        "cpp_content": _generate_cpp_content(header_info, symbols),
+        "class_count": len(header_info.classes),
+        "property_count": sum(len(class_info.properties) for class_info in header_info.classes),
+        "resolved_symbol_dependencies": _resolved_symbol_dependencies_for_header(header_info, symbols),
+    }
+
+
+def _generate_reflection_output_worker(args):
+    module_name, header, symbols, arch, profile = args
+
+    import configs as worker_configs
+    from generators.module_reflection_files_generator import _generate_reflection_output_impl as worker_generate
+
+    worker_configs.ARCH = arch
+    worker_configs.PROFILE_NAME = profile
+    worker_configs.init_configs()
+
+    start_time = time.perf_counter()
+    result = worker_generate(module_name, header, symbols)
+    result["elapsed_ms"] = (time.perf_counter() - start_time) * 1000.0
+    return result
+
+
+def _write_reflection_output(module_name: str, result: dict[str, object], manifest: ModuleManifest) -> None:
     output_dir = utils.get_module_dht_output_dir(module_name)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for header in headers_to_regenerate:
-        header_start_time = time.perf_counter()
-        logging.info("[DHT] Reflection %s: parsing %s", module_name, header)
-        header_info = parse_reflection_header(module_name, header, exported_symbols=symbols)
-        _resolve_header(header_info, symbols)
+    header = result["header"]
+    header_filename = Path(header).stem
+    utils.generate_file(output_dir / f"{header_filename}.gen.h", result["header_content"])
+    utils.generate_file(output_dir / f"{header_filename}.gen.cpp", result["cpp_content"])
+    manifest.resolved_symbol_dependencies[header] = result["resolved_symbol_dependencies"]
+    logging.info(
+        "[DHT] Reflection %s: wrote %s.gen.* (%d classes, %d properties) in %.0f ms",
+        module_name,
+        header_filename,
+        result["class_count"],
+        result["property_count"],
+        result["elapsed_ms"],
+    )
 
-        header_filename = Path(header).stem
-        utils.generate_file(output_dir / f"{header_filename}.gen.h", _generate_header_content(header_info))
-        utils.generate_file(output_dir / f"{header_filename}.gen.cpp", _generate_cpp_content(header_info, symbols))
-        elapsed_ms = (time.perf_counter() - header_start_time) * 1000.0
-        property_count = sum(len(class_info.properties) for class_info in header_info.classes)
+
+def _write_reflection_files(module_name: str, headers_to_regenerate: list[str], symbols: dict[str, object], manifest: ModuleManifest) -> None:
+    output_dir = utils.get_module_dht_output_dir(module_name)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if headers_to_regenerate:
+        worker_count = min(len(headers_to_regenerate), os.cpu_count() or 1, 8)
+        if worker_count > 1:
+            logging.info(
+                "[DHT] Reflection %s: parsing %d headers with %d workers",
+                module_name,
+                len(headers_to_regenerate),
+                worker_count,
+            )
+        results: list[dict[str, object]]
+        worker_args = [
+            (module_name, header, symbols, configs.ARCH, configs.PROFILE_NAME)
+            for header in headers_to_regenerate
+        ]
+        if worker_count == 1:
+            results = [_generate_reflection_output_worker(args) for args in worker_args]
+        else:
+            try:
+                with ProcessPoolExecutor(max_workers=worker_count) as executor:
+                    futures = [executor.submit(_generate_reflection_output_worker, args) for args in worker_args]
+                    results = [future.result() for future in as_completed(futures)]
+            except Exception as error:
+                logging.warning(
+                    "[DHT] Reflection %s: parallel parsing failed (%s), falling back to sequential parsing",
+                    module_name,
+                    error,
+                )
+                results = [_generate_reflection_output_worker(args) for args in worker_args]
+
+        header_order = {header: index for index, header in enumerate(configs.get_module_config(module_name).reflect_headers)}
+        for result in sorted(results, key=lambda item: header_order[item["header"]]):
+            _write_reflection_output(module_name, result, manifest)
+    else:
         logging.info(
-            "[DHT] Reflection %s: wrote %s.gen.* (%d classes, %d properties) in %.0f ms",
+            "[DHT] Reflection %s: no headers require regeneration",
             module_name,
-            header_filename,
-            len(header_info.classes),
-            property_count,
-            elapsed_ms,
         )
 
     utils.generate_file(output_dir / f"{module_name}.module.gen.cpp", "// Generated module reflection source.\n")
@@ -356,7 +492,30 @@ def generate_reflection_files(module_name: str) -> None:
     manifest_file_path = utils.get_module_manifest_file_path(module_name)
     old_manifest: ModuleManifest = load_module_manifest_file(module_name) if manifest_file_path.exists() else None
     new_manifest = make_new_module_manifest(module_name, old_manifest)
-    headers_to_regenerate = get_reflection_headers_requiring_regeneration(old_manifest, new_manifest)
+
+    symbols = None
+    dependency_exports_changed = (
+        old_manifest is not None
+        and not _manifest_contract_changed(old_manifest, new_manifest)
+        and _dependency_exports_changed(old_manifest, new_manifest)
+    )
+    if dependency_exports_changed:
+        symbols = _load_available_symbols(module_name)
+
+    headers_to_regenerate = get_reflection_headers_requiring_regeneration(
+        module_name,
+        old_manifest,
+        new_manifest,
+        symbols,
+    )
+    if dependency_exports_changed:
+        logging.info(
+            "[DHT] Reflection %s: dependency exports changed, %d/%d headers affected",
+            module_name,
+            len(headers_to_regenerate),
+            len(new_manifest.reflect_headers),
+        )
+
     total_headers = len(new_manifest.reflect_headers)
     skipped_headers = total_headers - len(headers_to_regenerate)
     logging.info(
@@ -366,8 +525,12 @@ def generate_reflection_files(module_name: str) -> None:
         total_headers,
         skipped_headers,
     )
-    symbols = _load_available_symbols(module_name)
-    _write_reflection_files(module_name, headers_to_regenerate, symbols)
+    if headers_to_regenerate and symbols is None:
+        symbols = _load_available_symbols(module_name)
+    elif not headers_to_regenerate and symbols is None:
+        logging.info("[DHT] Reflection %s: no headers require regeneration, skipped symbols loading", module_name)
+
+    _write_reflection_files(module_name, headers_to_regenerate, symbols or {}, new_manifest)
     save_module_manifest_file(new_manifest)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
     logging.info("[DHT] Reflection %s: finished in %.0f ms", module_name, elapsed_ms)

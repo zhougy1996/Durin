@@ -43,12 +43,16 @@ The build flow is:
 
 The export command runs before reflection generation so other modules can resolve reflected base classes and object-pointer property types without reparsing dependency headers.
 
+Reflection generation also depends directly on the module's reflected headers. A whitespace-only header edit may leave the public `.export` symbol index unchanged, but it still must regenerate that header's `.gen.h/.gen.cpp` because `GENERATED_BODY()` macro names include source line numbers.
+
 DurinHeaderTool logs key build progress at `INFO` level:
 
 - export skip status, scan start/end, and symbol count
 - per-header export parse time and symbol count
+- export parse worker count when multiple headers require parsing
 - reflection manifest preparation
 - number of regenerated/skipped headers
+- reflection parse worker count when multiple headers require regeneration
 - dependency export loading
 - per-header parse/write time, class count, and property count
 - module reflection completion time
@@ -110,7 +114,7 @@ DurinHeaderTool stores export-generation input fingerprints in a private sibling
 <Module>.export.manifest
 ```
 
-The module export manifest records the schema/tool/options/profile/platform, reflected-header fingerprints, and the exported symbols last produced by each header. It lets `generate_module_export_file` skip entirely when no inputs changed. If only some headers changed, DurinHeaderTool reuses unchanged header symbols from the manifest, reparses only changed or missing entries, then assembles the public `.export` file. Other modules should not depend on or read this private cache file.
+The module export manifest records the schema/tool/options/profile/platform, reflected-header fingerprints, and the exported symbols last produced by each header. It lets `generate_module_export_file` skip entirely when no inputs changed. If only some headers changed, DurinHeaderTool reuses unchanged header symbols from the manifest, reparses only changed or missing entries, then assembles the public `.export` file. When multiple headers require parsing, the export generator parses them in a bounded worker pool and merges results in module header order. Other modules should not depend on or read this private cache file.
 
 `CoreDObject` uses `DObject/MirrorExportTypes.h` under `_DHT_EXPORTS_PARSER` to publish intrinsic core types such as `Durin::DObject`, `Durin::DStructure`, and `Durin::DClass` without generating duplicate runtime class registration for those intrinsic types.
 
@@ -133,9 +137,12 @@ The manifest is schema v1 JSON and is private to DurinHeaderTool. It records:
 - `generatorOptionsHash`
 - reflected header fingerprints
 - dependency export fingerprints
+- resolved reflected-symbol dependencies per header
 - generated output paths
 
 Changing the tool version, schema, symbol-name scheme, profile, platform, options hash, dependency exports, or reflected header fingerprints invalidates generated reflection outputs.
+
+Dependency export changes are filtered through resolved symbol dependencies. If an upstream export changes but a header does not reference the changed reflected symbols, that header can keep its existing generated files. Missing generated outputs still force regeneration for the affected header.
 
 ## Generated Header Contract
 
