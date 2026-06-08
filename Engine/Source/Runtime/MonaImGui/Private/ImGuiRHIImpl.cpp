@@ -1,66 +1,70 @@
 #include "ImGuiRHIImpl.h"
 
+#include "ThirdParty/ImGui/imgui_threaded_rendering.h"
+
+#include "Application/MonaApplication.h"
+#include "ApplicationCoreFwd.h"
+#include "ImGuiMonaImpl.h"
 #include "RHI.h"
+#include "Rendering/MonaRenderer.h"
 #include "RenderingThread.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
+#include "Widgets/MWindow.h"
 
 namespace Durin::Mona
 {
-	namespace
+	class FImGuiFragmentShader : public FShader
 	{
-		class FImGuiFragmentShader : public FShader
+	public:
+		using FShader::FShader;
+
+		struct FParameters
 		{
-		public:
-			using FShader::FShader;
-
-			struct FParameters
-			{
-				FRHITexture* fontTexture = nullptr;
-				FRHISampler* fontSampler = nullptr;
-			};
-
-			static auto GetParametersMetadata() -> std::span<const FShaderParameterMetadata>
-			{
-				static const std::array Parameters = {
-					DURIN_SHADER_PARAMETER(fontTexture, ERHIBindingType::Texture),
-					DURIN_SHADER_PARAMETER(fontSampler, ERHIBindingType::Sampler)
-				};
-				return Parameters;
-			}
+			FRHITexture* fontTexture = nullptr;
+			FRHISampler* fontSampler = nullptr;
 		};
 
-		auto CreateImGuiFragmentShader(
-			const FShaderType* ShaderType,
-			FShaderMapBase* ShaderMap,
-			uint32 ShaderIndex,
-			const FShaderReflectionData& Reflection
-		) -> std::unique_ptr<FShader>
+		static auto GetParametersMetadata() -> std::span<const FShaderParameterMetadata>
 		{
-			return std::make_unique<FImGuiFragmentShader>(ShaderType, ShaderMap, ShaderIndex, Reflection);
+			static const std::array Parameters = {
+				DURIN_SHADER_PARAMETER(fontTexture, ERHIBindingType::Texture),
+				DURIN_SHADER_PARAMETER(fontSampler, ERHIBindingType::Sampler)
+			};
+			return Parameters;
 		}
+	};
 
-		auto GetImGuiVertexShaderType() -> FShaderType&
-		{
-			static FShaderType ShaderType("ImGuiVertexShader", "/Engine/ImGui", EShaderFrequency::Vertex, "vertexMain");
-			return ShaderType;
-		}
+	static auto CreateImGuiFragmentShader(
+		const FShaderType* ShaderType,
+		FShaderMapBase* ShaderMap,
+		uint32 ShaderIndex,
+		const FShaderReflectionData& Reflection
+	) -> std::unique_ptr<FShader>
+	{
+		return std::make_unique<FImGuiFragmentShader>(ShaderType, ShaderMap, ShaderIndex, Reflection);
+	}
 
-		auto GetImGuiFragmentShaderType() -> FShaderType&
-		{
-			static FShaderType ShaderType(
-				"ImGuiFragmentShader",
-				"/Engine/ImGui",
-				EShaderFrequency::Fragment,
-				"fragmentMain",
-				{},
-				&CreateImGuiFragmentShader,
-				nullptr,
-				nullptr,
-				FImGuiFragmentShader::GetParametersMetadata()
-			);
-			return ShaderType;
-		}
+	static auto GetImGuiVertexShaderType() -> FShaderType&
+	{
+		static FShaderType ShaderType("ImGuiVertexShader", "/Engine/ImGui", EShaderFrequency::Vertex, "vertexMain");
+		return ShaderType;
+	}
+
+	static auto GetImGuiFragmentShaderType() -> FShaderType&
+	{
+		static FShaderType ShaderType(
+			"ImGuiFragmentShader",
+			"/Engine/ImGui",
+			EShaderFrequency::Fragment,
+			"fragmentMain",
+			{},
+			&CreateImGuiFragmentShader,
+			nullptr,
+			nullptr,
+			FImGuiFragmentShader::GetParametersMetadata()
+		);
+		return ShaderType;
 	}
 
 	// State of the ImGui RHI backend, stored in a struct to ensure proper initialization order of static variables.
@@ -83,6 +87,14 @@ namespace Durin::Mona
 		FVector2f Translation;
 	};
 
+	struct FImGuiRHIImpl_RendererViewportData
+	{
+		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;
+		std::array<ImDrawDataSnapshot, 2> DrawDataSnapshots;
+		FViewportRHIRef ViewportRHI;
+		uint32 NextSnapshotIndex = 0;
+	};
+
 	auto FImGuiRHIImpl_WindowRenderBuffers::Clear() -> void
 	{
 		for (FImGuiRHIImpl_FrameRenderBuffers& Buffers : FrameRenderBuffers)
@@ -90,6 +102,155 @@ namespace Durin::Mona
 			Buffers.VertexBuffer = nullptr;
 			Buffers.IndexBuffer = nullptr;
 			Buffers.ProjectionUniform = nullptr;
+		}
+	}
+
+	static std::unordered_map<FRHITexture*, FTextureRHIRef*> GExternalTextureRefs;
+
+	static auto GetRendererViewportData(ImGuiViewport* Viewport) -> FImGuiRHIImpl_RendererViewportData*
+	{
+		return Viewport != nullptr ? static_cast<FImGuiRHIImpl_RendererViewportData*>(Viewport->RendererUserData) : nullptr;
+	}
+
+	static auto CreateRendererViewportData(ImGuiViewport* Viewport) -> FImGuiRHIImpl_RendererViewportData*
+	{
+		if (Viewport == nullptr)
+		{
+			return nullptr;
+		}
+
+		auto* ViewportData = GetRendererViewportData(Viewport);
+		if (ViewportData == nullptr)
+		{
+			ViewportData = new FImGuiRHIImpl_RendererViewportData();
+			Viewport->RendererUserData = ViewportData;
+		}
+
+		return ViewportData;
+	}
+
+	static auto DestroyRendererViewportData(ImGuiViewport* Viewport) -> void
+	{
+		if (Viewport == nullptr)
+		{
+			return;
+		}
+
+		if (auto* ViewportData = GetRendererViewportData(Viewport))
+		{
+			ViewportData->RenderBuffers.Clear();
+			ViewportData->ViewportRHI = nullptr;
+			delete ViewportData;
+		}
+		Viewport->RendererUserData = nullptr;
+	}
+
+	static auto SnapshotViewportDrawData(ImGuiViewport* Viewport, ImDrawData* DrawData) -> ImDrawData*
+	{
+		auto* ViewportData = GetRendererViewportData(Viewport);
+
+		const uint32 SnapshotIndex = ViewportData->NextSnapshotIndex;
+		ImDrawDataSnapshot& Snapshot = ViewportData->DrawDataSnapshots[SnapshotIndex];
+		Snapshot.SnapUsingSwap(DrawData, FTime::Seconds());
+		ViewportData->NextSnapshotIndex = (SnapshotIndex + 1) % ViewportData->DrawDataSnapshots.size();
+		return &Snapshot.DrawData;
+	}
+
+	static auto RenderViewport(ImGuiViewport* Viewport, ImDrawData* DrawData, FImGuiRHIImpl_RendererViewportData& ViewportData, bool bPresent) -> void
+	{
+		if (DrawData == nullptr)
+		{
+			ViewportData.ViewportRHI = nullptr;
+			return;
+		}
+
+		auto& App = FMonaApplication::Get();
+		FMonaRenderer* Renderer = App.GetRenderer();
+		const std::shared_ptr<MWindow> Window = ImGuiMonaImpl_GetViewportWindow(Viewport);
+		if (Renderer == nullptr || Window == nullptr || Window->IsMinimized())
+		{
+			ViewportData.ViewportRHI = nullptr;
+			return;
+		}
+
+		ViewportData.ViewportRHI = Renderer->GetRHIViewport(*Window);
+		if (ViewportData.ViewportRHI == nullptr)
+		{
+			return;
+		}
+
+		ImDrawData* SnapshotDrawData = SnapshotViewportDrawData(Viewport, DrawData);
+		if (SnapshotDrawData == nullptr)
+		{
+			return;
+		}
+
+		ImGuiRHIImpl_RenderDrawData(ViewportData.ViewportRHI, SnapshotDrawData, &ViewportData.RenderBuffers, bPresent);
+	}
+
+	static auto ResizeViewportToMatchWindow(ImGuiViewport* Viewport, ImVec2 Size) -> void
+	{
+		auto& App = FMonaApplication::Get();
+		FMonaRenderer* Renderer = App.GetRenderer();
+		const std::shared_ptr<MWindow> Window = ImGuiMonaImpl_GetViewportWindow(Viewport);
+		if (Renderer == nullptr || Window == nullptr)
+		{
+			return;
+		}
+
+		uint32 Width;
+		uint32 Height;
+		if (const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow())
+		{
+			const FIntPoint ViewportSize = NativeWindow->GetViewportSize();
+			Width = static_cast<uint32>(FMath::Max(8, ViewportSize.x));
+			Height = static_cast<uint32>(FMath::Max(8, ViewportSize.y));
+		}
+		else
+		{
+			Width = static_cast<uint32>(FMath::Max(8.0f, Size.x));
+			Height = static_cast<uint32>(FMath::Max(8.0f, Size.y));
+		}
+		Renderer->RequestResize(Window, Width, Height);
+	}
+
+	static auto ImGuiRHIImpl_RendererCreateWindow(ImGuiViewport* Viewport) -> void
+	{
+		CreateRendererViewportData(Viewport);
+
+		auto& App = FMonaApplication::Get();
+		FMonaRenderer* Renderer = App.GetRenderer();
+		const std::shared_ptr<MWindow> Window = ImGuiMonaImpl_GetViewportWindow(Viewport);
+		if (Renderer != nullptr && Window != nullptr)
+		{
+			Renderer->CreateViewport(Window);
+		}
+	}
+
+	static auto ImGuiRHIImpl_RendererDestroyWindow(ImGuiViewport* Viewport) -> void
+	{
+		DestroyRendererViewportData(Viewport);
+	}
+
+	static auto ImGuiRHIImpl_RendererSetWindowSize(ImGuiViewport* Viewport, ImVec2 Size) -> void
+	{
+		ResizeViewportToMatchWindow(Viewport, Size);
+	}
+
+	static auto ImGuiRHIImpl_RendererRenderWindow(ImGuiViewport* Viewport, void* RenderArg) -> void
+	{
+		auto* ViewportData = GetRendererViewportData(Viewport);
+		check(ViewportData != nullptr);
+		RenderViewport(Viewport, Viewport->DrawData, *ViewportData, false);
+	}
+
+	static auto ImGuiRHIImpl_RendererSwapBuffers(ImGuiViewport* Viewport, void* RenderArg) -> void
+	{
+		auto* ViewportData = GetRendererViewportData(Viewport);
+		check(ViewportData != nullptr);
+		if (ViewportData->ViewportRHI != nullptr)
+		{
+			ImGuiRHIImpl_PresentViewport(ViewportData->ViewportRHI);
 		}
 	}
 
@@ -200,22 +361,97 @@ namespace Durin::Mona
 		IO.BackendRendererName = "DurinRHI";
 		IO.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset; // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
 		IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;  // We can honor ImGuiPlatformIO::Textures[] requests during render.
+		IO.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+
+		ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
+		PlatformIO.Renderer_CreateWindow = ImGuiRHIImpl_RendererCreateWindow;
+		PlatformIO.Renderer_DestroyWindow = ImGuiRHIImpl_RendererDestroyWindow;
+		PlatformIO.Renderer_SetWindowSize = ImGuiRHIImpl_RendererSetWindowSize;
+		PlatformIO.Renderer_RenderWindow = ImGuiRHIImpl_RendererRenderWindow;
+		PlatformIO.Renderer_SwapBuffers = ImGuiRHIImpl_RendererSwapBuffers;
 
 		ImGuiRHIImpl_CreateRHIResources();
 	}
 
 	auto ImGuiRHIImpl_Shutdown() -> void
 	{
+		if (ImGuiViewport* MainViewport = ImGui::GetMainViewport())
+		{
+			DestroyRendererViewportData(MainViewport);
+		}
+
 		ImGuiRHIImpl_DestroyRHIResources();
 
 		ImGuiIO& IO = ImGui::GetIO();
 		IO.BackendRendererUserData = nullptr;
 		IO.BackendRendererName = nullptr;
-		IO.BackendFlags &= ~(ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasTextures);
+		IO.BackendFlags &= ~(ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasTextures | ImGuiBackendFlags_RendererHasViewports);
+
+		ImGui::GetPlatformIO().ClearRendererHandlers();
+
+		FlushRenderingCommands();
+		for (auto& [_, Ref] : GExternalTextureRefs)
+		{
+			delete Ref;
+		}
+		GExternalTextureRefs.clear();
 	}
 
 	auto ImGuiRHIImpl_NewFrame() -> void
 	{
+	}
+
+	auto ImGuiRHIImpl_GetTextureID(FRHITexture* Texture) -> ImTextureID
+	{
+		if (Texture == nullptr)
+		{
+			return ImTextureID_Invalid;
+		}
+
+		if (auto It = GExternalTextureRefs.find(Texture); It != GExternalTextureRefs.end())
+		{
+			return reinterpret_cast<ImTextureID>(It->second);
+		}
+
+		auto* Ref = new FTextureRHIRef(Texture);
+		GExternalTextureRefs[Texture] = Ref;
+		return reinterpret_cast<ImTextureID>(Ref);
+	}
+
+	auto ImGuiRHIImpl_PruneExternalTextureRefs() -> void
+	{
+		for (auto It = GExternalTextureRefs.begin(); It != GExternalTextureRefs.end();)
+		{
+			if (It->second->GetRefCount() == 1)
+			{
+				delete It->second;
+				It = GExternalTextureRefs.erase(It);
+			}
+			else
+			{
+				++It;
+			}
+		}
+	}
+
+	auto ImGuiRHIImpl_EnsureMainViewportData(ImGuiViewport* Viewport) -> void
+	{
+		CreateRendererViewportData(Viewport);
+	}
+
+	auto ImGuiRHIImpl_RenderMainViewport(ImGuiViewport* Viewport) -> void
+	{
+		if (Viewport == nullptr)
+		{
+			return;
+		}
+
+		auto* ViewportData = GetRendererViewportData(Viewport);
+		check(ViewportData != nullptr);
+		// The main viewport is skipped by UpdatePlatformWindows() (index 0),
+		// so its swapchain must be resized here.
+		ResizeViewportToMatchWindow(Viewport, Viewport->Size);
+		RenderViewport(Viewport, Viewport->DrawData, *ViewportData, true);
 	}
 
 	static auto ImGuiRHIImplRT_UpdateBuffers(FRHICommandListImmediate& CommandList, const ImDrawData* DrawData, FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers) -> void
