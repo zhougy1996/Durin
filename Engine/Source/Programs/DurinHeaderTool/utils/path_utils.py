@@ -46,6 +46,11 @@ def get_module_export_file_path(module_name: str) -> Path:
     if not configs.get_module_config(module_name).has_export_file():
         return Path("")
     return get_module_dht_output_dir(module_name) / f"{module_name}.export"
+
+def get_module_export_manifest_file_path(module_name: str) -> Path:
+    if not configs.get_module_config(module_name).has_export_file():
+        return Path("")
+    return get_module_dht_output_dir(module_name) / f"{module_name}.export.manifest"
     
 def get_module_manifest_file_path(module_name: str) -> Path:
     return get_module_dht_output_dir(module_name) / f"{module_name}.manifest"

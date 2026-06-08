@@ -45,7 +45,8 @@ The export command runs before reflection generation so other modules can resolv
 
 DurinHeaderTool logs key build progress at `INFO` level:
 
-- export scan start/end and symbol count
+- export skip status, scan start/end, and symbol count
+- per-header export parse time and symbol count
 - reflection manifest preparation
 - number of regenerated/skipped headers
 - dependency export loading
@@ -100,6 +101,16 @@ The export file is schema v1 JSON:
 ```
 
 Export files are intentionally thin. They are used for symbol resolution during parsing/generation, not as the full runtime reflection database.
+
+Export files should only change when the exported reflected-symbol contract changes. Whitespace-only edits in a reflected header may force the owning module's export command to run, but should not rewrite the public `.export` file if the symbol index is unchanged. This keeps downstream modules from regenerating purely because an upstream header timestamp changed.
+
+DurinHeaderTool stores export-generation input fingerprints in a private sibling cache:
+
+```text
+<Module>.export.manifest
+```
+
+The module export manifest records the schema/tool/options/profile/platform, reflected-header fingerprints, and the exported symbols last produced by each header. It lets `generate_module_export_file` skip entirely when no inputs changed. If only some headers changed, DurinHeaderTool reuses unchanged header symbols from the manifest, reparses only changed or missing entries, then assembles the public `.export` file. Other modules should not depend on or read this private cache file.
 
 `CoreDObject` uses `DObject/MirrorExportTypes.h` under `_DHT_EXPORTS_PARSER` to publish intrinsic core types such as `Durin::DObject`, `Durin::DStructure`, and `Durin::DClass` without generating duplicate runtime class registration for those intrinsic types.
 
