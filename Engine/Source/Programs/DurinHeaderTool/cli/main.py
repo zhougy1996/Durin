@@ -1,6 +1,13 @@
 import argparse
+import logging
 import configs
-from .command import *
+from .command import (
+    CommandManager,
+    EmptyCommand,
+    GenerateModuleExportFileCommand,
+    GenerateReflectionFilesCommand,
+    PrepareProjectBuildCommand,
+)
 
 def init_logging(log_level_str: str):
     log_level = getattr(logging, log_level_str.upper(), logging.INFO)
