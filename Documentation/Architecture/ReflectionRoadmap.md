@@ -30,14 +30,20 @@ Examples:
 
 Generated C++ may use helper names, but all type references should be generated with fully qualified names when possible. This avoids ambiguity when reflected types live inside namespaces.
 
-Generated helper symbols should use a reversible private encoding instead of flattening namespaces with underscores. For example:
+Generated helper symbols are private implementation details. They should favor readable names derived from the fully qualified C++ name, with namespace separators replaced by `_`.
+
+For example:
 
 ```cpp
 // Durin::Gameplay::AActor
-DClass* Z_Construct_DClass_QN_5_Durin_8_Gameplay_6_AActor();
+DClass* Z_Construct_DClass_Durin_Gameplay_AActor();
 ```
 
-The `QN_<length>_<segment>...` encoding is intentionally engine-owned. It avoids depending on compiler ABI mangling and keeps namespace boundaries recoverable.
+This is not the runtime identity of the type. The runtime identity and export-file key remain the fully qualified C++ name, such as `Durin::Gameplay::AActor`.
+
+To keep this helper-name scheme readable and reversible, reflected namespace segments and reflected type names must not contain `_`. DurinHeaderTool should validate this while collecting reflected symbols and fail early with a clear diagnostic. For example, `Durin::Gameplay::AActor` may generate `Durin_Gameplay_AActor`, but `Durin::Gameplay_AActor` should be rejected before code generation.
+
+This naming restriction only applies to reflected symbol path segments that participate in generated helper names. It does not need to apply globally to every C++ helper, local variable, private non-reflected type, or third-party symbol.
 
 ## Build Flow
 
@@ -75,11 +81,13 @@ Export files should answer questions needed during parsing and generation:
 
 - Which reflected symbols does this module publish?
 - What is each symbol's fully qualified name?
+- What generated helper name should other modules reference?
 - What kind of symbol is it: class, struct, enum, or function later?
 - Which module and header own the symbol?
 - Which API macro exports the symbol?
 - For enums, what is the scoped/unscoped form and underlying type?
 - For classes, what is the reflected base type when known?
+- Did every reflected namespace and type-name segment pass generated-name validation?
 
 Recommended shape:
 
@@ -92,6 +100,7 @@ Recommended shape:
       "kind": "class",
       "shortName": "AActor",
       "namespace": "Durin",
+      "generatedHelperName": "Z_Construct_DClass_Durin_AActor",
       "header": "Public/Engine/Actor.h",
       "api": "ENGINE_API"
     }
@@ -113,6 +122,7 @@ Recommended fields:
 {
   "schemaVersion": 1,
   "toolVersion": "0",
+  "symbolNameScheme": "qualified-underscore-v1",
   "moduleName": "Engine",
   "profile": "DurinEditor",
   "platform": "Win64",
@@ -125,6 +135,8 @@ Recommended fields:
 ```
 
 The manifest is not a public contract between modules. Other modules should read export files, not manifests.
+
+The symbol name scheme should participate in manifest invalidation. Changing helper-name generation must force regenerated `.gen.h`, `.gen.cpp`, and export files, even when the reflected headers themselves did not change.
 
 ## Dependency Scope
 
@@ -159,6 +171,8 @@ The parser should prefer Clang AST information over token-string guessing:
 
 The resolver should map both fully qualified names and compiler-stable identities, such as Clang USRs when available, to exported symbol records. Fully qualified names are easier to inspect and should remain the generated-code identity.
 
+The resolver should also own helper-name allocation and naming-rule validation. Writers should consume the resolved helper names instead of recomputing them independently, so exports, generated declarations, registration records, diagnostics, and snapshot tests all agree.
+
 ## Generated Header Contract
 
 For each reflected header, the generated `.gen.h` should provide the declarations injected by `GENERATED_BODY()`.
@@ -172,6 +186,8 @@ The first class milestone should generate:
 - default constructor glue through object initializer or default constructor macros
 
 The original header should include its generated header near the bottom of its include block and before reflected declarations use `GENERATED_BODY()`.
+
+Generated header macros must be namespace-aware. If a reflected class lives in `Durin::Gameplay`, generated friend declarations and `DECLARE_CLASS(...)` arguments must refer to the exact helper names resolved for `Durin::Gameplay::AActor`, not just the short spelling `AActor`.
 
 ## Generated Source Contract
 
@@ -187,7 +203,9 @@ For each reflected header, the generated `.gen.cpp` should provide:
 - static property parameter records
 - compiled-in registration records
 
-Generated source should use fully qualified C++ names for reflected C++ types. Helper function names may use the `QN_` encoding to avoid namespace collisions.
+Generated source should use fully qualified C++ names for reflected C++ types. Helper function names should use the readable qualified-underscore scheme, such as `Z_Construct_DClass_Durin_Gameplay_AActor`, and cross-module declarations should come from dependency export files.
+
+Generated `.gen.cpp` files should avoid re-parsing or guessing dependency symbols. If a superclass or property type is reflected, the writer should either resolve it through the current module model or read it from dependency exports before emitting declarations.
 
 ## Runtime Type System Milestone
 
@@ -243,12 +261,12 @@ Weak references, clusters, incremental marking, multithreaded marking, object ha
 
 1. Keep DurinHeaderTool in Python while the data model is changing. Stabilize schemas and tests before considering a C++ rewrite.
 2. Replace empty reflection generation with a real parse-model-generate path for one simple header.
-3. Generate namespace-safe class helper names from fully qualified names.
+3. Generate readable namespace-safe class helper names from fully qualified names using the qualified-underscore scheme.
 4. Generate working `.gen.h` content for `GENERATED_BODY()`.
 5. Generate working `.gen.cpp` class registration for `DCLASS()`.
-6. Extend export files into thin symbol indexes.
-7. Extend manifests with schema, tool, profile, platform, config, options, and generated output tracking.
-8. Add a DHT snapshot test that compares generated files for a tiny reflected header.
+6. Extend export files into thin symbol indexes, including generated helper names and naming-rule validation.
+7. Extend manifests with schema, tool, symbol-name scheme, profile, platform, config, options, and generated output tracking.
+8. Add DHT snapshot tests that compare generated files for tiny reflected headers, including at least one namespaced class.
 9. Attach generated primitive properties to `DClass`.
 10. Attach generated object-pointer properties to `DClass`.
 11. Implement `IsA` and `Cast` using `DClass` hierarchy.
