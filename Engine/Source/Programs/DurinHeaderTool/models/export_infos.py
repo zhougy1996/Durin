@@ -1,52 +1,56 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Dict, List
 import json
 
 import utils
 
-@dataclass
-class ExportedClassInfo:
-    pass
 
 @dataclass
-class ExportedEnumInfo:
-    underlying_type: str
-    pass
+class ExportedSymbolInfo:
+    kind: str
+    shortName: str
+    namespace: str
+    qualifiedName: str
+    generatedHelperName: str
+    header: str
+    api: str
+    baseQualifiedName: str = ""
 
-@dataclass
-class ExportedStructInfo:
-    pass
-
-@dataclass
-class HeaderExportInfo:
-    enums: Dict[str, ExportedEnumInfo] = field(default_factory=dict)
-    classes: Dict[str, ExportedClassInfo] = field(default_factory=dict)
-    structs: Dict[str, ExportedStructInfo] = field(default_factory=dict)
 
 @dataclass
 class ModuleExportInfo:
-    module_name: str
-    exports: Dict[str, HeaderExportInfo] = field(default_factory=dict)
+    schemaVersion: int = 1
+    module: str = ""
+    symbols: dict[str, ExportedSymbolInfo] = field(default_factory=dict)
 
     @classmethod
     def from_file(cls, module_export_file_path: Path) -> "ModuleExportInfo":
-        raw_json_data = utils.load_json_file(module_export_file_path, required_fields=["ModuleName"])
-        module_export_info = utils.dataclass_from_dict(cls, raw_json_data)
-        return module_export_info
-    
-    def from_string(cls, json_string: str) -> "ModuleExportInfo":
-        raw_json_data = utils.parse_json_content(json_string, required_fields=["ModuleName"])
-        module_export_info = utils.dataclass_from_dict(cls, raw_json_data)
-        return module_export_info
-    
+        raw_json_data = utils.load_json_file(module_export_file_path)
+        symbols = {
+            qualified_name: ExportedSymbolInfo(**symbol_data)
+            for qualified_name, symbol_data in raw_json_data.get("symbols", {}).items()
+        }
+        return cls(
+            schemaVersion=raw_json_data.get("schemaVersion", 1),
+            module=raw_json_data.get("module", raw_json_data.get("ModuleName", "")),
+            symbols=symbols,
+        )
+
+
 def load_module_export_file(module_export_file_path: Path) -> ModuleExportInfo:
     return ModuleExportInfo.from_file(module_export_file_path)
 
+
 def save_module_export_file(export_info: ModuleExportInfo) -> str:
-    module_name = export_info.module_name
-    output_path = utils.get_module_export_file_path(module_name)
-    json_data = utils.dict_from_dataclass(ModuleExportInfo, export_info, auto_convert=True)
+    output_path = utils.get_module_export_file_path(export_info.module)
+    json_data = {
+        "schemaVersion": export_info.schemaVersion,
+        "module": export_info.module,
+        "symbols": {
+            qualified_name: asdict(symbol)
+            for qualified_name, symbol in sorted(export_info.symbols.items())
+        },
+    }
     content = json.dumps(json_data, indent=4)
     utils.generate_file(output_path, content)
     return content

@@ -70,13 +70,20 @@ namespace Durin
 			UInt64,
 			Float,
 			Double,
-			Enum
+			String,
+			Enum,
+			Object
 		};
+
+		struct FPropertyParamsBase;
 
 		struct FClassParams
 		{
 			DClass* (*ClassNoRegisterFunc)();
-			const char* ClassName;
+			const char* QualifiedClassName;
+			const char* ShortClassName;
+			const FPropertyParamsBase* const* PropertyParams;
+			size_t NumProperties;
 		};
 
 		struct FPropertyParamsBase
@@ -85,6 +92,8 @@ namespace Durin
 			EPropertyFlags Flags;
 			uint16 ArrayDim;
 			uint16 Offset;
+			EPropertyGenFlags Kind;
+			DClass* (*ReferencedClassFunc)();
 		};
 
 		struct FGenericPropertyParams : public FPropertyParamsBase
@@ -100,6 +109,12 @@ namespace Durin
 		using FUInt16PropertyParams = FPropertyParamsBase;
 		using FUInt32PropertyParams = FPropertyParamsBase;
 		using FUInt64PropertyParams = FPropertyParamsBase;
+		using FFloatPropertyParams = FPropertyParamsBase;
+		using FDoublePropertyParams = FPropertyParamsBase;
+		using FBoolPropertyParams = FPropertyParamsBase;
+		using FStringPropertyParams = FPropertyParamsBase;
+		using FEnumPropertyParams = FPropertyParamsBase;
+		using FObjectPropertyParams = FPropertyParamsBase;
 
 		COREDOBJECT_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
 

@@ -101,6 +101,23 @@ namespace Durin
 		GDObjectArray.Add(this);
 	}
 
+	auto DObject::IsA(const DClass* InClass) const -> bool
+	{
+		if (!InClass)
+		{
+			return false;
+		}
+
+		for (const DClass* Class = GetClass(); Class; Class = Class->GetSuperClass())
+		{
+			if (Class == InClass)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	auto Z_Construct_DClass_DObject_NoRegister() -> DClass*
 	{
 		return DObject::GetPrivateStaticClass();

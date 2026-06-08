@@ -56,6 +56,14 @@ namespace Durin
 
 		auto GetClass() const -> DClass* { return ClassPrivate; }
 
+		COREDOBJECT_API auto IsA(const DClass* InClass) const -> bool;
+
+		template<typename T>
+		auto IsA() const -> bool
+		{
+			return IsA(T::StaticClass());
+		}
+
 		static void IntrinsicClassInit(DClass* Class);
 
 		/**
@@ -93,6 +101,20 @@ namespace Durin
 
 		friend COREDOBJECT_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
 	};
+
+	template<typename T>
+	auto Cast(DObject* Object) -> T*
+	{
+		static_assert(std::is_base_of_v<DObject, T>, "T must be derived from DObject");
+		return Object && Object->IsA(T::StaticClass()) ? static_cast<T*>(Object) : nullptr;
+	}
+
+	template<typename T>
+	auto Cast(const DObject* Object) -> const T*
+	{
+		static_assert(std::is_base_of_v<DObject, T>, "T must be derived from DObject");
+		return Object && Object->IsA(T::StaticClass()) ? static_cast<const T*>(Object) : nullptr;
+	}
 
 	/**
 	 *  Process all auto-registered DObjects

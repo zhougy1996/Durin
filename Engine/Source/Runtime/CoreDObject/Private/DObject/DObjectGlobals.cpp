@@ -3,6 +3,7 @@
 #include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
+#include "DObject/Property.h"
 
 namespace Durin
 {
@@ -56,6 +57,36 @@ namespace Durin
 		DClass* Class = Params.ClassNoRegisterFunc();
 
 		DObjectForceRegistration(Class);
+
+		if (!Class->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
+		{
+			FField* LastProperty = nullptr;
+			for (size_t Index = 0; Index < Params.NumProperties; ++Index)
+			{
+				const FPropertyParamsBase* PropertyParams = Params.PropertyParams[Index];
+				DClass* ReferencedClass = PropertyParams->ReferencedClassFunc ? PropertyParams->ReferencedClassFunc() : nullptr;
+				FProperty* Property = new FProperty(
+					FFieldVariant(Class),
+					FName(PropertyParams->NameUTF8),
+					EObjectFlags::NoFlags,
+					PropertyParams->Flags,
+					PropertyParams->ArrayDim,
+					PropertyParams->Offset,
+					PropertyParams->Kind,
+					ReferencedClass
+				);
+
+				if (LastProperty)
+				{
+					LastProperty->Next = Property;
+				}
+				else
+				{
+					Class->ChildProperties = Property;
+				}
+				LastProperty = Property;
+			}
+		}
 		return Class;
 	}
 }

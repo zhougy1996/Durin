@@ -47,9 +47,7 @@ namespace Durin
 
 	auto FFieldVariant::IsA(const DClass* InClass) const -> bool
 	{
-		return false;
-		// TODO: implement IsA
-		// return IsDObject() && ToDObjectUnSafe()->IsA(InClass);
+		return IsDObject() && ToDObjectUnSafe()->IsA(InClass);
 	}
 
 	FField::FField(FFieldVariant InOwner, FName InName, EObjectFlags InFlags)

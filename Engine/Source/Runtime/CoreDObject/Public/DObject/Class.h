@@ -32,6 +32,8 @@ namespace Durin
 	public:
 		auto SetSuperStructure(DStructure* InSuperStructure) -> void { SuperStructure = InSuperStructure; }
 
+		auto GetSuperStructure() const -> DStructure* { return SuperStructure; }
+
 		auto RegisterDependencies() -> void;
 	};
 
@@ -60,6 +62,8 @@ namespace Durin
 		}
 
 		ClassConstructorType ClassConstructor = nullptr;
+
+		auto GetSuperClass() const -> DClass* { return static_cast<DClass*>(GetSuperStructure()); }
 	};
 
 	template<class T>

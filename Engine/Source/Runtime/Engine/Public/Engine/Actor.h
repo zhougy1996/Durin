@@ -20,7 +20,7 @@ namespace Durin
 
 		ENGINE_API AActor(const FObjectInitializer& ObjectInitializer);
 
-		ENGINE_API virtual ~AActor();
+		ENGINE_API ~AActor() override;
 
 		// Only for internal use, should be called by DActorComponent functions
 		auto RemoveOwnedComponent(DActorComponent* Component) -> void;

@@ -68,11 +68,7 @@ namespace Durin
 	ENUM_CLASS_FLAGS(EObjectFlags)
 }
 
-#ifdef CURRENT_FILE_ID
-	#define GENERATED_BODY(...) BODY_MACRO_COMBINE(CURRENT_FILE_ID, _, __LINE__, _GENERATED_BODY)
-#else
-	#define GENERATED_BODY(...)
-#endif
+#define GENERATED_BODY(...) BODY_MACRO_COMBINE(CURRENT_FILE_ID, _, __LINE__, _GENERATED_BODY)
 
 #define DECLARE_CLASS(TClass, TSuperClass, TPrivateAccessor) \
 private: \
