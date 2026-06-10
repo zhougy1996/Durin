@@ -26,7 +26,7 @@ Typical workspace contents:
 
 Projects are top-level owners such as `Engine` or `SandBox`. They typically own `.dproject`, `Source/`, `Configs/`, `Intermediate/`, and `Binaries/`.
 
-Projects are registered through `Engine/Source/Programs/DurinHeaderTool/Configs/RegisteredProjects.json`.
+Projects are registered through `Engine/Configs/RegisteredProjects.json`.
 
 Modules are the compilation and runtime loading units. They belong to a project, but their dependencies can cross project boundaries.
 

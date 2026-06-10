@@ -7,11 +7,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import configs
-import utils
-from generators.module_export_file_generator import generate_module_export_file
-from generators.module_reflection_files_generator import generate_reflection_files
-from models.reflection_info import make_generated_helper_name
+from durin_header_tool import config as configs
+from durin_header_tool import io as utils
+from durin_header_tool.generators.module_export_file_generator import generate_module_export_file
+from durin_header_tool.generators.module_reflection_files_generator import generate_reflection_files
+from durin_header_tool.model.reflection_info import make_generated_helper_name
 
 
 class ReflectionGenerationTests(unittest.TestCase):
@@ -29,11 +29,11 @@ class ReflectionGenerationTests(unittest.TestCase):
         export_path = utils.get_module_export_file_path("Engine")
         data = json.loads(export_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(data["schemaVersion"], 1)
-        actor = data["symbols"]["Durin::AActor"]
-        self.assertEqual(actor["qualifiedName"], "Durin::AActor")
-        self.assertEqual(actor["generatedHelperName"], "Z_Construct_DClass_Durin_AActor")
-        self.assertEqual(actor["baseQualifiedName"], "Durin::DObject")
+        self.assertEqual(data["SchemaVersion"], 2)
+        actor = data["Symbols"]["Durin::AActor"]
+        self.assertEqual(actor["QualifiedName"], "Durin::AActor")
+        self.assertEqual(actor["GeneratedHelperName"], "Z_Construct_DClass_Durin_AActor")
+        self.assertEqual(actor["BaseQualifiedName"], "Durin::DObject")
 
     def test_qualified_helper_name_and_validation(self):
         self.assertEqual(
@@ -57,13 +57,13 @@ class ReflectionGenerationTests(unittest.TestCase):
         manifest_path = utils.get_module_manifest_file_path("Engine")
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(data["schemaVersion"], 1)
-        self.assertEqual(data["symbolNameScheme"], "qualified-underscore-v1")
-        self.assertEqual(data["moduleName"], "Engine")
-        self.assertEqual(data["profile"], "DurinEditor")
-        self.assertEqual(data["platform"], "Win64")
-        actor_dependencies = data["resolvedSymbolDependencies"]["Public/Engine/Actor.h"]
-        self.assertEqual(actor_dependencies["Durin::DObject"]["generatedHelperName"], "Z_Construct_DClass_Durin_DObject")
+        self.assertEqual(data["SchemaVersion"], 2)
+        self.assertEqual(data["SymbolNameScheme"], "qualified-underscore-v1")
+        self.assertEqual(data["ModuleName"], "Engine")
+        self.assertEqual(data["Profile"], "DurinEditor")
+        self.assertEqual(data["Platform"], "Win64")
+        actor_dependencies = data["ResolvedSymbolDependencies"]["Public/Engine/Actor.h"]
+        self.assertEqual(actor_dependencies["Durin::DObject"]["GeneratedHelperName"], "Z_Construct_DClass_Durin_DObject")
 
 
 if __name__ == "__main__":

@@ -87,18 +87,18 @@ The export file is schema v1 JSON:
 
 ```json
 {
-  "schemaVersion": 1,
-  "module": "Engine",
-  "symbols": {
+  "SchemaVersion": 2,
+  "Module": "Engine",
+  "Symbols": {
     "Durin::AActor": {
-      "kind": "class",
-      "shortName": "AActor",
-      "namespace": "Durin",
-      "qualifiedName": "Durin::AActor",
-      "generatedHelperName": "Z_Construct_DClass_Durin_AActor",
-      "header": "Public/Engine/Actor.h",
-      "api": "ENGINE_API",
-      "baseQualifiedName": "Durin::DObject"
+      "Kind": "class",
+      "ShortName": "AActor",
+      "Namespace": "Durin",
+      "QualifiedName": "Durin::AActor",
+      "GeneratedHelperName": "Z_Construct_DClass_Durin_AActor",
+      "Header": "Public/Engine/Actor.h",
+      "API": "ENGINE_API",
+      "BaseQualifiedName": "Durin::DObject"
     }
   }
 }
@@ -128,13 +128,13 @@ Each reflected module writes:
 
 The manifest is schema v1 JSON and is private to DurinHeaderTool. It records:
 
-- `schemaVersion`
-- `toolVersion`
-- `symbolNameScheme`
-- `moduleName`
-- `profile`
-- `platform`
-- `generatorOptionsHash`
+- `SchemaVersion`
+- `ToolVersion`
+- `SymbolNameScheme`
+- `ModuleName`
+- `Profile`
+- `Platform`
+- `GeneratorOptionsHash`
 - reflected header fingerprints
 - dependency export fingerprints
 - resolved reflected-symbol dependencies per header
@@ -231,6 +231,10 @@ The current focused DHT tests live under:
 ```text
 Engine/Source/Programs/DurinHeaderTool/tests
 ```
+
+The implementation keeps the external entrypoint at `Engine/Source/Programs/DurinHeaderTool/main.py`.
+Internal code lives under `Engine/Source/Programs/DurinHeaderTool/durin_header_tool`, split by role:
+`cli`, `config`, `io`, `model`, `parser`, `resolver`, `cache`, `writers`, and `generators`.
 
 Run them with:
 

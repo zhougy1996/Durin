@@ -17,7 +17,7 @@ A profile is the workspace-wide host or runtime mode used for the current build.
 - `DurinEditor`
 - `DurinGame`
 
-Profile definitions live in `Engine/Source/Programs/DurinHeaderTool/configs/profile_config.py`.
+Profile definitions live in `Engine/Source/Programs/DurinHeaderTool/durin_header_tool/config/profile_config.py`.
 
 ## Presets And Generated Metadata
 
@@ -58,7 +58,7 @@ DurinHeaderTool treats those entries as the root module set for the active profi
 
 Minimum steps:
 
-1. Add the built-in profile entry in `Engine/Source/Programs/DurinHeaderTool/configs/profile_config.py`.
+1. Add the built-in profile entry in `Engine/Source/Programs/DurinHeaderTool/durin_header_tool/config/profile_config.py`.
 2. Add or update matching `ExtraModules.<ProfileName>.Modules` entries in the relevant `.dproject` files when the module set should differ.
 3. Add matching presets in `CMakePresets.json`.
 4. Verify generated output under `Engine/Intermediate/Build/<Platform>/<ProfileName>/`.

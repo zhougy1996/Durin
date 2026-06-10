@@ -93,16 +93,16 @@ Recommended shape:
 
 ```json
 {
-  "schemaVersion": 1,
-  "module": "Engine",
-  "symbols": {
+  "SchemaVersion": 2,
+  "Module": "Engine",
+  "Symbols": {
     "Durin::AActor": {
-      "kind": "class",
-      "shortName": "AActor",
-      "namespace": "Durin",
-      "generatedHelperName": "Z_Construct_DClass_Durin_AActor",
-      "header": "Public/Engine/Actor.h",
-      "api": "ENGINE_API"
+      "Kind": "class",
+      "ShortName": "AActor",
+      "Namespace": "Durin",
+      "GeneratedHelperName": "Z_Construct_DClass_Durin_AActor",
+      "Header": "Public/Engine/Actor.h",
+      "API": "ENGINE_API"
     }
   }
 }
@@ -120,17 +120,17 @@ Recommended fields:
 
 ```json
 {
-  "schemaVersion": 1,
-  "toolVersion": "0",
-  "symbolNameScheme": "qualified-underscore-v1",
-  "moduleName": "Engine",
-  "profile": "DurinEditor",
-  "platform": "Win64",
-  "moduleConfigFingerprint": {},
-  "generatorOptionsHash": "",
-  "reflectHeaders": {},
-  "dependencyExports": {},
-  "generatedOutputs": []
+  "SchemaVersion": 2,
+  "ToolVersion": "0",
+  "SymbolNameScheme": "qualified-underscore-v1",
+  "ModuleName": "Engine",
+  "Profile": "DurinEditor",
+  "Platform": "Win64",
+  "ModuleConfigFingerprint": {},
+  "GeneratorOptionsHash": "",
+  "ReflectHeaders": {},
+  "DependencyExports": {},
+  "GeneratedOutputs": []
 }
 ```
 
