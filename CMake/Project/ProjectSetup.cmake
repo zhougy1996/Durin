@@ -6,7 +6,7 @@ set(DHT_DIR ${DURIN_WORKSPACE_DIR}/Engine/Source/Programs/DurinHeaderTool)
 set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/main.py")
 
 function(durin_project_log project_name)
-	message(STATUS "[Durin] Project: ${project_name}")
+	message(STATUS "[${project_name}] Project: ${project_name}")
 endfunction()
 
 function(add_durin_project project_name)
