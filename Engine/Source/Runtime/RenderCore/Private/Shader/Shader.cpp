@@ -124,6 +124,35 @@ namespace Durin
 			return Cache;
 		}
 
+		auto AreShaderBindingTypesCompatible(ERHIBindingType ReflectedType, ERHIBindingType ParameterType) -> bool
+		{
+			if (ReflectedType == ParameterType)
+			{
+				return true;
+			}
+			return ReflectedType == ERHIBindingType::UniformBuffer && ParameterType == ERHIBindingType::UniformBufferDynamic;
+		}
+
+		auto ApplyShaderParameterBindingOverrides(
+			const FShaderType& ShaderType,
+			const FShaderReflectionData& InReflection,
+			FShaderReflectionData& OutReflection
+		) -> void
+		{
+			OutReflection = InReflection;
+			for (FShaderResourceBinding& ResourceBinding : OutReflection.ResourceBindings)
+			{
+				const std::span<const FShaderParameterMetadata> ParameterMetadata = ShaderType.GetParameterMetadata();
+				const auto FoundIt = std::ranges::find_if(ParameterMetadata, [&ResourceBinding](const FShaderParameterMetadata& Parameter) {
+					return Parameter.Name != nullptr && ResourceBinding.Name == Parameter.Name;
+				});
+				if (FoundIt != ParameterMetadata.end() && AreShaderBindingTypesCompatible(ResourceBinding.Type, FoundIt->Type))
+				{
+					ResourceBinding.Type = FoundIt->Type;
+				}
+			}
+		}
+
 		template <typename TBuilder>
 		auto UpdateHashStringField(TBuilder& Builder, std::string_view Value) -> void
 		{
@@ -414,7 +443,7 @@ namespace Durin
 				return false;
 			}
 
-			if (FoundIt->Type != Parameter.Type)
+			if (!AreShaderBindingTypesCompatible(FoundIt->Type, Parameter.Type))
 			{
 				OutErrorMessage = std::format("Shader parameter '{}' type does not match reflection", Parameter.Name);
 				return false;
@@ -431,7 +460,7 @@ namespace Durin
 			Binding.Offset = Parameter.Offset;
 			Binding.SetIndex = FoundIt->SetIndex;
 			Binding.BindingIndex = FoundIt->BindingIndex;
-			Binding.Type = FoundIt->Type;
+			Binding.Type = Parameter.Type;
 			Binding.ArraySize = FoundIt->ArraySize;
 			OutBindings.push_back(Binding);
 		}
@@ -763,7 +792,16 @@ namespace Durin
 			CompiledShaders.push_back(CompiledShader);
 		}
 
-		if (!BuildPipelineLayoutFromShaders(CompiledShaders, MergedPipelineLayout, OutErrorMessage))
+		std::vector<FShaderReflectionData> PipelineReflectionData;
+		PipelineReflectionData.reserve(CompiledShaders.size());
+		for (uint32 ShaderIndex = 0; ShaderIndex < ShaderTypes.size(); ++ShaderIndex)
+		{
+			FShaderReflectionData ReflectionWithOverrides;
+			ApplyShaderParameterBindingOverrides(*ShaderTypes[ShaderIndex], CompiledShaders[ShaderIndex].Reflection, ReflectionWithOverrides);
+			PipelineReflectionData.push_back(std::move(ReflectionWithOverrides));
+		}
+
+		if (!BuildPipelineLayoutFromReflection(PipelineReflectionData, MergedPipelineLayout, OutErrorMessage))
 		{
 			Reset();
 			return false;

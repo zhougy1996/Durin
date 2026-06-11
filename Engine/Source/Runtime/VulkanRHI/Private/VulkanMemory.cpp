@@ -78,7 +78,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanMemoryManager::CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, EVulkanAllocationFlags AllocFlags, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName) const -> bool
 	{
 		VmaAllocationCreateFlags VmaFlags = 0;
-		VmaFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+		VmaFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
 		VmaAllocationCreateInfo AllocCreateInfo{};
 		AllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;

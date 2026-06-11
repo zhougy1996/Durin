@@ -24,6 +24,10 @@ namespace Durin::VulkanRHI
 
 		auto GetHandle() const -> vk::Buffer { return Buffer; }
 
+		auto GetMappedPointer() const -> void*;
+
+		auto FlushMappedMemory(uint32 Offset = 0, uint32 Size = 0) -> void;
+
 	protected:
 		enum class ELockStatus : uint8
 		{
@@ -39,6 +43,43 @@ namespace Durin::VulkanRHI
 		FVulkanAllocation Allocation{};
 
 		ELockStatus LockStatus = ELockStatus::Unlocked;
+	};
+
+	class FVulkanDynamicUniformBufferAllocator
+	{
+	public:
+		explicit FVulkanDynamicUniformBufferAllocator(FVulkanDevice& InDevice);
+
+		~FVulkanDynamicUniformBufferAllocator();
+
+		auto BeginFrame(uint32 FrameIndex) -> void;
+
+		auto Allocate(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
+
+	private:
+		struct FChunk
+		{
+			TRefCountPtr<FVulkanBuffer> Buffer;
+			uint32 Offset = 0;
+		};
+
+		struct FFrameState
+		{
+			std::vector<FChunk> Chunks;
+			uint32 CurrentChunkIndex = 0;
+		};
+
+		auto CreateChunk(uint32 MinSize) -> FChunk;
+
+		auto GetAlignment() const -> uint32;
+
+		static auto AlignUp(uint32 Value, uint32 Alignment) -> uint32;
+
+		FVulkanDevice& Device;
+
+		std::array<FFrameState, kFrameInFlight> Frames;
+
+		uint32 CurrentFrameIndex = 0;
 	};
 
 	class FStagingBuffer

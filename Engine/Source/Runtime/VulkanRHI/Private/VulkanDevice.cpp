@@ -9,6 +9,7 @@
 #include "VulkanQueue.h"
 #include "VulkanSubmission.h"
 #include "VulkanDescriptorSets.h"
+#include "VulkanBuffer.h"
 
 namespace Durin::VulkanRHI
 {
@@ -162,6 +163,7 @@ namespace Durin::VulkanRHI
 		PipelineManager = new FVulkanPipelineStateCacheManager(*this);
 		DescriptorSetCache = new FVulkanDescriptorSetLayoutCache(*this);
 		GlobalDescriptorPool = new FVulkanGlobalDescriptorPool(*this);
+		DynamicUniformBufferAllocator = new FVulkanDynamicUniformBufferAllocator(*this);
 
 		for (auto& Frame : Frames)
 		{
@@ -385,6 +387,9 @@ namespace Durin::VulkanRHI
 		}
 		delete GlobalDescriptorPool;
 		GlobalDescriptorPool = nullptr;
+
+		delete DynamicUniformBufferAllocator;
+		DynamicUniformBufferAllocator = nullptr;
 
 		delete DescriptorSetCache;
 		DescriptorSetCache = nullptr;

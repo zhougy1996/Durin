@@ -12,11 +12,17 @@ namespace Durin::VulkanRHI
 	class FVulkanGraphicsPipelineDescriptorState
 	{
 	public:
+		struct FDescriptorSetsForDraw
+		{
+			const std::vector<vk::DescriptorSet>* DescriptorSets = nullptr;
+			std::vector<uint32> DynamicOffsets;
+		};
+
 		~FVulkanGraphicsPipelineDescriptorState() { Reset(); }
 
 		auto SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void;
 
-		auto GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> const std::vector<vk::DescriptorSet>&;
+		auto GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> FDescriptorSetsForDraw;
 
 		auto ClearDescriptorSetCache() -> void;
 

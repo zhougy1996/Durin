@@ -382,6 +382,84 @@ namespace Durin
 		EXPECT_EQ(Bindings[1].Type, ERHIBindingType::Sampler);
 	}
 
+	TEST(FShaderFoundationTests, BuildShaderParameterBindingsAllowsDynamicUniformMetadataForConstantBufferReflection)
+	{
+		struct FParameters
+		{
+			FRHIUniformBufferRange SceneUniform;
+		};
+
+		const std::array Metadata = {
+			FShaderParameterMetadata{"SceneUniform", static_cast<uint32>(offsetof(FParameters, SceneUniform)), ERHIBindingType::UniformBufferDynamic, 1}
+		};
+
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({
+			.Name = "SceneUniform",
+			.StageFlags = EShaderStageFlags::Vertex,
+			.SetIndex = 1,
+			.BindingIndex = 2,
+			.Type = ERHIBindingType::UniformBuffer,
+			.ArraySize = 1
+		});
+
+		std::vector<FShaderParameterBinding> Bindings;
+		std::string ErrorMessage;
+		ASSERT_TRUE(BuildShaderParameterBindings(Metadata, Reflection, Bindings, ErrorMessage)) << ErrorMessage;
+		ASSERT_EQ(Bindings.size(), 1u);
+		EXPECT_EQ(Bindings[0].Type, ERHIBindingType::UniformBufferDynamic);
+		EXPECT_EQ(Bindings[0].SetIndex, 1u);
+		EXPECT_EQ(Bindings[0].BindingIndex, 2u);
+		EXPECT_EQ(Bindings[0].Offset, offsetof(FParameters, SceneUniform));
+	}
+
+	TEST(FShaderFoundationTests, ShaderMapInitializeUsesDynamicUniformMetadataInPipelineLayout)
+	{
+		struct FParameters
+		{
+			FRHIUniformBufferRange SceneUniform;
+		};
+
+		const std::array Metadata = {
+			FShaderParameterMetadata{"SceneUniform", static_cast<uint32>(offsetof(FParameters, SceneUniform)), ERHIBindingType::UniformBufferDynamic, 1}
+		};
+		FShaderType VertexShaderType(
+			"UnitDynamicUniformVertexShader",
+			"/Unit/TestShader",
+			EShaderFrequency::Vertex,
+			"vertexMain",
+			{},
+			nullptr,
+			nullptr,
+			nullptr,
+			Metadata
+		);
+		std::array<const FShaderType*, 1> ShaderTypes = {&VertexShaderType};
+
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({
+			.Name = "SceneUniform",
+			.StageFlags = EShaderStageFlags::Vertex,
+			.SetIndex = 0,
+			.BindingIndex = 0,
+			.Type = ERHIBindingType::UniformBuffer,
+			.ArraySize = 1
+		});
+
+		FShaderCompilerOutput Output;
+		Output.bSucceeded = true;
+		Output.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "UnitDynamicUniformVertexShader", 14, Reflection)
+		};
+
+		FShaderMapBase ShaderMap;
+		std::string ErrorMessage;
+		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+		ASSERT_EQ(ShaderMap.GetMergedPipelineLayout().BindingLayouts.size(), 1u);
+		ASSERT_EQ(ShaderMap.GetMergedPipelineLayout().BindingLayouts[0].BindingLayouts.size(), 1u);
+		EXPECT_EQ(ShaderMap.GetMergedPipelineLayout().BindingLayouts[0].BindingLayouts[0].Type, ERHIBindingType::UniformBufferDynamic);
+	}
+
 	TEST(FShaderFoundationTests, BuildShaderParameterBindingsRejectsMissingReflectionBinding)
 	{
 		const std::array Metadata = {

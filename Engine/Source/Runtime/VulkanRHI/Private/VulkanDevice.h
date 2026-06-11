@@ -15,6 +15,7 @@ namespace Durin::VulkanRHI
 	class FVulkanFrame;
 	class FVulkanGlobalDescriptorPool;
 	class FVulkanDescriptorSetLayoutCache;
+	class FVulkanDynamicUniformBufferAllocator;
 
 	extern uint64 GVulkanRHIDeletionFrameNumber;
 
@@ -137,6 +138,8 @@ namespace Durin::VulkanRHI
 
 		auto GetDeferredDeletionQueue() -> FDeferredDeletionQueue& { return DeferredDeletionQueue; }
 
+		auto GetDynamicUniformBufferAllocator() -> FVulkanDynamicUniformBufferAllocator& { return *DynamicUniformBufferAllocator; }
+
 		auto GetCurrentFrame() -> FVulkanFrame&;
 
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
@@ -165,6 +168,8 @@ namespace Durin::VulkanRHI
 		FVulkanGlobalDescriptorPool* GlobalDescriptorPool = nullptr;
 
 		FVulkanDescriptorSetLayoutCache* DescriptorSetCache = nullptr;
+
+		FVulkanDynamicUniformBufferAllocator* DynamicUniformBufferAllocator = nullptr;
 
 		std::array<FVulkanFrame*, kFrameInFlight> Frames = {};
 

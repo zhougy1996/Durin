@@ -30,5 +30,7 @@ namespace Durin
 		uint32 SetIndex = 0;
 		uint32 BindingIndex = 0;
 		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
+		uint32 Offset = 0;
+		uint32 Size = 0;
 	};
 } // namespace Durin

@@ -218,6 +218,7 @@ namespace Durin::VulkanRHI
 		switch (InType)
 		{
 		case ERHIBindingType::UniformBuffer: return vk::DescriptorType::eUniformBuffer;
+		case ERHIBindingType::UniformBufferDynamic: return vk::DescriptorType::eUniformBufferDynamic;
 		case ERHIBindingType::Texture: return vk::DescriptorType::eSampledImage;
 		case ERHIBindingType::Sampler: return vk::DescriptorType::eSampler;
 		default:

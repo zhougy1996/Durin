@@ -132,6 +132,7 @@ namespace Durin::VulkanRHI
 
 		std::vector<vk::DescriptorPoolSize> PoolSizes;
 		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, MaxSets});
+		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eUniformBufferDynamic, MaxSets});
 		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, MaxSets});
 		PoolSizes.push_back(vk::DescriptorPoolSize{vk::DescriptorType::eSampler, MaxSets});
 

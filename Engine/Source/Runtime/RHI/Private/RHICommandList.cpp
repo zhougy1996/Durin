@@ -131,6 +131,11 @@ namespace Durin
 		WriteBuffer(UniformBuffer, Data, Size, Offset);
 	}
 
+	auto FRHICommandListImmediate::AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange
+	{
+		return GDynamicRHI->RHIAllocateDynamicUniformBuffer(*this, Data, Size);
+	}
+
 	FRHICommandListExecutor::FRHICommandListExecutor()
 	{
 	}

@@ -5,6 +5,7 @@
 #include "VulkanDevice.h"
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"
+#include "VulkanBuffer.h"
 
 #include "VulkanDescriptorSets.h"
 
@@ -42,6 +43,7 @@ namespace Durin::VulkanRHI
 	{
 		FVulkanFrame& Frame = Device->GetCurrentFrame();
 		Frame.Prepare();
+		Device->GetDynamicUniformBufferAllocator().BeginFrame(static_cast<uint32>(GRenderFrameCounterRenderThread % kFrameInFlight));
 		Device->GetGlobalDescriptorPool().ResetPoolsForCurrentFrame();
 		Device->GetImmediateContext()->RHIBeginFrame();
 	}

@@ -95,6 +95,8 @@ namespace Durin
 		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
 
 		RHI_API auto UpdateUniformBuffer(FRHIBuffer* UniformBuffer, const void* Data, uint32 Size, uint32 Offset) -> void;
+
+		RHI_API auto AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
 	};
 
 	class FRHICommandListExecutor

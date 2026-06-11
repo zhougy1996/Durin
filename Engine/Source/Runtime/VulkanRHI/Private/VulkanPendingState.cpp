@@ -80,15 +80,15 @@ namespace Durin::VulkanRHI
 		CmdBuffer->GetHandle().setViewport(0, Viewport);
 		CmdBuffer->GetHandle().setScissor(0, Scissor);
 
-		const std::vector<vk::DescriptorSet>& DescriptorSets = CurrentDescriptorState->GetOrCreateDescriptorSetsForDraw(Device, *CurrentPipelineState);
-		if (!DescriptorSets.empty())
+		FVulkanGraphicsPipelineDescriptorState::FDescriptorSetsForDraw DescriptorSetsForDraw = CurrentDescriptorState->GetOrCreateDescriptorSetsForDraw(Device, *CurrentPipelineState);
+		if (DescriptorSetsForDraw.DescriptorSets && !DescriptorSetsForDraw.DescriptorSets->empty())
 		{
 			CmdBuffer->GetHandle().bindDescriptorSets(
 				vk::PipelineBindPoint::eGraphics,
 				CurrentPipelineState->GetPipelineLayout(),
 				0,
-				DescriptorSets,
-				{}
+				*DescriptorSetsForDraw.DescriptorSets,
+				DescriptorSetsForDraw.DynamicOffsets
 			);
 		}
 	}
@@ -164,6 +164,11 @@ namespace Durin::VulkanRHI
 			HashBuilder.UpdateValue(Resource.BindingIndex);
 			HashBuilder.UpdateValue(Resource.Type);
 			HashBuilder.UpdateValue(reinterpret_cast<uintptr_t>(Resource.Resource));
+			HashBuilder.UpdateValue(Resource.Size);
+			if (Resource.Type != ERHIBindingType::UniformBufferDynamic)
+			{
+				HashBuilder.UpdateValue(Resource.Offset);
+			}
 		}
 		return HashBuilder.Finalize().HashValue;
 	}
@@ -183,7 +188,12 @@ namespace Durin::VulkanRHI
 			if (A[Index].Resource != B[Index].Resource
 				|| A[Index].SetIndex != B[Index].SetIndex
 				|| A[Index].BindingIndex != B[Index].BindingIndex
-				|| A[Index].Type != B[Index].Type)
+				|| A[Index].Type != B[Index].Type
+				|| A[Index].Size != B[Index].Size)
+			{
+				return false;
+			}
+			if (A[Index].Type != ERHIBindingType::UniformBufferDynamic && A[Index].Offset != B[Index].Offset)
 			{
 				return false;
 			}
@@ -191,18 +201,26 @@ namespace Durin::VulkanRHI
 		return true;
 	}
 
-	auto FVulkanGraphicsPipelineDescriptorState::GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> const std::vector<vk::DescriptorSet>&
+	auto FVulkanGraphicsPipelineDescriptorState::GetOrCreateDescriptorSetsForDraw(FVulkanDevice& Device, FVulkanGraphicsPipelineState& PipelineState) -> FDescriptorSetsForDraw
 	{
 		const FVulkanDescriptorSetsLayout& DescriptorSetsLayout = PipelineState.GetDescriptorSetsLayout();
 		const std::vector<vk::DescriptorSetLayout>& LayoutHandles = DescriptorSetsLayout.GetLayoutHandles();
-		static const std::vector<vk::DescriptorSet> EmptyDescriptorSets;
 		if (LayoutHandles.empty())
 		{
-			return EmptyDescriptorSets;
+			return {};
 		}
 
 		SortDescriptorResources(PendingShaderResources);
 		const uint64 DescriptorHash = CalculatePendingDescriptorHash();
+
+		std::vector<uint32> DynamicOffsets;
+		for (const FRHIShaderParameterResource& Resource : PendingShaderResources)
+		{
+			if (Resource.Type == ERHIBindingType::UniformBufferDynamic)
+			{
+				DynamicOffsets.push_back(Resource.Offset);
+			}
+		}
 
 		// Hash is a fast reject only; resource equality is still checked before cache reuse.
 		for (FVulkanDescriptorSetCacheEntry& Entry : DescriptorSetCache)
@@ -210,7 +228,7 @@ namespace Durin::VulkanRHI
 			if (Entry.Hash == DescriptorHash
 				&& AreDescriptorResourcesEqual(Entry.Resources, PendingShaderResources))
 			{
-				return Entry.DescriptorSets;
+				return FDescriptorSetsForDraw{&Entry.DescriptorSets, std::move(DynamicOffsets)};
 			}
 		}
 
@@ -252,13 +270,15 @@ namespace Durin::VulkanRHI
 			switch (Resource.Type)
 			{
 			case ERHIBindingType::UniformBuffer:
+			case ERHIBindingType::UniformBufferDynamic:
 				{
 					const FVulkanBuffer* Buffer = static_cast<const FVulkanBuffer*>(Resource.Resource);
 					vk::DescriptorBufferInfo& BufferInfo = BufferInfos.emplace_back();
+					const uint32 Range = Resource.Size != 0 ? Resource.Size : Buffer->GetSize();
 					BufferInfo
 						.setBuffer(Buffer->GetHandle())
-						.setOffset(0)
-						.setRange(Buffer->GetSize());
+						.setOffset(Resource.Type == ERHIBindingType::UniformBufferDynamic ? 0 : Resource.Offset)
+						.setRange(Range);
 					DescriptorWrite.setBufferInfo(BufferInfo);
 					break;
 				}
@@ -289,6 +309,6 @@ namespace Durin::VulkanRHI
 		}
 
 		Device.GetHandle().updateDescriptorSets(DescriptorWrites, {});
-		return NewEntry.DescriptorSets;
+		return FDescriptorSetsForDraw{&NewEntry.DescriptorSets, std::move(DynamicOffsets)};
 	}
 } // namespace Durin::VulkanRHI

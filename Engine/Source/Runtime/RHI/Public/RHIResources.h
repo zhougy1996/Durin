@@ -10,6 +10,7 @@
 namespace Durin
 {
 	class FRHICommandListImmediate;
+	class FRHIBuffer;
 
 	enum class ERHIResourceType : uint8
 	{
@@ -25,9 +26,10 @@ namespace Durin
 
 	enum class ERHIBindingType : uint8
 	{
-		UniformBuffer,
-		Texture,
-		Sampler,
+		UniformBuffer = 0,
+		Texture = 1,
+		Sampler = 2,
+		UniformBufferDynamic = 3,
 	};
 
 	class FRHIResource
@@ -536,6 +538,13 @@ namespace Durin
 	{
 		FRHIResource* Resource;
 		uint32 BindingSlot;
+	};
+
+	struct FRHIUniformBufferRange
+	{
+		FRHIBuffer* Buffer = nullptr;
+		uint32 Offset = 0;
+		uint32 Size = 0;
 	};
 
 	struct BindingSetDesc

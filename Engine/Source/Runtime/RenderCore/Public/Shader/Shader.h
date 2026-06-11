@@ -253,12 +253,24 @@ namespace Durin
 		const auto* ParameterBytes = reinterpret_cast<const uint8*>(&Parameters);
 		for (const FShaderParameterBinding& Binding : ShaderContent->GetParameterBindings())
 		{
-			const auto* ResourceField = reinterpret_cast<FRHIResource* const*>(ParameterBytes + Binding.Offset);
 			FRHIShaderParameterResource ResourceParameter;
-			ResourceParameter.Resource = *ResourceField;
 			ResourceParameter.SetIndex = Binding.SetIndex;
 			ResourceParameter.BindingIndex = Binding.BindingIndex;
 			ResourceParameter.Type = Binding.Type;
+
+			if (Binding.Type == ERHIBindingType::UniformBuffer || Binding.Type == ERHIBindingType::UniformBufferDynamic)
+			{
+				const auto* UniformBufferRange = reinterpret_cast<const FRHIUniformBufferRange*>(ParameterBytes + Binding.Offset);
+				ResourceParameter.Resource = UniformBufferRange->Buffer;
+				ResourceParameter.Offset = UniformBufferRange->Offset;
+				ResourceParameter.Size = UniformBufferRange->Size;
+			}
+			else
+			{
+				const auto* ResourceField = reinterpret_cast<FRHIResource* const*>(ParameterBytes + Binding.Offset);
+				ResourceParameter.Resource = *ResourceField;
+			}
+
 			ResourceParameters.push_back(ResourceParameter);
 		}
 
