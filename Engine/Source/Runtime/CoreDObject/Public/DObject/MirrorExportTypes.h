@@ -12,17 +12,22 @@ namespace Durin
 	};
 
 	DCLASS()
-	class DStructure : public DObject
+	class DType : public DObject
 	{
 	};
 
 	DCLASS()
-	class DClass : public DStructure
+	class DStructBase : public DType
 	{
 	};
 
 	DCLASS()
-	class DEnum
+	class DClass : public DStructBase
+	{
+	};
+
+	DCLASS()
+	class DEnum : public DType
 	{
 	};
 }

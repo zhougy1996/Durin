@@ -116,7 +116,7 @@ DurinHeaderTool stores export-generation input fingerprints in a private sibling
 
 The module export manifest records the schema/tool/options/profile/platform and reflected-header fingerprints. It lets `generate_module_export_file` skip entirely when no inputs changed. If only some headers changed, DurinHeaderTool reparses those headers and reuses unchanged header symbols by grouping entries from the previous public `.export` file, then assembles the new public `.export` file. When multiple headers require parsing, the export generator parses them in a bounded worker pool and merges results in module header order. Other modules should not depend on or read this private cache file.
 
-`CoreDObject` uses `DObject/MirrorExportTypes.h` under `_DHT_EXPORTS_PARSER` to publish intrinsic core types such as `Durin::DObject`, `Durin::DStructure`, and `Durin::DClass` without generating duplicate runtime class registration for those intrinsic types.
+`CoreDObject` uses `DObject/MirrorExportTypes.h` under `_DHT_EXPORTS_PARSER` to publish intrinsic core types such as `Durin::DObject`, `Durin::DType`, `Durin::DStructBase`, and `Durin::DClass` without generating duplicate runtime class registration for those intrinsic types.
 
 ## Manifest Files
 
@@ -197,9 +197,9 @@ Generated code uses fully qualified C++ type names for reflected C++ types.
 - property parameter array
 - property count
 
-`ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches them to `DStructure::ChildProperties`.
+`ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches them to `DStructBase::ChildProperties`.
 
-`DStructure` stores its superclass through `SuperStructure`. `DClass::GetSuperClass()` exposes this as a `DClass*`.
+`DStructBase` stores its superclass through `SuperStructBase`. `DClass::GetSuperClass()` exposes this as a `DClass*`.
 
 `DObject::IsA(const DClass*)` walks the `DClass` superclass chain. `Cast<T>` uses `T::StaticClass()` and `IsA`.
 

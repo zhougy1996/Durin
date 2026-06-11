@@ -216,7 +216,7 @@ The first runtime milestone is a small but real type system:
 - `Obj->GetClass()` is correct for `NewObject<T>()`
 - `DClass` records its super `DClass`
 - `IsA` and `Cast` can replace simple `dynamic_cast` use cases
-- `DStructure::ChildProperties` contains generated `FProperty` fields
+- `DStructBase::ChildProperties` contains generated `FProperty` fields
 
 `DurinCodeGen::FClassParams` should be expanded beyond class name and no-register function so generated class construction can pass property metadata into runtime construction.
 

@@ -3,21 +3,24 @@
 namespace Durin
 {
 	COREDOBJECT_API DClass* Z_Construct_DClass_DObject();
-	COREDOBJECT_API DClass* Z_Construct_DClass_DStructure();
+	COREDOBJECT_API DClass* Z_Construct_DClass_DType();
+	COREDOBJECT_API DClass* Z_Construct_DClass_DStructBase();
 	COREDOBJECT_API DClass* Z_Construct_DClass_DClass();
 }
 
 namespace Durin
 {
-	IMPLEMENT_INTRINSIC_CLASS(DStructure, COREDOBJECT_API, DObject, COREDOBJECT_API, {})
+	IMPLEMENT_INTRINSIC_CLASS(DType, COREDOBJECT_API, DObject, COREDOBJECT_API, {})
 
-	IMPLEMENT_INTRINSIC_CLASS(DClass, COREDOBJECT_API, DObject, COREDOBJECT_API, {})
+	IMPLEMENT_INTRINSIC_CLASS(DStructBase, COREDOBJECT_API, DType, COREDOBJECT_API, {})
 
-	auto DStructure::RegisterDependencies() -> void
+	IMPLEMENT_INTRINSIC_CLASS(DClass, COREDOBJECT_API, DStructBase, COREDOBJECT_API, {})
+
+	auto DStructBase::RegisterDependencies() -> void
 	{
-		if (SuperStructure)
+		if (SuperStructBase)
 		{
-			SuperStructure->RegisterDependencies();
+			SuperStructBase->RegisterDependencies();
 		}
 	}
 
@@ -47,7 +50,7 @@ namespace Durin
 		ReturnClass = Class; // assign before setting superclass to handle circular dependencies
 
 		DClass* SuperClass = InSuperClassFn ? InSuperClassFn() : nullptr;
-		Class->SetSuperStructure(SuperClass);
+		Class->SetSuperStructBase(SuperClass);
 
 		Class->Register(DClass::StaticClass, PackageName, Name);
 
@@ -60,9 +63,14 @@ COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DObject()
 	return Durin::Z_Construct_DClass_DObject();
 }
 
-COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DStructure()
+COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DType()
 {
-	return Durin::Z_Construct_DClass_DStructure();
+	return Durin::Z_Construct_DClass_DType();
+}
+
+COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DStructBase()
+{
+	return Durin::Z_Construct_DClass_DStructBase();
 }
 
 COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DClass()

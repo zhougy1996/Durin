@@ -7,14 +7,26 @@ namespace Durin
 	class FField;
 	class FObjectInitializer;
 
-	// Base class for all DObject types that contain properties
-	class DStructure : public DObject
+	// Base class for all reflected runtime types
+	class DType : public DObject
 	{
 	public:
-		DECLARE_CLASS_INTRINSIC(DStructure, DObject)
+		DECLARE_CLASS_INTRINSIC_API(DType, DObject, COREDOBJECT_API)
 
-		DStructure(EStaticConstructor, uint32 InSize, uint32 InMinAlignment, EObjectFlags InFlags)
+		DType(EStaticConstructor, EObjectFlags InFlags)
 			: DObject(EC_StaticConstructor, InFlags)
+		{
+		}
+	};
+
+	// Base class for all reflected types that contain fields and memory layout
+	class DStructBase : public DType
+	{
+	public:
+		DECLARE_CLASS_INTRINSIC_API(DStructBase, DType, COREDOBJECT_API)
+
+		DStructBase(EStaticConstructor, uint32 InSize, uint32 InMinAlignment, EObjectFlags InFlags)
+			: DType(EC_StaticConstructor, InFlags)
 			, PropertiesSize(InSize)
 			, MinAlignment(InMinAlignment)
 		{
@@ -27,20 +39,20 @@ namespace Durin
 		uint32 MinAlignment = 0;
 
 	private:
-		DStructure* SuperStructure = nullptr;
+		DStructBase* SuperStructBase = nullptr;
 
 	public:
-		auto SetSuperStructure(DStructure* InSuperStructure) -> void { SuperStructure = InSuperStructure; }
+		auto SetSuperStructBase(DStructBase* InSuperStructBase) -> void { SuperStructBase = InSuperStructBase; }
 
-		auto GetSuperStructure() const -> DStructure* { return SuperStructure; }
+		auto GetSuperStructBase() const -> DStructBase* { return SuperStructBase; }
 
 		auto RegisterDependencies() -> void;
 	};
 
 	// Describe a class
-	class DClass : public DStructure
+	class DClass : public DStructBase
 	{
-		DECLARE_CLASS_INTRINSIC(DClass, DStructure)
+		DECLARE_CLASS_INTRINSIC_API(DClass, DStructBase, COREDOBJECT_API)
 	public:
 		using StaticClassFunctionType = DClass* (*)();
 		using ClassConstructorType = void (*)(const FObjectInitializer&);
@@ -56,14 +68,14 @@ namespace Durin
 			EClassCastFlags InClassCastFlags,
 			ClassConstructorType InClassConstructor
 		)
-			: DStructure(EC_StaticConstructor, InSize, InAlignment, InFlags)
+			: DStructBase(EC_StaticConstructor, InSize, InAlignment, InFlags)
 			, ClassConstructor(InClassConstructor)
 		{
 		}
 
 		ClassConstructorType ClassConstructor = nullptr;
 
-		auto GetSuperClass() const -> DClass* { return static_cast<DClass*>(GetSuperStructure()); }
+		auto GetSuperClass() const -> DClass* { return static_cast<DClass*>(GetSuperStructBase()); }
 	};
 
 	template<class T>

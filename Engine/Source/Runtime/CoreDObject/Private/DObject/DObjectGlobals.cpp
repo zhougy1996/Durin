@@ -45,6 +45,9 @@ namespace Durin
 
 		FObjectInitializer ObjectInitializer;
 		ObjectInitializer.Obj = Obj;
+		ObjectInitializer.Class = InClass;
+		ObjectInitializer.Outer = Params.Outer;
+		ObjectInitializer.Name = Params.Name;
 
 		InClass->ClassConstructor(ObjectInitializer);
 

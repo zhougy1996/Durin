@@ -43,10 +43,11 @@ namespace Durin
 		None = 0,
 
 		DObject = 1 << 0,
-		DStructure = 1 << 1,
-		DClass = 1 << 2,
-		DStruct = 1 << 3,
-		DFunction = 1 << 4,
+		DType = 1 << 1,
+		DStructBase = 1 << 2,
+		DClass = 1 << 3,
+		DStruct = 1 << 4,
+		DFunction = 1 << 5,
 
 		FField = 1 << 11,
 		FProperty = 1 << 12,
@@ -88,16 +89,19 @@ public: \
 #define DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(TClass) \
 	static void __DefaultConstructor(const FObjectInitializer& X) { new (X.GetObj()) TClass(X); }
 
-#define DECLARE_CLASS_INTRINSIC(TClass, TSuperClass) \
+#define DECLARE_CLASS_INTRINSIC_API(TClass, TSuperClass, TRequiredAPI) \
 	RELAY_OBJECT_INITIALIZER_CONSTRUCTOR(TClass, TSuperClass) \
-	NO_API static DClass* GetPrivateStaticClass(); \
+	TRequiredAPI static DClass* GetPrivateStaticClass(); \
 	DECLARE_CLASS(TClass, TSuperClass, TClass::GetPrivateStaticClass) \
 	DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(TClass) \
 	static void IntrinsicClassInit(DClass* Class);
 
-#define IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(TClass) \
+#define DECLARE_CLASS_INTRINSIC(TClass, TSuperClass) \
+	DECLARE_CLASS_INTRINSIC_API(TClass, TSuperClass, NO_API)
+
+#define IMPLEMENT_CLASS_NO_AUTO_REGISTRATION_API(TClass, TRequiredAPI) \
 	FClassRegistrationInfo Z_Registration_Info_DClass_##TClass; \
-	DClass* TClass::GetPrivateStaticClass() \
+	TRequiredAPI DClass* TClass::GetPrivateStaticClass() \
 	{ \
 		if (!Z_Registration_Info_DClass_##TClass.InnerSingleton) \
 		{ /* this could be handled with templates, but we want it external to avoid code bloat */ \
@@ -116,14 +120,20 @@ public: \
 		return Z_Registration_Info_DClass_##TClass.InnerSingleton; \
 	}
 
-#define IMPLEMENT_CLASS(TClass) \
-	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(TClass) \
+#define IMPLEMENT_CLASS_NO_AUTO_REGISTRATION(TClass) \
+	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION_API(TClass, NO_API)
+
+#define IMPLEMENT_CLASS_API(TClass, TRequiredAPI) \
+	IMPLEMENT_CLASS_NO_AUTO_REGISTRATION_API(TClass, TRequiredAPI) \
 	static FClassRegisterCompiledInInfo Z_AutoRegister_##TClass( \
 		&Z_Construct_DClass_##TClass, \
 		&TClass::StaticClass, \
 		STR(#TClass), \
 		&Z_Registration_Info_DClass_##TClass \
 	);
+
+#define IMPLEMENT_CLASS(TClass) \
+	IMPLEMENT_CLASS_API(TClass, NO_API)
 
 #define IMPLEMENT_INTRINSIC_CLASS(TClass, TRequiredAPI, TSuperClass, TSuperRequiredAPI, InitCode) \
 	TRequiredAPI DClass* Z_Construct_DClass_##TClass(); \
@@ -153,5 +163,5 @@ public: \
 		check(Z_Registration_Info_DClass_##TClass.OuterSingleton->GetClass()); \
 		return Z_Registration_Info_DClass_##TClass.OuterSingleton; \
 	}\
-	IMPLEMENT_CLASS(TClass)
+	IMPLEMENT_CLASS_API(TClass, TRequiredAPI)
 

@@ -81,7 +81,7 @@ namespace Durin
 
 
 	private:
-		static auto GetPrivateStaticClass() -> DClass*;
+		COREDOBJECT_API static auto GetPrivateStaticClass() -> DClass*;
 
 		/**
 		 * Add a newly created object to the object array

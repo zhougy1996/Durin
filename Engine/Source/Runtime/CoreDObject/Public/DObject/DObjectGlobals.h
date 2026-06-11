@@ -27,6 +27,12 @@ namespace Durin
 		static COREDOBJECT_API auto Get() -> const FObjectInitializer&;
 
 		DObject* Obj = nullptr;
+
+		DClass* Class = nullptr;
+
+		DObject* Outer = nullptr;
+
+		FName Name;
 	};
 
 	COREDOBJECT_API auto DObjectInit() -> void;

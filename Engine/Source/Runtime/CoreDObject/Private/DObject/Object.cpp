@@ -49,6 +49,9 @@ namespace Durin
 	}
 
 	DObject::DObject(const FObjectInitializer& ObjectInitializer)
+		: ClassPrivate(ObjectInitializer.Class)
+		, OuterPrivate(ObjectInitializer.Outer)
+		, NamePrivate(ObjectInitializer.Name)
 	{
 	}
 
