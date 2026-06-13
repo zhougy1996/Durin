@@ -1,41 +1,21 @@
 #include "MonaImGui.h"
 
-#include "MonaCoreGlobals.h"
 #include "MonaImGuiBackend.h"
 
 namespace Durin::MonaImGui
 {
-	namespace
+	auto DrawTexture(const FRHITexture* Texture, const FVector2f& Size) -> void
 	{
-		auto GetActiveImGuiBackend() -> Mona::FMonaImGuiBackend*
-		{
-			return static_cast<Mona::FMonaImGuiBackend*>(Mona::GActiveUIBackend);
-		}
-	}
-
-	auto DrawTexture(const FTextureRHIRef& Texture, const FVector2f& Size) -> bool
-	{
-		if (Mona::FMonaImGuiBackend* Backend = GetActiveImGuiBackend())
-		{
-			return Backend->DrawTexture(Texture, Size);
-		}
-
-		return false;
+		ImGui::Image(reinterpret_cast<ImTextureID>(Texture), {Size.x, Size.y});
 	}
 
 	auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void
 	{
-		if (Mona::FMonaImGuiBackend* Backend = GetActiveImGuiBackend())
-		{
-			Backend->BindMainViewportToWindow(Window);
-		}
+		FMonaImGuiBackend::Get().BindMainViewportToWindow(Window);
 	}
 
 	auto ShowDemoWindow() -> void
 	{
-		if (Mona::FMonaImGuiBackend* Backend = GetActiveImGuiBackend())
-		{
-			Backend->ShowDemoWindow();
-		}
+		FMonaImGuiBackend::Get().ShowDemoWindow();
 	}
 }

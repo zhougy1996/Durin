@@ -9,7 +9,7 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 			check(Mona::GActiveUIBackend == nullptr);
-			Mona::GActiveUIBackend = new Mona::FMonaImGuiBackend();
+			Mona::GActiveUIBackend = new MonaImGui::FMonaImGuiBackend();
 			Mona::GActiveUIBackend->Initialize();
 		}
 

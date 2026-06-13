@@ -17,6 +17,6 @@ namespace Durin::Mona
 		virtual auto Render() -> void = 0;
 		virtual auto RegisterTexture(const FTextureRHIRef& Texture) -> void = 0;
 		virtual auto UnregisterTexture(const FTextureRHIRef& Texture) -> void = 0;
-		virtual auto DrawTexture(const FTextureRHIRef& Texture, const FVector2f& Size) -> bool = 0;
+		virtual auto IsTextureRegistered(const FRHITexture* InTexture) -> bool = 0;
 	};
 }

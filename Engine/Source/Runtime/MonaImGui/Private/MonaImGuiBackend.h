@@ -4,9 +4,9 @@
 #include "MonaImGui.h"
 #include "MonaUIBackend.h"
 
-namespace Durin::Mona
+namespace Durin::MonaImGui
 {
-	class FMonaImGuiBackend : public IMonaUIBackend
+	class FMonaImGuiBackend : public Mona::IMonaUIBackend
 	{
 	public:
 		MONAIMGUI_API auto Initialize() -> void override;
@@ -15,7 +15,9 @@ namespace Durin::Mona
 		MONAIMGUI_API auto Render() -> void override;
 		MONAIMGUI_API auto RegisterTexture(const FTextureRHIRef& Texture) -> void override;
 		MONAIMGUI_API auto UnregisterTexture(const FTextureRHIRef& Texture) -> void override;
-		MONAIMGUI_API auto DrawTexture(const FTextureRHIRef& Texture, const FVector2f& Size) -> bool override;
+		MONAIMGUI_API auto IsTextureRegistered(const FRHITexture* InTexture) -> bool override;
+
+		MONAIMGUI_API static auto Get() -> FMonaImGuiBackend&;
 
 		MONAIMGUI_API auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void;
 		MONAIMGUI_API auto ShowDemoWindow() -> void;

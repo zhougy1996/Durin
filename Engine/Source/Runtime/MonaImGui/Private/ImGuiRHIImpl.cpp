@@ -12,7 +12,7 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "Widgets/MWindow.h"
 
-namespace Durin::Mona
+namespace Durin::MonaImGui
 {
 	class FImGuiFragmentShader : public FShader
 	{
@@ -189,8 +189,8 @@ namespace Durin::Mona
 			return;
 		}
 
-		auto& App = FMonaApplication::Get();
-		FMonaRenderer* Renderer = App.GetRenderer();
+		auto& App = Mona::FMonaApplication::Get();
+		Mona::FMonaRenderer* Renderer = App.GetRenderer();
 		const std::shared_ptr<MWindow> Window = ImGuiMonaImpl_GetViewportWindow(Viewport);
 		if (Renderer == nullptr || Window == nullptr || Window->IsMinimized())
 		{
@@ -215,8 +215,8 @@ namespace Durin::Mona
 
 	static auto ResizeViewportToMatchWindow(ImGuiViewport* Viewport, ImVec2 Size) -> void
 	{
-		auto& App = FMonaApplication::Get();
-		FMonaRenderer* Renderer = App.GetRenderer();
+		auto& App = Mona::FMonaApplication::Get();
+		Mona::FMonaRenderer* Renderer = App.GetRenderer();
 		const std::shared_ptr<MWindow> Window = ImGuiMonaImpl_GetViewportWindow(Viewport);
 		if (Renderer == nullptr || Window == nullptr)
 		{
@@ -243,8 +243,8 @@ namespace Durin::Mona
 	{
 		CreateRendererViewportData(Viewport);
 
-		auto& App = FMonaApplication::Get();
-		FMonaRenderer* Renderer = App.GetRenderer();
+		auto& App = Mona::FMonaApplication::Get();
+		Mona::FMonaRenderer* Renderer = App.GetRenderer();
 		const std::shared_ptr<MWindow> Window = ImGuiMonaImpl_GetViewportWindow(Viewport);
 		if (Renderer != nullptr && Window != nullptr)
 		{
@@ -744,4 +744,4 @@ namespace Durin::Mona
 		});
 	}
 
-} // namespace Durin::Mona
+} // namespace Durin::MonaImGui

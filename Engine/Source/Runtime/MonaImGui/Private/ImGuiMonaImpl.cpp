@@ -2,21 +2,16 @@
 
 #include "Application/MonaApplication.h"
 #include "Application/MonaEventHandler.h"
-#include "ApplicationCoreFwd.h"
 #include "Misc/Paths.h"
 #include "Widgets/MWindow.h"
 
-#if defined(_WIN32)
-#include <windows.h>
-#endif
-
-namespace Durin::Mona
+namespace Durin::MonaImGui
 {
 	ImGuiContext* GMonaImGuiContext = nullptr;
 
 	// ---- Event Handler (merged from MonaImGuiEventHandler) ------------------
 
-	class FMonaImGuiEventHandler : public FMonaEventHandler
+	class FMonaImGuiEventHandler : public Mona::FMonaEventHandler
 	{
 	public:
 		FMonaImGuiEventHandler() = default;
@@ -132,7 +127,7 @@ namespace Durin::Mona
 			return ViewportData->Window;
 		}
 
-		auto& App = FMonaApplication::Get();
+		auto& App = Mona::FMonaApplication::Get();
 		const auto& Windows = App.GetWindows();
 		if (Windows.empty())
 		{
@@ -455,7 +450,7 @@ namespace Durin::Mona
 
 		ApplyViewportWindowStyle(Viewport, Window);
 
-		auto& App = FMonaApplication::Get();
+		auto& App = Mona::FMonaApplication::Get();
 		App.AddWindow(Window, false);
 		Window->HideWindow();
 
@@ -823,7 +818,7 @@ namespace Durin::Mona
 			return CursorPos;
 		}
 
-		if (const std::shared_ptr<MWindow> Window = FMonaApplication::Get().FindWindowByPlatformWindow(InPlatformWindow))
+		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().FindWindowByPlatformWindow(InPlatformWindow))
 		{
 			FVector2f WindowPosition = Window->GetScreenPosition();
 			return {CursorPos.x + WindowPosition.x, CursorPos.y + WindowPosition.y};
@@ -1048,14 +1043,14 @@ namespace Durin::Mona
 		UpdateMonitors();
 		InitFonts();
 
-		auto& App = FMonaApplication::Get();
-		check(FMonaApplication::IsInitialized());
+		auto& App = Mona::FMonaApplication::Get();
+		check(Mona::FMonaApplication::IsInitialized());
 		App.SetMonaEventHandler(std::make_unique<FMonaBackendEventHandler>());
 	}
 
 	auto ImGuiMonaImpl_Shutdown() -> void
 	{
-		auto& App = FMonaApplication::Get();
+		auto& App = Mona::FMonaApplication::Get();
 		App.SetMonaEventHandler(nullptr);
 		GMonaImGuiMouseState = {};
 

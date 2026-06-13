@@ -2,10 +2,11 @@
 
 #include "Application/MonaApplication.h"
 #include "ImGuiRHIImpl.h"
+#include "MonaCoreGlobals.h"
 #include "Misc/Paths.h"
 #include "RHI.h"
 
-namespace Durin::Mona
+namespace Durin::MonaImGui
 {
 	static auto ShouldRenderMainViewportWithImGui() -> bool
 	{
@@ -45,7 +46,7 @@ namespace Durin::Mona
 		ImGuiRHIImpl_NewFrame();
 		ImGui::NewFrame();
 
-		auto& App = FMonaApplication::Get();
+		auto& App = Mona::FMonaApplication::Get();
 		App.DrawWindows();
 	}
 
@@ -81,16 +82,15 @@ namespace Durin::Mona
 		ImGuiRHIImpl_UnregisterTexture(Texture);
 	}
 
-	auto FMonaImGuiBackend::DrawTexture(const FTextureRHIRef& Texture, const FVector2f& Size) -> bool
+	auto FMonaImGuiBackend::IsTextureRegistered(const FRHITexture* InTexture) -> bool
 	{
-		const ImTextureID TextureID = ImGuiRHIImpl_GetTextureID(Texture);
-		if (TextureID == ImTextureID_Invalid)
-		{
-			return false;
-		}
+		return ImGuiRHIImpl_GetTextureID(const_cast<FRHITexture*>(InTexture)) != ImTextureID_Invalid;
+	}
 
-		ImGui::Image(TextureID, {Size.x, Size.y});
-		return true;
+	auto FMonaImGuiBackend::Get() -> FMonaImGuiBackend&
+	{
+		check(Mona::GActiveUIBackend);
+		return static_cast<FMonaImGuiBackend&>(*Mona::GActiveUIBackend);
 	}
 
 	auto FMonaImGuiBackend::BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void

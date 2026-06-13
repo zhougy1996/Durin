@@ -8,7 +8,7 @@ namespace Durin
 	class MWindow;
 }
 
-namespace Durin::Mona
+namespace Durin::MonaImGui
 {
 	extern ImGuiContext* GMonaImGuiContext;
 

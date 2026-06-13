@@ -5,7 +5,7 @@
 struct ImDrawData;
 struct ImGuiViewport;
 
-namespace Durin::Mona
+namespace Durin::MonaImGui
 {
 	struct FImGuiRHIImpl_FrameRenderBuffers
 	{
