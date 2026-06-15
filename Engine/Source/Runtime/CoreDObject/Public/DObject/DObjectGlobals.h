@@ -98,6 +98,7 @@ namespace Durin
 			EPropertyFlags Flags;
 			uint16 ArrayDim;
 			uint16 Offset;
+			uint16 ElementSize;
 			EPropertyGenFlags Kind;
 			DClass* (*ReferencedClassFunc)();
 		};

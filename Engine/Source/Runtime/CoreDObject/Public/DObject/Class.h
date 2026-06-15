@@ -5,6 +5,7 @@
 namespace Durin
 {
 	class FField;
+	class FProperty;
 	class FObjectInitializer;
 
 	// Base class for all reflected runtime types
@@ -47,6 +48,10 @@ namespace Durin
 		auto GetSuperStructBase() const -> DStructBase* { return SuperStructBase; }
 
 		auto RegisterDependencies() -> void;
+
+		COREDOBJECT_API auto ForEachProperty(const std::function<void(FProperty*)>& Visitor, bool bIncludeSuper = true) const -> void;
+
+		COREDOBJECT_API auto FindPropertyByName(FName InName, bool bIncludeSuper = true) const -> FProperty*;
 	};
 
 	// Describe a class

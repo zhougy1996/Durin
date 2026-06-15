@@ -22,10 +22,19 @@ namespace Durin
 	private:
 		const std::vector<const DObject*> a;
 
-		DPROPERTY(zzz)
+		DPROPERTY(Edit, Transient, zzz)
 		uint16 a1 = 0;
 
 		DPROPERTY(zzz)
 		int32 a2 = 0;
+
+		DPROPERTY(EditConst)
+		uint8 a3[3] = {};
+
+		DPROPERTY()
+		DObject* ObjectRef = nullptr;
+
+		DPROPERTY()
+		std::vector<DObject*> UnsupportedObjects;
 	};
 }

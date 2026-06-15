@@ -1,5 +1,7 @@
 #include "DObject/Class.h"
 
+#include "DObject/Property.h"
+
 namespace Durin
 {
 	COREDOBJECT_API DClass* Z_Construct_DClass_DObject();
@@ -22,6 +24,35 @@ namespace Durin
 		{
 			SuperStructBase->RegisterDependencies();
 		}
+	}
+
+	auto DStructBase::ForEachProperty(const std::function<void(FProperty*)>& Visitor, bool bIncludeSuper) const -> void
+	{
+		if (bIncludeSuper && SuperStructBase)
+		{
+			SuperStructBase->ForEachProperty(Visitor, true);
+		}
+
+		for (FField* Field = ChildProperties; Field; Field = Field->Next)
+		{
+			Visitor(static_cast<FProperty*>(Field));
+		}
+	}
+
+	auto DStructBase::FindPropertyByName(FName InName, bool bIncludeSuper) const -> FProperty*
+	{
+		FProperty* FoundProperty = nullptr;
+		ForEachProperty(
+			[&](FProperty* Property)
+			{
+				if (!FoundProperty && Property->NamePrivate == InName)
+				{
+					FoundProperty = Property;
+				}
+			},
+			bIncludeSuper
+		);
+		return FoundProperty;
 	}
 
 	auto GetPrivateStaticClassBody(

@@ -55,6 +55,10 @@ namespace Durin
 		FInt8Property = 1 << 14,
 		FIntProperty = 1 << 15,
 		FStructProperty = 1 << 16,
+		FBoolProperty = 1 << 17,
+		FStringProperty = 1 << 18,
+		FEnumProperty = 1 << 19,
+		FObjectProperty = 1 << 20,
 	};
 
 	enum class EPropertyFlags
@@ -67,6 +71,7 @@ namespace Durin
 	};
 
 	ENUM_CLASS_FLAGS(EObjectFlags)
+	ENUM_CLASS_FLAGS(EPropertyFlags)
 }
 
 #define GENERATED_BODY(...) BODY_MACRO_COMBINE(CURRENT_FILE_ID, _, __LINE__, _GENERATED_BODY)

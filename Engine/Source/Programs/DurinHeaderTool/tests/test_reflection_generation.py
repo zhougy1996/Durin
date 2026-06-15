@@ -49,9 +49,20 @@ class ReflectionGenerationTests(unittest.TestCase):
 
         self.assertIn("FUInt16PropertyParams NewProp_a1", content)
         self.assertIn("FInt32PropertyParams NewProp_a2", content)
+        self.assertIn("FUInt8PropertyParams NewProp_a3", content)
+        self.assertIn("FObjectPropertyParams NewProp_ObjectRef", content)
         self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::UInt16", content)
         self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Int32", content)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Object", content)
         self.assertIn("static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::TestDHT, a1))", content)
+        self.assertIn("Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::Transient", content)
+        self.assertIn("Durin::EPropertyFlags::EditConst", content)
+        self.assertIn("static_cast<Durin::uint16>(2), Durin::DurinCodeGen::EPropertyGenFlags::UInt16", content)
+        self.assertIn("static_cast<Durin::uint16>(1), Durin::DurinCodeGen::EPropertyGenFlags::UInt8", content)
+        self.assertIn("static_cast<Durin::uint16>(8), Durin::DurinCodeGen::EPropertyGenFlags::Object", content)
+        self.assertIn("Z_Construct_DClass_Durin_DObject", content)
+        self.assertIn("3, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::TestDHT, a3))", content)
+        self.assertNotIn("NewProp_UnsupportedObjects", content)
 
     def test_manifest_records_generator_contract(self):
         manifest_path = utils.get_module_manifest_file_path("Engine")

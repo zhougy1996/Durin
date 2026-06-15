@@ -8,7 +8,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "1"
+TOOL_VERSION = "2"
 
 
 @dataclass
@@ -18,6 +18,7 @@ class ReflectedPropertyInfo:
     kind: str
     referenced_type: str = ""
     array_dim: int = 1
+    element_size: int = 0
     flags: str = "None"
 
 
@@ -76,7 +77,12 @@ _PROPERTY_KIND_BY_TYPE = {
     "float": "Float",
     "double": "Double",
     "bool": "Bool",
-    "FString": "String",
+}
+
+_PROPERTY_FLAG_BY_SPECIFIER = {
+    "Edit": "Edit",
+    "Transient": "Transient",
+    "EditConst": "EditConst",
 }
 
 
@@ -186,15 +192,62 @@ def _normalize_type_spelling(type_spelling: str) -> str:
     )
 
 
+def _property_flags_from_annotation(annotation: str) -> str:
+    if "," not in annotation:
+        return "None"
+    payload = annotation.split(",", 1)[1]
+    flags: list[str] = []
+    for raw_specifier in payload.split(","):
+        specifier = raw_specifier.strip()
+        if "=" in specifier:
+            specifier = specifier.split("=", 1)[0].strip()
+        flag = _PROPERTY_FLAG_BY_SPECIFIER.get(specifier)
+        if flag:
+            flags.append(f"Durin::EPropertyFlags::{flag}")
+    return " | ".join(flags) if flags else "None"
+
+
+def _array_dim(field_cursor: clang.cindex.Cursor) -> int:
+    field_type = field_cursor.type
+    if field_type.kind == clang.cindex.TypeKind.CONSTANTARRAY:
+        return int(field_type.element_count)
+    return 1
+
+
+def _element_type(field_cursor: clang.cindex.Cursor) -> clang.cindex.Type:
+    field_type = field_cursor.type
+    if field_type.kind == clang.cindex.TypeKind.CONSTANTARRAY:
+        return field_type.element_type
+    return field_type
+
+
+def _field_size(type_info: clang.cindex.Type) -> int:
+    size = type_info.get_size()
+    return int(size) if size and size > 0 else 0
+
+
+def _enum_kind(type_info: clang.cindex.Type) -> str | None:
+    decl = type_info.get_declaration()
+    if decl.kind == clang.cindex.CursorKind.ENUM_DECL:
+        return "Enum"
+    return None
+
+
 def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: dict[str, object] | None) -> ReflectedPropertyInfo | None:
     annotation = _get_annotation(field_cursor)
     if not annotation.startswith("DPROPERTY"):
         return None
 
-    type_spelling = _normalize_type_spelling(field_cursor.type.spelling)
-    canonical = _normalize_type_spelling(field_cursor.type.get_canonical().spelling)
+    array_dim = _array_dim(field_cursor)
+    element_type = _element_type(field_cursor)
+    type_spelling = _normalize_type_spelling(element_type.spelling)
+    canonical = _normalize_type_spelling(element_type.get_canonical().spelling)
     kind = _PROPERTY_KIND_BY_TYPE.get(type_spelling) or _PROPERTY_KIND_BY_TYPE.get(canonical)
     referenced_type = ""
+    element_size = _field_size(element_type)
+
+    if not kind:
+        kind = _enum_kind(element_type)
 
     if not kind and type_spelling.endswith("*"):
         pointee = type_spelling[:-1].strip()
@@ -215,6 +268,9 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: dict[str
         type_name=type_spelling,
         kind=kind,
         referenced_type=referenced_type,
+        array_dim=array_dim,
+        element_size=element_size,
+        flags=_property_flags_from_annotation(annotation),
     )
 
 

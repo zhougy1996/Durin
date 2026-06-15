@@ -4,7 +4,4 @@
 
 namespace Durin
 {
-	class FNumericProperty : public FProperty
-	{
-	};
 }
