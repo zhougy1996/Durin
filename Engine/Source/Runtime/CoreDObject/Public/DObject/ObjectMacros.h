@@ -59,6 +59,8 @@ namespace Durin
 		FStringProperty = 1 << 18,
 		FEnumProperty = 1 << 19,
 		FObjectProperty = 1 << 20,
+		FArrayProperty = 1 << 21,
+		FMapProperty = 1 << 22,
 	};
 
 	enum class EPropertyFlags

@@ -3,7 +3,7 @@
 #include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
-#include "DObject/Property.h"
+#include "DObject/DurinPropertyTypes.h"
 
 namespace Durin
 {
@@ -11,14 +11,16 @@ namespace Durin
 	{
 		auto ConstructGeneratedProperty(
 			const FFieldVariant& Owner,
-			const DurinCodeGen::FPropertyParamsBase* PropertyParams,
-			DClass* ReferencedClass
+			const DurinCodeGen::FPropertyParamsBase* PropertyParams
 		) -> FProperty*
 		{
+			DClass* ReferencedClass = PropertyParams->ReferencedClassFunc ? PropertyParams->ReferencedClassFunc() : nullptr;
+			FProperty* Property = nullptr;
+
 			switch (PropertyParams->Kind)
 			{
 			case DurinCodeGen::EPropertyGenFlags::Bool:
-				return new FBoolProperty(
+				Property = new FBoolProperty(
 					Owner,
 					FName(PropertyParams->NameUTF8),
 					EObjectFlags::NoFlags,
@@ -29,8 +31,9 @@ namespace Durin
 					PropertyParams->Kind,
 					ReferencedClass
 				);
+				break;
 			case DurinCodeGen::EPropertyGenFlags::String:
-				return new FStringProperty(
+				Property = new FStringProperty(
 					Owner,
 					FName(PropertyParams->NameUTF8),
 					EObjectFlags::NoFlags,
@@ -41,8 +44,9 @@ namespace Durin
 					PropertyParams->Kind,
 					ReferencedClass
 				);
+				break;
 			case DurinCodeGen::EPropertyGenFlags::Enum:
-				return new FEnumProperty(
+				Property = new FEnumProperty(
 					Owner,
 					FName(PropertyParams->NameUTF8),
 					EObjectFlags::NoFlags,
@@ -53,8 +57,9 @@ namespace Durin
 					PropertyParams->Kind,
 					ReferencedClass
 				);
+				break;
 			case DurinCodeGen::EPropertyGenFlags::Object:
-				return new FObjectProperty(
+				Property = new FObjectProperty(
 					Owner,
 					FName(PropertyParams->NameUTF8),
 					EObjectFlags::NoFlags,
@@ -65,6 +70,45 @@ namespace Durin
 					PropertyParams->Kind,
 					ReferencedClass
 				);
+				break;
+			case DurinCodeGen::EPropertyGenFlags::Array:
+				Property = new FArrayProperty(
+					Owner,
+					FName(PropertyParams->NameUTF8),
+					EObjectFlags::NoFlags,
+					PropertyParams->Flags,
+					PropertyParams->ArrayDim,
+					PropertyParams->Offset,
+					PropertyParams->ElementSize,
+					PropertyParams->Kind,
+					ReferencedClass
+				);
+				if (PropertyParams->Inner)
+				{
+					static_cast<FArrayProperty*>(Property)->SetInner(ConstructGeneratedProperty(FFieldVariant(Property), PropertyParams->Inner));
+				}
+				break;
+			case DurinCodeGen::EPropertyGenFlags::Map:
+				Property = new FMapProperty(
+					Owner,
+					FName(PropertyParams->NameUTF8),
+					EObjectFlags::NoFlags,
+					PropertyParams->Flags,
+					PropertyParams->ArrayDim,
+					PropertyParams->Offset,
+					PropertyParams->ElementSize,
+					PropertyParams->Kind,
+					ReferencedClass
+				);
+				if (PropertyParams->Key)
+				{
+					static_cast<FMapProperty*>(Property)->SetKeyProp(ConstructGeneratedProperty(FFieldVariant(Property), PropertyParams->Key));
+				}
+				if (PropertyParams->Value)
+				{
+					static_cast<FMapProperty*>(Property)->SetValueProp(ConstructGeneratedProperty(FFieldVariant(Property), PropertyParams->Value));
+				}
+				break;
 			case DurinCodeGen::EPropertyGenFlags::Int8:
 			case DurinCodeGen::EPropertyGenFlags::Int16:
 			case DurinCodeGen::EPropertyGenFlags::Int32:
@@ -75,7 +119,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::UInt64:
 			case DurinCodeGen::EPropertyGenFlags::Float:
 			case DurinCodeGen::EPropertyGenFlags::Double:
-				return new FNumericProperty(
+				Property = new FNumericProperty(
 					Owner,
 					FName(PropertyParams->NameUTF8),
 					EObjectFlags::NoFlags,
@@ -86,9 +130,10 @@ namespace Durin
 					PropertyParams->Kind,
 					ReferencedClass
 				);
+				break;
 			case DurinCodeGen::EPropertyGenFlags::None:
 			default:
-				return new FProperty(
+				Property = new FProperty(
 					Owner,
 					FName(PropertyParams->NameUTF8),
 					EObjectFlags::NoFlags,
@@ -99,7 +144,10 @@ namespace Durin
 					PropertyParams->Kind,
 					ReferencedClass
 				);
+				break;
 			}
+
+			return Property;
 		}
 	}
 
@@ -163,8 +211,7 @@ namespace Durin
 			for (size_t Index = 0; Index < Params.NumProperties; ++Index)
 			{
 				const FPropertyParamsBase* PropertyParams = Params.PropertyParams[Index];
-				DClass* ReferencedClass = PropertyParams->ReferencedClassFunc ? PropertyParams->ReferencedClassFunc() : nullptr;
-				FProperty* Property = ConstructGeneratedProperty(FFieldVariant(Class), PropertyParams, ReferencedClass);
+				FProperty* Property = ConstructGeneratedProperty(FFieldVariant(Class), PropertyParams);
 
 				if (LastProperty)
 				{

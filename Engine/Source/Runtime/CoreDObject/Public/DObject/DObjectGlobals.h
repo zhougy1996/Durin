@@ -78,7 +78,9 @@ namespace Durin
 			Double,
 			String,
 			Enum,
-			Object
+			Object,
+			Array,
+			Map
 		};
 
 		struct FPropertyParamsBase;
@@ -101,6 +103,9 @@ namespace Durin
 			uint16 ElementSize;
 			EPropertyGenFlags Kind;
 			DClass* (*ReferencedClassFunc)();
+			const FPropertyParamsBase* Inner;
+			const FPropertyParamsBase* Key;
+			const FPropertyParamsBase* Value;
 		};
 
 		struct FGenericPropertyParams : public FPropertyParamsBase
@@ -122,6 +127,8 @@ namespace Durin
 		using FStringPropertyParams = FPropertyParamsBase;
 		using FEnumPropertyParams = FPropertyParamsBase;
 		using FObjectPropertyParams = FPropertyParamsBase;
+		using FArrayPropertyParams = FPropertyParamsBase;
+		using FMapPropertyParams = FPropertyParamsBase;
 
 		COREDOBJECT_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
 

@@ -20,6 +20,8 @@ PROPERTY_PARAM_BY_KIND = {
     "String": "FStringPropertyParams",
     "Enum": "FEnumPropertyParams",
     "Object": "FObjectPropertyParams",
+    "Array": "FArrayPropertyParams",
+    "Map": "FMapPropertyParams",
 }
 
 TAB = "\t"
@@ -101,11 +103,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
             if symbol:
                 referenced_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
         for prop in class_info.properties:
-            if prop.referenced_type:
-                symbol = symbols.get(prop.referenced_type)
-                if not symbol:
-                    continue
-                referenced_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
+            _collect_referenced_helpers(prop, symbols, referenced_helpers)
 
     for helper, api in sorted(referenced_helpers.items()):
         builder.append(f"{api} Durin::DClass* {helper}();\n")
@@ -155,13 +153,13 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
         builder.append("{\n")
         _append_line(builder, "static const Durin::DurinCodeGen::FClassParams ClassParams;", 1)
         for prop in properties:
-            builder.append(_property_decl(prop))
+            builder.extend(_property_decls(prop))
         if has_properties:
             _append_line(builder, "static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[];", 1)
         builder.append("};\n\n")
 
         for prop in properties:
-            builder.append(_property_definition(class_info, prop, symbols))
+            builder.append(_property_definitions(class_info, prop, symbols))
         if has_properties:
             builder.append(f"const Durin::DurinCodeGen::FPropertyParamsBase* const {generated_statics_name}::PropertyParams[] = {{\n")
             for prop in properties:
@@ -260,12 +258,32 @@ def _base_name_for_macro(class_info: ReflectedClassInfo) -> str:
     return class_info.base_qualified_name or "Durin::DObject"
 
 
-def _property_decl(prop: ReflectedPropertyInfo) -> str:
+def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
+    decls: list[str] = []
+    if prop.inner:
+        decls.extend(_property_decls(prop.inner))
+    if prop.key:
+        decls.extend(_property_decls(prop.key))
+    if prop.value:
+        decls.extend(_property_decls(prop.value))
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
-    return _line(f"static const Durin::DurinCodeGen::{param_type} NewProp_{prop.name};", 1)
+    decls.append(_line(f"static const Durin::DurinCodeGen::{param_type} NewProp_{prop.name};", 1))
+    return decls
 
 
-def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: dict[str, object]) -> str:
+def _property_definitions(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: dict[str, object], nested: bool = False) -> str:
+    content = []
+    if prop.inner:
+        content.append(_property_definitions(class_info, prop.inner, symbols, True))
+    if prop.key:
+        content.append(_property_definitions(class_info, prop.key, symbols, True))
+    if prop.value:
+        content.append(_property_definitions(class_info, prop.value, symbols, True))
+    content.append(_property_definition(class_info, prop, symbols, nested))
+    return "".join(content)
+
+
+def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: dict[str, object], nested: bool) -> str:
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
     referenced_helper = "nullptr"
     if prop.referenced_type:
@@ -275,10 +293,28 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
     property_flags = prop.flags
     if property_flags == "None":
         property_flags = "Durin::EPropertyFlags::None"
+    inner = f"&{class_info.generated_statics_name}::NewProp_{prop.inner.name}" if prop.inner else "nullptr"
+    key = f"&{class_info.generated_statics_name}::NewProp_{prop.key.name}" if prop.key else "nullptr"
+    value = f"&{class_info.generated_statics_name}::NewProp_{prop.value.name}" if prop.value else "nullptr"
+    offset = "0" if nested else f"static_cast<Durin::uint16>(STRUCT_OFFSET({class_info.qualified_name}, {prop.name}))"
+    element_size = f"sizeof(decltype((({class_info.qualified_name}*)0)->{prop.name}))" if prop.element_size == "sizeof_self" else prop.element_size
     return (
         f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
         f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, "
-        f"static_cast<Durin::uint16>(STRUCT_OFFSET({class_info.qualified_name}, {prop.name})), "
-        f"static_cast<Durin::uint16>({prop.element_size}), "
-        f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_helper} }};\n"
+        f"{offset}, "
+        f"static_cast<Durin::uint16>({element_size}), "
+        f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_helper}, {inner}, {key}, {value} }};\n"
     )
+
+
+def _collect_referenced_helpers(prop: ReflectedPropertyInfo, symbols: dict[str, object], referenced_helpers: dict[str, str]) -> None:
+    if prop.referenced_type:
+        symbol = symbols.get(prop.referenced_type)
+        if symbol:
+            referenced_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
+    if prop.inner:
+        _collect_referenced_helpers(prop.inner, symbols, referenced_helpers)
+    if prop.key:
+        _collect_referenced_helpers(prop.key, symbols, referenced_helpers)
+    if prop.value:
+        _collect_referenced_helpers(prop.value, symbols, referenced_helpers)

@@ -35,6 +35,21 @@ namespace Durin
 		DObject* ObjectRef = nullptr;
 
 		DPROPERTY()
-		std::vector<DObject*> UnsupportedObjects;
+		std::string DisplayName;
+
+		DPROPERTY()
+		std::vector<int32> Scores;
+
+		DPROPERTY()
+		std::vector<DObject*> ObjectRefs;
+
+		DPROPERTY()
+		std::unordered_map<std::string, int32> NamedScores;
+
+		DPROPERTY()
+		std::vector<std::vector<int32>> UnsupportedNested;
+
+		DPROPERTY()
+		std::vector<std::unique_ptr<DObject>> UnsupportedUniqueObjects;
 	};
 }

@@ -1,7 +1,7 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Object.h"
-#include "DObject/Property.h"
+#include "DObject/DurinPropertyTypes.h"
 
 #include <gtest/gtest.h>
 #include <cstddef>
@@ -12,6 +12,9 @@ namespace
 	{
 		Durin::int32 Value = 0;
 		Durin::DObject* ObjectValue = nullptr;
+		std::string StringValue;
+		std::vector<Durin::DObject*> ObjectArray;
+		std::unordered_map<std::string, Durin::int32> StringToInt;
 	};
 
 	Durin::DClass* Z_Construct_DClass_FReflectedPropertyOwnerForTest_NoRegister()
@@ -69,6 +72,9 @@ namespace
 			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, Value)),
 			static_cast<Durin::uint16>(sizeof(Durin::int32)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Int32,
+			nullptr,
+			nullptr,
+			nullptr,
 			nullptr
 		};
 		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPropertyParams = {
@@ -78,18 +84,96 @@ namespace
 			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectValue)),
 			static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Object,
-			&Durin::DObject::StaticClass
+			&Durin::DObject::StaticClass,
+			nullptr,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FStringPropertyParams StringPropertyParams = {
+			"StringValue",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, StringValue)),
+			static_cast<Durin::uint16>(sizeof(std::string)),
+			Durin::DurinCodeGen::EPropertyGenFlags::String,
+			nullptr,
+			nullptr,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectArrayInnerPropertyParams = {
+			"ObjectArray_Inner",
+			Durin::EPropertyFlags::None,
+			1,
+			0,
+			static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Object,
+			&Durin::DObject::StaticClass,
+			nullptr,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FArrayPropertyParams ObjectArrayPropertyParams = {
+			"ObjectArray",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectArray)),
+			static_cast<Durin::uint16>(sizeof(std::vector<Durin::DObject*>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Array,
+			nullptr,
+			&ObjectArrayInnerPropertyParams,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FStringPropertyParams StringToIntKeyPropertyParams = {
+			"StringToInt_Key",
+			Durin::EPropertyFlags::None,
+			1,
+			0,
+			static_cast<Durin::uint16>(sizeof(std::string)),
+			Durin::DurinCodeGen::EPropertyGenFlags::String,
+			nullptr,
+			nullptr,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FInt32PropertyParams StringToIntValuePropertyParams = {
+			"StringToInt_Value",
+			Durin::EPropertyFlags::None,
+			1,
+			0,
+			static_cast<Durin::uint16>(sizeof(Durin::int32)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32,
+			nullptr,
+			nullptr,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FMapPropertyParams StringToIntPropertyParams = {
+			"StringToInt",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, StringToInt)),
+			static_cast<Durin::uint16>(sizeof(std::unordered_map<std::string, Durin::int32>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Map,
+			nullptr,
+			nullptr,
+			&StringToIntKeyPropertyParams,
+			&StringToIntValuePropertyParams
 		};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
 			&ValuePropertyParams,
-			&ObjectPropertyParams
+			&ObjectPropertyParams,
+			&StringPropertyParams,
+			&ObjectArrayPropertyParams,
+			&StringToIntPropertyParams
 		};
 		static const Durin::DurinCodeGen::FClassParams ClassParams = {
 			&Z_Construct_DClass_FReflectedPropertyOwnerForTest_NoRegister,
 			"FReflectedPropertyOwnerForTest",
 			"FReflectedPropertyOwnerForTest",
 			PropertyParams,
-			2
+			5
 		};
 
 		Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(ClassParams);
@@ -119,5 +203,28 @@ namespace
 		Durin::DObject ReferencedObject;
 		Instance.ObjectValue = &ReferencedObject;
 		EXPECT_EQ(ObjectProperty->GetObjectPropertyValue(&Instance), &ReferencedObject);
+
+		auto* StringProperty = static_cast<Durin::FStringProperty*>(Class->FindPropertyByName("StringValue"));
+		ASSERT_NE(StringProperty, nullptr);
+		*StringProperty->GetStringValuePtr(&Instance) = "Durin";
+		EXPECT_EQ(Instance.StringValue, "Durin");
+
+		auto* ArrayProperty = static_cast<Durin::FArrayProperty*>(Class->FindPropertyByName("ObjectArray"));
+		ASSERT_NE(ArrayProperty, nullptr);
+		ASSERT_NE(ArrayProperty->GetInner(), nullptr);
+		EXPECT_EQ(ArrayProperty->GetContainerPtr(&Instance), &Instance.ObjectArray);
+		EXPECT_EQ(ArrayProperty->GetInner()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Object);
+		EXPECT_EQ(ArrayProperty->GetInner()->GetReferencedClass(), Durin::DObject::StaticClass());
+		EXPECT_EQ(Class->FindPropertyByName("ObjectArray_Inner"), nullptr);
+
+		auto* MapProperty = static_cast<Durin::FMapProperty*>(Class->FindPropertyByName("StringToInt"));
+		ASSERT_NE(MapProperty, nullptr);
+		ASSERT_NE(MapProperty->GetKeyProp(), nullptr);
+		ASSERT_NE(MapProperty->GetValueProp(), nullptr);
+		EXPECT_EQ(MapProperty->GetContainerPtr(&Instance), &Instance.StringToInt);
+		EXPECT_EQ(MapProperty->GetKeyProp()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::String);
+		EXPECT_EQ(MapProperty->GetValueProp()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Int32);
+		EXPECT_EQ(Class->FindPropertyByName("StringToInt_Key"), nullptr);
+		EXPECT_EQ(Class->FindPropertyByName("StringToInt_Value"), nullptr);
 	}
 }

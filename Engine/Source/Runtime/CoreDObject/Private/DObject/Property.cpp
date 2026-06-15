@@ -1,4 +1,4 @@
-#include "DObject/Property.h"
+#include "DObject/DurinPropertyTypes.h"
 
 #include "DObject/Object.h"
 
@@ -10,6 +10,8 @@ namespace Durin
 	IMPLEMENT_FIELD(FStringProperty, FProperty, EClassCastFlags::FStringProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FEnumProperty, FProperty, EClassCastFlags::FEnumProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FObjectProperty, FProperty, EClassCastFlags::FObjectProperty, COREDOBJECT_API)
+	IMPLEMENT_FIELD(FArrayProperty, FProperty, EClassCastFlags::FArrayProperty, COREDOBJECT_API)
+	IMPLEMENT_FIELD(FMapProperty, FProperty, EClassCastFlags::FMapProperty, COREDOBJECT_API)
 
 	FProperty::FProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
 		: FProperty(
@@ -162,5 +164,49 @@ namespace Durin
 	{
 		DObject* const* ValuePtr = ContainerPtrToValuePtr<DObject*>(Container, ArrayIndex);
 		return ValuePtr ? *ValuePtr : nullptr;
+	}
+
+	FArrayProperty::FArrayProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
+		: FProperty(InOwner, InName, InObjectFlags)
+	{
+		ClassPrivate = StaticClass();
+	}
+
+	FArrayProperty::FArrayProperty(
+		FFieldVariant InOwner,
+		FName InName,
+		EObjectFlags InObjectFlags,
+		EPropertyFlags InPropertyFlags,
+		uint16 InArrayDim,
+		uint16 InOffset,
+		uint16 InElementSize,
+		DurinCodeGen::EPropertyGenFlags InKind,
+		DClass* InReferencedClass
+	)
+		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass)
+	{
+		ClassPrivate = StaticClass();
+	}
+
+	FMapProperty::FMapProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
+		: FProperty(InOwner, InName, InObjectFlags)
+	{
+		ClassPrivate = StaticClass();
+	}
+
+	FMapProperty::FMapProperty(
+		FFieldVariant InOwner,
+		FName InName,
+		EObjectFlags InObjectFlags,
+		EPropertyFlags InPropertyFlags,
+		uint16 InArrayDim,
+		uint16 InOffset,
+		uint16 InElementSize,
+		DurinCodeGen::EPropertyGenFlags InKind,
+		DClass* InReferencedClass
+	)
+		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass)
+	{
+		ClassPrivate = StaticClass();
 	}
 }

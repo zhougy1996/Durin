@@ -3,4 +3,4 @@
 #include "DObject/ObjectMacros.h"
 #include "DObjectGlobals.h"
 #include "Class.h"
-#include "Property.h"
+#include "DurinPropertyTypes.h"

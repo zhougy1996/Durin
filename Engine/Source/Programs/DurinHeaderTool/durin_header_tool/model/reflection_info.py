@@ -8,7 +8,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "2"
+TOOL_VERSION = "4"
 
 
 @dataclass
@@ -18,8 +18,11 @@ class ReflectedPropertyInfo:
     kind: str
     referenced_type: str = ""
     array_dim: int = 1
-    element_size: int = 0
+    element_size: str = "0"
     flags: str = "None"
+    inner: "ReflectedPropertyInfo | None" = None
+    key: "ReflectedPropertyInfo | None" = None
+    value: "ReflectedPropertyInfo | None" = None
 
 
 @dataclass
@@ -77,6 +80,7 @@ _PROPERTY_KIND_BY_TYPE = {
     "float": "Float",
     "double": "Double",
     "bool": "Bool",
+    "std::string": "String",
 }
 
 _PROPERTY_FLAG_BY_SPECIFIER = {
@@ -221,9 +225,158 @@ def _element_type(field_cursor: clang.cindex.Cursor) -> clang.cindex.Type:
     return field_type
 
 
-def _field_size(type_info: clang.cindex.Type) -> int:
+def _field_size(type_info: clang.cindex.Type) -> str:
     size = type_info.get_size()
-    return int(size) if size and size > 0 else 0
+    return str(int(size)) if size and size > 0 else "0"
+
+
+def _split_template_args(args: str) -> list[str]:
+    result: list[str] = []
+    depth = 0
+    start = 0
+    for index, char in enumerate(args):
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+        elif char == "," and depth == 0:
+            result.append(args[start:index].strip())
+            start = index + 1
+    tail = args[start:].strip()
+    if tail:
+        result.append(tail)
+    return result
+
+
+def _source_template_args(type_spelling: str, template_name: str) -> list[str]:
+    compact = type_spelling.strip()
+    prefix = f"{template_name}<"
+    if not compact.startswith(prefix) or not compact.endswith(">"):
+        return []
+    return _split_template_args(compact[len(prefix):-1])
+
+
+def _source_declared_type(source: str, field_cursor: clang.cindex.Cursor) -> str:
+    lines = source.splitlines()
+    line_index = max(field_cursor.location.line - 1, 0)
+    for index in range(line_index, min(line_index + 4, len(lines))):
+        line = lines[index].strip()
+        if field_cursor.spelling not in line:
+            continue
+        line = line.split("=", 1)[0].rstrip(";").strip()
+        match = re.match(rf"(.+?)\s+{re.escape(field_cursor.spelling)}(?:\s*\[[^\]]+\])?$", line)
+        if match:
+            return _normalize_type_spelling(match.group(1))
+    return ""
+
+
+def _template_argument_types(type_info: clang.cindex.Type) -> list[clang.cindex.Type]:
+    args: list[clang.cindex.Type] = []
+    for candidate in (type_info, type_info.get_canonical()):
+        try:
+            count = candidate.get_num_template_arguments()
+        except Exception:
+            continue
+        if count <= 0:
+            continue
+        for index in range(count):
+            try:
+                arg = candidate.get_template_argument_type(index)
+            except Exception:
+                return []
+            if arg.kind == clang.cindex.TypeKind.INVALID:
+                return []
+            args.append(arg)
+        if args:
+            return args
+    return []
+
+
+def _is_std_vector(type_spelling: str) -> bool:
+    normalized = type_spelling.replace(" ", "")
+    return normalized.startswith("std::vector<")
+
+
+def _is_std_unordered_map(type_spelling: str) -> bool:
+    normalized = type_spelling.replace(" ", "")
+    return normalized.startswith("std::unordered_map<")
+
+
+def _source_property_from_type_spelling(
+    name: str,
+    type_spelling: str,
+    exported_symbols: dict[str, object] | None,
+    flags: str = "None",
+    array_dim: int = 1,
+    allow_object: bool = True,
+    allow_container: bool = True,
+) -> ReflectedPropertyInfo | None:
+    type_spelling = _normalize_type_spelling(type_spelling)
+    kind = _PROPERTY_KIND_BY_TYPE.get(type_spelling)
+    if not kind and type_spelling == "std::string":
+        kind = "String"
+
+    if kind:
+        size_by_kind = {
+            "Bool": "sizeof(bool)",
+            "Int8": "sizeof(Durin::int8)",
+            "Int16": "sizeof(Durin::int16)",
+            "Int32": "sizeof(Durin::int32)",
+            "Int64": "sizeof(Durin::int64)",
+            "UInt8": "sizeof(Durin::uint8)",
+            "UInt16": "sizeof(Durin::uint16)",
+            "UInt32": "sizeof(Durin::uint32)",
+            "UInt64": "sizeof(Durin::uint64)",
+            "Float": "sizeof(float)",
+            "Double": "sizeof(double)",
+            "String": "sizeof(std::string)",
+        }
+        return ReflectedPropertyInfo(name=name, type_name=type_spelling, kind=kind, array_dim=array_dim, element_size=size_by_kind[kind], flags=flags)
+
+    if allow_container and _is_std_vector(type_spelling):
+        args = _source_template_args(type_spelling, "std::vector")
+        if len(args) != 1:
+            return None
+        inner = _source_property_from_type_spelling(f"{name}_Inner", args[0], exported_symbols, allow_object=True, allow_container=False)
+        if not inner:
+            return None
+        return ReflectedPropertyInfo(name=name, type_name=type_spelling, kind="Array", array_dim=array_dim, element_size="sizeof_self", flags=flags, inner=inner)
+
+    if allow_container and _is_std_unordered_map(type_spelling):
+        args = _source_template_args(type_spelling, "std::unordered_map")
+        if len(args) < 2:
+            return None
+        key = _source_property_from_type_spelling(f"{name}_Key", args[0], exported_symbols, allow_object=False, allow_container=False)
+        value = _source_property_from_type_spelling(f"{name}_Value", args[1], exported_symbols, allow_object=True, allow_container=False)
+        if not key or not value:
+            return None
+        return ReflectedPropertyInfo(name=name, type_name=type_spelling, kind="Map", array_dim=array_dim, element_size="sizeof_self", flags=flags, key=key, value=value)
+
+    if allow_object and type_spelling.endswith("*"):
+        pointee = type_spelling[:-1].strip()
+        candidates = [pointee]
+        if "::" not in pointee:
+            candidates.extend(name for name in (exported_symbols or {}) if name.endswith(f"::{pointee}") or name == pointee)
+        for candidate in candidates:
+            if not exported_symbols or candidate in exported_symbols:
+                return ReflectedPropertyInfo(
+                    name=name,
+                    type_name=type_spelling,
+                    kind="Object",
+                    referenced_type=candidate,
+                    array_dim=array_dim,
+                    element_size="sizeof(Durin::DObject*)",
+                    flags=flags,
+                )
+    return None
+
+
+def _string_kind(type_spelling: str, canonical: str) -> str | None:
+    if type_spelling == "std::string":
+        return "String"
+    if canonical.startswith("std::basic_string<"):
+        return "String"
+    return None
 
 
 def _enum_kind(type_info: clang.cindex.Type) -> str | None:
@@ -233,23 +386,79 @@ def _enum_kind(type_info: clang.cindex.Type) -> str | None:
     return None
 
 
-def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: dict[str, object] | None) -> ReflectedPropertyInfo | None:
-    annotation = _get_annotation(field_cursor)
-    if not annotation.startswith("DPROPERTY"):
-        return None
-
-    array_dim = _array_dim(field_cursor)
-    element_type = _element_type(field_cursor)
-    type_spelling = _normalize_type_spelling(element_type.spelling)
-    canonical = _normalize_type_spelling(element_type.get_canonical().spelling)
-    kind = _PROPERTY_KIND_BY_TYPE.get(type_spelling) or _PROPERTY_KIND_BY_TYPE.get(canonical)
+def _make_property_from_type(
+    name: str,
+    type_info: clang.cindex.Type,
+    exported_symbols: dict[str, object] | None,
+    flags: str = "None",
+    array_dim: int = 1,
+    allow_object: bool = True,
+    allow_container: bool = True,
+) -> ReflectedPropertyInfo | None:
+    type_spelling = _normalize_type_spelling(type_info.spelling)
+    canonical = _normalize_type_spelling(type_info.get_canonical().spelling)
+    kind = _PROPERTY_KIND_BY_TYPE.get(type_spelling) or _PROPERTY_KIND_BY_TYPE.get(canonical) or _string_kind(type_spelling, canonical)
     referenced_type = ""
-    element_size = _field_size(element_type)
+    element_size = _field_size(type_info)
 
     if not kind:
-        kind = _enum_kind(element_type)
+        kind = _enum_kind(type_info)
 
-    if not kind and type_spelling.endswith("*"):
+    if not kind and allow_container and _is_std_vector(type_spelling):
+        args = _template_argument_types(type_info)
+        if len(args) != 1:
+            return None
+        inner = _make_property_from_type(
+            f"{name}_Inner",
+            args[0],
+            exported_symbols,
+            allow_object=True,
+            allow_container=False,
+        )
+        if not inner:
+            return None
+        return ReflectedPropertyInfo(
+            name=name,
+            type_name=type_spelling,
+            kind="Array",
+            array_dim=array_dim,
+            element_size=element_size,
+            flags=flags,
+            inner=inner,
+        )
+
+    if not kind and allow_container and _is_std_unordered_map(type_spelling):
+        args = _template_argument_types(type_info)
+        if len(args) < 2:
+            return None
+        key = _make_property_from_type(
+            f"{name}_Key",
+            args[0],
+            exported_symbols,
+            allow_object=False,
+            allow_container=False,
+        )
+        value = _make_property_from_type(
+            f"{name}_Value",
+            args[1],
+            exported_symbols,
+            allow_object=True,
+            allow_container=False,
+        )
+        if not key or not value:
+            return None
+        return ReflectedPropertyInfo(
+            name=name,
+            type_name=type_spelling,
+            kind="Map",
+            array_dim=array_dim,
+            element_size=element_size,
+            flags=flags,
+            key=key,
+            value=value,
+        )
+
+    if not kind and allow_object and type_spelling.endswith("*"):
         pointee = type_spelling[:-1].strip()
         candidates = [pointee]
         if "::" not in pointee:
@@ -264,14 +473,50 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: dict[str
         return None
 
     return ReflectedPropertyInfo(
-        name=field_cursor.spelling,
+        name=name,
         type_name=type_spelling,
         kind=kind,
         referenced_type=referenced_type,
         array_dim=array_dim,
         element_size=element_size,
-        flags=_property_flags_from_annotation(annotation),
+        flags=flags,
     )
+
+
+def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: dict[str, object] | None, source: str) -> ReflectedPropertyInfo | None:
+    annotation = _get_annotation(field_cursor)
+    if not annotation.startswith("DPROPERTY"):
+        return None
+
+    source_type = _source_declared_type(source, field_cursor)
+    if source_type and (_is_std_vector(source_type) or _is_std_unordered_map(source_type)):
+        return _source_property_from_type_spelling(
+            field_cursor.spelling,
+            source_type,
+            exported_symbols,
+            flags=_property_flags_from_annotation(annotation),
+            array_dim=_array_dim(field_cursor),
+        )
+
+    prop = _make_property_from_type(
+        field_cursor.spelling,
+        _element_type(field_cursor),
+        exported_symbols,
+        flags=_property_flags_from_annotation(annotation),
+        array_dim=_array_dim(field_cursor),
+    )
+    if prop:
+        return prop
+
+    if source_type:
+        return _source_property_from_type_spelling(
+            field_cursor.spelling,
+            source_type,
+            exported_symbols,
+            flags=_property_flags_from_annotation(annotation),
+            array_dim=_array_dim(field_cursor),
+        )
+    return None
 
 
 def _clang_args(module_name: str, export_mode: bool) -> list[str]:
@@ -395,7 +640,7 @@ def parse_reflection_header(
                     elif member.kind == clang.cindex.CursorKind.DESTRUCTOR:
                         reflected_class.has_destructor = True
                     elif member.kind == clang.cindex.CursorKind.FIELD_DECL:
-                        prop = _make_property(member, exported_symbols)
+                        prop = _make_property(member, exported_symbols, source)
                         if prop:
                             reflected_class.properties.append(prop)
                 classes.append(reflected_class)
