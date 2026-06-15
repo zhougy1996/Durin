@@ -11,6 +11,34 @@ namespace Durin
 {
 	namespace
 	{
+		class FStaticVertexShader : public FShader
+		{
+		public:
+			using FShader::FShader;
+			DURIN_DECLARE_SHADER_TYPE(FStaticVertexShader, "StaticVertexShader", "/Unit/StaticShader", EShaderFrequency::Vertex, "vertexMain");
+		};
+
+		class FStaticFragmentShader : public FShader
+		{
+		public:
+			using FShader::FShader;
+
+			struct FParameters
+			{
+				FRHITexture* FontTexture = nullptr;
+			};
+
+			static auto StaticParametersMetadata() -> std::span<const FShaderParameterMetadata>
+			{
+				static const std::array Parameters = {
+					DURIN_SHADER_PARAMETER(FontTexture, ERHIBindingType::Texture)
+				};
+				return Parameters;
+			}
+
+			DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FStaticFragmentShader, "StaticFragmentShader", "/Unit/StaticShader", EShaderFrequency::Fragment, "fragmentMain");
+		};
+
 		auto MakeCode(uint8 Seed) -> std::shared_ptr<std::vector<std::byte>>
 		{
 			auto Code = std::make_shared<std::vector<std::byte>>();
@@ -547,6 +575,50 @@ namespace Durin
 		EXPECT_EQ(FirstBindings.data(), SecondBindings.data());
 		EXPECT_EQ(FirstBindings[0].BindingIndex, 3u);
 		EXPECT_EQ(FirstBindings[0].Offset, offsetof(FParameters, FontTexture));
+	}
+
+	TEST(FShaderFoundationTests, ShaderDeclarationMacrosCreateStaticTypesAndParameterMetadata)
+	{
+		FShaderType& VertexShaderType = FStaticVertexShader::StaticType();
+		FShaderType& FragmentShaderType = FStaticFragmentShader::StaticType();
+
+		EXPECT_EQ(&FStaticVertexShader::StaticType(), &VertexShaderType);
+		EXPECT_EQ(VertexShaderType.GetName(), "StaticVertexShader");
+		EXPECT_EQ(VertexShaderType.GetVirtualShaderPath(), "/Unit/StaticShader");
+		EXPECT_EQ(VertexShaderType.GetEntryPoint(), "vertexMain");
+
+		const auto ParameterMetadata = FragmentShaderType.GetParameterMetadata();
+		ASSERT_EQ(ParameterMetadata.size(), 1u);
+		EXPECT_STREQ(ParameterMetadata[0].Name, "FontTexture");
+
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({
+			.Name = "FontTexture",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 0,
+			.BindingIndex = 2,
+			.Type = ERHIBindingType::Texture,
+			.ArraySize = 1
+		});
+
+		FShaderCompilerOutput Output;
+		Output.bSucceeded = true;
+		Output.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "StaticVertexShader", 3),
+			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "StaticFragmentShader", 7, Reflection)
+		};
+
+		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
+		FShaderMapBase ShaderMap;
+		std::string ErrorMessage;
+		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+
+		const auto* FragmentShader = static_cast<const FStaticFragmentShader*>(ShaderMap.GetShader(&FragmentShaderType));
+		ASSERT_NE(FragmentShader, nullptr);
+		const auto Bindings = FragmentShader->GetParameterBindings();
+		ASSERT_EQ(Bindings.size(), 1u);
+		EXPECT_EQ(Bindings[0].BindingIndex, 2u);
+		EXPECT_EQ(Bindings[0].Offset, offsetof(FStaticFragmentShader::FParameters, FontTexture));
 	}
 
 	TEST(FShaderFoundationTests, ShaderMapInitializeRejectsMismatchedSourceEntryPoint)

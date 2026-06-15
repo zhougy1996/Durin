@@ -14,6 +14,13 @@
 
 namespace Durin::MonaImGui
 {
+	class FImGuiVertexShader : public FShader
+	{
+	public:
+		using FShader::FShader;
+		DURIN_DECLARE_SHADER_TYPE(FImGuiVertexShader, "ImGuiVertexShader", "/Engine/ImGui", EShaderFrequency::Vertex, "vertexMain");
+	};
+
 	class FImGuiFragmentShader : public FShader
 	{
 	public:
@@ -25,7 +32,7 @@ namespace Durin::MonaImGui
 			FRHISampler* fontSampler = nullptr;
 		};
 
-		static auto GetParametersMetadata() -> std::span<const FShaderParameterMetadata>
+		static auto StaticParametersMetadata() -> std::span<const FShaderParameterMetadata>
 		{
 			static const std::array Parameters = {
 				DURIN_SHADER_PARAMETER(fontTexture, ERHIBindingType::Texture),
@@ -33,44 +40,14 @@ namespace Durin::MonaImGui
 			};
 			return Parameters;
 		}
+		DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FImGuiFragmentShader, "ImGuiFragmentShader", "/Engine/ImGui", EShaderFrequency::Fragment, "fragmentMain");
 	};
-
-	static auto CreateImGuiFragmentShader(
-		const FShaderType* ShaderType,
-		FShaderMapBase* ShaderMap,
-		const FShaderReflectionData& Reflection
-	) -> std::unique_ptr<FShader>
-	{
-		return std::make_unique<FImGuiFragmentShader>(ShaderType, ShaderMap, Reflection);
-	}
-
-	static auto GetImGuiVertexShaderType() -> FShaderType&
-	{
-		static FShaderType ShaderType("ImGuiVertexShader", "/Engine/ImGui", EShaderFrequency::Vertex, "vertexMain");
-		return ShaderType;
-	}
-
-	static auto GetImGuiFragmentShaderType() -> FShaderType&
-	{
-		static FShaderType ShaderType(
-			"ImGuiFragmentShader",
-			"/Engine/ImGui",
-			EShaderFrequency::Fragment,
-			"fragmentMain",
-			{},
-			&CreateImGuiFragmentShader,
-			nullptr,
-			nullptr,
-			FImGuiFragmentShader::GetParametersMetadata()
-		);
-		return ShaderType;
-	}
 
 	// State of the ImGui RHI backend, stored in a struct to ensure proper initialization order of static variables.
 	struct FImGuiRHIImplRT_BackendState
 	{
 		std::shared_ptr<FShaderMapBase> ShaderMap;
-		TShaderRef<FShader> VertexShader;
+		TShaderRef<FImGuiVertexShader> VertexShader;
 		TShaderRef<FImGuiFragmentShader> FragmentShader;
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateRHIRef PipelineState;
@@ -289,8 +266,8 @@ namespace Durin::MonaImGui
 	static auto ImGuiRHIImpl_CreateMainPipeline()
 	{
 		FShaderCompileOptions CompileOptions;
-		FShaderType& VertexShaderType = GetImGuiVertexShaderType();
-		FShaderType& FragmentShaderType = GetImGuiFragmentShaderType();
+		FShaderType& VertexShaderType = FImGuiVertexShader::StaticType();
+		FShaderType& FragmentShaderType = FImGuiFragmentShader::StaticType();
 		std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
 		std::shared_ptr<FShaderMapBase> ShaderMap = std::make_shared<FShaderMapBase>();
 		std::string ErrorMessage;
@@ -300,13 +277,13 @@ namespace Durin::MonaImGui
 			return;
 		}
 
-		FShader* VertexShader = ShaderMap->GetShader(&VertexShaderType);
+		auto* VertexShader = static_cast<FImGuiVertexShader*>(ShaderMap->GetShader(&VertexShaderType));
 		auto* FragmentShader = static_cast<FImGuiFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType));
 		check(VertexShader);
 		check(FragmentShader);
 
 		GBackendState.ShaderMap = ShaderMap;
-		GBackendState.VertexShader = TShaderRef<FShader>(VertexShader, ShaderMap.get());
+		GBackendState.VertexShader = TShaderRef<FImGuiVertexShader>(VertexShader, ShaderMap.get());
 		GBackendState.FragmentShader = TShaderRef<FImGuiFragmentShader>(FragmentShader, ShaderMap.get());
 
 		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([

@@ -97,6 +97,39 @@ namespace Durin
 		std::vector<FShaderParameterBinding> ParameterBindings;
 	};
 
+	template<typename ShaderType>
+	auto CreateDefaultShaderInstance(
+		const FShaderType* InType,
+		FShaderMapBase* InShaderMap,
+		const FShaderReflectionData& InReflection
+	) -> std::unique_ptr<FShader>
+	{
+		return std::make_unique<ShaderType>(InType, InShaderMap, InReflection);
+	}
+
+	template<typename ShaderType>
+	auto MakeShaderType(
+		std::string_view InName,
+		std::string_view InVirtualShaderPath,
+		EShaderFrequency InFrequency,
+		std::string_view InEntryPoint,
+		std::string_view InDebugName = {},
+		std::span<const FShaderParameterMetadata> InParameterMetadata = {}
+	) -> FShaderType
+	{
+		return FShaderType(
+			InName,
+			InVirtualShaderPath,
+			InFrequency,
+			InEntryPoint,
+			InDebugName,
+			&CreateDefaultShaderInstance<ShaderType>,
+			nullptr,
+			nullptr,
+			InParameterMetadata
+		);
+	}
+
 	RENDERCORE_API auto BuildShaderParameterBindings(
 		std::span<const FShaderParameterMetadata> ParameterMetadata,
 		const FShaderReflectionData& Reflection,
@@ -106,6 +139,27 @@ namespace Durin
 
 	#define DURIN_SHADER_PARAMETER(MemberName, BindingType) \
 		FShaderParameterMetadata{#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName)), BindingType, 1}
+
+	#define DURIN_DECLARE_SHADER_TYPE(ShaderClass, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
+		static auto StaticType() -> FShaderType& \
+		{ \
+			static FShaderType ShaderType = MakeShaderType<ShaderClass>(TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral); \
+			return ShaderType; \
+		}
+
+	#define DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(ShaderClass, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
+		static auto StaticType() -> FShaderType& \
+		{ \
+			static FShaderType ShaderType = MakeShaderType<ShaderClass>( \
+				TypeNameLiteral, \
+				VirtualPathLiteral, \
+				FrequencyValue, \
+				EntryPointLiteral, \
+				{}, \
+				ShaderClass::StaticParametersMetadata() \
+			); \
+			return ShaderType; \
+		}
 
 	RENDERCORE_API auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc;
 	RENDERCORE_API auto BuildPipelineLayoutFromReflection(
