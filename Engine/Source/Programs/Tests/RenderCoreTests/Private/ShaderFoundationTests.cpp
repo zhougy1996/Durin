@@ -97,7 +97,6 @@ namespace Durin
 		ASSERT_NE(FragmentShader, nullptr);
 		TShaderRef<FShader> FragmentShaderRef(FragmentShader, &ShaderMap);
 		ASSERT_TRUE(FragmentShaderRef);
-		EXPECT_EQ(FragmentShaderRef.GetShader()->GetShaderIndex(), 1u);
 		EXPECT_EQ(FragmentShaderRef.GetShader()->GetType(), &FragmentShaderType);
 	}
 

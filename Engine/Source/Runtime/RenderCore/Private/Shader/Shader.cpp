@@ -68,11 +68,10 @@ namespace Durin
 		auto MakeDefaultShaderInstance(
 			const FShaderType* ShaderType,
 			FShaderMapBase* ShaderMap,
-			uint32 ShaderIndex,
 			const FShaderReflectionData& Reflection
 		) -> std::unique_ptr<FShader>
 		{
-			return std::make_unique<FShader>(ShaderType, ShaderMap, ShaderIndex, Reflection);
+			return std::make_unique<FShader>(ShaderType, ShaderMap, Reflection);
 		}
 
 		struct FShaderMapCacheEntry
@@ -373,9 +372,9 @@ namespace Durin
 		GetShaderTypeRegistry().Unregister(this);
 	}
 
-	auto FShaderType::CreateShaderInstance(FShaderMapBase* ShaderMap, uint32 ShaderIndex, const FShaderReflectionData& Reflection) const -> std::unique_ptr<FShader>
+	auto FShaderType::CreateShaderInstance(FShaderMapBase* ShaderMap, const FShaderReflectionData& Reflection) const -> std::unique_ptr<FShader>
 	{
-		return Factory(this, ShaderMap, ShaderIndex, Reflection);
+		return Factory(this, ShaderMap, Reflection);
 	}
 
 	auto FShaderType::ShouldCompilePermutation(const FShaderPermutationParameters& Parameters) const -> bool
@@ -396,10 +395,9 @@ namespace Durin
 		return GetShaderTypeRegistry().GetTypeList();
 	}
 
-	FShader::FShader(const FShaderType* InType, FShaderMapBase* InShaderMap, uint32 InShaderIndex, const FShaderReflectionData& InReflection)
+	FShader::FShader(const FShaderType* InType, FShaderMapBase* InShaderMap, const FShaderReflectionData& InReflection)
 		: Type(InType)
 		, ShaderMap(InShaderMap)
-		, ShaderIndex(InShaderIndex)
 		, Reflection(InReflection)
 	{
 	}
@@ -775,7 +773,7 @@ namespace Durin
 			}
 
 			ShaderTypeToIndex.emplace(ShaderType, ShaderIndex);
-			std::unique_ptr<FShader> ShaderInstance = ShaderType->CreateShaderInstance(this, ShaderIndex, CompiledShader.Reflection);
+			std::unique_ptr<FShader> ShaderInstance = ShaderType->CreateShaderInstance(this, CompiledShader.Reflection);
 			if (!ShaderInstance)
 			{
 				OutErrorMessage = std::format("Shader type '{}' failed to create a shader instance", ShaderType->GetName());

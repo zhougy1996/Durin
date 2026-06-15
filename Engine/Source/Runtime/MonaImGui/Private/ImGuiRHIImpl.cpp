@@ -38,11 +38,10 @@ namespace Durin::MonaImGui
 	static auto CreateImGuiFragmentShader(
 		const FShaderType* ShaderType,
 		FShaderMapBase* ShaderMap,
-		uint32 ShaderIndex,
 		const FShaderReflectionData& Reflection
 	) -> std::unique_ptr<FShader>
 	{
-		return std::make_unique<FImGuiFragmentShader>(ShaderType, ShaderMap, ShaderIndex, Reflection);
+		return std::make_unique<FImGuiFragmentShader>(ShaderType, ShaderMap, Reflection);
 	}
 
 	static auto GetImGuiVertexShaderType() -> FShaderType&

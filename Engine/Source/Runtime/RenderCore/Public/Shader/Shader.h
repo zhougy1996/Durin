@@ -23,7 +23,6 @@ namespace Durin
 	using FShaderFactoryFunction = std::unique_ptr<FShader> (*)(
 		const FShaderType* ShaderType,
 		FShaderMapBase* ShaderMap,
-		uint32 ShaderIndex,
 		const FShaderReflectionData& Reflection
 	);
 
@@ -58,7 +57,7 @@ namespace Durin
 		auto GetDebugName() const -> std::string_view { return DebugName; }
 		auto GetParameterMetadata() const -> std::span<const FShaderParameterMetadata> { return ParameterMetadata; }
 
-		RENDERCORE_API auto CreateShaderInstance(FShaderMapBase* ShaderMap, uint32 ShaderIndex, const FShaderReflectionData& Reflection) const -> std::unique_ptr<FShader>;
+		RENDERCORE_API auto CreateShaderInstance(FShaderMapBase* ShaderMap, const FShaderReflectionData& Reflection) const -> std::unique_ptr<FShader>;
 		RENDERCORE_API auto ShouldCompilePermutation(const FShaderPermutationParameters& Parameters) const -> bool;
 		RENDERCORE_API auto ModifyCompilationEnvironment(const FShaderPermutationParameters& Parameters, FShaderCompileOptions& CompileOptions) const -> void;
 
@@ -80,12 +79,11 @@ namespace Durin
 	class FShader
 	{
 	public:
-		RENDERCORE_API FShader(const FShaderType* InType, FShaderMapBase* InShaderMap, uint32 InShaderIndex, const FShaderReflectionData& InReflection);
+		RENDERCORE_API FShader(const FShaderType* InType, FShaderMapBase* InShaderMap, const FShaderReflectionData& InReflection);
 		virtual ~FShader() = default;
 
 		auto GetType() const -> const FShaderType* { return Type; }
 		auto GetShaderMap() const -> FShaderMapBase* { return ShaderMap; }
-		auto GetShaderIndex() const -> uint32 { return ShaderIndex; }
 		auto GetReflection() const -> const FShaderReflectionData& { return Reflection; }
 		auto GetParameterBindings() const -> std::span<const FShaderParameterBinding> { return ParameterBindings; }
 
@@ -95,7 +93,6 @@ namespace Durin
 	protected:
 		const FShaderType* Type = nullptr;
 		FShaderMapBase* ShaderMap = nullptr;
-		uint32 ShaderIndex = 0;
 		FShaderReflectionData Reflection;
 		std::vector<FShaderParameterBinding> ParameterBindings;
 	};
