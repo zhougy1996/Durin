@@ -31,7 +31,7 @@ namespace Durin::MonaImGui
 
 	auto ImGuiRHIImpl_UnregisterTexture(FRHITexture* InRHITexture) -> void;
 
-	auto ImGuiRHIImpl_GetTextureID(FRHITexture* InRHITexture) -> ImTextureID;
+	auto ImGuiRHIImpl_GetTextureID(const FRHITexture* InRHITexture) -> ImTextureID;
 
 	auto ImGuiRHIImpl_EnsureMainViewportData(ImGuiViewport* Viewport) -> void;
 

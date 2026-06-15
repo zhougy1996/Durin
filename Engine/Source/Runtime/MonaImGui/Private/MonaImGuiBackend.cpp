@@ -84,7 +84,24 @@ namespace Durin::MonaImGui
 
 	auto FMonaImGuiBackend::IsTextureRegistered(const FRHITexture* InTexture) -> bool
 	{
-		return ImGuiRHIImpl_GetTextureID(const_cast<FRHITexture*>(InTexture)) != ImTextureID_Invalid;
+		return ImGuiRHIImpl_GetTextureID(InTexture) != ImTextureID_Invalid;
+	}
+
+	auto FMonaImGuiBackend::DrawImage(const FRHITexture* InTexture, const FVector2f& Size) -> bool
+	{
+		if (InTexture == nullptr)
+		{
+			return false;
+		}
+
+		const ImTextureID TextureID = ImGuiRHIImpl_GetTextureID(InTexture);
+		if (TextureID == ImTextureID_Invalid)
+		{
+			return false;
+		}
+
+		ImGui::Image(TextureID, {Size.x, Size.y});
+		return true;
 	}
 
 	auto FMonaImGuiBackend::Get() -> FMonaImGuiBackend&
@@ -99,9 +116,4 @@ namespace Durin::MonaImGui
 		ImGuiRHIImpl_EnsureMainViewportData(ImGui::GetMainViewport());
 	}
 
-	auto FMonaImGuiBackend::ShowDemoWindow() -> void
-	{
-		ImGui::SetCurrentContext(GMonaImGuiContext);
-		ImGui::ShowDemoWindow();
-	}
 }

@@ -40,13 +40,15 @@ namespace Durin
 			return;
 		}
 
+		check(!ViewportPtr->IsWindowBacked());
 		ViewportPtr->UpdateRHIViewport();
-		if (ViewportPtr->IsWindowBacked())
+
+		const FTextureRHIRef& DisplayTexture = ViewportPtr->GetDisplayTexture();
+		if (DisplayTexture == nullptr || Mona::GActiveUIBackend == nullptr)
 		{
 			return;
 		}
 
-		bLastDrawSucceeded = Mona::GActiveUIBackend != nullptr
-			&& Mona::GActiveUIBackend->DrawTexture(ViewportPtr->GetDisplayTexture(), DesiredSize);
+		bLastDrawSucceeded = Mona::GActiveUIBackend->DrawImage(DisplayTexture, DesiredSize);
 	}
 }

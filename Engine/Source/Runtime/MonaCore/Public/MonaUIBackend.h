@@ -18,5 +18,8 @@ namespace Durin::Mona
 		virtual auto RegisterTexture(const FTextureRHIRef& Texture) -> void = 0;
 		virtual auto UnregisterTexture(const FTextureRHIRef& Texture) -> void = 0;
 		virtual auto IsTextureRegistered(const FRHITexture* InTexture) -> bool = 0;
+
+		// Returns true if the image was successfully drawn, false otherwise (e.g. if the texture was not registered or if the backend does not support direct image drawing).
+		virtual auto DrawImage(const FRHITexture*, const FVector2f& Size) -> bool = 0;
 	};
 }

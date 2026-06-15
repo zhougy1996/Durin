@@ -110,7 +110,7 @@ namespace Durin::MonaImGui
 		}
 	}
 
-	static std::unordered_map<FRHITexture*, FImGuiRHIImpl_Texture> GRegisteredTextures;
+	static std::unordered_map<const FRHITexture*, FImGuiRHIImpl_Texture> GRegisteredTextures;
 	static std::vector<FImGuiRHIImpl_Texture> GDelayedTextureReleases;
 
 	static auto SweepDelayedTextureReleases() -> void
@@ -439,7 +439,7 @@ namespace Durin::MonaImGui
 		UnregisterTextureImpl(InRHITexture);
 	}
 
-	auto ImGuiRHIImpl_GetTextureID(FRHITexture* InRHITexture) -> ImTextureID
+	auto ImGuiRHIImpl_GetTextureID(const FRHITexture* InRHITexture) -> ImTextureID
 	{
 		return GRegisteredTextures.contains(InRHITexture)
 			? reinterpret_cast<ImTextureID>(InRHITexture)

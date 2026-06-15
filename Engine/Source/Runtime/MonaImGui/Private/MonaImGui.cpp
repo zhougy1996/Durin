@@ -13,9 +13,4 @@ namespace Durin::MonaImGui
 	{
 		FMonaImGuiBackend::Get().BindMainViewportToWindow(Window);
 	}
-
-	auto ShowDemoWindow() -> void
-	{
-		FMonaImGuiBackend::Get().ShowDemoWindow();
-	}
 }

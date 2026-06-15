@@ -14,6 +14,5 @@ namespace Durin
 	{
 		MONAIMGUI_API auto DrawTexture(const FRHITexture* Texture, const FVector2f& Size) -> void;
 		MONAIMGUI_API auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void;
-		MONAIMGUI_API auto ShowDemoWindow() -> void;
 	} // namespace MonaImGui
 } // namespace Durin
