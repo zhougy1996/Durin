@@ -24,7 +24,7 @@ def resolve_header_symbols(header: ReflectedHeaderInfo, symbols: dict[str, objec
     for class_info in header.classes:
         class_info.base_qualified_name = _resolve_short_symbol(class_info.base_qualified_name, symbols)
         for prop in class_info.properties:
-            prop.referenced_type = _resolve_short_symbol(prop.referenced_type, symbols)
+            _resolve_property_symbols(prop, symbols)
 
 
 def resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, symbols: dict[str, object]) -> dict[str, dict[str, str]]:
@@ -33,8 +33,7 @@ def resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, sy
         if class_info.base_qualified_name in symbols:
             dependencies[class_info.base_qualified_name] = symbol_dependency_snapshot(symbols[class_info.base_qualified_name])
         for prop in class_info.properties:
-            if prop.referenced_type in symbols:
-                dependencies[prop.referenced_type] = symbol_dependency_snapshot(symbols[prop.referenced_type])
+            _collect_property_dependencies(prop, symbols, dependencies)
     return dependencies
 
 
@@ -55,6 +54,9 @@ def symbol_dependency_snapshot(symbol: object) -> dict[str, str]:
         "GeneratedHelperName": getattr(symbol, "GeneratedHelperName", ""),
         "API": getattr(symbol, "API", ""),
         "BaseQualifiedName": getattr(symbol, "BaseQualifiedName", ""),
+        "Kind": getattr(symbol, "Kind", ""),
+        "UnderlyingKind": getattr(symbol, "UnderlyingKind", ""),
+        "UnderlyingType": getattr(symbol, "UnderlyingType", ""),
     }
 
 
@@ -63,3 +65,27 @@ def _resolve_short_symbol(short_or_qualified_name: str, symbols: dict[str, objec
         return short_or_qualified_name
     matches = [qualified_name for qualified_name, symbol in symbols.items() if getattr(symbol, "ShortName", "") == short_or_qualified_name]
     return matches[0] if len(matches) == 1 else short_or_qualified_name
+
+
+def _resolve_property_symbols(prop, symbols: dict[str, object]) -> None:
+    prop.referenced_type = _resolve_short_symbol(prop.referenced_type, symbols)
+    prop.referenced_enum_type = _resolve_short_symbol(prop.referenced_enum_type, symbols)
+    if prop.inner:
+        _resolve_property_symbols(prop.inner, symbols)
+    if prop.key:
+        _resolve_property_symbols(prop.key, symbols)
+    if prop.value:
+        _resolve_property_symbols(prop.value, symbols)
+
+
+def _collect_property_dependencies(prop, symbols: dict[str, object], dependencies: dict[str, dict[str, str]]) -> None:
+    if prop.referenced_type in symbols:
+        dependencies[prop.referenced_type] = symbol_dependency_snapshot(symbols[prop.referenced_type])
+    if prop.referenced_enum_type in symbols:
+        dependencies[prop.referenced_enum_type] = symbol_dependency_snapshot(symbols[prop.referenced_enum_type])
+    if prop.inner:
+        _collect_property_dependencies(prop.inner, symbols, dependencies)
+    if prop.key:
+        _collect_property_dependencies(prop.key, symbols, dependencies)
+    if prop.value:
+        _collect_property_dependencies(prop.value, symbols, dependencies)

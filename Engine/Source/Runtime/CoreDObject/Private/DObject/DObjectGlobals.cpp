@@ -15,6 +15,7 @@ namespace Durin
 		) -> FProperty*
 		{
 			DClass* ReferencedClass = PropertyParams->ReferencedClassFunc ? PropertyParams->ReferencedClassFunc() : nullptr;
+			DEnum* ReferencedEnum = PropertyParams->ReferencedEnumFunc ? PropertyParams->ReferencedEnumFunc() : nullptr;
 			FProperty* Property = nullptr;
 
 			switch (PropertyParams->Kind)
@@ -55,7 +56,8 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass
+					ReferencedClass,
+					ReferencedEnum
 				);
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Object:
@@ -225,5 +227,14 @@ namespace Durin
 			}
 		}
 		return Class;
+	}
+
+	auto DurinCodeGen::ConstructDEnum(const FEnumParams& Params) -> DEnum*
+	{
+		DEnum* Enum = Params.EnumNoRegisterFunc();
+
+		DObjectForceRegistration(Enum);
+
+		return Enum;
 	}
 }

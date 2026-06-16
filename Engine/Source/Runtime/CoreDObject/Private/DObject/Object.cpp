@@ -195,10 +195,38 @@ namespace Durin
 		}
 	}
 
+	auto RegisterCompiledInInfo(FEnumRegisterFunc InOuterRegister, FEnumRegisterFunc InInnerRegister, const char* InName, FEnumRegistrationInfo& InInfo) -> void
+	{
+		check(InOuterRegister);
+		check(InInnerRegister);
+		FEnumDeferredRegistry::Get().AddRegistration(InOuterRegister, InInnerRegister, InName, InInfo);
+	}
+
+	auto RegisterCompiledInInfo(const FEnumRegisterCompiledInInfo* EnumInfo, size_t NumEnumInfo) -> void
+	{
+		for (size_t Index = 0; Index < NumEnumInfo; ++Index)
+		{
+			const FEnumRegisterCompiledInInfo& Info = EnumInfo[Index];
+			RegisterCompiledInInfo(Info.OuterRegister, Info.InnerRegister, Info.Name, *Info.Info);
+		}
+	}
+
 	static auto RegisterAllCompiledInClasses() -> void
 	{
 		std::vector<FClassDeferredRegistry::FRegistrant>& Registrations = FClassDeferredRegistry::Get().GetRegistrations();
 		for (FClassDeferredRegistry::FRegistrant& Registrant : Registrations)
+		{
+			if (!Registrant.Info->InnerSingleton)
+			{
+				Registrant.Info->InnerSingleton = Registrant.InnerRegister();
+			}
+		}
+	}
+
+	static auto RegisterAllCompiledInEnums() -> void
+	{
+		std::vector<FEnumDeferredRegistry::FRegistrant>& Registrations = FEnumDeferredRegistry::Get().GetRegistrations();
+		for (FEnumDeferredRegistry::FRegistrant& Registrant : Registrations)
 		{
 			if (!Registrant.Info->InnerSingleton)
 			{
@@ -219,13 +247,29 @@ namespace Durin
 		}
 	}
 
+	static auto LoadAllCompiledInEnumValues() -> void
+	{
+		std::vector<FEnumDeferredRegistry::FRegistrant>& Registrations = FEnumDeferredRegistry::Get().GetRegistrations();
+		for (FEnumDeferredRegistry::FRegistrant& Registrant : Registrations)
+		{
+			if (!Registrant.Info->OuterSingleton)
+			{
+				Registrant.Info->OuterSingleton = Registrant.OuterRegister();
+			}
+		}
+	}
+
 	auto ProcessNewlyLoadedDObjects() -> void
 	{
 		FClassDeferredRegistry& ClassRegistry = FClassDeferredRegistry::Get();
+		FEnumDeferredRegistry& EnumRegistry = FEnumDeferredRegistry::Get();
 
 		RegisterAllCompiledInClasses();
+		RegisterAllCompiledInEnums();
 		LoadAllCompiledInDefaultProperties();
+		LoadAllCompiledInEnumValues();
 
 		ClassRegistry.ClearRegistrations();
+		EnumRegistry.ClearRegistrations();
 	}
 }

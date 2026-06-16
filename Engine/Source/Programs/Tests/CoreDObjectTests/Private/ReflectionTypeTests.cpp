@@ -19,6 +19,17 @@ namespace
 		std::unordered_map<std::string, std::vector<Durin::DObject*>> ObjectLists;
 	};
 
+	enum class EReflectedEnumForTest : Durin::uint8
+	{
+		A,
+		B = 4
+	};
+
+	struct FReflectedEnumPropertyOwnerForTest
+	{
+		EReflectedEnumForTest Mode = EReflectedEnumForTest::A;
+	};
+
 	Durin::DClass* Z_Construct_DClass_FReflectedPropertyOwnerForTest_NoRegister()
 	{
 		static Durin::DClass* Class = new Durin::DClass(
@@ -32,6 +43,46 @@ namespace
 			nullptr
 		);
 		return Class;
+	}
+
+	Durin::DClass* Z_Construct_DClass_FReflectedEnumPropertyOwnerForTest_NoRegister()
+	{
+		static Durin::DClass* Class = new Durin::DClass(
+			Durin::EC_StaticConstructor,
+			Durin::FName("FReflectedEnumPropertyOwnerForTest"),
+			sizeof(FReflectedEnumPropertyOwnerForTest),
+			alignof(FReflectedEnumPropertyOwnerForTest),
+			Durin::EObjectFlags::NoFlags,
+			Durin::EClassFlags::None,
+			Durin::EClassCastFlags::DClass,
+			nullptr
+		);
+		return Class;
+	}
+
+	Durin::DEnum* Z_Construct_DEnum_EReflectedEnumForTest_NoRegister()
+	{
+		static Durin::DEnum* Enum = nullptr;
+		if (!Enum)
+		{
+			std::vector<Durin::FEnumValue> Values = {
+				{ Durin::FName("A"), 0 },
+				{ Durin::FName("B"), 4 },
+			};
+			Enum = new Durin::DEnum(
+				Durin::EC_StaticConstructor,
+				Durin::FName("EReflectedEnumForTest"),
+				Durin::FName("EReflectedEnumForTest"),
+				Durin::FName("EReflectedEnumForTest"),
+				true,
+				Durin::DurinCodeGen::EEnumUnderlyingType::UInt8,
+				static_cast<Durin::uint16>(sizeof(EReflectedEnumForTest)),
+				std::move(Values),
+				Durin::EObjectFlags::NoFlags
+			);
+			Enum->Register(Durin::DEnum::StaticClass, "", "EReflectedEnumForTest");
+		}
+		return Enum;
 	}
 
 	void EnsureDObjectInitialized()
@@ -65,6 +116,80 @@ namespace
 		EXPECT_EQ(Durin::Cast<Durin::DObject>(Object), Object);
 	}
 
+	TEST(FCoreDObjectReflectionTests, ConstructDEnumCreatesRuntimeEnumMetadata)
+	{
+		static const Durin::DurinCodeGen::FEnumValueParams Values[] = {
+			{ "A", 0 },
+			{ "B", 4 },
+		};
+		static const Durin::DurinCodeGen::FEnumParams EnumParams = {
+			&Z_Construct_DEnum_EReflectedEnumForTest_NoRegister,
+			"EReflectedEnumForTest",
+			"EReflectedEnumForTest",
+			true,
+			Durin::DurinCodeGen::EEnumUnderlyingType::UInt8,
+			static_cast<Durin::uint16>(sizeof(EReflectedEnumForTest)),
+			Values,
+			2
+		};
+
+		Durin::DEnum* Enum = Durin::DurinCodeGen::ConstructDEnum(EnumParams);
+
+		ASSERT_NE(Enum, nullptr);
+		EXPECT_EQ(Enum->GetClass(), Durin::DEnum::StaticClass());
+		EXPECT_TRUE(Enum->IsA(Durin::DType::StaticClass()));
+		EXPECT_TRUE(Enum->IsScoped());
+		EXPECT_EQ(Enum->GetUnderlyingType(), Durin::DurinCodeGen::EEnumUnderlyingType::UInt8);
+		EXPECT_EQ(Enum->GetValues().size(), 2u);
+
+		Durin::int64 Value = -1;
+		EXPECT_TRUE(Enum->FindValueByName(Durin::FName("A"), Value));
+		EXPECT_EQ(Value, 0);
+
+		Durin::FName Name;
+		EXPECT_TRUE(Enum->FindNameByValue(4, Name));
+		EXPECT_EQ(Name.ToString(), "B");
+	}
+
+	TEST(FCoreDObjectReflectionTests, ConstructDClassAttachesEnumPropertyMetadata)
+	{
+		static const Durin::DurinCodeGen::FEnumPropertyParams ModePropertyParams = {
+			"Mode",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FReflectedEnumPropertyOwnerForTest, Mode)),
+			static_cast<Durin::uint16>(sizeof(EReflectedEnumForTest)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Enum,
+			nullptr,
+			&Z_Construct_DEnum_EReflectedEnumForTest_NoRegister,
+			nullptr,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
+			&ModePropertyParams
+		};
+		static const Durin::DurinCodeGen::FClassParams ClassParams = {
+			&Z_Construct_DClass_FReflectedEnumPropertyOwnerForTest_NoRegister,
+			"FReflectedEnumPropertyOwnerForTest",
+			"FReflectedEnumPropertyOwnerForTest",
+			PropertyParams,
+			1
+		};
+
+		Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(ClassParams);
+		auto* EnumProperty = static_cast<Durin::FEnumProperty*>(Class->FindPropertyByName("Mode"));
+
+		ASSERT_NE(EnumProperty, nullptr);
+		ASSERT_NE(EnumProperty->GetEnum(), nullptr);
+		EXPECT_EQ(EnumProperty->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Enum);
+		EXPECT_EQ(EnumProperty->GetEnum()->GetUnderlyingType(), Durin::DurinCodeGen::EEnumUnderlyingType::UInt8);
+
+		FReflectedEnumPropertyOwnerForTest Instance;
+		*EnumProperty->GetEnumValuePtr<EReflectedEnumForTest>(&Instance) = EReflectedEnumForTest::B;
+		EXPECT_EQ(Instance.Mode, EReflectedEnumForTest::B);
+	}
+
 	TEST(FCoreDObjectReflectionTests, ConstructDClassAttachesGeneratedPropertiesToStructBase)
 	{
 		static const Durin::DurinCodeGen::FInt32PropertyParams ValuePropertyParams = {
@@ -74,6 +199,7 @@ namespace
 			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, Value)),
 			static_cast<Durin::uint16>(sizeof(Durin::int32)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Int32,
+			nullptr,
 			nullptr,
 			nullptr,
 			nullptr,
@@ -89,6 +215,7 @@ namespace
 			&Durin::DObject::StaticClass,
 			nullptr,
 			nullptr,
+			nullptr,
 			nullptr
 		};
 		static const Durin::DurinCodeGen::FStringPropertyParams StringPropertyParams = {
@@ -98,6 +225,7 @@ namespace
 			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, StringValue)),
 			static_cast<Durin::uint16>(sizeof(std::string)),
 			Durin::DurinCodeGen::EPropertyGenFlags::String,
+			nullptr,
 			nullptr,
 			nullptr,
 			nullptr,
@@ -113,6 +241,7 @@ namespace
 			&Durin::DObject::StaticClass,
 			nullptr,
 			nullptr,
+			nullptr,
 			nullptr
 		};
 		static const Durin::DurinCodeGen::FArrayPropertyParams ObjectArrayPropertyParams = {
@@ -122,6 +251,7 @@ namespace
 			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectArray)),
 			static_cast<Durin::uint16>(sizeof(std::vector<Durin::DObject*>)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Array,
+			nullptr,
 			nullptr,
 			&ObjectArrayInnerPropertyParams,
 			nullptr,
@@ -137,6 +267,7 @@ namespace
 			nullptr,
 			nullptr,
 			nullptr,
+			nullptr,
 			nullptr
 		};
 		static const Durin::DurinCodeGen::FInt32PropertyParams StringToIntValuePropertyParams = {
@@ -149,6 +280,7 @@ namespace
 			nullptr,
 			nullptr,
 			nullptr,
+			nullptr,
 			nullptr
 		};
 		static const Durin::DurinCodeGen::FMapPropertyParams StringToIntPropertyParams = {
@@ -158,6 +290,7 @@ namespace
 			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, StringToInt)),
 			static_cast<Durin::uint16>(sizeof(std::unordered_map<std::string, Durin::int32>)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Map,
+			nullptr,
 			nullptr,
 			nullptr,
 			&StringToIntKeyPropertyParams,
@@ -173,6 +306,7 @@ namespace
 			nullptr,
 			nullptr,
 			nullptr,
+			nullptr,
 			nullptr
 		};
 		static const Durin::DurinCodeGen::FArrayPropertyParams NestedScoresInnerPropertyParams = {
@@ -182,6 +316,7 @@ namespace
 			0,
 			static_cast<Durin::uint16>(sizeof(std::vector<Durin::int32>)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Array,
+			nullptr,
 			nullptr,
 			&NestedScoresInnerInnerPropertyParams,
 			nullptr,
@@ -194,6 +329,7 @@ namespace
 			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, NestedScores)),
 			static_cast<Durin::uint16>(sizeof(std::vector<std::vector<Durin::int32>>)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Array,
+			nullptr,
 			nullptr,
 			&NestedScoresInnerPropertyParams,
 			nullptr,
@@ -209,6 +345,7 @@ namespace
 			nullptr,
 			nullptr,
 			nullptr,
+			nullptr,
 			nullptr
 		};
 		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectListsValueInnerPropertyParams = {
@@ -221,6 +358,7 @@ namespace
 			&Durin::DObject::StaticClass,
 			nullptr,
 			nullptr,
+			nullptr,
 			nullptr
 		};
 		static const Durin::DurinCodeGen::FArrayPropertyParams ObjectListsValuePropertyParams = {
@@ -230,6 +368,7 @@ namespace
 			0,
 			static_cast<Durin::uint16>(sizeof(std::vector<Durin::DObject*>)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Array,
+			nullptr,
 			nullptr,
 			&ObjectListsValueInnerPropertyParams,
 			nullptr,
@@ -242,6 +381,7 @@ namespace
 			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectLists)),
 			static_cast<Durin::uint16>(sizeof(std::unordered_map<std::string, std::vector<Durin::DObject*>>)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Map,
+			nullptr,
 			nullptr,
 			nullptr,
 			&ObjectListsKeyPropertyParams,
@@ -350,3 +490,5 @@ namespace
 		EXPECT_EQ(ObjectListsValue->GetInner()->GetReferencedClass(), Durin::DObject::StaticClass());
 	}
 }
+
+

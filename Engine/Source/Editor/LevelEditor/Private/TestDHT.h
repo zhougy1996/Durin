@@ -9,6 +9,14 @@
 
 namespace Durin
 {
+	DENUM()
+	enum class ETestDHTMode : uint8
+	{
+		None,
+		Visible = 4,
+		Hidden
+	};
+
 	DCLASS(AAA, bbb = ccc)
 	class LEVELEDITOR_API TestDHT : DObject
 	{
@@ -38,13 +46,25 @@ namespace Durin
 		std::string DisplayName;
 
 		DPROPERTY()
+		ETestDHTMode Mode = ETestDHTMode::None;
+
+		DPROPERTY()
 		std::vector<int32> Scores;
+
+		DPROPERTY()
+		std::vector<ETestDHTMode> Modes;
 
 		DPROPERTY()
 		std::vector<DObject*> ObjectRefs;
 
 		DPROPERTY()
 		std::unordered_map<std::string, int32> NamedScores;
+
+		DPROPERTY()
+		std::unordered_map<std::string, ETestDHTMode> NamedModes;
+
+		DPROPERTY()
+		std::unordered_map<ETestDHTMode, int32> ModeScores;
 
 		DPROPERTY()
 		std::vector<std::vector<int32>> NestedScores;

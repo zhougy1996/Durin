@@ -1,5 +1,6 @@
 #include "DObject/DurinPropertyTypes.h"
 
+#include "DObject/Class.h"
 #include "DObject/Object.h"
 
 namespace Durin
@@ -131,11 +132,18 @@ namespace Durin
 		uint16 InOffset,
 		uint16 InElementSize,
 		DurinCodeGen::EPropertyGenFlags InKind,
-		DClass* InReferencedClass
+		DClass* InReferencedClass,
+		DEnum* InReferencedEnum
 	)
 		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass)
+		, ReferencedEnum(InReferencedEnum)
 	{
 		ClassPrivate = StaticClass();
+	}
+
+	auto FEnumProperty::GetUnderlyingType() const -> DurinCodeGen::EEnumUnderlyingType
+	{
+		return ReferencedEnum ? ReferencedEnum->GetUnderlyingType() : DurinCodeGen::EEnumUnderlyingType::Unknown;
 	}
 
 	FObjectProperty::FObjectProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)

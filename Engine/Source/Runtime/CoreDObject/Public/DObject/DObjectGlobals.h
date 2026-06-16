@@ -7,6 +7,7 @@ namespace Durin
 {
 	class DObject;
 	class DClass;
+	class DEnum;
 
 	struct FStaticConstructObjectParameters
 	{
@@ -62,6 +63,19 @@ namespace Durin
 
 	namespace DurinCodeGen
 	{
+		enum class EEnumUnderlyingType : uint8
+		{
+			Unknown = 0,
+			Int8,
+			Int16,
+			Int32,
+			Int64,
+			UInt8,
+			UInt16,
+			UInt32,
+			UInt64
+		};
+
 		enum class EPropertyGenFlags : uint8
 		{
 			None = 0,
@@ -85,6 +99,24 @@ namespace Durin
 
 		struct FPropertyParamsBase;
 
+		struct FEnumValueParams
+		{
+			const char* NameUTF8;
+			int64 Value;
+		};
+
+		struct FEnumParams
+		{
+			DEnum* (*EnumNoRegisterFunc)();
+			const char* QualifiedEnumName;
+			const char* ShortEnumName;
+			bool bIsScoped;
+			EEnumUnderlyingType UnderlyingType;
+			uint16 UnderlyingSize;
+			const FEnumValueParams* Values;
+			size_t NumValues;
+		};
+
 		struct FClassParams
 		{
 			DClass* (*ClassNoRegisterFunc)();
@@ -103,6 +135,7 @@ namespace Durin
 			uint16 ElementSize;
 			EPropertyGenFlags Kind;
 			DClass* (*ReferencedClassFunc)();
+			DEnum* (*ReferencedEnumFunc)();
 			const FPropertyParamsBase* Inner;
 			const FPropertyParamsBase* Key;
 			const FPropertyParamsBase* Value;
@@ -131,6 +164,7 @@ namespace Durin
 		using FMapPropertyParams = FPropertyParamsBase;
 
 		COREDOBJECT_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
+		COREDOBJECT_API auto ConstructDEnum(const FEnumParams& Params) -> DEnum*;
 
 	} // namespace DurinCodeGen
 }

@@ -11,7 +11,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 from durin_header_tool.generators.module_export_file_generator import generate_module_export_file
 from durin_header_tool.generators.module_reflection_files_generator import generate_reflection_files
-from durin_header_tool.model.reflection_info import make_generated_helper_name
+from durin_header_tool.model.reflection_info import make_generated_enum_helper_name, make_generated_helper_name
 
 
 class ReflectionGenerationTests(unittest.TestCase):
@@ -29,16 +29,28 @@ class ReflectionGenerationTests(unittest.TestCase):
         export_path = utils.get_module_export_file_path("Engine")
         data = json.loads(export_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(data["SchemaVersion"], 2)
+        self.assertEqual(data["SchemaVersion"], 3)
         actor = data["Symbols"]["Durin::AActor"]
         self.assertEqual(actor["QualifiedName"], "Durin::AActor")
         self.assertEqual(actor["GeneratedHelperName"], "Z_Construct_DClass_Durin_AActor")
         self.assertEqual(actor["BaseQualifiedName"], "Durin::DObject")
 
+        level_editor_export_path = utils.get_module_export_file_path("LevelEditor")
+        level_editor_data = json.loads(level_editor_export_path.read_text(encoding="utf-8"))
+        test_enum = level_editor_data["Symbols"]["Durin::ETestDHTMode"]
+        self.assertEqual(test_enum["Kind"], "enum")
+        self.assertEqual(test_enum["GeneratedHelperName"], "Z_Construct_DEnum_Durin_ETestDHTMode")
+        self.assertTrue(test_enum["IsScoped"])
+        self.assertEqual(test_enum["UnderlyingKind"], "UInt8")
+
     def test_qualified_helper_name_and_validation(self):
         self.assertEqual(
             make_generated_helper_name("Durin::Gameplay::AActor"),
             "Z_Construct_DClass_Durin_Gameplay_AActor",
+        )
+        self.assertEqual(
+            make_generated_enum_helper_name("Durin::Gameplay::ETeam"),
+            "Z_Construct_DEnum_Durin_Gameplay_ETeam",
         )
         with self.assertRaises(ValueError):
             make_generated_helper_name("Durin::Gameplay_AActor")
@@ -52,13 +64,22 @@ class ReflectionGenerationTests(unittest.TestCase):
         self.assertIn("FUInt8PropertyParams NewProp_a3", content)
         self.assertIn("FObjectPropertyParams NewProp_ObjectRef", content)
         self.assertIn("FStringPropertyParams NewProp_DisplayName", content)
+        self.assertIn("FEnumPropertyParams NewProp_Mode", content)
         self.assertIn("FArrayPropertyParams NewProp_Scores", content)
+        self.assertIn("FArrayPropertyParams NewProp_Modes", content)
+        self.assertIn("FEnumPropertyParams NewProp_Modes_Inner", content)
         self.assertIn("FInt32PropertyParams NewProp_Scores_Inner", content)
         self.assertIn("FArrayPropertyParams NewProp_ObjectRefs", content)
         self.assertIn("FObjectPropertyParams NewProp_ObjectRefs_Inner", content)
         self.assertIn("FMapPropertyParams NewProp_NamedScores", content)
         self.assertIn("FStringPropertyParams NewProp_NamedScores_Key", content)
         self.assertIn("FInt32PropertyParams NewProp_NamedScores_Value", content)
+        self.assertIn("FMapPropertyParams NewProp_NamedModes", content)
+        self.assertIn("FStringPropertyParams NewProp_NamedModes_Key", content)
+        self.assertIn("FEnumPropertyParams NewProp_NamedModes_Value", content)
+        self.assertIn("FMapPropertyParams NewProp_ModeScores", content)
+        self.assertIn("FEnumPropertyParams NewProp_ModeScores_Key", content)
+        self.assertIn("FInt32PropertyParams NewProp_ModeScores_Value", content)
         self.assertIn("FArrayPropertyParams NewProp_NestedScores", content)
         self.assertIn("FArrayPropertyParams NewProp_NestedScores_Inner", content)
         self.assertIn("FInt32PropertyParams NewProp_NestedScores_Inner_Inner", content)
@@ -73,8 +94,13 @@ class ReflectionGenerationTests(unittest.TestCase):
         self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Int32", content)
         self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Object", content)
         self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::String", content)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Enum", content)
         self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Array", content)
         self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Map", content)
+        self.assertIn("Durin::DurinCodeGen::FEnumValueParams EnumValues", content)
+        self.assertIn("Durin::DurinCodeGen::FEnumParams EnumParams", content)
+        self.assertIn("Durin::DurinCodeGen::ConstructDEnum", content)
+        self.assertIn("Z_Construct_DEnum_Durin_ETestDHTMode", content)
         self.assertIn("static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::TestDHT, a1))", content)
         self.assertIn("Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::Transient", content)
         self.assertIn("Durin::EPropertyFlags::EditConst", content)
@@ -83,12 +109,16 @@ class ReflectionGenerationTests(unittest.TestCase):
         self.assertIn("static_cast<Durin::uint16>(8), Durin::DurinCodeGen::EPropertyGenFlags::Object", content)
         self.assertIn("Z_Construct_DClass_Durin_DObject", content)
         self.assertIn("3, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::TestDHT, a3))", content)
-        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_Scores_Inner", content)
-        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_NamedScores_Key, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_NamedScores_Value", content)
-        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_NestedScores_Inner", content)
-        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_NestedScores_Inner_Inner", content)
-        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_ObjectMapList_Inner_Key, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_ObjectMapList_Inner_Value", content)
-        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_ScoreGroups_Key, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_ScoreGroups_Value", content)
+        self.assertIn("NewProp_Mode = { \"Mode\"", content)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Enum, nullptr, Z_Construct_DEnum_Durin_ETestDHTMode", content)
+        self.assertIn("NewProp_ModeScores_Key = { \"ModeScores_Key\"", content)
+        self.assertNotIn("Durin::DClass* Z_Construct_DEnum_Durin_ETestDHTMode", content)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_Scores_Inner", content)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, nullptr, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_NamedScores_Key, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_NamedScores_Value", content)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_NestedScores_Inner", content)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_NestedScores_Inner_Inner", content)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, nullptr, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_ObjectMapList_Inner_Key, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_ObjectMapList_Inner_Value", content)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, nullptr, nullptr, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_ScoreGroups_Key, &Z_Construct_DClass_Durin_TestDHT_Statics::NewProp_ScoreGroups_Value", content)
         self.assertNotIn("NewProp_UnsupportedTooDeep", content)
         self.assertNotIn("NewProp_UnsupportedObjectKeyMap", content)
         self.assertNotIn("NewProp_UnsupportedUniqueObjects", content)

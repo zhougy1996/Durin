@@ -4,6 +4,7 @@
 #define DHT_DEBUG_END()
 
 #define DCLASS(...)
+#define DENUM(...)
 #define DPROPERTY(...)
 #define DFUNCTION(...)
 
@@ -46,8 +47,9 @@ namespace Durin
 		DType = 1 << 1,
 		DStructBase = 1 << 2,
 		DClass = 1 << 3,
-		DStruct = 1 << 4,
-		DFunction = 1 << 5,
+		DEnum = 1 << 4,
+		DStruct = 1 << 5,
+		DFunction = 1 << 6,
 
 		FField = 1 << 11,
 		FProperty = 1 << 12,

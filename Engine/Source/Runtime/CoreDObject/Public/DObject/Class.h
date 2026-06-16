@@ -83,6 +83,59 @@ namespace Durin
 		auto GetSuperClass() const -> DClass* { return static_cast<DClass*>(GetSuperStructBase()); }
 	};
 
+	struct FEnumValue
+	{
+		FName Name;
+		int64 Value = 0;
+	};
+
+	class DEnum : public DType
+	{
+	public:
+		DECLARE_CLASS_INTRINSIC_API(DEnum, DType, COREDOBJECT_API)
+
+		DEnum(
+			EStaticConstructor,
+			FName InName,
+			FName InQualifiedName,
+			FName InShortName,
+			bool bInIsScoped,
+			DurinCodeGen::EEnumUnderlyingType InUnderlyingType,
+			uint16 InUnderlyingSize,
+			std::vector<FEnumValue> InValues,
+			EObjectFlags InFlags
+		)
+			: DType(EC_StaticConstructor, InFlags)
+			, QualifiedName(InQualifiedName)
+			, ShortName(InShortName)
+			, bIsScoped(bInIsScoped)
+			, UnderlyingType(InUnderlyingType)
+			, UnderlyingSize(InUnderlyingSize)
+			, Values(std::move(InValues))
+		{
+			(void)InName;
+		}
+
+		auto GetQualifiedName() const -> FName { return QualifiedName; }
+		auto GetShortName() const -> FName { return ShortName; }
+		auto IsScoped() const -> bool { return bIsScoped; }
+		auto GetUnderlyingType() const -> DurinCodeGen::EEnumUnderlyingType { return UnderlyingType; }
+		auto GetUnderlyingSize() const -> uint16 { return UnderlyingSize; }
+		auto GetValues() const -> const std::vector<FEnumValue>& { return Values; }
+
+		COREDOBJECT_API auto FindValueByName(FName InName, int64& OutValue) const -> bool;
+		COREDOBJECT_API auto FindNameByValue(int64 InValue, FName& OutName) const -> bool;
+		COREDOBJECT_API auto ForEachValue(const std::function<void(const FEnumValue&)>& Visitor) const -> void;
+
+	private:
+		FName QualifiedName;
+		FName ShortName;
+		bool bIsScoped = false;
+		DurinCodeGen::EEnumUnderlyingType UnderlyingType = DurinCodeGen::EEnumUnderlyingType::Unknown;
+		uint16 UnderlyingSize = 0;
+		std::vector<FEnumValue> Values;
+	};
+
 	template<class T>
 	void InternalConstructor(const FObjectInitializer& X)
 	{

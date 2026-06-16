@@ -1,5 +1,6 @@
 from durin_header_tool.model.reflection_info import (
     ReflectedClassInfo,
+    ReflectedEnumInfo,
     ReflectedHeaderInfo,
     ReflectedPropertyInfo,
 )
@@ -81,6 +82,11 @@ def generate_header_content(header: ReflectedHeaderInfo) -> str:
         _append_macro_line(builder, "private:", 1, True)
         builder.append("\n")
 
+    for enum_info in header.enums:
+        builder.append(f"struct {enum_info.generated_statics_name};\n")
+        builder.append(f"{enum_info.api} Durin::DEnum* {enum_info.generated_helper_name}();\n")
+        builder.append(f"{enum_info.api} Durin::DEnum* {enum_info.generated_helper_no_register_name}();\n\n")
+
     _append_lines_no_indent(
         builder,
         "#undef CURRENT_FILE_ID",
@@ -96,19 +102,25 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
         f'#include "{header.include_path}"\n\n',
     ]
 
-    referenced_helpers: dict[str, str] = {}
+    referenced_class_helpers: dict[str, str] = {}
+    referenced_enum_helpers: dict[str, str] = {}
     for class_info in header.classes:
         if class_info.base_qualified_name and class_info.base_qualified_name != class_info.qualified_name:
             symbol = symbols.get(class_info.base_qualified_name)
             if symbol:
-                referenced_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
+                referenced_class_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
         for prop in class_info.properties:
-            _collect_referenced_helpers(prop, symbols, referenced_helpers)
+            _collect_referenced_helpers(prop, symbols, referenced_class_helpers, referenced_enum_helpers)
 
-    for helper, api in sorted(referenced_helpers.items()):
+    for helper, api in sorted(referenced_class_helpers.items()):
         builder.append(f"{api} Durin::DClass* {helper}();\n")
-    if referenced_helpers:
+    for helper, api in sorted(referenced_enum_helpers.items()):
+        builder.append(f"{api} Durin::DEnum* {helper}();\n")
+    if referenced_class_helpers or referenced_enum_helpers:
         builder.append("\n")
+
+    for enum_info in header.enums:
+        builder.append(_enum_definitions(enum_info))
 
     for class_info in header.classes:
         properties = class_info.properties
@@ -197,31 +209,54 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
         if constructor_mode == "object_initializer" and not class_info.has_object_initializer_constructor:
             builder.append(f"{class_info.qualified_name}::{class_info.short_name}(const Durin::FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {{}}\n\n")
 
-    if header.classes:
+    if header.classes or header.enums:
         defer_statics = f"Z_CompiledInDeferFile_{header.file_id}_Statics"
         _append_lines(
             builder,
             (f"struct {defer_statics}", 0),
             ("{", 0),
-            ("static constexpr Durin::FClassRegisterCompiledInInfo ClassInfo[] = {", 1),
         )
-        for class_info in header.classes:
-            _append_line(
-                builder,
-                f"{{ {class_info.generated_helper_name}, {class_info.qualified_name}::StaticClass, "
-                f"\"{class_info.qualified_name}\", &{class_info.registration_info_name} }},",
-                2,
-            )
-        _append_line(builder, "};", 1)
+        if header.classes:
+            _append_line(builder, "static constexpr Durin::FClassRegisterCompiledInInfo ClassInfo[] = {", 1)
+            for class_info in header.classes:
+                _append_line(
+                    builder,
+                    f"{{ {class_info.generated_helper_name}, {class_info.qualified_name}::StaticClass, "
+                    f"\"{class_info.qualified_name}\", &{class_info.registration_info_name} }},",
+                    2,
+                )
+            _append_line(builder, "};", 1)
+        if header.enums:
+            _append_line(builder, "static constexpr Durin::FEnumRegisterCompiledInInfo EnumInfo[] = {", 1)
+            for enum_info in header.enums:
+                _append_line(
+                    builder,
+                    f"{{ {enum_info.generated_helper_name}, {enum_info.generated_helper_no_register_name}, "
+                    f"\"{enum_info.qualified_name}\", &{enum_info.registration_info_name} }},",
+                    2,
+                )
+            _append_line(builder, "};", 1)
         _append_lines(
             builder,
             ("};", 0),
             ("", 0),
-            (f"static Durin::FRegisterCompiledInInfo Z_CompiledInDeferFile_{header.file_id}(", 0),
-            (f"{defer_statics}::ClassInfo,", 1),
-            (str(len(header.classes)), 1),
-            (");", 0),
         )
+        if header.classes:
+            _append_lines(
+                builder,
+                (f"static Durin::FRegisterCompiledInInfo Z_CompiledInDeferFile_{header.file_id}_Classes(", 0),
+                (f"{defer_statics}::ClassInfo,", 1),
+                (str(len(header.classes)), 1),
+                (");", 0),
+            )
+        if header.enums:
+            _append_lines(
+                builder,
+                (f"static Durin::FRegisterCompiledInInfo Z_CompiledInDeferFile_{header.file_id}_Enums(", 0),
+                (f"{defer_statics}::EnumInfo,", 1),
+                (str(len(header.enums)), 1),
+                (");", 0),
+            )
 
     return "".join(builder)
 
@@ -258,6 +293,88 @@ def _base_name_for_macro(class_info: ReflectedClassInfo) -> str:
     return class_info.base_qualified_name or "Durin::DObject"
 
 
+def _bool_literal(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _enum_definitions(enum_info: ReflectedEnumInfo) -> str:
+    builder: list[str] = []
+    generated_statics_name = enum_info.generated_statics_name
+    values_name = "EnumValues"
+    values_ref = f"{generated_statics_name}::{values_name}" if enum_info.values else "nullptr"
+    builder.append(f"Durin::FEnumRegistrationInfo {enum_info.registration_info_name};\n\n")
+    builder.append(f"struct {generated_statics_name}\n")
+    builder.append("{\n")
+    if enum_info.values:
+        _append_line(builder, f"static const Durin::DurinCodeGen::FEnumValueParams {values_name}[];", 1)
+    _append_line(builder, "static const Durin::DurinCodeGen::FEnumParams EnumParams;", 1)
+    builder.append("};\n\n")
+
+    if enum_info.values:
+        builder.append(f"const Durin::DurinCodeGen::FEnumValueParams {generated_statics_name}::{values_name}[] = {{\n")
+        for value_info in enum_info.values:
+            _append_line(builder, f"{{ \"{value_info.name}\", static_cast<Durin::int64>({value_info.value}) }},", 1)
+        builder.append("};\n\n")
+
+    _append_lines(
+        builder,
+        (f"const Durin::DurinCodeGen::FEnumParams {generated_statics_name}::EnumParams = {{", 0),
+        (f"{enum_info.generated_helper_no_register_name},", 1),
+        (f"\"{enum_info.qualified_name}\",", 1),
+        (f"\"{enum_info.short_name}\",", 1),
+        (f"{_bool_literal(enum_info.is_scoped)},", 1),
+        (f"Durin::DurinCodeGen::EEnumUnderlyingType::{enum_info.underlying_kind},", 1),
+        (f"static_cast<Durin::uint16>({enum_info.underlying_size}),", 1),
+        (f"{values_ref},", 1),
+        (str(len(enum_info.values)), 1),
+        ("};", 0),
+        ("", 0),
+    )
+
+    _append_lines(
+        builder,
+        (f"Durin::DEnum* {enum_info.generated_helper_no_register_name}()", 0),
+        ("{", 0),
+        (f"Durin::DEnum*& Singleton = {enum_info.registration_info_name}.InnerSingleton;", 1),
+        ("if (!Singleton)", 1),
+        ("{", 1),
+        ("std::vector<Durin::FEnumValue> Values;", 2),
+        (f"Values.reserve({generated_statics_name}::EnumParams.NumValues);", 2),
+        (f"for (size_t Index = 0; Index < {generated_statics_name}::EnumParams.NumValues; ++Index)", 2),
+        ("{", 2),
+        (f"const Durin::DurinCodeGen::FEnumValueParams& ValueParams = {generated_statics_name}::EnumParams.Values[Index];", 3),
+        ("Values.push_back({ Durin::FName(ValueParams.NameUTF8), ValueParams.Value });", 3),
+        ("}", 2),
+        ("Singleton = new Durin::DEnum(", 2),
+        ("Durin::EC_StaticConstructor,", 3),
+        (f"Durin::FName(\"{enum_info.short_name}\"),", 3),
+        (f"Durin::FName(\"{enum_info.qualified_name}\"),", 3),
+        (f"Durin::FName(\"{enum_info.short_name}\"),", 3),
+        (f"{generated_statics_name}::EnumParams.bIsScoped,", 3),
+        (f"{generated_statics_name}::EnumParams.UnderlyingType,", 3),
+        (f"{generated_statics_name}::EnumParams.UnderlyingSize,", 3),
+        ("std::move(Values),", 3),
+        ("Durin::EObjectFlags::NoFlags", 3),
+        (");", 2),
+        (f"Singleton->Register(Durin::DEnum::StaticClass, \"\", \"{enum_info.qualified_name}\");", 2),
+        ("}", 1),
+        ("return Singleton;", 1),
+        ("}", 0),
+        ("", 0),
+        (f"Durin::DEnum* {enum_info.generated_helper_name}()", 0),
+        ("{", 0),
+        (f"Durin::DEnum*& Singleton = {enum_info.registration_info_name}.OuterSingleton;", 1),
+        ("if (!Singleton)", 1),
+        ("{", 1),
+        (f"Singleton = Durin::DurinCodeGen::ConstructDEnum({generated_statics_name}::EnumParams);", 2),
+        ("}", 1),
+        ("return Singleton;", 1),
+        ("}", 0),
+        ("", 0),
+    )
+    return "".join(builder)
+
+
 def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
     decls: list[str] = []
     if prop.inner:
@@ -285,11 +402,16 @@ def _property_definitions(class_info: ReflectedClassInfo, prop: ReflectedPropert
 
 def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: dict[str, object], nested: bool) -> str:
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
-    referenced_helper = "nullptr"
+    referenced_class_helper = "nullptr"
     if prop.referenced_type:
         referenced_symbol = symbols.get(prop.referenced_type)
         if referenced_symbol:
-            referenced_helper = getattr(referenced_symbol, "GeneratedHelperName")
+            referenced_class_helper = getattr(referenced_symbol, "GeneratedHelperName")
+    referenced_enum_helper = "nullptr"
+    if prop.referenced_enum_type:
+        referenced_symbol = symbols.get(prop.referenced_enum_type)
+        if referenced_symbol:
+            referenced_enum_helper = getattr(referenced_symbol, "GeneratedHelperName")
     property_flags = prop.flags
     if property_flags == "None":
         property_flags = "Durin::EPropertyFlags::None"
@@ -303,18 +425,27 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, "
         f"{offset}, "
         f"static_cast<Durin::uint16>({element_size}), "
-        f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_helper}, {inner}, {key}, {value} }};\n"
+        f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_class_helper}, {referenced_enum_helper}, {inner}, {key}, {value} }};\n"
     )
 
 
-def _collect_referenced_helpers(prop: ReflectedPropertyInfo, symbols: dict[str, object], referenced_helpers: dict[str, str]) -> None:
+def _collect_referenced_helpers(
+    prop: ReflectedPropertyInfo,
+    symbols: dict[str, object],
+    referenced_class_helpers: dict[str, str],
+    referenced_enum_helpers: dict[str, str],
+) -> None:
     if prop.referenced_type:
         symbol = symbols.get(prop.referenced_type)
         if symbol:
-            referenced_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
+            referenced_class_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
+    if prop.referenced_enum_type:
+        symbol = symbols.get(prop.referenced_enum_type)
+        if symbol:
+            referenced_enum_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
     if prop.inner:
-        _collect_referenced_helpers(prop.inner, symbols, referenced_helpers)
+        _collect_referenced_helpers(prop.inner, symbols, referenced_class_helpers, referenced_enum_helpers)
     if prop.key:
-        _collect_referenced_helpers(prop.key, symbols, referenced_helpers)
+        _collect_referenced_helpers(prop.key, symbols, referenced_class_helpers, referenced_enum_helpers)
     if prop.value:
-        _collect_referenced_helpers(prop.value, symbols, referenced_helpers)
+        _collect_referenced_helpers(prop.value, symbols, referenced_class_helpers, referenced_enum_helpers)

@@ -17,7 +17,7 @@ namespace Durin
 			const char* Name;
 			TRegisterFunc OuterRegister;
 			TRegisterFunc InnerRegister;
-			FClassRegistrationInfo* Info = nullptr;
+			TInfo* Info = nullptr;
 		};
 
 		static auto Get() -> TDeferredRegistry&
@@ -48,5 +48,6 @@ namespace Durin
 
 
 	using FClassDeferredRegistry = TDeferredRegistry<FClassRegistrationInfo>;
+	using FEnumDeferredRegistry = TDeferredRegistry<FEnumRegistrationInfo>;
 }
 

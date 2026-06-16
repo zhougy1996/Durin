@@ -86,8 +86,27 @@ namespace Durin
 			uint16 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
-			DClass* InReferencedClass
+			DClass* InReferencedClass,
+			DEnum* InReferencedEnum
 		);
+
+		auto GetEnum() const -> DEnum* { return ReferencedEnum; }
+		auto GetUnderlyingType() const -> DurinCodeGen::EEnumUnderlyingType;
+
+		template<typename T>
+		auto GetEnumValuePtr(void* Container, uint32 ArrayIndex = 0) const -> T*
+		{
+			return ContainerPtrToValuePtr<T>(Container, ArrayIndex);
+		}
+
+		template<typename T>
+		auto GetEnumValuePtr(const void* Container, uint32 ArrayIndex = 0) const -> const T*
+		{
+			return ContainerPtrToValuePtr<T>(Container, ArrayIndex);
+		}
+
+	private:
+		DEnum* ReferencedEnum = nullptr;
 	};
 
 	class FObjectProperty : public FProperty

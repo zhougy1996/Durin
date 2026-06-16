@@ -8,8 +8,41 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "6"
+TOOL_VERSION = "9"
 MAX_CONTAINER_PROPERTY_DEPTH = 4
+
+
+@dataclass
+class ReflectedEnumValueInfo:
+    name: str
+    value: int
+
+
+@dataclass
+class ReflectedEnumInfo:
+    short_name: str
+    namespace: str
+    qualified_name: str
+    generated_helper_name: str
+    header: str
+    api: str
+    is_scoped: bool = False
+    underlying_type: str = ""
+    underlying_kind: str = "Unknown"
+    underlying_size: int = 0
+    values: list[ReflectedEnumValueInfo] = field(default_factory=list)
+
+    @property
+    def generated_helper_no_register_name(self) -> str:
+        return f"{self.generated_helper_name}_NoRegister"
+
+    @property
+    def generated_statics_name(self) -> str:
+        return f"{self.generated_helper_name}_Statics"
+
+    @property
+    def registration_info_name(self) -> str:
+        return f"Z_Registration_Info_DEnum_{qualified_name_to_helper_suffix(self.qualified_name)}"
 
 
 @dataclass
@@ -18,6 +51,7 @@ class ReflectedPropertyInfo:
     type_name: str
     kind: str
     referenced_type: str = ""
+    referenced_enum_type: str = ""
     array_dim: int = 1
     element_size: str = "0"
     flags: str = "None"
@@ -62,9 +96,11 @@ class ReflectedHeaderInfo:
     include_path: str
     file_id: str
     classes: list[ReflectedClassInfo] = field(default_factory=list)
+    enums: list[ReflectedEnumInfo] = field(default_factory=list)
 
 
 _DCLASS_PATTERN = re.compile(r"\bDCLASS\s*\(([^)]*)\)")
+_DENUM_PATTERN = re.compile(r"\bDENUM\s*\(([^)]*)\)")
 _DPROPERTY_PATTERN = re.compile(r"\bDPROPERTY\s*\(([^)]*)\)")
 _GENERATED_BODY_PATTERN = re.compile(r"\bGENERATED_BODY\s*\([^)]*\)")
 _GEN_INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\s+"[^"]+\.gen\.h"\s*$', re.MULTILINE)
@@ -108,6 +144,7 @@ def _annotation_payload(prefix: str, payload: str) -> str:
 def make_dht_parse_source(source: str) -> str:
     source = _GEN_INCLUDE_PATTERN.sub("", source)
     source = _DCLASS_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DCLASS", m.group(1))}"))) void DHT_CLASS();', source)
+    source = _DENUM_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DENUM", m.group(1))}"))) void DHT_ENUM();', source)
     source = _DPROPERTY_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DPROPERTY", m.group(1))}")))', source)
     source = _GENERATED_BODY_PATTERN.sub("void DHT_GENERATED_BODY();", source)
     return source
@@ -126,6 +163,10 @@ def qualified_name_to_helper_suffix(qualified_name: str) -> str:
 
 def make_generated_helper_name(qualified_name: str) -> str:
     return f"Z_Construct_DClass_{qualified_name_to_helper_suffix(qualified_name)}"
+
+
+def make_generated_enum_helper_name(qualified_name: str) -> str:
+    return f"Z_Construct_DEnum_{qualified_name_to_helper_suffix(qualified_name)}"
 
 
 def _get_annotation(cursor: clang.cindex.Cursor) -> str:
@@ -400,6 +441,13 @@ def _cpp_type_spelling(type_spelling: str, exported_symbols: dict[str, object] |
         args = _source_template_args(type_spelling, "std::unordered_map")
         if len(args) >= 2:
             return f"std::unordered_map<{_cpp_type_spelling(args[0], exported_symbols)}, {_cpp_type_spelling(args[1], exported_symbols)}>"
+    candidates = [type_spelling]
+    if "::" not in type_spelling:
+        candidates.extend(name for name in (exported_symbols or {}) if name.endswith(f"::{type_spelling}") or name == type_spelling)
+    for candidate in candidates:
+        symbol = (exported_symbols or {}).get(candidate)
+        if symbol and getattr(symbol, "Kind", "") == "enum":
+            return candidate
     if type_spelling.endswith("*"):
         pointee = type_spelling[:-1].strip()
         candidates = [pointee]
@@ -419,6 +467,7 @@ def _source_property_from_type_spelling(
     array_dim: int = 1,
     allow_object: bool = True,
     allow_container: bool = True,
+    allow_enum: bool = True,
     depth: int = 0,
     max_depth: int = MAX_CONTAINER_PROPERTY_DEPTH,
 ) -> ReflectedPropertyInfo | None:
@@ -444,6 +493,44 @@ def _source_property_from_type_spelling(
         }
         return ReflectedPropertyInfo(name=name, type_name=type_spelling, kind=kind, array_dim=array_dim, element_size=size_by_kind[kind], flags=flags)
 
+    if allow_enum:
+        enum_candidates = [type_spelling]
+        if "::" not in type_spelling:
+            enum_candidates.extend(
+                name
+                for name, symbol in (exported_symbols or {}).items()
+                if getattr(symbol, "Kind", "") == "enum" and (name.endswith(f"::{type_spelling}") or name == type_spelling)
+            )
+        for candidate in enum_candidates:
+            symbol = (exported_symbols or {}).get(candidate)
+            if symbol and getattr(symbol, "Kind", "") == "enum":
+                underlying_size = getattr(symbol, "UnderlyingSize", 0) or getattr(symbol, "UnderlyingByteSize", 0) or 0
+                return ReflectedPropertyInfo(
+                    name=name,
+                    type_name=type_spelling,
+                    kind="Enum",
+                    referenced_enum_type=candidate,
+                    array_dim=array_dim,
+                    element_size=f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})" if not underlying_size else str(underlying_size),
+                    flags=flags,
+                )
+        if exported_symbols is not None:
+            matching_enums = [
+                name
+                for name, symbol in exported_symbols.items()
+                if getattr(symbol, "Kind", "") == "enum" and getattr(symbol, "ShortName", "") == type_spelling
+            ]
+            if len(matching_enums) == 1:
+                return ReflectedPropertyInfo(
+                    name=name,
+                    type_name=type_spelling,
+                    kind="Enum",
+                    referenced_enum_type=matching_enums[0],
+                    array_dim=array_dim,
+                    element_size=f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+                    flags=flags,
+                )
+
     if allow_container and _is_std_vector(type_spelling):
         if depth >= max_depth:
             return None
@@ -456,6 +543,7 @@ def _source_property_from_type_spelling(
             exported_symbols,
             allow_object=True,
             allow_container=True,
+            allow_enum=True,
             depth=depth + 1,
             max_depth=max_depth,
         )
@@ -483,6 +571,7 @@ def _source_property_from_type_spelling(
             exported_symbols,
             allow_object=False,
             allow_container=False,
+            allow_enum=True,
             depth=depth + 1,
             max_depth=max_depth,
         )
@@ -492,6 +581,7 @@ def _source_property_from_type_spelling(
             exported_symbols,
             allow_object=True,
             allow_container=True,
+            allow_enum=True,
             depth=depth + 1,
             max_depth=max_depth,
         )
@@ -542,6 +632,91 @@ def _enum_kind(type_info: clang.cindex.Type) -> str | None:
     return None
 
 
+def _enum_referenced_type(type_info: clang.cindex.Type, exported_symbols: dict[str, object] | None) -> str:
+    decl = type_info.get_declaration()
+    if decl.kind != clang.cindex.CursorKind.ENUM_DECL or not decl.spelling:
+        return ""
+    qualified_name = _qualified_name(decl)
+    if exported_symbols and qualified_name not in exported_symbols:
+        short_name = decl.spelling
+        matches = [
+            name
+            for name, symbol in exported_symbols.items()
+            if getattr(symbol, "Kind", "") == "enum" and getattr(symbol, "ShortName", "") == short_name
+        ]
+        return matches[0] if len(matches) == 1 else qualified_name
+    return qualified_name
+
+
+def _underlying_kind_from_type_spelling(type_spelling: str) -> str:
+    normalized = _normalize_type_spelling(type_spelling)
+    mapping = {
+        "signed char": "Int8",
+        "char": "Int8",
+        "short": "Int16",
+        "short int": "Int16",
+        "int": "Int32",
+        "long": "Int32",
+        "long int": "Int32",
+        "long long": "Int64",
+        "long long int": "Int64",
+        "int8": "Int8",
+        "int16": "Int16",
+        "int32": "Int32",
+        "int64": "Int64",
+        "Durin::int8": "Int8",
+        "Durin::int16": "Int16",
+        "Durin::int32": "Int32",
+        "Durin::int64": "Int64",
+        "unsigned char": "UInt8",
+        "unsigned short": "UInt16",
+        "unsigned short int": "UInt16",
+        "unsigned int": "UInt32",
+        "unsigned long": "UInt32",
+        "unsigned long int": "UInt32",
+        "unsigned long long": "UInt64",
+        "unsigned long long int": "UInt64",
+        "uint8": "UInt8",
+        "uint16": "UInt16",
+        "uint32": "UInt32",
+        "uint64": "UInt64",
+        "Durin::uint8": "UInt8",
+        "Durin::uint16": "UInt16",
+        "Durin::uint32": "UInt32",
+        "Durin::uint64": "UInt64",
+    }
+    return mapping.get(normalized, "Unknown")
+
+
+def _is_scoped_enum(enum_cursor: clang.cindex.Cursor) -> bool:
+    try:
+        return bool(enum_cursor.is_scoped_enum())
+    except Exception:
+        return "enum class" in enum_cursor.type.spelling
+
+
+def _make_enum(enum_cursor: clang.cindex.Cursor, module_config, header: str) -> ReflectedEnumInfo:
+    qualified_name = _qualified_name(enum_cursor)
+    underlying_type = _normalize_type_spelling(enum_cursor.enum_type.spelling)
+    values: list[ReflectedEnumValueInfo] = []
+    for child in enum_cursor.get_children():
+        if child.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL:
+            values.append(ReflectedEnumValueInfo(name=child.spelling, value=int(child.enum_value)))
+    return ReflectedEnumInfo(
+        short_name=enum_cursor.spelling,
+        namespace=_semantic_namespace(enum_cursor),
+        qualified_name=qualified_name,
+        generated_helper_name=make_generated_enum_helper_name(qualified_name),
+        header=header,
+        api=module_config.api_macro,
+        is_scoped=_is_scoped_enum(enum_cursor),
+        underlying_type=underlying_type,
+        underlying_kind=_underlying_kind_from_type_spelling(underlying_type),
+        underlying_size=max(int(enum_cursor.enum_type.get_size() or 0), 0),
+        values=values,
+    )
+
+
 def _make_property_from_type(
     name: str,
     type_info: clang.cindex.Type,
@@ -550,6 +725,7 @@ def _make_property_from_type(
     array_dim: int = 1,
     allow_object: bool = True,
     allow_container: bool = True,
+    allow_enum: bool = True,
     depth: int = 0,
     max_depth: int = MAX_CONTAINER_PROPERTY_DEPTH,
 ) -> ReflectedPropertyInfo | None:
@@ -559,8 +735,12 @@ def _make_property_from_type(
     referenced_type = ""
     element_size = _field_size(type_info)
 
-    if not kind:
+    if not kind and allow_enum:
         kind = _enum_kind(type_info)
+        if kind == "Enum":
+            referenced_type = _enum_referenced_type(type_info, exported_symbols)
+            if exported_symbols is not None and referenced_type not in exported_symbols:
+                return None
 
     if not kind and allow_container and _is_std_vector(type_spelling):
         if depth >= max_depth:
@@ -574,6 +754,7 @@ def _make_property_from_type(
             exported_symbols,
             allow_object=True,
             allow_container=True,
+            allow_enum=True,
             depth=depth + 1,
             max_depth=max_depth,
         )
@@ -601,6 +782,7 @@ def _make_property_from_type(
             exported_symbols,
             allow_object=False,
             allow_container=False,
+            allow_enum=True,
             depth=depth + 1,
             max_depth=max_depth,
         )
@@ -610,6 +792,7 @@ def _make_property_from_type(
             exported_symbols,
             allow_object=True,
             allow_container=True,
+            allow_enum=True,
             depth=depth + 1,
             max_depth=max_depth,
         )
@@ -644,7 +827,8 @@ def _make_property_from_type(
         name=name,
         type_name=type_spelling,
         kind=kind,
-        referenced_type=referenced_type,
+        referenced_type="" if kind == "Enum" else referenced_type,
+        referenced_enum_type=referenced_type if kind == "Enum" else "",
         array_dim=array_dim,
         element_size=element_size,
         flags=flags,
@@ -778,13 +962,18 @@ def parse_reflection_header(
     tu = _parse_translation_unit(module_name, header_path, source, export_mode)
 
     classes: list[ReflectedClassInfo] = []
+    enums: list[ReflectedEnumInfo] = []
 
     def visit(parent: clang.cindex.Cursor) -> None:
         children = list(parent.get_children())
         pending_dclass = False
+        pending_denum = False
         for child in children:
             if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling == "DHT_CLASS":
                 pending_dclass = _get_annotation(child).startswith("DCLASS")
+                continue
+            if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling == "DHT_ENUM":
+                pending_denum = _get_annotation(child).startswith("DENUM")
                 continue
 
             if pending_dclass and child.kind in (clang.cindex.CursorKind.CLASS_DECL, clang.cindex.CursorKind.STRUCT_DECL) and child.spelling:
@@ -820,6 +1009,11 @@ def parse_reflection_header(
                 pending_dclass = False
                 continue
 
+            if pending_denum and child.kind == clang.cindex.CursorKind.ENUM_DECL and child.spelling:
+                enums.append(_make_enum(child, module_config, header))
+                pending_denum = False
+                continue
+
             if child.kind in (clang.cindex.CursorKind.NAMESPACE, clang.cindex.CursorKind.TRANSLATION_UNIT):
                 visit(child)
 
@@ -828,4 +1022,4 @@ def parse_reflection_header(
     rel = Path(header)
     include_path = _include_path_for_header(header)
     file_id = _file_id_for_header(module_name, header)
-    return ReflectedHeaderInfo(module_name, header, header_path, include_path, file_id, classes)
+    return ReflectedHeaderInfo(module_name, header, header_path, include_path, file_id, classes, enums)

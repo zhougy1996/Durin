@@ -8,6 +8,7 @@ namespace Durin
 	COREDOBJECT_API DClass* Z_Construct_DClass_DType();
 	COREDOBJECT_API DClass* Z_Construct_DClass_DStructBase();
 	COREDOBJECT_API DClass* Z_Construct_DClass_DClass();
+	COREDOBJECT_API DClass* Z_Construct_DClass_DEnum();
 }
 
 namespace Durin
@@ -17,6 +18,8 @@ namespace Durin
 	IMPLEMENT_INTRINSIC_CLASS(DStructBase, COREDOBJECT_API, DType, COREDOBJECT_API, {})
 
 	IMPLEMENT_INTRINSIC_CLASS(DClass, COREDOBJECT_API, DStructBase, COREDOBJECT_API, {})
+
+	IMPLEMENT_INTRINSIC_CLASS(DEnum, COREDOBJECT_API, DType, COREDOBJECT_API, {})
 
 	auto DStructBase::RegisterDependencies() -> void
 	{
@@ -53,6 +56,40 @@ namespace Durin
 			bIncludeSuper
 		);
 		return FoundProperty;
+	}
+
+	auto DEnum::FindValueByName(FName InName, int64& OutValue) const -> bool
+	{
+		for (const FEnumValue& Value : Values)
+		{
+			if (Value.Name == InName)
+			{
+				OutValue = Value.Value;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	auto DEnum::FindNameByValue(int64 InValue, FName& OutName) const -> bool
+	{
+		for (const FEnumValue& Value : Values)
+		{
+			if (Value.Value == InValue)
+			{
+				OutName = Value.Name;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	auto DEnum::ForEachValue(const std::function<void(const FEnumValue&)>& Visitor) const -> void
+	{
+		for (const FEnumValue& Value : Values)
+		{
+			Visitor(Value);
+		}
 	}
 
 	auto GetPrivateStaticClassBody(
@@ -107,4 +144,9 @@ COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DStructBase()
 COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DClass()
 {
 	return Durin::Z_Construct_DClass_DClass();
+}
+
+COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DEnum()
+{
+	return Durin::Z_Construct_DClass_DEnum();
 }

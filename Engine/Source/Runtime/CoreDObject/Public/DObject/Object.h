@@ -9,6 +9,7 @@ namespace Durin
 	class FObjectInitializer;
 
 	using FClassRegisterFunc = DClass* (*)();
+	using FEnumRegisterFunc = DEnum* (*)();
 
 	template<typename T>
 	struct FRegistrationInfo
@@ -20,6 +21,7 @@ namespace Durin
 	};
 
 	using FClassRegistrationInfo = FRegistrationInfo<DClass>;
+	using FEnumRegistrationInfo = FRegistrationInfo<DEnum>;
 
 	struct FClassRegisterCompiledInInfo
 	{
@@ -27,6 +29,14 @@ namespace Durin
 		DClass* (*InnerRegister)();
 		const char* Name;
 		FClassRegistrationInfo* Info;
+	};
+
+	struct FEnumRegisterCompiledInInfo
+	{
+		DEnum* (*OuterRegister)();
+		DEnum* (*InnerRegister)();
+		const char* Name;
+		FEnumRegistrationInfo* Info;
 	};
 
 	COREDOBJECT_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
@@ -130,6 +140,10 @@ namespace Durin
 	COREDOBJECT_API auto RegisterCompiledInInfo(FClassRegisterFunc InOuterRegister, FClassRegisterFunc InInnerRegister, const char* InName, FClassRegistrationInfo& InInfo) -> void;
 
 	COREDOBJECT_API auto RegisterCompiledInInfo(const FClassRegisterCompiledInInfo* ClassInfo, size_t NumClassInfo) -> void;
+
+	COREDOBJECT_API auto RegisterCompiledInInfo(FEnumRegisterFunc InOuterRegister, FEnumRegisterFunc InInnerRegister, const char* InName, FEnumRegistrationInfo& InInfo) -> void;
+
+	COREDOBJECT_API auto RegisterCompiledInInfo(const FEnumRegisterCompiledInInfo* EnumInfo, size_t NumEnumInfo) -> void;
 
 	COREDOBJECT_API auto ProcessNewlyLoadedDObjects() -> void;
 

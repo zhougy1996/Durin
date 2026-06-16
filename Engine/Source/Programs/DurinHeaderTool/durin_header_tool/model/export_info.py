@@ -6,7 +6,7 @@ from durin_header_tool import io as utils
 from durin_header_tool.io import FileFingerprint
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 
-EXPORT_SCHEMA_VERSION = 2
+EXPORT_SCHEMA_VERSION = 3
 
 
 @dataclass
@@ -19,6 +19,10 @@ class ExportedSymbolInfo:
     Header: str
     API: str
     BaseQualifiedName: str = ""
+    IsScoped: bool = False
+    UnderlyingType: str = ""
+    UnderlyingKind: str = "Unknown"
+    UnderlyingSize: int = 0
 
 
 @dataclass

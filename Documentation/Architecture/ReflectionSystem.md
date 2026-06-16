@@ -19,7 +19,9 @@ The current system supports:
 - module manifests for incremental reflection generation
 - generated `.gen.h` and `.gen.cpp` files
 - generated class registration into `DClass`
+- generated enum registration into `DEnum`
 - generated primitive property metadata for reflected `DPROPERTY()` fields
+- generated enum property metadata for reflected `DPROPERTY()` fields
 - runtime `DObject::IsA` and `Cast<T>` based on the `DClass` hierarchy
 
 The system does not currently implement GC, package/CDO behavior, hot reload, editor property panels, serialization, reflected containers, function reflection, or complete metadata specifier parsing.
@@ -87,7 +89,7 @@ The export file is schema v1 JSON:
 
 ```json
 {
-  "SchemaVersion": 2,
+  "SchemaVersion": 3,
   "Module": "Engine",
   "Symbols": {
     "Durin::AActor": {
@@ -178,14 +180,18 @@ The generated source includes:
 - the original reflected header
 - cross-module helper declarations
 - `FClassRegistrationInfo`
+- `FEnumRegistrationInfo`
 - `T::GetPrivateStaticClass()`
 - no-register and full construct helpers
 - generated statics containing `FClassParams`
+- generated enum value tables and `FEnumParams`
 - generated property parameter records
 - compiled-in registration records
 - generated object-initializer constructor definitions when needed
 
 Generated code uses fully qualified C++ type names for reflected C++ types.
+
+`DENUM()` declarations are explicit reflected enum opt-ins. DurinHeaderTool exports them as `Kind: "enum"` symbols, records scoped/unscoped form and underlying type metadata, and emits `Z_Construct_DEnum_*` helpers plus generated value tables.
 
 ## Runtime Type Data
 
@@ -198,6 +204,8 @@ Generated code uses fully qualified C++ type names for reflected C++ types.
 - property count
 
 `ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches them to `DStructBase::ChildProperties`.
+
+`DurinCodeGen::ConstructDEnum(...)` forces enum registration for generated `DEnum` singletons. `DEnum` stores qualified name, short name, scoped flag, underlying kind/size, and a read-only name/value table.
 
 `DStructBase` stores its superclass through `SuperStructBase`. `DClass::GetSuperClass()` exposes this as a `DClass*`.
 
@@ -212,6 +220,7 @@ The current generated property metadata supports these primitive kinds:
 - `float`
 - `double`
 - `bool`
+- reflected enum values
 
 The runtime property node stores:
 
@@ -221,8 +230,9 @@ The runtime property node stores:
 - byte offset
 - generated property kind
 - referenced class for object-pointer properties
+- referenced enum for enum properties
 
-`FString`, enum values, and object-pointer properties have schema/runtime slots, but should be treated as still needing broader coverage and tests before use in production workflows.
+`FString`, enum values, object-pointer properties, arrays, and maps have generated/runtime coverage. Enum properties reference `DEnum` metadata separately from object properties' referenced `DClass`.
 
 ## Testing And Verification
 
