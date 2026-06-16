@@ -209,4 +209,38 @@ namespace Durin
 	{
 		ClassPrivate = StaticClass();
 	}
+
+	auto ForEachNestedProperty(FProperty* Property, const std::function<void(FProperty*)>& Visitor) -> void
+	{
+		if (!Property)
+		{
+			return;
+		}
+
+		if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Array)
+		{
+			FProperty* Inner = static_cast<FArrayProperty*>(Property)->GetInner();
+			if (Inner)
+			{
+				Visitor(Inner);
+				ForEachNestedProperty(Inner, Visitor);
+			}
+			return;
+		}
+
+		if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Map)
+		{
+			auto* MapProperty = static_cast<FMapProperty*>(Property);
+			if (FProperty* Key = MapProperty->GetKeyProp())
+			{
+				Visitor(Key);
+				ForEachNestedProperty(Key, Visitor);
+			}
+			if (FProperty* Value = MapProperty->GetValueProp())
+			{
+				Visitor(Value);
+				ForEachNestedProperty(Value, Visitor);
+			}
+		}
+	}
 }

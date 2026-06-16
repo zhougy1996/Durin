@@ -8,7 +8,8 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "4"
+TOOL_VERSION = "6"
+MAX_CONTAINER_PROPERTY_DEPTH = 4
 
 
 @dataclass
@@ -270,6 +271,77 @@ def _source_declared_type(source: str, field_cursor: clang.cindex.Cursor) -> str
     return ""
 
 
+def _make_property_from_source_decl(
+    source_line: str,
+    annotation: str,
+    exported_symbols: dict[str, object] | None,
+) -> ReflectedPropertyInfo | None:
+    line = source_line.split("=", 1)[0].rstrip(";").strip()
+    match = re.match(r"(.+?)\s+(\w+)(?:\s*\[(\d+)\])?$", line)
+    if not match:
+        return None
+    type_spelling = _normalize_type_spelling(match.group(1))
+    name = match.group(2)
+    array_dim = int(match.group(3)) if match.group(3) else 1
+    return _source_property_from_type_spelling(
+        name,
+        type_spelling,
+        exported_symbols,
+        flags=_property_flags_from_annotation(annotation),
+        array_dim=array_dim,
+    )
+
+
+def _scan_source_properties_for_class(
+    source: str,
+    class_name: str,
+    exported_symbols: dict[str, object] | None,
+) -> list[ReflectedPropertyInfo]:
+    properties: list[ReflectedPropertyInfo] = []
+    class_seen = False
+    in_class = False
+    brace_depth = 0
+    pending_annotation = ""
+
+    for line in source.splitlines():
+        stripped = line.strip()
+        if not class_seen:
+            if re.search(rf"\b(class|struct)\s+(?:\w+_API\s+)?{re.escape(class_name)}\b", stripped):
+                class_seen = True
+            else:
+                continue
+
+        if class_seen and not in_class:
+            if "{" in stripped:
+                in_class = True
+                brace_depth += stripped.count("{") - stripped.count("}")
+            continue
+
+        if not in_class:
+            continue
+
+        dproperty_match = _DPROPERTY_PATTERN.search(stripped)
+        if dproperty_match:
+            pending_annotation = _annotation_payload("DPROPERTY", dproperty_match.group(1))
+            brace_depth += stripped.count("{") - stripped.count("}")
+            continue
+
+        if pending_annotation:
+            if not stripped or stripped in ("public:", "private:", "protected:"):
+                continue
+            if ";" in stripped:
+                prop = _make_property_from_source_decl(stripped, pending_annotation, exported_symbols)
+                if prop:
+                    properties.append(prop)
+                pending_annotation = ""
+
+        brace_depth += stripped.count("{") - stripped.count("}")
+        if brace_depth <= 0:
+            break
+
+    return properties
+
+
 def _template_argument_types(type_info: clang.cindex.Type) -> list[clang.cindex.Type]:
     args: list[clang.cindex.Type] = []
     for candidate in (type_info, type_info.get_canonical()):
@@ -302,6 +374,43 @@ def _is_std_unordered_map(type_spelling: str) -> bool:
     return normalized.startswith("std::unordered_map<")
 
 
+def _cpp_type_spelling(type_spelling: str, exported_symbols: dict[str, object] | None) -> str:
+    type_spelling = _normalize_type_spelling(type_spelling)
+    primitive_types = {
+        "int8": "Durin::int8",
+        "int16": "Durin::int16",
+        "int32": "Durin::int32",
+        "int64": "Durin::int64",
+        "uint8": "Durin::uint8",
+        "uint16": "Durin::uint16",
+        "uint32": "Durin::uint32",
+        "uint64": "Durin::uint64",
+        "bool": "bool",
+        "float": "float",
+        "double": "double",
+        "std::string": "std::string",
+    }
+    if type_spelling in primitive_types:
+        return primitive_types[type_spelling]
+    if _is_std_vector(type_spelling):
+        args = _source_template_args(type_spelling, "std::vector")
+        if len(args) == 1:
+            return f"std::vector<{_cpp_type_spelling(args[0], exported_symbols)}>"
+    if _is_std_unordered_map(type_spelling):
+        args = _source_template_args(type_spelling, "std::unordered_map")
+        if len(args) >= 2:
+            return f"std::unordered_map<{_cpp_type_spelling(args[0], exported_symbols)}, {_cpp_type_spelling(args[1], exported_symbols)}>"
+    if type_spelling.endswith("*"):
+        pointee = type_spelling[:-1].strip()
+        candidates = [pointee]
+        if "::" not in pointee:
+            candidates.extend(name for name in (exported_symbols or {}) if name.endswith(f"::{pointee}") or name == pointee)
+        for candidate in candidates:
+            if not exported_symbols or candidate in exported_symbols:
+                return f"{candidate}*"
+    return type_spelling
+
+
 def _source_property_from_type_spelling(
     name: str,
     type_spelling: str,
@@ -310,6 +419,8 @@ def _source_property_from_type_spelling(
     array_dim: int = 1,
     allow_object: bool = True,
     allow_container: bool = True,
+    depth: int = 0,
+    max_depth: int = MAX_CONTAINER_PROPERTY_DEPTH,
 ) -> ReflectedPropertyInfo | None:
     type_spelling = _normalize_type_spelling(type_spelling)
     kind = _PROPERTY_KIND_BY_TYPE.get(type_spelling)
@@ -334,23 +445,68 @@ def _source_property_from_type_spelling(
         return ReflectedPropertyInfo(name=name, type_name=type_spelling, kind=kind, array_dim=array_dim, element_size=size_by_kind[kind], flags=flags)
 
     if allow_container and _is_std_vector(type_spelling):
+        if depth >= max_depth:
+            return None
         args = _source_template_args(type_spelling, "std::vector")
         if len(args) != 1:
             return None
-        inner = _source_property_from_type_spelling(f"{name}_Inner", args[0], exported_symbols, allow_object=True, allow_container=False)
+        inner = _source_property_from_type_spelling(
+            f"{name}_Inner",
+            args[0],
+            exported_symbols,
+            allow_object=True,
+            allow_container=True,
+            depth=depth + 1,
+            max_depth=max_depth,
+        )
         if not inner:
             return None
-        return ReflectedPropertyInfo(name=name, type_name=type_spelling, kind="Array", array_dim=array_dim, element_size="sizeof_self", flags=flags, inner=inner)
+        return ReflectedPropertyInfo(
+            name=name,
+            type_name=type_spelling,
+            kind="Array",
+            array_dim=array_dim,
+            element_size=f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+            flags=flags,
+            inner=inner,
+        )
 
     if allow_container and _is_std_unordered_map(type_spelling):
+        if depth >= max_depth:
+            return None
         args = _source_template_args(type_spelling, "std::unordered_map")
         if len(args) < 2:
             return None
-        key = _source_property_from_type_spelling(f"{name}_Key", args[0], exported_symbols, allow_object=False, allow_container=False)
-        value = _source_property_from_type_spelling(f"{name}_Value", args[1], exported_symbols, allow_object=True, allow_container=False)
+        key = _source_property_from_type_spelling(
+            f"{name}_Key",
+            args[0],
+            exported_symbols,
+            allow_object=False,
+            allow_container=False,
+            depth=depth + 1,
+            max_depth=max_depth,
+        )
+        value = _source_property_from_type_spelling(
+            f"{name}_Value",
+            args[1],
+            exported_symbols,
+            allow_object=True,
+            allow_container=True,
+            depth=depth + 1,
+            max_depth=max_depth,
+        )
         if not key or not value:
             return None
-        return ReflectedPropertyInfo(name=name, type_name=type_spelling, kind="Map", array_dim=array_dim, element_size="sizeof_self", flags=flags, key=key, value=value)
+        return ReflectedPropertyInfo(
+            name=name,
+            type_name=type_spelling,
+            kind="Map",
+            array_dim=array_dim,
+            element_size=f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+            flags=flags,
+            key=key,
+            value=value,
+        )
 
     if allow_object and type_spelling.endswith("*"):
         pointee = type_spelling[:-1].strip()
@@ -394,6 +550,8 @@ def _make_property_from_type(
     array_dim: int = 1,
     allow_object: bool = True,
     allow_container: bool = True,
+    depth: int = 0,
+    max_depth: int = MAX_CONTAINER_PROPERTY_DEPTH,
 ) -> ReflectedPropertyInfo | None:
     type_spelling = _normalize_type_spelling(type_info.spelling)
     canonical = _normalize_type_spelling(type_info.get_canonical().spelling)
@@ -405,6 +563,8 @@ def _make_property_from_type(
         kind = _enum_kind(type_info)
 
     if not kind and allow_container and _is_std_vector(type_spelling):
+        if depth >= max_depth:
+            return None
         args = _template_argument_types(type_info)
         if len(args) != 1:
             return None
@@ -413,7 +573,9 @@ def _make_property_from_type(
             args[0],
             exported_symbols,
             allow_object=True,
-            allow_container=False,
+            allow_container=True,
+            depth=depth + 1,
+            max_depth=max_depth,
         )
         if not inner:
             return None
@@ -428,6 +590,8 @@ def _make_property_from_type(
         )
 
     if not kind and allow_container and _is_std_unordered_map(type_spelling):
+        if depth >= max_depth:
+            return None
         args = _template_argument_types(type_info)
         if len(args) < 2:
             return None
@@ -437,13 +601,17 @@ def _make_property_from_type(
             exported_symbols,
             allow_object=False,
             allow_container=False,
+            depth=depth + 1,
+            max_depth=max_depth,
         )
         value = _make_property_from_type(
             f"{name}_Value",
             args[1],
             exported_symbols,
             allow_object=True,
-            allow_container=False,
+            allow_container=True,
+            depth=depth + 1,
+            max_depth=max_depth,
         )
         if not key or not value:
             return None
@@ -643,6 +811,11 @@ def parse_reflection_header(
                         prop = _make_property(member, exported_symbols, source)
                         if prop:
                             reflected_class.properties.append(prop)
+                existing_property_names = {prop.name for prop in reflected_class.properties}
+                for prop in _scan_source_properties_for_class(source, child.spelling, exported_symbols):
+                    if prop.name not in existing_property_names:
+                        reflected_class.properties.append(prop)
+                        existing_property_names.add(prop.name)
                 classes.append(reflected_class)
                 pending_dclass = False
                 continue

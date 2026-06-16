@@ -167,4 +167,6 @@ namespace Durin
 		FProperty* KeyProp = nullptr;
 		FProperty* ValueProp = nullptr;
 	};
+
+	COREDOBJECT_API auto ForEachNestedProperty(FProperty* Property, const std::function<void(FProperty*)>& Visitor) -> void;
 }

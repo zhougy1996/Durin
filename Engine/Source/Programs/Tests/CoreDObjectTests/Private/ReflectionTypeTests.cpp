@@ -15,6 +15,8 @@ namespace
 		std::string StringValue;
 		std::vector<Durin::DObject*> ObjectArray;
 		std::unordered_map<std::string, Durin::int32> StringToInt;
+		std::vector<std::vector<Durin::int32>> NestedScores;
+		std::unordered_map<std::string, std::vector<Durin::DObject*>> ObjectLists;
 	};
 
 	Durin::DClass* Z_Construct_DClass_FReflectedPropertyOwnerForTest_NoRegister()
@@ -161,19 +163,105 @@ namespace
 			&StringToIntKeyPropertyParams,
 			&StringToIntValuePropertyParams
 		};
+		static const Durin::DurinCodeGen::FInt32PropertyParams NestedScoresInnerInnerPropertyParams = {
+			"NestedScores_Inner_Inner",
+			Durin::EPropertyFlags::None,
+			1,
+			0,
+			static_cast<Durin::uint16>(sizeof(Durin::int32)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32,
+			nullptr,
+			nullptr,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FArrayPropertyParams NestedScoresInnerPropertyParams = {
+			"NestedScores_Inner",
+			Durin::EPropertyFlags::None,
+			1,
+			0,
+			static_cast<Durin::uint16>(sizeof(std::vector<Durin::int32>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Array,
+			nullptr,
+			&NestedScoresInnerInnerPropertyParams,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FArrayPropertyParams NestedScoresPropertyParams = {
+			"NestedScores",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, NestedScores)),
+			static_cast<Durin::uint16>(sizeof(std::vector<std::vector<Durin::int32>>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Array,
+			nullptr,
+			&NestedScoresInnerPropertyParams,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FStringPropertyParams ObjectListsKeyPropertyParams = {
+			"ObjectLists_Key",
+			Durin::EPropertyFlags::None,
+			1,
+			0,
+			static_cast<Durin::uint16>(sizeof(std::string)),
+			Durin::DurinCodeGen::EPropertyGenFlags::String,
+			nullptr,
+			nullptr,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectListsValueInnerPropertyParams = {
+			"ObjectLists_Value_Inner",
+			Durin::EPropertyFlags::None,
+			1,
+			0,
+			static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Object,
+			&Durin::DObject::StaticClass,
+			nullptr,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FArrayPropertyParams ObjectListsValuePropertyParams = {
+			"ObjectLists_Value",
+			Durin::EPropertyFlags::None,
+			1,
+			0,
+			static_cast<Durin::uint16>(sizeof(std::vector<Durin::DObject*>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Array,
+			nullptr,
+			&ObjectListsValueInnerPropertyParams,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FMapPropertyParams ObjectListsPropertyParams = {
+			"ObjectLists",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectLists)),
+			static_cast<Durin::uint16>(sizeof(std::unordered_map<std::string, std::vector<Durin::DObject*>>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Map,
+			nullptr,
+			nullptr,
+			&ObjectListsKeyPropertyParams,
+			&ObjectListsValuePropertyParams
+		};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
 			&ValuePropertyParams,
 			&ObjectPropertyParams,
 			&StringPropertyParams,
 			&ObjectArrayPropertyParams,
-			&StringToIntPropertyParams
+			&StringToIntPropertyParams,
+			&NestedScoresPropertyParams,
+			&ObjectListsPropertyParams
 		};
 		static const Durin::DurinCodeGen::FClassParams ClassParams = {
 			&Z_Construct_DClass_FReflectedPropertyOwnerForTest_NoRegister,
 			"FReflectedPropertyOwnerForTest",
 			"FReflectedPropertyOwnerForTest",
 			PropertyParams,
-			5
+			7
 		};
 
 		Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(ClassParams);
@@ -226,5 +314,39 @@ namespace
 		EXPECT_EQ(MapProperty->GetValueProp()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Int32);
 		EXPECT_EQ(Class->FindPropertyByName("StringToInt_Key"), nullptr);
 		EXPECT_EQ(Class->FindPropertyByName("StringToInt_Value"), nullptr);
+
+		auto* NestedArrayProperty = static_cast<Durin::FArrayProperty*>(Class->FindPropertyByName("NestedScores"));
+		ASSERT_NE(NestedArrayProperty, nullptr);
+		auto* NestedArrayInner = static_cast<Durin::FArrayProperty*>(NestedArrayProperty->GetInner());
+		ASSERT_NE(NestedArrayInner, nullptr);
+		ASSERT_NE(NestedArrayInner->GetInner(), nullptr);
+		EXPECT_EQ(NestedArrayInner->GetOwnerProperty(), NestedArrayProperty);
+		EXPECT_EQ(NestedArrayInner->GetInner()->GetOwnerProperty(), NestedArrayInner);
+		EXPECT_EQ(NestedArrayInner->GetInner()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Int32);
+		EXPECT_EQ(Class->FindPropertyByName("NestedScores_Inner"), nullptr);
+		EXPECT_EQ(Class->FindPropertyByName("NestedScores_Inner_Inner"), nullptr);
+
+		std::vector<std::string> NestedNames;
+		Durin::ForEachNestedProperty(
+			NestedArrayProperty,
+			[&NestedNames](Durin::FProperty* Property)
+			{
+				NestedNames.push_back(Property->NamePrivate.ToString());
+			}
+		);
+		ASSERT_EQ(NestedNames.size(), 2u);
+		EXPECT_EQ(NestedNames[0], "NestedScores_Inner");
+		EXPECT_EQ(NestedNames[1], "NestedScores_Inner_Inner");
+
+		auto* ObjectListsProperty = static_cast<Durin::FMapProperty*>(Class->FindPropertyByName("ObjectLists"));
+		ASSERT_NE(ObjectListsProperty, nullptr);
+		ASSERT_NE(ObjectListsProperty->GetKeyProp(), nullptr);
+		auto* ObjectListsValue = static_cast<Durin::FArrayProperty*>(ObjectListsProperty->GetValueProp());
+		ASSERT_NE(ObjectListsValue, nullptr);
+		ASSERT_NE(ObjectListsValue->GetInner(), nullptr);
+		EXPECT_EQ(ObjectListsProperty->GetKeyProp()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::String);
+		EXPECT_EQ(ObjectListsValue->GetOwnerProperty(), ObjectListsProperty);
+		EXPECT_EQ(ObjectListsValue->GetInner()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Object);
+		EXPECT_EQ(ObjectListsValue->GetInner()->GetReferencedClass(), Durin::DObject::StaticClass());
 	}
 }

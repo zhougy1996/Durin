@@ -112,7 +112,7 @@ namespace Durin
 
 		inline auto IsDObject() const -> bool
 		{
-			return !!ToDObjectUnSafe();
+			return (reinterpret_cast<uintptr_t>(Container.Object) & DObjectMask) != 0;
 		}
 
 		/** For internal use only, return as a FField pointer without checking if it is actually a FField */

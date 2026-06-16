@@ -30,6 +30,7 @@ namespace Durin
 		auto GetElementSize() const -> uint16 { return ElementSize; }
 		auto GetKind() const -> DurinCodeGen::EPropertyGenFlags { return Kind; }
 		auto GetReferencedClass() const -> DClass* { return ReferencedClass; }
+		auto GetOwnerProperty() const -> FProperty* { return static_cast<FProperty*>(Owner.ToField()); }
 		auto HasAnyPropertyFlags(EPropertyFlags InFlags) const -> bool { return EnumHasAnyFlags(PropertyFlags, InFlags); }
 
 		auto GetValuePtr(void* Container, uint32 ArrayIndex = 0) const -> void*

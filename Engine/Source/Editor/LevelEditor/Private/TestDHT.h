@@ -47,7 +47,19 @@ namespace Durin
 		std::unordered_map<std::string, int32> NamedScores;
 
 		DPROPERTY()
-		std::vector<std::vector<int32>> UnsupportedNested;
+		std::vector<std::vector<int32>> NestedScores;
+
+		DPROPERTY()
+		std::vector<std::unordered_map<std::string, DObject*>> ObjectMapList;
+
+		DPROPERTY()
+		std::unordered_map<std::string, std::vector<int32>> ScoreGroups;
+
+		DPROPERTY()
+		std::vector<std::vector<std::vector<std::vector<std::vector<int32>>>>> UnsupportedTooDeep;
+
+		DPROPERTY()
+		std::unordered_map<DObject*, int32> UnsupportedObjectKeyMap;
 
 		DPROPERTY()
 		std::vector<std::unique_ptr<DObject>> UnsupportedUniqueObjects;
