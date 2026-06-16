@@ -99,6 +99,7 @@ namespace
 	{
 		EnsureDObjectInitialized();
 
+		EXPECT_EQ(Durin::DObject::StaticClass()->GetSuperClass(), nullptr);
 		EXPECT_EQ(Durin::DType::StaticClass()->GetSuperClass(), Durin::DObject::StaticClass());
 		EXPECT_EQ(Durin::DStructBase::StaticClass()->GetSuperClass(), Durin::DType::StaticClass());
 		EXPECT_EQ(Durin::DClass::StaticClass()->GetSuperClass(), Durin::DStructBase::StaticClass());

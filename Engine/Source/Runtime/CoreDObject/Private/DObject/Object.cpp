@@ -42,7 +42,59 @@ namespace Durin
 	static FPendingRegistrant* GFirstPendingRegistrant = nullptr;
 	static FPendingRegistrant* GLastPendingRegistrant = nullptr;
 
-	IMPLEMENT_INTRINSIC_CLASS(DObject, COREDOBJECT_API, DObject, COREDOBJECT_API, {})
+	FClassRegistrationInfo Z_Registration_Info_DClass_DObject;
+
+	struct Z_Construct_DClass_DObject_Statics
+	{
+		static DClass* Construct()
+		{
+			DClass* Class = DObject::StaticClass();
+			DObjectForceRegistration(Class);
+			DObject::IntrinsicClassInit(Class);
+			return Class;
+		}
+	};
+
+	void DObject::IntrinsicClassInit(DClass* Class)
+	{
+		(void)Class;
+	}
+
+	COREDOBJECT_API DClass* Z_Construct_DClass_DObject()
+	{
+		if (!Z_Registration_Info_DClass_DObject.OuterSingleton)
+		{
+			Z_Registration_Info_DClass_DObject.OuterSingleton = Z_Construct_DClass_DObject_Statics::Construct();
+		}
+		check(Z_Registration_Info_DClass_DObject.OuterSingleton->GetClass());
+		return Z_Registration_Info_DClass_DObject.OuterSingleton;
+	}
+
+	COREDOBJECT_API DClass* DObject::GetPrivateStaticClass()
+	{
+		if (!Z_Registration_Info_DClass_DObject.InnerSingleton)
+		{
+			GetPrivateStaticClassBody(
+				STR(""),
+				STR("DObject"),
+				Z_Registration_Info_DClass_DObject.InnerSingleton,
+				nullptr,
+				sizeof(DObject),
+				alignof(DObject),
+				EClassFlags::None,
+				(DClass::ClassConstructorType)InternalConstructor<DObject>,
+				nullptr
+			);
+		}
+		return Z_Registration_Info_DClass_DObject.InnerSingleton;
+	}
+
+	static FClassRegisterCompiledInInfo Z_AutoRegister_DObject(
+		&Z_Construct_DClass_DObject,
+		&DObject::StaticClass,
+		STR("DObject"),
+		&Z_Registration_Info_DClass_DObject
+	);
 
 	DObject::DObject()
 	{
