@@ -3,16 +3,20 @@
 #include "MonaCoreAPI.h"
 #include "Misc/ViewportPresentModePolicy.h"
 #include "Window/GenericWindow.h"
-#include "Widgets/MCompoundWidget.h"
+#include "Widgets/MWidget.h"
 
 namespace Durin
 {
-	class MWindow : public MCompoundWidget
+	class MWindow : public MWidget
 	{
 	public:
 		MONACORE_API ~MWindow() override;
 
+		MONACORE_API auto Draw() -> void override;
+
 		MONACORE_API auto IsWindow() -> bool override;
+
+		MONACORE_API auto SetContent(const std::shared_ptr<MWidget>& InContent) -> MWindow&;
 
 		MONACORE_API auto PollEvents() const ->  void;
 
@@ -90,6 +94,8 @@ namespace Durin
 		FVector2f ViewportSize = {};
 
 		EViewportPresentModePolicy ViewportPresentModePolicy = EViewportPresentModePolicy::MainWindow;
+
+		std::shared_ptr<MWidget> ContentWidget;
 
 		std::shared_ptr<FGenericWindow> NativeWindow;
 

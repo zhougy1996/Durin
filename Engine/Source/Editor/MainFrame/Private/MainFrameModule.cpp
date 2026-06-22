@@ -38,7 +38,7 @@ namespace Durin
 				LevelEditorWidget->Draw();
 			}
 		});
-		RootWindow->SetChild(EditorRootWidget);
+		RootWindow->SetContent(EditorRootWidget);
 
 		Mona::FMonaApplication::Get().AddWindow(RootWindow, true);
 		Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);

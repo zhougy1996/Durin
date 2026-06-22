@@ -6,7 +6,37 @@ namespace Durin
 {
 	MWindow::~MWindow()
 	{
+		SetContent(nullptr);
 		NativeWindow = nullptr;
+	}
+
+	auto MWindow::Draw() -> void
+	{
+		if (ContentWidget != nullptr)
+		{
+			ContentWidget->Draw();
+		}
+	}
+
+	auto MWindow::SetContent(const std::shared_ptr<MWidget>& InContent) -> MWindow&
+	{
+		if (ContentWidget == InContent)
+		{
+			return *this;
+		}
+
+		if (ContentWidget != nullptr && ContentWidget->GetParent().get() == this)
+		{
+			ContentWidget->AssignParentWidget(nullptr);
+		}
+
+		ContentWidget = InContent;
+		if (ContentWidget != nullptr)
+		{
+			ContentWidget->AssignParentWidget(SharedThis(this));
+		}
+
+		return *this;
 	}
 
 	auto MWindow::PollEvents() const -> void

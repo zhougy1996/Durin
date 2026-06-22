@@ -1,13 +1,13 @@
 #pragma once
 
 #include "LevelEditorAPI.h"
-#include "Widgets/MCompoundWidget.h"
+#include "Widgets/MWidget.h"
 
 namespace Durin
 {
 	class MViewport;
 
-	class MLevelEditor final : public MCompoundWidget
+	class MLevelEditor final : public MWidget
 	{
 	public:
 		LEVELEDITOR_API auto Construct() -> void override;
