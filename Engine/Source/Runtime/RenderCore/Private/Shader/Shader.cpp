@@ -141,9 +141,11 @@ namespace Durin
 			OutReflection = InReflection;
 			for (FShaderResourceBinding& ResourceBinding : OutReflection.ResourceBindings)
 			{
-				const std::span<const FShaderParameterMetadata> ParameterMetadata = ShaderType.GetParameterMetadata();
-				const auto FoundIt = std::ranges::find_if(ParameterMetadata, [&ResourceBinding](const FShaderParameterMetadata& Parameter) {
-					return Parameter.Name != nullptr && ResourceBinding.Name == Parameter.Name;
+				const std::span<const FShaderParameterMemberMetadata> ParameterMetadata = ShaderType.GetParameterMetadata();
+				const auto FoundIt = std::ranges::find_if(ParameterMetadata, [&ResourceBinding](const FShaderParameterMemberMetadata& Parameter) {
+					return Parameter.Kind == EShaderParameterMemberKind::Resource
+						&& Parameter.Name != nullptr
+						&& ResourceBinding.Name == Parameter.Name;
 				});
 				if (FoundIt != ParameterMetadata.end() && AreShaderBindingTypesCompatible(ResourceBinding.Type, FoundIt->Type))
 				{
@@ -351,7 +353,7 @@ namespace Durin
 		FShaderFactoryFunction InFactory,
 		FShouldCompilePermutationFunction InShouldCompilePermutation,
 		FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment,
-		std::span<const FShaderParameterMetadata> InParameterMetadata
+		const FShaderParametersMetadata* InParametersMetadata
 	)
 		: Name(InName)
 		, TypeName(Name)
@@ -359,7 +361,7 @@ namespace Durin
 		, Frequency(InFrequency)
 		, EntryPoint(InEntryPoint)
 		, DebugName(InDebugName.empty() ? InName : InDebugName)
-		, ParameterMetadata(InParameterMetadata.begin(), InParameterMetadata.end())
+		, ParametersMetadata(InParametersMetadata)
 		, Factory(InFactory ? InFactory : &MakeDefaultShaderInstance)
 		, ShouldCompilePermutationFn(InShouldCompilePermutation)
 		, ModifyCompilationEnvironmentFn(InModifyCompilationEnvironment)
@@ -410,11 +412,11 @@ namespace Durin
 	auto FShader::InitializeParameterBindings(std::string& OutErrorMessage) -> bool
 	{
 		ParameterBindings.clear();
-		return BuildShaderParameterBindings(Type ? Type->GetParameterMetadata() : std::span<const FShaderParameterMetadata>{}, Reflection, ParameterBindings, OutErrorMessage);
+		return BuildShaderParameterBindings(Type ? Type->GetParametersMetadata() : nullptr, Reflection, ParameterBindings, OutErrorMessage);
 	}
 
 	auto BuildShaderParameterBindings(
-		std::span<const FShaderParameterMetadata> ParameterMetadata,
+		const FShaderParametersMetadata* ParametersMetadata,
 		const FShaderReflectionData& Reflection,
 		std::vector<FShaderParameterBinding>& OutBindings,
 		std::string& OutErrorMessage
@@ -423,8 +425,14 @@ namespace Durin
 		OutBindings.clear();
 		OutErrorMessage.clear();
 
-		for (const FShaderParameterMetadata& Parameter : ParameterMetadata)
+		const std::span<const FShaderParameterMemberMetadata> ParameterMetadata = ParametersMetadata ? ParametersMetadata->Members : std::span<const FShaderParameterMemberMetadata>{};
+		for (const FShaderParameterMemberMetadata& Parameter : ParameterMetadata)
 		{
+			if (Parameter.Kind != EShaderParameterMemberKind::Resource)
+			{
+				continue;
+			}
+
 			if (Parameter.Name == nullptr || Parameter.Name[0] == '\0')
 			{
 				OutErrorMessage = "Shader parameter metadata contains an empty name";
@@ -464,6 +472,69 @@ namespace Durin
 		}
 
 		return true;
+	}
+
+	auto SetShaderParametersImpl(
+		FRHICommandListBase& RHICmdList,
+		FRHIShader* RHIShader,
+		const FShaderParametersMetadata& ParametersMetadata,
+		std::span<const FShaderParameterBinding> ParameterBindings,
+		const void* ParameterData
+	) -> void
+	{
+		checkf(ParameterData != nullptr, "Shader parameter data must not be null");
+		for (const FShaderParameterMemberMetadata& Member : ParametersMetadata.Members)
+		{
+			checkf(
+				Member.Kind == EShaderParameterMemberKind::Resource,
+				"Unsupported shader parameter kind {} in '{}'",
+				static_cast<uint32>(Member.Kind),
+				Member.Name ? Member.Name : "<unnamed>"
+			);
+		}
+
+		constexpr size_t InlineParameterCapacity = 8;
+		std::array<FRHIShaderParameterResource, InlineParameterCapacity> InlineParameters;
+		std::vector<FRHIShaderParameterResource> OverflowParameters;
+
+		FRHIShaderParameterResource* ResourceParameters = nullptr;
+		if (ParameterBindings.size() <= InlineParameterCapacity)
+		{
+			ResourceParameters = InlineParameters.data();
+		}
+		else
+		{
+			OverflowParameters.resize(ParameterBindings.size());
+			ResourceParameters = OverflowParameters.data();
+		}
+
+		const auto* ParameterBytes = reinterpret_cast<const uint8*>(ParameterData);
+		for (size_t BindingIndex = 0; BindingIndex < ParameterBindings.size(); ++BindingIndex)
+		{
+			const FShaderParameterBinding& Binding = ParameterBindings[BindingIndex];
+			checkf(Binding.Offset < ParametersMetadata.StructSize, "Shader parameter binding offset is out of bounds");
+			FRHIShaderParameterResource& ResourceParameter = ResourceParameters[BindingIndex];
+			ResourceParameter.SetIndex = Binding.SetIndex;
+			ResourceParameter.BindingIndex = Binding.BindingIndex;
+			ResourceParameter.Type = Binding.Type;
+
+			if (Binding.Type == ERHIBindingType::UniformBuffer || Binding.Type == ERHIBindingType::UniformBufferDynamic)
+			{
+				const auto* UniformBufferRange = reinterpret_cast<const FRHIUniformBufferRange*>(ParameterBytes + Binding.Offset);
+				ResourceParameter.Resource = UniformBufferRange->Buffer;
+				ResourceParameter.Offset = UniformBufferRange->Offset;
+				ResourceParameter.Size = UniformBufferRange->Size;
+			}
+			else
+			{
+				const auto* ResourceField = reinterpret_cast<FRHIResource* const*>(ParameterBytes + Binding.Offset);
+				ResourceParameter.Resource = *ResourceField;
+				ResourceParameter.Offset = 0;
+				ResourceParameter.Size = 0;
+			}
+		}
+
+		RHICmdList.SetShaderParameters(RHIShader, std::span(ResourceParameters, ParameterBindings.size()));
 	}
 
 	auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc

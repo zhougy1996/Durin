@@ -6,12 +6,11 @@ namespace Durin
 {
 	class FRHIResource;
 
-	struct FShaderParameterMetadata
+	enum class EShaderParameterMemberKind : uint8
 	{
-		const char* Name = nullptr;
-		uint32 Offset = 0;
-		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
-		uint32 ArraySize = 1;
+		Resource,
+		Value,
+		Struct
 	};
 
 	struct FShaderParameterBinding
@@ -22,6 +21,24 @@ namespace Durin
 		uint32 BindingIndex = 0;
 		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
 		uint32 ArraySize = 1;
+	};
+
+	struct FShaderParameterMemberMetadata
+	{
+		const char* Name = nullptr;
+		uint32 Offset = 0;
+		uint32 Size = 0;
+		uint32 ArraySize = 1;
+		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
+		EShaderParameterMemberKind Kind = EShaderParameterMemberKind::Resource;
+	};
+
+	struct FShaderParametersMetadata
+	{
+		const char* StructName = nullptr;
+		uint32 StructSize = 0;
+		uint32 StructAlignment = 0;
+		std::span<const FShaderParameterMemberMetadata> Members;
 	};
 
 	struct FRHIShaderParameterResource

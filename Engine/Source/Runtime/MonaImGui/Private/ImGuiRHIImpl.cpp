@@ -19,18 +19,9 @@ namespace Durin::MonaImGui
 	public:
 		using FShader::FShader;
 
-		struct FParameters
-		{
-			FRHIUniformBufferRange Projection;
-		};
-
-		static auto StaticParametersMetadata() -> std::span<const FShaderParameterMetadata>
-		{
-			static const std::array Parameters = {
-				DURIN_SHADER_PARAMETER(Projection, ERHIBindingType::UniformBufferDynamic)
-			};
-			return Parameters;
-		}
+		DURIN_BEGIN_SHADER_PARAMETERS()
+			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Projection);
+		DURIN_END_SHADER_PARAMETERS();
 
 		DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FImGuiVertexShader, "ImGuiVertexShader", "/Engine/ImGui", EShaderFrequency::Vertex, "VertexMain");
 	};
@@ -40,20 +31,11 @@ namespace Durin::MonaImGui
 	public:
 		using FShader::FShader;
 
-		struct FParameters
-		{
-			FRHITexture* FontTexture = nullptr;
-			FRHISampler* FontSampler = nullptr;
-		};
+		DURIN_BEGIN_SHADER_PARAMETERS()
+			DURIN_SHADER_PARAMETER_TEXTURE(FontTexture);
+			DURIN_SHADER_PARAMETER_SAMPLER(FontSampler);
+		DURIN_END_SHADER_PARAMETERS();
 
-		static auto StaticParametersMetadata() -> std::span<const FShaderParameterMetadata>
-		{
-			static const std::array Parameters = {
-				DURIN_SHADER_PARAMETER(FontTexture, ERHIBindingType::Texture),
-				DURIN_SHADER_PARAMETER(FontSampler, ERHIBindingType::Sampler)
-			};
-			return Parameters;
-		}
 		DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FImGuiFragmentShader, "ImGuiFragmentShader", "/Engine/ImGui", EShaderFrequency::Fragment, "FragmentMain");
 	};
 
@@ -117,7 +99,6 @@ namespace Durin::MonaImGui
 
 		GDelayedTextureReleases.push_back(std::move(It->second));
 		GRegisteredTextures.erase(It);
-
 	}
 
 	static auto GetRendererViewportData(ImGuiViewport* Viewport) -> FImGuiRHIImpl_RendererViewportData*
@@ -299,11 +280,9 @@ namespace Durin::MonaImGui
 		GBackendState.VertexShader = TShaderRef<FImGuiVertexShader>(VertexShader, ShaderMap.get());
 		GBackendState.FragmentShader = TShaderRef<FImGuiFragmentShader>(FragmentShader, ShaderMap.get());
 
-		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([
-			ShaderMap,
-			VertexShaderRef = GBackendState.VertexShader,
-			FragmentShaderRef = GBackendState.FragmentShader
-		](FRHICommandListImmediate& CommandList) {
+		ENQUEUE_RENDER_COMMAND(CreateImGuiMainPipeline)([ShaderMap,
+														 VertexShaderRef = GBackendState.VertexShader,
+														 FragmentShaderRef = GBackendState.FragmentShader](FRHICommandListImmediate& CommandList) {
 			FVertexDeclarationElementList VertexDeclElements;
 			constexpr uint32 VertexStride = sizeof(ImDrawVert);
 			VertexDeclElements[0] = FVertexElement(0, offsetof(ImDrawVert, pos), EVertexElementType::Float2, 0, VertexStride);
@@ -430,9 +409,7 @@ namespace Durin::MonaImGui
 
 	auto ImGuiRHIImpl_GetTextureID(const FRHITexture* InRHITexture) -> ImTextureID
 	{
-		return GRegisteredTextures.contains(InRHITexture)
-			? reinterpret_cast<ImTextureID>(InRHITexture)
-			: ImTextureID_Invalid;
+		return GRegisteredTextures.contains(InRHITexture) ? reinterpret_cast<ImTextureID>(InRHITexture) : ImTextureID_Invalid;
 	}
 
 	auto ImGuiRHIImpl_EnsureMainViewportData(ImGuiViewport* Viewport) -> void

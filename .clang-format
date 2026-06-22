@@ -305,11 +305,11 @@ IndentFunctionDeclarationAfterType: false
 
 # MacroBlockBegin (std::string)
 # A regular expression matching macros that start a block.
-#MacroBlockBegin:
+MacroBlockBegin: '^DURIN_BEGIN_SHADER_PARAMETERS$'
 
 # MacroBlockEnd (std::string)
 # A regular expression matching macros that end a block.
-#MacroBlockEnd:
+MacroBlockEnd: '^DURIN_END_SHADER_PARAMETERS$'
 
 # MaxEmptyLinesToKeep (unsigned)
 # The maximum number of consecutive empty lines to keep.

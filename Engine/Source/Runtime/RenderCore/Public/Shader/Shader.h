@@ -41,7 +41,7 @@ namespace Durin
 			FShaderFactoryFunction InFactory = nullptr,
 			FShouldCompilePermutationFunction InShouldCompilePermutation = nullptr,
 			FModifyCompilationEnvironmentFunction InModifyCompilationEnvironment = nullptr,
-			std::span<const FShaderParameterMetadata> InParameterMetadata = {}
+			const FShaderParametersMetadata* InParametersMetadata = nullptr
 		);
 
 		RENDERCORE_API ~FShaderType();
@@ -55,7 +55,11 @@ namespace Durin
 		auto GetFrequency() const -> EShaderFrequency { return Frequency; }
 		auto GetEntryPoint() const -> std::string_view { return EntryPoint; }
 		auto GetDebugName() const -> std::string_view { return DebugName; }
-		auto GetParameterMetadata() const -> std::span<const FShaderParameterMetadata> { return ParameterMetadata; }
+		auto GetParametersMetadata() const -> const FShaderParametersMetadata* { return ParametersMetadata; }
+		auto GetParameterMetadata() const -> std::span<const FShaderParameterMemberMetadata>
+		{
+			return ParametersMetadata ? ParametersMetadata->Members : std::span<const FShaderParameterMemberMetadata>{};
+		}
 
 		RENDERCORE_API auto CreateShaderInstance(FShaderMapBase* ShaderMap, const FShaderReflectionData& Reflection) const -> std::unique_ptr<FShader>;
 		RENDERCORE_API auto ShouldCompilePermutation(const FShaderPermutationParameters& Parameters) const -> bool;
@@ -70,7 +74,7 @@ namespace Durin
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
 		std::string EntryPoint;
 		std::string DebugName;
-		std::vector<FShaderParameterMetadata> ParameterMetadata;
+		const FShaderParametersMetadata* ParametersMetadata = nullptr;
 		FShaderFactoryFunction Factory = nullptr;
 		FShouldCompilePermutationFunction ShouldCompilePermutationFn = nullptr;
 		FModifyCompilationEnvironmentFunction ModifyCompilationEnvironmentFn = nullptr;
@@ -114,7 +118,7 @@ namespace Durin
 		EShaderFrequency InFrequency,
 		std::string_view InEntryPoint,
 		std::string_view InDebugName = {},
-		std::span<const FShaderParameterMetadata> InParameterMetadata = {}
+		const FShaderParametersMetadata* InParametersMetadata = nullptr
 	) -> FShaderType
 	{
 		return FShaderType(
@@ -126,19 +130,141 @@ namespace Durin
 			&CreateDefaultShaderInstance<ShaderType>,
 			nullptr,
 			nullptr,
-			InParameterMetadata
+			InParametersMetadata
 		);
 	}
 
+	template<typename ParameterStruct, size_t N>
+	constexpr auto MakeInlineShaderParametersMetadata(
+		std::string_view StructName,
+		const std::array<FShaderParameterMemberMetadata, N>& Members
+	) -> FShaderParametersMetadata
+	{
+		return FShaderParametersMetadata{
+			.StructName = StructName.data(),
+			.StructSize = sizeof(ParameterStruct),
+			.StructAlignment = alignof(ParameterStruct),
+			.Members = Members
+		};
+	}
+
+	template<ERHIBindingType BindingType>
+	struct TShaderParameterCppType;
+
+	template<>
+	struct TShaderParameterCppType<ERHIBindingType::Texture>
+	{
+		using Type = FRHITexture*;
+	};
+
+	template<>
+	struct TShaderParameterCppType<ERHIBindingType::Sampler>
+	{
+		using Type = FRHISampler*;
+	};
+
+	template<>
+	struct TShaderParameterCppType<ERHIBindingType::UniformBuffer>
+	{
+		using Type = FRHIUniformBufferRange;
+	};
+
+	template<>
+	struct TShaderParameterCppType<ERHIBindingType::UniformBufferDynamic>
+	{
+		using Type = FRHIUniformBufferRange;
+	};
+
+	template<ERHIBindingType BindingType, typename MemberType>
+	consteval auto MakeShaderParameterMemberMetadata(const char* Name, uint32 Offset) -> FShaderParameterMemberMetadata
+	{
+		static_assert(std::same_as<MemberType, typename TShaderParameterCppType<BindingType>::Type>, "Shader parameter member type does not match binding type");
+		return FShaderParameterMemberMetadata{
+			.Name = Name,
+			.Offset = Offset,
+			.Size = static_cast<uint32>(sizeof(MemberType)),
+			.ArraySize = 1,
+			.Type = BindingType,
+			.Kind = EShaderParameterMemberKind::Resource
+		};
+	}
+
 	RENDERCORE_API auto BuildShaderParameterBindings(
-		std::span<const FShaderParameterMetadata> ParameterMetadata,
+		const FShaderParametersMetadata* ParametersMetadata,
 		const FShaderReflectionData& Reflection,
 		std::vector<FShaderParameterBinding>& OutBindings,
 		std::string& OutErrorMessage
 	) -> bool;
 
-	#define DURIN_SHADER_PARAMETER(MemberName, BindingType) \
-		FShaderParameterMetadata{#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName)), BindingType, 1}
+	RENDERCORE_API auto SetShaderParametersImpl(
+		FRHICommandListBase& RHICmdList,
+		FRHIShader* RHIShader,
+		const FShaderParametersMetadata& ParametersMetadata,
+		std::span<const FShaderParameterBinding> ParameterBindings,
+		const void* ParameterData
+	) -> void;
+
+	#define DURIN_PRIVATE_SHADER_PARAMETER(MemberType, MemberName, BindingTypeValue) \
+		MemberType MemberName = nullptr; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			return MakeShaderParameterMemberMetadata<BindingTypeValue, decltype(FParameters::MemberName)>( \
+				#MemberName, \
+				static_cast<uint32>(offsetof(FParameters, MemberName)) \
+			); \
+		}
+
+	#define DURIN_BEGIN_SHADER_PARAMETERS() \
+	private: \
+		template<int Index> struct TShaderParameterTag {}; \
+		static constexpr int ShaderParameterCounterBegin = __COUNTER__; \
+	public: \
+		struct FParameters {
+
+	#define DURIN_SHADER_PARAMETER_TEXTURE(MemberName) \
+		DURIN_PRIVATE_SHADER_PARAMETER(FRHITexture*, MemberName, ERHIBindingType::Texture)
+
+	#define DURIN_SHADER_PARAMETER_SAMPLER(MemberName) \
+		DURIN_PRIVATE_SHADER_PARAMETER(FRHISampler*, MemberName, ERHIBindingType::Sampler)
+
+	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(MemberName) \
+		FRHIUniformBufferRange MemberName; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			return MakeShaderParameterMemberMetadata<ERHIBindingType::UniformBuffer, decltype(FParameters::MemberName)>( \
+				#MemberName, \
+				static_cast<uint32>(offsetof(FParameters, MemberName)) \
+			); \
+		}
+
+	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MemberName) \
+		FRHIUniformBufferRange MemberName; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			return MakeShaderParameterMemberMetadata<ERHIBindingType::UniformBufferDynamic, decltype(FParameters::MemberName)>( \
+				#MemberName, \
+				static_cast<uint32>(offsetof(FParameters, MemberName)) \
+			); \
+		}
+
+	#define DURIN_END_SHADER_PARAMETERS() \
+		}; \
+	private: \
+		static constexpr int ShaderParameterCounterEnd = __COUNTER__; \
+		template<int... Indices> \
+		static auto BuildShaderParameterMemberMetadata(std::integer_sequence<int, Indices...>) \
+			-> std::array<FShaderParameterMemberMetadata, sizeof...(Indices)> \
+		{ \
+			return {FParameters::GetShaderParameterMemberMetadata(TShaderParameterTag<ShaderParameterCounterBegin + 1 + Indices>{})...}; \
+		} \
+	public: \
+		static auto GetParametersMetadata() -> const FShaderParametersMetadata& \
+		{ \
+			static_assert(std::is_standard_layout_v<FParameters>, "Shader parameter structs must use standard layout"); \
+			static const auto Members = BuildShaderParameterMemberMetadata(std::make_integer_sequence<int, ShaderParameterCounterEnd - ShaderParameterCounterBegin - 1>{}); \
+			static const FShaderParametersMetadata ParametersMetadata = MakeInlineShaderParametersMetadata<FParameters>("FParameters", Members); \
+			return ParametersMetadata; \
+		}
 
 	#define DURIN_DECLARE_SHADER_TYPE(ShaderClass, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
 		static auto StaticType() -> FShaderType& \
@@ -156,7 +282,7 @@ namespace Durin
 				FrequencyValue, \
 				EntryPointLiteral, \
 				{}, \
-				ShaderClass::StaticParametersMetadata() \
+				&ShaderClass::GetParametersMetadata() \
 			); \
 			return ShaderType; \
 		}
@@ -297,34 +423,15 @@ namespace Durin
 	{
 		const ShaderType* ShaderContent = Shader.GetShader();
 		check(ShaderContent);
+		static_assert(std::is_standard_layout_v<typename ShaderType::FParameters>, "Shader parameter structs must use standard layout");
 
-		std::vector<FRHIShaderParameterResource> ResourceParameters;
-		ResourceParameters.reserve(ShaderContent->GetParameterBindings().size());
-
-		const auto* ParameterBytes = reinterpret_cast<const uint8*>(&Parameters);
-		for (const FShaderParameterBinding& Binding : ShaderContent->GetParameterBindings())
-		{
-			FRHIShaderParameterResource ResourceParameter;
-			ResourceParameter.SetIndex = Binding.SetIndex;
-			ResourceParameter.BindingIndex = Binding.BindingIndex;
-			ResourceParameter.Type = Binding.Type;
-
-			if (Binding.Type == ERHIBindingType::UniformBuffer || Binding.Type == ERHIBindingType::UniformBufferDynamic)
-			{
-				const auto* UniformBufferRange = reinterpret_cast<const FRHIUniformBufferRange*>(ParameterBytes + Binding.Offset);
-				ResourceParameter.Resource = UniformBufferRange->Buffer;
-				ResourceParameter.Offset = UniformBufferRange->Offset;
-				ResourceParameter.Size = UniformBufferRange->Size;
-			}
-			else
-			{
-				const auto* ResourceField = reinterpret_cast<FRHIResource* const*>(ParameterBytes + Binding.Offset);
-				ResourceParameter.Resource = *ResourceField;
-			}
-
-			ResourceParameters.push_back(ResourceParameter);
-		}
-
-		RHICmdList.SetShaderParameters(Shader.GetRHIShader(), ResourceParameters);
+		const FShaderParametersMetadata* ParametersMetadata = ShaderContent->GetType() ? ShaderContent->GetType()->GetParametersMetadata() : nullptr;
+		checkf(ParametersMetadata, "Shader '{}' must provide parameter metadata", ShaderContent->GetType() ? ShaderContent->GetType()->GetName() : "<unknown>");
+		checkf(
+			ParametersMetadata->StructSize == sizeof(typename ShaderType::FParameters),
+			"Shader '{}' parameter struct size mismatch",
+			ShaderContent->GetType() ? ShaderContent->GetType()->GetName() : "<unknown>"
+		);
+		SetShaderParametersImpl(RHICmdList, Shader.GetRHIShader(), *ParametersMetadata, ShaderContent->GetParameterBindings(), &Parameters);
 	}
 } // namespace Durin

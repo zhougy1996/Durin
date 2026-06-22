@@ -23,21 +23,18 @@ namespace Durin
 		public:
 			using FShader::FShader;
 
-			struct FParameters
-			{
-				FRHITexture* FontTexture = nullptr;
-			};
-
-			static auto StaticParametersMetadata() -> std::span<const FShaderParameterMetadata>
-			{
-				static const std::array Parameters = {
-					DURIN_SHADER_PARAMETER(FontTexture, ERHIBindingType::Texture)
-				};
-				return Parameters;
-			}
+			DURIN_BEGIN_SHADER_PARAMETERS()
+				DURIN_SHADER_PARAMETER_TEXTURE(FontTexture);
+			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FStaticFragmentShader, "StaticFragmentShader", "/Unit/StaticShader", EShaderFrequency::Fragment, "fragmentMain");
 		};
+
+		template<typename ParameterStruct, size_t N>
+		auto MakeTestParametersMetadata(const std::array<FShaderParameterMemberMetadata, N>& Members) -> FShaderParametersMetadata
+		{
+			return MakeInlineShaderParametersMetadata<ParameterStruct>("FParameters", Members);
+		}
 
 		auto MakeCode(uint8 Seed) -> std::shared_ptr<std::vector<std::byte>>
 		{
@@ -372,8 +369,8 @@ namespace Durin
 		};
 
 		const std::array Metadata = {
-			FShaderParameterMetadata{"FontTexture", static_cast<uint32>(offsetof(FParameters, FontTexture)), ERHIBindingType::Texture, 1},
-			FShaderParameterMetadata{"FontSampler", static_cast<uint32>(offsetof(FParameters, FontSampler)), ERHIBindingType::Sampler, 1}
+			MakeShaderParameterMemberMetadata<ERHIBindingType::Texture, decltype(FParameters::FontTexture)>("FontTexture", static_cast<uint32>(offsetof(FParameters, FontTexture))),
+			MakeShaderParameterMemberMetadata<ERHIBindingType::Sampler, decltype(FParameters::FontSampler)>("FontSampler", static_cast<uint32>(offsetof(FParameters, FontSampler)))
 		};
 
 		FShaderReflectionData Reflection;
@@ -396,7 +393,8 @@ namespace Durin
 
 		std::vector<FShaderParameterBinding> Bindings;
 		std::string ErrorMessage;
-		ASSERT_TRUE(BuildShaderParameterBindings(Metadata, Reflection, Bindings, ErrorMessage)) << ErrorMessage;
+		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
+		ASSERT_TRUE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings, ErrorMessage)) << ErrorMessage;
 		ASSERT_EQ(Bindings.size(), 2u);
 		EXPECT_STREQ(Bindings[0].Name, "FontTexture");
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FParameters, FontTexture));
@@ -417,7 +415,7 @@ namespace Durin
 		};
 
 		const std::array Metadata = {
-			FShaderParameterMetadata{"SceneUniform", static_cast<uint32>(offsetof(FParameters, SceneUniform)), ERHIBindingType::UniformBufferDynamic, 1}
+			MakeShaderParameterMemberMetadata<ERHIBindingType::UniformBufferDynamic, decltype(FParameters::SceneUniform)>("SceneUniform", static_cast<uint32>(offsetof(FParameters, SceneUniform)))
 		};
 
 		FShaderReflectionData Reflection;
@@ -432,7 +430,8 @@ namespace Durin
 
 		std::vector<FShaderParameterBinding> Bindings;
 		std::string ErrorMessage;
-		ASSERT_TRUE(BuildShaderParameterBindings(Metadata, Reflection, Bindings, ErrorMessage)) << ErrorMessage;
+		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
+		ASSERT_TRUE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings, ErrorMessage)) << ErrorMessage;
 		ASSERT_EQ(Bindings.size(), 1u);
 		EXPECT_EQ(Bindings[0].Type, ERHIBindingType::UniformBufferDynamic);
 		EXPECT_EQ(Bindings[0].SetIndex, 1u);
@@ -448,8 +447,9 @@ namespace Durin
 		};
 
 		const std::array Metadata = {
-			FShaderParameterMetadata{"SceneUniform", static_cast<uint32>(offsetof(FParameters, SceneUniform)), ERHIBindingType::UniformBufferDynamic, 1}
+			MakeShaderParameterMemberMetadata<ERHIBindingType::UniformBufferDynamic, decltype(FParameters::SceneUniform)>("SceneUniform", static_cast<uint32>(offsetof(FParameters, SceneUniform)))
 		};
+		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
 		FShaderType VertexShaderType(
 			"UnitDynamicUniformVertexShader",
 			"/Unit/TestShader",
@@ -459,7 +459,7 @@ namespace Durin
 			nullptr,
 			nullptr,
 			nullptr,
-			Metadata
+			&ParametersMetadata
 		);
 		std::array<const FShaderType*, 1> ShaderTypes = {&VertexShaderType};
 
@@ -489,22 +489,33 @@ namespace Durin
 
 	TEST(FShaderFoundationTests, BuildShaderParameterBindingsRejectsMissingReflectionBinding)
 	{
+		struct FParameters
+		{
+			FRHITexture* MissingTexture = nullptr;
+		};
+
 		const std::array Metadata = {
-			FShaderParameterMetadata{"MissingTexture", 0, ERHIBindingType::Texture, 1}
+			MakeShaderParameterMemberMetadata<ERHIBindingType::Texture, decltype(FParameters::MissingTexture)>("MissingTexture", 0)
 		};
 
 		FShaderReflectionData Reflection;
 		std::vector<FShaderParameterBinding> Bindings;
 		std::string ErrorMessage;
-		EXPECT_FALSE(BuildShaderParameterBindings(Metadata, Reflection, Bindings, ErrorMessage));
+		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
+		EXPECT_FALSE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings, ErrorMessage));
 		EXPECT_FALSE(ErrorMessage.empty());
 		EXPECT_TRUE(Bindings.empty());
 	}
 
 	TEST(FShaderFoundationTests, BuildShaderParameterBindingsRejectsTypeMismatch)
 	{
+		struct FParameters
+		{
+			FRHITexture* FontTexture = nullptr;
+		};
+
 		const std::array Metadata = {
-			FShaderParameterMetadata{"FontTexture", 0, ERHIBindingType::Texture, 1}
+			MakeShaderParameterMemberMetadata<ERHIBindingType::Texture, decltype(FParameters::FontTexture)>("FontTexture", 0)
 		};
 
 		FShaderReflectionData Reflection;
@@ -519,7 +530,8 @@ namespace Durin
 
 		std::vector<FShaderParameterBinding> Bindings;
 		std::string ErrorMessage;
-		EXPECT_FALSE(BuildShaderParameterBindings(Metadata, Reflection, Bindings, ErrorMessage));
+		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
+		EXPECT_FALSE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings, ErrorMessage));
 		EXPECT_FALSE(ErrorMessage.empty());
 		EXPECT_TRUE(Bindings.empty());
 	}
@@ -532,8 +544,9 @@ namespace Durin
 		};
 
 		const std::array Metadata = {
-			FShaderParameterMetadata{"FontTexture", static_cast<uint32>(offsetof(FParameters, FontTexture)), ERHIBindingType::Texture, 1}
+			MakeShaderParameterMemberMetadata<ERHIBindingType::Texture, decltype(FParameters::FontTexture)>("FontTexture", static_cast<uint32>(offsetof(FParameters, FontTexture)))
 		};
+		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
 		FShaderType FragmentShaderType(
 			"UnitFragmentShader",
 			"/Unit/TestShader",
@@ -543,7 +556,7 @@ namespace Durin
 			nullptr,
 			nullptr,
 			nullptr,
-			Metadata
+			&ParametersMetadata
 		);
 		std::array<const FShaderType*, 1> ShaderTypes = {&FragmentShaderType};
 
@@ -590,6 +603,9 @@ namespace Durin
 		const auto ParameterMetadata = FragmentShaderType.GetParameterMetadata();
 		ASSERT_EQ(ParameterMetadata.size(), 1u);
 		EXPECT_STREQ(ParameterMetadata[0].Name, "FontTexture");
+		EXPECT_EQ(ParameterMetadata[0].Kind, EShaderParameterMemberKind::Resource);
+		EXPECT_EQ(ParameterMetadata[0].Size, sizeof(decltype(FStaticFragmentShader::FParameters::FontTexture)));
+		EXPECT_EQ(FragmentShaderType.GetParametersMetadata()->StructSize, sizeof(FStaticFragmentShader::FParameters));
 
 		FShaderReflectionData Reflection;
 		Reflection.ResourceBindings.push_back({
