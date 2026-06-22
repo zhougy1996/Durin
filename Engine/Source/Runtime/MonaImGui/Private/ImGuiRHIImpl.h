@@ -11,7 +11,6 @@ namespace Durin::MonaImGui
 	{
 		FBufferRHIRef VertexBuffer;
 		FBufferRHIRef IndexBuffer;
-		FBufferRHIRef ProjectionUniform;
 	};
 
 	struct FImGuiRHIImpl_WindowRenderBuffers

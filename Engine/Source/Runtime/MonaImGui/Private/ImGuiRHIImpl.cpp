@@ -18,7 +18,21 @@ namespace Durin::MonaImGui
 	{
 	public:
 		using FShader::FShader;
-		DURIN_DECLARE_SHADER_TYPE(FImGuiVertexShader, "ImGuiVertexShader", "/Engine/ImGui", EShaderFrequency::Vertex, "vertexMain");
+
+		struct FParameters
+		{
+			FRHIUniformBufferRange Projection;
+		};
+
+		static auto StaticParametersMetadata() -> std::span<const FShaderParameterMetadata>
+		{
+			static const std::array Parameters = {
+				DURIN_SHADER_PARAMETER(Projection, ERHIBindingType::UniformBufferDynamic)
+			};
+			return Parameters;
+		}
+
+		DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FImGuiVertexShader, "ImGuiVertexShader", "/Engine/ImGui", EShaderFrequency::Vertex, "VertexMain");
 	};
 
 	class FImGuiFragmentShader : public FShader
@@ -28,19 +42,19 @@ namespace Durin::MonaImGui
 
 		struct FParameters
 		{
-			FRHITexture* fontTexture = nullptr;
-			FRHISampler* fontSampler = nullptr;
+			FRHITexture* FontTexture = nullptr;
+			FRHISampler* FontSampler = nullptr;
 		};
 
 		static auto StaticParametersMetadata() -> std::span<const FShaderParameterMetadata>
 		{
 			static const std::array Parameters = {
-				DURIN_SHADER_PARAMETER(fontTexture, ERHIBindingType::Texture),
-				DURIN_SHADER_PARAMETER(fontSampler, ERHIBindingType::Sampler)
+				DURIN_SHADER_PARAMETER(FontTexture, ERHIBindingType::Texture),
+				DURIN_SHADER_PARAMETER(FontSampler, ERHIBindingType::Sampler)
 			};
 			return Parameters;
 		}
-		DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FImGuiFragmentShader, "ImGuiFragmentShader", "/Engine/ImGui", EShaderFrequency::Fragment, "fragmentMain");
+		DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FImGuiFragmentShader, "ImGuiFragmentShader", "/Engine/ImGui", EShaderFrequency::Fragment, "FragmentMain");
 	};
 
 	// State of the ImGui RHI backend, stored in a struct to ensure proper initialization order of static variables.
@@ -82,7 +96,6 @@ namespace Durin::MonaImGui
 		{
 			Buffers.VertexBuffer = nullptr;
 			Buffers.IndexBuffer = nullptr;
-			Buffers.ProjectionUniform = nullptr;
 		}
 	}
 
@@ -543,26 +556,35 @@ namespace Durin::MonaImGui
 		}
 	}
 
+	static auto ImGuiRHIImplRT_CreateProjectionUniform(FRHICommandListImmediate& CommandList, const ImDrawData* DrawData) -> FRHIUniformBufferRange
+	{
+		FImGuiRHIImpl_ConstantBufferData ProjectionData;
+		ProjectionData.Scale.x = 2.0f / DrawData->DisplaySize.x;
+		ProjectionData.Scale.y = 2.0f / DrawData->DisplaySize.y;
+		ProjectionData.Translation.x = -1.0f - DrawData->DisplayPos.x * ProjectionData.Scale.x;
+		ProjectionData.Translation.y = -1.0f - DrawData->DisplayPos.y * ProjectionData.Scale.y;
+		return CommandList.AllocateDynamicUniformBuffer(&ProjectionData, sizeof(ProjectionData));
+	}
+
 	static auto ImGuiRHIImplRT_SetupRenderState(
 		FRHICommandListImmediate& CommandList,
 		const ImDrawData* DrawData,
-		FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers
+		FImGuiRHIImpl_FrameRenderBuffers& RenderBuffers,
+		FRHIUniformBufferRange ProjectionUniform
 	) -> void
 	{
 		const int32 FrameBufferWidth = static_cast<int32>(DrawData->DisplaySize.x * DrawData->FramebufferScale.x);
 		const int32 FrameBufferHeight = static_cast<int32>(DrawData->DisplaySize.y * DrawData->FramebufferScale.y);
 
 		CommandList.SetGraphicsPipelineState(*GBackendState.PipelineState);
+
+		FImGuiVertexShader::FParameters VertexShaderParameters;
+		VertexShaderParameters.Projection = ProjectionUniform;
+		SetShaderParameters(CommandList, GBackendState.VertexShader, VertexShaderParameters);
+
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f, FrameBufferWidth, FrameBufferHeight, 1.0f);
 		CommandList.BindVertexBuffer(0, RenderBuffers.VertexBuffer, 0);
 		CommandList.BindIndexBuffer(RenderBuffers.IndexBuffer, 0);
-
-		FImGuiRHIImpl_ConstantBufferData DataToPush;
-		DataToPush.Scale.x = 2.0f / DrawData->DisplaySize.x;
-		DataToPush.Scale.y = 2.0f / DrawData->DisplaySize.y;
-		DataToPush.Translation.x = -1.0f - DrawData->DisplayPos.x * DataToPush.Scale.x;
-		DataToPush.Translation.y = -1.0f - DrawData->DisplayPos.y * DataToPush.Scale.y;
-		CommandList.PushConstants(EShaderStageFlags::Vertex, 0, sizeof(FImGuiRHIImpl_ConstantBufferData), &DataToPush);
 
 		// Reset to a full-frame scissor so the next draw command starts from known state.
 		CommandList.SetScissor(0.0f, 0.0f, FrameBufferWidth, FrameBufferHeight);
@@ -592,9 +614,10 @@ namespace Durin::MonaImGui
 		FRHIRenderPassInfo PassInfo{};
 		PassInfo.ColorRenderTargets[0] = InTargetFrameBuffer;
 		PassInfo.ColorClearValue = ClearValue;
+		const FRHIUniformBufferRange ProjectionUniform = ImGuiRHIImplRT_CreateProjectionUniform(CommandList, DrawData);
 
 		CommandList.BeginRenderPass(PassInfo, "ImGuiRenderPass");
-		ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers);
+		ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers, ProjectionUniform);
 
 		int GlobalVertexOffset = 0;
 		int GlobalIndexOffset = 0;
@@ -610,7 +633,7 @@ namespace Durin::MonaImGui
 					// (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
 					if (Cmd->UserCallback == ImDrawCallback_ResetRenderState)
 					{
-						ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers);
+						ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers, ProjectionUniform);
 					}
 					else
 					{
@@ -619,7 +642,7 @@ namespace Durin::MonaImGui
 				}
 				else
 				{
-					ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers);
+					ImGuiRHIImplRT_SetupRenderState(CommandList, DrawData, RenderBuffers, ProjectionUniform);
 
 					const ImVec2 ClipMin((Cmd->ClipRect.x - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.y - ClipOff.y) * ClipScale.y);
 					const ImVec2 ClipMax((Cmd->ClipRect.z - ClipOff.x) * ClipScale.x, (Cmd->ClipRect.w - ClipOff.y) * ClipScale.y);
@@ -635,8 +658,8 @@ namespace Durin::MonaImGui
 					CommandList.SetScissor(ScissorMinX, ScissorMinY, ScissorMaxX - ScissorMinX, ScissorMaxY - ScissorMinY);
 
 					FImGuiFragmentShader::FParameters ShaderParameters;
-					ShaderParameters.fontTexture = reinterpret_cast<FRHITexture*>(Cmd->GetTexID());
-					ShaderParameters.fontSampler = GBackendState.LinearSampler;
+					ShaderParameters.FontTexture = reinterpret_cast<FRHITexture*>(Cmd->GetTexID());
+					ShaderParameters.FontSampler = GBackendState.LinearSampler;
 					SetShaderParameters(CommandList, GBackendState.FragmentShader, ShaderParameters);
 
 					CommandList.DrawIndexed(Cmd->ElemCount, Cmd->IdxOffset + GlobalIndexOffset, Cmd->VtxOffset + GlobalVertexOffset);

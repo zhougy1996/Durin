@@ -14,27 +14,27 @@ struct VSOutput
     float4 col : COLOR;
 };
 
-struct PushConstant {
+struct ProjectionUniform {
     float2 uScale;
     float2 uTranslate;
 };
 
-[[vk::push_constant]] ConstantBuffer<PushConstant> pc;
-[[vk::binding(0, 0)]] Texture2D<float4> fontTexture;
-[[vk::binding(1, 0)]] SamplerState fontSampler;
+[[vk::binding(0, 0)]] Texture2D<float4> FontTexture;
+[[vk::binding(1, 0)]] SamplerState FontSampler;
+[[vk::binding(2, 0)]] ConstantBuffer<ProjectionUniform> Projection;
 
 [shader("vertex")]
-VSOutput vertexMain(VSInput input)
+VSOutput VertexMain(VSInput input)
 {
     VSOutput output;
-    output.pos = float4(input.pos * pc.uScale + pc.uTranslate, 0.0, 1.0);
+    output.pos = float4(input.pos * Projection.uScale + Projection.uTranslate, 0.0, 1.0);
     output.uv  = input.uv;
     output.col = input.col;
     return output;
 }
 
 [shader("fragment")]
-float4 fragmentMain(VSOutput input) : SV_Target
+float4 FragmentMain(VSOutput input) : SV_Target
 {
-    return input.col * fontTexture.Sample(fontSampler, input.uv);
+    return input.col * FontTexture.Sample(FontSampler, input.uv);
 }

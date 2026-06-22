@@ -9,8 +9,6 @@ namespace Durin::MonaImGui
 {
 	ImGuiContext* GMonaImGuiContext = nullptr;
 
-	// ---- Event Handler (merged from MonaImGuiEventHandler) ------------------
-
 	class FMonaImGuiEventHandler : public Mona::FMonaEventHandler
 	{
 	public:
@@ -80,19 +78,17 @@ namespace Durin::MonaImGui
 
 	static auto DestroyPlatformViewportData(ImGuiViewport* Viewport) -> void
 	{
+		check(Viewport);
 #if defined(_WIN32)
-		if (Viewport != nullptr)
+		if (auto* ViewportData = GetPlatformViewportData(Viewport))
 		{
-			if (auto* ViewportData = GetPlatformViewportData(Viewport))
+			if (ViewportData->PrevWndProc != nullptr && Viewport->PlatformHandleRaw != nullptr)
 			{
-				if (ViewportData->PrevWndProc != nullptr && Viewport->PlatformHandleRaw != nullptr)
-				{
-					HWND WindowHandle = static_cast<HWND>(Viewport->PlatformHandleRaw);
-					::SetWindowLongPtrW(WindowHandle, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ViewportData->PrevWndProc));
-					::RemovePropA(WindowHandle, MonaImGuiViewportProp);
-					::RemovePropA(WindowHandle, MonaImGuiPrevWndProcProp);
-					ViewportData->PrevWndProc = nullptr;
-				}
+				HWND WindowHandle = static_cast<HWND>(Viewport->PlatformHandleRaw);
+				::SetWindowLongPtrW(WindowHandle, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ViewportData->PrevWndProc));
+				::RemovePropA(WindowHandle, MonaImGuiViewportProp);
+				::RemovePropA(WindowHandle, MonaImGuiPrevWndProcProp);
+				ViewportData->PrevWndProc = nullptr;
 			}
 		}
 #endif
