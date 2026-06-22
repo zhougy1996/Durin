@@ -342,6 +342,38 @@ namespace Durin
 			OutCacheKey = Builder.Finalize();
 			return true;
 		}
+
+		auto FlattenShaderParameterMembers(
+			const FShaderParametersMetadata* ParametersMetadata,
+			std::vector<FShaderParameterMemberMetadata>& OutMembers,
+			std::vector<const FShaderParametersMetadata*>& TraversalStack
+		) -> void
+		{
+			if (ParametersMetadata == nullptr)
+			{
+				return;
+			}
+
+			const auto ExistingIt = std::ranges::find(TraversalStack, ParametersMetadata);
+			checkf(ExistingIt == TraversalStack.end(), "Shader parameter metadata include cycle detected");
+			TraversalStack.push_back(ParametersMetadata);
+
+			FlattenShaderParameterMembers(ParametersMetadata->IncludedParameters, OutMembers, TraversalStack);
+			for (const FShaderParameterMemberMetadata& Member : ParametersMetadata->Members)
+			{
+				if (Member.Name != nullptr && Member.Name[0] != '\0')
+				{
+					const auto DuplicateIt = std::ranges::find_if(OutMembers, [&Member](const FShaderParameterMemberMetadata& ExistingMember) {
+						return ExistingMember.Name != nullptr && std::string_view(ExistingMember.Name) == Member.Name;
+					});
+					checkf(DuplicateIt == OutMembers.end(), "Duplicate shader parameter member '{}'", Member.Name);
+				}
+
+				OutMembers.push_back(Member);
+			}
+
+			TraversalStack.pop_back();
+		}
 	} // namespace
 
 	FShaderType::FShaderType(
@@ -474,6 +506,40 @@ namespace Durin
 		return true;
 	}
 
+	auto BuildCombinedShaderParametersMetadataStorage(
+		std::string_view StructName,
+		uint32 StructSize,
+		uint32 StructAlignment,
+		std::span<const FShaderParameterMemberMetadata> OwnMembers,
+		const FShaderParametersMetadata* IncludedParameters
+	) -> FShaderParametersMetadataStorage
+	{
+		FShaderParametersMetadataStorage Storage;
+		Storage.OwnedMembers.reserve(OwnMembers.size() + (IncludedParameters ? IncludedParameters->Members.size() : 0));
+
+		std::vector<const FShaderParametersMetadata*> TraversalStack;
+		FlattenShaderParameterMembers(IncludedParameters, Storage.OwnedMembers, TraversalStack);
+		for (const FShaderParameterMemberMetadata& Member : OwnMembers)
+		{
+			if (Member.Name != nullptr && Member.Name[0] != '\0')
+			{
+				const auto DuplicateIt = std::ranges::find_if(Storage.OwnedMembers, [&Member](const FShaderParameterMemberMetadata& ExistingMember) {
+					return ExistingMember.Name != nullptr && std::string_view(ExistingMember.Name) == Member.Name;
+				});
+				checkf(DuplicateIt == Storage.OwnedMembers.end(), "Duplicate shader parameter member '{}'", Member.Name);
+			}
+
+			Storage.OwnedMembers.push_back(Member);
+		}
+
+		Storage.Metadata.StructName = StructName.data();
+		Storage.Metadata.StructSize = StructSize;
+		Storage.Metadata.StructAlignment = StructAlignment;
+		Storage.Metadata.IncludedParameters = IncludedParameters;
+		Storage.Metadata.Members = Storage.OwnedMembers;
+		return Storage;
+	}
+
 	auto SetShaderParametersImpl(
 		FRHICommandListBase& RHICmdList,
 		FRHIShader* RHIShader,
@@ -483,6 +549,10 @@ namespace Durin
 	) -> void
 	{
 		checkf(ParameterData != nullptr, "Shader parameter data must not be null");
+		checkf(
+			ParametersMetadata.IncludedParameters == nullptr,
+			"SetShaderParameters does not support included shader parameter metadata until parameter layout composition is implemented"
+		);
 		for (const FShaderParameterMemberMetadata& Member : ParametersMetadata.Members)
 		{
 			checkf(

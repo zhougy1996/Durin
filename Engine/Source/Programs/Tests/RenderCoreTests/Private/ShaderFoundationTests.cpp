@@ -14,20 +14,73 @@ namespace Durin
 		class FStaticVertexShader : public FShader
 		{
 		public:
-			using FShader::FShader;
-			DURIN_DECLARE_SHADER_TYPE(FStaticVertexShader, "StaticVertexShader", "/Unit/StaticShader", EShaderFrequency::Vertex, "vertexMain");
+			DURIN_DECLARE_SHADER(FStaticVertexShader, FShader, "/Unit/StaticShader", EShaderFrequency::Vertex, "vertexMain");
 		};
 
 		class FStaticFragmentShader : public FShader
 		{
 		public:
-			using FShader::FShader;
-
-			DURIN_BEGIN_SHADER_PARAMETERS()
+			DURIN_BEGIN_SHADER_PARAMETERS(FStaticFragmentShader)
 				DURIN_SHADER_PARAMETER_TEXTURE(FontTexture);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FStaticFragmentShader, "StaticFragmentShader", "/Unit/StaticShader", EShaderFrequency::Fragment, "fragmentMain");
+			DURIN_DECLARE_SHADER(FStaticFragmentShader, FShader, "/Unit/StaticShader", EShaderFrequency::Fragment, "fragmentMain");
+		};
+
+		class FIntermediateShader : public FShader
+		{
+		public:
+			DURIN_DECLARE_SHADER(FIntermediateShader, FShader, "/Unit/InheritanceShader", EShaderFrequency::Vertex, "baseMain");
+		};
+
+		class FDerivedShaderNoParameters : public FIntermediateShader
+		{
+		public:
+			DURIN_DECLARE_SHADER(FDerivedShaderNoParameters, FIntermediateShader, "/Unit/InheritanceShader", EShaderFrequency::Vertex, "derivedNoParamsMain");
+		};
+
+		class FDerivedShaderWithParameters : public FIntermediateShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FDerivedShaderWithParameters)
+				DURIN_SHADER_PARAMETER_TEXTURE(FontTexture);
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_SHADER(FDerivedShaderWithParameters, FIntermediateShader, "/Unit/InheritanceShader", EShaderFrequency::Fragment, "derivedWithParamsMain");
+		};
+
+		class FIncludedParametersShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FIncludedParametersShader)
+				DURIN_SHADER_PARAMETER_TEXTURE(FontTexture);
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_SHADER(FIncludedParametersShader, FShader, "/Unit/IncludeShader", EShaderFrequency::Fragment, "includeBaseMain");
+		};
+
+		class FExplicitIncludeOnlyShader : public FIntermediateShader
+		{
+		public:
+			DURIN_INCLUDE_SHADER_PARAMETERS_FOR(FExplicitIncludeOnlyShader, FIncludedParametersShader);
+			DURIN_DECLARE_SHADER(FExplicitIncludeOnlyShader, FIntermediateShader, "/Unit/IncludeShader", EShaderFrequency::Fragment, "includeOnlyMain");
+		};
+
+		class FExplicitIncludeWithOwnParametersShader : public FIntermediateShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FExplicitIncludeWithOwnParametersShader)
+				DURIN_SHADER_PARAMETER_SAMPLER(FontSampler);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_INCLUDE_SHADER_PARAMETERS(FIncludedParametersShader);
+
+			DURIN_DECLARE_SHADER(FExplicitIncludeWithOwnParametersShader, FIntermediateShader, "/Unit/IncludeShader", EShaderFrequency::Fragment, "includeOwnMain");
+		};
+
+		class FNamedShaderAlias : public FShader
+		{
+		public:
+			DURIN_DECLARE_SHADER_NAMED(FNamedShaderAlias, FShader, "ExplicitNamedShader", "/Unit/NamedShader", EShaderFrequency::Fragment, "namedMain");
 		};
 
 		template<typename ParameterStruct, size_t N>
@@ -596,7 +649,7 @@ namespace Durin
 		FShaderType& FragmentShaderType = FStaticFragmentShader::StaticType();
 
 		EXPECT_EQ(&FStaticVertexShader::StaticType(), &VertexShaderType);
-		EXPECT_EQ(VertexShaderType.GetName(), "StaticVertexShader");
+		EXPECT_EQ(VertexShaderType.GetName(), "FStaticVertexShader");
 		EXPECT_EQ(VertexShaderType.GetVirtualShaderPath(), "/Unit/StaticShader");
 		EXPECT_EQ(VertexShaderType.GetEntryPoint(), "vertexMain");
 
@@ -635,6 +688,123 @@ namespace Durin
 		ASSERT_EQ(Bindings.size(), 1u);
 		EXPECT_EQ(Bindings[0].BindingIndex, 2u);
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FStaticFragmentShader::FParameters, FontTexture));
+	}
+
+	TEST(FShaderFoundationTests, ShaderDeclarationMacrosUseDefaultAndExplicitTypeNames)
+	{
+		FShaderType& DefaultNamedShaderType = FStaticVertexShader::StaticType();
+		FShaderType& ExplicitNamedShaderType = FNamedShaderAlias::StaticType();
+
+		EXPECT_EQ(DefaultNamedShaderType.GetName(), "FStaticVertexShader");
+		EXPECT_EQ(ExplicitNamedShaderType.GetName(), "ExplicitNamedShader");
+	}
+
+	TEST(FShaderFoundationTests, DerivedShaderDeclarationUsesExplicitSuperAndDoesNotImplicitlyInheritParameters)
+	{
+		FShaderType& BaseShaderType = FIntermediateShader::StaticType();
+		FShaderType& DerivedNoParametersType = FDerivedShaderNoParameters::StaticType();
+		FShaderType& DerivedWithParametersType = FDerivedShaderWithParameters::StaticType();
+
+		EXPECT_EQ(BaseShaderType.GetName(), "FIntermediateShader");
+		EXPECT_EQ(DerivedNoParametersType.GetName(), "FDerivedShaderNoParameters");
+		EXPECT_EQ(DerivedWithParametersType.GetName(), "FDerivedShaderWithParameters");
+		EXPECT_TRUE(DerivedNoParametersType.GetParameterMetadata().empty());
+		ASSERT_NE(DerivedWithParametersType.GetParametersMetadata(), nullptr);
+		ASSERT_EQ(DerivedWithParametersType.GetParameterMetadata().size(), 1u);
+		EXPECT_STREQ(DerivedWithParametersType.GetParameterMetadata()[0].Name, "FontTexture");
+
+		FShaderReflectionData BaseReflection;
+		FShaderReflectionData DerivedWithParametersReflection;
+		DerivedWithParametersReflection.ResourceBindings.push_back({
+			.Name = "FontTexture",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 1,
+			.BindingIndex = 7,
+			.Type = ERHIBindingType::Texture,
+			.ArraySize = 1
+		});
+
+		FShaderCompilerOutput Output;
+		Output.bSucceeded = true;
+		Output.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Vertex, "baseMain", "FIntermediateShader", 31, BaseReflection),
+			MakeCompiledShader(EShaderFrequency::Vertex, "derivedNoParamsMain", "FDerivedShaderNoParameters", 32, BaseReflection),
+			MakeCompiledShader(EShaderFrequency::Fragment, "derivedWithParamsMain", "FDerivedShaderWithParameters", 33, DerivedWithParametersReflection)
+		};
+
+		std::array<const FShaderType*, 3> ShaderTypes = {&BaseShaderType, &DerivedNoParametersType, &DerivedWithParametersType};
+		FShaderMapBase ShaderMap;
+		std::string ErrorMessage;
+		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+
+		const auto* BaseShader = static_cast<const FIntermediateShader*>(ShaderMap.GetShader(&BaseShaderType));
+		const auto* DerivedNoParametersShader = static_cast<const FDerivedShaderNoParameters*>(ShaderMap.GetShader(&DerivedNoParametersType));
+		const auto* DerivedWithParametersShader = static_cast<const FDerivedShaderWithParameters*>(ShaderMap.GetShader(&DerivedWithParametersType));
+		ASSERT_NE(BaseShader, nullptr);
+		ASSERT_NE(DerivedNoParametersShader, nullptr);
+		ASSERT_NE(DerivedWithParametersShader, nullptr);
+		EXPECT_TRUE(BaseShader->GetParameterBindings().empty());
+		EXPECT_TRUE(DerivedNoParametersShader->GetParameterBindings().empty());
+		ASSERT_EQ(DerivedWithParametersShader->GetParameterBindings().size(), 1u);
+		EXPECT_EQ(DerivedWithParametersShader->GetParameterBindings()[0].BindingIndex, 7u);
+		EXPECT_EQ(DerivedWithParametersShader->GetParameterBindings()[0].Offset, offsetof(FDerivedShaderWithParameters::FParameters, FontTexture));
+	}
+
+	TEST(FShaderFoundationTests, ExplicitIncludedParametersAreFlattenedBeforeOwnParameters)
+	{
+		FShaderType& IncludedParametersType = FIncludedParametersShader::StaticType();
+		FShaderType& IncludeOnlyType = FExplicitIncludeOnlyShader::StaticType();
+		FShaderType& IncludeWithOwnType = FExplicitIncludeWithOwnParametersShader::StaticType();
+
+		ASSERT_NE(IncludedParametersType.GetParametersMetadata(), nullptr);
+		ASSERT_NE(IncludeOnlyType.GetParametersMetadata(), nullptr);
+		ASSERT_NE(IncludeWithOwnType.GetParametersMetadata(), nullptr);
+		ASSERT_EQ(IncludeOnlyType.GetParameterMetadata().size(), 1u);
+		EXPECT_STREQ(IncludeOnlyType.GetParameterMetadata()[0].Name, "FontTexture");
+		ASSERT_EQ(IncludeWithOwnType.GetParameterMetadata().size(), 2u);
+		EXPECT_STREQ(IncludeWithOwnType.GetParameterMetadata()[0].Name, "FontTexture");
+		EXPECT_STREQ(IncludeWithOwnType.GetParameterMetadata()[1].Name, "FontSampler");
+
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({
+			.Name = "FontTexture",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 0,
+			.BindingIndex = 4,
+			.Type = ERHIBindingType::Texture,
+			.ArraySize = 1
+		});
+		Reflection.ResourceBindings.push_back({
+			.Name = "FontSampler",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 0,
+			.BindingIndex = 5,
+			.Type = ERHIBindingType::Sampler,
+			.ArraySize = 1
+		});
+
+		FShaderCompilerOutput Output;
+		Output.bSucceeded = true;
+		Output.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Fragment, "includeBaseMain", "FIncludedParametersShader", 41, Reflection),
+			MakeCompiledShader(EShaderFrequency::Fragment, "includeOnlyMain", "FExplicitIncludeOnlyShader", 42, Reflection),
+			MakeCompiledShader(EShaderFrequency::Fragment, "includeOwnMain", "FExplicitIncludeWithOwnParametersShader", 43, Reflection)
+		};
+
+		std::array<const FShaderType*, 3> ShaderTypes = {&IncludedParametersType, &IncludeOnlyType, &IncludeWithOwnType};
+		FShaderMapBase ShaderMap;
+		std::string ErrorMessage;
+		ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, ErrorMessage)) << ErrorMessage;
+
+		const auto* IncludeOnlyShader = static_cast<const FExplicitIncludeOnlyShader*>(ShaderMap.GetShader(&IncludeOnlyType));
+		const auto* IncludeWithOwnShader = static_cast<const FExplicitIncludeWithOwnParametersShader*>(ShaderMap.GetShader(&IncludeWithOwnType));
+		ASSERT_NE(IncludeOnlyShader, nullptr);
+		ASSERT_NE(IncludeWithOwnShader, nullptr);
+		ASSERT_EQ(IncludeOnlyShader->GetParameterBindings().size(), 1u);
+		EXPECT_EQ(IncludeOnlyShader->GetParameterBindings()[0].BindingIndex, 4u);
+		ASSERT_EQ(IncludeWithOwnShader->GetParameterBindings().size(), 2u);
+		EXPECT_EQ(IncludeWithOwnShader->GetParameterBindings()[0].BindingIndex, 4u);
+		EXPECT_EQ(IncludeWithOwnShader->GetParameterBindings()[1].BindingIndex, 5u);
 	}
 
 	TEST(FShaderFoundationTests, ShaderMapInitializeRejectsMismatchedSourceEntryPoint)

@@ -38,7 +38,14 @@ namespace Durin
 		const char* StructName = nullptr;
 		uint32 StructSize = 0;
 		uint32 StructAlignment = 0;
+		const FShaderParametersMetadata* IncludedParameters = nullptr;
 		std::span<const FShaderParameterMemberMetadata> Members;
+	};
+
+	struct FShaderParametersMetadataStorage
+	{
+		std::vector<FShaderParameterMemberMetadata> OwnedMembers;
+		FShaderParametersMetadata Metadata;
 	};
 
 	struct FRHIShaderParameterResource

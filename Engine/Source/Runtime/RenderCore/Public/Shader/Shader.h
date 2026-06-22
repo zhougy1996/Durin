@@ -144,9 +144,15 @@ namespace Durin
 			.StructName = StructName.data(),
 			.StructSize = sizeof(ParameterStruct),
 			.StructAlignment = alignof(ParameterStruct),
+			.IncludedParameters = nullptr,
 			.Members = Members
 		};
 	}
+
+	template<typename ShaderClass>
+	struct TShaderParametersOwnerTag
+	{
+	};
 
 	template<ERHIBindingType BindingType>
 	struct TShaderParameterCppType;
@@ -189,6 +195,49 @@ namespace Durin
 		};
 	}
 
+	inline auto GetOwnShaderParametersMetadata(...) -> const FShaderParametersMetadata* { return nullptr; }
+	inline auto GetIncludedShaderParametersMetadata(...) -> const FShaderParametersMetadata* { return nullptr; }
+
+	template<typename ShaderClass>
+	auto GetOwnShaderParametersMetadataOrNull() -> const FShaderParametersMetadata*
+	{
+		return GetOwnShaderParametersMetadata(TShaderParametersOwnerTag<ShaderClass>{});
+	}
+
+	template<typename ShaderClass>
+	auto GetIncludedShaderParametersMetadataOrNull() -> const FShaderParametersMetadata*
+	{
+		return GetIncludedShaderParametersMetadata(TShaderParametersOwnerTag<ShaderClass>{});
+	}
+
+	RENDERCORE_API auto BuildCombinedShaderParametersMetadataStorage(
+		std::string_view StructName,
+		uint32 StructSize,
+		uint32 StructAlignment,
+		std::span<const FShaderParameterMemberMetadata> OwnMembers,
+		const FShaderParametersMetadata* IncludedParameters
+	) -> FShaderParametersMetadataStorage;
+
+	template<typename ShaderClass>
+	auto GetShaderParametersMetadataOrNull() -> const FShaderParametersMetadata*
+	{
+		const FShaderParametersMetadata* OwnParameters = GetOwnShaderParametersMetadataOrNull<ShaderClass>();
+		const FShaderParametersMetadata* IncludedParameters = GetIncludedShaderParametersMetadataOrNull<ShaderClass>();
+		if (OwnParameters == nullptr)
+		{
+			return IncludedParameters;
+		}
+
+		static const FShaderParametersMetadataStorage Storage = BuildCombinedShaderParametersMetadataStorage(
+			OwnParameters->StructName ? OwnParameters->StructName : "FParameters",
+			OwnParameters->StructSize,
+			OwnParameters->StructAlignment,
+			OwnParameters->Members,
+			IncludedParameters
+		);
+		return &Storage.Metadata;
+	}
+
 	RENDERCORE_API auto BuildShaderParameterBindings(
 		const FShaderParametersMetadata* ParametersMetadata,
 		const FShaderReflectionData& Reflection,
@@ -214,8 +263,9 @@ namespace Durin
 			); \
 		}
 
-	#define DURIN_BEGIN_SHADER_PARAMETERS() \
+	#define DURIN_BEGIN_SHADER_PARAMETERS(ShaderClass) \
 	private: \
+		using FShaderParametersOwner = ShaderClass; \
 		template<int Index> struct TShaderParameterTag {}; \
 		static constexpr int ShaderParameterCounterBegin = __COUNTER__; \
 	public: \
@@ -258,22 +308,42 @@ namespace Durin
 			return {FParameters::GetShaderParameterMemberMetadata(TShaderParameterTag<ShaderParameterCounterBegin + 1 + Indices>{})...}; \
 		} \
 	public: \
-		static auto GetParametersMetadata() -> const FShaderParametersMetadata& \
+		static auto GetOwnParametersMetadata() -> const FShaderParametersMetadata* \
 		{ \
 			static_assert(std::is_standard_layout_v<FParameters>, "Shader parameter structs must use standard layout"); \
 			static const auto Members = BuildShaderParameterMemberMetadata(std::make_integer_sequence<int, ShaderParameterCounterEnd - ShaderParameterCounterBegin - 1>{}); \
 			static const FShaderParametersMetadata ParametersMetadata = MakeInlineShaderParametersMetadata<FParameters>("FParameters", Members); \
-			return ParametersMetadata; \
-		}
-
-	#define DURIN_DECLARE_SHADER_TYPE(ShaderClass, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
-		static auto StaticType() -> FShaderType& \
+			return &ParametersMetadata; \
+		} \
+ \
+		friend auto GetOwnShaderParametersMetadata(TShaderParametersOwnerTag<FShaderParametersOwner>) -> const FShaderParametersMetadata* \
 		{ \
-			static FShaderType ShaderType = MakeShaderType<ShaderClass>(TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral); \
-			return ShaderType; \
+			return GetOwnParametersMetadata(); \
 		}
 
-	#define DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(ShaderClass, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
+	#define DURIN_INCLUDE_SHADER_PARAMETERS(ParameterOwnerClass) \
+		friend auto GetIncludedShaderParametersMetadata(TShaderParametersOwnerTag<FShaderParametersOwner>) -> const FShaderParametersMetadata* \
+		{ \
+			return GetShaderParametersMetadataOrNull<ParameterOwnerClass>(); \
+		}
+
+	#define DURIN_INCLUDE_SHADER_PARAMETERS_FOR(ShaderClass, ParameterOwnerClass) \
+		friend auto GetIncludedShaderParametersMetadata(TShaderParametersOwnerTag<ShaderClass>) -> const FShaderParametersMetadata* \
+		{ \
+			return GetShaderParametersMetadataOrNull<ParameterOwnerClass>(); \
+		}
+
+	#define DURIN_DECLARE_SHADER_NAMED(ShaderClass, SuperClass, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
+		ShaderClass(const FShaderType* InType, FShaderMapBase* InShaderMap, const FShaderReflectionData& InReflection) \
+			: SuperClass(InType, InShaderMap, InReflection) \
+		{ \
+		} \
+ \
+		static auto GetParametersMetadata() -> const FShaderParametersMetadata* \
+		{ \
+			return GetShaderParametersMetadataOrNull<ShaderClass>(); \
+		} \
+ \
 		static auto StaticType() -> FShaderType& \
 		{ \
 			static FShaderType ShaderType = MakeShaderType<ShaderClass>( \
@@ -282,10 +352,19 @@ namespace Durin
 				FrequencyValue, \
 				EntryPointLiteral, \
 				{}, \
-				&ShaderClass::GetParametersMetadata() \
+				GetShaderParametersMetadataOrNull<ShaderClass>() \
 			); \
 			return ShaderType; \
 		}
+
+	#define DURIN_DECLARE_SHADER(ShaderClass, SuperClass, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
+		DURIN_DECLARE_SHADER_NAMED(ShaderClass, SuperClass, #ShaderClass, VirtualPathLiteral, FrequencyValue, EntryPointLiteral)
+
+	#define DURIN_DECLARE_SHADER_TYPE(ShaderClass, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
+		DURIN_DECLARE_SHADER_NAMED(ShaderClass, FShader, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral)
+
+	#define DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(ShaderClass, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral) \
+		DURIN_DECLARE_SHADER_NAMED(ShaderClass, FShader, TypeNameLiteral, VirtualPathLiteral, FrequencyValue, EntryPointLiteral)
 
 	RENDERCORE_API auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc;
 	RENDERCORE_API auto BuildPipelineLayoutFromReflection(

@@ -17,26 +17,22 @@ namespace Durin::MonaImGui
 	class FImGuiVertexShader : public FShader
 	{
 	public:
-		using FShader::FShader;
-
-		DURIN_BEGIN_SHADER_PARAMETERS()
+		DURIN_BEGIN_SHADER_PARAMETERS(FImGuiVertexShader)
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Projection);
 		DURIN_END_SHADER_PARAMETERS();
 
-		DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FImGuiVertexShader, "ImGuiVertexShader", "/Engine/ImGui", EShaderFrequency::Vertex, "VertexMain");
+		DURIN_DECLARE_SHADER(FImGuiVertexShader, FShader, "/Engine/ImGui", EShaderFrequency::Vertex, "VertexMain");
 	};
 
 	class FImGuiFragmentShader : public FShader
 	{
 	public:
-		using FShader::FShader;
-
-		DURIN_BEGIN_SHADER_PARAMETERS()
+		DURIN_BEGIN_SHADER_PARAMETERS(FImGuiFragmentShader)
 			DURIN_SHADER_PARAMETER_TEXTURE(FontTexture);
 			DURIN_SHADER_PARAMETER_SAMPLER(FontSampler);
 		DURIN_END_SHADER_PARAMETERS();
 
-		DURIN_DECLARE_SHADER_TYPE_WITH_PARAMETERS(FImGuiFragmentShader, "ImGuiFragmentShader", "/Engine/ImGui", EShaderFrequency::Fragment, "FragmentMain");
+		DURIN_DECLARE_SHADER(FImGuiFragmentShader, FShader, "/Engine/ImGui", EShaderFrequency::Fragment, "FragmentMain");
 	};
 
 	// State of the ImGui RHI backend, stored in a struct to ensure proper initialization order of static variables.
