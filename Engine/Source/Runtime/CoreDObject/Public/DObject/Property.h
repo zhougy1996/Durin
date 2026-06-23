@@ -21,7 +21,8 @@ namespace Durin
 			uint16 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
-			DClass* InReferencedClass
+			DClass* InReferencedClass,
+			bool bInIsObjectPtrWrapper = false
 		);
 
 		auto GetPropertyFlags() const -> EPropertyFlags { return PropertyFlags; }
@@ -30,6 +31,7 @@ namespace Durin
 		auto GetElementSize() const -> uint16 { return ElementSize; }
 		auto GetKind() const -> DurinCodeGen::EPropertyGenFlags { return Kind; }
 		auto GetReferencedClass() const -> DClass* { return ReferencedClass; }
+		auto IsObjectPtrWrapper() const -> bool { return bIsObjectPtrWrapper; }
 		auto GetOwnerProperty() const -> FProperty* { return static_cast<FProperty*>(Owner.ToField()); }
 		auto HasAnyPropertyFlags(EPropertyFlags InFlags) const -> bool { return EnumHasAnyFlags(PropertyFlags, InFlags); }
 
@@ -62,5 +64,6 @@ namespace Durin
 		uint16 ElementSize = 0;
 		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
 		DClass* ReferencedClass = nullptr;
+		bool bIsObjectPtrWrapper = false;
 	};
 }

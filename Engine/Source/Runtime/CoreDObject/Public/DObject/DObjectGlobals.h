@@ -139,6 +139,7 @@ namespace Durin
 			const FPropertyParamsBase* Inner;
 			const FPropertyParamsBase* Key;
 			const FPropertyParamsBase* Value;
+			bool bIsObjectPtrWrapper = false;
 		};
 
 		struct FGenericPropertyParams : public FPropertyParamsBase

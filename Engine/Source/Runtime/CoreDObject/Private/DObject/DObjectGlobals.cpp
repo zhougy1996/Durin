@@ -70,7 +70,8 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass
+					ReferencedClass,
+					PropertyParams->bIsObjectPtrWrapper
 				);
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Array:

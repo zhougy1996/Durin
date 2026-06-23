@@ -1,6 +1,7 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Object.h"
+#include "DObject/ObjectPtr.h"
 #include "DObject/DurinPropertyTypes.h"
 
 #include <gtest/gtest.h>
@@ -12,8 +13,10 @@ namespace
 	{
 		Durin::int32 Value = 0;
 		Durin::DObject* ObjectValue = nullptr;
+		Durin::TObjectPtr<Durin::DObject> ObjectPtrValue;
 		std::string StringValue;
 		std::vector<Durin::DObject*> ObjectArray;
+		std::vector<Durin::TObjectPtr<Durin::DObject>> ObjectPtrArray;
 		std::unordered_map<std::string, Durin::int32> StringToInt;
 		std::vector<std::vector<Durin::int32>> NestedScores;
 		std::unordered_map<std::string, std::vector<Durin::DObject*>> ObjectLists;
@@ -115,6 +118,24 @@ namespace
 		EXPECT_EQ(Object->GetClass(), Durin::DObject::StaticClass());
 		EXPECT_TRUE(Object->IsA(Durin::DObject::StaticClass()));
 		EXPECT_EQ(Durin::Cast<Durin::DObject>(Object), Object);
+	}
+
+	TEST(FCoreDObjectReflectionTests, TObjectPtrWrapsDObjectReferencesWithoutOwnership)
+	{
+		Durin::DObject ReferencedObject;
+		Durin::TObjectPtr<Durin::DObject> ObjectPtr;
+
+		EXPECT_FALSE(ObjectPtr);
+		EXPECT_EQ(ObjectPtr.Get(), nullptr);
+
+		ObjectPtr = &ReferencedObject;
+		EXPECT_TRUE(ObjectPtr);
+		EXPECT_EQ(ObjectPtr.Get(), &ReferencedObject);
+		EXPECT_EQ(static_cast<Durin::DObject*>(ObjectPtr), &ReferencedObject);
+
+		ObjectPtr.Reset();
+		EXPECT_FALSE(ObjectPtr);
+		EXPECT_EQ(ObjectPtr.Get(), nullptr);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ConstructDEnumCreatesRuntimeEnumMetadata)
@@ -219,6 +240,20 @@ namespace
 			nullptr,
 			nullptr
 		};
+		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrPropertyParams = {
+			"ObjectPtrValue",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectPtrValue)),
+			static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Object,
+			&Durin::DObject::StaticClass,
+			nullptr,
+			nullptr,
+			nullptr,
+			nullptr,
+			true
+		};
 		static const Durin::DurinCodeGen::FStringPropertyParams StringPropertyParams = {
 			"StringValue",
 			Durin::EPropertyFlags::None,
@@ -255,6 +290,33 @@ namespace
 			nullptr,
 			nullptr,
 			&ObjectArrayInnerPropertyParams,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrArrayInnerPropertyParams = {
+			"ObjectPtrArray_Inner",
+			Durin::EPropertyFlags::None,
+			1,
+			0,
+			static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Object,
+			&Durin::DObject::StaticClass,
+			nullptr,
+			nullptr,
+			nullptr,
+			nullptr,
+			true
+		};
+		static const Durin::DurinCodeGen::FArrayPropertyParams ObjectPtrArrayPropertyParams = {
+			"ObjectPtrArray",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectPtrArray)),
+			static_cast<Durin::uint16>(sizeof(std::vector<Durin::TObjectPtr<Durin::DObject>>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Array,
+			nullptr,
+			nullptr,
+			&ObjectPtrArrayInnerPropertyParams,
 			nullptr,
 			nullptr
 		};
@@ -391,8 +453,10 @@ namespace
 		static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
 			&ValuePropertyParams,
 			&ObjectPropertyParams,
+			&ObjectPtrPropertyParams,
 			&StringPropertyParams,
 			&ObjectArrayPropertyParams,
+			&ObjectPtrArrayPropertyParams,
 			&StringToIntPropertyParams,
 			&NestedScoresPropertyParams,
 			&ObjectListsPropertyParams
@@ -402,7 +466,7 @@ namespace
 			"FReflectedPropertyOwnerForTest",
 			"FReflectedPropertyOwnerForTest",
 			PropertyParams,
-			7
+			9
 		};
 
 		Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(ClassParams);
@@ -433,6 +497,12 @@ namespace
 		Instance.ObjectValue = &ReferencedObject;
 		EXPECT_EQ(ObjectProperty->GetObjectPropertyValue(&Instance), &ReferencedObject);
 
+		auto* ObjectPtrProperty = static_cast<Durin::FObjectProperty*>(Class->FindPropertyByName("ObjectPtrValue"));
+		ASSERT_NE(ObjectPtrProperty, nullptr);
+		EXPECT_TRUE(ObjectPtrProperty->IsObjectPtrWrapper());
+		Instance.ObjectPtrValue = &ReferencedObject;
+		EXPECT_EQ(ObjectPtrProperty->GetObjectPropertyValue(&Instance), &ReferencedObject);
+
 		auto* StringProperty = static_cast<Durin::FStringProperty*>(Class->FindPropertyByName("StringValue"));
 		ASSERT_NE(StringProperty, nullptr);
 		*StringProperty->GetStringValuePtr(&Instance) = "Durin";
@@ -445,6 +515,13 @@ namespace
 		EXPECT_EQ(ArrayProperty->GetInner()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Object);
 		EXPECT_EQ(ArrayProperty->GetInner()->GetReferencedClass(), Durin::DObject::StaticClass());
 		EXPECT_EQ(Class->FindPropertyByName("ObjectArray_Inner"), nullptr);
+
+		auto* ObjectPtrArrayProperty = static_cast<Durin::FArrayProperty*>(Class->FindPropertyByName("ObjectPtrArray"));
+		ASSERT_NE(ObjectPtrArrayProperty, nullptr);
+		ASSERT_NE(ObjectPtrArrayProperty->GetInner(), nullptr);
+		EXPECT_TRUE(ObjectPtrArrayProperty->GetInner()->IsObjectPtrWrapper());
+		EXPECT_EQ(ObjectPtrArrayProperty->GetInner()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Object);
+		EXPECT_EQ(ObjectPtrArrayProperty->GetInner()->GetReferencedClass(), Durin::DObject::StaticClass());
 
 		auto* MapProperty = static_cast<Durin::FMapProperty*>(Class->FindPropertyByName("StringToInt"));
 		ASSERT_NE(MapProperty, nullptr);
@@ -491,5 +568,4 @@ namespace
 		EXPECT_EQ(ObjectListsValue->GetInner()->GetReferencedClass(), Durin::DObject::StaticClass());
 	}
 }
-
 

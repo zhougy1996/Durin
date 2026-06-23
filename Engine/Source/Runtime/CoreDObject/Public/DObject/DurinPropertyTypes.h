@@ -124,7 +124,8 @@ namespace Durin
 			uint16 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
-			DClass* InReferencedClass
+			DClass* InReferencedClass,
+			bool bInIsObjectPtrWrapper = false
 		);
 
 		COREDOBJECT_API auto GetObjectPropertyValue(const void* Container, uint32 ArrayIndex = 0) const -> DObject*;

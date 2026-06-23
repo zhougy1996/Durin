@@ -8,7 +8,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "9"
+TOOL_VERSION = "10"
 MAX_CONTAINER_PROPERTY_DEPTH = 4
 
 
@@ -55,6 +55,7 @@ class ReflectedPropertyInfo:
     array_dim: int = 1
     element_size: str = "0"
     flags: str = "None"
+    is_object_ptr_wrapper: bool = False
     inner: "ReflectedPropertyInfo | None" = None
     key: "ReflectedPropertyInfo | None" = None
     value: "ReflectedPropertyInfo | None" = None
@@ -415,6 +416,18 @@ def _is_std_unordered_map(type_spelling: str) -> bool:
     return normalized.startswith("std::unordered_map<")
 
 
+def _is_tobject_ptr(type_spelling: str) -> bool:
+    normalized = type_spelling.replace(" ", "")
+    return normalized.startswith("TObjectPtr<") or normalized.startswith("Durin::TObjectPtr<")
+
+
+def _tobject_ptr_arg(type_spelling: str) -> str:
+    normalized = type_spelling.strip()
+    if normalized.replace(" ", "").startswith("Durin::TObjectPtr<"):
+        return _source_template_args(normalized, "Durin::TObjectPtr")[0] if _source_template_args(normalized, "Durin::TObjectPtr") else ""
+    return _source_template_args(normalized, "TObjectPtr")[0] if _source_template_args(normalized, "TObjectPtr") else ""
+
+
 def _cpp_type_spelling(type_spelling: str, exported_symbols: dict[str, object] | None) -> str:
     type_spelling = _normalize_type_spelling(type_spelling)
     primitive_types = {
@@ -441,12 +454,18 @@ def _cpp_type_spelling(type_spelling: str, exported_symbols: dict[str, object] |
         args = _source_template_args(type_spelling, "std::unordered_map")
         if len(args) >= 2:
             return f"std::unordered_map<{_cpp_type_spelling(args[0], exported_symbols)}, {_cpp_type_spelling(args[1], exported_symbols)}>"
+    if _is_tobject_ptr(type_spelling):
+        arg = _tobject_ptr_arg(type_spelling)
+        if arg:
+            return f"Durin::TObjectPtr<{_cpp_type_spelling(arg, exported_symbols)}>"
     candidates = [type_spelling]
     if "::" not in type_spelling:
         candidates.extend(name for name in (exported_symbols or {}) if name.endswith(f"::{type_spelling}") or name == type_spelling)
     for candidate in candidates:
         symbol = (exported_symbols or {}).get(candidate)
         if symbol and getattr(symbol, "Kind", "") == "enum":
+            return candidate
+        if symbol and getattr(symbol, "Kind", "") == "class":
             return candidate
     if type_spelling.endswith("*"):
         pointee = type_spelling[:-1].strip()
@@ -613,6 +632,25 @@ def _source_property_from_type_spelling(
                     array_dim=array_dim,
                     element_size="sizeof(Durin::DObject*)",
                     flags=flags,
+                )
+    if allow_object and _is_tobject_ptr(type_spelling):
+        pointee = _tobject_ptr_arg(type_spelling)
+        if not pointee:
+            return None
+        candidates = [pointee]
+        if "::" not in pointee:
+            candidates.extend(name for name in (exported_symbols or {}) if name.endswith(f"::{pointee}") or name == pointee)
+        for candidate in candidates:
+            if not exported_symbols or candidate in exported_symbols:
+                return ReflectedPropertyInfo(
+                    name=name,
+                    type_name=type_spelling,
+                    kind="Object",
+                    referenced_type=candidate,
+                    array_dim=array_dim,
+                    element_size=f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+                    flags=flags,
+                    is_object_ptr_wrapper=True,
                 )
     return None
 
@@ -820,6 +858,20 @@ def _make_property_from_type(
                 kind = "Object"
                 break
 
+    is_object_ptr_wrapper = False
+    if not kind and allow_object and _is_tobject_ptr(type_spelling):
+        pointee = _tobject_ptr_arg(type_spelling)
+        candidates = [pointee]
+        if "::" not in pointee:
+            candidates.extend(name for name in (exported_symbols or {}) if name.endswith(f"::{pointee}") or name == pointee)
+        for candidate in candidates:
+            if not exported_symbols or candidate in exported_symbols:
+                referenced_type = candidate
+                element_size = f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})"
+                kind = "Object"
+                is_object_ptr_wrapper = True
+                break
+
     if not kind:
         return None
 
@@ -832,6 +884,7 @@ def _make_property_from_type(
         array_dim=array_dim,
         element_size=element_size,
         flags=flags,
+        is_object_ptr_wrapper=is_object_ptr_wrapper,
     )
 
 

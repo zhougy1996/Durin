@@ -2,6 +2,7 @@
 
 #include "DObject/Class.h"
 #include "DObject/Object.h"
+#include "DObject/ObjectPtr.h"
 
 namespace Durin
 {
@@ -38,7 +39,8 @@ namespace Durin
 		uint16 InOffset,
 		uint16 InElementSize,
 		DurinCodeGen::EPropertyGenFlags InKind,
-		DClass* InReferencedClass
+		DClass* InReferencedClass,
+		bool bInIsObjectPtrWrapper
 	)
 		: FField(InOwner, InName, InObjectFlags)
 		, PropertyFlags(InPropertyFlags)
@@ -47,6 +49,7 @@ namespace Durin
 		, ElementSize(InElementSize)
 		, Kind(InKind)
 		, ReferencedClass(InReferencedClass)
+		, bIsObjectPtrWrapper(bInIsObjectPtrWrapper)
 	{
 		ClassPrivate = StaticClass();
 	}
@@ -161,15 +164,22 @@ namespace Durin
 		uint16 InOffset,
 		uint16 InElementSize,
 		DurinCodeGen::EPropertyGenFlags InKind,
-		DClass* InReferencedClass
+		DClass* InReferencedClass,
+		bool bInIsObjectPtrWrapper
 	)
-		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass)
+		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass, bInIsObjectPtrWrapper)
 	{
 		ClassPrivate = StaticClass();
 	}
 
 	auto FObjectProperty::GetObjectPropertyValue(const void* Container, uint32 ArrayIndex) const -> DObject*
 	{
+		if (IsObjectPtrWrapper())
+		{
+			const FObjectPtrBase* ValuePtr = ContainerPtrToValuePtr<FObjectPtrBase>(Container, ArrayIndex);
+			return ValuePtr ? ValuePtr->GetObject() : nullptr;
+		}
+
 		DObject* const* ValuePtr = ContainerPtrToValuePtr<DObject*>(Container, ArrayIndex);
 		return ValuePtr ? *ValuePtr : nullptr;
 	}

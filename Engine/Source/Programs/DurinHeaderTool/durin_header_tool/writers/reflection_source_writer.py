@@ -425,7 +425,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, "
         f"{offset}, "
         f"static_cast<Durin::uint16>({element_size}), "
-        f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_class_helper}, {referenced_enum_helper}, {inner}, {key}, {value} }};\n"
+        f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_class_helper}, {referenced_enum_helper}, {inner}, {key}, {value}, {_bool_literal(prop.is_object_ptr_wrapper)} }};\n"
     )
 
 

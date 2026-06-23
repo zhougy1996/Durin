@@ -4,6 +4,7 @@
 
 #include "DObject/ObjectMacros.h"
 #include "DObject/Object.h"
+#include "DObject/ObjectPtr.h"
 
 #include "TestDHT.gen.h"
 
@@ -43,6 +44,9 @@ namespace Durin
 		DObject* ObjectRef = nullptr;
 
 		DPROPERTY()
+		TObjectPtr<DObject> ObjectPtrRef;
+
+		DPROPERTY()
 		std::string DisplayName;
 
 		DPROPERTY()
@@ -58,6 +62,9 @@ namespace Durin
 		std::vector<DObject*> ObjectRefs;
 
 		DPROPERTY()
+		std::vector<TObjectPtr<DObject>> ObjectPtrRefs;
+
+		DPROPERTY()
 		std::unordered_map<std::string, int32> NamedScores;
 
 		DPROPERTY()
@@ -71,6 +78,9 @@ namespace Durin
 
 		DPROPERTY()
 		std::vector<std::unordered_map<std::string, DObject*>> ObjectMapList;
+
+		DPROPERTY()
+		std::unordered_map<std::string, TObjectPtr<DObject>> ObjectPtrMap;
 
 		DPROPERTY()
 		std::unordered_map<std::string, std::vector<int32>> ScoreGroups;
