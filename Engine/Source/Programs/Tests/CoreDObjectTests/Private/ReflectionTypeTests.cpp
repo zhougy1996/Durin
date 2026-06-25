@@ -781,12 +781,18 @@ namespace
 		Durin::DObject ReferencedObject;
 		Instance.ObjectValue = &ReferencedObject;
 		EXPECT_EQ(ObjectProperty->GetObjectPropertyValue(&Instance), &ReferencedObject);
+		Instance.ObjectValue = nullptr;
+		ObjectProperty->SetObjectPropertyValue(&Instance, &ReferencedObject);
+		EXPECT_EQ(Instance.ObjectValue, &ReferencedObject);
 
 		auto* ObjectPtrProperty = static_cast<Durin::FObjectProperty*>(Class->FindPropertyByName("ObjectPtrValue"));
 		ASSERT_NE(ObjectPtrProperty, nullptr);
 		EXPECT_TRUE(ObjectPtrProperty->IsObjectPtrWrapper());
 		Instance.ObjectPtrValue = &ReferencedObject;
 		EXPECT_EQ(ObjectPtrProperty->GetObjectPropertyValue(&Instance), &ReferencedObject);
+		Instance.ObjectPtrValue.Reset();
+		ObjectPtrProperty->SetObjectPropertyValue(&Instance, &ReferencedObject);
+		EXPECT_EQ(Instance.ObjectPtrValue.Get(), &ReferencedObject);
 
 		auto* StringProperty = static_cast<Durin::FStringProperty*>(Class->FindPropertyByName("StringValue"));
 		ASSERT_NE(StringProperty, nullptr);

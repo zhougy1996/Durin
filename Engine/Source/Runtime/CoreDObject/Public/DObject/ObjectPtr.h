@@ -8,6 +8,7 @@ namespace Durin
 	{
 	public:
 		auto GetObject() const -> DObject* { return Object; }
+		auto SetObject(DObject* InObject) -> void { Object = InObject; }
 
 	protected:
 		DObject* Object = nullptr;
