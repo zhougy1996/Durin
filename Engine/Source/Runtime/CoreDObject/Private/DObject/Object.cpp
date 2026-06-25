@@ -1,8 +1,10 @@
 #include "DObject/Object.h"
 
+#include "DObject/Archive.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Class.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DeferredRegistry.h"
 
 namespace Durin
@@ -154,6 +156,65 @@ namespace Durin
 	{
 		NamePrivate = InName;
 		GDObjectArray.Add(this);
+	}
+
+	auto DObject::AddInnerObject(DObject* Object) -> void
+	{
+		if (!Object)
+		{
+			return;
+		}
+		if (std::find(InnerObjects.begin(), InnerObjects.end(), Object) == InnerObjects.end())
+		{
+			InnerObjects.push_back(Object);
+		}
+	}
+
+	auto DObject::RemoveInnerObject(DObject* Object) -> void
+	{
+		InnerObjects.erase(std::remove(InnerObjects.begin(), InnerObjects.end(), Object), InnerObjects.end());
+	}
+
+	auto DObject::SetOuterPrivate(DObject* NewOuter) -> void
+	{
+		if (OuterPrivate == NewOuter)
+		{
+			if (OuterPrivate)
+			{
+				OuterPrivate->AddInnerObject(this);
+			}
+			return;
+		}
+
+		if (OuterPrivate)
+		{
+			OuterPrivate->RemoveInnerObject(this);
+		}
+
+		OuterPrivate = NewOuter;
+
+		if (OuterPrivate)
+		{
+			OuterPrivate->AddInnerObject(this);
+		}
+	}
+
+	auto DObject::Serialize(FArchive& Ar) -> void
+	{
+		SerializeDObjectProperties(Ar, this);
+	}
+
+	auto DObject::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		ForEachObjectReference(this, Collector);
+	}
+
+	auto DObject::BeginDestroy() -> void
+	{
+	}
+
+	auto DObject::FinishDestroy() -> void
+	{
 	}
 
 	auto DObject::IsA(const DClass* InClass) const -> bool

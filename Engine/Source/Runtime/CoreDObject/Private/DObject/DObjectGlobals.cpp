@@ -175,7 +175,7 @@ namespace Durin
 	{
 		// Allocate memory and zero it out
 		DObject* Obj = nullptr;
-		Obj = static_cast<DObject*>(std::malloc(Size));
+		Obj = static_cast<DObject*>(::operator new(Size));
 		assert(Obj && "Memory allocation failed");
 		new (Obj) DObject(Class, Outer, Name);
 
@@ -197,6 +197,9 @@ namespace Durin
 		ObjectInitializer.Name = Params.Name;
 
 		InClass->ClassConstructor(ObjectInitializer);
+
+		Obj->SetOuterPrivate(Params.Outer);
+		Obj->AddObject(Params.Name);
 
 		return Obj;
 	}

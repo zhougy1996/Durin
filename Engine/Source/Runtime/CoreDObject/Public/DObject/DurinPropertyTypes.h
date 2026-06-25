@@ -129,6 +129,7 @@ namespace Durin
 		);
 
 		COREDOBJECT_API auto GetObjectPropertyValue(const void* Container, uint32 ArrayIndex = 0) const -> DObject*;
+		COREDOBJECT_API auto SetObjectPropertyValue(void* Container, DObject* Value, uint32 ArrayIndex = 0) const -> void;
 	};
 
 	class FArrayProperty : public FProperty

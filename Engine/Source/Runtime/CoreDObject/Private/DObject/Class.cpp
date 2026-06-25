@@ -109,7 +109,7 @@ namespace Durin
 			FName(Name),
 			InSize,
 			InAlignment,
-			EObjectFlags::NoFlags,
+			EObjectFlags::Intrinsic,
 			InClassFlags,
 			EClassCastFlags::DClass,
 			InClassConstructor

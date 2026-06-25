@@ -12,11 +12,11 @@ The first usable milestone is intentionally smaller than Unreal's full UObject s
 - generated `GENERATED_BODY()` declarations
 - stable `StaticClass()` and `GetClass()` behavior
 - reflected base-class relationships
-- reflected primitive and object-pointer properties
+- reflected primitive, enum, object-pointer, string, and container properties
 - runtime property chains attached to `DClass`
-- enough metadata for later reference traversal and GC
+- enough metadata for reference traversal, minimal GC, and basic object graph serialization
 
-The first milestone should not include a full editor property system, asset package system, Blueprint-like function invocation, hot reload, or a complete garbage collector.
+The first milestone should not include a full editor property system, asset package system, Blueprint-like function invocation, hot reload, type-erased container editing, long-term asset serialization formats, or a complete production garbage collector.
 
 ## Core Rules
 
@@ -71,7 +71,7 @@ Engine/Intermediate/Build/<Platform>/<Profile>/...
 - reflection `.gen.h` and `.gen.cpp` generation
 - generated source files into the module target
 
-This shape is correct for namespace-aware reflection. Reflection generation must happen after export files exist, because a header often cannot resolve base classes, enum underlying types, or object-pointer property types from the current header alone.
+This shape is correct for namespace-aware reflection. Reflection generation must happen after export files exist, because a header often cannot resolve base classes, enum metadata, enum underlying types, or object-pointer property types from the current header alone.
 
 ## Export Files
 
@@ -222,15 +222,19 @@ The first runtime milestone is a small but real type system:
 
 ## Property Milestone
 
-Start with the smallest useful property set:
+The implemented small property set includes:
 
 - primitive integer types
 - `float`
 - `double`
 - `bool`
-- `FString` when available
+- `std::string`
 - reflected enum values
 - reflected `DObject*` pointers
+- fixed C arrays through `ArrayDim`
+- `std::vector<T>`
+- `std::unordered_map<K, V>`
+- nested vector/map metadata up to a bounded depth
 
 Each property needs:
 
@@ -238,24 +242,43 @@ Each property needs:
 - flags
 - array dimension
 - byte offset
+- element size
 - property kind
-- referenced reflected type when applicable
+- referenced reflected class or enum when applicable
+- owner relationship for nested container inner/key/value properties
 
-Container properties, nested reflected structs, aliases, templates, metadata specifiers, editor-only details, and function parameters can wait.
+The current container support is metadata-only. It describes array/map field addresses and nested element/key/value property trees, but does not provide type-erased insertion, deletion, lookup, diff, serialization, or editor UI.
+
+Still-deferred property work includes nested reflected structs, aliases, broad template support beyond the recognized STL containers, complete metadata specifier parsing, editor-only details, and function parameters.
 
 ## Garbage Collection Milestone
 
-GC should come after object-pointer properties are reflected. The GC can then consume the same property metadata instead of inventing a separate reference-description system.
+The first GC milestone is implemented as a small synchronous mark-sweep collector built on reflected object-pointer metadata. The GC consumes the same property metadata as serialization instead of inventing a separate reference-description system.
 
-The first GC milestone should include:
+The implemented v1 includes:
 
-- a global object array with object records, not just raw storage
+- a global object array for runtime object registration, removal, snapshots, and compaction
 - root set support
 - mark traversal through reflected object-pointer properties
-- sweep or deferred destruction policy
-- basic object flags for reachability and pending kill
+- outer-to-inner ownership traversal
+- synchronous sweep through `DestroyObject`
+- basic internal flags for root, reachable, begin-destroyed, and garbage state
 
-Weak references, clusters, incremental marking, multithreaded marking, object handles, package roots, and editor transaction integration should wait.
+Still-deferred GC work includes recursive traversal through array/map elements, weak references, clusters, incremental marking, multithreaded marking, object handles, package roots, deferred destruction, and editor transaction integration.
+
+## Serialization Milestone
+
+The first serialization milestone is implemented as an internal binary memory archive for reflected objects.
+
+The implemented v1 includes:
+
+- `DObject::Serialize(FArchive&)` with default reflected property traversal
+- `FArchive`, `FMemoryWriter`, and `FMemoryReader`
+- scalar, `bool`, `std::string`, enum-storage, and direct object-reference property serialization
+- object graph save/load helpers that serialize object references as graph ids
+- skipping `Transient` properties during default serialization
+
+Still-deferred serialization work includes type-erased container round-trip, stable asset/package file formats, field-name based compatibility, version migration, custom versions, external object paths, and package/CDO integration.
 
 ## Staged Implementation Plan
 
@@ -268,9 +291,12 @@ Weak references, clusters, incremental marking, multithreaded marking, object ha
 7. Extend manifests with schema, tool, symbol-name scheme, profile, platform, config, options, and generated output tracking.
 8. Add DHT snapshot tests that compare generated files for tiny reflected headers, including at least one namespaced class.
 9. Attach generated primitive properties to `DClass`.
-10. Attach generated object-pointer properties to `DClass`.
-11. Implement `IsA` and `Cast` using `DClass` hierarchy.
-12. Build a minimal GC on top of reflected object-pointer traversal.
+10. Attach generated enum and object-pointer properties to `DClass`.
+11. Add `std::string`, array, map, and nested container metadata.
+12. Implement `IsA` and `Cast` using `DClass` hierarchy.
+13. Build a minimal GC on top of reflected object-pointer metadata traversal.
+14. Add basic reflected object graph serialization for scalar/string/object-reference fields.
+15. Add type-erased container helpers so GC and serialization can traverse and mutate vector/map contents.
 
 ## Deferred Work
 
@@ -280,9 +306,9 @@ Do not block the first usable milestone on:
 - hot reload
 - Blueprint-style function reflection
 - editor property panels
-- serialization formats
-- reflected containers
-- reflected templates
+- stable asset/package serialization formats
+- type-erased container editing APIs
+- broad reflected templates beyond the recognized STL property containers
 - complete metadata specifier support
 - incremental or concurrent GC
 

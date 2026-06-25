@@ -74,8 +74,18 @@ namespace Durin
 		EditConst = 1 << 2,
 	};
 
+	enum class EObjectInternalFlags
+	{
+		None = 0,
+		RootSet = 1 << 0,
+		Reachable = 1 << 1,
+		BeginDestroyed = 1 << 2,
+		Garbage = 1 << 3,
+	};
+
 	ENUM_CLASS_FLAGS(EObjectFlags)
 	ENUM_CLASS_FLAGS(EPropertyFlags)
+	ENUM_CLASS_FLAGS(EObjectInternalFlags)
 }
 
 #define GENERATED_BODY(...) BODY_MACRO_COMBINE(CURRENT_FILE_ID, _, __LINE__, _GENERATED_BODY)

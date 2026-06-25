@@ -184,6 +184,25 @@ namespace Durin
 		return ValuePtr ? *ValuePtr : nullptr;
 	}
 
+	auto FObjectProperty::SetObjectPropertyValue(void* Container, DObject* Value, uint32 ArrayIndex) const -> void
+	{
+		if (IsObjectPtrWrapper())
+		{
+			FObjectPtrBase* ValuePtr = ContainerPtrToValuePtr<FObjectPtrBase>(Container, ArrayIndex);
+			if (ValuePtr)
+			{
+				ValuePtr->SetObject(Value);
+			}
+			return;
+		}
+
+		DObject** ValuePtr = ContainerPtrToValuePtr<DObject*>(Container, ArrayIndex);
+		if (ValuePtr)
+		{
+			*ValuePtr = Value;
+		}
+	}
+
 	FArrayProperty::FArrayProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
 		: FProperty(InOwner, InName, InObjectFlags)
 	{
