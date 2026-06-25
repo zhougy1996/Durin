@@ -3,6 +3,9 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/ObjectLifecycle.h"
+#include "DObject/Archive.h"
+#include "DObject/DObjectArray.h"
 
 #include <gtest/gtest.h>
 #include <cstddef>
@@ -31,6 +34,176 @@ namespace
 	struct FReflectedEnumPropertyOwnerForTest
 	{
 		EReflectedEnumForTest Mode = EReflectedEnumForTest::A;
+	};
+
+	class DLifecycleTestObject : public Durin::DObject
+	{
+	public:
+		explicit DLifecycleTestObject(const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
+			: DObject(ObjectInitializer)
+		{
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DLifecycleTestObject(X);
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor,
+					Durin::FName("DLifecycleTestObject"),
+					sizeof(DLifecycleTestObject),
+					alignof(DLifecycleTestObject),
+					Durin::EObjectFlags::NoFlags,
+					Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DLifecycleTestObject>
+				);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DLifecycleTestObject");
+				Durin::DObjectForceRegistration(Class);
+			}
+			return Class;
+		}
+	};
+
+	class DLifecycleReferenceOwnerForTest : public Durin::DObject
+	{
+	public:
+		explicit DLifecycleReferenceOwnerForTest(const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
+			: DObject(ObjectInitializer)
+		{
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DLifecycleReferenceOwnerForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor,
+					Durin::FName("DLifecycleReferenceOwnerForTest"),
+					sizeof(DLifecycleReferenceOwnerForTest),
+					alignof(DLifecycleReferenceOwnerForTest),
+					Durin::EObjectFlags::NoFlags,
+					Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DLifecycleReferenceOwnerForTest>
+				);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DLifecycleReferenceOwnerForTest");
+				Durin::DObjectForceRegistration(Class);
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			Durin::DClass* Class = StaticClassNoRegister();
+
+			static bool bPropertiesConstructed = false;
+			if (!bPropertiesConstructed)
+			{
+				static const Durin::DurinCodeGen::FInt32PropertyParams ValuePropertyParams = {
+					"Value",
+					Durin::EPropertyFlags::None,
+					1,
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Value)),
+					static_cast<Durin::uint16>(sizeof(Durin::int32)),
+					Durin::DurinCodeGen::EPropertyGenFlags::Int32,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr
+				};
+				static const Durin::DurinCodeGen::FBoolPropertyParams BoolPropertyParams = {
+					"bEnabled",
+					Durin::EPropertyFlags::None,
+					1,
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, bEnabled)),
+					static_cast<Durin::uint16>(sizeof(bool)),
+					Durin::DurinCodeGen::EPropertyGenFlags::Bool,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr
+				};
+				static const Durin::DurinCodeGen::FStringPropertyParams NamePropertyParams = {
+					"Label",
+					Durin::EPropertyFlags::None,
+					1,
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Label)),
+					static_cast<Durin::uint16>(sizeof(std::string)),
+					Durin::DurinCodeGen::EPropertyGenFlags::String,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr
+				};
+				static const Durin::DurinCodeGen::FObjectPropertyParams ReferencePropertyParams = {
+					"Reference",
+					Durin::EPropertyFlags::None,
+					1,
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Reference)),
+					static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
+					Durin::DurinCodeGen::EPropertyGenFlags::Object,
+					&Durin::DObject::StaticClass,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr
+				};
+				static const Durin::DurinCodeGen::FInt32PropertyParams TransientPropertyParams = {
+					"TransientValue",
+					Durin::EPropertyFlags::Transient,
+					1,
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, TransientValue)),
+					static_cast<Durin::uint16>(sizeof(Durin::int32)),
+					Durin::DurinCodeGen::EPropertyGenFlags::Int32,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr
+				};
+				static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
+					&ValuePropertyParams,
+					&BoolPropertyParams,
+					&NamePropertyParams,
+					&ReferencePropertyParams,
+					&TransientPropertyParams
+				};
+				static const Durin::DurinCodeGen::FClassParams ClassParams = {
+					&DLifecycleReferenceOwnerForTest::StaticClassNoRegister,
+					"DLifecycleReferenceOwnerForTest",
+					"DLifecycleReferenceOwnerForTest",
+					PropertyParams,
+					5
+				};
+				Durin::DurinCodeGen::ConstructDClass(ClassParams);
+				bPropertiesConstructed = true;
+			}
+			return Class;
+		}
+
+		Durin::int32 Value = 0;
+		bool bEnabled = false;
+		std::string Label;
+		Durin::DObject* Reference = nullptr;
+		Durin::int32 TransientValue = 0;
 	};
 
 	Durin::DClass* Z_Construct_DClass_FReflectedPropertyOwnerForTest_NoRegister()
@@ -98,6 +271,12 @@ namespace
 		(void)bInitialized;
 	}
 
+	auto ObjectArrayContains(Durin::DObject* Object) -> bool
+	{
+		const std::vector<Durin::DObject*>& Objects = Durin::GDObjectArray.GetAll();
+		return std::find(Objects.begin(), Objects.end(), Object) != Objects.end();
+	}
+
 	TEST(FCoreDObjectReflectionTests, IntrinsicTypesUseTypeAndStructBaseHierarchy)
 	{
 		EnsureDObjectInitialized();
@@ -118,6 +297,112 @@ namespace
 		EXPECT_EQ(Object->GetClass(), Durin::DObject::StaticClass());
 		EXPECT_TRUE(Object->IsA(Durin::DObject::StaticClass()));
 		EXPECT_EQ(Durin::Cast<Durin::DObject>(Object), Object);
+	}
+
+	TEST(FCoreDObjectReflectionTests, DestroyObjectRemovesRuntimeObject)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("DestroyObjectTestObject"));
+		ASSERT_TRUE(ObjectArrayContains(Object));
+
+		Durin::DestroyObject(Object);
+		Durin::GDObjectArray.Compact();
+
+		EXPECT_FALSE(ObjectArrayContains(Object));
+	}
+
+	TEST(FCoreDObjectReflectionTests, GarbageCollectionKeepsRootAndCollectsUnreachableObjects)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DObject* RootedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("RootedGCTestObject"));
+		Durin::DObject* UnreachableObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("UnreachableGCTestObject"));
+		Durin::AddToRoot(RootedObject);
+
+		Durin::CollectGarbage();
+
+		EXPECT_TRUE(ObjectArrayContains(RootedObject));
+		EXPECT_FALSE(ObjectArrayContains(UnreachableObject));
+
+		Durin::RemoveFromRoot(RootedObject);
+		Durin::DestroyObject(RootedObject);
+		Durin::GDObjectArray.Compact();
+	}
+
+	TEST(FCoreDObjectReflectionTests, ReflectedObjectPropertyKeepsReferencedObjectReachable)
+	{
+		EnsureDObjectInitialized();
+
+		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("GCReferenceOwner"));
+		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCReferencedObject"));
+		Owner->Reference = ReferencedObject;
+		Durin::AddToRoot(Owner);
+
+		Durin::CollectGarbage();
+
+		EXPECT_TRUE(ObjectArrayContains(Owner));
+		EXPECT_TRUE(ObjectArrayContains(ReferencedObject));
+
+		Durin::RemoveFromRoot(Owner);
+		Durin::DestroyObject(Owner);
+		Durin::GDObjectArray.Compact();
+	}
+
+	TEST(FCoreDObjectReflectionTests, OuterKeepsInnerObjectReachable)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DObject* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCOuterObject"));
+		auto* Inner = Durin::NewObject<DLifecycleTestObject>(Outer, Durin::FName("GCInnerObject"));
+		Durin::AddToRoot(Outer);
+
+		Durin::CollectGarbage();
+
+		EXPECT_TRUE(ObjectArrayContains(Outer));
+		EXPECT_TRUE(ObjectArrayContains(Inner));
+		EXPECT_EQ(Inner->GetOuter(), Outer);
+
+		Durin::RemoveFromRoot(Outer);
+		Durin::DestroyObject(Outer);
+		Durin::GDObjectArray.Compact();
+	}
+
+	TEST(FCoreDObjectReflectionTests, ObjectGraphSerializationRoundTripsScalarStringAndObjectReference)
+	{
+		EnsureDObjectInitialized();
+
+		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("SerializedOwner"));
+		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("SerializedReference"));
+		Owner->Value = 37;
+		Owner->bEnabled = true;
+		Owner->Label = "Serialized";
+		Owner->Reference = ReferencedObject;
+		Owner->TransientValue = 99;
+		ASSERT_EQ(Owner->GetClass(), DLifecycleReferenceOwnerForTest::StaticClass());
+		ASSERT_EQ(Owner->GetClass()->GetName(), "DLifecycleReferenceOwnerForTest");
+		ASSERT_EQ(ReferencedObject->GetClass(), Durin::DObject::StaticClass());
+
+		std::vector<Durin::uint8> Bytes;
+		ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Owner, Bytes));
+		Durin::DestroyObject(Owner);
+		Durin::DestroyObject(ReferencedObject);
+		Durin::GDObjectArray.Compact();
+
+		Durin::DObject* LoadedRoot = Durin::LoadObjectGraphFromMemory(Bytes);
+		ASSERT_NE(LoadedRoot, nullptr);
+		EXPECT_EQ(LoadedRoot->GetClass(), DLifecycleReferenceOwnerForTest::StaticClass());
+		auto* LoadedOwner = Durin::Cast<DLifecycleReferenceOwnerForTest>(LoadedRoot);
+		ASSERT_NE(LoadedOwner, nullptr);
+		ASSERT_NE(LoadedOwner->Reference, nullptr);
+		EXPECT_EQ(LoadedOwner->Value, 37);
+		EXPECT_TRUE(LoadedOwner->bEnabled);
+		EXPECT_EQ(LoadedOwner->Label, "Serialized");
+		EXPECT_EQ(LoadedOwner->Reference->GetName(), "SerializedReference");
+		EXPECT_EQ(LoadedOwner->TransientValue, 0);
+
+		Durin::DestroyObject(LoadedOwner);
+		Durin::GDObjectArray.Compact();
 	}
 
 	TEST(FCoreDObjectReflectionTests, TObjectPtrWrapsDObjectReferencesWithoutOwnership)
@@ -568,4 +853,3 @@ namespace
 		EXPECT_EQ(ObjectListsValue->GetInner()->GetReferencedClass(), Durin::DObject::StaticClass());
 	}
 }
-

@@ -7,6 +7,8 @@
 namespace Durin
 {
 	class FObjectInitializer;
+	class FArchive;
+	class FReferenceCollector;
 
 	using FClassRegisterFunc = DClass* (*)();
 	using FEnumRegisterFunc = DEnum* (*)();
@@ -66,6 +68,14 @@ namespace Durin
 
 		auto GetClass() const -> DClass* { return ClassPrivate; }
 
+		auto GetOuter() const -> DObject* { return OuterPrivate; }
+
+		auto GetObjectFlags() const -> EObjectFlags { return ObjectFlags; }
+
+		auto GetInternalFlags() const -> EObjectInternalFlags { return InternalFlags; }
+
+		auto HasAnyInternalFlags(EObjectInternalFlags InFlags) const -> bool { return EnumHasAnyFlags(InternalFlags, InFlags); }
+
 		COREDOBJECT_API auto IsA(const DClass* InClass) const -> bool;
 
 		template<typename T>
@@ -73,6 +83,14 @@ namespace Durin
 		{
 			return IsA(T::StaticClass());
 		}
+
+		COREDOBJECT_API virtual auto Serialize(FArchive& Ar) -> void;
+
+		COREDOBJECT_API virtual auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
+
+		COREDOBJECT_API virtual auto BeginDestroy() -> void;
+
+		COREDOBJECT_API virtual auto FinishDestroy() -> void;
 
 		static void IntrinsicClassInit(DClass* Class);
 
@@ -107,9 +125,28 @@ namespace Durin
 
 		DClass* ClassPrivate = nullptr;
 
+		EObjectInternalFlags InternalFlags = EObjectInternalFlags::None;
+
+		std::vector<DObject*> InnerObjects;
+
+	public:
+		auto SetInternalFlags(EObjectInternalFlags InFlags) -> void { InternalFlags |= InFlags; }
+		auto ClearInternalFlags(EObjectInternalFlags InFlags) -> void { InternalFlags &= ~InFlags; }
+		auto AddInnerObject(DObject* Object) -> void;
+		auto RemoveInnerObject(DObject* Object) -> void;
+		auto SetOuterPrivate(DObject* NewOuter) -> void;
+		auto GetInnerObjects() const -> const std::vector<DObject*>& { return InnerObjects; }
+
+	private:
 		friend COREDOBJECT_API auto DObjectForceRegistration(DObject* Object) -> void;
 
 		friend COREDOBJECT_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
+		friend COREDOBJECT_API auto AddToRoot(DObject* Object) -> void;
+		friend COREDOBJECT_API auto RemoveFromRoot(DObject* Object) -> void;
+		friend COREDOBJECT_API auto DestroyObject(DObject* Object) -> void;
+		friend COREDOBJECT_API auto CollectGarbage() -> void;
+		friend COREDOBJECT_API auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void;
+		friend COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
 	};
 
 	template<typename T>
