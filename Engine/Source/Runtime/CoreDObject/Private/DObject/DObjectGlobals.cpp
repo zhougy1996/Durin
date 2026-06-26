@@ -84,7 +84,8 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass
+					ReferencedClass,
+					PropertyParams->ArrayHelper
 				);
 				if (PropertyParams->Inner)
 				{

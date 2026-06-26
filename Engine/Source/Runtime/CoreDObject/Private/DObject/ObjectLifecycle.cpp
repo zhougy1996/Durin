@@ -9,6 +9,44 @@ namespace Durin
 {
 	namespace
 	{
+		auto ForEachPropertyReference(FProperty* Property, void* Container, uint32 ArrayIndex, FReferenceCollector& Collector) -> void
+		{
+			if (!Property)
+			{
+				return;
+			}
+
+			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Object)
+			{
+				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
+				if (!ObjectProperty->IsObjectPtrWrapper())
+				{
+					return;
+				}
+
+				DObject* ReferencedObject = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
+				Collector.AddReferencedObject(ReferencedObject);
+				return;
+			}
+
+			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Array)
+			{
+				auto* ArrayProperty = static_cast<FArrayProperty*>(Property);
+				FProperty* Inner = ArrayProperty->GetInner();
+				if (!Inner || !ArrayProperty->HasArrayHelper())
+				{
+					return;
+				}
+
+				const uint64 Num = ArrayProperty->Num(Container, ArrayIndex);
+				for (uint64 Index = 0; Index < Num; ++Index)
+				{
+					void* Element = ArrayProperty->GetMutableElementPtr(Container, Index, ArrayIndex);
+					ForEachPropertyReference(Inner, Element, 0, Collector);
+				}
+			}
+		}
+
 		auto IsPermanentObject(DObject* Object) -> bool
 		{
 			if (!Object)
@@ -91,16 +129,14 @@ namespace Durin
 		Object->GetClass()->ForEachProperty(
 			[&](FProperty* Property)
 			{
-				if (!Property || Property->GetKind() != DurinCodeGen::EPropertyGenFlags::Object)
+				if (!Property)
 				{
 					return;
 				}
 
-				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
-				for (uint32 Index = 0; Index < ObjectProperty->GetArrayDim(); ++Index)
+				for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 				{
-					DObject* ReferencedObject = ObjectProperty->GetObjectPropertyValue(Object, Index);
-					Collector.AddReferencedObject(ReferencedObject);
+					ForEachPropertyReference(Property, Object, Index, Collector);
 				}
 			},
 			true

@@ -218,11 +218,36 @@ namespace Durin
 		uint16 InOffset,
 		uint16 InElementSize,
 		DurinCodeGen::EPropertyGenFlags InKind,
-		DClass* InReferencedClass
+		DClass* InReferencedClass,
+		const DurinCodeGen::FArrayPropertyHelper* InArrayHelper
 	)
 		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass)
+		, ArrayHelper(InArrayHelper)
 	{
 		ClassPrivate = StaticClass();
+	}
+
+	auto FArrayProperty::Num(const void* Container, uint32 ArrayIndex) const -> uint64
+	{
+		return ArrayHelper ? ArrayHelper->Num(GetValuePtr(Container, ArrayIndex)) : 0;
+	}
+
+	auto FArrayProperty::GetElementPtr(const void* Container, uint64 Index, uint32 ArrayIndex) const -> const void*
+	{
+		return ArrayHelper ? ArrayHelper->GetElement(GetValuePtr(Container, ArrayIndex), Index) : nullptr;
+	}
+
+	auto FArrayProperty::GetMutableElementPtr(void* Container, uint64 Index, uint32 ArrayIndex) const -> void*
+	{
+		return ArrayHelper ? ArrayHelper->GetMutableElement(GetValuePtr(Container, ArrayIndex), Index) : nullptr;
+	}
+
+	auto FArrayProperty::Resize(void* Container, uint64 Num, uint32 ArrayIndex) const -> void
+	{
+		if (ArrayHelper)
+		{
+			ArrayHelper->Resize(GetValuePtr(Container, ArrayIndex), Num);
+		}
 	}
 
 	FMapProperty::FMapProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)

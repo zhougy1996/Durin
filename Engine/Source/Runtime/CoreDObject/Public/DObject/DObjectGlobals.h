@@ -99,6 +99,14 @@ namespace Durin
 
 		struct FPropertyParamsBase;
 
+		struct FArrayPropertyHelper
+		{
+			uint64 (*Num)(const void* Container);
+			const void* (*GetElement)(const void* Container, uint64 Index);
+			void* (*GetMutableElement)(void* Container, uint64 Index);
+			void (*Resize)(void* Container, uint64 Num);
+		};
+
 		struct FEnumValueParams
 		{
 			const char* NameUTF8;
@@ -140,6 +148,7 @@ namespace Durin
 			const FPropertyParamsBase* Key;
 			const FPropertyParamsBase* Value;
 			bool bIsObjectPtrWrapper = false;
+			const FArrayPropertyHelper* ArrayHelper = nullptr;
 		};
 
 		struct FGenericPropertyParams : public FPropertyParamsBase

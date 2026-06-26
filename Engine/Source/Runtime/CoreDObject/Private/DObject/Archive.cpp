@@ -80,11 +80,37 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			{
 				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
+				if (!ObjectProperty->IsObjectPtrWrapper())
+				{
+					break;
+				}
 				DObject* ReferencedObject = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
 				Ar.SerializeObjectReference(ReferencedObject);
 				if (Ar.IsLoading())
 				{
 					ObjectProperty->SetObjectPropertyValue(Container, ReferencedObject, ArrayIndex);
+				}
+				break;
+			}
+			case DurinCodeGen::EPropertyGenFlags::Array:
+			{
+				auto* ArrayProperty = static_cast<FArrayProperty*>(Property);
+				FProperty* Inner = ArrayProperty->GetInner();
+				if (!Inner || !ArrayProperty->HasArrayHelper())
+				{
+					break;
+				}
+
+				uint64 Num = Ar.IsSaving() ? ArrayProperty->Num(Container, ArrayIndex) : 0;
+				Ar << Num;
+				if (Ar.IsLoading())
+				{
+					ArrayProperty->Resize(Container, Num, ArrayIndex);
+				}
+				for (uint64 Index = 0; Index < Num; ++Index)
+				{
+					void* Element = ArrayProperty->GetMutableElementPtr(Container, Index, ArrayIndex);
+					SerializePropertyValue(Ar, Inner, Element, 0);
 				}
 				break;
 			}

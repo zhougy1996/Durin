@@ -147,16 +147,23 @@ namespace Durin
 			uint16 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
-			DClass* InReferencedClass
+			DClass* InReferencedClass,
+			const DurinCodeGen::FArrayPropertyHelper* InArrayHelper = nullptr
 		);
 
 		auto SetInner(FProperty* InInner) -> void { Inner = InInner; }
 		auto GetInner() const -> FProperty* { return Inner; }
 		auto GetContainerPtr(void* Container) const -> void* { return GetValuePtr(Container); }
 		auto GetContainerPtr(const void* Container) const -> const void* { return GetValuePtr(Container); }
+		COREDOBJECT_API auto Num(const void* Container, uint32 ArrayIndex = 0) const -> uint64;
+		COREDOBJECT_API auto GetElementPtr(const void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> const void*;
+		COREDOBJECT_API auto GetMutableElementPtr(void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> void*;
+		COREDOBJECT_API auto Resize(void* Container, uint64 Num, uint32 ArrayIndex = 0) const -> void;
+		auto HasArrayHelper() const -> bool { return ArrayHelper != nullptr; }
 
 	private:
 		FProperty* Inner = nullptr;
+		const DurinCodeGen::FArrayPropertyHelper* ArrayHelper = nullptr;
 	};
 
 	class FMapProperty : public FProperty
