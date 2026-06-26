@@ -76,6 +76,11 @@ namespace Durin
 		}
 	}
 
+	COREDOBJECT_API auto ConditionallyMarkAsReachable(DObject* Object) -> void
+	{
+		(void)Object;
+	}
+
 	auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void
 	{
 		if (!Object || !Object->GetClass())

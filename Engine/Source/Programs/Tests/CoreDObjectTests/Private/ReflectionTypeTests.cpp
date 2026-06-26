@@ -166,6 +166,20 @@ namespace
 					nullptr,
 					nullptr
 				};
+				static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrReferencePropertyParams = {
+					"ObjectPtrReference",
+					Durin::EPropertyFlags::None,
+					1,
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, ObjectPtrReference)),
+					static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+					Durin::DurinCodeGen::EPropertyGenFlags::Object,
+					&Durin::DObject::StaticClass,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr,
+					true
+				};
 				static const Durin::DurinCodeGen::FInt32PropertyParams TransientPropertyParams = {
 					"TransientValue",
 					Durin::EPropertyFlags::Transient,
@@ -184,6 +198,7 @@ namespace
 					&BoolPropertyParams,
 					&NamePropertyParams,
 					&ReferencePropertyParams,
+					&ObjectPtrReferencePropertyParams,
 					&TransientPropertyParams
 				};
 				static const Durin::DurinCodeGen::FClassParams ClassParams = {
@@ -191,7 +206,7 @@ namespace
 					"DLifecycleReferenceOwnerForTest",
 					"DLifecycleReferenceOwnerForTest",
 					PropertyParams,
-					5
+					6
 				};
 				Durin::DurinCodeGen::ConstructDClass(ClassParams);
 				bPropertiesConstructed = true;
@@ -203,6 +218,7 @@ namespace
 		bool bEnabled = false;
 		std::string Label;
 		Durin::DObject* Reference = nullptr;
+		Durin::TObjectPtr<Durin::DObject> ObjectPtrReference;
 		Durin::int32 TransientValue = 0;
 	};
 
@@ -273,7 +289,7 @@ namespace
 
 	auto ObjectArrayContains(Durin::DObject* Object) -> bool
 	{
-		const std::vector<Durin::DObject*>& Objects = Durin::GDObjectArray.GetAll();
+		std::vector<Durin::DObject*> Objects = Durin::GDObjectArray.GetAll();
 		return std::find(Objects.begin(), Objects.end(), Object) != Objects.end();
 	}
 
@@ -336,13 +352,16 @@ namespace
 
 		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("GCReferenceOwner"));
 		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCReferencedObject"));
+		Durin::DObject* ObjectPtrReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCObjectPtrReferencedObject"));
 		Owner->Reference = ReferencedObject;
+		Owner->ObjectPtrReference = ObjectPtrReferencedObject;
 		Durin::AddToRoot(Owner);
 
 		Durin::CollectGarbage();
 
 		EXPECT_TRUE(ObjectArrayContains(Owner));
 		EXPECT_TRUE(ObjectArrayContains(ReferencedObject));
+		EXPECT_TRUE(ObjectArrayContains(ObjectPtrReferencedObject));
 
 		Durin::RemoveFromRoot(Owner);
 		Durin::DestroyObject(Owner);
@@ -378,6 +397,7 @@ namespace
 		Owner->bEnabled = true;
 		Owner->Label = "Serialized";
 		Owner->Reference = ReferencedObject;
+		Owner->ObjectPtrReference = ReferencedObject;
 		Owner->TransientValue = 99;
 		ASSERT_EQ(Owner->GetClass(), DLifecycleReferenceOwnerForTest::StaticClass());
 		ASSERT_EQ(Owner->GetClass()->GetName(), "DLifecycleReferenceOwnerForTest");
@@ -395,10 +415,12 @@ namespace
 		auto* LoadedOwner = Durin::Cast<DLifecycleReferenceOwnerForTest>(LoadedRoot);
 		ASSERT_NE(LoadedOwner, nullptr);
 		ASSERT_NE(LoadedOwner->Reference, nullptr);
+		ASSERT_NE(LoadedOwner->ObjectPtrReference.Get(), nullptr);
 		EXPECT_EQ(LoadedOwner->Value, 37);
 		EXPECT_TRUE(LoadedOwner->bEnabled);
 		EXPECT_EQ(LoadedOwner->Label, "Serialized");
 		EXPECT_EQ(LoadedOwner->Reference->GetName(), "SerializedReference");
+		EXPECT_EQ(LoadedOwner->ObjectPtrReference.Get(), LoadedOwner->Reference);
 		EXPECT_EQ(LoadedOwner->TransientValue, 0);
 
 		Durin::DestroyObject(LoadedOwner);
@@ -407,20 +429,25 @@ namespace
 
 	TEST(FCoreDObjectReflectionTests, TObjectPtrWrapsDObjectReferencesWithoutOwnership)
 	{
-		Durin::DObject ReferencedObject;
+		EnsureDObjectInitialized();
+
+		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectPtrReferencedObject"));
 		Durin::TObjectPtr<Durin::DObject> ObjectPtr;
 
 		EXPECT_FALSE(ObjectPtr);
 		EXPECT_EQ(ObjectPtr.Get(), nullptr);
 
-		ObjectPtr = &ReferencedObject;
+		ObjectPtr = ReferencedObject;
 		EXPECT_TRUE(ObjectPtr);
-		EXPECT_EQ(ObjectPtr.Get(), &ReferencedObject);
-		EXPECT_EQ(static_cast<Durin::DObject*>(ObjectPtr), &ReferencedObject);
+		EXPECT_EQ(ObjectPtr.Get(), ReferencedObject);
+		EXPECT_EQ(ObjectPtr.GetHandle(), ReferencedObject);
+		EXPECT_EQ(static_cast<Durin::DObject*>(ObjectPtr), ReferencedObject);
 
 		ObjectPtr.Reset();
 		EXPECT_FALSE(ObjectPtr);
 		EXPECT_EQ(ObjectPtr.Get(), nullptr);
+
+		Durin::DestroyObject(ReferencedObject);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ConstructDEnumCreatesRuntimeEnumMetadata)
@@ -778,21 +805,21 @@ namespace
 		EXPECT_EQ(ObjectProperty->GetReferencedClass(), Durin::DObject::StaticClass());
 		EXPECT_TRUE(ObjectProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));
 
-		Durin::DObject ReferencedObject;
-		Instance.ObjectValue = &ReferencedObject;
-		EXPECT_EQ(ObjectProperty->GetObjectPropertyValue(&Instance), &ReferencedObject);
+		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("PropertyReferencedObject"));
+		Instance.ObjectValue = ReferencedObject;
+		EXPECT_EQ(ObjectProperty->GetObjectPropertyValue(&Instance), ReferencedObject);
 		Instance.ObjectValue = nullptr;
-		ObjectProperty->SetObjectPropertyValue(&Instance, &ReferencedObject);
-		EXPECT_EQ(Instance.ObjectValue, &ReferencedObject);
+		ObjectProperty->SetObjectPropertyValue(&Instance, ReferencedObject);
+		EXPECT_EQ(Instance.ObjectValue, ReferencedObject);
 
 		auto* ObjectPtrProperty = static_cast<Durin::FObjectProperty*>(Class->FindPropertyByName("ObjectPtrValue"));
 		ASSERT_NE(ObjectPtrProperty, nullptr);
 		EXPECT_TRUE(ObjectPtrProperty->IsObjectPtrWrapper());
-		Instance.ObjectPtrValue = &ReferencedObject;
-		EXPECT_EQ(ObjectPtrProperty->GetObjectPropertyValue(&Instance), &ReferencedObject);
+		Instance.ObjectPtrValue = ReferencedObject;
+		EXPECT_EQ(ObjectPtrProperty->GetObjectPropertyValue(&Instance), ReferencedObject);
 		Instance.ObjectPtrValue.Reset();
-		ObjectPtrProperty->SetObjectPropertyValue(&Instance, &ReferencedObject);
-		EXPECT_EQ(Instance.ObjectPtrValue.Get(), &ReferencedObject);
+		ObjectPtrProperty->SetObjectPropertyValue(&Instance, ReferencedObject);
+		EXPECT_EQ(Instance.ObjectPtrValue.Get(), ReferencedObject);
 
 		auto* StringProperty = static_cast<Durin::FStringProperty*>(Class->FindPropertyByName("StringValue"));
 		ASSERT_NE(StringProperty, nullptr);
@@ -857,5 +884,7 @@ namespace
 		EXPECT_EQ(ObjectListsValue->GetOwnerProperty(), ObjectListsProperty);
 		EXPECT_EQ(ObjectListsValue->GetInner()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Object);
 		EXPECT_EQ(ObjectListsValue->GetInner()->GetReferencedClass(), Durin::DObject::StaticClass());
+
+		Durin::DestroyObject(ReferencedObject);
 	}
 }

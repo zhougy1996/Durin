@@ -18,7 +18,7 @@ namespace Durin
 
 		auto GetNum() const -> uint64 { return Objs.size(); }
 
-		auto GetAll() -> const std::vector<DObject*>& { return Objs; }
+		auto GetAll() const -> const std::vector<DObject*>& { return Objs; }
 
 		auto Snapshot() const -> std::vector<DObject*> { return Objs; }
 

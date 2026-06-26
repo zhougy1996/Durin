@@ -176,7 +176,7 @@ namespace Durin
 	{
 		if (IsObjectPtrWrapper())
 		{
-			const FObjectPtrBase* ValuePtr = ContainerPtrToValuePtr<FObjectPtrBase>(Container, ArrayIndex);
+			const FObjectPtr* ValuePtr = ContainerPtrToValuePtr<FObjectPtr>(Container, ArrayIndex);
 			return ValuePtr ? ValuePtr->GetObject() : nullptr;
 		}
 
@@ -188,7 +188,7 @@ namespace Durin
 	{
 		if (IsObjectPtrWrapper())
 		{
-			FObjectPtrBase* ValuePtr = ContainerPtrToValuePtr<FObjectPtrBase>(Container, ArrayIndex);
+			FObjectPtr* ValuePtr = ContainerPtrToValuePtr<FObjectPtr>(Container, ArrayIndex);
 			if (ValuePtr)
 			{
 				ValuePtr->SetObject(Value);
