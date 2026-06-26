@@ -1,5 +1,6 @@
 #include "Components/ActorComponent.h"
 
+#include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
 #include "Components/SceneComponent.h"
 
@@ -8,8 +9,7 @@ namespace Durin
 	DActorComponent::DActorComponent(const FObjectInitializer& ObjectInitializer)
 		: DObject(ObjectInitializer)
 	{
-		// TODO: set OwnerActorPrivate
-		OwnerActorPrivate = nullptr;
+		OwnerActorPrivate = dynamic_cast<AActor*>(ObjectInitializer.Outer);
 	}
 	auto DActorComponent::RegisterComponent() -> void
 	{
@@ -36,6 +36,7 @@ namespace Durin
 
 		OnComponentDestroyed();
 		check(!bHasBeenCreated && "Failed to route OnComponentDestroyed()");
+		DestroyObject(this);
 	}
 
 	auto DActorComponent::InitializeComponent() -> void

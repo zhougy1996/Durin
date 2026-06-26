@@ -17,6 +17,7 @@ namespace Durin
 		ENGINE_API AStaticMeshActor();
 	private:
 
-		DStaticMeshComponent* StaticMeshComponent = nullptr;
+		DPROPERTY()
+		TObjectPtr<DStaticMeshComponent> StaticMeshComponent;
 	};
 }

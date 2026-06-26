@@ -20,18 +20,19 @@ namespace Durin
 	{
 		InstanceComponents.clear();
 		RootComponent = nullptr;
-
-		for (auto* Component : OwnedComponents)
-		{
-			delete Component;
-		}
-
 		OwnedComponents.clear();
 	}
 
 	auto AActor::RemoveOwnedComponent(DActorComponent* Component) -> void
 	{
-		auto It = std::find(OwnedComponents.begin(), OwnedComponents.end(), Component);
+		auto It = std::find_if(
+			OwnedComponents.begin(),
+			OwnedComponents.end(),
+			[Component](const TObjectPtr<DActorComponent>& Entry)
+			{
+				return Entry.Get() == Component;
+			}
+		);
 		if (It != OwnedComponents.end())
 		{
 			OwnedComponents.erase(It);
@@ -40,7 +41,14 @@ namespace Durin
 
 	auto AActor::RemoveInstanceComponent(DActorComponent* Component) -> void
 	{
-		auto It = std::find(InstanceComponents.begin(), InstanceComponents.end(), Component);
+		auto It = std::find_if(
+			InstanceComponents.begin(),
+			InstanceComponents.end(),
+			[Component](const TObjectPtr<DActorComponent>& Entry)
+			{
+				return Entry.Get() == Component;
+			}
+		);
 		if (It != InstanceComponents.end())
 		{
 			InstanceComponents.erase(It);

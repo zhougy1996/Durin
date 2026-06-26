@@ -7,6 +7,16 @@ namespace Durin
 {
 	COREDOBJECT_API auto ConditionallyMarkAsReachable(DObject* Object) -> void;
 
+	template<typename T, typename = void>
+	struct TIsCompleteType : std::false_type
+	{
+	};
+
+	template<typename T>
+	struct TIsCompleteType<T, std::void_t<decltype(sizeof(T))>> : std::true_type
+	{
+	};
+
 	class FObjectPtr
 	{
 	public:
@@ -33,13 +43,11 @@ namespace Durin
 	class TObjectPtr
 	{
 	public:
-		static_assert(std::is_base_of_v<DObject, T>, "TObjectPtr<T> requires T to derive from DObject");
-
 		TObjectPtr() = default;
 		TObjectPtr(std::nullptr_t) {}
 		TObjectPtr(T* InObject) : ObjectPtr(ToDObject(InObject)) {}
 
-		auto Get() const -> T* { return static_cast<T*>(ObjectPtr.GetObject()); }
+		auto Get() const -> T* { return FromDObject(ObjectPtr.GetObject()); }
 		auto Reset() -> void { ObjectPtr.Reset(); }
 		auto GetHandle() const -> FObjectHandle { return ObjectPtr.GetHandle(); }
 
@@ -63,7 +71,28 @@ namespace Durin
 	private:
 		static auto ToDObject(T* InObject) -> DObject*
 		{
-			return InObject;
+			if constexpr (TIsCompleteType<T>::value)
+			{
+				static_assert(std::is_base_of_v<DObject, T>, "TObjectPtr<T> requires T to derive from DObject");
+				return static_cast<DObject*>(InObject);
+			}
+			else
+			{
+				return reinterpret_cast<DObject*>(InObject);
+			}
+		}
+
+		static auto FromDObject(DObject* InObject) -> T*
+		{
+			if constexpr (TIsCompleteType<T>::value)
+			{
+				static_assert(std::is_base_of_v<DObject, T>, "TObjectPtr<T> requires T to derive from DObject");
+				return static_cast<T*>(InObject);
+			}
+			else
+			{
+				return reinterpret_cast<T*>(InObject);
+			}
 		}
 
 		FObjectPtr ObjectPtr;

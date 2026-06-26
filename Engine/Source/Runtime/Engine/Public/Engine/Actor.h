@@ -36,8 +36,13 @@ namespace Durin
 		auto FindComponentByStaticClass() -> T*
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-			for (auto* Component : OwnedComponents)
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : OwnedComponents)
 			{
+				DActorComponent* Component = ComponentPtr.Get();
+				if (!Component)
+				{
+					continue;
+				}
 				if (typeid(*Component) == typeid(T))
 				{
 					return static_cast<T*>(Component);
@@ -51,8 +56,13 @@ namespace Durin
 		auto FindComponentByClass() -> T*
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-			for (auto* Component : OwnedComponents)
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : OwnedComponents)
 			{
+				DActorComponent* Component = ComponentPtr.Get();
+				if (!Component)
+				{
+					continue;
+				}
 				if (auto* CastedComponent = dynamic_cast<T*>(Component))
 				{
 					return CastedComponent;
@@ -66,8 +76,13 @@ namespace Durin
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
 			std::vector<DActorComponent*> FoundComponents;
-			for (auto* Component : OwnedComponents)
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : OwnedComponents)
 			{
+				DActorComponent* Component = ComponentPtr.Get();
+				if (!Component)
+				{
+					continue;
+				}
 				if (auto* CastedComponent = dynamic_cast<T*>(Component))
 				{
 					FoundComponents.push_back(CastedComponent);
@@ -84,7 +99,7 @@ namespace Durin
 		auto CreateDefaultComponent() -> T*
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-			T* Component = new T(this);
+			T* Component = NewObject<T>(this, FName());
 			OwnedComponents.push_back(Component);
 			return Component;
 		}
@@ -97,10 +112,13 @@ namespace Durin
 			return Component;
 		}
 
-		DSceneComponent* RootComponent = nullptr;
+		DPROPERTY()
+		TObjectPtr<DSceneComponent> RootComponent;
 
-		std::vector<DActorComponent*> OwnedComponents;
+		DPROPERTY()
+		std::vector<TObjectPtr<DActorComponent>> OwnedComponents;
 
-		std::vector<DActorComponent*> InstanceComponents;
+		DPROPERTY()
+		std::vector<TObjectPtr<DActorComponent>> InstanceComponents;
 	};
 }
