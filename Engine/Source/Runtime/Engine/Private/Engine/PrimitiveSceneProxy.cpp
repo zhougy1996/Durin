@@ -7,4 +7,19 @@ namespace Durin
 		LocalToWorld_ = InLocalToWorld;
 		ActorPosition_ = InActorPosition;
 	}
+
+	auto PrimitiveSceneProxy::GetLocalToWorld() const -> const FMatrix&
+	{
+		return LocalToWorld_;
+	}
+
+	FStaticMeshSceneProxy::FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData)
+		: RenderData(InRenderData)
+	{
+	}
+
+	auto FStaticMeshSceneProxy::GetRenderData() const -> FStaticMeshRenderData*
+	{
+		return RenderData;
+	}
 }

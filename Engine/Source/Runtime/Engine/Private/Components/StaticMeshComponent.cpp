@@ -1,6 +1,60 @@
 #include "Components/StaticMeshComponent.h"
 
+#include "Engine/Engine.h"
+#include "Engine/PrimitiveSceneProxy.h"
+#include "IScene.h"
+#include "RHICommandList.h"
+#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshResources.h"
+
 namespace Durin
 {
+	auto DStaticMeshComponent::SetStaticMesh(std::shared_ptr<DStaticMesh> InStaticMesh) -> void
+	{
+		if (StaticMesh == InStaticMesh)
+		{
+			return;
+		}
 
+		if (IsRegistered() && GEngine != nullptr)
+		{
+			if (IScene* Scene = GEngine->GetMainScene())
+			{
+				Scene->RemovePrimitive(this);
+			}
+		}
+
+		StaticMesh = std::move(InStaticMesh);
+
+		if (IsRegistered() && GEngine != nullptr)
+		{
+			if (IScene* Scene = GEngine->GetMainScene())
+			{
+				Scene->AddPrimitive(this);
+			}
+		}
+	}
+
+	auto DStaticMeshComponent::GetStaticMesh() const -> const std::shared_ptr<DStaticMesh>&
+	{
+		return StaticMesh;
+	}
+
+	auto DStaticMeshComponent::CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy>
+	{
+		if (StaticMesh == nullptr)
+		{
+			return nullptr;
+		}
+
+		FStaticMeshRenderData* RenderData = StaticMesh->GetRenderData();
+		if (RenderData == nullptr || RenderData->IndexCount == 0)
+		{
+			return nullptr;
+		}
+
+		auto Proxy = std::make_unique<FStaticMeshSceneProxy>(RenderData);
+		Proxy->SetTransform(FRHICommandListImmediate::Get(), GetRenderMatrix(), FVector3(0.0));
+		return Proxy;
+	}
 }

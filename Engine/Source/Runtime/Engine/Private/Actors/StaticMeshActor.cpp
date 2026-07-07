@@ -10,4 +10,9 @@ namespace Durin
 		StaticMeshComponent = NewObject<DStaticMeshComponent>(this, "DStaticMeshComponent");
 		RootComponent = StaticMeshComponent;
 	}
+
+	auto AStaticMeshActor::GetStaticMeshComponent() const -> DStaticMeshComponent*
+	{
+		return StaticMeshComponent.Get();
+	}
 }

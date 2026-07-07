@@ -1,25 +1,23 @@
 #pragma once
-#include "Renderer/Definitions.h"
+#include "RendererAPI.h"
 
+#include "Engine/PrimitiveSceneProxy.h"
 #include "IScene.h"
 namespace Durin
 {
 	class FScene : public IScene
 	{
-		auto AddPrimitive(DPrimitiveComponent* Primitive) -> void override
-		{
-			// Implementation for adding a primitive to the scene
-		}
+	public:
+		auto AddPrimitive(DPrimitiveComponent* Primitive) -> void override;
 
-		auto RemovePrimitive(DPrimitiveComponent* Primitive) -> void override
-		{
-			// Implementation for removing a primitive from the scene
-		}
+		auto RemovePrimitive(DPrimitiveComponent* Primitive) -> void override;
 
-		auto UpdatePrimitiveTransform(DPrimitiveComponent* Primitive) -> void override
-		{
-			// Implementation for updating the transform of a primitive in the scene
-		}
+		auto UpdatePrimitiveTransform(DPrimitiveComponent* Primitive) -> void override;
 
+		auto GetPrimitiveSceneProxies() const -> const std::vector<PrimitiveSceneProxy*>& { return PrimitiveSceneProxies; }
+
+	private:
+		std::unordered_map<DPrimitiveComponent*, std::unique_ptr<PrimitiveSceneProxy>> PrimitiveToProxy;
+		std::vector<PrimitiveSceneProxy*> PrimitiveSceneProxies;
 	};
 }

@@ -1,15 +1,46 @@
 #include "Engine/Engine.h"
 
+#include "Actors/StaticMeshActor.h"
+#include "Components/StaticMeshComponent.h"
+#include "DObject/DObjectGlobals.h"
+#include "IRendererModule.h"
 #include "Mona/SceneViewport.h"
+#include "Modules/ModuleManager.h"
+#include "StaticMesh/StaticMesh.h"
 
 #include "DynamicRHI.h"
+#include "IScene.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 
 namespace Durin
 {
+	DEngine::~DEngine()
+	{
+		if (DemoStaticMeshActor)
+		{
+			if (DStaticMeshComponent* MeshComponent = DemoStaticMeshActor->GetStaticMeshComponent())
+			{
+				MeshComponent->UnregisterComponent();
+				MeshComponent->SetStaticMesh(nullptr);
+			}
+		}
+		DemoStaticMeshActor = nullptr;
+		MainScene.reset();
+		RendererModule = nullptr;
+	}
+
 	auto DEngine::Init() -> void
 	{
+		RendererModule = &FModuleManager::LoadModuleChecked<IRendererModule>("Renderer");
+		MainScene = RendererModule->CreateScene();
+
+		DemoStaticMeshActor = NewObject<AStaticMeshActor>(nullptr, "DebugStaticMeshActor");
+		if (DStaticMeshComponent* MeshComponent = DemoStaticMeshActor->GetStaticMeshComponent())
+		{
+			MeshComponent->SetStaticMesh(DStaticMesh::CreateDebugTriangle());
+			MeshComponent->RegisterComponent();
+		}
 	}
 
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
@@ -33,13 +64,17 @@ namespace Durin
 			}
 
 			ENQUEUE_RENDER_COMMAND(RenderMainSceneRenderTarget)(
-				[RenderTargetRHI](FRHICommandListImmediate& CommandList) {
+				[RenderTargetRHI, Scene = MainScene.get(), RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 
 					FRHIRenderPassInfo PassInfo{};
 					PassInfo.ColorRenderTargets[0] = RenderTargetRHI;
 					PassInfo.ColorClearValue = FClearValueBinding(0.05f, 0.09f, 0.14f, 1.0f);
-					CommandList.BeginRenderPass(PassInfo, "EditorSceneViewportClearPass");
+					CommandList.BeginRenderPass(PassInfo, "StaticMeshRenderPass");
+					if (RendererModule != nullptr)
+					{
+						RendererModule->RenderScene(CommandList, Scene, RenderTargetRHI, RenderTargetRHI->GetSizeX(), RenderTargetRHI->GetSizeY());
+					}
 					CommandList.EndRenderPass();
 				}
 			);
@@ -53,7 +88,7 @@ namespace Durin
 		}
 
 		ENQUEUE_RENDER_COMMAND(RenderMainSceneViewport)(
-			[ViewportRHI](FRHICommandListImmediate& CommandList) {
+			[ViewportRHI, Scene = MainScene.get(), RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
 				CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 				CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
 
@@ -67,7 +102,11 @@ namespace Durin
 				FRHIRenderPassInfo PassInfo{};
 				PassInfo.ColorRenderTargets[0] = BackBuffer;
 				PassInfo.ColorClearValue = FClearValueBinding(0.08f, 0.12f, 0.18f, 1.0f);
-				CommandList.BeginRenderPass(PassInfo, "RuntimeSceneViewportClearPass");
+				CommandList.BeginRenderPass(PassInfo, "StaticMeshRenderPass");
+				if (RendererModule != nullptr)
+				{
+					RendererModule->RenderScene(CommandList, Scene, BackBuffer, BackBuffer->GetSizeX(), BackBuffer->GetSizeY());
+				}
 				CommandList.EndRenderPass();
 
 				CommandList.EndDrawingViewport(ViewportRHI, true, false);
