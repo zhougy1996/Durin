@@ -177,7 +177,7 @@ namespace Durin
 		if (IsObjectPtrWrapper())
 		{
 			const FObjectPtr* ValuePtr = ContainerPtrToValuePtr<FObjectPtr>(Container, ArrayIndex);
-			return ValuePtr ? ValuePtr->GetObject() : nullptr;
+			return ValuePtr ? ValuePtr->Get() : nullptr;
 		}
 
 		DObject* const* ValuePtr = ContainerPtrToValuePtr<DObject*>(Container, ArrayIndex);

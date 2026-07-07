@@ -24,16 +24,16 @@ namespace Durin
 		FObjectPtr(std::nullptr_t) {}
 		explicit FObjectPtr(DObject* InObject) { SetObject(InObject); }
 
-		auto GetObject() const -> DObject* { return ResolveObjectHandle(Handle); }
+		auto Get() const -> DObject* { return ResolveObjectHandle(Handle); }
 		auto SetObject(DObject* InObject) -> void
 		{
-			Handle = InObject;
+			Handle = MakeObjectHandle(InObject);
 			ConditionallyMarkAsReachable(InObject);
 		}
 
 		auto GetHandle() const -> FObjectHandle { return Handle; }
 		auto Reset() -> void { SetObject(nullptr); }
-		explicit operator bool() const { return GetObject() != nullptr; }
+		explicit operator bool() const { return Get() != nullptr; }
 
 	private:
 		FObjectHandle Handle = nullptr;
@@ -47,7 +47,7 @@ namespace Durin
 		TObjectPtr(std::nullptr_t) {}
 		TObjectPtr(T* InObject) : ObjectPtr(ToDObject(InObject)) {}
 
-		auto Get() const -> T* { return FromDObject(ObjectPtr.GetObject()); }
+		auto Get() const -> T* { return FromDObject(ObjectPtr.Get()); }
 		auto Reset() -> void { ObjectPtr.Reset(); }
 		auto GetHandle() const -> FObjectHandle { return ObjectPtr.GetHandle(); }
 

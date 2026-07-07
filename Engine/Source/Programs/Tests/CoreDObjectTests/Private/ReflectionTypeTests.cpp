@@ -732,12 +732,44 @@ namespace
 		ObjectPtr = ReferencedObject;
 		EXPECT_TRUE(ObjectPtr);
 		EXPECT_EQ(ObjectPtr.Get(), ReferencedObject);
-		EXPECT_EQ(ObjectPtr.GetHandle(), ReferencedObject);
+		EXPECT_FALSE(Durin::IsObjectHandleNull(ObjectPtr.GetHandle()));
+		EXPECT_EQ(Durin::ResolveObjectHandle(ObjectPtr.GetHandle()), ReferencedObject);
 		EXPECT_EQ(static_cast<Durin::DObject*>(ObjectPtr), ReferencedObject);
 
 		ObjectPtr.Reset();
 		EXPECT_FALSE(ObjectPtr);
 		EXPECT_EQ(ObjectPtr.Get(), nullptr);
+		EXPECT_TRUE(Durin::IsObjectHandleNull(ObjectPtr.GetHandle()));
+
+		Durin::DestroyObject(ReferencedObject);
+	}
+
+	TEST(FCoreDObjectReflectionTests, ObjectPtrStorageMatchesBuildConfiguration)
+	{
+#if DURIN_WITH_OBJECT_HANDLE
+		EXPECT_EQ(DURIN_WITH_OBJECT_HANDLE, 1);
+#else
+		EXPECT_EQ(DURIN_WITH_OBJECT_HANDLE, 0);
+		EXPECT_EQ(sizeof(Durin::FObjectHandle), sizeof(Durin::DObject*));
+		EXPECT_EQ(sizeof(Durin::FObjectPtr), sizeof(Durin::DObject*));
+		EXPECT_EQ(sizeof(Durin::TObjectPtr<Durin::DObject>), sizeof(Durin::DObject*));
+#endif
+
+#if defined(DURIN_BUILD_SHIPPING) && DURIN_BUILD_SHIPPING
+		EXPECT_EQ(DURIN_WITH_OBJECT_HANDLE, 0);
+#else
+		EXPECT_EQ(DURIN_WITH_OBJECT_HANDLE, 1);
+#endif
+
+		Durin::DObject* Object = nullptr;
+		Durin::FObjectHandle NullHandle = Durin::MakeObjectHandle(Object);
+		EXPECT_TRUE(Durin::IsObjectHandleNull(NullHandle));
+		EXPECT_EQ(Durin::ResolveObjectHandle(NullHandle), nullptr);
+
+		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectHandleStorageReferencedObject"));
+		Durin::FObjectHandle ObjectHandle = Durin::MakeObjectHandle(ReferencedObject);
+		EXPECT_FALSE(Durin::IsObjectHandleNull(ObjectHandle));
+		EXPECT_EQ(Durin::ResolveObjectHandle(ObjectHandle), ReferencedObject);
 
 		Durin::DestroyObject(ReferencedObject);
 	}
