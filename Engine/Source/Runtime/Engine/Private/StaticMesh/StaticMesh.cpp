@@ -44,6 +44,7 @@ namespace Durin
 				"StaticMeshPositionVertexBuffer",
 				static_cast<uint32>(Positions.size() * sizeof(FVector3f))
 			);
+			VertexBufferDesc.Usage |= EBufferUsageFlags::Static;
 			VertexBufferDesc.InitialData.Data = Positions.data();
 			VertexBufferDesc.InitialData.Size = static_cast<uint32>(Positions.size() * sizeof(FVector3f));
 			PositionVertexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, VertexBufferDesc);
@@ -56,6 +57,7 @@ namespace Durin
 				static_cast<uint32>(Indices.size() * sizeof(uint32)),
 				sizeof(uint32)
 			);
+			IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
 			IndexBufferDesc.InitialData.Data = Indices.data();
 			IndexBufferDesc.InitialData.Size = static_cast<uint32>(Indices.size() * sizeof(uint32));
 			IndexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, IndexBufferDesc);

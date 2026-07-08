@@ -1,12 +1,11 @@
 #pragma once
 #include "Components/SceneComponent.h"
+#include "Engine/PrimitiveSceneProxy.h"
 
 #include "PrimitiveComponent.gen.h"
 
 namespace Durin
 {
-	class PrimitiveSceneProxy;
-
 	DCLASS()
 	class DPrimitiveComponent : public DSceneComponent
 	{

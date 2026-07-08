@@ -66,6 +66,10 @@ namespace Durin
 			ENQUEUE_RENDER_COMMAND(RenderMainSceneRenderTarget)(
 				[RenderTargetRHI, Scene = MainScene.get(), RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+					if (RendererModule != nullptr)
+					{
+						RendererModule->PrepareSceneResources(CommandList, Scene);
+					}
 
 					FRHIRenderPassInfo PassInfo{};
 					PassInfo.ColorRenderTargets[0] = RenderTargetRHI;
@@ -102,6 +106,10 @@ namespace Durin
 				FRHIRenderPassInfo PassInfo{};
 				PassInfo.ColorRenderTargets[0] = BackBuffer;
 				PassInfo.ColorClearValue = FClearValueBinding(0.08f, 0.12f, 0.18f, 1.0f);
+				if (RendererModule != nullptr)
+				{
+					RendererModule->PrepareSceneResources(CommandList, Scene);
+				}
 				CommandList.BeginRenderPass(PassInfo, "StaticMeshRenderPass");
 				if (RendererModule != nullptr)
 				{

@@ -1,17 +1,21 @@
 #pragma once
 
-class DPrimitiveComponent;
+#include "EngineAPI.h"
 
-class IScene
+namespace Durin
 {
-public:
-	ENGINE_API IScene() = default;
-	ENGINE_API virtual ~IScene() = default;
+	class DPrimitiveComponent;
 
-	virtual auto AddPrimitive(DPrimitiveComponent* Primitive) -> void = 0;
+	class IScene
+	{
+	public:
+		ENGINE_API IScene() = default;
+		ENGINE_API virtual ~IScene() = default;
 
-	virtual auto RemovePrimitive(DPrimitiveComponent* Primitive) -> void = 0;
+		virtual auto AddPrimitive(DPrimitiveComponent* Primitive) -> void = 0;
 
-	virtual auto UpdatePrimitiveTransform(DPrimitiveComponent* Primitive) -> void = 0;
+		virtual auto RemovePrimitive(DPrimitiveComponent* Primitive) -> void = 0;
 
-};
+		virtual auto UpdatePrimitiveTransform(DPrimitiveComponent* Primitive) -> void = 0;
+	};
+}

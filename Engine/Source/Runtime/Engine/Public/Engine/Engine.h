@@ -2,12 +2,12 @@
 
 #include "EngineAPI.h"
 #include "DObject/ObjectPtr.h"
+#include "IScene.h"
 
 namespace Durin
 {
 	class AStaticMeshActor;
 	class FSceneViewport;
-	class IScene;
 	class IRendererModule;
 
 	class ENGINE_API DEngine

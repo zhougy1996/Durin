@@ -101,7 +101,6 @@ namespace Durin
 				return;
 			}
 
-			RenderData->InitResources(CommandList);
 			if (!RenderData->IsReadyForRendering())
 			{
 				return;
@@ -120,6 +119,23 @@ namespace Durin
 			CommandList.BindIndexBuffer(RenderData->IndexBufferRHI, 0);
 			CommandList.DrawIndexed(RenderData->IndexCount, 0, 0);
 		}
+
+		auto ForEachStaticMeshProxy(IScene* Scene, const std::function<void(FStaticMeshSceneProxy&)>& Function) -> void
+		{
+			auto* RendererScene = dynamic_cast<FScene*>(Scene);
+			if (RendererScene == nullptr)
+			{
+				return;
+			}
+
+			for (PrimitiveSceneProxy* Proxy : RendererScene->GetPrimitiveSceneProxies())
+			{
+				if (auto* StaticMeshProxy = dynamic_cast<FStaticMeshSceneProxy*>(Proxy))
+				{
+					Function(*StaticMeshProxy);
+				}
+			}
+		}
 	}
 
 	auto FRendererModule::ShutdownModule() -> void
@@ -130,6 +146,16 @@ namespace Durin
 	auto FRendererModule::CreateScene() -> std::unique_ptr<IScene>
 	{
 		return std::make_unique<FScene>();
+	}
+
+	auto FRendererModule::PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void
+	{
+		ForEachStaticMeshProxy(Scene, [&CommandList](FStaticMeshSceneProxy& Proxy) {
+			if (FStaticMeshRenderData* RenderData = Proxy.GetRenderData())
+			{
+				RenderData->InitResources(CommandList);
+			}
+		});
 	}
 
 	auto FRendererModule::RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, FRHITexture* RenderTarget, uint32 Width, uint32 Height) -> void
@@ -145,22 +171,12 @@ namespace Durin
 			return;
 		}
 
-		auto* RendererScene = dynamic_cast<FScene*>(Scene);
-		if (RendererScene == nullptr)
-		{
-			return;
-		}
-
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
 
-		for (PrimitiveSceneProxy* Proxy : RendererScene->GetPrimitiveSceneProxies())
-		{
-			if (auto* StaticMeshProxy = dynamic_cast<FStaticMeshSceneProxy*>(Proxy))
-			{
-				DrawStaticMeshProxy(CommandList, *StaticMeshProxy);
-			}
-		}
+		ForEachStaticMeshProxy(Scene, [&CommandList](FStaticMeshSceneProxy& Proxy) {
+			DrawStaticMeshProxy(CommandList, Proxy);
+		});
 	}
 
 	IMPLEMENT_MODULE(FRendererModule, Renderer)
