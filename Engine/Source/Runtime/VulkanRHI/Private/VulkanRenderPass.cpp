@@ -72,13 +72,16 @@ namespace Durin::VulkanRHI
 			return It->second.get();
 		}
 
-		const bool bIsOffscreenRenderPass = InRenderPassName != "ImGuiRenderPass" && InRenderPassName != "RuntimeSceneViewportClearPass";
+		const bool bIsPresentRenderPass = InRenderPassName == "ImGuiRenderPass"
+			|| InRenderPassName == "RuntimeSceneViewportClearPass"
+			|| InRenderPassName == "PostProcessPresentRenderPass";
+		const bool bIsOffscreenRenderPass = !bIsPresentRenderPass;
 		const vk::ImageLayout FinalLayout = bIsOffscreenRenderPass ? vk::ImageLayout::eShaderReadOnlyOptimal : vk::ImageLayout::ePresentSrcKHR;
 		RenderPasses.emplace(InRenderPassName, std::make_unique<FVulkanRenderPass>(Device, InFormat, FinalLayout));
 		return RenderPasses[InRenderPassName].get();
 	}
 
-	auto FVulkanRenderPassManager::GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo) -> FVulkanFramebuffer*
+	auto FVulkanRenderPassManager::GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& RenderPass) -> FVulkanFramebuffer*
 	{
 		// TODO: Support multiple color render targets later
 		check(RTInfo.NumColorRenderTargets == 1);
@@ -86,14 +89,12 @@ namespace Durin::VulkanRHI
 
 		for (auto& Framebuffer : FrameBuffers)
 		{
-			if (Framebuffer->ColorRenderTargetImages[0] == RT->Image)
+			if (Framebuffer->IsCompatibleWith(RenderPass, RT->Image))
 			{
 				return Framebuffer.get();
 			}
 		}
-		// TODO: Render pass should be selected based on render target layout, but now we just use the first one for simplicity
-		FVulkanRenderPass* TestRenderPass = RenderPasses.begin()->second.get();
-		FrameBuffers.push_back(std::make_unique<FVulkanFramebuffer>(Device, RTInfo, *TestRenderPass));
+		FrameBuffers.push_back(std::make_unique<FVulkanFramebuffer>(Device, RTInfo, RenderPass));
 		return FrameBuffers.back().get();
 	}
 

@@ -34,7 +34,7 @@ namespace Durin::VulkanRHI
 		// TODO: Render pass should be reuse based on render target layout, but now we select by name for simplicity
 		auto GetOrCreateRenderPass(FName InRenderPassName,  vk::Format Format) -> FVulkanRenderPass*;
 
-		auto GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo) -> FVulkanFramebuffer*;
+		auto GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& RenderPass) -> FVulkanFramebuffer*;
 
 		auto BeginRenderPass(FVulkanCommandListContext& Context, FVulkanDevice& Device, FVulkanCommandBuffer* CmdBuffer, const FRHIRenderPassInfo& RPInfo, /* const FVulkanRenderTargetLayout& RTLayout,*/ FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer) -> void;
 

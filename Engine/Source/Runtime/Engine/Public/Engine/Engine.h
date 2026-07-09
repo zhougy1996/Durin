@@ -24,6 +24,7 @@ namespace Durin
 		virtual auto SetMainSceneViewport(std::shared_ptr<FSceneViewport> InSceneViewport) -> void;
 
 		auto GetMainScene() const -> IScene* { return MainScene.get(); }
+		auto GetRendererModule() const -> IRendererModule* { return RendererModule; }
 
 	protected:
 		IRendererModule* RendererModule = nullptr;

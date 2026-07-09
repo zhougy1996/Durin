@@ -29,9 +29,50 @@ namespace Durin
 			DURIN_DECLARE_SHADER(FStaticMeshFragmentShader, FShader, "/Engine/StaticMesh", EShaderFrequency::Fragment, "FragmentMain");
 		};
 
+		class FPostProcessVertexShader : public FShader
+		{
+		public:
+			DURIN_DECLARE_SHADER(FPostProcessVertexShader, FShader, "/Engine/PostProcess", EShaderFrequency::Vertex, "VertexMain");
+		};
+
+		class FCopySceneColorFragmentShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FCopySceneColorFragmentShader)
+				DURIN_SHADER_PARAMETER_TEXTURE(SceneColor);
+				DURIN_SHADER_PARAMETER_SAMPLER(SceneColorSampler);
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_SHADER(FCopySceneColorFragmentShader, FShader, "/Engine/PostProcess", EShaderFrequency::Fragment, "CopyFragmentMain");
+		};
+
+		class FFXAAFragmentShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FFXAAFragmentShader)
+				DURIN_SHADER_PARAMETER_TEXTURE(SceneColor);
+				DURIN_SHADER_PARAMETER_SAMPLER(SceneColorSampler);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_SHADER(FFXAAFragmentShader, FShader, "/Engine/PostProcess", EShaderFrequency::Fragment, "FXAAFragmentMain");
+		};
+
 		struct FStaticMeshTransformUniform
 		{
 			glm::mat4 LocalToClip{1.0f};
+		};
+
+		struct FPostProcessViewUniform
+		{
+			FVector2f InvRenderTargetSize{1.0f, 1.0f};
+			FVector2f Padding{0.0f, 0.0f};
+		};
+
+		struct FPostProcessVertex
+		{
+			FVector2f Position;
+			FVector2f UV;
 		};
 
 		struct FStaticMeshRendererState
@@ -44,7 +85,31 @@ namespace Durin
 			bool bCreateAttempted = false;
 		};
 
+		struct FPostProcessRendererState
+		{
+			std::shared_ptr<FShaderMapBase> CopyShaderMap;
+			std::shared_ptr<FShaderMapBase> FXAAShaderMap;
+			TShaderRef<FPostProcessVertexShader> CopyVertexShader;
+			TShaderRef<FPostProcessVertexShader> FXAAVertexShader;
+			TShaderRef<FCopySceneColorFragmentShader> CopyFragmentShader;
+			TShaderRef<FFXAAFragmentShader> FXAAFragmentShader;
+			FVertexDeclarationRHIRef VertexDeclaration;
+			FGraphicsPipelineStateRHIRef CopyOffscreenPipelineState;
+			FGraphicsPipelineStateRHIRef CopyPresentPipelineState;
+			FGraphicsPipelineStateRHIRef FXAAOffscreenPipelineState;
+			FGraphicsPipelineStateRHIRef FXAAPresentPipelineState;
+			FBufferRHIRef VertexBuffer;
+			FBufferRHIRef IndexBuffer;
+			FSamplerRHIRef SceneColorSampler;
+			FTextureRHIRef SceneColor;
+			uint32 SceneColorWidth = 0;
+			uint32 SceneColorHeight = 0;
+			bool bCreateAttempted = false;
+			std::atomic_bool bEnableFXAA = true;
+		};
+
 		FStaticMeshRendererState GStaticMeshState;
+		FPostProcessRendererState GPostProcessState;
 
 		auto EnsureStaticMeshPipeline() -> void
 		{
@@ -82,7 +147,7 @@ namespace Durin
 			GStaticMeshState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
 
 			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderPassName = "StaticMeshRenderPass";
+			Initializer.RenderPassName = "SceneColorRenderPass";
 			Initializer.BoundShaders.VertexShader = GStaticMeshState.VertexShader.GetRHIShader();
 			Initializer.BoundShaders.FragmentShader = GStaticMeshState.FragmentShader.GetRHIShader();
 			Initializer.VertexDeclaration = GStaticMeshState.VertexDeclaration;
@@ -91,6 +156,144 @@ namespace Durin
 			Initializer.bEnableBackFaceCulling = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
 			GStaticMeshState.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("StaticMeshMainPipeline", Initializer);
+		}
+
+		auto CreatePostProcessPipeline(
+			FName PipelineName,
+			FName RenderPassName,
+			FRHIShader* VertexShader,
+			FRHIShader* FragmentShader,
+			const FPipelineLayoutDesc& PipelineLayout
+		) -> FGraphicsPipelineStateRHIRef
+		{
+			FGraphicsPipelineStateInitializer Initializer;
+			Initializer.RenderPassName = RenderPassName;
+			Initializer.BoundShaders.VertexShader = VertexShader;
+			Initializer.BoundShaders.FragmentShader = FragmentShader;
+			Initializer.VertexDeclaration = GPostProcessState.VertexDeclaration;
+			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
+			Initializer.bEnableAlphaBlend = false;
+			Initializer.bEnableBackFaceCulling = false;
+			Initializer.PipelineLayout = PipelineLayout;
+			return GDynamicRHI->RHICreateGraphicsPipelineState(PipelineName, Initializer);
+		}
+
+		auto EnsurePostProcessResources(FRHICommandListImmediate& CommandList) -> void
+		{
+			if (GPostProcessState.bCreateAttempted)
+			{
+				return;
+			}
+
+			GPostProcessState.bCreateAttempted = true;
+
+			FShaderCompileOptions CompileOptions;
+			FShaderType& VertexShaderType = FPostProcessVertexShader::StaticType();
+			FShaderType& CopyFragmentShaderType = FCopySceneColorFragmentShader::StaticType();
+			FShaderType& FXAAFragmentShaderType = FFXAAFragmentShader::StaticType();
+			std::array<const FShaderType*, 2> CopyShaderTypes = {&VertexShaderType, &CopyFragmentShaderType};
+			std::array<const FShaderType*, 2> FXAAShaderTypes = {&VertexShaderType, &FXAAFragmentShaderType};
+			std::shared_ptr<FShaderMapBase> CopyShaderMap = std::make_shared<FShaderMapBase>();
+			std::shared_ptr<FShaderMapBase> FXAAShaderMap = std::make_shared<FShaderMapBase>();
+			std::string ErrorMessage;
+			if (!CopyShaderMap->InitializeFromShaderTypes(CopyShaderTypes, CompileOptions, ErrorMessage))
+			{
+				DURIN_ERROR("Failed to initialize PostProcess copy shader map: {}", ErrorMessage);
+				return;
+			}
+			if (!FXAAShaderMap->InitializeFromShaderTypes(FXAAShaderTypes, CompileOptions, ErrorMessage))
+			{
+				DURIN_ERROR("Failed to initialize PostProcess FXAA shader map: {}", ErrorMessage);
+				return;
+			}
+
+			auto* CopyVertexShader = static_cast<FPostProcessVertexShader*>(CopyShaderMap->GetShader(&VertexShaderType));
+			auto* FXAAVertexShader = static_cast<FPostProcessVertexShader*>(FXAAShaderMap->GetShader(&VertexShaderType));
+			auto* CopyFragmentShader = static_cast<FCopySceneColorFragmentShader*>(CopyShaderMap->GetShader(&CopyFragmentShaderType));
+			auto* FXAAFragmentShader = static_cast<FFXAAFragmentShader*>(FXAAShaderMap->GetShader(&FXAAFragmentShaderType));
+			check(CopyVertexShader);
+			check(FXAAVertexShader);
+			check(CopyFragmentShader);
+			check(FXAAFragmentShader);
+
+			GPostProcessState.CopyShaderMap = CopyShaderMap;
+			GPostProcessState.FXAAShaderMap = FXAAShaderMap;
+			GPostProcessState.CopyVertexShader = TShaderRef<FPostProcessVertexShader>(CopyVertexShader, CopyShaderMap.get());
+			GPostProcessState.FXAAVertexShader = TShaderRef<FPostProcessVertexShader>(FXAAVertexShader, FXAAShaderMap.get());
+			GPostProcessState.CopyFragmentShader = TShaderRef<FCopySceneColorFragmentShader>(CopyFragmentShader, CopyShaderMap.get());
+			GPostProcessState.FXAAFragmentShader = TShaderRef<FFXAAFragmentShader>(FXAAFragmentShader, FXAAShaderMap.get());
+
+			FVertexDeclarationElementList VertexDeclElements;
+			constexpr uint32 VertexStride = sizeof(FPostProcessVertex);
+			VertexDeclElements[0] = FVertexElement(0, offsetof(FPostProcessVertex, Position), EVertexElementType::Float2, 0, VertexStride);
+			VertexDeclElements[1] = FVertexElement(0, offsetof(FPostProcessVertex, UV), EVertexElementType::Float2, 1, VertexStride);
+			GPostProcessState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
+
+			const std::array<FPostProcessVertex, 3> FullscreenVertices = {
+				FPostProcessVertex{FVector2f{-1.0f, -1.0f}, FVector2f{0.0f, 0.0f}},
+				FPostProcessVertex{FVector2f{3.0f, -1.0f}, FVector2f{2.0f, 0.0f}},
+				FPostProcessVertex{FVector2f{-1.0f, 3.0f}, FVector2f{0.0f, 2.0f}},
+			};
+			const std::array<uint32, 3> FullscreenIndices = {0, 1, 2};
+
+			FRHIBufferCreateDesc VertexBufferDesc = FRHIBufferCreateDesc::CreateVertex("PostProcessFullscreenVertexBuffer", sizeof(FPostProcessVertex) * static_cast<uint32>(FullscreenVertices.size()));
+			VertexBufferDesc.Usage |= EBufferUsageFlags::Static;
+			VertexBufferDesc.InitialData = {FullscreenVertices.data(), static_cast<uint32>(sizeof(FPostProcessVertex) * FullscreenVertices.size())};
+			GPostProcessState.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, VertexBufferDesc);
+
+			FRHIBufferCreateDesc IndexBufferDesc = FRHIBufferCreateDesc::CreateIndex("PostProcessFullscreenIndexBuffer", sizeof(uint32) * static_cast<uint32>(FullscreenIndices.size()), sizeof(uint32));
+			IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
+			IndexBufferDesc.InitialData = {FullscreenIndices.data(), static_cast<uint32>(sizeof(uint32) * FullscreenIndices.size())};
+			GPostProcessState.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexBufferDesc);
+
+			GPostProcessState.SceneColorSampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
+
+			GPostProcessState.CopyOffscreenPipelineState = CreatePostProcessPipeline(
+				"PostProcessCopyOffscreenPipeline",
+				"PostProcessOffscreenRenderPass",
+				GPostProcessState.CopyVertexShader.GetRHIShader(),
+				GPostProcessState.CopyFragmentShader.GetRHIShader(),
+				CopyShaderMap->GetMergedPipelineLayout()
+			);
+			GPostProcessState.CopyPresentPipelineState = CreatePostProcessPipeline(
+				"PostProcessCopyPresentPipeline",
+				"PostProcessPresentRenderPass",
+				GPostProcessState.CopyVertexShader.GetRHIShader(),
+				GPostProcessState.CopyFragmentShader.GetRHIShader(),
+				CopyShaderMap->GetMergedPipelineLayout()
+			);
+			GPostProcessState.FXAAOffscreenPipelineState = CreatePostProcessPipeline(
+				"PostProcessFXAAOffscreenPipeline",
+				"PostProcessOffscreenRenderPass",
+				GPostProcessState.FXAAVertexShader.GetRHIShader(),
+				GPostProcessState.FXAAFragmentShader.GetRHIShader(),
+				FXAAShaderMap->GetMergedPipelineLayout()
+			);
+			GPostProcessState.FXAAPresentPipelineState = CreatePostProcessPipeline(
+				"PostProcessFXAAPresentPipeline",
+				"PostProcessPresentRenderPass",
+				GPostProcessState.FXAAVertexShader.GetRHIShader(),
+				GPostProcessState.FXAAFragmentShader.GetRHIShader(),
+				FXAAShaderMap->GetMergedPipelineLayout()
+			);
+		}
+
+		auto EnsureSceneColor(uint32 Width, uint32 Height) -> FRHITexture*
+		{
+			if (GPostProcessState.SceneColor != nullptr
+				&& GPostProcessState.SceneColorWidth == Width
+				&& GPostProcessState.SceneColorHeight == Height)
+			{
+				return GPostProcessState.SceneColor;
+			}
+
+			FRHITextureCreateDesc SceneColorDesc = FRHITextureCreateDesc::Create2D("SceneColor", Width, Height, EPixelFormat::SRGBA8_UNORM);
+			SceneColorDesc.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource);
+			SceneColorDesc.SetClearValue(FClearValueBinding(0.05f, 0.09f, 0.14f, 1.0f));
+			GPostProcessState.SceneColor = RHICreateTexture(SceneColorDesc);
+			GPostProcessState.SceneColorWidth = Width;
+			GPostProcessState.SceneColorHeight = Height;
+			return GPostProcessState.SceneColor;
 		}
 
 		auto DrawStaticMeshProxy(FRHICommandListImmediate& CommandList, const FStaticMeshSceneProxy& Proxy) -> void
@@ -120,6 +323,46 @@ namespace Durin
 			CommandList.DrawIndexed(RenderData->IndexCount, 0, 0);
 		}
 
+		auto DrawPostProcess(FRHICommandListImmediate& CommandList, FRHITexture* SceneColor, uint32 Width, uint32 Height, bool bPresentOutput) -> void
+		{
+			const bool bUseFXAA = GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
+			FGraphicsPipelineStateRHIRef PipelineState = bUseFXAA
+				? (bPresentOutput ? GPostProcessState.FXAAPresentPipelineState : GPostProcessState.FXAAOffscreenPipelineState)
+				: (bPresentOutput ? GPostProcessState.CopyPresentPipelineState : GPostProcessState.CopyOffscreenPipelineState);
+			if (PipelineState == nullptr || GPostProcessState.VertexBuffer == nullptr || GPostProcessState.IndexBuffer == nullptr)
+			{
+				return;
+			}
+
+			CommandList.SetGraphicsPipelineState(*PipelineState);
+			CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
+			CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
+			CommandList.BindVertexBuffer(0, GPostProcessState.VertexBuffer, 0);
+			CommandList.BindIndexBuffer(GPostProcessState.IndexBuffer, 0);
+
+			if (bUseFXAA)
+			{
+				FPostProcessViewUniform ViewUniform;
+				ViewUniform.InvRenderTargetSize = FVector2f(1.0f / static_cast<float>(Width), 1.0f / static_cast<float>(Height));
+				const FRHIUniformBufferRange ViewUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&ViewUniform, sizeof(ViewUniform));
+
+				FFXAAFragmentShader::FParameters FragmentParameters;
+				FragmentParameters.SceneColor = SceneColor;
+				FragmentParameters.SceneColorSampler = GPostProcessState.SceneColorSampler;
+				FragmentParameters.View = ViewUniformBuffer;
+				SetShaderParameters(CommandList, GPostProcessState.FXAAFragmentShader, FragmentParameters);
+			}
+			else
+			{
+				FCopySceneColorFragmentShader::FParameters FragmentParameters;
+				FragmentParameters.SceneColor = SceneColor;
+				FragmentParameters.SceneColorSampler = GPostProcessState.SceneColorSampler;
+				SetShaderParameters(CommandList, GPostProcessState.CopyFragmentShader, FragmentParameters);
+			}
+
+			CommandList.DrawIndexed(3, 0, 0);
+		}
+
 		auto ForEachStaticMeshProxy(IScene* Scene, const std::function<void(FStaticMeshSceneProxy&)>& Function) -> void
 		{
 			auto* RendererScene = dynamic_cast<FScene*>(Scene);
@@ -141,11 +384,52 @@ namespace Durin
 	auto FRendererModule::ShutdownModule() -> void
 	{
 		GStaticMeshState = {};
+		GPostProcessState.CopyShaderMap.reset();
+		GPostProcessState.FXAAShaderMap.reset();
+		GPostProcessState.CopyVertexShader = {};
+		GPostProcessState.FXAAVertexShader = {};
+		GPostProcessState.CopyFragmentShader = {};
+		GPostProcessState.FXAAFragmentShader = {};
+		GPostProcessState.VertexDeclaration = nullptr;
+		GPostProcessState.CopyOffscreenPipelineState = nullptr;
+		GPostProcessState.CopyPresentPipelineState = nullptr;
+		GPostProcessState.FXAAOffscreenPipelineState = nullptr;
+		GPostProcessState.FXAAPresentPipelineState = nullptr;
+		GPostProcessState.VertexBuffer = nullptr;
+		GPostProcessState.IndexBuffer = nullptr;
+		GPostProcessState.SceneColorSampler = nullptr;
+		GPostProcessState.SceneColor = nullptr;
+		GPostProcessState.SceneColorWidth = 0;
+		GPostProcessState.SceneColorHeight = 0;
+		GPostProcessState.bCreateAttempted = false;
+		GPostProcessState.bEnableFXAA.store(true, std::memory_order_relaxed);
 	}
 
 	auto FRendererModule::CreateScene() -> std::unique_ptr<IScene>
 	{
 		return std::make_unique<FScene>();
+	}
+
+	auto FRendererModule::GetViewSettings() const -> FRendererViewSettings
+	{
+		FRendererViewSettings Settings;
+		Settings.bEnableFXAA = GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
+		return Settings;
+	}
+
+	auto FRendererModule::SetViewSettings(const FRendererViewSettings& InSettings) -> void
+	{
+		SetFXAAEnabled(InSettings.bEnableFXAA);
+	}
+
+	auto FRendererModule::SetFXAAEnabled(bool bInEnabled) -> void
+	{
+		GPostProcessState.bEnableFXAA.store(bInEnabled, std::memory_order_relaxed);
+	}
+
+	auto FRendererModule::IsFXAAEnabled() const -> bool
+	{
+		return GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
 	}
 
 	auto FRendererModule::PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void
@@ -156,6 +440,35 @@ namespace Durin
 				RenderData->InitResources(CommandList);
 			}
 		});
+	}
+
+	auto FRendererModule::RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, FRHITexture* OutputTarget, uint32 Width, uint32 Height, bool bPresentOutput) -> void
+	{
+		if (OutputTarget == nullptr || Width == 0 || Height == 0)
+		{
+			return;
+		}
+
+		EnsurePostProcessResources(CommandList);
+		FRHITexture* SceneColor = EnsureSceneColor(Width, Height);
+		if (SceneColor == nullptr)
+		{
+			return;
+		}
+
+		FRHIRenderPassInfo ScenePassInfo{};
+		ScenePassInfo.ColorRenderTargets[0] = SceneColor;
+		ScenePassInfo.ColorClearValue = FClearValueBinding(0.05f, 0.09f, 0.14f, 1.0f);
+		CommandList.BeginRenderPass(ScenePassInfo, "SceneColorRenderPass");
+		RenderScene(CommandList, Scene, SceneColor, Width, Height);
+		CommandList.EndRenderPass();
+
+		FRHIRenderPassInfo PostProcessPassInfo{};
+		PostProcessPassInfo.ColorRenderTargets[0] = OutputTarget;
+		PostProcessPassInfo.ColorClearValue = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
+		CommandList.BeginRenderPass(PostProcessPassInfo, bPresentOutput ? "PostProcessPresentRenderPass" : "PostProcessOffscreenRenderPass");
+		DrawPostProcess(CommandList, SceneColor, Width, Height, bPresentOutput);
+		CommandList.EndRenderPass();
 	}
 
 	auto FRendererModule::RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, FRHITexture* RenderTarget, uint32 Width, uint32 Height) -> void

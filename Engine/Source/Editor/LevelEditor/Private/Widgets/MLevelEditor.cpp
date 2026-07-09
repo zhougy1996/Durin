@@ -1,6 +1,7 @@
 #include "Widgets/MLevelEditor.h"
 
 #include "Engine/Engine.h"
+#include "IRendererModule.h"
 #include "MonaImGui.h"
 #include "Mona/SceneViewport.h"
 #include "Widgets/MViewport.h"
@@ -31,6 +32,18 @@ namespace Durin
 		UpdateViewportSize();
 
 		ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+		ImGui::SameLine();
+		if (GEngine != nullptr)
+		{
+			if (IRendererModule* RendererModule = GEngine->GetRendererModule())
+			{
+				bool bEnableFXAA = RendererModule->IsFXAAEnabled();
+				if (ImGui::Checkbox("FXAA", &bEnableFXAA))
+				{
+					RendererModule->SetFXAAEnabled(bEnableFXAA);
+				}
+			}
+		}
 
 		if (ViewportWidget != nullptr)
 		{

@@ -71,15 +71,10 @@ namespace Durin
 						RendererModule->PrepareSceneResources(CommandList, Scene);
 					}
 
-					FRHIRenderPassInfo PassInfo{};
-					PassInfo.ColorRenderTargets[0] = RenderTargetRHI;
-					PassInfo.ColorClearValue = FClearValueBinding(0.05f, 0.09f, 0.14f, 1.0f);
-					CommandList.BeginRenderPass(PassInfo, "StaticMeshRenderPass");
 					if (RendererModule != nullptr)
 					{
-						RendererModule->RenderScene(CommandList, Scene, RenderTargetRHI, RenderTargetRHI->GetSizeX(), RenderTargetRHI->GetSizeY());
+						RendererModule->RenderView(CommandList, Scene, RenderTargetRHI, RenderTargetRHI->GetSizeX(), RenderTargetRHI->GetSizeY(), false);
 					}
-					CommandList.EndRenderPass();
 				}
 			);
 			return;
@@ -103,19 +98,14 @@ namespace Durin
 					return;
 				}
 
-				FRHIRenderPassInfo PassInfo{};
-				PassInfo.ColorRenderTargets[0] = BackBuffer;
-				PassInfo.ColorClearValue = FClearValueBinding(0.08f, 0.12f, 0.18f, 1.0f);
 				if (RendererModule != nullptr)
 				{
 					RendererModule->PrepareSceneResources(CommandList, Scene);
 				}
-				CommandList.BeginRenderPass(PassInfo, "StaticMeshRenderPass");
 				if (RendererModule != nullptr)
 				{
-					RendererModule->RenderScene(CommandList, Scene, BackBuffer, BackBuffer->GetSizeX(), BackBuffer->GetSizeY());
+					RendererModule->RenderView(CommandList, Scene, BackBuffer, BackBuffer->GetSizeX(), BackBuffer->GetSizeY(), true);
 				}
-				CommandList.EndRenderPass();
 
 				CommandList.EndDrawingViewport(ViewportRHI, true, false);
 			}

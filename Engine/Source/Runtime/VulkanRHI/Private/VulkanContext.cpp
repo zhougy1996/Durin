@@ -68,7 +68,7 @@ namespace Durin::VulkanRHI
 		FRHIRenderTargetsInfo RTInfo{};
 		RTInfo.NumColorRenderTargets = 1;
 		RTInfo.ColorRenderTargets[0] = RenderPassInfo.ColorRenderTargets[0];
-		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RTInfo);
+		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RTInfo, *RenderPass);
 		RenderPassManager.BeginRenderPass(*this, Device, GetCommandBuffer(), RenderPassInfo, RenderPass, Framebuffer);
 	}
 

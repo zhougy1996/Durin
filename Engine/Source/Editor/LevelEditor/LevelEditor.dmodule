@@ -5,6 +5,7 @@
     "PrivateDependencies": [
         "Core",
         "RHI",
+        "RenderCore",
         "Engine",
         "ApplicationCore",
         "MonaCore",

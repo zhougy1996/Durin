@@ -10,7 +10,12 @@ namespace Durin::VulkanRHI
 {
 	FVulkanFramebuffer::FVulkanFramebuffer(FVulkanDevice& InDevice, const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& InRenderPass)
 		: Device(InDevice)
+		, RenderPass(&InRenderPass)
 	{
+		std::ranges::fill(ColorRenderTargetImages, vk::Image{});
+		std::ranges::fill(ColorResolveTargetImages, vk::Image{});
+		DepthStencilRenderTargetImage = vk::Image{};
+
 		NumColorRenderTargets = RTInfo.NumColorRenderTargets;
 
 		// TODO: modify this when MSAA implemented.
@@ -80,5 +85,10 @@ namespace Durin::VulkanRHI
 		}
 
 		return DepthStencilRenderTargetImage == Image;
+	}
+
+	auto FVulkanFramebuffer::IsCompatibleWith(const FVulkanRenderPass& InRenderPass, vk::Image Image) const -> bool
+	{
+		return RenderPass == &InRenderPass && ContainsRenderTarget(Image);
 	}
 } // namespace Durin::VulkanRHI
