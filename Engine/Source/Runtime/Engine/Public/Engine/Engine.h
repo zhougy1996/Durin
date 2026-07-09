@@ -2,11 +2,14 @@
 
 #include "EngineAPI.h"
 #include "DObject/ObjectPtr.h"
+#include "IRendererModule.h"
 #include "IScene.h"
 
 namespace Durin
 {
 	class AStaticMeshActor;
+	class ACameraActor;
+	class DCameraComponent;
 	class FSceneViewport;
 	class IRendererModule;
 
@@ -25,12 +28,16 @@ namespace Durin
 
 		auto GetMainScene() const -> IScene* { return MainScene.get(); }
 		auto GetRendererModule() const -> IRendererModule* { return RendererModule; }
+		auto GetActiveCameraComponent() const -> DCameraComponent*;
 
 	protected:
+		auto BuildMainSceneView(uint32 Width, uint32 Height) const -> FSceneView;
+
 		IRendererModule* RendererModule = nullptr;
 		std::unique_ptr<IScene> MainScene;
 		std::shared_ptr<FSceneViewport> MainSceneViewport;
 		TObjectPtr<AStaticMeshActor> DemoStaticMeshActor;
+		TObjectPtr<ACameraActor> DefaultCameraActor;
 	};
 
 	extern ENGINE_API DEngine* GEngine;

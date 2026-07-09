@@ -10,13 +10,16 @@
         "RHI"
     ],
     "PrivateDependencies": [
+        "AssetCore",
         "MonaCore",
         "Mona"
     ],
     "ReflectHeaders": [
         "Public/Engine/Actor.h",
+        "Public/Actors/CameraActor.h",
         "Public/Actors/StaticMeshActor.h",
         "Public/Components/ActorComponent.h",
+        "Public/Components/CameraComponent.h",
         "Public/Components/PrimitiveComponent.h",
         "Public/Components/SceneComponent.h",
         "Public/Components/MeshComponent.h",

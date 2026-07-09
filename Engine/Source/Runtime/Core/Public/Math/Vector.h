@@ -2,7 +2,6 @@
 
 #include "Math/MathFwd.h"
 
-#include <glm/glm.hpp>
 #include <glm/ext.hpp>
 
 namespace Durin

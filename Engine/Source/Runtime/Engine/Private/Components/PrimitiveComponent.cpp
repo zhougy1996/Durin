@@ -36,6 +36,6 @@ namespace Durin
 
 	auto DPrimitiveComponent::GetRenderMatrix() const -> FMatrix
 	{
-		return FMatrix(1.0);
+		return GetComponentToWorldMatrix();
 	}
 }

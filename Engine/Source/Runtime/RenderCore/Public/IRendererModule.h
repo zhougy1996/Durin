@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Math/DurinMath.h"
+
 namespace Durin
 {
 	class FRHICommandListImmediate;
@@ -11,6 +13,16 @@ namespace Durin
 		bool bEnableFXAA = true;
 	};
 
+	struct FSceneView
+	{
+		FMatrix ViewMatrix{1.0};
+		FMatrix ProjectionMatrix{1.0};
+		FMatrix ViewProjectionMatrix{1.0};
+		FVector3 ViewLocation{0.0};
+		uint32 ViewportWidth = 0;
+		uint32 ViewportHeight = 0;
+	};
+
 	class IRendererModule : public IModuleInterface
 	{
 	public:
@@ -20,7 +32,7 @@ namespace Durin
 		virtual auto SetFXAAEnabled(bool bInEnabled) -> void = 0;
 		virtual auto IsFXAAEnabled() const -> bool = 0;
 		virtual auto PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void = 0;
-		virtual auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, FRHITexture* OutputTarget, uint32 Width, uint32 Height, bool bPresentOutput) -> void = 0;
-		virtual auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, FRHITexture* RenderTarget, uint32 Width, uint32 Height) -> void = 0;
+		virtual auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void = 0;
+		virtual auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void = 0;
 	};
 }

@@ -61,6 +61,7 @@ namespace Durin
 		struct FStaticMeshTransformUniform
 		{
 			glm::mat4 LocalToClip{1.0f};
+			FVector4f Color{1.0f, 1.0f, 1.0f, 1.0f};
 		};
 
 		struct FPostProcessViewUniform
@@ -82,6 +83,9 @@ namespace Durin
 			TShaderRef<FStaticMeshFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef PipelineState;
+			FBufferRHIRef AxisVertexBuffer;
+			FBufferRHIRef AxisIndexBuffer;
+			uint32 AxisIndexCount = 0;
 			bool bCreateAttempted = false;
 		};
 
@@ -156,6 +160,76 @@ namespace Durin
 			Initializer.bEnableBackFaceCulling = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
 			GStaticMeshState.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("StaticMeshMainPipeline", Initializer);
+		}
+
+		auto AppendBox(
+			std::vector<FVector3f>& Vertices,
+			std::vector<uint32>& Indices,
+			const FVector3f& Min,
+			const FVector3f& Max
+		) -> void
+		{
+			const uint32 BaseVertex = static_cast<uint32>(Vertices.size());
+			Vertices.push_back(FVector3f(Min.x, Min.y, Min.z));
+			Vertices.push_back(FVector3f(Max.x, Min.y, Min.z));
+			Vertices.push_back(FVector3f(Max.x, Max.y, Min.z));
+			Vertices.push_back(FVector3f(Min.x, Max.y, Min.z));
+			Vertices.push_back(FVector3f(Min.x, Min.y, Max.z));
+			Vertices.push_back(FVector3f(Max.x, Min.y, Max.z));
+			Vertices.push_back(FVector3f(Max.x, Max.y, Max.z));
+			Vertices.push_back(FVector3f(Min.x, Max.y, Max.z));
+
+			const std::array<uint32, 36> BoxIndices = {
+				0, 1, 2, 0, 2, 3,
+				4, 6, 5, 4, 7, 6,
+				0, 4, 5, 0, 5, 1,
+				1, 5, 6, 1, 6, 2,
+				2, 6, 7, 2, 7, 3,
+				3, 7, 4, 3, 4, 0
+			};
+			for (uint32 Index : BoxIndices)
+			{
+				Indices.push_back(BaseVertex + Index);
+			}
+		}
+
+		auto EnsureDebugAxisResources(FRHICommandListImmediate& CommandList) -> void
+		{
+			if (GStaticMeshState.AxisVertexBuffer != nullptr && GStaticMeshState.AxisIndexBuffer != nullptr)
+			{
+				return;
+			}
+
+			constexpr float AxisLength = 2.0f;
+			constexpr float AxisThickness = 0.06f;
+			constexpr float HalfThickness = AxisThickness * 0.5f;
+
+			std::vector<FVector3f> Vertices;
+			std::vector<uint32> Indices;
+			Vertices.reserve(24);
+			Indices.reserve(108);
+
+			AppendBox(Vertices, Indices, FVector3f(0.0f, -HalfThickness, -HalfThickness), FVector3f(AxisLength, HalfThickness, HalfThickness));
+			AppendBox(Vertices, Indices, FVector3f(-HalfThickness, 0.0f, -HalfThickness), FVector3f(HalfThickness, AxisLength, HalfThickness));
+			AppendBox(Vertices, Indices, FVector3f(-HalfThickness, -HalfThickness, 0.0f), FVector3f(HalfThickness, HalfThickness, AxisLength));
+
+			FRHIBufferCreateDesc VertexBufferDesc = FRHIBufferCreateDesc::CreateVertex(
+				"DebugAxisPositionVertexBuffer",
+				static_cast<uint32>(Vertices.size() * sizeof(FVector3f))
+			);
+			VertexBufferDesc.Usage |= EBufferUsageFlags::Static;
+			VertexBufferDesc.InitialData = {Vertices.data(), static_cast<uint32>(Vertices.size() * sizeof(FVector3f))};
+			GStaticMeshState.AxisVertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, VertexBufferDesc);
+
+			FRHIBufferCreateDesc IndexBufferDesc = FRHIBufferCreateDesc::CreateIndex(
+				"DebugAxisIndexBuffer",
+				static_cast<uint32>(Indices.size() * sizeof(uint32)),
+				sizeof(uint32)
+			);
+			IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
+			IndexBufferDesc.InitialData = {Indices.data(), static_cast<uint32>(Indices.size() * sizeof(uint32))};
+			GStaticMeshState.AxisIndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexBufferDesc);
+			GStaticMeshState.AxisIndexCount = static_cast<uint32>(Indices.size());
 		}
 
 		auto CreatePostProcessPipeline(
@@ -296,7 +370,12 @@ namespace Durin
 			return GPostProcessState.SceneColor;
 		}
 
-		auto DrawStaticMeshProxy(FRHICommandListImmediate& CommandList, const FStaticMeshSceneProxy& Proxy) -> void
+		auto ToShaderMatrix(const FMatrix& Matrix) -> glm::mat4
+		{
+			return glm::transpose(glm::mat4(Matrix));
+		}
+
+		auto DrawStaticMeshProxy(FRHICommandListImmediate& CommandList, const FSceneView& View, const FStaticMeshSceneProxy& Proxy) -> void
 		{
 			FStaticMeshRenderData* RenderData = Proxy.GetRenderData();
 			if (RenderData == nullptr || RenderData->IndexCount == 0)
@@ -310,6 +389,8 @@ namespace Durin
 			}
 
 			FStaticMeshTransformUniform TransformUniform;
+			TransformUniform.LocalToClip = ToShaderMatrix(View.ViewProjectionMatrix * Proxy.GetLocalToWorld());
+			TransformUniform.Color = FVector4f(0.95f, 0.62f, 0.22f, 1.0f);
 			const FRHIUniformBufferRange TransformUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&TransformUniform, sizeof(TransformUniform));
 
 			CommandList.SetGraphicsPipelineState(*GStaticMeshState.PipelineState);
@@ -321,6 +402,38 @@ namespace Durin
 			CommandList.BindVertexBuffer(0, RenderData->PositionVertexBufferRHI, 0);
 			CommandList.BindIndexBuffer(RenderData->IndexBufferRHI, 0);
 			CommandList.DrawIndexed(RenderData->IndexCount, 0, 0);
+		}
+
+		auto DrawDebugAxes(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void
+		{
+			if (GStaticMeshState.AxisVertexBuffer == nullptr || GStaticMeshState.AxisIndexBuffer == nullptr || GStaticMeshState.AxisIndexCount == 0)
+			{
+				return;
+			}
+
+			CommandList.SetGraphicsPipelineState(*GStaticMeshState.PipelineState);
+			CommandList.BindVertexBuffer(0, GStaticMeshState.AxisVertexBuffer, 0);
+			CommandList.BindIndexBuffer(GStaticMeshState.AxisIndexBuffer, 0);
+
+			const std::array<FVector4f, 3> AxisColors = {
+				FVector4f(1.0f, 0.0f, 0.0f, 1.0f),
+				FVector4f(0.0f, 1.0f, 0.0f, 1.0f),
+				FVector4f(0.0f, 0.2f, 1.0f, 1.0f)
+			};
+			constexpr uint32 IndicesPerAxis = 36;
+			for (uint32 AxisIndex = 0; AxisIndex < static_cast<uint32>(AxisColors.size()); ++AxisIndex)
+			{
+				FStaticMeshTransformUniform TransformUniform;
+				TransformUniform.LocalToClip = ToShaderMatrix(View.ViewProjectionMatrix);
+				TransformUniform.Color = AxisColors[AxisIndex];
+				const FRHIUniformBufferRange TransformUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&TransformUniform, sizeof(TransformUniform));
+
+				FStaticMeshVertexShader::FParameters VertexShaderParameters;
+				VertexShaderParameters.Transform = TransformUniformBuffer;
+				SetShaderParameters(CommandList, GStaticMeshState.VertexShader, VertexShaderParameters);
+
+				CommandList.DrawIndexed(IndicesPerAxis, AxisIndex * IndicesPerAxis, 0);
+			}
 		}
 
 		auto DrawPostProcess(FRHICommandListImmediate& CommandList, FRHITexture* SceneColor, uint32 Width, uint32 Height, bool bPresentOutput) -> void
@@ -434,6 +547,7 @@ namespace Durin
 
 	auto FRendererModule::PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void
 	{
+		EnsureDebugAxisResources(CommandList);
 		ForEachStaticMeshProxy(Scene, [&CommandList](FStaticMeshSceneProxy& Proxy) {
 			if (FStaticMeshRenderData* RenderData = Proxy.GetRenderData())
 			{
@@ -442,8 +556,10 @@ namespace Durin
 		});
 	}
 
-	auto FRendererModule::RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, FRHITexture* OutputTarget, uint32 Width, uint32 Height, bool bPresentOutput) -> void
+	auto FRendererModule::RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void
 	{
+		const uint32 Width = OutputTarget != nullptr ? OutputTarget->GetSizeX() : 0;
+		const uint32 Height = OutputTarget != nullptr ? OutputTarget->GetSizeY() : 0;
 		if (OutputTarget == nullptr || Width == 0 || Height == 0)
 		{
 			return;
@@ -460,7 +576,10 @@ namespace Durin
 		ScenePassInfo.ColorRenderTargets[0] = SceneColor;
 		ScenePassInfo.ColorClearValue = FClearValueBinding(0.05f, 0.09f, 0.14f, 1.0f);
 		CommandList.BeginRenderPass(ScenePassInfo, "SceneColorRenderPass");
-		RenderScene(CommandList, Scene, SceneColor, Width, Height);
+		FSceneView RenderView = View;
+		RenderView.ViewportWidth = Width;
+		RenderView.ViewportHeight = Height;
+		RenderScene(CommandList, Scene, RenderView, SceneColor);
 		CommandList.EndRenderPass();
 
 		FRHIRenderPassInfo PostProcessPassInfo{};
@@ -471,8 +590,10 @@ namespace Durin
 		CommandList.EndRenderPass();
 	}
 
-	auto FRendererModule::RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, FRHITexture* RenderTarget, uint32 Width, uint32 Height) -> void
+	auto FRendererModule::RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void
 	{
+		const uint32 Width = View.ViewportWidth;
+		const uint32 Height = View.ViewportHeight;
 		if (Scene == nullptr || RenderTarget == nullptr || Width == 0 || Height == 0)
 		{
 			return;
@@ -487,9 +608,11 @@ namespace Durin
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
 
-		ForEachStaticMeshProxy(Scene, [&CommandList](FStaticMeshSceneProxy& Proxy) {
-			DrawStaticMeshProxy(CommandList, Proxy);
+		ForEachStaticMeshProxy(Scene, [&CommandList, &View](FStaticMeshSceneProxy& Proxy) {
+			DrawStaticMeshProxy(CommandList, View, Proxy);
 		});
+
+		DrawDebugAxes(CommandList, View);
 	}
 
 	IMPLEMENT_MODULE(FRendererModule, Renderer)

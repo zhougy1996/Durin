@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreAPI.h"
+#include "Math/Vector.h"
 
 namespace Durin
 {
@@ -11,5 +12,6 @@ namespace Durin
 		FVector3 Scale3D;
 
 		CORE_API FTransform();
+		CORE_API auto ToMatrix() const -> FMatrix;
 	};
 }

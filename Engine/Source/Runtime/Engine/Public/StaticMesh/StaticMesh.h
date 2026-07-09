@@ -16,6 +16,7 @@ namespace Durin
 		ENGINE_API auto SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void;
 
 		ENGINE_API static auto CreateDebugTriangle() -> std::shared_ptr<DStaticMesh>;
+		ENGINE_API static auto CreateFromFile(std::string_view FilePath) -> std::shared_ptr<DStaticMesh>;
 
 	private:
 		std::unique_ptr<FStaticMeshRenderData> RenderData;

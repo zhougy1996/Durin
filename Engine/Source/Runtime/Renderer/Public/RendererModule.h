@@ -14,7 +14,7 @@ namespace Durin
 		auto SetFXAAEnabled(bool bInEnabled) -> void override;
 		auto IsFXAAEnabled() const -> bool override;
 		auto PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void override;
-		auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, FRHITexture* OutputTarget, uint32 Width, uint32 Height, bool bPresentOutput) -> void override;
-		auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, FRHITexture* RenderTarget, uint32 Width, uint32 Height) -> void override;
+		auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void override;
+		auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void override;
 	};
 }
