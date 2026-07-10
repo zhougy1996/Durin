@@ -711,6 +711,14 @@ namespace Durin
 		bool bEnableAlphaBlend = false;
 
 		bool bEnableBackFaceCulling = true;
+
+		enum class EPrimitiveTopology : uint8
+		{
+			TriangleList,
+			LineList
+		};
+
+		EPrimitiveTopology PrimitiveTopology = EPrimitiveTopology::TriangleList;
 	};
 
 	struct FRHIBufferDesc

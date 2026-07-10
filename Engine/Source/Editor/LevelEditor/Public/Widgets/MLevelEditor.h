@@ -3,6 +3,8 @@
 #include "LevelEditorAPI.h"
 #include "Widgets/MWidget.h"
 
+struct ImVec2;
+
 namespace Durin
 {
 	class MViewport;
@@ -15,6 +17,7 @@ namespace Durin
 
 	private:
 		auto DrawViewportPanel() -> void;
+		auto DrawViewportOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto UpdateViewportSize() -> void;
 
 		std::shared_ptr<MViewport> ViewportWidget;

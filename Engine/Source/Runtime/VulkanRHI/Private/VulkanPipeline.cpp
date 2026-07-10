@@ -38,6 +38,19 @@ namespace Durin::VulkanRHI
 		return ShaderStages;
 	}
 
+	static auto ToVulkan_PrimitiveTopology(FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology) -> vk::PrimitiveTopology
+	{
+		switch (Topology)
+		{
+		case FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList:
+			return vk::PrimitiveTopology::eTriangleList;
+		case FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList:
+			return vk::PrimitiveTopology::eLineList;
+		default:
+			return vk::PrimitiveTopology::eTriangleList;
+		}
+	}
+
 	static auto CreateDescriptorSetLayout(FVulkanDevice& Device, const FBindingLayout& InDesc) -> vk::DescriptorSetLayout
 	{
 		vk::DescriptorSetLayoutCreateInfo LayoutInfo;
@@ -143,7 +156,7 @@ namespace Durin::VulkanRHI
 
 		vk::PipelineInputAssemblyStateCreateInfo InputAssemblyInfo;
 		InputAssemblyInfo
-			.setTopology(vk::PrimitiveTopology::eTriangleList)
+			.setTopology(ToVulkan_PrimitiveTopology(Initializer.PrimitiveTopology))
 			.setPrimitiveRestartEnable(vk::False);
 
 		// Viewports and scissors will be set dynamically, so we don't need to specify them here, but we still need to specify the count
