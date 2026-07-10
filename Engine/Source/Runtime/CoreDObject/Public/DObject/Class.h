@@ -89,6 +89,41 @@ namespace Durin
 		FName QualifiedName;
 	};
 
+	class DStruct : public DStructBase
+	{
+		DECLARE_CLASS_INTRINSIC_API(DStruct, DStructBase, COREDOBJECT_API)
+	public:
+		using InitializeFunction = void (*)(void* Memory);
+		using DestroyFunction = void (*)(void* Memory);
+		using CopyFunction = void (*)(void* Destination, const void* Source);
+
+		DStruct(EStaticConstructor, FName InQualifiedName, FName InShortName, uint32 InSize, uint32 InAlignment, EObjectFlags InFlags)
+			: DStructBase(EC_StaticConstructor, InSize, InAlignment, InFlags)
+			, QualifiedName(InQualifiedName)
+			, ShortName(InShortName)
+		{
+		}
+
+		auto GetQualifiedName() const -> FName { return QualifiedName; }
+		auto GetShortName() const -> FName { return ShortName; }
+		auto SetCppOps(InitializeFunction InInitialize, DestroyFunction InDestroy, CopyFunction InCopy) -> void
+		{
+			Initialize = InInitialize;
+			Destroy = InDestroy;
+			Copy = InCopy;
+		}
+		auto InitializeValue(void* Memory) const -> void { if (Initialize) Initialize(Memory); }
+		auto DestroyValue(void* Memory) const -> void { if (Destroy) Destroy(Memory); }
+		auto CopyValue(void* Destination, const void* Source) const -> void { if (Copy) Copy(Destination, Source); }
+
+	private:
+		FName QualifiedName;
+		FName ShortName;
+		InitializeFunction Initialize = nullptr;
+		DestroyFunction Destroy = nullptr;
+		CopyFunction Copy = nullptr;
+	};
+
 	struct FEnumValue
 	{
 		FName Name;
@@ -161,4 +196,5 @@ namespace Durin
 	) -> DClass*;
 
 	COREDOBJECT_API auto FindClassByQualifiedName(std::string_view QualifiedName) -> DClass*;
+	COREDOBJECT_API auto FindStructByQualifiedName(std::string_view QualifiedName) -> DStruct*;
 }

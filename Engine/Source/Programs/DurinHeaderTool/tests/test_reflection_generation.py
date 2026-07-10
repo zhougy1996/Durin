@@ -29,7 +29,7 @@ class ReflectionGenerationTests(unittest.TestCase):
         export_path = utils.get_module_export_file_path("Engine")
         data = json.loads(export_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(data["SchemaVersion"], 3)
+        self.assertEqual(data["SchemaVersion"], 4)
         actor = data["Symbols"]["Durin::AActor"]
         self.assertEqual(actor["QualifiedName"], "Durin::AActor")
         self.assertEqual(actor["GeneratedHelperName"], "Z_Construct_DClass_Durin_AActor")
@@ -42,6 +42,9 @@ class ReflectionGenerationTests(unittest.TestCase):
         self.assertEqual(test_enum["GeneratedHelperName"], "Z_Construct_DEnum_Durin_ETestDHTMode")
         self.assertTrue(test_enum["IsScoped"])
         self.assertEqual(test_enum["UnderlyingKind"], "UInt8")
+        test_struct = level_editor_data["Symbols"]["Durin::FTestDHTStruct"]
+        self.assertEqual(test_struct["Kind"], "struct")
+        self.assertEqual(test_struct["GeneratedHelperName"], "Z_Construct_DStruct_Durin_FTestDHTStruct")
 
     def test_qualified_helper_name_and_validation(self):
         self.assertEqual(
@@ -66,6 +69,9 @@ class ReflectionGenerationTests(unittest.TestCase):
         self.assertIn("FObjectPropertyParams NewProp_ObjectPtrRef", content)
         self.assertIn("FStringPropertyParams NewProp_DisplayName", content)
         self.assertIn("FEnumPropertyParams NewProp_Mode", content)
+        self.assertIn("FStructPropertyParams NewProp_StructValue", content)
+        self.assertIn("Durin::DurinCodeGen::ConstructDStruct", content)
+        self.assertIn("Z_Construct_DStruct_Durin_FTestDHTStruct", content)
         self.assertIn("FArrayPropertyParams NewProp_Scores", content)
         self.assertIn("FArrayPropertyParams NewProp_Modes", content)
         self.assertIn("FEnumPropertyParams NewProp_Modes_Inner", content)

@@ -8,7 +8,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "13"
+TOOL_VERSION = "15"
 MAX_CONTAINER_PROPERTY_DEPTH = 4
 
 
@@ -52,6 +52,7 @@ class ReflectedPropertyInfo:
     kind: str
     referenced_type: str = ""
     referenced_enum_type: str = ""
+    referenced_struct_type: str = ""
     array_dim: int = 1
     element_size: str = "0"
     flags: str = "None"
@@ -90,6 +91,26 @@ class ReflectedClassInfo:
 
 
 @dataclass
+class ReflectedStructInfo:
+    short_name: str
+    namespace: str
+    qualified_name: str
+    generated_helper_name: str
+    header: str
+    api: str
+    generated_body_line: int = 0
+    properties: list[ReflectedPropertyInfo] = field(default_factory=list)
+
+    @property
+    def generated_helper_no_register_name(self) -> str:
+        return f"{self.generated_helper_name}_NoRegister"
+
+    @property
+    def generated_statics_name(self) -> str:
+        return f"{self.generated_helper_name}_Statics"
+
+
+@dataclass
 class ReflectedHeaderInfo:
     module_name: str
     header: str
@@ -98,9 +119,11 @@ class ReflectedHeaderInfo:
     file_id: str
     classes: list[ReflectedClassInfo] = field(default_factory=list)
     enums: list[ReflectedEnumInfo] = field(default_factory=list)
+    structs: list[ReflectedStructInfo] = field(default_factory=list)
 
 
 _DCLASS_PATTERN = re.compile(r"\bDCLASS\s*\(([^)]*)\)")
+_DSTRUCT_PATTERN = re.compile(r"\bDSTRUCT\s*\(([^)]*)\)")
 _DENUM_PATTERN = re.compile(r"\bDENUM\s*\(([^)]*)\)")
 _DPROPERTY_PATTERN = re.compile(r"\bDPROPERTY\s*\(([^)]*)\)")
 _GENERATED_BODY_PATTERN = re.compile(r"\bGENERATED_BODY\s*\([^)]*\)")
@@ -145,6 +168,7 @@ def _annotation_payload(prefix: str, payload: str) -> str:
 def make_dht_parse_source(source: str) -> str:
     source = _GEN_INCLUDE_PATTERN.sub("", source)
     source = _DCLASS_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DCLASS", m.group(1))}"))) void DHT_CLASS();', source)
+    source = _DSTRUCT_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DSTRUCT", m.group(1))}"))) void DHT_STRUCT();', source)
     source = _DENUM_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DENUM", m.group(1))}"))) void DHT_ENUM();', source)
     source = _DPROPERTY_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DPROPERTY", m.group(1))}")))', source)
     source = _GENERATED_BODY_PATTERN.sub("void DHT_GENERATED_BODY();", source)
@@ -168,6 +192,10 @@ def make_generated_helper_name(qualified_name: str) -> str:
 
 def make_generated_enum_helper_name(qualified_name: str) -> str:
     return f"Z_Construct_DEnum_{qualified_name_to_helper_suffix(qualified_name)}"
+
+
+def make_generated_struct_helper_name(qualified_name: str) -> str:
+    return f"Z_Construct_DStruct_{qualified_name_to_helper_suffix(qualified_name)}"
 
 
 def _get_annotation(cursor: clang.cindex.Cursor) -> str:
@@ -465,7 +493,7 @@ def _cpp_type_spelling(type_spelling: str, exported_symbols: dict[str, object] |
         symbol = (exported_symbols or {}).get(candidate)
         if symbol and getattr(symbol, "Kind", "") == "enum":
             return candidate
-        if symbol and getattr(symbol, "Kind", "") == "class":
+        if symbol and getattr(symbol, "Kind", "") in ("class", "struct"):
             return candidate
     if type_spelling.endswith("*"):
         pointee = type_spelling[:-1].strip()
@@ -511,6 +539,25 @@ def _source_property_from_type_spelling(
             "String": "sizeof(std::string)",
         }
         return ReflectedPropertyInfo(name=name, type_name=type_spelling, kind=kind, array_dim=array_dim, element_size=size_by_kind[kind], flags=flags)
+
+    struct_candidates = [type_spelling]
+    if "::" not in type_spelling:
+        struct_candidates.extend(
+            symbol_name for symbol_name, symbol in (exported_symbols or {}).items()
+            if getattr(symbol, "Kind", "") == "struct" and (symbol_name.endswith(f"::{type_spelling}") or symbol_name == type_spelling)
+        )
+    for candidate in struct_candidates:
+        symbol = (exported_symbols or {}).get(candidate)
+        if symbol and getattr(symbol, "Kind", "") == "struct":
+            return ReflectedPropertyInfo(
+                name=name,
+                type_name=type_spelling,
+                kind="Struct",
+                referenced_struct_type=candidate,
+                array_dim=array_dim,
+                element_size=f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+                flags=flags,
+            )
 
     if allow_enum:
         enum_candidates = [type_spelling]
@@ -773,6 +820,18 @@ def _make_property_from_type(
     referenced_type = ""
     element_size = _field_size(type_info)
 
+    referenced_struct_type = ""
+    if not kind:
+        candidates = [type_spelling, canonical]
+        if "::" not in type_spelling:
+            candidates.extend(name for name, symbol in (exported_symbols or {}).items() if getattr(symbol, "Kind", "") == "struct" and getattr(symbol, "ShortName", "") == type_spelling)
+        for candidate in candidates:
+            symbol = (exported_symbols or {}).get(candidate)
+            if symbol and getattr(symbol, "Kind", "") == "struct":
+                kind = "Struct"
+                referenced_struct_type = candidate
+                break
+
     if not kind and allow_enum:
         kind = _enum_kind(type_info)
         if kind == "Enum":
@@ -881,6 +940,7 @@ def _make_property_from_type(
         kind=kind,
         referenced_type="" if kind == "Enum" else referenced_type,
         referenced_enum_type=referenced_type if kind == "Enum" else "",
+        referenced_struct_type=referenced_struct_type,
         array_dim=array_dim,
         element_size=element_size,
         flags=flags,
@@ -1016,17 +1076,47 @@ def parse_reflection_header(
 
     classes: list[ReflectedClassInfo] = []
     enums: list[ReflectedEnumInfo] = []
+    structs: list[ReflectedStructInfo] = []
 
     def visit(parent: clang.cindex.Cursor) -> None:
         children = list(parent.get_children())
         pending_dclass = False
+        pending_dstruct = False
         pending_denum = False
         for child in children:
             if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling == "DHT_CLASS":
                 pending_dclass = _get_annotation(child).startswith("DCLASS")
                 continue
+            if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling == "DHT_STRUCT":
+                pending_dstruct = _get_annotation(child).startswith("DSTRUCT")
+                continue
             if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling == "DHT_ENUM":
                 pending_denum = _get_annotation(child).startswith("DENUM")
+                continue
+
+            if pending_dstruct and child.kind == clang.cindex.CursorKind.STRUCT_DECL and child.spelling:
+                qualified_name = _qualified_name(child)
+                reflected_struct = ReflectedStructInfo(
+                    short_name=child.spelling,
+                    namespace=_semantic_namespace(child),
+                    qualified_name=qualified_name,
+                    generated_helper_name=make_generated_struct_helper_name(qualified_name),
+                    header=header,
+                    api=module_config.api_macro,
+                    generated_body_line=_scan_generated_body_line(source, child.spelling),
+                )
+                for member in child.get_children():
+                    if member.kind == clang.cindex.CursorKind.FIELD_DECL:
+                        prop = _make_property(member, exported_symbols, source)
+                        if prop:
+                            reflected_struct.properties.append(prop)
+                existing_property_names = {prop.name for prop in reflected_struct.properties}
+                for prop in _scan_source_properties_for_class(source, child.spelling, exported_symbols):
+                    if prop.name not in existing_property_names:
+                        reflected_struct.properties.append(prop)
+                        existing_property_names.add(prop.name)
+                structs.append(reflected_struct)
+                pending_dstruct = False
                 continue
 
             if pending_dclass and child.kind in (clang.cindex.CursorKind.CLASS_DECL, clang.cindex.CursorKind.STRUCT_DECL) and child.spelling:
@@ -1075,4 +1165,4 @@ def parse_reflection_header(
     rel = Path(header)
     include_path = _include_path_for_header(header)
     file_id = _file_id_for_header(module_name, header)
-    return ReflectedHeaderInfo(module_name, header, header_path, include_path, file_id, classes, enums)
+    return ReflectedHeaderInfo(module_name, header, header_path, include_path, file_id, classes, enums, structs)

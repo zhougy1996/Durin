@@ -10,3 +10,4 @@
 #include "DObjectArray.h"
 #include "AssetPath.h"
 #include "Package.h"
+#include "MathStructs.h"

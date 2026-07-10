@@ -1,70 +1,73 @@
 #include "Engine/World.h"
 
+#include "Components/ActorComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
+#include "Engine/Level.h"
 
 namespace Durin
 {
 	DWorld::DWorld(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+		SetCurrentLevel(NewObject<DLevel>(this, "TransientLevel"));
+	}
+
+	auto DWorld::BeginDestroy() -> void
+	{
+		SetCurrentLevel(nullptr);
+		Super::BeginDestroy();
 	}
 
 	auto DWorld::DestroyActor(AActor* Actor) -> bool
 	{
-		const auto It = std::find_if(Actors.begin(), Actors.end(), [Actor](const TObjectPtr<AActor>& Entry) {
-			return Entry.Get() == Actor;
-		});
-		if (It == Actors.end())
-		{
-			return false;
-		}
-
-		Actors.erase(It);
-		DestroyObject(Actor);
-		return true;
+		return CurrentLevel && CurrentLevel->DestroyActor(Actor);
 	}
 
 	auto DWorld::DestroyAllActors() -> void
 	{
-		while (!Actors.empty())
-		{
-			AActor* Actor = Actors.back().Get();
-			Actors.pop_back();
-			DestroyObject(Actor);
-		}
+		if (CurrentLevel) CurrentLevel->DestroyAllActors();
 	}
 
 	auto DWorld::ContainsActor(const AActor* Actor) const -> bool
 	{
-		return Actor != nullptr && std::ranges::any_of(Actors, [Actor](const TObjectPtr<AActor>& Entry) {
-				   return Entry.Get() == Actor;
-			   });
+		return CurrentLevel && CurrentLevel->ContainsActor(Actor);
 	}
 
 	auto DWorld::FindActorByName(FName Name) const -> AActor*
 	{
-		const auto It = std::find_if(Actors.begin(), Actors.end(), [Name](const TObjectPtr<AActor>& Entry) {
-			return Entry && Entry->GetFName() == Name;
-		});
-		return It != Actors.end() ? It->Get() : nullptr;
+		return CurrentLevel ? CurrentLevel->FindActorByName(Name) : nullptr;
 	}
 
-	auto DWorld::MakeUniqueActorName(FName RequestedName) const -> FName
+	auto DWorld::GetActors() const -> const std::vector<TObjectPtr<AActor>>&
 	{
-		if (FindActorByName(RequestedName) == nullptr)
-		{
-			return RequestedName;
-		}
+		static const std::vector<TObjectPtr<AActor>> Empty;
+		return CurrentLevel ? CurrentLevel->GetActors() : Empty;
+	}
 
-		const std::string BaseName = RequestedName.ToString();
-		for (uint32 Suffix = 2;; ++Suffix)
+	auto DWorld::SetCurrentLevel(DLevel* Level) -> bool
+	{
+		if (Level == CurrentLevel.Get()) return true;
+		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
+		DLevel* Previous = CurrentLevel.Get();
+		if (Previous)
 		{
-			FName Candidate(std::format("{}_{}", BaseName, Suffix));
-			if (FindActorByName(Candidate) == nullptr)
+			for (const TObjectPtr<AActor>& Actor : Previous->GetActors())
 			{
-				return Candidate;
+				for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
+				{
+					if (Component && Component->IsRegistered()) Component->UnregisterComponent();
+				}
 			}
+			Previous->SetOwningWorld(nullptr);
 		}
+		CurrentLevel = Level;
+		if (Level)
+		{
+			Level->SetOwningWorld(this);
+			for (const TObjectPtr<AActor>& Actor : Level->GetActors()) Level->OnActorAdded(Actor.Get());
+		}
+		if (Previous && Previous->GetOuter() == this) DestroyObject(Previous);
+		return true;
 	}
 } // namespace Durin

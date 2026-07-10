@@ -132,6 +132,30 @@ namespace Durin
 		COREDOBJECT_API auto SetObjectPropertyValue(void* Container, DObject* Value, uint32 ArrayIndex = 0) const -> void;
 	};
 
+	class FStructProperty : public FProperty
+	{
+		DECLARE_FIELD(FStructProperty, FProperty, EClassCastFlags::FStructProperty, COREDOBJECT_API)
+	public:
+		COREDOBJECT_API FStructProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags);
+
+		COREDOBJECT_API FStructProperty(
+			FFieldVariant InOwner,
+			FName InName,
+			EObjectFlags InObjectFlags,
+			EPropertyFlags InPropertyFlags,
+			uint16 InArrayDim,
+			uint16 InOffset,
+			uint16 InElementSize,
+			DurinCodeGen::EPropertyGenFlags InKind,
+			DStruct* InStruct
+		);
+
+		auto GetStruct() const -> DStruct* { return Struct; }
+
+	private:
+		DStruct* Struct = nullptr;
+	};
+
 	class FArrayProperty : public FProperty
 	{
 		DECLARE_FIELD(FArrayProperty, FProperty, EClassCastFlags::FArrayProperty, COREDOBJECT_API)

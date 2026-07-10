@@ -27,6 +27,11 @@ namespace Durin
 	};
 
 	DCLASS()
+	class DStruct : public DStructBase
+	{
+	};
+
+	DCLASS()
 	class DEnum : public DType
 	{
 	};

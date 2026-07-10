@@ -34,6 +34,16 @@ def _extract_header_export_symbols_impl(module_name: str, header: str) -> dict[s
             UnderlyingKind=enum_info.underlying_kind,
             UnderlyingSize=enum_info.underlying_size,
         )
+    for struct_info in header_info.structs:
+        symbols[struct_info.qualified_name] = ExportedSymbolInfo(
+            Kind="struct",
+            ShortName=struct_info.short_name,
+            Namespace=struct_info.namespace,
+            QualifiedName=struct_info.qualified_name,
+            GeneratedHelperName=struct_info.generated_helper_name,
+            Header=struct_info.header,
+            API=struct_info.api,
+        )
     return symbols
 
 

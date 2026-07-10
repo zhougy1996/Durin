@@ -51,6 +51,7 @@ namespace Durin
 	auto DCameraComponent::SetFieldOfViewDegrees(float InFieldOfViewDegrees) -> void
 	{
 		FieldOfViewDegrees = std::clamp(InFieldOfViewDegrees, 1.0f, 170.0f);
+		MarkPackageDirty();
 	}
 
 	auto DCameraComponent::GetNearClip() const -> float
@@ -65,6 +66,7 @@ namespace Durin
 		{
 			FarClip = NearClip + 1.0f;
 		}
+		MarkPackageDirty();
 	}
 
 	auto DCameraComponent::GetFarClip() const -> float
@@ -75,6 +77,7 @@ namespace Durin
 	auto DCameraComponent::SetFarClip(float InFarClip) -> void
 	{
 		FarClip = std::max(InFarClip, NearClip + 1.0f);
+		MarkPackageDirty();
 	}
 
 	auto DCameraComponent::SetLookAt(const FVector3& InLocation, const FVector3& InTarget) -> void

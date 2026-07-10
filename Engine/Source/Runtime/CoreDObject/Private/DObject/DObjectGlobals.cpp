@@ -16,6 +16,7 @@ namespace Durin
 		{
 			DClass* ReferencedClass = PropertyParams->ReferencedClassFunc ? PropertyParams->ReferencedClassFunc() : nullptr;
 			DEnum* ReferencedEnum = PropertyParams->ReferencedEnumFunc ? PropertyParams->ReferencedEnumFunc() : nullptr;
+			DStruct* ReferencedStruct = PropertyParams->ReferencedStructFunc ? PropertyParams->ReferencedStructFunc() : nullptr;
 			FProperty* Property = nullptr;
 
 			switch (PropertyParams->Kind)
@@ -72,6 +73,19 @@ namespace Durin
 					PropertyParams->Kind,
 					ReferencedClass,
 					PropertyParams->bIsObjectPtrWrapper
+				);
+				break;
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+				Property = new FStructProperty(
+					Owner,
+					FName(PropertyParams->NameUTF8),
+					EObjectFlags::NoFlags,
+					PropertyParams->Flags,
+					PropertyParams->ArrayDim,
+					PropertyParams->Offset,
+					PropertyParams->ElementSize,
+					PropertyParams->Kind,
+					ReferencedStruct
 				);
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Array:
@@ -152,6 +166,7 @@ namespace Durin
 				break;
 			}
 
+			Property->SetValueAccessors(PropertyParams->MutableValueAccessor, PropertyParams->ConstValueAccessor);
 			return Property;
 		}
 	}
@@ -243,5 +258,24 @@ namespace Durin
 		DObjectForceRegistration(Enum);
 
 		return Enum;
+	}
+
+	auto DurinCodeGen::ConstructDStruct(const FStructParams& Params) -> DStruct*
+	{
+		DStruct* Struct = Params.StructNoRegisterFunc();
+		DObjectForceRegistration(Struct);
+		Struct->SetCppOps(Params.Initialize, Params.Destroy, Params.Copy);
+		if (!Struct->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
+		{
+			FField* LastProperty = nullptr;
+			for (size_t Index = 0; Index < Params.NumProperties; ++Index)
+			{
+				FProperty* Property = ConstructGeneratedProperty(FFieldVariant(Struct), Params.PropertyParams[Index]);
+				if (LastProperty) LastProperty->Next = Property;
+				else Struct->ChildProperties = Property;
+				LastProperty = Property;
+			}
+		}
+		return Struct;
 	}
 }

@@ -1,14 +1,17 @@
 #include "LevelEditorContext.h"
 
 #include "Engine/World.h"
+#include "Engine/Level.h"
 
 namespace Durin
 {
 	auto FLevelEditorContext::Synchronize(DWorld* CurrentWorld) -> void
 	{
-		if (World != CurrentWorld)
+		DLevel* CurrentLevel = CurrentWorld ? CurrentWorld->GetCurrentLevel() : nullptr;
+		if (World != CurrentWorld || Level != CurrentLevel)
 		{
 			World = CurrentWorld;
+			Level = CurrentLevel;
 			ClearSelection();
 			return;
 		}

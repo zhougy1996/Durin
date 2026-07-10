@@ -12,6 +12,7 @@ namespace Durin
 	IMPLEMENT_FIELD(FStringProperty, FProperty, EClassCastFlags::FStringProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FEnumProperty, FProperty, EClassCastFlags::FEnumProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FObjectProperty, FProperty, EClassCastFlags::FObjectProperty, COREDOBJECT_API)
+	IMPLEMENT_FIELD(FStructProperty, FProperty, EClassCastFlags::FStructProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FArrayProperty, FProperty, EClassCastFlags::FArrayProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FMapProperty, FProperty, EClassCastFlags::FMapProperty, COREDOBJECT_API)
 
@@ -203,6 +204,29 @@ namespace Durin
 		}
 	}
 
+	FStructProperty::FStructProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
+		: FProperty(InOwner, InName, InObjectFlags)
+	{
+		ClassPrivate = StaticClass();
+	}
+
+	FStructProperty::FStructProperty(
+		FFieldVariant InOwner,
+		FName InName,
+		EObjectFlags InObjectFlags,
+		EPropertyFlags InPropertyFlags,
+		uint16 InArrayDim,
+		uint16 InOffset,
+		uint16 InElementSize,
+		DurinCodeGen::EPropertyGenFlags InKind,
+		DStruct* InStruct
+	)
+		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, nullptr)
+		, Struct(InStruct)
+	{
+		ClassPrivate = StaticClass();
+	}
+
 	FArrayProperty::FArrayProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
 		: FProperty(InOwner, InName, InObjectFlags)
 	{
@@ -314,6 +338,17 @@ namespace Durin
 			{
 				Visitor(Value);
 				ForEachNestedProperty(Value, Visitor);
+			}
+		}
+
+		if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct)
+		{
+			if (DStruct* Struct = static_cast<FStructProperty*>(Property)->GetStruct())
+			{
+				Struct->ForEachProperty([&](FProperty* Field) {
+					Visitor(Field);
+					ForEachNestedProperty(Field, Visitor);
+				}, false);
 			}
 		}
 	}

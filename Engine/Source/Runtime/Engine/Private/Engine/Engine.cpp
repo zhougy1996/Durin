@@ -1,5 +1,6 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Engine/Level.h"
 
 #include "Actors/CameraActor.h"
 #include "Actors/StaticMeshActor.h"
@@ -33,6 +34,7 @@ namespace Durin
 		MainWorld = NewObject<DWorld>(this, "MainWorld");
 
 		DefaultCameraActor = MainWorld->SpawnActor<ACameraActor>("DefaultCameraActor");
+		MainWorld->GetCurrentLevel()->SetPrimaryCameraActor(DefaultCameraActor.Get());
 		if (DCameraComponent* CameraComponent = DefaultCameraActor->GetCameraComponent())
 		{
 			CameraComponent->SetLookAt(FVector3(-3.0, -6.0, 2.25), FVector3(0.0, 0.0, 0.0));
@@ -154,6 +156,10 @@ namespace Durin
 
 	auto DEngine::GetActiveCameraComponent() const -> DCameraComponent*
 	{
+		if (MainWorld && MainWorld->GetCurrentLevel())
+		{
+			if (ACameraActor* Camera = MainWorld->GetCurrentLevel()->GetPrimaryCameraActor()) return Camera->GetCameraComponent();
+		}
 		return DefaultCameraActor != nullptr ? DefaultCameraActor->GetCameraComponent() : nullptr;
 	}
 

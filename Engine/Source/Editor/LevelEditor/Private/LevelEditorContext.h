@@ -6,10 +6,12 @@ namespace Durin
 {
 	class AActor;
 	class DWorld;
+	class DLevel;
 
 	struct FLevelEditorContext
 	{
 		DWorld* World = nullptr;
+		DLevel* Level = nullptr;
 		TObjectPtr<AActor> SelectedActor;
 
 		auto Synchronize(DWorld* CurrentWorld) -> void;

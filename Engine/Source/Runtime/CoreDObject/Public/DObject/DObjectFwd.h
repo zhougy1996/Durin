@@ -8,6 +8,7 @@ namespace Durin
 	class DPackage;
 	class DType;
 	class DStructBase;
+	class DStruct;
 	class DClass;
 	class DEnum;
 }

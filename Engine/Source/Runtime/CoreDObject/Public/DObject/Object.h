@@ -73,6 +73,7 @@ namespace Durin
 		COREDOBJECT_API auto GetOutermost() const -> DObject*;
 		COREDOBJECT_API auto GetPackage() const -> DPackage*;
 		COREDOBJECT_API auto GetObjectPath() const -> std::string;
+		COREDOBJECT_API auto MarkPackageDirty() -> void;
 
 		auto GetObjectFlags() const -> EObjectFlags { return ObjectFlags; }
 
@@ -95,6 +96,8 @@ namespace Durin
 		COREDOBJECT_API virtual auto BeginDestroy() -> void;
 
 		COREDOBJECT_API virtual auto FinishDestroy() -> void;
+
+		COREDOBJECT_API virtual auto PostLoad(std::string& OutError) -> bool;
 
 		static void IntrinsicClassInit(DClass* Class);
 

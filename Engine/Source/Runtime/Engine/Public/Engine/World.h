@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
+#include "Engine/Level.h"
 
 #include "World.gen.h"
 
@@ -16,27 +17,24 @@ namespace Durin
 	public:
 		explicit DWorld(const FObjectInitializer& ObjectInitializer);
 		~DWorld() override = default;
+		auto BeginDestroy() -> void override;
 
 		template<typename T>
 		auto SpawnActor(FName InName = FName()) -> T*
 		{
-			static_assert(std::is_base_of_v<AActor, T>, "T must derive from AActor");
-			const FName UniqueName = MakeUniqueActorName(InName.IsNone() ? FName(T::StaticClass()->GetName()) : InName);
-			T* Actor = NewObject<T>(this, UniqueName);
-			Actors.emplace_back(Actor);
-			return Actor;
+			return CurrentLevel ? CurrentLevel->SpawnActor<T>(InName) : nullptr;
 		}
 
 		auto DestroyActor(AActor* Actor) -> bool;
 		auto DestroyAllActors() -> void;
 		auto ContainsActor(const AActor* Actor) const -> bool;
 		auto FindActorByName(FName Name) const -> AActor*;
-		auto GetActors() const -> const std::vector<TObjectPtr<AActor>>& { return Actors; }
+		auto GetActors() const -> const std::vector<TObjectPtr<AActor>>&;
+		auto SetCurrentLevel(DLevel* Level) -> bool;
+		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel.Get(); }
 
 	private:
-		auto MakeUniqueActorName(FName RequestedName) const -> FName;
-
-		DPROPERTY()
-		std::vector<TObjectPtr<AActor>> Actors;
+		DPROPERTY(Transient)
+		TObjectPtr<DLevel> CurrentLevel;
 	};
 } // namespace Durin

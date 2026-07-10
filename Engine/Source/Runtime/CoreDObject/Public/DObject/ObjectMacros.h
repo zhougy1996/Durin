@@ -4,6 +4,7 @@
 #define DHT_DEBUG_END()
 
 #define DCLASS(...)
+#define DSTRUCT(...)
 #define DENUM(...)
 #define DPROPERTY(...)
 #define DFUNCTION(...)

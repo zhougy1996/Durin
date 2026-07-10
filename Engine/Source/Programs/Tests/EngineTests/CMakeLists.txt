@@ -7,6 +7,7 @@ add_durin_test(EngineTests
 target_link_libraries(EngineTests PRIVATE
 	Core
 	CoreDObject
+	AssetCore
 	Engine
 	GTest::gtest_main
 )

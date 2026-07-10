@@ -92,6 +92,18 @@ namespace Durin
 				}
 				break;
 			}
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				auto* StructProperty = static_cast<FStructProperty*>(Property);
+				DStruct* Struct = StructProperty->GetStruct();
+				if (!Struct) break;
+				void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
+				Struct->ForEachProperty([&](FProperty* Field) {
+					if (!Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+					for (uint32 Index = 0; Index < Field->GetArrayDim(); ++Index) SerializePropertyValue(Ar, Field, StructValue, Index);
+				}, false);
+				break;
+			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
 			{
 				auto* ArrayProperty = static_cast<FArrayProperty*>(Property);

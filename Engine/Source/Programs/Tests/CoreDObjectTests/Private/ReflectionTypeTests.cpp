@@ -3,6 +3,7 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
@@ -1276,5 +1277,28 @@ namespace
 		EXPECT_EQ(ObjectListsValue->GetInner()->GetReferencedClass(), Durin::DObject::StaticClass());
 
 		Durin::DestroyObject(ReferencedObject);
+	}
+
+	TEST(FCoreDObjectReflectionTests, BuiltInMathStructsExposeNestedFieldMetadata)
+	{
+		EnsureDObjectInitialized();
+		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
+		Durin::DStruct* QuatStruct = Durin::Z_Construct_DStruct_Durin_FQuat();
+		Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
+		ASSERT_NE(VectorStruct, nullptr);
+		ASSERT_NE(QuatStruct, nullptr);
+		ASSERT_NE(TransformStruct, nullptr);
+		EXPECT_EQ(VectorStruct->GetQualifiedName().ToString(), "Durin::FVector3");
+		EXPECT_EQ(QuatStruct->GetQualifiedName().ToString(), "Durin::FQuat");
+		Durin::FProperty* Rotation = TransformStruct->FindPropertyByName("Rotation", false);
+		Durin::FProperty* Translation = TransformStruct->FindPropertyByName("Translation", false);
+		Durin::FProperty* Scale = TransformStruct->FindPropertyByName("Scale3D", false);
+		ASSERT_NE(Rotation, nullptr);
+		ASSERT_NE(Translation, nullptr);
+		ASSERT_NE(Scale, nullptr);
+		EXPECT_EQ(Rotation->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Struct);
+		EXPECT_EQ(static_cast<Durin::FStructProperty*>(Rotation)->GetStruct(), QuatStruct);
+		EXPECT_EQ(static_cast<Durin::FStructProperty*>(Translation)->GetStruct(), VectorStruct);
+		EXPECT_EQ(static_cast<Durin::FStructProperty*>(Scale)->GetStruct(), VectorStruct);
 	}
 }

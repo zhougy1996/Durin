@@ -1,13 +1,18 @@
 #include "Actors/CameraActor.h"
+#include "AssetSystem.h"
 #include "Actors/StaticMeshActor.h"
 #include "Components/ActorComponent.h"
 #include "Components/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Engine.h"
 #include "Engine/GameEngine.h"
+#include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Misc/Paths.h"
+#include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
 
@@ -16,6 +21,8 @@ namespace
 	auto InitializeDObjectSystem() -> void
 	{
 		static const bool bInitialized = []() {
+			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+			Durin::GIsGameThreadIdInitialized = true;
 			Durin::DObjectInit();
 			return true;
 		}();
@@ -53,8 +60,8 @@ TEST(FWorldTests, SpawnsEnumeratesAndFindsActors)
 	EXPECT_EQ(World->GetActors().size(), 2u);
 	EXPECT_TRUE(World->ContainsActor(Camera));
 	EXPECT_EQ(World->FindActorByName("Camera"), Camera);
-	EXPECT_EQ(Camera->GetOuter(), World);
-	EXPECT_EQ(Mesh->GetOuter(), World);
+	EXPECT_EQ(Camera->GetOuter(), World->GetCurrentLevel());
+	EXPECT_EQ(Mesh->GetOuter(), World->GetCurrentLevel());
 	EXPECT_EQ(Camera->GetCameraComponent()->GetOuter(), Camera);
 
 	Durin::DestroyObject(World);
@@ -72,6 +79,68 @@ TEST(FWorldTests, MakesDuplicateActorNamesUnique)
 	EXPECT_EQ(Third->GetName(), "Camera_3");
 
 	Durin::DestroyObject(World);
+}
+
+TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents)
+{
+	InitializeDObjectSystem();
+	static const bool bMountInitialized = [] {
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Levels";
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/LevelTests/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/LevelTests/TransformRoundTrip", Path));
+	Durin::DLevel* Level = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
+	Durin::ACameraActor* ParentActor = Level->SpawnActor<Durin::ACameraActor>("ParentCamera");
+	Durin::ACameraActor* ChildActor = Level->SpawnActor<Durin::ACameraActor>("ChildCamera");
+	ASSERT_TRUE(Level->SetPrimaryCameraActor(ParentActor));
+
+	Durin::FTransform ParentTransform;
+	ParentTransform.Translation = {10.0, 20.0, 30.0};
+	ParentTransform.Scale3D = {2.0, 2.0, 2.0};
+	ParentActor->SetActorTransform(ParentTransform);
+	ASSERT_TRUE(ChildActor->AttachToActor(ParentActor, Durin::EAttachmentTransformRule::KeepRelative));
+	Durin::FTransform ChildRelative;
+	ChildRelative.Translation = {1.0, 2.0, 3.0};
+	ChildActor->GetRootComponent()->SetRelativeTransform(ChildRelative);
+	ParentActor->GetCameraComponent()->SetFieldOfViewDegrees(75.0f);
+	ParentActor->GetCameraComponent()->SetNearClip(0.25f);
+	ParentActor->GetCameraComponent()->SetFarClip(2500.0f);
+
+	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
+	ASSERT_FALSE(Level->GetPackage()->IsDirty());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	Durin::DLevel* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->GetActors().size(), 2u);
+	auto* LoadedParent = dynamic_cast<Durin::ACameraActor*>(Loaded->FindActorByName("ParentCamera"));
+	auto* LoadedChild = dynamic_cast<Durin::ACameraActor*>(Loaded->FindActorByName("ChildCamera"));
+	ASSERT_NE(LoadedParent, nullptr);
+	ASSERT_NE(LoadedChild, nullptr);
+	EXPECT_EQ(Loaded->GetPrimaryCameraActor(), LoadedParent);
+	EXPECT_EQ(LoadedParent->GetOwnedComponents().size(), 1u);
+	EXPECT_EQ(LoadedChild->GetOwnedComponents().size(), 1u);
+	ExpectVectorNear(LoadedParent->GetActorTransform().Translation, ParentTransform.Translation);
+	ExpectVectorNear(LoadedChild->GetRootComponent()->GetRelativeTransform().Translation, ChildRelative.Translation);
+	EXPECT_EQ(LoadedChild->GetAttachParentActor(), LoadedParent);
+	EXPECT_NEAR(LoadedParent->GetCameraComponent()->GetFieldOfViewDegrees(), 75.0f, 1.e-6f);
+	EXPECT_NEAR(LoadedParent->GetCameraComponent()->GetNearClip(), 0.25f, 1.e-6f);
+	EXPECT_NEAR(LoadedParent->GetCameraComponent()->GetFarClip(), 2500.0f, 1.e-6f);
+
+	Durin::DWorld* World = CreateWorld();
+	ASSERT_TRUE(World->SetCurrentLevel(Loaded));
+	EXPECT_EQ(World->GetActors().size(), 2u);
+	EXPECT_EQ(Loaded->GetWorld(), World);
+	Durin::DestroyObject(World);
+	EXPECT_EQ(Loaded->GetWorld(), nullptr);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)

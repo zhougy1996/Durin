@@ -20,8 +20,9 @@ The current system supports:
 - generated `.gen.h` and `.gen.cpp` files
 - generated class registration into `DClass`
 - generated enum registration into `DEnum`
+- generated value-struct registration into `DStruct`
 - generated property metadata for reflected `DPROPERTY()` fields
-- primitive, `std::string`, enum, object-pointer, fixed C array, `std::vector`, and `std::unordered_map` property nodes
+- primitive, `std::string`, enum, struct, object-pointer, fixed C array, `std::vector`, and `std::unordered_map` property nodes
 - nested container property metadata, with recursive array/map inner property trees
 - runtime `DObject::IsA` and `Cast<T>` based on the `DClass` hierarchy
 - runtime `DObject` registration in `GDObjectArray`
@@ -29,7 +30,9 @@ The current system supports:
 - reflected scalar/string/object-reference serialization through `FArchive`
 - minimal in-memory object graph save/load helpers
 
-The system does not currently implement package/CDO behavior, hot reload, editor property panels, function reflection, general template reflection, type-erased container mutation, long-term asset/package serialization formats, version migration, weak references, incremental/concurrent GC, or complete metadata specifier parsing.
+The system does not currently implement CDO behavior, hot reload, function reflection, general template reflection, schema migrations, weak references, incremental/concurrent GC, or complete metadata specifier parsing.
+
+`DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. Core-owned math types cannot depend on `CoreDObject`, so `FVector3`, `FQuat`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values.
 
 ## Build Flow
 
@@ -299,6 +302,7 @@ Supported property node types are:
 - `FObjectProperty`
 - `FArrayProperty`
 - `FMapProperty`
+- `FStructProperty`
 
 `FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct object-reference access for GC and serialization. `FStringProperty` exposes a `std::string*` pointer helper. Generated array and map helpers provide type-erased traversal and mutation used by GC and both memory/package serialization.
 

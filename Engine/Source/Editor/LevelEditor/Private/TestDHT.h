@@ -18,6 +18,15 @@ namespace Durin
 		Hidden
 	};
 
+	DSTRUCT()
+	struct FTestDHTStruct
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		int32 Value = 0;
+	};
+
 	DCLASS(AAA, bbb = ccc)
 	class LEVELEDITOR_API TestDHT : DObject
 	{
@@ -51,6 +60,9 @@ namespace Durin
 
 		DPROPERTY()
 		ETestDHTMode Mode = ETestDHTMode::None;
+
+		DPROPERTY()
+		FTestDHTStruct StructValue;
 
 		DPROPERTY()
 		std::vector<int32> Scores;

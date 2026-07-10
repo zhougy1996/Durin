@@ -20,12 +20,12 @@ Object records store object id, outer id, qualified class name, object name, and
 
 Internal references use object ids. Cross-package strong references target the other package's main asset by `FAssetPath` and synchronously load that dependency. Circular dependencies work because object skeletons are constructed before dependency fields are applied.
 
-Supported reflected payloads are numeric values, bool, strings, enums, `TObjectPtr`, vectors, maps, and nesting of those containers. Raw object pointers and property kinds without runtime helpers fail package saving instead of being silently omitted.
+Supported reflected payloads are numeric values, bool, strings, enums, `DStruct` values, `TObjectPtr`, vectors, maps, and nesting of those containers. Struct payloads contain a qualified-name field table, so unknown, missing, and type-incompatible struct fields follow the same compatibility rules as object fields. Raw object pointers and property kinds without runtime helpers fail package saving instead of being silently omitted.
 
 ## Subsystem Boundary
 
 - `CoreDObject` owns `DPackage`, `FAssetPath`, object paths, qualified reflected class identities, and type-erased container access.
 - `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, and existing source-file importers.
-- Future `DLevel` objects should be main assets inside packages; a `DWorld` remains a runtime/editor session container.
+- `DLevel` objects are main assets inside packages; a `DWorld` remains a runtime/editor session container and activates one level at a time.
 
-Deferred work includes reflected structs, soft references, async loading, cooking, reimport, hot reload, redirects, and editor asset browsing.
+Deferred work includes soft references, async loading, cooking, reimport, hot reload, redirects, and editor asset browsing.

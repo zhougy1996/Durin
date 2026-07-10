@@ -47,6 +47,21 @@ namespace Durin
 				return;
 			}
 
+			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct)
+			{
+				auto* StructProperty = static_cast<FStructProperty*>(Property);
+				DStruct* Struct = StructProperty->GetStruct();
+				if (!Struct) return;
+				void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
+				Struct->ForEachProperty([&](FProperty* Field) {
+					for (uint32 Index = 0; Field && Index < Field->GetArrayDim(); ++Index)
+					{
+						ForEachPropertyReference(Field, StructValue, Index, Collector);
+					}
+				}, false);
+				return;
+			}
+
 			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Map)
 			{
 				auto* MapProperty = static_cast<FMapProperty*>(Property);
@@ -168,6 +183,7 @@ namespace Durin
 		}
 
 		Object->SetInternalFlags(EObjectInternalFlags::BeginDestroyed);
+		Object->BeginDestroy();
 
 		std::vector<DObject*> InnerObjects = Object->GetInnerObjects();
 		for (DObject* InnerObject : InnerObjects)
@@ -175,7 +191,6 @@ namespace Durin
 			DestroyObject(InnerObject);
 		}
 
-		Object->BeginDestroy();
 		Object->SetOuterPrivate(nullptr);
 		GDObjectArray.Remove(Object);
 		Object->FinishDestroy();

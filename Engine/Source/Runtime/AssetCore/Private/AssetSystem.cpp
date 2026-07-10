@@ -143,6 +143,11 @@ namespace Durin::Asset
 				auto* EnumProperty = static_cast<FEnumProperty*>(Property);
 				return std::format("Enum:{}:{}", EnumProperty->GetEnum() ? EnumProperty->GetEnum()->GetQualifiedName().ToString() : "", Property->GetElementSize());
 			}
+			if (Kind == DurinCodeGen::EPropertyGenFlags::Struct)
+			{
+				auto* StructProperty = static_cast<FStructProperty*>(Property);
+				return std::format("Struct<{}>", StructProperty->GetStruct() ? StructProperty->GetStruct()->GetQualifiedName().ToString() : "");
+			}
 			return std::format("{}:{}", static_cast<uint32>(Kind), Property->GetElementSize());
 		}
 
@@ -201,6 +206,35 @@ namespace Durin::Asset
 				Dependencies.insert(ExternalPath);
 				Writer.Write(uint8(2));
 				Writer.WriteString(ExternalPath.GetView());
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				auto* StructProperty = static_cast<FStructProperty*>(Property);
+				DStruct* Struct = StructProperty->GetStruct();
+				if (!Struct) return Error(EAssetError::UnsupportedProperty, "Struct property has no reflected type.");
+				Writer.WriteString(Struct->GetQualifiedName().ToString());
+				std::vector<FProperty*> Fields;
+				Struct->ForEachProperty([&](FProperty* Field) {
+					if (Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) Fields.push_back(Field);
+				}, false);
+				Writer.Write(uint64(Fields.size()));
+				const void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
+				for (FProperty* Field : Fields)
+				{
+					FByteWriter Payload;
+					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim(); ++FieldIndex)
+					{
+						FAssetResult Result = SerializeValue(Field, StructValue, FieldIndex, Payload, ObjectIds, Dependencies);
+						if (!Result) return Result;
+					}
+					Writer.WriteString(Struct->GetQualifiedName().ToString());
+					Writer.WriteString(Field->NamePrivate.ToString());
+					Writer.Write(uint8(Field->GetKind()));
+					Writer.WriteString(GetTypeSignature(Field));
+					Writer.Write(uint64(Payload.Bytes.size()));
+					Writer.WriteBytes(Payload.Bytes.data(), Payload.Bytes.size());
+				}
 				return {};
 			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
@@ -283,6 +317,40 @@ namespace Durin::Asset
 				else if (ReferenceKind != 0) return Error(EAssetError::CorruptFile, "Unknown object reference kind.");
 				if (Value && ObjectProperty->GetReferencedClass() && !Value->IsA(ObjectProperty->GetReferencedClass())) return Error(EAssetError::TypeMismatch, "Object reference class mismatch.");
 				ObjectProperty->SetObjectPropertyValue(Container, Value, ArrayIndex);
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				auto* StructProperty = static_cast<FStructProperty*>(Property);
+				DStruct* Struct = StructProperty->GetStruct();
+				std::string StructName;
+				uint64 FieldCount = 0;
+				if (!Struct || !Reader.ReadString(StructName) || StructName != Struct->GetQualifiedName().ToString() || !Reader.Read(FieldCount) || FieldCount > 100000)
+					return Error(EAssetError::CorruptFile, "Invalid struct payload header.");
+				void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
+				for (uint64 Index = 0; Index < FieldCount; ++Index)
+				{
+					std::string DeclaringStruct, FieldName, Signature;
+					uint8 Kind = 0;
+					uint64 PayloadSize = 0;
+					std::span<const uint8> Payload;
+					if (!Reader.ReadString(DeclaringStruct) || !Reader.ReadString(FieldName) || !Reader.Read(Kind) || !Reader.ReadString(Signature) || !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size() || !Reader.ReadSpan(static_cast<size_t>(PayloadSize), Payload))
+						return Error(EAssetError::CorruptFile, "Invalid struct field record.");
+					if (DeclaringStruct != StructName) continue;
+					FProperty* Field = Struct->FindPropertyByName(FName(FieldName), false);
+					if (!Field || static_cast<uint8>(Field->GetKind()) != Kind || GetTypeSignature(Field) != Signature)
+					{
+						DURIN_WARN("Skipping incompatible struct field {}::{}", StructName, FieldName);
+						continue;
+					}
+					FByteReader PayloadReader{Payload};
+					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim(); ++FieldIndex)
+					{
+						FAssetResult Result = DeserializeValue(Field, StructValue, FieldIndex, PayloadReader, Objects);
+						if (!Result) return Result;
+					}
+					if (PayloadReader.Offset != Payload.size()) return Error(EAssetError::CorruptFile, "Struct field payload has trailing bytes.");
+				}
 				return {};
 			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
@@ -657,6 +725,16 @@ namespace Durin::Asset
 					if (!Result) { Rollback(); return Result; }
 				}
 				if (FieldReader.Offset != Field.Payload.size()) { Rollback(); return Error(EAssetError::CorruptFile, "Property payload has trailing bytes."); }
+			}
+		}
+
+		for (auto It = Objects.rbegin(); It != Objects.rend(); ++It)
+		{
+			std::string PostLoadError;
+			if (*It && !(*It)->PostLoad(PostLoadError))
+			{
+				Rollback();
+				return Error(EAssetError::InvalidObjectGraph, PostLoadError.empty() ? "Object PostLoad failed." : std::move(PostLoadError));
 			}
 		}
 

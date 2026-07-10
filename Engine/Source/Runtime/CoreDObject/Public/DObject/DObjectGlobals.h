@@ -8,6 +8,7 @@ namespace Durin
 	class DObject;
 	class DClass;
 	class DEnum;
+	class DStruct;
 
 	struct FStaticConstructObjectParameters
 	{
@@ -94,7 +95,8 @@ namespace Durin
 			Enum,
 			Object,
 			Array,
-			Map
+			Map,
+			Struct
 		};
 
 		struct FPropertyParamsBase;
@@ -163,6 +165,9 @@ namespace Durin
 			bool bIsObjectPtrWrapper = false;
 			const FArrayPropertyHelper* ArrayHelper = nullptr;
 			const FMapPropertyHelper* MapHelper = nullptr;
+			DStruct* (*ReferencedStructFunc)() = nullptr;
+			void* (*MutableValueAccessor)(void* Container, uint32 ArrayIndex) = nullptr;
+			const void* (*ConstValueAccessor)(const void* Container, uint32 ArrayIndex) = nullptr;
 		};
 
 		struct FGenericPropertyParams : public FPropertyParamsBase
@@ -186,9 +191,25 @@ namespace Durin
 		using FObjectPropertyParams = FPropertyParamsBase;
 		using FArrayPropertyParams = FPropertyParamsBase;
 		using FMapPropertyParams = FPropertyParamsBase;
+		using FStructPropertyParams = FPropertyParamsBase;
+
+		struct FStructParams
+		{
+			DStruct* (*StructNoRegisterFunc)();
+			const char* QualifiedStructName;
+			const char* ShortStructName;
+			uint32 Size;
+			uint32 Alignment;
+			const FPropertyParamsBase* const* PropertyParams;
+			size_t NumProperties;
+			void (*Initialize)(void* Memory) = nullptr;
+			void (*Destroy)(void* Memory) = nullptr;
+			void (*Copy)(void* Destination, const void* Source) = nullptr;
+		};
 
 		COREDOBJECT_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
 		COREDOBJECT_API auto ConstructDEnum(const FEnumParams& Params) -> DEnum*;
+		COREDOBJECT_API auto ConstructDStruct(const FStructParams& Params) -> DStruct*;
 
 	} // namespace DurinCodeGen
 }

@@ -9,6 +9,7 @@ namespace Durin
 	COREDOBJECT_API DClass* Z_Construct_DClass_DType();
 	COREDOBJECT_API DClass* Z_Construct_DClass_DStructBase();
 	COREDOBJECT_API DClass* Z_Construct_DClass_DClass();
+	COREDOBJECT_API DClass* Z_Construct_DClass_DStruct();
 	COREDOBJECT_API DClass* Z_Construct_DClass_DEnum();
 }
 
@@ -19,6 +20,8 @@ namespace Durin
 	IMPLEMENT_INTRINSIC_CLASS(DStructBase, COREDOBJECT_API, DType, COREDOBJECT_API, {})
 
 	IMPLEMENT_INTRINSIC_CLASS(DClass, COREDOBJECT_API, DStructBase, COREDOBJECT_API, {})
+
+	IMPLEMENT_INTRINSIC_CLASS(DStruct, COREDOBJECT_API, DStructBase, COREDOBJECT_API, {})
 
 	IMPLEMENT_INTRINSIC_CLASS(DEnum, COREDOBJECT_API, DType, COREDOBJECT_API, {})
 
@@ -135,6 +138,16 @@ namespace Durin
 		}
 		return nullptr;
 	}
+
+	auto FindStructByQualifiedName(std::string_view QualifiedName) -> DStruct*
+	{
+		for (DObject* Object : GDObjectArray.GetAll())
+		{
+			auto* Struct = Cast<DStruct>(Object);
+			if (Struct && Struct->GetQualifiedName().ToString() == QualifiedName) return Struct;
+		}
+		return nullptr;
+	}
 }
 
 COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DObject()
@@ -155,6 +168,11 @@ COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DStructBase()
 COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DClass()
 {
 	return Durin::Z_Construct_DClass_DClass();
+}
+
+COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DStruct()
+{
+	return Durin::Z_Construct_DClass_DStruct();
 }
 
 COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DEnum()

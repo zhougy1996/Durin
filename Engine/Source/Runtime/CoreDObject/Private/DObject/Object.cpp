@@ -238,6 +238,17 @@ namespace Durin
 		SerializeDObjectProperties(Ar, this);
 	}
 
+	auto DObject::PostLoad(std::string& OutError) -> bool
+	{
+		(void)OutError;
+		return true;
+	}
+
+	auto DObject::MarkPackageDirty() -> void
+	{
+		if (DPackage* Package = GetPackage()) Package->MarkDirty();
+	}
+
 	auto DObject::AddReferencedObjects(FReferenceCollector& Collector) -> void
 	{
 		ForEachObjectReference(this, Collector);

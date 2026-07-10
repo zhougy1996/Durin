@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	class DLevel;
 	enum class EAttachmentTransformRule : uint8
 	{
 		KeepWorld,
@@ -61,9 +62,10 @@ namespace Durin
 		ENGINE_API auto UpdateComponentToWorld() -> void;
 		ENGINE_API auto GetComponentToWorldMatrix() const -> FMatrix;
 
-	protected:
+protected:
 		ENGINE_API virtual auto OnUpdateTransform() -> void;
 
+		DPROPERTY()
 		FTransform RelativeTransform;
 		FTransform ComponentToWorld;
 
@@ -71,7 +73,10 @@ namespace Durin
 		auto CanAttachTo(const DSceneComponent* Parent) const -> bool;
 		auto RemoveAttachChild(DSceneComponent* Child) -> void;
 
+		DPROPERTY()
 		TObjectPtr<DSceneComponent> AttachParent;
 		std::vector<TObjectPtr<DSceneComponent>> AttachChildren;
+
+		friend class DLevel;
 	};
 }

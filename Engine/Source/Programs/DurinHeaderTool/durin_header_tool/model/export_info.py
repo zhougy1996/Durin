@@ -6,7 +6,7 @@ from durin_header_tool import io as utils
 from durin_header_tool.io import FileFingerprint
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 
-EXPORT_SCHEMA_VERSION = 3
+EXPORT_SCHEMA_VERSION = 4
 
 
 @dataclass

@@ -24,9 +24,12 @@ namespace Durin
 		ENGINE_API auto GetViewMatrix() const -> FMatrix;
 		ENGINE_API auto GetProjectionMatrix(float AspectRatio) const -> FMatrix;
 
-	private:
+private:
+		DPROPERTY(Edit)
 		float FieldOfViewDegrees = 60.0f;
+		DPROPERTY(Edit)
 		float NearClip = 0.1f;
+		DPROPERTY(Edit)
 		float FarClip = 1000.0f;
 	};
 }

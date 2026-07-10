@@ -29,6 +29,7 @@ namespace Durin
 		RelativeTransform = InTransform;
 		RelativeTransform.Rotation = glm::normalize(RelativeTransform.Rotation);
 		UpdateComponentToWorld();
+		MarkPackageDirty();
 	}
 
 	auto DSceneComponent::GetWorldTransform() const -> const FTransform&
@@ -48,6 +49,7 @@ namespace Durin
 		}
 		RelativeTransform.Rotation = glm::normalize(RelativeTransform.Rotation);
 		UpdateComponentToWorld();
+		MarkPackageDirty();
 	}
 
 	auto DSceneComponent::GetRelativeLocation() const -> const FVector3&
@@ -159,6 +161,7 @@ namespace Durin
 		}
 
 		UpdateComponentToWorld();
+		MarkPackageDirty();
 		return true;
 	}
 
@@ -178,6 +181,7 @@ namespace Durin
 			RelativeTransform = PreviousWorld;
 		}
 		UpdateComponentToWorld();
+		MarkPackageDirty();
 		return true;
 	}
 

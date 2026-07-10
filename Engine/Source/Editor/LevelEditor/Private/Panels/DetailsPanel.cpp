@@ -188,14 +188,15 @@ namespace Durin
 		}
 
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
+		bool bChanged = false;
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Bool)
 		{
 			bool* Value = Property->ContainerPtrToValuePtr<bool>(Actor, ArrayIndex);
-			ImGui::Checkbox(Label.c_str(), Value);
+			bChanged = ImGui::Checkbox(Label.c_str(), Value);
 		}
 		else if (const ImGuiDataType DataType = ImGuiDataTypeForProperty(Kind); DataType != ImGuiDataType_COUNT)
 		{
-			ImGui::DragScalar(Label.c_str(), DataType, Property->GetValuePtr(Actor, ArrayIndex), Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
+			bChanged = ImGui::DragScalar(Label.c_str(), DataType, Property->GetValuePtr(Actor, ArrayIndex), Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::String)
 		{
@@ -206,6 +207,7 @@ namespace Durin
 			if (ImGui::InputText(Label.c_str(), Buffer.data(), Buffer.size()))
 			{
 				*StringProperty->GetStringValuePtr(Actor, ArrayIndex) = Buffer.data();
+				bChanged = true;
 			}
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)
@@ -228,6 +230,7 @@ namespace Durin
 						if (ImGui::Selectable(Value.Name.ToString().c_str(), bSelected))
 						{
 							WriteEnumValue(*EnumProperty, Actor, ArrayIndex, Value.Value);
+							bChanged = true;
 						}
 					});
 					ImGui::EndCombo();
@@ -238,6 +241,7 @@ namespace Durin
 		{
 			ImGui::LabelText(Label.c_str(), "<%s>", PropertyKindName(Kind));
 		}
+		if (bChanged) Actor->MarkPackageDirty();
 
 		if (bReadOnly)
 		{

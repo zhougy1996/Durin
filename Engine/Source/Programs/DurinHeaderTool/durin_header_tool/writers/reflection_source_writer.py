@@ -3,6 +3,7 @@ from durin_header_tool.model.reflection_info import (
     ReflectedEnumInfo,
     ReflectedHeaderInfo,
     ReflectedPropertyInfo,
+    ReflectedStructInfo,
     _cpp_type_spelling,
 )
 
@@ -24,6 +25,7 @@ PROPERTY_PARAM_BY_KIND = {
     "Object": "FObjectPropertyParams",
     "Array": "FArrayPropertyParams",
     "Map": "FMapPropertyParams",
+    "Struct": "FStructPropertyParams",
 }
 
 TAB = "\t"
@@ -83,6 +85,22 @@ def generate_header_content(header: ReflectedHeaderInfo) -> str:
         _append_macro_line(builder, "private:", 1, True)
         builder.append("\n")
 
+    for struct_info in header.structs:
+        builder.append(f"struct {struct_info.generated_statics_name};\n")
+        builder.append(f"{struct_info.api} Durin::DStruct* {struct_info.generated_helper_name}();\n")
+        builder.append(f"{struct_info.api} Durin::DStruct* {struct_info.generated_helper_no_register_name}();\n\n")
+        if struct_info.generated_body_line == 0:
+            continue
+        generated_body_id = f"{header.file_id}_{struct_info.generated_body_line}"
+        generated_body = f"{generated_body_id}_GENERATED_BODY"
+        _append_macro_line(builder, f"#define {generated_body}")
+        _append_macro_line(builder, "private:", 1)
+        _append_macro_line(builder, f"friend struct ::{struct_info.generated_statics_name};", 2)
+        _append_macro_line(builder, f"friend {struct_info.api} Durin::DStruct* ::{struct_info.generated_helper_name}();", 2)
+        _append_macro_line(builder, "public:", 1)
+        _append_macro_line(builder, f"static Durin::DStruct* StaticStruct() {{ return ::{struct_info.generated_helper_name}(); }}", 2, True)
+        builder.append("\n")
+
     for enum_info in header.enums:
         builder.append(f"struct {enum_info.generated_statics_name};\n")
         builder.append(f"{enum_info.api} Durin::DEnum* {enum_info.generated_helper_name}();\n")
@@ -105,23 +123,32 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
 
     referenced_class_helpers: dict[str, str] = {}
     referenced_enum_helpers: dict[str, str] = {}
+    referenced_struct_helpers: dict[str, str] = {}
     for class_info in header.classes:
         if class_info.base_qualified_name and class_info.base_qualified_name != class_info.qualified_name:
             symbol = symbols.get(class_info.base_qualified_name)
             if symbol:
                 referenced_class_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
         for prop in class_info.properties:
-            _collect_referenced_helpers(prop, symbols, referenced_class_helpers, referenced_enum_helpers)
+            _collect_referenced_helpers(prop, symbols, referenced_class_helpers, referenced_enum_helpers, referenced_struct_helpers)
+    for struct_info in header.structs:
+        for prop in struct_info.properties:
+            _collect_referenced_helpers(prop, symbols, referenced_class_helpers, referenced_enum_helpers, referenced_struct_helpers)
 
     for helper, api in sorted(referenced_class_helpers.items()):
         builder.append(f"{api} Durin::DClass* {helper}();\n")
     for helper, api in sorted(referenced_enum_helpers.items()):
         builder.append(f"{api} Durin::DEnum* {helper}();\n")
-    if referenced_class_helpers or referenced_enum_helpers:
+    for helper, api in sorted(referenced_struct_helpers.items()):
+        builder.append(f"{api} Durin::DStruct* {helper}();\n")
+    if referenced_class_helpers or referenced_enum_helpers or referenced_struct_helpers:
         builder.append("\n")
 
     for enum_info in header.enums:
         builder.append(_enum_definitions(enum_info))
+
+    for struct_info in header.structs:
+        builder.append(_struct_definitions(struct_info, symbols))
 
     for class_info in header.classes:
         properties = class_info.properties
@@ -376,6 +403,51 @@ def _enum_definitions(enum_info: ReflectedEnumInfo) -> str:
     return "".join(builder)
 
 
+def _struct_definitions(struct_info: ReflectedStructInfo, symbols: dict[str, object]) -> str:
+    builder: list[str] = []
+    statics = struct_info.generated_statics_name
+    properties = struct_info.properties
+    builder.append(f"struct {statics}\n{{\n")
+    builder.append("\tstatic const Durin::DurinCodeGen::FStructParams StructParams;\n")
+    builder.append("\tstatic void Initialize(void* Memory);\n")
+    builder.append("\tstatic void Destroy(void* Memory);\n")
+    builder.append("\tstatic void Copy(void* Destination, const void* Source);\n")
+    for prop in properties:
+        builder.extend(_property_decls(prop))
+    if properties:
+        builder.append("\tstatic const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[];\n")
+    builder.append("};\n\n")
+    for prop in properties:
+        builder.append(_property_definitions(struct_info, prop, symbols))
+    if properties:
+        builder.append(f"const Durin::DurinCodeGen::FPropertyParamsBase* const {statics}::PropertyParams[] = {{\n")
+        for prop in properties:
+            builder.append(f"\t&{statics}::NewProp_{prop.name},\n")
+        builder.append("};\n\n")
+    prop_ref = f"{statics}::PropertyParams" if properties else "nullptr"
+    builder.append(f"void {statics}::Initialize(void* Memory) {{ new (Memory) {struct_info.qualified_name}(); }}\n")
+    builder.append(f"void {statics}::Destroy(void* Memory) {{ static_cast<{struct_info.qualified_name}*>(Memory)->~{struct_info.short_name}(); }}\n")
+    builder.append(f"void {statics}::Copy(void* Destination, const void* Source) {{ new (Destination) {struct_info.qualified_name}(*static_cast<const {struct_info.qualified_name}*>(Source)); }}\n\n")
+    builder.append(
+        f"const Durin::DurinCodeGen::FStructParams {statics}::StructParams = {{ "
+        f"{struct_info.generated_helper_no_register_name}, \"{struct_info.qualified_name}\", \"{struct_info.short_name}\", "
+        f"sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), {prop_ref}, {len(properties)}, &{statics}::Initialize, &{statics}::Destroy, &{statics}::Copy }};\n\n"
+    )
+    builder.append(
+        f"Durin::DStruct* {struct_info.generated_helper_no_register_name}()\n{{\n"
+        f"\tstatic Durin::DStruct* Singleton = nullptr;\n"
+        f"\tif (!Singleton)\n\t{{\n"
+        f"\t\tSingleton = new Durin::DStruct(Durin::EC_StaticConstructor, Durin::FName(\"{struct_info.qualified_name}\"), Durin::FName(\"{struct_info.short_name}\"), sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), Durin::EObjectFlags::Intrinsic);\n"
+        f"\t\tSingleton->Register(Durin::DStruct::StaticClass, \"\", \"{struct_info.qualified_name}\");\n"
+        f"\t}}\n\treturn Singleton;\n}}\n\n"
+        f"Durin::DStruct* {struct_info.generated_helper_name}()\n{{\n"
+        f"\tstatic Durin::DStruct* Singleton = nullptr;\n"
+        f"\tif (!Singleton) Singleton = Durin::DurinCodeGen::ConstructDStruct({statics}::StructParams);\n"
+        f"\treturn Singleton;\n}}\n\n"
+    )
+    return "".join(builder)
+
+
 def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
     decls: list[str] = []
     if prop.inner:
@@ -443,6 +515,11 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         referenced_symbol = symbols.get(prop.referenced_enum_type)
         if referenced_symbol:
             referenced_enum_helper = getattr(referenced_symbol, "GeneratedHelperName")
+    referenced_struct_helper = "nullptr"
+    if prop.referenced_struct_type:
+        referenced_symbol = symbols.get(prop.referenced_struct_type)
+        if referenced_symbol:
+            referenced_struct_helper = getattr(referenced_symbol, "GeneratedHelperName")
     property_flags = prop.flags
     if property_flags == "None":
         property_flags = "Durin::EPropertyFlags::None"
@@ -459,7 +536,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         f"{offset}, "
         f"static_cast<Durin::uint16>({element_size}), "
         f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_class_helper}, {referenced_enum_helper}, {inner}, {key}, {value}, "
-        f"{_bool_literal(prop.is_object_ptr_wrapper)}, {array_helper}, {map_helper} }};\n"
+        f"{_bool_literal(prop.is_object_ptr_wrapper)}, {array_helper}, {map_helper}, {referenced_struct_helper} }};\n"
     )
     return content
 
@@ -549,6 +626,7 @@ def _collect_referenced_helpers(
     symbols: dict[str, object],
     referenced_class_helpers: dict[str, str],
     referenced_enum_helpers: dict[str, str],
+    referenced_struct_helpers: dict[str, str],
 ) -> None:
     if prop.referenced_type:
         symbol = symbols.get(prop.referenced_type)
@@ -558,9 +636,13 @@ def _collect_referenced_helpers(
         symbol = symbols.get(prop.referenced_enum_type)
         if symbol:
             referenced_enum_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
+    if prop.referenced_struct_type:
+        symbol = symbols.get(prop.referenced_struct_type)
+        if symbol:
+            referenced_struct_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
     if prop.inner:
-        _collect_referenced_helpers(prop.inner, symbols, referenced_class_helpers, referenced_enum_helpers)
+        _collect_referenced_helpers(prop.inner, symbols, referenced_class_helpers, referenced_enum_helpers, referenced_struct_helpers)
     if prop.key:
-        _collect_referenced_helpers(prop.key, symbols, referenced_class_helpers, referenced_enum_helpers)
+        _collect_referenced_helpers(prop.key, symbols, referenced_class_helpers, referenced_enum_helpers, referenced_struct_helpers)
     if prop.value:
-        _collect_referenced_helpers(prop.value, symbols, referenced_class_helpers, referenced_enum_helpers)
+        _collect_referenced_helpers(prop.value, symbols, referenced_class_helpers, referenced_enum_helpers, referenced_struct_helpers)

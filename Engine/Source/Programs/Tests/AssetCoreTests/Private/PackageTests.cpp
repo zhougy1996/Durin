@@ -3,6 +3,7 @@
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/MathStructs.h"
 #include "Misc/Paths.h"
 #include "Threading/RunnableThread.h"
 
