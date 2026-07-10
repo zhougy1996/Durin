@@ -25,12 +25,14 @@
 	</Type>
 
 	<Type Name="Durin::FName" Priority="High">
-		<DisplayString Condition="this->Number">{DisplayIndex}_{(this->Number - 1),d}</DisplayString>
-		<DisplayString>{DisplayIndex}</DisplayString>
+		<DisplayString Condition="DisplayIndex.Value &amp; ::FNameDebugVisualizer::UnusedMask">Illegal name (block index out of range)</DisplayString>
+		<DisplayString Condition="!(DisplayIndex.Value &amp; ::FNameDebugVisualizer::UnusedMask) &amp;&amp; !::GNameBlocksDebug[DisplayIndex.Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits]">Illegal name (null block)</DisplayString>
+		<DisplayString Condition="!(DisplayIndex.Value &amp; ::FNameDebugVisualizer::UnusedMask) &amp;&amp; ::GNameBlocksDebug[DisplayIndex.Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits] &amp;&amp; this->Number">{DisplayIndex}_{(this->Number - 1),d}</DisplayString>
+		<DisplayString Condition="!(DisplayIndex.Value &amp; ::FNameDebugVisualizer::UnusedMask) &amp;&amp; ::GNameBlocksDebug[DisplayIndex.Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits]">{DisplayIndex}</DisplayString>
 		<Expand>
-			<ArrayItems>
+			<ArrayItems Condition="!(DisplayIndex.Value &amp; ::FNameDebugVisualizer::UnusedMask) &amp;&amp; ::GNameBlocksDebug[DisplayIndex.Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits]">
 				<Size>((FNameEntry&amp;)::GNameBlocksDebug[DisplayIndex.Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits][::FNameDebugVisualizer::EntryStride * (DisplayIndex.Value &amp; ::FNameDebugVisualizer::OffsetMask)]).Header.Len</Size>
-				<ValuePointer>((FNameEntry&amp;)::GNameBlocksDebug[DisplayIndex.Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits][::FNameDebugVisualizer::EntryStride * (DisplayIndex.Value &amp; ::FNameDebugVisualizer::OffsetMask)]).AnsiName</ValuePointer>
+				<ValuePointer>((FNameEntry&amp;)::GNameBlocksDebug[DisplayIndex.Value &gt;&gt; ::FNameDebugVisualizer::OffsetBits][::FNameDebugVisualizer::EntryStride * (DisplayIndex.Value &amp; ::FNameDebugVisualizer::OffsetMask)]).Utf8Name</ValuePointer>
 			</ArrayItems>
 		</Expand>
 	</Type>
@@ -43,7 +45,7 @@
 	
 	<Type Name="Durin::FNameEntry">
 		<DisplayString Condition="Header.Len &gt; ::FNameDebugVisualizer::MaxLength">Illegal name (length > FNameMaxSize)</DisplayString>
-		<DisplayString>{AnsiName,[Header.Len]s8}</DisplayString>
+		<DisplayString>{Utf8Name,[Header.Len]s8}</DisplayString>
 	</Type>
 
 </AutoVisualizer>

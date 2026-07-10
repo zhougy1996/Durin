@@ -849,6 +849,7 @@ namespace Durin
 	}
 
 	FName::FName(const char* Name, int32 InNumber)
+		: FName(std::string_view(Name), InNumber)
 	{
 	}
 
@@ -858,11 +859,8 @@ namespace Durin
 	}
 
 	FName::FName(std::string_view View, int32 InNumber)
+		: FName(FNameHelper::MakeWithNumber(View, NumberExternalToInternal(InNumber)))
 	{
-		FNameEntryId EntryId = FNamePool::Get().Store(View);
-		DisplayIndex = EntryId;
-		// ComparisonIndex = EntryId; // Assuming we want to use the same entry for comparison
-		Number = InNumber;
 	}
 
 	FName::FName(const FName& Other)
