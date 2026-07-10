@@ -7,7 +7,7 @@ namespace Durin
 	ACameraActor::ACameraActor(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
-		CameraComponent = NewObject<DCameraComponent>(this, "DCameraComponent");
+		CameraComponent = CreateDefaultComponent<DCameraComponent>("DCameraComponent");
 		RootComponent = CameraComponent;
 	}
 

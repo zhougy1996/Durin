@@ -94,19 +94,11 @@ namespace Durin
 
 	protected:
 		template<typename T>
-		auto CreateDefaultComponent() -> T*
+		auto CreateDefaultComponent(const FName& InComponentName = FName()) -> T*
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-			T* Component = NewObject<T>(this, FName());
+			T* Component = NewObject<T>(this, InComponentName);
 			OwnedComponents.push_back(Component);
-			return Component;
-		}
-
-		template<typename T>
-		auto CreateDefaultComponent(const FName& InComponentName) -> T*
-		{
-			auto* Component = CreateDefaultComponent<T>();
-			Component->Rename(InComponentName);
 			return Component;
 		}
 

@@ -7,8 +7,7 @@ namespace Durin
 	AStaticMeshActor::AStaticMeshActor(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
-		DURIN_INFO(STR("AStaticMeshActor::AStaticMeshActor"));
-		StaticMeshComponent = NewObject<DStaticMeshComponent>(this, "DStaticMeshComponent");
+		StaticMeshComponent = CreateDefaultComponent<DStaticMeshComponent>("DStaticMeshComponent");
 		RootComponent = StaticMeshComponent;
 	}
 

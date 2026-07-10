@@ -2,6 +2,7 @@
 #include "Actors/StaticMeshActor.h"
 #include "Components/ActorComponent.h"
 #include "Components/CameraComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Engine.h"
@@ -66,6 +67,31 @@ TEST(FWorldTests, MakesDuplicateActorNamesUnique)
 	Durin::DestroyObject(World);
 }
 
+TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* Camera = World->SpawnActor<Durin::ACameraActor>("Camera");
+	Durin::AStaticMeshActor* Mesh = World->SpawnActor<Durin::AStaticMeshActor>("Mesh");
+	Durin::DCameraComponent* CameraComponent = Camera->GetCameraComponent();
+	Durin::DStaticMeshComponent* MeshComponent = Mesh->GetStaticMeshComponent();
+
+	ASSERT_EQ(Camera->GetOwnedComponents().size(), 1u);
+	EXPECT_EQ(Camera->GetOwnedComponents().front().Get(), CameraComponent);
+	EXPECT_EQ(Camera->FindComponentByClass<Durin::DCameraComponent>(), CameraComponent);
+	EXPECT_EQ(Camera->GetRootComponent(), CameraComponent);
+	EXPECT_EQ(CameraComponent->GetOwner(), Camera);
+	EXPECT_EQ(CameraComponent->GetOuter(), Camera);
+
+	ASSERT_EQ(Mesh->GetOwnedComponents().size(), 1u);
+	EXPECT_EQ(Mesh->GetOwnedComponents().front().Get(), MeshComponent);
+	EXPECT_EQ(Mesh->FindComponentByClass<Durin::DStaticMeshComponent>(), MeshComponent);
+	EXPECT_EQ(Mesh->GetRootComponent(), MeshComponent);
+	EXPECT_EQ(MeshComponent->GetOwner(), Mesh);
+	EXPECT_EQ(MeshComponent->GetOuter(), Mesh);
+
+	Durin::DestroyObject(World);
+}
+
 TEST(FWorldTests, DestroyActorRemovesItFromTheWorld)
 {
 	Durin::DWorld* World = CreateWorld();
@@ -88,12 +114,16 @@ TEST(FWorldTests, DestroyAllActorsInvalidatesObjectPointers)
 	Durin::DWorld* World = CreateWorld();
 	Durin::TObjectPtr<Durin::AActor> Camera = World->SpawnActor<Durin::ACameraActor>("Camera");
 	Durin::TObjectPtr<Durin::AActor> Mesh = World->SpawnActor<Durin::AStaticMeshActor>("Mesh");
+	Durin::TObjectPtr<Durin::DActorComponent> CameraComponent = Camera->FindComponentByClass<Durin::DCameraComponent>();
+	Durin::TObjectPtr<Durin::DActorComponent> MeshComponent = Mesh->FindComponentByClass<Durin::DStaticMeshComponent>();
 
 	World->DestroyAllActors();
 
 	EXPECT_TRUE(World->GetActors().empty());
 	EXPECT_EQ(Camera.Get(), nullptr);
 	EXPECT_EQ(Mesh.Get(), nullptr);
+	EXPECT_EQ(CameraComponent.Get(), nullptr);
+	EXPECT_EQ(MeshComponent.Get(), nullptr);
 
 	Durin::DestroyObject(World);
 }
