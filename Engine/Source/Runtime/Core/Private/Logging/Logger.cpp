@@ -30,6 +30,30 @@ namespace Durin
 		}
 	}
 
+	auto FLogger::AddListener(FLogListener Listener) -> FLogListenerHandle
+	{
+		if (!Listener)
+		{
+			return 0;
+		}
+
+		const FLogListenerHandle Handle = NextListenerHandle.fetch_add(1, std::memory_order_relaxed);
+		std::scoped_lock Lock(ListenerMutex);
+		Listeners.emplace(Handle, std::move(Listener));
+		return Handle;
+	}
+
+	auto FLogger::RemoveListener(FLogListenerHandle Handle) -> void
+	{
+		if (Handle == 0)
+		{
+			return;
+		}
+
+		std::scoped_lock Lock(ListenerMutex);
+		Listeners.erase(Handle);
+	}
+
 	auto FLogger::Initialize() -> void
 	{
 		auto& SpdLogger = Impl->SpdLogger;
@@ -75,8 +99,32 @@ namespace Durin
 		if (Impl->SpdLogger->should_log(static_cast<spdlog::level::level_enum>(Level)))
 		{
 			const auto SpdLoc = spdlog::source_loc{Loc.file_name(), static_cast<int>(Loc.line()), Loc.function_name()};
-			std::string Message = std::format("[{}] {}", Module, std::vformat(Fmt, Args));
-			Impl->SpdLogger->log(SpdLoc, static_cast<spdlog::level::level_enum>(Level), Message);
+			std::string FormattedMessage = std::vformat(Fmt, Args);
+			Impl->SpdLogger->log(SpdLoc, static_cast<spdlog::level::level_enum>(Level), std::format("[{}] {}", Module, FormattedMessage));
+
+			std::vector<FLogListener> ListenerSnapshot;
+			{
+				std::scoped_lock Lock(ListenerMutex);
+				ListenerSnapshot.reserve(Listeners.size());
+				for (const auto& [Handle, Listener] : Listeners)
+				{
+					(void)Handle;
+					ListenerSnapshot.push_back(Listener);
+				}
+			}
+
+			if (!ListenerSnapshot.empty())
+			{
+				FLogRecord Record;
+				Record.Timestamp = std::chrono::system_clock::now();
+				Record.Level = Level;
+				Record.Module = Module;
+				Record.Message = std::move(FormattedMessage);
+				for (const FLogListener& Listener : ListenerSnapshot)
+				{
+					Listener(Record);
+				}
+			}
 		}
 	}
 
@@ -85,8 +133,8 @@ namespace Durin
 		static const std::unordered_map<std::string_view, ELogLevel> LevelMap = {
 			{"Trace", ELogLevel::Trace},
 			{"Debug", ELogLevel::Debug},
-			{"Info",  ELogLevel::Info},
-			{"Warn",  ELogLevel::Warn},
+			{"Info", ELogLevel::Info},
+			{"Warn", ELogLevel::Warn},
 			{"Error", ELogLevel::Error}
 		};
 
@@ -105,4 +153,4 @@ namespace Durin
 		Logger.Initialize();
 		Logger.SetConsoleLogLevel(StringToLogLevel(GAppConfig.GetView("LogLevel").GetString()));
 	}
-}
+} // namespace Durin

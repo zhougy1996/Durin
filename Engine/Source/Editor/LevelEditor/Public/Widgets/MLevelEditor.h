@@ -3,23 +3,25 @@
 #include "LevelEditorAPI.h"
 #include "Widgets/MWidget.h"
 
-struct ImVec2;
-
 namespace Durin
 {
-	class MViewport;
+	class ILevelEditorPanel;
+	struct FLevelEditorContext;
 
 	class MLevelEditor final : public MWidget
 	{
 	public:
+		LEVELEDITOR_API MLevelEditor();
+		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void override;
 		LEVELEDITOR_API auto Draw() -> void override;
 
 	private:
-		auto DrawViewportPanel() -> void;
-		auto DrawViewportOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
-		auto UpdateViewportSize() -> void;
+		auto DrawMainMenu() -> void;
+		auto BuildDefaultLayout(uint32 DockSpaceId) -> void;
 
-		std::shared_ptr<MViewport> ViewportWidget;
+		std::unique_ptr<FLevelEditorContext> Context;
+		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
+		bool bResetLayoutRequested = false;
 	};
-}
+} // namespace Durin

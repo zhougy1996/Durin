@@ -4,7 +4,8 @@
 
 namespace Durin
 {
-	ACameraActor::ACameraActor()
+	ACameraActor::ACameraActor(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
 	{
 		CameraComponent = NewObject<DCameraComponent>(this, "DCameraComponent");
 		RootComponent = CameraComponent;
@@ -14,4 +15,4 @@ namespace Durin
 	{
 		return CameraComponent.Get();
 	}
-}
+} // namespace Durin

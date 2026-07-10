@@ -91,7 +91,7 @@ namespace Durin
 		);
 
 		auto GetEnum() const -> DEnum* { return ReferencedEnum; }
-		auto GetUnderlyingType() const -> DurinCodeGen::EEnumUnderlyingType;
+		COREDOBJECT_API auto GetUnderlyingType() const -> DurinCodeGen::EEnumUnderlyingType;
 
 		template<typename T>
 		auto GetEnumValuePtr(void* Container, uint32 ArrayIndex = 0) const -> T*
@@ -197,4 +197,4 @@ namespace Durin
 	};
 
 	COREDOBJECT_API auto ForEachNestedProperty(FProperty* Property, const std::function<void(FProperty*)>& Visitor) -> void;
-}
+} // namespace Durin

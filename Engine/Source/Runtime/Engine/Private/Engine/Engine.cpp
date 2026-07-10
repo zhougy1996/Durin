@@ -1,4 +1,5 @@
 #include "Engine/Engine.h"
+#include "Engine/World.h"
 
 #include "Actors/CameraActor.h"
 #include "Actors/StaticMeshActor.h"
@@ -18,6 +19,8 @@
 
 namespace Durin
 {
+	DEngine::DEngine() = default;
+
 	DEngine::~DEngine()
 	{
 		if (DemoStaticMeshActor)
@@ -30,6 +33,7 @@ namespace Durin
 		}
 		DemoStaticMeshActor = nullptr;
 		DefaultCameraActor = nullptr;
+		MainWorld.reset();
 		MainScene.reset();
 		RendererModule = nullptr;
 	}
@@ -38,14 +42,15 @@ namespace Durin
 	{
 		RendererModule = &FModuleManager::LoadModuleChecked<IRendererModule>("Renderer");
 		MainScene = RendererModule->CreateScene();
+		MainWorld = std::make_unique<DWorld>();
 
-		DefaultCameraActor = NewObject<ACameraActor>(nullptr, "DefaultCameraActor");
+		DefaultCameraActor = MainWorld->SpawnActor<ACameraActor>("DefaultCameraActor");
 		if (DCameraComponent* CameraComponent = DefaultCameraActor->GetCameraComponent())
 		{
 			CameraComponent->SetLookAt(FVector3(-3.0, -6.0, 2.25), FVector3(0.0, 0.0, 0.0));
 		}
 
-		DemoStaticMeshActor = NewObject<AStaticMeshActor>(nullptr, "DebugStaticMeshActor");
+		DemoStaticMeshActor = MainWorld->SpawnActor<AStaticMeshActor>("DebugStaticMeshActor");
 		if (DStaticMeshComponent* MeshComponent = DemoStaticMeshActor->GetStaticMeshComponent())
 		{
 			const std::string TeapotPath = FPaths::EngineDir() + "Content/Test/teapot.obj";

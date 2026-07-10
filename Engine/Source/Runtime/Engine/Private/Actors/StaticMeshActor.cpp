@@ -4,7 +4,8 @@
 
 namespace Durin
 {
-	AStaticMeshActor::AStaticMeshActor()
+	AStaticMeshActor::AStaticMeshActor(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
 	{
 		DURIN_INFO(STR("AStaticMeshActor::AStaticMeshActor"));
 		StaticMeshComponent = NewObject<DStaticMeshComponent>(this, "DStaticMeshComponent");
@@ -15,4 +16,4 @@ namespace Durin
 	{
 		return StaticMeshComponent.Get();
 	}
-}
+} // namespace Durin

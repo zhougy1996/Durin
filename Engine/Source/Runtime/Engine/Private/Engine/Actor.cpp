@@ -5,11 +5,6 @@
 
 namespace Durin
 {
-	AActor::AActor()
-	{
-		InitializeDefaults();
-	}
-
 	AActor::AActor(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -28,8 +23,7 @@ namespace Durin
 		auto It = std::find_if(
 			OwnedComponents.begin(),
 			OwnedComponents.end(),
-			[Component](const TObjectPtr<DActorComponent>& Entry)
-			{
+			[Component](const TObjectPtr<DActorComponent>& Entry) {
 				return Entry.Get() == Component;
 			}
 		);
@@ -44,8 +38,7 @@ namespace Durin
 		auto It = std::find_if(
 			InstanceComponents.begin(),
 			InstanceComponents.end(),
-			[Component](const TObjectPtr<DActorComponent>& Entry)
-			{
+			[Component](const TObjectPtr<DActorComponent>& Entry) {
 				return Entry.Get() == Component;
 			}
 		);
@@ -58,4 +51,4 @@ namespace Durin
 	auto AActor::InitializeDefaults() -> void
 	{
 	}
-}
+} // namespace Durin

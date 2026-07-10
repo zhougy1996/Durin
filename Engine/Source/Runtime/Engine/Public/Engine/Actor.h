@@ -16,9 +16,7 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
-		ENGINE_API AActor();
-
-		ENGINE_API AActor(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API explicit AActor(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 		ENGINE_API ~AActor() override;
 
@@ -31,6 +29,7 @@ namespace Durin
 		FORCEINLINE auto GetRootComponent() const -> DSceneComponent* { return RootComponent; }
 
 		FORCEINLINE auto SetRootComponent(DSceneComponent* InRootComponent) -> void { RootComponent = InRootComponent; }
+		auto GetOwnedComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
 
 		template<typename T>
 		auto FindComponentByStaticClass() -> T*
@@ -47,7 +46,6 @@ namespace Durin
 				{
 					return static_cast<T*>(Component);
 				}
-
 			}
 			return nullptr;
 		}
@@ -121,4 +119,4 @@ namespace Durin
 		DPROPERTY()
 		std::vector<TObjectPtr<DActorComponent>> InstanceComponents;
 	};
-}
+} // namespace Durin

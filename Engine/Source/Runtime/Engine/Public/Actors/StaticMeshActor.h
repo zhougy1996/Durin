@@ -14,11 +14,11 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
-		ENGINE_API AStaticMeshActor();
+		ENGINE_API explicit AStaticMeshActor(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto GetStaticMeshComponent() const -> DStaticMeshComponent*;
-	private:
 
+	private:
 		DPROPERTY()
 		TObjectPtr<DStaticMeshComponent> StaticMeshComponent;
 	};
-}
+} // namespace Durin

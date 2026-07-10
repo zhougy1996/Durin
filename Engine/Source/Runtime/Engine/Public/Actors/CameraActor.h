@@ -14,11 +14,11 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
-		ENGINE_API ACameraActor();
+		ENGINE_API explicit ACameraActor(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto GetCameraComponent() const -> DCameraComponent*;
 
 	private:
 		DPROPERTY()
 		TObjectPtr<DCameraComponent> CameraComponent;
 	};
-}
+} // namespace Durin

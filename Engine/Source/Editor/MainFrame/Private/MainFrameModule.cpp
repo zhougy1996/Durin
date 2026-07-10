@@ -27,12 +27,10 @@ namespace Durin
 		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
 		std::shared_ptr<MWidget> LevelEditorWidget = LevelEditorModule.CreateLevelEditorWidget();
 
-		RootWindow->SetTitle("Mona");
-		RootWindow->ReshapeWindow({100.0f, 100.0f}, {800.0f, 600.0f});
+		RootWindow->SetTitle("Durin Editor");
+		RootWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 800.0f});
 
 		EditorRootWidget->Construct([LevelEditorWidget]() {
-			ImGuiViewport* MainViewport = ImGui::GetMainViewport();
-			ImGui::DockSpaceOverViewport(0, MainViewport, ImGuiDockNodeFlags_None);
 			if (LevelEditorWidget != nullptr)
 			{
 				LevelEditorWidget->Draw();
@@ -43,4 +41,4 @@ namespace Durin
 		Mona::FMonaApplication::Get().AddWindow(RootWindow, true);
 		Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
 	}
-}
+} // namespace Durin

@@ -160,11 +160,11 @@ namespace Durin
 				return false;
 			}
 
-			#if PLATFORM_LITTLE_ENDIAN
+#if PLATFORM_LITTLE_ENDIAN
 			static constexpr uint32 NoneAsInt = 0X454E4F4E;
-			#else
+#else
 			static constexpr uint32 NoneAsInt = 0X4E4F4E45;
-			#endif
+#endif
 			static constexpr uint32 ToUpperMask = 0XDFDFDFDF;
 
 			uint32 FourChars;
@@ -433,7 +433,7 @@ namespace Durin
 
 	class alignas(64) FNamePoolShardBase
 	{
-		public:
+	public:
 		void Initialize(FNameEntryAllocator& InEntries)
 		{
 			Entries = &InEntries;
@@ -462,7 +462,7 @@ namespace Durin
 			return Entry.Header == Value.Hash.EntryProbeHeader && EqualsSameDimensions<Sensitivity>(Entry.MakeView(), Value.Name);
 		}
 
-		protected:
+	protected:
 		// Realloc slots when 90% full
 		static constexpr uint32 LoadFactorQuotient = 9;
 		static constexpr uint32 LoadFactorDivisor = 10;
@@ -820,7 +820,10 @@ namespace Durin
 
 		static auto ResolveComparisonId(FNameEntryId DisplayId) -> FNameEntryId
 		{
-			if (DisplayId.IsNone()) { return FNameEntryId(); }
+			if (DisplayId.IsNone())
+			{
+				return FNameEntryId();
+			}
 
 			FNamePool& Pool = FNamePool::Get();
 
@@ -903,7 +906,7 @@ namespace Durin
 		FNamePool& Pool = FNamePool::Get();
 		return &(Pool.Resolve(LookupId));
 	}
-}
+} // namespace Durin
 
 FNameDebugVisualizer::FNameDebugVisualizer(FClangKeepDebugInfo)
 {
