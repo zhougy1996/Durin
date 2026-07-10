@@ -48,6 +48,56 @@ namespace Durin
 		}
 	}
 
+	auto AActor::SetRootComponent(DSceneComponent* InRootComponent) -> bool
+	{
+		if (InRootComponent && InRootComponent->GetOwner() != this)
+		{
+			return false;
+		}
+		RootComponent = InRootComponent;
+		return true;
+	}
+
+	auto AActor::GetActorTransform() const -> FTransform
+	{
+		return RootComponent ? RootComponent->GetWorldTransform() : FTransform();
+	}
+
+	auto AActor::SetActorTransform(const FTransform& InTransform) -> bool
+	{
+		if (!RootComponent)
+		{
+			return false;
+		}
+		RootComponent->SetWorldTransform(InTransform);
+		return true;
+	}
+
+	auto AActor::AttachToActor(AActor* ParentActor, EAttachmentTransformRule Rule) -> bool
+	{
+		if (!ParentActor || ParentActor == this || !RootComponent || !ParentActor->GetRootComponent())
+		{
+			return false;
+		}
+		return RootComponent->AttachToComponent(ParentActor->GetRootComponent(), Rule);
+	}
+
+	auto AActor::DetachFromActor(EDetachmentTransformRule Rule) -> bool
+	{
+		return RootComponent && RootComponent->DetachFromComponent(Rule);
+	}
+
+	auto AActor::GetAttachParentActor() const -> AActor*
+	{
+		if (!RootComponent)
+		{
+			return nullptr;
+		}
+		DSceneComponent* ParentComponent = RootComponent->GetAttachParent();
+		AActor* ParentActor = ParentComponent ? ParentComponent->GetOwner() : nullptr;
+		return ParentActor != this ? ParentActor : nullptr;
+	}
+
 	auto AActor::InitializeDefaults() -> void
 	{
 	}

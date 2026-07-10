@@ -16,5 +16,8 @@ namespace Durin
 
 		ENGINE_API virtual auto CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy>;
 		ENGINE_API auto GetRenderMatrix() const -> FMatrix;
+
+	protected:
+		ENGINE_API auto OnUpdateTransform() -> void override;
 	};
 }

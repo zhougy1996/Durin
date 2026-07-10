@@ -38,4 +38,16 @@ namespace Durin
 	{
 		return GetComponentToWorldMatrix();
 	}
+
+	auto DPrimitiveComponent::OnUpdateTransform() -> void
+	{
+		Super::OnUpdateTransform();
+		if (IsRegistered() && GEngine != nullptr)
+		{
+			if (IScene* Scene = GEngine->GetMainScene())
+			{
+				Scene->UpdatePrimitiveTransform(this);
+			}
+		}
+	}
 }

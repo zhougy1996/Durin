@@ -2,15 +2,13 @@
 
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
-#include "Components/ActorComponent.h"
+#include "Components/SceneComponent.h"
 
 #include "Actor.gen.h"
 
 namespace Durin
 {
 	class DActorComponent;
-	class DSceneComponent;
-
 	DCLASS()
 	class AActor : public DObject
 	{
@@ -28,7 +26,14 @@ namespace Durin
 
 		FORCEINLINE auto GetRootComponent() const -> DSceneComponent* { return RootComponent; }
 
-		FORCEINLINE auto SetRootComponent(DSceneComponent* InRootComponent) -> void { RootComponent = InRootComponent; }
+		ENGINE_API auto SetRootComponent(DSceneComponent* InRootComponent) -> bool;
+
+		ENGINE_API auto GetActorTransform() const -> FTransform;
+		ENGINE_API auto SetActorTransform(const FTransform& InTransform) -> bool;
+
+		ENGINE_API auto AttachToActor(AActor* ParentActor, EAttachmentTransformRule Rule = EAttachmentTransformRule::KeepWorld) -> bool;
+		ENGINE_API auto DetachFromActor(EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
+		ENGINE_API auto GetAttachParentActor() const -> AActor*;
 		auto GetOwnedComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
 
 		template<typename T>

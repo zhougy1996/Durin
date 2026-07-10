@@ -4,6 +4,7 @@ add_durin_test(CoreTests
 	Private/JsonTests.cpp
 	Private/LoggerTests.cpp
 	Private/ThreadingTests.cpp
+	Private/TransformTests.cpp
 	Private/YamlTests.cpp
 	Private/XxHashTests.cpp
 )

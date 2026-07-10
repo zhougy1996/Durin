@@ -8,7 +8,7 @@ namespace Durin
 		: Super(ObjectInitializer)
 	{
 		CameraComponent = CreateDefaultComponent<DCameraComponent>("DCameraComponent");
-		RootComponent = CameraComponent;
+		SetRootComponent(CameraComponent);
 	}
 
 	auto ACameraActor::GetCameraComponent() const -> DCameraComponent*

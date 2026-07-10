@@ -1,11 +1,8 @@
 #include "Panels/DetailsPanel.h"
 
-#include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Actor.h"
-#include "Engine/Engine.h"
-#include "IScene.h"
 #include "LevelEditorContext.h"
 #include "MonaImGui.h"
 
@@ -136,16 +133,6 @@ namespace Durin
 		RootComponent->SetWorldLocation(Location);
 		RootComponent->SetWorldRotation(glm::quat(glm::radians(RotationDegrees)));
 		RootComponent->SetWorldScale3D(Scale);
-		if (GEngine != nullptr)
-		{
-			if (DPrimitiveComponent* Primitive = dynamic_cast<DPrimitiveComponent*>(RootComponent))
-			{
-				if (IScene* Scene = GEngine->GetMainScene())
-				{
-					Scene->UpdatePrimitiveTransform(Primitive);
-				}
-			}
-		}
 	}
 
 	auto FDetailsPanel::DrawComponents(AActor* Actor) -> void

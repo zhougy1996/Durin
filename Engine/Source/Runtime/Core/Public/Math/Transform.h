@@ -13,5 +13,8 @@ namespace Durin
 
 		CORE_API FTransform();
 		CORE_API auto ToMatrix() const -> FMatrix;
+
+		CORE_API static auto Combine(const FTransform& Parent, const FTransform& Relative) -> FTransform;
+		CORE_API static auto MakeRelative(const FTransform& World, const FTransform& Parent) -> FTransform;
 	};
 }

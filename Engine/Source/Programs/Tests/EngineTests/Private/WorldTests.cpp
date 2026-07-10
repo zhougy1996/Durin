@@ -27,6 +27,13 @@ namespace
 		InitializeDObjectSystem();
 		return Durin::NewObject<Durin::DWorld>(Outer, "TestWorld");
 	}
+
+	auto ExpectVectorNear(const Durin::FVector3& Actual, const Durin::FVector3& Expected, double Tolerance = 1.e-8) -> void
+	{
+		EXPECT_NEAR(Actual.x, Expected.x, Tolerance);
+		EXPECT_NEAR(Actual.y, Expected.y, Tolerance);
+		EXPECT_NEAR(Actual.z, Expected.z, Tolerance);
+	}
 } // namespace
 
 TEST(FWorldTests, SpawnsEnumeratesAndFindsActors)
@@ -88,6 +95,121 @@ TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
 	EXPECT_EQ(Mesh->GetRootComponent(), MeshComponent);
 	EXPECT_EQ(MeshComponent->GetOwner(), Mesh);
 	EXPECT_EQ(MeshComponent->GetOuter(), Mesh);
+
+	Durin::DestroyObject(World);
+}
+
+TEST(FSceneComponentTests, SupportsAttachmentTransformRulesAndPropagation)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* ParentActor = World->SpawnActor<Durin::ACameraActor>("Parent");
+	Durin::ACameraActor* ChildActor = World->SpawnActor<Durin::ACameraActor>("Child");
+	Durin::ACameraActor* GrandchildActor = World->SpawnActor<Durin::ACameraActor>("Grandchild");
+	Durin::DSceneComponent* Parent = ParentActor->GetRootComponent();
+	Durin::DSceneComponent* Child = ChildActor->GetRootComponent();
+	Durin::DSceneComponent* Grandchild = GrandchildActor->GetRootComponent();
+
+	Parent->SetWorldLocation(Durin::FVector3(10.0, 0.0, 0.0));
+	Child->SetWorldLocation(Durin::FVector3(15.0, 0.0, 0.0));
+	ASSERT_TRUE(Child->AttachToComponent(Parent));
+	ExpectVectorNear(Child->GetWorldLocation(), Durin::FVector3(15.0, 0.0, 0.0));
+	ExpectVectorNear(Child->GetRelativeLocation(), Durin::FVector3(5.0, 0.0, 0.0));
+
+	Grandchild->SetRelativeLocation(Durin::FVector3(0.0, 2.0, 0.0));
+	ASSERT_TRUE(Grandchild->AttachToComponent(Child, Durin::EAttachmentTransformRule::KeepRelative));
+	Parent->SetWorldLocation(Durin::FVector3(20.0, 0.0, 0.0));
+	ExpectVectorNear(Child->GetWorldLocation(), Durin::FVector3(25.0, 0.0, 0.0));
+	ExpectVectorNear(Grandchild->GetWorldLocation(), Durin::FVector3(25.0, 2.0, 0.0));
+
+	ASSERT_TRUE(Grandchild->DetachFromComponent(Durin::EDetachmentTransformRule::KeepRelative));
+	ExpectVectorNear(Grandchild->GetWorldLocation(), Durin::FVector3(0.0, 2.0, 0.0));
+	ASSERT_TRUE(Grandchild->AttachToComponent(Parent, Durin::EAttachmentTransformRule::SnapToTarget));
+	ExpectVectorNear(Grandchild->GetRelativeLocation(), Durin::FVector3(0.0));
+	ExpectVectorNear(Grandchild->GetWorldLocation(), Parent->GetWorldLocation());
+
+	ASSERT_TRUE(Child->DetachFromComponent());
+	ExpectVectorNear(Child->GetWorldLocation(), Durin::FVector3(25.0, 0.0, 0.0));
+	Durin::DestroyObject(World);
+}
+
+TEST(FSceneComponentTests, ConvertsWorldAndRelativeTransformsAcrossHierarchy)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* ParentActor = World->SpawnActor<Durin::ACameraActor>("Parent");
+	Durin::ACameraActor* ChildActor = World->SpawnActor<Durin::ACameraActor>("Child");
+	Durin::DSceneComponent* Parent = ParentActor->GetRootComponent();
+	Durin::DSceneComponent* Child = ChildActor->GetRootComponent();
+
+	Durin::FTransform ParentTransform;
+	ParentTransform.Translation = Durin::FVector3(3.0, 4.0, 5.0);
+	ParentTransform.Rotation = glm::angleAxis(glm::radians(90.0), Durin::FVector3(0.0, 0.0, 1.0));
+	ParentTransform.Scale3D = Durin::FVector3(2.0);
+	Parent->SetWorldTransform(ParentTransform);
+	ASSERT_TRUE(Child->AttachToComponent(Parent, Durin::EAttachmentTransformRule::KeepRelative));
+
+	Durin::FTransform DesiredWorld;
+	DesiredWorld.Translation = Durin::FVector3(7.0, 8.0, 9.0);
+	DesiredWorld.Rotation = glm::angleAxis(glm::radians(45.0), Durin::FVector3(1.0, 0.0, 0.0));
+	DesiredWorld.Scale3D = Durin::FVector3(4.0);
+	Child->SetWorldTransform(DesiredWorld);
+
+	const Durin::FTransform Reconstructed = Durin::FTransform::Combine(Parent->GetWorldTransform(), Child->GetRelativeTransform());
+	ExpectVectorNear(Reconstructed.Translation, DesiredWorld.Translation);
+	ExpectVectorNear(Reconstructed.Scale3D, DesiredWorld.Scale3D);
+	EXPECT_NEAR(std::abs(glm::dot(Reconstructed.Rotation, DesiredWorld.Rotation)), 1.0, 1.e-8);
+	Durin::DestroyObject(World);
+}
+
+TEST(FSceneComponentTests, RejectsInvalidAndCrossWorldAttachments)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::DWorld* OtherWorld = CreateWorld();
+	Durin::ACameraActor* Parent = World->SpawnActor<Durin::ACameraActor>("Parent");
+	Durin::ACameraActor* Child = World->SpawnActor<Durin::ACameraActor>("Child");
+	Durin::ACameraActor* Other = OtherWorld->SpawnActor<Durin::ACameraActor>("Other");
+	Durin::DSceneComponent* ParentRoot = Parent->GetRootComponent();
+
+	Durin::FTransform ActorTransform;
+	ActorTransform.Translation = Durin::FVector3(1.0, 2.0, 3.0);
+	EXPECT_TRUE(Parent->SetActorTransform(ActorTransform));
+	ExpectVectorNear(Parent->GetActorTransform().Translation, ActorTransform.Translation);
+	EXPECT_FALSE(Parent->SetRootComponent(Child->GetRootComponent()));
+	EXPECT_EQ(Parent->GetRootComponent(), ParentRoot);
+
+	EXPECT_FALSE(Parent->AttachToActor(Parent));
+	ASSERT_TRUE(Child->AttachToActor(Parent));
+	EXPECT_EQ(Child->GetAttachParentActor(), Parent);
+	EXPECT_FALSE(Parent->AttachToActor(Child));
+	EXPECT_FALSE(Child->AttachToActor(Other));
+	EXPECT_EQ(Child->GetAttachParentActor(), Parent);
+	ASSERT_TRUE(Child->DetachFromActor());
+	EXPECT_EQ(Child->GetAttachParentActor(), nullptr);
+
+	Durin::DestroyObject(World);
+	Durin::DestroyObject(OtherWorld);
+}
+
+TEST(FSceneComponentTests, DestructionSafelyRemovesAttachmentLinks)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* Parent = World->SpawnActor<Durin::ACameraActor>("Parent");
+	Durin::AStaticMeshActor* Child = World->SpawnActor<Durin::AStaticMeshActor>("Child");
+	Durin::DSceneComponent* ParentRoot = Parent->GetRootComponent();
+	Durin::DStaticMeshComponent* ChildRoot = Child->GetStaticMeshComponent();
+	ChildRoot->SetWorldLocation(Durin::FVector3(9.0, 8.0, 7.0));
+	ASSERT_TRUE(Child->AttachToActor(Parent));
+
+	ASSERT_TRUE(World->DestroyActor(Parent));
+	EXPECT_EQ(ChildRoot->GetAttachParent(), nullptr);
+	ExpectVectorNear(ChildRoot->GetWorldLocation(), Durin::FVector3(9.0, 8.0, 7.0));
+
+	Durin::ACameraActor* NewParent = World->SpawnActor<Durin::ACameraActor>("NewParent");
+	ParentRoot = NewParent->GetRootComponent();
+	ASSERT_TRUE(Child->AttachToActor(NewParent));
+	ASSERT_EQ(ParentRoot->GetAttachChildren().size(), 1u);
+	ChildRoot->DestroyComponent();
+	EXPECT_TRUE(ParentRoot->GetAttachChildren().empty());
+	EXPECT_EQ(Child->GetRootComponent(), nullptr);
 
 	Durin::DestroyObject(World);
 }

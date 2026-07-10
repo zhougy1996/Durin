@@ -2,6 +2,27 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto SafeNormalize(const FQuat& Rotation) -> FQuat
+		{
+			return glm::dot(Rotation, Rotation) > kSmallNumber ? glm::normalize(Rotation) : glm::identity<FQuat>();
+		}
+
+		auto SafeReciprocal(const FVector3& Value) -> FVector3
+		{
+			FVector3 Result(0.0);
+			for (uint32 Axis = 0; Axis < 3; ++Axis)
+			{
+				if (std::abs(Value[Axis]) > kSmallNumber)
+				{
+					Result[Axis] = 1.0 / Value[Axis];
+				}
+			}
+			return Result;
+		}
+	}
+
 	FTransform::FTransform()
 		: Rotation(glm::identity<FQuat>())
 		, Translation(FVectorConstants::Zero)
@@ -15,5 +36,26 @@ namespace Durin
 		const FMatrix RotationMatrix = glm::mat4_cast(Rotation);
 		const FMatrix ScaleMatrix = glm::scale(FMatrix(1.0), Scale3D);
 		return TranslationMatrix * RotationMatrix * ScaleMatrix;
+	}
+
+	auto FTransform::Combine(const FTransform& Parent, const FTransform& Relative) -> FTransform
+	{
+		FTransform Result;
+		const FQuat ParentRotation = SafeNormalize(Parent.Rotation);
+		Result.Rotation = SafeNormalize(ParentRotation * SafeNormalize(Relative.Rotation));
+		Result.Scale3D = Parent.Scale3D * Relative.Scale3D;
+		Result.Translation = Parent.Translation + ParentRotation * (Parent.Scale3D * Relative.Translation);
+		return Result;
+	}
+
+	auto FTransform::MakeRelative(const FTransform& World, const FTransform& Parent) -> FTransform
+	{
+		FTransform Result;
+		const FQuat InverseParentRotation = glm::inverse(SafeNormalize(Parent.Rotation));
+		const FVector3 InverseParentScale = SafeReciprocal(Parent.Scale3D);
+		Result.Rotation = SafeNormalize(InverseParentRotation * SafeNormalize(World.Rotation));
+		Result.Scale3D = World.Scale3D * InverseParentScale;
+		Result.Translation = (InverseParentRotation * (World.Translation - Parent.Translation)) * InverseParentScale;
+		return Result;
 	}
 }
