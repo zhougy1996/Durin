@@ -5,14 +5,9 @@
 
 namespace Durin
 {
-	DWorld::~DWorld()
+	DWorld::DWorld(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
 	{
-		while (!Actors.empty())
-		{
-			AActor* Actor = Actors.back().Get();
-			Actors.pop_back();
-			DestroyObject(Actor);
-		}
 	}
 
 	auto DWorld::DestroyActor(AActor* Actor) -> bool
@@ -28,6 +23,16 @@ namespace Durin
 		Actors.erase(It);
 		DestroyObject(Actor);
 		return true;
+	}
+
+	auto DWorld::DestroyAllActors() -> void
+	{
+		while (!Actors.empty())
+		{
+			AActor* Actor = Actors.back().Get();
+			Actors.pop_back();
+			DestroyObject(Actor);
+		}
 	}
 
 	auto DWorld::ContainsActor(const AActor* Actor) const -> bool

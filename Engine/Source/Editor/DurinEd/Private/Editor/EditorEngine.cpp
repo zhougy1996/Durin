@@ -5,6 +5,11 @@
 
 namespace Durin
 {
+	DEditorEngine::DEditorEngine(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
+	{
+	}
+
 	auto DEditorEngine::Init() -> void
 	{
 		DEngine::Init();

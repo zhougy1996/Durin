@@ -14,6 +14,8 @@ namespace Durin
 
 		COREDOBJECT_API auto Remove(DObject* ObjToRemove) -> void;
 
+		COREDOBJECT_API auto Contains(const DObject* Object) const -> bool;
+
 		COREDOBJECT_API auto Compact() -> void;
 
 		auto GetNum() const -> uint64 { return Objs.size(); }

@@ -40,10 +40,7 @@ namespace Durin
 		return Handle.Object == nullptr;
 	}
 
-	inline auto ResolveObjectHandle(FObjectHandle Handle) -> DObject*
-	{
-		return Handle.Object;
-	}
+	COREDOBJECT_API auto ResolveObjectHandle(FObjectHandle Handle) -> DObject*;
 
 #else
 
@@ -59,10 +56,7 @@ namespace Durin
 		return Handle == nullptr;
 	}
 
-	inline auto ResolveObjectHandle(FObjectHandle Handle) -> DObject*
-	{
-		return Handle;
-	}
+	COREDOBJECT_API auto ResolveObjectHandle(FObjectHandle Handle) -> DObject*;
 
 #endif
 }

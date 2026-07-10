@@ -31,6 +31,8 @@ namespace Durin
 
 		ENGINE_API auto DestroyComponent() -> void;
 
+		ENGINE_API auto BeginDestroy() -> void override;
+
 		auto IsRegistered() const -> bool { return bRegistered; }
 
 		ENGINE_API virtual auto InitializeComponent() -> void;

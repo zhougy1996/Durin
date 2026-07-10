@@ -56,10 +56,11 @@ namespace Durin
 	auto FEngineLoop::Init() -> void
 	{
 #if DURIN_WITH_EDITOR
-		GEngine = new DEditorEngine();
+		GEngine = NewObject<DEditorEngine>(nullptr, "EditorEngine");
 #else
-		GEngine = new DGameEngine();
+		GEngine = NewObject<DGameEngine>(nullptr, "GameEngine");
 #endif
+		AddToRoot(GEngine);
 
 		InitializeApplicationCore();
 		RHIInit();
@@ -142,7 +143,8 @@ namespace Durin
 
 		ShutdownEngineThreadPool(true);
 
-		delete GEngine;
+		RemoveFromRoot(GEngine);
+		DestroyObject(GEngine);
 		GEngine = nullptr;
 
 		FlushRenderingCommands();

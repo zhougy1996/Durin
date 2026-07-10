@@ -1,9 +1,9 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "DObject/ObjectPtr.h"
-#include "IRendererModule.h"
-#include "IScene.h"
+#include "DObject/CoreDObject.h"
+
+#include "Engine.gen.h"
 
 namespace Durin
 {
@@ -13,12 +13,16 @@ namespace Durin
 	class FSceneViewport;
 	class IRendererModule;
 	class DWorld;
+	class IScene;
+	struct FSceneView;
 
-	class ENGINE_API DEngine
+	DCLASS()
+	class ENGINE_API DEngine : public DObject
 	{
+		GENERATED_BODY()
 	public:
-		DEngine();
-		virtual ~DEngine();
+		explicit DEngine(const FObjectInitializer& ObjectInitializer);
+		~DEngine() override;
 
 		virtual auto Init() -> void;
 
@@ -28,20 +32,28 @@ namespace Durin
 
 		virtual auto SetMainSceneViewport(std::shared_ptr<FSceneViewport> InSceneViewport) -> void;
 
+		auto BeginDestroy() -> void override;
+
 		auto GetMainScene() const -> IScene* { return MainScene.get(); }
 		auto GetRendererModule() const -> IRendererModule* { return RendererModule; }
 		auto GetActiveCameraComponent() const -> DCameraComponent*;
-		auto GetWorld() const -> DWorld* { return MainWorld.get(); }
+		auto GetWorld() const -> DWorld* { return MainWorld.Get(); }
 
 	protected:
 		auto BuildMainSceneView(uint32 Width, uint32 Height) const -> FSceneView;
 
 		IRendererModule* RendererModule = nullptr;
 		std::unique_ptr<IScene> MainScene;
-		std::unique_ptr<DWorld> MainWorld;
 		std::shared_ptr<FSceneViewport> MainSceneViewport;
-		AStaticMeshActor* DemoStaticMeshActor = nullptr;
-		ACameraActor* DefaultCameraActor = nullptr;
+
+		DPROPERTY()
+		TObjectPtr<DWorld> MainWorld;
+
+		DPROPERTY()
+		TObjectPtr<AStaticMeshActor> DemoStaticMeshActor;
+
+		DPROPERTY()
+		TObjectPtr<ACameraActor> DefaultCameraActor;
 	};
 
 	extern ENGINE_API DEngine* GEngine;

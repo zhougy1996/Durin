@@ -12,5 +12,8 @@
     ],
     "PublicDependencies": [
         "AssetCore"
+    ],
+    "ReflectHeaders": [
+        "Public/Editor/EditorEngine.h"
     ]
 }

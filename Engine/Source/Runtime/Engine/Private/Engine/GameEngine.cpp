@@ -9,6 +9,11 @@
 
 namespace Durin
 {
+	DGameEngine::DGameEngine(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
+	{
+	}
+
 	auto DGameEngine::Init() -> void
 	{
 		DEngine::Init();

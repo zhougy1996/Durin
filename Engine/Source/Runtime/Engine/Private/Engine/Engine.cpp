@@ -19,30 +19,18 @@
 
 namespace Durin
 {
-	DEngine::DEngine() = default;
-
-	DEngine::~DEngine()
+	DEngine::DEngine(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
 	{
-		if (DemoStaticMeshActor)
-		{
-			if (DStaticMeshComponent* MeshComponent = DemoStaticMeshActor->GetStaticMeshComponent())
-			{
-				MeshComponent->UnregisterComponent();
-				MeshComponent->SetStaticMesh(nullptr);
-			}
-		}
-		DemoStaticMeshActor = nullptr;
-		DefaultCameraActor = nullptr;
-		MainWorld.reset();
-		MainScene.reset();
-		RendererModule = nullptr;
 	}
+
+	DEngine::~DEngine() = default;
 
 	auto DEngine::Init() -> void
 	{
 		RendererModule = &FModuleManager::LoadModuleChecked<IRendererModule>("Renderer");
 		MainScene = RendererModule->CreateScene();
-		MainWorld = std::make_unique<DWorld>();
+		MainWorld = NewObject<DWorld>(this, "MainWorld");
 
 		DefaultCameraActor = MainWorld->SpawnActor<ACameraActor>("DefaultCameraActor");
 		if (DCameraComponent* CameraComponent = DefaultCameraActor->GetCameraComponent())
@@ -65,6 +53,17 @@ namespace Durin
 			MeshComponent->SetStaticMesh(std::move(TeapotMesh));
 			MeshComponent->RegisterComponent();
 		}
+	}
+
+	auto DEngine::BeginDestroy() -> void
+	{
+		MainSceneViewport.reset();
+		DemoStaticMeshActor = nullptr;
+		DefaultCameraActor = nullptr;
+		MainWorld = nullptr;
+		MainScene.reset();
+		RendererModule = nullptr;
+		Super::BeginDestroy();
 	}
 
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void

@@ -736,12 +736,15 @@ namespace
 		EXPECT_EQ(Durin::ResolveObjectHandle(ObjectPtr.GetHandle()), ReferencedObject);
 		EXPECT_EQ(static_cast<Durin::DObject*>(ObjectPtr), ReferencedObject);
 
+		Durin::DestroyObject(ReferencedObject);
+		EXPECT_FALSE(ObjectPtr);
+		EXPECT_EQ(ObjectPtr.Get(), nullptr);
+		EXPECT_EQ(Durin::ResolveObjectHandle(ObjectPtr.GetHandle()), nullptr);
+
 		ObjectPtr.Reset();
 		EXPECT_FALSE(ObjectPtr);
 		EXPECT_EQ(ObjectPtr.Get(), nullptr);
 		EXPECT_TRUE(Durin::IsObjectHandleNull(ObjectPtr.GetHandle()));
-
-		Durin::DestroyObject(ReferencedObject);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ObjectPtrStorageMatchesBuildConfiguration)

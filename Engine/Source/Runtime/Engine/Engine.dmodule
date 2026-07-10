@@ -16,6 +16,9 @@
     ],
     "ReflectHeaders": [
         "Public/Engine/Actor.h",
+        "Public/Engine/Engine.h",
+        "Public/Engine/GameEngine.h",
+        "Public/Engine/World.h",
         "Public/Actors/CameraActor.h",
         "Public/Actors/StaticMeshActor.h",
         "Public/Components/ActorComponent.h",
