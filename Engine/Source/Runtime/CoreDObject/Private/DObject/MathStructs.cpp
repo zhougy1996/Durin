@@ -23,7 +23,7 @@ namespace Durin
 		auto MakeStruct(std::string_view QualifiedName, std::string_view ShortName, uint32 Size, uint32 Alignment) -> DStruct*
 		{
 			auto* Struct = new DStruct(EC_StaticConstructor, FName(QualifiedName), FName(ShortName), Size, Alignment, EObjectFlags::Intrinsic);
-			Struct->Register(DStruct::StaticClass, "", std::string(QualifiedName).c_str());
+			Struct->Register(DStruct::StaticClass, "/Cpp/CoreDObject", std::string(QualifiedName).c_str());
 			return Struct;
 		}
 	}

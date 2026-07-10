@@ -12,6 +12,8 @@ The physical filename is the resolved virtual path plus `.dasset`. Main assets u
 
 `DPackage` is an Outer-less object graph root. The asset manager roots loaded packages for garbage collection, caches one package instance per `FAssetPath`, and destroys the complete inner graph on unload. A package cannot unload while another loaded package declares it as a strong dependency.
 
+Compiled-in reflection metadata uses a separate `Cpp` package kind. Each reflected module owns one rooted `/Cpp/<ModuleName>` package whose inner objects are its `DClass`, `DStruct`, and `DEnum` metadata. Cpp packages have no main asset, are not saved as `.dasset`, and remain alive for the process lifetime. CoreDObject intrinsic types are attached to `/Cpp/CoreDObject` after reflection bootstrap completes.
+
 ## File Format
 
 The v1 binary header records the magic, format version, package path, main asset class, dependencies, and object count. The registry reads only this header.

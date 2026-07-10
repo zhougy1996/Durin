@@ -4,6 +4,7 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/Package.h"
 
 namespace Durin
 {
@@ -181,6 +182,7 @@ namespace Durin
 	{
 		ProcessNewlyLoadedDObjects();
 		DObjectProcessRegistrants();
+		AttachCoreIntrinsicTypesToCppPackage();
 
 		FModuleManager::Get().SetProcessLoadedObjectsCallback(ProcessNewlyLoadedDObjects);
 		FModuleManager::Get().StartProcessingNewlyLoadedObjects();

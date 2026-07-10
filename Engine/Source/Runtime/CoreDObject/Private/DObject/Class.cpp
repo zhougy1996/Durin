@@ -148,6 +148,21 @@ namespace Durin
 		}
 		return nullptr;
 	}
+
+	template<typename T>
+	static auto FindTypeByPath(std::string_view ObjectPath) -> T*
+	{
+		for (DObject* Object : GDObjectArray.GetAll())
+		{
+			auto* Type = Cast<T>(Object);
+			if (Type && Type->GetObjectPath() == ObjectPath) return Type;
+		}
+		return nullptr;
+	}
+
+	auto FindClassByPath(std::string_view ObjectPath) -> DClass* { return FindTypeByPath<DClass>(ObjectPath); }
+	auto FindStructByPath(std::string_view ObjectPath) -> DStruct* { return FindTypeByPath<DStruct>(ObjectPath); }
+	auto FindEnumByPath(std::string_view ObjectPath) -> DEnum* { return FindTypeByPath<DEnum>(ObjectPath); }
 }
 
 COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DObject()

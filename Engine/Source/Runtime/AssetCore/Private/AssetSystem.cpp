@@ -524,7 +524,7 @@ namespace Durin::Asset
 		if (LoadedPackages.contains(Path) || Registry.FindAsset(Path)) return Error(EAssetError::AlreadyExists, std::format("Asset {} already exists.", Path.ToString()));
 
 		DPackage* Package = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
-		Package->InitializePackage(Path);
+		Package->InitializeAssetPackage(Path);
 		AddToRoot(Package);
 		FStaticConstructObjectParameters Params{Class, Package, FName(Path.GetAssetName()), Size};
 		OutAsset = StaticConstructObject(Params);
@@ -542,6 +542,7 @@ namespace Durin::Asset
 
 	auto FAssetManager::SavePackage(DPackage* Package) -> FAssetResult
 	{
+		if (Package && !Package->IsAssetPackage()) return Error(EAssetError::InvalidPackageType, "Only asset packages can be saved.");
 		if (!Package || !Package->GetAsset()) return Error(EAssetError::InvalidObjectGraph, "Package has no main asset.");
 		FAssetPath Path;
 		if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path)) return Error(EAssetError::InvalidPath, "Package path is invalid.");
@@ -664,7 +665,7 @@ namespace Durin::Asset
 		if (File.Path != Path) return Error(EAssetError::InvalidPath, "Asset header path does not match requested path.");
 
 		DPackage* Package = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
-		Package->InitializePackage(Path);
+		Package->InitializeAssetPackage(Path);
 		AddToRoot(Package);
 		LoadedPackages.emplace(Path, Package);
 		LoadingPackages.insert(Path);

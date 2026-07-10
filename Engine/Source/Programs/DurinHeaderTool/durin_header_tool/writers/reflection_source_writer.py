@@ -120,6 +120,8 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
         '#include "DObject/GeneratedCppIncludes.h"\n',
         f'#include "{header.include_path}"\n\n',
     ]
+    # All reflected types in a module share its compiled-in C++ package.
+    package_path = f"/Cpp/{header.module_name}"
 
     referenced_class_helpers: dict[str, str] = {}
     referenced_enum_helpers: dict[str, str] = {}
@@ -145,10 +147,10 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
         builder.append("\n")
 
     for enum_info in header.enums:
-        builder.append(_enum_definitions(enum_info))
+        builder.append(_enum_definitions(enum_info, package_path))
 
     for struct_info in header.structs:
-        builder.append(_struct_definitions(struct_info, symbols))
+        builder.append(_struct_definitions(struct_info, symbols, package_path))
 
     for class_info in header.classes:
         properties = class_info.properties
@@ -164,7 +166,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
             (f"if (!{class_info.registration_info_name}.InnerSingleton)", 1),
             ("{", 1),
             ("Durin::GetPrivateStaticClassBody(", 2),
-            ("\"\",", 3),
+            (f"\"{package_path}\",", 3),
             (f"\"{class_info.qualified_name}\",", 3),
             (f"{class_info.registration_info_name}.InnerSingleton,", 3),
             ("nullptr,", 3),
@@ -325,7 +327,7 @@ def _bool_literal(value: bool) -> str:
     return "true" if value else "false"
 
 
-def _enum_definitions(enum_info: ReflectedEnumInfo) -> str:
+def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
     builder: list[str] = []
     generated_statics_name = enum_info.generated_statics_name
     values_name = "EnumValues"
@@ -384,7 +386,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo) -> str:
         ("std::move(Values),", 3),
         ("Durin::EObjectFlags::NoFlags", 3),
         (");", 2),
-        (f"Singleton->Register(Durin::DEnum::StaticClass, \"\", \"{enum_info.qualified_name}\");", 2),
+        (f"Singleton->Register(Durin::DEnum::StaticClass, \"{package_path}\", \"{enum_info.qualified_name}\");", 2),
         ("}", 1),
         ("return Singleton;", 1),
         ("}", 0),
@@ -403,7 +405,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo) -> str:
     return "".join(builder)
 
 
-def _struct_definitions(struct_info: ReflectedStructInfo, symbols: dict[str, object]) -> str:
+def _struct_definitions(struct_info: ReflectedStructInfo, symbols: dict[str, object], package_path: str) -> str:
     builder: list[str] = []
     statics = struct_info.generated_statics_name
     properties = struct_info.properties
@@ -438,7 +440,7 @@ def _struct_definitions(struct_info: ReflectedStructInfo, symbols: dict[str, obj
         f"\tstatic Durin::DStruct* Singleton = nullptr;\n"
         f"\tif (!Singleton)\n\t{{\n"
         f"\t\tSingleton = new Durin::DStruct(Durin::EC_StaticConstructor, Durin::FName(\"{struct_info.qualified_name}\"), Durin::FName(\"{struct_info.short_name}\"), sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), Durin::EObjectFlags::Intrinsic);\n"
-        f"\t\tSingleton->Register(Durin::DStruct::StaticClass, \"\", \"{struct_info.qualified_name}\");\n"
+        f"\t\tSingleton->Register(Durin::DStruct::StaticClass, \"{package_path}\", \"{struct_info.qualified_name}\");\n"
         f"\t}}\n\treturn Singleton;\n}}\n\n"
         f"Durin::DStruct* {struct_info.generated_helper_name}()\n{{\n"
         f"\tstatic Durin::DStruct* Singleton = nullptr;\n"

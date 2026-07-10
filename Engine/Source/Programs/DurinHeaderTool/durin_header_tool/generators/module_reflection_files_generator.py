@@ -78,7 +78,7 @@ def make_new_module_manifest(module_name: str, old_manifest: ModuleManifest = No
         platform=configs.ARCH,
         tool_version=TOOL_VERSION,
         symbol_name_scheme=SYMBOL_NAME_SCHEME,
-        generator_options_hash="resolved-symbol-dependencies-v1",
+        generator_options_hash="cpp-packages-v1",
     )
     dependent_modules_with_export_file = configs.collect_all_dependent_module_with_export_file(module_name)
 
@@ -186,7 +186,17 @@ def _write_reflection_files(module_name: str, headers_to_regenerate: list[str], 
             module_name,
         )
 
-    utils.generate_file(output_dir / f"{module_name}.module.gen.cpp", "// Generated module reflection source.\n")
+    module_source = (
+        "// Generated module reflection source.\n\n"
+        '#include "DObject/Package.h"\n\n'
+        "namespace\n{\n"
+        f"\tstruct FRegisterCppPackage_{module_name}\n\t{{\n"
+        f"\t\tFRegisterCppPackage_{module_name}() {{ Durin::RegisterCompiledInPackage(\"{module_name}\"); }}\n"
+        "\t};\n"
+        f"\tstatic FRegisterCppPackage_{module_name} GRegisterCppPackage_{module_name};\n"
+        "}\n"
+    )
+    utils.generate_file(output_dir / f"{module_name}.module.gen.cpp", module_source)
 
 
 def generate_reflection_files(module_name: str) -> None:

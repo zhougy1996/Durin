@@ -108,6 +108,7 @@ def _append_generated_sources(content: list[str], module_name: str) -> None:
     
     content.append("# Generated source files for this module\n")
     content.append("set(module_generated_srcs\n")
+    content.append(f"    \"{(module_dht_output_dir / f'{module_name}.module.gen.cpp').as_posix()}\"\n")
     for header in module_config.reflect_headers:
         filename_stem = Path(header).stem
         content.append(f"    \"{(module_dht_output_dir / f'{filename_stem}.gen.cpp').as_posix()}\"\n")

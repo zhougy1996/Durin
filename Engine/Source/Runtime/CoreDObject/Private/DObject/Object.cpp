@@ -143,14 +143,19 @@ namespace Durin
 	auto DObject::DeferredRegister(DClass* InDClassStaticClass, const char* InPackageName, const char* InName) -> void
 	{
 		check(!OuterPrivate);
-		OuterPrivate = nullptr; // Packages are not implemented yet
-
 		check(InDClassStaticClass);
 		check(!ClassPrivate && "Class is already set for this class, which is unexpected in DeferredRegister");
 
 		ClassPrivate = InDClassStaticClass;
 
 		AddObject(InName);
+		if (InPackageName && InPackageName[0] != '\0')
+		{
+			constexpr std::string_view CppPrefix = "/Cpp/";
+			const std::string_view PackageName(InPackageName);
+			check(PackageName.starts_with(CppPrefix));
+			SetOuterPrivate(FindOrCreateCppPackage(FName(PackageName.substr(CppPrefix.size()))));
+		}
 	}
 
 	auto DObject::AddObject(FName InName) -> void
@@ -216,7 +221,9 @@ namespace Durin
 	{
 		const DPackage* Package = GetPackage();
 		if (!Package) return GetName();
-		if (this == Package || this == Package->GetAsset()) return Package->GetPackagePath();
+		if (this == Package) return Package->GetPackagePath();
+		if (Package->IsCppPackage()) return Package->GetPackagePath() + "." + GetName();
+		if (this == Package->GetAsset()) return Package->GetPackagePath();
 
 		std::vector<std::string> Segments;
 		for (const DObject* Current = this; Current && Current != Package->GetAsset() && Current != Package; Current = Current->GetOuter())
@@ -426,6 +433,7 @@ namespace Durin
 		RegisterAllCompiledInEnums();
 		LoadAllCompiledInDefaultProperties();
 		LoadAllCompiledInEnumValues();
+		ProcessRegisteredCppPackages();
 
 		ClassRegistry.ClearRegistrations();
 		EnumRegistry.ClearRegistrations();

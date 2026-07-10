@@ -145,6 +145,18 @@ class ReflectionGenerationTests(unittest.TestCase):
         self.assertNotIn("NewProp_UnsupportedObjectKeyMap", content)
         self.assertNotIn("NewProp_UnsupportedUniqueObjects", content)
 
+    def test_generated_types_use_module_cpp_package(self):
+        generated_cpp = utils.get_module_dht_output_dir("LevelEditor") / "TestDHT.gen.cpp"
+        content = generated_cpp.read_text(encoding="utf-8")
+
+        self.assertIn('"/Cpp/LevelEditor",', content)
+        self.assertIn('Singleton->Register(Durin::DStruct::StaticClass, "/Cpp/LevelEditor"', content)
+        self.assertIn('Singleton->Register(Durin::DEnum::StaticClass, "/Cpp/LevelEditor"', content)
+
+        module_cpp = utils.get_module_dht_output_dir("LevelEditor") / "LevelEditor.module.gen.cpp"
+        module_content = module_cpp.read_text(encoding="utf-8")
+        self.assertIn('Durin::RegisterCompiledInPackage("LevelEditor")', module_content)
+
     def test_manifest_records_generator_contract(self):
         manifest_path = utils.get_module_manifest_file_path("Engine")
         data = json.loads(manifest_path.read_text(encoding="utf-8"))

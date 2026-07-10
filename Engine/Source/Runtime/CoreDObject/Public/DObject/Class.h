@@ -197,4 +197,7 @@ namespace Durin
 
 	COREDOBJECT_API auto FindClassByQualifiedName(std::string_view QualifiedName) -> DClass*;
 	COREDOBJECT_API auto FindStructByQualifiedName(std::string_view QualifiedName) -> DStruct*;
+	COREDOBJECT_API auto FindClassByPath(std::string_view ObjectPath) -> DClass*;
+	COREDOBJECT_API auto FindStructByPath(std::string_view ObjectPath) -> DStruct*;
+	COREDOBJECT_API auto FindEnumByPath(std::string_view ObjectPath) -> DEnum*;
 }

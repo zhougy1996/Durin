@@ -156,6 +156,14 @@ TEST(FPackageAssetTests, RejectsInvalidPaths)
 	EXPECT_FALSE(Durin::FAssetPath::TryCreate("/TestAssets/With.dasset", Path));
 }
 
+TEST(FPackageAssetTests, RejectsSavingCppPackages)
+{
+	InitializeAssetTests();
+	Durin::DPackage* Package = Durin::FindOrCreateCppPackage("AssetCoreTests");
+	ASSERT_NE(Package, nullptr);
+	EXPECT_EQ(Durin::Asset::SavePackage(Package).Error, Durin::Asset::EAssetError::InvalidPackageType);
+}
+
 TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 {
 	InitializeAssetTests();

@@ -574,7 +574,7 @@ namespace
 		Durin::FAssetPath Path;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/Package", Path));
 		auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "Package");
-		Package->InitializePackage(Path);
+		Package->InitializeAssetPackage(Path);
 		Durin::AddToRoot(Package);
 		Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "Package");
 		Durin::DObject* Inner = Durin::NewObject<Durin::DObject>(Asset, "Inner");
@@ -592,6 +592,37 @@ namespace
 		Durin::RemoveFromRoot(Package);
 		Durin::DestroyObject(Package);
 		Durin::GDObjectArray.Compact();
+	}
+
+	TEST(FCoreDObjectReflectionTests, CppPackagesOwnReflectedTypesAndAreStableRoots)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DPackage* CorePackage = Durin::FindPackage("/Cpp/CoreDObject");
+		ASSERT_NE(CorePackage, nullptr);
+		EXPECT_TRUE(CorePackage->IsCppPackage());
+		EXPECT_EQ(CorePackage->GetOuter(), nullptr);
+		EXPECT_TRUE(CorePackage->HasAnyInternalFlags(Durin::EObjectInternalFlags::RootSet));
+		EXPECT_EQ(Durin::DPackage::StaticClass()->GetOuter(), CorePackage);
+		EXPECT_EQ(Durin::DObject::StaticClass()->GetOuter(), CorePackage);
+		EXPECT_EQ(Durin::DType::StaticClass()->GetOuter(), CorePackage);
+		EXPECT_EQ(Durin::DStructBase::StaticClass()->GetOuter(), CorePackage);
+		EXPECT_EQ(Durin::DClass::StaticClass()->GetOuter(), CorePackage);
+		EXPECT_EQ(Durin::DStruct::StaticClass()->GetOuter(), CorePackage);
+		EXPECT_EQ(Durin::DEnum::StaticClass()->GetOuter(), CorePackage);
+		EXPECT_EQ(Durin::DPackage::StaticClass()->GetPackage(), CorePackage);
+		EXPECT_EQ(Durin::DPackage::StaticClass()->GetObjectPath(), "/Cpp/CoreDObject.Durin::DPackage");
+		EXPECT_EQ(Durin::FindClassByPath("/Cpp/CoreDObject.Durin::DPackage"), Durin::DPackage::StaticClass());
+		EXPECT_EQ(Durin::FindOrCreateCppPackage("CoreDObject"), CorePackage);
+
+		Durin::DPackage* OtherPackage = Durin::FindOrCreateCppPackage("CoreDObjectTests");
+		ASSERT_NE(OtherPackage, nullptr);
+		EXPECT_NE(OtherPackage, CorePackage);
+		EXPECT_EQ(Durin::FindPackage("/Cpp/CoreDObjectTests"), OtherPackage);
+
+		Durin::CollectGarbage();
+		EXPECT_TRUE(ObjectArrayContains(CorePackage));
+		EXPECT_TRUE(ObjectArrayContains(OtherPackage));
 	}
 
 	TEST(FCoreDObjectReflectionTests, DestroyObjectRemovesRuntimeObject)

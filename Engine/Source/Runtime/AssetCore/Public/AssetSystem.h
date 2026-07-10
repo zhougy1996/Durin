@@ -20,6 +20,7 @@ namespace Durin::Asset
 		CircularDependency,
 		InvalidObjectGraph,
 		UnsupportedProperty,
+		InvalidPackageType,
 		InUse
 	};
 
