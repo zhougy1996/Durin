@@ -107,6 +107,19 @@ namespace Durin
 			void (*Resize)(void* Container, uint64 Num);
 		};
 
+		struct FMapPropertyHelper
+		{
+			uint64 (*Num)(const void* Container);
+			const void* (*GetKey)(const void* Container, uint64 Index);
+			const void* (*GetValue)(const void* Container, uint64 Index);
+			void (*Clear)(void* Container);
+			void* (*CreateKey)();
+			void (*DestroyKey)(void* Key);
+			void* (*CreateValue)();
+			void (*DestroyValue)(void* Value);
+			void (*Insert)(void* Container, const void* Key, const void* Value);
+		};
+
 		struct FEnumValueParams
 		{
 			const char* NameUTF8;
@@ -149,6 +162,7 @@ namespace Durin
 			const FPropertyParamsBase* Value;
 			bool bIsObjectPtrWrapper = false;
 			const FArrayPropertyHelper* ArrayHelper = nullptr;
+			const FMapPropertyHelper* MapHelper = nullptr;
 		};
 
 		struct FGenericPropertyParams : public FPropertyParamsBase

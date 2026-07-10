@@ -2,6 +2,7 @@ include(GoogleTest)
 
 add_durin_test(AssetCoreTests
 	Private/AssetImportTests.cpp
+	Private/PackageTests.cpp
 )
 
 target_link_libraries(AssetCoreTests PRIVATE
@@ -11,6 +12,7 @@ target_link_libraries(AssetCoreTests PRIVATE
 )
 
 durin_test_deploy_target_binary(AssetCoreTests Core)
+durin_test_deploy_target_binary(AssetCoreTests CoreDObject)
 durin_test_deploy_target_binary(AssetCoreTests AssetCore)
 durin_test_deploy_runtime_files(AssetCoreTests assimp::assimp)
 durin_test_deploy_directory_to_data(AssetCoreTests "${CMAKE_CURRENT_SOURCE_DIR}/TestData")

@@ -6,6 +6,11 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
+#include "DObject/AssetPath.h"
+#include "DObject/Package.h"
+#include "CoreGlobals.h"
+#include "Misc/Paths.h"
+#include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
 #include <cstddef>
@@ -521,6 +526,17 @@ namespace
 		(void)bInitialized;
 	}
 
+	void EnsurePackageTestMount()
+	{
+		static const bool bMounted = [] {
+			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+			Durin::GIsGameThreadIdInitialized = true;
+			Durin::PathUtilities::RegisterMountPoint("/CoreTests/", std::filesystem::path(DURIN_TEST_WORK_DIR).generic_string() + "/");
+			return true;
+		}();
+		(void)bMounted;
+	}
+
 	auto ObjectArrayContains(Durin::DObject* Object) -> bool
 	{
 		std::vector<Durin::DObject*> Objects = Durin::GDObjectArray.GetAll();
@@ -548,6 +564,33 @@ namespace
 		EXPECT_EQ(Object->GetClass(), Durin::DObject::StaticClass());
 		EXPECT_TRUE(Object->IsA(Durin::DObject::StaticClass()));
 		EXPECT_EQ(Durin::Cast<Durin::DObject>(Object), Object);
+	}
+
+	TEST(FCoreDObjectReflectionTests, PackageOwnsAssetGraphAndBuildsStableObjectPaths)
+	{
+		EnsureDObjectInitialized();
+		EnsurePackageTestMount();
+		Durin::FAssetPath Path;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/Package", Path));
+		auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "Package");
+		Package->InitializePackage(Path);
+		Durin::AddToRoot(Package);
+		Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "Package");
+		Durin::DObject* Inner = Durin::NewObject<Durin::DObject>(Asset, "Inner");
+		ASSERT_TRUE(Package->SetAsset(Asset));
+
+		EXPECT_EQ(Package->GetOuter(), nullptr);
+		EXPECT_EQ(Asset->GetPackage(), Package);
+		EXPECT_EQ(Asset->GetObjectPath(), "/CoreTests/Package");
+		EXPECT_EQ(Inner->GetObjectPath(), "/CoreTests/Package:Inner");
+		Durin::CollectGarbage();
+		EXPECT_TRUE(ObjectArrayContains(Package));
+		EXPECT_TRUE(ObjectArrayContains(Asset));
+		EXPECT_TRUE(ObjectArrayContains(Inner));
+
+		Durin::RemoveFromRoot(Package);
+		Durin::DestroyObject(Package);
+		Durin::GDObjectArray.Compact();
 	}
 
 	TEST(FCoreDObjectReflectionTests, DestroyObjectRemovesRuntimeObject)

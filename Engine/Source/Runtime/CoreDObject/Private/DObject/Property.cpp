@@ -265,12 +265,24 @@ namespace Durin
 		uint16 InOffset,
 		uint16 InElementSize,
 		DurinCodeGen::EPropertyGenFlags InKind,
-		DClass* InReferencedClass
+		DClass* InReferencedClass,
+		const DurinCodeGen::FMapPropertyHelper* InMapHelper
 	)
 		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass)
+		, MapHelper(InMapHelper)
 	{
 		ClassPrivate = StaticClass();
 	}
+
+	auto FMapProperty::Num(const void* Container, uint32 ArrayIndex) const -> uint64 { return MapHelper ? MapHelper->Num(GetValuePtr(Container, ArrayIndex)) : 0; }
+	auto FMapProperty::GetKeyPtr(const void* Container, uint64 Index, uint32 ArrayIndex) const -> const void* { return MapHelper ? MapHelper->GetKey(GetValuePtr(Container, ArrayIndex), Index) : nullptr; }
+	auto FMapProperty::GetMappedValuePtr(const void* Container, uint64 Index, uint32 ArrayIndex) const -> const void* { return MapHelper ? MapHelper->GetValue(GetValuePtr(Container, ArrayIndex), Index) : nullptr; }
+	auto FMapProperty::Clear(void* Container, uint32 ArrayIndex) const -> void { if (MapHelper) MapHelper->Clear(GetValuePtr(Container, ArrayIndex)); }
+	auto FMapProperty::CreateKey() const -> void* { return MapHelper ? MapHelper->CreateKey() : nullptr; }
+	auto FMapProperty::DestroyKey(void* Key) const -> void { if (MapHelper) MapHelper->DestroyKey(Key); }
+	auto FMapProperty::CreateValue() const -> void* { return MapHelper ? MapHelper->CreateValue() : nullptr; }
+	auto FMapProperty::DestroyValue(void* Value) const -> void { if (MapHelper) MapHelper->DestroyValue(Value); }
+	auto FMapProperty::Insert(void* Container, const void* Key, const void* Value, uint32 ArrayIndex) const -> void { if (MapHelper) MapHelper->Insert(GetValuePtr(Container, ArrayIndex), Key, Value); }
 
 	auto ForEachNestedProperty(FProperty* Property, const std::function<void(FProperty*)>& Visitor) -> void
 	{

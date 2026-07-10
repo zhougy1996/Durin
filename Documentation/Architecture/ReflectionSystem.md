@@ -245,11 +245,11 @@ The current archive layer includes:
 - `SaveObjectGraphToMemory(DObject* RootObject, std::vector<uint8>& OutBytes)`
 - `LoadObjectGraphFromMemory(const std::vector<uint8>& Bytes)`
 
-The supported reflected property payloads are numeric primitives, `bool`, `std::string`, reflected enum storage, and direct object references. Object references are serialized as object ids inside the saved object graph, not as process pointer addresses.
+The supported reflected property payloads are numeric primitives, `bool`, `std::string`, reflected enum storage, direct object references, vectors, maps, and recursively nested supported containers. Object references are serialized as object ids inside the saved object graph, not as process pointer addresses.
 
 Object graph saving first gathers reachable objects from the root using outer/inner ownership and reflected direct object references, assigns ids, writes object records, and serializes each object's reflected properties. Loading creates all object records first, then deserializes properties so object-reference ids can resolve to loaded objects.
 
-The object graph format is an internal v1 binary memory format for tests and engine plumbing. It is not a long-term asset/package format and does not yet include schema evolution, custom versions, missing-field handling by name, or container round-trip support.
+The object graph format is an internal v1 binary memory format for tests and engine plumbing. Long-lived content uses the separate field-tagged `.dasset` package format documented in `Documentation/Architecture/AssetPackages.md`; the memory format remains useful for transient cloning and focused tests.
 
 ## Enum Metadata
 
@@ -300,7 +300,7 @@ Supported property node types are:
 - `FArrayProperty`
 - `FMapProperty`
 
-`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct object-reference access for GC and serialization. `FStringProperty` exposes a `std::string*` pointer helper. Array and map properties expose their container field address and their nested type metadata; they do not yet provide type-erased push/pop/lookup APIs.
+`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct object-reference access for GC and serialization. `FStringProperty` exposes a `std::string*` pointer helper. Generated array and map helpers provide type-erased traversal and mutation used by GC and both memory/package serialization.
 
 `DStructBase::ChildProperties` stores only properties declared directly on that reflected type. Superclass properties are reached through the superclass chain. Use `FindPropertyByName(...)` or the property iteration helpers when inherited properties should be visible.
 

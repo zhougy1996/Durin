@@ -8,7 +8,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "11"
+TOOL_VERSION = "13"
 MAX_CONTAINER_PROPERTY_DEPTH = 4
 
 

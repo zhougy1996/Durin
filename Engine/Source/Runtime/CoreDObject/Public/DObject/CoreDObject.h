@@ -8,3 +8,5 @@
 #include "Archive.h"
 #include "Class.h"
 #include "DObjectArray.h"
+#include "AssetPath.h"
+#include "Package.h"

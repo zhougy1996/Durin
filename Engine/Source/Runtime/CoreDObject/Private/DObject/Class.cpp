@@ -1,6 +1,7 @@
 #include "DObject/Class.h"
 
 #include "DObject/Property.h"
+#include "DObject/DObjectArray.h"
 
 namespace Durin
 {
@@ -123,6 +124,16 @@ namespace Durin
 		Class->Register(DClass::StaticClass, PackageName, Name);
 
 		return Class;
+	}
+
+	auto FindClassByQualifiedName(std::string_view QualifiedName) -> DClass*
+	{
+		for (DObject* Object : GDObjectArray.GetAll())
+		{
+			auto* Class = Cast<DClass>(Object);
+			if (Class && Class->GetQualifiedName().ToString() == QualifiedName) return Class;
+		}
+		return nullptr;
 	}
 }
 

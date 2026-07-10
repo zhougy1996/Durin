@@ -78,6 +78,8 @@ class ReflectionGenerationTests(unittest.TestCase):
         self.assertIn("NewProp_ObjectPtrRefs_ArrayNum(const void* Container)", content)
         self.assertIn("static_cast<const std::vector<Durin::TObjectPtr<Durin::DObject>>*>(Container)", content)
         self.assertIn("FMapPropertyParams NewProp_NamedScores", content)
+        self.assertIn("FMapPropertyHelper NewProp_NamedScores_MapHelper", content)
+        self.assertIn("NewProp_NamedScores_MapInsert", content)
         self.assertIn("FStringPropertyParams NewProp_NamedScores_Key", content)
         self.assertIn("FInt32PropertyParams NewProp_NamedScores_Value", content)
         self.assertIn("FMapPropertyParams NewProp_NamedModes", content)

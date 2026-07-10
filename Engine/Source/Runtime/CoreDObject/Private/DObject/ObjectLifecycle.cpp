@@ -44,6 +44,19 @@ namespace Durin
 					void* Element = ArrayProperty->GetMutableElementPtr(Container, Index, ArrayIndex);
 					ForEachPropertyReference(Inner, Element, 0, Collector);
 				}
+				return;
+			}
+
+			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Map)
+			{
+				auto* MapProperty = static_cast<FMapProperty*>(Property);
+				if (!MapProperty->HasMapHelper()) return;
+				const uint64 Num = MapProperty->Num(Container, ArrayIndex);
+				for (uint64 Index = 0; Index < Num; ++Index)
+				{
+					ForEachPropertyReference(MapProperty->GetKeyProp(), const_cast<void*>(MapProperty->GetKeyPtr(Container, Index, ArrayIndex)), 0, Collector);
+					ForEachPropertyReference(MapProperty->GetValueProp(), const_cast<void*>(MapProperty->GetMappedValuePtr(Container, Index, ArrayIndex)), 0, Collector);
+				}
 			}
 		}
 

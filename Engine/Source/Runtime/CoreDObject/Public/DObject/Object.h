@@ -9,6 +9,7 @@ namespace Durin
 	class FObjectInitializer;
 	class FArchive;
 	class FReferenceCollector;
+	class DPackage;
 
 	using FClassRegisterFunc = DClass* (*)();
 	using FEnumRegisterFunc = DEnum* (*)();
@@ -69,6 +70,9 @@ namespace Durin
 		auto GetClass() const -> DClass* { return ClassPrivate; }
 
 		auto GetOuter() const -> DObject* { return OuterPrivate; }
+		COREDOBJECT_API auto GetOutermost() const -> DObject*;
+		COREDOBJECT_API auto GetPackage() const -> DPackage*;
+		COREDOBJECT_API auto GetObjectPath() const -> std::string;
 
 		auto GetObjectFlags() const -> EObjectFlags { return ObjectFlags; }
 

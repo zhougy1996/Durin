@@ -181,7 +181,8 @@ namespace Durin
 			uint16 InOffset,
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
-			DClass* InReferencedClass
+			DClass* InReferencedClass,
+			const DurinCodeGen::FMapPropertyHelper* InMapHelper = nullptr
 		);
 
 		auto SetKeyProp(FProperty* InKeyProp) -> void { KeyProp = InKeyProp; }
@@ -190,10 +191,21 @@ namespace Durin
 		auto GetValueProp() const -> FProperty* { return ValueProp; }
 		auto GetContainerPtr(void* Container) const -> void* { return GetValuePtr(Container); }
 		auto GetContainerPtr(const void* Container) const -> const void* { return GetValuePtr(Container); }
+		COREDOBJECT_API auto Num(const void* Container, uint32 ArrayIndex = 0) const -> uint64;
+		COREDOBJECT_API auto GetKeyPtr(const void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> const void*;
+		COREDOBJECT_API auto GetMappedValuePtr(const void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> const void*;
+		COREDOBJECT_API auto Clear(void* Container, uint32 ArrayIndex = 0) const -> void;
+		COREDOBJECT_API auto CreateKey() const -> void*;
+		COREDOBJECT_API auto DestroyKey(void* Key) const -> void;
+		COREDOBJECT_API auto CreateValue() const -> void*;
+		COREDOBJECT_API auto DestroyValue(void* Value) const -> void;
+		COREDOBJECT_API auto Insert(void* Container, const void* Key, const void* Value, uint32 ArrayIndex = 0) const -> void;
+		auto HasMapHelper() const -> bool { return MapHelper != nullptr; }
 
 	private:
 		FProperty* KeyProp = nullptr;
 		FProperty* ValueProp = nullptr;
+		const DurinCodeGen::FMapPropertyHelper* MapHelper = nullptr;
 	};
 
 	COREDOBJECT_API auto ForEachNestedProperty(FProperty* Property, const std::function<void(FProperty*)>& Visitor) -> void;

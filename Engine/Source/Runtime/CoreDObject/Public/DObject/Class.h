@@ -75,12 +75,18 @@ namespace Durin
 		)
 			: DStructBase(EC_StaticConstructor, InSize, InAlignment, InFlags)
 			, ClassConstructor(InClassConstructor)
+			, QualifiedName(InName)
 		{
 		}
 
 		ClassConstructorType ClassConstructor = nullptr;
 
 		auto GetSuperClass() const -> DClass* { return static_cast<DClass*>(GetSuperStructBase()); }
+		auto GetQualifiedName() const -> FName { return QualifiedName; }
+		auto SetQualifiedName(FName InQualifiedName) -> void { QualifiedName = InQualifiedName; }
+
+	private:
+		FName QualifiedName;
 	};
 
 	struct FEnumValue
@@ -153,4 +159,6 @@ namespace Durin
 		DClass::ClassConstructorType InClassConstructor,
 		DClass::StaticClassFunctionType InSuperClassFn
 	) -> DClass*;
+
+	COREDOBJECT_API auto FindClassByQualifiedName(std::string_view QualifiedName) -> DClass*;
 }

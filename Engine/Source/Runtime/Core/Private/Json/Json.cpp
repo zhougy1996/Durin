@@ -278,6 +278,30 @@ namespace Durin
 			: ToNodeView(MakeJsonDocument(DocumentPtr), yyjson_arr_get(MakeJsonValue(ValuePtr), Index));
 	}
 
+	auto FJsonNodeView::ForEachObjectMember(const std::function<void(std::string_view, FJsonNodeView)>& Visitor) const -> void
+	{
+		if (!IsObject()) return;
+		if (bIsMutable)
+		{
+			yyjson_mut_obj_iter Iter = yyjson_mut_obj_iter_with(static_cast<yyjson_mut_val*>(ValuePtr));
+			yyjson_mut_val* Key = nullptr;
+			while ((Key = yyjson_mut_obj_iter_next(&Iter)) != nullptr)
+			{
+				yyjson_mut_val* Value = yyjson_mut_obj_iter_get_val(Key);
+				Visitor(std::string_view(yyjson_mut_get_str(Key), yyjson_mut_get_len(Key)), ToNodeView(static_cast<yyjson_mut_doc*>(DocumentPtr), Value));
+			}
+			return;
+		}
+
+		yyjson_obj_iter Iter = yyjson_obj_iter_with(static_cast<yyjson_val*>(ValuePtr));
+		yyjson_val* Key = nullptr;
+		while ((Key = yyjson_obj_iter_next(&Iter)) != nullptr)
+		{
+			yyjson_val* Value = yyjson_obj_iter_get_val(Key);
+			Visitor(std::string_view(yyjson_get_str(Key), yyjson_get_len(Key)), ToNodeView(static_cast<yyjson_doc*>(DocumentPtr), Value));
+		}
+	}
+
 	auto FJsonNodeView::GetString(std::string DefaultValue) const -> std::string
 	{
 		const char* Value = bIsMutable

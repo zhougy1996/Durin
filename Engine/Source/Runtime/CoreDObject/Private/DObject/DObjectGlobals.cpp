@@ -102,7 +102,8 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass
+					ReferencedClass,
+					PropertyParams->MapHelper
 				);
 				if (PropertyParams->Key)
 				{
@@ -211,6 +212,7 @@ namespace Durin
 		DClass* Class = Params.ClassNoRegisterFunc();
 
 		DObjectForceRegistration(Class);
+		Class->SetQualifiedName(FName(Params.QualifiedClassName));
 
 		if (!Class->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
 		{

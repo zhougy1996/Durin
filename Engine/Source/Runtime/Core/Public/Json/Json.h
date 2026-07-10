@@ -46,6 +46,7 @@ namespace Durin
 		CORE_API auto GetView(std::string_view InKey) const -> FJsonNodeView;
 		// Returns an invalid view when this node is not an array or the index is out of range.
 		CORE_API auto GetView(size_t Index) const -> FJsonNodeView;
+		CORE_API auto ForEachObjectMember(const std::function<void(std::string_view, FJsonNodeView)>& Visitor) const -> void;
 
 		// Scalar getters return DefaultValue when the node is invalid or of the wrong type.
 		CORE_API auto GetString(std::string DefaultValue = "") const -> std::string;

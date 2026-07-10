@@ -6,6 +6,7 @@
         "Core"
     ],
     "ReflectHeaders": [
-        "Public/DObject/MirrorExportTypes.h"
+        "Public/DObject/MirrorExportTypes.h",
+        "Public/DObject/Package.h"
     ]
 }

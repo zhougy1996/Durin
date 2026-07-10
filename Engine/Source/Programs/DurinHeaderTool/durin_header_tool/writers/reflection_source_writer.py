@@ -394,6 +394,21 @@ def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
                 _line(f"static const Durin::DurinCodeGen::FArrayPropertyHelper NewProp_{prop.name}_ArrayHelper;", 1),
             ]
         )
+    if prop.kind == "Map":
+        decls.extend(
+            [
+                _line(f"static Durin::uint64 NewProp_{prop.name}_MapNum(const void* Container);", 1),
+                _line(f"static const void* NewProp_{prop.name}_MapGetKey(const void* Container, Durin::uint64 Index);", 1),
+                _line(f"static const void* NewProp_{prop.name}_MapGetValue(const void* Container, Durin::uint64 Index);", 1),
+                _line(f"static void NewProp_{prop.name}_MapClear(void* Container);", 1),
+                _line(f"static void* NewProp_{prop.name}_MapCreateKey();", 1),
+                _line(f"static void NewProp_{prop.name}_MapDestroyKey(void* Key);", 1),
+                _line(f"static void* NewProp_{prop.name}_MapCreateValue();", 1),
+                _line(f"static void NewProp_{prop.name}_MapDestroyValue(void* Value);", 1),
+                _line(f"static void NewProp_{prop.name}_MapInsert(void* Container, const void* Key, const void* Value);", 1),
+                _line(f"static const Durin::DurinCodeGen::FMapPropertyHelper NewProp_{prop.name}_MapHelper;", 1),
+            ]
+        )
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
     decls.append(_line(f"static const Durin::DurinCodeGen::{param_type} NewProp_{prop.name};", 1))
     return decls
@@ -415,6 +430,8 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
     content = ""
     if prop.kind == "Array":
         content += _array_helper_definition(class_info, prop, symbols)
+    if prop.kind == "Map":
+        content += _map_helper_definition(class_info, prop, symbols)
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
     referenced_class_helper = "nullptr"
     if prop.referenced_type:
@@ -435,13 +452,14 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
     offset = "0" if nested else f"static_cast<Durin::uint16>(STRUCT_OFFSET({class_info.qualified_name}, {prop.name}))"
     element_size = f"sizeof(decltype((({class_info.qualified_name}*)0)->{prop.name}))" if prop.element_size == "sizeof_self" else prop.element_size
     array_helper = f"&{class_info.generated_statics_name}::NewProp_{prop.name}_ArrayHelper" if prop.kind == "Array" else "nullptr"
+    map_helper = f"&{class_info.generated_statics_name}::NewProp_{prop.name}_MapHelper" if prop.kind == "Map" else "nullptr"
     content += (
         f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
         f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, "
         f"{offset}, "
         f"static_cast<Durin::uint16>({element_size}), "
         f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_class_helper}, {referenced_enum_helper}, {inner}, {key}, {value}, "
-        f"{_bool_literal(prop.is_object_ptr_wrapper)}, {array_helper} }};\n"
+        f"{_bool_literal(prop.is_object_ptr_wrapper)}, {array_helper}, {map_helper} }};\n"
     )
     return content
 
@@ -476,6 +494,52 @@ def _array_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedProp
         f"\t&{statics}::{name}_ArrayGetElement,\n"
         f"\t&{statics}::{name}_ArrayGetMutableElement,\n"
         f"\t&{statics}::{name}_ArrayResize\n"
+        "};\n"
+    )
+
+
+def _map_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: dict[str, object]) -> str:
+    map_type = _cpp_type_spelling(prop.type_name, symbols)
+    statics = class_info.generated_statics_name
+    name = f"NewProp_{prop.name}"
+    return (
+        f"Durin::uint64 {statics}::{name}_MapNum(const void* Container)\n"
+        "{\n"
+        f"\treturn static_cast<Durin::uint64>(static_cast<const {map_type}*>(Container)->size());\n"
+        "}\n\n"
+        f"const void* {statics}::{name}_MapGetKey(const void* Container, Durin::uint64 Index)\n"
+        "{\n"
+        f"\tconst auto* Value = static_cast<const {map_type}*>(Container);\n"
+        "\tauto It = Value->begin();\n"
+        "\tstd::advance(It, static_cast<size_t>(Index));\n"
+        "\treturn &It->first;\n"
+        "}\n\n"
+        f"const void* {statics}::{name}_MapGetValue(const void* Container, Durin::uint64 Index)\n"
+        "{\n"
+        f"\tconst auto* Value = static_cast<const {map_type}*>(Container);\n"
+        "\tauto It = Value->begin();\n"
+        "\tstd::advance(It, static_cast<size_t>(Index));\n"
+        "\treturn &It->second;\n"
+        "}\n\n"
+        f"void {statics}::{name}_MapClear(void* Container)\n"
+        "{\n"
+        f"\tstatic_cast<{map_type}*>(Container)->clear();\n"
+        "}\n\n"
+        f"void* {statics}::{name}_MapCreateKey() {{ using FType = {map_type}::key_type; return new FType(); }}\n"
+        f"void {statics}::{name}_MapDestroyKey(void* Key) {{ using FType = {map_type}::key_type; delete static_cast<FType*>(Key); }}\n"
+        f"void* {statics}::{name}_MapCreateValue() {{ using FType = {map_type}::mapped_type; return new FType(); }}\n"
+        f"void {statics}::{name}_MapDestroyValue(void* Value) {{ using FType = {map_type}::mapped_type; delete static_cast<FType*>(Value); }}\n"
+        f"void {statics}::{name}_MapInsert(void* Container, const void* Key, const void* Value)\n"
+        "{\n"
+        f"\tusing FMapType = {map_type};\n"
+        "\tusing FKeyType = FMapType::key_type;\n"
+        "\tusing FValueType = FMapType::mapped_type;\n"
+        "\tstatic_cast<FMapType*>(Container)->insert_or_assign(*static_cast<const FKeyType*>(Key), *static_cast<const FValueType*>(Value));\n"
+        "}\n\n"
+        f"const Durin::DurinCodeGen::FMapPropertyHelper {statics}::{name}_MapHelper = {{\n"
+        f"\t&{statics}::{name}_MapNum, &{statics}::{name}_MapGetKey, &{statics}::{name}_MapGetValue,\n"
+        f"\t&{statics}::{name}_MapClear, &{statics}::{name}_MapCreateKey, &{statics}::{name}_MapDestroyKey,\n"
+        f"\t&{statics}::{name}_MapCreateValue, &{statics}::{name}_MapDestroyValue, &{statics}::{name}_MapInsert\n"
         "};\n"
     )
 

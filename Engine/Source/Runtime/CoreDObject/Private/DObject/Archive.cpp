@@ -114,6 +114,36 @@ namespace Durin
 				}
 				break;
 			}
+			case DurinCodeGen::EPropertyGenFlags::Map:
+			{
+				auto* MapProperty = static_cast<FMapProperty*>(Property);
+				if (!MapProperty->HasMapHelper()) break;
+				uint64 Num = Ar.IsSaving() ? MapProperty->Num(Container, ArrayIndex) : 0;
+				Ar << Num;
+				if (Ar.IsSaving())
+				{
+					for (uint64 Index = 0; Index < Num; ++Index)
+					{
+						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), const_cast<void*>(MapProperty->GetKeyPtr(Container, Index, ArrayIndex)), 0);
+						SerializePropertyValue(Ar, MapProperty->GetValueProp(), const_cast<void*>(MapProperty->GetMappedValuePtr(Container, Index, ArrayIndex)), 0);
+					}
+				}
+				else
+				{
+					MapProperty->Clear(Container, ArrayIndex);
+					for (uint64 Index = 0; Index < Num; ++Index)
+					{
+						void* Key = MapProperty->CreateKey();
+						void* Value = MapProperty->CreateValue();
+						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), Key, 0);
+						SerializePropertyValue(Ar, MapProperty->GetValueProp(), Value, 0);
+						MapProperty->Insert(Container, Key, Value, ArrayIndex);
+						MapProperty->DestroyKey(Key);
+						MapProperty->DestroyValue(Value);
+					}
+				}
+				break;
+			}
 			default:
 				break;
 			}

@@ -3,6 +3,7 @@
 #include "AssetCoreAPI.h"
 #include "CoreFwd.h"
 #include "Math/MathFwd.h"
+#include "AssetSystem.h"
 
 namespace Durin
 {

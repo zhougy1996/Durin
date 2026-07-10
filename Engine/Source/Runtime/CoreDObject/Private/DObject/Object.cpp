@@ -5,6 +5,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "DeferredRegistry.h"
 
 namespace Durin
@@ -197,6 +198,39 @@ namespace Durin
 		{
 			OuterPrivate->AddInnerObject(this);
 		}
+	}
+
+	auto DObject::GetOutermost() const -> DObject*
+	{
+		const DObject* Current = this;
+		while (Current->GetOuter()) Current = Current->GetOuter();
+		return const_cast<DObject*>(Current);
+	}
+
+	auto DObject::GetPackage() const -> DPackage*
+	{
+		return Cast<DPackage>(GetOutermost());
+	}
+
+	auto DObject::GetObjectPath() const -> std::string
+	{
+		const DPackage* Package = GetPackage();
+		if (!Package) return GetName();
+		if (this == Package || this == Package->GetAsset()) return Package->GetPackagePath();
+
+		std::vector<std::string> Segments;
+		for (const DObject* Current = this; Current && Current != Package->GetAsset() && Current != Package; Current = Current->GetOuter())
+		{
+			Segments.push_back(Current->GetName());
+		}
+		std::ranges::reverse(Segments);
+		std::string Result = Package->GetPackagePath() + ":";
+		for (size_t Index = 0; Index < Segments.size(); ++Index)
+		{
+			if (Index > 0) Result += ".";
+			Result += Segments[Index];
+		}
+		return Result;
 	}
 
 	auto DObject::Serialize(FArchive& Ar) -> void
