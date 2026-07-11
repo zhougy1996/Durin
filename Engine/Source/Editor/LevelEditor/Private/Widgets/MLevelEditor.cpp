@@ -10,6 +10,9 @@
 #include "Misc/StringConvert.h"
 #include "Misc/Paths.h"
 #include "MonaImGui.h"
+#include "Application/GenericApplication.h"
+#include "Application/MonaApplication.h"
+#include "Widgets/MWindow.h"
 #include "Panels/DetailsPanel.h"
 #include "Panels/LevelEditorPanel.h"
 #include "Panels/OutputLogPanel.h"
@@ -64,6 +67,17 @@ namespace Durin
 
 		const FYamlNodeView Root = Document.GetRootView();
 		bAlwaysAskForStartupLevel = Root.GetView("AlwaysAskForStartupLevel").GetBool(false);
+		const FYamlNodeView Display = Root.GetView("Display");
+		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
+		if (!Monitors.empty())
+		{
+			WindowWidth = std::min(1600, static_cast<int32>(Monitors.front().WorkSize.x * 0.9f));
+			WindowHeight = std::min(1000, static_cast<int32>(Monitors.front().WorkSize.y * 0.9f));
+			UIScale = Monitors.front().WorkSize.y >= 1800 ? 1.5f : Monitors.front().WorkSize.y >= 1300 ? 1.25f : 1.0f;
+		}
+		WindowWidth = static_cast<int32>(Display.GetView("WindowWidth").GetInt(WindowWidth));
+		WindowHeight = static_cast<int32>(Display.GetView("WindowHeight").GetInt(WindowHeight));
+		UIScale = static_cast<float>(Display.GetView("UIScale").GetDouble(UIScale));
 		const FYamlNodeView RecentLevels = Root.GetView("RecentLevels");
 		if (RecentLevels.IsMap())
 		{
@@ -83,6 +97,10 @@ namespace Durin
 		FYamlNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureMap();
 		Root.SetChildValue("AlwaysAskForStartupLevel", bAlwaysAskForStartupLevel);
+		FYamlNodeRef Display = Root.AddMap("Display");
+		Display.SetChildValue("WindowWidth", WindowWidth);
+		Display.SetChildValue("WindowHeight", WindowHeight);
+		Display.SetChildValue("UIScale", static_cast<double>(UIScale));
 		FYamlNodeRef RecentLevels = Root.AddMap("RecentLevels");
 		for (const auto& [MountRoot, Path] : RecentLevelByMount) RecentLevels.SetChildValue(MountRoot, Path);
 		if (!Document.SaveToFile(FPaths::LaunchDir() + SessionSettingsFileName))
@@ -201,6 +219,29 @@ namespace Durin
 		}
 		if (ImGui::BeginMenu("View"))
 		{
+			if (ImGui::BeginMenu("Display"))
+			{
+				const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
+				FIntPoint Recommended{1280, 800};
+				float RecommendedScale = 1.0f;
+				if (!Monitors.empty())
+				{
+					Recommended = {std::min(1600, static_cast<int32>(Monitors.front().WorkSize.x * 0.9f)), std::min(1000, static_cast<int32>(Monitors.front().WorkSize.y * 0.9f))};
+					RecommendedScale = Monitors.front().WorkSize.y >= 1800 ? 1.5f : Monitors.front().WorkSize.y >= 1300 ? 1.25f : 1.0f;
+				}
+				if (ImGui::MenuItem("Recommended")) ApplyDisplaySettings(Recommended.x, Recommended.y, RecommendedScale);
+				ImGui::SeparatorText("Window Size");
+				if (ImGui::MenuItem("1280 x 800")) ApplyDisplaySettings(1280, 800, UIScale);
+				if (ImGui::MenuItem("1600 x 900")) ApplyDisplaySettings(1600, 900, UIScale);
+				if (ImGui::MenuItem("1920 x 1080")) ApplyDisplaySettings(1920, 1080, UIScale);
+				ImGui::SeparatorText("UI Scale");
+				for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
+				{
+					const std::string Label = std::format("{}%", static_cast<int32>(Scale * 100.0f));
+					if (ImGui::MenuItem(Label.c_str(), nullptr, std::abs(UIScale - Scale) < 0.01f)) ApplyDisplaySettings(WindowWidth, WindowHeight, Scale);
+				}
+				ImGui::EndMenu();
+			}
 			if (ImGui::MenuItem("Reset Layout"))
 			{
 				bResetLayoutRequested = true;
@@ -226,6 +267,19 @@ namespace Durin
 		}
 
 		ImGui::EndMainMenuBar();
+	}
+
+	auto MLevelEditor::ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void
+	{
+		WindowWidth = Width;
+		WindowHeight = Height;
+		UIScale = Scale;
+		MonaImGui::SetGlobalUIScale(UIScale);
+		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow())
+		{
+			Window->ResizeWindow({static_cast<float>(WindowWidth), static_cast<float>(WindowHeight)});
+		}
+		SaveSessionSettings();
 	}
 
 	auto MLevelEditor::RequestFileAction(EPendingFileAction Action) -> void

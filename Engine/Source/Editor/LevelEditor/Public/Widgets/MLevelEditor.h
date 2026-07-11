@@ -21,6 +21,7 @@ namespace Durin
 		enum class EQueuedFilePopup { None, UnsavedLevel, NewLevel, OpenLevel, StartupLevel, ImportStaticMesh };
 		auto DrawMainMenu() -> void;
 		auto DrawFileDialogs() -> void;
+		auto ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void;
 		auto InitializeStartupLevel() -> void;
 		auto LoadSessionSettings() -> bool;
 		auto SaveSessionSettings() const -> bool;
@@ -43,6 +44,9 @@ namespace Durin
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		bool bResetLayoutRequested = false;
 		bool bAlwaysAskForStartupLevel = false;
+		int32 WindowWidth = 1280;
+		int32 WindowHeight = 800;
+		float UIScale = 1.0f;
 		EPendingFileAction PendingFileAction = EPendingFileAction::None;
 		EQueuedFilePopup QueuedFilePopup = EQueuedFilePopup::None;
 		std::array<char, 512> LevelPathBuffer{};

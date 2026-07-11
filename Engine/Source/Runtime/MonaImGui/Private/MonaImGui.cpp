@@ -13,4 +13,14 @@ namespace Durin::MonaImGui
 	{
 		FMonaImGuiBackend::Get().BindMainViewportToWindow(Window);
 	}
+
+	auto SetGlobalUIScale(float Scale) -> void
+	{
+		Scale = std::clamp(Scale, 0.75f, 2.0f);
+		static const ImGuiStyle BaseStyle = ImGui::GetStyle();
+		ImGuiStyle& Style = ImGui::GetStyle();
+		Style = BaseStyle;
+		Style.ScaleAllSizes(Scale);
+		Style.FontScaleMain = Scale;
+	}
 }
