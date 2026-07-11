@@ -44,6 +44,7 @@ namespace Durin
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		bool bResetLayoutRequested = false;
 		bool bAlwaysAskForStartupLevel = false;
+		bool bWindowMaximized = true;
 		int32 WindowWidth = 1280;
 		int32 WindowHeight = 800;
 		float UIScale = 1.0f;

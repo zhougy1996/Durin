@@ -96,6 +96,19 @@ namespace Durin
 		return false;
 	}
 
+	auto FGenericWindow::IsMaximized() const -> bool
+	{
+		return false;
+	}
+
+	auto FGenericWindow::MaximizeWindow() -> void
+	{
+	}
+
+	auto FGenericWindow::RestoreWindow() -> void
+	{
+	}
+
 	auto FGenericWindow::IsFocused() const -> bool
 	{
 		return false;

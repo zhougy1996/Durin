@@ -50,6 +50,12 @@ namespace Durin
 
 		APPLICATIONCORE_API auto IsMinimized() const -> bool override;
 
+		APPLICATIONCORE_API auto IsMaximized() const -> bool override;
+
+		APPLICATIONCORE_API auto MaximizeWindow() -> void override;
+
+		APPLICATIONCORE_API auto RestoreWindow() -> void override;
+
 		APPLICATIONCORE_API auto IsFocused() const -> bool override;
 
 		APPLICATIONCORE_API auto SetTitle(const std::string& InTitle) -> void override;

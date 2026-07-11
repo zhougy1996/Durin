@@ -507,6 +507,21 @@ namespace Durin
 		return glfwGetWindowAttrib(GlfwWindow, GLFW_ICONIFIED);
 	}
 
+	auto FGlfwWindow::IsMaximized() const -> bool
+	{
+		return glfwGetWindowAttrib(GlfwWindow, GLFW_MAXIMIZED);
+	}
+
+	auto FGlfwWindow::MaximizeWindow() -> void
+	{
+		glfwMaximizeWindow(GlfwWindow);
+	}
+
+	auto FGlfwWindow::RestoreWindow() -> void
+	{
+		glfwRestoreWindow(GlfwWindow);
+	}
+
 	auto FGlfwWindow::IsFocused() const -> bool
 	{
 		return glfwGetWindowAttrib(GlfwWindow, GLFW_FOCUSED) != 0;

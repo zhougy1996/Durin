@@ -280,4 +280,25 @@ namespace Durin
 	{
 		return NativeWindow->IsMinimized();
 	}
+
+	auto MWindow::IsMaximized() const -> bool
+	{
+		return NativeWindow ? NativeWindow->IsMaximized() : false;
+	}
+
+	auto MWindow::MaximizeWindow() -> void
+	{
+		if (NativeWindow != nullptr)
+		{
+			NativeWindow->MaximizeWindow();
+		}
+	}
+
+	auto MWindow::RestoreWindow() -> void
+	{
+		if (NativeWindow != nullptr)
+		{
+			NativeWindow->RestoreWindow();
+		}
+	}
 } // namespace Durin

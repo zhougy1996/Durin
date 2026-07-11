@@ -60,6 +60,12 @@ namespace Durin
 
 		APPLICATIONCORE_API virtual auto IsMinimized() const -> bool;
 
+		APPLICATIONCORE_API virtual auto IsMaximized() const -> bool;
+
+		APPLICATIONCORE_API virtual auto MaximizeWindow() -> void;
+
+		APPLICATIONCORE_API virtual auto RestoreWindow() -> void;
+
 		APPLICATIONCORE_API virtual auto IsFocused() const -> bool;
 
 		APPLICATIONCORE_API virtual auto SetTitle(const std::string& InTitle) -> void;

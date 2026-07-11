@@ -25,6 +25,7 @@ namespace Durin
 	{
 		FIntPoint WindowSize{1280, 800};
 		float UIScale = 1.0f;
+		bool bWindowMaximized = true;
 		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
 		if (!Monitors.empty())
 		{
@@ -39,6 +40,7 @@ namespace Durin
 			WindowSize.x = static_cast<int32>(Display.GetView("WindowWidth").GetInt(WindowSize.x));
 			WindowSize.y = static_cast<int32>(Display.GetView("WindowHeight").GetInt(WindowSize.y));
 			UIScale = static_cast<float>(Display.GetView("UIScale").GetDouble(UIScale));
+			bWindowMaximized = Display.GetView("WindowMaximized").GetBool(true);
 		}
 		MonaImGui::SetGlobalUIScale(UIScale);
 		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
@@ -61,5 +63,10 @@ namespace Durin
 
 		Mona::FMonaApplication::Get().AddWindow(RootWindow, true);
 		Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
+
+		if (bWindowMaximized)
+		{
+			RootWindow->MaximizeWindow();
+		}
 	}
 } // namespace Durin

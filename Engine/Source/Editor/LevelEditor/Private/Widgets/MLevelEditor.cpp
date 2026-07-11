@@ -79,6 +79,7 @@ namespace Durin
 		WindowWidth = static_cast<int32>(Display.GetView("WindowWidth").GetInt(WindowWidth));
 		WindowHeight = static_cast<int32>(Display.GetView("WindowHeight").GetInt(WindowHeight));
 		UIScale = static_cast<float>(Display.GetView("UIScale").GetDouble(UIScale));
+		bWindowMaximized = Display.GetView("WindowMaximized").GetBool(true);
 		const FYamlNodeView RecentLevels = Root.GetView("RecentLevels");
 		if (RecentLevels.IsMap())
 		{
@@ -102,6 +103,7 @@ namespace Durin
 		Display.SetChildValue("WindowWidth", WindowWidth);
 		Display.SetChildValue("WindowHeight", WindowHeight);
 		Display.SetChildValue("UIScale", static_cast<double>(UIScale));
+		Display.SetChildValue("WindowMaximized", bWindowMaximized);
 		FYamlNodeRef RecentLevels = Root.AddMap("RecentLevels");
 		for (const auto& [MountRoot, Path] : RecentLevelByMount) RecentLevels.SetChildValue(MountRoot, Path);
 		if (!Document.SaveToFile(FPaths::LaunchDir() + SessionSettingsFileName))
@@ -159,6 +161,16 @@ namespace Durin
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) SaveCurrentLevel();
 		DrawMainMenu();
 		DrawFileDialogs();
+
+		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow())
+		{
+			const bool bCurrentMaximized = Window->IsMaximized();
+			if (bCurrentMaximized != bWindowMaximized)
+			{
+				bWindowMaximized = bCurrentMaximized;
+				SaveSessionSettings();
+			}
+		}
 
 		ImGuiViewport* MainViewport = ImGui::GetMainViewport();
 		const ImGuiID DockSpaceId = ImGui::GetID(DockSpaceName);
@@ -222,19 +234,6 @@ namespace Durin
 		{
 			if (ImGui::BeginMenu("Display"))
 			{
-				const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
-				FIntPoint Recommended{1280, 800};
-				float RecommendedScale = 1.0f;
-				if (!Monitors.empty())
-				{
-					Recommended = {std::min(1600, static_cast<int32>(Monitors.front().WorkSize.x * 0.9f)), std::min(1000, static_cast<int32>(Monitors.front().WorkSize.y * 0.9f))};
-					RecommendedScale = Monitors.front().WorkSize.y >= 1800 ? 1.5f : Monitors.front().WorkSize.y >= 1300 ? 1.25f : 1.0f;
-				}
-				if (ImGui::MenuItem("Recommended")) ApplyDisplaySettings(Recommended.x, Recommended.y, RecommendedScale);
-				ImGui::SeparatorText("Window Size");
-				if (ImGui::MenuItem("1280 x 800")) ApplyDisplaySettings(1280, 800, UIScale);
-				if (ImGui::MenuItem("1600 x 900")) ApplyDisplaySettings(1600, 900, UIScale);
-				if (ImGui::MenuItem("1920 x 1080")) ApplyDisplaySettings(1920, 1080, UIScale);
 				ImGui::SeparatorText("UI Scale");
 				for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
 				{
@@ -290,7 +289,10 @@ namespace Durin
 		MonaImGui::SetGlobalUIScale(UIScale);
 		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow())
 		{
-			Window->ResizeWindow({static_cast<float>(WindowWidth), static_cast<float>(WindowHeight)});
+			if (!Window->IsMaximized())
+			{
+				Window->ResizeWindow({static_cast<float>(WindowWidth), static_cast<float>(WindowHeight)});
+			}
 		}
 		SaveSessionSettings();
 	}

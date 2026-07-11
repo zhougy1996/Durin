@@ -78,6 +78,12 @@ namespace Durin
 
 		MONACORE_API auto IsMinimized() const -> bool;
 
+		MONACORE_API auto IsMaximized() const -> bool;
+
+		MONACORE_API auto MaximizeWindow() -> void;
+
+		MONACORE_API auto RestoreWindow() -> void;
+
 	protected:
 		std::string Title;
 
