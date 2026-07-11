@@ -1,17 +1,21 @@
 #include "Widgets/MLevelEditor.h"
 
 #include "AssetSystem.h"
+#include "Dialogs/FileDialog.h"
 #include "Actors/CameraActor.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "LevelEditorContext.h"
+#include "Misc/StringConvert.h"
+#include "Misc/Paths.h"
 #include "MonaImGui.h"
 #include "Panels/DetailsPanel.h"
 #include "Panels/LevelEditorPanel.h"
 #include "Panels/OutputLogPanel.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Panels/WorldOutlinerPanel.h"
+#include "StaticMesh/StaticMesh.h"
 
 namespace Durin
 {
@@ -80,6 +84,18 @@ namespace Durin
 			if (ImGui::MenuItem("New Level", "Ctrl+N")) RequestFileAction(EPendingFileAction::NewLevel);
 			if (ImGui::MenuItem("Open Level", "Ctrl+O")) RequestFileAction(EPendingFileAction::OpenLevel);
 			if (ImGui::MenuItem("Save Level", "Ctrl+S", false, Context && Context->Level && Context->Level->GetPackage())) SaveCurrentLevel();
+			ImGui::Separator();
+			if (ImGui::BeginMenu("Import"))
+			{
+				if (ImGui::MenuItem("Static Mesh..."))
+				{
+					ImportSourcePathBuffer.fill(0);
+					ImportAssetPathBuffer.fill(0);
+					LastSuggestedImportAssetPath.clear();
+					QueuedFilePopup = EQueuedFilePopup::ImportStaticMesh;
+				}
+				ImGui::EndMenu();
+			}
 			ImGui::Separator();
 			if (Context && Context->Level)
 			{
@@ -157,6 +173,7 @@ namespace Durin
 		case EQueuedFilePopup::UnsavedLevel: ImGui::OpenPopup("Unsaved Level"); break;
 		case EQueuedFilePopup::NewLevel: ImGui::OpenPopup("New Level"); break;
 		case EQueuedFilePopup::OpenLevel: ImGui::OpenPopup("Open Level"); break;
+		case EQueuedFilePopup::ImportStaticMesh: ImGui::OpenPopup("Import Static Mesh"); break;
 		case EQueuedFilePopup::None: break;
 		}
 		QueuedFilePopup = EQueuedFilePopup::None;
@@ -205,13 +222,132 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 
-		if (!EditorError.empty()) ImGui::OpenPopup("Level Error");
-		if (ImGui::BeginPopupModal("Level Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::BeginPopupModal("Import Static Mesh", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::SetNextItemWidth(420.0f);
+			ImGui::InputText("Source File", ImportSourcePathBuffer.data(), ImportSourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
+			ImGui::SameLine();
+			if (ImGui::Button("Browse...")) BrowseStaticMeshSource();
+			ImGui::SetNextItemWidth(420.0f);
+			ImGui::InputText("Asset Path", ImportAssetPathBuffer.data(), ImportAssetPathBuffer.size());
+			ImGui::SameLine();
+			if (ImGui::Button("Browse...##AssetPath")) BrowseStaticMeshDestination();
+			if (ImGui::Button("Import"))
+			{
+				ImportStaticMesh();
+				if (EditorError.empty()) ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+		}
+
+		if (!EditorError.empty()) ImGui::OpenPopup("Editor Error");
+		if (ImGui::BeginPopupModal("Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 		{
 			ImGui::TextWrapped("%s", EditorError.c_str());
 			if (ImGui::Button("OK")) { EditorError.clear(); ImGui::CloseCurrentPopup(); }
 			ImGui::EndPopup();
 		}
+	}
+
+	auto MLevelEditor::BrowseStaticMeshSource() -> void
+	{
+		FFileDialogRequest Request;
+		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.Title = "Select a Static Mesh Source File";
+		Request.Filters = {
+			{"All Supported Models", "*.obj;*.fbx;*.gltf;*.glb;*.dae;*.3ds;*.ply;*.stl"},
+			{"Wavefront OBJ", "*.obj"},
+			{"Autodesk FBX", "*.fbx"},
+			{"glTF", "*.gltf;*.glb"},
+			{"COLLADA", "*.dae"},
+			{"All Files", "*.*"}
+		};
+		if (ImportSourcePathBuffer[0] != '\0')
+		{
+			Request.InitialDirectory = std::filesystem::path(ImportSourcePathBuffer.data()).parent_path().generic_string();
+		}
+
+		FFileDialogResult Result = OpenFileDialog(Request);
+		if (Result.Status == EFileDialogStatus::Cancelled) return;
+		if (Result.Status == EFileDialogStatus::Error)
+		{
+			SetError(Result.ErrorMessage);
+			return;
+		}
+		if (Result.FilePath.size() >= ImportSourcePathBuffer.size())
+		{
+			SetError("The selected file path is too long for the import form.");
+			return;
+		}
+
+		const std::string PreviousAssetPath = ImportAssetPathBuffer.data();
+		ImportSourcePathBuffer.fill(0);
+		std::memcpy(ImportSourcePathBuffer.data(), Result.FilePath.data(), FMath::Min(Result.FilePath.size(), ImportSourcePathBuffer.size() - 1));
+
+		const std::string AssetName = String::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
+		const std::string SuggestedPath = "/SandBox/StaticMeshes/" + AssetName;
+		if (PreviousAssetPath.empty() || PreviousAssetPath == LastSuggestedImportAssetPath)
+		{
+			ImportAssetPathBuffer.fill(0);
+			std::memcpy(ImportAssetPathBuffer.data(), SuggestedPath.data(), FMath::Min(SuggestedPath.size(), ImportAssetPathBuffer.size() - 1));
+		}
+		LastSuggestedImportAssetPath = SuggestedPath;
+	}
+
+	auto MLevelEditor::BrowseStaticMeshDestination() -> void
+	{
+		FFileDialogRequest Request;
+		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.Title = "Choose a Static Mesh Asset Path";
+		Request.Filters = {{"Durin Asset", "*.dasset"}};
+		Request.DefaultFileName = ImportSourcePathBuffer[0] != '\0'
+			? String::SanitizeFileName(std::filesystem::path(ImportSourcePathBuffer.data()).stem().generic_string(), "StaticMesh") + ".dasset"
+			: "StaticMesh.dasset";
+
+		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		{
+			if (Mount.VirtualRoot == "/SandBox/")
+			{
+				Request.InitialDirectory = Mount.PhysicalPath;
+				break;
+			}
+		}
+
+		FFileDialogResult Result = SaveFileDialog(Request);
+		if (Result.Status == EFileDialogStatus::Cancelled) return;
+		if (Result.Status == EFileDialogStatus::Error)
+		{
+			SetError(Result.ErrorMessage);
+			return;
+		}
+
+		std::string SelectedPath = std::filesystem::absolute(Result.FilePath).lexically_normal().generic_string();
+		std::ranges::transform(SelectedPath, SelectedPath.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		{
+			std::string MountPath = std::filesystem::absolute(Mount.PhysicalPath).lexically_normal().generic_string();
+			if (!MountPath.ends_with('/')) MountPath += '/';
+			std::string LowerMountPath = MountPath;
+			std::ranges::transform(LowerMountPath, LowerMountPath.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+			if (!SelectedPath.starts_with(LowerMountPath)) continue;
+
+			std::filesystem::path RelativePath = std::filesystem::path(Result.FilePath).lexically_relative(std::filesystem::path(Mount.PhysicalPath));
+			RelativePath.replace_extension();
+			const std::string VirtualPath = Mount.VirtualRoot + RelativePath.generic_string();
+			if (VirtualPath.size() >= ImportAssetPathBuffer.size())
+			{
+				SetError("The selected asset path is too long for the import form.");
+				return;
+			}
+			ImportAssetPathBuffer.fill(0);
+			std::memcpy(ImportAssetPathBuffer.data(), VirtualPath.data(), VirtualPath.size());
+			LastSuggestedImportAssetPath.clear();
+			return;
+		}
+
+		SetError("Static mesh assets must be saved inside a mounted Content directory.");
 	}
 
 	auto MLevelEditor::CreateLevel(std::string_view PathString) -> void
@@ -249,6 +385,13 @@ namespace Durin
 		Asset::FAssetResult Result = Asset::SavePackage(Context->Level->GetPackage());
 		if (!Result) { SetError(Result.Message); return false; }
 		return true;
+	}
+
+	auto MLevelEditor::ImportStaticMesh() -> void
+	{
+		EditorError.clear();
+		FStaticMeshImportResult Result = DStaticMesh::ImportAsset(ImportSourcePathBuffer.data(), ImportAssetPathBuffer.data());
+		if (!Result) SetError(Result.Message);
 	}
 
 	auto MLevelEditor::ActivateLevel(DLevel* Level) -> bool

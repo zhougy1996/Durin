@@ -27,6 +27,7 @@
         "Public/Components/PrimitiveComponent.h",
         "Public/Components/SceneComponent.h",
         "Public/Components/MeshComponent.h",
-        "Public/Components/StaticMeshComponent.h"   
+        "Public/Components/StaticMeshComponent.h",
+		"Public/StaticMesh/StaticMesh.h"
     ]
 }

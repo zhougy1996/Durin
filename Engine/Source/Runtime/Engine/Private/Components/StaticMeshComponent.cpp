@@ -9,7 +9,7 @@
 
 namespace Durin
 {
-	auto DStaticMeshComponent::SetStaticMesh(std::shared_ptr<DStaticMesh> InStaticMesh) -> void
+	auto DStaticMeshComponent::SetStaticMesh(DStaticMesh* InStaticMesh) -> void
 	{
 		if (StaticMesh == InStaticMesh)
 		{
@@ -24,7 +24,8 @@ namespace Durin
 			}
 		}
 
-		StaticMesh = std::move(InStaticMesh);
+		StaticMesh = InStaticMesh;
+		MarkPackageDirty();
 
 		if (IsRegistered() && GEngine != nullptr)
 		{
@@ -35,9 +36,9 @@ namespace Durin
 		}
 	}
 
-	auto DStaticMeshComponent::GetStaticMesh() const -> const std::shared_ptr<DStaticMesh>&
+	auto DStaticMeshComponent::GetStaticMesh() const -> DStaticMesh*
 	{
-		return StaticMesh;
+		return StaticMesh.Get();
 	}
 
 	auto DStaticMeshComponent::CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy>

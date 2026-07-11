@@ -8,7 +8,6 @@
 #include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectGlobals.h"
 #include "IRendererModule.h"
-#include "Misc/Paths.h"
 #include "Mona/SceneViewport.h"
 #include "Modules/ModuleManager.h"
 #include "StaticMesh/StaticMesh.h"
@@ -43,16 +42,15 @@ namespace Durin
 		DemoStaticMeshActor = MainWorld->SpawnActor<AStaticMeshActor>("DebugStaticMeshActor");
 		if (DStaticMeshComponent* MeshComponent = DemoStaticMeshActor->GetStaticMeshComponent())
 		{
-			const std::string TeapotPath = FPaths::EngineDir() + "Content/Test/teapot.obj";
-			std::shared_ptr<DStaticMesh> TeapotMesh = DStaticMesh::CreateFromFile(TeapotPath);
+			DStaticMesh* TeapotMesh = DStaticMesh::CreateDebugTriangle(this);
 			if (TeapotMesh == nullptr)
 			{
-				DURIN_ERROR("Failed to initialize demo static mesh actor with teapot: {}", TeapotPath);
+				DURIN_ERROR("Failed to initialize demo static mesh actor.");
 				return;
 			}
 
 			MeshComponent->SetWorldLocation(FVector3(0.0, 0.0, 0.0));
-			MeshComponent->SetStaticMesh(std::move(TeapotMesh));
+			MeshComponent->SetStaticMesh(TeapotMesh);
 			MeshComponent->RegisterComponent();
 		}
 	}

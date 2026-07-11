@@ -1,5 +1,7 @@
 #include "Panels/DetailsPanel.h"
 
+#include "AssetSystem.h"
+#include "Components/StaticMeshComponent.h"
 #include "Components/SceneComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -7,6 +9,7 @@
 #include "Engine/Actor.h"
 #include "LevelEditorContext.h"
 #include "MonaImGui.h"
+#include "StaticMesh/StaticMesh.h"
 
 namespace Durin
 {
@@ -27,6 +30,15 @@ namespace Durin
 			const std::string Name = Class ? Class->GetName() : std::string();
 			const size_t Separator = Name.rfind("::");
 			return Separator == std::string::npos ? Name : Name.substr(Separator + 2);
+		}
+
+		auto IsClassChildOf(const DClass* Class, const DClass* Parent) -> bool
+		{
+			for (const DClass* Current = Class; Current != nullptr; Current = Current->GetSuperClass())
+			{
+				if (Current == Parent) return true;
+			}
+			return false;
 		}
 
 		auto PropertyKindName(DurinCodeGen::EPropertyGenFlags Kind) -> const char*
@@ -119,13 +131,18 @@ namespace Durin
 			ImGui::End();
 			return;
 		}
+		if (PropertyActor.Get() != Actor)
+		{
+			PropertyActor = Actor;
+			SelectedComponent = nullptr;
+		}
 
 		ImGui::TextUnformatted(Actor->GetName().c_str());
 		ImGui::TextDisabled("%s", Actor->GetClass()->GetName().c_str());
 		ImGui::Separator();
 		DrawTransform(Actor);
 		DrawComponents(Context, Actor);
-		DrawReflectedProperties(Actor);
+		DrawReflectedProperties(Context, SelectedComponent ? static_cast<DObject*>(SelectedComponent.Get()) : static_cast<DObject*>(Actor));
 		ImGui::End();
 	}
 
@@ -188,7 +205,8 @@ namespace Durin
 			if (Component != nullptr)
 			{
 				ImGui::PushID(Component);
-				ImGui::BulletText("%s  (%s)", Component->GetName().c_str(), ClassDisplayName(Component->GetClass()).c_str());
+				const std::string ComponentLabel = std::format("{}  ({})", Component->GetName(), ClassDisplayName(Component->GetClass()));
+				if (ImGui::Selectable(ComponentLabel.c_str(), SelectedComponent.Get() == Component)) SelectedComponent = Component;
 				ImGui::SameLine();
 				if (Actor->IsInstanceComponent(Component))
 				{
@@ -216,14 +234,15 @@ namespace Durin
 		}
 	}
 
-	auto FDetailsPanel::DrawReflectedProperties(AActor* Actor) -> void
+	auto FDetailsPanel::DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void
 	{
 		if (!ImGui::CollapsingHeader("Editable Properties", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			return;
 		}
 		bool bFoundEditableProperty = false;
-		Actor->GetClass()->ForEachProperty([&](FProperty* Property) {
+		ImGui::TextDisabled("%s", Object->GetClass()->GetName().c_str());
+		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
 			if (Property == nullptr || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit))
 			{
 				return;
@@ -231,16 +250,16 @@ namespace Durin
 			bFoundEditableProperty = true;
 			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 			{
-				DrawProperty(Actor, Property, ArrayIndex);
+				DrawProperty(Context, Object, Property, ArrayIndex);
 			}
 		});
 		if (!bFoundEditableProperty)
 		{
-			ImGui::TextDisabled("This actor has no reflected Edit properties.");
+			ImGui::TextDisabled("This object has no reflected Edit properties.");
 		}
 	}
 
-	auto FDetailsPanel::DrawProperty(AActor* Actor, FProperty* Property, uint32 ArrayIndex) -> void
+	auto FDetailsPanel::DrawProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex) -> void
 	{
 		const std::string BaseName = Property->NamePrivate.ToString();
 		const std::string Label = Property->GetArrayDim() > 1 ? std::format("{}[{}]", BaseName, ArrayIndex) : BaseName;
@@ -256,22 +275,22 @@ namespace Durin
 		bool bChanged = false;
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Bool)
 		{
-			bool* Value = Property->ContainerPtrToValuePtr<bool>(Actor, ArrayIndex);
+			bool* Value = Property->ContainerPtrToValuePtr<bool>(Object, ArrayIndex);
 			bChanged = ImGui::Checkbox(Label.c_str(), Value);
 		}
 		else if (const ImGuiDataType DataType = ImGuiDataTypeForProperty(Kind); DataType != ImGuiDataType_COUNT)
 		{
-			bChanged = ImGui::DragScalar(Label.c_str(), DataType, Property->GetValuePtr(Actor, ArrayIndex), Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
+			bChanged = ImGui::DragScalar(Label.c_str(), DataType, Property->GetValuePtr(Object, ArrayIndex), Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::String)
 		{
 			auto* StringProperty = static_cast<FStringProperty*>(Property);
 			std::array<char, 512> Buffer{};
-			const std::string& CurrentValue = *StringProperty->GetStringValuePtr(Actor, ArrayIndex);
+			const std::string& CurrentValue = *StringProperty->GetStringValuePtr(Object, ArrayIndex);
 			std::memcpy(Buffer.data(), CurrentValue.data(), FMath::Min(CurrentValue.size(), Buffer.size() - 1));
 			if (ImGui::InputText(Label.c_str(), Buffer.data(), Buffer.size()))
 			{
-				*StringProperty->GetStringValuePtr(Actor, ArrayIndex) = Buffer.data();
+				*StringProperty->GetStringValuePtr(Object, ArrayIndex) = Buffer.data();
 				bChanged = true;
 			}
 		}
@@ -285,7 +304,7 @@ namespace Durin
 			}
 			else
 			{
-				int64 CurrentValue = ReadEnumValue(*EnumProperty, Actor, ArrayIndex);
+				int64 CurrentValue = ReadEnumValue(*EnumProperty, Object, ArrayIndex);
 				FName CurrentName;
 				const std::string Preview = Enum->FindNameByValue(CurrentValue, CurrentName) ? CurrentName.ToString() : std::format("{}", CurrentValue);
 				if (ImGui::BeginCombo(Label.c_str(), Preview.c_str()))
@@ -294,7 +313,7 @@ namespace Durin
 						const bool bSelected = Value.Value == CurrentValue;
 						if (ImGui::Selectable(Value.Name.ToString().c_str(), bSelected))
 						{
-							WriteEnumValue(*EnumProperty, Actor, ArrayIndex, Value.Value);
+							WriteEnumValue(*EnumProperty, Object, ArrayIndex, Value.Value);
 							bChanged = true;
 						}
 					});
@@ -302,11 +321,37 @@ namespace Durin
 				}
 			}
 		}
+		else if (Kind == DurinCodeGen::EPropertyGenFlags::Object)
+		{
+			auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
+			DObject* Current = ObjectProperty->GetObjectPropertyValue(Object, ArrayIndex);
+			const std::string Preview = Current && Current->GetPackage() ? Current->GetPackage()->GetPackagePath() : "None";
+			if (ImGui::BeginCombo(Label.c_str(), Preview.c_str()))
+			{
+				ImGui::InputTextWithHint("##AssetSearch", "Search assets...", AssetSearchText.data(), AssetSearchText.size());
+				if (ImGui::Selectable("Clear", Current == nullptr)) bChanged = AssignObjectProperty(Context, Object, Property, ArrayIndex, nullptr);
+				DClass* RequiredClass = ObjectProperty->GetReferencedClass();
+				for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+				{
+					DClass* AssetClass = FindClassByQualifiedName(Data.AssetClassName);
+					const std::string PathString = Path.ToString();
+					if (!AssetClass || !RequiredClass || !IsClassChildOf(AssetClass, RequiredClass) || !ContainsInsensitive(PathString, AssetSearchText.data())) continue;
+					if (ImGui::Selectable(PathString.c_str(), Current && Current->GetPackage() && Current->GetPackage()->GetPackagePath() == PathString))
+					{
+						DObject* Loaded = nullptr;
+						Asset::FAssetResult Result = Asset::LoadAsset(Path, Loaded);
+						if (!Result) Context.SetError(Result.Message);
+						else bChanged = AssignObjectProperty(Context, Object, Property, ArrayIndex, Loaded);
+					}
+				}
+				ImGui::EndCombo();
+			}
+		}
 		else
 		{
 			ImGui::LabelText(Label.c_str(), "<%s>", PropertyKindName(Kind));
 		}
-		if (bChanged) Actor->MarkPackageDirty();
+		if (bChanged) Object->MarkPackageDirty();
 
 		if (bReadOnly)
 		{
@@ -314,5 +359,26 @@ namespace Durin
 		}
 		ImGui::PopID();
 		ImGui::PopID();
+	}
+
+	auto FDetailsPanel::AssignObjectProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, DObject* Value) -> bool
+	{
+		auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
+		if (Value && ObjectProperty->GetReferencedClass() && !Value->IsA(ObjectProperty->GetReferencedClass()))
+		{
+			Context.SetError("Selected asset has an incompatible type.");
+			return false;
+		}
+		if (auto* Component = Cast<DStaticMeshComponent>(Object); Component && Property->NamePrivate == FName("StaticMesh"))
+		{
+			DStaticMesh* Mesh = Value ? Cast<DStaticMesh>(Value) : nullptr;
+			if (Value && !Mesh) return false;
+			if (Component->GetStaticMesh() == Mesh) return false;
+			Component->SetStaticMesh(Mesh);
+			return true;
+		}
+		if (ObjectProperty->GetObjectPropertyValue(Object, ArrayIndex) == Value) return false;
+		ObjectProperty->SetObjectPropertyValue(Object, Value, ArrayIndex);
+		return true;
 	}
 } // namespace Durin

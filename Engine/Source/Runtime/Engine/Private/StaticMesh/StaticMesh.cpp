@@ -1,13 +1,37 @@
 #include "StaticMesh/StaticMesh.h"
 
 #include "AssetCore.h"
-#include "Logging/LogMacros.h"
+#include "AssetSystem.h"
+#include "DObject/DObjectGlobals.h"
+#include "Misc/Paths.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 #include "RHICommandList.h"
 
 namespace Durin
 {
+	namespace
+	{
+		auto ResolveMountedFile(std::string_view VirtualPath) -> std::filesystem::path
+		{
+			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+			{
+				if (VirtualPath.starts_with(Mount.VirtualRoot))
+				{
+					return (std::filesystem::path(Mount.PhysicalPath) / std::string(VirtualPath.substr(Mount.VirtualRoot.size()))).lexically_normal();
+				}
+			}
+			return std::filesystem::path(VirtualPath).lexically_normal();
+		}
+	}
+
+	DStaticMesh::DStaticMesh(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
+	{
+	}
+
+	DStaticMesh::~DStaticMesh() = default;
+
 	auto DStaticMesh::GetRenderData() const -> const FStaticMeshRenderData*
 	{
 		return RenderData.get();
@@ -23,9 +47,9 @@ namespace Durin
 		RenderData = std::move(InRenderData);
 	}
 
-	auto DStaticMesh::CreateDebugTriangle() -> std::shared_ptr<DStaticMesh>
+	auto DStaticMesh::CreateDebugTriangle(DObject* Outer) -> DStaticMesh*
 	{
-		auto Mesh = std::make_shared<DStaticMesh>();
+		DStaticMesh* Mesh = NewObject<DStaticMesh>(Outer, "DebugStaticMesh");
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->Positions = {
 			FVector3f(-0.65f, -0.45f, 0.0f),
@@ -38,13 +62,13 @@ namespace Durin
 		return Mesh;
 	}
 
-	auto DStaticMesh::CreateFromFile(std::string_view FilePath) -> std::shared_ptr<DStaticMesh>
+	auto DStaticMesh::BuildRenderData(std::string_view FilePath, std::string& OutError) -> bool
 	{
 		std::vector<Asset::FTestAssetData> ImportedMeshes;
 		if (!Asset::ImportFromFile(FilePath, ImportedMeshes))
 		{
-			DURIN_ERROR("Failed to create static mesh from file: {}", FilePath);
-			return nullptr;
+			OutError = std::format("Failed to import static mesh source file: {}", FilePath);
+			return false;
 		}
 
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
@@ -66,8 +90,8 @@ namespace Durin
 
 		if (RenderData->Positions.empty() || RenderData->Indices.empty())
 		{
-			DURIN_ERROR("Imported static mesh has no renderable geometry: {}", FilePath);
-			return nullptr;
+			OutError = std::format("Static mesh source has no renderable geometry: {}", FilePath);
+			return false;
 		}
 
 		FVector3f BoundsMin = RenderData->Positions[0];
@@ -83,11 +107,11 @@ namespace Durin
 		const float MaxDimension = std::max(BoundsExtent.x, std::max(BoundsExtent.y, BoundsExtent.z));
 		if (MaxDimension <= 0.0f)
 		{
-			DURIN_ERROR("Imported static mesh has invalid bounds: {}", FilePath);
-			return nullptr;
+			OutError = std::format("Static mesh source has invalid bounds: {}", FilePath);
+			return false;
 		}
 
-		const float Scale = 1.5f / MaxDimension;
+		const float Scale = NormalizedSize / MaxDimension;
 		for (FVector3f& Position : RenderData->Positions)
 		{
 			Position = (Position - BoundsCenter) * Scale;
@@ -95,9 +119,72 @@ namespace Durin
 
 		RenderData->IndexCount = static_cast<uint32>(RenderData->Indices.size());
 
-		auto Mesh = std::make_shared<DStaticMesh>();
-		Mesh->SetRenderData(std::move(RenderData));
-		return Mesh;
+		SetRenderData(std::move(RenderData));
+		OutError.clear();
+		return true;
+	}
+
+	auto DStaticMesh::PostLoad(std::string& OutError) -> bool
+	{
+		if (SourceFile.empty())
+		{
+			OutError = "Static mesh asset has no source file.";
+			return false;
+		}
+		const std::string PhysicalPath = ResolveMountedFile(SourceFile).generic_string();
+		if (!std::filesystem::is_regular_file(PhysicalPath))
+		{
+			OutError = std::format("Static mesh source file does not exist: {}", SourceFile);
+			return false;
+		}
+		return BuildRenderData(PhysicalPath, OutError);
+	}
+
+	auto DStaticMesh::ImportAsset(std::string_view FilePath, std::string_view AssetPath) -> FStaticMeshImportResult
+	{
+		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
+		if (!std::filesystem::is_regular_file(Input)) return {false, "Source file does not exist.", nullptr};
+
+		FAssetPath ParsedAssetPath;
+		std::string PathError;
+		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &PathError)) return {false, std::move(PathError), nullptr};
+		if (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath))
+			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
+
+		const std::string AssetPathString = ParsedAssetPath.ToString();
+		const size_t RootEnd = AssetPathString.find('/', 1);
+		if (RootEnd == std::string::npos) return {false, "Asset path has no mounted root.", nullptr};
+		const std::string Extension = Input.extension().generic_string();
+		const std::string SourceVirtualPath = AssetPathString.substr(0, RootEnd) + "/SourceMeshes/" + std::string(ParsedAssetPath.GetAssetName()) + Extension;
+		const std::filesystem::path Destination = ResolveMountedFile(SourceVirtualPath);
+		if (std::filesystem::exists(Destination)) return {false, std::format("Imported source already exists: {}", SourceVirtualPath), nullptr};
+
+		DStaticMesh* Mesh = nullptr;
+		Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Mesh);
+		if (!CreateResult) return {false, CreateResult.Message, nullptr};
+		std::string BuildError;
+		if (!Mesh->BuildRenderData(Input.generic_string(), BuildError))
+		{
+			Asset::UnloadPackage(ParsedAssetPath);
+			return {false, std::move(BuildError), nullptr};
+		}
+
+		std::error_code Ec;
+		std::filesystem::create_directories(Destination.parent_path(), Ec);
+		if (Ec || !std::filesystem::copy_file(Input, Destination, std::filesystem::copy_options::none, Ec))
+		{
+			Asset::UnloadPackage(ParsedAssetPath);
+			return {false, std::format("Failed to copy source file to {} ({}): {}", SourceVirtualPath, Destination.generic_string(), Ec.message()), nullptr};
+		}
+		Mesh->SourceFile = SourceVirtualPath;
+		Asset::FAssetResult SaveResult = Asset::SavePackage(Mesh->GetPackage());
+		if (!SaveResult)
+		{
+			std::filesystem::remove(Destination, Ec);
+			Asset::UnloadPackage(ParsedAssetPath);
+			return {false, SaveResult.Message, nullptr};
+		}
+		return {true, {}, Mesh};
 	}
 
 	auto FStaticMeshRenderData::InitResources(FRHICommandListImmediate& RHICmdList) -> void

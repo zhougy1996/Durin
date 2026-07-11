@@ -13,6 +13,8 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Misc/Paths.h"
+#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
@@ -219,6 +221,77 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	Durin::DestroyObject(World);
 	EXPECT_EQ(Loaded->GetWorld(), nullptr);
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
+TEST(FStaticMeshAssetTests, ImportsAndRestoresLevelReferenceAndRenderData)
+{
+	InitializeDObjectSystem();
+	static const bool bMountInitialized = [] {
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshes";
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/MeshTests/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+
+	Durin::FStaticMeshImportResult Import = Durin::DStaticMesh::ImportAsset(
+		Durin::FPaths::EngineDir() + "Content/Test/teapot.obj", "/MeshTests/Teapot"
+	);
+	ASSERT_TRUE(Import) << Import.Message;
+	ASSERT_NE(Import.Asset, nullptr);
+	ASSERT_NE(Import.Asset->GetRenderData(), nullptr);
+	EXPECT_GT(Import.Asset->GetRenderData()->IndexCount, 0u);
+	EXPECT_EQ(Import.Asset->GetSourceFile(), "/MeshTests/SourceMeshes/Teapot.obj");
+
+	Durin::FAssetPath MeshPath;
+	Durin::FAssetPath LevelPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MeshTests/Teapot", MeshPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MeshTests/MeshLevel", LevelPath));
+	const Durin::Asset::FAssetData* MeshData = Durin::Asset::GetAssetRegistry().FindAsset(MeshPath);
+	ASSERT_NE(MeshData, nullptr);
+	EXPECT_EQ(MeshData->AssetClassName, Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString());
+
+	Durin::DLevel* Level = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
+	Durin::AStaticMeshActor* Actor = Level->SpawnActor<Durin::AStaticMeshActor>("Mesh");
+	Actor->GetStaticMeshComponent()->SetStaticMesh(Import.Asset);
+	ASSERT_TRUE(Level->GetPackage()->IsDirty());
+	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
+	Actor->GetStaticMeshComponent()->SetStaticMesh(Import.Asset);
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	const Durin::Asset::FAssetData* LevelData = Durin::Asset::GetAssetRegistry().FindAsset(LevelPath);
+	ASSERT_NE(LevelData, nullptr);
+	EXPECT_NE(std::ranges::find(LevelData->Dependencies, MeshPath), LevelData->Dependencies.end());
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	Durin::DLevel* LoadedLevel = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(LevelPath, LoadedLevel));
+	auto* LoadedActor = dynamic_cast<Durin::AStaticMeshActor*>(LoadedLevel->FindActorByName("Mesh"));
+	ASSERT_NE(LoadedActor, nullptr);
+	Durin::DStaticMesh* LoadedMesh = LoadedActor->GetStaticMeshComponent()->GetStaticMesh();
+	ASSERT_NE(LoadedMesh, nullptr);
+	ASSERT_NE(LoadedMesh->GetRenderData(), nullptr);
+	EXPECT_GT(LoadedMesh->GetRenderData()->IndexCount, 0u);
+
+	LoadedActor->GetStaticMeshComponent()->SetStaticMesh(nullptr);
+	ASSERT_TRUE(Durin::Asset::SavePackage(LoadedLevel->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	LoadedLevel = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(LevelPath, LoadedLevel));
+	LoadedActor = dynamic_cast<Durin::AStaticMeshActor*>(LoadedLevel->FindActorByName("Mesh"));
+	ASSERT_NE(LoadedActor, nullptr);
+	EXPECT_EQ(LoadedActor->GetStaticMeshComponent()->GetStaticMesh(), nullptr);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+
+	const std::filesystem::path CopiedSource = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshes/SourceMeshes/Teapot.obj";
+	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
+	Durin::DStaticMesh* MissingSourceMesh = nullptr;
+	Durin::Asset::FAssetResult MissingSourceResult = Durin::Asset::LoadAsset(MeshPath, MissingSourceMesh);
+	EXPECT_FALSE(MissingSourceResult);
+	EXPECT_EQ(MissingSourceMesh, nullptr);
+	EXPECT_NE(MissingSourceResult.Message.find("does not exist"), std::string::npos);
 }
 
 TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
