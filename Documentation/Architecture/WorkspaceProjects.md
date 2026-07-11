@@ -26,7 +26,9 @@ Typical workspace contents:
 
 Projects are top-level owners such as `Engine` or `SandBox`. They typically own `.dproject`, `Source/`, `Configs/`, `Intermediate/`, and `Binaries/`.
 
-Projects are registered through `Engine/Configs/RegisteredProjects.json`.
+At runtime, launch a specific project with `--project=<path-to-project.dproject>`. The project root is the descriptor's parent directory, so projects may live outside the engine workspace. Its `ProjectName` supplies the virtual mount name and its `Content` directory supplies the physical mount.
+
+`Engine/Configs/RegisteredProjects.json` is a development-time fallback used when no project is explicitly selected. It supports workspace builds and project discovery, but is not the authoritative location of the active runtime project.
 
 Modules are the compilation and runtime loading units. They belong to a project, but their dependencies can cross project boundaries.
 

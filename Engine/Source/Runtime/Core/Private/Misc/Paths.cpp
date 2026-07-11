@@ -8,6 +8,8 @@ namespace Durin
 {
 	namespace
 	{
+		std::filesystem::path ActiveProjectFile;
+
 		auto IsEngineDirCandidate(const std::filesystem::path& Candidate) -> bool
 		{
 			return std::filesystem::is_directory(Candidate)
@@ -67,6 +69,29 @@ namespace Durin
 		}
 	}
 
+	auto FPaths::SetProjectFile(std::string_view ProjectFile, std::string* OutError) -> bool
+	{
+		if (ProjectFile.empty())
+		{
+			ActiveProjectFile.clear();
+			return true;
+		}
+
+		const std::filesystem::path Candidate = std::filesystem::absolute(ProjectFile).lexically_normal();
+		if (Candidate.extension() != ".dproject" || !std::filesystem::is_regular_file(Candidate))
+		{
+			if (OutError) *OutError = std::format("Project file does not exist or is not a .dproject file: {}", Candidate.generic_string());
+			return false;
+		}
+		ActiveProjectFile = Candidate;
+		return true;
+	}
+
+	auto FPaths::ProjectFile() -> std::string
+	{
+		return ActiveProjectFile.generic_string();
+	}
+
 	namespace PathUtilities
 	{
 		static std::vector<FMountPoint> MountPoints;
@@ -109,19 +134,36 @@ namespace Durin
 			checkf(IsInGameThread(), "InitDefaultMountPoints must be called from the game thread.");
 			RegisterMountPointWithoutSorting("/Engine/", FPaths::EngineDir() + "Content/");
 
-			FJsonDocument ProjectsDocument;
-			const std::string RegistryPath = FPaths::EngineDir() + "Configs/RegisteredProjects.json";
-			if (ProjectsDocument.LoadFromFile(RegistryPath))
+			if (!FPaths::ProjectFile().empty())
 			{
-				ProjectsDocument.GetRootView().GetView("Projects").ForEachObjectMember(
-					[](std::string_view ProjectName, FJsonNodeView ProjectFileNode) {
-						const std::string ProjectFile = ProjectFileNode.GetString();
-						if (ProjectFile.empty()) return;
-						const std::filesystem::path ProjectDir = std::filesystem::path(FPaths::RootDir()) / std::filesystem::path(ProjectFile).parent_path();
-						const std::filesystem::path ContentDir = ProjectDir / "Content";
+				FJsonDocument ProjectDocument;
+				if (ProjectDocument.LoadFromFile(FPaths::ProjectFile()))
+				{
+					const std::string ProjectName = ProjectDocument.GetRootView().GetView("ProjectName").GetString();
+					if (!ProjectName.empty())
+					{
+						const std::filesystem::path ContentDir = std::filesystem::path(FPaths::ProjectFile()).parent_path() / "Content";
 						RegisterMountPointWithoutSorting(std::format("/{}/", ProjectName), ContentDir.generic_string() + "/");
 					}
-				);
+				}
+			}
+
+			if (FPaths::ProjectFile().empty())
+			{
+				FJsonDocument ProjectsDocument;
+				const std::string RegistryPath = FPaths::EngineDir() + "Configs/RegisteredProjects.json";
+				if (ProjectsDocument.LoadFromFile(RegistryPath))
+				{
+					ProjectsDocument.GetRootView().GetView("Projects").ForEachObjectMember(
+						[](std::string_view ProjectName, FJsonNodeView ProjectFileNode) {
+							const std::string ProjectFile = ProjectFileNode.GetString();
+							if (ProjectFile.empty()) return;
+							const std::filesystem::path ProjectDir = std::filesystem::path(FPaths::RootDir()) / std::filesystem::path(ProjectFile).parent_path();
+							const std::filesystem::path ContentDir = ProjectDir / "Content";
+							RegisterMountPointWithoutSorting(std::format("/{}/", ProjectName), ContentDir.generic_string() + "/");
+						}
+					);
+				}
 			}
 
 			std::ranges::sort(MountPoints, [](const FMountPoint& A, const FMountPoint& B) {
@@ -161,7 +203,7 @@ namespace Durin
 
 	auto FPaths::ProjectDir() -> std::string
 	{
-		// TODO: Implement this function to return the actual project directory.
+		if (!ActiveProjectFile.empty()) return ActiveProjectFile.parent_path().generic_string() + "/";
 		return EngineDir();
 	}
 

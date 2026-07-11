@@ -34,10 +34,22 @@ namespace Durin
 
 	FEngineLoop GEngineLoop;
 
-	auto FEngineLoop::PreInit() -> void
+	auto FEngineLoop::PreInit(int ArgC, char** ArgV) -> void
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
+
+		for (int Index = 1; Index < ArgC; ++Index)
+		{
+			std::string_view Argument = ArgV[Index];
+			constexpr std::string_view ProjectPrefix = "--project=";
+			std::string_view ProjectFile;
+			if (Argument.starts_with(ProjectPrefix)) ProjectFile = Argument.substr(ProjectPrefix.size());
+			else if (Argument == "--project" && Index + 1 < ArgC) ProjectFile = ArgV[++Index];
+			else continue;
+			std::string ProjectError;
+			checkf(FPaths::SetProjectFile(ProjectFile, &ProjectError), "{}", ProjectError);
+		}
 
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
@@ -50,6 +62,7 @@ namespace Durin
 		DURIN_INFO(STR("Launching Durin engine..."));
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
+		if (!FPaths::ProjectFile().empty()) DURIN_DEBUG(STR("Project file: {}"), FPaths::ProjectFile());
 		PathUtilities::InitDefaultMountPoints(); // Initialize default mount points to enable path resolving.
 		InitEngineThreadPool();
 

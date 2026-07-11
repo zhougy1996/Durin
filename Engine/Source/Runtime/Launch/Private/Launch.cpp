@@ -4,9 +4,9 @@
 
 using namespace Durin;
 
-int LAUNCH_API main()
+int LAUNCH_API main(int ArgC, char** ArgV)
 {
-	GEngineLoop.PreInit();
+	GEngineLoop.PreInit(ArgC, ArgV);
 	GEngineLoop.Init();
 
 	while (!IsEngineExitRequested())

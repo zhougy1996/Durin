@@ -22,6 +22,9 @@ namespace Durin
 	class FPaths
 	{
 	public:
+		static CORE_API auto SetProjectFile(std::string_view ProjectFile, std::string* OutError = nullptr) -> bool;
+		static CORE_API auto ProjectFile() -> std::string;
+
 		static CORE_API auto LaunchDir() ->  std::string;
 
 		static CORE_API auto RootDir() -> std::string;
