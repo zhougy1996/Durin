@@ -7,6 +7,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
+#include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/AssetPath.h"
 #include "DObject/Package.h"
 #include "CoreGlobals.h"
@@ -654,6 +655,41 @@ namespace
 		Durin::RemoveFromRoot(RootedObject);
 		Durin::DestroyObject(RootedObject);
 		Durin::GDObjectArray.Compact();
+	}
+
+	TEST(FCoreDObjectReflectionTests, GarbageObjectIsCollectedEvenWhenRooted)
+	{
+		EnsureDObjectInitialized();
+		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("RootedGarbageObject"));
+		Durin::TObjectPtr<Durin::DObject> ObjectPtr = Object;
+		Durin::AddToRoot(Object);
+		Durin::MarkAsGarbage(Object);
+
+		EXPECT_EQ(ObjectPtr.Get(), Object);
+		EXPECT_FALSE(ObjectPtr.IsValid());
+		EXPECT_FALSE(Durin::IsValid(Object));
+		Durin::CollectGarbage();
+		EXPECT_EQ(ObjectPtr.Get(), nullptr);
+	}
+
+	TEST(FCoreDObjectReflectionTests, GarbageCollectionSchedulerUsesTimeAndPressure)
+	{
+		Durin::FGarbageCollectionSettings Settings;
+		Settings.IntervalSeconds = 60.0;
+		Settings.PendingKillThreshold = 128;
+		Settings.ObjectGrowthThreshold = 1024;
+		Durin::FGarbageCollectionScheduler Scheduler(Settings);
+		Scheduler.Reset(100.0, 20);
+
+		EXPECT_EQ(Scheduler.ShouldCollect(159.0, 20, 0), Durin::EGarbageCollectionTrigger::None);
+		EXPECT_EQ(Scheduler.ShouldCollect(160.0, 20, 0), Durin::EGarbageCollectionTrigger::Interval);
+		EXPECT_EQ(Scheduler.ShouldCollect(101.0, 20, 128), Durin::EGarbageCollectionTrigger::PendingKillPressure);
+		EXPECT_EQ(Scheduler.ShouldCollect(101.0, 1044, 0), Durin::EGarbageCollectionTrigger::ObjectGrowthPressure);
+
+		Settings.bEnabled = false;
+		Durin::FGarbageCollectionScheduler DisabledScheduler(Settings);
+		DisabledScheduler.Reset(100.0, 20);
+		EXPECT_EQ(DisabledScheduler.ShouldCollect(1000.0, 10000, 10000), Durin::EGarbageCollectionTrigger::None);
 	}
 
 	TEST(FCoreDObjectReflectionTests, OnlyTObjectPtrPropertiesKeepReferencedObjectsReachable)

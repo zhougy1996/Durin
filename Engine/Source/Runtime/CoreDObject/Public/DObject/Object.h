@@ -80,6 +80,8 @@ namespace Durin
 		auto GetInternalFlags() const -> EObjectInternalFlags { return InternalFlags; }
 
 		auto HasAnyInternalFlags(EObjectInternalFlags InFlags) const -> bool { return EnumHasAnyFlags(InternalFlags, InFlags); }
+		auto IsGarbage() const -> bool { return HasAnyInternalFlags(EObjectInternalFlags::Garbage); }
+		auto IsPendingKill() const -> bool { return HasAnyInternalFlags(EObjectInternalFlags::Garbage | EObjectInternalFlags::BeginDestroyed); }
 
 		COREDOBJECT_API auto IsA(const DClass* InClass) const -> bool;
 
@@ -150,6 +152,7 @@ namespace Durin
 		friend COREDOBJECT_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
 		friend COREDOBJECT_API auto AddToRoot(DObject* Object) -> void;
 		friend COREDOBJECT_API auto RemoveFromRoot(DObject* Object) -> void;
+		friend COREDOBJECT_API auto MarkAsGarbage(DObject* Object) -> void;
 		friend COREDOBJECT_API auto DestroyObject(DObject* Object) -> void;
 		friend COREDOBJECT_API auto CollectGarbage() -> void;
 		friend COREDOBJECT_API auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void;

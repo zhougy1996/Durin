@@ -5,6 +5,7 @@
 #include "Object.h"
 #include "ObjectPtr.h"
 #include "ObjectLifecycle.h"
+#include "GarbageCollectionScheduler.h"
 #include "Archive.h"
 #include "Class.h"
 #include "DObjectArray.h"

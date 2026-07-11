@@ -3,3 +3,9 @@ AppName: DurinApp
 LogLevel: Debug
 
 ForceRecompileShaders: false
+
+GarbageCollection:
+  Enabled: true
+  IntervalSeconds: 60
+  PendingKillThreshold: 128
+  ObjectGrowthThreshold: 1024

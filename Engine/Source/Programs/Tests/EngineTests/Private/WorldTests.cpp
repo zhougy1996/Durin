@@ -128,9 +128,14 @@ TEST(FWorldTests, SpawnsActorsAndComponentsFromRuntimeClasses)
 
 	Durin::TObjectPtr<Durin::DActorComponent> InstancePtr = Instance;
 	EXPECT_TRUE(First->DestroyInstanceComponent(Instance));
-	EXPECT_EQ(InstancePtr.Get(), nullptr);
+	EXPECT_EQ(InstancePtr.Get(), Instance);
+	EXPECT_FALSE(InstancePtr.IsValid());
+	EXPECT_FALSE(Durin::IsValid(Instance));
+	EXPECT_TRUE(Instance->IsPendingKill());
+	EXPECT_FALSE(Instance->IsRegistered());
 	EXPECT_FALSE(First->IsInstanceComponent(Instance));
 	Durin::DestroyObject(World);
+	EXPECT_EQ(InstancePtr.Get(), nullptr);
 }
 
 TEST(FWorldTests, RuntimeClassConstructionRejectsInvalidClassMetadata)

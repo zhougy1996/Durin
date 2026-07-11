@@ -32,6 +32,7 @@ namespace Durin
 		}
 
 		auto GetHandle() const -> FObjectHandle { return Handle; }
+		auto IsValid() const -> bool { DObject* Object = Get(); return Object && !Object->IsPendingKill(); }
 		auto Reset() -> void { SetObject(nullptr); }
 		explicit operator bool() const { return Get() != nullptr; }
 
@@ -50,6 +51,7 @@ namespace Durin
 		auto Get() const -> T* { return FromDObject(ObjectPtr.Get()); }
 		auto Reset() -> void { ObjectPtr.Reset(); }
 		auto GetHandle() const -> FObjectHandle { return ObjectPtr.GetHandle(); }
+		auto IsValid() const -> bool { return ObjectPtr.IsValid(); }
 
 		auto operator=(std::nullptr_t) -> TObjectPtr&
 		{

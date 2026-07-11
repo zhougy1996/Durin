@@ -26,6 +26,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API auto BeginDestroy() -> void override;
+		ENGINE_API auto OnComponentPendingKill() -> void override;
 
 		ENGINE_API auto GetRelativeTransform() const -> const FTransform&;
 		ENGINE_API auto SetRelativeTransform(const FTransform& InTransform) -> void;

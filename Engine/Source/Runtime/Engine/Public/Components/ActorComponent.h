@@ -47,6 +47,8 @@ namespace Durin
 
 		ENGINE_API virtual auto OnComponentDestroyed() -> void;
 
+		ENGINE_API virtual auto OnComponentPendingKill() -> void;
+
 	private:
 		// Call OnRegister()
 		auto ExecuteRegisterEvents() -> void;

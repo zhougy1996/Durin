@@ -3,10 +3,43 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/Object.h"
+#include "Misc/Time.h"
 
 namespace Durin
 {
+	namespace
+	{
+		auto IsPermanentObject(DObject* Object) -> bool;
+
+		auto DestroyObjectInternal(DObject* Object) -> void
+		{
+			if (!Object || IsPermanentObject(Object))
+			{
+				return;
+			}
+			if (Object->HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed))
+			{
+				return;
+			}
+
+			Object->SetInternalFlags(EObjectInternalFlags::BeginDestroyed);
+			Object->BeginDestroy();
+
+			std::vector<DObject*> InnerObjects = Object->GetInnerObjects();
+			for (DObject* InnerObject : InnerObjects)
+			{
+				DestroyObjectInternal(InnerObject);
+			}
+
+			Object->SetOuterPrivate(nullptr);
+			GDObjectArray.Remove(Object);
+			Object->FinishDestroy();
+			delete Object;
+		}
+	}
+
 	namespace
 	{
 		auto ForEachPropertyReference(FProperty* Property, void* Container, uint32 ArrayIndex, FReferenceCollector& Collector) -> void
@@ -99,7 +132,7 @@ namespace Durin
 
 			auto MarkObject(DObject* Object) -> void
 			{
-				if (!Object || Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable))
+				if (!Object || Object->IsGarbage() || Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable))
 				{
 					return;
 				}
@@ -142,6 +175,16 @@ namespace Durin
 		}
 	}
 
+	auto IsValid(const DObject* Object) -> bool
+	{
+		return Object && GDObjectArray.Contains(Object) && !Object->IsPendingKill();
+	}
+
+	auto MarkAsGarbage(DObject* Object) -> void
+	{
+		if (Object && !IsPermanentObject(Object)) Object->SetInternalFlags(EObjectInternalFlags::Garbage);
+	}
+
 	COREDOBJECT_API auto ConditionallyMarkAsReachable(DObject* Object) -> void
 	{
 		(void)Object;
@@ -173,28 +216,7 @@ namespace Durin
 
 	auto DestroyObject(DObject* Object) -> void
 	{
-		if (!Object || IsPermanentObject(Object))
-		{
-			return;
-		}
-		if (Object->HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed))
-		{
-			return;
-		}
-
-		Object->SetInternalFlags(EObjectInternalFlags::BeginDestroyed);
-		Object->BeginDestroy();
-
-		std::vector<DObject*> InnerObjects = Object->GetInnerObjects();
-		for (DObject* InnerObject : InnerObjects)
-		{
-			DestroyObject(InnerObject);
-		}
-
-		Object->SetOuterPrivate(nullptr);
-		GDObjectArray.Remove(Object);
-		Object->FinishDestroy();
-		delete Object;
+		DestroyObjectInternal(Object);
 	}
 
 	auto CollectGarbage() -> void
@@ -203,7 +225,7 @@ namespace Durin
 		{
 			if (Object)
 			{
-				Object->ClearInternalFlags(EObjectInternalFlags::Reachable | EObjectInternalFlags::Garbage);
+				Object->ClearInternalFlags(EObjectInternalFlags::Reachable);
 			}
 		}
 
@@ -214,7 +236,7 @@ namespace Durin
 			{
 				continue;
 			}
-			if (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || IsPermanentObject(Object))
+			if (!Object->IsGarbage() && (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || IsPermanentObject(Object)))
 			{
 				Marker.MarkObject(Object);
 			}
@@ -227,7 +249,7 @@ namespace Durin
 			{
 				continue;
 			}
-			if (!Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable))
+			if (Object->IsGarbage() || !Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable))
 			{
 				Object->SetInternalFlags(EObjectInternalFlags::Garbage);
 				DestroyObject(Object);
@@ -235,5 +257,11 @@ namespace Durin
 		}
 
 		GDObjectArray.Compact();
+		NotifyGarbageCollectionCompleted(FTime::Seconds());
+	}
+
+	auto GetGarbageObjectCount() -> uint64
+	{
+		return static_cast<uint64>(std::ranges::count_if(GDObjectArray.GetAll(), [](const DObject* Object) { return Object && Object->IsGarbage(); }));
 	}
 }

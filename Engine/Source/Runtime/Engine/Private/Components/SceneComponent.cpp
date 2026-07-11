@@ -6,6 +6,11 @@ namespace Durin
 {
 	auto DSceneComponent::BeginDestroy() -> void
 	{
+		Super::BeginDestroy();
+	}
+
+	auto DSceneComponent::OnComponentPendingKill() -> void
+	{
 		const std::vector<TObjectPtr<DSceneComponent>> Children = AttachChildren;
 		for (const TObjectPtr<DSceneComponent>& ChildPtr : Children)
 		{
@@ -16,7 +21,7 @@ namespace Durin
 		}
 		AttachChildren.clear();
 		DetachFromComponent(EDetachmentTransformRule::KeepWorld);
-		Super::BeginDestroy();
+		Super::OnComponentPendingKill();
 	}
 
 	auto DSceneComponent::GetRelativeTransform() const -> const FTransform&

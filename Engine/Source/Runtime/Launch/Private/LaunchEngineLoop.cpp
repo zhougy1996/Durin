@@ -3,6 +3,8 @@
 #include "Threading/QueuedThreadPool.h"
 #include "Threading/RunnableThread.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/DObjectArray.h"
+#include "DObject/ObjectLifecycle.h"
 #include "ApplicationCore.h"
 #include "AssetSystem.h"
 #include "RHI.h"
@@ -14,6 +16,7 @@
 #include "CoreGlobals.h"
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
+#include "Misc/Time.h"
 
 #include "Shader/ShaderPaths.h"
 #include "DurinEngine.h"
@@ -52,6 +55,13 @@ namespace Durin
 
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
+		const FYamlNodeView GarbageCollectionConfig = GAppConfig.GetView("GarbageCollection");
+		FGarbageCollectionSettings GarbageCollectionSettings;
+		GarbageCollectionSettings.bEnabled = GarbageCollectionConfig.GetView("Enabled").GetBool(true);
+		GarbageCollectionSettings.IntervalSeconds = GarbageCollectionConfig.GetView("IntervalSeconds").GetDouble(60.0);
+		GarbageCollectionSettings.PendingKillThreshold = GarbageCollectionConfig.GetView("PendingKillThreshold").GetUInt(128);
+		GarbageCollectionSettings.ObjectGrowthThreshold = GarbageCollectionConfig.GetView("ObjectGrowthThreshold").GetUInt(1024);
+		ConfigureAutomaticGarbageCollection(GarbageCollectionSettings, FTime::Seconds());
 	}
 
 	auto FEngineLoop::Init() -> void
@@ -134,6 +144,18 @@ namespace Durin
 
 		Mona::NewFrame();
 		RenderFrame();
+		const uint64 ObjectsBeforeGC = GDObjectArray.GetNum();
+		const uint64 PendingKillBeforeGC = GetGarbageObjectCount();
+		const double GCStartTime = FTime::Seconds();
+		const EGarbageCollectionTrigger GCTrigger = TryCollectGarbage(GCStartTime);
+		if (GCTrigger != EGarbageCollectionTrigger::None)
+		{
+			const char* TriggerName = GCTrigger == EGarbageCollectionTrigger::Interval ? "interval"
+				: GCTrigger == EGarbageCollectionTrigger::PendingKillPressure ? "pending-kill pressure"
+				: "object-growth pressure";
+			DURIN_INFO("Automatic GC ({}) completed in {:.3f} ms: objects {} -> {}, pending kill {}.", TriggerName,
+				(FTime::Seconds() - GCStartTime) * 1000.0, ObjectsBeforeGC, GDObjectArray.GetNum(), PendingKillBeforeGC);
+		}
 
 		CalculateFPSTimings();
 	}
@@ -148,6 +170,7 @@ namespace Durin
 		DestroyObject(GEngine);
 		GEngine = nullptr;
 		Asset::ShutdownAssetManager();
+		CollectGarbage();
 
 		FlushRenderingCommands();
 		ShutdownRenderingThread();

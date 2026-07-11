@@ -94,20 +94,26 @@ TEST(FViewportCameraTransformTests, FocusAndDollyRemainFiniteAtDegenerateDistanc
 
 TEST(FViewportSelectionTests, PrefersViewportClientAndFallsBackToPrimaryCamera)
 {
+	std::cerr << "viewport step 1\n";
 	InitializeDObjectSystem();
 	FTestEngine Engine;
+	std::cerr << "viewport step 2\n";
 	FTestViewportClient Client;
 	auto ClientViewport = std::make_shared<Durin::FSceneViewport>(&Client, std::shared_ptr<Durin::MViewport>{});
 	Engine.SetTestViewport(ClientViewport);
 	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {11.0, 12.0, 13.0});
+	std::cerr << "viewport step 3\n";
 
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(&Engine, "ViewportTestWorld");
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ViewportTestLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	std::cerr << "viewport step 4\n";
 	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(CameraActor, nullptr);
+	std::cerr << "viewport step 5\n";
 	CameraActor->GetCameraComponent()->SetWorldLocation({7.0, 8.0, 9.0});
 	Engine.SetTestWorld(World);
 	Engine.SetTestViewport(nullptr);
 	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {7.0, 8.0, 9.0});
+	std::cerr << "viewport step 6\n";
 }

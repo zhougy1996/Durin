@@ -228,6 +228,8 @@ Generated code uses fully qualified C++ type names for reflected C++ types.
 The current lifecycle API is intentionally small:
 
 - `DestroyObject(DObject*)` destroys non-intrinsic runtime objects and their inner objects
+- `MarkAsGarbage(DObject*)` marks an object as pending kill while keeping its handles resolvable until GC
+- `IsValid(...)` distinguishes live objects from pending-kill or destroyed objects
 - `AddToRoot(DObject*)` and `RemoveFromRoot(DObject*)` control manual GC roots
 - `FScopedObjectRoot` temporarily roots an object for a C++ scope
 - `CollectGarbage()` performs synchronous mark-sweep collection
@@ -235,7 +237,9 @@ The current lifecycle API is intentionally small:
 
 Reflection metadata drives reference traversal. `ForEachObjectReference(...)` scans reflected direct `FObjectProperty` fields, including `TObjectPtr` wrappers, and calls an `FReferenceCollector`. GC marks from permanent reflected type objects, root-set objects, reflected object references, and outer-to-inner ownership. Intrinsic reflected metadata objects such as `DClass` and `DEnum` are treated as permanent and are not swept.
 
-This is a stop-the-world v1 collector. It does not scan the native stack, traverse container elements, support weak references, defer destruction, compact object handles, or run incrementally.
+This is a stop-the-world v1 collector. It does not scan the native stack, support weak references, compact object handles, or run incrementally.
+
+Component removal immediately ends runtime participation and marks the component as garbage. Existing `TObjectPtr` handles remain resolvable but report invalid until a later GC removes the object. The engine checks for automatic GC after end-of-frame render synchronization, using a configurable interval plus pending-kill and object-growth pressure thresholds. Explicit `CollectGarbage()` remains available for forced collection.
 
 ## Serialization
 

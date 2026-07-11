@@ -34,21 +34,13 @@ namespace Durin
 			}
 		}
 
-		DestroyObject(this);
+		OnComponentPendingKill();
+		MarkAsGarbage(this);
 	}
 
 	auto DActorComponent::BeginDestroy() -> void
 	{
-		if (bHasBeenInitialized)
-		{
-			UninitializeComponent();
-		}
-		ExecuteUnregisterEvents();
-		if (bHasBeenCreated)
-		{
-			OnComponentDestroyed();
-			check(!bHasBeenCreated && "Failed to route OnComponentDestroyed()");
-		}
+		OnComponentPendingKill();
 		Super::BeginDestroy();
 	}
 
@@ -85,6 +77,17 @@ namespace Durin
 	auto DActorComponent::OnComponentDestroyed() -> void
 	{
 		bHasBeenCreated = false;
+	}
+
+	auto DActorComponent::OnComponentPendingKill() -> void
+	{
+		if (bHasBeenInitialized) UninitializeComponent();
+		ExecuteUnregisterEvents();
+		if (bHasBeenCreated)
+		{
+			OnComponentDestroyed();
+			check(!bHasBeenCreated && "Failed to route OnComponentDestroyed()");
+		}
 	}
 
 	auto DActorComponent::ExecuteRegisterEvents() -> void

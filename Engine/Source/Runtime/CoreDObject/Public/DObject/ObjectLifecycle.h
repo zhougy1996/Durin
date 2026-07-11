@@ -24,7 +24,10 @@ namespace Durin
 
 	COREDOBJECT_API auto AddToRoot(DObject* Object) -> void;
 	COREDOBJECT_API auto RemoveFromRoot(DObject* Object) -> void;
+	COREDOBJECT_API auto IsValid(const DObject* Object) -> bool;
+	COREDOBJECT_API auto MarkAsGarbage(DObject* Object) -> void;
 	COREDOBJECT_API auto DestroyObject(DObject* Object) -> void;
 	COREDOBJECT_API auto CollectGarbage() -> void;
+	COREDOBJECT_API auto GetGarbageObjectCount() -> uint64;
 	COREDOBJECT_API auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void;
 }
