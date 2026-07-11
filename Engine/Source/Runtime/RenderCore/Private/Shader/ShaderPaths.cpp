@@ -267,7 +267,8 @@ namespace Durin::FShaderPaths
 		GShaderMountRegistry.AddDefaultProjectMountPoint("/Engine/", FPaths::EngineDir());
 
 		const std::string ProjectDir = FPaths::ProjectDir();
-		if (ProjectDir != FPaths::EngineDir())
+		if (!ProjectDir.empty() && ProjectDir != FPaths::EngineDir()
+			&& std::filesystem::is_directory(std::filesystem::path(ProjectDir) / "Shaders" / "Slang"))
 		{
 			GShaderMountRegistry.AddDefaultProjectMountPoint("/Project/", ProjectDir);
 		}

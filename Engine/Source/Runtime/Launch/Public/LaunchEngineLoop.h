@@ -7,7 +7,7 @@ namespace Durin
 	class FEngineLoop
 	{
 	public:
-		auto PreInit(int ArgC, char** ArgV) -> void;
+		auto PreInit(std::span<const std::string_view> Arguments = {}) -> void;
 		auto Init() -> void;
 		auto Tick() -> void;
 		auto Exit() -> void;

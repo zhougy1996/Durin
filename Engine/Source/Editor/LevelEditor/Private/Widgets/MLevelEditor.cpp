@@ -10,6 +10,7 @@
 #include "LevelEditorContext.h"
 #include "Misc/StringConvert.h"
 #include "Misc/Paths.h"
+#include "Misc/Project.h"
 #include "MonaImGui.h"
 #include "Application/GenericApplication.h"
 #include "Application/MonaApplication.h"
@@ -47,6 +48,8 @@ namespace Durin
 		Context->ReportError = [this](std::string Message) { SetError(std::move(Message)); };
 		Asset::GetAssetRegistry().ScanMountedContent();
 		LoadSessionSettings();
+		LoadProjectSettings();
+		SaveSessionSettings();
 		Panels.emplace_back(std::make_unique<FSceneViewportPanel>());
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
 		Panels.emplace_back(std::make_unique<FDetailsPanel>());
@@ -101,6 +104,7 @@ namespace Durin
 		FYamlNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureMap();
 		Root.SetChildValue("AlwaysAskForStartupLevel", bAlwaysAskForStartupLevel);
+		if (const FProjectInfo* Project = GetCurrentProject()) Root.SetChildValue("RecentProject", Project->ProjectFile);
 		FYamlNodeRef Display = Root.AddMap("Display");
 		Display.SetChildValue("WindowWidth", WindowWidth);
 		Display.SetChildValue("WindowHeight", WindowHeight);
@@ -116,25 +120,58 @@ namespace Durin
 		return true;
 	}
 
-	auto MLevelEditor::GetStartupMountRoot() const -> std::string
+	auto MLevelEditor::LoadProjectSettings() -> bool
 	{
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-		{
-			if (Mount.VirtualRoot != "/Engine/") return Mount.VirtualRoot;
-		}
-		return {};
+		DefaultLevel.clear();
+		const FProjectInfo* Project = GetCurrentProject();
+		if (!Project) return false;
+		const std::string File = Project->ProjectDir + "Configs/Project.yaml";
+		if (!std::filesystem::exists(File)) return true;
+		FYamlDocument Document;
+		FYamlParseError Error;
+		if (!Document.LoadFromFile(File, &Error)) { DURIN_WARN("Failed to load project settings: {}", Error.Message); return false; }
+		DefaultLevel = Document.GetRootView().GetView("Editor").GetView("DefaultLevel").GetString();
+		return true;
+	}
+
+	auto MLevelEditor::SaveProjectSettings() -> bool
+	{
+		const FProjectInfo* Project = GetCurrentProject();
+		if (!Project) { SetError("No project is open."); return false; }
+		if (!DefaultLevel.empty() && !DefaultLevel.starts_with(Project->MountRoot)) { SetError("The default level must belong to the current project."); return false; }
+		const auto Found = std::ranges::find_if(Asset::GetAssetRegistry().GetAssets(), [this](const auto& Entry) {
+			return Entry.first.ToString() == DefaultLevel && Entry.second.AssetClassName == DLevel::StaticClass()->GetQualifiedName().ToString();
+		});
+		if (!DefaultLevel.empty() && Found == Asset::GetAssetRegistry().GetAssets().end()) { SetError("The default level is not a registered Level asset."); return false; }
+		std::error_code Error;
+		std::filesystem::create_directories(std::filesystem::path(Project->ProjectDir) / "Configs", Error);
+		if (Error) { SetError("Could not create the project Configs directory."); return false; }
+		FYamlDocument Document;
+		FYamlNodeRef Root = Document.GetMutableRoot(); Root.EnsureMap();
+		Root.AddMap("Editor").SetChildValue("DefaultLevel", DefaultLevel);
+		if (!Document.SaveToFile(Project->ProjectDir + "Configs/Project.yaml")) { SetError("Could not save project settings."); return false; }
+		return true;
 	}
 
 	auto MLevelEditor::InitializeStartupLevel() -> void
 	{
 		if (!bAlwaysAskForStartupLevel)
 		{
-			const auto Found = RecentLevelByMount.find(GetStartupMountRoot());
+			const FProjectInfo* Project = GetCurrentProject();
+			auto Found = Project ? RecentLevelByMount.find(Project->ProjectFile) : RecentLevelByMount.end();
+			if (Project && Found == RecentLevelByMount.end()) Found = RecentLevelByMount.find(Project->MountRoot); // Legacy session key.
 			if (Found != RecentLevelByMount.end())
 			{
 				OpenLevel(Found->second);
 				if (EditorError.empty()) return;
 				DURIN_WARN("Could not restore startup level {}: {}", Found->second, EditorError);
+				EditorError.clear();
+			}
+			if (Project && !DefaultLevel.empty() && DefaultLevel.starts_with(Project->MountRoot))
+			{
+				OpenLevel(DefaultLevel);
+				if (EditorError.empty()) return;
+				DURIN_WARN("Could not open project default level {}: {}", DefaultLevel, EditorError);
 				EditorError.clear();
 			}
 		}
@@ -143,9 +180,9 @@ namespace Durin
 
 	auto MLevelEditor::RecordRecentLevel(std::string_view Path) -> void
 	{
-		const std::string MountRoot = GetMountRoot(Path);
-		if (MountRoot.empty()) return;
-		RecentLevelByMount[MountRoot] = Path;
+		const FProjectInfo* Project = GetCurrentProject();
+		if (!Project || !Path.starts_with(Project->MountRoot)) return;
+		RecentLevelByMount[Project->ProjectFile] = Path;
 		SaveSessionSettings();
 	}
 
@@ -163,6 +200,7 @@ namespace Durin
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) SaveCurrentLevel();
 		DrawMainMenu();
 		DrawFileDialogs();
+		DrawProjectSettings();
 
 		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow())
 		{
@@ -206,6 +244,12 @@ namespace Durin
 			if (ImGui::MenuItem("Open Level", "Ctrl+O")) RequestFileAction(EPendingFileAction::OpenLevel);
 			if (ImGui::MenuItem("Save Level", "Ctrl+S", false, Context && Context->Level && Context->Level->GetPackage())) SaveCurrentLevel();
 			if (ImGui::MenuItem("Open Startup Level...")) RequestFileAction(EPendingFileAction::StartupLevel);
+			if (ImGui::MenuItem("Set Current Level as Project Default", nullptr, false, Context && Context->Level && Context->Level->GetPackage()))
+			{
+				DefaultLevel = Context->Level->GetPackage()->GetPackagePath();
+				SaveProjectSettings();
+			}
+			if (ImGui::MenuItem("Open Project...")) RequestFileAction(EPendingFileAction::OpenProject);
 			ImGui::Separator();
 			if (ImGui::BeginMenu("Import"))
 			{
@@ -229,6 +273,7 @@ namespace Durin
 		}
 		if (ImGui::BeginMenu("Edit"))
 		{
+			if (ImGui::MenuItem("Project Settings...")) bProjectSettingsOpen = true;
 			ImGui::MenuItem("Undo/redo is not available yet", nullptr, false, false);
 			ImGui::EndMenu();
 		}
@@ -283,6 +328,33 @@ namespace Durin
 		ImGui::EndMainMenuBar();
 	}
 
+	auto MLevelEditor::DrawProjectSettings() -> void
+	{
+		if (!bProjectSettingsOpen) return;
+		if (ImGui::Begin("Project Settings", &bProjectSettingsOpen))
+		{
+			const FProjectInfo* Project = GetCurrentProject();
+			if (Project)
+			{
+				ImGui::Text("Project: %s", Project->Name.c_str());
+				ImGui::TextWrapped("Path: %s", Project->ProjectFile.c_str());
+				ImGui::SeparatorText("Editor Default Level");
+				if (ImGui::BeginCombo("Default Level", DefaultLevel.empty() ? "None" : DefaultLevel.c_str()))
+				{
+					for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+					{
+						const std::string Value = Path.ToString();
+						if (!Value.starts_with(Project->MountRoot) || Data.AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString()) continue;
+						if (ImGui::Selectable(Value.c_str(), Value == DefaultLevel)) DefaultLevel = Value;
+					}
+					ImGui::EndCombo();
+				}
+				if (ImGui::Button("Save")) SaveProjectSettings();
+			}
+		}
+		ImGui::End();
+	}
+
 	auto MLevelEditor::ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void
 	{
 		WindowWidth = Width;
@@ -315,7 +387,8 @@ namespace Durin
 		if (PendingFileAction == EPendingFileAction::NewLevel)
 		{
 			LevelPathBuffer.fill(0);
-			const std::string DefaultPath = "/SandBox/Levels/NewLevel";
+			const FProjectInfo* Project = GetCurrentProject();
+			const std::string DefaultPath = Project ? Project->MountRoot + "Levels/NewLevel" : "/Levels/NewLevel";
 			std::memcpy(LevelPathBuffer.data(), DefaultPath.data(), DefaultPath.size());
 			QueuedFilePopup = EQueuedFilePopup::NewLevel;
 		}
@@ -328,6 +401,11 @@ namespace Durin
 		{
 			OpenFilterBuffer.fill(0);
 			QueuedFilePopup = EQueuedFilePopup::StartupLevel;
+		}
+		else if (PendingFileAction == EPendingFileAction::OpenProject)
+		{
+			std::string Error;
+			if (!RelaunchEditorForProject({}, &Error)) SetError(std::move(Error));
 		}
 	}
 
@@ -541,7 +619,8 @@ namespace Durin
 		std::memcpy(ImportSourcePathBuffer.data(), Result.FilePath.data(), FMath::Min(Result.FilePath.size(), ImportSourcePathBuffer.size() - 1));
 
 		const std::string AssetName = String::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
-		const std::string SuggestedPath = "/SandBox/StaticMeshes/" + AssetName;
+		const FProjectInfo* Project = GetCurrentProject();
+		const std::string SuggestedPath = (Project ? Project->MountRoot : "/") + "StaticMeshes/" + AssetName;
 		if (PreviousAssetPath.empty() || PreviousAssetPath == LastSuggestedImportAssetPath)
 		{
 			ImportAssetPathBuffer.fill(0);
@@ -562,7 +641,7 @@ namespace Durin
 
 		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
 		{
-			if (Mount.VirtualRoot == "/SandBox/")
+			if (const FProjectInfo* Project = GetCurrentProject(); Project && Mount.VirtualRoot == Project->MountRoot)
 			{
 				Request.InitialDirectory = Mount.PhysicalPath;
 				break;

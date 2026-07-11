@@ -16,6 +16,7 @@
 #include "CoreGlobals.h"
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
+#include "Misc/Project.h"
 #include "Misc/Time.h"
 
 #include "Shader/ShaderPaths.h"
@@ -34,19 +35,31 @@ namespace Durin
 
 	FEngineLoop GEngineLoop;
 
-	auto FEngineLoop::PreInit(int ArgC, char** ArgV) -> void
+	auto FEngineLoop::PreInit(std::span<const std::string_view> Arguments) -> void
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 
-		for (int Index = 1; Index < ArgC; ++Index)
+		for (size_t Index = 0; Index < Arguments.size(); ++Index)
 		{
-			std::string_view Argument = ArgV[Index];
+			std::string_view Argument = Arguments[Index];
+
 			constexpr std::string_view ProjectPrefix = "--project=";
 			std::string_view ProjectFile;
-			if (Argument.starts_with(ProjectPrefix)) ProjectFile = Argument.substr(ProjectPrefix.size());
-			else if (Argument == "--project" && Index + 1 < ArgC) ProjectFile = ArgV[++Index];
-			else continue;
+
+			if (Argument.starts_with(ProjectPrefix))
+			{
+				ProjectFile = Argument.substr(ProjectPrefix.size());
+			}
+			else if (Argument == "--project" && Index + 1 < Arguments.size())
+			{
+				ProjectFile = Arguments[++Index];
+			}
+			else
+			{
+				continue;
+			}
+
 			std::string ProjectError;
 			checkf(FPaths::SetProjectFile(ProjectFile, &ProjectError), "{}", ProjectError);
 		}
@@ -62,6 +75,8 @@ namespace Durin
 		DURIN_INFO(STR("Launching Durin engine..."));
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
+		std::string ProjectError;
+		if (!InitializeCurrentProject(Arguments, &ProjectError) && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
 		if (!FPaths::ProjectFile().empty()) DURIN_DEBUG(STR("Project file: {}"), FPaths::ProjectFile());
 		PathUtilities::InitDefaultMountPoints(); // Initialize default mount points to enable path resolving.
 		InitEngineThreadPool();

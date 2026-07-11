@@ -4,9 +4,11 @@
 
 using namespace Durin;
 
-int LAUNCH_API main(int ArgC, char** ArgV)
+int LAUNCH_API main(int argc, char** argv)
 {
-	GEngineLoop.PreInit(ArgC, ArgV);
+	std::vector<std::string_view> Arguments;
+	for (int Index = 1; Index < argc; ++Index) Arguments.emplace_back(argv[Index]);
+	GEngineLoop.PreInit(Arguments);
 	GEngineLoop.Init();
 
 	while (!IsEngineExitRequested())

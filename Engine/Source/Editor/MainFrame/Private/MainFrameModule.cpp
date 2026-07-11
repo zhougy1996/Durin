@@ -5,6 +5,7 @@
 #include "MonaImGui.h"
 #include "Application/GenericApplication.h"
 #include "Misc/Paths.h"
+#include "Misc/Project.h"
 #include "Yaml/Yaml.h"
 
 #include "Widgets/MFunctionWidget.h"
@@ -48,16 +49,38 @@ namespace Durin
 		MonaImGui::BindMainViewportToWindow(RootWindow);
 
 		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
-		std::shared_ptr<MWidget> LevelEditorWidget = LevelEditorModule.CreateLevelEditorWidget();
+		std::shared_ptr<MWidget> LevelEditorWidget;
+		std::shared_ptr<std::string> ProjectBrowserError = std::make_shared<std::string>();
+		if (HasCurrentProject()) LevelEditorWidget = LevelEditorModule.CreateLevelEditorWidget();
 
-		RootWindow->SetTitle("Durin Editor");
+		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		EditorRootWidget->Construct([LevelEditorWidget]() {
+		EditorRootWidget->Construct([LevelEditorWidget, ProjectBrowserError]() {
 			if (LevelEditorWidget != nullptr)
 			{
 				LevelEditorWidget->Draw();
+				return;
 			}
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+			ImGui::SetNextWindowSize(ImVec2(640.0f, 420.0f), ImGuiCond_Once);
+			if (ImGui::Begin("Open a Durin Project", nullptr, ImGuiWindowFlags_NoCollapse))
+			{
+				ImGui::TextUnformatted("Registered projects in this workspace");
+				ImGui::Separator();
+				for (const FProjectInfo& Project : GetRegisteredProjects())
+				{
+					ImGui::PushID(Project.ProjectFile.c_str());
+					ImGui::Text("%s", Project.Name.c_str());
+					ImGui::TextDisabled("%s", Project.ProjectFile.c_str());
+					ImGui::SameLine(ImGui::GetWindowWidth() - 100.0f);
+					if (ImGui::Button("Open")) RelaunchEditorForProject(Project.ProjectFile, ProjectBrowserError.get());
+					ImGui::Separator();
+					ImGui::PopID();
+				}
+				if (!ProjectBrowserError->empty()) ImGui::TextColored(ImVec4(1, 0.35f, 0.35f, 1), "%s", ProjectBrowserError->c_str());
+			}
+			ImGui::End();
 		});
 		RootWindow->SetContent(EditorRootWidget);
 
