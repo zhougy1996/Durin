@@ -15,6 +15,7 @@
 #include "Application/MonaApplication.h"
 #include "Widgets/MWindow.h"
 #include "Panels/DetailsPanel.h"
+#include "Panels/FileBrowserPanel.h"
 #include "Panels/LevelEditorPanel.h"
 #include "Panels/OutputLogPanel.h"
 #include "Panels/SceneViewportPanel.h"
@@ -50,6 +51,7 @@ namespace Durin
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
 		Panels.emplace_back(std::make_unique<FDetailsPanel>());
 		Panels.emplace_back(std::make_unique<FOutputLogPanel>());
+		Panels.emplace_back(std::make_unique<FFileBrowserPanel>());
 		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
 		InitializeStartupLevel();
 	}
@@ -625,6 +627,7 @@ namespace Durin
 
 		ImGui::DockBuilderDockWindow("World Outliner###WorldOutliner", LeftDockId);
 		ImGui::DockBuilderDockWindow("Details###Details", RightDockId);
+		ImGui::DockBuilderDockWindow("File Browser###FileBrowser", BottomDockId);
 		ImGui::DockBuilderDockWindow("Output Log###OutputLog", BottomDockId);
 		ImGui::DockBuilderDockWindow("Scene Viewport###SceneViewport", MainDockId);
 		ImGui::DockBuilderFinish(DockSpaceId);
