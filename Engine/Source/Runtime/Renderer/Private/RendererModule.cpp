@@ -111,6 +111,7 @@ namespace Durin
 
 		FStaticMeshRendererState GStaticMeshState;
 		FPostProcessRendererState GPostProcessState;
+		std::atomic<ERenderMode> GRenderMode = ERenderMode::Lit;
 
 		auto EnsureStaticMeshPipeline() -> void
 		{
@@ -290,7 +291,7 @@ namespace Durin
 
 			FRHITextureCreateDesc SceneColorDesc = FRHITextureCreateDesc::Create2D("SceneColor", Width, Height, EPixelFormat::SRGBA8_UNORM);
 			SceneColorDesc.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource);
-			SceneColorDesc.SetClearValue(FClearValueBinding(0.05f, 0.09f, 0.14f, 1.0f));
+			SceneColorDesc.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
 			GPostProcessState.SceneColor = RHICreateTexture(SceneColorDesc);
 			GPostProcessState.SceneColorWidth = Width;
 			GPostProcessState.SceneColorHeight = Height;
@@ -422,12 +423,14 @@ namespace Durin
 	{
 		FRendererViewSettings Settings;
 		Settings.bEnableFXAA = GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
+		Settings.RenderMode = GRenderMode.load(std::memory_order_relaxed);
 		return Settings;
 	}
 
 	auto FRendererModule::SetViewSettings(const FRendererViewSettings& InSettings) -> void
 	{
 		SetFXAAEnabled(InSettings.bEnableFXAA);
+		SetRenderMode(InSettings.RenderMode);
 	}
 
 	auto FRendererModule::SetFXAAEnabled(bool bInEnabled) -> void
@@ -438,6 +441,16 @@ namespace Durin
 	auto FRendererModule::IsFXAAEnabled() const -> bool
 	{
 		return GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
+	}
+
+	auto FRendererModule::SetRenderMode(ERenderMode Mode) -> void
+	{
+		GRenderMode.store(Mode, std::memory_order_relaxed);
+	}
+
+	auto FRendererModule::GetRenderMode() const -> ERenderMode
+	{
+		return GRenderMode.load(std::memory_order_relaxed);
 	}
 
 	auto FRendererModule::PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void
@@ -468,7 +481,7 @@ namespace Durin
 
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.ColorRenderTargets[0] = SceneColor;
-		ScenePassInfo.ColorClearValue = FClearValueBinding(0.05f, 0.09f, 0.14f, 1.0f);
+		ScenePassInfo.ColorClearValue = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		CommandList.BeginRenderPass(ScenePassInfo, "SceneColorRenderPass");
 		FSceneView RenderView = View;
 		RenderView.ViewportWidth = Width;
@@ -502,8 +515,12 @@ namespace Durin
 		CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
 
-		ForEachStaticMeshProxy(Scene, [&CommandList, &View](FStaticMeshSceneProxy& Proxy) {
-			DrawStaticMeshProxy(CommandList, View, Proxy);
+		const ERenderMode RenderMode = GRenderMode.load(std::memory_order_relaxed);
+		ForEachStaticMeshProxy(Scene, [&CommandList, &View, RenderMode](FStaticMeshSceneProxy& Proxy) {
+			if (RenderMode == ERenderMode::Unlit || RenderMode == ERenderMode::Lit)
+			{
+				DrawStaticMeshProxy(CommandList, View, Proxy);
+			}
 		});
 	}
 

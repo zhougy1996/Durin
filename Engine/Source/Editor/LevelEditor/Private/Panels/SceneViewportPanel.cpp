@@ -2,6 +2,7 @@
 
 #include "Components/CameraComponent.h"
 #include "Engine/Engine.h"
+#include "IRendererModule.h"
 #include "LevelEditorContext.h"
 #include "Math/Vector.h"
 #include "Mona/SceneViewport.h"
@@ -88,9 +89,11 @@ namespace Durin
 				}
 				bViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 				UpdateViewportInput(Context);
-				DrawToolbar(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-				DrawOrientationOverlay(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-				DrawFPSOverlay(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+				const ImVec2 VpMin = ImGui::GetItemRectMin();
+				const ImVec2 VpMax = ImGui::GetItemRectMax();
+				DrawToolbar(VpMin, VpMax);
+				DrawOrientationOverlay(VpMin, VpMax);
+				DrawFPSOverlay(VpMin, VpMax);
 			}
 		}
 		if (ViewportWidget == nullptr || !ViewportWidget->WasTextureDrawn())
@@ -103,12 +106,55 @@ namespace Durin
 		ImGui::End();
 	}
 
-	auto FSceneViewportPanel::DrawToolbar(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void
+	auto FSceneViewportPanel::DrawToolbar(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void
 	{
+		(void)ViewportMax;
+		ERenderMode CurrentMode = ERenderMode::Lit;
+		IRendererModule* RendererModule = nullptr;
+		if (GEngine != nullptr)
+		{
+			RendererModule = GEngine->GetRendererModule();
+			if (RendererModule != nullptr)
+			{
+				CurrentMode = RendererModule->GetRenderMode();
+			}
+		}
+
+		const char* Label = (CurrentMode == ERenderMode::Lit) ? "Lit" : "Unlit";
+		const ImVec2 LabelSize = ImGui::CalcTextSize(Label);
+		const ImVec2 ButtonPos(ViewportMin.x + 8.0f, ViewportMin.y + 4.0f);
+		const ImVec2 ButtonSize(LabelSize.x + 12.0f, LabelSize.y + 4.0f);
+
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
-		DrawList->AddText(ImVec2(ViewportMin.x + 12.0f, ViewportMin.y + 6.0f), IM_COL32(200, 200, 200, 255), "Lit");
+
+		const bool bHovered = ImGui::IsMouseHoveringRect(ButtonPos, ImVec2(ButtonPos.x + ButtonSize.x, ButtonPos.y + ButtonSize.y));
+		if (bHovered)
+		{
+			DrawList->AddRectFilled(ButtonPos, ImVec2(ButtonPos.x + ButtonSize.x, ButtonPos.y + ButtonSize.y), IM_COL32(60, 60, 60, 160), 3.0f);
+		}
+
+		DrawList->AddText(ImVec2(ButtonPos.x + 6.0f, ButtonPos.y + 2.0f), IM_COL32(220, 220, 220, 255), Label);
 		DrawList->PopClipRect();
+
+		ImGui::SetCursorScreenPos(ButtonPos);
+		if (ImGui::InvisibleButton("##ViewModeButton", ButtonSize))
+		{
+			ImGui::OpenPopup("ViewModePopup");
+		}
+
+		if (ImGui::BeginPopup("ViewModePopup"))
+		{
+			if (ImGui::Selectable("Lit"))
+			{
+				if (RendererModule != nullptr) RendererModule->SetRenderMode(ERenderMode::Lit);
+			}
+			if (ImGui::Selectable("Unlit"))
+			{
+				if (RendererModule != nullptr) RendererModule->SetRenderMode(ERenderMode::Unlit);
+			}
+			ImGui::EndPopup();
+		}
 	}
 
 	auto FSceneViewportPanel::DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void

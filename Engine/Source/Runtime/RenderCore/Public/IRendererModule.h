@@ -8,9 +8,16 @@ namespace Durin
 	class FRHITexture;
 	class IScene;
 
+	enum class ERenderMode : uint8
+	{
+		Lit,
+		Unlit
+	};
+
 	struct FRendererViewSettings
 	{
 		bool bEnableFXAA = true;
+		ERenderMode RenderMode = ERenderMode::Lit;
 	};
 
 	struct FSceneView
@@ -31,6 +38,8 @@ namespace Durin
 		virtual auto SetViewSettings(const FRendererViewSettings& InSettings) -> void = 0;
 		virtual auto SetFXAAEnabled(bool bInEnabled) -> void = 0;
 		virtual auto IsFXAAEnabled() const -> bool = 0;
+		virtual auto SetRenderMode(ERenderMode Mode) -> void = 0;
+		virtual auto GetRenderMode() const -> ERenderMode = 0;
 		virtual auto PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void = 0;
 		virtual auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void = 0;
 		virtual auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void = 0;
