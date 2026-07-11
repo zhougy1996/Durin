@@ -256,7 +256,7 @@ TEST(FStaticMeshAssetTests, ImportsAndRestoresLevelReferenceAndRenderData)
 	ASSERT_NE(Import.Asset, nullptr);
 	ASSERT_NE(Import.Asset->GetRenderData(), nullptr);
 	EXPECT_GT(Import.Asset->GetRenderData()->IndexCount, 0u);
-	EXPECT_EQ(Import.Asset->GetSourceFile(), "/MeshTests/SourceMeshes/Teapot.obj");
+	EXPECT_EQ(Import.Asset->GetSourceFile(), "Teapot.obj");
 
 	Durin::FAssetPath MeshPath;
 	Durin::FAssetPath LevelPath;
@@ -300,7 +300,7 @@ TEST(FStaticMeshAssetTests, ImportsAndRestoresLevelReferenceAndRenderData)
 	EXPECT_EQ(LoadedActor->GetStaticMeshComponent()->GetStaticMesh(), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
 
-	const std::filesystem::path CopiedSource = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshes/SourceMeshes/Teapot.obj";
+	const std::filesystem::path CopiedSource = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshes/Teapot.obj";
 	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
 	Durin::DStaticMesh* MissingSourceMesh = nullptr;
 	Durin::Asset::FAssetResult MissingSourceResult = Durin::Asset::LoadAsset(MeshPath, MissingSourceMesh);

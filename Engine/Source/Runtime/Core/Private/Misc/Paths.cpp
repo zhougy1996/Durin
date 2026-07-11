@@ -143,7 +143,9 @@ namespace Durin
 	auto FPaths::RootDir() -> std::string
 	{
 		static std::string CachedRootDir = []() -> std::string {
-			const std::filesystem::path RootDir = std::filesystem::path{FPaths::EngineDir()}.parent_path();
+			std::filesystem::path EngineDir = FPaths::EngineDir();
+			if (EngineDir.filename().empty()) EngineDir = EngineDir.parent_path();
+			const std::filesystem::path RootDir = EngineDir.parent_path();
 			return RootDir.generic_string() + "/";
 		}();
 		return CachedRootDir;

@@ -397,23 +397,84 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 
-		if (ImGui::BeginPopupModal("Import Static Mesh", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		ImGui::SetNextWindowSize(ImVec2(640.0f, 0.0f), ImGuiCond_Appearing);
+		if (ImGui::BeginPopupModal("Import Static Mesh", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize))
 		{
-			ImGui::SetNextItemWidth(420.0f);
-			ImGui::InputText("Source File", ImportSourcePathBuffer.data(), ImportSourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
+			ImGui::TextUnformatted("Create a static mesh asset from a model file.");
+			ImGui::TextDisabled("The source model is copied next to the .dasset package so they can be moved together.");
+
+			ImGui::Spacing();
+			ImGui::SeparatorText("Source model");
+			const float BrowseButtonWidth = 92.0f;
+			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
+			ImGui::InputTextWithHint("##ImportSource", "Choose an OBJ, FBX, glTF, or other supported model...", ImportSourcePathBuffer.data(), ImportSourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
 			ImGui::SameLine();
-			if (ImGui::Button("Browse...")) BrowseStaticMeshSource();
-			ImGui::SetNextItemWidth(420.0f);
-			ImGui::InputText("Asset Path", ImportAssetPathBuffer.data(), ImportAssetPathBuffer.size());
+			if (ImGui::Button("Browse...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseStaticMeshSource();
+
+			const std::filesystem::path SourcePath(ImportSourcePathBuffer.data());
+			const bool bHasSource = ImportSourcePathBuffer[0] != '\0';
+			const bool bSourceExists = bHasSource && std::filesystem::is_regular_file(SourcePath);
+			if (bHasSource)
+			{
+				ImGui::TextDisabled("%s", std::format("{}  |  {}", SourcePath.extension().generic_string(), SourcePath.filename().generic_string()).c_str());
+			}
+
+			ImGui::Spacing();
+			ImGui::SeparatorText("Destination");
+			ImGui::TextUnformatted("Asset path");
+			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
+			ImGui::InputTextWithHint("##ImportAssetPath", "/Project/StaticMeshes/AssetName", ImportAssetPathBuffer.data(), ImportAssetPathBuffer.size());
 			ImGui::SameLine();
-			if (ImGui::Button("Browse...##AssetPath")) BrowseStaticMeshDestination();
-			if (ImGui::Button("Import"))
+			if (ImGui::Button("Choose...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseStaticMeshDestination();
+
+			FAssetPath ParsedAssetPath;
+			std::string AssetPathError;
+			const bool bAssetPathValid = FAssetPath::TryCreate(ImportAssetPathBuffer.data(), ParsedAssetPath, &AssetPathError);
+			bool bMountedDestination = false;
+			if (bAssetPathValid)
+			{
+				for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+				{
+					if (ParsedAssetPath.GetView().starts_with(Mount.VirtualRoot)) { bMountedDestination = true; break; }
+				}
+			}
+			const bool bAssetExists = bAssetPathValid && (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath));
+
+			if (bAssetPathValid && bMountedDestination && bHasSource)
+			{
+				const std::string SourceFileName = std::string(ParsedAssetPath.GetAssetName()) + SourcePath.extension().generic_string();
+				ImGui::BeginChild("ImportOutputPreview", ImVec2(0.0f, 58.0f), ImGuiChildFlags_Borders);
+				ImGui::TextDisabled("Files to create");
+				ImGui::TextUnformatted(std::format("{}.dasset   +   {}", ParsedAssetPath.GetAssetName(), SourceFileName).c_str());
+				ImGui::EndChild();
+			}
+
+			std::string ValidationMessage;
+			if (!bHasSource) ValidationMessage = "Select a source model to continue.";
+			else if (!bSourceExists) ValidationMessage = "The selected source file no longer exists.";
+			else if (!bAssetPathValid) ValidationMessage = AssetPathError;
+			else if (!bMountedDestination) ValidationMessage = "Choose a destination inside a mounted Content directory.";
+			else if (bAssetExists) ValidationMessage = "An asset already exists at this path.";
+
+			if (!ValidationMessage.empty())
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.65f, 0.25f, 1.0f));
+				ImGui::TextWrapped("%s", ValidationMessage.c_str());
+				ImGui::PopStyleColor();
+			}
+
+			ImGui::Spacing();
+			ImGui::Separator();
+			const bool bCanImport = ValidationMessage.empty();
+			ImGui::BeginDisabled(!bCanImport);
+			if (ImGui::Button("Import Static Mesh", ImVec2(150.0f, 0.0f)))
 			{
 				ImportStaticMesh();
 				if (EditorError.empty()) ImGui::CloseCurrentPopup();
 			}
+			ImGui::EndDisabled();
 			ImGui::SameLine();
-			if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+			if (ImGui::Button("Cancel", ImVec2(80.0f, 0.0f))) ImGui::CloseCurrentPopup();
 			ImGui::EndPopup();
 		}
 

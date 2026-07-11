@@ -11,7 +11,7 @@ Durin keeps authored content reproducible alongside the source revision that con
 | Small text metadata and import settings | Git | They are reviewable and should evolve with their assets. |
 | `DerivedDataCache`, `Cooked`, and `Saved` | Ignored | These directories contain rebuildable or machine-local output. |
 
-Static-mesh `.dasset` files currently record a project-relative source path, while CPU and GPU render data is rebuilt from the copied Content source. Therefore, commit the referenced source model together with its `.dasset`; committing only the package does not produce a reproducible checkout.
+Static-mesh `.dasset` files record the source model's filename relative to the package directory, while CPU and GPU render data is rebuilt from that colocated Content source. Commit and move the source model together with its `.dasset`; committing only the package does not produce a reproducible checkout. Older packages that stored a mounted `SourceMeshes` path can still load a colocated file with the same filename.
 
 ## Directory Convention
 
@@ -21,14 +21,14 @@ Projects should use a layout similar to:
 Content/
   Levels/           # Versioned .dasset packages
   Materials/        # Versioned .dasset packages
-  StaticMeshes/     # Versioned .dasset packages
-  SourceAssets/     # LFS-backed models, textures, audio, and fonts
+  StaticMeshes/     # Versioned .dasset packages beside their LFS-backed source models
+  SourceAssets/     # Shared LFS-backed textures, audio, fonts, and other source data
 DerivedDataCache/   # Ignored, rebuildable
 Saved/              # Ignored, editor-local state
 Cooked/             # Ignored, distribution output
 ```
 
-Existing specialized source directories such as `Content/SourceMeshes` may remain in use. Storage is selected by file type in the repository `.gitattributes`, not by directory name.
+Storage is selected by file type in the repository `.gitattributes`, not by directory name.
 
 ## Workstation Setup
 
@@ -45,7 +45,7 @@ Before committing, use these checks:
 
 ```powershell
 git lfs ls-files
-git check-attr filter diff merge text -- Engine/Content/SourceMeshes/teapot.obj
+git check-attr filter diff merge text -- Engine/Content/StaticMeshes/teapot.obj
 git status
 ```
 

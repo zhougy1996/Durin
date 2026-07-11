@@ -23,6 +23,20 @@ namespace Durin
 			}
 			return std::filesystem::path(VirtualPath).lexically_normal();
 		}
+
+		auto ResolveStaticMeshSource(const DStaticMesh& Mesh) -> std::filesystem::path
+		{
+			const std::filesystem::path StoredPath(Mesh.GetSourceFile());
+			const std::filesystem::path PackageFile = ResolveMountedFile(Mesh.GetPackage()->GetPackagePath());
+			if (!StoredPath.is_absolute() && !Mesh.GetSourceFile().starts_with('/'))
+			{
+				return (PackageFile.parent_path() / StoredPath).lexically_normal();
+			}
+
+			const std::filesystem::path LegacyPath = ResolveMountedFile(Mesh.GetSourceFile());
+			if (std::filesystem::is_regular_file(LegacyPath)) return LegacyPath;
+			return (PackageFile.parent_path() / StoredPath.filename()).lexically_normal();
+		}
 	}
 
 	DStaticMesh::DStaticMesh(const FObjectInitializer& ObjectInitializer)
@@ -131,7 +145,7 @@ namespace Durin
 			OutError = "Static mesh asset has no source file.";
 			return false;
 		}
-		const std::string PhysicalPath = ResolveMountedFile(SourceFile).generic_string();
+		const std::string PhysicalPath = ResolveStaticMeshSource(*this).generic_string();
 		if (!std::filesystem::is_regular_file(PhysicalPath))
 		{
 			OutError = std::format("Static mesh source file does not exist: {}", SourceFile);
@@ -151,13 +165,10 @@ namespace Durin
 		if (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath))
 			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
 
-		const std::string AssetPathString = ParsedAssetPath.ToString();
-		const size_t RootEnd = AssetPathString.find('/', 1);
-		if (RootEnd == std::string::npos) return {false, "Asset path has no mounted root.", nullptr};
 		const std::string Extension = Input.extension().generic_string();
-		const std::string SourceVirtualPath = AssetPathString.substr(0, RootEnd) + "/SourceMeshes/" + std::string(ParsedAssetPath.GetAssetName()) + Extension;
-		const std::filesystem::path Destination = ResolveMountedFile(SourceVirtualPath);
-		if (std::filesystem::exists(Destination)) return {false, std::format("Imported source already exists: {}", SourceVirtualPath), nullptr};
+		const std::string SourceFileName = std::string(ParsedAssetPath.GetAssetName()) + Extension;
+		const std::filesystem::path Destination = std::filesystem::path(ResolveMountedFile(ParsedAssetPath.ToString())).replace_extension(Extension);
+		if (std::filesystem::exists(Destination)) return {false, std::format("Imported source already exists: {}", Destination.generic_string()), nullptr};
 
 		DStaticMesh* Mesh = nullptr;
 		Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Mesh);
@@ -174,9 +185,9 @@ namespace Durin
 		if (Ec || !std::filesystem::copy_file(Input, Destination, std::filesystem::copy_options::none, Ec))
 		{
 			Asset::UnloadPackage(ParsedAssetPath);
-			return {false, std::format("Failed to copy source file to {} ({}): {}", SourceVirtualPath, Destination.generic_string(), Ec.message()), nullptr};
+			return {false, std::format("Failed to copy source file to {}: {}", Destination.generic_string(), Ec.message()), nullptr};
 		}
-		Mesh->SourceFile = SourceVirtualPath;
+		Mesh->SourceFile = SourceFileName;
 		Asset::FAssetResult SaveResult = Asset::SavePackage(Mesh->GetPackage());
 		if (!SaveResult)
 		{
