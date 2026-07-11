@@ -23,8 +23,9 @@ namespace Durin
 		auto IsViewportFocused() const -> bool { return bViewportFocused; }
 
 	private:
-		auto DrawToolbar() -> void;
+		auto DrawToolbar(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
+		auto DrawFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto UpdateViewportSize() -> void;
 		auto UpdateViewportInput(FLevelEditorContext& Context) -> void;
 

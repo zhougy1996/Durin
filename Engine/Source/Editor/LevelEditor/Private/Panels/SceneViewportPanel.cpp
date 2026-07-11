@@ -2,7 +2,6 @@
 
 #include "Components/CameraComponent.h"
 #include "Engine/Engine.h"
-#include "IRendererModule.h"
 #include "LevelEditorContext.h"
 #include "Math/Vector.h"
 #include "Mona/SceneViewport.h"
@@ -64,7 +63,6 @@ namespace Durin
 			return;
 		}
 
-		DrawToolbar();
 		if (Context.Level == nullptr)
 		{
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
@@ -90,7 +88,9 @@ namespace Durin
 				}
 				bViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 				UpdateViewportInput(Context);
+				DrawToolbar(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
 				DrawOrientationOverlay(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+				DrawFPSOverlay(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
 			}
 		}
 		if (ViewportWidget == nullptr || !ViewportWidget->WasTextureDrawn())
@@ -103,26 +103,12 @@ namespace Durin
 		ImGui::End();
 	}
 
-	auto FSceneViewportPanel::DrawToolbar() -> void
+	auto FSceneViewportPanel::DrawToolbar(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void
 	{
-		ImGui::Text("FPS %.1f", ImGui::GetIO().Framerate);
-		ImGui::SameLine();
-		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-		ImGui::SameLine();
-		if (GEngine != nullptr)
-		{
-			if (IRendererModule* RendererModule = GEngine->GetRendererModule())
-			{
-				bool bEnableFXAA = RendererModule->IsFXAAEnabled();
-				if (ImGui::Checkbox("FXAA", &bEnableFXAA))
-				{
-					RendererModule->SetFXAAEnabled(bEnableFXAA);
-				}
-			}
-		}
-		ImGui::SameLine();
-		ImGui::TextDisabled("Lit");
-		ImGui::Separator();
+		ImDrawList* DrawList = ImGui::GetWindowDrawList();
+		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
+		DrawList->AddText(ImVec2(ViewportMin.x + 12.0f, ViewportMin.y + 6.0f), IM_COL32(200, 200, 200, 255), "Lit");
+		DrawList->PopClipRect();
 	}
 
 	auto FSceneViewportPanel::DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void
@@ -158,6 +144,18 @@ namespace Durin
 			const ImVec2 TextSize = ImGui::CalcTextSize(AxisLabels[AxisIndex]);
 			DrawAxisText(DrawList, Add(End, Add(Mul(AxisDirections[AxisIndex], 5.0f), ImVec2(-TextSize.x * 0.5f, -TextSize.y * 0.5f))), AxisColors[AxisIndex], AxisLabels[AxisIndex]);
 		}
+		DrawList->PopClipRect();
+	}
+
+	auto FSceneViewportPanel::DrawFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void
+	{
+		char FpsText[32];
+		snprintf(FpsText, sizeof(FpsText), "FPS: %.1f", ImGui::GetIO().Framerate);
+		const ImVec2 TextSize = ImGui::CalcTextSize(FpsText);
+		const ImVec2 TextPos(ViewportMax.x - TextSize.x - 12.0f, ViewportMin.y + 8.0f);
+		ImDrawList* DrawList = ImGui::GetWindowDrawList();
+		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
+		DrawList->AddText(TextPos, IM_COL32(255, 255, 255, 200), FpsText);
 		DrawList->PopClipRect();
 	}
 

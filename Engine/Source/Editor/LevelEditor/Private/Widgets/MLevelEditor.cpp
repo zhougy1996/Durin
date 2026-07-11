@@ -6,6 +6,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "IRendererModule.h"
 #include "LevelEditorContext.h"
 #include "Misc/StringConvert.h"
 #include "Misc/Paths.h"
@@ -245,6 +246,18 @@ namespace Durin
 			if (ImGui::MenuItem("Reset Layout"))
 			{
 				bResetLayoutRequested = true;
+			}
+			ImGui::Separator();
+			if (GEngine != nullptr)
+			{
+				if (IRendererModule* RendererModule = GEngine->GetRendererModule())
+				{
+					bool bEnableFXAA = RendererModule->IsFXAAEnabled();
+					if (ImGui::MenuItem("FXAA", nullptr, &bEnableFXAA))
+					{
+						RendererModule->SetFXAAEnabled(bEnableFXAA);
+					}
+				}
 			}
 			ImGui::EndMenu();
 		}
