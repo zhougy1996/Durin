@@ -778,9 +778,29 @@ namespace Durin::Asset
 		return {};
 	}
 
+	auto FAssetManager::Shutdown() -> void
+	{
+		std::vector<DPackage*> Packages;
+		Packages.reserve(LoadedPackages.size());
+		for (const auto& [Path, Package] : LoadedPackages)
+		{
+			if (Package) Packages.push_back(Package);
+		}
+		LoadedPackages.clear();
+		LoadingPackages.clear();
+		TransactionPackages.clear();
+		LoadDepth = 0;
+		for (DPackage* Package : Packages)
+		{
+			RemoveFromRoot(Package);
+			DestroyObject(Package);
+		}
+	}
+
 	auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult { return FAssetManager::Get().LoadAsset(Path, OutAsset); }
 	auto SavePackage(DPackage* Package) -> FAssetResult { return FAssetManager::Get().SavePackage(Package); }
 	auto FindLoadedPackage(const FAssetPath& Path) -> DPackage* { return FAssetManager::Get().FindLoadedPackage(Path); }
 	auto UnloadPackage(const FAssetPath& Path) -> FAssetResult { return FAssetManager::Get().UnloadPackage(Path); }
+	auto ShutdownAssetManager() -> void { FAssetManager::Get().Shutdown(); }
 	auto GetAssetRegistry() -> FAssetRegistry& { return FAssetManager::Get().GetRegistry(); }
 }

@@ -4,6 +4,7 @@
 #include "Threading/RunnableThread.h"
 #include "DObject/DObjectGlobals.h"
 #include "ApplicationCore.h"
+#include "AssetSystem.h"
 #include "RHI.h"
 #include "Mona.h"
 #include "Engine/Engine.h"
@@ -146,6 +147,7 @@ namespace Durin
 		RemoveFromRoot(GEngine);
 		DestroyObject(GEngine);
 		GEngine = nullptr;
+		Asset::ShutdownAssetManager();
 
 		FlushRenderingCommands();
 		ShutdownRenderingThread();

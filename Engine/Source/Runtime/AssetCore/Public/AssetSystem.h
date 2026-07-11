@@ -69,6 +69,7 @@ namespace Durin::Asset
 		ASSETCORE_API auto SavePackage(DPackage* Package) -> FAssetResult;
 		ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) const -> DPackage*;
 		ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
+		ASSETCORE_API auto Shutdown() -> void;
 
 		auto GetRegistry() -> FAssetRegistry& { return Registry; }
 		auto GetRegistry() const -> const FAssetRegistry& { return Registry; }
@@ -114,5 +115,6 @@ namespace Durin::Asset
 	ASSETCORE_API auto SavePackage(DPackage* Package) -> FAssetResult;
 	ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) -> DPackage*;
 	ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
+	ASSETCORE_API auto ShutdownAssetManager() -> void;
 	ASSETCORE_API auto GetAssetRegistry() -> FAssetRegistry&;
 }
