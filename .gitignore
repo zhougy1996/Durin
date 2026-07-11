@@ -11,6 +11,12 @@
 /AGENTS_LOCAL.md
 /.agents/
 
+# Regenerable content and editor output. Authored source assets and .dasset
+# packages under Content remain versioned; only derived/local data is ignored.
+**/DerivedDataCache/
+**/Cooked/
+**/Saved/
+
 # User-specific files
 *.rsuser
 *.suo

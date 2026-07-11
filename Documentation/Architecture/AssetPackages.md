@@ -31,3 +31,5 @@ Supported reflected payloads are numeric values, bool, strings, enums, `DStruct`
 - `DLevel` objects are main assets inside packages; a `DWorld` remains a runtime/editor session container and activates one level at a time.
 
 Deferred work includes soft references, async loading, cooking, reimport, hot reload, redirects, and editor asset browsing.
+
+Repository storage rules for packages, source assets, and generated data are documented in [Content Version Control](../Git/ContentVersionControl.md).

@@ -61,13 +61,35 @@ CMakeLists.txt text eol=lf
 #*.wwaproj   merge=binary
 
 ###############################################################################
-# behavior for image files
-#
-# image files are treated as binary by default.
+# Durin content
 ###############################################################################
-#*.jpg   binary
-#*.png   binary
-#*.gif   binary
+# Serialized Durin packages are versioned with the source that consumes them,
+# but they are binary and cannot be line-merged.
+*.dasset binary
+
+# Large source assets are versioned through Git LFS. Keep text-based asset
+# formats here as well: their generated diffs are generally too noisy to be
+# useful and revisions can be large.
+*.fbx  filter=lfs diff=lfs merge=lfs -text
+*.obj  filter=lfs diff=lfs merge=lfs -text
+*.gltf filter=lfs diff=lfs merge=lfs -text
+*.glb  filter=lfs diff=lfs merge=lfs -text
+*.blend filter=lfs diff=lfs merge=lfs -text
+
+*.png  filter=lfs diff=lfs merge=lfs -text
+*.jpg  filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+*.tga  filter=lfs diff=lfs merge=lfs -text
+*.dds  filter=lfs diff=lfs merge=lfs -text
+*.hdr  filter=lfs diff=lfs merge=lfs -text
+*.exr  filter=lfs diff=lfs merge=lfs -text
+
+*.wav  filter=lfs diff=lfs merge=lfs -text
+*.ogg  filter=lfs diff=lfs merge=lfs -text
+*.flac filter=lfs diff=lfs merge=lfs -text
+
+*.ttf  filter=lfs diff=lfs merge=lfs -text
+*.otf  filter=lfs diff=lfs merge=lfs -text
 
 ###############################################################################
 # diff behavior for common document formats
