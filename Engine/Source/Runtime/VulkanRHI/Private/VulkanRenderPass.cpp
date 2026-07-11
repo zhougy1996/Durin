@@ -33,10 +33,32 @@ namespace Durin::VulkanRHI
 			.setColorAttachments(ColorAttachmentRef)
 			.setPDepthStencilAttachment(nullptr);
 
+		std::array<vk::SubpassDependency, 2> OffscreenDependencies;
+		OffscreenDependencies[0]
+			.setSrcSubpass(VK_SUBPASS_EXTERNAL)
+			.setDstSubpass(0)
+			.setSrcStageMask(vk::PipelineStageFlagBits::eFragmentShader)
+			.setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+			.setSrcAccessMask(vk::AccessFlagBits::eShaderRead)
+			.setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
+			.setDependencyFlags(vk::DependencyFlagBits::eByRegion);
+		OffscreenDependencies[1]
+			.setSrcSubpass(0)
+			.setDstSubpass(VK_SUBPASS_EXTERNAL)
+			.setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+			.setDstStageMask(vk::PipelineStageFlagBits::eFragmentShader)
+			.setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
+			.setDstAccessMask(vk::AccessFlagBits::eShaderRead)
+			.setDependencyFlags(vk::DependencyFlagBits::eByRegion);
+
 		vk::RenderPassCreateInfo RenderPassInfo;
 		RenderPassInfo
 			.setAttachments(ColorAttachment)
 			.setSubpasses(SubPass);
+		if (InFinalLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
+		{
+			RenderPassInfo.setDependencies(OffscreenDependencies);
+		}
 
 		try
 		{
