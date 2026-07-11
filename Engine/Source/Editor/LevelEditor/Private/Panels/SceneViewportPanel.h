@@ -8,11 +8,13 @@ struct ImVec2;
 namespace Durin
 {
 	class MViewport;
+	class FLevelEditorViewportClient;
 
 	class FSceneViewportPanel final : public ILevelEditorPanel
 	{
 	public:
 		FSceneViewportPanel();
+		~FSceneViewportPanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Scene Viewport"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
@@ -24,7 +26,9 @@ namespace Durin
 		auto DrawToolbar() -> void;
 		auto DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto UpdateViewportSize() -> void;
+		auto UpdateViewportInput(FLevelEditorContext& Context) -> void;
 
+		std::unique_ptr<FLevelEditorViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
 		bool bViewportHovered = false;
 		bool bViewportFocused = false;

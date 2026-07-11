@@ -2,6 +2,12 @@ include(GoogleTest)
 
 add_durin_test(EngineTests
 	Private/WorldTests.cpp
+	Private/ViewportTests.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportCameraTransform.cpp
+)
+
+target_include_directories(EngineTests PRIVATE
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private
 )
 
 target_link_libraries(EngineTests PRIVATE
@@ -9,6 +15,8 @@ target_link_libraries(EngineTests PRIVATE
 	CoreDObject
 	AssetCore
 	Engine
+	MonaCore
+	Mona
 	GTest::gtest_main
 )
 

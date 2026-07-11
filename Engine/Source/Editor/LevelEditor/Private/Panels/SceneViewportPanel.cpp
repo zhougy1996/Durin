@@ -7,6 +7,7 @@
 #include "Math/Vector.h"
 #include "Mona/SceneViewport.h"
 #include "MonaImGui.h"
+#include "Viewport/LevelEditorViewportClient.h"
 #include "Widgets/MViewport.h"
 
 namespace Durin
@@ -37,8 +38,9 @@ namespace Durin
 
 	FSceneViewportPanel::FSceneViewportPanel()
 	{
+		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
 		ViewportWidget = std::make_shared<MViewport>();
-		const std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, ViewportWidget);
+		const std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(ViewportClient.get(), ViewportWidget);
 		ViewportWidget->SetViewportInterface(SceneViewport);
 		if (GEngine != nullptr)
 		{
@@ -46,10 +48,16 @@ namespace Durin
 		}
 	}
 
+	FSceneViewportPanel::~FSceneViewportPanel()
+	{
+		if (GEngine != nullptr) GEngine->SetMainSceneViewport(nullptr);
+	}
+
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		if (!ImGui::Begin("Scene Viewport###SceneViewport", GetOpenPtr(), ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 		{
+			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			bViewportHovered = false;
 			bViewportFocused = false;
 			ImGui::End();
@@ -59,6 +67,7 @@ namespace Durin
 		DrawToolbar();
 		if (Context.Level == nullptr)
 		{
+			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			bViewportHovered = false;
 			bViewportFocused = false;
 			ImGui::TextDisabled("No level is open. Use File > New Level or Open Level.");
@@ -72,12 +81,21 @@ namespace Durin
 			if (ViewportWidget->WasTextureDrawn())
 			{
 				bViewportHovered = ImGui::IsItemHovered();
+				const bool bNavigationMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right) ||
+					ImGui::IsMouseClicked(ImGuiMouseButton_Middle) ||
+					(ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left));
+				if (bViewportHovered && bNavigationMousePressed)
+				{
+					ImGui::SetWindowFocus();
+				}
 				bViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+				UpdateViewportInput(Context);
 				DrawOrientationOverlay(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
 			}
 		}
 		if (ViewportWidget == nullptr || !ViewportWidget->WasTextureDrawn())
 		{
+			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			bViewportHovered = false;
 			bViewportFocused = false;
 			ImGui::TextDisabled("Viewport initializing...");
@@ -116,15 +134,12 @@ namespace Durin
 		}
 
 		std::array<ImVec2, 3> AxisDirections = {ImVec2(1.0f, 0.0f), ImVec2(-0.62f, 0.38f), ImVec2(0.0f, -1.0f)};
-		if (GEngine != nullptr)
+		if (ViewportClient != nullptr)
 		{
-			if (const DCameraComponent* Camera = GEngine->GetActiveCameraComponent())
-			{
-				const FMatrix ViewMatrix = Camera->GetViewMatrix();
-				AxisDirections[0] = GetScreenAxisDirection(ViewMatrix, FVectorConstants::Forward, AxisDirections[0]);
-				AxisDirections[1] = GetScreenAxisDirection(ViewMatrix, FVectorConstants::Right, AxisDirections[1]);
-				AxisDirections[2] = GetScreenAxisDirection(ViewMatrix, FVectorConstants::Up, AxisDirections[2]);
-			}
+			const FMatrix ViewMatrix = ViewportClient->GetViewMatrix();
+			AxisDirections[0] = GetScreenAxisDirection(ViewMatrix, FVectorConstants::Forward, AxisDirections[0]);
+			AxisDirections[1] = GetScreenAxisDirection(ViewMatrix, FVectorConstants::Right, AxisDirections[1]);
+			AxisDirections[2] = GetScreenAxisDirection(ViewMatrix, FVectorConstants::Up, AxisDirections[2]);
 		}
 
 		const float AxisLength = FMath::Max(22.0f, FMath::Min(34.0f, FMath::Min(ViewportSize.x, ViewportSize.y) * 0.08f));
@@ -144,6 +159,35 @@ namespace Durin
 			DrawAxisText(DrawList, Add(End, Add(Mul(AxisDirections[AxisIndex], 5.0f), ImVec2(-TextSize.x * 0.5f, -TextSize.y * 0.5f))), AxisColors[AxisIndex], AxisLabels[AxisIndex]);
 		}
 		DrawList->PopClipRect();
+	}
+
+	auto FSceneViewportPanel::UpdateViewportInput(FLevelEditorContext& Context) -> void
+	{
+		if (ViewportClient == nullptr) return;
+		const ImGuiIO& IO = ImGui::GetIO();
+		FLevelEditorViewportInput Input;
+		Input.DeltaSeconds = IO.DeltaTime;
+		Input.MouseDelta = {IO.MouseDelta.x, IO.MouseDelta.y};
+		Input.MouseWheel = IO.MouseWheel;
+		Input.bHovered = bViewportHovered;
+		Input.bFocused = bViewportFocused;
+		Input.bWantTextInput = IO.WantTextInput;
+		Input.bAlt = IO.KeyAlt;
+		Input.bShift = IO.KeyShift;
+		Input.bLeftMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+		Input.bMiddleMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+		Input.bRightMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Right);
+		Input.bLeftMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+		Input.bMiddleMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Middle);
+		Input.bRightMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+		Input.bMoveForward = ImGui::IsKeyDown(ImGuiKey_W);
+		Input.bMoveBackward = ImGui::IsKeyDown(ImGuiKey_S);
+		Input.bMoveLeft = ImGui::IsKeyDown(ImGuiKey_A);
+		Input.bMoveRight = ImGui::IsKeyDown(ImGuiKey_D);
+		Input.bMoveDown = ImGui::IsKeyDown(ImGuiKey_Q);
+		Input.bMoveUp = ImGui::IsKeyDown(ImGuiKey_E);
+		Input.bFocusSelection = ImGui::IsKeyPressed(ImGuiKey_F, false);
+		ViewportClient->Update(Context.Level, Context.SelectedActor.Get(), Input);
 	}
 
 	auto FSceneViewportPanel::UpdateViewportSize() -> void

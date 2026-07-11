@@ -3,5 +3,12 @@
 #include "EngineAPI.h"
 namespace Durin
 {
-	class ENGINE_API FViewportClient{};
+	struct FSceneView;
+
+	class ENGINE_API FViewportClient
+	{
+	public:
+		virtual ~FViewportClient();
+		virtual auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool;
+	};
 }

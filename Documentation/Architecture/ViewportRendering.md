@@ -138,3 +138,7 @@ For game window viewports, `FSceneViewport::UpdateRHIViewport()` asks `FMonaRend
 - `Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp`
 - `Engine/Source/Runtime/Engine/Private/Engine/GameEngine.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`
+
+## User Guide
+
+- `Documentation/Editor/SceneViewportNavigation.md`

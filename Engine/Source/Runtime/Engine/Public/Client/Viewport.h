@@ -20,6 +20,7 @@ namespace Durin
 		virtual auto UpdateRHIViewport() -> void;
 
 		auto GetRHIViewport() const -> const TRefCountPtr<FRHIViewport>&;
+		auto GetViewportClient() const -> FViewportClient* { return ViewportClient; }
 
 	protected:
 		FViewportClient* ViewportClient;

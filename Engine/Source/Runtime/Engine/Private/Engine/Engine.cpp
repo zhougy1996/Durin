@@ -4,6 +4,7 @@
 
 #include "Actors/CameraActor.h"
 #include "Components/CameraComponent.h"
+#include "Client/ViewportClient.h"
 #include "DObject/DObjectGlobals.h"
 #include "IRendererModule.h"
 #include "Mona/SceneViewport.h"
@@ -139,6 +140,13 @@ namespace Durin
 		FSceneView View;
 		View.ViewportWidth = Width;
 		View.ViewportHeight = Height;
+		if (MainSceneViewport != nullptr)
+		{
+			if (const FViewportClient* ViewportClient = MainSceneViewport->GetViewportClient())
+			{
+				if (ViewportClient->CalcSceneView(Width, Height, View)) return View;
+			}
+		}
 
 		if (const DCameraComponent* CameraComponent = GetActiveCameraComponent())
 		{
