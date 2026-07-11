@@ -9,6 +9,7 @@
 /out/
 /.claude/
 /AGENTS_LOCAL.md
+/.agents/
 
 # User-specific files
 *.rsuser
