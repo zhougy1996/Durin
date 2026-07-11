@@ -7,8 +7,6 @@
 
 namespace Durin
 {
-	class AStaticMeshActor;
-	class ACameraActor;
 	class DCameraComponent;
 	class FSceneViewport;
 	class IRendererModule;
@@ -49,11 +47,6 @@ namespace Durin
 		DPROPERTY()
 		TObjectPtr<DWorld> MainWorld;
 
-		DPROPERTY()
-		TObjectPtr<AStaticMeshActor> DemoStaticMeshActor;
-
-		DPROPERTY()
-		TObjectPtr<ACameraActor> DefaultCameraActor;
 	};
 
 	extern ENGINE_API DEngine* GEngine;

@@ -17,10 +17,16 @@ namespace Durin
 		LEVELEDITOR_API auto Draw() -> void override;
 
 	private:
-		enum class EPendingFileAction { None, NewLevel, OpenLevel };
-		enum class EQueuedFilePopup { None, UnsavedLevel, NewLevel, OpenLevel, ImportStaticMesh };
+		enum class EPendingFileAction { None, NewLevel, OpenLevel, StartupLevel };
+		enum class EQueuedFilePopup { None, UnsavedLevel, NewLevel, OpenLevel, StartupLevel, ImportStaticMesh };
 		auto DrawMainMenu() -> void;
 		auto DrawFileDialogs() -> void;
+		auto InitializeStartupLevel() -> void;
+		auto LoadSessionSettings() -> bool;
+		auto SaveSessionSettings() const -> bool;
+		auto RecordRecentLevel(std::string_view Path) -> void;
+		auto GetStartupMountRoot() const -> std::string;
+		auto DrawLevelAssetList(bool bStartupPicker) -> bool;
 		auto RequestFileAction(EPendingFileAction Action) -> void;
 		auto ExecutePendingFileAction() -> void;
 		auto CreateLevel(std::string_view Path) -> void;
@@ -36,6 +42,7 @@ namespace Durin
 		std::unique_ptr<FLevelEditorContext> Context;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		bool bResetLayoutRequested = false;
+		bool bAlwaysAskForStartupLevel = false;
 		EPendingFileAction PendingFileAction = EPendingFileAction::None;
 		EQueuedFilePopup QueuedFilePopup = EQueuedFilePopup::None;
 		std::array<char, 512> LevelPathBuffer{};
@@ -43,6 +50,7 @@ namespace Durin
 		std::array<char, 512> ImportSourcePathBuffer{};
 		std::array<char, 256> ImportAssetPathBuffer{};
 		std::string LastSuggestedImportAssetPath;
+		std::unordered_map<std::string, std::string> RecentLevelByMount;
 		std::string EditorError;
 	};
 } // namespace Durin

@@ -3,6 +3,7 @@
 #include "Components/CameraComponent.h"
 #include "Engine/Engine.h"
 #include "IRendererModule.h"
+#include "LevelEditorContext.h"
 #include "Math/Vector.h"
 #include "Mona/SceneViewport.h"
 #include "MonaImGui.h"
@@ -47,7 +48,6 @@ namespace Durin
 
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
-		(void)Context;
 		if (!ImGui::Begin("Scene Viewport###SceneViewport", GetOpenPtr(), ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 		{
 			bViewportHovered = false;
@@ -57,6 +57,14 @@ namespace Durin
 		}
 
 		DrawToolbar();
+		if (Context.Level == nullptr)
+		{
+			bViewportHovered = false;
+			bViewportFocused = false;
+			ImGui::TextDisabled("No level is open. Use File > New Level or Open Level.");
+			ImGui::End();
+			return;
+		}
 		UpdateViewportSize();
 		if (ViewportWidget != nullptr)
 		{

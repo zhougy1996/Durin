@@ -32,6 +32,7 @@ namespace Durin
 		auto FindActorByName(FName Name) const -> AActor*;
 		auto GetActors() const -> const std::vector<TObjectPtr<AActor>>&;
 		auto SetCurrentLevel(DLevel* Level) -> bool;
+		// A world is valid without an active level. Editor and runtime callers must handle nullptr.
 		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel.Get(); }
 
 	private:

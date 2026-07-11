@@ -3,14 +3,11 @@
 #include "Engine/Level.h"
 
 #include "Actors/CameraActor.h"
-#include "Actors/StaticMeshActor.h"
 #include "Components/CameraComponent.h"
-#include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectGlobals.h"
 #include "IRendererModule.h"
 #include "Mona/SceneViewport.h"
 #include "Modules/ModuleManager.h"
-#include "StaticMesh/StaticMesh.h"
 
 #include "DynamicRHI.h"
 #include "IScene.h"
@@ -31,35 +28,11 @@ namespace Durin
 		RendererModule = &FModuleManager::LoadModuleChecked<IRendererModule>("Renderer");
 		MainScene = RendererModule->CreateScene();
 		MainWorld = NewObject<DWorld>(this, "MainWorld");
-
-		DefaultCameraActor = MainWorld->SpawnActor<ACameraActor>("DefaultCameraActor");
-		MainWorld->GetCurrentLevel()->SetPrimaryCameraActor(DefaultCameraActor.Get());
-		if (DCameraComponent* CameraComponent = DefaultCameraActor->GetCameraComponent())
-		{
-			CameraComponent->SetLookAt(FVector3(-3.0, -6.0, 2.25), FVector3(0.0, 0.0, 0.0));
-		}
-
-		DemoStaticMeshActor = MainWorld->SpawnActor<AStaticMeshActor>("DebugStaticMeshActor");
-		if (DStaticMeshComponent* MeshComponent = DemoStaticMeshActor->GetStaticMeshComponent())
-		{
-			DStaticMesh* TeapotMesh = DStaticMesh::CreateDebugTriangle(this);
-			if (TeapotMesh == nullptr)
-			{
-				DURIN_ERROR("Failed to initialize demo static mesh actor.");
-				return;
-			}
-
-			MeshComponent->SetWorldLocation(FVector3(0.0, 0.0, 0.0));
-			MeshComponent->SetStaticMesh(TeapotMesh);
-			MeshComponent->RegisterComponent();
-		}
 	}
 
 	auto DEngine::BeginDestroy() -> void
 	{
 		MainSceneViewport.reset();
-		DemoStaticMeshActor = nullptr;
-		DefaultCameraActor = nullptr;
 		MainWorld = nullptr;
 		MainScene.reset();
 		RendererModule = nullptr;
@@ -158,7 +131,7 @@ namespace Durin
 		{
 			if (ACameraActor* Camera = MainWorld->GetCurrentLevel()->GetPrimaryCameraActor()) return Camera->GetCameraComponent();
 		}
-		return DefaultCameraActor != nullptr ? DefaultCameraActor->GetCameraComponent() : nullptr;
+		return nullptr;
 	}
 
 	auto DEngine::BuildMainSceneView(uint32 Width, uint32 Height) const -> FSceneView

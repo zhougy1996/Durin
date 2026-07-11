@@ -10,7 +10,6 @@ namespace Durin
 	DWorld::DWorld(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
-		SetCurrentLevel(NewObject<DLevel>(this, "TransientLevel"));
 	}
 
 	auto DWorld::BeginDestroy() -> void

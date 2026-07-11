@@ -32,10 +32,17 @@ namespace
 		(void)bInitialized;
 	}
 
-	auto CreateWorld(Durin::DObject* Outer = nullptr) -> Durin::DWorld*
+	auto CreateEmptyWorld(Durin::DObject* Outer = nullptr) -> Durin::DWorld*
 	{
 		InitializeDObjectSystem();
 		return Durin::NewObject<Durin::DWorld>(Outer, "TestWorld");
+	}
+
+	auto CreateWorld(Durin::DObject* Outer = nullptr) -> Durin::DWorld*
+	{
+		Durin::DWorld* World = CreateEmptyWorld(Outer);
+		EXPECT_TRUE(World->SetCurrentLevel(Durin::NewObject<Durin::DLevel>(World, "TestLevel")));
+		return World;
 	}
 
 	auto ExpectVectorNear(const Durin::FVector3& Actual, const Durin::FVector3& Expected, double Tolerance = 1.e-8) -> void
@@ -45,6 +52,19 @@ namespace
 		EXPECT_NEAR(Actual.z, Expected.z, Tolerance);
 	}
 } // namespace
+
+TEST(FWorldTests, StartsWithoutALevelAndActorOperationsAreSafe)
+{
+	Durin::DWorld* World = CreateEmptyWorld();
+	EXPECT_EQ(World->GetCurrentLevel(), nullptr);
+	EXPECT_EQ(World->SpawnActor<Durin::ACameraActor>("Camera"), nullptr);
+	EXPECT_TRUE(World->GetActors().empty());
+	EXPECT_FALSE(World->ContainsActor(nullptr));
+	EXPECT_EQ(World->FindActorByName("Camera"), nullptr);
+	EXPECT_FALSE(World->DestroyActor(nullptr));
+	World->DestroyAllActors();
+	Durin::DestroyObject(World);
+}
 
 TEST(FWorldTests, SpawnsEnumeratesAndFindsActors)
 {

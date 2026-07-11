@@ -41,7 +41,7 @@ namespace Durin
 			return;
 		}
 
-		if (Context.World == nullptr) ImGui::BeginDisabled();
+		if (Context.Level == nullptr) ImGui::BeginDisabled();
 		if (ImGui::Button("Add Actor"))
 		{
 			ActorTypeSearchText.fill(0);
@@ -65,15 +65,15 @@ namespace Durin
 			}
 			ImGui::EndPopup();
 		}
-		if (Context.World == nullptr) ImGui::EndDisabled();
+		if (Context.Level == nullptr) ImGui::EndDisabled();
 
 		ImGui::SetNextItemWidth(-1.0f);
 		ImGui::InputTextWithHint("###OutlinerSearch", "Search actors...", SearchText.data(), SearchText.size());
 		ImGui::Separator();
 
-		if (Context.World == nullptr)
+		if (Context.Level == nullptr)
 		{
-			ImGui::TextDisabled("No world is loaded.");
+			ImGui::TextDisabled("No level is open.");
 			ImGui::End();
 			return;
 		}
