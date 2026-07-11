@@ -28,6 +28,9 @@
         "Public/Components/SceneComponent.h",
         "Public/Components/MeshComponent.h",
         "Public/Components/StaticMeshComponent.h",
-		"Public/StaticMesh/StaticMesh.h"
+        "Public/StaticMesh/StaticMesh.h",
+        "Public/Materials/MaterialInterface.h",
+        "Public/Materials/Material.h",
+        "Public/Materials/MaterialInstance.h"
     ]
 }

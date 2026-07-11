@@ -13,8 +13,9 @@ namespace Durin
 		return LocalToWorld_;
 	}
 
-	FStaticMeshSceneProxy::FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData)
+	FStaticMeshSceneProxy::FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData, const FMaterialRenderData& InMaterial)
 		: RenderData(InRenderData)
+		, Material(InMaterial)
 	{
 	}
 

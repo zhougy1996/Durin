@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 add_durin_test(EngineTests
+	Private/MaterialTests.cpp
 	Private/WorldTests.cpp
 	Private/ViewportTests.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportCameraTransform.cpp

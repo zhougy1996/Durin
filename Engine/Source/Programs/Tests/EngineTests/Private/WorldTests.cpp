@@ -12,6 +12,7 @@
 #include "Engine/GameEngine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -21,17 +22,6 @@
 
 namespace
 {
-	auto InitializeDObjectSystem() -> void
-	{
-		static const bool bInitialized = []() {
-			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
-			Durin::GIsGameThreadIdInitialized = true;
-			Durin::DObjectInit();
-			return true;
-		}();
-		(void)bInitialized;
-	}
-
 	auto CreateEmptyWorld(Durin::DObject* Outer = nullptr) -> Durin::DWorld*
 	{
 		InitializeDObjectSystem();

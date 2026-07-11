@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Materials/MaterialTypes.h"
 
 namespace Durin
 {
@@ -24,11 +25,13 @@ namespace Durin
 	class FStaticMeshSceneProxy : public PrimitiveSceneProxy
 	{
 	public:
-		ENGINE_API explicit FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData);
+		ENGINE_API explicit FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData, const FMaterialRenderData& InMaterial);
 
 		ENGINE_API auto GetRenderData() const -> FStaticMeshRenderData*;
+		auto GetMaterialRenderData() const -> const FMaterialRenderData& { return Material; }
 
 	private:
 		FStaticMeshRenderData* RenderData = nullptr;
+		FMaterialRenderData Material;
 	};
 }

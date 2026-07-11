@@ -317,7 +317,7 @@ namespace Durin
 
 			FStaticMeshTransformUniform TransformUniform;
 			TransformUniform.LocalToClip = ToShaderMatrix(View.ViewProjectionMatrix * Proxy.GetLocalToWorld());
-			TransformUniform.Color = FVector4f(0.95f, 0.62f, 0.22f, 1.0f);
+			TransformUniform.Color = Proxy.GetMaterialRenderData().BaseColor;
 			const FRHIUniformBufferRange TransformUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&TransformUniform, sizeof(TransformUniform));
 
 			CommandList.SetGraphicsPipelineState(*GStaticMeshState.PipelineState);

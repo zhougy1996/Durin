@@ -7,6 +7,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "EngineTestSupport.h"
 #include "IRendererModule.h"
 #include "Mona/SceneViewport.h"
 #include "Viewport/ViewportCameraTransform.h"
@@ -44,16 +45,6 @@ namespace
 		EXPECT_NEAR(Actual.z, Expected.z, Tolerance);
 	}
 
-	auto InitializeDObjectSystem() -> void
-	{
-		static const bool bInitialized = []() {
-			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
-			Durin::GIsGameThreadIdInitialized = true;
-			Durin::DObjectInit();
-			return true;
-		}();
-		(void)bInitialized;
-	}
 }
 
 TEST(FViewportCameraTransformTests, ClampsPitchAndBuildsOrthonormalDirections)
