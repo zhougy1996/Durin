@@ -13,16 +13,40 @@ namespace Durin
 	{
 	}
 
+	auto DLevel::SpawnActor(DClass* ActorClass, FName InName) -> AActor*
+	{
+		if (!CanConstructObjectOfClass(ActorClass, AActor::StaticClass())) return nullptr;
+		const FName RequestedName = InName.IsNone() ? FName(ActorClass->GetName()) : InName;
+		AActor* Actor = NewObject<AActor>(ActorClass, this, MakeUniqueActorName(RequestedName));
+		if (!Actor) return nullptr;
+		Actors.emplace_back(Actor);
+		OnActorAdded(Actor);
+		if (!PrimaryCameraActor)
+		{
+			if (auto* Camera = dynamic_cast<ACameraActor*>(Actor)) PrimaryCameraActor = Camera;
+		}
+		MarkPackageDirty();
+		return Actor;
+	}
+
 	auto DLevel::DestroyActor(AActor* Actor) -> bool
 	{
 		const auto It = std::find_if(Actors.begin(), Actors.end(), [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; });
 		if (It == Actors.end()) return false;
-		if (PrimaryCameraActor.Get() == Actor) PrimaryCameraActor = nullptr;
+		const bool bWasPrimaryCamera = PrimaryCameraActor.Get() == Actor;
 		for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
 		{
 			if (Component && Component->IsRegistered()) Component->UnregisterComponent();
 		}
 		Actors.erase(It);
+		if (bWasPrimaryCamera)
+		{
+			PrimaryCameraActor = nullptr;
+			for (const TObjectPtr<AActor>& RemainingActor : Actors)
+			{
+				if (auto* Camera = dynamic_cast<ACameraActor*>(RemainingActor.Get())) { PrimaryCameraActor = Camera; break; }
+			}
+		}
 		DestroyObject(Actor);
 		MarkPackageDirty();
 		return true;

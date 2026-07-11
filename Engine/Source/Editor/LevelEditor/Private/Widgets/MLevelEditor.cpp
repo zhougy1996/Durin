@@ -26,6 +26,7 @@ namespace Durin
 	auto MLevelEditor::Construct() -> void
 	{
 		Context = std::make_unique<FLevelEditorContext>();
+		Context->ReportError = [this](std::string Message) { SetError(std::move(Message)); };
 		Asset::GetAssetRegistry().ScanMountedContent();
 		Panels.emplace_back(std::make_unique<FSceneViewportPanel>());
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
@@ -127,7 +128,7 @@ namespace Durin
 		PendingFileAction = Action;
 		if (Context && Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty())
 		{
-			ImGui::OpenPopup("Unsaved Level");
+			QueuedFilePopup = EQueuedFilePopup::UnsavedLevel;
 			return;
 		}
 		ExecutePendingFileAction();
@@ -140,17 +141,26 @@ namespace Durin
 			LevelPathBuffer.fill(0);
 			const std::string DefaultPath = "/SandBox/Levels/NewLevel";
 			std::memcpy(LevelPathBuffer.data(), DefaultPath.data(), DefaultPath.size());
-			ImGui::OpenPopup("New Level");
+			QueuedFilePopup = EQueuedFilePopup::NewLevel;
 		}
 		else if (PendingFileAction == EPendingFileAction::OpenLevel)
 		{
 			OpenFilterBuffer.fill(0);
-			ImGui::OpenPopup("Open Level");
+			QueuedFilePopup = EQueuedFilePopup::OpenLevel;
 		}
 	}
 
 	auto MLevelEditor::DrawFileDialogs() -> void
 	{
+		switch (QueuedFilePopup)
+		{
+		case EQueuedFilePopup::UnsavedLevel: ImGui::OpenPopup("Unsaved Level"); break;
+		case EQueuedFilePopup::NewLevel: ImGui::OpenPopup("New Level"); break;
+		case EQueuedFilePopup::OpenLevel: ImGui::OpenPopup("Open Level"); break;
+		case EQueuedFilePopup::None: break;
+		}
+		QueuedFilePopup = EQueuedFilePopup::None;
+
 		if (ImGui::BeginPopupModal("Unsaved Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 		{
 			ImGui::TextUnformatted("The current level has unsaved changes.");

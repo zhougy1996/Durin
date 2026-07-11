@@ -139,6 +139,30 @@ namespace Durin
 		return nullptr;
 	}
 
+	auto DClass::IsChildOf(const DClass* InClass) const -> bool
+	{
+		for (const DClass* Class = this; Class; Class = Class->GetSuperClass())
+		{
+			if (Class == InClass) return true;
+		}
+		return false;
+	}
+
+	auto GetDerivedClasses(const DClass* BaseClass, bool bIncludeBase) -> std::vector<DClass*>
+	{
+		std::vector<DClass*> Classes;
+		if (!BaseClass) return Classes;
+		for (DObject* Object : GDObjectArray.GetAll())
+		{
+			auto* Class = Cast<DClass>(Object);
+			if (Class && Class->IsChildOf(BaseClass) && (bIncludeBase || Class != BaseClass)) Classes.push_back(Class);
+		}
+		std::ranges::sort(Classes, [](const DClass* Left, const DClass* Right) {
+			return Left->GetQualifiedName().ToString() < Right->GetQualifiedName().ToString();
+		});
+		return Classes;
+	}
+
 	auto FindStructByQualifiedName(std::string_view QualifiedName) -> DStruct*
 	{
 		for (DObject* Object : GDObjectArray.GetAll())

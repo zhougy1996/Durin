@@ -223,6 +223,25 @@ namespace Durin
 		return Obj;
 	}
 
+	auto NewObject(DClass* Class, DObject* Outer, FName Name) -> DObject*
+	{
+		if (!CanConstructObjectOfClass(Class, DObject::StaticClass())) return nullptr;
+		FStaticConstructObjectParameters Params;
+		Params.Class = Class;
+		Params.Outer = Outer;
+		Params.Name = Name;
+		Params.Size = Class->PropertiesSize;
+		DObject* Object = StaticConstructObject(Params);
+		DObjectForceRegistration(Object);
+		return Object;
+	}
+
+	auto CanConstructObjectOfClass(const DClass* Class, const DClass* RequiredBaseClass) -> bool
+	{
+		return Class && RequiredBaseClass && Class->IsChildOf(RequiredBaseClass) && Class->ClassConstructor
+			&& !Class->HasAnyClassFlags(EClassFlags::Abstract) && Class->PropertiesSize >= sizeof(DObject);
+	}
+
 
 	auto DurinCodeGen::ConstructDClass(const FClassParams& Params) -> DClass*
 	{

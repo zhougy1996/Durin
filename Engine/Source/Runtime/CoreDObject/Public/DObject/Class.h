@@ -75,6 +75,7 @@ namespace Durin
 		)
 			: DStructBase(EC_StaticConstructor, InSize, InAlignment, InFlags)
 			, ClassConstructor(InClassConstructor)
+			, ClassFlags(InClassFlags)
 			, QualifiedName(InName)
 		{
 		}
@@ -82,10 +83,14 @@ namespace Durin
 		ClassConstructorType ClassConstructor = nullptr;
 
 		auto GetSuperClass() const -> DClass* { return static_cast<DClass*>(GetSuperStructBase()); }
+		auto IsChildOf(const DClass* InClass) const -> bool;
+		auto GetClassFlags() const -> EClassFlags { return ClassFlags; }
+		auto HasAnyClassFlags(EClassFlags InFlags) const -> bool { return EnumHasAnyFlags(ClassFlags, InFlags); }
 		auto GetQualifiedName() const -> FName { return QualifiedName; }
 		auto SetQualifiedName(FName InQualifiedName) -> void { QualifiedName = InQualifiedName; }
 
 	private:
+		EClassFlags ClassFlags = EClassFlags::None;
 		FName QualifiedName;
 	};
 
@@ -196,6 +201,7 @@ namespace Durin
 	) -> DClass*;
 
 	COREDOBJECT_API auto FindClassByQualifiedName(std::string_view QualifiedName) -> DClass*;
+	COREDOBJECT_API auto GetDerivedClasses(const DClass* BaseClass, bool bIncludeBase = false) -> std::vector<DClass*>;
 	COREDOBJECT_API auto FindStructByQualifiedName(std::string_view QualifiedName) -> DStruct*;
 	COREDOBJECT_API auto FindClassByPath(std::string_view ObjectPath) -> DClass*;
 	COREDOBJECT_API auto FindStructByPath(std::string_view ObjectPath) -> DStruct*;

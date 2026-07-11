@@ -18,17 +18,13 @@ namespace Durin
 	public:
 		explicit DLevel(const FObjectInitializer& ObjectInitializer);
 		~DLevel() override = default;
+		auto SpawnActor(DClass* ActorClass, FName InName = FName()) -> AActor*;
 
 		template<typename T>
 		auto SpawnActor(FName InName = FName()) -> T*
 		{
 			static_assert(std::is_base_of_v<AActor, T>, "T must derive from AActor");
-			const FName UniqueName = MakeUniqueActorName(InName.IsNone() ? FName(T::StaticClass()->GetName()) : InName);
-			T* Actor = NewObject<T>(this, UniqueName);
-			Actors.emplace_back(Actor);
-			OnActorAdded(Actor);
-			MarkPackageDirty();
-			return Actor;
+			return static_cast<T*>(SpawnActor(T::StaticClass(), InName));
 		}
 
 		auto DestroyActor(AActor* Actor) -> bool;

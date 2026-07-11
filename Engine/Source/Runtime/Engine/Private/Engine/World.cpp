@@ -19,6 +19,11 @@ namespace Durin
 		Super::BeginDestroy();
 	}
 
+	auto DWorld::SpawnActor(DClass* ActorClass, FName InName) -> AActor*
+	{
+		return CurrentLevel ? CurrentLevel->SpawnActor(ActorClass, InName) : nullptr;
+	}
+
 	auto DWorld::DestroyActor(AActor* Actor) -> bool
 	{
 		return CurrentLevel && CurrentLevel->DestroyActor(Actor);

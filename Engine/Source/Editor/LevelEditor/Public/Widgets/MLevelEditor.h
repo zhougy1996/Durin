@@ -18,6 +18,7 @@ namespace Durin
 
 	private:
 		enum class EPendingFileAction { None, NewLevel, OpenLevel };
+		enum class EQueuedFilePopup { None, UnsavedLevel, NewLevel, OpenLevel };
 		auto DrawMainMenu() -> void;
 		auto DrawFileDialogs() -> void;
 		auto RequestFileAction(EPendingFileAction Action) -> void;
@@ -33,6 +34,7 @@ namespace Durin
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		bool bResetLayoutRequested = false;
 		EPendingFileAction PendingFileAction = EPendingFileAction::None;
+		EQueuedFilePopup QueuedFilePopup = EQueuedFilePopup::None;
 		std::array<char, 512> LevelPathBuffer{};
 		std::array<char, 256> OpenFilterBuffer{};
 		std::string EditorError;

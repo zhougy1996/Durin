@@ -44,6 +44,8 @@ namespace Durin
 	COREDOBJECT_API auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*;
 
 	COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
+	COREDOBJECT_API auto NewObject(DClass* Class, DObject* Outer, FName Name) -> DObject*;
+	COREDOBJECT_API auto CanConstructObjectOfClass(const DClass* Class, const DClass* RequiredBaseClass) -> bool;
 
 	template<typename T>
 	auto NewObject(DObject* Outer, FName Name) -> T*
@@ -60,6 +62,13 @@ namespace Durin
 
 		DObjectForceRegistration(Obj);
 		return static_cast<T*>(Obj);
+	}
+
+	template<typename T>
+	auto NewObject(DClass* Class, DObject* Outer, FName Name) -> T*
+	{
+		static_assert(std::is_base_of_v<DObject, T>, "T must be derived from DObject");
+		return CanConstructObjectOfClass(Class, T::StaticClass()) ? static_cast<T*>(NewObject(Class, Outer, Name)) : nullptr;
 	}
 
 	namespace DurinCodeGen

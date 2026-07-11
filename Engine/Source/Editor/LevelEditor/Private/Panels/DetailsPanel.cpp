@@ -1,7 +1,9 @@
 #include "Panels/DetailsPanel.h"
 
 #include "Components/SceneComponent.h"
+#include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/DObjectGlobals.h"
 #include "Engine/Actor.h"
 #include "LevelEditorContext.h"
 #include "MonaImGui.h"
@@ -10,6 +12,23 @@ namespace Durin
 {
 	namespace
 	{
+		auto ContainsInsensitive(std::string_view Text, std::string_view Filter) -> bool
+		{
+			if (Filter.empty()) return true;
+			std::string LowerText(Text);
+			std::string LowerFilter(Filter);
+			std::ranges::transform(LowerText, LowerText.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+			std::ranges::transform(LowerFilter, LowerFilter.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+			return LowerText.find(LowerFilter) != std::string::npos;
+		}
+
+		auto ClassDisplayName(const DClass* Class) -> std::string
+		{
+			const std::string Name = Class ? Class->GetName() : std::string();
+			const size_t Separator = Name.rfind("::");
+			return Separator == std::string::npos ? Name : Name.substr(Separator + 2);
+		}
+
 		auto PropertyKindName(DurinCodeGen::EPropertyGenFlags Kind) -> const char*
 		{
 			switch (Kind)
@@ -105,7 +124,7 @@ namespace Durin
 		ImGui::TextDisabled("%s", Actor->GetClass()->GetName().c_str());
 		ImGui::Separator();
 		DrawTransform(Actor);
-		DrawComponents(Actor);
+		DrawComponents(Context, Actor);
 		DrawReflectedProperties(Actor);
 		ImGui::End();
 	}
@@ -135,19 +154,65 @@ namespace Durin
 		RootComponent->SetWorldScale3D(Scale);
 	}
 
-	auto FDetailsPanel::DrawComponents(AActor* Actor) -> void
+	auto FDetailsPanel::DrawComponents(FLevelEditorContext& Context, AActor* Actor) -> void
 	{
 		if (!ImGui::CollapsingHeader("Components", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			return;
 		}
+		if (ImGui::Button("Add Component"))
+		{
+			ComponentTypeSearchText.fill(0);
+			ImGui::OpenPopup("Add Component");
+		}
+		if (ImGui::BeginPopup("Add Component"))
+		{
+			ImGui::InputTextWithHint("###ComponentTypeSearch", "Search component types...", ComponentTypeSearchText.data(), ComponentTypeSearchText.size());
+			for (DClass* Class : GetDerivedClasses(DActorComponent::StaticClass(), true))
+			{
+				if (!CanConstructObjectOfClass(Class, DActorComponent::StaticClass())) continue;
+				const std::string DisplayName = ClassDisplayName(Class);
+				if (!ContainsInsensitive(DisplayName, ComponentTypeSearchText.data())) continue;
+				if (ImGui::Selectable(DisplayName.c_str()))
+				{
+					if (!Actor->AddInstanceComponent(Class, FName(DisplayName))) Context.SetError(std::format("Failed to add component of class {}.", Class->GetQualifiedName().ToString()));
+					ImGui::CloseCurrentPopup();
+				}
+			}
+			ImGui::EndPopup();
+		}
+		bool bRequestRemoveComponent = false;
 		for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
 		{
-			const DActorComponent* Component = ComponentPtr.Get();
+			DActorComponent* Component = ComponentPtr.Get();
 			if (Component != nullptr)
 			{
-				ImGui::BulletText("%s  (%s)", Component->GetName().c_str(), Component->GetClass()->GetName().c_str());
+				ImGui::PushID(Component);
+				ImGui::BulletText("%s  (%s)", Component->GetName().c_str(), ClassDisplayName(Component->GetClass()).c_str());
+				ImGui::SameLine();
+				if (Actor->IsInstanceComponent(Component))
+				{
+					if (ImGui::SmallButton("Remove")) { PendingRemoveComponent = Component; bRequestRemoveComponent = true; }
+				}
+				else ImGui::TextDisabled("Default");
+				ImGui::PopID();
 			}
+		}
+		if (bRequestRemoveComponent) ImGui::OpenPopup("Remove Component?");
+		if (ImGui::BeginPopupModal("Remove Component?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::Text("Remove component '%s'?", PendingRemoveComponent ? PendingRemoveComponent->GetName().c_str() : "");
+			ImGui::TextDisabled("This action cannot be undone.");
+			if (ImGui::Button("Remove"))
+			{
+				DActorComponent* Component = PendingRemoveComponent.Get();
+				if (Component && !Actor->DestroyInstanceComponent(Component)) Context.SetError("Failed to remove component.");
+				PendingRemoveComponent = nullptr;
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel")) { PendingRemoveComponent = nullptr; ImGui::CloseCurrentPopup(); }
+			ImGui::EndPopup();
 		}
 	}
 

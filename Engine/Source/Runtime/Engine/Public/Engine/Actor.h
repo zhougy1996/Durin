@@ -27,6 +27,9 @@ namespace Durin
 		FORCEINLINE auto GetRootComponent() const -> DSceneComponent* { return RootComponent; }
 
 		ENGINE_API auto SetRootComponent(DSceneComponent* InRootComponent) -> bool;
+		ENGINE_API auto AddInstanceComponent(DClass* ComponentClass, FName InName = FName()) -> DActorComponent*;
+		ENGINE_API auto DestroyInstanceComponent(DActorComponent* Component) -> bool;
+		ENGINE_API auto IsInstanceComponent(const DActorComponent* Component) const -> bool;
 
 		ENGINE_API auto GetActorTransform() const -> FTransform;
 		ENGINE_API auto SetActorTransform(const FTransform& InTransform) -> bool;
@@ -35,6 +38,7 @@ namespace Durin
 		ENGINE_API auto DetachFromActor(EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
 		ENGINE_API auto GetAttachParentActor() const -> AActor*;
 		auto GetOwnedComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
+		auto GetInstanceComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return InstanceComponents; }
 
 		template<typename T>
 		auto FindComponentByStaticClass() -> T*

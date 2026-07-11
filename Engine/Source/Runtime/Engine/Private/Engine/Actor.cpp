@@ -58,6 +58,43 @@ namespace Durin
 		return true;
 	}
 
+	auto AActor::AddInstanceComponent(DClass* ComponentClass, FName InName) -> DActorComponent*
+	{
+		if (!CanConstructObjectOfClass(ComponentClass, DActorComponent::StaticClass())) return nullptr;
+		const std::string BaseName = InName.IsNone() ? ComponentClass->GetName() : InName.ToString();
+		FName UniqueName(BaseName);
+		for (uint32 Suffix = 2; std::ranges::any_of(OwnedComponents, [&UniqueName](const TObjectPtr<DActorComponent>& Entry) { return Entry && Entry->GetFName() == UniqueName; }); ++Suffix)
+		{
+			UniqueName = FName(std::format("{}_{}", BaseName, Suffix));
+		}
+		DActorComponent* Component = NewObject<DActorComponent>(ComponentClass, this, UniqueName);
+		if (!Component) return nullptr;
+		OwnedComponents.emplace_back(Component);
+		InstanceComponents.emplace_back(Component);
+		Component->OnComponentCreated();
+		if (auto* SceneComponent = dynamic_cast<DSceneComponent*>(Component))
+		{
+			if (RootComponent) SceneComponent->AttachToComponent(RootComponent.Get(), EAttachmentTransformRule::KeepWorld);
+			else SetRootComponent(SceneComponent);
+		}
+		Component->RegisterComponent();
+		MarkPackageDirty();
+		return Component;
+	}
+
+	auto AActor::DestroyInstanceComponent(DActorComponent* Component) -> bool
+	{
+		if (!IsInstanceComponent(Component)) return false;
+		Component->DestroyComponent();
+		MarkPackageDirty();
+		return true;
+	}
+
+	auto AActor::IsInstanceComponent(const DActorComponent* Component) const -> bool
+	{
+		return Component && std::ranges::any_of(InstanceComponents, [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; });
+	}
+
 	auto AActor::GetActorTransform() const -> FTransform
 	{
 		return RootComponent ? RootComponent->GetWorldTransform() : FTransform();

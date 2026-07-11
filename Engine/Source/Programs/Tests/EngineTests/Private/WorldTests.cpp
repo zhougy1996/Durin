@@ -3,6 +3,7 @@
 #include "Actors/StaticMeshActor.h"
 #include "Components/ActorComponent.h"
 #include "Components/CameraComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
@@ -81,6 +82,77 @@ TEST(FWorldTests, MakesDuplicateActorNamesUnique)
 	Durin::DestroyObject(World);
 }
 
+TEST(FWorldTests, SpawnsActorsAndComponentsFromRuntimeClasses)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::AActor* First = World->SpawnActor(Durin::ACameraActor::StaticClass(), "RuntimeCamera");
+	Durin::AActor* Second = World->SpawnActor(Durin::ACameraActor::StaticClass(), "RuntimeCamera");
+	ASSERT_NE(First, nullptr);
+	ASSERT_NE(Second, nullptr);
+	EXPECT_TRUE(First->IsA<Durin::ACameraActor>());
+	EXPECT_EQ(Second->GetName(), "RuntimeCamera_2");
+	EXPECT_EQ(World->SpawnActor(Durin::DSceneComponent::StaticClass(), "InvalidActor"), nullptr);
+
+	Durin::DActorComponent* Instance = First->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "ExtraScene");
+	ASSERT_NE(Instance, nullptr);
+	EXPECT_TRUE(First->IsInstanceComponent(Instance));
+	EXPECT_EQ(Instance->GetOwner(), First);
+	EXPECT_EQ(Instance->GetOuter(), First);
+	EXPECT_TRUE(Instance->IsRegistered());
+	auto* SceneInstance = static_cast<Durin::DSceneComponent*>(Instance);
+	EXPECT_EQ(SceneInstance->GetAttachParent(), First->GetRootComponent());
+	EXPECT_EQ(First->AddInstanceComponent(Durin::ACameraActor::StaticClass(), "InvalidComponent"), nullptr);
+	EXPECT_FALSE(First->DestroyInstanceComponent(static_cast<Durin::ACameraActor*>(First)->GetCameraComponent()));
+
+	Durin::TObjectPtr<Durin::DActorComponent> InstancePtr = Instance;
+	EXPECT_TRUE(First->DestroyInstanceComponent(Instance));
+	EXPECT_EQ(InstancePtr.Get(), nullptr);
+	EXPECT_FALSE(First->IsInstanceComponent(Instance));
+	Durin::DestroyObject(World);
+}
+
+TEST(FWorldTests, RuntimeClassConstructionRejectsInvalidClassMetadata)
+{
+	InitializeDObjectSystem();
+	auto ConstructActor = [](const Durin::FObjectInitializer& Initializer) { new (Initializer.GetObj()) Durin::AActor(Initializer); };
+	Durin::DClass AbstractActor(
+		Durin::EC_StaticConstructor, "AbstractActor", sizeof(Durin::AActor), alignof(Durin::AActor), Durin::EObjectFlags::Transient,
+		Durin::EClassFlags::Abstract, Durin::EClassCastFlags::DClass, ConstructActor
+	);
+	AbstractActor.SetSuperStructBase(Durin::AActor::StaticClass());
+	EXPECT_FALSE(Durin::CanConstructObjectOfClass(&AbstractActor, Durin::AActor::StaticClass()));
+
+	Durin::DClass MissingConstructor(
+		Durin::EC_StaticConstructor, "MissingConstructor", sizeof(Durin::AActor), alignof(Durin::AActor), Durin::EObjectFlags::Transient,
+		Durin::EClassFlags::None, Durin::EClassCastFlags::DClass, nullptr
+	);
+	MissingConstructor.SetSuperStructBase(Durin::AActor::StaticClass());
+	EXPECT_FALSE(Durin::CanConstructObjectOfClass(&MissingConstructor, Durin::AActor::StaticClass()));
+	EXPECT_FALSE(Durin::CanConstructObjectOfClass(Durin::DSceneComponent::StaticClass(), Durin::AActor::StaticClass()));
+
+	const std::vector<Durin::DClass*> ActorClasses = Durin::GetDerivedClasses(Durin::AActor::StaticClass(), true);
+	EXPECT_NE(std::ranges::find(ActorClasses, Durin::ACameraActor::StaticClass()), ActorClasses.end());
+	EXPECT_NE(std::ranges::find(ActorClasses, Durin::AStaticMeshActor::StaticClass()), ActorClasses.end());
+	EXPECT_TRUE(std::ranges::is_sorted(ActorClasses, [](const Durin::DClass* Left, const Durin::DClass* Right) {
+		return Left->GetQualifiedName().ToString() < Right->GetQualifiedName().ToString();
+	}));
+}
+
+TEST(FWorldTests, MaintainsPrimaryCameraWhenRuntimeActorsChange)
+{
+	Durin::DWorld* World = CreateWorld();
+	auto* First = static_cast<Durin::ACameraActor*>(World->SpawnActor(Durin::ACameraActor::StaticClass(), "First"));
+	auto* Second = static_cast<Durin::ACameraActor*>(World->SpawnActor(Durin::ACameraActor::StaticClass(), "Second"));
+	ASSERT_NE(First, nullptr);
+	ASSERT_NE(Second, nullptr);
+	EXPECT_EQ(World->GetCurrentLevel()->GetPrimaryCameraActor(), First);
+	EXPECT_TRUE(World->DestroyActor(First));
+	EXPECT_EQ(World->GetCurrentLevel()->GetPrimaryCameraActor(), Second);
+	EXPECT_TRUE(World->DestroyActor(Second));
+	EXPECT_EQ(World->GetCurrentLevel()->GetPrimaryCameraActor(), nullptr);
+	Durin::DestroyObject(World);
+}
+
 TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents)
 {
 	InitializeDObjectSystem();
@@ -98,6 +170,8 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
 	Durin::ACameraActor* ParentActor = Level->SpawnActor<Durin::ACameraActor>("ParentCamera");
 	Durin::ACameraActor* ChildActor = Level->SpawnActor<Durin::ACameraActor>("ChildCamera");
+	Durin::DActorComponent* ExtraComponent = ChildActor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "ExtraScene");
+	ASSERT_NE(ExtraComponent, nullptr);
 	ASSERT_TRUE(Level->SetPrimaryCameraActor(ParentActor));
 
 	Durin::FTransform ParentTransform;
@@ -126,7 +200,11 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	ASSERT_NE(LoadedChild, nullptr);
 	EXPECT_EQ(Loaded->GetPrimaryCameraActor(), LoadedParent);
 	EXPECT_EQ(LoadedParent->GetOwnedComponents().size(), 1u);
-	EXPECT_EQ(LoadedChild->GetOwnedComponents().size(), 1u);
+	EXPECT_EQ(LoadedChild->GetOwnedComponents().size(), 2u);
+	ASSERT_EQ(LoadedChild->GetInstanceComponents().size(), 1u);
+	auto* LoadedExtraComponent = dynamic_cast<Durin::DSceneComponent*>(LoadedChild->GetInstanceComponents().front().Get());
+	ASSERT_NE(LoadedExtraComponent, nullptr);
+	EXPECT_EQ(LoadedExtraComponent->GetAttachParent(), LoadedChild->GetRootComponent());
 	ExpectVectorNear(LoadedParent->GetActorTransform().Translation, ParentTransform.Translation);
 	ExpectVectorNear(LoadedChild->GetRootComponent()->GetRelativeTransform().Translation, ChildRelative.Translation);
 	EXPECT_EQ(LoadedChild->GetAttachParentActor(), LoadedParent);

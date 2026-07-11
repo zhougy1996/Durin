@@ -18,11 +18,12 @@ namespace Durin
 		explicit DWorld(const FObjectInitializer& ObjectInitializer);
 		~DWorld() override = default;
 		auto BeginDestroy() -> void override;
+		auto SpawnActor(DClass* ActorClass, FName InName = FName()) -> AActor*;
 
 		template<typename T>
 		auto SpawnActor(FName InName = FName()) -> T*
 		{
-			return CurrentLevel ? CurrentLevel->SpawnActor<T>(InName) : nullptr;
+			return static_cast<T*>(SpawnActor(T::StaticClass(), InName));
 		}
 
 		auto DestroyActor(AActor* Actor) -> bool;
