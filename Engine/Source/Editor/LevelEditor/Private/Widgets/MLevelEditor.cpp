@@ -20,7 +20,7 @@
 #include "Panels/DetailsPanel.h"
 #include "Panels/FileBrowserPanel.h"
 #include "Panels/LevelEditorPanel.h"
-#include "Panels/OutputLogPanel.h"
+#include "Panels/ConsolePanel.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Panels/WorldOutlinerPanel.h"
 #include "StaticMesh/StaticMesh.h"
@@ -63,7 +63,7 @@ namespace Durin
 		Panels.emplace_back(std::move(SceneViewport));
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
 		Panels.emplace_back(std::make_unique<FDetailsPanel>());
-		Panels.emplace_back(std::make_unique<FOutputLogPanel>());
+		Panels.emplace_back(std::make_unique<FConsolePanel>());
 		Panels.emplace_back(std::make_unique<FFileBrowserPanel>([this](const std::string& Path) { return RequestOpenLevel(Path); }));
 		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
 		OpenDefaultLevel();

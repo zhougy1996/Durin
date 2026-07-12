@@ -1,0 +1,43 @@
+#pragma once
+
+#include "CoreAPI.h"
+
+namespace Durin
+{
+	using FConsoleCommandHandle = uint64;
+
+	struct FConsoleCommandResult
+	{
+		bool bSuccess = true;
+		std::string Message;
+
+		static auto Success(std::string Message = {}) -> FConsoleCommandResult { return {true, std::move(Message)}; }
+		static auto Failure(std::string Message) -> FConsoleCommandResult { return {false, std::move(Message)}; }
+	};
+
+	struct FConsoleCommandDesc
+	{
+		std::string Name;
+		std::string Description;
+		std::string Usage;
+		std::function<FConsoleCommandResult(std::span<const std::string>)> Execute;
+	};
+
+	class FConsoleCommandRegistry
+	{
+	public:
+		CORE_API FConsoleCommandRegistry();
+
+		CORE_API static auto Get() -> FConsoleCommandRegistry&;
+		CORE_API auto RegisterCommand(FConsoleCommandDesc Desc) -> FConsoleCommandHandle;
+		CORE_API auto UnregisterCommand(FConsoleCommandHandle Handle) -> void;
+		CORE_API auto Execute(std::string_view CommandLine) const -> FConsoleCommandResult;
+		CORE_API auto FindCompletions(std::string_view Prefix) const -> std::vector<std::string>;
+		CORE_API auto GetCommands() const -> std::vector<FConsoleCommandDesc>;
+
+	private:
+		mutable std::mutex Mutex;
+		std::unordered_map<std::string, std::pair<FConsoleCommandHandle, FConsoleCommandDesc>> Commands;
+		std::atomic<FConsoleCommandHandle> NextHandle = 1;
+	};
+} // namespace Durin

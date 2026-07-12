@@ -3,6 +3,7 @@ add_durin_module(Core)
 
 target_sources(Core PRIVATE
     ${DURIN_PROJECT_ROOT_DIR}/Extras/VisualStudioDebugging/Durin.natvis
+	Private/Console/ConsoleCommand.cpp
     Private/Threading/QueuedThreadPool.cpp
     Private/Threading/Task.cpp
 )
