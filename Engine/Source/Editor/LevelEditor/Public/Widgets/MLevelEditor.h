@@ -19,21 +19,19 @@ namespace Durin
 		LEVELEDITOR_API auto Draw() -> void override;
 
 	private:
-		enum class EPendingFileAction { None, NewLevel, OpenLevel, StartupLevel, OpenProject };
-		enum class EQueuedFilePopup { None, UnsavedLevel, NewLevel, OpenLevel, StartupLevel, ImportStaticMesh };
+		enum class EPendingFileAction { None, NewLevel, OpenLevel, OpenProject };
+		enum class EQueuedFilePopup { None, UnsavedLevel, NewLevel, ImportStaticMesh };
 		auto DrawMainMenu() -> void;
 		auto DrawProjectSettings() -> void;
 		auto DrawFileDialogs() -> void;
 		auto ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void;
-		auto InitializeStartupLevel() -> void;
+		auto OpenDefaultLevel() -> void;
 		auto LoadSessionSettings() -> bool;
 		auto SaveSessionSettings() const -> bool;
-		auto RecordRecentLevel(std::string_view Path) -> void;
 		auto CaptureCurrentViewportState() -> void;
 		auto RestoreViewportState(class DLevel* Level) -> void;
 		auto LoadProjectSettings() -> bool;
 		auto SaveProjectSettings() -> bool;
-		auto DrawLevelAssetList(bool bStartupPicker) -> bool;
 		auto RequestFileAction(EPendingFileAction Action) -> void;
 		auto RequestOpenLevel(std::string Path) -> bool;
 		auto ExecutePendingFileAction() -> void;
@@ -53,7 +51,6 @@ namespace Durin
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
 		bool bResetLayoutRequested = false;
 		bool bProjectSettingsOpen = false;
-		bool bAlwaysAskForStartupLevel = false;
 		bool bWindowMaximized = true;
 		int32 WindowWidth = 1280;
 		int32 WindowHeight = 800;
@@ -61,11 +58,9 @@ namespace Durin
 		EPendingFileAction PendingFileAction = EPendingFileAction::None;
 		EQueuedFilePopup QueuedFilePopup = EQueuedFilePopup::None;
 		std::array<char, 512> LevelPathBuffer{};
-		std::array<char, 256> OpenFilterBuffer{};
 		std::array<char, 512> ImportSourcePathBuffer{};
 		std::array<char, 256> ImportAssetPathBuffer{};
 		std::string LastSuggestedImportAssetPath;
-		std::unordered_map<std::string, std::string> RecentLevelByMount;
 		std::string DefaultLevel;
 		std::string PendingLevelPath;
 		std::string EditorError;

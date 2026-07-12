@@ -38,12 +38,6 @@ namespace Durin
 		constexpr const char* DockSpaceName = "DurinEditorDockSpace";
 		constexpr const char* SessionSettingsFileName = "LevelEditorSession.yaml";
 
-		auto GetMountRoot(std::string_view Path) -> std::string
-		{
-			if (Path.empty() || Path.front() != '/') return {};
-			const size_t Separator = Path.find('/', 1);
-			return Separator == std::string_view::npos ? std::string() : std::string(Path.substr(0, Separator + 1));
-		}
 	}
 
 	MLevelEditor::MLevelEditor()
@@ -72,7 +66,7 @@ namespace Durin
 		Panels.emplace_back(std::make_unique<FOutputLogPanel>());
 		Panels.emplace_back(std::make_unique<FFileBrowserPanel>([this](const std::string& Path) { return RequestOpenLevel(Path); }));
 		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
-		InitializeStartupLevel();
+		OpenDefaultLevel();
 	}
 
 	auto MLevelEditor::LoadSessionSettings() -> bool
@@ -89,7 +83,20 @@ namespace Durin
 
 		const FYamlNodeView Root = Document.GetRootView();
 		LoadLevelViewportStates(Root, ViewportSessionState->States);
-		bAlwaysAskForStartupLevel = Root.GetView("AlwaysAskForStartupLevel").GetBool(false);
+		if (const FProjectInfo* Project = GetCurrentProject())
+		{
+			const auto ProjectStates = ViewportSessionState->States.find(Project->ProjectFile);
+			if (ProjectStates != ViewportSessionState->States.end())
+			{
+				std::erase_if(ProjectStates->second, [](const auto& Entry) {
+					FAssetPath Path;
+					if (!FAssetPath::TryCreate(Entry.first, Path)) return true;
+					const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(Path);
+					return !Data || Data->AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString();
+				});
+				if (ProjectStates->second.empty()) ViewportSessionState->States.erase(ProjectStates);
+			}
+		}
 		const FYamlNodeView Display = Root.GetView("Display");
 		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
 		if (!Monitors.empty())
@@ -102,16 +109,6 @@ namespace Durin
 		WindowHeight = static_cast<int32>(Display.GetView("WindowHeight").GetInt(WindowHeight));
 		UIScale = static_cast<float>(Display.GetView("UIScale").GetDouble(UIScale));
 		bWindowMaximized = Display.GetView("WindowMaximized").GetBool(true);
-		const FYamlNodeView RecentLevels = Root.GetView("RecentLevels");
-		if (RecentLevels.IsMap())
-		{
-			for (size_t Index = 0; Index < RecentLevels.Num(); ++Index)
-			{
-				const FYamlNodeView Entry = RecentLevels.GetView(Index);
-				const std::string Path = Entry.GetString();
-				if (!Entry.GetKey().empty() && !Path.empty()) RecentLevelByMount[Entry.GetKey()] = Path;
-			}
-		}
 		return true;
 	}
 
@@ -120,15 +117,12 @@ namespace Durin
 		FYamlDocument Document;
 		FYamlNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureMap();
-		Root.SetChildValue("AlwaysAskForStartupLevel", bAlwaysAskForStartupLevel);
 		if (const FProjectInfo* Project = GetCurrentProject()) Root.SetChildValue("RecentProject", Project->ProjectFile);
 		FYamlNodeRef Display = Root.AddMap("Display");
 		Display.SetChildValue("WindowWidth", WindowWidth);
 		Display.SetChildValue("WindowHeight", WindowHeight);
 		Display.SetChildValue("UIScale", static_cast<double>(UIScale));
 		Display.SetChildValue("WindowMaximized", bWindowMaximized);
-		FYamlNodeRef RecentLevels = Root.AddMap("RecentLevels");
-		for (const auto& [MountRoot, Path] : RecentLevelByMount) RecentLevels.SetChildValue(MountRoot, Path);
 		SaveLevelViewportStates(Root, ViewportSessionState->States);
 		if (!Document.SaveToFile(FPaths::LaunchDir() + SessionSettingsFileName))
 		{
@@ -171,40 +165,16 @@ namespace Durin
 		return true;
 	}
 
-	auto MLevelEditor::InitializeStartupLevel() -> void
-	{
-		if (!bAlwaysAskForStartupLevel)
-		{
-			const FProjectInfo* Project = GetCurrentProject();
-			auto Found = Project ? RecentLevelByMount.find(Project->ProjectFile) : RecentLevelByMount.end();
-			if (Project && Found == RecentLevelByMount.end()) Found = RecentLevelByMount.find(Project->MountRoot); // Legacy session key.
-			// Older sessions keyed the entry by the level's mount rather than the project. A single
-			// entry is unambiguous and will be migrated to the project key after it opens.
-			if (Project && Found == RecentLevelByMount.end() && RecentLevelByMount.size() == 1) Found = RecentLevelByMount.begin();
-			if (Found != RecentLevelByMount.end())
-			{
-				OpenLevel(Found->second);
-				if (EditorError.empty()) return;
-				DURIN_WARN("Could not restore startup level {}: {}", Found->second, EditorError);
-				EditorError.clear();
-			}
-			if (Project && !DefaultLevel.empty() && DefaultLevel.starts_with(Project->MountRoot))
-			{
-				OpenLevel(DefaultLevel);
-				if (EditorError.empty()) return;
-				DURIN_WARN("Could not open project default level {}: {}", DefaultLevel, EditorError);
-				EditorError.clear();
-			}
-		}
-		QueuedFilePopup = EQueuedFilePopup::StartupLevel;
-	}
-
-	auto MLevelEditor::RecordRecentLevel(std::string_view Path) -> void
+	auto MLevelEditor::OpenDefaultLevel() -> void
 	{
 		const FProjectInfo* Project = GetCurrentProject();
-		if (!Project || Path.empty()) return;
-		RecentLevelByMount[Project->ProjectFile] = Path;
-		SaveSessionSettings();
+		if (!Project || DefaultLevel.empty() || !DefaultLevel.starts_with(Project->MountRoot)) return;
+		OpenLevel(DefaultLevel);
+		if (!EditorError.empty())
+		{
+			DURIN_WARN("Could not open project default level {}: {}", DefaultLevel, EditorError);
+			EditorError.clear();
+		}
 	}
 
 	auto MLevelEditor::CaptureCurrentViewportState() -> void
@@ -246,7 +216,6 @@ namespace Durin
 		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) RequestFileAction(EPendingFileAction::NewLevel);
-		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false)) RequestFileAction(EPendingFileAction::OpenLevel);
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) SaveCurrentLevel();
 		DrawMainMenu();
 		DrawFileDialogs();
@@ -291,9 +260,7 @@ namespace Durin
 		if (ImGui::BeginMenu("File"))
 		{
 			if (ImGui::MenuItem("New Level", "Ctrl+N")) RequestFileAction(EPendingFileAction::NewLevel);
-			if (ImGui::MenuItem("Open Level", "Ctrl+O")) RequestFileAction(EPendingFileAction::OpenLevel);
 			if (ImGui::MenuItem("Save Level", "Ctrl+S", false, Context && Context->Level && Context->Level->GetPackage())) SaveCurrentLevel();
-			if (ImGui::MenuItem("Open Startup Level...")) RequestFileAction(EPendingFileAction::StartupLevel);
 			if (ImGui::MenuItem("Set Current Level as Project Default", nullptr, false, Context && Context->Level && Context->Level->GetPackage()))
 			{
 				DefaultLevel = Context->Level->GetPackage()->GetPackagePath();
@@ -391,6 +358,7 @@ namespace Durin
 				ImGui::SeparatorText("Editor Default Level");
 				if (ImGui::BeginCombo("Default Level", DefaultLevel.empty() ? "None" : DefaultLevel.c_str()))
 				{
+					if (ImGui::Selectable("None", DefaultLevel.empty())) DefaultLevel.clear();
 					for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 					{
 						const std::string Value = Path.ToString();
@@ -469,13 +437,7 @@ namespace Durin
 				OpenLevel(Path);
 				return;
 			}
-			OpenFilterBuffer.fill(0);
-			QueuedFilePopup = EQueuedFilePopup::OpenLevel;
-		}
-		else if (PendingFileAction == EPendingFileAction::StartupLevel)
-		{
-			OpenFilterBuffer.fill(0);
-			QueuedFilePopup = EQueuedFilePopup::StartupLevel;
+			PendingFileAction = EPendingFileAction::None;
 		}
 		else if (PendingFileAction == EPendingFileAction::OpenProject)
 		{
@@ -490,8 +452,6 @@ namespace Durin
 		{
 		case EQueuedFilePopup::UnsavedLevel: ImGui::OpenPopup("Unsaved Level"); break;
 		case EQueuedFilePopup::NewLevel: ImGui::OpenPopup("New Level"); break;
-		case EQueuedFilePopup::OpenLevel: ImGui::OpenPopup("Open Level"); break;
-		case EQueuedFilePopup::StartupLevel: ImGui::OpenPopup("Choose Startup Level"); break;
 		case EQueuedFilePopup::ImportStaticMesh: ImGui::OpenPopup("Import Static Mesh"); break;
 		case EQueuedFilePopup::None: break;
 		}
@@ -520,35 +480,6 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 
-		if (ImGui::BeginPopupModal("Open Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-		{
-			ImGui::InputTextWithHint("##LevelFilter", "Filter virtual paths...", OpenFilterBuffer.data(), OpenFilterBuffer.size());
-			ImGui::BeginChild("LevelAssets", ImVec2(520.0f, 280.0f), true);
-			DrawLevelAssetList(false);
-			ImGui::EndChild();
-			if (ImGui::Button("Cancel")) { PendingFileAction = EPendingFileAction::None; ImGui::CloseCurrentPopup(); }
-			ImGui::EndPopup();
-		}
-
-		if (ImGui::BeginPopupModal("Choose Startup Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-		{
-			ImGui::TextUnformatted("Open a level, create one, or continue with an empty editor.");
-			ImGui::InputTextWithHint("##StartupLevelFilter", "Filter virtual paths...", OpenFilterBuffer.data(), OpenFilterBuffer.size());
-			ImGui::BeginChild("StartupLevelAssets", ImVec2(520.0f, 280.0f), true);
-			const bool bOpened = DrawLevelAssetList(true);
-			ImGui::EndChild();
-			if (bOpened) ImGui::CloseCurrentPopup();
-			if (ImGui::Button("New Level"))
-			{
-				ImGui::CloseCurrentPopup();
-				PendingFileAction = EPendingFileAction::NewLevel;
-				ExecutePendingFileAction();
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Continue Empty")) ImGui::CloseCurrentPopup();
-			if (ImGui::Checkbox("Always ask when the editor starts", &bAlwaysAskForStartupLevel)) SaveSessionSettings();
-			ImGui::EndPopup();
-		}
 
 		ImGui::SetNextWindowSize(ImVec2(640.0f, 0.0f), ImGuiCond_Appearing);
 		if (ImGui::BeginPopupModal("Import Static Mesh", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize))
@@ -638,24 +569,6 @@ namespace Durin
 			if (ImGui::Button("OK")) { EditorError.clear(); ImGui::CloseCurrentPopup(); }
 			ImGui::EndPopup();
 		}
-	}
-
-	auto MLevelEditor::DrawLevelAssetList(bool bStartupPicker) -> bool
-	{
-		(void)bStartupPicker;
-		const std::string Filter = OpenFilterBuffer.data();
-		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
-		{
-			if (Data.AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString()) continue;
-			const std::string PathString = Path.ToString();
-			if (!Filter.empty() && PathString.find(Filter) == std::string::npos) continue;
-			if (ImGui::Selectable(PathString.c_str()))
-			{
-				OpenLevel(PathString);
-				if (EditorError.empty()) return true;
-			}
-		}
-		return false;
 	}
 
 	auto MLevelEditor::BrowseStaticMeshSource() -> void
@@ -830,7 +743,6 @@ namespace Durin
 				if (!Result && Result.Error != Asset::EAssetError::NotFound) DURIN_WARN("Failed to unload previous level: {}", Result.Message);
 			}
 		}
-		if (DPackage* Package = Level->GetPackage()) RecordRecentLevel(Package->GetPackagePath());
 		return true;
 	}
 
