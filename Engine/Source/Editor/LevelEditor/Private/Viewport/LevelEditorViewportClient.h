@@ -39,12 +39,12 @@ namespace Durin
 		auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool override;
 		auto Update(DLevel* Level, AActor* SelectedActor, const FLevelEditorViewportInput& Input) -> void;
 		auto ResetNavigation() -> void;
+		auto InitializeForLevel(DLevel* Level, const FLevelViewportCameraState* SavedState = nullptr) -> void;
 		auto GetViewMatrix() const -> FMatrix { return CameraTransform.GetViewMatrix(); }
 		auto GetCameraTransform() const -> const FViewportCameraTransform& { return CameraTransform; }
+		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel; }
 
 	private:
-		auto InitializeForLevel(DLevel* Level) -> void;
-
 		FViewportCameraTransform CameraTransform;
 		DLevel* CurrentLevel = nullptr;
 		float FieldOfViewDegrees = 60.0f;

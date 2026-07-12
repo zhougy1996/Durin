@@ -9,6 +9,8 @@ namespace Durin
 {
 	class MViewport;
 	class FLevelEditorViewportClient;
+	class DLevel;
+	struct FLevelViewportCameraState;
 
 	class FSceneViewportPanel final : public ILevelEditorPanel
 	{
@@ -21,6 +23,8 @@ namespace Durin
 
 		auto IsViewportHovered() const -> bool { return bViewportHovered; }
 		auto IsViewportFocused() const -> bool { return bViewportFocused; }
+		auto CaptureCameraState(DLevel* Level, FLevelViewportCameraState& OutState) const -> bool;
+		auto RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void;
 
 	private:
 		auto DrawToolbar(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;

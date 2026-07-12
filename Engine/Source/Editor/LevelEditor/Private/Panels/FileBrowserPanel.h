@@ -33,7 +33,7 @@ namespace Durin
 	class FFileBrowserPanel final : public ILevelEditorPanel
 	{
 	public:
-		FFileBrowserPanel();
+		explicit FFileBrowserPanel(std::function<bool(const std::string&)> OpenAsset);
 		~FFileBrowserPanel() override = default;
 
 		auto GetWindowName() const -> const char* override { return "File Browser"; }
@@ -99,5 +99,6 @@ namespace Durin
 		EPendingDelete PendingDelete = EPendingDelete::None;
 		std::string PendingDeletePath;
 		std::string PendingDeleteName;
+		std::function<bool(const std::string&)> OpenAsset;
 	};
 } // namespace Durin

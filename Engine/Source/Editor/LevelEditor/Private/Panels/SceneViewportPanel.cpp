@@ -53,6 +53,18 @@ namespace Durin
 		if (GEngine != nullptr) GEngine->SetMainSceneViewport(nullptr);
 	}
 
+	auto FSceneViewportPanel::CaptureCameraState(DLevel* Level, FLevelViewportCameraState& OutState) const -> bool
+	{
+		if (ViewportClient == nullptr || Level == nullptr || ViewportClient->GetCurrentLevel() != Level) return false;
+		OutState = ViewportClient->GetCameraTransform().GetState();
+		return true;
+	}
+
+	auto FSceneViewportPanel::RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void
+	{
+		if (ViewportClient != nullptr) ViewportClient->InitializeForLevel(Level, State);
+	}
+
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		if (!ImGui::Begin("Scene Viewport###SceneViewport", GetOpenPtr(), ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))

@@ -5,6 +5,8 @@ add_durin_test(EngineTests
 	Private/WorldTests.cpp
 	Private/ViewportTests.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportCameraTransform.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/LevelEditorViewportClient.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelViewportSessionSettings.cpp
 )
 
 target_include_directories(EngineTests PRIVATE

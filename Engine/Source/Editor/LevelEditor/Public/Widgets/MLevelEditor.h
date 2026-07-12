@@ -6,7 +6,9 @@
 namespace Durin
 {
 	class ILevelEditorPanel;
+	class FSceneViewportPanel;
 	struct FLevelEditorContext;
+	struct FLevelViewportSessionState;
 
 	class MLevelEditor final : public MWidget
 	{
@@ -27,10 +29,13 @@ namespace Durin
 		auto LoadSessionSettings() -> bool;
 		auto SaveSessionSettings() const -> bool;
 		auto RecordRecentLevel(std::string_view Path) -> void;
+		auto CaptureCurrentViewportState() -> void;
+		auto RestoreViewportState(class DLevel* Level) -> void;
 		auto LoadProjectSettings() -> bool;
 		auto SaveProjectSettings() -> bool;
 		auto DrawLevelAssetList(bool bStartupPicker) -> bool;
 		auto RequestFileAction(EPendingFileAction Action) -> void;
+		auto RequestOpenLevel(std::string Path) -> bool;
 		auto ExecutePendingFileAction() -> void;
 		auto CreateLevel(std::string_view Path) -> void;
 		auto OpenLevel(std::string_view Path) -> void;
@@ -43,7 +48,9 @@ namespace Durin
 		auto BuildDefaultLayout(uint32 DockSpaceId) -> void;
 
 		std::unique_ptr<FLevelEditorContext> Context;
+		std::unique_ptr<FLevelViewportSessionState> ViewportSessionState;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
+		FSceneViewportPanel* SceneViewportPanel = nullptr;
 		bool bResetLayoutRequested = false;
 		bool bProjectSettingsOpen = false;
 		bool bAlwaysAskForStartupLevel = false;
@@ -60,6 +67,7 @@ namespace Durin
 		std::string LastSuggestedImportAssetPath;
 		std::unordered_map<std::string, std::string> RecentLevelByMount;
 		std::string DefaultLevel;
+		std::string PendingLevelPath;
 		std::string EditorError;
 	};
 } // namespace Durin

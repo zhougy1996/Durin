@@ -17,6 +17,15 @@ namespace Durin
 		OrbitPivot = Location + Forward * OrbitDistance;
 	}
 
+	auto FViewportCameraTransform::SetState(const FLevelViewportCameraState& State) -> void
+	{
+		Location = State.Location;
+		OrbitPivot = State.OrbitPivot;
+		OrbitDistance = std::max(kMinOrbitDistance, State.OrbitDistance);
+		Pitch = std::clamp(State.Pitch, -kMaxPitch, kMaxPitch);
+		Yaw = State.Yaw;
+	}
+
 	auto FViewportCameraTransform::Rotate(float DeltaYawDegrees, float DeltaPitchDegrees) -> void
 	{
 		Yaw += DeltaYawDegrees;

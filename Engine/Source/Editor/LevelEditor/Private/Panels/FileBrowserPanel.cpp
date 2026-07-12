@@ -1,5 +1,6 @@
 #include "Panels/FileBrowserPanel.h"
 
+#include "AssetSystem.h"
 #include "LevelEditorContext.h"
 #include "Misc/Paths.h"
 #include "MonaImGui.h"
@@ -34,7 +35,8 @@ namespace Durin
 			ImGuiTableFlags_ScrollY | ImGuiTableFlags_NoSavedSettings;
 	} // namespace
 
-	FFileBrowserPanel::FFileBrowserPanel()
+	FFileBrowserPanel::FFileBrowserPanel(std::function<bool(const std::string&)> InOpenAsset)
+		: OpenAsset(std::move(InOpenAsset))
 	{
 		BuildRootNodes();
 	}
@@ -578,6 +580,15 @@ namespace Durin
 
 	auto FFileBrowserPanel::OpenFile(const FFileBrowserFileEntry& File) -> void
 	{
+		if (File.Extension == ".dasset" && OpenAsset)
+		{
+			const std::filesystem::path SelectedPath = std::filesystem::absolute(File.PhysicalPath).lexically_normal();
+			for (const auto& [AssetPath, AssetData] : Asset::GetAssetRegistry().GetAssets())
+			{
+				if (std::filesystem::absolute(AssetData.PhysicalPath).lexically_normal() == SelectedPath && OpenAsset(AssetPath.ToString()))
+					return;
+			}
+		}
 #ifdef _WIN32
 		std::filesystem::path FsPath(File.PhysicalPath);
 		const std::wstring WidePath = FsPath.make_preferred().wstring();

@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "IRendererModule.h"
 #include "LevelEditorContext.h"
+#include "LevelViewportSessionSettings.h"
 #include "Misc/StringConvert.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -27,6 +28,11 @@
 
 namespace Durin
 {
+	struct FLevelViewportSessionState
+	{
+		FLevelViewportStateMap States;
+	};
+
 	namespace
 	{
 		constexpr const char* DockSpaceName = "DurinEditorDockSpace";
@@ -40,8 +46,15 @@ namespace Durin
 		}
 	}
 
-	MLevelEditor::MLevelEditor() = default;
-	MLevelEditor::~MLevelEditor() = default;
+	MLevelEditor::MLevelEditor()
+		: ViewportSessionState(std::make_unique<FLevelViewportSessionState>())
+	{
+	}
+	MLevelEditor::~MLevelEditor()
+	{
+		CaptureCurrentViewportState();
+		SaveSessionSettings();
+	}
 
 	auto MLevelEditor::Construct() -> void
 	{
@@ -51,11 +64,13 @@ namespace Durin
 		LoadSessionSettings();
 		LoadProjectSettings();
 		SaveSessionSettings();
-		Panels.emplace_back(std::make_unique<FSceneViewportPanel>());
+		auto SceneViewport = std::make_unique<FSceneViewportPanel>();
+		SceneViewportPanel = SceneViewport.get();
+		Panels.emplace_back(std::move(SceneViewport));
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
 		Panels.emplace_back(std::make_unique<FDetailsPanel>());
 		Panels.emplace_back(std::make_unique<FOutputLogPanel>());
-		Panels.emplace_back(std::make_unique<FFileBrowserPanel>());
+		Panels.emplace_back(std::make_unique<FFileBrowserPanel>([this](const std::string& Path) { return RequestOpenLevel(Path); }));
 		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
 		InitializeStartupLevel();
 	}
@@ -73,6 +88,7 @@ namespace Durin
 		}
 
 		const FYamlNodeView Root = Document.GetRootView();
+		LoadLevelViewportStates(Root, ViewportSessionState->States);
 		bAlwaysAskForStartupLevel = Root.GetView("AlwaysAskForStartupLevel").GetBool(false);
 		const FYamlNodeView Display = Root.GetView("Display");
 		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
@@ -113,6 +129,7 @@ namespace Durin
 		Display.SetChildValue("WindowMaximized", bWindowMaximized);
 		FYamlNodeRef RecentLevels = Root.AddMap("RecentLevels");
 		for (const auto& [MountRoot, Path] : RecentLevelByMount) RecentLevels.SetChildValue(MountRoot, Path);
+		SaveLevelViewportStates(Root, ViewportSessionState->States);
 		if (!Document.SaveToFile(FPaths::LaunchDir() + SessionSettingsFileName))
 		{
 			DURIN_WARN("Failed to save level editor session settings.");
@@ -161,6 +178,9 @@ namespace Durin
 			const FProjectInfo* Project = GetCurrentProject();
 			auto Found = Project ? RecentLevelByMount.find(Project->ProjectFile) : RecentLevelByMount.end();
 			if (Project && Found == RecentLevelByMount.end()) Found = RecentLevelByMount.find(Project->MountRoot); // Legacy session key.
+			// Older sessions keyed the entry by the level's mount rather than the project. A single
+			// entry is unambiguous and will be migrated to the project key after it opens.
+			if (Project && Found == RecentLevelByMount.end() && RecentLevelByMount.size() == 1) Found = RecentLevelByMount.begin();
 			if (Found != RecentLevelByMount.end())
 			{
 				OpenLevel(Found->second);
@@ -182,9 +202,38 @@ namespace Durin
 	auto MLevelEditor::RecordRecentLevel(std::string_view Path) -> void
 	{
 		const FProjectInfo* Project = GetCurrentProject();
-		if (!Project || !Path.starts_with(Project->MountRoot)) return;
+		if (!Project || Path.empty()) return;
 		RecentLevelByMount[Project->ProjectFile] = Path;
 		SaveSessionSettings();
+	}
+
+	auto MLevelEditor::CaptureCurrentViewportState() -> void
+	{
+		const FProjectInfo* Project = GetCurrentProject();
+		if (!Project || !ViewportSessionState || !SceneViewportPanel || !Context || !Context->Level) return;
+		DPackage* Package = Context->Level->GetPackage();
+		if (!Package) return;
+		FLevelViewportCameraState State;
+		if (SceneViewportPanel->CaptureCameraState(Context->Level, State))
+			ViewportSessionState->States[Project->ProjectFile][Package->GetPackagePath()] = State;
+	}
+
+	auto MLevelEditor::RestoreViewportState(DLevel* Level) -> void
+	{
+		if (!SceneViewportPanel || !Level) return;
+		const FProjectInfo* Project = GetCurrentProject();
+		DPackage* Package = Level->GetPackage();
+		const FLevelViewportCameraState* State = nullptr;
+		if (Project && Package && ViewportSessionState)
+		{
+			const auto ProjectIt = ViewportSessionState->States.find(Project->ProjectFile);
+			if (ProjectIt != ViewportSessionState->States.end())
+			{
+				const auto LevelIt = ProjectIt->second.find(Package->GetPackagePath());
+				if (LevelIt != ProjectIt->second.end()) State = &LevelIt->second;
+			}
+		}
+		SceneViewportPanel->RestoreCameraState(Level, State);
 	}
 
 	auto MLevelEditor::Draw() -> void
@@ -374,6 +423,7 @@ namespace Durin
 
 	auto MLevelEditor::RequestFileAction(EPendingFileAction Action) -> void
 	{
+		PendingLevelPath.clear();
 		PendingFileAction = Action;
 		if (Context && Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty())
 		{
@@ -381,6 +431,24 @@ namespace Durin
 			return;
 		}
 		ExecutePendingFileAction();
+	}
+
+	auto MLevelEditor::RequestOpenLevel(std::string Path) -> bool
+	{
+		FAssetPath AssetPath;
+		if (!FAssetPath::TryCreate(Path, AssetPath)) return false;
+		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(AssetPath);
+		if (!Data || Data->AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString()) return false;
+		PendingLevelPath = std::move(Path);
+		PendingFileAction = EPendingFileAction::OpenLevel;
+		if (Context && Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty())
+		{
+			QueuedFilePopup = EQueuedFilePopup::UnsavedLevel;
+			return true;
+		}
+		OpenLevel(PendingLevelPath);
+		PendingLevelPath.clear();
+		return true;
 	}
 
 	auto MLevelEditor::ExecutePendingFileAction() -> void
@@ -395,6 +463,12 @@ namespace Durin
 		}
 		else if (PendingFileAction == EPendingFileAction::OpenLevel)
 		{
+			if (!PendingLevelPath.empty())
+			{
+				const std::string Path = std::exchange(PendingLevelPath, {});
+				OpenLevel(Path);
+				return;
+			}
 			OpenFilterBuffer.fill(0);
 			QueuedFilePopup = EQueuedFilePopup::OpenLevel;
 		}
@@ -433,7 +507,7 @@ namespace Durin
 			ImGui::SameLine();
 			if (ImGui::Button("Discard")) { ImGui::CloseCurrentPopup(); ExecutePendingFileAction(); }
 			ImGui::SameLine();
-			if (ImGui::Button("Cancel")) { PendingFileAction = EPendingFileAction::None; ImGui::CloseCurrentPopup(); }
+			if (ImGui::Button("Cancel")) { PendingFileAction = EPendingFileAction::None; PendingLevelPath.clear(); ImGui::CloseCurrentPopup(); }
 			ImGui::EndPopup();
 		}
 
@@ -723,6 +797,8 @@ namespace Durin
 	{
 		EditorError.clear();
 		if (!Context || !Context->Level || !Context->Level->GetPackage()) { SetError("The current level is transient and cannot be saved."); return false; }
+		CaptureCurrentViewportState();
+		SaveSessionSettings();
 		Asset::FAssetResult Result = Asset::SavePackage(Context->Level->GetPackage());
 		if (!Result) { SetError(Result.Message); return false; }
 		return true;
@@ -738,10 +814,13 @@ namespace Durin
 	auto MLevelEditor::ActivateLevel(DLevel* Level) -> bool
 	{
 		if (!Context || !Context->World || !Level) { SetError("No world is available to activate the level."); return false; }
+		CaptureCurrentViewportState();
+		SaveSessionSettings();
 		DLevel* Previous = Context->World->GetCurrentLevel();
 		DPackage* PreviousPackage = Previous ? Previous->GetPackage() : nullptr;
 		if (!Context->World->SetCurrentLevel(Level)) { SetError("The level is already active in another world."); return false; }
 		Context->Synchronize(Context->World);
+		RestoreViewportState(Level);
 		if (PreviousPackage && PreviousPackage != Level->GetPackage())
 		{
 			FAssetPath PreviousPath;

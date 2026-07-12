@@ -111,13 +111,17 @@ namespace Durin
 		bPanNavigation = false;
 	}
 
-	auto FLevelEditorViewportClient::InitializeForLevel(DLevel* Level) -> void
+	auto FLevelEditorViewportClient::InitializeForLevel(DLevel* Level, const FLevelViewportCameraState* SavedState) -> void
 	{
 		CurrentLevel = Level;
 		ResetNavigation();
 		if (Level != nullptr)
 		{
-			if (const ACameraActor* CameraActor = Level->GetPrimaryCameraActor())
+			if (SavedState != nullptr)
+			{
+				CameraTransform.SetState(*SavedState);
+			}
+			else if (const ACameraActor* CameraActor = Level->GetPrimaryCameraActor())
 			{
 				if (const DCameraComponent* Camera = CameraActor->GetCameraComponent())
 				{

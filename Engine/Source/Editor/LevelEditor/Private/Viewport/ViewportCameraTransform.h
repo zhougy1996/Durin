@@ -4,10 +4,21 @@
 
 namespace Durin
 {
+	struct FLevelViewportCameraState
+	{
+		FVector3 Location{-5.0, -5.0, 3.0};
+		FVector3 OrbitPivot{0.0};
+		FReal OrbitDistance = 8.0;
+		FReal Pitch = -20.0;
+		FReal Yaw = 45.0;
+	};
+
 	class FViewportCameraTransform
 	{
 	public:
 		auto SetFromTransform(const FVector3& InLocation, const FQuat& InRotation) -> void;
+		auto SetState(const FLevelViewportCameraState& State) -> void;
+		auto GetState() const -> FLevelViewportCameraState { return {Location, OrbitPivot, OrbitDistance, Pitch, Yaw}; }
 		auto Rotate(float DeltaYawDegrees, float DeltaPitchDegrees) -> void;
 		auto MoveLocal(const FVector3& LocalDelta) -> void;
 		auto Pan(float DeltaRight, float DeltaUp) -> void;
