@@ -5,6 +5,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
 #include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
 #include "Threading/RunnableThread.h"
 
 namespace
@@ -217,4 +218,78 @@ TEST(FPackageAssetTests, RejectsTruncatedPackagesWithoutCachingPartialObjects)
 	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::CorruptFile);
 	EXPECT_EQ(Loaded, nullptr);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
+}
+
+TEST(FPackageAssetTests, VersionTwoDoesNotStoreItsOwnPathAndDirectoryMoveIsByteStable)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath OldPath, NewPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MoveSource", OldPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Sub/MoveSource", NewPath));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Asset));
+	Asset->Label = "movable";
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	const auto OldFile = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "MoveSource.dasset";
+	std::vector<Durin::uint8> Before;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Before, OldFile.generic_string()));
+	EXPECT_EQ(*reinterpret_cast<const Durin::uint32*>(Before.data() + sizeof(Durin::uint32)), 2u);
+	EXPECT_EQ(std::search(Before.begin(), Before.end(), OldPath.GetView().begin(), OldPath.GetView().end()), Before.end());
+
+	ASSERT_TRUE(Durin::Asset::MoveAsset(OldPath, NewPath));
+	const auto NewFile = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "Sub" / "MoveSource.dasset";
+	std::vector<Durin::uint8> After;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(After, NewFile.generic_string()));
+	EXPECT_EQ(Before, After);
+	EXPECT_FALSE(std::filesystem::exists(OldFile));
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(OldPath), nullptr);
+	EXPECT_NE(Durin::Asset::FindLoadedPackage(NewPath), nullptr);
+}
+
+TEST(FPackageAssetTests, MoveRewritesMountedReferrers)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath OldPath, NewPath, OwnerPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MoveDependency", OldPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RenamedDependency", NewPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MoveOwner", OwnerPath));
+	DPackageAssetForTest* Dependency = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Dependency));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Dependency->GetPackage()));
+	DPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
+	Owner->ExternalReference = Dependency;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
+
+	ASSERT_TRUE(Durin::Asset::MoveAsset(OldPath, NewPath));
+	const Durin::Asset::FAssetData* OwnerData = Durin::Asset::GetAssetRegistry().FindAsset(OwnerPath);
+	ASSERT_NE(OwnerData, nullptr);
+	EXPECT_NE(std::ranges::find(OwnerData->Dependencies, NewPath), OwnerData->Dependencies.end());
+	EXPECT_EQ(std::ranges::find(OwnerData->Dependencies, OldPath), OwnerData->Dependencies.end());
+	EXPECT_EQ(Dependency->GetName(), NewPath.GetAssetName());
+}
+
+TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LegacyVersion", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	const auto File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "LegacyVersion.dasset";
+	std::fstream Stream(File, std::ios::in | std::ios::out | std::ios::binary);
+	ASSERT_TRUE(Stream.is_open());
+	const Durin::uint32 Version = 1;
+	Stream.seekp(sizeof(Durin::uint32));
+	Stream.write(reinterpret_cast<const char*>(&Version), sizeof(Version));
+	Stream.close();
+	Durin::DObject* Loaded = nullptr;
+	EXPECT_EQ(Durin::Asset::LoadAsset(Path, Loaded).Error, Durin::Asset::EAssetError::UnsupportedVersion);
+	EXPECT_EQ(Loaded, nullptr);
+	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent());
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
+	ASSERT_FALSE(Durin::Asset::GetAssetRegistry().GetScanErrors().empty());
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetScanErrors().back().Error, Durin::Asset::EAssetError::UnsupportedVersion);
 }

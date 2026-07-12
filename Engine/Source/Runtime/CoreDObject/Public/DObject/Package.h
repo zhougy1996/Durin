@@ -33,6 +33,7 @@ namespace Durin
 		auto IsCppPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Cpp); }
 
 		auto InitializeAssetPackage(const FAssetPath& InPath) -> void;
+		auto RelocateAssetPackage(const FAssetPath& InPath) -> bool;
 		auto InitializeCppPackage(FName ModuleName) -> void;
 		auto SetAsset(DObject* InAsset) -> bool;
 		auto MarkDirty() -> void { if (IsAssetPackage()) bDirty = true; }

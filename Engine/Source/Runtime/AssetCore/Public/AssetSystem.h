@@ -43,6 +43,16 @@ namespace Durin::Asset
 		std::filesystem::file_time_type LastWriteTime{};
 	};
 
+	struct FAssetMoveContribution
+	{
+		std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Files;
+		std::function<void()> Apply;
+		std::function<void()> Rollback;
+	};
+
+	using FAssetMoveContributor = std::function<FAssetResult(DObject*, const FAssetPath&, const FAssetPath&, FAssetMoveContribution&)>;
+	ASSETCORE_API auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void;
+
 	class FAssetRegistry
 	{
 	public:
@@ -67,6 +77,7 @@ namespace Durin::Asset
 		ASSETCORE_API auto CreateAsset(const FAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult;
 		ASSETCORE_API auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult;
 		ASSETCORE_API auto SavePackage(DPackage* Package) -> FAssetResult;
+		ASSETCORE_API auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult;
 		ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) const -> DPackage*;
 		ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
 		ASSETCORE_API auto Shutdown() -> void;
@@ -113,6 +124,7 @@ namespace Durin::Asset
 
 	ASSETCORE_API auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult;
 	ASSETCORE_API auto SavePackage(DPackage* Package) -> FAssetResult;
+	ASSETCORE_API auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult;
 	ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) -> DPackage*;
 	ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
 	ASSETCORE_API auto ShutdownAssetManager() -> void;

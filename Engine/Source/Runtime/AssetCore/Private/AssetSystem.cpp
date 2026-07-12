@@ -12,7 +12,7 @@ namespace Durin::Asset
 	namespace
 	{
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
-		constexpr uint32 AssetVersion = 1;
+		constexpr uint32 AssetVersion = 2;
 
 		struct FByteWriter
 		{
@@ -97,13 +97,19 @@ namespace Durin::Asset
 
 		struct FPackageFile
 		{
-			FAssetPath Path;
+			uint32 FormatVersion = 0;
 			std::string AssetClassName;
 			std::vector<FAssetPath> Dependencies;
 			std::vector<FObjectRecord> Objects;
 		};
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult { return {Code, std::move(Message)}; }
+
+		auto GetMoveContributors() -> std::unordered_map<DClass*, FAssetMoveContributor>&
+		{
+			static std::unordered_map<DClass*, FAssetMoveContributor> Contributors;
+			return Contributors;
+		}
 
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
 		{
@@ -395,7 +401,6 @@ namespace Durin::Asset
 		{
 			Writer.Write(AssetMagic);
 			Writer.Write(AssetVersion);
-			Writer.WriteString(File.Path.GetView());
 			Writer.WriteString(File.AssetClassName);
 			Writer.Write(uint64(File.Dependencies.size()));
 			for (const FAssetPath& Dependency : File.Dependencies) Writer.WriteString(Dependency.GetView());
@@ -423,11 +428,11 @@ namespace Durin::Asset
 		{
 			FByteReader Reader{Bytes};
 			uint32 Magic = 0, Version = 0;
-			std::string PathString;
 			if (!Reader.Read(Magic) || !Reader.Read(Version)) return Error(EAssetError::CorruptFile, "Truncated asset header.");
 			if (Magic != AssetMagic) return Error(EAssetError::CorruptFile, "Invalid asset magic.");
 			if (Version != AssetVersion) return Error(EAssetError::UnsupportedVersion, std::format("Unsupported asset version {}.", Version));
-			if (!Reader.ReadString(PathString) || !FAssetPath::TryCreate(PathString, OutFile.Path) || !Reader.ReadString(OutFile.AssetClassName)) return Error(EAssetError::CorruptFile, "Invalid asset header strings.");
+			OutFile.FormatVersion = Version;
+			if (!Reader.ReadString(OutFile.AssetClassName)) return Error(EAssetError::CorruptFile, "Invalid asset header strings.");
 			uint64 DependencyCount = 0;
 			if (!Reader.Read(DependencyCount) || DependencyCount > 100000) return Error(EAssetError::CorruptFile, "Invalid dependency count.");
 			for (uint64 Index = 0; Index < DependencyCount; ++Index)
@@ -473,6 +478,11 @@ namespace Durin::Asset
 		}
 	}
 
+	auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void
+	{
+		if (Class && Contributor) GetMoveContributors().insert_or_assign(Class, std::move(Contributor));
+	}
+
 	auto FAssetRegistry::ScanMountedContent() -> FAssetResult
 	{
 		std::unordered_map<FAssetPath, FAssetData> NewAssets;
@@ -494,9 +504,8 @@ namespace Durin::Asset
 				}
 				FAssetResult Result = ReadPackageFile(Bytes, PackageFile, true);
 				if (!Result) { ScanErrors.push_back(std::move(Result)); continue; }
-				if (PackageFile.Path != DiskPath) { ScanErrors.push_back(Error(EAssetError::InvalidPath, std::format("Asset header path does not match {}.", It->path().generic_string()))); continue; }
 				if (NewAssets.contains(DiskPath)) { ScanErrors.push_back(Error(EAssetError::AlreadyExists, std::format("Duplicate asset path {}.", DiskPath.ToString()))); continue; }
-				NewAssets.emplace(DiskPath, FAssetData{DiskPath, It->path().generic_string(), PackageFile.AssetClassName, AssetVersion, PackageFile.Dependencies, It->last_write_time(Ec)});
+				NewAssets.emplace(DiskPath, FAssetData{DiskPath, It->path().generic_string(), PackageFile.AssetClassName, PackageFile.FormatVersion, PackageFile.Dependencies, It->last_write_time(Ec)});
 			}
 		}
 		Assets = std::move(NewAssets);
@@ -553,7 +562,6 @@ namespace Durin::Asset
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
 
 		FPackageFile File;
-		File.Path = Path;
 		File.AssetClassName = Package->GetAsset()->GetClass()->GetQualifiedName().ToString();
 		std::unordered_set<FAssetPath> Dependencies;
 		for (size_t Index = 0; Index < Objects.size(); ++Index)
@@ -621,6 +629,97 @@ namespace Durin::Asset
 		return {};
 	}
 
+	auto FAssetManager::MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult
+	{
+		if (!OldPath.IsValid() || !NewPath.IsValid() || OldPath == NewPath) return Error(EAssetError::InvalidPath, "Asset move paths are invalid or identical.");
+		const FAssetData* SourceData = Registry.FindAsset(OldPath);
+		if (!SourceData) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", OldPath.ToString()));
+		const std::filesystem::path OldFile(GetPhysicalPath(OldPath));
+		const std::filesystem::path NewFile(GetPhysicalPath(NewPath));
+		if (Registry.FindAsset(NewPath) || LoadedPackages.contains(NewPath) || std::filesystem::exists(NewFile)) return Error(EAssetError::AlreadyExists, std::format("Asset {} already exists.", NewPath.ToString()));
+
+		std::vector<FAssetPath> ReferrerPaths;
+		for (const auto& [Path, Data] : Registry.GetAssets())
+			if (Path != OldPath && std::ranges::find(Data.Dependencies, OldPath) != Data.Dependencies.end()) ReferrerPaths.push_back(Path);
+
+		DPackage* MovingPackage = nullptr;
+		FAssetResult Result = LoadPackageInternal(OldPath, MovingPackage);
+		if (!Result) return Result;
+		std::vector<DPackage*> Referrers;
+		for (const FAssetPath& Path : ReferrerPaths)
+		{
+			DPackage* Package = nullptr;
+			Result = LoadPackageInternal(Path, Package);
+			if (!Result) return Result;
+			Referrers.push_back(Package);
+		}
+
+		FAssetMoveContribution Contribution;
+		for (DClass* Class = MovingPackage->GetAsset()->GetClass(); Class; Class = Class->GetSuperClass())
+		{
+			auto It = GetMoveContributors().find(Class);
+			if (It == GetMoveContributors().end()) continue;
+			Result = It->second(MovingPackage->GetAsset(), OldPath, NewPath, Contribution);
+			if (!Result) return Result;
+			break;
+		}
+		for (const auto& [From, To] : Contribution.Files)
+		{
+			if (!std::filesystem::is_regular_file(From)) return Error(EAssetError::NotFound, std::format("Companion file {} was not found.", From.generic_string()));
+			if (std::filesystem::exists(To)) return Error(EAssetError::AlreadyExists, std::format("Companion destination {} already exists.", To.generic_string()));
+		}
+
+		const auto RegistryBackup = Registry.Assets;
+		const std::string OldName = MovingPackage->GetAsset()->GetName();
+		std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Backups;
+		auto Backup = [&](const std::filesystem::path& File) -> bool {
+			if (!std::filesystem::exists(File)) return false;
+			const std::filesystem::path Copy = File.string() + ".movebak";
+			std::error_code Ec; std::filesystem::remove(Copy, Ec); Ec.clear();
+			std::filesystem::copy_file(File, Copy, std::filesystem::copy_options::overwrite_existing, Ec);
+			if (Ec) return false;
+			Backups.emplace_back(File, Copy); return true;
+		};
+		if (!Backup(OldFile)) return Error(EAssetError::IoError, "Failed to back up source asset.");
+		for (const FAssetPath& Path : ReferrerPaths) if (!Backup(GetPhysicalPath(Path))) return Error(EAssetError::IoError, "Failed to back up an asset referrer.");
+		for (const auto& [From, To] : Contribution.Files) if (!Backup(From)) return Error(EAssetError::IoError, "Failed to back up a companion file.");
+
+		auto Rollback = [&]() {
+			if (Contribution.Rollback) Contribution.Rollback();
+			MovingPackage->RelocateAssetPackage(OldPath);
+			MovingPackage->Rename(FName(OldPath.GetAssetName()));
+			MovingPackage->GetAsset()->Rename(FName(OldName));
+			std::error_code Ec;
+			std::filesystem::remove(NewFile, Ec);
+			for (const auto& [From, To] : Contribution.Files) std::filesystem::remove(To, Ec);
+			for (const auto& [Original, Copy] : Backups) { Ec.clear(); std::filesystem::copy_file(Copy, Original, std::filesystem::copy_options::overwrite_existing, Ec); std::filesystem::remove(Copy, Ec); }
+			Registry.Assets = RegistryBackup;
+		};
+
+		if (!MovingPackage->RelocateAssetPackage(NewPath)) { Rollback(); return Error(EAssetError::AlreadyExists, "The destination package path is registered."); }
+		MovingPackage->Rename(FName(NewPath.GetAssetName()));
+		if (OldPath.GetAssetName() != NewPath.GetAssetName()) MovingPackage->GetAsset()->Rename(FName(NewPath.GetAssetName()));
+		if (Contribution.Apply) Contribution.Apply();
+		for (const auto& [From, To] : Contribution.Files)
+		{
+			std::error_code Ec; std::filesystem::create_directories(To.parent_path(), Ec); Ec.clear(); std::filesystem::rename(From, To, Ec);
+			if (Ec) { Rollback(); return Error(EAssetError::IoError, "Failed to move a companion file."); }
+		}
+		LoadedPackages.erase(OldPath);
+		LoadedPackages.emplace(NewPath, MovingPackage);
+		Registry.Assets.erase(OldPath);
+		std::error_code DirectoryEc;
+		std::filesystem::create_directories(NewFile.parent_path(), DirectoryEc);
+		if (DirectoryEc) { LoadedPackages.erase(NewPath); LoadedPackages.emplace(OldPath, MovingPackage); Rollback(); return Error(EAssetError::IoError, "Failed to create the destination directory."); }
+		Result = SavePackage(MovingPackage);
+		if (Result) for (DPackage* Referrer : Referrers) { Result = SavePackage(Referrer); if (!Result) break; }
+		if (!Result) { LoadedPackages.erase(NewPath); LoadedPackages.emplace(OldPath, MovingPackage); Rollback(); return Result; }
+		std::error_code Ec; std::filesystem::remove(OldFile, Ec);
+		if (Ec) { LoadedPackages.erase(NewPath); LoadedPackages.emplace(OldPath, MovingPackage); Rollback(); return Error(EAssetError::IoError, "Failed to remove the old asset file."); }
+		for (const auto& [Original, Copy] : Backups) std::filesystem::remove(Copy, Ec);
+		return {};
+	}
+
 	auto FAssetManager::LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult
 	{
 		const bool bRootLoad = LoadDepth++ == 0;
@@ -662,7 +761,6 @@ namespace Durin::Asset
 		FPackageFile File;
 		FAssetResult Result = ReadPackageFile(Bytes, File, false);
 		if (!Result) return Result;
-		if (File.Path != Path) return Error(EAssetError::InvalidPath, "Asset header path does not match requested path.");
 
 		DPackage* Package = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
 		Package->InitializeAssetPackage(Path);
@@ -742,7 +840,7 @@ namespace Durin::Asset
 		Package->ClearDirty();
 		LoadingPackages.erase(Path);
 		OutPackage = Package;
-		Registry.AddOrUpdate(FAssetData{Path, PhysicalPath, File.AssetClassName, AssetVersion, File.Dependencies, std::filesystem::last_write_time(PhysicalPath)});
+		Registry.AddOrUpdate(FAssetData{Path, PhysicalPath, File.AssetClassName, File.FormatVersion, File.Dependencies, std::filesystem::last_write_time(PhysicalPath)});
 		return {};
 	}
 
@@ -799,6 +897,7 @@ namespace Durin::Asset
 
 	auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult { return FAssetManager::Get().LoadAsset(Path, OutAsset); }
 	auto SavePackage(DPackage* Package) -> FAssetResult { return FAssetManager::Get().SavePackage(Package); }
+	auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult { return FAssetManager::Get().MoveAsset(OldPath, NewPath); }
 	auto FindLoadedPackage(const FAssetPath& Path) -> DPackage* { return FAssetManager::Get().FindLoadedPackage(Path); }
 	auto UnloadPackage(const FAssetPath& Path) -> FAssetResult { return FAssetManager::Get().UnloadPackage(Path); }
 	auto ShutdownAssetManager() -> void { FAssetManager::Get().Shutdown(); }

@@ -48,6 +48,22 @@ namespace Durin
 		RegisterPackage(this, PackagePath);
 	}
 
+	auto DPackage::RelocateAssetPackage(const FAssetPath& InPath) -> bool
+	{
+		if (!IsAssetPackage()) return false;
+		const std::string NewPath = InPath.ToString();
+		if (NewPath == PackagePath) return true;
+		auto& Registry = GetPackageRegistry();
+		if (auto Existing = Registry.find(NewPath); Existing != Registry.end() && Existing->second != this) return false;
+		auto Old = Registry.find(PackagePath);
+		if (Old == Registry.end() || Old->second != this) return false;
+		Registry.erase(Old);
+		PackagePath = NewPath;
+		Registry.emplace(PackagePath, this);
+		MarkDirty();
+		return true;
+	}
+
 	auto DPackage::InitializeCppPackage(FName ModuleName) -> void
 	{
 		check(GetOuter() == nullptr);

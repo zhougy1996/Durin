@@ -42,6 +42,30 @@ namespace Durin
 	DStaticMesh::DStaticMesh(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+		static const bool RegisteredMoveContributor = [] {
+			Asset::RegisterAssetMoveContributor(DStaticMesh::StaticClass(), [](DObject* Object, const FAssetPath& OldPath, const FAssetPath& NewPath, Asset::FAssetMoveContribution& Out) -> Asset::FAssetResult {
+				auto* Mesh = Cast<DStaticMesh>(Object);
+				if (!Mesh || Mesh->SourceFile.empty()) return {};
+				const std::string Original = Mesh->SourceFile;
+				const std::filesystem::path OldPackage = ResolveMountedFile(OldPath.ToString());
+				const std::filesystem::path NewPackage = ResolveMountedFile(NewPath.ToString());
+				const std::filesystem::path SourceName(Original);
+				const std::filesystem::path OldSource = SourceName.is_absolute() ? SourceName : OldPackage.parent_path() / SourceName;
+				const std::string NewFileName = OldPath.GetAssetName() == NewPath.GetAssetName()
+					? SourceName.filename().generic_string()
+					: std::string(NewPath.GetAssetName()) + SourceName.extension().generic_string();
+				const std::filesystem::path NewSource = NewPackage.parent_path() / NewFileName;
+				if (OldSource.lexically_normal() != NewSource.lexically_normal()) Out.Files.emplace_back(OldSource.lexically_normal(), NewSource.lexically_normal());
+				if (NewFileName != Original)
+				{
+					Out.Apply = [Mesh, NewFileName] { Mesh->SourceFile = NewFileName; };
+					Out.Rollback = [Mesh, Original] { Mesh->SourceFile = Original; };
+				}
+				return {};
+			});
+			return true;
+		}();
+		(void)RegisteredMoveContributor;
 	}
 
 	DStaticMesh::~DStaticMesh() = default;
