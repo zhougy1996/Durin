@@ -1,5 +1,6 @@
 #include "Panels/ConsolePanel.h"
 
+#include "Icons/FontAwesomeIcons.h"
 #include "Logging/Logger.h"
 #include "MonaImGui.h"
 
@@ -25,6 +26,18 @@ namespace Durin
 	{
 		constexpr size_t MaxConsoleRecords = 5000;
 		constexpr size_t MaxCommandHistory = 100;
+
+		auto DrawToolbarIconButton(const char* Icon, const char* Id) -> bool
+		{
+			ImGui::PushID(Id);
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+			const bool bPressed = ImGui::Button(Icon, ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()));
+			ImGui::PopStyleColor(3);
+			ImGui::PopID();
+			return bPressed;
+		}
 
 		auto LevelName(ELogLevel Level) -> const char*
 		{
@@ -66,20 +79,6 @@ namespace Durin
 		{
 			const std::array<char, 16> TimeText = FormatTime(Record);
 			return std::format("[{}][{}][{}] {}", TimeText.data(), LevelName(Record.Level), Record.Module, Record.Message);
-		}
-
-		auto DrawLevelToggle(ELogLevel Level, bool& bVisible) -> void
-		{
-			const ImVec4 Color = LevelColor(Level);
-			const ImVec4 ButtonColor = bVisible ? ImVec4(Color.x * 0.22f, Color.y * 0.22f, Color.z * 0.22f, 1.0f) : ImVec4(0.12f, 0.12f, 0.12f, 0.45f);
-			ImGui::PushID(static_cast<int>(Level));
-			ImGui::PushStyleColor(ImGuiCol_Text, bVisible ? Color : ImVec4(0.46f, 0.46f, 0.46f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_Button, ButtonColor);
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(Color.x * 0.30f, Color.y * 0.30f, Color.z * 0.30f, 1.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(Color.x * 0.38f, Color.y * 0.38f, Color.z * 0.38f, 1.0f));
-			if (ImGui::SmallButton(LevelName(Level))) bVisible = !bVisible;
-			ImGui::PopStyleColor(4);
-			ImGui::PopID();
 		}
 
 		auto DrawLogRecord(const FLogRecord& Record) -> void
@@ -158,33 +157,27 @@ namespace Durin
 			return;
 		}
 
-		if (ImGui::SmallButton("Clear")) Clear();
-		ImGui::SameLine();
-		if (ImGui::SmallButton("Copy"))
+		if (DrawToolbarIconButton(Icons::Gear, "ConsoleOptionsButton")) ImGui::OpenPopup("ConsoleOptions");
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Options");
+		if (ImGui::BeginPopup("ConsoleOptions"))
 		{
-			std::string ClipboardText;
-			for (size_t Index = 0; Index < State->Records.size(); ++Index)
+			ImGui::MenuItem("Auto Scroll", nullptr, &bAutoScroll);
+			if (ImGui::BeginMenu("Levels"))
 			{
-				if (!IsRecordVisible(Index)) continue;
-				const FConsoleRecord& Record = State->Records[Index];
-				ClipboardText += Record.Type == EConsoleRecordType::Log ? FormatLog(Record.Log) : Record.Text;
-				ClipboardText.push_back('\n');
+				for (size_t Index = 0; Index < LevelVisibility.size(); ++Index)
+				{
+					const ELogLevel Level = static_cast<ELogLevel>(Index);
+					ImGui::PushStyleColor(ImGuiCol_Text, LevelColor(Level));
+					ImGui::MenuItem(LevelName(Level), nullptr, &LevelVisibility[Index]);
+					ImGui::PopStyleColor();
+				}
+				ImGui::EndMenu();
 			}
-			ImGui::SetClipboardText(ClipboardText.c_str());
+			ImGui::EndPopup();
 		}
-		ImGui::SameLine();
-		ImGui::Checkbox("Follow", &bAutoScroll);
 		ImGui::SameLine();
 		ImGui::SetNextItemWidth(-1.0f);
 		ImGui::InputTextWithHint("###ConsoleSearch", "Search output...", SearchText.data(), SearchText.size());
-
-		ImGui::AlignTextToFramePadding();
-		ImGui::TextDisabled("Levels");
-		for (size_t Index = 0; Index < LevelVisibility.size(); ++Index)
-		{
-			ImGui::SameLine();
-			DrawLevelToggle(static_cast<ELogLevel>(Index), LevelVisibility[Index]);
-		}
 		ImGui::Separator();
 
 		const float InputHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
@@ -210,6 +203,12 @@ namespace Durin
 			}
 			if (bAutoScroll && bWasAtBottom && bReceivedRecords) ImGui::SetScrollHereY(1.0f);
 			bWasAtBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 2.0f;
+			if (ImGui::BeginPopupContextWindow("ConsoleRecordsContext", ImGuiPopupFlags_MouseButtonRight))
+			{
+				if (ImGui::MenuItem("Copy Visible")) CopyVisibleRecords();
+				if (ImGui::MenuItem("Clear")) Clear();
+				ImGui::EndPopup();
+			}
 		}
 		ImGui::EndChild();
 
@@ -293,6 +292,19 @@ namespace Durin
 			return SearchText[0] == '\0' || ContainsInsensitive(Record.Log.Module, SearchText.data()) || ContainsInsensitive(Record.Log.Message, SearchText.data());
 		}
 		return SearchText[0] == '\0' || ContainsInsensitive(Record.Text, SearchText.data());
+	}
+
+	auto FConsolePanel::CopyVisibleRecords() const -> void
+	{
+		std::string ClipboardText;
+		for (size_t Index = 0; Index < State->Records.size(); ++Index)
+		{
+			if (!IsRecordVisible(Index)) continue;
+			const FConsoleRecord& Record = State->Records[Index];
+			ClipboardText += Record.Type == EConsoleRecordType::Log ? FormatLog(Record.Log) : Record.Text;
+			ClipboardText.push_back('\n');
+		}
+		ImGui::SetClipboardText(ClipboardText.c_str());
 	}
 
 	auto FConsolePanel::ExecuteCommand(std::string CommandLine) -> void

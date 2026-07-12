@@ -674,9 +674,16 @@ namespace Durin::MonaImGui
 		std::string FontDir = FPaths::EngineDir() + "Content/ImGuiFonts/";
 		std::string FontPath_DroidSans = FontDir + "DroidSans.ttf";
 		std::string FontPath_NotoSansSC = FontDir + "NotoSansSC-Regular.ttf";
+		std::string FontPath_FontAwesome = FontDir + "FontAwesome/FontAwesome7Free-Solid-900.otf";
 
 		ImFont* FallbackLatinFont = IO.Fonts->AddFontFromFileTTF(FontPath_DroidSans.c_str(), 20.0f);
 		ImFont* ChineseFont = IO.Fonts->AddFontFromFileTTF(FontPath_NotoSansSC.c_str(), 20.0f, nullptr, ChineseGlyphRanges);
+		ImFontConfig IconFontConfig;
+		IconFontConfig.MergeMode = true;
+		IconFontConfig.PixelSnapH = true;
+		IconFontConfig.GlyphMinAdvanceX = 16.0f;
+		static constexpr ImWchar IconGlyphRanges[]{0xe000, 0xf8ff, 0};
+		IO.Fonts->AddFontFromFileTTF(FontPath_FontAwesome.c_str(), 16.0f, &IconFontConfig, IconGlyphRanges);
 		if (ChineseFont)
 		{
 			IO.FontDefault = ChineseFont;

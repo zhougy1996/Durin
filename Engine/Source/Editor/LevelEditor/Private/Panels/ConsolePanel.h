@@ -23,6 +23,7 @@ namespace Durin
 		static auto InputTextCallback(ImGuiInputTextCallbackData* Data) -> int;
 		auto DrainPendingRecords() -> bool;
 		auto IsRecordVisible(size_t Index) const -> bool;
+		auto CopyVisibleRecords() const -> void;
 		auto ExecuteCommand(std::string CommandLine) -> void;
 		auto Clear() -> void;
 

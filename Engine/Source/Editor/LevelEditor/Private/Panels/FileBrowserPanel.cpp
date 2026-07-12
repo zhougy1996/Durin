@@ -1,6 +1,7 @@
 #include "Panels/FileBrowserPanel.h"
 
 #include "AssetSystem.h"
+#include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorContext.h"
 #include "Misc/Paths.h"
 #include "MonaImGui.h"
@@ -33,6 +34,18 @@ namespace Durin
 
 		constexpr ImGuiTableFlags FileTableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg |
 			ImGuiTableFlags_ScrollY | ImGuiTableFlags_NoSavedSettings;
+
+		auto DrawToolbarIconButton(const char* Icon, const char* Id) -> bool
+		{
+			ImGui::PushID(Id);
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+			const bool bPressed = ImGui::Button(Icon, ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()));
+			ImGui::PopStyleColor(3);
+			ImGui::PopID();
+			return bPressed;
+		}
 	} // namespace
 
 	FFileBrowserPanel::FFileBrowserPanel(std::function<bool(const std::string&)> InOpenAsset)
@@ -210,14 +223,19 @@ namespace Durin
 
 		// --- Top toolbar ---
 		{
-			const float ButtonSize = ImGui::GetFrameHeight();
-			if (ImGui::Button("<")) GoBack();
+			ImGui::BeginDisabled(!CanGoBack());
+			if (DrawToolbarIconButton(Icons::ArrowLeft, "FileBrowserBack")) GoBack();
+			ImGui::EndDisabled();
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Back");
 			ImGui::SameLine();
-			if (ImGui::Button(">")) GoForward();
+			ImGui::BeginDisabled(!CanGoForward());
+			if (DrawToolbarIconButton(Icons::ArrowRight, "FileBrowserForward")) GoForward();
+			ImGui::EndDisabled();
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Forward");
 			ImGui::SameLine();
-			if (ImGui::Button("^"))
+			const bool bCanGoUp = SelectedDirectory && !SelectedDirectory->bIsMountRoot;
+			ImGui::BeginDisabled(!bCanGoUp);
+			if (DrawToolbarIconButton(Icons::ArrowUp, "FileBrowserUp"))
 			{
 				if (SelectedDirectory && !SelectedDirectory->bIsMountRoot)
 				{
@@ -247,6 +265,7 @@ namespace Durin
 					}
 				}
 			}
+			ImGui::EndDisabled();
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Up to parent");
 
 			ImGui::SameLine();
