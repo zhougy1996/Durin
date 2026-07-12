@@ -27,6 +27,7 @@ namespace Durin
 	{
 		FIntPoint WindowSize{1280, 800};
 		float UIScale = 1.0f;
+		MonaImGui::EColorTheme ColorTheme = MonaImGui::EColorTheme::Dark;
 		bool bWindowMaximized = true;
 		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
 		if (!Monitors.empty())
@@ -42,8 +43,10 @@ namespace Durin
 			WindowSize.x = static_cast<int32>(Display.GetView("WindowWidth").GetInt(WindowSize.x));
 			WindowSize.y = static_cast<int32>(Display.GetView("WindowHeight").GetInt(WindowSize.y));
 			UIScale = static_cast<float>(Display.GetView("UIScale").GetDouble(UIScale));
+			if (Display.GetView("ColorTheme").GetString("Dark") == "Light") ColorTheme = MonaImGui::EColorTheme::Light;
 			bWindowMaximized = Display.GetView("WindowMaximized").GetBool(true);
 		}
+		MonaImGui::SetColorTheme(ColorTheme);
 		MonaImGui::SetGlobalUIScale(UIScale);
 		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 		FLevelEditorModule* LevelEditorModulePtr = &LevelEditorModule;

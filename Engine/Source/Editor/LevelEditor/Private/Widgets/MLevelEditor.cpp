@@ -108,6 +108,9 @@ namespace Durin
 		WindowWidth = static_cast<int32>(Display.GetView("WindowWidth").GetInt(WindowWidth));
 		WindowHeight = static_cast<int32>(Display.GetView("WindowHeight").GetInt(WindowHeight));
 		UIScale = static_cast<float>(Display.GetView("UIScale").GetDouble(UIScale));
+		MonaImGui::SetColorTheme(Display.GetView("ColorTheme").GetString("Dark") == "Light"
+			? MonaImGui::EColorTheme::Light
+			: MonaImGui::EColorTheme::Dark);
 		bWindowMaximized = Display.GetView("WindowMaximized").GetBool(true);
 		return true;
 	}
@@ -122,6 +125,7 @@ namespace Durin
 		Display.SetChildValue("WindowWidth", WindowWidth);
 		Display.SetChildValue("WindowHeight", WindowHeight);
 		Display.SetChildValue("UIScale", static_cast<double>(UIScale));
+		Display.SetChildValue("ColorTheme", MonaImGui::GetColorTheme() == MonaImGui::EColorTheme::Light ? "Light" : "Dark");
 		Display.SetChildValue("WindowMaximized", bWindowMaximized);
 		SaveLevelViewportStates(Root, ViewportSessionState->States);
 		if (!Document.SaveToFile(FPaths::LaunchDir() + SessionSettingsFileName))
@@ -298,6 +302,22 @@ namespace Durin
 		{
 			if (ImGui::BeginMenu("Display"))
 			{
+				if (ImGui::BeginMenu("Color Theme"))
+				{
+					const MonaImGui::EColorTheme CurrentTheme = MonaImGui::GetColorTheme();
+					if (ImGui::MenuItem("Dark", nullptr, CurrentTheme == MonaImGui::EColorTheme::Dark))
+					{
+						MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Dark);
+						SaveSessionSettings();
+					}
+					if (ImGui::MenuItem("Light", nullptr, CurrentTheme == MonaImGui::EColorTheme::Light))
+					{
+						MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Light);
+						SaveSessionSettings();
+					}
+					ImGui::EndMenu();
+				}
+				ImGui::Separator();
 				ImGui::SeparatorText("UI Scale");
 				for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
 				{

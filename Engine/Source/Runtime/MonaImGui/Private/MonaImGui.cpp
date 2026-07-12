@@ -8,6 +8,9 @@ namespace Durin::MonaImGui
 {
 	namespace
 	{
+		EColorTheme GColorTheme = EColorTheme::Dark;
+		float GGlobalUIScale = 1.0f;
+
 		auto HexDigit(char Character) -> int32
 		{
 			if (Character >= '0' && Character <= '9') return Character - '0';
@@ -42,7 +45,10 @@ namespace Durin::MonaImGui
 		auto ApplyConfiguredColors(ImGuiStyle& Style) -> void
 		{
 			FYamlDocument ThemeDocument;
-			if (!ThemeDocument.LoadFromFile(FPaths::EngineDir() + "Configs/DurinEditorTheme.yaml")) return;
+			const char* ConfigFileName = GColorTheme == EColorTheme::Light
+				? "DurinEditorTheme.Light.yaml"
+				: "DurinEditorTheme.Dark.yaml";
+			if (!ThemeDocument.LoadFromFile(FPaths::EngineDir() + "Configs/" + ConfigFileName)) return;
 
 			const FYamlNodeView Colors = ThemeDocument.GetRootView().GetView("Colors");
 			const std::array<std::pair<std::string_view, ImGuiCol>, 45> ColorBindings = {{
@@ -104,7 +110,8 @@ namespace Durin::MonaImGui
 		auto MakeDurinDarkStyle() -> ImGuiStyle
 		{
 			ImGuiStyle Style;
-			ImGui::StyleColorsDark(&Style);
+			if (GColorTheme == EColorTheme::Light) ImGui::StyleColorsLight(&Style);
+			else ImGui::StyleColorsDark(&Style);
 
 			Style.WindowPadding = {10.0f, 10.0f};
 			Style.FramePadding = {7.0f, 4.0f};
@@ -127,6 +134,8 @@ namespace Durin::MonaImGui
 			Style.TabRounding = 4.0f;
 
 			auto& Colors = Style.Colors;
+			if (GColorTheme == EColorTheme::Dark)
+			{
 			Colors[ImGuiCol_Text] = {0.88f, 0.90f, 0.94f, 1.00f};
 			Colors[ImGuiCol_TextDisabled] = {0.47f, 0.50f, 0.57f, 1.00f};
 			Colors[ImGuiCol_WindowBg] = {0.075f, 0.080f, 0.100f, 1.00f};
@@ -174,6 +183,7 @@ namespace Durin::MonaImGui
 			Colors[ImGuiCol_TextSelectedBg] = {0.22f, 0.48f, 0.82f, 0.45f};
 			Colors[ImGuiCol_NavCursor] = {0.38f, 0.57f, 0.98f, 1.00f};
 			Colors[ImGuiCol_ModalWindowDimBg] = {0.02f, 0.025f, 0.04f, 0.72f};
+			}
 			ApplyConfiguredColors(Style);
 
 			return Style;
@@ -193,9 +203,21 @@ namespace Durin::MonaImGui
 	auto SetGlobalUIScale(float Scale) -> void
 	{
 		Scale = std::clamp(Scale, 0.75f, 2.0f);
+		GGlobalUIScale = Scale;
 		ImGuiStyle& Style = ImGui::GetStyle();
 		Style = MakeDurinDarkStyle();
 		Style.ScaleAllSizes(Scale);
 		Style.FontScaleMain = Scale;
+	}
+
+	auto SetColorTheme(EColorTheme Theme) -> void
+	{
+		GColorTheme = Theme;
+		SetGlobalUIScale(GGlobalUIScale);
+	}
+
+	auto GetColorTheme() -> EColorTheme
+	{
+		return GColorTheme;
 	}
 }
