@@ -5,10 +5,52 @@
 #include "Application/GenericApplicationMessageHandler.h"
 #include "ApplicationCore.h"
 
+#if defined(_WIN32)
+#include <dwmapi.h>
+#endif
+
 namespace Durin
 {
 	namespace
 	{
+#if defined(_WIN32)
+		auto ApplyWindowsWindowStyle(void* NativeWindowHandle) -> void
+		{
+			const HWND WindowHandle = static_cast<HWND>(NativeWindowHandle);
+			const BOOL bUseDarkMode = TRUE;
+			DwmSetWindowAttribute(
+				WindowHandle,
+				DWMWA_USE_IMMERSIVE_DARK_MODE,
+				&bUseDarkMode,
+				sizeof(bUseDarkMode));
+
+			constexpr int32 ApplicationIconResourceId = 101;
+			const HINSTANCE ExecutableInstance = GetModuleHandleW(nullptr);
+			const HICON LargeIcon = static_cast<HICON>(LoadImageW(
+				ExecutableInstance,
+				MAKEINTRESOURCEW(ApplicationIconResourceId),
+				IMAGE_ICON,
+				GetSystemMetrics(SM_CXICON),
+				GetSystemMetrics(SM_CYICON),
+				LR_SHARED));
+			const HICON SmallIcon = static_cast<HICON>(LoadImageW(
+				ExecutableInstance,
+				MAKEINTRESOURCEW(ApplicationIconResourceId),
+				IMAGE_ICON,
+				GetSystemMetrics(SM_CXSMICON),
+				GetSystemMetrics(SM_CYSMICON),
+				LR_SHARED));
+			if (LargeIcon != nullptr)
+			{
+				SendMessageW(WindowHandle, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(LargeIcon));
+			}
+			if (SmallIcon != nullptr)
+			{
+				SendMessageW(WindowHandle, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(SmallIcon));
+			}
+		}
+#endif
+
 		const std::unordered_map<int32, EKey> GlfwKeyMap = {
 			{GLFW_KEY_ESCAPE, EKey::Escape},
 			{GLFW_KEY_CAPS_LOCK, EKey::CapsLock},
@@ -384,6 +426,7 @@ namespace Durin
 		GlfwWindow = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition->Title.c_str(), nullptr, nullptr);
 #if defined(_WIN32)
 		OSNativeWindowHandle = glfwGetWin32Window(GlfwWindow);
+		ApplyWindowsWindowStyle(OSNativeWindowHandle);
 #elif defined(__APPLE__)
 		OSNativeWindowHandle = glfwGetCocoaWindow(GlfwWindow);
 #endif

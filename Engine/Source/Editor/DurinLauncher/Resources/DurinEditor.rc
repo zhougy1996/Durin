@@ -1,0 +1,3 @@
+#define DURIN_EDITOR_ICON 101
+
+DURIN_EDITOR_ICON ICON "../../../../Content/Editor/Branding/DurinEditor.ico"

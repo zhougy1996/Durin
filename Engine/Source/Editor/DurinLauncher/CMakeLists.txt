@@ -1,6 +1,9 @@
 durin_module_log(${DURIN_PROJECT_NAME} "DurinLauncher")
 
 add_executable(DurinLauncher "Private/Hello.cpp")
+if(WIN32)
+	target_sources(DurinLauncher PRIVATE "Resources/DurinEditor.rc")
+endif()
 durin_target_set_runtime_outputs(DurinLauncher)
 
 set_target_properties(DurinLauncher PROPERTIES OUTPUT_NAME "${DURIN_PROFILE_NAME}")
@@ -22,6 +25,5 @@ add_custom_command(TARGET DurinLauncher POST_BUILD
     ${config_file} # destination file
     VERBATIM
 )
-
 
 
