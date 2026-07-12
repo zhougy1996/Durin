@@ -46,21 +46,22 @@ namespace Durin
 		}
 		MonaImGui::SetGlobalUIScale(UIScale);
 		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
+		FLevelEditorModule* LevelEditorModulePtr = &LevelEditorModule;
 		auto RootWindow = std::make_shared<MWindow>();
 		MonaImGui::BindMainViewportToWindow(RootWindow);
 
 		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
-		std::shared_ptr<MWidget> LevelEditorWidget;
+		auto LevelEditorWidget = std::make_shared<std::shared_ptr<MWidget>>();
 		std::shared_ptr<std::string> ProjectBrowserError = std::make_shared<std::string>();
-		if (HasCurrentProject()) LevelEditorWidget = LevelEditorModule.CreateLevelEditorWidget();
+		if (HasCurrentProject()) *LevelEditorWidget = LevelEditorModule.CreateLevelEditorWidget();
 
 		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		EditorRootWidget->Construct([LevelEditorWidget, ProjectBrowserError]() {
-			if (LevelEditorWidget != nullptr)
+		EditorRootWidget->Construct([LevelEditorWidget, ProjectBrowserError, RootWindow, LevelEditorModulePtr]() {
+			if (*LevelEditorWidget != nullptr)
 			{
-				LevelEditorWidget->Draw();
+				(*LevelEditorWidget)->Draw();
 				return;
 			}
 			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -76,7 +77,16 @@ namespace Durin
 					Request.Title = "Open a Durin Project";
 					Request.Filters = {{"Durin Project", "*.dproject"}};
 					const FFileDialogResult Result = OpenFileDialog(Request);
-					if (Result.Status == EFileDialogStatus::Selected) RelaunchEditorForProject(Result.FilePath, ProjectBrowserError.get());
+					if (Result.Status == EFileDialogStatus::Selected)
+					{
+						const std::array<std::string_view, 2> Arguments = {"--project", Result.FilePath};
+						if (InitializeCurrentProject(Arguments, ProjectBrowserError.get()))
+						{
+							PathUtilities::InitDefaultMountPoints();
+							*LevelEditorWidget = LevelEditorModulePtr->CreateLevelEditorWidget();
+							RootWindow->SetTitle(std::format("Durin Editor - {}", GetCurrentProject()->Name));
+						}
+					}
 					else if (Result.Status == EFileDialogStatus::Error) *ProjectBrowserError = Result.ErrorMessage;
 				}
 				if (!ProjectBrowserError->empty()) ImGui::TextColored(ImVec4(1, 0.35f, 0.35f, 1), "%s", ProjectBrowserError->c_str());
