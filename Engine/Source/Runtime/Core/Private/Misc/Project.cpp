@@ -11,6 +11,7 @@ namespace Durin
 	namespace
 	{
 		std::optional<FProjectInfo> GCurrentProject;
+		std::optional<std::string> GPendingEditorRelaunchArguments;
 
 		auto Normalize(const std::filesystem::path& Path) -> std::string
 		{
@@ -76,9 +77,17 @@ namespace Durin
 
 	auto RelaunchEditorForProject(std::string_view ProjectFile, std::string* OutError) -> bool
 	{
-		const std::string Arguments = ProjectFile.empty() ? "--project-browser" : std::format("--project=\"{}\"", Normalize(ProjectFile));
-		if (!FPlatformProcess::LaunchProcess(FPlatformProcess::ExecutablePath(), Arguments, OutError)) return false;
+		if (OutError) OutError->clear();
+		GPendingEditorRelaunchArguments = ProjectFile.empty() ? "--project-browser" : std::format("--project=\"{}\"", Normalize(ProjectFile));
 		RequestEngineExit();
 		return true;
+	}
+
+	auto LaunchPendingEditorRelaunch(std::string* OutError) -> bool
+	{
+		if (!GPendingEditorRelaunchArguments) return true;
+		const std::string Arguments = std::format("--wait-for-process={} {}", FPlatformProcess::CurrentProcessId(), *GPendingEditorRelaunchArguments);
+		GPendingEditorRelaunchArguments.reset();
+		return FPlatformProcess::LaunchProcess(FPlatformProcess::ExecutablePath(), Arguments, OutError);
 	}
 }

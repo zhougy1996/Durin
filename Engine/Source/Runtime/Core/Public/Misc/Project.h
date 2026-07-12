@@ -18,4 +18,5 @@ namespace Durin
 	CORE_API auto InitializeCurrentProject(std::span<const std::string_view> Arguments, std::string* OutError = nullptr) -> bool;
 	CORE_API auto NormalizeProjectFile(std::string_view ProjectFile) -> std::string;
 	CORE_API auto RelaunchEditorForProject(std::string_view ProjectFile, std::string* OutError = nullptr) -> bool;
+	CORE_API auto LaunchPendingEditorRelaunch(std::string* OutError = nullptr) -> bool;
 }

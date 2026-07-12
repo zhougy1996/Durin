@@ -1,7 +1,19 @@
 #include <gtest/gtest.h>
 
+#include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
+
+#if PLATFORM_WINDOWS
+	#include <process.h>
+#endif
+
+TEST(FProjectTests, PlatformProcessReportsCurrentProcessId)
+{
+#if PLATFORM_WINDOWS
+	EXPECT_EQ(Durin::FPlatformProcess::CurrentProcessId(), static_cast<Durin::uint32>(::_getpid()));
+#endif
+}
 
 TEST(FProjectTests, LoadsExplicitProjectFile)
 {
