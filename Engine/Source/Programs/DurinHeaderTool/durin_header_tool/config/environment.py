@@ -6,7 +6,6 @@ PROFILE_NAME = "DurinEditor"
 DHT_ROOT_DIR = Path(__file__).resolve().parents[2]
 DURIN_ROOT_DIR = DHT_ROOT_DIR.parents[3]
 DURIN_ENGINE_PROJECT_DIR = DURIN_ROOT_DIR / "Engine"
-DURIN_PROJECT_REGISTER_FILE_PATH = DURIN_ENGINE_PROJECT_DIR / "Configs" / "RegisteredProjects.json"
 
 def init_clang(arch: str):
     import clang.cindex

@@ -13,7 +13,6 @@ namespace Durin
 		std::string MountRoot;
 	};
 
-	CORE_API auto GetRegisteredProjects() -> const std::vector<FProjectInfo>&;
 	CORE_API auto GetCurrentProject() -> const FProjectInfo*;
 	CORE_API auto HasCurrentProject() -> bool;
 	CORE_API auto InitializeCurrentProject(std::span<const std::string_view> Arguments, std::string* OutError = nullptr) -> bool;

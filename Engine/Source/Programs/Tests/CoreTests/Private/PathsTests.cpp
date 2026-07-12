@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-TEST(FPathsTests, RootAndProjectMountsAreWorkspaceRelative)
+TEST(FPathsTests, RootAndEngineMountAreWorkspaceRelative)
 {
 	std::filesystem::path EngineDir = Durin::FPaths::EngineDir();
 	if (EngineDir.filename().empty()) EngineDir = EngineDir.parent_path();
@@ -18,8 +18,8 @@ TEST(FPathsTests, RootAndProjectMountsAreWorkspaceRelative)
 		Durin::GIsGameThreadIdInitialized = true;
 	}
 	Durin::PathUtilities::InitDefaultMountPoints();
-	const std::filesystem::path ResolvedSandBox = Durin::FPaths::Resolve("/SandBox/StaticMeshes/Test");
-	EXPECT_EQ(ResolvedSandBox.lexically_normal(), (ExpectedRoot / "SandBox/Content/StaticMeshes/Test").lexically_normal());
+	const std::filesystem::path ResolvedEngine = Durin::FPaths::Resolve("/Engine/StaticMeshes/Test");
+	EXPECT_EQ(ResolvedEngine.lexically_normal(), (EngineDir / "Content/StaticMeshes/Test").lexically_normal());
 }
 
 TEST(FPathsTests, ExplicitProjectFileControlsProjectDirectoryAndMount)

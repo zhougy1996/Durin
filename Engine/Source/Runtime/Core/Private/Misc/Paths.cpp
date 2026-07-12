@@ -148,24 +148,6 @@ namespace Durin
 				}
 			}
 
-			if (FPaths::ProjectFile().empty())
-			{
-				FJsonDocument ProjectsDocument;
-				const std::string RegistryPath = FPaths::EngineDir() + "Configs/RegisteredProjects.json";
-				if (ProjectsDocument.LoadFromFile(RegistryPath))
-				{
-					ProjectsDocument.GetRootView().GetView("Projects").ForEachObjectMember(
-						[](std::string_view ProjectName, FJsonNodeView ProjectFileNode) {
-							const std::string ProjectFile = ProjectFileNode.GetString();
-							if (ProjectFile.empty()) return;
-							const std::filesystem::path ProjectDir = std::filesystem::path(FPaths::RootDir()) / std::filesystem::path(ProjectFile).parent_path();
-							const std::filesystem::path ContentDir = ProjectDir / "Content";
-							RegisterMountPointWithoutSorting(std::format("/{}/", ProjectName), ContentDir.generic_string() + "/");
-						}
-					);
-				}
-			}
-
 			std::ranges::sort(MountPoints, [](const FMountPoint& A, const FMountPoint& B) {
 				return A.VirtualRoot.length() > B.VirtualRoot.length();
 			});

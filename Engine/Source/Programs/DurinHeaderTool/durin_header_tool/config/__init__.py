@@ -3,7 +3,6 @@ from .environment import (
     ARCH,
     DHT_ROOT_DIR,
     DURIN_ENGINE_PROJECT_DIR,
-    DURIN_PROJECT_REGISTER_FILE_PATH,
     DURIN_ROOT_DIR,
     PROFILE_NAME,
     init_clang,
@@ -24,12 +23,12 @@ from .project_config import (
     DurinProjectProfileConfig,
     find_module,
     get_project_config,
-    get_registered_project_names,
     is_project_config_loaded,
-    is_project_config_registered,
-    prepare_registered_project_config_file_paths,
+    load_project_config_file,
 )
 
-def init_configs():
-    prepare_registered_project_config_file_paths()
-    get_project_config("Engine") # Preload the engine project config to ensure it's available when loading module configs that depend on it
+def init_configs(project_files=()):
+    engine_project_file = environment.DURIN_ENGINE_PROJECT_DIR / "Engine.dproject"
+    load_project_config_file(engine_project_file)
+    for project_file in project_files:
+        load_project_config_file(project_file)

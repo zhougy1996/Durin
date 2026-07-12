@@ -27,7 +27,10 @@ def main():
     configs.ARCH = args.arch
     configs.PROFILE_NAME = args.profile
     init_logging(args.log)
-    configs.init_configs()
+    project_files = list(args.project_file)
+    if args.function == "prepare_project_build":
+        project_files.append(args.project)
+    configs.init_configs(project_files)
     command_manager.execute_command(args.function, args)
 
 if __name__ == "__main__":

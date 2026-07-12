@@ -4,6 +4,7 @@
 #include "LevelEditorModule.h"
 #include "MonaImGui.h"
 #include "Application/GenericApplication.h"
+#include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Yaml/Yaml.h"
@@ -66,17 +67,17 @@ namespace Durin
 			ImGui::SetNextWindowSize(ImVec2(640.0f, 420.0f), ImGuiCond_Once);
 			if (ImGui::Begin("Open a Durin Project", nullptr, ImGuiWindowFlags_NoCollapse))
 			{
-				ImGui::TextUnformatted("Registered projects in this workspace");
+				ImGui::TextUnformatted("Open a .dproject file to start the editor.");
 				ImGui::Separator();
-				for (const FProjectInfo& Project : GetRegisteredProjects())
+				if (ImGui::Button("Open Project...", ImVec2(140.0f, 0.0f)))
 				{
-					ImGui::PushID(Project.ProjectFile.c_str());
-					ImGui::Text("%s", Project.Name.c_str());
-					ImGui::TextDisabled("%s", Project.ProjectFile.c_str());
-					ImGui::SameLine(ImGui::GetWindowWidth() - 100.0f);
-					if (ImGui::Button("Open")) RelaunchEditorForProject(Project.ProjectFile, ProjectBrowserError.get());
-					ImGui::Separator();
-					ImGui::PopID();
+					FFileDialogRequest Request;
+					Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+					Request.Title = "Open a Durin Project";
+					Request.Filters = {{"Durin Project", "*.dproject"}};
+					const FFileDialogResult Result = OpenFileDialog(Request);
+					if (Result.Status == EFileDialogStatus::Selected) RelaunchEditorForProject(Result.FilePath, ProjectBrowserError.get());
+					else if (Result.Status == EFileDialogStatus::Error) *ProjectBrowserError = Result.ErrorMessage;
 				}
 				if (!ProjectBrowserError->empty()) ImGui::TextColored(ImVec4(1, 0.35f, 0.35f, 1), "%s", ProjectBrowserError->c_str());
 			}

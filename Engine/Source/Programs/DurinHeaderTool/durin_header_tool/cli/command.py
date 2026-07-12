@@ -1,11 +1,13 @@
 import logging
 import sys
 import argparse
+from pathlib import Path
 
 def add_common_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux, MacOS).", default="Win64", choices=["Win64", "Linux", "MacOS"])
     parser.add_argument("--profile", help="The build profile name.", default="DurinEditor")
     parser.add_argument("-l", "--log", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).", default="INFO", required=False, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+    parser.add_argument("--project-file", action="append", default=[], type=Path, help="A .dproject file that supplies module ownership and dependency context. May be repeated.")
 
 class Command:
     def __init__(self, name: str, description: str):
@@ -64,14 +66,16 @@ class PrepareProjectBuildCommand(Command):
         super().__init__("prepare_project_build", "Prepare the build environment for the entire project.")
 
     def add_arguments(self, parser: argparse.ArgumentParser):
-        parser.add_argument("-p","--project", help="The name of the project to prepare the build environment and generate necessary files for.", required=True)
+        parser.add_argument("-p","--project", type=Path, help="The full path to the .dproject file to prepare.", required=True)
         add_common_arguments(parser)
 
     def execute(self, args):
         from durin_header_tool.generators.project_cmake_file_generator import generate_project_cmake_file
         from durin_header_tool.generators.module_cmake_file_generator import generate_all_module_cmake_files_for_project
-        generate_project_cmake_file(args.project)
-        generate_all_module_cmake_files_for_project(args.project)
+        from durin_header_tool import config as configs
+        project_name = configs.load_project_config_file(args.project).project_name
+        generate_project_cmake_file(project_name)
+        generate_all_module_cmake_files_for_project(project_name)
 
 class GenerateModuleExportFileCommand(Command):
     def __init__(self):

@@ -3,7 +3,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 
-TEST(FProjectTests, LoadsRegisteredWorkspaceProject)
+TEST(FProjectTests, LoadsExplicitProjectFile)
 {
 	const std::string ProjectFile = Durin::FPaths::RootDir() + "SandBox/SandBox.dproject";
 	const std::array<std::string, 1> OwnedArguments{std::format("--project={}", ProjectFile)};
@@ -16,9 +16,9 @@ TEST(FProjectTests, LoadsRegisteredWorkspaceProject)
 	EXPECT_EQ(Durin::FPaths::ProjectDir(), Durin::GetCurrentProject()->ProjectDir);
 }
 
-TEST(FProjectTests, RejectsUnregisteredProject)
+TEST(FProjectTests, RejectsMissingProject)
 {
-	const std::array<std::string_view, 1> Arguments{"--project=Unregistered.dproject"};
+	const std::array<std::string_view, 1> Arguments{"--project=Missing.dproject"};
 	std::string Error;
 	EXPECT_FALSE(Durin::InitializeCurrentProject(Arguments, &Error));
 	EXPECT_FALSE(Error.empty());
@@ -31,5 +31,4 @@ TEST(FProjectTests, ExplicitBrowserSkipsRecentProject)
 	std::string Error;
 	EXPECT_TRUE(Durin::InitializeCurrentProject(Arguments, &Error));
 	EXPECT_FALSE(Durin::HasCurrentProject());
-	EXPECT_FALSE(Durin::GetRegisteredProjects().empty());
 }

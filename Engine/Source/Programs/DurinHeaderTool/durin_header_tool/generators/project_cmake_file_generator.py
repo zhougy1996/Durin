@@ -1,5 +1,6 @@
 from pathlib import Path
 from durin_header_tool import config as configs
+from durin_header_tool.config.project_config import PROJECT_CONFIGS
 from durin_header_tool import io as utils
 
 
@@ -8,6 +9,10 @@ def _append_project_paths_to_cmake_content(content: list[str], project_name: str
     content.append("# Paths related to this project\n")
     content.append(f"set(DURIN_PROJECT_CONFIG_FILE \"{project_config.config_file_path.as_posix()}\")\n")
     content.append(f"set(DURIN_PROJECT_INTERMEDIATE_BUILD_DIR \"{utils.get_project_intermediate_build_dir(project_name).as_posix()}\")\n")
+    content.append("set(DURIN_DHT_PROJECT_FILE_ARGS\n")
+    for loaded_project in sorted(PROJECT_CONFIGS.values(), key=lambda project: str(project.config_file_path)):
+        content.append(f"    --project-file \"{loaded_project.config_file_path.as_posix()}\"\n")
+    content.append(")\n")
     content.append("\n")
 
 def _append_project_global_variables_to_cmake_content(content: list[str], project_name: str) -> None:

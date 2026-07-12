@@ -40,30 +40,6 @@ namespace Durin
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 
-		for (size_t Index = 0; Index < Arguments.size(); ++Index)
-		{
-			std::string_view Argument = Arguments[Index];
-
-			constexpr std::string_view ProjectPrefix = "--project=";
-			std::string_view ProjectFile;
-
-			if (Argument.starts_with(ProjectPrefix))
-			{
-				ProjectFile = Argument.substr(ProjectPrefix.size());
-			}
-			else if (Argument == "--project" && Index + 1 < Arguments.size())
-			{
-				ProjectFile = Arguments[++Index];
-			}
-			else
-			{
-				continue;
-			}
-
-			std::string ProjectError;
-			checkf(FPaths::SetProjectFile(ProjectFile, &ProjectError), "{}", ProjectError);
-		}
-
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
 

@@ -28,7 +28,7 @@ Projects are top-level owners such as `Engine` or `SandBox`. They typically own 
 
 At runtime, launch a specific project with `--project=<path-to-project.dproject>`. The project root is the descriptor's parent directory, so projects may live outside the engine workspace. Its `ProjectName` supplies the virtual mount name and its `Content` directory supplies the physical mount.
 
-`Engine/Configs/RegisteredProjects.json` is a development-time fallback used when no project is explicitly selected. It supports workspace builds and project discovery, but is not the authoritative location of the active runtime project.
+CMake passes complete `.dproject` paths to DurinHeaderTool. Generated build metadata preserves the complete set of project descriptors needed to resolve cross-project module dependencies; there is no global project registry file.
 
 Modules are the compilation and runtime loading units. They belong to a project, but their dependencies can cross project boundaries.
 

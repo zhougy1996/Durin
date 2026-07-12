@@ -18,7 +18,7 @@ function(add_durin_project project_name)
 	set(_durin_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_TARGET_PLATFORM}/${DURIN_PROFILE_NAME}")
 	set(_durin_project_cmake_file "${_durin_project_intermediate_build_dir}/${project_name}.project.cmake")
 	execute_process(
-		COMMAND ${DHT_MAIN} prepare_project_build -p ${project_name} -a ${DURIN_TARGET_PLATFORM} --profile ${DURIN_PROFILE_NAME}
+		COMMAND ${DHT_MAIN} prepare_project_build -p "${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject" -a ${DURIN_TARGET_PLATFORM} --profile ${DURIN_PROFILE_NAME}
 		RESULT_VARIABLE _durin_prepare_project_build_result
 	)
 	if(NOT _durin_prepare_project_build_result EQUAL 0)
