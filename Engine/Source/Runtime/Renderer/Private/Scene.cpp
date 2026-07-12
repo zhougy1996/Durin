@@ -1,6 +1,7 @@
 #include "Scene.h"
 
 #include "Components/PrimitiveComponent.h"
+#include "Components/DirectionalLightComponent.h"
 #include "RHICommandList.h"
 
 namespace Durin
@@ -48,5 +49,22 @@ namespace Durin
 		}
 
 		FoundIt->second->SetTransform(FRHICommandListImmediate::Get(), Primitive->GetRenderMatrix(), FVector3(0.0));
+	}
+
+	auto FScene::AddDirectionalLight(DDirectionalLightComponent* Light) -> void
+	{
+		if (Light != nullptr && std::ranges::find(DirectionalLights, Light) == DirectionalLights.end()) DirectionalLights.push_back(Light);
+	}
+
+	auto FScene::RemoveDirectionalLight(DDirectionalLightComponent* Light) -> void
+	{
+		std::erase(DirectionalLights, Light);
+	}
+
+	auto FScene::GetDirectionalLight(FDirectionalLightSceneData& OutLight) const -> bool
+	{
+		if (DirectionalLights.empty() || DirectionalLights.front() == nullptr) return false;
+		OutLight = DirectionalLights.front()->GetSceneData();
+		return true;
 	}
 }

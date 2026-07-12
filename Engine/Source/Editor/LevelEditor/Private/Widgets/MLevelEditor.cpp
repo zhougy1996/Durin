@@ -3,6 +3,7 @@
 #include "AssetSystem.h"
 #include "Dialogs/FileDialog.h"
 #include "Actors/CameraActor.h"
+#include "Actors/DirectionalLightActor.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -694,6 +695,13 @@ namespace Durin
 		if (!Result) { SetError(Result.Message); return; }
 		ACameraActor* Camera = Level->SpawnActor<ACameraActor>("Camera");
 		Level->SetPrimaryCameraActor(Camera);
+		ADirectionalLightActor* DirectionalLight = Level->SpawnActor<ADirectionalLightActor>("DirectionalLight");
+		if (DirectionalLight != nullptr)
+		{
+			FTransform LightTransform = DirectionalLight->GetActorTransform();
+			LightTransform.Rotation = FQuat(FVector3(glm::radians(-35.0), glm::radians(25.0), glm::radians(-20.0)));
+			DirectionalLight->SetActorTransform(LightTransform);
+		}
 		if (!ActivateLevel(Level)) Asset::UnloadPackage(Path);
 		else PendingFileAction = EPendingFileAction::None;
 	}

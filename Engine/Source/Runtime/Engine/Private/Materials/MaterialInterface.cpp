@@ -38,6 +38,17 @@ namespace Durin
 		{
 			Result.BaseColor.a = std::clamp(Opacity, 0.0f, 1.0f);
 		}
+
+		float SpecularStrength = Result.SpecularStrength;
+		if (GetScalarParameterValue(MaterialParameterSpecularStrength, SpecularStrength))
+		{
+			Result.SpecularStrength = std::clamp(SpecularStrength, 0.0f, 1.0f);
+		}
+		float Shininess = Result.Shininess;
+		if (GetScalarParameterValue(MaterialParameterShininess, Shininess))
+		{
+			Result.Shininess = std::clamp(Shininess, 1.0f, 256.0f);
+		}
 		return Result;
 	}
 }

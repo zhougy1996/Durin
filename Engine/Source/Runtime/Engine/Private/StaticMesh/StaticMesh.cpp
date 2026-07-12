@@ -95,6 +95,11 @@ namespace Durin
 			FVector3f(0.0f, 0.65f, 0.0f)
 		};
 		RenderData->Indices = {0, 1, 2};
+		RenderData->Normals = {
+			FVector3f(0.0f, 0.0f, 1.0f),
+			FVector3f(0.0f, 0.0f, 1.0f),
+			FVector3f(0.0f, 0.0f, 1.0f)
+		};
 		RenderData->IndexCount = static_cast<uint32>(RenderData->Indices.size());
 		Mesh->SetRenderData(std::move(RenderData));
 		return Mesh;
@@ -119,6 +124,7 @@ namespace Durin
 
 			const uint32 BaseVertexIndex = static_cast<uint32>(RenderData->Positions.size());
 			RenderData->Positions.insert(RenderData->Positions.end(), ImportedMesh.Positions.begin(), ImportedMesh.Positions.end());
+			RenderData->Normals.insert(RenderData->Normals.end(), ImportedMesh.Normals.begin(), ImportedMesh.Normals.end());
 			RenderData->Indices.reserve(RenderData->Indices.size() + ImportedMesh.Indices.size());
 			for (uint32 Index : ImportedMesh.Indices)
 			{
@@ -156,6 +162,26 @@ namespace Durin
 		}
 
 		RenderData->IndexCount = static_cast<uint32>(RenderData->Indices.size());
+		if (RenderData->Normals.size() != RenderData->Positions.size())
+		{
+			RenderData->Normals.assign(RenderData->Positions.size(), FVector3f(0.0f));
+			for (size_t Index = 0; Index + 2 < RenderData->Indices.size(); Index += 3)
+			{
+				const uint32 I0 = RenderData->Indices[Index];
+				const uint32 I1 = RenderData->Indices[Index + 1];
+				const uint32 I2 = RenderData->Indices[Index + 2];
+				if (I0 >= RenderData->Positions.size() || I1 >= RenderData->Positions.size() || I2 >= RenderData->Positions.size()) continue;
+				const FVector3f FaceNormal = glm::cross(RenderData->Positions[I1] - RenderData->Positions[I0], RenderData->Positions[I2] - RenderData->Positions[I0]);
+				RenderData->Normals[I0] += FaceNormal;
+				RenderData->Normals[I1] += FaceNormal;
+				RenderData->Normals[I2] += FaceNormal;
+			}
+		}
+		for (FVector3f& Normal : RenderData->Normals)
+		{
+			const float Length = glm::length(Normal);
+			Normal = Length > 0.00001f ? Normal / Length : FVector3f(0.0f, 0.0f, 1.0f);
+		}
 
 		SetRenderData(std::move(RenderData));
 		OutError.clear();
@@ -249,17 +275,28 @@ namespace Durin
 			IndexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, IndexBufferDesc);
 		}
 
+		if (NormalVertexBufferRHI == nullptr && Normals.size() == Positions.size())
+		{
+			FRHIBufferCreateDesc NormalBufferDesc = FRHIBufferCreateDesc::CreateVertex(
+				"StaticMeshNormalVertexBuffer", static_cast<uint32>(Normals.size() * sizeof(FVector3f)));
+			NormalBufferDesc.Usage |= EBufferUsageFlags::Static;
+			NormalBufferDesc.InitialData.Data = Normals.data();
+			NormalBufferDesc.InitialData.Size = static_cast<uint32>(Normals.size() * sizeof(FVector3f));
+			NormalVertexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, NormalBufferDesc);
+		}
+
 		IndexCount = static_cast<uint32>(Indices.size());
 	}
 
 	auto FStaticMeshRenderData::ReleaseResources() -> void
 	{
 		PositionVertexBufferRHI = nullptr;
+		NormalVertexBufferRHI = nullptr;
 		IndexBufferRHI = nullptr;
 	}
 
 	auto FStaticMeshRenderData::IsReadyForRendering() const -> bool
 	{
-		return PositionVertexBufferRHI != nullptr && IndexBufferRHI != nullptr && IndexCount > 0;
+		return PositionVertexBufferRHI != nullptr && NormalVertexBufferRHI != nullptr && IndexBufferRHI != nullptr && IndexCount > 0;
 	}
 }

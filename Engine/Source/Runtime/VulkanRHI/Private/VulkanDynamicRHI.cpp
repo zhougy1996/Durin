@@ -149,7 +149,7 @@ namespace Durin::VulkanRHI
 
 		Score += DeviceProperties.limits.maxImageDimension2D;
 
-		if (!DeviceFeatures.geometryShader)
+		if (!DeviceFeatures.geometryShader || !DeviceFeatures.fillModeNonSolid)
 		{
 			return 0;
 		}

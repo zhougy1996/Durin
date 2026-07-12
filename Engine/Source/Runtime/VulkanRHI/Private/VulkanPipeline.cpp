@@ -51,6 +51,11 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	static auto ToVulkan_PolygonMode(FGraphicsPipelineStateInitializer::EPolygonMode Mode) -> vk::PolygonMode
+	{
+		return Mode == FGraphicsPipelineStateInitializer::EPolygonMode::Line ? vk::PolygonMode::eLine : vk::PolygonMode::eFill;
+	}
+
 	static auto CreateDescriptorSetLayout(FVulkanDevice& Device, const FBindingLayout& InDesc) -> vk::DescriptorSetLayout
 	{
 		vk::DescriptorSetLayoutCreateInfo LayoutInfo;
@@ -169,7 +174,7 @@ namespace Durin::VulkanRHI
 			.setDepthClampEnable(vk::False)
 			.setLineWidth(1.0f)
 			.setRasterizerDiscardEnable(vk::False)
-			.setPolygonMode(vk::PolygonMode::eFill)
+			.setPolygonMode(ToVulkan_PolygonMode(Initializer.PolygonMode))
 			.setCullMode(CullMode)
 			.setFrontFace(vk::FrontFace::eClockwise)
 			.setDepthBiasEnable(vk::False)

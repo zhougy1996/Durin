@@ -15,6 +15,8 @@ namespace Durin
 		auto IsFXAAEnabled() const -> bool override;
 		auto SetRenderMode(ERenderMode Mode) -> void override;
 		auto GetRenderMode() const -> ERenderMode override;
+		auto SetRasterMode(ERasterMode Mode) -> void override;
+		auto GetRasterMode() const -> ERasterMode override;
 		auto PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void override;
 		auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void override;
 		auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void override;

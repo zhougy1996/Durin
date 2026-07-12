@@ -241,6 +241,7 @@ namespace Durin::VulkanRHI
 		}
 
 		vk::PhysicalDeviceFeatures DeviceFeatures;
+		DeviceFeatures.fillModeNonSolid = vk::True;
 
 		vk::DeviceCreateInfo DeviceInfo;
 		DeviceInfo.setQueueCreateInfos(QueueCreateInfos);

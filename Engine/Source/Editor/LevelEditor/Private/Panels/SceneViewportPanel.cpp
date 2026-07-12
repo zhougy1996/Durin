@@ -110,6 +110,7 @@ namespace Durin
 	{
 		(void)ViewportMax;
 		ERenderMode CurrentMode = ERenderMode::Lit;
+		ERasterMode CurrentRasterMode = ERasterMode::Solid;
 		IRendererModule* RendererModule = nullptr;
 		if (GEngine != nullptr)
 		{
@@ -117,11 +118,12 @@ namespace Durin
 			if (RendererModule != nullptr)
 			{
 				CurrentMode = RendererModule->GetRenderMode();
+				CurrentRasterMode = RendererModule->GetRasterMode();
 			}
 		}
 
-		const char* Label = (CurrentMode == ERenderMode::Lit) ? "Lit" : "Unlit";
-		const ImVec2 LabelSize = ImGui::CalcTextSize(Label);
+		const std::string Label = std::format("{} / {}", CurrentMode == ERenderMode::Lit ? "Lit" : "Unlit", CurrentRasterMode == ERasterMode::Solid ? "Solid" : "Wireframe");
+		const ImVec2 LabelSize = ImGui::CalcTextSize(Label.c_str());
 		const ImVec2 ButtonPos(ViewportMin.x + 8.0f, ViewportMin.y + 4.0f);
 		const ImVec2 ButtonSize(LabelSize.x + 12.0f, LabelSize.y + 4.0f);
 
@@ -134,7 +136,7 @@ namespace Durin
 			DrawList->AddRectFilled(ButtonPos, ImVec2(ButtonPos.x + ButtonSize.x, ButtonPos.y + ButtonSize.y), IM_COL32(60, 60, 60, 160), 3.0f);
 		}
 
-		DrawList->AddText(ImVec2(ButtonPos.x + 6.0f, ButtonPos.y + 2.0f), IM_COL32(220, 220, 220, 255), Label);
+		DrawList->AddText(ImVec2(ButtonPos.x + 6.0f, ButtonPos.y + 2.0f), IM_COL32(220, 220, 220, 255), Label.c_str());
 		DrawList->PopClipRect();
 
 		ImGui::SetCursorScreenPos(ButtonPos);
@@ -152,6 +154,15 @@ namespace Durin
 			if (ImGui::Selectable("Unlit"))
 			{
 				if (RendererModule != nullptr) RendererModule->SetRenderMode(ERenderMode::Unlit);
+			}
+			ImGui::Separator();
+			if (ImGui::Selectable("Solid", CurrentRasterMode == ERasterMode::Solid))
+			{
+				if (RendererModule != nullptr) RendererModule->SetRasterMode(ERasterMode::Solid);
+			}
+			if (ImGui::Selectable("Wireframe", CurrentRasterMode == ERasterMode::Wireframe))
+			{
+				if (RendererModule != nullptr) RendererModule->SetRasterMode(ERasterMode::Wireframe);
 			}
 			ImGui::EndPopup();
 		}

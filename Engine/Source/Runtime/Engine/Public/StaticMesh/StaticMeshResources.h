@@ -17,8 +17,10 @@ namespace Durin
 	struct FStaticMeshRenderData
 	{
 		std::vector<FVector3f> Positions;
+		std::vector<FVector3f> Normals;
 		std::vector<uint32> Indices;
 		FBufferRHIRef PositionVertexBufferRHI;
+		FBufferRHIRef NormalVertexBufferRHI;
 		FBufferRHIRef IndexBufferRHI;
 		uint32 IndexCount = 0;
 

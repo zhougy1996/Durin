@@ -1,0 +1,32 @@
+#include "Components/DirectionalLightComponent.h"
+
+#include "Engine/Engine.h"
+#include "IScene.h"
+
+namespace Durin
+{
+	auto DDirectionalLightComponent::OnRegister() -> void
+	{
+		Super::OnRegister();
+		if (GEngine != nullptr && GEngine->GetMainScene() != nullptr) GEngine->GetMainScene()->AddDirectionalLight(this);
+	}
+
+	auto DDirectionalLightComponent::OnUnregister() -> void
+	{
+		if (GEngine != nullptr && GEngine->GetMainScene() != nullptr) GEngine->GetMainScene()->RemoveDirectionalLight(this);
+		Super::OnUnregister();
+	}
+
+	auto DDirectionalLightComponent::GetSceneData() const -> FDirectionalLightSceneData
+	{
+		FDirectionalLightSceneData Result;
+		Result.Direction = glm::normalize(GetWorldRotation() * FVectorConstants::Forward);
+		Result.Color = FVector3f(
+			std::clamp(ColorR, 0.0f, 1.0f),
+			std::clamp(ColorG, 0.0f, 1.0f),
+			std::clamp(ColorB, 0.0f, 1.0f));
+		Result.Intensity = FMath::Max(0.0f, Intensity);
+		Result.AmbientIntensity = FMath::Max(0.0f, AmbientIntensity);
+		return Result;
+	}
+}

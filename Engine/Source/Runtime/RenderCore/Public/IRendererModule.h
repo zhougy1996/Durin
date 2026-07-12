@@ -14,10 +14,17 @@ namespace Durin
 		Unlit
 	};
 
+	enum class ERasterMode : uint8
+	{
+		Solid,
+		Wireframe
+	};
+
 	struct FRendererViewSettings
 	{
 		bool bEnableFXAA = true;
 		ERenderMode RenderMode = ERenderMode::Lit;
+		ERasterMode RasterMode = ERasterMode::Solid;
 	};
 
 	struct FSceneView
@@ -40,6 +47,8 @@ namespace Durin
 		virtual auto IsFXAAEnabled() const -> bool = 0;
 		virtual auto SetRenderMode(ERenderMode Mode) -> void = 0;
 		virtual auto GetRenderMode() const -> ERenderMode = 0;
+		virtual auto SetRasterMode(ERasterMode Mode) -> void = 0;
+		virtual auto GetRasterMode() const -> ERasterMode = 0;
 		virtual auto PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void = 0;
 		virtual auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void = 0;
 		virtual auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void = 0;

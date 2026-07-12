@@ -1,8 +1,10 @@
 #include "Actors/CameraActor.h"
+#include "Actors/DirectionalLightActor.h"
 #include "AssetSystem.h"
 #include "Actors/StaticMeshActor.h"
 #include "Components/ActorComponent.h"
 #include "Components/CameraComponent.h"
+#include "Components/DirectionalLightComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
@@ -256,6 +258,11 @@ TEST(FStaticMeshAssetTests, ImportsAndRestoresLevelReferenceAndRenderData)
 	ASSERT_NE(Import.Asset, nullptr);
 	ASSERT_NE(Import.Asset->GetRenderData(), nullptr);
 	EXPECT_GT(Import.Asset->GetRenderData()->IndexCount, 0u);
+	EXPECT_EQ(Import.Asset->GetRenderData()->Normals.size(), Import.Asset->GetRenderData()->Positions.size());
+	for (const Durin::FVector3f& Normal : Import.Asset->GetRenderData()->Normals)
+	{
+		EXPECT_NEAR(glm::length(Normal), 1.0f, 0.0001f);
+	}
 	EXPECT_EQ(Import.Asset->GetSourceFile(), "Teapot.obj");
 
 	Durin::FAssetPath MeshPath;
@@ -314,8 +321,10 @@ TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
 	Durin::DWorld* World = CreateWorld();
 	Durin::ACameraActor* Camera = World->SpawnActor<Durin::ACameraActor>("Camera");
 	Durin::AStaticMeshActor* Mesh = World->SpawnActor<Durin::AStaticMeshActor>("Mesh");
+	Durin::ADirectionalLightActor* Light = World->SpawnActor<Durin::ADirectionalLightActor>("Light");
 	Durin::DCameraComponent* CameraComponent = Camera->GetCameraComponent();
 	Durin::DStaticMeshComponent* MeshComponent = Mesh->GetStaticMeshComponent();
+	Durin::DDirectionalLightComponent* LightComponent = Light->GetLightComponent();
 
 	ASSERT_EQ(Camera->GetOwnedComponents().size(), 1u);
 	EXPECT_EQ(Camera->GetOwnedComponents().front().Get(), CameraComponent);
@@ -330,6 +339,12 @@ TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
 	EXPECT_EQ(Mesh->GetRootComponent(), MeshComponent);
 	EXPECT_EQ(MeshComponent->GetOwner(), Mesh);
 	EXPECT_EQ(MeshComponent->GetOuter(), Mesh);
+
+	ASSERT_EQ(Light->GetOwnedComponents().size(), 1u);
+	EXPECT_EQ(Light->GetOwnedComponents().front().Get(), LightComponent);
+	EXPECT_EQ(Light->FindComponentByClass<Durin::DDirectionalLightComponent>(), LightComponent);
+	EXPECT_EQ(Light->GetRootComponent(), LightComponent);
+	EXPECT_EQ(LightComponent->GetOwner(), Light);
 
 	Durin::DestroyObject(World);
 }

@@ -26,6 +26,9 @@ namespace Durin
 		class FStaticMeshFragmentShader : public FShader
 		{
 		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshFragmentShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
+			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_SHADER(FStaticMeshFragmentShader, FShader, "/Engine/StaticMesh", EShaderFrequency::Fragment, "FragmentMain");
 		};
 
@@ -62,6 +65,16 @@ namespace Durin
 		{
 			glm::mat4 LocalToClip{1.0f};
 			FVector4f Color{1.0f, 1.0f, 1.0f, 1.0f};
+			glm::mat4 LocalToWorld{1.0f};
+			glm::mat4 NormalToWorld{1.0f};
+		};
+
+		struct FStaticMeshLightingUniform
+		{
+			FVector4f LightDirection{-0.5f, -0.5f, -1.0f, 0.0f};
+			FVector4f LightColorIntensity{1.0f, 1.0f, 1.0f, 1.0f};
+			FVector4f ViewPositionAmbient{0.0f, 0.0f, 0.0f, 0.08f};
+			FVector4f MaterialParams{0.35f, 32.0f, 1.0f, 0.0f};
 		};
 
 		struct FPostProcessViewUniform
@@ -82,7 +95,8 @@ namespace Durin
 			TShaderRef<FStaticMeshVertexShader> VertexShader;
 			TShaderRef<FStaticMeshFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FGraphicsPipelineStateRHIRef PipelineState;
+			FGraphicsPipelineStateRHIRef SolidPipelineState;
+			FGraphicsPipelineStateRHIRef WireframePipelineState;
 			bool bCreateAttempted = false;
 		};
 
@@ -112,6 +126,7 @@ namespace Durin
 		FStaticMeshRendererState GStaticMeshState;
 		FPostProcessRendererState GPostProcessState;
 		std::atomic<ERenderMode> GRenderMode = ERenderMode::Lit;
+		std::atomic<ERasterMode> GRasterMode = ERasterMode::Solid;
 
 		auto EnsureStaticMeshPipeline() -> void
 		{
@@ -146,6 +161,7 @@ namespace Durin
 			FVertexDeclarationElementList VertexDeclElements;
 			constexpr uint32 VertexStride = sizeof(FVector3f);
 			VertexDeclElements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, VertexStride);
+			VertexDeclElements[1] = FVertexElement(1, 0, EVertexElementType::Float3, 1, VertexStride);
 			GStaticMeshState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
 
 			FGraphicsPipelineStateInitializer Initializer;
@@ -157,7 +173,10 @@ namespace Durin
 			Initializer.bEnableAlphaBlend = false;
 			Initializer.bEnableBackFaceCulling = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
-			GStaticMeshState.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("StaticMeshMainPipeline", Initializer);
+			GStaticMeshState.SolidPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("StaticMeshSolidPipeline", Initializer);
+			Initializer.PolygonMode = FGraphicsPipelineStateInitializer::EPolygonMode::Line;
+			Initializer.bEnableBackFaceCulling = false;
+			GStaticMeshState.WireframePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("StaticMeshWireframePipeline", Initializer);
 		}
 
 		auto CreatePostProcessPipeline(
@@ -303,7 +322,7 @@ namespace Durin
 			return glm::transpose(glm::mat4(Matrix));
 		}
 
-		auto DrawStaticMeshProxy(FRHICommandListImmediate& CommandList, const FSceneView& View, const FStaticMeshSceneProxy& Proxy) -> void
+		auto DrawStaticMeshProxy(FRHICommandListImmediate& CommandList, const FSceneView& View, const FDirectionalLightSceneData& Light, ERenderMode RenderMode, ERasterMode RasterMode, const FStaticMeshSceneProxy& Proxy) -> void
 		{
 			FStaticMeshRenderData* RenderData = Proxy.GetRenderData();
 			if (RenderData == nullptr || RenderData->IndexCount == 0)
@@ -319,15 +338,30 @@ namespace Durin
 			FStaticMeshTransformUniform TransformUniform;
 			TransformUniform.LocalToClip = ToShaderMatrix(View.ViewProjectionMatrix * Proxy.GetLocalToWorld());
 			TransformUniform.Color = Proxy.GetMaterialRenderData().BaseColor;
+			TransformUniform.LocalToWorld = ToShaderMatrix(Proxy.GetLocalToWorld());
+			TransformUniform.NormalToWorld = ToShaderMatrix(glm::transpose(glm::inverse(Proxy.GetLocalToWorld())));
 			const FRHIUniformBufferRange TransformUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&TransformUniform, sizeof(TransformUniform));
 
-			CommandList.SetGraphicsPipelineState(*GStaticMeshState.PipelineState);
+			FGraphicsPipelineStateRHIRef Pipeline = RasterMode == ERasterMode::Wireframe ? GStaticMeshState.WireframePipelineState : GStaticMeshState.SolidPipelineState;
+			CommandList.SetGraphicsPipelineState(*Pipeline);
 
 			FStaticMeshVertexShader::FParameters VertexShaderParameters;
 			VertexShaderParameters.Transform = TransformUniformBuffer;
 			SetShaderParameters(CommandList, GStaticMeshState.VertexShader, VertexShaderParameters);
 
+			const FMaterialRenderData& Material = Proxy.GetMaterialRenderData();
+			FStaticMeshLightingUniform LightingUniform;
+			LightingUniform.LightDirection = FVector4f(FVector3f(Light.Direction), 0.0f);
+			LightingUniform.LightColorIntensity = FVector4f(Light.Color, Light.Intensity);
+			LightingUniform.ViewPositionAmbient = FVector4f(FVector3f(View.ViewLocation), Light.AmbientIntensity);
+			LightingUniform.MaterialParams = FVector4f(Material.SpecularStrength, Material.Shininess, RenderMode == ERenderMode::Lit ? 1.0f : 0.0f, 0.0f);
+			const FRHIUniformBufferRange LightingUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&LightingUniform, sizeof(LightingUniform));
+			FStaticMeshFragmentShader::FParameters FragmentShaderParameters;
+			FragmentShaderParameters.Lighting = LightingUniformBuffer;
+			SetShaderParameters(CommandList, GStaticMeshState.FragmentShader, FragmentShaderParameters);
+
 			CommandList.BindVertexBuffer(0, RenderData->PositionVertexBufferRHI, 0);
+			CommandList.BindVertexBuffer(1, RenderData->NormalVertexBufferRHI, 0);
 			CommandList.BindIndexBuffer(RenderData->IndexBufferRHI, 0);
 			CommandList.DrawIndexed(RenderData->IndexCount, 0, 0);
 		}
@@ -424,6 +458,7 @@ namespace Durin
 		FRendererViewSettings Settings;
 		Settings.bEnableFXAA = GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
 		Settings.RenderMode = GRenderMode.load(std::memory_order_relaxed);
+		Settings.RasterMode = GRasterMode.load(std::memory_order_relaxed);
 		return Settings;
 	}
 
@@ -431,6 +466,7 @@ namespace Durin
 	{
 		SetFXAAEnabled(InSettings.bEnableFXAA);
 		SetRenderMode(InSettings.RenderMode);
+		SetRasterMode(InSettings.RasterMode);
 	}
 
 	auto FRendererModule::SetFXAAEnabled(bool bInEnabled) -> void
@@ -451,6 +487,16 @@ namespace Durin
 	auto FRendererModule::GetRenderMode() const -> ERenderMode
 	{
 		return GRenderMode.load(std::memory_order_relaxed);
+	}
+
+	auto FRendererModule::SetRasterMode(ERasterMode Mode) -> void
+	{
+		GRasterMode.store(Mode, std::memory_order_relaxed);
+	}
+
+	auto FRendererModule::GetRasterMode() const -> ERasterMode
+	{
+		return GRasterMode.load(std::memory_order_relaxed);
 	}
 
 	auto FRendererModule::PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void
@@ -507,7 +553,7 @@ namespace Durin
 		}
 
 		EnsureStaticMeshPipeline();
-		if (GStaticMeshState.PipelineState == nullptr || !GStaticMeshState.VertexShader || !GStaticMeshState.FragmentShader)
+		if (GStaticMeshState.SolidPipelineState == nullptr || GStaticMeshState.WireframePipelineState == nullptr || !GStaticMeshState.VertexShader || !GStaticMeshState.FragmentShader)
 		{
 			return;
 		}
@@ -516,10 +562,13 @@ namespace Durin
 		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
 
 		const ERenderMode RenderMode = GRenderMode.load(std::memory_order_relaxed);
-		ForEachStaticMeshProxy(Scene, [&CommandList, &View, RenderMode](FStaticMeshSceneProxy& Proxy) {
+		const ERasterMode RasterMode = GRasterMode.load(std::memory_order_relaxed);
+		FDirectionalLightSceneData Light;
+		if (!Scene->GetDirectionalLight(Light)) Light.AmbientIntensity = 0.08f;
+		ForEachStaticMeshProxy(Scene, [&CommandList, &View, &Light, RenderMode, RasterMode](FStaticMeshSceneProxy& Proxy) {
 			if (RenderMode == ERenderMode::Unlit || RenderMode == ERenderMode::Lit)
 			{
-				DrawStaticMeshProxy(CommandList, View, Proxy);
+				DrawStaticMeshProxy(CommandList, View, Light, RenderMode, RasterMode, Proxy);
 			}
 		});
 	}

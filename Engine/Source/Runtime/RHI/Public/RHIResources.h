@@ -712,6 +712,14 @@ namespace Durin
 
 		bool bEnableBackFaceCulling = true;
 
+		enum class EPolygonMode : uint8
+		{
+			Fill,
+			Line
+		};
+
+		EPolygonMode PolygonMode = EPolygonMode::Fill;
+
 		enum class EPrimitiveTopology : uint8
 		{
 			TriangleList,
