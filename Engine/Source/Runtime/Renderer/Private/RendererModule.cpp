@@ -117,6 +117,7 @@ namespace Durin
 			FBufferRHIRef IndexBuffer;
 			FSamplerRHIRef SceneColorSampler;
 			FTextureRHIRef SceneColor;
+			FTextureRHIRef SceneDepth;
 			uint32 SceneColorWidth = 0;
 			uint32 SceneColorHeight = 0;
 			bool bCreateAttempted = false;
@@ -170,7 +171,10 @@ namespace Durin
 			Initializer.BoundShaders.FragmentShader = GStaticMeshState.FragmentShader.GetRHIShader();
 			Initializer.VertexDeclaration = GStaticMeshState.VertexDeclaration;
 			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
+			Initializer.DepthStencilFormat = EPixelFormat::D32;
 			Initializer.bEnableAlphaBlend = false;
+			Initializer.bEnableDepthTest = true;
+			Initializer.bEnableDepthWrite = true;
 			Initializer.bEnableBackFaceCulling = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
 			GStaticMeshState.SolidPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("StaticMeshSolidPipeline", Initializer);
@@ -312,6 +316,10 @@ namespace Durin
 			SceneColorDesc.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource);
 			SceneColorDesc.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
 			GPostProcessState.SceneColor = RHICreateTexture(SceneColorDesc);
+			FRHITextureCreateDesc SceneDepthDesc = FRHITextureCreateDesc::Create2D("SceneDepth", Width, Height, EPixelFormat::D32);
+			SceneDepthDesc.SetFlags(ETextureCreateFlags::DepthStencilTargetable);
+			SceneDepthDesc.SetClearValue(FClearValueBinding(1.0f, 0u));
+			GPostProcessState.SceneDepth = RHICreateTexture(SceneDepthDesc);
 			GPostProcessState.SceneColorWidth = Width;
 			GPostProcessState.SceneColorHeight = Height;
 			return GPostProcessState.SceneColor;
@@ -442,6 +450,7 @@ namespace Durin
 		GPostProcessState.IndexBuffer = nullptr;
 		GPostProcessState.SceneColorSampler = nullptr;
 		GPostProcessState.SceneColor = nullptr;
+		GPostProcessState.SceneDepth = nullptr;
 		GPostProcessState.SceneColorWidth = 0;
 		GPostProcessState.SceneColorHeight = 0;
 		GPostProcessState.bCreateAttempted = false;
@@ -527,7 +536,9 @@ namespace Durin
 
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.ColorRenderTargets[0] = SceneColor;
+		ScenePassInfo.DepthStencilRenderTarget = GPostProcessState.SceneDepth;
 		ScenePassInfo.ColorClearValue = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
+		ScenePassInfo.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
 		CommandList.BeginRenderPass(ScenePassInfo, "SceneColorRenderPass");
 		FSceneView RenderView = View;
 		RenderView.ViewportWidth = Width;

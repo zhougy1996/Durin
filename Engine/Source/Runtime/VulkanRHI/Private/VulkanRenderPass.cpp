@@ -7,7 +7,7 @@
 
 namespace Durin::VulkanRHI
 {
-	FVulkanRenderPass::FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat, vk::ImageLayout InFinalLayout)
+	FVulkanRenderPass::FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat, vk::ImageLayout InFinalLayout, vk::Format InDepthFormat)
 		: Device(InDevice)
 	{
 		// Color buffer attachement
@@ -27,11 +27,25 @@ namespace Durin::VulkanRHI
 			.setAttachment(0)
 			.setLayout(vk::ImageLayout::eColorAttachmentOptimal);
 
+		vk::AttachmentDescription DepthAttachment;
+		DepthAttachment.setSamples(vk::SampleCountFlagBits::e1)
+			.setFormat(InDepthFormat)
+			.setLoadOp(vk::AttachmentLoadOp::eClear)
+			.setStoreOp(vk::AttachmentStoreOp::eDontCare)
+			.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
+			.setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
+			.setInitialLayout(vk::ImageLayout::eUndefined)
+			.setFinalLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal);
+		vk::AttachmentReference DepthAttachmentRef(1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
+
 		vk::SubpassDescription SubPass;
 		SubPass
 			.setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
-			.setColorAttachments(ColorAttachmentRef)
-			.setPDepthStencilAttachment(nullptr);
+			.setColorAttachments(ColorAttachmentRef);
+		if (InDepthFormat != vk::Format::eUndefined)
+		{
+			SubPass.setPDepthStencilAttachment(&DepthAttachmentRef);
+		}
 
 		std::array<vk::SubpassDependency, 2> OffscreenDependencies;
 		OffscreenDependencies[0]
@@ -52,8 +66,9 @@ namespace Durin::VulkanRHI
 			.setDependencyFlags(vk::DependencyFlagBits::eByRegion);
 
 		vk::RenderPassCreateInfo RenderPassInfo;
-		RenderPassInfo
-			.setAttachments(ColorAttachment)
+		std::array<vk::AttachmentDescription, 2> Attachments{ColorAttachment, DepthAttachment};
+		RenderPassInfo.setAttachmentCount(InDepthFormat == vk::Format::eUndefined ? 1u : 2u)
+			.setPAttachments(Attachments.data())
 			.setSubpasses(SubPass);
 		if (InFinalLayout == vk::ImageLayout::eShaderReadOnlyOptimal)
 		{
@@ -86,7 +101,7 @@ namespace Durin::VulkanRHI
 		FrameBuffers.clear();
 	}
 
-	auto FVulkanRenderPassManager::GetOrCreateRenderPass(FName InRenderPassName, vk::Format InFormat) -> FVulkanRenderPass*
+	auto FVulkanRenderPassManager::GetOrCreateRenderPass(FName InRenderPassName, vk::Format InFormat, vk::Format InDepthFormat) -> FVulkanRenderPass*
 	{
 		auto It = RenderPasses.find(InRenderPassName);
 		if (It != RenderPasses.end())
@@ -99,7 +114,7 @@ namespace Durin::VulkanRHI
 			|| InRenderPassName == "PostProcessPresentRenderPass";
 		const bool bIsOffscreenRenderPass = !bIsPresentRenderPass;
 		const vk::ImageLayout FinalLayout = bIsOffscreenRenderPass ? vk::ImageLayout::eShaderReadOnlyOptimal : vk::ImageLayout::ePresentSrcKHR;
-		RenderPasses.emplace(InRenderPassName, std::make_unique<FVulkanRenderPass>(Device, InFormat, FinalLayout));
+		RenderPasses.emplace(InRenderPassName, std::make_unique<FVulkanRenderPass>(Device, InFormat, FinalLayout, InDepthFormat));
 		return RenderPasses[InRenderPassName].get();
 	}
 
@@ -108,10 +123,12 @@ namespace Durin::VulkanRHI
 		// TODO: Support multiple color render targets later
 		check(RTInfo.NumColorRenderTargets == 1);
 		FVulkanTexture* RT = static_cast<FVulkanTexture*>(RTInfo.ColorRenderTargets[0]);
+		const vk::Image DepthImage = RTInfo.DepthStencilRenderTarget != nullptr
+			? static_cast<FVulkanTexture*>(RTInfo.DepthStencilRenderTarget)->Image : vk::Image{};
 
 		for (auto& Framebuffer : FrameBuffers)
 		{
-			if (Framebuffer->IsCompatibleWith(RenderPass, RT->Image))
+			if (Framebuffer->IsCompatibleWith(RenderPass, RT->Image, DepthImage))
 			{
 				return Framebuffer.get();
 			}
@@ -124,8 +141,17 @@ namespace Durin::VulkanRHI
 	{
 		const FClearValueBinding& ClearValue = RPInfo.ColorClearValue;
 		check(ClearValue.Binding == EClearBinding::Color);
-		const vk::ClearValue VulkanClearValue{{ClearValue.ClearValue.Color[0], ClearValue.ClearValue.Color[1], ClearValue.ClearValue.Color[2], ClearValue.ClearValue.Color[3]}};
-		CmdBuffer->BeginRenderPass(RenderPass, Framebuffer, VulkanClearValue);
+		std::array<vk::ClearValue, 2> VulkanClearValues;
+		VulkanClearValues[0].setColor({ClearValue.ClearValue.Color[0], ClearValue.ClearValue.Color[1], ClearValue.ClearValue.Color[2], ClearValue.ClearValue.Color[3]});
+		uint32 ClearValueCount = 1;
+		if (RPInfo.DepthStencilRenderTarget != nullptr)
+		{
+			const auto& DepthClear = RPInfo.DepthStencilClearValue;
+			check(DepthClear.Binding == EClearBinding::DepthStencil);
+			VulkanClearValues[1].setDepthStencil({DepthClear.ClearValue.DSValue.Depth, DepthClear.ClearValue.DSValue.Stencil});
+			ClearValueCount = 2;
+		}
+		CmdBuffer->BeginRenderPass(RenderPass, Framebuffer, std::span(VulkanClearValues).first(ClearValueCount));
 	}
 
 	auto FVulkanRenderPassManager::EndRenderPass(FVulkanCommandBuffer* InCmdBuffer) -> void

@@ -46,11 +46,27 @@ namespace Durin::VulkanRHI
 			ColorRenderTargetImages[i] = Image;
 			AttachmentTextureViews.push_back(TextureView);
 		}
+		if (RTInfo.DepthStencilRenderTarget != nullptr)
+		{
+			auto* Texture = static_cast<FVulkanTexture*>(RTInfo.DepthStencilRenderTarget);
+			DepthStencilRenderTargetImage = Texture->Image;
+			vk::ImageViewCreateInfo ImageViewCreateInfo;
+			ImageViewCreateInfo.setImage(Texture->Image)
+				.setViewType(vk::ImageViewType::e2D)
+				.setFormat(Texture->Format)
+				.setComponents(vk::ComponentMapping())
+				.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1));
+			AttachmentTextureViews.emplace_back(Texture->Image, Device.GetHandle().createImageView(ImageViewCreateInfo));
+		}
 
 		std::vector<vk::ImageView> AttachmentViews;
 		for (uint32 i = 0; i < NumColorRenderTargets; ++i)
 		{
 			AttachmentViews.push_back(AttachmentTextureViews[i].ImageView);
+		}
+		if (RTInfo.DepthStencilRenderTarget != nullptr)
+		{
+			AttachmentViews.push_back(AttachmentTextureViews.back().ImageView);
 		}
 
 		vk::FramebufferCreateInfo FramebufferCreateInfo;
@@ -87,8 +103,8 @@ namespace Durin::VulkanRHI
 		return DepthStencilRenderTargetImage == Image;
 	}
 
-	auto FVulkanFramebuffer::IsCompatibleWith(const FVulkanRenderPass& InRenderPass, vk::Image Image) const -> bool
+	auto FVulkanFramebuffer::IsCompatibleWith(const FVulkanRenderPass& InRenderPass, vk::Image ColorImage, vk::Image DepthImage) const -> bool
 	{
-		return RenderPass == &InRenderPass && ContainsRenderTarget(Image);
+		return RenderPass == &InRenderPass && ColorRenderTargetImages[0] == ColorImage && DepthStencilRenderTargetImage == DepthImage;
 	}
 } // namespace Durin::VulkanRHI

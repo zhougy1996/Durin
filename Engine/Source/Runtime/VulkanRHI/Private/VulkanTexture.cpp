@@ -43,10 +43,15 @@ namespace Durin::VulkanRHI
 		ImageExtent.width = FMath::Max(1u, ImageExtent.width);
 		ImageExtent.height = FMath::Max(1u, ImageExtent.height);
 
+		const bool bDepthStencil = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable);
 		vk::ImageUsageFlags ImageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
 		if (EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::RenderTargetable))
 		{
 			ImageUsage |= vk::ImageUsageFlagBits::eColorAttachment;
+		}
+		if (bDepthStencil)
+		{
+			ImageUsage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
 		}
 
 		vk::ImageCreateInfo imageInfo{};
@@ -70,7 +75,7 @@ namespace Durin::VulkanRHI
 		ViewInfo.setImage(Image)
 			.setViewType(ToVulkan_TextureDimension(InCreateDesc.Dimension))
 			.setFormat(Format)
-			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, InCreateDesc.NumMips, 0, InCreateDesc.ArraySize));
+			.setSubresourceRange(vk::ImageSubresourceRange(bDepthStencil ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor, 0, InCreateDesc.NumMips, 0, InCreateDesc.ArraySize));
 
 		ImageView = InDevice.GetHandle().createImageView(ViewInfo);
 	}

@@ -283,6 +283,13 @@ namespace Durin
 			ClearValue.Color[3] = A;
 		}
 
+		constexpr FClearValueBinding(float InDepth, uint32 InStencil)
+			: Binding(EClearBinding::DepthStencil)
+		{
+			ClearValue.DSValue.Depth = InDepth;
+			ClearValue.DSValue.Stencil = InStencil;
+		}
+
 		union FClearValue
 		{
 			float Color[4];
@@ -471,6 +478,7 @@ namespace Durin
 	struct FRHIRenderTargetsInfo
 	{
 		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets];
+		FRHITexture* DepthStencilRenderTarget = nullptr;
 		int32 NumColorRenderTargets;
 		bool bClearColor;
 	};
@@ -478,7 +486,9 @@ namespace Durin
 	struct FRHIRenderPassInfo
 	{
 		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets];
+		FRHITexture* DepthStencilRenderTarget = nullptr;
 		FClearValueBinding ColorClearValue;
+		FClearValueBinding DepthStencilClearValue{1.0f, 0u};
 	};
 
 	using FVertexDeclarationElementList = std::array<struct FVertexElement, MaxVertexElementCount>;
@@ -704,6 +714,8 @@ namespace Durin
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 
+		EPixelFormat DepthStencilFormat = EPixelFormat::Unknown;
+
 		FRHIVertexDeclaration* VertexDeclaration = nullptr;
 
 		FPipelineLayoutDesc PipelineLayout;
@@ -711,6 +723,10 @@ namespace Durin
 		bool bEnableAlphaBlend = false;
 
 		bool bEnableBackFaceCulling = true;
+
+		bool bEnableDepthTest = false;
+
+		bool bEnableDepthWrite = false;
 
 		enum class EPolygonMode : uint8
 		{

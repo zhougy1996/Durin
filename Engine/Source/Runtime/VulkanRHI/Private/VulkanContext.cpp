@@ -63,11 +63,13 @@ namespace Durin::VulkanRHI
 		const auto* VulkanRT = static_cast<FVulkanTexture*>(RenderPassInfo.ColorRenderTargets[0]);
 
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
-		FVulkanRenderPass* RenderPass = Device.GetRenderPassManager().GetOrCreateRenderPass(Name, VulkanRT->Format);
+		const auto* VulkanDepth = static_cast<FVulkanTexture*>(RenderPassInfo.DepthStencilRenderTarget);
+		FVulkanRenderPass* RenderPass = Device.GetRenderPassManager().GetOrCreateRenderPass(Name, VulkanRT->Format, VulkanDepth != nullptr ? VulkanDepth->Format : vk::Format::eUndefined);
 
 		FRHIRenderTargetsInfo RTInfo{};
 		RTInfo.NumColorRenderTargets = 1;
 		RTInfo.ColorRenderTargets[0] = RenderPassInfo.ColorRenderTargets[0];
+		RTInfo.DepthStencilRenderTarget = RenderPassInfo.DepthStencilRenderTarget;
 		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RTInfo, *RenderPass);
 		RenderPassManager.BeginRenderPass(*this, Device, GetCommandBuffer(), RenderPassInfo, RenderPass, Framebuffer);
 	}

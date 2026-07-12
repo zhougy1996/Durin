@@ -20,7 +20,7 @@ namespace Durin::VulkanRHI
 		auto GetExtent() const -> vk::Extent2D { return Extent; }
 
 		auto ContainsRenderTarget(vk::Image Image) const -> bool;
-		auto IsCompatibleWith(const FVulkanRenderPass& InRenderPass, vk::Image Image) const -> bool;
+		auto IsCompatibleWith(const FVulkanRenderPass& InRenderPass, vk::Image ColorImage, vk::Image DepthImage) const -> bool;
 
 	private:
 		FVulkanDevice& Device;

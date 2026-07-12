@@ -101,7 +101,7 @@ namespace Durin::VulkanRHI
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
 
 		vk::Format VkFormat = ToVulkan_PixelFormat(Initializer.PixelFormat);
-		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat);
+		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat, ToVulkan_PixelFormat(Initializer.DepthStencilFormat));
 
 		std::vector<vk::PipelineShaderStageCreateInfo> ShaderStages = MakeShaderStageCreateInfos(Initializer.BoundShaders);
 
@@ -191,6 +191,13 @@ namespace Durin::VulkanRHI
 			.setAlphaToCoverageEnable(vk::False)
 			.setAlphaToOneEnable(vk::False);
 
+		vk::PipelineDepthStencilStateCreateInfo DepthStencilInfo;
+		DepthStencilInfo.setDepthTestEnable(Initializer.bEnableDepthTest)
+			.setDepthWriteEnable(Initializer.bEnableDepthWrite)
+			.setDepthCompareOp(vk::CompareOp::eLess)
+			.setDepthBoundsTestEnable(false)
+			.setStencilTestEnable(false);
+
 		vk::PipelineColorBlendAttachmentState ColorBlendAttachment;
 		const bool bEnableAlphaBlend = Initializer.bEnableAlphaBlend;
 		ColorBlendAttachment
@@ -231,6 +238,7 @@ namespace Durin::VulkanRHI
 			.setPViewportState(&ViewportStateInfo)
 			.setPRasterizationState(&RasterizerInfo)
 			.setPMultisampleState(&MultiSamplingInfo)
+			.setPDepthStencilState(&DepthStencilInfo)
 			.setPColorBlendState(&ColorBlending)
 			.setLayout(PipelineLayout)
 			.setRenderPass(RenderPass->GetHandle())

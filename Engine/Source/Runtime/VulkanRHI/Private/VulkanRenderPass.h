@@ -12,7 +12,7 @@ namespace Durin::VulkanRHI
 	class FVulkanRenderPass
 	{
 	public:
-		FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat, vk::ImageLayout InFinalLayout);
+		FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat, vk::ImageLayout InFinalLayout, vk::Format InDepthFormat);
 
 		~FVulkanRenderPass();
 
@@ -32,7 +32,7 @@ namespace Durin::VulkanRHI
 		~FVulkanRenderPassManager();
 
 		// TODO: Render pass should be reuse based on render target layout, but now we select by name for simplicity
-		auto GetOrCreateRenderPass(FName InRenderPassName,  vk::Format Format) -> FVulkanRenderPass*;
+		auto GetOrCreateRenderPass(FName InRenderPassName, vk::Format Format, vk::Format DepthFormat = vk::Format::eUndefined) -> FVulkanRenderPass*;
 
 		auto GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& RenderPass) -> FVulkanFramebuffer*;
 
