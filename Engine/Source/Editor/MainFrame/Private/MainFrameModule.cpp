@@ -53,12 +53,13 @@ namespace Durin
 		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
 		auto LevelEditorWidget = std::make_shared<std::shared_ptr<MWidget>>();
 		std::shared_ptr<std::string> ProjectBrowserError = std::make_shared<std::string>();
+		const std::weak_ptr<MWindow> WeakRootWindow = RootWindow;
 		if (HasCurrentProject()) *LevelEditorWidget = LevelEditorModule.CreateLevelEditorWidget();
 
 		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		EditorRootWidget->Construct([LevelEditorWidget, ProjectBrowserError, RootWindow, LevelEditorModulePtr]() {
+		EditorRootWidget->Construct([LevelEditorWidget, ProjectBrowserError, WeakRootWindow, LevelEditorModulePtr]() {
 			if (*LevelEditorWidget != nullptr)
 			{
 				(*LevelEditorWidget)->Draw();
@@ -84,7 +85,8 @@ namespace Durin
 						{
 							PathUtilities::InitDefaultMountPoints();
 							*LevelEditorWidget = LevelEditorModulePtr->CreateLevelEditorWidget();
-							RootWindow->SetTitle(std::format("Durin Editor - {}", GetCurrentProject()->Name));
+							if (const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock())
+								RootWindow->SetTitle(std::format("Durin Editor - {}", GetCurrentProject()->Name));
 						}
 					}
 					else if (Result.Status == EFileDialogStatus::Error) *ProjectBrowserError = Result.ErrorMessage;
