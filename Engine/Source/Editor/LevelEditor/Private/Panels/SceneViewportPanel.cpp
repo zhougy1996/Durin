@@ -1,7 +1,9 @@
 #include "Panels/SceneViewportPanel.h"
 
 #include "Components/CameraComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/Actor.h"
 #include "IRendererModule.h"
 #include "LevelEditorContext.h"
 #include "Math/Vector.h"
@@ -9,6 +11,8 @@
 #include "MonaImGui.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Widgets/MViewport.h"
+#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
@@ -103,6 +107,7 @@ namespace Durin
 				UpdateViewportInput(Context);
 				const ImVec2 VpMin = ImGui::GetItemRectMin();
 				const ImVec2 VpMax = ImGui::GetItemRectMax();
+				DrawSelectionBounds(Context, VpMin, VpMax);
 				DrawToolbar(VpMin, VpMax);
 				DrawOrientationOverlay(VpMin, VpMax);
 				DrawFPSOverlay(VpMin, VpMax);
@@ -254,7 +259,78 @@ namespace Durin
 		Input.bMoveDown = ImGui::IsKeyDown(ImGuiKey_Q);
 		Input.bMoveUp = ImGui::IsKeyDown(ImGuiKey_E);
 		Input.bFocusSelection = ImGui::IsKeyPressed(ImGuiKey_F, false);
+		const ImVec2 ViewportMin = ImGui::GetItemRectMin();
+		const ImVec2 ViewportMax = ImGui::GetItemRectMax();
+		const ImVec2 MousePosition = ImGui::GetMousePos();
+		Input.MousePosition = {MousePosition.x - ViewportMin.x, MousePosition.y - ViewportMin.y};
+		Input.ViewportSize = {ViewportMax.x - ViewportMin.x, ViewportMax.y - ViewportMin.y};
+		const ImVec2 ToolbarMin(ViewportMin.x + 8.0f, ViewportMin.y + 4.0f);
+		ERenderMode RenderMode = ERenderMode::Lit;
+		ERasterMode RasterMode = ERasterMode::Solid;
+		if (GEngine != nullptr)
+		{
+			if (IRendererModule* Renderer = GEngine->GetRendererModule())
+			{
+				RenderMode = Renderer->GetRenderMode();
+				RasterMode = Renderer->GetRasterMode();
+			}
+		}
+		const std::string ToolbarLabel = std::format("{} / {}", RenderMode == ERenderMode::Lit ? "Lit" : "Unlit", RasterMode == ERasterMode::Solid ? "Solid" : "Wireframe");
+		const ImVec2 ToolbarLabelSize = ImGui::CalcTextSize(ToolbarLabel.c_str());
+		const bool bToolbarHovered = ImGui::IsMouseHoveringRect(ToolbarMin, ImVec2(ToolbarMin.x + ToolbarLabelSize.x + 12.0f, ToolbarMin.y + ToolbarLabelSize.y + 4.0f));
+		Input.bRequestSelection = Input.bHovered && Input.bLeftMousePressed && !Input.bAlt && !Input.bWantTextInput && !bToolbarHovered && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
+		if (Input.bRequestSelection) ImGui::SetWindowFocus();
 		ViewportClient->Update(Context.Level, Context.SelectedActor.Get(), Input);
+		if (Input.bRequestSelection)
+		{
+			if (AActor* HitActor = ViewportClient->PickActor(Context.Level, Input.MousePosition, Input.ViewportSize)) Context.SelectActor(HitActor);
+			else Context.ClearSelection();
+		}
+	}
+
+	auto FSceneViewportPanel::DrawSelectionBounds(const FLevelEditorContext& Context, const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void
+	{
+		AActor* Actor = Context.SelectedActor.Get();
+		if (Actor == nullptr || ViewportClient == nullptr) return;
+		FBox WorldBounds;
+		for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+		{
+			auto* Component = Cast<DStaticMeshComponent>(ComponentPtr.Get());
+			const DStaticMesh* Mesh = Component != nullptr ? Component->GetStaticMesh() : nullptr;
+			const FStaticMeshRenderData* Data = Mesh != nullptr ? Mesh->GetRenderData() : nullptr;
+			if (Data == nullptr || !Data->LocalBounds.bIsValid) continue;
+			const FMatrix LocalToWorld = Component->GetRenderMatrix();
+			for (uint32 Corner = 0; Corner < 8; ++Corner)
+			{
+				const FVector3 Local(
+					(Corner & 1) != 0 ? Data->LocalBounds.Max.x : Data->LocalBounds.Min.x,
+					(Corner & 2) != 0 ? Data->LocalBounds.Max.y : Data->LocalBounds.Min.y,
+					(Corner & 4) != 0 ? Data->LocalBounds.Max.z : Data->LocalBounds.Min.z);
+				WorldBounds.AddPoint(FVector3(LocalToWorld * FVector4(Local, 1.0)));
+			}
+		}
+		if (!WorldBounds.bIsValid) return;
+		std::array<ImVec2, 8> ScreenCorners;
+		std::array<bool, 8> bProjected{};
+		const FVector2f ViewportSize(ViewportMax.x - ViewportMin.x, ViewportMax.y - ViewportMin.y);
+		for (uint32 Corner = 0; Corner < 8; ++Corner)
+		{
+			const FVector3 World(
+				(Corner & 1) != 0 ? WorldBounds.Max.x : WorldBounds.Min.x,
+				(Corner & 2) != 0 ? WorldBounds.Max.y : WorldBounds.Min.y,
+				(Corner & 4) != 0 ? WorldBounds.Max.z : WorldBounds.Min.z);
+			FVector2f Screen;
+			bProjected[Corner] = ViewportClient->ProjectWorldToViewport(World, ViewportSize, Screen);
+			ScreenCorners[Corner] = ImVec2(ViewportMin.x + Screen.x, ViewportMin.y + Screen.y);
+		}
+		static constexpr std::array<std::array<uint32, 2>, 12> Edges = {{{0, 1}, {0, 2}, {0, 4}, {1, 3}, {1, 5}, {2, 3}, {2, 6}, {3, 7}, {4, 5}, {4, 6}, {5, 7}, {6, 7}}};
+		ImDrawList* DrawList = ImGui::GetWindowDrawList();
+		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
+		for (const auto& Edge : Edges)
+		{
+			if (bProjected[Edge[0]] && bProjected[Edge[1]]) DrawList->AddLine(ScreenCorners[Edge[0]], ScreenCorners[Edge[1]], IM_COL32(255, 184, 48, 255), 2.0f);
+		}
+		DrawList->PopClipRect();
 	}
 
 	auto FSceneViewportPanel::UpdateViewportSize() -> void

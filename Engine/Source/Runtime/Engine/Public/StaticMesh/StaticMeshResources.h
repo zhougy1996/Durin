@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Math/Box.h"
 
 #include "RHIResources.h"
 
@@ -19,6 +20,7 @@ namespace Durin
 		std::vector<FVector3f> Positions;
 		std::vector<FVector3f> Normals;
 		std::vector<uint32> Indices;
+		FBox LocalBounds;
 		FBufferRHIRef PositionVertexBufferRHI;
 		FBufferRHIRef NormalVertexBufferRHI;
 		FBufferRHIRef IndexBufferRHI;
@@ -27,5 +29,6 @@ namespace Durin
 		ENGINE_API auto InitResources(FRHICommandListImmediate& RHICmdList) -> void;
 		ENGINE_API auto ReleaseResources() -> void;
 		ENGINE_API auto IsReadyForRendering() const -> bool;
+		ENGINE_API auto RecalculateBounds() -> void;
 	};
 }

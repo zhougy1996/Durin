@@ -31,6 +31,9 @@ namespace Durin
 		bool bMoveDown = false;
 		bool bMoveUp = false;
 		bool bFocusSelection = false;
+		bool bRequestSelection = false;
+		FVector2f MousePosition{0.0f};
+		FVector2f ViewportSize{0.0f};
 	};
 
 	class FLevelEditorViewportClient final : public FViewportClient
@@ -43,6 +46,9 @@ namespace Durin
 		auto GetViewMatrix() const -> FMatrix { return CameraTransform.GetViewMatrix(); }
 		auto GetCameraTransform() const -> const FViewportCameraTransform& { return CameraTransform; }
 		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel; }
+		auto BuildPickingRay(const FVector2f& ViewportPosition, const FVector2f& ViewportSize, FVector3& OutOrigin, FVector3& OutDirection) const -> bool;
+		auto PickActor(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) const -> AActor*;
+		auto ProjectWorldToViewport(const FVector3& WorldPosition, const FVector2f& ViewportSize, FVector2f& OutPosition) const -> bool;
 
 	private:
 		FViewportCameraTransform CameraTransform;

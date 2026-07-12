@@ -82,6 +82,7 @@ namespace Durin
 
 	auto DStaticMesh::SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void
 	{
+		if (InRenderData != nullptr) InRenderData->RecalculateBounds();
 		RenderData = std::move(InRenderData);
 	}
 
@@ -138,13 +139,9 @@ namespace Durin
 			return false;
 		}
 
-		FVector3f BoundsMin = RenderData->Positions[0];
-		FVector3f BoundsMax = RenderData->Positions[0];
-		for (const FVector3f& Position : RenderData->Positions)
-		{
-			BoundsMin = glm::min(BoundsMin, Position);
-			BoundsMax = glm::max(BoundsMax, Position);
-		}
+		RenderData->RecalculateBounds();
+		const FVector3f BoundsMin(RenderData->LocalBounds.Min);
+		const FVector3f BoundsMax(RenderData->LocalBounds.Max);
 
 		const FVector3f BoundsCenter = (BoundsMin + BoundsMax) * 0.5f;
 		const FVector3f BoundsExtent = BoundsMax - BoundsMin;
@@ -160,6 +157,7 @@ namespace Durin
 		{
 			Position = (Position - BoundsCenter) * Scale;
 		}
+		RenderData->RecalculateBounds();
 
 		RenderData->IndexCount = static_cast<uint32>(RenderData->Indices.size());
 		if (RenderData->Normals.size() != RenderData->Positions.size())
@@ -298,5 +296,14 @@ namespace Durin
 	auto FStaticMeshRenderData::IsReadyForRendering() const -> bool
 	{
 		return PositionVertexBufferRHI != nullptr && NormalVertexBufferRHI != nullptr && IndexBufferRHI != nullptr && IndexCount > 0;
+	}
+
+	auto FStaticMeshRenderData::RecalculateBounds() -> void
+	{
+		LocalBounds.Reset();
+		for (const FVector3f& Position : Positions)
+		{
+			LocalBounds.AddPoint(FVector3(Position));
+		}
 	}
 }

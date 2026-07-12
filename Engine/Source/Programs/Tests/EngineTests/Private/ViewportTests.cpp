@@ -1,7 +1,9 @@
 #include "Actors/CameraActor.h"
+#include "Actors/StaticMeshActor.h"
 #include "AssetSystem.h"
 #include "Client/ViewportClient.h"
 #include "Components/CameraComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -13,6 +15,7 @@
 #include "LevelViewportSessionSettings.h"
 #include "Mona/SceneViewport.h"
 #include "Misc/Paths.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Viewport/ViewportCameraTransform.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Yaml/Yaml.h"
@@ -159,6 +162,55 @@ TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 	Client.Update(Level, nullptr, Input);
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
+TEST(FBoxTests, AccumulatesFinitePointsAndResets)
+{
+	Durin::FBox Box;
+	EXPECT_FALSE(Box.bIsValid);
+	Box.AddPoint({2.0, -1.0, 4.0});
+	Box.AddPoint({-3.0, 5.0, 1.0});
+	ASSERT_TRUE(Box.bIsValid);
+	ExpectVectorNear(Box.Min, {-3.0, -1.0, 1.0});
+	ExpectVectorNear(Box.Max, {2.0, 5.0, 4.0});
+	ExpectVectorNear(Box.GetCenter(), {-0.5, 2.0, 2.5});
+	Box.Reset();
+	EXPECT_FALSE(Box.bIsValid);
+}
+
+TEST(FLevelEditorViewportClientTests, BuildsCenterPickingRayAndRejectsInvalidViewport)
+{
+	Durin::FLevelEditorViewportClient Client;
+	Durin::FVector3 Origin;
+	Durin::FVector3 Direction;
+	EXPECT_FALSE(Client.BuildPickingRay({0.0f, 0.0f}, {0.0f, 100.0f}, Origin, Direction));
+	ASSERT_TRUE(Client.BuildPickingRay({400.0f, 300.0f}, {800.0f, 600.0f}, Origin, Direction));
+	EXPECT_NEAR(glm::length(Direction), 1.0, 1.e-8);
+	ExpectVectorNear(Direction, Client.GetCameraTransform().GetForwardVector(), 1.e-6);
+}
+
+TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHit)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PickingWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PickingLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::FLevelEditorViewportClient Client;
+	const Durin::FVector3 CameraLocation = Client.GetCameraTransform().GetLocation();
+	const Durin::FVector3 Forward = Client.GetCameraTransform().GetForwardVector();
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(Level);
+	Durin::AStaticMeshActor* NearActor = Level->SpawnActor<Durin::AStaticMeshActor>("Near");
+	Durin::AStaticMeshActor* FarActor = Level->SpawnActor<Durin::AStaticMeshActor>("Far");
+	ASSERT_NE(NearActor, nullptr);
+	ASSERT_NE(FarActor, nullptr);
+	NearActor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+	FarActor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+	NearActor->GetStaticMeshComponent()->SetWorldLocation(CameraLocation + Forward * 3.0);
+	FarActor->GetStaticMeshComponent()->SetWorldLocation(CameraLocation + Forward * 6.0);
+	NearActor->GetStaticMeshComponent()->SetWorldRotation(glm::angleAxis(glm::radians(20.0), Forward));
+	NearActor->GetStaticMeshComponent()->SetWorldScale3D({2.0, 0.5, 1.5});
+	EXPECT_EQ(Client.PickActor(Level, {400.0f, 300.0f}, {800.0f, 600.0f}), NearActor);
+	EXPECT_EQ(Client.PickActor(Level, {799.0f, 300.0f}, {800.0f, 600.0f}), nullptr);
 }
 
 TEST(FViewportSelectionTests, PrefersViewportClientAndFallsBackToPrimaryCamera)

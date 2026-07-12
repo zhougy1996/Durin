@@ -11,6 +11,7 @@ namespace Durin
 	using FQuat = glm::dquat;
 
 	struct FTransform;
+	struct FBox;
 	using FRotator = TRotator<FReal>;
 
 	using FVector2f = glm::vec2;
