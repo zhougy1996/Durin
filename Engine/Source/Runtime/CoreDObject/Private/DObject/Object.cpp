@@ -6,6 +6,8 @@
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
+#include "CoreGlobals.h"
+#include "Threading/RunnableThread.h"
 #include "DeferredRegistry.h"
 
 namespace Durin
@@ -160,6 +162,7 @@ namespace Durin
 
 	auto DObject::AddObject(FName InName) -> void
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		NamePrivate = InName;
 		GDObjectArray.Add(this);
 	}
@@ -183,6 +186,7 @@ namespace Durin
 
 	auto DObject::SetOuterPrivate(DObject* NewOuter) -> void
 	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (OuterPrivate == NewOuter)
 		{
 			if (OuterPrivate)

@@ -42,7 +42,6 @@ namespace Durin
 		if (Trigger != EGarbageCollectionTrigger::None)
 		{
 			CollectGarbage();
-			GGarbageCollectionScheduler.Reset(CurrentTime, GDObjectArray.GetNum());
 		}
 		return Trigger;
 	}

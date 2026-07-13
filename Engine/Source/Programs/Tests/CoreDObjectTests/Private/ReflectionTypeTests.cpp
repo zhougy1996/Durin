@@ -84,9 +84,24 @@ namespace
 	class DLifecycleTestObject : public Durin::DObject
 	{
 	public:
+		inline static Durin::uint64 BeginDestroyCount = 0;
+		inline static Durin::uint64 FinishDestroyCount = 0;
+		inline static Durin::uint64 DestructorCount = 0;
+
 		explicit DLifecycleTestObject(const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
 			: DObject(ObjectInitializer)
 		{
+		}
+
+		~DLifecycleTestObject() override { ++DestructorCount; }
+		auto BeginDestroy() -> void override { ++BeginDestroyCount; }
+		auto FinishDestroy() -> void override { ++FinishDestroyCount; }
+
+		static auto ResetLifecycleCounts() -> void
+		{
+			BeginDestroyCount = 0;
+			FinishDestroyCount = 0;
+			DestructorCount = 0;
 		}
 
 		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
@@ -522,6 +537,8 @@ namespace
 	{
 		static const bool bInitialized = []()
 		{
+			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+			Durin::GIsGameThreadIdInitialized = true;
 			Durin::DObjectInit();
 			return true;
 		}();
@@ -592,7 +609,6 @@ namespace
 
 		Durin::RemoveFromRoot(Package);
 		Durin::DestroyObject(Package);
-		Durin::GDObjectArray.Compact();
 	}
 
 	TEST(FCoreDObjectReflectionTests, CppPackagesOwnReflectedTypesAndAreStableRoots)
@@ -634,7 +650,6 @@ namespace
 		ASSERT_TRUE(ObjectArrayContains(Object));
 
 		Durin::DestroyObject(Object);
-		Durin::GDObjectArray.Compact();
 
 		EXPECT_FALSE(ObjectArrayContains(Object));
 	}
@@ -654,7 +669,6 @@ namespace
 
 		Durin::RemoveFromRoot(RootedObject);
 		Durin::DestroyObject(RootedObject);
-		Durin::GDObjectArray.Compact();
 	}
 
 	TEST(FCoreDObjectReflectionTests, GarbageObjectIsCollectedEvenWhenRooted)
@@ -711,7 +725,6 @@ namespace
 
 		Durin::RemoveFromRoot(Owner);
 		Durin::DestroyObject(Owner);
-		Durin::GDObjectArray.Compact();
 	}
 
 	TEST(FCoreDObjectReflectionTests, OuterKeepsInnerObjectReachable)
@@ -730,7 +743,102 @@ namespace
 
 		Durin::RemoveFromRoot(Outer);
 		Durin::DestroyObject(Outer);
-		Durin::GDObjectArray.Compact();
+	}
+
+	TEST(FCoreDObjectReflectionTests, GarbageCollectionDestroysUnreachableOwnershipTreeOnce)
+	{
+		EnsureDObjectInitialized();
+		DLifecycleTestObject::ResetLifecycleCounts();
+
+		auto* Outer = Durin::NewObject<DLifecycleTestObject>(nullptr, Durin::FName("GCUnreachableOuter"));
+		auto* Inner = Durin::NewObject<DLifecycleTestObject>(Outer, Durin::FName("GCUnreachableInner"));
+		Durin::CollectGarbage();
+
+		EXPECT_FALSE(ObjectArrayContains(Outer));
+		EXPECT_FALSE(ObjectArrayContains(Inner));
+		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 2u);
+		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 2u);
+		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 2u);
+	}
+
+	TEST(FCoreDObjectReflectionTests, RootedInnerKeepsOuterChainAndSiblingReachable)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DObject* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCReverseOuter"));
+		Durin::DObject* Inner = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("GCReverseInner"));
+		Durin::DObject* Sibling = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("GCReverseSibling"));
+		Durin::AddToRoot(Inner);
+
+		Durin::CollectGarbage();
+		EXPECT_TRUE(ObjectArrayContains(Outer));
+		EXPECT_TRUE(ObjectArrayContains(Inner));
+		EXPECT_TRUE(ObjectArrayContains(Sibling));
+
+		Durin::RemoveFromRoot(Inner);
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ObjectArrayContains(Outer));
+		EXPECT_FALSE(ObjectArrayContains(Inner));
+		EXPECT_FALSE(ObjectArrayContains(Sibling));
+	}
+
+	TEST(FCoreDObjectReflectionTests, ExplicitGarbageOuterDestroysRootedInnerSubtree)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DObject* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCExplicitOuter"));
+		Durin::DObject* Inner = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("GCExplicitInner"));
+		Durin::AddToRoot(Inner);
+		Durin::MarkAsGarbage(Outer);
+		Durin::CollectGarbage();
+
+		EXPECT_FALSE(ObjectArrayContains(Outer));
+		EXPECT_FALSE(ObjectArrayContains(Inner));
+	}
+
+	TEST(FCoreDObjectReflectionTests, RootReferencesAreCountedAndScopedRootsAreMovable)
+	{
+		EnsureDObjectInitialized();
+		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCCountedRoot"));
+
+		Durin::AddToRoot(Object);
+		Durin::AddToRoot(Object);
+		Durin::RemoveFromRoot(Object);
+		Durin::CollectGarbage();
+		EXPECT_TRUE(ObjectArrayContains(Object));
+		Durin::RemoveFromRoot(Object);
+
+		{
+			Durin::FScopedObjectRoot First(Object);
+			Durin::FScopedObjectRoot Second(std::move(First));
+			Durin::CollectGarbage();
+			EXPECT_TRUE(ObjectArrayContains(Object));
+		}
+
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ObjectArrayContains(Object));
+	}
+
+	TEST(FCoreDObjectReflectionTests, DeepOuterChainUsesIterativeMarkAndDestroy)
+	{
+		EnsureDObjectInitialized();
+		constexpr Durin::uint32 ChainLength = 10000;
+		Durin::DObject* Outermost = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCDeepOuter0"));
+		Durin::DObject* Innermost = Outermost;
+		for (Durin::uint32 Index = 1; Index < ChainLength; ++Index)
+		{
+			Innermost = Durin::NewObject<Durin::DObject>(Innermost, Durin::FName("GCDeepOuter"));
+		}
+		Durin::AddToRoot(Innermost);
+
+		Durin::CollectGarbage();
+		EXPECT_TRUE(ObjectArrayContains(Outermost));
+		EXPECT_TRUE(ObjectArrayContains(Innermost));
+
+		Durin::RemoveFromRoot(Innermost);
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ObjectArrayContains(Outermost));
+		EXPECT_FALSE(ObjectArrayContains(Innermost));
 	}
 
 	TEST(FCoreDObjectReflectionTests, VectorTObjectPtrPropertiesKeepElementsReachable)
@@ -755,7 +863,6 @@ namespace
 
 		Durin::RemoveFromRoot(Owner);
 		Durin::DestroyObject(Owner);
-		Durin::GDObjectArray.Compact();
 	}
 
 	TEST(FCoreDObjectReflectionTests, ObjectGraphSerializationRoundTripsScalarStringAndObjectReference)
@@ -788,7 +895,6 @@ namespace
 		Durin::DestroyObject(ReferencedObject);
 		Durin::DestroyObject(RawVectorReferencedObject);
 		Durin::DestroyObject(ObjectPtrVectorReferencedObject);
-		Durin::GDObjectArray.Compact();
 
 		Durin::DObject* LoadedRoot = Durin::LoadObjectGraphFromMemory(Bytes);
 		ASSERT_NE(LoadedRoot, nullptr);
@@ -827,7 +933,6 @@ namespace
 		EXPECT_EQ(LoadedOwner->TransientValue, 0);
 
 		Durin::DestroyObject(LoadedOwner);
-		Durin::GDObjectArray.Compact();
 	}
 
 	TEST(FCoreDObjectReflectionTests, TObjectPtrWrapsDObjectReferencesWithoutOwnership)
@@ -858,22 +963,11 @@ namespace
 		EXPECT_TRUE(Durin::IsObjectHandleNull(ObjectPtr.GetHandle()));
 	}
 
-	TEST(FCoreDObjectReflectionTests, ObjectPtrStorageMatchesBuildConfiguration)
+	TEST(FCoreDObjectReflectionTests, ObjectPtrUsesGenerationHandleInAllBuilds)
 	{
-#if DURIN_WITH_OBJECT_HANDLE
-		EXPECT_EQ(DURIN_WITH_OBJECT_HANDLE, 1);
-#else
-		EXPECT_EQ(DURIN_WITH_OBJECT_HANDLE, 0);
 		EXPECT_EQ(sizeof(Durin::FObjectHandle), sizeof(Durin::DObject*));
 		EXPECT_EQ(sizeof(Durin::FObjectPtr), sizeof(Durin::DObject*));
 		EXPECT_EQ(sizeof(Durin::TObjectPtr<Durin::DObject>), sizeof(Durin::DObject*));
-#endif
-
-#if defined(DURIN_BUILD_SHIPPING) && DURIN_BUILD_SHIPPING
-		EXPECT_EQ(DURIN_WITH_OBJECT_HANDLE, 0);
-#else
-		EXPECT_EQ(DURIN_WITH_OBJECT_HANDLE, 1);
-#endif
 
 		Durin::DObject* Object = nullptr;
 		Durin::FObjectHandle NullHandle = Durin::MakeObjectHandle(Object);
@@ -886,6 +980,42 @@ namespace
 		EXPECT_EQ(Durin::ResolveObjectHandle(ObjectHandle), ReferencedObject);
 
 		Durin::DestroyObject(ReferencedObject);
+	}
+
+	TEST(FCoreDObjectReflectionTests, ReusedObjectSlotInvalidatesOldHandleGeneration)
+	{
+		EnsureDObjectInitialized();
+		Durin::DObject* First = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectHandleFirst"));
+		const Durin::FObjectHandle FirstHandle = Durin::MakeObjectHandle(First);
+		Durin::DestroyObject(First);
+
+		Durin::DObject* Second = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectHandleSecond"));
+		const Durin::FObjectHandle SecondHandle = Durin::MakeObjectHandle(Second);
+		EXPECT_EQ(FirstHandle.Index, SecondHandle.Index);
+		EXPECT_NE(FirstHandle.Generation, SecondHandle.Generation);
+		EXPECT_EQ(Durin::ResolveObjectHandle(FirstHandle), nullptr);
+		EXPECT_EQ(Durin::ResolveObjectHandle(SecondHandle), Second);
+		Durin::DestroyObject(Second);
+	}
+
+	TEST(FCoreDObjectReflectionTests, ObjectAndGarbageCountsTrackLiveObjectsWithoutCompaction)
+	{
+		EnsureDObjectInitialized();
+		const Durin::uint64 InitialCount = Durin::GDObjectArray.GetNum();
+		Durin::DObject* A = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCCountA"));
+		Durin::DObject* B = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCCountB"));
+		EXPECT_EQ(Durin::GDObjectArray.GetNum(), InitialCount + 2);
+		EXPECT_EQ(Durin::GetGarbageObjectCount(), 0u);
+
+		Durin::MarkAsGarbage(A);
+		Durin::MarkAsGarbage(A);
+		EXPECT_EQ(Durin::GetGarbageObjectCount(), 1u);
+		Durin::DestroyObject(A);
+		EXPECT_EQ(Durin::GDObjectArray.GetNum(), InitialCount + 1);
+		EXPECT_EQ(Durin::GetGarbageObjectCount(), 0u);
+
+		Durin::DestroyObject(B);
+		EXPECT_EQ(Durin::GDObjectArray.GetNum(), InitialCount);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ConstructDEnumCreatesRuntimeEnumMetadata)

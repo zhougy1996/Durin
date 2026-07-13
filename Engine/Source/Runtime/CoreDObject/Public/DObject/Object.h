@@ -136,6 +136,8 @@ namespace Durin
 
 		EObjectInternalFlags InternalFlags = EObjectInternalFlags::None;
 
+		uint32 RootReferenceCount = 0;
+
 		std::vector<DObject*> InnerObjects;
 
 	public:

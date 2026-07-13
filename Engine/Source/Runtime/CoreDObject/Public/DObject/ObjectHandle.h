@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <limits>
 
 #include "CoreDObjectAPI.h"
 
@@ -8,55 +9,29 @@ namespace Durin
 {
 	class DObject;
 
-#ifndef DURIN_WITH_OBJECT_HANDLE
-#if defined(DURIN_BUILD_SHIPPING) && DURIN_BUILD_SHIPPING
-#define DURIN_WITH_OBJECT_HANDLE 0
-#else
-#define DURIN_WITH_OBJECT_HANDLE 1
-#endif
-#endif
-
-#if DURIN_WITH_OBJECT_HANDLE
-
 	struct FObjectHandle
 	{
+		static constexpr uint32 InvalidIndex = std::numeric_limits<uint32>::max();
+
 		FObjectHandle() = default;
 		FObjectHandle(std::nullptr_t) {}
-		explicit FObjectHandle(DObject* InObject)
-			: Object(InObject)
+		FObjectHandle(uint32 InIndex, uint32 InGeneration)
+			: Index(InIndex), Generation(InGeneration)
 		{
 		}
 
-		DObject* Object = nullptr;
+		uint32 Index = InvalidIndex;
+		uint32 Generation = 0;
 	};
 
-	inline auto MakeObjectHandle(DObject* Object) -> FObjectHandle
-	{
-		return FObjectHandle(Object);
-	}
+	static_assert(sizeof(FObjectHandle) == sizeof(uint64));
+
+	COREDOBJECT_API auto MakeObjectHandle(DObject* Object) -> FObjectHandle;
 
 	inline auto IsObjectHandleNull(FObjectHandle Handle) -> bool
 	{
-		return Handle.Object == nullptr;
+		return Handle.Index == FObjectHandle::InvalidIndex;
 	}
 
 	COREDOBJECT_API auto ResolveObjectHandle(FObjectHandle Handle) -> DObject*;
-
-#else
-
-	using FObjectHandle = DObject*;
-
-	inline auto MakeObjectHandle(DObject* Object) -> FObjectHandle
-	{
-		return Object;
-	}
-
-	inline auto IsObjectHandleNull(FObjectHandle Handle) -> bool
-	{
-		return Handle == nullptr;
-	}
-
-	COREDOBJECT_API auto ResolveObjectHandle(FObjectHandle Handle) -> DObject*;
-
-#endif
 }

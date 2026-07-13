@@ -5,58 +5,103 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/Object.h"
+#include "CoreGlobals.h"
 #include "Misc/Time.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
 	namespace
 	{
-		auto IsPermanentObject(DObject* Object) -> bool;
+		FGarbageCollectionStats GLastGarbageCollectionStats;
 
-		auto DestroyObjectInternal(DObject* Object) -> void
+		auto CheckObjectThread() -> void
 		{
-			if (!Object || IsPermanentObject(Object))
-			{
-				return;
-			}
-			if (Object->HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed))
-			{
-				return;
-			}
-
-			Object->SetInternalFlags(EObjectInternalFlags::BeginDestroyed);
-			Object->BeginDestroy();
-
-			std::vector<DObject*> InnerObjects = Object->GetInnerObjects();
-			for (DObject* InnerObject : InnerObjects)
-			{
-				DestroyObjectInternal(InnerObject);
-			}
-
-			Object->SetOuterPrivate(nullptr);
-			GDObjectArray.Remove(Object);
-			Object->FinishDestroy();
-			delete Object;
+			if (GIsGameThreadIdInitialized) CheckGameThread();
 		}
-	}
 
-	namespace
-	{
+		auto IsPermanentObject(DObject* Object) -> bool
+		{
+			if (!Object) return true;
+			if (EnumHasAnyFlags(Object->GetObjectFlags(), EObjectFlags::Intrinsic)) return true;
+			DClass* ObjectClass = Object->GetClass();
+			return ObjectClass && DType::StaticClass() && Object->IsA(DType::StaticClass());
+		}
+
+		auto MarkGarbageInternal(DObject* Object) -> void
+		{
+			if (!Object || !GDObjectArray.Contains(Object) || IsPermanentObject(Object) || Object->IsGarbage()) return;
+			Object->SetInternalFlags(EObjectInternalFlags::Garbage);
+			GDObjectArray.NotifyObjectMarkedGarbage();
+		}
+
+		auto GatherDestroyOrder(std::span<DObject* const> Roots) -> std::vector<DObject*>
+		{
+			struct FStackEntry
+			{
+				DObject* Object;
+				bool bExpanded;
+			};
+
+			std::vector<DObject*> Order;
+			std::vector<FStackEntry> Stack;
+			std::unordered_set<DObject*> Added;
+			Stack.reserve(Roots.size());
+			for (DObject* Root : Roots) Stack.push_back({Root, false});
+
+			while (!Stack.empty())
+			{
+				const FStackEntry Entry = Stack.back();
+				Stack.pop_back();
+				DObject* Object = Entry.Object;
+				if (!Object || !GDObjectArray.Contains(Object) || IsPermanentObject(Object)) continue;
+
+				if (Entry.bExpanded)
+				{
+					Order.push_back(Object);
+					continue;
+				}
+				if (!Added.insert(Object).second) continue;
+
+				Stack.push_back({Object, true});
+				for (DObject* Inner : Object->GetInnerObjects()) Stack.push_back({Inner, false});
+			}
+			return Order;
+		}
+
+		auto DestroyObjectBatch(std::span<DObject* const> Roots) -> uint64
+		{
+			std::vector<DObject*> DestroyOrder = GatherDestroyOrder(Roots);
+			if (DestroyOrder.empty()) return 0;
+
+			for (DObject* Object : DestroyOrder)
+			{
+				MarkGarbageInternal(Object);
+				Object->SetInternalFlags(EObjectInternalFlags::BeginDestroyed);
+			}
+			for (auto It = DestroyOrder.rbegin(); It != DestroyOrder.rend(); ++It)
+			{
+				(*It)->BeginDestroy();
+			}
+
+			for (DObject* Object : DestroyOrder) Object->SetOuterPrivate(nullptr);
+			for (DObject* Object : DestroyOrder) GDObjectArray.Remove(Object);
+			for (DObject* Object : DestroyOrder)
+			{
+				Object->FinishDestroy();
+				delete Object;
+			}
+			return static_cast<uint64>(DestroyOrder.size());
+		}
+
 		auto ForEachPropertyReference(FProperty* Property, void* Container, uint32 ArrayIndex, FReferenceCollector& Collector) -> void
 		{
-			if (!Property)
-			{
-				return;
-			}
+			if (!Property) return;
 
 			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Object)
 			{
 				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
-				if (!ObjectProperty->IsObjectPtrWrapper())
-				{
-					return;
-				}
-
+				if (!ObjectProperty->IsObjectPtrWrapper()) return;
 				DObject* ReferencedObject = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
 				Collector.AddReferencedObject(ReferencedObject);
 				return;
@@ -66,11 +111,7 @@ namespace Durin
 			{
 				auto* ArrayProperty = static_cast<FArrayProperty*>(Property);
 				FProperty* Inner = ArrayProperty->GetInner();
-				if (!Inner || !ArrayProperty->HasArrayHelper())
-				{
-					return;
-				}
-
+				if (!Inner || !ArrayProperty->HasArrayHelper()) return;
 				const uint64 Num = ArrayProperty->Num(Container, ArrayIndex);
 				for (uint64 Index = 0; Index < Num; ++Index)
 				{
@@ -108,43 +149,36 @@ namespace Durin
 			}
 		}
 
-		auto IsPermanentObject(DObject* Object) -> bool
-		{
-			if (!Object)
-			{
-				return true;
-			}
-			if (EnumHasAnyFlags(Object->GetObjectFlags(), EObjectFlags::Intrinsic))
-			{
-				return true;
-			}
-			DClass* ObjectClass = Object->GetClass();
-			return ObjectClass && DType::StaticClass() && Object->IsA(DType::StaticClass());
-		}
-
 		class FMarkReferenceCollector : public FReferenceCollector
 		{
 		public:
-			auto AddReferencedObject(DObject*& Object) -> void override
+			auto AddReferencedObject(DObject*& Object) -> void override { Enqueue(Object); }
+			auto Enqueue(DObject* Object) -> void
 			{
-				MarkObject(Object);
+				if (Object) Pending.push_back(Object);
 			}
 
-			auto MarkObject(DObject* Object) -> void
+			auto Drain() -> uint64
 			{
-				if (!Object || Object->IsGarbage() || Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable))
+				uint64 MarkedCount = 0;
+				while (!Pending.empty())
 				{
-					return;
-				}
+					DObject* Object = Pending.back();
+					Pending.pop_back();
+					if (!Object || !GDObjectArray.Contains(Object) || Object->IsGarbage()
+						|| Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable)) continue;
 
-				Object->SetInternalFlags(EObjectInternalFlags::Reachable);
-				Object->AddReferencedObjects(*this);
-
-				for (DObject* InnerObject : Object->GetInnerObjects())
-				{
-					MarkObject(InnerObject);
+					Object->SetInternalFlags(EObjectInternalFlags::Reachable);
+					++MarkedCount;
+					Enqueue(Object->GetOuter());
+					Object->AddReferencedObjects(*this);
+					for (DObject* Inner : Object->GetInnerObjects()) Enqueue(Inner);
 				}
+				return MarkedCount;
 			}
+
+		private:
+			std::vector<DObject*> Pending;
 		};
 	}
 
@@ -159,20 +193,37 @@ namespace Durin
 		RemoveFromRoot(Object);
 	}
 
+	FScopedObjectRoot::FScopedObjectRoot(FScopedObjectRoot&& Other) noexcept
+		: Object(Other.Object)
+	{
+		Other.Object = nullptr;
+	}
+
+	auto FScopedObjectRoot::operator=(FScopedObjectRoot&& Other) noexcept -> FScopedObjectRoot&
+	{
+		if (this == &Other) return *this;
+		RemoveFromRoot(Object);
+		Object = Other.Object;
+		Other.Object = nullptr;
+		return *this;
+	}
+
 	auto AddToRoot(DObject* Object) -> void
 	{
-		if (Object)
-		{
-			Object->SetInternalFlags(EObjectInternalFlags::RootSet);
-		}
+		CheckObjectThread();
+		if (!Object) return;
+		check(GDObjectArray.Contains(Object));
+		++Object->RootReferenceCount;
+		Object->SetInternalFlags(EObjectInternalFlags::RootSet);
 	}
 
 	auto RemoveFromRoot(DObject* Object) -> void
 	{
-		if (Object)
-		{
-			Object->ClearInternalFlags(EObjectInternalFlags::RootSet);
-		}
+		CheckObjectThread();
+		if (!Object) return;
+		check(GDObjectArray.Contains(Object));
+		check(Object->RootReferenceCount > 0);
+		if (--Object->RootReferenceCount == 0) Object->ClearInternalFlags(EObjectInternalFlags::RootSet);
 	}
 
 	auto IsValid(const DObject* Object) -> bool
@@ -182,7 +233,8 @@ namespace Durin
 
 	auto MarkAsGarbage(DObject* Object) -> void
 	{
-		if (Object && !IsPermanentObject(Object)) Object->SetInternalFlags(EObjectInternalFlags::Garbage);
+		CheckObjectThread();
+		MarkGarbageInternal(Object);
 	}
 
 	COREDOBJECT_API auto ConditionallyMarkAsReachable(DObject* Object) -> void
@@ -192,76 +244,64 @@ namespace Durin
 
 	auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void
 	{
-		if (!Object || !Object->GetClass())
-		{
-			return;
-		}
-
-		Object->GetClass()->ForEachProperty(
-			[&](FProperty* Property)
+		if (!Object || !Object->GetClass()) return;
+		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
+			for (uint32 Index = 0; Property && Index < Property->GetArrayDim(); ++Index)
 			{
-				if (!Property)
-				{
-					return;
-				}
-
-				for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
-				{
-					ForEachPropertyReference(Property, Object, Index, Collector);
-				}
-			},
-			true
-		);
+				ForEachPropertyReference(Property, Object, Index, Collector);
+			}
+		}, true);
 	}
 
 	auto DestroyObject(DObject* Object) -> void
 	{
-		DestroyObjectInternal(Object);
+		CheckObjectThread();
+		if (!Object || !GDObjectArray.Contains(Object)
+			|| Object->HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed)) return;
+		DObject* Roots[] = {Object};
+		DestroyObjectBatch(Roots);
 	}
 
 	auto CollectGarbage() -> void
 	{
-		for (DObject* Object : GDObjectArray.GetAll())
-		{
-			if (Object)
-			{
-				Object->ClearInternalFlags(EObjectInternalFlags::Reachable);
-			}
-		}
+		CheckObjectThread();
+		GLastGarbageCollectionStats = {};
+		const double MarkStartTime = FTime::Seconds();
+		for (DObject* Object : GDObjectArray.GetAll()) Object->ClearInternalFlags(EObjectInternalFlags::Reachable);
 
 		FMarkReferenceCollector Marker;
 		for (DObject* Object : GDObjectArray.GetAll())
 		{
-			if (!Object)
-			{
-				continue;
-			}
 			if (!Object->IsGarbage() && (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || IsPermanentObject(Object)))
 			{
-				Marker.MarkObject(Object);
+				Marker.Enqueue(Object);
 			}
 		}
+		GLastGarbageCollectionStats.MarkedObjectCount = Marker.Drain();
+		GLastGarbageCollectionStats.MarkMilliseconds = (FTime::Seconds() - MarkStartTime) * 1000.0;
 
-		std::vector<DObject*> Snapshot = GDObjectArray.Snapshot();
-		for (DObject* Object : Snapshot)
+		std::vector<DObject*> SweepRoots;
+		for (DObject* Object : GDObjectArray.GetAll())
 		{
-			if (!Object || IsPermanentObject(Object))
+			if (!IsPermanentObject(Object) && (Object->IsGarbage() || !Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable)))
 			{
-				continue;
-			}
-			if (Object->IsGarbage() || !Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable))
-			{
-				Object->SetInternalFlags(EObjectInternalFlags::Garbage);
-				DestroyObject(Object);
+				SweepRoots.push_back(Object);
 			}
 		}
 
-		GDObjectArray.Compact();
+		const double SweepStartTime = FTime::Seconds();
+		GLastGarbageCollectionStats.SweptObjectCount = DestroyObjectBatch(SweepRoots);
+		GLastGarbageCollectionStats.SweepMilliseconds = (FTime::Seconds() - SweepStartTime) * 1000.0;
 		NotifyGarbageCollectionCompleted(FTime::Seconds());
 	}
 
 	auto GetGarbageObjectCount() -> uint64
 	{
-		return static_cast<uint64>(std::ranges::count_if(GDObjectArray.GetAll(), [](const DObject* Object) { return Object && Object->IsGarbage(); }));
+		return GDObjectArray.GetGarbageNum();
+	}
+
+	auto GetLastGarbageCollectionStats() -> const FGarbageCollectionStats&
+	{
+		return GLastGarbageCollectionStats;
 	}
 }

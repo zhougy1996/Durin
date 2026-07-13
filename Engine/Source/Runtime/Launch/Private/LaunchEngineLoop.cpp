@@ -154,11 +154,14 @@ namespace Durin
 		const EGarbageCollectionTrigger GCTrigger = TryCollectGarbage(GCStartTime);
 		if (GCTrigger != EGarbageCollectionTrigger::None)
 		{
+			const FGarbageCollectionStats& GCStats = GetLastGarbageCollectionStats();
 			const char* TriggerName = GCTrigger == EGarbageCollectionTrigger::Interval ? "interval"
 				: GCTrigger == EGarbageCollectionTrigger::PendingKillPressure ? "pending-kill pressure"
 				: "object-growth pressure";
-			DURIN_INFO("Automatic GC ({}) completed in {:.3f} ms: objects {} -> {}, pending kill {}.", TriggerName,
-				(FTime::Seconds() - GCStartTime) * 1000.0, ObjectsBeforeGC, GDObjectArray.GetNum(), PendingKillBeforeGC);
+			DURIN_INFO("Automatic GC ({}) completed in {:.3f} ms (mark {:.3f} ms, sweep {:.3f} ms): "
+				"objects {} -> {}, marked {}, swept {}, pending kill {}.", TriggerName,
+				(FTime::Seconds() - GCStartTime) * 1000.0, GCStats.MarkMilliseconds, GCStats.SweepMilliseconds,
+				ObjectsBeforeGC, GDObjectArray.GetNum(), GCStats.MarkedObjectCount, GCStats.SweptObjectCount, PendingKillBeforeGC);
 		}
 
 		CalculateFPSTimings();
