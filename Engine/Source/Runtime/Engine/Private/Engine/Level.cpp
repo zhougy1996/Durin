@@ -68,6 +68,14 @@ namespace Durin
 		return It == Actors.end() ? nullptr : It->Get();
 	}
 
+	auto DLevel::RenameActor(AActor* Actor, FName RequestedName) -> bool
+	{
+		if (!ContainsActor(Actor) || RequestedName.IsNone()) return false;
+		Actor->Rename(MakeUniqueActorName(RequestedName, Actor));
+		MarkPackageDirty();
+		return true;
+	}
+
 	auto DLevel::SetPrimaryCameraActor(ACameraActor* Actor) -> bool
 	{
 		if (Actor && !ContainsActor(Actor)) return false;
@@ -76,14 +84,14 @@ namespace Durin
 		return true;
 	}
 
-	auto DLevel::MakeUniqueActorName(FName RequestedName) const -> FName
+	auto DLevel::MakeUniqueActorName(FName RequestedName, const AActor* IgnoredActor) const -> FName
 	{
-		if (!FindActorByName(RequestedName)) return RequestedName;
+		if (AActor* Existing = FindActorByName(RequestedName); !Existing || Existing == IgnoredActor) return RequestedName;
 		const std::string BaseName = RequestedName.ToString();
 		for (uint32 Suffix = 2;; ++Suffix)
 		{
 			FName Candidate(std::format("{}_{}", BaseName, Suffix));
-			if (!FindActorByName(Candidate)) return Candidate;
+			if (AActor* Existing = FindActorByName(Candidate); !Existing || Existing == IgnoredActor) return Candidate;
 		}
 	}
 

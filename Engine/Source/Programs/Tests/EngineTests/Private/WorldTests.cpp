@@ -96,6 +96,20 @@ TEST(FWorldTests, MakesDuplicateActorNamesUnique)
 	Durin::DestroyObject(World);
 }
 
+TEST(FWorldTests, RenamesActorsWithUniqueNames)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::AActor* First = World->SpawnActor<Durin::ACameraActor>("Camera");
+	Durin::AActor* Second = World->SpawnActor<Durin::ACameraActor>("Other");
+	ASSERT_NE(First, nullptr);
+	ASSERT_NE(Second, nullptr);
+	EXPECT_TRUE(World->GetCurrentLevel()->RenameActor(Second, "Camera"));
+	EXPECT_EQ(Second->GetName(), "Camera_2");
+	EXPECT_FALSE(World->GetCurrentLevel()->RenameActor(Second, Durin::FName()));
+	EXPECT_EQ(Second->GetName(), "Camera_2");
+	Durin::DestroyObject(World);
+}
+
 TEST(FWorldTests, SpawnsActorsAndComponentsFromRuntimeClasses)
 {
 	Durin::DWorld* World = CreateWorld();

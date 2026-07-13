@@ -308,18 +308,25 @@ namespace Durin
 		const bool bToolbarHovered = ImGui::IsMouseHoveringRect(ToolbarMin, ImVec2(ToolbarMin.x + ToolbarLabelSize.x + 12.0f, ToolbarMin.y + ToolbarLabelSize.y + 4.0f));
 		Input.bRequestSelection = Input.bHovered && Input.bLeftMousePressed && !Input.bAlt && !Input.bWantTextInput && !bToolbarHovered && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 		if (Input.bRequestSelection) ImGui::SetWindowFocus();
-		ViewportClient->Update(Context.Level, Context.SelectedActor.Get(), Input);
+		ViewportClient->Update(Context.Level, Context.GetPrimarySelectedActor(), Input);
 		if (Input.bRequestSelection)
 		{
-			if (AActor* HitActor = ViewportClient->PickActor(Context.Level, Input.MousePosition, Input.ViewportSize)) Context.SelectActor(HitActor);
+			if (AActor* HitActor = ViewportClient->PickActor(Context.Level, Input.MousePosition, Input.ViewportSize))
+			{
+				if (IO.KeyCtrl) Context.ToggleActorSelection(HitActor);
+				else Context.SelectActor(HitActor);
+			}
 			else Context.ClearSelection();
 		}
 	}
 
 	auto FSceneViewportPanel::DrawSelectionBounds(const FLevelEditorContext& Context, const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void
 	{
-		AActor* Actor = Context.SelectedActor.Get();
-		if (Actor == nullptr || ViewportClient == nullptr) return;
+		if (Context.GetSelectedActors().empty() || ViewportClient == nullptr) return;
+		for (const TObjectPtr<AActor>& ActorPtr : Context.GetSelectedActors())
+		{
+		AActor* Actor = ActorPtr.Get();
+		if (Actor == nullptr) continue;
 		FBox WorldBounds;
 		for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
 		{
@@ -337,7 +344,7 @@ namespace Durin
 				WorldBounds.AddPoint(FVector3(LocalToWorld * FVector4(Local, 1.0)));
 			}
 		}
-		if (!WorldBounds.bIsValid) return;
+		if (!WorldBounds.bIsValid) continue;
 		std::array<ImVec2, 8> ScreenCorners;
 		std::array<bool, 8> bProjected{};
 		const FVector2f ViewportSize(ViewportMax.x - ViewportMin.x, ViewportMax.y - ViewportMin.y);
@@ -354,11 +361,14 @@ namespace Durin
 		static constexpr std::array<std::array<uint32, 2>, 12> Edges = {{{0, 1}, {0, 2}, {0, 4}, {1, 3}, {1, 5}, {2, 3}, {2, 6}, {3, 7}, {4, 5}, {4, 6}, {5, 7}, {6, 7}}};
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
+		const bool bPrimary = Context.GetPrimarySelectedActor() == Actor;
+		const ImU32 Color = bPrimary ? IM_COL32(255, 184, 48, 255) : IM_COL32(90, 170, 255, 220);
 		for (const auto& Edge : Edges)
 		{
-			if (bProjected[Edge[0]] && bProjected[Edge[1]]) DrawList->AddLine(ScreenCorners[Edge[0]], ScreenCorners[Edge[1]], IM_COL32(255, 184, 48, 255), 2.0f);
+			if (bProjected[Edge[0]] && bProjected[Edge[1]]) DrawList->AddLine(ScreenCorners[Edge[0]], ScreenCorners[Edge[1]], Color, bPrimary ? 2.0f : 1.5f);
 		}
 		DrawList->PopClipRect();
+		}
 	}
 
 	auto FSceneViewportPanel::UpdateViewportSize() -> void

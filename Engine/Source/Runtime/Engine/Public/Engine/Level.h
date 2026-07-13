@@ -31,6 +31,7 @@ namespace Durin
 		auto DestroyAllActors() -> void;
 		auto ContainsActor(const AActor* Actor) const -> bool;
 		auto FindActorByName(FName Name) const -> AActor*;
+		auto RenameActor(AActor* Actor, FName RequestedName) -> bool;
 		auto GetActors() const -> const std::vector<TObjectPtr<AActor>>& { return Actors; }
 
 		auto SetPrimaryCameraActor(ACameraActor* Actor) -> bool;
@@ -39,7 +40,7 @@ namespace Durin
 		auto PostLoad(std::string& OutError) -> bool override;
 
 	private:
-		auto MakeUniqueActorName(FName RequestedName) const -> FName;
+		auto MakeUniqueActorName(FName RequestedName, const AActor* IgnoredActor = nullptr) const -> FName;
 		auto OnActorAdded(AActor* Actor) -> void;
 		auto SetOwningWorld(DWorld* World) -> void { OwningWorld = World; }
 

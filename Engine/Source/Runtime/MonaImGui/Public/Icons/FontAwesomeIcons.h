@@ -41,4 +41,10 @@ namespace Durin::Icons
 	inline constexpr auto ChevronRight = "\xef\x81\x94";
 	inline constexpr auto ChevronUp = "\xef\x81\xb7";
 	inline constexpr auto ChevronDown = "\xef\x81\xb8";
+	inline constexpr auto Camera = "\xef\x80\xb0";
+	inline constexpr auto Lightbulb = "\xef\x83\xab";
+	inline constexpr auto Cube = "\xef\x86\xb2";
+	inline constexpr auto Circle = "\xef\x84\x91";
+	inline constexpr auto Expand = "\xef\x81\xa5";
+	inline constexpr auto Compress = "\xef\x81\xa6";
 }

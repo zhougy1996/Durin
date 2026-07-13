@@ -124,7 +124,7 @@ namespace Durin
 			return;
 		}
 
-		AActor* Actor = Context.SelectedActor.Get();
+		AActor* Actor = Context.GetPrimarySelectedActor();
 		if (Actor == nullptr)
 		{
 			ImGui::TextDisabled("Select an actor to inspect it.");
@@ -136,6 +136,7 @@ namespace Durin
 			PropertyActor = Actor;
 			SelectedComponent = nullptr;
 		}
+		if (Context.GetSelectedActors().size() > 1) ImGui::TextDisabled("%zu actors selected; editing primary actor only.", Context.GetSelectedActors().size());
 
 		ImGui::TextUnformatted(Actor->GetName().c_str());
 		ImGui::TextDisabled("%s", Actor->GetClass()->GetName().c_str());

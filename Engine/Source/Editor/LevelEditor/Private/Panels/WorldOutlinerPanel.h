@@ -15,6 +15,12 @@ namespace Durin
 	private:
 		std::array<char, 128> SearchText{};
 		std::array<char, 128> ActorTypeSearchText{};
-		TObjectPtr<AActor> PendingDeleteActor;
+		std::array<char, 128> RenameText{};
+		TObjectPtr<AActor> RenamingActor;
+		std::vector<TObjectPtr<AActor>> PendingDeleteActors;
+		std::vector<AActor*> LastVisibleActors;
+		std::unordered_map<AActor*, bool> ExpandedActors;
+		bool bWasSearching = false;
+		int ExpandRequest = 0;
 	};
 } // namespace Durin

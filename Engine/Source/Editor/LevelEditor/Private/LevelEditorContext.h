@@ -12,12 +12,22 @@ namespace Durin
 	{
 		DWorld* World = nullptr;
 		DLevel* Level = nullptr;
-		TObjectPtr<AActor> SelectedActor;
 		std::function<void(std::string)> ReportError;
 
 		auto Synchronize(DWorld* CurrentWorld) -> void;
 		auto SelectActor(AActor* Actor) -> void;
-		auto ClearSelection() -> void { SelectedActor = nullptr; }
+		auto ToggleActorSelection(AActor* Actor) -> void;
+		auto SelectActorRange(AActor* Actor, const std::vector<AActor*>& VisibleActors) -> void;
+		auto SetSelectedActors(const std::vector<AActor*>& Actors, AActor* PrimaryActor = nullptr) -> void;
+		auto ClearSelection() -> void;
+		auto IsActorSelected(const AActor* Actor) const -> bool;
+		auto GetPrimarySelectedActor() const -> AActor* { return PrimarySelectedActor.Get(); }
+		auto GetSelectedActors() const -> const std::vector<TObjectPtr<AActor>>& { return SelectedActors; }
 		auto SetError(std::string Message) const -> void { if (ReportError) ReportError(std::move(Message)); }
+
+	private:
+		std::vector<TObjectPtr<AActor>> SelectedActors;
+		TObjectPtr<AActor> PrimarySelectedActor;
+		TObjectPtr<AActor> SelectionAnchor;
 	};
 } // namespace Durin
