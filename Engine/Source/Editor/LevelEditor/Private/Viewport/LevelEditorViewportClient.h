@@ -55,12 +55,17 @@ namespace Durin
 		auto BuildPickingRay(const FVector2f& ViewportPosition, const FVector2f& ViewportSize, FVector3& OutOrigin, FVector3& OutDirection) const -> bool;
 		auto PickActor(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) const -> AActor*;
 		auto ProjectWorldToViewport(const FVector3& WorldPosition, const FVector2f& ViewportSize, FVector2f& OutPosition) const -> bool;
+		auto SetSelectedActors(const std::vector<TObjectPtr<AActor>>& Actors, AActor* PrimaryActor) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo& { return TransformGizmo; }
 		auto GetTransformGizmo() const -> const FTransformGizmo& { return TransformGizmo; }
 
 	private:
+		auto AppendSelectionBounds(FSceneView& View) const -> void;
+
 		FViewportCameraTransform CameraTransform;
 		DLevel* CurrentLevel = nullptr;
+		std::vector<TObjectPtr<AActor>> SelectedActors;
+		TObjectPtr<AActor> PrimarySelectedActor;
 		float FieldOfViewDegrees = 60.0f;
 		float NearClip = 0.1f;
 		float FarClip = 10000.0f;

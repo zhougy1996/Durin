@@ -90,8 +90,37 @@ namespace Durin
 		OutView.ProjectionMatrix[0][3] = 1.0f;
 		OutView.ViewProjectionMatrix = OutView.ProjectionMatrix * OutView.ViewMatrix;
 		OutView.ViewLocation = CameraTransform.GetLocation();
+		AppendSelectionBounds(OutView);
 		TransformGizmo.AppendOverlayPrimitives(OutView);
 		return true;
+	}
+
+	auto FLevelEditorViewportClient::SetSelectedActors(const std::vector<TObjectPtr<AActor>>& Actors, AActor* PrimaryActor) -> void
+	{
+		SelectedActors = Actors;
+		PrimarySelectedActor = PrimaryActor;
+	}
+
+	auto FLevelEditorViewportClient::AppendSelectionBounds(FSceneView& View) const -> void
+	{
+		for (const TObjectPtr<AActor>& ActorPtr : SelectedActors)
+		{
+			const AActor* Actor = ActorPtr.Get();
+			if (Actor == nullptr) continue;
+			const bool bPrimary = Actor == PrimarySelectedActor.Get();
+			const FVector4f Color = bPrimary ? FVector4f(1.0f, 0.72f, 0.19f, 1.0f) : FVector4f(0.35f, 0.67f, 1.0f, 0.86f);
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+			{
+				const auto* Component = Cast<DStaticMeshComponent>(ComponentPtr.Get());
+				const DStaticMesh* Mesh = Component != nullptr ? Component->GetStaticMesh() : nullptr;
+				const FStaticMeshRenderData* Data = Mesh != nullptr ? Mesh->GetRenderData() : nullptr;
+				if (Data == nullptr || !Data->LocalBounds.bIsValid) continue;
+				const FVector3 Center = Data->LocalBounds.GetCenter();
+				const FVector3 Size = Data->LocalBounds.Max - Data->LocalBounds.Min;
+				const FMatrix BoundsToLocal = glm::translate(FMatrix(1.0), Center) * glm::scale(FMatrix(1.0), Size);
+				View.OverlayPrimitives.push_back({EViewOverlayShape::WireBox, Component->GetRenderMatrix() * BoundsToLocal, Color});
+			}
+		}
 	}
 
 	auto FLevelEditorViewportClient::Update(DLevel* Level, AActor* SelectedActor, const FLevelEditorViewportInput& Input) -> void

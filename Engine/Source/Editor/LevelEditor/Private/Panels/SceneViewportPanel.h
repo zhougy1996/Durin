@@ -33,7 +33,6 @@ namespace Durin
 		auto DrawToolbar(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
 		auto DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto DrawFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
-		auto DrawSelectionBounds(const FLevelEditorContext& Context, const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto UpdateViewportSize() -> void;
 		auto UpdateViewportInput(FLevelEditorContext& Context) -> void;
 

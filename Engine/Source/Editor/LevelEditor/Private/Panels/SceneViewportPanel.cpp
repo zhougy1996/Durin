@@ -138,6 +138,7 @@ namespace Durin
 			return;
 		}
 		UpdateViewportSize();
+		if (ViewportClient != nullptr) ViewportClient->SetSelectedActors(Context.GetSelectedActors(), Context.GetPrimarySelectedActor());
 		if (ViewportWidget != nullptr)
 		{
 			ViewportWidget->Draw();
@@ -155,7 +156,6 @@ namespace Durin
 				UpdateViewportInput(Context);
 				const ImVec2 VpMin = ImGui::GetItemRectMin();
 				const ImVec2 VpMax = ImGui::GetItemRectMax();
-				DrawSelectionBounds(Context, VpMin, VpMax);
 				DrawToolbar(VpMin, VpMax);
 				DrawOrientationOverlay(VpMin, VpMax);
 				DrawFPSOverlay(VpMin, VpMax);
@@ -383,57 +383,7 @@ namespace Durin
 			}
 			else Context.ClearSelection();
 		}
-	}
-
-	auto FSceneViewportPanel::DrawSelectionBounds(const FLevelEditorContext& Context, const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void
-	{
-		if (Context.GetSelectedActors().empty() || ViewportClient == nullptr) return;
-		for (const TObjectPtr<AActor>& ActorPtr : Context.GetSelectedActors())
-		{
-		AActor* Actor = ActorPtr.Get();
-		if (Actor == nullptr) continue;
-		FBox WorldBounds;
-		for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
-		{
-			auto* Component = Cast<DStaticMeshComponent>(ComponentPtr.Get());
-			const DStaticMesh* Mesh = Component != nullptr ? Component->GetStaticMesh() : nullptr;
-			const FStaticMeshRenderData* Data = Mesh != nullptr ? Mesh->GetRenderData() : nullptr;
-			if (Data == nullptr || !Data->LocalBounds.bIsValid) continue;
-			const FMatrix LocalToWorld = Component->GetRenderMatrix();
-			for (uint32 Corner = 0; Corner < 8; ++Corner)
-			{
-				const FVector3 Local(
-					(Corner & 1) != 0 ? Data->LocalBounds.Max.x : Data->LocalBounds.Min.x,
-					(Corner & 2) != 0 ? Data->LocalBounds.Max.y : Data->LocalBounds.Min.y,
-					(Corner & 4) != 0 ? Data->LocalBounds.Max.z : Data->LocalBounds.Min.z);
-				WorldBounds.AddPoint(FVector3(LocalToWorld * FVector4(Local, 1.0)));
-			}
-		}
-		if (!WorldBounds.bIsValid) continue;
-		std::array<ImVec2, 8> ScreenCorners;
-		std::array<bool, 8> bProjected{};
-		const FVector2f ViewportSize(ViewportMax.x - ViewportMin.x, ViewportMax.y - ViewportMin.y);
-		for (uint32 Corner = 0; Corner < 8; ++Corner)
-		{
-			const FVector3 World(
-				(Corner & 1) != 0 ? WorldBounds.Max.x : WorldBounds.Min.x,
-				(Corner & 2) != 0 ? WorldBounds.Max.y : WorldBounds.Min.y,
-				(Corner & 4) != 0 ? WorldBounds.Max.z : WorldBounds.Min.z);
-			FVector2f Screen;
-			bProjected[Corner] = ViewportClient->ProjectWorldToViewport(World, ViewportSize, Screen);
-			ScreenCorners[Corner] = ImVec2(ViewportMin.x + Screen.x, ViewportMin.y + Screen.y);
-		}
-		static constexpr std::array<std::array<uint32, 2>, 12> Edges = {{{0, 1}, {0, 2}, {0, 4}, {1, 3}, {1, 5}, {2, 3}, {2, 6}, {3, 7}, {4, 5}, {4, 6}, {5, 7}, {6, 7}}};
-		ImDrawList* DrawList = ImGui::GetWindowDrawList();
-		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
-		const bool bPrimary = Context.GetPrimarySelectedActor() == Actor;
-		const ImU32 Color = bPrimary ? IM_COL32(255, 184, 48, 255) : IM_COL32(90, 170, 255, 220);
-		for (const auto& Edge : Edges)
-		{
-			if (bProjected[Edge[0]] && bProjected[Edge[1]]) DrawList->AddLine(ScreenCorners[Edge[0]], ScreenCorners[Edge[1]], Color, bPrimary ? 2.0f : 1.5f);
-		}
-		DrawList->PopClipRect();
-		}
+		ViewportClient->SetSelectedActors(Context.GetSelectedActors(), Context.GetPrimarySelectedActor());
 	}
 
 	auto FSceneViewportPanel::UpdateViewportSize() -> void

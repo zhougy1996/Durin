@@ -18,6 +18,7 @@
 #include "Mona/SceneViewport.h"
 #include "Misc/Paths.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshResources.h"
 #include "Viewport/ViewportCameraTransform.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Yaml/Yaml.h"
@@ -279,6 +280,44 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Durin::FSceneView ScaleView;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, ScaleView));
 	EXPECT_EQ(ScaleView.OverlayPrimitives.size(), 7u);
+}
+
+TEST(FLevelEditorViewportClientTests, BuildsComponentOrientedSelectionBounds)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "SelectionBoundsWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "SelectionBoundsLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(Level);
+	Durin::AStaticMeshActor* Actor = Level->SpawnActor<Durin::AStaticMeshActor>("SelectedMesh");
+	ASSERT_NE(Actor, nullptr);
+	Durin::DStaticMeshComponent* Component = Actor->GetStaticMeshComponent();
+	Component->SetStaticMesh(Mesh);
+	Component->SetWorldLocation({3.0, 4.0, 5.0});
+	Component->SetWorldRotation(glm::angleAxis(glm::radians(35.0), Durin::FVector3(0.0, 0.0, 1.0)));
+	Component->SetWorldScale3D({2.0, 0.5, 1.5});
+
+	std::vector<Durin::TObjectPtr<Durin::AActor>> Selection;
+	Selection.emplace_back(Actor);
+	Durin::FLevelEditorViewportClient Client;
+	Client.SetSelectedActors(Selection, Actor);
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	const auto It = std::ranges::find_if(View.OverlayPrimitives, [](const Durin::FViewOverlayPrimitive& Primitive) {
+		return Primitive.Shape == Durin::EViewOverlayShape::WireBox;
+	});
+	ASSERT_NE(It, View.OverlayPrimitives.end());
+	const Durin::FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
+	ASSERT_NE(RenderData, nullptr);
+	const Durin::FVector3 ActualMin = Durin::FVector3(It->LocalToWorld * Durin::FVector4(-0.5, -0.5, -0.5, 1.0));
+	const Durin::FVector3 ActualMax = Durin::FVector3(It->LocalToWorld * Durin::FVector4(0.5, 0.5, 0.5, 1.0));
+	const Durin::FMatrix LocalToWorld = Component->GetRenderMatrix();
+	ExpectVectorNear(ActualMin, Durin::FVector3(LocalToWorld * Durin::FVector4(RenderData->LocalBounds.Min, 1.0)));
+	ExpectVectorNear(ActualMax, Durin::FVector3(LocalToWorld * Durin::FVector4(RenderData->LocalBounds.Max, 1.0)));
+	EXPECT_FLOAT_EQ(It->Color.r, 1.0f);
+	EXPECT_FLOAT_EQ(It->Color.g, 0.72f);
+	EXPECT_FLOAT_EQ(It->Color.b, 0.19f);
+	EXPECT_FLOAT_EQ(It->Color.a, 1.0f);
 }
 
 TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHit)

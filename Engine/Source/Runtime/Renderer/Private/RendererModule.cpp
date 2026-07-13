@@ -125,9 +125,11 @@ namespace Durin
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef XRayPipelineState;
 			FGraphicsPipelineStateRHIRef VisiblePipelineState;
+			FGraphicsPipelineStateRHIRef WireXRayPipelineState;
+			FGraphicsPipelineStateRHIRef WireVisiblePipelineState;
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
-			std::array<FGizmoMeshRange, 5> MeshRanges{};
+			std::array<FGizmoMeshRange, 6> MeshRanges{};
 			bool bCreateAttempted = false;
 		};
 
@@ -232,6 +234,17 @@ namespace Durin
 			for (uint32 Index : BoxIndices) Indices.push_back(Base + Index);
 		}
 
+		auto AppendWireBox(std::vector<FVector3f>& Vertices, std::vector<uint32>& Indices) -> void
+		{
+			const uint32 Base = static_cast<uint32>(Vertices.size());
+			for (uint32 Corner = 0; Corner < 8; ++Corner)
+			{
+				Vertices.emplace_back((Corner & 1) ? 0.5f : -0.5f, (Corner & 2) ? 0.5f : -0.5f, (Corner & 4) ? 0.5f : -0.5f);
+			}
+			static constexpr uint32 BoxEdgeIndices[] = {0,1,0,2,0,4,1,3,1,5,2,3,2,6,3,7,4,5,4,6,5,7,6,7};
+			for (uint32 Index : BoxEdgeIndices) Indices.push_back(Base + Index);
+		}
+
 		auto AppendPlane(std::vector<FVector3f>& Vertices, std::vector<uint32>& Indices) -> void
 		{
 			const uint32 Base = static_cast<uint32>(Vertices.size());
@@ -310,6 +323,11 @@ namespace Durin
 			GGizmoState.XRayPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("GizmoXRayPipeline", Initializer);
 			Initializer.bEnableDepthTest = true;
 			GGizmoState.VisiblePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("GizmoVisiblePipeline", Initializer);
+			Initializer.PrimitiveTopology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
+			Initializer.bEnableDepthTest = false;
+			GGizmoState.WireXRayPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("GizmoWireXRayPipeline", Initializer);
+			Initializer.bEnableDepthTest = true;
+			GGizmoState.WireVisiblePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("GizmoWireVisiblePipeline", Initializer);
 
 			std::vector<FVector3f> Vertices;
 			std::vector<uint32> Indices;
@@ -329,6 +347,9 @@ namespace Durin
 			GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Box)] = BeginGizmoMesh(Vertices, Indices);
 			AppendBox(Vertices, Indices);
 			EndGizmoMesh(GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Box)], Indices);
+			GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::WireBox)] = BeginGizmoMesh(Vertices, Indices);
+			AppendWireBox(Vertices, Indices);
+			EndGizmoMesh(GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::WireBox)], Indices);
 
 			FRHIBufferCreateDesc VertexDesc = FRHIBufferCreateDesc::CreateVertex("GizmoVertexBuffer", static_cast<uint32>(Vertices.size() * sizeof(FVector3f)));
 			VertexDesc.Usage |= EBufferUsageFlags::Static;
@@ -588,13 +609,16 @@ namespace Durin
 		auto DrawGizmoPrimitives(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bXRay) -> void
 		{
 			if (View.OverlayPrimitives.empty() || GGizmoState.VertexBuffer == nullptr || GGizmoState.IndexBuffer == nullptr) return;
-			const FGraphicsPipelineStateRHIRef Pipeline = bXRay ? GGizmoState.XRayPipelineState : GGizmoState.VisiblePipelineState;
-			if (Pipeline == nullptr) return;
-			CommandList.SetGraphicsPipelineState(*Pipeline);
 			CommandList.BindVertexBuffer(0, GGizmoState.VertexBuffer, 0);
 			CommandList.BindIndexBuffer(GGizmoState.IndexBuffer, 0);
 			for (const FViewOverlayPrimitive& Primitive : View.OverlayPrimitives)
 			{
+				const bool bWire = Primitive.Shape == EViewOverlayShape::WireBox;
+				const FGraphicsPipelineStateRHIRef Pipeline = bWire
+					? (bXRay ? GGizmoState.WireXRayPipelineState : GGizmoState.WireVisiblePipelineState)
+					: (bXRay ? GGizmoState.XRayPipelineState : GGizmoState.VisiblePipelineState);
+				if (Pipeline == nullptr) continue;
+				CommandList.SetGraphicsPipelineState(*Pipeline);
 				const size_t ShapeIndex = static_cast<size_t>(Primitive.Shape);
 				if (ShapeIndex >= GGizmoState.MeshRanges.size()) continue;
 				const FGizmoMeshRange& Range = GGizmoState.MeshRanges[ShapeIndex];

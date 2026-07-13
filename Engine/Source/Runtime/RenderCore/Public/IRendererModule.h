@@ -33,7 +33,8 @@ namespace Durin
 		Axis,
 		Plane,
 		Ring,
-		Box
+		Box,
+		WireBox
 	};
 
 	struct FViewOverlayPrimitive
