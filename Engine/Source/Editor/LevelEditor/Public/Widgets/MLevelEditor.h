@@ -56,6 +56,12 @@ namespace Durin
 		int32 WindowWidth = 1280;
 		int32 WindowHeight = 800;
 		float UIScale = 1.0f;
+		bool bGizmoSnapEnabled = false;
+		float GizmoTranslationSnap = 0.5f;
+		float GizmoRotationSnap = 15.0f;
+		float GizmoScaleSnap = 0.1f;
+		uint8 GizmoMode = 0;
+		uint8 GizmoSpace = 0;
 		EPendingFileAction PendingFileAction = EPendingFileAction::None;
 		EQueuedFilePopup QueuedFilePopup = EQueuedFilePopup::None;
 		std::array<char, 512> LevelPathBuffer{};

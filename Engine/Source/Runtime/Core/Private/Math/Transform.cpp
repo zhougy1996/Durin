@@ -1,4 +1,8 @@
 #include "Math/Transform.h"
+#include "Math/TransformDecomposition.h"
+
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/matrix_decompose.hpp>
 
 namespace Durin
 {
@@ -36,6 +40,34 @@ namespace Durin
 		const FMatrix RotationMatrix = glm::mat4_cast(Rotation);
 		const FMatrix ScaleMatrix = glm::scale(FMatrix(1.0), Scale3D);
 		return TranslationMatrix * RotationMatrix * ScaleMatrix;
+	}
+
+	auto TryMakeTransformFromMatrix(const FMatrix& Matrix, FTransform& OutTransform) -> bool
+	{
+		for (uint32 Column = 0; Column < 4; ++Column)
+		{
+			for (uint32 Row = 0; Row < 4; ++Row)
+			{
+				if (!std::isfinite(Matrix[Column][Row])) return false;
+			}
+		}
+
+		FVector3 Scale;
+		FQuat Rotation;
+		FVector3 Translation;
+		FVector3 Skew;
+		FVector4 Perspective;
+		if (!glm::decompose(Matrix, Scale, Rotation, Translation, Skew, Perspective)) return false;
+		if (!std::isfinite(glm::length(Rotation)) || glm::dot(Rotation, Rotation) <= kSmallNumber) return false;
+		for (uint32 Axis = 0; Axis < 3; ++Axis)
+		{
+			if (!std::isfinite(Scale[Axis]) || !std::isfinite(Translation[Axis])) return false;
+		}
+
+		OutTransform.Translation = Translation;
+		OutTransform.Rotation = glm::normalize(Rotation);
+		OutTransform.Scale3D = Scale;
+		return true;
 	}
 
 	auto FTransform::Combine(const FTransform& Parent, const FTransform& Relative) -> FTransform

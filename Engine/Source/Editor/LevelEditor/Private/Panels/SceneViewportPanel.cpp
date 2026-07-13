@@ -2,6 +2,8 @@
 
 #include "Components/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Editor/EditorEngine.h"
+#include "Editor/EditorTransaction.h"
 #include "Engine/Engine.h"
 #include "Engine/Actor.h"
 #include "IRendererModule.h"
@@ -103,6 +105,16 @@ namespace Durin
 	auto FSceneViewportPanel::RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void
 	{
 		if (ViewportClient != nullptr) ViewportClient->InitializeForLevel(Level, State);
+	}
+
+	auto FSceneViewportPanel::GetTransformGizmo() -> FTransformGizmo*
+	{
+		return ViewportClient ? &ViewportClient->GetTransformGizmo() : nullptr;
+	}
+
+	auto FSceneViewportPanel::GetTransformGizmo() const -> const FTransformGizmo*
+	{
+		return ViewportClient ? &ViewportClient->GetTransformGizmo() : nullptr;
 	}
 
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
@@ -211,6 +223,37 @@ namespace Durin
 			});
 			ImGui::EndPopup();
 		}
+
+		if (ViewportClient == nullptr) return;
+		FTransformGizmo& Gizmo = ViewportClient->GetTransformGizmo();
+		float X = ButtonPos.x + ButtonSize.x + 6.0f;
+		const float Y = ButtonPos.y;
+		auto ToolbarButton = [&](const char* Id, const char* Text, bool bSelected, auto&& Action) {
+			ImGui::SetCursorScreenPos(ImVec2(X, Y));
+			if (bSelected) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.42f, 0.72f, 0.9f));
+			if (ImGui::SmallButton(std::format("{}##{}", Text, Id).c_str())) Action();
+			if (bSelected) ImGui::PopStyleColor();
+			X += ImGui::GetItemRectSize().x + 4.0f;
+		};
+		ToolbarButton("Move", "W Move", Gizmo.GetMode() == ETransformGizmoMode::Translate, [&] { Gizmo.SetMode(ETransformGizmoMode::Translate); });
+		ToolbarButton("Rotate", "E Rotate", Gizmo.GetMode() == ETransformGizmoMode::Rotate, [&] { Gizmo.SetMode(ETransformGizmoMode::Rotate); });
+		ToolbarButton("Scale", "R Scale", Gizmo.GetMode() == ETransformGizmoMode::Scale, [&] { Gizmo.SetMode(ETransformGizmoMode::Scale); });
+		ToolbarButton("Space", Gizmo.GetSpace() == ETransformGizmoSpace::World ? "World" : "Local", Gizmo.GetSpace() == ETransformGizmoSpace::Local, [&] {
+			Gizmo.SetSpace(Gizmo.GetSpace() == ETransformGizmoSpace::World ? ETransformGizmoSpace::Local : ETransformGizmoSpace::World);
+		});
+		ToolbarButton("Snap", "Snap", Gizmo.GetSnapSettings().bEnabled, [&] { Gizmo.GetSnapSettings().bEnabled = !Gizmo.GetSnapSettings().bEnabled; });
+		ImGui::SetCursorScreenPos(ImVec2(X, Y));
+		if (ImGui::SmallButton("v##SnapSettings")) ImGui::OpenPopup("GizmoSnapSettings");
+		if (ImGui::BeginPopup("GizmoSnapSettings"))
+		{
+			FTransformGizmoSnapSettings& Settings = Gizmo.GetSnapSettings();
+			ImGui::Checkbox("Enable snapping", &Settings.bEnabled);
+			ImGui::DragFloat("Translation", &Settings.Translation, 0.05f, 0.001f, 10000.0f, "%.3f");
+			ImGui::DragFloat("Rotation", &Settings.RotationDegrees, 1.0f, 0.1f, 180.0f, "%.1f deg");
+			ImGui::DragFloat("Scale", &Settings.Scale, 0.01f, 0.001f, 10.0f, "%.3f");
+			ImGui::TextDisabled("Hold Ctrl to snap temporarily.");
+			ImGui::EndPopup();
+		}
 	}
 
 	auto FSceneViewportPanel::DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void
@@ -274,6 +317,7 @@ namespace Durin
 		Input.bWantTextInput = IO.WantTextInput;
 		Input.bAlt = IO.KeyAlt;
 		Input.bShift = IO.KeyShift;
+		Input.bCtrl = IO.KeyCtrl;
 		Input.bLeftMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Left);
 		Input.bMiddleMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
 		Input.bRightMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Right);
@@ -287,6 +331,11 @@ namespace Durin
 		Input.bMoveDown = ImGui::IsKeyDown(ImGuiKey_Q);
 		Input.bMoveUp = ImGui::IsKeyDown(ImGuiKey_E);
 		Input.bFocusSelection = ImGui::IsKeyPressed(ImGuiKey_F, false);
+		Input.bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+		const bool bGizmoShortcutAllowed = Input.bHovered && Input.bFocused && !Input.bWantTextInput && !Input.bRightMouseDown && !Input.bMiddleMouseDown && !Input.bAlt;
+		Input.bModeTranslate = bGizmoShortcutAllowed && ImGui::IsKeyPressed(ImGuiKey_W, false);
+		Input.bModeRotate = bGizmoShortcutAllowed && ImGui::IsKeyPressed(ImGuiKey_E, false);
+		Input.bModeScale = bGizmoShortcutAllowed && ImGui::IsKeyPressed(ImGuiKey_R, false);
 		const ImVec2 ViewportMin = ImGui::GetItemRectMin();
 		const ImVec2 ViewportMax = ImGui::GetItemRectMax();
 		const ImVec2 MousePosition = ImGui::GetMousePos();
@@ -305,9 +354,25 @@ namespace Durin
 		}
 		const std::string ToolbarLabel = std::format("{} / {}", RenderMode == ERenderMode::Lit ? "Lit" : "Unlit", RasterMode == ERasterMode::Solid ? "Solid" : "Wireframe");
 		const ImVec2 ToolbarLabelSize = ImGui::CalcTextSize(ToolbarLabel.c_str());
-		const bool bToolbarHovered = ImGui::IsMouseHoveringRect(ToolbarMin, ImVec2(ToolbarMin.x + ToolbarLabelSize.x + 12.0f, ToolbarMin.y + ToolbarLabelSize.y + 4.0f));
-		Input.bRequestSelection = Input.bHovered && Input.bLeftMousePressed && !Input.bAlt && !Input.bWantTextInput && !bToolbarHovered && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
+		const bool bToolbarHovered = ImGui::IsMouseHoveringRect(ToolbarMin, ImVec2(FMath::Min(ViewportMax.x, ToolbarMin.x + 520.0f), ToolbarMin.y + ToolbarLabelSize.y + 8.0f));
+		const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
+		if (bToolbarHovered || bPopupOpen) Input.bLeftMousePressed = false;
+		FSceneView SceneView;
+		ViewportClient->CalcSceneView(static_cast<uint32>(FMath::Max(1.0f, Input.ViewportSize.x)), static_cast<uint32>(FMath::Max(1.0f, Input.ViewportSize.y)), SceneView);
+		FEditorTransactionManager* Transactions = GEditor != nullptr ? &GEditor->GetTransactionManager() : nullptr;
+		ViewportClient->GetTransformGizmo().Update(Context, SceneView, Input, Transactions);
+		const bool bGizmoConsumesMouse = ViewportClient->GetTransformGizmo().IsHovered() || ViewportClient->GetTransformGizmo().IsDragging();
+		Input.bRequestSelection = Input.bHovered && Input.bLeftMousePressed && !Input.bAlt && !Input.bWantTextInput && !bToolbarHovered && !bGizmoConsumesMouse && !bPopupOpen;
 		if (Input.bRequestSelection) ImGui::SetWindowFocus();
+		if (ViewportClient->GetTransformGizmo().IsDragging())
+		{
+			Input.bLeftMousePressed = false;
+			Input.bMiddleMousePressed = false;
+			Input.bRightMousePressed = false;
+			Input.bMiddleMouseDown = false;
+			Input.bRightMouseDown = false;
+			Input.MouseWheel = 0.0f;
+		}
 		ViewportClient->Update(Context.Level, Context.GetPrimarySelectedActor(), Input);
 		if (Input.bRequestSelection)
 		{

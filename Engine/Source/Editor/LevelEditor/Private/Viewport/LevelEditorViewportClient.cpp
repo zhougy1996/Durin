@@ -90,6 +90,7 @@ namespace Durin
 		OutView.ProjectionMatrix[0][3] = 1.0f;
 		OutView.ViewProjectionMatrix = OutView.ProjectionMatrix * OutView.ViewMatrix;
 		OutView.ViewLocation = CameraTransform.GetLocation();
+		TransformGizmo.AppendOverlayPrimitives(OutView);
 		return true;
 	}
 

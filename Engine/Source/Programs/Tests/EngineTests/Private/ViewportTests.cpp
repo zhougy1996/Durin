@@ -11,8 +11,10 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
+#include "Editor/EditorTransaction.h"
 #include "IRendererModule.h"
 #include "LevelViewportSessionSettings.h"
+#include "LevelEditorContext.h"
 #include "Mona/SceneViewport.h"
 #include "Misc/Paths.h"
 #include "StaticMesh/StaticMesh.h"
@@ -24,6 +26,17 @@
 
 namespace
 {
+	class FCountingTransaction final : public Durin::IEditorTransaction
+	{
+	public:
+		explicit FCountingTransaction(int& InValue, int InDelta = 1) : Value(InValue), Delta(InDelta) {}
+		auto GetDescription() const -> std::string_view override { return "Counting"; }
+		auto Undo() -> bool override { Value -= Delta; return true; }
+		auto Redo() -> bool override { Value += Delta; return true; }
+	private:
+		int& Value;
+		int Delta;
+	};
 	class FTestViewportClient final : public Durin::FViewportClient
 	{
 	public:
@@ -53,6 +66,27 @@ namespace
 		EXPECT_NEAR(Actual.z, Expected.z, Tolerance);
 	}
 
+}
+
+TEST(FEditorTransactionManagerTests, ExecutesUndoesRedoesAndClearsRedoBranch)
+{
+	int Value = 0;
+	Durin::FEditorTransactionManager Manager;
+	ASSERT_TRUE(Manager.Execute(std::make_unique<FCountingTransaction>(Value)));
+	EXPECT_EQ(Value, 1);
+	EXPECT_TRUE(Manager.CanUndo());
+	EXPECT_EQ(Manager.GetUndoDescription(), "Counting");
+	ASSERT_TRUE(Manager.Undo());
+	EXPECT_EQ(Value, 0);
+	EXPECT_TRUE(Manager.CanRedo());
+	ASSERT_TRUE(Manager.Redo());
+	EXPECT_EQ(Value, 1);
+	ASSERT_TRUE(Manager.Undo());
+	ASSERT_TRUE(Manager.Execute(std::make_unique<FCountingTransaction>(Value, 2)));
+	EXPECT_EQ(Value, 2);
+	EXPECT_FALSE(Manager.CanRedo());
+	Manager.Clear();
+	EXPECT_FALSE(Manager.CanUndo());
 }
 
 TEST(FViewportCameraTransformTests, ClampsPitchAndBuildsOrthonormalDirections)
@@ -189,6 +223,64 @@ TEST(FLevelEditorViewportClientTests, BuildsCenterPickingRayAndRejectsInvalidVie
 	ExpectVectorNear(Direction, Client.GetCameraTransform().GetForwardVector(), 1.e-6);
 }
 
+TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "GizmoWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "GizmoLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Selected");
+	ASSERT_NE(Actor, nullptr);
+	Durin::FLevelEditorContext Context;
+	Context.Synchronize(World);
+	Context.SelectActor(Actor);
+	Durin::FLevelEditorViewportClient Client;
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	Durin::FLevelEditorViewportInput Input;
+	Input.ViewportSize = {800.0f, 600.0f};
+	Client.GetTransformGizmo().Update(Context, View, Input, nullptr);
+
+	Durin::FSceneView TranslateView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, TranslateView));
+	EXPECT_GE(TranslateView.OverlayPrimitives.size(), 6u);
+	ASSERT_FALSE(TranslateView.OverlayPrimitives.empty());
+	ExpectVectorNear(Durin::FVector3(TranslateView.OverlayPrimitives.front().LocalToWorld[3]), Actor->GetActorTransform().Translation);
+	const Durin::FVector3 InitialLocation = Actor->GetActorTransform().Translation;
+	const Durin::FVector3 XHandlePoint = Durin::FVector3(TranslateView.OverlayPrimitives.front().LocalToWorld * Durin::FVector4(0.65, 0.0, 0.0, 1.0));
+	Durin::FVector2f CenterScreen;
+	Durin::FVector2f HandleScreen;
+	ASSERT_TRUE(Client.ProjectWorldToViewport(InitialLocation, {800.0f, 600.0f}, CenterScreen));
+	ASSERT_TRUE(Client.ProjectWorldToViewport(XHandlePoint, {800.0f, 600.0f}, HandleScreen));
+	Durin::FLevelEditorViewportInput DragInput;
+	DragInput.bFocused = true;
+	DragInput.bHovered = true;
+	DragInput.bLeftMousePressed = true;
+	DragInput.bLeftMouseDown = true;
+	DragInput.ViewportSize = {800.0f, 600.0f};
+	DragInput.MousePosition = HandleScreen;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, nullptr);
+	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
+	DragInput.bLeftMousePressed = false;
+	DragInput.MousePosition += glm::normalize(HandleScreen - CenterScreen) * 30.0f;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, nullptr);
+	EXPECT_GT(glm::length(Actor->GetActorTransform().Translation - InitialLocation), 0.001);
+	Durin::FSceneView DraggedView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, DraggedView));
+	ExpectVectorNear(Durin::FVector3(DraggedView.OverlayPrimitives.front().LocalToWorld[3]), Actor->GetActorTransform().Translation);
+	DragInput.bCancel = true;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, nullptr);
+	ExpectVectorNear(Actor->GetActorTransform().Translation, InitialLocation);
+	Client.GetTransformGizmo().SetMode(Durin::ETransformGizmoMode::Rotate);
+	Durin::FSceneView RotateView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, RotateView));
+	EXPECT_EQ(RotateView.OverlayPrimitives.size(), 3u);
+	Client.GetTransformGizmo().SetMode(Durin::ETransformGizmoMode::Scale);
+	Durin::FSceneView ScaleView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, ScaleView));
+	EXPECT_EQ(ScaleView.OverlayPrimitives.size(), 7u);
+}
+
 TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHit)
 {
 	InitializeDObjectSystem();
@@ -215,26 +307,20 @@ TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHi
 
 TEST(FViewportSelectionTests, PrefersViewportClientAndFallsBackToPrimaryCamera)
 {
-	std::cerr << "viewport step 1\n";
 	InitializeDObjectSystem();
 	FTestEngine Engine;
-	std::cerr << "viewport step 2\n";
 	FTestViewportClient Client;
 	auto ClientViewport = std::make_shared<Durin::FSceneViewport>(&Client, std::shared_ptr<Durin::MViewport>{});
 	Engine.SetTestViewport(ClientViewport);
 	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {11.0, 12.0, 13.0});
-	std::cerr << "viewport step 3\n";
 
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(&Engine, "ViewportTestWorld");
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ViewportTestLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
-	std::cerr << "viewport step 4\n";
 	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(CameraActor, nullptr);
-	std::cerr << "viewport step 5\n";
 	CameraActor->GetCameraComponent()->SetWorldLocation({7.0, 8.0, 9.0});
 	Engine.SetTestWorld(World);
 	Engine.SetTestViewport(nullptr);
 	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {7.0, 8.0, 9.0});
-	std::cerr << "viewport step 6\n";
 }

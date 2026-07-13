@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Client/ViewportClient.h"
+#include "Viewport/TransformGizmo.h"
 #include "Viewport/ViewportCameraTransform.h"
 
 namespace Durin
@@ -18,6 +19,7 @@ namespace Durin
 		bool bWantTextInput = false;
 		bool bAlt = false;
 		bool bShift = false;
+		bool bCtrl = false;
 		bool bLeftMouseDown = false;
 		bool bMiddleMouseDown = false;
 		bool bRightMouseDown = false;
@@ -32,6 +34,10 @@ namespace Durin
 		bool bMoveUp = false;
 		bool bFocusSelection = false;
 		bool bRequestSelection = false;
+		bool bCancel = false;
+		bool bModeTranslate = false;
+		bool bModeRotate = false;
+		bool bModeScale = false;
 		FVector2f MousePosition{0.0f};
 		FVector2f ViewportSize{0.0f};
 	};
@@ -49,6 +55,8 @@ namespace Durin
 		auto BuildPickingRay(const FVector2f& ViewportPosition, const FVector2f& ViewportSize, FVector3& OutOrigin, FVector3& OutDirection) const -> bool;
 		auto PickActor(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) const -> AActor*;
 		auto ProjectWorldToViewport(const FVector3& WorldPosition, const FVector2f& ViewportSize, FVector2f& OutPosition) const -> bool;
+		auto GetTransformGizmo() -> FTransformGizmo& { return TransformGizmo; }
+		auto GetTransformGizmo() const -> const FTransformGizmo& { return TransformGizmo; }
 
 	private:
 		FViewportCameraTransform CameraTransform;
@@ -60,5 +68,6 @@ namespace Durin
 		bool bFlyNavigation = false;
 		bool bOrbitNavigation = false;
 		bool bPanNavigation = false;
+		mutable FTransformGizmo TransformGizmo;
 	};
 }

@@ -41,6 +41,24 @@ The current version focuses on the position of the Actor's root component at a f
 
 Pressing `F` does nothing when no Actor is selected or the selected Actor has no root component.
 
+## Transform Gizmo
+
+Selecting one or more Actors displays a native 3D transform gizmo at the selection pivot. The pivot is the average world position of the selected Actor root components.
+
+| Input | Action |
+| --- | --- |
+| `W` | Translation gizmo |
+| `E` | Rotation gizmo |
+| `R` | Scale gizmo |
+| Left-drag a handle | Apply the selected transform |
+| `Ctrl` while dragging | Temporarily enable snapping |
+| `Esc` while dragging | Cancel and restore the starting transforms |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo the completed drag |
+
+Use the viewport toolbar to switch between World and Local axes. The Snap menu configures translation, rotation, and scale increments. Gizmo mode, coordinate space, and snapping settings are stored in the editor session settings.
+
+For multiple selected Actors, translation affects the group uniformly while rotation and scale operate around the shared pivot. When both a parent and its attached child are selected, the parent is transformed directly and the child follows through the attachment hierarchy, avoiding a double transform.
+
 ## Editor View Versus Game Camera
 
 The editor view is used only for editing the scene:

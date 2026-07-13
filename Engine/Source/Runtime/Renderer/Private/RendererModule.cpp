@@ -32,6 +32,21 @@ namespace Durin
 			DURIN_DECLARE_SHADER(FStaticMeshFragmentShader, FShader, "/Engine/StaticMesh", EShaderFrequency::Fragment, "FragmentMain");
 		};
 
+		class FGizmoVertexShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FGizmoVertexShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FGizmoVertexShader, FShader, "/Engine/Gizmo", EShaderFrequency::Vertex, "VertexMain");
+		};
+
+		class FGizmoFragmentShader : public FShader
+		{
+		public:
+			DURIN_DECLARE_SHADER(FGizmoFragmentShader, FShader, "/Engine/Gizmo", EShaderFrequency::Fragment, "FragmentMain");
+		};
+
 		class FPostProcessVertexShader : public FShader
 		{
 		public:
@@ -89,6 +104,33 @@ namespace Durin
 			FVector2f UV;
 		};
 
+		struct FGizmoTransformUniform
+		{
+			glm::mat4 LocalToClip{1.0f};
+			FVector4f Color{1.0f};
+		};
+
+		struct FGizmoMeshRange
+		{
+			uint32 FirstIndex = 0;
+			uint32 IndexCount = 0;
+			int32 VertexOffset = 0;
+		};
+
+		struct FGizmoRendererState
+		{
+			std::shared_ptr<FShaderMapBase> ShaderMap;
+			TShaderRef<FGizmoVertexShader> VertexShader;
+			TShaderRef<FGizmoFragmentShader> FragmentShader;
+			FVertexDeclarationRHIRef VertexDeclaration;
+			FGraphicsPipelineStateRHIRef XRayPipelineState;
+			FGraphicsPipelineStateRHIRef VisiblePipelineState;
+			FBufferRHIRef VertexBuffer;
+			FBufferRHIRef IndexBuffer;
+			std::array<FGizmoMeshRange, 5> MeshRanges{};
+			bool bCreateAttempted = false;
+		};
+
 		struct FStaticMeshRendererState
 		{
 			std::shared_ptr<FShaderMapBase> ShaderMap;
@@ -126,8 +168,177 @@ namespace Durin
 
 		FStaticMeshRendererState GStaticMeshState;
 		FPostProcessRendererState GPostProcessState;
+		FGizmoRendererState GGizmoState;
 		std::atomic<ERenderMode> GRenderMode = ERenderMode::Lit;
 		std::atomic<ERasterMode> GRasterMode = ERasterMode::Solid;
+
+		auto BeginGizmoMesh(const std::vector<FVector3f>& Vertices, const std::vector<uint32>& Indices) -> FGizmoMeshRange
+		{
+			FGizmoMeshRange Range;
+			Range.FirstIndex = static_cast<uint32>(Indices.size());
+			Range.VertexOffset = 0;
+			return Range;
+		}
+
+		auto EndGizmoMesh(FGizmoMeshRange& Range, const std::vector<uint32>& Indices) -> void
+		{
+			Range.IndexCount = static_cast<uint32>(Indices.size()) - Range.FirstIndex;
+		}
+
+		auto AppendCylinder(std::vector<FVector3f>& Vertices, std::vector<uint32>& Indices, float StartX, float EndX, float Radius, uint32 Segments) -> void
+		{
+			const uint32 Base = static_cast<uint32>(Vertices.size());
+			for (uint32 Ring = 0; Ring < 2; ++Ring)
+			{
+				const float X = Ring == 0 ? StartX : EndX;
+				for (uint32 Segment = 0; Segment < Segments; ++Segment)
+				{
+					const float Angle = glm::two_pi<float>() * static_cast<float>(Segment) / static_cast<float>(Segments);
+					Vertices.emplace_back(X, std::cos(Angle) * Radius, std::sin(Angle) * Radius);
+				}
+			}
+			for (uint32 Segment = 0; Segment < Segments; ++Segment)
+			{
+				const uint32 Next = (Segment + 1) % Segments;
+				Indices.insert(Indices.end(), {Base + Segment, Base + Segments + Segment, Base + Segments + Next, Base + Segment, Base + Segments + Next, Base + Next});
+			}
+		}
+
+		auto AppendCone(std::vector<FVector3f>& Vertices, std::vector<uint32>& Indices, float BaseX, float TipX, float Radius, uint32 Segments) -> void
+		{
+			const uint32 Base = static_cast<uint32>(Vertices.size());
+			for (uint32 Segment = 0; Segment < Segments; ++Segment)
+			{
+				const float Angle = glm::two_pi<float>() * static_cast<float>(Segment) / static_cast<float>(Segments);
+				Vertices.emplace_back(BaseX, std::cos(Angle) * Radius, std::sin(Angle) * Radius);
+			}
+			const uint32 Tip = static_cast<uint32>(Vertices.size());
+			Vertices.emplace_back(TipX, 0.0f, 0.0f);
+			for (uint32 Segment = 0; Segment < Segments; ++Segment)
+			{
+				const uint32 Next = (Segment + 1) % Segments;
+				Indices.insert(Indices.end(), {Base + Segment, Tip, Base + Next});
+			}
+		}
+
+		auto AppendBox(std::vector<FVector3f>& Vertices, std::vector<uint32>& Indices) -> void
+		{
+			const uint32 Base = static_cast<uint32>(Vertices.size());
+			for (uint32 Corner = 0; Corner < 8; ++Corner)
+			{
+				Vertices.emplace_back((Corner & 1) ? 0.5f : -0.5f, (Corner & 2) ? 0.5f : -0.5f, (Corner & 4) ? 0.5f : -0.5f);
+			}
+			static constexpr uint32 BoxIndices[] = {0,2,3,0,3,1,4,5,7,4,7,6,0,1,5,0,5,4,2,6,7,2,7,3,0,4,6,0,6,2,1,3,7,1,7,5};
+			for (uint32 Index : BoxIndices) Indices.push_back(Base + Index);
+		}
+
+		auto AppendPlane(std::vector<FVector3f>& Vertices, std::vector<uint32>& Indices) -> void
+		{
+			const uint32 Base = static_cast<uint32>(Vertices.size());
+			Vertices.insert(Vertices.end(), {{0.0f,0.0f,0.0f},{1.0f,0.0f,0.0f},{1.0f,1.0f,0.0f},{0.0f,1.0f,0.0f}});
+			Indices.insert(Indices.end(), {Base,Base+1,Base+2,Base,Base+2,Base+3,Base,Base+2,Base+1,Base,Base+3,Base+2});
+		}
+
+		auto AppendRing(std::vector<FVector3f>& Vertices, std::vector<uint32>& Indices, uint32 Segments) -> void
+		{
+			const uint32 Base = static_cast<uint32>(Vertices.size());
+			constexpr uint32 TubeSegments = 8;
+			constexpr float MajorRadius = 1.0f;
+			constexpr float MinorRadius = 0.025f;
+			for (uint32 Segment = 0; Segment < Segments; ++Segment)
+			{
+				const float Major = glm::two_pi<float>() * static_cast<float>(Segment) / static_cast<float>(Segments);
+				for (uint32 Tube = 0; Tube < TubeSegments; ++Tube)
+				{
+					const float Minor = glm::two_pi<float>() * static_cast<float>(Tube) / static_cast<float>(TubeSegments);
+					const float Radius = MajorRadius + std::cos(Minor) * MinorRadius;
+					Vertices.emplace_back(std::sin(Minor) * MinorRadius, std::cos(Major) * Radius, std::sin(Major) * Radius);
+				}
+			}
+			for (uint32 Segment = 0; Segment < Segments; ++Segment)
+			{
+				const uint32 NextSegment = (Segment + 1) % Segments;
+				for (uint32 Tube = 0; Tube < TubeSegments; ++Tube)
+				{
+					const uint32 NextTube = (Tube + 1) % TubeSegments;
+					const uint32 A = Base + Segment * TubeSegments + Tube;
+					const uint32 B = Base + NextSegment * TubeSegments + Tube;
+					const uint32 C = Base + NextSegment * TubeSegments + NextTube;
+					const uint32 D = Base + Segment * TubeSegments + NextTube;
+					Indices.insert(Indices.end(), {A,B,C,A,C,D});
+				}
+			}
+		}
+
+		auto EnsureGizmoResources(FRHICommandListImmediate& CommandList) -> void
+		{
+			if (GGizmoState.bCreateAttempted) return;
+			GGizmoState.bCreateAttempted = true;
+
+			FShaderCompileOptions CompileOptions;
+			FShaderType& VertexShaderType = FGizmoVertexShader::StaticType();
+			FShaderType& FragmentShaderType = FGizmoFragmentShader::StaticType();
+			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
+			auto ShaderMap = std::make_shared<FShaderMapBase>();
+			std::string ErrorMessage;
+			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
+			{
+				DURIN_ERROR("Failed to initialize Gizmo shader map: {}", ErrorMessage);
+				return;
+			}
+			auto* VertexShader = static_cast<FGizmoVertexShader*>(ShaderMap->GetShader(&VertexShaderType));
+			auto* FragmentShader = static_cast<FGizmoFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType));
+			GGizmoState.ShaderMap = ShaderMap;
+			GGizmoState.VertexShader = TShaderRef<FGizmoVertexShader>(VertexShader, ShaderMap.get());
+			GGizmoState.FragmentShader = TShaderRef<FGizmoFragmentShader>(FragmentShader, ShaderMap.get());
+
+			FVertexDeclarationElementList Elements;
+			Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, sizeof(FVector3f));
+			GGizmoState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
+			FGraphicsPipelineStateInitializer Initializer;
+			Initializer.RenderPassName = "SceneColorRenderPass";
+			Initializer.BoundShaders.VertexShader = GGizmoState.VertexShader.GetRHIShader();
+			Initializer.BoundShaders.FragmentShader = GGizmoState.FragmentShader.GetRHIShader();
+			Initializer.VertexDeclaration = GGizmoState.VertexDeclaration;
+			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
+			Initializer.DepthStencilFormat = EPixelFormat::D32;
+			Initializer.bEnableAlphaBlend = true;
+			Initializer.bEnableBackFaceCulling = false;
+			Initializer.bEnableDepthWrite = false;
+			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
+			Initializer.bEnableDepthTest = false;
+			GGizmoState.XRayPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("GizmoXRayPipeline", Initializer);
+			Initializer.bEnableDepthTest = true;
+			GGizmoState.VisiblePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("GizmoVisiblePipeline", Initializer);
+
+			std::vector<FVector3f> Vertices;
+			std::vector<uint32> Indices;
+			GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Arrow)] = BeginGizmoMesh(Vertices, Indices);
+			AppendCylinder(Vertices, Indices, 0.0f, 0.76f, 0.025f, 12);
+			AppendCone(Vertices, Indices, 0.72f, 1.0f, 0.075f, 12);
+			EndGizmoMesh(GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Arrow)], Indices);
+			GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Axis)] = BeginGizmoMesh(Vertices, Indices);
+			AppendCylinder(Vertices, Indices, 0.0f, 0.94f, 0.025f, 12);
+			EndGizmoMesh(GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Axis)], Indices);
+			GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Plane)] = BeginGizmoMesh(Vertices, Indices);
+			AppendPlane(Vertices, Indices);
+			EndGizmoMesh(GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Plane)], Indices);
+			GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Ring)] = BeginGizmoMesh(Vertices, Indices);
+			AppendRing(Vertices, Indices, 64);
+			EndGizmoMesh(GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Ring)], Indices);
+			GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Box)] = BeginGizmoMesh(Vertices, Indices);
+			AppendBox(Vertices, Indices);
+			EndGizmoMesh(GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Box)], Indices);
+
+			FRHIBufferCreateDesc VertexDesc = FRHIBufferCreateDesc::CreateVertex("GizmoVertexBuffer", static_cast<uint32>(Vertices.size() * sizeof(FVector3f)));
+			VertexDesc.Usage |= EBufferUsageFlags::Static;
+			VertexDesc.InitialData = {Vertices.data(), static_cast<uint32>(Vertices.size() * sizeof(FVector3f))};
+			GGizmoState.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, VertexDesc);
+			FRHIBufferCreateDesc IndexDesc = FRHIBufferCreateDesc::CreateIndex("GizmoIndexBuffer", static_cast<uint32>(Indices.size() * sizeof(uint32)), sizeof(uint32));
+			IndexDesc.Usage |= EBufferUsageFlags::Static;
+			IndexDesc.InitialData = {Indices.data(), static_cast<uint32>(Indices.size() * sizeof(uint32))};
+			GGizmoState.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
+		}
 
 		auto EnsureStaticMeshPipeline() -> void
 		{
@@ -374,6 +585,31 @@ namespace Durin
 			CommandList.DrawIndexed(RenderData->IndexCount, 0, 0);
 		}
 
+		auto DrawGizmoPrimitives(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bXRay) -> void
+		{
+			if (View.OverlayPrimitives.empty() || GGizmoState.VertexBuffer == nullptr || GGizmoState.IndexBuffer == nullptr) return;
+			const FGraphicsPipelineStateRHIRef Pipeline = bXRay ? GGizmoState.XRayPipelineState : GGizmoState.VisiblePipelineState;
+			if (Pipeline == nullptr) return;
+			CommandList.SetGraphicsPipelineState(*Pipeline);
+			CommandList.BindVertexBuffer(0, GGizmoState.VertexBuffer, 0);
+			CommandList.BindIndexBuffer(GGizmoState.IndexBuffer, 0);
+			for (const FViewOverlayPrimitive& Primitive : View.OverlayPrimitives)
+			{
+				const size_t ShapeIndex = static_cast<size_t>(Primitive.Shape);
+				if (ShapeIndex >= GGizmoState.MeshRanges.size()) continue;
+				const FGizmoMeshRange& Range = GGizmoState.MeshRanges[ShapeIndex];
+				FGizmoTransformUniform Uniform;
+				Uniform.LocalToClip = ToShaderMatrix(View.ViewProjectionMatrix * Primitive.LocalToWorld);
+				Uniform.Color = Primitive.Color;
+				if (bXRay) Uniform.Color.a *= 0.18f;
+				const FRHIUniformBufferRange Buffer = CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+				FGizmoVertexShader::FParameters Parameters;
+				Parameters.Transform = Buffer;
+				SetShaderParameters(CommandList, GGizmoState.VertexShader, Parameters);
+				CommandList.DrawIndexed(Range.IndexCount, Range.FirstIndex, Range.VertexOffset);
+			}
+		}
+
 		auto DrawPostProcess(FRHICommandListImmediate& CommandList, FRHITexture* SceneColor, uint32 Width, uint32 Height, bool bPresentOutput) -> void
 		{
 			const bool bUseFXAA = GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
@@ -435,6 +671,7 @@ namespace Durin
 	auto FRendererModule::ShutdownModule() -> void
 	{
 		GStaticMeshState = {};
+		GGizmoState = {};
 		GPostProcessState.CopyShaderMap.reset();
 		GPostProcessState.FXAAShaderMap.reset();
 		GPostProcessState.CopyVertexShader = {};
@@ -564,6 +801,7 @@ namespace Durin
 		}
 
 		EnsureStaticMeshPipeline();
+		if (!View.OverlayPrimitives.empty()) EnsureGizmoResources(CommandList);
 		if (GStaticMeshState.SolidPipelineState == nullptr || GStaticMeshState.WireframePipelineState == nullptr || !GStaticMeshState.VertexShader || !GStaticMeshState.FragmentShader)
 		{
 			return;
@@ -582,6 +820,8 @@ namespace Durin
 				DrawStaticMeshProxy(CommandList, View, Light, RenderMode, RasterMode, Proxy);
 			}
 		});
+		DrawGizmoPrimitives(CommandList, View, true);
+		DrawGizmoPrimitives(CommandList, View, false);
 	}
 
 	IMPLEMENT_MODULE(FRendererModule, Renderer)

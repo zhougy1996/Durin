@@ -1,4 +1,5 @@
 #include "Math/Transform.h"
+#include "Math/TransformDecomposition.h"
 
 #include <gtest/gtest.h>
 
@@ -34,6 +35,23 @@ TEST(FTransformTests, CombinesParentAndRelativeTransforms)
 	ExpectVectorNear(World.Translation, Durin::FVector3(4.0, 0.0, -1.0));
 	ExpectVectorNear(World.Scale3D, Durin::FVector3(1.0, 6.0, 1.0));
 	ExpectRotationNear(World.Rotation, glm::normalize(Parent.Rotation * Relative.Rotation));
+}
+
+TEST(FTransformTests, SafelyDecomposesFiniteTransformMatrix)
+{
+	Durin::FTransform Expected;
+	Expected.Translation = {3.0, -4.0, 5.0};
+	Expected.Rotation = glm::angleAxis(glm::radians(37.0), glm::normalize(Durin::FVector3(1.0, 2.0, 3.0)));
+	Expected.Scale3D = {2.0, 3.0, 4.0};
+	Durin::FTransform Actual;
+	ASSERT_TRUE(Durin::TryMakeTransformFromMatrix(Expected.ToMatrix(), Actual));
+	ExpectVectorNear(Actual.Translation, Expected.Translation);
+	ExpectVectorNear(Actual.Scale3D, Expected.Scale3D);
+	ExpectRotationNear(Actual.Rotation, Expected.Rotation);
+
+	Durin::FMatrix Invalid(1.0);
+	Invalid[0][0] = std::numeric_limits<double>::quiet_NaN();
+	EXPECT_FALSE(Durin::TryMakeTransformFromMatrix(Invalid, Actual));
 }
 
 TEST(FTransformTests, RelativeTransformRoundTripsThroughParent)

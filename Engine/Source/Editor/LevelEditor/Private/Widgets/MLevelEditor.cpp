@@ -7,6 +7,8 @@
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Editor/EditorEngine.h"
+#include "Editor/EditorTransaction.h"
 #include "IRendererModule.h"
 #include "LevelEditorContext.h"
 #include "LevelViewportSessionSettings.h"
@@ -61,6 +63,12 @@ namespace Durin
 		SaveSessionSettings();
 		auto SceneViewport = std::make_unique<FSceneViewportPanel>();
 		SceneViewportPanel = SceneViewport.get();
+		if (FTransformGizmo* Gizmo = SceneViewportPanel->GetTransformGizmo())
+		{
+			Gizmo->SetMode(static_cast<ETransformGizmoMode>(std::min<uint8>(GizmoMode, 2)));
+			Gizmo->SetSpace(static_cast<ETransformGizmoSpace>(std::min<uint8>(GizmoSpace, 1)));
+			Gizmo->GetSnapSettings() = {bGizmoSnapEnabled, GizmoTranslationSnap, GizmoRotationSnap, GizmoScaleSnap};
+		}
 		Panels.emplace_back(std::move(SceneViewport));
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
 		Panels.emplace_back(std::make_unique<FDetailsPanel>());
@@ -113,6 +121,13 @@ namespace Durin
 			? MonaImGui::EColorTheme::Light
 			: MonaImGui::EColorTheme::Dark);
 		bWindowMaximized = Display.GetView("WindowMaximized").GetBool(true);
+		const FYamlNodeView Gizmo = Root.GetView("TransformGizmo");
+		GizmoMode = static_cast<uint8>(std::clamp<int64>(Gizmo.GetView("Mode").GetInt(0), 0, 2));
+		GizmoSpace = static_cast<uint8>(std::clamp<int64>(Gizmo.GetView("Space").GetInt(0), 0, 1));
+		bGizmoSnapEnabled = Gizmo.GetView("SnapEnabled").GetBool(false);
+		GizmoTranslationSnap = static_cast<float>(Gizmo.GetView("TranslationSnap").GetDouble(0.5));
+		GizmoRotationSnap = static_cast<float>(Gizmo.GetView("RotationSnap").GetDouble(15.0));
+		GizmoScaleSnap = static_cast<float>(Gizmo.GetView("ScaleSnap").GetDouble(0.1));
 		return true;
 	}
 
@@ -128,6 +143,29 @@ namespace Durin
 		Display.SetChildValue("UIScale", static_cast<double>(UIScale));
 		Display.SetChildValue("ColorTheme", MonaImGui::GetColorTheme() == MonaImGui::EColorTheme::Light ? "Light" : "Dark");
 		Display.SetChildValue("WindowMaximized", bWindowMaximized);
+		FYamlNodeRef GizmoNode = Root.AddMap("TransformGizmo");
+		if (SceneViewportPanel)
+		{
+			if (const FTransformGizmo* Gizmo = SceneViewportPanel->GetTransformGizmo())
+			{
+				const FTransformGizmoSnapSettings& Settings = Gizmo->GetSnapSettings();
+				GizmoNode.SetChildValue("Mode", static_cast<int64>(Gizmo->GetMode()));
+				GizmoNode.SetChildValue("Space", static_cast<int64>(Gizmo->GetSpace()));
+				GizmoNode.SetChildValue("SnapEnabled", Settings.bEnabled);
+				GizmoNode.SetChildValue("TranslationSnap", static_cast<double>(Settings.Translation));
+				GizmoNode.SetChildValue("RotationSnap", static_cast<double>(Settings.RotationDegrees));
+				GizmoNode.SetChildValue("ScaleSnap", static_cast<double>(Settings.Scale));
+			}
+		}
+		else
+		{
+			GizmoNode.SetChildValue("Mode", static_cast<int64>(GizmoMode));
+			GizmoNode.SetChildValue("Space", static_cast<int64>(GizmoSpace));
+			GizmoNode.SetChildValue("SnapEnabled", bGizmoSnapEnabled);
+			GizmoNode.SetChildValue("TranslationSnap", static_cast<double>(GizmoTranslationSnap));
+			GizmoNode.SetChildValue("RotationSnap", static_cast<double>(GizmoRotationSnap));
+			GizmoNode.SetChildValue("ScaleSnap", static_cast<double>(GizmoScaleSnap));
+		}
 		SaveLevelViewportStates(Root, ViewportSessionState->States);
 		if (!Document.SaveToFile(FPaths::LaunchDir() + SessionSettingsFileName))
 		{
@@ -222,6 +260,9 @@ namespace Durin
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) RequestFileAction(EPendingFileAction::NewLevel);
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) SaveCurrentLevel();
+		const bool bGizmoDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
+		if (!bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) && GEditor) GEditor->GetTransactionManager().Undo();
+		if (!bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) && GEditor) GEditor->GetTransactionManager().Redo();
 		DrawMainMenu();
 		DrawFileDialogs();
 		DrawProjectSettings();
@@ -295,8 +336,14 @@ namespace Durin
 		}
 		if (ImGui::BeginMenu("Edit"))
 		{
+			const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
+			FEditorTransactionManager* Transactions = GEditor && !bDragging ? &GEditor->GetTransactionManager() : nullptr;
+			const std::string UndoLabel = Transactions && Transactions->CanUndo() ? std::format("Undo {}", Transactions->GetUndoDescription()) : "Undo";
+			const std::string RedoLabel = Transactions && Transactions->CanRedo() ? std::format("Redo {}", Transactions->GetRedoDescription()) : "Redo";
+			if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, Transactions && Transactions->CanUndo())) Transactions->Undo();
+			if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, Transactions && Transactions->CanRedo())) Transactions->Redo();
+			ImGui::Separator();
 			if (ImGui::MenuItem("Project Settings...")) bProjectSettingsOpen = true;
-			ImGui::MenuItem("Undo/redo is not available yet", nullptr, false, false);
 			ImGui::EndMenu();
 		}
 		if (ImGui::BeginMenu("View"))
@@ -813,6 +860,7 @@ namespace Durin
 		DLevel* Previous = Context->World->GetCurrentLevel();
 		DPackage* PreviousPackage = Previous ? Previous->GetPackage() : nullptr;
 		if (!Context->World->SetCurrentLevel(Level)) { SetError("The level is already active in another world."); return false; }
+		if (GEditor) GEditor->GetTransactionManager().Clear();
 		Context->Synchronize(Context->World);
 		RestoreViewportState(Level);
 		if (PreviousPackage && PreviousPackage != Level->GetPackage())

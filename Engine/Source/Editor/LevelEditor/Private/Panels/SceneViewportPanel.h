@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Panels/LevelEditorPanel.h"
+#include "Viewport/TransformGizmo.h"
 #include "Widgets/MWidget.h"
 
 struct ImVec2;
@@ -25,6 +26,8 @@ namespace Durin
 		auto IsViewportFocused() const -> bool { return bViewportFocused; }
 		auto CaptureCameraState(DLevel* Level, FLevelViewportCameraState& OutState) const -> bool;
 		auto RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void;
+		auto GetTransformGizmo() -> FTransformGizmo*;
+		auto GetTransformGizmo() const -> const FTransformGizmo*;
 
 	private:
 		auto DrawToolbar(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;

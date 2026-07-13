@@ -27,6 +27,22 @@ namespace Durin
 		ERasterMode RasterMode = ERasterMode::Solid;
 	};
 
+	enum class EViewOverlayShape : uint8
+	{
+		Arrow,
+		Axis,
+		Plane,
+		Ring,
+		Box
+	};
+
+	struct FViewOverlayPrimitive
+	{
+		EViewOverlayShape Shape = EViewOverlayShape::Box;
+		FMatrix LocalToWorld{1.0};
+		FVector4f Color{1.0f};
+	};
+
 	struct FSceneView
 	{
 		FMatrix ViewMatrix{1.0};
@@ -35,6 +51,7 @@ namespace Durin
 		FVector3 ViewLocation{0.0};
 		uint32 ViewportWidth = 0;
 		uint32 ViewportHeight = 0;
+		std::vector<FViewOverlayPrimitive> OverlayPrimitives;
 	};
 
 	class IRendererModule : public IModuleInterface
