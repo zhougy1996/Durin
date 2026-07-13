@@ -75,33 +75,6 @@ namespace Durin
 			return;
 		}
 
-		if (Context.Level == nullptr) ImGui::BeginDisabled();
-		if (ImGui::Button("Add Actor"))
-		{
-			ActorTypeSearchText.fill(0);
-			ImGui::OpenPopup("Add Actor");
-		}
-		if (ImGui::BeginPopup("Add Actor"))
-		{
-			ImGui::InputTextWithHint("###ActorTypeSearch", "Search actor types...", ActorTypeSearchText.data(), ActorTypeSearchText.size());
-			for (DClass* Class : GetDerivedClasses(AActor::StaticClass(), true))
-			{
-				if (!CanConstructObjectOfClass(Class, AActor::StaticClass())) continue;
-				const std::string DisplayName = ClassDisplayName(Class);
-				if (!ContainsInsensitive(DisplayName, ActorTypeSearchText.data())) continue;
-				if (ImGui::Selectable(DisplayName.c_str()))
-				{
-					AActor* Actor = Context.World->SpawnActor(Class, FName(DisplayName));
-					if (Actor) Context.SelectActor(Actor);
-					else Context.SetError(std::format("Failed to create actor of class {}.", Class->GetQualifiedName().ToString()));
-					ImGui::CloseCurrentPopup();
-				}
-			}
-			ImGui::EndPopup();
-		}
-		if (Context.Level == nullptr) ImGui::EndDisabled();
-
-		ImGui::SameLine();
 		if (ImGui::Button(Icons::Expand)) ExpandRequest = 1;
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expand all");
 		ImGui::SameLine();
@@ -242,15 +215,38 @@ namespace Durin
 			ImGui::PopID();
 		};
 
-		for (AActor* Root : Roots) { std::unordered_set<AActor*> Stack; DrawNode(Root, Stack); }
-		ExpandRequest = 0;
-		bWasSearching = !Filter.empty();
+		const std::string LevelName = Context.Level->GetName().empty() ? "Transient Level" : Context.Level->GetName();
+		if (!Filter.empty() || ExpandRequest != 0) ImGui::SetNextItemOpen(!Filter.empty() || ExpandRequest > 0, ImGuiCond_Always);
+		else ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+		ImGui::PushID(Context.Level);
+		const std::string LevelLabel = std::format("{}  {}", Icons::FolderOpen, LevelName);
+		const bool bLevelOpen = ImGui::TreeNodeEx("LevelNode", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick, "%s", LevelLabel.c_str());
+		if (ImGui::IsItemHovered() && Context.Level->GetPackage()) ImGui::SetTooltip("%s", Context.Level->GetPackage()->GetPackagePath().c_str());
 
-		if (VisibleActors.empty()) ImGui::TextDisabled(Filter.empty() ? "No actors in this level." : "No actors match '%s'.", SearchText.data());
-		ImGui::Spacing();
-		ImGui::TextDisabled("%zu actors | %zu selected", Actors.size(), Context.GetSelectedActors().size());
+		if (ImGui::BeginPopupContextItem("LevelContext"))
+		{
+			if (ImGui::IsWindowAppearing()) ActorTypeSearchText.fill(0);
+			if (ImGui::BeginMenu("Add Actor"))
+			{
+				ImGui::SetNextItemWidth(240.0f);
+				ImGui::InputTextWithHint("###ActorTypeSearch", "Search actor types...", ActorTypeSearchText.data(), ActorTypeSearchText.size());
+				for (DClass* Class : GetDerivedClasses(AActor::StaticClass(), true))
+				{
+					if (!CanConstructObjectOfClass(Class, AActor::StaticClass())) continue;
+					const std::string DisplayName = ClassDisplayName(Class);
+					if (!ContainsInsensitive(DisplayName, ActorTypeSearchText.data())) continue;
+					if (ImGui::MenuItem(DisplayName.c_str()))
+					{
+						AActor* Actor = Context.World->SpawnActor(Class, FName(DisplayName));
+						if (Actor) Context.SelectActor(Actor);
+						else Context.SetError(std::format("Failed to create actor of class {}.", Class->GetQualifiedName().ToString()));
+					}
+				}
+				ImGui::EndMenu();
+			}
+			ImGui::EndPopup();
+		}
 
-		ImGui::InvisibleButton("##OutlinerRootDrop", ImVec2(-1.0f, std::max(24.0f, ImGui::GetContentRegionAvail().y)));
 		if (ImGui::BeginDragDropTarget())
 		{
 			if (ImGui::AcceptDragDropPayload(ActorPayloadType))
@@ -266,6 +262,19 @@ namespace Durin
 			}
 			ImGui::EndDragDropTarget();
 		}
+
+		if (bLevelOpen)
+		{
+			for (AActor* Root : Roots) { std::unordered_set<AActor*> Stack; DrawNode(Root, Stack); }
+			if (VisibleActors.empty()) ImGui::TextDisabled(Filter.empty() ? "No actors in this level." : "No actors match '%s'.", SearchText.data());
+			ImGui::TreePop();
+		}
+		ImGui::PopID();
+		ExpandRequest = 0;
+		bWasSearching = !Filter.empty();
+
+		ImGui::Spacing();
+		ImGui::TextDisabled("%zu actors | %zu selected", Actors.size(), Context.GetSelectedActors().size());
 
 		const ImGuiIO& IO = ImGui::GetIO();
 		const bool bOutlinerFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
