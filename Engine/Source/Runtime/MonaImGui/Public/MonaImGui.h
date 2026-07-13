@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MonaImGuiAPI.h"
+#include "MonaImGuiPropertyTable.h"
 #include "Math/MathFwd.h"
 #include "RHIResources.h"
 // ReSharper disable once CppUnusedIncludeDirective

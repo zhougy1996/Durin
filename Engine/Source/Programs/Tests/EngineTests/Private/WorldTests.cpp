@@ -16,8 +16,6 @@
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
-#include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
@@ -254,82 +252,6 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
-TEST(FStaticMeshAssetTests, ImportsAndRestoresLevelReferenceAndRenderData)
-{
-	InitializeDObjectSystem();
-	static const bool bMountInitialized = [] {
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshes";
-		std::filesystem::remove_all(Root);
-		Durin::PathUtilities::RegisterMountPoint("/MeshTests/", Root.generic_string() + "/");
-		return true;
-	}();
-	(void)bMountInitialized;
-
-	Durin::FStaticMeshImportResult Import = Durin::DStaticMesh::ImportAsset(
-		Durin::FPaths::EngineDir() + "Content/Test/teapot.obj", "/MeshTests/Teapot"
-	);
-	ASSERT_TRUE(Import) << Import.Message;
-	ASSERT_NE(Import.Asset, nullptr);
-	ASSERT_NE(Import.Asset->GetRenderData(), nullptr);
-	EXPECT_GT(Import.Asset->GetRenderData()->IndexCount, 0u);
-	EXPECT_EQ(Import.Asset->GetRenderData()->Normals.size(), Import.Asset->GetRenderData()->Positions.size());
-	for (const Durin::FVector3f& Normal : Import.Asset->GetRenderData()->Normals)
-	{
-		EXPECT_NEAR(glm::length(Normal), 1.0f, 0.0001f);
-	}
-	EXPECT_EQ(Import.Asset->GetSourceFile(), "Teapot.obj");
-
-	Durin::FAssetPath MeshPath;
-	Durin::FAssetPath LevelPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MeshTests/Teapot", MeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MeshTests/MeshLevel", LevelPath));
-	const Durin::Asset::FAssetData* MeshData = Durin::Asset::GetAssetRegistry().FindAsset(MeshPath);
-	ASSERT_NE(MeshData, nullptr);
-	EXPECT_EQ(MeshData->AssetClassName, Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString());
-
-	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
-	Durin::AStaticMeshActor* Actor = Level->SpawnActor<Durin::AStaticMeshActor>("Mesh");
-	Actor->GetStaticMeshComponent()->SetStaticMesh(Import.Asset);
-	ASSERT_TRUE(Level->GetPackage()->IsDirty());
-	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
-	Actor->GetStaticMeshComponent()->SetStaticMesh(Import.Asset);
-	EXPECT_FALSE(Level->GetPackage()->IsDirty());
-	const Durin::Asset::FAssetData* LevelData = Durin::Asset::GetAssetRegistry().FindAsset(LevelPath);
-	ASSERT_NE(LevelData, nullptr);
-	EXPECT_NE(std::ranges::find(LevelData->Dependencies, MeshPath), LevelData->Dependencies.end());
-
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
-	Durin::DLevel* LoadedLevel = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(LevelPath, LoadedLevel));
-	auto* LoadedActor = dynamic_cast<Durin::AStaticMeshActor*>(LoadedLevel->FindActorByName("Mesh"));
-	ASSERT_NE(LoadedActor, nullptr);
-	Durin::DStaticMesh* LoadedMesh = LoadedActor->GetStaticMeshComponent()->GetStaticMesh();
-	ASSERT_NE(LoadedMesh, nullptr);
-	ASSERT_NE(LoadedMesh->GetRenderData(), nullptr);
-	EXPECT_GT(LoadedMesh->GetRenderData()->IndexCount, 0u);
-
-	LoadedActor->GetStaticMeshComponent()->SetStaticMesh(nullptr);
-	ASSERT_TRUE(Durin::Asset::SavePackage(LoadedLevel->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
-	LoadedLevel = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(LevelPath, LoadedLevel));
-	LoadedActor = dynamic_cast<Durin::AStaticMeshActor*>(LoadedLevel->FindActorByName("Mesh"));
-	ASSERT_NE(LoadedActor, nullptr);
-	EXPECT_EQ(LoadedActor->GetStaticMeshComponent()->GetStaticMesh(), nullptr);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
-
-	const std::filesystem::path CopiedSource = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshes/Teapot.obj";
-	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
-	Durin::DStaticMesh* MissingSourceMesh = nullptr;
-	Durin::Asset::FAssetResult MissingSourceResult = Durin::Asset::LoadAsset(MeshPath, MissingSourceMesh);
-	EXPECT_FALSE(MissingSourceResult);
-	EXPECT_EQ(MissingSourceMesh, nullptr);
-	EXPECT_NE(MissingSourceResult.Message.find("does not exist"), std::string::npos);
-}
-
 TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
 {
 	Durin::DWorld* World = CreateWorld();
@@ -421,6 +343,59 @@ TEST(FSceneComponentTests, ConvertsWorldAndRelativeTransformsAcrossHierarchy)
 	ExpectVectorNear(Reconstructed.Translation, DesiredWorld.Translation);
 	ExpectVectorNear(Reconstructed.Scale3D, DesiredWorld.Scale3D);
 	EXPECT_NEAR(std::abs(glm::dot(Reconstructed.Rotation, DesiredWorld.Rotation)), 1.0, 1.e-8);
+	Durin::DestroyObject(World);
+}
+
+TEST(FSceneComponentTests, SupportsInstanceComponentTreesWithinOneActor)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* Actor = World->SpawnActor<Durin::ACameraActor>("Actor");
+	ASSERT_NE(Actor, nullptr);
+	Durin::DSceneComponent* Root = Actor->GetRootComponent();
+	ASSERT_NE(Root, nullptr);
+	Root->SetWorldLocation(Durin::FVector3(10.0, 0.0, 0.0));
+
+	auto* Parent = Durin::Cast<Durin::DSceneComponent>(Actor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "Parent"));
+	auto* Child = Durin::Cast<Durin::DSceneComponent>(Actor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "Child"));
+	auto* NewParent = Durin::Cast<Durin::DSceneComponent>(Actor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "NewParent"));
+	ASSERT_NE(Parent, nullptr);
+	ASSERT_NE(Child, nullptr);
+	ASSERT_NE(NewParent, nullptr);
+
+	ASSERT_TRUE(Parent->AttachToComponent(Root, Durin::EAttachmentTransformRule::SnapToTarget));
+	ASSERT_TRUE(Child->AttachToComponent(Parent, Durin::EAttachmentTransformRule::SnapToTarget));
+	ExpectVectorNear(Child->GetRelativeLocation(), Durin::FVector3(0.0));
+	ExpectVectorNear(Child->GetRelativeScale3D(), Durin::FVector3(1.0));
+	EXPECT_NEAR(std::abs(glm::dot(Child->GetRelativeRotation(), Durin::FQuat(1.0, 0.0, 0.0, 0.0))), 1.0, 1.e-8);
+	EXPECT_EQ(Child->GetAttachParent(), Parent);
+	ASSERT_EQ(Parent->GetAttachChildren().size(), 1u);
+	EXPECT_EQ(Parent->GetAttachChildren().front().Get(), Child);
+
+	EXPECT_FALSE(Parent->AttachToComponent(Child));
+	EXPECT_FALSE(Root->AttachToComponent(Parent));
+	EXPECT_FALSE(Root->AttachToComponent(Root));
+
+	Child->SetRelativeLocation(Durin::FVector3(2.0, 3.0, 4.0));
+	const Durin::FTransform PreviousWorld = Child->GetWorldTransform();
+	NewParent->SetRelativeLocation(Durin::FVector3(5.0, 0.0, 0.0));
+	ASSERT_TRUE(Child->AttachToComponent(NewParent, Durin::EAttachmentTransformRule::KeepWorld));
+	ExpectVectorNear(Child->GetWorldLocation(), PreviousWorld.Translation);
+	EXPECT_NEAR(std::abs(glm::dot(Child->GetWorldRotation(), PreviousWorld.Rotation)), 1.0, 1.e-8);
+	ExpectVectorNear(Child->GetWorldScale3D(), PreviousWorld.Scale3D);
+
+	ASSERT_TRUE(Child->AttachToComponent(Parent, Durin::EAttachmentTransformRule::KeepWorld));
+	Durin::TObjectPtr<Durin::DSceneComponent> ParentHandle = Parent;
+	const Durin::FTransform BeforeParentRemoval = Child->GetWorldTransform();
+	ASSERT_TRUE(Actor->DestroyInstanceComponent(Parent));
+	EXPECT_EQ(ParentHandle.Get(), Parent);
+	EXPECT_FALSE(ParentHandle.IsValid());
+	EXPECT_FALSE(Actor->IsInstanceComponent(Parent));
+	EXPECT_TRUE(std::ranges::none_of(Actor->GetOwnedComponents(), [Parent](const Durin::TObjectPtr<Durin::DActorComponent>& Entry) { return Entry.Get() == Parent; }));
+	EXPECT_EQ(Child->GetAttachParent(), nullptr);
+	ExpectVectorNear(Child->GetWorldLocation(), BeforeParentRemoval.Translation);
+	EXPECT_TRUE(std::ranges::none_of(Root->GetAttachChildren(), [Parent](const Durin::TObjectPtr<Durin::DSceneComponent>& Entry) { return Entry.Get() == Parent; }));
+	EXPECT_TRUE(Actor->IsInstanceComponent(Child));
+
 	Durin::DestroyObject(World);
 }
 

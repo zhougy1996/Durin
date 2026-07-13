@@ -7,6 +7,7 @@ namespace Durin
 {
 	class AActor;
 	class DActorComponent;
+	class DSceneComponent;
 	class DObject;
 	class FProperty;
 
@@ -17,16 +18,20 @@ namespace Durin
 		auto Draw(FLevelEditorContext& Context) -> void override;
 
 	private:
-		auto DrawTransform(AActor* Actor) -> void;
 		auto DrawComponents(FLevelEditorContext& Context, AActor* Actor) -> void;
 		auto DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void;
 		auto DrawProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex) -> void;
 		auto AssignObjectProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, DObject* Value) -> bool;
 
 		std::array<char, 128> ComponentTypeSearchText{};
+		std::array<char, 128> PropertySearchText{};
 		TObjectPtr<DActorComponent> PendingRemoveComponent;
+		TObjectPtr<DSceneComponent> AddComponentParent;
+		TObjectPtr<DSceneComponent> PendingExpandComponent;
 		TObjectPtr<AActor> PropertyActor;
 		TObjectPtr<DActorComponent> SelectedComponent;
 		std::array<char, 256> AssetSearchText{};
+		float ComponentPaneRatio = 0.35f;
+		bool bAddComponentAsChild = false;
 	};
 } // namespace Durin

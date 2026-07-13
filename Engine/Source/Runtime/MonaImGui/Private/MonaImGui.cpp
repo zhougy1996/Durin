@@ -1,5 +1,6 @@
 #include "MonaImGui.h"
 
+#include "Math/Transform.h"
 #include "MonaImGuiBackend.h"
 #include "Misc/Paths.h"
 #include "Yaml/Yaml.h"
@@ -125,6 +126,7 @@ namespace Durin::MonaImGui
 			Style.PopupBorderSize = 1.0f;
 			Style.FrameBorderSize = 0.0f;
 			Style.TabBorderSize = 0.0f;
+			Style.DisabledAlpha = 0.4f;
 			Style.WindowRounding = 5.0f;
 			Style.ChildRounding = 4.0f;
 			Style.FrameRounding = 4.0f;
