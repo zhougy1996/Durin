@@ -147,7 +147,7 @@ _PROPERTY_KIND_BY_TYPE = {
 _PROPERTY_FLAG_BY_SPECIFIER = {
     "Edit": "Edit",
     "Transient": "Transient",
-    "EditConst": "EditConst",
+    "ReadOnly": "ReadOnly",
 }
 
 

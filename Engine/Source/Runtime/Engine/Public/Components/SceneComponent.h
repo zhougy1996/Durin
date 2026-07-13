@@ -70,7 +70,7 @@ private:
 		DPROPERTY(Edit)
 		FTransform RelativeTransform;
 
-		DPROPERTY(Edit, EditConst, Transient)
+		DPROPERTY(Edit, ReadOnly, Transient)
 		FTransform ComponentToWorld;
 
 		auto CanAttachTo(const DSceneComponent* Parent) const -> bool;

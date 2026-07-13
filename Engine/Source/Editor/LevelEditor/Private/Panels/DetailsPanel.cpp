@@ -263,7 +263,7 @@ namespace Durin
 	{
 		const std::string BaseName = Property->NamePrivate.ToString();
 		const std::string Label = Property->GetArrayDim() > 1 ? std::format("{}[{}]", BaseName, ArrayIndex) : BaseName;
-		const bool bReadOnly = Property->HasAnyPropertyFlags(EPropertyFlags::EditConst);
+		const bool bReadOnly = Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		ImGui::PushID(Property);
 		ImGui::PushID(static_cast<int>(ArrayIndex));
 		if (bReadOnly)

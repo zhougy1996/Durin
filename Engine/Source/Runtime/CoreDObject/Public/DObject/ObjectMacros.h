@@ -72,7 +72,7 @@ namespace Durin
 
 		Edit = 1 << 0,
 		Transient = 1 << 1,
-		EditConst = 1 << 2,
+		ReadOnly = 1 << 2,
 	};
 
 	enum class EObjectInternalFlags

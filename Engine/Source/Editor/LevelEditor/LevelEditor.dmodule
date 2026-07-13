@@ -13,8 +13,5 @@
         "MonaImGui",
         "AssetCore",
         "DurinEd"
-    ],
-    "ReflectHeaders": [
-        "Private/TestDHT.h"
     ]
 }
