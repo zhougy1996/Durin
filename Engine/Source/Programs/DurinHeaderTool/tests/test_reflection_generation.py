@@ -157,6 +157,30 @@ class ReflectionGenerationTests(unittest.TestCase):
         module_content = module_cpp.read_text(encoding="utf-8")
         self.assertIn('Durin::RegisterCompiledInPackage("LevelEditor")', module_content)
 
+    def test_engine_runtime_property_flags(self):
+        scene_component_cpp = utils.get_module_dht_output_dir("Engine") / "SceneComponent.gen.cpp"
+        scene_component_content = scene_component_cpp.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'NewProp_RelativeTransform = { "RelativeTransform", Durin::EPropertyFlags::Edit,',
+            scene_component_content,
+        )
+        self.assertIn(
+            'NewProp_ComponentToWorld = { "ComponentToWorld", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::EditConst | Durin::EPropertyFlags::Transient,',
+            scene_component_content,
+        )
+        self.assertIn(
+            'NewProp_AttachChildren = { "AttachChildren", Durin::EPropertyFlags::Transient,',
+            scene_component_content,
+        )
+
+        engine_cpp = utils.get_module_dht_output_dir("Engine") / "Engine.gen.cpp"
+        engine_content = engine_cpp.read_text(encoding="utf-8")
+        self.assertIn(
+            'NewProp_MainWorld = { "MainWorld", Durin::EPropertyFlags::Transient,',
+            engine_content,
+        )
+
     def test_manifest_records_generator_contract(self):
         manifest_path = utils.get_module_manifest_file_path("Engine")
         data = json.loads(manifest_path.read_text(encoding="utf-8"))

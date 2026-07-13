@@ -66,16 +66,20 @@ namespace Durin
 protected:
 		ENGINE_API virtual auto OnUpdateTransform() -> void;
 
-		DPROPERTY()
+private:
+		DPROPERTY(Edit)
 		FTransform RelativeTransform;
+
+		DPROPERTY(Edit, EditConst, Transient)
 		FTransform ComponentToWorld;
 
-	private:
 		auto CanAttachTo(const DSceneComponent* Parent) const -> bool;
 		auto RemoveAttachChild(DSceneComponent* Child) -> void;
 
 		DPROPERTY()
 		TObjectPtr<DSceneComponent> AttachParent;
+
+		DPROPERTY(Transient)
 		std::vector<TObjectPtr<DSceneComponent>> AttachChildren;
 
 		friend class DLevel;

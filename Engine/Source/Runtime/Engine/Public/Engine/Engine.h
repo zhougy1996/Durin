@@ -44,7 +44,7 @@ namespace Durin
 		std::unique_ptr<IScene> MainScene;
 		std::shared_ptr<FSceneViewport> MainSceneViewport;
 
-		DPROPERTY()
+		DPROPERTY(Transient)
 		TObjectPtr<DWorld> MainWorld;
 
 	};
