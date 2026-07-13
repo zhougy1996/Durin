@@ -54,6 +54,7 @@ namespace Durin
 	{
 		Context = std::make_unique<FLevelEditorContext>();
 		Context->ReportError = [this](std::string Message) { SetError(std::move(Message)); };
+		Context->RenameLevel = [this](std::string_view NewName) { return RenameCurrentLevel(NewName); };
 		Asset::GetAssetRegistry().ScanMountedContent();
 		LoadSessionSettings();
 		LoadProjectSettings();
@@ -734,6 +735,66 @@ namespace Durin
 		SaveSessionSettings();
 		Asset::FAssetResult Result = Asset::SavePackage(Context->Level->GetPackage());
 		if (!Result) { SetError(Result.Message); return false; }
+		return true;
+	}
+
+	auto MLevelEditor::RenameCurrentLevel(std::string_view NewName) -> bool
+	{
+		EditorError.clear();
+		if (!Context || !Context->Level) { SetError("No level is open."); return false; }
+		DPackage* Package = Context->Level->GetPackage();
+		if (!Package || !Package->IsAssetPackage()) { SetError("Transient levels cannot be renamed as assets."); return false; }
+		if (NewName.empty()) { SetError("Level name cannot be empty."); return false; }
+		if (NewName.find_first_of("/\\") != std::string_view::npos) { SetError("Level name cannot contain path separators."); return false; }
+
+		FAssetPath OldPath;
+		std::string PathError;
+		if (!FAssetPath::TryCreate(Package->GetPackagePath(), OldPath, &PathError)) { SetError(PathError); return false; }
+		const std::string OldPathString = OldPath.ToString();
+		const size_t Separator = OldPathString.find_last_of('/');
+		const std::string NewPathString = OldPathString.substr(0, Separator + 1) + std::string(NewName);
+		FAssetPath NewPath;
+		if (!FAssetPath::TryCreate(NewPathString, NewPath, &PathError)) { SetError(PathError); return false; }
+
+		if (OldPath == NewPath)
+		{
+			if (Context->Level->GetName() == NewName) return true;
+			const FName OldObjectName = Context->Level->GetFName();
+			Context->Level->Rename(FName(NewName));
+			const Asset::FAssetResult SaveResult = Asset::SavePackage(Package);
+			if (!SaveResult)
+			{
+				Context->Level->Rename(OldObjectName);
+				SetError(SaveResult.Message);
+				return false;
+			}
+			return true;
+		}
+
+		CaptureCurrentViewportState();
+		const Asset::FAssetResult MoveResult = Asset::MoveAsset(OldPath, NewPath);
+		if (!MoveResult) { SetError(MoveResult.Message); return false; }
+
+		if (const FProjectInfo* Project = GetCurrentProject(); Project && ViewportSessionState)
+		{
+			auto ProjectIt = ViewportSessionState->States.find(Project->ProjectFile);
+			if (ProjectIt != ViewportSessionState->States.end())
+			{
+				auto StateIt = ProjectIt->second.find(OldPathString);
+				if (StateIt != ProjectIt->second.end())
+				{
+					FLevelViewportCameraState State = StateIt->second;
+					ProjectIt->second.erase(StateIt);
+					ProjectIt->second[NewPathString] = State;
+				}
+			}
+		}
+		SaveSessionSettings();
+		if (DefaultLevel == OldPathString)
+		{
+			DefaultLevel = NewPathString;
+			SaveProjectSettings();
+		}
 		return true;
 	}
 

@@ -40,6 +40,17 @@ namespace Durin
 			return Actor && (ContainsInsensitive(Actor->GetName(), Filter) || ContainsInsensitive(ClassDisplayName(Actor->GetClass()), Filter));
 		}
 
+		auto LevelDisplayName(const DLevel* Level) -> std::string
+		{
+			if (!Level) return "No Level";
+			if (const DPackage* Package = Level->GetPackage())
+			{
+				FAssetPath Path;
+				if (FAssetPath::TryCreate(Package->GetPackagePath(), Path)) return std::string(Path.GetAssetName());
+			}
+			return Level->GetName().empty() ? "Transient Level" : Level->GetName();
+		}
+
 		auto ActorIcon(AActor* Actor) -> const char*
 		{
 			if (Actor->IsA<ACameraActor>()) return Icons::Camera;
@@ -87,9 +98,18 @@ namespace Durin
 
 		if (Context.Level == nullptr)
 		{
+			DisplayedLevel = nullptr;
+			bLevelSelected = false;
+			bRenamingLevel = false;
 			ImGui::TextDisabled("No level is open.");
 			ImGui::End();
 			return;
+		}
+		if (DisplayedLevel.Get() != Context.Level)
+		{
+			DisplayedLevel = Context.Level;
+			bLevelSelected = false;
+			bRenamingLevel = false;
 		}
 
 		std::vector<AActor*> Actors;
@@ -147,6 +167,7 @@ namespace Durin
 
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
 			{
+				bLevelSelected = false;
 				const ImGuiIO& IO = ImGui::GetIO();
 				if (IO.KeyShift) Context.SelectActorRange(Actor, LastVisibleActors.empty() ? VisibleActors : LastVisibleActors);
 				else if (IO.KeyCtrl) Context.ToggleActorSelection(Actor);
@@ -169,6 +190,7 @@ namespace Durin
 
 			if (ImGui::BeginPopupContextItem("ActorContext"))
 			{
+				bLevelSelected = false;
 				if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
 				if (ImGui::MenuItem("Rename", "F2"))
 				{
@@ -215,17 +237,46 @@ namespace Durin
 			ImGui::PopID();
 		};
 
-		const std::string LevelName = Context.Level->GetName().empty() ? "Transient Level" : Context.Level->GetName();
+		const std::string LevelName = LevelDisplayName(Context.Level);
 		if (!Filter.empty() || ExpandRequest != 0) ImGui::SetNextItemOpen(!Filter.empty() || ExpandRequest > 0, ImGuiCond_Always);
 		else ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 		ImGui::PushID(Context.Level);
 		const std::string LevelLabel = std::format("{}  {}", Icons::FolderOpen, LevelName);
-		const bool bLevelOpen = ImGui::TreeNodeEx("LevelNode", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick, "%s", LevelLabel.c_str());
+		ImGuiTreeNodeFlags LevelFlags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+		if (bLevelSelected) LevelFlags |= ImGuiTreeNodeFlags_Selected;
+		const bool bLevelOpen = ImGui::TreeNodeEx("LevelNode", LevelFlags, "%s", LevelLabel.c_str());
 		if (ImGui::IsItemHovered() && Context.Level->GetPackage()) ImGui::SetTooltip("%s", Context.Level->GetPackage()->GetPackagePath().c_str());
+		if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+		{
+			Context.ClearSelection();
+			bLevelSelected = true;
+		}
+		if (bRenamingLevel)
+		{
+			ImGui::SetNextItemWidth(-1.0f);
+			ImGui::SetKeyboardFocusHere();
+			const bool bSubmitted = ImGui::InputText("##RenameLevel", LevelRenameText.data(), LevelRenameText.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+			if (bSubmitted)
+			{
+				if (LevelRenameText[0] == '\0') Context.SetError("Level name cannot be empty.");
+				else if (Context.RenameLevel) Context.RenameLevel(LevelRenameText.data());
+				bRenamingLevel = false;
+			}
+			else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) bRenamingLevel = false;
+		}
 
 		if (ImGui::BeginPopupContextItem("LevelContext"))
 		{
+			Context.ClearSelection();
+			bLevelSelected = true;
 			if (ImGui::IsWindowAppearing()) ActorTypeSearchText.fill(0);
+			if (ImGui::MenuItem("Rename", "F2"))
+			{
+				bRenamingLevel = true;
+				LevelRenameText.fill(0);
+				std::memcpy(LevelRenameText.data(), LevelName.data(), std::min(LevelName.size(), LevelRenameText.size() - 1));
+			}
+			ImGui::Separator();
 			if (ImGui::BeginMenu("Add Actor"))
 			{
 				ImGui::SetNextItemWidth(240.0f);
@@ -238,7 +289,7 @@ namespace Durin
 					if (ImGui::MenuItem(DisplayName.c_str()))
 					{
 						AActor* Actor = Context.World->SpawnActor(Class, FName(DisplayName));
-						if (Actor) Context.SelectActor(Actor);
+						if (Actor) { Context.SelectActor(Actor); bLevelSelected = false; }
 						else Context.SetError(std::format("Failed to create actor of class {}.", Class->GetQualifiedName().ToString()));
 					}
 				}
@@ -288,6 +339,12 @@ namespace Durin
 				const std::string& Name = Actor->GetName();
 				std::memcpy(RenameText.data(), Name.data(), std::min(Name.size(), RenameText.size() - 1));
 			}
+			else if (bLevelSelected)
+			{
+				bRenamingLevel = true;
+				LevelRenameText.fill(0);
+				std::memcpy(LevelRenameText.data(), LevelName.data(), std::min(LevelName.size(), LevelRenameText.size() - 1));
+			}
 		}
 		if (!Context.GetSelectedActors().empty() && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) bRequestDelete = true;
 		if (bRequestDelete)
@@ -314,7 +371,7 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 
-		if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered()) Context.ClearSelection();
+		if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered()) { Context.ClearSelection(); bLevelSelected = false; }
 		LastVisibleActors = std::move(VisibleActors);
 		ImGui::End();
 	}

@@ -13,6 +13,7 @@ namespace Durin
 		DWorld* World = nullptr;
 		DLevel* Level = nullptr;
 		std::function<void(std::string)> ReportError;
+		std::function<bool(std::string_view)> RenameLevel;
 
 		auto Synchronize(DWorld* CurrentWorld) -> void;
 		auto SelectActor(AActor* Actor) -> void;

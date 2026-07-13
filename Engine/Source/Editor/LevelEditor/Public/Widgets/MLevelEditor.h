@@ -41,6 +41,7 @@ namespace Durin
 		auto BrowseStaticMeshDestination() -> void;
 		auto ImportStaticMesh() -> void;
 		auto SaveCurrentLevel() -> bool;
+		auto RenameCurrentLevel(std::string_view NewName) -> bool;
 		auto ActivateLevel(class DLevel* Level) -> bool;
 		auto SetError(std::string Message) -> void;
 		auto BuildDefaultLayout(uint32 DockSpaceId) -> void;
