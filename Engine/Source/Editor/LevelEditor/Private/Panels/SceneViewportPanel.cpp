@@ -18,6 +18,42 @@ namespace Durin
 {
 	namespace
 	{
+		template <typename T>
+		struct TViewportModeOption
+		{
+			T Value;
+			const char* Label;
+		};
+
+		constexpr std::array RenderModeOptions = {
+			TViewportModeOption{ERenderMode::Lit, "Lit"},
+			TViewportModeOption{ERenderMode::Unlit, "Unlit"}
+		};
+
+		constexpr std::array RasterModeOptions = {
+			TViewportModeOption{ERasterMode::Solid, "Solid"},
+			TViewportModeOption{ERasterMode::Wireframe, "Wireframe"}
+		};
+
+		template <typename T, size_t Size>
+		auto GetModeLabel(T CurrentMode, const std::array<TViewportModeOption<T>, Size>& Options) -> const char*
+		{
+			for (const TViewportModeOption<T>& Option : Options)
+			{
+				if (Option.Value == CurrentMode) return Option.Label;
+			}
+			return "Unknown";
+		}
+
+		template <typename T, size_t Size, typename FSetMode>
+		auto DrawModeOptions(T CurrentMode, const std::array<TViewportModeOption<T>, Size>& Options, FSetMode&& SetMode) -> void
+		{
+			for (const TViewportModeOption<T>& Option : Options)
+			{
+				if (ImGui::Selectable(Option.Label, Option.Value == CurrentMode)) SetMode(Option.Value);
+			}
+		}
+
 		auto Add(const ImVec2& A, const ImVec2& B) -> ImVec2 { return ImVec2(A.x + B.x, A.y + B.y); }
 		auto Mul(const ImVec2& Value, float Scale) -> ImVec2 { return ImVec2(Value.x * Scale, Value.y * Scale); }
 
@@ -139,7 +175,7 @@ namespace Durin
 			}
 		}
 
-		const std::string Label = std::format("{} / {}", CurrentMode == ERenderMode::Lit ? "Lit" : "Unlit", CurrentRasterMode == ERasterMode::Solid ? "Solid" : "Wireframe");
+		const std::string Label = std::format("{} / {}", GetModeLabel(CurrentMode, RenderModeOptions), GetModeLabel(CurrentRasterMode, RasterModeOptions));
 		const ImVec2 LabelSize = ImGui::CalcTextSize(Label.c_str());
 		const ImVec2 ButtonPos(ViewportMin.x + 8.0f, ViewportMin.y + 4.0f);
 		const ImVec2 ButtonSize(LabelSize.x + 12.0f, LabelSize.y + 4.0f);
@@ -164,23 +200,15 @@ namespace Durin
 
 		if (ImGui::BeginPopup("ViewModePopup"))
 		{
-			if (ImGui::Selectable("Lit"))
+			DrawModeOptions(CurrentMode, RenderModeOptions, [RendererModule](ERenderMode Mode)
 			{
-				if (RendererModule != nullptr) RendererModule->SetRenderMode(ERenderMode::Lit);
-			}
-			if (ImGui::Selectable("Unlit"))
-			{
-				if (RendererModule != nullptr) RendererModule->SetRenderMode(ERenderMode::Unlit);
-			}
+				if (RendererModule != nullptr) RendererModule->SetRenderMode(Mode);
+			});
 			ImGui::Separator();
-			if (ImGui::Selectable("Solid", CurrentRasterMode == ERasterMode::Solid))
+			DrawModeOptions(CurrentRasterMode, RasterModeOptions, [RendererModule](ERasterMode Mode)
 			{
-				if (RendererModule != nullptr) RendererModule->SetRasterMode(ERasterMode::Solid);
-			}
-			if (ImGui::Selectable("Wireframe", CurrentRasterMode == ERasterMode::Wireframe))
-			{
-				if (RendererModule != nullptr) RendererModule->SetRasterMode(ERasterMode::Wireframe);
-			}
+				if (RendererModule != nullptr) RendererModule->SetRasterMode(Mode);
+			});
 			ImGui::EndPopup();
 		}
 	}
