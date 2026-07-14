@@ -347,7 +347,11 @@ namespace Durin
 			DrawComponentNode(Actor->GetRootComponent());
 			for (DActorComponent* Component : OwnedComponentOrder)
 			{
-				if (Cast<DSceneComponent>(Component)) DrawComponentNode(Component);
+				if (auto* SceneComponent = Cast<DSceneComponent>(Component))
+				{
+					DSceneComponent* Parent = SceneComponent->GetAttachParent();
+					if (!Parent || !OwnedComponents.contains(Parent)) DrawComponentNode(Component);
+				}
 			}
 			for (DActorComponent* Component : OwnedComponentOrder)
 			{
