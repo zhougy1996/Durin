@@ -51,8 +51,10 @@ namespace Durin
 		constexpr float MinimumTreeWidth = 145.0f;
 		constexpr float MinimumContentWidth = 240.0f;
 		constexpr float MinimumContentHeight = 80.0f;
-		constexpr float GridCellExtraWidth = 34.0f;
+		constexpr float GridCellExtraWidth = 26.0f;
 		constexpr float GridCardRounding = 7.0f;
+		constexpr float GridIconAreaScale = 0.84f;
+		constexpr float GridIconScale = 0.76f;
 	} // namespace
 
 	FContentBrowserPanel::FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport)
@@ -403,8 +405,10 @@ namespace Durin
 			ImGui::NewLine();
 		else
 			ImGui::SameLine();
-		if (DrawToolbarIconButton(ViewMode == EContentBrowserViewMode::Grid ? Icons::Menu : Icons::FileLines, "ContentBrowserView"))
+		const bool bGridView = ViewMode == EContentBrowserViewMode::Grid;
+		if (DrawToolbarIconButton(bGridView ? Icons::Menu : Icons::TableCells, "ContentBrowserView"))
 			ViewMode = ViewMode == EContentBrowserViewMode::Grid ? EContentBrowserViewMode::Details : EContentBrowserViewMode::Grid;
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip(bGridView ? "Switch to list view" : "Switch to icon view");
 		ImGui::SameLine();
 		if (DrawToolbarIconButton(Icons::Info, "ContentBrowserDetails")) bShowSelectionDetails = !bShowSelectionDetails;
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle selection details");
@@ -607,7 +611,8 @@ namespace Durin
 	{
 		const float CellWidth = IconSize + MonaImGui::ScaleUI(GridCellExtraWidth);
 		const float NameFontSize = std::clamp(IconSize * 0.22f, ImGui::GetFontSize() * 0.70f, ImGui::GetFontSize() * 1.40f);
-		const float NameAreaHeight = NameFontSize * 2.0f + MonaImGui::ScaleUI(12.0f);
+		const float IconAreaHeight = IconSize * GridIconAreaScale;
+		const float NameAreaHeight = NameFontSize * 2.0f + MonaImGui::ScaleUI(8.0f);
 		const int32 Columns = std::max(1, static_cast<int32>(ImGui::GetContentRegionAvail().x / CellWidth));
 		if (!ImGui::BeginTable("ContentBrowserGrid", Columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_ScrollY)) return;
 		for (size_t Index = 0; Index < Items.size(); ++Index)
@@ -615,7 +620,7 @@ namespace Durin
 			const FContentBrowserItem& Item = Items[Index];
 			ImGui::TableNextColumn();
 			ImGui::PushID(Item.StableId().c_str());
-			const ImVec2 TileSize(ImGui::GetContentRegionAvail().x, IconSize + NameAreaHeight);
+			const ImVec2 TileSize(ImGui::GetContentRegionAvail().x, IconAreaHeight + NameAreaHeight);
 			const bool bSelected = Selection.contains(Item.StableId());
 			const ImVec2 TileStart = ImGui::GetCursorScreenPos();
 			ImGui::InvisibleButton("##Tile", TileSize);
@@ -649,24 +654,49 @@ namespace Durin
 														   Item.Kind == EContentBrowserItemKind::Asset	? MonaImGui::EUIThemeColor::Asset :
 																										  MonaImGui::EUIThemeColor::SourceFile;
 			const ImU32 IconColor = MonaImGui::GetThemeColorU32(IconColorRole);
-			const float IconFontSize = IconSize * 0.58f;
+			const float IconFontSize = IconSize * GridIconScale;
 			const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(IconFontSize, FLT_MAX, 0.0f, ItemIcon(Item));
-			const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(MonaImGui::ScaleUI(6.0f), (IconSize - IconExtent.y) * 0.5f));
+			const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(0.0f, (IconAreaHeight - IconExtent.y) * 0.5f));
 			DrawList->AddText(ImGui::GetFont(), IconFontSize, IconPosition, IconColor, ItemIcon(Item));
 			if (RenameTarget == Item.StableId())
 			{
-				ImGui::SetCursorScreenPos(ImVec2(TileStart.x + 7.0f, TileStart.y + IconSize));
-				ImGui::SetNextItemWidth(std::max(40.0f, TileSize.x - 14.0f));
+				const float RenameInset = MonaImGui::ScaleUI(7.0f);
+				ImGui::SetCursorScreenPos(ImVec2(TileStart.x + RenameInset, TileStart.y + IconAreaHeight));
+				ImGui::SetNextItemWidth(std::max(MonaImGui::ScaleUI(40.0f), TileSize.x - RenameInset * 2.0f));
 				DrawRenameEditor(Item);
 			}
 			else
 			{
-				const float TextWidth = std::max(40.0f, TileSize.x - 16.0f);
+				const float TextInset = MonaImGui::ScaleUI(8.0f);
+				const float TextWidth = std::max(MonaImGui::ScaleUI(40.0f), TileSize.x - TextInset * 2.0f);
 				const ImVec2 TextExtent = ImGui::GetFont()->CalcTextSizeA(NameFontSize, FLT_MAX, TextWidth, Item.Name.c_str());
-				const ImVec2 TextPosition(TileStart.x + std::max(8.0f, (TileSize.x - TextExtent.x) * 0.5f), TileStart.y + IconSize + 3.0f);
-				DrawList->PushClipRect(ImVec2(TileStart.x + 6.0f, TileStart.y + IconSize), ImVec2(TileStart.x + TileSize.x - 6.0f, TileStart.y + TileSize.y - 5.0f), true);
+				const ImVec2 TextPosition(TileStart.x + std::max(TextInset, (TileSize.x - TextExtent.x) * 0.5f), TileStart.y + IconAreaHeight + MonaImGui::ScaleUI(2.0f));
+				DrawList->PushClipRect(ImVec2(TileStart.x + TextInset, TileStart.y + IconAreaHeight), ImVec2(TileStart.x + TileSize.x - TextInset, TileStart.y + TileSize.y - MonaImGui::ScaleUI(4.0f)), true);
 				DrawList->AddText(ImGui::GetFont(), NameFontSize, TextPosition, ImGui::GetColorU32(ImGuiCol_Text), Item.Name.c_str(), nullptr, TextWidth);
 				DrawList->PopClipRect();
+			}
+			if (bHovered && RenameTarget != Item.StableId() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+			{
+				ImGui::BeginTooltip();
+				ImGui::TextUnformatted(Item.Name.c_str());
+				ImGui::Separator();
+				ImGui::TextDisabled("Type");
+				ImGui::SameLine();
+				ImGui::TextUnformatted(ItemTypeLabel(Item).c_str());
+				if (Item.Kind != EContentBrowserItemKind::Folder)
+				{
+					ImGui::TextDisabled("Size");
+					ImGui::SameLine();
+					ImGui::TextUnformatted(FormatFileSize(Item.FileSize).c_str());
+					ImGui::TextDisabled("Modified");
+					ImGui::SameLine();
+					ImGui::TextUnformatted(FormatFileTime(Item.LastWriteTime).c_str());
+				}
+				ImGui::TextDisabled(Item.VirtualPath.empty() ? "Path" : "Virtual Path");
+				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+				ImGui::TextUnformatted((Item.VirtualPath.empty() ? Item.PhysicalPath : Item.VirtualPath).c_str());
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
 			}
 			if (ImGui::BeginPopup("ItemContext"))
 			{
@@ -682,7 +712,13 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawDetails() -> void
 	{
-		if (!ImGui::BeginTable("ContentBrowserDetails", 4, DetailsTableFlags)) return;
+		const ImVec2 CellPadding(MonaImGui::ScaleUI(10.0f), ImGui::GetStyle().CellPadding.y);
+		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, CellPadding);
+		if (!ImGui::BeginTable("ContentBrowserDetails", 4, DetailsTableFlags))
+		{
+			ImGui::PopStyleVar();
+			return;
+		}
 		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthStretch, 0.0f, static_cast<ImGuiID>(ESortColumn::Name));
 		ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(130.0f), static_cast<ImGuiID>(ESortColumn::Type));
 		ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(85.0f), static_cast<ImGuiID>(ESortColumn::Size));
@@ -733,6 +769,7 @@ namespace Durin
 			ImGui::PopID();
 		}
 		ImGui::EndTable();
+		ImGui::PopStyleVar();
 	}
 
 	auto FContentBrowserPanel::DrawItemContextMenu(const FContentBrowserItem& Item) -> void

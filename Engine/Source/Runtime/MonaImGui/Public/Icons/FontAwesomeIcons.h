@@ -35,6 +35,7 @@ namespace Durin::Icons
 	inline constexpr auto Error = "\xef\x81\xaa";
 	inline constexpr auto Home = "\xef\x80\x95";
 	inline constexpr auto Menu = "\xef\x83\x89";
+	inline constexpr auto TableCells = "\xef\x80\x8a";
 	inline constexpr auto Filter = "\xef\x82\xb0";
 	inline constexpr auto Sort = "\xef\x83\x9c";
 	inline constexpr auto ChevronLeft = "\xef\x81\x93";
