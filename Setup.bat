@@ -5,6 +5,7 @@ set "ROOT=%~dp0"
 set "GIT_ENTRY=%ROOT%\.git"
 set "GIT_DIR_VALUE="
 set "GIT_DIR_ABS="
+set "EXIT_CODE=0"
 
 if exist "%GIT_ENTRY%\" goto bootstrap
 if not exist "%GIT_ENTRY%" goto bootstrap
@@ -33,11 +34,19 @@ if not exist "!GIT_DIR_ABS!\commondir" goto bootstrap
 goto prepare_worktree
 
 :bootstrap
+call "%ROOT%Engine\Scripts\Bootstrap\InitializeAgentConfig.bat"
+if errorlevel 1 (
+  set "EXIT_CODE=!errorlevel!"
+  goto end
+)
 call "%ROOT%Engine\Scripts\Bootstrap\Bootstrap.bat"
+set "EXIT_CODE=!errorlevel!"
 goto end
 
 :prepare_worktree
 call "%ROOT%Engine\Scripts\Bootstrap\PrepareWorktree.bat"
+set "EXIT_CODE=!errorlevel!"
 
 :end
 pause
+exit /b !EXIT_CODE!

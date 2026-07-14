@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "profiles": {
+    "windows-msvc-x64": {
+      "host": "windows",
+      "default": true,
+      "preset": "Win64-Debug-DurinEditor-Agent",
+      "environmentProvider": "visual-studio",
+      "requiredCommands": [
+        "ninja"
+      ],
+      "testBinaryDirectory": "Engine/Binaries/Win64/Debug-Agent/Tests/DurinEditor/Bin",
+      "testExecutableSuffix": ".exe"
+    }
+  }
+}

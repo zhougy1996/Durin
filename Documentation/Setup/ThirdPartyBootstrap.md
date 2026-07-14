@@ -21,8 +21,9 @@ python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 ## Worktree Sharing
 
 - `PrepareWorktree.bat` links this worktree's `Engine/External` and `.venv` to a prepared dependency worktree.
-- The same helper also symlinks the root `AGENTS_LOCAL.md` from that dependency worktree.
-- On Windows, shared directories use directory junctions by default; `AGENTS_LOCAL.md` uses a symlink when available and falls back to a file copy without symlink privileges.
+- The same helper copies `.agents/build-config.json` from that dependency worktree. It skips the write when the files already match.
+- If the source worktree has no Agent build config, the helper creates the target config from `Documentation/Setup/TP_AGENT_BUILD_CONFIG.json` without requiring it to be filled in.
+- On Windows, shared directories use directory junctions by default; the Agent build config is always a regular per-worktree file.
 - Preview the operation with `Engine\Scripts\Bootstrap\PrepareWorktree.bat --dry-run`.
 - By default, linked Git worktrees pull those links from the main worktree root.
 - Use `--source` when the prepared dependency worktree is not the main worktree root.
@@ -30,7 +31,7 @@ python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 
 Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` per worktree.
 
-`Documentation/Setup/TP_AGENTS_LOCAL.md` is only a starter template for machine-local notes. It is not part of the required reading chain.
+`Documentation/Setup/TP_AGENT_BUILD_CONFIG.json` is the starter template for optional machine-local build overrides. Toolchain definitions and isolated presets belong in the tracked Agent Build Profile manifest instead.
 
 ## Directory Layout
 

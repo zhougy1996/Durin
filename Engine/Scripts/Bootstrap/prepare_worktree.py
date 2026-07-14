@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import argparse
-import errno
 import os
-import shutil
 import stat
 import subprocess
 import sys
 from pathlib import Path
+
+from agent_config import AgentConfigError, sync_agent_config
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -16,7 +16,6 @@ REPO_ROOT = SCRIPT_DIR.parents[2]
 
 ENV_SOURCE_NAMES = ("DURIN_WORKTREE_SOURCE", "DURIN_EXTERNAL_SOURCE", "DURIN_EXTERNAL_ROOT")
 DEFAULT_SOURCE_WORKTREE_NAME = "Durin"
-AGENTS_LOCAL_NAME = "AGENTS_LOCAL.md"
 VENV_DIR_NAME = ".venv"
 
 
@@ -178,17 +177,6 @@ def remove_link_or_empty_dir(path: Path, *, dry_run: bool) -> None:
     raise PrepareWorktreeError(f"Refusing to remove non-empty real directory: \"{path}\"")
 
 
-def remove_file_or_link(path: Path, *, dry_run: bool) -> None:
-    if dry_run:
-        print(f"[dry-run] remove \"{path}\"")
-        return
-
-    if path.is_dir() and not is_link_like(path):
-        raise PrepareWorktreeError(f"Refusing to remove directory for file link target: \"{path}\"")
-
-    path.unlink()
-
-
 def create_junction(source: Path, target: Path, *, dry_run: bool) -> None:
     command = ["cmd", "/c", "mklink", "/J", str(target), str(source)]
     if dry_run:
@@ -209,14 +197,6 @@ def create_symlink(source: Path, target: Path, *, target_is_directory: bool, dry
         return
 
     os.symlink(source, target, target_is_directory=target_is_directory)
-
-
-def should_fallback_to_file_copy(exc: OSError) -> bool:
-    if not is_windows():
-        return False
-
-    winerror = getattr(exc, "winerror", None)
-    return winerror == 1314 or exc.errno in (errno.EPERM, errno.EACCES)
 
 
 def choose_link_type(requested: str) -> str:
@@ -297,47 +277,11 @@ def prepare_venv_link(source_worktree: Path, *, link_type: str, dry_run: bool) -
     )
 
 
-def prepare_agents_local_link(source_worktree: Path, *, dry_run: bool) -> None:
-    source_file = source_worktree / AGENTS_LOCAL_NAME
-    target_file = REPO_ROOT / AGENTS_LOCAL_NAME
-
-    if not source_file.is_file():
-        print(f"{AGENTS_LOCAL_NAME} was not found in \"{source_worktree}\"; skipping.")
-        return
-
-    if linked_to(target_file, source_file):
-        print(f"{AGENTS_LOCAL_NAME} is already linked to \"{source_file}\".")
-        return
-
-    if target_file.exists() or is_link_like(target_file):
-        remove_file_or_link(target_file, dry_run=dry_run)
-
-    if dry_run:
-        print(f"[dry-run] link \"{target_file}\" -> \"{source_file}\"")
-    else:
-        target_file.parent.mkdir(parents=True, exist_ok=True)
-
-    try:
-        create_link(source_file, target_file, link_type="symlink", target_is_directory=False, dry_run=dry_run)
-    except OSError as exc:
-        if not should_fallback_to_file_copy(exc):
-            raise
-
-        shutil.copy2(source_file, target_file)
-        print(
-            f"Copied {AGENTS_LOCAL_NAME}: \"{target_file}\" <- \"{source_file}\" "
-            "(file symlink privilege was not available)."
-        )
-        return
-
-    print(f"Linked {AGENTS_LOCAL_NAME}: \"{target_file}\" -> \"{source_file}\"")
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Prepare a Durin Git worktree by linking shared dependency directories "
-            "and linking machine-local AGENTS_LOCAL.md from a prepared worktree."
+            "and copying the local Agent build config from a prepared worktree."
         )
     )
     parser.add_argument(
@@ -375,9 +319,9 @@ def main() -> int:
 
         prepare_external_link(source_worktree, link_type=link_type, dry_run=args.dry_run)
         prepare_venv_link(source_worktree, link_type=link_type, dry_run=args.dry_run)
-        prepare_agents_local_link(source_worktree, dry_run=args.dry_run)
+        sync_agent_config(source_worktree, REPO_ROOT, dry_run=args.dry_run)
 
-    except PrepareWorktreeError as exc:
+    except (PrepareWorktreeError, AgentConfigError) as exc:
         print(exc, file=sys.stderr)
         return 1
     except OSError as exc:

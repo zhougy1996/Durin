@@ -15,12 +15,12 @@ that match the task at hand.
   `Documentation/Architecture/WorkspaceProjects.md`
 - Runtime boot flow and subsystem relationships:
   `Documentation/Architecture/RuntimeArchitecture.md`
-- Machine-local notes:
-  `AGENTS_LOCAL.md` when present; it is not team policy and is shared across worktrees by setup.
+- Machine-local Agent build overrides:
+  `.agents/build-config.json`; run `Setup.bat`, `Engine/Scripts/Bootstrap/InitializeAgentConfig.bat`, or the cross-platform `initialize_agent_config.py` to create it from the tracked template when missing. It is optional machine data, not team policy.
 
 ## Repository Rules
 
-- Agents must use `Engine/Scripts/Build/AgentBuild.ps1` for editor builds and automated validation. The script owns the `Win64-Debug-DurinEditor-Agent` preset, `Build/Win64-Debug-DurinEditor-Agent`, and `Engine/Binaries/Win64/Debug-Agent/`; do not configure, clean, build, or overwrite the human-owned non-Agent build trees or `Engine/Binaries/Win64/Debug/` outputs.
+- Agents must use `Engine/Scripts/Build/agent_build.py` for editor builds and automated validation; `AgentBuild.ps1` is the Windows compatibility wrapper. The selected registered Agent Build Profile owns its isolated preset, build tree, and binary outputs; do not configure, clean, build, or overwrite human-owned non-Agent build trees or outputs.
 - Generated metadata is part of the source of truth. If a module looks incomplete, inspect `Engine/Intermediate/Build/...` and DHT outputs before assuming files are missing.
 - Runtime-loaded module binaries must keep the `<Profile>-<Module>` naming convention from `CMake/Project/ProjectTargets.cmake`.
 - Rendering changes usually span `RHI`, `VulkanRHI`.

@@ -4,9 +4,10 @@ This is the operational guide for configuring, building, and running Durin local
 
 ## Prerequisites
 
-- Run `.\Setup.bat` on Windows before the first configure in a worktree.
-- Run configure and build commands from a Visual Studio developer environment on Windows, or call `VsDevCmd.bat` first.
-- If present, use `AGENTS_LOCAL.md` only for machine-local tool paths and command variants.
+- Run `.\Setup.bat` on Windows before the first configure in a worktree. It creates the optional `.agents/build-config.json` from `TP_AGENT_BUILD_CONFIG.json` when missing.
+- On other hosts, create the same optional config with `python Engine/Scripts/Bootstrap/initialize_agent_config.py` when a local override is needed.
+- Put CMake on `PATH` when possible. Machine-specific command or environment overrides belong only in `.agents/build-config.json`.
+- The Agent build driver initializes the Visual Studio environment automatically for the Windows MSVC profile.
 
 ## Configure
 
@@ -31,13 +32,18 @@ Use the `*-Tests` preset when native test targets are needed. Normal editor/game
 
 Agents must use `Win64-Debug-DurinEditor-Agent` for editor builds and automated validation. It has the same build options as the human-oriented `Win64-Debug-DurinEditor-Tests` preset, plus `DURIN_BUILD_IDENTIFIER=Agent`. Its build tree is `Build/Win64-Debug-DurinEditor-Agent`, and its outputs stay under `Engine/Binaries/Win64/Debug-Agent/` instead of overwriting human build outputs under `Engine/Binaries/Win64/Debug/`.
 
-Agents invoke this workflow through `Engine/Scripts/Build/AgentBuild.ps1`. The script reads machine-local CMake and Visual Studio paths from `AGENTS_LOCAL.md`, initializes the compiler environment, and restricts operations to the Agent preset and output tree:
+Agents invoke this workflow through the cross-platform Python driver. Registered profiles in `Engine/Scripts/Build/AgentBuildProfiles.json` bind a host, required commands, and toolchain environment provider to an isolated CMake preset and test output. The driver refuses unregistered presets. Environment providers may locate toolchain-bundled commands such as Visual Studio's Ninja without adding machine paths to the tracked profile. Windows users may use the PowerShell compatibility wrapper:
 
 ```powershell
-& "Engine/Scripts/Build/AgentBuild.ps1" Configure
+python Engine/Scripts/Build/agent_build.py Configure
+python Engine/Scripts/Build/agent_build.py Build --target LevelEditor --jobs 14
+python Engine/Scripts/Build/agent_build.py Test --target CoreTests --filter FJsonDocumentTests.*
 & "Engine/Scripts/Build/AgentBuild.ps1" Build -Target LevelEditor -Jobs 14
-& "Engine/Scripts/Build/AgentBuild.ps1" Test -Target CoreTests -Filter FJsonDocumentTests.*
 ```
+
+Profile selection precedence is `--profile`, `DURIN_AGENT_BUILD_PROFILE`, `defaultBuildProfile` in the local config, then the current host's unique default profile. CMake selection precedence is `--cmake`, `DURIN_CMAKE_COMMAND` (or legacy `DURIN_CMAKE_PATH`), `cmakeCommand` in the local config, then `cmake` on `PATH`.
+
+The local config is optional. Leave fields empty to use automatic discovery. `environmentSetup.script` may point to a local `.bat`/`.cmd` or shell script when a registered profile cannot initialize its toolchain environment automatically.
 
 ## Build
 
