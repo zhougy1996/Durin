@@ -794,6 +794,7 @@ namespace Durin
 		{
 			return;
 		}
+		if (!View.OverlayPrimitives.empty()) EnsureGizmoResources(CommandList);
 
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.ColorRenderTargets[0] = SceneColor;
@@ -825,7 +826,6 @@ namespace Durin
 		}
 
 		EnsureStaticMeshPipeline();
-		if (!View.OverlayPrimitives.empty()) EnsureGizmoResources(CommandList);
 		if (GStaticMeshState.SolidPipelineState == nullptr || GStaticMeshState.WireframePipelineState == nullptr || !GStaticMeshState.VertexShader || !GStaticMeshState.FragmentShader)
 		{
 			return;
