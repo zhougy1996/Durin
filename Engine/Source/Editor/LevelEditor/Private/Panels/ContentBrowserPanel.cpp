@@ -44,7 +44,7 @@ namespace Durin
 			return Name;
 		}
 
-		constexpr ImGuiTableFlags DetailsTableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoSavedSettings;
+		constexpr ImGuiTableFlags DetailsTableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_NoSavedSettings;
 
 		constexpr float FullToolbarWidth = 900.0f;
 		constexpr float CompactToolbarWidth = 620.0f;
@@ -377,37 +377,16 @@ namespace Durin
 		};
 
 		const char* Filters[] = {"All types", "Levels", "Static meshes", "Materials", "Other"};
-		const float IconButtonExtent = ImGui::GetFrameHeight();
 		const float Spacing = ImGui::GetStyle().ItemSpacing.x;
-		const float ActionWidth = IconButtonExtent * 3.0f + Spacing * 3.0f;
-		if (bFullLayout)
-		{
-			const float FilterWidth = MonaImGui::ScaleUI(120.0f);
-			const float SearchWidth = MonaImGui::ScaleUI(210.0f);
-			const float BreadcrumbWidth = std::max(MonaImGui::ScaleUI(160.0f), ImGui::GetContentRegionAvail().x - FilterWidth - SearchWidth - ActionWidth - Spacing * 3.0f);
-			ImGui::SameLine();
-			DrawBreadcrumb(BreadcrumbWidth);
-			ImGui::SameLine();
-			ImGui::SetNextItemWidth(FilterWidth);
-			if (ImGui::Combo("##ContentTypeFilter", &TypeFilter, Filters, std::size(Filters))) RebuildItems();
-			ImGui::SameLine();
-			ImGui::SetNextItemWidth(SearchWidth);
-			if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
-		}
-		else if (bCompactLayout)
-		{
-			ImGui::SameLine();
-			ImGui::SetNextItemWidth(std::max(MonaImGui::ScaleUI(140.0f), ImGui::GetContentRegionAvail().x - ActionWidth));
-			if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
-		}
 
+		// Keep the view controls ahead of flexible toolbar content so search and breadcrumbs cannot clip them.
 		if (!bCompactLayout)
 			ImGui::NewLine();
 		else
 			ImGui::SameLine();
 		const bool bGridView = ViewMode == EContentBrowserViewMode::Grid;
-		if (DrawToolbarIconButton(bGridView ? Icons::Menu : Icons::TableCells, "ContentBrowserView"))
-			ViewMode = ViewMode == EContentBrowserViewMode::Grid ? EContentBrowserViewMode::Details : EContentBrowserViewMode::Grid;
+		const bool bToggleView = DrawToolbarIconButton(bGridView ? Icons::Menu : Icons::TableCells, "ContentBrowserView");
+		if (bToggleView) ViewMode = bGridView ? EContentBrowserViewMode::Details : EContentBrowserViewMode::Grid;
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip(bGridView ? "Switch to list view" : "Switch to icon view");
 		ImGui::SameLine();
 		if (DrawToolbarIconButton(Icons::Info, "ContentBrowserDetails")) bShowSelectionDetails = !bShowSelectionDetails;
@@ -437,8 +416,30 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 
+		if (bFullLayout)
+		{
+			const float FilterWidth = MonaImGui::ScaleUI(120.0f);
+			const float SearchWidth = MonaImGui::ScaleUI(210.0f);
+			ImGui::SameLine();
+			const float BreadcrumbWidth = std::max(MonaImGui::ScaleUI(160.0f), ImGui::GetContentRegionAvail().x - FilterWidth - SearchWidth - Spacing * 2.0f);
+			DrawBreadcrumb(BreadcrumbWidth);
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(FilterWidth);
+			if (ImGui::Combo("##ContentTypeFilter", &TypeFilter, Filters, std::size(Filters))) RebuildItems();
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(SearchWidth);
+			if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
+		}
+		else if (bCompactLayout)
+		{
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
+		}
+
 		if (!bCompactLayout)
 		{
+			ImGui::NewLine();
 			ImGui::SetNextItemWidth(-FLT_MIN);
 			if (ImGui::InputTextWithHint("##ContentSearchNarrow", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
 		}
