@@ -7,6 +7,7 @@ add_durin_test(CoreTests
 	Private/NameTests.cpp
 	Private/ProjectTests.cpp
 	Private/PathsTests.cpp
+	Private/StringHelperTests.cpp
 	Private/ThreadingTests.cpp
 	Private/TransformTests.cpp
 	Private/YamlTests.cpp

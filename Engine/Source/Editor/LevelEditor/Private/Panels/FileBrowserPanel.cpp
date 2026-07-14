@@ -3,7 +3,9 @@
 #include "AssetSystem.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorContext.h"
+#include "LevelEditorHelpers.h"
 #include "Misc/Paths.h"
+#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
 #ifdef _WIN32
@@ -14,15 +16,8 @@ namespace Durin
 {
 	namespace
 	{
-		auto ContainsInsensitive(std::string_view Text, std::string_view Filter) -> bool
-		{
-			if (Filter.empty()) return true;
-			std::string LowerText(Text);
-			std::string LowerFilter(Filter);
-			std::ranges::transform(LowerText, LowerText.begin(), [](unsigned char C) { return static_cast<char>(std::tolower(C)); });
-			std::ranges::transform(LowerFilter, LowerFilter.begin(), [](unsigned char C) { return static_cast<char>(std::tolower(C)); });
-			return LowerText.find(LowerFilter) != std::string::npos;
-		}
+		using LevelEditorHelpers::DrawToolbarIconButton;
+		using StringUtils::ContainsInsensitive;
 
 		auto PathLeafName(std::string_view Path) -> std::string
 		{
@@ -34,18 +29,6 @@ namespace Durin
 
 		constexpr ImGuiTableFlags FileTableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg |
 			ImGuiTableFlags_ScrollY | ImGuiTableFlags_NoSavedSettings;
-
-		auto DrawToolbarIconButton(const char* Icon, const char* Id) -> bool
-		{
-			ImGui::PushID(Id);
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
-			const bool bPressed = ImGui::Button(Icon, ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()));
-			ImGui::PopStyleColor(3);
-			ImGui::PopID();
-			return bPressed;
-		}
 	} // namespace
 
 	FFileBrowserPanel::FFileBrowserPanel(std::function<bool(const std::string&)> InOpenAsset)

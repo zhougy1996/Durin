@@ -1,7 +1,9 @@
 #include "Panels/ConsolePanel.h"
 
 #include "Icons/FontAwesomeIcons.h"
+#include "LevelEditorHelpers.h"
 #include "Logging/Logger.h"
+#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
 namespace Durin
@@ -24,20 +26,11 @@ namespace Durin
 
 	namespace
 	{
+		using LevelEditorHelpers::DrawToolbarIconButton;
+		using StringUtils::ContainsInsensitive;
+
 		constexpr size_t MaxConsoleRecords = 5000;
 		constexpr size_t MaxCommandHistory = 100;
-
-		auto DrawToolbarIconButton(const char* Icon, const char* Id) -> bool
-		{
-			ImGui::PushID(Id);
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
-			const bool bPressed = ImGui::Button(Icon, ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()));
-			ImGui::PopStyleColor(3);
-			ImGui::PopID();
-			return bPressed;
-		}
 
 		auto LevelName(ELogLevel Level) -> const char*
 		{
@@ -91,16 +84,6 @@ namespace Durin
 			ImGui::TextColored(ImVec4(0.55f, 0.72f, 0.88f, 1.0f), "[%s]", Record.Module.c_str());
 			ImGui::SameLine(0.0f, 8.0f);
 			ImGui::TextUnformatted(Record.Message.c_str());
-		}
-
-		auto ContainsInsensitive(std::string_view Text, std::string_view Filter) -> bool
-		{
-			if (Filter.empty()) return true;
-			std::string LowerText(Text);
-			std::string LowerFilter(Filter);
-			std::ranges::transform(LowerText, LowerText.begin(), [](unsigned char C) { return static_cast<char>(std::tolower(C)); });
-			std::ranges::transform(LowerFilter, LowerFilter.begin(), [](unsigned char C) { return static_cast<char>(std::tolower(C)); });
-			return LowerText.find(LowerFilter) != std::string::npos;
 		}
 
 		auto CommonPrefix(const std::vector<std::string>& Values) -> std::string

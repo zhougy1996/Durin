@@ -10,30 +10,18 @@
 #include "Engine/World.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorContext.h"
+#include "LevelEditorHelpers.h"
+#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
 namespace Durin
 {
 	namespace
 	{
+		using LevelEditorHelpers::ClassDisplayName;
+		using StringUtils::ContainsInsensitive;
+
 		constexpr auto ActorPayloadType = "DURIN_OUTLINER_ACTOR";
-
-		auto ClassDisplayName(const DClass* Class) -> std::string
-		{
-			const std::string Name = Class ? Class->GetName() : std::string();
-			const size_t Separator = Name.rfind("::");
-			return Separator == std::string::npos ? Name : Name.substr(Separator + 2);
-		}
-
-		auto ContainsInsensitive(std::string_view Text, std::string_view Filter) -> bool
-		{
-			if (Filter.empty()) return true;
-			std::string LowerText(Text);
-			std::string LowerFilter(Filter);
-			std::ranges::transform(LowerText, LowerText.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-			std::ranges::transform(LowerFilter, LowerFilter.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-			return LowerText.find(LowerFilter) != std::string::npos;
-		}
 
 		auto ActorMatchesFilter(const AActor* Actor, std::string_view Filter) -> bool
 		{
