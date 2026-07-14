@@ -1,179 +1,94 @@
 #include "Widgets/MLevelEditor.h"
 
+#include "Application/MonaApplication.h"
 #include "AssetSystem.h"
-#include "Dialogs/FileDialog.h"
-#include "Actors/CameraActor.h"
-#include "Actors/DirectionalLightActor.h"
-#include "Engine/Engine.h"
-#include "Engine/Level.h"
-#include "Engine/World.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorTransaction.h"
+#include "EditorSessionSettings.h"
+#include "Engine/Engine.h"
+#include "Engine/Level.h"
 #include "IRendererModule.h"
+#include "LevelDocumentController.h"
 #include "LevelEditorContext.h"
-#include "LevelViewportSessionSettings.h"
-#include "Misc/StringConvert.h"
-#include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "MonaImGui.h"
-#include "Application/GenericApplication.h"
-#include "Application/MonaApplication.h"
-#include "Widgets/MWindow.h"
+#include "Panels/ConsolePanel.h"
 #include "Panels/DetailsPanel.h"
 #include "Panels/FileBrowserPanel.h"
 #include "Panels/LevelEditorPanel.h"
-#include "Panels/ConsolePanel.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Panels/WorldOutlinerPanel.h"
-#include "StaticMesh/StaticMesh.h"
+#include "StaticMeshImportDialog.h"
+#include "Widgets/MWindow.h"
 #include "Yaml/Yaml.h"
 
 namespace Durin
 {
-	struct FLevelViewportSessionState
-	{
-		FLevelViewportStateMap States;
-	};
-
+	// MLevelEditor is the composition root for the editor-specific controllers.
 	namespace
 	{
 		constexpr const char* DockSpaceName = "DurinEditorDockSpace";
-		constexpr const char* SessionSettingsFileName = "LevelEditorSession.yaml";
-
 	}
 
 	MLevelEditor::MLevelEditor()
-		: ViewportSessionState(std::make_unique<FLevelViewportSessionState>())
+		: SessionSettings(std::make_unique<FEditorSessionSettings>())
 	{
 	}
+
 	MLevelEditor::~MLevelEditor()
 	{
-		CaptureCurrentViewportState();
-		SaveSessionSettings();
+		if (SessionSettings && Context && SceneViewportPanel)
+		{
+			SessionSettings->CaptureViewportState(*Context, *SceneViewportPanel);
+			SessionSettings->Save(SceneViewportPanel);
+		}
 	}
 
 	auto MLevelEditor::Construct() -> void
 	{
 		Context = std::make_unique<FLevelEditorContext>();
 		Context->ReportError = [this](std::string Message) { SetError(std::move(Message)); };
-		Context->RenameLevel = [this](std::string_view NewName) { return RenameCurrentLevel(NewName); };
+		Context->RenameLevel = [this](std::string_view NewName) {
+			return DocumentController && DocumentController->RenameCurrentLevel(NewName);
+		};
+
 		Asset::GetAssetRegistry().ScanMountedContent();
-		LoadSessionSettings();
+		SessionSettings->Load();
 		LoadProjectSettings();
-		SaveSessionSettings();
+		SessionSettings->Save(nullptr);
+
 		auto SceneViewport = std::make_unique<FSceneViewportPanel>();
 		SceneViewportPanel = SceneViewport.get();
-		if (FTransformGizmo* Gizmo = SceneViewportPanel->GetTransformGizmo())
-		{
-			Gizmo->SetMode(static_cast<ETransformGizmoMode>(std::min<uint8>(GizmoMode, 2)));
-			Gizmo->SetSpace(static_cast<ETransformGizmoSpace>(std::min<uint8>(GizmoSpace, 1)));
-			Gizmo->GetSnapSettings() = {bGizmoSnapEnabled, GizmoTranslationSnap, GizmoRotationSnap, GizmoScaleSnap};
-		}
+		SessionSettings->ApplyTo(*SceneViewportPanel);
 		Panels.emplace_back(std::move(SceneViewport));
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
 		Panels.emplace_back(std::make_unique<FDetailsPanel>());
 		Panels.emplace_back(std::make_unique<FConsolePanel>());
-		Panels.emplace_back(std::make_unique<FFileBrowserPanel>([this](const std::string& Path) { return RequestOpenLevel(Path); }));
+
+		DocumentController = std::make_unique<FLevelDocumentController>(
+			*Context,
+			*SessionSettings,
+			*SceneViewportPanel,
+			DefaultLevel,
+			[this] { EditorError.clear(); },
+			[this](std::string Message) { SetError(std::move(Message)); },
+			[this] { return SaveProjectSettings(); }
+		);
+		StaticMeshImportDialog = std::make_unique<FStaticMeshImportDialog>(
+			[this] { EditorError.clear(); },
+			[this](std::string Message) { SetError(std::move(Message)); }
+		);
+		Panels.emplace_back(std::make_unique<FFileBrowserPanel>([this](const std::string& Path) {
+			return DocumentController && DocumentController->RequestOpenLevel(Path);
+		}));
+
 		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
-		OpenDefaultLevel();
-	}
-
-	auto MLevelEditor::LoadSessionSettings() -> bool
-	{
-		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
-		if (!Monitors.empty())
+		DocumentController->OpenDefaultLevel();
+		if (!EditorError.empty())
 		{
-			WindowWidth = std::min(1600, static_cast<int32>(Monitors.front().WorkSize.x * 0.9f));
-			WindowHeight = std::min(1000, static_cast<int32>(Monitors.front().WorkSize.y * 0.9f));
-			UIScale = Monitors.front().WorkSize.y >= 1800 ? 1.5f : Monitors.front().WorkSize.y >= 1300 ? 1.25f : 1.0f;
+			DURIN_WARN("Could not open project default level {}: {}", DefaultLevel, EditorError);
+			EditorError.clear();
 		}
-
-		FYamlDocument Document;
-		FYamlParseError Error;
-		const std::string FilePath = FPaths::LaunchDir() + SessionSettingsFileName;
-		if (!std::filesystem::exists(FilePath)) return true;
-		if (!Document.LoadFromFile(FilePath, &Error))
-		{
-			DURIN_WARN("Failed to load level editor session settings: {}", Error.Message);
-			return false;
-		}
-
-		const FYamlNodeView Root = Document.GetRootView();
-		LoadLevelViewportStates(Root, ViewportSessionState->States);
-		if (const FProjectInfo* Project = GetCurrentProject())
-		{
-			const auto ProjectStates = ViewportSessionState->States.find(Project->ProjectFile);
-			if (ProjectStates != ViewportSessionState->States.end())
-			{
-				std::erase_if(ProjectStates->second, [](const auto& Entry) {
-					FAssetPath Path;
-					if (!FAssetPath::TryCreate(Entry.first, Path)) return true;
-					const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(Path);
-					return !Data || Data->AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString();
-				});
-				if (ProjectStates->second.empty()) ViewportSessionState->States.erase(ProjectStates);
-			}
-		}
-		const FYamlNodeView Display = Root.GetView("Display");
-		WindowWidth = static_cast<int32>(Display.GetView("WindowWidth").GetInt(WindowWidth));
-		WindowHeight = static_cast<int32>(Display.GetView("WindowHeight").GetInt(WindowHeight));
-		UIScale = static_cast<float>(Display.GetView("UIScale").GetDouble(UIScale));
-		MonaImGui::SetColorTheme(Display.GetView("ColorTheme").GetString("Dark") == "Light"
-			? MonaImGui::EColorTheme::Light
-			: MonaImGui::EColorTheme::Dark);
-		bWindowMaximized = Display.GetView("WindowMaximized").GetBool(true);
-		const FYamlNodeView Gizmo = Root.GetView("TransformGizmo");
-		GizmoMode = static_cast<uint8>(std::clamp<int64>(Gizmo.GetView("Mode").GetInt(0), 0, 2));
-		GizmoSpace = static_cast<uint8>(std::clamp<int64>(Gizmo.GetView("Space").GetInt(0), 0, 1));
-		bGizmoSnapEnabled = Gizmo.GetView("SnapEnabled").GetBool(false);
-		GizmoTranslationSnap = static_cast<float>(Gizmo.GetView("TranslationSnap").GetDouble(0.5));
-		GizmoRotationSnap = static_cast<float>(Gizmo.GetView("RotationSnap").GetDouble(15.0));
-		GizmoScaleSnap = static_cast<float>(Gizmo.GetView("ScaleSnap").GetDouble(0.1));
-		return true;
-	}
-
-	auto MLevelEditor::SaveSessionSettings() const -> bool
-	{
-		FYamlDocument Document;
-		FYamlNodeRef Root = Document.GetMutableRoot();
-		Root.EnsureMap();
-		if (const FProjectInfo* Project = GetCurrentProject()) Root.SetChildValue("RecentProject", Project->ProjectFile);
-		FYamlNodeRef Display = Root.AddMap("Display");
-		Display.SetChildValue("WindowWidth", WindowWidth);
-		Display.SetChildValue("WindowHeight", WindowHeight);
-		Display.SetChildValue("UIScale", static_cast<double>(UIScale));
-		Display.SetChildValue("ColorTheme", MonaImGui::GetColorTheme() == MonaImGui::EColorTheme::Light ? "Light" : "Dark");
-		Display.SetChildValue("WindowMaximized", bWindowMaximized);
-		FYamlNodeRef GizmoNode = Root.AddMap("TransformGizmo");
-		if (SceneViewportPanel)
-		{
-			if (const FTransformGizmo* Gizmo = SceneViewportPanel->GetTransformGizmo())
-			{
-				const FTransformGizmoSnapSettings& Settings = Gizmo->GetSnapSettings();
-				GizmoNode.SetChildValue("Mode", static_cast<int64>(Gizmo->GetMode()));
-				GizmoNode.SetChildValue("Space", static_cast<int64>(Gizmo->GetSpace()));
-				GizmoNode.SetChildValue("SnapEnabled", Settings.bEnabled);
-				GizmoNode.SetChildValue("TranslationSnap", static_cast<double>(Settings.Translation));
-				GizmoNode.SetChildValue("RotationSnap", static_cast<double>(Settings.RotationDegrees));
-				GizmoNode.SetChildValue("ScaleSnap", static_cast<double>(Settings.Scale));
-			}
-		}
-		else
-		{
-			GizmoNode.SetChildValue("Mode", static_cast<int64>(GizmoMode));
-			GizmoNode.SetChildValue("Space", static_cast<int64>(GizmoSpace));
-			GizmoNode.SetChildValue("SnapEnabled", bGizmoSnapEnabled);
-			GizmoNode.SetChildValue("TranslationSnap", static_cast<double>(GizmoTranslationSnap));
-			GizmoNode.SetChildValue("RotationSnap", static_cast<double>(GizmoRotationSnap));
-			GizmoNode.SetChildValue("ScaleSnap", static_cast<double>(GizmoScaleSnap));
-		}
-		SaveLevelViewportStates(Root, ViewportSessionState->States);
-		if (!Document.SaveToFile(FPaths::LaunchDir() + SessionSettingsFileName))
-		{
-			DURIN_WARN("Failed to save level editor session settings.");
-			return false;
-		}
-		return true;
 	}
 
 	auto MLevelEditor::LoadProjectSettings() -> bool
@@ -185,7 +100,11 @@ namespace Durin
 		if (!std::filesystem::exists(File)) return true;
 		FYamlDocument Document;
 		FYamlParseError Error;
-		if (!Document.LoadFromFile(File, &Error)) { DURIN_WARN("Failed to load project settings: {}", Error.Message); return false; }
+		if (!Document.LoadFromFile(File, &Error))
+		{
+			DURIN_WARN("Failed to load project settings: {}", Error.Message);
+			return false;
+		}
 		DefaultLevel = Document.GetRootView().GetView("Editor").GetView("DefaultLevel").GetString();
 		return true;
 	}
@@ -193,88 +112,79 @@ namespace Durin
 	auto MLevelEditor::SaveProjectSettings() -> bool
 	{
 		const FProjectInfo* Project = GetCurrentProject();
-		if (!Project) { SetError("No project is open."); return false; }
-		if (!DefaultLevel.empty() && !DefaultLevel.starts_with(Project->MountRoot)) { SetError("The default level must belong to the current project."); return false; }
+		if (!Project)
+		{
+			SetError("No project is open.");
+			return false;
+		}
+		if (!DefaultLevel.empty() && !DefaultLevel.starts_with(Project->MountRoot))
+		{
+			SetError("The default level must belong to the current project.");
+			return false;
+		}
 		const auto Found = std::ranges::find_if(Asset::GetAssetRegistry().GetAssets(), [this](const auto& Entry) {
 			return Entry.first.ToString() == DefaultLevel && Entry.second.AssetClassName == DLevel::StaticClass()->GetQualifiedName().ToString();
 		});
-		if (!DefaultLevel.empty() && Found == Asset::GetAssetRegistry().GetAssets().end()) { SetError("The default level is not a registered Level asset."); return false; }
+		if (!DefaultLevel.empty() && Found == Asset::GetAssetRegistry().GetAssets().end())
+		{
+			SetError("The default level is not a registered Level asset.");
+			return false;
+		}
 		std::error_code Error;
 		std::filesystem::create_directories(std::filesystem::path(Project->ProjectDir) / "Configs", Error);
-		if (Error) { SetError("Could not create the project Configs directory."); return false; }
+		if (Error)
+		{
+			SetError("Could not create the project Configs directory.");
+			return false;
+		}
 		FYamlDocument Document;
-		FYamlNodeRef Root = Document.GetMutableRoot(); Root.EnsureMap();
+		FYamlNodeRef Root = Document.GetMutableRoot();
+		Root.EnsureMap();
 		Root.AddMap("Editor").SetChildValue("DefaultLevel", DefaultLevel);
-		if (!Document.SaveToFile(Project->ProjectDir + "Configs/Project.yaml")) { SetError("Could not save project settings."); return false; }
+		if (!Document.SaveToFile(Project->ProjectDir + "Configs/Project.yaml"))
+		{
+			SetError("Could not save project settings.");
+			return false;
+		}
 		return true;
-	}
-
-	auto MLevelEditor::OpenDefaultLevel() -> void
-	{
-		const FProjectInfo* Project = GetCurrentProject();
-		if (!Project || DefaultLevel.empty() || !DefaultLevel.starts_with(Project->MountRoot)) return;
-		OpenLevel(DefaultLevel);
-		if (!EditorError.empty())
-		{
-			DURIN_WARN("Could not open project default level {}: {}", DefaultLevel, EditorError);
-			EditorError.clear();
-		}
-	}
-
-	auto MLevelEditor::CaptureCurrentViewportState() -> void
-	{
-		const FProjectInfo* Project = GetCurrentProject();
-		if (!Project || !ViewportSessionState || !SceneViewportPanel || !Context || !Context->Level) return;
-		DPackage* Package = Context->Level->GetPackage();
-		if (!Package) return;
-		FLevelViewportCameraState State;
-		if (SceneViewportPanel->CaptureCameraState(Context->Level, State))
-			ViewportSessionState->States[Project->ProjectFile][Package->GetPackagePath()] = State;
-	}
-
-	auto MLevelEditor::RestoreViewportState(DLevel* Level) -> void
-	{
-		if (!SceneViewportPanel || !Level) return;
-		const FProjectInfo* Project = GetCurrentProject();
-		DPackage* Package = Level->GetPackage();
-		const FLevelViewportCameraState* State = nullptr;
-		if (Project && Package && ViewportSessionState)
-		{
-			const auto ProjectIt = ViewportSessionState->States.find(Project->ProjectFile);
-			if (ProjectIt != ViewportSessionState->States.end())
-			{
-				const auto LevelIt = ProjectIt->second.find(Package->GetPackagePath());
-				if (LevelIt != ProjectIt->second.end()) State = &LevelIt->second;
-			}
-		}
-		SceneViewportPanel->RestoreCameraState(Level, State);
 	}
 
 	auto MLevelEditor::Draw() -> void
 	{
-		if (!Context)
-		{
-			return;
-		}
+		if (!Context || !DocumentController || !StaticMeshImportDialog) return;
 
 		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
 		const ImGuiIO& IO = ImGui::GetIO();
-		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) RequestFileAction(EPendingFileAction::NewLevel);
-		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) SaveCurrentLevel();
+		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
+		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) DocumentController->SaveCurrentLevel();
 		const bool bGizmoDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
 		if (!bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) && GEditor) GEditor->GetTransactionManager().Undo();
 		if (!bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) && GEditor) GEditor->GetTransactionManager().Redo();
+
 		DrawMainMenu();
-		DrawFileDialogs();
+		DocumentController->DrawDialogs();
+		StaticMeshImportDialog->Draw();
 		DrawProjectSettings();
+
+		if (!EditorError.empty()) ImGui::OpenPopup("Editor Error");
+		if (ImGui::BeginPopupModal("Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::TextWrapped("%s", EditorError.c_str());
+			if (ImGui::Button("OK"))
+			{
+				EditorError.clear();
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
 
 		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow())
 		{
 			const bool bCurrentMaximized = Window->IsMaximized();
-			if (bCurrentMaximized != bWindowMaximized)
+			if (bCurrentMaximized != SessionSettings->IsWindowMaximized())
 			{
-				bWindowMaximized = bCurrentMaximized;
-				SaveSessionSettings();
+				SessionSettings->SetWindowMaximized(bCurrentMaximized);
+				SessionSettings->Save(SceneViewportPanel);
 			}
 		}
 
@@ -290,40 +200,28 @@ namespace Durin
 
 		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 		{
-			if (Panel->IsOpen())
-			{
-				Panel->Draw(*Context);
-			}
+			if (Panel->IsOpen()) Panel->Draw(*Context);
 		}
 	}
 
 	auto MLevelEditor::DrawMainMenu() -> void
 	{
-		if (!ImGui::BeginMainMenuBar())
-		{
-			return;
-		}
+		if (!ImGui::BeginMainMenuBar()) return;
 
 		if (ImGui::BeginMenu("File"))
 		{
-			if (ImGui::MenuItem("New Level", "Ctrl+N")) RequestFileAction(EPendingFileAction::NewLevel);
-			if (ImGui::MenuItem("Save Level", "Ctrl+S", false, Context && Context->Level && Context->Level->GetPackage())) SaveCurrentLevel();
+			if (ImGui::MenuItem("New Level", "Ctrl+N")) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
+			if (ImGui::MenuItem("Save Level", "Ctrl+S", false, Context && Context->Level && Context->Level->GetPackage())) DocumentController->SaveCurrentLevel();
 			if (ImGui::MenuItem("Set Current Level as Project Default", nullptr, false, Context && Context->Level && Context->Level->GetPackage()))
 			{
 				DefaultLevel = Context->Level->GetPackage()->GetPackagePath();
 				SaveProjectSettings();
 			}
-			if (ImGui::MenuItem("Open Project...")) RequestFileAction(EPendingFileAction::OpenProject);
+			if (ImGui::MenuItem("Open Project...")) DocumentController->RequestAction(ELevelDocumentAction::OpenProject);
 			ImGui::Separator();
 			if (ImGui::BeginMenu("Import"))
 			{
-				if (ImGui::MenuItem("Static Mesh..."))
-				{
-					ImportSourcePathBuffer.fill(0);
-					ImportAssetPathBuffer.fill(0);
-					LastSuggestedImportAssetPath.clear();
-					QueuedFilePopup = EQueuedFilePopup::ImportStaticMesh;
-				}
+				if (ImGui::MenuItem("Static Mesh...")) StaticMeshImportDialog->Open();
 				ImGui::EndMenu();
 			}
 			ImGui::Separator();
@@ -357,12 +255,12 @@ namespace Durin
 					if (ImGui::MenuItem("Dark", nullptr, CurrentTheme == MonaImGui::EColorTheme::Dark))
 					{
 						MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Dark);
-						SaveSessionSettings();
+						SessionSettings->Save(SceneViewportPanel);
 					}
 					if (ImGui::MenuItem("Light", nullptr, CurrentTheme == MonaImGui::EColorTheme::Light))
 					{
 						MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Light);
-						SaveSessionSettings();
+						SessionSettings->Save(SceneViewportPanel);
 					}
 					ImGui::EndMenu();
 				}
@@ -371,24 +269,19 @@ namespace Durin
 				for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
 				{
 					const std::string Label = std::format("{}%", static_cast<int32>(Scale * 100.0f));
-					if (ImGui::MenuItem(Label.c_str(), nullptr, std::abs(UIScale - Scale) < 0.01f)) ApplyDisplaySettings(WindowWidth, WindowHeight, Scale);
+					if (ImGui::MenuItem(Label.c_str(), nullptr, std::abs(SessionSettings->GetUIScale() - Scale) < 0.01f))
+						ApplyDisplaySettings(SessionSettings->GetWindowWidth(), SessionSettings->GetWindowHeight(), Scale);
 				}
 				ImGui::EndMenu();
 			}
-			if (ImGui::MenuItem("Reset Layout"))
-			{
-				bResetLayoutRequested = true;
-			}
+			if (ImGui::MenuItem("Reset Layout")) bResetLayoutRequested = true;
 			ImGui::Separator();
-			if (GEngine != nullptr)
+			if (GEngine)
 			{
 				if (IRendererModule* RendererModule = GEngine->GetRendererModule())
 				{
 					bool bEnableFXAA = RendererModule->IsFXAAEnabled();
-					if (ImGui::MenuItem("FXAA", nullptr, &bEnableFXAA))
-					{
-						RendererModule->SetFXAAEnabled(bEnableFXAA);
-					}
+					if (ImGui::MenuItem("FXAA", nullptr, &bEnableFXAA)) RendererModule->SetFXAAEnabled(bEnableFXAA);
 				}
 			}
 			ImGui::EndMenu();
@@ -398,10 +291,7 @@ namespace Durin
 			for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 			{
 				bool bOpen = Panel->IsOpen();
-				if (ImGui::MenuItem(Panel->GetWindowName(), nullptr, &bOpen))
-				{
-					Panel->SetOpen(bOpen);
-				}
+				if (ImGui::MenuItem(Panel->GetWindowName(), nullptr, &bOpen)) Panel->SetOpen(bOpen);
 			}
 			ImGui::EndMenu();
 		}
@@ -410,7 +300,6 @@ namespace Durin
 			ImGui::MenuItem("Durin Level Editor - early development", nullptr, false, false);
 			ImGui::EndMenu();
 		}
-
 		ImGui::EndMainMenuBar();
 	}
 
@@ -444,436 +333,13 @@ namespace Durin
 
 	auto MLevelEditor::ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void
 	{
-		WindowWidth = Width;
-		WindowHeight = Height;
-		UIScale = Scale;
-		MonaImGui::SetGlobalUIScale(UIScale);
+		SessionSettings->SetDisplaySettings(Width, Height, Scale);
+		MonaImGui::SetGlobalUIScale(Scale);
 		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow())
 		{
-			if (!Window->IsMaximized())
-			{
-				Window->ResizeWindow({static_cast<float>(WindowWidth), static_cast<float>(WindowHeight)});
-			}
+			if (!Window->IsMaximized()) Window->ResizeWindow({static_cast<float>(Width), static_cast<float>(Height)});
 		}
-		SaveSessionSettings();
-	}
-
-	auto MLevelEditor::RequestFileAction(EPendingFileAction Action) -> void
-	{
-		PendingLevelPath.clear();
-		PendingFileAction = Action;
-		if (Context && Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty())
-		{
-			QueuedFilePopup = EQueuedFilePopup::UnsavedLevel;
-			return;
-		}
-		ExecutePendingFileAction();
-	}
-
-	auto MLevelEditor::RequestOpenLevel(std::string Path) -> bool
-	{
-		FAssetPath AssetPath;
-		if (!FAssetPath::TryCreate(Path, AssetPath)) return false;
-		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(AssetPath);
-		if (!Data || Data->AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString()) return false;
-		PendingLevelPath = std::move(Path);
-		PendingFileAction = EPendingFileAction::OpenLevel;
-		if (Context && Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty())
-		{
-			QueuedFilePopup = EQueuedFilePopup::UnsavedLevel;
-			return true;
-		}
-		OpenLevel(PendingLevelPath);
-		PendingLevelPath.clear();
-		return true;
-	}
-
-	auto MLevelEditor::ExecutePendingFileAction() -> void
-	{
-		if (PendingFileAction == EPendingFileAction::NewLevel)
-		{
-			LevelPathBuffer.fill(0);
-			const FProjectInfo* Project = GetCurrentProject();
-			const std::string DefaultPath = Project ? Project->MountRoot + "Levels/NewLevel" : "/Levels/NewLevel";
-			std::memcpy(LevelPathBuffer.data(), DefaultPath.data(), DefaultPath.size());
-			QueuedFilePopup = EQueuedFilePopup::NewLevel;
-		}
-		else if (PendingFileAction == EPendingFileAction::OpenLevel)
-		{
-			if (!PendingLevelPath.empty())
-			{
-				const std::string Path = std::exchange(PendingLevelPath, {});
-				OpenLevel(Path);
-				return;
-			}
-			PendingFileAction = EPendingFileAction::None;
-		}
-		else if (PendingFileAction == EPendingFileAction::OpenProject)
-		{
-			std::string Error;
-			if (!RelaunchEditorForProject({}, &Error)) SetError(std::move(Error));
-		}
-	}
-
-	auto MLevelEditor::DrawFileDialogs() -> void
-	{
-		switch (QueuedFilePopup)
-		{
-		case EQueuedFilePopup::UnsavedLevel: ImGui::OpenPopup("Unsaved Level"); break;
-		case EQueuedFilePopup::NewLevel: ImGui::OpenPopup("New Level"); break;
-		case EQueuedFilePopup::ImportStaticMesh: ImGui::OpenPopup("Import Static Mesh"); break;
-		case EQueuedFilePopup::None: break;
-		}
-		QueuedFilePopup = EQueuedFilePopup::None;
-
-		if (ImGui::BeginPopupModal("Unsaved Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-		{
-			ImGui::TextUnformatted("The current level has unsaved changes.");
-			if (ImGui::Button("Save"))
-			{
-				if (SaveCurrentLevel()) { ImGui::CloseCurrentPopup(); ExecutePendingFileAction(); }
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Discard")) { ImGui::CloseCurrentPopup(); ExecutePendingFileAction(); }
-			ImGui::SameLine();
-			if (ImGui::Button("Cancel")) { PendingFileAction = EPendingFileAction::None; PendingLevelPath.clear(); ImGui::CloseCurrentPopup(); }
-			ImGui::EndPopup();
-		}
-
-		if (ImGui::BeginPopupModal("New Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-		{
-			ImGui::InputText("Virtual Path", LevelPathBuffer.data(), LevelPathBuffer.size());
-			if (ImGui::Button("Create")) { CreateLevel(LevelPathBuffer.data()); if (EditorError.empty()) ImGui::CloseCurrentPopup(); }
-			ImGui::SameLine();
-			if (ImGui::Button("Cancel")) { PendingFileAction = EPendingFileAction::None; ImGui::CloseCurrentPopup(); }
-			ImGui::EndPopup();
-		}
-
-
-		ImGui::SetNextWindowSize(ImVec2(640.0f, 0.0f), ImGuiCond_Appearing);
-		if (ImGui::BeginPopupModal("Import Static Mesh", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize))
-		{
-			ImGui::TextUnformatted("Create a static mesh asset from a model file.");
-			ImGui::TextDisabled("The source model is copied next to the .dasset package so they can be moved together.");
-
-			ImGui::Spacing();
-			ImGui::SeparatorText("Source model");
-			const float BrowseButtonWidth = 92.0f;
-			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
-			ImGui::InputTextWithHint("##ImportSource", "Choose an OBJ, FBX, glTF, or other supported model...", ImportSourcePathBuffer.data(), ImportSourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
-			ImGui::SameLine();
-			if (ImGui::Button("Browse...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseStaticMeshSource();
-
-			const std::filesystem::path SourcePath(ImportSourcePathBuffer.data());
-			const bool bHasSource = ImportSourcePathBuffer[0] != '\0';
-			const bool bSourceExists = bHasSource && std::filesystem::is_regular_file(SourcePath);
-			if (bHasSource)
-			{
-				ImGui::TextDisabled("%s", std::format("{}  |  {}", SourcePath.extension().generic_string(), SourcePath.filename().generic_string()).c_str());
-			}
-
-			ImGui::Spacing();
-			ImGui::SeparatorText("Destination");
-			ImGui::TextUnformatted("Asset path");
-			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
-			ImGui::InputTextWithHint("##ImportAssetPath", "/Project/StaticMeshes/AssetName", ImportAssetPathBuffer.data(), ImportAssetPathBuffer.size());
-			ImGui::SameLine();
-			if (ImGui::Button("Choose...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseStaticMeshDestination();
-
-			FAssetPath ParsedAssetPath;
-			std::string AssetPathError;
-			const bool bAssetPathValid = FAssetPath::TryCreate(ImportAssetPathBuffer.data(), ParsedAssetPath, &AssetPathError);
-			bool bMountedDestination = false;
-			if (bAssetPathValid)
-			{
-				for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-				{
-					if (ParsedAssetPath.GetView().starts_with(Mount.VirtualRoot)) { bMountedDestination = true; break; }
-				}
-			}
-			const bool bAssetExists = bAssetPathValid && (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath));
-
-			if (bAssetPathValid && bMountedDestination && bHasSource)
-			{
-				const std::string SourceFileName = std::string(ParsedAssetPath.GetAssetName()) + SourcePath.extension().generic_string();
-				ImGui::BeginChild("ImportOutputPreview", ImVec2(0.0f, 58.0f), ImGuiChildFlags_Borders);
-				ImGui::TextDisabled("Files to create");
-				ImGui::TextUnformatted(std::format("{}.dasset   +   {}", ParsedAssetPath.GetAssetName(), SourceFileName).c_str());
-				ImGui::EndChild();
-			}
-
-			std::string ValidationMessage;
-			if (!bHasSource) ValidationMessage = "Select a source model to continue.";
-			else if (!bSourceExists) ValidationMessage = "The selected source file no longer exists.";
-			else if (!bAssetPathValid) ValidationMessage = AssetPathError;
-			else if (!bMountedDestination) ValidationMessage = "Choose a destination inside a mounted Content directory.";
-			else if (bAssetExists) ValidationMessage = "An asset already exists at this path.";
-
-			if (!ValidationMessage.empty())
-			{
-				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.65f, 0.25f, 1.0f));
-				ImGui::TextWrapped("%s", ValidationMessage.c_str());
-				ImGui::PopStyleColor();
-			}
-
-			ImGui::Spacing();
-			ImGui::Separator();
-			const bool bCanImport = ValidationMessage.empty();
-			ImGui::BeginDisabled(!bCanImport);
-			if (ImGui::Button("Import Static Mesh", ImVec2(150.0f, 0.0f)))
-			{
-				ImportStaticMesh();
-				if (EditorError.empty()) ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndDisabled();
-			ImGui::SameLine();
-			if (ImGui::Button("Cancel", ImVec2(80.0f, 0.0f))) ImGui::CloseCurrentPopup();
-			ImGui::EndPopup();
-		}
-
-		if (!EditorError.empty()) ImGui::OpenPopup("Editor Error");
-		if (ImGui::BeginPopupModal("Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-		{
-			ImGui::TextWrapped("%s", EditorError.c_str());
-			if (ImGui::Button("OK")) { EditorError.clear(); ImGui::CloseCurrentPopup(); }
-			ImGui::EndPopup();
-		}
-	}
-
-	auto MLevelEditor::BrowseStaticMeshSource() -> void
-	{
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Select a Static Mesh Source File";
-		Request.Filters = {
-			{"All Supported Models", "*.obj;*.fbx;*.gltf;*.glb;*.dae;*.3ds;*.ply;*.stl"},
-			{"Wavefront OBJ", "*.obj"},
-			{"Autodesk FBX", "*.fbx"},
-			{"glTF", "*.gltf;*.glb"},
-			{"COLLADA", "*.dae"},
-			{"All Files", "*.*"}
-		};
-		if (ImportSourcePathBuffer[0] != '\0')
-		{
-			Request.InitialDirectory = std::filesystem::path(ImportSourcePathBuffer.data()).parent_path().generic_string();
-		}
-
-		FFileDialogResult Result = OpenFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error)
-		{
-			SetError(Result.ErrorMessage);
-			return;
-		}
-		if (Result.FilePath.size() >= ImportSourcePathBuffer.size())
-		{
-			SetError("The selected file path is too long for the import form.");
-			return;
-		}
-
-		const std::string PreviousAssetPath = ImportAssetPathBuffer.data();
-		ImportSourcePathBuffer.fill(0);
-		std::memcpy(ImportSourcePathBuffer.data(), Result.FilePath.data(), FMath::Min(Result.FilePath.size(), ImportSourcePathBuffer.size() - 1));
-
-		const std::string AssetName = String::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
-		const FProjectInfo* Project = GetCurrentProject();
-		const std::string SuggestedPath = (Project ? Project->MountRoot : "/") + "StaticMeshes/" + AssetName;
-		if (PreviousAssetPath.empty() || PreviousAssetPath == LastSuggestedImportAssetPath)
-		{
-			ImportAssetPathBuffer.fill(0);
-			std::memcpy(ImportAssetPathBuffer.data(), SuggestedPath.data(), FMath::Min(SuggestedPath.size(), ImportAssetPathBuffer.size() - 1));
-		}
-		LastSuggestedImportAssetPath = SuggestedPath;
-	}
-
-	auto MLevelEditor::BrowseStaticMeshDestination() -> void
-	{
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Choose a Static Mesh Asset Path";
-		Request.Filters = {{"Durin Asset", "*.dasset"}};
-		Request.DefaultFileName = ImportSourcePathBuffer[0] != '\0'
-			? String::SanitizeFileName(std::filesystem::path(ImportSourcePathBuffer.data()).stem().generic_string(), "StaticMesh") + ".dasset"
-			: "StaticMesh.dasset";
-
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-		{
-			if (const FProjectInfo* Project = GetCurrentProject(); Project && Mount.VirtualRoot == Project->MountRoot)
-			{
-				Request.InitialDirectory = Mount.PhysicalPath;
-				break;
-			}
-		}
-
-		FFileDialogResult Result = SaveFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error)
-		{
-			SetError(Result.ErrorMessage);
-			return;
-		}
-
-		std::string SelectedPath = std::filesystem::absolute(Result.FilePath).lexically_normal().generic_string();
-		std::ranges::transform(SelectedPath, SelectedPath.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-		{
-			std::string MountPath = std::filesystem::absolute(Mount.PhysicalPath).lexically_normal().generic_string();
-			if (!MountPath.ends_with('/')) MountPath += '/';
-			std::string LowerMountPath = MountPath;
-			std::ranges::transform(LowerMountPath, LowerMountPath.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-			if (!SelectedPath.starts_with(LowerMountPath)) continue;
-
-			std::filesystem::path RelativePath = std::filesystem::path(Result.FilePath).lexically_relative(std::filesystem::path(Mount.PhysicalPath));
-			RelativePath.replace_extension();
-			const std::string VirtualPath = Mount.VirtualRoot + RelativePath.generic_string();
-			if (VirtualPath.size() >= ImportAssetPathBuffer.size())
-			{
-				SetError("The selected asset path is too long for the import form.");
-				return;
-			}
-			ImportAssetPathBuffer.fill(0);
-			std::memcpy(ImportAssetPathBuffer.data(), VirtualPath.data(), VirtualPath.size());
-			LastSuggestedImportAssetPath.clear();
-			return;
-		}
-
-		SetError("Static mesh assets must be saved inside a mounted Content directory.");
-	}
-
-	auto MLevelEditor::CreateLevel(std::string_view PathString) -> void
-	{
-		EditorError.clear();
-		FAssetPath Path;
-		std::string PathError;
-		if (!FAssetPath::TryCreate(PathString, Path, &PathError)) { SetError(PathError); return; }
-		DLevel* Level = nullptr;
-		Asset::FAssetResult Result = Asset::CreateAsset(Path, Level);
-		if (!Result) { SetError(Result.Message); return; }
-		ACameraActor* Camera = Level->SpawnActor<ACameraActor>("Camera");
-		Level->SetPrimaryCameraActor(Camera);
-		ADirectionalLightActor* DirectionalLight = Level->SpawnActor<ADirectionalLightActor>("DirectionalLight");
-		if (DirectionalLight != nullptr)
-		{
-			FTransform LightTransform = DirectionalLight->GetActorTransform();
-			LightTransform.Rotation = FQuat(FVector3(glm::radians(-35.0), glm::radians(25.0), glm::radians(-20.0)));
-			DirectionalLight->SetActorTransform(LightTransform);
-		}
-		if (!ActivateLevel(Level)) Asset::UnloadPackage(Path);
-		else PendingFileAction = EPendingFileAction::None;
-	}
-
-	auto MLevelEditor::OpenLevel(std::string_view PathString) -> void
-	{
-		EditorError.clear();
-		FAssetPath Path;
-		std::string PathError;
-		if (!FAssetPath::TryCreate(PathString, Path, &PathError)) { SetError(PathError); return; }
-		DLevel* Level = nullptr;
-		Asset::FAssetResult Result = Asset::LoadAsset(Path, Level);
-		if (!Result) { SetError(Result.Message); return; }
-		if (!ActivateLevel(Level)) return;
-		PendingFileAction = EPendingFileAction::None;
-	}
-
-	auto MLevelEditor::SaveCurrentLevel() -> bool
-	{
-		EditorError.clear();
-		if (!Context || !Context->Level || !Context->Level->GetPackage()) { SetError("The current level is transient and cannot be saved."); return false; }
-		CaptureCurrentViewportState();
-		SaveSessionSettings();
-		Asset::FAssetResult Result = Asset::SavePackage(Context->Level->GetPackage());
-		if (!Result) { SetError(Result.Message); return false; }
-		return true;
-	}
-
-	auto MLevelEditor::RenameCurrentLevel(std::string_view NewName) -> bool
-	{
-		EditorError.clear();
-		if (!Context || !Context->Level) { SetError("No level is open."); return false; }
-		DPackage* Package = Context->Level->GetPackage();
-		if (!Package || !Package->IsAssetPackage()) { SetError("Transient levels cannot be renamed as assets."); return false; }
-		if (NewName.empty()) { SetError("Level name cannot be empty."); return false; }
-		if (NewName.find_first_of("/\\") != std::string_view::npos) { SetError("Level name cannot contain path separators."); return false; }
-
-		FAssetPath OldPath;
-		std::string PathError;
-		if (!FAssetPath::TryCreate(Package->GetPackagePath(), OldPath, &PathError)) { SetError(PathError); return false; }
-		const std::string OldPathString = OldPath.ToString();
-		const size_t Separator = OldPathString.find_last_of('/');
-		const std::string NewPathString = OldPathString.substr(0, Separator + 1) + std::string(NewName);
-		FAssetPath NewPath;
-		if (!FAssetPath::TryCreate(NewPathString, NewPath, &PathError)) { SetError(PathError); return false; }
-
-		if (OldPath == NewPath)
-		{
-			if (Context->Level->GetName() == NewName) return true;
-			const FName OldObjectName = Context->Level->GetFName();
-			Context->Level->Rename(FName(NewName));
-			const Asset::FAssetResult SaveResult = Asset::SavePackage(Package);
-			if (!SaveResult)
-			{
-				Context->Level->Rename(OldObjectName);
-				SetError(SaveResult.Message);
-				return false;
-			}
-			return true;
-		}
-
-		CaptureCurrentViewportState();
-		const Asset::FAssetResult MoveResult = Asset::MoveAsset(OldPath, NewPath);
-		if (!MoveResult) { SetError(MoveResult.Message); return false; }
-
-		if (const FProjectInfo* Project = GetCurrentProject(); Project && ViewportSessionState)
-		{
-			auto ProjectIt = ViewportSessionState->States.find(Project->ProjectFile);
-			if (ProjectIt != ViewportSessionState->States.end())
-			{
-				auto StateIt = ProjectIt->second.find(OldPathString);
-				if (StateIt != ProjectIt->second.end())
-				{
-					FLevelViewportCameraState State = StateIt->second;
-					ProjectIt->second.erase(StateIt);
-					ProjectIt->second[NewPathString] = State;
-				}
-			}
-		}
-		SaveSessionSettings();
-		if (DefaultLevel == OldPathString)
-		{
-			DefaultLevel = NewPathString;
-			SaveProjectSettings();
-		}
-		return true;
-	}
-
-	auto MLevelEditor::ImportStaticMesh() -> void
-	{
-		EditorError.clear();
-		FStaticMeshImportResult Result = DStaticMesh::ImportAsset(ImportSourcePathBuffer.data(), ImportAssetPathBuffer.data());
-		if (!Result) SetError(Result.Message);
-	}
-
-	auto MLevelEditor::ActivateLevel(DLevel* Level) -> bool
-	{
-		if (!Context || !Context->World || !Level) { SetError("No world is available to activate the level."); return false; }
-		CaptureCurrentViewportState();
-		SaveSessionSettings();
-		DLevel* Previous = Context->World->GetCurrentLevel();
-		DPackage* PreviousPackage = Previous ? Previous->GetPackage() : nullptr;
-		if (!Context->World->SetCurrentLevel(Level)) { SetError("The level is already active in another world."); return false; }
-		if (GEditor) GEditor->GetTransactionManager().Clear();
-		Context->Synchronize(Context->World);
-		RestoreViewportState(Level);
-		if (PreviousPackage && PreviousPackage != Level->GetPackage())
-		{
-			FAssetPath PreviousPath;
-			if (FAssetPath::TryCreate(PreviousPackage->GetPackagePath(), PreviousPath))
-			{
-				Asset::FAssetResult Result = Asset::UnloadPackage(PreviousPath);
-				if (!Result && Result.Error != Asset::EAssetError::NotFound) DURIN_WARN("Failed to unload previous level: {}", Result.Message);
-			}
-		}
-		return true;
+		SessionSettings->Save(SceneViewportPanel);
 	}
 
 	auto MLevelEditor::SetError(std::string Message) -> void

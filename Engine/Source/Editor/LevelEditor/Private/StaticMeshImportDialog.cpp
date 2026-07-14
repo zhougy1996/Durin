@@ -1,0 +1,227 @@
+#include "StaticMeshImportDialog.h"
+
+#include "AssetSystem.h"
+#include "Dialogs/FileDialog.h"
+#include "Misc/Paths.h"
+#include "Misc/Project.h"
+#include "Misc/StringConvert.h"
+#include "MonaImGui.h"
+#include "StaticMesh/StaticMesh.h"
+
+namespace Durin
+{
+	FStaticMeshImportDialog::FStaticMeshImportDialog(std::function<void()> InClearError, std::function<void(std::string)> InReportError)
+		: ClearError(std::move(InClearError))
+		, ReportError(std::move(InReportError))
+	{
+	}
+
+	auto FStaticMeshImportDialog::Open() -> void
+	{
+		SourcePathBuffer.fill(0);
+		AssetPathBuffer.fill(0);
+		LastSuggestedAssetPath.clear();
+		bOpenRequested = true;
+	}
+
+	auto FStaticMeshImportDialog::Draw() -> void
+	{
+		if (bOpenRequested)
+		{
+			ImGui::OpenPopup("Import Static Mesh");
+			bOpenRequested = false;
+		}
+
+		ImGui::SetNextWindowSize(ImVec2(640.0f, 0.0f), ImGuiCond_Appearing);
+		if (!ImGui::BeginPopupModal("Import Static Mesh", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize)) return;
+
+		ImGui::TextUnformatted("Create a static mesh asset from a model file.");
+		ImGui::TextDisabled("The source model is copied next to the .dasset package so they can be moved together.");
+		ImGui::Spacing();
+		ImGui::SeparatorText("Source model");
+		const float BrowseButtonWidth = 92.0f;
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
+		ImGui::InputTextWithHint("##ImportSource", "Choose an OBJ, FBX, glTF, or other supported model...", SourcePathBuffer.data(), SourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
+		ImGui::SameLine();
+		if (ImGui::Button("Browse...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseSource();
+
+		const std::filesystem::path SourcePath(SourcePathBuffer.data());
+		const bool bHasSource = SourcePathBuffer[0] != '\0';
+		const bool bSourceExists = bHasSource && std::filesystem::is_regular_file(SourcePath);
+		if (bHasSource)
+			ImGui::TextDisabled("%s", std::format("{}  |  {}", SourcePath.extension().generic_string(), SourcePath.filename().generic_string()).c_str());
+
+		ImGui::Spacing();
+		ImGui::SeparatorText("Destination");
+		ImGui::TextUnformatted("Asset path");
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
+		ImGui::InputTextWithHint("##ImportAssetPath", "/Project/StaticMeshes/AssetName", AssetPathBuffer.data(), AssetPathBuffer.size());
+		ImGui::SameLine();
+		if (ImGui::Button("Choose...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseDestination();
+
+		FAssetPath ParsedAssetPath;
+		std::string AssetPathError;
+		const bool bAssetPathValid = FAssetPath::TryCreate(AssetPathBuffer.data(), ParsedAssetPath, &AssetPathError);
+		bool bMountedDestination = false;
+		if (bAssetPathValid)
+		{
+			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+			{
+				if (ParsedAssetPath.GetView().starts_with(Mount.VirtualRoot))
+				{
+					bMountedDestination = true;
+					break;
+				}
+			}
+		}
+		const bool bAssetExists = bAssetPathValid && (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath));
+
+		if (bAssetPathValid && bMountedDestination && bHasSource)
+		{
+			const std::string SourceFileName = std::string(ParsedAssetPath.GetAssetName()) + SourcePath.extension().generic_string();
+			ImGui::BeginChild("ImportOutputPreview", ImVec2(0.0f, 58.0f), ImGuiChildFlags_Borders);
+			ImGui::TextDisabled("Files to create");
+			ImGui::TextUnformatted(std::format("{}.dasset   +   {}", ParsedAssetPath.GetAssetName(), SourceFileName).c_str());
+			ImGui::EndChild();
+		}
+
+		std::string ValidationMessage;
+		if (!bHasSource)
+			ValidationMessage = "Select a source model to continue.";
+		else if (!bSourceExists)
+			ValidationMessage = "The selected source file no longer exists.";
+		else if (!bAssetPathValid)
+			ValidationMessage = AssetPathError;
+		else if (!bMountedDestination)
+			ValidationMessage = "Choose a destination inside a mounted Content directory.";
+		else if (bAssetExists)
+			ValidationMessage = "An asset already exists at this path.";
+
+		if (!ValidationMessage.empty())
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.65f, 0.25f, 1.0f));
+			ImGui::TextWrapped("%s", ValidationMessage.c_str());
+			ImGui::PopStyleColor();
+		}
+
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::BeginDisabled(!ValidationMessage.empty());
+		if (ImGui::Button("Import Static Mesh", ImVec2(150.0f, 0.0f)) && Import()) ImGui::CloseCurrentPopup();
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(80.0f, 0.0f))) ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+	}
+
+	auto FStaticMeshImportDialog::BrowseSource() -> void
+	{
+		FFileDialogRequest Request;
+		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.Title = "Select a Static Mesh Source File";
+		Request.Filters = {
+			{"All Supported Models", "*.obj;*.fbx;*.gltf;*.glb;*.dae;*.3ds;*.ply;*.stl"},
+			{"Wavefront OBJ", "*.obj"},
+			{"Autodesk FBX", "*.fbx"},
+			{"glTF", "*.gltf;*.glb"},
+			{"COLLADA", "*.dae"},
+			{"All Files", "*.*"}
+		};
+		if (SourcePathBuffer[0] != '\0') Request.InitialDirectory = std::filesystem::path(SourcePathBuffer.data()).parent_path().generic_string();
+
+		FFileDialogResult Result = OpenFileDialog(Request);
+		if (Result.Status == EFileDialogStatus::Cancelled) return;
+		if (Result.Status == EFileDialogStatus::Error)
+		{
+			SetError(Result.ErrorMessage);
+			return;
+		}
+		if (Result.FilePath.size() >= SourcePathBuffer.size())
+		{
+			SetError("The selected file path is too long for the import form.");
+			return;
+		}
+
+		const std::string PreviousAssetPath = AssetPathBuffer.data();
+		SourcePathBuffer.fill(0);
+		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
+		const std::string AssetName = String::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
+		const FProjectInfo* Project = GetCurrentProject();
+		const std::string SuggestedPath = (Project ? Project->MountRoot : "/") + "StaticMeshes/" + AssetName;
+		if (PreviousAssetPath.empty() || PreviousAssetPath == LastSuggestedAssetPath)
+		{
+			AssetPathBuffer.fill(0);
+			std::memcpy(AssetPathBuffer.data(), SuggestedPath.data(), std::min(SuggestedPath.size(), AssetPathBuffer.size() - 1));
+		}
+		LastSuggestedAssetPath = SuggestedPath;
+	}
+
+	auto FStaticMeshImportDialog::BrowseDestination() -> void
+	{
+		FFileDialogRequest Request;
+		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.Title = "Choose a Static Mesh Asset Path";
+		Request.Filters = {{"Durin Asset", "*.dasset"}};
+		Request.DefaultFileName = SourcePathBuffer[0] != '\0' ? String::SanitizeFileName(std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(), "StaticMesh") + ".dasset" : "StaticMesh.dasset";
+
+		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		{
+			if (const FProjectInfo* Project = GetCurrentProject(); Project && Mount.VirtualRoot == Project->MountRoot)
+			{
+				Request.InitialDirectory = Mount.PhysicalPath;
+				break;
+			}
+		}
+
+		FFileDialogResult Result = SaveFileDialog(Request);
+		if (Result.Status == EFileDialogStatus::Cancelled) return;
+		if (Result.Status == EFileDialogStatus::Error)
+		{
+			SetError(Result.ErrorMessage);
+			return;
+		}
+
+		std::string SelectedPath = std::filesystem::absolute(Result.FilePath).lexically_normal().generic_string();
+		std::ranges::transform(SelectedPath, SelectedPath.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		{
+			std::string MountPath = std::filesystem::absolute(Mount.PhysicalPath).lexically_normal().generic_string();
+			if (!MountPath.ends_with('/')) MountPath += '/';
+			std::string LowerMountPath = MountPath;
+			std::ranges::transform(LowerMountPath, LowerMountPath.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+			if (!SelectedPath.starts_with(LowerMountPath)) continue;
+
+			std::filesystem::path RelativePath = std::filesystem::path(Result.FilePath).lexically_relative(std::filesystem::path(Mount.PhysicalPath));
+			RelativePath.replace_extension();
+			const std::string VirtualPath = Mount.VirtualRoot + RelativePath.generic_string();
+			if (VirtualPath.size() >= AssetPathBuffer.size())
+			{
+				SetError("The selected asset path is too long for the import form.");
+				return;
+			}
+			AssetPathBuffer.fill(0);
+			std::memcpy(AssetPathBuffer.data(), VirtualPath.data(), VirtualPath.size());
+			LastSuggestedAssetPath.clear();
+			return;
+		}
+
+		SetError("Static mesh assets must be saved inside a mounted Content directory.");
+	}
+
+	auto FStaticMeshImportDialog::Import() -> bool
+	{
+		if (ClearError) ClearError();
+		FStaticMeshImportResult Result = DStaticMesh::ImportAsset(SourcePathBuffer.data(), AssetPathBuffer.data());
+		if (!Result)
+		{
+			SetError(Result.Message);
+			return false;
+		}
+		return true;
+	}
+
+	auto FStaticMeshImportDialog::SetError(std::string Message) const -> void
+	{
+		if (ReportError) ReportError(std::move(Message));
+	}
+} // namespace Durin
