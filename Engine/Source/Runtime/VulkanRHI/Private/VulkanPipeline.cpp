@@ -227,7 +227,6 @@ namespace Durin::VulkanRHI
 		pipelineLayoutInfo.setPushConstantRanges(PushConstantRanges);
 
 		PipelineLayout = Device.GetHandle().createPipelineLayout(pipelineLayoutInfo);
-		DURIN_TRACE("Vulkan pipeline layout created");
 
 		vk::GraphicsPipelineCreateInfo pipelineInfo;
 		pipelineInfo
@@ -249,13 +248,13 @@ namespace Durin::VulkanRHI
 		vk::ResultValue<vk::Pipeline> PipelineCreationResult = Device.GetHandle().createGraphicsPipeline(nullptr, pipelineInfo);
 		if (PipelineCreationResult.result != vk::Result::eSuccess)
 		{
-			DURIN_ERROR("Failed to create vulkan graphics pipeline: {}", vk::to_string(PipelineCreationResult.result));
+			DURIN_ERROR("Failed to create a Vulkan graphics pipeline: result={}, shaderStages={}, descriptorSetLayouts={}, pushConstantRanges={}.",
+				vk::to_string(PipelineCreationResult.result), ShaderStages.size(), Layout->GetDescriptorSetsLayout().GetLayoutHandles().size(), PushConstantRanges.size());
 			KeepShadersAlive();
 		}
 		else
 		{
 			Pipeline = PipelineCreationResult.value;
-			DURIN_TRACE("Vulkan graphics pipeline created");
 		}
 	}
 

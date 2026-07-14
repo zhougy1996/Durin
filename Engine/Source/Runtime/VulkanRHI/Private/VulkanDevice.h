@@ -100,7 +100,7 @@ namespace Durin::VulkanRHI
 
 		~FVulkanDevice();
 
-		auto InitGpu() -> void;
+		auto InitGpu(uint32 EnabledInstanceExtensionCount) -> void;
 
 		auto CreateDevice(const FVulkanDeviceExtensionArray& InDeviceExtensions) -> void;
 
@@ -182,6 +182,12 @@ namespace Durin::VulkanRHI
 		FVulkanQueue* PresentQueue = nullptr;
 
 		std::vector<const char*> DeviceExtensions;
+
+		int32 GraphicsQueueFamilyIndex = -1;
+
+		int32 ComputeQueueFamilyIndex = -1;
+
+		int32 TransferQueueFamilyIndex = -1;
 
 		std::vector<FVulkanCommandListContext*> CommandContexts;
 

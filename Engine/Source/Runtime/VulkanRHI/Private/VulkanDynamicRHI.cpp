@@ -28,7 +28,7 @@ namespace Durin::VulkanRHI
 		CreateInstance();
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Instance);
 		SelectDevice();
-		Device->InitGpu();
+		Device->InitGpu(static_cast<uint32>(InstanceExtensions.size()));
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Device->GetHandle());
 	}
 
@@ -126,12 +126,8 @@ namespace Durin::VulkanRHI
 		}
 		catch (const vk::SystemError& err)
 		{
-			DURIN_ERROR("Failed to create Vulkan instance: {}", err.what());
-		}
-
-		if (Instance)
-		{
-			DURIN_TRACE("Vulkan instance created.");
+			DURIN_ERROR("Failed to create Vulkan instance: result={}, extensions={}, layers={}, error={}",
+				vk::to_string(static_cast<vk::Result>(err.code().value())), InstanceExtensions.size(), InstanceLayers.size(), err.what());
 		}
 	}
 
@@ -163,7 +159,7 @@ namespace Durin::VulkanRHI
 
 		if (Gpus.empty())
 		{
-			DURIN_ERROR("No physical device found.");
+			DURIN_ERROR("Failed to select a Vulkan physical device: the driver reported no devices.");
 			return;
 		}
 

@@ -28,6 +28,11 @@ namespace Durin::VulkanRHI
 		{
 			return static_cast<vk::Result>(Error.code().value());
 		}
+
+		auto PresentModePolicyName(const EViewportPresentModePolicy Policy) -> const char*
+		{
+			return Policy == EViewportPresentModePolicy::ImGuiDetachedViewport ? "ImGuiDetachedViewport" : "MainWindow";
+		}
 	}
 
 	auto ChooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& AvailableFormats) -> vk::SurfaceFormatKHR
@@ -131,13 +136,24 @@ namespace Durin::VulkanRHI
 		{
 			Swapchain = Device.GetHandle().createSwapchainKHR(SwapchainInfo);
 		}
+		catch (const vk::SystemError& err)
+		{
+			DURIN_ERROR("Failed to create Vulkan swapchain: result={}, extent={}x{}, format={}, colorSpace={}, presentMode={}, policy={}, error={}",
+				vk::to_string(GetSystemErrorResult(err)), Extent.width, Extent.height, vk::to_string(CurrFormat.format), vk::to_string(CurrFormat.colorSpace),
+				vk::to_string(PresentMode), PresentModePolicyName(PresentModePolicy), err.what());
+		}
 		catch (const std::runtime_error& err)
 		{
-			DURIN_ERROR("Failed to create vulkan swap chain: {}", err.what());
+			DURIN_ERROR("Failed to create Vulkan swapchain: result=unavailable, extent={}x{}, format={}, colorSpace={}, presentMode={}, policy={}, error={}",
+				Extent.width, Extent.height, vk::to_string(CurrFormat.format), vk::to_string(CurrFormat.colorSpace), vk::to_string(PresentMode),
+				PresentModePolicyName(PresentModePolicy), err.what());
 		}
 
 		Device.SetupPresentQueue(Surface);
 		SwapchainImages = Device.GetHandle().getSwapchainImagesKHR(Swapchain);
+		DURIN_DEBUG("Vulkan swapchain {}: extent={}x{}, format={}, colorSpace={}, presentMode={}, images={}, policy={}, windowMode={}.",
+			InOldSwapchain ? "recreated" : "created", Extent.width, Extent.height, vk::to_string(CurrFormat.format), vk::to_string(CurrFormat.colorSpace),
+			vk::to_string(PresentMode), SwapchainImages.size(), PresentModePolicyName(PresentModePolicy), bIsFullScreen ? "fullscreen" : "windowed");
 
 		// Each acquire semaphore must not be reused while a previous acquire/submit using it is still pending.
 		ImageAcquiredSemaphores.resize(SwapchainImages.size());
@@ -168,17 +184,21 @@ namespace Durin::VulkanRHI
 		if (Result.result != vk::Result::eSuccess && Result.result != vk::Result::eSuboptimalKHR)
 		{
 			CurrentImageIndex = -1;
-			bNeedsRecreate = IsRecoverableSwapchainResult(Result.result);
-			if (!IsRecoverableSwapchainResult(Result.result))
+			if (IsRecoverableSwapchainResult(Result.result))
 			{
-				DURIN_ERROR("Failed to acquire swap chain image: {}", vk::to_string(Result.result));
+				MarkNeedsRecreate("acquire", Result.result);
+			}
+			else
+			{
+				DURIN_ERROR("Failed to acquire a Vulkan swapchain image: result={}, extent={}x{}.",
+					vk::to_string(Result.result), Extent.width, Extent.height);
 			}
 			*OutImageAcquiredSemaphore = nullptr;
 			return INDEX_NONE_U32;
 		}
 		if (Result.result == vk::Result::eSuboptimalKHR)
 		{
-			bNeedsRecreate = true;
+			MarkNeedsRecreate("acquire", Result.result);
 		}
 		CurrentImageIndex = static_cast<int32>(Result.value);
 		*OutImageAcquiredSemaphore = CurrentSemaphore;
@@ -211,31 +231,49 @@ namespace Durin::VulkanRHI
 		{
 			const vk::Result ErrorResult = GetSystemErrorResult(Error);
 			CurrentImageIndex = -1;
-			bNeedsRecreate = IsRecoverableSwapchainResult(ErrorResult);
-			if (!IsRecoverableSwapchainResult(ErrorResult))
+			if (IsRecoverableSwapchainResult(ErrorResult))
 			{
-				DURIN_ERROR("Failed to present swap chain image: {}", Error.what());
+				MarkNeedsRecreate("present", ErrorResult);
+			}
+			else
+			{
+				DURIN_ERROR("Failed to present a Vulkan swapchain image: result={}, image={}, extent={}x{}, error={}",
+					vk::to_string(ErrorResult), ImageIndex, Extent.width, Extent.height, Error.what());
 			}
 			return false;
 		}
 
 		if (Result != vk::Result::eSuccess && Result != vk::Result::eSuboptimalKHR)
 		{
-			bNeedsRecreate = IsRecoverableSwapchainResult(Result);
-			if (!IsRecoverableSwapchainResult(Result))
+			if (IsRecoverableSwapchainResult(Result))
 			{
-				DURIN_ERROR("Failed to present swap chain image: {}", vk::to_string(Result));
+				MarkNeedsRecreate("present", Result);
+			}
+			else
+			{
+				DURIN_ERROR("Failed to present a Vulkan swapchain image: result={}, image={}, extent={}x{}.",
+					vk::to_string(Result), ImageIndex, Extent.width, Extent.height);
 			}
 			CurrentImageIndex = -1;
 			return false;
 		}
 		if (Result == vk::Result::eSuboptimalKHR)
 		{
-			bNeedsRecreate = true;
+			MarkNeedsRecreate("present", Result);
 		}
 
 		CurrentImageIndex = -1;
 		return true;
+	}
+
+	auto FVulkanSwapchain::MarkNeedsRecreate(const std::string_view Operation, const vk::Result Result) -> void
+	{
+		if (!bNeedsRecreate)
+		{
+			DURIN_DEBUG("Vulkan swapchain requires recreation: operation={}, result={}, extent={}x{}.",
+				Operation, vk::to_string(Result), Extent.width, Extent.height);
+		}
+		bNeedsRecreate = true;
 	}
 
 	auto FVulkanSwapchain::Destroy() -> void

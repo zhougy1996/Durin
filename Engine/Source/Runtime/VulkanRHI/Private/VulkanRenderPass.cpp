@@ -78,11 +78,17 @@ namespace Durin::VulkanRHI
 		try
 		{
 			RenderPass = Device.GetHandle().createRenderPass(RenderPassInfo);
-			DURIN_TRACE("Vulkan render pass created");
+		}
+		catch (const vk::SystemError& err)
+		{
+			DURIN_ERROR("Failed to create a Vulkan render pass: result={}, colorFormat={}, depthFormat={}, finalLayout={}, error={}",
+				vk::to_string(static_cast<vk::Result>(err.code().value())), vk::to_string(InFormat), vk::to_string(InDepthFormat),
+				vk::to_string(InFinalLayout), err.what());
 		}
 		catch (const std::runtime_error& err)
 		{
-			DURIN_ERROR("Failed to create vulkan render pass: {}", err.what());
+			DURIN_ERROR("Failed to create a Vulkan render pass: result=unavailable, colorFormat={}, depthFormat={}, finalLayout={}, error={}",
+				vk::to_string(InFormat), vk::to_string(InDepthFormat), vk::to_string(InFinalLayout), err.what());
 		}
 	}
 

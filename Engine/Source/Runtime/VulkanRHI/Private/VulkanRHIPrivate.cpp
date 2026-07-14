@@ -107,7 +107,7 @@ namespace Durin::VulkanRHI
 		case ETextureDimension::TextureCubeArray:
 			return vk::ImageViewType::eCubeArray;
 		default:
-			DURIN_ERROR("Unsupported texture dimension");
+			DURIN_ERROR("Unsupported Vulkan texture dimension: value={}.", static_cast<int32>(Dimension));
 			return vk::ImageViewType::e2D;
 		}
 	}
@@ -142,7 +142,7 @@ namespace Durin::VulkanRHI
 		case EVertexElementType::UInt: return vk::Format::eR32Uint;
 		case EVertexElementType::URGB10A2N: return vk::Format::eA2B10G10R10UnormPack32;
 		default:
-			DURIN_ERROR("Unknown vertex element type: {}", static_cast<int>(InType));
+			DURIN_ERROR("Unsupported Vulkan vertex element type: value={}.", static_cast<int32>(InType));
 			return vk::Format::eR32G32B32Sfloat;
 		}
 	}
@@ -222,7 +222,7 @@ namespace Durin::VulkanRHI
 		case ERHIBindingType::Texture: return vk::DescriptorType::eSampledImage;
 		case ERHIBindingType::Sampler: return vk::DescriptorType::eSampler;
 		default:
-			DURIN_ERROR("Unknown binding type: {}", static_cast<int>(InType));
+			DURIN_ERROR("Unsupported Vulkan binding type: value={}.", static_cast<int32>(InType));
 			return vk::DescriptorType::eUniformBuffer;
 		}
 	}
@@ -236,7 +236,7 @@ namespace Durin::VulkanRHI
 		case ESamplerFilter::Linear:
 			return vk::Filter::eLinear;
 		default:
-			DURIN_ERROR("Unsupported sampler filter");
+			DURIN_ERROR("Unsupported Vulkan sampler filter: value={}.", static_cast<int32>(InFilter));
 			return vk::Filter::eLinear;
 		}
 	}
@@ -250,7 +250,7 @@ namespace Durin::VulkanRHI
 		case ESamplerMipmapMode::Linear:
 			return vk::SamplerMipmapMode::eLinear;
 		default:
-			DURIN_ERROR("Unsupported sampler mipmap mode");
+			DURIN_ERROR("Unsupported Vulkan sampler mipmap mode: value={}.", static_cast<int32>(InMode));
 			return vk::SamplerMipmapMode::eLinear;
 		}
 	}
@@ -268,7 +268,7 @@ namespace Durin::VulkanRHI
 		case ESamplerAddressMode::ClampToBorder:
 			return vk::SamplerAddressMode::eClampToBorder;
 		default:
-			DURIN_ERROR("Unsupported sampler address mode");
+			DURIN_ERROR("Unsupported Vulkan sampler address mode: value={}.", static_cast<int32>(InMode));
 			return vk::SamplerAddressMode::eClampToEdge;
 		}
 	}
@@ -294,7 +294,7 @@ namespace Durin::VulkanRHI
 		case ESamplerCompareOp::Always:
 			return vk::CompareOp::eAlways;
 		default:
-			DURIN_ERROR("Unsupported sampler compare op");
+			DURIN_ERROR("Unsupported Vulkan sampler compare operation: value={}.", static_cast<int32>(InCompareOp));
 			return vk::CompareOp::eAlways;
 		}
 	}
@@ -316,7 +316,7 @@ namespace Durin::VulkanRHI
 		case ESamplerBorderColor::IntOpaqueWhite:
 			return vk::BorderColor::eIntOpaqueWhite;
 		default:
-			DURIN_ERROR("Unsupported sampler border color");
+			DURIN_ERROR("Unsupported Vulkan sampler border color: value={}.", static_cast<int32>(InBorderColor));
 			return vk::BorderColor::eFloatTransparentBlack;
 		}
 	}

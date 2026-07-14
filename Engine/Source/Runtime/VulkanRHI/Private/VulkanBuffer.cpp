@@ -79,7 +79,7 @@ namespace Durin::VulkanRHI
 
 		if (LockMode == EResourceLockMode::ReadOnly)
 		{
-			DURIN_ERROR("Read-only buffer locking is not supported yet.");
+			DURIN_ERROR("Failed to lock a Vulkan buffer: mode=ReadOnly is unsupported, offset={}, size={}, bufferSize={}.", Offset, Size, Desc.Size);
 			LockStatus = ELockStatus::Unlocked;
 			return nullptr;
 		}

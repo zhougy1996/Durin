@@ -106,7 +106,8 @@ namespace Durin::VulkanRHI
 
 		if (Result != VK_SUCCESS)
 		{
-			DURIN_ERROR("Failed to create buffer: {}", vk::to_string(static_cast<vk::Result>(Result)));
+			DURIN_ERROR("Failed to create a Vulkan buffer: result={}, size={}, usage={}, allocationFlags={}.",
+				vk::to_string(static_cast<vk::Result>(Result)), BufferCreateInfo.size, vk::to_string(BufferCreateInfo.usage), static_cast<uint32>(AllocFlags));
 			return false;
 		}
 
@@ -141,7 +142,7 @@ namespace Durin::VulkanRHI
 	{
 		if (!Allocation.IsValid())
 		{
-			DURIN_ERROR("Attempted to map an invalid allocation.");
+			DURIN_ERROR("Failed to map Vulkan memory: the allocation handle is invalid.");
 			return nullptr;
 		}
 
@@ -149,12 +150,11 @@ namespace Durin::VulkanRHI
 		VkResult Result = vmaMapMemory(Allocator, Allocation.Handle, &Data);
 		if (Result != VK_SUCCESS)
 		{
-			DURIN_ERROR("Failed to map memory: {}", vk::to_string(static_cast<vk::Result>(Result)));
 			const vk::MemoryType MemoryType = GetMemoryType(Allocation);
 			const vk::MemoryHeap MemoryHeap = GetMemoryHeap(MemoryType.heapIndex);
-			DURIN_ERROR("Allocation size: {}", Allocation.GetSize());
-			DURIN_ERROR("Memory Heap: {}", vk::to_string(MemoryHeap.flags));
-			DURIN_ERROR("Memory property flags: {}", vk::to_string(MemoryType.propertyFlags));
+			DURIN_ERROR("Failed to map Vulkan memory: result={}, size={}, memoryType={}, heap={}, heapFlags={}, propertyFlags={}.",
+				vk::to_string(static_cast<vk::Result>(Result)), Allocation.GetSize(), Allocation.GetMemoryTypeIndex(), MemoryType.heapIndex,
+				vk::to_string(MemoryHeap.flags), vk::to_string(MemoryType.propertyFlags));
 			return nullptr;
 		}
 
@@ -227,7 +227,7 @@ namespace Durin::VulkanRHI
 		{
 			return false;
 		}
-		DURIN_ERROR("Failed to wait for fence: {}", vk::to_string(result));
+		DURIN_ERROR("Failed to wait for a Vulkan fence: result={}, timeoutNs={}.", vk::to_string(result), TimeoutInNanoseconds);
 		return false;
 	}
 
@@ -325,7 +325,7 @@ namespace Durin::VulkanRHI
 		{
 			return false;
 		}
-		DURIN_ERROR("Failed to check fence status: {}", vk::to_string(Result));
+		DURIN_ERROR("Failed to query Vulkan fence status: result={}.", vk::to_string(Result));
 		return false;
 	}
 

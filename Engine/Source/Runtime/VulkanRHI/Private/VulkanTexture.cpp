@@ -26,7 +26,7 @@ namespace Durin::VulkanRHI
 		case 16:
 			return vk::SampleCountFlagBits::e16;
 		default:
-			DURIN_ERROR("Unsupported sample count: {}", InCreateDesc.NumSamples);
+			DURIN_ERROR("Unsupported Vulkan texture sample count: value={}.", InCreateDesc.NumSamples);
 			return vk::SampleCountFlagBits::e1;
 		}
 	}

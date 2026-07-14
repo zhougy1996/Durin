@@ -41,6 +41,8 @@ namespace Durin::VulkanRHI
 		}
 
 	private:
+		auto MarkNeedsRecreate(std::string_view Operation, vk::Result Result) -> void;
+
 		FVulkanDevice& Device;
 
 		vk::SwapchainKHR Swapchain;

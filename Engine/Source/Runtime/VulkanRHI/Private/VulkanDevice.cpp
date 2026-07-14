@@ -96,7 +96,7 @@ namespace Durin::VulkanRHI
 					DURIN_VMA_DESTROY_CASE(Image);
 					DURIN_VMA_DESTROY_CASE(Buffer);
 				default:
-					DURIN_ERROR("Unknown Vulkan resource type {} for vma", static_cast<uint32>(Entry.Type));
+					DURIN_ERROR("Failed to release a deferred Vulkan allocation: unsupported resourceType={}.", static_cast<uint32>(Entry.Type));
 					break;
 				}
 			}
@@ -120,7 +120,7 @@ namespace Durin::VulkanRHI
 					DURIN_VK_DESTROY_CASE(Event);
 					// TODO: Others
 				default:
-					DURIN_ERROR("Unknown Vulkan resource type {} in deferred deletion queue", static_cast<uint32>(Entry.Type));
+					DURIN_ERROR("Failed to release a deferred Vulkan resource: unsupported resourceType={}.", static_cast<uint32>(Entry.Type));
 					break;
 				}
 			}
@@ -140,21 +140,23 @@ namespace Durin::VulkanRHI
 		Destroy();
 	}
 
-	void FVulkanDevice::InitGpu()
+	void FVulkanDevice::InitGpu(const uint32 EnabledInstanceExtensionCount)
 	{
 		GpuProps = Gpu.getProperties();
-		DURIN_DEBUG("Vulkan Device Information:");
-		DURIN_DEBUG("- Device Name: {}", GpuProps.deviceName.data());
-		DURIN_TRACE("- Device Type: {}", vk::to_string(GpuProps.deviceType));
-		DURIN_DEBUG("- API Version: {}.{}.{} (0x{:x})", vk::apiVersionMajor(GpuProps.apiVersion), vk::apiVersionMinor(GpuProps.apiVersion), vk::apiVersionPatch(GpuProps.apiVersion), GpuProps.apiVersion);
-		DURIN_TRACE("- Vendor ID: 0x{:x}", GpuProps.vendorID);
-		DURIN_DEBUG("- Driver Version: 0x{:x}", GpuProps.driverVersion);
+		DURIN_TRACE("Vulkan physical device: name=\"{}\", type={}, vendor=0x{:04x}, device=0x{:04x}, API={}.{}.{}, driver=0x{:x}.",
+			GpuProps.deviceName.data(), vk::to_string(GpuProps.deviceType), GpuProps.vendorID, GpuProps.deviceID,
+			vk::apiVersionMajor(GpuProps.apiVersion), vk::apiVersionMinor(GpuProps.apiVersion), vk::apiVersionPatch(GpuProps.apiVersion), GpuProps.driverVersion);
 
 		QueueFamilyProps = Gpu.getQueueFamilyProperties();
 
 		const FVulkanDeviceExtensionArray SupportedDeviceExtensions = FVulkanDeviceExtension::GetDurinSupportedDeviceExtensions(this);
 
 		CreateDevice(SupportedDeviceExtensions);
+		DURIN_INFO("Vulkan initialized: GPU=\"{}\", type={}, API={}.{}.{}, driver=0x{:x}, extensions(instance={}, device={}), queues(graphics={}, compute={} {}, transfer={} {}).",
+			GpuProps.deviceName.data(), vk::to_string(GpuProps.deviceType), vk::apiVersionMajor(GpuProps.apiVersion), vk::apiVersionMinor(GpuProps.apiVersion),
+			vk::apiVersionPatch(GpuProps.apiVersion), GpuProps.driverVersion, EnabledInstanceExtensionCount, DeviceExtensions.size(), GraphicsQueueFamilyIndex,
+			ComputeQueueFamilyIndex, ComputeQueueFamilyIndex == GraphicsQueueFamilyIndex ? "shared" : "separate", TransferQueueFamilyIndex,
+			TransferQueueFamilyIndex == GraphicsQueueFamilyIndex || TransferQueueFamilyIndex == ComputeQueueFamilyIndex ? "shared" : "separate");
 		MemoryManager.Init(this);
 
 		ImmediateContext = new FVulkanCommandListContext(RHI, *this, GraphicsQueue);
@@ -183,10 +185,6 @@ namespace Durin::VulkanRHI
 			}
 		}
 
-		int32 GraphicsQueueIndex = -1;
-		int32 ComputeQueueIndex = -1;
-		int32 TransferQueueIndex = -1;
-
 		std::vector<vk::DeviceQueueCreateInfo> QueueCreateInfos;
 		const std::vector<float> QueuePriorities = {1.0f};
 
@@ -196,23 +194,21 @@ namespace Durin::VulkanRHI
 
 			bool bIsValidQueue = false;
 
-			DURIN_TRACE("Queue Family {}:", FamilyIndex);
-			DURIN_TRACE("- Queue Count: {}", QueueFamilyProp.queueCount);
-			DURIN_TRACE("- Queue Flags: {}", vk::to_string(QueueFamilyProp.queueFlags));
-			DURIN_TRACE("- Timestamp Valid Bits: {}", QueueFamilyProp.timestampValidBits);
-			DURIN_TRACE("- Min Image Transfer Granularity: ({}, {}, {})", QueueFamilyProp.minImageTransferGranularity.width, QueueFamilyProp.minImageTransferGranularity.height, QueueFamilyProp.minImageTransferGranularity.depth);
+			DURIN_TRACE("Vulkan queue family {}: count={}, flags={}, timestampBits={}, transferGranularity={}x{}x{}.", FamilyIndex,
+				QueueFamilyProp.queueCount, vk::to_string(QueueFamilyProp.queueFlags), QueueFamilyProp.timestampValidBits,
+				QueueFamilyProp.minImageTransferGranularity.width, QueueFamilyProp.minImageTransferGranularity.height, QueueFamilyProp.minImageTransferGranularity.depth);
 
 			if (QueueFamilyProp.queueFlags & vk::QueueFlagBits::eGraphics)
 			{
-				GraphicsQueueIndex = FamilyIndex;
+				GraphicsQueueFamilyIndex = FamilyIndex;
 				bIsValidQueue = true;
 			}
 
 			if (QueueFamilyProp.queueFlags & vk::QueueFlagBits::eCompute)
 			{
-				if (ComputeQueueIndex == -1 && FamilyIndex != GraphicsQueueIndex)
+				if (ComputeQueueFamilyIndex == -1 && FamilyIndex != GraphicsQueueFamilyIndex)
 				{
-					ComputeQueueIndex = FamilyIndex;
+					ComputeQueueFamilyIndex = FamilyIndex;
 					bIsValidQueue = true;
 				}
 			}
@@ -220,16 +216,15 @@ namespace Durin::VulkanRHI
 			if (QueueFamilyProp.queueFlags & vk::QueueFlagBits::eTransfer)
 			{
 				// Prefer a specialized transfer queue
-				if (TransferQueueIndex == -1 && !(QueueFamilyProp.queueFlags & vk::QueueFlagBits::eGraphics) && !(QueueFamilyProp.queueFlags & vk::QueueFlagBits::eCompute))
+				if (TransferQueueFamilyIndex == -1 && !(QueueFamilyProp.queueFlags & vk::QueueFlagBits::eGraphics) && !(QueueFamilyProp.queueFlags & vk::QueueFlagBits::eCompute))
 				{
-					TransferQueueIndex = FamilyIndex;
+					TransferQueueFamilyIndex = FamilyIndex;
 					bIsValidQueue = true;
 				}
 			}
 
 			if (!bIsValidQueue)
 			{
-				DURIN_TRACE("Skipping unnecessary Queue Family {}", FamilyIndex);
 				continue;
 			}
 
@@ -252,30 +247,35 @@ namespace Durin::VulkanRHI
 		try
 		{
 			Device = Gpu.createDevice(DeviceInfo);
-			DURIN_TRACE("Vulkan device created");
+		}
+		catch (const vk::SystemError& err)
+		{
+			DURIN_ERROR("Failed to create Vulkan device: result={}, queueFamilies={}, extensions={}, error={}",
+				vk::to_string(static_cast<vk::Result>(err.code().value())), QueueCreateInfos.size(), DeviceExtensions.size(), err.what());
 		}
 		catch (const std::runtime_error& err)
 		{
-			DURIN_ERROR("Failed to create Vulkan device: {}", err.what());
+			DURIN_ERROR("Failed to create Vulkan device: result=unavailable, queueFamilies={}, extensions={}, error={}",
+				QueueCreateInfos.size(), DeviceExtensions.size(), err.what());
 		}
 
-		DURIN_TRACE("Queue Indexes:");
-		DURIN_TRACE("Graphics Queue Index: {}", GraphicsQueueIndex);
-		GraphicsQueue = new FVulkanQueue(this, GraphicsQueueIndex);
+		GraphicsQueue = new FVulkanQueue(this, GraphicsQueueFamilyIndex);
 
-		if (ComputeQueueIndex == -1)
+		if (ComputeQueueFamilyIndex == -1)
 		{
-			ComputeQueueIndex = GraphicsQueueIndex;
+			ComputeQueueFamilyIndex = GraphicsQueueFamilyIndex;
 		}
-		DURIN_TRACE("Compute Queue Index: {}", ComputeQueueIndex);
-		ComputeQueue = new FVulkanQueue(this, ComputeQueueIndex);
+		ComputeQueue = new FVulkanQueue(this, ComputeQueueFamilyIndex);
 
-		if (TransferQueueIndex == -1)
+		if (TransferQueueFamilyIndex == -1)
 		{
-			TransferQueueIndex = ComputeQueueIndex;
+			TransferQueueFamilyIndex = ComputeQueueFamilyIndex;
 		}
-		DURIN_TRACE("Transfer Queue Index: {}", TransferQueueIndex);
-		TransferQueue = new FVulkanQueue(this, TransferQueueIndex);
+		TransferQueue = new FVulkanQueue(this, TransferQueueFamilyIndex);
+		DURIN_DEBUG("Vulkan queue selection: graphics={}, compute={} ({}), transfer={} ({}).", GraphicsQueueFamilyIndex,
+			ComputeQueueFamilyIndex, ComputeQueueFamilyIndex == GraphicsQueueFamilyIndex ? "shared with graphics" : "separate family",
+			TransferQueueFamilyIndex, TransferQueueFamilyIndex == GraphicsQueueFamilyIndex ? "shared with graphics" :
+				TransferQueueFamilyIndex == ComputeQueueFamilyIndex ? "shared with compute" : "separate family");
 	}
 
 	auto FVulkanDevice::SetupPresentQueue(vk::SurfaceKHR InSurface) -> void
@@ -292,7 +292,7 @@ namespace Durin::VulkanRHI
 
 		if (QueueFamilyIndex == INDEX_NONE_U32)
 		{
-			DURIN_ERROR("Failed to find a queue family that supports presentation");
+			DURIN_ERROR("Failed to select a Vulkan presentation queue: no queue family supports the surface.");
 			return;
 		}
 

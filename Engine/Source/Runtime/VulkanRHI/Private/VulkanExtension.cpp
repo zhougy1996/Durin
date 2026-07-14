@@ -10,6 +10,30 @@
 
 namespace Durin::VulkanRHI
 {
+	namespace
+	{
+		template<typename ExtensionType>
+		auto JoinExtensionNames(const std::vector<std::unique_ptr<ExtensionType>>& Extensions, const bool bInUse) -> std::string
+		{
+			std::string Result;
+			for (const auto& Extension : Extensions)
+			{
+				if (Extension->InUse() != bInUse) continue;
+				if (!Result.empty()) Result += ", ";
+				Result += Extension->GetExtensionName();
+			}
+			return Result.empty() ? "none" : Result;
+		}
+
+		template<typename ExtensionType>
+		auto LogExtensionSupport(std::string_view Scope, const std::vector<std::unique_ptr<ExtensionType>>& Extensions) -> void
+		{
+			const size_t EnabledCount = std::ranges::count_if(Extensions, [](const auto& Extension) { return Extension->InUse(); });
+			DURIN_TRACE("Vulkan {} extensions: requested={}, enabled={} [{}], missing={} [{}].", Scope, Extensions.size(),
+				EnabledCount, JoinExtensionNames(Extensions, true), Extensions.size() - EnabledCount, JoinExtensionNames(Extensions, false));
+		}
+	}
+
 	inline constexpr const char* DurinSupportedInstanceExtensionNames[] = {
 		VK_KHR_SURFACE_EXTENSION_NAME,
 		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
@@ -48,8 +72,8 @@ namespace Durin::VulkanRHI
 	{
 		for (const char* ExtensionName : RequiredExtensionNames)
 		{
-			auto it = std::find_if(Extensions.begin(), Extensions.end(), [ExtensionName](std::unique_ptr<ExtensionType>& Extension) {
-				return Extension->GetExtensionName() == ExtensionName;
+			auto it = std::find_if(Extensions.begin(), Extensions.end(), [ExtensionName](const std::unique_ptr<ExtensionType>& Extension) {
+				return strcmp(Extension->GetExtensionName(), ExtensionName) == 0;
 			});
 
 			if (it == Extensions.end())
@@ -70,7 +94,6 @@ namespace Durin::VulkanRHI
 		AddRequiredExtensions(OutDurinInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
 
 		const std::vector<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
-		DURIN_TRACE("Found {} available instance extensions:", DriverSupportedInstanceExtensions.size());
 		for (const vk::ExtensionProperties& Extension : DriverSupportedInstanceExtensions)
 		{
 			const int32 ExtensionIndex = FindExtension(OutDurinInstanceExtensions, Extension.extensionName);
@@ -82,8 +105,8 @@ namespace Durin::VulkanRHI
 				OutDurinInstanceExtensions[ExtensionIndex]->SetSupported();
 				OutDurinInstanceExtensions[ExtensionIndex]->SetActivated();
 			}
-			DURIN_TRACE("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
 		}
+		LogExtensionSupport("instance", OutDurinInstanceExtensions);
 
 		return OutDurinInstanceExtensions;
 	}
@@ -98,8 +121,6 @@ namespace Durin::VulkanRHI
 		}
 
 		std::vector<vk::ExtensionProperties> DriverSupportedDeviceExtensions = GetDriverSupportedDeviceExtensions(InDevice->GetGpu());
-		DURIN_TRACE("Found {} available device extensions:", DriverSupportedDeviceExtensions.size());
-
 		for (const vk::ExtensionProperties& Extension : DriverSupportedDeviceExtensions)
 		{
 			const int32 ExtensionIndex = FindExtension(OutDeviceExtensions, Extension.extensionName);
@@ -111,8 +132,8 @@ namespace Durin::VulkanRHI
 				OutDeviceExtensions[ExtensionIndex]->SetSupported();
 				OutDeviceExtensions[ExtensionIndex]->SetActivated();
 			}
-			DURIN_TRACE("{} {}", bFound ? "+" : "-", Extension.extensionName.data());
 		}
+		LogExtensionSupport("device", OutDeviceExtensions);
 
 		return OutDeviceExtensions;
 	}
