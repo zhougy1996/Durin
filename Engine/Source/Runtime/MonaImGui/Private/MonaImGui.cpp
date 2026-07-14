@@ -283,6 +283,13 @@ namespace Durin::MonaImGui
 		return BaseValue * GGlobalUIScale;
 	}
 
+	auto QuantizeDynamicFontSize(float RequestedSize) -> float
+	{
+		if (RequestedSize <= 0.0f) return RequestedSize;
+		constexpr float DynamicFontSizeStep = 4.0f;
+		return std::max(DynamicFontSizeStep, std::round(RequestedSize / DynamicFontSizeStep) * DynamicFontSizeStep);
+	}
+
 	auto GetUIStyleMetrics() -> FUIStyleMetrics
 	{
 		FUIStyleMetrics Metrics;

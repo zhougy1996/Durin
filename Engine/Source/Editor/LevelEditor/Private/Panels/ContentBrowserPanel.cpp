@@ -611,7 +611,8 @@ namespace Durin
 	auto FContentBrowserPanel::DrawGrid() -> void
 	{
 		const float CellWidth = IconSize + MonaImGui::ScaleUI(GridCellExtraWidth);
-		const float NameFontSize = std::clamp(IconSize * 0.22f, ImGui::GetFontSize() * 0.70f, ImGui::GetFontSize() * 1.40f);
+		const float NameFontSize = MonaImGui::QuantizeDynamicFontSize(
+			std::clamp(IconSize * 0.22f, ImGui::GetFontSize() * 0.70f, ImGui::GetFontSize() * 1.40f));
 		const float IconAreaHeight = IconSize * GridIconAreaScale;
 		const float NameAreaHeight = NameFontSize * 2.0f + MonaImGui::ScaleUI(8.0f);
 		const int32 Columns = std::max(1, static_cast<int32>(ImGui::GetContentRegionAvail().x / CellWidth));
@@ -655,7 +656,7 @@ namespace Durin
 														   Item.Kind == EContentBrowserItemKind::Asset	? MonaImGui::EUIThemeColor::Asset :
 																										  MonaImGui::EUIThemeColor::SourceFile;
 			const ImU32 IconColor = MonaImGui::GetThemeColorU32(IconColorRole);
-			const float IconFontSize = IconSize * GridIconScale;
+			const float IconFontSize = MonaImGui::QuantizeDynamicFontSize(IconSize * GridIconScale);
 			const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(IconFontSize, FLT_MAX, 0.0f, ItemIcon(Item));
 			const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(0.0f, (IconAreaHeight - IconExtent.y) * 0.5f));
 			DrawList->AddText(ImGui::GetFont(), IconFontSize, IconPosition, IconColor, ItemIcon(Item));
