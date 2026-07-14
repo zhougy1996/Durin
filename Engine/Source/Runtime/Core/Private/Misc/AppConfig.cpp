@@ -11,9 +11,9 @@ namespace Durin
 			static FYamlDocument AppConfigDocument;
 			return AppConfigDocument;
 		}
-	}
 
-	FYamlNodeView GAppConfig;
+		FYamlNodeView GAppConfigRoot;
+	}
 
 	auto LoadAppConfig(std::string_view ConfigFile) -> bool
 	{
@@ -23,12 +23,17 @@ namespace Durin
 		FYamlParseError ParseError;
 		if (!AppConfigDocument.LoadFromFile(ConfigFile, &ParseError))
 		{
-			GAppConfig = {};
+			GAppConfigRoot = {};
 			DURIN_ERROR("Failed to load application config file {}: {}", ConfigFile, ParseError.Message);
 			return false;
 		}
 
-		GAppConfig = AppConfigDocument.GetRootView();
+		GAppConfigRoot = AppConfigDocument.GetRootView();
 		return true;
+	}
+
+	auto GetModuleConfig(std::string_view ModuleName) -> FYamlNodeView
+	{
+		return GAppConfigRoot.GetView(ModuleName);
 	}
 }

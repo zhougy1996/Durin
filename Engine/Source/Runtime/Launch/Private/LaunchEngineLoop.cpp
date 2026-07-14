@@ -47,7 +47,6 @@ namespace Durin
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
-		DURIN_DEBUG("Application name: {}", GAppConfig.GetView("AppName").GetString());
 		DURIN_INFO(STR("Launching Durin engine..."));
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
@@ -59,13 +58,6 @@ namespace Durin
 
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
-		const FYamlNodeView GarbageCollectionConfig = GAppConfig.GetView("GarbageCollection");
-		FGarbageCollectionSettings GarbageCollectionSettings;
-		GarbageCollectionSettings.bEnabled = GarbageCollectionConfig.GetView("Enabled").GetBool(true);
-		GarbageCollectionSettings.IntervalSeconds = GarbageCollectionConfig.GetView("IntervalSeconds").GetDouble(60.0);
-		GarbageCollectionSettings.PendingKillThreshold = GarbageCollectionConfig.GetView("PendingKillThreshold").GetUInt(128);
-		GarbageCollectionSettings.ObjectGrowthThreshold = GarbageCollectionConfig.GetView("ObjectGrowthThreshold").GetUInt(1024);
-		ConfigureAutomaticGarbageCollection(GarbageCollectionSettings, FTime::Seconds());
 	}
 
 	auto FEngineLoop::Init() -> void

@@ -6,7 +6,7 @@
 
 namespace Durin
 {
-	extern CORE_API FYamlNodeView GAppConfig;
-
 	CORE_API auto LoadAppConfig(std::string_view ConfigFile) -> bool;
+	// Modules receive only their top-level section; a missing section produces an invalid view.
+	CORE_API auto GetModuleConfig(std::string_view ModuleName) -> FYamlNodeView;
 }

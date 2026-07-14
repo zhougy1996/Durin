@@ -1,9 +1,12 @@
 #include "DObject/DObjectGlobals.h"
 
+#include "Misc/AppConfig.h"
+#include "Misc/Time.h"
 #include "Modules/ModuleManager.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/Package.h"
 
 namespace Durin
@@ -188,6 +191,15 @@ namespace Durin
 		FModuleManager::Get().StartProcessingNewlyLoadedObjects();
 
 		auto& array = GDObjectArray;
+
+		// CoreDObject owns its schema so Launch only coordinates subsystem initialization.
+		const FYamlNodeView GCConfig = GetModuleConfig("CoreDObject").GetView("GC");
+		FGarbageCollectionSettings GCSettings;
+		GCSettings.bEnabled = GCConfig.GetView("Enabled").GetBool(true);
+		GCSettings.IntervalSeconds = GCConfig.GetView("IntervalSeconds").GetDouble(60.0);
+		GCSettings.PendingKillThreshold = GCConfig.GetView("PendingKillThreshold").GetUInt(128);
+		GCSettings.ObjectGrowthThreshold = GCConfig.GetView("ObjectGrowthThreshold").GetUInt(1024);
+		ConfigureAutomaticGarbageCollection(GCSettings, FTime::Seconds());
 	}
 
 	auto StaticAllocateObject(DClass* Class, DObject* Outer, FName Name, size_t Size) -> DObject*

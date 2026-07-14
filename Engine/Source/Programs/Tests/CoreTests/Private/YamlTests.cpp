@@ -1,4 +1,5 @@
 #include "Yaml/Yaml.h"
+#include "Misc/AppConfig.h"
 
 #include <gtest/gtest.h>
 
@@ -84,9 +85,30 @@ features:
 		EXPECT_EQ(Error.Code, 0);
 
 		const auto AppConfig = AppConfigDocument.GetRootView();
-		EXPECT_EQ(AppConfig.GetView("AppName").GetString(), "DurinApp");
-		EXPECT_EQ(AppConfig.GetView("LogLevel").GetString(), "Debug");
-		EXPECT_FALSE(AppConfig.GetView("ForceRecompileShaders").GetBool(true));
+		const auto Logging = AppConfig.GetView("Core").GetView("Logging");
+		EXPECT_EQ(Logging.GetView("ConsoleLevel").GetString(), "Debug");
+
+		const auto GC = AppConfig.GetView("CoreDObject").GetView("GC");
+		EXPECT_TRUE(GC.GetView("Enabled").GetBool(false));
+		EXPECT_DOUBLE_EQ(GC.GetView("IntervalSeconds").GetDouble(), 60.0);
+		EXPECT_EQ(GC.GetView("PendingKillThreshold").GetUInt(), 128U);
+		EXPECT_EQ(GC.GetView("ObjectGrowthThreshold").GetUInt(), 1024U);
+
+		EXPECT_FALSE(AppConfig.Contains("AppName"));
+		EXPECT_FALSE(AppConfig.Contains("LogLevel"));
+		EXPECT_FALSE(AppConfig.Contains("ForceRecompileShaders"));
+		EXPECT_FALSE(AppConfig.Contains("GarbageCollection"));
+	}
+
+	TEST(FYamlDocumentTests, ModuleConfigViews)
+	{
+		EXPECT_FALSE(Durin::GetModuleConfig("Core").IsValid());
+
+		ASSERT_TRUE(Durin::LoadAppConfig(MakeYamlTestDataPath("TP_DurinEditor.yaml").string()));
+		const Durin::FYamlNodeView CoreConfig = Durin::GetModuleConfig("Core");
+		ASSERT_TRUE(CoreConfig.IsMap());
+		EXPECT_EQ(CoreConfig.GetView("Logging").GetView("ConsoleLevel").GetString(), "Debug");
+		EXPECT_FALSE(Durin::GetModuleConfig("MissingModule").IsValid());
 	}
 
 	TEST(FYamlDocumentTests, BuildModifyAndRoundTrip)

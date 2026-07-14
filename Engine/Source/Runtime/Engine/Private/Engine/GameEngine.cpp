@@ -1,7 +1,7 @@
 #include "Engine/GameEngine.h"
 
 #include "CoreGlobals.h"
-#include "Misc/AppConfig.h"
+#include "Misc/Project.h"
 #include "Mona.h"
 #include "Mona/SceneViewport.h"
 #include "Widgets/MViewport.h"
@@ -19,7 +19,8 @@ namespace Durin
 		DEngine::Init();
 
 		std::shared_ptr<MWindow> GameWindow = std::make_shared<MWindow>();
-		GameWindow->SetTitle(GAppConfig.GetView("AppName").GetString());
+		const FProjectInfo* Project = GetCurrentProject();
+		GameWindow->SetTitle(Project ? Project->Name : "DurinGame");
 		GameWindow->ReshapeWindow({100.0f, 100.0f}, {1280.0f, 720.0f});
 
 		auto& MonaApp = Mona::FMonaApplication::Get();

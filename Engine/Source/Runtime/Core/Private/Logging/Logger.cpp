@@ -660,7 +660,7 @@ namespace Durin
 		Settings.ProfileName = DURIN_PROFILE_NAME;
 
 		std::vector<std::string> InvalidLevels;
-		const FYamlNodeView Logging = GAppConfig.GetView("Logging");
+		const FYamlNodeView Logging = GetModuleConfig("Core").GetView("Logging");
 		const auto ReadLevel = [&InvalidLevels](const FYamlNodeView& Node, ELogLevel DefaultLevel, std::string_view Name) {
 			if (!Node.IsValid()) return DefaultLevel;
 			ELogLevel Level = DefaultLevel;
@@ -668,7 +668,6 @@ namespace Durin
 			if (!TryParseLogLevel(Text, Level)) InvalidLevels.push_back(std::format("{}={}", Name, Text));
 			return Level;
 		};
-		Settings.ConsoleLevel = ReadLevel(GAppConfig.GetView("LogLevel"), Settings.ConsoleLevel, "LogLevel");
 		if (Logging.IsMap())
 		{
 			Settings.ConsoleLevel = ReadLevel(Logging.GetView("ConsoleLevel"), Settings.ConsoleLevel, "Logging.ConsoleLevel");

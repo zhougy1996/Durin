@@ -1,11 +1,10 @@
-AppName: DurinApp
+Core:
+  Logging:
+    ConsoleLevel: Debug
 
-LogLevel: Debug
-
-ForceRecompileShaders: false
-
-GarbageCollection:
-  Enabled: true
-  IntervalSeconds: 60
-  PendingKillThreshold: 128
-  ObjectGrowthThreshold: 1024
+CoreDObject:
+  GC:
+    Enabled: true
+    IntervalSeconds: 60
+    PendingKillThreshold: 128
+    ObjectGrowthThreshold: 1024
