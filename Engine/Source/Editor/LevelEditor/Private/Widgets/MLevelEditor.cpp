@@ -80,6 +80,14 @@ namespace Durin
 
 	auto MLevelEditor::LoadSessionSettings() -> bool
 	{
+		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
+		if (!Monitors.empty())
+		{
+			WindowWidth = std::min(1600, static_cast<int32>(Monitors.front().WorkSize.x * 0.9f));
+			WindowHeight = std::min(1000, static_cast<int32>(Monitors.front().WorkSize.y * 0.9f));
+			UIScale = Monitors.front().WorkSize.y >= 1800 ? 1.5f : Monitors.front().WorkSize.y >= 1300 ? 1.25f : 1.0f;
+		}
+
 		FYamlDocument Document;
 		FYamlParseError Error;
 		const std::string FilePath = FPaths::LaunchDir() + SessionSettingsFileName;
@@ -107,13 +115,6 @@ namespace Durin
 			}
 		}
 		const FYamlNodeView Display = Root.GetView("Display");
-		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
-		if (!Monitors.empty())
-		{
-			WindowWidth = std::min(1600, static_cast<int32>(Monitors.front().WorkSize.x * 0.9f));
-			WindowHeight = std::min(1000, static_cast<int32>(Monitors.front().WorkSize.y * 0.9f));
-			UIScale = Monitors.front().WorkSize.y >= 1800 ? 1.5f : Monitors.front().WorkSize.y >= 1300 ? 1.25f : 1.0f;
-		}
 		WindowWidth = static_cast<int32>(Display.GetView("WindowWidth").GetInt(WindowWidth));
 		WindowHeight = static_cast<int32>(Display.GetView("WindowHeight").GetInt(WindowHeight));
 		UIScale = static_cast<float>(Display.GetView("UIScale").GetDouble(UIScale));
