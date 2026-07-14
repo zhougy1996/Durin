@@ -2,11 +2,6 @@
 
 #include "CoreAPI.h"
 
-namespace spdlog
-{
-	class logger;
-}
-
 namespace Durin
 {
 	enum class ELogLevel
@@ -16,6 +11,7 @@ namespace Durin
 		Info,
 		Warn,
 		Error,
+		Fatal,
 	};
 
 	struct FLogRecord
@@ -24,46 +20,74 @@ namespace Durin
 		ELogLevel Level = ELogLevel::Info;
 		std::string Module;
 		std::string Message;
+
+		uint64 Sequence = 0;
+		uint32 ThreadId = 0;
+		std::string ThreadName;
+		std::string File;
+		uint32 Line = 0;
+		std::string Function;
+	};
+
+	struct FLogSettings
+	{
+		ELogLevel ConsoleLevel = ELogLevel::Debug;
+		ELogLevel FileLevel = ELogLevel::Trace;
+		uint32 QueueCapacity = 8192;
+		uint32 FlushIntervalMilliseconds = 1000;
+		uint64 MaxFileSizeBytes = 20ull * 1024ull * 1024ull;
+		uint32 MaxFilesPerSession = 5;
+		uint32 MaxSessions = 10;
+		std::string LogDirectory;
+		std::string ProfileName = "Durin";
 	};
 
 	using FLogListenerHandle = uint64;
 	using FLogListener = std::function<void(const FLogRecord&)>;
 
-	CORE_API auto StringToLogLevel(const std::string& InLogLevel) -> ELogLevel;
+	CORE_API auto StringToLogLevel(std::string_view InLogLevel, ELogLevel DefaultLevel = ELogLevel::Debug) -> ELogLevel;
 
 	class FLogger
 	{
 	public:
-		FLogger();
-		~FLogger();
+		CORE_API FLogger();
+		CORE_API ~FLogger();
+
+		FLogger(const FLogger&) = delete;
+		auto operator=(const FLogger&) -> FLogger& = delete;
 
 		CORE_API static auto Get() -> FLogger&;
 
 		template<typename... Args>
 		void Log(ELogLevel Level, std::source_location Loc, std::string_view Module, std::format_string<Args...> Fmt, Args&&... args)
 		{
+			if (!ShouldLog(Level))
+			{
+				return;
+			}
 			LogInternal(Level, Loc, Module, Fmt.get(), std::make_format_args(args...));
 		}
 
-		CORE_API auto SetConsoleLogLevel(ELogLevel Level);
+		CORE_API auto ShouldLog(ELogLevel Level) const -> bool;
+		CORE_API auto SetConsoleLogLevel(ELogLevel Level) -> void;
 		CORE_API auto AddListener(FLogListener Listener) -> FLogListenerHandle;
+		// Listener callbacks run on the logger dispatch thread. Once this returns on
+		// another thread, no callback for Handle is still executing.
 		CORE_API auto RemoveListener(FLogListenerHandle Handle) -> void;
 
-		auto Initialize() -> void;
+		// Compatibility entry point using the standard runtime defaults.
+		CORE_API auto Initialize() -> void;
+		CORE_API auto Initialize(const FLogSettings& Settings) -> bool;
+		CORE_API auto Flush() -> void;
+		CORE_API auto Shutdown() -> void;
 
 	private:
-		CORE_API void LogInternal(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string_view Fmt, std::format_args Args) const;
+		CORE_API auto LogInternal(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string_view Fmt, std::format_args Args) const -> void;
+
 		class FImpl;
-
 		std::unique_ptr<FImpl> Impl;
-
-		ELogLevel ConsoleLogLevel = ELogLevel::Debug;
-		mutable std::mutex ListenerMutex;
-		std::unordered_map<FLogListenerHandle, FLogListener> Listeners;
-		std::atomic<FLogListenerHandle> NextListenerHandle = 1;
-
-		bool bLogWithThreadName = false;
 	};
 
-	auto CORE_API LoggerInit() -> void;
+	CORE_API auto LoggerInit() -> void;
+	CORE_API auto LoggerShutdown() -> void;
 } // namespace Durin

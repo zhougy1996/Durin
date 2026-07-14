@@ -33,5 +33,6 @@ int LAUNCH_API main(int argc, char** argv)
 	GEngineLoop.Exit();
 	std::string RelaunchError;
 	if (!LaunchPendingEditorRelaunch(&RelaunchError)) DURIN_ERROR("Failed to relaunch editor: {}", RelaunchError);
+	LoggerShutdown();
 	return 0;
 }

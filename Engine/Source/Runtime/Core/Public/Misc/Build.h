@@ -4,6 +4,10 @@
 	#define DURIN_BUILD_DEBUG 0
 #endif
 
+#ifndef DURIN_BUILD_SHIPPING
+	#define DURIN_BUILD_SHIPPING 0
+#endif
+
 #if DURIN_BUILD_DEBUG
 	#ifndef DO_CHECK
 		#define DO_CHECK 1
