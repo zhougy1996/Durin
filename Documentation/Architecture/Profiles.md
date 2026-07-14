@@ -35,6 +35,8 @@ Each preset sets:
 - `DURIN_PROFILE_NAME`
 - a dedicated build directory such as `Build/Win64-Debug-DurinEditor`
 
+Presets may also set `DURIN_BUILD_IDENTIFIER` to isolate outputs produced by a particular build workflow. This is not a profile or build configuration: `Win64-Debug-DurinEditor-Agent` remains `Debug` + `DurinEditor`, but writes to `Engine/Binaries/Win64/Debug-Agent/`.
+
 DurinHeaderTool resolves the active profile and emits generated project metadata under `Engine/Intermediate/Build/<Platform>/<ProfileName>/...`.
 
 ## Derived Build Behavior

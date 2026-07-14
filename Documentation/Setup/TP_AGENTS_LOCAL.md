@@ -9,19 +9,13 @@ with paths that exist on your machine.
 - Preferred CMake: `<cmake-path>`
 - Visual Studio env script: `<vsdevcmd-path>`
 
-## Preferred presets
+## Agent build command
 
-- Main editor preset: `Win64-Debug-DurinEditor`
-- Main game preset: `Win64-Debug-DurinGame`
-
-## Known working commands
-
-- Configure editor:
-  `& "<cmake-path>" --preset Win64-Debug-DurinEditor`
-- Build a specific target:
-  `& "<cmake-path>" --build "Build/Win64-Debug-DurinEditor" --target MonaCore -j <jobs>`
+- Entry point: `Engine/Scripts/Build/AgentBuild.ps1`
+- Usage: `& "Engine/Scripts/Build/AgentBuild.ps1" <Configure|Build|Test> [-Target <name>] [-Jobs <count>] [-Filter <gtest-filter>]`
+- The script always uses the isolated Agent preset, build tree, and `Debug-Agent` outputs.
 
 ## Notes
 
-- Run configure/build commands from a VS developer environment, or invoke `<vsdevcmd-path>` first.
+- The Agent build script reads the tool paths above and initializes the Visual Studio developer environment automatically.
 - Keep this file limited to machine-local paths, environment quirks, and verified non-portable commands.

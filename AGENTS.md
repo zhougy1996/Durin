@@ -20,6 +20,7 @@ that match the task at hand.
 
 ## Repository Rules
 
+- Agents must use `Engine/Scripts/Build/AgentBuild.ps1` for editor builds and automated validation. The script owns the `Win64-Debug-DurinEditor-Agent` preset, `Build/Win64-Debug-DurinEditor-Agent`, and `Engine/Binaries/Win64/Debug-Agent/`; do not configure, clean, build, or overwrite the human-owned non-Agent build trees or `Engine/Binaries/Win64/Debug/` outputs.
 - Generated metadata is part of the source of truth. If a module looks incomplete, inspect `Engine/Intermediate/Build/...` and DHT outputs before assuming files are missing.
 - Runtime-loaded module binaries must keep the `<Profile>-<Module>` naming convention from `CMake/Project/ProjectTargets.cmake`.
 - Rendering changes usually span `RHI`, `VulkanRHI`.

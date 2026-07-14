@@ -10,10 +10,24 @@ Native tests are enabled only when `BUILD_TESTING=ON`. Use the dedicated test pr
 cmake --preset Win64-Debug-DurinEditor-Tests
 ```
 
+The preset above is available for human test builds. Agents use the Agent build script:
+
+```powershell
+& "Engine/Scripts/Build/AgentBuild.ps1" Configure
+```
+
+The Agent preset enables the same test targets and adds the `Agent` build identifier, isolating its build tree at `Build/Win64-Debug-DurinEditor-Agent` and all runtime, test, library, symbol, and third-party outputs under `Engine/Binaries/Win64/Debug-Agent/`.
+
 Build a specific test target:
 
 ```powershell
 cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests -j 4
+```
+
+Agents use:
+
+```powershell
+& "Engine/Scripts/Build/AgentBuild.ps1" Test -Target CoreTests -Jobs 4
 ```
 
 Normal editor/game presets keep `BUILD_TESTING=OFF`.
@@ -25,6 +39,8 @@ Run all discovered tests:
 ```powershell
 ctest --test-dir Build/Win64-Debug-DurinEditor-Tests -C Debug --output-on-failure
 ```
+
+Agents use the script's `Test` action to build and run a specific native test target.
 
 Run one test group:
 
@@ -38,16 +54,29 @@ Run the executable directly:
 .\Engine\Binaries\Win64\Debug\Tests\DurinEditor\Bin\CoreTests.exe
 ```
 
+The equivalent Agent command is:
+
+```powershell
+& "Engine/Scripts/Build/AgentBuild.ps1" Test -Target CoreTests
+```
+
 Run a single GoogleTest case:
 
 ```powershell
 .\Engine\Binaries\Win64\Debug\Tests\DurinEditor\Bin\CoreTests.exe --gtest_filter=FJsonDocumentTests.ParseObjectFromString
 ```
 
+The equivalent Agent command is:
+
+```powershell
+& "Engine/Scripts/Build/AgentBuild.ps1" Test -Target CoreTests -Filter FJsonDocumentTests.ParseObjectFromString
+```
+
 ## Output Layout
 
-- Test executables: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
-- Per-target data and work roots: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/<TestTarget>/`
+- Human test executables: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
+- Agent test executables: `Engine/Binaries/<Platform>/<Config>-Agent/Tests/<Profile>/Bin/`
+- Per-target data and work roots follow the same human or Agent configuration directory.
 
 Keep generated round-trip files and discovery outputs in the target work directory, not in `Bin/`.
 

@@ -15,6 +15,7 @@ Common presets:
 - `cmake --preset Win64-Debug-DurinEditor`
 - `cmake --preset Win64-Debug-DurinEditor-FastConfigure`
 - `cmake --preset Win64-Debug-DurinEditor-Tests`
+- `cmake --preset Win64-Debug-DurinEditor-Agent`
 - `cmake --preset Win64-Debug-DurinGame`
 - `cmake --preset Win64-Shipping-DurinGame`
 
@@ -24,8 +25,19 @@ Main build trees stay profile-specific under `Build/`, for example:
 
 - `Build/Win64-Debug-DurinEditor`
 - `Build/Win64-Debug-DurinEditor-Tests`
+- `Build/Win64-Debug-DurinEditor-Agent`
 
 Use the `*-Tests` preset when native test targets are needed. Normal editor/game presets keep `BUILD_TESTING=OFF`.
+
+Agents must use `Win64-Debug-DurinEditor-Agent` for editor builds and automated validation. It has the same build options as the human-oriented `Win64-Debug-DurinEditor-Tests` preset, plus `DURIN_BUILD_IDENTIFIER=Agent`. Its build tree is `Build/Win64-Debug-DurinEditor-Agent`, and its outputs stay under `Engine/Binaries/Win64/Debug-Agent/` instead of overwriting human build outputs under `Engine/Binaries/Win64/Debug/`.
+
+Agents invoke this workflow through `Engine/Scripts/Build/AgentBuild.ps1`. The script reads machine-local CMake and Visual Studio paths from `AGENTS_LOCAL.md`, initializes the compiler environment, and restricts operations to the Agent preset and output tree:
+
+```powershell
+& "Engine/Scripts/Build/AgentBuild.ps1" Configure
+& "Engine/Scripts/Build/AgentBuild.ps1" Build -Target LevelEditor -Jobs 14
+& "Engine/Scripts/Build/AgentBuild.ps1" Test -Target CoreTests -Filter FJsonDocumentTests.*
+```
 
 ## Build
 
@@ -35,6 +47,7 @@ Prefer building only the target needed for the current change instead of `--targ
 cmake --build Build/Win64-Debug-DurinEditor --target DurinLauncher -j 4
 cmake --build Build/Win64-Debug-DurinEditor --target RenderCore -j 4
 cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests -j 4
+cmake --build Build/Win64-Debug-DurinEditor-Agent --target CoreTests -j 4
 ```
 
 ## Run And Output Layout
@@ -48,6 +61,8 @@ Key output locations:
 - Runtime launcher and module DLLs: `Engine/Binaries/<Platform>/<Config>/Runtime/<Profile>/`
 - Shared runtime third-party DLLs: `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
 - Native test executables: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
+
+When `DURIN_BUILD_IDENTIFIER` is set, `<Config>` becomes `<Config>-<Identifier>`. For example, the Agent test preset writes runtime binaries to `Engine/Binaries/Win64/Debug-Agent/Runtime/DurinEditor/`.
 
 The launcher target is `DurinLauncher`, but the executable name matches the active profile such as `DurinEditor.exe` or `DurinGame.exe`.
 

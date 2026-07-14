@@ -52,6 +52,18 @@
       }
     },
     {
+      "name": "Win64-Debug-DurinEditor-Agent",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/Build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "DURIN_PROFILE_NAME": "DurinEditor",
+        "DURIN_BUILD_IDENTIFIER": "Agent",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
       "name": "Win64-Debug-DurinGame",
       "inherits": "windows-base",
       "binaryDir": "${sourceDir}/Build/${presetName}",
