@@ -5,9 +5,9 @@ namespace Durin
 	class FStaticMeshImportDialog
 	{
 	public:
-		FStaticMeshImportDialog(std::function<void()> InClearError, std::function<void(std::string)> InReportError);
+		FStaticMeshImportDialog(std::function<void()> InClearError, std::function<void(std::string)> InReportError, std::function<void(std::string)> InImported = {});
 
-		auto Open() -> void;
+		auto Open(std::string_view DestinationDirectory = {}) -> void;
 		auto Draw() -> void;
 
 	private:
@@ -18,6 +18,8 @@ namespace Durin
 
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
+		std::function<void(std::string)> Imported;
+		std::string PreferredDestinationDirectory;
 		std::array<char, 512> SourcePathBuffer{};
 		std::array<char, 256> AssetPathBuffer{};
 		std::string LastSuggestedAssetPath;

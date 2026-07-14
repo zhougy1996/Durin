@@ -50,8 +50,26 @@ namespace Durin::Asset
 		std::function<void()> Rollback;
 	};
 
+	struct FAssetDeleteContribution
+	{
+		std::vector<std::filesystem::path> Files;
+	};
+
+	struct FAssetDeleteAnalysis
+	{
+		FAssetPath AssetPath;
+		std::vector<FAssetPath> DirectReferencers;
+		std::vector<std::filesystem::path> CompanionFiles;
+		bool bLoaded = false;
+		bool bLoading = false;
+
+		auto CanDelete() const -> bool { return DirectReferencers.empty() && !bLoaded && !bLoading; }
+	};
+
 	using FAssetMoveContributor = std::function<FAssetResult(DObject*, const FAssetPath&, const FAssetPath&, FAssetMoveContribution&)>;
 	ASSETCORE_API auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void;
+	using FAssetDeleteContributor = std::function<FAssetResult(DObject*, FAssetDeleteContribution&)>;
+	ASSETCORE_API auto RegisterAssetDeleteContributor(DClass* Class, FAssetDeleteContributor Contributor) -> void;
 
 	class FAssetRegistry
 	{
@@ -78,6 +96,8 @@ namespace Durin::Asset
 		ASSETCORE_API auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult;
 		ASSETCORE_API auto SavePackage(DPackage* Package) -> FAssetResult;
 		ASSETCORE_API auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult;
+		ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
+		ASSETCORE_API auto DeleteAsset(const FAssetPath& Path) -> FAssetResult;
 		ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) const -> DPackage*;
 		ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
 		ASSETCORE_API auto Shutdown() -> void;
@@ -125,6 +145,8 @@ namespace Durin::Asset
 	ASSETCORE_API auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult;
 	ASSETCORE_API auto SavePackage(DPackage* Package) -> FAssetResult;
 	ASSETCORE_API auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult;
+	ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
+	ASSETCORE_API auto DeleteAsset(const FAssetPath& Path) -> FAssetResult;
 	ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) -> DPackage*;
 	ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
 	ASSETCORE_API auto ShutdownAssetManager() -> void;

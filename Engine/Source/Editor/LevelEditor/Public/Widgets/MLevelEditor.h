@@ -10,6 +10,7 @@ namespace Durin
 	class FLevelDocumentController;
 	class FSceneViewportPanel;
 	class FStaticMeshImportDialog;
+	class FContentBrowserPanel;
 	struct FLevelEditorContext;
 
 	class MLevelEditor final : public MWidget
@@ -35,6 +36,7 @@ namespace Durin
 		std::unique_ptr<FStaticMeshImportDialog> StaticMeshImportDialog;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
+		FContentBrowserPanel* ContentBrowserPanel = nullptr;
 		bool bResetLayoutRequested = false;
 		bool bProjectSettingsOpen = false;
 		std::string DefaultLevel;

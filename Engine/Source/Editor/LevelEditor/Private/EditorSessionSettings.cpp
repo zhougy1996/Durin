@@ -57,6 +57,13 @@ namespace Durin
 		GizmoTranslationSnap = static_cast<float>(Gizmo.GetView("TranslationSnap").GetDouble(0.5));
 		GizmoRotationSnap = static_cast<float>(Gizmo.GetView("RotationSnap").GetDouble(15.0));
 		GizmoScaleSnap = static_cast<float>(Gizmo.GetView("ScaleSnap").GetDouble(0.1));
+
+		const FYamlNodeView ContentBrowser = Root.GetView("ContentBrowser");
+		ContentBrowserViewMode = static_cast<uint8>(std::clamp<int64>(ContentBrowser.GetView("ViewMode").GetInt(0), 0, 1));
+		ContentBrowserIconSize = static_cast<float>(std::clamp(ContentBrowser.GetView("IconSize").GetDouble(88.0), 56.0, 160.0));
+		ContentBrowserTreeWidth = static_cast<float>(std::clamp(ContentBrowser.GetView("TreeWidth").GetDouble(0.24), 0.15, 0.55));
+		bContentBrowserShowSourceFiles = ContentBrowser.GetView("ShowSourceFiles").GetBool(false);
+		ContentBrowserLastDirectory = ContentBrowser.GetView("LastDirectory").GetString();
 		return true;
 	}
 
@@ -114,6 +121,13 @@ namespace Durin
 			GizmoNode.SetChildValue("RotationSnap", static_cast<double>(GizmoRotationSnap));
 			GizmoNode.SetChildValue("ScaleSnap", static_cast<double>(GizmoScaleSnap));
 		}
+
+		FYamlNodeRef ContentBrowserNode = Root.AddMap("ContentBrowser");
+		ContentBrowserNode.SetChildValue("ViewMode", static_cast<int64>(ContentBrowserViewMode));
+		ContentBrowserNode.SetChildValue("IconSize", static_cast<double>(ContentBrowserIconSize));
+		ContentBrowserNode.SetChildValue("TreeWidth", static_cast<double>(ContentBrowserTreeWidth));
+		ContentBrowserNode.SetChildValue("ShowSourceFiles", bContentBrowserShowSourceFiles);
+		ContentBrowserNode.SetChildValue("LastDirectory", ContentBrowserLastDirectory);
 
 		SaveLevelViewportStates(Root, ViewportStates);
 		if (!Document.SaveToFile(FPaths::LaunchDir() + SessionSettingsFileName))
@@ -181,5 +195,14 @@ namespace Durin
 		WindowWidth = Width;
 		WindowHeight = Height;
 		UIScale = Scale;
+	}
+
+	auto FEditorSessionSettings::SetContentBrowserState(uint8 ViewMode, float IconSize, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void
+	{
+		ContentBrowserViewMode = std::min<uint8>(ViewMode, 1);
+		ContentBrowserIconSize = std::clamp(IconSize, 56.0f, 160.0f);
+		ContentBrowserTreeWidth = std::clamp(TreeWidth, 0.15f, 0.55f);
+		bContentBrowserShowSourceFiles = bShowSourceFiles;
+		ContentBrowserLastDirectory = std::move(LastDirectory);
 	}
 } // namespace Durin

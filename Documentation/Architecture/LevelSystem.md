@@ -10,4 +10,4 @@ Scene persistence stores the actor list, primary camera, component relative tran
 
 The Level Editor exposes New, Open, and Save using virtual asset paths and the Asset Registry. Dirty package switches require Save, Discard, or Cancel. Static-mesh components persist cross-package references to `DStaticMesh` assets. A static-mesh asset serializes its project-relative source path and build settings; CPU/GPU render data is rebuilt from the copied Content source after load and is never serialized. Version one intentionally supports a single active level and does not include sub-level streaming, PIE cloning, or Save As.
 
-At startup the editor opens the project's optional `Editor.DefaultLevel`. Projects without a default level start with an empty editor; levels are otherwise opened directly from the File Browser. Missing or invalid defaults and failed level loads are non-fatal.
+At startup the editor opens the project's optional `Editor.DefaultLevel`. Projects without a default level start with an empty editor; levels are otherwise opened directly from the Content Browser. Missing or invalid defaults and failed level loads are non-fatal.

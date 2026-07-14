@@ -26,6 +26,13 @@ namespace Durin
 		auto SetDisplaySettings(int32 Width, int32 Height, float Scale) -> void;
 		auto SetWindowMaximized(bool bMaximized) -> void { bWindowMaximized = bMaximized; }
 
+		auto GetContentBrowserViewMode() const -> uint8 { return ContentBrowserViewMode; }
+		auto GetContentBrowserIconSize() const -> float { return ContentBrowserIconSize; }
+		auto GetContentBrowserTreeWidth() const -> float { return ContentBrowserTreeWidth; }
+		auto GetContentBrowserShowSourceFiles() const -> bool { return bContentBrowserShowSourceFiles; }
+		auto GetContentBrowserLastDirectory() const -> const std::string& { return ContentBrowserLastDirectory; }
+		auto SetContentBrowserState(uint8 ViewMode, float IconSize, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void;
+
 	private:
 		FLevelViewportStateMap ViewportStates;
 		bool bWindowMaximized = true;
@@ -38,5 +45,10 @@ namespace Durin
 		float GizmoScaleSnap = 0.1f;
 		uint8 GizmoMode = 0;
 		uint8 GizmoSpace = 0;
+		uint8 ContentBrowserViewMode = 0;
+		float ContentBrowserIconSize = 88.0f;
+		float ContentBrowserTreeWidth = 0.24f;
+		bool bContentBrowserShowSourceFiles = false;
+		std::string ContentBrowserLastDirectory;
 	};
 } // namespace Durin

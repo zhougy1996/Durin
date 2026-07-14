@@ -269,6 +269,116 @@ TEST(FPackageAssetTests, MoveRewritesMountedReferrers)
 	EXPECT_EQ(Dependency->GetName(), NewPath.GetAssetName());
 }
 
+TEST(FPackageAssetTests, DeletesUnreferencedAssetAndRegistryEntry)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DeleteMe", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	const std::filesystem::path File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "DeleteMe.dasset";
+	ASSERT_TRUE(std::filesystem::exists(File));
+
+	Durin::Asset::FAssetDeleteAnalysis Analysis;
+	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(Path, Analysis));
+	EXPECT_FALSE(Analysis.bLoaded);
+	EXPECT_TRUE(Analysis.CanDelete());
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
+	EXPECT_FALSE(std::filesystem::exists(File));
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
+}
+
+TEST(FPackageAssetTests, RejectsDeletingLoadedAsset)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LoadedDelete", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	EXPECT_EQ(Durin::Asset::DeleteAsset(Path).Error, Durin::Asset::EAssetError::InUse);
+	EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "LoadedDelete.dasset"));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, RejectsDeletingReferencedAssetWithoutChangingDisk)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath DependencyPath, OwnerPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DeleteDependency", DependencyPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DeleteOwner", OwnerPath));
+	DPackageAssetForTest* Dependency = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(DependencyPath, Dependency));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Dependency->GetPackage()));
+	DPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
+	Owner->ExternalReference = Dependency;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
+
+	Durin::Asset::FAssetDeleteAnalysis Analysis;
+	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(DependencyPath, Analysis));
+	ASSERT_EQ(Analysis.DirectReferencers.size(), 1u);
+	EXPECT_EQ(Analysis.DirectReferencers.front(), OwnerPath);
+	EXPECT_EQ(Durin::Asset::DeleteAsset(DependencyPath).Error, Durin::Asset::EAssetError::InUse);
+	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAsset(DependencyPath), nullptr);
+	EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "DeleteDependency.dasset"));
+}
+
+TEST(FPackageAssetTests, DeletesRegisteredCompanionFile)
+{
+	InitializeAssetTests();
+	static const bool Registered = [] {
+		Durin::Asset::RegisterAssetDeleteContributor(DPackageAssetForTest::StaticClass(), [](Durin::DObject* Object, Durin::Asset::FAssetDeleteContribution& Out) -> Durin::Asset::FAssetResult {
+			auto* Asset = Durin::Cast<DPackageAssetForTest>(Object);
+			if (Asset && Asset->Label.starts_with("companion:")) Out.Files.emplace_back(Asset->Label.substr(10));
+			return {};
+		});
+		return true;
+	}();
+	(void)Registered;
+
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DeleteWithCompanion", Path));
+	const std::filesystem::path Companion = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "DeleteWithCompanion.source";
+	{
+		std::ofstream Stream(Companion);
+		Stream << "source";
+	}
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Asset->Label = "companion:" + Companion.generic_string();
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
+	EXPECT_FALSE(std::filesystem::exists(Companion));
+}
+
+TEST(FPackageAssetTests, DeleteAnalysisDoesNotLeaveTemporaryDependenciesLoaded)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath DependencyPath, OwnerPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AnalysisDependency", DependencyPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AnalysisOwner", OwnerPath));
+	DPackageAssetForTest* Dependency = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(DependencyPath, Dependency));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Dependency->GetPackage()));
+	DPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
+	Owner->ExternalReference = Dependency;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(DependencyPath));
+
+	Durin::Asset::FAssetDeleteAnalysis Analysis;
+	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(OwnerPath, Analysis));
+	EXPECT_FALSE(Analysis.bLoaded);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(OwnerPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(DependencyPath), nullptr);
+}
+
 TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 {
 	InitializeAssetTests();

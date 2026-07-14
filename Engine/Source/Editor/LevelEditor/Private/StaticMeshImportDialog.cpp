@@ -10,17 +10,20 @@
 
 namespace Durin
 {
-	FStaticMeshImportDialog::FStaticMeshImportDialog(std::function<void()> InClearError, std::function<void(std::string)> InReportError)
+	FStaticMeshImportDialog::FStaticMeshImportDialog(std::function<void()> InClearError, std::function<void(std::string)> InReportError, std::function<void(std::string)> InImported)
 		: ClearError(std::move(InClearError))
 		, ReportError(std::move(InReportError))
+		, Imported(std::move(InImported))
 	{
 	}
 
-	auto FStaticMeshImportDialog::Open() -> void
+	auto FStaticMeshImportDialog::Open(std::string_view DestinationDirectory) -> void
 	{
 		SourcePathBuffer.fill(0);
 		AssetPathBuffer.fill(0);
 		LastSuggestedAssetPath.clear();
+		PreferredDestinationDirectory = DestinationDirectory;
+		if (!PreferredDestinationDirectory.empty() && !PreferredDestinationDirectory.ends_with('/')) PreferredDestinationDirectory += '/';
 		bOpenRequested = true;
 	}
 
@@ -147,7 +150,9 @@ namespace Durin
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
 		const std::string AssetName = StringUtils::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
 		const FProjectInfo* Project = GetCurrentProject();
-		const std::string SuggestedPath = (Project ? Project->MountRoot : "/") + "StaticMeshes/" + AssetName;
+		const std::string SuggestedPath = !PreferredDestinationDirectory.empty()
+			? PreferredDestinationDirectory + AssetName
+			: (Project ? Project->MountRoot : "/") + "StaticMeshes/" + AssetName;
 		if (PreviousAssetPath.empty() || PreviousAssetPath == LastSuggestedAssetPath)
 		{
 			AssetPathBuffer.fill(0);
@@ -217,6 +222,9 @@ namespace Durin
 			SetError(Result.Message);
 			return false;
 		}
+		if (Imported) Imported(AssetPathBuffer.data());
+		FAssetPath ImportedPath;
+		if (FAssetPath::TryCreate(AssetPathBuffer.data(), ImportedPath)) Asset::UnloadPackage(ImportedPath);
 		return true;
 	}
 

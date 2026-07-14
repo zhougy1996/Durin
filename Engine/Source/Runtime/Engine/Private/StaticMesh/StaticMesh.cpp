@@ -63,6 +63,11 @@ namespace Durin
 				}
 				return {};
 			});
+			Asset::RegisterAssetDeleteContributor(DStaticMesh::StaticClass(), [](DObject* Object, Asset::FAssetDeleteContribution& Out) -> Asset::FAssetResult {
+				auto* Mesh = Cast<DStaticMesh>(Object);
+				if (Mesh && !Mesh->SourceFile.empty()) Out.Files.push_back(ResolveStaticMeshSource(*Mesh));
+				return {};
+			});
 			return true;
 		}();
 		(void)RegisteredMoveContributor;

@@ -14,7 +14,7 @@
 #include "MonaImGui.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DetailsPanel.h"
-#include "Panels/FileBrowserPanel.h"
+#include "Panels/ContentBrowserPanel.h"
 #include "Panels/LevelEditorPanel.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Panels/WorldOutlinerPanel.h"
@@ -76,11 +76,24 @@ namespace Durin
 		);
 		StaticMeshImportDialog = std::make_unique<FStaticMeshImportDialog>(
 			[this] { EditorError.clear(); },
-			[this](std::string Message) { SetError(std::move(Message)); }
+			[this](std::string Message) { SetError(std::move(Message)); },
+			[this](std::string AssetPath) {
+				Asset::GetAssetRegistry().ScanMountedContent();
+				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
+			}
 		);
-		Panels.emplace_back(std::make_unique<FFileBrowserPanel>([this](const std::string& Path) {
-			return DocumentController && DocumentController->RequestOpenLevel(Path);
-		}));
+		auto ContentBrowser = std::make_unique<FContentBrowserPanel>(
+			SessionSettings,
+			[this](const std::string& Path, const std::string& AssetClassName) {
+				if (AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString()) return false;
+				return DocumentController && DocumentController->RequestOpenLevel(Path);
+			},
+			[this](const std::string& DestinationDirectory) {
+				if (StaticMeshImportDialog) StaticMeshImportDialog->Open(DestinationDirectory);
+			}
+		);
+		ContentBrowserPanel = ContentBrowser.get();
+		Panels.emplace_back(std::move(ContentBrowser));
 
 		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
 		DocumentController->OpenDefaultLevel();
@@ -362,7 +375,7 @@ namespace Durin
 
 		ImGui::DockBuilderDockWindow("World Outliner###WorldOutliner", LeftDockId);
 		ImGui::DockBuilderDockWindow("Details###Details", RightDockId);
-		ImGui::DockBuilderDockWindow("File Browser###FileBrowser", BottomDockId);
+		ImGui::DockBuilderDockWindow("Content Browser###FileBrowser", BottomDockId);
 		ImGui::DockBuilderDockWindow("Output Log###OutputLog", BottomDockId);
 		ImGui::DockBuilderDockWindow("Scene Viewport###SceneViewport", MainDockId);
 		ImGui::DockBuilderFinish(DockSpaceId);

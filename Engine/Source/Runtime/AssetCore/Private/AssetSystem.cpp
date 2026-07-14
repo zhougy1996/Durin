@@ -111,6 +111,12 @@ namespace Durin::Asset
 			return Contributors;
 		}
 
+		auto GetDeleteContributors() -> std::unordered_map<DClass*, FAssetDeleteContributor>&
+		{
+			static std::unordered_map<DClass*, FAssetDeleteContributor> Contributors;
+			return Contributors;
+		}
+
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
 		{
 			return FPaths::Resolve(Path.GetView()) + ".dasset";
@@ -483,6 +489,11 @@ namespace Durin::Asset
 		if (Class && Contributor) GetMoveContributors().insert_or_assign(Class, std::move(Contributor));
 	}
 
+	auto RegisterAssetDeleteContributor(DClass* Class, FAssetDeleteContributor Contributor) -> void
+	{
+		if (Class && Contributor) GetDeleteContributors().insert_or_assign(Class, std::move(Contributor));
+	}
+
 	auto FAssetRegistry::ScanMountedContent() -> FAssetResult
 	{
 		std::unordered_map<FAssetPath, FAssetData> NewAssets;
@@ -720,6 +731,144 @@ namespace Durin::Asset
 		return {};
 	}
 
+	auto FAssetManager::AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult
+	{
+		OutAnalysis = {};
+		OutAnalysis.AssetPath = Path;
+		const FAssetData* Data = Registry.FindAsset(Path);
+		if (!Path.IsValid() || !Data) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
+
+		for (const auto& [OtherPath, OtherData] : Registry.GetAssets())
+		{
+			if (OtherPath != Path && std::ranges::find(OtherData.Dependencies, Path) != OtherData.Dependencies.end())
+				OutAnalysis.DirectReferencers.push_back(OtherPath);
+		}
+		std::ranges::sort(OutAnalysis.DirectReferencers, [](const FAssetPath& A, const FAssetPath& B) { return A.GetView() < B.GetView(); });
+		OutAnalysis.bLoaded = LoadedPackages.contains(Path);
+		OutAnalysis.bLoading = LoadingPackages.contains(Path);
+
+		DPackage* Package = nullptr;
+		const bool bTemporarilyLoaded = !OutAnalysis.bLoaded;
+		std::unordered_set<FAssetPath> PreviouslyLoaded;
+		if (bTemporarilyLoaded)
+			for (const auto& [LoadedPath, LoadedPackage] : LoadedPackages) PreviouslyLoaded.insert(LoadedPath);
+		DObject* LoadedAsset = nullptr;
+		FAssetResult Result = LoadAsset(Path, LoadedAsset);
+		Package = LoadedAsset ? LoadedAsset->GetPackage() : nullptr;
+		if (!Result) return Result;
+		if (Package && Package->GetAsset())
+		{
+			for (DClass* Class = Package->GetAsset()->GetClass(); Class; Class = Class->GetSuperClass())
+			{
+				auto It = GetDeleteContributors().find(Class);
+				if (It == GetDeleteContributors().end()) continue;
+				FAssetDeleteContribution Contribution;
+				Result = It->second(Package->GetAsset(), Contribution);
+				if (Result) OutAnalysis.CompanionFiles = std::move(Contribution.Files);
+				break;
+			}
+		}
+		if (bTemporarilyLoaded)
+		{
+			FAssetResult UnloadResult = UnloadPackage(Path);
+			if (Result && !UnloadResult) Result = std::move(UnloadResult);
+			bool bMadeProgress = true;
+			while (bMadeProgress)
+			{
+				bMadeProgress = false;
+				std::vector<FAssetPath> TemporaryDependencies;
+				for (const auto& [LoadedPath, LoadedPackage] : LoadedPackages)
+					if (!PreviouslyLoaded.contains(LoadedPath)) TemporaryDependencies.push_back(LoadedPath);
+				for (const FAssetPath& TemporaryPath : TemporaryDependencies)
+				{
+					if (UnloadPackage(TemporaryPath)) bMadeProgress = true;
+				}
+			}
+		}
+		return Result;
+	}
+
+	auto FAssetManager::DeleteAsset(const FAssetPath& Path) -> FAssetResult
+	{
+		FAssetDeleteAnalysis Analysis;
+		FAssetResult Result = AnalyzeAssetDeletion(Path, Analysis);
+		if (!Result) return Result;
+		if (!Analysis.DirectReferencers.empty())
+			return Error(EAssetError::InUse, std::format("Asset {} is referenced by {} asset(s).", Path.ToString(), Analysis.DirectReferencers.size()));
+		if (Analysis.bLoaded) return Error(EAssetError::InUse, "Asset is loaded and may still be used by the editor or runtime.");
+		if (Analysis.bLoading) return Error(EAssetError::InUse, "Asset is currently loading.");
+
+		const FAssetData* Data = Registry.FindAsset(Path);
+		if (!Data) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
+		std::vector<std::filesystem::path> Files;
+		Files.emplace_back(Data->PhysicalPath);
+		for (const std::filesystem::path& Companion : Analysis.CompanionFiles)
+		{
+			const std::filesystem::path Normalized = std::filesystem::absolute(Companion).lexically_normal();
+			if (std::ranges::find(Files, Normalized) == Files.end()) Files.push_back(Normalized);
+		}
+
+		const auto RegistryBackup = Registry.Assets;
+		struct FStagedDeleteFile
+		{
+			std::filesystem::path Original;
+			std::filesystem::path Staged;
+			std::filesystem::path RecoveryCopy;
+		};
+		std::vector<FStagedDeleteFile> StagedFiles;
+		auto Rollback = [&]() {
+			std::error_code Ec;
+			for (auto It = StagedFiles.rbegin(); It != StagedFiles.rend(); ++It)
+			{
+				Ec.clear();
+				if (std::filesystem::exists(It->Staged)) std::filesystem::rename(It->Staged, It->Original, Ec);
+				else if (std::filesystem::exists(It->RecoveryCopy)) std::filesystem::copy_file(It->RecoveryCopy, It->Original, std::filesystem::copy_options::overwrite_existing, Ec);
+				std::filesystem::remove(It->RecoveryCopy, Ec);
+			}
+			Registry.Assets = RegistryBackup;
+		};
+
+		for (const std::filesystem::path& File : Files)
+		{
+			if (!std::filesystem::exists(File)) continue;
+			std::filesystem::path Staged = File.string() + ".deletebak";
+			std::error_code Ec;
+			std::filesystem::remove(Staged, Ec);
+			Ec.clear();
+			std::filesystem::rename(File, Staged, Ec);
+			if (Ec) { Rollback(); return Error(EAssetError::IoError, std::format("Failed to stage {} for deletion.", File.generic_string())); }
+			const std::filesystem::path RecoveryCopy = Staged.string() + ".copy";
+			Ec.clear();
+			std::filesystem::remove(RecoveryCopy, Ec);
+			Ec.clear();
+			std::filesystem::copy_file(Staged, RecoveryCopy, std::filesystem::copy_options::overwrite_existing, Ec);
+			if (Ec)
+			{
+				std::filesystem::rename(Staged, File, Ec);
+				Rollback();
+				return Error(EAssetError::IoError, std::format("Failed to prepare rollback data for {}.", File.generic_string()));
+			}
+			StagedFiles.push_back({File, Staged, RecoveryCopy});
+		}
+
+		Registry.Assets.erase(Path);
+		for (const FStagedDeleteFile& File : StagedFiles)
+		{
+			std::error_code Ec;
+			if (!std::filesystem::remove(File.Staged, Ec) || Ec)
+			{
+				Rollback();
+				return Error(EAssetError::IoError, std::format("Failed to delete {}.", File.Original.generic_string()));
+			}
+		}
+		for (const FStagedDeleteFile& File : StagedFiles)
+		{
+			std::error_code Ec;
+			std::filesystem::remove(File.RecoveryCopy, Ec);
+		}
+		return {};
+	}
+
 	auto FAssetManager::LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult
 	{
 		const bool bRootLoad = LoadDepth++ == 0;
@@ -898,6 +1047,8 @@ namespace Durin::Asset
 	auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult { return FAssetManager::Get().LoadAsset(Path, OutAsset); }
 	auto SavePackage(DPackage* Package) -> FAssetResult { return FAssetManager::Get().SavePackage(Package); }
 	auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult { return FAssetManager::Get().MoveAsset(OldPath, NewPath); }
+	auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult { return FAssetManager::Get().AnalyzeAssetDeletion(Path, OutAnalysis); }
+	auto DeleteAsset(const FAssetPath& Path) -> FAssetResult { return FAssetManager::Get().DeleteAsset(Path); }
 	auto FindLoadedPackage(const FAssetPath& Path) -> DPackage* { return FAssetManager::Get().FindLoadedPackage(Path); }
 	auto UnloadPackage(const FAssetPath& Path) -> FAssetResult { return FAssetManager::Get().UnloadPackage(Path); }
 	auto ShutdownAssetManager() -> void { FAssetManager::Get().Shutdown(); }

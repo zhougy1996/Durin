@@ -1,16 +1,21 @@
 #include "Panels/SceneViewportPanel.h"
 
+#include "AssetSystem.h"
 #include "Components/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "ContentBrowserDragDrop.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorTransaction.h"
 #include "Engine/Engine.h"
 #include "Engine/Actor.h"
+#include "Engine/Level.h"
+#include "Actors/StaticMeshActor.h"
 #include "IRendererModule.h"
 #include "LevelEditorContext.h"
 #include "Math/Vector.h"
 #include "Mona/SceneViewport.h"
 #include "MonaImGui.h"
+#include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Widgets/MViewport.h"
 #include "StaticMesh/StaticMesh.h"
@@ -319,6 +324,29 @@ namespace Durin
 			{
 				const ImVec2 VpMin = ImGui::GetItemRectMin();
 				const ImVec2 VpMax = ImGui::GetItemRectMax();
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ContentBrowserAssetPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FContentBrowserAssetPayload))
+					{
+						const auto* AssetPayload = static_cast<const FContentBrowserAssetPayload*>(Payload->Data);
+						FAssetPath AssetPath;
+						DStaticMesh* Mesh = nullptr;
+						if (!FAssetPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath)) Context.SetError("Dropped asset path is invalid.");
+						else if (const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Mesh); !Result) Context.SetError(Result.Message);
+						else if (AStaticMeshActor* Actor = Context.Level->SpawnActor<AStaticMeshActor>(FName(AssetPath.GetAssetName())))
+						{
+							Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+							FSceneView View;
+							ViewportClient->CalcSceneView(static_cast<uint32>(FMath::Max(1.0f, VpMax.x - VpMin.x)), static_cast<uint32>(FMath::Max(1.0f, VpMax.y - VpMin.y)), View);
+							const ImVec2 Mouse = ImGui::GetMousePos();
+							FVector3 Origin, Direction;
+							if (SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction) && Actor->GetRootComponent())
+								Actor->GetRootComponent()->SetWorldLocation(Origin + Direction * 5.0);
+							Context.SelectActor(Actor);
+						}
+					}
+					ImGui::EndDragDropTarget();
+				}
 				const FViewportToolbarLayout ToolbarLayout = CalculateToolbarLayout(VpMin, VpMax);
 				bViewportHovered = ImGui::IsItemHovered();
 				const bool bNavigationMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right) ||
