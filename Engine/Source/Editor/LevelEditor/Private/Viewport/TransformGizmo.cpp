@@ -14,8 +14,9 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr float GizmoPixels = 90.0f;
-		constexpr float HitRadiusPixels = 10.0f;
+		// Keep the manipulator comfortably readable without letting its projected size vary with scene scale.
+		constexpr float GizmoPixels = 112.0f;
+		constexpr float HitRadiusPixels = 12.0f;
 		constexpr double Epsilon = 1.e-8;
 
 		auto ThemeColor(MonaImGui::EUIThemeColor Color, float Alpha) -> FVector4f
@@ -154,9 +155,15 @@ namespace Durin
 		}
 		Pivot = Sum / static_cast<double>(Count);
 		Basis = glm::identity<FQuat>();
-		if (Space == ETransformGizmoSpace::Local)
+		const ETransformGizmoSpace EffectiveSpace = GetEffectiveSpace();
+		if (const AActor* Primary = Context.GetPrimarySelectedActor(); Primary && Primary->GetRootComponent())
 		{
-			if (const AActor* Primary = Context.GetPrimarySelectedActor(); Primary && Primary->GetRootComponent()) Basis = Primary->GetRootComponent()->GetWorldRotation();
+			if (EffectiveSpace == ETransformGizmoSpace::Local)
+				Basis = Primary->GetRootComponent()->GetWorldRotation();
+			else if (EffectiveSpace == ETransformGizmoSpace::Parent)
+			{
+				if (const DSceneComponent* Parent = Primary->GetRootComponent()->GetAttachParent()) Basis = Parent->GetWorldRotation();
+			}
 		}
 		DisplayPivot = Pivot;
 		DisplayBasis = Basis;
@@ -374,7 +381,7 @@ namespace Durin
 		bDragChanged = std::abs(Radians) > Epsilon;
 		const FQuat Delta = glm::angleAxis(Radians, DragAxis);
 		DisplayPivot = Pivot;
-		DisplayBasis = Space == ETransformGizmoSpace::Local ? glm::normalize(Delta * Basis) : Basis;
+		DisplayBasis = GetEffectiveSpace() == ETransformGizmoSpace::Local ? glm::normalize(Delta * Basis) : Basis;
 		for (FActorSnapshot& Snapshot : Snapshots)
 		{
 			if (!Snapshot.Actor) continue;

@@ -297,9 +297,31 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, RotateView));
 	EXPECT_EQ(RotateView.OverlayPrimitives.size(), 3u);
 	Client.GetTransformGizmo().SetMode(Durin::ETransformGizmoMode::Scale);
+	EXPECT_EQ(Client.GetTransformGizmo().GetSpace(), Durin::ETransformGizmoSpace::World);
+	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::ETransformGizmoSpace::Local);
+	Client.GetTransformGizmo().SetSpace(Durin::ETransformGizmoSpace::Parent);
+	EXPECT_EQ(Client.GetTransformGizmo().GetSpace(), Durin::ETransformGizmoSpace::Parent);
+	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::ETransformGizmoSpace::Local);
+	Actor->GetRootComponent()->SetWorldRotation(glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up));
+	Client.GetTransformGizmo().Update(Context, RotateView, Input, nullptr);
 	Durin::FSceneView ScaleView;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, ScaleView));
 	EXPECT_EQ(ScaleView.OverlayPrimitives.size(), 7u);
+	ASSERT_FALSE(ScaleView.OverlayPrimitives.empty());
+	ExpectVectorNear(glm::normalize(Durin::FVector3(ScaleView.OverlayPrimitives.front().LocalToWorld[0])), Durin::FVectorConstants::Right);
+	Client.GetTransformGizmo().SetMode(Durin::ETransformGizmoMode::Translate);
+	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::ETransformGizmoSpace::Parent);
+
+	Durin::ACameraActor* Parent = Level->SpawnActor<Durin::ACameraActor>("Parent");
+	ASSERT_NE(Parent, nullptr);
+	Actor->GetRootComponent()->SetWorldRotation(glm::identity<Durin::FQuat>());
+	Parent->GetRootComponent()->SetWorldRotation(glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up));
+	ASSERT_TRUE(Actor->AttachToActor(Parent, Durin::EAttachmentTransformRule::KeepWorld));
+	Client.GetTransformGizmo().Update(Context, ScaleView, Input, nullptr);
+	Durin::FSceneView ParentView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, ParentView));
+	ASSERT_FALSE(ParentView.OverlayPrimitives.empty());
+	ExpectVectorNear(glm::normalize(Durin::FVector3(ParentView.OverlayPrimitives.front().LocalToWorld[0])), Durin::FVectorConstants::Right);
 }
 
 TEST(FLevelEditorViewportClientTests, BuildsComponentOrientedSelectionBounds)

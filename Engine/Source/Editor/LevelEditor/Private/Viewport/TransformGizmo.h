@@ -12,7 +12,7 @@ namespace Durin
 	struct FLevelEditorViewportInput;
 
 	enum class ETransformGizmoMode : uint8 { Translate, Rotate, Scale };
-	enum class ETransformGizmoSpace : uint8 { World, Local };
+	enum class ETransformGizmoSpace : uint8 { World, Local, Parent };
 	enum class ETransformGizmoHandle : uint8
 	{
 		None,
@@ -40,6 +40,8 @@ namespace Durin
 		auto GetMode() const -> ETransformGizmoMode { return Mode; }
 		auto SetMode(ETransformGizmoMode InMode) -> void { if (!IsDragging()) Mode = InMode; }
 		auto GetSpace() const -> ETransformGizmoSpace { return Space; }
+		// Scale remains local-only without changing the space preference used by move and rotate.
+		auto GetEffectiveSpace() const -> ETransformGizmoSpace { return Mode == ETransformGizmoMode::Scale ? ETransformGizmoSpace::Local : Space; }
 		auto SetSpace(ETransformGizmoSpace InSpace) -> void { if (!IsDragging()) Space = InSpace; }
 		auto GetSnapSettings() -> FTransformGizmoSnapSettings& { return SnapSettings; }
 		auto GetSnapSettings() const -> const FTransformGizmoSnapSettings& { return SnapSettings; }

@@ -52,7 +52,7 @@ namespace Durin
 
 		const FYamlNodeView Gizmo = Root.GetView("TransformGizmo");
 		GizmoMode = static_cast<uint8>(std::clamp<int64>(Gizmo.GetView("Mode").GetInt(0), 0, 2));
-		GizmoSpace = static_cast<uint8>(std::clamp<int64>(Gizmo.GetView("Space").GetInt(0), 0, 1));
+		GizmoSpace = static_cast<uint8>(std::clamp<int64>(Gizmo.GetView("Space").GetInt(0), 0, 2));
 		bGizmoSnapEnabled = Gizmo.GetView("SnapEnabled").GetBool(false);
 		GizmoTranslationSnap = static_cast<float>(Gizmo.GetView("TranslationSnap").GetDouble(0.5));
 		GizmoRotationSnap = static_cast<float>(Gizmo.GetView("RotationSnap").GetDouble(15.0));
@@ -148,7 +148,7 @@ namespace Durin
 		if (FTransformGizmo* Gizmo = SceneViewportPanel.GetTransformGizmo())
 		{
 			Gizmo->SetMode(static_cast<ETransformGizmoMode>(std::min<uint8>(GizmoMode, 2)));
-			Gizmo->SetSpace(static_cast<ETransformGizmoSpace>(std::min<uint8>(GizmoSpace, 1)));
+			Gizmo->SetSpace(static_cast<ETransformGizmoSpace>(std::min<uint8>(GizmoSpace, 2)));
 			Gizmo->GetSnapSettings() = {bGizmoSnapEnabled, GizmoTranslationSnap, GizmoRotationSnap, GizmoScaleSnap};
 		}
 	}

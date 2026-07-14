@@ -257,7 +257,7 @@ namespace Durin
 			const uint32 Base = static_cast<uint32>(Vertices.size());
 			constexpr uint32 TubeSegments = 8;
 			constexpr float MajorRadius = 1.0f;
-			constexpr float MinorRadius = 0.025f;
+			constexpr float MinorRadius = 0.032f;
 			for (uint32 Segment = 0; Segment < Segments; ++Segment)
 			{
 				const float Major = glm::two_pi<float>() * static_cast<float>(Segment) / static_cast<float>(Segments);
@@ -332,11 +332,11 @@ namespace Durin
 			std::vector<FVector3f> Vertices;
 			std::vector<uint32> Indices;
 			GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Arrow)] = BeginGizmoMesh(Vertices, Indices);
-			AppendCylinder(Vertices, Indices, 0.0f, 0.76f, 0.025f, 12);
-			AppendCone(Vertices, Indices, 0.72f, 1.0f, 0.075f, 12);
+			AppendCylinder(Vertices, Indices, 0.0f, 0.76f, 0.032f, 12);
+			AppendCone(Vertices, Indices, 0.72f, 1.0f, 0.085f, 12);
 			EndGizmoMesh(GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Arrow)], Indices);
 			GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Axis)] = BeginGizmoMesh(Vertices, Indices);
-			AppendCylinder(Vertices, Indices, 0.0f, 0.94f, 0.025f, 12);
+			AppendCylinder(Vertices, Indices, 0.0f, 0.94f, 0.032f, 12);
 			EndGizmoMesh(GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Axis)], Indices);
 			GGizmoState.MeshRanges[static_cast<size_t>(EViewOverlayShape::Plane)] = BeginGizmoMesh(Vertices, Indices);
 			AppendPlane(Vertices, Indices);
@@ -625,7 +625,9 @@ namespace Durin
 				FGizmoTransformUniform Uniform;
 				Uniform.LocalToClip = ToShaderMatrix(View.ViewProjectionMatrix * Primitive.LocalToWorld);
 				Uniform.Color = Primitive.Color;
-				if (bXRay) Uniform.Color.a *= 0.18f;
+				// The depth-independent pass keeps handles legible through the selected object; the
+				// depth-tested pass drawn afterward restores the full color of visible surfaces.
+				if (bXRay) Uniform.Color.a *= 0.32f;
 				const FRHIUniformBufferRange Buffer = CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
 				FGizmoVertexShader::FParameters Parameters;
 				Parameters.Transform = Buffer;
