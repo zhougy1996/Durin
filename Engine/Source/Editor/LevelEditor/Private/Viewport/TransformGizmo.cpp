@@ -6,6 +6,7 @@
 #include "LevelEditorContext.h"
 #include "Math/TransformDecomposition.h"
 #include "DObject/Package.h"
+#include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
 
 namespace Durin
@@ -44,38 +45,6 @@ namespace Durin
 			if (bHovered) Color = glm::min(Color * FVector4f(1.35f, 1.35f, 1.35f, 1.0f), FVector4f(1.0f));
 			Color.a = Alpha;
 			return Color;
-		}
-
-		auto Project(const FSceneView& View, const FVector3& Position, FVector2f& Out) -> bool
-		{
-			const FVector4 Clip = View.ViewProjectionMatrix * FVector4(Position, 1.0);
-			if (!std::isfinite(Clip.w) || Clip.w <= Epsilon) return false;
-			const FVector2 Ndc = FVector2(Clip) / Clip.w;
-			if (!std::isfinite(Ndc.x) || !std::isfinite(Ndc.y)) return false;
-			Out = {static_cast<float>((Ndc.x + 1.0) * 0.5 * View.ViewportWidth), static_cast<float>((Ndc.y + 1.0) * 0.5 * View.ViewportHeight)};
-			return true;
-		}
-
-		auto BuildRay(const FSceneView& View, const FVector2f& Mouse, FVector3& Origin, FVector3& Direction) -> bool
-		{
-			if (View.ViewportWidth == 0 || View.ViewportHeight == 0) return false;
-			const FMatrix VP = View.ViewProjectionMatrix;
-			const double Determinant = glm::determinant(VP);
-			if (!std::isfinite(Determinant) || std::abs(Determinant) <= Epsilon) return false;
-			const FMatrix Inverse = glm::inverse(VP);
-			const double X = static_cast<double>(Mouse.x) / View.ViewportWidth * 2.0 - 1.0;
-			const double Y = static_cast<double>(Mouse.y) / View.ViewportHeight * 2.0 - 1.0;
-			FVector4 Near = Inverse * FVector4(X, Y, 0.0, 1.0);
-			FVector4 Far = Inverse * FVector4(X, Y, 1.0, 1.0);
-			if (std::abs(Near.w) <= Epsilon || std::abs(Far.w) <= Epsilon) return false;
-			Near /= Near.w;
-			Far /= Far.w;
-			Origin = FVector3(Near);
-			const FVector3 Delta = FVector3(Far) - Origin;
-			const double Length = glm::length(Delta);
-			if (!std::isfinite(Length) || Length <= Epsilon) return false;
-			Direction = Delta / Length;
-			return true;
 		}
 
 		auto RayPlane(const FVector3& Origin, const FVector3& Direction, const FVector3& PlanePoint, const FVector3& PlaneNormal, FVector3& Out) -> bool
@@ -172,7 +141,7 @@ namespace Durin
 	auto FTransformGizmo::HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle
 	{
 		FVector2f Center;
-		if (!Project(View, Pivot, Center)) return ETransformGizmoHandle::None;
+		if (!SceneViewProjection::ProjectWorldToViewport(View, Pivot, Center)) return ETransformGizmoHandle::None;
 		std::array<FVector3,3> Axes = {Basis * FVectorConstants::Forward, Basis * FVectorConstants::Right, Basis * FVectorConstants::Up};
 		std::array<ETransformGizmoHandle,3> Handles = {ETransformGizmoHandle::X,ETransformGizmoHandle::Y,ETransformGizmoHandle::Z};
 		ETransformGizmoHandle Best = ETransformGizmoHandle::None;
@@ -189,7 +158,7 @@ namespace Durin
 				{
 					const double Angle = glm::two_pi<double>() * Segment / 64.0;
 					FVector2f Current;
-					const bool bCurrent = Project(View, Pivot + (U * std::cos(Angle) + V * std::sin(Angle)) * static_cast<double>(WorldScale), Current);
+					const bool bCurrent = SceneViewProjection::ProjectWorldToViewport(View, Pivot + (U * std::cos(Angle) + V * std::sin(Angle)) * static_cast<double>(WorldScale), Current);
 					if (bPrevious && bCurrent)
 					{
 						const float Distance = DistanceToSegment(MousePosition, Previous, Current);
@@ -209,7 +178,7 @@ namespace Durin
 				std::array<FVector2f,4> P;
 				const FVector3 A = Axes[Plane.A] * static_cast<double>(WorldScale);
 				const FVector3 B = Axes[Plane.B] * static_cast<double>(WorldScale);
-				if (Project(View, Pivot+A*0.22+B*0.22,P[0]) && Project(View,Pivot+A*0.42+B*0.22,P[1]) && Project(View,Pivot+A*0.42+B*0.42,P[2]) && Project(View,Pivot+A*0.22+B*0.42,P[3]))
+				if (SceneViewProjection::ProjectWorldToViewport(View, Pivot+A*0.22+B*0.22,P[0]) && SceneViewProjection::ProjectWorldToViewport(View,Pivot+A*0.42+B*0.22,P[1]) && SceneViewProjection::ProjectWorldToViewport(View,Pivot+A*0.42+B*0.42,P[2]) && SceneViewProjection::ProjectWorldToViewport(View,Pivot+A*0.22+B*0.42,P[3]))
 				{
 					if (PointInTriangle(MousePosition,P[0],P[1],P[2]) || PointInTriangle(MousePosition,P[0],P[2],P[3])) return Plane.Handle;
 				}
@@ -220,7 +189,7 @@ namespace Durin
 		for (size_t AxisIndex = 0; AxisIndex < 3; ++AxisIndex)
 		{
 			FVector2f End;
-			if (!Project(View, Pivot + Axes[AxisIndex] * static_cast<double>(WorldScale), End)) continue;
+			if (!SceneViewProjection::ProjectWorldToViewport(View, Pivot + Axes[AxisIndex] * static_cast<double>(WorldScale), End)) continue;
 			const float Distance = DistanceToSegment(MousePosition, Center, End);
 			if (Distance < BestDistance) { BestDistance = Distance; Best = Handles[AxisIndex]; }
 		}
@@ -253,7 +222,7 @@ namespace Durin
 		if (Snapshots.empty()) { ActiveHandle = ETransformGizmoHandle::None; return false; }
 
 		FVector3 RayOrigin, RayDirection;
-		if (!BuildRay(View, Input.MousePosition, RayOrigin, RayDirection)) { ActiveHandle = ETransformGizmoHandle::None; return false; }
+		if (!SceneViewProjection::BuildViewportRay(View, Input.MousePosition, RayOrigin, RayDirection)) { ActiveHandle = ETransformGizmoHandle::None; return false; }
 		DragAxis = ActiveHandle == ETransformGizmoHandle::Uniform ? FVectorConstants::Zero : glm::normalize(Basis * AxisForHandle(ActiveHandle));
 		if (ActiveHandle == ETransformGizmoHandle::XY) DragPlaneNormal = Basis * FVectorConstants::Up;
 		else if (ActiveHandle == ETransformGizmoHandle::XZ) DragPlaneNormal = Basis * FVectorConstants::Right;
@@ -277,7 +246,7 @@ namespace Durin
 	auto FTransformGizmo::UpdateDrag(const FSceneView& View, const FLevelEditorViewportInput& Input) -> void
 	{
 		FVector3 RayOrigin, RayDirection, Current;
-		if (!BuildRay(View, Input.MousePosition, RayOrigin, RayDirection) || !RayPlane(RayOrigin, RayDirection, Pivot, DragPlaneNormal, Current)) return;
+		if (!SceneViewProjection::BuildViewportRay(View, Input.MousePosition, RayOrigin, RayDirection) || !RayPlane(RayOrigin, RayDirection, Pivot, DragPlaneNormal, Current)) return;
 		const bool bSnap = SnapSettings.bEnabled || Input.bCtrl;
 		if (Mode == ETransformGizmoMode::Translate)
 		{

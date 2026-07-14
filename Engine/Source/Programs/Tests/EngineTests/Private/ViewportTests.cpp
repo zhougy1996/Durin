@@ -17,6 +17,7 @@
 #include "LevelEditorContext.h"
 #include "Mona/SceneViewport.h"
 #include "Misc/Paths.h"
+#include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Viewport/ViewportCameraTransform.h"
@@ -222,6 +223,25 @@ TEST(FLevelEditorViewportClientTests, BuildsCenterPickingRayAndRejectsInvalidVie
 	ASSERT_TRUE(Client.BuildPickingRay({400.0f, 300.0f}, {800.0f, 600.0f}, Origin, Direction));
 	EXPECT_NEAR(glm::length(Direction), 1.0, 1.e-8);
 	ExpectVectorNear(Direction, Client.GetCameraTransform().GetForwardVector(), 1.e-6);
+}
+
+TEST(FSceneViewProjectionTests, ProjectsAndBuildsRayFromSceneView)
+{
+	Durin::FSceneView View;
+	View.ViewportWidth = 800;
+	View.ViewportHeight = 600;
+	View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+	Durin::FVector2f ViewportPosition;
+	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, {0.0, 0.0, 0.5}, ViewportPosition));
+	EXPECT_FLOAT_EQ(ViewportPosition.x, 400.0f);
+	EXPECT_FLOAT_EQ(ViewportPosition.y, 300.0f);
+	Durin::FVector3 Origin;
+	Durin::FVector3 Direction;
+	ASSERT_TRUE(Durin::SceneViewProjection::BuildViewportRay(View, ViewportPosition, Origin, Direction));
+	ExpectVectorNear(Origin, {0.0, 0.0, 0.0});
+	ExpectVectorNear(Direction, {0.0, 0.0, 1.0});
+	View.ViewProjectionMatrix = Durin::FMatrix(0.0);
+	EXPECT_FALSE(Durin::SceneViewProjection::BuildViewportRay(View, ViewportPosition, Origin, Direction));
 }
 
 TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)

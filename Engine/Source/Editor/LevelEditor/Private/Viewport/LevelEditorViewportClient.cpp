@@ -7,6 +7,7 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "IRendererModule.h"
+#include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -23,11 +24,6 @@ namespace Durin
 		constexpr float kShiftSpeedMultiplier = 4.0f;
 		constexpr float kFocusDistance = 5.0f;
 		constexpr double kIntersectionEpsilon = 1.e-8;
-
-		auto IsFinite(const FVector3& Value) -> bool
-		{
-			return std::isfinite(Value.x) && std::isfinite(Value.y) && std::isfinite(Value.z);
-		}
 
 		auto IntersectRayBox(const FVector3& Origin, const FVector3& Direction, const FBox& Box) -> bool
 		{
@@ -188,23 +184,7 @@ namespace Durin
 		if (ViewportSize.x <= 0.0f || ViewportSize.y <= 0.0f) return false;
 		FSceneView View;
 		if (!CalcSceneView(static_cast<uint32>(ViewportSize.x), static_cast<uint32>(ViewportSize.y), View)) return false;
-		const FMatrix ViewProjection = View.ProjectionMatrix * View.ViewMatrix;
-		const double Determinant = glm::determinant(ViewProjection);
-		if (!std::isfinite(Determinant) || std::abs(Determinant) <= kIntersectionEpsilon) return false;
-		const FMatrix ClipToWorld = glm::inverse(ViewProjection);
-		const double NdcX = static_cast<double>(ViewportPosition.x / ViewportSize.x) * 2.0 - 1.0;
-		const double NdcY = static_cast<double>(ViewportPosition.y / ViewportSize.y) * 2.0 - 1.0;
-		FVector4 Near = ClipToWorld * FVector4(NdcX, NdcY, 0.0, 1.0);
-		FVector4 Far = ClipToWorld * FVector4(NdcX, NdcY, 1.0, 1.0);
-		if (std::abs(Near.w) <= kIntersectionEpsilon || std::abs(Far.w) <= kIntersectionEpsilon) return false;
-		Near /= Near.w;
-		Far /= Far.w;
-		OutOrigin = FVector3(Near);
-		const FVector3 Delta = FVector3(Far) - OutOrigin;
-		const double Length = glm::length(Delta);
-		if (!IsFinite(OutOrigin) || !IsFinite(Delta) || !std::isfinite(Length) || Length <= kIntersectionEpsilon) return false;
-		OutDirection = Delta / Length;
-		return true;
+		return SceneViewProjection::BuildViewportRay(View, ViewportPosition, OutOrigin, OutDirection);
 	}
 
 	auto FLevelEditorViewportClient::PickActor(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) const -> AActor*
@@ -258,12 +238,7 @@ namespace Durin
 		if (ViewportSize.x <= 0.0f || ViewportSize.y <= 0.0f) return false;
 		FSceneView View;
 		if (!CalcSceneView(static_cast<uint32>(ViewportSize.x), static_cast<uint32>(ViewportSize.y), View)) return false;
-		const FVector4 Clip = View.ViewProjectionMatrix * FVector4(WorldPosition, 1.0);
-		if (!std::isfinite(Clip.w) || Clip.w <= kIntersectionEpsilon) return false;
-		const FVector2 Ndc = FVector2(Clip) / Clip.w;
-		if (!std::isfinite(Ndc.x) || !std::isfinite(Ndc.y)) return false;
-		OutPosition = FVector2f(static_cast<float>((Ndc.x + 1.0) * 0.5 * ViewportSize.x), static_cast<float>((Ndc.y + 1.0) * 0.5 * ViewportSize.y));
-		return true;
+		return SceneViewProjection::ProjectWorldToViewport(View, WorldPosition, OutPosition);
 	}
 
 	auto FLevelEditorViewportClient::ResetNavigation() -> void

@@ -20,6 +20,7 @@ target_link_libraries(EngineTests PRIVATE
 	CoreDObject
 	AssetCore
 	Engine
+	RenderCore
 	MonaCore
 	Mona
 	DurinEd
