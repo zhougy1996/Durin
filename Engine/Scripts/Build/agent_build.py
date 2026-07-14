@@ -19,6 +19,7 @@ PROFILE_FILE = SCRIPT_DIR / "AgentBuildProfiles.json"
 LOCAL_CONFIG_FILE = REPO_ROOT / ".agents" / "build-config.json"
 
 PROFILE_ENV_VAR = "DURIN_AGENT_BUILD_PROFILE"
+JOBS_ENV_VAR = "DURIN_AGENT_JOBS"
 CMAKE_ENV_VARS = ("DURIN_CMAKE_COMMAND", "DURIN_CMAKE_PATH")
 SUPPORTED_ENVIRONMENT_PROVIDERS = {"inherit", "script", "visual-studio"}
 
@@ -61,17 +62,21 @@ def load_local_config(path: Path = LOCAL_CONFIG_FILE) -> dict[str, Any]:
         return {
             "cmakeCommand": "",
             "defaultBuildProfile": "",
+            "jobs": 0,
             "environmentSetup": {"script": "", "arguments": []},
         }
 
     config = load_json_object(path, label="Agent build config")
-    allowed_keys = {"cmakeCommand", "defaultBuildProfile", "environmentSetup"}
+    allowed_keys = {"cmakeCommand", "defaultBuildProfile", "jobs", "environmentSetup"}
     unknown_keys = sorted(set(config) - allowed_keys)
     if unknown_keys:
         raise AgentBuildError(f'Agent build config contains unknown field(s): {", ".join(unknown_keys)}.')
 
     cmake_command = optional_string(config, "cmakeCommand", label="Agent build config")
     default_profile = optional_string(config, "defaultBuildProfile", label="Agent build config")
+    jobs = config.get("jobs", 0)
+    if isinstance(jobs, bool) or not isinstance(jobs, int) or not 0 <= jobs <= 256:
+        raise AgentBuildError('Agent build config field "jobs" must be an integer from 0 to 256.')
     environment_setup = config.get("environmentSetup", {})
     if not isinstance(environment_setup, dict):
         raise AgentBuildError('Agent build config field "environmentSetup" must be an object.')
@@ -92,6 +97,7 @@ def load_local_config(path: Path = LOCAL_CONFIG_FILE) -> dict[str, Any]:
     return {
         "cmakeCommand": cmake_command,
         "defaultBuildProfile": default_profile,
+        "jobs": jobs,
         "environmentSetup": {"script": script, "arguments": arguments},
     }
 
@@ -216,6 +222,34 @@ def resolve_cmake_command(
             f'or cmakeCommand in "{LOCAL_CONFIG_FILE}".'
         )
     return detected
+
+
+def resolve_jobs(
+    requested: int | None,
+    configured: int,
+    *,
+    environment: Mapping[str, str] | None = None,
+    cpu_count: int | None = None,
+) -> int:
+    if environment is None:
+        environment = os.environ
+    if requested is not None:
+        return requested
+
+    environment_value = environment.get(JOBS_ENV_VAR, "").strip()
+    if environment_value:
+        try:
+            environment_jobs = int(environment_value)
+        except ValueError as exc:
+            raise AgentBuildError(f"{JOBS_ENV_VAR} must be an integer from 1 to 256.") from exc
+        if not 1 <= environment_jobs <= 256:
+            raise AgentBuildError(f"{JOBS_ENV_VAR} must be an integer from 1 to 256.")
+        return environment_jobs
+
+    if configured:
+        return configured
+    detected = os.cpu_count() if cpu_count is None else cpu_count
+    return max(1, min((detected or 1) - 2, 256))
 
 
 def parse_environment_output(output: str, *, case_insensitive: bool = False) -> dict[str, str]:
@@ -412,6 +446,7 @@ def execute(args: argparse.Namespace) -> None:
         current_host=current_host,
     )
     cmake = resolve_cmake_command(args.cmake, config["cmakeCommand"])
+    jobs = resolve_jobs(args.jobs, config["jobs"])
     environment = build_environment(profile, config["environmentSetup"], current_host=current_host)
     ensure_required_commands(profile, environment)
 
@@ -420,6 +455,7 @@ def execute(args: argparse.Namespace) -> None:
     cache_file = build_directory / "CMakeCache.txt"
     print(f'Agent build profile: "{profile_name}"')
     print(f'CMake command: "{cmake}"')
+    print(f"Parallel jobs: {jobs}")
 
     if args.action == "Configure":
         run_command([cmake, "--fresh", "--preset", preset], environment=environment)
@@ -429,7 +465,7 @@ def execute(args: argparse.Namespace) -> None:
     if not cache_is_usable(cache_file):
         run_command([cmake, "--fresh", "--preset", preset], environment=environment)
     run_command(
-        [cmake, "--build", str(build_directory), "--target", args.target, "-j", str(args.jobs)],
+        [cmake, "--build", str(build_directory), "--target", args.target, "-j", str(jobs)],
         environment=environment,
     )
 
@@ -451,7 +487,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Configure, build, or test an isolated Durin Agent build profile.")
     parser.add_argument("action", choices=("Configure", "Build", "Test"))
     parser.add_argument("--target", default="")
-    parser.add_argument("--jobs", type=int, choices=range(1, 257), default=14, metavar="1..256")
+    parser.add_argument("--jobs", type=int, choices=range(1, 257), default=None, metavar="1..256")
     parser.add_argument("--filter", default="")
     parser.add_argument("--profile", default="")
     parser.add_argument("--cmake", default="")

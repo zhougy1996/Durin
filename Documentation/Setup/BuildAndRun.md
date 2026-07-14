@@ -43,7 +43,9 @@ python Engine/Scripts/Build/agent_build.py Test --target CoreTests --filter FJso
 
 Profile selection precedence is `--profile`, `DURIN_AGENT_BUILD_PROFILE`, `defaultBuildProfile` in the local config, then the current host's unique default profile. CMake selection precedence is `--cmake`, `DURIN_CMAKE_COMMAND` (or legacy `DURIN_CMAKE_PATH`), `cmakeCommand` in the local config, then `cmake` on `PATH`.
 
-The local config is optional. Leave fields empty to use automatic discovery. `environmentSetup.script` may point to a local `.bat`/`.cmd` or shell script when a registered profile cannot initialize its toolchain environment automatically.
+Parallel job selection precedence is `--jobs`, `DURIN_AGENT_JOBS`, `jobs` in the local config, then the CPU count reported by the host minus two reserved threads. Set local `jobs` to `0` to keep automatic detection.
+
+The local config is optional. Leave strings empty and `jobs` at zero to use automatic discovery. `environmentSetup.script` may point to a local `.bat`/`.cmd` or shell script when a registered profile cannot initialize its toolchain environment automatically.
 
 ## Build
 

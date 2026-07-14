@@ -31,6 +31,7 @@ class AgentBuildConfigTests(unittest.TestCase):
 
         self.assertEqual(config["cmakeCommand"], "")
         self.assertEqual(config["defaultBuildProfile"], "")
+        self.assertEqual(config["jobs"], 0)
         self.assertEqual(config["environmentSetup"], {"script": "", "arguments": []})
 
     def test_valid_config_is_loaded(self) -> None:
@@ -41,6 +42,7 @@ class AgentBuildConfigTests(unittest.TestCase):
                     {
                         "cmakeCommand": "custom-cmake",
                         "defaultBuildProfile": "windows-msvc-x64",
+                        "jobs": 8,
                         "environmentSetup": {"script": "setup.cmd", "arguments": ["x64"]},
                     }
                 ),
@@ -49,6 +51,7 @@ class AgentBuildConfigTests(unittest.TestCase):
             config = agent_build.load_local_config(path)
 
         self.assertEqual(config["cmakeCommand"], "custom-cmake")
+        self.assertEqual(config["jobs"], 8)
         self.assertEqual(config["environmentSetup"]["arguments"], ["x64"])
 
     def test_invalid_json_and_field_types_are_rejected(self) -> None:
@@ -60,6 +63,10 @@ class AgentBuildConfigTests(unittest.TestCase):
 
             path.write_text(json.dumps({"cmakeCommand": 42}), encoding="utf-8")
             with self.assertRaisesRegex(agent_build.AgentBuildError, "must be a string"):
+                agent_build.load_local_config(path)
+
+            path.write_text(json.dumps({"jobs": 257}), encoding="utf-8")
+            with self.assertRaisesRegex(agent_build.AgentBuildError, "integer from 0 to 256"):
                 agent_build.load_local_config(path)
 
 
@@ -125,6 +132,23 @@ class AgentBuildProfileTests(unittest.TestCase):
             self.assertFalse(agent_build.cache_is_usable(cache))
             cache.write_text("CMAKE_MAKE_PROGRAM:FILEPATH=C:/Ninja/ninja.exe\n", encoding="utf-8")
             self.assertTrue(agent_build.cache_is_usable(cache))
+
+    def test_job_precedence_and_cpu_fallback(self) -> None:
+        self.assertEqual(
+            agent_build.resolve_jobs(3, 6, environment={agent_build.JOBS_ENV_VAR: "4"}, cpu_count=20),
+            3,
+        )
+        self.assertEqual(
+            agent_build.resolve_jobs(None, 6, environment={agent_build.JOBS_ENV_VAR: "4"}, cpu_count=20),
+            4,
+        )
+        self.assertEqual(agent_build.resolve_jobs(None, 6, environment={}, cpu_count=20), 6)
+        self.assertEqual(agent_build.resolve_jobs(None, 0, environment={}, cpu_count=20), 18)
+        self.assertEqual(agent_build.resolve_jobs(None, 0, environment={}, cpu_count=2), 1)
+
+    def test_invalid_job_environment_value_is_rejected(self) -> None:
+        with self.assertRaisesRegex(agent_build.AgentBuildError, agent_build.JOBS_ENV_VAR):
+            agent_build.resolve_jobs(None, 0, environment={agent_build.JOBS_ENV_VAR: "many"})
 
 
 class EnvironmentProviderTests(unittest.TestCase):

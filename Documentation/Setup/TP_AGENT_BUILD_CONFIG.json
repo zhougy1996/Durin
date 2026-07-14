@@ -1,6 +1,7 @@
 {
   "cmakeCommand": "",
   "defaultBuildProfile": "",
+  "jobs": 0,
   "environmentSetup": {
     "script": "",
     "arguments": []

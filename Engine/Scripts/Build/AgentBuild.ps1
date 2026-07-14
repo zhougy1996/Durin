@@ -7,8 +7,8 @@ param(
     [Parameter(Position = 1)]
     [string]$Target,
 
-    [ValidateRange(1, 256)]
-    [int]$Jobs = 14,
+    [ValidateRange(0, 256)]
+    [int]$Jobs = 0,
 
     [string]$Filter,
 
@@ -38,7 +38,10 @@ else {
     $Python = $PythonCommand.Source
 }
 
-$Arguments = @($PythonScript, $Action, "--jobs", "$Jobs")
+$Arguments = @($PythonScript, $Action)
+if ($Jobs -gt 0) {
+    $Arguments += @("--jobs", "$Jobs")
+}
 if ($Target) {
     $Arguments += @("--target", $Target)
 }
