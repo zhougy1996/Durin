@@ -74,6 +74,8 @@ namespace Durin
 
 		APPLICATIONCORE_API virtual auto SetWindowDecorated(bool bDecorated) -> void;
 
+		APPLICATIONCORE_API virtual auto SetTitleBarDarkMode(bool bDarkMode) -> void;
+
 		APPLICATIONCORE_API virtual auto SetMousePassthrough(bool bPassthrough) -> void;
 
 		APPLICATIONCORE_API virtual auto SetFocusOnShow(bool bFocusOnShow) -> void;

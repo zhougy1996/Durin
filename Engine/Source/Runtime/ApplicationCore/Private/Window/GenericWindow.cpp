@@ -131,6 +131,10 @@ namespace Durin
 	{
 	}
 
+	auto FGenericWindow::SetTitleBarDarkMode(bool bDarkMode) -> void
+	{
+	}
+
 	auto FGenericWindow::SetMousePassthrough(bool bPassthrough) -> void
 	{
 	}

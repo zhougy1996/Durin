@@ -64,6 +64,8 @@ namespace Durin
 
 		APPLICATIONCORE_API auto SetWindowDecorated(bool bDecorated) -> void override;
 
+		APPLICATIONCORE_API auto SetTitleBarDarkMode(bool bDarkMode) -> void override;
+
 		APPLICATIONCORE_API auto SetMousePassthrough(bool bPassthrough) -> void override;
 
 		APPLICATIONCORE_API auto SetFocusOnShow(bool bFocusOnShow) -> void override;

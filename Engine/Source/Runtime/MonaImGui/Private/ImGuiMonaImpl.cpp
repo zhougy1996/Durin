@@ -1,4 +1,5 @@
 #include "ImGuiMonaImpl.h"
+#include "MonaImGui.h"
 
 #include "Application/MonaApplication.h"
 #include "Application/MonaEventHandler.h"
@@ -425,6 +426,7 @@ namespace Durin::MonaImGui
 	static auto ImGuiMonaImpl_CreateWindow(ImGuiViewport* Viewport) -> void
 	{
 		auto Window = std::make_shared<MWindow>();
+		Window->SetTitleBarDarkMode(GetColorTheme() == EColorTheme::Dark);
 		Window->SetTitle("ImGui");
 		Window->SetViewportPresentModePolicy(EViewportPresentModePolicy::ImGuiDetachedViewport);
 		Window->ReshapeWindow({Viewport->Pos.x, Viewport->Pos.y}, {Viewport->Size.x, Viewport->Size.y});

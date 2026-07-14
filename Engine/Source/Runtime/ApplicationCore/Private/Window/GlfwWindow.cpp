@@ -14,16 +14,9 @@ namespace Durin
 	namespace
 	{
 #if defined(_WIN32)
-		auto ApplyWindowsWindowStyle(void* NativeWindowHandle) -> void
+		auto ApplyWindowsWindowIcon(void* NativeWindowHandle) -> void
 		{
 			const HWND WindowHandle = static_cast<HWND>(NativeWindowHandle);
-			const BOOL bUseDarkMode = TRUE;
-			DwmSetWindowAttribute(
-				WindowHandle,
-				DWMWA_USE_IMMERSIVE_DARK_MODE,
-				&bUseDarkMode,
-				sizeof(bUseDarkMode));
-
 			constexpr int32 ApplicationIconResourceId = 101;
 			const HINSTANCE ExecutableInstance = GetModuleHandleW(nullptr);
 			const HICON LargeIcon = static_cast<HICON>(LoadImageW(
@@ -426,7 +419,7 @@ namespace Durin
 		GlfwWindow = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition->Title.c_str(), nullptr, nullptr);
 #if defined(_WIN32)
 		OSNativeWindowHandle = glfwGetWin32Window(GlfwWindow);
-		ApplyWindowsWindowStyle(OSNativeWindowHandle);
+		ApplyWindowsWindowIcon(OSNativeWindowHandle);
 #elif defined(__APPLE__)
 		OSNativeWindowHandle = glfwGetCocoaWindow(GlfwWindow);
 #endif
@@ -592,6 +585,18 @@ namespace Durin
 		{
 			Definition->bHasOSWindowBorder = bDecorated;
 		}
+	}
+
+	auto FGlfwWindow::SetTitleBarDarkMode(bool bDarkMode) -> void
+	{
+#if defined(_WIN32)
+		const BOOL bUseDarkMode = bDarkMode ? TRUE : FALSE;
+		DwmSetWindowAttribute(
+			static_cast<HWND>(OSNativeWindowHandle),
+			DWMWA_USE_IMMERSIVE_DARK_MODE,
+			&bUseDarkMode,
+			sizeof(bUseDarkMode));
+#endif
 	}
 
 	auto FGlfwWindow::SetMousePassthrough(bool bPassthrough) -> void

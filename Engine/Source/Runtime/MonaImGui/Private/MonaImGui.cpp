@@ -2,7 +2,9 @@
 
 #include "Math/Transform.h"
 #include "MonaImGuiBackend.h"
+#include "Application/MonaApplication.h"
 #include "Misc/Paths.h"
+#include "Widgets/MWindow.h"
 #include "Yaml/Yaml.h"
 
 namespace Durin::MonaImGui
@@ -257,6 +259,7 @@ namespace Durin::MonaImGui
 
 	auto BindMainViewportToWindow(const std::shared_ptr<MWindow>& Window) -> void
 	{
+		Window->SetTitleBarDarkMode(GColorTheme == EColorTheme::Dark);
 		FMonaImGuiBackend::Get().BindMainViewportToWindow(Window);
 	}
 
@@ -299,6 +302,13 @@ namespace Durin::MonaImGui
 	{
 		GColorTheme = Theme;
 		SetGlobalUIScale(GGlobalUIScale);
+		if (Mona::FMonaApplication::IsInitialized())
+		{
+			for (const std::shared_ptr<MWindow>& Window : Mona::FMonaApplication::Get().GetWindows())
+			{
+				Window->SetTitleBarDarkMode(Theme == EColorTheme::Dark);
+			}
+		}
 	}
 
 	auto GetColorTheme() -> EColorTheme

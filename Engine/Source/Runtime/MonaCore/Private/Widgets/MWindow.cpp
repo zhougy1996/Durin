@@ -47,6 +47,7 @@ namespace Durin
 	auto MWindow::SetNativeWindow(std::shared_ptr<FGenericWindow> InNativeWindow) -> void
 	{
 		NativeWindow = std::move(InNativeWindow);
+		NativeWindow->SetTitleBarDarkMode(bTitleBarDarkMode);
 		ViewportSize = NativeWindow->GetViewportSize();
 	}
 
@@ -146,6 +147,15 @@ namespace Durin
 	auto MWindow::IsWindowDecorated() const -> bool
 	{
 		return bWindowDecorated;
+	}
+
+	auto MWindow::SetTitleBarDarkMode(bool bDarkMode) -> void
+	{
+		bTitleBarDarkMode = bDarkMode;
+		if (NativeWindow != nullptr)
+		{
+			NativeWindow->SetTitleBarDarkMode(bDarkMode);
+		}
 	}
 
 	auto MWindow::GetDesiredScreenPosition() const -> FVector2f

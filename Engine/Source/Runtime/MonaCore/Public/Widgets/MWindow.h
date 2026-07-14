@@ -44,6 +44,8 @@ namespace Durin
 
 		MONACORE_API auto IsWindowDecorated() const -> bool;
 
+		MONACORE_API auto SetTitleBarDarkMode(bool bDarkMode) -> void;
+
 		MONACORE_API auto GetDesiredScreenPosition() const -> FVector2f;
 
 		MONACORE_API auto GetDesiredSize() const -> FVector2f;
@@ -88,6 +90,8 @@ namespace Durin
 		std::string Title;
 
 		bool bWindowDecorated = true;
+
+		bool bTitleBarDarkMode = true;
 
 		FVector2f InitialDesiredScreenPosition = {};
 
