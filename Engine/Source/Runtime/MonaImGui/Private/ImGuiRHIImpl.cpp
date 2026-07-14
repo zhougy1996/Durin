@@ -316,8 +316,8 @@ namespace Durin::MonaImGui
 			const auto* BackendTexture = static_cast<FImGuiRHIImpl_Texture*>(InTex->BackendUserData);
 			delete BackendTexture;
 			InTex->BackendUserData = nullptr;
-			InTex->TexID = ImTextureID_Invalid;
-			InTex->Status = ImTextureStatus_Destroyed;
+			InTex->SetTexID(ImTextureID_Invalid);
+			InTex->SetStatus(ImTextureStatus_Destroyed);
 		}
 	}
 
@@ -525,7 +525,12 @@ namespace Durin::MonaImGui
 
 		if (InTex->Status == ImTextureStatus_WantDestroy)
 		{
-			ImGuiRHIImpl_DestroyTexture(InTex);
+			// Draw-data snapshots may still be queued on the render thread. Keep the
+			// indirection valid until every in-flight frame that can reference it has completed.
+			if (InTex->UnusedFrames >= kFrameInFlight)
+			{
+				ImGuiRHIImpl_DestroyTexture(InTex);
+			}
 		}
 	}
 
