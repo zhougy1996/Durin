@@ -8,7 +8,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "15"
+TOOL_VERSION = "16"
 MAX_CONTAINER_PROPERTY_DEPTH = 4
 
 
@@ -75,6 +75,8 @@ class ReflectedClassInfo:
     has_default_constructor: bool = False
     has_object_initializer_constructor: bool = False
     has_destructor: bool = False
+    display_name: str = ""
+    default_object_name: str = ""
     properties: list[ReflectedPropertyInfo] = field(default_factory=list)
 
     @property
@@ -280,6 +282,16 @@ def _property_flags_from_annotation(annotation: str) -> str:
         if flag:
             flags.append(f"Durin::EPropertyFlags::{flag}")
     return " | ".join(flags) if flags else "None"
+
+
+def _string_metadata_from_annotation(annotation: str, key: str) -> str:
+    if "," not in annotation:
+        return ""
+    payload = annotation.split(",", 1)[1]
+    match = re.search(rf'(?:^|,)\s*{re.escape(key)}\s*=\s*"((?:\\.|[^"\\])*)"', payload)
+    if not match:
+        return ""
+    return match.group(1).replace(r'\"', '"').replace(r"\\", "\\")
 
 
 def _array_dim(field_cursor: clang.cindex.Cursor) -> int:
@@ -1080,12 +1092,13 @@ def parse_reflection_header(
 
     def visit(parent: clang.cindex.Cursor) -> None:
         children = list(parent.get_children())
-        pending_dclass = False
+        pending_dclass_annotation = ""
         pending_dstruct = False
         pending_denum = False
         for child in children:
             if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling == "DHT_CLASS":
-                pending_dclass = _get_annotation(child).startswith("DCLASS")
+                annotation = _get_annotation(child)
+                pending_dclass_annotation = annotation if annotation.startswith("DCLASS") else ""
                 continue
             if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling == "DHT_STRUCT":
                 pending_dstruct = _get_annotation(child).startswith("DSTRUCT")
@@ -1119,7 +1132,7 @@ def parse_reflection_header(
                 pending_dstruct = False
                 continue
 
-            if pending_dclass and child.kind in (clang.cindex.CursorKind.CLASS_DECL, clang.cindex.CursorKind.STRUCT_DECL) and child.spelling:
+            if pending_dclass_annotation and child.kind in (clang.cindex.CursorKind.CLASS_DECL, clang.cindex.CursorKind.STRUCT_DECL) and child.spelling:
                 qualified_name = _qualified_name(child)
                 helper_name = make_generated_helper_name(qualified_name)
                 reflected_class = ReflectedClassInfo(
@@ -1131,6 +1144,8 @@ def parse_reflection_header(
                     api=module_config.api_macro,
                     base_qualified_name=_base_qualified_name(child),
                     generated_body_line=_scan_generated_body_line(source, child.spelling),
+                    display_name=_string_metadata_from_annotation(pending_dclass_annotation, "DisplayName"),
+                    default_object_name=_string_metadata_from_annotation(pending_dclass_annotation, "DefaultObjectName"),
                 )
                 for member in child.get_children():
                     if _is_default_constructor(member):
@@ -1149,7 +1164,7 @@ def parse_reflection_header(
                         reflected_class.properties.append(prop)
                         existing_property_names.add(prop.name)
                 classes.append(reflected_class)
-                pending_dclass = False
+                pending_dclass_annotation = ""
                 continue
 
             if pending_denum and child.kind == clang.cindex.CursorKind.ENUM_DECL and child.spelling:

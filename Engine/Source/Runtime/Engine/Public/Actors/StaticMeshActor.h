@@ -9,7 +9,7 @@ namespace Durin
 {
 	class DStaticMeshComponent;
 
-	DCLASS()
+	DCLASS(DisplayName = "Static Mesh Actor", DefaultObjectName = "StaticMeshActor")
 	class AStaticMeshActor : public AActor
 	{
 		GENERATED_BODY()

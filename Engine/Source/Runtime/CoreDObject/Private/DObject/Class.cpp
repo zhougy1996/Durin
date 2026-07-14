@@ -3,6 +3,38 @@
 #include "DObject/Property.h"
 #include "DObject/DObjectArray.h"
 
+namespace
+{
+	auto MakeDefaultObjectName(std::string_view ShortName) -> std::string
+	{
+		const size_t Separator = ShortName.rfind("::");
+		if (Separator != std::string_view::npos) ShortName.remove_prefix(Separator + 2);
+		if (ShortName.size() >= 2 && (ShortName.front() == 'A' || ShortName.front() == 'D')
+			&& std::isupper(static_cast<unsigned char>(ShortName[1])))
+		{
+			ShortName.remove_prefix(1);
+		}
+		return std::string(ShortName);
+	}
+
+	auto HumanizeTypeName(std::string_view Name) -> std::string
+	{
+		std::string Result;
+		Result.reserve(Name.size() + 8);
+		for (size_t Index = 0; Index < Name.size(); ++Index)
+		{
+			const unsigned char Current = static_cast<unsigned char>(Name[Index]);
+			const bool bCurrentUpper = std::isupper(Current) != 0;
+			const bool bPreviousLowerOrDigit = Index > 0 && (std::islower(static_cast<unsigned char>(Name[Index - 1])) || std::isdigit(static_cast<unsigned char>(Name[Index - 1])));
+			const bool bAcronymBoundary = Index > 0 && Index + 1 < Name.size() && bCurrentUpper
+				&& std::isupper(static_cast<unsigned char>(Name[Index - 1])) && std::islower(static_cast<unsigned char>(Name[Index + 1]));
+			if (bCurrentUpper && (bPreviousLowerOrDigit || bAcronymBoundary)) Result.push_back(' ');
+			Result.push_back(Name[Index]);
+		}
+		return Result;
+	}
+}
+
 namespace Durin
 {
 	COREDOBJECT_API DClass* Z_Construct_DClass_DObject();
@@ -146,6 +178,13 @@ namespace Durin
 			if (Class == InClass) return true;
 		}
 		return false;
+	}
+
+	auto DClass::SetTypeNames(std::string_view InShortName, std::string_view InDisplayName, std::string_view InDefaultObjectName) -> void
+	{
+		ShortName = InShortName;
+		DefaultObjectName = InDefaultObjectName.empty() ? MakeDefaultObjectName(ShortName) : std::string(InDefaultObjectName);
+		DisplayName = InDisplayName.empty() ? HumanizeTypeName(DefaultObjectName) : std::string(InDisplayName);
 	}
 
 	auto GetDerivedClasses(const DClass* BaseClass, bool bIncludeBase) -> std::vector<DClass*>

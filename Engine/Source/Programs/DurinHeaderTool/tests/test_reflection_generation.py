@@ -56,6 +56,16 @@ class ReflectionGenerationTests(unittest.TestCase):
         module_content = module_cpp.read_text(encoding="utf-8")
         self.assertIn('Durin::RegisterCompiledInPackage("Engine")', module_content)
 
+    def test_class_display_and_default_object_name_metadata(self):
+        static_mesh_actor_cpp = utils.get_module_dht_output_dir("Engine") / "StaticMeshActor.gen.cpp"
+        content = static_mesh_actor_cpp.read_text(encoding="utf-8")
+
+        self.assertIn('"Durin::AStaticMeshActor",', content)
+        self.assertIn('"AStaticMeshActor",', content)
+        self.assertIn('1,\n\t"Static Mesh Actor",', content)
+        self.assertIn('"Static Mesh Actor",', content)
+        self.assertIn('"StaticMeshActor"', content)
+
     def test_engine_runtime_property_flags(self):
         scene_component_cpp = utils.get_module_dht_output_dir("Engine") / "SceneComponent.gen.cpp"
         scene_component_content = scene_component_cpp.read_text(encoding="utf-8")

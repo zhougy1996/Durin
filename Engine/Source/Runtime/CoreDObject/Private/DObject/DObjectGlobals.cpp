@@ -249,6 +249,11 @@ namespace Durin
 
 		DObjectForceRegistration(Class);
 		Class->SetQualifiedName(FName(Params.QualifiedClassName));
+		Class->SetTypeNames(
+			Params.ShortClassName ? Params.ShortClassName : "",
+			Params.DisplayName ? Params.DisplayName : "",
+			Params.DefaultObjectName ? Params.DefaultObjectName : ""
+		);
 
 		if (!Class->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
 		{

@@ -156,6 +156,8 @@ namespace Durin
 			const char* ShortClassName;
 			const FPropertyParamsBase* const* PropertyParams;
 			size_t NumProperties;
+			const char* DisplayName = nullptr;
+			const char* DefaultObjectName = nullptr;
 		};
 
 		struct FPropertyParamsBase

@@ -16,7 +16,7 @@ namespace Durin
 	auto DLevel::SpawnActor(DClass* ActorClass, FName InName) -> AActor*
 	{
 		if (!CanConstructObjectOfClass(ActorClass, AActor::StaticClass())) return nullptr;
-		const FName RequestedName = InName.IsNone() ? FName(ActorClass->GetName()) : InName;
+		const FName RequestedName = InName.IsNone() ? FName(ActorClass->GetDefaultObjectName()) : InName;
 		AActor* Actor = NewObject<AActor>(ActorClass, this, MakeUniqueActorName(RequestedName));
 		if (!Actor) return nullptr;
 		Actors.emplace_back(Actor);

@@ -7,9 +7,7 @@ namespace Durin::LevelEditorHelpers
 {
 	inline auto ClassDisplayName(const DClass* Class) -> std::string
 	{
-		const std::string Name = Class ? Class->GetName() : std::string();
-		const size_t Separator = Name.rfind("::");
-		return Separator == std::string::npos ? Name : Name.substr(Separator + 2);
+		return Class ? Class->GetDisplayName() : std::string();
 	}
 
 	inline auto DrawToolbarIconButton(const char* Icon, const char* Id) -> bool

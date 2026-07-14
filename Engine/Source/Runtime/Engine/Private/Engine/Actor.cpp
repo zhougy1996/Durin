@@ -61,7 +61,7 @@ namespace Durin
 	auto AActor::AddInstanceComponent(DClass* ComponentClass, FName InName) -> DActorComponent*
 	{
 		if (!CanConstructObjectOfClass(ComponentClass, DActorComponent::StaticClass())) return nullptr;
-		const std::string BaseName = InName.IsNone() ? ComponentClass->GetName() : InName.ToString();
+		const std::string BaseName = InName.IsNone() ? ComponentClass->GetDefaultObjectName() : InName.ToString();
 		FName UniqueName(BaseName);
 		for (uint32 Suffix = 2; std::ranges::any_of(OwnedComponents, [&UniqueName](const TObjectPtr<DActorComponent>& Entry) { return Entry && Entry->GetFName() == UniqueName; }); ++Suffix)
 		{

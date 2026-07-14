@@ -31,6 +31,11 @@ PROPERTY_PARAM_BY_KIND = {
 TAB = "\t"
 
 
+def _cpp_string_literal(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    return f'"{escaped}"'
+
+
 def generate_header_content(header: ReflectedHeaderInfo) -> str:
     builder: list[str] = [
         "// Generated code exported from DurinHeaderTool.\n\n",
@@ -210,6 +215,8 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
 
         property_params = f"{generated_statics_name}::PropertyParams" if has_properties else "nullptr"
         property_count = len(properties)
+        display_name = _cpp_string_literal(class_info.display_name) if class_info.display_name else "nullptr"
+        default_object_name = _cpp_string_literal(class_info.default_object_name) if class_info.default_object_name else "nullptr"
         _append_lines(
             builder,
             (f"const Durin::DurinCodeGen::FClassParams {generated_statics_name}::ClassParams = {{", 0),
@@ -217,7 +224,9 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
             (f"\"{class_info.qualified_name}\",", 1),
             (f"\"{class_info.short_name}\",", 1),
             (f"{property_params},", 1),
-            (str(property_count), 1),
+            (f"{property_count},", 1),
+            (f"{display_name},", 1),
+            (default_object_name, 1),
             ("};", 0),
             ("", 0),
         )

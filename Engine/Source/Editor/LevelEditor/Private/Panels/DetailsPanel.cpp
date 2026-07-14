@@ -372,7 +372,7 @@ namespace Durin
 				ImGui::PushID(Class);
 				if (ImGui::Selectable(DisplayName.c_str()))
 				{
-					DActorComponent* NewComponent = Actor->AddInstanceComponent(Class, FName(DisplayName));
+					DActorComponent* NewComponent = Actor->AddInstanceComponent(Class, FName(Class->GetDefaultObjectName()));
 					bool bSucceeded = NewComponent != nullptr;
 					if (bSucceeded && bAddComponentAsChild)
 					{

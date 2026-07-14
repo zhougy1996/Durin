@@ -276,7 +276,7 @@ namespace Durin
 					if (!ContainsInsensitive(DisplayName, ActorTypeSearchText.data())) continue;
 					if (ImGui::MenuItem(DisplayName.c_str()))
 					{
-						AActor* Actor = Context.World->SpawnActor(Class, FName(DisplayName));
+						AActor* Actor = Context.World->SpawnActor(Class, FName(Class->GetDefaultObjectName()));
 						if (Actor) { Context.SelectActor(Actor); bLevelSelected = false; }
 						else Context.SetError(std::format("Failed to create actor of class {}.", Class->GetQualifiedName().ToString()));
 					}

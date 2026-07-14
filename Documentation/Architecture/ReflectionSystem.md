@@ -208,8 +208,12 @@ Generated code uses fully qualified C++ type names for reflected C++ types.
 - no-register class function
 - qualified class name
 - short class name
+- optional editor display name from `DCLASS(DisplayName = "...")`
+- optional default object name from `DCLASS(DefaultObjectName = "...")`
 - property parameter array
 - property count
+
+`DClass` keeps runtime identity, C++ spelling, editor presentation, and instance naming separate. `QualifiedName` remains the stable serialized/type-lookup identity and `ShortName` remains the C++ class spelling. `DisplayName` is used by editor UI, while `DefaultObjectName` is used when an instance is created without an explicit name. When metadata is omitted, Durin removes the conventional `A`/`D` prefix when followed by an uppercase letter; display names additionally split CamelCase words. For example, `AStaticMeshActor` defaults to display name `Static Mesh Actor` and object name `StaticMeshActor`.
 
 `ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches top-level fields to `DStructBase::ChildProperties`. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
 

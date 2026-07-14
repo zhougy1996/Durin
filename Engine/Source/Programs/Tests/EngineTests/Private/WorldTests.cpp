@@ -80,6 +80,40 @@ TEST(FWorldTests, SpawnsEnumeratesAndFindsActors)
 	Durin::DestroyObject(World);
 }
 
+TEST(FWorldTests, ReflectedClassNamesSeparateIdentityDisplayAndObjectDefaults)
+{
+	InitializeDObjectSystem();
+	Durin::DClass* StaticMeshClass = Durin::AStaticMeshActor::StaticClass();
+	EXPECT_EQ(StaticMeshClass->GetQualifiedName().ToString(), "Durin::AStaticMeshActor");
+	EXPECT_EQ(StaticMeshClass->GetShortName(), "AStaticMeshActor");
+	EXPECT_EQ(StaticMeshClass->GetDisplayName(), "Static Mesh Actor");
+	EXPECT_EQ(StaticMeshClass->GetDefaultObjectName(), "StaticMeshActor");
+
+	Durin::DClass* CameraClass = Durin::ACameraActor::StaticClass();
+	EXPECT_EQ(CameraClass->GetDisplayName(), "Camera Actor");
+	EXPECT_EQ(CameraClass->GetDefaultObjectName(), "CameraActor");
+
+	Durin::DClass* ComponentClass = Durin::DSceneComponent::StaticClass();
+	EXPECT_EQ(ComponentClass->GetDisplayName(), "Scene Component");
+	EXPECT_EQ(ComponentClass->GetDefaultObjectName(), "SceneComponent");
+}
+
+TEST(FWorldTests, UsesReflectedDefaultNamesWhenNamesAreOmitted)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* First = World->SpawnActor<Durin::ACameraActor>();
+	Durin::ACameraActor* Second = World->SpawnActor<Durin::ACameraActor>();
+	ASSERT_NE(First, nullptr);
+	ASSERT_NE(Second, nullptr);
+	EXPECT_EQ(First->GetName(), "CameraActor");
+	EXPECT_EQ(Second->GetName(), "CameraActor_2");
+
+	Durin::DActorComponent* Component = First->AddInstanceComponent(Durin::DSceneComponent::StaticClass());
+	ASSERT_NE(Component, nullptr);
+	EXPECT_EQ(Component->GetName(), "SceneComponent");
+	Durin::DestroyObject(World);
+}
+
 TEST(FWorldTests, MakesDuplicateActorNamesUnique)
 {
 	Durin::DWorld* World = CreateWorld();

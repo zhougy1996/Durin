@@ -88,10 +88,17 @@ namespace Durin
 		auto HasAnyClassFlags(EClassFlags InFlags) const -> bool { return EnumHasAnyFlags(ClassFlags, InFlags); }
 		auto GetQualifiedName() const -> FName { return QualifiedName; }
 		auto SetQualifiedName(FName InQualifiedName) -> void { QualifiedName = InQualifiedName; }
+		auto GetShortName() const -> const std::string& { return ShortName; }
+		auto GetDisplayName() const -> const std::string& { return DisplayName; }
+		auto GetDefaultObjectName() const -> const std::string& { return DefaultObjectName; }
+		COREDOBJECT_API auto SetTypeNames(std::string_view InShortName, std::string_view InDisplayName, std::string_view InDefaultObjectName) -> void;
 
 	private:
 		EClassFlags ClassFlags = EClassFlags::None;
 		FName QualifiedName;
+		std::string ShortName;
+		std::string DisplayName;
+		std::string DefaultObjectName;
 	};
 
 	class DStruct : public DStructBase
