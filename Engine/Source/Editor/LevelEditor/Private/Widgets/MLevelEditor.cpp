@@ -30,17 +30,17 @@ namespace Durin
 		constexpr const char* DockSpaceName = "DurinEditorDockSpace";
 	}
 
-	MLevelEditor::MLevelEditor()
-		: SessionSettings(std::make_unique<FEditorSessionSettings>())
+	MLevelEditor::MLevelEditor(FEditorSessionSettings& InSessionSettings)
+		: SessionSettings(InSessionSettings)
 	{
 	}
 
 	MLevelEditor::~MLevelEditor()
 	{
-		if (SessionSettings && Context && SceneViewportPanel)
+		if (Context && SceneViewportPanel)
 		{
-			SessionSettings->CaptureViewportState(*Context, *SceneViewportPanel);
-			SessionSettings->Save(SceneViewportPanel);
+			SessionSettings.CaptureViewportState(*Context, *SceneViewportPanel);
+			SessionSettings.Save(SceneViewportPanel);
 		}
 	}
 
@@ -53,13 +53,13 @@ namespace Durin
 		};
 
 		Asset::GetAssetRegistry().ScanMountedContent();
-		SessionSettings->Load();
+		SessionSettings.PruneInvalidViewportStates();
 		LoadProjectSettings();
-		SessionSettings->Save(nullptr);
+		SessionSettings.Save(nullptr);
 
 		auto SceneViewport = std::make_unique<FSceneViewportPanel>();
 		SceneViewportPanel = SceneViewport.get();
-		SessionSettings->ApplyTo(*SceneViewportPanel);
+		SessionSettings.ApplyTo(*SceneViewportPanel);
 		Panels.emplace_back(std::move(SceneViewport));
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
 		Panels.emplace_back(std::make_unique<FDetailsPanel>());
@@ -67,7 +67,7 @@ namespace Durin
 
 		DocumentController = std::make_unique<FLevelDocumentController>(
 			*Context,
-			*SessionSettings,
+			SessionSettings,
 			*SceneViewportPanel,
 			DefaultLevel,
 			[this] { EditorError.clear(); },
@@ -181,10 +181,10 @@ namespace Durin
 		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow())
 		{
 			const bool bCurrentMaximized = Window->IsMaximized();
-			if (bCurrentMaximized != SessionSettings->IsWindowMaximized())
+			if (bCurrentMaximized != SessionSettings.IsWindowMaximized())
 			{
-				SessionSettings->SetWindowMaximized(bCurrentMaximized);
-				SessionSettings->Save(SceneViewportPanel);
+				SessionSettings.SetWindowMaximized(bCurrentMaximized);
+				SessionSettings.Save(SceneViewportPanel);
 			}
 		}
 
@@ -255,12 +255,12 @@ namespace Durin
 					if (ImGui::MenuItem("Dark", nullptr, CurrentTheme == MonaImGui::EColorTheme::Dark))
 					{
 						MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Dark);
-						SessionSettings->Save(SceneViewportPanel);
+						SessionSettings.Save(SceneViewportPanel);
 					}
 					if (ImGui::MenuItem("Light", nullptr, CurrentTheme == MonaImGui::EColorTheme::Light))
 					{
 						MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Light);
-						SessionSettings->Save(SceneViewportPanel);
+						SessionSettings.Save(SceneViewportPanel);
 					}
 					ImGui::EndMenu();
 				}
@@ -269,8 +269,8 @@ namespace Durin
 				for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
 				{
 					const std::string Label = std::format("{}%", static_cast<int32>(Scale * 100.0f));
-					if (ImGui::MenuItem(Label.c_str(), nullptr, std::abs(SessionSettings->GetUIScale() - Scale) < 0.01f))
-						ApplyDisplaySettings(SessionSettings->GetWindowWidth(), SessionSettings->GetWindowHeight(), Scale);
+					if (ImGui::MenuItem(Label.c_str(), nullptr, std::abs(SessionSettings.GetUIScale() - Scale) < 0.01f))
+						ApplyDisplaySettings(SessionSettings.GetWindowWidth(), SessionSettings.GetWindowHeight(), Scale);
 				}
 				ImGui::EndMenu();
 			}
@@ -333,13 +333,13 @@ namespace Durin
 
 	auto MLevelEditor::ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void
 	{
-		SessionSettings->SetDisplaySettings(Width, Height, Scale);
+		SessionSettings.SetDisplaySettings(Width, Height, Scale);
 		MonaImGui::SetGlobalUIScale(Scale);
 		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow())
 		{
 			if (!Window->IsMaximized()) Window->ResizeWindow({static_cast<float>(Width), static_cast<float>(Height)});
 		}
-		SessionSettings->Save(SceneViewportPanel);
+		SessionSettings.Save(SceneViewportPanel);
 	}
 
 	auto MLevelEditor::SetError(std::string Message) -> void

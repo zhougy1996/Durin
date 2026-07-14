@@ -13,6 +13,7 @@ namespace Durin
 	public:
 		auto Load() -> bool;
 		auto Save(const FSceneViewportPanel* SceneViewportPanel) const -> bool;
+		auto PruneInvalidViewportStates() -> void;
 		auto ApplyTo(FSceneViewportPanel& SceneViewportPanel) const -> void;
 		auto CaptureViewportState(const FLevelEditorContext& Context, const FSceneViewportPanel& SceneViewportPanel) -> void;
 		auto RestoreViewportState(DLevel* Level, FSceneViewportPanel& SceneViewportPanel) const -> void;

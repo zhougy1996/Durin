@@ -15,7 +15,7 @@ namespace Durin
 	class MLevelEditor final : public MWidget
 	{
 	public:
-		LEVELEDITOR_API MLevelEditor();
+		explicit MLevelEditor(FEditorSessionSettings& InSessionSettings);
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void override;
 		LEVELEDITOR_API auto Draw() -> void override;
@@ -30,7 +30,7 @@ namespace Durin
 		auto BuildDefaultLayout(uint32 DockSpaceId) -> void;
 
 		std::unique_ptr<FLevelEditorContext> Context;
-		std::unique_ptr<FEditorSessionSettings> SessionSettings;
+		FEditorSessionSettings& SessionSettings;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FStaticMeshImportDialog> StaticMeshImportDialog;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;

@@ -20,6 +20,7 @@ namespace Durin
 
 	auto FEditorSessionSettings::Load() -> bool
 	{
+		MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Dark);
 		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
 		if (!Monitors.empty())
 		{
@@ -41,20 +42,6 @@ namespace Durin
 
 		const FYamlNodeView Root = Document.GetRootView();
 		LoadLevelViewportStates(Root, ViewportStates);
-		if (const FProjectInfo* Project = GetCurrentProject())
-		{
-			const auto ProjectStates = ViewportStates.find(Project->ProjectFile);
-			if (ProjectStates != ViewportStates.end())
-			{
-				std::erase_if(ProjectStates->second, [](const auto& Entry) {
-					FAssetPath Path;
-					if (!FAssetPath::TryCreate(Entry.first, Path)) return true;
-					const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(Path);
-					return !Data || Data->AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString();
-				});
-				if (ProjectStates->second.empty()) ViewportStates.erase(ProjectStates);
-			}
-		}
 
 		const FYamlNodeView Display = Root.GetView("Display");
 		WindowWidth = static_cast<int32>(Display.GetView("WindowWidth").GetInt(WindowWidth));
@@ -71,6 +58,24 @@ namespace Durin
 		GizmoRotationSnap = static_cast<float>(Gizmo.GetView("RotationSnap").GetDouble(15.0));
 		GizmoScaleSnap = static_cast<float>(Gizmo.GetView("ScaleSnap").GetDouble(0.1));
 		return true;
+	}
+
+	auto FEditorSessionSettings::PruneInvalidViewportStates() -> void
+	{
+		if (const FProjectInfo* Project = GetCurrentProject())
+		{
+			const auto ProjectStates = ViewportStates.find(Project->ProjectFile);
+			if (ProjectStates != ViewportStates.end())
+			{
+				std::erase_if(ProjectStates->second, [](const auto& Entry) {
+					FAssetPath Path;
+					if (!FAssetPath::TryCreate(Entry.first, Path)) return true;
+					const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(Path);
+					return !Data || Data->AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString();
+				});
+				if (ProjectStates->second.empty()) ViewportStates.erase(ProjectStates);
+			}
+		}
 	}
 
 	auto FEditorSessionSettings::Save(const FSceneViewportPanel* SceneViewportPanel) const -> bool
