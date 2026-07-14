@@ -12,6 +12,7 @@ namespace Durin
 	class FLevelEditorViewportClient;
 	class DLevel;
 	struct FLevelViewportCameraState;
+	struct FViewportToolbarLayout;
 
 	class FSceneViewportPanel final : public ILevelEditorPanel
 	{
@@ -30,11 +31,12 @@ namespace Durin
 		auto GetTransformGizmo() const -> const FTransformGizmo*;
 
 	private:
-		auto DrawToolbar(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
+		auto CalculateToolbarLayout(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout;
+		auto DrawToolbar(const FViewportToolbarLayout& Layout) -> void;
 		auto DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto DrawFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto UpdateViewportSize() -> void;
-		auto UpdateViewportInput(FLevelEditorContext& Context) -> void;
+		auto UpdateViewportInput(FLevelEditorContext& Context, const FViewportToolbarLayout& ToolbarLayout) -> void;
 
 		std::unique_ptr<FLevelEditorViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;

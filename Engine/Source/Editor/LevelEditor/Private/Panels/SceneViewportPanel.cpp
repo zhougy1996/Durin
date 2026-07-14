@@ -232,6 +232,25 @@ namespace Durin
 		}
 	} // namespace
 
+	struct FViewportToolbarLayout
+	{
+		IRendererModule* RendererModule = nullptr;
+		ERenderMode RenderMode = ERenderMode::Lit;
+		ERasterMode RasterMode = ERasterMode::Solid;
+		std::string ViewModeLabel;
+		ImVec2 ViewportMin;
+		ImVec2 ViewportMax;
+		ImVec2 BackgroundMin;
+		ImVec2 BackgroundMax;
+		ImVec2 ViewModeButtonPosition;
+		ImVec2 ViewModeButtonSize;
+		float Height = 0.0f;
+		float Gap = 0.0f;
+		float ModeButtonWidth = 0.0f;
+		float CompactButtonWidth = 0.0f;
+		float DropDownWidth = 0.0f;
+	};
+
 	FSceneViewportPanel::FSceneViewportPanel()
 	{
 		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
@@ -298,6 +317,9 @@ namespace Durin
 			ViewportWidget->Draw();
 			if (ViewportWidget->WasTextureDrawn())
 			{
+				const ImVec2 VpMin = ImGui::GetItemRectMin();
+				const ImVec2 VpMax = ImGui::GetItemRectMax();
+				const FViewportToolbarLayout ToolbarLayout = CalculateToolbarLayout(VpMin, VpMax);
 				bViewportHovered = ImGui::IsItemHovered();
 				const bool bNavigationMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right) ||
 					ImGui::IsMouseClicked(ImGuiMouseButton_Middle) ||
@@ -307,10 +329,8 @@ namespace Durin
 					ImGui::SetWindowFocus();
 				}
 				bViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-				UpdateViewportInput(Context);
-				const ImVec2 VpMin = ImGui::GetItemRectMin();
-				const ImVec2 VpMax = ImGui::GetItemRectMax();
-				DrawToolbar(VpMin, VpMax);
+				UpdateViewportInput(Context, ToolbarLayout);
+				DrawToolbar(ToolbarLayout);
 				DrawOrientationOverlay(VpMin, VpMax);
 				DrawFPSOverlay(VpMin, VpMax);
 			}
@@ -325,54 +345,62 @@ namespace Durin
 		ImGui::End();
 	}
 
-	auto FSceneViewportPanel::DrawToolbar(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void
+	auto FSceneViewportPanel::CalculateToolbarLayout(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout
 	{
-		ERenderMode CurrentMode = ERenderMode::Lit;
-		ERasterMode CurrentRasterMode = ERasterMode::Solid;
-		IRendererModule* RendererModule = nullptr;
+		FViewportToolbarLayout Layout;
+		Layout.ViewportMin = ViewportMin;
+		Layout.ViewportMax = ViewportMax;
 		if (GEngine != nullptr)
 		{
-			RendererModule = GEngine->GetRendererModule();
-			if (RendererModule != nullptr)
+			Layout.RendererModule = GEngine->GetRendererModule();
+			if (Layout.RendererModule != nullptr)
 			{
-				CurrentMode = RendererModule->GetRenderMode();
-				CurrentRasterMode = RendererModule->GetRasterMode();
+				Layout.RenderMode = Layout.RendererModule->GetRenderMode();
+				Layout.RasterMode = Layout.RendererModule->GetRasterMode();
 			}
 		}
 
-		const std::string Label = std::format("{}  /  {}", GetModeLabel(CurrentMode, RenderModeOptions), GetModeLabel(CurrentRasterMode, RasterModeOptions));
-		const ImVec2 LabelSize = ImGui::CalcTextSize(Label.c_str());
-		const float ToolbarHeight = FMath::Max(28.0f, ImGui::GetFontSize() + 10.0f);
-		const ImVec2 ButtonPos(ViewportMin.x + 10.0f, ViewportMin.y + 8.0f);
-		const ImVec2 ButtonSize(LabelSize.x + 32.0f, ToolbarHeight);
-		const float Gap = 5.0f;
-		const float ModeButtonWidth = FMath::Max(66.0f, ImGui::GetFontSize() * 4.2f);
-		const float CompactButtonWidth = FMath::Max(54.0f, ImGui::GetFontSize() * 3.4f);
-		const float DropDownWidth = ToolbarHeight;
-		const float ToolbarWidth = ButtonSize.x + Gap + ModeButtonWidth * 3.0f + Gap + CompactButtonWidth * 2.0f + DropDownWidth + 10.0f;
+		Layout.ViewModeLabel = std::format("{}  /  {}", GetModeLabel(Layout.RenderMode, RenderModeOptions), GetModeLabel(Layout.RasterMode, RasterModeOptions));
+		Layout.Height = FMath::Max(28.0f, ImGui::GetFontSize() + 10.0f);
+		Layout.Gap = 5.0f;
+		Layout.ModeButtonWidth = FMath::Max(66.0f, ImGui::GetFontSize() * 4.2f);
+		Layout.CompactButtonWidth = FMath::Max(54.0f, ImGui::GetFontSize() * 3.4f);
+		Layout.DropDownWidth = Layout.Height;
+		Layout.ViewModeButtonPosition = ImVec2(ViewportMin.x + 10.0f, ViewportMin.y + 8.0f);
+		Layout.ViewModeButtonSize = ImVec2(ImGui::CalcTextSize(Layout.ViewModeLabel.c_str()).x + 32.0f, Layout.Height);
+		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.Gap + Layout.CompactButtonWidth * 2.0f + Layout.DropDownWidth + 10.0f;
+		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - 4.0f, Layout.ViewModeButtonPosition.y - 4.0f);
+		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - 6.0f, Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + 4.0f);
+		return Layout;
+	}
+
+	auto FSceneViewportPanel::DrawToolbar(const FViewportToolbarLayout& Layout) -> void
+	{
+		const ImVec2& ViewportMin = Layout.ViewportMin;
+		const ImVec2& ViewportMax = Layout.ViewportMax;
 
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
 		const ImGuiStyle& Style = ImGui::GetStyle();
 		ImVec4 ToolbarColor = Style.Colors[ImGuiCol_PopupBg];
 		ToolbarColor.w = 0.94f;
-		DrawList->AddRectFilled(ImVec2(ButtonPos.x - 4.0f, ButtonPos.y - 4.0f), ImVec2(FMath::Min(ViewportMax.x - 6.0f, ButtonPos.x + ToolbarWidth), ButtonPos.y + ToolbarHeight + 4.0f), ImGui::GetColorU32(ToolbarColor), 6.0f);
-		DrawList->AddRect(ImVec2(ButtonPos.x - 4.0f, ButtonPos.y - 4.0f), ImVec2(FMath::Min(ViewportMax.x - 6.0f, ButtonPos.x + ToolbarWidth), ButtonPos.y + ToolbarHeight + 4.0f), ImGui::GetColorU32(ImGuiCol_Border), 6.0f);
+		DrawList->AddRectFilled(Layout.BackgroundMin, Layout.BackgroundMax, ImGui::GetColorU32(ToolbarColor), 6.0f);
+		DrawList->AddRect(Layout.BackgroundMin, Layout.BackgroundMax, ImGui::GetColorU32(ImGuiCol_Border), 6.0f);
 		DrawList->PopClipRect();
 
-		if (DrawToolbarButton("##ViewModeButton", ButtonPos, ButtonSize, Label.c_str(), EViewportToolbarIcon::ChevronDown, false, "Viewport shading and raster mode"))
+		if (DrawToolbarButton("##ViewModeButton", Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize, Layout.ViewModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, false, "Viewport shading and raster mode"))
 		{
 			ImGui::OpenPopup("ViewModePopup");
 		}
 
 		if (ImGui::BeginPopup("ViewModePopup"))
 		{
-			DrawModeOptions(CurrentMode, RenderModeOptions, [RendererModule](ERenderMode Mode)
+			DrawModeOptions(Layout.RenderMode, RenderModeOptions, [RendererModule = Layout.RendererModule](ERenderMode Mode)
 			{
 				if (RendererModule != nullptr) RendererModule->SetRenderMode(Mode);
 			});
 			ImGui::Separator();
-			DrawModeOptions(CurrentRasterMode, RasterModeOptions, [RendererModule](ERasterMode Mode)
+			DrawModeOptions(Layout.RasterMode, RasterModeOptions, [RendererModule = Layout.RendererModule](ERasterMode Mode)
 			{
 				if (RendererModule != nullptr) RendererModule->SetRasterMode(Mode);
 			});
@@ -381,20 +409,20 @@ namespace Durin
 
 		if (ViewportClient == nullptr) return;
 		FTransformGizmo& Gizmo = ViewportClient->GetTransformGizmo();
-		float X = ButtonPos.x + ButtonSize.x + Gap;
-		const float Y = ButtonPos.y;
+		float X = Layout.ViewModeButtonPosition.x + Layout.ViewModeButtonSize.x + Layout.Gap;
+		const float Y = Layout.ViewModeButtonPosition.y;
 		auto ToolbarButton = [&](const char* Id, const char* Text, EViewportToolbarIcon Icon, float Width, bool bSelected, const char* Tooltip, auto&& Action) {
-			if (DrawToolbarButton(Id, ImVec2(X, Y), ImVec2(Width, ToolbarHeight), Text, Icon, bSelected, Tooltip)) Action();
+			if (DrawToolbarButton(Id, ImVec2(X, Y), ImVec2(Width, Layout.Height), Text, Icon, bSelected, Tooltip)) Action();
 			X += Width;
 		};
-		ToolbarButton("##MoveMode", "Move", EViewportToolbarIcon::Translate, ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Translate, "Move tool (W)", [&] { Gizmo.SetMode(ETransformGizmoMode::Translate); });
-		ToolbarButton("##RotateMode", "Rotate", EViewportToolbarIcon::Rotate, ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Rotate, "Rotate tool (E)", [&] { Gizmo.SetMode(ETransformGizmoMode::Rotate); });
-		ToolbarButton("##ScaleMode", "Scale", EViewportToolbarIcon::Scale, ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Scale, "Scale tool (R)", [&] { Gizmo.SetMode(ETransformGizmoMode::Scale); });
-		X += Gap;
-		ToolbarButton("##TransformSpace", Gizmo.GetSpace() == ETransformGizmoSpace::World ? "World" : "Local", EViewportToolbarIcon::None, CompactButtonWidth, Gizmo.GetSpace() == ETransformGizmoSpace::Local, "Toggle world/local transform space", [&] {
+		ToolbarButton("##MoveMode", "Move", EViewportToolbarIcon::Translate, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Translate, "Move tool (W)", [&] { Gizmo.SetMode(ETransformGizmoMode::Translate); });
+		ToolbarButton("##RotateMode", "Rotate", EViewportToolbarIcon::Rotate, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Rotate, "Rotate tool (E)", [&] { Gizmo.SetMode(ETransformGizmoMode::Rotate); });
+		ToolbarButton("##ScaleMode", "Scale", EViewportToolbarIcon::Scale, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Scale, "Scale tool (R)", [&] { Gizmo.SetMode(ETransformGizmoMode::Scale); });
+		X += Layout.Gap;
+		ToolbarButton("##TransformSpace", Gizmo.GetSpace() == ETransformGizmoSpace::World ? "World" : "Local", EViewportToolbarIcon::None, Layout.CompactButtonWidth, Gizmo.GetSpace() == ETransformGizmoSpace::Local, "Toggle world/local transform space", [&] {
 			Gizmo.SetSpace(Gizmo.GetSpace() == ETransformGizmoSpace::World ? ETransformGizmoSpace::Local : ETransformGizmoSpace::World);
 		});
-		const FSplitButtonResult SnapResult = DrawSnapSplitButton(ImVec2(X, Y), CompactButtonWidth, DropDownWidth, ToolbarHeight, Gizmo.GetSnapSettings().bEnabled, ImGui::IsPopupOpen("GizmoSnapSettings"));
+		const FSplitButtonResult SnapResult = DrawSnapSplitButton(ImVec2(X, Y), Layout.CompactButtonWidth, Layout.DropDownWidth, Layout.Height, Gizmo.GetSnapSettings().bEnabled, ImGui::IsPopupOpen("GizmoSnapSettings"));
 		if (SnapResult.bPrimaryPressed) Gizmo.GetSnapSettings().bEnabled = !Gizmo.GetSnapSettings().bEnabled;
 		if (SnapResult.bSecondaryPressed) ImGui::OpenPopup("GizmoSnapSettings");
 		ImGui::SetNextWindowSize(ImVec2(270.0f, 0.0f), ImGuiCond_Appearing);
@@ -474,7 +502,7 @@ namespace Durin
 		DrawList->PopClipRect();
 	}
 
-	auto FSceneViewportPanel::UpdateViewportInput(FLevelEditorContext& Context) -> void
+	auto FSceneViewportPanel::UpdateViewportInput(FLevelEditorContext& Context, const FViewportToolbarLayout& ToolbarLayout) -> void
 	{
 		if (ViewportClient == nullptr) return;
 		const ImGuiIO& IO = ImGui::GetIO();
@@ -511,24 +539,7 @@ namespace Durin
 		const ImVec2 MousePosition = ImGui::GetMousePos();
 		Input.MousePosition = {MousePosition.x - ViewportMin.x, MousePosition.y - ViewportMin.y};
 		Input.ViewportSize = {ViewportMax.x - ViewportMin.x, ViewportMax.y - ViewportMin.y};
-		const ImVec2 ToolbarMin(ViewportMin.x + 6.0f, ViewportMin.y + 4.0f);
-		ERenderMode RenderMode = ERenderMode::Lit;
-		ERasterMode RasterMode = ERasterMode::Solid;
-		if (GEngine != nullptr)
-		{
-			if (IRendererModule* Renderer = GEngine->GetRendererModule())
-			{
-				RenderMode = Renderer->GetRenderMode();
-				RasterMode = Renderer->GetRasterMode();
-			}
-		}
-		const std::string ToolbarLabel = std::format("{}  /  {}", RenderMode == ERenderMode::Lit ? "Lit" : "Unlit", RasterMode == ERasterMode::Solid ? "Solid" : "Wireframe");
-		const float ButtonWidth = ImGui::CalcTextSize(ToolbarLabel.c_str()).x + 32.0f;
-		const float ButtonHeight = FMath::Max(28.0f, ImGui::GetFontSize() + 10.0f);
-		const float ModeButtonWidth = FMath::Max(66.0f, ImGui::GetFontSize() * 4.2f);
-		const float CompactButtonWidth = FMath::Max(54.0f, ImGui::GetFontSize() * 3.4f);
-		const float ToolbarWidth = ButtonWidth + 5.0f + ModeButtonWidth * 3.0f + 5.0f + CompactButtonWidth * 2.0f + ButtonHeight + 14.0f;
-		const bool bToolbarHovered = ImGui::IsMouseHoveringRect(ToolbarMin, ImVec2(FMath::Min(ViewportMax.x, ToolbarMin.x + ToolbarWidth), ToolbarMin.y + ButtonHeight + 8.0f));
+		const bool bToolbarHovered = ImGui::IsMouseHoveringRect(ToolbarLayout.BackgroundMin, ToolbarLayout.BackgroundMax);
 		const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 		if (bToolbarHovered || bPopupOpen) Input.bLeftMousePressed = false;
 		FSceneView SceneView;
