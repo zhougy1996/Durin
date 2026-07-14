@@ -55,6 +55,7 @@ namespace Durin
 	{
 		ViewMode = static_cast<EContentBrowserViewMode>(SessionSettings.GetContentBrowserViewMode());
 		IconSize = SessionSettings.GetContentBrowserIconSize();
+		bIconSizeLocked = SessionSettings.IsContentBrowserIconSizeLocked();
 		DirectoryTreeWidth = SessionSettings.GetContentBrowserTreeWidth();
 		bShowSourceFiles = SessionSettings.GetContentBrowserShowSourceFiles();
 		if (!SessionSettings.GetContentBrowserLastDirectory().empty())
@@ -269,7 +270,7 @@ namespace Durin
 		DrawStatusBar();
 		DrawDialogs();
 
-		SessionSettings.SetContentBrowserState(static_cast<uint8>(ViewMode), IconSize, DirectoryTreeWidth, bShowSourceFiles, CurrentPhysicalPath);
+		SessionSettings.SetContentBrowserState(static_cast<uint8>(ViewMode), IconSize, bIconSizeLocked, DirectoryTreeWidth, bShowSourceFiles, CurrentPhysicalPath);
 		ImGui::End();
 	}
 
@@ -295,6 +296,20 @@ namespace Durin
 		ImGui::SameLine();
 		if (ImGui::BeginChild("ContentBrowserBreadcrumb", ImVec2(std::max(180.0f, ImGui::GetContentRegionAvail().x - 470.0f), ImGui::GetFrameHeight()), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar))
 		{
+			ImGui::AlignTextToFramePadding();
+			auto DrawPathSegment = [&](std::string_view Label, std::string_view PhysicalPath, bool bCurrent) {
+				ImGui::PushID(std::string(PhysicalPath).c_str());
+				ImGui::TextColored(bCurrent ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%s", std::string(Label).c_str());
+				if (ImGui::IsItemHovered())
+				{
+					ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+					const ImVec2 Min = ImGui::GetItemRectMin();
+					const ImVec2 Max = ImGui::GetItemRectMax();
+					ImGui::GetWindowDrawList()->AddLine(ImVec2(Min.x, Max.y), Max, ImGui::GetColorU32(ImGuiCol_TextDisabled));
+				}
+				if (ImGui::IsItemClicked()) NavigateToPhysical(PhysicalPath);
+				ImGui::PopID();
+			};
 			bool bFirst = true;
 			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
 			{
@@ -304,16 +319,15 @@ namespace Durin
 				std::string RootLabel = Mount.VirtualRoot;
 				if (RootLabel.starts_with('/')) RootLabel.erase(RootLabel.begin());
 				if (RootLabel.ends_with('/')) RootLabel.pop_back();
-				if (ImGui::SmallButton(RootLabel.c_str())) NavigateToPhysical(Root);
+				DrawPathSegment(RootLabel, Root, CurrentPhysicalPath == Root);
 				std::error_code Ec;
 				const std::filesystem::path Relative = std::filesystem::relative(CurrentPhysicalPath, Root, Ec);
 				if (!Ec && Relative != ".") for (const auto& Segment : Relative)
 				{
 					ImGui::SameLine(); ImGui::TextDisabled("/"); ImGui::SameLine();
 					Progressive /= Segment;
-					ImGui::PushID(Progressive.generic_string().c_str());
-					if (ImGui::SmallButton(Segment.generic_string().c_str())) NavigateToPhysical(Progressive.generic_string());
-					ImGui::PopID();
+					const std::string SegmentPath = Progressive.generic_string();
+					DrawPathSegment(Segment.generic_string(), SegmentPath, CurrentPhysicalPath == NormalizePath(SegmentPath));
 				}
 				bFirst = false;
 				break;
@@ -335,6 +349,19 @@ namespace Durin
 		ImGui::SameLine();
 		if (DrawToolbarIconButton(Icons::Info, "ContentBrowserDetails")) bShowSelectionDetails = !bShowSelectionDetails;
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle selection details");
+		ImGui::SameLine();
+		if (DrawToolbarIconButton(Icons::Gear, "ContentBrowserSettings")) ImGui::OpenPopup("ContentBrowserSettingsPopup");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Content Browser settings");
+		if (ImGui::BeginPopup("ContentBrowserSettingsPopup"))
+		{
+			ImGui::TextDisabled("Thumbnail size");
+			ImGui::SetNextItemWidth(190.0f);
+			ImGui::SliderFloat("##ContentIconSize", &IconSize, 56.0f, 160.0f, "%.0f px");
+			ImGui::Checkbox("Lock Ctrl + wheel resizing", &bIconSizeLocked);
+			ImGui::Separator();
+			if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles)) { bShowSourceFiles = !bShowSourceFiles; RebuildItems(); }
+			ImGui::EndPopup();
+		}
 	}
 
 	auto FContentBrowserPanel::DrawDirectoryTree() -> void
@@ -388,9 +415,18 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawContentArea() -> void
 	{
+		const ImGuiIO& IO = ImGui::GetIO();
+		if (ViewMode == EContentBrowserViewMode::Grid && !bIconSizeLocked && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && IO.KeyCtrl && IO.MouseWheel != 0.0f)
+			IconSize = std::clamp(IconSize + IO.MouseWheel * 8.0f, 56.0f, 160.0f);
 		const bool bReserveDetails = bShowSelectionDetails && Selection.size() == 1;
 		if (bReserveDetails) ImGui::BeginChild("ContentBrowserMainView", ImVec2(0.0f, -132.0f));
+		bContentItemHovered = false;
 		if (ViewMode == EContentBrowserViewMode::Grid) DrawGrid(); else DrawDetails();
+		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bContentItemHovered)
+		{
+			Selection.clear();
+			SelectionAnchor.clear();
+		}
 		DrawBackgroundContextMenu();
 		if (Items.empty())
 		{
@@ -418,10 +454,19 @@ namespace Durin
 		auto It = std::ranges::find_if(Items, [&](const FContentBrowserItem& Item) { return Selection.contains(Item.StableId()); });
 		if (It == Items.end()) return;
 		const FContentBrowserItem& Item = *It;
-		if (ImGui::BeginTable("ContentBrowserSelectionDetails", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV))
+		if (ImGui::BeginTable("ContentBrowserSelectionDetails", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg))
 		{
+			ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 92.0f);
+			ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 			auto Row = [](const char* Label, std::string_view Value) {
-				ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("%s", Label); ImGui::TableNextColumn(); ImGui::TextWrapped("%s", std::string(Value).c_str());
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				ImGui::TextDisabled("%s", Label);
+				ImGui::TableNextColumn();
+				const std::string DisplayValue(Value);
+				ImGui::TextUnformatted(DisplayValue.c_str());
+				if (ImGui::IsItemHovered() && ImGui::CalcTextSize(DisplayValue.c_str()).x > ImGui::GetContentRegionAvail().x)
+					ImGui::SetTooltip("%s", DisplayValue.c_str());
 			};
 			Row("Type", ItemTypeLabel(Item));
 			Row("Virtual", Item.VirtualPath.empty() ? "-" : Item.VirtualPath);
@@ -472,6 +517,8 @@ namespace Durin
 	auto FContentBrowserPanel::DrawGrid() -> void
 	{
 		const float CellWidth = IconSize + 34.0f;
+		const float NameFontSize = std::clamp(IconSize * 0.22f, 14.0f, 28.0f);
+		const float NameAreaHeight = NameFontSize * 2.0f + 12.0f;
 		const int32 Columns = std::max(1, static_cast<int32>(ImGui::GetContentRegionAvail().x / CellWidth));
 		if (!ImGui::BeginTable("ContentBrowserGrid", Columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_ScrollY)) return;
 		for (size_t Index = 0; Index < Items.size(); ++Index)
@@ -479,23 +526,46 @@ namespace Durin
 			const FContentBrowserItem& Item = Items[Index];
 			ImGui::TableNextColumn();
 			ImGui::PushID(Item.StableId().c_str());
-			const ImVec2 TileSize(ImGui::GetContentRegionAvail().x, IconSize + 42.0f);
+			const ImVec2 TileSize(ImGui::GetContentRegionAvail().x, IconSize + NameAreaHeight);
 			const bool bSelected = Selection.contains(Item.StableId());
 			const ImVec2 TileStart = ImGui::GetCursorScreenPos();
-			ImGui::Selectable("##Tile", bSelected, ImGuiSelectableFlags_AllowDoubleClick, TileSize);
+			ImGui::InvisibleButton("##Tile", TileSize);
 			const bool bHovered = ImGui::IsItemHovered();
+			bContentItemHovered |= bHovered;
 			if (ImGui::IsItemClicked()) SelectItem(Index);
 			if (bHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) OpenItem(Item);
 			BeginAssetDragDrop(Item);
 			if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
 			if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) { if (!bSelected) { Selection.clear(); Selection.insert(Item.StableId()); } ImGui::OpenPopup("ItemContext"); }
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
+			const ImVec2 CardMin(TileStart.x + 2.0f, TileStart.y + 2.0f);
+			const ImVec2 CardMax(TileStart.x + TileSize.x - 2.0f, TileStart.y + TileSize.y - 2.0f);
+			if (bSelected || bHovered)
+			{
+				const ImGuiCol BackgroundColor = bSelected ? (bHovered ? ImGuiCol_HeaderActive : ImGuiCol_Header) : ImGuiCol_HeaderHovered;
+				DrawList->AddRectFilled(CardMin, CardMax, ImGui::GetColorU32(BackgroundColor), 7.0f);
+				if (bSelected) DrawList->AddRect(CardMin, CardMax, ImGui::GetColorU32(ImGuiCol_CheckMark), 7.0f, 0, 1.0f);
+			}
 			const ImU32 IconColor = Item.Kind == EContentBrowserItemKind::Folder ? IM_COL32(232, 180, 70, 255) : Item.Kind == EContentBrowserItemKind::Asset ? IM_COL32(75, 174, 240, 255) : IM_COL32(150, 155, 170, 255);
-			DrawList->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 2.4f, ImVec2(TileStart.x + 12.0f, TileStart.y + 12.0f), IconColor, ItemIcon(Item));
-			ImGui::SetCursorScreenPos(ImVec2(TileStart.x + 7.0f, TileStart.y + IconSize));
-			ImGui::SetNextItemWidth(std::max(40.0f, TileSize.x - 14.0f));
-			if (RenameTarget == Item.StableId()) DrawRenameEditor(Item);
-			else ImGui::TextWrapped("%s", Item.Name.c_str());
+			const float IconFontSize = IconSize * 0.58f;
+			const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(IconFontSize, FLT_MAX, 0.0f, ItemIcon(Item));
+			const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(6.0f, (IconSize - IconExtent.y) * 0.5f));
+			DrawList->AddText(ImGui::GetFont(), IconFontSize, IconPosition, IconColor, ItemIcon(Item));
+			if (RenameTarget == Item.StableId())
+			{
+				ImGui::SetCursorScreenPos(ImVec2(TileStart.x + 7.0f, TileStart.y + IconSize));
+				ImGui::SetNextItemWidth(std::max(40.0f, TileSize.x - 14.0f));
+				DrawRenameEditor(Item);
+			}
+			else
+			{
+				const float TextWidth = std::max(40.0f, TileSize.x - 16.0f);
+				const ImVec2 TextExtent = ImGui::GetFont()->CalcTextSizeA(NameFontSize, FLT_MAX, TextWidth, Item.Name.c_str());
+				const ImVec2 TextPosition(TileStart.x + std::max(8.0f, (TileSize.x - TextExtent.x) * 0.5f), TileStart.y + IconSize + 3.0f);
+				DrawList->PushClipRect(ImVec2(TileStart.x + 6.0f, TileStart.y + IconSize), ImVec2(TileStart.x + TileSize.x - 6.0f, TileStart.y + TileSize.y - 5.0f), true);
+				DrawList->AddText(ImGui::GetFont(), NameFontSize, TextPosition, ImGui::GetColorU32(ImGuiCol_Text), Item.Name.c_str(), nullptr, TextWidth);
+				DrawList->PopClipRect();
+			}
 			if (ImGui::BeginPopup("ItemContext")) { DrawItemContextMenu(Item); ImGui::EndPopup(); }
 			ImGui::SetCursorScreenPos(ImVec2(TileStart.x, TileStart.y + TileSize.y + ImGui::GetStyle().ItemSpacing.y));
 			ImGui::Dummy(ImVec2(1.0f, 1.0f));
@@ -530,6 +600,7 @@ namespace Durin
 			{
 				const std::string Label = std::format("{} {}", ItemIcon(Item), Item.Name);
 				ImGui::Selectable(Label.c_str(), Selection.contains(Item.StableId()), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
+				bContentItemHovered |= ImGui::IsItemHovered();
 				if (ImGui::IsItemClicked()) SelectItem(Index);
 				if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) OpenItem(Item);
 				BeginAssetDragDrop(Item);
@@ -614,12 +685,6 @@ namespace Durin
 			ImGui::Text("| %zu asset scan error(s)", Asset::GetAssetRegistry().GetScanErrors().size());
 			ImGui::PopStyleColor();
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Asset::GetAssetRegistry().GetScanErrors().front().Message.c_str());
-		}
-		if (ViewMode == EContentBrowserViewMode::Grid)
-		{
-			ImGui::SameLine();
-			ImGui::SetNextItemWidth(115.0f);
-			ImGui::SliderFloat("##ContentIconSize", &IconSize, 56.0f, 160.0f, "%.0f px");
 		}
 	}
 

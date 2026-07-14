@@ -28,10 +28,11 @@ namespace Durin
 
 		auto GetContentBrowserViewMode() const -> uint8 { return ContentBrowserViewMode; }
 		auto GetContentBrowserIconSize() const -> float { return ContentBrowserIconSize; }
+		auto IsContentBrowserIconSizeLocked() const -> bool { return bContentBrowserIconSizeLocked; }
 		auto GetContentBrowserTreeWidth() const -> float { return ContentBrowserTreeWidth; }
 		auto GetContentBrowserShowSourceFiles() const -> bool { return bContentBrowserShowSourceFiles; }
 		auto GetContentBrowserLastDirectory() const -> const std::string& { return ContentBrowserLastDirectory; }
-		auto SetContentBrowserState(uint8 ViewMode, float IconSize, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void;
+		auto SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void;
 
 	private:
 		FLevelViewportStateMap ViewportStates;
@@ -47,6 +48,7 @@ namespace Durin
 		uint8 GizmoSpace = 0;
 		uint8 ContentBrowserViewMode = 0;
 		float ContentBrowserIconSize = 88.0f;
+		bool bContentBrowserIconSizeLocked = false;
 		float ContentBrowserTreeWidth = 0.24f;
 		bool bContentBrowserShowSourceFiles = false;
 		std::string ContentBrowserLastDirectory;

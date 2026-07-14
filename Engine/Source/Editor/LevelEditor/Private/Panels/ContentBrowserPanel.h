@@ -114,6 +114,8 @@ namespace Durin
 		bool bSortAscending = true;
 		bool bShowSourceFiles = false;
 		bool bShowSelectionDetails = false;
+		bool bIconSizeLocked = false;
+		bool bContentItemHovered = false;
 		float IconSize = 88.0f;
 		float DirectoryTreeWidth = 0.24f;
 		std::string RenameTarget;

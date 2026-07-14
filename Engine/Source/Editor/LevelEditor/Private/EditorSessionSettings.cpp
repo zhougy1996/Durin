@@ -61,6 +61,7 @@ namespace Durin
 		const FYamlNodeView ContentBrowser = Root.GetView("ContentBrowser");
 		ContentBrowserViewMode = static_cast<uint8>(std::clamp<int64>(ContentBrowser.GetView("ViewMode").GetInt(0), 0, 1));
 		ContentBrowserIconSize = static_cast<float>(std::clamp(ContentBrowser.GetView("IconSize").GetDouble(88.0), 56.0, 160.0));
+		bContentBrowserIconSizeLocked = ContentBrowser.GetView("IconSizeLocked").GetBool(false);
 		ContentBrowserTreeWidth = static_cast<float>(std::clamp(ContentBrowser.GetView("TreeWidth").GetDouble(0.24), 0.15, 0.55));
 		bContentBrowserShowSourceFiles = ContentBrowser.GetView("ShowSourceFiles").GetBool(false);
 		ContentBrowserLastDirectory = ContentBrowser.GetView("LastDirectory").GetString();
@@ -125,6 +126,7 @@ namespace Durin
 		FYamlNodeRef ContentBrowserNode = Root.AddMap("ContentBrowser");
 		ContentBrowserNode.SetChildValue("ViewMode", static_cast<int64>(ContentBrowserViewMode));
 		ContentBrowserNode.SetChildValue("IconSize", static_cast<double>(ContentBrowserIconSize));
+		ContentBrowserNode.SetChildValue("IconSizeLocked", bContentBrowserIconSizeLocked);
 		ContentBrowserNode.SetChildValue("TreeWidth", static_cast<double>(ContentBrowserTreeWidth));
 		ContentBrowserNode.SetChildValue("ShowSourceFiles", bContentBrowserShowSourceFiles);
 		ContentBrowserNode.SetChildValue("LastDirectory", ContentBrowserLastDirectory);
@@ -197,10 +199,11 @@ namespace Durin
 		UIScale = Scale;
 	}
 
-	auto FEditorSessionSettings::SetContentBrowserState(uint8 ViewMode, float IconSize, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void
+	auto FEditorSessionSettings::SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void
 	{
 		ContentBrowserViewMode = std::min<uint8>(ViewMode, 1);
 		ContentBrowserIconSize = std::clamp(IconSize, 56.0f, 160.0f);
+		bContentBrowserIconSizeLocked = bIconSizeLocked;
 		ContentBrowserTreeWidth = std::clamp(TreeWidth, 0.15f, 0.55f);
 		bContentBrowserShowSourceFiles = bShowSourceFiles;
 		ContentBrowserLastDirectory = std::move(LastDirectory);
