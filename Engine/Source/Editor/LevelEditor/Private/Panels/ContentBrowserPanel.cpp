@@ -6,12 +6,13 @@
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorHelpers.h"
+#include "LevelEditorUILayout.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
 #ifdef _WIN32
-#include <shellapi.h>
+	#include <shellapi.h>
 #endif
 
 namespace Durin
@@ -43,20 +44,26 @@ namespace Durin
 			return Name;
 		}
 
-		constexpr ImGuiTableFlags DetailsTableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg |
-			ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti |
-			ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoSavedSettings;
-	}
+		constexpr ImGuiTableFlags DetailsTableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoSavedSettings;
+
+		constexpr float FullToolbarWidth = 900.0f;
+		constexpr float CompactToolbarWidth = 620.0f;
+		constexpr float MinimumTreeWidth = 145.0f;
+		constexpr float MinimumContentWidth = 240.0f;
+		constexpr float MinimumContentHeight = 80.0f;
+		constexpr float GridCellExtraWidth = 34.0f;
+		constexpr float GridCardRounding = 7.0f;
+	} // namespace
 
 	FContentBrowserPanel::FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport)
 		: SessionSettings(InSessionSettings)
 		, OpenAsset(std::move(InOpenAsset))
 		, RequestImport(std::move(InRequestImport))
+		, IconSize(InSessionSettings.GetContentBrowserIconSize())
+		, DirectoryTreeWidth(InSessionSettings.GetContentBrowserTreeWidth())
 	{
 		ViewMode = static_cast<EContentBrowserViewMode>(SessionSettings.GetContentBrowserViewMode());
-		IconSize = SessionSettings.GetContentBrowserIconSize();
 		bIconSizeLocked = SessionSettings.IsContentBrowserIconSizeLocked();
-		DirectoryTreeWidth = SessionSettings.GetContentBrowserTreeWidth();
 		bShowSourceFiles = SessionSettings.GetContentBrowserShowSourceFiles();
 		if (!SessionSettings.GetContentBrowserLastDirectory().empty())
 			NavigateToPhysical(SessionSettings.GetContentBrowserLastDirectory());
@@ -178,7 +185,11 @@ namespace Durin
 			{
 				const std::filesystem::directory_entry& Entry = *It;
 				const std::string Name = Entry.path().filename().generic_string();
-				if (!bShowSourceFiles && !Name.empty() && Name.front() == '.') { if (Entry.is_directory()) It.disable_recursion_pending(); continue; }
+				if (!bShowSourceFiles && !Name.empty() && Name.front() == '.')
+				{
+					if (Entry.is_directory()) It.disable_recursion_pending();
+					continue;
+				}
 				if (Entry.is_directory(Ec))
 				{
 					if (MatchesSearch(Name, Entry.path().generic_string(), "Folder"))
@@ -188,8 +199,10 @@ namespace Durin
 				{
 					FContentBrowserItem Item{EContentBrowserItemKind::SourceFile, Name, {}, NormalizePath(Entry.path().generic_string())};
 					Item.Extension = Entry.path().extension().generic_string();
-					Item.FileSize = Entry.file_size(Ec); Ec.clear();
-					Item.LastWriteTime = Entry.last_write_time(Ec); Ec.clear();
+					Item.FileSize = Entry.file_size(Ec);
+					Ec.clear();
+					Item.LastWriteTime = Entry.last_write_time(Ec);
+					Ec.clear();
 					Items.push_back(std::move(Item));
 				}
 			}
@@ -207,8 +220,10 @@ namespace Durin
 				{
 					FContentBrowserItem Item{EContentBrowserItemKind::SourceFile, Name, {}, NormalizePath(Entry.path().generic_string())};
 					Item.Extension = Entry.path().extension().generic_string();
-					Item.FileSize = Entry.file_size(Ec); Ec.clear();
-					Item.LastWriteTime = Entry.last_write_time(Ec); Ec.clear();
+					Item.FileSize = Entry.file_size(Ec);
+					Ec.clear();
+					Item.LastWriteTime = Entry.last_write_time(Ec);
+					Ec.clear();
 					Items.push_back(std::move(Item));
 				}
 			}
@@ -222,7 +237,8 @@ namespace Durin
 			if (!MatchesSearch(Name, Path.GetView(), Type)) continue;
 			FContentBrowserItem Item{EContentBrowserItemKind::Asset, Name, Path.ToString(), NormalizePath(Data.PhysicalPath), Data.AssetClassName, ".dasset"};
 			std::error_code FileEc;
-			Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc); FileEc.clear();
+			Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
+			FileEc.clear();
 			Item.LastWriteTime = Data.LastWriteTime;
 			if (MatchesTypeFilter(Item)) Items.push_back(std::move(Item));
 		}
@@ -235,8 +251,14 @@ namespace Durin
 			switch (SortColumn)
 			{
 			case ESortColumn::Type: Result = ItemTypeLabel(A).compare(ItemTypeLabel(B)); break;
-			case ESortColumn::Size: Result = A.FileSize < B.FileSize ? -1 : A.FileSize > B.FileSize ? 1 : 0; break;
-			case ESortColumn::Modified: Result = A.LastWriteTime < B.LastWriteTime ? -1 : A.LastWriteTime > B.LastWriteTime ? 1 : 0; break;
+			case ESortColumn::Size:
+				Result = A.FileSize < B.FileSize ? -1 : A.FileSize > B.FileSize ? 1 :
+																				  0;
+				break;
+			case ESortColumn::Modified:
+				Result = A.LastWriteTime < B.LastWriteTime ? -1 : A.LastWriteTime > B.LastWriteTime ? 1 :
+																									  0;
+				break;
 			default: Result = A.Name.compare(B.Name); break;
 			}
 			if (Result == 0) Result = A.Name.compare(B.Name);
@@ -249,21 +271,26 @@ namespace Durin
 	auto FContentBrowserPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		(void)Context;
-		if (!ImGui::Begin("Content Browser###FileBrowser", GetOpenPtr())) { ImGui::End(); return; }
+		if (!ImGui::Begin("Content Browser###FileBrowser", GetOpenPtr()))
+		{
+			ImGui::End();
+			return;
+		}
 		DrawToolbar();
 		ImGui::Separator();
 
 		const float StatusHeight = ImGui::GetFrameHeightWithSpacing();
 		const float AvailableWidth = ImGui::GetContentRegionAvail().x;
-		const float SplitterWidth = 6.0f;
-		const float TreeWidth = std::clamp(AvailableWidth * DirectoryTreeWidth, 145.0f, std::max(145.0f, AvailableWidth - 240.0f));
-		const float ContentHeight = std::max(80.0f, ImGui::GetContentRegionAvail().y - StatusHeight);
+		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
+		const float SplitterWidth = Metrics.SplitterThickness;
+		const float ScaledMinimumTreeWidth = MonaImGui::ScaleUI(MinimumTreeWidth);
+		const float ScaledMinimumContentWidth = MonaImGui::ScaleUI(MinimumContentWidth);
+		const float TreeWidth = std::clamp(AvailableWidth * DirectoryTreeWidth, ScaledMinimumTreeWidth, std::max(ScaledMinimumTreeWidth, AvailableWidth - ScaledMinimumContentWidth));
+		const float ContentHeight = std::max(MonaImGui::ScaleUI(MinimumContentHeight), ImGui::GetContentRegionAvail().y - StatusHeight);
 		if (ImGui::BeginChild("ContentBrowserTree", ImVec2(TreeWidth, ContentHeight), ImGuiChildFlags_Borders)) DrawDirectoryTree();
 		ImGui::EndChild();
 		ImGui::SameLine();
-		ImGui::InvisibleButton("ContentBrowserSplitter", ImVec2(SplitterWidth, ContentHeight));
-		if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-		if (ImGui::IsItemActive()) DirectoryTreeWidth = std::clamp((ImGui::GetIO().MousePos.x - ImGui::GetWindowPos().x) / ImGui::GetWindowWidth(), 0.15f, 0.55f);
+		MonaImGui::DrawSplitter("ContentBrowserSplitter", MonaImGui::EUISplitterAxis::X, ContentHeight, AvailableWidth, ScaledMinimumTreeWidth, ScaledMinimumContentWidth, DirectoryTreeWidth);
 		ImGui::SameLine();
 		if (ImGui::BeginChild("ContentBrowserItems", ImVec2(0.0f, ContentHeight), ImGuiChildFlags_Borders)) DrawContentArea();
 		ImGui::EndChild();
@@ -276,6 +303,11 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawToolbar() -> void
 	{
+		const float ToolbarWidth = ImGui::GetContentRegionAvail().x;
+		const EEditorUILayoutMode LayoutMode = ResolveEditorUILayout(ToolbarWidth, MonaImGui::ScaleUI(CompactToolbarWidth), MonaImGui::ScaleUI(FullToolbarWidth));
+		const bool bFullLayout = LayoutMode == EEditorUILayoutMode::Full;
+		const bool bCompactLayout = LayoutMode != EEditorUILayoutMode::Narrow;
+
 		ImGui::BeginDisabled(HistoryIndex <= 0);
 		if (DrawToolbarIconButton(Icons::ArrowLeft, "ContentBrowserBack")) NavigateHistory(-1);
 		ImGui::EndDisabled();
@@ -293,9 +325,12 @@ namespace Durin
 		if (DrawToolbarIconButton(Icons::Refresh, "ContentBrowserRefresh")) Refresh(true);
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rescan mounted content");
 
-		ImGui::SameLine();
-		if (ImGui::BeginChild("ContentBrowserBreadcrumb", ImVec2(std::max(180.0f, ImGui::GetContentRegionAvail().x - 470.0f), ImGui::GetFrameHeight()), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar))
-		{
+		auto DrawBreadcrumb = [&](float Width) {
+			if (!ImGui::BeginChild("ContentBrowserBreadcrumb", ImVec2(Width, ImGui::GetFrameHeight()), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar))
+			{
+				ImGui::EndChild();
+				return;
+			}
 			ImGui::AlignTextToFramePadding();
 			auto DrawPathSegment = [&](std::string_view Label, std::string_view PhysicalPath, bool bCurrent) {
 				ImGui::PushID(std::string(PhysicalPath).c_str());
@@ -322,28 +357,52 @@ namespace Durin
 				DrawPathSegment(RootLabel, Root, CurrentPhysicalPath == Root);
 				std::error_code Ec;
 				const std::filesystem::path Relative = std::filesystem::relative(CurrentPhysicalPath, Root, Ec);
-				if (!Ec && Relative != ".") for (const auto& Segment : Relative)
-				{
-					ImGui::SameLine(); ImGui::TextDisabled("/"); ImGui::SameLine();
-					Progressive /= Segment;
-					const std::string SegmentPath = Progressive.generic_string();
-					DrawPathSegment(Segment.generic_string(), SegmentPath, CurrentPhysicalPath == NormalizePath(SegmentPath));
-				}
+				if (!Ec && Relative != ".")
+					for (const auto& Segment : Relative)
+					{
+						ImGui::SameLine();
+						ImGui::TextDisabled("/");
+						ImGui::SameLine();
+						Progressive /= Segment;
+						const std::string SegmentPath = Progressive.generic_string();
+						DrawPathSegment(Segment.generic_string(), SegmentPath, CurrentPhysicalPath == NormalizePath(SegmentPath));
+					}
 				bFirst = false;
 				break;
 			}
 			if (bFirst) ImGui::TextDisabled("No mounted directory");
-		}
-		ImGui::EndChild();
+			ImGui::EndChild();
+		};
 
-		ImGui::SameLine();
-		ImGui::SetNextItemWidth(105.0f);
 		const char* Filters[] = {"All types", "Levels", "Static meshes", "Materials", "Other"};
-		if (ImGui::Combo("##ContentTypeFilter", &TypeFilter, Filters, std::size(Filters))) RebuildItems();
-		ImGui::SameLine();
-		ImGui::SetNextItemWidth(180.0f);
-		if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
-		ImGui::SameLine();
+		const float IconButtonExtent = ImGui::GetFrameHeight();
+		const float Spacing = ImGui::GetStyle().ItemSpacing.x;
+		const float ActionWidth = IconButtonExtent * 3.0f + Spacing * 3.0f;
+		if (bFullLayout)
+		{
+			const float FilterWidth = MonaImGui::ScaleUI(120.0f);
+			const float SearchWidth = MonaImGui::ScaleUI(210.0f);
+			const float BreadcrumbWidth = std::max(MonaImGui::ScaleUI(160.0f), ImGui::GetContentRegionAvail().x - FilterWidth - SearchWidth - ActionWidth - Spacing * 3.0f);
+			ImGui::SameLine();
+			DrawBreadcrumb(BreadcrumbWidth);
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(FilterWidth);
+			if (ImGui::Combo("##ContentTypeFilter", &TypeFilter, Filters, std::size(Filters))) RebuildItems();
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(SearchWidth);
+			if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
+		}
+		else if (bCompactLayout)
+		{
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(std::max(MonaImGui::ScaleUI(140.0f), ImGui::GetContentRegionAvail().x - ActionWidth));
+			if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
+		}
+
+		if (!bCompactLayout)
+			ImGui::NewLine();
+		else
+			ImGui::SameLine();
 		if (DrawToolbarIconButton(ViewMode == EContentBrowserViewMode::Grid ? Icons::Menu : Icons::FileLines, "ContentBrowserView"))
 			ViewMode = ViewMode == EContentBrowserViewMode::Grid ? EContentBrowserViewMode::Details : EContentBrowserViewMode::Grid;
 		ImGui::SameLine();
@@ -354,13 +413,30 @@ namespace Durin
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Content Browser settings");
 		if (ImGui::BeginPopup("ContentBrowserSettingsPopup"))
 		{
+			if (!bFullLayout)
+			{
+				ImGui::TextDisabled("Type filter");
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				if (ImGui::Combo("##CompactContentTypeFilter", &TypeFilter, Filters, std::size(Filters))) RebuildItems();
+				ImGui::Separator();
+			}
 			ImGui::TextDisabled("Thumbnail size");
-			ImGui::SetNextItemWidth(190.0f);
-			ImGui::SliderFloat("##ContentIconSize", &IconSize, 56.0f, 160.0f, "%.0f px");
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			ImGui::SliderFloat("##ContentIconSize", &IconSize, FEditorSessionSettings::MinimumContentBrowserIconSize, FEditorSessionSettings::MaximumContentBrowserIconSize, "%.0f px");
 			ImGui::Checkbox("Lock Ctrl + wheel resizing", &bIconSizeLocked);
 			ImGui::Separator();
-			if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles)) { bShowSourceFiles = !bShowSourceFiles; RebuildItems(); }
+			if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles))
+			{
+				bShowSourceFiles = !bShowSourceFiles;
+				RebuildItems();
+			}
 			ImGui::EndPopup();
+		}
+
+		if (!bCompactLayout)
+		{
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::InputTextWithHint("##ContentSearchNarrow", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
 		}
 	}
 
@@ -382,7 +458,11 @@ namespace Durin
 		bool bHasChildren = false;
 		std::error_code Ec;
 		for (std::filesystem::directory_iterator It(Path, std::filesystem::directory_options::skip_permission_denied, Ec), End; !Ec && It != End; It.increment(Ec))
-			if (It->is_directory(Ec) && (bShowSourceFiles || !It->path().filename().generic_string().starts_with('.'))) { bHasChildren = true; break; }
+			if (It->is_directory(Ec) && (bShowSourceFiles || !It->path().filename().generic_string().starts_with('.')))
+			{
+				bHasChildren = true;
+				break;
+			}
 		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 		if (!bHasChildren) Flags |= ImGuiTreeNodeFlags_Leaf;
 		if (CurrentPhysicalPath == Physical) Flags |= ImGuiTreeNodeFlags_Selected;
@@ -408,7 +488,8 @@ namespace Durin
 				Children.push_back(It->path());
 			}
 			std::ranges::sort(Children);
-			for (const std::filesystem::path& Child : Children) DrawDirectoryNode(Child, Child.filename().generic_string(), false);
+			for (const std::filesystem::path& Child : Children)
+				DrawDirectoryNode(Child, Child.filename().generic_string(), false);
 			ImGui::TreePop();
 		}
 	}
@@ -417,11 +498,14 @@ namespace Durin
 	{
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (ViewMode == EContentBrowserViewMode::Grid && !bIconSizeLocked && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && IO.KeyCtrl && IO.MouseWheel != 0.0f)
-			IconSize = std::clamp(IconSize + IO.MouseWheel * 8.0f, 56.0f, 160.0f);
+			IconSize = std::clamp(IconSize + IO.MouseWheel * MonaImGui::ScaleUI(8.0f), FEditorSessionSettings::MinimumContentBrowserIconSize, FEditorSessionSettings::MaximumContentBrowserIconSize);
 		const bool bReserveDetails = bShowSelectionDetails && Selection.size() == 1;
 		if (bReserveDetails) ImGui::BeginChild("ContentBrowserMainView", ImVec2(0.0f, -132.0f));
 		bContentItemHovered = false;
-		if (ViewMode == EContentBrowserViewMode::Grid) DrawGrid(); else DrawDetails();
+		if (ViewMode == EContentBrowserViewMode::Grid)
+			DrawGrid();
+		else
+			DrawDetails();
 		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bContentItemHovered)
 		{
 			Selection.clear();
@@ -502,7 +586,8 @@ namespace Durin
 			{
 				const size_t AnchorIndex = static_cast<size_t>(std::distance(Items.begin(), AnchorIt));
 				if (!IO.KeyCtrl) Selection.clear();
-				for (size_t I = std::min(Index, AnchorIndex); I <= std::max(Index, AnchorIndex); ++I) Selection.insert(Items[I].StableId());
+				for (size_t I = std::min(Index, AnchorIndex); I <= std::max(Index, AnchorIndex); ++I)
+					Selection.insert(Items[I].StableId());
 				return;
 			}
 		}
@@ -510,15 +595,19 @@ namespace Durin
 		{
 			if (!Selection.erase(Id)) Selection.insert(Id);
 		}
-		else { Selection.clear(); Selection.insert(Id); }
+		else
+		{
+			Selection.clear();
+			Selection.insert(Id);
+		}
 		SelectionAnchor = Id;
 	}
 
 	auto FContentBrowserPanel::DrawGrid() -> void
 	{
-		const float CellWidth = IconSize + 34.0f;
-		const float NameFontSize = std::clamp(IconSize * 0.22f, 14.0f, 28.0f);
-		const float NameAreaHeight = NameFontSize * 2.0f + 12.0f;
+		const float CellWidth = IconSize + MonaImGui::ScaleUI(GridCellExtraWidth);
+		const float NameFontSize = std::clamp(IconSize * 0.22f, ImGui::GetFontSize() * 0.70f, ImGui::GetFontSize() * 1.40f);
+		const float NameAreaHeight = NameFontSize * 2.0f + MonaImGui::ScaleUI(12.0f);
 		const int32 Columns = std::max(1, static_cast<int32>(ImGui::GetContentRegionAvail().x / CellWidth));
 		if (!ImGui::BeginTable("ContentBrowserGrid", Columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_ScrollY)) return;
 		for (size_t Index = 0; Index < Items.size(); ++Index)
@@ -536,20 +625,33 @@ namespace Durin
 			if (bHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) OpenItem(Item);
 			BeginAssetDragDrop(Item);
 			if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
-			if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) { if (!bSelected) { Selection.clear(); Selection.insert(Item.StableId()); } ImGui::OpenPopup("ItemContext"); }
+			if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+			{
+				if (!bSelected)
+				{
+					Selection.clear();
+					Selection.insert(Item.StableId());
+				}
+				ImGui::OpenPopup("ItemContext");
+			}
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
-			const ImVec2 CardMin(TileStart.x + 2.0f, TileStart.y + 2.0f);
-			const ImVec2 CardMax(TileStart.x + TileSize.x - 2.0f, TileStart.y + TileSize.y - 2.0f);
+			const float CardInset = MonaImGui::ScaleUI(2.0f);
+			const float CardRounding = MonaImGui::ScaleUI(GridCardRounding);
+			const ImVec2 CardMin(TileStart.x + CardInset, TileStart.y + CardInset);
+			const ImVec2 CardMax(TileStart.x + TileSize.x - CardInset, TileStart.y + TileSize.y - CardInset);
 			if (bSelected || bHovered)
 			{
 				const ImGuiCol BackgroundColor = bSelected ? (bHovered ? ImGuiCol_HeaderActive : ImGuiCol_Header) : ImGuiCol_HeaderHovered;
-				DrawList->AddRectFilled(CardMin, CardMax, ImGui::GetColorU32(BackgroundColor), 7.0f);
-				if (bSelected) DrawList->AddRect(CardMin, CardMax, ImGui::GetColorU32(ImGuiCol_CheckMark), 7.0f, 0, 1.0f);
+				DrawList->AddRectFilled(CardMin, CardMax, ImGui::GetColorU32(BackgroundColor), CardRounding);
+				if (bSelected) DrawList->AddRect(CardMin, CardMax, ImGui::GetColorU32(ImGuiCol_CheckMark), CardRounding, 0, MonaImGui::ScaleUI(1.0f));
 			}
-			const ImU32 IconColor = Item.Kind == EContentBrowserItemKind::Folder ? IM_COL32(232, 180, 70, 255) : Item.Kind == EContentBrowserItemKind::Asset ? IM_COL32(75, 174, 240, 255) : IM_COL32(150, 155, 170, 255);
+			const MonaImGui::EUIThemeColor IconColorRole = Item.Kind == EContentBrowserItemKind::Folder ? MonaImGui::EUIThemeColor::Folder :
+														   Item.Kind == EContentBrowserItemKind::Asset	? MonaImGui::EUIThemeColor::Asset :
+																										  MonaImGui::EUIThemeColor::SourceFile;
+			const ImU32 IconColor = MonaImGui::GetThemeColorU32(IconColorRole);
 			const float IconFontSize = IconSize * 0.58f;
 			const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(IconFontSize, FLT_MAX, 0.0f, ItemIcon(Item));
-			const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(6.0f, (IconSize - IconExtent.y) * 0.5f));
+			const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(MonaImGui::ScaleUI(6.0f), (IconSize - IconExtent.y) * 0.5f));
 			DrawList->AddText(ImGui::GetFont(), IconFontSize, IconPosition, IconColor, ItemIcon(Item));
 			if (RenameTarget == Item.StableId())
 			{
@@ -566,7 +668,11 @@ namespace Durin
 				DrawList->AddText(ImGui::GetFont(), NameFontSize, TextPosition, ImGui::GetColorU32(ImGuiCol_Text), Item.Name.c_str(), nullptr, TextWidth);
 				DrawList->PopClipRect();
 			}
-			if (ImGui::BeginPopup("ItemContext")) { DrawItemContextMenu(Item); ImGui::EndPopup(); }
+			if (ImGui::BeginPopup("ItemContext"))
+			{
+				DrawItemContextMenu(Item);
+				ImGui::EndPopup();
+			}
 			ImGui::SetCursorScreenPos(ImVec2(TileStart.x, TileStart.y + TileSize.y + ImGui::GetStyle().ItemSpacing.y));
 			ImGui::Dummy(ImVec2(1.0f, 1.0f));
 			ImGui::PopID();
@@ -578,9 +684,9 @@ namespace Durin
 	{
 		if (!ImGui::BeginTable("ContentBrowserDetails", 4, DetailsTableFlags)) return;
 		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthStretch, 0.0f, static_cast<ImGuiID>(ESortColumn::Name));
-		ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 130.0f, static_cast<ImGuiID>(ESortColumn::Type));
-		ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 85.0f, static_cast<ImGuiID>(ESortColumn::Size));
-		ImGui::TableSetupColumn("Modified", ImGuiTableColumnFlags_WidthFixed, 145.0f, static_cast<ImGuiID>(ESortColumn::Modified));
+		ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(130.0f), static_cast<ImGuiID>(ESortColumn::Type));
+		ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(85.0f), static_cast<ImGuiID>(ESortColumn::Size));
+		ImGui::TableSetupColumn("Modified", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(145.0f), static_cast<ImGuiID>(ESortColumn::Modified));
 		ImGui::TableSetupScrollFreeze(0, 1);
 		ImGui::TableHeadersRow();
 		if (ImGuiTableSortSpecs* Specs = ImGui::TableGetSortSpecs(); Specs && Specs->SpecsDirty && Specs->SpecsCount > 0)
@@ -594,8 +700,10 @@ namespace Durin
 		{
 			const FContentBrowserItem& Item = Items[Index];
 			ImGui::PushID(Item.StableId().c_str());
-			ImGui::TableNextRow(); ImGui::TableNextColumn();
-			if (RenameTarget == Item.StableId()) DrawRenameEditor(Item);
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			if (RenameTarget == Item.StableId())
+				DrawRenameEditor(Item);
 			else
 			{
 				const std::string Label = std::format("{} {}", ItemIcon(Item), Item.Name);
@@ -605,11 +713,23 @@ namespace Durin
 				if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) OpenItem(Item);
 				BeginAssetDragDrop(Item);
 				if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
-				if (ImGui::BeginPopupContextItem("ItemContext")) { if (!Selection.contains(Item.StableId())) { Selection.clear(); Selection.insert(Item.StableId()); } DrawItemContextMenu(Item); ImGui::EndPopup(); }
+				if (ImGui::BeginPopupContextItem("ItemContext"))
+				{
+					if (!Selection.contains(Item.StableId()))
+					{
+						Selection.clear();
+						Selection.insert(Item.StableId());
+					}
+					DrawItemContextMenu(Item);
+					ImGui::EndPopup();
+				}
 			}
-			ImGui::TableNextColumn(); ImGui::TextUnformatted(ItemTypeLabel(Item).c_str());
-			ImGui::TableNextColumn(); ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-" : FormatFileSize(Item.FileSize).c_str());
-			ImGui::TableNextColumn(); ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-" : FormatFileTime(Item.LastWriteTime).c_str());
+			ImGui::TableNextColumn();
+			ImGui::TextUnformatted(ItemTypeLabel(Item).c_str());
+			ImGui::TableNextColumn();
+			ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-" : FormatFileSize(Item.FileSize).c_str());
+			ImGui::TableNextColumn();
+			ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-" : FormatFileTime(Item.LastWriteTime).c_str());
 			ImGui::PopID();
 		}
 		ImGui::EndTable();
@@ -652,7 +772,10 @@ namespace Durin
 				if (FAssetPath::TryCreate(Destination + std::string(OldPath.GetAssetName()), NewPath) && NewPath != OldPath)
 				{
 					const Asset::FAssetResult Result = Asset::MoveAsset(OldPath, NewPath);
-					if (!Result) SetError(Result.Message); else Refresh(true);
+					if (!Result)
+						SetError(Result.Message);
+					else
+						Refresh(true);
 				}
 			}
 		}
@@ -667,7 +790,11 @@ namespace Durin
 			if (ImGui::MenuItem("Import Static Mesh...", nullptr, false, static_cast<bool>(RequestImport))) RequestImport(CurrentVirtualPath);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Refresh")) Refresh(true);
-			if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles)) { bShowSourceFiles = !bShowSourceFiles; RebuildItems(); }
+			if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles))
+			{
+				bShowSourceFiles = !bShowSourceFiles;
+				RebuildItems();
+			}
 			if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(CurrentPhysicalPath);
 			ImGui::EndPopup();
 		}
@@ -677,11 +804,15 @@ namespace Durin
 	{
 		ImGui::Separator();
 		ImGui::Text("%zu item%s", Items.size(), Items.size() == 1 ? "" : "s");
-		if (!Selection.empty()) { ImGui::SameLine(); ImGui::TextDisabled("| %zu selected", Selection.size()); }
+		if (!Selection.empty())
+		{
+			ImGui::SameLine();
+			ImGui::TextDisabled("| %zu selected", Selection.size());
+		}
 		if (!Asset::GetAssetRegistry().GetScanErrors().empty())
 		{
 			ImGui::SameLine();
-			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.65f, 0.25f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Text, MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning));
 			ImGui::Text("| %zu asset scan error(s)", Asset::GetAssetRegistry().GetScanErrors().size());
 			ImGui::PopStyleColor();
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Asset::GetAssetRegistry().GetScanErrors().front().Message.c_str());
@@ -690,7 +821,11 @@ namespace Durin
 
 	auto FContentBrowserPanel::OpenItem(const FContentBrowserItem& Item) -> void
 	{
-		if (Item.Kind == EContentBrowserItemKind::Folder) { NavigateToPhysical(Item.PhysicalPath); return; }
+		if (Item.Kind == EContentBrowserItemKind::Folder)
+		{
+			NavigateToPhysical(Item.PhysicalPath);
+			return;
+		}
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
 			if (!OpenAsset || !OpenAsset(Item.VirtualPath, Item.AssetClassName)) SetError(std::format("No editor is registered for {} assets.", ItemTypeLabel(Item)));
@@ -713,11 +848,18 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawRenameEditor(const FContentBrowserItem& Item) -> void
 	{
-		if (bFocusRename) { ImGui::SetKeyboardFocusHere(); bFocusRename = false; }
+		if (bFocusRename)
+		{
+			ImGui::SetKeyboardFocusHere();
+			bFocusRename = false;
+		}
 		const bool bSubmit = ImGui::InputText("##Rename", RenameBuffer.data(), RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-		if (bSubmit) CommitRename(Item);
-		else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) RenameTarget.clear();
-		else if (!ImGui::IsItemActive() && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) CommitRename(Item);
+		if (bSubmit)
+			CommitRename(Item);
+		else if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+			RenameTarget.clear();
+		else if (!ImGui::IsItemActive() && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+			CommitRename(Item);
 	}
 
 	auto FContentBrowserPanel::CommitRename(const FContentBrowserItem& Item) -> bool
@@ -732,10 +874,19 @@ namespace Durin
 		{
 			const size_t Slash = Item.VirtualPath.find_last_of('/');
 			FAssetPath OldPath, NewPath;
-			if (!FAssetPath::TryCreate(Item.VirtualPath, OldPath) || !FAssetPath::TryCreate(Item.VirtualPath.substr(0, Slash + 1) + NewName, NewPath)) { SetError("The resulting asset path is invalid."); return false; }
+			if (!FAssetPath::TryCreate(Item.VirtualPath, OldPath) || !FAssetPath::TryCreate(Item.VirtualPath.substr(0, Slash + 1) + NewName, NewPath))
+			{
+				SetError("The resulting asset path is invalid.");
+				return false;
+			}
 			const Asset::FAssetResult Result = Asset::MoveAsset(OldPath, NewPath);
-			if (!Result) { SetError(Result.Message); return false; }
-			Selection.clear(); Selection.insert(VirtualToPhysical(NewPath.ToString() + ".dasset"));
+			if (!Result)
+			{
+				SetError(Result.Message);
+				return false;
+			}
+			Selection.clear();
+			Selection.insert(VirtualToPhysical(NewPath.ToString() + ".dasset"));
 		}
 		else if (Item.Kind == EContentBrowserItemKind::Folder)
 		{
@@ -743,14 +894,27 @@ namespace Durin
 		}
 		else
 		{
-			if (IsManagedCompanion(Item)) { SetError("This source file is managed by an asset. Rename or move the asset instead."); return false; }
+			if (IsManagedCompanion(Item))
+			{
+				SetError("This source file is managed by an asset. Rename or move the asset instead.");
+				return false;
+			}
 			std::filesystem::path Destination = std::filesystem::path(Item.PhysicalPath).parent_path() / NewName;
 			if (Item.Kind == EContentBrowserItemKind::SourceFile && Destination.extension().empty()) Destination += Item.Extension;
-			if (std::filesystem::exists(Destination)) { SetError("An item with that name already exists."); return false; }
+			if (std::filesystem::exists(Destination))
+			{
+				SetError("An item with that name already exists.");
+				return false;
+			}
 			std::error_code Ec;
 			std::filesystem::rename(Item.PhysicalPath, Destination, Ec);
-			if (Ec) { SetError(std::format("Rename failed: {}", Ec.message())); return false; }
-			Selection.clear(); Selection.insert(NormalizePath(Destination.generic_string()));
+			if (Ec)
+			{
+				SetError(std::format("Rename failed: {}", Ec.message()));
+				return false;
+			}
+			Selection.clear();
+			Selection.insert(NormalizePath(Destination.generic_string()));
 		}
 		RenameTarget.clear();
 		Refresh(true);
@@ -761,22 +925,46 @@ namespace Durin
 	{
 		const std::filesystem::path OldFolder(Item.PhysicalPath);
 		const std::filesystem::path NewFolder = OldFolder.parent_path() / std::filesystem::path(NewName);
-		if (std::filesystem::exists(NewFolder)) { SetError("A folder with that name already exists."); return false; }
+		if (std::filesystem::exists(NewFolder))
+		{
+			SetError("A folder with that name already exists.");
+			return false;
+		}
 		const std::string OldVirtual = PhysicalToVirtualDirectory(OldFolder.generic_string());
 		const std::string NewVirtual = PhysicalToVirtualDirectory(NewFolder.generic_string());
-		if (OldVirtual.empty() || NewVirtual.empty()) { SetError("Folder moves must stay inside the same mounted content root."); return false; }
+		if (OldVirtual.empty() || NewVirtual.empty())
+		{
+			SetError("Folder moves must stay inside the same mounted content root.");
+			return false;
+		}
 
-		struct FAssetFolderMove { FAssetPath OldPath; FAssetPath NewPath; };
+		struct FAssetFolderMove
+		{
+			FAssetPath OldPath;
+			FAssetPath NewPath;
+		};
 		std::vector<FAssetFolderMove> Moves;
 		std::unordered_set<std::string> ManagedFiles;
 		std::vector<std::filesystem::path> RelativeDirectories;
 		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 		{
 			if (!IsDescendantPath(NormalizePath(Data.PhysicalPath), Item.PhysicalPath, true)) continue;
-			if (!Path.GetView().starts_with(OldVirtual)) { SetError("An asset inside the folder has an inconsistent virtual path."); return false; }
+			if (!Path.GetView().starts_with(OldVirtual))
+			{
+				SetError("An asset inside the folder has an inconsistent virtual path.");
+				return false;
+			}
 			FAssetPath NewPath;
-			if (!FAssetPath::TryCreate(NewVirtual + std::string(Path.GetView().substr(OldVirtual.size())), NewPath)) { SetError("The destination contains an invalid asset path."); return false; }
-			if (Asset::GetAssetRegistry().FindAsset(NewPath) || Asset::FindLoadedPackage(NewPath)) { SetError(std::format("Asset {} already exists.", NewPath.ToString())); return false; }
+			if (!FAssetPath::TryCreate(NewVirtual + std::string(Path.GetView().substr(OldVirtual.size())), NewPath))
+			{
+				SetError("The destination contains an invalid asset path.");
+				return false;
+			}
+			if (Asset::GetAssetRegistry().FindAsset(NewPath) || Asset::FindLoadedPackage(NewPath))
+			{
+				SetError(std::format("Asset {} already exists.", NewPath.ToString()));
+				return false;
+			}
 			Moves.push_back({Path, NewPath});
 			const std::filesystem::path AssetFile(Data.PhysicalPath);
 			ManagedFiles.insert(NormalizePath(AssetFile.generic_string()));
@@ -795,12 +983,20 @@ namespace Durin
 				return false;
 			}
 		}
-		if (Ec) { SetError(std::format("Could not inspect folder contents: {}", Ec.message())); return false; }
+		if (Ec)
+		{
+			SetError(std::format("Could not inspect folder contents: {}", Ec.message()));
+			return false;
+		}
 
 		if (Moves.empty())
 		{
 			std::filesystem::rename(OldFolder, NewFolder, Ec);
-			if (Ec) { SetError(std::format("Folder rename failed: {}", Ec.message())); return false; }
+			if (Ec)
+			{
+				SetError(std::format("Folder rename failed: {}", Ec.message()));
+				return false;
+			}
 			return true;
 		}
 
@@ -810,7 +1006,8 @@ namespace Durin
 			const Asset::FAssetResult Result = Asset::MoveAsset(Move.OldPath, Move.NewPath);
 			if (!Result)
 			{
-				for (auto RollbackIt = Completed.rbegin(); RollbackIt != Completed.rend(); ++RollbackIt) Asset::MoveAsset(RollbackIt->NewPath, RollbackIt->OldPath);
+				for (auto RollbackIt = Completed.rbegin(); RollbackIt != Completed.rend(); ++RollbackIt)
+					Asset::MoveAsset(RollbackIt->NewPath, RollbackIt->OldPath);
 				SetError(Result.Message);
 				return false;
 			}
@@ -822,7 +1019,8 @@ namespace Durin
 			std::filesystem::create_directories(NewFolder / RelativeDirectory, Ec);
 			if (Ec)
 			{
-				for (auto RollbackIt = Completed.rbegin(); RollbackIt != Completed.rend(); ++RollbackIt) Asset::MoveAsset(RollbackIt->NewPath, RollbackIt->OldPath);
+				for (auto RollbackIt = Completed.rbegin(); RollbackIt != Completed.rend(); ++RollbackIt)
+					Asset::MoveAsset(RollbackIt->NewPath, RollbackIt->OldPath);
 				SetError(std::format("Could not recreate an empty directory: {}", Ec.message()));
 				return false;
 			}
@@ -835,8 +1033,13 @@ namespace Durin
 			for (std::filesystem::recursive_directory_iterator It(OldFolder, std::filesystem::directory_options::skip_permission_denied, Ec), End; !Ec && It != End; It.increment(Ec))
 				if (It->is_directory(Ec)) OldDirectories.push_back(It->path());
 			std::ranges::sort(OldDirectories, [](const auto& A, const auto& B) { return A.native().size() > B.native().size(); });
-			for (const auto& Directory : OldDirectories) { Ec.clear(); std::filesystem::remove(Directory, Ec); }
-			Ec.clear(); std::filesystem::remove(OldFolder, Ec);
+			for (const auto& Directory : OldDirectories)
+			{
+				Ec.clear();
+				std::filesystem::remove(Directory, Ec);
+			}
+			Ec.clear();
+			std::filesystem::remove(OldFolder, Ec);
 		}
 		return true;
 	}
@@ -861,39 +1064,65 @@ namespace Durin
 			const std::filesystem::path Path = std::filesystem::path(CurrentPhysicalPath) / Name;
 			if (std::filesystem::exists(Path)) continue;
 			std::error_code Ec;
-			if (!std::filesystem::create_directory(Path, Ec) || Ec) { SetError(std::format("Could not create folder: {}", Ec.message())); return; }
+			if (!std::filesystem::create_directory(Path, Ec) || Ec)
+			{
+				SetError(std::format("Could not create folder: {}", Ec.message()));
+				return;
+			}
 			Refresh(false);
 			if (auto It = std::ranges::find_if(Items, [&](const FContentBrowserItem& Item) { return Item.PhysicalPath == NormalizePath(Path.generic_string()); }); It != Items.end())
 			{
-				Selection.clear(); Selection.insert(It->StableId()); BeginRename(*It);
+				Selection.clear();
+				Selection.insert(It->StableId());
+				BeginRename(*It);
 			}
 			return;
 		}
 	}
 
-	auto FContentBrowserPanel::RequestDeleteSelection() -> void { if (!Selection.empty()) bDeletePopupRequested = true; }
+	auto FContentBrowserPanel::RequestDeleteSelection() -> void
+	{
+		if (!Selection.empty()) bDeletePopupRequested = true;
+	}
 
 	auto FContentBrowserPanel::DeleteEmptyFolder(const FContentBrowserItem& Item) -> bool
 	{
 		std::error_code Ec;
-		if (!std::filesystem::is_empty(Item.PhysicalPath, Ec)) { SetError("Folders must be empty before they can be deleted. Delete or move their assets first."); return false; }
-		if (!std::filesystem::remove(Item.PhysicalPath, Ec) || Ec) { SetError(std::format("Could not delete folder: {}", Ec.message())); return false; }
+		if (!std::filesystem::is_empty(Item.PhysicalPath, Ec))
+		{
+			SetError("Folders must be empty before they can be deleted. Delete or move their assets first.");
+			return false;
+		}
+		if (!std::filesystem::remove(Item.PhysicalPath, Ec) || Ec)
+		{
+			SetError(std::format("Could not delete folder: {}", Ec.message()));
+			return false;
+		}
 		return true;
 	}
 
 	auto FContentBrowserPanel::DeleteSelection() -> void
 	{
 		std::vector<FContentBrowserItem> Targets;
-		for (const FContentBrowserItem& Item : Items) if (Selection.contains(Item.StableId())) Targets.push_back(Item);
+		for (const FContentBrowserItem& Item : Items)
+			if (Selection.contains(Item.StableId())) Targets.push_back(Item);
 		std::ranges::sort(Targets, [](const FContentBrowserItem& A, const FContentBrowserItem& B) { return A.Kind != EContentBrowserItemKind::Folder && B.Kind == EContentBrowserItemKind::Folder; });
 		for (const FContentBrowserItem& Item : Targets)
 		{
 			if (Item.Kind == EContentBrowserItemKind::Asset)
 			{
 				FAssetPath Path;
-				if (!FAssetPath::TryCreate(Item.VirtualPath, Path)) { SetError("Selected asset has an invalid path."); break; }
+				if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
+				{
+					SetError("Selected asset has an invalid path.");
+					break;
+				}
 				const Asset::FAssetResult Result = Asset::DeleteAsset(Path);
-				if (!Result) { SetError(Result.Message); break; }
+				if (!Result)
+				{
+					SetError(Result.Message);
+					break;
+				}
 			}
 			else if (Item.Kind == EContentBrowserItemKind::Folder)
 			{
@@ -901,9 +1130,17 @@ namespace Durin
 			}
 			else
 			{
-				if (IsManagedCompanion(Item)) { SetError("This source file is managed by an asset. Delete the asset instead."); break; }
+				if (IsManagedCompanion(Item))
+				{
+					SetError("This source file is managed by an asset. Delete the asset instead.");
+					break;
+				}
 				std::error_code Ec;
-				if (!std::filesystem::remove(Item.PhysicalPath, Ec) || Ec) { SetError(std::format("Could not delete file: {}", Ec.message())); break; }
+				if (!std::filesystem::remove(Item.PhysicalPath, Ec) || Ec)
+				{
+					SetError(std::format("Could not delete file: {}", Ec.message()));
+					break;
+				}
 			}
 		}
 		Selection.clear();
@@ -912,7 +1149,11 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawDialogs() -> void
 	{
-		if (bDeletePopupRequested) { ImGui::OpenPopup("Delete Content"); bDeletePopupRequested = false; }
+		if (bDeletePopupRequested)
+		{
+			ImGui::OpenPopup("Delete Content");
+			bDeletePopupRequested = false;
+		}
 		if (ImGui::BeginPopupModal("Delete Content", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 		{
 			ImGui::Text("Permanently delete %zu selected item%s?", Selection.size(), Selection.size() == 1 ? "" : "s");
@@ -921,25 +1162,34 @@ namespace Durin
 			for (const FContentBrowserItem& Item : Items)
 			{
 				if (!Selection.contains(Item.StableId()) || Item.Kind != EContentBrowserItemKind::Asset) continue;
-				FAssetPath Path; Asset::FAssetDeleteAnalysis Analysis;
+				FAssetPath Path;
+				Asset::FAssetDeleteAnalysis Analysis;
 				if (FAssetPath::TryCreate(Item.VirtualPath, Path))
 				{
 					const Asset::FAssetResult Result = Asset::AnalyzeAssetDeletion(Path, Analysis);
 					if (!Result || !Analysis.CanDelete())
 					{
 						bBlocked = true;
-						if (!Result) ImGui::TextWrapped("%s: %s", Item.Name.c_str(), Result.Message.c_str());
-						else if (Analysis.bLoaded) ImGui::TextWrapped("%s is loaded by the editor or runtime.", Item.Name.c_str());
-						else if (Analysis.bLoading) ImGui::TextWrapped("%s is currently loading.", Item.Name.c_str());
-						else ImGui::TextWrapped("%s is referenced by %zu asset(s).", Item.Name.c_str(), Analysis.DirectReferencers.size());
+						if (!Result)
+							ImGui::TextWrapped("%s: %s", Item.Name.c_str(), Result.Message.c_str());
+						else if (Analysis.bLoaded)
+							ImGui::TextWrapped("%s is loaded by the editor or runtime.", Item.Name.c_str());
+						else if (Analysis.bLoading)
+							ImGui::TextWrapped("%s is currently loading.", Item.Name.c_str());
+						else
+							ImGui::TextWrapped("%s is referenced by %zu asset(s).", Item.Name.c_str(), Analysis.DirectReferencers.size());
 					}
 				}
 			}
 			ImGui::BeginDisabled(bBlocked);
-			if (ImGui::Button("Delete", ImVec2(90.0f, 0.0f))) { DeleteSelection(); ImGui::CloseCurrentPopup(); }
+			if (MonaImGui::DialogButton("Delete"))
+			{
+				DeleteSelection();
+				ImGui::CloseCurrentPopup();
+			}
 			ImGui::EndDisabled();
 			ImGui::SameLine();
-			if (ImGui::Button("Cancel", ImVec2(90.0f, 0.0f))) ImGui::CloseCurrentPopup();
+			if (MonaImGui::DialogButton("Cancel")) ImGui::CloseCurrentPopup();
 			ImGui::EndPopup();
 		}
 
@@ -947,7 +1197,11 @@ namespace Durin
 		if (ImGui::BeginPopupModal("Content Browser Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 		{
 			ImGui::TextWrapped("%s", ErrorMessage.c_str());
-			if (ImGui::Button("OK", ImVec2(90.0f, 0.0f))) { ErrorMessage.clear(); ImGui::CloseCurrentPopup(); }
+			if (MonaImGui::DialogButton("OK"))
+			{
+				ErrorMessage.clear();
+				ImGui::CloseCurrentPopup();
+			}
 			ImGui::EndPopup();
 		}
 	}
@@ -959,7 +1213,8 @@ namespace Durin
 		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(Path);
 		if (!Data) return;
 		NavigateToPhysical(std::filesystem::path(Data->PhysicalPath).parent_path().generic_string());
-		Selection.clear(); Selection.insert(NormalizePath(Data->PhysicalPath));
+		Selection.clear();
+		Selection.insert(NormalizePath(Data->PhysicalPath));
 	}
 
 	auto FContentBrowserPanel::ItemTypeLabel(const FContentBrowserItem& Item) const -> std::string
@@ -992,8 +1247,10 @@ namespace Durin
 		if (Time == std::filesystem::file_time_type{}) return "-";
 		const auto SysTime = std::chrono::clock_cast<std::chrono::system_clock>(Time);
 		const std::time_t TimeT = std::chrono::system_clock::to_time_t(SysTime);
-		std::tm LocalTime{}; localtime_s(&LocalTime, &TimeT);
-		std::array<char, 32> Buffer{}; std::strftime(Buffer.data(), Buffer.size(), "%Y-%m-%d %H:%M", &LocalTime);
+		std::tm LocalTime{};
+		localtime_s(&LocalTime, &TimeT);
+		std::array<char, 32> Buffer{};
+		std::strftime(Buffer.data(), Buffer.size(), "%Y-%m-%d %H:%M", &LocalTime);
 		return Buffer.data();
 	}
 
@@ -1003,8 +1260,13 @@ namespace Durin
 		const std::filesystem::path Path(PhysicalPath);
 		std::filesystem::path PreferredPath = Path;
 		const std::wstring WidePath = PreferredPath.make_preferred().wstring();
-		if (std::filesystem::is_directory(Path)) ShellExecuteW(nullptr, L"open", WidePath.c_str(), nullptr, nullptr, SW_SHOW);
-		else { const std::wstring Args = L"/select,\"" + WidePath + L"\""; ShellExecuteW(nullptr, L"open", L"explorer.exe", Args.c_str(), nullptr, SW_SHOW); }
+		if (std::filesystem::is_directory(Path))
+			ShellExecuteW(nullptr, L"open", WidePath.c_str(), nullptr, nullptr, SW_SHOW);
+		else
+		{
+			const std::wstring Args = L"/select,\"" + WidePath + L"\"";
+			ShellExecuteW(nullptr, L"open", L"explorer.exe", Args.c_str(), nullptr, SW_SHOW);
+		}
 #endif
 	}
 

@@ -52,7 +52,13 @@ namespace Durin
 		auto RevealAsset(std::string_view AssetPath) -> void;
 
 	private:
-		enum class ESortColumn : uint8 { Name, Type, Size, Modified };
+		enum class ESortColumn : uint8
+		{
+			Name,
+			Type,
+			Size,
+			Modified
+		};
 
 		auto Refresh(bool bRescanRegistry) -> void;
 		auto RebuildItems() -> void;
@@ -116,8 +122,8 @@ namespace Durin
 		bool bShowSelectionDetails = false;
 		bool bIconSizeLocked = false;
 		bool bContentItemHovered = false;
-		float IconSize = 88.0f;
-		float DirectoryTreeWidth = 0.24f;
+		float IconSize;
+		float DirectoryTreeWidth;
 		std::string RenameTarget;
 		std::array<char, 256> RenameBuffer{};
 		bool bFocusRename = false;

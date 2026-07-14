@@ -60,11 +60,12 @@ namespace Durin
 
 		const FYamlNodeView ContentBrowser = Root.GetView("ContentBrowser");
 		ContentBrowserViewMode = static_cast<uint8>(std::clamp<int64>(ContentBrowser.GetView("ViewMode").GetInt(0), 0, 1));
-		ContentBrowserIconSize = static_cast<float>(std::clamp(ContentBrowser.GetView("IconSize").GetDouble(88.0), 56.0, 160.0));
+		ContentBrowserIconSize = static_cast<float>(std::clamp(ContentBrowser.GetView("IconSize").GetDouble(DefaultContentBrowserIconSize), static_cast<double>(MinimumContentBrowserIconSize), static_cast<double>(MaximumContentBrowserIconSize)));
 		bContentBrowserIconSizeLocked = ContentBrowser.GetView("IconSizeLocked").GetBool(false);
-		ContentBrowserTreeWidth = static_cast<float>(std::clamp(ContentBrowser.GetView("TreeWidth").GetDouble(0.24), 0.15, 0.55));
+		ContentBrowserTreeWidth = static_cast<float>(std::clamp(ContentBrowser.GetView("TreeWidth").GetDouble(DefaultContentBrowserTreeRatio), static_cast<double>(MinimumContentBrowserTreeRatio), static_cast<double>(MaximumContentBrowserTreeRatio)));
 		bContentBrowserShowSourceFiles = ContentBrowser.GetView("ShowSourceFiles").GetBool(false);
 		ContentBrowserLastDirectory = ContentBrowser.GetView("LastDirectory").GetString();
+		DetailsPaneRatio = static_cast<float>(std::clamp(Root.GetView("Details").GetView("ComponentPaneRatio").GetDouble(DefaultDetailsPaneRatio), static_cast<double>(MinimumDetailsPaneRatio), static_cast<double>(MaximumDetailsPaneRatio)));
 		return true;
 	}
 
@@ -130,6 +131,8 @@ namespace Durin
 		ContentBrowserNode.SetChildValue("TreeWidth", static_cast<double>(ContentBrowserTreeWidth));
 		ContentBrowserNode.SetChildValue("ShowSourceFiles", bContentBrowserShowSourceFiles);
 		ContentBrowserNode.SetChildValue("LastDirectory", ContentBrowserLastDirectory);
+		FYamlNodeRef DetailsNode = Root.AddMap("Details");
+		DetailsNode.SetChildValue("ComponentPaneRatio", static_cast<double>(DetailsPaneRatio));
 
 		SaveLevelViewportStates(Root, ViewportStates);
 		if (!Document.SaveToFile(FPaths::LaunchDir() + SessionSettingsFileName))
@@ -202,10 +205,15 @@ namespace Durin
 	auto FEditorSessionSettings::SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void
 	{
 		ContentBrowserViewMode = std::min<uint8>(ViewMode, 1);
-		ContentBrowserIconSize = std::clamp(IconSize, 56.0f, 160.0f);
+		ContentBrowserIconSize = std::clamp(IconSize, MinimumContentBrowserIconSize, MaximumContentBrowserIconSize);
 		bContentBrowserIconSizeLocked = bIconSizeLocked;
-		ContentBrowserTreeWidth = std::clamp(TreeWidth, 0.15f, 0.55f);
+		ContentBrowserTreeWidth = std::clamp(TreeWidth, MinimumContentBrowserTreeRatio, MaximumContentBrowserTreeRatio);
 		bContentBrowserShowSourceFiles = bShowSourceFiles;
 		ContentBrowserLastDirectory = std::move(LastDirectory);
+	}
+
+	auto FEditorSessionSettings::SetDetailsPaneRatio(float Ratio) -> void
+	{
+		DetailsPaneRatio = std::clamp(Ratio, MinimumDetailsPaneRatio, MaximumDetailsPaneRatio);
 	}
 } // namespace Durin

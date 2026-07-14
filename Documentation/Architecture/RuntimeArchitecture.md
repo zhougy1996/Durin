@@ -72,6 +72,7 @@ Main UI and windowing layers:
 
 ## Related Docs
 
+- `Documentation/Architecture/EditorUIStyle.md`
 - `Documentation/Architecture/BuildSystem.md`
 - `Documentation/Architecture/Profiles.md`
 - `Documentation/Architecture/MultithreadingRoadmap.md`

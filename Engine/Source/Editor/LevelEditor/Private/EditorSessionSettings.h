@@ -11,6 +11,16 @@ namespace Durin
 	class FEditorSessionSettings
 	{
 	public:
+		static constexpr float MinimumContentBrowserIconSize = 56.0f;
+		static constexpr float DefaultContentBrowserIconSize = 88.0f;
+		static constexpr float MaximumContentBrowserIconSize = 160.0f;
+		static constexpr float MinimumContentBrowserTreeRatio = 0.15f;
+		static constexpr float DefaultContentBrowserTreeRatio = 0.24f;
+		static constexpr float MaximumContentBrowserTreeRatio = 0.55f;
+		static constexpr float MinimumDetailsPaneRatio = 0.10f;
+		static constexpr float DefaultDetailsPaneRatio = 0.35f;
+		static constexpr float MaximumDetailsPaneRatio = 0.90f;
+
 		auto Load() -> bool;
 		auto Save(const FSceneViewportPanel* SceneViewportPanel) const -> bool;
 		auto PruneInvalidViewportStates() -> void;
@@ -33,6 +43,8 @@ namespace Durin
 		auto GetContentBrowserShowSourceFiles() const -> bool { return bContentBrowserShowSourceFiles; }
 		auto GetContentBrowserLastDirectory() const -> const std::string& { return ContentBrowserLastDirectory; }
 		auto SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void;
+		auto GetDetailsPaneRatio() const -> float { return DetailsPaneRatio; }
+		auto SetDetailsPaneRatio(float Ratio) -> void;
 
 	private:
 		FLevelViewportStateMap ViewportStates;
@@ -47,10 +59,11 @@ namespace Durin
 		uint8 GizmoMode = 0;
 		uint8 GizmoSpace = 0;
 		uint8 ContentBrowserViewMode = 0;
-		float ContentBrowserIconSize = 88.0f;
+		float ContentBrowserIconSize = DefaultContentBrowserIconSize;
 		bool bContentBrowserIconSizeLocked = false;
-		float ContentBrowserTreeWidth = 0.24f;
+		float ContentBrowserTreeWidth = DefaultContentBrowserTreeRatio;
 		bool bContentBrowserShowSourceFiles = false;
 		std::string ContentBrowserLastDirectory;
+		float DetailsPaneRatio = DefaultDetailsPaneRatio;
 	};
 } // namespace Durin

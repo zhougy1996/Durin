@@ -10,10 +10,12 @@ namespace Durin
 	class DSceneComponent;
 	class DObject;
 	class FProperty;
+	class FEditorSessionSettings;
 
 	class FDetailsPanel final : public ILevelEditorPanel
 	{
 	public:
+		explicit FDetailsPanel(FEditorSessionSettings& InSessionSettings);
 		auto GetWindowName() const -> const char* override { return "Details"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
 
@@ -31,7 +33,8 @@ namespace Durin
 		TObjectPtr<AActor> PropertyActor;
 		TObjectPtr<DActorComponent> SelectedComponent;
 		std::array<char, 256> AssetSearchText{};
-		float ComponentPaneRatio = 0.35f;
+		FEditorSessionSettings& SessionSettings;
+		float ComponentPaneRatio;
 		bool bAddComponentAsChild = false;
 	};
 } // namespace Durin

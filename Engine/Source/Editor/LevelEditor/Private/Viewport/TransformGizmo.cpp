@@ -8,6 +8,7 @@
 #include "DObject/Package.h"
 #include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
+#include "MonaImGui.h"
 
 namespace Durin
 {
@@ -16,6 +17,19 @@ namespace Durin
 		constexpr float GizmoPixels = 90.0f;
 		constexpr float HitRadiusPixels = 10.0f;
 		constexpr double Epsilon = 1.e-8;
+
+		auto ThemeColor(MonaImGui::EUIThemeColor Color, float Alpha) -> FVector4f
+		{
+			const ImVec4& Value = MonaImGui::GetThemeColor(Color);
+			return {Value.x, Value.y, Value.z, Alpha};
+		}
+
+		auto MixedThemeColor(MonaImGui::EUIThemeColor A, MonaImGui::EUIThemeColor B, float Alpha) -> FVector4f
+		{
+			FVector4f Color = (ThemeColor(A, Alpha) + ThemeColor(B, Alpha)) * 0.5f;
+			Color.a = Alpha;
+			return Color;
+		}
 
 		auto AxisForHandle(ETransformGizmoHandle Handle) -> FVector3
 		{
@@ -30,17 +44,17 @@ namespace Durin
 
 		auto ColorForHandle(ETransformGizmoHandle Handle, bool bHovered, bool bActive, float Alpha = 1.0f) -> FVector4f
 		{
-			if (bActive) return {1.0f, 0.72f, 0.12f, Alpha};
+			if (bActive) return ThemeColor(MonaImGui::EUIThemeColor::Warning, Alpha);
 			FVector4f Color;
 			switch (Handle)
 			{
-			case ETransformGizmoHandle::X: Color = {0.95f, 0.16f, 0.12f, Alpha}; break;
-			case ETransformGizmoHandle::Y: Color = {0.18f, 0.82f, 0.24f, Alpha}; break;
-			case ETransformGizmoHandle::Z: Color = {0.16f, 0.42f, 1.0f, Alpha}; break;
-			case ETransformGizmoHandle::XY: Color = {0.85f, 0.75f, 0.10f, Alpha}; break;
-			case ETransformGizmoHandle::XZ: Color = {0.82f, 0.12f, 0.72f, Alpha}; break;
-			case ETransformGizmoHandle::YZ: Color = {0.10f, 0.72f, 0.76f, Alpha}; break;
-			default: Color = {0.85f, 0.85f, 0.85f, Alpha}; break;
+			case ETransformGizmoHandle::X: Color = ThemeColor(MonaImGui::EUIThemeColor::AxisX, Alpha); break;
+			case ETransformGizmoHandle::Y: Color = ThemeColor(MonaImGui::EUIThemeColor::AxisY, Alpha); break;
+			case ETransformGizmoHandle::Z: Color = ThemeColor(MonaImGui::EUIThemeColor::AxisZ, Alpha); break;
+			case ETransformGizmoHandle::XY: Color = MixedThemeColor(MonaImGui::EUIThemeColor::AxisX, MonaImGui::EUIThemeColor::AxisY, Alpha); break;
+			case ETransformGizmoHandle::XZ: Color = MixedThemeColor(MonaImGui::EUIThemeColor::AxisX, MonaImGui::EUIThemeColor::AxisZ, Alpha); break;
+			case ETransformGizmoHandle::YZ: Color = MixedThemeColor(MonaImGui::EUIThemeColor::AxisY, MonaImGui::EUIThemeColor::AxisZ, Alpha); break;
+			default: Color = ThemeColor(MonaImGui::EUIThemeColor::ViewportText, Alpha); break;
 			}
 			if (bHovered) Color = glm::min(Color * FVector4f(1.35f, 1.35f, 1.35f, 1.0f), FVector4f(1.0f));
 			Color.a = Alpha;
@@ -67,7 +81,7 @@ namespace Durin
 
 		auto PointInTriangle(const FVector2f& P, const FVector2f& A, const FVector2f& B, const FVector2f& C) -> bool
 		{
-			const auto Sign = [](const FVector2f& P1, const FVector2f& P2, const FVector2f& P3) { return (P1.x-P3.x)*(P2.y-P3.y) - (P2.x-P3.x)*(P1.y-P3.y); };
+			const auto Sign = [](const FVector2f& P1, const FVector2f& P2, const FVector2f& P3) { return (P1.x - P3.x) * (P2.y - P3.y) - (P2.x - P3.x) * (P1.y - P3.y); };
 			const float D1 = Sign(P, A, B), D2 = Sign(P, B, C), D3 = Sign(P, C, A);
 			return !((D1 < 0 || D2 < 0 || D3 < 0) && (D1 > 0 || D2 > 0 || D3 > 0));
 		}
@@ -91,12 +105,21 @@ namespace Durin
 		class FActorTransformTransaction final : public IEditorTransaction
 		{
 		public:
-			struct FEntry { TObjectPtr<AActor> Actor; FTransform Before; FTransform After; };
+			struct FEntry
+			{
+				TObjectPtr<AActor> Actor;
+				FTransform Before;
+				FTransform After;
+			};
 			FActorTransformTransaction(std::string InDescription, std::vector<FEntry> InEntries)
-				: Description(std::move(InDescription)), Entries(std::move(InEntries)) {}
+				: Description(std::move(InDescription))
+				, Entries(std::move(InEntries))
+			{
+			}
 			auto GetDescription() const -> std::string_view override { return Description; }
 			auto Undo() -> bool override { return Apply(false); }
 			auto Redo() -> bool override { return Apply(true); }
+
 		private:
 			auto Apply(bool bAfter) -> bool
 			{
@@ -110,7 +133,7 @@ namespace Durin
 			std::string Description;
 			std::vector<FEntry> Entries;
 		};
-	}
+	} // namespace
 
 	auto FTransformGizmo::RebuildState(const FLevelEditorContext& Context, const FSceneView& View) -> bool
 	{
@@ -124,7 +147,11 @@ namespace Durin
 				++Count;
 			}
 		}
-		if (Count == 0) { WorldScale = 0.0f; return false; }
+		if (Count == 0)
+		{
+			WorldScale = 0.0f;
+			return false;
+		}
 		Pivot = Sum / static_cast<double>(Count);
 		Basis = glm::identity<FQuat>();
 		if (Space == ETransformGizmoSpace::Local)
@@ -142,8 +169,8 @@ namespace Durin
 	{
 		FVector2f Center;
 		if (!SceneViewProjection::ProjectWorldToViewport(View, Pivot, Center)) return ETransformGizmoHandle::None;
-		std::array<FVector3,3> Axes = {Basis * FVectorConstants::Forward, Basis * FVectorConstants::Right, Basis * FVectorConstants::Up};
-		std::array<ETransformGizmoHandle,3> Handles = {ETransformGizmoHandle::X,ETransformGizmoHandle::Y,ETransformGizmoHandle::Z};
+		std::array<FVector3, 3> Axes = {Basis * FVectorConstants::Forward, Basis * FVectorConstants::Right, Basis * FVectorConstants::Up};
+		std::array<ETransformGizmoHandle, 3> Handles = {ETransformGizmoHandle::X, ETransformGizmoHandle::Y, ETransformGizmoHandle::Z};
 		ETransformGizmoHandle Best = ETransformGizmoHandle::None;
 		float BestDistance = HitRadiusPixels;
 		if (Mode == ETransformGizmoMode::Rotate)
@@ -162,9 +189,14 @@ namespace Durin
 					if (bPrevious && bCurrent)
 					{
 						const float Distance = DistanceToSegment(MousePosition, Previous, Current);
-						if (Distance < BestDistance) { BestDistance = Distance; Best = Handles[AxisIndex]; }
+						if (Distance < BestDistance)
+						{
+							BestDistance = Distance;
+							Best = Handles[AxisIndex];
+						}
 					}
-					Previous = Current; bPrevious = bCurrent;
+					Previous = Current;
+					bPrevious = bCurrent;
 				}
 			}
 			return Best;
@@ -172,15 +204,20 @@ namespace Durin
 
 		if (Mode == ETransformGizmoMode::Translate)
 		{
-			struct FPlane { size_t A; size_t B; ETransformGizmoHandle Handle; };
-			for (const FPlane Plane : {FPlane{0,1,ETransformGizmoHandle::XY},FPlane{0,2,ETransformGizmoHandle::XZ},FPlane{1,2,ETransformGizmoHandle::YZ}})
+			struct FPlane
 			{
-				std::array<FVector2f,4> P;
+				size_t A;
+				size_t B;
+				ETransformGizmoHandle Handle;
+			};
+			for (const FPlane Plane : {FPlane{0, 1, ETransformGizmoHandle::XY}, FPlane{0, 2, ETransformGizmoHandle::XZ}, FPlane{1, 2, ETransformGizmoHandle::YZ}})
+			{
+				std::array<FVector2f, 4> P;
 				const FVector3 A = Axes[Plane.A] * static_cast<double>(WorldScale);
 				const FVector3 B = Axes[Plane.B] * static_cast<double>(WorldScale);
-				if (SceneViewProjection::ProjectWorldToViewport(View, Pivot+A*0.22+B*0.22,P[0]) && SceneViewProjection::ProjectWorldToViewport(View,Pivot+A*0.42+B*0.22,P[1]) && SceneViewProjection::ProjectWorldToViewport(View,Pivot+A*0.42+B*0.42,P[2]) && SceneViewProjection::ProjectWorldToViewport(View,Pivot+A*0.22+B*0.42,P[3]))
+				if (SceneViewProjection::ProjectWorldToViewport(View, Pivot + A * 0.22 + B * 0.22, P[0]) && SceneViewProjection::ProjectWorldToViewport(View, Pivot + A * 0.42 + B * 0.22, P[1]) && SceneViewProjection::ProjectWorldToViewport(View, Pivot + A * 0.42 + B * 0.42, P[2]) && SceneViewProjection::ProjectWorldToViewport(View, Pivot + A * 0.22 + B * 0.42, P[3]))
 				{
-					if (PointInTriangle(MousePosition,P[0],P[1],P[2]) || PointInTriangle(MousePosition,P[0],P[2],P[3])) return Plane.Handle;
+					if (PointInTriangle(MousePosition, P[0], P[1], P[2]) || PointInTriangle(MousePosition, P[0], P[2], P[3])) return Plane.Handle;
 				}
 			}
 		}
@@ -191,7 +228,11 @@ namespace Durin
 			FVector2f End;
 			if (!SceneViewProjection::ProjectWorldToViewport(View, Pivot + Axes[AxisIndex] * static_cast<double>(WorldScale), End)) continue;
 			const float Distance = DistanceToSegment(MousePosition, Center, End);
-			if (Distance < BestDistance) { BestDistance = Distance; Best = Handles[AxisIndex]; }
+			if (Distance < BestDistance)
+			{
+				BestDistance = Distance;
+				Best = Handles[AxisIndex];
+			}
 		}
 		return Best;
 	}
@@ -210,7 +251,11 @@ namespace Durin
 			bool bSelectedAncestor = false;
 			for (AActor* Parent = Actor->GetAttachParentActor(); Parent; Parent = Parent->GetAttachParentActor())
 			{
-				if (Context.IsActorSelected(Parent)) { bSelectedAncestor = true; break; }
+				if (Context.IsActorSelected(Parent))
+				{
+					bSelectedAncestor = true;
+					break;
+				}
 			}
 			if (!bSelectedAncestor)
 			{
@@ -219,23 +264,44 @@ namespace Durin
 					PackageDirtySnapshots.push_back({Package, Package->IsDirty()});
 			}
 		}
-		if (Snapshots.empty()) { ActiveHandle = ETransformGizmoHandle::None; return false; }
+		if (Snapshots.empty())
+		{
+			ActiveHandle = ETransformGizmoHandle::None;
+			return false;
+		}
 
 		FVector3 RayOrigin, RayDirection;
-		if (!SceneViewProjection::BuildViewportRay(View, Input.MousePosition, RayOrigin, RayDirection)) { ActiveHandle = ETransformGizmoHandle::None; return false; }
+		if (!SceneViewProjection::BuildViewportRay(View, Input.MousePosition, RayOrigin, RayDirection))
+		{
+			ActiveHandle = ETransformGizmoHandle::None;
+			return false;
+		}
 		DragAxis = ActiveHandle == ETransformGizmoHandle::Uniform ? FVectorConstants::Zero : glm::normalize(Basis * AxisForHandle(ActiveHandle));
-		if (ActiveHandle == ETransformGizmoHandle::XY) DragPlaneNormal = Basis * FVectorConstants::Up;
-		else if (ActiveHandle == ETransformGizmoHandle::XZ) DragPlaneNormal = Basis * FVectorConstants::Right;
-		else if (ActiveHandle == ETransformGizmoHandle::YZ) DragPlaneNormal = Basis * FVectorConstants::Forward;
-		else if (Mode == ETransformGizmoMode::Rotate) DragPlaneNormal = DragAxis;
-		else if (ActiveHandle == ETransformGizmoHandle::Uniform) DragPlaneNormal = glm::normalize(View.ViewLocation - Pivot);
+		if (ActiveHandle == ETransformGizmoHandle::XY)
+			DragPlaneNormal = Basis * FVectorConstants::Up;
+		else if (ActiveHandle == ETransformGizmoHandle::XZ)
+			DragPlaneNormal = Basis * FVectorConstants::Right;
+		else if (ActiveHandle == ETransformGizmoHandle::YZ)
+			DragPlaneNormal = Basis * FVectorConstants::Forward;
+		else if (Mode == ETransformGizmoMode::Rotate)
+			DragPlaneNormal = DragAxis;
+		else if (ActiveHandle == ETransformGizmoHandle::Uniform)
+			DragPlaneNormal = glm::normalize(View.ViewLocation - Pivot);
 		else
 		{
 			const FVector3 Side = glm::cross(RayDirection, DragAxis);
-			if (glm::dot(Side, Side) <= Epsilon) { ActiveHandle = ETransformGizmoHandle::None; return false; }
+			if (glm::dot(Side, Side) <= Epsilon)
+			{
+				ActiveHandle = ETransformGizmoHandle::None;
+				return false;
+			}
 			DragPlaneNormal = glm::normalize(glm::cross(DragAxis, Side));
 		}
-		if (!RayPlane(RayOrigin, RayDirection, Pivot, DragPlaneNormal, DragStartPoint)) { ActiveHandle = ETransformGizmoHandle::None; return false; }
+		if (!RayPlane(RayOrigin, RayDirection, Pivot, DragPlaneNormal, DragStartPoint))
+		{
+			ActiveHandle = ETransformGizmoHandle::None;
+			return false;
+		}
 		DragStartVector = DragStartPoint - Pivot;
 		if (glm::dot(DragStartVector, DragStartVector) > Epsilon) DragStartVector = glm::normalize(DragStartVector);
 		DragStartMouseY = Input.MousePosition.y;
@@ -254,9 +320,10 @@ namespace Durin
 			if (ActiveHandle == ETransformGizmoHandle::X || ActiveHandle == ETransformGizmoHandle::Y || ActiveHandle == ETransformGizmoHandle::Z) Delta = DragAxis * glm::dot(Delta, DragAxis);
 			if (bSnap)
 			{
-				const std::array<FVector3,3> Axes = {Basis*FVectorConstants::Forward,Basis*FVectorConstants::Right,Basis*FVectorConstants::Up};
+				const std::array<FVector3, 3> Axes = {Basis * FVectorConstants::Forward, Basis * FVectorConstants::Right, Basis * FVectorConstants::Up};
 				FVector3 Snapped(0.0);
-				for (const FVector3& Axis : Axes) Snapped += Axis * Snap(glm::dot(Delta, Axis), SnapSettings.Translation);
+				for (const FVector3& Axis : Axes)
+					Snapped += Axis * Snap(glm::dot(Delta, Axis), SnapSettings.Translation);
 				Delta = Snapped;
 			}
 			ApplyTranslation(Delta);
@@ -272,16 +339,18 @@ namespace Durin
 		}
 		else
 		{
-			double Factor = ActiveHandle == ETransformGizmoHandle::Uniform
-				? 1.0 + static_cast<double>(DragStartMouseY - Input.MousePosition.y) / GizmoPixels
-				: 1.0 + glm::dot(Current - DragStartPoint, DragAxis) / std::max(0.001f, WorldScale);
+			double Factor = ActiveHandle == ETransformGizmoHandle::Uniform ? 1.0 + static_cast<double>(DragStartMouseY - Input.MousePosition.y) / GizmoPixels : 1.0 + glm::dot(Current - DragStartPoint, DragAxis) / std::max(0.001f, WorldScale);
 			if (bSnap) Factor = 1.0 + Snap(Factor - 1.0, SnapSettings.Scale);
 			Factor = std::max(0.001, Factor);
 			FVector3 Factors(1.0);
-			if (ActiveHandle == ETransformGizmoHandle::Uniform) Factors = FVector3(Factor);
-			else if (ActiveHandle == ETransformGizmoHandle::X) Factors.x = Factor;
-			else if (ActiveHandle == ETransformGizmoHandle::Y) Factors.y = Factor;
-			else if (ActiveHandle == ETransformGizmoHandle::Z) Factors.z = Factor;
+			if (ActiveHandle == ETransformGizmoHandle::Uniform)
+				Factors = FVector3(Factor);
+			else if (ActiveHandle == ETransformGizmoHandle::X)
+				Factors.x = Factor;
+			else if (ActiveHandle == ETransformGizmoHandle::Y)
+				Factors.y = Factor;
+			else if (ActiveHandle == ETransformGizmoHandle::Z)
+				Factors.z = Factor;
 			ApplyScale(Factors);
 		}
 	}
@@ -332,7 +401,8 @@ namespace Durin
 
 	auto FTransformGizmo::RestoreSnapshots() -> void
 	{
-		for (FActorSnapshot& Snapshot : Snapshots) if (Snapshot.Actor) Snapshot.Actor->SetActorTransform(Snapshot.Initial);
+		for (FActorSnapshot& Snapshot : Snapshots)
+			if (Snapshot.Actor) Snapshot.Actor->SetActorTransform(Snapshot.Initial);
 		DisplayPivot = Pivot;
 		DisplayBasis = Basis;
 	}
@@ -354,10 +424,12 @@ namespace Durin
 			{
 				if (Snapshot.Actor) Entries.push_back({Snapshot.Actor, Snapshot.Initial, Snapshot.Actor->GetActorTransform()});
 			}
-			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" : "Scale";
+			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" :
+																															  "Scale";
 			Transactions->CommitApplied(std::make_unique<FActorTransformTransaction>(std::format("{} {} Actor{}", Action, Entries.size(), Entries.size() == 1 ? "" : "s"), std::move(Entries)));
 		}
-		else if (!bDragChanged) RestoreInitialDirtyState();
+		else if (!bDragChanged)
+			RestoreInitialDirtyState();
 		Snapshots.clear();
 		PackageDirtySnapshots.clear();
 		ActiveHandle = ETransformGizmoHandle::None;
@@ -379,13 +451,26 @@ namespace Durin
 		if (IsDragging())
 		{
 			bool bSelectionValid = Context.GetSelectedActors().size() == DragSelectionCount;
-			for (const FActorSnapshot& Snapshot : Snapshots) bSelectionValid = bSelectionValid && Snapshot.Actor && Context.IsActorSelected(Snapshot.Actor.Get());
-			if (!bSelectionValid || Input.bCancel) { CancelDrag(); return; }
-			if (!Input.bLeftMouseDown) { FinishDrag(Transactions); return; }
+			for (const FActorSnapshot& Snapshot : Snapshots)
+				bSelectionValid = bSelectionValid && Snapshot.Actor && Context.IsActorSelected(Snapshot.Actor.Get());
+			if (!bSelectionValid || Input.bCancel)
+			{
+				CancelDrag();
+				return;
+			}
+			if (!Input.bLeftMouseDown)
+			{
+				FinishDrag(Transactions);
+				return;
+			}
 			UpdateDrag(View, Input);
 			return;
 		}
-		if (!RebuildState(Context, View)) { HoveredHandle = ETransformGizmoHandle::None; return; }
+		if (!RebuildState(Context, View))
+		{
+			HoveredHandle = ETransformGizmoHandle::None;
+			return;
+		}
 		if (Input.bFocused && Input.bHovered && !Input.bWantTextInput)
 		{
 			if (Input.bModeTranslate) Mode = ETransformGizmoMode::Translate;
@@ -399,8 +484,8 @@ namespace Durin
 	auto FTransformGizmo::AppendOverlayPrimitives(FSceneView& View) const -> void
 	{
 		if (WorldScale <= 0.0f) return;
-		const std::array<FVector3,3> Axes = {DisplayBasis*FVectorConstants::Forward,DisplayBasis*FVectorConstants::Right,DisplayBasis*FVectorConstants::Up};
-		const std::array<ETransformGizmoHandle,3> Handles = {ETransformGizmoHandle::X,ETransformGizmoHandle::Y,ETransformGizmoHandle::Z};
+		const std::array<FVector3, 3> Axes = {DisplayBasis * FVectorConstants::Forward, DisplayBasis * FVectorConstants::Right, DisplayBasis * FVectorConstants::Up};
+		const std::array<ETransformGizmoHandle, 3> Handles = {ETransformGizmoHandle::X, ETransformGizmoHandle::Y, ETransformGizmoHandle::Z};
 		auto Add = [&](EViewOverlayShape Shape, const FMatrix& Matrix, ETransformGizmoHandle Handle, float Alpha = 1.0f) {
 			View.OverlayPrimitives.push_back({Shape, Matrix, ColorForHandle(Handle, HoveredHandle == Handle, ActiveHandle == Handle, Alpha)});
 		};
@@ -427,15 +512,20 @@ namespace Durin
 		}
 		if (Mode == ETransformGizmoMode::Translate)
 		{
-			struct FPlane { size_t A; size_t B; ETransformGizmoHandle Handle; };
-			for (const FPlane Plane : {FPlane{0,1,ETransformGizmoHandle::XY},FPlane{0,2,ETransformGizmoHandle::XZ},FPlane{1,2,ETransformGizmoHandle::YZ}})
+			struct FPlane
 			{
-				const FVector3 A = Axes[Plane.A], B = Axes[Plane.B], N = glm::normalize(glm::cross(A,B));
+				size_t A;
+				size_t B;
+				ETransformGizmoHandle Handle;
+			};
+			for (const FPlane Plane : {FPlane{0, 1, ETransformGizmoHandle::XY}, FPlane{0, 2, ETransformGizmoHandle::XZ}, FPlane{1, 2, ETransformGizmoHandle::YZ}})
+			{
+				const FVector3 A = Axes[Plane.A], B = Axes[Plane.B], N = glm::normalize(glm::cross(A, B));
 				FMatrix Matrix(1.0);
 				Matrix[0] = FVector4(A * static_cast<double>(WorldScale * 0.2f), 0.0);
 				Matrix[1] = FVector4(B * static_cast<double>(WorldScale * 0.2f), 0.0);
 				Matrix[2] = FVector4(N * static_cast<double>(WorldScale * 0.01f), 0.0);
-				Matrix[3] = FVector4(DisplayPivot + (A+B) * static_cast<double>(WorldScale * 0.22f), 1.0);
+				Matrix[3] = FVector4(DisplayPivot + (A + B) * static_cast<double>(WorldScale * 0.22f), 1.0);
 				Add(EViewOverlayShape::Plane, Matrix, Plane.Handle, 0.36f);
 			}
 		}
@@ -445,4 +535,4 @@ namespace Durin
 			Add(EViewOverlayShape::Box, Box, ETransformGizmoHandle::Uniform);
 		}
 	}
-}
+} // namespace Durin

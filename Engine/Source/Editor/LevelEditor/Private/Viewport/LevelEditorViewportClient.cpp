@@ -1,4 +1,5 @@
 #include "Viewport/LevelEditorViewportClient.h"
+#include "MonaImGui.h"
 
 #include "Actors/CameraActor.h"
 #include "Components/CameraComponent.h"
@@ -64,7 +65,7 @@ namespace Durin
 			OutDistance = glm::dot(Edge2, Q) * InvDeterminant;
 			return OutDistance >= 0.0;
 		}
-	}
+	} // namespace
 
 	auto FLevelEditorViewportClient::CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool
 	{
@@ -104,7 +105,8 @@ namespace Durin
 			const AActor* Actor = ActorPtr.Get();
 			if (Actor == nullptr) continue;
 			const bool bPrimary = Actor == PrimarySelectedActor.Get();
-			const FVector4f Color = bPrimary ? FVector4f(1.0f, 0.72f, 0.19f, 1.0f) : FVector4f(0.35f, 0.67f, 1.0f, 0.86f);
+			const ImVec4& ThemeColor = MonaImGui::GetThemeColor(bPrimary ? MonaImGui::EUIThemeColor::SelectionPrimary : MonaImGui::EUIThemeColor::SelectionSecondary);
+			const FVector4f Color{ThemeColor.x, ThemeColor.y, ThemeColor.z, ThemeColor.w};
 			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
 			{
 				const auto* Component = Cast<DStaticMeshComponent>(ComponentPtr.Get());
@@ -267,4 +269,4 @@ namespace Durin
 			}
 		}
 	}
-}
+} // namespace Durin

@@ -12,6 +12,7 @@
 #include "Actors/StaticMeshActor.h"
 #include "IRendererModule.h"
 #include "LevelEditorContext.h"
+#include "LevelEditorUILayout.h"
 #include "Math/Vector.h"
 #include "Mona/SceneViewport.h"
 #include "MonaImGui.h"
@@ -25,7 +26,7 @@ namespace Durin
 {
 	namespace
 	{
-		template <typename T>
+		template<typename T>
 		struct TViewportModeOption
 		{
 			T Value;
@@ -42,7 +43,7 @@ namespace Durin
 			TViewportModeOption{ERasterMode::Wireframe, "Wireframe"}
 		};
 
-		template <typename T, size_t Size>
+		template<typename T, size_t Size>
 		auto GetModeLabel(T CurrentMode, const std::array<TViewportModeOption<T>, Size>& Options) -> const char*
 		{
 			for (const TViewportModeOption<T>& Option : Options)
@@ -52,7 +53,7 @@ namespace Durin
 			return "Unknown";
 		}
 
-		template <typename T, size_t Size, typename FSetMode>
+		template<typename T, size_t Size, typename FSetMode>
 		auto DrawModeOptions(T CurrentMode, const std::array<TViewportModeOption<T>, Size>& Options, FSetMode&& SetMode) -> void
 		{
 			for (const TViewportModeOption<T>& Option : Options)
@@ -79,32 +80,32 @@ namespace Durin
 			switch (Icon)
 			{
 			case EViewportToolbarIcon::Translate:
-			{
-				const float Radius = 6.0f * Scale;
-				DrawList->AddLine(ImVec2(Center.x - Radius, Center.y), ImVec2(Center.x + Radius, Center.y), Color, Thickness);
-				DrawList->AddLine(ImVec2(Center.x, Center.y - Radius), ImVec2(Center.x, Center.y + Radius), Color, Thickness);
-				DrawList->AddTriangleFilled(ImVec2(Center.x + Radius + 2.0f * Scale, Center.y), ImVec2(Center.x + Radius - 2.0f * Scale, Center.y - 2.5f * Scale), ImVec2(Center.x + Radius - 2.0f * Scale, Center.y + 2.5f * Scale), Color);
-				DrawList->AddTriangleFilled(ImVec2(Center.x, Center.y - Radius - 2.0f * Scale), ImVec2(Center.x - 2.5f * Scale, Center.y - Radius + 2.0f * Scale), ImVec2(Center.x + 2.5f * Scale, Center.y - Radius + 2.0f * Scale), Color);
-				break;
-			}
+				{
+					const float Radius = 6.0f * Scale;
+					DrawList->AddLine(ImVec2(Center.x - Radius, Center.y), ImVec2(Center.x + Radius, Center.y), Color, Thickness);
+					DrawList->AddLine(ImVec2(Center.x, Center.y - Radius), ImVec2(Center.x, Center.y + Radius), Color, Thickness);
+					DrawList->AddTriangleFilled(ImVec2(Center.x + Radius + 2.0f * Scale, Center.y), ImVec2(Center.x + Radius - 2.0f * Scale, Center.y - 2.5f * Scale), ImVec2(Center.x + Radius - 2.0f * Scale, Center.y + 2.5f * Scale), Color);
+					DrawList->AddTriangleFilled(ImVec2(Center.x, Center.y - Radius - 2.0f * Scale), ImVec2(Center.x - 2.5f * Scale, Center.y - Radius + 2.0f * Scale), ImVec2(Center.x + 2.5f * Scale, Center.y - Radius + 2.0f * Scale), Color);
+					break;
+				}
 			case EViewportToolbarIcon::Rotate:
-			{
-				const float Radius = 6.5f * Scale;
-				DrawList->PathArcTo(Center, Radius, -2.65f, 2.15f, 18);
-				DrawList->PathStroke(Color, 0, Thickness);
-				const ImVec2 Tip(Center.x - 5.5f * Scale, Center.y - 4.3f * Scale);
-				DrawList->AddTriangleFilled(Tip, ImVec2(Tip.x + 4.8f * Scale, Tip.y - 0.3f * Scale), ImVec2(Tip.x + 1.2f * Scale, Tip.y + 4.2f * Scale), Color);
-				break;
-			}
+				{
+					const float Radius = 6.5f * Scale;
+					DrawList->PathArcTo(Center, Radius, -2.65f, 2.15f, 18);
+					DrawList->PathStroke(Color, 0, Thickness);
+					const ImVec2 Tip(Center.x - 5.5f * Scale, Center.y - 4.3f * Scale);
+					DrawList->AddTriangleFilled(Tip, ImVec2(Tip.x + 4.8f * Scale, Tip.y - 0.3f * Scale), ImVec2(Tip.x + 1.2f * Scale, Tip.y + 4.2f * Scale), Color);
+					break;
+				}
 			case EViewportToolbarIcon::Scale:
-			{
-				const ImVec2 Start(Center.x - 5.0f * Scale, Center.y + 5.0f * Scale);
-				const ImVec2 End(Center.x + 5.0f * Scale, Center.y - 5.0f * Scale);
-				DrawList->AddLine(Start, End, Color, Thickness);
-				DrawList->AddRectFilled(ImVec2(Start.x - 2.5f * Scale, Start.y - 2.5f * Scale), ImVec2(Start.x + 2.5f * Scale, Start.y + 2.5f * Scale), Color, 1.0f * Scale);
-				DrawList->AddRectFilled(ImVec2(End.x - 2.5f * Scale, End.y - 2.5f * Scale), ImVec2(End.x + 2.5f * Scale, End.y + 2.5f * Scale), Color, 1.0f * Scale);
-				break;
-			}
+				{
+					const ImVec2 Start(Center.x - 5.0f * Scale, Center.y + 5.0f * Scale);
+					const ImVec2 End(Center.x + 5.0f * Scale, Center.y - 5.0f * Scale);
+					DrawList->AddLine(Start, End, Color, Thickness);
+					DrawList->AddRectFilled(ImVec2(Start.x - 2.5f * Scale, Start.y - 2.5f * Scale), ImVec2(Start.x + 2.5f * Scale, Start.y + 2.5f * Scale), Color, 1.0f * Scale);
+					DrawList->AddRectFilled(ImVec2(End.x - 2.5f * Scale, End.y - 2.5f * Scale), ImVec2(End.x + 2.5f * Scale, End.y + 2.5f * Scale), Color, 1.0f * Scale);
+					break;
+				}
 			case EViewportToolbarIcon::ChevronDown:
 				DrawList->AddTriangleFilled(ImVec2(Center.x - 3.5f * Scale, Center.y - 1.5f * Scale), ImVec2(Center.x + 3.5f * Scale, Center.y - 1.5f * Scale), ImVec2(Center.x, Center.y + 2.5f * Scale), Color);
 				break;
@@ -124,8 +125,9 @@ namespace Durin
 			const ImVec2 Max(Position.x + Size.x, Position.y + Size.y);
 			if (bSelected || bHovered || bHeld)
 			{
-				const ImGuiCol Background = bSelected ? ImGuiCol_HeaderActive : bHeld ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered;
-				DrawList->AddRectFilled(Position, Max, ImGui::GetColorU32(Style.Colors[Background]), 4.0f);
+				const ImGuiCol Background = bSelected ? ImGuiCol_HeaderActive : bHeld ? ImGuiCol_ButtonActive :
+																						ImGuiCol_ButtonHovered;
+				DrawList->AddRectFilled(Position, Max, ImGui::GetColorU32(Style.Colors[Background]), Style.FrameRounding);
 			}
 
 			const ImU32 TextColor = ImGui::GetColorU32(bSelected ? ImGuiCol_Text : (bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled));
@@ -147,8 +149,8 @@ namespace Durin
 			}
 			if (bSelected)
 			{
-				const float IndicatorWidth = FMath::Min(22.0f, Size.x - 10.0f);
-				DrawList->AddRectFilled(ImVec2(Position.x + (Size.x - IndicatorWidth) * 0.5f, Max.y - 2.0f), ImVec2(Position.x + (Size.x + IndicatorWidth) * 0.5f, Max.y), ImGui::GetColorU32(ImGuiCol_CheckMark), 1.0f);
+				const float IndicatorWidth = FMath::Min(MonaImGui::ScaleUI(22.0f), Size.x - MonaImGui::ScaleUI(10.0f));
+				DrawList->AddRectFilled(ImVec2(Position.x + (Size.x - IndicatorWidth) * 0.5f, Max.y - MonaImGui::ScaleUI(2.0f)), ImVec2(Position.x + (Size.x + IndicatorWidth) * 0.5f, Max.y), ImGui::GetColorU32(ImGuiCol_CheckMark), MonaImGui::ScaleUI(1.0f));
 			}
 			if (bHovered && Tooltip != nullptr)
 			{
@@ -171,8 +173,8 @@ namespace Durin
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
 			const ImVec2 Max(Position.x + PrimaryWidth + SecondaryWidth, Position.y + Height);
 			const ImGuiCol Background = bEnabled || bPopupOpen ? ImGuiCol_HeaderActive : ImGuiCol_FrameBg;
-			DrawList->AddRectFilled(Position, Max, ImGui::GetColorU32(Style.Colors[Background]), 4.0f);
-			DrawList->AddRect(Position, Max, ImGui::GetColorU32(ImGuiCol_Border), 4.0f);
+			DrawList->AddRectFilled(Position, Max, ImGui::GetColorU32(Style.Colors[Background]), Style.FrameRounding);
+			DrawList->AddRect(Position, Max, ImGui::GetColorU32(ImGuiCol_Border), Style.FrameRounding);
 
 			ImGui::SetCursorScreenPos(Position);
 			const bool bPrimaryPressed = ImGui::InvisibleButton("##SnapToggle", ImVec2(PrimaryWidth, Height));
@@ -180,7 +182,7 @@ namespace Durin
 			const bool bPrimaryHeld = ImGui::IsItemActive();
 			if (bPrimaryHovered || bPrimaryHeld)
 			{
-				DrawList->AddRectFilled(Position, ImVec2(Position.x + PrimaryWidth, Max.y), ImGui::GetColorU32(bPrimaryHeld ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), 4.0f, ImDrawFlags_RoundCornersLeft);
+				DrawList->AddRectFilled(Position, ImVec2(Position.x + PrimaryWidth, Max.y), ImGui::GetColorU32(bPrimaryHeld ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), Style.FrameRounding, ImDrawFlags_RoundCornersLeft);
 			}
 
 			const ImVec2 SecondaryPosition(Position.x + PrimaryWidth, Position.y);
@@ -190,18 +192,18 @@ namespace Durin
 			const bool bSecondaryHeld = ImGui::IsItemActive();
 			if (bSecondaryHovered || bSecondaryHeld)
 			{
-				DrawList->AddRectFilled(SecondaryPosition, Max, ImGui::GetColorU32(bSecondaryHeld ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), 4.0f, ImDrawFlags_RoundCornersRight);
+				DrawList->AddRectFilled(SecondaryPosition, Max, ImGui::GetColorU32(bSecondaryHeld ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), Style.FrameRounding, ImDrawFlags_RoundCornersRight);
 			}
 
-			DrawList->AddLine(ImVec2(SecondaryPosition.x, Position.y + 5.0f), ImVec2(SecondaryPosition.x, Max.y - 5.0f), ImGui::GetColorU32(ImGuiCol_Border));
+			DrawList->AddLine(ImVec2(SecondaryPosition.x, Position.y + MonaImGui::ScaleUI(5.0f)), ImVec2(SecondaryPosition.x, Max.y - MonaImGui::ScaleUI(5.0f)), ImGui::GetColorU32(ImGuiCol_Border));
 			const ImU32 TextColor = ImGui::GetColorU32(bEnabled || bPopupOpen || bPrimaryHovered || bSecondaryHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 			const ImVec2 TextSize = ImGui::CalcTextSize("Snap");
 			DrawList->AddText(ImVec2(Position.x + (PrimaryWidth - TextSize.x) * 0.5f, Position.y + (Height - TextSize.y) * 0.5f), TextColor, "Snap");
 			DrawToolbarIcon(DrawList, EViewportToolbarIcon::ChevronDown, ImVec2(SecondaryPosition.x + SecondaryWidth * 0.5f, Position.y + Height * 0.5f), TextColor, ImGui::GetFontSize() / 13.0f);
 			if (bEnabled)
 			{
-				const float IndicatorWidth = FMath::Min(22.0f, PrimaryWidth - 10.0f);
-				DrawList->AddRectFilled(ImVec2(Position.x + (PrimaryWidth - IndicatorWidth) * 0.5f, Max.y - 2.0f), ImVec2(Position.x + (PrimaryWidth + IndicatorWidth) * 0.5f, Max.y), ImGui::GetColorU32(ImGuiCol_CheckMark), 1.0f);
+				const float IndicatorWidth = FMath::Min(MonaImGui::ScaleUI(22.0f), PrimaryWidth - MonaImGui::ScaleUI(10.0f));
+				DrawList->AddRectFilled(ImVec2(Position.x + (PrimaryWidth - IndicatorWidth) * 0.5f, Max.y - MonaImGui::ScaleUI(2.0f)), ImVec2(Position.x + (PrimaryWidth + IndicatorWidth) * 0.5f, Max.y), ImGui::GetColorU32(ImGuiCol_CheckMark), MonaImGui::ScaleUI(1.0f));
 			}
 			if (bPrimaryHovered)
 			{
@@ -232,7 +234,7 @@ namespace Durin
 
 		auto DrawAxisText(ImDrawList* DrawList, const ImVec2& Position, ImU32 Color, const char* Text) -> void
 		{
-			DrawList->AddText(Add(Position, ImVec2(1.0f, 1.0f)), IM_COL32(0, 0, 0, 180), Text);
+			DrawList->AddText(Add(Position, ImVec2(MonaImGui::ScaleUI(1.0f), MonaImGui::ScaleUI(1.0f))), MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ViewportShadow), Text);
 			DrawList->AddText(Position, Color, Text);
 		}
 	} // namespace
@@ -254,6 +256,8 @@ namespace Durin
 		float ModeButtonWidth = 0.0f;
 		float CompactButtonWidth = 0.0f;
 		float DropDownWidth = 0.0f;
+		bool bCompact = false;
+		bool bOverflow = false;
 	};
 
 	FSceneViewportPanel::FSceneViewportPanel()
@@ -331,8 +335,10 @@ namespace Durin
 						const auto* AssetPayload = static_cast<const FContentBrowserAssetPayload*>(Payload->Data);
 						FAssetPath AssetPath;
 						DStaticMesh* Mesh = nullptr;
-						if (!FAssetPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath)) Context.SetError("Dropped asset path is invalid.");
-						else if (const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Mesh); !Result) Context.SetError(Result.Message);
+						if (!FAssetPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
+							Context.SetError("Dropped asset path is invalid.");
+						else if (const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Mesh); !Result)
+							Context.SetError(Result.Message);
 						else if (AStaticMeshActor* Actor = Context.Level->SpawnActor<AStaticMeshActor>(FName(AssetPath.GetAssetName())))
 						{
 							Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
@@ -349,9 +355,7 @@ namespace Durin
 				}
 				const FViewportToolbarLayout ToolbarLayout = CalculateToolbarLayout(VpMin, VpMax);
 				bViewportHovered = ImGui::IsItemHovered();
-				const bool bNavigationMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right) ||
-					ImGui::IsMouseClicked(ImGuiMouseButton_Middle) ||
-					(ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left));
+				const bool bNavigationMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left));
 				if (bViewportHovered && bNavigationMousePressed)
 				{
 					ImGui::SetWindowFocus();
@@ -389,16 +393,21 @@ namespace Durin
 		}
 
 		Layout.ViewModeLabel = std::format("{}  /  {}", GetModeLabel(Layout.RenderMode, RenderModeOptions), GetModeLabel(Layout.RasterMode, RasterModeOptions));
-		Layout.Height = FMath::Max(28.0f, ImGui::GetFontSize() + 10.0f);
-		Layout.Gap = 5.0f;
-		Layout.ModeButtonWidth = FMath::Max(66.0f, ImGui::GetFontSize() * 4.2f);
-		Layout.CompactButtonWidth = FMath::Max(54.0f, ImGui::GetFontSize() * 3.4f);
+		const float AvailableWidth = ViewportMax.x - ViewportMin.x;
+		const EEditorUILayoutMode LayoutMode = ResolveEditorUILayout(AvailableWidth, MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(780.0f));
+		Layout.bCompact = LayoutMode != EEditorUILayoutMode::Full;
+		Layout.bOverflow = LayoutMode == EEditorUILayoutMode::Narrow;
+		Layout.Height = FMath::Max(MonaImGui::ScaleUI(28.0f), ImGui::GetFontSize() + MonaImGui::ScaleUI(10.0f));
+		Layout.Gap = MonaImGui::ScaleUI(5.0f);
+		Layout.ModeButtonWidth = Layout.bCompact ? Layout.Height : FMath::Max(MonaImGui::ScaleUI(66.0f), ImGui::GetFontSize() * 4.2f);
+		Layout.CompactButtonWidth = FMath::Max(MonaImGui::ScaleUI(54.0f), ImGui::GetFontSize() * 3.4f);
 		Layout.DropDownWidth = Layout.Height;
-		Layout.ViewModeButtonPosition = ImVec2(ViewportMin.x + 10.0f, ViewportMin.y + 8.0f);
-		Layout.ViewModeButtonSize = ImVec2(ImGui::CalcTextSize(Layout.ViewModeLabel.c_str()).x + 32.0f, Layout.Height);
-		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.Gap + Layout.CompactButtonWidth * 2.0f + Layout.DropDownWidth + 10.0f;
-		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - 4.0f, Layout.ViewModeButtonPosition.y - 4.0f);
-		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - 6.0f, Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + 4.0f);
+		Layout.ViewModeButtonPosition = ImVec2(ViewportMin.x + MonaImGui::ScaleUI(10.0f), ViewportMin.y + MonaImGui::ScaleUI(8.0f));
+		Layout.ViewModeButtonSize = ImVec2(ImGui::CalcTextSize(Layout.ViewModeLabel.c_str()).x + MonaImGui::ScaleUI(Layout.bCompact ? 20.0f : 32.0f), Layout.Height);
+		const float SecondaryWidth = Layout.bOverflow ? Layout.DropDownWidth : Layout.CompactButtonWidth * 2.0f + Layout.DropDownWidth;
+		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(10.0f);
+		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - MonaImGui::ScaleUI(4.0f), Layout.ViewModeButtonPosition.y - MonaImGui::ScaleUI(4.0f));
+		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - MonaImGui::ScaleUI(6.0f), Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(4.0f));
 		return Layout;
 	}
 
@@ -412,8 +421,8 @@ namespace Durin
 		const ImGuiStyle& Style = ImGui::GetStyle();
 		ImVec4 ToolbarColor = Style.Colors[ImGuiCol_PopupBg];
 		ToolbarColor.w = 0.94f;
-		DrawList->AddRectFilled(Layout.BackgroundMin, Layout.BackgroundMax, ImGui::GetColorU32(ToolbarColor), 6.0f);
-		DrawList->AddRect(Layout.BackgroundMin, Layout.BackgroundMax, ImGui::GetColorU32(ImGuiCol_Border), 6.0f);
+		DrawList->AddRectFilled(Layout.BackgroundMin, Layout.BackgroundMax, ImGui::GetColorU32(ToolbarColor), MonaImGui::ScaleUI(6.0f));
+		DrawList->AddRect(Layout.BackgroundMin, Layout.BackgroundMax, ImGui::GetColorU32(ImGuiCol_Border), MonaImGui::ScaleUI(6.0f));
 		DrawList->PopClipRect();
 
 		if (DrawToolbarButton("##ViewModeButton", Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize, Layout.ViewModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, false, "Viewport shading and raster mode"))
@@ -423,13 +432,11 @@ namespace Durin
 
 		if (ImGui::BeginPopup("ViewModePopup"))
 		{
-			DrawModeOptions(Layout.RenderMode, RenderModeOptions, [RendererModule = Layout.RendererModule](ERenderMode Mode)
-			{
+			DrawModeOptions(Layout.RenderMode, RenderModeOptions, [RendererModule = Layout.RendererModule](ERenderMode Mode) {
 				if (RendererModule != nullptr) RendererModule->SetRenderMode(Mode);
 			});
 			ImGui::Separator();
-			DrawModeOptions(Layout.RasterMode, RasterModeOptions, [RendererModule = Layout.RendererModule](ERasterMode Mode)
-			{
+			DrawModeOptions(Layout.RasterMode, RasterModeOptions, [RendererModule = Layout.RendererModule](ERasterMode Mode) {
 				if (RendererModule != nullptr) RendererModule->SetRasterMode(Mode);
 			});
 			ImGui::EndPopup();
@@ -437,25 +444,42 @@ namespace Durin
 
 		if (ViewportClient == nullptr) return;
 		FTransformGizmo& Gizmo = ViewportClient->GetTransformGizmo();
+		bool bOpenSnapSettings = false;
 		float X = Layout.ViewModeButtonPosition.x + Layout.ViewModeButtonSize.x + Layout.Gap;
 		const float Y = Layout.ViewModeButtonPosition.y;
 		auto ToolbarButton = [&](const char* Id, const char* Text, EViewportToolbarIcon Icon, float Width, bool bSelected, const char* Tooltip, auto&& Action) {
 			if (DrawToolbarButton(Id, ImVec2(X, Y), ImVec2(Width, Layout.Height), Text, Icon, bSelected, Tooltip)) Action();
 			X += Width;
 		};
-		ToolbarButton("##MoveMode", "Move", EViewportToolbarIcon::Translate, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Translate, "Move tool (W)", [&] { Gizmo.SetMode(ETransformGizmoMode::Translate); });
-		ToolbarButton("##RotateMode", "Rotate", EViewportToolbarIcon::Rotate, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Rotate, "Rotate tool (E)", [&] { Gizmo.SetMode(ETransformGizmoMode::Rotate); });
-		ToolbarButton("##ScaleMode", "Scale", EViewportToolbarIcon::Scale, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Scale, "Scale tool (R)", [&] { Gizmo.SetMode(ETransformGizmoMode::Scale); });
+		ToolbarButton("##MoveMode", Layout.bCompact ? nullptr : "Move", EViewportToolbarIcon::Translate, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Translate, "Move tool (W)", [&] { Gizmo.SetMode(ETransformGizmoMode::Translate); });
+		ToolbarButton("##RotateMode", Layout.bCompact ? nullptr : "Rotate", EViewportToolbarIcon::Rotate, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Rotate, "Rotate tool (E)", [&] { Gizmo.SetMode(ETransformGizmoMode::Rotate); });
+		ToolbarButton("##ScaleMode", Layout.bCompact ? nullptr : "Scale", EViewportToolbarIcon::Scale, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Scale, "Scale tool (R)", [&] { Gizmo.SetMode(ETransformGizmoMode::Scale); });
 		X += Layout.Gap;
-		ToolbarButton("##TransformSpace", Gizmo.GetSpace() == ETransformGizmoSpace::World ? "World" : "Local", EViewportToolbarIcon::None, Layout.CompactButtonWidth, Gizmo.GetSpace() == ETransformGizmoSpace::Local, "Toggle world/local transform space", [&] {
-			Gizmo.SetSpace(Gizmo.GetSpace() == ETransformGizmoSpace::World ? ETransformGizmoSpace::Local : ETransformGizmoSpace::World);
-		});
-		const FSplitButtonResult SnapResult = DrawSnapSplitButton(ImVec2(X, Y), Layout.CompactButtonWidth, Layout.DropDownWidth, Layout.Height, Gizmo.GetSnapSettings().bEnabled, ImGui::IsPopupOpen("GizmoSnapSettings"));
-		if (SnapResult.bPrimaryPressed) Gizmo.GetSnapSettings().bEnabled = !Gizmo.GetSnapSettings().bEnabled;
-		if (SnapResult.bSecondaryPressed) ImGui::OpenPopup("GizmoSnapSettings");
-		ImGui::SetNextWindowSize(ImVec2(270.0f, 0.0f), ImGuiCond_Appearing);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 12.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 7.0f));
+		if (Layout.bOverflow)
+		{
+			ToolbarButton("##ViewportOverflow", "...", EViewportToolbarIcon::None, Layout.DropDownWidth, false, "More viewport tools", [&] { ImGui::OpenPopup("ViewportToolsOverflow"); });
+			if (ImGui::BeginPopup("ViewportToolsOverflow"))
+			{
+				if (ImGui::MenuItem(Gizmo.GetSpace() == ETransformGizmoSpace::World ? "Use Local Space" : "Use World Space"))
+					Gizmo.SetSpace(Gizmo.GetSpace() == ETransformGizmoSpace::World ? ETransformGizmoSpace::Local : ETransformGizmoSpace::World);
+				if (ImGui::MenuItem("Enable Snapping", nullptr, Gizmo.GetSnapSettings().bEnabled)) Gizmo.GetSnapSettings().bEnabled = !Gizmo.GetSnapSettings().bEnabled;
+				if (ImGui::MenuItem("Snap Settings...")) bOpenSnapSettings = true;
+				ImGui::EndPopup();
+			}
+		}
+		else
+		{
+			ToolbarButton("##TransformSpace", Gizmo.GetSpace() == ETransformGizmoSpace::World ? "World" : "Local", EViewportToolbarIcon::None, Layout.CompactButtonWidth, Gizmo.GetSpace() == ETransformGizmoSpace::Local, "Toggle world/local transform space", [&] {
+				Gizmo.SetSpace(Gizmo.GetSpace() == ETransformGizmoSpace::World ? ETransformGizmoSpace::Local : ETransformGizmoSpace::World);
+			});
+			const FSplitButtonResult SnapResult = DrawSnapSplitButton(ImVec2(X, Y), Layout.CompactButtonWidth, Layout.DropDownWidth, Layout.Height, Gizmo.GetSnapSettings().bEnabled, ImGui::IsPopupOpen("GizmoSnapSettings"));
+			if (SnapResult.bPrimaryPressed) Gizmo.GetSnapSettings().bEnabled = !Gizmo.GetSnapSettings().bEnabled;
+			if (SnapResult.bSecondaryPressed) bOpenSnapSettings = true;
+		}
+		if (bOpenSnapSettings) ImGui::OpenPopup("GizmoSnapSettings");
+		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(270.0f), 0.0f), ImGuiCond_Appearing);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(MonaImGui::ScaleUI(12.0f), MonaImGui::ScaleUI(12.0f)));
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(MonaImGui::ScaleUI(8.0f), MonaImGui::ScaleUI(7.0f)));
 		if (ImGui::BeginPopup("GizmoSnapSettings"))
 		{
 			FTransformGizmoSnapSettings& Settings = Gizmo.GetSnapSettings();
@@ -499,21 +523,25 @@ namespace Durin
 			AxisDirections[2] = GetScreenAxisDirection(ViewMatrix, FVectorConstants::Up, AxisDirections[2]);
 		}
 
-		const float AxisLength = FMath::Max(22.0f, FMath::Min(34.0f, FMath::Min(ViewportSize.x, ViewportSize.y) * 0.08f));
-		const ImVec2 Origin(FMath::Max(ViewportMin.x + AxisLength + 18.0f, ViewportMax.x - 72.0f), FMath::Max(ViewportMin.y + AxisLength + 18.0f, ViewportMax.y - 46.0f));
+		const float AxisLength = FMath::Max(MonaImGui::ScaleUI(22.0f), FMath::Min(MonaImGui::ScaleUI(34.0f), FMath::Min(ViewportSize.x, ViewportSize.y) * 0.08f));
+		const ImVec2 Origin(FMath::Max(ViewportMin.x + AxisLength + MonaImGui::ScaleUI(18.0f), ViewportMax.x - MonaImGui::ScaleUI(72.0f)), FMath::Max(ViewportMin.y + AxisLength + MonaImGui::ScaleUI(18.0f), ViewportMax.y - MonaImGui::ScaleUI(46.0f)));
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
-		DrawList->AddCircleFilled(Origin, 3.0f, IM_COL32(235, 235, 235, 220));
+		DrawList->AddCircleFilled(Origin, MonaImGui::ScaleUI(3.0f), MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ViewportText));
 
-		const std::array<ImU32, 3> AxisColors = {IM_COL32(255, 72, 72, 255), IM_COL32(72, 230, 96, 255), IM_COL32(80, 135, 255, 255)};
+		const std::array<ImU32, 3> AxisColors = {
+			MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::AxisX),
+			MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::AxisY),
+			MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::AxisZ)
+		};
 		const std::array<const char*, 3> AxisLabels = {"X", "Y", "Z"};
 		for (uint32 AxisIndex = 0; AxisIndex < 3; ++AxisIndex)
 		{
 			const ImVec2 End = Add(Origin, Mul(AxisDirections[AxisIndex], AxisLength));
-			DrawList->AddLine(Origin, End, IM_COL32(0, 0, 0, 150), 4.0f);
-			DrawList->AddLine(Origin, End, AxisColors[AxisIndex], 2.0f);
+			DrawList->AddLine(Origin, End, MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ViewportShadow), MonaImGui::ScaleUI(4.0f));
+			DrawList->AddLine(Origin, End, AxisColors[AxisIndex], MonaImGui::ScaleUI(2.0f));
 			const ImVec2 TextSize = ImGui::CalcTextSize(AxisLabels[AxisIndex]);
-			DrawAxisText(DrawList, Add(End, Add(Mul(AxisDirections[AxisIndex], 5.0f), ImVec2(-TextSize.x * 0.5f, -TextSize.y * 0.5f))), AxisColors[AxisIndex], AxisLabels[AxisIndex]);
+			DrawAxisText(DrawList, Add(End, Add(Mul(AxisDirections[AxisIndex], MonaImGui::ScaleUI(5.0f)), ImVec2(-TextSize.x * 0.5f, -TextSize.y * 0.5f))), AxisColors[AxisIndex], AxisLabels[AxisIndex]);
 		}
 		DrawList->PopClipRect();
 	}
@@ -523,10 +551,10 @@ namespace Durin
 		char FpsText[32];
 		snprintf(FpsText, sizeof(FpsText), "FPS: %.1f", ImGui::GetIO().Framerate);
 		const ImVec2 TextSize = ImGui::CalcTextSize(FpsText);
-		const ImVec2 TextPos(ViewportMax.x - TextSize.x - 12.0f, ViewportMin.y + 8.0f);
+		const ImVec2 TextPos(ViewportMax.x - TextSize.x - MonaImGui::ScaleUI(12.0f), ViewportMin.y + MonaImGui::ScaleUI(8.0f));
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
-		DrawList->AddText(TextPos, IM_COL32(255, 255, 255, 200), FpsText);
+		DrawList->AddText(TextPos, MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ViewportText), FpsText);
 		DrawList->PopClipRect();
 	}
 
@@ -591,10 +619,13 @@ namespace Durin
 		{
 			if (AActor* HitActor = ViewportClient->PickActor(Context.Level, Input.MousePosition, Input.ViewportSize))
 			{
-				if (IO.KeyCtrl) Context.ToggleActorSelection(HitActor);
-				else Context.SelectActor(HitActor);
+				if (IO.KeyCtrl)
+					Context.ToggleActorSelection(HitActor);
+				else
+					Context.SelectActor(HitActor);
 			}
-			else Context.ClearSelection();
+			else
+				Context.ClearSelection();
 		}
 		ViewportClient->SetSelectedActors(Context.GetSelectedActors(), Context.GetPrimarySelectedActor());
 	}

@@ -1,6 +1,7 @@
 #include "MonaImGuiPropertyTable.h"
 
 #include "Math/Transform.h"
+#include "MonaImGui.h"
 
 namespace Durin::MonaImGui
 {
@@ -9,23 +10,22 @@ namespace Durin::MonaImGui
 		auto EditAxisValues(const char* Id, FVector3& Value, double Speed) -> bool
 		{
 			static constexpr std::array<const char*, 3> AxisNames = {"X", "Y", "Z"};
-			static constexpr std::array<ImVec4, 3> AxisColors = {
-				ImVec4(0.90f, 0.28f, 0.28f, 1.0f),
-				ImVec4(0.30f, 0.78f, 0.38f, 1.0f),
-				ImVec4(0.28f, 0.52f, 0.94f, 1.0f)
+			const std::array<ImVec4, 3> AxisColors = {
+				GetThemeColor(EUIThemeColor::AxisX),
+				GetThemeColor(EUIThemeColor::AxisY),
+				GetThemeColor(EUIThemeColor::AxisZ)
 			};
 
 			ImGui::PushID(Id);
 			bool bChanged = false;
-			ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(3.0f, 0.0f));
-			if (ImGui::BeginTable("##Axes", 3, ImGuiTableFlags_SizingStretchSame |
-				ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_NoPadOuterX))
+			ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ScaleUI(3.0f), 0.0f));
+			if (ImGui::BeginTable("##Axes", 3, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_NoPadOuterX))
 			{
 				for (int Axis = 0; Axis < 3; ++Axis)
 				{
 					ImGui::TableNextColumn();
 					ImGui::TextColored(AxisColors[Axis], "%s", AxisNames[Axis]);
-					ImGui::SameLine(0.0f, 3.0f);
+					ImGui::SameLine(0.0f, ScaleUI(3.0f));
 					ImGui::SetNextItemWidth(-FLT_MIN);
 					ImGui::PushID(Axis);
 					bChanged |= ImGui::DragScalar("##Value", ImGuiDataType_Double, &Value[Axis], static_cast<float>(Speed));
@@ -52,7 +52,8 @@ namespace Durin::MonaImGui
 		const float PropertyWidth = std::clamp(
 			DesiredPropertyWidth,
 			FontSize * Config.MinimumPropertyColumnWidthInEm,
-			FontSize * Config.MaximumPropertyColumnWidthInEm);
+			FontSize * Config.MaximumPropertyColumnWidthInEm
+		);
 		ImGui::TableSetupColumn(Config.PropertyColumnLabel, ImGuiTableColumnFlags_WidthFixed, PropertyWidth);
 		ImGui::TableSetupColumn(Config.ValueColumnLabel, ImGuiTableColumnFlags_WidthStretch, Config.ValueColumnWeight);
 		if (Config.bShowHeaders) ImGui::TableHeadersRow();
@@ -89,9 +90,7 @@ namespace Durin::MonaImGui
 	{
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
-		const bool bOpen = ImGui::TreeNodeEx(Label,
-			ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAllColumns |
-			ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_FramePadding);
+		const bool bOpen = ImGui::TreeNodeEx(Label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_FramePadding);
 		if (!bOpen) return false;
 
 		auto EditTransformRow = [&](const char* RowLabel, FVector3& Value, double Speed) -> bool {

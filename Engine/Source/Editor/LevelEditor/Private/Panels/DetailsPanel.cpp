@@ -11,6 +11,7 @@
 #include "Engine/Actor.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorHelpers.h"
+#include "EditorSessionSettings.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
@@ -111,6 +112,12 @@ namespace Durin
 
 	} // namespace
 
+	FDetailsPanel::FDetailsPanel(FEditorSessionSettings& InSessionSettings)
+		: SessionSettings(InSessionSettings)
+		, ComponentPaneRatio(InSessionSettings.GetDetailsPaneRatio())
+	{
+	}
+
 	auto FDetailsPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		if (!ImGui::Begin("Details###Details", GetOpenPtr()))
@@ -146,13 +153,13 @@ namespace Durin
 		{
 			ImGui::TextDisabled("%zu actors selected; editing primary actor only.", Context.GetSelectedActors().size());
 		}
-		constexpr float SplitterThickness = 6.0f;
+		const float SplitterThickness = MonaImGui::GetUIStyleMetrics().SplitterThickness;
 		const float AvailableHeight = ImGui::GetContentRegionAvail().y;
 		const float UsableHeight = FMath::Max(AvailableHeight - SplitterThickness, 0.0f);
 		float ComponentHeight = UsableHeight * ComponentPaneRatio;
-		if (UsableHeight >= 220.0f)
+		if (UsableHeight >= MonaImGui::ScaleUI(220.0f))
 		{
-			ComponentHeight = std::clamp(ComponentHeight, 90.0f, UsableHeight - 120.0f);
+			ComponentHeight = std::clamp(ComponentHeight, MonaImGui::ScaleUI(90.0f), UsableHeight - MonaImGui::ScaleUI(120.0f));
 		}
 
 		if (ImGui::BeginChild("DetailsComponents", ImVec2(0.0f, ComponentHeight), ImGuiChildFlags_Borders))
@@ -161,17 +168,8 @@ namespace Durin
 		}
 		ImGui::EndChild();
 
-		const ImVec2 SplitterPosition = ImGui::GetCursorScreenPos();
-		ImGui::InvisibleButton("DetailsSplitter", ImVec2(ImGui::GetContentRegionAvail().x, SplitterThickness));
-		const bool bSplitterHovered = ImGui::IsItemHovered();
-		const bool bSplitterActive = ImGui::IsItemActive();
-		if (bSplitterHovered || bSplitterActive) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
-		const ImU32 SplitterColor = ImGui::GetColorU32(bSplitterActive ? ImGuiCol_SeparatorActive : bSplitterHovered ? ImGuiCol_SeparatorHovered : ImGuiCol_Separator);
-		ImGui::GetWindowDrawList()->AddRectFilled(SplitterPosition, ImVec2(SplitterPosition.x + ImGui::GetItemRectSize().x, SplitterPosition.y + SplitterThickness), SplitterColor);
-		if (bSplitterActive && UsableHeight > 0.0f)
-		{
-			ComponentPaneRatio = std::clamp((ComponentHeight + ImGui::GetIO().MouseDelta.y) / UsableHeight, 0.1f, 0.9f);
-		}
+		if (MonaImGui::DrawSplitter("DetailsSplitter", MonaImGui::EUISplitterAxis::Y, ImGui::GetContentRegionAvail().x, UsableHeight, MonaImGui::ScaleUI(90.0f), MonaImGui::ScaleUI(120.0f), ComponentPaneRatio))
+			SessionSettings.SetDetailsPaneRatio(ComponentPaneRatio);
 
 		if (ImGui::BeginChild("DetailsProperties", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders))
 		{
@@ -250,9 +248,8 @@ namespace Durin
 				ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 				PendingExpandComponent = nullptr;
 			}
-			const std::string Status = bIsRoot
-				? std::format("Root, {}", bIsInstance ? "Instance" : "Default")
-				: bIsInstance ? "Instance" : "Default";
+			const std::string Status = bIsRoot ? std::format("Root, {}", bIsInstance ? "Instance" : "Default") : bIsInstance ? "Instance" :
+																															   "Default";
 			const std::string Label = std::format("{}  ({})  [{}]", Component->GetName(), ClassDisplayName(Component->GetClass()), Status);
 			const bool bOpen = ImGui::TreeNodeEx("##Component", Flags, "%s", Label.c_str());
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) SelectedComponent = Component;
@@ -300,7 +297,8 @@ namespace Durin
 
 			if (bOpen && bHasChildren)
 			{
-				for (DSceneComponent* Child : ChildrenIt->second) DrawComponentNode(Child);
+				for (DSceneComponent* Child : ChildrenIt->second)
+					DrawComponentNode(Child);
 				ImGui::TreePop();
 			}
 			ImGui::PopID();
@@ -358,7 +356,7 @@ namespace Durin
 		if (bOpenAddPopup) ImGui::OpenPopup("Add Component");
 		if (ImGui::BeginPopup("Add Component"))
 		{
-			ImGui::SetNextItemWidth(320.0f);
+			ImGui::SetNextItemWidth(std::min(MonaImGui::ScaleUI(320.0f), ImGui::GetContentRegionAvail().x));
 			if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
 			ImGui::InputTextWithHint("##ComponentTypeSearch", "Search component types...", ComponentTypeSearchText.data(), ComponentTypeSearchText.size());
 			DClass* RequiredBase = bAddComponentAsChild ? DSceneComponent::StaticClass() : DActorComponent::StaticClass();
@@ -379,8 +377,10 @@ namespace Durin
 						auto* NewSceneComponent = Cast<DSceneComponent>(NewComponent);
 						DSceneComponent* Parent = AddComponentParent.Get();
 						bSucceeded = NewSceneComponent && Parent && NewSceneComponent->AttachToComponent(Parent, EAttachmentTransformRule::SnapToTarget);
-						if (!bSucceeded) Actor->DestroyInstanceComponent(NewComponent);
-						else PendingExpandComponent = Parent;
+						if (!bSucceeded)
+							Actor->DestroyInstanceComponent(NewComponent);
+						else
+							PendingExpandComponent = Parent;
 					}
 					if (!bSucceeded)
 					{
@@ -443,11 +443,9 @@ namespace Durin
 			if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit)) return;
 			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 			{
-				const std::string Name = Property->GetArrayDim() > 1
-					? std::format("{}[{}]", Property->NamePrivate.ToString(), ArrayIndex)
-					: Property->NamePrivate.ToString();
+				const std::string Name = Property->GetArrayDim() > 1 ? std::format("{}[{}]", Property->NamePrivate.ToString(), ArrayIndex) : Property->NamePrivate.ToString();
 				const bool bIsTransform = Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
-					&& static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FTransform();
+										  && static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FTransform();
 				const std::string SearchText = bIsTransform ? std::format("{} Location Rotation Scale", Name) : Name;
 				if (ContainsInsensitive(SearchText, PropertySearchText.data())) VisibleProperties.emplace_back(Property, ArrayIndex);
 			}
@@ -455,12 +453,10 @@ namespace Durin
 
 		auto* Actor = Cast<AActor>(Object);
 		const bool bShowActorTransform = Actor && Actor->GetRootComponent()
-			&& ContainsInsensitive("Transform Location Rotation Scale", PropertySearchText.data());
+										 && ContainsInsensitive("Transform Location Rotation Scale", PropertySearchText.data());
 		if (!bShowActorTransform && VisibleProperties.empty())
 		{
-			ImGui::TextDisabled(PropertySearchText[0] != '\0'
-				? "No properties match the current search."
-				: "This object has no reflected Edit properties.");
+			ImGui::TextDisabled(PropertySearchText[0] != '\0' ? "No properties match the current search." : "This object has no reflected Edit properties.");
 			return;
 		}
 
@@ -491,7 +487,7 @@ namespace Durin
 		const bool bReadOnly = Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 		const bool bIsTransform = Kind == DurinCodeGen::EPropertyGenFlags::Struct
-			&& static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FTransform();
+								  && static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FTransform();
 		ImGui::PushID(Property);
 		ImGui::PushID(static_cast<int>(ArrayIndex));
 
@@ -586,8 +582,10 @@ namespace Durin
 					{
 						DObject* Loaded = nullptr;
 						Asset::FAssetResult Result = Asset::LoadAsset(Path, Loaded);
-						if (!Result) Context.SetError(Result.Message);
-						else bChanged = AssignObjectProperty(Context, Object, Property, ArrayIndex, Loaded);
+						if (!Result)
+							Context.SetError(Result.Message);
+						else
+							bChanged = AssignObjectProperty(Context, Object, Property, ArrayIndex, Loaded);
 					}
 				}
 				ImGui::EndCombo();

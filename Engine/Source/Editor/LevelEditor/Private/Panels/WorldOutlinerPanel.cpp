@@ -51,7 +51,8 @@ namespace Durin
 		{
 			size_t Depth = 0;
 			std::unordered_set<AActor*> Visited;
-			for (AActor* Parent = Actor ? Actor->GetAttachParentActor() : nullptr; Parent && Actors.contains(Parent) && Visited.insert(Parent).second; Parent = Parent->GetAttachParentActor()) ++Depth;
+			for (AActor* Parent = Actor ? Actor->GetAttachParentActor() : nullptr; Parent && Actors.contains(Parent) && Visited.insert(Parent).second; Parent = Parent->GetAttachParentActor())
+				++Depth;
 			return Depth;
 		}
 
@@ -104,7 +105,11 @@ namespace Durin
 		std::unordered_set<AActor*> ActorSet;
 		for (const TObjectPtr<AActor>& ActorPtr : Context.World->GetActors())
 		{
-			if (AActor* Actor = ActorPtr.Get()) { Actors.push_back(Actor); ActorSet.insert(Actor); }
+			if (AActor* Actor = ActorPtr.Get())
+			{
+				Actors.push_back(Actor);
+				ActorSet.insert(Actor);
+			}
 		}
 		const auto SortByName = [](AActor* Left, AActor* Right) { return Left->GetName() < Right->GetName(); };
 		std::ranges::sort(Actors, SortByName);
@@ -114,10 +119,13 @@ namespace Durin
 		for (AActor* Actor : Actors)
 		{
 			AActor* Parent = Actor->GetAttachParentActor();
-			if (Parent && ActorSet.contains(Parent) && !IsDescendantOf(Parent, Actor)) Children[Parent].push_back(Actor);
-			else Roots.push_back(Actor);
+			if (Parent && ActorSet.contains(Parent) && !IsDescendantOf(Parent, Actor))
+				Children[Parent].push_back(Actor);
+			else
+				Roots.push_back(Actor);
 		}
-		for (auto& [Parent, Nodes] : Children) std::ranges::sort(Nodes, SortByName);
+		for (auto& [Parent, Nodes] : Children)
+			std::ranges::sort(Nodes, SortByName);
 
 		const std::string_view Filter(SearchText.data());
 		const bool bRestoreExpansion = bWasSearching && Filter.empty();
@@ -126,11 +134,16 @@ namespace Durin
 			if (const auto It = FilterVisibility.find(Actor); It != FilterVisibility.end()) return It->second;
 			if (!Stack.insert(Actor).second) return FilterVisibility[Actor] = ActorMatchesFilter(Actor, Filter);
 			bool bVisible = ActorMatchesFilter(Actor, Filter);
-			for (AActor* Child : Children[Actor]) bVisible |= IsVisible(Child, Stack);
+			for (AActor* Child : Children[Actor])
+				bVisible |= IsVisible(Child, Stack);
 			Stack.erase(Actor);
 			return FilterVisibility[Actor] = bVisible;
 		};
-		for (AActor* Root : Roots) { std::unordered_set<AActor*> Stack; IsVisible(Root, Stack); }
+		for (AActor* Root : Roots)
+		{
+			std::unordered_set<AActor*> Stack;
+			IsVisible(Root, Stack);
+		}
 
 		std::vector<AActor*> VisibleActors;
 		bool bRequestDelete = false;
@@ -142,7 +155,8 @@ namespace Durin
 			ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
 			if (!bHasVisibleChildren) Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 			if (Context.IsActorSelected(Actor)) Flags |= ImGuiTreeNodeFlags_Selected;
-			if (!Filter.empty() || ExpandRequest != 0) ImGui::SetNextItemOpen(!Filter.empty() || ExpandRequest > 0, ImGuiCond_Always);
+			if (!Filter.empty() || ExpandRequest != 0)
+				ImGui::SetNextItemOpen(!Filter.empty() || ExpandRequest > 0, ImGuiCond_Always);
 			else if (bRestoreExpansion)
 			{
 				if (const auto It = ExpandedActors.find(Actor); It != ExpandedActors.end()) ImGui::SetNextItemOpen(It->second, ImGuiCond_Always);
@@ -157,9 +171,12 @@ namespace Durin
 			{
 				bLevelSelected = false;
 				const ImGuiIO& IO = ImGui::GetIO();
-				if (IO.KeyShift) Context.SelectActorRange(Actor, LastVisibleActors.empty() ? VisibleActors : LastVisibleActors);
-				else if (IO.KeyCtrl) Context.ToggleActorSelection(Actor);
-				else Context.SelectActor(Actor);
+				if (IO.KeyShift)
+					Context.SelectActorRange(Actor, LastVisibleActors.empty() ? VisibleActors : LastVisibleActors);
+				else if (IO.KeyCtrl)
+					Context.ToggleActorSelection(Actor);
+				else
+					Context.SelectActor(Actor);
 			}
 
 			if (RenamingActor.Get() == Actor)
@@ -169,11 +186,14 @@ namespace Durin
 				const bool bSubmitted = ImGui::InputText("##RenameActor", RenameText.data(), RenameText.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
 				if (bSubmitted)
 				{
-					if (RenameText[0] == '\0') Context.SetError("Actor name cannot be empty.");
-					else if (!Context.Level->RenameActor(Actor, FName(RenameText.data()))) Context.SetError("Failed to rename actor.");
+					if (RenameText[0] == '\0')
+						Context.SetError("Actor name cannot be empty.");
+					else if (!Context.Level->RenameActor(Actor, FName(RenameText.data())))
+						Context.SetError("Failed to rename actor.");
 					RenamingActor = nullptr;
 				}
-				else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) RenamingActor = nullptr;
+				else if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+					RenamingActor = nullptr;
 			}
 
 			if (ImGui::BeginPopupContextItem("ActorContext"))
@@ -211,14 +231,19 @@ namespace Durin
 						const bool bHasSelectedAncestor = std::ranges::any_of(Context.GetSelectedActors(), [&](const TObjectPtr<AActor>& Other) { return Other.Get() != Candidate && IsDescendantOf(Candidate, Other.Get()); });
 						if (!bHasSelectedAncestor) MoveActors.push_back(Candidate);
 					}
-					for (AActor* Moving : MoveActors) if (!Moving->AttachToActor(Actor, EAttachmentTransformRule::KeepWorld)) Context.SetError(std::format("Failed to attach '{}' to '{}'.", Moving->GetName(), Actor->GetName())); else Moving->MarkPackageDirty();
+					for (AActor* Moving : MoveActors)
+						if (!Moving->AttachToActor(Actor, EAttachmentTransformRule::KeepWorld))
+							Context.SetError(std::format("Failed to attach '{}' to '{}'.", Moving->GetName(), Actor->GetName()));
+						else
+							Moving->MarkPackageDirty();
 				}
 				ImGui::EndDragDropTarget();
 			}
 
 			if (bOpen && bHasVisibleChildren)
 			{
-				for (AActor* Child : Children[Actor]) DrawNode(Child, Stack);
+				for (AActor* Child : Children[Actor])
+					DrawNode(Child, Stack);
 				ImGui::TreePop();
 			}
 			Stack.erase(Actor);
@@ -226,8 +251,10 @@ namespace Durin
 		};
 
 		const std::string LevelName = LevelDisplayName(Context.Level);
-		if (!Filter.empty() || ExpandRequest != 0) ImGui::SetNextItemOpen(!Filter.empty() || ExpandRequest > 0, ImGuiCond_Always);
-		else ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+		if (!Filter.empty() || ExpandRequest != 0)
+			ImGui::SetNextItemOpen(!Filter.empty() || ExpandRequest > 0, ImGuiCond_Always);
+		else
+			ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 		ImGui::PushID(Context.Level);
 		const std::string LevelLabel = std::format("{}  {}", Icons::FolderOpen, LevelName);
 		ImGuiTreeNodeFlags LevelFlags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
@@ -246,11 +273,14 @@ namespace Durin
 			const bool bSubmitted = ImGui::InputText("##RenameLevel", LevelRenameText.data(), LevelRenameText.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
 			if (bSubmitted)
 			{
-				if (LevelRenameText[0] == '\0') Context.SetError("Level name cannot be empty.");
-				else if (Context.RenameLevel) Context.RenameLevel(LevelRenameText.data());
+				if (LevelRenameText[0] == '\0')
+					Context.SetError("Level name cannot be empty.");
+				else if (Context.RenameLevel)
+					Context.RenameLevel(LevelRenameText.data());
 				bRenamingLevel = false;
 			}
-			else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) bRenamingLevel = false;
+			else if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+				bRenamingLevel = false;
 		}
 
 		if (ImGui::BeginPopupContextItem("LevelContext"))
@@ -267,7 +297,7 @@ namespace Durin
 			ImGui::Separator();
 			if (ImGui::BeginMenu("Add Actor"))
 			{
-				ImGui::SetNextItemWidth(240.0f);
+				ImGui::SetNextItemWidth(std::min(MonaImGui::ScaleUI(240.0f), ImGui::GetContentRegionAvail().x));
 				ImGui::InputTextWithHint("###ActorTypeSearch", "Search actor types...", ActorTypeSearchText.data(), ActorTypeSearchText.size());
 				for (DClass* Class : GetDerivedClasses(AActor::StaticClass(), true))
 				{
@@ -277,8 +307,13 @@ namespace Durin
 					if (ImGui::MenuItem(DisplayName.c_str()))
 					{
 						AActor* Actor = Context.World->SpawnActor(Class, FName(Class->GetDefaultObjectName()));
-						if (Actor) { Context.SelectActor(Actor); bLevelSelected = false; }
-						else Context.SetError(std::format("Failed to create actor of class {}.", Class->GetQualifiedName().ToString()));
+						if (Actor)
+						{
+							Context.SelectActor(Actor);
+							bLevelSelected = false;
+						}
+						else
+							Context.SetError(std::format("Failed to create actor of class {}.", Class->GetQualifiedName().ToString()));
 					}
 				}
 				ImGui::EndMenu();
@@ -295,8 +330,10 @@ namespace Durin
 					AActor* Actor = Selected.Get();
 					if (!Actor || !Actor->GetAttachParentActor()) continue;
 					const bool bHasSelectedAncestor = std::ranges::any_of(Context.GetSelectedActors(), [&](const TObjectPtr<AActor>& Other) { return Other.Get() != Actor && IsDescendantOf(Actor, Other.Get()); });
-					if (!bHasSelectedAncestor && !Actor->DetachFromActor(EDetachmentTransformRule::KeepWorld)) Context.SetError(std::format("Failed to detach '{}'.", Actor->GetName()));
-					else Actor->MarkPackageDirty();
+					if (!bHasSelectedAncestor && !Actor->DetachFromActor(EDetachmentTransformRule::KeepWorld))
+						Context.SetError(std::format("Failed to detach '{}'.", Actor->GetName()));
+					else
+						Actor->MarkPackageDirty();
 				}
 			}
 			ImGui::EndDragDropTarget();
@@ -304,7 +341,11 @@ namespace Durin
 
 		if (bLevelOpen)
 		{
-			for (AActor* Root : Roots) { std::unordered_set<AActor*> Stack; DrawNode(Root, Stack); }
+			for (AActor* Root : Roots)
+			{
+				std::unordered_set<AActor*> Stack;
+				DrawNode(Root, Stack);
+			}
 			if (VisibleActors.empty()) ImGui::TextDisabled(Filter.empty() ? "No actors in this level." : "No actors match '%s'.", SearchText.data());
 			ImGui::TreePop();
 		}
@@ -343,23 +384,33 @@ namespace Durin
 		if (ImGui::BeginPopupModal("Delete Actors?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 		{
 			ImGui::Text("Delete %zu actor(s)?", PendingDeleteActors.size());
-			for (size_t Index = 0; Index < std::min<size_t>(PendingDeleteActors.size(), 5); ++Index) if (PendingDeleteActors[Index]) ImGui::BulletText("%s", PendingDeleteActors[Index]->GetName().c_str());
+			for (size_t Index = 0; Index < std::min<size_t>(PendingDeleteActors.size(), 5); ++Index)
+				if (PendingDeleteActors[Index]) ImGui::BulletText("%s", PendingDeleteActors[Index]->GetName().c_str());
 			if (PendingDeleteActors.size() > 5) ImGui::TextDisabled("... and %zu more", PendingDeleteActors.size() - 5);
 			ImGui::TextDisabled("This action cannot be undone.");
 			if (ImGui::Button("Delete"))
 			{
 				std::ranges::sort(PendingDeleteActors, [&](const TObjectPtr<AActor>& Left, const TObjectPtr<AActor>& Right) { return ActorDepth(Left.Get(), ActorSet) > ActorDepth(Right.Get(), ActorSet); });
-				for (const TObjectPtr<AActor>& Actor : PendingDeleteActors) if (Actor && !Context.World->DestroyActor(Actor.Get())) Context.SetError(std::format("Failed to delete '{}'.", Actor->GetName()));
+				for (const TObjectPtr<AActor>& Actor : PendingDeleteActors)
+					if (Actor && !Context.World->DestroyActor(Actor.Get())) Context.SetError(std::format("Failed to delete '{}'.", Actor->GetName()));
 				Context.ClearSelection();
 				PendingDeleteActors.clear();
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::SameLine();
-			if (ImGui::Button("Cancel")) { PendingDeleteActors.clear(); ImGui::CloseCurrentPopup(); }
+			if (ImGui::Button("Cancel"))
+			{
+				PendingDeleteActors.clear();
+				ImGui::CloseCurrentPopup();
+			}
 			ImGui::EndPopup();
 		}
 
-		if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered()) { Context.ClearSelection(); bLevelSelected = false; }
+		if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered())
+		{
+			Context.ClearSelection();
+			bLevelSelected = false;
+		}
 		LastVisibleActors = std::move(VisibleActors);
 		ImGui::End();
 	}

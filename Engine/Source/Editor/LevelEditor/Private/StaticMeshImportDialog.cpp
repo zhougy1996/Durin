@@ -35,14 +35,15 @@ namespace Durin
 			bOpenRequested = false;
 		}
 
-		ImGui::SetNextWindowSize(ImVec2(640.0f, 0.0f), ImGuiCond_Appearing);
+		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
+		ImGui::SetNextWindowSize(ImVec2(Metrics.WidePopupWidth, 0.0f), ImGuiCond_Appearing);
 		if (!ImGui::BeginPopupModal("Import Static Mesh", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize)) return;
 
 		ImGui::TextUnformatted("Create a static mesh asset from a model file.");
 		ImGui::TextDisabled("The source model is copied next to the .dasset package so they can be moved together.");
 		ImGui::Spacing();
 		ImGui::SeparatorText("Source model");
-		const float BrowseButtonWidth = 92.0f;
+		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
 		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
 		ImGui::InputTextWithHint("##ImportSource", "Choose an OBJ, FBX, glTF, or other supported model...", SourcePathBuffer.data(), SourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
 		ImGui::SameLine();
@@ -82,7 +83,7 @@ namespace Durin
 		if (bAssetPathValid && bMountedDestination && bHasSource)
 		{
 			const std::string SourceFileName = std::string(ParsedAssetPath.GetAssetName()) + SourcePath.extension().generic_string();
-			ImGui::BeginChild("ImportOutputPreview", ImVec2(0.0f, 58.0f), ImGuiChildFlags_Borders);
+			ImGui::BeginChild("ImportOutputPreview", ImVec2(0.0f, MonaImGui::ScaleUI(58.0f)), ImGuiChildFlags_Borders);
 			ImGui::TextDisabled("Files to create");
 			ImGui::TextUnformatted(std::format("{}.dasset   +   {}", ParsedAssetPath.GetAssetName(), SourceFileName).c_str());
 			ImGui::EndChild();
@@ -102,7 +103,7 @@ namespace Durin
 
 		if (!ValidationMessage.empty())
 		{
-			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.65f, 0.25f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Text, MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning));
 			ImGui::TextWrapped("%s", ValidationMessage.c_str());
 			ImGui::PopStyleColor();
 		}
@@ -110,10 +111,10 @@ namespace Durin
 		ImGui::Spacing();
 		ImGui::Separator();
 		ImGui::BeginDisabled(!ValidationMessage.empty());
-		if (ImGui::Button("Import Static Mesh", ImVec2(150.0f, 0.0f)) && Import()) ImGui::CloseCurrentPopup();
+		if (ImGui::Button("Import Static Mesh", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f)) && Import()) ImGui::CloseCurrentPopup();
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		if (ImGui::Button("Cancel", ImVec2(80.0f, 0.0f))) ImGui::CloseCurrentPopup();
+		if (MonaImGui::DialogButton("Cancel", true)) ImGui::CloseCurrentPopup();
 		ImGui::EndPopup();
 	}
 
@@ -150,9 +151,7 @@ namespace Durin
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
 		const std::string AssetName = StringUtils::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
 		const FProjectInfo* Project = GetCurrentProject();
-		const std::string SuggestedPath = !PreferredDestinationDirectory.empty()
-			? PreferredDestinationDirectory + AssetName
-			: (Project ? Project->MountRoot : "/") + "StaticMeshes/" + AssetName;
+		const std::string SuggestedPath = !PreferredDestinationDirectory.empty() ? PreferredDestinationDirectory + AssetName : (Project ? Project->MountRoot : "/") + "StaticMeshes/" + AssetName;
 		if (PreviousAssetPath.empty() || PreviousAssetPath == LastSuggestedAssetPath)
 		{
 			AssetPathBuffer.fill(0);

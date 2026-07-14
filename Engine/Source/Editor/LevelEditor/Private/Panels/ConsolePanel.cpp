@@ -8,7 +8,13 @@
 
 namespace Durin
 {
-	enum class EConsoleRecordType { Log, Command, Result, Error };
+	enum class EConsoleRecordType
+	{
+		Log,
+		Command,
+		Result,
+		Error
+	};
 
 	struct FConsoleRecord
 	{
@@ -49,11 +55,11 @@ namespace Durin
 		{
 			switch (Level)
 			{
-			case ELogLevel::Trace: return {0.58f, 0.58f, 0.58f, 1.0f};
-			case ELogLevel::Debug: return {0.55f, 0.75f, 1.0f, 1.0f};
-			case ELogLevel::Info: return {0.88f, 0.88f, 0.88f, 1.0f};
-			case ELogLevel::Warn: return {1.0f, 0.78f, 0.25f, 1.0f};
-			case ELogLevel::Error: return {1.0f, 0.32f, 0.32f, 1.0f};
+			case ELogLevel::Trace: return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+			case ELogLevel::Debug: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info);
+			case ELogLevel::Info: return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+			case ELogLevel::Warn: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning);
+			case ELogLevel::Error: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error);
 			default: return {1.0f, 1.0f, 1.0f, 1.0f};
 			}
 		}
@@ -77,12 +83,12 @@ namespace Durin
 		auto DrawLogRecord(const FLogRecord& Record) -> void
 		{
 			const std::array<char, 16> TimeText = FormatTime(Record);
-			ImGui::TextColored(ImVec4(0.48f, 0.50f, 0.54f, 1.0f), "%s", TimeText.data());
-			ImGui::SameLine(0.0f, 8.0f);
+			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleTimestamp), "%s", TimeText.data());
+			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
 			ImGui::TextColored(LevelColor(Record.Level), "%-5s", LevelName(Record.Level));
-			ImGui::SameLine(0.0f, 8.0f);
-			ImGui::TextColored(ImVec4(0.55f, 0.72f, 0.88f, 1.0f), "[%s]", Record.Module.c_str());
-			ImGui::SameLine(0.0f, 8.0f);
+			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
+			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleModule), "[%s]", Record.Module.c_str());
+			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
 			ImGui::TextUnformatted(Record.Message.c_str());
 		}
 
@@ -93,15 +99,16 @@ namespace Durin
 			for (size_t Index = 1; Index < Values.size(); ++Index)
 			{
 				size_t Length = 0;
-				while (Length < Prefix.size() && Length < Values[Index].size() &&
-					std::tolower(static_cast<unsigned char>(Prefix[Length])) == std::tolower(static_cast<unsigned char>(Values[Index][Length]))) ++Length;
+				while (Length < Prefix.size() && Length < Values[Index].size() && std::tolower(static_cast<unsigned char>(Prefix[Length])) == std::tolower(static_cast<unsigned char>(Values[Index][Length])))
+					++Length;
 				Prefix.resize(Length);
 			}
 			return Prefix;
 		}
 	} // namespace
 
-	FConsolePanel::FConsolePanel() : State(std::make_shared<FConsolePanelState>())
+	FConsolePanel::FConsolePanel()
+		: State(std::make_shared<FConsolePanelState>())
 	{
 		const std::weak_ptr<FConsolePanelState> WeakState = State;
 		ListenerHandle = FLogger::Get().AddListener([WeakState](const FLogRecord& Record) {
@@ -112,15 +119,15 @@ namespace Durin
 			}
 		});
 		ClearCommandHandle = FConsoleCommandRegistry::Get().RegisterCommand({"clear", "Clears the editor console.", "clear", [WeakState](std::span<const std::string> Args) {
-			if (!Args.empty()) return FConsoleCommandResult::Failure("Usage: clear");
-			if (const auto SharedState = WeakState.lock())
-			{
-				std::scoped_lock Lock(SharedState->Mutex);
-				SharedState->PendingLogs.clear();
-				SharedState->Records.clear();
-			}
-			return FConsoleCommandResult::Success();
-		}});
+																				 if (!Args.empty()) return FConsoleCommandResult::Failure("Usage: clear");
+																				 if (const auto SharedState = WeakState.lock())
+																				 {
+																					 std::scoped_lock Lock(SharedState->Mutex);
+																					 SharedState->PendingLogs.clear();
+																					 SharedState->Records.clear();
+																				 }
+																				 return FConsoleCommandResult::Success();
+																			 }});
 	}
 
 	FConsolePanel::~FConsolePanel()
@@ -167,7 +174,8 @@ namespace Durin
 		if (ImGui::BeginChild("ConsoleRecords", ImVec2(0, -InputHeight), false, ImGuiWindowFlags_HorizontalScrollbar))
 		{
 			std::vector<size_t> VisibleRecords;
-			for (size_t Index = 0; Index < State->Records.size(); ++Index) if (IsRecordVisible(Index)) VisibleRecords.push_back(Index);
+			for (size_t Index = 0; Index < State->Records.size(); ++Index)
+				if (IsRecordVisible(Index)) VisibleRecords.push_back(Index);
 			ImGuiListClipper Clipper;
 			Clipper.Begin(static_cast<int>(VisibleRecords.size()));
 			while (Clipper.Step())
@@ -175,11 +183,13 @@ namespace Durin
 				for (int VisibleIndex = Clipper.DisplayStart; VisibleIndex < Clipper.DisplayEnd; ++VisibleIndex)
 				{
 					const FConsoleRecord& Record = State->Records[VisibleRecords[VisibleIndex]];
-					if (Record.Type == EConsoleRecordType::Log) DrawLogRecord(Record.Log);
+					if (Record.Type == EConsoleRecordType::Log)
+						DrawLogRecord(Record.Log);
 					else
 					{
-						const ImVec4 Color = Record.Type == EConsoleRecordType::Command ? ImVec4(0.52f, 0.78f, 1.0f, 1.0f) :
-							Record.Type == EConsoleRecordType::Error ? ImVec4(1.0f, 0.38f, 0.38f, 1.0f) : ImVec4(0.72f, 0.76f, 0.82f, 1.0f);
+						const ImVec4 Color = Record.Type == EConsoleRecordType::Command ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info) :
+											 Record.Type == EConsoleRecordType::Error	? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error) :
+																						  ImGui::GetStyleColorVec4(ImGuiCol_Text);
 						ImGui::TextColored(Color, "%s", Record.Text.c_str());
 					}
 				}
@@ -197,11 +207,15 @@ namespace Durin
 
 		ImGui::Separator();
 		ImGui::AlignTextToFramePadding();
-		ImGui::TextColored(ImVec4(0.40f, 0.72f, 1.0f, 1.0f), ">");
-		ImGui::SameLine(0.0f, 8.0f);
+		ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info), ">");
+		ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
 		ImGui::SetNextItemWidth(-1.0f);
 		const ImGuiInputTextFlags Flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackHistory;
-		if (bRefocusInput) { ImGui::SetKeyboardFocusHere(); bRefocusInput = false; }
+		if (bRefocusInput)
+		{
+			ImGui::SetKeyboardFocusHere();
+			bRefocusInput = false;
+		}
 		if (ImGui::InputTextWithHint("###ConsoleInput", "Type a command (Tab complete, Up/Down history)", CommandText.data(), CommandText.size(), Flags, InputTextCallback, this))
 		{
 			ExecuteCommand(CommandText.data());
@@ -219,8 +233,10 @@ namespace Durin
 			const int PreviousPosition = Panel->HistoryPosition;
 			if (Data->EventKey == ImGuiKey_UpArrow)
 			{
-				if (Panel->HistoryPosition == -1 && !Panel->History.empty()) Panel->HistoryPosition = static_cast<int>(Panel->History.size()) - 1;
-				else if (Panel->HistoryPosition > 0) --Panel->HistoryPosition;
+				if (Panel->HistoryPosition == -1 && !Panel->History.empty())
+					Panel->HistoryPosition = static_cast<int>(Panel->History.size()) - 1;
+				else if (Panel->HistoryPosition > 0)
+					--Panel->HistoryPosition;
 			}
 			else if (Data->EventKey == ImGuiKey_DownArrow && Panel->HistoryPosition != -1)
 			{
@@ -245,7 +261,8 @@ namespace Durin
 			if (Matches.size() > 1)
 			{
 				std::string Text = "Matches:";
-				for (const std::string& Match : Matches) Text += " " + Match;
+				for (const std::string& Match : Matches)
+					Text += " " + Match;
 				Panel->State->Records.push_back({EConsoleRecordType::Result, {}, std::move(Text)});
 				Panel->bHasNewConsoleRecords = true;
 			}
@@ -260,8 +277,10 @@ namespace Durin
 			std::scoped_lock Lock(State->Mutex);
 			PendingLogs.swap(State->PendingLogs);
 		}
-		for (FLogRecord& Log : PendingLogs) State->Records.push_back({EConsoleRecordType::Log, std::move(Log), {}});
-		while (State->Records.size() > MaxConsoleRecords) State->Records.pop_front();
+		for (FLogRecord& Log : PendingLogs)
+			State->Records.push_back({EConsoleRecordType::Log, std::move(Log), {}});
+		while (State->Records.size() > MaxConsoleRecords)
+			State->Records.pop_front();
 		return !PendingLogs.empty();
 	}
 
@@ -300,7 +319,8 @@ namespace Durin
 		const FConsoleCommandResult Result = FConsoleCommandRegistry::Get().Execute(CommandLine);
 		if (!Result.Message.empty()) State->Records.push_back({Result.bSuccess ? EConsoleRecordType::Result : EConsoleRecordType::Error, {}, Result.Message});
 		if (!Result.bSuccess) DURIN_ERROR("Console command failed: {}", Result.Message);
-		while (State->Records.size() > MaxConsoleRecords) State->Records.pop_front();
+		while (State->Records.size() > MaxConsoleRecords)
+			State->Records.pop_front();
 		bHasNewConsoleRecords = true;
 	}
 

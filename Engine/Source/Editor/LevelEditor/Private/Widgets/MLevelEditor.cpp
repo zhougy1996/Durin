@@ -62,7 +62,7 @@ namespace Durin
 		SessionSettings.ApplyTo(*SceneViewportPanel);
 		Panels.emplace_back(std::move(SceneViewport));
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
-		Panels.emplace_back(std::make_unique<FDetailsPanel>());
+		Panels.emplace_back(std::make_unique<FDetailsPanel>(SessionSettings));
 		Panels.emplace_back(std::make_unique<FConsolePanel>());
 
 		DocumentController = std::make_unique<FLevelDocumentController>(
