@@ -201,7 +201,7 @@ namespace Durin::FShaderPaths
 
 			if (!Component.empty() && Component != "." && Component != "..")
 			{
-				CachePath /= String::SanitizeFileName(Component, "Shader");
+				CachePath /= StringUtils::SanitizeFileName(Component, "Shader");
 			}
 
 			if (ComponentEnd == std::string::npos)
@@ -230,7 +230,7 @@ namespace Durin::FShaderPaths
 			}
 
 			DURIN_WARN("Failed to resolve virtual shader path. Make sure the path is correct and a mount point is registered for it. Virtual shader path: {}", VirtualShaderPath);
-			return std::filesystem::path(FPaths::EngineDir()) / "ShaderCache" / "SPIR-V" / (String::SanitizeFileName(VirtualShaderPath, "Shader") + ".slang");
+			return std::filesystem::path(FPaths::EngineDir()) / "ShaderCache" / "SPIR-V" / (StringUtils::SanitizeFileName(VirtualShaderPath, "Shader") + ".slang");
 		}
 
 	auto ShaderDirectory(std::string_view VirtualShaderPath) -> std::string
@@ -252,7 +252,7 @@ namespace Durin::FShaderPaths
 
 	auto BinaryPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, std::string_view CacheKey) -> std::string
 	{
-		const std::string FileName = String::SanitizeFileName(EntryPoint, "Shader") + ".spv";
+		const std::string FileName = StringUtils::SanitizeFileName(EntryPoint, "Shader") + ".spv";
 		return (ResolveShaderDirectoryPath(VirtualShaderPath) / std::string(CacheKey) / FileName).generic_string();
 	}
 

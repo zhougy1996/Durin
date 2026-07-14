@@ -39,13 +39,13 @@ namespace Durin
 	{
 		uint8 Bytes[8] = {};
 		Uint64ToBytes(HashValue, Bytes);
-		return String::BytesToHex(Bytes);
+		return StringUtils::BytesToHex(Bytes);
 	}
 
 	auto FXxHash64::FromString(std::string_view Value) -> FXxHash64
 	{
 		uint8 Bytes[8] = {};
-		String::HexToBytes(Value, Bytes);
+		StringUtils::HexToBytes(Value, Bytes);
 		return {BytesToUint64(Bytes)};
 	}
 
@@ -81,13 +81,13 @@ namespace Durin
 		uint8 Bytes[16] = {};
 		Uint64ToBytes(HashHigh, std::span<uint8, 8>(Bytes, 8));
 		Uint64ToBytes(HashLow, std::span<uint8, 8>(Bytes + 8, 8));
-		return String::BytesToHex(Bytes);
+		return StringUtils::BytesToHex(Bytes);
 	}
 
 	auto FXxHash128::FromString(std::string_view Value) -> FXxHash128
 	{
 		uint8 Bytes[16] = {};
-		String::HexToBytes(Value, Bytes);
+		StringUtils::HexToBytes(Value, Bytes);
 		return {BytesToUint64(std::span<const uint8, 8>(Bytes + 8, 8)), BytesToUint64(std::span<const uint8, 8>(Bytes, 8))};
 	}
 

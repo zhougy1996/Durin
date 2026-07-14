@@ -18,32 +18,32 @@ namespace
 		const Durin::FXxHash64 Hash64{0x0123456789abcdefull};
 		const std::string Hex64 = Hash64.ToString();
 		EXPECT_EQ(Hex64, "0123456789abcdef");
-		ASSERT_TRUE(Durin::String::IsHex(Hex64, 16));
+		ASSERT_TRUE(Durin::StringUtils::IsHex(Hex64, 16));
 		EXPECT_EQ(Durin::FXxHash64::FromString(Hex64), Hash64);
 
 		const Durin::FXxHash128 Hash128{0x0123456789abcdefull, 0xfedcba9876543210ull};
 		const std::string Hex128 = Hash128.ToString();
 		EXPECT_EQ(Hex128, "fedcba98765432100123456789abcdef");
-		ASSERT_TRUE(Durin::String::IsHex(Hex128, 32));
+		ASSERT_TRUE(Durin::StringUtils::IsHex(Hex128, 32));
 		EXPECT_EQ(Durin::FXxHash128::FromString(Hex128), Hash128);
 	}
 
 	TEST(FXxHashTests, IsHexRejectsInvalidInput)
 	{
-		EXPECT_TRUE(Durin::String::IsHex(""));
-		EXPECT_FALSE(Durin::String::IsHex("xyz"));
-		EXPECT_FALSE(Durin::String::IsHex("0123456789abcdef", 32));
-		EXPECT_FALSE(Durin::String::IsHex("0123456789abcdef0123456789abcdeg", 32));
+		EXPECT_TRUE(Durin::StringUtils::IsHex(""));
+		EXPECT_FALSE(Durin::StringUtils::IsHex("xyz"));
+		EXPECT_FALSE(Durin::StringUtils::IsHex("0123456789abcdef", 32));
+		EXPECT_FALSE(Durin::StringUtils::IsHex("0123456789abcdef0123456789abcdeg", 32));
 	}
 
 	TEST(FXxHashTests, BytesToHexAndHexToBytesRoundTrip)
 	{
 		const std::array<Durin::uint8, 4> Bytes = {0x00, 0x12, 0xab, 0xff};
-		EXPECT_EQ(Durin::String::BytesToHex(std::span<const Durin::uint8>(Bytes)), "0012abff");
+		EXPECT_EQ(Durin::StringUtils::BytesToHex(std::span<const Durin::uint8>(Bytes)), "0012abff");
 
 		std::array<Durin::uint8, 4> ParsedBytes = {};
-		ASSERT_TRUE(Durin::String::IsHex("0012ABff", 8));
-		Durin::String::HexToBytes("0012ABff", ParsedBytes);
+		ASSERT_TRUE(Durin::StringUtils::IsHex("0012ABff", 8));
+		Durin::StringUtils::HexToBytes("0012ABff", ParsedBytes);
 		EXPECT_EQ(ParsedBytes, Bytes);
 	}
 

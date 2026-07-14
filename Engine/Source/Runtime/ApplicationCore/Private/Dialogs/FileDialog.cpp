@@ -46,7 +46,7 @@ namespace Durin
 
 		if (!Request.Title.empty())
 		{
-			const std::wstring Title = String::Utf8ToWide(Request.Title);
+			const std::wstring Title = StringUtils::Utf8ToWide(Request.Title);
 			Dialog->SetTitle(Title.c_str());
 		}
 
@@ -63,8 +63,8 @@ namespace Durin
 		FilterPatterns.reserve(Request.Filters.size());
 		for (const FFileDialogFilter& Filter : Request.Filters)
 		{
-			FilterNames.push_back(String::Utf8ToWide(Filter.DisplayName));
-			FilterPatterns.push_back(String::Utf8ToWide(Filter.Pattern));
+			FilterNames.push_back(StringUtils::Utf8ToWide(Filter.DisplayName));
+			FilterPatterns.push_back(StringUtils::Utf8ToWide(Filter.Pattern));
 		}
 		FilterSpecs.reserve(Request.Filters.size());
 		for (size_t Index = 0; Index < Request.Filters.size(); ++Index)
@@ -76,7 +76,7 @@ namespace Durin
 		IShellItem* InitialFolder = nullptr;
 		if (!Request.InitialDirectory.empty())
 		{
-			const std::wstring InitialDirectory = String::Utf8ToWide(Request.InitialDirectory);
+			const std::wstring InitialDirectory = StringUtils::Utf8ToWide(Request.InitialDirectory);
 			if (SUCCEEDED(::SHCreateItemFromParsingName(InitialDirectory.c_str(), nullptr, IID_PPV_ARGS(&InitialFolder))))
 			{
 				Dialog->SetDefaultFolder(InitialFolder);
@@ -106,7 +106,7 @@ namespace Durin
 		SelectedItem->Release();
 		if (FAILED(Result)) return {EFileDialogStatus::Error, {}, HResultMessage("Reading the selected file path", Result)};
 
-		std::string FilePath = String::WideToUtf8(SelectedPath);
+		std::string FilePath = StringUtils::WideToUtf8(SelectedPath);
 		::CoTaskMemFree(SelectedPath);
 		return {EFileDialogStatus::Selected, std::move(FilePath), {}};
 #else
@@ -126,12 +126,12 @@ namespace Durin
 
 		if (!Request.Title.empty())
 		{
-			const std::wstring Title = String::Utf8ToWide(Request.Title);
+			const std::wstring Title = StringUtils::Utf8ToWide(Request.Title);
 			Dialog->SetTitle(Title.c_str());
 		}
 		if (!Request.DefaultFileName.empty())
 		{
-			const std::wstring DefaultFileName = String::Utf8ToWide(Request.DefaultFileName);
+			const std::wstring DefaultFileName = StringUtils::Utf8ToWide(Request.DefaultFileName);
 			Dialog->SetFileName(DefaultFileName.c_str());
 		}
 
@@ -148,8 +148,8 @@ namespace Durin
 		FilterPatterns.reserve(Request.Filters.size());
 		for (const FFileDialogFilter& Filter : Request.Filters)
 		{
-			FilterNames.push_back(String::Utf8ToWide(Filter.DisplayName));
-			FilterPatterns.push_back(String::Utf8ToWide(Filter.Pattern));
+			FilterNames.push_back(StringUtils::Utf8ToWide(Filter.DisplayName));
+			FilterPatterns.push_back(StringUtils::Utf8ToWide(Filter.Pattern));
 		}
 		FilterSpecs.reserve(Request.Filters.size());
 		for (size_t Index = 0; Index < Request.Filters.size(); ++Index)
@@ -162,7 +162,7 @@ namespace Durin
 		IShellItem* InitialFolder = nullptr;
 		if (!Request.InitialDirectory.empty())
 		{
-			const std::wstring InitialDirectory = String::Utf8ToWide(Request.InitialDirectory);
+			const std::wstring InitialDirectory = StringUtils::Utf8ToWide(Request.InitialDirectory);
 			if (SUCCEEDED(::SHCreateItemFromParsingName(InitialDirectory.c_str(), nullptr, IID_PPV_ARGS(&InitialFolder))))
 			{
 				Dialog->SetDefaultFolder(InitialFolder);
@@ -192,7 +192,7 @@ namespace Durin
 		SelectedItem->Release();
 		if (FAILED(Result)) return {EFileDialogStatus::Error, {}, HResultMessage("Reading the asset destination path", Result)};
 
-		std::string FilePath = String::WideToUtf8(SelectedPath);
+		std::string FilePath = StringUtils::WideToUtf8(SelectedPath);
 		::CoTaskMemFree(SelectedPath);
 		return {EFileDialogStatus::Selected, std::move(FilePath), {}};
 #else

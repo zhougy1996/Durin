@@ -31,7 +31,7 @@ namespace Durin
 
 		auto ReflectionPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, const FShaderVariantKey& VariantKey) -> std::string
 		{
-			const std::string FileName = String::SanitizeFileName(EntryPoint, "Shader") + ".reflect.json";
+			const std::string FileName = StringUtils::SanitizeFileName(EntryPoint, "Shader") + ".reflect.json";
 			return (std::filesystem::path(FShaderPaths::CacheDirectory(VirtualShaderPath, VariantKey.Hex)) / FileName).generic_string();
 		}
 
@@ -110,7 +110,7 @@ namespace Durin
 			}
 
 			const std::string HashString = Root.GetView("Hash").GetString();
-			if (!String::IsHex(HashString, 32))
+			if (!StringUtils::IsHex(HashString, 32))
 			{
 				return false;
 			}
@@ -205,7 +205,7 @@ namespace Durin
 		OutMetaData = {};
 
 		const std::string SourceTreeSignature = Root.GetView("SourceTreeSignature").GetString();
-		if (!String::IsHex(SourceTreeSignature, 32))
+		if (!StringUtils::IsHex(SourceTreeSignature, 32))
 		{
 			return false;
 		}

@@ -8,7 +8,7 @@ namespace Durin
 		static std::string ExecutablePath = []() {
 			wchar_t WBuffer[MAX_PATH];
 			GetModuleFileNameW(nullptr, WBuffer, MAX_PATH);
-			return String::WideToUtf8(WBuffer);
+			return StringUtils::WideToUtf8(WBuffer);
 		}();
 		return ExecutablePath.c_str();
 	}
@@ -37,7 +37,7 @@ namespace Durin
 
 	auto FWindowsPlatformProcess::LaunchProcess(std::string_view Executable, std::string_view Arguments, std::string* OutError) -> bool
 	{
-		std::wstring CommandLine = L"\"" + String::Utf8ToWide(Executable) + L"\" " + String::Utf8ToWide(Arguments);
+		std::wstring CommandLine = L"\"" + StringUtils::Utf8ToWide(Executable) + L"\" " + StringUtils::Utf8ToWide(Arguments);
 		STARTUPINFOW StartupInfo{};
 		StartupInfo.cb = sizeof(StartupInfo);
 		PROCESS_INFORMATION ProcessInfo{};

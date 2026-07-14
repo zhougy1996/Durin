@@ -19,7 +19,7 @@ namespace Durin
 
 		static auto AddRuntimeBinaryDirectory(const char* Directory) -> void
 		{
-			AddDllDirectory(String::Utf8ToWide(Directory).c_str());
+			AddDllDirectory(StringUtils::Utf8ToWide(Directory).c_str());
 		}
 
 		static auto LoadLibrary(const std::string& FileName) -> FModuleHandle

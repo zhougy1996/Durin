@@ -145,7 +145,7 @@ namespace Durin
 		const std::string PreviousAssetPath = AssetPathBuffer.data();
 		SourcePathBuffer.fill(0);
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
-		const std::string AssetName = String::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
+		const std::string AssetName = StringUtils::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
 		const FProjectInfo* Project = GetCurrentProject();
 		const std::string SuggestedPath = (Project ? Project->MountRoot : "/") + "StaticMeshes/" + AssetName;
 		if (PreviousAssetPath.empty() || PreviousAssetPath == LastSuggestedAssetPath)
@@ -162,7 +162,7 @@ namespace Durin
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Choose a Static Mesh Asset Path";
 		Request.Filters = {{"Durin Asset", "*.dasset"}};
-		Request.DefaultFileName = SourcePathBuffer[0] != '\0' ? String::SanitizeFileName(std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(), "StaticMesh") + ".dasset" : "StaticMesh.dasset";
+		Request.DefaultFileName = SourcePathBuffer[0] != '\0' ? StringUtils::SanitizeFileName(std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(), "StaticMesh") + ".dasset" : "StaticMesh.dasset";
 
 		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
 		{
