@@ -26,6 +26,15 @@ that match the task at hand.
 - Rendering changes usually span `RHI`, `VulkanRHI`.
 - UI or rendering changes should be validated by building and running `DurinEditor`, not only by compiling.
 - `CoreStd.h` already supplies the common standard-library headers used across the codebase; do not add new STL includes unless the compiler requires one in that translation unit.
+- Preserve or add concise comments where non-obvious reasoning, constraints, invariants, or tradeoffs materially shape the design. Comments should explain why the design exists and what must remain true; do not merely restate the code. Do not remove such comments during refactoring unless the underlying design no longer applies, and update them whenever that design changes.
+
+## Agent Handoff
+
+- After completing a substantial change, include exactly one proposed commit subject in the final response. A change is substantial when it alters behavior, architecture, build flow, or several related files; trivial inspection or advice-only tasks do not require one.
+- Format the subject as `<type>(<scope>): <imperative summary>`, using a short lowercase scope and an imperative summary with no trailing period. Prefer one of `feat`, `fix`, `refactor`, `perf`, `build`, `test`, `docs`, or `chore` for `type`.
+- Keep the subject concise and describe the user-visible or architectural outcome rather than the editing process. Example: `refactor(rhi): centralize swapchain lifetime management`.
+- When a commit contains several related changes, use one subject that summarizes their shared outcome and optionally follow it with a short bullet-list body describing the individual results. Do not enumerate every edit in the subject. If the changes have no coherent shared outcome, recommend splitting them into separate commits instead.
+- When a change has been validated with a successful full build, the final response may include a direct local link to the resulting executable so it can be launched conveniently. Confirm that the linked artifact exists and belongs to the Agent Build Profile used for validation. A partial or single-target build does not require an executable link.
 
 ## When To Open Which Doc
 
