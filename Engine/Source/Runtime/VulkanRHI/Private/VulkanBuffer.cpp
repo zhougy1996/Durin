@@ -76,6 +76,7 @@ namespace Durin::VulkanRHI
 
 		LockStatus = ELockStatus::Locked;
 		void* Data = nullptr;
+		uint32 MappedOffset = Offset;
 
 		if (LockMode == EResourceLockMode::ReadOnly)
 		{
@@ -90,6 +91,7 @@ namespace Durin::VulkanRHI
 			{
 				auto* StagingBuffer = new FStagingBuffer(Device, Size);
 				Data = StagingBuffer->GetMappedPointer();
+				MappedOffset = 0;
 				AddPendingLock(this, FVulkanPendingBufferLock{StagingBuffer, Offset, Size, LockMode, true});
 			}
 			else
@@ -108,7 +110,7 @@ namespace Durin::VulkanRHI
 		}
 
 		check(Data);
-		return static_cast<uint8*>(Data) + Offset;
+		return static_cast<uint8*>(Data) + MappedOffset;
 	}
 
 	auto FVulkanBuffer::Unlock(const FRHICommandListImmediate& RHICmdList) -> void
@@ -130,7 +132,7 @@ namespace Durin::VulkanRHI
 			auto& Context = static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext());
 			vk::CommandBuffer CmdBufferHandle = Context.GetCommandBuffer()->GetHandle();
 			vk::BufferCopy CopyRegion;
-			CopyRegion.setSrcOffset(BufferLock.Offset);
+			CopyRegion.setSrcOffset(0);
 			CopyRegion.setDstOffset(BufferLock.Offset);
 			CopyRegion.setSize(BufferLock.Size);
 			CmdBufferHandle.copyBuffer(StagingBuffer->GetHandle(), Buffer, CopyRegion);
