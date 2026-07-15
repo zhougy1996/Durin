@@ -13,7 +13,7 @@ cmake --preset Win64-Debug-DurinEditor-Tests
 The preset above is available for human test builds. Agents use the Agent build script:
 
 ```powershell
-& "Engine/Scripts/Build/AgentBuild.ps1" Configure
+.\BuildTool Configure
 ```
 
 The Agent build profile uses the same `Win64-Debug-DurinEditor-Tests` preset and output paths. Its dedicated worktree provides isolation from other branches and IDE sessions.
@@ -27,7 +27,7 @@ cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests --parallel
 Agents use:
 
 ```powershell
-& "Engine/Scripts/Build/AgentBuild.ps1" Test -Target CoreTests
+.\BuildTool Test --target CoreTests
 ```
 
 Both examples use machine-appropriate parallelism without prescribing a fixed count. See `Documentation/Setup/BuildAndRun.md` for Agent job detection and local overrides.
@@ -59,7 +59,7 @@ Run the executable directly:
 The equivalent Agent command is:
 
 ```powershell
-& "Engine/Scripts/Build/AgentBuild.ps1" Test -Target CoreTests
+.\BuildTool Test --target CoreTests
 ```
 
 Run a single GoogleTest case:
@@ -71,7 +71,7 @@ Run a single GoogleTest case:
 The equivalent Agent command is:
 
 ```powershell
-& "Engine/Scripts/Build/AgentBuild.ps1" Test -Target CoreTests -Filter FJsonDocumentTests.ParseObjectFromString
+.\BuildTool Test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
 ```
 
 ## Output Layout

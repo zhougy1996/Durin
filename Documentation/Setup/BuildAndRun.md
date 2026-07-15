@@ -29,16 +29,19 @@ Use the `*-Tests` preset when native test targets are needed. Normal editor/game
 
 Agents run in dedicated worktrees and use the regular `Win64-Debug-DurinEditor-Tests` preset for editor builds and automated validation. Worktree-local `Build/`, `Engine/Binaries/`, and `Engine/Intermediate/` directories provide the isolation, so Agent builds use the same paths and artifacts that an IDE opened on that worktree expects.
 
-Agents invoke this workflow through the cross-platform Python driver. Registered profiles in `Engine/Scripts/Build/AgentBuildProfiles.json` bind a host, required commands, and toolchain environment provider to a CMake preset and test output. The driver refuses unregistered presets. Environment providers may locate toolchain-bundled commands such as Visual Studio's Ninja without adding machine paths to the tracked profile. Windows users may use the PowerShell compatibility wrapper:
+Agents invoke this workflow through the cross-platform Python driver. Registered profiles in `Engine/Scripts/Build/AgentBuildProfiles.json` bind a host, required commands, and toolchain environment provider to a CMake preset and test output. The driver refuses unregistered presets. Environment providers may locate toolchain-bundled commands such as Visual Studio's Ninja without adding machine paths to the tracked profile. Windows Agents must use the root-level batch wrapper from PowerShell or Command Prompt; it fixes `VSLANG=1033` before Visual Studio environment initialization, forwards all arguments, and returns the driver's exit code:
 
 ```powershell
-python Engine/Scripts/Build/agent_build.py Configure
-python Engine/Scripts/Build/agent_build.py Build --target LevelEditor
-python Engine/Scripts/Build/agent_build.py Clean
-python Engine/Scripts/Build/agent_build.py Rebuild --target all
-python Engine/Scripts/Build/agent_build.py Test --target CoreTests --filter FJsonDocumentTests.*
-& "Engine/Scripts/Build/AgentBuild.ps1" Build -Target LevelEditor
+.\BuildTool Configure
+.\BuildTool Build --target LevelEditor
+.\BuildTool Clean
+.\BuildTool Rebuild --target all
+.\BuildTool Test --target CoreTests --filter FJsonDocumentTests.*
 ```
+
+On non-Windows hosts, use `python Engine/Scripts/Build/agent_build.py <arguments>`. Direct Python invocation on Windows bypasses the wrapper-owned MSVC language guarantee and is not a supported Agent entrypoint.
+
+When invoking `BuildTool.bat` from another batch file, use `call BuildTool.bat <arguments>` so execution returns to the calling script.
 
 Profile selection precedence is `--profile`, `DURIN_AGENT_BUILD_PROFILE`, `defaultBuildProfile` in the local config, then the current host's unique default profile. CMake selection precedence is `--cmake`, `DURIN_CMAKE_COMMAND` (or legacy `DURIN_CMAKE_PATH`), `cmakeCommand` in the local config, then `cmake` on `PATH`.
 
@@ -58,7 +61,7 @@ During development iteration, prefer building only the target needed for the cur
 cmake --build Build/Win64-Debug-DurinEditor --target DurinLauncher --parallel
 cmake --build Build/Win64-Debug-DurinEditor --target RenderCore --parallel
 cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests --parallel
-python Engine/Scripts/Build/agent_build.py Build --target CoreTests
+.\BuildTool Build --target CoreTests
 ```
 
 The Agent driver serializes operations that use the same registered build profile. If another Configure, Build, Clean, Rebuild, or Test operation already owns that profile's build tree, a second invocation fails with information about the active operation. Different registered Agent profiles retain independent locks.
@@ -73,7 +76,7 @@ If a build is interrupted by a timeout, cancellation, terminal closure, or agent
 2. Run a Rebuild of the complete profile:
 
    ```powershell
-   python Engine/Scripts/Build/agent_build.py Rebuild --target all
+   .\BuildTool Rebuild --target all
    ```
 
 3. Only launch the editor after that command succeeds.
@@ -91,7 +94,7 @@ A runtime smoke test must only be performed after a successful full build of the
 Use the registered Agent build driver and build the `all` target before launching the editor:
 
 ```powershell
-python Engine/Scripts/Build/agent_build.py Build --target all
+.\BuildTool Build --target all
 & "Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe"
 ```
 
@@ -99,7 +102,7 @@ Agents are authorized to execute the editor executable produced in their dedicat
 
 ### IDE Debugging In An Agent Worktree
 
-Open the Agent worktree root in a separate IDE window and select `Win64-Debug-DurinEditor-Tests`. The IDE then uses the exact source revision and Debug artifacts produced by the Agent driver, including `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`, without source remapping or a second Agent-specific preset. Stop or finish the Agent build before allowing the IDE to configure, build, or debug that worktree; hand the worktree back to the Agent after the IDE operation ends.
+Open the Agent worktree root in a separate IDE window and select `Win64-Debug-DurinEditor` for the IDE code model. IDE Configure and CMake Reload use their own `Build/Win64-Debug-DurinEditor` tree and are allowed when no Agent build is active. Build, Clean, Rebuild, and Test remain driver-owned operations and must use `BuildTool.bat`; disable IDE build-before-launch steps. The IDE can then debug the exact source revision and the Agent-produced `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe` without source remapping. Set `VSLANG=1033` in the IDE CMake profile as well so its Configure and dependency scanning use the same MSVC language.
 
 ## Run And Output Layout
 

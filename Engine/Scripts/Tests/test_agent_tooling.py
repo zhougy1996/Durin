@@ -34,7 +34,6 @@ class AgentBuildConfigTests(unittest.TestCase):
         self.assertEqual(config["defaultBuildProfile"], "")
         self.assertEqual(config["jobs"], 0)
         self.assertEqual(config["environmentSetup"], {"script": "", "arguments": []})
-
     def test_valid_config_is_loaded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
@@ -69,6 +68,15 @@ class AgentBuildConfigTests(unittest.TestCase):
             path.write_text(json.dumps({"jobs": 257}), encoding="utf-8")
             with self.assertRaisesRegex(agent_build.AgentBuildError, "integer from 0 to 256"):
                 agent_build.load_local_config(path)
+
+
+class WindowsBuildWrapperTests(unittest.TestCase):
+    def test_wrapper_establishes_msvc_language_and_forwards_all_arguments(self) -> None:
+        content = (REPO_ROOT / "BuildTool.bat").read_text(encoding="utf-8")
+
+        self.assertIn('set "VSLANG=1033"', content)
+        self.assertIn('Engine\\Scripts\\Build\\agent_build.py" %*', content)
+        self.assertIn("exit /b %ERRORLEVEL%", content)
 
 
 class AgentBuildProfileTests(unittest.TestCase):
@@ -106,7 +114,7 @@ class AgentBuildProfileTests(unittest.TestCase):
             )
 
     def test_host_without_profile_does_not_fall_back(self) -> None:
-        with self.assertRaisesRegex(agent_build.AgentBuildError, "No isolated"):
+        with self.assertRaisesRegex(agent_build.AgentBuildError, "No Agent build profile"):
             agent_build.select_profile(self.profiles, environment={}, current_host="macos")
 
     def test_cmake_precedence_and_invalid_path(self) -> None:
