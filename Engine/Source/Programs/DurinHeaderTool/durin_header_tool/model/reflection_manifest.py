@@ -31,6 +31,14 @@ def load_module_manifest_file(module_name: str) -> ModuleManifest:
     except json.JSONDecodeError as e:
         raise ValueError(f"Error parsing JSON in module manifest file '{manifest_file_path}': {e}")
 
+    if not isinstance(data, dict):
+        raise ValueError(f"Module manifest file '{manifest_file_path}' must contain a JSON object.")
+
+    object_fields = ("DependencyExports", "ReflectHeaders", "ResolvedSymbolDependencies")
+    for field_name in object_fields:
+        if not isinstance(data.get(field_name, {}), dict):
+            raise ValueError(f"Field '{field_name}' in module manifest file '{manifest_file_path}' must be a JSON object.")
+
     return ModuleManifest(
         module_name=data.get("ModuleName", module_name),
         schema_version=data.get("SchemaVersion", 0),

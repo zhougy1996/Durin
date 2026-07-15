@@ -12,6 +12,7 @@ from .file_helper import (
     is_file_changed,
     verify_file_fingerprint,
 )
+from .output_lock import acquire_output_lock
 from .path_helper import (
     get_dht_tool_dir,
     get_module_cmake_file_path,

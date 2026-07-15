@@ -17,6 +17,41 @@ from durin_header_tool import io as utils
 from durin_header_tool.runtime.worker_context import initialize_worker_config
 
 
+def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, ModuleExportManifest | None]:
+    export_file_path = utils.get_module_export_file_path(module_name)
+    export_manifest_path = utils.get_module_export_manifest_file_path(module_name)
+    old_export_info = None
+    old_manifest = None
+
+    if export_file_path.exists():
+        try:
+            old_export_info = load_module_export_file(export_file_path)
+        except (OSError, UnicodeError, ValueError, TypeError, AttributeError, KeyError) as error:
+            logging.warning(
+                "[DHT] Export %s: ignoring invalid export %s (%s)",
+                module_name,
+                export_file_path,
+                error,
+            )
+
+    if export_manifest_path.exists():
+        try:
+            old_manifest = load_module_export_manifest_file(export_manifest_path)
+        except (OSError, UnicodeError, ValueError, TypeError, AttributeError, KeyError) as error:
+            logging.warning(
+                "[DHT] Export %s: ignoring invalid manifest %s (%s)",
+                module_name,
+                export_manifest_path,
+                error,
+            )
+
+    # The export and its private manifest form one cache entry. Reuse neither
+    # half when the other half is missing or invalid.
+    if old_export_info is None or old_manifest is None:
+        return None, None
+    return old_export_info, old_manifest
+
+
 def _parse_header_export_worker(args):
     module_name, header, arch, profile = args
 
@@ -176,10 +211,9 @@ def generate_module_export_file(module_name):
     start_time = time.perf_counter()
     export_file_path = utils.get_module_export_file_path(module_name)
     export_manifest_path = utils.get_module_export_manifest_file_path(module_name)
-    old_export_info = load_module_export_file(export_file_path) if export_file_path.exists() else None
-    old_manifest = load_module_export_manifest_file(export_manifest_path) if export_manifest_path.exists() else None
+    old_export_info, old_manifest = _load_previous_export(module_name)
     new_manifest = _make_current_export_manifest(module_name, old_manifest)
-    if _is_export_current(old_manifest, new_manifest, export_file_path.exists()):
+    if _is_export_current(old_manifest, new_manifest, old_export_info is not None):
         save_module_export_manifest_file(new_manifest)
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         logging.info(

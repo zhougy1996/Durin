@@ -26,6 +26,22 @@ from durin_header_tool.runtime.worker_context import initialize_worker_config
 from durin_header_tool.writers.reflection_source_writer import generate_cpp_content, generate_header_content
 
 
+def _load_previous_manifest(module_name: str) -> ModuleManifest | None:
+    manifest_file_path = utils.get_module_manifest_file_path(module_name)
+    if not manifest_file_path.exists():
+        return None
+    try:
+        return load_module_manifest_file(module_name)
+    except (OSError, UnicodeError, ValueError, TypeError, AttributeError, KeyError) as error:
+        logging.warning(
+            "[DHT] Reflection %s: ignoring invalid manifest %s (%s)",
+            module_name,
+            manifest_file_path,
+            error,
+        )
+        return None
+
+
 def _generated_output_paths(module_name: str, header: str) -> list[Path]:
     output_dir = utils.get_module_dht_output_dir(module_name)
     header_filename = Path(header).stem
@@ -202,8 +218,7 @@ def _write_reflection_files(module_name: str, headers_to_regenerate: list[str], 
 def generate_reflection_files(module_name: str) -> None:
     start_time = time.perf_counter()
     logging.info("[DHT] Reflection %s: preparing manifest", module_name)
-    manifest_file_path = utils.get_module_manifest_file_path(module_name)
-    old_manifest: ModuleManifest = load_module_manifest_file(module_name) if manifest_file_path.exists() else None
+    old_manifest = _load_previous_manifest(module_name)
     new_manifest = make_new_module_manifest(module_name, old_manifest)
 
     symbols = None

@@ -1,6 +1,7 @@
 import argparse
 import logging
 from durin_header_tool import config as configs
+from durin_header_tool import io as utils
 from .command import (
     CommandManager,
     EmptyCommand,
@@ -27,11 +28,33 @@ def main():
     configs.ARCH = args.arch
     configs.PROFILE_NAME = args.profile
     init_logging(args.log)
-    project_files = list(args.project_file)
-    if args.function == "prepare_project_build":
-        project_files.append(args.project)
-    configs.init_configs(project_files)
-    command_manager.execute_command(args.function, args)
+    mutating_commands = {
+        "prepare_project_build",
+        "generate_module_export_file",
+        "generate_reflection_files",
+    }
+
+    def execute() -> None:
+        project_files = list(args.project_file)
+        if args.function == "prepare_project_build":
+            project_files.append(args.project)
+        configs.init_configs(project_files)
+        command_manager.execute_command(args.function, args)
+
+    if args.function in mutating_commands:
+        lock_path = (
+            configs.environment.DURIN_ENGINE_PROJECT_DIR
+            / "Intermediate"
+            / "Build"
+            / ".dht-locks"
+            / configs.ARCH
+            / configs.PROFILE_NAME
+            / f"{configs.BUILD_IDENTIFIER or '_default'}.lock"
+        )
+        with utils.acquire_output_lock(lock_path, args.function):
+            execute()
+    else:
+        execute()
 
 if __name__ == "__main__":
     main()

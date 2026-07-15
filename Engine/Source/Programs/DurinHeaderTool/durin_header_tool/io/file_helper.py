@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import logging
 import hashlib
+import os
+import tempfile
 from typing import Optional, Tuple
 
 @dataclass
@@ -118,11 +120,34 @@ def generate_file(file_path: Path, content: str, compare: bool = True) -> None:
     file_path.parent.mkdir(parents=True, exist_ok=True)
     # Only write file if content has changed
     if compare and file_path.exists():
-        with open(file_path, "r", encoding="utf-8") as f:
-            existing_content = f.read()
-            if existing_content == content:
-                logging.debug(f"No changes detected for {file_path}. Skipping write.")
-                return
-    # Write new content to file no matter what
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(content)
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+                if existing_content == content:
+                    logging.debug(f"No changes detected for {file_path}. Skipping write.")
+                    return
+        except UnicodeError:
+            # Generated files are UTF-8 text. Invalid existing bytes are a
+            # damaged cache entry and should be replaced, not block recovery.
+            pass
+    # Write beside the destination so os.replace can commit the complete file
+    # atomically. A killed DHT process must never leave a truncated generated file.
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=file_path.parent,
+            prefix=f".{file_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            temp_file.write(content)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, file_path)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)

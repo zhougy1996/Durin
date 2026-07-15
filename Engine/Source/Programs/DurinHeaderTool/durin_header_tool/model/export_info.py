@@ -34,6 +34,8 @@ class ModuleExportInfo:
     @classmethod
     def from_file(cls, module_export_file_path: Path) -> "ModuleExportInfo":
         raw_json_data = utils.load_json_file(module_export_file_path)
+        if not isinstance(raw_json_data, dict) or not isinstance(raw_json_data.get("Symbols", {}), dict):
+            raise ValueError(f"Module export file '{module_export_file_path}' has an invalid JSON structure.")
         symbols = {
             qualified_name: ExportedSymbolInfo(**symbol_data)
             for qualified_name, symbol_data in raw_json_data.get("Symbols", {}).items()
@@ -59,6 +61,8 @@ class ModuleExportManifest:
     @classmethod
     def from_file(cls, module_export_manifest_file_path: Path) -> "ModuleExportManifest":
         raw_json_data = utils.load_json_file(module_export_manifest_file_path)
+        if not isinstance(raw_json_data, dict) or not isinstance(raw_json_data.get("ReflectHeaders", {}), dict):
+            raise ValueError(f"Module export manifest file '{module_export_manifest_file_path}' has an invalid JSON structure.")
         return cls(
             SchemaVersion=raw_json_data.get("SchemaVersion", 0),
             ToolVersion=raw_json_data.get("ToolVersion", ""),
