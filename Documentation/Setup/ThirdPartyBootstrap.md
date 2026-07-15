@@ -29,7 +29,7 @@ python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 - Use `--source` when the prepared dependency worktree is not the main worktree root.
 - `Setup.bat` switches to `PrepareWorktree.bat` only when the checkout has a valid linked-worktree `.git` pointer; otherwise it falls back to the normal full bootstrap.
 
-Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` per worktree.
+Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` local to each worktree; never junction or share them. Build ownership and IDE rules are documented in `BuildAndRun.md`.
 
 `Documentation/Setup/TP_AGENT_BUILD_CONFIG.json` is the starter template for optional machine-local build overrides. Toolchain definitions and Agent preset selection belong in the tracked Agent Build Profile manifest instead.
 

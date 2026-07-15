@@ -23,7 +23,7 @@ Important helper APIs:
 
 `add_durin_project(...)` invokes DurinHeaderTool, imports generated project metadata from `Engine/Intermediate/Build[-Identifier]/<Platform>/<Profile>/...`, resolves active profile-derived values, and then adds module subdirectories for the current project.
 
-DHT writes use atomic replacement and cross-process locks rooted by build identifier, target platform, and runtime profile. Project metadata has a project lock, and each module has its own lock shared by export and reflection generation. Project preparation additionally takes every affected module lock before cleaning or regenerating module metadata. This keeps conflicting writers serialized without blocking independent module generation, allowing Ninja to schedule DHT work in parallel. A profile lock remains reserved for operations that truly mutate profile-wide indexes or cleanup state. Debug and Release intentionally share the same configuration-independent metadata, while identifier-specific workflows use independent roots and locks.
+DHT uses atomic replacement and cross-process locks scoped by build identifier, platform, profile, project, and module. Conflicting writers serialize while independent modules remain parallel. Debug and Release intentionally share configuration-independent metadata; identifier-specific workflows use independent roots.
 
 Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMake/SandBoxSetup.cmake` run before that helper and may perform project-specific setup such as third-party registration.
 
@@ -31,9 +31,11 @@ Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMak
 
 ## Build Output Identifiers
 
-`DURIN_BUILD_IDENTIFIER` optionally isolates workflow-owned binary and generated metadata outputs without changing build semantics or profile behavior. Binary outputs append the identifier to the configuration, while DHT metadata appends it to the intermediate root. Normal Agent builds do not need an identifier because they run in dedicated worktrees; the option remains available for specialized workflows that must coexist in one checkout.
+`DURIN_BUILD_IDENTIFIER` optionally isolates binary and generated metadata outputs without changing build semantics. Binary configurations and DHT intermediate roots append the identifier. Normal builds leave it empty and use separate worktrees when workflows need concurrency.
 
-Do not use identifiers for compile-time feature selection or runtime module naming. Presets using the same identifier, platform, and profile share one DHT path and lock. Build configuration is deliberately absent because current generated metadata does not vary between Debug, Release, and Shipping.
+Do not use identifiers for feature selection or runtime module naming. Presets with the same identifier, platform, and profile share one DHT path because generated metadata does not vary by Debug, Release, or Shipping.
+
+A preset's `binaryDir` isolates CMake, object, and Ninja state only—not Durin's final outputs or DHT metadata. This is why the IDE and Agent may keep separate CMake trees but still must follow the single-writer workflow in `BuildAndRun.md`.
 
 ## Module Output Naming
 

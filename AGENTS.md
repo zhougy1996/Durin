@@ -15,19 +15,17 @@ that match the task at hand.
   `Documentation/Architecture/WorkspaceProjects.md`
 - Runtime boot flow and subsystem relationships:
   `Documentation/Architecture/RuntimeArchitecture.md`
-- Machine-local Agent build overrides:
-  `.agents/build-config.json`; run `Setup.bat`, `Engine/Scripts/Bootstrap/InitializeAgentConfig.bat`, or the cross-platform `initialize_agent_config.py` to create it from the tracked template when missing. It is optional machine data, not team policy.
+- Machine-local Agent build overrides: `.agents/build-config.json`. Run `Setup.bat` to create it when needed; it is optional machine data, not team policy.
 
 ## Repository Rules
 
-- Agents must run in a dedicated checkout/worktree. On Windows, all Agent Configure, Build, Clean, Rebuild, and Test actions must use the root-level `BuildTool.bat`; it establishes the stable MSVC environment before forwarding to `Engine/Scripts/Build/agent_build.py`. On other hosts, invoke the Python driver directly. The worktree owns its build tree, generated metadata, and binary outputs. Do not run an Agent build in a checkout concurrently owned by a human or another workflow.
-- Long Agent builds must be allowed to keep running and observed by waiting on the existing process. Do not use short command timeouts to sample build progress or start a replacement build while the previous `cmake`, `ninja`, compiler, or linker process tree may still be running.
-- If an Agent build is interrupted, confirm that its old process tree has exited, then recover with `.\BuildTool Rebuild --target all` on Windows or `python Engine/Scripts/Build/agent_build.py Rebuild --target all` on other hosts. Do not resume with an ordinary incremental build. The driver records interrupted operations and rejects unsafe incremental Build/Test actions until a Rebuild succeeds.
-- Generated metadata lives under the current worktree's `Engine/Intermediate/Build/<Platform>/<Profile>/`. DHT serializes commands that share the same build identifier, platform, and profile, but this does not make concurrent CMake or Ninja operations on one build tree safe. Do not bypass the registered Agent workflow inside an Agent-owned worktree.
+- Each checkout has one source/build writer at a time; use separate worktrees only for concurrent workflows. On Windows, all Agent Configure, Build, Clean, Rebuild, and Test actions use root-level `BuildTool.bat`; on other hosts, use `Engine/Scripts/Build/agent_build.py`.
+- An IDE observing an Agent-owned checkout uses `Win64-Debug-DurinEditor-FastConfigure` for code model and debugging only. Set `VSLANG=1033`, remove build-before-launch, never invoke IDE build actions, and do not Configure/Reload while `BuildTool` is active.
+- Let long builds continue under their original invocation. After an interruption, wait for the old process tree to exit, then recover with `.\BuildTool Rebuild --target all` on Windows or the equivalent driver command on other hosts; never resume incrementally.
 - Generated metadata is part of the source of truth. If a module looks incomplete, inspect `Engine/Intermediate/Build/...` and DHT outputs before assuming files are missing.
 - Runtime-loaded module binaries must keep the `<Profile>-<Module>` naming convention from `CMake/Project/ProjectTargets.cmake`.
 - Rendering changes usually span `RHI`, `VulkanRHI`.
-- UI or rendering changes should be validated by building and running `DurinEditor`, not only by compiling. A runtime smoke test requires a successful full `all` build of the same Agent Build Profile first; a partial or single-target build is not sufficient. Agents are authorized to execute the editor executable produced in their own worktree for validation.
+- UI or rendering changes should be validated by building and running `DurinEditor`, not only by compiling. A runtime smoke test requires a successful full `all` build of the same Agent Build Profile first; a partial or single-target build is not sufficient. Agents are authorized to execute the editor executable produced in their owned checkout for validation.
 - `CoreStd.h` already supplies the common standard-library headers used across the codebase; do not add new STL includes unless the compiler requires one in that translation unit.
 - Preserve or add concise comments where non-obvious reasoning, constraints, invariants, or tradeoffs materially shape the design. Comments should explain why the design exists and what must remain true; do not merely restate the code. Do not remove such comments during refactoring unless the underlying design no longer applies, and update them whenever that design changes.
 
@@ -43,7 +41,7 @@ that match the task at hand.
 
 - Open `BuildAndRun.md` for local setup, configure, build, run, and output layout.
 - Open `ThirdPartyBootstrap.md` for dependency preparation, worktree sharing, and external layout.
-- Open `NativeTests.md` for test presets, test execution, and adding native test targets.
+- Open `NativeTests.md` for test execution and adding native test targets.
 - Open `BuildSystem.md` for generated metadata flow and the CMake entrypoints that own it.
 - Open `Profiles.md` for profile semantics, presets, compile definitions, and adding a new profile.
 - Open `WorkspaceProjects.md` for workspace/project/module/profile boundaries.

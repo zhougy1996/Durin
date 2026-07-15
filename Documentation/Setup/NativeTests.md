@@ -1,95 +1,35 @@
 # Native C++ Tests
 
-This document covers the native test presets, execution flow, and the minimum pattern for adding new test targets.
-
-## Configure And Build
-
-Native tests are enabled only when `BUILD_TESTING=ON`. Use the dedicated test preset:
-
-```powershell
-cmake --preset Win64-Debug-DurinEditor-Tests
-```
-
-The preset above is available for human test builds. Agents use the Agent build script:
-
-```powershell
-.\BuildTool Configure
-```
-
-The Agent build profile uses the same `Win64-Debug-DurinEditor-Tests` preset and output paths. Its dedicated worktree provides isolation from other branches and IDE sessions.
-
-Build a specific test target:
-
-```powershell
-cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests --parallel
-```
-
-Agents use:
-
-```powershell
-.\BuildTool Test --target CoreTests
-```
-
-Both examples use machine-appropriate parallelism without prescribing a fixed count. See `Documentation/Setup/BuildAndRun.md` for Agent job detection and local overrides.
-
-Normal editor/game presets keep `BUILD_TESTING=OFF`.
+This document covers running native tests and adding test targets. Native tests are enabled by the Agent driver's `Win64-Debug-DurinEditor-Tests` preset.
 
 ## Run Tests
 
-Run all discovered tests:
-
-```powershell
-ctest --test-dir Build/Win64-Debug-DurinEditor-Tests -C Debug --output-on-failure
-```
-
-Agents use the script's `Test` action to build and run a specific native test target.
-
-Run one test group:
-
-```powershell
-ctest --test-dir Build/Win64-Debug-DurinEditor-Tests -C Debug --output-on-failure -R FJsonDocumentTests
-```
-
-Run the executable directly:
-
-```powershell
-.\Engine\Binaries\Win64\Debug\Tests\DurinEditor\Bin\CoreTests.exe
-```
-
-The equivalent Agent command is:
+Build and run a test executable through the root wrapper:
 
 ```powershell
 .\BuildTool Test --target CoreTests
-```
-
-Run a single GoogleTest case:
-
-```powershell
-.\Engine\Binaries\Win64\Debug\Tests\DurinEditor\Bin\CoreTests.exe --gtest_filter=FJsonDocumentTests.ParseObjectFromString
-```
-
-The equivalent Agent command is:
-
-```powershell
 .\BuildTool Test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
 ```
+
+The first command runs the target's discovered tests. The second passes a GoogleTest filter. Build ownership, recovery, and parallelism rules are documented in `Documentation/Setup/BuildAndRun.md`.
+
+For diagnosis, the corresponding executable is under `Engine/Binaries/Win64/Debug/Tests/DurinEditor/Bin/` and may be run directly with normal GoogleTest arguments. CTest discovery state is in `Build/Win64-Debug-DurinEditor-Tests`.
 
 ## Output Layout
 
 - Test executables: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
-- Per-target data and work roots follow the same configuration directory.
+- Per-target checked-in inputs: `<TestRoot>/Data/`
+- Per-target generated and round-trip files: `<TestRoot>/Work/`
 
-Keep generated round-trip files and discovery outputs in the target work directory, not in `Bin/`.
+Do not write generated files into `Bin/` or the checked-in data directory.
 
-## Add A New Test Target
+## Add A Test Target
 
-Minimum steps:
-
-1. Create a new folder under `Engine/Source/Programs/Tests`.
-2. Add a `CMakeLists.txt` that uses `add_durin_test(...)`.
-3. Link the target against the required engine modules and `GTest::gtest_main`.
-4. Deploy required engine DLLs to `Bin/` and checked-in inputs to `Data/`.
-5. Register tests with `gtest_discover_tests(...)` using `DURIN_TEST_WORK_DIR`.
+1. Create a folder under `Engine/Source/Programs/Tests`.
+2. Add a `CMakeLists.txt` using `add_durin_test(...)`.
+3. Link the required engine modules and `GTest::gtest_main`.
+4. Deploy required engine DLLs and checked-in input data.
+5. Register discovery with `gtest_discover_tests(...)` and `DURIN_TEST_WORK_DIR`.
 
 Minimal pattern:
 
@@ -114,11 +54,7 @@ gtest_discover_tests(AssetCoreTests
 )
 ```
 
-## Important Rules
-
-- `DURIN_TEST_DATA_DIR` and `DURIN_TEST_WORK_DIR` are provided by `add_durin_test(...)`.
-- Use `durin_test_deploy_directory_to_data(...)` or `durin_test_deploy_files_to_data(...)` for checked-in test inputs.
-- Test executables should remain separate programs and should not depend on editor startup or real window creation unless that is the point of the test.
+`add_durin_test(...)` provides `DURIN_TEST_DATA_DIR` and `DURIN_TEST_WORK_DIR`. Use `durin_test_deploy_directory_to_data(...)` or `durin_test_deploy_files_to_data(...)` for checked-in inputs. Tests should remain independent executables and avoid editor startup or real window creation unless that behavior is under test.
 
 ## Related Docs
 

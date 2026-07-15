@@ -21,25 +21,17 @@ Profile definitions live in `Engine/Source/Programs/DurinHeaderTool/durin_header
 
 ## Presets And Generated Metadata
 
-Main presets are defined in `CMakePresets.json`. Common Win64 presets include:
-
-- `Win64-Debug-DurinEditor`
-- `Win64-Release-DurinEditor`
-- `Win64-Debug-DurinGame`
-- `Win64-Release-DurinGame`
-- `Win64-Shipping-DurinGame`
-
-Each preset sets:
+`CMakePresets.json` is the source of truth. Each main preset selects:
 
 - `CMAKE_BUILD_TYPE`
 - `DURIN_PROFILE_NAME`
-- a dedicated build directory such as `Build/Win64-Debug-DurinEditor`
+- a dedicated CMake build directory
 
-Presets may also set `DURIN_BUILD_IDENTIFIER` to isolate outputs produced by a particular build workflow. This is not a profile or build configuration. Normal Agent builds rely on worktree isolation and leave the identifier empty; specialized same-checkout workflows may still set one explicitly.
+Testing and PCH options are preset behavior, not profile semantics. Multiple presets can map to the same profile and final-output directories; their operational roles are documented in `Documentation/Setup/BuildAndRun.md`.
 
-DurinHeaderTool resolves the active build identifier and profile and emits configuration-independent project metadata under `Engine/Intermediate/Build[-Identifier]/<Platform>/<ProfileName>/...`.
+`DURIN_BUILD_IDENTIFIER` is optional workflow isolation, not a profile or build configuration. Normal builds leave it empty. DurinHeaderTool emits configuration-independent metadata under `Engine/Intermediate/Build[-Identifier]/<Platform>/<ProfileName>/`; identifier and locking details belong to `Documentation/Architecture/BuildSystem.md`.
 
-When `DURIN_BUILD_IDENTIFIER` is non-empty, DurinHeaderTool appends it to the `Build` intermediate root. DHT commands using the same identifier, platform, and profile are protected by one cross-process lock. Human Debug and Release presets share generated CMake files, reflection outputs, and incremental manifests; identifier-specific workflows remain independent.
+Debug and Release presets for the same identifier and profile intentionally share this metadata.
 
 ## Derived Build Behavior
 
