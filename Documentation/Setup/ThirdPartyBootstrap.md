@@ -13,10 +13,12 @@ This document covers dependency preparation, shared external layout, and worktre
 Common commands:
 
 ```powershell
-python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-tests
-python Engine/Scripts/Bootstrap/setup_third_party.py --libs glm,spdlog --config Debug
-python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
+.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-tests
+.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --libs glm,spdlog --config Debug
+.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 ```
+
+For a fresh Windows clone, use the root `Setup.bat` instead of invoking this script directly. It creates `.venv` and installs `requirements.txt` before starting the third-party bootstrap.
 
 ## Worktree Sharing
 

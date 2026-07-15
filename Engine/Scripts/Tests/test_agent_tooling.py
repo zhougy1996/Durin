@@ -75,8 +75,23 @@ class WindowsBuildWrapperTests(unittest.TestCase):
         content = (REPO_ROOT / "BuildTool.bat").read_text(encoding="utf-8")
 
         self.assertIn('set "VSLANG=1033"', content)
+        self.assertIn('.venv\\Scripts\\python.exe', content)
         self.assertIn('Engine\\Scripts\\Build\\agent_build.py" %*', content)
         self.assertIn("exit /b %ERRORLEVEL%", content)
+
+    def test_setup_prepares_python_before_other_bootstrap_steps(self) -> None:
+        content = (REPO_ROOT / "Setup.bat").read_text(encoding="utf-8")
+
+        python_setup = content.index("SetupPython.bat")
+        agent_config = content.index("InitializeAgentConfig.bat")
+        third_party = content.index("Bootstrap.bat")
+        self.assertLess(python_setup, agent_config)
+        self.assertLess(agent_config, third_party)
+
+    def test_python_requirements_pin_libclang(self) -> None:
+        content = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+        self.assertRegex(content, r"(?m)^libclang==\d+\.\d+\.\d+$")
 
 
 class AgentBuildProfileTests(unittest.TestCase):

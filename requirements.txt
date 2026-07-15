@@ -1,0 +1,3 @@
+# DurinHeaderTool imports clang.cindex and uses the libclang binary bundled by
+# this wheel. Keep the binding and native library on the same LLVM version.
+libclang==18.1.1

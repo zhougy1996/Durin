@@ -31,11 +31,7 @@ if (Test-Path -LiteralPath $VenvPython -PathType Leaf) {
     $Python = $VenvPython
 }
 else {
-    $PythonCommand = Get-Command python -ErrorAction SilentlyContinue
-    if (-not $PythonCommand) {
-        throw "Python was not found. Run Setup.bat or add Python to PATH."
-    }
-    $Python = $PythonCommand.Source
+    throw "Durin's Python environment was not found. Run Setup.bat first."
 }
 
 $Arguments = @($PythonScript, $Action)

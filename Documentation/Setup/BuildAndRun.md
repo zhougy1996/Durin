@@ -4,7 +4,11 @@ This is the operational guide for configuring, building, testing, and debugging 
 
 ## Setup
 
-Run `Setup.bat` once in every new Windows checkout or worktree. Build directories and outputs stay local to that checkout; only dependency directories prepared by `Setup.bat` may be shared between worktrees.
+Install Python 3.10 or newer, Visual Studio 2022 with the **Desktop development with C++** workload, Git, CMake, and the Vulkan SDK. Then run `Setup.bat` once in every new Windows checkout or worktree.
+
+In a normal checkout, `Setup.bat` creates `.venv`, installs the pinned Python dependencies from `requirements.txt` (including the `clang.cindex` bindings and native `libclang` library), creates the local Agent configuration, and prepares all third-party libraries. The operation is idempotent and can be rerun after an interrupted download. In a linked Git worktree it instead links `Engine/External` and `.venv` from the prepared main worktree.
+
+`BuildTool.bat` intentionally requires `.venv`; it will ask you to run `Setup.bat` rather than silently using a different system Python.
 
 Machine-specific CMake, profile, environment, or job overrides belong in `.agents/build-config.json`. Normally, leave them empty and let the build driver detect the Visual Studio environment and parallelism.
 
@@ -31,7 +35,7 @@ The registered Windows profile uses `Win64-Debug-DurinEditor-Tests`, allowing th
 & "Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe"
 ```
 
-On non-Windows hosts, invoke `python Engine/Scripts/Build/agent_build.py <arguments>` directly. Windows callers must use `BuildTool.bat` because it also fixes the MSVC language with `VSLANG=1033`.
+On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/agent_build.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat` because it also fixes the MSVC language with `VSLANG=1033`.
 
 ## IDE Code Model And Debugging
 

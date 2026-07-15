@@ -6,6 +6,7 @@
 # Build Directories
 /Build/
 /.idea/
+/.venv/
 /out/
 /.claude/
 /AGENTS_LOCAL.md
