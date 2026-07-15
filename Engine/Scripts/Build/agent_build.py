@@ -289,7 +289,7 @@ def select_profile(
         return candidates[0]
     if not candidates:
         raise AgentBuildError(
-            f'No isolated Agent build profile is registered for host "{detected_host}". '
+            f'No Agent build profile is registered for host "{detected_host}". '
             f'Add a profile to "{PROFILE_FILE}" before building on this platform.'
         )
     raise AgentBuildError(
@@ -753,7 +753,7 @@ def execute(args: argparse.Namespace) -> None:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Configure, build, clean, rebuild, or test an isolated Durin Agent build profile."
+        description="Configure, build, clean, rebuild, or test a worktree-owned Durin Agent build profile."
     )
     parser.add_argument("action", choices=("Configure", "Build", "Clean", "Rebuild", "Test"))
     parser.add_argument("--target", default="")

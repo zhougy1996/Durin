@@ -31,7 +31,7 @@ Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMak
 
 ## Build Output Identifiers
 
-`DURIN_BUILD_IDENTIFIER` optionally isolates workflow-owned binary and generated metadata outputs without changing build semantics or profile behavior. Binary outputs append the identifier to the configuration, while DHT metadata appends it to the intermediate root. For example, the `Win64-Debug-DurinEditor-Agent` preset writes to `Engine/Binaries/Win64/Debug-Agent/` and `Engine/Intermediate/Build-Agent/Win64/DurinEditor/` while remaining a normal Debug `DurinEditor` build with tests enabled.
+`DURIN_BUILD_IDENTIFIER` optionally isolates workflow-owned binary and generated metadata outputs without changing build semantics or profile behavior. Binary outputs append the identifier to the configuration, while DHT metadata appends it to the intermediate root. Normal Agent builds do not need an identifier because they run in dedicated worktrees; the option remains available for specialized workflows that must coexist in one checkout.
 
 Do not use identifiers for compile-time feature selection or runtime module naming. Presets using the same identifier, platform, and profile share one DHT path and lock. Build configuration is deliberately absent because current generated metadata does not vary between Debug, Release, and Shipping.
 

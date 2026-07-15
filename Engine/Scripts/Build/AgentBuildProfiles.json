@@ -4,12 +4,12 @@
     "windows-msvc-x64": {
       "host": "windows",
       "default": true,
-      "preset": "Win64-Debug-DurinEditor-Agent",
+      "preset": "Win64-Debug-DurinEditor-Tests",
       "environmentProvider": "visual-studio",
       "requiredCommands": [
         "ninja"
       ],
-      "testBinaryDirectory": "Engine/Binaries/Win64/Debug-Agent/Tests/DurinEditor/Bin",
+      "testBinaryDirectory": "Engine/Binaries/Win64/Debug/Tests/DurinEditor/Bin",
       "testExecutableSuffix": ".exe"
     }
   }

@@ -16,7 +16,7 @@ The preset above is available for human test builds. Agents use the Agent build 
 & "Engine/Scripts/Build/AgentBuild.ps1" Configure
 ```
 
-The Agent preset enables the same test targets and adds the `Agent` build identifier, isolating its build tree at `Build/Win64-Debug-DurinEditor-Agent` and all runtime, test, library, symbol, and third-party outputs under `Engine/Binaries/Win64/Debug-Agent/`.
+The Agent build profile uses the same `Win64-Debug-DurinEditor-Tests` preset and output paths. Its dedicated worktree provides isolation from other branches and IDE sessions.
 
 Build a specific test target:
 
@@ -76,9 +76,8 @@ The equivalent Agent command is:
 
 ## Output Layout
 
-- Human test executables: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
-- Agent test executables: `Engine/Binaries/<Platform>/<Config>-Agent/Tests/<Profile>/Bin/`
-- Per-target data and work roots follow the same human or Agent configuration directory.
+- Test executables: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
+- Per-target data and work roots follow the same configuration directory.
 
 Keep generated round-trip files and discovery outputs in the target work directory, not in `Bin/`.
 

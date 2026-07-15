@@ -31,7 +31,7 @@ python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 
 Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` per worktree.
 
-`Documentation/Setup/TP_AGENT_BUILD_CONFIG.json` is the starter template for optional machine-local build overrides. Toolchain definitions and isolated presets belong in the tracked Agent Build Profile manifest instead.
+`Documentation/Setup/TP_AGENT_BUILD_CONFIG.json` is the starter template for optional machine-local build overrides. Toolchain definitions and Agent preset selection belong in the tracked Agent Build Profile manifest instead.
 
 ## Directory Layout
 

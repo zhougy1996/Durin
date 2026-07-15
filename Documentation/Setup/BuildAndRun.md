@@ -15,7 +15,6 @@ Common presets:
 - `cmake --preset Win64-Debug-DurinEditor`
 - `cmake --preset Win64-Debug-DurinEditor-FastConfigure`
 - `cmake --preset Win64-Debug-DurinEditor-Tests`
-- `cmake --preset Win64-Debug-DurinEditor-Agent`
 - `cmake --preset Win64-Debug-DurinGame`
 - `cmake --preset Win64-Shipping-DurinGame`
 
@@ -25,13 +24,12 @@ Main build trees stay profile-specific under `Build/`, for example:
 
 - `Build/Win64-Debug-DurinEditor`
 - `Build/Win64-Debug-DurinEditor-Tests`
-- `Build/Win64-Debug-DurinEditor-Agent`
 
 Use the `*-Tests` preset when native test targets are needed. Normal editor/game presets keep `BUILD_TESTING=OFF`.
 
-Agents must use `Win64-Debug-DurinEditor-Agent` for editor builds and automated validation. It has the same build options as the human-oriented `Win64-Debug-DurinEditor-Tests` preset, plus `DURIN_BUILD_IDENTIFIER=Agent`. Its build tree is `Build/Win64-Debug-DurinEditor-Agent`, binary outputs stay under `Engine/Binaries/Win64/Debug-Agent/`, and configuration-independent DHT metadata stays under `Engine/Intermediate/Build-Agent/Win64/DurinEditor/` instead of overwriting human generated metadata.
+Agents run in dedicated worktrees and use the regular `Win64-Debug-DurinEditor-Tests` preset for editor builds and automated validation. Worktree-local `Build/`, `Engine/Binaries/`, and `Engine/Intermediate/` directories provide the isolation, so Agent builds use the same paths and artifacts that an IDE opened on that worktree expects.
 
-Agents invoke this workflow through the cross-platform Python driver. Registered profiles in `Engine/Scripts/Build/AgentBuildProfiles.json` bind a host, required commands, and toolchain environment provider to an isolated CMake preset and test output. The driver refuses unregistered presets. Environment providers may locate toolchain-bundled commands such as Visual Studio's Ninja without adding machine paths to the tracked profile. Windows users may use the PowerShell compatibility wrapper:
+Agents invoke this workflow through the cross-platform Python driver. Registered profiles in `Engine/Scripts/Build/AgentBuildProfiles.json` bind a host, required commands, and toolchain environment provider to a CMake preset and test output. The driver refuses unregistered presets. Environment providers may locate toolchain-bundled commands such as Visual Studio's Ninja without adding machine paths to the tracked profile. Windows users may use the PowerShell compatibility wrapper:
 
 ```powershell
 python Engine/Scripts/Build/agent_build.py Configure
@@ -82,9 +80,9 @@ If a build is interrupted by a timeout, cancellation, terminal closure, or agent
 
 The driver leaves an interruption marker when its child process does not return normally. While that marker exists, ordinary Build and Test operations are rejected. `Rebuild` cleans the existing Agent build tree when possible, performs a fresh configure, builds the requested target (`all` by default), and clears the marker only after success. `Clean` and `Configure` may still be used for diagnosis, but they do not clear a pre-existing interruption marker.
 
-DHT writes are committed atomically. Locks are isolated first by build identifier, platform, and profile, then scoped to project metadata or an individual module. Export and reflection generation for the same module remain serialized, while independent modules can run concurrently under Ninja. Project preparation also takes the affected module locks because it may clean disabled module directories. Human Debug and Release presets intentionally share configuration-independent generated metadata, while identifier-specific workflows use independent intermediate roots and locks. The Agent preset therefore never shares generated metadata with human presets.
+DHT writes are committed atomically. Locks are isolated first by build identifier, platform, and profile, then scoped to project metadata or an individual module. Export and reflection generation for the same module remain serialized, while independent modules can run concurrently under Ninja. Project preparation also takes the affected module locks because it may clean disabled module directories. Debug and Release presets intentionally share configuration-independent generated metadata inside one worktree, while identifier-specific workflows use independent intermediate roots and locks.
 
-After upgrading an existing Agent worktree to the identifier-rooted DHT layout, run `python Engine/Scripts/Build/agent_build.py Rebuild --target all` once. This creates the isolated metadata tree; the build workflow does not delete or migrate files from the previous layout.
+Existing Agent worktrees need no migration step after switching from the former `*-Agent` preset. The next driver Build or Test action configures the Tests preset automatically when needed, and obsolete ignored `Debug-Agent` artifacts are no longer read.
 
 ### Runtime Smoke Tests
 
@@ -94,10 +92,14 @@ Use the registered Agent build driver and build the `all` target before launchin
 
 ```powershell
 python Engine/Scripts/Build/agent_build.py Build --target all
-& "Engine/Binaries/Win64/Debug-Agent/Runtime/DurinEditor/DurinEditor.exe"
+& "Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe"
 ```
 
-Agents are authorized to execute the editor executable produced under the selected Agent Build Profile's isolated output directory for smoke validation. Do not launch a human-owned executable under `Engine/Binaries/Win64/Debug/` or another non-Agent output as part of automated validation.
+Agents are authorized to execute the editor executable produced in their dedicated worktree for smoke validation. A human IDE may open that same worktree for debugging after the Agent build has finished, but IDE and Agent build operations must not run concurrently on the shared build tree.
+
+### IDE Debugging In An Agent Worktree
+
+Open the Agent worktree root in a separate IDE window and select `Win64-Debug-DurinEditor-Tests`. The IDE then uses the exact source revision and Debug artifacts produced by the Agent driver, including `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`, without source remapping or a second Agent-specific preset. Stop or finish the Agent build before allowing the IDE to configure, build, or debug that worktree; hand the worktree back to the Agent after the IDE operation ends.
 
 ## Run And Output Layout
 
@@ -111,9 +113,9 @@ Key output locations:
 - Shared runtime third-party DLLs: `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
 - Native test executables: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
 
-When `DURIN_BUILD_IDENTIFIER` is set, `<Config>` becomes `<Config>-<Identifier>`. For example, the Agent test preset writes runtime binaries to `Engine/Binaries/Win64/Debug-Agent/Runtime/DurinEditor/`.
+When `DURIN_BUILD_IDENTIFIER` is set by a specialized workflow, `<Config>` becomes `<Config>-<Identifier>`.
 
-DHT metadata is configuration-independent. It uses `Engine/Intermediate/Build/<Platform>/<Profile>/` when the identifier is empty and `Engine/Intermediate/Build-<Identifier>/<Platform>/<Profile>/` when set. The Agent preset therefore uses `Engine/Intermediate/Build-Agent/Win64/DurinEditor/`, while human Debug and Release presets share `Engine/Intermediate/Build/Win64/DurinEditor/`.
+DHT metadata is configuration-independent. It uses `Engine/Intermediate/Build/<Platform>/<Profile>/` when the identifier is empty and `Engine/Intermediate/Build-<Identifier>/<Platform>/<Profile>/` when set. Normal Debug and Release presets share `Engine/Intermediate/Build/Win64/DurinEditor/` inside a worktree.
 
 The launcher target is `DurinLauncher`, but the executable name matches the active profile such as `DurinEditor.exe` or `DurinGame.exe`.
 
