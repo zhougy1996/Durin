@@ -127,6 +127,7 @@ namespace Durin
 		std::string RenameTarget;
 		std::array<char, 256> RenameBuffer{};
 		bool bFocusRename = false;
+		bool bRenameEditorHovered = false;
 		bool bDeletePopupRequested = false;
 		std::string ErrorMessage;
 	};

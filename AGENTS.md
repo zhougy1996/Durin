@@ -24,7 +24,7 @@ that match the task at hand.
 - Generated metadata is part of the source of truth. If a module looks incomplete, inspect `Engine/Intermediate/Build/...` and DHT outputs before assuming files are missing.
 - Runtime-loaded module binaries must keep the `<Profile>-<Module>` naming convention from `CMake/Project/ProjectTargets.cmake`.
 - Rendering changes usually span `RHI`, `VulkanRHI`.
-- UI or rendering changes should be validated by building and running `DurinEditor`, not only by compiling.
+- UI or rendering changes should be validated by building and running `DurinEditor`, not only by compiling. A runtime smoke test requires a successful full `all` build of the same Agent Build Profile first; a partial or single-target build is not sufficient. Agents are authorized to execute the editor executable produced by that isolated Agent Build Profile for validation, but must not run or overwrite human-owned outputs.
 - `CoreStd.h` already supplies the common standard-library headers used across the codebase; do not add new STL includes unless the compiler requires one in that translation unit.
 - Preserve or add concise comments where non-obvious reasoning, constraints, invariants, or tradeoffs materially shape the design. Comments should explain why the design exists and what must remain true; do not merely restate the code. Do not remove such comments during refactoring unless the underlying design no longer applies, and update them whenever that design changes.
 

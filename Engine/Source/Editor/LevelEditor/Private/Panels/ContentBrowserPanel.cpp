@@ -507,10 +507,15 @@ namespace Durin
 		const bool bReserveDetails = bShowSelectionDetails && Selection.size() == 1;
 		if (bReserveDetails) ImGui::BeginChild("ContentBrowserMainView", ImVec2(0.0f, -132.0f));
 		bContentItemHovered = false;
+		bRenameEditorHovered = false;
 		if (ViewMode == EContentBrowserViewMode::Grid)
 			DrawGrid();
 		else
 			DrawDetails();
+		// Resolve outside clicks after every item has been drawn so the result does not depend on whether
+		// the clicked item appears before or after the active rename editor in ImGui's submission order.
+		if (!RenameTarget.empty() && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bRenameEditorHovered)
+			RenameTarget.clear();
 		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bContentItemHovered)
 		{
 			Selection.clear();
@@ -880,7 +885,7 @@ namespace Durin
 	{
 		RenameTarget = Item.StableId();
 		RenameBuffer.fill(0);
-		std::string Initial = Item.Kind == EContentBrowserItemKind::SourceFile ? Item.Name : std::filesystem::path(Item.Name).stem().generic_string();
+		const std::string& Initial = Item.Name;
 		std::memcpy(RenameBuffer.data(), Initial.data(), std::min(Initial.size(), RenameBuffer.size() - 1));
 		bFocusRename = true;
 	}
@@ -893,17 +898,21 @@ namespace Durin
 			bFocusRename = false;
 		}
 		const bool bSubmit = ImGui::InputText("##Rename", RenameBuffer.data(), RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+		bRenameEditorHovered = ImGui::IsItemHovered();
 		if (bSubmit)
 			CommitRename(Item);
 		else if (ImGui::IsKeyPressed(ImGuiKey_Escape))
 			RenameTarget.clear();
-		else if (!ImGui::IsItemActive() && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-			CommitRename(Item);
 	}
 
 	auto FContentBrowserPanel::CommitRename(const FContentBrowserItem& Item) -> bool
 	{
 		std::string NewName = RenameBuffer.data();
+		if (NewName == Item.Name)
+		{
+			RenameTarget.clear();
+			return true;
+		}
 		if (NewName.empty() || NewName == "." || NewName == ".." || NewName.find_first_of("/\\:*") != std::string::npos)
 		{
 			SetError("The new name is empty or contains invalid path characters.");

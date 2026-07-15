@@ -58,6 +58,19 @@ cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests -j 4
 cmake --build Build/Win64-Debug-DurinEditor-Agent --target CoreTests -j 4
 ```
 
+### Runtime Smoke Tests
+
+A runtime smoke test must only be performed after a successful full build of the same Agent Build Profile. Partial and single-target builds are useful for iteration, but they do not establish that the executable and all runtime-loaded modules are mutually up to date.
+
+Use the registered Agent build driver and build the `all` target before launching the editor:
+
+```powershell
+python Engine/Scripts/Build/agent_build.py Build --target all --jobs 14
+& "Engine/Binaries/Win64/Debug-Agent/Runtime/DurinEditor/DurinEditor.exe"
+```
+
+Agents are authorized to execute the editor executable produced under the selected Agent Build Profile's isolated output directory for smoke validation. Do not launch a human-owned executable under `Engine/Binaries/Win64/Debug/` or another non-Agent output as part of automated validation.
+
 ## Run And Output Layout
 
 Run the editor from:
