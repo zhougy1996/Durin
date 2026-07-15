@@ -42,13 +42,15 @@ namespace Durin::VulkanRHI
 	{
 		SizeX = static_cast<uint32>(FMath::Max(1, InCreateDesc.Extent.x));
 		SizeY = static_cast<uint32>(FMath::Max(1, InCreateDesc.Extent.y));
+		PixelFormat = InCreateDesc.Format;
+		NumSamples = InCreateDesc.NumSamples;
 		vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
 		ImageExtent.width = FMath::Max(1u, ImageExtent.width);
 		ImageExtent.height = FMath::Max(1u, ImageExtent.height);
 
 		const bool bDepthStencil = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable);
 		vk::ImageUsageFlags ImageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
-		if (EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::RenderTargetable))
+		if (EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable))
 		{
 			ImageUsage |= vk::ImageUsageFlagBits::eColorAttachment;
 		}

@@ -457,10 +457,14 @@ namespace Durin
 		}
 		auto GetSizeX() const -> uint32 { return SizeX; }
 		auto GetSizeY() const -> uint32 { return SizeY; }
+		auto GetFormat() const -> EPixelFormat { return PixelFormat; }
+		auto GetNumSamples() const -> uint8 { return NumSamples; }
 
 	protected:
 		uint32 SizeX = 0;
 		uint32 SizeY = 0;
+		EPixelFormat PixelFormat = EPixelFormat::Unknown;
+		uint8 NumSamples = 1;
 	};
 
 	class FRHIViewport : public FRHIResource
@@ -475,19 +479,171 @@ namespace Durin
 		RHI_API virtual auto GetFormat() const -> EPixelFormat = 0;
 	};
 
+	enum class ERHIRenderTargetLoadAction : uint8
+	{
+		Load,
+		Clear,
+		DontCare,
+	};
+
+	enum class ERHIRenderTargetStoreAction : uint8
+	{
+		Store,
+		DontCare,
+	};
+
+	enum class ERHITextureLayout : uint8
+	{
+		Undefined,
+		ColorAttachment,
+		DepthStencilAttachment,
+		ShaderReadOnly,
+		Present,
+	};
+
+	enum class ERHIAccess : uint8
+	{
+		None,
+		ColorAttachmentWrite,
+		DepthStencilReadWrite,
+		ShaderRead,
+		Present,
+	};
+
+	struct FRHIAttachmentLayout
+	{
+		EPixelFormat Format = EPixelFormat::Unknown;
+		uint8 NumSamples = 1;
+		ERHIRenderTargetLoadAction LoadAction = ERHIRenderTargetLoadAction::Clear;
+		ERHIRenderTargetStoreAction StoreAction = ERHIRenderTargetStoreAction::Store;
+		ERHIRenderTargetLoadAction StencilLoadAction = ERHIRenderTargetLoadAction::DontCare;
+		ERHIRenderTargetStoreAction StencilStoreAction = ERHIRenderTargetStoreAction::DontCare;
+		ERHITextureLayout InitialLayout = ERHITextureLayout::Undefined;
+		ERHITextureLayout FinalLayout = ERHITextureLayout::ColorAttachment;
+		ERHIAccess InitialAccess = ERHIAccess::None;
+		ERHIAccess FinalAccess = ERHIAccess::ColorAttachmentWrite;
+
+		auto operator==(const FRHIAttachmentLayout&) const -> bool = default;
+	};
+
+	struct FRHIColorAttachmentLayout
+	{
+		FRHIAttachmentLayout RenderTarget;
+		FRHIAttachmentLayout ResolveTarget;
+		bool bHasResolveTarget = false;
+
+		auto operator==(const FRHIColorAttachmentLayout&) const -> bool = default;
+	};
+
+	struct FRHIRenderTargetLayout
+	{
+		std::array<FRHIColorAttachmentLayout, MaxSimultaneousRenderTargets> ColorAttachments{};
+		FRHIAttachmentLayout DepthStencilAttachment{};
+		uint8 NumColorRenderTargets = 0;
+		bool bHasDepthStencil = false;
+
+		auto operator==(const FRHIRenderTargetLayout&) const -> bool = default;
+
+		auto IsValid() const -> bool
+		{
+			if (NumColorRenderTargets > MaxSimultaneousRenderTargets || (NumColorRenderTargets == 0 && !bHasDepthStencil))
+			{
+				return false;
+			}
+			auto IsValidAttachment = [](const FRHIAttachmentLayout& Attachment) {
+				const bool bValidSamples = Attachment.NumSamples == 1 || Attachment.NumSamples == 2 || Attachment.NumSamples == 4
+					|| Attachment.NumSamples == 8 || Attachment.NumSamples == 16;
+				auto AccessMatchesLayout = [](ERHIAccess Access, ERHITextureLayout Layout) {
+					switch (Layout)
+					{
+					case ERHITextureLayout::Undefined: return Access == ERHIAccess::None;
+					case ERHITextureLayout::ColorAttachment: return Access == ERHIAccess::ColorAttachmentWrite;
+					case ERHITextureLayout::DepthStencilAttachment: return Access == ERHIAccess::DepthStencilReadWrite;
+					case ERHITextureLayout::ShaderReadOnly: return Access == ERHIAccess::ShaderRead;
+					case ERHITextureLayout::Present: return Access == ERHIAccess::Present;
+					}
+					return false;
+				};
+				return Attachment.Format != EPixelFormat::Unknown && bValidSamples
+					&& (Attachment.LoadAction != ERHIRenderTargetLoadAction::Load || Attachment.InitialLayout != ERHITextureLayout::Undefined)
+					&& (Attachment.StencilLoadAction != ERHIRenderTargetLoadAction::Load || Attachment.InitialLayout != ERHITextureLayout::Undefined)
+					&& AccessMatchesLayout(Attachment.InitialAccess, Attachment.InitialLayout)
+					&& AccessMatchesLayout(Attachment.FinalAccess, Attachment.FinalLayout);
+			};
+
+			uint8 RasterSamples = 0;
+			for (uint32 Index = 0; Index < NumColorRenderTargets; ++Index)
+			{
+				const auto& Color = ColorAttachments[Index];
+				if (!IsValidAttachment(Color.RenderTarget)) return false;
+				RasterSamples = RasterSamples == 0 ? Color.RenderTarget.NumSamples : RasterSamples;
+				if (RasterSamples != Color.RenderTarget.NumSamples) return false;
+				if (Color.bHasResolveTarget
+					&& (!IsValidAttachment(Color.ResolveTarget) || Color.RenderTarget.NumSamples == 1
+						|| Color.ResolveTarget.NumSamples != 1 || Color.ResolveTarget.Format != Color.RenderTarget.Format))
+				{
+					return false;
+				}
+			}
+			if (bHasDepthStencil)
+			{
+				if (!IsValidAttachment(DepthStencilAttachment)) return false;
+				RasterSamples = RasterSamples == 0 ? DepthStencilAttachment.NumSamples : RasterSamples;
+				if (RasterSamples != DepthStencilAttachment.NumSamples) return false;
+			}
+			return true;
+		}
+	};
+
+	struct FRHIRenderTargetLayoutHasher
+	{
+		auto operator()(const FRHIRenderTargetLayout& Layout) const -> size_t
+		{
+			auto Combine = [](size_t Seed, size_t Value) {
+				return Seed ^ (Value + 0x9e3779b97f4a7c15ull + (Seed << 6) + (Seed >> 2));
+			};
+			auto HashAttachment = [&Combine](size_t Seed, const FRHIAttachmentLayout& Attachment) {
+				Seed = Combine(Seed, static_cast<size_t>(Attachment.Format));
+				Seed = Combine(Seed, Attachment.NumSamples);
+				Seed = Combine(Seed, static_cast<size_t>(Attachment.LoadAction));
+				Seed = Combine(Seed, static_cast<size_t>(Attachment.StoreAction));
+				Seed = Combine(Seed, static_cast<size_t>(Attachment.StencilLoadAction));
+				Seed = Combine(Seed, static_cast<size_t>(Attachment.StencilStoreAction));
+				Seed = Combine(Seed, static_cast<size_t>(Attachment.InitialLayout));
+				Seed = Combine(Seed, static_cast<size_t>(Attachment.FinalLayout));
+				Seed = Combine(Seed, static_cast<size_t>(Attachment.InitialAccess));
+				return Combine(Seed, static_cast<size_t>(Attachment.FinalAccess));
+			};
+
+			size_t Hash = Combine(0, Layout.NumColorRenderTargets);
+			for (uint32 Index = 0; Index < Layout.NumColorRenderTargets; ++Index)
+			{
+				const auto& Color = Layout.ColorAttachments[Index];
+				Hash = HashAttachment(Hash, Color.RenderTarget);
+				Hash = Combine(Hash, Color.bHasResolveTarget);
+				if (Color.bHasResolveTarget) Hash = HashAttachment(Hash, Color.ResolveTarget);
+			}
+			Hash = Combine(Hash, Layout.bHasDepthStencil);
+			return Layout.bHasDepthStencil ? HashAttachment(Hash, Layout.DepthStencilAttachment) : Hash;
+		}
+	};
+
 	struct FRHIRenderTargetsInfo
 	{
-		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets];
+		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets]{};
+		FRHITexture* ColorResolveTargets[MaxSimultaneousRenderTargets]{};
 		FRHITexture* DepthStencilRenderTarget = nullptr;
-		int32 NumColorRenderTargets;
-		bool bClearColor;
+		int32 NumColorRenderTargets = 0;
+		bool bClearColor = false;
 	};
 
 	struct FRHIRenderPassInfo
 	{
-		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets];
+		FRHIRenderTargetLayout RenderTargetLayout{};
+		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets]{};
+		FRHITexture* ColorResolveTargets[MaxSimultaneousRenderTargets]{};
 		FRHITexture* DepthStencilRenderTarget = nullptr;
-		FClearValueBinding ColorClearValue;
+		FClearValueBinding ColorClearValues[MaxSimultaneousRenderTargets]{};
 		FClearValueBinding DepthStencilClearValue{1.0f, 0u};
 	};
 
@@ -710,11 +866,7 @@ namespace Durin
 	public:
 		FBoundShaders BoundShaders;
 
-		FName RenderPassName;
-
-		EPixelFormat PixelFormat = EPixelFormat::Unknown;
-
-		EPixelFormat DepthStencilFormat = EPixelFormat::Unknown;
+		FRHIRenderTargetLayout RenderTargetLayout{};
 
 		FRHIVertexDeclaration* VertexDeclaration = nullptr;
 

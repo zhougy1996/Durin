@@ -26,11 +26,13 @@ namespace Durin::VulkanRHI
 		auto GetPipelineLayout() const -> vk::PipelineLayout { return PipelineLayout; }
 
 		auto GetDescriptorSetsLayout() const -> const FVulkanDescriptorSetsLayout&;
+		auto GetRenderTargetLayout() const -> const FRHIRenderTargetLayout& { return RenderTargetLayout; }
 
 		auto PushConstants(FVulkanCommandListContext& InContext, EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* pValues) const -> void;
 
 	protected:
 		const FVulkanRenderPass* RenderPass = nullptr;
+		FRHIRenderTargetLayout RenderTargetLayout{};
 
 		auto KeepShadersAlive() -> void;
 

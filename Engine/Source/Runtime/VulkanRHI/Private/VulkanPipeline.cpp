@@ -56,6 +56,19 @@ namespace Durin::VulkanRHI
 		return Mode == FGraphicsPipelineStateInitializer::EPolygonMode::Line ? vk::PolygonMode::eLine : vk::PolygonMode::eFill;
 	}
 
+	static auto ToVulkan_SampleCount(uint8 NumSamples) -> vk::SampleCountFlagBits
+	{
+		switch (NumSamples)
+		{
+		case 1: return vk::SampleCountFlagBits::e1;
+		case 2: return vk::SampleCountFlagBits::e2;
+		case 4: return vk::SampleCountFlagBits::e4;
+		case 8: return vk::SampleCountFlagBits::e8;
+		case 16: return vk::SampleCountFlagBits::e16;
+		default: checkf(false, "Unsupported graphics pipeline sample count: {}", NumSamples); return vk::SampleCountFlagBits::e1;
+		}
+	}
+
 	static auto CreateDescriptorSetLayout(FVulkanDevice& Device, const FBindingLayout& InDesc) -> vk::DescriptorSetLayout
 	{
 		vk::DescriptorSetLayoutCreateInfo LayoutInfo;
@@ -96,12 +109,11 @@ namespace Durin::VulkanRHI
 
 	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer)
 		: Device(InDevice)
+		, RenderTargetLayout(Initializer.RenderTargetLayout)
 	{
-		// TODO: Correctly set the render pass
+		checkf(Initializer.RenderTargetLayout.IsValid(), "Graphics pipeline render target layout is invalid.");
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
-
-		vk::Format VkFormat = ToVulkan_PixelFormat(Initializer.PixelFormat);
-		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderPassName, VkFormat, ToVulkan_PixelFormat(Initializer.DepthStencilFormat));
+		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderTargetLayout);
 
 		std::vector<vk::PipelineShaderStageCreateInfo> ShaderStages = MakeShaderStageCreateInfos(Initializer.BoundShaders);
 
@@ -183,9 +195,12 @@ namespace Durin::VulkanRHI
 			.setDepthBiasSlopeFactor(0.0f);
 
 		vk::PipelineMultisampleStateCreateInfo MultiSamplingInfo;
+		const uint8 RasterSamples = Initializer.RenderTargetLayout.NumColorRenderTargets > 0
+			? Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget.NumSamples
+			: Initializer.RenderTargetLayout.DepthStencilAttachment.NumSamples;
 		MultiSamplingInfo
 			.setSampleShadingEnable(vk::False)
-			.setRasterizationSamples(vk::SampleCountFlagBits::e1)
+			.setRasterizationSamples(ToVulkan_SampleCount(RasterSamples))
 			.setMinSampleShading(1.0f)
 			.setPSampleMask(nullptr)
 			.setAlphaToCoverageEnable(vk::False)
@@ -210,11 +225,12 @@ namespace Durin::VulkanRHI
 			.setDstAlphaBlendFactor(bEnableAlphaBlend ? vk::BlendFactor::eOneMinusSrcAlpha : vk::BlendFactor::eZero)
 			.setAlphaBlendOp(vk::BlendOp::eAdd);
 
+		std::vector<vk::PipelineColorBlendAttachmentState> ColorBlendAttachments(Initializer.RenderTargetLayout.NumColorRenderTargets, ColorBlendAttachment);
 		vk::PipelineColorBlendStateCreateInfo ColorBlending;
 		ColorBlending
 			.setLogicOpEnable(vk::False)
 			.setLogicOp(vk::LogicOp::eCopy)
-			.setAttachments(ColorBlendAttachment)
+			.setAttachments(ColorBlendAttachments)
 			.setBlendConstants({0.0f, 0.0f, 0.0f, 0.0f});
 
 		// Create pipeline layout
@@ -336,6 +352,8 @@ namespace Durin::VulkanRHI
 		const auto It = PSOCache.find(Name);
 		if (It != PSOCache.end())
 		{
+			checkf(It->second->GetRenderTargetLayout() == Initializer.RenderTargetLayout,
+				"Graphics pipeline '{}' was requested with a different render target layout.", Name.ToString());
 			return It->second;
 		}
 

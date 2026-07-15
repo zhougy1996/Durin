@@ -22,6 +22,8 @@ namespace Durin::VulkanRHI
 		SizeX = Extent.width;
 		SizeY = Extent.height;
 		Format = Viewport->GetSwapchainImageFormat();
+		PixelFormat = Viewport->GetFormat();
+		NumSamples = 1;
 	}
 
 	auto FVulkanBackBuffer::AcquireBackBufferImage(FVulkanCommandListContext& Context)

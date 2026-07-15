@@ -14,6 +14,16 @@
 
 namespace Durin::MonaImGui
 {
+	static auto MakeImGuiRenderTargetLayout() -> FRHIRenderTargetLayout
+	{
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 1;
+		Layout.ColorAttachments[0].RenderTarget.Format = EPixelFormat::SRGBA8_UNORM;
+		Layout.ColorAttachments[0].RenderTarget.FinalLayout = ERHITextureLayout::Present;
+		Layout.ColorAttachments[0].RenderTarget.FinalAccess = ERHIAccess::Present;
+		return Layout;
+	}
+
 	class FImGuiVertexShader : public FShader
 	{
 	public:
@@ -287,12 +297,11 @@ namespace Durin::MonaImGui
 			GBackendState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
 
 			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderPassName = "ImGuiRenderPass";
+			Initializer.RenderTargetLayout = MakeImGuiRenderTargetLayout();
 			Initializer.BoundShaders.VertexShader = VertexShaderRef.GetRHIShader();
 			Initializer.BoundShaders.FragmentShader = FragmentShaderRef.GetRHIShader();
 			Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
 
-			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
 			Initializer.bEnableAlphaBlend = true;
 			Initializer.bEnableBackFaceCulling = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
@@ -589,8 +598,9 @@ namespace Durin::MonaImGui
 
 		// Render pass
 		FRHIRenderPassInfo PassInfo{};
+		PassInfo.RenderTargetLayout = MakeImGuiRenderTargetLayout();
 		PassInfo.ColorRenderTargets[0] = InTargetFrameBuffer;
-		PassInfo.ColorClearValue = ClearValue;
+		PassInfo.ColorClearValues[0] = ClearValue;
 		const FRHIUniformBufferRange ProjectionUniform = ImGuiRHIImplRT_CreateProjectionUniform(CommandList, DrawData);
 
 		CommandList.BeginRenderPass(PassInfo, "ImGuiRenderPass");
@@ -656,8 +666,9 @@ namespace Durin::MonaImGui
 	) -> void
 	{
 		FRHIRenderPassInfo PassInfo{};
+		PassInfo.RenderTargetLayout = MakeImGuiRenderTargetLayout();
 		PassInfo.ColorRenderTargets[0] = InTargetFrameBuffer;
-		PassInfo.ColorClearValue = ClearValue;
+		PassInfo.ColorClearValues[0] = ClearValue;
 		CommandList.BeginRenderPass(PassInfo, "ImGuiRenderPass");
 		CommandList.EndRenderPass();
 	}

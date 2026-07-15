@@ -26,7 +26,7 @@ namespace Durin::VulkanRHI
 
 		auto SetSubmitted() -> void;
 
-		auto BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer, std::span<const vk::ClearValue> InClearValues) -> void;
+		auto BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer, std::span<const vk::ClearValue> InClearValues, FName DebugName) -> void;
 
 		auto EndRenderPass() -> void;
 
@@ -61,6 +61,7 @@ namespace Durin::VulkanRHI
 		double SubmittedTime = 0.0;
 
 		vk::CommandBuffer Handle;
+		bool bRenderPassDebugLabelOpen = false;
 
 		friend class FVulkanQueue;
 		friend class FVulkanCommandBufferPool;

@@ -83,8 +83,17 @@ namespace Durin::VulkanRHI
 		State = EState::Submitted;
 	}
 
-	auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer, std::span<const vk::ClearValue> InClearValues) -> void
+	auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer, std::span<const vk::ClearValue> InClearValues, FName DebugName) -> void
 	{
+		check(State == EState::IsInsideBegin);
+		if (!DebugName.IsNone() && VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginDebugUtilsLabelEXT != nullptr)
+		{
+			const std::string LabelName = DebugName.ToString();
+			vk::DebugUtilsLabelEXT Label;
+			Label.setPLabelName(LabelName.c_str());
+			Handle.beginDebugUtilsLabelEXT(Label);
+			bRenderPassDebugLabelOpen = true;
+		}
 		vk::RenderPassBeginInfo BeginInfo;
 
 		BeginInfo
@@ -95,11 +104,19 @@ namespace Durin::VulkanRHI
 
 		// Begin render pass
 		Handle.beginRenderPass(BeginInfo, vk::SubpassContents::eInline);
+		State = EState::IsInsideRenderPass;
 	}
 
 	auto FVulkanCommandBuffer::EndRenderPass() -> void
 	{
+		check(State == EState::IsInsideRenderPass);
 		Handle.endRenderPass();
+		if (bRenderPassDebugLabelOpen)
+		{
+			Handle.endDebugUtilsLabelEXT();
+			bRenderPassDebugLabelOpen = false;
+		}
+		State = EState::IsInsideBegin;
 	}
 
 	auto FVulkanCommandBuffer::IsSubmitted() const -> bool

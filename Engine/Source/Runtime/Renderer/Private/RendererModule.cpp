@@ -13,6 +13,40 @@ namespace Durin
 {
 	namespace
 	{
+		auto MakeColorAttachmentLayout(EPixelFormat Format, ERHITextureLayout FinalLayout, ERHIAccess FinalAccess) -> FRHIAttachmentLayout
+		{
+			FRHIAttachmentLayout Layout;
+			Layout.Format = Format;
+			Layout.FinalLayout = FinalLayout;
+			Layout.FinalAccess = FinalAccess;
+			return Layout;
+		}
+
+		auto MakeSceneRenderTargetLayout() -> FRHIRenderTargetLayout
+		{
+			FRHIRenderTargetLayout Layout;
+			Layout.NumColorRenderTargets = 1;
+			Layout.ColorAttachments[0].RenderTarget = MakeColorAttachmentLayout(EPixelFormat::SRGBA8_UNORM, ERHITextureLayout::ShaderReadOnly, ERHIAccess::ShaderRead);
+			Layout.bHasDepthStencil = true;
+			Layout.DepthStencilAttachment.Format = EPixelFormat::D32;
+			Layout.DepthStencilAttachment.StoreAction = ERHIRenderTargetStoreAction::DontCare;
+			Layout.DepthStencilAttachment.FinalLayout = ERHITextureLayout::DepthStencilAttachment;
+			Layout.DepthStencilAttachment.FinalAccess = ERHIAccess::DepthStencilReadWrite;
+			return Layout;
+		}
+
+		auto MakePostProcessRenderTargetLayout(bool bPresent) -> FRHIRenderTargetLayout
+		{
+			FRHIRenderTargetLayout Layout;
+			Layout.NumColorRenderTargets = 1;
+			Layout.ColorAttachments[0].RenderTarget = MakeColorAttachmentLayout(
+				EPixelFormat::SRGBA8_UNORM,
+				bPresent ? ERHITextureLayout::Present : ERHITextureLayout::ShaderReadOnly,
+				bPresent ? ERHIAccess::Present : ERHIAccess::ShaderRead
+			);
+			return Layout;
+		}
+
 		class FStaticMeshVertexShader : public FShader
 		{
 		public:
@@ -309,12 +343,10 @@ namespace Durin
 			Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, sizeof(FVector3f));
 			GGizmoState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
 			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderPassName = "SceneColorRenderPass";
+			Initializer.RenderTargetLayout = MakeSceneRenderTargetLayout();
 			Initializer.BoundShaders.VertexShader = GGizmoState.VertexShader.GetRHIShader();
 			Initializer.BoundShaders.FragmentShader = GGizmoState.FragmentShader.GetRHIShader();
 			Initializer.VertexDeclaration = GGizmoState.VertexDeclaration;
-			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
-			Initializer.DepthStencilFormat = EPixelFormat::D32;
 			Initializer.bEnableAlphaBlend = true;
 			Initializer.bEnableBackFaceCulling = false;
 			Initializer.bEnableDepthWrite = false;
@@ -398,12 +430,10 @@ namespace Durin
 			GStaticMeshState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
 
 			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderPassName = "SceneColorRenderPass";
+			Initializer.RenderTargetLayout = MakeSceneRenderTargetLayout();
 			Initializer.BoundShaders.VertexShader = GStaticMeshState.VertexShader.GetRHIShader();
 			Initializer.BoundShaders.FragmentShader = GStaticMeshState.FragmentShader.GetRHIShader();
 			Initializer.VertexDeclaration = GStaticMeshState.VertexDeclaration;
-			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
-			Initializer.DepthStencilFormat = EPixelFormat::D32;
 			Initializer.bEnableAlphaBlend = false;
 			Initializer.bEnableDepthTest = true;
 			Initializer.bEnableDepthWrite = true;
@@ -417,18 +447,17 @@ namespace Durin
 
 		auto CreatePostProcessPipeline(
 			FName PipelineName,
-			FName RenderPassName,
+			bool bPresent,
 			FRHIShader* VertexShader,
 			FRHIShader* FragmentShader,
 			const FPipelineLayoutDesc& PipelineLayout
 		) -> FGraphicsPipelineStateRHIRef
 		{
 			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderPassName = RenderPassName;
+			Initializer.RenderTargetLayout = MakePostProcessRenderTargetLayout(bPresent);
 			Initializer.BoundShaders.VertexShader = VertexShader;
 			Initializer.BoundShaders.FragmentShader = FragmentShader;
 			Initializer.VertexDeclaration = GPostProcessState.VertexDeclaration;
-			Initializer.PixelFormat = EPixelFormat::SRGBA8_UNORM;
 			Initializer.bEnableAlphaBlend = false;
 			Initializer.bEnableBackFaceCulling = false;
 			Initializer.PipelineLayout = PipelineLayout;
@@ -507,28 +536,28 @@ namespace Durin
 
 			GPostProcessState.CopyOffscreenPipelineState = CreatePostProcessPipeline(
 				"PostProcessCopyOffscreenPipeline",
-				"PostProcessOffscreenRenderPass",
+				false,
 				GPostProcessState.CopyVertexShader.GetRHIShader(),
 				GPostProcessState.CopyFragmentShader.GetRHIShader(),
 				CopyShaderMap->GetMergedPipelineLayout()
 			);
 			GPostProcessState.CopyPresentPipelineState = CreatePostProcessPipeline(
 				"PostProcessCopyPresentPipeline",
-				"PostProcessPresentRenderPass",
+				true,
 				GPostProcessState.CopyVertexShader.GetRHIShader(),
 				GPostProcessState.CopyFragmentShader.GetRHIShader(),
 				CopyShaderMap->GetMergedPipelineLayout()
 			);
 			GPostProcessState.FXAAOffscreenPipelineState = CreatePostProcessPipeline(
 				"PostProcessFXAAOffscreenPipeline",
-				"PostProcessOffscreenRenderPass",
+				false,
 				GPostProcessState.FXAAVertexShader.GetRHIShader(),
 				GPostProcessState.FXAAFragmentShader.GetRHIShader(),
 				FXAAShaderMap->GetMergedPipelineLayout()
 			);
 			GPostProcessState.FXAAPresentPipelineState = CreatePostProcessPipeline(
 				"PostProcessFXAAPresentPipeline",
-				"PostProcessPresentRenderPass",
+				true,
 				GPostProcessState.FXAAVertexShader.GetRHIShader(),
 				GPostProcessState.FXAAFragmentShader.GetRHIShader(),
 				FXAAShaderMap->GetMergedPipelineLayout()
@@ -799,9 +828,10 @@ namespace Durin
 		if (!View.OverlayPrimitives.empty()) EnsureGizmoResources(CommandList);
 
 		FRHIRenderPassInfo ScenePassInfo{};
+		ScenePassInfo.RenderTargetLayout = MakeSceneRenderTargetLayout();
 		ScenePassInfo.ColorRenderTargets[0] = SceneColor;
 		ScenePassInfo.DepthStencilRenderTarget = GPostProcessState.SceneDepth;
-		ScenePassInfo.ColorClearValue = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
+		ScenePassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		ScenePassInfo.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
 		CommandList.BeginRenderPass(ScenePassInfo, "SceneColorRenderPass");
 		FSceneView RenderView = View;
@@ -811,8 +841,9 @@ namespace Durin
 		CommandList.EndRenderPass();
 
 		FRHIRenderPassInfo PostProcessPassInfo{};
+		PostProcessPassInfo.RenderTargetLayout = MakePostProcessRenderTargetLayout(bPresentOutput);
 		PostProcessPassInfo.ColorRenderTargets[0] = OutputTarget;
-		PostProcessPassInfo.ColorClearValue = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
+		PostProcessPassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		CommandList.BeginRenderPass(PostProcessPassInfo, bPresentOutput ? "PostProcessPresentRenderPass" : "PostProcessOffscreenRenderPass");
 		DrawPostProcess(CommandList, SceneColor, Width, Height, bPresentOutput);
 		CommandList.EndRenderPass();

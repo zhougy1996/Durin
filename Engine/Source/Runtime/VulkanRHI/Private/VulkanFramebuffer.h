@@ -11,7 +11,7 @@ namespace Durin::VulkanRHI
 	class FVulkanFramebuffer
 	{
 	public:
-		FVulkanFramebuffer(FVulkanDevice& InDevice, const FRHIRenderTargetsInfo& InRTInfo, const FVulkanRenderPass& InRenderPass);
+		FVulkanFramebuffer(FVulkanDevice& InDevice, const FRHIRenderPassInfo& InRPInfo, const FVulkanRenderPass& InRenderPass);
 
 		~FVulkanFramebuffer();
 
@@ -20,7 +20,7 @@ namespace Durin::VulkanRHI
 		auto GetExtent() const -> vk::Extent2D { return Extent; }
 
 		auto ContainsRenderTarget(vk::Image Image) const -> bool;
-		auto IsCompatibleWith(const FVulkanRenderPass& InRenderPass, vk::Image ColorImage, vk::Image DepthImage) const -> bool;
+		auto IsCompatibleWith(const FVulkanRenderPass& InRenderPass, const FRHIRenderPassInfo& InRPInfo) const -> bool;
 
 	private:
 		FVulkanDevice& Device;
@@ -34,10 +34,10 @@ namespace Durin::VulkanRHI
 		std::vector<FVulkanView> AttachmentTextureViews;
 
 		// How many logical color outputs the pass has
-		uint32 NumColorRenderTargets;
+		uint32 NumColorRenderTargets = 0;
 		// How many color-related attachment entries the Vulkan framebuffer actually contains, which may be more than NumColorRenderTargets if any of the render targets is also used as a resolve target.
 		// NumColorAttachments = NumColorRenderTargets + NumColorResolveTargets, but we store it separately for convenience.
-		uint32 NumColorAttachments;
+		uint32 NumColorAttachments = 0;
 
 		vk::Image ColorRenderTargetImages[MaxSimultaneousRenderTargets];
 		vk::Image ColorResolveTargetImages[MaxSimultaneousRenderTargets];

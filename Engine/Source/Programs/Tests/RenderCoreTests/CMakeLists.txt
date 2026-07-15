@@ -2,6 +2,7 @@ include(GoogleTest)
 
 add_durin_test(RenderCoreTests
 	Private/ShaderFoundationTests.cpp
+	Private/RenderTargetLayoutTests.cpp
 )
 
 target_link_libraries(RenderCoreTests PRIVATE

@@ -17,6 +17,59 @@
 
 namespace Durin::VulkanRHI
 {
+	namespace
+	{
+		auto ValidateAttachment(const FRHIAttachmentLayout& Layout, const FRHITexture* Texture, uint32 Width, uint32 Height, const char* Label) -> void
+		{
+			checkf(Texture != nullptr, "{} attachment texture is null.", Label);
+			checkf(Texture->GetFormat() == Layout.Format, "{} attachment format does not match the render target layout.", Label);
+			checkf(Texture->GetNumSamples() == Layout.NumSamples, "{} attachment sample count does not match the render target layout.", Label);
+			checkf(Texture->GetSizeX() == Width && Texture->GetSizeY() == Height, "{} attachment extent does not match the render pass extent.", Label);
+			checkf(Layout.LoadAction != ERHIRenderTargetLoadAction::Load || Layout.InitialLayout != ERHITextureLayout::Undefined,
+				"{} attachment cannot load from an undefined initial layout.", Label);
+		}
+
+		auto ValidateRenderPassInfo(const FRHIRenderPassInfo& Info) -> void
+		{
+			const auto& Layout = Info.RenderTargetLayout;
+			checkf(Layout.IsValid(), "Render target layout is invalid.");
+			checkf(Layout.NumColorRenderTargets <= MaxSimultaneousRenderTargets, "Render pass color attachment count exceeds the RHI limit.");
+			checkf(Layout.NumColorRenderTargets > 0 || Layout.bHasDepthStencil, "Render pass must contain at least one attachment.");
+			FRHITexture* ExtentSource = Layout.NumColorRenderTargets > 0 ? Info.ColorRenderTargets[0] : Info.DepthStencilRenderTarget;
+			check(ExtentSource != nullptr);
+			const uint32 Width = ExtentSource->GetSizeX();
+			const uint32 Height = ExtentSource->GetSizeY();
+			uint8 RasterSamples = 0;
+			for (uint32 Index = 0; Index < Layout.NumColorRenderTargets; ++Index)
+			{
+				const auto& Color = Layout.ColorAttachments[Index];
+				ValidateAttachment(Color.RenderTarget, Info.ColorRenderTargets[Index], Width, Height, "Color");
+				RasterSamples = RasterSamples == 0 ? Color.RenderTarget.NumSamples : RasterSamples;
+				checkf(RasterSamples == Color.RenderTarget.NumSamples, "All primary render attachments must use the same sample count.");
+				if (Color.bHasResolveTarget)
+				{
+					ValidateAttachment(Color.ResolveTarget, Info.ColorResolveTargets[Index], Width, Height, "Resolve");
+					checkf(Color.RenderTarget.NumSamples > 1, "Resolve attachments require a multisampled color attachment.");
+					checkf(Color.ResolveTarget.NumSamples == 1, "Resolve attachments must be single-sampled.");
+					checkf(Color.ResolveTarget.Format == Color.RenderTarget.Format, "Resolve and color attachment formats must match.");
+				}
+				else
+				{
+					checkf(Info.ColorResolveTargets[Index] == nullptr, "A resolve texture was bound without a resolve attachment layout.");
+				}
+			}
+			if (Layout.bHasDepthStencil)
+			{
+				ValidateAttachment(Layout.DepthStencilAttachment, Info.DepthStencilRenderTarget, Width, Height, "Depth/stencil");
+				RasterSamples = RasterSamples == 0 ? Layout.DepthStencilAttachment.NumSamples : RasterSamples;
+				checkf(RasterSamples == Layout.DepthStencilAttachment.NumSamples, "Depth and color attachments must use the same sample count.");
+			}
+			else
+			{
+				checkf(Info.DepthStencilRenderTarget == nullptr, "A depth/stencil texture was bound without a depth/stencil layout.");
+			}
+		}
+	}
 	FVulkanCommandListContext::FVulkanCommandListContext(FVulkanDynamicRHI* InRHI, FVulkanDevice& InDevice, FVulkanQueue* InQueue)
 		: RHI(InRHI)
 		, Device(InDevice)
@@ -58,20 +111,14 @@ namespace Durin::VulkanRHI
 		Pool->FreeUnusedCommandBuffers(Queue);
 	}
 
-	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName Name) -> void
+	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName DebugName) -> void
 	{
-		const auto* VulkanRT = static_cast<FVulkanTexture*>(RenderPassInfo.ColorRenderTargets[0]);
-
+		ValidateRenderPassInfo(RenderPassInfo);
+		// Pass names are deliberately excluded from render-pass identity and only annotate GPU work.
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
-		const auto* VulkanDepth = static_cast<FVulkanTexture*>(RenderPassInfo.DepthStencilRenderTarget);
-		FVulkanRenderPass* RenderPass = Device.GetRenderPassManager().GetOrCreateRenderPass(Name, VulkanRT->Format, VulkanDepth != nullptr ? VulkanDepth->Format : vk::Format::eUndefined);
-
-		FRHIRenderTargetsInfo RTInfo{};
-		RTInfo.NumColorRenderTargets = 1;
-		RTInfo.ColorRenderTargets[0] = RenderPassInfo.ColorRenderTargets[0];
-		RTInfo.DepthStencilRenderTarget = RenderPassInfo.DepthStencilRenderTarget;
-		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RTInfo, *RenderPass);
-		RenderPassManager.BeginRenderPass(*this, Device, GetCommandBuffer(), RenderPassInfo, RenderPass, Framebuffer);
+		FVulkanRenderPass* RenderPass = RenderPassManager.GetOrCreateRenderPass(RenderPassInfo.RenderTargetLayout);
+		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RenderPassInfo, *RenderPass);
+		RenderPassManager.BeginRenderPass(*this, Device, GetCommandBuffer(), RenderPassInfo, RenderPass, Framebuffer, DebugName);
 	}
 
 	auto FVulkanCommandListContext::RHIEndRenderPass() -> void

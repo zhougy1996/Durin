@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RHIFwd.h"
+#include "RHIResources.h"
 
 namespace Durin::VulkanRHI
 {
@@ -9,19 +9,37 @@ namespace Durin::VulkanRHI
 	class FVulkanCommandBuffer;
 	class FVulkanCommandListContext;
 
+	struct FVulkanRenderPassKey
+	{
+		explicit FVulkanRenderPassKey(const FRHIRenderTargetLayout& InLayout = {});
+
+		auto operator==(const FVulkanRenderPassKey&) const -> bool = default;
+
+		FRHIRenderTargetLayout Layout{};
+	};
+
+	struct FVulkanRenderPassKeyHasher
+	{
+		auto operator()(const FVulkanRenderPassKey& Key) const -> size_t;
+	};
+
 	class FVulkanRenderPass
 	{
 	public:
-		FVulkanRenderPass(FVulkanDevice& InDevice, vk::Format InFormat, vk::ImageLayout InFinalLayout, vk::Format InDepthFormat);
+		FVulkanRenderPass(FVulkanDevice& InDevice, const FVulkanRenderPassKey& InKey);
 
 		~FVulkanRenderPass();
 
 		auto GetHandle() const -> vk::RenderPass { return RenderPass; }
+		auto GetKey() const -> const FVulkanRenderPassKey& { return Key; }
+		auto GetAttachmentCount() const -> uint32 { return AttachmentCount; }
 
 	private:
 		FVulkanDevice& Device;
+		FVulkanRenderPassKey Key;
 
 		vk::RenderPass RenderPass;
+		uint32 AttachmentCount = 0;
 	};
 
 	class FVulkanRenderPassManager
@@ -31,12 +49,11 @@ namespace Durin::VulkanRHI
 
 		~FVulkanRenderPassManager();
 
-		// TODO: Render pass should be reuse based on render target layout, but now we select by name for simplicity
-		auto GetOrCreateRenderPass(FName InRenderPassName, vk::Format Format, vk::Format DepthFormat = vk::Format::eUndefined) -> FVulkanRenderPass*;
+		auto GetOrCreateRenderPass(const FRHIRenderTargetLayout& InLayout) -> FVulkanRenderPass*;
 
-		auto GetOrCreateFrameBuffer(const FRHIRenderTargetsInfo& RTInfo, const FVulkanRenderPass& RenderPass) -> FVulkanFramebuffer*;
+		auto GetOrCreateFrameBuffer(const FRHIRenderPassInfo& RPInfo, const FVulkanRenderPass& RenderPass) -> FVulkanFramebuffer*;
 
-		auto BeginRenderPass(FVulkanCommandListContext& Context, FVulkanDevice& Device, FVulkanCommandBuffer* CmdBuffer, const FRHIRenderPassInfo& RPInfo, /* const FVulkanRenderTargetLayout& RTLayout,*/ FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer) -> void;
+		auto BeginRenderPass(FVulkanCommandListContext& Context, FVulkanDevice& Device, FVulkanCommandBuffer* CmdBuffer, const FRHIRenderPassInfo& RPInfo, FVulkanRenderPass* RenderPass, FVulkanFramebuffer* Framebuffer, FName DebugName) -> void;
 
 		auto EndRenderPass(FVulkanCommandBuffer* InCmdBuffer) -> void;
 
@@ -45,7 +62,7 @@ namespace Durin::VulkanRHI
 	private:
 		FVulkanDevice& Device;
 
-		std::unordered_map<FName, std::unique_ptr<FVulkanRenderPass>> RenderPasses;
+		std::unordered_map<FVulkanRenderPassKey, std::unique_ptr<FVulkanRenderPass>, FVulkanRenderPassKeyHasher> RenderPasses;
 
 		std::vector<std::unique_ptr<FVulkanFramebuffer>> FrameBuffers;
 	};
