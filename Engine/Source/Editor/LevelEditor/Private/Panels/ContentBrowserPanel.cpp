@@ -53,8 +53,9 @@ namespace Durin
 		constexpr float MinimumContentHeight = 80.0f;
 		constexpr float GridCellExtraWidth = 26.0f;
 		constexpr float GridCardRounding = 7.0f;
-		constexpr float GridIconAreaScale = 0.84f;
 		constexpr float GridIconScale = 0.76f;
+		constexpr float GridIconVerticalPadding = 2.0f;
+		constexpr float GridIconNameSpacing = 1.0f;
 	} // namespace
 
 	FContentBrowserPanel::FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport)
@@ -279,9 +280,8 @@ namespace Durin
 			return;
 		}
 		DrawToolbar();
-		ImGui::Separator();
 
-		const float StatusHeight = ImGui::GetFrameHeightWithSpacing();
+		const float StatusHeight = ImGui::GetTextLineHeightWithSpacing();
 		const float AvailableWidth = ImGui::GetContentRegionAvail().x;
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		const float SplitterWidth = Metrics.SplitterThickness;
@@ -618,7 +618,11 @@ namespace Durin
 		const float CellWidth = IconSize + MonaImGui::ScaleUI(GridCellExtraWidth);
 		const float NameFontSize = MonaImGui::QuantizeDynamicFontSize(
 			std::clamp(IconSize * 0.22f, ImGui::GetFontSize() * 0.70f, ImGui::GetFontSize() * 1.40f));
-		const float IconAreaHeight = IconSize * GridIconAreaScale;
+		const float IconFontSize = MonaImGui::QuantizeDynamicFontSize(IconSize * GridIconScale);
+		// Keep the label gap tied to UI scale instead of thumbnail size so zooming does not
+		// amplify the unused space around the icon glyph.
+		const float IconAreaHeight = IconFontSize + MonaImGui::ScaleUI(GridIconVerticalPadding * 2.0f);
+		const float NamePositionY = IconAreaHeight + MonaImGui::ScaleUI(GridIconNameSpacing);
 		const float NameAreaHeight = NameFontSize * 2.0f + MonaImGui::ScaleUI(8.0f);
 		const int32 Columns = std::max(1, static_cast<int32>(ImGui::GetContentRegionAvail().x / CellWidth));
 		if (!ImGui::BeginTable("ContentBrowserGrid", Columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_ScrollY)) return;
@@ -661,14 +665,13 @@ namespace Durin
 														   Item.Kind == EContentBrowserItemKind::Asset	? MonaImGui::EUIThemeColor::Asset :
 																										  MonaImGui::EUIThemeColor::SourceFile;
 			const ImU32 IconColor = MonaImGui::GetThemeColorU32(IconColorRole);
-			const float IconFontSize = MonaImGui::QuantizeDynamicFontSize(IconSize * GridIconScale);
 			const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(IconFontSize, FLT_MAX, 0.0f, ItemIcon(Item));
 			const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(0.0f, (IconAreaHeight - IconExtent.y) * 0.5f));
 			DrawList->AddText(ImGui::GetFont(), IconFontSize, IconPosition, IconColor, ItemIcon(Item));
 			if (RenameTarget == Item.StableId())
 			{
 				const float RenameInset = MonaImGui::ScaleUI(7.0f);
-				ImGui::SetCursorScreenPos(ImVec2(TileStart.x + RenameInset, TileStart.y + IconAreaHeight));
+				ImGui::SetCursorScreenPos(ImVec2(TileStart.x + RenameInset, TileStart.y + NamePositionY));
 				ImGui::SetNextItemWidth(std::max(MonaImGui::ScaleUI(40.0f), TileSize.x - RenameInset * 2.0f));
 				DrawRenameEditor(Item);
 			}
@@ -677,8 +680,8 @@ namespace Durin
 				const float TextInset = MonaImGui::ScaleUI(8.0f);
 				const float TextWidth = std::max(MonaImGui::ScaleUI(40.0f), TileSize.x - TextInset * 2.0f);
 				const ImVec2 TextExtent = ImGui::GetFont()->CalcTextSizeA(NameFontSize, FLT_MAX, TextWidth, Item.Name.c_str());
-				const ImVec2 TextPosition(TileStart.x + std::max(TextInset, (TileSize.x - TextExtent.x) * 0.5f), TileStart.y + IconAreaHeight + MonaImGui::ScaleUI(2.0f));
-				DrawList->PushClipRect(ImVec2(TileStart.x + TextInset, TileStart.y + IconAreaHeight), ImVec2(TileStart.x + TileSize.x - TextInset, TileStart.y + TileSize.y - MonaImGui::ScaleUI(4.0f)), true);
+				const ImVec2 TextPosition(TileStart.x + std::max(TextInset, (TileSize.x - TextExtent.x) * 0.5f), TileStart.y + NamePositionY);
+				DrawList->PushClipRect(ImVec2(TileStart.x + TextInset, TileStart.y + NamePositionY), ImVec2(TileStart.x + TileSize.x - TextInset, TileStart.y + TileSize.y - MonaImGui::ScaleUI(4.0f)), true);
 				DrawList->AddText(ImGui::GetFont(), NameFontSize, TextPosition, ImGui::GetColorU32(ImGuiCol_Text), Item.Name.c_str(), nullptr, TextWidth);
 				DrawList->PopClipRect();
 			}
@@ -846,7 +849,7 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawStatusBar() -> void
 	{
-		ImGui::Separator();
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MonaImGui::GetUIStyleMetrics().SpacingM);
 		ImGui::Text("%zu item%s", Items.size(), Items.size() == 1 ? "" : "s");
 		if (!Selection.empty())
 		{
