@@ -428,7 +428,7 @@ namespace Durin
 		uint32 DestX = 0;
 		uint32 DestY = 0;
 
-		/** offset in source image data */
+		/** texel offset from the beginning of SourceData passed to RHIUpdateTexture2D */
 		int32 SrcX = 0;
 		int32 SrcY = 0;
 

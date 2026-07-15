@@ -504,7 +504,6 @@ namespace Durin::MonaImGui
 		{
 			auto* BackendTexture = static_cast<FImGuiRHIImpl_Texture*>(InTex->BackendUserData);
 			const uint32 SourcePitch = static_cast<uint32>(InTex->GetPitch());
-			const uint32 BytesPerPixel = static_cast<uint32>(InTex->BytesPerPixel);
 			for (const ImTextureRect& UpdateRect : InTex->Updates)
 			{
 				if (UpdateRect.w <= 0 || UpdateRect.h <= 0)
@@ -513,7 +512,7 @@ namespace Durin::MonaImGui
 				}
 
 				FUpdateTextureRegion2D UpdateRegion(UpdateRect.x, UpdateRect.y, UpdateRect.x, UpdateRect.y, UpdateRect.w, UpdateRect.h);
-				const uint8* UpdatePixels = InTex->Pixels + static_cast<size_t>(UpdateRect.y) * SourcePitch + static_cast<size_t>(UpdateRect.x) * BytesPerPixel;
+				const uint8* UpdatePixels = InTex->Pixels;
 				ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTextureRegion)([=](FRHICommandListImmediate& CommandList) {
 					GDynamicRHI->RHIUpdateTexture2D(CommandList, BackendTexture->Texture, 0, UpdateRegion, SourcePitch, UpdatePixels);
 				});

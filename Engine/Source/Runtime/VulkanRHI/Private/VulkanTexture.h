@@ -25,6 +25,12 @@ namespace Durin::VulkanRHI
 
 		~FVulkanTexture() override;
 
+		auto GetSubresourceLayout(uint32 MipIndex, uint32 ArrayLayer) const -> vk::ImageLayout;
+
+		auto SetSubresourceLayout(uint32 MipIndex, uint32 ArrayLayer, vk::ImageLayout Layout) -> void;
+
+		auto GetNumMips() const -> uint32 { return NumMips; }
+
 		vk::Image Image{};
 
 		vk::ImageView ImageView{};
@@ -39,6 +45,13 @@ namespace Durin::VulkanRHI
 		FVulkanAllocation Allocation{};
 
 		EImageOwnerType OwnerType = EImageOwnerType::None;
+
+		uint32 NumMips = 1;
+
+		uint32 ArraySize = 1;
+
+		// Layout state follows command recording order so later uploads preserve existing texels.
+		std::vector<vk::ImageLayout> SubresourceLayouts;
 	};
 
 	class FVulkanSampler : public FRHISampler

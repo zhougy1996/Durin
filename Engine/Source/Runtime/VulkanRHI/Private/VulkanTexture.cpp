@@ -36,6 +36,9 @@ namespace Durin::VulkanRHI
 		, OwnerType(EImageOwnerType::LocalOwner)
 		, Format(ToVulkan_PixelFormat(InCreateDesc.Format))
 		, CreateFlags(InCreateDesc.Flags)
+		, NumMips(InCreateDesc.NumMips)
+		, ArraySize(InCreateDesc.ArraySize)
+		, SubresourceLayouts(static_cast<size_t>(InCreateDesc.NumMips) * InCreateDesc.ArraySize, vk::ImageLayout::eUndefined)
 	{
 		SizeX = static_cast<uint32>(FMath::Max(1, InCreateDesc.Extent.x));
 		SizeY = static_cast<uint32>(FMath::Max(1, InCreateDesc.Extent.y));
@@ -85,6 +88,7 @@ namespace Durin::VulkanRHI
 		, Device(InDevice)
 		, OwnerType(EImageOwnerType::ExternalOwner)
 		, CreateFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
+		, SubresourceLayouts(1, vk::ImageLayout::eUndefined)
 	{
 	}
 
@@ -95,6 +99,18 @@ namespace Durin::VulkanRHI
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image, Allocation);
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, ImageView);
 		}
+	}
+
+	auto FVulkanTexture::GetSubresourceLayout(uint32 MipIndex, uint32 ArrayLayer) const -> vk::ImageLayout
+	{
+		check(MipIndex < NumMips && ArrayLayer < ArraySize);
+		return SubresourceLayouts[static_cast<size_t>(ArrayLayer) * NumMips + MipIndex];
+	}
+
+	auto FVulkanTexture::SetSubresourceLayout(uint32 MipIndex, uint32 ArrayLayer, vk::ImageLayout Layout) -> void
+	{
+		check(MipIndex < NumMips && ArrayLayer < ArraySize);
+		SubresourceLayouts[static_cast<size_t>(ArrayLayer) * NumMips + MipIndex] = Layout;
 	}
 
 	FVulkanSampler::FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc)
@@ -139,32 +155,54 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void
 	{
-		const auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
+		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
 		const auto CmdBuffer = RHIGetVkCommandBuffer(RHICmdList);
+		const uint32 ElementSize = GetFormatElementSize(VulkanTexture->Format);
 
-		// Create staging buffer
-		const uint32 DataSize = UpdateRegion.Height * SourcePitch;
+		check(SourceData);
+		check(MipIndex < VulkanTexture->GetNumMips());
+		const uint32 MipWidth = FMath::Max(1u, VulkanTexture->GetSizeX() >> MipIndex);
+		const uint32 MipHeight = FMath::Max(1u, VulkanTexture->GetSizeY() >> MipIndex);
+		check(UpdateRegion.SrcX >= 0 && UpdateRegion.SrcY >= 0);
+		check(UpdateRegion.Width > 0 && UpdateRegion.Height > 0);
+		check(static_cast<uint64>(UpdateRegion.DestX) + UpdateRegion.Width <= MipWidth);
+		check(static_cast<uint64>(UpdateRegion.DestY) + UpdateRegion.Height <= MipHeight);
+		check((static_cast<uint64>(UpdateRegion.SrcX) + UpdateRegion.Width) * ElementSize <= SourcePitch);
+
+		// Repack only the requested rectangle. SourceData always points at the full source image.
+		const uint32 PackedRowPitch = UpdateRegion.Width * ElementSize;
+		const uint64 DataSize64 = static_cast<uint64>(UpdateRegion.Height) * PackedRowPitch;
+		check(DataSize64 <= std::numeric_limits<uint32>::max());
+		const uint32 DataSize = static_cast<uint32>(DataSize64);
 		FStagingBuffer StagingBuffer(*Device, DataSize);
-		void* Mapped = StagingBuffer.GetMappedPointer();
-		std::memcpy(Mapped, SourceData, DataSize);
+		auto* Mapped = static_cast<uint8*>(StagingBuffer.GetMappedPointer());
+		const auto* SourceRegion = SourceData + static_cast<size_t>(UpdateRegion.SrcY) * SourcePitch + static_cast<size_t>(UpdateRegion.SrcX) * ElementSize;
+		for (uint32 Row = 0; Row < UpdateRegion.Height; ++Row)
+		{
+			std::memcpy(Mapped + static_cast<size_t>(Row) * PackedRowPitch, SourceRegion + static_cast<size_t>(Row) * SourcePitch, PackedRowPitch);
+		}
+		StagingBuffer.FlushMappedMemory();
+
+		const vk::ImageLayout OldLayout = VulkanTexture->GetSubresourceLayout(MipIndex, 0);
+		const bool bHasPreviousContents = OldLayout != vk::ImageLayout::eUndefined;
 
 		vk::ImageMemoryBarrier PreCopyBarrier;
-		PreCopyBarrier.setSrcAccessMask(vk::AccessFlagBits::eNone)
+		PreCopyBarrier.setSrcAccessMask(bHasPreviousContents ? vk::AccessFlagBits::eShaderRead : vk::AccessFlagBits::eNone)
 			.setDstAccessMask(vk::AccessFlagBits::eTransferWrite)
-			.setOldLayout(vk::ImageLayout::eUndefined)
+			.setOldLayout(OldLayout)
 			.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
 			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 			.setImage(VulkanTexture->Image)
 			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, 0, 1));
 
-		CmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, PreCopyBarrier);
+		const vk::PipelineStageFlags SourceStage = bHasPreviousContents ? vk::PipelineStageFlagBits::eAllGraphics : vk::PipelineStageFlagBits::eTopOfPipe;
+		CmdBuffer.pipelineBarrier(SourceStage, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, PreCopyBarrier);
 
 		// Copy buffer to image
-		uint32 ElementSize = GetFormatElementSize(VulkanTexture->Format);
 		vk::BufferImageCopy CopyRegion;
 		CopyRegion.setBufferOffset(0)
-			.setBufferRowLength(SourcePitch / ElementSize)
+			.setBufferRowLength(0)
 			.setBufferImageHeight(0)
 			.setImageSubresource(vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, MipIndex, 0, 1))
 			.setImageOffset(vk::Offset3D{static_cast<int32>(UpdateRegion.DestX), static_cast<int32>(UpdateRegion.DestY), 0})
@@ -183,6 +221,7 @@ namespace Durin::VulkanRHI
 			.setImage(VulkanTexture->Image)
 			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, 0, 1));
 
-		CmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
+		CmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllGraphics, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
+		VulkanTexture->SetSubresourceLayout(MipIndex, 0, vk::ImageLayout::eShaderReadOnlyOptimal);
 	}
 } // namespace Durin::VulkanRHI
