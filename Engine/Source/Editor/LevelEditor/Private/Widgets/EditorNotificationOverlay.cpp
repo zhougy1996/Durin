@@ -2,6 +2,7 @@
 
 #include "Editor/EditorNotification.h"
 #include "Editor/EditorTransaction.h"
+#include "Icons/FontAwesomeIcons.h"
 #include "MonaImGui.h"
 
 namespace Durin
@@ -23,17 +24,62 @@ namespace Durin
 			}
 		}
 
-		auto TypeMarker(EEditorNotificationType Type) -> const char*
+		auto TypeIcon(EEditorNotificationType Type) -> const char*
 		{
 			switch (Type)
 			{
-			case EEditorNotificationType::Success: return "OK";
-			case EEditorNotificationType::Warning: return "!";
-			case EEditorNotificationType::Error: return "X";
-			case EEditorNotificationType::Progress: return ">";
+			case EEditorNotificationType::Success: return Icons::Check;
+			case EEditorNotificationType::Warning: return Icons::Warning;
+			case EEditorNotificationType::Error: return Icons::Error;
+			case EEditorNotificationType::Progress: return Icons::Refresh;
 			case EEditorNotificationType::Info:
-			default: return "i";
+			default: return Icons::Info;
 			}
+		}
+
+		auto TypeLabel(EEditorNotificationType Type) -> const char*
+		{
+			switch (Type)
+			{
+			case EEditorNotificationType::Success: return "Completed";
+			case EEditorNotificationType::Warning: return "Warning";
+			case EEditorNotificationType::Error: return "Error";
+			case EEditorNotificationType::Progress: return "In progress";
+			case EEditorNotificationType::Info:
+			default: return "Information";
+			}
+		}
+
+		auto DrawActionButton(FEditorNotificationManager& Notifications, const FEditorNotification& Notification) -> void
+		{
+			const ImVec4 Accent = MonaImGui::GetThemeColor(ThemeColor(Notification.Type));
+			ImVec4 Button = Accent;
+			Button.w = 0.16f;
+			ImVec4 Hovered = Accent;
+			Hovered.w = 0.28f;
+			ImVec4 Active = Accent;
+			Active.w = 0.38f;
+			ImGui::PushStyleColor(ImGuiCol_Button, Button);
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Hovered);
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, Active);
+			ImGui::PushStyleColor(ImGuiCol_Text, Accent);
+
+			if (Notification.Type == EEditorNotificationType::Progress && Notification.Cancel)
+			{
+				const char* Label = Notification.bCancelRequested ? "Canceling..." : "Cancel";
+				ImGui::BeginDisabled(Notification.bCancelRequested);
+				if (ImGui::Button(Label)) Notifications.RequestCancel(Notification.Id);
+				ImGui::EndDisabled();
+			}
+			else if (Notification.Action)
+			{
+				const bool bEnabled = !Notification.Action->IsEnabled || Notification.Action->IsEnabled();
+				ImGui::BeginDisabled(!bEnabled);
+				if (ImGui::Button(Notification.Action->Label.c_str())) Notifications.InvokeAction(Notification.Id);
+				ImGui::EndDisabled();
+			}
+
+			ImGui::PopStyleColor(4);
 		}
 
 		auto FailureOperation(EEditorTransactionOperation Operation) -> std::string_view
@@ -48,10 +94,11 @@ namespace Durin
 		}
 	}
 
-	auto FEditorNotificationOverlay::Draw(FEditorNotificationManager& Notifications, FEditorTransactionManager& Transactions) -> void
+	auto FEditorNotificationOverlay::Draw(FEditorNotificationManager& Notifications, FEditorTransactionManager& Transactions, bool* bHistoryOpen) -> void
 	{
 		PublishTransactionEvents(Notifications, Transactions);
 		Notifications.Tick(ImGui::GetIO().DeltaTime);
+		if (bHistoryOpen && *bHistoryOpen) DrawHistory(Notifications, bHistoryOpen);
 
 		const std::vector<FEditorNotification>& Active = Notifications.GetNotifications();
 		std::vector<const FEditorNotification*> Visible;
@@ -69,8 +116,8 @@ namespace Durin
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		const float Margin = MonaImGui::ScaleUI(Metrics.SpacingL);
 		const float Spacing = MonaImGui::ScaleUI(Metrics.SpacingM);
-		const float AccentWidth = MonaImGui::ScaleUI(4.0f);
-		const float DesiredWidth = MonaImGui::ScaleUI(360.0f);
+		const float AccentWidth = MonaImGui::ScaleUI(3.0f);
+		const float DesiredWidth = MonaImGui::ScaleUI(380.0f);
 		const float MinimumWidth = MonaImGui::ScaleUI(180.0f);
 		const float AvailableWidth = std::max(MinimumWidth, Viewport->WorkSize.x - Margin * 2.0f);
 		const float Width = std::min(DesiredWidth, AvailableWidth);
@@ -79,6 +126,9 @@ namespace Durin
 		for (const FEditorNotification* Notification : Visible)
 		{
 			ImGui::PushID(static_cast<int>(Notification->Id));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(MonaImGui::ScaleUI(Metrics.SpacingL), MonaImGui::ScaleUI(Metrics.SpacingL)));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, MonaImGui::ScaleUI(8.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, MonaImGui::ScaleUI(1.0f));
 			ImGui::SetNextWindowViewport(Viewport->ID);
 			ImGui::SetNextWindowPos(Viewport->WorkPos + Viewport->WorkSize - ImVec2(Margin, BottomOffset), ImGuiCond_Always, ImVec2(1.0f, 1.0f));
 			ImGui::SetNextWindowSizeConstraints(ImVec2(Width, 0.0f), ImVec2(Width, std::numeric_limits<float>::max()));
@@ -88,45 +138,49 @@ namespace Durin
 			const std::string WindowName = std::format("##EditorNotification{}", Notification->Id);
 			if (ImGui::Begin(WindowName.c_str(), nullptr, Flags))
 			{
+				const ImVec4 Accent = MonaImGui::GetThemeColor(ThemeColor(Notification->Type));
 				const ImU32 AccentColor = MonaImGui::GetThemeColorU32(ThemeColor(Notification->Type));
+				const float CloseSize = ImGui::GetFrameHeight();
 
-				const float CloseWidth = ImGui::GetFrameHeight();
-				ImGui::PushStyleColor(ImGuiCol_Text, AccentColor);
-				ImGui::TextUnformatted(TypeMarker(Notification->Type));
+				ImGui::PushStyleColor(ImGuiCol_Text, Accent);
+				ImGui::Text("%s  %s", TypeIcon(Notification->Type), TypeLabel(Notification->Type));
 				ImGui::PopStyleColor();
-				ImGui::SameLine();
-				const float MessageStart = ImGui::GetCursorPosX();
-				ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x - CloseWidth - Spacing);
+
+				// A bare glyph keeps dismissal visually secondary while retaining a generous hit target.
+				const ImVec2 CursorAfterHeader = ImGui::GetCursorPos();
+				const ImVec2 ClosePos = ImGui::GetWindowPos() + ImVec2(ImGui::GetWindowContentRegionMax().x - CloseSize, ImGui::GetStyle().WindowPadding.y);
+				ImGui::SetCursorScreenPos(ClosePos);
+				ImGui::InvisibleButton("##Dismiss", ImVec2(CloseSize, CloseSize));
+				const bool bCloseHovered = ImGui::IsItemHovered();
+				const ImVec2 CloseTextSize = ImGui::CalcTextSize(Icons::Close);
+				const ImVec2 CloseTextPos = ClosePos + (ImVec2(CloseSize, CloseSize) - CloseTextSize) * 0.5f;
+				const ImU32 CloseColor = ImGui::GetColorU32(bCloseHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+				ImGui::GetWindowDrawList()->AddText(CloseTextPos, CloseColor, Icons::Close);
+				if (ImGui::IsItemClicked()) Notifications.Dismiss(Notification->Id);
+				ImGui::SetCursorPos(CursorAfterHeader);
+
+				ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
 				ImGui::TextUnformatted(Notification->Message.c_str());
 				ImGui::PopTextWrapPos();
-
-				ImGui::SameLine();
-				ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - CloseWidth);
-				if (ImGui::SmallButton("x")) Notifications.Dismiss(Notification->Id);
 
 				if (Notification->Type == EEditorNotificationType::Progress)
 				{
 					const float Progress = Notification->Progress.value_or(static_cast<float>(std::fmod(ImGui::GetTime() * 0.65, 1.0)));
 					const std::string Overlay = Notification->Progress ? std::format("{}%", static_cast<int>(*Notification->Progress * 100.0f)) : std::string{};
+					ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, MonaImGui::ScaleUI(3.0f));
+					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, Accent);
 					ImGui::ProgressBar(Progress, ImVec2(-std::numeric_limits<float>::min(), 0.0f), Overlay.empty() ? nullptr : Overlay.c_str());
-					if (Notification->Cancel)
-					{
-						const char* Label = Notification->bCancelRequested ? "Canceling..." : "Cancel";
-						const float ButtonWidth = ImGui::CalcTextSize(Label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
-						ImGui::SetCursorPosX(std::max(MessageStart, ImGui::GetWindowContentRegionMax().x - ButtonWidth));
-						ImGui::BeginDisabled(Notification->bCancelRequested);
-						if (ImGui::Button(Label)) Notifications.RequestCancel(Notification->Id);
-						ImGui::EndDisabled();
-					}
+					ImGui::PopStyleColor();
+					ImGui::PopStyleVar();
 				}
-				else if (Notification->Action)
+
+				if ((Notification->Type == EEditorNotificationType::Progress && Notification->Cancel) || Notification->Action)
 				{
-					const bool bEnabled = !Notification->Action->IsEnabled || Notification->Action->IsEnabled();
-					const float ButtonWidth = ImGui::CalcTextSize(Notification->Action->Label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
-					ImGui::SetCursorPosX(std::max(MessageStart, ImGui::GetWindowContentRegionMax().x - ButtonWidth));
-					ImGui::BeginDisabled(!bEnabled);
-					if (ImGui::Button(Notification->Action->Label.c_str())) Notifications.InvokeAction(Notification->Id);
-					ImGui::EndDisabled();
+					const char* Label = Notification->Type == EEditorNotificationType::Progress ?
+						(Notification->bCancelRequested ? "Canceling..." : "Cancel") : Notification->Action->Label.c_str();
+					const float ButtonWidth = ImGui::CalcTextSize(Label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+					ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - ButtonWidth);
+					DrawActionButton(Notifications, *Notification);
 				}
 
 				Notifications.SetHovered(Notification->Id, ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem));
@@ -137,8 +191,70 @@ namespace Durin
 				BottomOffset += RenderedHeight + Spacing;
 			}
 			ImGui::End();
+			ImGui::PopStyleVar(3);
 			ImGui::PopID();
 		}
+	}
+
+	auto FEditorNotificationOverlay::DrawHistory(FEditorNotificationManager& Notifications, bool* bOpen) -> void
+	{
+		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(420.0f)), ImGuiCond_FirstUseEver);
+		if (ImGui::Begin("Activity History###EditorActivityHistory", bOpen))
+		{
+			const std::vector<FEditorNotification>& History = Notifications.GetHistory();
+			ImGui::TextDisabled("Editor activity from this session");
+			ImGui::SameLine();
+			const char* ClearLabel = "Clear history";
+			const float ClearWidth = ImGui::CalcTextSize(ClearLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+			ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - ClearWidth));
+			ImGui::BeginDisabled(History.empty());
+			if (ImGui::Button(ClearLabel)) Notifications.ClearHistory();
+			ImGui::EndDisabled();
+			ImGui::Separator();
+
+			if (History.empty())
+			{
+				ImGui::Spacing();
+				ImGui::TextDisabled("Actions, warnings, errors, and background progress will appear here.");
+			}
+			else
+			{
+				const bool bDrawEntries = ImGui::BeginChild("##ActivityEntries", ImVec2(0.0f, 0.0f), false);
+				if (bDrawEntries)
+				{
+					for (auto Iterator = History.rbegin(); Iterator != History.rend(); ++Iterator)
+					{
+						const FEditorNotification& Notification = *Iterator;
+						ImGui::PushID(static_cast<int>(Notification.Id));
+						const ImVec4 Accent = MonaImGui::GetThemeColor(ThemeColor(Notification.Type));
+						ImGui::PushStyleColor(ImGuiCol_Text, Accent);
+						ImGui::Text("%s  %s", TypeIcon(Notification.Type), TypeLabel(Notification.Type));
+						ImGui::PopStyleColor();
+						ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
+						ImGui::TextUnformatted(Notification.Message.c_str());
+						ImGui::PopTextWrapPos();
+
+						if (Notification.Type == EEditorNotificationType::Progress)
+						{
+							const float Progress = Notification.Progress.value_or(static_cast<float>(std::fmod(ImGui::GetTime() * 0.65, 1.0)));
+							const std::string Overlay = Notification.Progress ? std::format("{}%", static_cast<int>(*Notification.Progress * 100.0f)) : std::string{};
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, Accent);
+							ImGui::ProgressBar(Progress, ImVec2(-std::numeric_limits<float>::min(), 0.0f), Overlay.empty() ? nullptr : Overlay.c_str());
+							ImGui::PopStyleColor();
+						}
+
+						if ((Notification.Type == EEditorNotificationType::Progress && Notification.Cancel) || Notification.Action)
+						{
+							DrawActionButton(Notifications, Notification);
+						}
+						ImGui::Separator();
+						ImGui::PopID();
+					}
+				}
+				ImGui::EndChild();
+			}
+		}
+		ImGui::End();
 	}
 
 	auto FEditorNotificationOverlay::PublishTransactionEvents(FEditorNotificationManager& Notifications, FEditorTransactionManager& Transactions) -> void

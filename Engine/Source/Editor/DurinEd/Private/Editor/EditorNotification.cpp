@@ -18,6 +18,7 @@ namespace Durin
 			Notification.Message = std::move(Desc.Message);
 			Notification.RemainingSeconds = ResolveDuration(Notification.Type, Desc.DurationSeconds);
 			Notification.Action = std::move(Desc.Action);
+			History.emplace_back(Notification);
 			Notifications.emplace_back(std::move(Notification));
 		});
 		return Id;
@@ -33,6 +34,7 @@ namespace Durin
 			Notification.Message = std::move(Desc.Message);
 			if (Desc.Progress) Notification.Progress = std::clamp(*Desc.Progress, 0.0f, 1.0f);
 			Notification.Cancel = std::move(Desc.Cancel);
+			History.emplace_back(Notification);
 			Notifications.emplace_back(std::move(Notification));
 		});
 		return Id;
@@ -41,36 +43,39 @@ namespace Durin
 	auto FEditorNotificationManager::UpdateProgress(FEditorNotificationId Id, std::optional<float> Progress, std::string Message) -> void
 	{
 		Enqueue([this, Id, Progress, Message = std::move(Message)]() mutable {
-			FEditorNotification* Notification = Find(Id);
-			if (!Notification || Notification->Type != EEditorNotificationType::Progress) return;
-			Notification->Progress = Progress ? std::optional(std::clamp(*Progress, 0.0f, 1.0f)) : std::nullopt;
-			if (!Message.empty()) Notification->Message = std::move(Message);
+			UpdateBoth(Id, [&](FEditorNotification& Notification) {
+				if (Notification.Type != EEditorNotificationType::Progress) return;
+				Notification.Progress = Progress ? std::optional(std::clamp(*Progress, 0.0f, 1.0f)) : std::nullopt;
+				if (!Message.empty()) Notification.Message = Message;
+			});
 		});
 	}
 
 	auto FEditorNotificationManager::CompleteProgress(FEditorNotificationId Id, std::string Message) -> void
 	{
 		Enqueue([this, Id, Message = std::move(Message)]() mutable {
-			FEditorNotification* Notification = Find(Id);
-			if (!Notification || Notification->Type != EEditorNotificationType::Progress) return;
-			Notification->Type = EEditorNotificationType::Success;
-			Notification->Progress.reset();
-			Notification->RemainingSeconds = DefaultInfoDuration;
-			Notification->Cancel = {};
-			if (!Message.empty()) Notification->Message = std::move(Message);
+			UpdateBoth(Id, [&](FEditorNotification& Notification) {
+				if (Notification.Type != EEditorNotificationType::Progress) return;
+				Notification.Type = EEditorNotificationType::Success;
+				Notification.Progress.reset();
+				Notification.RemainingSeconds = DefaultInfoDuration;
+				Notification.Cancel = {};
+				if (!Message.empty()) Notification.Message = Message;
+			});
 		});
 	}
 
 	auto FEditorNotificationManager::FailProgress(FEditorNotificationId Id, std::string Message) -> void
 	{
 		Enqueue([this, Id, Message = std::move(Message)]() mutable {
-			FEditorNotification* Notification = Find(Id);
-			if (!Notification || Notification->Type != EEditorNotificationType::Progress) return;
-			Notification->Type = EEditorNotificationType::Error;
-			Notification->Progress.reset();
-			Notification->RemainingSeconds.reset();
-			Notification->Cancel = {};
-			Notification->Message = std::move(Message);
+			UpdateBoth(Id, [&](FEditorNotification& Notification) {
+				if (Notification.Type != EEditorNotificationType::Progress) return;
+				Notification.Type = EEditorNotificationType::Error;
+				Notification.Progress.reset();
+				Notification.RemainingSeconds.reset();
+				Notification.Cancel = {};
+				Notification.Message = Message;
+			});
 		});
 	}
 
@@ -112,6 +117,7 @@ namespace Durin
 	auto FEditorNotificationManager::InvokeAction(FEditorNotificationId Id) -> bool
 	{
 		FEditorNotification* Notification = Find(Id);
+		if (!Notification) Notification = FindHistory(Id);
 		if (!Notification || !Notification->Action || !Notification->Action->Invoke) return false;
 		if (Notification->Action->IsEnabled && !Notification->Action->IsEnabled()) return false;
 		const std::function<void()> Callback = Notification->Action->Invoke;
@@ -122,11 +128,17 @@ namespace Durin
 	auto FEditorNotificationManager::RequestCancel(FEditorNotificationId Id) -> bool
 	{
 		FEditorNotification* Notification = Find(Id);
+		if (!Notification) Notification = FindHistory(Id);
 		if (!Notification || Notification->Type != EEditorNotificationType::Progress || !Notification->Cancel || Notification->bCancelRequested) return false;
-		Notification->bCancelRequested = true;
 		const std::function<void()> Callback = Notification->Cancel;
+		UpdateBoth(Id, [](FEditorNotification& Item) { Item.bCancelRequested = true; });
 		Callback();
 		return true;
+	}
+
+	auto FEditorNotificationManager::ClearHistory() -> void
+	{
+		History.clear();
 	}
 
 	auto FEditorNotificationManager::Enqueue(std::function<void()> Command) -> void
@@ -139,6 +151,18 @@ namespace Durin
 	{
 		const auto Iterator = std::ranges::find(Notifications, Id, &FEditorNotification::Id);
 		return Iterator == Notifications.end() ? nullptr : &*Iterator;
+	}
+
+	auto FEditorNotificationManager::FindHistory(FEditorNotificationId Id) -> FEditorNotification*
+	{
+		const auto Iterator = std::ranges::find(History, Id, &FEditorNotification::Id);
+		return Iterator == History.end() ? nullptr : &*Iterator;
+	}
+
+	auto FEditorNotificationManager::UpdateBoth(FEditorNotificationId Id, const std::function<void(FEditorNotification&)>& Update) -> void
+	{
+		if (FEditorNotification* Notification = Find(Id)) Update(*Notification);
+		if (FEditorNotification* Notification = FindHistory(Id)) Update(*Notification);
 	}
 
 	auto FEditorNotificationManager::ResolveDuration(EEditorNotificationType Type, float RequestedSeconds) -> std::optional<float>

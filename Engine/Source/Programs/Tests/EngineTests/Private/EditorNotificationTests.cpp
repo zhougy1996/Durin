@@ -28,6 +28,8 @@ TEST(FEditorNotificationManagerTests, AppliesDefaultLifetimeAndPausesWhileHovere
 
 	Manager.Tick(5.1f);
 	EXPECT_EQ(FindNotification(Manager, Id), nullptr);
+	ASSERT_EQ(Manager.GetHistory().size(), 1);
+	EXPECT_EQ(Manager.GetHistory().front().Message, "Saved");
 }
 
 TEST(FEditorNotificationManagerTests, UpdatesCompletesAndFailsProgressNotifications)
@@ -88,4 +90,22 @@ TEST(FEditorNotificationManagerTests, AcceptsCommandsFromAnotherThread)
 	ASSERT_TRUE(Notification->Progress.has_value());
 	EXPECT_FLOAT_EQ(*Notification->Progress, 0.5f);
 	EXPECT_EQ(Notification->Message, "Halfway");
+	ASSERT_EQ(Manager.GetHistory().size(), 1);
+	EXPECT_EQ(Manager.GetHistory().front().Message, "Halfway");
+}
+
+TEST(FEditorNotificationManagerTests, DismissalPreservesHistoryUntilExplicitlyCleared)
+{
+	Durin::FEditorNotificationManager Manager;
+	const Durin::FEditorNotificationId Id = Manager.Post({.Message = "Moved Actor"});
+	Manager.Tick(0.0f);
+	Manager.Dismiss(Id);
+	Manager.Tick(0.0f);
+
+	EXPECT_EQ(FindNotification(Manager, Id), nullptr);
+	ASSERT_EQ(Manager.GetHistory().size(), 1);
+	EXPECT_EQ(Manager.GetHistory().front().Id, Id);
+
+	Manager.ClearHistory();
+	EXPECT_TRUE(Manager.GetHistory().empty());
 }

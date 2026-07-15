@@ -67,15 +67,21 @@ namespace Durin
 		DURINED_API auto InvokeAction(FEditorNotificationId Id) -> bool;
 		DURINED_API auto RequestCancel(FEditorNotificationId Id) -> bool;
 		auto GetNotifications() const -> const std::vector<FEditorNotification>& { return Notifications; }
+		auto GetHistory() const -> const std::vector<FEditorNotification>& { return History; }
+		DURINED_API auto ClearHistory() -> void;
 
 	private:
 		auto Enqueue(std::function<void()> Command) -> void;
 		auto Find(FEditorNotificationId Id) -> FEditorNotification*;
+		auto FindHistory(FEditorNotificationId Id) -> FEditorNotification*;
+		auto UpdateBoth(FEditorNotificationId Id, const std::function<void(FEditorNotification&)>& Update) -> void;
 		static auto ResolveDuration(EEditorNotificationType Type, float RequestedSeconds) -> std::optional<float>;
 
 		std::atomic<FEditorNotificationId> NextId = 1;
 		std::mutex PendingMutex;
 		std::vector<std::function<void()>> PendingCommands;
 		std::vector<FEditorNotification> Notifications;
+		// History is session-only and intentionally independent from toast lifetime/dismissal.
+		std::vector<FEditorNotification> History;
 	};
 }

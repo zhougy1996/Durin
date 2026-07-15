@@ -221,7 +221,7 @@ namespace Durin
 
 		if (NotificationOverlay && GEditor)
 		{
-			NotificationOverlay->Draw(GEditor->GetNotificationManager(), GEditor->GetTransactionManager());
+			NotificationOverlay->Draw(GEditor->GetNotificationManager(), GEditor->GetTransactionManager(), &bActivityHistoryOpen);
 		}
 	}
 
@@ -309,6 +309,8 @@ namespace Durin
 		}
 		if (ImGui::BeginMenu("Window"))
 		{
+			ImGui::MenuItem("Activity History", nullptr, &bActivityHistoryOpen);
+			ImGui::Separator();
 			for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 			{
 				bool bOpen = Panel->IsOpen();

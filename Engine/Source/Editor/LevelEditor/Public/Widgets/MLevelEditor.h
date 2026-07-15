@@ -41,6 +41,7 @@ namespace Durin
 		FContentBrowserPanel* ContentBrowserPanel = nullptr;
 		bool bResetLayoutRequested = false;
 		bool bProjectSettingsOpen = false;
+		bool bActivityHistoryOpen = false;
 		std::string DefaultLevel;
 		std::string EditorError;
 	};
