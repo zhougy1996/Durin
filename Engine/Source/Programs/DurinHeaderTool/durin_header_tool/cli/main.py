@@ -27,6 +27,7 @@ def main():
 
     configs.ARCH = args.arch
     configs.PROFILE_NAME = args.profile
+    configs.BUILD_IDENTIFIER = args.build_identifier
     init_logging(args.log)
     mutating_commands = {
         "prepare_project_build",
@@ -42,15 +43,7 @@ def main():
         command_manager.execute_command(args.function, args)
 
     if args.function in mutating_commands:
-        lock_path = (
-            configs.environment.DURIN_ENGINE_PROJECT_DIR
-            / "Intermediate"
-            / "Build"
-            / ".dht-locks"
-            / configs.ARCH
-            / configs.PROFILE_NAME
-            / f"{configs.BUILD_IDENTIFIER or '_default'}.lock"
-        )
+        lock_path = utils.get_dht_output_lock_file_path()
         with utils.acquire_output_lock(lock_path, args.function):
             execute()
     else:

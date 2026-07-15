@@ -7,8 +7,10 @@ This document describes the reflection framework that is currently implemented i
 Durin reflection uses selected C++ headers as the source of truth. A module lists reflected headers in its `.dmodule` file under `ReflectHeaders`. During configure/build, DurinHeaderTool scans those headers and writes generated files under:
 
 ```text
-Engine/Intermediate/Build/<Platform>/<Profile>/<Module>/DHT
+Engine/Intermediate/Build/<Platform>/<Profile>[/<BuildIdentifier>]/<Module>/DHT
 ```
+
+Generated files are atomically replaced. DHT serializes commands that use the same platform, profile, and build identifier; a non-empty identifier selects an independent intermediate subtree.
 
 The current system supports:
 
@@ -151,7 +153,7 @@ The manifest is schema v1 JSON and is private to DurinHeaderTool. It records:
 
 Changing the tool version, schema, symbol-name scheme, profile, platform, options hash, dependency exports, or reflected header fingerprints invalidates generated reflection outputs.
 
-Dependency export changes are filtered through resolved symbol dependencies. If an upstream export changes but a header does not reference the changed reflected symbols, that header can keep its existing generated files. Missing generated outputs still force regeneration for the affected header.
+Dependency export changes are filtered through resolved symbol dependencies. If an upstream export changes but a header does not reference the changed reflected symbols, that header can keep its existing generated files. Missing generated outputs still force regeneration for the affected header. A missing, truncated, or structurally invalid export or manifest is treated as a cache miss and regenerated; the reflection manifest is written last so an interrupted generator cannot commit an incomplete output set.
 
 ## Generated Header Contract
 

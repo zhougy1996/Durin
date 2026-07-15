@@ -35,11 +35,11 @@ Each preset sets:
 - `DURIN_PROFILE_NAME`
 - a dedicated build directory such as `Build/Win64-Debug-DurinEditor`
 
-Presets may also set `DURIN_BUILD_IDENTIFIER` to isolate outputs produced by a particular build workflow. This is not a profile or build configuration: `Win64-Debug-DurinEditor-Agent` remains `Debug` + `DurinEditor`, but writes to `Engine/Binaries/Win64/Debug-Agent/`.
+Presets may also set `DURIN_BUILD_IDENTIFIER` to isolate outputs produced by a particular build workflow. This is not a profile or build configuration: `Win64-Debug-DurinEditor-Agent` remains `Debug` + `DurinEditor`, but writes binaries to `Engine/Binaries/Win64/Debug-Agent/` and generated metadata to `Engine/Intermediate/Build/Win64/DurinEditor/Agent/`.
 
 DurinHeaderTool resolves the active profile and emits generated project metadata under `Engine/Intermediate/Build/<Platform>/<ProfileName>/...`.
 
-That path does not currently include the preset name or `DURIN_BUILD_IDENTIFIER`. Presets such as human Debug, Tests, and Agent `DurinEditor` builds therefore share DHT-generated CMake files, reflection outputs, and incremental manifests even though their CMake build trees and binary outputs differ. Do not configure or build presets sharing the same platform and profile concurrently.
+When `DURIN_BUILD_IDENTIFIER` is non-empty, DurinHeaderTool appends it as another directory component. DHT commands using the same platform, profile, and identifier are protected by one cross-process lock; different identifiers use independent generated CMake files, reflection outputs, incremental manifests, and locks.
 
 ## Derived Build Behavior
 
@@ -65,5 +65,5 @@ Minimum steps:
 1. Add the built-in profile entry in `Engine/Source/Programs/DurinHeaderTool/durin_header_tool/config/profile_config.py`.
 2. Add or update matching `ExtraModules.<ProfileName>.Modules` entries in the relevant `.dproject` files when the module set should differ.
 3. Add matching presets in `CMakePresets.json`.
-4. Verify generated output under `Engine/Intermediate/Build/<Platform>/<ProfileName>/`.
+4. Verify generated output under `Engine/Intermediate/Build/<Platform>/<ProfileName>/` or its identifier-specific child directory.
 5. Decide the `WithEditor` value and verify launcher naming, module naming, and config file naming.

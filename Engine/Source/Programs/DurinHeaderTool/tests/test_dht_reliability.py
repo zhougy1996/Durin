@@ -1,3 +1,4 @@
+import argparse
 import json
 import multiprocessing
 import os
@@ -14,9 +15,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from durin_header_tool import io as utils
+from durin_header_tool import config as configs
+from durin_header_tool.cli.command import add_common_arguments
 from durin_header_tool.generators import module_export_file_generator as export_generator
 from durin_header_tool.generators import module_reflection_files_generator as reflection_generator
+from durin_header_tool.generators import project_cmake_file_generator
 from durin_header_tool.model.reflection_manifest import ModuleManifest
+from durin_header_tool.runtime.worker_context import initialize_worker_config
 
 
 def _lock_worker(lock_path: str, operation: str, release_event, result_queue) -> None:
@@ -185,6 +190,67 @@ class CacheRecoveryTests(unittest.TestCase):
                 reflection_generator.generate_reflection_files("Engine")
 
         save_manifest.assert_not_called()
+
+
+class BuildIdentifierTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        configs.ARCH = "Win64"
+        configs.PROFILE_NAME = "DurinEditor"
+        configs.BUILD_IDENTIFIER = ""
+        configs.init_configs()
+
+    def tearDown(self):
+        configs.ARCH = "Win64"
+        configs.PROFILE_NAME = "DurinEditor"
+        configs.BUILD_IDENTIFIER = ""
+
+    def test_empty_identifier_preserves_existing_intermediate_path(self):
+        configs.BUILD_IDENTIFIER = ""
+        self.assertEqual(
+            utils.get_project_intermediate_build_dir("Engine"),
+            utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor",
+        )
+
+    def test_agent_identifier_uses_isolated_intermediate_path_and_lock(self):
+        configs.BUILD_IDENTIFIER = "Agent"
+        self.assertEqual(
+            utils.get_project_intermediate_build_dir("Engine"),
+            utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor" / "Agent",
+        )
+        self.assertEqual(utils.get_dht_output_lock_file_path().name, "Agent.lock")
+
+    def test_cli_rejects_invalid_identifier(self):
+        parser = argparse.ArgumentParser()
+        add_common_arguments(parser)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--build-identifier", "../Agent"])
+
+    def test_worker_receives_identifier(self):
+        with mock.patch.object(configs, "init_configs") as init_configs:
+            initialize_worker_config("Win64", "DurinEditor", "Agent")
+
+        self.assertEqual(configs.ARCH, "Win64")
+        self.assertEqual(configs.PROFILE_NAME, "DurinEditor")
+        self.assertEqual(configs.BUILD_IDENTIFIER, "Agent")
+        init_configs.assert_called_once_with()
+
+    def test_generated_project_metadata_uses_identifier_path(self):
+        configs.BUILD_IDENTIFIER = "Agent"
+        with mock.patch.object(project_cmake_file_generator.utils, "generate_file") as generate_file:
+            project_cmake_file_generator.generate_project_cmake_file("Engine")
+
+        output_path, content = generate_file.call_args.args
+        expected_root = utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor" / "Agent"
+        self.assertEqual(output_path, expected_root / "Engine.project.cmake")
+        self.assertIn(expected_root.as_posix(), content)
+
+    def test_cmake_commands_forward_build_identifier(self):
+        workspace_root = ROOT.parents[3]
+        project_setup = (workspace_root / "CMake" / "Project" / "ProjectSetup.cmake").read_text(encoding="utf-8")
+        project_targets = (workspace_root / "CMake" / "Project" / "ProjectTargets.cmake").read_text(encoding="utf-8")
+        self.assertEqual(project_setup.count('--build-identifier "${DURIN_BUILD_IDENTIFIER}"'), 1)
+        self.assertEqual(project_targets.count('--build-identifier "${DURIN_BUILD_IDENTIFIER}"'), 2)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,30 @@
 import logging
 import sys
 import argparse
+import re
 from pathlib import Path
+
+
+_BUILD_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def parse_build_identifier(value: str) -> str:
+    if value and not _BUILD_IDENTIFIER_PATTERN.fullmatch(value):
+        raise argparse.ArgumentTypeError(
+            "build identifier must start with an alphanumeric character and contain only "
+            "alphanumeric characters, '.', '_' or '-'"
+        )
+    return value
 
 def add_common_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux, MacOS).", default="Win64", choices=["Win64", "Linux", "MacOS"])
     parser.add_argument("--profile", help="The build profile name.", default="DurinEditor")
+    parser.add_argument(
+        "--build-identifier",
+        help="Optional identifier used to isolate generated build metadata.",
+        default="",
+        type=parse_build_identifier,
+    )
     parser.add_argument("-l", "--log", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).", default="INFO", required=False, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     parser.add_argument("--project-file", action="append", default=[], type=Path, help="A .dproject file that supplies module ownership and dependency context. May be repeated.")
 

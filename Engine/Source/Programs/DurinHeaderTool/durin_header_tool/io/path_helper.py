@@ -24,7 +24,21 @@ def get_project_cmake_dir(project_name: str) -> Path:
     return get_project_dir(project_name) / "CMake"
 
 def get_project_intermediate_build_dir(project_name: str) -> Path:
-    return get_project_intermediate_dir(project_name) / "Build" / configs.ARCH / configs.PROFILE_NAME
+    output_dir = get_project_intermediate_dir(project_name) / "Build" / configs.ARCH / configs.PROFILE_NAME
+    if configs.BUILD_IDENTIFIER:
+        output_dir /= configs.BUILD_IDENTIFIER
+    return output_dir
+
+def get_dht_output_lock_file_path() -> Path:
+    return (
+        configs.environment.DURIN_ENGINE_PROJECT_DIR
+        / "Intermediate"
+        / "Build"
+        / ".dht-locks"
+        / configs.ARCH
+        / configs.PROFILE_NAME
+        / f"{configs.BUILD_IDENTIFIER or '_default'}.lock"
+    )
 
 def get_project_cmake_file_path(project_name: str) -> Path:
     return get_project_intermediate_build_dir(project_name) / f"{project_name}.project.cmake"
