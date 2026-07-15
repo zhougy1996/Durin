@@ -8,6 +8,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,7 @@ if str(ROOT) not in sys.path:
 from durin_header_tool import io as utils
 from durin_header_tool import config as configs
 from durin_header_tool.cli.command import add_common_arguments
+from durin_header_tool.cli.main import _get_output_lock_paths
 from durin_header_tool.generators import module_export_file_generator as export_generator
 from durin_header_tool.generators import module_reflection_files_generator as reflection_generator
 from durin_header_tool.generators import project_cmake_file_generator
@@ -212,19 +214,21 @@ class IntermediateLayoutTests(unittest.TestCase):
             utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor",
         )
 
-    def test_agent_identifier_uses_isolated_intermediate_path_and_lock(self):
+    def test_agent_identifier_uses_isolated_intermediate_path_and_locks(self):
         configs.BUILD_IDENTIFIER = "Agent"
         self.assertEqual(
             utils.get_project_intermediate_build_dir("Engine"),
             utils.get_project_intermediate_dir("Engine") / "Build-Agent" / "Win64" / "DurinEditor",
         )
         self.assertEqual(
-            utils.get_dht_output_lock_file_path(),
+            utils.get_dht_module_lock_file_path("Core"),
             utils.get_project_intermediate_dir("Engine")
             / "Build-Agent"
             / ".dht-locks"
             / "Win64"
-            / "DurinEditor.lock",
+            / "DurinEditor"
+            / "modules"
+            / "Core.lock",
         )
 
     def test_custom_identifier_selects_its_own_intermediate_root(self):
@@ -233,7 +237,36 @@ class IntermediateLayoutTests(unittest.TestCase):
             utils.get_project_intermediate_build_dir("Engine"),
             utils.get_project_intermediate_dir("Engine") / "Build-CI.2" / "Win64" / "DurinEditor",
         )
-        self.assertEqual(utils.get_dht_output_lock_file_path().name, "DurinEditor.lock")
+        self.assertEqual(utils.get_dht_profile_lock_file_path().name, "profile.lock")
+
+    def test_module_locks_are_independent_within_a_profile(self):
+        self.assertNotEqual(
+            utils.get_dht_module_lock_file_path("Core"),
+            utils.get_dht_module_lock_file_path("Engine"),
+        )
+
+    def test_module_generation_commands_share_their_module_lock(self):
+        export_args = SimpleNamespace(function="generate_module_export_file", module="Core")
+        reflection_args = SimpleNamespace(function="generate_reflection_files", module="Core")
+
+        self.assertEqual(_get_output_lock_paths(export_args), _get_output_lock_paths(reflection_args))
+        self.assertEqual(_get_output_lock_paths(export_args), [utils.get_dht_module_lock_file_path("Core")])
+
+    def test_project_preparation_locks_metadata_and_all_owned_modules(self):
+        project_file = configs.environment.DURIN_ENGINE_PROJECT_DIR / "Engine.dproject"
+        lock_paths = _get_output_lock_paths(
+            SimpleNamespace(function="prepare_project_build", project=project_file)
+        )
+        engine_config = configs.get_project_config("Engine")
+
+        self.assertEqual(lock_paths[0], utils.get_dht_project_lock_file_path("Engine"))
+        self.assertEqual(
+            lock_paths[1:],
+            [
+                utils.get_dht_module_lock_file_path(module_name)
+                for module_name in sorted(engine_config.modules)
+            ],
+        )
 
     def test_platform_and_profile_remain_independent_dimensions(self):
         configs.ARCH = "Linux"

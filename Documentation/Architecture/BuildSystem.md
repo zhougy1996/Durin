@@ -23,7 +23,7 @@ Important helper APIs:
 
 `add_durin_project(...)` invokes DurinHeaderTool, imports generated project metadata from `Engine/Intermediate/Build[-Identifier]/<Platform>/<Profile>/...`, resolves active profile-derived values, and then adds module subdirectories for the current project.
 
-DHT writes use atomic replacement and a cross-process lock keyed by build identifier, target platform, and runtime profile. Commands sharing generated metadata are serialized. Debug and Release intentionally share the same configuration-independent metadata, while identifier-specific workflows use independent roots and locks.
+DHT writes use atomic replacement and cross-process locks rooted by build identifier, target platform, and runtime profile. Project metadata has a project lock, and each module has its own lock shared by export and reflection generation. Project preparation additionally takes every affected module lock before cleaning or regenerating module metadata. This keeps conflicting writers serialized without blocking independent module generation, allowing Ninja to schedule DHT work in parallel. A profile lock remains reserved for operations that truly mutate profile-wide indexes or cleanup state. Debug and Release intentionally share the same configuration-independent metadata, while identifier-specific workflows use independent roots and locks.
 
 Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMake/SandBoxSetup.cmake` run before that helper and may perform project-specific setup such as third-party registration.
 

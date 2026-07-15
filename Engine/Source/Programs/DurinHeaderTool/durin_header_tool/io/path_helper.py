@@ -33,15 +33,30 @@ def get_intermediate_build_root_name() -> str:
 def get_project_intermediate_build_dir(project_name: str) -> Path:
     return get_project_intermediate_dir(project_name) / get_intermediate_build_root_name() / configs.ARCH / configs.PROFILE_NAME
 
-def get_dht_output_lock_file_path() -> Path:
+def get_dht_output_lock_dir() -> Path:
     return (
         configs.environment.DURIN_ENGINE_PROJECT_DIR
         / "Intermediate"
         / get_intermediate_build_root_name()
         / ".dht-locks"
         / configs.ARCH
-        / f"{configs.PROFILE_NAME}.lock"
+        / configs.PROFILE_NAME
     )
+
+
+def get_dht_profile_lock_file_path() -> Path:
+    """Return the lock reserved for profile-wide indexes and cleanup."""
+    return get_dht_output_lock_dir() / "profile.lock"
+
+
+def get_dht_project_lock_file_path(project_name: str) -> Path:
+    """Return the lock for generated project metadata."""
+    return get_dht_output_lock_dir() / "projects" / f"{project_name}.lock"
+
+
+def get_dht_module_lock_file_path(module_name: str) -> Path:
+    """Return the lock shared by all writers to one module output directory."""
+    return get_dht_output_lock_dir() / "modules" / f"{module_name}.lock"
 
 def get_project_cmake_file_path(project_name: str) -> Path:
     return get_project_intermediate_build_dir(project_name) / f"{project_name}.project.cmake"
