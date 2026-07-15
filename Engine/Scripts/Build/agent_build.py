@@ -5,18 +5,22 @@ import argparse
 import json
 import os
 import platform
+import signal
 import shlex
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
 PROFILE_FILE = SCRIPT_DIR / "AgentBuildProfiles.json"
 LOCAL_CONFIG_FILE = REPO_ROOT / ".agents" / "build-config.json"
+AGENT_BUILD_STATE_DIR = REPO_ROOT / "Build" / ".agent-state"
+AGENT_BUILD_LOCK_DIR = REPO_ROOT / "Build" / ".agent-locks"
 
 PROFILE_ENV_VAR = "DURIN_AGENT_BUILD_PROFILE"
 JOBS_ENV_VAR = "DURIN_AGENT_JOBS"
@@ -26,6 +30,107 @@ SUPPORTED_ENVIRONMENT_PROVIDERS = {"inherit", "script", "visual-studio"}
 
 class AgentBuildError(RuntimeError):
     pass
+
+
+class AgentBuildInterruptedError(AgentBuildError):
+    pass
+
+
+def state_file_component(value: str) -> str:
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-")
+    return "".join(character if character in allowed else "_" for character in value)
+
+
+def lock_file_path(preset: str, root: Path = AGENT_BUILD_LOCK_DIR) -> Path:
+    return root / f"{state_file_component(preset)}.lock"
+
+
+def interruption_marker_path(preset: str, root: Path = AGENT_BUILD_STATE_DIR) -> Path:
+    return root / f"{state_file_component(preset)}.interrupted.json"
+
+
+def read_state_description(path: Path) -> str:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return f'Existing state file: "{path}"'
+    if not isinstance(value, dict):
+        return f'Existing state file: "{path}"'
+
+    fields = []
+    displayed_fields = (
+        ("pid", "PID"),
+        ("profile", "profile"),
+        ("action", "action"),
+        ("target", "target"),
+        ("startedAt", "started"),
+    )
+    for key, label in displayed_fields:
+        if value.get(key) not in (None, ""):
+            fields.append(f"{label}={value[key]}")
+    return ", ".join(fields) if fields else f'Existing state file: "{path}"'
+
+
+def write_json_state(path: Path, value: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(dict(value), indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+class AgentBuildLock:
+    def __init__(self, path: Path, metadata: Mapping[str, Any]):
+        self.path = path
+        self.metadata = dict(metadata)
+        self.handle: Any = None
+
+    def __enter__(self) -> "AgentBuildLock":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = self.path.open("a+b")
+        if self.path.stat().st_size == 0:
+            self.handle.write(b"\0")
+            self.handle.flush()
+        self.handle.seek(0)
+
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            self.handle.close()
+            self.handle = None
+            raise AgentBuildError(
+                "Another Agent build operation already owns this build profile. "
+                + read_state_description(self.path)
+            ) from exc
+
+        self.handle.seek(0)
+        self.handle.truncate()
+        self.handle.write((json.dumps(self.metadata, indent=2) + "\n").encode("utf-8"))
+        self.handle.flush()
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        if self.handle is None:
+            return
+        try:
+            self.handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            self.handle.close()
+            self.handle = None
 
 
 def host_name(system_name: str | None = None) -> str:
@@ -408,11 +513,64 @@ def ensure_required_commands(profile: Mapping[str, Any], environment: dict[str, 
         )
 
 
+def terminate_process_tree(process: subprocess.Popen[Any]) -> None:
+    if process.poll() is not None:
+        return
+
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+
+    try:
+        process.wait(timeout=10)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    if os.name == "nt":
+        process.kill()
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+    process.wait()
+
+
 def run_command(command: Sequence[str], *, environment: Mapping[str, str]) -> None:
     print("+ " + subprocess.list2cmdline(command), flush=True)
-    result = subprocess.run(command, cwd=REPO_ROOT, env=dict(environment), check=False)
-    if result.returncode != 0:
-        raise AgentBuildError(f'Command failed with exit code {result.returncode}: {command[0]}')
+    popen_options: dict[str, Any] = {}
+    if os.name == "nt":
+        popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        popen_options["start_new_session"] = True
+
+    try:
+        process = subprocess.Popen(command, cwd=REPO_ROOT, env=dict(environment), **popen_options)
+    except OSError as exc:
+        raise AgentBuildError(f'Could not start command "{command[0]}": {exc}') from exc
+
+    try:
+        return_code = process.wait()
+    except KeyboardInterrupt as exc:
+        terminate_process_tree(process)
+        raise AgentBuildInterruptedError(
+            "Agent build was interrupted. Confirm that the old build process tree has exited, "
+            "then run Rebuild --target all."
+        ) from exc
+
+    if return_code != 0:
+        raise AgentBuildError(f'Command failed with exit code {return_code}: {command[0]}')
 
 
 def validate_target(target: str, *, action: str) -> None:
@@ -431,6 +589,115 @@ def cache_is_usable(cache_file: Path) -> bool:
     except OSError:
         return False
     return "CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND" not in content
+
+
+def restore_state_file(path: Path, previous_content: bytes | None) -> None:
+    if previous_content is None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    temporary.write_bytes(previous_content)
+    os.replace(temporary, path)
+
+
+def execute_with_recovery_marker(
+    *,
+    action: str,
+    marker_file: Path,
+    metadata: Mapping[str, Any],
+    operation: Callable[[], None],
+) -> None:
+    try:
+        previous_content = marker_file.read_bytes()
+    except FileNotFoundError:
+        previous_content = None
+    except OSError as exc:
+        raise AgentBuildError(f'Could not read Agent build recovery state "{marker_file}": {exc}') from exc
+
+    if previous_content is not None and action in {"Build", "Test"}:
+        raise AgentBuildError(
+            "The previous Agent build operation did not return normally. "
+            + read_state_description(marker_file)
+            + ". Confirm that its old process tree has exited, then run Rebuild --target all."
+        )
+
+    write_json_state(marker_file, metadata)
+    try:
+        operation()
+    except AgentBuildInterruptedError:
+        # The current marker must survive cancellation so the next invocation cannot assume the build is consistent.
+        raise
+    except AgentBuildError:
+        # A child process that returned a normal failure leaves Ninja/CMake aware of the failed edge.
+        restore_state_file(marker_file, previous_content)
+        raise
+    except BaseException:
+        # Unknown failures are treated conservatively because they may have bypassed normal child cleanup.
+        raise
+    else:
+        if action == "Rebuild" or previous_content is None:
+            restore_state_file(marker_file, None)
+        else:
+            # Clean and Configure are useful diagnostics, but cannot certify recovery from an earlier interruption.
+            restore_state_file(marker_file, previous_content)
+
+
+def perform_action(
+    args: argparse.Namespace,
+    *,
+    cmake: str,
+    jobs: int,
+    environment: Mapping[str, str],
+    build_directory: Path,
+    cache_file: Path,
+    preset: str,
+    profile: Mapping[str, Any],
+) -> None:
+    if args.action == "Configure":
+        run_command([cmake, "--fresh", "--preset", preset], environment=environment)
+        return
+
+    if args.action == "Clean":
+        if cache_is_usable(cache_file):
+            run_command([cmake, "--build", str(build_directory), "--target", "clean"], environment=environment)
+        else:
+            print(f'Agent build tree is already clean or unconfigured: "{build_directory}"')
+        return
+
+    target = args.target or ("all" if args.action == "Rebuild" else "")
+    validate_target(target, action=args.action)
+
+    if args.action == "Rebuild":
+        if cache_is_usable(cache_file):
+            run_command([cmake, "--build", str(build_directory), "--target", "clean"], environment=environment)
+        else:
+            print(f'Skipping clean because the Agent build tree is unconfigured: "{build_directory}"')
+        run_command([cmake, "--fresh", "--preset", preset], environment=environment)
+    elif not cache_is_usable(cache_file):
+        run_command([cmake, "--fresh", "--preset", preset], environment=environment)
+
+    run_command(
+        [cmake, "--build", str(build_directory), "--target", target, "-j", str(jobs)],
+        environment=environment,
+    )
+
+    if args.action == "Test":
+        test_executable = (
+            REPO_ROOT
+            / profile["testBinaryDirectory"]
+            / f'{target}{profile["testExecutableSuffix"]}'
+        )
+        if not test_executable.is_file():
+            raise AgentBuildError(f'Test target "{target}" did not produce "{test_executable}".')
+        test_command = [str(test_executable)]
+        if args.filter:
+            test_command.append(f"--gtest_filter={args.filter}")
+        run_command(test_command, environment=environment)
 
 
 def execute(args: argparse.Namespace) -> None:
@@ -457,35 +724,38 @@ def execute(args: argparse.Namespace) -> None:
     print(f'CMake command: "{cmake}"')
     print(f"Parallel jobs: {jobs}")
 
-    if args.action == "Configure":
-        run_command([cmake, "--fresh", "--preset", preset], environment=environment)
-        return
-
-    validate_target(args.target, action=args.action)
-    if not cache_is_usable(cache_file):
-        run_command([cmake, "--fresh", "--preset", preset], environment=environment)
-    run_command(
-        [cmake, "--build", str(build_directory), "--target", args.target, "-j", str(jobs)],
-        environment=environment,
-    )
-
-    if args.action == "Test":
-        test_executable = (
-            REPO_ROOT
-            / profile["testBinaryDirectory"]
-            / f'{args.target}{profile["testExecutableSuffix"]}'
+    target = args.target or ("all" if args.action == "Rebuild" else "")
+    operation_metadata = {
+        "pid": os.getpid(),
+        "profile": profile_name,
+        "preset": preset,
+        "action": args.action,
+        "target": target,
+        "startedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    with AgentBuildLock(lock_file_path(preset), operation_metadata):
+        execute_with_recovery_marker(
+            action=args.action,
+            marker_file=interruption_marker_path(preset),
+            metadata=operation_metadata,
+            operation=lambda: perform_action(
+                args,
+                cmake=cmake,
+                jobs=jobs,
+                environment=environment,
+                build_directory=build_directory,
+                cache_file=cache_file,
+                preset=preset,
+                profile=profile,
+            ),
         )
-        if not test_executable.is_file():
-            raise AgentBuildError(f'Test target "{args.target}" did not produce "{test_executable}".')
-        test_command = [str(test_executable)]
-        if args.filter:
-            test_command.append(f"--gtest_filter={args.filter}")
-        run_command(test_command, environment=environment)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Configure, build, or test an isolated Durin Agent build profile.")
-    parser.add_argument("action", choices=("Configure", "Build", "Test"))
+    parser = argparse.ArgumentParser(
+        description="Configure, build, clean, rebuild, or test an isolated Durin Agent build profile."
+    )
+    parser.add_argument("action", choices=("Configure", "Build", "Clean", "Rebuild", "Test"))
     parser.add_argument("--target", default="")
     parser.add_argument("--jobs", type=int, choices=range(1, 257), default=None, metavar="1..256")
     parser.add_argument("--filter", default="")

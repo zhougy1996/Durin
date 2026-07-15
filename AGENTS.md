@@ -21,6 +21,9 @@ that match the task at hand.
 ## Repository Rules
 
 - Agents must use `Engine/Scripts/Build/agent_build.py` for editor builds and automated validation; `AgentBuild.ps1` is the Windows compatibility wrapper. The selected registered Agent Build Profile owns its isolated preset, build tree, and binary outputs; do not configure, clean, build, or overwrite human-owned non-Agent build trees or outputs.
+- Long Agent builds must be allowed to keep running and observed by waiting on the existing process. Do not use short command timeouts to sample build progress or start a replacement build while the previous `cmake`, `ninja`, compiler, or linker process tree may still be running.
+- If an Agent build is interrupted, confirm that its old process tree has exited, then recover with `python Engine/Scripts/Build/agent_build.py Rebuild --target all`. Do not resume with an ordinary incremental build. The driver records interrupted operations and rejects unsafe incremental Build/Test actions until a Rebuild succeeds.
+- Build trees and binary outputs are isolated by Agent Build Profile, but DHT metadata under `Engine/Intermediate/Build/<Platform>/<Profile>/` is currently shared by presets using the same platform and runtime profile. Do not concurrently configure or build such presets, including Agent and human `DurinEditor` presets.
 - Generated metadata is part of the source of truth. If a module looks incomplete, inspect `Engine/Intermediate/Build/...` and DHT outputs before assuming files are missing.
 - Runtime-loaded module binaries must keep the `<Profile>-<Module>` naming convention from `CMake/Project/ProjectTargets.cmake`.
 - Rendering changes usually span `RHI`, `VulkanRHI`.

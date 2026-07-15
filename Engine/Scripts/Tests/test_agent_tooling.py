@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import json
 import tempfile
@@ -149,6 +150,144 @@ class AgentBuildProfileTests(unittest.TestCase):
     def test_invalid_job_environment_value_is_rejected(self) -> None:
         with self.assertRaisesRegex(agent_build.AgentBuildError, agent_build.JOBS_ENV_VAR):
             agent_build.resolve_jobs(None, 0, environment={agent_build.JOBS_ENV_VAR: "many"})
+
+
+class AgentBuildOperationTests(unittest.TestCase):
+    def test_clean_and_rebuild_actions_are_parsed(self) -> None:
+        clean = agent_build.parse_args(["Clean"])
+        rebuild = agent_build.parse_args(["Rebuild"])
+        self.assertEqual(clean.action, "Clean")
+        self.assertEqual(rebuild.action, "Rebuild")
+        self.assertEqual(rebuild.target, "")
+
+    def test_rebuild_defaults_to_all_after_clean_and_fresh_configure(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            build_directory = Path(directory) / "Build" / "agent"
+            build_directory.mkdir(parents=True)
+            cache_file = build_directory / "CMakeCache.txt"
+            cache_file.write_text("CMAKE_MAKE_PROGRAM:FILEPATH=C:/Ninja/ninja.exe\n", encoding="utf-8")
+            args = argparse.Namespace(action="Rebuild", target="", filter="")
+            with mock.patch.object(agent_build, "run_command") as run:
+                agent_build.perform_action(
+                    args,
+                    cmake="cmake",
+                    jobs=8,
+                    environment={"PATH": ""},
+                    build_directory=build_directory,
+                    cache_file=cache_file,
+                    preset="agent",
+                    profile={},
+                )
+
+        self.assertEqual(
+            [call.args[0] for call in run.call_args_list],
+            [
+                ["cmake", "--build", str(build_directory), "--target", "clean"],
+                ["cmake", "--fresh", "--preset", "agent"],
+                ["cmake", "--build", str(build_directory), "--target", "all", "-j", "8"],
+            ],
+        )
+
+    def test_clean_is_a_noop_without_a_usable_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            build_directory = Path(directory) / "Build" / "agent"
+            args = argparse.Namespace(action="Clean", target="", filter="")
+            with mock.patch.object(agent_build, "run_command") as run:
+                agent_build.perform_action(
+                    args,
+                    cmake="cmake",
+                    jobs=8,
+                    environment={},
+                    build_directory=build_directory,
+                    cache_file=build_directory / "CMakeCache.txt",
+                    preset="agent",
+                    profile={},
+                )
+        run.assert_not_called()
+
+    def test_same_profile_lock_is_exclusive_and_other_profiles_are_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first_path = agent_build.lock_file_path("profile-a", root)
+            second_path = agent_build.lock_file_path("profile-b", root)
+            metadata = {"pid": 1, "profile": "profile-a", "action": "Build"}
+            with agent_build.AgentBuildLock(first_path, metadata):
+                with self.assertRaisesRegex(agent_build.AgentBuildError, "already owns"):
+                    with agent_build.AgentBuildLock(first_path, metadata):
+                        pass
+                with agent_build.AgentBuildLock(second_path, metadata):
+                    pass
+
+            with agent_build.AgentBuildLock(first_path, metadata):
+                pass
+
+    def test_interrupted_operation_blocks_build_until_rebuild_succeeds(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "interrupted.json"
+            metadata = {"pid": 1, "profile": "agent", "action": "Build"}
+
+            def interrupt() -> None:
+                raise agent_build.AgentBuildInterruptedError("interrupted")
+
+            with self.assertRaises(agent_build.AgentBuildInterruptedError):
+                agent_build.execute_with_recovery_marker(
+                    action="Build", marker_file=marker, metadata=metadata, operation=interrupt
+                )
+            self.assertTrue(marker.is_file())
+
+            with self.assertRaisesRegex(agent_build.AgentBuildError, "Rebuild --target all"):
+                agent_build.execute_with_recovery_marker(
+                    action="Build", marker_file=marker, metadata=metadata, operation=lambda: None
+                )
+
+            agent_build.execute_with_recovery_marker(
+                action="Rebuild",
+                marker_file=marker,
+                metadata={**metadata, "action": "Rebuild"},
+                operation=lambda: None,
+            )
+            self.assertFalse(marker.exists())
+
+    def test_normal_command_failure_does_not_leave_an_interruption_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "interrupted.json"
+
+            def fail() -> None:
+                raise agent_build.AgentBuildError("compile failed")
+
+            with self.assertRaisesRegex(agent_build.AgentBuildError, "compile failed"):
+                agent_build.execute_with_recovery_marker(
+                    action="Build",
+                    marker_file=marker,
+                    metadata={"pid": 1, "profile": "agent", "action": "Build"},
+                    operation=fail,
+                )
+            self.assertFalse(marker.exists())
+
+    def test_clean_does_not_clear_a_previous_interruption_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "interrupted.json"
+            previous = {"pid": 1, "profile": "agent", "action": "Build"}
+            marker.write_text(json.dumps(previous), encoding="utf-8")
+
+            agent_build.execute_with_recovery_marker(
+                action="Clean",
+                marker_file=marker,
+                metadata={**previous, "action": "Clean"},
+                operation=lambda: None,
+            )
+
+            self.assertEqual(json.loads(marker.read_text(encoding="utf-8")), previous)
+
+    def test_keyboard_interrupt_terminates_the_child_process_tree(self) -> None:
+        process = mock.Mock()
+        process.wait.side_effect = KeyboardInterrupt
+        with mock.patch.object(agent_build.subprocess, "Popen", return_value=process), mock.patch.object(
+            agent_build, "terminate_process_tree"
+        ) as terminate:
+            with self.assertRaises(agent_build.AgentBuildInterruptedError):
+                agent_build.run_command(["cmake", "--version"], environment={})
+        terminate.assert_called_once_with(process)
 
 
 class EnvironmentProviderTests(unittest.TestCase):

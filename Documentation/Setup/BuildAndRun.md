@@ -36,6 +36,8 @@ Agents invoke this workflow through the cross-platform Python driver. Registered
 ```powershell
 python Engine/Scripts/Build/agent_build.py Configure
 python Engine/Scripts/Build/agent_build.py Build --target LevelEditor
+python Engine/Scripts/Build/agent_build.py Clean
+python Engine/Scripts/Build/agent_build.py Rebuild --target all
 python Engine/Scripts/Build/agent_build.py Test --target CoreTests --filter FJsonDocumentTests.*
 & "Engine/Scripts/Build/AgentBuild.ps1" Build -Target LevelEditor
 ```
@@ -52,7 +54,7 @@ The Agent config is optional. Empty command/profile strings and `jobs: 0` keep a
 
 ## Build
 
-Prefer building only the target needed for the current change instead of `--target all`.
+During development iteration, prefer building only the target needed for the current change instead of `--target all`. Before any editor runtime validation, build the `all` target with the same Agent Build Profile so the executable and every runtime-loaded module are mutually up to date.
 
 ```powershell
 cmake --build Build/Win64-Debug-DurinEditor --target DurinLauncher --parallel
@@ -61,9 +63,30 @@ cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests --parallel
 python Engine/Scripts/Build/agent_build.py Build --target CoreTests
 ```
 
+The Agent driver serializes operations that use the same registered build profile. If another Configure, Build, Clean, Rebuild, or Test operation already owns that profile's build tree, a second invocation fails with information about the active operation. Different registered Agent profiles retain independent locks.
+
+### Interrupted Build Recovery
+
+Long builds must be allowed to continue under one command invocation. Observe progress by waiting on that invocation; do not set a short command timeout merely to regain control and then launch another build.
+
+If a build is interrupted by a timeout, cancellation, terminal closure, or agent termination:
+
+1. Confirm that the old `cmake`, `ninja`, compiler, and linker process tree has exited. Do not start recovery while it may still be writing outputs.
+2. Run a Rebuild of the complete profile:
+
+   ```powershell
+   python Engine/Scripts/Build/agent_build.py Rebuild --target all
+   ```
+
+3. Only launch the editor after that command succeeds.
+
+The driver leaves an interruption marker when its child process does not return normally. While that marker exists, ordinary Build and Test operations are rejected. `Rebuild` cleans the existing Agent build tree when possible, performs a fresh configure, builds the requested target (`all` by default), and clears the marker only after success. `Clean` and `Configure` may still be used for diagnosis, but they do not clear a pre-existing interruption marker.
+
+Agent build trees and binary directories are isolated, but current DHT output under `Engine/Intermediate/Build/<Platform>/<Profile>/` is shared by presets with the same platform and runtime profile. Until that intermediate directory also includes a build identifier, do not concurrently configure or build Agent and human presets that share a profile such as `DurinEditor`.
+
 ### Runtime Smoke Tests
 
-A runtime smoke test must only be performed after a successful full build of the same Agent Build Profile. Partial and single-target builds are useful for iteration, but they do not establish that the executable and all runtime-loaded modules are mutually up to date.
+A runtime smoke test must only be performed after a successful full build of the same Agent Build Profile. Partial and single-target builds are useful only for development iteration; they do not establish that the executable and all runtime-loaded modules are mutually up to date.
 
 Use the registered Agent build driver and build the `all` target before launching the editor:
 

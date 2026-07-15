@@ -39,6 +39,8 @@ Presets may also set `DURIN_BUILD_IDENTIFIER` to isolate outputs produced by a p
 
 DurinHeaderTool resolves the active profile and emits generated project metadata under `Engine/Intermediate/Build/<Platform>/<ProfileName>/...`.
 
+That path does not currently include the preset name or `DURIN_BUILD_IDENTIFIER`. Presets such as human Debug, Tests, and Agent `DurinEditor` builds therefore share DHT-generated CMake files, reflection outputs, and incremental manifests even though their CMake build trees and binary outputs differ. Do not configure or build presets sharing the same platform and profile concurrently.
+
 ## Derived Build Behavior
 
 Profiles determine:
