@@ -14,13 +14,15 @@ namespace Durin
 {
 	struct FPendingRegistrantInfo
 	{
-		const char* Name;
-		const char* PackageName;
+		std::string Name;
+		std::string PackageName;
 		FClassRegisterFunc StaticClassFn;
 
 		FPendingRegistrantInfo(FClassRegisterFunc InStaticClassFn, const char* InPackageName, const char* InName)
-			: Name(InName)
-			, PackageName(InPackageName)
+			// Registration is intentionally deferred, so these names must not borrow
+			// caller buffers that may disappear before DObjectForceRegistration runs.
+			: Name(InName ? InName : "")
+			, PackageName(InPackageName ? InPackageName : "")
 			, StaticClassFn(InStaticClassFn)
 		{
 		}
@@ -339,8 +341,8 @@ namespace Durin
 			const FPendingRegistrantInfo& Info = It->second;
 
 			DClass* StaticClass = Info.StaticClassFn();
-			const char* PackageName = Info.PackageName;
-			const char* Name = Info.Name;
+			const char* PackageName = Info.PackageName.c_str();
+			const char* Name = Info.Name.c_str();
 			Object->DeferredRegister(StaticClass, PackageName, Name);
 
 			// Remove from pending registrants

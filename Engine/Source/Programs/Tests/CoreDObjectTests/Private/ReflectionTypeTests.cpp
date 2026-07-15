@@ -573,6 +573,35 @@ namespace
 		EXPECT_EQ(Durin::DClass::StaticClass()->GetSuperClass(), Durin::DStructBase::StaticClass());
 	}
 
+	TEST(FCoreDObjectReflectionTests, DeferredRegistrationOwnsTemporaryNames)
+	{
+		EnsureDObjectInitialized();
+
+		auto* Struct = new Durin::DStruct(
+			Durin::EC_StaticConstructor,
+			Durin::FName("Durin::FTemporaryRegistrationTest"),
+			Durin::FName("FTemporaryRegistrationTest"),
+			1,
+			1,
+			Durin::EObjectFlags::NoFlags
+		);
+		{
+			const std::string PackageName = "/Cpp/CoreDObjectTests";
+			const std::string ObjectName = "Durin::FTemporaryRegistrationTest";
+			Struct->Register(Durin::DStruct::StaticClass, PackageName.c_str(), ObjectName.c_str());
+		}
+
+		// Reuse freed small-string allocations before registration to expose borrowed buffers.
+		const std::vector<std::string> AllocationChurn(64, std::string(64, 'x'));
+		EXPECT_FALSE(AllocationChurn.empty());
+		Durin::DObjectForceRegistration(Struct);
+
+		EXPECT_EQ(Struct->GetName(), "Durin::FTemporaryRegistrationTest");
+		ASSERT_NE(Struct->GetOuter(), nullptr);
+		EXPECT_EQ(Struct->GetOuter()->GetName(), "CoreDObjectTests");
+		Durin::DestroyObject(Struct);
+	}
+
 	TEST(FCoreDObjectReflectionTests, NewObjectKeepsClassAndCastBehavior)
 	{
 		EnsureDObjectInitialized();
