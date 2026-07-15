@@ -16,7 +16,7 @@ if(NOT DEFINED DURIN_FORCE_INCLUDE_PCH)
 	set(DURIN_FORCE_INCLUDE_PCH ON CACHE BOOL "Force-include PCH headers even when PCH artifacts are disabled.")
 endif()
 
-set(DURIN_BUILD_IDENTIFIER "" CACHE STRING "Optional identifier appended to the binary output configuration directory.")
+set(DURIN_BUILD_IDENTIFIER "" CACHE STRING "Optional identifier that isolates workflow-owned binary and intermediate outputs.")
 if(DURIN_BUILD_IDENTIFIER AND NOT DURIN_BUILD_IDENTIFIER MATCHES "^[A-Za-z0-9][A-Za-z0-9._-]*$")
 	message(FATAL_ERROR
 		"DURIN_BUILD_IDENTIFIER must start with an alphanumeric character and contain only alphanumeric characters, '.', '_' or '-'."

@@ -21,9 +21,9 @@ Important helper APIs:
 
 ## Generated Metadata Flow
 
-`add_durin_project(...)` invokes DurinHeaderTool, imports generated project metadata from `Engine/Intermediate/Build/<Platform>/<Config[-Identifier]>/<Profile>/...`, resolves active profile-derived values, and then adds module subdirectories for the current project.
+`add_durin_project(...)` invokes DurinHeaderTool, imports generated project metadata from `Engine/Intermediate/Build[-Identifier]/<Platform>/<Profile>/...`, resolves active profile-derived values, and then adds module subdirectories for the current project.
 
-DHT writes use atomic replacement and a cross-process lock keyed by target platform, output configuration, and runtime profile. Commands sharing a generated metadata path are serialized, while Debug, Release, and identifier-specific configurations use independent paths and locks.
+DHT writes use atomic replacement and a cross-process lock keyed by build identifier, target platform, and runtime profile. Commands sharing generated metadata are serialized. Debug and Release intentionally share the same configuration-independent metadata, while identifier-specific workflows use independent roots and locks.
 
 Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMake/SandBoxSetup.cmake` run before that helper and may perform project-specific setup such as third-party registration.
 
@@ -31,9 +31,9 @@ Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMak
 
 ## Build Output Identifiers
 
-`DURIN_BUILD_IDENTIFIER` optionally isolates the complete binary and generated metadata output trees without changing build semantics or profile behavior. When set, the output configuration directory changes from `<Config>` to `<Config>-<Identifier>` in both trees. For example, the `Win64-Debug-DurinEditor-Agent` preset writes to `Engine/Binaries/Win64/Debug-Agent/` and `Engine/Intermediate/Build/Win64/Debug-Agent/DurinEditor/` while remaining a normal Debug `DurinEditor` build with tests enabled.
+`DURIN_BUILD_IDENTIFIER` optionally isolates workflow-owned binary and generated metadata outputs without changing build semantics or profile behavior. Binary outputs append the identifier to the configuration, while DHT metadata appends it to the intermediate root. For example, the `Win64-Debug-DurinEditor-Agent` preset writes to `Engine/Binaries/Win64/Debug-Agent/` and `Engine/Intermediate/Build-Agent/Win64/DurinEditor/` while remaining a normal Debug `DurinEditor` build with tests enabled.
 
-Do not use identifiers for compile-time feature selection or runtime module naming. Presets using the same platform, resolved output configuration, and profile share one DHT path and lock; other configurations may generate concurrently without writing each other's metadata.
+Do not use identifiers for compile-time feature selection or runtime module naming. Presets using the same identifier, platform, and profile share one DHT path and lock. Build configuration is deliberately absent because current generated metadata does not vary between Debug, Release, and Shipping.
 
 ## Module Output Naming
 

@@ -19,7 +19,6 @@ class ReflectionGenerationTests(unittest.TestCase):
     def setUpClass(cls):
         configs.ARCH = "Win64"
         configs.PROFILE_NAME = "DurinEditor"
-        configs.BUILD_CONFIG = "Debug"
         configs.BUILD_IDENTIFIER = "DHTTests"
         configs.init_configs()
 

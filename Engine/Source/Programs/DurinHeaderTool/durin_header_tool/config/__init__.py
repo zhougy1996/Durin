@@ -1,7 +1,6 @@
 from . import environment
 from .environment import (
     ARCH,
-    BUILD_CONFIG,
     BUILD_IDENTIFIER,
     DHT_ROOT_DIR,
     DURIN_ENGINE_PROJECT_DIR,

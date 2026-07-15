@@ -2,7 +2,6 @@ from pathlib import Path
 
 ARCH = "Win64"
 PROFILE_NAME = "DurinEditor"
-BUILD_CONFIG = "Debug"
 BUILD_IDENTIFIER = ""
 
 DHT_ROOT_DIR = Path(__file__).resolve().parents[2]

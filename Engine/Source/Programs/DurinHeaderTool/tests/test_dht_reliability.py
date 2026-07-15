@@ -192,41 +192,61 @@ class CacheRecoveryTests(unittest.TestCase):
         save_manifest.assert_not_called()
 
 
-class BuildIdentifierTests(unittest.TestCase):
+class IntermediateLayoutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         configs.ARCH = "Win64"
         configs.PROFILE_NAME = "DurinEditor"
-        configs.BUILD_CONFIG = "Debug"
         configs.BUILD_IDENTIFIER = ""
         configs.init_configs()
 
     def tearDown(self):
         configs.ARCH = "Win64"
         configs.PROFILE_NAME = "DurinEditor"
-        configs.BUILD_CONFIG = "Debug"
         configs.BUILD_IDENTIFIER = ""
 
-    def test_empty_identifier_preserves_existing_intermediate_path(self):
+    def test_empty_identifier_uses_shared_user_intermediate_path(self):
         configs.BUILD_IDENTIFIER = ""
         self.assertEqual(
             utils.get_project_intermediate_build_dir("Engine"),
-            utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "Debug" / "DurinEditor",
+            utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor",
         )
 
     def test_agent_identifier_uses_isolated_intermediate_path_and_lock(self):
         configs.BUILD_IDENTIFIER = "Agent"
         self.assertEqual(
             utils.get_project_intermediate_build_dir("Engine"),
-            utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "Debug-Agent" / "DurinEditor",
+            utils.get_project_intermediate_dir("Engine") / "Build-Agent" / "Win64" / "DurinEditor",
         )
-        self.assertEqual(utils.get_dht_output_lock_file_path().parent.name, "Debug-Agent")
+        self.assertEqual(
+            utils.get_dht_output_lock_file_path(),
+            utils.get_project_intermediate_dir("Engine")
+            / "Build-Agent"
+            / ".dht-locks"
+            / "Win64"
+            / "DurinEditor.lock",
+        )
+
+    def test_custom_identifier_selects_its_own_intermediate_root(self):
+        configs.BUILD_IDENTIFIER = "CI.2"
+        self.assertEqual(
+            utils.get_project_intermediate_build_dir("Engine"),
+            utils.get_project_intermediate_dir("Engine") / "Build-CI.2" / "Win64" / "DurinEditor",
+        )
         self.assertEqual(utils.get_dht_output_lock_file_path().name, "DurinEditor.lock")
+
+    def test_platform_and_profile_remain_independent_dimensions(self):
+        configs.ARCH = "Linux"
+        configs.PROFILE_NAME = "DurinGame"
+        self.assertEqual(
+            utils.get_project_intermediate_build_dir("Engine"),
+            utils.get_project_intermediate_dir("Engine") / "Build" / "Linux" / "DurinGame",
+        )
 
     def test_cli_allows_identifier_to_be_omitted(self):
         parser = argparse.ArgumentParser()
         add_common_arguments(parser)
-        args = parser.parse_args(["--config", "Debug"])
+        args = parser.parse_args([])
         self.assertEqual(args.build_identifier, "")
 
     def test_cli_rejects_invalid_identifier(self):
@@ -237,11 +257,10 @@ class BuildIdentifierTests(unittest.TestCase):
 
     def test_worker_receives_identifier(self):
         with mock.patch.object(configs, "init_configs") as init_configs:
-            initialize_worker_config("Win64", "DurinEditor", "Debug", "Agent")
+            initialize_worker_config("Win64", "DurinEditor", "Agent")
 
         self.assertEqual(configs.ARCH, "Win64")
         self.assertEqual(configs.PROFILE_NAME, "DurinEditor")
-        self.assertEqual(configs.BUILD_CONFIG, "Debug")
         self.assertEqual(configs.BUILD_IDENTIFIER, "Agent")
         init_configs.assert_called_once_with()
 
@@ -251,7 +270,7 @@ class BuildIdentifierTests(unittest.TestCase):
             project_cmake_file_generator.generate_project_cmake_file("Engine")
 
         output_path, content = generate_file.call_args.args
-        expected_root = utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "Debug-Agent" / "DurinEditor"
+        expected_root = utils.get_project_intermediate_dir("Engine") / "Build-Agent" / "Win64" / "DurinEditor"
         self.assertEqual(output_path, expected_root / "Engine.project.cmake")
         self.assertIn(expected_root.as_posix(), content)
 
@@ -260,7 +279,7 @@ class BuildIdentifierTests(unittest.TestCase):
         project_setup = (workspace_root / "CMake" / "Project" / "ProjectSetup.cmake").read_text(encoding="utf-8")
         project_targets = (workspace_root / "CMake" / "Project" / "ProjectTargets.cmake").read_text(encoding="utf-8")
         self.assertIn("list(APPEND DURIN_DHT_CONTEXT_ARGS --build-identifier ${DURIN_BUILD_IDENTIFIER})", project_setup)
-        self.assertIn("--config ${CMAKE_BUILD_TYPE}", project_setup)
+        self.assertNotIn("--config ${CMAKE_BUILD_TYPE}", project_setup)
         self.assertEqual(project_targets.count("${DURIN_DHT_CONTEXT_ARGS}"), 2)
         self.assertNotIn('--build-identifier "${DURIN_BUILD_IDENTIFIER}"', project_setup + project_targets)
 

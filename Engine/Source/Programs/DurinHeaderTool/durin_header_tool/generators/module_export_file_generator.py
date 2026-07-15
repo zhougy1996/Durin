@@ -53,11 +53,11 @@ def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, Mo
 
 
 def _parse_header_export_worker(args):
-    module_name, header, arch, profile, build_config, build_identifier = args
+    module_name, header, arch, profile, build_identifier = args
 
     from durin_header_tool.extractors.export_symbol_extractor import _extract_header_export_symbols_impl as worker_extract
 
-    initialize_worker_config(arch, profile, build_config, build_identifier)
+    initialize_worker_config(arch, profile, build_identifier)
 
     start_time = time.perf_counter()
     symbols = worker_extract(module_name, header)
@@ -185,7 +185,6 @@ def _build_module_export_from_manifest_cache(
                 header,
                 configs.ARCH,
                 configs.PROFILE_NAME,
-                configs.BUILD_CONFIG,
                 configs.BUILD_IDENTIFIER,
             )
             for header in headers_to_parse

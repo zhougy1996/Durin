@@ -23,22 +23,23 @@ def get_project_config_dir(project_name: str) -> Path:
 def get_project_cmake_dir(project_name: str) -> Path:
     return get_project_dir(project_name) / "CMake"
 
-def get_build_output_config() -> str:
+def get_intermediate_build_root_name() -> str:
+    """Return the workflow-owned root for configuration-independent DHT metadata."""
     if configs.BUILD_IDENTIFIER:
-        return f"{configs.BUILD_CONFIG}-{configs.BUILD_IDENTIFIER}"
-    return configs.BUILD_CONFIG
+        return f"Build-{configs.BUILD_IDENTIFIER}"
+    return "Build"
+
 
 def get_project_intermediate_build_dir(project_name: str) -> Path:
-    return get_project_intermediate_dir(project_name) / "Build" / configs.ARCH / get_build_output_config() / configs.PROFILE_NAME
+    return get_project_intermediate_dir(project_name) / get_intermediate_build_root_name() / configs.ARCH / configs.PROFILE_NAME
 
 def get_dht_output_lock_file_path() -> Path:
     return (
         configs.environment.DURIN_ENGINE_PROJECT_DIR
         / "Intermediate"
-        / "Build"
+        / get_intermediate_build_root_name()
         / ".dht-locks"
         / configs.ARCH
-        / get_build_output_config()
         / f"{configs.PROFILE_NAME}.lock"
     )
 

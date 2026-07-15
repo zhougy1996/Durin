@@ -15,16 +15,16 @@ function(add_durin_project project_name)
 	project(${project_name})
 
 	set(DURIN_PROJECT_NAME "${project_name}" PARENT_SCOPE)
-	set(_durin_build_output_config "${CMAKE_BUILD_TYPE}")
+	# DHT metadata is configuration-independent; the identifier isolates workflow ownership.
+	set(_durin_intermediate_build_root "Build")
 	if(DURIN_BUILD_IDENTIFIER)
-		string(APPEND _durin_build_output_config "-${DURIN_BUILD_IDENTIFIER}")
+		string(APPEND _durin_intermediate_build_root "-${DURIN_BUILD_IDENTIFIER}")
 	endif()
-	set(_durin_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_TARGET_PLATFORM}/${_durin_build_output_config}/${DURIN_PROFILE_NAME}")
+	set(_durin_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/${_durin_intermediate_build_root}/${DURIN_TARGET_PLATFORM}/${DURIN_PROFILE_NAME}")
 	set(_durin_project_cmake_file "${_durin_project_intermediate_build_dir}/${project_name}.project.cmake")
 	set(DURIN_DHT_CONTEXT_ARGS
 		-a ${DURIN_TARGET_PLATFORM}
 		--profile ${DURIN_PROFILE_NAME}
-		--config ${CMAKE_BUILD_TYPE}
 	)
 	if(DURIN_BUILD_IDENTIFIER)
 		list(APPEND DURIN_DHT_CONTEXT_ARGS --build-identifier ${DURIN_BUILD_IDENTIFIER})

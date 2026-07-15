@@ -17,23 +17,9 @@ def parse_build_identifier(value: str) -> str:
     return value
 
 
-def parse_build_config(value: str) -> str:
-    if not _BUILD_IDENTIFIER_PATTERN.fullmatch(value):
-        raise argparse.ArgumentTypeError(
-            "build config must start with an alphanumeric character and contain only "
-            "alphanumeric characters, '.', '_' or '-'"
-        )
-    return value
-
 def add_common_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux, MacOS).", default="Win64", choices=["Win64", "Linux", "MacOS"])
     parser.add_argument("--profile", help="The build profile name.", default="DurinEditor")
-    parser.add_argument(
-        "--config",
-        help="The build configuration name used to isolate generated metadata.",
-        default="Debug",
-        type=parse_build_config,
-    )
     parser.add_argument(
         "--build-identifier",
         help="Optional identifier used to isolate generated build metadata.",
