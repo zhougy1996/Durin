@@ -29,7 +29,7 @@ Main build trees stay profile-specific under `Build/`, for example:
 
 Use the `*-Tests` preset when native test targets are needed. Normal editor/game presets keep `BUILD_TESTING=OFF`.
 
-Agents must use `Win64-Debug-DurinEditor-Agent` for editor builds and automated validation. It has the same build options as the human-oriented `Win64-Debug-DurinEditor-Tests` preset, plus `DURIN_BUILD_IDENTIFIER=Agent`. Its build tree is `Build/Win64-Debug-DurinEditor-Agent`, binary outputs stay under `Engine/Binaries/Win64/Debug-Agent/`, and DHT metadata stays under `Engine/Intermediate/Build/Win64/DurinEditor/Agent/` instead of overwriting human build outputs.
+Agents must use `Win64-Debug-DurinEditor-Agent` for editor builds and automated validation. It has the same build options as the human-oriented `Win64-Debug-DurinEditor-Tests` preset, plus `DURIN_BUILD_IDENTIFIER=Agent`. Its build tree is `Build/Win64-Debug-DurinEditor-Agent`, binary outputs stay under `Engine/Binaries/Win64/Debug-Agent/`, and DHT metadata stays under `Engine/Intermediate/Build/Win64/Debug-Agent/DurinEditor/` instead of overwriting human build outputs.
 
 Agents invoke this workflow through the cross-platform Python driver. Registered profiles in `Engine/Scripts/Build/AgentBuildProfiles.json` bind a host, required commands, and toolchain environment provider to an isolated CMake preset and test output. The driver refuses unregistered presets. Environment providers may locate toolchain-bundled commands such as Visual Studio's Ninja without adding machine paths to the tracked profile. Windows users may use the PowerShell compatibility wrapper:
 
@@ -82,7 +82,7 @@ If a build is interrupted by a timeout, cancellation, terminal closure, or agent
 
 The driver leaves an interruption marker when its child process does not return normally. While that marker exists, ordinary Build and Test operations are rejected. `Rebuild` cleans the existing Agent build tree when possible, performs a fresh configure, builds the requested target (`all` by default), and clears the marker only after success. `Clean` and `Configure` may still be used for diagnosis, but they do not clear a pre-existing interruption marker.
 
-DHT writes are committed atomically and serialized by platform, profile, and build identifier. Presets with different identifiers use independent intermediate directories and locks, so the Agent preset no longer shares generated metadata with the human preset. Presets that intentionally use the same empty identifier continue to share `Engine/Intermediate/Build/<Platform>/<Profile>/` and are serialized when their DHT commands overlap.
+DHT writes are committed atomically and serialized by platform, output configuration, and profile. Debug, Release, and identifier-specific presets use independent intermediate directories and locks, so the Agent preset no longer shares generated metadata with human Debug or Release presets.
 
 After upgrading an existing Agent worktree to the identifier-aware DHT layout, run `python Engine/Scripts/Build/agent_build.py Rebuild --target all` once. This creates the isolated metadata tree; the build workflow does not delete or migrate files from the human-owned empty-identifier directory.
 
@@ -113,7 +113,7 @@ Key output locations:
 
 When `DURIN_BUILD_IDENTIFIER` is set, `<Config>` becomes `<Config>-<Identifier>`. For example, the Agent test preset writes runtime binaries to `Engine/Binaries/Win64/Debug-Agent/Runtime/DurinEditor/`.
 
-DHT metadata uses `Engine/Intermediate/Build/<Platform>/<Profile>/` when the identifier is empty and appends an identifier directory when set. The Agent preset therefore uses `Engine/Intermediate/Build/Win64/DurinEditor/Agent/`.
+DHT metadata uses `Engine/Intermediate/Build/<Platform>/<Config>/<Profile>/` when the identifier is empty. When set, the identifier is appended to the configuration exactly like binary outputs: `Engine/Intermediate/Build/<Platform>/<Config>-<Identifier>/<Profile>/`. The Agent preset therefore uses `Engine/Intermediate/Build/Win64/Debug-Agent/DurinEditor/`.
 
 The launcher target is `DurinLauncher`, but the executable name matches the active profile such as `DurinEditor.exe` or `DurinGame.exe`.
 

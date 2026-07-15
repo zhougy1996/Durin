@@ -33,14 +33,14 @@ function(add_durin_module module_name)
 	if(module_reflect_headers)
 		add_custom_command(
 			OUTPUT ${module_export_file}
-			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} -a ${DURIN_TARGET_PLATFORM} --profile ${DURIN_PROFILE_NAME} --build-identifier "${DURIN_BUILD_IDENTIFIER}" ${DURIN_DHT_PROJECT_FILE_ARGS}
+			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} ${DURIN_DHT_CONTEXT_ARGS} ${DURIN_DHT_PROJECT_FILE_ARGS}
 			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}"
 			COMMENT "[DHT] Generating export metadata for ${module_name}"
 		)
 
 		add_custom_command(
 			OUTPUT ${module_generated_srcs}
-			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} -a ${DURIN_TARGET_PLATFORM} --profile ${DURIN_PROFILE_NAME} --build-identifier "${DURIN_BUILD_IDENTIFIER}" ${DURIN_DHT_PROJECT_FILE_ARGS}
+			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} ${DURIN_DHT_CONTEXT_ARGS} ${DURIN_DHT_PROJECT_FILE_ARGS}
 			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}" ${module_manifest_dependencies} ${module_export_file}
 			COMMENT "[DHT] Generating reflection files for ${module_name}"
 		)

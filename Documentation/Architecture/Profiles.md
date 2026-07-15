@@ -35,11 +35,11 @@ Each preset sets:
 - `DURIN_PROFILE_NAME`
 - a dedicated build directory such as `Build/Win64-Debug-DurinEditor`
 
-Presets may also set `DURIN_BUILD_IDENTIFIER` to isolate outputs produced by a particular build workflow. This is not a profile or build configuration: `Win64-Debug-DurinEditor-Agent` remains `Debug` + `DurinEditor`, but writes binaries to `Engine/Binaries/Win64/Debug-Agent/` and generated metadata to `Engine/Intermediate/Build/Win64/DurinEditor/Agent/`.
+Presets may also set `DURIN_BUILD_IDENTIFIER` to isolate outputs produced by a particular build workflow. This is not a profile or build configuration: `Win64-Debug-DurinEditor-Agent` remains `Debug` + `DurinEditor`, but writes binaries to `Engine/Binaries/Win64/Debug-Agent/` and generated metadata to `Engine/Intermediate/Build/Win64/Debug-Agent/DurinEditor/`.
 
-DurinHeaderTool resolves the active profile and emits generated project metadata under `Engine/Intermediate/Build/<Platform>/<ProfileName>/...`.
+DurinHeaderTool resolves the active configuration and profile and emits generated project metadata under `Engine/Intermediate/Build/<Platform>/<Config[-Identifier]>/<ProfileName>/...`.
 
-When `DURIN_BUILD_IDENTIFIER` is non-empty, DurinHeaderTool appends it as another directory component. DHT commands using the same platform, profile, and identifier are protected by one cross-process lock; different identifiers use independent generated CMake files, reflection outputs, incremental manifests, and locks.
+When `DURIN_BUILD_IDENTIFIER` is non-empty, DurinHeaderTool appends it to the configuration component. DHT commands using the same platform, resolved output configuration, and profile are protected by one cross-process lock; Debug, Release, and identifier-specific configurations use independent generated CMake files, reflection outputs, incremental manifests, and locks.
 
 ## Derived Build Behavior
 
@@ -65,5 +65,5 @@ Minimum steps:
 1. Add the built-in profile entry in `Engine/Source/Programs/DurinHeaderTool/durin_header_tool/config/profile_config.py`.
 2. Add or update matching `ExtraModules.<ProfileName>.Modules` entries in the relevant `.dproject` files when the module set should differ.
 3. Add matching presets in `CMakePresets.json`.
-4. Verify generated output under `Engine/Intermediate/Build/<Platform>/<ProfileName>/` or its identifier-specific child directory.
+4. Verify generated output under `Engine/Intermediate/Build/<Platform>/<Config[-Identifier]>/<ProfileName>/`.
 5. Decide the `WithEditor` value and verify launcher naming, module naming, and config file naming.

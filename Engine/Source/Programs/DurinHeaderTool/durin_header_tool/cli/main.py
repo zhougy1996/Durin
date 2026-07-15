@@ -27,6 +27,7 @@ def main():
 
     configs.ARCH = args.arch
     configs.PROFILE_NAME = args.profile
+    configs.BUILD_CONFIG = args.config
     configs.BUILD_IDENTIFIER = args.build_identifier
     init_logging(args.log)
     mutating_commands = {

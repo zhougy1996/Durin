@@ -15,13 +15,22 @@ function(add_durin_project project_name)
 	project(${project_name})
 
 	set(DURIN_PROJECT_NAME "${project_name}" PARENT_SCOPE)
-	set(_durin_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_TARGET_PLATFORM}/${DURIN_PROFILE_NAME}")
+	set(_durin_build_output_config "${CMAKE_BUILD_TYPE}")
 	if(DURIN_BUILD_IDENTIFIER)
-		string(APPEND _durin_project_intermediate_build_dir "/${DURIN_BUILD_IDENTIFIER}")
+		string(APPEND _durin_build_output_config "-${DURIN_BUILD_IDENTIFIER}")
 	endif()
+	set(_durin_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_TARGET_PLATFORM}/${_durin_build_output_config}/${DURIN_PROFILE_NAME}")
 	set(_durin_project_cmake_file "${_durin_project_intermediate_build_dir}/${project_name}.project.cmake")
+	set(DURIN_DHT_CONTEXT_ARGS
+		-a ${DURIN_TARGET_PLATFORM}
+		--profile ${DURIN_PROFILE_NAME}
+		--config ${CMAKE_BUILD_TYPE}
+	)
+	if(DURIN_BUILD_IDENTIFIER)
+		list(APPEND DURIN_DHT_CONTEXT_ARGS --build-identifier ${DURIN_BUILD_IDENTIFIER})
+	endif()
 	execute_process(
-		COMMAND ${DHT_MAIN} prepare_project_build -p "${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject" -a ${DURIN_TARGET_PLATFORM} --profile ${DURIN_PROFILE_NAME} --build-identifier "${DURIN_BUILD_IDENTIFIER}"
+		COMMAND ${DHT_MAIN} prepare_project_build -p "${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject" ${DURIN_DHT_CONTEXT_ARGS}
 		RESULT_VARIABLE _durin_prepare_project_build_result
 	)
 	if(NOT _durin_prepare_project_build_result EQUAL 0)

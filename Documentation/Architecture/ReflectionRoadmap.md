@@ -60,7 +60,7 @@ The high-level dependency order is:
 `add_durin_project(...)` prepares project and module build metadata under:
 
 ```text
-Engine/Intermediate/Build/<Platform>/<Profile>[/<BuildIdentifier>]/...
+Engine/Intermediate/Build/<Platform>/<Config[-BuildIdentifier]>/<Profile>/...
 ```
 
 `add_durin_module(...)` then imports the generated module CMake file and wires:
@@ -319,7 +319,7 @@ These systems are valuable, but they should consume the reflection model after t
 - `CMake/Project/ProjectTargets.cmake`
 - `Engine/Source/Programs/DurinHeaderTool`
 - `Engine/Source/Runtime/CoreDObject`
-- `Engine/Intermediate/Build/<Platform>/<Profile>[/<BuildIdentifier>]/<Module>/DHT`
+- `Engine/Intermediate/Build/<Platform>/<Config[-BuildIdentifier]>/<Profile>/<Module>/DHT`
 
 ## Related Docs
 

@@ -23,11 +23,13 @@ def get_project_config_dir(project_name: str) -> Path:
 def get_project_cmake_dir(project_name: str) -> Path:
     return get_project_dir(project_name) / "CMake"
 
-def get_project_intermediate_build_dir(project_name: str) -> Path:
-    output_dir = get_project_intermediate_dir(project_name) / "Build" / configs.ARCH / configs.PROFILE_NAME
+def get_build_output_config() -> str:
     if configs.BUILD_IDENTIFIER:
-        output_dir /= configs.BUILD_IDENTIFIER
-    return output_dir
+        return f"{configs.BUILD_CONFIG}-{configs.BUILD_IDENTIFIER}"
+    return configs.BUILD_CONFIG
+
+def get_project_intermediate_build_dir(project_name: str) -> Path:
+    return get_project_intermediate_dir(project_name) / "Build" / configs.ARCH / get_build_output_config() / configs.PROFILE_NAME
 
 def get_dht_output_lock_file_path() -> Path:
     return (
@@ -36,8 +38,8 @@ def get_dht_output_lock_file_path() -> Path:
         / "Build"
         / ".dht-locks"
         / configs.ARCH
-        / configs.PROFILE_NAME
-        / f"{configs.BUILD_IDENTIFIER or '_default'}.lock"
+        / get_build_output_config()
+        / f"{configs.PROFILE_NAME}.lock"
     )
 
 def get_project_cmake_file_path(project_name: str) -> Path:
