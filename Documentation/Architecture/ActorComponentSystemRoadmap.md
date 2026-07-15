@@ -204,7 +204,7 @@ Recommended tests:
 Recommended build path:
 
 ```powershell
-cmake --build Build/Win64-Debug-DurinEditor --target CoreDObject Engine LevelEditor DurinLauncher -j 18
+cmake --build Build/Win64-Debug-DurinEditor --target CoreDObject Engine LevelEditor DurinLauncher --parallel
 ```
 
 For UI or rendering-visible changes, also run `DurinEditor`, because component registration bugs often appear only when the scene and viewport are live.
@@ -218,4 +218,3 @@ Resolve these before implementing beyond Phase 2:
 - Should actor destruction be immediate, deferred until end-of-frame, or both?
 - Are default components needed before CDO/archetype support, or should the engine initially treat all components as owned runtime instances?
 - Where should `IScene` ownership live: `DWorld`, engine instance, viewport, or a dedicated scene subsystem?
-

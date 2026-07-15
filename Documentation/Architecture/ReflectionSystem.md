@@ -375,7 +375,7 @@ python -m unittest discover -s Engine\Source\Programs\DurinHeaderTool\tests -p "
 For C++ verification, build a representative editor chain:
 
 ```powershell
-cmake --build Build/Win64-Debug-DurinEditor --target CoreDObject Engine LevelEditor DurinLauncher -j 18
+cmake --build Build/Win64-Debug-DurinEditor --target CoreDObject Engine LevelEditor DurinLauncher --parallel
 ```
 
 Run the focused CoreDObject test executable after lifecycle, GC, or serialization changes:

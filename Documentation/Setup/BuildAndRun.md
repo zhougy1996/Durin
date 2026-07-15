@@ -4,8 +4,7 @@ This is the operational guide for configuring, building, and running Durin local
 
 ## Prerequisites
 
-- Run `.\Setup.bat` on Windows before the first configure in a worktree. It creates the optional `.agents/build-config.json` from `TP_AGENT_BUILD_CONFIG.json` when missing.
-- On other hosts, create the same optional config with `python Engine/Scripts/Bootstrap/initialize_agent_config.py` when a local override is needed.
+- Run `.\Setup.bat` on Windows before the first configure in a worktree. On other hosts, use `python Engine/Scripts/Bootstrap/initialize_agent_config.py` when a local Agent build override is needed.
 - Put CMake on `PATH` when possible. Machine-specific command or environment overrides belong only in `.agents/build-config.json`.
 - The Agent build driver initializes the Visual Studio environment automatically for the Windows MSVC profile.
 
@@ -36,26 +35,30 @@ Agents invoke this workflow through the cross-platform Python driver. Registered
 
 ```powershell
 python Engine/Scripts/Build/agent_build.py Configure
-python Engine/Scripts/Build/agent_build.py Build --target LevelEditor --jobs 14
+python Engine/Scripts/Build/agent_build.py Build --target LevelEditor
 python Engine/Scripts/Build/agent_build.py Test --target CoreTests --filter FJsonDocumentTests.*
-& "Engine/Scripts/Build/AgentBuild.ps1" Build -Target LevelEditor -Jobs 14
+& "Engine/Scripts/Build/AgentBuild.ps1" Build -Target LevelEditor
 ```
 
 Profile selection precedence is `--profile`, `DURIN_AGENT_BUILD_PROFILE`, `defaultBuildProfile` in the local config, then the current host's unique default profile. CMake selection precedence is `--cmake`, `DURIN_CMAKE_COMMAND` (or legacy `DURIN_CMAKE_PATH`), `cmakeCommand` in the local config, then `cmake` on `PATH`.
 
-Parallel job selection precedence is `--jobs`, `DURIN_AGENT_JOBS`, `jobs` in the local config, then the CPU count reported by the host minus two reserved threads. Set local `jobs` to `0` to keep automatic detection.
+### Build Parallelism
 
-The local config is optional. Leave strings empty and `jobs` at zero to use automatic discovery. `environmentSetup.script` may point to a local `.bat`/`.cmd` or shell script when a registered profile cannot initialize its toolchain environment automatically.
+Agent builds select jobs in this order: `--jobs`, `DURIN_AGENT_JOBS`, `jobs` in `.agents/build-config.json`, then automatic detection. Automatic detection reserves two host CPU threads and clamps the result to 1–256 jobs. Normally, omit `--jobs`/`-Jobs` and leave the machine-local `jobs` value at `0`; use a positive local value only when that machine needs a persistent limit.
+
+For direct CMake builds, pass `--parallel` without a count so the native build tool chooses its default parallelism. To impose a local limit, use `--parallel <count>`, or omit `--parallel` and set `CMAKE_BUILD_PARALLEL_LEVEL`; shared documentation should not prescribe a machine-specific count.
+
+The Agent config is optional. Empty command/profile strings and `jobs: 0` keep automatic discovery enabled. `environmentSetup.script` is only needed when the registered profile cannot initialize its toolchain environment automatically.
 
 ## Build
 
 Prefer building only the target needed for the current change instead of `--target all`.
 
 ```powershell
-cmake --build Build/Win64-Debug-DurinEditor --target DurinLauncher -j 4
-cmake --build Build/Win64-Debug-DurinEditor --target RenderCore -j 4
-cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests -j 4
-cmake --build Build/Win64-Debug-DurinEditor-Agent --target CoreTests -j 4
+cmake --build Build/Win64-Debug-DurinEditor --target DurinLauncher --parallel
+cmake --build Build/Win64-Debug-DurinEditor --target RenderCore --parallel
+cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests --parallel
+python Engine/Scripts/Build/agent_build.py Build --target CoreTests
 ```
 
 ### Runtime Smoke Tests
@@ -65,7 +68,7 @@ A runtime smoke test must only be performed after a successful full build of the
 Use the registered Agent build driver and build the `all` target before launching the editor:
 
 ```powershell
-python Engine/Scripts/Build/agent_build.py Build --target all --jobs 14
+python Engine/Scripts/Build/agent_build.py Build --target all
 & "Engine/Binaries/Win64/Debug-Agent/Runtime/DurinEditor/DurinEditor.exe"
 ```
 

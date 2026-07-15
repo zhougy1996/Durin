@@ -21,14 +21,16 @@ The Agent preset enables the same test targets and adds the `Agent` build identi
 Build a specific test target:
 
 ```powershell
-cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests -j 4
+cmake --build Build/Win64-Debug-DurinEditor-Tests --target CoreTests --parallel
 ```
 
 Agents use:
 
 ```powershell
-& "Engine/Scripts/Build/AgentBuild.ps1" Test -Target CoreTests -Jobs 4
+& "Engine/Scripts/Build/AgentBuild.ps1" Test -Target CoreTests
 ```
+
+Both examples use machine-appropriate parallelism without prescribing a fixed count. See `Documentation/Setup/BuildAndRun.md` for Agent job detection and local overrides.
 
 Normal editor/game presets keep `BUILD_TESTING=OFF`.
 
