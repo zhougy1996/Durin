@@ -3,6 +3,7 @@
 #include "Application/MonaApplication.h"
 #include "AssetSystem.h"
 #include "Editor/EditorEngine.h"
+#include "Editor/EditorNotification.h"
 #include "Editor/EditorTransaction.h"
 #include "EditorSessionSettings.h"
 #include "Engine/Engine.h"
@@ -19,6 +20,7 @@
 #include "Panels/SceneViewportPanel.h"
 #include "Panels/WorldOutlinerPanel.h"
 #include "StaticMeshImportDialog.h"
+#include "Widgets/EditorNotificationOverlay.h"
 #include "Widgets/MWindow.h"
 #include "Yaml/Yaml.h"
 
@@ -47,6 +49,7 @@ namespace Durin
 	auto MLevelEditor::Construct() -> void
 	{
 		Context = std::make_unique<FLevelEditorContext>();
+		NotificationOverlay = std::make_unique<FEditorNotificationOverlay>();
 		Context->ReportError = [this](std::string Message) { SetError(std::move(Message)); };
 		Context->RenameLevel = [this](std::string_view NewName) {
 			return DocumentController && DocumentController->RenameCurrentLevel(NewName);
@@ -214,6 +217,11 @@ namespace Durin
 		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 		{
 			if (Panel->IsOpen()) Panel->Draw(*Context);
+		}
+
+		if (NotificationOverlay && GEditor)
+		{
+			NotificationOverlay->Draw(GEditor->GetNotificationManager(), GEditor->GetTransactionManager());
 		}
 	}
 

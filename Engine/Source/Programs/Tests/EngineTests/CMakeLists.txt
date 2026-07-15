@@ -4,6 +4,7 @@ add_durin_test(EngineTests
 	Private/MaterialTests.cpp
 	Private/WorldTests.cpp
 	Private/ViewportTests.cpp
+	Private/EditorNotificationTests.cpp
 	Private/UIStyleTests.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportCameraTransform.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/LevelEditorViewportClient.cpp

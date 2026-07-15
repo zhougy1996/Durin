@@ -39,6 +39,32 @@ namespace
 		int& Value;
 		int Delta;
 	};
+	struct FTransactionControl
+	{
+		bool bFailUndo = false;
+		bool bFailRedo = false;
+	};
+	class FControlledTransaction final : public Durin::IEditorTransaction
+	{
+	public:
+		FControlledTransaction(int& InValue, FTransactionControl& InControl) : Value(InValue), Control(InControl) {}
+		auto GetDescription() const -> std::string_view override { return "Controlled"; }
+		auto Undo() -> bool override
+		{
+			if (Control.bFailUndo) return false;
+			--Value;
+			return true;
+		}
+		auto Redo() -> bool override
+		{
+			if (Control.bFailRedo) return false;
+			++Value;
+			return true;
+		}
+	private:
+		int& Value;
+		FTransactionControl& Control;
+	};
 	class FTestViewportClient final : public Durin::FViewportClient
 	{
 	public:
@@ -88,6 +114,78 @@ TEST(FEditorTransactionManagerTests, ExecutesUndoesRedoesAndClearsRedoBranch)
 	EXPECT_EQ(Value, 2);
 	EXPECT_FALSE(Manager.CanRedo());
 	Manager.Clear();
+	EXPECT_FALSE(Manager.CanUndo());
+}
+
+TEST(FEditorTransactionManagerTests, UsesStableIdsAndRejectsStaleUndoRequests)
+{
+	int Value = 0;
+	Durin::FEditorTransactionManager Manager;
+	ASSERT_TRUE(Manager.Execute(std::make_unique<FCountingTransaction>(Value)));
+	const Durin::FEditorTransactionId FirstId = Manager.GetUndoId();
+	ASSERT_NE(FirstId, 0);
+	ASSERT_TRUE(Manager.Execute(std::make_unique<FCountingTransaction>(Value)));
+	const Durin::FEditorTransactionId SecondId = Manager.GetUndoId();
+	ASSERT_NE(SecondId, FirstId);
+
+	EXPECT_FALSE(Manager.Undo(FirstId));
+	EXPECT_EQ(Value, 2);
+	ASSERT_TRUE(Manager.Undo(SecondId));
+	EXPECT_EQ(Value, 1);
+	EXPECT_TRUE(Manager.IsRedoHead(SecondId));
+	ASSERT_TRUE(Manager.Redo(SecondId));
+	EXPECT_EQ(Value, 2);
+	EXPECT_TRUE(Manager.IsUndoHead(SecondId));
+
+	const std::vector<Durin::FEditorTransactionEvent> Events = Manager.ConsumeEvents();
+	ASSERT_EQ(Events.size(), 4);
+	EXPECT_EQ(Events[0].Type, Durin::EEditorTransactionEventType::Executed);
+	EXPECT_EQ(Events[1].Type, Durin::EEditorTransactionEventType::Executed);
+	EXPECT_EQ(Events[2].Type, Durin::EEditorTransactionEventType::Undone);
+	EXPECT_EQ(Events[3].Type, Durin::EEditorTransactionEventType::Redone);
+}
+
+TEST(FEditorTransactionManagerTests, KeepsTransactionsOnTheirOriginalStackWhenApplyFails)
+{
+	int Value = 0;
+	FTransactionControl Control;
+	Durin::FEditorTransactionManager Manager;
+	ASSERT_TRUE(Manager.Execute(std::make_unique<FControlledTransaction>(Value, Control)));
+	const Durin::FEditorTransactionId Id = Manager.GetUndoId();
+	Manager.ConsumeEvents();
+
+	Control.bFailUndo = true;
+	EXPECT_FALSE(Manager.Undo(Id));
+	EXPECT_EQ(Value, 1);
+	EXPECT_TRUE(Manager.IsUndoHead(Id));
+	ASSERT_EQ(Manager.ConsumeEvents().back().Type, Durin::EEditorTransactionEventType::Failed);
+
+	Control.bFailUndo = false;
+	ASSERT_TRUE(Manager.Undo(Id));
+	EXPECT_EQ(Value, 0);
+	EXPECT_TRUE(Manager.IsRedoHead(Id));
+	Manager.ConsumeEvents();
+
+	Control.bFailRedo = true;
+	EXPECT_FALSE(Manager.Redo(Id));
+	EXPECT_EQ(Value, 0);
+	EXPECT_TRUE(Manager.IsRedoHead(Id));
+	ASSERT_EQ(Manager.ConsumeEvents().back().Type, Durin::EEditorTransactionEventType::Failed);
+}
+
+TEST(FEditorTransactionManagerTests, ClearsRedoBranchAndPendingEventsOnNewCommitAndClear)
+{
+	int Value = 0;
+	Durin::FEditorTransactionManager Manager;
+	ASSERT_TRUE(Manager.Execute(std::make_unique<FCountingTransaction>(Value)));
+	const Durin::FEditorTransactionId OldId = Manager.GetUndoId();
+	ASSERT_TRUE(Manager.Undo(OldId));
+	ASSERT_TRUE(Manager.Execute(std::make_unique<FCountingTransaction>(Value, 2)));
+	EXPECT_FALSE(Manager.CanRedo());
+	EXPECT_FALSE(Manager.Redo(OldId));
+
+	Manager.Clear();
+	EXPECT_TRUE(Manager.ConsumeEvents().empty());
 	EXPECT_FALSE(Manager.CanUndo());
 }
 

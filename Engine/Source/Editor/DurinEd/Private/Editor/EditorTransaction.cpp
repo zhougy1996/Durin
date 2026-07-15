@@ -4,52 +4,118 @@ namespace Durin
 {
 	auto FEditorTransactionManager::Execute(std::unique_ptr<IEditorTransaction> Transaction) -> bool
 	{
-		if (!Transaction || !Transaction->Redo()) return false;
+		if (!Transaction) return false;
+		const std::string Description(Transaction->GetDescription());
+		if (!Transaction->Redo())
+		{
+			RecordFailure(EEditorTransactionOperation::Execute, 0, Description);
+			return false;
+		}
 		return CommitApplied(std::move(Transaction));
 	}
 
 	auto FEditorTransactionManager::CommitApplied(std::unique_ptr<IEditorTransaction> Transaction) -> bool
 	{
 		if (!Transaction) return false;
+		const FEditorTransactionId Id = NextId++;
+		const std::string Description(Transaction->GetDescription());
 		RedoStack.clear();
-		UndoStack.emplace_back(std::move(Transaction));
+		UndoStack.push_back({Id, std::move(Transaction)});
 		if (UndoStack.size() > MaxHistory) UndoStack.erase(UndoStack.begin());
+		PendingEvents.push_back({EEditorTransactionEventType::Executed, EEditorTransactionOperation::Execute, Id, Description});
 		return true;
 	}
 
 	auto FEditorTransactionManager::Undo() -> bool
 	{
-		if (UndoStack.empty()) return false;
-		std::unique_ptr<IEditorTransaction> Transaction = std::move(UndoStack.back());
+		return !UndoStack.empty() && Undo(UndoStack.back().Id);
+	}
+
+	auto FEditorTransactionManager::Undo(FEditorTransactionId ExpectedId) -> bool
+	{
+		if (!IsUndoHead(ExpectedId)) return false;
+		FEntry& Entry = UndoStack.back();
+		const std::string Description(Entry.Transaction->GetDescription());
+		if (!Entry.Transaction->Undo())
+		{
+			RecordFailure(EEditorTransactionOperation::Undo, Entry.Id, Description);
+			return false;
+		}
+		FEntry Applied = std::move(Entry);
 		UndoStack.pop_back();
-		if (!Transaction->Undo()) return false;
-		RedoStack.emplace_back(std::move(Transaction));
+		RedoStack.emplace_back(std::move(Applied));
+		PendingEvents.push_back({EEditorTransactionEventType::Undone, EEditorTransactionOperation::Undo, ExpectedId, Description});
 		return true;
 	}
 
 	auto FEditorTransactionManager::Redo() -> bool
 	{
-		if (RedoStack.empty()) return false;
-		std::unique_ptr<IEditorTransaction> Transaction = std::move(RedoStack.back());
+		return !RedoStack.empty() && Redo(RedoStack.back().Id);
+	}
+
+	auto FEditorTransactionManager::Redo(FEditorTransactionId ExpectedId) -> bool
+	{
+		if (!IsRedoHead(ExpectedId)) return false;
+		FEntry& Entry = RedoStack.back();
+		const std::string Description(Entry.Transaction->GetDescription());
+		if (!Entry.Transaction->Redo())
+		{
+			RecordFailure(EEditorTransactionOperation::Redo, Entry.Id, Description);
+			return false;
+		}
+		FEntry Applied = std::move(Entry);
 		RedoStack.pop_back();
-		if (!Transaction->Redo()) return false;
-		UndoStack.emplace_back(std::move(Transaction));
+		UndoStack.emplace_back(std::move(Applied));
+		PendingEvents.push_back({EEditorTransactionEventType::Redone, EEditorTransactionOperation::Redo, ExpectedId, Description});
 		return true;
+	}
+
+	auto FEditorTransactionManager::IsUndoHead(FEditorTransactionId Id) const -> bool
+	{
+		return Id != 0 && !UndoStack.empty() && UndoStack.back().Id == Id;
+	}
+
+	auto FEditorTransactionManager::IsRedoHead(FEditorTransactionId Id) const -> bool
+	{
+		return Id != 0 && !RedoStack.empty() && RedoStack.back().Id == Id;
 	}
 
 	auto FEditorTransactionManager::GetUndoDescription() const -> std::string_view
 	{
-		return UndoStack.empty() ? std::string_view{} : UndoStack.back()->GetDescription();
+		return UndoStack.empty() ? std::string_view{} : UndoStack.back().Transaction->GetDescription();
 	}
 
 	auto FEditorTransactionManager::GetRedoDescription() const -> std::string_view
 	{
-		return RedoStack.empty() ? std::string_view{} : RedoStack.back()->GetDescription();
+		return RedoStack.empty() ? std::string_view{} : RedoStack.back().Transaction->GetDescription();
+	}
+
+	auto FEditorTransactionManager::GetUndoId() const -> FEditorTransactionId
+	{
+		return UndoStack.empty() ? 0 : UndoStack.back().Id;
+	}
+
+	auto FEditorTransactionManager::GetRedoId() const -> FEditorTransactionId
+	{
+		return RedoStack.empty() ? 0 : RedoStack.back().Id;
+	}
+
+	auto FEditorTransactionManager::ConsumeEvents() -> std::vector<FEditorTransactionEvent>
+	{
+		std::vector<FEditorTransactionEvent> Events;
+		Events.swap(PendingEvents);
+		return Events;
 	}
 
 	auto FEditorTransactionManager::Clear() -> void
 	{
 		UndoStack.clear();
 		RedoStack.clear();
+		PendingEvents.clear();
+	}
+
+	auto FEditorTransactionManager::RecordFailure(EEditorTransactionOperation Operation, FEditorTransactionId Id, std::string_view Description) -> void
+	{
+		PendingEvents.push_back({EEditorTransactionEventType::Failed, Operation, Id, std::string(Description)});
 	}
 }

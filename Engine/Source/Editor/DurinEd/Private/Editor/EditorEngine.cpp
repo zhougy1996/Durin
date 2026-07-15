@@ -1,4 +1,5 @@
 #include "Editor/EditorEngine.h"
+#include "Editor/EditorNotification.h"
 #include "Editor/EditorTransaction.h"
 
 #include "Interfaces/IMainFrameModule.h"
@@ -11,6 +12,7 @@ namespace Durin
 	DEditorEngine::DEditorEngine(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 		, TransactionManager(std::make_unique<FEditorTransactionManager>())
+		, NotificationManager(std::make_unique<FEditorNotificationManager>())
 	{
 		GEditor = this;
 	}
@@ -32,5 +34,10 @@ namespace Durin
 	auto DEditorEngine::GetTransactionManager() -> FEditorTransactionManager&
 	{
 		return *TransactionManager;
+	}
+
+	auto DEditorEngine::GetNotificationManager() -> FEditorNotificationManager&
+	{
+		return *NotificationManager;
 	}
 }

@@ -11,6 +11,7 @@ namespace Durin
 	class FSceneViewportPanel;
 	class FStaticMeshImportDialog;
 	class FContentBrowserPanel;
+	class FEditorNotificationOverlay;
 	struct FLevelEditorContext;
 
 	class MLevelEditor final : public MWidget
@@ -34,6 +35,7 @@ namespace Durin
 		FEditorSessionSettings& SessionSettings;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FStaticMeshImportDialog> StaticMeshImportDialog;
+		std::unique_ptr<FEditorNotificationOverlay> NotificationOverlay;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
 		FContentBrowserPanel* ContentBrowserPanel = nullptr;
