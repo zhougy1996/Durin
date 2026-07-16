@@ -15,10 +15,10 @@ BUILD_SCRIPT_DIR = REPO_ROOT / "Engine" / "Scripts" / "Build"
 if str(BUILD_SCRIPT_DIR) not in os.sys.path:
     os.sys.path.insert(0, str(BUILD_SCRIPT_DIR))
 
-import durin_build_cli as build_cli
-import durin_build_config as build_config
-import durin_build_core as build_core
-from durin_build_output import BuildOutput
+from durin_build_tool import cli as build_cli
+from durin_build_tool import config as build_config
+from durin_build_tool import core as build_core
+from durin_build_tool.output import BuildOutput
 
 from Engine.Scripts.Bootstrap import agent_config
 
@@ -229,7 +229,7 @@ class CliTests(unittest.TestCase):
     def test_wrapper_uses_new_entrypoint_and_forwards_arguments(self) -> None:
         content = (REPO_ROOT / "BuildTool.bat").read_text(encoding="utf-8")
         self.assertIn('set "VSLANG=1033"', content)
-        self.assertIn('Engine\\Scripts\\Build\\durin_build_tool.py" %*', content)
+        self.assertIn('Engine\\Scripts\\Build\\durin_build_tool\\__main__.py" %*', content)
         self.assertNotIn("agent_build.py", content)
 
     def test_requirements_pin_rich_and_libclang(self) -> None:

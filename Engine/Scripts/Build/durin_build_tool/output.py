@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from durin_build_config import BuildContext, BuildToolError, preset_build_directory
+from .config import BuildContext, BuildToolError, preset_build_directory
 
 
 class BuildOutput:

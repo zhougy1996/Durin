@@ -12,7 +12,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, Mapping, Sequence
 
-from durin_build_config import (
+from .config import (
     LOCK_DIR,
     REPO_ROOT,
     STATE_DIR,
@@ -39,7 +39,7 @@ from durin_build_config import (
     select_preset,
     select_profile,
 )
-from durin_build_output import BuildOutput
+from .output import BuildOutput
 
 
 def state_file_component(value: str) -> str:

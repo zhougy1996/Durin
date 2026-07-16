@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+PACKAGE_DIR = Path(__file__).resolve().parent
+SCRIPT_DIR = PACKAGE_DIR.parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
 PROFILE_FILE = SCRIPT_DIR / "AgentBuildProfiles.json"
 PRESET_FILE = REPO_ROOT / "CMakePresets.json"

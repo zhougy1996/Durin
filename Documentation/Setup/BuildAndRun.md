@@ -122,7 +122,7 @@ Preset build trees are isolated, but final binaries are shared by platform/confi
 
 Purge only removes registered preset trees under `Build/` and `Install/`, project `Binaries/<Platform>/<Config>/` roots, and project `Intermediate/Build[-Identifier]/<Platform>/<Profile>/` roots. It intentionally preserves bootstrapped dependencies such as `Build/ThirdParty` and `Engine/External`.
 
-On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/durin_build_tool.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat` because it also fixes the MSVC language with `VSLANG=1033`.
+On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/durin_build_tool/__main__.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat` because it also fixes the MSVC language with `VSLANG=1033`.
 
 ## IDE Code Model And Debugging
 

@@ -11,7 +11,7 @@ from typing import Sequence
 
 from rich.table import Table
 
-from durin_build_config import (
+from .config import (
     Action,
     BuildContext,
     BuildToolError,
@@ -19,13 +19,13 @@ from durin_build_config import (
     preset_build_directory,
     preset_cache_string,
 )
-from durin_build_core import (
+from .core import (
     create_context,
     derive_context,
     execute_context,
     interruption_marker_path,
 )
-from durin_build_output import BuildOutput
+from .output import BuildOutput
 
 
 class BuildArgumentParser(argparse.ArgumentParser):
