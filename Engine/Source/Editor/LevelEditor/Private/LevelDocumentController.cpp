@@ -102,7 +102,7 @@ namespace Durin
 		}
 		QueuedPopup = EQueuedPopup::None;
 
-		if (ImGui::BeginPopupModal("Unsaved Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::BeginPopupModal("Unsaved Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
 			ImGui::TextUnformatted("The current level has unsaved changes.");
 			if (ImGui::Button("Save"))
@@ -129,7 +129,7 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 
-		if (ImGui::BeginPopupModal("New Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::BeginPopupModal("New Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
 			ImGui::InputText("Virtual Path", LevelPathBuffer.data(), LevelPathBuffer.size());
 			if (ImGui::Button("Create")) CreateLevel(LevelPathBuffer.data());

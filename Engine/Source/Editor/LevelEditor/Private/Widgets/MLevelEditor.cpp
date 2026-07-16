@@ -5,12 +5,14 @@
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorNotification.h"
 #include "Editor/EditorTransaction.h"
+#include "Editor/EditorWorkspaceUI.h"
 #include "EditorSessionSettings.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "IRendererModule.h"
 #include "LevelDocumentController.h"
 #include "LevelEditorContext.h"
+#include "LevelEditorWorkspace.h"
 #include "Misc/Project.h"
 #include "MonaImGui.h"
 #include "Panels/ConsolePanel.h"
@@ -27,13 +29,9 @@
 namespace Durin
 {
 	// MLevelEditor is the composition root for the editor-specific controllers.
-	namespace
-	{
-		constexpr const char* DockSpaceName = "DurinEditorDockSpace";
-	}
-
-	MLevelEditor::MLevelEditor(FEditorSessionSettings& InSessionSettings)
+	MLevelEditor::MLevelEditor(FEditorSessionSettings& InSessionSettings, FEditorWorkspaceManager& InWorkspaceManager)
 		: SessionSettings(InSessionSettings)
+		, WorkspaceManager(InWorkspaceManager)
 	{
 	}
 
@@ -88,8 +86,7 @@ namespace Durin
 		auto ContentBrowser = std::make_unique<FContentBrowserPanel>(
 			SessionSettings,
 			[this](const std::string& Path, const std::string& AssetClassName) {
-				if (AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString()) return false;
-				return DocumentController && DocumentController->RequestOpenLevel(Path);
+				return WorkspaceManager.OpenAsset(Path, AssetClassName);
 			},
 			[this](const std::string& DestinationDirectory) {
 				if (StaticMeshImportDialog) StaticMeshImportDialog->Open(DestinationDirectory);
@@ -165,25 +162,92 @@ namespace Durin
 		return true;
 	}
 
-	auto MLevelEditor::Draw() -> void
+	auto MLevelEditor::GetWorkspaceType() const -> const FEditorWorkspaceTypeId&
 	{
-		if (!Context || !DocumentController || !StaticMeshImportDialog) return;
+		return LevelEditorWorkspace::Type;
+	}
+
+	auto MLevelEditor::OpenDocument(const FEditorDocumentTab& Document) -> bool
+	{
+		if (Document.ResourceId.empty()) return true;
+		return DocumentController && DocumentController->RequestOpenLevel(Document.ResourceId);
+	}
+
+	auto MLevelEditor::ActivateDocument(const FEditorDocumentTab& Document) -> void
+	{
+		(void)Document;
+		bFocusRequested = true;
+	}
+
+	auto MLevelEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
+	{
+		(void)Document;
+		return false;
+	}
+
+	auto MLevelEditor::IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool
+	{
+		(void)Document;
+		return Context && Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
+	}
+
+	auto MLevelEditor::ResetLayout() -> void
+	{
+		bResetLayoutRequested = true;
+	}
+
+	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
+	{
+		if (!Context || !DocumentController || !StaticMeshImportDialog) return false;
+
+		const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeDockSpaceId(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion);
+		EditorWorkspaceUI::SetNextEditorRootWindowClass();
+		if (bFocusRequested)
+		{
+			ImGui::SetNextWindowFocus();
+			bFocusRequested = false;
+		}
+		const bool bLevelDirty = Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
+		const std::string RootWindowName = EditorWorkspaceUI::MakeEditorRootWindowName(bLevelDirty ? "Level Editor *" : "Level Editor", LevelEditorWorkspace::RootKey);
+		const bool bRootVisible = ImGui::Begin(RootWindowName.c_str(), nullptr, ImGuiWindowFlags_NoCollapse);
+		const bool bRootFocused = bRootVisible && ImGui::IsWindowFocused(
+			ImGuiFocusedFlags_RootAndChildWindows | ImGuiFocusedFlags_DockHierarchy
+		);
+		if (!bRootVisible)
+		{
+			if (ImGui::DockBuilderGetNode(DockSpaceId) != nullptr)
+				EditorWorkspaceUI::SubmitDockSpace(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly);
+			ImGui::End();
+			return false;
+		}
 
 		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
 		const ImGuiIO& IO = ImGui::GetIO();
-		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
-		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) DocumentController->SaveCurrentLevel();
-		const bool bGizmoDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
-		if (!bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) && GEditor) GEditor->GetTransactionManager().Undo();
-		if (!bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) && GEditor) GEditor->GetTransactionManager().Redo();
+		if (bActive || bRootFocused)
+		{
+			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
+			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) DocumentController->SaveCurrentLevel();
+			const bool bGizmoDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
+			if (!bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) && GEditor) GEditor->GetTransactionManager().Undo();
+			if (!bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) && GEditor) GEditor->GetTransactionManager().Redo();
+		}
 
-		DrawMainMenu();
+		const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
+		const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
+		EditorWorkspaceUI::SubmitDockSpace(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion, DockSpaceSize);
+		if (bNeedsDefaultLayout || bResetLayoutRequested)
+		{
+			BuildDefaultLayout(DockSpaceId, DockSpaceSize.x, DockSpaceSize.y);
+			bResetLayoutRequested = false;
+		}
+		ImGui::End();
+
 		DocumentController->DrawDialogs();
 		StaticMeshImportDialog->Draw();
 		DrawProjectSettings();
 
 		if (!EditorError.empty()) ImGui::OpenPopup("Editor Error");
-		if (ImGui::BeginPopupModal("Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::BeginPopupModal("Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
 			ImGui::TextWrapped("%s", EditorError.c_str());
 			if (ImGui::Button("OK"))
@@ -204,16 +268,6 @@ namespace Durin
 			}
 		}
 
-		ImGuiViewport* MainViewport = ImGui::GetMainViewport();
-		const ImGuiID DockSpaceId = ImGui::GetID(DockSpaceName);
-		const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
-		ImGui::DockSpaceOverViewport(DockSpaceId, MainViewport, ImGuiDockNodeFlags_None);
-		if (bNeedsDefaultLayout || bResetLayoutRequested)
-		{
-			BuildDefaultLayout(DockSpaceId);
-			bResetLayoutRequested = false;
-		}
-
 		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 		{
 			if (Panel->IsOpen()) Panel->Draw(*Context);
@@ -223,12 +277,11 @@ namespace Durin
 		{
 			NotificationOverlay->Draw(GEditor->GetNotificationManager(), GEditor->GetTransactionManager(), &bActivityHistoryOpen);
 		}
+		return bRootFocused;
 	}
 
 	auto MLevelEditor::DrawMainMenu() -> void
 	{
-		if (!ImGui::BeginMainMenuBar()) return;
-
 		if (ImGui::BeginMenu("File"))
 		{
 			if (ImGui::MenuItem("New Level", "Ctrl+N")) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
@@ -295,7 +348,7 @@ namespace Durin
 				}
 				ImGui::EndMenu();
 			}
-			if (ImGui::MenuItem("Reset Layout")) bResetLayoutRequested = true;
+			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
 			ImGui::Separator();
 			if (GEngine)
 			{
@@ -323,13 +376,12 @@ namespace Durin
 			ImGui::MenuItem("Durin Level Editor - early development", nullptr, false, false);
 			ImGui::EndMenu();
 		}
-		ImGui::EndMainMenuBar();
 	}
 
 	auto MLevelEditor::DrawProjectSettings() -> void
 	{
 		if (!bProjectSettingsOpen) return;
-		if (ImGui::Begin("Project Settings", &bProjectSettingsOpen))
+		if (ImGui::Begin("Project Settings###Durin.LevelEditor.ProjectSettings", &bProjectSettingsOpen, ImGuiWindowFlags_NoDocking))
 		{
 			const FProjectInfo* Project = GetCurrentProject();
 			if (Project)
@@ -371,23 +423,29 @@ namespace Durin
 		DURIN_ERROR("Level editor: {}", EditorError);
 	}
 
-	auto MLevelEditor::BuildDefaultLayout(uint32 DockSpaceId) -> void
+	auto MLevelEditor::BuildDefaultLayout(uint32 DockSpaceId, float DockSpaceWidth, float DockSpaceHeight) -> void
 	{
-		ImGuiViewport* MainViewport = ImGui::GetMainViewport();
 		ImGui::DockBuilderRemoveNode(DockSpaceId);
 		ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace);
-		ImGui::DockBuilderSetNodeSize(DockSpaceId, MainViewport->WorkSize);
+		ImGui::DockBuilderSetNodeSize(DockSpaceId, ImVec2(DockSpaceWidth, DockSpaceHeight));
+		if (ImGuiDockNode* DockSpaceNode = ImGui::DockBuilderGetNode(DockSpaceId))
+			DockSpaceNode->WindowClass = EditorWorkspaceUI::MakeWindowClass(LevelEditorWorkspace::Type);
 
 		ImGuiID MainDockId = DockSpaceId;
 		const ImGuiID LeftDockId = ImGui::DockBuilderSplitNode(MainDockId, ImGuiDir_Left, 0.20f, nullptr, &MainDockId);
 		const ImGuiID RightDockId = ImGui::DockBuilderSplitNode(MainDockId, ImGuiDir_Right, 0.25f, nullptr, &MainDockId);
 		const ImGuiID BottomDockId = ImGui::DockBuilderSplitNode(MainDockId, ImGuiDir_Down, 0.25f, nullptr, &MainDockId);
 
-		ImGui::DockBuilderDockWindow("World Outliner###WorldOutliner", LeftDockId);
-		ImGui::DockBuilderDockWindow("Details###Details", RightDockId);
-		ImGui::DockBuilderDockWindow("Content Browser###FileBrowser", BottomDockId);
-		ImGui::DockBuilderDockWindow("Output Log###OutputLog", BottomDockId);
-		ImGui::DockBuilderDockWindow("Scene Viewport###SceneViewport", MainDockId);
+		const std::string WorldOutlinerName = EditorWorkspaceUI::MakePanelWindowName("World Outliner", LevelEditorWorkspace::Type, "WorldOutliner");
+		const std::string DetailsName = EditorWorkspaceUI::MakePanelWindowName("Details", LevelEditorWorkspace::Type, "Details");
+		const std::string ContentBrowserName = EditorWorkspaceUI::MakePanelWindowName("Content Browser", LevelEditorWorkspace::Type, "ContentBrowser");
+		const std::string ConsoleName = EditorWorkspaceUI::MakePanelWindowName("Console", LevelEditorWorkspace::Type, "OutputLog");
+		const std::string SceneViewportName = EditorWorkspaceUI::MakePanelWindowName("Scene Viewport", LevelEditorWorkspace::Type, "SceneViewport");
+		ImGui::DockBuilderDockWindow(WorldOutlinerName.c_str(), LeftDockId);
+		ImGui::DockBuilderDockWindow(DetailsName.c_str(), RightDockId);
+		ImGui::DockBuilderDockWindow(ContentBrowserName.c_str(), BottomDockId);
+		ImGui::DockBuilderDockWindow(ConsoleName.c_str(), BottomDockId);
+		ImGui::DockBuilderDockWindow(SceneViewportName.c_str(), MainDockId);
 		ImGui::DockBuilderFinish(DockSpaceId);
 	}
 } // namespace Durin

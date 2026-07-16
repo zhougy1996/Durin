@@ -37,7 +37,12 @@ namespace Durin
 
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		ImGui::SetNextWindowSize(ImVec2(Metrics.WidePopupWidth, 0.0f), ImGuiCond_Appearing);
-		if (!ImGui::BeginPopupModal("Import Static Mesh", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize)) return;
+		if (!ImGui::BeginPopupModal(
+			"Import Static Mesh",
+			nullptr,
+			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings
+		))
+			return;
 
 		ImGui::TextUnformatted("Create a static mesh asset from a model file.");
 		ImGui::TextDisabled("The source model is copied next to the .dasset package so they can be moved together.");

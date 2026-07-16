@@ -8,9 +8,11 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Editor/EditorWorkspaceUI.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorHelpers.h"
+#include "LevelEditorWorkspace.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
@@ -69,7 +71,7 @@ namespace Durin
 
 	auto FWorldOutlinerPanel::Draw(FLevelEditorContext& Context) -> void
 	{
-		if (!ImGui::Begin("World Outliner###WorldOutliner", GetOpenPtr()))
+		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;
@@ -381,7 +383,7 @@ namespace Durin
 			PendingDeleteActors = Context.GetSelectedActors();
 			ImGui::OpenPopup("Delete Actors?");
 		}
-		if (ImGui::BeginPopupModal("Delete Actors?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::BeginPopupModal("Delete Actors?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
 			ImGui::Text("Delete %zu actor(s)?", PendingDeleteActors.size());
 			for (size_t Index = 0; Index < std::min<size_t>(PendingDeleteActors.size(), 5); ++Index)

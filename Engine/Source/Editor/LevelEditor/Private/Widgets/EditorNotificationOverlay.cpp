@@ -2,7 +2,9 @@
 
 #include "Editor/EditorNotification.h"
 #include "Editor/EditorTransaction.h"
+#include "Editor/EditorWorkspaceUI.h"
 #include "Icons/FontAwesomeIcons.h"
+#include "LevelEditorWorkspace.h"
 #include "MonaImGui.h"
 
 namespace Durin
@@ -199,7 +201,7 @@ namespace Durin
 	auto FEditorNotificationOverlay::DrawHistory(FEditorNotificationManager& Notifications, bool* bOpen) -> void
 	{
 		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(420.0f)), ImGuiCond_FirstUseEver);
-		if (ImGui::Begin("Activity History###EditorActivityHistory", bOpen))
+		if (EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Activity History", "ActivityHistory", bOpen))
 		{
 			const std::vector<FEditorNotification>& History = Notifications.GetHistory();
 			ImGui::TextDisabled("Editor activity from this session");

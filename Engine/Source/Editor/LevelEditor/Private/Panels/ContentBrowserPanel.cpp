@@ -2,11 +2,13 @@
 
 #include "AssetSystem.h"
 #include "ContentBrowserDragDrop.h"
+#include "Editor/EditorWorkspaceUI.h"
 #include "EditorSessionSettings.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorHelpers.h"
 #include "LevelEditorUILayout.h"
+#include "LevelEditorWorkspace.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
@@ -274,7 +276,7 @@ namespace Durin
 	auto FContentBrowserPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		(void)Context;
-		if (!ImGui::Begin("Content Browser###FileBrowser", GetOpenPtr()))
+		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;
@@ -1205,7 +1207,7 @@ namespace Durin
 			ImGui::OpenPopup("Delete Content");
 			bDeletePopupRequested = false;
 		}
-		if (ImGui::BeginPopupModal("Delete Content", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::BeginPopupModal("Delete Content", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
 			ImGui::Text("Permanently delete %zu selected item%s?", Selection.size(), Selection.size() == 1 ? "" : "s");
 			ImGui::TextDisabled("Assets with external references will be blocked. This cannot be undone.");
@@ -1245,7 +1247,7 @@ namespace Durin
 		}
 
 		if (!ErrorMessage.empty()) ImGui::OpenPopup("Content Browser Error");
-		if (ImGui::BeginPopupModal("Content Browser Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::BeginPopupModal("Content Browser Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
 			ImGui::TextWrapped("%s", ErrorMessage.c_str());
 			if (MonaImGui::DialogButton("OK"))

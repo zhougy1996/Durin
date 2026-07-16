@@ -6,6 +6,7 @@
 #include "ContentBrowserDragDrop.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorTransaction.h"
+#include "Editor/EditorWorkspaceUI.h"
 #include "Engine/Engine.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
@@ -13,6 +14,7 @@
 #include "IRendererModule.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorUILayout.h"
+#include "LevelEditorWorkspace.h"
 #include "Math/Vector.h"
 #include "Mona/SceneViewport.h"
 #include "MonaImGui.h"
@@ -317,7 +319,13 @@ namespace Durin
 
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
-		if (!ImGui::Begin("Scene Viewport###SceneViewport", GetOpenPtr(), ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		if (!EditorWorkspaceUI::BeginDockablePanel(
+			LevelEditorWorkspace::Type,
+			"Scene Viewport",
+			"SceneViewport",
+			GetOpenPtr(),
+			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+		))
 		{
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			bViewportHovered = false;

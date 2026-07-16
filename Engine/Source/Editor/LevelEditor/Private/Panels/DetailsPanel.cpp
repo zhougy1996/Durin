@@ -9,8 +9,10 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/MathStructs.h"
 #include "Engine/Actor.h"
+#include "Editor/EditorWorkspaceUI.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorHelpers.h"
+#include "LevelEditorWorkspace.h"
 #include "EditorSessionSettings.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
@@ -120,7 +122,7 @@ namespace Durin
 
 	auto FDetailsPanel::Draw(FLevelEditorContext& Context) -> void
 	{
-		if (!ImGui::Begin("Details###Details", GetOpenPtr()))
+		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Details", "Details", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;
@@ -403,7 +405,7 @@ namespace Durin
 		}
 
 		if (bOpenRemovePopup) ImGui::OpenPopup("Remove Component?");
-		if (ImGui::BeginPopupModal("Remove Component?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::BeginPopupModal("Remove Component?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
 			ImGui::Text("Remove component '%s'?", PendingRemoveComponent ? PendingRemoveComponent->GetName().c_str() : "");
 			ImGui::TextDisabled("Its scene children will remain on the actor and keep their world transforms.");

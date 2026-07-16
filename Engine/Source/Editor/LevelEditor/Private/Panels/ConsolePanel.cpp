@@ -1,6 +1,8 @@
 #include "Panels/ConsolePanel.h"
 
+#include "Editor/EditorWorkspaceUI.h"
 #include "Icons/FontAwesomeIcons.h"
+#include "LevelEditorWorkspace.h"
 #include "LevelEditorHelpers.h"
 #include "Logging/Logger.h"
 #include "Misc/StringHelper.h"
@@ -141,7 +143,7 @@ namespace Durin
 	{
 		(void)Context;
 		const bool bReceivedRecords = DrainPendingRecords() || std::exchange(bHasNewConsoleRecords, false);
-		if (!ImGui::Begin("Console###OutputLog", GetOpenPtr()))
+		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Console", "OutputLog", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;

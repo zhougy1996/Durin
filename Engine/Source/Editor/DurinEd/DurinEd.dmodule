@@ -11,7 +11,8 @@
         "Mona"
     ],
     "PublicDependencies": [
-        "AssetCore"
+        "AssetCore",
+        "MonaImGui"
     ],
     "ReflectHeaders": [
         "Public/Editor/EditorEngine.h"

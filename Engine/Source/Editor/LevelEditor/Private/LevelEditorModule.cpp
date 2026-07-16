@@ -1,6 +1,9 @@
 #include "LevelEditorModule.h"
 
+#include "Editor/EditorWorkspace.h"
 #include "EditorSessionSettings.h"
+#include "Engine/Level.h"
+#include "LevelEditorWorkspace.h"
 #include "Widgets/MLevelEditor.h"
 
 namespace Durin
@@ -20,11 +23,26 @@ namespace Durin
 		SessionSettings.reset();
 	}
 
-	LEVELEDITOR_API auto FLevelEditorModule::CreateLevelEditorWidget() -> std::shared_ptr<MWidget>
+	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(FEditorWorkspaceManager& WorkspaceManager) -> bool
 	{
-		std::shared_ptr<MLevelEditor> LevelEditorWidget = std::make_shared<MLevelEditor>(*SessionSettings);
-		LevelEditorWidget->Construct();
-		return LevelEditorWidget;
+		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(*SessionSettings, WorkspaceManager);
+		Workspace->Construct();
+		if (!WorkspaceManager.RegisterWorkspace(Workspace)) return false;
+		if (!WorkspaceManager.RegisterAssetEditor({
+			.AssetClassName = DLevel::StaticClass()->GetQualifiedName().ToString(),
+			.WorkspaceType = LevelEditorWorkspace::Type,
+			.DocumentPolicy = EEditorDocumentPolicy::Singleton,
+			.SingletonDocumentKey = "LevelEditor",
+			.SingletonLabel = "Level Editor",
+			.bClosable = false,
+		}))
+			return false;
+		return WorkspaceManager.OpenDocument({
+			.WorkspaceType = LevelEditorWorkspace::Type,
+			.DocumentKey = "LevelEditor",
+			.Label = "Level Editor",
+			.bClosable = false,
+		}).IsValid();
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::GetWindowWidth() const -> int32
