@@ -16,9 +16,9 @@ The first command runs the target's discovered tests. The second passes a Google
 In the interactive shell, use the equivalent commands:
 
 ```text
-build> /preset Win64-Debug-DurinEditor-Tests
-build> /test CoreTests
-build> /test CoreTests FJsonDocumentTests.ParseObjectFromString
+BuildTool> /preset Win64-Debug-DurinEditor-Tests
+BuildTool> /test CoreTests
+BuildTool> /test CoreTests FJsonDocumentTests.ParseObjectFromString
 ```
 
 BuildTool rejects `test` when the selected preset does not enable `BUILD_TESTING`.

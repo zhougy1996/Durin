@@ -363,17 +363,135 @@ def select_preset(
     return selected_name, presets[selected_name]
 
 
-def preset_build_directory(preset: Mapping[str, Any]) -> Path:
-    binary_dir = preset.get("binaryDir")
-    if not isinstance(binary_dir, str) or not binary_dir:
-        raise AgentBuildError(f'CMake preset "{preset["name"]}" must define binaryDir.')
-    expanded = binary_dir.replace("${sourceDir}", str(REPO_ROOT)).replace("${presetName}", preset["name"])
+def expand_preset_path(value: Any, preset: Mapping[str, Any], *, root: Path = REPO_ROOT) -> Path:
+    if not isinstance(value, str) or not value:
+        raise AgentBuildError(f'CMake preset "{preset["name"]}" contains an invalid path.')
+    expanded = value.replace("${sourceDir}", str(root)).replace("${presetName}", preset["name"])
     path = Path(expanded).resolve()
     try:
-        path.relative_to(REPO_ROOT.resolve())
+        path.relative_to(root.resolve())
     except ValueError as exc:
         raise AgentBuildError(f'CMake preset build directory must stay inside the checkout: "{path}"') from exc
     return path
+
+
+def preset_build_directory(preset: Mapping[str, Any], *, root: Path = REPO_ROOT) -> Path:
+    binary_dir = preset.get("binaryDir")
+    if not isinstance(binary_dir, str) or not binary_dir:
+        raise AgentBuildError(f'CMake preset "{preset["name"]}" must define binaryDir.')
+    return expand_preset_path(binary_dir, preset, root=root)
+
+
+def preset_install_directory(preset: Mapping[str, Any], *, root: Path = REPO_ROOT) -> Path | None:
+    install_prefix = preset_cache_string(preset, "CMAKE_INSTALL_PREFIX", required=False)
+    if not install_prefix:
+        return None
+    return expand_preset_path(install_prefix, preset, root=root)
+
+
+def workspace_project_roots(root: Path = REPO_ROOT) -> list[Path]:
+    # Workspace projects are top-level owners whose descriptor sits directly below the checkout root.
+    return sorted({descriptor.parent for descriptor in root.glob("*/*.dproject")})
+
+
+def require_purge_child(path: Path, parent: Path) -> Path:
+    resolved = path.resolve()
+    resolved_parent = parent.resolve()
+    try:
+        relative = resolved.relative_to(resolved_parent)
+    except ValueError as exc:
+        raise AgentBuildError(f'Purge path escapes its allowed root: "{resolved}"') from exc
+    if not relative.parts:
+        raise AgentBuildError(f'Purge cannot remove an output root directly: "{resolved}"')
+    return resolved
+
+
+def collect_purge_paths(
+    profile: Mapping[str, Any],
+    selected_presets: Sequence[Mapping[str, Any]],
+    *,
+    root: Path = REPO_ROOT,
+) -> list[Path]:
+    paths: set[Path] = set()
+    output_configs: set[str] = set()
+    intermediate_profiles: set[tuple[str, str, str]] = set()
+
+    for preset in selected_presets:
+        build_directory = require_purge_child(preset_build_directory(preset, root=root), root / "Build")
+        paths.add(build_directory)
+
+        install_directory = preset_install_directory(preset, root=root)
+        if install_directory is not None:
+            paths.add(require_purge_child(install_directory, root / "Install"))
+
+        configuration = preset_cache_string(preset, "CMAKE_BUILD_TYPE")
+        runtime_profile = preset_cache_string(preset, "DURIN_PROFILE_NAME")
+        identifier = preset_cache_string(preset, "DURIN_BUILD_IDENTIFIER", required=False)
+        output_configs.add(f"{configuration}-{identifier}" if identifier else configuration)
+        intermediate_root = f"Build-{identifier}" if identifier else "Build"
+        intermediate_profiles.add((intermediate_root, profile["platform"], runtime_profile))
+        paths.add(interruption_marker_path(preset["name"], root / "Build" / ".agent-state"))
+
+    for project_root in workspace_project_roots(root):
+        for output_config in output_configs:
+            paths.add(
+                require_purge_child(
+                    project_root / "Binaries" / profile["platform"] / output_config,
+                    project_root / "Binaries",
+                )
+            )
+        for intermediate_root, platform_name, runtime_profile in intermediate_profiles:
+            paths.add(
+                require_purge_child(
+                    project_root / "Intermediate" / intermediate_root / platform_name / runtime_profile,
+                    project_root / "Intermediate",
+                )
+            )
+
+    return sorted(paths, key=lambda path: (len(path.parts), str(path).lower()), reverse=True)
+
+
+def remove_purge_paths(paths: Sequence[Path], *, root: Path = REPO_ROOT) -> None:
+    checkout_root = root.resolve()
+    for path in paths:
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(checkout_root)
+        except ValueError as exc:
+            raise AgentBuildError(f'Purge path escapes the checkout: "{resolved}"') from exc
+        if resolved == checkout_root:
+            raise AgentBuildError("Purge cannot remove the checkout root.")
+
+        try:
+            if path.is_symlink() or path.is_file():
+                path.unlink(missing_ok=True)
+            elif path.is_dir():
+                shutil.rmtree(path)
+        except OSError as exc:
+            raise AgentBuildError(f'Could not purge build artifact path "{path}": {exc}') from exc
+
+
+def confirm_purge(
+    paths: Sequence[Path],
+    *,
+    all_presets: bool,
+    input_fn: Callable[[str], str] | None = None,
+) -> bool:
+    scope = "all registered presets" if all_presets else "the current preset"
+    print(f"Purge will permanently remove build artifacts for {scope}:")
+    for path in paths:
+        try:
+            display_path = path.relative_to(REPO_ROOT)
+        except ValueError:
+            display_path = path
+        print(f"  {display_path}")
+    expected = "PURGE ALL" if all_presets else "PURGE"
+    reader = input if input_fn is None else input_fn
+    try:
+        return reader(f'Type "{expected}" to continue: ').strip() == expected
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
 
 
 def select_profile(
@@ -707,7 +825,7 @@ def validate_action_request(
     preset: str,
     preset_metadata: Mapping[str, Any],
 ) -> str:
-    if args.action in {"configure", "clean"}:
+    if args.action in {"configure", "clean", "purge"}:
         return ""
     target = args.target or ("all" if args.action == "rebuild" else "")
     validate_target(target, action=args.action)
@@ -843,6 +961,45 @@ def perform_action(
         run_command(test_command, environment=environment)
 
 
+def execute_purge(
+    args: argparse.Namespace,
+    *,
+    profile_name: str,
+    profile: Mapping[str, Any],
+    presets: Mapping[str, dict[str, Any]],
+    preset: str,
+    preset_metadata: Mapping[str, Any],
+) -> None:
+    selected_presets = [preset_metadata]
+    if args.all_presets:
+        selected_presets = []
+        for preset_name in profile["presets"]:
+            metadata = presets.get(preset_name)
+            if metadata is None:
+                raise AgentBuildError(f'Registered CMake preset "{preset_name}" was not found.')
+            selected_presets.append(metadata)
+    paths = [path for path in collect_purge_paths(profile, selected_presets) if path.exists() or path.is_symlink()]
+    if not paths:
+        scope = "all registered presets" if args.all_presets else f'preset "{preset}"'
+        print(f"No build artifacts were found for {scope}.")
+        return
+    if not args.yes and not confirm_purge(paths, all_presets=args.all_presets):
+        print("Purge cancelled.")
+        return
+
+    operation_metadata = {
+        "pid": os.getpid(),
+        "profile": profile_name,
+        "preset": "all" if args.all_presets else preset,
+        "action": "purge",
+        "target": "all-presets" if args.all_presets else "current-preset",
+        "startedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    with AgentBuildLock(lock_file_path(), operation_metadata):
+        remove_purge_paths(paths)
+    print(f"Purged {len(paths)} build artifact path(s).")
+
+
 def execute(args: argparse.Namespace) -> None:
     config = load_local_config()
     if args.environment_setup:
@@ -858,6 +1015,16 @@ def execute(args: argparse.Namespace) -> None:
     presets = load_configure_presets()
     preset, preset_metadata = select_preset(profile, presets, requested=args.preset)
     target = validate_action_request(args, preset=preset, preset_metadata=preset_metadata)
+    if args.action == "purge":
+        execute_purge(
+            args,
+            profile_name=profile_name,
+            profile=profile,
+            presets=presets,
+            preset=preset,
+            preset_metadata=preset_metadata,
+        )
+        return
     cmake = resolve_cmake_command(args.cmake, config["cmakeCommand"])
     jobs = resolve_jobs(args.jobs, config["jobs"])
     environment = build_environment(profile, config["environmentSetup"], current_host=current_host)
@@ -907,7 +1074,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         nargs="?",
         default="shell",
         type=str.lower,
-        choices=("shell", "configure", "build", "clean", "rebuild", "test"),
+        choices=("shell", "configure", "build", "clean", "rebuild", "test", "purge"),
         help="operation to run; omit it to enter the interactive shell",
     )
     parser.add_argument("--target", default="", help="CMake target for build, rebuild, or test")
@@ -924,6 +1091,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--preset", default="", help="registered CMake configure preset")
     parser.add_argument("--cmake", default="", help="CMake executable override")
     parser.add_argument("--environment-setup", default="", help="toolchain environment script override")
+    parser.add_argument(
+        "--all-presets",
+        action="store_true",
+        help="with purge, remove artifacts for every registered preset",
+    )
+    parser.add_argument("--yes", action="store_true", help="skip purge confirmation")
     return parser.parse_args(argv)
 
 
@@ -943,18 +1116,21 @@ def shell_command_args(
         preset=base_args.preset,
         cmake=base_args.cmake,
         environment_setup=base_args.environment_setup,
+        all_presets=base_args.all_presets,
+        yes=base_args.yes,
     )
 
 
 def print_shell_help() -> None:
     print(
         "Commands:\n"
-        "  /presets                  List available presets\n"
-        "  /preset <name-or-number>  Select the current preset\n"
+        "  /presets                  List presets and select one by number\n"
+        "  /preset [full-name]       Show or select the current preset\n"
         "  /status                   Show the current preset\n"
         "  /configure                Configure the current preset\n"
         "  /build [target]           Build a target (default: all)\n"
         "  /clean                    Clean the current preset\n"
+        "  /purge [options]          Delete current preset artifacts (--all-presets, --yes)\n"
         "  /rebuild [target]         Clean, configure, and build (default: all)\n"
         "  /test <target> [filter]   Build and run a native test target\n"
         "  /help                     Show this help\n"
@@ -974,14 +1150,18 @@ def shell_presets(profile: Mapping[str, Any], current_preset: str) -> None:
 
 
 def resolve_shell_preset(value: str, profile: Mapping[str, Any]) -> str:
+    matches = [preset for preset in profile["presets"] if preset.lower() == value.lower()]
+    if len(matches) == 1:
+        return matches[0]
+    raise AgentBuildError(f'Unknown preset "{value}". Use its full name or run /presets.')
+
+
+def resolve_shell_preset_number(value: str, profile: Mapping[str, Any]) -> str:
     if value.isdigit():
         index = int(value)
         if 1 <= index <= len(profile["presets"]):
             return profile["presets"][index - 1]
-    matches = [preset for preset in profile["presets"] if preset.lower() == value.lower()]
-    if len(matches) == 1:
-        return matches[0]
-    raise AgentBuildError(f'Unknown preset selection "{value}". Use /presets to list available presets.')
+    raise AgentBuildError(f'Invalid preset number "{value}". Enter a number shown by /presets.')
 
 
 def run_shell(args: argparse.Namespace) -> None:
@@ -1000,16 +1180,28 @@ def run_shell(args: argparse.Namespace) -> None:
     print(f'Agent build profile: "{profile_name}"')
     print(f'CMake preset: "{current_preset}"')
     print("Type /help for available commands.")
+    selecting_preset = False
 
     while True:
         try:
-            line = input("build> ").strip()
+            line = input("BuildTool> ").strip()
         except EOFError:
             print()
             return
         except KeyboardInterrupt:
             print("\nUse /exit to leave the shell.")
             continue
+        if selecting_preset:
+            selecting_preset = False
+            if not line:
+                continue
+            if line.isdigit():
+                try:
+                    current_preset = resolve_shell_preset_number(line, profile)
+                    print(f'CMake preset: "{current_preset}"')
+                except AgentBuildError as exc:
+                    print(exc, file=sys.stderr)
+                continue
         if not line:
             continue
 
@@ -1031,13 +1223,18 @@ def run_shell(args: argparse.Namespace) -> None:
                 continue
             if command == "presets":
                 shell_presets(profile, current_preset)
+                print("Enter a preset number, or press Enter to keep the current preset.")
+                selecting_preset = True
                 continue
             if command == "status":
                 print(f'CMake preset: "{current_preset}"')
                 continue
             if command == "preset":
+                if not values:
+                    print(f'CMake preset: "{current_preset}"')
+                    continue
                 if len(values) != 1:
-                    raise AgentBuildError("/preset requires one preset name or number.")
+                    raise AgentBuildError("/preset accepts one full preset name.")
                 current_preset = resolve_shell_preset(values[0], profile)
                 print(f'CMake preset: "{current_preset}"')
                 continue
@@ -1046,6 +1243,16 @@ def run_shell(args: argparse.Namespace) -> None:
                     raise AgentBuildError(f"/{command} does not accept positional arguments.")
                 request = shell_command_args(args, command)
                 request.preset = current_preset
+                execute(request)
+                continue
+            if command == "purge":
+                allowed_options = {"--all-presets", "--yes"}
+                if any(value not in allowed_options for value in values) or len(set(values)) != len(values):
+                    raise AgentBuildError("/purge accepts only --all-presets and --yes.")
+                request = shell_command_args(args, "purge")
+                request.preset = current_preset
+                request.all_presets = "--all-presets" in values
+                request.yes = "--yes" in values
                 execute(request)
                 continue
             if command in {"build", "rebuild"}:
@@ -1072,6 +1279,8 @@ def run_shell(args: argparse.Namespace) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parse_args(argv)
+        if args.action != "purge" and (args.all_presets or args.yes):
+            raise AgentBuildError("--all-presets and --yes are only valid with purge.")
         if args.action == "shell":
             run_shell(args)
         else:

@@ -54,6 +54,8 @@ Common commands:
 .\BuildTool.bat build --target LevelEditor
 .\BuildTool.bat test --target CoreTests
 .\BuildTool.bat clean
+.\BuildTool.bat purge --preset Win64-Debug-DurinEditor-Tests
+.\BuildTool.bat purge --all-presets
 .\BuildTool.bat rebuild --target all
 .\BuildTool.bat build --preset Win64-Release-DurinEditor --target all
 ```

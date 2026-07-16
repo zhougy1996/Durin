@@ -241,10 +241,16 @@ class AgentBuildOperationTests(unittest.TestCase):
         self.assertEqual(agent_build.parse_args([]).action, "shell")
         self.assertEqual(agent_build.parse_args(["build", "--target", "all"]).action, "build")
         self.assertEqual(agent_build.parse_args(["Shell"]).action, "shell")
+        purge = agent_build.parse_args(["Purge", "--all-presets", "--yes"])
+        self.assertEqual(purge.action, "purge")
+        self.assertTrue(purge.all_presets)
+        self.assertTrue(purge.yes)
 
     def test_shell_preset_selection_is_forwarded_to_build(self) -> None:
         args = agent_build.parse_args(["shell"])
-        with mock.patch("builtins.input", side_effect=["/preset 4", "/build", "/exit"]), mock.patch.object(
+        with mock.patch(
+            "builtins.input", side_effect=["/presets", "4", "/build", "/exit"]
+        ) as shell_input, mock.patch("builtins.print") as shell_print, mock.patch.object(
             agent_build, "execute"
         ) as execute:
             agent_build.run_shell(args)
@@ -253,6 +259,43 @@ class AgentBuildOperationTests(unittest.TestCase):
         self.assertEqual(request.action, "build")
         self.assertEqual(request.target, "all")
         self.assertEqual(request.preset, "Win64-Release-DurinEditor")
+        self.assertIn(mock.call("BuildTool> "), shell_input.call_args_list)
+        self.assertNotIn(mock.call("Preset number> "), shell_input.call_args_list)
+        self.assertIn(
+            mock.call("Enter a preset number, or press Enter to keep the current preset."),
+            shell_print.call_args_list,
+        )
+
+    def test_shell_purge_forwards_scope_and_confirmation_options(self) -> None:
+        args = agent_build.parse_args(["shell"])
+        with mock.patch("builtins.input", side_effect=["/purge --all-presets --yes", "/exit"]), mock.patch.object(
+            agent_build, "execute"
+        ) as execute:
+            agent_build.run_shell(args)
+
+        request = execute.call_args.args[0]
+        self.assertEqual(request.action, "purge")
+        self.assertTrue(request.all_presets)
+        self.assertTrue(request.yes)
+
+    def test_preset_command_uses_full_names_and_no_value_shows_current_preset(self) -> None:
+        profile = {
+            "defaultPreset": "Win64-Debug-DurinEditor-Tests",
+            "presets": ["Win64-Debug-DurinEditor-Tests", "Win64-Release-DurinEditor"],
+        }
+        self.assertEqual(
+            agent_build.resolve_shell_preset("Win64-Release-DurinEditor", profile),
+            "Win64-Release-DurinEditor",
+        )
+        with self.assertRaisesRegex(agent_build.AgentBuildError, "full name"):
+            agent_build.resolve_shell_preset("2", profile)
+
+        args = agent_build.parse_args(["shell"])
+        with mock.patch("builtins.input", side_effect=["/preset", "/exit"]), mock.patch.object(
+            agent_build, "execute"
+        ) as execute:
+            agent_build.run_shell(args)
+        execute.assert_not_called()
 
     def test_test_action_rejects_non_test_preset_before_building(self) -> None:
         args = argparse.Namespace(action="test", target="CoreTests", filter="")
@@ -270,6 +313,61 @@ class AgentBuildOperationTests(unittest.TestCase):
                     preset_metadata={"name": "release", "cacheVariables": {"BUILD_TESTING": "OFF"}},
                 )
         run.assert_not_called()
+
+    def test_purge_paths_cover_preset_tree_project_outputs_and_intermediate_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for project_name in ("Engine", "SandBox"):
+                project_root = root / project_name
+                project_root.mkdir()
+                (project_root / f"{project_name}.dproject").touch()
+            preset = {
+                "name": "Win64-Debug-DurinEditor",
+                "binaryDir": "${sourceDir}/Build/${presetName}",
+                "cacheVariables": {
+                    "CMAKE_BUILD_TYPE": "Debug",
+                    "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+                    "DURIN_PROFILE_NAME": "DurinEditor",
+                },
+            }
+
+            paths = set(agent_build.collect_purge_paths({"platform": "Win64"}, [preset], root=root))
+
+            self.assertIn(root / "Build/Win64-Debug-DurinEditor", paths)
+            self.assertIn(root / "Install/Win64-Debug-DurinEditor", paths)
+            self.assertIn(root / "Engine/Binaries/Win64/Debug", paths)
+            self.assertIn(root / "SandBox/Binaries/Win64/Debug", paths)
+            self.assertIn(root / "Engine/Intermediate/Build/Win64/DurinEditor", paths)
+            self.assertIn(root / "SandBox/Intermediate/Build/Win64/DurinEditor", paths)
+
+    def test_purge_removes_only_validated_paths_inside_the_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "Build" / "preset"
+            artifact.mkdir(parents=True)
+            (artifact / "output.obj").touch()
+            preserved_dependency = root / "Build" / "ThirdParty" / "dependency.lib"
+            preserved_dependency.parent.mkdir(parents=True)
+            preserved_dependency.touch()
+
+            agent_build.remove_purge_paths([artifact], root=root)
+
+            self.assertFalse(artifact.exists())
+            self.assertTrue(preserved_dependency.exists())
+            with self.assertRaisesRegex(agent_build.AgentBuildError, "checkout root"):
+                agent_build.remove_purge_paths([root], root=root)
+
+    def test_purge_confirmation_uses_a_stronger_phrase_for_all_presets(self) -> None:
+        artifact = Path("Build/preset")
+        self.assertTrue(
+            agent_build.confirm_purge([artifact], all_presets=False, input_fn=lambda prompt: "PURGE")
+        )
+        self.assertFalse(
+            agent_build.confirm_purge([artifact], all_presets=True, input_fn=lambda prompt: "PURGE")
+        )
+        self.assertTrue(
+            agent_build.confirm_purge([artifact], all_presets=True, input_fn=lambda prompt: "PURGE ALL")
+        )
 
     def test_rebuild_defaults_to_all_after_clean_and_fresh_configure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

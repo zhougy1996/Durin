@@ -56,16 +56,55 @@ Run `BuildTool` without arguments, or pass `shell`, to open the human-oriented c
 The selected preset is session-local and does not modify `.agents/build-config.json`:
 
 ```text
-build> /presets
-build> /preset 4
-build> /build
-build> /rebuild DurinLauncher
-build> /test CoreTests FJsonDocumentTests.*
-build> /status
-build> /exit
+BuildTool> /presets
+   1  Win64-Debug-DurinEditor
+   2  Win64-Debug-DurinEditor-Tests [default, current]
+   3  Win64-Debug-DurinGame
+   4  Win64-Release-DurinEditor
+   5  Win64-Release-DurinGame
+   6  Win64-Shipping-DurinGame
+BuildTool> 4
+BuildTool> /preset
+CMake preset: "Win64-Release-DurinEditor"
+BuildTool> /preset Win64-Debug-DurinGame
+BuildTool> /build
+BuildTool> /rebuild DurinLauncher
+BuildTool> /test CoreTests FJsonDocumentTests.*
+BuildTool> /status
+BuildTool> /exit
 ```
 
-`/build` and `/rebuild` default to target `all`. Use `/help` for the complete command list. Shell commands call the same build implementation as one-shot commands, including environment setup, checkout ownership, interruption tracking, and validation.
+`/presets` displays the registered list, prints an input hint, and accepts a number on the next `BuildTool>` prompt. `/preset` without an argument displays the current preset; with an argument it requires the full preset name. `/build` and `/rebuild` default to target `all`. Use `/help` for the complete command list. Shell commands call the same build implementation as one-shot commands, including environment setup, checkout ownership, interruption tracking, and validation.
+
+## Clean And Purge
+
+`clean` invokes the CMake clean target for the selected preset. It removes outputs known to that generated build graph, but keeps the configured CMake tree and may leave copied runtime files or generated metadata that CMake does not own.
+
+`purge` removes the selected preset's configured build and install trees plus its project output and generated-metadata roots:
+
+```powershell
+.\BuildTool purge --preset Win64-Release-DurinEditor
+.\BuildTool purge --preset Win64-Release-DurinEditor --yes
+```
+
+Inside the interactive shell:
+
+```text
+BuildTool> /purge
+BuildTool> /purge --yes
+BuildTool> /purge --all-presets
+```
+
+Purge asks for explicit confirmation unless `--yes` is supplied: enter `PURGE` for the current preset or `PURGE ALL` for the all-presets scope. Use `--all-presets` to remove artifacts for every preset registered to the selected Agent host profile:
+
+```powershell
+.\BuildTool purge --all-presets
+.\BuildTool purge --all-presets --yes
+```
+
+Preset build trees are isolated, but final binaries are shared by platform/configuration and DHT metadata is shared by platform/profile. Purging one preset therefore also invalidates those shared outputs for other presets using the same configuration or profile. A subsequent build regenerates them normally.
+
+Purge only removes registered preset trees under `Build/` and `Install/`, project `Binaries/<Platform>/<Config>/` roots, and project `Intermediate/Build[-Identifier]/<Platform>/<Profile>/` roots. It intentionally preserves bootstrapped dependencies such as `Build/ThirdParty` and `Engine/External`.
 
 On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/agent_build.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat` because it also fixes the MSVC language with `VSLANG=1033`.
 

@@ -19,7 +19,7 @@ that match the task at hand.
 
 ## Repository Rules
 
-- Each checkout has one source/build writer at a time; use separate worktrees only for concurrent workflows. On Windows, all Agent `configure`, `build`, `clean`, `rebuild`, and `test` actions use root-level `BuildTool.bat`; on other hosts, use `Engine/Scripts/Build/agent_build.py`.
+- Each checkout has one source/build writer at a time; use separate worktrees only for concurrent workflows. On Windows, all Agent `configure`, `build`, `clean`, `purge`, `rebuild`, and `test` actions use root-level `BuildTool.bat`; on other hosts, use `Engine/Scripts/Build/agent_build.py`.
 - An IDE observing an Agent-owned checkout uses `Win64-Debug-DurinEditor-FastConfigure` for code model and debugging only. Set `VSLANG=1033`, remove build-before-launch, never invoke IDE build actions, and do not Configure/Reload while `BuildTool` is active.
 - Let long builds continue under their original invocation. After an interruption, wait for the old process tree to exit, then recover with `.\BuildTool rebuild --target all` using the affected preset on Windows or the equivalent driver command on other hosts; never resume incrementally.
 - Generated metadata is part of the source of truth. If a module looks incomplete, inspect `Engine/Intermediate/Build/...` and DHT outputs before assuming files are missing.
