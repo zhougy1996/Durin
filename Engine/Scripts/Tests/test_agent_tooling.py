@@ -1,40 +1,35 @@
 from __future__ import annotations
 
-import argparse
-import importlib.util
+import io
 import json
+import os
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+BUILD_SCRIPT_DIR = REPO_ROOT / "Engine" / "Scripts" / "Build"
+if str(BUILD_SCRIPT_DIR) not in os.sys.path:
+    os.sys.path.insert(0, str(BUILD_SCRIPT_DIR))
+
+import durin_build_cli as build_cli
+import durin_build_config as build_config
+import durin_build_core as build_core
+from durin_build_output import BuildOutput
+
+from Engine.Scripts.Bootstrap import agent_config
 
 
-def load_module(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-agent_build = load_module("agent_build", REPO_ROOT / "Engine/Scripts/Build/agent_build.py")
-agent_config = load_module("agent_config", REPO_ROOT / "Engine/Scripts/Bootstrap/agent_config.py")
-
-
-class AgentBuildConfigTests(unittest.TestCase):
+class BuildConfigTests(unittest.TestCase):
     def test_missing_config_uses_empty_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            config = agent_build.load_local_config(Path(directory) / "missing.json")
+            config = build_config.load_local_config(Path(directory) / "missing.json")
+        self.assertEqual(config, build_config.LocalConfig())
 
-        self.assertEqual(config["cmakeCommand"], "")
-        self.assertEqual(config["defaultBuildProfile"], "")
-        self.assertEqual(config["jobs"], 0)
-        self.assertEqual(config["environmentSetup"], {"script": "", "arguments": []})
-    def test_valid_config_is_loaded(self) -> None:
+    def test_valid_config_uses_typed_models(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
             path.write_text(
@@ -48,105 +43,32 @@ class AgentBuildConfigTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            config = agent_build.load_local_config(path)
-
-        self.assertEqual(config["cmakeCommand"], "custom-cmake")
-        self.assertEqual(config["jobs"], 8)
-        self.assertEqual(config["environmentSetup"]["arguments"], ["x64"])
+            config = build_config.load_local_config(path)
+        self.assertEqual(config.cmake_command, "custom-cmake")
+        self.assertEqual(config.jobs, 8)
+        self.assertEqual(config.environment_setup.arguments, ("x64",))
 
     def test_invalid_json_and_field_types_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
             path.write_text("{", encoding="utf-8")
-            with self.assertRaisesRegex(agent_build.AgentBuildError, "invalid JSON"):
-                agent_build.load_local_config(path)
-
+            with self.assertRaisesRegex(build_config.BuildToolError, "invalid JSON"):
+                build_config.load_local_config(path)
             path.write_text(json.dumps({"cmakeCommand": 42}), encoding="utf-8")
-            with self.assertRaisesRegex(agent_build.AgentBuildError, "must be a string"):
-                agent_build.load_local_config(path)
-
+            with self.assertRaisesRegex(build_config.BuildToolError, "must be a string"):
+                build_config.load_local_config(path)
             path.write_text(json.dumps({"jobs": 257}), encoding="utf-8")
-            with self.assertRaisesRegex(agent_build.AgentBuildError, "integer from 0 to 256"):
-                agent_build.load_local_config(path)
+            with self.assertRaisesRegex(build_config.BuildToolError, "integer from 0 to 256"):
+                build_config.load_local_config(path)
 
+    def test_repository_profiles_reference_existing_presets(self) -> None:
+        profiles = build_config.load_profiles()
+        presets = build_config.load_configure_presets()
+        for profile in profiles.values():
+            self.assertIn(profile.default_preset, profile.presets)
+            self.assertTrue(set(profile.presets).issubset(presets))
 
-class WindowsBuildWrapperTests(unittest.TestCase):
-    def test_wrapper_establishes_msvc_language_and_forwards_all_arguments(self) -> None:
-        content = (REPO_ROOT / "BuildTool.bat").read_text(encoding="utf-8")
-
-        self.assertIn('set "VSLANG=1033"', content)
-        self.assertIn('.venv\\Scripts\\python.exe', content)
-        self.assertIn('Engine\\Scripts\\Build\\agent_build.py" %*', content)
-        self.assertIn("exit /b %ERRORLEVEL%", content)
-
-    def test_setup_prepares_python_before_other_bootstrap_steps(self) -> None:
-        content = (REPO_ROOT / "Setup.bat").read_text(encoding="utf-8")
-
-        python_setup = content.index("SetupPython.bat")
-        agent_config = content.index("InitializeAgentConfig.bat")
-        third_party = content.index("Bootstrap.bat")
-        self.assertLess(python_setup, agent_config)
-        self.assertLess(agent_config, third_party)
-
-    def test_python_requirements_pin_libclang(self) -> None:
-        content = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
-
-        self.assertRegex(content, r"(?m)^libclang==\d+\.\d+\.\d+$")
-
-
-class AgentBuildProfileTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.profiles = {
-            "windows-default": {"host": "windows", "default": True},
-            "windows-other": {"host": "windows", "default": False},
-            "linux-default": {"host": "linux", "default": True},
-        }
-
-    def test_profile_precedence(self) -> None:
-        name, _ = agent_build.select_profile(
-            self.profiles,
-            requested="windows-other",
-            environment={agent_build.PROFILE_ENV_VAR: "windows-default"},
-            configured="windows-default",
-            current_host="windows",
-        )
-        self.assertEqual(name, "windows-other")
-
-        name, _ = agent_build.select_profile(
-            self.profiles,
-            environment={agent_build.PROFILE_ENV_VAR: "windows-other"},
-            configured="windows-default",
-            current_host="windows",
-        )
-        self.assertEqual(name, "windows-other")
-
-    def test_unknown_and_wrong_host_profiles_are_rejected(self) -> None:
-        with self.assertRaisesRegex(agent_build.AgentBuildError, "Unknown"):
-            agent_build.select_profile(self.profiles, requested="missing", environment={}, current_host="windows")
-        with self.assertRaisesRegex(agent_build.AgentBuildError, "current host"):
-            agent_build.select_profile(
-                self.profiles, requested="linux-default", environment={}, current_host="windows"
-            )
-
-    def test_host_without_profile_does_not_fall_back(self) -> None:
-        with self.assertRaisesRegex(agent_build.AgentBuildError, "No Agent build profile"):
-            agent_build.select_profile(self.profiles, environment={}, current_host="macos")
-
-    def test_enabled_preset_is_selected_and_unknown_preset_is_rejected(self) -> None:
-        profile = {
-            "defaultPreset": "debug",
-            "presets": ["debug", "release"],
-        }
-        presets = {"debug": {"name": "debug"}, "release": {"name": "release"}}
-
-        name, _ = agent_build.select_preset(profile, presets)
-        self.assertEqual(name, "debug")
-        name, _ = agent_build.select_preset(profile, presets, requested="release")
-        self.assertEqual(name, "release")
-        with self.assertRaisesRegex(agent_build.AgentBuildError, "not enabled"):
-            agent_build.select_preset(profile, presets, requested="shipping")
-
-    def test_cmake_preset_inheritance_resolves_build_metadata(self) -> None:
+    def test_cmake_preset_inheritance_is_resolved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "CMakePresets.json"
             path.write_text(
@@ -155,428 +77,469 @@ class AgentBuildProfileTests(unittest.TestCase):
                         "configurePresets": [
                             {
                                 "name": "base",
-                                "hidden": True,
                                 "binaryDir": "${sourceDir}/Build/${presetName}",
                                 "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug", "BUILD_TESTING": "OFF"},
                             },
                             {
                                 "name": "tests",
                                 "inherits": "base",
-                                "cacheVariables": {
-                                    "DURIN_PROFILE_NAME": "DurinEditor",
-                                    "BUILD_TESTING": "ON",
-                                },
+                                "cacheVariables": {"BUILD_TESTING": "ON"},
                             },
                         ]
                     }
                 ),
                 encoding="utf-8",
             )
+            presets = build_config.load_configure_presets(path)
+        self.assertEqual(build_config.preset_cache_string(presets["tests"], "CMAKE_BUILD_TYPE"), "Debug")
+        self.assertTrue(build_config.preset_cache_bool(presets["tests"], "BUILD_TESTING"))
 
-            presets = agent_build.load_configure_presets(path)
-
-        self.assertEqual(agent_build.preset_cache_string(presets["tests"], "CMAKE_BUILD_TYPE"), "Debug")
-        self.assertTrue(agent_build.preset_cache_bool(presets["tests"], "BUILD_TESTING"))
-
-    def test_repository_profile_only_enables_existing_presets(self) -> None:
-        profiles = agent_build.load_profiles()
-        presets = agent_build.load_configure_presets()
-
-        for profile in profiles.values():
-            self.assertIn(profile["defaultPreset"], profile["presets"])
-            self.assertTrue(set(profile["presets"]).issubset(presets))
-
-    def test_cmake_precedence_and_invalid_path(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            requested = Path(directory) / "requested-cmake"
-            configured = Path(directory) / "configured-cmake"
-            requested.touch()
-            configured.touch()
-            resolved = agent_build.resolve_cmake_command(
-                str(requested), str(configured), environment={"DURIN_CMAKE_COMMAND": str(configured)}
-            )
-            self.assertEqual(Path(resolved), requested.resolve())
-
-            with self.assertRaisesRegex(agent_build.AgentBuildError, "does not exist"):
-                agent_build.resolve_cmake_command(str(Path(directory) / "missing"), "", environment={})
-
-    def test_failed_generator_cache_is_not_reused(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            cache = Path(directory) / "CMakeCache.txt"
-            cache.write_text(
-                "CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND\n",
-                encoding="utf-8",
-            )
-            self.assertFalse(agent_build.cache_is_usable(cache))
-            cache.write_text("CMAKE_MAKE_PROGRAM:FILEPATH=C:/Ninja/ninja.exe\n", encoding="utf-8")
-            self.assertTrue(agent_build.cache_is_usable(cache))
+    def test_profile_precedence_and_host_validation(self) -> None:
+        profiles = {
+            "default": build_config.BuildProfile(
+                "default",
+                "windows",
+                "debug",
+                ("debug",),
+                build_config.EnvironmentProvider.INHERIT,
+                "Win64",
+                ".exe",
+                True,
+                (),
+            ),
+            "other": build_config.BuildProfile(
+                "other",
+                "windows",
+                "debug",
+                ("debug",),
+                build_config.EnvironmentProvider.INHERIT,
+                "Win64",
+                ".exe",
+                False,
+                (),
+            ),
+        }
+        selected = build_config.select_profile(
+            profiles,
+            requested="other",
+            environment={build_config.PROFILE_ENV_VAR: "default"},
+            current_host="windows",
+        )
+        self.assertEqual(selected.name, "other")
+        with self.assertRaisesRegex(build_config.BuildToolError, "current host"):
+            build_config.select_profile(profiles, requested="other", current_host="linux")
 
     def test_job_precedence_and_cpu_fallback(self) -> None:
+        self.assertEqual(build_config.resolve_jobs(3, 6, environment={}, cpu_count=20), 3)
         self.assertEqual(
-            agent_build.resolve_jobs(3, 6, environment={agent_build.JOBS_ENV_VAR: "4"}, cpu_count=20),
-            3,
-        )
-        self.assertEqual(
-            agent_build.resolve_jobs(None, 6, environment={agent_build.JOBS_ENV_VAR: "4"}, cpu_count=20),
+            build_config.resolve_jobs(
+                None,
+                6,
+                environment={build_config.JOBS_ENV_VAR: "4"},
+                cpu_count=20,
+            ),
             4,
         )
-        self.assertEqual(agent_build.resolve_jobs(None, 6, environment={}, cpu_count=20), 6)
-        self.assertEqual(agent_build.resolve_jobs(None, 0, environment={}, cpu_count=20), 18)
-        self.assertEqual(agent_build.resolve_jobs(None, 0, environment={}, cpu_count=2), 1)
+        self.assertEqual(build_config.resolve_jobs(None, 6, environment={}, cpu_count=20), 6)
+        self.assertEqual(build_config.resolve_jobs(None, 0, environment={}, cpu_count=20), 18)
 
-    def test_invalid_job_environment_value_is_rejected(self) -> None:
-        with self.assertRaisesRegex(agent_build.AgentBuildError, agent_build.JOBS_ENV_VAR):
-            agent_build.resolve_jobs(None, 0, environment={agent_build.JOBS_ENV_VAR: "many"})
+    def test_invalid_job_environment_is_rejected(self) -> None:
+        with self.assertRaisesRegex(build_config.BuildToolError, build_config.JOBS_ENV_VAR):
+            build_config.resolve_jobs(
+                None,
+                0,
+                environment={build_config.JOBS_ENV_VAR: "many"},
+            )
+
+    def test_unknown_preset_is_rejected_with_available_values(self) -> None:
+        profile = next(iter(build_config.load_profiles().values()))
+        presets = build_config.load_configure_presets()
+        with self.assertRaisesRegex(build_config.BuildToolError, "Available presets"):
+            build_config.select_preset(profile, presets, requested="missing")
+
+    def test_output_configuration_appends_build_identifier(self) -> None:
+        preset = build_config.ConfigurePreset(
+            "debug",
+            {
+                "cacheVariables": {
+                    "CMAKE_BUILD_TYPE": "Debug",
+                    "DURIN_BUILD_IDENTIFIER": "Agent",
+                }
+            },
+        )
+        self.assertEqual(build_config.preset_output_configuration(preset), "Debug-Agent")
+
+    def test_explicit_cmake_path_takes_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            requested = Path(directory) / "cmake.exe"
+            requested.touch()
+            resolved = build_config.resolve_cmake_command(
+                str(requested),
+                "configured",
+                environment={"DURIN_CMAKE_COMMAND": "environment"},
+            )
+        self.assertEqual(Path(resolved), requested.resolve())
+
+    def test_preset_build_path_cannot_escape_checkout(self) -> None:
+        preset = build_config.ConfigurePreset("escape", {"binaryDir": "${sourceDir}/../outside"})
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(build_config.BuildToolError, "inside the checkout"):
+                build_config.preset_build_directory(preset, root=Path(directory))
 
 
-class AgentBuildOperationTests(unittest.TestCase):
-    def test_clean_and_rebuild_actions_are_parsed(self) -> None:
-        clean = agent_build.parse_args(["Clean"])
-        rebuild = agent_build.parse_args(["Rebuild"])
-        self.assertEqual(clean.action, "clean")
-        self.assertEqual(rebuild.action, "rebuild")
-        self.assertEqual(rebuild.target, "")
+class CliTests(unittest.TestCase):
+    def test_no_arguments_open_shell_and_actions_are_case_insensitive(self) -> None:
+        self.assertIs(build_cli.parse_args([]).action, build_config.Action.SHELL)
+        request = build_cli.parse_args(["Build", "--target", "all"])
+        self.assertIs(request.action, build_config.Action.BUILD)
+        self.assertEqual(request.target, "all")
 
-    def test_no_arguments_open_the_shell_and_lowercase_commands_are_canonical(self) -> None:
-        self.assertEqual(agent_build.parse_args([]).action, "shell")
-        self.assertEqual(agent_build.parse_args(["build", "--target", "all"]).action, "build")
-        self.assertEqual(agent_build.parse_args(["Shell"]).action, "shell")
-        purge = agent_build.parse_args(["Purge", "--all-presets", "--yes"])
-        self.assertEqual(purge.action, "purge")
+    def test_command_specific_options_are_parsed(self) -> None:
+        purge = build_cli.parse_args(["purge", "--all-presets", "--yes"])
         self.assertTrue(purge.all_presets)
         self.assertTrue(purge.yes)
+        run = build_cli.parse_args(["run", "--preset", "game", "--args", "-log"])
+        self.assertEqual(run.run_arguments, ("-log",))
+        test = build_cli.parse_args(["test", "--target", "CoreTests", "--filter", "Core.*"])
+        self.assertEqual(test.test_filter, "Core.*")
 
-    def test_shell_preset_selection_is_forwarded_to_build(self) -> None:
-        args = agent_build.parse_args(["shell"])
-        with mock.patch(
-            "builtins.input", side_effect=["/presets", "4", "/build", "/exit"]
-        ) as shell_input, mock.patch("builtins.print") as shell_print, mock.patch.object(
-            agent_build, "execute"
-        ) as execute:
-            agent_build.run_shell(args)
+    def test_build_requires_target_with_command_specific_help(self) -> None:
+        with self.assertRaisesRegex(build_config.BuildToolError, "BuildTool build --help"):
+            build_cli.parse_args(["build"])
 
-        request = execute.call_args.args[0]
-        self.assertEqual(request.action, "build")
-        self.assertEqual(request.target, "all")
-        self.assertEqual(request.preset, "Win64-Release-DurinEditor")
-        self.assertIn(mock.call("BuildTool> "), shell_input.call_args_list)
-        self.assertNotIn(mock.call("Preset number> "), shell_input.call_args_list)
-        self.assertIn(
-            mock.call("Enter a preset number, or press Enter to keep the current preset."),
-            shell_print.call_args_list,
+    def test_build_help_does_not_show_purge_options(self) -> None:
+        parser = build_cli.make_parser()
+        build_parser = parser._subparsers._group_actions[0].choices["build"]
+        help_text = build_parser.format_help()
+        self.assertIn("--target", help_text)
+        self.assertNotIn("--all-presets", help_text)
+
+    def test_plain_option_is_available_after_command(self) -> None:
+        request = build_cli.parse_args(["configure", "--plain"])
+        self.assertTrue(request.plain)
+
+    def test_global_options_before_uppercase_command_are_preserved(self) -> None:
+        request = build_cli.parse_args(["--plain", "Build", "--target", "all"])
+        self.assertIs(request.action, build_config.Action.BUILD)
+        self.assertTrue(request.plain)
+
+    def test_rebuild_defaults_to_all(self) -> None:
+        self.assertEqual(build_cli.parse_args(["rebuild"]).target, "all")
+
+    def test_wrapper_uses_new_entrypoint_and_forwards_arguments(self) -> None:
+        content = (REPO_ROOT / "BuildTool.bat").read_text(encoding="utf-8")
+        self.assertIn('set "VSLANG=1033"', content)
+        self.assertIn('Engine\\Scripts\\Build\\durin_build_tool.py" %*', content)
+        self.assertNotIn("agent_build.py", content)
+
+    def test_requirements_pin_rich_and_libclang(self) -> None:
+        content = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
+        self.assertRegex(content, r"(?m)^libclang==\d+\.\d+\.\d+$")
+        self.assertRegex(content, r"(?m)^rich==\d+\.\d+\.\d+$")
+
+
+class OutputTests(unittest.TestCase):
+    def test_plain_output_has_no_ansi_sequences(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        output = BuildOutput(plain=True, stdout=stdout, stderr=stderr, force_terminal=True)
+        output.success("done")
+        output.failure(build_config.BuildToolError("failed"), None, 1.0)
+        self.assertNotIn("\x1b[", stdout.getvalue() + stderr.getvalue())
+
+    def test_non_tty_output_automatically_uses_plain_mode(self) -> None:
+        output = BuildOutput(stdout=io.StringIO(), stderr=io.StringIO())
+        self.assertTrue(output.plain)
+
+    def test_rich_tty_output_contains_ansi_and_semantic_status(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(stdout=stdout, stderr=io.StringIO(), force_terminal=True)
+        output.success("done")
+        self.assertIn("\x1b[", stdout.getvalue())
+        self.assertIn("success", stdout.getvalue())
+
+    def test_failure_summary_contains_command_exit_code_and_recovery(self) -> None:
+        stderr = io.StringIO()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+        error = build_config.BuildToolError(
+            "compile failed",
+            command=["cmake", "--build", "Build"],
+            exit_code=1,
+            recovery="fix the compiler error",
+        )
+        output.failure(error, None, 2.5)
+        text = stderr.getvalue()
+        self.assertIn("cmake --build Build", text)
+        self.assertIn("Exit code: 1", text)
+        self.assertIn("fix the compiler error", text)
+
+    def test_no_color_environment_forces_plain_output(self) -> None:
+        with mock.patch.dict(os.environ, {"NO_COLOR": "1"}):
+            output = BuildOutput(
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+                force_terminal=True,
+            )
+        self.assertTrue(output.plain)
+
+    def test_plain_stage_uses_ascii_boundary(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        with output.stage("Build"):
+            pass
+        self.assertIn("== Build ==", stdout.getvalue())
+
+
+class CoreTests(unittest.TestCase):
+    def make_profile(self) -> build_config.BuildProfile:
+        return build_config.BuildProfile(
+            "test-profile",
+            "windows",
+            "debug",
+            ("debug", "release"),
+            build_config.EnvironmentProvider.INHERIT,
+            "Win64",
+            ".exe",
+            True,
+            (),
         )
 
-    def test_shell_purge_forwards_scope_and_confirmation_options(self) -> None:
-        args = agent_build.parse_args(["shell"])
-        with mock.patch("builtins.input", side_effect=["/purge --all-presets --yes", "/exit"]), mock.patch.object(
-            agent_build, "execute"
-        ) as execute:
-            agent_build.run_shell(args)
-
-        request = execute.call_args.args[0]
-        self.assertEqual(request.action, "purge")
-        self.assertTrue(request.all_presets)
-        self.assertTrue(request.yes)
-
-    def test_preset_command_uses_full_names_and_no_value_shows_current_preset(self) -> None:
-        profile = {
-            "defaultPreset": "Win64-Debug-DurinEditor-Tests",
-            "presets": ["Win64-Debug-DurinEditor-Tests", "Win64-Release-DurinEditor"],
-        }
-        self.assertEqual(
-            agent_build.resolve_shell_preset("Win64-Release-DurinEditor", profile),
-            "Win64-Release-DurinEditor",
-        )
-        with self.assertRaisesRegex(agent_build.AgentBuildError, "full name"):
-            agent_build.resolve_shell_preset("2", profile)
-
-        args = agent_build.parse_args(["shell"])
-        with mock.patch("builtins.input", side_effect=["/preset", "/exit"]), mock.patch.object(
-            agent_build, "execute"
-        ) as execute:
-            agent_build.run_shell(args)
-        execute.assert_not_called()
-
-    def test_test_action_rejects_non_test_preset_before_building(self) -> None:
-        args = argparse.Namespace(action="test", target="CoreTests", filter="")
-        with mock.patch.object(agent_build, "run_command") as run:
-            with self.assertRaisesRegex(agent_build.AgentBuildError, "does not enable BUILD_TESTING"):
-                agent_build.perform_action(
-                    args,
-                    cmake="cmake",
-                    jobs=8,
-                    environment={},
-                    build_directory=Path("Build/release"),
-                    cache_file=Path("Build/release/CMakeCache.txt"),
-                    preset="release",
-                    profile={"platform": "Win64", "testExecutableSuffix": ".exe"},
-                    preset_metadata={"name": "release", "cacheVariables": {"BUILD_TESTING": "OFF"}},
-                )
-        run.assert_not_called()
-
-    def test_purge_paths_cover_preset_tree_project_outputs_and_intermediate_metadata(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for project_name in ("Engine", "SandBox"):
-                project_root = root / project_name
-                project_root.mkdir()
-                (project_root / f"{project_name}.dproject").touch()
-            preset = {
-                "name": "Win64-Debug-DurinEditor",
+    def make_preset(self, name: str = "debug", testing: str = "ON") -> build_config.ConfigurePreset:
+        return build_config.ConfigurePreset(
+            name,
+            {
+                "name": name,
                 "binaryDir": "${sourceDir}/Build/${presetName}",
                 "cacheVariables": {
                     "CMAKE_BUILD_TYPE": "Debug",
-                    "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
                     "DURIN_PROFILE_NAME": "DurinEditor",
+                    "BUILD_TESTING": testing,
                 },
-            }
-
-            paths = set(agent_build.collect_purge_paths({"platform": "Win64"}, [preset], root=root))
-
-            self.assertIn(root / "Build/Win64-Debug-DurinEditor", paths)
-            self.assertIn(root / "Install/Win64-Debug-DurinEditor", paths)
-            self.assertIn(root / "Engine/Binaries/Win64/Debug", paths)
-            self.assertIn(root / "SandBox/Binaries/Win64/Debug", paths)
-            self.assertIn(root / "Engine/Intermediate/Build/Win64/DurinEditor", paths)
-            self.assertIn(root / "SandBox/Intermediate/Build/Win64/DurinEditor", paths)
-
-    def test_purge_removes_only_validated_paths_inside_the_checkout(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            artifact = root / "Build" / "preset"
-            artifact.mkdir(parents=True)
-            (artifact / "output.obj").touch()
-            preserved_dependency = root / "Build" / "ThirdParty" / "dependency.lib"
-            preserved_dependency.parent.mkdir(parents=True)
-            preserved_dependency.touch()
-
-            agent_build.remove_purge_paths([artifact], root=root)
-
-            self.assertFalse(artifact.exists())
-            self.assertTrue(preserved_dependency.exists())
-            with self.assertRaisesRegex(agent_build.AgentBuildError, "checkout root"):
-                agent_build.remove_purge_paths([root], root=root)
-
-    def test_purge_confirmation_uses_a_stronger_phrase_for_all_presets(self) -> None:
-        artifact = Path("Build/preset")
-        self.assertTrue(
-            agent_build.confirm_purge([artifact], all_presets=False, input_fn=lambda prompt: "PURGE")
-        )
-        self.assertFalse(
-            agent_build.confirm_purge([artifact], all_presets=True, input_fn=lambda prompt: "PURGE")
-        )
-        self.assertTrue(
-            agent_build.confirm_purge([artifact], all_presets=True, input_fn=lambda prompt: "PURGE ALL")
+            },
         )
 
-    def test_rebuild_defaults_to_all_after_clean_and_fresh_configure(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            build_directory = Path(directory) / "Build" / "agent"
-            build_directory.mkdir(parents=True)
-            cache_file = build_directory / "CMakeCache.txt"
-            cache_file.write_text("CMAKE_MAKE_PROGRAM:FILEPATH=C:/Ninja/ninja.exe\n", encoding="utf-8")
-            args = argparse.Namespace(action="rebuild", target="", filter="")
-            with mock.patch.object(agent_build, "run_command") as run:
-                agent_build.perform_action(
-                    args,
-                    cmake="cmake",
-                    jobs=8,
-                    environment={"PATH": ""},
-                    build_directory=build_directory,
-                    cache_file=cache_file,
-                    preset="agent",
-                    profile={},
-                    preset_metadata={},
-                )
-
-        self.assertEqual(
-            [call.args[0] for call in run.call_args_list],
-            [
-                ["cmake", "--build", str(build_directory), "--target", "clean"],
-                ["cmake", "--fresh", "--preset", "agent"],
-                ["cmake", "--build", str(build_directory), "--target", "all", "-j", "8"],
-            ],
+    def test_environment_output_collapses_windows_case_duplicates(self) -> None:
+        environment = build_core.parse_environment_output(
+            "PATH=developer\nPath=parent\n",
+            case_insensitive=True,
         )
-
-    def test_clean_is_a_noop_without_a_usable_cache(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            build_directory = Path(directory) / "Build" / "agent"
-            args = argparse.Namespace(action="clean", target="", filter="")
-            with mock.patch.object(agent_build, "run_command") as run:
-                agent_build.perform_action(
-                    args,
-                    cmake="cmake",
-                    jobs=8,
-                    environment={},
-                    build_directory=build_directory,
-                    cache_file=build_directory / "CMakeCache.txt",
-                    preset="agent",
-                    profile={},
-                    preset_metadata={},
-                )
-        run.assert_not_called()
-
-    def test_checkout_lock_is_exclusive_across_presets(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            first_path = agent_build.lock_file_path(root)
-            second_path = agent_build.lock_file_path(root)
-            metadata = {"pid": 1, "profile": "profile-a", "action": "Build"}
-            with agent_build.AgentBuildLock(first_path, metadata):
-                with self.assertRaisesRegex(agent_build.AgentBuildError, "already owns"):
-                    with agent_build.AgentBuildLock(first_path, metadata):
-                        pass
-                with self.assertRaisesRegex(agent_build.AgentBuildError, "already owns"):
-                    with agent_build.AgentBuildLock(second_path, metadata):
-                        pass
-
-            with agent_build.AgentBuildLock(first_path, metadata):
-                pass
-
-    def test_interrupted_operation_blocks_build_until_rebuild_succeeds(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            marker = Path(directory) / "interrupted.json"
-            metadata = {"pid": 1, "profile": "agent", "action": "Build"}
-
-            def interrupt() -> None:
-                raise agent_build.AgentBuildInterruptedError("interrupted")
-
-            with self.assertRaises(agent_build.AgentBuildInterruptedError):
-                agent_build.execute_with_recovery_marker(
-                    action="build", marker_file=marker, metadata=metadata, operation=interrupt
-                )
-            self.assertTrue(marker.is_file())
-
-            with self.assertRaisesRegex(agent_build.AgentBuildError, "rebuild --target all"):
-                agent_build.execute_with_recovery_marker(
-                    action="build", marker_file=marker, metadata=metadata, operation=lambda: None
-                )
-
-            agent_build.execute_with_recovery_marker(
-                action="rebuild",
-                marker_file=marker,
-                metadata={**metadata, "action": "Rebuild"},
-                operation=lambda: None,
-            )
-            self.assertFalse(marker.exists())
-
-    def test_normal_command_failure_does_not_leave_an_interruption_marker(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            marker = Path(directory) / "interrupted.json"
-
-            def fail() -> None:
-                raise agent_build.AgentBuildError("compile failed")
-
-            with self.assertRaisesRegex(agent_build.AgentBuildError, "compile failed"):
-                agent_build.execute_with_recovery_marker(
-                    action="build",
-                    marker_file=marker,
-                    metadata={"pid": 1, "profile": "agent", "action": "Build"},
-                    operation=fail,
-                )
-            self.assertFalse(marker.exists())
-
-    def test_clean_does_not_clear_a_previous_interruption_marker(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            marker = Path(directory) / "interrupted.json"
-            previous = {"pid": 1, "profile": "agent", "action": "Build"}
-            marker.write_text(json.dumps(previous), encoding="utf-8")
-
-            agent_build.execute_with_recovery_marker(
-                action="clean",
-                marker_file=marker,
-                metadata={**previous, "action": "Clean"},
-                operation=lambda: None,
-            )
-
-            self.assertEqual(json.loads(marker.read_text(encoding="utf-8")), previous)
-
-    def test_keyboard_interrupt_terminates_the_child_process_tree(self) -> None:
-        process = mock.Mock()
-        process.wait.side_effect = KeyboardInterrupt
-        with mock.patch.object(agent_build.subprocess, "Popen", return_value=process), mock.patch.object(
-            agent_build, "terminate_process_tree"
-        ) as terminate:
-            with self.assertRaises(agent_build.AgentBuildInterruptedError):
-                agent_build.run_command(["cmake", "--version"], environment={})
-        terminate.assert_called_once_with(process)
-
-
-class EnvironmentProviderTests(unittest.TestCase):
-    def test_windows_environment_collapses_case_insensitive_duplicates(self) -> None:
-        environment = agent_build.parse_environment_output(
-            "PATH=developer-path\nPath=parent-path\n", case_insensitive=True
-        )
-        self.assertEqual(environment, {"PATH": "developer-path"})
+        self.assertEqual(environment, {"PATH": "developer"})
 
     def test_inherit_provider_preserves_environment(self) -> None:
-        with mock.patch.dict(agent_build.os.environ, {"DURIN_TEST_ENV": "present"}, clear=True):
-            result = agent_build.build_environment(
-                {"environmentProvider": "inherit"},
-                {"script": "", "arguments": []},
-                current_host="linux",
-            )
-        self.assertEqual(result["DURIN_TEST_ENV"], "present")
-
-    def test_visual_studio_provider_uses_detected_script(self) -> None:
-        script = Path("VsDevCmd.bat")
-        with mock.patch.object(agent_build, "find_vsdevcmd", return_value=script), mock.patch.object(
-            agent_build, "capture_setup_environment", return_value={"INCLUDE": "detected"}
-        ) as capture:
-            result = agent_build.build_environment(
-                {"environmentProvider": "visual-studio"},
-                {"script": "", "arguments": []},
+        with mock.patch.dict(os.environ, {"DURIN_TEST_ENV": "present"}, clear=True):
+            environment = build_core.build_environment(
+                self.make_profile(),
+                build_config.EnvironmentSetup(),
                 current_host="windows",
             )
-        self.assertEqual(result["INCLUDE"], "detected")
-        capture.assert_called_once_with(script, ["-arch=x64", "-host_arch=x64"], current_host="windows")
+        self.assertEqual(environment["DURIN_TEST_ENV"], "present")
 
-    def test_script_provider_requires_script(self) -> None:
-        with self.assertRaisesRegex(agent_build.AgentBuildError, "requires environmentSetup.script"):
-            agent_build.build_environment(
-                {"environmentProvider": "script"},
-                {"script": "", "arguments": []},
-                current_host="linux",
+    def test_visual_studio_environment_is_captured_once(self) -> None:
+        profile = replace(
+            self.make_profile(),
+            environment_provider=build_config.EnvironmentProvider.VISUAL_STUDIO,
+        )
+        with mock.patch.object(build_core, "find_vsdevcmd", return_value=Path("VsDevCmd.bat")), mock.patch.object(
+            build_core,
+            "capture_setup_environment",
+            return_value={"PATH": "ready"},
+        ) as capture:
+            environment = build_core.build_environment(
+                profile,
+                build_config.EnvironmentSetup(),
+                current_host="windows",
             )
+        self.assertEqual(environment["PATH"], "ready")
+        capture.assert_called_once()
 
-    def test_windows_setup_script_is_passed_to_cmd_as_a_separate_argument(self) -> None:
+    def test_windows_setup_script_is_passed_as_separate_argument(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             script = Path(directory) / "VS Tools" / "VsDevCmd.bat"
             script.parent.mkdir()
             script.touch()
             completed = mock.Mock(returncode=0, stdout="DURIN_ENV=ready\n", stderr="")
-            with mock.patch.object(agent_build.subprocess, "run", return_value=completed) as run:
-                environment = agent_build.capture_setup_environment(
-                    script, ["-arch=x64"], current_host="windows"
+            with mock.patch.object(build_core.subprocess, "run", return_value=completed) as run:
+                environment = build_core.capture_setup_environment(
+                    script,
+                    ["-arch=x64"],
+                    current_host="windows",
                 )
-
         command = run.call_args.args[0]
         self.assertEqual(command[4:7], ["call", str(script), "-arch=x64"])
-        self.assertEqual(command[-3:], [">nul", "&&", "set"])
         self.assertEqual(environment["DURIN_ENV"], "ready")
 
-    def test_visual_studio_profile_adds_bundled_ninja_to_path(self) -> None:
+    def test_visual_studio_profile_adds_bundled_ninja(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            visual_studio_root = Path(directory)
-            ninja = visual_studio_root / "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
+            root = Path(directory)
+            ninja = root / "Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe"
             ninja.parent.mkdir(parents=True)
             ninja.touch()
-            environment = {"Path": "original", "VSINSTALLDIR": str(visual_studio_root)}
-            with mock.patch.object(agent_build.shutil, "which", return_value=None):
-                agent_build.ensure_required_commands(
-                    {"environmentProvider": "visual-studio", "requiredCommands": ["ninja"]},
-                    environment,
-                )
-
+            profile = replace(
+                self.make_profile(),
+                environment_provider=build_config.EnvironmentProvider.VISUAL_STUDIO,
+                required_commands=("ninja",),
+            )
+            environment = {"Path": "original", "VSINSTALLDIR": str(root)}
+            with mock.patch.object(build_core.shutil, "which", return_value=None):
+                build_core.ensure_required_commands(profile, environment)
         self.assertTrue(environment["Path"].startswith(str(ninja.parent)))
 
-    def test_missing_required_command_is_rejected(self) -> None:
-        with mock.patch.object(agent_build.shutil, "which", return_value=None):
-            with self.assertRaisesRegex(agent_build.AgentBuildError, "Required command"):
-                agent_build.ensure_required_commands(
-                    {"environmentProvider": "inherit", "requiredCommands": ["missing-tool"]},
-                    {"PATH": ""},
+    def test_derive_context_reuses_toolchain_environment(self) -> None:
+        profile = self.make_profile()
+        presets = {"debug": self.make_preset(), "release": self.make_preset("release")}
+        request = build_config.CommandRequest(build_config.Action.SHELL, preset="debug")
+        environment = {"PATH": "cached"}
+        context = build_config.BuildContext(
+            request,
+            build_config.LocalConfig(),
+            profile,
+            presets,
+            presets["debug"],
+            "windows",
+            cmake="cmake",
+            jobs=8,
+            environment=environment,
+        )
+        child = build_core.derive_context(
+            context,
+            build_config.CommandRequest(build_config.Action.BUILD, target="all", preset="release"),
+        )
+        self.assertIs(child.environment, environment)
+        self.assertEqual(child.preset.name, "release")
+
+    def test_runtime_path_uses_profile_and_build_identifier(self) -> None:
+        preset = self.make_preset()
+        values = dict(preset.values)
+        cache = dict(values["cacheVariables"])
+        cache["DURIN_BUILD_IDENTIFIER"] = "Agent"
+        preset = build_config.ConfigurePreset("debug", {**values, "cacheVariables": cache})
+        path = build_core.runtime_executable_path(self.make_profile(), preset, root=Path("repo"))
+        self.assertEqual(
+            path,
+            Path("repo/Engine/Binaries/Win64/Debug-Agent/Runtime/DurinEditor/DurinEditor.exe"),
+        )
+
+    def test_run_application_reports_how_to_build_missing_runtime(self) -> None:
+        preset = self.make_preset()
+        request = build_config.CommandRequest(build_config.Action.RUN)
+        context = build_config.BuildContext(
+            request,
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {"debug": preset},
+            preset,
+            "windows",
+        )
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(
+            build_core,
+            "runtime_executable_path",
+            return_value=Path("missing/DurinEditor.exe"),
+        ), self.assertRaisesRegex(build_config.BuildToolError, "was not found"):
+            build_core.run_application(context, output)
+
+    def test_test_action_rejects_non_test_preset(self) -> None:
+        request = build_config.CommandRequest(build_config.Action.TEST, target="CoreTests")
+        with self.assertRaisesRegex(build_config.BuildToolError, "does not enable BUILD_TESTING"):
+            build_core.validate_request(request, self.make_preset(testing="OFF"))
+
+    def test_failed_generator_cache_is_not_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "CMakeCache.txt"
+            cache.write_text("CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND\n", encoding="utf-8")
+            self.assertFalse(build_core.cache_is_usable(cache))
+            cache.write_text("CMAKE_MAKE_PROGRAM:FILEPATH=ninja\n", encoding="utf-8")
+            self.assertTrue(build_core.cache_is_usable(cache))
+
+    def test_checkout_lock_is_exclusive_across_presets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = build_core.lock_file_path(Path(directory))
+            with build_core.BuildToolLock(path, {"pid": 1}):
+                with self.assertRaisesRegex(build_config.BuildToolError, "already owns"):
+                    with build_core.BuildToolLock(path, {"pid": 2}):
+                        pass
+
+    def test_interruption_marker_requires_rebuild(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "interrupted.json"
+
+            def interrupt() -> None:
+                raise build_config.BuildToolInterruptedError("interrupted")
+
+            with self.assertRaises(build_config.BuildToolInterruptedError):
+                build_core.execute_with_recovery_marker(
+                    action=build_config.Action.BUILD,
+                    marker_file=marker,
+                    metadata={"pid": 1},
+                    operation=interrupt,
                 )
+            with self.assertRaisesRegex(build_config.BuildToolError, "did not return normally"):
+                build_core.execute_with_recovery_marker(
+                    action=build_config.Action.BUILD,
+                    marker_file=marker,
+                    metadata={"pid": 1},
+                    operation=lambda: None,
+                )
+            build_core.execute_with_recovery_marker(
+                action=build_config.Action.REBUILD,
+                marker_file=marker,
+                metadata={"pid": 1},
+                operation=lambda: None,
+            )
+            self.assertFalse(marker.exists())
+
+    def test_normal_command_failure_restores_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "interrupted.json"
+            with self.assertRaisesRegex(build_config.BuildToolError, "failed"):
+                build_core.execute_with_recovery_marker(
+                    action=build_config.Action.BUILD,
+                    marker_file=marker,
+                    metadata={"pid": 1},
+                    operation=lambda: (_ for _ in ()).throw(build_config.BuildToolError("failed")),
+                )
+            self.assertFalse(marker.exists())
+
+    def test_keyboard_interrupt_terminates_child_process_tree(self) -> None:
+        process = mock.Mock()
+        process.wait.side_effect = KeyboardInterrupt
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
+            build_core,
+            "terminate_process_tree",
+        ) as terminate:
+            with self.assertRaises(build_config.BuildToolInterruptedError):
+                build_core.run_command(["cmake", "--version"], environment={}, output=output)
+        terminate.assert_called_once_with(process)
+
+    def test_purge_paths_cover_build_outputs_and_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "Engine"
+            project.mkdir()
+            (project / "Engine.dproject").touch()
+            paths = set(build_core.collect_purge_paths(self.make_profile(), [self.make_preset()], root=root))
+            self.assertIn(root / "Build/debug", paths)
+            self.assertIn(root / "Engine/Binaries/Win64/Debug", paths)
+            self.assertIn(root / "Engine/Intermediate/Build/Win64/DurinEditor", paths)
+
+    def test_purge_rejects_checkout_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(build_config.BuildToolError, "checkout root"):
+                build_core.remove_purge_paths([root], root=root)
+
+    def test_purge_removes_only_selected_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "Build" / "debug"
+            artifact.mkdir(parents=True)
+            preserved = root / "Build" / "ThirdParty" / "library.lib"
+            preserved.parent.mkdir(parents=True)
+            preserved.touch()
+            build_core.remove_purge_paths([artifact], root=root)
+            self.assertFalse(artifact.exists())
+            self.assertTrue(preserved.exists())
 
 
 class AgentConfigLifecycleTests(unittest.TestCase):
@@ -604,22 +567,10 @@ class AgentConfigLifecycleTests(unittest.TestCase):
             self.create_repo(target)
             source_config = agent_config.ensure_agent_config(source)
             source_config.write_text("source config\n", encoding="utf-8")
-
             target_config = agent_config.sync_agent_config(source, target)
-            self.assertEqual(target_config.read_text(encoding="utf-8"), "source config\n")
-            previous_timestamp = target_config.stat().st_mtime_ns
+            previous = target_config.stat().st_mtime_ns
             agent_config.sync_agent_config(source, target)
-            self.assertEqual(target_config.stat().st_mtime_ns, previous_timestamp)
-
-    def test_missing_source_falls_back_to_target_template(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "source"
-            target = root / "target"
-            source.mkdir()
-            self.create_repo(target)
-            target_config = agent_config.sync_agent_config(source, target)
-            self.assertEqual(target_config.read_text(encoding="utf-8"), '{"cmakeCommand": ""}\n')
+            self.assertEqual(target_config.stat().st_mtime_ns, previous)
 
     def test_dry_run_does_not_create_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

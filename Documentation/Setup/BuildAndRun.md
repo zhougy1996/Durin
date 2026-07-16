@@ -21,6 +21,7 @@ Use the root wrapper for configuration, builds, and tests:
 ```powershell
 .\BuildTool configure
 .\BuildTool build --target LevelEditor
+.\BuildTool run
 .\BuildTool test --target CoreTests --filter FJsonDocumentTests.*
 .\BuildTool clean
 .\BuildTool rebuild --target all
@@ -28,11 +29,25 @@ Use the root wrapper for configuration, builds, and tests:
 
 Commands are case-insensitive for compatibility, but lowercase is canonical. `build` and `test` configure automatically when needed, so an explicit first `configure` is optional. Omit `--jobs` to use automatic parallelism; pass `--jobs <count>` only when a local limit is required. From another batch file, use `call BuildTool.bat <arguments>`.
 
+BuildTool separates its resolved context, execution stages, raw CMake/Ninja output, and final result so failures remain identifiable in long logs. Styled output is enabled for interactive terminals. Pass `--plain`, set `NO_COLOR`, or redirect the output to select stable text-only output without ANSI sequences:
+
+```powershell
+.\BuildTool build --target all --plain
+```
+
 The registered Windows build environment defaults to `Win64-Debug-DurinEditor-Tests`, allowing the same output set to run the editor and native tests. Before launching the editor for a smoke test or final validation, build the complete runtime:
 
 ```powershell
 .\BuildTool build --target all
-& "Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe"
+.\BuildTool run
+```
+
+`run` launches the existing runtime executable selected by the preset, such as
+`DurinEditor.exe` or `DurinGame.exe`; it does not build implicitly. Pass runtime
+arguments after the final `--args` option:
+
+```powershell
+.\BuildTool run --preset Win64-Debug-DurinGame --args -ExampleArgument
 ```
 
 Select another registered configure preset with `--preset`:
@@ -70,11 +85,12 @@ BuildTool> /preset Win64-Debug-DurinGame
 BuildTool> /build
 BuildTool> /rebuild DurinLauncher
 BuildTool> /test CoreTests FJsonDocumentTests.*
+BuildTool> /run
 BuildTool> /status
 BuildTool> /exit
 ```
 
-`/presets` displays the registered list, prints an input hint, and accepts a number on the next `BuildTool>` prompt. `/preset` without an argument displays the current preset; with an argument it requires the full preset name. `/build` and `/rebuild` default to target `all`. Use `/help` for the complete command list. Shell commands call the same build implementation as one-shot commands, including environment setup, checkout ownership, interruption tracking, and validation.
+`/presets` displays the registered list, prints an input hint, and accepts a number on the next `BuildTool>` prompt. `/preset` without an argument displays the current preset; with an argument it requires the full preset name. `/build` and `/rebuild` default to target `all`. `/run [arguments...]` launches the current preset's existing runtime executable and returns to the shell when it exits. `/status` reports the resolved profile, preset, build directory, configuration, CMake command, parallelism, and interruption recovery state. Use `/help` for the complete command list. Shell commands reuse the environment resolved when the shell starts, so switching presets does not rerun Visual Studio environment discovery.
 
 ## Clean And Purge
 
@@ -106,7 +122,7 @@ Preset build trees are isolated, but final binaries are shared by platform/confi
 
 Purge only removes registered preset trees under `Build/` and `Install/`, project `Binaries/<Platform>/<Config>/` roots, and project `Intermediate/Build[-Identifier]/<Platform>/<Profile>/` roots. It intentionally preserves bootstrapped dependencies such as `Build/ThirdParty` and `Engine/External`.
 
-On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/agent_build.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat` because it also fixes the MSVC language with `VSLANG=1033`.
+On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/durin_build_tool.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat` because it also fixes the MSVC language with `VSLANG=1033`.
 
 ## IDE Code Model And Debugging
 

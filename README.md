@@ -27,7 +27,7 @@ cd Durin
 `Setup.bat` performs the following steps:
 
 1. Creates the repository-local `.venv` using the system Python installation.
-2. Installs the pinned dependencies from `requirements.txt`, including the `clang.cindex` bindings and native `libclang` library required by DurinHeaderTool.
+2. Installs the pinned dependencies from `requirements.txt`, including the `clang.cindex` bindings, native `libclang` library required by DurinHeaderTool, and Rich terminal support used by BuildTool.
 3. Creates the optional machine-local Agent build configuration at `.agents/build-config.json`.
 4. Downloads and prepares third-party dependencies including glm, spdlog, glfw, rapidyaml, assimp, Slang, and googletest.
 
@@ -44,7 +44,7 @@ After setup, build the complete editor runtime:
 Run the editor:
 
 ```powershell
-& ".\Engine\Binaries\Win64\Debug\Runtime\DurinEditor\DurinEditor.exe"
+.\BuildTool.bat run
 ```
 
 Common commands:
@@ -61,6 +61,8 @@ Common commands:
 ```
 
 Run `.\BuildTool.bat` without arguments to enter the interactive shell, then use `/presets`, `/preset`, `/build`, `/test`, and `/help`. If a build or test operation is interrupted, do not resume with an incremental build. Wait for the previous process tree to exit, then run `rebuild --target all` for the affected preset.
+
+Use `--plain` when BuildTool output is redirected or consumed by tooling and ANSI styling is not wanted. BuildTool also selects plain output automatically for non-interactive terminals and when `NO_COLOR` is set.
 
 ## New Git Worktrees
 

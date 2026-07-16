@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("Configure", "Build", "Clean", "Rebuild", "Test")]
+    [ValidateSet("Shell", "Configure", "Build", "Clean", "Rebuild", "Test", "Purge", "Run")]
     [string]$Action = "Build",
 
     [Parameter(Position = 1)]
@@ -11,6 +11,12 @@ param(
     [int]$Jobs = 0,
 
     [string]$Filter,
+
+    [string[]]$RunArguments,
+
+    [switch]$AllPresets,
+
+    [switch]$Yes,
 
     [string]$Profile,
 
@@ -24,7 +30,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
-$PythonScript = Join-Path $PSScriptRoot "agent_build.py"
+$PythonScript = Join-Path $PSScriptRoot "durin_build_tool.py"
 $VenvPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 
 if (Test-Path -LiteralPath $VenvPython -PathType Leaf) {
@@ -44,6 +50,12 @@ if ($Target) {
 if ($Filter) {
     $Arguments += @("--filter", $Filter)
 }
+if ($AllPresets) {
+    $Arguments += "--all-presets"
+}
+if ($Yes) {
+    $Arguments += "--yes"
+}
 if ($Profile) {
     $Arguments += @("--profile", $Profile)
 }
@@ -53,8 +65,12 @@ if ($CMakeCommand) {
 if ($EnvironmentSetupScript) {
     $Arguments += @("--environment-setup", $EnvironmentSetupScript)
 }
+if ($RunArguments) {
+    $Arguments += "--args"
+    $Arguments += $RunArguments
+}
 
 & $Python @Arguments
 if ($LASTEXITCODE -ne 0) {
-    throw "Agent build failed with exit code $LASTEXITCODE."
+    throw "Durin BuildTool failed with exit code $LASTEXITCODE."
 }
