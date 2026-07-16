@@ -132,6 +132,60 @@ class AgentBuildProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(agent_build.AgentBuildError, "No Agent build profile"):
             agent_build.select_profile(self.profiles, environment={}, current_host="macos")
 
+    def test_enabled_preset_is_selected_and_unknown_preset_is_rejected(self) -> None:
+        profile = {
+            "defaultPreset": "debug",
+            "presets": ["debug", "release"],
+        }
+        presets = {"debug": {"name": "debug"}, "release": {"name": "release"}}
+
+        name, _ = agent_build.select_preset(profile, presets)
+        self.assertEqual(name, "debug")
+        name, _ = agent_build.select_preset(profile, presets, requested="release")
+        self.assertEqual(name, "release")
+        with self.assertRaisesRegex(agent_build.AgentBuildError, "not enabled"):
+            agent_build.select_preset(profile, presets, requested="shipping")
+
+    def test_cmake_preset_inheritance_resolves_build_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "CMakePresets.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "configurePresets": [
+                            {
+                                "name": "base",
+                                "hidden": True,
+                                "binaryDir": "${sourceDir}/Build/${presetName}",
+                                "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug", "BUILD_TESTING": "OFF"},
+                            },
+                            {
+                                "name": "tests",
+                                "inherits": "base",
+                                "cacheVariables": {
+                                    "DURIN_PROFILE_NAME": "DurinEditor",
+                                    "BUILD_TESTING": "ON",
+                                },
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            presets = agent_build.load_configure_presets(path)
+
+        self.assertEqual(agent_build.preset_cache_string(presets["tests"], "CMAKE_BUILD_TYPE"), "Debug")
+        self.assertTrue(agent_build.preset_cache_bool(presets["tests"], "BUILD_TESTING"))
+
+    def test_repository_profile_only_enables_existing_presets(self) -> None:
+        profiles = agent_build.load_profiles()
+        presets = agent_build.load_configure_presets()
+
+        for profile in profiles.values():
+            self.assertIn(profile["defaultPreset"], profile["presets"])
+            self.assertTrue(set(profile["presets"]).issubset(presets))
+
     def test_cmake_precedence_and_invalid_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             requested = Path(directory) / "requested-cmake"
@@ -179,9 +233,43 @@ class AgentBuildOperationTests(unittest.TestCase):
     def test_clean_and_rebuild_actions_are_parsed(self) -> None:
         clean = agent_build.parse_args(["Clean"])
         rebuild = agent_build.parse_args(["Rebuild"])
-        self.assertEqual(clean.action, "Clean")
-        self.assertEqual(rebuild.action, "Rebuild")
+        self.assertEqual(clean.action, "clean")
+        self.assertEqual(rebuild.action, "rebuild")
         self.assertEqual(rebuild.target, "")
+
+    def test_no_arguments_open_the_shell_and_lowercase_commands_are_canonical(self) -> None:
+        self.assertEqual(agent_build.parse_args([]).action, "shell")
+        self.assertEqual(agent_build.parse_args(["build", "--target", "all"]).action, "build")
+        self.assertEqual(agent_build.parse_args(["Shell"]).action, "shell")
+
+    def test_shell_preset_selection_is_forwarded_to_build(self) -> None:
+        args = agent_build.parse_args(["shell"])
+        with mock.patch("builtins.input", side_effect=["/preset 4", "/build", "/exit"]), mock.patch.object(
+            agent_build, "execute"
+        ) as execute:
+            agent_build.run_shell(args)
+
+        request = execute.call_args.args[0]
+        self.assertEqual(request.action, "build")
+        self.assertEqual(request.target, "all")
+        self.assertEqual(request.preset, "Win64-Release-DurinEditor")
+
+    def test_test_action_rejects_non_test_preset_before_building(self) -> None:
+        args = argparse.Namespace(action="test", target="CoreTests", filter="")
+        with mock.patch.object(agent_build, "run_command") as run:
+            with self.assertRaisesRegex(agent_build.AgentBuildError, "does not enable BUILD_TESTING"):
+                agent_build.perform_action(
+                    args,
+                    cmake="cmake",
+                    jobs=8,
+                    environment={},
+                    build_directory=Path("Build/release"),
+                    cache_file=Path("Build/release/CMakeCache.txt"),
+                    preset="release",
+                    profile={"platform": "Win64", "testExecutableSuffix": ".exe"},
+                    preset_metadata={"name": "release", "cacheVariables": {"BUILD_TESTING": "OFF"}},
+                )
+        run.assert_not_called()
 
     def test_rebuild_defaults_to_all_after_clean_and_fresh_configure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -189,7 +277,7 @@ class AgentBuildOperationTests(unittest.TestCase):
             build_directory.mkdir(parents=True)
             cache_file = build_directory / "CMakeCache.txt"
             cache_file.write_text("CMAKE_MAKE_PROGRAM:FILEPATH=C:/Ninja/ninja.exe\n", encoding="utf-8")
-            args = argparse.Namespace(action="Rebuild", target="", filter="")
+            args = argparse.Namespace(action="rebuild", target="", filter="")
             with mock.patch.object(agent_build, "run_command") as run:
                 agent_build.perform_action(
                     args,
@@ -200,6 +288,7 @@ class AgentBuildOperationTests(unittest.TestCase):
                     cache_file=cache_file,
                     preset="agent",
                     profile={},
+                    preset_metadata={},
                 )
 
         self.assertEqual(
@@ -214,7 +303,7 @@ class AgentBuildOperationTests(unittest.TestCase):
     def test_clean_is_a_noop_without_a_usable_cache(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             build_directory = Path(directory) / "Build" / "agent"
-            args = argparse.Namespace(action="Clean", target="", filter="")
+            args = argparse.Namespace(action="clean", target="", filter="")
             with mock.patch.object(agent_build, "run_command") as run:
                 agent_build.perform_action(
                     args,
@@ -225,21 +314,23 @@ class AgentBuildOperationTests(unittest.TestCase):
                     cache_file=build_directory / "CMakeCache.txt",
                     preset="agent",
                     profile={},
+                    preset_metadata={},
                 )
         run.assert_not_called()
 
-    def test_same_profile_lock_is_exclusive_and_other_profiles_are_independent(self) -> None:
+    def test_checkout_lock_is_exclusive_across_presets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            first_path = agent_build.lock_file_path("profile-a", root)
-            second_path = agent_build.lock_file_path("profile-b", root)
+            first_path = agent_build.lock_file_path(root)
+            second_path = agent_build.lock_file_path(root)
             metadata = {"pid": 1, "profile": "profile-a", "action": "Build"}
             with agent_build.AgentBuildLock(first_path, metadata):
                 with self.assertRaisesRegex(agent_build.AgentBuildError, "already owns"):
                     with agent_build.AgentBuildLock(first_path, metadata):
                         pass
-                with agent_build.AgentBuildLock(second_path, metadata):
-                    pass
+                with self.assertRaisesRegex(agent_build.AgentBuildError, "already owns"):
+                    with agent_build.AgentBuildLock(second_path, metadata):
+                        pass
 
             with agent_build.AgentBuildLock(first_path, metadata):
                 pass
@@ -254,17 +345,17 @@ class AgentBuildOperationTests(unittest.TestCase):
 
             with self.assertRaises(agent_build.AgentBuildInterruptedError):
                 agent_build.execute_with_recovery_marker(
-                    action="Build", marker_file=marker, metadata=metadata, operation=interrupt
+                    action="build", marker_file=marker, metadata=metadata, operation=interrupt
                 )
             self.assertTrue(marker.is_file())
 
-            with self.assertRaisesRegex(agent_build.AgentBuildError, "Rebuild --target all"):
+            with self.assertRaisesRegex(agent_build.AgentBuildError, "rebuild --target all"):
                 agent_build.execute_with_recovery_marker(
-                    action="Build", marker_file=marker, metadata=metadata, operation=lambda: None
+                    action="build", marker_file=marker, metadata=metadata, operation=lambda: None
                 )
 
             agent_build.execute_with_recovery_marker(
-                action="Rebuild",
+                action="rebuild",
                 marker_file=marker,
                 metadata={**metadata, "action": "Rebuild"},
                 operation=lambda: None,
@@ -280,7 +371,7 @@ class AgentBuildOperationTests(unittest.TestCase):
 
             with self.assertRaisesRegex(agent_build.AgentBuildError, "compile failed"):
                 agent_build.execute_with_recovery_marker(
-                    action="Build",
+                    action="build",
                     marker_file=marker,
                     metadata={"pid": 1, "profile": "agent", "action": "Build"},
                     operation=fail,
@@ -294,7 +385,7 @@ class AgentBuildOperationTests(unittest.TestCase):
             marker.write_text(json.dumps(previous), encoding="utf-8")
 
             agent_build.execute_with_recovery_marker(
-                action="Clean",
+                action="clean",
                 marker_file=marker,
                 metadata={**previous, "action": "Clean"},
                 operation=lambda: None,

@@ -19,13 +19,13 @@ that match the task at hand.
 
 ## Repository Rules
 
-- Each checkout has one source/build writer at a time; use separate worktrees only for concurrent workflows. On Windows, all Agent Configure, Build, Clean, Rebuild, and Test actions use root-level `BuildTool.bat`; on other hosts, use `Engine/Scripts/Build/agent_build.py`.
+- Each checkout has one source/build writer at a time; use separate worktrees only for concurrent workflows. On Windows, all Agent `configure`, `build`, `clean`, `rebuild`, and `test` actions use root-level `BuildTool.bat`; on other hosts, use `Engine/Scripts/Build/agent_build.py`.
 - An IDE observing an Agent-owned checkout uses `Win64-Debug-DurinEditor-FastConfigure` for code model and debugging only. Set `VSLANG=1033`, remove build-before-launch, never invoke IDE build actions, and do not Configure/Reload while `BuildTool` is active.
-- Let long builds continue under their original invocation. After an interruption, wait for the old process tree to exit, then recover with `.\BuildTool Rebuild --target all` on Windows or the equivalent driver command on other hosts; never resume incrementally.
+- Let long builds continue under their original invocation. After an interruption, wait for the old process tree to exit, then recover with `.\BuildTool rebuild --target all` using the affected preset on Windows or the equivalent driver command on other hosts; never resume incrementally.
 - Generated metadata is part of the source of truth. If a module looks incomplete, inspect `Engine/Intermediate/Build/...` and DHT outputs before assuming files are missing.
 - Runtime-loaded module binaries must keep the `<Profile>-<Module>` naming convention from `CMake/Project/ProjectTargets.cmake`.
 - Rendering changes usually span `RHI`, `VulkanRHI`.
-- UI or rendering changes should be validated by building and running `DurinEditor`, not only by compiling. A runtime smoke test requires a successful full `all` build of the same Agent Build Profile first; a partial or single-target build is not sufficient. Agents are authorized to execute the editor executable produced in their owned checkout for validation.
+- UI or rendering changes should be validated by building and running `DurinEditor`, not only by compiling. A runtime smoke test requires a successful full `all` build of the same BuildTool preset first; a partial or single-target build is not sufficient. Agents are authorized to execute the editor executable produced in their owned checkout for validation.
 - `CoreStd.h` already supplies the common standard-library headers used across the codebase; do not add new STL includes unless the compiler requires one in that translation unit.
 - Preserve or add concise comments where non-obvious reasoning, constraints, invariants, or tradeoffs materially shape the design. Comments should explain why the design exists and what must remain true; do not merely restate the code. Do not remove such comments during refactoring unless the underlying design no longer applies, and update them whenever that design changes.
 

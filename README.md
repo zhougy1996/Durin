@@ -38,7 +38,7 @@ Setup is idempotent and reuses dependencies that are already prepared. If a down
 After setup, build the complete editor runtime:
 
 ```powershell
-.\BuildTool.bat Build --target all
+.\BuildTool.bat build --target all
 ```
 
 Run the editor:
@@ -50,14 +50,15 @@ Run the editor:
 Common commands:
 
 ```powershell
-.\BuildTool.bat Configure
-.\BuildTool.bat Build --target LevelEditor
-.\BuildTool.bat Test --target CoreTests
-.\BuildTool.bat Clean
-.\BuildTool.bat Rebuild --target all
+.\BuildTool.bat configure
+.\BuildTool.bat build --target LevelEditor
+.\BuildTool.bat test --target CoreTests
+.\BuildTool.bat clean
+.\BuildTool.bat rebuild --target all
+.\BuildTool.bat build --preset Win64-Release-DurinEditor --target all
 ```
 
-If a build or test operation is interrupted, do not resume with an incremental build. Wait for the previous process tree to exit, then run `Rebuild --target all`.
+Run `.\BuildTool.bat` without arguments to enter the interactive shell, then use `/presets`, `/preset`, `/build`, `/test`, and `/help`. If a build or test operation is interrupted, do not resume with an incremental build. Wait for the previous process tree to exit, then run `rebuild --target all` for the affected preset.
 
 ## New Git Worktrees
 

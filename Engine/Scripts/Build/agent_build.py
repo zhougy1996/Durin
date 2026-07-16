@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping, Sequence
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
 PROFILE_FILE = SCRIPT_DIR / "AgentBuildProfiles.json"
+PRESET_FILE = REPO_ROOT / "CMakePresets.json"
 LOCAL_CONFIG_FILE = REPO_ROOT / ".agents" / "build-config.json"
 AGENT_BUILD_STATE_DIR = REPO_ROOT / "Build" / ".agent-state"
 AGENT_BUILD_LOCK_DIR = REPO_ROOT / "Build" / ".agent-locks"
@@ -41,8 +42,9 @@ def state_file_component(value: str) -> str:
     return "".join(character if character in allowed else "_" for character in value)
 
 
-def lock_file_path(preset: str, root: Path = AGENT_BUILD_LOCK_DIR) -> Path:
-    return root / f"{state_file_component(preset)}.lock"
+def lock_file_path(root: Path = AGENT_BUILD_LOCK_DIR) -> Path:
+    # Presets can share generated metadata and final outputs, so ownership belongs to the checkout.
+    return root / "checkout.lock"
 
 
 def interruption_marker_path(preset: str, root: Path = AGENT_BUILD_STATE_DIR) -> Path:
@@ -61,6 +63,7 @@ def read_state_description(path: Path) -> str:
     displayed_fields = (
         ("pid", "PID"),
         ("profile", "profile"),
+        ("preset", "preset"),
         ("action", "action"),
         ("target", "target"),
         ("startedAt", "started"),
@@ -105,7 +108,7 @@ class AgentBuildLock:
             self.handle.close()
             self.handle = None
             raise AgentBuildError(
-                "Another Agent build operation already owns this build profile. "
+                "Another BuildTool operation already owns this checkout. "
                 + read_state_description(self.path)
             ) from exc
 
@@ -209,8 +212,8 @@ def load_local_config(path: Path = LOCAL_CONFIG_FILE) -> dict[str, Any]:
 
 def load_profiles(path: Path = PROFILE_FILE) -> dict[str, dict[str, Any]]:
     manifest = load_json_object(path, label="Agent build profile manifest")
-    if manifest.get("version") != 1:
-        raise AgentBuildError('Agent build profile manifest field "version" must be 1.')
+    if manifest.get("version") != 2:
+        raise AgentBuildError('Agent build profile manifest field "version" must be 2.')
 
     profiles = manifest.get("profiles")
     if not isinstance(profiles, dict) or not profiles:
@@ -222,17 +225,17 @@ def load_profiles(path: Path = PROFILE_FILE) -> dict[str, dict[str, Any]]:
             raise AgentBuildError("Each Agent build profile must have a non-empty name and object value.")
 
         profile_host = optional_string(raw_profile, "host", label=f'Agent build profile "{name}"')
-        preset = optional_string(raw_profile, "preset", label=f'Agent build profile "{name}"')
+        default_preset = optional_string(raw_profile, "defaultPreset", label=f'Agent build profile "{name}"')
         provider = optional_string(raw_profile, "environmentProvider", label=f'Agent build profile "{name}"')
-        test_dir = optional_string(raw_profile, "testBinaryDirectory", label=f'Agent build profile "{name}"')
+        platform_name = optional_string(raw_profile, "platform", label=f'Agent build profile "{name}"')
         suffix = optional_string(raw_profile, "testExecutableSuffix", label=f'Agent build profile "{name}"')
         is_default = raw_profile.get("default", False)
         required_commands = raw_profile.get("requiredCommands", [])
+        presets = raw_profile.get("presets", [])
 
-        if not profile_host or not preset or not provider or not test_dir:
+        if not profile_host or not default_preset or not provider or not platform_name:
             raise AgentBuildError(
-                f'Agent build profile "{name}" requires host, preset, environmentProvider, '
-                "and testBinaryDirectory."
+                f'Agent build profile "{name}" requires host, defaultPreset, environmentProvider, and platform.'
             )
         if provider not in SUPPORTED_ENVIRONMENT_PROVIDERS:
             raise AgentBuildError(f'Agent build profile "{name}" uses unsupported environment provider "{provider}".')
@@ -242,18 +245,135 @@ def load_profiles(path: Path = PROFILE_FILE) -> dict[str, dict[str, Any]]:
             isinstance(command, str) and command for command in required_commands
         ):
             raise AgentBuildError(f'Agent build profile "{name}" field "requiredCommands" must be an array of names.')
+        if not isinstance(presets, list) or not presets or not all(
+            isinstance(preset, str) and preset for preset in presets
+        ):
+            raise AgentBuildError(f'Agent build profile "{name}" field "presets" must be a non-empty array of names.')
+        if len(set(presets)) != len(presets):
+            raise AgentBuildError(f'Agent build profile "{name}" field "presets" contains duplicate names.')
+        if default_preset not in presets:
+            raise AgentBuildError(
+                f'Agent build profile "{name}" defaultPreset must also appear in its presets list.'
+            )
 
         validated[name] = {
             "host": profile_host,
-            "preset": preset,
+            "defaultPreset": default_preset,
+            "presets": presets,
             "environmentProvider": provider,
-            "testBinaryDirectory": test_dir,
+            "platform": platform_name,
             "testExecutableSuffix": suffix,
             "default": is_default,
             "requiredCommands": required_commands,
         }
 
     return validated
+
+
+def load_configure_presets(path: Path = PRESET_FILE) -> dict[str, dict[str, Any]]:
+    manifest = load_json_object(path, label="CMake preset manifest")
+    raw_presets = manifest.get("configurePresets")
+    if not isinstance(raw_presets, list):
+        raise AgentBuildError('CMake preset manifest field "configurePresets" must be an array.')
+
+    by_name: dict[str, dict[str, Any]] = {}
+    for raw_preset in raw_presets:
+        if not isinstance(raw_preset, dict):
+            raise AgentBuildError("Each CMake configure preset must be an object.")
+        name = optional_string(raw_preset, "name", label="CMake configure preset")
+        if not name or name in by_name:
+            raise AgentBuildError("Each CMake configure preset must have a unique non-empty name.")
+        by_name[name] = raw_preset
+
+    resolved: dict[str, dict[str, Any]] = {}
+    resolving: set[str] = set()
+
+    def resolve(name: str) -> dict[str, Any]:
+        if name in resolved:
+            return resolved[name]
+        if name in resolving:
+            raise AgentBuildError(f'CMake configure preset inheritance contains a cycle at "{name}".')
+        raw_preset = by_name.get(name)
+        if raw_preset is None:
+            raise AgentBuildError(f'CMake configure preset "{name}" was not found.')
+
+        resolving.add(name)
+        merged: dict[str, Any] = {"cacheVariables": {}}
+        inherits = raw_preset.get("inherits", [])
+        if isinstance(inherits, str):
+            inherits = [inherits]
+        if not isinstance(inherits, list) or not all(isinstance(item, str) and item for item in inherits):
+            raise AgentBuildError(f'CMake configure preset "{name}" has an invalid inherits field.')
+        # CMake gives earlier entries in a multiple-inheritance list higher precedence.
+        for parent_name in reversed(inherits):
+            parent = resolve(parent_name)
+            for key, value in parent.items():
+                if key == "cacheVariables":
+                    merged[key].update(value)
+                else:
+                    merged[key] = value
+
+        for key, value in raw_preset.items():
+            if key == "cacheVariables":
+                if not isinstance(value, dict):
+                    raise AgentBuildError(f'CMake configure preset "{name}" cacheVariables must be an object.')
+                merged[key].update(value)
+            elif key != "inherits":
+                merged[key] = value
+        merged["name"] = name
+        resolving.remove(name)
+        resolved[name] = merged
+        return merged
+
+    for preset_name in by_name:
+        resolve(preset_name)
+    return resolved
+
+
+def preset_cache_string(preset: Mapping[str, Any], name: str, *, required: bool = True) -> str:
+    value = preset.get("cacheVariables", {}).get(name)
+    if isinstance(value, dict):
+        value = value.get("value")
+    if value is None and not required:
+        return ""
+    if not isinstance(value, (str, int, float, bool)):
+        raise AgentBuildError(f'CMake preset "{preset["name"]}" must define {name}.')
+    return str(value)
+
+
+def preset_cache_bool(preset: Mapping[str, Any], name: str) -> bool:
+    value = preset_cache_string(preset, name, required=False).strip().lower()
+    return value in {"1", "on", "true", "yes", "y"}
+
+
+def select_preset(
+    profile: Mapping[str, Any],
+    presets: Mapping[str, dict[str, Any]],
+    *,
+    requested: str = "",
+) -> tuple[str, dict[str, Any]]:
+    selected_name = requested or profile["defaultPreset"]
+    if selected_name not in profile["presets"]:
+        raise AgentBuildError(
+            f'Preset "{selected_name}" is not enabled for this Agent build profile. '
+            f'Available presets: {", ".join(profile["presets"])}.'
+        )
+    if selected_name not in presets:
+        raise AgentBuildError(f'Enabled CMake preset "{selected_name}" was not found in "{PRESET_FILE}".')
+    return selected_name, presets[selected_name]
+
+
+def preset_build_directory(preset: Mapping[str, Any]) -> Path:
+    binary_dir = preset.get("binaryDir")
+    if not isinstance(binary_dir, str) or not binary_dir:
+        raise AgentBuildError(f'CMake preset "{preset["name"]}" must define binaryDir.')
+    expanded = binary_dir.replace("${sourceDir}", str(REPO_ROOT)).replace("${presetName}", preset["name"])
+    path = Path(expanded).resolve()
+    try:
+        path.relative_to(REPO_ROOT.resolve())
+    except ValueError as exc:
+        raise AgentBuildError(f'CMake preset build directory must stay inside the checkout: "{path}"') from exc
+    return path
 
 
 def select_profile(
@@ -565,8 +685,8 @@ def run_command(command: Sequence[str], *, environment: Mapping[str, str]) -> No
     except KeyboardInterrupt as exc:
         terminate_process_tree(process)
         raise AgentBuildInterruptedError(
-            "Agent build was interrupted. Confirm that the old build process tree has exited, "
-            "then run Rebuild --target all."
+            "BuildTool was interrupted. Confirm that the old build process tree has exited, "
+            "then run rebuild --target all with the affected preset."
         ) from exc
 
     if return_code != 0:
@@ -579,6 +699,21 @@ def validate_target(target: str, *, action: str) -> None:
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-")
     if any(character not in allowed for character in target):
         raise AgentBuildError(f'Build target contains unsupported characters: "{target}"')
+
+
+def validate_action_request(
+    args: argparse.Namespace,
+    *,
+    preset: str,
+    preset_metadata: Mapping[str, Any],
+) -> str:
+    if args.action in {"configure", "clean"}:
+        return ""
+    target = args.target or ("all" if args.action == "rebuild" else "")
+    validate_target(target, action=args.action)
+    if args.action == "test" and not preset_cache_bool(preset_metadata, "BUILD_TESTING"):
+        raise AgentBuildError(f'Preset "{preset}" does not enable BUILD_TESTING.')
+    return target
 
 
 def cache_is_usable(cache_file: Path) -> bool:
@@ -619,11 +754,11 @@ def execute_with_recovery_marker(
     except OSError as exc:
         raise AgentBuildError(f'Could not read Agent build recovery state "{marker_file}": {exc}') from exc
 
-    if previous_content is not None and action in {"Build", "Test"}:
+    if previous_content is not None and action in {"build", "test"}:
         raise AgentBuildError(
-            "The previous Agent build operation did not return normally. "
+            "The previous BuildTool operation did not return normally. "
             + read_state_description(marker_file)
-            + ". Confirm that its old process tree has exited, then run Rebuild --target all."
+            + ". Confirm that its old process tree has exited, then run rebuild --target all."
         )
 
     write_json_state(marker_file, metadata)
@@ -640,10 +775,10 @@ def execute_with_recovery_marker(
         # Unknown failures are treated conservatively because they may have bypassed normal child cleanup.
         raise
     else:
-        if action == "Rebuild" or previous_content is None:
+        if action == "rebuild" or previous_content is None:
             restore_state_file(marker_file, None)
         else:
-            # Clean and Configure are useful diagnostics, but cannot certify recovery from an earlier interruption.
+            # Clean and configure are useful diagnostics, but cannot certify recovery from an earlier interruption.
             restore_state_file(marker_file, previous_content)
 
 
@@ -657,22 +792,22 @@ def perform_action(
     cache_file: Path,
     preset: str,
     profile: Mapping[str, Any],
+    preset_metadata: Mapping[str, Any],
 ) -> None:
-    if args.action == "Configure":
+    if args.action == "configure":
         run_command([cmake, "--fresh", "--preset", preset], environment=environment)
         return
 
-    if args.action == "Clean":
+    if args.action == "clean":
         if cache_is_usable(cache_file):
             run_command([cmake, "--build", str(build_directory), "--target", "clean"], environment=environment)
         else:
             print(f'Agent build tree is already clean or unconfigured: "{build_directory}"')
         return
 
-    target = args.target or ("all" if args.action == "Rebuild" else "")
-    validate_target(target, action=args.action)
+    target = validate_action_request(args, preset=preset, preset_metadata=preset_metadata)
 
-    if args.action == "Rebuild":
+    if args.action == "rebuild":
         if cache_is_usable(cache_file):
             run_command([cmake, "--build", str(build_directory), "--target", "clean"], environment=environment)
         else:
@@ -686,10 +821,18 @@ def perform_action(
         environment=environment,
     )
 
-    if args.action == "Test":
+    if args.action == "test":
+        configuration = preset_cache_string(preset_metadata, "CMAKE_BUILD_TYPE")
+        runtime_profile = preset_cache_string(preset_metadata, "DURIN_PROFILE_NAME")
         test_executable = (
             REPO_ROOT
-            / profile["testBinaryDirectory"]
+            / "Engine"
+            / "Binaries"
+            / profile["platform"]
+            / configuration
+            / "Tests"
+            / runtime_profile
+            / "Bin"
             / f'{target}{profile["testExecutableSuffix"]}'
         )
         if not test_executable.is_file():
@@ -712,19 +855,21 @@ def execute(args: argparse.Namespace) -> None:
         configured=config["defaultBuildProfile"],
         current_host=current_host,
     )
+    presets = load_configure_presets()
+    preset, preset_metadata = select_preset(profile, presets, requested=args.preset)
+    target = validate_action_request(args, preset=preset, preset_metadata=preset_metadata)
     cmake = resolve_cmake_command(args.cmake, config["cmakeCommand"])
     jobs = resolve_jobs(args.jobs, config["jobs"])
     environment = build_environment(profile, config["environmentSetup"], current_host=current_host)
     ensure_required_commands(profile, environment)
 
-    preset = profile["preset"]
-    build_directory = REPO_ROOT / "Build" / preset
+    build_directory = preset_build_directory(preset_metadata)
     cache_file = build_directory / "CMakeCache.txt"
     print(f'Agent build profile: "{profile_name}"')
+    print(f'CMake preset: "{preset}"')
     print(f'CMake command: "{cmake}"')
     print(f"Parallel jobs: {jobs}")
 
-    target = args.target or ("all" if args.action == "Rebuild" else "")
     operation_metadata = {
         "pid": os.getpid(),
         "profile": profile_name,
@@ -733,7 +878,7 @@ def execute(args: argparse.Namespace) -> None:
         "target": target,
         "startedAt": datetime.now(timezone.utc).isoformat(),
     }
-    with AgentBuildLock(lock_file_path(preset), operation_metadata):
+    with AgentBuildLock(lock_file_path(), operation_metadata):
         execute_with_recovery_marker(
             action=args.action,
             marker_file=interruption_marker_path(preset),
@@ -747,27 +892,190 @@ def execute(args: argparse.Namespace) -> None:
                 cache_file=cache_file,
                 preset=preset,
                 profile=profile,
+                preset_metadata=preset_metadata,
             ),
         )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Configure, build, clean, rebuild, or test a worktree-owned Durin Agent build profile."
+        prog="BuildTool",
+        description="Build Durin through one-shot commands or an interactive shell."
     )
-    parser.add_argument("action", choices=("Configure", "Build", "Clean", "Rebuild", "Test"))
-    parser.add_argument("--target", default="")
-    parser.add_argument("--jobs", type=int, choices=range(1, 257), default=None, metavar="1..256")
-    parser.add_argument("--filter", default="")
-    parser.add_argument("--profile", default="")
-    parser.add_argument("--cmake", default="")
-    parser.add_argument("--environment-setup", default="")
+    parser.add_argument(
+        "action",
+        nargs="?",
+        default="shell",
+        type=str.lower,
+        choices=("shell", "configure", "build", "clean", "rebuild", "test"),
+        help="operation to run; omit it to enter the interactive shell",
+    )
+    parser.add_argument("--target", default="", help="CMake target for build, rebuild, or test")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        choices=range(1, 257),
+        default=None,
+        metavar="1..256",
+        help="parallel build job limit",
+    )
+    parser.add_argument("--filter", default="", help="GoogleTest filter for test")
+    parser.add_argument("--profile", default="", help="Agent host environment profile")
+    parser.add_argument("--preset", default="", help="registered CMake configure preset")
+    parser.add_argument("--cmake", default="", help="CMake executable override")
+    parser.add_argument("--environment-setup", default="", help="toolchain environment script override")
     return parser.parse_args(argv)
+
+
+def shell_command_args(
+    base_args: argparse.Namespace,
+    action: str,
+    *,
+    target: str = "",
+    test_filter: str = "",
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        action=action,
+        target=target,
+        jobs=base_args.jobs,
+        filter=test_filter,
+        profile=base_args.profile,
+        preset=base_args.preset,
+        cmake=base_args.cmake,
+        environment_setup=base_args.environment_setup,
+    )
+
+
+def print_shell_help() -> None:
+    print(
+        "Commands:\n"
+        "  /presets                  List available presets\n"
+        "  /preset <name-or-number>  Select the current preset\n"
+        "  /status                   Show the current preset\n"
+        "  /configure                Configure the current preset\n"
+        "  /build [target]           Build a target (default: all)\n"
+        "  /clean                    Clean the current preset\n"
+        "  /rebuild [target]         Clean, configure, and build (default: all)\n"
+        "  /test <target> [filter]   Build and run a native test target\n"
+        "  /help                     Show this help\n"
+        "  /exit                     Leave the shell"
+    )
+
+
+def shell_presets(profile: Mapping[str, Any], current_preset: str) -> None:
+    for index, preset in enumerate(profile["presets"], start=1):
+        markers = []
+        if preset == profile["defaultPreset"]:
+            markers.append("default")
+        if preset == current_preset:
+            markers.append("current")
+        suffix = f' [{", ".join(markers)}]' if markers else ""
+        print(f"  {index:>2}  {preset}{suffix}")
+
+
+def resolve_shell_preset(value: str, profile: Mapping[str, Any]) -> str:
+    if value.isdigit():
+        index = int(value)
+        if 1 <= index <= len(profile["presets"]):
+            return profile["presets"][index - 1]
+    matches = [preset for preset in profile["presets"] if preset.lower() == value.lower()]
+    if len(matches) == 1:
+        return matches[0]
+    raise AgentBuildError(f'Unknown preset selection "{value}". Use /presets to list available presets.')
+
+
+def run_shell(args: argparse.Namespace) -> None:
+    config = load_local_config()
+    profiles = load_profiles()
+    profile_name, profile = select_profile(
+        profiles,
+        requested=args.profile,
+        configured=config["defaultBuildProfile"],
+        current_host=host_name(),
+    )
+    presets = load_configure_presets()
+    current_preset, _ = select_preset(profile, presets, requested=args.preset)
+
+    print("Durin BuildTool shell")
+    print(f'Agent build profile: "{profile_name}"')
+    print(f'CMake preset: "{current_preset}"')
+    print("Type /help for available commands.")
+
+    while True:
+        try:
+            line = input("build> ").strip()
+        except EOFError:
+            print()
+            return
+        except KeyboardInterrupt:
+            print("\nUse /exit to leave the shell.")
+            continue
+        if not line:
+            continue
+
+        try:
+            parts = shlex.split(line)
+        except ValueError as exc:
+            print(f"Invalid command: {exc}", file=sys.stderr)
+            continue
+        command = parts[0].lower()
+        values = parts[1:]
+        if command.startswith("/"):
+            command = command[1:]
+
+        try:
+            if command in {"exit", "quit"}:
+                return
+            if command in {"help", "?"}:
+                print_shell_help()
+                continue
+            if command == "presets":
+                shell_presets(profile, current_preset)
+                continue
+            if command == "status":
+                print(f'CMake preset: "{current_preset}"')
+                continue
+            if command == "preset":
+                if len(values) != 1:
+                    raise AgentBuildError("/preset requires one preset name or number.")
+                current_preset = resolve_shell_preset(values[0], profile)
+                print(f'CMake preset: "{current_preset}"')
+                continue
+            if command in {"configure", "clean"}:
+                if values:
+                    raise AgentBuildError(f"/{command} does not accept positional arguments.")
+                request = shell_command_args(args, command)
+                request.preset = current_preset
+                execute(request)
+                continue
+            if command in {"build", "rebuild"}:
+                if len(values) > 1:
+                    raise AgentBuildError(f"/{command} accepts at most one target.")
+                request = shell_command_args(args, command, target=values[0] if values else "all")
+                request.preset = current_preset
+                execute(request)
+                continue
+            if command == "test":
+                if not 1 <= len(values) <= 2:
+                    raise AgentBuildError("/test requires a target and accepts an optional GoogleTest filter.")
+                request = shell_command_args(
+                    args, "test", target=values[0], test_filter=values[1] if len(values) == 2 else ""
+                )
+                request.preset = current_preset
+                execute(request)
+                continue
+            raise AgentBuildError(f'Unknown shell command "{parts[0]}". Type /help for available commands.')
+        except AgentBuildError as exc:
+            print(exc, file=sys.stderr)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     try:
-        execute(parse_args(argv))
+        args = parse_args(argv)
+        if args.action == "shell":
+            run_shell(args)
+        else:
+            execute(args)
     except AgentBuildError as exc:
         print(exc, file=sys.stderr)
         return 1

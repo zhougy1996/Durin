@@ -19,21 +19,53 @@ A checkout has one source/build writer at a time. An Agent may own the current c
 Use the root wrapper for configuration, builds, and tests:
 
 ```powershell
-.\BuildTool Configure
-.\BuildTool Build --target LevelEditor
-.\BuildTool Test --target CoreTests --filter FJsonDocumentTests.*
-.\BuildTool Clean
-.\BuildTool Rebuild --target all
+.\BuildTool configure
+.\BuildTool build --target LevelEditor
+.\BuildTool test --target CoreTests --filter FJsonDocumentTests.*
+.\BuildTool clean
+.\BuildTool rebuild --target all
 ```
 
-`Build` and `Test` configure automatically when needed, so an explicit first `Configure` is optional. Omit `--jobs` to use automatic parallelism; pass `--jobs <count>` only when a local limit is required. From another batch file, use `call BuildTool.bat <arguments>`.
+Commands are case-insensitive for compatibility, but lowercase is canonical. `build` and `test` configure automatically when needed, so an explicit first `configure` is optional. Omit `--jobs` to use automatic parallelism; pass `--jobs <count>` only when a local limit is required. From another batch file, use `call BuildTool.bat <arguments>`.
 
-The registered Windows profile uses `Win64-Debug-DurinEditor-Tests`, allowing the same output set to run the editor and native tests. Before launching the editor for a smoke test or final validation, build the complete runtime:
+The registered Windows build environment defaults to `Win64-Debug-DurinEditor-Tests`, allowing the same output set to run the editor and native tests. Before launching the editor for a smoke test or final validation, build the complete runtime:
 
 ```powershell
-.\BuildTool Build --target all
+.\BuildTool build --target all
 & "Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe"
 ```
+
+Select another registered configure preset with `--preset`:
+
+```powershell
+.\BuildTool build --preset Win64-Release-DurinEditor --target all
+.\BuildTool rebuild --preset Win64-Shipping-DurinGame --target all
+```
+
+`CMakePresets.json` remains the source of truth for preset configuration. `AgentBuildProfiles.json` controls which presets BuildTool may own for each host environment. The IDE-only `Win64-Debug-DurinEditor-FastConfigure` preset is intentionally excluded.
+
+## Interactive Shell
+
+Run `BuildTool` without arguments, or pass `shell`, to open the human-oriented command shell:
+
+```powershell
+.\BuildTool
+.\BuildTool shell
+```
+
+The selected preset is session-local and does not modify `.agents/build-config.json`:
+
+```text
+build> /presets
+build> /preset 4
+build> /build
+build> /rebuild DurinLauncher
+build> /test CoreTests FJsonDocumentTests.*
+build> /status
+build> /exit
+```
+
+`/build` and `/rebuild` default to target `all`. Use `/help` for the complete command list. Shell commands call the same build implementation as one-shot commands, including environment setup, checkout ownership, interruption tracking, and validation.
 
 On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/agent_build.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat` because it also fixes the MSVC language with `VSLANG=1033`.
 
@@ -56,22 +88,14 @@ CMake records MSVC's localized `/showIncludes` prefix during configuration. If r
 Do not start a second build while an earlier CMake, Ninja, compiler, or linker process tree may still be running. If a build is cancelled, times out, or its terminal closes, wait for that process tree to exit and run:
 
 ```powershell
-.\BuildTool Rebuild --target all
+.\BuildTool rebuild --target all
 ```
 
-Use the same recovery after an accidental IDE build. IDE outputs share the final binary directory, and their timestamps can make an incremental Agent build incorrectly report that everything is current. The driver also blocks unsafe incremental Build and Test operations after a detected interruption until a Rebuild succeeds.
+When the interrupted operation used a non-default preset, add `--preset <affected-preset>` or select that preset in the interactive shell before rebuilding.
 
-## Other Presets
+Use the same recovery after an accidental IDE build. IDE outputs share the final binary directory, and their timestamps can make an incremental Agent build incorrectly report that everything is current. The driver also blocks unsafe incremental `build` and `test` operations for the affected preset after a detected interruption until a `rebuild` succeeds.
 
-`CMakePresets.json` is the source of truth for configurations not owned by the registered Agent profile, including Release, Shipping, and DurinGame. In a separately human-owned build workflow, list and invoke them with normal CMake commands:
-
-```powershell
-cmake --list-presets
-cmake --preset Win64-Shipping-DurinGame
-cmake --build Build/Win64-Shipping-DurinGame --parallel
-```
-
-Do not mix direct CMake build operations with `BuildTool` ownership of the same checkout.
+BuildTool serializes all registered presets with one checkout-level ownership lock because different CMake trees can still share final outputs and generated metadata. Do not mix direct CMake build operations with `BuildTool` ownership of the same checkout.
 
 ## Output Layout
 

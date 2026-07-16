@@ -7,11 +7,21 @@ This document covers running native tests and adding test targets. Native tests 
 Build and run a test executable through the root wrapper:
 
 ```powershell
-.\BuildTool Test --target CoreTests
-.\BuildTool Test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
+.\BuildTool test --target CoreTests
+.\BuildTool test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
 ```
 
 The first command runs the target's discovered tests. The second passes a GoogleTest filter. Build ownership, recovery, and parallelism rules are documented in `Documentation/Setup/BuildAndRun.md`.
+
+In the interactive shell, use the equivalent commands:
+
+```text
+build> /preset Win64-Debug-DurinEditor-Tests
+build> /test CoreTests
+build> /test CoreTests FJsonDocumentTests.ParseObjectFromString
+```
+
+BuildTool rejects `test` when the selected preset does not enable `BUILD_TESTING`.
 
 For diagnosis, the corresponding executable is under `Engine/Binaries/Win64/Debug/Tests/DurinEditor/Bin/` and may be run directly with normal GoogleTest arguments. CTest discovery state is in `Build/Win64-Debug-DurinEditor-Tests`.
 
