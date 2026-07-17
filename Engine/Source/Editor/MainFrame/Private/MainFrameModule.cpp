@@ -59,11 +59,12 @@ namespace Durin
 			const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
 			const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeEditorHostDockSpaceId(EditorHostLayoutVersion);
 			const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
-			EditorWorkspaceUI::SubmitEditorHostDockSpace(EditorHostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
 			if (bNeedsDefaultLayout)
 			{
+				// DockBuilder must finish before DockSpace submission so the new tree retains this frame's host window.
 				BuildDefaultEditorHostLayout(DockSpaceId, DockSpaceSize);
 			}
+			EditorWorkspaceUI::SubmitEditorHostDockSpace(EditorHostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
 
 			std::shared_ptr<IEditorWorkspace> ActiveWorkspace;
 			if (const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())

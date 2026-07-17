@@ -239,12 +239,13 @@ namespace Durin
 
 		const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
 		const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
-		EditorWorkspaceUI::SubmitDockSpace(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion, DockSpaceSize);
 		if (bNeedsDefaultLayout || bResetLayoutRequested)
 		{
+			// DockBuilder must finish before DockSpace submission so the new tree retains this frame's host window.
 			BuildDefaultLayout(DockSpaceId, DockSpaceSize.x, DockSpaceSize.y);
 			bResetLayoutRequested = false;
 		}
+		EditorWorkspaceUI::SubmitDockSpace(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion, DockSpaceSize);
 		ImGui::End();
 
 		DocumentController->DrawDialogs();
