@@ -4,6 +4,7 @@
 #include "CoreFwd.h"
 #include "Math/MathFwd.h"
 #include "AssetSystem.h"
+#include "ImageDecoder.h"
 
 namespace Durin
 {
