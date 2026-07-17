@@ -16,6 +16,8 @@ namespace Durin::VulkanRHI
 	struct FVulkanViewportFrameResources
 	{
 		FVulkanSemaphore* RenderingDoneSemaphore = nullptr;
+		vk::Fence PresentFence = VK_NULL_HANDLE;
+		bool bPresentPending = false;
 	};
 
 	class FVulkanViewport;
@@ -81,6 +83,10 @@ namespace Durin::VulkanRHI
 
 		auto DestroyFrameResources() -> void;
 
+		auto WaitForFrameResource(FVulkanViewportFrameResources& FrameResource) -> void;
+
+		auto WaitForSwapchainIdle() -> void;
+
 		FVulkanDevice& Device;
 
 		FVulkanSwapchain* Swapchain;
@@ -115,6 +121,8 @@ namespace Durin::VulkanRHI
 		bool bHasPendingResize = false;
 
 		bool bSwapchainNeedsRecreate = false;
+
+		bool bRequiresQueueIdle = false;
 
 		bool bIsFullScreen;
 

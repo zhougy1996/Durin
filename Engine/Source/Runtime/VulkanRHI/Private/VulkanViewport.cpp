@@ -52,7 +52,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanViewport::~FVulkanViewport()
 	{
-		Device.WaitUtilIdle();
+		WaitForSwapchainIdle();
 
 		for (uint32 i = 0; i < TextureViews.size(); ++i)
 		{
@@ -148,11 +148,7 @@ namespace Durin::VulkanRHI
 		check(IsInRenderingThread());
 		AcquiredBackBufferIndex = -1;
 		AcquiredSemaphore = nullptr;
-		Device.GetGraphicsQueue()->GetHandle().waitIdle();
-		if (Device.GetPresentQueue() != Device.GetGraphicsQueue())
-		{
-			Device.GetPresentQueue()->GetHandle().waitIdle();
-		}
+		WaitForSwapchainIdle();
 
 		// Detach old swapchain handle — it must stay alive until the new swapchain
 		// is created with it as VkSwapchainCreateInfoKHR::oldSwapchain for a smooth transition.
@@ -222,11 +218,16 @@ namespace Durin::VulkanRHI
 			return false;
 		}
 
-		FVulkanSemaphore* RenderingDoneSemaphore = FrameResources[AcquiredBackBufferIndex].RenderingDoneSemaphore;
+		FVulkanViewportFrameResources& FrameResource = FrameResources[AcquiredBackBufferIndex];
+		WaitForFrameResource(FrameResource);
+		FVulkanSemaphore* RenderingDoneSemaphore = FrameResource.RenderingDoneSemaphore;
 		check(RenderingDoneSemaphore != nullptr);
 		InContext.AddSignalSemaphore(RenderingDoneSemaphore);
 		InContext.Finalize();
-		const bool bPresented = Swapchain->Present(&InPresentQueue, RenderingDoneSemaphore);
+		const bool bTrackPresent = Device.SupportsSwapchainMaintenance1();
+		const bool bPresented = Swapchain->Present(&InPresentQueue, RenderingDoneSemaphore, bTrackPresent ? FrameResource.PresentFence : VK_NULL_HANDLE);
+		FrameResource.bPresentPending = bTrackPresent && bPresented;
+		bRequiresQueueIdle |= bTrackPresent && !bPresented;
 		const bool bNeedsRecreate = Swapchain->NeedsRecreate();
 		if (!bPresented || bNeedsRecreate)
 		{
@@ -322,6 +323,10 @@ namespace Durin::VulkanRHI
 		for (uint32 i = 0; i < NumSwapchainImages; ++i)
 		{
 			FrameResources[i].RenderingDoneSemaphore = new FVulkanSemaphore(Device);
+			if (Device.SupportsSwapchainMaintenance1())
+			{
+				FrameResources[i].PresentFence = Device.GetHandle().createFence(vk::FenceCreateInfo());
+			}
 		}
 	}
 
@@ -329,10 +334,54 @@ namespace Durin::VulkanRHI
 	{
 		for (FVulkanViewportFrameResources& FrameResource : FrameResources)
 		{
+			check(!FrameResource.bPresentPending);
 			delete FrameResource.RenderingDoneSemaphore;
 			FrameResource.RenderingDoneSemaphore = nullptr;
+			if (FrameResource.PresentFence != VK_NULL_HANDLE)
+			{
+				Device.GetHandle().destroyFence(FrameResource.PresentFence);
+				FrameResource.PresentFence = VK_NULL_HANDLE;
+			}
 		}
 		FrameResources.clear();
+	}
+
+	auto FVulkanViewport::WaitForFrameResource(FVulkanViewportFrameResources& FrameResource) -> void
+	{
+		if (!FrameResource.bPresentPending)
+		{
+			return;
+		}
+
+		const vk::Result Result = Device.GetHandle().waitForFences(FrameResource.PresentFence, vk::True, UINT64_MAX);
+		check(Result == vk::Result::eSuccess);
+		Device.GetHandle().resetFences(FrameResource.PresentFence);
+		FrameResource.bPresentPending = false;
+	}
+
+	auto FVulkanViewport::WaitForSwapchainIdle() -> void
+	{
+		if (!Device.SupportsSwapchainMaintenance1() || bRequiresQueueIdle)
+		{
+			Device.GetGraphicsQueue()->GetHandle().waitIdle();
+			if (Device.GetPresentQueue() != Device.GetGraphicsQueue())
+			{
+				Device.GetPresentQueue()->GetHandle().waitIdle();
+			}
+			for (FVulkanViewportFrameResources& FrameResource : FrameResources)
+			{
+				FrameResource.bPresentPending = false;
+			}
+			bRequiresQueueIdle = false;
+			return;
+		}
+
+		// Present fences cover both rendering-done semaphore consumption and the
+		// presentation engine's access, so unrelated viewport work may continue.
+		for (FVulkanViewportFrameResources& FrameResource : FrameResources)
+		{
+			WaitForFrameResource(FrameResource);
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> TRefCountPtr<FRHIViewport>

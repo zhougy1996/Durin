@@ -124,6 +124,8 @@ namespace Durin::VulkanRHI
 
 		auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue; }
 
+		auto SupportsSwapchainMaintenance1() const -> bool { return bSupportsSwapchainMaintenance1; }
+
 		auto GetGraphicsQueue() const -> FVulkanQueue* { return GraphicsQueue; }
 
 		auto GetMemoryManager() -> FVulkanMemoryManager& { return MemoryManager; }
@@ -182,6 +184,8 @@ namespace Durin::VulkanRHI
 		FVulkanQueue* PresentQueue = nullptr;
 
 		std::vector<const char*> DeviceExtensions;
+
+		bool bSupportsSwapchainMaintenance1 = false;
 
 		int32 GraphicsQueueFamilyIndex = -1;
 

@@ -150,6 +150,17 @@ namespace Durin::VulkanRHI
 		QueueFamilyProps = Gpu.getQueueFamilyProperties();
 
 		const FVulkanDeviceExtensionArray SupportedDeviceExtensions = FVulkanDeviceExtension::GetDurinSupportedDeviceExtensions(this);
+		const auto SwapchainMaintenanceExtension = std::ranges::find_if(SupportedDeviceExtensions, [](const std::unique_ptr<FVulkanDeviceExtension>& Extension) {
+			return strcmp(Extension->GetExtensionName(), VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) == 0;
+		});
+		if (SwapchainMaintenanceExtension != SupportedDeviceExtensions.end() && (*SwapchainMaintenanceExtension)->InUse())
+		{
+			vk::PhysicalDeviceSwapchainMaintenance1FeaturesEXT MaintenanceFeatures;
+			vk::PhysicalDeviceFeatures2 Features;
+			Features.setPNext(&MaintenanceFeatures);
+			Gpu.getFeatures2(&Features);
+			bSupportsSwapchainMaintenance1 = MaintenanceFeatures.swapchainMaintenance1 == vk::True;
+		}
 
 		CreateDevice(SupportedDeviceExtensions);
 		DURIN_INFO("Vulkan initialized: GPU=\"{}\", type={}, API={}.{}.{}, driver=0x{:x}, extensions(instance={}, device={}), queues(graphics={}, compute={} {}, transfer={} {}).",
@@ -239,10 +250,16 @@ namespace Durin::VulkanRHI
 		DeviceFeatures.fillModeNonSolid = vk::True;
 
 		vk::DeviceCreateInfo DeviceInfo;
+		vk::PhysicalDeviceSwapchainMaintenance1FeaturesEXT SwapchainMaintenanceFeatures;
 		DeviceInfo.setQueueCreateInfos(QueueCreateInfos);
 		DeviceInfo.setPEnabledFeatures(&DeviceFeatures);
 		DeviceInfo.setEnabledExtensionCount(static_cast<uint32>(DeviceExtensions.size()));
 		DeviceInfo.setPpEnabledExtensionNames(DeviceExtensions.data());
+		if (bSupportsSwapchainMaintenance1)
+		{
+			SwapchainMaintenanceFeatures.swapchainMaintenance1 = vk::True;
+			DeviceInfo.setPNext(&SwapchainMaintenanceFeatures);
+		}
 
 		try
 		{

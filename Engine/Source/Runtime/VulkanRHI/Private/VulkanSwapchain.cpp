@@ -206,7 +206,7 @@ namespace Durin::VulkanRHI
 		return static_cast<uint32>(CurrentImageIndex);
 	}
 
-	auto FVulkanSwapchain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> bool
+	auto FVulkanSwapchain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore, vk::Fence PresentFence) -> bool
 	{
 		if (CurrentImageIndex < 0)
 		{
@@ -221,6 +221,12 @@ namespace Durin::VulkanRHI
 			.setWaitSemaphores(Semaphore)
 			.setSwapchains(Swapchain)
 			.setImageIndices(ImageIndex);
+		vk::SwapchainPresentFenceInfoEXT PresentFenceInfo;
+		if (PresentFence != VK_NULL_HANDLE)
+		{
+			PresentFenceInfo.setFences(PresentFence);
+			PresentInfo.setPNext(&PresentFenceInfo);
+		}
 
 		vk::Result Result = vk::Result::eSuccess;
 		try

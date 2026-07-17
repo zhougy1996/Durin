@@ -19,7 +19,7 @@ namespace Durin::VulkanRHI
 		// Returns the index of the acquired image, or INDEX_NONE_U32 if the swapchain must be recreated.
 		auto AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32;
 
-		auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore) -> bool;
+		auto Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore, vk::Fence PresentFence = VK_NULL_HANDLE) -> bool;
 
 		auto NeedsRecreate() const -> bool { return bNeedsRecreate; }
 
