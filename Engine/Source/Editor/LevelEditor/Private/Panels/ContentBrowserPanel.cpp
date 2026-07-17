@@ -137,7 +137,7 @@ namespace Durin
 				HistoryIndex = static_cast<int32>(NavigationHistory.size() - 1);
 			}
 		}
-		RebuildItems();
+		RefreshItemsSnapshot();
 		return true;
 	}
 
@@ -170,7 +170,7 @@ namespace Durin
 			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
 				if (NavigateToPhysical(Mount.PhysicalPath)) return;
 		}
-		RebuildItems();
+		RefreshItemsSnapshot();
 	}
 
 	auto FContentBrowserPanel::MatchesTypeFilter(const FContentBrowserItem& Item) const -> bool
@@ -183,82 +183,70 @@ namespace Durin
 		return Item.Kind != EContentBrowserItemKind::Asset || (Type != "Level" && Type != "StaticMesh" && Type.find("Material") == std::string::npos);
 	}
 
-	auto FContentBrowserPanel::RebuildItems() -> void
+	auto FContentBrowserPanel::RefreshItemsSnapshot() -> void
 	{
 		ThumbnailCache->CancelPendingRequests();
-		Items.clear();
-		if (CurrentPhysicalPath.empty()) return;
-		const bool bSearching = SearchBuffer[0] != '\0';
-		auto MatchesSearch = [&](std::string_view Name, std::string_view Path, std::string_view Type) {
-			return !bSearching || ContainsInsensitive(Name, SearchBuffer.data()) || ContainsInsensitive(Path, SearchBuffer.data()) || ContainsInsensitive(Type, SearchBuffer.data());
-		};
+		ItemsSnapshot.clear();
+		if (CurrentPhysicalPath.empty())
+		{
+			Items.clear();
+			return;
+		}
 
 		std::error_code Ec;
-		if (bSearching)
+		for (std::filesystem::recursive_directory_iterator It(CurrentPhysicalPath, std::filesystem::directory_options::skip_permission_denied, Ec), End; !Ec && It != End; It.increment(Ec))
 		{
-			for (std::filesystem::recursive_directory_iterator It(CurrentPhysicalPath, std::filesystem::directory_options::skip_permission_denied, Ec), End; !Ec && It != End; It.increment(Ec))
+			const std::filesystem::directory_entry& Entry = *It;
+			const std::string Name = Entry.path().filename().generic_string();
+			if (Entry.is_directory(Ec))
+				ItemsSnapshot.push_back({EContentBrowserItemKind::Folder, Name, PhysicalToVirtualDirectory(Entry.path().generic_string()), NormalizePath(Entry.path().generic_string())});
+			else if (Entry.is_regular_file(Ec) && Entry.path().extension() != ".dasset")
 			{
-				const std::filesystem::directory_entry& Entry = *It;
-				const std::string Name = Entry.path().filename().generic_string();
-				if (!bShowSourceFiles && !Name.empty() && Name.front() == '.')
-				{
-					if (Entry.is_directory()) It.disable_recursion_pending();
-					continue;
-				}
-				if (Entry.is_directory(Ec))
-				{
-					if (MatchesSearch(Name, Entry.path().generic_string(), "Folder"))
-						Items.push_back({EContentBrowserItemKind::Folder, Name, PhysicalToVirtualDirectory(Entry.path().generic_string()), NormalizePath(Entry.path().generic_string())});
-				}
-				else if (bShowSourceFiles && Entry.is_regular_file(Ec) && Entry.path().extension() != ".dasset" && MatchesSearch(Name, Entry.path().generic_string(), "Source File"))
-				{
-					FContentBrowserItem Item{EContentBrowserItemKind::SourceFile, Name, {}, NormalizePath(Entry.path().generic_string())};
-					Item.Extension = Entry.path().extension().generic_string();
-					Item.FileSize = Entry.file_size(Ec);
-					Ec.clear();
-					Item.LastWriteTime = Entry.last_write_time(Ec);
-					Ec.clear();
-					Items.push_back(std::move(Item));
-				}
-			}
-		}
-		else
-		{
-			for (std::filesystem::directory_iterator It(CurrentPhysicalPath, std::filesystem::directory_options::skip_permission_denied, Ec), End; !Ec && It != End; It.increment(Ec))
-			{
-				const std::filesystem::directory_entry& Entry = *It;
-				const std::string Name = Entry.path().filename().generic_string();
-				if (!bShowSourceFiles && !Name.empty() && Name.front() == '.') continue;
-				if (Entry.is_directory(Ec))
-					Items.push_back({EContentBrowserItemKind::Folder, Name, PhysicalToVirtualDirectory(Entry.path().generic_string()), NormalizePath(Entry.path().generic_string())});
-				else if (bShowSourceFiles && Entry.is_regular_file(Ec) && Entry.path().extension() != ".dasset")
-				{
-					FContentBrowserItem Item{EContentBrowserItemKind::SourceFile, Name, {}, NormalizePath(Entry.path().generic_string())};
-					Item.Extension = Entry.path().extension().generic_string();
-					Item.FileSize = Entry.file_size(Ec);
-					Ec.clear();
-					Item.LastWriteTime = Entry.last_write_time(Ec);
-					Ec.clear();
-					Items.push_back(std::move(Item));
-				}
+				FContentBrowserItem Item{EContentBrowserItemKind::SourceFile, Name, {}, NormalizePath(Entry.path().generic_string())};
+				Item.Extension = Entry.path().extension().generic_string();
+				std::error_code FileEc;
+				Item.FileSize = Entry.file_size(FileEc);
+				FileEc.clear();
+				Item.LastWriteTime = Entry.last_write_time(FileEc);
+				ItemsSnapshot.push_back(std::move(Item));
 			}
 		}
 
 		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 		{
-			if (!IsInsideCurrentDirectory(Data.PhysicalPath, bSearching)) continue;
+			if (!IsInsideCurrentDirectory(Data.PhysicalPath, true)) continue;
 			const std::string Name(Path.GetAssetName());
-			const std::string Type = ClassLeaf(Data.AssetClassName);
-			if (!MatchesSearch(Name, Path.GetView(), Type)) continue;
 			FContentBrowserItem Item{EContentBrowserItemKind::Asset, Name, Path.ToString(), NormalizePath(Data.PhysicalPath), Data.AssetClassName, ".dasset"};
 			std::error_code FileEc;
 			Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
-			FileEc.clear();
 			Item.LastWriteTime = Data.LastWriteTime;
-			if (MatchesTypeFilter(Item)) Items.push_back(std::move(Item));
+			ItemsSnapshot.push_back(std::move(Item));
+		}
+		RebuildItems();
+	}
+
+	auto FContentBrowserPanel::RebuildItems() -> void
+	{
+		ThumbnailCache->CancelPendingRequests();
+		Items.clear();
+		const bool bSearching = SearchBuffer[0] != '\0';
+		for (const FContentBrowserItem& Item : ItemsSnapshot)
+		{
+			// Snapshot paths are normalized when captured, so lexical checks keep interactive filtering free of filesystem I/O.
+			const std::filesystem::path Relative = std::filesystem::path(Item.PhysicalPath).lexically_relative(CurrentPhysicalPath);
+			if (Relative.empty() || Relative == "." || Relative.native().starts_with(L"..")) continue;
+			if (!bSearching && !Relative.parent_path().empty()) continue;
+			if (!bShowSourceFiles && Item.Kind == EContentBrowserItemKind::SourceFile) continue;
+			if (!bShowSourceFiles && Item.Kind == EContentBrowserItemKind::Folder)
+			{
+				if (std::ranges::any_of(Relative, [](const std::filesystem::path& Component) { return Component.generic_string().starts_with('.'); })) continue;
+			}
+			const std::string Type = Item.Kind == EContentBrowserItemKind::Folder ? "Folder" : Item.Kind == EContentBrowserItemKind::SourceFile ? "Source File" : ClassLeaf(Item.AssetClassName);
+			const std::string_view SearchPath = Item.VirtualPath.empty() ? std::string_view(Item.PhysicalPath) : std::string_view(Item.VirtualPath);
+			if (bSearching && !ContainsInsensitive(Item.Name, SearchBuffer.data()) && !ContainsInsensitive(SearchPath, SearchBuffer.data()) && !ContainsInsensitive(Type, SearchBuffer.data())) continue;
+			if (MatchesTypeFilter(Item)) Items.push_back(Item);
 		}
 
-		std::erase_if(Items, [&](const FContentBrowserItem& Item) { return !MatchesTypeFilter(Item); });
 		auto Compare = [&](const FContentBrowserItem& A, const FContentBrowserItem& B) {
 			if (A.Kind == EContentBrowserItemKind::Folder && B.Kind != EContentBrowserItemKind::Folder) return true;
 			if (A.Kind != EContentBrowserItemKind::Folder && B.Kind == EContentBrowserItemKind::Folder) return false;

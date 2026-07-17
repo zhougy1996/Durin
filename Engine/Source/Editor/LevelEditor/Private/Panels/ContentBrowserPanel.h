@@ -64,6 +64,7 @@ namespace Durin
 		};
 
 		auto Refresh(bool bRescanRegistry) -> void;
+		auto RefreshItemsSnapshot() -> void;
 		auto RebuildItems() -> void;
 		auto NavigateToPhysical(std::string_view PhysicalPath, bool bAddHistory = true) -> bool;
 		auto NavigateHistory(int32 Delta) -> void;
@@ -112,6 +113,7 @@ namespace Durin
 		FMoveAssets MoveAssets;
 		std::string CurrentPhysicalPath;
 		std::string CurrentVirtualPath;
+		std::vector<FContentBrowserItem> ItemsSnapshot;
 		std::vector<FContentBrowserItem> Items;
 		std::vector<std::string> NavigationHistory;
 		int32 HistoryIndex = -1;
