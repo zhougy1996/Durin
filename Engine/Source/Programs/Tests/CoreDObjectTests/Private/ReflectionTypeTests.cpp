@@ -2,6 +2,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
+#include "DObject/WeakObjectPtr.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
@@ -1009,6 +1010,133 @@ namespace
 		EXPECT_EQ(Durin::ResolveObjectHandle(ObjectHandle), ReferencedObject);
 
 		Durin::DestroyObject(ReferencedObject);
+	}
+
+	TEST(FCoreDObjectReflectionTests, WeakObjectPtrResolvesLiveObjectAndResets)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::TWeakObjectPtr<Durin::DObject> WeakObject;
+		EXPECT_EQ(WeakObject.Get(), nullptr);
+		EXPECT_FALSE(WeakObject.IsValid());
+		EXPECT_TRUE(Durin::IsObjectHandleNull(WeakObject.GetHandle()));
+
+		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrLiveObject"));
+		WeakObject = Object;
+		EXPECT_EQ(WeakObject.Get(), Object);
+		EXPECT_TRUE(WeakObject.IsValid());
+		EXPECT_FALSE(Durin::IsObjectHandleNull(WeakObject.GetHandle()));
+
+		Durin::TWeakObjectPtr<Durin::DObject> Copy = WeakObject;
+		EXPECT_EQ(Copy.Get(), Object);
+
+		WeakObject.Reset();
+		EXPECT_EQ(WeakObject.Get(), nullptr);
+		EXPECT_TRUE(Durin::IsObjectHandleNull(WeakObject.GetHandle()));
+		EXPECT_EQ(Copy.Get(), Object);
+
+		Durin::DestroyObject(Object);
+		EXPECT_EQ(Copy.Get(), nullptr);
+	}
+
+	TEST(FCoreDObjectReflectionTests, WeakObjectPtrRejectsGarbageBeforeObjectRemoval)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrGarbageObject"));
+		Durin::TWeakObjectPtr<Durin::DObject> WeakObject = Object;
+		const Durin::FObjectHandle Handle = WeakObject.GetHandle();
+
+		Durin::MarkAsGarbage(Object);
+		EXPECT_EQ(Durin::ResolveObjectHandle(Handle), Object);
+		EXPECT_EQ(WeakObject.Get(), nullptr);
+		EXPECT_FALSE(WeakObject.IsValid());
+
+		Durin::DestroyObject(Object);
+		EXPECT_EQ(Durin::ResolveObjectHandle(Handle), nullptr);
+	}
+
+	TEST(FCoreDObjectReflectionTests, WeakObjectPtrUsesGenerationToRejectReusedSlot)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DObject* First = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrFirst"));
+		Durin::TWeakObjectPtr<Durin::DObject> WeakFirst = First;
+		const Durin::FObjectHandle FirstHandle = WeakFirst.GetHandle();
+		Durin::DestroyObject(First);
+
+		Durin::DObject* Second = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrSecond"));
+		Durin::TWeakObjectPtr<Durin::DObject> WeakSecond = Second;
+		const Durin::FObjectHandle SecondHandle = WeakSecond.GetHandle();
+
+		EXPECT_EQ(FirstHandle.Index, SecondHandle.Index);
+		EXPECT_NE(FirstHandle.Generation, SecondHandle.Generation);
+		EXPECT_EQ(WeakFirst.Get(), nullptr);
+		EXPECT_EQ(WeakSecond.Get(), Second);
+
+		Durin::DestroyObject(Second);
+	}
+
+	TEST(FCoreDObjectReflectionTests, WeakObjectPtrRemainsPointerSizedAndTriviallyCopyable)
+	{
+		EXPECT_EQ(sizeof(Durin::FWeakObjectPtr), sizeof(Durin::FObjectHandle));
+		EXPECT_EQ(sizeof(Durin::TWeakObjectPtr<Durin::DObject>), sizeof(Durin::FObjectHandle));
+		EXPECT_TRUE(std::is_trivially_copyable_v<Durin::FWeakObjectPtr>);
+		EXPECT_TRUE(std::is_trivially_copyable_v<Durin::TWeakObjectPtr<Durin::DObject>>);
+	}
+
+	TEST(FCoreDObjectReflectionTests, WeakObjectPtrCanBeCarriedAcrossWorkerAndResolvedOnGameThread)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrCarriedObject"));
+		Durin::TWeakObjectPtr<Durin::DObject> WeakObject = Object;
+		Durin::TWeakObjectPtr<Durin::DObject> ReturnedWeak;
+
+		std::thread Worker([WeakObject, &ReturnedWeak]() {
+			ReturnedWeak = WeakObject;
+		});
+		Worker.join();
+
+		EXPECT_EQ(ReturnedWeak.Get(), Object);
+		Durin::DestroyObject(Object);
+	}
+
+	TEST(FCoreDObjectReflectionTests, WeakObjectPtrMayOutliveObjectWhileCarriedByWorker)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrWorkerLifetimeObject"));
+		Durin::TWeakObjectPtr<Durin::DObject> WeakObject = Object;
+		Durin::TWeakObjectPtr<Durin::DObject> ReturnedWeak;
+		std::mutex Mutex;
+		std::condition_variable CV;
+		bool bWorkerHasCopy = false;
+		bool bMayReturnCopy = false;
+
+		std::thread Worker([WeakObject, &ReturnedWeak, &Mutex, &CV, &bWorkerHasCopy, &bMayReturnCopy]() {
+			{
+				std::unique_lock Lock(Mutex);
+				bWorkerHasCopy = true;
+				CV.notify_all();
+				CV.wait(Lock, [&bMayReturnCopy]() { return bMayReturnCopy; });
+			}
+			ReturnedWeak = WeakObject;
+		});
+
+		{
+			std::unique_lock Lock(Mutex);
+			CV.wait(Lock, [&bWorkerHasCopy]() { return bWorkerHasCopy; });
+		}
+		Durin::DestroyObject(Object);
+		{
+			std::lock_guard Lock(Mutex);
+			bMayReturnCopy = true;
+		}
+		CV.notify_all();
+		Worker.join();
+
+		EXPECT_EQ(ReturnedWeak.Get(), nullptr);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ReusedObjectSlotInvalidatesOldHandleGeneration)

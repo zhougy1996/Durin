@@ -107,6 +107,19 @@ Risky capture forms:
 - references to game-thread-owned mutable objects
 - references to render resources that may be released before command execution
 
+### DObject Handle Transport
+
+`TWeakObjectPtr<T>` may be copied into worker tasks as an opaque object identity, but the worker must not call `Get()`, `IsValid()`, or otherwise resolve its handle. Creating a weak pointer from a `DObject*` and resolving it are game-thread operations because the object registry and object lifetime state are game-thread-owned.
+
+The initial supported flow is:
+
+1. Create the weak pointer on the game thread and capture it by value.
+2. Let the worker operate only on copied values, immutable input, and thread-safe result state.
+3. Wait for or poll task completion at a game-thread synchronization point.
+4. Resolve the weak pointer once on the game thread and apply the result only when `Get()` succeeds.
+
+Copies published to another thread must be treated as independent values. Concurrently reading and writing the same weak-pointer instance is not supported. `TWeakObjectPtr` does not pin an object, make object fields thread-safe, or authorize worker access to a `DObject`.
+
 ### Waiting Rules
 
 The first version of the scheduler should define conservative waiting behavior:

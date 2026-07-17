@@ -4,6 +4,7 @@
 #include "DObjectGlobals.h"
 #include "Object.h"
 #include "ObjectPtr.h"
+#include "WeakObjectPtr.h"
 #include "ObjectLifecycle.h"
 #include "GarbageCollectionScheduler.h"
 #include "Archive.h"

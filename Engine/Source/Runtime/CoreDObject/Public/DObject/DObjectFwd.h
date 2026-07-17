@@ -3,6 +3,7 @@
 namespace Durin
 {
 	class FObjectInitializer;
+	class FWeakObjectPtr;
 
 	class DObject;
 	class DPackage;
@@ -11,4 +12,7 @@ namespace Durin
 	class DStruct;
 	class DClass;
 	class DEnum;
+
+	template<typename T>
+	class TWeakObjectPtr;
 }
