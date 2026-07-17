@@ -5,6 +5,7 @@
 #include "Components/ActorComponent.h"
 #include "Components/CameraComponent.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/PhysicsComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
@@ -89,6 +90,59 @@ TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
 	Durin::DestroyObject(EditorWorld);
 	Durin::DestroyObject(PlayWorld);
 	Durin::DestroyObject(SharedMesh);
+}
+
+TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
+{
+	Durin::DWorld* EditorWorld = CreateWorld();
+	Durin::ACameraActor* EditorActor = EditorWorld->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(EditorActor, nullptr);
+	Durin::DActorComponent* OriginalOwnedComponent = EditorActor->GetOwnedComponents().front().Get();
+
+	Durin::DWorld* PlayWorld = CreateEmptyWorld();
+	std::unordered_map<Durin::DObject*, Durin::DObject*> EditorToPlay;
+	std::string Error;
+	auto* PlayLevel = Durin::Cast<Durin::DLevel>(Durin::DuplicateObjectGraph(EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &Error, &EditorToPlay));
+	ASSERT_NE(PlayLevel, nullptr) << Error;
+	ASSERT_TRUE(PlayWorld->SetCurrentLevel(PlayLevel));
+	auto* PlayActor = Durin::Cast<Durin::ACameraActor>(EditorToPlay.at(EditorActor));
+	auto* PlayCamera = Durin::Cast<Durin::DCameraComponent>(EditorToPlay.at(EditorActor->GetCameraComponent()));
+	ASSERT_NE(PlayActor, nullptr);
+	ASSERT_NE(PlayCamera, nullptr);
+	PlayActor->GetRootComponent()->SetWorldLocation({4.0, 5.0, 6.0});
+	PlayCamera->SetFieldOfViewDegrees(92.0f);
+
+	std::unordered_map<Durin::DObject*, Durin::DObject*> PlayToEditor;
+	for (const auto& [EditorObject, PlayObject] : EditorToPlay) PlayToEditor.emplace(PlayObject, EditorObject);
+	ASSERT_TRUE(Durin::CopyEditableObjectProperties(PlayCamera, EditorActor->GetCameraComponent(), PlayToEditor, &Error)) << Error;
+	EditorActor->GetRootComponent()->UpdateComponentToWorld();
+	ExpectVectorNear(EditorActor->GetActorTransform().Translation, {4.0, 5.0, 6.0});
+	EXPECT_NEAR(EditorActor->GetCameraComponent()->GetFieldOfViewDegrees(), 92.0f, 1.e-6f);
+	ASSERT_EQ(EditorActor->GetOwnedComponents().size(), 1u);
+	EXPECT_EQ(EditorActor->GetOwnedComponents().front().Get(), OriginalOwnedComponent);
+
+	Durin::DestroyObject(EditorWorld);
+	Durin::DestroyObject(PlayWorld);
+}
+
+TEST(FWorldTests, SimulatesPhysicsComponentsAndHonorsTheWorldToggle)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::AStaticMeshActor* Actor = World->SpawnActor<Durin::AStaticMeshActor>("FallingMesh");
+	ASSERT_NE(Actor, nullptr);
+	auto* Physics = Durin::Cast<Durin::DPhysicsComponent>(Actor->AddInstanceComponent(Durin::DPhysicsComponent::StaticClass(), "Physics"));
+	ASSERT_NE(Physics, nullptr);
+	Actor->GetRootComponent()->SetWorldLocation({0.0, 0.0, 10.0});
+	World->BeginPlay();
+	World->Tick(0.5f);
+	EXPECT_LT(Actor->GetActorTransform().Translation.z, 10.0);
+	EXPECT_LT(Physics->GetLinearVelocity().z, 0.0);
+
+	World->SetPhysicsSimulationEnabled(false);
+	const Durin::FVector3 PausedLocation = Actor->GetActorTransform().Translation;
+	World->Tick(0.5f);
+	ExpectVectorNear(Actor->GetActorTransform().Translation, PausedLocation);
+	Durin::DestroyObject(World);
 }
 
 TEST(FWorldTests, RoutesPlayLifecycleThroughActorsAndComponents)

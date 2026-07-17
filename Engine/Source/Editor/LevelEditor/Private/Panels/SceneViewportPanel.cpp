@@ -319,6 +319,7 @@ namespace Durin
 
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
+		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
 		if (!EditorWorkspaceUI::BeginDockablePanel(
 			LevelEditorWorkspace::Type,
 			"Scene Viewport",
@@ -327,7 +328,7 @@ namespace Durin
 			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
 		))
 		{
-			if (GEngine) GEngine->SetGameInputEnabled(false);
+			if (GEngine && !bPlayingInNewWindow) GEngine->SetGameInputEnabled(false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			bViewportHovered = false;
 			bViewportFocused = false;
@@ -337,7 +338,7 @@ namespace Durin
 
 		if (Context.Level == nullptr)
 		{
-			if (GEngine) GEngine->SetGameInputEnabled(false);
+			if (GEngine && !bPlayingInNewWindow) GEngine->SetGameInputEnabled(false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			bViewportHovered = false;
 			bViewportFocused = false;
@@ -387,7 +388,7 @@ namespace Durin
 					ImGui::SetWindowFocus();
 				}
 				bViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-				if (GEngine) GEngine->SetGameInputEnabled(Context.bReadOnly && bViewportFocused);
+				if (GEngine && !bPlayingInNewWindow) GEngine->SetGameInputEnabled(Context.bReadOnly && bViewportFocused);
 				if (Context.bReadOnly)
 				{
 					if (ViewportClient) ViewportClient->ResetNavigation();
@@ -402,7 +403,7 @@ namespace Durin
 				if (Context.bReadOnly)
 				{
 					ImDrawList* DrawList = ImGui::GetWindowDrawList();
-					const char* Status = GEditor && GEditor->IsPlaySessionPaused() ? "PLAY PAUSED" : "PLAYING";
+					const char* Status = bPlayingInNewWindow ? "PLAYING IN NEW WINDOW" : GEditor && GEditor->IsPlaySessionPaused() ? "PLAY PAUSED" : "PLAYING";
 					const ImVec2 TextSize = ImGui::CalcTextSize(Status);
 					DrawList->AddText(ImVec2((VpMin.x + VpMax.x - TextSize.x) * 0.5f, VpMin.y + MonaImGui::ScaleUI(12.0f)), ImGui::GetColorU32(ImGuiCol_CheckMark), Status);
 				}

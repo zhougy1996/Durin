@@ -46,6 +46,8 @@ namespace Durin
 		auto IsPaused() const -> bool { return bPaused; }
 		auto SetPaused(bool bInPaused) -> void { bPaused = bInPaused; }
 		auto RequestSingleStep() -> void { bSingleStepRequested = true; }
+		auto IsPhysicsSimulationEnabled() const -> bool { return bPhysicsSimulationEnabled; }
+		auto SetPhysicsSimulationEnabled(bool bEnabled) -> void { bPhysicsSimulationEnabled = bEnabled; }
 		auto GetWorldType() const -> EWorldType { return WorldType; }
 		auto SetWorldType(EWorldType InType) -> void { WorldType = InType; }
 		// A world is valid without an active level. Editor and runtime callers must handle nullptr.
@@ -59,5 +61,6 @@ namespace Durin
 		bool bHasBegunPlay = false;
 		bool bPaused = false;
 		bool bSingleStepRequested = false;
+		bool bPhysicsSimulationEnabled = true;
 	};
 } // namespace Durin

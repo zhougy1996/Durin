@@ -5,6 +5,8 @@
 
 namespace Durin
 {
+	enum class EEditorPlayStartLocation : uint8;
+	enum class EEditorPlayDestination : uint8;
 	class ILevelEditorPanel;
 	class FEditorSessionSettings;
 	class FEditorAssetMoveCoordinator;
@@ -37,6 +39,8 @@ namespace Durin
 		auto LoadProjectSettings() -> bool;
 		auto SaveProjectSettings() -> bool;
 		auto SetError(std::string Message) -> void;
+		auto StartPlay(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void;
+		auto ApplyPlayChanges(bool bSelectedOnly) -> void;
 		auto BuildDefaultLayout(uint32 DockSpaceId, float DockSpaceWidth, float DockSpaceHeight) -> void;
 
 		std::unique_ptr<FLevelEditorContext> Context;
@@ -53,6 +57,7 @@ namespace Durin
 		bool bSelectDefaultBottomPanelRequested = true;
 		bool bFocusRequested = false;
 		bool bProjectSettingsOpen = false;
+		bool bSimulatePhysics = true;
 		std::string DefaultLevel;
 		std::string EditorError;
 	};

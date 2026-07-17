@@ -1,6 +1,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
+#include "CoreGlobals.h"
 
 #include "Actors/CameraActor.h"
 #include "Components/CameraComponent.h"
@@ -90,7 +91,9 @@ namespace Durin
 			MainScene->Release();
 		}
 		if (RendererModule != nullptr) RendererModule->ReleaseResources();
-		FlushRenderingCommands();
+		// Tests and tools can construct an engine object without starting the render
+		// thread; a fence cannot complete in that state.
+		if (GRenderingThread) FlushRenderingCommands();
 		MainScene.reset();
 		RendererModule = nullptr;
 		Super::BeginDestroy();

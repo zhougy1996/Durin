@@ -67,6 +67,21 @@ namespace Durin
 	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, std::vector<uint8>& OutBytes) -> bool;
 	COREDOBJECT_API auto LoadObjectGraphFromMemory(const std::vector<uint8>& Bytes) -> DObject*;
 	// Duplicates only the RootObject outer tree. References outside that tree remain shared,
-	// which is required for transient runtime copies that still reference persistent assets.
-	COREDOBJECT_API auto DuplicateObjectGraph(DObject* RootObject, DObject* NewOuter, FName NewName = FName(), std::string* OutError = nullptr) -> DObject*;
+
+		// which is required for transient runtime copies that still reference persistent assets.
+	COREDOBJECT_API auto DuplicateObjectGraph(
+		DObject* RootObject,
+		DObject* NewOuter,
+		FName NewName = FName(),
+		std::string* OutError = nullptr,
+		std::unordered_map<DObject*, DObject*>* OutDuplicates = nullptr
+	) -> DObject*;
+	// Copies only reflected Edit properties and remaps object references through the supplied map.
+	// This keeps runtime-to-editor apply from replacing structural ownership arrays.
+	COREDOBJECT_API auto CopyEditableObjectProperties(
+		DObject* Source,
+		DObject* Destination,
+		const std::unordered_map<DObject*, DObject*>& ReferenceMap,
+		std::string* OutError = nullptr
+	) -> bool;
 }

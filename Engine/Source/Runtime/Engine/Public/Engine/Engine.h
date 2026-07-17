@@ -36,6 +36,7 @@ namespace Durin
 		auto BeginDestroy() -> void override;
 
 		auto GetMainScene() const -> IScene* { return MainScene.get(); }
+		auto GetMainSceneViewport() const -> const std::shared_ptr<FSceneViewport>& { return MainSceneViewport; }
 		auto GetRendererModule() const -> IRendererModule* { return RendererModule; }
 		auto GetActiveCameraComponent() const -> DCameraComponent*;
 		auto GetWorld() const -> DWorld* { return MainWorld.Get(); }

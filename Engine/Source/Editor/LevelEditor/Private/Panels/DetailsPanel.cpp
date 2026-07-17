@@ -154,6 +154,7 @@ namespace Durin
 
 		ImGui::TextUnformatted(Actor->GetName().c_str());
 		ImGui::TextDisabled("%s", Actor->GetClass()->GetName().c_str());
+		if (Context.bReadOnly) ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning), "Runtime values (read-only)");
 		if (Context.GetSelectedActors().size() > 1)
 		{
 			ImGui::TextDisabled("%zu actors selected; editing primary actor only.", Context.GetSelectedActors().size());
@@ -179,7 +180,9 @@ namespace Durin
 		if (ImGui::BeginChild("DetailsProperties", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders))
 		{
 			DObject* InspectedObject = SelectedComponent ? static_cast<DObject*>(SelectedComponent.Get()) : static_cast<DObject*>(Actor);
+			if (Context.bReadOnly) ImGui::BeginDisabled();
 			DrawReflectedProperties(Context, InspectedObject);
+			if (Context.bReadOnly) ImGui::EndDisabled();
 		}
 		ImGui::EndChild();
 		ImGui::End();
@@ -191,6 +194,7 @@ namespace Durin
 		ImGui::SameLine();
 		bool bOpenAddPopup = false;
 		bool bOpenRemovePopup = false;
+		if (Context.bReadOnly) ImGui::BeginDisabled();
 		if (ImGui::SmallButton("+ Add"))
 		{
 			AddComponentParent = nullptr;
@@ -198,6 +202,7 @@ namespace Durin
 			ComponentTypeSearchText.fill(0);
 			bOpenAddPopup = true;
 		}
+		if (Context.bReadOnly) ImGui::EndDisabled();
 
 		std::unordered_set<DActorComponent*> OwnedComponents;
 		std::vector<DActorComponent*> OwnedComponentOrder;
@@ -261,6 +266,7 @@ namespace Durin
 
 			if (ImGui::BeginPopupContextItem("ComponentContext"))
 			{
+				if (Context.bReadOnly) ImGui::BeginDisabled();
 				if (ImGui::MenuItem("Add Component")) QueueAddComponent(nullptr, false);
 				if (SceneComponent && ImGui::MenuItem("Add Child Component")) QueueAddComponent(SceneComponent, true);
 				if (bIsInstance && !bIsRoot)
@@ -277,17 +283,18 @@ namespace Durin
 					ImGui::MenuItem(bIsRoot ? "Root component cannot be removed" : "Default component cannot be removed");
 					ImGui::EndDisabled();
 				}
+				if (Context.bReadOnly) ImGui::EndDisabled();
 				ImGui::EndPopup();
 			}
 
-			if (SceneComponent && !bIsRoot && ImGui::BeginDragDropSource())
+			if (!Context.bReadOnly && SceneComponent && !bIsRoot && ImGui::BeginDragDropSource())
 			{
 				DSceneComponent* PayloadComponent = SceneComponent;
 				ImGui::SetDragDropPayload(ComponentDragPayload, &PayloadComponent, sizeof(PayloadComponent));
 				ImGui::Text("Move %s", Component->GetName().c_str());
 				ImGui::EndDragDropSource();
 			}
-			if (SceneComponent && ImGui::BeginDragDropTarget())
+			if (!Context.bReadOnly && SceneComponent && ImGui::BeginDragDropTarget())
 			{
 				if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ComponentDragPayload))
 				{
@@ -317,10 +324,12 @@ namespace Durin
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) SelectedComponent = nullptr;
 		if (ImGui::BeginPopupContextItem("ActorContext"))
 		{
+			if (Context.bReadOnly) ImGui::BeginDisabled();
 			if (ImGui::MenuItem("Add Component")) QueueAddComponent(nullptr, false);
+			if (Context.bReadOnly) ImGui::EndDisabled();
 			ImGui::EndPopup();
 		}
-		if (ImGui::BeginDragDropTarget())
+		if (!Context.bReadOnly && ImGui::BeginDragDropTarget())
 		{
 			if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ComponentDragPayload))
 			{
@@ -354,10 +363,18 @@ namespace Durin
 
 		if (ImGui::BeginPopupContextWindow("ComponentsContext", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 		{
+			if (Context.bReadOnly) ImGui::BeginDisabled();
 			if (ImGui::MenuItem("Add Component")) QueueAddComponent(nullptr, false);
+			if (Context.bReadOnly) ImGui::EndDisabled();
 			ImGui::EndPopup();
 		}
 
+		if (Context.bReadOnly)
+		{
+			bOpenAddPopup = false;
+			bOpenRemovePopup = false;
+			PendingRemoveComponent = nullptr;
+		}
 		if (bOpenAddPopup) ImGui::OpenPopup("Add Component");
 		if (ImGui::BeginPopup("Add Component"))
 		{
@@ -545,7 +562,7 @@ namespace Durin
 	{
 		const std::string BaseName = Property->NamePrivate.ToString();
 		const std::string Label = Property->GetArrayDim() > 1 ? std::format("{}[{}]", BaseName, ArrayIndex) : BaseName;
-		const bool bReadOnly = Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
+		const bool bReadOnly = Context.bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 		const bool bIsTransform = Kind == DurinCodeGen::EPropertyGenFlags::Struct
 								  && static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FTransform();

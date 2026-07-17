@@ -489,9 +489,10 @@ namespace Durin
 		return Context.ResolveId(RootId);
 	}
 
-	auto DuplicateObjectGraph(DObject* RootObject, DObject* NewOuter, FName NewName, std::string* OutError) -> DObject*
+	auto DuplicateObjectGraph(DObject* RootObject, DObject* NewOuter, FName NewName, std::string* OutError, std::unordered_map<DObject*, DObject*>* OutDuplicates) -> DObject*
 	{
 		if (OutError) OutError->clear();
+		if (OutDuplicates) OutDuplicates->clear();
 		if (!RootObject)
 		{
 			if (OutError) *OutError = "Cannot duplicate a null object graph.";
@@ -590,6 +591,48 @@ namespace Durin
 			DestroyObject(DuplicateRoot);
 			return nullptr;
 		}
+		if (OutDuplicates) *OutDuplicates = Duplicates;
 		return DuplicateRoot;
+	}
+
+	auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError) -> bool
+	{
+		if (OutError) OutError->clear();
+		if (!Source || !Destination || Source->GetClass() != Destination->GetClass())
+		{
+			if (OutError) *OutError = "Editable properties require matching source and destination classes.";
+			return false;
+		}
+
+		class FRemappingReader final : public FMemoryReader
+		{
+		public:
+			FRemappingReader(const std::vector<uint8>& Bytes, const std::unordered_map<DObject*, DObject*>& InReferenceMap)
+				: FMemoryReader(Bytes), Map(InReferenceMap) {}
+			auto SerializeObjectReference(DObject*& Object) -> void override
+			{
+				uint64 Address = 0;
+				*this << Address;
+				DObject* SourceReference = reinterpret_cast<DObject*>(Address);
+				const auto It = Map.find(SourceReference);
+				Object = It == Map.end() ? SourceReference : It->second;
+			}
+		private:
+			const std::unordered_map<DObject*, DObject*>& Map;
+		};
+
+		Source->GetClass()->ForEachProperty([&](FProperty* Property) {
+			if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit) || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+			for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
+			{
+				std::vector<uint8> Bytes;
+				FMemoryWriter Writer(Bytes);
+				SerializePropertyValue(Writer, Property, Source, Index);
+				FRemappingReader Reader(Bytes, ReferenceMap);
+				SerializePropertyValue(Reader, Property, Destination, Index);
+			}
+		}, true);
+		Destination->MarkPackageDirty();
+		return true;
 	}
 }

@@ -52,7 +52,21 @@ the viewport falls back to the PIE level's primary camera. Stopping reverses the
 transition after draining scene-removal render commands.
 
 PIE supports Playing and Paused states plus single-frame stepping. Runtime changes
-are discarded with the transient world and do not dirty the editor level package.
+are discarded with the transient world and do not dirty the editor level package
+unless the user explicitly applies reflected editable values back through the
+session's source/runtime object map. Structural ownership and runtime-only objects
+are intentionally excluded from Apply.
+
+Play can use the level's primary camera or a transient camera built from the editor
+view. Rendering can target the embedded scene viewport or a dedicated Mona window;
+the engine retains and restores the editor viewport across the latter session.
+During Play, Outliner and Details bind to the runtime world in read-only mode.
+
+`DPhysicsComponent` is the initial runtime physics layer. It integrates linear
+velocity and gravity and resolves a horizontal ground plane. `DWorld` owns the
+simulation enable flag so pause, single-step, PIE, standalone games, and console
+control all share the same lifecycle. This is intentionally a foundation rather
+than a general collision backend.
 
 Gameplay code reads the current key, mouse-button, mouse-position, mouse-delta,
 and wheel state from `GEngine->GetGameInputState()`. Standalone games receive the

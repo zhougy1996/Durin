@@ -9,7 +9,9 @@
 #include "EditorSessionSettings.h"
 #include "EditorAssetMoveCoordinator.h"
 #include "Engine/Engine.h"
+#include "Engine/Actor.h"
 #include "Engine/Level.h"
+#include "Engine/World.h"
 #include "IRendererModule.h"
 #include "LevelDocumentController.h"
 #include "LevelEditorContext.h"
@@ -237,9 +239,11 @@ namespace Durin
 			return false;
 		}
 
-		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		bool bPlaying = GEditor && GEditor->IsPlaying();
 		Context->bReadOnly = bPlaying;
-		Context->Synchronize(GEditor != nullptr ? GEditor->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
+		Context->Synchronize(GEditor != nullptr
+			? (bPlaying ? GEditor->GetPlayWorld() : GEditor->GetEditorWorld())
+			: (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (bActive || bRootFocused)
 		{
@@ -248,8 +252,7 @@ namespace Durin
 				if (GEditor->IsPlaying()) GEditor->StopPlaySession();
 				else
 				{
-					std::string Error;
-					if (!GEditor->StartPlaySession(Context->Level, &Error)) SetError(std::move(Error));
+					StartPlay(EEditorPlayStartLocation::LevelStart, IO.KeyCtrl ? EEditorPlayDestination::NewWindow : EEditorPlayDestination::EmbeddedViewport);
 				}
 			}
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F6, false) && GEditor && GEditor->IsPlaying()) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
@@ -259,6 +262,12 @@ namespace Durin
 			const bool bGizmoDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
 			if (!bPlaying && !bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) && GEditor) GEditor->GetTransactionManager().Undo();
 			if (!bPlaying && !bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) && GEditor) GEditor->GetTransactionManager().Redo();
+		}
+		if (GEditor && bPlaying != GEditor->IsPlaying())
+		{
+			bPlaying = GEditor->IsPlaying();
+			Context->bReadOnly = bPlaying;
+			Context->Synchronize(bPlaying ? GEditor->GetPlayWorld() : GEditor->GetEditorWorld());
 		}
 
 		const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
@@ -301,7 +310,7 @@ namespace Durin
 		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 		{
 			if (!Panel->IsOpen()) continue;
-			const bool bDisablePanel = bPlaying && Panel.get() != SceneViewportPanel && Panel.get() != NotificationOverlay;
+			const bool bDisablePanel = bPlaying && Panel.get() == ContentBrowserPanel;
 			if (bDisablePanel) ImGui::BeginDisabled();
 			Panel->Draw(*Context);
 			if (bDisablePanel) ImGui::EndDisabled();
@@ -369,17 +378,26 @@ namespace Durin
 		{
 			if (!bPlaying)
 			{
-				if (ImGui::MenuItem("Play", "F5", false, Context && Context->Level))
-				{
-					std::string Error;
-					if (!GEditor->StartPlaySession(Context->Level, &Error)) SetError(std::move(Error));
-				}
+				const bool bCanPlay = Context && Context->Level;
+				if (ImGui::MenuItem("Play From Start", "F5", false, bCanPlay)) StartPlay(EEditorPlayStartLocation::LevelStart, EEditorPlayDestination::EmbeddedViewport);
+				if (ImGui::MenuItem("Play From Camera", nullptr, false, bCanPlay)) StartPlay(EEditorPlayStartLocation::EditorCamera, EEditorPlayDestination::EmbeddedViewport);
+				ImGui::Separator();
+				if (ImGui::MenuItem("Play From Start in New Window", "Ctrl+F5", false, bCanPlay)) StartPlay(EEditorPlayStartLocation::LevelStart, EEditorPlayDestination::NewWindow);
+				if (ImGui::MenuItem("Play From Camera in New Window", nullptr, false, bCanPlay)) StartPlay(EEditorPlayStartLocation::EditorCamera, EEditorPlayDestination::NewWindow);
+				ImGui::Separator();
+				ImGui::MenuItem("Simulate Physics", nullptr, &bSimulatePhysics);
 			}
 			else
 			{
 				if (ImGui::MenuItem("Stop", "F5")) GEditor->StopPlaySession();
 				if (ImGui::MenuItem(GEditor->IsPlaySessionPaused() ? "Resume" : "Pause", "F6")) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
 				if (ImGui::MenuItem("Step", "F7", false, GEditor->IsPlaySessionPaused())) GEditor->StepPlaySession();
+				ImGui::Separator();
+				if (ImGui::MenuItem("Apply Selected Runtime Changes", nullptr, false, Context && !Context->GetSelectedActors().empty())) ApplyPlayChanges(true);
+				if (ImGui::MenuItem("Apply All Runtime Changes")) ApplyPlayChanges(false);
+				ImGui::Separator();
+				bool bPhysicsEnabled = GEditor->GetPlayWorld() && GEditor->GetPlayWorld()->IsPhysicsSimulationEnabled();
+				if (ImGui::MenuItem("Simulate Physics", nullptr, &bPhysicsEnabled) && GEditor->GetPlayWorld()) GEditor->GetPlayWorld()->SetPhysicsSimulationEnabled(bPhysicsEnabled);
 			}
 			ImGui::EndMenu();
 		}
@@ -487,6 +505,50 @@ namespace Durin
 	{
 		EditorError = std::move(Message);
 		DURIN_ERROR("Level editor: {}", EditorError);
+	}
+
+	auto MLevelEditor::StartPlay(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void
+	{
+		if (!GEditor || !Context || !Context->Level) return;
+		FEditorPlayRequest Request;
+		Request.SourceLevel = Context->Level;
+		Request.StartLocation = StartLocation;
+		Request.Destination = Destination;
+		Request.bSimulatePhysics = bSimulatePhysics;
+		if (StartLocation == EEditorPlayStartLocation::EditorCamera && SceneViewportPanel)
+		{
+			FLevelViewportCameraState CameraState;
+			if (!SceneViewportPanel->CaptureCameraState(Context->Level, CameraState))
+			{
+				SetError("The editor camera is unavailable.");
+				return;
+			}
+			Request.CameraLocation = CameraState.Location;
+			const FReal Pitch = glm::radians(CameraState.Pitch);
+			const FReal Yaw = glm::radians(CameraState.Yaw);
+			const FVector3 Forward(std::cos(Pitch) * std::cos(Yaw), std::cos(Pitch) * std::sin(Yaw), std::sin(Pitch));
+			Request.CameraTarget = Request.CameraLocation + Forward;
+		}
+		std::string Error;
+		if (!GEditor->StartPlaySession(Request, &Error)) SetError(std::move(Error));
+	}
+
+	auto MLevelEditor::ApplyPlayChanges(bool bSelectedOnly) -> void
+	{
+		if (!GEditor || !Context) return;
+		std::vector<AActor*> Actors;
+		if (bSelectedOnly)
+		{
+			for (const TObjectPtr<AActor>& Actor : Context->GetSelectedActors()) if (Actor) Actors.push_back(Actor.Get());
+		}
+		uint32 AppliedCount = 0;
+		std::string Error;
+		if (!GEditor->ApplyPlaySessionChanges(Actors, &AppliedCount, &Error))
+		{
+			SetError(std::move(Error));
+			return;
+		}
+		DURIN_INFO("Applied runtime changes from {} actor(s) to the editor level.", AppliedCount);
 	}
 
 	auto MLevelEditor::BuildDefaultLayout(uint32 DockSpaceId, float DockSpaceWidth, float DockSpaceHeight) -> void

@@ -76,6 +76,11 @@ namespace Durin
 			ImGui::End();
 			return;
 		}
+		if (Context.bReadOnly)
+		{
+			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning), "Runtime World (read-only)");
+			ImGui::Separator();
+		}
 
 		if (ImGui::Button(Icons::Expand)) ExpandRequest = 1;
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expand all");
@@ -181,7 +186,7 @@ namespace Durin
 					Context.SelectActor(Actor);
 			}
 
-			if (RenamingActor.Get() == Actor)
+			if (!Context.bReadOnly && RenamingActor.Get() == Actor)
 			{
 				ImGui::SetNextItemWidth(-1.0f);
 				ImGui::SetKeyboardFocusHere();
@@ -202,18 +207,22 @@ namespace Durin
 			{
 				bLevelSelected = false;
 				if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
-				if (ImGui::MenuItem("Rename", "F2"))
+				if (Context.bReadOnly)
+				{
+					ImGui::TextDisabled("Runtime actor");
+				}
+				else if (ImGui::MenuItem("Rename", "F2"))
 				{
 					RenamingActor = Actor;
 					RenameText.fill(0);
 					const std::string& Name = Actor->GetName();
 					std::memcpy(RenameText.data(), Name.data(), std::min(Name.size(), RenameText.size() - 1));
 				}
-				if (ImGui::MenuItem("Delete", "Del")) bRequestDelete = true;
+				if (!Context.bReadOnly && ImGui::MenuItem("Delete", "Del")) bRequestDelete = true;
 				ImGui::EndPopup();
 			}
 
-			if (ImGui::BeginDragDropSource())
+			if (!Context.bReadOnly && ImGui::BeginDragDropSource())
 			{
 				if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
 				AActor* PayloadActor = Actor;
@@ -221,7 +230,7 @@ namespace Durin
 				ImGui::Text("Move %zu actor(s)", Context.GetSelectedActors().size());
 				ImGui::EndDragDropSource();
 			}
-			if (ImGui::BeginDragDropTarget())
+			if (!Context.bReadOnly && ImGui::BeginDragDropTarget())
 			{
 				if (ImGui::AcceptDragDropPayload(ActorPayloadType))
 				{
@@ -268,7 +277,7 @@ namespace Durin
 			Context.ClearSelection();
 			bLevelSelected = true;
 		}
-		if (bRenamingLevel)
+		if (!Context.bReadOnly && bRenamingLevel)
 		{
 			ImGui::SetNextItemWidth(-1.0f);
 			ImGui::SetKeyboardFocusHere();
@@ -289,6 +298,7 @@ namespace Durin
 		{
 			Context.ClearSelection();
 			bLevelSelected = true;
+			if (Context.bReadOnly) ImGui::BeginDisabled();
 			if (ImGui::IsWindowAppearing()) ActorTypeSearchText.fill(0);
 			if (ImGui::MenuItem("Rename", "F2"))
 			{
@@ -320,10 +330,11 @@ namespace Durin
 				}
 				ImGui::EndMenu();
 			}
+			if (Context.bReadOnly) ImGui::EndDisabled();
 			ImGui::EndPopup();
 		}
 
-		if (ImGui::BeginDragDropTarget())
+		if (!Context.bReadOnly && ImGui::BeginDragDropTarget())
 		{
 			if (ImGui::AcceptDragDropPayload(ActorPayloadType))
 			{
@@ -361,7 +372,7 @@ namespace Durin
 		const ImGuiIO& IO = ImGui::GetIO();
 		const bool bOutlinerFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 		if (bOutlinerFocused && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A, false)) Context.SetSelectedActors(VisibleActors);
-		if (bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false))
+		if (!Context.bReadOnly && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false))
 		{
 			if (AActor* Actor = Context.GetPrimarySelectedActor())
 			{
@@ -377,7 +388,7 @@ namespace Durin
 				std::memcpy(LevelRenameText.data(), LevelName.data(), std::min(LevelName.size(), LevelRenameText.size() - 1));
 			}
 		}
-		if (!Context.GetSelectedActors().empty() && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) bRequestDelete = true;
+		if (!Context.bReadOnly && !Context.GetSelectedActors().empty() && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) bRequestDelete = true;
 		if (bRequestDelete)
 		{
 			PendingDeleteActors = Context.GetSelectedActors();

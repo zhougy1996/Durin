@@ -29,6 +29,7 @@
         "Public/Components/PrimitiveComponent.h",
         "Public/Components/SceneComponent.h",
         "Public/Components/MeshComponent.h",
+        "Public/Components/PhysicsComponent.h",
         "Public/Components/StaticMeshComponent.h",
         "Public/StaticMesh/StaticMesh.h",
         "Public/Texture/Texture2D.h",
