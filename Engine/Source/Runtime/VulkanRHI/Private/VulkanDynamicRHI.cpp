@@ -32,6 +32,13 @@ namespace Durin::VulkanRHI
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Device->GetHandle());
 	}
 
+	auto FVulkanDynamicRHI::IsInstanceExtensionEnabled(const char* ExtensionName) const -> bool
+	{
+		return std::ranges::any_of(InstanceExtensions, [ExtensionName](const char* EnabledExtension) {
+			return strcmp(EnabledExtension, ExtensionName) == 0;
+		});
+	}
+
 	auto FVulkanDynamicRHI::Shutdown() -> void
 	{
 		// Render thread should already be stopped at this point.

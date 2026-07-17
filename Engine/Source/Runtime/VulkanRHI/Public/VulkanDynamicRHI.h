@@ -40,6 +40,7 @@ namespace Durin::VulkanRHI
 		auto RHIGetVkInstance() const -> vk::Instance override;
 		auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice override;
 		auto RHIGetVkCommandBuffer(FRHICommandListBase& RHICmdList) const -> vk::CommandBuffer override;
+		auto IsInstanceExtensionEnabled(const char* ExtensionName) const -> bool;
 
 		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> FViewportRHIRef override;
 		auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void override;

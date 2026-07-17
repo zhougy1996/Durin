@@ -153,7 +153,10 @@ namespace Durin::VulkanRHI
 		const auto SwapchainMaintenanceExtension = std::ranges::find_if(SupportedDeviceExtensions, [](const std::unique_ptr<FVulkanDeviceExtension>& Extension) {
 			return strcmp(Extension->GetExtensionName(), VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) == 0;
 		});
-		if (SwapchainMaintenanceExtension != SupportedDeviceExtensions.end() && (*SwapchainMaintenanceExtension)->InUse())
+		const bool bHasSwapchainMaintenanceInstanceDependencies =
+			RHI->IsInstanceExtensionEnabled(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) &&
+			RHI->IsInstanceExtensionEnabled(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+		if (bHasSwapchainMaintenanceInstanceDependencies && SwapchainMaintenanceExtension != SupportedDeviceExtensions.end() && (*SwapchainMaintenanceExtension)->InUse())
 		{
 			vk::PhysicalDeviceSwapchainMaintenance1FeaturesEXT MaintenanceFeatures;
 			vk::PhysicalDeviceFeatures2 Features;
@@ -190,7 +193,8 @@ namespace Durin::VulkanRHI
 
 		for (const std::unique_ptr<FVulkanDeviceExtension>& Extension : InDeviceExtensions)
 		{
-			if (Extension->InUse())
+			const bool bIsSwapchainMaintenance = strcmp(Extension->GetExtensionName(), VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) == 0;
+			if (Extension->InUse() && (!bIsSwapchainMaintenance || bSupportsSwapchainMaintenance1))
 			{
 				DeviceExtensions.push_back(Extension->GetExtensionName());
 			}
