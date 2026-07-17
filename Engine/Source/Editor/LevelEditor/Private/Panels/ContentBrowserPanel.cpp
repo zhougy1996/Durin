@@ -186,6 +186,7 @@ namespace Durin
 	auto FContentBrowserPanel::RefreshItemsSnapshot() -> void
 	{
 		ThumbnailCache->CancelPendingRequests();
+		DirectoryChildrenCache.clear();
 		ItemsSnapshot.clear();
 		if (CurrentPhysicalPath.empty())
 		{
@@ -460,14 +461,19 @@ namespace Durin
 	auto FContentBrowserPanel::DrawDirectoryNode(const std::filesystem::path& Path, std::string_view Label, bool bMountRoot) -> void
 	{
 		const std::string Physical = NormalizePath(Path.generic_string());
-		bool bHasChildren = false;
-		std::error_code Ec;
-		for (std::filesystem::directory_iterator It(Path, std::filesystem::directory_options::skip_permission_denied, Ec), End; !Ec && It != End; It.increment(Ec))
-			if (It->is_directory(Ec) && (bShowSourceFiles || !It->path().filename().generic_string().starts_with('.')))
+		auto [CachedIt, bInserted] = DirectoryChildrenCache.try_emplace(Physical);
+		if (bInserted)
+		{
+			std::error_code Ec;
+			for (std::filesystem::directory_iterator It(Path, std::filesystem::directory_options::skip_permission_denied, Ec), End; !Ec && It != End; It.increment(Ec))
 			{
-				bHasChildren = true;
-				break;
+				if (It->is_directory(Ec)) CachedIt->second.push_back(It->path());
 			}
+			std::ranges::sort(CachedIt->second);
+		}
+		// Recursing can grow and rehash the cache, so keep this node's traversal independent of cached iterators.
+		const std::vector<std::filesystem::path> Children = CachedIt->second;
+		const bool bHasChildren = std::ranges::any_of(Children, [&](const std::filesystem::path& Child) { return bShowSourceFiles || !Child.filename().generic_string().starts_with('.'); });
 		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 		if (!bHasChildren) Flags |= ImGuiTreeNodeFlags_Leaf;
 		if (CurrentPhysicalPath == Physical) Flags |= ImGuiTreeNodeFlags_Selected;
@@ -483,18 +489,12 @@ namespace Durin
 		}
 		if (bOpen)
 		{
-			std::vector<std::filesystem::path> Children;
-			Ec.clear();
-			for (std::filesystem::directory_iterator It(Path, std::filesystem::directory_options::skip_permission_denied, Ec), End; !Ec && It != End; It.increment(Ec))
-			{
-				if (!It->is_directory(Ec)) continue;
-				const std::string Name = It->path().filename().generic_string();
-				if (!bShowSourceFiles && Name.starts_with('.')) continue;
-				Children.push_back(It->path());
-			}
-			std::ranges::sort(Children);
 			for (const std::filesystem::path& Child : Children)
-				DrawDirectoryNode(Child, Child.filename().generic_string(), false);
+			{
+				const std::string Name = Child.filename().generic_string();
+				if (!bShowSourceFiles && Name.starts_with('.')) continue;
+				DrawDirectoryNode(Child, Name, false);
+			}
 			ImGui::TreePop();
 		}
 	}

@@ -113,6 +113,7 @@ namespace Durin
 		FMoveAssets MoveAssets;
 		std::string CurrentPhysicalPath;
 		std::string CurrentVirtualPath;
+		std::unordered_map<std::string, std::vector<std::filesystem::path>> DirectoryChildrenCache;
 		std::vector<FContentBrowserItem> ItemsSnapshot;
 		std::vector<FContentBrowserItem> Items;
 		std::vector<std::string> NavigationHistory;
