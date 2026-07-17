@@ -85,6 +85,11 @@ namespace Durin
 	{
 		MainSceneViewport.reset();
 		MainWorld = nullptr;
+		if (MainScene != nullptr)
+		{
+			MainScene->Release();
+			FlushRenderingCommands();
+		}
 		MainScene.reset();
 		RendererModule = nullptr;
 		Super::BeginDestroy();

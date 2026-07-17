@@ -3,9 +3,15 @@
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
 #include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/Engine.h"
+#include "DObject/Class.h"
+#include "LevelEditorContext.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
+#include "Panels/DetailsPropertyEditing.h"
+#include "RenderingThread.h"
+#include "Scene.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -13,6 +19,90 @@
 
 namespace
 {
+	class FMaterialTestEngine final : public Durin::DEngine
+	{
+	public:
+		FMaterialTestEngine()
+			: DEngine(Durin::FObjectInitializer::Get())
+		{
+		}
+
+		auto CreateTestScene() -> Durin::FScene*
+		{
+			auto Scene = std::make_unique<Durin::FScene>();
+			Durin::FScene* Result = Scene.get();
+			MainScene = std::move(Scene);
+			return Result;
+		}
+
+		auto ResetTestScene() -> void { MainScene.reset(); }
+	};
+
+	auto WaitForRenderingThread() -> void
+	{
+		Durin::FRenderCommandFence Fence;
+		Fence.BeginFence();
+		Fence.Wait();
+	}
+
+	struct FSceneSnapshot
+	{
+		Durin::FStaticMeshSceneProxy* Proxy = nullptr;
+		Durin::FMaterialRenderData Material;
+		Durin::FMatrix Transform{1.0};
+		Durin::uint64 ComponentRevision = 0;
+		Durin::uint64 MaterialVersion = 0;
+		Durin::uint64 ProxyCount = 0;
+	};
+
+	auto CaptureScene(Durin::FScene* Scene) -> FSceneSnapshot
+	{
+		FSceneSnapshot Snapshot;
+		struct FCaptureMaterialTestSceneCommand
+		{
+			static constexpr const char* GetName() { return "CaptureMaterialTestScene"; }
+		};
+		Durin::EnqueueRenderCommand<FCaptureMaterialTestSceneCommand>([Scene, &Snapshot](Durin::FRHICommandListImmediate& CommandList) {
+			Snapshot.ProxyCount = Scene->GetPrimitiveSceneProxies().size();
+			if (Scene->GetPrimitiveSceneProxies().empty()) return;
+			Snapshot.Proxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(Scene->GetPrimitiveSceneProxies().front());
+			if (Snapshot.Proxy == nullptr) return;
+			Snapshot.Material = Snapshot.Proxy->GetMaterialRenderData();
+			Snapshot.Transform = Snapshot.Proxy->GetLocalToWorld();
+			Snapshot.ComponentRevision = Snapshot.Proxy->GetMaterialComponentRevision();
+			Snapshot.MaterialVersion = Snapshot.Proxy->GetMaterialVersion();
+		});
+		WaitForRenderingThread();
+		return Snapshot;
+	}
+
+	class FRenderSceneHarness
+	{
+	public:
+		FRenderSceneHarness()
+		{
+			InitializeDObjectSystem();
+			Durin::InitRenderingThread();
+			Scene = Engine.CreateTestScene();
+			Durin::GEngine = &Engine;
+		}
+
+		~FRenderSceneHarness()
+		{
+			if (Scene != nullptr)
+			{
+				Scene->Release();
+				WaitForRenderingThread();
+				Engine.ResetTestScene();
+			}
+			Durin::GEngine = nullptr;
+			Durin::ShutdownRenderingThread();
+		}
+
+		FMaterialTestEngine Engine;
+		Durin::FScene* Scene = nullptr;
+	};
+
 	auto ExpectColorNear(const Durin::FVector4f& Actual, const Durin::FVector4f& Expected) -> void
 	{
 		EXPECT_NEAR(Actual.r, Expected.r, 1.e-6f);
@@ -20,6 +110,103 @@ namespace
 		EXPECT_NEAR(Actual.b, Expected.b, 1.e-6f);
 		EXPECT_NEAR(Actual.a, Expected.a, 1.e-6f);
 	}
+}
+
+TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThread)
+{
+	FRenderSceneHarness Harness;
+	Durin::DMaterial* First = Durin::NewObject<Durin::DMaterial>(nullptr, "FirstDetailsMaterial");
+	Durin::DMaterial* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "SecondDetailsMaterial");
+	First->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.1, 0.2, 0.3));
+	Second->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.7, 0.6, 0.5));
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "DetailsMeshComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(First);
+	Component->RegisterComponent();
+	const FSceneSnapshot Before = CaptureScene(Harness.Scene);
+
+	Durin::FLevelEditorContext Context;
+	Durin::FProperty* MaterialProperty = Component->GetClass()->FindPropertyByName("Material");
+	ASSERT_NE(MaterialProperty, nullptr);
+	EXPECT_TRUE(Durin::AssignDetailsObjectProperty(Context, Component, MaterialProperty, 0, Second));
+	const FSceneSnapshot After = CaptureScene(Harness.Scene);
+
+	EXPECT_NE(Before.Proxy, After.Proxy);
+	ExpectColorNear(After.Material.BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	Durin::DestroyObject(Component);
+	Durin::DestroyObject(Mesh);
+	Durin::DestroyObject(Second);
+	Durin::DestroyObject(First);
+}
+
+TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
+{
+	FRenderSceneHarness Harness;
+	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "LiveBaseMaterial");
+	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "LiveMaterialInstance");
+	EXPECT_TRUE(Instance->SetParent(Base));
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "LiveMaterialComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(Instance);
+	Component->RegisterComponent();
+	const FSceneSnapshot Initial = CaptureScene(Harness.Scene);
+
+	const Durin::uint64 VersionBefore = Base->GetRenderStateVersion();
+	Base->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.2, 0.4, 0.6));
+	const FSceneSnapshot ParentChanged = CaptureScene(Harness.Scene);
+	EXPECT_EQ(ParentChanged.Proxy, Initial.Proxy);
+	EXPECT_GT(Base->GetRenderStateVersion(), VersionBefore);
+	EXPECT_GT(ParentChanged.ComponentRevision, Initial.ComponentRevision);
+	EXPECT_EQ(ParentChanged.MaterialVersion, Instance->GetRenderStateVersion());
+	ExpectColorNear(ParentChanged.Material.BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
+
+	const Durin::uint64 NoOpVersion = Base->GetRenderStateVersion();
+	Base->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.2, 0.4, 0.6));
+	EXPECT_EQ(Base->GetRenderStateVersion(), NoOpVersion);
+	Instance->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.8, 0.7, 0.6));
+	Instance->ClearVectorParameterValue(Durin::MaterialParameterBaseColor);
+	Base->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.9, 0.1, 0.3));
+	const FSceneSnapshot Final = CaptureScene(Harness.Scene);
+	EXPECT_EQ(Final.Proxy, Initial.Proxy);
+	ExpectColorNear(Final.Material.BaseColor, Durin::FVector4f(0.9f, 0.1f, 0.3f, 1.0f));
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	Durin::DestroyObject(Component);
+	Base->SetScalarParameterValue(Durin::MaterialParameterOpacity, 0.5f);
+	Durin::DestroyObject(Mesh);
+	Durin::DestroyObject(Instance);
+	Durin::DestroyObject(Base);
+}
+
+TEST(FMaterialTests, SceneCommandsPreserveLatestTransformAndReleaseAllProxies)
+{
+	FRenderSceneHarness Harness;
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SceneCommandComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->RegisterComponent();
+	Component->SetWorldLocation(Durin::FVector3(4.0, 5.0, 6.0));
+	const FSceneSnapshot Updated = CaptureScene(Harness.Scene);
+	EXPECT_EQ(Updated.ProxyCount, 1);
+	EXPECT_NEAR(Updated.Transform[3][0], 4.0, 1.e-6);
+	EXPECT_NEAR(Updated.Transform[3][1], 5.0, 1.e-6);
+	EXPECT_NEAR(Updated.Transform[3][2], 6.0, 1.e-6);
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	EXPECT_EQ(CaptureScene(Harness.Scene).ProxyCount, 0);
+	Durin::DestroyObject(Component);
+	Durin::DestroyObject(Mesh);
+
+	Harness.Scene->Release();
+	WaitForRenderingThread();
+	EXPECT_EQ(CaptureScene(Harness.Scene).ProxyCount, 0);
 }
 
 TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
@@ -208,6 +395,10 @@ TEST(FMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	ASSERT_TRUE(Durin::Asset::LoadAsset(InstancePath, Loaded));
 	ASSERT_NE(Loaded->GetParent(), nullptr);
 	ExpectColorNear(Loaded->GetRenderData().BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 0.35f));
+	auto* LoadedBase = Durin::Cast<Durin::DMaterial>(Loaded->GetParent());
+	ASSERT_NE(LoadedBase, nullptr);
+	LoadedBase->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.6, 0.4, 0.2));
+	ExpectColorNear(Loaded->GetRenderData().BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 0.35f));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(BasePath));
 }

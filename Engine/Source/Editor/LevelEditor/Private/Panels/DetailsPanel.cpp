@@ -1,4 +1,5 @@
 #include "Panels/DetailsPanel.h"
+#include "Panels/DetailsPropertyEditing.h"
 
 #include "AssetSystem.h"
 #include "Components/ActorComponent.h"
@@ -657,29 +658,13 @@ namespace Durin
 		}
 
 		MonaImGui::EndPropertyRow(bReadOnly);
-		if (bChanged) Object->MarkPackageDirty();
+		if (bChanged && Kind != DurinCodeGen::EPropertyGenFlags::Object) Object->MarkPackageDirty();
 		ImGui::PopID();
 		ImGui::PopID();
 	}
 
 	auto FDetailsPanel::AssignObjectProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, DObject* Value) -> bool
 	{
-		auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
-		if (Value && ObjectProperty->GetReferencedClass() && !Value->IsA(ObjectProperty->GetReferencedClass()))
-		{
-			Context.SetError("Selected asset has an incompatible type.");
-			return false;
-		}
-		if (auto* Component = Cast<DStaticMeshComponent>(Object); Component && Property->NamePrivate == FName("StaticMesh"))
-		{
-			DStaticMesh* Mesh = Value ? Cast<DStaticMesh>(Value) : nullptr;
-			if (Value && !Mesh) return false;
-			if (Component->GetStaticMesh() == Mesh) return false;
-			Component->SetStaticMesh(Mesh);
-			return true;
-		}
-		if (ObjectProperty->GetObjectPropertyValue(Object, ArrayIndex) == Value) return false;
-		ObjectProperty->SetObjectPropertyValue(Object, Value, ArrayIndex);
-		return true;
+		return AssignDetailsObjectProperty(Context, Object, Property, ArrayIndex, Value);
 	}
 } // namespace Durin

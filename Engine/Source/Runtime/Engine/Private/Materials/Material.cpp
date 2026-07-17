@@ -11,14 +11,20 @@ namespace Durin
 
 	auto DMaterial::SetScalarParameterValue(std::string_view Name, float Value) -> void
 	{
-		ScalarParameters[std::string(Name)] = Value;
+		const std::string Key(Name);
+		if (const auto It = ScalarParameters.find(Key); It != ScalarParameters.end() && It->second == Value) return;
+		ScalarParameters[Key] = Value;
 		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
 	}
 
 	auto DMaterial::SetVectorParameterValue(std::string_view Name, const FVector3& Value) -> void
 	{
-		VectorParameters[std::string(Name)] = Value;
+		const std::string Key(Name);
+		if (const auto It = VectorParameters.find(Key); It != VectorParameters.end() && It->second == Value) return;
+		VectorParameters[Key] = Value;
 		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
 	}
 
 	auto DMaterial::GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool

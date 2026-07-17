@@ -21,8 +21,12 @@ namespace Durin
 		auto ClearVectorParameterValue(std::string_view Name) -> bool;
 		auto GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool override;
 		auto GetVectorParameterValue(std::string_view Name, FVector3& OutValue) const -> bool override;
+		auto BeginDestroy() -> void override;
+		auto PostLoad(std::string& OutError) -> bool override;
 
 	private:
+		auto OnParentRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
+
 		DPROPERTY(Edit)
 		TObjectPtr<DMaterialInterface> Parent;
 
@@ -31,5 +35,7 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		std::unordered_map<std::string, FVector3> VectorParameterOverrides;
+
+		friend class DMaterialInterface;
 	};
 }

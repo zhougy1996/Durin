@@ -13,6 +13,7 @@ add_durin_test(EngineTests
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/TransformGizmo.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelEditorContext.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelViewportSessionSettings.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPropertyEditing.cpp
 )
 
 target_include_directories(EngineTests PRIVATE
@@ -26,6 +27,7 @@ target_link_libraries(EngineTests PRIVATE
 	AssetCore
 	Engine
 	RenderCore
+	Renderer
 	MonaCore
 	Mona
 	MonaImGui
@@ -43,6 +45,7 @@ durin_test_deploy_target_binary(EngineTests Mona)
 durin_test_deploy_target_binary(EngineTests MonaImGui)
 durin_test_deploy_target_binary(EngineTests RHI)
 durin_test_deploy_target_binary(EngineTests RenderCore)
+durin_test_deploy_target_binary(EngineTests Renderer)
 durin_test_deploy_target_binary(EngineTests DurinEd)
 durin_test_deploy_runtime_files(EngineTests assimp::assimp)
 durin_test_deploy_runtime_files(EngineTests Slang_Imported)

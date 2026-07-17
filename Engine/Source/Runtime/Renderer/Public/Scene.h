@@ -5,14 +5,16 @@
 #include "IScene.h"
 namespace Durin
 {
-	class FScene : public IScene
+	class RENDERER_API FScene : public IScene
 	{
 	public:
-		auto AddPrimitive(DPrimitiveComponent* Primitive) -> void override;
+		auto AddOrReplacePrimitive(FPrimitiveSceneId PrimitiveId, std::unique_ptr<PrimitiveSceneProxy> Proxy, const FMatrix& Transform) -> void override;
 
-		auto RemovePrimitive(DPrimitiveComponent* Primitive) -> void override;
+		auto RemovePrimitive(FPrimitiveSceneId PrimitiveId) -> void override;
 
-		auto UpdatePrimitiveTransform(DPrimitiveComponent* Primitive) -> void override;
+		auto UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void override;
+		auto UpdatePrimitiveMaterial(FPrimitiveSceneId PrimitiveId, const FMaterialRenderUpdate& Update) -> void override;
+		auto Release() -> void override;
 		auto AddDirectionalLight(DDirectionalLightComponent* Light) -> void override;
 		auto RemoveDirectionalLight(DDirectionalLightComponent* Light) -> void override;
 		auto GetDirectionalLight(FDirectionalLightSceneData& OutLight) const -> bool override;
@@ -20,7 +22,7 @@ namespace Durin
 		auto GetPrimitiveSceneProxies() const -> const std::vector<PrimitiveSceneProxy*>& { return PrimitiveSceneProxies; }
 
 	private:
-		std::unordered_map<DPrimitiveComponent*, std::unique_ptr<PrimitiveSceneProxy>> PrimitiveToProxy;
+		std::unordered_map<FPrimitiveSceneId, std::shared_ptr<PrimitiveSceneProxy>> PrimitiveToProxy;
 		std::vector<PrimitiveSceneProxy*> PrimitiveSceneProxies;
 		std::vector<DDirectionalLightComponent*> DirectionalLights;
 	};

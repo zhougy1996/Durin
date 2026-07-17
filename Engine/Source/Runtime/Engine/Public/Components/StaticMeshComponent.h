@@ -22,9 +22,14 @@ namespace Durin
 		ENGINE_API auto GetMaterial(uint32 SlotIndex) const -> DMaterialInterface*;
 		ENGINE_API auto GetNumMaterials() const -> uint32;
 		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy> override;
+		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
 	private:
+		auto BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags DirtyFlags, FMaterialRenderUpdate& OutUpdate) -> bool override;
+		auto HandleMaterialRenderDataChanged(DMaterialInterface* ChangedMaterial, EMaterialRenderDirtyFlags DirtyFlags) -> void;
+		auto BindMaterial(DMaterialInterface* InMaterial) -> void;
+		auto UnbindMaterial(DMaterialInterface* InMaterial) -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
@@ -35,5 +40,11 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		std::vector<TObjectPtr<DMaterialInterface>> Materials;
+
+		uint64 MaterialComponentRevision = 1;
+		uint32 PendingMaterialSlotIndex = 0;
+		EMaterialRenderDirtyFlags PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::None;
+
+		friend class DMaterialInterface;
 	};
 }
