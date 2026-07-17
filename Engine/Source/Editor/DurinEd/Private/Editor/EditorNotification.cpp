@@ -16,6 +16,7 @@ namespace Durin
 			Notification.Id = Id;
 			Notification.Type = Desc.Type;
 			Notification.Message = std::move(Desc.Message);
+			Notification.Details = std::move(Desc.Details);
 			Notification.RemainingSeconds = ResolveDuration(Notification.Type, Desc.DurationSeconds);
 			Notification.Action = std::move(Desc.Action);
 			History.emplace_back(Notification);

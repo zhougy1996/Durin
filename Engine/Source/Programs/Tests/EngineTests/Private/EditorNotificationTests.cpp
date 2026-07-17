@@ -18,6 +18,7 @@ TEST(FEditorNotificationManagerTests, AppliesDefaultLifetimeAndPausesWhileHovere
 	const Durin::FEditorNotificationId Id = Manager.Post({
 		.Type = Durin::EEditorNotificationType::Success,
 		.Message = "Saved",
+		.Details = "Package '/Game/Example'",
 	});
 	Manager.Tick(0.0f);
 	ASSERT_NE(FindNotification(Manager, Id), nullptr);
@@ -30,6 +31,7 @@ TEST(FEditorNotificationManagerTests, AppliesDefaultLifetimeAndPausesWhileHovere
 	EXPECT_EQ(FindNotification(Manager, Id), nullptr);
 	ASSERT_EQ(Manager.GetHistory().size(), 1);
 	EXPECT_EQ(Manager.GetHistory().front().Message, "Saved");
+	EXPECT_EQ(Manager.GetHistory().front().Details, "Package '/Game/Example'");
 }
 
 TEST(FEditorNotificationManagerTests, UpdatesCompletesAndFailsProgressNotifications)

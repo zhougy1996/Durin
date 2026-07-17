@@ -3,6 +3,7 @@
 namespace Durin
 {
 	class DLevel;
+	class FEditorAssetMoveCoordinator;
 	class FEditorSessionSettings;
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
@@ -22,10 +23,10 @@ namespace Durin
 			FLevelEditorContext& InContext,
 			FEditorSessionSettings& InSessionSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
+			FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 			std::string& InDefaultLevel,
 			std::function<void()> InClearError,
-			std::function<void(std::string)> InReportError,
-			std::function<bool()> InSaveProjectSettings
+			std::function<void(std::string)> InReportError
 		);
 
 		auto RequestAction(ELevelDocumentAction Action) -> void;
@@ -52,10 +53,10 @@ namespace Durin
 		FLevelEditorContext& Context;
 		FEditorSessionSettings& SessionSettings;
 		FSceneViewportPanel& SceneViewportPanel;
+		FEditorAssetMoveCoordinator& AssetMoveCoordinator;
 		std::string& DefaultLevel;
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
-		std::function<bool()> SaveProjectSettings;
 		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::array<char, 512> LevelPathBuffer{};

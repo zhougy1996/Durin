@@ -6,6 +6,7 @@
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorTransaction.h"
 #include "EditorSessionSettings.h"
+#include "EditorAssetMoveCoordinator.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "LevelEditorContext.h"
@@ -20,18 +21,18 @@ namespace Durin
 		FLevelEditorContext& InContext,
 		FEditorSessionSettings& InSessionSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
+		FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 		std::string& InDefaultLevel,
 		std::function<void()> InClearError,
-		std::function<void(std::string)> InReportError,
-		std::function<bool()> InSaveProjectSettings
+		std::function<void(std::string)> InReportError
 	)
 		: Context(InContext)
 		, SessionSettings(InSessionSettings)
 		, SceneViewportPanel(InSceneViewportPanel)
+		, AssetMoveCoordinator(InAssetMoveCoordinator)
 		, DefaultLevel(InDefaultLevel)
 		, ClearError(std::move(InClearError))
 		, ReportError(std::move(InReportError))
-		, SaveProjectSettings(std::move(InSaveProjectSettings))
 	{
 	}
 
@@ -280,19 +281,11 @@ namespace Durin
 			return true;
 		}
 
-		SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
-		const Asset::FAssetResult MoveResult = Asset::MoveAsset(OldPath, NewPath);
+		const Asset::FAssetResult MoveResult = AssetMoveCoordinator.MoveAsset(OldPath, NewPath);
 		if (!MoveResult)
 		{
 			SetError(MoveResult.Message);
 			return false;
-		}
-		SessionSettings.MoveViewportState(OldPathString, NewPathString);
-		SessionSettings.Save(&SceneViewportPanel);
-		if (DefaultLevel == OldPathString)
-		{
-			DefaultLevel = NewPathString;
-			SaveProjectSettings();
 		}
 		return true;
 	}

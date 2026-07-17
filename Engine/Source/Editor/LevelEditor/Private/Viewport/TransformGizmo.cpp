@@ -112,16 +112,68 @@ namespace Durin
 				FTransform Before;
 				FTransform After;
 			};
-			FActorTransformTransaction(std::string InDescription, std::vector<FEntry> InEntries)
-				: Description(std::move(InDescription))
-				, Entries(std::move(InEntries))
+			FActorTransformTransaction(std::string_view Action, std::vector<FEntry> InEntries)
+				: Entries(std::move(InEntries))
 			{
+				if (Entries.size() == 1 && Entries.front().Actor)
+					Description = std::format("{} '{}'", Action, Entries.front().Actor->GetName());
+				else
+					Description = std::format("{} {} Actors", Action, Entries.size());
 			}
 			auto GetDescription() const -> std::string_view override { return Description; }
+			auto GetDetails(EEditorTransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != EEditorTransactionOperation::Undo); }
 			auto Undo() -> bool override { return Apply(false); }
 			auto Redo() -> bool override { return Apply(true); }
 
 		private:
+			static auto FormatVector(const FVector3& Value) -> std::string
+			{
+				return std::format("({:.3f}, {:.3f}, {:.3f})", Value.x, Value.y, Value.z);
+			}
+
+			static auto VectorChanged(const FVector3& Before, const FVector3& After) -> bool
+			{
+				return glm::length(After - Before) > Epsilon;
+			}
+
+			static auto RotationChanged(const FQuat& Before, const FQuat& After) -> bool
+			{
+				return 1.0 - std::abs(glm::dot(glm::normalize(Before), glm::normalize(After))) > Epsilon;
+			}
+
+			auto BuildDetails(bool bForward) const -> std::string
+			{
+				std::string Result;
+				for (const FEntry& Entry : Entries)
+				{
+					if (!Result.empty()) Result += '\n';
+					Result += std::format("'{}'", Entry.Actor ? Entry.Actor->GetName() : "Missing Actor");
+					const FTransform& Before = bForward ? Entry.Before : Entry.After;
+					const FTransform& After = bForward ? Entry.After : Entry.Before;
+					bool bHasChange = false;
+					if (VectorChanged(Before.Translation, After.Translation))
+					{
+						Result += std::format("\n  Location  {} -> {}", FormatVector(Before.Translation), FormatVector(After.Translation));
+						Result += std::format("\n  Delta     {}", FormatVector(After.Translation - Before.Translation));
+						bHasChange = true;
+					}
+					if (RotationChanged(Before.Rotation, After.Rotation))
+					{
+						const FVector3 BeforeDegrees = glm::degrees(glm::eulerAngles(Before.Rotation));
+						const FVector3 AfterDegrees = glm::degrees(glm::eulerAngles(After.Rotation));
+						Result += std::format("\n  Rotation  {} -> {} degrees", FormatVector(BeforeDegrees), FormatVector(AfterDegrees));
+						bHasChange = true;
+					}
+					if (VectorChanged(Before.Scale3D, After.Scale3D))
+					{
+						Result += std::format("\n  Scale     {} -> {}", FormatVector(Before.Scale3D), FormatVector(After.Scale3D));
+						bHasChange = true;
+					}
+					if (!bHasChange) Result += "\n  Transform changed below display precision";
+				}
+				return Result;
+			}
+
 			auto Apply(bool bAfter) -> bool
 			{
 				bool bSuccess = true;
@@ -433,7 +485,7 @@ namespace Durin
 			}
 			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" :
 																															  "Scale";
-			Transactions->CommitApplied(std::make_unique<FActorTransformTransaction>(std::format("{} {} Actor{}", Action, Entries.size(), Entries.size() == 1 ? "" : "s"), std::move(Entries)));
+			Transactions->CommitApplied(std::make_unique<FActorTransformTransaction>(Action, std::move(Entries)));
 		}
 		else if (!bDragChanged)
 			RestoreInitialDirtyState();

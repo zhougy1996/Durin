@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Panels/LevelEditorPanel.h"
+#include "EditorAssetMoveCoordinator.h"
 
 #include <array>
 #include <filesystem>
@@ -44,8 +45,9 @@ namespace Durin
 	public:
 		using FOpenAsset = std::function<bool(const std::string&, const std::string&)>;
 		using FRequestImport = std::function<void(const std::string&)>;
+		using FMoveAssets = std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
 
-		FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport);
+		FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport, FMoveAssets InMoveAssets);
 		~FContentBrowserPanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Content Browser"; }
@@ -107,6 +109,7 @@ namespace Durin
 		FEditorSessionSettings& SessionSettings;
 		FOpenAsset OpenAsset;
 		FRequestImport RequestImport;
+		FMoveAssets MoveAssets;
 		std::string CurrentPhysicalPath;
 		std::string CurrentVirtualPath;
 		std::vector<FContentBrowserItem> Items;

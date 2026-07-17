@@ -27,6 +27,7 @@ namespace Durin
 		EEditorTransactionOperation Operation = EEditorTransactionOperation::Execute;
 		FEditorTransactionId Id = 0;
 		std::string Description;
+		std::string Details;
 	};
 
 	class DURINED_API IEditorTransaction
@@ -34,6 +35,7 @@ namespace Durin
 	public:
 		virtual ~IEditorTransaction() = default;
 		virtual auto GetDescription() const -> std::string_view = 0;
+		virtual auto GetDetails(EEditorTransactionOperation Operation) const -> std::string { (void)Operation; return {}; }
 		virtual auto Undo() -> bool = 0;
 		virtual auto Redo() -> bool = 0;
 	};
@@ -68,7 +70,7 @@ namespace Durin
 			std::unique_ptr<IEditorTransaction> Transaction;
 		};
 
-		auto RecordFailure(EEditorTransactionOperation Operation, FEditorTransactionId Id, std::string_view Description) -> void;
+		auto RecordFailure(EEditorTransactionOperation Operation, FEditorTransactionId Id, std::string_view Description, std::string_view Details) -> void;
 
 		static constexpr size_t MaxHistory = 256;
 		FEditorTransactionId NextId = 1;

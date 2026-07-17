@@ -7,6 +7,7 @@
 #include "Editor/EditorTransaction.h"
 #include "Editor/EditorWorkspaceUI.h"
 #include "EditorSessionSettings.h"
+#include "EditorAssetMoveCoordinator.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "IRendererModule.h"
@@ -64,15 +65,22 @@ namespace Durin
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
 		Panels.emplace_back(std::make_unique<FDetailsPanel>(SessionSettings));
 		Panels.emplace_back(std::make_unique<FConsolePanel>());
+		AssetMoveCoordinator = std::make_unique<FEditorAssetMoveCoordinator>(
+			*Context,
+			SessionSettings,
+			*SceneViewportPanel,
+			DefaultLevel,
+			[this] { return SaveProjectSettings(); }
+		);
 
 		DocumentController = std::make_unique<FLevelDocumentController>(
 			*Context,
 			SessionSettings,
 			*SceneViewportPanel,
+			*AssetMoveCoordinator,
 			DefaultLevel,
 			[this] { EditorError.clear(); },
-			[this](std::string Message) { SetError(std::move(Message)); },
-			[this] { return SaveProjectSettings(); }
+			[this](std::string Message) { SetError(std::move(Message)); }
 		);
 		StaticMeshImportDialog = std::make_unique<FStaticMeshImportDialog>(
 			[this] { EditorError.clear(); },
@@ -89,6 +97,9 @@ namespace Durin
 			},
 			[this](const std::string& DestinationDirectory) {
 				if (StaticMeshImportDialog) StaticMeshImportDialog->Open(DestinationDirectory);
+			},
+			[this](std::span<const FEditorAssetMove> Moves) {
+				return AssetMoveCoordinator->MoveAssets(Moves);
 			}
 		);
 		ContentBrowserPanel = ContentBrowser.get();

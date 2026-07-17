@@ -65,10 +65,11 @@ namespace Durin
 		constexpr float GridIconNameSpacing = 1.0f;
 	} // namespace
 
-	FContentBrowserPanel::FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport)
+	FContentBrowserPanel::FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport, FMoveAssets InMoveAssets)
 		: SessionSettings(InSessionSettings)
 		, OpenAsset(std::move(InOpenAsset))
 		, RequestImport(std::move(InRequestImport))
+		, MoveAssets(std::move(InMoveAssets))
 		, IconSize(InSessionSettings.GetContentBrowserIconSize())
 		, DirectoryTreeWidth(InSessionSettings.GetContentBrowserTreeWidth())
 	{
@@ -908,7 +909,8 @@ namespace Durin
 				FAssetPath NewPath;
 				if (FAssetPath::TryCreate(Destination + std::string(OldPath.GetAssetName()), NewPath) && NewPath != OldPath)
 				{
-					const Asset::FAssetResult Result = Asset::MoveAsset(OldPath, NewPath);
+					const FEditorAssetMove Move{OldPath, NewPath};
+					const Asset::FAssetResult Result = MoveAssets(std::span{&Move, 1});
 					if (!Result)
 						SetError(Result.Message);
 					else
@@ -1020,7 +1022,8 @@ namespace Durin
 				SetError("The resulting asset path is invalid.");
 				return false;
 			}
-			const Asset::FAssetResult Result = Asset::MoveAsset(OldPath, NewPath);
+			const FEditorAssetMove Move{OldPath, NewPath};
+			const Asset::FAssetResult Result = MoveAssets(std::span{&Move, 1});
 			if (!Result)
 			{
 				SetError(Result.Message);
@@ -1079,12 +1082,7 @@ namespace Durin
 			return false;
 		}
 
-		struct FAssetFolderMove
-		{
-			FAssetPath OldPath;
-			FAssetPath NewPath;
-		};
-		std::vector<FAssetFolderMove> Moves;
+		std::vector<FEditorAssetMove> Moves;
 		std::unordered_set<std::string> ManagedFiles;
 		std::vector<std::filesystem::path> RelativeDirectories;
 		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
@@ -1141,18 +1139,11 @@ namespace Durin
 			return true;
 		}
 
-		std::vector<FAssetFolderMove> Completed;
-		for (const FAssetFolderMove& Move : Moves)
+		const Asset::FAssetResult MoveResult = MoveAssets(Moves);
+		if (!MoveResult)
 		{
-			const Asset::FAssetResult Result = Asset::MoveAsset(Move.OldPath, Move.NewPath);
-			if (!Result)
-			{
-				for (auto RollbackIt = Completed.rbegin(); RollbackIt != Completed.rend(); ++RollbackIt)
-					Asset::MoveAsset(RollbackIt->NewPath, RollbackIt->OldPath);
-				SetError(Result.Message);
-				return false;
-			}
-			Completed.push_back(Move);
+			SetError(MoveResult.Message);
+			return false;
 		}
 		for (const std::filesystem::path& RelativeDirectory : RelativeDirectories)
 		{
@@ -1160,9 +1151,12 @@ namespace Durin
 			std::filesystem::create_directories(NewFolder / RelativeDirectory, Ec);
 			if (Ec)
 			{
-				for (auto RollbackIt = Completed.rbegin(); RollbackIt != Completed.rend(); ++RollbackIt)
-					Asset::MoveAsset(RollbackIt->NewPath, RollbackIt->OldPath);
-				SetError(std::format("Could not recreate an empty directory: {}", Ec.message()));
+				std::vector<FEditorAssetMove> RollbackMoves;
+				RollbackMoves.reserve(Moves.size());
+				for (auto RollbackIt = Moves.rbegin(); RollbackIt != Moves.rend(); ++RollbackIt)
+					RollbackMoves.push_back({RollbackIt->NewPath, RollbackIt->OldPath});
+				const Asset::FAssetResult RollbackResult = MoveAssets(RollbackMoves);
+				SetError(std::format("Could not recreate an empty directory: {}{}", Ec.message(), RollbackResult ? "" : std::format(" Asset rollback also failed: {}", RollbackResult.Message)));
 				return false;
 			}
 		}

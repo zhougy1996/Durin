@@ -5,6 +5,7 @@
 namespace Durin
 {
 	class DLevel;
+	class FEditorAssetMoveCoordinator;
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
@@ -47,6 +48,8 @@ namespace Durin
 		auto SetDetailsPaneRatio(float Ratio) -> void;
 
 	private:
+		friend class FEditorAssetMoveCoordinator;
+
 		FLevelViewportStateMap ViewportStates;
 		bool bWindowMaximized = true;
 		int32 WindowWidth = 1280;

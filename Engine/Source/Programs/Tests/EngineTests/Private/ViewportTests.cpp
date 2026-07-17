@@ -33,6 +33,10 @@ namespace
 	public:
 		explicit FCountingTransaction(int& InValue, int InDelta = 1) : Value(InValue), Delta(InDelta) {}
 		auto GetDescription() const -> std::string_view override { return "Counting"; }
+		auto GetDetails(Durin::EEditorTransactionOperation Operation) const -> std::string override
+		{
+			return Operation == Durin::EEditorTransactionOperation::Undo ? "Counter changed backward" : "Counter changed forward";
+		}
 		auto Undo() -> bool override { Value -= Delta; return true; }
 		auto Redo() -> bool override { Value += Delta; return true; }
 	private:
@@ -140,9 +144,12 @@ TEST(FEditorTransactionManagerTests, UsesStableIdsAndRejectsStaleUndoRequests)
 	const std::vector<Durin::FEditorTransactionEvent> Events = Manager.ConsumeEvents();
 	ASSERT_EQ(Events.size(), 4);
 	EXPECT_EQ(Events[0].Type, Durin::EEditorTransactionEventType::Executed);
+	EXPECT_EQ(Events[0].Details, "Counter changed forward");
 	EXPECT_EQ(Events[1].Type, Durin::EEditorTransactionEventType::Executed);
 	EXPECT_EQ(Events[2].Type, Durin::EEditorTransactionEventType::Undone);
+	EXPECT_EQ(Events[2].Details, "Counter changed backward");
 	EXPECT_EQ(Events[3].Type, Durin::EEditorTransactionEventType::Redone);
+	EXPECT_EQ(Events[3].Details, "Counter changed forward");
 }
 
 TEST(FEditorTransactionManagerTests, KeepsTransactionsOnTheirOriginalStackWhenApplyFails)
@@ -390,6 +397,26 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	DragInput.bCancel = true;
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, nullptr);
 	ExpectVectorNear(Actor->GetActorTransform().Translation, InitialLocation);
+
+	Durin::FEditorTransactionManager TransformTransactions;
+	DragInput.bCancel = false;
+	DragInput.bLeftMousePressed = true;
+	DragInput.bLeftMouseDown = true;
+	DragInput.MousePosition = HandleScreen;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
+	DragInput.bLeftMousePressed = false;
+	DragInput.MousePosition += glm::normalize(HandleScreen - CenterScreen) * 30.0f;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	DragInput.bLeftMouseDown = false;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	const std::vector<Durin::FEditorTransactionEvent> TransformEvents = TransformTransactions.ConsumeEvents();
+	ASSERT_EQ(TransformEvents.size(), 1);
+	EXPECT_EQ(TransformEvents.front().Description, "Translate 'Selected'");
+	EXPECT_NE(TransformEvents.front().Details.find("'Selected'"), std::string::npos);
+	EXPECT_NE(TransformEvents.front().Details.find("Location"), std::string::npos);
+	EXPECT_NE(TransformEvents.front().Details.find("Delta"), std::string::npos);
+
 	Client.GetTransformGizmo().SetMode(Durin::ETransformGizmoMode::Rotate);
 	Durin::FSceneView RotateView;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, RotateView));

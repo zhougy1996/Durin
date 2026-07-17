@@ -241,6 +241,14 @@ namespace Durin
 						ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
 						ImGui::TextUnformatted(Notification.Message.c_str());
 						ImGui::PopTextWrapPos();
+						if (!Notification.Details.empty())
+						{
+							ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+							ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
+							ImGui::TextUnformatted(Notification.Details.c_str());
+							ImGui::PopTextWrapPos();
+							ImGui::PopStyleColor();
+						}
 
 						if (Notification.Type == EEditorNotificationType::Progress)
 						{
@@ -274,6 +282,7 @@ namespace Durin
 			{
 				Desc.Type = EEditorNotificationType::Error;
 				Desc.Message = std::format("Failed to {} {}", FailureOperation(Event.Operation), Event.Description);
+				Desc.Details = std::move(Event.Details);
 				Desc.DurationSeconds = 0.0f;
 				Notifications.Post(std::move(Desc));
 				continue;
@@ -288,6 +297,7 @@ namespace Durin
 			case EEditorTransactionEventType::Executed:
 			default: Desc.Message = Event.Description; break;
 			}
+			Desc.Details = std::move(Event.Details);
 
 			const FEditorTransactionId Id = Event.Id;
 			FEditorNotificationAction Action;

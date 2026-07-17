@@ -7,6 +7,7 @@ namespace Durin
 {
 	class ILevelEditorPanel;
 	class FEditorSessionSettings;
+	class FEditorAssetMoveCoordinator;
 	class FEditorWorkspaceManager;
 	class FLevelDocumentController;
 	class FSceneViewportPanel;
@@ -42,6 +43,7 @@ namespace Durin
 		FEditorSessionSettings& SessionSettings;
 		FEditorWorkspaceManager& WorkspaceManager;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
+		std::unique_ptr<FEditorAssetMoveCoordinator> AssetMoveCoordinator;
 		std::unique_ptr<FStaticMeshImportDialog> StaticMeshImportDialog;
 		FEditorNotificationOverlay* NotificationOverlay = nullptr;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;

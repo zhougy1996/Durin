@@ -26,6 +26,8 @@ namespace Durin
 	{
 		EEditorNotificationType Type = EEditorNotificationType::Info;
 		std::string Message;
+		// Optional session-history context; toast notifications intentionally remain concise.
+		std::string Details;
 		// Negative values select the type default, zero keeps the notification until dismissed.
 		float DurationSeconds = -1.0f;
 		std::optional<FEditorNotificationAction> Action;
@@ -43,6 +45,7 @@ namespace Durin
 		FEditorNotificationId Id = 0;
 		EEditorNotificationType Type = EEditorNotificationType::Info;
 		std::string Message;
+		std::string Details;
 		std::optional<float> Progress;
 		std::optional<float> RemainingSeconds;
 		std::optional<FEditorNotificationAction> Action;
