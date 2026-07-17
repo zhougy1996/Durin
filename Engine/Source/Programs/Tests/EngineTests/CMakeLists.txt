@@ -2,6 +2,7 @@ include(GoogleTest)
 
 add_durin_test(EngineTests
 	Private/MaterialTests.cpp
+	Private/TextureTests.cpp
 	Private/WorldTests.cpp
 	Private/ViewportTests.cpp
 	Private/EditorNotificationTests.cpp

@@ -31,6 +31,7 @@
         "Public/Components/MeshComponent.h",
         "Public/Components/StaticMeshComponent.h",
         "Public/StaticMesh/StaticMesh.h",
+        "Public/Texture/Texture2D.h",
         "Public/Materials/MaterialInterface.h",
         "Public/Materials/Material.h",
         "Public/Materials/MaterialInstance.h"
