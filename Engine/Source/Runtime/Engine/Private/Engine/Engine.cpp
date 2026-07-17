@@ -88,8 +88,9 @@ namespace Durin
 		if (MainScene != nullptr)
 		{
 			MainScene->Release();
-			FlushRenderingCommands();
 		}
+		if (RendererModule != nullptr) RendererModule->ReleaseResources();
+		FlushRenderingCommands();
 		MainScene.reset();
 		RendererModule = nullptr;
 		Super::BeginDestroy();

@@ -8,6 +8,8 @@
 
 namespace Durin
 {
+	class FTexture2DRenderResource;
+
 	enum class ETextureSourceFormat : uint8
 	{
 		Invalid,
@@ -66,6 +68,8 @@ namespace Durin
 		auto GetSourceFile() const -> const std::string& { return SourceFile; }
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
 		auto GetPlatformData() const -> const FTexturePlatformData* { return PlatformData.get(); }
+		auto GetRenderResource() const -> const std::shared_ptr<FTexture2DRenderResource>& { return RenderResource; }
+		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 
 		auto RebuildPlatformData(std::string& OutError) -> bool;
 		auto PostLoad(std::string& OutError) -> bool override;
@@ -74,6 +78,8 @@ namespace Durin
 
 	private:
 		auto BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
+		auto InvalidatePlatformData() -> void;
+		auto QueueRenderResourceBuild() -> void;
 
 		DPROPERTY()
 		std::string SourceFile;
@@ -82,5 +88,10 @@ namespace Durin
 		// separate lets platform builds replace format/mips without mutating edit data.
 		std::unique_ptr<FTextureSourceData> SourceData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
+
+		// The shared proxy can outlive this UObject while queued render commands drain.
+		// Its RHI member is intentionally never accessed through DTexture2D.
+		std::shared_ptr<FTexture2DRenderResource> RenderResource;
+		uint64 BuildRevision = 0;
 	};
 }

@@ -7,7 +7,9 @@ namespace Durin
 	class RENDERER_API FRendererModule final : public IRendererModule
 	{
 	public:
+		auto StartupModule() -> void override;
 		auto ShutdownModule() -> void override;
+		auto ReleaseResources() -> void override;
 		auto CreateScene() -> std::unique_ptr<IScene> override;
 		auto GetViewSettings() const -> FRendererViewSettings override;
 		auto SetViewSettings(const FRendererViewSettings& InSettings) -> void override;

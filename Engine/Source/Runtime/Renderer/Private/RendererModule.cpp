@@ -1,11 +1,14 @@
 #include "RendererModule.h"
 
+#include "DefaultTextures.h"
 #include "RHI.h"
 #include "RHICommandList.h"
+#include "RenderingThread.h"
 #include "Scene.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "Texture/Texture2DRenderResource.h"
 
 #include <glm/mat4x4.hpp>
 
@@ -13,6 +16,37 @@ namespace Durin
 {
 	namespace
 	{
+		struct FDefaultTextureState
+		{
+			FTextureRHIRef White;
+			FTextureRHIRef Black;
+			FTextureRHIRef FlatNormal;
+		};
+
+		FDefaultTextureState GDefaultTextures;
+
+		auto CreateSolidTexture(FRHICommandListImmediate& CommandList, const char* DebugName, const std::array<uint8, 4>& Color) -> FTextureRHIRef
+		{
+			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(DebugName, 1, 1, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource);
+			FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			if (Texture != nullptr)
+			{
+				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 1, 1);
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, Region, 4, Color.data());
+			}
+			return Texture;
+		}
+
+		auto InitializeDefaultTextures_RenderThread(FRHICommandListImmediate& CommandList) -> void
+		{
+			check(IsInRenderingThread());
+			if (GDefaultTextures.White != nullptr) return;
+			GDefaultTextures.White = CreateSolidTexture(CommandList, "DefaultWhite", {255, 255, 255, 255});
+			GDefaultTextures.Black = CreateSolidTexture(CommandList, "DefaultBlack", {0, 0, 0, 255});
+			GDefaultTextures.FlatNormal = CreateSolidTexture(CommandList, "DefaultFlatNormal", {128, 128, 255, 255});
+		}
+
 		auto MakeColorAttachmentLayout(EPixelFormat Format, ERHITextureLayout FinalLayout, ERHIAccess FinalAccess) -> FRHIAttachmentLayout
 		{
 			FRHIAttachmentLayout Layout;
@@ -746,8 +780,46 @@ namespace Durin
 		}
 	}
 
+	auto GetDefaultTexture_RenderThread(EDefaultTexture Texture) -> FRHITexture*
+	{
+		check(IsInRenderingThread());
+		switch (Texture)
+		{
+		case EDefaultTexture::White: return GDefaultTextures.White;
+		case EDefaultTexture::Black: return GDefaultTextures.Black;
+		case EDefaultTexture::FlatNormal: return GDefaultTextures.FlatNormal;
+		}
+		return GDefaultTextures.White;
+	}
+
+	auto ResolveTexture_RenderThread(const std::shared_ptr<FTexture2DRenderResource>& Resource, EDefaultTexture Fallback) -> FRHITexture*
+	{
+		check(IsInRenderingThread());
+		if (Resource != nullptr)
+		{
+			if (FRHITexture* Texture = Resource->GetTextureRHI_RenderThread()) return Texture;
+		}
+		return GetDefaultTexture_RenderThread(Fallback);
+	}
+
+	auto FRendererModule::StartupModule() -> void
+	{
+		ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)([](FRHICommandListImmediate& CommandList) {
+			InitializeDefaultTextures_RenderThread(CommandList);
+		});
+	}
+
+	auto FRendererModule::ReleaseResources() -> void
+	{
+		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)([](FRHICommandListImmediate&) {
+			GDefaultTextures = {};
+		});
+	}
+
 	auto FRendererModule::ShutdownModule() -> void
 	{
+		checkf(GDefaultTextures.White == nullptr && GDefaultTextures.Black == nullptr && GDefaultTextures.FlatNormal == nullptr,
+			"Renderer defaults must be released before the rendering thread stops");
 		GStaticMeshState = {};
 		GGizmoState = {};
 		GPostProcessState.CopyShaderMap.reset();

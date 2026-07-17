@@ -40,6 +40,8 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	const Durin::FTexturePlatformData* PlatformData = Result.Asset->GetPlatformData();
 	ASSERT_NE(SourceData, nullptr);
 	ASSERT_NE(PlatformData, nullptr);
+	EXPECT_NE(Result.Asset->GetRenderResource(), nullptr);
+	EXPECT_EQ(Result.Asset->GetBuildRevision(), 1u);
 	EXPECT_TRUE(SourceData->IsValid());
 	EXPECT_TRUE(SourceData->bHasTransparency);
 	EXPECT_EQ(SourceData->Width, 2u);
@@ -60,6 +62,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
 	EXPECT_TRUE(Loaded->GetSourceData()->IsValid());
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
+	EXPECT_EQ(Loaded->GetBuildRevision(), 1u);
 	EXPECT_EQ(Loaded->GetSourceFile(), "Transparent.png");
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 

@@ -5,6 +5,8 @@
 #include "DObject/DObjectGlobals.h"
 #include "ImageDecoder.h"
 #include "Misc/Paths.h"
+#include "DynamicRHI.h"
+#include "Texture/Texture2DRenderResource.h"
 
 namespace Durin
 {
@@ -59,7 +61,7 @@ namespace Durin
 
 	auto FTexturePlatformData::IsValid() const -> bool
 	{
-		if (PixelFormat == EPixelFormat::Unknown || Mips.empty()) return false;
+		if (PixelFormat == EPixelFormat::Unknown || Mips.empty() || Mips.size() > std::numeric_limits<uint8>::max()) return false;
 		for (size_t MipIndex = 0; MipIndex < Mips.size(); ++MipIndex)
 		{
 			if (!Mips[MipIndex].IsValid(PixelFormat)) return false;
@@ -75,6 +77,7 @@ namespace Durin
 
 	DTexture2D::DTexture2D(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
+		, RenderResource(std::make_shared<FTexture2DRenderResource>())
 	{
 		static const bool RegisteredAssetContributors = [] {
 			Asset::RegisterAssetMoveContributor(DTexture2D::StaticClass(), [](DObject* Object, const FAssetPath& OldPath, const FAssetPath& NewPath, Asset::FAssetMoveContribution& Out) -> Asset::FAssetResult {
@@ -107,7 +110,30 @@ namespace Durin
 		(void)RegisteredAssetContributors;
 	}
 
-	DTexture2D::~DTexture2D() = default;
+	DTexture2D::~DTexture2D()
+	{
+		const uint64 ReleaseRevision = ++BuildRevision;
+		if (GDynamicRHI != nullptr)
+		{
+			RenderResource->QueueRelease(ReleaseRevision);
+		}
+	}
+
+	auto DTexture2D::InvalidatePlatformData() -> void
+	{
+		PlatformData.reset();
+		const uint64 ReleaseRevision = ++BuildRevision;
+		if (GDynamicRHI != nullptr) RenderResource->QueueRelease(ReleaseRevision);
+	}
+
+	auto DTexture2D::QueueRenderResourceBuild() -> void
+	{
+		check(PlatformData && PlatformData->IsValid());
+		const uint64 Revision = ++BuildRevision;
+		if (GDynamicRHI == nullptr) return;
+		// The immutable value snapshot decouples queued uploads from subsequent imports/rebuilds.
+		RenderResource->QueueBuild(std::make_shared<const FTexturePlatformData>(*PlatformData), Revision);
+	}
 
 	auto DTexture2D::BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool
 	{
@@ -115,7 +141,7 @@ namespace Durin
 		if (!Asset::DecodeImageFromFile(PhysicalFilePath, DecodedImage, OutError))
 		{
 			SourceData.reset();
-			PlatformData.reset();
+			InvalidatePlatformData();
 			return false;
 		}
 
@@ -130,7 +156,7 @@ namespace Durin
 		{
 			OutError = "Decoded texture source data is invalid.";
 			SourceData.reset();
-			PlatformData.reset();
+			InvalidatePlatformData();
 			return false;
 		}
 
@@ -144,7 +170,7 @@ namespace Durin
 		if (!SourceData || !SourceData->IsValid())
 		{
 			OutError = "Texture source data is unavailable or invalid.";
-			PlatformData.reset();
+			InvalidatePlatformData();
 			return false;
 		}
 
@@ -158,11 +184,12 @@ namespace Durin
 		if (!NewPlatformData->IsValid())
 		{
 			OutError = "Failed to build texture platform data.";
-			PlatformData.reset();
+			InvalidatePlatformData();
 			return false;
 		}
 
 		PlatformData = std::move(NewPlatformData);
+		QueueRenderResourceBuild();
 		return true;
 	}
 
