@@ -7,7 +7,7 @@ Durin's material architecture follows the useful ownership split from Unreal Eng
 - `DMaterialInterface` is the common asset/component-facing contract. It resolves named parameters and produces immutable `FMaterialRenderData` for rendering.
 - `DMaterial` owns default scalar and vector parameter maps.
 - `DMaterialInstance` references a parent material interface and stores only local overrides. Parent cycles are rejected.
-- `DStaticMeshComponent` owns the material assignment. The current static mesh format has one section, so the component currently exposes one material slot.
+- `DStaticMeshComponent` owns per-slot material overrides. Static mesh sections reference imported material slots, and the scene proxy snapshots one render-data value per slot.
 - `FStaticMeshSceneProxy` receives a compact render-data snapshot. The renderer never reads reflected material objects directly.
 - The static mesh shader consumes `BaseColor` and `Opacity` through its existing transform uniform.
 
@@ -20,7 +20,14 @@ Built-in parameter names are `BaseColor` (vector) and `Opacity` (scalar). Missin
 3. **Static permutations:** add blend mode, shading model, two-sided state, vertex-factory keys, shader-map identity, and pipeline-state caching.
 4. **Material graph compilation:** introduce graph assets, typed expressions, HLSL/Slang generation, dependency tracking, diagnostics, and derived-data caching.
 5. **Runtime/editor workflow:** dynamic material instances, render-thread update commands, material/instance editors, thumbnails, hot reload, and statistics.
-6. **Advanced rendering:** mesh sections and multiple slots, depth/shadow passes, deferred/PBR inputs, decals, translucent sorting, and platform quality levels.
+6. **Advanced rendering (in progress):** mesh sections and multiple slots are implemented; depth/shadow passes, deferred/PBR inputs, decals, translucent sorting, and platform quality levels remain.
+
+## Static Mesh Vertex Contract
+
+- Static meshes retain up to four UV channels. Missing channels are filled with `(0, 0)` while the LOD records how many source channels were present.
+- Tangents are stored as `xyz` plus a handedness sign in `w`; the bitangent is reconstructed as `cross(N, T) * sign`.
+- Missing normals and tangents are generated deterministically. Missing vertex colors use linear white, so they do not change the material base color.
+- Each imported node-mesh instance becomes a section. Sections keep contiguous index ranges and reference a stable source material slot; source material assets are not created automatically.
 
 ## Design Rules
 

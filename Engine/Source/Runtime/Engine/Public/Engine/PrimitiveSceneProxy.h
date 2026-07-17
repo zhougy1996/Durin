@@ -25,13 +25,14 @@ namespace Durin
 	class FStaticMeshSceneProxy : public PrimitiveSceneProxy
 	{
 	public:
-		ENGINE_API explicit FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData, const FMaterialRenderData& InMaterial);
+		ENGINE_API explicit FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData, std::vector<FMaterialRenderData> InMaterials);
 
 		ENGINE_API auto GetRenderData() const -> FStaticMeshRenderData*;
-		auto GetMaterialRenderData() const -> const FMaterialRenderData& { return Material; }
+		ENGINE_API auto GetMaterialRenderData(uint32 SlotIndex) const -> const FMaterialRenderData&;
+		auto GetNumMaterials() const -> uint32 { return static_cast<uint32>(Materials.size()); }
 
 	private:
 		FStaticMeshRenderData* RenderData = nullptr;
-		FMaterialRenderData Material;
+		std::vector<FMaterialRenderData> Materials;
 	};
 }

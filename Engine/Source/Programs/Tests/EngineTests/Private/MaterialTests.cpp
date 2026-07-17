@@ -7,6 +7,7 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshResources.h"
 
 #include <gtest/gtest.h>
 
@@ -57,12 +58,121 @@ TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 	std::unique_ptr<Durin::PrimitiveSceneProxy> Proxy = Component->CreateSceneProxy();
 	auto* StaticMeshProxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(Proxy.get());
 	ASSERT_NE(StaticMeshProxy, nullptr);
-	ExpectColorNear(StaticMeshProxy->GetMaterialRenderData().BaseColor, Durin::FVector4f(0.25f, 0.5f, 0.75f, 1.0f));
+	ExpectColorNear(StaticMeshProxy->GetMaterialRenderData(0).BaseColor, Durin::FVector4f(0.25f, 0.5f, 0.75f, 1.0f));
 
 	Proxy.reset();
 	Durin::DestroyObject(Component);
 	Durin::DestroyObject(Mesh);
 	Durin::DestroyObject(Material);
+}
+
+TEST(FMaterialTests, StaticMeshProxyCapturesPerSlotMaterials)
+{
+	InitializeDObjectSystem();
+	Durin::DMaterial* First = Durin::NewObject<Durin::DMaterial>(nullptr, "FirstSlotMaterial");
+	Durin::DMaterial* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "SecondSlotMaterial");
+	First->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.2, 0.3, 0.4));
+	Second->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.7, 0.6, 0.5));
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	Mesh->GetRenderData()->MaterialSlots.push_back({"Second", 1});
+	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "MultiMaterialMeshComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(0, First);
+	Component->SetMaterial(1, Second);
+
+	EXPECT_EQ(Component->GetNumMaterials(), 2u);
+	EXPECT_EQ(Component->GetMaterial(), First);
+	EXPECT_EQ(Component->GetMaterial(1), Second);
+	std::unique_ptr<Durin::PrimitiveSceneProxy> Proxy = Component->CreateSceneProxy();
+	auto* StaticMeshProxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(Proxy.get());
+	ASSERT_NE(StaticMeshProxy, nullptr);
+	EXPECT_EQ(StaticMeshProxy->GetNumMaterials(), 2u);
+	ExpectColorNear(StaticMeshProxy->GetMaterialRenderData(0).BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
+	ExpectColorNear(StaticMeshProxy->GetMaterialRenderData(1).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+
+	Proxy.reset();
+	Durin::DestroyObject(Component);
+	Durin::DestroyObject(Mesh);
+	Durin::DestroyObject(Second);
+	Durin::DestroyObject(First);
+}
+
+TEST(FMaterialTests, DebugStaticMeshProvidesCompleteLODAndPackedAttributes)
+{
+	InitializeDObjectSystem();
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	const Durin::FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
+	ASSERT_NE(RenderData, nullptr);
+	ASSERT_EQ(RenderData->LODResources.size(), 1u);
+	ASSERT_EQ(RenderData->MaterialSlots.size(), 1u);
+	const Durin::FStaticMeshLODResources& LOD = RenderData->LODResources[0];
+	EXPECT_EQ(LOD.Positions.size(), 3u);
+	EXPECT_EQ(LOD.Normals.size(), LOD.Positions.size());
+	EXPECT_EQ(LOD.Tangents.size(), LOD.Positions.size());
+	EXPECT_EQ(LOD.Colors.size(), LOD.Positions.size());
+	for (const auto& Channel : LOD.TexCoords) EXPECT_EQ(Channel.size(), LOD.Positions.size());
+	ASSERT_EQ(LOD.Sections.size(), 1u);
+	EXPECT_EQ(LOD.Sections[0].FirstIndex, 0u);
+	EXPECT_EQ(LOD.Sections[0].IndexCount, 3u);
+
+	std::array<Durin::FVector2f, Durin::MaxStaticMeshUVChannels> TexCoords{};
+	const Durin::FStaticMeshPackedVertex Packed = Durin::PackStaticMeshVertex(
+		Durin::FVector3f(0.0f, 0.0f, 1.0f), Durin::FVector4f(1.0f, 0.0f, 0.0f, -1.0f), TexCoords, Durin::FVector4f(1.0f, 0.5f, 0.0f, 0.25f));
+	EXPECT_EQ(Packed.Normal[2], 32767);
+	EXPECT_EQ(Packed.Tangent[0], 32767);
+	EXPECT_EQ(Packed.Tangent[3], -32767);
+	EXPECT_EQ(Packed.Color[0], 255);
+	EXPECT_EQ(Packed.Color[1], 128);
+	EXPECT_EQ(Packed.Color[2], 0);
+	EXPECT_EQ(Packed.Color[3], 64);
+
+	Durin::DestroyObject(Mesh);
+}
+
+TEST(FMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlots)
+{
+	InitializeDObjectSystem();
+	static const bool bMountInitialized = [] {
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshImports";
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/MeshImportTests/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
+	Durin::FStaticMeshImportResult ImportResult = Durin::DStaticMesh::ImportAsset(Source.generic_string(), "/MeshImportTests/MultiSection");
+	ASSERT_TRUE(ImportResult) << ImportResult.Message;
+	ASSERT_NE(ImportResult.Asset, nullptr);
+	const Durin::FStaticMeshRenderData* RenderData = ImportResult.Asset->GetRenderData();
+	ASSERT_NE(RenderData, nullptr);
+	ASSERT_EQ(RenderData->MaterialSlots.size(), 2u);
+	EXPECT_EQ(RenderData->MaterialSlots[0].Name, "Red");
+	EXPECT_EQ(RenderData->MaterialSlots[1].Name, "Blue");
+	ASSERT_EQ(RenderData->LODResources.size(), 1u);
+	const Durin::FStaticMeshLODResources& LOD = RenderData->LODResources[0];
+	EXPECT_EQ(LOD.NumTexCoords, 2u);
+	EXPECT_TRUE(LOD.bHasVertexColors);
+	EXPECT_EQ(LOD.Positions.size(), 12u);
+	EXPECT_EQ(LOD.Normals.size(), LOD.Positions.size());
+	EXPECT_EQ(LOD.Tangents.size(), LOD.Positions.size());
+	EXPECT_EQ(LOD.Colors.size(), LOD.Positions.size());
+	EXPECT_EQ(LOD.Indices.size(), 12u);
+	ASSERT_EQ(LOD.Sections.size(), 4u);
+	for (size_t SectionIndex = 0; SectionIndex < LOD.Sections.size(); ++SectionIndex)
+	{
+		const Durin::FStaticMeshSection& Section = LOD.Sections[SectionIndex];
+		EXPECT_EQ(Section.FirstIndex, static_cast<Durin::uint32>(SectionIndex) * 3u);
+		EXPECT_EQ(Section.IndexCount, 3u);
+		EXPECT_EQ(Section.MaterialSlotIndex, static_cast<Durin::uint32>(SectionIndex % 2u));
+		EXPECT_TRUE(Section.LocalBounds.bIsValid);
+	}
+	EXPECT_TRUE(LOD.LocalBounds.bIsValid);
+	EXPECT_TRUE(RenderData->LocalBounds.bIsValid);
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MeshImportTests/MultiSection", AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 }
 
 TEST(FMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides)

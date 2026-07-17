@@ -62,6 +62,7 @@ namespace Durin
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_SHADER(FStaticMeshFragmentShader, FShader, "/Engine/StaticMesh", EShaderFrequency::Fragment, "FragmentMain");
 		};
@@ -113,9 +114,9 @@ namespace Durin
 		struct FStaticMeshTransformUniform
 		{
 			glm::mat4 LocalToClip{1.0f};
-			FVector4f Color{1.0f, 1.0f, 1.0f, 1.0f};
 			glm::mat4 LocalToWorld{1.0f};
 			glm::mat4 NormalToWorld{1.0f};
+			FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
 		};
 
 		struct FStaticMeshLightingUniform
@@ -123,7 +124,12 @@ namespace Durin
 			FVector4f LightDirection{-0.5f, -0.5f, -1.0f, 0.0f};
 			FVector4f LightColorIntensity{1.0f, 1.0f, 1.0f, 1.0f};
 			FVector4f ViewPositionAmbient{0.0f, 0.0f, 0.0f, 0.08f};
-			FVector4f MaterialParams{0.35f, 32.0f, 1.0f, 0.0f};
+		};
+
+		struct FStaticMeshMaterialUniform
+		{
+			FVector4f BaseColor{1.0f};
+			FVector4f Params{0.35f, 32.0f, 1.0f, 0.0f};
 		};
 
 		struct FPostProcessViewUniform
@@ -426,7 +432,14 @@ namespace Durin
 			FVertexDeclarationElementList VertexDeclElements;
 			constexpr uint32 VertexStride = sizeof(FVector3f);
 			VertexDeclElements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, VertexStride);
-			VertexDeclElements[1] = FVertexElement(1, 0, EVertexElementType::Float3, 1, VertexStride);
+			constexpr uint32 AttributeStride = sizeof(FStaticMeshPackedVertex);
+			VertexDeclElements[1] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, Normal), EVertexElementType::Short4N, 1, AttributeStride);
+			VertexDeclElements[2] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, Tangent), EVertexElementType::Short4N, 2, AttributeStride);
+			VertexDeclElements[3] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 0, EVertexElementType::Float2, 3, AttributeStride);
+			VertexDeclElements[4] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 1, EVertexElementType::Float2, 4, AttributeStride);
+			VertexDeclElements[5] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 2, EVertexElementType::Float2, 5, AttributeStride);
+			VertexDeclElements[6] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 3, EVertexElementType::Float2, 6, AttributeStride);
+			VertexDeclElements[7] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, Color), EVertexElementType::UByte4N, 7, AttributeStride);
 			GStaticMeshState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
 
 			FGraphicsPipelineStateInitializer Initializer;
@@ -594,7 +607,7 @@ namespace Durin
 		auto DrawStaticMeshProxy(FRHICommandListImmediate& CommandList, const FSceneView& View, const FDirectionalLightSceneData& Light, ERenderMode RenderMode, ERasterMode RasterMode, const FStaticMeshSceneProxy& Proxy) -> void
 		{
 			FStaticMeshRenderData* RenderData = Proxy.GetRenderData();
-			if (RenderData == nullptr || RenderData->IndexCount == 0)
+			if (RenderData == nullptr || RenderData->LODResources.empty())
 			{
 				return;
 			}
@@ -604,11 +617,13 @@ namespace Durin
 				return;
 			}
 
+			const FStaticMeshLODResources& LOD = RenderData->LODResources[0];
 			FStaticMeshTransformUniform TransformUniform;
 			TransformUniform.LocalToClip = ToShaderMatrix(View.ViewProjectionMatrix * Proxy.GetLocalToWorld());
-			TransformUniform.Color = Proxy.GetMaterialRenderData().BaseColor;
 			TransformUniform.LocalToWorld = ToShaderMatrix(Proxy.GetLocalToWorld());
 			TransformUniform.NormalToWorld = ToShaderMatrix(glm::transpose(glm::inverse(Proxy.GetLocalToWorld())));
+			const float TransformDeterminant = glm::determinant(glm::mat3(glm::mat4(Proxy.GetLocalToWorld())));
+			TransformUniform.TransformParams.x = TransformDeterminant < 0.0f ? -1.0f : 1.0f;
 			const FRHIUniformBufferRange TransformUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&TransformUniform, sizeof(TransformUniform));
 
 			FGraphicsPipelineStateRHIRef Pipeline = RasterMode == ERasterMode::Wireframe ? GStaticMeshState.WireframePipelineState : GStaticMeshState.SolidPipelineState;
@@ -618,21 +633,29 @@ namespace Durin
 			VertexShaderParameters.Transform = TransformUniformBuffer;
 			SetShaderParameters(CommandList, GStaticMeshState.VertexShader, VertexShaderParameters);
 
-			const FMaterialRenderData& Material = Proxy.GetMaterialRenderData();
 			FStaticMeshLightingUniform LightingUniform;
 			LightingUniform.LightDirection = FVector4f(FVector3f(Light.Direction), 0.0f);
 			LightingUniform.LightColorIntensity = FVector4f(Light.Color, Light.Intensity);
 			LightingUniform.ViewPositionAmbient = FVector4f(FVector3f(View.ViewLocation), Light.AmbientIntensity);
-			LightingUniform.MaterialParams = FVector4f(Material.SpecularStrength, Material.Shininess, RenderMode == ERenderMode::Lit ? 1.0f : 0.0f, 0.0f);
 			const FRHIUniformBufferRange LightingUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&LightingUniform, sizeof(LightingUniform));
-			FStaticMeshFragmentShader::FParameters FragmentShaderParameters;
-			FragmentShaderParameters.Lighting = LightingUniformBuffer;
-			SetShaderParameters(CommandList, GStaticMeshState.FragmentShader, FragmentShaderParameters);
 
-			CommandList.BindVertexBuffer(0, RenderData->PositionVertexBufferRHI, 0);
-			CommandList.BindVertexBuffer(1, RenderData->NormalVertexBufferRHI, 0);
-			CommandList.BindIndexBuffer(RenderData->IndexBufferRHI, 0);
-			CommandList.DrawIndexed(RenderData->IndexCount, 0, 0);
+			CommandList.BindVertexBuffer(0, LOD.PositionVertexBufferRHI, 0);
+			CommandList.BindVertexBuffer(1, LOD.StaticMeshVertexBufferRHI, 0);
+			CommandList.BindIndexBuffer(LOD.IndexBufferRHI, 0);
+			for (const FStaticMeshSection& Section : LOD.Sections)
+			{
+				if (Section.IndexCount == 0 || static_cast<uint64>(Section.FirstIndex) + Section.IndexCount > LOD.Indices.size()) continue;
+				const FMaterialRenderData& Material = Proxy.GetMaterialRenderData(Section.MaterialSlotIndex);
+				FStaticMeshMaterialUniform MaterialUniform;
+				MaterialUniform.BaseColor = Material.BaseColor;
+				MaterialUniform.Params = FVector4f(Material.SpecularStrength, Material.Shininess, RenderMode == ERenderMode::Lit ? 1.0f : 0.0f, 0.0f);
+				const FRHIUniformBufferRange MaterialUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&MaterialUniform, sizeof(MaterialUniform));
+				FStaticMeshFragmentShader::FParameters FragmentShaderParameters;
+				FragmentShaderParameters.Lighting = LightingUniformBuffer;
+				FragmentShaderParameters.Material = MaterialUniformBuffer;
+				SetShaderParameters(CommandList, GStaticMeshState.FragmentShader, FragmentShaderParameters);
+				CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
+			}
 		}
 
 		auto DrawGizmoPrimitives(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bXRay) -> void

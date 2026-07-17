@@ -9,19 +9,36 @@ namespace Durin
 {
 	namespace Asset
 	{
-		struct FTestAssetData
+		inline constexpr uint32 MaxImportedUVChannels = 4;
+
+		struct FImportedMaterialSlot
 		{
+			std::string Name;
+			uint32 SourceMaterialIndex = 0;
+		};
+
+		struct FImportedMeshData
+		{
+			std::string Name;
 			std::vector<glm::vec3> Positions;
 			std::vector<glm::vec3> Normals;
-			std::vector<glm::vec3> Colors;
-			std::vector<glm::vec2> UVs;
+			std::vector<glm::vec4> Tangents;
+			std::array<std::vector<glm::vec2>, MaxImportedUVChannels> UVChannels;
+			std::vector<glm::vec4> Colors;
 			std::vector<uint32> Indices;
+			uint32 MaterialIndex = 0;
+		};
+
+		struct FImportedSceneData
+		{
+			std::vector<FImportedMaterialSlot> MaterialSlots;
+			std::vector<FImportedMeshData> Meshes;
 		};
 
 		struct FAsyncMeshImportResult
 		{
 			bool bSucceeded = false;
-			std::vector<FTestAssetData> Meshes;
+			FImportedSceneData Scene;
 			std::string ErrorMessage;
 		};
 
@@ -46,7 +63,7 @@ namespace Durin
 			friend ASSETCORE_API auto ImportFromFileAsync(std::string_view FilePath) -> FAsyncMeshImportHandle;
 		};
 
-		ASSETCORE_API auto ImportFromFile(std::string_view FilePath, std::vector<FTestAssetData>& OutData) -> bool;
+		ASSETCORE_API auto ImportFromFile(std::string_view FilePath, FImportedSceneData& OutData) -> bool;
 		ASSETCORE_API auto ImportFromFileAsync(std::string_view FilePath) -> FAsyncMeshImportHandle;
 	} // namespace AssetImport
 } // namespace Durin

@@ -12,6 +12,160 @@ namespace Durin
 {
 	namespace
 	{
+		constexpr float VectorTolerance = 1.0e-10f;
+
+		auto IsFinite(const FVector2f& Value) -> bool
+		{
+			return std::isfinite(Value.x) && std::isfinite(Value.y);
+		}
+
+		auto IsFinite(const FVector3f& Value) -> bool
+		{
+			return std::isfinite(Value.x) && std::isfinite(Value.y) && std::isfinite(Value.z);
+		}
+
+		auto IsFinite(const FVector4f& Value) -> bool
+		{
+			return std::isfinite(Value.x) && std::isfinite(Value.y) && std::isfinite(Value.z) && std::isfinite(Value.w);
+		}
+
+		auto SafeNormalize(const FVector3f& Value, const FVector3f& Fallback) -> FVector3f
+		{
+			const float LengthSquared = glm::dot(Value, Value);
+			return IsFinite(Value) && std::isfinite(LengthSquared) && LengthSquared > VectorTolerance
+				? Value / std::sqrt(LengthSquared)
+				: Fallback;
+		}
+
+		auto MakeStableTangent(const FVector3f& Normal) -> FVector3f
+		{
+			const FVector3f Axis = std::abs(Normal.z) < 0.999f ? FVector3f(0.0f, 0.0f, 1.0f) : FVector3f(0.0f, 1.0f, 0.0f);
+			return SafeNormalize(glm::cross(Axis, Normal), FVector3f(1.0f, 0.0f, 0.0f));
+		}
+
+		auto BuildNormals(const std::vector<FVector3f>& Positions, const std::vector<uint32>& Indices) -> std::vector<FVector3f>
+		{
+			std::vector<FVector3f> Normals(Positions.size(), FVector3f(0.0f));
+			for (size_t Index = 0; Index + 2 < Indices.size(); Index += 3)
+			{
+				const uint32 I0 = Indices[Index];
+				const uint32 I1 = Indices[Index + 1];
+				const uint32 I2 = Indices[Index + 2];
+				const FVector3f FaceNormal = glm::cross(Positions[I1] - Positions[I0], Positions[I2] - Positions[I0]);
+				if (!IsFinite(FaceNormal) || glm::dot(FaceNormal, FaceNormal) <= VectorTolerance) continue;
+				Normals[I0] += FaceNormal;
+				Normals[I1] += FaceNormal;
+				Normals[I2] += FaceNormal;
+			}
+			for (FVector3f& Normal : Normals) Normal = SafeNormalize(Normal, FVector3f(0.0f, 0.0f, 1.0f));
+			return Normals;
+		}
+
+		auto BuildTangents(
+			const std::vector<FVector3f>& Positions,
+			const std::vector<FVector3f>& Normals,
+			const std::vector<FVector2f>& UV0,
+			const std::vector<uint32>& Indices) -> std::vector<FVector4f>
+		{
+			std::vector<FVector3f> TangentAccum(Positions.size(), FVector3f(0.0f));
+			std::vector<FVector3f> BitangentAccum(Positions.size(), FVector3f(0.0f));
+			const bool bHasUV0 = UV0.size() == Positions.size();
+			if (bHasUV0)
+			{
+				for (size_t Index = 0; Index + 2 < Indices.size(); Index += 3)
+				{
+					const uint32 I0 = Indices[Index];
+					const uint32 I1 = Indices[Index + 1];
+					const uint32 I2 = Indices[Index + 2];
+					const FVector3f Edge1 = Positions[I1] - Positions[I0];
+					const FVector3f Edge2 = Positions[I2] - Positions[I0];
+					const FVector2f DeltaUV1 = UV0[I1] - UV0[I0];
+					const FVector2f DeltaUV2 = UV0[I2] - UV0[I0];
+					const float Determinant = DeltaUV1.x * DeltaUV2.y - DeltaUV1.y * DeltaUV2.x;
+					if (!std::isfinite(Determinant) || std::abs(Determinant) <= VectorTolerance) continue;
+					const float InverseDeterminant = 1.0f / Determinant;
+					const FVector3f Tangent = (Edge1 * DeltaUV2.y - Edge2 * DeltaUV1.y) * InverseDeterminant;
+					const FVector3f Bitangent = (Edge2 * DeltaUV1.x - Edge1 * DeltaUV2.x) * InverseDeterminant;
+					if (!IsFinite(Tangent) || !IsFinite(Bitangent)) continue;
+					for (uint32 VertexIndex : {I0, I1, I2})
+					{
+						TangentAccum[VertexIndex] += Tangent;
+						BitangentAccum[VertexIndex] += Bitangent;
+					}
+				}
+			}
+
+			std::vector<FVector4f> Tangents(Positions.size());
+			for (size_t VertexIndex = 0; VertexIndex < Positions.size(); ++VertexIndex)
+			{
+				const FVector3f& Normal = Normals[VertexIndex];
+				const FVector3f Orthogonalized = TangentAccum[VertexIndex] - Normal * glm::dot(Normal, TangentAccum[VertexIndex]);
+				const FVector3f Tangent = SafeNormalize(Orthogonalized, MakeStableTangent(Normal));
+				const float Sign = glm::dot(glm::cross(Normal, Tangent), BitangentAccum[VertexIndex]) < 0.0f ? -1.0f : 1.0f;
+				Tangents[VertexIndex] = FVector4f(Tangent, Sign);
+			}
+			return Tangents;
+		}
+
+		auto HasValidNormals(const std::vector<FVector3f>& Normals, size_t NumVertices) -> bool
+		{
+			return Normals.size() == NumVertices && std::ranges::all_of(Normals, [](const FVector3f& Normal) {
+				return IsFinite(Normal) && glm::dot(Normal, Normal) > VectorTolerance;
+			});
+		}
+
+		auto HasValidTangents(const std::vector<FVector4f>& Tangents, size_t NumVertices) -> bool
+		{
+			return Tangents.size() == NumVertices && std::ranges::all_of(Tangents, [](const FVector4f& Tangent) {
+				const FVector3f Direction(Tangent);
+				return IsFinite(Tangent) && glm::dot(Direction, Direction) > VectorTolerance && std::abs(Tangent.w) > 0.5f;
+			});
+		}
+
+		auto ValidateImportedMesh(const Asset::FImportedMeshData& Mesh, std::string& OutError) -> bool
+		{
+			if (Mesh.Positions.empty() || Mesh.Indices.empty()) return false;
+			if (Mesh.Positions.size() > std::numeric_limits<uint32>::max())
+			{
+				OutError = std::format("Mesh '{}' exceeds the uint32 vertex limit.", Mesh.Name);
+				return false;
+			}
+			if (Mesh.Indices.size() % 3 != 0)
+			{
+				OutError = std::format("Mesh '{}' index count is not a triangle list.", Mesh.Name);
+				return false;
+			}
+			if (!std::ranges::all_of(Mesh.Positions, [](const FVector3f& Position) { return IsFinite(Position); }))
+			{
+				OutError = std::format("Mesh '{}' contains a non-finite position.", Mesh.Name);
+				return false;
+			}
+			for (uint32 Index : Mesh.Indices)
+			{
+				if (Index >= Mesh.Positions.size())
+				{
+					OutError = std::format("Mesh '{}' contains an out-of-range index {}.", Mesh.Name, Index);
+					return false;
+				}
+			}
+			return true;
+		}
+
+		auto FindMaterialSlotIndex(const FStaticMeshRenderData& RenderData, uint32 SourceMaterialIndex) -> uint32
+		{
+			const auto It = std::ranges::find(RenderData.MaterialSlots, SourceMaterialIndex, &FStaticMeshMaterialSlot::SourceMaterialIndex);
+			return It != RenderData.MaterialSlots.end() ? static_cast<uint32>(std::distance(RenderData.MaterialSlots.begin(), It)) : 0;
+		}
+
+		auto MakeUniqueSectionName(std::string Name, uint32 Index, std::unordered_map<std::string, uint32>& NameCounts) -> std::string
+		{
+			if (Name.empty()) Name = std::format("Section_{}", Index);
+			uint32& Count = NameCounts[Name];
+			const std::string Result = Count == 0 ? Name : std::format("{}_{}", Name, Count);
+			++Count;
+			return Result;
+		}
+
 		auto ResolveMountedFile(std::string_view VirtualPath) -> std::filesystem::path
 		{
 			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
@@ -95,50 +249,135 @@ namespace Durin
 	{
 		DStaticMesh* Mesh = NewObject<DStaticMesh>(Outer, "DebugStaticMesh");
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
-		RenderData->Positions = {
+		RenderData->MaterialSlots.push_back({"Default", 0});
+		FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
+		LOD.Positions = {
 			FVector3f(-0.65f, -0.45f, 0.0f),
 			FVector3f(0.65f, -0.45f, 0.0f),
 			FVector3f(0.0f, 0.65f, 0.0f)
 		};
-		RenderData->Indices = {0, 1, 2};
-		RenderData->Normals = {
+		LOD.Indices = {0, 1, 2};
+		LOD.Normals = {
 			FVector3f(0.0f, 0.0f, 1.0f),
 			FVector3f(0.0f, 0.0f, 1.0f),
 			FVector3f(0.0f, 0.0f, 1.0f)
 		};
-		RenderData->IndexCount = static_cast<uint32>(RenderData->Indices.size());
+		LOD.Tangents.assign(LOD.Positions.size(), FVector4f(1.0f, 0.0f, 0.0f, 1.0f));
+		for (auto& TexCoords : LOD.TexCoords) TexCoords.assign(LOD.Positions.size(), FVector2f(0.0f));
+		LOD.Colors.assign(LOD.Positions.size(), FVector4f(1.0f));
+		LOD.Sections.push_back({"Default", 0, 3, 0, 2, 0, {}});
 		Mesh->SetRenderData(std::move(RenderData));
 		return Mesh;
 	}
 
 	auto DStaticMesh::BuildRenderData(std::string_view FilePath, std::string& OutError) -> bool
 	{
-		std::vector<Asset::FTestAssetData> ImportedMeshes;
-		if (!Asset::ImportFromFile(FilePath, ImportedMeshes))
+		Asset::FImportedSceneData ImportedScene;
+		if (!Asset::ImportFromFile(FilePath, ImportedScene))
 		{
 			OutError = std::format("Failed to import static mesh source file: {}", FilePath);
 			return false;
 		}
 
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
-		for (const Asset::FTestAssetData& ImportedMesh : ImportedMeshes)
+		RenderData->MaterialSlots.reserve(ImportedScene.MaterialSlots.size());
+		for (const Asset::FImportedMaterialSlot& Slot : ImportedScene.MaterialSlots)
 		{
-			if (ImportedMesh.Positions.empty() || ImportedMesh.Indices.empty())
+			RenderData->MaterialSlots.push_back({Slot.Name, Slot.SourceMaterialIndex});
+		}
+		if (RenderData->MaterialSlots.empty()) RenderData->MaterialSlots.push_back({"Default", 0});
+
+		FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
+		std::unordered_map<std::string, uint32> SectionNameCounts;
+		for (const Asset::FImportedMeshData& ImportedMesh : ImportedScene.Meshes)
+		{
+			if (!ValidateImportedMesh(ImportedMesh, OutError))
 			{
+				if (!OutError.empty()) return false;
 				continue;
 			}
+			if (LOD.Positions.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Positions.size()
+				|| LOD.Indices.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Indices.size())
+			{
+				OutError = std::format("Static mesh '{}' exceeds uint32 render-data limits.", FilePath);
+				return false;
+			}
 
-			const uint32 BaseVertexIndex = static_cast<uint32>(RenderData->Positions.size());
-			RenderData->Positions.insert(RenderData->Positions.end(), ImportedMesh.Positions.begin(), ImportedMesh.Positions.end());
-			RenderData->Normals.insert(RenderData->Normals.end(), ImportedMesh.Normals.begin(), ImportedMesh.Normals.end());
-			RenderData->Indices.reserve(RenderData->Indices.size() + ImportedMesh.Indices.size());
+			const uint32 BaseVertexIndex = static_cast<uint32>(LOD.Positions.size());
+			const uint32 FirstIndex = static_cast<uint32>(LOD.Indices.size());
+			LOD.Positions.insert(LOD.Positions.end(), ImportedMesh.Positions.begin(), ImportedMesh.Positions.end());
+
+			std::vector<FVector3f> MeshNormals = HasValidNormals(ImportedMesh.Normals, ImportedMesh.Positions.size())
+				? ImportedMesh.Normals
+				: BuildNormals(ImportedMesh.Positions, ImportedMesh.Indices);
+			for (FVector3f& Normal : MeshNormals) Normal = SafeNormalize(Normal, FVector3f(0.0f, 0.0f, 1.0f));
+			LOD.Normals.insert(LOD.Normals.end(), MeshNormals.begin(), MeshNormals.end());
+
+			std::array<std::vector<FVector2f>, MaxStaticMeshUVChannels> MeshTexCoords;
+			for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
+			{
+				const auto& ImportedTexCoords = ImportedMesh.UVChannels[Channel];
+				const bool bValidChannel = ImportedTexCoords.size() == ImportedMesh.Positions.size()
+					&& std::ranges::all_of(ImportedTexCoords, [](const FVector2f& UV) { return IsFinite(UV); });
+				if (bValidChannel)
+				{
+					MeshTexCoords[Channel] = ImportedTexCoords;
+					LOD.NumTexCoords = static_cast<uint8>(std::max<uint32>(LOD.NumTexCoords, Channel + 1));
+				}
+				else
+				{
+					MeshTexCoords[Channel].assign(ImportedMesh.Positions.size(), FVector2f(0.0f));
+				}
+				LOD.TexCoords[Channel].insert(LOD.TexCoords[Channel].end(), MeshTexCoords[Channel].begin(), MeshTexCoords[Channel].end());
+			}
+
+			std::vector<FVector4f> MeshTangents;
+			if (HasValidTangents(ImportedMesh.Tangents, ImportedMesh.Positions.size()))
+			{
+				MeshTangents.reserve(ImportedMesh.Tangents.size());
+				for (size_t VertexIndex = 0; VertexIndex < ImportedMesh.Tangents.size(); ++VertexIndex)
+				{
+					const FVector3f& Normal = MeshNormals[VertexIndex];
+					const FVector3f SourceTangent(ImportedMesh.Tangents[VertexIndex]);
+					const FVector3f Tangent = SafeNormalize(SourceTangent - Normal * glm::dot(Normal, SourceTangent), MakeStableTangent(Normal));
+					MeshTangents.emplace_back(Tangent, ImportedMesh.Tangents[VertexIndex].w < 0.0f ? -1.0f : 1.0f);
+				}
+			}
+			else
+			{
+				MeshTangents = BuildTangents(ImportedMesh.Positions, MeshNormals, MeshTexCoords[0], ImportedMesh.Indices);
+			}
+			LOD.Tangents.insert(LOD.Tangents.end(), MeshTangents.begin(), MeshTangents.end());
+
+			const bool bValidColors = ImportedMesh.Colors.size() == ImportedMesh.Positions.size()
+				&& std::ranges::all_of(ImportedMesh.Colors, [](const FVector4f& Color) { return IsFinite(Color); });
+			if (bValidColors)
+			{
+				LOD.Colors.insert(LOD.Colors.end(), ImportedMesh.Colors.begin(), ImportedMesh.Colors.end());
+				LOD.bHasVertexColors = true;
+			}
+			else
+			{
+				LOD.Colors.insert(LOD.Colors.end(), ImportedMesh.Positions.size(), FVector4f(1.0f));
+			}
+
+			LOD.Indices.reserve(LOD.Indices.size() + ImportedMesh.Indices.size());
 			for (uint32 Index : ImportedMesh.Indices)
 			{
-				RenderData->Indices.push_back(BaseVertexIndex + Index);
+				LOD.Indices.push_back(BaseVertexIndex + Index);
 			}
+
+			FStaticMeshSection Section;
+			Section.Name = MakeUniqueSectionName(ImportedMesh.Name, static_cast<uint32>(LOD.Sections.size()), SectionNameCounts);
+			Section.FirstIndex = FirstIndex;
+			Section.IndexCount = static_cast<uint32>(ImportedMesh.Indices.size());
+			Section.MinVertexIndex = BaseVertexIndex + *std::ranges::min_element(ImportedMesh.Indices);
+			Section.MaxVertexIndex = BaseVertexIndex + *std::ranges::max_element(ImportedMesh.Indices);
+			Section.MaterialSlotIndex = FindMaterialSlotIndex(*RenderData, ImportedMesh.MaterialIndex);
+			LOD.Sections.emplace_back(std::move(Section));
 		}
 
-		if (RenderData->Positions.empty() || RenderData->Indices.empty())
+		if (LOD.Positions.empty() || LOD.Indices.empty() || LOD.Sections.empty())
 		{
 			OutError = std::format("Static mesh source has no renderable geometry: {}", FilePath);
 			return false;
@@ -158,33 +397,11 @@ namespace Durin
 		}
 
 		const float Scale = NormalizedSize / MaxDimension;
-		for (FVector3f& Position : RenderData->Positions)
+		for (FVector3f& Position : LOD.Positions)
 		{
 			Position = (Position - BoundsCenter) * Scale;
 		}
 		RenderData->RecalculateBounds();
-
-		RenderData->IndexCount = static_cast<uint32>(RenderData->Indices.size());
-		if (RenderData->Normals.size() != RenderData->Positions.size())
-		{
-			RenderData->Normals.assign(RenderData->Positions.size(), FVector3f(0.0f));
-			for (size_t Index = 0; Index + 2 < RenderData->Indices.size(); Index += 3)
-			{
-				const uint32 I0 = RenderData->Indices[Index];
-				const uint32 I1 = RenderData->Indices[Index + 1];
-				const uint32 I2 = RenderData->Indices[Index + 2];
-				if (I0 >= RenderData->Positions.size() || I1 >= RenderData->Positions.size() || I2 >= RenderData->Positions.size()) continue;
-				const FVector3f FaceNormal = glm::cross(RenderData->Positions[I1] - RenderData->Positions[I0], RenderData->Positions[I2] - RenderData->Positions[I0]);
-				RenderData->Normals[I0] += FaceNormal;
-				RenderData->Normals[I1] += FaceNormal;
-				RenderData->Normals[I2] += FaceNormal;
-			}
-		}
-		for (FVector3f& Normal : RenderData->Normals)
-		{
-			const float Length = glm::length(Normal);
-			Normal = Length > 0.00001f ? Normal / Length : FVector3f(0.0f, 0.0f, 1.0f);
-		}
 
 		SetRenderData(std::move(RenderData));
 		OutError.clear();
@@ -251,64 +468,133 @@ namespace Durin
 		return {true, {}, Mesh};
 	}
 
+	auto PackStaticMeshVertex(
+		const FVector3f& Normal,
+		const FVector4f& Tangent,
+		const std::array<FVector2f, MaxStaticMeshUVChannels>& TexCoords,
+		const FVector4f& Color) -> FStaticMeshPackedVertex
+	{
+		auto PackSnorm = [](float Value) -> int16 {
+			return static_cast<int16>(std::lround(std::clamp(Value, -1.0f, 1.0f) * 32767.0f));
+		};
+		auto PackUnorm = [](float Value) -> uint8 {
+			return static_cast<uint8>(std::lround(std::clamp(Value, 0.0f, 1.0f) * 255.0f));
+		};
+
+		FStaticMeshPackedVertex Result;
+		Result.Normal = {PackSnorm(Normal.x), PackSnorm(Normal.y), PackSnorm(Normal.z), 0};
+		Result.Tangent = {PackSnorm(Tangent.x), PackSnorm(Tangent.y), PackSnorm(Tangent.z), PackSnorm(Tangent.w)};
+		Result.TexCoords = TexCoords;
+		Result.Color = {PackUnorm(Color.r), PackUnorm(Color.g), PackUnorm(Color.b), PackUnorm(Color.a)};
+		return Result;
+	}
+
 	auto FStaticMeshRenderData::InitResources(FRHICommandListImmediate& RHICmdList) -> void
 	{
-		if (PositionVertexBufferRHI == nullptr && !Positions.empty())
+		for (FStaticMeshLODResources& LOD : LODResources)
 		{
-			FRHIBufferCreateDesc VertexBufferDesc = FRHIBufferCreateDesc::CreateVertex(
-				"StaticMeshPositionVertexBuffer",
-				static_cast<uint32>(Positions.size() * sizeof(FVector3f))
-			);
-			VertexBufferDesc.Usage |= EBufferUsageFlags::Static;
-			VertexBufferDesc.InitialData.Data = Positions.data();
-			VertexBufferDesc.InitialData.Size = static_cast<uint32>(Positions.size() * sizeof(FVector3f));
-			PositionVertexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, VertexBufferDesc);
-		}
+			const size_t NumVertices = LOD.Positions.size();
+			const bool bValidStreams = NumVertices > 0
+				&& LOD.Normals.size() == NumVertices
+				&& LOD.Tangents.size() == NumVertices
+				&& LOD.Colors.size() == NumVertices
+				&& std::ranges::all_of(LOD.TexCoords, [NumVertices](const auto& Channel) { return Channel.size() == NumVertices; });
+			const bool bValidIndices = !LOD.Indices.empty() && LOD.Indices.size() % 3 == 0
+				&& std::ranges::all_of(LOD.Indices, [NumVertices](uint32 Index) { return Index < NumVertices; });
+			const bool bValidSections = !LOD.Sections.empty() && std::ranges::all_of(LOD.Sections, [this, &LOD](const FStaticMeshSection& Section) {
+				return Section.IndexCount > 0
+					&& Section.IndexCount % 3 == 0
+					&& static_cast<uint64>(Section.FirstIndex) + Section.IndexCount <= LOD.Indices.size()
+					&& Section.MinVertexIndex <= Section.MaxVertexIndex
+					&& Section.MaxVertexIndex < LOD.Positions.size()
+					&& Section.MaterialSlotIndex < MaterialSlots.size();
+			});
+			if (!bValidStreams || !bValidIndices || !bValidSections) continue;
 
-		if (IndexBufferRHI == nullptr && !Indices.empty())
-		{
-			FRHIBufferCreateDesc IndexBufferDesc = FRHIBufferCreateDesc::CreateIndex(
-				"StaticMeshIndexBuffer",
-				static_cast<uint32>(Indices.size() * sizeof(uint32)),
-				sizeof(uint32)
-			);
-			IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
-			IndexBufferDesc.InitialData.Data = Indices.data();
-			IndexBufferDesc.InitialData.Size = static_cast<uint32>(Indices.size() * sizeof(uint32));
-			IndexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, IndexBufferDesc);
-		}
+			if (LOD.PositionVertexBufferRHI == nullptr)
+			{
+				FRHIBufferCreateDesc VertexBufferDesc = FRHIBufferCreateDesc::CreateVertex(
+					"StaticMeshPositionVertexBuffer",
+					static_cast<uint32>(LOD.Positions.size() * sizeof(FVector3f))
+				);
+				VertexBufferDesc.Usage |= EBufferUsageFlags::Static;
+				VertexBufferDesc.InitialData.Data = LOD.Positions.data();
+				VertexBufferDesc.InitialData.Size = static_cast<uint32>(LOD.Positions.size() * sizeof(FVector3f));
+				LOD.PositionVertexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, VertexBufferDesc);
+			}
 
-		if (NormalVertexBufferRHI == nullptr && Normals.size() == Positions.size())
-		{
-			FRHIBufferCreateDesc NormalBufferDesc = FRHIBufferCreateDesc::CreateVertex(
-				"StaticMeshNormalVertexBuffer", static_cast<uint32>(Normals.size() * sizeof(FVector3f)));
-			NormalBufferDesc.Usage |= EBufferUsageFlags::Static;
-			NormalBufferDesc.InitialData.Data = Normals.data();
-			NormalBufferDesc.InitialData.Size = static_cast<uint32>(Normals.size() * sizeof(FVector3f));
-			NormalVertexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, NormalBufferDesc);
-		}
+			if (LOD.StaticMeshVertexBufferRHI == nullptr)
+			{
+				std::vector<FStaticMeshPackedVertex> PackedVertices(NumVertices);
+				for (size_t VertexIndex = 0; VertexIndex < NumVertices; ++VertexIndex)
+				{
+					std::array<FVector2f, MaxStaticMeshUVChannels> VertexTexCoords;
+					for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel) VertexTexCoords[Channel] = LOD.TexCoords[Channel][VertexIndex];
+					PackedVertices[VertexIndex] = PackStaticMeshVertex(LOD.Normals[VertexIndex], LOD.Tangents[VertexIndex], VertexTexCoords, LOD.Colors[VertexIndex]);
+				}
+				FRHIBufferCreateDesc AttributeBufferDesc = FRHIBufferCreateDesc::CreateVertex(
+					"StaticMeshAttributeVertexBuffer", static_cast<uint32>(PackedVertices.size() * sizeof(FStaticMeshPackedVertex)));
+				AttributeBufferDesc.Usage |= EBufferUsageFlags::Static;
+				AttributeBufferDesc.InitialData.Data = PackedVertices.data();
+				AttributeBufferDesc.InitialData.Size = static_cast<uint32>(PackedVertices.size() * sizeof(FStaticMeshPackedVertex));
+				LOD.StaticMeshVertexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, AttributeBufferDesc);
+			}
 
-		IndexCount = static_cast<uint32>(Indices.size());
+			if (LOD.IndexBufferRHI == nullptr)
+			{
+				FRHIBufferCreateDesc IndexBufferDesc = FRHIBufferCreateDesc::CreateIndex(
+					"StaticMeshIndexBuffer",
+					static_cast<uint32>(LOD.Indices.size() * sizeof(uint32)),
+					sizeof(uint32)
+				);
+				IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
+				IndexBufferDesc.InitialData.Data = LOD.Indices.data();
+				IndexBufferDesc.InitialData.Size = static_cast<uint32>(LOD.Indices.size() * sizeof(uint32));
+				LOD.IndexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, IndexBufferDesc);
+			}
+		}
 	}
 
 	auto FStaticMeshRenderData::ReleaseResources() -> void
 	{
-		PositionVertexBufferRHI = nullptr;
-		NormalVertexBufferRHI = nullptr;
-		IndexBufferRHI = nullptr;
+		for (FStaticMeshLODResources& LOD : LODResources)
+		{
+			LOD.PositionVertexBufferRHI = nullptr;
+			LOD.StaticMeshVertexBufferRHI = nullptr;
+			LOD.IndexBufferRHI = nullptr;
+		}
 	}
 
-	auto FStaticMeshRenderData::IsReadyForRendering() const -> bool
+	auto FStaticMeshRenderData::IsReadyForRendering(uint32 LODIndex) const -> bool
 	{
-		return PositionVertexBufferRHI != nullptr && NormalVertexBufferRHI != nullptr && IndexBufferRHI != nullptr && IndexCount > 0;
+		if (LODIndex >= LODResources.size()) return false;
+		const FStaticMeshLODResources& LOD = LODResources[LODIndex];
+		return LOD.PositionVertexBufferRHI != nullptr
+			&& LOD.StaticMeshVertexBufferRHI != nullptr
+			&& LOD.IndexBufferRHI != nullptr
+			&& !LOD.Indices.empty()
+			&& !LOD.Sections.empty();
 	}
 
 	auto FStaticMeshRenderData::RecalculateBounds() -> void
 	{
 		LocalBounds.Reset();
-		for (const FVector3f& Position : Positions)
+		for (FStaticMeshLODResources& LOD : LODResources)
 		{
-			LocalBounds.AddPoint(FVector3(Position));
+			LOD.LocalBounds.Reset();
+			for (const FVector3f& Position : LOD.Positions) LOD.LocalBounds.AddPoint(FVector3(Position));
+			for (FStaticMeshSection& Section : LOD.Sections)
+			{
+				Section.LocalBounds.Reset();
+				const uint64 EndIndex = static_cast<uint64>(Section.FirstIndex) + Section.IndexCount;
+				if (EndIndex > LOD.Indices.size()) continue;
+				for (uint32 IndexOffset = 0; IndexOffset < Section.IndexCount; ++IndexOffset)
+				{
+					const uint32 VertexIndex = LOD.Indices[Section.FirstIndex + IndexOffset];
+					if (VertexIndex < LOD.Positions.size()) Section.LocalBounds.AddPoint(FVector3(LOD.Positions[VertexIndex]));
+				}
+			}
+			for (const FVector3f& Position : LOD.Positions) LocalBounds.AddPoint(FVector3(Position));
 		}
 	}
 }

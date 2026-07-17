@@ -205,7 +205,9 @@ namespace Durin
 				auto* Component = Cast<DStaticMeshComponent>(ComponentPtr.Get());
 				const DStaticMesh* Mesh = Component != nullptr ? Component->GetStaticMesh() : nullptr;
 				const FStaticMeshRenderData* Data = Mesh != nullptr ? Mesh->GetRenderData() : nullptr;
-				if (Data == nullptr || !Data->LocalBounds.bIsValid || Data->Indices.size() < 3) continue;
+				if (Data == nullptr || !Data->LocalBounds.bIsValid || Data->LODResources.empty()) continue;
+				const FStaticMeshLODResources& LOD = Data->LODResources[0];
+				if (LOD.Indices.size() < 3) continue;
 				const FMatrix LocalToWorld = Component->GetRenderMatrix();
 				const double Determinant = glm::determinant(LocalToWorld);
 				if (!std::isfinite(Determinant) || std::abs(Determinant) <= kIntersectionEpsilon) continue;
@@ -213,14 +215,14 @@ namespace Durin
 				const FVector3 LocalOrigin = FVector3(WorldToLocal * FVector4(RayOrigin, 1.0));
 				const FVector3 LocalDirection = FVector3(WorldToLocal * FVector4(RayDirection, 0.0));
 				if (!IntersectRayBox(LocalOrigin, LocalDirection, Data->LocalBounds)) continue;
-				for (size_t Index = 0; Index + 2 < Data->Indices.size(); Index += 3)
+				for (size_t Index = 0; Index + 2 < LOD.Indices.size(); Index += 3)
 				{
-					const uint32 I0 = Data->Indices[Index];
-					const uint32 I1 = Data->Indices[Index + 1];
-					const uint32 I2 = Data->Indices[Index + 2];
-					if (I0 >= Data->Positions.size() || I1 >= Data->Positions.size() || I2 >= Data->Positions.size()) continue;
+					const uint32 I0 = LOD.Indices[Index];
+					const uint32 I1 = LOD.Indices[Index + 1];
+					const uint32 I2 = LOD.Indices[Index + 2];
+					if (I0 >= LOD.Positions.size() || I1 >= LOD.Positions.size() || I2 >= LOD.Positions.size()) continue;
 					double LocalDistance = 0.0;
-					if (!IntersectRayTriangle(LocalOrigin, LocalDirection, FVector3(Data->Positions[I0]), FVector3(Data->Positions[I1]), FVector3(Data->Positions[I2]), LocalDistance)) continue;
+					if (!IntersectRayTriangle(LocalOrigin, LocalDirection, FVector3(LOD.Positions[I0]), FVector3(LOD.Positions[I1]), FVector3(LOD.Positions[I2]), LocalDistance)) continue;
 					const FVector3 LocalHit = LocalOrigin + LocalDirection * LocalDistance;
 					const FVector3 WorldHit = FVector3(LocalToWorld * FVector4(LocalHit, 1.0));
 					const double WorldDistance = glm::length(WorldHit - RayOrigin);

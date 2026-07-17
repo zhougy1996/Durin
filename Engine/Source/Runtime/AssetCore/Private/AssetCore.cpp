@@ -4,6 +4,8 @@
 #include "Threading/Task.h"
 
 #include <assimp/Importer.hpp>
+#include <assimp/material.h>
+#include <assimp/matrix3x3.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
@@ -20,6 +22,169 @@ namespace Durin
 
 		namespace
 		{
+			constexpr float TransformDeterminantTolerance = 1.0e-8f;
+
+			auto ToVector3(const aiVector3D& Value) -> FVector3f
+			{
+				return {Value.x, Value.y, Value.z};
+			}
+
+			auto IsFinite(const aiVector3D& Value) -> bool
+			{
+				return std::isfinite(Value.x) && std::isfinite(Value.y) && std::isfinite(Value.z);
+			}
+
+			auto MakeUniqueName(std::string Name, uint32 Index, std::unordered_map<std::string, uint32>& NameCounts) -> std::string
+			{
+				if (Name.empty()) Name = std::format("Material_{}", Index);
+				uint32& Count = NameCounts[Name];
+				const std::string Result = Count == 0 ? Name : std::format("{}_{}", Name, Count);
+				++Count;
+				return Result;
+			}
+
+			auto ImportMeshInstance(
+				const aiScene& Scene,
+				const aiNode& Node,
+				uint32 MeshIndex,
+				const aiMatrix4x4& Transform,
+				FImportedSceneData& OutScene,
+				std::string& OutError) -> bool
+			{
+				if (MeshIndex >= Scene.mNumMeshes || Scene.mMeshes[MeshIndex] == nullptr)
+				{
+					OutError = std::format("Scene node '{}' references invalid mesh index {}.", Node.mName.C_Str(), MeshIndex);
+					return false;
+				}
+
+				const aiMesh& Mesh = *Scene.mMeshes[MeshIndex];
+				const aiMatrix3x3 LinearTransform(Transform);
+				const float Determinant = LinearTransform.Determinant();
+				if (!std::isfinite(Determinant) || std::abs(Determinant) <= TransformDeterminantTolerance)
+				{
+					OutError = std::format("Mesh '{}' is under a singular node transform.", Mesh.mName.C_Str());
+					return false;
+				}
+
+				aiMatrix3x3 NormalTransform(LinearTransform);
+				NormalTransform.Inverse().Transpose();
+				const bool bMirrored = Determinant < 0.0f;
+
+				FImportedMeshData OutMesh;
+				OutMesh.Name = Mesh.mName.length > 0 ? Mesh.mName.C_Str() : Node.mName.C_Str();
+				if (OutMesh.Name.empty()) OutMesh.Name = std::format("Mesh_{}", MeshIndex);
+				OutMesh.MaterialIndex = Mesh.mMaterialIndex;
+				if (Mesh.GetNumUVChannels() > MaxImportedUVChannels)
+				{
+					DURIN_WARN("Mesh '{}' has {} UV channels; only the first {} are imported.", OutMesh.Name, Mesh.GetNumUVChannels(), MaxImportedUVChannels);
+				}
+				OutMesh.Positions.reserve(Mesh.mNumVertices);
+				if (Mesh.HasNormals()) OutMesh.Normals.reserve(Mesh.mNumVertices);
+				if (Mesh.HasTangentsAndBitangents()) OutMesh.Tangents.reserve(Mesh.mNumVertices);
+				if (Mesh.HasVertexColors(0)) OutMesh.Colors.reserve(Mesh.mNumVertices);
+				for (uint32 Channel = 0; Channel < MaxImportedUVChannels; ++Channel)
+				{
+					if (Mesh.HasTextureCoords(Channel)) OutMesh.UVChannels[Channel].reserve(Mesh.mNumVertices);
+				}
+
+				for (unsigned int VertexIndex = 0; VertexIndex < Mesh.mNumVertices; ++VertexIndex)
+				{
+					const aiVector3D Position = Transform * Mesh.mVertices[VertexIndex];
+					if (!IsFinite(Position))
+					{
+						OutError = std::format("Mesh '{}' produced a non-finite transformed position.", OutMesh.Name);
+						return false;
+					}
+					OutMesh.Positions.emplace_back(ToVector3(Position));
+
+					if (Mesh.HasNormals())
+					{
+						aiVector3D Normal = NormalTransform * Mesh.mNormals[VertexIndex];
+						Normal.NormalizeSafe();
+						if (IsFinite(Normal)) OutMesh.Normals.emplace_back(ToVector3(Normal));
+					}
+
+					if (Mesh.HasTangentsAndBitangents())
+					{
+						aiVector3D Tangent = LinearTransform * Mesh.mTangents[VertexIndex];
+						aiVector3D Bitangent = LinearTransform * Mesh.mBitangents[VertexIndex];
+						aiVector3D Normal = Mesh.HasNormals() ? NormalTransform * Mesh.mNormals[VertexIndex] : aiVector3D(0.0f, 0.0f, 1.0f);
+						Normal.NormalizeSafe();
+						Tangent -= Normal * (Normal * Tangent);
+						Tangent.NormalizeSafe();
+						Bitangent.NormalizeSafe();
+						if (IsFinite(Tangent) && IsFinite(Bitangent) && IsFinite(Normal))
+						{
+							const float Sign = ((Normal ^ Tangent) * Bitangent) < 0.0f ? -1.0f : 1.0f;
+							OutMesh.Tangents.emplace_back(Tangent.x, Tangent.y, Tangent.z, Sign);
+						}
+					}
+
+					if (Mesh.HasVertexColors(0))
+					{
+						const aiColor4D& Color = Mesh.mColors[0][VertexIndex];
+						OutMesh.Colors.emplace_back(Color.r, Color.g, Color.b, Color.a);
+					}
+
+					for (uint32 Channel = 0; Channel < MaxImportedUVChannels; ++Channel)
+					{
+						if (Mesh.HasTextureCoords(Channel))
+						{
+							const aiVector3D& UV = Mesh.mTextureCoords[Channel][VertexIndex];
+							OutMesh.UVChannels[Channel].emplace_back(UV.x, UV.y);
+						}
+					}
+				}
+
+				if (Mesh.mNumFaces > std::numeric_limits<uint32>::max() / 3u)
+				{
+					OutError = std::format("Mesh '{}' exceeds the uint32 index limit.", OutMesh.Name);
+					return false;
+				}
+				OutMesh.Indices.reserve(Mesh.mNumFaces * 3u);
+				for (unsigned int FaceIndex = 0; FaceIndex < Mesh.mNumFaces; ++FaceIndex)
+				{
+					const aiFace& Face = Mesh.mFaces[FaceIndex];
+					if (Face.mNumIndices != 3)
+					{
+						OutError = std::format("Mesh '{}' contains a non-triangle face after triangulation.", OutMesh.Name);
+						return false;
+					}
+					const uint32 I0 = Face.mIndices[0];
+					const uint32 I1 = Face.mIndices[bMirrored ? 2 : 1];
+					const uint32 I2 = Face.mIndices[bMirrored ? 1 : 2];
+					if (I0 >= Mesh.mNumVertices || I1 >= Mesh.mNumVertices || I2 >= Mesh.mNumVertices)
+					{
+						OutError = std::format("Mesh '{}' contains an out-of-range index.", OutMesh.Name);
+						return false;
+					}
+					OutMesh.Indices.insert(OutMesh.Indices.end(), {I0, I1, I2});
+				}
+
+				OutScene.Meshes.emplace_back(std::move(OutMesh));
+				return true;
+			}
+
+			auto ImportNodeMeshes(
+				const aiScene& Scene,
+				const aiNode& Node,
+				const aiMatrix4x4& ParentTransform,
+				FImportedSceneData& OutScene,
+				std::string& OutError) -> bool
+			{
+				const aiMatrix4x4 Transform = ParentTransform * Node.mTransformation;
+				for (unsigned int MeshReferenceIndex = 0; MeshReferenceIndex < Node.mNumMeshes; ++MeshReferenceIndex)
+				{
+					if (!ImportMeshInstance(Scene, Node, Node.mMeshes[MeshReferenceIndex], Transform, OutScene, OutError)) return false;
+				}
+				for (unsigned int ChildIndex = 0; ChildIndex < Node.mNumChildren; ++ChildIndex)
+				{
+					if (Node.mChildren[ChildIndex] == nullptr) continue;
+					if (!ImportNodeMeshes(Scene, *Node.mChildren[ChildIndex], Transform, OutScene, OutError)) return false;
+				}
+				return true;
+			}
+
 			auto ImportMeshesFromFile(std::string_view FilePath) -> FAsyncMeshImportResult
 			{
 				FAsyncMeshImportResult Result;
@@ -29,7 +194,8 @@ namespace Durin
 				const aiScene* Scene = Importer.ReadFile(OwnedFilePath.c_str(),
 					aiProcess_Triangulate |
 					aiProcess_FlipUVs |
-					aiProcess_GenNormals |
+					aiProcess_GenSmoothNormals |
+					aiProcess_CalcTangentSpace |
 					aiProcess_JoinIdenticalVertices);
 
 				if (!Scene || (Scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) != 0 || !Scene->mRootNode)
@@ -44,57 +210,25 @@ namespace Durin
 					return Result;
 				}
 
-				Result.Meshes.resize(Scene->mNumMeshes);
-				for (unsigned int MeshIndex = 0; MeshIndex < Scene->mNumMeshes; ++MeshIndex)
+				std::unordered_map<std::string, uint32> MaterialNameCounts;
+				Result.Scene.MaterialSlots.reserve(std::max(Scene->mNumMaterials, 1u));
+				for (unsigned int MaterialIndex = 0; MaterialIndex < Scene->mNumMaterials; ++MaterialIndex)
 				{
-					aiMesh* Mesh = Scene->mMeshes[MeshIndex];
-					FTestAssetData& OutMesh = Result.Meshes[MeshIndex];
-
-					OutMesh.Positions.reserve(Mesh->mNumVertices);
-					OutMesh.Normals.reserve(Mesh->mNumVertices);
-					OutMesh.Colors.reserve(Mesh->mNumVertices);
-					OutMesh.UVs.reserve(Mesh->mNumVertices);
-					for (unsigned int VertexIndex = 0; VertexIndex < Mesh->mNumVertices; ++VertexIndex)
-					{
-						OutMesh.Positions.emplace_back(
-							Mesh->mVertices[VertexIndex].x,
-							Mesh->mVertices[VertexIndex].y,
-							Mesh->mVertices[VertexIndex].z);
-
-						if (Mesh->HasNormals())
-						{
-							OutMesh.Normals.emplace_back(
-								Mesh->mNormals[VertexIndex].x,
-								Mesh->mNormals[VertexIndex].y,
-								Mesh->mNormals[VertexIndex].z);
-						}
-
-						if (Mesh->HasVertexColors(0))
-						{
-							OutMesh.Colors.emplace_back(
-								Mesh->mColors[0][VertexIndex].r,
-								Mesh->mColors[0][VertexIndex].g,
-								Mesh->mColors[0][VertexIndex].b);
-						}
-
-						if (Mesh->mTextureCoords[0])
-						{
-							OutMesh.UVs.emplace_back(
-								Mesh->mTextureCoords[0][VertexIndex].x,
-								Mesh->mTextureCoords[0][VertexIndex].y);
-						}
-					}
-
-					OutMesh.Indices.reserve(Mesh->mNumFaces * 3);
-					for (unsigned int FaceIndex = 0; FaceIndex < Mesh->mNumFaces; ++FaceIndex)
-					{
-						const aiFace& Face = Mesh->mFaces[FaceIndex];
-						for (unsigned int IndexIndex = 0; IndexIndex < Face.mNumIndices; ++IndexIndex)
-						{
-							OutMesh.Indices.emplace_back(Face.mIndices[IndexIndex]);
-						}
-					}
+					aiString MaterialName;
+					if (Scene->mMaterials[MaterialIndex] != nullptr) Scene->mMaterials[MaterialIndex]->Get(AI_MATKEY_NAME, MaterialName);
+					Result.Scene.MaterialSlots.push_back({MakeUniqueName(MaterialName.C_Str(), MaterialIndex, MaterialNameCounts), MaterialIndex});
 				}
+				if (!ImportNodeMeshes(*Scene, *Scene->mRootNode, aiMatrix4x4(), Result.Scene, Result.ErrorMessage))
+				{
+					DURIN_ERROR("Asset import failed. (file: {}, error: {})", FilePath, Result.ErrorMessage);
+					return Result;
+				}
+				std::erase_if(Result.Scene.MaterialSlots, [&Result](const FImportedMaterialSlot& Slot) {
+					return std::ranges::none_of(Result.Scene.Meshes, [&Slot](const FImportedMeshData& Mesh) {
+						return Mesh.MaterialIndex == Slot.SourceMaterialIndex;
+					});
+				});
+				if (Result.Scene.MaterialSlots.empty()) Result.Scene.MaterialSlots.push_back({"Default", 0});
 
 				Result.bSucceeded = true;
 				return Result;
@@ -150,16 +284,16 @@ namespace Durin
 			return true;
 		}
 
-		auto ImportFromFile(std::string_view FilePath, std::vector<FTestAssetData>& OutDatas) -> bool
+		auto ImportFromFile(std::string_view FilePath, FImportedSceneData& OutData) -> bool
 		{
 			FAsyncMeshImportResult Result = ImportMeshesFromFile(FilePath);
 			if (!Result.bSucceeded)
 			{
-				OutDatas.clear();
+				OutData = {};
 				return false;
 			}
 
-			OutDatas = std::move(Result.Meshes);
+			OutData = std::move(Result.Scene);
 			return true;
 		}
 

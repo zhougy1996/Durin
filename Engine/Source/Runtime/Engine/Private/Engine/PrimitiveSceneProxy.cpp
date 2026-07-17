@@ -13,14 +13,20 @@ namespace Durin
 		return LocalToWorld_;
 	}
 
-	FStaticMeshSceneProxy::FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData, const FMaterialRenderData& InMaterial)
+	FStaticMeshSceneProxy::FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData, std::vector<FMaterialRenderData> InMaterials)
 		: RenderData(InRenderData)
-		, Material(InMaterial)
+		, Materials(std::move(InMaterials))
 	{
 	}
 
 	auto FStaticMeshSceneProxy::GetRenderData() const -> FStaticMeshRenderData*
 	{
 		return RenderData;
+	}
+
+	auto FStaticMeshSceneProxy::GetMaterialRenderData(uint32 SlotIndex) const -> const FMaterialRenderData&
+	{
+		static const FMaterialRenderData DefaultMaterial;
+		return SlotIndex < Materials.size() ? Materials[SlotIndex] : DefaultMaterial;
 	}
 }

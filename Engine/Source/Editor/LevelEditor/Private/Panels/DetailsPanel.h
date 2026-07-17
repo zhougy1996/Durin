@@ -22,6 +22,7 @@ namespace Durin
 	private:
 		auto DrawComponents(FLevelEditorContext& Context, AActor* Actor) -> void;
 		auto DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void;
+		auto DrawStaticMeshMaterials(FLevelEditorContext& Context, class DStaticMeshComponent* Component) -> void;
 		auto DrawProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex) -> void;
 		auto AssignObjectProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, DObject* Value) -> bool;
 

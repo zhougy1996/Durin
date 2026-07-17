@@ -14,10 +14,12 @@
 #include "LevelEditorHelpers.h"
 #include "LevelEditorWorkspace.h"
 #include "EditorSessionSettings.h"
+#include "Materials/MaterialInterface.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
@@ -443,6 +445,7 @@ namespace Durin
 		std::vector<std::pair<FProperty*, uint32>> VisibleProperties;
 		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
 			if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit)) return;
+			if (Cast<DStaticMeshComponent>(Object) && Property->NamePrivate == FName("Materials")) return;
 			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 			{
 				const std::string Name = Property->GetArrayDim() > 1 ? std::format("{}[{}]", Property->NamePrivate.ToString(), ArrayIndex) : Property->NamePrivate.ToString();
@@ -454,9 +457,23 @@ namespace Durin
 		});
 
 		auto* Actor = Cast<AActor>(Object);
+		auto* StaticMeshComponent = Cast<DStaticMeshComponent>(Object);
+		bool bShowStaticMeshMaterials = StaticMeshComponent && StaticMeshComponent->GetNumMaterials() > 0;
+		if (bShowStaticMeshMaterials && PropertySearchText[0] != '\0')
+		{
+			bShowStaticMeshMaterials = ContainsInsensitive("Materials Material Slots", PropertySearchText.data());
+			const DStaticMesh* Mesh = StaticMeshComponent->GetStaticMesh();
+			const FStaticMeshRenderData* Data = Mesh ? Mesh->GetRenderData() : nullptr;
+			if (!bShowStaticMeshMaterials && Data)
+			{
+				bShowStaticMeshMaterials = std::ranges::any_of(Data->MaterialSlots, [this](const FStaticMeshMaterialSlot& Slot) {
+					return ContainsInsensitive(Slot.Name, PropertySearchText.data());
+				});
+			}
+		}
 		const bool bShowActorTransform = Actor && Actor->GetRootComponent()
 										 && ContainsInsensitive("Transform Location Rotation Scale", PropertySearchText.data());
-		if (!bShowActorTransform && VisibleProperties.empty())
+		if (!bShowActorTransform && !bShowStaticMeshMaterials && VisibleProperties.empty())
 		{
 			ImGui::TextDisabled(PropertySearchText[0] != '\0' ? "No properties match the current search." : "This object has no reflected Edit properties.");
 			return;
@@ -475,11 +492,52 @@ namespace Durin
 			}
 			ImGui::PopID();
 		}
+		if (bShowStaticMeshMaterials) DrawStaticMeshMaterials(Context, StaticMeshComponent);
 		for (const auto& [Property, ArrayIndex] : VisibleProperties)
 		{
 			DrawProperty(Context, Object, Property, ArrayIndex);
 		}
 		MonaImGui::EndPropertyTable();
+	}
+
+	auto FDetailsPanel::DrawStaticMeshMaterials(FLevelEditorContext& Context, DStaticMeshComponent* Component) -> void
+	{
+		DStaticMesh* Mesh = Component ? Component->GetStaticMesh() : nullptr;
+		const FStaticMeshRenderData* RenderData = Mesh ? Mesh->GetRenderData() : nullptr;
+		if (!RenderData) return;
+		for (uint32 SlotIndex = 0; SlotIndex < RenderData->MaterialSlots.size(); ++SlotIndex)
+		{
+			const std::string Label = std::format("Material[{}] {}", SlotIndex, RenderData->MaterialSlots[SlotIndex].Name);
+			if (!ContainsInsensitive(Label, PropertySearchText.data()) && PropertySearchText[0] != '\0') continue;
+			ImGui::PushID("StaticMeshMaterial");
+			ImGui::PushID(static_cast<int>(SlotIndex));
+			MonaImGui::BeginPropertyRow(Label.c_str(), false);
+			DMaterialInterface* Current = Component->GetMaterial(SlotIndex);
+			const std::string Preview = Current && Current->GetPackage() ? Current->GetPackage()->GetPackagePath() : "None";
+			if (ImGui::BeginCombo("##Value", Preview.c_str()))
+			{
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				ImGui::InputTextWithHint("##AssetSearch", "Search materials...", AssetSearchText.data(), AssetSearchText.size());
+				if (ImGui::Selectable("Clear", Current == nullptr)) Component->SetMaterial(SlotIndex, nullptr);
+				for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+				{
+					DClass* AssetClass = FindClassByQualifiedName(Data.AssetClassName);
+					const std::string PathString = Path.ToString();
+					if (!AssetClass || !IsClassChildOf(AssetClass, DMaterialInterface::StaticClass()) || !ContainsInsensitive(PathString, AssetSearchText.data())) continue;
+					if (ImGui::Selectable(PathString.c_str(), Current && Current->GetPackage() && Current->GetPackage()->GetPackagePath() == PathString))
+					{
+						DObject* Loaded = nullptr;
+						Asset::FAssetResult Result = Asset::LoadAsset(Path, Loaded);
+						if (!Result) Context.SetError(Result.Message);
+						else if (DMaterialInterface* Selected = Cast<DMaterialInterface>(Loaded)) Component->SetMaterial(SlotIndex, Selected);
+					}
+				}
+				ImGui::EndCombo();
+			}
+			MonaImGui::EndPropertyRow(false);
+			ImGui::PopID();
+			ImGui::PopID();
+		}
 	}
 
 	auto FDetailsPanel::DrawProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex) -> void
