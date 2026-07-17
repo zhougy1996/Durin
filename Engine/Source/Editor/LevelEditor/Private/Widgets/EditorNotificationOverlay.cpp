@@ -1,5 +1,6 @@
 #include "Widgets/EditorNotificationOverlay.h"
 
+#include "Editor/EditorEngine.h"
 #include "Editor/EditorNotification.h"
 #include "Editor/EditorTransaction.h"
 #include "Editor/EditorWorkspaceUI.h"
@@ -96,11 +97,16 @@ namespace Durin
 		}
 	}
 
-	auto FEditorNotificationOverlay::Draw(FEditorNotificationManager& Notifications, FEditorTransactionManager& Transactions, bool* bHistoryOpen) -> void
+	auto FEditorNotificationOverlay::Draw(FLevelEditorContext& Context) -> void
+	{
+		(void)Context;
+		if (GEditor) DrawHistory(GEditor->GetNotificationManager(), GetOpenPtr());
+	}
+
+	auto FEditorNotificationOverlay::DrawNotifications(FEditorNotificationManager& Notifications, FEditorTransactionManager& Transactions) -> void
 	{
 		PublishTransactionEvents(Notifications, Transactions);
 		Notifications.Tick(ImGui::GetIO().DeltaTime);
-		if (bHistoryOpen && *bHistoryOpen) DrawHistory(Notifications, bHistoryOpen);
 
 		const std::vector<FEditorNotification>& Active = Notifications.GetNotifications();
 		std::vector<const FEditorNotification*> Visible;

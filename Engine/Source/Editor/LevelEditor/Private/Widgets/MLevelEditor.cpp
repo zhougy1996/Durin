@@ -47,7 +47,6 @@ namespace Durin
 	auto MLevelEditor::Construct() -> void
 	{
 		Context = std::make_unique<FLevelEditorContext>();
-		NotificationOverlay = std::make_unique<FEditorNotificationOverlay>();
 		Context->ReportError = [this](std::string Message) { SetError(std::move(Message)); };
 		Context->RenameLevel = [this](std::string_view NewName) {
 			return DocumentController && DocumentController->RenameCurrentLevel(NewName);
@@ -94,6 +93,9 @@ namespace Durin
 		);
 		ContentBrowserPanel = ContentBrowser.get();
 		Panels.emplace_back(std::move(ContentBrowser));
+		auto ActivityHistory = std::make_unique<FEditorNotificationOverlay>();
+		NotificationOverlay = ActivityHistory.get();
+		Panels.emplace_back(std::move(ActivityHistory));
 
 		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
 		DocumentController->OpenDefaultLevel();
@@ -194,6 +196,7 @@ namespace Durin
 	auto MLevelEditor::ResetLayout() -> void
 	{
 		bResetLayoutRequested = true;
+		bSelectDefaultBottomPanelRequested = true;
 	}
 
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
@@ -209,7 +212,9 @@ namespace Durin
 		}
 		const bool bLevelDirty = Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
 		const std::string RootWindowName = EditorWorkspaceUI::MakeEditorRootWindowName(bLevelDirty ? "Level Editor *" : "Level Editor", LevelEditorWorkspace::RootKey);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		const bool bRootVisible = ImGui::Begin(RootWindowName.c_str(), nullptr, ImGuiWindowFlags_NoCollapse);
+		ImGui::PopStyleVar();
 		const bool bRootFocused = bRootVisible && ImGui::IsWindowFocused(
 			ImGuiFocusedFlags_RootAndChildWindows | ImGuiFocusedFlags_DockHierarchy
 		);
@@ -272,10 +277,17 @@ namespace Durin
 		{
 			if (Panel->IsOpen()) Panel->Draw(*Context);
 		}
+		if (bSelectDefaultBottomPanelRequested)
+		{
+			// Docking tabs do not exist until every panel has submitted its window this frame.
+			const std::string ContentBrowserName = EditorWorkspaceUI::MakePanelWindowName("Content Browser", LevelEditorWorkspace::Type, "ContentBrowser");
+			ImGui::SetWindowFocus(ContentBrowserName.c_str());
+			bSelectDefaultBottomPanelRequested = false;
+		}
 
 		if (NotificationOverlay && GEditor)
 		{
-			NotificationOverlay->Draw(GEditor->GetNotificationManager(), GEditor->GetTransactionManager(), &bActivityHistoryOpen);
+			NotificationOverlay->DrawNotifications(GEditor->GetNotificationManager(), GEditor->GetTransactionManager());
 		}
 		return bRootFocused;
 	}
@@ -348,8 +360,6 @@ namespace Durin
 				}
 				ImGui::EndMenu();
 			}
-			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
-			ImGui::Separator();
 			if (GEngine)
 			{
 				if (IRendererModule* RendererModule = GEngine->GetRendererModule())
@@ -362,12 +372,16 @@ namespace Durin
 		}
 		if (ImGui::BeginMenu("Window"))
 		{
-			ImGui::MenuItem("Activity History", nullptr, &bActivityHistoryOpen);
-			ImGui::Separator();
-			for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
+			if (ImGui::BeginMenu("Level Editor"))
 			{
-				bool bOpen = Panel->IsOpen();
-				if (ImGui::MenuItem(Panel->GetWindowName(), nullptr, &bOpen)) Panel->SetOpen(bOpen);
+				for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
+				{
+					bool bOpen = Panel->IsOpen();
+					if (ImGui::MenuItem(Panel->GetWindowName(), nullptr, &bOpen)) Panel->SetOpen(bOpen);
+				}
+				ImGui::Separator();
+				if (ImGui::MenuItem("Reset Layout")) ResetLayout();
+				ImGui::EndMenu();
 			}
 			ImGui::EndMenu();
 		}
@@ -440,9 +454,11 @@ namespace Durin
 		const std::string DetailsName = EditorWorkspaceUI::MakePanelWindowName("Details", LevelEditorWorkspace::Type, "Details");
 		const std::string ContentBrowserName = EditorWorkspaceUI::MakePanelWindowName("Content Browser", LevelEditorWorkspace::Type, "ContentBrowser");
 		const std::string ConsoleName = EditorWorkspaceUI::MakePanelWindowName("Console", LevelEditorWorkspace::Type, "OutputLog");
+		const std::string ActivityHistoryName = EditorWorkspaceUI::MakePanelWindowName("Activity History", LevelEditorWorkspace::Type, "ActivityHistory");
 		const std::string SceneViewportName = EditorWorkspaceUI::MakePanelWindowName("Scene Viewport", LevelEditorWorkspace::Type, "SceneViewport");
 		ImGui::DockBuilderDockWindow(WorldOutlinerName.c_str(), LeftDockId);
 		ImGui::DockBuilderDockWindow(DetailsName.c_str(), RightDockId);
+		ImGui::DockBuilderDockWindow(ActivityHistoryName.c_str(), BottomDockId);
 		ImGui::DockBuilderDockWindow(ContentBrowserName.c_str(), BottomDockId);
 		ImGui::DockBuilderDockWindow(ConsoleName.c_str(), BottomDockId);
 		ImGui::DockBuilderDockWindow(SceneViewportName.c_str(), MainDockId);

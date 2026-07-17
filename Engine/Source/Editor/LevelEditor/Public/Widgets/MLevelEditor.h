@@ -43,14 +43,14 @@ namespace Durin
 		FEditorWorkspaceManager& WorkspaceManager;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FStaticMeshImportDialog> StaticMeshImportDialog;
-		std::unique_ptr<FEditorNotificationOverlay> NotificationOverlay;
+		FEditorNotificationOverlay* NotificationOverlay = nullptr;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
 		FContentBrowserPanel* ContentBrowserPanel = nullptr;
 		bool bResetLayoutRequested = false;
+		bool bSelectDefaultBottomPanelRequested = true;
 		bool bFocusRequested = false;
 		bool bProjectSettingsOpen = false;
-		bool bActivityHistoryOpen = false;
 		std::string DefaultLevel;
 		std::string EditorError;
 	};

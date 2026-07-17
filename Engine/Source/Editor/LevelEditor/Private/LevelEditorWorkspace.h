@@ -5,6 +5,6 @@
 namespace Durin::LevelEditorWorkspace
 {
 	inline const FEditorWorkspaceTypeId Type{"LevelEditor"};
-	inline constexpr uint32 LayoutVersion = 1;
+		inline constexpr uint32 LayoutVersion = 4;
 	inline constexpr const char* RootKey = "LevelEditor";
 }

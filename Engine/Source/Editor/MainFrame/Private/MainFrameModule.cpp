@@ -20,7 +20,7 @@ namespace Durin
 		auto BuildDefaultEditorHostLayout(ImGuiID DockSpaceId, const ImVec2& DockSpaceSize) -> void
 		{
 			ImGui::DockBuilderRemoveNode(DockSpaceId);
-			ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace);
+			ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace | ImGuiDockNodeFlags_NoWindowMenuButton);
 			ImGui::DockBuilderSetNodeSize(DockSpaceId, DockSpaceSize);
 			if (ImGuiDockNode* DockSpaceNode = ImGui::DockBuilderGetNode(DockSpaceId))
 				DockSpaceNode->WindowClass = EditorWorkspaceUI::MakeEditorRootWindowClass();
@@ -37,12 +37,13 @@ namespace Durin
 			ImGui::SetNextWindowViewport(Viewport->ID);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 			const ImGuiWindowFlags HostFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
 				ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
 				ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
 				ImGuiWindowFlags_MenuBar;
 			ImGui::Begin("###Durin.Editor.WorkspaceHost", nullptr, HostFlags);
-			ImGui::PopStyleVar(2);
+			ImGui::PopStyleVar(3);
 
 			WorkspaceManager.RefreshDocumentState();
 			if (ImGui::BeginMenuBar())
@@ -58,7 +59,7 @@ namespace Durin
 			const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
 			const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeEditorHostDockSpaceId(EditorHostLayoutVersion);
 			const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
-			EditorWorkspaceUI::SubmitEditorHostDockSpace(EditorHostLayoutVersion, DockSpaceSize);
+			EditorWorkspaceUI::SubmitEditorHostDockSpace(EditorHostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
 			if (bNeedsDefaultLayout)
 			{
 				BuildDefaultEditorHostLayout(DockSpaceId, DockSpaceSize);
