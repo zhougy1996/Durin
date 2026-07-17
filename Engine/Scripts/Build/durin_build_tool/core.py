@@ -9,7 +9,7 @@ import subprocess
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any, Callable, Mapping, Sequence
 
 from .config import (
@@ -326,12 +326,146 @@ def terminate_process_tree(process: subprocess.Popen[Any]) -> None:
     process.wait()
 
 
+class WindowsProcessJob:
+    """Keeps relaunched application processes in one waitable lifetime."""
+
+    _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+    _JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1
+    _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+
+    def __init__(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        class BasicLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_int64),
+                ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class IoCounters(ctypes.Structure):
+            _fields_ = [
+                ("ReadOperationCount", ctypes.c_uint64),
+                ("WriteOperationCount", ctypes.c_uint64),
+                ("OtherOperationCount", ctypes.c_uint64),
+                ("ReadTransferCount", ctypes.c_uint64),
+                ("WriteTransferCount", ctypes.c_uint64),
+                ("OtherTransferCount", ctypes.c_uint64),
+            ]
+
+        class ExtendedLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", BasicLimitInformation),
+                ("IoInfo", IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        class BasicAccountingInformation(ctypes.Structure):
+            _fields_ = [
+                ("TotalUserTime", ctypes.c_int64),
+                ("TotalKernelTime", ctypes.c_int64),
+                ("ThisPeriodTotalUserTime", ctypes.c_int64),
+                ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+                ("TotalPageFaultCount", wintypes.DWORD),
+                ("TotalProcesses", wintypes.DWORD),
+                ("ActiveProcesses", wintypes.DWORD),
+                ("TotalTerminatedProcesses", wintypes.DWORD),
+            ]
+
+        self._ctypes = ctypes
+        self._basic_accounting_type = BasicAccountingInformation
+        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        self._kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        self._kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+        ]
+        self._kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        self._kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        self._kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        self._kernel32.QueryInformationJobObject.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.c_void_p,
+        ]
+        self._kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+        self._kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        self._kernel32.TerminateJobObject.restype = wintypes.BOOL
+        self._kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        self._kernel32.CloseHandle.restype = wintypes.BOOL
+
+        self.handle = self._kernel32.CreateJobObjectW(None, None)
+        if not self.handle:
+            raise BuildToolError(
+                f"Could not create the application process job (Win32 error {ctypes.get_last_error()})."
+            )
+        limits = ExtendedLimitInformation()
+        limits.BasicLimitInformation.LimitFlags = self._JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not self._kernel32.SetInformationJobObject(
+            self.handle,
+            self._JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+            ctypes.byref(limits),
+            ctypes.sizeof(limits),
+        ):
+            error = ctypes.get_last_error()
+            self.close()
+            raise BuildToolError(f"Could not configure the application process job (Win32 error {error}).")
+
+    def assign(self, process: subprocess.Popen[Any]) -> None:
+        if not self._kernel32.AssignProcessToJobObject(self.handle, int(process._handle)):
+            raise BuildToolError(
+                f"Could not track the application process tree (Win32 error {self._ctypes.get_last_error()})."
+            )
+
+    def wait(self) -> None:
+        while True:
+            accounting = self._basic_accounting_type()
+            if not self._kernel32.QueryInformationJobObject(
+                self.handle,
+                self._JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION,
+                self._ctypes.byref(accounting),
+                self._ctypes.sizeof(accounting),
+                None,
+            ):
+                raise BuildToolError(
+                    f"Could not query the application process job (Win32 error {self._ctypes.get_last_error()})."
+                )
+            if accounting.ActiveProcesses == 0:
+                return
+            sleep(0.05)
+
+    def terminate(self) -> None:
+        if self.handle:
+            self._kernel32.TerminateJobObject(self.handle, 1)
+
+    def close(self) -> None:
+        if self.handle:
+            self._kernel32.CloseHandle(self.handle)
+            self.handle = None
+
+
 def run_command(
     command: Sequence[str],
     *,
     environment: Mapping[str, str],
     output: BuildOutput,
     recovery_required_on_interrupt: bool = True,
+    wait_for_descendants: bool = False,
 ) -> None:
     command_list = list(command)
     output.command(subprocess.list2cmdline(command_list))
@@ -340,6 +474,7 @@ def run_command(
         popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         popen_options["start_new_session"] = True
+    process_job = WindowsProcessJob() if wait_for_descendants and os.name == "nt" else None
     try:
         process = subprocess.Popen(
             command_list,
@@ -349,10 +484,24 @@ def run_command(
             **popen_options,
         )
     except OSError as exc:
+        if process_job:
+            process_job.close()
         raise BuildToolError(f'Could not start command "{command_list[0]}": {exc}', command=command_list) from exc
+    if process_job:
+        try:
+            process_job.assign(process)
+        except BuildToolError:
+            terminate_process_tree(process)
+            process_job.close()
+            raise
     try:
         return_code = process.wait()
+        if process_job:
+            # Relaunched editors inherit job membership, so active membership reaches zero only after the final instance exits.
+            process_job.wait()
     except KeyboardInterrupt as exc:
+        if process_job:
+            process_job.terminate()
         terminate_process_tree(process)
         if not recovery_required_on_interrupt:
             raise BuildToolError("Application run was interrupted.", command=command_list) from exc
@@ -364,6 +513,9 @@ def run_command(
                 "rebuild --target all with the affected preset."
             ),
         ) from exc
+    finally:
+        if process_job:
+            process_job.close()
     if return_code != 0:
         raise BuildToolError(
             f'Command failed: "{command_list[0]}"',
@@ -652,6 +804,7 @@ def run_application(context: BuildContext, output: BuildOutput) -> None:
             environment=os.environ,
             output=output,
             recovery_required_on_interrupt=False,
+            wait_for_descendants=True,
         )
 
 

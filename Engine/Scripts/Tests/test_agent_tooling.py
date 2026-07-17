@@ -438,6 +438,68 @@ class CoreTests(unittest.TestCase):
         ), self.assertRaisesRegex(build_config.BuildToolError, "was not found"):
             build_core.run_application(context, output)
 
+    def test_run_application_waits_for_relaunched_descendants(self) -> None:
+        preset = self.make_preset()
+        context = build_config.BuildContext(
+            build_config.CommandRequest(build_config.Action.RUN),
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {"debug": preset},
+            preset,
+            "windows",
+        )
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            build_core,
+            "runtime_executable_path",
+            return_value=Path(directory) / "DurinEditor.exe",
+        ) as runtime_path, mock.patch.object(build_core, "run_command") as run:
+            runtime_path.return_value.touch()
+            build_core.run_application(context, output)
+        self.assertTrue(run.call_args.kwargs["wait_for_descendants"])
+
+    def test_run_command_waits_for_windows_process_job(self) -> None:
+        process = mock.Mock(pid=42, returncode=0)
+        process.wait.return_value = 0
+        process_job = mock.Mock()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
+            build_core,
+            "WindowsProcessJob",
+            return_value=process_job,
+        ):
+            build_core.run_command(
+                ["DurinEditor.exe"],
+                environment={},
+                output=output,
+                wait_for_descendants=True,
+            )
+        process_job.assign.assert_called_once_with(process)
+        process_job.wait.assert_called_once_with()
+        process_job.close.assert_called_once_with()
+
+    def test_interrupt_terminates_relaunched_windows_process_job(self) -> None:
+        process = mock.Mock(pid=42, returncode=0)
+        process.wait.return_value = 0
+        process.poll.return_value = 0
+        process_job = mock.Mock()
+        process_job.wait.side_effect = KeyboardInterrupt
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
+            build_core,
+            "WindowsProcessJob",
+            return_value=process_job,
+        ), self.assertRaisesRegex(build_config.BuildToolError, "Application run was interrupted"):
+            build_core.run_command(
+                ["DurinEditor.exe"],
+                environment={},
+                output=output,
+                recovery_required_on_interrupt=False,
+                wait_for_descendants=True,
+            )
+        process_job.terminate.assert_called_once_with()
+        process_job.close.assert_called_once_with()
+
     def test_open_runtime_directory_uses_selected_preset_directory(self) -> None:
         preset = self.make_preset()
         request = build_config.CommandRequest(build_config.Action.SHELL)

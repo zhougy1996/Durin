@@ -43,8 +43,11 @@ The registered Windows build environment defaults to `Win64-Debug-DurinEditor-Te
 ```
 
 `run` launches the existing runtime executable selected by the preset, such as
-`DurinEditor.exe` or `DurinGame.exe`; it does not build implicitly. Pass runtime
-arguments after the final `--args` option:
+`DurinEditor.exe` or `DurinGame.exe`; it does not build implicitly. On Windows,
+BuildTool keeps relaunched runtime descendants in the same tracked process job,
+so opening another editor project does not return from `run` or release the
+checkout lock until the final editor instance exits. Pass runtime arguments after
+the final `--args` option:
 
 ```powershell
 .\BuildTool run --preset Win64-Debug-DurinGame --args -ExampleArgument

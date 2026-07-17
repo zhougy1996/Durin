@@ -2,10 +2,27 @@
 
 namespace Durin
 {
-	static std::atomic<uint32> GNextDelegateHandleId = 0;
-
-	FDelegateHandle::FDelegateHandle()
-		: Id(GNextDelegateHandleId++)
+	namespace
 	{
+		std::atomic<uint64> GNextDelegateHandleId = 1;
 	}
-} // namespace Durin
+
+	auto FDelegateHandle::GenerateNewHandle() -> FDelegateHandle
+	{
+		uint64 NewId = 0;
+		do
+		{
+			NewId = GNextDelegateHandleId.fetch_add(1, std::memory_order_relaxed);
+		}
+		while (NewId == 0);
+		return FDelegateHandle(NewId);
+	}
+
+	namespace Private
+	{
+		[[noreturn]] auto ReportUnboundDelegateExecution() -> void
+		{
+			std::terminate();
+		}
+	}
+}
