@@ -1,11 +1,12 @@
 #include "MainFrameModule.h"
 
+#include "ProjectBrowser.h"
+
 #include "Editor/EditorWorkspace.h"
 #include "Editor/EditorWorkspaceUI.h"
 #include "Mona.h"
 #include "LevelEditorModule.h"
 #include "MonaImGui.h"
-#include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 
@@ -101,56 +102,40 @@ namespace Durin
 		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
 		auto WorkspaceManager = std::make_shared<FEditorWorkspaceManager>();
 		auto bWorkspaceReady = std::make_shared<bool>(false);
-		std::shared_ptr<std::string> ProjectBrowserError = std::make_shared<std::string>();
+		auto ProjectBrowser = std::make_shared<FProjectBrowser>();
 		const std::weak_ptr<MWindow> WeakRootWindow = RootWindow;
 		if (HasCurrentProject())
 		{
 			*bWorkspaceReady = LevelEditorModule.RegisterLevelEditorWorkspace(*WorkspaceManager);
-			if (!*bWorkspaceReady) *ProjectBrowserError = "Could not initialize the Level Editor workspace.";
+			if (!*bWorkspaceReady) ProjectBrowser->SetError("Could not initialize the Level Editor workspace.");
+			else ProjectBrowser->RecordCurrentProject();
 		}
 
 		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowserError, WeakRootWindow, LevelEditorModulePtr]() {
+		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr](std::string_view ProjectFile, std::string& OutError) {
+			const std::array<std::string_view, 2> Arguments = {"--project", ProjectFile};
+			if (!InitializeCurrentProject(Arguments, &OutError)) return false;
+			PathUtilities::InitDefaultMountPoints();
+			*bWorkspaceReady = LevelEditorModulePtr->RegisterLevelEditorWorkspace(*WorkspaceManager);
+			if (!*bWorkspaceReady)
+			{
+				OutError = "Could not initialize the Level Editor workspace.";
+				return false;
+			}
+			if (const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock())
+				RootWindow->SetTitle(std::format("Durin Editor - {}", GetCurrentProject()->Name));
+			return true;
+		});
+
+		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser]() {
 			if (*bWorkspaceReady)
 			{
 				DrawWorkspaceHost(*WorkspaceManager);
 				return;
 			}
-			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-			ImGui::SetNextWindowSize(ImVec2(640.0f, 420.0f), ImGuiCond_Once);
-			if (ImGui::Begin("Open a Durin Project", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
-			{
-				ImGui::TextUnformatted("Open a .dproject file to start the editor.");
-				ImGui::Separator();
-				if (ImGui::Button("Open Project...", ImVec2(140.0f, 0.0f)))
-				{
-					FFileDialogRequest Request;
-					Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-					Request.Title = "Open a Durin Project";
-					Request.Filters = {{"Durin Project", "*.dproject"}};
-					const FFileDialogResult Result = OpenFileDialog(Request);
-					if (Result.Status == EFileDialogStatus::Selected)
-					{
-						const std::array<std::string_view, 2> Arguments = {"--project", Result.FilePath};
-						if (InitializeCurrentProject(Arguments, ProjectBrowserError.get()))
-						{
-							PathUtilities::InitDefaultMountPoints();
-							*bWorkspaceReady = LevelEditorModulePtr->RegisterLevelEditorWorkspace(*WorkspaceManager);
-							if (!*bWorkspaceReady)
-							{
-								*ProjectBrowserError = "Could not initialize the Level Editor workspace.";
-							}
-							else if (const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock())
-								RootWindow->SetTitle(std::format("Durin Editor - {}", GetCurrentProject()->Name));
-						}
-					}
-					else if (Result.Status == EFileDialogStatus::Error) *ProjectBrowserError = Result.ErrorMessage;
-				}
-				if (!ProjectBrowserError->empty()) ImGui::TextColored(ImVec4(1, 0.35f, 0.35f, 1), "%s", ProjectBrowserError->c_str());
-			}
-			ImGui::End();
+			ProjectBrowser->Draw();
 		});
 		RootWindow->SetContent(EditorRootWidget);
 

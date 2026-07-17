@@ -4,7 +4,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Json/Json.h"
 #include "Misc/Paths.h"
-#include "Yaml/Yaml.h"
+#include "Misc/ProjectHistory.h"
 
 namespace Durin
 {
@@ -45,9 +45,14 @@ namespace Durin
 		if (bForceBrowser) return true;
 		if (Requested.empty())
 		{
-			FYamlDocument Session;
-			if (Session.LoadFromFile(FPaths::LaunchDir() + "LevelEditorSession.yaml"))
-				Requested = Session.GetRootView().GetView("RecentProject").GetString();
+			FProjectHistory History = MakeDefaultProjectHistory();
+			std::string HistoryError;
+			if (!History.Load(&HistoryError))
+			{
+				if (OutError) *OutError = std::move(HistoryError);
+				return false;
+			}
+			Requested = History.GetMostRecentProjectFile();
 		}
 		if (Requested.empty()) return true;
 		const std::string Normalized = Normalize(Requested);
