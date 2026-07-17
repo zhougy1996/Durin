@@ -364,7 +364,7 @@ The current focused DHT tests live under:
 Engine/Source/Programs/DurinHeaderTool/tests
 ```
 
-The implementation keeps the external entrypoint at `Engine/Source/Programs/DurinHeaderTool/main.py`.
+The implementation entrypoint lives inside the package at `Engine/Source/Programs/DurinHeaderTool/durin_header_tool/__main__.py`.
 Internal code lives under `Engine/Source/Programs/DurinHeaderTool/durin_header_tool`, split by role:
 `cli`, `config`, `io`, `model`, `parser`, `resolver`, `cache`, `writers`, and `generators`.
 

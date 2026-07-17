@@ -529,6 +529,29 @@ def runtime_executable_path(
     )
 
 
+def open_runtime_directory(context: BuildContext, output: BuildOutput) -> None:
+    directory = runtime_executable_path(context.profile, context.preset).parent
+    if not directory.is_dir():
+        raise BuildToolError(
+            f'Runtime directory was not found: "{directory}".',
+            recovery="Build the complete runtime first with build --target all.",
+        )
+    try:
+        if context.current_host == "windows":
+            os.startfile(directory)  # type: ignore[attr-defined]
+        else:
+            opener = "open" if context.current_host == "macos" else "xdg-open"
+            subprocess.Popen(
+                [opener, str(directory)],
+                cwd=REPO_ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    except (AttributeError, OSError) as exc:
+        raise BuildToolError(f'Could not open runtime directory "{directory}": {exc}') from exc
+    output.success(f'Opened runtime directory: "{directory}"')
+
+
 def test_executable_path(
     profile: BuildProfile,
     preset: ConfigurePreset,

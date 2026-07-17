@@ -24,6 +24,7 @@ from .core import (
     derive_context,
     execute_context,
     interruption_marker_path,
+    open_runtime_directory,
 )
 from .output import BuildOutput
 
@@ -200,6 +201,7 @@ def print_shell_help(output: BuildOutput) -> None:
         "  /rebuild [target]         Clean, configure, and build (default: all)\n"
         "  /test <target> [filter]   Build and run a native test target\n"
         "  /run [arguments...]       Run the existing runtime executable\n"
+        "  /open-runtime             Open the current preset's runtime directory\n"
         "  /help                     Show this help\n"
         "  /exit                     Leave the shell"
     )
@@ -322,6 +324,12 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                     raise BuildToolError("/preset accepts one full preset name.")
                 current_preset = resolve_shell_preset(values[0], base)
                 output.success(f'CMake preset selected: "{current_preset}"')
+                continue
+            if command == "open-runtime":
+                if values:
+                    raise BuildToolError("/open-runtime does not accept positional arguments.")
+                runtime_context = derive_context(base, replace(request, preset=current_preset))
+                open_runtime_directory(runtime_context, output)
                 continue
             if command in {"configure", "clean"}:
                 if values:

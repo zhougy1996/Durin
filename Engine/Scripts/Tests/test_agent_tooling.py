@@ -438,6 +438,28 @@ class CoreTests(unittest.TestCase):
         ), self.assertRaisesRegex(build_config.BuildToolError, "was not found"):
             build_core.run_application(context, output)
 
+    def test_open_runtime_directory_uses_selected_preset_directory(self) -> None:
+        preset = self.make_preset()
+        request = build_config.CommandRequest(build_config.Action.SHELL)
+        context = build_config.BuildContext(
+            request,
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {"debug": preset},
+            preset,
+            "windows",
+        )
+        stdout = io.StringIO()
+        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            build_core,
+            "runtime_executable_path",
+            return_value=Path(directory) / "DurinEditor.exe",
+        ), mock.patch.object(build_core.os, "startfile", create=True) as startfile:
+            build_core.open_runtime_directory(context, output)
+        startfile.assert_called_once_with(Path(directory))
+        self.assertIn("Opened runtime directory", stdout.getvalue())
+
     def test_test_action_rejects_non_test_preset(self) -> None:
         request = build_config.CommandRequest(build_config.Action.TEST, target="CoreTests")
         with self.assertRaisesRegex(build_config.BuildToolError, "does not enable BUILD_TESTING"):

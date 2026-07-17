@@ -86,11 +86,12 @@ BuildTool> /build
 BuildTool> /rebuild DurinLauncher
 BuildTool> /test CoreTests FJsonDocumentTests.*
 BuildTool> /run
+BuildTool> /open-runtime
 BuildTool> /status
 BuildTool> /exit
 ```
 
-`/presets` displays the registered list, prints an input hint, and accepts a number on the next `BuildTool>` prompt. `/preset` without an argument displays the current preset; with an argument it requires the full preset name. `/build` and `/rebuild` default to target `all`. `/run [arguments...]` launches the current preset's existing runtime executable and returns to the shell when it exits. `/status` reports the resolved profile, preset, build directory, configuration, CMake command, parallelism, and interruption recovery state. Use `/help` for the complete command list. Shell commands reuse the environment resolved when the shell starts, so switching presets does not rerun Visual Studio environment discovery.
+`/presets` displays the registered list, prints an input hint, and accepts a number on the next `BuildTool>` prompt. `/preset` without an argument displays the current preset; with an argument it requires the full preset name. `/build` and `/rebuild` default to target `all`. `/run [arguments...]` launches the current preset's existing runtime executable and returns to the shell when it exits. `/open-runtime` opens the selected preset's existing runtime directory in the platform file manager. `/status` reports the resolved profile, preset, build directory, configuration, CMake command, parallelism, and interruption recovery state. Use `/help` for the complete command list. Shell commands reuse the environment resolved when the shell starts, so switching presets does not rerun Visual Studio environment discovery.
 
 ## Clean And Purge
 

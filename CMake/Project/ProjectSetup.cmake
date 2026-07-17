@@ -3,7 +3,7 @@
 include_guard(GLOBAL)
 
 set(DHT_DIR ${DURIN_WORKSPACE_DIR}/Engine/Source/Programs/DurinHeaderTool)
-set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/main.py")
+set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/durin_header_tool/__main__.py")
 
 function(durin_project_log project_name)
 	message(STATUS "[${project_name}] Project: ${project_name}")
