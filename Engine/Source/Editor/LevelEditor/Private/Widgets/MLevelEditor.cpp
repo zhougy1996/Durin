@@ -166,10 +166,32 @@ namespace Durin
 			return false;
 		}
 		FYamlDocument Document;
+		const std::string SettingsFile = Project->ProjectDir + "Configs/Project.yaml";
+		if (std::filesystem::exists(SettingsFile))
+		{
+			FYamlParseError ParseError;
+			if (!Document.LoadFromFile(SettingsFile, &ParseError))
+			{
+				SetError(std::format("Could not load existing project settings: {}", ParseError.Message));
+				return false;
+			}
+			if (!Document.GetRootView().IsMap())
+			{
+				SetError("Project settings must contain a YAML map at the root.");
+				return false;
+			}
+		}
 		FYamlNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureMap();
-		Root.AddMap("Editor").SetChildValue("DefaultLevel", DefaultLevel);
-		if (!Document.SaveToFile(Project->ProjectDir + "Configs/Project.yaml"))
+		FYamlNodeRef Editor = Root.GetRef("Editor");
+		if (!Editor.IsValid()) Editor = Root.AddMap("Editor");
+		else if (!Editor.IsMap())
+		{
+			SetError("The Editor project setting must be a YAML map.");
+			return false;
+		}
+		Editor.SetChildValue("DefaultLevel", DefaultLevel);
+		if (!Document.SaveToFile(SettingsFile))
 		{
 			SetError("Could not save project settings.");
 			return false;
