@@ -78,6 +78,7 @@ namespace Durin
 			else SetRootComponent(SceneComponent);
 		}
 		Component->RegisterComponent();
+		if (bHasBegunPlay) Component->BeginPlay();
 		MarkPackageDirty();
 		return Component;
 	}
@@ -133,6 +134,40 @@ namespace Durin
 		DSceneComponent* ParentComponent = RootComponent->GetAttachParent();
 		AActor* ParentActor = ParentComponent ? ParentComponent->GetOwner() : nullptr;
 		return ParentActor != this ? ParentActor : nullptr;
+	}
+
+	auto AActor::BeginPlay() -> void
+	{
+		check(!bHasBegunPlay);
+		bHasBegunPlay = true;
+		for (const TObjectPtr<DActorComponent>& Component : OwnedComponents)
+		{
+			if (Component && Component->IsRegistered() && !Component->HasBegunPlay()) Component->BeginPlay();
+		}
+	}
+
+	auto AActor::Tick(float DeltaSeconds) -> void
+	{
+		for (const TObjectPtr<DActorComponent>& Component : OwnedComponents)
+		{
+			if (Component && Component->HasBegunPlay() && Component->IsComponentTickEnabled()) Component->TickComponent(DeltaSeconds);
+		}
+	}
+
+	auto AActor::EndPlay() -> void
+	{
+		if (!bHasBegunPlay) return;
+		for (auto It = OwnedComponents.rbegin(); It != OwnedComponents.rend(); ++It)
+		{
+			if (*It && (*It)->HasBegunPlay()) (*It)->EndPlay();
+		}
+		bHasBegunPlay = false;
+	}
+
+	auto AActor::BeginDestroy() -> void
+	{
+		EndPlay();
+		Super::BeginDestroy();
 	}
 
 	auto AActor::InitializeDefaults() -> void

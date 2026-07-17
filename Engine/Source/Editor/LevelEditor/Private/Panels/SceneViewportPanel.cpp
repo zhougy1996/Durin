@@ -327,6 +327,7 @@ namespace Durin
 			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
 		))
 		{
+			if (GEngine) GEngine->SetGameInputEnabled(false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			bViewportHovered = false;
 			bViewportFocused = false;
@@ -336,6 +337,7 @@ namespace Durin
 
 		if (Context.Level == nullptr)
 		{
+			if (GEngine) GEngine->SetGameInputEnabled(false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			bViewportHovered = false;
 			bViewportFocused = false;
@@ -352,7 +354,7 @@ namespace Durin
 			{
 				const ImVec2 VpMin = ImGui::GetItemRectMin();
 				const ImVec2 VpMax = ImGui::GetItemRectMax();
-				if (ImGui::BeginDragDropTarget())
+				if (!Context.bReadOnly && ImGui::BeginDragDropTarget())
 				{
 					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ContentBrowserAssetPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FContentBrowserAssetPayload))
 					{
@@ -385,10 +387,25 @@ namespace Durin
 					ImGui::SetWindowFocus();
 				}
 				bViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-				UpdateViewportInput(Context, ToolbarLayout);
+				if (GEngine) GEngine->SetGameInputEnabled(Context.bReadOnly && bViewportFocused);
+				if (Context.bReadOnly)
+				{
+					if (ViewportClient) ViewportClient->ResetNavigation();
+					ViewportClient->SetSelectedActors({}, nullptr);
+				}
+				else UpdateViewportInput(Context, ToolbarLayout);
+				if (Context.bReadOnly) ImGui::BeginDisabled();
 				DrawToolbar(ToolbarLayout);
+				if (Context.bReadOnly) ImGui::EndDisabled();
 				DrawOrientationOverlay(VpMin, VpMax);
 				DrawFPSOverlay(VpMin, VpMax);
+				if (Context.bReadOnly)
+				{
+					ImDrawList* DrawList = ImGui::GetWindowDrawList();
+					const char* Status = GEditor && GEditor->IsPlaySessionPaused() ? "PLAY PAUSED" : "PLAYING";
+					const ImVec2 TextSize = ImGui::CalcTextSize(Status);
+					DrawList->AddText(ImVec2((VpMin.x + VpMax.x - TextSize.x) * 0.5f, VpMin.y + MonaImGui::ScaleUI(12.0f)), ImGui::GetColorU32(ImGuiCol_CheckMark), Status);
+				}
 			}
 		}
 		if (ViewportWidget == nullptr || !ViewportWidget->WasTextureDrawn())

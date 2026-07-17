@@ -37,6 +37,13 @@ namespace Durin
 		ENGINE_API auto AttachToActor(AActor* ParentActor, EAttachmentTransformRule Rule = EAttachmentTransformRule::KeepWorld) -> bool;
 		ENGINE_API auto DetachFromActor(EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
 		ENGINE_API auto GetAttachParentActor() const -> AActor*;
+		ENGINE_API virtual auto BeginPlay() -> void;
+		ENGINE_API virtual auto Tick(float DeltaSeconds) -> void;
+		ENGINE_API virtual auto EndPlay() -> void;
+		ENGINE_API auto BeginDestroy() -> void override;
+		auto HasBegunPlay() const -> bool { return bHasBegunPlay; }
+		auto IsActorTickEnabled() const -> bool { return bTickEnabled; }
+		auto SetActorTickEnabled(bool bEnabled) -> void { bTickEnabled = bEnabled; }
 		auto GetOwnedComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
 		auto GetInstanceComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return InstanceComponents; }
 
@@ -119,5 +126,8 @@ namespace Durin
 
 		DPROPERTY()
 		std::vector<TObjectPtr<DActorComponent>> InstanceComponents;
+
+		uint8 bHasBegunPlay : 1 = false;
+		uint8 bTickEnabled : 1 = false;
 	};
 } // namespace Durin

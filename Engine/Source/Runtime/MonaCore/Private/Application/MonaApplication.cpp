@@ -288,6 +288,11 @@ namespace Durin::Mona
 		MonaEventHandler = std::move(InHandler);
 	}
 
+	auto FMonaApplication::SetGameEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void
+	{
+		GameEventHandler = std::move(InHandler);
+	}
+
 	auto FMonaApplication::GetActiveTopLevelWindow() const -> std::shared_ptr<MWindow>
 	{
 		return ActiveTopLevelWindow.lock();
@@ -320,6 +325,7 @@ namespace Durin::Mona
 		{
 			MonaEventHandler->OnWindowFocused(InPlatformWindow, bFocused);
 		}
+		if (GameEventHandler) GameEventHandler->OnWindowFocused(InPlatformWindow, bFocused);
 	}
 
 	FMonaApplication::FMonaApplication()
@@ -419,16 +425,16 @@ namespace Durin::Mona
 
 	auto FMonaApplication::OnKeyDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods, bool IsRepeat) -> bool
 	{
-		if (MonaEventHandler && MonaEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat))
-		{
-			return true;
-		}
-		return false;
+		const bool bUIHandled = MonaEventHandler && MonaEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat);
+		const bool bGameHandled = GameEventHandler && GameEventHandler->OnKeyDown(InPlatformWindow, Key, Mods, IsRepeat);
+		return bUIHandled || bGameHandled;
 	}
 
 	auto FMonaApplication::OnKeyUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EKey Key, EKeyModFlags Mods) -> bool
 	{
-		return MonaEventHandler ? MonaEventHandler->OnKeyUp(InPlatformWindow, Key, Mods) : false;
+		const bool bUIHandled = MonaEventHandler && MonaEventHandler->OnKeyUp(InPlatformWindow, Key, Mods);
+		const bool bGameHandled = GameEventHandler && GameEventHandler->OnKeyUp(InPlatformWindow, Key, Mods);
+		return bUIHandled || bGameHandled;
 	}
 
 	auto FMonaApplication::OnKeyChar(const std::shared_ptr<FGenericWindow>& InPlatformWindow, uint32 Codepoint) -> bool
@@ -438,7 +444,9 @@ namespace Durin::Mona
 
 	auto FMonaApplication::OnMouseMove(const std::shared_ptr<FGenericWindow>& InPlatformWindow, const FVector2d CursorPos) -> bool
 	{
-		return MonaEventHandler ? MonaEventHandler->OnMouseMove(InPlatformWindow, CursorPos) : false;
+		const bool bUIHandled = MonaEventHandler && MonaEventHandler->OnMouseMove(InPlatformWindow, CursorPos);
+		const bool bGameHandled = GameEventHandler && GameEventHandler->OnMouseMove(InPlatformWindow, CursorPos);
+		return bUIHandled || bGameHandled;
 	}
 
 	auto FMonaApplication::OnMouseEnter(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void
@@ -447,6 +455,7 @@ namespace Durin::Mona
 		{
 			MonaEventHandler->OnMouseEnter(InPlatformWindow);
 		}
+		if (GameEventHandler) GameEventHandler->OnMouseEnter(InPlatformWindow);
 	}
 
 	auto FMonaApplication::OnMouseLeave(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void
@@ -455,20 +464,27 @@ namespace Durin::Mona
 		{
 			MonaEventHandler->OnMouseLeave(InPlatformWindow);
 		}
+		if (GameEventHandler) GameEventHandler->OnMouseLeave(InPlatformWindow);
 	}
 
 	auto FMonaApplication::OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
-		return MonaEventHandler ? MonaEventHandler->OnMouseDown(InPlatformWindow, Button, CursorPos) : false;
+		const bool bUIHandled = MonaEventHandler && MonaEventHandler->OnMouseDown(InPlatformWindow, Button, CursorPos);
+		const bool bGameHandled = GameEventHandler && GameEventHandler->OnMouseDown(InPlatformWindow, Button, CursorPos);
+		return bUIHandled || bGameHandled;
 	}
 
 	auto FMonaApplication::OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
-		return MonaEventHandler ? MonaEventHandler->OnMouseUp(InPlatformWindow, Button, CursorPos) : false;
+		const bool bUIHandled = MonaEventHandler && MonaEventHandler->OnMouseUp(InPlatformWindow, Button, CursorPos);
+		const bool bGameHandled = GameEventHandler && GameEventHandler->OnMouseUp(InPlatformWindow, Button, CursorPos);
+		return bUIHandled || bGameHandled;
 	}
 
 	bool FMonaApplication::OnMouseWheel(const std::shared_ptr<FGenericWindow>& InPlatformWindow, double DeltaX, double DeltaY)
 	{
-		return MonaEventHandler ? MonaEventHandler->OnMouseWheel(InPlatformWindow, DeltaX, DeltaY) : false;
+		const bool bUIHandled = MonaEventHandler && MonaEventHandler->OnMouseWheel(InPlatformWindow, DeltaX, DeltaY);
+		const bool bGameHandled = GameEventHandler && GameEventHandler->OnMouseWheel(InPlatformWindow, DeltaX, DeltaY);
+		return bUIHandled || bGameHandled;
 	}
 } // namespace Durin::Mona

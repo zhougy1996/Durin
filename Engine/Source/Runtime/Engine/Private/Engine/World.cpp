@@ -14,6 +14,7 @@ namespace Durin
 
 	auto DWorld::BeginDestroy() -> void
 	{
+		EndPlay();
 		SetCurrentLevel(nullptr);
 		Super::BeginDestroy();
 	}
@@ -49,10 +50,11 @@ namespace Durin
 		return CurrentLevel ? CurrentLevel->GetActors() : Empty;
 	}
 
-	auto DWorld::SetCurrentLevel(DLevel* Level) -> bool
+	auto DWorld::SetCurrentLevel(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool
 	{
 		if (Level == CurrentLevel.Get()) return true;
 		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
+		EndPlay();
 		DLevel* Previous = CurrentLevel.Get();
 		if (Previous)
 		{
@@ -71,7 +73,42 @@ namespace Durin
 			Level->SetOwningWorld(this);
 			for (const TObjectPtr<AActor>& Actor : Level->GetActors()) Level->OnActorAdded(Actor.Get());
 		}
-		if (Previous && Previous->GetOuter() == this) DestroyObject(Previous);
+		if (bDestroyPreviousOwnedLevel && Previous && Previous->GetOuter() == this) DestroyObject(Previous);
 		return true;
+	}
+
+	auto DWorld::BeginPlay() -> void
+	{
+		if (bHasBegunPlay || !CurrentLevel) return;
+		bHasBegunPlay = true;
+		for (const TObjectPtr<AActor>& Actor : CurrentLevel->GetActors())
+		{
+			if (Actor && !Actor->HasBegunPlay()) Actor->BeginPlay();
+		}
+	}
+
+	auto DWorld::Tick(float DeltaSeconds) -> void
+	{
+		if (!bHasBegunPlay || !CurrentLevel) return;
+		if (bPaused && !std::exchange(bSingleStepRequested, false)) return;
+		const std::vector<TObjectPtr<AActor>> Actors = CurrentLevel->GetActors();
+		for (const TObjectPtr<AActor>& Actor : Actors)
+		{
+			if (Actor && Actor->HasBegunPlay() && Actor->IsActorTickEnabled()) Actor->Tick(DeltaSeconds);
+		}
+	}
+
+	auto DWorld::EndPlay() -> void
+	{
+		if (!bHasBegunPlay) return;
+		if (CurrentLevel)
+		{
+			for (auto It = CurrentLevel->GetActors().rbegin(); It != CurrentLevel->GetActors().rend(); ++It)
+			{
+				if (*It && (*It)->HasBegunPlay()) (*It)->EndPlay();
+			}
+		}
+		bHasBegunPlay = false;
+		bSingleStepRequested = false;
 	}
 } // namespace Durin

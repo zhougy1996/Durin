@@ -28,6 +28,37 @@ Current engine selection is semantic:
 
 Host-specific startup then lives in the concrete engine overrides.
 
+`FEngineLoop::Tick()` measures and clamps real frame delta time before calling
+`DEngine::Tick()`. Active game worlds route that tick through actors and their
+tick-enabled components. The runtime lifecycle is:
+
+- component registration and initialization
+- `DWorld::BeginPlay()`
+- actor and component `BeginPlay()`
+- actor and component `Tick()` while enabled
+- actor and component `EndPlay()`
+- component uninitialization and unregistration
+
+`DGameEngine` loads the project's configured default level and begins play after
+creating its window and scene viewport.
+
+## Play In Editor
+
+`DEditorEngine` keeps the persistent editor world separate from a transient PIE
+world. Starting Play duplicates only the level's owned object tree; references to
+assets outside that tree remain shared. The editor level is detached from the
+active scene without being destroyed, the PIE level is registered and begun, and
+the viewport falls back to the PIE level's primary camera. Stopping reverses the
+transition after draining scene-removal render commands.
+
+PIE supports Playing and Paused states plus single-frame stepping. Runtime changes
+are discarded with the transient world and do not dirty the editor level package.
+
+Gameplay code reads the current key, mouse-button, mouse-position, mouse-delta,
+and wheel state from `GEngine->GetGameInputState()`. Standalone games receive the
+native window input stream; PIE enables that stream only while its embedded scene
+viewport is focused.
+
 ## Module Loader
 
 The runtime module loader lives in:

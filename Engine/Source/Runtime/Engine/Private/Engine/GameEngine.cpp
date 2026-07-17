@@ -1,11 +1,15 @@
 #include "Engine/GameEngine.h"
 
+#include "AssetSystem.h"
 #include "CoreGlobals.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
 #include "Misc/Project.h"
 #include "Mona.h"
 #include "Mona/SceneViewport.h"
 #include "Widgets/MViewport.h"
 #include "Widgets/MWindow.h"
+#include "Yaml/Yaml.h"
 
 namespace Durin
 {
@@ -33,5 +37,25 @@ namespace Durin
 		std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, GameWindow);
 		GameViewportWidget->SetViewportInterface(SceneViewport);
 		SetMainSceneViewport(SceneViewport);
+		SetGameInputEnabled(true);
+
+		if (const FProjectInfo* CurrentProject = GetCurrentProject())
+		{
+			FYamlDocument ProjectSettings;
+			const std::string SettingsPath = CurrentProject->ProjectDir + "Configs/Project.yaml";
+			if (ProjectSettings.LoadFromFile(SettingsPath))
+			{
+				const std::string DefaultLevel = ProjectSettings.GetRootView().GetView("Editor").GetView("DefaultLevel").GetString();
+				FAssetPath LevelPath;
+				DLevel* Level = nullptr;
+				Asset::GetAssetRegistry().ScanMountedContent();
+				if (!DefaultLevel.empty() && FAssetPath::TryCreate(DefaultLevel, LevelPath))
+				{
+					const Asset::FAssetResult Result = Asset::LoadAsset(LevelPath, Level);
+					if (Result && GetWorld()->SetCurrentLevel(Level)) GetWorld()->BeginPlay();
+					else DURIN_WARN("Could not start default level '{}': {}", DefaultLevel, Result.Message);
+				}
+			}
+		}
 	}
 }

@@ -1,6 +1,7 @@
 #include "Viewport/LevelEditorViewportClient.h"
 #include "MonaImGui.h"
 
+#include "Editor/EditorEngine.h"
 #include "Actors/CameraActor.h"
 #include "Components/CameraComponent.h"
 #include "Components/SceneComponent.h"
@@ -69,6 +70,7 @@ namespace Durin
 
 	auto FLevelEditorViewportClient::CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool
 	{
+		if (GEditor && GEditor->IsPlaying()) return false;
 		const float AspectRatio = Height > 0 ? static_cast<float>(Width) / static_cast<float>(Height) : 1.0f;
 		const float HalfFovRadians = glm::radians(FieldOfViewDegrees) * 0.5f;
 		const float YScale = 1.0f / std::tan(HalfFovRadians);

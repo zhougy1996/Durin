@@ -9,6 +9,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Engine.h"
 #include "Engine/GameEngine.h"
@@ -16,6 +17,7 @@
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
@@ -53,6 +55,62 @@ TEST(FWorldTests, StartsWithoutALevelAndActorOperationsAreSafe)
 	EXPECT_EQ(World->FindActorByName("Camera"), nullptr);
 	EXPECT_FALSE(World->DestroyActor(nullptr));
 	World->DestroyAllActors();
+	Durin::DestroyObject(World);
+}
+
+TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
+{
+	Durin::DWorld* EditorWorld = CreateWorld();
+	Durin::AStaticMeshActor* SourceActor = EditorWorld->SpawnActor<Durin::AStaticMeshActor>("Mesh");
+	ASSERT_NE(SourceActor, nullptr);
+	Durin::DStaticMesh* SharedMesh = Durin::NewObject<Durin::DStaticMesh>(nullptr, "SharedMesh");
+	SourceActor->GetStaticMeshComponent()->SetStaticMesh(SharedMesh);
+	Durin::FTransform SourceTransform;
+	SourceTransform.Translation = {1.0, 2.0, 3.0};
+	SourceActor->SetActorTransform(SourceTransform);
+
+	Durin::DWorld* PlayWorld = CreateEmptyWorld();
+	std::string Error;
+	auto* PlayLevel = Durin::Cast<Durin::DLevel>(Durin::DuplicateObjectGraph(EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &Error));
+	ASSERT_NE(PlayLevel, nullptr) << Error;
+	ASSERT_TRUE(PlayWorld->SetCurrentLevel(PlayLevel));
+	auto* PlayActor = Durin::Cast<Durin::AStaticMeshActor>(PlayLevel->FindActorByName("Mesh"));
+	ASSERT_NE(PlayActor, nullptr);
+	EXPECT_NE(PlayActor, SourceActor);
+	EXPECT_NE(PlayActor->GetStaticMeshComponent(), SourceActor->GetStaticMeshComponent());
+	EXPECT_EQ(PlayActor->GetStaticMeshComponent()->GetStaticMesh(), SharedMesh);
+	EXPECT_EQ(PlayActor->GetOuter(), PlayLevel);
+	EXPECT_EQ(PlayLevel->GetOuter(), PlayWorld);
+	EXPECT_EQ(PlayLevel->GetPackage(), nullptr);
+	ExpectVectorNear(PlayActor->GetActorTransform().Translation, SourceTransform.Translation);
+
+	PlayActor->GetRootComponent()->SetWorldLocation({9.0, 8.0, 7.0});
+	ExpectVectorNear(SourceActor->GetActorTransform().Translation, SourceTransform.Translation);
+	Durin::DestroyObject(EditorWorld);
+	Durin::DestroyObject(PlayWorld);
+	Durin::DestroyObject(SharedMesh);
+}
+
+TEST(FWorldTests, RoutesPlayLifecycleThroughActorsAndComponents)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* Actor = World->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Actor, nullptr);
+	ASSERT_FALSE(Actor->HasBegunPlay());
+	ASSERT_FALSE(Actor->GetCameraComponent()->HasBegunPlay());
+
+	World->BeginPlay();
+	EXPECT_TRUE(World->HasBegunPlay());
+	EXPECT_TRUE(Actor->HasBegunPlay());
+	EXPECT_TRUE(Actor->GetCameraComponent()->HasBegunPlay());
+	World->SetPaused(true);
+	World->RequestSingleStep();
+	World->Tick(1.0f / 60.0f);
+
+	World->EndPlay();
+	EXPECT_FALSE(World->HasBegunPlay());
+	EXPECT_FALSE(Actor->HasBegunPlay());
+	EXPECT_FALSE(Actor->GetCameraComponent()->HasBegunPlay());
 	Durin::DestroyObject(World);
 }
 

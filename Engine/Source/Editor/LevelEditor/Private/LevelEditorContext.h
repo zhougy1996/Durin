@@ -12,6 +12,7 @@ namespace Durin
 	{
 		DWorld* World = nullptr;
 		DLevel* Level = nullptr;
+		bool bReadOnly = false;
 		std::function<void(std::string)> ReportError;
 		std::function<bool(std::string_view)> RenameLevel;
 

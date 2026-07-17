@@ -9,6 +9,8 @@
 #include "IRendererModule.h"
 #include "Mona/SceneViewport.h"
 #include "Modules/ModuleManager.h"
+#include "Application/MonaApplication.h"
+#include "Application/MonaEventHandler.h"
 
 #include "DynamicRHI.h"
 #include "IScene.h"
@@ -17,6 +19,53 @@
 
 namespace Durin
 {
+	class FEngineInputEventHandler final : public Mona::FMonaEventHandler
+	{
+	public:
+		auto OnWindowFocused(const std::shared_ptr<FGenericWindow>&, bool bFocused) -> void override
+		{
+			if (GEngine) GEngine->GameInputState.SetFocused(bFocused);
+		}
+		auto OnKeyDown(const std::shared_ptr<FGenericWindow>&, EKey Key, EKeyModFlags, bool) -> bool override
+		{
+			if (GEngine) GEngine->GameInputState.SetKey(Key, true);
+			return GEngine && GEngine->GameInputState.IsEnabled();
+		}
+		auto OnKeyUp(const std::shared_ptr<FGenericWindow>&, EKey Key, EKeyModFlags) -> bool override
+		{
+			if (GEngine) GEngine->GameInputState.SetKey(Key, false);
+			return GEngine && GEngine->GameInputState.IsEnabled();
+		}
+		auto OnMouseMove(const std::shared_ptr<FGenericWindow>&, FVector2d Position) -> bool override
+		{
+			if (GEngine) GEngine->GameInputState.SetMousePosition(Position);
+			return GEngine && GEngine->GameInputState.IsEnabled();
+		}
+		auto OnMouseDown(const std::shared_ptr<FGenericWindow>&, EMouseButton Button, FVector2d Position) -> bool override
+		{
+			if (GEngine)
+			{
+				GEngine->GameInputState.SetMousePosition(Position);
+				GEngine->GameInputState.SetMouseButton(Button, true);
+			}
+			return GEngine && GEngine->GameInputState.IsEnabled();
+		}
+		auto OnMouseUp(const std::shared_ptr<FGenericWindow>&, EMouseButton Button, FVector2d Position) -> bool override
+		{
+			if (GEngine)
+			{
+				GEngine->GameInputState.SetMousePosition(Position);
+				GEngine->GameInputState.SetMouseButton(Button, false);
+			}
+			return GEngine && GEngine->GameInputState.IsEnabled();
+		}
+		auto OnMouseWheel(const std::shared_ptr<FGenericWindow>&, double, double DeltaY) -> bool override
+		{
+			if (GEngine) GEngine->GameInputState.AddMouseWheel(DeltaY);
+			return GEngine && GEngine->GameInputState.IsEnabled();
+		}
+	};
+
 	DEngine::DEngine(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -29,6 +78,7 @@ namespace Durin
 		RendererModule = &FModuleManager::LoadModuleChecked<IRendererModule>("Renderer");
 		MainScene = RendererModule->CreateScene();
 		MainWorld = NewObject<DWorld>(this, "MainWorld");
+		Mona::FMonaApplication::Get().SetGameEventHandler(std::make_unique<FEngineInputEventHandler>());
 	}
 
 	auto DEngine::BeginDestroy() -> void
@@ -42,6 +92,9 @@ namespace Durin
 
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
+		(void)bIdleMode;
+		if (MainWorld) MainWorld->Tick(DeltaSeconds);
+		GameInputState.FinishGameTick();
 	}
 
 	auto DEngine::RedrawViewports() -> void
@@ -124,6 +177,11 @@ namespace Durin
 		{
 			MainSceneViewport->UpdateRHIViewport();
 		}
+	}
+
+	auto DEngine::SetWorld(DWorld* InWorld) -> void
+	{
+		MainWorld = InWorld;
 	}
 
 	auto DEngine::GetActiveCameraComponent() const -> DCameraComponent*

@@ -13,12 +13,16 @@ namespace Durin
 	}
 	auto DActorComponent::RegisterComponent() -> void
 	{
+		if (!bHasBeenCreated) OnComponentCreated();
 		ExecuteRegisterEvents();
+		if (!bHasBeenInitialized) InitializeComponent();
 	}
 
 	auto DActorComponent::UnregisterComponent() -> void
 	{
-		OnUnregister();
+		if (bHasBegunPlay) EndPlay();
+		if (bHasBeenInitialized) UninitializeComponent();
+		ExecuteUnregisterEvents();
 	}
 
 	auto DActorComponent::DestroyComponent() -> void
@@ -81,6 +85,7 @@ namespace Durin
 
 	auto DActorComponent::OnComponentPendingKill() -> void
 	{
+		if (bHasBegunPlay) EndPlay();
 		if (bHasBeenInitialized) UninitializeComponent();
 		ExecuteUnregisterEvents();
 		if (bHasBeenCreated)
@@ -88,6 +93,24 @@ namespace Durin
 			OnComponentDestroyed();
 			check(!bHasBeenCreated && "Failed to route OnComponentDestroyed()");
 		}
+	}
+
+	auto DActorComponent::BeginPlay() -> void
+	{
+		check(bRegistered);
+		check(!bHasBegunPlay);
+		bHasBegunPlay = true;
+	}
+
+	auto DActorComponent::TickComponent(float DeltaSeconds) -> void
+	{
+		(void)DeltaSeconds;
+	}
+
+	auto DActorComponent::EndPlay() -> void
+	{
+		check(bHasBegunPlay);
+		bHasBegunPlay = false;
 	}
 
 	auto DActorComponent::ExecuteRegisterEvents() -> void

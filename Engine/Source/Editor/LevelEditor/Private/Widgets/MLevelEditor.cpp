@@ -97,7 +97,7 @@ namespace Durin
 		NotificationOverlay = ActivityHistory.get();
 		Panels.emplace_back(std::move(ActivityHistory));
 
-		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
+		Context->Synchronize(GEditor != nullptr ? GEditor->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
 		DocumentController->OpenDefaultLevel();
 		if (!EditorError.empty())
 		{
@@ -226,15 +226,28 @@ namespace Durin
 			return false;
 		}
 
-		Context->Synchronize(GEngine != nullptr ? GEngine->GetWorld() : nullptr);
+		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		Context->bReadOnly = bPlaying;
+		Context->Synchronize(GEditor != nullptr ? GEditor->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (bActive || bRootFocused)
 		{
-			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
-			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) DocumentController->SaveCurrentLevel();
+			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F5, false) && GEditor)
+			{
+				if (GEditor->IsPlaying()) GEditor->StopPlaySession();
+				else
+				{
+					std::string Error;
+					if (!GEditor->StartPlaySession(Context->Level, &Error)) SetError(std::move(Error));
+				}
+			}
+			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F6, false) && GEditor && GEditor->IsPlaying()) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
+			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F7, false) && GEditor) GEditor->StepPlaySession();
+			if (!bPlaying && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
+			if (!bPlaying && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) DocumentController->SaveCurrentLevel();
 			const bool bGizmoDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
-			if (!bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) && GEditor) GEditor->GetTransactionManager().Undo();
-			if (!bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) && GEditor) GEditor->GetTransactionManager().Redo();
+			if (!bPlaying && !bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) && GEditor) GEditor->GetTransactionManager().Undo();
+			if (!bPlaying && !bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) && GEditor) GEditor->GetTransactionManager().Redo();
 		}
 
 		const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
@@ -276,7 +289,11 @@ namespace Durin
 
 		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 		{
-			if (Panel->IsOpen()) Panel->Draw(*Context);
+			if (!Panel->IsOpen()) continue;
+			const bool bDisablePanel = bPlaying && Panel.get() != SceneViewportPanel && Panel.get() != NotificationOverlay;
+			if (bDisablePanel) ImGui::BeginDisabled();
+			Panel->Draw(*Context);
+			if (bDisablePanel) ImGui::EndDisabled();
 		}
 		if (bSelectDefaultBottomPanelRequested)
 		{
@@ -295,8 +312,10 @@ namespace Durin
 
 	auto MLevelEditor::DrawMainMenu() -> void
 	{
+		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		if (ImGui::BeginMenu("File"))
 		{
+			if (bPlaying) ImGui::BeginDisabled();
 			if (ImGui::MenuItem("New Level", "Ctrl+N")) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
 			if (ImGui::MenuItem("Save Level", "Ctrl+S", false, Context && Context->Level && Context->Level->GetPackage())) DocumentController->SaveCurrentLevel();
 			if (ImGui::MenuItem("Set Current Level as Project Default", nullptr, false, Context && Context->Level && Context->Level->GetPackage()))
@@ -318,10 +337,12 @@ namespace Durin
 				const std::string Label = Package ? Package->GetPackagePath() + (Package->IsDirty() ? " *" : "") : "Transient Level";
 				ImGui::TextDisabled("%s", Label.c_str());
 			}
+			if (bPlaying) ImGui::EndDisabled();
 			ImGui::EndMenu();
 		}
 		if (ImGui::BeginMenu("Edit"))
 		{
+			if (bPlaying) ImGui::BeginDisabled();
 			const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
 			FEditorTransactionManager* Transactions = GEditor && !bDragging ? &GEditor->GetTransactionManager() : nullptr;
 			const std::string UndoLabel = Transactions && Transactions->CanUndo() ? std::format("Undo {}", Transactions->GetUndoDescription()) : "Undo";
@@ -330,6 +351,25 @@ namespace Durin
 			if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, Transactions && Transactions->CanRedo())) Transactions->Redo();
 			ImGui::Separator();
 			if (ImGui::MenuItem("Project Settings...")) bProjectSettingsOpen = true;
+			if (bPlaying) ImGui::EndDisabled();
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Play"))
+		{
+			if (!bPlaying)
+			{
+				if (ImGui::MenuItem("Play", "F5", false, Context && Context->Level))
+				{
+					std::string Error;
+					if (!GEditor->StartPlaySession(Context->Level, &Error)) SetError(std::move(Error));
+				}
+			}
+			else
+			{
+				if (ImGui::MenuItem("Stop", "F5")) GEditor->StopPlaySession();
+				if (ImGui::MenuItem(GEditor->IsPlaySessionPaused() ? "Resume" : "Pause", "F6")) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
+				if (ImGui::MenuItem("Step", "F7", false, GEditor->IsPlaySessionPaused())) GEditor->StepPlaySession();
+			}
 			ImGui::EndMenu();
 		}
 		if (ImGui::BeginMenu("View"))

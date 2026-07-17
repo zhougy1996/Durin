@@ -488,4 +488,108 @@ namespace Durin
 
 		return Context.ResolveId(RootId);
 	}
+
+	auto DuplicateObjectGraph(DObject* RootObject, DObject* NewOuter, FName NewName, std::string* OutError) -> DObject*
+	{
+		if (OutError) OutError->clear();
+		if (!RootObject)
+		{
+			if (OutError) *OutError = "Cannot duplicate a null object graph.";
+			return nullptr;
+		}
+
+		std::vector<DObject*> Sources;
+		std::unordered_set<DObject*> Visited;
+		std::function<void(DObject*)> GatherInnerTree = [&](DObject* Object) {
+			if (!Object || !Visited.insert(Object).second) return;
+			Sources.push_back(Object);
+			for (DObject* Inner : Object->GetInnerObjects()) GatherInnerTree(Inner);
+		};
+		GatherInnerTree(RootObject);
+
+		std::unordered_map<DObject*, DObject*> Duplicates;
+		std::unordered_set<DObject*> ClaimedConstructedInners;
+		DObject* DuplicateRoot = nullptr;
+		for (DObject* Source : Sources)
+		{
+			DObject* DuplicateOuter = Source == RootObject ? NewOuter : Duplicates[Source->GetOuter()];
+			if (Source != RootObject && !DuplicateOuter)
+			{
+				if (OutError) *OutError = "Object graph contains an inner object whose outer was not duplicated.";
+				if (DuplicateRoot) DestroyObject(DuplicateRoot);
+				return nullptr;
+			}
+
+			DObject* Duplicate = nullptr;
+			if (Source != RootObject)
+			{
+				// Actor constructors create their default components. Reuse those matching inners
+				// instead of constructing a second component with the same identity.
+				for (DObject* Existing : DuplicateOuter->GetInnerObjects())
+				{
+					if (!ClaimedConstructedInners.contains(Existing) && Existing->GetClass() == Source->GetClass() && Existing->GetFName() == Source->GetFName())
+					{
+						Duplicate = Existing;
+						ClaimedConstructedInners.insert(Existing);
+						break;
+					}
+				}
+			}
+
+			if (!Duplicate)
+			{
+				DClass* Class = Source->GetClass();
+				if (!Class || !Class->ClassConstructor)
+				{
+					if (OutError) *OutError = std::format("Object '{}' has no constructible class.", Source->GetName());
+					if (DuplicateRoot) DestroyObject(DuplicateRoot);
+					return nullptr;
+				}
+				FStaticConstructObjectParameters Params;
+				Params.Class = Class;
+				Params.Outer = DuplicateOuter;
+				Params.Name = Source == RootObject && !NewName.IsNone() ? NewName : Source->GetFName();
+				Params.Size = Class->PropertiesSize;
+				Duplicate = StaticConstructObject(Params);
+				DObjectForceRegistration(Duplicate);
+			}
+			Duplicates.emplace(Source, Duplicate);
+			if (Source == RootObject) DuplicateRoot = Duplicate;
+		}
+
+		class FDuplicateReader final : public FMemoryReader
+		{
+		public:
+			FDuplicateReader(const std::vector<uint8>& Bytes, const std::unordered_map<DObject*, DObject*>& InDuplicates)
+				: FMemoryReader(Bytes), DuplicateMap(InDuplicates) {}
+			auto SerializeObjectReference(DObject*& Object) -> void override
+			{
+				uint64 Address = 0;
+				*this << Address;
+				DObject* SourceReference = reinterpret_cast<DObject*>(Address);
+				const auto It = DuplicateMap.find(SourceReference);
+				Object = It == DuplicateMap.end() ? SourceReference : It->second;
+			}
+		private:
+			const std::unordered_map<DObject*, DObject*>& DuplicateMap;
+		};
+
+		for (DObject* Source : Sources)
+		{
+			std::vector<uint8> Bytes;
+			FMemoryWriter Writer(Bytes);
+			Source->Serialize(Writer);
+			FDuplicateReader Reader(Bytes, Duplicates);
+			Duplicates[Source]->Serialize(Reader);
+		}
+
+		std::string PostLoadError;
+		if (!DuplicateRoot->PostLoad(PostLoadError))
+		{
+			if (OutError) *OutError = PostLoadError.empty() ? "Duplicated object graph failed PostLoad." : std::move(PostLoadError);
+			DestroyObject(DuplicateRoot);
+			return nullptr;
+		}
+		return DuplicateRoot;
+	}
 }

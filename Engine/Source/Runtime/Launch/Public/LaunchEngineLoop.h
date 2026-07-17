@@ -11,6 +11,9 @@ namespace Durin
 		auto Init() -> void;
 		auto Tick() -> void;
 		auto Exit() -> void;
+
+	private:
+		double LastTickTime = 0.0;
 	};
 
 	extern FEngineLoop GEngineLoop;

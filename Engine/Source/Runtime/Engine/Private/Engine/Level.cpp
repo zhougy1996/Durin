@@ -5,6 +5,7 @@
 #include "Components/SceneComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
+#include "Engine/World.h"
 
 namespace Durin
 {
@@ -21,6 +22,7 @@ namespace Durin
 		if (!Actor) return nullptr;
 		Actors.emplace_back(Actor);
 		OnActorAdded(Actor);
+		if (OwningWorld && OwningWorld->HasBegunPlay()) Actor->BeginPlay();
 		if (!PrimaryCameraActor)
 		{
 			if (auto* Camera = dynamic_cast<ACameraActor*>(Actor)) PrimaryCameraActor = Camera;
@@ -33,6 +35,7 @@ namespace Durin
 	{
 		const auto It = std::find_if(Actors.begin(), Actors.end(), [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; });
 		if (It == Actors.end()) return false;
+		if (Actor->HasBegunPlay()) Actor->EndPlay();
 		const bool bWasPrimaryCamera = PrimaryCameraActor.Get() == Actor;
 		for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
 		{

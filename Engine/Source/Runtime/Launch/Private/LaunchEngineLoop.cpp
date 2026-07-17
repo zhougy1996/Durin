@@ -74,6 +74,7 @@ namespace Durin
 		Mona::MonaInit();
 
 		GEngine->Init();
+		LastTickTime = FTime::Seconds();
 
 		InitRenderingThread();
 		DURIN_INFO(STR("Durin engine initialized."));
@@ -130,7 +131,10 @@ namespace Durin
 	auto FEngineLoop::Tick() -> void
 	{
 		// Game logic.
-		GEngine->Tick(0.0f, false);
+		const double CurrentTime = FTime::Seconds();
+		const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
+		LastTickTime = CurrentTime;
+		GEngine->Tick(DeltaSeconds, false);
 		GFrameCounter++;
 
 		// Process application events, and paint UI.

@@ -2,6 +2,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObjectFwd.h"
+#include "Misc/Name.h"
 
 namespace Durin
 {
@@ -65,4 +66,7 @@ namespace Durin
 	COREDOBJECT_API auto SerializeDObjectProperties(FArchive& Ar, DObject* Object) -> void;
 	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, std::vector<uint8>& OutBytes) -> bool;
 	COREDOBJECT_API auto LoadObjectGraphFromMemory(const std::vector<uint8>& Bytes) -> DObject*;
+	// Duplicates only the RootObject outer tree. References outside that tree remain shared,
+	// which is required for transient runtime copies that still reference persistent assets.
+	COREDOBJECT_API auto DuplicateObjectGraph(DObject* RootObject, DObject* NewOuter, FName NewName = FName(), std::string* OutError = nullptr) -> DObject*;
 }

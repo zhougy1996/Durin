@@ -34,6 +34,13 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 
 		auto IsRegistered() const -> bool { return bRegistered; }
+		auto HasBegunPlay() const -> bool { return bHasBegunPlay; }
+		auto IsComponentTickEnabled() const -> bool { return bTickEnabled; }
+		auto SetComponentTickEnabled(bool bEnabled) -> void { bTickEnabled = bEnabled; }
+
+		ENGINE_API virtual auto BeginPlay() -> void;
+		ENGINE_API virtual auto TickComponent(float DeltaSeconds) -> void;
+		ENGINE_API virtual auto EndPlay() -> void;
 
 		ENGINE_API virtual auto InitializeComponent() -> void;
 
@@ -64,5 +71,9 @@ namespace Durin
 		uint8 bHasBeenCreated : 1 = false;
 
 		uint8 bHasBeenInitialized : 1 = false;
+
+		uint8 bHasBegunPlay : 1 = false;
+
+		uint8 bTickEnabled : 1 = false;
 	};
 }

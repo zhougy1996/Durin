@@ -68,6 +68,7 @@ namespace Durin::Mona
 		MONACORE_API auto FindWindowByNativeWindowHandle(void* InNativeWindowHandle) -> std::shared_ptr<FGenericWindow> override;
 
 		MONACORE_API auto SetMonaEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
+		MONACORE_API auto SetGameEventHandler(std::unique_ptr<FMonaEventHandler> InHandler) -> void;
 
 		MONACORE_API auto GetActiveTopLevelWindow() const -> std::shared_ptr<MWindow>;
 
@@ -121,6 +122,7 @@ namespace Durin::Mona
 
 		// UI event handler
 		std::unique_ptr<FMonaEventHandler> MonaEventHandler{};
+		std::unique_ptr<FMonaEventHandler> GameEventHandler{};
 
 	};
 } // namespace Durin::Mona
