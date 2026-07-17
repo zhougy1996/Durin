@@ -12,6 +12,11 @@
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
+#include "MonaCoreGlobals.h"
+#include "MonaUIBackend.h"
+#include "Math/Vector.h"
+#include "SourceImageThumbnailCache.h"
+#include "SourceImageThumbnailDecoder.h"
 
 #ifdef _WIN32
 	#include <shellapi.h>
@@ -67,6 +72,7 @@ namespace Durin
 		, IconSize(InSessionSettings.GetContentBrowserIconSize())
 		, DirectoryTreeWidth(InSessionSettings.GetContentBrowserTreeWidth())
 	{
+		ThumbnailCache = std::make_unique<FSourceImageThumbnailCache>();
 		ViewMode = static_cast<EContentBrowserViewMode>(SessionSettings.GetContentBrowserViewMode());
 		bIconSizeLocked = SessionSettings.IsContentBrowserIconSizeLocked();
 		bShowSourceFiles = SessionSettings.GetContentBrowserShowSourceFiles();
@@ -80,6 +86,8 @@ namespace Durin
 			}
 		}
 	}
+
+	FContentBrowserPanel::~FContentBrowserPanel() = default;
 
 	auto FContentBrowserPanel::PhysicalToVirtualDirectory(std::string_view PhysicalPath) const -> std::string
 	{
@@ -176,6 +184,7 @@ namespace Durin
 
 	auto FContentBrowserPanel::RebuildItems() -> void
 	{
+		ThumbnailCache->CancelPendingRequests();
 		Items.clear();
 		if (CurrentPhysicalPath.empty()) return;
 		const bool bSearching = SearchBuffer[0] != '\0';
@@ -503,6 +512,7 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawContentArea() -> void
 	{
+		ThumbnailCache->BeginFrame();
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (ViewMode == EContentBrowserViewMode::Grid && !bIconSizeLocked && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && IO.KeyCtrl && IO.MouseWheel != 0.0f)
 			IconSize = std::clamp(IconSize + IO.MouseWheel * MonaImGui::ScaleUI(8.0f), FEditorSessionSettings::MinimumContentBrowserIconSize, FEditorSessionSettings::MaximumContentBrowserIconSize);
@@ -514,6 +524,7 @@ namespace Durin
 			DrawGrid();
 		else
 			DrawDetails();
+		ThumbnailCache->EndFrame();
 		// Resolve outside clicks after every item has been drawn so the result does not depend on whether
 		// the clicked item appears before or after the active rename editor in ImGui's submission order.
 		if (!RenameTarget.empty() && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bRenameEditorHovered)
@@ -626,98 +637,175 @@ namespace Durin
 		const float IconAreaHeight = IconFontSize + MonaImGui::ScaleUI(GridIconVerticalPadding * 2.0f);
 		const float NamePositionY = IconAreaHeight + MonaImGui::ScaleUI(GridIconNameSpacing);
 		const float NameAreaHeight = NameFontSize * 2.0f + MonaImGui::ScaleUI(8.0f);
+		const float TileHeight = IconAreaHeight + NameAreaHeight;
+		const float LayoutSentinelHeight = 1.0f;
+		const float RowHeight = TileHeight + ImGui::GetStyle().ItemSpacing.y + LayoutSentinelHeight;
 		const int32 Columns = std::max(1, static_cast<int32>(ImGui::GetContentRegionAvail().x / CellWidth));
+		const int32 RowCount = static_cast<int32>((Items.size() + static_cast<size_t>(Columns) - 1) / static_cast<size_t>(Columns));
 		if (!ImGui::BeginTable("ContentBrowserGrid", Columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_ScrollY)) return;
-		for (size_t Index = 0; Index < Items.size(); ++Index)
+
+		ImGuiListClipper Clipper;
+		Clipper.Begin(RowCount, RowHeight);
+		while (Clipper.Step())
 		{
-			const FContentBrowserItem& Item = Items[Index];
-			ImGui::TableNextColumn();
-			ImGui::PushID(Item.StableId().c_str());
-			const ImVec2 TileSize(ImGui::GetContentRegionAvail().x, IconAreaHeight + NameAreaHeight);
-			const bool bSelected = Selection.contains(Item.StableId());
-			const ImVec2 TileStart = ImGui::GetCursorScreenPos();
-			ImGui::InvisibleButton("##Tile", TileSize);
-			const bool bHovered = ImGui::IsItemHovered();
-			bContentItemHovered |= bHovered;
-			if (ImGui::IsItemClicked()) SelectItem(Index);
-			if (bHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) OpenItem(Item);
-			BeginAssetDragDrop(Item);
-			if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
-			if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-			{
-				if (!bSelected)
+			const int32 PrefetchStart = std::max(0, Clipper.DisplayStart - 2);
+			const int32 PrefetchEnd = std::min(RowCount, Clipper.DisplayEnd + 2);
+			for (int32 Row = PrefetchStart; Row < PrefetchEnd; ++Row)
+				for (int32 Column = 0; Column < Columns; ++Column)
 				{
-					Selection.clear();
-					Selection.insert(Item.StableId());
+					const size_t Index = static_cast<size_t>(Row) * Columns + Column;
+					if (Index >= Items.size()) break;
+					const FContentBrowserItem& Item = Items[Index];
+					if (bShowSourceFiles && Item.Kind == EContentBrowserItemKind::SourceFile && IsSupportedSourceImageExtension(Item.Extension))
+						ThumbnailCache->Request(Item.PhysicalPath, Item.FileSize, Item.LastWriteTime, Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd);
 				}
-				ImGui::OpenPopup("ItemContext");
-			}
-			ImDrawList* DrawList = ImGui::GetWindowDrawList();
-			const float CardInset = MonaImGui::ScaleUI(2.0f);
-			const float CardRounding = MonaImGui::ScaleUI(GridCardRounding);
-			const ImVec2 CardMin(TileStart.x + CardInset, TileStart.y + CardInset);
-			const ImVec2 CardMax(TileStart.x + TileSize.x - CardInset, TileStart.y + TileSize.y - CardInset);
-			if (bSelected || bHovered)
+
+			for (int32 Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
 			{
-				const ImGuiCol BackgroundColor = bSelected ? (bHovered ? ImGuiCol_HeaderActive : ImGuiCol_Header) : ImGuiCol_HeaderHovered;
-				DrawList->AddRectFilled(CardMin, CardMax, ImGui::GetColorU32(BackgroundColor), CardRounding);
-				if (bSelected) DrawList->AddRect(CardMin, CardMax, ImGui::GetColorU32(ImGuiCol_CheckMark), CardRounding, 0, MonaImGui::ScaleUI(1.0f));
-			}
-			const MonaImGui::EUIThemeColor IconColorRole = Item.Kind == EContentBrowserItemKind::Folder ? MonaImGui::EUIThemeColor::Folder :
-														   Item.Kind == EContentBrowserItemKind::Asset	? MonaImGui::EUIThemeColor::Asset :
-																										  MonaImGui::EUIThemeColor::SourceFile;
-			const ImU32 IconColor = MonaImGui::GetThemeColorU32(IconColorRole);
-			const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(IconFontSize, FLT_MAX, 0.0f, ItemIcon(Item));
-			const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(0.0f, (IconAreaHeight - IconExtent.y) * 0.5f));
-			DrawList->AddText(ImGui::GetFont(), IconFontSize, IconPosition, IconColor, ItemIcon(Item));
-			if (RenameTarget == Item.StableId())
-			{
-				const float RenameInset = MonaImGui::ScaleUI(7.0f);
-				ImGui::SetCursorScreenPos(ImVec2(TileStart.x + RenameInset, TileStart.y + NamePositionY));
-				ImGui::SetNextItemWidth(std::max(MonaImGui::ScaleUI(40.0f), TileSize.x - RenameInset * 2.0f));
-				DrawRenameEditor(Item);
-			}
-			else
-			{
-				const float TextInset = MonaImGui::ScaleUI(8.0f);
-				const float TextWidth = std::max(MonaImGui::ScaleUI(40.0f), TileSize.x - TextInset * 2.0f);
-				const ImVec2 TextExtent = ImGui::GetFont()->CalcTextSizeA(NameFontSize, FLT_MAX, TextWidth, Item.Name.c_str());
-				const ImVec2 TextPosition(TileStart.x + std::max(TextInset, (TileSize.x - TextExtent.x) * 0.5f), TileStart.y + NamePositionY);
-				DrawList->PushClipRect(ImVec2(TileStart.x + TextInset, TileStart.y + NamePositionY), ImVec2(TileStart.x + TileSize.x - TextInset, TileStart.y + TileSize.y - MonaImGui::ScaleUI(4.0f)), true);
-				DrawList->AddText(ImGui::GetFont(), NameFontSize, TextPosition, ImGui::GetColorU32(ImGuiCol_Text), Item.Name.c_str(), nullptr, TextWidth);
-				DrawList->PopClipRect();
-			}
-			if (bHovered && RenameTarget != Item.StableId() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
-			{
-				ImGui::BeginTooltip();
-				ImGui::TextUnformatted(Item.Name.c_str());
-				ImGui::Separator();
-				ImGui::TextDisabled("Type");
-				ImGui::SameLine();
-				ImGui::TextUnformatted(ItemTypeLabel(Item).c_str());
-				if (Item.Kind != EContentBrowserItemKind::Folder)
+				ImGui::TableNextRow(ImGuiTableRowFlags_None, RowHeight);
+				for (int32 Column = 0; Column < Columns; ++Column)
 				{
-					ImGui::TextDisabled("Size");
-					ImGui::SameLine();
-					ImGui::TextUnformatted(FormatFileSize(Item.FileSize).c_str());
-					ImGui::TextDisabled("Modified");
-					ImGui::SameLine();
-					ImGui::TextUnformatted(FormatFileTime(Item.LastWriteTime).c_str());
+					const size_t Index = static_cast<size_t>(Row) * Columns + Column;
+					if (Index >= Items.size()) break;
+					const FContentBrowserItem& Item = Items[Index];
+					ImGui::TableSetColumnIndex(Column);
+					ImGui::PushID(Item.StableId().c_str());
+					const ImVec2 TileSize(ImGui::GetContentRegionAvail().x, TileHeight);
+					const bool bSelected = Selection.contains(Item.StableId());
+					const ImVec2 TileStart = ImGui::GetCursorScreenPos();
+					ImGui::InvisibleButton("##Tile", TileSize);
+					const ImVec2 CursorAfterTile = ImGui::GetCursorScreenPos();
+					const bool bHovered = ImGui::IsItemHovered();
+					bContentItemHovered |= bHovered;
+					if (ImGui::IsItemClicked()) SelectItem(Index);
+					if (bHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) OpenItem(Item);
+					BeginAssetDragDrop(Item);
+					if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
+					if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+					{
+						if (!bSelected)
+						{
+							Selection.clear();
+							Selection.insert(Item.StableId());
+						}
+						ImGui::OpenPopup("ItemContext");
+					}
+
+					ImDrawList* DrawList = ImGui::GetWindowDrawList();
+					const float CardInset = MonaImGui::ScaleUI(2.0f);
+					const float CardRounding = MonaImGui::ScaleUI(GridCardRounding);
+					const ImVec2 CardMin(TileStart.x + CardInset, TileStart.y + CardInset);
+					const ImVec2 CardMax(TileStart.x + TileSize.x - CardInset, TileStart.y + TileSize.y - CardInset);
+					if (bSelected || bHovered)
+					{
+						const ImGuiCol BackgroundColor = bSelected ? (bHovered ? ImGuiCol_HeaderActive : ImGuiCol_Header) : ImGuiCol_HeaderHovered;
+						DrawList->AddRectFilled(CardMin, CardMax, ImGui::GetColorU32(BackgroundColor), CardRounding);
+						if (bSelected) DrawList->AddRect(CardMin, CardMax, ImGui::GetColorU32(ImGuiCol_CheckMark), CardRounding, 0, MonaImGui::ScaleUI(1.0f));
+					}
+
+					const FSourceImageThumbnailView Thumbnail = ThumbnailCache->Find(Item.PhysicalPath);
+					bool bDrewThumbnail = false;
+					if (Thumbnail.State == ESourceImageThumbnailState::Ready && Thumbnail.Texture && Mona::GActiveUIBackend)
+					{
+						const float ThumbnailInset = MonaImGui::ScaleUI(6.0f);
+						const ImVec2 ImageAreaMin(TileStart.x + ThumbnailInset, TileStart.y + ThumbnailInset);
+						const ImVec2 ImageAreaMax(TileStart.x + TileSize.x - ThumbnailInset, TileStart.y + IconAreaHeight - ThumbnailInset);
+						const ImVec2 AvailableImageSize(std::max(1.0f, ImageAreaMax.x - ImageAreaMin.x), std::max(1.0f, ImageAreaMax.y - ImageAreaMin.y));
+						const float Scale = std::min(AvailableImageSize.x / static_cast<float>(Thumbnail.Width), AvailableImageSize.y / static_cast<float>(Thumbnail.Height));
+						const ImVec2 ImageSize(std::max(1.0f, Thumbnail.Width * Scale), std::max(1.0f, Thumbnail.Height * Scale));
+						const ImVec2 ImagePosition(ImageAreaMin.x + (AvailableImageSize.x - ImageSize.x) * 0.5f, ImageAreaMin.y + (AvailableImageSize.y - ImageSize.y) * 0.5f);
+						// Keep rectangular source images away from the rounded card edge and clip any
+						// subpixel spill introduced by scaling or UI DPI conversion.
+						DrawList->PushClipRect(ImageAreaMin, ImageAreaMax, true);
+						if (Thumbnail.bHasTransparency)
+						{
+							const float CheckerSize = MonaImGui::ScaleUI(7.0f);
+							DrawList->PushClipRect(ImagePosition, ImVec2(ImagePosition.x + ImageSize.x, ImagePosition.y + ImageSize.y), true);
+							for (float Y = 0.0f; Y < ImageSize.y; Y += CheckerSize)
+								for (float X = 0.0f; X < ImageSize.x; X += CheckerSize)
+								{
+									const bool bLight = (static_cast<int32>(X / CheckerSize) + static_cast<int32>(Y / CheckerSize)) % 2 == 0;
+									const ImU32 Color = ImGui::GetColorU32(bLight ? ImVec4(0.62f, 0.62f, 0.62f, 1.0f) : ImVec4(0.38f, 0.38f, 0.38f, 1.0f));
+									DrawList->AddRectFilled(ImVec2(ImagePosition.x + X, ImagePosition.y + Y), ImVec2(ImagePosition.x + std::min(X + CheckerSize, ImageSize.x), ImagePosition.y + std::min(Y + CheckerSize, ImageSize.y)), Color);
+								}
+							DrawList->PopClipRect();
+						}
+						ImGui::SetCursorScreenPos(ImagePosition);
+						bDrewThumbnail = Mona::GActiveUIBackend->DrawImage(Thumbnail.Texture, FVector2f(ImageSize.x, ImageSize.y));
+						ImGui::SetCursorScreenPos(CursorAfterTile);
+						DrawList->PopClipRect();
+					}
+					if (!bDrewThumbnail)
+					{
+						const MonaImGui::EUIThemeColor IconColorRole = Item.Kind == EContentBrowserItemKind::Folder ? MonaImGui::EUIThemeColor::Folder :
+															   Item.Kind == EContentBrowserItemKind::Asset ? MonaImGui::EUIThemeColor::Asset : MonaImGui::EUIThemeColor::SourceFile;
+						const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(IconFontSize, FLT_MAX, 0.0f, ItemIcon(Item));
+						const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(0.0f, (IconAreaHeight - IconExtent.y) * 0.5f));
+						DrawList->AddText(ImGui::GetFont(), IconFontSize, IconPosition, MonaImGui::GetThemeColorU32(IconColorRole), ItemIcon(Item));
+						if (Thumbnail.State == ESourceImageThumbnailState::Queued || Thumbnail.State == ESourceImageThumbnailState::Decoding || Thumbnail.State == ESourceImageThumbnailState::Uploading)
+							DrawList->AddText(ImVec2(TileStart.x + TileSize.x - MonaImGui::ScaleUI(18.0f), TileStart.y + MonaImGui::ScaleUI(4.0f)), ImGui::GetColorU32(ImGuiCol_TextDisabled), "...");
+						else if (Thumbnail.State == ESourceImageThumbnailState::Failed)
+							DrawList->AddText(ImVec2(TileStart.x + TileSize.x - MonaImGui::ScaleUI(20.0f), TileStart.y + MonaImGui::ScaleUI(4.0f)), MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Warning), Icons::Warning);
+					}
+
+					if (RenameTarget == Item.StableId())
+					{
+						const float RenameInset = MonaImGui::ScaleUI(7.0f);
+						ImGui::SetCursorScreenPos(ImVec2(TileStart.x + RenameInset, TileStart.y + NamePositionY));
+						ImGui::SetNextItemWidth(std::max(MonaImGui::ScaleUI(40.0f), TileSize.x - RenameInset * 2.0f));
+						DrawRenameEditor(Item);
+					}
+					else
+					{
+						const float TextInset = MonaImGui::ScaleUI(8.0f);
+						const float TextWidth = std::max(MonaImGui::ScaleUI(40.0f), TileSize.x - TextInset * 2.0f);
+						const ImVec2 TextExtent = ImGui::GetFont()->CalcTextSizeA(NameFontSize, FLT_MAX, TextWidth, Item.Name.c_str());
+						const ImVec2 TextPosition(TileStart.x + std::max(TextInset, (TileSize.x - TextExtent.x) * 0.5f), TileStart.y + NamePositionY);
+						DrawList->PushClipRect(ImVec2(TileStart.x + TextInset, TileStart.y + NamePositionY), ImVec2(TileStart.x + TileSize.x - TextInset, TileStart.y + TileSize.y - MonaImGui::ScaleUI(4.0f)), true);
+						DrawList->AddText(ImGui::GetFont(), NameFontSize, TextPosition, ImGui::GetColorU32(ImGuiCol_Text), Item.Name.c_str(), nullptr, TextWidth);
+						DrawList->PopClipRect();
+					}
+					if (bHovered && RenameTarget != Item.StableId() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+					{
+						ImGui::BeginTooltip();
+						ImGui::TextUnformatted(Item.Name.c_str());
+						ImGui::Separator();
+						ImGui::TextDisabled("Type");
+						ImGui::SameLine();
+						ImGui::TextUnformatted(ItemTypeLabel(Item).c_str());
+						if (Item.Kind != EContentBrowserItemKind::Folder)
+						{
+							ImGui::TextDisabled("Size");
+							ImGui::SameLine();
+							ImGui::TextUnformatted(FormatFileSize(Item.FileSize).c_str());
+							ImGui::TextDisabled("Modified");
+							ImGui::SameLine();
+							ImGui::TextUnformatted(FormatFileTime(Item.LastWriteTime).c_str());
+						}
+						if (Thumbnail.State == ESourceImageThumbnailState::Failed && !Thumbnail.Error.empty())
+						{
+							ImGui::TextDisabled("Preview");
+							ImGui::SameLine();
+							ImGui::TextWrapped("%s", Thumbnail.Error.c_str());
+						}
+						ImGui::TextDisabled(Item.VirtualPath.empty() ? "Path" : "Virtual Path");
+						ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+						ImGui::TextUnformatted((Item.VirtualPath.empty() ? Item.PhysicalPath : Item.VirtualPath).c_str());
+						ImGui::PopTextWrapPos();
+						ImGui::EndTooltip();
+					}
+					if (ImGui::BeginPopup("ItemContext"))
+					{
+						DrawItemContextMenu(Item);
+						ImGui::EndPopup();
+					}
+					ImGui::SetCursorScreenPos(CursorAfterTile);
+					// Absolute positioning keeps overlays inside the tile, but ImGui still needs a final
+					// submitted item at that position to commit the table cell's layout boundary.
+					ImGui::Dummy(ImVec2(LayoutSentinelHeight, LayoutSentinelHeight));
+					ImGui::PopID();
 				}
-				ImGui::TextDisabled(Item.VirtualPath.empty() ? "Path" : "Virtual Path");
-				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
-				ImGui::TextUnformatted((Item.VirtualPath.empty() ? Item.PhysicalPath : Item.VirtualPath).c_str());
-				ImGui::PopTextWrapPos();
-				ImGui::EndTooltip();
 			}
-			if (ImGui::BeginPopup("ItemContext"))
-			{
-				DrawItemContextMenu(Item);
-				ImGui::EndPopup();
-			}
-			ImGui::SetCursorScreenPos(ImVec2(TileStart.x, TileStart.y + TileSize.y + ImGui::GetStyle().ItemSpacing.y));
-			ImGui::Dummy(ImVec2(1.0f, 1.0f));
-			ImGui::PopID();
 		}
 		ImGui::EndTable();
 	}

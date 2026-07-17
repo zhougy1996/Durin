@@ -9,6 +9,7 @@
 namespace Durin
 {
 	class FEditorSessionSettings;
+	class FSourceImageThumbnailCache;
 	struct FLevelEditorContext;
 
 	enum class EContentBrowserItemKind : uint8
@@ -45,7 +46,7 @@ namespace Durin
 		using FRequestImport = std::function<void(const std::string&)>;
 
 		FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport);
-		~FContentBrowserPanel() override = default;
+		~FContentBrowserPanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Content Browser"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
@@ -130,5 +131,6 @@ namespace Durin
 		bool bRenameEditorHovered = false;
 		bool bDeletePopupRequested = false;
 		std::string ErrorMessage;
+		std::unique_ptr<FSourceImageThumbnailCache> ThumbnailCache;
 	};
 } // namespace Durin
