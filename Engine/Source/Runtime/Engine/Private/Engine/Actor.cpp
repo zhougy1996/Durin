@@ -61,12 +61,8 @@ namespace Durin
 	auto AActor::AddInstanceComponent(DClass* ComponentClass, FName InName) -> DActorComponent*
 	{
 		if (!CanConstructObjectOfClass(ComponentClass, DActorComponent::StaticClass())) return nullptr;
-		const std::string BaseName = InName.IsNone() ? ComponentClass->GetDefaultObjectName() : InName.ToString();
-		FName UniqueName(BaseName);
-		for (uint32 Suffix = 2; std::ranges::any_of(OwnedComponents, [&UniqueName](const TObjectPtr<DActorComponent>& Entry) { return Entry && Entry->GetFName() == UniqueName; }); ++Suffix)
-		{
-			UniqueName = FName(std::format("{}_{}", BaseName, Suffix));
-		}
+		const FName RequestedName = InName.IsNone() ? FName(ComponentClass->GetDefaultObjectName()) : InName;
+		const FName UniqueName = MakeUniqueComponentName(RequestedName);
 		DActorComponent* Component = NewObject<DActorComponent>(ComponentClass, this, UniqueName);
 		if (!Component) return nullptr;
 		OwnedComponents.emplace_back(Component);
@@ -81,6 +77,27 @@ namespace Durin
 		if (bHasBegunPlay) Component->BeginPlay();
 		MarkPackageDirty();
 		return Component;
+	}
+
+	auto AActor::RenameComponent(DActorComponent* Component, FName RequestedName) -> bool
+	{
+		if (!Component || RequestedName.IsNone() || std::ranges::none_of(OwnedComponents, [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; })) return false;
+		Component->Rename(MakeUniqueComponentName(RequestedName, Component));
+		MarkPackageDirty();
+		return true;
+	}
+
+	auto AActor::MakeUniqueComponentName(FName RequestedName, const DActorComponent* IgnoredComponent) const -> FName
+	{
+		const std::string BaseName = RequestedName.ToString();
+		FName UniqueName = RequestedName;
+		for (uint32 Suffix = 2; std::ranges::any_of(OwnedComponents, [&](const TObjectPtr<DActorComponent>& Entry) {
+				 return Entry && Entry.Get() != IgnoredComponent && Entry->GetFName() == UniqueName;
+			 }); ++Suffix)
+		{
+			UniqueName = FName(std::format("{}_{}", BaseName, Suffix));
+		}
+		return UniqueName;
 	}
 
 	auto AActor::DestroyInstanceComponent(DActorComponent* Component) -> bool

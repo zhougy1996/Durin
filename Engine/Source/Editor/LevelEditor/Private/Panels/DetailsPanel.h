@@ -33,6 +33,9 @@ namespace Durin
 		TObjectPtr<DSceneComponent> PendingExpandComponent;
 		TObjectPtr<AActor> PropertyActor;
 		TObjectPtr<DActorComponent> SelectedComponent;
+		TObjectPtr<DActorComponent> RenamingComponent;
+		std::array<char, 128> ComponentRenameText{};
+		bool bFocusComponentRename = false;
 		std::array<char, 256> AssetSearchText{};
 		FEditorSessionSettings& SessionSettings;
 		float ComponentPaneRatio;

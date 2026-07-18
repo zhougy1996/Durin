@@ -288,6 +288,23 @@ TEST(FWorldTests, RenamesActorsWithUniqueNames)
 	Durin::CollectGarbage();
 }
 
+TEST(FWorldTests, RenamesComponentsWithUniqueNames)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::AActor* Actor = World->SpawnActor<Durin::ACameraActor>("Camera");
+	Durin::DActorComponent* First = Actor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "Scene");
+	Durin::DActorComponent* Second = Actor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "Other");
+	ASSERT_NE(First, nullptr);
+	ASSERT_NE(Second, nullptr);
+	EXPECT_TRUE(Actor->RenameComponent(Second, "Scene"));
+	EXPECT_EQ(Second->GetName(), "Scene_2");
+	EXPECT_FALSE(Actor->RenameComponent(Second, Durin::FName()));
+	EXPECT_EQ(Second->GetName(), "Scene_2");
+	EXPECT_FALSE(Actor->RenameComponent(nullptr, "Invalid"));
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
 TEST(FWorldTests, SpawnsActorsAndComponentsFromRuntimeClasses)
 {
 	Durin::DWorld* World = CreateWorld();

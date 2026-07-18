@@ -5,6 +5,7 @@
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/DObjectGlobals.h"
@@ -145,6 +146,7 @@ namespace Durin
 		{
 			PropertyActor = Actor;
 			SelectedComponent = nullptr;
+			RenamingComponent = nullptr;
 			PendingExpandComponent = nullptr;
 		}
 		if (SelectedComponent && std::ranges::none_of(Actor->GetOwnedComponents(), [this](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == SelectedComponent.Get(); }))
@@ -229,6 +231,47 @@ namespace Durin
 			ComponentTypeSearchText.fill(0);
 			bOpenAddPopup = true;
 		};
+		auto BeginRenameComponent = [&](DActorComponent* Component) {
+			if (!Component) return;
+			SelectedComponent = Component;
+			RenamingComponent = Component;
+			ComponentRenameText.fill(0);
+			const std::string Name = Component->GetName();
+			std::memcpy(ComponentRenameText.data(), Name.data(), std::min(Name.size(), ComponentRenameText.size() - 1));
+			bFocusComponentRename = true;
+		};
+		auto DuplicateComponent = [&](DActorComponent* Source) {
+			if (!Source || !Actor->IsInstanceComponent(Source)) return;
+			DActorComponent* Duplicate = Actor->AddInstanceComponent(Source->GetClass(), Source->GetFName());
+			if (!Duplicate)
+			{
+				Context.SetError(std::format("Failed to duplicate component '{}'.", Source->GetName()));
+				return;
+			}
+			Duplicate->UnregisterComponent();
+			std::string CopyError;
+			const std::unordered_map<DObject*, DObject*> ReferenceMap{{Source, Duplicate}};
+			if (!CopyEditableObjectProperties(Source, Duplicate, ReferenceMap, &CopyError))
+			{
+				Actor->DestroyInstanceComponent(Duplicate);
+				Context.SetError(std::format("Failed to duplicate component '{}': {}", Source->GetName(), CopyError));
+				return;
+			}
+			if (auto* SourceScene = Cast<DSceneComponent>(Source); SourceScene)
+			{
+				auto* DuplicateScene = Cast<DSceneComponent>(Duplicate);
+				DSceneComponent* Parent = SourceScene->GetAttachParent();
+				if (DuplicateScene && Parent && !DuplicateScene->AttachToComponent(Parent, EAttachmentTransformRule::KeepRelative))
+				{
+					Actor->DestroyInstanceComponent(Duplicate);
+					Context.SetError(std::format("Failed to attach duplicated component '{}'.", Source->GetName()));
+					return;
+				}
+				PendingExpandComponent = Parent;
+			}
+			Duplicate->RegisterComponent();
+			SelectedComponent = Duplicate;
+		};
 		auto ReparentComponent = [&](DSceneComponent* Moving, DSceneComponent* Parent) {
 			if (!Moving || !Parent || Moving == Actor->GetRootComponent() || Moving->GetOwner() != Actor || Parent->GetOwner() != Actor) return;
 			if (!Moving->AttachToComponent(Parent, EAttachmentTransformRule::KeepWorld))
@@ -263,12 +306,40 @@ namespace Durin
 			const std::string Label = std::format("{}  ({})  [{}]", Component->GetName(), ClassDisplayName(Component->GetClass()), Status);
 			const bool bOpen = ImGui::TreeNodeEx("##Component", Flags, "%s", Label.c_str());
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) SelectedComponent = Component;
+			if (!Context.bReadOnly && RenamingComponent.Get() == Component)
+			{
+				ImGui::SetNextItemWidth(-1.0f);
+				if (bFocusComponentRename)
+				{
+					ImGui::SetKeyboardFocusHere();
+					bFocusComponentRename = false;
+				}
+				const bool bSubmitted = ImGui::InputText("##RenameComponent", ComponentRenameText.data(), ComponentRenameText.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+				if (bSubmitted)
+				{
+					if (ComponentRenameText[0] == '\0') Context.SetError("Component name cannot be empty.");
+					else if (!Actor->RenameComponent(Component, FName(ComponentRenameText.data()))) Context.SetError("Failed to rename component.");
+					RenamingComponent = nullptr;
+				}
+				else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) RenamingComponent = nullptr;
+			}
 
 			if (ImGui::BeginPopupContextItem("ComponentContext"))
 			{
 				if (Context.bReadOnly) ImGui::BeginDisabled();
+				if (ImGui::MenuItem("Rename", "F2")) BeginRenameComponent(Component);
 				if (ImGui::MenuItem("Add Component")) QueueAddComponent(nullptr, false);
 				if (SceneComponent && ImGui::MenuItem("Add Child Component")) QueueAddComponent(SceneComponent, true);
+				if (bIsInstance && !bIsRoot)
+				{
+					if (ImGui::MenuItem("Duplicate Component", "Ctrl+D")) DuplicateComponent(Component);
+				}
+				else
+				{
+					ImGui::BeginDisabled();
+					ImGui::MenuItem(bIsRoot ? "Root component cannot be duplicated" : "Default component cannot be duplicated");
+					ImGui::EndDisabled();
+				}
 				if (bIsInstance && !bIsRoot)
 				{
 					if (ImGui::MenuItem("Remove Component"))
@@ -374,6 +445,20 @@ namespace Durin
 			bOpenAddPopup = false;
 			bOpenRemovePopup = false;
 			PendingRemoveComponent = nullptr;
+			RenamingComponent = nullptr;
+		}
+
+		const ImGuiIO& IO = ImGui::GetIO();
+		const bool bComponentsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+		if (!Context.bReadOnly && bComponentsFocused && !IO.WantTextInput && SelectedComponent)
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) BeginRenameComponent(SelectedComponent.Get());
+			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false) && Actor->IsInstanceComponent(SelectedComponent.Get()) && SelectedComponent.Get() != Actor->GetRootComponent()) DuplicateComponent(SelectedComponent.Get());
+			if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && Actor->IsInstanceComponent(SelectedComponent.Get()) && SelectedComponent.Get() != Actor->GetRootComponent())
+			{
+				PendingRemoveComponent = SelectedComponent;
+				bOpenRemovePopup = true;
+			}
 		}
 		if (bOpenAddPopup) ImGui::OpenPopup("Add Component");
 		if (ImGui::BeginPopup("Add Component"))

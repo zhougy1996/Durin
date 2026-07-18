@@ -28,6 +28,7 @@ namespace Durin
 
 		ENGINE_API auto SetRootComponent(DSceneComponent* InRootComponent) -> bool;
 		ENGINE_API auto AddInstanceComponent(DClass* ComponentClass, FName InName = FName()) -> DActorComponent*;
+		ENGINE_API auto RenameComponent(DActorComponent* Component, FName RequestedName) -> bool;
 		ENGINE_API auto DestroyInstanceComponent(DActorComponent* Component) -> bool;
 		ENGINE_API auto IsInstanceComponent(const DActorComponent* Component) const -> bool;
 
@@ -107,6 +108,7 @@ namespace Durin
 
 	private:
 		auto InitializeDefaults() -> void;
+		auto MakeUniqueComponentName(FName RequestedName, const DActorComponent* IgnoredComponent = nullptr) const -> FName;
 
 	protected:
 		template<typename T>
