@@ -49,7 +49,8 @@ The runtime module loader expects that naming convention.
 
 ## Related Docs
 
-- `Documentation/Architecture/ReflectionRoadmap.md`
+- `Documentation/Architecture/ReflectionSystem.md`
+- `Documentation/Architecture/GarbageCollection.md`
 - `Documentation/Setup/BuildAndRun.md`
 - `Documentation/Architecture/Profiles.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`

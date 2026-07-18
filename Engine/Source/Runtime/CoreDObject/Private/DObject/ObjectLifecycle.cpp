@@ -170,9 +170,10 @@ namespace Durin
 
 					Object->SetInternalFlags(EObjectInternalFlags::Reachable);
 					++MarkedCount;
+					// Outer is a one-way lifetime reference: a reachable child keeps its
+					// hierarchy alive, but the hierarchy never owns or keeps children alive.
 					Enqueue(Object->GetOuter());
 					Object->AddReferencedObjects(*this);
-					for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, true)) Enqueue(Inner);
 				}
 				return MarkedCount;
 			}

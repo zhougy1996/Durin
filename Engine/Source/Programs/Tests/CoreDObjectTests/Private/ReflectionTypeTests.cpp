@@ -465,6 +465,12 @@ namespace
 			return Class;
 		}
 
+		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
+		{
+			DObject::AddReferencedObjects(Collector);
+			Collector.AddReferencedObject(NativeReference);
+		}
+
 		Durin::int32 Value = 0;
 		bool bEnabled = false;
 		std::string Label;
@@ -477,6 +483,7 @@ namespace
 		std::vector<EReflectedEnumForTest> Modes;
 		std::vector<std::vector<Durin::int32>> ScoreGroups;
 		Durin::int32 TransientValue = 0;
+		Durin::DObject* NativeReference = nullptr;
 	};
 
 	Durin::DClass* Z_Construct_DClass_FReflectedPropertyOwnerForTest_NoRegister()
@@ -657,7 +664,7 @@ namespace
 		Durin::DestroyObject(SecondOuter);
 	}
 
-	TEST(FCoreDObjectReflectionTests, PackageOwnsAssetGraphAndBuildsStableObjectPaths)
+	TEST(FCoreDObjectReflectionTests, PackageKeepsAssetReferenceAndBuildsStableObjectPaths)
 	{
 		EnsureDObjectInitialized();
 		EnsurePackageTestMount();
@@ -677,7 +684,7 @@ namespace
 		Durin::CollectGarbage();
 		EXPECT_TRUE(ObjectArrayContains(Package));
 		EXPECT_TRUE(ObjectArrayContains(Asset));
-		EXPECT_TRUE(ObjectArrayContains(Inner));
+		EXPECT_FALSE(ObjectArrayContains(Inner));
 
 		Durin::RemoveFromRoot(Package);
 		Durin::DestroyObject(Package);
@@ -799,7 +806,7 @@ namespace
 		Durin::DestroyObject(Owner);
 	}
 
-	TEST(FCoreDObjectReflectionTests, OuterKeepsInnerObjectReachable)
+	TEST(FCoreDObjectReflectionTests, RootedOuterDoesNotKeepChildReachable)
 	{
 		EnsureDObjectInitialized();
 
@@ -810,14 +817,13 @@ namespace
 		Durin::CollectGarbage();
 
 		EXPECT_TRUE(ObjectArrayContains(Outer));
-		EXPECT_TRUE(ObjectArrayContains(Inner));
-		EXPECT_EQ(Inner->GetOuter(), Outer);
+		EXPECT_FALSE(ObjectArrayContains(Inner));
 
 		Durin::RemoveFromRoot(Outer);
 		Durin::DestroyObject(Outer);
 	}
 
-	TEST(FCoreDObjectReflectionTests, GarbageCollectionDestroysUnreachableOwnershipTreeOnce)
+	TEST(FCoreDObjectReflectionTests, GarbageCollectionDestroysUnreachableOuterHierarchyOnce)
 	{
 		EnsureDObjectInitialized();
 		DLifecycleTestObject::ResetLifecycleCounts();
@@ -833,7 +839,7 @@ namespace
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 2u);
 	}
 
-	TEST(FCoreDObjectReflectionTests, RootedInnerKeepsOuterChainAndSiblingReachable)
+	TEST(FCoreDObjectReflectionTests, RootedChildKeepsOuterChainButNotSiblingReachable)
 	{
 		EnsureDObjectInitialized();
 
@@ -845,13 +851,32 @@ namespace
 		Durin::CollectGarbage();
 		EXPECT_TRUE(ObjectArrayContains(Outer));
 		EXPECT_TRUE(ObjectArrayContains(Inner));
-		EXPECT_TRUE(ObjectArrayContains(Sibling));
+		EXPECT_FALSE(ObjectArrayContains(Sibling));
 
 		Durin::RemoveFromRoot(Inner);
 		Durin::CollectGarbage();
 		EXPECT_FALSE(ObjectArrayContains(Outer));
 		EXPECT_FALSE(ObjectArrayContains(Inner));
 		EXPECT_FALSE(ObjectArrayContains(Sibling));
+	}
+
+	TEST(FCoreDObjectReflectionTests, ExplicitNativeReferenceKeepsObjectReachable)
+	{
+		EnsureDObjectInitialized();
+
+		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("GCNativeReferenceOwner"));
+		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCNativeReferencedObject"));
+		Owner->NativeReference = ReferencedObject;
+		Durin::AddToRoot(Owner);
+
+		Durin::CollectGarbage();
+
+		EXPECT_TRUE(ObjectArrayContains(Owner));
+		EXPECT_TRUE(ObjectArrayContains(ReferencedObject));
+
+		Durin::RemoveFromRoot(Owner);
+		Durin::DestroyObject(Owner);
+		Durin::DestroyObject(ReferencedObject);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ExplicitGarbageOuterDestroysRootedInnerSubtree)

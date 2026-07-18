@@ -1,6 +1,6 @@
 # Asset Packages
 
-Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of inner `DObject` instances through the ordinary Outer/Inner ownership tree.
+Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
 
 ## Paths And Mounts
 
@@ -8,17 +8,17 @@ Asset identities use extensionless virtual paths such as `/Engine/Materials/Defa
 
 The physical filename is the resolved virtual path plus `.dasset`. Main assets use the package path as their object path; inner objects append a colon and their relative Outer chain, for example `/SandBox/Objects/Test:Root.Component`.
 
-## Runtime Ownership
+## Runtime Lifetime
 
-`DPackage` is an Outer-less object graph root. The asset manager roots loaded packages for garbage collection, caches one package instance per `FAssetPath`, and destroys the complete inner graph on unload. A package cannot unload while another loaded package declares it as a strong dependency.
+`DPackage` is an Outer-less object graph root. The asset manager roots loaded packages for garbage collection, caches one package instance per `FAssetPath`, and explicitly destroys the complete Outer hierarchy on unload. `DPackage::Asset` is a `TObjectPtr` that strongly retains the main asset; arbitrary descendants remain alive only through actual GC strong references, not merely because their Outer is the package or asset. A package cannot unload while another loaded package declares it as a strong dependency.
 
-Compiled-in reflection metadata uses a separate `Cpp` package kind. Each reflected module owns one rooted `/Cpp/<ModuleName>` package whose inner objects are its `DClass`, `DStruct`, and `DEnum` metadata. Cpp packages have no main asset, are not saved as `.dasset`, and remain alive for the process lifetime. CoreDObject intrinsic types are attached to `/Cpp/CoreDObject` after reflection bootstrap completes.
+Compiled-in reflection metadata uses a separate `Cpp` package kind. Each reflected module has one rooted `/Cpp/<ModuleName>` package whose structural children are its `DClass`, `DStruct`, and `DEnum` metadata. Those metadata objects are permanent independently of the package's Outer relationship. Cpp packages have no main asset, are not saved as `.dasset`, and remain alive for the process lifetime. CoreDObject intrinsic types are attached to `/Cpp/CoreDObject` after reflection bootstrap completes.
 
 ## File Format
 
 The v1 binary header records the magic, format version, package path, main asset class, dependencies, and object count. The registry reads only this header.
 
-Object records store object id, outer id, qualified class name, object name, and a field table. Fields are identified by declaring qualified class plus property name and include a recursive type signature and payload size. Unknown, removed, or type-incompatible fields are skipped while missing fields retain constructor defaults. Unknown classes, invalid ownership, malformed references, truncation, and unsupported versions fail the complete load.
+Object records store object id, outer id, qualified class name, object name, and a field table. Fields are identified by declaring qualified class plus property name and include a recursive type signature and payload size. Unknown, removed, or type-incompatible fields are skipped while missing fields retain constructor defaults. Unknown classes, invalid Outer hierarchies, malformed references, truncation, and unsupported versions fail the complete load.
 
 Internal references use object ids. Cross-package strong references target the other package's main asset by `FAssetPath` and synchronously load that dependency. Circular dependencies work because object skeletons are constructed before dependency fields are applied.
 

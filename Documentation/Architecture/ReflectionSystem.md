@@ -1,6 +1,6 @@
 # Generated Reflection System
 
-This document describes the reflection framework that is currently implemented in Durin. For future work and deferred milestones, see `ReflectionRoadmap.md`.
+This document describes the reflection framework that is currently implemented in Durin. Object lifetime and collector semantics are documented separately in [Garbage Collection](GarbageCollection.md).
 
 ## Overview
 
@@ -225,29 +225,11 @@ Generated code uses fully qualified C++ type names for reflected C++ types.
 
 `DObject::IsA(const DClass*)` walks the `DClass` superclass chain. `Cast<T>` uses `T::StaticClass()` and `IsA`.
 
-## Object Lifetime And GC
+## Garbage Collection Integration
 
-`NewObject<T>(Outer, Name)` constructs reflected runtime objects through `StaticConstructObject(...)`, assigns their class/name/outer data, attaches them to their outer's inner-object list when an outer is present, and registers them in `GDObjectArray`.
+`NewObject<T>(Outer, Name)` constructs reflected runtime objects and registers them in `GDObjectArray`. Reflection metadata supplies the `TObjectPtr` property traversal used by garbage collection, including supported containers and nested structs. Raw reflected `DObject*` properties are not GC strong references.
 
-`GDObjectArray` is the runtime object registry. It supports adding objects, removing destroyed objects by nulling their slots, taking traversal snapshots, and compacting null slots after destruction or GC.
-
-The current lifecycle API is intentionally small:
-
-- `DestroyObject(DObject*)` destroys non-intrinsic runtime objects and their inner objects
-- `MarkAsGarbage(DObject*)` marks an object as pending kill while keeping its handles resolvable until GC
-- `IsValid(...)` distinguishes live objects from pending-kill or destroyed objects
-- `AddToRoot(DObject*)` and `RemoveFromRoot(DObject*)` maintain counted manual GC roots
-- `FScopedObjectRoot` is a move-only scope guard for a counted root reference
-- `CollectGarbage()` performs synchronous mark-sweep collection
-- `DObject::BeginDestroy()` and `DObject::FinishDestroy()` are lifecycle hooks for derived classes
-
-Reflection metadata drives reference traversal. `ForEachObjectReference(...)` scans reflected direct `FObjectProperty` fields, including `TObjectPtr` wrappers, and calls an `FReferenceCollector`. GC marks iteratively from permanent reflected type objects, root-set objects, reflected object references, and the ownership tree. Reaching an inner object also marks its outer chain, and a reachable outer keeps its complete inner subtree alive. Intrinsic reflected metadata objects such as `DClass` and `DEnum` are treated as permanent and are not swept.
-
-The object registry uses stable index-and-generation slots plus a dense live-object array. `TObjectPtr` and `TWeakObjectPtr` resolution and removal are constant-time, and a handle cannot resolve to a new object after its slot is reused. `TWeakObjectPtr` is a runtime-only, non-owning handle: it becomes invalid as soon as its target is pending kill, may be copied across threads, and may only be assigned from or resolved to a `DObject` on the game thread. Worker threads may carry independent copies but must not call `Get()` or `IsValid()`.
-
-Collection remains stop-the-world and non-moving; it does not scan the native stack, support reflected weak-reference properties, or run incrementally. Reflected raw `DObject*` properties do not keep objects alive and must not be retained across a collection. Reflected owning references use `TObjectPtr`; runtime observers and cross-thread task payloads may use `TWeakObjectPtr`, resolving it only after returning to the game thread. `TWeakObjectPtr` is not currently supported by DHT, property serialization, or reflected containers.
-
-Component removal immediately ends runtime participation and marks the component as garbage. Existing `TObjectPtr` handles remain resolvable but report invalid until a later GC removes the object. The engine checks for automatic GC after end-of-frame render synchronization, using a configurable interval plus pending-kill and object-growth pressure thresholds. Explicit `CollectGarbage()` remains available for forced collection.
+Outer hierarchy queries, one-way `Child -> Outer` reachability, root management, object handles, mark/sweep behavior, explicit destruction, and automatic collection policy are specified in [Garbage Collection](GarbageCollection.md).
 
 ## Serialization
 
@@ -262,7 +244,7 @@ The current archive layer includes:
 
 The supported reflected property payloads are numeric primitives, `bool`, `std::string`, reflected enum storage, direct object references, vectors, maps, and recursively nested supported containers. Object references are serialized as object ids inside the saved object graph, not as process pointer addresses.
 
-Object graph saving first gathers reachable objects from the root using outer/inner ownership and reflected direct object references, assigns ids, writes object records, and serializes each object's reflected properties. Loading creates all object records first, then deserializes properties so object-reference ids can resolve to loaded objects.
+Object graph saving first gathers the root's structural descendants through the Outer index plus its serialized object references, assigns ids, writes object records, and serializes each object's reflected properties. This graph-gathering rule defines archive scope and is independent of GC reachability. Loading creates all object records first, then deserializes properties so object-reference ids can resolve to loaded objects.
 
 The object graph format is an internal v1 binary memory format for tests and engine plumbing. Long-lived content uses the separate field-tagged `.dasset` package format documented in `Documentation/Architecture/AssetPackages.md`; the memory format remains useful for transient cloning and focused tests.
 
@@ -376,16 +358,16 @@ Run them with:
 python -m unittest discover -s Engine\Source\Programs\DurinHeaderTool\tests -p "test_*.py"
 ```
 
-For C++ verification, build a representative editor chain:
+For C++ verification, build the registered Agent profile through the repository build driver:
 
 ```powershell
-cmake --build Build/Win64-Debug-DurinEditor --target CoreDObject Engine LevelEditor DurinLauncher --parallel
+.\BuildTool.bat build --target all --plain
 ```
 
-Run the focused CoreDObject test executable after lifecycle, GC, or serialization changes:
+Run the focused CoreDObject tests after lifecycle, GC, or serialization changes:
 
 ```powershell
-.\Engine\Binaries\Win64\Debug\Tests\DurinEditor\Bin\CoreDObjectTests.exe
+.\BuildTool.bat test --target CoreDObjectTests --plain
 ```
 
 When adding new reflection behavior, validate both the DHT tests and a real C++ build. The generated files are part of the compile surface, and macro/friend/access errors often appear only during C++ compilation.
