@@ -56,7 +56,8 @@ TEST(FWorldTests, StartsWithoutALevelAndActorOperationsAreSafe)
 	EXPECT_EQ(World->FindActorByName("Camera"), nullptr);
 	EXPECT_FALSE(World->DestroyActor(nullptr));
 	World->DestroyAllActors();
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
@@ -87,9 +88,10 @@ TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
 
 	PlayActor->GetRootComponent()->SetWorldLocation({9.0, 8.0, 7.0});
 	ExpectVectorNear(SourceActor->GetActorTransform().Translation, SourceTransform.Translation);
-	Durin::DestroyObject(EditorWorld);
-	Durin::DestroyObject(PlayWorld);
-	Durin::DestroyObject(SharedMesh);
+	Durin::MarkAsGarbage(EditorWorld);
+	Durin::MarkAsGarbage(PlayWorld);
+	Durin::MarkAsGarbage(SharedMesh);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
@@ -121,8 +123,9 @@ TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
 	ASSERT_EQ(EditorActor->GetOwnedComponents().size(), 1u);
 	EXPECT_EQ(EditorActor->GetOwnedComponents().front().Get(), OriginalOwnedComponent);
 
-	Durin::DestroyObject(EditorWorld);
-	Durin::DestroyObject(PlayWorld);
+	Durin::MarkAsGarbage(EditorWorld);
+	Durin::MarkAsGarbage(PlayWorld);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, SimulatesPhysicsComponentsAndHonorsTheWorldToggle)
@@ -142,7 +145,8 @@ TEST(FWorldTests, SimulatesPhysicsComponentsAndHonorsTheWorldToggle)
 	const Durin::FVector3 PausedLocation = Actor->GetActorTransform().Translation;
 	World->Tick(0.5f);
 	ExpectVectorNear(Actor->GetActorTransform().Translation, PausedLocation);
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, RoutesPlayLifecycleThroughActorsAndComponents)
@@ -165,7 +169,8 @@ TEST(FWorldTests, RoutesPlayLifecycleThroughActorsAndComponents)
 	EXPECT_FALSE(World->HasBegunPlay());
 	EXPECT_FALSE(Actor->HasBegunPlay());
 	EXPECT_FALSE(Actor->GetCameraComponent()->HasBegunPlay());
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, SpawnsEnumeratesAndFindsActors)
@@ -189,7 +194,8 @@ TEST(FWorldTests, SpawnsEnumeratesAndFindsActors)
 	EXPECT_EQ(Mesh->GetOuter(), World->GetCurrentLevel());
 	EXPECT_EQ(Camera->GetCameraComponent()->GetOuter(), Camera);
 
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, ReflectedClassNamesSeparateIdentityDisplayAndObjectDefaults)
@@ -223,7 +229,8 @@ TEST(FWorldTests, UsesReflectedDefaultNamesWhenNamesAreOmitted)
 	Durin::DActorComponent* Component = First->AddInstanceComponent(Durin::DSceneComponent::StaticClass());
 	ASSERT_NE(Component, nullptr);
 	EXPECT_EQ(Component->GetName(), "SceneComponent");
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, MakesDuplicateActorNamesUnique)
@@ -237,7 +244,8 @@ TEST(FWorldTests, MakesDuplicateActorNamesUnique)
 	EXPECT_EQ(Second->GetName(), "Camera_2");
 	EXPECT_EQ(Third->GetName(), "Camera_3");
 
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, RenamesActorsWithUniqueNames)
@@ -251,7 +259,8 @@ TEST(FWorldTests, RenamesActorsWithUniqueNames)
 	EXPECT_EQ(Second->GetName(), "Camera_2");
 	EXPECT_FALSE(World->GetCurrentLevel()->RenameActor(Second, Durin::FName()));
 	EXPECT_EQ(Second->GetName(), "Camera_2");
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, SpawnsActorsAndComponentsFromRuntimeClasses)
@@ -284,7 +293,8 @@ TEST(FWorldTests, SpawnsActorsAndComponentsFromRuntimeClasses)
 	EXPECT_TRUE(Instance->IsPendingKill());
 	EXPECT_FALSE(Instance->IsRegistered());
 	EXPECT_FALSE(First->IsInstanceComponent(Instance));
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 	EXPECT_EQ(InstancePtr.Get(), nullptr);
 }
 
@@ -327,7 +337,8 @@ TEST(FWorldTests, MaintainsPrimaryCameraWhenRuntimeActorsChange)
 	EXPECT_EQ(World->GetCurrentLevel()->GetPrimaryCameraActor(), Second);
 	EXPECT_TRUE(World->DestroyActor(Second));
 	EXPECT_EQ(World->GetCurrentLevel()->GetPrimaryCameraActor(), nullptr);
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents)
@@ -393,7 +404,8 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	ASSERT_TRUE(World->SetCurrentLevel(Loaded));
 	EXPECT_EQ(World->GetActors().size(), 2u);
 	EXPECT_EQ(Loaded->GetWorld(), World);
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 	EXPECT_EQ(Loaded->GetWorld(), nullptr);
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
@@ -428,7 +440,8 @@ TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
 	EXPECT_EQ(Light->GetRootComponent(), LightComponent);
 	EXPECT_EQ(LightComponent->GetOwner(), Light);
 
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FSceneComponentTests, SupportsAttachmentTransformRulesAndPropagation)
@@ -461,7 +474,8 @@ TEST(FSceneComponentTests, SupportsAttachmentTransformRulesAndPropagation)
 
 	ASSERT_TRUE(Child->DetachFromComponent());
 	ExpectVectorNear(Child->GetWorldLocation(), Durin::FVector3(25.0, 0.0, 0.0));
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FSceneComponentTests, ConvertsWorldAndRelativeTransformsAcrossHierarchy)
@@ -489,7 +503,8 @@ TEST(FSceneComponentTests, ConvertsWorldAndRelativeTransformsAcrossHierarchy)
 	ExpectVectorNear(Reconstructed.Translation, DesiredWorld.Translation);
 	ExpectVectorNear(Reconstructed.Scale3D, DesiredWorld.Scale3D);
 	EXPECT_NEAR(std::abs(glm::dot(Reconstructed.Rotation, DesiredWorld.Rotation)), 1.0, 1.e-8);
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FSceneComponentTests, SupportsInstanceComponentTreesWithinOneActor)
@@ -542,7 +557,8 @@ TEST(FSceneComponentTests, SupportsInstanceComponentTreesWithinOneActor)
 	EXPECT_TRUE(std::ranges::none_of(Root->GetAttachChildren(), [Parent](const Durin::TObjectPtr<Durin::DSceneComponent>& Entry) { return Entry.Get() == Parent; }));
 	EXPECT_TRUE(Actor->IsInstanceComponent(Child));
 
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FSceneComponentTests, RejectsInvalidAndCrossWorldAttachments)
@@ -570,8 +586,9 @@ TEST(FSceneComponentTests, RejectsInvalidAndCrossWorldAttachments)
 	ASSERT_TRUE(Child->DetachFromActor());
 	EXPECT_EQ(Child->GetAttachParentActor(), nullptr);
 
-	Durin::DestroyObject(World);
-	Durin::DestroyObject(OtherWorld);
+	Durin::MarkAsGarbage(World);
+	Durin::MarkAsGarbage(OtherWorld);
+	Durin::CollectGarbage();
 }
 
 TEST(FSceneComponentTests, DestructionSafelyRemovesAttachmentLinks)
@@ -596,7 +613,8 @@ TEST(FSceneComponentTests, DestructionSafelyRemovesAttachmentLinks)
 	EXPECT_TRUE(ParentRoot->GetAttachChildren().empty());
 	EXPECT_EQ(Child->GetRootComponent(), nullptr);
 
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, DestroyActorRemovesItFromTheWorld)
@@ -613,7 +631,8 @@ TEST(FWorldTests, DestroyActorRemovesItFromTheWorld)
 	EXPECT_EQ(Selection.Get(), nullptr);
 	EXPECT_FALSE(World->DestroyActor(nullptr));
 
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FWorldTests, DestroyAllActorsInvalidatesObjectPointers)
@@ -627,12 +646,19 @@ TEST(FWorldTests, DestroyAllActorsInvalidatesObjectPointers)
 	World->DestroyAllActors();
 
 	EXPECT_TRUE(World->GetActors().empty());
+	EXPECT_FALSE(Camera.IsValid());
+	EXPECT_FALSE(Mesh.IsValid());
+	EXPECT_FALSE(CameraComponent.IsValid());
+	EXPECT_FALSE(MeshComponent.IsValid());
+	EXPECT_NE(Camera.Get(), nullptr);
+	EXPECT_NE(CameraComponent.Get(), nullptr);
+
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 	EXPECT_EQ(Camera.Get(), nullptr);
 	EXPECT_EQ(Mesh.Get(), nullptr);
 	EXPECT_EQ(CameraComponent.Get(), nullptr);
 	EXPECT_EQ(MeshComponent.Get(), nullptr);
-
-	Durin::DestroyObject(World);
 }
 
 TEST(FWorldTests, DestroyingWorldCascadesToActorsAndComponents)
@@ -643,7 +669,8 @@ TEST(FWorldTests, DestroyingWorldCascadesToActorsAndComponents)
 	Durin::TObjectPtr<Durin::AActor> ActorPtr = Camera;
 	Durin::TObjectPtr<Durin::DActorComponent> ComponentPtr = Camera->GetCameraComponent();
 
-	Durin::DestroyObject(World);
+	Durin::MarkAsGarbage(World);
+	Durin::CollectGarbage();
 
 	EXPECT_EQ(WorldPtr.Get(), nullptr);
 	EXPECT_EQ(ActorPtr.Get(), nullptr);
@@ -660,7 +687,8 @@ TEST(FEngineObjectTests, EngineAndWorldHaveReflectedOwnership)
 	EXPECT_EQ(World->GetClass(), Durin::DWorld::StaticClass());
 	EXPECT_EQ(World->GetOuter(), Engine);
 
-	Durin::DestroyObject(Engine);
+	Durin::MarkAsGarbage(Engine);
+	Durin::CollectGarbage();
 }
 
 TEST(FEngineObjectTests, RootedEngineSurvivesGarbageCollection)
@@ -686,5 +714,6 @@ TEST(FEngineObjectTests, GameEngineHasConcreteRuntimeClass)
 	EXPECT_EQ(Engine->GetClass(), Durin::DGameEngine::StaticClass());
 	EXPECT_TRUE(Engine->IsA<Durin::DEngine>());
 
-	Durin::DestroyObject(Engine);
+	Durin::MarkAsGarbage(Engine);
+	Durin::CollectGarbage();
 }

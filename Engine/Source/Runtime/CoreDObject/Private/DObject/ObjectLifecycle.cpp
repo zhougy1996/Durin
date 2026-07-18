@@ -35,7 +35,7 @@ namespace Durin
 			GDObjectArray.NotifyObjectMarkedGarbage();
 		}
 
-		auto GatherDestroyOrder(std::span<DObject* const> Roots) -> std::vector<DObject*>
+		auto GatherDestroyOrder(std::span<DObject* const> Candidates) -> std::vector<DObject*>
 		{
 			struct FStackEntry
 			{
@@ -45,16 +45,17 @@ namespace Durin
 
 			std::vector<DObject*> Order;
 			std::vector<FStackEntry> Stack;
+			const std::unordered_set<DObject*> CandidateSet(Candidates.begin(), Candidates.end());
 			std::unordered_set<DObject*> Added;
-			Stack.reserve(Roots.size());
-			for (DObject* Root : Roots) Stack.push_back({Root, false});
+			Stack.reserve(Candidates.size());
+			for (DObject* Candidate : Candidates) Stack.push_back({Candidate, false});
 
 			while (!Stack.empty())
 			{
 				const FStackEntry Entry = Stack.back();
 				Stack.pop_back();
 				DObject* Object = Entry.Object;
-				if (!Object || !GDObjectArray.Contains(Object) || IsPermanentObject(Object)) continue;
+				if (!Object || !CandidateSet.contains(Object) || !GDObjectArray.Contains(Object) || IsPermanentObject(Object)) continue;
 
 				if (Entry.bExpanded)
 				{
@@ -64,34 +65,33 @@ namespace Durin
 				if (!Added.insert(Object).second) continue;
 
 				Stack.push_back({Object, true});
-				for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, true)) Stack.push_back({Inner, false});
+				for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, true))
+				{
+					if (CandidateSet.contains(Inner)) Stack.push_back({Inner, false});
+				}
 			}
 			return Order;
 		}
 
-		auto DestroyObjectBatch(std::span<DObject* const> Roots) -> uint64
+		// Physical destruction is deliberately narrower than a public destruction
+		// request: GC must complete every lifecycle phase before reaching this point.
+		auto DestroyObject(DObject* Object) -> void
 		{
-			std::vector<DObject*> DestroyOrder = GatherDestroyOrder(Roots);
-			if (DestroyOrder.empty()) return 0;
+			check(Object);
+			check(GDObjectArray.Contains(Object));
+			check(Object->HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed));
+			check(Object->IsReadyForFinishDestroy());
+			check(Object->HasAnyInternalFlags(EObjectInternalFlags::FinishDestroyed));
 
-			for (DObject* Object : DestroyOrder)
+			// A forcibly garbage Outer may still have a reachable child. Removing the
+			// Outer detaches such children instead of treating hierarchy as ownership.
+			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, true))
 			{
-				MarkGarbageInternal(Object);
-				Object->SetInternalFlags(EObjectInternalFlags::BeginDestroyed);
+				Child->SetOuterPrivate(nullptr);
 			}
-			for (auto It = DestroyOrder.rbegin(); It != DestroyOrder.rend(); ++It)
-			{
-				(*It)->BeginDestroy();
-			}
-
-			for (DObject* Object : DestroyOrder) Object->SetOuterPrivate(nullptr);
-			for (DObject* Object : DestroyOrder) GDObjectArray.Remove(Object);
-			for (DObject* Object : DestroyOrder)
-			{
-				Object->FinishDestroy();
-				delete Object;
-			}
-			return static_cast<uint64>(DestroyOrder.size());
+			Object->SetOuterPrivate(nullptr);
+			GDObjectArray.Remove(Object);
+			delete Object;
 		}
 
 		auto ForEachPropertyReference(FProperty* Property, void* Container, uint32 ArrayIndex, FReferenceCollector& Collector) -> void
@@ -254,15 +254,6 @@ namespace Durin
 		}, true);
 	}
 
-	auto DestroyObject(DObject* Object) -> void
-	{
-		CheckObjectThread();
-		if (!Object || !GDObjectArray.Contains(Object)
-			|| Object->HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed)) return;
-		DObject* Roots[] = {Object};
-		DestroyObjectBatch(Roots);
-	}
-
 	auto CollectGarbage() -> void
 	{
 		CheckObjectThread();
@@ -281,17 +272,42 @@ namespace Durin
 		GLastGarbageCollectionStats.MarkedObjectCount = Marker.Drain();
 		GLastGarbageCollectionStats.MarkMilliseconds = (FTime::Seconds() - MarkStartTime) * 1000.0;
 
-		std::vector<DObject*> SweepRoots;
+		std::vector<DObject*> SweepCandidates;
 		for (DObject* Object : GDObjectArray.GetAll())
 		{
 			if (!IsPermanentObject(Object) && (Object->IsGarbage() || !Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable)))
 			{
-				SweepRoots.push_back(Object);
+				SweepCandidates.push_back(Object);
 			}
 		}
 
 		const double SweepStartTime = FTime::Seconds();
-		GLastGarbageCollectionStats.SweptObjectCount = DestroyObjectBatch(SweepRoots);
+		std::vector<DObject*> DestroyOrder = GatherDestroyOrder(SweepCandidates);
+		for (DObject* Object : DestroyOrder) MarkGarbageInternal(Object);
+		for (auto It = DestroyOrder.rbegin(); It != DestroyOrder.rend(); ++It)
+		{
+			DObject* Object = *It;
+			if (Object->HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed)) continue;
+			Object->SetInternalFlags(EObjectInternalFlags::BeginDestroyed);
+			Object->BeginDestroy();
+		}
+
+		for (DObject* Object : DestroyOrder)
+		{
+			if (Object->HasAnyInternalFlags(EObjectInternalFlags::FinishDestroyed)
+				|| !Object->IsReadyForFinishDestroy()) continue;
+			Object->FinishDestroy();
+			Object->SetInternalFlags(EObjectInternalFlags::FinishDestroyed);
+		}
+
+		uint64 DestroyedObjectCount = 0;
+		for (DObject* Object : DestroyOrder)
+		{
+			if (!Object->HasAnyInternalFlags(EObjectInternalFlags::FinishDestroyed)) continue;
+			DestroyObject(Object);
+			++DestroyedObjectCount;
+		}
+		GLastGarbageCollectionStats.SweptObjectCount = DestroyedObjectCount;
 		GLastGarbageCollectionStats.SweepMilliseconds = (FTime::Seconds() - SweepStartTime) * 1000.0;
 		NotifyGarbageCollectionCompleted(FTime::Seconds());
 	}

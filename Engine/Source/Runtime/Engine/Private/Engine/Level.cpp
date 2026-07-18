@@ -37,9 +37,12 @@ namespace Durin
 		if (It == Actors.end()) return false;
 		if (Actor->HasBegunPlay()) Actor->EndPlay();
 		const bool bWasPrimaryCamera = PrimaryCameraActor.Get() == Actor;
-		for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
+		const std::vector<TObjectPtr<DActorComponent>> Components = Actor->GetOwnedComponents();
+		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
-			if (Component && Component->IsRegistered()) Component->UnregisterComponent();
+			if (!Component) continue;
+			if (Component->IsRegistered()) Component->UnregisterComponent();
+			Component->DestroyComponent();
 		}
 		Actors.erase(It);
 		if (bWasPrimaryCamera)
@@ -50,7 +53,7 @@ namespace Durin
 				if (auto* Camera = dynamic_cast<ACameraActor*>(RemainingActor.Get())) { PrimaryCameraActor = Camera; break; }
 			}
 		}
-		DestroyObject(Actor);
+		MarkAsGarbage(Actor);
 		MarkPackageDirty();
 		return true;
 	}

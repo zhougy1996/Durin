@@ -73,7 +73,7 @@ namespace Durin
 			Level->SetOwningWorld(this);
 			for (const TObjectPtr<AActor>& Actor : Level->GetActors()) Level->OnActorAdded(Actor.Get());
 		}
-		if (bDestroyPreviousOwnedLevel && Previous && Previous->GetOuter() == this) DestroyObject(Previous);
+		if (bDestroyPreviousOwnedLevel && Previous && Previous->GetOuter() == this) MarkAsGarbage(Previous);
 		return true;
 	}
 

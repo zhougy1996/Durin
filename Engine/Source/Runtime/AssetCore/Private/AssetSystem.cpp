@@ -106,6 +106,19 @@ namespace Durin::Asset
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult { return {Code, std::move(Message)}; }
 
+		auto MarkPackageHierarchyAsGarbage(DPackage* Package) -> void
+		{
+			if (!Package) return;
+			std::vector<DObject*> Pending = {Package};
+			while (!Pending.empty())
+			{
+				DObject* Object = Pending.back();
+				Pending.pop_back();
+				for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, true)) Pending.push_back(Child);
+				MarkAsGarbage(Object);
+			}
+		}
+
 		auto GetMoveContributors() -> std::unordered_map<DClass*, FAssetMoveContributor>&
 		{
 			static std::unordered_map<DClass*, FAssetMoveContributor> Contributors;
@@ -553,7 +566,8 @@ namespace Durin::Asset
 		if (!Package->SetAsset(OutAsset))
 		{
 			RemoveFromRoot(Package);
-			DestroyObject(Package);
+			MarkPackageHierarchyAsGarbage(Package);
+			CollectGarbage();
 			OutAsset = nullptr;
 			return Error(EAssetError::InvalidObjectGraph, "Failed to assign package asset.");
 		}
@@ -881,6 +895,7 @@ namespace Durin::Asset
 		{
 			if (!Result)
 			{
+				bool bDiscardedPackage = false;
 				for (auto It = TransactionPackages.rbegin(); It != TransactionPackages.rend(); ++It)
 				{
 					auto LoadedIt = LoadedPackages.find(*It);
@@ -889,8 +904,10 @@ namespace Durin::Asset
 					LoadedPackages.erase(LoadedIt);
 					LoadingPackages.erase(*It);
 					RemoveFromRoot(TransactionPackage);
-					DestroyObject(TransactionPackage);
+					MarkPackageHierarchyAsGarbage(TransactionPackage);
+					bDiscardedPackage = true;
 				}
+				if (bDiscardedPackage) CollectGarbage();
 			}
 			TransactionPackages.clear();
 		}
@@ -924,7 +941,8 @@ namespace Durin::Asset
 			LoadingPackages.erase(Path);
 			LoadedPackages.erase(Path);
 			RemoveFromRoot(Package);
-			DestroyObject(Package);
+			MarkPackageHierarchyAsGarbage(Package);
+			CollectGarbage();
 			OutPackage = nullptr;
 		};
 
@@ -1022,7 +1040,8 @@ namespace Durin::Asset
 		DPackage* Package = It->second;
 		LoadedPackages.erase(It);
 		RemoveFromRoot(Package);
-		DestroyObject(Package);
+		MarkPackageHierarchyAsGarbage(Package);
+		CollectGarbage();
 		return {};
 	}
 
@@ -1041,8 +1060,9 @@ namespace Durin::Asset
 		for (DPackage* Package : Packages)
 		{
 			RemoveFromRoot(Package);
-			DestroyObject(Package);
+			MarkPackageHierarchyAsGarbage(Package);
 		}
+		CollectGarbage();
 	}
 
 	auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult { return FAssetManager::Get().LoadAsset(Path, OutAsset); }

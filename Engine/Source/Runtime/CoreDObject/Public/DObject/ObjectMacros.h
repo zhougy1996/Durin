@@ -82,6 +82,7 @@ namespace Durin
 		Reachable = 1 << 1,
 		BeginDestroyed = 1 << 2,
 		Garbage = 1 << 3,
+		FinishDestroyed = 1 << 4,
 	};
 
 	ENUM_CLASS_FLAGS(EObjectFlags)
@@ -184,4 +185,3 @@ public: \
 		return Z_Registration_Info_DClass_##TClass.OuterSingleton; \
 	}\
 	IMPLEMENT_CLASS_API(TClass, TRequiredAPI)
-

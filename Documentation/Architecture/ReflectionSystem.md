@@ -229,7 +229,7 @@ Generated code uses fully qualified C++ type names for reflected C++ types.
 
 `NewObject<T>(Outer, Name)` constructs reflected runtime objects and registers them in `GDObjectArray`. Reflection metadata supplies the `TObjectPtr` property traversal used by garbage collection, including supported containers and nested structs. Raw reflected `DObject*` properties are not GC strong references.
 
-Outer hierarchy queries, one-way `Child -> Outer` reachability, root management, object handles, mark/sweep behavior, explicit destruction, and automatic collection policy are specified in [Garbage Collection](GarbageCollection.md).
+Outer hierarchy queries, one-way `Child -> Outer` reachability, root management, object handles, garbage requests, GC-controlled destruction, and automatic collection policy are specified in [Garbage Collection](GarbageCollection.md).
 
 ## Serialization
 

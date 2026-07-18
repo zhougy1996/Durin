@@ -87,20 +87,26 @@ namespace
 			Durin::GEngine = &Engine;
 		}
 
-		~FRenderSceneHarness()
+		~FRenderSceneHarness() { Shutdown(); }
+
+		auto Shutdown() -> void
 		{
+			if (!bActive) return;
 			if (Scene != nullptr)
 			{
 				Scene->Release();
 				WaitForRenderingThread();
 				Engine.ResetTestScene();
+				Scene = nullptr;
 			}
 			Durin::GEngine = nullptr;
 			Durin::ShutdownRenderingThread();
+			bActive = false;
 		}
 
 		FMaterialTestEngine Engine;
 		Durin::FScene* Scene = nullptr;
+		bool bActive = true;
 	};
 
 	auto ExpectColorNear(const Durin::FVector4f& Actual, const Durin::FVector4f& Expected) -> void
@@ -137,10 +143,12 @@ TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThr
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
-	Durin::DestroyObject(Component);
-	Durin::DestroyObject(Mesh);
-	Durin::DestroyObject(Second);
-	Durin::DestroyObject(First);
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Second);
+	Durin::MarkAsGarbage(First);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
 }
 
 TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
@@ -177,11 +185,13 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
-	Durin::DestroyObject(Component);
+	Durin::MarkAsGarbage(Component);
 	Base->SetScalarParameterValue(Durin::MaterialParameterOpacity, 0.5f);
-	Durin::DestroyObject(Mesh);
-	Durin::DestroyObject(Instance);
-	Durin::DestroyObject(Base);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
 }
 
 TEST(FMaterialTests, SceneCommandsPreserveLatestTransformAndReleaseAllProxies)
@@ -201,12 +211,14 @@ TEST(FMaterialTests, SceneCommandsPreserveLatestTransformAndReleaseAllProxies)
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
 	EXPECT_EQ(CaptureScene(Harness.Scene).ProxyCount, 0);
-	Durin::DestroyObject(Component);
-	Durin::DestroyObject(Mesh);
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
 
 	Harness.Scene->Release();
 	WaitForRenderingThread();
 	EXPECT_EQ(CaptureScene(Harness.Scene).ProxyCount, 0);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
 }
 
 TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
@@ -227,9 +239,10 @@ TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
 	EXPECT_FALSE(First->SetParent(Second));
 	EXPECT_EQ(First->GetParent(), Base);
 
-	Durin::DestroyObject(Second);
-	Durin::DestroyObject(First);
-	Durin::DestroyObject(Base);
+	Durin::MarkAsGarbage(Second);
+	Durin::MarkAsGarbage(First);
+	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
 }
 
 TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
@@ -248,9 +261,10 @@ TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 	ExpectColorNear(StaticMeshProxy->GetMaterialRenderData(0).BaseColor, Durin::FVector4f(0.25f, 0.5f, 0.75f, 1.0f));
 
 	Proxy.reset();
-	Durin::DestroyObject(Component);
-	Durin::DestroyObject(Mesh);
-	Durin::DestroyObject(Material);
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
 }
 
 TEST(FMaterialTests, StaticMeshProxyCapturesPerSlotMaterials)
@@ -278,10 +292,11 @@ TEST(FMaterialTests, StaticMeshProxyCapturesPerSlotMaterials)
 	ExpectColorNear(StaticMeshProxy->GetMaterialRenderData(1).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 
 	Proxy.reset();
-	Durin::DestroyObject(Component);
-	Durin::DestroyObject(Mesh);
-	Durin::DestroyObject(Second);
-	Durin::DestroyObject(First);
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Second);
+	Durin::MarkAsGarbage(First);
+	Durin::CollectGarbage();
 }
 
 TEST(FMaterialTests, DebugStaticMeshProvidesCompleteLODAndPackedAttributes)
@@ -313,7 +328,8 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteLODAndPackedAttributes)
 	EXPECT_EQ(Packed.Color[2], 0);
 	EXPECT_EQ(Packed.Color[3], 64);
 
-	Durin::DestroyObject(Mesh);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::CollectGarbage();
 }
 
 TEST(FMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlots)

@@ -97,6 +97,8 @@ namespace Durin
 
 		COREDOBJECT_API virtual auto BeginDestroy() -> void;
 
+		COREDOBJECT_API virtual auto IsReadyForFinishDestroy() -> bool;
+
 		COREDOBJECT_API virtual auto FinishDestroy() -> void;
 
 		COREDOBJECT_API virtual auto PostLoad(std::string& OutError) -> bool;
@@ -150,7 +152,6 @@ namespace Durin
 		friend COREDOBJECT_API auto AddToRoot(DObject* Object) -> void;
 		friend COREDOBJECT_API auto RemoveFromRoot(DObject* Object) -> void;
 		friend COREDOBJECT_API auto MarkAsGarbage(DObject* Object) -> void;
-		friend COREDOBJECT_API auto DestroyObject(DObject* Object) -> void;
 		friend COREDOBJECT_API auto CollectGarbage() -> void;
 		friend COREDOBJECT_API auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void;
 		friend COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;

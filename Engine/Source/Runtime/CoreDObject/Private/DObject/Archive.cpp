@@ -509,6 +509,9 @@ namespace Durin
 		GatherInnerTree(RootObject);
 
 		std::unordered_map<DObject*, DObject*> Duplicates;
+		auto DiscardDuplicates = [&Duplicates]() {
+			for (const auto& [Source, Duplicate] : Duplicates) MarkAsGarbage(Duplicate);
+		};
 		std::unordered_set<DObject*> ClaimedConstructedInners;
 		DObject* DuplicateRoot = nullptr;
 		for (DObject* Source : Sources)
@@ -517,7 +520,7 @@ namespace Durin
 			if (Source != RootObject && !DuplicateOuter)
 			{
 				if (OutError) *OutError = "Object graph contains an inner object whose outer was not duplicated.";
-				if (DuplicateRoot) DestroyObject(DuplicateRoot);
+				DiscardDuplicates();
 				return nullptr;
 			}
 
@@ -543,7 +546,7 @@ namespace Durin
 				if (!Class || !Class->ClassConstructor)
 				{
 					if (OutError) *OutError = std::format("Object '{}' has no constructible class.", Source->GetName());
-					if (DuplicateRoot) DestroyObject(DuplicateRoot);
+					DiscardDuplicates();
 					return nullptr;
 				}
 				FStaticConstructObjectParameters Params;
@@ -588,7 +591,7 @@ namespace Durin
 		if (!DuplicateRoot->PostLoad(PostLoadError))
 		{
 			if (OutError) *OutError = PostLoadError.empty() ? "Duplicated object graph failed PostLoad." : std::move(PostLoadError);
-			DestroyObject(DuplicateRoot);
+			DiscardDuplicates();
 			return nullptr;
 		}
 		if (OutDuplicates) *OutDuplicates = Duplicates;

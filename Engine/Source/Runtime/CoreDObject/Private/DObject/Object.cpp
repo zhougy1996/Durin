@@ -249,6 +249,11 @@ namespace Durin
 	{
 	}
 
+	auto DObject::IsReadyForFinishDestroy() -> bool
+	{
+		return true;
+	}
+
 	auto DObject::FinishDestroy() -> void
 	{
 	}

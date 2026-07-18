@@ -44,7 +44,7 @@ Implementation steps:
 
 1. Add `DObject::GetOuter()` and related small accessors if needed by `Engine`.
 2. Decide and document object destruction semantics for `NewObject` instances.
-3. Add a `DestroyObject` or equivalent low-level object lifecycle API before components start deleting each other directly.
+3. Route component retirement through `MarkAsGarbage()` and keep physical destruction private to GC.
 4. Replace `AActor::CreateDefaultComponent()` raw `new T(...)` usage with `NewObject<T>(this, Name)`.
 5. Update component find helpers to use `Cast<T>()` / `IsA()` instead of `dynamic_cast` and `typeid`.
 6. Add focused tests for `NewObject<AActor>`, `NewObject<DActorComponent>`, `Outer`, `Name`, `StaticClass`, and `Cast`.
