@@ -16,7 +16,6 @@
 #include "Mona.h"
 #include "Mona/SceneViewport.h"
 #include "Application/MonaApplication.h"
-#include "Widgets/MViewport.h"
 #include "Widgets/MWindow.h"
 
 namespace Durin
@@ -200,12 +199,9 @@ namespace Durin
 			PlayWindow = std::make_shared<MWindow>();
 			PlayWindow->SetTitle("Durin Play");
 			PlayWindow->ReshapeWindow({160.0f, 160.0f}, {1280.0f, 720.0f});
-			auto ViewportWidget = std::make_shared<MViewport>();
-			PlayWindow->SetContent(ViewportWidget);
 			Mona::FMonaApplication::Get().AddWindow(PlayWindow, true);
 			Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(PlayWindow);
 			PlayWindowViewport = std::make_shared<FSceneViewport>(nullptr, PlayWindow);
-			ViewportWidget->SetViewportInterface(PlayWindowViewport);
 			SetMainSceneViewport(PlayWindowViewport);
 			SetGameInputEnabled(true);
 		}

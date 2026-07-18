@@ -7,7 +7,6 @@
 #include "Misc/Project.h"
 #include "Mona.h"
 #include "Mona/SceneViewport.h"
-#include "Widgets/MViewport.h"
 #include "Widgets/MWindow.h"
 #include "Yaml/Yaml.h"
 
@@ -31,11 +30,7 @@ namespace Durin
 		MonaApp.AddWindow(GameWindow, true);
 		MonaApp.GetRenderer()->CreateViewport(GameWindow);
 
-		std::shared_ptr<MViewport> GameViewportWidget = std::make_shared<MViewport>();
-		GameWindow->SetContent(GameViewportWidget);
-
 		std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, GameWindow);
-		GameViewportWidget->SetViewportInterface(SceneViewport);
 		SetMainSceneViewport(SceneViewport);
 		SetGameInputEnabled(true);
 
