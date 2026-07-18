@@ -227,7 +227,9 @@ Generated code uses fully qualified C++ type names for reflected C++ types.
 
 ## Garbage Collection Integration
 
-`NewObject<T>(Outer, Name)` constructs reflected runtime objects and registers them in `GDObjectArray`. Reflection metadata supplies the `TObjectPtr` property traversal used by garbage collection, including supported containers and nested structs. Raw reflected `DObject*` properties are not GC strong references.
+`NewObject<T>(Outer, Name)` constructs reflected runtime objects and registers them in `GDObjectArray`. After generated properties are attached, every `DClass` and `DStruct` compiles an immutable internal GC reference schema containing only reflected `TObjectPtr` paths through supported containers and nested structs. Class schemas include inherited operations, while struct schemas are reused wherever that value type appears. Collection executes this schema without reinterpreting the complete property chain. Raw reflected `DObject*` properties are not GC strong references.
+
+GC schema tokens are an internal execution detail rather than a public reflection API. Serialization, duplication, editing, and general property iteration continue to interpret `FProperty` metadata because they require non-reference fields and different traversal semantics. The current reflection model has no hot reload or runtime property mutation, so schemas are assembled once and are not invalidated.
 
 Outer hierarchy queries, one-way `Child -> Outer` reachability, root management, object handles, garbage requests, GC-controlled destruction, and automatic collection policy are specified in [Garbage Collection](GarbageCollection.md).
 

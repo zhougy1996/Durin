@@ -8,6 +8,7 @@
 #include "CoreGlobals.h"
 #include "Misc/Time.h"
 #include "Threading/RunnableThread.h"
+#include "GCReferenceSchema.h"
 
 namespace Durin
 {
@@ -92,61 +93,6 @@ namespace Durin
 			Object->SetOuterPrivate(nullptr);
 			GDObjectArray.Remove(Object);
 			delete Object;
-		}
-
-		auto ForEachPropertyReference(FProperty* Property, void* Container, uint32 ArrayIndex, FReferenceCollector& Collector) -> void
-		{
-			if (!Property) return;
-
-			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Object)
-			{
-				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
-				if (!ObjectProperty->IsObjectPtrWrapper()) return;
-				DObject* ReferencedObject = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
-				Collector.AddReferencedObject(ReferencedObject);
-				return;
-			}
-
-			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Array)
-			{
-				auto* ArrayProperty = static_cast<FArrayProperty*>(Property);
-				FProperty* Inner = ArrayProperty->GetInner();
-				if (!Inner || !ArrayProperty->HasArrayHelper()) return;
-				const uint64 Num = ArrayProperty->Num(Container, ArrayIndex);
-				for (uint64 Index = 0; Index < Num; ++Index)
-				{
-					void* Element = ArrayProperty->GetMutableElementPtr(Container, Index, ArrayIndex);
-					ForEachPropertyReference(Inner, Element, 0, Collector);
-				}
-				return;
-			}
-
-			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct)
-			{
-				auto* StructProperty = static_cast<FStructProperty*>(Property);
-				DStruct* Struct = StructProperty->GetStruct();
-				if (!Struct) return;
-				void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
-				Struct->ForEachProperty([&](FProperty* Field) {
-					for (uint32 Index = 0; Field && Index < Field->GetArrayDim(); ++Index)
-					{
-						ForEachPropertyReference(Field, StructValue, Index, Collector);
-					}
-				}, false);
-				return;
-			}
-
-			if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Map)
-			{
-				auto* MapProperty = static_cast<FMapProperty*>(Property);
-				if (!MapProperty->HasMapHelper()) return;
-				const uint64 Num = MapProperty->Num(Container, ArrayIndex);
-				for (uint64 Index = 0; Index < Num; ++Index)
-				{
-					ForEachPropertyReference(MapProperty->GetKeyProp(), const_cast<void*>(MapProperty->GetKeyPtr(Container, Index, ArrayIndex)), 0, Collector);
-					ForEachPropertyReference(MapProperty->GetValueProp(), const_cast<void*>(MapProperty->GetMappedValuePtr(Container, Index, ArrayIndex)), 0, Collector);
-				}
-			}
 		}
 
 		class FMarkReferenceCollector : public FReferenceCollector
@@ -261,12 +207,7 @@ namespace Durin
 	auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void
 	{
 		if (!Object || !Object->GetClass()) return;
-		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
-			for (uint32 Index = 0; Property && Index < Property->GetArrayDim(); ++Index)
-			{
-				ForEachPropertyReference(Property, Object, Index, Collector);
-			}
-		}, true);
+		Private::FGCReferenceSchemaRegistry::Visit(Object->GetClass(), Object, Collector);
 	}
 
 	auto CollectGarbage() -> void

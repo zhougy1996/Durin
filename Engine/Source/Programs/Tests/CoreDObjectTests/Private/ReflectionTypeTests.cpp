@@ -75,6 +75,59 @@ namespace
 		&VectorPropertyResize<T>
 	};
 
+	template<typename K, typename V>
+	using TTestMap = std::unordered_map<K, V>;
+
+	template<typename K, typename V>
+	auto MapPropertyNum(const void* Container) -> Durin::uint64
+	{
+		return static_cast<Durin::uint64>(static_cast<const TTestMap<K, V>*>(Container)->size());
+	}
+
+	template<typename K, typename V>
+	auto MapPropertyGetKey(const void* Container, Durin::uint64 Index) -> const void*
+	{
+		auto It = static_cast<const TTestMap<K, V>*>(Container)->begin();
+		std::advance(It, static_cast<size_t>(Index));
+		return &It->first;
+	}
+
+	template<typename K, typename V>
+	auto MapPropertyGetValue(const void* Container, Durin::uint64 Index) -> const void*
+	{
+		auto It = static_cast<const TTestMap<K, V>*>(Container)->begin();
+		std::advance(It, static_cast<size_t>(Index));
+		return &It->second;
+	}
+
+	template<typename K, typename V>
+	auto MapPropertyClear(void* Container) -> void { static_cast<TTestMap<K, V>*>(Container)->clear(); }
+
+	template<typename T>
+	auto MapPropertyCreateValue() -> void* { return new T(); }
+
+	template<typename T>
+	auto MapPropertyDestroyValue(void* Value) -> void { delete static_cast<T*>(Value); }
+
+	template<typename K, typename V>
+	auto MapPropertyInsert(void* Container, const void* Key, const void* Value) -> void
+	{
+		static_cast<TTestMap<K, V>*>(Container)->insert_or_assign(*static_cast<const K*>(Key), *static_cast<const V*>(Value));
+	}
+
+	template<typename K, typename V>
+	const Durin::DurinCodeGen::FMapPropertyHelper GMapPropertyHelper = {
+		&MapPropertyNum<K, V>,
+		&MapPropertyGetKey<K, V>,
+		&MapPropertyGetValue<K, V>,
+		&MapPropertyClear<K, V>,
+		&MapPropertyCreateValue<K>,
+		&MapPropertyDestroyValue<K>,
+		&MapPropertyCreateValue<V>,
+		&MapPropertyDestroyValue<V>,
+		&MapPropertyInsert<K, V>
+	};
+
 	Durin::DEnum* Z_Construct_DEnum_EReflectedEnumForTest_NoRegister();
 
 	struct FReflectedEnumPropertyOwnerForTest
@@ -487,6 +540,312 @@ namespace
 		Durin::int32 TransientValue = 0;
 		Durin::DObject* NativeReference = nullptr;
 	};
+
+	struct FGCReferenceLeafForTest
+	{
+		Durin::TObjectPtr<Durin::DObject> Reference;
+		Durin::TObjectPtr<Durin::DObject> StaticReferences[2];
+		Durin::int32 NonReferenceValue = 0;
+	};
+
+	struct FGCReferenceNestedForTest
+	{
+		FGCReferenceLeafForTest Leaf;
+	};
+
+	auto GetGCReferenceLeafStructForTest() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = [] {
+			static const Durin::DurinCodeGen::FObjectPropertyParams Reference = {
+				"Reference", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, Reference)),
+				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
+				nullptr, nullptr, nullptr, nullptr, true
+			};
+			static const Durin::DurinCodeGen::FObjectPropertyParams StaticReferences = {
+				"StaticReferences", Durin::EPropertyFlags::None, 2,
+				static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, StaticReferences)),
+				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
+				nullptr, nullptr, nullptr, nullptr, true
+			};
+			static const Durin::DurinCodeGen::FInt32PropertyParams NonReferenceValue = {
+				"NonReferenceValue", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, NonReferenceValue)),
+				static_cast<Durin::uint16>(sizeof(Durin::int32)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Int32,
+				nullptr, nullptr, nullptr, nullptr, nullptr
+			};
+			static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
+				&Reference, &StaticReferences, &NonReferenceValue
+			};
+			static Durin::DStruct* RawStruct = nullptr;
+			auto NoRegister = []() -> Durin::DStruct* {
+				if (!RawStruct)
+				{
+					RawStruct = new Durin::DStruct(
+						Durin::EC_StaticConstructor,
+						Durin::FName("FGCReferenceLeafForTest"),
+						Durin::FName("FGCReferenceLeafForTest"),
+						sizeof(FGCReferenceLeafForTest), alignof(FGCReferenceLeafForTest), Durin::EObjectFlags::NoFlags
+					);
+					RawStruct->Register(Durin::DStruct::StaticClass, "", "FGCReferenceLeafForTest");
+				}
+				return RawStruct;
+			};
+			static const Durin::DurinCodeGen::FStructParams Params = {
+				NoRegister, "FGCReferenceLeafForTest", "FGCReferenceLeafForTest",
+				sizeof(FGCReferenceLeafForTest), alignof(FGCReferenceLeafForTest), Properties, std::size(Properties)
+			};
+			return Durin::DurinCodeGen::ConstructDStruct(Params);
+		}();
+		return Struct;
+	}
+
+	auto GetGCReferenceNestedStructForTest() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = [] {
+			static const Durin::DurinCodeGen::FStructPropertyParams Leaf = {
+				"Leaf", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(FGCReferenceNestedForTest, Leaf)),
+				static_cast<Durin::uint16>(sizeof(FGCReferenceLeafForTest)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Struct,
+				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, &GetGCReferenceLeafStructForTest
+			};
+			static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {&Leaf};
+			static Durin::DStruct* RawStruct = nullptr;
+			auto NoRegister = []() -> Durin::DStruct* {
+				if (!RawStruct)
+				{
+					RawStruct = new Durin::DStruct(
+						Durin::EC_StaticConstructor,
+						Durin::FName("FGCReferenceNestedForTest"),
+						Durin::FName("FGCReferenceNestedForTest"),
+						sizeof(FGCReferenceNestedForTest), alignof(FGCReferenceNestedForTest), Durin::EObjectFlags::NoFlags
+					);
+					RawStruct->Register(Durin::DStruct::StaticClass, "", "FGCReferenceNestedForTest");
+				}
+				return RawStruct;
+			};
+			static const Durin::DurinCodeGen::FStructParams Params = {
+				NoRegister, "FGCReferenceNestedForTest", "FGCReferenceNestedForTest",
+				sizeof(FGCReferenceNestedForTest), alignof(FGCReferenceNestedForTest), Properties, std::size(Properties)
+			};
+			return Durin::DurinCodeGen::ConstructDStruct(Params);
+		}();
+		return Struct;
+	}
+
+	class DGCReferenceSchemaBaseForTest : public Durin::DObject
+	{
+	public:
+		explicit DGCReferenceSchemaBaseForTest(const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer)
+		{
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X) { new (X.GetObj()) DGCReferenceSchemaBaseForTest(X); }
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, Durin::FName("DGCReferenceSchemaBaseForTest"),
+					sizeof(DGCReferenceSchemaBaseForTest), alignof(DGCReferenceSchemaBaseForTest), Durin::EObjectFlags::NoFlags,
+					Durin::EClassFlags::None, Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DGCReferenceSchemaBaseForTest>
+				);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DGCReferenceSchemaBaseForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = [] {
+				static const Durin::DurinCodeGen::FObjectPropertyParams BaseReference = {
+					"BaseReference", Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaBaseForTest, BaseReference)),
+					static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+					Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
+					nullptr, nullptr, nullptr, nullptr, true
+				};
+				static const Durin::DurinCodeGen::FObjectPropertyParams RawReference = {
+					"RawReference", Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaBaseForTest, RawReference)),
+					static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
+					Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
+					nullptr, nullptr, nullptr, nullptr, false
+				};
+				static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {&BaseReference, &RawReference};
+				static const Durin::DurinCodeGen::FClassParams Params = {
+					&DGCReferenceSchemaBaseForTest::StaticClassNoRegister,
+					"DGCReferenceSchemaBaseForTest", "DGCReferenceSchemaBaseForTest", Properties, std::size(Properties)
+				};
+				return Durin::DurinCodeGen::ConstructDClass(Params);
+			}();
+			return Class;
+		}
+
+		Durin::TObjectPtr<Durin::DObject> BaseReference;
+		Durin::DObject* RawReference = nullptr;
+	};
+
+	class DGCReferenceSchemaDerivedForTest : public DGCReferenceSchemaBaseForTest
+	{
+	public:
+		explicit DGCReferenceSchemaDerivedForTest(const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DGCReferenceSchemaBaseForTest(Initializer)
+		{
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X) { new (X.GetObj()) DGCReferenceSchemaDerivedForTest(X); }
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, Durin::FName("DGCReferenceSchemaDerivedForTest"),
+					sizeof(DGCReferenceSchemaDerivedForTest), alignof(DGCReferenceSchemaDerivedForTest), Durin::EObjectFlags::NoFlags,
+					Durin::EClassFlags::None, Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DGCReferenceSchemaDerivedForTest>
+				);
+				Class->SetSuperStructBase(DGCReferenceSchemaBaseForTest::StaticClassNoRegister());
+				Class->Register(Durin::DClass::StaticClass, "", "DGCReferenceSchemaDerivedForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*;
+
+		FGCReferenceNestedForTest Nested;
+		std::vector<FGCReferenceLeafForTest> StructArray;
+		std::vector<std::vector<Durin::TObjectPtr<Durin::DObject>>> NestedArrays;
+		TTestMap<std::string, Durin::TObjectPtr<Durin::DObject>> DirectMap;
+		TTestMap<std::string, std::vector<Durin::TObjectPtr<Durin::DObject>>> ArrayMap;
+		Durin::TObjectPtr<Durin::DObject> DuplicateReference;
+	};
+
+	auto DGCReferenceSchemaDerivedForTest::StaticClass() -> Durin::DClass*
+	{
+		static Durin::DClass* Class = [] {
+			static const Durin::DurinCodeGen::FStructPropertyParams Nested = {
+				"Nested", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, Nested)),
+				static_cast<Durin::uint16>(sizeof(FGCReferenceNestedForTest)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Struct,
+				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, &GetGCReferenceNestedStructForTest
+			};
+
+			static const Durin::DurinCodeGen::FStructPropertyParams StructArrayInner = {
+				"StructArray_Inner", Durin::EPropertyFlags::None, 1, 0,
+				static_cast<Durin::uint16>(sizeof(FGCReferenceLeafForTest)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Struct,
+				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, &GetGCReferenceLeafStructForTest
+			};
+			static const Durin::DurinCodeGen::FArrayPropertyParams StructArray = {
+				"StructArray", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, StructArray)),
+				static_cast<Durin::uint16>(sizeof(std::vector<FGCReferenceLeafForTest>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Array,
+				nullptr, nullptr, &StructArrayInner, nullptr, nullptr, false, &GVectorPropertyHelper<FGCReferenceLeafForTest>
+			};
+
+			static const Durin::DurinCodeGen::FObjectPropertyParams NestedArraysInnerInner = {
+				"NestedArrays_Inner_Inner", Durin::EPropertyFlags::None, 1, 0,
+				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
+				nullptr, nullptr, nullptr, nullptr, true
+			};
+			static const Durin::DurinCodeGen::FArrayPropertyParams NestedArraysInner = {
+				"NestedArrays_Inner", Durin::EPropertyFlags::None, 1, 0,
+				static_cast<Durin::uint16>(sizeof(std::vector<Durin::TObjectPtr<Durin::DObject>>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Array,
+				nullptr, nullptr, &NestedArraysInnerInner, nullptr, nullptr, false,
+				&GVectorPropertyHelper<Durin::TObjectPtr<Durin::DObject>>
+			};
+			static const Durin::DurinCodeGen::FArrayPropertyParams NestedArrays = {
+				"NestedArrays", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, NestedArrays)),
+				static_cast<Durin::uint16>(sizeof(std::vector<std::vector<Durin::TObjectPtr<Durin::DObject>>>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Array,
+				nullptr, nullptr, &NestedArraysInner, nullptr, nullptr, false,
+				&GVectorPropertyHelper<std::vector<Durin::TObjectPtr<Durin::DObject>>>
+			};
+
+			static const Durin::DurinCodeGen::FStringPropertyParams DirectMapKey = {
+				"DirectMap_Key", Durin::EPropertyFlags::None, 1, 0, static_cast<Durin::uint16>(sizeof(std::string)),
+				Durin::DurinCodeGen::EPropertyGenFlags::String,
+				nullptr, nullptr, nullptr, nullptr, nullptr
+			};
+			static const Durin::DurinCodeGen::FObjectPropertyParams DirectMapValue = {
+				"DirectMap_Value", Durin::EPropertyFlags::None, 1, 0,
+				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
+				nullptr, nullptr, nullptr, nullptr, true
+			};
+			static const Durin::DurinCodeGen::FMapPropertyParams DirectMap = {
+				"DirectMap", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, DirectMap)),
+				static_cast<Durin::uint16>(sizeof(TTestMap<std::string, Durin::TObjectPtr<Durin::DObject>>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Map,
+				nullptr, nullptr, nullptr, &DirectMapKey, &DirectMapValue, false, nullptr,
+				&GMapPropertyHelper<std::string, Durin::TObjectPtr<Durin::DObject>>
+			};
+
+			static const Durin::DurinCodeGen::FStringPropertyParams ArrayMapKey = {
+				"ArrayMap_Key", Durin::EPropertyFlags::None, 1, 0, static_cast<Durin::uint16>(sizeof(std::string)),
+				Durin::DurinCodeGen::EPropertyGenFlags::String,
+				nullptr, nullptr, nullptr, nullptr, nullptr
+			};
+			static const Durin::DurinCodeGen::FObjectPropertyParams ArrayMapValueInner = {
+				"ArrayMap_Value_Inner", Durin::EPropertyFlags::None, 1, 0,
+				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
+				nullptr, nullptr, nullptr, nullptr, true
+			};
+			static const Durin::DurinCodeGen::FArrayPropertyParams ArrayMapValue = {
+				"ArrayMap_Value", Durin::EPropertyFlags::None, 1, 0,
+				static_cast<Durin::uint16>(sizeof(std::vector<Durin::TObjectPtr<Durin::DObject>>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Array,
+				nullptr, nullptr, &ArrayMapValueInner, nullptr, nullptr, false,
+				&GVectorPropertyHelper<Durin::TObjectPtr<Durin::DObject>>
+			};
+			static const Durin::DurinCodeGen::FMapPropertyParams ArrayMap = {
+				"ArrayMap", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, ArrayMap)),
+				static_cast<Durin::uint16>(sizeof(TTestMap<std::string, std::vector<Durin::TObjectPtr<Durin::DObject>>>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Map,
+				nullptr, nullptr, nullptr, &ArrayMapKey, &ArrayMapValue, false, nullptr,
+				&GMapPropertyHelper<std::string, std::vector<Durin::TObjectPtr<Durin::DObject>>>
+			};
+
+			static const Durin::DurinCodeGen::FObjectPropertyParams DuplicateReference = {
+				"DuplicateReference", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, DuplicateReference)),
+				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
+				nullptr, nullptr, nullptr, nullptr, true
+			};
+
+			static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
+				&Nested, &StructArray, &NestedArrays, &DirectMap, &ArrayMap, &DuplicateReference
+			};
+			static const Durin::DurinCodeGen::FClassParams Params = {
+				&DGCReferenceSchemaDerivedForTest::StaticClassNoRegister,
+				"DGCReferenceSchemaDerivedForTest", "DGCReferenceSchemaDerivedForTest",
+				Properties, std::size(Properties)
+			};
+			return Durin::DurinCodeGen::ConstructDClass(Params);
+		}();
+		return Class;
+	}
 
 	Durin::DClass* Z_Construct_DClass_FReflectedPropertyOwnerForTest_NoRegister()
 	{
@@ -1058,6 +1417,60 @@ namespace
 
 		Durin::RemoveFromRoot(Owner);
 		Durin::MarkAsGarbage(Owner);
+	}
+
+	TEST(FCoreDObjectReflectionTests, CompiledReferenceSchemaTraversesInheritanceStructsArraysAndMaps)
+	{
+		EnsureDObjectInitialized();
+		// Match generated registration ordering where a derived class can first see
+		// provisional superclass metadata, then verify superclass finalization rebuilds it.
+		DGCReferenceSchemaDerivedForTest::StaticClass();
+		DGCReferenceSchemaBaseForTest::StaticClass();
+
+		auto* Owner = Durin::NewObject<DGCReferenceSchemaDerivedForTest>(nullptr, Durin::FName("GCReferenceSchemaOwner"));
+		Durin::DObject* SharedReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaShared"));
+		Durin::DObject* RawReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaRaw"));
+		Durin::DObject* NestedReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaNested"));
+		Durin::DObject* StaticReferenceA = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaStaticA"));
+		Durin::DObject* StaticReferenceB = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaStaticB"));
+		Durin::DObject* StructArrayReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaStructArray"));
+		Durin::DObject* NestedArrayReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaNestedArray"));
+		Durin::DObject* DirectMapReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaDirectMap"));
+		Durin::DObject* ArrayMapReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaArrayMap"));
+
+		Owner->BaseReference = SharedReference;
+		Owner->DuplicateReference = SharedReference;
+		Owner->RawReference = RawReference;
+		Owner->Nested.Leaf.Reference = NestedReference;
+		Owner->Nested.Leaf.StaticReferences[0] = StaticReferenceA;
+		Owner->Nested.Leaf.StaticReferences[1] = StaticReferenceB;
+		Owner->StructArray.resize(1);
+		Owner->StructArray[0].Reference = StructArrayReference;
+		Owner->NestedArrays = {{}, {NestedArrayReference}};
+		Owner->DirectMap.emplace("Null", nullptr);
+		Owner->DirectMap.emplace("Reference", DirectMapReference);
+		Owner->ArrayMap.emplace("Empty", std::vector<Durin::TObjectPtr<Durin::DObject>>{});
+		Owner->ArrayMap.emplace("Reference", std::vector<Durin::TObjectPtr<Durin::DObject>>{ArrayMapReference});
+		Durin::AddToRoot(Owner);
+
+		Durin::CollectGarbage();
+
+		EXPECT_TRUE(ObjectArrayContains(Owner));
+		EXPECT_TRUE(ObjectArrayContains(SharedReference));
+		EXPECT_FALSE(ObjectArrayContains(RawReference));
+		EXPECT_TRUE(ObjectArrayContains(NestedReference));
+		EXPECT_TRUE(ObjectArrayContains(StaticReferenceA));
+		EXPECT_TRUE(ObjectArrayContains(StaticReferenceB));
+		EXPECT_TRUE(ObjectArrayContains(StructArrayReference));
+		EXPECT_TRUE(ObjectArrayContains(NestedArrayReference));
+		EXPECT_TRUE(ObjectArrayContains(DirectMapReference));
+		EXPECT_TRUE(ObjectArrayContains(ArrayMapReference));
+
+		Durin::RemoveFromRoot(Owner);
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ObjectArrayContains(Owner));
+		EXPECT_FALSE(ObjectArrayContains(SharedReference));
+		EXPECT_FALSE(ObjectArrayContains(ArrayMapReference));
 	}
 
 	TEST(FCoreDObjectReflectionTests, ObjectGraphSerializationRoundTripsScalarStringAndObjectReference)

@@ -7,6 +7,11 @@ namespace Durin
 	class FField;
 	class FProperty;
 	class FObjectInitializer;
+	namespace Private
+	{
+		class FGCReferenceSchema;
+		class FGCReferenceSchemaRegistry;
+	}
 
 	// Base class for all reflected runtime types
 	class DType : public DObject
@@ -41,6 +46,9 @@ namespace Durin
 
 	private:
 		DStructBase* SuperStructBase = nullptr;
+		std::shared_ptr<const Private::FGCReferenceSchema> ReferenceSchema;
+
+		friend class Private::FGCReferenceSchemaRegistry;
 
 	public:
 		auto SetSuperStructBase(DStructBase* InSuperStructBase) -> void { SuperStructBase = InSuperStructBase; }

@@ -46,7 +46,11 @@ The mark phase starts from root-set and permanent objects, then follows only the
 - explicit native strong references reported by `DObject::AddReferencedObjects(...)`
 - the current object's `Child -> Outer` reference
 
-The base `DObject::AddReferencedObjects(...)` implementation performs reflected property traversal through `ForEachObjectReference(...)`. A derived type may override it, call the base implementation, and pass additional native object references to `FReferenceCollector`.
+The base `DObject::AddReferencedObjects(...)` implementation executes the object's precompiled GC reference schema through `ForEachObjectReference(...)`. A derived type may override it, call the base implementation, and pass additional native object references to `FReferenceCollector`.
+
+`ConstructDClass(...)` and `ConstructDStruct(...)` assemble immutable typed reference schemas after attaching all generated properties. Schemas contain only strong-reference operations: wrapped object pointers, reference-bearing arrays and maps, and nested structs whose own schemas contain references. Raw reflected `DObject*` properties and all non-reference properties emit no operation. Struct schemas are relative to a struct value and are reused from object fields and container elements; class schemas reuse the superclass operations before appending directly declared properties. If generated registration exposed provisional superclass metadata before its properties were finalized, superclass finalization rebuilds already assembled descendant schemas so the flattened inherited operations remain complete.
+
+Schema execution continues to use property value accessors and generated container helpers. A reference-bearing container without its required helper, or a struct property without resolved `DStruct` metadata, fails during schema assembly instead of being silently omitted during collection. Reflection layouts are immutable after construction; the current system does not invalidate or rebuild schemas at runtime.
 
 The collector does not follow:
 
@@ -78,7 +82,7 @@ For each newly reached object, the marker:
 
 1. sets `Reachable`;
 2. enqueues the object's current Outer;
-3. calls `AddReferencedObjects(...)` to enqueue reflected and explicit native references.
+3. calls `AddReferencedObjects(...)` to execute the class reference schema and enqueue explicit native references.
 
 The marker never queries direct children. Both ordinary reference graphs and deep Outer chains are therefore processed without recursive calls or native stack growth.
 

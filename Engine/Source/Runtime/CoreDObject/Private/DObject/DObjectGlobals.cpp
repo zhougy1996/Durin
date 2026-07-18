@@ -10,6 +10,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/Package.h"
+#include "GCReferenceSchema.h"
 
 namespace Durin
 {
@@ -289,6 +290,7 @@ namespace Durin
 				LastProperty = Property;
 			}
 		}
+		Private::FGCReferenceSchemaRegistry::FinalizeAndAssemble(Class);
 		return Class;
 	}
 
@@ -319,6 +321,7 @@ namespace Durin
 				LastProperty = Property;
 			}
 		}
+		Private::FGCReferenceSchemaRegistry::FinalizeAndAssemble(Struct);
 		return Struct;
 	}
 }
