@@ -9,6 +9,8 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Editor/EditorWorkspaceUI.h"
+#include "Editor/EditorEngine.h"
+#include "Editor/EditorTransaction.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorHelpers.h"
@@ -24,6 +26,25 @@ namespace Durin
 		using StringUtils::ContainsInsensitive;
 
 		constexpr auto ActorPayloadType = "DURIN_OUTLINER_ACTOR";
+
+		class FPrimaryCameraTransaction final : public IEditorTransaction
+		{
+		public:
+			FPrimaryCameraTransaction(DLevel* InLevel, ACameraActor* InBefore, ACameraActor* InAfter)
+				: Level(InLevel), Before(InBefore), After(InAfter) {}
+			auto GetDescription() const -> std::string_view override { return "Set primary camera"; }
+			auto GetDetails(EEditorTransactionOperation) const -> std::string override
+			{
+				return After ? std::format("Set '{}' as the primary camera", After->GetName()) : "Clear the primary camera";
+			}
+			auto Undo() -> bool override { return Level && Level->SetPrimaryCameraActor(Before.Get()); }
+			auto Redo() -> bool override { return Level && Level->SetPrimaryCameraActor(After.Get()); }
+
+		private:
+			TObjectPtr<DLevel> Level;
+			TObjectPtr<ACameraActor> Before;
+			TObjectPtr<ACameraActor> After;
+		};
 
 		auto ActorMatchesFilter(const AActor* Actor, std::string_view Filter) -> bool
 		{
@@ -179,7 +200,8 @@ namespace Durin
 				if (const auto It = ExpandedActors.find(Actor); It != ExpandedActors.end()) ImGui::SetNextItemOpen(It->second, ImGuiCond_Always);
 			}
 			ImGui::PushID(Actor);
-			const std::string Label = std::format("{}  {}", ActorIcon(Actor), Actor->GetName());
+			const bool bPrimaryCamera = Context.Level->GetPrimaryCameraActor() == Actor;
+			const std::string Label = bPrimaryCamera ? std::format("{}  {}  [Primary]", ActorIcon(Actor), Actor->GetName()) : std::format("{}  {}", ActorIcon(Actor), Actor->GetName());
 			const bool bOpen = ImGui::TreeNodeEx("ActorNode", Flags, "%s", Label.c_str());
 			if (Filter.empty()) ExpandedActors[Actor] = bOpen;
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Actor->GetClass()->GetName().c_str());
@@ -206,6 +228,24 @@ namespace Durin
 				}
 				else if (ImGui::MenuItem("Rename", "F2"))
 					BeginActorRename(Actor);
+				if (!Context.bReadOnly)
+				{
+					if (auto* Camera = Cast<ACameraActor>(Actor))
+					{
+						if (bPrimaryCamera)
+						{
+							ImGui::BeginDisabled();
+							ImGui::MenuItem("Primary Camera", nullptr, true);
+							ImGui::EndDisabled();
+						}
+						else if (ImGui::MenuItem("Set as Primary Camera"))
+						{
+							auto Transaction = std::make_unique<FPrimaryCameraTransaction>(Context.Level, Context.Level->GetPrimaryCameraActor(), Camera);
+							if (GEditor) GEditor->GetTransactionManager().Execute(std::move(Transaction));
+							else Context.Level->SetPrimaryCameraActor(Camera);
+						}
+					}
+				}
 				if (!Context.bReadOnly && ImGui::MenuItem("Delete", "Del")) bRequestDelete = true;
 				ImGui::EndPopup();
 			}

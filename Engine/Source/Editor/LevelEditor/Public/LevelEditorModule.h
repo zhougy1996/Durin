@@ -2,6 +2,7 @@
 
 #include "LevelEditorAPI.h"
 #include "Modules/ModuleManager.h"
+#include "LevelEditorCustomizations.h"
 
 namespace Durin
 {
@@ -22,5 +23,6 @@ namespace Durin
 
 	private:
 		std::unique_ptr<FEditorSessionSettings> SessionSettings;
+		std::vector<FLevelEditorCustomizationHandle> CustomizationHandles;
 	};
 }

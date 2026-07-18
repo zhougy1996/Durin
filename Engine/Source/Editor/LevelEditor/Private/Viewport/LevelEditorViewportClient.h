@@ -3,6 +3,7 @@
 #include "Client/ViewportClient.h"
 #include "Viewport/TransformGizmo.h"
 #include "Viewport/ViewportCameraTransform.h"
+#include "LevelEditorCustomizations.h"
 
 namespace Durin
 {
@@ -54,6 +55,7 @@ namespace Durin
 		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel; }
 		auto BuildPickingRay(const FVector2f& ViewportPosition, const FVector2f& ViewportSize, FVector3& OutOrigin, FVector3& OutDirection) const -> bool;
 		auto PickActor(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) const -> AActor*;
+		auto UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void;
 		auto ProjectWorldToViewport(const FVector3& WorldPosition, const FVector2f& ViewportSize, FVector2f& OutPosition) const -> bool;
 		auto SetSelectedActors(const std::vector<TObjectPtr<AActor>>& Actors, AActor* PrimaryActor) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo& { return TransformGizmo; }
@@ -61,11 +63,13 @@ namespace Durin
 
 	private:
 		auto AppendSelectionBounds(FSceneView& View) const -> void;
+		auto CollectEditorVisualizations(DLevel* Level, const FSceneView& View, FEditorVisualizationCollector& Collector) const -> void;
 
 		FViewportCameraTransform CameraTransform;
 		DLevel* CurrentLevel = nullptr;
 		std::vector<TObjectPtr<AActor>> SelectedActors;
 		TObjectPtr<AActor> PrimarySelectedActor;
+		TObjectPtr<AActor> HoveredVisualizationActor;
 		float FieldOfViewDegrees = 60.0f;
 		float NearClip = 0.1f;
 		float FarClip = 10000.0f;

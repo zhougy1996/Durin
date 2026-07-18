@@ -19,6 +19,7 @@ namespace Durin
 
 		ENGINE_API auto GetFarClip() const -> float;
 		ENGINE_API auto SetFarClip(float InFarClip) -> void;
+		ENGINE_API auto SetProjectionParameters(float InFieldOfViewDegrees, float InNearClip, float InFarClip) -> void;
 
 		ENGINE_API auto SetLookAt(const FVector3& InLocation, const FVector3& InTarget) -> void;
 		ENGINE_API auto GetViewMatrix() const -> FMatrix;

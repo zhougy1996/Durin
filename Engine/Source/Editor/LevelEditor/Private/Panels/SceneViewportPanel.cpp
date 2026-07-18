@@ -824,6 +824,10 @@ namespace Durin
 		FSceneView SceneView;
 		ViewportClient->CalcSceneView(static_cast<uint32>(FMath::Max(1.0f, Input.ViewportSize.x)), static_cast<uint32>(FMath::Max(1.0f, Input.ViewportSize.y)), SceneView);
 		FEditorTransactionManager* Transactions = GEditor != nullptr ? &GEditor->GetTransactionManager() : nullptr;
+		if (!ViewportClient->GetTransformGizmo().IsDragging() && Input.bHovered)
+			ViewportClient->UpdateHoveredVisualization(Context.Level, Input.MousePosition, Input.ViewportSize);
+		else if (!Input.bHovered)
+			ViewportClient->UpdateHoveredVisualization(nullptr, {}, {});
 		ViewportClient->GetTransformGizmo().Update(Context, SceneView, Input, Transactions);
 		const bool bGizmoConsumesMouse = ViewportClient->GetTransformGizmo().IsHovered() || ViewportClient->GetTransformGizmo().IsDragging();
 		Input.bRequestSelection = Input.bHovered && Input.bLeftMousePressed && !Input.bAlt && !Input.bWantTextInput && !bToolbarHovered && !bGizmoConsumesMouse && !bPopupOpen;

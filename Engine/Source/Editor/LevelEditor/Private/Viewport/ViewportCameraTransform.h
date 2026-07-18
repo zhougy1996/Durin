@@ -18,6 +18,7 @@ namespace Durin
 	public:
 		auto SetFromTransform(const FVector3& InLocation, const FQuat& InRotation) -> void;
 		auto SetState(const FLevelViewportCameraState& State) -> void;
+		auto Reset() -> void;
 		auto GetState() const -> FLevelViewportCameraState { return {Location, OrbitPivot, OrbitDistance, Pitch, Yaw}; }
 		auto Rotate(float DeltaYawDegrees, float DeltaPitchDegrees) -> void;
 		auto MoveLocal(const FVector3& LocalDelta) -> void;

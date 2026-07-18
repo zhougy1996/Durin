@@ -116,6 +116,21 @@ namespace Durin
 			DURIN_DECLARE_SHADER(FGizmoFragmentShader, FShader, "/Engine/Gizmo", EShaderFrequency::Fragment, "FragmentMain");
 		};
 
+		class FOverlayLineVertexShader : public FShader
+		{
+		public:
+			DURIN_DECLARE_SHADER(FOverlayLineVertexShader, FShader, "/Engine/Gizmo", EShaderFrequency::Vertex, "LineVertexMain");
+		};
+
+		class FOverlayLineFragmentShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FOverlayLineFragmentShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Style);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FOverlayLineFragmentShader, FShader, "/Engine/Gizmo", EShaderFrequency::Fragment, "LineFragmentMain");
+		};
+
 		class FPostProcessVertexShader : public FShader
 		{
 		public:
@@ -184,6 +199,18 @@ namespace Durin
 			FVector4f Color{1.0f};
 		};
 
+		struct FOverlayLineStyleUniform
+		{
+			float AlphaScale = 1.0f;
+			FVector3f Padding{0.0f};
+		};
+
+		struct FOverlayLineVertex
+		{
+			FVector4f Position{0.0f};
+			FVector4f Color{1.0f};
+		};
+
 		struct FGizmoMeshRange
 		{
 			uint32 FirstIndex = 0;
@@ -204,6 +231,22 @@ namespace Durin
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
 			std::array<FGizmoMeshRange, 6> MeshRanges{};
+			bool bCreateAttempted = false;
+		};
+
+		struct FOverlayLineRendererState
+		{
+			std::shared_ptr<FShaderMapBase> ShaderMap;
+			TShaderRef<FOverlayLineVertexShader> VertexShader;
+			TShaderRef<FOverlayLineFragmentShader> FragmentShader;
+			FVertexDeclarationRHIRef VertexDeclaration;
+			FGraphicsPipelineStateRHIRef XRayPipelineState;
+			FGraphicsPipelineStateRHIRef VisiblePipelineState;
+			FBufferRHIRef VertexBuffer;
+			FBufferRHIRef IndexBuffer;
+			uint32 VertexCapacity = 0;
+			uint32 IndexCapacity = 0;
+			uint32 IndexCount = 0;
 			bool bCreateAttempted = false;
 		};
 
@@ -245,6 +288,7 @@ namespace Durin
 		FStaticMeshRendererState GStaticMeshState;
 		FPostProcessRendererState GPostProcessState;
 		FGizmoRendererState GGizmoState;
+		FOverlayLineRendererState GOverlayLineState;
 		std::atomic<ERenderMode> GRenderMode = ERenderMode::Lit;
 		std::atomic<ERasterMode> GRasterMode = ERasterMode::Solid;
 
@@ -431,6 +475,85 @@ namespace Durin
 			IndexDesc.Usage |= EBufferUsageFlags::Static;
 			IndexDesc.InitialData = {Indices.data(), static_cast<uint32>(Indices.size() * sizeof(uint32))};
 			GGizmoState.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
+		}
+
+		auto EnsureOverlayLineResources() -> void
+		{
+			if (GOverlayLineState.bCreateAttempted) return;
+			GOverlayLineState.bCreateAttempted = true;
+
+			FShaderCompileOptions CompileOptions;
+			FShaderType& VertexShaderType = FOverlayLineVertexShader::StaticType();
+			FShaderType& FragmentShaderType = FOverlayLineFragmentShader::StaticType();
+			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
+			auto ShaderMap = std::make_shared<FShaderMapBase>();
+			std::string ErrorMessage;
+			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
+			{
+				DURIN_ERROR("Failed to initialize overlay line shader map: {}", ErrorMessage);
+				return;
+			}
+			GOverlayLineState.ShaderMap = ShaderMap;
+			GOverlayLineState.VertexShader = TShaderRef<FOverlayLineVertexShader>(static_cast<FOverlayLineVertexShader*>(ShaderMap->GetShader(&VertexShaderType)), ShaderMap.get());
+			GOverlayLineState.FragmentShader = TShaderRef<FOverlayLineFragmentShader>(static_cast<FOverlayLineFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType)), ShaderMap.get());
+
+			FVertexDeclarationElementList Elements;
+			Elements[0] = FVertexElement(0, static_cast<uint8>(offsetof(FOverlayLineVertex, Position)), EVertexElementType::Float4, 0, sizeof(FOverlayLineVertex));
+			Elements[1] = FVertexElement(0, static_cast<uint8>(offsetof(FOverlayLineVertex, Color)), EVertexElementType::Float4, 1, sizeof(FOverlayLineVertex));
+			GOverlayLineState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
+
+			FGraphicsPipelineStateInitializer Initializer;
+			Initializer.RenderTargetLayout = MakeSceneRenderTargetLayout();
+			Initializer.BoundShaders.VertexShader = GOverlayLineState.VertexShader.GetRHIShader();
+			Initializer.BoundShaders.FragmentShader = GOverlayLineState.FragmentShader.GetRHIShader();
+			Initializer.VertexDeclaration = GOverlayLineState.VertexDeclaration;
+			Initializer.bEnableAlphaBlend = true;
+			Initializer.bEnableBackFaceCulling = false;
+			Initializer.bEnableDepthWrite = false;
+			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
+			Initializer.bEnableDepthTest = false;
+			GOverlayLineState.XRayPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("OverlayLineXRayPipeline", Initializer);
+			Initializer.bEnableDepthTest = true;
+			GOverlayLineState.VisiblePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("OverlayLineVisiblePipeline", Initializer);
+		}
+
+		auto BuildOverlayLineGeometry(const FSceneView& View, std::vector<FOverlayLineVertex>& OutVertices, std::vector<uint32>& OutIndices) -> void
+		{
+			constexpr double ClipEpsilon = 1.e-8;
+			for (const FViewOverlayLine& Line : View.OverlayLines)
+			{
+				const FVector4 ClipStart = View.ViewProjectionMatrix * FVector4(Line.Start, 1.0);
+				const FVector4 ClipEnd = View.ViewProjectionMatrix * FVector4(Line.End, 1.0);
+				if (!std::isfinite(ClipStart.w) || !std::isfinite(ClipEnd.w) || ClipStart.w <= ClipEpsilon || ClipEnd.w <= ClipEpsilon) continue;
+				const FVector2 NdcStart = FVector2(ClipStart) / ClipStart.w;
+				const FVector2 NdcEnd = FVector2(ClipEnd) / ClipEnd.w;
+				FVector2f PixelDelta{
+					static_cast<float>((NdcEnd.x - NdcStart.x) * 0.5 * View.ViewportWidth),
+					static_cast<float>((NdcEnd.y - NdcStart.y) * 0.5 * View.ViewportHeight)
+				};
+				const float PixelLength = glm::length(PixelDelta);
+				if (!std::isfinite(PixelLength) || PixelLength <= 0.001f) continue;
+				const FVector2f PixelNormal{-PixelDelta.y / PixelLength, PixelDelta.x / PixelLength};
+				const float HalfWidth = std::max(0.5f, Line.WidthPixels * 0.5f);
+				const FVector2 NdcOffset{
+					static_cast<double>(PixelNormal.x * HalfWidth * 2.0f / std::max(1u, View.ViewportWidth)),
+					static_cast<double>(PixelNormal.y * HalfWidth * 2.0f / std::max(1u, View.ViewportHeight))
+				};
+				auto MakePosition = [](const FVector4& Clip, const FVector2& Offset) {
+					return FVector4f(
+						static_cast<float>(Clip.x + Offset.x * Clip.w),
+						static_cast<float>(Clip.y + Offset.y * Clip.w),
+						static_cast<float>(Clip.z),
+						static_cast<float>(Clip.w)
+					);
+				};
+				const uint32 Base = static_cast<uint32>(OutVertices.size());
+				OutVertices.push_back({MakePosition(ClipStart, NdcOffset), Line.Color});
+				OutVertices.push_back({MakePosition(ClipStart, -NdcOffset), Line.Color});
+				OutVertices.push_back({MakePosition(ClipEnd, NdcOffset), Line.Color});
+				OutVertices.push_back({MakePosition(ClipEnd, -NdcOffset), Line.Color});
+				OutIndices.insert(OutIndices.end(), {Base, Base + 1, Base + 2, Base + 2, Base + 1, Base + 3});
+			}
 		}
 
 		auto EnsureStaticMeshPipeline() -> void
@@ -722,6 +845,57 @@ namespace Durin
 			}
 		}
 
+		auto PrepareOverlayLines(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void
+		{
+			GOverlayLineState.IndexCount = 0;
+			if (View.OverlayLines.empty()) return;
+			EnsureOverlayLineResources();
+			if (!GOverlayLineState.VertexShader || !GOverlayLineState.FragmentShader) return;
+
+			std::vector<FOverlayLineVertex> Vertices;
+			std::vector<uint32> Indices;
+			Vertices.reserve(View.OverlayLines.size() * 4);
+			Indices.reserve(View.OverlayLines.size() * 6);
+			BuildOverlayLineGeometry(View, Vertices, Indices);
+			if (Vertices.empty() || Indices.empty()) return;
+
+			const uint32 VertexBytes = static_cast<uint32>(Vertices.size() * sizeof(FOverlayLineVertex));
+			const uint32 IndexBytes = static_cast<uint32>(Indices.size() * sizeof(uint32));
+			if (VertexBytes > GOverlayLineState.VertexCapacity)
+			{
+				GOverlayLineState.VertexCapacity = std::bit_ceil(VertexBytes);
+				FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateVertex("OverlayLineVertexBuffer", GOverlayLineState.VertexCapacity);
+				Desc.Usage |= EBufferUsageFlags::Dynamic;
+				GOverlayLineState.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, Desc);
+			}
+			if (IndexBytes > GOverlayLineState.IndexCapacity)
+			{
+				GOverlayLineState.IndexCapacity = std::bit_ceil(IndexBytes);
+				FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateIndex("OverlayLineIndexBuffer", GOverlayLineState.IndexCapacity, sizeof(uint32));
+				Desc.Usage |= EBufferUsageFlags::Dynamic;
+				GOverlayLineState.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, Desc);
+			}
+			if (GOverlayLineState.VertexBuffer == nullptr || GOverlayLineState.IndexBuffer == nullptr) return;
+			CommandList.WriteBuffer(GOverlayLineState.VertexBuffer, Vertices.data(), VertexBytes, 0);
+			CommandList.WriteBuffer(GOverlayLineState.IndexBuffer, Indices.data(), IndexBytes, 0);
+			GOverlayLineState.IndexCount = static_cast<uint32>(Indices.size());
+		}
+
+		auto DrawOverlayLines(FRHICommandListImmediate& CommandList, bool bXRay) -> void
+		{
+			if (GOverlayLineState.IndexCount == 0 || GOverlayLineState.VertexBuffer == nullptr || GOverlayLineState.IndexBuffer == nullptr) return;
+			const FGraphicsPipelineStateRHIRef Pipeline = bXRay ? GOverlayLineState.XRayPipelineState : GOverlayLineState.VisiblePipelineState;
+			if (Pipeline == nullptr) return;
+			CommandList.SetGraphicsPipelineState(*Pipeline);
+			CommandList.BindVertexBuffer(0, GOverlayLineState.VertexBuffer, 0);
+			CommandList.BindIndexBuffer(GOverlayLineState.IndexBuffer, 0);
+			const FOverlayLineStyleUniform Style{bXRay ? 0.32f : 1.0f};
+			FOverlayLineFragmentShader::FParameters Parameters;
+			Parameters.Style = CommandList.AllocateDynamicUniformBuffer(&Style, sizeof(Style));
+			SetShaderParameters(CommandList, GOverlayLineState.FragmentShader, Parameters);
+			CommandList.DrawIndexed(GOverlayLineState.IndexCount, 0, 0);
+		}
+
 		auto DrawPostProcess(FRHICommandListImmediate& CommandList, FRHITexture* SceneColor, uint32 Width, uint32 Height, bool bPresentOutput) -> void
 		{
 			const bool bUseFXAA = GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
@@ -822,6 +996,7 @@ namespace Durin
 			"Renderer defaults must be released before the rendering thread stops");
 		GStaticMeshState = {};
 		GGizmoState = {};
+		GOverlayLineState = {};
 		GPostProcessState.CopyShaderMap.reset();
 		GPostProcessState.FXAAShaderMap.reset();
 		GPostProcessState.CopyVertexShader = {};
@@ -921,6 +1096,7 @@ namespace Durin
 			return;
 		}
 		if (!View.OverlayPrimitives.empty()) EnsureGizmoResources(CommandList);
+		if (!View.OverlayLines.empty()) EnsureOverlayLineResources();
 
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.RenderTargetLayout = MakeSceneRenderTargetLayout();
@@ -972,8 +1148,11 @@ namespace Durin
 				DrawStaticMeshProxy(CommandList, View, Light, RenderMode, RasterMode, Proxy);
 			}
 		});
+		PrepareOverlayLines(CommandList, View);
 		DrawGizmoPrimitives(CommandList, View, true);
+		DrawOverlayLines(CommandList, true);
 		DrawGizmoPrimitives(CommandList, View, false);
+		DrawOverlayLines(CommandList, false);
 	}
 
 	IMPLEMENT_MODULE(FRendererModule, Renderer)

@@ -15,6 +15,7 @@
 #include "LevelEditorContext.h"
 #include "LevelEditorHelpers.h"
 #include "LevelEditorWorkspace.h"
+#include "LevelEditorCustomizations.h"
 #include "EditorSessionSettings.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/StringHelper.h"
@@ -552,6 +553,7 @@ namespace Durin
 
 		auto* Actor = Cast<AActor>(Object);
 		auto* StaticMeshComponent = Cast<DStaticMeshComponent>(Object);
+		const std::shared_ptr<IObjectDetailsCustomization> DetailsCustomization = FLevelEditorCustomizationRegistry::Get().FindObjectDetails(Object->GetClass());
 		bool bShowStaticMeshMaterials = StaticMeshComponent && StaticMeshComponent->GetNumMaterials() > 0;
 		if (bShowStaticMeshMaterials && PropertySearchText[0] != '\0')
 		{
@@ -567,7 +569,7 @@ namespace Durin
 		}
 		const bool bShowActorTransform = Actor && Actor->GetRootComponent()
 										 && ContainsInsensitive("Transform Location Rotation Scale", PropertySearchText.data());
-		if (!bShowActorTransform && !bShowStaticMeshMaterials && VisibleProperties.empty())
+		if (!bShowActorTransform && !bShowStaticMeshMaterials && VisibleProperties.empty() && !DetailsCustomization)
 		{
 			ImGui::TextDisabled(PropertySearchText[0] != '\0' ? "No properties match the current search." : "This object has no reflected Edit properties.");
 			return;
@@ -586,8 +588,9 @@ namespace Durin
 			}
 			ImGui::PopID();
 		}
+		const bool bReplaceReflectedProperties = DetailsCustomization && DetailsCustomization->DrawDetails(Context, Object);
 		if (bShowStaticMeshMaterials) DrawStaticMeshMaterials(Context, StaticMeshComponent);
-		for (const auto& [Property, ArrayIndex] : VisibleProperties)
+		if (!bReplaceReflectedProperties) for (const auto& [Property, ArrayIndex] : VisibleProperties)
 		{
 			DrawProperty(Context, Object, Property, ArrayIndex);
 		}

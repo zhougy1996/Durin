@@ -50,8 +50,7 @@ namespace Durin
 
 	auto DCameraComponent::SetFieldOfViewDegrees(float InFieldOfViewDegrees) -> void
 	{
-		FieldOfViewDegrees = std::clamp(InFieldOfViewDegrees, 1.0f, 170.0f);
-		MarkPackageDirty();
+		SetProjectionParameters(InFieldOfViewDegrees, NearClip, FarClip);
 	}
 
 	auto DCameraComponent::GetNearClip() const -> float
@@ -61,12 +60,7 @@ namespace Durin
 
 	auto DCameraComponent::SetNearClip(float InNearClip) -> void
 	{
-		NearClip = std::max(InNearClip, 0.001f);
-		if (FarClip <= NearClip)
-		{
-			FarClip = NearClip + 1.0f;
-		}
-		MarkPackageDirty();
+		SetProjectionParameters(FieldOfViewDegrees, InNearClip, FarClip);
 	}
 
 	auto DCameraComponent::GetFarClip() const -> float
@@ -76,6 +70,13 @@ namespace Durin
 
 	auto DCameraComponent::SetFarClip(float InFarClip) -> void
 	{
+		SetProjectionParameters(FieldOfViewDegrees, NearClip, InFarClip);
+	}
+
+	auto DCameraComponent::SetProjectionParameters(float InFieldOfViewDegrees, float InNearClip, float InFarClip) -> void
+	{
+		FieldOfViewDegrees = std::clamp(InFieldOfViewDegrees, 1.0f, 170.0f);
+		NearClip = std::max(InNearClip, 0.001f);
 		FarClip = std::max(InFarClip, NearClip + 1.0f);
 		MarkPackageDirty();
 	}

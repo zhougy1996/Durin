@@ -5,6 +5,9 @@
 #include "Engine/Level.h"
 #include "LevelEditorWorkspace.h"
 #include "Widgets/MLevelEditor.h"
+#include "Actors/CameraActor.h"
+#include "CameraEditorCustomizations.h"
+#include "Components/CameraComponent.h"
 
 namespace Durin
 {
@@ -16,10 +19,19 @@ namespace Durin
 	{
 		SessionSettings = std::make_unique<FEditorSessionSettings>();
 		SessionSettings->Load();
+		auto& Registry = FLevelEditorCustomizationRegistry::Get();
+		const std::shared_ptr<IObjectDetailsCustomization> CameraDetails = CreateCameraDetailsCustomization();
+		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ACameraActor::StaticClass(), CameraDetails));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DCameraComponent::StaticClass(), CameraDetails));
+		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
+		auto& Registry = FLevelEditorCustomizationRegistry::Get();
+		for (auto It = CustomizationHandles.rbegin(); It != CustomizationHandles.rend(); ++It) Registry.Unregister(*It);
+		CustomizationHandles.clear();
 		SessionSettings.reset();
 	}
 

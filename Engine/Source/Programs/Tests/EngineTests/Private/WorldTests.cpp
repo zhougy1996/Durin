@@ -223,6 +223,26 @@ TEST(FWorldTests, SpawnsEnumeratesAndFindsActors)
 	Durin::CollectGarbage();
 }
 
+TEST(FCameraComponentTests, ProjectionParametersAreUpdatedAtomicallyAndClamped)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* CameraActor = World->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(CameraActor, nullptr);
+	Durin::DCameraComponent* Camera = CameraActor->GetCameraComponent();
+	ASSERT_NE(Camera, nullptr);
+	Camera->SetProjectionParameters(200.0f, -5.0f, -1.0f);
+	EXPECT_FLOAT_EQ(Camera->GetFieldOfViewDegrees(), 170.0f);
+	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.001f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 1.001f);
+	Camera->SetNearClip(25.0f);
+	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 25.0f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 26.0f);
+	Camera->SetFarClip(10.0f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 26.0f);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
 TEST(FWorldTests, ReflectedClassNamesSeparateIdentityDisplayAndObjectDefaults)
 {
 	InitializeDObjectSystem();

@@ -44,6 +44,14 @@ namespace Durin
 		FVector4f Color{1.0f};
 	};
 
+	struct FViewOverlayLine
+	{
+		FVector3 Start{0.0};
+		FVector3 End{0.0};
+		FVector4f Color{1.0f};
+		float WidthPixels = 1.0f;
+	};
+
 	struct FSceneView
 	{
 		FMatrix ViewMatrix{1.0};
@@ -53,6 +61,7 @@ namespace Durin
 		uint32 ViewportWidth = 0;
 		uint32 ViewportHeight = 0;
 		std::vector<FViewOverlayPrimitive> OverlayPrimitives;
+		std::vector<FViewOverlayLine> OverlayLines;
 	};
 
 	class IRendererModule : public IModuleInterface

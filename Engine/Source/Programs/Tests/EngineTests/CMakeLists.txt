@@ -12,6 +12,7 @@ add_durin_test(EngineTests
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportCameraTransform.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/LevelEditorViewportClient.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/TransformGizmo.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelEditorCustomizations.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelEditorContext.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelViewportSessionSettings.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPropertyEditing.cpp
@@ -19,8 +20,12 @@ add_durin_test(EngineTests
 
 target_include_directories(EngineTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
 	${CMAKE_SOURCE_DIR}/Engine/Source
 )
+
+# The test target compiles the lightweight LevelEditor customization registry directly.
+target_compile_definitions(EngineTests PRIVATE LEVELEDITOR_EXPORTS)
 
 target_link_libraries(EngineTests PRIVATE
 	Core

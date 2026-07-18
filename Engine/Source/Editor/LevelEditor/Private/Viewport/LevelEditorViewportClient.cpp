@@ -2,8 +2,7 @@
 #include "MonaImGui.h"
 
 #include "Editor/EditorEngine.h"
-#include "Actors/CameraActor.h"
-#include "Components/CameraComponent.h"
+#include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
@@ -90,8 +89,37 @@ namespace Durin
 		OutView.ViewProjectionMatrix = OutView.ProjectionMatrix * OutView.ViewMatrix;
 		OutView.ViewLocation = CameraTransform.GetLocation();
 		AppendSelectionBounds(OutView);
+		FEditorVisualizationCollector VisualizationCollector;
+		CollectEditorVisualizations(CurrentLevel, OutView, VisualizationCollector);
+		VisualizationCollector.AppendToView(OutView);
 		TransformGizmo.AppendOverlayPrimitives(OutView);
 		return true;
+	}
+
+	auto FLevelEditorViewportClient::CollectEditorVisualizations(DLevel* Level, const FSceneView& View, FEditorVisualizationCollector& Collector) const -> void
+	{
+		if (!Level) return;
+		const auto& Registry = FLevelEditorCustomizationRegistry::Get();
+		for (const TObjectPtr<AActor>& ActorPtr : Level->GetActors())
+		{
+			AActor* Actor = ActorPtr.Get();
+			if (!Actor) continue;
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+			{
+				DActorComponent* Component = ComponentPtr.Get();
+				if (!Component) continue;
+				const std::shared_ptr<IComponentEditorVisualizer> Visualizer = Registry.FindComponentVisualizer(Component->GetClass());
+				if (!Visualizer) continue;
+				const FEditorVisualizationContext Context{
+					.View = View,
+					.Level = Level,
+					.bSelected = std::ranges::any_of(SelectedActors, [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; }),
+					.bHovered = HoveredVisualizationActor.Get() == Actor,
+					.bPrimarySelection = PrimarySelectedActor.Get() == Actor,
+				};
+				Visualizer->DrawVisualization(Component, Context, Collector);
+			}
+		}
 	}
 
 	auto FLevelEditorViewportClient::SetSelectedActors(const std::vector<TObjectPtr<AActor>>& Actors, AActor* PrimaryActor) -> void
@@ -193,9 +221,12 @@ namespace Durin
 
 	auto FLevelEditorViewportClient::PickActor(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) const -> AActor*
 	{
+		if (Level == nullptr || ViewportSize.x <= 0.0f || ViewportSize.y <= 0.0f) return nullptr;
+		FSceneView View;
+		if (!CalcSceneView(static_cast<uint32>(ViewportSize.x), static_cast<uint32>(ViewportSize.y), View)) return nullptr;
 		FVector3 RayOrigin;
 		FVector3 RayDirection;
-		if (Level == nullptr || !BuildPickingRay(ViewportPosition, ViewportSize, RayOrigin, RayDirection)) return nullptr;
+		if (!SceneViewProjection::BuildViewportRay(View, ViewportPosition, RayOrigin, RayDirection)) return nullptr;
 		AActor* ClosestActor = nullptr;
 		double ClosestDistance = std::numeric_limits<double>::max();
 		for (const TObjectPtr<AActor>& ActorPtr : Level->GetActors())
@@ -236,7 +267,22 @@ namespace Durin
 				}
 			}
 		}
+		FEditorVisualizationCollector VisualizationCollector;
+		CollectEditorVisualizations(Level, View, VisualizationCollector);
+		const FEditorVisualizationHit VisualizationHit = VisualizationCollector.HitTest(View, ViewportPosition);
+		if (VisualizationHit.Actor && VisualizationHit.Distance < ClosestDistance) ClosestActor = VisualizationHit.Actor;
 		return ClosestActor;
+	}
+
+	auto FLevelEditorViewportClient::UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void
+	{
+		HoveredVisualizationActor = nullptr;
+		if (!Level || ViewportSize.x <= 0.0f || ViewportSize.y <= 0.0f) return;
+		FSceneView View;
+		if (!CalcSceneView(static_cast<uint32>(ViewportSize.x), static_cast<uint32>(ViewportSize.y), View)) return;
+		FEditorVisualizationCollector Collector;
+		CollectEditorVisualizations(Level, View, Collector);
+		HoveredVisualizationActor = Collector.HitTest(View, ViewportPosition).Actor;
 	}
 
 	auto FLevelEditorViewportClient::ProjectWorldToViewport(const FVector3& WorldPosition, const FVector2f& ViewportSize, FVector2f& OutPosition) const -> bool
@@ -258,19 +304,10 @@ namespace Durin
 	{
 		CurrentLevel = Level;
 		ResetNavigation();
-		if (Level != nullptr)
-		{
-			if (SavedState != nullptr)
-			{
-				CameraTransform.SetState(*SavedState);
-			}
-			else if (const ACameraActor* CameraActor = Level->GetPrimaryCameraActor())
-			{
-				if (const DCameraComponent* Camera = CameraActor->GetCameraComponent())
-				{
-					CameraTransform.SetFromTransform(Camera->GetWorldLocation(), Camera->GetWorldRotation());
-				}
-			}
-		}
+		HoveredVisualizationActor = nullptr;
+		if (SavedState != nullptr)
+			CameraTransform.SetState(*SavedState);
+		else
+			CameraTransform.Reset();
 	}
 } // namespace Durin

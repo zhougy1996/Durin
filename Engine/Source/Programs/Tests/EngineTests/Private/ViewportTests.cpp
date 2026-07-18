@@ -3,6 +3,7 @@
 #include "AssetSystem.h"
 #include "Client/ViewportClient.h"
 #include "Components/CameraComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
@@ -15,6 +16,7 @@
 #include "IRendererModule.h"
 #include "LevelViewportSessionSettings.h"
 #include "LevelEditorContext.h"
+#include "LevelEditorCustomizations.h"
 #include "Mona/SceneViewport.h"
 #include "Misc/Paths.h"
 #include "SceneViewProjection.h"
@@ -79,6 +81,31 @@ namespace
 			OutView.ViewLocation = {11.0, 12.0, 13.0};
 			return true;
 		}
+	};
+
+	class FTestComponentVisualizer final : public Durin::IComponentEditorVisualizer
+	{
+	public:
+		auto DrawVisualization(Durin::DActorComponent* Component, const Durin::FEditorVisualizationContext&, Durin::FEditorVisualizationCollector& Collector) const -> void override
+		{
+			auto* SceneComponent = Durin::Cast<Durin::DSceneComponent>(Component);
+			Durin::AActor* Actor = SceneComponent ? SceneComponent->GetOwner() : nullptr;
+			if (!Actor) return;
+			const Durin::FVector3 Center = SceneComponent->GetWorldLocation();
+			Collector.AddLine({Center - Durin::FVectorConstants::Right, Center + Durin::FVectorConstants::Right, Durin::FVector4f(1.0f), 2.0f, 8.0f, 5, Actor, Component});
+		}
+	};
+
+	class FTestDetailsCustomization final : public Durin::IObjectDetailsCustomization
+	{
+	public:
+		auto DrawDetails(Durin::FLevelEditorContext&, Durin::DObject*) -> bool override { return false; }
+	};
+
+	struct FCustomizationGuard
+	{
+		Durin::FLevelEditorCustomizationHandle Handle;
+		~FCustomizationGuard() { if (Handle) Durin::FLevelEditorCustomizationRegistry::Get().Unregister(Handle); }
 	};
 
 	class FTestEngine final : public Durin::DEngine
@@ -347,6 +374,85 @@ TEST(FSceneViewProjectionTests, ProjectsAndBuildsRayFromSceneView)
 	ExpectVectorNear(Direction, {0.0, 0.0, 1.0});
 	View.ViewProjectionMatrix = Durin::FMatrix(0.0);
 	EXPECT_FALSE(Durin::SceneViewProjection::BuildViewportRay(View, ViewportPosition, Origin, Direction));
+}
+
+TEST(FLevelEditorCustomizationRegistryTests, RejectsDuplicatesFindsBaseClassAndUnregisters)
+{
+	InitializeDObjectSystem();
+	auto& Registry = Durin::FLevelEditorCustomizationRegistry::Get();
+	const auto Visualizer = std::make_shared<FTestComponentVisualizer>();
+	FCustomizationGuard VisualizerGuard{Registry.RegisterComponentVisualizer(Durin::DSceneComponent::StaticClass(), Visualizer)};
+	ASSERT_TRUE(VisualizerGuard.Handle);
+	EXPECT_FALSE(Registry.RegisterComponentVisualizer(Durin::DSceneComponent::StaticClass(), std::make_shared<FTestComponentVisualizer>()));
+	EXPECT_EQ(Registry.FindComponentVisualizer(Durin::DCameraComponent::StaticClass()), Visualizer);
+
+	const auto Details = std::make_shared<FTestDetailsCustomization>();
+	FCustomizationGuard DetailsGuard{Registry.RegisterObjectDetails(Durin::DSceneComponent::StaticClass(), Details)};
+	ASSERT_TRUE(DetailsGuard.Handle);
+	EXPECT_EQ(Registry.FindObjectDetails(Durin::DCameraComponent::StaticClass()), Details);
+	ASSERT_TRUE(Registry.Unregister(DetailsGuard.Handle));
+	DetailsGuard.Handle = {};
+	EXPECT_EQ(Registry.FindObjectDetails(Durin::DCameraComponent::StaticClass()), nullptr);
+}
+
+TEST(FEditorVisualizationCollectorTests, UsesTheSameLinesForRenderingAndPicking)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "VisualizationWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "VisualizationLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Actor, nullptr);
+	Durin::FLevelEditorViewportClient Client;
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
+	Durin::FEditorVisualizationCollector Collector;
+	Collector.AddLine({Center - Client.GetCameraTransform().GetRightVector(), Center + Client.GetCameraTransform().GetRightVector(), {1.0f, 0.5f, 0.25f, 1.0f}, 3.0f, 7.0f, 4, Actor, Actor->GetCameraComponent()});
+	Collector.AppendToView(View);
+	ASSERT_EQ(View.OverlayLines.size(), 1u);
+	EXPECT_FLOAT_EQ(View.OverlayLines.front().WidthPixels, 3.0f);
+	Durin::FVector2f ScreenCenter;
+	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Center, ScreenCenter));
+	const Durin::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter);
+	EXPECT_EQ(Hit.Actor, Actor);
+	EXPECT_EQ(Hit.Component, Actor->GetCameraComponent());
+	EXPECT_EQ(Collector.HitTest(View, ScreenCenter + Durin::FVector2f(0.0f, 50.0f)).Actor, nullptr);
+}
+
+TEST(FLevelEditorViewportClientTests, PicksVisualizerForActorWithoutStaticMesh)
+{
+	InitializeDObjectSystem();
+	auto& Registry = Durin::FLevelEditorCustomizationRegistry::Get();
+	FCustomizationGuard Guard{Registry.RegisterComponentVisualizer(Durin::DCameraComponent::StaticClass(), std::make_shared<FTestComponentVisualizer>())};
+	ASSERT_TRUE(Guard.Handle);
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "VisualizerPickingWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "VisualizerPickingLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::FLevelEditorViewportClient Client;
+	Durin::ACameraActor* Camera = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Camera, nullptr);
+	Camera->GetCameraComponent()->SetWorldLocation(Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
+	EXPECT_EQ(Client.PickActor(Level, {400.0f, 300.0f}, {800.0f, 600.0f}), Camera);
+}
+
+TEST(FLevelEditorViewportClientTests, ResetsIndependentViewUnlessSavedStateExists)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "ViewportResetWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ViewportResetLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* Camera = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Camera, nullptr);
+	Camera->GetCameraComponent()->SetWorldLocation({100.0, 200.0, 300.0});
+	Durin::FLevelEditorViewportClient Client;
+	Client.InitializeForLevel(Level);
+	ExpectVectorNear(Client.GetCameraTransform().GetLocation(), Durin::FLevelViewportCameraState{}.Location);
+	Durin::FLevelViewportCameraState Saved;
+	Saved.Location = {8.0, 9.0, 10.0};
+	Saved.OrbitPivot = {1.0, 2.0, 3.0};
+	Client.InitializeForLevel(Level, &Saved);
+	ExpectVectorNear(Client.GetCameraTransform().GetLocation(), Saved.Location);
 }
 
 TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)

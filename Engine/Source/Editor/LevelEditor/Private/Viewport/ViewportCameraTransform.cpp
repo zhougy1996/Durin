@@ -26,6 +26,11 @@ namespace Durin
 		Yaw = State.Yaw;
 	}
 
+	auto FViewportCameraTransform::Reset() -> void
+	{
+		SetState(FLevelViewportCameraState{});
+	}
+
 	auto FViewportCameraTransform::Rotate(float DeltaYawDegrees, float DeltaPitchDegrees) -> void
 	{
 		Yaw += DeltaYawDegrees;
