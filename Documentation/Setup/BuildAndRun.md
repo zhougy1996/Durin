@@ -4,7 +4,7 @@ This is the operational guide for configuring, building, testing, and debugging 
 
 ## Setup
 
-Install Python 3.10 or newer, Visual Studio 2022 with the **Desktop development with C++** workload, Git, CMake, and the Vulkan SDK. Then run `Setup.bat` once in every new Windows checkout or worktree.
+Install Python 3.10 or newer, Visual Studio 2022 with the **Desktop development with C++** workload and the English language pack, Git, CMake, and the Vulkan SDK. Then run `Setup.bat` once in every new Windows checkout or worktree.
 
 In a normal checkout, `Setup.bat` creates `.venv`, installs the pinned Python dependencies from `requirements.txt` (including the `clang.cindex` bindings and native `libclang` library), creates the local Agent configuration, and prepares all third-party libraries. The operation is idempotent and can be rerun after an interrupted download. In a linked Git worktree it instead links `Engine/External` and `.venv` from the prepared main worktree.
 
@@ -126,7 +126,7 @@ Preset build trees are isolated, but final binaries are shared by platform/confi
 
 Purge only removes registered preset trees under `Build/` and `Install/`, project `Binaries/<Platform>/<Config>/` roots, and project `Intermediate/Build[-Identifier]/<Platform>/<Profile>/` roots. It intentionally preserves bootstrapped dependencies such as `Build/ThirdParty` and `Engine/External`.
 
-On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/durin_build_tool/__main__.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat` because it also fixes the MSVC language with `VSLANG=1033`.
+On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/durin_build_tool/__main__.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat`. BuildTool enforces `VSLANG=1033` after Visual Studio environment setup and verifies that MSVC actually emits English diagnostics. This keeps CMake's `/showIncludes` dependency prefix stable for both interactive terminals and Agent output pipes. If validation reports a localized prefix, add the English language pack through Visual Studio Installer. The next `configure`, `build`, or `test` refreshes any existing Ninja tree that does not already contain the English dependency prefix.
 
 ## IDE Code Model And Debugging
 

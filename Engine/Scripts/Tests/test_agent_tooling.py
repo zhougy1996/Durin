@@ -342,15 +342,41 @@ class CoreTests(unittest.TestCase):
         with mock.patch.object(build_core, "find_vsdevcmd", return_value=Path("VsDevCmd.bat")), mock.patch.object(
             build_core,
             "capture_setup_environment",
-            return_value={"PATH": "ready"},
-        ) as capture:
+            return_value={"PATH": "ready", "VSLANG": "2052"},
+        ) as capture, mock.patch.object(
+            build_core,
+            "detect_msvc_showincludes_prefix",
+            return_value="Note: including file:  ",
+        ) as detect_prefix:
             environment = build_core.build_environment(
                 profile,
                 build_config.EnvironmentSetup(),
                 current_host="windows",
             )
         self.assertEqual(environment["PATH"], "ready")
+        self.assertEqual(environment["VSLANG"], "1033")
         capture.assert_called_once()
+        detect_prefix.assert_called_once_with(environment)
+
+    def test_visual_studio_environment_rejects_localized_compiler_output(self) -> None:
+        profile = replace(
+            self.make_profile(),
+            environment_provider=build_config.EnvironmentProvider.VISUAL_STUDIO,
+        )
+        with mock.patch.object(build_core, "find_vsdevcmd", return_value=Path("VsDevCmd.bat")), mock.patch.object(
+            build_core,
+            "capture_setup_environment",
+            return_value={"PATH": "ready"},
+        ), mock.patch.object(
+            build_core,
+            "detect_msvc_showincludes_prefix",
+            return_value="注意: 包含文件:  ",
+        ), self.assertRaisesRegex(build_config.BuildToolError, "English language pack"):
+            build_core.build_environment(
+                profile,
+                build_config.EnvironmentSetup(),
+                current_host="windows",
+            )
 
     def test_windows_setup_script_is_passed_as_separate_argument(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -534,6 +560,16 @@ class CoreTests(unittest.TestCase):
             self.assertFalse(build_core.cache_is_usable(cache))
             cache.write_text("CMAKE_MAKE_PROGRAM:FILEPATH=ninja\n", encoding="utf-8")
             self.assertTrue(build_core.cache_is_usable(cache))
+
+    def test_ninja_msvc_prefix_requires_english(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            build_directory = Path(directory)
+            rules = build_directory / "CMakeFiles" / "rules.ninja"
+            rules.parent.mkdir()
+            rules.write_text("msvc_deps_prefix = 注意: 包含文件:  \n", encoding="utf-8")
+            self.assertFalse(build_core.ninja_uses_english_msvc_prefix(build_directory))
+            rules.write_text("msvc_deps_prefix = Note: including file:  \n", encoding="utf-8")
+            self.assertTrue(build_core.ninja_uses_english_msvc_prefix(build_directory))
 
     def test_checkout_lock_is_exclusive_across_presets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

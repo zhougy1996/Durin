@@ -6,6 +6,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import tempfile
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -246,7 +247,18 @@ def build_environment(
             raise BuildToolError('The "visual-studio" environment provider is only supported on Windows.')
         script = Path(configured_script) if configured_script else find_vsdevcmd()
         arguments = configured_arguments or ["-arch=x64", "-host_arch=x64"]
-        return capture_setup_environment(script, arguments, current_host=current_host)
+        environment = capture_setup_environment(script, arguments, current_host=current_host)
+        # VsDevCmd may clear the wrapper's inherited value, so enforce the language
+        # in the final environment shared by configure and build subprocesses.
+        environment["VSLANG"] = "1033"
+        showincludes_prefix = detect_msvc_showincludes_prefix(environment)
+        if showincludes_prefix.strip().casefold() != "note: including file:":
+            raise BuildToolError(
+                "MSVC did not emit English diagnostics after VSLANG=1033. "
+                "Install the English language pack for Visual Studio C++ tools, then rerun BuildTool. "
+                f"Detected /showIncludes prefix: {showincludes_prefix.strip()!r}"
+            )
+        return environment
     if provider is EnvironmentProvider.SCRIPT or configured_script:
         if not configured_script:
             raise BuildToolError(
@@ -259,6 +271,41 @@ def build_environment(
             current_host=current_host,
         )
     return dict(os.environ)
+
+
+def detect_msvc_showincludes_prefix(environment: Mapping[str, str]) -> str:
+    compiler = shutil.which("cl.exe", path=environment.get("PATH", ""))
+    if not compiler:
+        raise BuildToolError("MSVC cl.exe was not found after initializing the Visual Studio environment.")
+
+    with tempfile.TemporaryDirectory(prefix="durin-showincludes-") as directory:
+        root = Path(directory)
+        header = root / "durin_showincludes_probe.h"
+        source = root / "durin_showincludes_probe.c"
+        object_file = root / "durin_showincludes_probe.obj"
+        header.write_text("\n", encoding="utf-8")
+        source.write_text(f'#include "{header.name}"\nint main(void) {{ return 0; }}\n', encoding="utf-8")
+        result = subprocess.run(
+            [compiler, "/nologo", "/showIncludes", "/c", source.name, f"/Fo{object_file}"],
+            cwd=root,
+            env=dict(environment),
+            capture_output=True,
+            check=False,
+        )
+
+        # Redirected MSVC diagnostics use the Windows ANSI code page, independently
+        # of the terminal encoding used by an interactive caller or an Agent pipe.
+        output = (result.stdout + b"\n" + result.stderr).decode("mbcs", errors="replace")
+        header_path = str(header)
+        for line in output.splitlines():
+            index = line.lower().find(header_path.lower())
+            if index >= 0:
+                return line[:index]
+
+    raise BuildToolError(
+        "MSVC /showIncludes prefix could not be detected. "
+        "The compiler probe did not report its included header."
+    )
 
 
 def environment_value(environment: Mapping[str, str], name: str) -> tuple[str, str]:
@@ -616,6 +663,27 @@ def cache_is_usable(cache_file: Path) -> bool:
     return "CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND" not in content
 
 
+def ninja_uses_english_msvc_prefix(build_directory: Path) -> bool:
+    rules_file = build_directory / "CMakeFiles" / "rules.ninja"
+    try:
+        content = rules_file.read_bytes().lower()
+    except OSError:
+        return False
+    return b"msvc_deps_prefix = note: including file:" in content
+
+
+def require_english_msvc_ninja_prefix(context: BuildContext, build_directory: Path) -> None:
+    if (
+        context.current_host == "windows"
+        and context.profile.environment_provider is EnvironmentProvider.VISUAL_STUDIO
+        and not ninja_uses_english_msvc_prefix(build_directory)
+    ):
+        raise BuildToolError(
+            "CMake did not generate Ninja rules with the English MSVC /showIncludes prefix.",
+            recovery="Confirm the Visual Studio English language pack is installed, then run configure again.",
+        )
+
+
 def restore_state_file(path: Path, previous_content: bytes | None) -> None:
     if previous_content is None:
         path.unlink(missing_ok=True)
@@ -736,6 +804,7 @@ def perform_action(context: BuildContext, output: BuildOutput) -> None:
                 environment=environment,
                 output=output,
             )
+        require_english_msvc_ninja_prefix(context, build_directory)
         return
     if request.action is Action.CLEAN:
         if not cache_is_usable(cache_file):
@@ -766,13 +835,21 @@ def perform_action(context: BuildContext, output: BuildOutput) -> None:
                 environment=environment,
                 output=output,
             )
-    elif not cache_is_usable(cache_file):
+        require_english_msvc_ninja_prefix(context, build_directory)
+    elif not cache_is_usable(cache_file) or (
+        context.current_host == "windows"
+        and context.profile.environment_provider is EnvironmentProvider.VISUAL_STUDIO
+        and not ninja_uses_english_msvc_prefix(build_directory)
+    ):
+        if cache_is_usable(cache_file):
+            output.warning("Existing Ninja rules do not use the English MSVC dependency prefix; reconfiguring.")
         with output.stage("Configure"):
             run_command(
                 [context.cmake, "--fresh", "--preset", context.preset.name],
                 environment=environment,
                 output=output,
             )
+        require_english_msvc_ninja_prefix(context, build_directory)
 
     with output.stage("Build"):
         run_command(
