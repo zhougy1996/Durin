@@ -1,6 +1,7 @@
 #include "AssetSystem.h"
 
 #include "DObject/Class.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
@@ -167,7 +168,7 @@ namespace Durin::Asset
 		{
 			if (!Object) return;
 			OutObjects.push_back(Object);
-			for (DObject* Inner : Object->GetInnerObjects()) GatherObjects(Inner, OutObjects);
+			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object)) GatherObjects(Inner, OutObjects);
 		}
 
 		auto SerializeValue(
@@ -473,7 +474,7 @@ namespace Durin::Asset
 
 		auto FindExistingInner(DObject* Outer, std::string_view Name, DClass* Class, bool& bTypeMismatch) -> DObject*
 		{
-			for (DObject* Inner : Outer->GetInnerObjects())
+			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Outer))
 			{
 				if (Inner->GetName() != Name) continue;
 				if (Inner->GetClass() == Class) return Inner;

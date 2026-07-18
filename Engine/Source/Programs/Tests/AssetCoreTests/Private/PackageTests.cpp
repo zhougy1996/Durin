@@ -2,6 +2,7 @@
 
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
 #include "Misc/Paths.h"
@@ -140,7 +141,7 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	EXPECT_EQ(Loaded->NamedScores.at("Alpha"), 11);
 	EXPECT_EQ(Loaded->NamedScores.at("Beta"), 17);
 	ASSERT_NE(Loaded->DefaultChild.Get(), nullptr);
-	EXPECT_EQ(Loaded->GetInnerObjects().size(), 1u);
+	EXPECT_EQ(Durin::GDObjectArray.GetObjectsWithOuter(Loaded).size(), 1u);
 	EXPECT_EQ(Loaded->DefaultChild->GetObjectPath(), "/TestAssets/RoundTrip:DefaultChild");
 	EXPECT_EQ(Durin::Asset::FAssetManager::Get().FindLoadedPackage(Path), Loaded->GetPackage());
 

@@ -138,15 +138,10 @@ namespace Durin
 
 		uint32 RootReferenceCount = 0;
 
-		std::vector<DObject*> InnerObjects;
-
 	public:
 		auto SetInternalFlags(EObjectInternalFlags InFlags) -> void { InternalFlags |= InFlags; }
 		auto ClearInternalFlags(EObjectInternalFlags InFlags) -> void { InternalFlags &= ~InFlags; }
-		auto AddInnerObject(DObject* Object) -> void;
-		auto RemoveInnerObject(DObject* Object) -> void;
-		auto SetOuterPrivate(DObject* NewOuter) -> void;
-		auto GetInnerObjects() const -> const std::vector<DObject*>& { return InnerObjects; }
+		COREDOBJECT_API auto SetOuterPrivate(DObject* NewOuter) -> void;
 
 	private:
 		friend COREDOBJECT_API auto DObjectForceRegistration(DObject* Object) -> void;
@@ -159,6 +154,7 @@ namespace Durin
 		friend COREDOBJECT_API auto CollectGarbage() -> void;
 		friend COREDOBJECT_API auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void;
 		friend COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
+		friend class FDObjectArray;
 	};
 
 	template<typename T>

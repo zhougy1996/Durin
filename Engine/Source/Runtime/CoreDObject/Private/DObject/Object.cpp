@@ -169,46 +169,24 @@ namespace Durin
 		GDObjectArray.Add(this);
 	}
 
-	auto DObject::AddInnerObject(DObject* Object) -> void
-	{
-		if (!Object)
-		{
-			return;
-		}
-		if (std::find(InnerObjects.begin(), InnerObjects.end(), Object) == InnerObjects.end())
-		{
-			InnerObjects.push_back(Object);
-		}
-	}
-
-	auto DObject::RemoveInnerObject(DObject* Object) -> void
-	{
-		InnerObjects.erase(std::remove(InnerObjects.begin(), InnerObjects.end(), Object), InnerObjects.end());
-	}
-
 	auto DObject::SetOuterPrivate(DObject* NewOuter) -> void
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
-		if (OuterPrivate == NewOuter)
+		if (OuterPrivate == NewOuter) return;
+
+		// Outer is structural hierarchy, so accepting a descendant would make every
+		// outer-chain query and ownership-tree traversal non-terminating.
+		for (const DObject* Current = NewOuter; Current; Current = Current->GetOuter())
 		{
-			if (OuterPrivate)
-			{
-				OuterPrivate->AddInnerObject(this);
-			}
+			check(Current != this);
+		}
+
+		if (GDObjectArray.Contains(this))
+		{
+			GDObjectArray.ReparentObject(this, NewOuter);
 			return;
 		}
-
-		if (OuterPrivate)
-		{
-			OuterPrivate->RemoveInnerObject(this);
-		}
-
 		OuterPrivate = NewOuter;
-
-		if (OuterPrivate)
-		{
-			OuterPrivate->AddInnerObject(this);
-		}
 	}
 
 	auto DObject::GetOutermost() const -> DObject*

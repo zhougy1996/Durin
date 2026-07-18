@@ -64,7 +64,7 @@ namespace Durin
 				if (!Added.insert(Object).second) continue;
 
 				Stack.push_back({Object, true});
-				for (DObject* Inner : Object->GetInnerObjects()) Stack.push_back({Inner, false});
+				for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, true)) Stack.push_back({Inner, false});
 			}
 			return Order;
 		}
@@ -172,7 +172,7 @@ namespace Durin
 					++MarkedCount;
 					Enqueue(Object->GetOuter());
 					Object->AddReferencedObjects(*this);
-					for (DObject* Inner : Object->GetInnerObjects()) Enqueue(Inner);
+					for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, true)) Enqueue(Inner);
 				}
 				return MarkedCount;
 			}

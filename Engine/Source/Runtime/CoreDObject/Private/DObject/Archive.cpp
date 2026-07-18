@@ -242,7 +242,7 @@ namespace Durin
 
 				Gather(Object->GetOuter());
 
-				for (DObject* InnerObject : Object->GetInnerObjects())
+				for (DObject* InnerObject : GDObjectArray.GetObjectsWithOuter(Object))
 				{
 					Gather(InnerObject);
 				}
@@ -504,7 +504,7 @@ namespace Durin
 		std::function<void(DObject*)> GatherInnerTree = [&](DObject* Object) {
 			if (!Object || !Visited.insert(Object).second) return;
 			Sources.push_back(Object);
-			for (DObject* Inner : Object->GetInnerObjects()) GatherInnerTree(Inner);
+			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object)) GatherInnerTree(Inner);
 		};
 		GatherInnerTree(RootObject);
 
@@ -526,7 +526,7 @@ namespace Durin
 			{
 				// Actor constructors create their default components. Reuse those matching inners
 				// instead of constructing a second component with the same identity.
-				for (DObject* Existing : DuplicateOuter->GetInnerObjects())
+				for (DObject* Existing : GDObjectArray.GetObjectsWithOuter(DuplicateOuter))
 				{
 					if (!ClaimedConstructedInners.contains(Existing) && Existing->GetClass() == Source->GetClass() && Existing->GetFName() == Source->GetFName())
 					{
