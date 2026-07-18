@@ -14,6 +14,7 @@ namespace Durin
 	class AActor;
 	class DObject;
 	class FSceneViewport;
+	class FRenderCommandFence;
 	class MWindow;
 
 	enum class EEditorPlayState : uint8
@@ -74,6 +75,8 @@ namespace Durin
 		auto IsPlayingInNewWindow() const -> bool { return IsPlaying() && PlayDestination == EEditorPlayDestination::NewWindow; }
 
 	private:
+		auto ReleaseRetiredPlaySessions(bool bReleaseAll = false) -> void;
+
 		std::unique_ptr<FEditorTransactionManager> TransactionManager;
 		std::unique_ptr<FEditorNotificationManager> NotificationManager;
 
@@ -86,6 +89,14 @@ namespace Durin
 		DPROPERTY(Transient)
 		TObjectPtr<DLevel> EditorLevel;
 
+		// Stopped PIE worlds remain alive until the render thread has consumed their
+		// scene-removal commands. This keeps Stop responsive without weakening proxy lifetime.
+		DPROPERTY(Transient)
+		std::vector<TObjectPtr<DWorld>> RetiredPlayWorlds;
+
+		DPROPERTY(Transient)
+		std::vector<TObjectPtr<DLevel>> RetiredPlayLevels;
+
 		EEditorPlayState PlayState = EEditorPlayState::Stopped;
 		EEditorPlayDestination PlayDestination = EEditorPlayDestination::EmbeddedViewport;
 		std::unordered_map<DObject*, DObject*> EditorToPlayObjects;
@@ -93,6 +104,7 @@ namespace Durin
 		std::shared_ptr<FSceneViewport> PreviousSceneViewport;
 		std::shared_ptr<FSceneViewport> PlayWindowViewport;
 		std::shared_ptr<MWindow> PlayWindow;
+		std::vector<std::unique_ptr<FRenderCommandFence>> RetiredPlayFences;
 		std::vector<uint64> ConsoleCommandHandles;
 	};
 

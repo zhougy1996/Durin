@@ -16,6 +16,7 @@ namespace Durin
 		RENDERCORE_API auto BeginFence() -> void;
 
 		RENDERCORE_API auto Wait() -> void;
+		auto IsFenceComplete() const -> bool { return bIsComplete.load(std::memory_order_acquire); }
 	private:
 		std::atomic<bool> bIsComplete = true;
 		std::condition_variable CV;

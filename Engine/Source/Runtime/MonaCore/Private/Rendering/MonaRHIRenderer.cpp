@@ -1,17 +1,39 @@
 #include "Rendering/MonaRHIRenderer.h"
 
 #include "DynamicRHI.h"
+#include "RenderingThread.h"
 #include "Widgets/MWindow.h"
 
 namespace Durin::Mona
 {
 	constexpr int32 MIN_VIEWPORT_SIZE = 8;
 
+	namespace
+	{
+		auto ReleaseViewportInfo(FMonaViewportInfo* Info) -> void
+		{
+			if (!Info) return;
+			TRefCountPtr<FRHIViewport> ViewportRHI = std::move(Info->ViewportRHI);
+			delete Info;
+			if (!ViewportRHI) return;
+			if (!GRenderingThread)
+			{
+				ViewportRHI = nullptr;
+				return;
+			}
+			// Vulkan viewport destruction may wait for presentation. Keep that work off
+			// the application thread so closing a PIE window cannot freeze editor input.
+			ENQUEUE_RENDER_COMMAND(ReleaseMonaViewport)([ViewportRHI = std::move(ViewportRHI)](FRHICommandListImmediate&) mutable {
+				ViewportRHI = nullptr;
+			});
+		}
+	}
+
 	FMonaRHIRenderer::~FMonaRHIRenderer()
 	{
 		for (const auto& Info : WindowToViewportInfoMap | std::views::values)
 		{
-			delete Info;
+			ReleaseViewportInfo(Info);
 		}
 		WindowToViewportInfoMap.clear();
 	}
@@ -86,7 +108,7 @@ namespace Durin::Mona
 		auto it = WindowToViewportInfoMap.find(Window.get());
 		if (it != WindowToViewportInfoMap.end())
 		{
-			delete it->second;
+			ReleaseViewportInfo(it->second);
 			WindowToViewportInfoMap.erase(Window.get());
 		}
 	}

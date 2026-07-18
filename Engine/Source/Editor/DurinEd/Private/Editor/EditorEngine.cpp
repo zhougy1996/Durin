@@ -102,6 +102,7 @@ namespace Durin
 
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
+		ReleaseRetiredPlaySessions();
 		if (IsPlayingInNewWindow() && PlayWindow)
 		{
 			const auto& Windows = Mona::FMonaApplication::Get().GetWindows();
@@ -119,6 +120,8 @@ namespace Durin
 		EditorLevel = nullptr;
 		EditorWorld = nullptr;
 		DEngine::BeginDestroy();
+		// The base teardown drains the rendering thread before releasing the scene.
+		ReleaseRetiredPlaySessions(true);
 	}
 
 	auto DEditorEngine::StartPlaySession(DLevel* SourceLevel, std::string* OutError) -> bool
@@ -224,9 +227,14 @@ namespace Durin
 			WorldToDestroy->EndPlay();
 			WorldToDestroy->SetCurrentLevel(nullptr, false);
 		}
-		// Scene removals may be consumed by the render thread; drain them before the
-		// transient object graph that owns the scene proxies is released.
-		FlushRenderingCommands();
+		std::unique_ptr<FRenderCommandFence> RetirementFence;
+		if (WorldToDestroy && GRenderingThread)
+		{
+			// Do not make the UI thread wait for Vulkan here. The retired object graph
+			// keeps proxy source data alive until this fence passes the queued removals.
+			RetirementFence = std::make_unique<FRenderCommandFence>();
+			RetirementFence->BeginFence();
+		}
 		SetWorld(EditorWorld.Get());
 		if (EditorWorld && EditorLevel) EditorWorld->SetCurrentLevel(EditorLevel.Get(), false);
 		if (PlayDestination == EEditorPlayDestination::NewWindow)
@@ -241,16 +249,37 @@ namespace Durin
 			PlayWindow.reset();
 			PreviousSceneViewport.reset();
 		}
-		if (LevelToDestroy) DestroyObject(LevelToDestroy);
 		PlayWorld = nullptr;
 		EditorLevel = nullptr;
 		EditorToPlayObjects.clear();
 		PlayToEditorObjects.clear();
 		SetGameInputEnabled(false);
-		if (WorldToDestroy) DestroyObject(WorldToDestroy);
+		if (WorldToDestroy)
+		{
+			RetiredPlayWorlds.emplace_back(WorldToDestroy);
+			RetiredPlayLevels.emplace_back(LevelToDestroy);
+			RetiredPlayFences.emplace_back(std::move(RetirementFence));
+		}
 		TransactionManager->Clear();
 		PlayState = EEditorPlayState::Stopped;
 		PlayDestination = EEditorPlayDestination::EmbeddedViewport;
+		ReleaseRetiredPlaySessions();
+	}
+
+	auto DEditorEngine::ReleaseRetiredPlaySessions(bool bReleaseAll) -> void
+	{
+		check(RetiredPlayWorlds.size() == RetiredPlayLevels.size());
+		check(RetiredPlayWorlds.size() == RetiredPlayFences.size());
+		for (size_t Index = RetiredPlayFences.size(); Index-- > 0;)
+		{
+			const FRenderCommandFence* Fence = RetiredPlayFences[Index].get();
+			if (!bReleaseAll && Fence && !Fence->IsFenceComplete()) continue;
+			if (DLevel* Level = RetiredPlayLevels[Index].Get()) DestroyObject(Level);
+			if (DWorld* World = RetiredPlayWorlds[Index].Get()) DestroyObject(World);
+			RetiredPlayFences.erase(RetiredPlayFences.begin() + Index);
+			RetiredPlayLevels.erase(RetiredPlayLevels.begin() + Index);
+			RetiredPlayWorlds.erase(RetiredPlayWorlds.begin() + Index);
+		}
 	}
 
 	auto DEditorEngine::SetPlaySessionPaused(bool bPaused) -> void
