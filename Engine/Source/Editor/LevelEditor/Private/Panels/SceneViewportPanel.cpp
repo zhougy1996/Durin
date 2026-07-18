@@ -669,30 +669,31 @@ namespace Durin
 		const float PlayY = Layout.PlayButtonPosition.y;
 		if (!bPlaying)
 		{
-			if (DrawToolbarButton("##ViewportPlay", ImVec2(PlayX, PlayY), ImVec2(Layout.PlayButtonWidth, Layout.Height), PlayLabel, EViewportToolbarIcon::Play, false, "Play using the last selected mode (F5)", true) && Context.StartPlay)
+			const char* StartLabel = PreferredPlayStartLocation == EEditorPlayStartLocation::EditorCamera ? "Editor Camera" : "Level Start";
+			const char* DestinationLabel = PreferredPlayDestination == EEditorPlayDestination::NewWindow ? "New Window" : "Viewport";
+			const std::string PlayTooltip = std::format("Play from {} in {} (F5)", StartLabel, DestinationLabel);
+			if (DrawToolbarButton("##ViewportPlay", ImVec2(PlayX, PlayY), ImVec2(Layout.PlayButtonWidth, Layout.Height), PlayLabel, EViewportToolbarIcon::Play, false, PlayTooltip.c_str(), true) && Context.StartPlay)
 				Context.StartPlay(PreferredPlayStartLocation, PreferredPlayDestination);
 			PlayX += Layout.PlayButtonWidth;
-			if (DrawToolbarButton("##ViewportPlayOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Choose how and where to play"))
+			if (DrawToolbarButton("##ViewportPlayOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Play settings"))
 				ImGui::OpenPopup("ViewportPlayOptionsPopup");
 			if (ImGui::BeginPopup("ViewportPlayOptionsPopup"))
 			{
-				auto PlayFrom = [&](const char* Label, EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) {
-					const bool bPreferred = PreferredPlayStartLocation == StartLocation && PreferredPlayDestination == Destination;
-					if (ImGui::MenuItem(Label, nullptr, bPreferred))
-					{
-						SetPreferredPlayMode(StartLocation, Destination);
-						if (Context.StartPlay) Context.StartPlay(StartLocation, Destination);
-					}
-				};
-				ImGui::TextDisabled("Embedded Viewport");
-				PlayFrom("From Level Start##Embedded", EEditorPlayStartLocation::LevelStart, EEditorPlayDestination::EmbeddedViewport);
-				PlayFrom("From Editor Camera##Embedded", EEditorPlayStartLocation::EditorCamera, EEditorPlayDestination::EmbeddedViewport);
+				ImGui::TextDisabled("Start Location");
+				if (ImGui::RadioButton("Level Start", PreferredPlayStartLocation == EEditorPlayStartLocation::LevelStart)) PreferredPlayStartLocation = EEditorPlayStartLocation::LevelStart;
+				if (ImGui::RadioButton("Editor Camera", PreferredPlayStartLocation == EEditorPlayStartLocation::EditorCamera)) PreferredPlayStartLocation = EEditorPlayStartLocation::EditorCamera;
 				ImGui::Separator();
-				ImGui::TextDisabled("New Window");
-				PlayFrom("From Level Start##NewWindow", EEditorPlayStartLocation::LevelStart, EEditorPlayDestination::NewWindow);
-				PlayFrom("From Editor Camera##NewWindow", EEditorPlayStartLocation::EditorCamera, EEditorPlayDestination::NewWindow);
+				ImGui::TextDisabled("Destination");
+				if (ImGui::RadioButton("Embedded Viewport", PreferredPlayDestination == EEditorPlayDestination::EmbeddedViewport)) PreferredPlayDestination = EEditorPlayDestination::EmbeddedViewport;
+				if (ImGui::RadioButton("New Window", PreferredPlayDestination == EEditorPlayDestination::NewWindow)) PreferredPlayDestination = EEditorPlayDestination::NewWindow;
 				ImGui::Separator();
-				ImGui::MenuItem("Simulate Physics", nullptr, &Context.bSimulatePhysics);
+				ImGui::Checkbox("Simulate Physics", &Context.bSimulatePhysics);
+				ImGui::Spacing();
+				if (ImGui::Button("Play Now", ImVec2(ImGui::GetContentRegionAvail().x, 0.0f)))
+				{
+					ImGui::CloseCurrentPopup();
+					if (Context.StartPlay) Context.StartPlay(PreferredPlayStartLocation, PreferredPlayDestination);
+				}
 				ImGui::EndPopup();
 			}
 		}
