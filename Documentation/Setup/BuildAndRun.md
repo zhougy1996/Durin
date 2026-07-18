@@ -35,6 +35,8 @@ BuildTool separates its resolved context, execution stages, raw CMake/Ninja outp
 .\BuildTool build --target all --plain
 ```
 
+On Windows, the first toolchain-backed command captures and validates the Visual Studio environment. BuildTool caches that environment delta under `Build/.agent-state/` so later invocations avoid rerunning `VsDevCmd.bat` and the compiler language probe. The cache refreshes automatically when the setup script, its arguments, or `cl.exe` changes, while caller-provided environment values and `PATH` changes remain live.
+
 The registered Windows build environment defaults to `Win64-Debug-DurinEditor-Tests`, allowing the same output set to run the editor and native tests. Before launching the editor for a smoke test or final validation, build the complete runtime:
 
 ```powershell

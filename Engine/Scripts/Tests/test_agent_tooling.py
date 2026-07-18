@@ -339,7 +339,9 @@ class CoreTests(unittest.TestCase):
             self.make_profile(),
             environment_provider=build_config.EnvironmentProvider.VISUAL_STUDIO,
         )
-        with mock.patch.object(build_core, "find_vsdevcmd", return_value=Path("VsDevCmd.bat")), mock.patch.object(
+        with mock.patch.object(build_core, "load_visual_studio_environment_cache", return_value=None), mock.patch.object(
+            build_core, "write_visual_studio_environment_cache"
+        ), mock.patch.object(build_core, "find_vsdevcmd", return_value=Path("VsDevCmd.bat")), mock.patch.object(
             build_core,
             "capture_setup_environment",
             return_value={"PATH": "ready", "VSLANG": "2052"},
@@ -358,12 +360,69 @@ class CoreTests(unittest.TestCase):
         capture.assert_called_once()
         detect_prefix.assert_called_once_with(environment)
 
+    def test_visual_studio_environment_cache_reuses_delta_and_invalidates_for_compiler_change(self) -> None:
+        profile = replace(
+            self.make_profile(),
+            environment_provider=build_config.EnvironmentProvider.VISUAL_STUDIO,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / "VsDevCmd.bat"
+            compiler = root / "cl.exe"
+            cache = root / "environment.json"
+            script.touch()
+            compiler.touch()
+            captured = {
+                "PATH": str(root) + os.pathsep + "original-path",
+                "VSLANG": "1033",
+                "VSINSTALLDIR": str(root),
+                "DURIN_LIVE_VALUE": "first",
+            }
+            with mock.patch.object(build_core, "find_vsdevcmd", return_value=script), mock.patch.object(
+                build_core, "visual_studio_environment_cache_path", return_value=cache
+            ), mock.patch.object(
+                build_core, "capture_setup_environment", return_value=captured
+            ) as capture, mock.patch.object(
+                build_core, "detect_msvc_showincludes_prefix", return_value="Note: including file:  "
+            ) as detect_prefix, mock.patch.object(
+                build_core.shutil, "which", return_value=str(compiler)
+            ), mock.patch.dict(
+                os.environ,
+                {"DURIN_LIVE_VALUE": "first", "PATH": "original-path"},
+                clear=True,
+            ):
+                first = build_core.build_environment(
+                    profile,
+                    build_config.EnvironmentSetup(),
+                    current_host="windows",
+                )
+                os.environ["DURIN_LIVE_VALUE"] = "second"
+                os.environ["PATH"] = "new-path"
+                second = build_core.build_environment(
+                    profile,
+                    build_config.EnvironmentSetup(),
+                    current_host="windows",
+                )
+                compiler.write_text("updated", encoding="utf-8")
+                build_core.build_environment(
+                    profile,
+                    build_config.EnvironmentSetup(),
+                    current_host="windows",
+                )
+        self.assertEqual(first["PATH"], str(root) + os.pathsep + "original-path")
+        self.assertEqual(second["DURIN_LIVE_VALUE"], "second")
+        self.assertEqual(second["PATH"], str(root) + os.pathsep + "new-path")
+        self.assertEqual(capture.call_count, 2)
+        self.assertEqual(detect_prefix.call_count, 2)
+
     def test_visual_studio_environment_rejects_localized_compiler_output(self) -> None:
         profile = replace(
             self.make_profile(),
             environment_provider=build_config.EnvironmentProvider.VISUAL_STUDIO,
         )
-        with mock.patch.object(build_core, "find_vsdevcmd", return_value=Path("VsDevCmd.bat")), mock.patch.object(
+        with mock.patch.object(build_core, "load_visual_studio_environment_cache", return_value=None), mock.patch.object(
+            build_core, "find_vsdevcmd", return_value=Path("VsDevCmd.bat")
+        ), mock.patch.object(
             build_core,
             "capture_setup_environment",
             return_value={"PATH": "ready"},

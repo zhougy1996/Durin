@@ -231,6 +231,146 @@ def find_vsdevcmd(environment: Mapping[str, str] | None = None) -> Path:
     return script
 
 
+_VISUAL_STUDIO_CACHE_VERSION = 2
+
+
+def visual_studio_environment_cache_path(profile: BuildProfile, *, root: Path = STATE_DIR) -> Path:
+    return root / f"{state_file_component(profile.name)}.visual-studio-environment.json"
+
+
+def file_fingerprint(path: Path) -> dict[str, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    if not path.is_file():
+        return None
+    return {"size": stat.st_size, "mtimeNs": stat.st_mtime_ns}
+
+
+def environment_changes(
+    before: Mapping[str, str],
+    after: Mapping[str, str],
+) -> tuple[dict[str, str], list[str]]:
+    before_normalized = {name.upper(): value for name, value in before.items()}
+    after_normalized = {name.upper(): value for name, value in after.items()}
+    updates = {
+        name: value
+        for name, value in after_normalized.items()
+        if before_normalized.get(name) != value
+    }
+    removed = sorted(set(before_normalized) - set(after_normalized))
+    return updates, removed
+
+
+def apply_environment_changes(
+    environment: Mapping[str, str],
+    updates: Mapping[str, str],
+    removed: Sequence[str],
+) -> dict[str, str]:
+    result = dict(environment)
+    names = {name.upper(): name for name in result}
+    for normalized_name in [*removed, *updates]:
+        existing_name = names.get(normalized_name.upper())
+        if existing_name is not None:
+            result.pop(existing_name, None)
+    result.update(updates)
+    return result
+
+
+def load_visual_studio_environment_cache(
+    profile: BuildProfile,
+    script: Path | None,
+    arguments: Sequence[str],
+) -> dict[str, str] | None:
+    path = visual_studio_environment_cache_path(profile)
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict) or value.get("version") != _VISUAL_STUDIO_CACHE_VERSION:
+        return None
+    script_value = value.get("script")
+    compiler_value = value.get("compiler")
+    if (
+        not isinstance(script_value, str)
+        or not script_value
+        or not isinstance(compiler_value, str)
+        or not compiler_value
+    ):
+        return None
+    cached_script = Path(script_value)
+    if script is not None and cached_script != script.resolve():
+        return None
+    if value.get("arguments") != list(arguments):
+        return None
+    script_fingerprint = file_fingerprint(cached_script)
+    if script_fingerprint is None or value.get("scriptFingerprint") != script_fingerprint:
+        return None
+    compiler = Path(compiler_value)
+    compiler_fingerprint = file_fingerprint(compiler)
+    if compiler_fingerprint is None or value.get("compilerFingerprint") != compiler_fingerprint:
+        return None
+    updates = value.get("updates")
+    removed = value.get("removed")
+    path_prefix = value.get("pathPrefix", "")
+    if not isinstance(updates, dict) or not all(
+        isinstance(name, str) and isinstance(item, str) for name, item in updates.items()
+    ):
+        return None
+    if not isinstance(removed, list) or not all(isinstance(name, str) for name in removed):
+        return None
+    if not isinstance(path_prefix, str):
+        return None
+    environment = apply_environment_changes(os.environ, updates, removed)
+    if path_prefix:
+        _, inherited_path = environment_value(os.environ, "PATH")
+        environment = apply_environment_changes(
+            environment,
+            {"PATH": path_prefix + inherited_path},
+            (),
+        )
+    environment["VSLANG"] = "1033"
+    return environment
+
+
+def write_visual_studio_environment_cache(
+    profile: BuildProfile,
+    script: Path,
+    arguments: Sequence[str],
+    before: Mapping[str, str],
+    environment: Mapping[str, str],
+) -> None:
+    compiler = shutil.which("cl.exe", path=environment.get("PATH", ""))
+    if not compiler:
+        return
+    updates, removed = environment_changes(before, environment)
+    _, before_path = environment_value(before, "PATH")
+    _, after_path = environment_value(environment, "PATH")
+    path_prefix = ""
+    if before_path and after_path.casefold().endswith(before_path.casefold()):
+        path_prefix = after_path[: -len(before_path)]
+        updates.pop("PATH", None)
+    try:
+        write_json_state(
+            visual_studio_environment_cache_path(profile),
+            {
+                "version": _VISUAL_STUDIO_CACHE_VERSION,
+                "script": str(script.resolve()),
+                "arguments": list(arguments),
+                "scriptFingerprint": file_fingerprint(script),
+                "compiler": str(Path(compiler).resolve()),
+                "compilerFingerprint": file_fingerprint(Path(compiler)),
+                "updates": updates,
+                "removed": removed,
+                "pathPrefix": path_prefix,
+            },
+        )
+    except OSError:
+        # Cache persistence is an optimization and must never block a build.
+        return
+
+
 def build_environment(
     profile: BuildProfile,
     environment_setup: EnvironmentSetup,
@@ -245,8 +385,13 @@ def build_environment(
     if provider is EnvironmentProvider.VISUAL_STUDIO:
         if current_host != "windows":
             raise BuildToolError('The "visual-studio" environment provider is only supported on Windows.')
-        script = Path(configured_script) if configured_script else find_vsdevcmd()
         arguments = configured_arguments or ["-arch=x64", "-host_arch=x64"]
+        requested_script = Path(configured_script).expanduser().resolve() if configured_script else None
+        cached = load_visual_studio_environment_cache(profile, requested_script, arguments)
+        if cached is not None:
+            return cached
+        script = requested_script or find_vsdevcmd()
+        inherited_environment = dict(os.environ)
         environment = capture_setup_environment(script, arguments, current_host=current_host)
         # VsDevCmd may clear the wrapper's inherited value, so enforce the language
         # in the final environment shared by configure and build subprocesses.
@@ -258,6 +403,15 @@ def build_environment(
                 "Install the English language pack for Visual Studio C++ tools, then rerun BuildTool. "
                 f"Detected /showIncludes prefix: {showincludes_prefix.strip()!r}"
             )
+        # VsDevCmd and the compiler probe dominate BuildTool startup. Cache only
+        # the script's environment delta so unrelated caller variables stay live.
+        write_visual_studio_environment_cache(
+            profile,
+            script,
+            arguments,
+            inherited_environment,
+            environment,
+        )
         return environment
     if provider is EnvironmentProvider.SCRIPT or configured_script:
         if not configured_script:
