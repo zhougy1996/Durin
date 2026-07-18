@@ -20,6 +20,7 @@ namespace Durin
 		auto GetGarbageNum() const -> uint64 { return GarbageObjectCount; }
 		auto GetAll() const -> const std::vector<DObject*>& { return Objects; }
 		auto Snapshot() const -> std::vector<DObject*> { return Objects; }
+		// Outer membership is maintained with swap removal, so query order is not stable.
 		COREDOBJECT_API auto GetObjectsWithOuter(const DObject* Outer, bool bIncludeGarbage = false) const -> std::vector<DObject*>;
 
 		COREDOBJECT_API auto NotifyObjectMarkedGarbage() -> void;
@@ -30,6 +31,8 @@ namespace Durin
 			DObject* Object = nullptr;
 			uint32 Generation = 1;
 			uint32 DenseIndex = 0;
+			// Mutable back-pointer into the current Outer's vector, not a stable object ID.
+			uint32 OuterIndex = std::numeric_limits<uint32>::max();
 		};
 
 		std::vector<FObjectSlot> Slots;

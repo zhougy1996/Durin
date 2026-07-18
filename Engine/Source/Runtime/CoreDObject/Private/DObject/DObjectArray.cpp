@@ -62,6 +62,7 @@ namespace Durin
 		ObjectToSlot.erase(It);
 		Slot.Object = nullptr;
 		Slot.DenseIndex = 0;
+		Slot.OuterIndex = std::numeric_limits<uint32>::max();
 		++Slot.Generation;
 		if (Slot.Generation == 0) Slot.Generation = 1;
 		FreeSlots.push_back(SlotIndex);
@@ -118,7 +119,11 @@ namespace Durin
 	{
 		check(Object);
 		auto& ObjectsWithOuter = OuterToObjects[Outer];
-		check(std::find(ObjectsWithOuter.begin(), ObjectsWithOuter.end(), Object) == ObjectsWithOuter.end());
+		auto SlotIt = ObjectToSlot.find(Object);
+		check(SlotIt != ObjectToSlot.end());
+		FObjectSlot& Slot = Slots[SlotIt->second];
+		check(Slot.OuterIndex == std::numeric_limits<uint32>::max());
+		Slot.OuterIndex = static_cast<uint32>(ObjectsWithOuter.size());
 		ObjectsWithOuter.push_back(Object);
 	}
 
@@ -126,10 +131,27 @@ namespace Durin
 	{
 		auto It = OuterToObjects.find(Outer);
 		check(It != OuterToObjects.end());
-		auto ObjectIt = std::find(It->second.begin(), It->second.end(), Object);
-		check(ObjectIt != It->second.end());
-		It->second.erase(ObjectIt);
-		if (It->second.empty()) OuterToObjects.erase(It);
+		auto SlotIt = ObjectToSlot.find(Object);
+		check(SlotIt != ObjectToSlot.end());
+		FObjectSlot& Slot = Slots[SlotIt->second];
+		auto& ObjectsWithOuter = It->second;
+		check(Slot.OuterIndex < ObjectsWithOuter.size());
+		check(ObjectsWithOuter[Slot.OuterIndex] == Object);
+
+		const uint32 RemoveIndex = Slot.OuterIndex;
+		DObject* MovedObject = ObjectsWithOuter.back();
+		ObjectsWithOuter[RemoveIndex] = MovedObject;
+		ObjectsWithOuter.pop_back();
+		Slot.OuterIndex = std::numeric_limits<uint32>::max();
+
+		if (MovedObject != Object)
+		{
+			auto MovedSlotIt = ObjectToSlot.find(MovedObject);
+			check(MovedSlotIt != ObjectToSlot.end());
+			Slots[MovedSlotIt->second].OuterIndex = RemoveIndex;
+		}
+
+		if (ObjectsWithOuter.empty()) OuterToObjects.erase(It);
 	}
 
 	auto FDObjectArray::NotifyObjectMarkedGarbage() -> void

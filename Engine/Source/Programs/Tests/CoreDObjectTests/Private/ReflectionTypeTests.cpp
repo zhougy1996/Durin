@@ -996,31 +996,66 @@ namespace
 
 		Durin::DObject* FirstOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("OuterIndexFirst"));
 		Durin::DObject* SecondOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("OuterIndexSecond"));
-		Durin::DObject* Child = Durin::NewObject<Durin::DObject>(FirstOuter, Durin::FName("OuterIndexChild"));
+		Durin::DObject* FirstChild = Durin::NewObject<Durin::DObject>(FirstOuter, Durin::FName("OuterIndexFirstChild"));
+		Durin::DObject* MiddleChild = Durin::NewObject<Durin::DObject>(FirstOuter, Durin::FName("OuterIndexMiddleChild"));
+		Durin::DObject* LastChild = Durin::NewObject<Durin::DObject>(FirstOuter, Durin::FName("OuterIndexLastChild"));
 		auto Contains = [](const std::vector<Durin::DObject*>& Objects, const Durin::DObject* Object) {
 			return std::find(Objects.begin(), Objects.end(), Object) != Objects.end();
 		};
 
-		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter), Child));
-		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter), Child));
+		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter), MiddleChild));
+		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter), MiddleChild));
 
-		Child->Rename(Durin::FName("OuterIndexRenamedChild"));
-		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter), Child));
+		MiddleChild->Rename(Durin::FName("OuterIndexRenamedChild"));
+		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter), MiddleChild));
 
-		Child->SetOuterPrivate(SecondOuter);
-		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter), Child));
-		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter), Child));
+		// Removing the middle swaps LastChild into its slot and must update that back-pointer.
+		MiddleChild->SetOuterPrivate(SecondOuter);
+		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter), MiddleChild));
+		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter), MiddleChild));
 
-		Child->SetOuterPrivate(nullptr);
-		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter), Child));
-		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr), Child));
+		FirstChild->SetOuterPrivate(SecondOuter);
+		LastChild->SetOuterPrivate(SecondOuter);
+		EXPECT_TRUE(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter).empty());
+		EXPECT_EQ(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter).size(), 3);
 
-		Durin::MarkAsGarbage(Child);
-		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr), Child));
-		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, true), Child));
+		MiddleChild->SetOuterPrivate(nullptr);
+		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter), MiddleChild));
+		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr), MiddleChild));
+
+		Durin::MarkAsGarbage(MiddleChild);
+		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr), MiddleChild));
+		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, true), MiddleChild));
 
 		Durin::CollectGarbage();
-		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, true), Child));
+		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, true), MiddleChild));
+	}
+
+	TEST(FCoreDObjectReflectionTests, DestroyingWideOuterDetachesAllReachableChildren)
+	{
+		EnsureDObjectInitialized();
+
+		constexpr size_t ChildCount = 1024;
+		Durin::DObject* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WideOuter"));
+		std::vector<Durin::DObject*> Children;
+		Children.reserve(ChildCount);
+		for (size_t Index = 0; Index < ChildCount; ++Index)
+		{
+			Durin::DObject* Child = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("WideOuterChild"));
+			Durin::AddToRoot(Child);
+			Children.push_back(Child);
+		}
+
+		Durin::MarkAsGarbage(Outer);
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ObjectArrayContains(Outer));
+		for (Durin::DObject* Child : Children)
+		{
+			EXPECT_TRUE(ObjectArrayContains(Child));
+			EXPECT_EQ(Child->GetOuter(), nullptr);
+			Durin::RemoveFromRoot(Child);
+		}
+		Durin::CollectGarbage();
 	}
 
 	TEST(FCoreDObjectReflectionTests, PackageKeepsAssetReferenceAndBuildsStableObjectPaths)
