@@ -16,7 +16,7 @@ Compiled-in reflection metadata uses a separate `Cpp` package kind. Each reflect
 
 ## File Format
 
-The v1 binary header records the magic, format version, package path, main asset class, dependencies, and object count. The registry reads only this header.
+The v2 binary header records the magic, format version, main asset class, dependencies, and object count. The asset path is derived from the mounted package filename, so moving a package within a content mount does not rewrite its payload. The registry reads only this header.
 
 Object records store object id, outer id, qualified class name, object name, and a field table. Fields are identified by declaring qualified class plus property name and include a recursive type signature and payload size. Unknown, removed, or type-incompatible fields are skipped while missing fields retain constructor defaults. Unknown classes, invalid Outer hierarchies, malformed references, truncation, and unsupported versions fail the complete load.
 
@@ -31,5 +31,7 @@ Supported reflected payloads are numeric values, bool, strings, enums, `DStruct`
 - `DLevel` objects are main assets inside packages; a `DWorld` remains a runtime/editor session container and activates one level at a time.
 
 Deferred work includes soft references, async loading, cooking, reimport, hot reload, redirects, and editor asset browsing.
+
+Package format versions are independent of the Durin engine release version. An engine release does not rewrite packages unless their own format or serialized schema requires a migration.
 
 Repository storage rules for packages, source assets, and generated data are documented in [Content Version Control](../Git/ContentVersionControl.md).

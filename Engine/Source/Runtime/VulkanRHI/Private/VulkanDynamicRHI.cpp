@@ -8,6 +8,7 @@
 #include "VulkanBuffer.h"
 
 #include "VulkanDescriptorSets.h"
+#include "Misc/Version.h"
 
 // Define the default dispatch loader storage for Vulkan-Hpp. This will allow us to load Vulkan functions at runtime.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -99,9 +100,11 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::CreateInstance() -> void
 	{
 		std::string EngineName = "Durin";
+		const FEngineVersion& EngineVersion = GetEngineVersion();
+		const uint32 PackedEngineVersion = VK_MAKE_API_VERSION(0, EngineVersion.Major, EngineVersion.Minor, EngineVersion.Patch);
 
 		// Create application info
-		vk::ApplicationInfo AppInfo(EngineName.c_str(), VK_MAKE_VERSION(1, 0, 0), "Durin Engine", VK_MAKE_VERSION(1, 0, 0), VK_API_VERSION_1_3);
+		vk::ApplicationInfo AppInfo(EngineName.c_str(), PackedEngineVersion, "Durin Engine", PackedEngineVersion, VK_API_VERSION_1_3);
 
 		// Get instance extensions
 		FVulkanInstanceExtensionArray DurinInstanceExtensions = FVulkanInstanceExtension::GetDurinSupportedInstanceExtensions();

@@ -95,11 +95,11 @@ Each reflected module writes:
 <Module>.export
 ```
 
-The export file is schema v1 JSON:
+The export file currently uses schema v4 JSON:
 
 ```json
 {
-  "SchemaVersion": 3,
+  "SchemaVersion": 4,
   "Module": "Engine",
   "Symbols": {
     "Durin::AActor": {
@@ -138,7 +138,7 @@ Each reflected module writes:
 <Module>.manifest
 ```
 
-The manifest is schema v1 JSON and is private to DurinHeaderTool. It records:
+The manifest currently uses schema v2 JSON and is private to DurinHeaderTool. It records:
 
 - `SchemaVersion`
 - `ToolVersion`

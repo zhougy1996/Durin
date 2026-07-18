@@ -11,6 +11,7 @@ add_durin_test(CoreTests
 	Private/StringHelperTests.cpp
 	Private/ThreadingTests.cpp
 	Private/TransformTests.cpp
+	Private/VersionTests.cpp
 	Private/YamlTests.cpp
 	Private/XxHashTests.cpp
 )

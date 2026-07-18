@@ -35,6 +35,8 @@ Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMak
 
 Do not use identifiers for feature selection or runtime module naming. Presets with the same identifier, platform, and profile share one DHT path because generated metadata does not vary by Debug, Release, or Shipping.
 
+Build identifiers are also independent of the engine release version defined in `Engine/Build/Build.version`. The release version describes product compatibility and distribution; a build identifier only isolates workflow-owned outputs.
+
 A preset's `binaryDir` isolates CMake, object, and Ninja state only—not Durin's final outputs or DHT metadata. This is why the IDE and Agent may keep separate CMake trees but still must follow the single-writer workflow in `BuildAndRun.md`.
 
 ## Module Output Naming
@@ -49,6 +51,7 @@ The runtime module loader expects that naming convention.
 
 ## Related Docs
 
+- `Documentation/Architecture/Versioning.md`
 - `Documentation/Architecture/ReflectionSystem.md`
 - `Documentation/Architecture/GarbageCollection.md`
 - `Documentation/Setup/BuildAndRun.md`

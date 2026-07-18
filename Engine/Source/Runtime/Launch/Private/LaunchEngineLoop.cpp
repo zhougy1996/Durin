@@ -18,6 +18,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/Time.h"
+#include "Misc/Version.h"
 
 #include "Shader/ShaderPaths.h"
 #include "DurinEngine.h"
@@ -47,7 +48,7 @@ namespace Durin
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
-		DURIN_INFO(STR("Launching Durin engine..."));
+		DURIN_INFO(STR("Launching Durin Engine {}..."), GetEngineVersionString());
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		std::string ProjectError;
