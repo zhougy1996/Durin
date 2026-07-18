@@ -137,6 +137,8 @@ namespace Durin
 		{
 			PropertyActor = nullptr;
 			SelectedComponent = nullptr;
+			RenamingComponent = nullptr;
+			RenameDialog.Cancel();
 			ImGui::TextDisabled("Select an actor to inspect it.");
 			ImGui::End();
 			return;
@@ -147,6 +149,7 @@ namespace Durin
 			PropertyActor = Actor;
 			SelectedComponent = nullptr;
 			RenamingComponent = nullptr;
+			RenameDialog.Cancel();
 			PendingExpandComponent = nullptr;
 		}
 		if (SelectedComponent && std::ranges::none_of(Actor->GetOwnedComponents(), [this](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == SelectedComponent.Get(); }))
@@ -235,10 +238,7 @@ namespace Durin
 			if (!Component) return;
 			SelectedComponent = Component;
 			RenamingComponent = Component;
-			ComponentRenameText.fill(0);
-			const std::string Name = Component->GetName();
-			std::memcpy(ComponentRenameText.data(), Name.data(), std::min(Name.size(), ComponentRenameText.size() - 1));
-			bFocusComponentRename = true;
+			RenameDialog.Open(Component->GetName());
 		};
 		auto DuplicateComponent = [&](DActorComponent* Source) {
 			if (!Source || !Actor->IsInstanceComponent(Source)) return;
@@ -306,24 +306,6 @@ namespace Durin
 			const std::string Label = std::format("{}  ({})  [{}]", Component->GetName(), ClassDisplayName(Component->GetClass()), Status);
 			const bool bOpen = ImGui::TreeNodeEx("##Component", Flags, "%s", Label.c_str());
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) SelectedComponent = Component;
-			if (!Context.bReadOnly && RenamingComponent.Get() == Component)
-			{
-				ImGui::SetNextItemWidth(-1.0f);
-				if (bFocusComponentRename)
-				{
-					ImGui::SetKeyboardFocusHere();
-					bFocusComponentRename = false;
-				}
-				const bool bSubmitted = ImGui::InputText("##RenameComponent", ComponentRenameText.data(), ComponentRenameText.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-				if (bSubmitted)
-				{
-					if (ComponentRenameText[0] == '\0') Context.SetError("Component name cannot be empty.");
-					else if (!Actor->RenameComponent(Component, FName(ComponentRenameText.data()))) Context.SetError("Failed to rename component.");
-					RenamingComponent = nullptr;
-				}
-				else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) RenamingComponent = nullptr;
-			}
-
 			if (ImGui::BeginPopupContextItem("ComponentContext"))
 			{
 				if (Context.bReadOnly) ImGui::BeginDisabled();
@@ -446,6 +428,7 @@ namespace Durin
 			bOpenRemovePopup = false;
 			PendingRemoveComponent = nullptr;
 			RenamingComponent = nullptr;
+			RenameDialog.Cancel();
 		}
 
 		const ImGuiIO& IO = ImGui::GetIO();
@@ -459,6 +442,14 @@ namespace Durin
 				PendingRemoveComponent = SelectedComponent;
 				bOpenRemovePopup = true;
 			}
+		}
+		DActorComponent* RenameTarget = RenamingComponent.Get();
+		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw("Rename Component", RenameTarget ? RenameTarget->GetName() : std::string_view(), [&](std::string_view NewName) -> std::string {
+			return RenameTarget && Actor->RenameComponent(RenameTarget, FName(NewName)) ? std::string() : "Failed to rename component.";
+		});
+		if (RenameResult != EEditorRenameDialogResult::None)
+		{
+			RenamingComponent = nullptr;
 		}
 		if (bOpenAddPopup) ImGui::OpenPopup("Add Component");
 		if (ImGui::BeginPopup("Add Component"))

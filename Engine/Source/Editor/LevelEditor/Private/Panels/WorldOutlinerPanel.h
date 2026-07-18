@@ -2,6 +2,7 @@
 
 #include "DObject/ObjectPtr.h"
 #include "Panels/LevelEditorPanel.h"
+#include "Widgets/EditorRenameDialog.h"
 
 namespace Durin
 {
@@ -16,8 +17,7 @@ namespace Durin
 	private:
 		std::array<char, 128> SearchText{};
 		std::array<char, 128> ActorTypeSearchText{};
-		std::array<char, 128> RenameText{};
-		std::array<char, 128> LevelRenameText{};
+		FEditorRenameDialog RenameDialog;
 		TObjectPtr<AActor> RenamingActor;
 		TObjectPtr<DLevel> DisplayedLevel;
 		std::vector<TObjectPtr<AActor>> PendingDeleteActors;

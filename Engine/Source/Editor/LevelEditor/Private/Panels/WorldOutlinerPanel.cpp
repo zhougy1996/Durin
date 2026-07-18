@@ -97,6 +97,8 @@ namespace Durin
 			DisplayedLevel = nullptr;
 			bLevelSelected = false;
 			bRenamingLevel = false;
+			RenamingActor = nullptr;
+			RenameDialog.Cancel();
 			ImGui::TextDisabled("No level is open.");
 			ImGui::End();
 			return;
@@ -106,6 +108,8 @@ namespace Durin
 			DisplayedLevel = Context.Level;
 			bLevelSelected = false;
 			bRenamingLevel = false;
+			RenamingActor = nullptr;
+			RenameDialog.Cancel();
 		}
 
 		std::vector<AActor*> Actors;
@@ -154,6 +158,12 @@ namespace Durin
 
 		std::vector<AActor*> VisibleActors;
 		bool bRequestDelete = false;
+		auto BeginActorRename = [&](AActor* Actor) {
+			if (!Actor) return;
+			RenamingActor = Actor;
+			bRenamingLevel = false;
+			RenameDialog.Open(Actor->GetName());
+		};
 		std::function<void(AActor*, std::unordered_set<AActor*>&)> DrawNode = [&](AActor* Actor, std::unordered_set<AActor*>& Stack) {
 			if (!Filter.empty() && !FilterVisibility[Actor]) return;
 			if (!Stack.insert(Actor).second) return;
@@ -186,23 +196,6 @@ namespace Durin
 					Context.SelectActor(Actor);
 			}
 
-			if (!Context.bReadOnly && RenamingActor.Get() == Actor)
-			{
-				ImGui::SetNextItemWidth(-1.0f);
-				ImGui::SetKeyboardFocusHere();
-				const bool bSubmitted = ImGui::InputText("##RenameActor", RenameText.data(), RenameText.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-				if (bSubmitted)
-				{
-					if (RenameText[0] == '\0')
-						Context.SetError("Actor name cannot be empty.");
-					else if (!Context.Level->RenameActor(Actor, FName(RenameText.data())))
-						Context.SetError("Failed to rename actor.");
-					RenamingActor = nullptr;
-				}
-				else if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-					RenamingActor = nullptr;
-			}
-
 			if (ImGui::BeginPopupContextItem("ActorContext"))
 			{
 				bLevelSelected = false;
@@ -212,12 +205,7 @@ namespace Durin
 					ImGui::TextDisabled("Runtime actor");
 				}
 				else if (ImGui::MenuItem("Rename", "F2"))
-				{
-					RenamingActor = Actor;
-					RenameText.fill(0);
-					const std::string& Name = Actor->GetName();
-					std::memcpy(RenameText.data(), Name.data(), std::min(Name.size(), RenameText.size() - 1));
-				}
+					BeginActorRename(Actor);
 				if (!Context.bReadOnly && ImGui::MenuItem("Delete", "Del")) bRequestDelete = true;
 				ImGui::EndPopup();
 			}
@@ -262,6 +250,11 @@ namespace Durin
 		};
 
 		const std::string LevelName = LevelDisplayName(Context.Level);
+		auto BeginLevelRename = [&]() {
+			RenamingActor = nullptr;
+			bRenamingLevel = true;
+			RenameDialog.Open(LevelName);
+		};
 		if (!Filter.empty() || ExpandRequest != 0)
 			ImGui::SetNextItemOpen(!Filter.empty() || ExpandRequest > 0, ImGuiCond_Always);
 		else
@@ -277,23 +270,6 @@ namespace Durin
 			Context.ClearSelection();
 			bLevelSelected = true;
 		}
-		if (!Context.bReadOnly && bRenamingLevel)
-		{
-			ImGui::SetNextItemWidth(-1.0f);
-			ImGui::SetKeyboardFocusHere();
-			const bool bSubmitted = ImGui::InputText("##RenameLevel", LevelRenameText.data(), LevelRenameText.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-			if (bSubmitted)
-			{
-				if (LevelRenameText[0] == '\0')
-					Context.SetError("Level name cannot be empty.");
-				else if (Context.RenameLevel)
-					Context.RenameLevel(LevelRenameText.data());
-				bRenamingLevel = false;
-			}
-			else if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-				bRenamingLevel = false;
-		}
-
 		if (ImGui::BeginPopupContextItem("LevelContext"))
 		{
 			Context.ClearSelection();
@@ -301,11 +277,7 @@ namespace Durin
 			if (Context.bReadOnly) ImGui::BeginDisabled();
 			if (ImGui::IsWindowAppearing()) ActorTypeSearchText.fill(0);
 			if (ImGui::MenuItem("Rename", "F2"))
-			{
-				bRenamingLevel = true;
-				LevelRenameText.fill(0);
-				std::memcpy(LevelRenameText.data(), LevelName.data(), std::min(LevelName.size(), LevelRenameText.size() - 1));
-			}
+				BeginLevelRename();
 			ImGui::Separator();
 			if (ImGui::BeginMenu("Add Actor"))
 			{
@@ -375,18 +347,25 @@ namespace Durin
 		if (!Context.bReadOnly && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false))
 		{
 			if (AActor* Actor = Context.GetPrimarySelectedActor())
-			{
-				RenamingActor = Actor;
-				RenameText.fill(0);
-				const std::string& Name = Actor->GetName();
-				std::memcpy(RenameText.data(), Name.data(), std::min(Name.size(), RenameText.size() - 1));
-			}
+				BeginActorRename(Actor);
 			else if (bLevelSelected)
+				BeginLevelRename();
+		}
+
+		const bool bRenameActor = RenamingActor.IsValid();
+		const char* RenamePopupTitle = bRenameActor ? "Rename Actor###OutlinerRename" : "Rename Level###OutlinerRename";
+		const std::string CurrentRenameName = bRenameActor ? RenamingActor->GetName() : LevelName;
+		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw(RenamePopupTitle, CurrentRenameName, [&](std::string_view NewName) -> std::string {
+			if (bRenameActor)
 			{
-				bRenamingLevel = true;
-				LevelRenameText.fill(0);
-				std::memcpy(LevelRenameText.data(), LevelName.data(), std::min(LevelName.size(), LevelRenameText.size() - 1));
+				return Context.Level->RenameActor(RenamingActor.Get(), FName(NewName)) ? std::string() : "Failed to rename actor.";
 			}
+			return Context.RenameLevel && Context.RenameLevel(NewName) ? std::string() : "Failed to rename level.";
+		});
+		if (RenameResult != EEditorRenameDialogResult::None)
+		{
+			RenamingActor = nullptr;
+			bRenamingLevel = false;
 		}
 		if (!Context.bReadOnly && !Context.GetSelectedActors().empty() && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) bRequestDelete = true;
 		if (bRequestDelete)

@@ -2,6 +2,7 @@
 
 #include "DObject/ObjectPtr.h"
 #include "Panels/LevelEditorPanel.h"
+#include "Widgets/EditorRenameDialog.h"
 
 namespace Durin
 {
@@ -34,8 +35,7 @@ namespace Durin
 		TObjectPtr<AActor> PropertyActor;
 		TObjectPtr<DActorComponent> SelectedComponent;
 		TObjectPtr<DActorComponent> RenamingComponent;
-		std::array<char, 128> ComponentRenameText{};
-		bool bFocusComponentRename = false;
+		FEditorRenameDialog RenameDialog;
 		std::array<char, 256> AssetSearchText{};
 		FEditorSessionSettings& SessionSettings;
 		float ComponentPaneRatio;
