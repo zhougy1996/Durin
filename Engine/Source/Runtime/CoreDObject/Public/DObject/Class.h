@@ -87,7 +87,7 @@ namespace Durin
 		auto GetClassFlags() const -> EClassFlags { return ClassFlags; }
 		auto HasAnyClassFlags(EClassFlags InFlags) const -> bool { return EnumHasAnyFlags(ClassFlags, InFlags); }
 		auto GetQualifiedName() const -> FName { return QualifiedName; }
-		auto SetQualifiedName(FName InQualifiedName) -> void { QualifiedName = InQualifiedName; }
+		COREDOBJECT_API auto SetQualifiedName(FName InQualifiedName) -> void;
 		auto GetShortName() const -> const std::string& { return ShortName; }
 		auto GetDisplayName() const -> const std::string& { return DisplayName; }
 		auto GetDefaultObjectName() const -> const std::string& { return DefaultObjectName; }
@@ -207,9 +207,10 @@ namespace Durin
 		DClass::StaticClassFunctionType InSuperClassFn
 	) -> DClass*;
 
-	COREDOBJECT_API auto FindClassByQualifiedName(std::string_view QualifiedName) -> DClass*;
+	COREDOBJECT_API auto FindClassByQualifiedName(FName QualifiedName) -> DClass*;
 	COREDOBJECT_API auto GetDerivedClasses(const DClass* BaseClass, bool bIncludeBase = false) -> std::vector<DClass*>;
-	COREDOBJECT_API auto FindStructByQualifiedName(std::string_view QualifiedName) -> DStruct*;
+	COREDOBJECT_API auto FindStructByQualifiedName(FName QualifiedName) -> DStruct*;
+	COREDOBJECT_API auto FindEnumByQualifiedName(FName QualifiedName) -> DEnum*;
 	COREDOBJECT_API auto FindClassByPath(std::string_view ObjectPath) -> DClass*;
 	COREDOBJECT_API auto FindStructByPath(std::string_view ObjectPath) -> DStruct*;
 	COREDOBJECT_API auto FindEnumByPath(std::string_view ObjectPath) -> DEnum*;

@@ -2,9 +2,34 @@
 
 #include "DObject/Property.h"
 #include "DObject/DObjectArray.h"
+#include "QualifiedTypeRegistry.h"
 
 namespace
 {
+	struct FQualifiedTypeRegistry
+	{
+		std::unordered_map<Durin::FName, Durin::DClass*> Classes;
+		std::unordered_map<Durin::FName, Durin::DStruct*> Structs;
+		std::unordered_map<Durin::FName, Durin::DEnum*> Enums;
+	};
+
+	auto GetQualifiedTypeRegistry() -> FQualifiedTypeRegistry&
+	{
+		// Reflected types are process-lifetime objects. Function-local storage avoids
+		// constructing FNames from global initializers before FNameInit establishes None.
+		static FQualifiedTypeRegistry Registry;
+		return Registry;
+	}
+
+	template<typename T>
+	auto RegisterQualifiedType(std::unordered_map<Durin::FName, T*>& Types, Durin::FName QualifiedName, T* Type) -> void
+	{
+		check(Type);
+		check(!QualifiedName.IsNone());
+		auto [It, bInserted] = Types.emplace(QualifiedName, Type);
+		check((bInserted || It->second == Type) && "Reflected qualified names must be unique.");
+	}
+
 	auto MakeDefaultObjectName(std::string_view ShortName) -> std::string
 	{
 		const size_t Separator = ShortName.rfind("::");
@@ -161,14 +186,42 @@ namespace Durin
 		return Class;
 	}
 
-	auto FindClassByQualifiedName(std::string_view QualifiedName) -> DClass*
+	namespace Private
 	{
-		for (DObject* Object : GDObjectArray.GetAll())
+		auto UpdateQualifiedClassName(DClass* Class, FName PreviousName) -> void
 		{
-			auto* Class = Cast<DClass>(Object);
-			if (Class && Class->GetQualifiedName().ToString() == QualifiedName) return Class;
+			auto& Classes = GetQualifiedTypeRegistry().Classes;
+			if (!PreviousName.IsNone() && PreviousName != Class->GetQualifiedName())
+			{
+				auto Previous = Classes.find(PreviousName);
+				if (Previous != Classes.end() && Previous->second == Class) Classes.erase(Previous);
+			}
+			RegisterQualifiedType(Classes, Class->GetQualifiedName(), Class);
 		}
-		return nullptr;
+
+		auto RegisterQualifiedStruct(DStruct* Struct) -> void
+		{
+			RegisterQualifiedType(GetQualifiedTypeRegistry().Structs, Struct->GetQualifiedName(), Struct);
+		}
+
+		auto RegisterQualifiedEnum(DEnum* Enum) -> void
+		{
+			RegisterQualifiedType(GetQualifiedTypeRegistry().Enums, Enum->GetQualifiedName(), Enum);
+		}
+	}
+
+	auto DClass::SetQualifiedName(FName InQualifiedName) -> void
+	{
+		FName PreviousName = QualifiedName;
+		QualifiedName = InQualifiedName;
+		Private::UpdateQualifiedClassName(this, PreviousName);
+	}
+
+	auto FindClassByQualifiedName(FName QualifiedName) -> DClass*
+	{
+		auto& Classes = GetQualifiedTypeRegistry().Classes;
+		auto It = Classes.find(QualifiedName);
+		return It != Classes.end() ? It->second : nullptr;
 	}
 
 	auto DClass::IsChildOf(const DClass* InClass) const -> bool
@@ -202,14 +255,18 @@ namespace Durin
 		return Classes;
 	}
 
-	auto FindStructByQualifiedName(std::string_view QualifiedName) -> DStruct*
+	auto FindStructByQualifiedName(FName QualifiedName) -> DStruct*
 	{
-		for (DObject* Object : GDObjectArray.GetAll())
-		{
-			auto* Struct = Cast<DStruct>(Object);
-			if (Struct && Struct->GetQualifiedName().ToString() == QualifiedName) return Struct;
-		}
-		return nullptr;
+		auto& Structs = GetQualifiedTypeRegistry().Structs;
+		auto It = Structs.find(QualifiedName);
+		return It != Structs.end() ? It->second : nullptr;
+	}
+
+	auto FindEnumByQualifiedName(FName QualifiedName) -> DEnum*
+	{
+		auto& Enums = GetQualifiedTypeRegistry().Enums;
+		auto It = Enums.find(QualifiedName);
+		return It != Enums.end() ? It->second : nullptr;
 	}
 
 	template<typename T>

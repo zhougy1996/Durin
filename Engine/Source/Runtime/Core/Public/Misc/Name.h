@@ -197,6 +197,7 @@ namespace Durin
 	};
 
 	CORE_API auto FNameInit() -> void;
+	[[nodiscard]] CORE_API auto IsFNameInitialized() -> bool;
 }
 
 template<>

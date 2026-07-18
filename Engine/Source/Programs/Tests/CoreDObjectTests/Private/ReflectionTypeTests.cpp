@@ -540,6 +540,7 @@ namespace
 		{
 			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 			Durin::GIsGameThreadIdInitialized = true;
+			Durin::FNameInit();
 			Durin::DObjectInit();
 			return true;
 		}();
@@ -567,6 +568,12 @@ namespace
 	TEST(FCoreDObjectReflectionTests, IntrinsicTypesUseTypeAndStructBaseHierarchy)
 	{
 		EnsureDObjectInitialized();
+		EXPECT_TRUE(Durin::IsFNameInitialized());
+		EXPECT_TRUE(Durin::FName("None").IsNone());
+		EXPECT_EQ(Durin::FindClassByQualifiedName("Durin::DObject"), Durin::DObject::StaticClass());
+		EXPECT_EQ(Durin::FindClassByQualifiedName(Durin::FName("Durin::DClass")), Durin::DClass::StaticClass());
+		EXPECT_EQ(Durin::FindClassByQualifiedName("Durin::DPackage"), Durin::DPackage::StaticClass());
+		EXPECT_EQ(Durin::FindClassByQualifiedName("Durin::MissingType"), nullptr);
 
 		EXPECT_EQ(Durin::DObject::StaticClass()->GetSuperClass(), nullptr);
 		EXPECT_EQ(Durin::DType::StaticClass()->GetSuperClass(), Durin::DObject::StaticClass());
@@ -1200,6 +1207,7 @@ namespace
 		EXPECT_TRUE(Enum->IsScoped());
 		EXPECT_EQ(Enum->GetUnderlyingType(), Durin::DurinCodeGen::EEnumUnderlyingType::UInt8);
 		EXPECT_EQ(Enum->GetValues().size(), 2u);
+		EXPECT_EQ(Durin::FindEnumByQualifiedName("EReflectedEnumForTest"), Enum);
 
 		Durin::int64 Value = -1;
 		EXPECT_TRUE(Enum->FindValueByName(Durin::FName("A"), Value));
@@ -1644,6 +1652,8 @@ namespace
 		ASSERT_NE(TransformStruct, nullptr);
 		EXPECT_EQ(VectorStruct->GetQualifiedName().ToString(), "Durin::FVector3");
 		EXPECT_EQ(QuatStruct->GetQualifiedName().ToString(), "Durin::FQuat");
+		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector3"), VectorStruct);
+		EXPECT_EQ(Durin::FindStructByQualifiedName(Durin::FName("Durin::FTransform")), TransformStruct);
 		Durin::FProperty* Rotation = TransformStruct->FindPropertyByName("Rotation", false);
 		Durin::FProperty* Translation = TransformStruct->FindPropertyByName("Translation", false);
 		Durin::FProperty* Scale = TransformStruct->FindPropertyByName("Scale3D", false);

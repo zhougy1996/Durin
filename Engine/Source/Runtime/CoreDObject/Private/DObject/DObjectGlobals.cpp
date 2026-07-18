@@ -1,4 +1,6 @@
 #include "DObject/DObjectGlobals.h"
+#include "QualifiedTypeRegistry.h"
+#include "Misc/Name.h"
 
 #include "Misc/AppConfig.h"
 #include "Misc/Time.h"
@@ -183,6 +185,7 @@ namespace Durin
 
 	auto DObjectInit() -> void
 	{
+		check(IsFNameInitialized() && "FNameInit must run before reflected type initialization.");
 		ProcessNewlyLoadedDObjects();
 		DObjectProcessRegistrants();
 		AttachCoreIntrinsicTypesToCppPackage();
@@ -294,6 +297,7 @@ namespace Durin
 		DEnum* Enum = Params.EnumNoRegisterFunc();
 
 		DObjectForceRegistration(Enum);
+		Private::RegisterQualifiedEnum(Enum);
 
 		return Enum;
 	}
@@ -302,6 +306,7 @@ namespace Durin
 	{
 		DStruct* Struct = Params.StructNoRegisterFunc();
 		DObjectForceRegistration(Struct);
+		Private::RegisterQualifiedStruct(Struct);
 		Struct->SetCppOps(Params.Initialize, Params.Destroy, Params.Copy);
 		if (!Struct->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
 		{

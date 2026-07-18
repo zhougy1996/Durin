@@ -676,6 +676,11 @@ namespace Durin
 	bool FNamePool::bInitialized = false;
 	alignas(FNamePool) static uint8 NamePoolData[sizeof(FNamePool)];
 
+	CORE_API auto IsFNameInitialized() -> bool
+	{
+		return FNamePool::bInitialized;
+	}
+
 	FNamePool::FNamePool()
 	{
 		for (FNamePoolShardBase& Shard : ComparisonShards)
@@ -726,8 +731,8 @@ namespace Durin
 		static FNamePool* Singleton = []() -> FNamePool* {
 			check(!bInitialized);
 
-			bInitialized = true;
 			new (NamePoolData) FNamePool();
+			bInitialized = true;
 
 			return reinterpret_cast<FNamePool*>(NamePoolData);
 		}();

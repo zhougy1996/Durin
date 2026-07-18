@@ -120,11 +120,19 @@ namespace Durin
 	auto AttachCoreIntrinsicTypesToCppPackage() -> void
 	{
 		DPackage* CorePackage = FindOrCreateCppPackage("CoreDObject");
-		DClass* IntrinsicClasses[] = {
-			DObject::StaticClass(), DType::StaticClass(), DStructBase::StaticClass(),
-			DClass::StaticClass(), DStruct::StaticClass(), DEnum::StaticClass()
+		const std::pair<DClass*, FName> IntrinsicClasses[] = {
+			{DObject::StaticClass(), FName("Durin::DObject")},
+			{DType::StaticClass(), FName("Durin::DType")},
+			{DStructBase::StaticClass(), FName("Durin::DStructBase")},
+			{DClass::StaticClass(), FName("Durin::DClass")},
+			{DStruct::StaticClass(), FName("Durin::DStruct")},
+			{DEnum::StaticClass(), FName("Durin::DEnum")}
 		};
-		for (DClass* Class : IntrinsicClasses) DObjectForceRegistration(Class);
+		for (const auto& [Class, QualifiedName] : IntrinsicClasses)
+		{
+			DObjectForceRegistration(Class);
+			Class->SetQualifiedName(QualifiedName);
+		}
 		for (DObject* Object : GDObjectArray.GetAll())
 		{
 			if (Cast<DType>(Object) && Object->GetOuter() == nullptr && EnumHasAnyFlags(Object->GetObjectFlags(), EObjectFlags::Intrinsic))
