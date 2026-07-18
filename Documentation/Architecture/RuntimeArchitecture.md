@@ -49,7 +49,9 @@ world. Starting Play duplicates only the level's owned object tree; references t
 assets outside that tree remain shared. The editor level is detached from the
 active scene without being destroyed, the PIE level is registered and begun, and
 the viewport falls back to the PIE level's primary camera. Stopping reverses the
-transition after draining scene-removal render commands.
+transition after draining scene-removal render commands, then marks the complete
+transient PIE World hierarchy as garbage through the Outer index. Objects intended
+to survive the session must be explicitly reparented before retirement.
 
 PIE supports Playing and Paused states plus single-frame stepping. Runtime changes
 are discarded with the transient world and do not dirty the editor level package

@@ -2,7 +2,7 @@
 
 `DLevel` is the persistent scene asset. A packaged level is the main asset of a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays, and actors retain their components the same way; their Outer hierarchy separately provides structural containment and object paths.
 
-`DWorld` is a runtime or editor session container. It activates at most one level, forwards actor APIs to that level, and registers or unregisters the level's components when switching. Package lifetime remains owned by `AssetCore`; switching a world does not implicitly destroy a persistent level package.
+`DWorld` is a runtime or editor session container. It activates at most one level, forwards actor APIs to that level, and registers or unregisters the level's components when switching. Replacing a transient level structurally owned by the world marks that complete level hierarchy as garbage. A persistent packaged level is structurally owned by its package instead, so switching worlds does not destroy it; an object that must survive a transient world must likewise be explicitly reparented before world retirement.
 
 A world starts without an active level. Actor operations safely return empty or fail until a level is activated. The editor supports this empty state: scene panels remain available, while level-dependent editing actions are disabled.
 

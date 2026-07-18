@@ -170,7 +170,7 @@ namespace Durin
 		ShutdownEngineThreadPool(true);
 
 		RemoveFromRoot(GEngine);
-		MarkAsGarbage(GEngine);
+		MarkObjectHierarchyAsGarbage(GEngine);
 		GEngine = nullptr;
 		Asset::ShutdownAssetManager();
 		CollectGarbage();

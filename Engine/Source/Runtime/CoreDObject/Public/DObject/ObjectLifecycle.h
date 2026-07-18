@@ -38,6 +38,8 @@ namespace Durin
 	COREDOBJECT_API auto RemoveFromRoot(DObject* Object) -> void;
 	COREDOBJECT_API auto IsValid(const DObject* Object) -> bool;
 	COREDOBJECT_API auto MarkAsGarbage(DObject* Object) -> void;
+	// Explicit structural teardown request; this does not make Outer a GC ownership edge.
+	COREDOBJECT_API auto MarkObjectHierarchyAsGarbage(DObject* RootObject) -> void;
 	COREDOBJECT_API auto CollectGarbage() -> void;
 	COREDOBJECT_API auto GetGarbageObjectCount() -> uint64;
 	COREDOBJECT_API auto GetLastGarbageCollectionStats() -> const FGarbageCollectionStats&;

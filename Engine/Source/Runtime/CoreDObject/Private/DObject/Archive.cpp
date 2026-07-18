@@ -427,7 +427,8 @@ namespace Durin
 		uint64 RootId = 0;
 		uint64 ObjectCount = 0;
 		Reader << Magic << Version << RootId << ObjectCount;
-		if (Magic != ObjectGraphMagic || Version != ObjectGraphVersion)
+		if (Magic != ObjectGraphMagic || Version != ObjectGraphVersion || ObjectCount == 0
+			|| ObjectCount > 1000000 || RootId == 0 || RootId > ObjectCount)
 		{
 			return nullptr;
 		}
@@ -443,8 +444,12 @@ namespace Durin
 
 		std::vector<FLoadedObjectRecord> Records;
 		Records.resize(static_cast<size_t>(ObjectCount));
+		std::vector<uint64> OuterIds(static_cast<size_t>(ObjectCount));
 		FObjectGraphContext Context;
 		Context.IdToObject.resize(static_cast<size_t>(ObjectCount));
+		auto DiscardLoadedObjects = [&Context]() {
+			for (DObject* Object : Context.IdToObject) MarkObjectHierarchyAsGarbage(Object);
+		};
 
 		for (FLoadedObjectRecord& Record : Records)
 		{
@@ -458,6 +463,13 @@ namespace Durin
 			{
 				Reader.SerializeBytes(Record.PropertyBytes.data(), PropertySize);
 			}
+			if (Record.Id == 0 || Record.Id > ObjectCount || Context.ResolveId(Record.Id)
+				|| Record.OuterId > ObjectCount)
+			{
+				DiscardLoadedObjects();
+				return nullptr;
+			}
+			OuterIds[static_cast<size_t>(Record.Id - 1)] = Record.OuterId;
 
 			DClass* Class = FindClassByName(Record.ClassName);
 			if (!Class || !Class->ClassConstructor)
@@ -474,19 +486,37 @@ namespace Durin
 			Context.IdToObject[static_cast<size_t>(Record.Id - 1)] = Object;
 		}
 
+		for (uint64 Id = 1; Id <= ObjectCount; ++Id)
+		{
+			std::unordered_set<uint64> VisitedOuterIds;
+			for (uint64 OuterId = OuterIds[static_cast<size_t>(Id - 1)]; OuterId != 0;
+				OuterId = OuterIds[static_cast<size_t>(OuterId - 1)])
+			{
+				if (!Context.ResolveId(OuterId) || !VisitedOuterIds.insert(OuterId).second)
+				{
+					DiscardLoadedObjects();
+					return nullptr;
+				}
+			}
+		}
+
 		for (const FLoadedObjectRecord& Record : Records)
 		{
 			DObject* Object = Context.ResolveId(Record.Id);
-			if (!Object)
+			DObject* Outer = Context.ResolveId(Record.OuterId);
+			if (!Object || (Record.OuterId != 0 && !Outer))
 			{
-				continue;
+				DiscardLoadedObjects();
+				return nullptr;
 			}
-			Object->SetOuterPrivate(Context.ResolveId(Record.OuterId));
+			Object->SetOuterPrivate(Outer);
 			FObjectGraphReader PropertyReader(Record.PropertyBytes, Context);
 			Object->Serialize(PropertyReader);
 		}
 
-		return Context.ResolveId(RootId);
+		DObject* LoadedRoot = Context.ResolveId(RootId);
+		if (!LoadedRoot) DiscardLoadedObjects();
+		return LoadedRoot;
 	}
 
 	auto DuplicateObjectGraph(DObject* RootObject, DObject* NewOuter, FName NewName, std::string* OutError, std::unordered_map<DObject*, DObject*>* OutDuplicates) -> DObject*
@@ -509,11 +539,9 @@ namespace Durin
 		GatherInnerTree(RootObject);
 
 		std::unordered_map<DObject*, DObject*> Duplicates;
-		auto DiscardDuplicates = [&Duplicates]() {
-			for (const auto& [Source, Duplicate] : Duplicates) MarkAsGarbage(Duplicate);
-		};
 		std::unordered_set<DObject*> ClaimedConstructedInners;
 		DObject* DuplicateRoot = nullptr;
+		auto DiscardDuplicates = [&DuplicateRoot]() { MarkObjectHierarchyAsGarbage(DuplicateRoot); };
 		for (DObject* Source : Sources)
 		{
 			DObject* DuplicateOuter = Source == RootObject ? NewOuter : Duplicates[Source->GetOuter()];

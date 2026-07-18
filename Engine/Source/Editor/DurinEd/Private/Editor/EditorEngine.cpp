@@ -154,7 +154,7 @@ namespace Durin
 		DLevel* PlayLevel = Cast<DLevel>(DuplicateObjectGraph(SourceLevel, NewPlayWorld, FName(std::format("{}_PIE", SourceLevel->GetName())), &DuplicateError, &EditorToPlayObjects));
 		if (!PlayLevel)
 		{
-			MarkAsGarbage(NewPlayWorld);
+			MarkObjectHierarchyAsGarbage(NewPlayWorld);
 			PlayState = EEditorPlayState::Stopped;
 			if (OutError) *OutError = DuplicateError.empty() ? "Could not duplicate the level for Play." : std::move(DuplicateError);
 			return false;
@@ -175,7 +175,7 @@ namespace Durin
 			EditorLevel = nullptr;
 			EditorToPlayObjects.clear();
 			PlayToEditorObjects.clear();
-			MarkAsGarbage(NewPlayWorld);
+			MarkObjectHierarchyAsGarbage(NewPlayWorld);
 			PlayState = EEditorPlayState::Stopped;
 			if (OutError) *OutError = "Could not activate the duplicated Play level.";
 			return false;
@@ -274,8 +274,7 @@ namespace Durin
 		{
 			const FRenderCommandFence* Fence = RetiredPlayFences[Index].get();
 			if (!bReleaseAll && Fence && !Fence->IsFenceComplete()) continue;
-			if (DLevel* Level = RetiredPlayLevels[Index].Get()) MarkAsGarbage(Level);
-			if (DWorld* World = RetiredPlayWorlds[Index].Get()) MarkAsGarbage(World);
+			if (DWorld* World = RetiredPlayWorlds[Index].Get()) MarkObjectHierarchyAsGarbage(World);
 			RetiredPlayFences.erase(RetiredPlayFences.begin() + Index);
 			RetiredPlayLevels.erase(RetiredPlayLevels.begin() + Index);
 			RetiredPlayWorlds.erase(RetiredPlayWorlds.begin() + Index);

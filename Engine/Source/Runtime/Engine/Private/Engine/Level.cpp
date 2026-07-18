@@ -53,7 +53,7 @@ namespace Durin
 				if (auto* Camera = dynamic_cast<ACameraActor*>(RemainingActor.Get())) { PrimaryCameraActor = Camera; break; }
 			}
 		}
-		MarkAsGarbage(Actor);
+		MarkObjectHierarchyAsGarbage(Actor);
 		MarkPackageDirty();
 		return true;
 	}

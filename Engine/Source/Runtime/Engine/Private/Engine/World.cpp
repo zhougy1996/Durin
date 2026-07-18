@@ -54,6 +54,7 @@ namespace Durin
 	{
 		if (Level == CurrentLevel.Get()) return true;
 		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
+		if (Level && dynamic_cast<DWorld*>(Level->GetOuter()) && Level->GetOuter() != this) return false;
 		EndPlay();
 		DLevel* Previous = CurrentLevel.Get();
 		if (Previous)
@@ -73,7 +74,7 @@ namespace Durin
 			Level->SetOwningWorld(this);
 			for (const TObjectPtr<AActor>& Actor : Level->GetActors()) Level->OnActorAdded(Actor.Get());
 		}
-		if (bDestroyPreviousOwnedLevel && Previous && Previous->GetOuter() == this) MarkAsGarbage(Previous);
+		if (bDestroyPreviousOwnedLevel && Previous && Previous->GetOuter() == this) MarkObjectHierarchyAsGarbage(Previous);
 		return true;
 	}
 

@@ -687,7 +687,7 @@ namespace
 		EXPECT_FALSE(ObjectArrayContains(Inner));
 
 		Durin::RemoveFromRoot(Package);
-		Durin::MarkAsGarbage(Package);
+		Durin::MarkObjectHierarchyAsGarbage(Package);
 	}
 
 	TEST(FCoreDObjectReflectionTests, CppPackagesOwnReflectedTypesAndAreStableRoots)
@@ -936,6 +936,59 @@ namespace
 		Durin::RemoveFromRoot(Inner);
 		Durin::CollectGarbage();
 		EXPECT_FALSE(ObjectArrayContains(Inner));
+	}
+
+	TEST(FCoreDObjectReflectionTests, HierarchyGarbageMarkingUsesCurrentOuterTreeAndHonorsReparenting)
+	{
+		EnsureDObjectInitialized();
+
+		Durin::DObject* OriginalOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("HierarchyOriginalOuter"));
+		Durin::DObject* DoomedChild = Durin::NewObject<Durin::DObject>(OriginalOuter, Durin::FName("HierarchyDoomedChild"));
+		Durin::DObject* DoomedGrandchild = Durin::NewObject<Durin::DObject>(DoomedChild, Durin::FName("HierarchyDoomedGrandchild"));
+		Durin::DObject* NewOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("HierarchyNewOuter"));
+		Durin::DObject* ReparentedChild = Durin::NewObject<Durin::DObject>(OriginalOuter, Durin::FName("HierarchyReparentedChild"));
+		ReparentedChild->SetOuterPrivate(NewOuter);
+		Durin::AddToRoot(ReparentedChild);
+
+		Durin::MarkObjectHierarchyAsGarbage(OriginalOuter);
+
+		EXPECT_FALSE(Durin::IsValid(OriginalOuter));
+		EXPECT_FALSE(Durin::IsValid(DoomedChild));
+		EXPECT_FALSE(Durin::IsValid(DoomedGrandchild));
+		EXPECT_TRUE(Durin::IsValid(NewOuter));
+		EXPECT_TRUE(Durin::IsValid(ReparentedChild));
+		EXPECT_EQ(ReparentedChild->GetOuter(), NewOuter);
+
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ObjectArrayContains(OriginalOuter));
+		EXPECT_FALSE(ObjectArrayContains(DoomedChild));
+		EXPECT_FALSE(ObjectArrayContains(DoomedGrandchild));
+		EXPECT_TRUE(ObjectArrayContains(NewOuter));
+		EXPECT_TRUE(ObjectArrayContains(ReparentedChild));
+
+		Durin::RemoveFromRoot(ReparentedChild);
+		Durin::MarkObjectHierarchyAsGarbage(NewOuter);
+		Durin::CollectGarbage();
+	}
+
+	TEST(FCoreDObjectReflectionTests, AutomaticGarbageCollectionPhysicallyRemovesMarkedHierarchy)
+	{
+		EnsureDObjectInitialized();
+		Durin::FGarbageCollectionSettings Settings;
+		Settings.IntervalSeconds = 0.0;
+		Settings.PendingKillThreshold = 1;
+		Settings.ObjectGrowthThreshold = 0;
+		Durin::ConfigureAutomaticGarbageCollection(Settings, 0.0);
+
+		Durin::DObject* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("AutomaticHierarchyOuter"));
+		Durin::DObject* Child = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("AutomaticHierarchyChild"));
+		Durin::MarkObjectHierarchyAsGarbage(Outer);
+
+		EXPECT_EQ(Durin::TryCollectGarbage(1.0), Durin::EGarbageCollectionTrigger::PendingKillPressure);
+		EXPECT_FALSE(ObjectArrayContains(Outer));
+		EXPECT_FALSE(ObjectArrayContains(Child));
+
+		Durin::ConfigureAutomaticGarbageCollection(Durin::FGarbageCollectionSettings{}, 1.0);
 	}
 
 	TEST(FCoreDObjectReflectionTests, RootReferencesAreCountedAndScopedRootsAreMovable)

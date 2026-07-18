@@ -238,6 +238,21 @@ namespace Durin
 		MarkGarbageInternal(Object);
 	}
 
+	auto MarkObjectHierarchyAsGarbage(DObject* RootObject) -> void
+	{
+		CheckObjectThread();
+		if (!RootObject || !GDObjectArray.Contains(RootObject)) return;
+
+		std::vector<DObject*> Pending = {RootObject};
+		while (!Pending.empty())
+		{
+			DObject* Object = Pending.back();
+			Pending.pop_back();
+			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, true)) Pending.push_back(Child);
+			MarkGarbageInternal(Object);
+		}
+	}
+
 	COREDOBJECT_API auto ConditionallyMarkAsReachable(DObject* Object) -> void
 	{
 		(void)Object;

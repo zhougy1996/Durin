@@ -106,19 +106,6 @@ namespace Durin::Asset
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult { return {Code, std::move(Message)}; }
 
-		auto MarkPackageHierarchyAsGarbage(DPackage* Package) -> void
-		{
-			if (!Package) return;
-			std::vector<DObject*> Pending = {Package};
-			while (!Pending.empty())
-			{
-				DObject* Object = Pending.back();
-				Pending.pop_back();
-				for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, true)) Pending.push_back(Child);
-				MarkAsGarbage(Object);
-			}
-		}
-
 		auto GetMoveContributors() -> std::unordered_map<DClass*, FAssetMoveContributor>&
 		{
 			static std::unordered_map<DClass*, FAssetMoveContributor> Contributors;
@@ -566,7 +553,7 @@ namespace Durin::Asset
 		if (!Package->SetAsset(OutAsset))
 		{
 			RemoveFromRoot(Package);
-			MarkPackageHierarchyAsGarbage(Package);
+			MarkObjectHierarchyAsGarbage(Package);
 			CollectGarbage();
 			OutAsset = nullptr;
 			return Error(EAssetError::InvalidObjectGraph, "Failed to assign package asset.");
@@ -904,7 +891,7 @@ namespace Durin::Asset
 					LoadedPackages.erase(LoadedIt);
 					LoadingPackages.erase(*It);
 					RemoveFromRoot(TransactionPackage);
-					MarkPackageHierarchyAsGarbage(TransactionPackage);
+					MarkObjectHierarchyAsGarbage(TransactionPackage);
 					bDiscardedPackage = true;
 				}
 				if (bDiscardedPackage) CollectGarbage();
@@ -941,7 +928,7 @@ namespace Durin::Asset
 			LoadingPackages.erase(Path);
 			LoadedPackages.erase(Path);
 			RemoveFromRoot(Package);
-			MarkPackageHierarchyAsGarbage(Package);
+			MarkObjectHierarchyAsGarbage(Package);
 			CollectGarbage();
 			OutPackage = nullptr;
 		};
@@ -1040,7 +1027,7 @@ namespace Durin::Asset
 		DPackage* Package = It->second;
 		LoadedPackages.erase(It);
 		RemoveFromRoot(Package);
-		MarkPackageHierarchyAsGarbage(Package);
+		MarkObjectHierarchyAsGarbage(Package);
 		CollectGarbage();
 		return {};
 	}
@@ -1060,7 +1047,7 @@ namespace Durin::Asset
 		for (DPackage* Package : Packages)
 		{
 			RemoveFromRoot(Package);
-			MarkPackageHierarchyAsGarbage(Package);
+			MarkObjectHierarchyAsGarbage(Package);
 		}
 		CollectGarbage();
 	}
