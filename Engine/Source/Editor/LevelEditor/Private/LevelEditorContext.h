@@ -4,6 +4,8 @@
 
 namespace Durin
 {
+	enum class EEditorPlayStartLocation : uint8;
+	enum class EEditorPlayDestination : uint8;
 	class AActor;
 	class DWorld;
 	class DLevel;
@@ -13,8 +15,11 @@ namespace Durin
 		DWorld* World = nullptr;
 		DLevel* Level = nullptr;
 		bool bReadOnly = false;
+		bool bSimulatePhysics = true;
 		std::function<void(std::string)> ReportError;
 		std::function<bool(std::string_view)> RenameLevel;
+		std::function<void(EEditorPlayStartLocation, EEditorPlayDestination)> StartPlay;
+		std::function<void(bool)> ApplyPlayChanges;
 
 		auto Synchronize(DWorld* CurrentWorld) -> void;
 		auto SelectActor(AActor* Actor) -> void;

@@ -8,6 +8,8 @@ struct ImVec2;
 
 namespace Durin
 {
+	enum class EEditorPlayStartLocation : uint8;
+	enum class EEditorPlayDestination : uint8;
 	class MViewport;
 	class FLevelEditorViewportClient;
 	class DLevel;
@@ -27,12 +29,13 @@ namespace Durin
 		auto IsViewportFocused() const -> bool { return bViewportFocused; }
 		auto CaptureCameraState(DLevel* Level, FLevelViewportCameraState& OutState) const -> bool;
 		auto RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void;
+		auto SetPreferredPlayMode(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo*;
 		auto GetTransformGizmo() const -> const FTransformGizmo*;
 
 	private:
 		auto CalculateToolbarLayout(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout;
-		auto DrawToolbar(const FViewportToolbarLayout& Layout) -> void;
+		auto DrawToolbar(FLevelEditorContext& Context, const FViewportToolbarLayout& Layout) -> void;
 		auto DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto DrawFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto UpdateViewportSize() -> void;
@@ -42,5 +45,7 @@ namespace Durin
 		std::shared_ptr<MViewport> ViewportWidget;
 		bool bViewportHovered = false;
 		bool bViewportFocused = false;
+		EEditorPlayStartLocation PreferredPlayStartLocation;
+		EEditorPlayDestination PreferredPlayDestination;
 	};
 } // namespace Durin

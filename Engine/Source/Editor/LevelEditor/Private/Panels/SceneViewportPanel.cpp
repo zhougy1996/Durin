@@ -10,6 +10,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
+#include "Engine/World.h"
 #include "Actors/StaticMeshActor.h"
 #include "IRendererModule.h"
 #include "LevelEditorContext.h"
@@ -73,6 +74,10 @@ namespace Durin
 			Translate,
 			Rotate,
 			Scale,
+			Play,
+			Pause,
+			Step,
+			Stop,
 			ChevronDown
 		};
 
@@ -108,12 +113,50 @@ namespace Durin
 					DrawList->AddRectFilled(ImVec2(End.x - 2.5f * Scale, End.y - 2.5f * Scale), ImVec2(End.x + 2.5f * Scale, End.y + 2.5f * Scale), Color, 1.0f * Scale);
 					break;
 				}
+			case EViewportToolbarIcon::Play:
+				{
+					const float Radius = 6.0f * Scale;
+					DrawList->AddTriangleFilled(ImVec2(Center.x - Radius * 0.65f, Center.y - Radius), ImVec2(Center.x - Radius * 0.65f, Center.y + Radius), ImVec2(Center.x + Radius, Center.y), Color);
+					break;
+				}
+			case EViewportToolbarIcon::Pause:
+				{
+					const float HalfHeight = 6.0f * Scale;
+					const float HalfWidth = 2.0f * Scale;
+					const float Gap = 2.2f * Scale;
+					DrawList->AddRectFilled(ImVec2(Center.x - Gap - HalfWidth, Center.y - HalfHeight), ImVec2(Center.x - Gap + HalfWidth, Center.y + HalfHeight), Color, Scale);
+					DrawList->AddRectFilled(ImVec2(Center.x + Gap - HalfWidth, Center.y - HalfHeight), ImVec2(Center.x + Gap + HalfWidth, Center.y + HalfHeight), Color, Scale);
+					break;
+				}
+			case EViewportToolbarIcon::Step:
+				{
+					const float Radius = 5.5f * Scale;
+					DrawList->AddTriangleFilled(ImVec2(Center.x - Radius, Center.y - Radius), ImVec2(Center.x - Radius, Center.y + Radius), ImVec2(Center.x + Radius * 0.45f, Center.y), Color);
+					DrawList->AddRectFilled(ImVec2(Center.x + Radius * 0.55f, Center.y - Radius), ImVec2(Center.x + Radius * 0.9f, Center.y + Radius), Color, Scale);
+					break;
+				}
+			case EViewportToolbarIcon::Stop:
+				{
+					const float Radius = 5.0f * Scale;
+					DrawList->AddRectFilled(ImVec2(Center.x - Radius, Center.y - Radius), ImVec2(Center.x + Radius, Center.y + Radius), Color, 1.5f * Scale);
+					break;
+				}
 			case EViewportToolbarIcon::ChevronDown:
 				DrawList->AddTriangleFilled(ImVec2(Center.x - 3.5f * Scale, Center.y - 1.5f * Scale), ImVec2(Center.x + 3.5f * Scale, Center.y - 1.5f * Scale), ImVec2(Center.x, Center.y + 2.5f * Scale), Color);
 				break;
 			default:
 				break;
 			}
+		}
+
+		auto DrawToolbarSurface(const ImVec2& Min, const ImVec2& Max) -> void
+		{
+			ImDrawList* DrawList = ImGui::GetWindowDrawList();
+			const ImGuiStyle& Style = ImGui::GetStyle();
+			ImVec4 ToolbarColor = Style.Colors[ImGuiCol_PopupBg];
+			ToolbarColor.w = 0.94f;
+			DrawList->AddRectFilled(Min, Max, ImGui::GetColorU32(ToolbarColor), MonaImGui::ScaleUI(6.0f));
+			DrawList->AddRect(Min, Max, ImGui::GetColorU32(ImGuiCol_Border), MonaImGui::ScaleUI(6.0f));
 		}
 
 		auto DrawToolbarSelectionIndicator(ImDrawList* DrawList, const ImVec2& Position, float Width, float Height, float ContentWidth) -> void
@@ -128,7 +171,7 @@ namespace Durin
 			DrawList->AddRectFilled(ImVec2(CenterX - IndicatorWidth * 0.5f, Bottom - MonaImGui::ScaleUI(2.0f)), ImVec2(CenterX + IndicatorWidth * 0.5f, Bottom), ImGui::GetColorU32(ImGuiCol_CheckMark), MonaImGui::ScaleUI(1.0f));
 		}
 
-		auto DrawToolbarButton(const char* Id, const ImVec2& Position, const ImVec2& Size, const char* Label, EViewportToolbarIcon Icon, bool bSelected, const char* Tooltip) -> bool
+		auto DrawToolbarButton(const char* Id, const ImVec2& Position, const ImVec2& Size, const char* Label, EViewportToolbarIcon Icon, bool bSelected, const char* Tooltip, bool bEmphasized = false) -> bool
 		{
 			ImGui::SetCursorScreenPos(Position);
 			const bool bPressed = ImGui::InvisibleButton(Id, Size);
@@ -137,14 +180,14 @@ namespace Durin
 			const ImGuiStyle& Style = ImGui::GetStyle();
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
 			const ImVec2 Max(Position.x + Size.x, Position.y + Size.y);
-			if (bSelected || bHovered || bHeld)
+			if (bSelected || bEmphasized || bHovered || bHeld)
 			{
-				const ImGuiCol Background = bSelected ? ImGuiCol_HeaderActive : bHeld ? ImGuiCol_ButtonActive :
-																						ImGuiCol_ButtonHovered;
+				const ImGuiCol Background = bSelected || bEmphasized ? ImGuiCol_HeaderActive : bHeld ? ImGuiCol_ButtonActive :
+																			ImGuiCol_ButtonHovered;
 				DrawList->AddRectFilled(Position, Max, ImGui::GetColorU32(Style.Colors[Background]), Style.FrameRounding);
 			}
 
-			const ImU32 TextColor = ImGui::GetColorU32(bSelected ? ImGuiCol_Text : (bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled));
+			const ImU32 TextColor = ImGui::GetColorU32(bSelected || bEmphasized || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 			const float IconScale = ImGui::GetFontSize() / 15.0f;
 			float ContentWidth = 0.0f;
 			const ImVec2 TextSize = Label != nullptr ? ImGui::CalcTextSize(Label) : ImVec2(0.0f, 0.0f);
@@ -266,19 +309,27 @@ namespace Durin
 		ImVec2 ViewportMax;
 		ImVec2 BackgroundMin;
 		ImVec2 BackgroundMax;
+		ImVec2 PlayBackgroundMin;
+		ImVec2 PlayBackgroundMax;
 		ImVec2 ViewModeButtonPosition;
 		ImVec2 ViewModeButtonSize;
+		ImVec2 PlayButtonPosition;
 		float Height = 0.0f;
 		float Gap = 0.0f;
 		float ModeButtonWidth = 0.0f;
 		float SpaceButtonWidth = 0.0f;
 		float SnapButtonWidth = 0.0f;
 		float DropDownWidth = 0.0f;
+		float PlayButtonWidth = 0.0f;
+		float RuntimeButtonWidth = 0.0f;
 		bool bCompact = false;
 		bool bOverflow = false;
+		bool bPlayLabels = false;
 	};
 
 	FSceneViewportPanel::FSceneViewportPanel()
+		: PreferredPlayStartLocation(EEditorPlayStartLocation::LevelStart)
+		, PreferredPlayDestination(EEditorPlayDestination::EmbeddedViewport)
 	{
 		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
 		ViewportWidget = std::make_shared<MViewport>();
@@ -305,6 +356,12 @@ namespace Durin
 	auto FSceneViewportPanel::RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void
 	{
 		if (ViewportClient != nullptr) ViewportClient->InitializeForLevel(Level, State);
+	}
+
+	auto FSceneViewportPanel::SetPreferredPlayMode(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void
+	{
+		PreferredPlayStartLocation = StartLocation;
+		PreferredPlayDestination = Destination;
 	}
 
 	auto FSceneViewportPanel::GetTransformGizmo() -> FTransformGizmo*
@@ -395,9 +452,7 @@ namespace Durin
 					ViewportClient->SetSelectedActors({}, nullptr);
 				}
 				else UpdateViewportInput(Context, ToolbarLayout);
-				if (Context.bReadOnly) ImGui::BeginDisabled();
-				DrawToolbar(ToolbarLayout);
-				if (Context.bReadOnly) ImGui::EndDisabled();
+				DrawToolbar(Context, ToolbarLayout);
 				DrawOrientationOverlay(VpMin, VpMax);
 				DrawFPSOverlay(VpMin, VpMax);
 				if (Context.bReadOnly)
@@ -405,7 +460,14 @@ namespace Durin
 					ImDrawList* DrawList = ImGui::GetWindowDrawList();
 					const char* Status = bPlayingInNewWindow ? "PLAYING IN NEW WINDOW" : GEditor && GEditor->IsPlaySessionPaused() ? "PLAY PAUSED" : "PLAYING";
 					const ImVec2 TextSize = ImGui::CalcTextSize(Status);
-					DrawList->AddText(ImVec2((VpMin.x + VpMax.x - TextSize.x) * 0.5f, VpMin.y + MonaImGui::ScaleUI(12.0f)), ImGui::GetColorU32(ImGuiCol_CheckMark), Status);
+					const ImVec2 Padding(MonaImGui::ScaleUI(8.0f), MonaImGui::ScaleUI(4.0f));
+					const ImVec2 BadgeMin(VpMin.x + MonaImGui::ScaleUI(10.0f), VpMax.y - TextSize.y - Padding.y * 2.0f - MonaImGui::ScaleUI(10.0f));
+					const ImVec2 BadgeMax(BadgeMin.x + TextSize.x + Padding.x * 2.0f, BadgeMin.y + TextSize.y + Padding.y * 2.0f);
+					ImVec4 BadgeColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
+					BadgeColor.w = 0.88f;
+					DrawList->AddRectFilled(BadgeMin, BadgeMax, ImGui::GetColorU32(BadgeColor), BadgeMax.y - BadgeMin.y);
+					DrawList->AddRect(BadgeMin, BadgeMax, ImGui::GetColorU32(ImGuiCol_CheckMark), BadgeMax.y - BadgeMin.y);
+					DrawList->AddText(Add(BadgeMin, Padding), ImGui::GetColorU32(ImGuiCol_CheckMark), Status);
 				}
 			}
 		}
@@ -436,7 +498,7 @@ namespace Durin
 
 		Layout.ViewModeLabel = std::format("{} / {}", GetModeLabel(Layout.RenderMode, RenderModeOptions), GetModeLabel(Layout.RasterMode, RasterModeOptions));
 		const float AvailableWidth = ViewportMax.x - ViewportMin.x;
-		const EEditorUILayoutMode LayoutMode = ResolveEditorUILayout(AvailableWidth, MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(780.0f));
+		const EEditorUILayoutMode LayoutMode = ResolveEditorUILayout(AvailableWidth, MonaImGui::ScaleUI(560.0f), MonaImGui::ScaleUI(980.0f));
 		Layout.bCompact = LayoutMode != EEditorUILayoutMode::Full;
 		Layout.bOverflow = LayoutMode == EEditorUILayoutMode::Narrow;
 		const float FontSize = ImGui::GetFontSize();
@@ -457,22 +519,36 @@ namespace Durin
 		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(10.0f);
 		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - MonaImGui::ScaleUI(4.0f), Layout.ViewModeButtonPosition.y - MonaImGui::ScaleUI(4.0f));
 		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - MonaImGui::ScaleUI(6.0f), Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(4.0f));
+		Layout.bPlayLabels = LayoutMode == EEditorUILayoutMode::Full;
+		const float PlayLabelWidth = ImGui::CalcTextSize("Play").x;
+		const float RuntimeLabelWidth = std::max({ImGui::CalcTextSize("Resume").x, ImGui::CalcTextSize("Pause").x, ImGui::CalcTextSize("Step").x, ImGui::CalcTextSize("Stop").x});
+		Layout.PlayButtonWidth = Layout.bPlayLabels ? FMath::Max(MonaImGui::ScaleUI(68.0f), TransformIconWidth + ContentGap + PlayLabelWidth + ContentPadding * 2.0f) : Layout.Height;
+		Layout.RuntimeButtonWidth = Layout.bPlayLabels ? FMath::Max(MonaImGui::ScaleUI(72.0f), TransformIconWidth + ContentGap + RuntimeLabelWidth + ContentPadding * 2.0f) : Layout.Height;
+		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		const float PlayControlsWidth = bPlaying ? Layout.RuntimeButtonWidth * 3.0f + Layout.DropDownWidth : Layout.PlayButtonWidth + Layout.DropDownWidth;
+		// Keep Play visually independent from both the editing tools and the viewport edge.
+		// The center anchor is preserved until responsive pressure requires it to clear the left group.
+		const float CenteredPlayX = (ViewportMin.x + ViewportMax.x - PlayControlsWidth) * 0.5f;
+		const float MinimumPlayX = Layout.BackgroundMax.x + MonaImGui::ScaleUI(10.0f);
+		const float MaximumPlayX = ViewportMax.x - MonaImGui::ScaleUI(10.0f) - PlayControlsWidth;
+		const float ResolvedPlayX = MinimumPlayX <= MaximumPlayX ? FMath::Clamp(CenteredPlayX, MinimumPlayX, MaximumPlayX) : MaximumPlayX;
+		Layout.PlayButtonPosition = ImVec2(ResolvedPlayX, Layout.ViewModeButtonPosition.y);
+		Layout.PlayBackgroundMin = ImVec2(Layout.PlayButtonPosition.x - MonaImGui::ScaleUI(4.0f), Layout.PlayButtonPosition.y - MonaImGui::ScaleUI(4.0f));
+		Layout.PlayBackgroundMax = ImVec2(Layout.PlayButtonPosition.x + PlayControlsWidth + MonaImGui::ScaleUI(4.0f), Layout.PlayButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(4.0f));
 		return Layout;
 	}
 
-	auto FSceneViewportPanel::DrawToolbar(const FViewportToolbarLayout& Layout) -> void
+	auto FSceneViewportPanel::DrawToolbar(FLevelEditorContext& Context, const FViewportToolbarLayout& Layout) -> void
 	{
 		const ImVec2& ViewportMin = Layout.ViewportMin;
 		const ImVec2& ViewportMax = Layout.ViewportMax;
 
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
-		const ImGuiStyle& Style = ImGui::GetStyle();
-		ImVec4 ToolbarColor = Style.Colors[ImGuiCol_PopupBg];
-		ToolbarColor.w = 0.94f;
-		DrawList->AddRectFilled(Layout.BackgroundMin, Layout.BackgroundMax, ImGui::GetColorU32(ToolbarColor), MonaImGui::ScaleUI(6.0f));
-		DrawList->AddRect(Layout.BackgroundMin, Layout.BackgroundMax, ImGui::GetColorU32(ImGuiCol_Border), MonaImGui::ScaleUI(6.0f));
+		DrawToolbarSurface(Layout.BackgroundMin, Layout.BackgroundMax);
+		DrawToolbarSurface(Layout.PlayBackgroundMin, Layout.PlayBackgroundMax);
 		DrawList->PopClipRect();
+		if (Context.bReadOnly) ImGui::BeginDisabled();
 
 		if (DrawToolbarButton("##ViewModeButton", Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize, Layout.ViewModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, false, "Viewport shading and raster mode"))
 		{
@@ -493,7 +569,11 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 
-		if (ViewportClient == nullptr) return;
+		if (ViewportClient == nullptr)
+		{
+			if (Context.bReadOnly) ImGui::EndDisabled();
+			return;
+		}
 		FTransformGizmo& Gizmo = ViewportClient->GetTransformGizmo();
 		bool bOpenSnapSettings = false;
 		float X = Layout.ViewModeButtonPosition.x + Layout.ViewModeButtonSize.x + Layout.Gap;
@@ -577,6 +657,68 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 		ImGui::PopStyleVar(2);
+		if (Context.bReadOnly) ImGui::EndDisabled();
+
+		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		const bool bPaused = bPlaying && GEditor->IsPlaySessionPaused();
+		const char* PlayLabel = Layout.bPlayLabels ? "Play" : nullptr;
+		const char* PauseLabel = Layout.bPlayLabels ? (bPaused ? "Resume" : "Pause") : nullptr;
+		const char* StepLabel = Layout.bPlayLabels ? "Step" : nullptr;
+		const char* StopLabel = Layout.bPlayLabels ? "Stop" : nullptr;
+		float PlayX = Layout.PlayButtonPosition.x;
+		const float PlayY = Layout.PlayButtonPosition.y;
+		if (!bPlaying)
+		{
+			if (DrawToolbarButton("##ViewportPlay", ImVec2(PlayX, PlayY), ImVec2(Layout.PlayButtonWidth, Layout.Height), PlayLabel, EViewportToolbarIcon::Play, false, "Play using the last selected mode (F5)", true) && Context.StartPlay)
+				Context.StartPlay(PreferredPlayStartLocation, PreferredPlayDestination);
+			PlayX += Layout.PlayButtonWidth;
+			if (DrawToolbarButton("##ViewportPlayOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Choose how and where to play"))
+				ImGui::OpenPopup("ViewportPlayOptionsPopup");
+			if (ImGui::BeginPopup("ViewportPlayOptionsPopup"))
+			{
+				auto PlayFrom = [&](const char* Label, EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) {
+					const bool bPreferred = PreferredPlayStartLocation == StartLocation && PreferredPlayDestination == Destination;
+					if (ImGui::MenuItem(Label, nullptr, bPreferred))
+					{
+						SetPreferredPlayMode(StartLocation, Destination);
+						if (Context.StartPlay) Context.StartPlay(StartLocation, Destination);
+					}
+				};
+				ImGui::TextDisabled("Embedded Viewport");
+				PlayFrom("From Level Start##Embedded", EEditorPlayStartLocation::LevelStart, EEditorPlayDestination::EmbeddedViewport);
+				PlayFrom("From Editor Camera##Embedded", EEditorPlayStartLocation::EditorCamera, EEditorPlayDestination::EmbeddedViewport);
+				ImGui::Separator();
+				ImGui::TextDisabled("New Window");
+				PlayFrom("From Level Start##NewWindow", EEditorPlayStartLocation::LevelStart, EEditorPlayDestination::NewWindow);
+				PlayFrom("From Editor Camera##NewWindow", EEditorPlayStartLocation::EditorCamera, EEditorPlayDestination::NewWindow);
+				ImGui::Separator();
+				ImGui::MenuItem("Simulate Physics", nullptr, &Context.bSimulatePhysics);
+				ImGui::EndPopup();
+			}
+		}
+		else
+		{
+			if (DrawToolbarButton("##ViewportPause", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), PauseLabel, bPaused ? EViewportToolbarIcon::Play : EViewportToolbarIcon::Pause, bPaused, bPaused ? "Resume play (F6)" : "Pause play (F6)"))
+				GEditor->SetPlaySessionPaused(!bPaused);
+			PlayX += Layout.RuntimeButtonWidth;
+			if (!bPaused) ImGui::BeginDisabled();
+			if (DrawToolbarButton("##ViewportStep", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), StepLabel, EViewportToolbarIcon::Step, false, "Advance one frame while paused (F7)")) GEditor->StepPlaySession();
+			if (!bPaused) ImGui::EndDisabled();
+			PlayX += Layout.RuntimeButtonWidth;
+			if (DrawToolbarButton("##ViewportStop", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), StopLabel, EViewportToolbarIcon::Stop, false, "Stop play (F5)")) GEditor->StopPlaySession();
+			PlayX += Layout.RuntimeButtonWidth;
+			if (DrawToolbarButton("##ViewportRuntimeOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Runtime options")) ImGui::OpenPopup("ViewportRuntimeOptionsPopup");
+			if (ImGui::BeginPopup("ViewportRuntimeOptionsPopup"))
+			{
+				const bool bHasSelection = !Context.GetSelectedActors().empty();
+				if (ImGui::MenuItem("Apply Selected Runtime Changes", nullptr, false, bHasSelection) && Context.ApplyPlayChanges) Context.ApplyPlayChanges(true);
+				if (ImGui::MenuItem("Apply All Runtime Changes") && Context.ApplyPlayChanges) Context.ApplyPlayChanges(false);
+				ImGui::Separator();
+				bool bPhysicsEnabled = GEditor->GetPlayWorld() && GEditor->GetPlayWorld()->IsPhysicsSimulationEnabled();
+				if (ImGui::MenuItem("Simulate Physics", nullptr, &bPhysicsEnabled) && GEditor->GetPlayWorld()) GEditor->GetPlayWorld()->SetPhysicsSimulationEnabled(bPhysicsEnabled);
+				ImGui::EndPopup();
+			}
+		}
 	}
 
 	auto FSceneViewportPanel::DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void
@@ -622,12 +764,18 @@ namespace Durin
 	auto FSceneViewportPanel::DrawFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void
 	{
 		char FpsText[32];
-		snprintf(FpsText, sizeof(FpsText), "FPS: %.1f", ImGui::GetIO().Framerate);
+		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
 		const ImVec2 TextSize = ImGui::CalcTextSize(FpsText);
-		const ImVec2 TextPos(ViewportMax.x - TextSize.x - MonaImGui::ScaleUI(12.0f), ViewportMin.y + MonaImGui::ScaleUI(8.0f));
+		const ImVec2 Padding(MonaImGui::ScaleUI(7.0f), MonaImGui::ScaleUI(3.0f));
+		const ImVec2 BadgeMax(ViewportMax.x - MonaImGui::ScaleUI(10.0f), ViewportMin.y + MonaImGui::ScaleUI(8.0f) + TextSize.y + Padding.y * 2.0f);
+		const ImVec2 BadgeMin(BadgeMax.x - TextSize.x - Padding.x * 2.0f, ViewportMin.y + MonaImGui::ScaleUI(8.0f));
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
-		DrawList->AddText(TextPos, MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ViewportText), FpsText);
+		ImVec4 BadgeColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
+		BadgeColor.w = 0.72f;
+		DrawList->AddRectFilled(BadgeMin, BadgeMax, ImGui::GetColorU32(BadgeColor), MonaImGui::ScaleUI(5.0f));
+		DrawList->AddRect(BadgeMin, BadgeMax, ImGui::GetColorU32(ImGuiCol_Border), MonaImGui::ScaleUI(5.0f));
+		DrawList->AddText(Add(BadgeMin, Padding), MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ViewportText), FpsText);
 		DrawList->PopClipRect();
 	}
 
@@ -668,7 +816,8 @@ namespace Durin
 		const ImVec2 MousePosition = ImGui::GetMousePos();
 		Input.MousePosition = {MousePosition.x - ViewportMin.x, MousePosition.y - ViewportMin.y};
 		Input.ViewportSize = {ViewportMax.x - ViewportMin.x, ViewportMax.y - ViewportMin.y};
-		const bool bToolbarHovered = ImGui::IsMouseHoveringRect(ToolbarLayout.BackgroundMin, ToolbarLayout.BackgroundMax);
+		const bool bToolbarHovered = ImGui::IsMouseHoveringRect(ToolbarLayout.BackgroundMin, ToolbarLayout.BackgroundMax)
+			|| ImGui::IsMouseHoveringRect(ToolbarLayout.PlayBackgroundMin, ToolbarLayout.PlayBackgroundMax);
 		const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 		if (bToolbarHovered || bPopupOpen) Input.bLeftMousePressed = false;
 		FSceneView SceneView;

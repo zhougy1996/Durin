@@ -54,6 +54,10 @@ namespace Durin
 		Context->RenameLevel = [this](std::string_view NewName) {
 			return DocumentController && DocumentController->RenameCurrentLevel(NewName);
 		};
+		Context->StartPlay = [this](EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) {
+			StartPlay(StartLocation, Destination);
+		};
+		Context->ApplyPlayChanges = [this](bool bSelectedOnly) { ApplyPlayChanges(bSelectedOnly); };
 
 		Asset::GetAssetRegistry().ScanMountedContent();
 		SessionSettings.PruneInvalidViewportStates();
@@ -407,7 +411,7 @@ namespace Durin
 				if (ImGui::MenuItem("Play From Start in New Window", "Ctrl+F5", false, bCanPlay)) StartPlay(EEditorPlayStartLocation::LevelStart, EEditorPlayDestination::NewWindow);
 				if (ImGui::MenuItem("Play From Camera in New Window", nullptr, false, bCanPlay)) StartPlay(EEditorPlayStartLocation::EditorCamera, EEditorPlayDestination::NewWindow);
 				ImGui::Separator();
-				ImGui::MenuItem("Simulate Physics", nullptr, &bSimulatePhysics);
+				ImGui::MenuItem("Simulate Physics", nullptr, Context ? &Context->bSimulatePhysics : nullptr);
 			}
 			else
 			{
@@ -532,11 +536,12 @@ namespace Durin
 	auto MLevelEditor::StartPlay(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void
 	{
 		if (!GEditor || !Context || !Context->Level) return;
+		if (SceneViewportPanel) SceneViewportPanel->SetPreferredPlayMode(StartLocation, Destination);
 		FEditorPlayRequest Request;
 		Request.SourceLevel = Context->Level;
 		Request.StartLocation = StartLocation;
 		Request.Destination = Destination;
-		Request.bSimulatePhysics = bSimulatePhysics;
+		Request.bSimulatePhysics = Context->bSimulatePhysics;
 		if (StartLocation == EEditorPlayStartLocation::EditorCamera && SceneViewportPanel)
 		{
 			FLevelViewportCameraState CameraState;

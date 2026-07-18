@@ -57,7 +57,6 @@ namespace Durin
 		bool bSelectDefaultBottomPanelRequested = true;
 		bool bFocusRequested = false;
 		bool bProjectSettingsOpen = false;
-		bool bSimulatePhysics = true;
 		std::string DefaultLevel;
 		std::string EditorError;
 	};
