@@ -25,6 +25,7 @@ from .core import (
     execute_context,
     interruption_marker_path,
     open_runtime_directory,
+    stop_active_operation,
 )
 from .output import BuildOutput
 
@@ -72,6 +73,9 @@ def make_parser() -> BuildArgumentParser:
     shell = subparsers.add_parser("shell", help="open the interactive shell")
     add_common_options(shell, inherited=True)
     add_jobs(shell, inherited=True)
+
+    stop = subparsers.add_parser("stop", help="stop the active BuildTool operation")
+    add_common_options(stop, inherited=True)
 
     configure = subparsers.add_parser("configure", help="configure the selected preset")
     add_common_options(configure, inherited=True)
@@ -407,6 +411,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         output = BuildOutput(plain=request.plain)
         if request.action is Action.SHELL:
             run_shell(request, output)
+            return 0
+        if request.action is Action.STOP:
+            if stop_active_operation():
+                output.success("Stopped the active BuildTool operation.")
+            else:
+                output.info("No active BuildTool operation was found.")
             return 0
         prepare_tools = request.action not in {Action.PURGE, Action.RUN}
         context = create_context(request, prepare_tools=prepare_tools)

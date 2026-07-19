@@ -45,6 +45,7 @@ class BuildToolInterruptedError(BuildToolError):
 
 class Action(str, Enum):
     SHELL = "shell"
+    STOP = "stop"
     CONFIGURE = "configure"
     BUILD = "build"
     CLEAN = "clean"

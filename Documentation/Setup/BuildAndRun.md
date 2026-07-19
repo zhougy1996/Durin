@@ -26,6 +26,7 @@ Use the root wrapper for configuration, builds, and tests:
 .\BuildTool test --target CoreTests --filter FJsonDocumentTests.*
 .\BuildTool clean
 .\BuildTool rebuild --target all
+.\BuildTool stop
 ```
 
 Commands are case-insensitive for compatibility, but lowercase is canonical. `build` and `test` configure automatically when needed, so an explicit first `configure` is optional. Omit `--jobs` to use automatic parallelism; pass `--jobs <count>` only when a local limit is required. From another batch file, use `call BuildTool.bat <arguments>`.
@@ -75,6 +76,8 @@ Run `BuildTool` without arguments, or pass `shell`, to open the human-oriented c
 .\BuildTool
 .\BuildTool shell
 ```
+
+If Ctrl+C is not forwarded by the terminal or batch wrapper, run `.\BuildTool stop` from a second terminal. It stops the active BuildTool process and its complete CMake/Ninja child process tree for this checkout.
 
 The selected preset is session-local and does not modify `.agents/build-config.json`:
 

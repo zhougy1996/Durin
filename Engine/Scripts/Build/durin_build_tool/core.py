@@ -53,6 +53,43 @@ def lock_file_path(root: Path = LOCK_DIR) -> Path:
     return root / "checkout.lock"
 
 
+def stop_active_operation() -> bool:
+    """Stop the BuildTool process recorded in the checkout ownership lock."""
+    lock_path = lock_file_path()
+    try:
+        content = lock_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise BuildToolError(f'Could not read BuildTool lock "{lock_path}": {exc}') from exc
+    try:
+        metadata = json.loads(content)
+        pid = int(metadata["pid"])
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise BuildToolError(f'BuildTool lock does not contain a valid process ID: "{lock_path}"') from exc
+    if pid <= 0 or pid == os.getpid():
+        raise BuildToolError(f'BuildTool lock contains an invalid process ID: {pid}')
+
+    if os.name == "nt":
+        result = subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise BuildToolError(
+                f"Could not stop the active BuildTool process (PID {pid}). It may have already exited."
+            )
+    else:
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            raise BuildToolError(f"The active BuildTool process (PID {pid}) has already exited.")
+    return True
+
+
 def interruption_marker_path(preset: str, root: Path = STATE_DIR) -> Path:
     return root / f"{state_file_component(preset)}.interrupted.json"
 
