@@ -69,7 +69,11 @@ def get_module_config(module_name: str) -> DurinModuleConfig:
         return module_config
     return _load_module_config(module_name)
 
-def collect_all_dependent_modules(module_name: str, visited=None) -> set[str]:
+def collect_all_dependent_modules(module_name: str, profile_name: str | None = None, visited=None) -> set[str]:
+    if profile_name is None:
+        from durin_header_tool import config as configs
+        profile_name = configs.PROFILE_NAME
+
     if visited is None:
         visited = set()
     
@@ -79,9 +83,15 @@ def collect_all_dependent_modules(module_name: str, visited=None) -> set[str]:
     visited.add(module_name)
     module_config = get_module_config(module_name)
     all_deps = set(module_config.private_dependencies + module_config.public_dependencies)
+
+    # Optional dependencies do not enable modules. Once enabled independently by
+    # the active profile, however, they are part of the module's real build graph
+    # and DHT must parse and track their reflection exports like ordinary deps.
+    optional_deps = module_config.optional_private_dependencies + module_config.optional_public_dependencies
+    all_deps.update(dep for dep in optional_deps if is_module_enabled_for_active_profile(dep, profile_name))
     
     for dep in all_deps.copy():
-        all_deps.update(collect_all_dependent_modules(dep, visited))
+        all_deps.update(collect_all_dependent_modules(dep, profile_name, visited))
     
     return all_deps
 
@@ -121,20 +131,20 @@ def is_module_enabled_for_active_profile(module_name: str, profile_name: str | N
     owning_project = get_module_config(module_name).owning_project
     return module_name in collect_enabled_modules_for_project(owning_project, profile_name)
 
-def collect_sorted_dependent_modules(module_name: str) -> list[str]:
-    all_deps = collect_all_dependent_modules(module_name)
+def collect_sorted_dependent_modules(module_name: str, profile_name: str | None = None) -> list[str]:
+    all_deps = collect_all_dependent_modules(module_name, profile_name)
     sorted_deps = sorted(all_deps)
     return sorted_deps
 
 # Collects all the dependencies of the module manifest file that have export files (self included).
-def collect_all_dependent_module_with_export_file(module_name: str) -> list[str]:
-    all_deps = collect_all_dependent_modules(module_name)
+def collect_all_dependent_module_with_export_file(module_name: str, profile_name: str | None = None) -> list[str]:
+    all_deps = collect_all_dependent_modules(module_name, profile_name)
     all_deps.add(module_name)  # Also include the module itself, since it is also a dependency for the manifest file
     deps_with_export_file = [dep for dep in all_deps if get_module_config(dep).has_export_file()]
     sorted_deps_with_export_file = sorted(deps_with_export_file)
     return sorted_deps_with_export_file
 
-def collect_all_dependent_module_export_files(module_name: str) -> list[Path]:
+def collect_all_dependent_module_export_files(module_name: str, profile_name: str | None = None) -> list[Path]:
     from durin_header_tool.io import path_helper
-    deps = collect_all_dependent_module_with_export_file(module_name)
+    deps = collect_all_dependent_module_with_export_file(module_name, profile_name)
     return [path_helper.get_module_export_file_path(dep) for dep in deps]

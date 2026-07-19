@@ -210,6 +210,75 @@ class CacheRecoveryTests(unittest.TestCase):
         save_manifest.assert_not_called()
 
 
+class ModuleDependencyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        configs.init_configs()
+
+    def test_enabled_optional_dependencies_join_recursive_dependency_graph(self):
+        module_configs = {
+            "Root": SimpleNamespace(
+                private_dependencies=[],
+                public_dependencies=[],
+                optional_private_dependencies=["Optional"],
+                optional_public_dependencies=[],
+            ),
+            "Optional": SimpleNamespace(
+                private_dependencies=["RequiredLeaf"],
+                public_dependencies=[],
+                optional_private_dependencies=[],
+                optional_public_dependencies=["OptionalLeaf"],
+            ),
+            "RequiredLeaf": SimpleNamespace(
+                private_dependencies=[],
+                public_dependencies=[],
+                optional_private_dependencies=[],
+                optional_public_dependencies=[],
+            ),
+            "OptionalLeaf": SimpleNamespace(
+                private_dependencies=[],
+                public_dependencies=[],
+                optional_private_dependencies=[],
+                optional_public_dependencies=[],
+            ),
+        }
+
+        with (
+            mock.patch.object(configs.module_config, "get_module_config", side_effect=module_configs.__getitem__),
+            mock.patch.object(
+                configs.module_config,
+                "is_module_enabled_for_active_profile",
+                side_effect=lambda module_name, profile_name: module_name in {"Optional", "OptionalLeaf"},
+            ),
+        ):
+            dependencies = configs.collect_all_dependent_modules("Root", "DurinEditor")
+
+        self.assertEqual(dependencies, {"Optional", "RequiredLeaf", "OptionalLeaf"})
+
+    def test_disabled_optional_dependency_does_not_join_dependency_graph(self):
+        root_config = SimpleNamespace(
+            private_dependencies=[],
+            public_dependencies=[],
+            optional_private_dependencies=["Optional"],
+            optional_public_dependencies=[],
+        )
+
+        with (
+            mock.patch.object(configs.module_config, "get_module_config", return_value=root_config),
+            mock.patch.object(configs.module_config, "is_module_enabled_for_active_profile", return_value=False),
+        ):
+            dependencies = configs.collect_all_dependent_modules("Root", "DurinGame")
+
+        self.assertEqual(dependencies, set())
+
+    def test_launch_reflection_exports_follow_active_profile(self):
+        editor_exports = configs.collect_all_dependent_module_with_export_file("Launch", "DurinEditor")
+        game_exports = configs.collect_all_dependent_module_with_export_file("Launch", "DurinGame")
+
+        self.assertIn("DurinEd", editor_exports)
+        self.assertNotIn("DurinEd", game_exports)
+
+
 class IntermediateLayoutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
