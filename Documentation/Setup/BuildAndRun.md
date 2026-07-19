@@ -146,6 +146,8 @@ CMake records MSVC's localized `/showIncludes` prefix during configuration. If r
 
 ## Recovery
 
+For Agent-driven builds, prevent recovery from being needed: give the shell invocation a timeout of at least one hour (longer for a full build), and keep waiting on the same yielded invocation until it produces a final exit result. A runner yield, cell ID, quiet output, or elapsed UI window does not mean that BuildTool stopped and must not trigger a second build or recovery-state inspection.
+
 Do not start a second build while an earlier CMake, Ninja, compiler, or linker process tree may still be running. If a build is cancelled, times out, or its terminal closes, wait for that process tree to exit and run:
 
 ```powershell
