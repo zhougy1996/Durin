@@ -202,7 +202,7 @@ namespace Durin
 			ImGui::PushID(Actor);
 			const bool bPrimaryCamera = Context.Level->GetPrimaryCameraActor() == Actor;
 			const std::string Label = bPrimaryCamera ? std::format("{}  {}  [Primary]", ActorIcon(Actor), Actor->GetName()) : std::format("{}  {}", ActorIcon(Actor), Actor->GetName());
-			const bool bOpen = ImGui::TreeNodeEx("ActorNode", Flags, "%s", Label.c_str());
+			const bool bOpen = MonaImGui::CompactTreeNode("ActorNode", Flags, "%s", Label.c_str());
 			if (Filter.empty()) ExpandedActors[Actor] = bOpen;
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Actor->GetClass()->GetName().c_str());
 
@@ -303,7 +303,7 @@ namespace Durin
 		const std::string LevelLabel = std::format("{}  {}", Icons::FolderOpen, LevelName);
 		ImGuiTreeNodeFlags LevelFlags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
 		if (bLevelSelected) LevelFlags |= ImGuiTreeNodeFlags_Selected;
-		const bool bLevelOpen = ImGui::TreeNodeEx("LevelNode", LevelFlags, "%s", LevelLabel.c_str());
+		const bool bLevelOpen = MonaImGui::CompactTreeNode("LevelNode", LevelFlags, "%s", LevelLabel.c_str());
 		if (ImGui::IsItemHovered() && Context.Level->GetPackage()) ImGui::SetTooltip("%s", Context.Level->GetPackage()->GetPackagePath().c_str());
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
 		{

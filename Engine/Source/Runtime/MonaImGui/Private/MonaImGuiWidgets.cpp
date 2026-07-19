@@ -4,6 +4,15 @@
 
 namespace Durin::MonaImGui
 {
+	namespace
+	{
+		auto GetCompactTreeNodePadding() -> ImVec2
+		{
+			const ImVec2 FramePadding = ImGui::GetStyle().FramePadding;
+			return {std::min(FramePadding.x, ScaleUI(2.0f)), FramePadding.y};
+		}
+	} // namespace
+
 	auto ToolbarIconButton(const char* Icon, const char* Id, const char* Tooltip) -> bool
 	{
 		ImGui::PushID(Id);
@@ -22,6 +31,30 @@ namespace Durin::MonaImGui
 	{
 		const FUIStyleMetrics Metrics = GetUIStyleMetrics();
 		return ImGui::Button(Label, ImVec2(bCompact ? Metrics.CompactButtonWidth : Metrics.StandardButtonWidth, 0.0f));
+	}
+
+	auto CompactTreeNode(const char* Label, ImGuiTreeNodeFlags Flags) -> bool
+	{
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, GetCompactTreeNodePadding());
+		const bool bOpen = ImGui::TreeNodeEx(Label, Flags);
+		ImGui::PopStyleVar();
+		return bOpen;
+	}
+
+	auto CompactTreeNode(const char* Id, ImGuiTreeNodeFlags Flags, const char* Format, ...) -> bool
+	{
+		va_list Args;
+		va_start(Args, Format);
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, GetCompactTreeNodePadding());
+		const bool bOpen = ImGui::TreeNodeExV(Id, Flags, Format, Args);
+		ImGui::PopStyleVar();
+		va_end(Args);
+		return bOpen;
+	}
+
+	auto GetCompactTreeNodeToLabelSpacing() -> float
+	{
+		return ImGui::GetFontSize() + GetCompactTreeNodePadding().x * 2.0f;
 	}
 
 	auto DrawSplitter(

@@ -71,7 +71,8 @@ namespace Durin::MonaImGui
 	{
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
-		const float EffectiveLabelIndent = LabelIndent > 0.0f ? LabelIndent : ImGui::GetStyle().FramePadding.x;
+		// Plain rows share the tree label column rather than starting under its disclosure arrow.
+		const float EffectiveLabelIndent = LabelIndent > 0.0f ? LabelIndent : GetCompactTreeNodeToLabelSpacing();
 		ImGui::Indent(EffectiveLabelIndent);
 		ImGui::AlignTextToFramePadding();
 		ImGui::TextUnformatted(Label);
@@ -91,11 +92,11 @@ namespace Durin::MonaImGui
 	{
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
-		const bool bOpen = ImGui::TreeNodeEx(Label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_FramePadding);
+		const bool bOpen = CompactTreeNode(Label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_FramePadding);
 		if (!bOpen) return false;
 
 		auto EditTransformRow = [&](const char* RowLabel, FVector3& Value, double Speed) -> bool {
-			BeginPropertyRow(RowLabel, bReadOnly, ImGui::GetTreeNodeToLabelSpacing());
+			BeginPropertyRow(RowLabel, bReadOnly, GetCompactTreeNodeToLabelSpacing());
 			const bool bChanged = EditAxisValues(RowLabel, Value, Speed);
 			EndPropertyRow(bReadOnly);
 			return bChanged;

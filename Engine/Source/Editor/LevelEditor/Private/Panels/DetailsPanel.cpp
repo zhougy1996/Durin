@@ -305,7 +305,7 @@ namespace Durin
 			const std::string Status = bIsRoot ? std::format("Root, {}", bIsInstance ? "Instance" : "Default") : bIsInstance ? "Instance" :
 																															   "Default";
 			const std::string Label = std::format("{}  ({})  [{}]", Component->GetName(), ClassDisplayName(Component->GetClass()), Status);
-			const bool bOpen = ImGui::TreeNodeEx("##Component", Flags, "%s", Label.c_str());
+			const bool bOpen = MonaImGui::CompactTreeNode("##Component", Flags, "%s", Label.c_str());
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) SelectedComponent = Component;
 			if (ImGui::BeginPopupContextItem("ComponentContext"))
 			{
@@ -374,7 +374,7 @@ namespace Durin
 		if (!SelectedComponent) ActorFlags |= ImGuiTreeNodeFlags_Selected;
 		if (OwnedComponents.empty()) ActorFlags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 		ImGui::PushID(Actor);
-		const bool bActorOpen = ImGui::TreeNodeEx("##Actor", ActorFlags, "%s  (%s)", Actor->GetName().c_str(), ClassDisplayName(Actor->GetClass()).c_str());
+		const bool bActorOpen = MonaImGui::CompactTreeNode("##Actor", ActorFlags, "%s  (%s)", Actor->GetName().c_str(), ClassDisplayName(Actor->GetClass()).c_str());
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) SelectedComponent = nullptr;
 		if (ImGui::BeginPopupContextItem("ActorContext"))
 		{
