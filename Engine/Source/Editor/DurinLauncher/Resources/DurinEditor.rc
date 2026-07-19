@@ -1,3 +1,5 @@
 #define DURIN_EDITOR_ICON 101
 
+// Keep this ID in sync with ApplicationCore's WM_SETICON setup. The ICO contains
+// native 16-256 px layers so Windows does not have to downsample the app mark.
 DURIN_EDITOR_ICON ICON "../../../../Content/Editor/Branding/DurinEditor.ico"
