@@ -78,7 +78,7 @@ namespace Durin::MonaImGui
 			if (!ThemeDocument.LoadFromFile(FPaths::EngineDir() + "Configs/" + ConfigFileName)) return;
 
 			const FYamlNodeView Colors = ThemeDocument.GetRootView().GetView("Colors");
-			const std::array<std::pair<std::string_view, ImGuiCol>, 45> ColorBindings = {{
+			const std::array<std::pair<std::string_view, ImGuiCol>, 46> ColorBindings = {{
 				{"Text", ImGuiCol_Text},
 				{"TextDisabled", ImGuiCol_TextDisabled},
 				{"WindowBg", ImGuiCol_WindowBg},
@@ -98,6 +98,7 @@ namespace Durin::MonaImGui
 				{"ScrollbarGrabHovered", ImGuiCol_ScrollbarGrabHovered},
 				{"ScrollbarGrabActive", ImGuiCol_ScrollbarGrabActive},
 				{"CheckMark", ImGuiCol_CheckMark},
+				{"CheckboxSelectedBg", ImGuiCol_CheckboxSelectedBg},
 				{"SliderGrab", ImGuiCol_SliderGrab},
 				{"SliderGrabActive", ImGuiCol_SliderGrabActive},
 				{"Button", ImGuiCol_Button},

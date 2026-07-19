@@ -231,6 +231,62 @@ namespace Durin
 			bool bSecondaryPressed = false;
 		};
 
+		auto DrawPlaySplitButton(const ImVec2& Position, float PrimaryWidth, float SecondaryWidth, float Height, const char* Label, const char* PlayTooltip) -> FSplitButtonResult
+		{
+			const ImGuiStyle& Style = ImGui::GetStyle();
+			ImDrawList* DrawList = ImGui::GetWindowDrawList();
+			const ImVec2 Max(Position.x + PrimaryWidth + SecondaryWidth, Position.y + Height);
+			DrawList->AddRectFilled(Position, Max, ImGui::GetColorU32(ImGuiCol_Button), Style.FrameRounding);
+			DrawList->AddRect(Position, Max, ImGui::GetColorU32(ImGuiCol_Border), Style.FrameRounding);
+
+			ImGui::SetCursorScreenPos(Position);
+			const bool bPrimaryPressed = ImGui::InvisibleButton("##ViewportPlay", ImVec2(PrimaryWidth, Height));
+			const bool bPrimaryHovered = ImGui::IsItemHovered();
+			const bool bPrimaryHeld = ImGui::IsItemActive();
+			if (bPrimaryHovered || bPrimaryHeld)
+			{
+				DrawList->AddRectFilled(Position, ImVec2(Position.x + PrimaryWidth, Max.y), ImGui::GetColorU32(bPrimaryHeld ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), Style.FrameRounding, ImDrawFlags_RoundCornersLeft);
+			}
+
+			const ImVec2 SecondaryPosition(Position.x + PrimaryWidth, Position.y);
+			ImGui::SetCursorScreenPos(SecondaryPosition);
+			const bool bSecondaryPressed = ImGui::InvisibleButton("##ViewportPlayOptions", ImVec2(SecondaryWidth, Height));
+			const bool bSecondaryHovered = ImGui::IsItemHovered();
+			const bool bSecondaryHeld = ImGui::IsItemActive();
+			if (bSecondaryHovered || bSecondaryHeld)
+			{
+				DrawList->AddRectFilled(SecondaryPosition, Max, ImGui::GetColorU32(bSecondaryHeld ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), Style.FrameRounding, ImDrawFlags_RoundCornersRight);
+			}
+
+			DrawList->AddLine(ImVec2(SecondaryPosition.x, Position.y + MonaImGui::ScaleUI(5.0f)), ImVec2(SecondaryPosition.x, Max.y - MonaImGui::ScaleUI(5.0f)), ImGui::GetColorU32(ImGuiCol_Border));
+			const float IconScale = ImGui::GetFontSize() / 15.0f;
+			const float IconWidth = 16.0f * IconScale;
+			const ImVec2 TextSize = Label != nullptr ? ImGui::CalcTextSize(Label) : ImVec2(0.0f, 0.0f);
+			const float Gap = Label != nullptr ? MonaImGui::ScaleUI(6.0f) : 0.0f;
+			const float ContentWidth = IconWidth + Gap + TextSize.x;
+			const float ContentX = Position.x + (PrimaryWidth - ContentWidth) * 0.5f;
+			DrawToolbarIcon(DrawList, EViewportToolbarIcon::Play, ImVec2(ContentX + IconWidth * 0.5f, Position.y + Height * 0.5f), MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Success), IconScale);
+			if (Label != nullptr)
+			{
+				DrawList->AddText(ImVec2(ContentX + IconWidth + Gap, Position.y + (Height - TextSize.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), Label);
+			}
+			DrawToolbarIcon(DrawList, EViewportToolbarIcon::ChevronDown, ImVec2(SecondaryPosition.x + SecondaryWidth * 0.5f, Position.y + Height * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), IconScale);
+
+			if (bPrimaryHovered)
+			{
+				ImGui::BeginTooltip();
+				ImGui::TextUnformatted(PlayTooltip);
+				ImGui::EndTooltip();
+			}
+			else if (bSecondaryHovered)
+			{
+				ImGui::BeginTooltip();
+				ImGui::TextUnformatted("Play settings");
+				ImGui::EndTooltip();
+			}
+			return {bPrimaryPressed, bSecondaryPressed};
+		}
+
 		auto DrawSnapSplitButton(const ImVec2& Position, float PrimaryWidth, float SecondaryWidth, float Height, bool bEnabled, bool bPopupOpen) -> FSplitButtonResult
 		{
 			const ImGuiStyle& Style = ImGui::GetStyle();
@@ -675,10 +731,10 @@ namespace Durin
 			const char* StartLabel = PreferredPlayStartLocation == EEditorPlayStartLocation::EditorCamera ? "Editor Camera" : "Level Start";
 			const char* DestinationLabel = PreferredPlayDestination == EEditorPlayDestination::NewWindow ? "New Window" : "Viewport";
 			const std::string PlayTooltip = std::format("Play from {} in {} (F5)", StartLabel, DestinationLabel);
-			if (DrawToolbarButton("##ViewportPlay", ImVec2(PlayX, PlayY), ImVec2(Layout.PlayButtonWidth, Layout.Height), PlayLabel, EViewportToolbarIcon::Play, false, PlayTooltip.c_str(), true, true) && Context.StartPlay)
+			const FSplitButtonResult PlayResult = DrawPlaySplitButton(ImVec2(PlayX, PlayY), Layout.PlayButtonWidth, Layout.DropDownWidth, Layout.Height, PlayLabel, PlayTooltip.c_str());
+			if (PlayResult.bPrimaryPressed && Context.StartPlay)
 				Context.StartPlay(PreferredPlayStartLocation, PreferredPlayDestination);
-			PlayX += Layout.PlayButtonWidth;
-			if (DrawToolbarButton("##ViewportPlayOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Play settings", true))
+			if (PlayResult.bSecondaryPressed)
 				ImGui::OpenPopup("ViewportPlayOptionsPopup");
 			if (ImGui::BeginPopup("ViewportPlayOptionsPopup"))
 			{

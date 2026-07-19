@@ -20,6 +20,7 @@ Colors:
   ScrollbarGrabHovered: "858F9F"
   ScrollbarGrabActive: "707D90"
   CheckMark: "087FC2"
+  CheckboxSelectedBg: "C9D0D9"
   SliderGrab: "168BCB"
   SliderGrabActive: "526FD4"
   Button: "C7CED7"
