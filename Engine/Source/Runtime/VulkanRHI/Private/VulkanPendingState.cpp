@@ -236,12 +236,10 @@ namespace Durin::VulkanRHI
 		NewEntry.Hash = DescriptorHash;
 		NewEntry.Resources = PendingShaderResources;
 
-		vk::DescriptorSetAllocateInfo DescriptorSetAllocInfo;
-		DescriptorSetAllocInfo
-			.setDescriptorPool(Device.GetGlobalDescriptorPool().GetPool())
-			.setSetLayouts(LayoutHandles);
-
-		NewEntry.DescriptorSets = Device.GetHandle().allocateDescriptorSets(DescriptorSetAllocInfo);
+		NewEntry.DescriptorSets = Device.GetGlobalDescriptorPool().AllocateDescriptorSets(
+			LayoutHandles,
+			DescriptorSetsLayout.GetInfo().GetDescriptorRequirements()
+		);
 
 		// Vulkan write descriptors store pointers into these arrays until updateDescriptorSets returns.
 		std::vector<vk::DescriptorBufferInfo> BufferInfos;

@@ -5,6 +5,21 @@ namespace Durin::VulkanRHI
 	class FVulkanDevice;
 	class FVulkanLayout;
 
+	struct FVulkanDescriptorRequirements
+	{
+		uint32 MaxSets = 0;
+		std::unordered_map<vk::DescriptorType, uint32> DescriptorCounts;
+
+		auto Add(const FVulkanDescriptorRequirements& Other) -> void
+		{
+			MaxSets += Other.MaxSets;
+			for (const auto& [Type, Count] : Other.DescriptorCounts)
+			{
+				DescriptorCounts[Type] += Count;
+			}
+		}
+	};
+
 	// Describes the array of descriptor set layouts which will be used to create pipeline layouts.
 	// Only describe the information, does not hold any runtime object
 	class FVulkanDescriptorSetsLayoutInfo
@@ -57,6 +72,8 @@ namespace Durin::VulkanRHI
 		}
 
 		auto GetLayouts() const -> const std::vector<FSetLayout>& { return SetLayouts; }
+
+		auto GetDescriptorRequirements() const -> FVulkanDescriptorRequirements;
 
 		auto GetHash() const -> uint64 { return Hash.HashValue; }
 
@@ -179,21 +196,28 @@ namespace Durin::VulkanRHI
 	class FVulkanDescriptorPool
 	{
 	public:
-		FVulkanDescriptorPool(FVulkanDevice* InDevice, const FVulkanDescriptorSetsLayoutInfo& InLayoutInfo, uint32 MaxSetsAllocations);
+		FVulkanDescriptorPool(FVulkanDevice* InDevice, const FVulkanDescriptorRequirements& InRequirements);
 		~FVulkanDescriptorPool();
 
 		auto GetHandle() const -> vk::DescriptorPool { return DescriptorPool; }
+		auto GetMaxSets() const -> uint32 { return MaxDescriptorSets; }
+		auto GetAllocatedSets() const -> uint32 { return NumAllocatedDescriptorSets; }
+		auto GetPeakAllocatedSets() const -> uint32 { return PeakAllocatedDescriptorSets; }
+		auto GetDescriptorCapacity(vk::DescriptorType Type) const -> uint32;
+		auto CanAllocate(const FVulkanDescriptorRequirements& Requirements) const -> bool;
+		auto CommitAllocation(const FVulkanDescriptorRequirements& Requirements) -> void;
+		auto Reset() -> void;
 
 	private:
 		FVulkanDevice* Device;
-
-		const FVulkanDescriptorSetsLayoutInfo& LayoutInfo;
 
 		vk::DescriptorPool DescriptorPool;
 
 		uint32 MaxDescriptorSets;
 		uint32 NumAllocatedDescriptorSets;
 		uint32 PeakAllocatedDescriptorSets;
+		std::unordered_map<vk::DescriptorType, uint32> DescriptorCapacities;
+		std::unordered_map<vk::DescriptorType, uint32> NumAllocatedDescriptors;
 	};
 
 	class FVulkanDescriptorSetCache
@@ -205,7 +229,6 @@ namespace Durin::VulkanRHI
 		FVulkanDevice* Device;
 	};
 
-	// tmp
 	class FVulkanGlobalDescriptorPool
 	{
 	public:
@@ -213,16 +236,21 @@ namespace Durin::VulkanRHI
 
 		~FVulkanGlobalDescriptorPool();
 
-		auto GetPool() const -> vk::DescriptorPool;
+		auto AllocateDescriptorSets(
+			std::span<const vk::DescriptorSetLayout> Layouts,
+			const FVulkanDescriptorRequirements& Requirements
+		) -> std::vector<vk::DescriptorSet>;
 
-		auto ResetPoolsForCurrentFrame() const -> void;
+		auto ResetPoolsForCurrentFrame() -> void;
 
 	private:
-		auto CreatePool() -> vk::DescriptorPool;
+		auto CreatePool(uint32 FrameIndex, const FVulkanDescriptorRequirements& Requirements, uint32 GrowthMaxSets) -> FVulkanDescriptorPool&;
+		auto GetCurrentPools() -> std::vector<std::unique_ptr<FVulkanDescriptorPool>>&;
 
 		FVulkanDevice& Device;
 
-		std::array<vk::DescriptorPool, kFrameInFlight> Pools;
+		std::array<std::vector<std::unique_ptr<FVulkanDescriptorPool>>, kFrameInFlight> Pools;
+		std::array<uint32, kFrameInFlight> PoolExpansions = {};
 	};
 } // namespace Durin::VulkanRHI
 
@@ -234,4 +262,3 @@ struct std::hash<Durin::VulkanRHI::FVulkanDescriptorSetsLayoutInfo>
 		return Info.Hash.HashValue;
 	}
 };
-
