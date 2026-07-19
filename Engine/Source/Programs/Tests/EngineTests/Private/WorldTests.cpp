@@ -17,6 +17,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
+#include "IScene.h"
 #include "Misc/Paths.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Threading/RunnableThread.h"
@@ -501,6 +502,23 @@ TEST(FWorldTests, BuiltInActorsOwnTheirDefaultComponents)
 	EXPECT_EQ(Light->FindComponentByClass<Durin::DDirectionalLightComponent>(), LightComponent);
 	EXPECT_EQ(Light->GetRootComponent(), LightComponent);
 	EXPECT_EQ(LightComponent->GetOwner(), Light);
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
+{
+	Durin::FDirectionalLightSceneData SceneData;
+	EXPECT_FLOAT_EQ(SceneData.Intensity, 0.0f);
+	EXPECT_FLOAT_EQ(SceneData.AmbientIntensity, 0.0f);
+
+	Durin::DWorld* World = CreateWorld();
+	Durin::ADirectionalLightActor* Light = World->SpawnActor<Durin::ADirectionalLightActor>("DirectionalLight");
+	ASSERT_NE(Light, nullptr);
+	SceneData = Light->GetLightComponent()->GetSceneData();
+	EXPECT_FLOAT_EQ(SceneData.Intensity, 1.0f);
+	EXPECT_FLOAT_EQ(SceneData.AmbientIntensity, 0.08f);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();

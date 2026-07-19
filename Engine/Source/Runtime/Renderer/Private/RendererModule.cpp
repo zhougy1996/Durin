@@ -1504,7 +1504,7 @@ namespace Durin
 		const ERenderMode RenderMode = GRenderMode.load(std::memory_order_relaxed);
 		const ERasterMode RasterMode = GRasterMode.load(std::memory_order_relaxed);
 		FDirectionalLightSceneData Light;
-		if (!Scene->GetDirectionalLight(Light)) Light.AmbientIntensity = 0.08f;
+		Scene->GetDirectionalLight(Light);
 		ForEachStaticMeshProxy(Scene, [&CommandList, &View, &Light, RenderMode, RasterMode](FStaticMeshSceneProxy& Proxy) {
 			if (RenderMode == ERenderMode::Unlit || RenderMode == ERenderMode::Lit)
 			{

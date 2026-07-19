@@ -14,8 +14,10 @@ namespace Durin
 	{
 		FVector3 Direction{-0.5, -0.5, -1.0};
 		FVector3f Color{1.0f, 1.0f, 1.0f};
-		float Intensity = 1.0f;
-		float AmbientIntensity = 0.08f;
+		// A scene without an explicit light component must remain unlit. Light
+		// components populate these values when they register with the scene.
+		float Intensity = 0.0f;
+		float AmbientIntensity = 0.0f;
 	};
 
 	class IScene
