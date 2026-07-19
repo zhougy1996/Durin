@@ -50,7 +50,8 @@ struct LineStyleUniform
     float3 Padding;
 };
 
-[[vk::binding(0, 0)]] ConstantBuffer<LineStyleUniform> LineStyle;
+// Module-level resources need distinct bindings so per-entry-point reflection can identify the one actually used.
+[[vk::binding(1, 0)]] ConstantBuffer<LineStyleUniform> Style;
 
 [shader("vertex")]
 LineVSOutput LineVertexMain(LineVSInput input)
@@ -65,6 +66,6 @@ LineVSOutput LineVertexMain(LineVSInput input)
 float4 LineFragmentMain(LineVSOutput input) : SV_Target
 {
     float4 color = input.color;
-    color.a *= LineStyle.AlphaScale;
+    color.a *= Style.AlphaScale;
     return color;
 }
