@@ -24,6 +24,7 @@ namespace Durin::MonaImGui
 				for (int Axis = 0; Axis < 3; ++Axis)
 				{
 					ImGui::TableNextColumn();
+					ImGui::AlignTextToFramePadding();
 					ImGui::TextColored(AxisColors[Axis], "%s", AxisNames[Axis]);
 					ImGui::SameLine(0.0f, ScaleUI(3.0f));
 					ImGui::SetNextItemWidth(-FLT_MIN);
