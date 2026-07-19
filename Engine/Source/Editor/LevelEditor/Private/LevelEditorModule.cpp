@@ -8,7 +8,9 @@
 #include "Actors/CameraActor.h"
 #include "CameraEditorCustomizations.h"
 #include "Components/CameraComponent.h"
+#include "Components/DirectionalLightComponent.h"
 #include "Components/SplineComponent.h"
+#include "DirectionalLightEditorCustomizations.h"
 #include "SplineEditorCustomizations.h"
 
 namespace Durin
@@ -24,6 +26,7 @@ namespace Durin
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
 		const std::shared_ptr<IObjectDetailsCustomization> CameraDetails = CreateCameraDetailsCustomization();
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer()));
+		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DDirectionalLightComponent::StaticClass(), CreateDirectionalLightComponentVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ACameraActor::StaticClass(), CameraDetails));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DCameraComponent::StaticClass(), CameraDetails));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer()));

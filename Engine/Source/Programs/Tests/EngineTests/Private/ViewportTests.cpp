@@ -1,15 +1,18 @@
 #include "Actors/CameraActor.h"
+#include "Actors/DirectionalLightActor.h"
 #include "Actors/StaticMeshActor.h"
 #include "AssetSystem.h"
 #include "CameraEditorCustomizations.h"
 #include "Client/ViewportClient.h"
 #include "Components/CameraComponent.h"
+#include "Components/DirectionalLightComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SplineComponent.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DirectionalLightEditorCustomizations.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -554,6 +557,38 @@ TEST(FCameraComponentVisualizerTests, UsesTheActualFarPlaneAtExtremeFieldOfView)
 	EXPECT_TRUE(std::ranges::all_of(Collector.GetLines(), [](const Durin::FEditorVisualizationLine& Line) {
 		return std::isfinite(glm::length(Line.End - Line.Start)) && glm::length(Line.End - Line.Start) > Durin::kSmallNumber;
 	}));
+}
+
+TEST(FDirectionalLightComponentVisualizerTests, DrawsSelectableIconAndSelectedDirectionCue)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "DirectionalLightVisualizerWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "DirectionalLightVisualizerLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<Durin::ADirectionalLightActor>("DirectionalLight");
+	ASSERT_NE(Actor, nullptr);
+	Durin::FLevelEditorViewportClient Client;
+	Actor->GetLightComponent()->SetWorldLocation(Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 10.0);
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	const std::shared_ptr<Durin::IComponentEditorVisualizer> Visualizer = Durin::CreateDirectionalLightComponentVisualizer();
+	ASSERT_NE(Visualizer, nullptr);
+
+	Durin::FEditorVisualizationCollector Unselected;
+	Visualizer->DrawVisualization(Actor->GetLightComponent(), {View, Level, false, false, false}, Unselected);
+	ASSERT_EQ(Unselected.GetIcons().size(), 1u);
+	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::EViewOverlayIcon::DirectionalLight);
+	EXPECT_TRUE(Unselected.GetLines().empty());
+
+	Durin::FEditorVisualizationCollector Selected;
+	Visualizer->DrawVisualization(Actor->GetLightComponent(), {View, Level, true, false, true}, Selected);
+	ASSERT_EQ(Selected.GetIcons().size(), 1u);
+	ASSERT_EQ(Selected.GetLines().size(), 5u);
+	const Durin::FVector3 Origin = Actor->GetLightComponent()->GetWorldLocation();
+	const Durin::FVector3 Forward = Actor->GetLightComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward;
+	EXPECT_NEAR(glm::length(Selected.GetLines().front().Start - Origin), 0.0, 1.e-6);
+	EXPECT_GT(glm::dot(Selected.GetLines().front().End - Origin, Forward), 0.0);
+	EXPECT_TRUE(Selected.GetIcons().front().bDepthIndependentHit);
 }
 
 TEST(FLevelEditorViewportClientTests, PicksVisualizerForActorWithoutStaticMesh)

@@ -670,13 +670,14 @@ namespace Durin
 			}
 		}
 
-		auto BuildCameraIconAtlasPixels() -> std::array<uint8, 64 * 64 * 4>
+		auto BuildEditorIconAtlasPixels() -> std::array<uint8, 128 * 64 * 4>
 		{
 			// A deterministic supersampled mask keeps this editor-only glyph crisp and avoids
 			// introducing a separately licensed source image or a game-thread asset dependency.
 			constexpr uint32 Size = 64;
 			constexpr uint32 SamplesPerAxis = 4;
-			std::array<uint8, Size * Size * 4> Pixels{};
+			constexpr uint32 AtlasWidth = Size * 2;
+			std::array<uint8, AtlasWidth * Size * 4> Pixels{};
 			auto InsideCircle = [](float X, float Y, float CenterX, float CenterY, float Radius) {
 				const float DX = X - CenterX;
 				const float DY = Y - CenterY;
@@ -706,7 +707,34 @@ namespace Durin
 							if ((bBody || bReels || InsideLens(PX, PY)) && !bReelHole) ++CoveredSamples;
 						}
 					}
-					const size_t Offset = (static_cast<size_t>(Y) * Size + X) * 4;
+					const size_t Offset = (static_cast<size_t>(Y) * AtlasWidth + X) * 4;
+					Pixels[Offset + 0] = 255;
+					Pixels[Offset + 1] = 255;
+					Pixels[Offset + 2] = 255;
+					Pixels[Offset + 3] = static_cast<uint8>(CoveredSamples * 255 / (SamplesPerAxis * SamplesPerAxis));
+				}
+			}
+			// The second cell is a sun glyph: a solid disc plus eight separated rays.
+			for (uint32 Y = 0; Y < Size; ++Y)
+			{
+				for (uint32 X = 0; X < Size; ++X)
+				{
+					uint32 CoveredSamples = 0;
+					for (uint32 SampleY = 0; SampleY < SamplesPerAxis; ++SampleY)
+					{
+						for (uint32 SampleX = 0; SampleX < SamplesPerAxis; ++SampleX)
+						{
+							const float PX = static_cast<float>(X) + (static_cast<float>(SampleX) + 0.5f) / SamplesPerAxis - 32.0f;
+							const float PY = static_cast<float>(Y) + (static_cast<float>(SampleY) + 0.5f) / SamplesPerAxis - 32.0f;
+							const float Radius = std::sqrt(PX * PX + PY * PY);
+							const float Angle = std::atan2(PY, PX);
+							const float RayAxisDistance = std::abs(std::sin(Angle * 4.0f)) * Radius;
+							const bool bDisc = Radius <= 12.0f;
+							const bool bRay = Radius >= 17.0f && Radius <= 27.0f && RayAxisDistance <= 2.2f;
+							if (bDisc || bRay) ++CoveredSamples;
+						}
+					}
+					const size_t Offset = (static_cast<size_t>(Y) * AtlasWidth + Size + X) * 4;
 					Pixels[Offset + 0] = 255;
 					Pixels[Offset + 1] = 255;
 					Pixels[Offset + 2] = 255;
@@ -756,14 +784,14 @@ namespace Durin
 			Initializer.bEnableDepthTest = true;
 			GOverlayIconState.VisiblePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("OverlayIconVisiblePipeline", Initializer);
 
-			const std::array<uint8, 64 * 64 * 4> Pixels = BuildCameraIconAtlasPixels();
-			FRHITextureCreateDesc TextureDesc = FRHITextureCreateDesc::Create2D("EditorOverlayIconAtlas", 64, 64, EPixelFormat::RGBA8_UNORM)
+			const std::array<uint8, 128 * 64 * 4> Pixels = BuildEditorIconAtlasPixels();
+			FRHITextureCreateDesc TextureDesc = FRHITextureCreateDesc::Create2D("EditorOverlayIconAtlas", 128, 64, EPixelFormat::RGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::ShaderResource);
 			GOverlayIconState.Atlas = GDynamicRHI->RHICreateTexture(CommandList, TextureDesc);
 			if (GOverlayIconState.Atlas != nullptr)
 			{
-				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 64, 64);
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, GOverlayIconState.Atlas, 0, Region, 64 * 4, Pixels.data());
+				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 128, 64);
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, GOverlayIconState.Atlas, 0, Region, 128 * 4, Pixels.data());
 			}
 			GOverlayIconState.AtlasSampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
 		}
@@ -1196,7 +1224,9 @@ namespace Durin
 			Indices.reserve(View.OverlayIcons.size() * 6);
 			for (const FViewOverlayIcon& Icon : View.OverlayIcons)
 			{
-				if (Icon.Icon != EViewOverlayIcon::Camera || !std::isfinite(Icon.SizePixels) || Icon.SizePixels <= 0.0f) continue;
+				if (!std::isfinite(Icon.SizePixels) || Icon.SizePixels <= 0.0f) continue;
+				const float MinU = Icon.Icon == EViewOverlayIcon::DirectionalLight ? 0.5f : 0.0f;
+				const float MaxU = MinU + 0.5f;
 				const FVector4 Clip = View.ViewProjectionMatrix * FVector4(Icon.WorldPosition, 1.0);
 				if (!std::isfinite(Clip.x) || !std::isfinite(Clip.y) || !std::isfinite(Clip.z) || !std::isfinite(Clip.w)
 					|| Clip.w <= 1.e-8 || Clip.z < 0.0) continue;
@@ -1211,10 +1241,10 @@ namespace Durin
 					);
 				};
 				const uint32 Base = static_cast<uint32>(Vertices.size());
-				Vertices.push_back({MakePosition(-HalfNdcX, -HalfNdcY), {0.0f, 0.0f}, Icon.Color});
-				Vertices.push_back({MakePosition(HalfNdcX, -HalfNdcY), {1.0f, 0.0f}, Icon.Color});
-				Vertices.push_back({MakePosition(-HalfNdcX, HalfNdcY), {0.0f, 1.0f}, Icon.Color});
-				Vertices.push_back({MakePosition(HalfNdcX, HalfNdcY), {1.0f, 1.0f}, Icon.Color});
+				Vertices.push_back({MakePosition(-HalfNdcX, -HalfNdcY), {MinU, 0.0f}, Icon.Color});
+				Vertices.push_back({MakePosition(HalfNdcX, -HalfNdcY), {MaxU, 0.0f}, Icon.Color});
+				Vertices.push_back({MakePosition(-HalfNdcX, HalfNdcY), {MinU, 1.0f}, Icon.Color});
+				Vertices.push_back({MakePosition(HalfNdcX, HalfNdcY), {MaxU, 1.0f}, Icon.Color});
 				Indices.insert(Indices.end(), {Base, Base + 1, Base + 2, Base + 2, Base + 1, Base + 3});
 			}
 			if (Vertices.empty() || Indices.empty()) return;

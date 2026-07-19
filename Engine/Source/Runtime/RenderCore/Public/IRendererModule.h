@@ -39,7 +39,8 @@ namespace Durin
 
 	enum class EViewOverlayIcon : uint8
 	{
-		Camera
+		Camera,
+		DirectionalLight
 	};
 
 	enum class EViewOverlayLinePattern : uint8
