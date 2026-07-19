@@ -8,6 +8,8 @@
 #include "Actors/CameraActor.h"
 #include "CameraEditorCustomizations.h"
 #include "Components/CameraComponent.h"
+#include "Components/SplineComponent.h"
+#include "SplineEditorCustomizations.h"
 
 namespace Durin
 {
@@ -24,6 +26,8 @@ namespace Durin
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ACameraActor::StaticClass(), CameraDetails));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DCameraComponent::StaticClass(), CameraDetails));
+		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization()));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
 	}
 

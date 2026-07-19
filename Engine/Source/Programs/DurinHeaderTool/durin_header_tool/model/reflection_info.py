@@ -346,8 +346,14 @@ def _source_declared_type(source: str, field_cursor: clang.cindex.Cursor) -> str
         line = lines[index].strip()
         if field_cursor.spelling not in line:
             continue
-        line = line.split("=", 1)[0].rstrip(";").strip()
-        match = re.match(rf"(.+?)\s+{re.escape(field_cursor.spelling)}(?:\s*\[[^\]]+\])?$", line)
+        line = line.rstrip(";").strip()
+        # Preserve the declarator while accepting both assignment and brace initialization.
+        # Clang canonicalizes Durin math aliases to GLM types, so their source spelling is
+        # required to resolve the externally registered FVector/FQuat/FTransform structs.
+        match = re.match(
+            rf"(.+?)\s+{re.escape(field_cursor.spelling)}(?:\s*\[[^\]]+\])?(?:\s*(?:=.*|\{{.*\}}))?$",
+            line,
+        )
         if match:
             return _normalize_type_spelling(match.group(1))
     return ""
@@ -358,8 +364,8 @@ def _make_property_from_source_decl(
     annotation: str,
     exported_symbols: dict[str, object] | None,
 ) -> ReflectedPropertyInfo | None:
-    line = source_line.split("=", 1)[0].rstrip(";").strip()
-    match = re.match(r"(.+?)\s+(\w+)(?:\s*\[(\d+)\])?$", line)
+    line = source_line.rstrip(";").strip()
+    match = re.match(r"(.+?)\s+(\w+)(?:\s*\[(\d+)\])?(?:\s*(?:=.*|\{.*\}))?$", line)
     if not match:
         return None
     type_spelling = _normalize_type_spelling(match.group(1))

@@ -1,0 +1,11 @@
+# Spline System
+
+Durin represents spatial paths with `FSplineCurve` and exposes them to the scene through `DSplineComponent`. The value curve owns reflected control-point data and a transient arc-length cache; the component owns scene transform conversion, package dirtiness, and the runtime/editor-facing API. Rendering, animation, and gameplay systems consume spline queries rather than modifying the curve cache directly.
+
+Each segment uses the type of its starting control point. `Linear` performs linear interpolation, `Constant` holds the starting value until the next point, `Curve` uses authored arrive/leave tangents, and `CurveAuto` derives a shared tangent from neighboring positions. Curve tangents are derivatives with respect to the segment-local parameter in `[0, 1]`, not normalized directions. Positions, tangents, rotations, and scales are authored in component-local space. Point rotations are interpolated authored orientations; callers that need tangent-aligned orientation should combine the returned direction with their own frame policy.
+
+The global parameter domain is `[0, NumSegments]` for an open curve. Closed curves wrap parameters and include the last-to-first segment. A fixed-step reparameterization table stores cumulative local-space arc length and maps distance back to the global parameter. Distance queries therefore remain stable when the component moves. Non-uniform component scale affects returned world positions and tangents but deliberately does not redefine the local spline length.
+
+All mutations go through `DSplineComponent` or `FSplineCurve` setters. They rebuild the local cache and, at component level, dirty the containing package. Archive loading writes reflected fields directly, so `DSplineComponent::PostLoad` explicitly rebuilds the cache. `FSplineCurve::UpdateSpline` provides the same repair point for other archive owners.
+
+The Level Editor registers a spline details customization and component visualizer. The details view edits control-point transforms, manual tangents, point type, ordering, loop state, and reparameterization quality. The viewport draws a sampled curve plus selected control points and tangent handles. Current visualization hits identify the owning component only; interactive control-point dragging requires a future sub-element hit identifier and visualizer input contract.

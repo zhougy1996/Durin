@@ -92,6 +92,14 @@ class ReflectionGenerationTests(unittest.TestCase):
             engine_content,
         )
 
+    def test_brace_initialized_intrinsic_struct_properties_are_generated(self):
+        spline_types_cpp = utils.get_module_dht_output_dir("Engine") / "SplineTypes.gen.cpp"
+        content = spline_types_cpp.read_text(encoding="utf-8")
+
+        for property_name in ("Position", "ArriveTangent", "LeaveTangent", "Rotation", "Scale"):
+            self.assertIn(f'NewProp_{property_name} = {{ "{property_name}",', content)
+        self.assertIn("Z_Construct_DStruct_Durin_FVector3", content)
+
     def test_manifest_records_generator_contract(self):
         manifest_path = utils.get_module_manifest_file_path("Engine")
         data = json.loads(manifest_path.read_text(encoding="utf-8"))

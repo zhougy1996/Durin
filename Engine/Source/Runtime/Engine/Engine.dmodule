@@ -28,6 +28,7 @@
         "Public/Components/DirectionalLightComponent.h",
         "Public/Components/PrimitiveComponent.h",
         "Public/Components/SceneComponent.h",
+        "Public/Components/SplineComponent.h",
         "Public/Components/MeshComponent.h",
         "Public/Components/PhysicsComponent.h",
         "Public/Components/StaticMeshComponent.h",
@@ -35,6 +36,8 @@
         "Public/Texture/Texture2D.h",
         "Public/Materials/MaterialInterface.h",
         "Public/Materials/Material.h",
-        "Public/Materials/MaterialInstance.h"
+        "Public/Materials/MaterialInstance.h",
+        "Public/Spline/SplineTypes.h",
+        "Public/Spline/SplineCurve.h"
     ]
 }

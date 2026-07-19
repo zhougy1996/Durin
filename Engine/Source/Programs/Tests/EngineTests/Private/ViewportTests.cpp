@@ -6,6 +6,7 @@
 #include "Components/CameraComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SplineComponent.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -24,6 +25,7 @@
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "SplineEditorCustomizations.h"
 #include "Viewport/ViewportCameraTransform.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Yaml/Yaml.h"
@@ -376,6 +378,29 @@ TEST(FSceneViewProjectionTests, ProjectsAndBuildsRayFromSceneView)
 	ExpectVectorNear(Direction, {0.0, 0.0, 1.0});
 	View.ViewProjectionMatrix = Durin::FMatrix(0.0);
 	EXPECT_FALSE(Durin::SceneViewProjection::BuildViewportRay(View, ViewportPosition, Origin, Direction));
+}
+
+TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveAndControlPointLines)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "SplineActor");
+	auto* Spline = Durin::Cast<Durin::DSplineComponent>(Actor->AddInstanceComponent(Durin::DSplineComponent::StaticClass(), "Spline"));
+	ASSERT_NE(Spline, nullptr);
+	Durin::FSceneView View;
+	View.ViewportWidth = 800;
+	View.ViewportHeight = 600;
+	Durin::FEditorVisualizationCollector Collector;
+	const std::shared_ptr<Durin::IComponentEditorVisualizer> Visualizer = Durin::CreateSplineComponentVisualizer();
+	Visualizer->DrawVisualization(Spline, {View, nullptr, true, false, true}, Collector);
+
+	ASSERT_FALSE(Collector.GetLines().empty());
+	EXPECT_TRUE(std::ranges::all_of(Collector.GetLines(), [Actor, Spline](const Durin::FEditorVisualizationLine& Line) {
+		return Line.Actor == Actor && Line.Component == Spline;
+	}));
+	EXPECT_GT(Collector.GetLines().size(), static_cast<size_t>(Spline->GetReparamStepsPerSegment()));
+
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
 }
 
 TEST(FLevelEditorCustomizationRegistryTests, RejectsDuplicatesFindsBaseClassAndUnregisters)
