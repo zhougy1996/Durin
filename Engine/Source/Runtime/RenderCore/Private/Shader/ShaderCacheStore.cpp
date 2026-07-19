@@ -243,6 +243,13 @@ namespace Durin
 
 		for (uint32 EntryPointIndex = 0; EntryPointIndex < EntryPointCount; ++EntryPointIndex)
 		{
+			const std::string SidecarPath = ReflectionPath(VirtualShaderPath, EntryPointToString(Options.EntryPoints[EntryPointIndex]), VariantKey);
+			// Missing artifacts are an expected cache miss, so avoid the generic file loader warning.
+			if (!FFileHelper::FileExists(CachePaths[EntryPointIndex]) || !FFileHelper::FileExists(SidecarPath))
+			{
+				return false;
+			}
+
 			std::vector<uint8> ShaderBytes;
 			if (!FFileHelper::LoadFileToArray(ShaderBytes, CachePaths[EntryPointIndex]))
 			{
@@ -257,7 +264,6 @@ namespace Durin
 				std::memcpy(CompiledShader.Code->data(), ShaderBytes.data(), ShaderBytes.size());
 			}
 
-			const std::string SidecarPath = ReflectionPath(VirtualShaderPath, EntryPointToString(Options.EntryPoints[EntryPointIndex]), VariantKey);
 			if (!LoadShaderReflection(SidecarPath, CompiledShader))
 			{
 				return false;
