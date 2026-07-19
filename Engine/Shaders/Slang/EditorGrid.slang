@@ -35,10 +35,10 @@ GridVSOutput VertexMain(GridVSInput input)
     return output;
 }
 
-float GridLine(float2 worldPosition, float spacing)
+float GridLine(float2 worldPosition, float spacing, float2 worldPositionWidth)
 {
     float2 coordinate = worldPosition / spacing;
-    float2 width = max(fwidth(coordinate), float2(1.0e-5));
+    float2 width = max(worldPositionWidth / spacing, float2(1.0e-5));
     float2 distanceToLine = abs(frac(coordinate - 0.5) - 0.5) / width;
     return 1.0 - min(min(distanceToLine.x, distanceToLine.y), 1.0);
 }
@@ -59,14 +59,20 @@ float4 FragmentMain(GridVSOutput input) : SV_Target
     // disappear before the projected cells collapse into a noisy horizon band.
     float angleFade = smoothstep(0.025, 0.16, abs(toView.z) / max(distanceToView, 1.0e-5));
 
-    float worldUnitsPerPixel = max(length(ddx(input.worldPosition.xy)), length(ddy(input.worldPosition.xy)));
+    float2 worldPositionDx = ddx(input.worldPosition.xy);
+    float2 worldPositionDy = ddy(input.worldPosition.xy);
+    // Evaluate derivatives before selecting the discrete decade spacing. Taking fwidth()
+    // after that selection lets a 2x2 pixel quad straddle a 10x LOD jump and produces a
+    // false sawtooth line along the transition boundary.
+    float2 worldPositionWidth = max(abs(worldPositionDx) + abs(worldPositionDy), float2(1.0e-5));
+    float worldUnitsPerPixel = max(length(worldPositionDx), length(worldPositionDy));
     float logarithmicSpacing = log10(max(worldUnitsPerPixel * 24.0, 1.0e-4));
     float lowerSpacing = pow(10.0, floor(logarithmicSpacing));
     float transition = smoothstep(0.15, 0.85, frac(logarithmicSpacing));
 
-    float lowerLine = GridLine(input.worldPosition.xy, lowerSpacing);
-    float upperLine = GridLine(input.worldPosition.xy, lowerSpacing * 10.0);
-    float nextMajorLine = GridLine(input.worldPosition.xy, lowerSpacing * 100.0);
+    float lowerLine = GridLine(input.worldPosition.xy, lowerSpacing, worldPositionWidth);
+    float upperLine = GridLine(input.worldPosition.xy, lowerSpacing * 10.0, worldPositionWidth);
+    float nextMajorLine = GridLine(input.worldPosition.xy, lowerSpacing * 100.0, worldPositionWidth);
     float minorAmount = lowerLine * (1.0 - transition);
     float upperMinorAmount = upperLine * transition;
     float majorAmount = upperLine * (1.0 - transition) + nextMajorLine * transition;
