@@ -383,6 +383,8 @@ class IntermediateLayoutTests(unittest.TestCase):
         self.assertIn("JOB_POOLS durin_dht=${DURIN_DHT_JOB_POOL_SIZE}", build_options)
         self.assertEqual(project_targets.count("JOB_POOL durin_dht"), 2)
         self.assertEqual(project_targets.count("--workers ${DURIN_DHT_WORKERS}"), 2)
+        self.assertIn("set(DURIN_DHT_LOG_LEVEL INFO CACHE STRING", build_options)
+        self.assertEqual(project_targets.count("--log ${DURIN_DHT_LOG_LEVEL}"), 2)
 
 
 if __name__ == "__main__":

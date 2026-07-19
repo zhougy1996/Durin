@@ -144,14 +144,14 @@ def _load_or_parse_header_export(
     if _is_header_current(old_manifest, new_manifest, header):
         symbols = _symbols_for_header_from_export(old_export_info, header)
         if symbols is not None:
-            logging.info(
+            logging.debug(
                 "[DHT] Export %s: reused %s from export (%d symbols)",
                 module_name,
                 header,
                 len(symbols),
             )
             return symbols
-        logging.info("[DHT] Export %s: cache miss for unchanged %s", module_name, header)
+        logging.debug("[DHT] Export %s: cache miss for unchanged %s", module_name, header)
 
     return None
 
@@ -162,7 +162,7 @@ def _build_module_export_from_manifest_cache(
     new_manifest: ModuleExportManifest,
     old_export_info: ModuleExportInfo,
     max_workers: int,
-) -> ModuleExportInfo:
+) -> tuple[ModuleExportInfo, int]:
     module_config = configs.get_module_config(module_name)
     export_info = ModuleExportInfo(Module=module_name)
     headers_to_parse: list[str] = []
@@ -176,7 +176,7 @@ def _build_module_export_from_manifest_cache(
 
     if headers_to_parse:
         worker_count = resolve_worker_count(len(headers_to_parse), max_workers)
-        logging.info(
+        logging.debug(
             "[DHT] Export %s: parsing %d headers with %d workers",
             module_name,
             len(headers_to_parse),
@@ -202,7 +202,7 @@ def _build_module_export_from_manifest_cache(
 
         for header, symbols, elapsed_ms in sorted(results, key=lambda result: module_config.reflect_headers.index(result[0])):
             parsed_symbols_by_header[header] = symbols
-            logging.info(
+            logging.debug(
                 "[DHT] Export %s: scanned %s (%d symbols) in %.0f ms",
                 module_name,
                 header,
@@ -214,7 +214,7 @@ def _build_module_export_from_manifest_cache(
             if header in parsed_symbols_by_header:
                 export_info.Symbols.update(parsed_symbols_by_header[header])
 
-    return export_info
+    return export_info, len(headers_to_parse)
 
 
 def generate_module_export_file(module_name: str, max_workers: int = 1) -> None:
@@ -227,15 +227,16 @@ def generate_module_export_file(module_name: str, max_workers: int = 1) -> None:
         save_module_export_manifest_file(new_manifest)
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         logging.info(
-            "[DHT] Export %s: inputs unchanged, skipped %d headers in %.0f ms",
+            "[DHT] Export %s: up to date (%d headers, %d symbols) in %.0f ms",
             module_name,
             len(new_manifest.ReflectHeaders),
+            len(old_export_info.Symbols),
             elapsed_ms,
         )
         return
 
-    logging.info("[DHT] Export %s: scanning %d reflected headers", module_name, len(new_manifest.ReflectHeaders))
-    export_info = _build_module_export_from_manifest_cache(
+    logging.debug("[DHT] Export %s: scanning %d reflected headers", module_name, len(new_manifest.ReflectHeaders))
+    export_info, parsed_header_count = _build_module_export_from_manifest_cache(
         module_name,
         old_manifest,
         new_manifest,
@@ -245,4 +246,11 @@ def generate_module_export_file(module_name: str, max_workers: int = 1) -> None:
     save_module_export_file(export_info)
     save_module_export_manifest_file(new_manifest)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-    logging.info("[DHT] Export %s: wrote %d symbols in %.0f ms", module_name, len(export_info.Symbols), elapsed_ms)
+    logging.info(
+        "[DHT] Export %s: updated %d/%d headers, wrote %d symbols in %.0f ms",
+        module_name,
+        parsed_header_count,
+        len(new_manifest.ReflectHeaders),
+        len(export_info.Symbols),
+        elapsed_ms,
+    )

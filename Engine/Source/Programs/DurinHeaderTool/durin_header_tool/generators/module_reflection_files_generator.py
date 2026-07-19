@@ -151,7 +151,7 @@ def _write_reflection_output(module_name: str, result: dict[str, object], manife
     utils.generate_file(output_dir / f"{header_filename}.gen.h", result["header_content"])
     utils.generate_file(output_dir / f"{header_filename}.gen.cpp", result["cpp_content"])
     manifest.resolved_symbol_dependencies[header] = result["resolved_symbol_dependencies"]
-    logging.info(
+    logging.debug(
         "[DHT] Reflection %s: wrote %s.gen.* (%d classes, %d properties) in %.0f ms",
         module_name,
         header_filename,
@@ -167,14 +167,14 @@ def _write_reflection_files(
     symbols: dict[str, object],
     manifest: ModuleManifest,
     max_workers: int,
-) -> None:
+) -> tuple[int, int]:
     output_dir = utils.get_module_dht_output_dir(module_name)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if headers_to_regenerate:
         worker_count = resolve_worker_count(len(headers_to_regenerate), max_workers)
         if worker_count > 1:
-            logging.info(
+            logging.debug(
                 "[DHT] Reflection %s: parsing %d headers with %d workers",
                 module_name,
                 len(headers_to_regenerate),
@@ -211,7 +211,7 @@ def _write_reflection_files(
         for result in sorted(results, key=lambda item: header_order[item["header"]]):
             _write_reflection_output(module_name, result, manifest)
     else:
-        logging.info(
+        logging.debug(
             "[DHT] Reflection %s: no headers require regeneration",
             module_name,
         )
@@ -227,11 +227,15 @@ def _write_reflection_files(
         "}\n"
     )
     utils.generate_file(output_dir / f"{module_name}.module.gen.cpp", module_source)
+    return (
+        sum(result["class_count"] for result in results) if headers_to_regenerate else 0,
+        sum(result["property_count"] for result in results) if headers_to_regenerate else 0,
+    )
 
 
 def generate_reflection_files(module_name: str, max_workers: int = 1) -> None:
     start_time = time.perf_counter()
-    logging.info("[DHT] Reflection %s: preparing manifest", module_name)
+    logging.debug("[DHT] Reflection %s: preparing manifest", module_name)
     old_manifest = _load_previous_manifest(module_name)
     new_manifest = make_new_module_manifest(module_name, old_manifest)
 
@@ -251,7 +255,7 @@ def generate_reflection_files(module_name: str, max_workers: int = 1) -> None:
         symbols,
     )
     if dep_exports_changed:
-        logging.info(
+        logging.debug(
             "[DHT] Reflection %s: dependency exports changed, %d/%d headers affected",
             module_name,
             len(headers_to_regenerate),
@@ -260,7 +264,7 @@ def generate_reflection_files(module_name: str, max_workers: int = 1) -> None:
 
     total_headers = len(new_manifest.reflect_headers)
     skipped_headers = total_headers - len(headers_to_regenerate)
-    logging.info(
+    logging.debug(
         "[DHT] Reflection %s: %d/%d headers require regeneration (%d skipped)",
         module_name,
         len(headers_to_regenerate),
@@ -270,9 +274,23 @@ def generate_reflection_files(module_name: str, max_workers: int = 1) -> None:
     if headers_to_regenerate and symbols is None:
         symbols = load_available_symbols(module_name)
     elif not headers_to_regenerate and symbols is None:
-        logging.info("[DHT] Reflection %s: no headers require regeneration, skipped symbols loading", module_name)
+        logging.debug("[DHT] Reflection %s: no headers require regeneration, skipped symbols loading", module_name)
 
-    _write_reflection_files(module_name, headers_to_regenerate, symbols or {}, new_manifest, max_workers)
+    class_count, property_count = _write_reflection_files(
+        module_name,
+        headers_to_regenerate,
+        symbols or {},
+        new_manifest,
+        max_workers,
+    )
     save_module_manifest_file(new_manifest)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-    logging.info("[DHT] Reflection %s: finished in %.0f ms", module_name, elapsed_ms)
+    logging.info(
+        "[DHT] Reflection %s: regenerated %d/%d headers (%d classes, %d properties) in %.0f ms",
+        module_name,
+        len(headers_to_regenerate),
+        total_headers,
+        class_count,
+        property_count,
+        elapsed_ms,
+    )

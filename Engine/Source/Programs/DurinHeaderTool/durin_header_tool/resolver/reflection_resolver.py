@@ -13,7 +13,7 @@ def load_available_symbols(module_name: str) -> dict[str, object]:
     if own_export_file.exists():
         symbols.update(load_module_export_file(own_export_file).Symbols)
     dep_modules = configs.collect_all_dependent_module_with_export_file(module_name)
-    logging.info("[DHT] Reflection %s: loading exports from %d modules", module_name, len(dep_modules))
+    logging.debug("[DHT] Reflection %s: loading exports from %d modules", module_name, len(dep_modules))
     for dep_module in dep_modules:
         export_file_path = utils.get_module_export_file_path(dep_module)
         if not export_file_path.exists():
@@ -26,7 +26,7 @@ def load_available_symbols(module_name: str) -> dict[str, object]:
             GeneratedHelperName=f"Z_Construct_DStruct_{qualified_name.replace('::', '_')}",
             Header="DObject/MathStructs.h", API="COREDOBJECT_API"
         ))
-    logging.info("[DHT] Reflection %s: loaded %d reflected symbols", module_name, len(symbols))
+    logging.debug("[DHT] Reflection %s: loaded %d reflected symbols", module_name, len(symbols))
     return symbols
 
 

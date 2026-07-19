@@ -35,6 +35,11 @@ and each uses at most four parser workers. `DURIN_DHT_JOB_POOL_SIZE` and
 `DURIN_DHT_WORKERS` are cache settings intended for measured preset or CI tuning;
 worker count is constrained to 1-8.
 
+DHT emits one INFO summary per module export/reflection command. Per-header timing,
+cache, dependency-loading, and worker details are DEBUG-only. Set the
+`DURIN_DHT_LOG_LEVEL` cache setting to `DEBUG` for diagnostics or `WARNING` for
+Ninja-only progress unless DHT reports a problem.
+
 Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMake/SandBoxSetup.cmake` run before that helper and may perform project-specific setup such as third-party registration.
 
 `add_durin_module(...)` imports generated per-module CMake metadata, wires reflection-generated sources and export files, applies shared PCH settings, and builds the resulting shared or static library.

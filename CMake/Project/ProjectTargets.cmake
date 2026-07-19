@@ -56,7 +56,7 @@ function(add_durin_module module_name)
 		add_custom_command(
 			OUTPUT "${_durin_module_export_stamp}"
 			BYPRODUCTS "${module_export_file}" "${module_export_manifest_file}"
-			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} --workers ${DURIN_DHT_WORKERS} ${DURIN_DHT_CONTEXT_ARGS} ${DURIN_DHT_PROJECT_FILE_ARGS}
+			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} --workers ${DURIN_DHT_WORKERS} --log ${DURIN_DHT_LOG_LEVEL} ${DURIN_DHT_CONTEXT_ARGS} ${DURIN_DHT_PROJECT_FILE_ARGS}
 			COMMAND ${CMAKE_COMMAND} -E touch "${_durin_module_export_stamp}"
 			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}" "${DURIN_DHT_TOOL_FINGERPRINT_FILE}"
 			COMMENT "[DHT] Generating export metadata for ${module_name}"
@@ -67,7 +67,7 @@ function(add_durin_module module_name)
 		add_custom_command(
 			OUTPUT "${_durin_module_reflection_stamp}"
 			BYPRODUCTS ${module_generated_srcs} "${module_manifest_file}"
-			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} --workers ${DURIN_DHT_WORKERS} ${DURIN_DHT_CONTEXT_ARGS} ${DURIN_DHT_PROJECT_FILE_ARGS}
+			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} --workers ${DURIN_DHT_WORKERS} --log ${DURIN_DHT_LOG_LEVEL} ${DURIN_DHT_CONTEXT_ARGS} ${DURIN_DHT_PROJECT_FILE_ARGS}
 			COMMAND ${CMAKE_COMMAND} -E touch "${_durin_module_reflection_stamp}"
 			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}" "${DURIN_DHT_TOOL_FINGERPRINT_FILE}" ${module_reflection_export_dependencies} ${module_export_file}
 			COMMENT "[DHT] Generating reflection files for ${module_name}"
