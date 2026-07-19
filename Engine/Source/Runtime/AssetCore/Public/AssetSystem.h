@@ -63,7 +63,9 @@ namespace Durin::Asset
 		bool bLoaded = false;
 		bool bLoading = false;
 
-		auto CanDelete() const -> bool { return DirectReferencers.empty() && !bLoaded && !bLoading; }
+		// A loaded package is cache state, not a usage claim. Deletion safely unloads it after
+		// persistent referencers have been ruled out.
+		auto CanDelete() const -> bool { return DirectReferencers.empty() && !bLoading; }
 	};
 
 	using FAssetMoveContributor = std::function<FAssetResult(DObject*, const FAssetPath&, const FAssetPath&, FAssetMoveContribution&)>;

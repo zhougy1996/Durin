@@ -797,8 +797,14 @@ namespace Durin::Asset
 		if (!Result) return Result;
 		if (!Analysis.DirectReferencers.empty())
 			return Error(EAssetError::InUse, std::format("Asset {} is referenced by {} asset(s).", Path.ToString(), Analysis.DirectReferencers.size()));
-		if (Analysis.bLoaded) return Error(EAssetError::InUse, "Asset is loaded and may still be used by the editor or runtime.");
 		if (Analysis.bLoading) return Error(EAssetError::InUse, "Asset is currently loading.");
+		if (Analysis.bLoaded)
+		{
+			// LoadedPackages is a residency cache. Once persistent package references are gone,
+			// keeping that cache entry must not force users to restart before deleting an asset.
+			Result = UnloadPackage(Path);
+			if (!Result) return Result;
+		}
 
 		const FAssetData* Data = Registry.FindAsset(Path);
 		if (!Data) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));

@@ -292,7 +292,7 @@ TEST(FPackageAssetTests, DeletesUnreferencedAssetAndRegistryEntry)
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
 }
 
-TEST(FPackageAssetTests, RejectsDeletingLoadedAsset)
+TEST(FPackageAssetTests, UnloadsAndDeletesLoadedUnreferencedAsset)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath Path;
@@ -300,9 +300,15 @@ TEST(FPackageAssetTests, RejectsDeletingLoadedAsset)
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-	EXPECT_EQ(Durin::Asset::DeleteAsset(Path).Error, Durin::Asset::EAssetError::InUse);
-	EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "LoadedDelete.dasset"));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	Durin::Asset::FAssetDeleteAnalysis Analysis;
+	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(Path, Analysis));
+	EXPECT_TRUE(Analysis.bLoaded);
+	EXPECT_TRUE(Analysis.CanDelete());
+
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
+	EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "LoadedDelete.dasset"));
 }
 
 TEST(FPackageAssetTests, RejectsDeletingReferencedAssetWithoutChangingDisk)
@@ -323,7 +329,9 @@ TEST(FPackageAssetTests, RejectsDeletingReferencedAssetWithoutChangingDisk)
 	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(DependencyPath, Analysis));
 	ASSERT_EQ(Analysis.DirectReferencers.size(), 1u);
 	EXPECT_EQ(Analysis.DirectReferencers.front(), OwnerPath);
+	EXPECT_FALSE(Analysis.CanDelete());
 	EXPECT_EQ(Durin::Asset::DeleteAsset(DependencyPath).Error, Durin::Asset::EAssetError::InUse);
+	EXPECT_NE(Durin::Asset::FindLoadedPackage(DependencyPath), nullptr);
 	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAsset(DependencyPath), nullptr);
 	EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "DeleteDependency.dasset"));
 }

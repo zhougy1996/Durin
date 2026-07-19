@@ -1280,32 +1280,53 @@ namespace Durin
 		if (ImGui::BeginPopupModal("Delete Content", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
 			ImGui::Text("Permanently delete %zu selected item%s?", Selection.size(), Selection.size() == 1 ? "" : "s");
-			ImGui::TextDisabled("Assets with external references will be blocked. This cannot be undone.");
+			ImGui::TextDisabled("Loaded assets will be unloaded automatically. This cannot be undone.");
 			bool bBlocked = false;
+			bool bWillUnload = false;
 			for (const FContentBrowserItem& Item : Items)
 			{
 				if (!Selection.contains(Item.StableId()) || Item.Kind != EContentBrowserItemKind::Asset) continue;
 				FAssetPath Path;
 				Asset::FAssetDeleteAnalysis Analysis;
-				if (FAssetPath::TryCreate(Item.VirtualPath, Path))
+				if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
 				{
-					const Asset::FAssetResult Result = Asset::AnalyzeAssetDeletion(Path, Analysis);
-					if (!Result || !Analysis.CanDelete())
+					bBlocked = true;
+					ImGui::TextWrapped("%s has an invalid asset path.", Item.Name.c_str());
+					continue;
+				}
+
+				const Asset::FAssetResult Result = Asset::AnalyzeAssetDeletion(Path, Analysis);
+				if (!Result)
+				{
+					bBlocked = true;
+					ImGui::TextWrapped("%s: %s", Item.Name.c_str(), Result.Message.c_str());
+				}
+				else if (Analysis.bLoading)
+				{
+					bBlocked = true;
+					ImGui::TextWrapped("%s is currently loading. Try again when loading finishes.", Item.Name.c_str());
+				}
+				else if (!Analysis.DirectReferencers.empty())
+				{
+					bBlocked = true;
+					ImGui::TextWrapped("%s is referenced by:", Item.Name.c_str());
+					const size_t VisibleReferencerCount = std::min<size_t>(Analysis.DirectReferencers.size(), 4);
+					for (size_t Index = 0; Index < VisibleReferencerCount; ++Index)
 					{
-						bBlocked = true;
-						if (!Result)
-							ImGui::TextWrapped("%s: %s", Item.Name.c_str(), Result.Message.c_str());
-						else if (Analysis.bLoaded)
-							ImGui::TextWrapped("%s is loaded by the editor or runtime.", Item.Name.c_str());
-						else if (Analysis.bLoading)
-							ImGui::TextWrapped("%s is currently loading.", Item.Name.c_str());
-						else
-							ImGui::TextWrapped("%s is referenced by %zu asset(s).", Item.Name.c_str(), Analysis.DirectReferencers.size());
+						ImGui::BulletText("%s", Analysis.DirectReferencers[Index].ToString().c_str());
 					}
+					if (VisibleReferencerCount < Analysis.DirectReferencers.size())
+						ImGui::TextDisabled("... and %zu more", Analysis.DirectReferencers.size() - VisibleReferencerCount);
+					ImGui::TextDisabled("Remove the references and save those assets before deleting.");
+				}
+				else if (Analysis.bLoaded)
+				{
+					bWillUnload = true;
+					ImGui::TextWrapped("%s is loaded and will be unloaded before deletion.", Item.Name.c_str());
 				}
 			}
 			ImGui::BeginDisabled(bBlocked);
-			if (MonaImGui::DialogButton("Delete"))
+			if (MonaImGui::DialogButton(bWillUnload ? "Unload & Delete" : "Delete"))
 			{
 				DeleteSelection();
 				ImGui::CloseCurrentPopup();
