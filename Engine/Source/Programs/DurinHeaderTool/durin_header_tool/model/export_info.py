@@ -7,6 +7,7 @@ from durin_header_tool.io import FileFingerprint
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 
 EXPORT_SCHEMA_VERSION = 4
+EXPORT_MANIFEST_SCHEMA_VERSION = 5
 
 
 @dataclass
@@ -49,8 +50,9 @@ class ModuleExportInfo:
 
 @dataclass
 class ModuleExportManifest:
-    SchemaVersion: int = EXPORT_SCHEMA_VERSION
+    SchemaVersion: int = EXPORT_MANIFEST_SCHEMA_VERSION
     ToolVersion: str = TOOL_VERSION
+    ToolFingerprint: str = ""
     SymbolNameScheme: str = SYMBOL_NAME_SCHEME
     Module: str = ""
     Profile: str = ""
@@ -66,6 +68,7 @@ class ModuleExportManifest:
         return cls(
             SchemaVersion=raw_json_data.get("SchemaVersion", 0),
             ToolVersion=raw_json_data.get("ToolVersion", ""),
+            ToolFingerprint=raw_json_data.get("ToolFingerprint", ""),
             SymbolNameScheme=raw_json_data.get("SymbolNameScheme", ""),
             Module=raw_json_data.get("Module", ""),
             Profile=raw_json_data.get("Profile", ""),
@@ -106,6 +109,7 @@ def save_module_export_manifest_file(manifest: ModuleExportManifest) -> str:
     json_data = {
         "SchemaVersion": manifest.SchemaVersion,
         "ToolVersion": manifest.ToolVersion,
+        "ToolFingerprint": manifest.ToolFingerprint,
         "SymbolNameScheme": manifest.SymbolNameScheme,
         "Module": manifest.Module,
         "Profile": manifest.Profile,

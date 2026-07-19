@@ -5,7 +5,7 @@ from durin_header_tool.io import FileFingerprint, LightFileFingerprint
 from durin_header_tool import io as utils
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 
-REFLECTION_MANIFEST_SCHEMA_VERSION = 2
+REFLECTION_MANIFEST_SCHEMA_VERSION = 3
 
 
 @dataclass
@@ -13,6 +13,7 @@ class ModuleManifest:
     module_name: str
     schema_version: int = REFLECTION_MANIFEST_SCHEMA_VERSION
     tool_version: str = TOOL_VERSION
+    tool_fingerprint: str = ""
     symbol_name_scheme: str = SYMBOL_NAME_SCHEME
     profile: str = ""
     platform: str = ""
@@ -43,6 +44,7 @@ def load_module_manifest_file(module_name: str) -> ModuleManifest:
         module_name=data.get("ModuleName", module_name),
         schema_version=data.get("SchemaVersion", 0),
         tool_version=data.get("ToolVersion", ""),
+        tool_fingerprint=data.get("ToolFingerprint", ""),
         symbol_name_scheme=data.get("SymbolNameScheme", ""),
         profile=data.get("Profile", ""),
         platform=data.get("Platform", ""),
@@ -64,6 +66,7 @@ def save_module_manifest_file(manifest: ModuleManifest) -> str:
     json_data = {
         "SchemaVersion": manifest.schema_version,
         "ToolVersion": manifest.tool_version,
+        "ToolFingerprint": manifest.tool_fingerprint,
         "SymbolNameScheme": manifest.symbol_name_scheme,
         "ModuleName": manifest.module_name,
         "Profile": manifest.profile,

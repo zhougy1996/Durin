@@ -21,7 +21,10 @@ from durin_header_tool.cli.command import add_common_arguments
 from durin_header_tool.cli.main import _get_output_lock_paths
 from durin_header_tool.generators import module_export_file_generator as export_generator
 from durin_header_tool.generators import module_reflection_files_generator as reflection_generator
+from durin_header_tool.generators import module_cmake_file_generator
 from durin_header_tool.generators import project_cmake_file_generator
+from durin_header_tool.cache.reflection_cache import reflection_manifest_contract_changed
+from durin_header_tool.model.export_info import ModuleExportManifest
 from durin_header_tool.model.reflection_manifest import ModuleManifest
 from durin_header_tool.runtime.worker_context import initialize_worker_config
 
@@ -139,6 +142,18 @@ class OutputLockTests(unittest.TestCase):
 
 
 class CacheRecoveryTests(unittest.TestCase):
+    def test_tool_fingerprint_invalidates_reflection_manifest(self):
+        old_manifest = ModuleManifest(module_name="Engine", tool_fingerprint="old")
+        new_manifest = ModuleManifest(module_name="Engine", tool_fingerprint="new")
+
+        self.assertTrue(reflection_manifest_contract_changed(old_manifest, new_manifest))
+
+    def test_tool_fingerprint_invalidates_export_manifest(self):
+        old_manifest = ModuleExportManifest(Module="Engine", ToolFingerprint="old")
+        new_manifest = ModuleExportManifest(Module="Engine", ToolFingerprint="new")
+
+        self.assertFalse(export_generator._is_export_current(old_manifest, new_manifest, True))
+
     def test_invalid_reflection_manifest_is_a_cache_miss(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest_path = Path(temp_dir) / "Engine.manifest"
@@ -200,12 +215,14 @@ class IntermediateLayoutTests(unittest.TestCase):
         configs.ARCH = "Win64"
         configs.PROFILE_NAME = "DurinEditor"
         configs.BUILD_IDENTIFIER = ""
+        configs.TOOL_FINGERPRINT = ""
         configs.init_configs()
 
     def tearDown(self):
         configs.ARCH = "Win64"
         configs.PROFILE_NAME = "DurinEditor"
         configs.BUILD_IDENTIFIER = ""
+        configs.TOOL_FINGERPRINT = ""
 
     def test_empty_identifier_uses_shared_user_intermediate_path(self):
         configs.BUILD_IDENTIFIER = ""
@@ -282,6 +299,12 @@ class IntermediateLayoutTests(unittest.TestCase):
         args = parser.parse_args([])
         self.assertEqual(args.build_identifier, "")
 
+    def test_cli_accepts_tool_fingerprint(self):
+        parser = argparse.ArgumentParser()
+        add_common_arguments(parser)
+        args = parser.parse_args(["--tool-fingerprint", "abc123"])
+        self.assertEqual(args.tool_fingerprint, "abc123")
+
     def test_cli_rejects_invalid_identifier(self):
         parser = argparse.ArgumentParser()
         add_common_arguments(parser)
@@ -315,6 +338,30 @@ class IntermediateLayoutTests(unittest.TestCase):
         self.assertNotIn("--config ${CMAKE_BUILD_TYPE}", project_setup)
         self.assertEqual(project_targets.count("${DURIN_DHT_CONTEXT_ARGS}"), 2)
         self.assertNotIn('--build-identifier "${DURIN_BUILD_IDENTIFIER}"', project_setup + project_targets)
+
+    def test_generated_module_metadata_leaves_source_discovery_to_cmake(self):
+        with mock.patch.object(module_cmake_file_generator.utils, "generate_file") as generate_file:
+            module_cmake_file_generator.generate_module_cmake_file("Engine")
+
+        _, content = generate_file.call_args.args
+        self.assertNotIn("module_public_srcs", content)
+        self.assertNotIn("module_private_srcs", content)
+        self.assertIn("module_export_manifest_file", content)
+        self.assertIn("module_manifest_file", content)
+        self.assertIn("module_reflection_export_dependencies", content)
+
+    def test_cmake_declares_tool_and_generated_file_contracts(self):
+        workspace_root = ROOT.parents[3]
+        project_setup = (workspace_root / "CMake" / "Project" / "ProjectSetup.cmake").read_text(encoding="utf-8")
+        project_targets = (workspace_root / "CMake" / "Project" / "ProjectTargets.cmake").read_text(encoding="utf-8")
+
+        self.assertIn("DURIN_DHT_TOOL_FINGERPRINT_FILE", project_setup)
+        self.assertIn("--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}", project_setup)
+        self.assertEqual(project_targets.count("\n\t\t\tBYPRODUCTS "), 2)
+        self.assertIn("GLOB_RECURSE module_public_srcs CONFIGURE_DEPENDS", project_targets)
+        self.assertIn("GLOB_RECURSE module_private_srcs CONFIGURE_DEPENDS", project_targets)
+        self.assertIn(".export.stamp", project_targets)
+        self.assertIn(".reflection.stamp", project_targets)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ def reflection_manifest_contract_changed(old_manifest: ModuleManifest, new_manif
     return (
         old_manifest.schema_version != new_manifest.schema_version
         or old_manifest.tool_version != new_manifest.tool_version
+        or old_manifest.tool_fingerprint != new_manifest.tool_fingerprint
         or old_manifest.symbol_name_scheme != new_manifest.symbol_name_scheme
         or old_manifest.profile != new_manifest.profile
         or old_manifest.platform != new_manifest.platform

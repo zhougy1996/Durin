@@ -47,6 +47,7 @@ def main():
     configs.ARCH = args.arch
     configs.PROFILE_NAME = args.profile
     configs.BUILD_IDENTIFIER = args.build_identifier
+    configs.TOOL_FINGERPRINT = args.tool_fingerprint
     init_logging(args.log)
     project_files = list(args.project_file)
     if args.function == "prepare_project_build":

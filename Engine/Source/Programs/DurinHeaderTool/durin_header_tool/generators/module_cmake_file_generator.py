@@ -50,12 +50,17 @@ def _append_module_configs_to_cmake_content(content: list[str], module_name: str
             content.append(f"    {dep}\n")
         content.append(")\n\n")
 
-def _append_manifest_dependencies_to_cmake_content(content: list[str], module_name: str) -> None:
-    manifest_dependent_file_paths = configs.collect_all_dependent_module_export_files(module_name)
-    content.append("# Dependency files for generation of module manifest file\n")
-    content.append("set(module_manifest_dependencies\n")
-    for manifest_dep_file in manifest_dependent_file_paths:
-        content.append(f"    \"{manifest_dep_file.as_posix()}\"\n")
+def _append_reflection_export_dependencies_to_cmake_content(content: list[str], module_name: str) -> None:
+    module_export_file = utils.get_module_export_file_path(module_name)
+    dependency_export_files = [
+        export_file
+        for export_file in configs.collect_all_dependent_module_export_files(module_name)
+        if export_file != module_export_file
+    ]
+    content.append("# Dependency export files consumed by reflection generation\n")
+    content.append("set(module_reflection_export_dependencies\n")
+    for dependency_export_file in dependency_export_files:
+        content.append(f"    \"{dependency_export_file.as_posix()}\"\n")
     content.append(")\n\n")
 
 def _append_module_paths_to_cmake_content(content: list[str], module_name: str) -> None:
@@ -68,36 +73,9 @@ def _append_module_paths_to_cmake_content(content: list[str], module_name: str) 
     if module_config.has_export_file():
         content.append(f"set(module_dht_output_dir \"{utils.get_module_dht_output_dir(module_name).as_posix()}\")\n")
         content.append(f"set(module_export_file \"{utils.get_module_export_file_path(module_name).as_posix()}\")\n")
+        content.append(f"set(module_export_manifest_file \"{utils.get_module_export_manifest_file_path(module_name).as_posix()}\")\n")
         content.append(f"set(module_manifest_file \"{utils.get_module_manifest_file_path(module_name).as_posix()}\")\n")
     content.append("\n")
-
-_source_exts = ["*.cpp", "*.cc", "*.cxx", "*.h", "*.inl", "*.hpp"]
-
-def _append_original_sources(content: list[str], module_name: str) -> None:
-    module_config = configs.get_module_config(module_name)
-    source_dir = module_config.module_dir
-
-    def _scan(scan_dir: Path) -> list[Path]:
-        if not scan_dir.exists():
-            return []
-        found_files = []
-        for ext in _source_exts:
-            found_files.extend([file.relative_to(source_dir) for file in scan_dir.rglob(ext)])
-        return sorted(found_files)
-    
-    public_sources = _scan(source_dir / "Public")
-    private_sources = _scan(source_dir / "Private")
-
-    content.append("# Source files for this module\n")
-    content.append(f"set(module_public_srcs\n")
-    for src in public_sources:
-        content.append(f"    \"{src.as_posix()}\"\n")
-    content.append(")\n\n")
-
-    content.append(f"set(module_private_srcs\n")
-    for src in private_sources:
-        content.append(f"    \"{src.as_posix()}\"\n")
-    content.append(")\n\n")
 
 def _append_generated_sources(content: list[str], module_name: str) -> None:
     module_config = configs.get_module_config(module_name)
@@ -127,9 +105,8 @@ def _make_module_cmake_file_content(module_name: str) -> str:
     _append_module_configs_to_cmake_content(content, module_name)
 
     if module_config.has_export_file():
-        _append_manifest_dependencies_to_cmake_content(content, module_name)
+        _append_reflection_export_dependencies_to_cmake_content(content, module_name)
 
-    _append_original_sources(content, module_name)
     _append_generated_sources(content, module_name)
     return "".join(content)
 

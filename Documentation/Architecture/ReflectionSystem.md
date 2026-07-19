@@ -53,6 +53,19 @@ The build flow is:
 - `generate_module_export_file`
 - `generate_reflection_files`
 
+Each command exposes a stamp as its primary build output. The export, generated
+C++ files, and private manifests are declared CMake `BYPRODUCTS`; the stamp is
+touched only after DHT completes successfully. This lets Ninja repair any missing
+generated artifact while avoiding a repeated command when a semantic export or
+generated source remains byte-for-byte unchanged. In particular, an unchanged
+public `.export` keeps its timestamp so downstream modules are not regenerated.
+
+CMake computes a stable tool fingerprint from the DHT Python implementation and
+its pinned requirements. A tool input change triggers reconfiguration and both
+generation stages. DHT records the fingerprint in its manifests, so parser or
+writer changes invalidate the internal cache even when reflected headers have not
+changed.
+
 The export command runs before reflection generation so other modules can resolve reflected base classes and object-pointer property types without reparsing dependency headers.
 
 Reflection generation also depends directly on the module's reflected headers. A whitespace-only header edit may leave the public `.export` symbol index unchanged, but it still must regenerate that header's `.gen.h/.gen.cpp` because `GENERATED_BODY()` macro names include source line numbers.
@@ -126,7 +139,15 @@ DurinHeaderTool stores export-generation input fingerprints in a private sibling
 <Module>.export.manifest
 ```
 
-The module export manifest records the schema/tool/options/profile/platform and reflected-header fingerprints. It lets `generate_module_export_file` skip entirely when no inputs changed. If only some headers changed, DurinHeaderTool reparses those headers and reuses unchanged header symbols by grouping entries from the previous public `.export` file, then assembles the new public `.export` file. When multiple headers require parsing, the export generator parses them in a bounded worker pool and merges results in module header order. Other modules should not depend on or read this private cache file.
+The module export manifest currently uses schema v5 and records the schema, tool
+version, tool fingerprint, options, profile, platform, and reflected-header
+fingerprints. It lets `generate_module_export_file` skip entirely when no inputs
+changed. If only some headers changed, DurinHeaderTool reparses those headers and
+reuses unchanged header symbols by grouping entries from the previous public
+`.export` file, then assembles the new public `.export` file. When multiple headers
+require parsing, the export generator parses them in a bounded worker pool and
+merges results in module header order. Other modules should not depend on or read
+this private cache file.
 
 `CoreDObject` uses `DObject/MirrorExportTypes.h` under `_DHT_EXPORTS_PARSER` to publish intrinsic core types such as `Durin::DObject`, `Durin::DType`, `Durin::DStructBase`, and `Durin::DClass` without generating duplicate runtime class registration for those intrinsic types.
 
@@ -138,10 +159,11 @@ Each reflected module writes:
 <Module>.manifest
 ```
 
-The manifest currently uses schema v2 JSON and is private to DurinHeaderTool. It records:
+The manifest currently uses schema v3 JSON and is private to DurinHeaderTool. It records:
 
 - `SchemaVersion`
 - `ToolVersion`
+- `ToolFingerprint`
 - `SymbolNameScheme`
 - `ModuleName`
 - `Profile`
@@ -151,7 +173,9 @@ The manifest currently uses schema v2 JSON and is private to DurinHeaderTool. It
 - dependency export fingerprints
 - resolved reflected-symbol dependencies per header
 
-Changing the tool version, schema, symbol-name scheme, profile, platform, options hash, dependency exports, or reflected header fingerprints invalidates generated reflection outputs.
+Changing the tool version, tool fingerprint, schema, symbol-name scheme, profile,
+platform, options hash, dependency exports, or reflected header fingerprints
+invalidates generated reflection outputs.
 
 Dependency export changes are filtered through resolved symbol dependencies. If an upstream export changes but a header does not reference the changed reflected symbols, that header can keep its existing generated files. Missing generated outputs still force regeneration for the affected header. A missing, truncated, or structurally invalid export or manifest is treated as a cache miss and regenerated; the reflection manifest is written last so an interrupted generator cannot commit an incomplete output set.
 

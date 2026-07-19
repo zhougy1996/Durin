@@ -20,6 +20,7 @@ class ReflectionGenerationTests(unittest.TestCase):
         configs.ARCH = "Win64"
         configs.PROFILE_NAME = "DurinEditor"
         configs.BUILD_IDENTIFIER = "DHTTests"
+        configs.TOOL_FINGERPRINT = "dht-tests"
         configs.init_configs()
 
         for module_name in ("CoreDObject", "Engine"):
@@ -95,7 +96,8 @@ class ReflectionGenerationTests(unittest.TestCase):
         manifest_path = utils.get_module_manifest_file_path("Engine")
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(data["SchemaVersion"], 2)
+        self.assertEqual(data["SchemaVersion"], 3)
+        self.assertEqual(data["ToolFingerprint"], "dht-tests")
         self.assertEqual(data["SymbolNameScheme"], "qualified-underscore-v1")
         self.assertEqual(data["ModuleName"], "Engine")
         self.assertEqual(data["Profile"], "DurinEditor")

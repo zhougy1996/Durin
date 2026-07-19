@@ -93,6 +93,7 @@ def make_new_module_manifest(module_name: str, old_manifest: ModuleManifest = No
         profile=configs.PROFILE_NAME,
         platform=configs.ARCH,
         tool_version=TOOL_VERSION,
+        tool_fingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
         symbol_name_scheme=SYMBOL_NAME_SCHEME,
         generator_options_hash="cpp-packages-v1",
     )

@@ -30,19 +30,59 @@ function(add_durin_module module_name)
 
 	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${module_config_file}")
 
+	# CMake owns ordinary source discovery so adding or removing a file updates
+	# the generated build graph without requiring a manual configure step.
+	file(GLOB_RECURSE module_public_srcs CONFIGURE_DEPENDS LIST_DIRECTORIES FALSE
+		"${module_dir}/Public/*.cpp"
+		"${module_dir}/Public/*.cc"
+		"${module_dir}/Public/*.cxx"
+		"${module_dir}/Public/*.h"
+		"${module_dir}/Public/*.hpp"
+		"${module_dir}/Public/*.inl"
+	)
+	file(GLOB_RECURSE module_private_srcs CONFIGURE_DEPENDS LIST_DIRECTORIES FALSE
+		"${module_dir}/Private/*.cpp"
+		"${module_dir}/Private/*.cc"
+		"${module_dir}/Private/*.cxx"
+		"${module_dir}/Private/*.h"
+		"${module_dir}/Private/*.hpp"
+		"${module_dir}/Private/*.inl"
+	)
+
 	if(module_reflect_headers)
+		set(_durin_module_export_stamp "${module_dht_output_dir}/${module_name}.export.stamp")
+		set(_durin_module_reflection_stamp "${module_dht_output_dir}/${module_name}.reflection.stamp")
+
 		add_custom_command(
-			OUTPUT ${module_export_file}
+			OUTPUT "${_durin_module_export_stamp}"
+			BYPRODUCTS "${module_export_file}" "${module_export_manifest_file}"
 			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} ${DURIN_DHT_CONTEXT_ARGS} ${DURIN_DHT_PROJECT_FILE_ARGS}
-			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}"
+			COMMAND ${CMAKE_COMMAND} -E touch "${_durin_module_export_stamp}"
+			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}" "${DURIN_DHT_TOOL_FINGERPRINT_FILE}"
 			COMMENT "[DHT] Generating export metadata for ${module_name}"
+			VERBATIM
 		)
 
 		add_custom_command(
-			OUTPUT ${module_generated_srcs}
+			OUTPUT "${_durin_module_reflection_stamp}"
+			BYPRODUCTS ${module_generated_srcs} "${module_manifest_file}"
 			COMMAND ${DHT_MAIN} generate_reflection_files -m ${module_name} ${DURIN_DHT_CONTEXT_ARGS} ${DURIN_DHT_PROJECT_FILE_ARGS}
-			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}" ${module_manifest_dependencies} ${module_export_file}
+			COMMAND ${CMAKE_COMMAND} -E touch "${_durin_module_reflection_stamp}"
+			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}" "${DURIN_DHT_TOOL_FINGERPRINT_FILE}" ${module_reflection_export_dependencies} ${module_export_file}
 			COMMENT "[DHT] Generating reflection files for ${module_name}"
+			VERBATIM
+		)
+
+		# BYPRODUCTS describe ownership but the stamp itself must remain reachable
+		# from the module target. This order-only target edge also guarantees all
+		# generated sources exist before Ninja starts compiling the module.
+		add_custom_target(${module_name}_DHT DEPENDS
+			"${_durin_module_export_stamp}"
+			"${module_export_file}"
+			"${module_export_manifest_file}"
+			"${_durin_module_reflection_stamp}"
+			${module_generated_srcs}
+			"${module_manifest_file}"
 		)
 	endif()
 
@@ -53,6 +93,9 @@ function(add_durin_module module_name)
 	endif()
 
 	add_library(${module_name} ${_durin_module_link_type})
+	if(TARGET ${module_name}_DHT)
+		add_dependencies(${module_name} ${module_name}_DHT)
+	endif()
 	target_sources(${module_name} PUBLIC ${module_public_srcs} PRIVATE ${module_private_srcs} ${module_generated_srcs})
 
 	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "${DURIN_PROFILE_NAME}-${module_name}")

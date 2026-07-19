@@ -3,6 +3,7 @@ from pathlib import Path
 ARCH = "Win64"
 PROFILE_NAME = "DurinEditor"
 BUILD_IDENTIFIER = ""
+TOOL_FINGERPRINT = ""
 
 DHT_ROOT_DIR = Path(__file__).resolve().parents[2]
 DURIN_ROOT_DIR = DHT_ROOT_DIR.parents[3]

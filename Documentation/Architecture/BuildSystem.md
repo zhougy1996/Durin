@@ -29,6 +29,18 @@ Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMak
 
 `add_durin_module(...)` imports generated per-module CMake metadata, wires reflection-generated sources and export files, applies shared PCH settings, and builds the resulting shared or static library.
 
+Ordinary module sources under `Public` and `Private` are discovered by per-module
+CMake `GLOB_RECURSE CONFIGURE_DEPENDS` rules. Adding or removing a supported C/C++
+source or header therefore updates the Ninja graph during a normal build. DHT
+metadata only describes module configuration, reflection inputs, and generated
+outputs; it does not freeze the ordinary source list at configure time.
+
+During configuration, CMake hashes the tracked DHT Python package together with
+`requirements.txt` into `DHT.fingerprint`. Those files are configure dependencies,
+and export/reflection build commands depend on the resulting fingerprint. The
+fingerprint is also passed into DHT's private manifests, so a tool implementation
+change invalidates both CMake's build edge and DHT's internal cache.
+
 ## Build Output Identifiers
 
 `DURIN_BUILD_IDENTIFIER` optionally isolates binary and generated metadata outputs without changing build semantics. Binary configurations and DHT intermediate roots append the identifier. Normal builds leave it empty and use separate worktrees when workflows need concurrency.

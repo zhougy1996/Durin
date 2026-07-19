@@ -5,6 +5,31 @@ include_guard(GLOBAL)
 set(DHT_DIR ${DURIN_WORKSPACE_DIR}/Engine/Source/Programs/DurinHeaderTool)
 set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/durin_header_tool/__main__.py")
 
+# DHT runs both while configuring projects and from build-time custom commands.
+# Track the complete implementation contract here so either path is invalidated
+# when the tool changes, without relying on a manually maintained version file.
+file(GLOB_RECURSE DURIN_DHT_TOOL_INPUTS CONFIGURE_DEPENDS
+	LIST_DIRECTORIES FALSE
+	"${DHT_DIR}/durin_header_tool/*.py"
+)
+list(APPEND DURIN_DHT_TOOL_INPUTS "${DURIN_WORKSPACE_DIR}/requirements.txt")
+list(SORT DURIN_DHT_TOOL_INPUTS)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DURIN_DHT_TOOL_INPUTS})
+
+set(_durin_dht_fingerprint_content "")
+foreach(_durin_dht_input IN LISTS DURIN_DHT_TOOL_INPUTS)
+	file(RELATIVE_PATH _durin_dht_input_relative "${DURIN_WORKSPACE_DIR}" "${_durin_dht_input}")
+	file(SHA256 "${_durin_dht_input}" _durin_dht_input_hash)
+	string(APPEND _durin_dht_fingerprint_content "${_durin_dht_input_relative}:${_durin_dht_input_hash}\n")
+endforeach()
+string(SHA256 DURIN_DHT_TOOL_FINGERPRINT "${_durin_dht_fingerprint_content}")
+set(DURIN_DHT_TOOL_FINGERPRINT_FILE "${CMAKE_BINARY_DIR}/DHT.fingerprint")
+file(CONFIGURE
+	OUTPUT "${DURIN_DHT_TOOL_FINGERPRINT_FILE}"
+	CONTENT "${DURIN_DHT_TOOL_FINGERPRINT}\n"
+	@ONLY
+)
+
 function(durin_project_log project_name)
 	message(STATUS "[${project_name}] Project: ${project_name}")
 endfunction()
@@ -25,6 +50,7 @@ function(add_durin_project project_name)
 	set(DURIN_DHT_CONTEXT_ARGS
 		-a ${DURIN_TARGET_PLATFORM}
 		--profile ${DURIN_PROFILE_NAME}
+		--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}
 	)
 	if(DURIN_BUILD_IDENTIFIER)
 		list(APPEND DURIN_DHT_CONTEXT_ARGS --build-identifier ${DURIN_BUILD_IDENTIFIER})

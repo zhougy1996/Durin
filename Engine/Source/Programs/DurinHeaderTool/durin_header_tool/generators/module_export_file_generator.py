@@ -72,6 +72,7 @@ def _make_current_export_manifest(module_name: str, old_manifest: ModuleExportMa
         Profile=configs.PROFILE_NAME,
         Platform=configs.ARCH,
         ToolVersion=TOOL_VERSION,
+        ToolFingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
         SymbolNameScheme=SYMBOL_NAME_SCHEME,
         GeneratorOptionsHash="default",
     )
@@ -90,6 +91,7 @@ def _is_export_current(old_manifest: ModuleExportManifest, new_manifest: ModuleE
     return (
         old_manifest.SchemaVersion == new_manifest.SchemaVersion
         and old_manifest.ToolVersion == new_manifest.ToolVersion
+        and old_manifest.ToolFingerprint == new_manifest.ToolFingerprint
         and old_manifest.SymbolNameScheme == new_manifest.SymbolNameScheme
         and old_manifest.Module == new_manifest.Module
         and old_manifest.Profile == new_manifest.Profile
@@ -105,6 +107,7 @@ def _is_manifest_contract_compatible(old_manifest: ModuleExportManifest, new_man
     return (
         old_manifest.SchemaVersion == new_manifest.SchemaVersion
         and old_manifest.ToolVersion == new_manifest.ToolVersion
+        and old_manifest.ToolFingerprint == new_manifest.ToolFingerprint
         and old_manifest.SymbolNameScheme == new_manifest.SymbolNameScheme
         and old_manifest.Module == new_manifest.Module
         and old_manifest.Profile == new_manifest.Profile

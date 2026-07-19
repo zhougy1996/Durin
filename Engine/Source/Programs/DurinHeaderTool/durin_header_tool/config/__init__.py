@@ -6,6 +6,7 @@ from .environment import (
     DURIN_ENGINE_PROJECT_DIR,
     DURIN_ROOT_DIR,
     PROFILE_NAME,
+    TOOL_FINGERPRINT,
     init_clang,
 )
 from .module_config import (
