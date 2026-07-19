@@ -6,6 +6,9 @@ namespace Durin
 {
 	namespace
 	{
+		// Thumbnail requests run concurrently, so bound the full-resolution intermediate rather than relying on the much larger import limit.
+		constexpr Asset::FImageDecodeLimits ThumbnailDecodeLimits{32ull * 1024ull * 1024ull, 16ull * 1024ull * 1024ull};
+
 		auto ResizeBilinear(const uint8* Source, uint32 SourceWidth, uint32 SourceHeight, uint32 DestinationWidth, uint32 DestinationHeight) -> std::vector<uint8>
 		{
 			std::vector<uint8> Result(static_cast<size_t>(DestinationWidth) * DestinationHeight * 4);
@@ -53,7 +56,7 @@ namespace Durin
 		}
 
 		Asset::FDecodedImage SourceImage;
-		if (!Asset::DecodeImageFromFile(FilePath, SourceImage, OutError)) return false;
+		if (!Asset::DecodeImageFromFile(FilePath, SourceImage, OutError, ThumbnailDecodeLimits)) return false;
 
 		const uint32 SourceWidth = SourceImage.Width;
 		const uint32 SourceHeight = SourceImage.Height;

@@ -74,4 +74,30 @@ namespace Durin::Asset
 		EXPECT_TRUE(Image.Pixels.empty());
 		EXPECT_FALSE(Error.empty());
 	}
+
+	TEST(FImageDecoderTests, RejectsImagesOutsideCallerLimitsBeforeDecoding)
+	{
+		FDecodedImage Image;
+		std::string Error;
+		FImageDecodeLimits Limits;
+		Limits.MaximumEncodedBytes = 8;
+		EXPECT_FALSE(DecodeImageFromMemory(TransparentPngBytes, Image, Error, Limits));
+		EXPECT_EQ(Error, "The encoded image is too large.");
+
+		std::vector<uint8> OversizedPng(std::begin(TransparentPngBytes), std::end(TransparentPngBytes));
+		// The IHDR advertises 8192 x 8192 pixels; stbi_info reads it without allocating the decoded image.
+		OversizedPng[16] = 0;
+		OversizedPng[17] = 0;
+		OversizedPng[18] = 32;
+		OversizedPng[19] = 0;
+		OversizedPng[20] = 0;
+		OversizedPng[21] = 0;
+		OversizedPng[22] = 32;
+		OversizedPng[23] = 0;
+		Limits.MaximumEncodedBytes = 32ull * 1024ull * 1024ull;
+		Limits.MaximumDecodedPixels = 16ull * 1024ull * 1024ull;
+		EXPECT_FALSE(DecodeImageFromMemory(OversizedPng, Image, Error, Limits));
+		EXPECT_EQ(Error, "The decoded image is too large.");
+		EXPECT_TRUE(Image.Pixels.empty());
+	}
 } // namespace Durin::Asset

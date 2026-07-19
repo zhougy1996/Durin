@@ -9,8 +9,6 @@ namespace Durin::Asset
 {
 	namespace
 	{
-		constexpr uint64 MaximumEncodedImageBytes = 512ull * 1024ull * 1024ull;
-		constexpr uint64 MaximumDecodedImageBytes = 1024ull * 1024ull * 1024ull;
 		constexpr uint32 OutputChannelCount = 4;
 
 		auto LowercaseExtension(std::string_view Extension) -> std::string
@@ -27,7 +25,7 @@ namespace Durin::Asset
 		return Lowercase == ".png" || Lowercase == ".jpg" || Lowercase == ".jpeg" || Lowercase == ".bmp" || Lowercase == ".tga";
 	}
 
-	auto DecodeImageFromMemory(std::span<const uint8> EncodedBytes, FDecodedImage& OutImage, std::string& OutError) -> bool
+	auto DecodeImageFromMemory(std::span<const uint8> EncodedBytes, FDecodedImage& OutImage, std::string& OutError, const FImageDecodeLimits& Limits) -> bool
 	{
 		OutImage = {};
 		OutError.clear();
@@ -36,7 +34,7 @@ namespace Durin::Asset
 			OutError = "The image data is empty.";
 			return false;
 		}
-		if (EncodedBytes.size() > MaximumEncodedImageBytes || EncodedBytes.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+		if (EncodedBytes.size() > Limits.MaximumEncodedBytes || EncodedBytes.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
 		{
 			OutError = "The encoded image is too large.";
 			return false;
@@ -53,7 +51,7 @@ namespace Durin::Asset
 		}
 
 		const uint64 PixelCount = static_cast<uint64>(Width) * static_cast<uint64>(Height);
-		if (PixelCount > MaximumDecodedImageBytes / OutputChannelCount)
+		if (PixelCount > Limits.MaximumDecodedPixels)
 		{
 			OutError = "The decoded image is too large.";
 			return false;
@@ -84,7 +82,7 @@ namespace Durin::Asset
 		return true;
 	}
 
-	auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage, std::string& OutError) -> bool
+	auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage, std::string& OutError, const FImageDecodeLimits& Limits) -> bool
 	{
 		OutImage = {};
 		OutError.clear();
@@ -96,7 +94,7 @@ namespace Durin::Asset
 			OutError = "Unable to open the image file.";
 			return false;
 		}
-		if (FileSize == 0 || FileSize > MaximumEncodedImageBytes || FileSize > static_cast<uintmax_t>(std::numeric_limits<int>::max()))
+		if (FileSize == 0 || FileSize > Limits.MaximumEncodedBytes || FileSize > static_cast<uintmax_t>(std::numeric_limits<int>::max()))
 		{
 			OutError = "The image file is empty or too large.";
 			return false;
@@ -108,6 +106,6 @@ namespace Durin::Asset
 			OutError = "Unable to read the image file.";
 			return false;
 		}
-		return DecodeImageFromMemory(EncodedBytes, OutImage, OutError);
+		return DecodeImageFromMemory(EncodedBytes, OutImage, OutError, Limits);
 	}
 } // namespace Durin::Asset

@@ -90,4 +90,19 @@ namespace Durin
 		EXPECT_FALSE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error));
 		EXPECT_FALSE(Error.empty());
 	}
+
+	TEST(FSourceImageThumbnailTests, RejectsOversizedImageBeforeFullResolutionDecode)
+	{
+		// The PNG IHDR advertises 8192 x 8192 pixels; the payload is intentionally left tiny because it must never be decoded.
+		constexpr uint8 PngBytes[] = {
+			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 32, 0, 0, 0, 32, 0, 8, 6, 0, 0, 0, 244, 34, 127, 138,
+			0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240, 159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
+			0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
+		const std::filesystem::path Path = WriteBinaryFixture("ThumbnailOversized.png", PngBytes);
+		FDecodedSourceImageThumbnail Thumbnail;
+		std::string Error;
+		EXPECT_FALSE(DecodeSourceImageThumbnail(Path.generic_string(), 256, Thumbnail, Error));
+		EXPECT_EQ(Error, "The decoded image is too large.");
+		EXPECT_TRUE(Thumbnail.Pixels.empty());
+	}
 } // namespace Durin
