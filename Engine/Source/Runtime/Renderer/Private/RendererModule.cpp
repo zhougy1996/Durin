@@ -97,6 +97,8 @@ namespace Durin
 			DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
+				DURIN_SHADER_PARAMETER_TEXTURE(BaseColorTexture);
+				DURIN_SHADER_PARAMETER_SAMPLER(BaseColorSampler);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_SHADER(FStaticMeshFragmentShader, FShader, "/Engine/StaticMesh", EShaderFrequency::Fragment, "FragmentMain");
 		};
@@ -346,6 +348,7 @@ namespace Durin
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef SolidPipelineState;
 			FGraphicsPipelineStateRHIRef WireframePipelineState;
+			FSamplerRHIRef BaseColorSampler;
 			bool bCreateAttempted = false;
 		};
 
@@ -860,6 +863,7 @@ namespace Durin
 			Initializer.PolygonMode = FGraphicsPipelineStateInitializer::EPolygonMode::Line;
 			Initializer.bEnableBackFaceCulling = false;
 			GStaticMeshState.WireframePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("StaticMeshWireframePipeline", Initializer);
+			GStaticMeshState.BaseColorSampler = RHICreateSampler(FRHISamplerDesc::LinearRepeat());
 		}
 
 		auto CreatePostProcessPipeline(
@@ -1091,6 +1095,8 @@ namespace Durin
 				FStaticMeshFragmentShader::FParameters FragmentShaderParameters;
 				FragmentShaderParameters.Lighting = LightingUniformBuffer;
 				FragmentShaderParameters.Material = MaterialUniformBuffer;
+				FragmentShaderParameters.BaseColorTexture = ResolveTexture_RenderThread(Material.BaseColorTexture, EDefaultTexture::White);
+				FragmentShaderParameters.BaseColorSampler = GStaticMeshState.BaseColorSampler;
 				SetShaderParameters(CommandList, GStaticMeshState.FragmentShader, FragmentShaderParameters);
 				CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
 			}
@@ -1344,6 +1350,7 @@ namespace Durin
 	{
 		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)([](FRHICommandListImmediate&) {
 			GDefaultTextures = {};
+			GStaticMeshState.BaseColorSampler = nullptr;
 			GOverlayIconState.Atlas = nullptr;
 			GOverlayIconState.AtlasSampler = nullptr;
 		});
@@ -1493,7 +1500,8 @@ namespace Durin
 		}
 
 		EnsureStaticMeshPipeline();
-		if (GStaticMeshState.SolidPipelineState == nullptr || GStaticMeshState.WireframePipelineState == nullptr || !GStaticMeshState.VertexShader || !GStaticMeshState.FragmentShader)
+		if (GStaticMeshState.SolidPipelineState == nullptr || GStaticMeshState.WireframePipelineState == nullptr || GStaticMeshState.BaseColorSampler == nullptr
+			|| !GStaticMeshState.VertexShader || !GStaticMeshState.FragmentShader)
 		{
 			return;
 		}

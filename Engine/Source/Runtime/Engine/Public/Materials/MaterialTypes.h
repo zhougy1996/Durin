@@ -5,7 +5,10 @@
 
 namespace Durin
 {
+	class FTexture2DRenderResource;
+
 	inline constexpr std::string_view MaterialParameterBaseColor = "BaseColor";
+	inline constexpr std::string_view MaterialParameterBaseColorTexture = "BaseColorTexture";
 	inline constexpr std::string_view MaterialParameterOpacity = "Opacity";
 	inline constexpr std::string_view MaterialParameterSpecularStrength = "SpecularStrength";
 	inline constexpr std::string_view MaterialParameterShininess = "Shininess";
@@ -13,6 +16,8 @@ namespace Durin
 	struct FMaterialRenderData
 	{
 		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
+		// Scene proxies retain only the thread-safe resource proxy; reflected assets stay on the game thread.
+		std::shared_ptr<FTexture2DRenderResource> BaseColorTexture;
 		float SpecularStrength = 0.35f;
 		float Shininess = 32.0f;
 	};

@@ -10,6 +10,7 @@ namespace Durin
 {
 	class DMaterialInstance;
 	class DStaticMeshComponent;
+	class DTexture2D;
 
 	DCLASS()
 	class ENGINE_API DMaterialInterface : public DObject
@@ -20,6 +21,7 @@ namespace Durin
 
 		virtual auto GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool;
 		virtual auto GetVectorParameterValue(std::string_view Name, FVector3& OutValue) const -> bool;
+		virtual auto GetTextureParameterValue(std::string_view Name, DTexture2D*& OutValue) const -> bool;
 		virtual auto GetParent() const -> DMaterialInterface*;
 
 		auto GetRenderData() const -> FMaterialRenderData;

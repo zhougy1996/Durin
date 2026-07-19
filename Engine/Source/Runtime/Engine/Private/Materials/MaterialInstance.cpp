@@ -45,6 +45,15 @@ namespace Durin
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
 	}
 
+	auto DMaterialInstance::SetTextureParameterValue(std::string_view Name, DTexture2D* Value) -> void
+	{
+		const std::string Key(Name);
+		if (const auto It = TextureParameterOverrides.find(Key); It != TextureParameterOverrides.end() && It->second.Get() == Value) return;
+		TextureParameterOverrides[Key] = Value;
+		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+	}
+
 	auto DMaterialInstance::ClearScalarParameterValue(std::string_view Name) -> bool
 	{
 		if (ScalarParameterOverrides.erase(std::string(Name)) == 0) return false;
@@ -56,6 +65,14 @@ namespace Durin
 	auto DMaterialInstance::ClearVectorParameterValue(std::string_view Name) -> bool
 	{
 		if (VectorParameterOverrides.erase(std::string(Name)) == 0) return false;
+		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		return true;
+	}
+
+	auto DMaterialInstance::ClearTextureParameterValue(std::string_view Name) -> bool
+	{
+		if (TextureParameterOverrides.erase(std::string(Name)) == 0) return false;
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
 		return true;
@@ -81,6 +98,17 @@ namespace Durin
 			return true;
 		}
 		return Parent != nullptr && Parent->GetVectorParameterValue(Name, OutValue);
+	}
+
+	auto DMaterialInstance::GetTextureParameterValue(std::string_view Name, DTexture2D*& OutValue) const -> bool
+	{
+		const auto It = TextureParameterOverrides.find(std::string(Name));
+		if (It != TextureParameterOverrides.end())
+		{
+			OutValue = It->second.Get();
+			return true;
+		}
+		return Parent != nullptr && Parent->GetTextureParameterValue(Name, OutValue);
 	}
 
 	auto DMaterialInstance::BeginDestroy() -> void

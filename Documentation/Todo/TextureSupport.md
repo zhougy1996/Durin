@@ -4,15 +4,18 @@ Last reviewed: 2026-07-20
 
 ## Current Status
 
-Texture support has a working asset and render-resource foundation, but it is
-not yet connected to the material system or exposed as a complete editor
-workflow. The current implementation can import a `DTexture2D`, rebuild its
-CPU platform data, upload it through the render thread, and resolve unavailable
-resources to renderer-owned default textures.
+Texture support has a working asset, material, and render-resource vertical
+slice, but it is not yet exposed as a complete editor workflow. The current
+implementation can import a `DTexture2D`, preserve it through material and
+material-instance parameters, rebuild its CPU platform data, upload it through
+the render thread, and sample it as a static-mesh base-color texture. Missing
+or unavailable resources resolve to the renderer-owned white texture.
 
 The focused `FTexture2DTests.*` suite passed on 2026-07-20 using the
 `Win64-Debug-DurinEditor-Tests` preset. These tests cover the CPU-side asset
 workflow; they do not exercise a real Vulkan upload or shader sample.
+The complete 95-test `EngineTests` target, a full `all` rebuild, and an
+eight-second `DurinEditor` Vulkan/shader smoke test also passed on 2026-07-20.
 
 ## Implemented
 
@@ -24,22 +27,24 @@ workflow; they do not exercise a real Vulkan upload or shader sample.
 - [x] Render-thread-owned RHI texture creation, upload, replacement, and release.
 - [x] Revision checks that prevent stale render commands from replacing newer resources.
 - [x] Renderer-owned white, black, and flat-normal fallback textures.
+- [x] Base-color material texture parameters, instance inheritance, and local overrides.
+- [x] Static-mesh base-color sampling with a shared linear-wrap sampler and white fallback.
 - [x] RHI and Vulkan format definitions for uncompressed and BC texture formats.
 - [x] Vulkan support for uploading individual mip levels.
 - [x] Focused import, reload, move, delete, and invalid-input tests.
 
 ## Required for the First Usable End-to-End Workflow
 
-- [ ] Add texture parameters to `DMaterialInterface`, `DMaterial`, and
+- [x] Add texture parameters to `DMaterialInterface`, `DMaterial`, and
   `DMaterialInstance`, including inheritance and local overrides.
-- [ ] Preserve texture asset references through reflection, serialization, and
+- [x] Preserve texture asset references through reflection, serialization, and
   garbage collection.
-- [ ] Snapshot render-resource references into `FMaterialRenderData` without
+- [x] Snapshot render-resource references into `FMaterialRenderData` without
   allowing renderer code to read reflected material objects.
-- [ ] Bind a base-color texture and sampler in the static-mesh fragment shader.
-- [ ] Resolve missing, unloaded, and not-yet-ready material textures to the
+- [x] Bind a base-color texture and sampler in the static-mesh fragment shader.
+- [x] Resolve missing, unloaded, and not-yet-ready material textures to the
   appropriate renderer default texture.
-- [ ] Define the initial sampler policy. A shared linear-wrap sampler is
+- [x] Define the initial sampler policy. A shared linear-wrap sampler is
   sufficient for the first vertical slice.
 - [ ] Add a texture import entry and dialog to the editor and Content Browser.
 - [ ] Show imported texture assets with an image thumbnail or preview.
@@ -107,4 +112,3 @@ These features are intentionally outside the first Texture2D/material slice:
 4. Add desktop block compression and derived-data caching.
 5. Add render-thread, Vulkan, and editor end-to-end validation.
 6. Add residency management and advanced texture types only when required.
-

@@ -1,5 +1,6 @@
 #include "AssetSystem.h"
 #include "Components/StaticMeshComponent.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
 #include "Engine/PrimitiveSceneProxy.h"
@@ -14,11 +15,23 @@
 #include "Scene.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "Texture/Texture2D.h"
 
 #include <gtest/gtest.h>
 
 namespace
 {
+	constexpr Durin::uint8 MaterialTexturePngBytes[] = {
+		137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
+		0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240, 159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
+		0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
+
+	auto WriteMaterialTextureFixture(const std::filesystem::path& Path) -> void
+	{
+		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
+		Stream.write(reinterpret_cast<const char*>(MaterialTexturePngBytes), sizeof(MaterialTexturePngBytes));
+	}
+
 	class FMaterialTestEngine final : public Durin::DEngine
 	{
 	public:
@@ -194,6 +207,54 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialTests, BoundTextureChangesUpdateProxyResourceSnapshotInPlace)
+{
+	FRenderSceneHarness Harness;
+	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "LiveTextureBaseMaterial");
+	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "LiveTextureMaterialInstance");
+	Durin::DTexture2D* BaseTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "LiveBaseColorTexture");
+	Durin::DTexture2D* OverrideTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "LiveOverrideColorTexture");
+	Base->SetTextureParameterValue(Durin::MaterialParameterBaseColorTexture, BaseTexture);
+	ASSERT_TRUE(Instance->SetParent(Base));
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "LiveTextureMaterialComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(Instance);
+	Component->RegisterComponent();
+	FSceneSnapshot Initial = CaptureScene(Harness.Scene);
+	EXPECT_EQ(Initial.Material.BaseColorTexture, BaseTexture->GetRenderResource());
+
+	Instance->SetTextureParameterValue(Durin::MaterialParameterBaseColorTexture, OverrideTexture);
+	FSceneSnapshot Overridden = CaptureScene(Harness.Scene);
+	EXPECT_EQ(Overridden.Proxy, Initial.Proxy);
+	EXPECT_GT(Overridden.ComponentRevision, Initial.ComponentRevision);
+	EXPECT_EQ(Overridden.Material.BaseColorTexture, OverrideTexture->GetRenderResource());
+
+	EXPECT_TRUE(Instance->ClearTextureParameterValue(Durin::MaterialParameterBaseColorTexture));
+	FSceneSnapshot Inherited = CaptureScene(Harness.Scene);
+	EXPECT_EQ(Inherited.Proxy, Initial.Proxy);
+	EXPECT_EQ(Inherited.Material.BaseColorTexture, BaseTexture->GetRenderResource());
+	// Test snapshots cross back to the game thread, so release their proxy owners while each asset still owns its resource.
+	Initial.Material.BaseColorTexture.reset();
+	Overridden.Material.BaseColorTexture.reset();
+	Inherited.Material.BaseColorTexture.reset();
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Durin::MarkAsGarbage(OverrideTexture);
+	Durin::MarkAsGarbage(BaseTexture);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+	// DTexture2D destruction enqueues the final release; briefly restart the worker to drain it in render-thread context.
+	Durin::InitRenderingThread();
+	WaitForRenderingThread();
+	Durin::ShutdownRenderingThread();
+}
+
 TEST(FMaterialTests, SceneCommandsPreserveLatestTransformAndReleaseAllProxies)
 {
 	FRenderSceneHarness Harness;
@@ -243,6 +304,61 @@ TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
 	Durin::MarkAsGarbage(First);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, TextureParametersInheritOverrideAndPreserveExplicitNull)
+{
+	InitializeDObjectSystem();
+	Durin::InitRenderingThread();
+	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "TextureBaseMaterial");
+	Durin::DMaterialInstance* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "FirstTextureInstance");
+	Durin::DMaterialInstance* Second = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "SecondTextureInstance");
+	Durin::DTexture2D* BaseTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "InheritedBaseColorTexture");
+	Durin::DTexture2D* OverrideTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "OverriddenBaseColorTexture");
+
+	Base->SetTextureParameterValue(Durin::MaterialParameterBaseColorTexture, BaseTexture);
+	ASSERT_TRUE(First->SetParent(Base));
+	ASSERT_TRUE(Second->SetParent(First));
+	EXPECT_EQ(Second->GetRenderData().BaseColorTexture, BaseTexture->GetRenderResource());
+
+	First->SetTextureParameterValue(Durin::MaterialParameterBaseColorTexture, OverrideTexture);
+	EXPECT_EQ(Second->GetRenderData().BaseColorTexture, OverrideTexture->GetRenderResource());
+	Second->SetTextureParameterValue(Durin::MaterialParameterBaseColorTexture, nullptr);
+	EXPECT_EQ(Second->GetRenderData().BaseColorTexture, nullptr);
+	EXPECT_TRUE(Second->ClearTextureParameterValue(Durin::MaterialParameterBaseColorTexture));
+	EXPECT_EQ(Second->GetRenderData().BaseColorTexture, OverrideTexture->GetRenderResource());
+	EXPECT_TRUE(First->ClearTextureParameterValue(Durin::MaterialParameterBaseColorTexture));
+	EXPECT_EQ(Second->GetRenderData().BaseColorTexture, BaseTexture->GetRenderResource());
+
+	Durin::MarkAsGarbage(Second);
+	Durin::MarkAsGarbage(First);
+	Durin::MarkAsGarbage(Base);
+	Durin::MarkAsGarbage(OverrideTexture);
+	Durin::MarkAsGarbage(BaseTexture);
+	Durin::CollectGarbage();
+	WaitForRenderingThread();
+	Durin::ShutdownRenderingThread();
+}
+
+TEST(FMaterialTests, ReflectedTextureParameterKeepsTextureReachable)
+{
+	InitializeDObjectSystem();
+	Durin::InitRenderingThread();
+	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "RootedTextureMaterial");
+	Durin::DTexture2D* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "ReferencedMaterialTexture");
+	Material->SetTextureParameterValue(Durin::MaterialParameterBaseColorTexture, Texture);
+	Durin::AddToRoot(Material);
+
+	Durin::CollectGarbage();
+	EXPECT_TRUE(Durin::GDObjectArray.Contains(Material));
+	EXPECT_TRUE(Durin::GDObjectArray.Contains(Texture));
+
+	Durin::RemoveFromRoot(Material);
+	Durin::CollectGarbage();
+	WaitForRenderingThread();
+	EXPECT_FALSE(Durin::GDObjectArray.Contains(Material));
+	EXPECT_FALSE(Durin::GDObjectArray.Contains(Texture));
+	Durin::ShutdownRenderingThread();
 }
 
 TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
@@ -444,12 +560,21 @@ TEST(FMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 
 	Durin::FAssetPath BasePath;
 	Durin::FAssetPath InstancePath;
+	Durin::FAssetPath TexturePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MaterialTests/Base", BasePath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MaterialTests/Instance", InstancePath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MaterialTests/BaseColorTexture", TexturePath));
+
+	const std::filesystem::path TextureSource = std::filesystem::path(DURIN_TEST_WORK_DIR) / "MaterialBaseColor.png";
+	WriteMaterialTextureFixture(TextureSource);
+	Durin::FTexture2DImportResult TextureImport = Durin::DTexture2D::ImportAsset(TextureSource.generic_string(), TexturePath.ToString());
+	ASSERT_TRUE(TextureImport) << TextureImport.Message;
+	ASSERT_NE(TextureImport.Asset, nullptr);
 
 	Durin::DMaterial* Base = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(BasePath, Base));
 	Base->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.2, 0.4, 0.6));
+	Base->SetTextureParameterValue(Durin::MaterialParameterBaseColorTexture, TextureImport.Asset);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Base->GetPackage()));
 
 	Durin::DMaterialInstance* Instance = nullptr;
@@ -459,15 +584,21 @@ TEST(FMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(BasePath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 
 	Durin::DMaterialInstance* Loaded = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(InstancePath, Loaded));
 	ASSERT_NE(Loaded->GetParent(), nullptr);
 	ExpectColorNear(Loaded->GetRenderData().BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 0.35f));
+	Durin::DTexture2D* LoadedTexture = nullptr;
+	ASSERT_TRUE(Loaded->GetTextureParameterValue(Durin::MaterialParameterBaseColorTexture, LoadedTexture));
+	ASSERT_NE(LoadedTexture, nullptr);
+	EXPECT_EQ(Loaded->GetRenderData().BaseColorTexture, LoadedTexture->GetRenderResource());
 	auto* LoadedBase = Durin::Cast<Durin::DMaterial>(Loaded->GetParent());
 	ASSERT_NE(LoadedBase, nullptr);
 	LoadedBase->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.6, 0.4, 0.2));
 	ExpectColorNear(Loaded->GetRenderData().BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 0.35f));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(BasePath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 }

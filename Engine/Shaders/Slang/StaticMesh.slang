@@ -48,6 +48,8 @@ struct MaterialUniform
 [[vk::binding(0, 0)]] ConstantBuffer<TransformUniform> Transform;
 [[vk::binding(1, 0)]] ConstantBuffer<LightingUniform> Lighting;
 [[vk::binding(2, 0)]] ConstantBuffer<MaterialUniform> Material;
+[[vk::binding(3, 0)]] Texture2D<float4> BaseColorTexture;
+[[vk::binding(4, 0)]] SamplerState BaseColorSampler;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)
@@ -67,7 +69,7 @@ VSOutput VertexMain(VSInput input)
 [shader("fragment")]
 float4 FragmentMain(VSOutput input) : SV_Target
 {
-    float4 surfaceColor = Material.BaseColor * input.color;
+    float4 surfaceColor = Material.BaseColor * BaseColorTexture.Sample(BaseColorSampler, input.uv0) * input.color;
     if (Material.Params.z < 0.5)
         return surfaceColor;
 

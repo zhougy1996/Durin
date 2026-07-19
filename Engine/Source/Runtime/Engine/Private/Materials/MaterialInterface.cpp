@@ -3,6 +3,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Materials/MaterialInstance.h"
+#include "Texture/Texture2D.h"
 
 namespace Durin
 {
@@ -21,6 +22,11 @@ namespace Durin
 		return false;
 	}
 
+	auto DMaterialInterface::GetTextureParameterValue(std::string_view Name, DTexture2D*& OutValue) const -> bool
+	{
+		return false;
+	}
+
 	auto DMaterialInterface::GetParent() const -> DMaterialInterface*
 	{
 		return nullptr;
@@ -35,6 +41,12 @@ namespace Durin
 			Result.BaseColor.r = static_cast<float>(std::clamp(BaseColor.x, 0.0, 1.0));
 			Result.BaseColor.g = static_cast<float>(std::clamp(BaseColor.y, 0.0, 1.0));
 			Result.BaseColor.b = static_cast<float>(std::clamp(BaseColor.z, 0.0, 1.0));
+		}
+
+		DTexture2D* BaseColorTexture = nullptr;
+		if (GetTextureParameterValue(MaterialParameterBaseColorTexture, BaseColorTexture) && BaseColorTexture != nullptr)
+		{
+			Result.BaseColorTexture = BaseColorTexture->GetRenderResource();
 		}
 
 		float Opacity = Result.BaseColor.a;

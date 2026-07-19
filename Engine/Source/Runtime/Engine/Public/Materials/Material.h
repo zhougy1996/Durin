@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Materials/MaterialInterface.h"
+#include "Texture/Texture2D.h"
 
 #include "Material.gen.h"
 
@@ -15,8 +16,10 @@ namespace Durin
 
 		auto SetScalarParameterValue(std::string_view Name, float Value) -> void;
 		auto SetVectorParameterValue(std::string_view Name, const FVector3& Value) -> void;
+		auto SetTextureParameterValue(std::string_view Name, DTexture2D* Value) -> void;
 		auto GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool override;
 		auto GetVectorParameterValue(std::string_view Name, FVector3& OutValue) const -> bool override;
+		auto GetTextureParameterValue(std::string_view Name, DTexture2D*& OutValue) const -> bool override;
 
 	private:
 		DPROPERTY(Edit)
@@ -24,5 +27,8 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		std::unordered_map<std::string, FVector3> VectorParameters;
+
+		DPROPERTY(Edit)
+		std::unordered_map<std::string, TObjectPtr<DTexture2D>> TextureParameters;
 	};
 }
