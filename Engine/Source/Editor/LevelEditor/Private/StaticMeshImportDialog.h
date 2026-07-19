@@ -1,7 +1,16 @@
 #pragma once
 
+#include "StaticMesh/StaticMesh.h"
+
 namespace Durin
 {
+	enum class EStaticMeshImportPreset : uint8
+	{
+		Durin,
+		YUpNegativeZForward,
+		Custom
+	};
+
 	class FStaticMeshImportDialog
 	{
 	public:
@@ -23,6 +32,8 @@ namespace Durin
 		std::array<char, 512> SourcePathBuffer{};
 		std::array<char, 256> AssetPathBuffer{};
 		std::string LastSuggestedAssetPath;
+		FStaticMeshImportSettings ImportSettings;
+		EStaticMeshImportPreset ImportPreset = EStaticMeshImportPreset::Durin;
 		bool bOpenRequested = false;
 	};
 } // namespace Durin

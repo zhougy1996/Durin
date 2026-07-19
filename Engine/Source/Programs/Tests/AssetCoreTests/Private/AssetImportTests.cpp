@@ -109,6 +109,17 @@ namespace Durin::Asset
 		{
 			return (std::filesystem::path{DURIN_TEST_DATA_DIR} / std::string(FileName)).string();
 		}
+
+		auto MakeYUpNegativeZForwardOptions() -> FMeshImportOptions
+		{
+			FMeshImportOptions Options;
+			Options.SourceToEngine = glm::mat4(0.0f);
+			Options.SourceToEngine[2][0] = -1.0f;
+			Options.SourceToEngine[0][1] = 1.0f;
+			Options.SourceToEngine[1][2] = 1.0f;
+			Options.SourceToEngine[3][3] = 1.0f;
+			return Options;
+		}
 	}
 
 	TEST(FAssetImportTests, ImportFromFileLoadsTriangleMesh)
@@ -155,6 +166,47 @@ namespace Durin::Asset
 		ExpectVec3Eq(glm::vec3(3.0f, 2.0f, 3.0f), Scene.Meshes[0].Positions[1]);
 		EXPECT_EQ(Scene.Meshes[2].Indices, (std::vector<uint32>{0, 2, 1}));
 		EXPECT_FLOAT_EQ(Scene.Meshes[2].Tangents[0].w, -1.0f);
+	}
+
+	TEST(FAssetImportTests, AppliesSourceCoordinateSystemToAllMeshAttributes)
+	{
+		FImportedSceneData Scene;
+		ASSERT_TRUE(ImportFromFile(TestDataPath("AsymmetricAxes.obj"), Scene, MakeYUpNegativeZForwardOptions()));
+		ASSERT_EQ(Scene.Meshes.size(), 1u);
+		const FImportedMeshData& Mesh = Scene.Meshes[0];
+		ASSERT_EQ(Mesh.Positions.size(), 3u);
+		ASSERT_EQ(Mesh.Normals.size(), 3u);
+		ASSERT_EQ(Mesh.Tangents.size(), 3u);
+
+		ExpectVec3Eq(glm::vec3(0.0f, 0.0f, 0.0f), Mesh.Positions[0]);
+		ExpectVec3Eq(glm::vec3(0.0f, 1.0f, 0.0f), Mesh.Positions[1]);
+		ExpectVec3Eq(glm::vec3(0.0f, 0.0f, 1.0f), Mesh.Positions[2]);
+		for (size_t VertexIndex = 0; VertexIndex < Mesh.Positions.size(); ++VertexIndex)
+		{
+			ExpectVec3Eq(glm::vec3(-1.0f, 0.0f, 0.0f), Mesh.Normals[VertexIndex]);
+			ExpectVec3Eq(glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(Mesh.Tangents[VertexIndex]));
+			EXPECT_FLOAT_EQ(Mesh.Tangents[VertexIndex].w, -1.0f);
+		}
+		EXPECT_EQ(Mesh.Indices, (std::vector<uint32>{0, 2, 1}));
+	}
+
+	TEST(FAssetImportTests, AsyncImportAppliesSourceCoordinateSystem)
+	{
+		ShutdownEngineThreadPool(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitEngineThreadPool(1));
+
+		FAsyncMeshImportHandle Handle = ImportFromFileAsync(TestDataPath("AsymmetricAxes.obj"), MakeYUpNegativeZForwardOptions());
+		ASSERT_TRUE(Handle.IsValid());
+		Handle.Wait();
+
+		FAsyncMeshImportResult Result;
+		ASSERT_TRUE(Handle.TryGetResult(Result));
+		ASSERT_TRUE(Result.bSucceeded);
+		ASSERT_EQ(Result.Scene.Meshes.size(), 1u);
+		ExpectVec3Eq(glm::vec3(0.0f, 1.0f, 0.0f), Result.Scene.Meshes[0].Positions[1]);
+		ExpectVec3Eq(glm::vec3(-1.0f, 0.0f, 0.0f), Result.Scene.Meshes[0].Normals[0]);
+		EXPECT_EQ(Result.Scene.Meshes[0].Indices, (std::vector<uint32>{0, 2, 1}));
 	}
 
 	TEST(FAssetImportTests, ImportFromFileAsyncMatchesSynchronousImport)

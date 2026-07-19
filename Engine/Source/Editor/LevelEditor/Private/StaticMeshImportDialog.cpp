@@ -10,6 +10,24 @@
 
 namespace Durin
 {
+	namespace
+	{
+		constexpr const char* ImportPresetNames[] = {
+			"Durin (+X Forward, +Y Right, +Z Up)",
+			"Y-Up / -Z Forward (+X Right)",
+			"Custom"
+		};
+		constexpr const char* ImportAxisNames[] = {"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
+
+		auto DrawImportAxisCombo(const char* Label, EStaticMeshImportAxis& Axis) -> bool
+		{
+			int Value = static_cast<int>(Axis);
+			if (!ImGui::Combo(Label, &Value, ImportAxisNames, std::size(ImportAxisNames))) return false;
+			Axis = static_cast<EStaticMeshImportAxis>(Value);
+			return true;
+		}
+	}
+
 	FStaticMeshImportDialog::FStaticMeshImportDialog(std::function<void()> InClearError, std::function<void(std::string)> InReportError, std::function<void(std::string)> InImported)
 		: ClearError(std::move(InClearError))
 		, ReportError(std::move(InReportError))
@@ -23,6 +41,8 @@ namespace Durin
 		AssetPathBuffer.fill(0);
 		LastSuggestedAssetPath.clear();
 		PreferredDestinationDirectory = DestinationDirectory;
+		ImportSettings = FStaticMeshImportSettings::MakeDurin();
+		ImportPreset = EStaticMeshImportPreset::Durin;
 		if (!PreferredDestinationDirectory.empty() && !PreferredDestinationDirectory.ends_with('/')) PreferredDestinationDirectory += '/';
 		bOpenRequested = true;
 	}
@@ -61,6 +81,28 @@ namespace Durin
 			ImGui::TextDisabled("%s", std::format("{}  |  {}", SourcePath.extension().generic_string(), SourcePath.filename().generic_string()).c_str());
 
 		ImGui::Spacing();
+		ImGui::SeparatorText("Coordinate system");
+		int PresetIndex = static_cast<int>(ImportPreset);
+		if (ImGui::Combo("Preset", &PresetIndex, ImportPresetNames, std::size(ImportPresetNames)))
+		{
+			ImportPreset = static_cast<EStaticMeshImportPreset>(PresetIndex);
+			if (ImportPreset == EStaticMeshImportPreset::Durin)
+				ImportSettings = FStaticMeshImportSettings::MakeDurin();
+			else if (ImportPreset == EStaticMeshImportPreset::YUpNegativeZForward)
+				ImportSettings = FStaticMeshImportSettings::MakeYUpNegativeZForward();
+		}
+		if (ImportPreset == EStaticMeshImportPreset::Custom)
+		{
+			DrawImportAxisCombo("Forward", ImportSettings.ForwardAxis);
+			DrawImportAxisCombo("Right", ImportSettings.RightAxis);
+			DrawImportAxisCombo("Up", ImportSettings.UpAxis);
+		}
+		else
+		{
+			ImGui::TextDisabled("Source axes are baked into Durin's +X Forward / +Y Right / +Z Up basis.");
+		}
+
+		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
 		ImGui::TextUnformatted("Asset path");
 		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
@@ -84,6 +126,8 @@ namespace Durin
 			}
 		}
 		const bool bAssetExists = bAssetPathValid && (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath));
+		std::string ImportSettingsError;
+		const bool bImportSettingsValid = ImportSettings.IsValid(&ImportSettingsError);
 
 		if (bAssetPathValid && bMountedDestination && bHasSource)
 		{
@@ -99,6 +143,8 @@ namespace Durin
 			ValidationMessage = "Select a source model to continue.";
 		else if (!bSourceExists)
 			ValidationMessage = "The selected source file no longer exists.";
+		else if (!bImportSettingsValid)
+			ValidationMessage = ImportSettingsError;
 		else if (!bAssetPathValid)
 			ValidationMessage = AssetPathError;
 		else if (!bMountedDestination)
@@ -154,6 +200,18 @@ namespace Durin
 		const std::string PreviousAssetPath = AssetPathBuffer.data();
 		SourcePathBuffer.fill(0);
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
+		std::string Extension = std::filesystem::path(Result.FilePath).extension().generic_string();
+		std::ranges::transform(Extension, Extension.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+		if (Extension == ".obj")
+		{
+			ImportPreset = EStaticMeshImportPreset::YUpNegativeZForward;
+			ImportSettings = FStaticMeshImportSettings::MakeYUpNegativeZForward();
+		}
+		else
+		{
+			ImportPreset = EStaticMeshImportPreset::Durin;
+			ImportSettings = FStaticMeshImportSettings::MakeDurin();
+		}
 		const std::string AssetName = StringUtils::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
 		const FProjectInfo* Project = GetCurrentProject();
 		const std::string SuggestedPath = !PreferredDestinationDirectory.empty() ? PreferredDestinationDirectory + AssetName : (Project ? Project->MountRoot : "/") + "StaticMeshes/" + AssetName;
@@ -220,7 +278,7 @@ namespace Durin
 	auto FStaticMeshImportDialog::Import() -> bool
 	{
 		if (ClearError) ClearError();
-		FStaticMeshImportResult Result = DStaticMesh::ImportAsset(SourcePathBuffer.data(), AssetPathBuffer.data());
+		FStaticMeshImportResult Result = DStaticMesh::ImportAsset(SourcePathBuffer.data(), AssetPathBuffer.data(), ImportSettings);
 		if (!Result)
 		{
 			SetError(Result.Message);

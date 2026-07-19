@@ -6,11 +6,18 @@
 #include "AssetSystem.h"
 #include "ImageDecoder.h"
 
+#include <glm/mat4x4.hpp>
+
 namespace Durin
 {
 	namespace Asset
 	{
 		inline constexpr uint32 MaxImportedUVChannels = 4;
+
+		struct FMeshImportOptions
+		{
+			glm::mat4 SourceToEngine{1.0f};
+		};
 
 		struct FImportedMaterialSlot
 		{
@@ -61,10 +68,10 @@ namespace Durin
 
 			std::shared_ptr<FAsyncMeshImportSharedState> State;
 
-			friend ASSETCORE_API auto ImportFromFileAsync(std::string_view FilePath) -> FAsyncMeshImportHandle;
+			friend ASSETCORE_API auto ImportFromFileAsync(std::string_view FilePath, const FMeshImportOptions& Options) -> FAsyncMeshImportHandle;
 		};
 
-		ASSETCORE_API auto ImportFromFile(std::string_view FilePath, FImportedSceneData& OutData) -> bool;
-		ASSETCORE_API auto ImportFromFileAsync(std::string_view FilePath) -> FAsyncMeshImportHandle;
+		ASSETCORE_API auto ImportFromFile(std::string_view FilePath, FImportedSceneData& OutData, const FMeshImportOptions& Options = {}) -> bool;
+		ASSETCORE_API auto ImportFromFileAsync(std::string_view FilePath, const FMeshImportOptions& Options = {}) -> FAsyncMeshImportHandle;
 	} // namespace AssetImport
 } // namespace Durin

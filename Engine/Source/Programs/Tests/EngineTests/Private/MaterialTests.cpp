@@ -378,6 +378,59 @@ TEST(FMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlots)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 }
 
+TEST(FMaterialTests, StaticMeshImportSettingsValidateDistinctAxes)
+{
+	Durin::FStaticMeshImportSettings Settings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
+	EXPECT_TRUE(Settings.IsValid());
+	Settings.RightAxis = Durin::EStaticMeshImportAxis::PositiveZ;
+	std::string Error;
+	EXPECT_FALSE(Settings.IsValid(&Error));
+	EXPECT_FALSE(Error.empty());
+}
+
+TEST(FMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuild)
+{
+	InitializeDObjectSystem();
+	static const bool bMountInitialized = [] {
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshAxisImports";
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/MeshAxisImportTests/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+
+	const Durin::FStaticMeshImportSettings Settings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "AsymmetricAxes.obj";
+	Durin::FStaticMeshImportResult ImportResult = Durin::DStaticMesh::ImportAsset(
+		Source.generic_string(), "/MeshAxisImportTests/AsymmetricAxes", Settings);
+	ASSERT_TRUE(ImportResult) << ImportResult.Message;
+	ASSERT_NE(ImportResult.Asset, nullptr);
+	EXPECT_EQ(ImportResult.Asset->GetImportSettings(), Settings);
+	ASSERT_NE(ImportResult.Asset->GetRenderData(), nullptr);
+	ASSERT_EQ(ImportResult.Asset->GetRenderData()->LODResources.size(), 1u);
+	const std::vector<Durin::FVector3f> ImportedPositions = ImportResult.Asset->GetRenderData()->LODResources[0].Positions;
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MeshAxisImportTests/AsymmetricAxes", AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+
+	Durin::DStaticMesh* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->GetImportSettings(), Settings);
+	ASSERT_NE(Loaded->GetRenderData(), nullptr);
+	ASSERT_EQ(Loaded->GetRenderData()->LODResources.size(), 1u);
+	const auto& ReloadedPositions = Loaded->GetRenderData()->LODResources[0].Positions;
+	ASSERT_EQ(ReloadedPositions.size(), ImportedPositions.size());
+	for (size_t Index = 0; Index < ImportedPositions.size(); ++Index)
+	{
+		EXPECT_FLOAT_EQ(ReloadedPositions[Index].x, ImportedPositions[Index].x);
+		EXPECT_FLOAT_EQ(ReloadedPositions[Index].y, ImportedPositions[Index].y);
+		EXPECT_FLOAT_EQ(ReloadedPositions[Index].z, ImportedPositions[Index].z);
+	}
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+}
+
 TEST(FMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides)
 {
 	InitializeDObjectSystem();

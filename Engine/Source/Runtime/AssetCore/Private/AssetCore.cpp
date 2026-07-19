@@ -24,6 +24,17 @@ namespace Durin
 		{
 			constexpr float TransformDeterminantTolerance = 1.0e-8f;
 
+			auto ToAssimpMatrix(const glm::mat4& Matrix) -> aiMatrix4x4
+			{
+				// GLM stores columns while Assimp's constructor is expressed as rows.
+				return {
+					Matrix[0][0], Matrix[1][0], Matrix[2][0], Matrix[3][0],
+					Matrix[0][1], Matrix[1][1], Matrix[2][1], Matrix[3][1],
+					Matrix[0][2], Matrix[1][2], Matrix[2][2], Matrix[3][2],
+					Matrix[0][3], Matrix[1][3], Matrix[2][3], Matrix[3][3]
+				};
+			}
+
 			auto ToVector3(const aiVector3D& Value) -> FVector3f
 			{
 				return {Value.x, Value.y, Value.z};
@@ -185,7 +196,7 @@ namespace Durin
 				return true;
 			}
 
-			auto ImportMeshesFromFile(std::string_view FilePath) -> FAsyncMeshImportResult
+			auto ImportMeshesFromFile(std::string_view FilePath, const FMeshImportOptions& Options) -> FAsyncMeshImportResult
 			{
 				FAsyncMeshImportResult Result;
 				std::string OwnedFilePath(FilePath);
@@ -218,7 +229,7 @@ namespace Durin
 					if (Scene->mMaterials[MaterialIndex] != nullptr) Scene->mMaterials[MaterialIndex]->Get(AI_MATKEY_NAME, MaterialName);
 					Result.Scene.MaterialSlots.push_back({MakeUniqueName(MaterialName.C_Str(), MaterialIndex, MaterialNameCounts), MaterialIndex});
 				}
-				if (!ImportNodeMeshes(*Scene, *Scene->mRootNode, aiMatrix4x4(), Result.Scene, Result.ErrorMessage))
+				if (!ImportNodeMeshes(*Scene, *Scene->mRootNode, ToAssimpMatrix(Options.SourceToEngine), Result.Scene, Result.ErrorMessage))
 				{
 					DURIN_ERROR("Asset import failed. (file: {}, error: {})", FilePath, Result.ErrorMessage);
 					return Result;
@@ -284,9 +295,9 @@ namespace Durin
 			return true;
 		}
 
-		auto ImportFromFile(std::string_view FilePath, FImportedSceneData& OutData) -> bool
+		auto ImportFromFile(std::string_view FilePath, FImportedSceneData& OutData, const FMeshImportOptions& Options) -> bool
 		{
-			FAsyncMeshImportResult Result = ImportMeshesFromFile(FilePath);
+			FAsyncMeshImportResult Result = ImportMeshesFromFile(FilePath, Options);
 			if (!Result.bSucceeded)
 			{
 				OutData = {};
@@ -297,12 +308,12 @@ namespace Durin
 			return true;
 		}
 
-		auto ImportFromFileAsync(std::string_view FilePath) -> FAsyncMeshImportHandle
+		auto ImportFromFileAsync(std::string_view FilePath, const FMeshImportOptions& Options) -> FAsyncMeshImportHandle
 		{
 			auto SharedState = std::make_shared<FAsyncMeshImportSharedState>();
 			std::string OwnedFilePath(FilePath);
-			SharedState->Task = LaunchTask("AssetImport.Mesh", [SharedState, FilePath = std::move(OwnedFilePath)]() mutable {
-				FAsyncMeshImportResult Result = ImportMeshesFromFile(FilePath);
+			SharedState->Task = LaunchTask("AssetImport.Mesh", [SharedState, FilePath = std::move(OwnedFilePath), Options]() mutable {
+				FAsyncMeshImportResult Result = ImportMeshesFromFile(FilePath, Options);
 
 				std::lock_guard Lock(SharedState->Mutex);
 				SharedState->Result = std::move(Result);

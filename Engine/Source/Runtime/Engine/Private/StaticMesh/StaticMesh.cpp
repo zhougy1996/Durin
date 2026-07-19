@@ -14,6 +14,41 @@ namespace Durin
 	{
 		constexpr float VectorTolerance = 1.0e-10f;
 
+		auto ImportAxisVector(EStaticMeshImportAxis Axis, FVector3f& OutVector, uint32& OutComponent) -> bool
+		{
+			switch (Axis)
+			{
+			case EStaticMeshImportAxis::PositiveX: OutVector = FVector3f(1.0f, 0.0f, 0.0f); OutComponent = 0; return true;
+			case EStaticMeshImportAxis::NegativeX: OutVector = FVector3f(-1.0f, 0.0f, 0.0f); OutComponent = 0; return true;
+			case EStaticMeshImportAxis::PositiveY: OutVector = FVector3f(0.0f, 1.0f, 0.0f); OutComponent = 1; return true;
+			case EStaticMeshImportAxis::NegativeY: OutVector = FVector3f(0.0f, -1.0f, 0.0f); OutComponent = 1; return true;
+			case EStaticMeshImportAxis::PositiveZ: OutVector = FVector3f(0.0f, 0.0f, 1.0f); OutComponent = 2; return true;
+			case EStaticMeshImportAxis::NegativeZ: OutVector = FVector3f(0.0f, 0.0f, -1.0f); OutComponent = 2; return true;
+			}
+			return false;
+		}
+
+		auto MakeImportOptions(const FStaticMeshImportSettings& Settings) -> Asset::FMeshImportOptions
+		{
+			FVector3f Forward;
+			FVector3f Right;
+			FVector3f Up;
+			uint32 UnusedComponent = 0;
+			ImportAxisVector(Settings.ForwardAxis, Forward, UnusedComponent);
+			ImportAxisVector(Settings.RightAxis, Right, UnusedComponent);
+			ImportAxisVector(Settings.UpAxis, Up, UnusedComponent);
+
+			Asset::FMeshImportOptions Options;
+			Options.SourceToEngine = glm::mat4(1.0f);
+			for (uint32 SourceComponent = 0; SourceComponent < 3; ++SourceComponent)
+			{
+				Options.SourceToEngine[SourceComponent][0] = Forward[SourceComponent];
+				Options.SourceToEngine[SourceComponent][1] = Right[SourceComponent];
+				Options.SourceToEngine[SourceComponent][2] = Up[SourceComponent];
+			}
+			return Options;
+		}
+
 		auto IsFinite(const FVector2f& Value) -> bool
 		{
 			return std::isfinite(Value.x) && std::isfinite(Value.y);
@@ -193,6 +228,43 @@ namespace Durin
 		}
 	}
 
+	auto FStaticMeshImportSettings::IsValid(std::string* OutError) const -> bool
+	{
+		FVector3f UnusedVector;
+		uint32 ForwardComponent = 0;
+		uint32 RightComponent = 0;
+		uint32 UpComponent = 0;
+		const bool bAxesKnown = ImportAxisVector(ForwardAxis, UnusedVector, ForwardComponent)
+			&& ImportAxisVector(RightAxis, UnusedVector, RightComponent)
+			&& ImportAxisVector(UpAxis, UnusedVector, UpComponent);
+		if (!bAxesKnown)
+		{
+			if (OutError) *OutError = "The import coordinate system contains an unknown axis.";
+			return false;
+		}
+		if (ForwardComponent == RightComponent || ForwardComponent == UpComponent || RightComponent == UpComponent)
+		{
+			if (OutError) *OutError = "Forward, Right, and Up must use X, Y, and Z exactly once.";
+			return false;
+		}
+		if (OutError) OutError->clear();
+		return true;
+	}
+
+	auto FStaticMeshImportSettings::MakeDurin() -> FStaticMeshImportSettings
+	{
+		return {};
+	}
+
+	auto FStaticMeshImportSettings::MakeYUpNegativeZForward() -> FStaticMeshImportSettings
+	{
+		return {
+			.ForwardAxis = EStaticMeshImportAxis::NegativeZ,
+			.RightAxis = EStaticMeshImportAxis::PositiveX,
+			.UpAxis = EStaticMeshImportAxis::PositiveY
+		};
+	}
+
 	DStaticMesh::DStaticMesh(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -273,7 +345,13 @@ namespace Durin
 	auto DStaticMesh::BuildRenderData(std::string_view FilePath, std::string& OutError) -> bool
 	{
 		Asset::FImportedSceneData ImportedScene;
-		if (!Asset::ImportFromFile(FilePath, ImportedScene))
+		std::string ImportSettingsError;
+		if (!ImportSettings.IsValid(&ImportSettingsError))
+		{
+			OutError = std::move(ImportSettingsError);
+			return false;
+		}
+		if (!Asset::ImportFromFile(FilePath, ImportedScene, MakeImportOptions(ImportSettings)))
 		{
 			OutError = std::format("Failed to import static mesh source file: {}", FilePath);
 			return false;
@@ -424,10 +502,15 @@ namespace Durin
 		return BuildRenderData(PhysicalPath, OutError);
 	}
 
-	auto DStaticMesh::ImportAsset(std::string_view FilePath, std::string_view AssetPath) -> FStaticMeshImportResult
+	auto DStaticMesh::ImportAsset(
+		std::string_view FilePath,
+		std::string_view AssetPath,
+		const FStaticMeshImportSettings& InImportSettings) -> FStaticMeshImportResult
 	{
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input)) return {false, "Source file does not exist.", nullptr};
+		std::string ImportSettingsError;
+		if (!InImportSettings.IsValid(&ImportSettingsError)) return {false, std::move(ImportSettingsError), nullptr};
 
 		FAssetPath ParsedAssetPath;
 		std::string PathError;
@@ -443,6 +526,7 @@ namespace Durin
 		DStaticMesh* Mesh = nullptr;
 		Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Mesh);
 		if (!CreateResult) return {false, CreateResult.Message, nullptr};
+		Mesh->ImportSettings = InImportSettings;
 		std::string BuildError;
 		if (!Mesh->BuildRenderData(Input.generic_string(), BuildError))
 		{
