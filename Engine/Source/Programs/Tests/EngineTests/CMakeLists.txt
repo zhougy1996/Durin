@@ -12,6 +12,7 @@ add_durin_test(EngineTests
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportCameraTransform.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/LevelEditorViewportClient.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/TransformGizmo.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/CameraEditorCustomizations.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelEditorCustomizations.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelEditorContext.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelViewportSessionSettings.cpp

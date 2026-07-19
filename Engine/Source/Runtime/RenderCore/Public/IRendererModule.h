@@ -37,6 +37,17 @@ namespace Durin
 		WireBox
 	};
 
+	enum class EViewOverlayIcon : uint8
+	{
+		Camera
+	};
+
+	enum class EViewOverlayLinePattern : uint8
+	{
+		Solid,
+		Dashed
+	};
+
 	struct FViewOverlayPrimitive
 	{
 		EViewOverlayShape Shape = EViewOverlayShape::Box;
@@ -50,6 +61,27 @@ namespace Durin
 		FVector3 End{0.0};
 		FVector4f Color{1.0f};
 		float WidthPixels = 1.0f;
+		EViewOverlayLinePattern Pattern = EViewOverlayLinePattern::Solid;
+		float PatternPeriodPixels = 12.0f;
+	};
+
+	struct FViewOverlayIcon
+	{
+		EViewOverlayIcon Icon = EViewOverlayIcon::Camera;
+		FVector3 WorldPosition{0.0};
+		FVector4f Color{1.0f};
+		float SizePixels = 30.0f;
+	};
+
+	struct FViewEditorGrid
+	{
+		bool bVisible = false;
+		double Height = 0.0;
+		float FadeDistance = 10000.0f;
+		FVector4f MinorColor{0.45f, 0.45f, 0.45f, 0.12f};
+		FVector4f MajorColor{0.55f, 0.55f, 0.55f, 0.28f};
+		FVector4f AxisXColor{1.0f, 0.28f, 0.28f, 0.8f};
+		FVector4f AxisYColor{0.28f, 0.9f, 0.38f, 0.8f};
 	};
 
 	struct FSceneView
@@ -60,8 +92,10 @@ namespace Durin
 		FVector3 ViewLocation{0.0};
 		uint32 ViewportWidth = 0;
 		uint32 ViewportHeight = 0;
+		FViewEditorGrid EditorGrid;
 		std::vector<FViewOverlayPrimitive> OverlayPrimitives;
 		std::vector<FViewOverlayLine> OverlayLines;
+		std::vector<FViewOverlayIcon> OverlayIcons;
 	};
 
 	class IRendererModule : public IModuleInterface

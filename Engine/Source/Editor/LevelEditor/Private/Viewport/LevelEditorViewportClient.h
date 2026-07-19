@@ -60,6 +60,8 @@ namespace Durin
 		auto SetSelectedActors(const std::vector<TObjectPtr<AActor>>& Actors, AActor* PrimaryActor) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo& { return TransformGizmo; }
 		auto GetTransformGizmo() const -> const FTransformGizmo& { return TransformGizmo; }
+		auto IsGridVisible() const -> bool { return bShowGrid; }
+		auto SetGridVisible(bool bVisible) -> void { bShowGrid = bVisible; }
 
 	private:
 		auto AppendSelectionBounds(FSceneView& View) const -> void;
@@ -74,6 +76,7 @@ namespace Durin
 		float NearClip = 0.1f;
 		float FarClip = 10000.0f;
 		float MovementSpeed = 5.0f;
+		bool bShowGrid = true;
 		bool bFlyNavigation = false;
 		bool bOrbitNavigation = false;
 		bool bPanNavigation = false;

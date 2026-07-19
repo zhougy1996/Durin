@@ -69,47 +69,60 @@ namespace Durin
 					: MonaImGui::EUIThemeColor::ViewportText;
 				const ImVec4& ImColor = MonaImGui::GetThemeColor(ThemeColor);
 				const FVector4f Color{ImColor.x, ImColor.y, ImColor.z, ImColor.w};
-				const float Width = Context.bSelected || Context.bHovered ? 2.5f : bPrimary ? 2.0f : 1.5f;
 
 				const FVector3 Origin = Camera->GetWorldLocation();
+				Collector.AddIcon({
+					.Icon = EViewOverlayIcon::Camera,
+					.WorldPosition = Origin,
+					.Color = Color,
+					.SizePixels = MonaImGui::ScaleUI(Context.bSelected ? 40.0f : 36.0f),
+					.HitPaddingPixels = MonaImGui::ScaleUI(4.0f),
+					.HitPriority = 100,
+					.Actor = Actor,
+					.Component = Camera,
+					.bDepthIndependentHit = true,
+				});
+				if (!Context.bSelected) return;
+
 				const FQuat Rotation = Camera->GetWorldRotation();
 				const FVector3 Forward = glm::normalize(Rotation * FVectorConstants::Forward);
 				const FVector3 Right = glm::normalize(Rotation * FVectorConstants::Right);
 				const FVector3 Up = glm::normalize(Rotation * FVectorConstants::Up);
-				const double Distance = std::max(0.05, glm::length(Origin - Context.View.ViewLocation));
-				const double Scale = Distance * 2.0 * std::tan(glm::radians(60.0) * 0.5) * 44.0 / Context.View.ViewportHeight;
-				const double FrustumLength = Scale * 2.2;
-				const double HalfHeight = std::tan(glm::radians(static_cast<double>(Camera->GetFieldOfViewDegrees())) * 0.5) * FrustumLength;
+				const double NearDistance = Camera->GetNearClip();
+				const double FarDistance = Camera->GetFarClip();
+				const double HalfFovTangent = std::tan(glm::radians(static_cast<double>(Camera->GetFieldOfViewDegrees())) * 0.5);
 				const double AspectRatio = static_cast<double>(Context.View.ViewportWidth) / Context.View.ViewportHeight;
-				const double HalfWidth = HalfHeight * std::max(AspectRatio, 0.001);
-				const FVector3 FarCenter = Origin + Forward * FrustumLength;
-				const std::array<FVector3, 4> FrustumCorners = {
-					FarCenter + Right * HalfWidth + Up * HalfHeight,
-					FarCenter - Right * HalfWidth + Up * HalfHeight,
-					FarCenter - Right * HalfWidth - Up * HalfHeight,
-					FarCenter + Right * HalfWidth - Up * HalfHeight,
+				const double SafeAspectRatio = std::max(AspectRatio, 0.001);
+				auto MakePlaneCorners = [&](double PlaneDistance) {
+					const double HalfHeight = HalfFovTangent * PlaneDistance;
+					const double HalfWidth = HalfHeight * SafeAspectRatio;
+					const FVector3 Center = Origin + Forward * PlaneDistance;
+					return std::array<FVector3, 4>{
+						Center + Right * HalfWidth + Up * HalfHeight,
+						Center - Right * HalfWidth + Up * HalfHeight,
+						Center - Right * HalfWidth - Up * HalfHeight,
+						Center + Right * HalfWidth - Up * HalfHeight,
+					};
 				};
+				const std::array<FVector3, 4> NearCorners = MakePlaneCorners(NearDistance);
+				const std::array<FVector3, 4> FarCorners = MakePlaneCorners(FarDistance);
+				const float Width = 2.5f;
 
-				auto AddLine = [&](const FVector3& Start, const FVector3& End, int32 Priority = 10) {
-					Collector.AddLine({Start, End, Color, Width, 7.0f, Priority, Actor, Camera});
+				auto AddLine = [&](const FVector3& Start, const FVector3& End, EViewOverlayLinePattern Pattern = EViewOverlayLinePattern::Solid, int32 Priority = 10) {
+					Collector.AddLine({Start, End, Color, Width, 7.0f, Priority, Actor, Camera, Pattern, 12.0f});
 				};
-				for (const FVector3& Corner : FrustumCorners) AddLine(Origin, Corner);
-				for (size_t Index = 0; Index < FrustumCorners.size(); ++Index) AddLine(FrustumCorners[Index], FrustumCorners[(Index + 1) % FrustumCorners.size()]);
-
-				const FVector3 BodyCenter = Origin - Forward * (Scale * 0.12);
-				const FVector3 BodyForward = Forward * (Scale * 0.34);
-				const FVector3 BodyRight = Right * (Scale * 0.38);
-				const FVector3 BodyUp = Up * (Scale * 0.28);
-				std::array<FVector3, 8> BodyCorners;
-				for (uint32 Corner = 0; Corner < 8; ++Corner)
+				for (size_t Index = 0; Index < NearCorners.size(); ++Index)
 				{
-					BodyCorners[Corner] = BodyCenter
-						+ ((Corner & 1) ? BodyForward : -BodyForward)
-						+ ((Corner & 2) ? BodyRight : -BodyRight)
-						+ ((Corner & 4) ? BodyUp : -BodyUp);
+					const size_t Next = (Index + 1) % NearCorners.size();
+					AddLine(NearCorners[Index], NearCorners[Next]);
+					AddLine(NearCorners[Index], FarCorners[Index]);
+					AddLine(FarCorners[Index], FarCorners[Next]);
 				}
-				static constexpr uint32 BodyEdges[] = {0,1,0,2,0,4,1,3,1,5,2,3,2,6,3,7,4,5,4,6,5,7,6,7};
-				for (size_t Index = 0; Index < std::size(BodyEdges); Index += 2) AddLine(BodyCorners[BodyEdges[Index]], BodyCorners[BodyEdges[Index + 1]], 20);
+				// Keep the orientation cue stable in world space instead of tying it to the editor view distance.
+				const double DirectionLength = std::max(NearDistance, FarDistance * 0.1);
+				const ImVec4& ImForwardColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::AxisX);
+				const FVector4f ForwardColor{ImForwardColor.x, ImForwardColor.y, ImForwardColor.z, ImForwardColor.w};
+				Collector.AddLine({Origin, Origin + Forward * DirectionLength, ForwardColor, 3.0f, 7.0f, 20, Actor, Camera});
 			}
 		};
 

@@ -61,6 +61,7 @@ namespace Durin
 		float GizmoScaleSnap = 0.1f;
 		uint8 GizmoMode = 0;
 		uint8 GizmoSpace = 0;
+		bool bShowWorldGrid = true;
 		uint8 ContentBrowserViewMode = 0;
 		float ContentBrowserIconSize = DefaultContentBrowserIconSize;
 		bool bContentBrowserIconSizeLocked = false;

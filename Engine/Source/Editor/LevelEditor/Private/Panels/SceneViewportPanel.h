@@ -32,6 +32,8 @@ namespace Durin
 		auto SetPreferredPlayMode(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo*;
 		auto GetTransformGizmo() const -> const FTransformGizmo*;
+		auto IsGridVisible() const -> bool;
+		auto SetGridVisible(bool bVisible) -> void;
 
 	private:
 		auto CalculateToolbarLayout(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout;

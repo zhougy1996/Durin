@@ -88,6 +88,18 @@ namespace Durin
 		OutView.ProjectionMatrix[0][3] = 1.0f;
 		OutView.ViewProjectionMatrix = OutView.ProjectionMatrix * OutView.ViewMatrix;
 		OutView.ViewLocation = CameraTransform.GetLocation();
+		const ImVec4& GridColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ViewportText);
+		const ImVec4& AxisXColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::AxisX);
+		const ImVec4& AxisYColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::AxisY);
+		OutView.EditorGrid = {
+			.bVisible = bShowGrid,
+			.Height = 0.0,
+			.FadeDistance = FarClip * 0.95f,
+			.MinorColor = {GridColor.x, GridColor.y, GridColor.z, GridColor.w * 0.14f},
+			.MajorColor = {GridColor.x, GridColor.y, GridColor.z, GridColor.w * 0.32f},
+			.AxisXColor = {AxisXColor.x, AxisXColor.y, AxisXColor.z, AxisXColor.w * 0.82f},
+			.AxisYColor = {AxisYColor.x, AxisYColor.y, AxisYColor.z, AxisYColor.w * 0.82f},
+		};
 		AppendSelectionBounds(OutView);
 		FEditorVisualizationCollector VisualizationCollector;
 		CollectEditorVisualizations(CurrentLevel, OutView, VisualizationCollector);
@@ -270,7 +282,7 @@ namespace Durin
 		FEditorVisualizationCollector VisualizationCollector;
 		CollectEditorVisualizations(Level, View, VisualizationCollector);
 		const FEditorVisualizationHit VisualizationHit = VisualizationCollector.HitTest(View, ViewportPosition);
-		if (VisualizationHit.Actor && VisualizationHit.Distance < ClosestDistance) ClosestActor = VisualizationHit.Actor;
+		if (VisualizationHit.Actor && (VisualizationHit.bDepthIndependent || VisualizationHit.Distance < ClosestDistance)) ClosestActor = VisualizationHit.Actor;
 		return ClosestActor;
 	}
 

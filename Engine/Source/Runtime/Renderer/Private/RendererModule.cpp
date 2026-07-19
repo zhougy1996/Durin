@@ -131,6 +131,41 @@ namespace Durin
 			DURIN_DECLARE_SHADER(FOverlayLineFragmentShader, FShader, "/Engine/Gizmo", EShaderFrequency::Fragment, "LineFragmentMain");
 		};
 
+		class FOverlayIconVertexShader : public FShader
+		{
+		public:
+			DURIN_DECLARE_SHADER(FOverlayIconVertexShader, FShader, "/Engine/Gizmo", EShaderFrequency::Vertex, "IconVertexMain");
+		};
+
+		class FOverlayIconFragmentShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FOverlayIconFragmentShader)
+				DURIN_SHADER_PARAMETER_TEXTURE(Atlas);
+				DURIN_SHADER_PARAMETER_SAMPLER(AtlasSampler);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(IconStyle);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FOverlayIconFragmentShader, FShader, "/Engine/Gizmo", EShaderFrequency::Fragment, "IconFragmentMain");
+		};
+
+		class FEditorGridVertexShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FEditorGridVertexShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Grid);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FEditorGridVertexShader, FShader, "/Engine/EditorGrid", EShaderFrequency::Vertex, "VertexMain");
+		};
+
+		class FEditorGridFragmentShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FEditorGridFragmentShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Grid);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FEditorGridFragmentShader, FShader, "/Engine/EditorGrid", EShaderFrequency::Fragment, "FragmentMain");
+		};
+
 		class FPostProcessVertexShader : public FShader
 		{
 		public:
@@ -209,6 +244,31 @@ namespace Durin
 		{
 			FVector4f Position{0.0f};
 			FVector4f Color{1.0f};
+			FVector2f Pattern{0.0f};
+		};
+
+		struct FOverlayIconStyleUniform
+		{
+			float AlphaScale = 1.0f;
+			FVector3f Padding{0.0f};
+		};
+
+		struct FOverlayIconVertex
+		{
+			FVector4f Position{0.0f};
+			FVector2f UV{0.0f};
+			FVector4f Color{1.0f};
+		};
+
+		struct FEditorGridUniform
+		{
+			glm::mat4 WorldToClip{1.0f};
+			FVector4f CenterHeightExtent{0.0f};
+			FVector4f ViewPositionFadeDistance{0.0f};
+			FVector4f MinorColor{1.0f};
+			FVector4f MajorColor{1.0f};
+			FVector4f AxisXColor{1.0f};
+			FVector4f AxisYColor{1.0f};
 		};
 
 		struct FGizmoMeshRange
@@ -247,6 +307,34 @@ namespace Durin
 			uint32 VertexCapacity = 0;
 			uint32 IndexCapacity = 0;
 			uint32 IndexCount = 0;
+			bool bCreateAttempted = false;
+		};
+
+		struct FOverlayIconRendererState
+		{
+			std::shared_ptr<FShaderMapBase> ShaderMap;
+			TShaderRef<FOverlayIconVertexShader> VertexShader;
+			TShaderRef<FOverlayIconFragmentShader> FragmentShader;
+			FVertexDeclarationRHIRef VertexDeclaration;
+			FGraphicsPipelineStateRHIRef XRayPipelineState;
+			FGraphicsPipelineStateRHIRef VisiblePipelineState;
+			FBufferRHIRef VertexBuffer;
+			FBufferRHIRef IndexBuffer;
+			FTextureRHIRef Atlas;
+			FSamplerRHIRef AtlasSampler;
+			uint32 VertexCapacity = 0;
+			uint32 IndexCapacity = 0;
+			uint32 IndexCount = 0;
+			bool bCreateAttempted = false;
+		};
+
+		struct FEditorGridRendererState
+		{
+			std::shared_ptr<FShaderMapBase> ShaderMap;
+			TShaderRef<FEditorGridVertexShader> VertexShader;
+			TShaderRef<FEditorGridFragmentShader> FragmentShader;
+			FVertexDeclarationRHIRef VertexDeclaration;
+			FGraphicsPipelineStateRHIRef PipelineState;
 			bool bCreateAttempted = false;
 		};
 
@@ -289,6 +377,8 @@ namespace Durin
 		FPostProcessRendererState GPostProcessState;
 		FGizmoRendererState GGizmoState;
 		FOverlayLineRendererState GOverlayLineState;
+		FOverlayIconRendererState GOverlayIconState;
+		FEditorGridRendererState GEditorGridState;
 		std::atomic<ERenderMode> GRenderMode = ERenderMode::Lit;
 		std::atomic<ERasterMode> GRasterMode = ERasterMode::Solid;
 
@@ -500,6 +590,7 @@ namespace Durin
 			FVertexDeclarationElementList Elements;
 			Elements[0] = FVertexElement(0, static_cast<uint8>(offsetof(FOverlayLineVertex, Position)), EVertexElementType::Float4, 0, sizeof(FOverlayLineVertex));
 			Elements[1] = FVertexElement(0, static_cast<uint8>(offsetof(FOverlayLineVertex, Color)), EVertexElementType::Float4, 1, sizeof(FOverlayLineVertex));
+			Elements[2] = FVertexElement(0, static_cast<uint8>(offsetof(FOverlayLineVertex, Pattern)), EVertexElementType::Float2, 2, sizeof(FOverlayLineVertex));
 			GOverlayLineState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
 
 			FGraphicsPipelineStateInitializer Initializer;
@@ -520,11 +611,30 @@ namespace Durin
 		auto BuildOverlayLineGeometry(const FSceneView& View, std::vector<FOverlayLineVertex>& OutVertices, std::vector<uint32>& OutIndices) -> void
 		{
 			constexpr double ClipEpsilon = 1.e-8;
+			auto ClipSegment = [](FVector4& Start, FVector4& End) {
+				auto ClipPlane = [&](auto PlaneDistance, double Minimum) {
+					const double StartDistance = PlaneDistance(Start);
+					const double EndDistance = PlaneDistance(End);
+					if (StartDistance < Minimum && EndDistance < Minimum) return false;
+					if (StartDistance < Minimum || EndDistance < Minimum)
+					{
+						const double T = (Minimum - StartDistance) / (EndDistance - StartDistance);
+						const FVector4 Intersection = glm::mix(Start, End, T);
+						if (StartDistance < Minimum) Start = Intersection;
+						else End = Intersection;
+					}
+					return true;
+				};
+				// Durin's perspective projection uses z=0 for the near plane and w=view depth.
+				return ClipPlane([](const FVector4& Value) { return Value.w; }, ClipEpsilon)
+					&& ClipPlane([](const FVector4& Value) { return Value.z; }, 0.0);
+			};
 			for (const FViewOverlayLine& Line : View.OverlayLines)
 			{
-				const FVector4 ClipStart = View.ViewProjectionMatrix * FVector4(Line.Start, 1.0);
-				const FVector4 ClipEnd = View.ViewProjectionMatrix * FVector4(Line.End, 1.0);
-				if (!std::isfinite(ClipStart.w) || !std::isfinite(ClipEnd.w) || ClipStart.w <= ClipEpsilon || ClipEnd.w <= ClipEpsilon) continue;
+				FVector4 ClipStart = View.ViewProjectionMatrix * FVector4(Line.Start, 1.0);
+				FVector4 ClipEnd = View.ViewProjectionMatrix * FVector4(Line.End, 1.0);
+				if (!std::isfinite(ClipStart.w) || !std::isfinite(ClipEnd.w) || !std::isfinite(ClipStart.z) || !std::isfinite(ClipEnd.z)
+					|| !ClipSegment(ClipStart, ClipEnd)) continue;
 				const FVector2 NdcStart = FVector2(ClipStart) / ClipStart.w;
 				const FVector2 NdcEnd = FVector2(ClipEnd) / ClipEnd.w;
 				FVector2f PixelDelta{
@@ -547,13 +657,150 @@ namespace Durin
 						static_cast<float>(Clip.w)
 					);
 				};
+				const float PatternPeriod = Line.Pattern == EViewOverlayLinePattern::Dashed ? std::max(2.0f, Line.PatternPeriodPixels) : 0.0f;
 				const uint32 Base = static_cast<uint32>(OutVertices.size());
-				OutVertices.push_back({MakePosition(ClipStart, NdcOffset), Line.Color});
-				OutVertices.push_back({MakePosition(ClipStart, -NdcOffset), Line.Color});
-				OutVertices.push_back({MakePosition(ClipEnd, NdcOffset), Line.Color});
-				OutVertices.push_back({MakePosition(ClipEnd, -NdcOffset), Line.Color});
+				OutVertices.push_back({MakePosition(ClipStart, NdcOffset), Line.Color, {0.0f, PatternPeriod}});
+				OutVertices.push_back({MakePosition(ClipStart, -NdcOffset), Line.Color, {0.0f, PatternPeriod}});
+				OutVertices.push_back({MakePosition(ClipEnd, NdcOffset), Line.Color, {PixelLength, PatternPeriod}});
+				OutVertices.push_back({MakePosition(ClipEnd, -NdcOffset), Line.Color, {PixelLength, PatternPeriod}});
 				OutIndices.insert(OutIndices.end(), {Base, Base + 1, Base + 2, Base + 2, Base + 1, Base + 3});
 			}
+		}
+
+		auto BuildCameraIconAtlasPixels() -> std::array<uint8, 64 * 64 * 4>
+		{
+			// A deterministic supersampled mask keeps this editor-only glyph crisp and avoids
+			// introducing a separately licensed source image or a game-thread asset dependency.
+			constexpr uint32 Size = 64;
+			constexpr uint32 SamplesPerAxis = 4;
+			std::array<uint8, Size * Size * 4> Pixels{};
+			auto InsideCircle = [](float X, float Y, float CenterX, float CenterY, float Radius) {
+				const float DX = X - CenterX;
+				const float DY = Y - CenterY;
+				return DX * DX + DY * DY <= Radius * Radius;
+			};
+			auto InsideLens = [](float X, float Y) {
+				if (X < 42.0f || X > 57.0f) return false;
+				const float T = (X - 42.0f) / 15.0f;
+				const float Top = glm::mix(29.0f, 20.0f, T);
+				const float Bottom = glm::mix(43.0f, 52.0f, T);
+				return Y >= Top && Y <= Bottom;
+			};
+			for (uint32 Y = 0; Y < Size; ++Y)
+			{
+				for (uint32 X = 0; X < Size; ++X)
+				{
+					uint32 CoveredSamples = 0;
+					for (uint32 SampleY = 0; SampleY < SamplesPerAxis; ++SampleY)
+					{
+						for (uint32 SampleX = 0; SampleX < SamplesPerAxis; ++SampleX)
+						{
+							const float PX = static_cast<float>(X) + (static_cast<float>(SampleX) + 0.5f) / SamplesPerAxis;
+							const float PY = static_cast<float>(Y) + (static_cast<float>(SampleY) + 0.5f) / SamplesPerAxis;
+							const bool bBody = PX >= 9.0f && PX <= 44.0f && PY >= 27.0f && PY <= 49.0f;
+							const bool bReels = InsideCircle(PX, PY, 19.0f, 21.0f, 10.0f) || InsideCircle(PX, PY, 37.0f, 20.0f, 9.0f);
+							const bool bReelHole = InsideCircle(PX, PY, 19.0f, 21.0f, 3.5f) || InsideCircle(PX, PY, 37.0f, 20.0f, 3.0f);
+							if ((bBody || bReels || InsideLens(PX, PY)) && !bReelHole) ++CoveredSamples;
+						}
+					}
+					const size_t Offset = (static_cast<size_t>(Y) * Size + X) * 4;
+					Pixels[Offset + 0] = 255;
+					Pixels[Offset + 1] = 255;
+					Pixels[Offset + 2] = 255;
+					Pixels[Offset + 3] = static_cast<uint8>(CoveredSamples * 255 / (SamplesPerAxis * SamplesPerAxis));
+				}
+			}
+			return Pixels;
+		}
+
+		auto EnsureOverlayIconResources(FRHICommandListImmediate& CommandList) -> void
+		{
+			if (GOverlayIconState.bCreateAttempted) return;
+			GOverlayIconState.bCreateAttempted = true;
+
+			FShaderCompileOptions CompileOptions;
+			FShaderType& VertexShaderType = FOverlayIconVertexShader::StaticType();
+			FShaderType& FragmentShaderType = FOverlayIconFragmentShader::StaticType();
+			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
+			auto ShaderMap = std::make_shared<FShaderMapBase>();
+			std::string ErrorMessage;
+			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
+			{
+				DURIN_ERROR("Failed to initialize overlay icon shader map: {}", ErrorMessage);
+				return;
+			}
+			GOverlayIconState.ShaderMap = ShaderMap;
+			GOverlayIconState.VertexShader = TShaderRef<FOverlayIconVertexShader>(static_cast<FOverlayIconVertexShader*>(ShaderMap->GetShader(&VertexShaderType)), ShaderMap.get());
+			GOverlayIconState.FragmentShader = TShaderRef<FOverlayIconFragmentShader>(static_cast<FOverlayIconFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType)), ShaderMap.get());
+
+			FVertexDeclarationElementList Elements;
+			Elements[0] = FVertexElement(0, static_cast<uint8>(offsetof(FOverlayIconVertex, Position)), EVertexElementType::Float4, 0, sizeof(FOverlayIconVertex));
+			Elements[1] = FVertexElement(0, static_cast<uint8>(offsetof(FOverlayIconVertex, UV)), EVertexElementType::Float2, 1, sizeof(FOverlayIconVertex));
+			Elements[2] = FVertexElement(0, static_cast<uint8>(offsetof(FOverlayIconVertex, Color)), EVertexElementType::Float4, 2, sizeof(FOverlayIconVertex));
+			GOverlayIconState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
+
+			FGraphicsPipelineStateInitializer Initializer;
+			Initializer.RenderTargetLayout = MakeSceneRenderTargetLayout();
+			Initializer.BoundShaders.VertexShader = GOverlayIconState.VertexShader.GetRHIShader();
+			Initializer.BoundShaders.FragmentShader = GOverlayIconState.FragmentShader.GetRHIShader();
+			Initializer.VertexDeclaration = GOverlayIconState.VertexDeclaration;
+			Initializer.bEnableAlphaBlend = true;
+			Initializer.bEnableBackFaceCulling = false;
+			Initializer.bEnableDepthWrite = false;
+			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
+			Initializer.bEnableDepthTest = false;
+			GOverlayIconState.XRayPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("OverlayIconXRayPipeline", Initializer);
+			Initializer.bEnableDepthTest = true;
+			GOverlayIconState.VisiblePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("OverlayIconVisiblePipeline", Initializer);
+
+			const std::array<uint8, 64 * 64 * 4> Pixels = BuildCameraIconAtlasPixels();
+			FRHITextureCreateDesc TextureDesc = FRHITextureCreateDesc::Create2D("EditorOverlayIconAtlas", 64, 64, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource);
+			GOverlayIconState.Atlas = GDynamicRHI->RHICreateTexture(CommandList, TextureDesc);
+			if (GOverlayIconState.Atlas != nullptr)
+			{
+				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 64, 64);
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, GOverlayIconState.Atlas, 0, Region, 64 * 4, Pixels.data());
+			}
+			GOverlayIconState.AtlasSampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
+		}
+
+		auto EnsureEditorGridResources() -> void
+		{
+			if (GEditorGridState.bCreateAttempted) return;
+			GEditorGridState.bCreateAttempted = true;
+
+			FShaderCompileOptions CompileOptions;
+			FShaderType& VertexShaderType = FEditorGridVertexShader::StaticType();
+			FShaderType& FragmentShaderType = FEditorGridFragmentShader::StaticType();
+			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
+			auto ShaderMap = std::make_shared<FShaderMapBase>();
+			std::string ErrorMessage;
+			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
+			{
+				DURIN_ERROR("Failed to initialize editor grid shader map: {}", ErrorMessage);
+				return;
+			}
+			GEditorGridState.ShaderMap = ShaderMap;
+			GEditorGridState.VertexShader = TShaderRef<FEditorGridVertexShader>(static_cast<FEditorGridVertexShader*>(ShaderMap->GetShader(&VertexShaderType)), ShaderMap.get());
+			GEditorGridState.FragmentShader = TShaderRef<FEditorGridFragmentShader>(static_cast<FEditorGridFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType)), ShaderMap.get());
+
+			// Reuse the renderer's fullscreen triangle buffer; only POSITION is consumed here.
+			FVertexDeclarationElementList Elements;
+			Elements[0] = FVertexElement(0, offsetof(FPostProcessVertex, Position), EVertexElementType::Float2, 0, sizeof(FPostProcessVertex));
+			GEditorGridState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
+
+			FGraphicsPipelineStateInitializer Initializer;
+			Initializer.RenderTargetLayout = MakeSceneRenderTargetLayout();
+			Initializer.BoundShaders.VertexShader = GEditorGridState.VertexShader.GetRHIShader();
+			Initializer.BoundShaders.FragmentShader = GEditorGridState.FragmentShader.GetRHIShader();
+			Initializer.VertexDeclaration = GEditorGridState.VertexDeclaration;
+			Initializer.bEnableAlphaBlend = true;
+			Initializer.bEnableBackFaceCulling = false;
+			Initializer.bEnableDepthTest = true;
+			Initializer.bEnableDepthWrite = false;
+			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
+			GEditorGridState.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("EditorWorldGridPipeline", Initializer);
 		}
 
 		auto EnsureStaticMeshPipeline() -> void
@@ -761,6 +1008,40 @@ namespace Durin
 			return glm::transpose(glm::mat4(Matrix));
 		}
 
+		auto DrawEditorGrid(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void
+		{
+			if (!View.EditorGrid.bVisible || GEditorGridState.PipelineState == nullptr
+				|| !GEditorGridState.VertexShader || !GEditorGridState.FragmentShader
+				|| GPostProcessState.VertexBuffer == nullptr || GPostProcessState.IndexBuffer == nullptr) return;
+
+			const float FadeDistance = std::max(1.0f, View.EditorGrid.FadeDistance);
+			FEditorGridUniform Uniform;
+			Uniform.WorldToClip = ToShaderMatrix(View.ViewProjectionMatrix);
+			Uniform.CenterHeightExtent = {
+				static_cast<float>(View.ViewLocation.x),
+				static_cast<float>(View.ViewLocation.y),
+				static_cast<float>(View.EditorGrid.Height),
+				FadeDistance * 1.1f
+			};
+			Uniform.ViewPositionFadeDistance = FVector4f(FVector3f(View.ViewLocation), FadeDistance);
+			Uniform.MinorColor = View.EditorGrid.MinorColor;
+			Uniform.MajorColor = View.EditorGrid.MajorColor;
+			Uniform.AxisXColor = View.EditorGrid.AxisXColor;
+			Uniform.AxisYColor = View.EditorGrid.AxisYColor;
+
+			CommandList.SetGraphicsPipelineState(*GEditorGridState.PipelineState);
+			CommandList.BindVertexBuffer(0, GPostProcessState.VertexBuffer, 0);
+			CommandList.BindIndexBuffer(GPostProcessState.IndexBuffer, 0);
+			const FRHIUniformBufferRange GridBuffer = CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			FEditorGridVertexShader::FParameters VertexParameters;
+			VertexParameters.Grid = GridBuffer;
+			SetShaderParameters(CommandList, GEditorGridState.VertexShader, VertexParameters);
+			FEditorGridFragmentShader::FParameters FragmentParameters;
+			FragmentParameters.Grid = GridBuffer;
+			SetShaderParameters(CommandList, GEditorGridState.FragmentShader, FragmentParameters);
+			CommandList.DrawIndexed(3, 0, 0);
+		}
+
 		auto DrawStaticMeshProxy(FRHICommandListImmediate& CommandList, const FSceneView& View, const FDirectionalLightSceneData& Light, ERenderMode RenderMode, ERasterMode RasterMode, const FStaticMeshSceneProxy& Proxy) -> void
 		{
 			FStaticMeshRenderData* RenderData = Proxy.GetRenderData();
@@ -896,6 +1177,82 @@ namespace Durin
 			CommandList.DrawIndexed(GOverlayLineState.IndexCount, 0, 0);
 		}
 
+		auto PrepareOverlayIcons(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void
+		{
+			GOverlayIconState.IndexCount = 0;
+			if (View.OverlayIcons.empty()) return;
+			EnsureOverlayIconResources(CommandList);
+			if (!GOverlayIconState.VertexShader || !GOverlayIconState.FragmentShader || GOverlayIconState.Atlas == nullptr) return;
+
+			std::vector<FOverlayIconVertex> Vertices;
+			std::vector<uint32> Indices;
+			Vertices.reserve(View.OverlayIcons.size() * 4);
+			Indices.reserve(View.OverlayIcons.size() * 6);
+			for (const FViewOverlayIcon& Icon : View.OverlayIcons)
+			{
+				if (Icon.Icon != EViewOverlayIcon::Camera || !std::isfinite(Icon.SizePixels) || Icon.SizePixels <= 0.0f) continue;
+				const FVector4 Clip = View.ViewProjectionMatrix * FVector4(Icon.WorldPosition, 1.0);
+				if (!std::isfinite(Clip.x) || !std::isfinite(Clip.y) || !std::isfinite(Clip.z) || !std::isfinite(Clip.w)
+					|| Clip.w <= 1.e-8 || Clip.z < 0.0) continue;
+				const double HalfNdcX = static_cast<double>(Icon.SizePixels) / std::max(1u, View.ViewportWidth);
+				const double HalfNdcY = static_cast<double>(Icon.SizePixels) / std::max(1u, View.ViewportHeight);
+				auto MakePosition = [&](double X, double Y) {
+					return FVector4f(
+						static_cast<float>(Clip.x + X * Clip.w),
+						static_cast<float>(Clip.y + Y * Clip.w),
+						static_cast<float>(Clip.z),
+						static_cast<float>(Clip.w)
+					);
+				};
+				const uint32 Base = static_cast<uint32>(Vertices.size());
+				Vertices.push_back({MakePosition(-HalfNdcX, -HalfNdcY), {0.0f, 0.0f}, Icon.Color});
+				Vertices.push_back({MakePosition(HalfNdcX, -HalfNdcY), {1.0f, 0.0f}, Icon.Color});
+				Vertices.push_back({MakePosition(-HalfNdcX, HalfNdcY), {0.0f, 1.0f}, Icon.Color});
+				Vertices.push_back({MakePosition(HalfNdcX, HalfNdcY), {1.0f, 1.0f}, Icon.Color});
+				Indices.insert(Indices.end(), {Base, Base + 1, Base + 2, Base + 2, Base + 1, Base + 3});
+			}
+			if (Vertices.empty() || Indices.empty()) return;
+
+			const uint32 VertexBytes = static_cast<uint32>(Vertices.size() * sizeof(FOverlayIconVertex));
+			const uint32 IndexBytes = static_cast<uint32>(Indices.size() * sizeof(uint32));
+			if (VertexBytes > GOverlayIconState.VertexCapacity)
+			{
+				GOverlayIconState.VertexCapacity = std::bit_ceil(VertexBytes);
+				FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateVertex("OverlayIconVertexBuffer", GOverlayIconState.VertexCapacity);
+				Desc.Usage |= EBufferUsageFlags::Dynamic;
+				GOverlayIconState.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, Desc);
+			}
+			if (IndexBytes > GOverlayIconState.IndexCapacity)
+			{
+				GOverlayIconState.IndexCapacity = std::bit_ceil(IndexBytes);
+				FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateIndex("OverlayIconIndexBuffer", GOverlayIconState.IndexCapacity, sizeof(uint32));
+				Desc.Usage |= EBufferUsageFlags::Dynamic;
+				GOverlayIconState.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, Desc);
+			}
+			if (GOverlayIconState.VertexBuffer == nullptr || GOverlayIconState.IndexBuffer == nullptr) return;
+			CommandList.WriteBuffer(GOverlayIconState.VertexBuffer, Vertices.data(), VertexBytes, 0);
+			CommandList.WriteBuffer(GOverlayIconState.IndexBuffer, Indices.data(), IndexBytes, 0);
+			GOverlayIconState.IndexCount = static_cast<uint32>(Indices.size());
+		}
+
+		auto DrawOverlayIcons(FRHICommandListImmediate& CommandList, bool bXRay) -> void
+		{
+			if (GOverlayIconState.IndexCount == 0 || GOverlayIconState.VertexBuffer == nullptr || GOverlayIconState.IndexBuffer == nullptr
+				|| GOverlayIconState.Atlas == nullptr || GOverlayIconState.AtlasSampler == nullptr) return;
+			const FGraphicsPipelineStateRHIRef Pipeline = bXRay ? GOverlayIconState.XRayPipelineState : GOverlayIconState.VisiblePipelineState;
+			if (Pipeline == nullptr) return;
+			CommandList.SetGraphicsPipelineState(*Pipeline);
+			CommandList.BindVertexBuffer(0, GOverlayIconState.VertexBuffer, 0);
+			CommandList.BindIndexBuffer(GOverlayIconState.IndexBuffer, 0);
+			const FOverlayIconStyleUniform Style{bXRay ? 0.3f : 1.0f};
+			FOverlayIconFragmentShader::FParameters Parameters;
+			Parameters.Atlas = GOverlayIconState.Atlas;
+			Parameters.AtlasSampler = GOverlayIconState.AtlasSampler;
+			Parameters.IconStyle = CommandList.AllocateDynamicUniformBuffer(&Style, sizeof(Style));
+			SetShaderParameters(CommandList, GOverlayIconState.FragmentShader, Parameters);
+			CommandList.DrawIndexed(GOverlayIconState.IndexCount, 0, 0);
+		}
+
 		auto DrawPostProcess(FRHICommandListImmediate& CommandList, FRHITexture* SceneColor, uint32 Width, uint32 Height, bool bPresentOutput) -> void
 		{
 			const bool bUseFXAA = GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
@@ -987,6 +1344,8 @@ namespace Durin
 	{
 		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)([](FRHICommandListImmediate&) {
 			GDefaultTextures = {};
+			GOverlayIconState.Atlas = nullptr;
+			GOverlayIconState.AtlasSampler = nullptr;
 		});
 	}
 
@@ -997,6 +1356,8 @@ namespace Durin
 		GStaticMeshState = {};
 		GGizmoState = {};
 		GOverlayLineState = {};
+		GOverlayIconState = {};
+		GEditorGridState = {};
 		GPostProcessState.CopyShaderMap.reset();
 		GPostProcessState.FXAAShaderMap.reset();
 		GPostProcessState.CopyVertexShader = {};
@@ -1097,6 +1458,8 @@ namespace Durin
 		}
 		if (!View.OverlayPrimitives.empty()) EnsureGizmoResources(CommandList);
 		if (!View.OverlayLines.empty()) EnsureOverlayLineResources();
+		if (!View.OverlayIcons.empty()) EnsureOverlayIconResources(CommandList);
+		if (View.EditorGrid.bVisible) EnsureEditorGridResources();
 
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.RenderTargetLayout = MakeSceneRenderTargetLayout();
@@ -1148,11 +1511,15 @@ namespace Durin
 				DrawStaticMeshProxy(CommandList, View, Light, RenderMode, RasterMode, Proxy);
 			}
 		});
+		DrawEditorGrid(CommandList, View);
 		PrepareOverlayLines(CommandList, View);
+		PrepareOverlayIcons(CommandList, View);
 		DrawGizmoPrimitives(CommandList, View, true);
 		DrawOverlayLines(CommandList, true);
+		DrawOverlayIcons(CommandList, true);
 		DrawGizmoPrimitives(CommandList, View, false);
 		DrawOverlayLines(CommandList, false);
+		DrawOverlayIcons(CommandList, false);
 	}
 
 	IMPLEMENT_MODULE(FRendererModule, Renderer)

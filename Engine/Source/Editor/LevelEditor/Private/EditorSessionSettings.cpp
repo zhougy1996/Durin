@@ -57,6 +57,7 @@ namespace Durin
 		GizmoTranslationSnap = static_cast<float>(Gizmo.GetView("TranslationSnap").GetDouble(0.5));
 		GizmoRotationSnap = static_cast<float>(Gizmo.GetView("RotationSnap").GetDouble(15.0));
 		GizmoScaleSnap = static_cast<float>(Gizmo.GetView("ScaleSnap").GetDouble(0.1));
+		bShowWorldGrid = Root.GetView("SceneViewport").GetView("ShowWorldGrid").GetBool(true);
 
 		const FYamlNodeView ContentBrowser = Root.GetView("ContentBrowser");
 		ContentBrowserViewMode = static_cast<uint8>(std::clamp<int64>(ContentBrowser.GetView("ViewMode").GetInt(0), 0, 1));
@@ -123,6 +124,8 @@ namespace Durin
 			GizmoNode.SetChildValue("RotationSnap", static_cast<double>(GizmoRotationSnap));
 			GizmoNode.SetChildValue("ScaleSnap", static_cast<double>(GizmoScaleSnap));
 		}
+		FYamlNodeRef SceneViewportNode = Root.AddMap("SceneViewport");
+		SceneViewportNode.SetChildValue("ShowWorldGrid", SceneViewportPanel ? SceneViewportPanel->IsGridVisible() : bShowWorldGrid);
 
 		FYamlNodeRef ContentBrowserNode = Root.AddMap("ContentBrowser");
 		ContentBrowserNode.SetChildValue("ViewMode", static_cast<int64>(ContentBrowserViewMode));
@@ -151,6 +154,7 @@ namespace Durin
 			Gizmo->SetSpace(static_cast<ETransformGizmoSpace>(std::min<uint8>(GizmoSpace, 2)));
 			Gizmo->GetSnapSettings() = {bGizmoSnapEnabled, GizmoTranslationSnap, GizmoRotationSnap, GizmoScaleSnap};
 		}
+		SceneViewportPanel.SetGridVisible(bShowWorldGrid);
 	}
 
 	auto FEditorSessionSettings::CaptureViewportState(const FLevelEditorContext& Context, const FSceneViewportPanel& SceneViewportPanel) -> void

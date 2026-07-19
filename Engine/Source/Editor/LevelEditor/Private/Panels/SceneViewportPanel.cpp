@@ -433,6 +433,16 @@ namespace Durin
 		return ViewportClient ? &ViewportClient->GetTransformGizmo() : nullptr;
 	}
 
+	auto FSceneViewportPanel::IsGridVisible() const -> bool
+	{
+		return ViewportClient != nullptr && ViewportClient->IsGridVisible();
+	}
+
+	auto FSceneViewportPanel::SetGridVisible(bool bVisible) -> void
+	{
+		if (ViewportClient != nullptr) ViewportClient->SetGridVisible(bVisible);
+	}
+
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
@@ -625,6 +635,13 @@ namespace Durin
 			DrawModeOptions(Layout.RasterMode, RasterModeOptions, [RendererModule = Layout.RendererModule](ERasterMode Mode) {
 				if (RendererModule != nullptr) RendererModule->SetRasterMode(Mode);
 			});
+			ImGui::Separator();
+			ImGui::TextDisabled("Overlays");
+			if (ViewportClient != nullptr)
+			{
+				const bool bShowGrid = ViewportClient->IsGridVisible();
+				if (ImGui::MenuItem("World Grid", nullptr, bShowGrid)) ViewportClient->SetGridVisible(!bShowGrid);
+			}
 			ImGui::EndPopup();
 		}
 

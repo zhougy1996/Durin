@@ -31,6 +31,21 @@ namespace Durin
 		int32 HitPriority = 0;
 		AActor* Actor = nullptr;
 		DActorComponent* Component = nullptr;
+		EViewOverlayLinePattern Pattern = EViewOverlayLinePattern::Solid;
+		float PatternPeriodPixels = 12.0f;
+	};
+
+	struct FEditorVisualizationIcon
+	{
+		EViewOverlayIcon Icon = EViewOverlayIcon::Camera;
+		FVector3 WorldPosition{0.0};
+		FVector4f Color{1.0f};
+		float SizePixels = 30.0f;
+		float HitPaddingPixels = 3.0f;
+		int32 HitPriority = 100;
+		AActor* Actor = nullptr;
+		DActorComponent* Component = nullptr;
+		bool bDepthIndependentHit = true;
 	};
 
 	struct FEditorVisualizationHit
@@ -39,18 +54,22 @@ namespace Durin
 		DActorComponent* Component = nullptr;
 		double Distance = std::numeric_limits<double>::max();
 		int32 Priority = std::numeric_limits<int32>::min();
+		bool bDepthIndependent = false;
 	};
 
 	class FEditorVisualizationCollector
 	{
 	public:
 		LEVELEDITOR_API auto AddLine(const FEditorVisualizationLine& Line) -> void;
+		LEVELEDITOR_API auto AddIcon(const FEditorVisualizationIcon& Icon) -> void;
 		LEVELEDITOR_API auto AppendToView(FSceneView& View) const -> void;
 		LEVELEDITOR_API auto HitTest(const FSceneView& View, const FVector2f& ViewportPosition) const -> FEditorVisualizationHit;
 		auto GetLines() const -> const std::vector<FEditorVisualizationLine>& { return Lines; }
+		auto GetIcons() const -> const std::vector<FEditorVisualizationIcon>& { return Icons; }
 
 	private:
 		std::vector<FEditorVisualizationLine> Lines;
+		std::vector<FEditorVisualizationIcon> Icons;
 	};
 
 	class IComponentEditorVisualizer
