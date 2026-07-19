@@ -559,13 +559,18 @@ namespace Durin
 		{
 			check(NewCapacity > Capacity());
 
-			std::span<FNameSlot> OldSlots(Slots, Capacity());
+			const uint32 OldCapacity = Capacity();
+			FNameSlot* OldSlots = Slots;
 			const uint32 OldUsedSlots = UsedSlots;
 
-			Slots = static_cast<FNameSlot*>(FPlatformMisc::AlignedRealloc(Slots, NewCapacity * sizeof(FNameSlot), alignof(FNameSlot)));
-			check(Slots != nullptr);
-			memset(Slots + Capacity(), 0, (NewCapacity - Capacity()) * sizeof(FNameSlot));
+			// Rehashing needs the complete old table to remain alive. Realloc may move and
+			// release that table, so allocate the replacement separately and free only
+			// after every occupied slot has been transferred.
+			FNameSlot* NewSlots = static_cast<FNameSlot*>(FPlatformMisc::AlignedAlloc(NewCapacity * sizeof(FNameSlot), alignof(FNameSlot)));
+			check(NewSlots != nullptr);
+			memset(NewSlots, 0, NewCapacity * sizeof(FNameSlot));
 
+			Slots = NewSlots;
 			CapacityMask = NewCapacity - 1;
 			UsedSlots = 0;
 
@@ -573,7 +578,7 @@ namespace Durin
 			FNameSlot PrefetchedSlots[PrefetchDepth];
 			uint32 NumPrefetched = 0;
 
-			for (FNameSlot OldSlot : OldSlots)
+			for (FNameSlot OldSlot : std::span<FNameSlot>(OldSlots, OldCapacity))
 			{
 				if (OldSlot.Used())
 				{
@@ -601,7 +606,7 @@ namespace Durin
 
 			check(OldUsedSlots == UsedSlots);
 
-			FPlatformMisc::AlignedFree(OldSlots.data());
+			FPlatformMisc::AlignedFree(OldSlots);
 		}
 
 		FORCEINLINE auto Probe(const FNameValue<Sensitivity>& Value) const -> FNameSlot&
@@ -756,7 +761,7 @@ namespace Durin
 
 		if (bAddedComparisonEntry || ReuseComparisonEntry(DisplayValue))
 		{
-			DisplayShards->InsertExistingEntry(DisplayValue.Hash, DisplayValue.ComparisonId);
+			DisplayShard.InsertExistingEntry(DisplayValue.Hash, DisplayValue.ComparisonId);
 		}
 		else
 		{
