@@ -539,6 +539,7 @@ This order keeps the system useful at every step and avoids designing advanced s
 
 ## Related Docs
 
+- Current implementation status and actionable gaps: `Documentation/Todo/MultithreadingSystem.md`
 - Runtime architecture: `Documentation/Architecture/RuntimeArchitecture.md`
 - Native tests: `Documentation/Setup/NativeTests.md`
 - Build and run workflow: `Documentation/Setup/BuildAndRun.md`
