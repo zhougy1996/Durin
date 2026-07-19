@@ -12,6 +12,7 @@ namespace Durin
 
 	struct FTransform;
 	struct FBox;
+	struct FLinearColor;
 	using FRotator = TRotator<FReal>;
 
 	using FVector2f = glm::vec2;

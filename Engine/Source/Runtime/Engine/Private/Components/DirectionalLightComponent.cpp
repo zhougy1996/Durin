@@ -22,9 +22,9 @@ namespace Durin
 		FDirectionalLightSceneData Result;
 		Result.Direction = glm::normalize(GetWorldRotation() * FVectorConstants::Forward);
 		Result.Color = FVector3f(
-			std::clamp(ColorR, 0.0f, 1.0f),
-			std::clamp(ColorG, 0.0f, 1.0f),
-			std::clamp(ColorB, 0.0f, 1.0f));
+			std::clamp(Color.R, 0.0f, 1.0f),
+			std::clamp(Color.G, 0.0f, 1.0f),
+			std::clamp(Color.B, 0.0f, 1.0f));
 		Result.Intensity = FMath::Max(0.0f, Intensity);
 		Result.AmbientIntensity = FMath::Max(0.0f, AmbientIntensity);
 		return Result;

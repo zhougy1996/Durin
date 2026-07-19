@@ -492,6 +492,8 @@ def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
                 _line(f"static const Durin::DurinCodeGen::FMapPropertyHelper NewProp_{prop.name}_MapHelper;", 1),
             ]
         )
+    if prop.metadata:
+        decls.append(_line(f"static const Durin::DurinCodeGen::FMetaDataPair NewProp_{prop.name}_MetaData[];", 1))
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
     decls.append(_line(f"static const Durin::DurinCodeGen::{param_type} NewProp_{prop.name};", 1))
     return decls
@@ -515,6 +517,16 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         content += _array_helper_definition(class_info, prop, symbols)
     if prop.kind == "Map":
         content += _map_helper_definition(class_info, prop, symbols)
+    metadata_ref = "nullptr"
+    metadata_count = "0"
+    if prop.metadata:
+        metadata_name = f"{class_info.generated_statics_name}::NewProp_{prop.name}_MetaData"
+        entries = ", ".join(
+            f"{{ {_cpp_string_literal(key)}, {_cpp_string_literal(value)} }}" for key, value in prop.metadata
+        )
+        content += f"const Durin::DurinCodeGen::FMetaDataPair {metadata_name}[] = {{ {entries} }};\n"
+        metadata_ref = metadata_name
+        metadata_count = str(len(prop.metadata))
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
     referenced_class_helper = "nullptr"
     if prop.referenced_type:
@@ -547,7 +559,8 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         f"{offset}, "
         f"static_cast<Durin::uint16>({element_size}), "
         f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_class_helper}, {referenced_enum_helper}, {inner}, {key}, {value}, "
-        f"{_bool_literal(prop.is_object_ptr_wrapper)}, {array_helper}, {map_helper}, {referenced_struct_helper} }};\n"
+        f"{_bool_literal(prop.is_object_ptr_wrapper)}, {array_helper}, {map_helper}, {referenced_struct_helper}, nullptr, nullptr, "
+        f"{metadata_ref}, {metadata_count} }};\n"
     )
     return content
 

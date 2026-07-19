@@ -27,4 +27,6 @@ namespace Durin::MonaImGui
 	MONAIMGUI_API auto EndPropertyRow(bool bReadOnly = false) -> void;
 	// Draws an expandable Transform property. Must be called inside a property table.
 	MONAIMGUI_API auto EditTransformProperty(const char* Label, FTransform& Transform, bool bReadOnly = false) -> bool;
+	// Edits linear storage through an sRGB-facing picker. Must be called inside a property table.
+	MONAIMGUI_API auto EditColorProperty(const char* Label, FLinearColor& Color, bool bShowAlpha = true, bool bReadOnly = false) -> bool;
 } // namespace Durin::MonaImGui

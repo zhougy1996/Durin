@@ -160,6 +160,12 @@ namespace Durin
 			const char* DefaultObjectName = nullptr;
 		};
 
+		struct FMetaDataPair
+		{
+			const char* Key;
+			const char* Value;
+		};
+
 		struct FPropertyParamsBase
 		{
 			const char* NameUTF8;
@@ -179,6 +185,8 @@ namespace Durin
 			DStruct* (*ReferencedStructFunc)() = nullptr;
 			void* (*MutableValueAccessor)(void* Container, uint32 ArrayIndex) = nullptr;
 			const void* (*ConstValueAccessor)(const void* Container, uint32 ArrayIndex) = nullptr;
+			const FMetaDataPair* MetaData = nullptr;
+			size_t NumMetaData = 0;
 		};
 
 		struct FGenericPropertyParams : public FPropertyParamsBase

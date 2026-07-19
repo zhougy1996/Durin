@@ -1,5 +1,6 @@
 #include "MonaImGuiPropertyTable.h"
 
+#include "Math/Color.h"
 #include "Math/Transform.h"
 #include "MonaImGui.h"
 
@@ -37,6 +38,18 @@ namespace Durin::MonaImGui
 			ImGui::PopStyleVar();
 			ImGui::PopID();
 			return bChanged;
+		}
+
+		auto LinearToSRGB(float Value) -> float
+		{
+			const float Linear = std::clamp(Value, 0.0f, 1.0f);
+			return Linear <= 0.0031308f ? Linear * 12.92f : 1.055f * std::pow(Linear, 1.0f / 2.4f) - 0.055f;
+		}
+
+		auto SRGBToLinear(float Value) -> float
+		{
+			const float SRGB = std::clamp(Value, 0.0f, 1.0f);
+			return SRGB <= 0.04045f ? SRGB / 12.92f : std::pow((SRGB + 0.055f) / 1.055f, 2.4f);
 		}
 	} // namespace
 
@@ -111,6 +124,25 @@ namespace Durin::MonaImGui
 		}
 		bChanged |= EditTransformRow("Scale", Transform.Scale3D, 0.01);
 		ImGui::TreePop();
+		return bChanged;
+	}
+
+	auto EditColorProperty(const char* Label, FLinearColor& Color, bool bShowAlpha, bool bReadOnly) -> bool
+	{
+		BeginPropertyRow(Label, bReadOnly);
+		FLinearColor DisplayColor(LinearToSRGB(Color.R), LinearToSRGB(Color.G), LinearToSRGB(Color.B), std::clamp(Color.A, 0.0f, 1.0f));
+		const ImGuiColorEditFlags Flags = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB;
+		const bool bChanged = bShowAlpha
+			? ImGui::ColorEdit4("##Value", DisplayColor.RGBA, Flags)
+			: ImGui::ColorEdit3("##Value", DisplayColor.RGBA, Flags);
+		if (bChanged)
+		{
+			Color.R = SRGBToLinear(DisplayColor.R);
+			Color.G = SRGBToLinear(DisplayColor.G);
+			Color.B = SRGBToLinear(DisplayColor.B);
+			if (bShowAlpha) Color.A = DisplayColor.A;
+		}
+		EndPropertyRow(bReadOnly);
 		return bChanged;
 	}
 } // namespace Durin::MonaImGui

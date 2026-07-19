@@ -12,12 +12,14 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Property.h"
 #include "Engine/Engine.h"
 #include "Engine/GameEngine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
 #include "IScene.h"
+#include "Math/Color.h"
 #include "Misc/Paths.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Threading/RunnableThread.h"
@@ -519,9 +521,53 @@ TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
 	SceneData = Light->GetLightComponent()->GetSceneData();
 	EXPECT_FLOAT_EQ(SceneData.Intensity, 1.0f);
 	EXPECT_FLOAT_EQ(SceneData.AmbientIntensity, 0.08f);
+	EXPECT_EQ(SceneData.Color, Durin::FVector3f(1.0f));
+
+	Durin::FProperty* ColorProperty = Durin::DDirectionalLightComponent::StaticClass()->FindPropertyByName("Color");
+	ASSERT_NE(ColorProperty, nullptr);
+	EXPECT_EQ(ColorProperty->GetMetaData(Durin::FName("HideAlpha")), "true");
+	auto* Color = ColorProperty->ContainerPtrToValuePtr<Durin::FLinearColor>(Light->GetLightComponent());
+	*Color = Durin::FLinearColor(-0.25f, 0.25f, 1.25f, 0.1f);
+	SceneData = Light->GetLightComponent()->GetSceneData();
+	EXPECT_EQ(SceneData.Color, Durin::FVector3f(0.0f, 0.25f, 1.0f));
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
+}
+
+TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
+{
+	InitializeDObjectSystem();
+	static const bool bMountInitialized = [] {
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "DirectionalLightLevels";
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/DirectionalLightTests/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/DirectionalLightTests/ColorRoundTrip", Path));
+	Durin::DLevel* Level = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
+	Durin::ADirectionalLightActor* Light = Level->SpawnActor<Durin::ADirectionalLightActor>("ColoredLight");
+	ASSERT_NE(Light, nullptr);
+	Durin::FProperty* ColorProperty = Durin::DDirectionalLightComponent::StaticClass()->FindPropertyByName("Color");
+	ASSERT_NE(ColorProperty, nullptr);
+	*ColorProperty->ContainerPtrToValuePtr<Durin::FLinearColor>(Light->GetLightComponent()) = Durin::FLinearColor(0.1f, 0.35f, 0.8f, 1.0f);
+
+	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	Durin::DLevel* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	auto* LoadedLight = dynamic_cast<Durin::ADirectionalLightActor*>(Loaded->FindActorByName("ColoredLight"));
+	ASSERT_NE(LoadedLight, nullptr);
+	const Durin::FDirectionalLightSceneData SceneData = LoadedLight->GetLightComponent()->GetSceneData();
+	EXPECT_NEAR(SceneData.Color.r, 0.1f, 1.e-6f);
+	EXPECT_NEAR(SceneData.Color.g, 0.35f, 1.e-6f);
+	EXPECT_NEAR(SceneData.Color.b, 0.8f, 1.e-6f);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FSceneComponentTests, SupportsAttachmentTransformRulesAndPropagation)

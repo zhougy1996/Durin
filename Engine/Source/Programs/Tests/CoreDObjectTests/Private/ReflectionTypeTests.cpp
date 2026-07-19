@@ -13,6 +13,7 @@
 #include "DObject/Package.h"
 #include "CoreGlobals.h"
 #include "Misc/Paths.h"
+#include "Math/Color.h"
 #include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
@@ -2357,13 +2358,24 @@ namespace
 		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
 		Durin::DStruct* QuatStruct = Durin::Z_Construct_DStruct_Durin_FQuat();
 		Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
+		Durin::DStruct* ColorStruct = Durin::Z_Construct_DStruct_Durin_FLinearColor();
 		ASSERT_NE(VectorStruct, nullptr);
 		ASSERT_NE(QuatStruct, nullptr);
 		ASSERT_NE(TransformStruct, nullptr);
+		ASSERT_NE(ColorStruct, nullptr);
 		EXPECT_EQ(VectorStruct->GetQualifiedName().ToString(), "Durin::FVector3");
 		EXPECT_EQ(QuatStruct->GetQualifiedName().ToString(), "Durin::FQuat");
 		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector3"), VectorStruct);
 		EXPECT_EQ(Durin::FindStructByQualifiedName(Durin::FName("Durin::FTransform")), TransformStruct);
+		EXPECT_EQ(ColorStruct->GetQualifiedName().ToString(), "Durin::FLinearColor");
+		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FLinearColor"), ColorStruct);
+		for (const char* Channel : {"R", "G", "B", "A"})
+		{
+			Durin::FProperty* Field = ColorStruct->FindPropertyByName(Channel, false);
+			ASSERT_NE(Field, nullptr);
+			EXPECT_EQ(Field->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Float);
+			EXPECT_EQ(Field->GetElementSize(), sizeof(float));
+		}
 		Durin::FProperty* Rotation = TransformStruct->FindPropertyByName("Rotation", false);
 		Durin::FProperty* Translation = TransformStruct->FindPropertyByName("Translation", false);
 		Durin::FProperty* Scale = TransformStruct->FindPropertyByName("Scale3D", false);

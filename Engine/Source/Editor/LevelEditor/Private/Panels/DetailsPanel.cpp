@@ -18,6 +18,7 @@
 #include "LevelEditorCustomizations.h"
 #include "EditorSessionSettings.h"
 #include "Materials/MaterialInterface.h"
+#include "Math/Color.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
@@ -645,6 +646,8 @@ namespace Durin
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 		const bool bIsTransform = Kind == DurinCodeGen::EPropertyGenFlags::Struct
 								  && static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FTransform();
+		const bool bIsLinearColor = Kind == DurinCodeGen::EPropertyGenFlags::Struct
+									&& static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FLinearColor();
 		ImGui::PushID(Property);
 		ImGui::PushID(static_cast<int>(ArrayIndex));
 
@@ -661,6 +664,20 @@ namespace Durin
 				{
 					*Property->ContainerPtrToValuePtr<FTransform>(Object, ArrayIndex) = Value;
 				}
+				Object->MarkPackageDirty();
+			}
+			ImGui::PopID();
+			ImGui::PopID();
+			return;
+		}
+
+		if (bIsLinearColor)
+		{
+			FLinearColor Value = *Property->ContainerPtrToValuePtr<FLinearColor>(Object, ArrayIndex);
+			const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
+			if (MonaImGui::EditColorProperty(Label.c_str(), Value, bShowAlpha, bReadOnly))
+			{
+				*Property->ContainerPtrToValuePtr<FLinearColor>(Object, ArrayIndex) = Value;
 				Object->MarkPackageDirty();
 			}
 			ImGui::PopID();

@@ -2,6 +2,7 @@
 
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
+#include "Math/Color.h"
 #include "Math/Transform.h"
 
 namespace Durin
@@ -67,6 +68,20 @@ namespace Durin
 		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FTransform", "FTransform", sizeof(FTransform), alignof(FTransform), Properties, std::size(Properties)};
 		return DurinCodeGen::ConstructDStruct(Params);
 	}
+
+	auto Z_Construct_DStruct_Durin_FLinearColor() -> DStruct*
+	{
+		static DStruct* Singleton = nullptr;
+		if (Singleton) return Singleton;
+		Singleton = MakeStruct("Durin::FLinearColor", "FLinearColor", sizeof(FLinearColor), alignof(FLinearColor));
+		static const DurinCodeGen::FPropertyParamsBase R = {"R", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, R)), sizeof(float), DurinCodeGen::EPropertyGenFlags::Float};
+		static const DurinCodeGen::FPropertyParamsBase G = {"G", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, G)), sizeof(float), DurinCodeGen::EPropertyGenFlags::Float};
+		static const DurinCodeGen::FPropertyParamsBase B = {"B", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, B)), sizeof(float), DurinCodeGen::EPropertyGenFlags::Float};
+		static const DurinCodeGen::FPropertyParamsBase A = {"A", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, A)), sizeof(float), DurinCodeGen::EPropertyGenFlags::Float};
+		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&R, &G, &B, &A};
+		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FLinearColor", "FLinearColor", sizeof(FLinearColor), alignof(FLinearColor), Properties, std::size(Properties)};
+		return DurinCodeGen::ConstructDStruct(Params);
+	}
 }
 
 COREDOBJECT_API auto Z_Construct_DStruct_Durin_FVector3() -> Durin::DStruct*
@@ -82,4 +97,9 @@ COREDOBJECT_API auto Z_Construct_DStruct_Durin_FQuat() -> Durin::DStruct*
 COREDOBJECT_API auto Z_Construct_DStruct_Durin_FTransform() -> Durin::DStruct*
 {
 	return Durin::Z_Construct_DStruct_Durin_FTransform();
+}
+
+COREDOBJECT_API auto Z_Construct_DStruct_Durin_FLinearColor() -> Durin::DStruct*
+{
+	return Durin::Z_Construct_DStruct_Durin_FLinearColor();
 }

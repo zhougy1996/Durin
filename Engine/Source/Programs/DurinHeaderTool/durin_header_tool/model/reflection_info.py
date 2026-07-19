@@ -8,7 +8,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "16"
+TOOL_VERSION = "17"
 MAX_CONTAINER_PROPERTY_DEPTH = 4
 
 
@@ -60,6 +60,7 @@ class ReflectedPropertyInfo:
     inner: "ReflectedPropertyInfo | None" = None
     key: "ReflectedPropertyInfo | None" = None
     value: "ReflectedPropertyInfo | None" = None
+    metadata: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -294,6 +295,30 @@ def _string_metadata_from_annotation(annotation: str, key: str) -> str:
     return match.group(1).replace(r'\"', '"').replace(r"\\", "\\")
 
 
+def _property_metadata_from_annotation(annotation: str) -> list[tuple[str, str]]:
+    payload = _string_metadata_from_annotation(annotation, "MetaData")
+    if not payload:
+        match = re.search(r"(?:^|,)\s*MetaData\s*=\s*([A-Za-z_][A-Za-z0-9_]*)", annotation)
+        payload = match.group(1) if match else ""
+    metadata: list[tuple[str, str]] = []
+    for entry in payload.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        key, separator, value = entry.partition("=")
+        key = key.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            continue
+        metadata.append((key, value.strip() if separator else "true"))
+    return metadata
+
+
+def _apply_property_annotation(prop: ReflectedPropertyInfo | None, annotation: str) -> ReflectedPropertyInfo | None:
+    if prop:
+        prop.metadata = _property_metadata_from_annotation(annotation)
+    return prop
+
+
 def _array_dim(field_cursor: clang.cindex.Cursor) -> int:
     field_type = field_cursor.type
     if field_type.kind == clang.cindex.TypeKind.CONSTANTARRAY:
@@ -349,7 +374,7 @@ def _source_declared_type(source: str, field_cursor: clang.cindex.Cursor) -> str
         line = line.rstrip(";").strip()
         # Preserve the declarator while accepting both assignment and brace initialization.
         # Clang canonicalizes Durin math aliases to GLM types, so their source spelling is
-        # required to resolve the externally registered FVector/FQuat/FTransform structs.
+        # required to resolve the externally registered FVector/FQuat/FTransform/FLinearColor structs.
         match = re.match(
             rf"(.+?)\s+{re.escape(field_cursor.spelling)}(?:\s*\[[^\]]+\])?(?:\s*(?:=.*|\{{.*\}}))?$",
             line,
@@ -371,13 +396,13 @@ def _make_property_from_source_decl(
     type_spelling = _normalize_type_spelling(match.group(1))
     name = match.group(2)
     array_dim = int(match.group(3)) if match.group(3) else 1
-    return _source_property_from_type_spelling(
+    return _apply_property_annotation(_source_property_from_type_spelling(
         name,
         type_spelling,
         exported_symbols,
         flags=_property_flags_from_annotation(annotation),
         array_dim=array_dim,
-    )
+    ), annotation)
 
 
 def _scan_source_properties_for_class(
@@ -973,13 +998,13 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: dict[str
 
     source_type = _source_declared_type(source, field_cursor)
     if source_type and (_is_std_vector(source_type) or _is_std_unordered_map(source_type)):
-        return _source_property_from_type_spelling(
+        return _apply_property_annotation(_source_property_from_type_spelling(
             field_cursor.spelling,
             source_type,
             exported_symbols,
             flags=_property_flags_from_annotation(annotation),
             array_dim=_array_dim(field_cursor),
-        )
+        ), annotation)
 
     prop = _make_property_from_type(
         field_cursor.spelling,
@@ -989,16 +1014,16 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: dict[str
         array_dim=_array_dim(field_cursor),
     )
     if prop:
-        return prop
+        return _apply_property_annotation(prop, annotation)
 
     if source_type:
-        return _source_property_from_type_spelling(
+        return _apply_property_annotation(_source_property_from_type_spelling(
             field_cursor.spelling,
             source_type,
             exported_symbols,
             flags=_property_flags_from_annotation(annotation),
             array_dim=_array_dim(field_cursor),
-        )
+        ), annotation)
     return None
 
 

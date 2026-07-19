@@ -92,6 +92,18 @@ class ReflectionGenerationTests(unittest.TestCase):
             engine_content,
         )
 
+        directional_light_cpp = utils.get_module_dht_output_dir("Engine") / "DirectionalLightComponent.gen.cpp"
+        directional_light_content = directional_light_cpp.read_text(encoding="utf-8")
+        self.assertIn("Z_Construct_DStruct_Durin_FLinearColor", directional_light_content)
+        self.assertIn(
+            'NewProp_Color_MetaData[] = { { "HideAlpha", "true" } };',
+            directional_light_content,
+        )
+        self.assertIn(
+            'NewProp_Color = { "Color", Durin::EPropertyFlags::Edit,',
+            directional_light_content,
+        )
+
     def test_brace_initialized_intrinsic_struct_properties_are_generated(self):
         spline_types_cpp = utils.get_module_dht_output_dir("Engine") / "SplineTypes.gen.cpp"
         content = spline_types_cpp.read_text(encoding="utf-8")
