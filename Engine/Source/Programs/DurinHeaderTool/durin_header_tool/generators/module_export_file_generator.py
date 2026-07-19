@@ -1,6 +1,5 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
-import os
 import time
 
 from durin_header_tool import config as configs
@@ -15,6 +14,7 @@ from durin_header_tool.model.export_info import (
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 from durin_header_tool import io as utils
 from durin_header_tool.runtime.worker_context import initialize_worker_config
+from durin_header_tool.runtime.parallelism import resolve_worker_count
 
 
 def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, ModuleExportManifest | None]:
@@ -161,6 +161,7 @@ def _build_module_export_from_manifest_cache(
     old_manifest: ModuleExportManifest,
     new_manifest: ModuleExportManifest,
     old_export_info: ModuleExportInfo,
+    max_workers: int,
 ) -> ModuleExportInfo:
     module_config = configs.get_module_config(module_name)
     export_info = ModuleExportInfo(Module=module_name)
@@ -174,7 +175,7 @@ def _build_module_export_from_manifest_cache(
             export_info.Symbols.update(symbols)
 
     if headers_to_parse:
-        worker_count = min(len(headers_to_parse), os.cpu_count() or 1, 8)
+        worker_count = resolve_worker_count(len(headers_to_parse), max_workers)
         logging.info(
             "[DHT] Export %s: parsing %d headers with %d workers",
             module_name,
@@ -216,7 +217,7 @@ def _build_module_export_from_manifest_cache(
     return export_info
 
 
-def generate_module_export_file(module_name):
+def generate_module_export_file(module_name: str, max_workers: int = 1) -> None:
     start_time = time.perf_counter()
     export_file_path = utils.get_module_export_file_path(module_name)
     export_manifest_path = utils.get_module_export_manifest_file_path(module_name)
@@ -234,7 +235,13 @@ def generate_module_export_file(module_name):
         return
 
     logging.info("[DHT] Export %s: scanning %d reflected headers", module_name, len(new_manifest.ReflectHeaders))
-    export_info = _build_module_export_from_manifest_cache(module_name, old_manifest, new_manifest, old_export_info)
+    export_info = _build_module_export_from_manifest_cache(
+        module_name,
+        old_manifest,
+        new_manifest,
+        old_export_info,
+        max_workers,
+    )
     save_module_export_file(export_info)
     save_module_export_manifest_file(new_manifest)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0

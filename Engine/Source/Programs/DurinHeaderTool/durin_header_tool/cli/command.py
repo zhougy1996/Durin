@@ -17,6 +17,16 @@ def parse_build_identifier(value: str) -> str:
     return value
 
 
+def parse_worker_count(value: str) -> int:
+    try:
+        worker_count = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("workers must be an integer from 1 to 8") from error
+    if not 1 <= worker_count <= 8:
+        raise argparse.ArgumentTypeError("workers must be an integer from 1 to 8")
+    return worker_count
+
+
 def add_common_arguments(parser: argparse.ArgumentParser):
     from durin_header_tool.model.reflection_info import TOOL_VERSION
 
@@ -32,6 +42,12 @@ def add_common_arguments(parser: argparse.ArgumentParser):
         "--tool-fingerprint",
         help="Fingerprint of the DHT implementation used to invalidate generated caches.",
         default=TOOL_VERSION,
+    )
+    parser.add_argument(
+        "--workers",
+        help="Maximum parser workers; parallelism is used only for sufficiently large header sets.",
+        default=1,
+        type=parse_worker_count,
     )
     parser.add_argument("-l", "--log", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).", default="INFO", required=False, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     parser.add_argument("--project-file", action="append", default=[], type=Path, help="A .dproject file that supplies module ownership and dependency context. May be repeated.")
@@ -114,7 +130,7 @@ class GenerateModuleExportFileCommand(Command):
 
     def execute(self, args):
         from durin_header_tool.generators.module_export_file_generator import generate_module_export_file
-        generate_module_export_file(args.module)
+        generate_module_export_file(args.module, args.workers)
 
 class GenerateReflectionFilesCommand(Command):
     def __init__(self):
@@ -126,4 +142,4 @@ class GenerateReflectionFilesCommand(Command):
 
     def execute(self, args):
         from durin_header_tool.generators.module_reflection_files_generator import generate_reflection_files
-        generate_reflection_files(args.module)
+        generate_reflection_files(args.module, args.workers)

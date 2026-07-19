@@ -25,6 +25,16 @@ Important helper APIs:
 
 DHT uses atomic replacement and cross-process locks scoped by build identifier, platform, profile, project, and module. Conflicting writers serialize while independent modules remain parallel. Debug and Release intentionally share configuration-independent metadata; identifier-specific workflows use independent roots.
 
+Ninja schedules build-time DHT commands through the `durin_dht` job pool. Each
+command receives an explicit parser-worker limit, and module-internal parallelism
+scales with the number of headers requiring parsing: fewer than 8 uses one worker,
+8-15 uses at most two, 16-31 uses at most four, and larger sets may use the
+configured limit. The defaults balance large-module incremental builds with
+Ninja-level module and compiler scheduling: at most two DHT commands run at once,
+and each uses at most four parser workers. `DURIN_DHT_JOB_POOL_SIZE` and
+`DURIN_DHT_WORKERS` are cache settings intended for measured preset or CI tuning;
+worker count is constrained to 1-8.
+
 Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMake/SandBoxSetup.cmake` run before that helper and may perform project-specific setup such as third-party registration.
 
 `add_durin_module(...)` imports generated per-module CMake metadata, wires reflection-generated sources and export files, applies shared PCH settings, and builds the resulting shared or static library.

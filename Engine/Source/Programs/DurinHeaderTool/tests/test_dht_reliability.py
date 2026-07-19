@@ -27,6 +27,7 @@ from durin_header_tool.cache.reflection_cache import reflection_manifest_contrac
 from durin_header_tool.model.export_info import ModuleExportManifest
 from durin_header_tool.model.reflection_manifest import ModuleManifest
 from durin_header_tool.runtime.worker_context import initialize_worker_config
+from durin_header_tool.runtime.parallelism import resolve_worker_count
 
 
 def _lock_worker(lock_path: str, operation: str, release_event, result_queue) -> None:
@@ -305,6 +306,22 @@ class IntermediateLayoutTests(unittest.TestCase):
         args = parser.parse_args(["--tool-fingerprint", "abc123"])
         self.assertEqual(args.tool_fingerprint, "abc123")
 
+    def test_cli_accepts_bounded_worker_count(self):
+        parser = argparse.ArgumentParser()
+        add_common_arguments(parser)
+        self.assertEqual(parser.parse_args(["--workers", "2"]).workers, 2)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--workers", "9"])
+
+    def test_worker_parallelism_requires_a_large_task_set(self):
+        self.assertEqual(resolve_worker_count(7, 8), 1)
+        self.assertEqual(resolve_worker_count(8, 2), 2)
+        self.assertEqual(resolve_worker_count(15, 8), 2)
+        self.assertEqual(resolve_worker_count(16, 8), 4)
+        self.assertEqual(resolve_worker_count(31, 8), 4)
+        self.assertEqual(resolve_worker_count(32, 8), 8)
+        self.assertEqual(resolve_worker_count(32, 4), 4)
+
     def test_cli_rejects_invalid_identifier(self):
         parser = argparse.ArgumentParser()
         add_common_arguments(parser)
@@ -352,6 +369,7 @@ class IntermediateLayoutTests(unittest.TestCase):
 
     def test_cmake_declares_tool_and_generated_file_contracts(self):
         workspace_root = ROOT.parents[3]
+        build_options = (workspace_root / "CMake" / "Config" / "BuildOptions.cmake").read_text(encoding="utf-8")
         project_setup = (workspace_root / "CMake" / "Project" / "ProjectSetup.cmake").read_text(encoding="utf-8")
         project_targets = (workspace_root / "CMake" / "Project" / "ProjectTargets.cmake").read_text(encoding="utf-8")
 
@@ -362,6 +380,9 @@ class IntermediateLayoutTests(unittest.TestCase):
         self.assertIn("GLOB_RECURSE module_private_srcs CONFIGURE_DEPENDS", project_targets)
         self.assertIn(".export.stamp", project_targets)
         self.assertIn(".reflection.stamp", project_targets)
+        self.assertIn("JOB_POOLS durin_dht=${DURIN_DHT_JOB_POOL_SIZE}", build_options)
+        self.assertEqual(project_targets.count("JOB_POOL durin_dht"), 2)
+        self.assertEqual(project_targets.count("--workers ${DURIN_DHT_WORKERS}"), 2)
 
 
 if __name__ == "__main__":

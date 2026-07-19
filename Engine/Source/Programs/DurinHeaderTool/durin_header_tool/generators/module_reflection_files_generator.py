@@ -1,7 +1,6 @@
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import logging
-import os
 import time
 
 from durin_header_tool import config as configs
@@ -23,6 +22,7 @@ from durin_header_tool.resolver.reflection_resolver import (
     resolve_header_symbols,
 )
 from durin_header_tool.runtime.worker_context import initialize_worker_config
+from durin_header_tool.runtime.parallelism import resolve_worker_count
 from durin_header_tool.writers.reflection_source_writer import generate_cpp_content, generate_header_content
 
 
@@ -161,12 +161,18 @@ def _write_reflection_output(module_name: str, result: dict[str, object], manife
     )
 
 
-def _write_reflection_files(module_name: str, headers_to_regenerate: list[str], symbols: dict[str, object], manifest: ModuleManifest) -> None:
+def _write_reflection_files(
+    module_name: str,
+    headers_to_regenerate: list[str],
+    symbols: dict[str, object],
+    manifest: ModuleManifest,
+    max_workers: int,
+) -> None:
     output_dir = utils.get_module_dht_output_dir(module_name)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if headers_to_regenerate:
-        worker_count = min(len(headers_to_regenerate), os.cpu_count() or 1, 8)
+        worker_count = resolve_worker_count(len(headers_to_regenerate), max_workers)
         if worker_count > 1:
             logging.info(
                 "[DHT] Reflection %s: parsing %d headers with %d workers",
@@ -223,7 +229,7 @@ def _write_reflection_files(module_name: str, headers_to_regenerate: list[str], 
     utils.generate_file(output_dir / f"{module_name}.module.gen.cpp", module_source)
 
 
-def generate_reflection_files(module_name: str) -> None:
+def generate_reflection_files(module_name: str, max_workers: int = 1) -> None:
     start_time = time.perf_counter()
     logging.info("[DHT] Reflection %s: preparing manifest", module_name)
     old_manifest = _load_previous_manifest(module_name)
@@ -266,7 +272,7 @@ def generate_reflection_files(module_name: str) -> None:
     elif not headers_to_regenerate and symbols is None:
         logging.info("[DHT] Reflection %s: no headers require regeneration, skipped symbols loading", module_name)
 
-    _write_reflection_files(module_name, headers_to_regenerate, symbols or {}, new_manifest)
+    _write_reflection_files(module_name, headers_to_regenerate, symbols or {}, new_manifest, max_workers)
     save_module_manifest_file(new_manifest)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
     logging.info("[DHT] Reflection %s: finished in %.0f ms", module_name, elapsed_ms)
