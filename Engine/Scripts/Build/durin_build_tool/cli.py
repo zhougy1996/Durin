@@ -73,9 +73,10 @@ def make_parser() -> BuildArgumentParser:
     add_common_options(shell, inherited=True)
     add_jobs(shell, inherited=True)
 
-    configure = subparsers.add_parser("configure", help="fresh-configure the selected preset")
+    configure = subparsers.add_parser("configure", help="configure the selected preset")
     add_common_options(configure, inherited=True)
     add_jobs(configure, inherited=True)
+    configure.add_argument("--fresh", action="store_true", help="discard the existing CMake cache first")
 
     build = subparsers.add_parser("build", help="build a CMake target")
     add_common_options(build, inherited=True)
@@ -139,6 +140,7 @@ def namespace_request(args: argparse.Namespace) -> CommandRequest:
         environment_setup=getattr(args, "environment_setup", ""),
         all_presets=getattr(args, "all_presets", False),
         yes=getattr(args, "yes", False),
+        fresh=getattr(args, "fresh", False),
         plain=getattr(args, "plain", False),
     )
 
@@ -158,6 +160,7 @@ def command_request(
     run_arguments: Sequence[str] = (),
     all_presets: bool = False,
     yes: bool = False,
+    fresh: bool = False,
 ) -> CommandRequest:
     return replace(
         base,
@@ -168,6 +171,7 @@ def command_request(
         run_arguments=tuple(run_arguments),
         all_presets=all_presets,
         yes=yes,
+        fresh=fresh,
     )
 
 
@@ -194,7 +198,7 @@ def print_shell_help(output: BuildOutput) -> None:
         "  /presets                  List presets and select one by number\n"
         "  /preset [full-name]       Show or select the current preset\n"
         "  /status                   Show resolved build context and recovery state\n"
-        "  /configure                Configure the current preset\n"
+        "  /configure [--fresh]      Configure the current preset\n"
         "  /build [target]           Build a target (default: all)\n"
         "  /clean                    Clean the current preset\n"
         "  /purge [options]          Delete artifacts (--all-presets, --yes)\n"
@@ -332,10 +336,18 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                 open_runtime_directory(runtime_context, output)
                 continue
             if command in {"configure", "clean"}:
-                if values:
-                    raise BuildToolError(f"/{command} does not accept positional arguments.")
+                if command == "configure":
+                    if values not in ([], ["--fresh"]):
+                        raise BuildToolError("/configure accepts only --fresh.")
+                elif values:
+                    raise BuildToolError("/clean does not accept positional arguments.")
                 action = Action(command)
-                child_request = command_request(request, action, preset=current_preset)
+                child_request = command_request(
+                    request,
+                    action,
+                    preset=current_preset,
+                    fresh=values == ["--fresh"],
+                )
             elif command == "purge":
                 allowed = {"--all-presets", "--yes"}
                 if any(value not in allowed for value in values) or len(set(values)) != len(values):

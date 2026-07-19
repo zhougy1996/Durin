@@ -218,6 +218,10 @@ class CliTests(unittest.TestCase):
         request = build_cli.parse_args(["configure", "--plain"])
         self.assertTrue(request.plain)
 
+    def test_configure_fresh_option_is_explicit(self) -> None:
+        self.assertFalse(build_cli.parse_args(["configure"]).fresh)
+        self.assertTrue(build_cli.parse_args(["configure", "--fresh"]).fresh)
+
     def test_global_options_before_uppercase_command_are_preserved(self) -> None:
         request = build_cli.parse_args(["--plain", "Build", "--target", "all"])
         self.assertIs(request.action, build_config.Action.BUILD)
@@ -611,6 +615,55 @@ class CoreTests(unittest.TestCase):
         request = build_config.CommandRequest(build_config.Action.TEST, target="CoreTests")
         with self.assertRaisesRegex(build_config.BuildToolError, "does not enable BUILD_TESTING"):
             build_core.validate_request(request, self.make_preset(testing="OFF"))
+
+    def test_configure_preserves_cache_unless_fresh_is_requested(self) -> None:
+        preset = self.make_preset()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            build_core, "preset_build_directory", return_value=Path(directory)
+        ), mock.patch.object(build_core, "require_english_msvc_ninja_prefix"), mock.patch.object(
+            build_core, "run_command"
+        ) as run:
+            context = build_config.BuildContext(
+                build_config.CommandRequest(build_config.Action.CONFIGURE),
+                build_config.LocalConfig(),
+                self.make_profile(),
+                {"debug": preset},
+                preset,
+                "windows",
+                cmake="cmake",
+                environment={},
+            )
+            build_core.perform_action(context, output)
+            self.assertEqual(run.call_args.args[0], ["cmake", "--preset", "debug"])
+
+            context.request = replace(context.request, fresh=True)
+            build_core.perform_action(context, output)
+            self.assertEqual(run.call_args.args[0], ["cmake", "--fresh", "--preset", "debug"])
+
+    def test_configure_recovers_an_unusable_existing_cache_with_fresh(self) -> None:
+        preset = self.make_preset()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "CMakeCache.txt"
+            cache.write_text("CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND\n", encoding="utf-8")
+            with mock.patch.object(
+                build_core, "preset_build_directory", return_value=Path(directory)
+            ), mock.patch.object(build_core, "require_english_msvc_ninja_prefix"), mock.patch.object(
+                build_core, "run_command"
+            ) as run:
+                context = build_config.BuildContext(
+                    build_config.CommandRequest(build_config.Action.CONFIGURE),
+                    build_config.LocalConfig(),
+                    self.make_profile(),
+                    {"debug": preset},
+                    preset,
+                    "windows",
+                    cmake="cmake",
+                    environment={},
+                )
+                build_core.perform_action(context, output)
+        self.assertEqual(run.call_args.args[0], ["cmake", "--fresh", "--preset", "debug"])
 
     def test_failed_generator_cache_is_not_reused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

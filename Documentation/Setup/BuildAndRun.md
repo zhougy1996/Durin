@@ -20,6 +20,7 @@ Use the root wrapper for configuration, builds, and tests:
 
 ```powershell
 .\BuildTool configure
+.\BuildTool configure --fresh
 .\BuildTool build --target LevelEditor
 .\BuildTool run
 .\BuildTool test --target CoreTests --filter FJsonDocumentTests.*
@@ -28,6 +29,8 @@ Use the root wrapper for configuration, builds, and tests:
 ```
 
 Commands are case-insensitive for compatibility, but lowercase is canonical. `build` and `test` configure automatically when needed, so an explicit first `configure` is optional. Omit `--jobs` to use automatic parallelism; pass `--jobs <count>` only when a local limit is required. From another batch file, use `call BuildTool.bat <arguments>`.
+
+An ordinary `configure` preserves the existing CMake cache. Pass `--fresh` to discard it explicitly. `rebuild` and automatic recovery from an unusable or incompatible build tree always fresh-configure before building.
 
 BuildTool separates its resolved context, execution stages, raw CMake/Ninja output, and final result so failures remain identifiable in long logs. Styled output is enabled for interactive terminals. Pass `--plain`, set `NO_COLOR`, or redirect the output to select stable text-only output without ANSI sequences:
 
@@ -87,6 +90,7 @@ BuildTool> 4
 BuildTool> /preset
 CMake preset: "Win64-Release-DurinEditor"
 BuildTool> /preset Win64-Debug-DurinGame
+BuildTool> /configure --fresh
 BuildTool> /build
 BuildTool> /rebuild DurinLauncher
 BuildTool> /test CoreTests FJsonDocumentTests.*

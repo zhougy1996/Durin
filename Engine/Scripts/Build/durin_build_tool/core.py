@@ -743,6 +743,8 @@ def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
         raise BuildToolError(f'Preset "{preset.name}" does not enable BUILD_TESTING.')
     if request.action is not Action.PURGE and (request.all_presets or request.yes):
         raise BuildToolError("--all-presets and --yes are only valid with purge.")
+    if request.action is not Action.CONFIGURE and request.fresh:
+        raise BuildToolError("--fresh is only valid with configure.")
 
 
 def create_context(
@@ -952,9 +954,14 @@ def perform_action(context: BuildContext, output: BuildOutput) -> None:
     cache_file = build_directory / "CMakeCache.txt"
 
     if request.action is Action.CONFIGURE:
+        fresh = request.fresh or (cache_file.exists() and not cache_is_usable(cache_file))
+        command = [context.cmake]
+        if fresh:
+            command.append("--fresh")
+        command.extend(["--preset", context.preset.name])
         with output.stage("Configure"):
             run_command(
-                [context.cmake, "--fresh", "--preset", context.preset.name],
+                command,
                 environment=environment,
                 output=output,
             )
@@ -997,9 +1004,14 @@ def perform_action(context: BuildContext, output: BuildOutput) -> None:
     ):
         if cache_is_usable(cache_file):
             output.warning("Existing Ninja rules do not use the English MSVC dependency prefix; reconfiguring.")
+        command = [context.cmake]
+        # Avoid a redundant --fresh for a new tree, but discard unusable or incompatible state.
+        if cache_file.exists():
+            command.append("--fresh")
+        command.extend(["--preset", context.preset.name])
         with output.stage("Configure"):
             run_command(
-                [context.cmake, "--fresh", "--preset", context.preset.name],
+                command,
                 environment=environment,
                 output=output,
             )

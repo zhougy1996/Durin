@@ -112,6 +112,7 @@ class CommandRequest:
     environment_setup: str = ""
     all_presets: bool = False
     yes: bool = False
+    fresh: bool = False
     plain: bool = False
 
 
