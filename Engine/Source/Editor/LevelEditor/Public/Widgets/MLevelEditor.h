@@ -34,6 +34,7 @@ namespace Durin
 		LEVELEDITOR_API auto ResetLayout() -> void override;
 
 	private:
+		auto DrawAboutDialog() -> void;
 		auto DrawProjectSettings() -> void;
 		auto ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void;
 		auto LoadProjectSettings() -> bool;

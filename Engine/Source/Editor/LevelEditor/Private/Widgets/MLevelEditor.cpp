@@ -16,7 +16,9 @@
 #include "LevelDocumentController.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorWorkspace.h"
+#include "Misc/Build.h"
 #include "Misc/Project.h"
+#include "Misc/Version.h"
 #include "MonaImGui.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DetailsPanel.h"
@@ -310,6 +312,7 @@ namespace Durin
 		DocumentController->DrawDialogs();
 		StaticMeshImportDialog->Draw();
 		DrawProjectSettings();
+		DrawAboutDialog();
 
 		if (!EditorError.empty()) ImGui::OpenPopup("Editor Error");
 		if (ImGui::BeginPopupModal("Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
@@ -483,9 +486,24 @@ namespace Durin
 		}
 		if (ImGui::BeginMenu("Help"))
 		{
-			ImGui::MenuItem("Durin Level Editor - early development", nullptr, false, false);
+			if (ImGui::MenuItem("About Durin...")) ImGui::OpenPopup("About Durin");
 			ImGui::EndMenu();
 		}
+	}
+
+	auto MLevelEditor::DrawAboutDialog() -> void
+	{
+		if (!ImGui::BeginPopupModal("About Durin", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) return;
+
+		ImGui::Text("Durin Engine");
+		ImGui::Separator();
+		ImGui::Text("Version: %s", GetEngineVersionString().data());
+		ImGui::Text("Build: %s", DURIN_BUILD_TYPE_STRING);
+		ImGui::Text("Profile: %s", DURIN_PROFILE_NAME);
+		ImGui::Text("Platform: %s", DURIN_BUILD_PLATFORM_STRING);
+		ImGui::Spacing();
+		if (ImGui::Button("OK", ImVec2(120.0f, 0.0f))) ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
 	}
 
 	auto MLevelEditor::DrawProjectSettings() -> void
