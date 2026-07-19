@@ -139,12 +139,16 @@ namespace Durin
 		});
 		RootWindow->SetContent(EditorRootWidget);
 
-		Mona::FMonaApplication::Get().AddWindow(RootWindow, true);
+		// Keep the native window hidden until its persisted display state has been
+		// applied. Showing it before maximizing causes a visible normal-size frame
+		// during editor startup.
+		Mona::FMonaApplication::Get().AddWindow(RootWindow, false);
 		Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
 
 		if (LevelEditorModule.IsWindowMaximized())
 		{
 			RootWindow->MaximizeWindow();
 		}
+		RootWindow->ShowWindow();
 	}
 } // namespace Durin
