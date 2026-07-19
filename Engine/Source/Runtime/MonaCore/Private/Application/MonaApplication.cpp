@@ -214,6 +214,42 @@ namespace Durin::Mona
 		FlushPendingWindowDestroys();
 	}
 
+	auto FMonaApplication::WaitForEvents(double TimeoutSeconds) const -> void
+	{
+		if (!Windows.empty())
+		{
+			// GLFW event waiting is process-global, just like polling.
+			Windows.front()->GetNativeWindow()->WaitEventsTimeout(TimeoutSeconds);
+		}
+	}
+
+	auto FMonaApplication::AreAllWindowsMinimized() const -> bool
+	{
+		bool bHasMinimizedWindow = false;
+		for (const std::shared_ptr<MWindow>& Window : Windows)
+		{
+			if (Window == nullptr || Window->GetParentWindow() != nullptr)
+			{
+				continue;
+			}
+
+			const std::shared_ptr<FGenericWindow> NativeWindow = Window->GetNativeWindow();
+			if (NativeWindow == nullptr)
+			{
+				continue;
+			}
+
+			if (Window->IsMinimized())
+			{
+				bHasMinimizedWindow = true;
+				continue;
+			}
+
+			if (NativeWindow->IsVisible()) return false;
+		}
+		return bHasMinimizedWindow;
+	}
+
 	auto FMonaApplication::GetWindows() const -> const std::vector<std::shared_ptr<MWindow>>&
 	{
 		return Windows;

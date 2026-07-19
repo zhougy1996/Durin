@@ -56,10 +56,17 @@ namespace Durin
 			Instance.LaunchImpl();
 		}
 
+		static auto Wake() -> void
+		{
+			Instance.WakeImpl();
+		}
+
 	private:
 		RENDERCORE_API auto EnqueueImpl(const char* Name, std::function<void(FRHICommandListImmediate&)>&& Function) -> void;
 
 		RENDERCORE_API auto LaunchImpl() -> void;
+
+		RENDERCORE_API auto WakeImpl() -> void;
 
 		static RENDERCORE_API FRenderThreadCommandPipe Instance;
 
@@ -76,7 +83,9 @@ namespace Durin
 
 		std::array<std::vector<FCommand>, 2> CommandQueue;
 		std::mutex Mutex;
+		std::condition_variable CommandAvailableCV;
 		uint32 ProduceIndex = 0;
+		bool bWakeRequested = false;
 	};
 
 	RENDERCORE_API auto GetImmediateCommandList_ForRenderCommand() -> FRHICommandListImmediate&;

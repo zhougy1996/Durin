@@ -51,6 +51,10 @@ namespace Durin::Mona
 
 		MONACORE_API auto PollEvents();
 
+		MONACORE_API auto WaitForEvents(double TimeoutSeconds) const -> void;
+
+		MONACORE_API auto AreAllWindowsMinimized() const -> bool;
+
 		MONACORE_API auto GetWindows() const -> const std::vector<std::shared_ptr<MWindow>>&;
 
 		MONACORE_API auto FindWidgetWindow(const std::shared_ptr<MWidget>& InWidget) -> std::shared_ptr<MWindow>;

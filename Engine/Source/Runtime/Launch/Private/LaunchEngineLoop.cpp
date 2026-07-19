@@ -131,6 +131,8 @@ namespace Durin
 
 	auto FEngineLoop::Tick() -> void
 	{
+		constexpr double MinimizedTickIntervalSeconds = 1.0 / 20.0;
+
 		// Game logic.
 		const double CurrentTime = FTime::Seconds();
 		const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
@@ -139,12 +141,17 @@ namespace Durin
 		GFrameCounter++;
 
 		// Process application events, and paint UI.
-		Mona::FMonaApplication::Get().Tick();
+		auto& Application = Mona::FMonaApplication::Get();
+		Application.Tick();
 
 		if (GIsRequestingExit) return;
 
-		Mona::NewFrame();
-		RenderFrame();
+		const bool bAllWindowsMinimized = Application.AreAllWindowsMinimized();
+		if (!bAllWindowsMinimized)
+		{
+			Mona::NewFrame();
+			RenderFrame();
+		}
 		const uint64 ObjectsBeforeGC = GDObjectArray.GetNum();
 		const uint64 PendingKillBeforeGC = GetGarbageObjectCount();
 		const double GCStartTime = FTime::Seconds();
@@ -164,6 +171,12 @@ namespace Durin
 		}
 
 		CalculateFPSTimings();
+		if (bAllWindowsMinimized)
+		{
+			// Present normally paces the loop. Once every window is minimized there is
+			// no present, so wait for events while retaining a low-frequency engine tick.
+			Application.WaitForEvents(MinimizedTickIntervalSeconds);
+		}
 	}
 
 	auto FEngineLoop::Exit() -> void

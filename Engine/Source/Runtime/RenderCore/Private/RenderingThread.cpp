@@ -31,6 +31,7 @@ namespace Durin
 		{
 			DURIN_TRACE("Rendering thread stop requested.");
 			bStopRequested.store(true, std::memory_order::relaxed);
+			FRenderThreadCommandPipe::Wake();
 		}
 
 		auto Exit() -> void override
@@ -151,17 +152,30 @@ namespace Durin
 
 	auto FRenderThreadCommandPipe::EnqueueImpl(const char* Name, std::function<void(FRHICommandListImmediate&)>&& Function) -> void
 	{
-		std::lock_guard lock(Mutex);
-		CommandQueue[ProduceIndex].emplace_back(Name, std::move(Function));
+		{
+			std::lock_guard Lock(Mutex);
+			CommandQueue[ProduceIndex].emplace_back(Name, std::move(Function));
+		}
+		CommandAvailableCV.notify_one();
 	}
 
 	auto FRenderThreadCommandPipe::LaunchImpl() -> void
 	{
 		check(IsInRenderingThread());
-		Mutex.lock();
+		std::unique_lock Lock(Mutex);
+		CommandAvailableCV.wait(Lock, [this]() {
+			return bWakeRequested || !CommandQueue[ProduceIndex].empty();
+		});
+
+		bWakeRequested = false;
+		if (CommandQueue[ProduceIndex].empty())
+		{
+			return;
+		}
+
 		std::vector<FCommand>& CommandsToExecute = CommandQueue[ProduceIndex];
 		ProduceIndex ^= 1;
-		Mutex.unlock();
+		Lock.unlock();
 
 		for (const FCommand& Command : CommandsToExecute)
 		{
@@ -169,6 +183,15 @@ namespace Durin
 		}
 
 		CommandsToExecute.clear();
+	}
+
+	auto FRenderThreadCommandPipe::WakeImpl() -> void
+	{
+		{
+			std::lock_guard Lock(Mutex);
+			bWakeRequested = true;
+		}
+		CommandAvailableCV.notify_one();
 	}
 
 	FRenderThreadCommandPipe FRenderThreadCommandPipe::Instance;

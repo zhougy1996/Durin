@@ -14,6 +14,11 @@ namespace Durin
 	{
 	}
 
+	auto FGenericWindow::WaitEventsTimeout(double TimeoutSeconds) const -> void
+	{
+		(void)TimeoutSeconds;
+	}
+
 	auto FGenericWindow::ReshapeWindow(int32 X, int32 Y, int32 Width, int32 Height) -> void
 	{
 	}
@@ -74,6 +79,11 @@ namespace Durin
 
 	auto FGenericWindow::Hide() -> void
 	{
+	}
+
+	auto FGenericWindow::IsVisible() const -> bool
+	{
+		return false;
 	}
 
 	auto FGenericWindow::Focus() -> void

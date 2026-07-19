@@ -22,6 +22,8 @@ namespace Durin
 
 		APPLICATIONCORE_API auto PollEvents() const -> void override;
 
+		APPLICATIONCORE_API auto WaitEventsTimeout(double TimeoutSeconds) const -> void override;
+
 		APPLICATIONCORE_API auto ReshapeWindow(int32 X, int32 Y, int32 Width, int32 Height) -> void override;
 
 		APPLICATIONCORE_API auto ResizeWindow(int32 Width, int32 Height) -> void override;
@@ -39,6 +41,8 @@ namespace Durin
 		APPLICATIONCORE_API auto Show() -> void override;
 
 		APPLICATIONCORE_API auto Hide() -> void override;
+
+		APPLICATIONCORE_API auto IsVisible() const -> bool override;
 
 		APPLICATIONCORE_API auto Focus() -> void override;
 

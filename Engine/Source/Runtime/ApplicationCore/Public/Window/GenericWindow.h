@@ -26,6 +26,8 @@ namespace Durin
 
 		APPLICATIONCORE_API virtual auto PollEvents() const -> void;
 
+		APPLICATIONCORE_API virtual auto WaitEventsTimeout(double TimeoutSeconds) const -> void;
+
 		APPLICATIONCORE_API virtual auto ReshapeWindow(int32 X, int32 Y, int32 Width, int32 Height) -> void;
 
 		APPLICATIONCORE_API virtual auto ResizeWindow(int32 Width, int32 Height) -> void;
@@ -51,6 +53,8 @@ namespace Durin
 		APPLICATIONCORE_API virtual auto Show() -> void;
 
 		APPLICATIONCORE_API virtual auto Hide() -> void;
+
+		APPLICATIONCORE_API virtual auto IsVisible() const -> bool;
 
 		APPLICATIONCORE_API virtual auto Focus() -> void;
 

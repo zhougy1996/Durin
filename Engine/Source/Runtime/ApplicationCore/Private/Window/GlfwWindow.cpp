@@ -449,6 +449,11 @@ namespace Durin
 		glfwPollEvents();
 	}
 
+	void FGlfwWindow::WaitEventsTimeout(double TimeoutSeconds) const
+	{
+		glfwWaitEventsTimeout(TimeoutSeconds);
+	}
+
 	auto FGlfwWindow::ReshapeWindow(int32 X, int32 Y, int32 Width, int32 Height) -> void
 	{
 		glfwSetWindowPos(GlfwWindow, X, Y);
@@ -506,6 +511,11 @@ namespace Durin
 	auto FGlfwWindow::Hide() -> void
 	{
 		glfwHideWindow(GlfwWindow);
+	}
+
+	auto FGlfwWindow::IsVisible() const -> bool
+	{
+		return glfwGetWindowAttrib(GlfwWindow, GLFW_VISIBLE) != 0;
 	}
 
 	auto FGlfwWindow::Focus() -> void
