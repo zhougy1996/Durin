@@ -58,6 +58,7 @@ namespace Durin
 		bool bSelectDefaultBottomPanelRequested = true;
 		bool bFocusRequested = false;
 		bool bProjectSettingsOpen = false;
+		bool bAboutDialogOpen = false;
 		std::string DefaultLevel;
 		std::string EditorError;
 	};

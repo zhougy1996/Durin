@@ -486,38 +486,91 @@ namespace Durin
 		}
 		if (ImGui::BeginMenu("Help"))
 		{
-			if (ImGui::MenuItem("About Durin...")) ImGui::OpenPopup("About Durin");
+			if (ImGui::MenuItem("About Durin...")) bAboutDialogOpen = true;
 			ImGui::EndMenu();
 		}
 	}
 
 	auto MLevelEditor::DrawAboutDialog() -> void
 	{
-		if (!ImGui::BeginPopupModal("About Durin", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) return;
+		if (!bAboutDialogOpen) return;
+		const float DialogWidth = MonaImGui::ScaleUI(500.0f);
+		const float DialogHeight = MonaImGui::ScaleUI(300.0f);
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowSize(ImVec2(DialogWidth, DialogHeight), ImGuiCond_Appearing);
+		const ImGuiWindowFlags AboutFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
+			ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+		if (!ImGui::Begin("About Durin###Durin.About", &bAboutDialogOpen, AboutFlags))
+		{
+			ImGui::End();
+			return;
+		}
 
 		ImGui::Text("Durin Engine");
+		ImGui::TextDisabled("Editor and runtime technology");
 		ImGui::Separator();
-		ImGui::Text("Version: %s", GetEngineVersionString().data());
-		ImGui::Text("Build: %s", DURIN_BUILD_TYPE_STRING);
-		ImGui::Text("Profile: %s", DURIN_PROFILE_NAME);
-		ImGui::Text("Platform: %s", DURIN_BUILD_PLATFORM_STRING);
+		if (ImGui::BeginTable("AboutEngineInfo", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
+		{
+			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(100.0f));
+			const auto DrawInfoRow = [](const char* Label, const char* Value) {
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				ImGui::TextDisabled("%s", Label);
+				ImGui::TableSetColumnIndex(1);
+				ImGui::TextWrapped("%s", Value);
+			};
+			DrawInfoRow("Version", GetEngineVersionString().data());
+			DrawInfoRow("Build", DURIN_BUILD_TYPE_STRING);
+			DrawInfoRow("Profile", DURIN_PROFILE_NAME);
+			DrawInfoRow("Platform", DURIN_BUILD_PLATFORM_STRING);
+			ImGui::EndTable();
+		}
+		ImGui::Separator();
+		ImGui::TextWrapped("This build includes the Durin editor and runtime modules.");
 		ImGui::Spacing();
-		if (ImGui::Button("OK", ImVec2(120.0f, 0.0f))) ImGui::CloseCurrentPopup();
-		ImGui::EndPopup();
+		ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - MonaImGui::ScaleUI(82.0f));
+		if (ImGui::Button("Close", ImVec2(MonaImGui::ScaleUI(82.0f), 0.0f))) bAboutDialogOpen = false;
+		ImGui::End();
 	}
 
 	auto MLevelEditor::DrawProjectSettings() -> void
 	{
 		if (!bProjectSettingsOpen) return;
-		if (ImGui::Begin("Project Settings###Durin.LevelEditor.ProjectSettings", &bProjectSettingsOpen, ImGuiWindowFlags_NoDocking))
+		const float DialogWidth = MonaImGui::ScaleUI(620.0f);
+		const float DialogHeight = MonaImGui::ScaleUI(390.0f);
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowSize(ImVec2(DialogWidth, DialogHeight), ImGuiCond_Appearing);
+		ImGui::SetNextWindowSizeConstraints(ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(300.0f)), ImVec2(MonaImGui::ScaleUI(900.0f), MonaImGui::ScaleUI(650.0f)));
+		if (ImGui::Begin("Project Settings###Durin.LevelEditor.ProjectSettings", &bProjectSettingsOpen, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
 			const FProjectInfo* Project = GetCurrentProject();
+			ImGui::Text("Configure the current project and editor defaults.");
+			ImGui::Spacing();
+			ImGui::SeparatorText("Project");
 			if (Project)
 			{
-				ImGui::Text("Project: %s", Project->Name.c_str());
-				ImGui::TextWrapped("Path: %s", Project->ProjectFile.c_str());
-				ImGui::SeparatorText("Editor Default Level");
-				if (ImGui::BeginCombo("Default Level", DefaultLevel.empty() ? "None" : DefaultLevel.c_str()))
+				if (ImGui::BeginTable("ProjectInfo", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
+				{
+					ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(110.0f));
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::TextDisabled("Name");
+					ImGui::TableSetColumnIndex(1);
+					ImGui::TextWrapped("%s", Project->Name.c_str());
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::TextDisabled("Project file");
+					ImGui::TableSetColumnIndex(1);
+					ImGui::TextWrapped("%s", Project->ProjectFile.c_str());
+					ImGui::EndTable();
+				}
+				ImGui::Spacing();
+				ImGui::SeparatorText("Editor");
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextDisabled("Default level");
+				ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
+				ImGui::SetNextItemWidth(-1.0f);
+				if (ImGui::BeginCombo("##DefaultLevel", DefaultLevel.empty() ? "None" : DefaultLevel.c_str()))
 				{
 					if (ImGui::Selectable("None", DefaultLevel.empty())) DefaultLevel.clear();
 					for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
@@ -528,8 +581,18 @@ namespace Durin
 					}
 					ImGui::EndCombo();
 				}
-				if (ImGui::Button("Save")) SaveProjectSettings();
 			}
+			else
+			{
+				ImGui::TextDisabled("No project is currently open.");
+			}
+			ImGui::Separator();
+			const float ButtonWidth = MonaImGui::ScaleUI(86.0f);
+			const float ButtonGap = ImGui::GetStyle().ItemSpacing.x;
+			ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - ButtonWidth * 2.0f - ButtonGap);
+			if (ImGui::Button("Cancel", ImVec2(ButtonWidth, 0.0f))) bProjectSettingsOpen = false;
+			ImGui::SameLine();
+			if (ImGui::Button("Save", ImVec2(ButtonWidth, 0.0f)) && SaveProjectSettings()) bProjectSettingsOpen = false;
 		}
 		ImGui::End();
 	}
