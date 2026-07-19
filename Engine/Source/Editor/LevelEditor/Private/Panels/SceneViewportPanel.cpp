@@ -171,7 +171,7 @@ namespace Durin
 			DrawList->AddRectFilled(ImVec2(CenterX - IndicatorWidth * 0.5f, Bottom - MonaImGui::ScaleUI(2.0f)), ImVec2(CenterX + IndicatorWidth * 0.5f, Bottom), ImGui::GetColorU32(ImGuiCol_CheckMark), MonaImGui::ScaleUI(1.0f));
 		}
 
-		auto DrawToolbarButton(const char* Id, const ImVec2& Position, const ImVec2& Size, const char* Label, EViewportToolbarIcon Icon, bool bSelected, const char* Tooltip, bool bEmphasized = false) -> bool
+		auto DrawToolbarButton(const char* Id, const ImVec2& Position, const ImVec2& Size, const char* Label, EViewportToolbarIcon Icon, bool bSelected, const char* Tooltip, bool bButtonSurface = false, bool bSuccessIcon = false) -> bool
 		{
 			ImGui::SetCursorScreenPos(Position);
 			const bool bPressed = ImGui::InvisibleButton(Id, Size);
@@ -180,14 +180,17 @@ namespace Durin
 			const ImGuiStyle& Style = ImGui::GetStyle();
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
 			const ImVec2 Max(Position.x + Size.x, Position.y + Size.y);
-			if (bSelected || bEmphasized || bHovered || bHeld)
+			if (bSelected || bButtonSurface || bHovered || bHeld)
 			{
-				const ImGuiCol Background = bSelected || bEmphasized ? ImGuiCol_HeaderActive : bHeld ? ImGuiCol_ButtonActive :
-																			ImGuiCol_ButtonHovered;
+				const ImGuiCol Background = bSelected ? ImGuiCol_HeaderActive : bHeld ? ImGuiCol_ButtonActive :
+															bHovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button;
 				DrawList->AddRectFilled(Position, Max, ImGui::GetColorU32(Style.Colors[Background]), Style.FrameRounding);
 			}
 
-			const ImU32 TextColor = ImGui::GetColorU32(bSelected || bEmphasized || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+			const ImU32 TextColor = ImGui::GetColorU32(bSelected || bButtonSurface || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+			// Play is an action, not a persistent selection: keep the standard button surface
+			// and carry its meaning with the semantic success color on the icon alone.
+			const ImU32 IconColor = bSuccessIcon ? MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Success) : TextColor;
 			const float IconScale = ImGui::GetFontSize() / 15.0f;
 			float ContentWidth = 0.0f;
 			const ImVec2 TextSize = Label != nullptr ? ImGui::CalcTextSize(Label) : ImVec2(0.0f, 0.0f);
@@ -198,7 +201,7 @@ namespace Durin
 			const bool bTrailingIcon = Icon == EViewportToolbarIcon::ChevronDown && Label != nullptr;
 			if (Icon != EViewportToolbarIcon::None && !bTrailingIcon)
 			{
-				DrawToolbarIcon(DrawList, Icon, ImVec2(ContentX + IconWidth * 0.5f, Position.y + Size.y * 0.5f), TextColor, IconScale);
+				DrawToolbarIcon(DrawList, Icon, ImVec2(ContentX + IconWidth * 0.5f, Position.y + Size.y * 0.5f), IconColor, IconScale);
 				ContentX += IconWidth + Gap;
 			}
 			if (Label != nullptr)
@@ -207,7 +210,7 @@ namespace Durin
 			}
 			if (bTrailingIcon)
 			{
-				DrawToolbarIcon(DrawList, Icon, ImVec2(ContentX + TextSize.x + Gap + IconWidth * 0.5f, Position.y + Size.y * 0.5f), TextColor, IconScale);
+				DrawToolbarIcon(DrawList, Icon, ImVec2(ContentX + TextSize.x + Gap + IconWidth * 0.5f, Position.y + Size.y * 0.5f), IconColor, IconScale);
 			}
 			if (bSelected)
 			{
@@ -672,10 +675,10 @@ namespace Durin
 			const char* StartLabel = PreferredPlayStartLocation == EEditorPlayStartLocation::EditorCamera ? "Editor Camera" : "Level Start";
 			const char* DestinationLabel = PreferredPlayDestination == EEditorPlayDestination::NewWindow ? "New Window" : "Viewport";
 			const std::string PlayTooltip = std::format("Play from {} in {} (F5)", StartLabel, DestinationLabel);
-			if (DrawToolbarButton("##ViewportPlay", ImVec2(PlayX, PlayY), ImVec2(Layout.PlayButtonWidth, Layout.Height), PlayLabel, EViewportToolbarIcon::Play, false, PlayTooltip.c_str(), true) && Context.StartPlay)
+			if (DrawToolbarButton("##ViewportPlay", ImVec2(PlayX, PlayY), ImVec2(Layout.PlayButtonWidth, Layout.Height), PlayLabel, EViewportToolbarIcon::Play, false, PlayTooltip.c_str(), true, true) && Context.StartPlay)
 				Context.StartPlay(PreferredPlayStartLocation, PreferredPlayDestination);
 			PlayX += Layout.PlayButtonWidth;
-			if (DrawToolbarButton("##ViewportPlayOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Play settings"))
+			if (DrawToolbarButton("##ViewportPlayOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Play settings", true))
 				ImGui::OpenPopup("ViewportPlayOptionsPopup");
 			if (ImGui::BeginPopup("ViewportPlayOptionsPopup"))
 			{
@@ -699,16 +702,16 @@ namespace Durin
 		}
 		else
 		{
-			if (DrawToolbarButton("##ViewportPause", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), PauseLabel, bPaused ? EViewportToolbarIcon::Play : EViewportToolbarIcon::Pause, bPaused, bPaused ? "Resume play (F6)" : "Pause play (F6)"))
+			if (DrawToolbarButton("##ViewportPause", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), PauseLabel, bPaused ? EViewportToolbarIcon::Play : EViewportToolbarIcon::Pause, false, bPaused ? "Resume play (F6)" : "Pause play (F6)", true, bPaused))
 				GEditor->SetPlaySessionPaused(!bPaused);
 			PlayX += Layout.RuntimeButtonWidth;
 			if (!bPaused) ImGui::BeginDisabled();
-			if (DrawToolbarButton("##ViewportStep", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), StepLabel, EViewportToolbarIcon::Step, false, "Advance one frame while paused (F7)")) GEditor->StepPlaySession();
+			if (DrawToolbarButton("##ViewportStep", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), StepLabel, EViewportToolbarIcon::Step, false, "Advance one frame while paused (F7)", true)) GEditor->StepPlaySession();
 			if (!bPaused) ImGui::EndDisabled();
 			PlayX += Layout.RuntimeButtonWidth;
-			if (DrawToolbarButton("##ViewportStop", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), StopLabel, EViewportToolbarIcon::Stop, false, "Stop play (F5)")) GEditor->StopPlaySession();
+			if (DrawToolbarButton("##ViewportStop", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), StopLabel, EViewportToolbarIcon::Stop, false, "Stop play (F5)", true)) GEditor->StopPlaySession();
 			PlayX += Layout.RuntimeButtonWidth;
-			if (DrawToolbarButton("##ViewportRuntimeOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Runtime options")) ImGui::OpenPopup("ViewportRuntimeOptionsPopup");
+			if (DrawToolbarButton("##ViewportRuntimeOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Runtime options", true)) ImGui::OpenPopup("ViewportRuntimeOptionsPopup");
 			if (ImGui::BeginPopup("ViewportRuntimeOptionsPopup"))
 			{
 				const bool bHasSelection = !Context.GetSelectedActors().empty();
