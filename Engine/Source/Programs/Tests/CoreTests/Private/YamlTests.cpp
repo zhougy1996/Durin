@@ -91,6 +91,8 @@ features:
 		const auto GC = AppConfig.GetView("CoreDObject").GetView("GC");
 		EXPECT_TRUE(GC.GetView("Enabled").GetBool(false));
 		EXPECT_DOUBLE_EQ(GC.GetView("IntervalSeconds").GetDouble(), 60.0);
+		EXPECT_DOUBLE_EQ(GC.GetView("MaxIntervalSeconds").GetDouble(), 600.0);
+		EXPECT_DOUBLE_EQ(GC.GetView("IntervalBackoffMultiplier").GetDouble(), 2.0);
 		EXPECT_EQ(GC.GetView("PendingKillThreshold").GetUInt(), 128U);
 		EXPECT_EQ(GC.GetView("ObjectGrowthThreshold").GetUInt(), 1024U);
 

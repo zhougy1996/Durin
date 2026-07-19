@@ -156,9 +156,11 @@ namespace Durin
 				: GCTrigger == EGarbageCollectionTrigger::PendingKillPressure ? "pending-kill pressure"
 				: "object-growth pressure";
 			DURIN_INFO("Automatic GC ({}) completed in {:.3f} ms (mark {:.3f} ms, sweep {:.3f} ms): "
-				"objects {} -> {}, marked {}, swept {}, pending kill {}.", TriggerName,
+				"objects {} -> {}, marked {}, candidates {}, swept {}, deferred {}, pending kill {}, next interval {:.1f} s.", TriggerName,
 				(FTime::Seconds() - GCStartTime) * 1000.0, GCStats.MarkMilliseconds, GCStats.SweepMilliseconds,
-				ObjectsBeforeGC, GDObjectArray.GetNum(), GCStats.MarkedObjectCount, GCStats.SweptObjectCount, PendingKillBeforeGC);
+				ObjectsBeforeGC, GDObjectArray.GetNum(), GCStats.MarkedObjectCount, GCStats.CandidateObjectCount,
+				GCStats.SweptObjectCount, GCStats.DeferredDestroyObjectCount, PendingKillBeforeGC,
+				GetCurrentAutomaticGarbageCollectionIntervalSeconds());
 		}
 
 		CalculateFPSTimings();

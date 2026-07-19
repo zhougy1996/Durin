@@ -29,7 +29,9 @@ namespace Durin
 	struct FGarbageCollectionStats
 	{
 		uint64 MarkedObjectCount = 0;
+		uint64 CandidateObjectCount = 0;
 		uint64 SweptObjectCount = 0;
+		uint64 DeferredDestroyObjectCount = 0;
 		double MarkMilliseconds = 0.0;
 		double SweepMilliseconds = 0.0;
 	};

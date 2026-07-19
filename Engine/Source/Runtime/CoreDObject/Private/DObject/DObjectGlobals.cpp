@@ -201,6 +201,8 @@ namespace Durin
 		FGarbageCollectionSettings GCSettings;
 		GCSettings.bEnabled = GCConfig.GetView("Enabled").GetBool(true);
 		GCSettings.IntervalSeconds = GCConfig.GetView("IntervalSeconds").GetDouble(60.0);
+		GCSettings.MaxIntervalSeconds = GCConfig.GetView("MaxIntervalSeconds").GetDouble(600.0);
+		GCSettings.IntervalBackoffMultiplier = GCConfig.GetView("IntervalBackoffMultiplier").GetDouble(2.0);
 		GCSettings.PendingKillThreshold = GCConfig.GetView("PendingKillThreshold").GetUInt(128);
 		GCSettings.ObjectGrowthThreshold = GCConfig.GetView("ObjectGrowthThreshold").GetUInt(1024);
 		ConfigureAutomaticGarbageCollection(GCSettings, FTime::Seconds());

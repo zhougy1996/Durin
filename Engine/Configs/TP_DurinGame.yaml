@@ -6,5 +6,7 @@ CoreDObject:
   GC:
     Enabled: true
     IntervalSeconds: 60
+    MaxIntervalSeconds: 600
+    IntervalBackoffMultiplier: 2.0
     PendingKillThreshold: 128
     ObjectGrowthThreshold: 1024

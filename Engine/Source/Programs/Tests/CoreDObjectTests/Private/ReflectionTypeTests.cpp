@@ -1152,17 +1152,25 @@ namespace
 
 		Durin::CollectGarbage();
 		EXPECT_TRUE(ObjectArrayContains(Object));
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().CandidateObjectCount, 1u);
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().SweptObjectCount, 0u);
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 0u);
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 0u);
 
 		Durin::CollectGarbage();
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().CandidateObjectCount, 1u);
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 0u);
 
 		Object->bReadyForFinishDestroy = true;
 		Durin::CollectGarbage();
 		EXPECT_FALSE(ObjectArrayContains(Object));
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().CandidateObjectCount, 1u);
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().SweptObjectCount, 1u);
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 0u);
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
@@ -1218,6 +1226,59 @@ namespace
 		Durin::FGarbageCollectionScheduler DisabledScheduler(Settings);
 		DisabledScheduler.Reset(100.0, 20);
 		EXPECT_EQ(DisabledScheduler.ShouldCollect(1000.0, 10000, 10000), Durin::EGarbageCollectionTrigger::None);
+	}
+
+	TEST(FCoreDObjectReflectionTests, GarbageCollectionSchedulerBacksOffEmptyCollectionsWithinBound)
+	{
+		Durin::FGarbageCollectionSettings Settings;
+		Settings.IntervalSeconds = 60.0;
+		Settings.MaxIntervalSeconds = 600.0;
+		Settings.IntervalBackoffMultiplier = 2.0;
+		Settings.PendingKillThreshold = 128;
+		Settings.ObjectGrowthThreshold = 1024;
+		Durin::FGarbageCollectionScheduler Scheduler(Settings);
+		Scheduler.Reset(0.0, 20);
+
+		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 60.0);
+		Scheduler.NotifyCollectionCompleted(60.0, 20, 0);
+		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 120.0);
+		EXPECT_EQ(Scheduler.ShouldCollect(179.0, 20, 0), Durin::EGarbageCollectionTrigger::None);
+		EXPECT_EQ(Scheduler.ShouldCollect(180.0, 20, 0), Durin::EGarbageCollectionTrigger::Interval);
+
+		Scheduler.NotifyCollectionCompleted(180.0, 20, 0);
+		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 240.0);
+		Scheduler.NotifyCollectionCompleted(420.0, 20, 0);
+		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 480.0);
+		Scheduler.NotifyCollectionCompleted(900.0, 20, 0);
+		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 600.0);
+		Scheduler.NotifyCollectionCompleted(1500.0, 20, 0);
+		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 600.0);
+
+		EXPECT_EQ(Scheduler.ShouldCollect(1501.0, 20, 128), Durin::EGarbageCollectionTrigger::PendingKillPressure);
+		EXPECT_EQ(Scheduler.ShouldCollect(1501.0, 1044, 0), Durin::EGarbageCollectionTrigger::ObjectGrowthPressure);
+		Scheduler.NotifyCollectionCompleted(1501.0, 20, 1);
+		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 60.0);
+	}
+
+	TEST(FCoreDObjectReflectionTests, GarbageCollectionSchedulerNormalizesAdaptiveSettings)
+	{
+		Durin::FGarbageCollectionSettings Settings;
+		Settings.IntervalSeconds = 60.0;
+		Settings.MaxIntervalSeconds = 30.0;
+		Settings.IntervalBackoffMultiplier = 0.5;
+		Durin::FGarbageCollectionScheduler Scheduler(Settings);
+		Scheduler.Reset(0.0, 0);
+		Scheduler.NotifyCollectionCompleted(60.0, 0, 0);
+
+		EXPECT_DOUBLE_EQ(Scheduler.GetSettings().MaxIntervalSeconds, 60.0);
+		EXPECT_DOUBLE_EQ(Scheduler.GetSettings().IntervalBackoffMultiplier, 1.0);
+		EXPECT_DOUBLE_EQ(Scheduler.GetCurrentIntervalSeconds(), 60.0);
+
+		Settings.IntervalSeconds = 0.0;
+		Durin::FGarbageCollectionScheduler NoIntervalScheduler(Settings);
+		NoIntervalScheduler.Reset(0.0, 0);
+		NoIntervalScheduler.NotifyCollectionCompleted(100.0, 0, 0);
+		EXPECT_EQ(NoIntervalScheduler.ShouldCollect(1000.0, 0, 0), Durin::EGarbageCollectionTrigger::None);
 	}
 
 	TEST(FCoreDObjectReflectionTests, OnlyTObjectPtrPropertiesKeepReferencedObjectsReachable)
@@ -1383,6 +1444,41 @@ namespace
 		EXPECT_FALSE(ObjectArrayContains(Child));
 
 		Durin::ConfigureAutomaticGarbageCollection(Durin::FGarbageCollectionSettings{}, 1.0);
+	}
+
+	TEST(FCoreDObjectReflectionTests, AutomaticGarbageCollectionFindsReferenceRemovalAtMaximumInterval)
+	{
+		EnsureDObjectInitialized();
+		Durin::FGarbageCollectionSettings Settings;
+		Settings.IntervalSeconds = 60.0;
+		Settings.MaxIntervalSeconds = 600.0;
+		Settings.IntervalBackoffMultiplier = 2.0;
+		Settings.PendingKillThreshold = 0;
+		Settings.ObjectGrowthThreshold = 0;
+		Durin::ConfigureAutomaticGarbageCollection(Settings, Durin::FTime::Seconds());
+
+		auto* Owner = Durin::NewObject<DLifecycleReferenceOwnerForTest>(nullptr, Durin::FName("AdaptiveGCReferenceOwner"));
+		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("AdaptiveGCReferencedObject"));
+		Durin::TObjectPtr<Durin::DObject> ReferencedObjectPtr = ReferencedObject;
+		Owner->ObjectPtrReference = ReferencedObject;
+		Durin::AddToRoot(Owner);
+
+		for (Durin::uint32 Index = 0; Index < 4; ++Index)
+		{
+			Durin::CollectGarbage();
+			EXPECT_EQ(Durin::GetLastGarbageCollectionStats().CandidateObjectCount, 0u);
+		}
+		EXPECT_DOUBLE_EQ(Durin::GetCurrentAutomaticGarbageCollectionIntervalSeconds(), 600.0);
+
+		Owner->ObjectPtrReference = nullptr;
+		const double ReferenceRemovalTime = Durin::FTime::Seconds();
+		EXPECT_EQ(Durin::TryCollectGarbage(ReferenceRemovalTime + 500.0), Durin::EGarbageCollectionTrigger::None);
+		EXPECT_EQ(Durin::TryCollectGarbage(ReferenceRemovalTime + 600.0), Durin::EGarbageCollectionTrigger::Interval);
+		EXPECT_EQ(ReferencedObjectPtr.Get(), nullptr);
+
+		Durin::RemoveFromRoot(Owner);
+		Durin::CollectGarbage();
+		Durin::ConfigureAutomaticGarbageCollection(Durin::FGarbageCollectionSettings{}, Durin::FTime::Seconds());
 	}
 
 	TEST(FCoreDObjectReflectionTests, RootReferencesAreCountedAndScopedRootsAreMovable)

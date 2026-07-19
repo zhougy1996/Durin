@@ -236,6 +236,7 @@ namespace Durin
 				SweepCandidates.push_back(Object);
 			}
 		}
+		GLastGarbageCollectionStats.CandidateObjectCount = static_cast<uint64>(SweepCandidates.size());
 
 		const double SweepStartTime = FTime::Seconds();
 		std::vector<DObject*> DestroyOrder = GatherDestroyOrder(SweepCandidates);
@@ -264,8 +265,10 @@ namespace Durin
 			++DestroyedObjectCount;
 		}
 		GLastGarbageCollectionStats.SweptObjectCount = DestroyedObjectCount;
+		GLastGarbageCollectionStats.DeferredDestroyObjectCount =
+			static_cast<uint64>(DestroyOrder.size()) - DestroyedObjectCount;
 		GLastGarbageCollectionStats.SweepMilliseconds = (FTime::Seconds() - SweepStartTime) * 1000.0;
-		NotifyGarbageCollectionCompleted(FTime::Seconds());
+		NotifyGarbageCollectionCompleted(FTime::Seconds(), GLastGarbageCollectionStats);
 	}
 
 	auto GetGarbageObjectCount() -> uint64
