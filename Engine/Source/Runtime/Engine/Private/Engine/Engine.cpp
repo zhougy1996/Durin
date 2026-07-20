@@ -20,6 +20,31 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto ApplyCameraAspectRatio(const DCameraComponent& Camera, uint32 TargetWidth, uint32 TargetHeight, FSceneView& View) -> float
+		{
+			const float TargetAspectRatio = TargetHeight > 0 ? static_cast<float>(TargetWidth) / TargetHeight : 1.0f;
+			const float CameraAspectRatio = Camera.ResolveAspectRatio(TargetAspectRatio);
+			if (Camera.GetAspectRatioMode() == ECameraAspectRatioMode::Viewport) return CameraAspectRatio;
+			View.AspectRatioConstraint = CameraAspectRatio;
+
+			// Fit a centered content rectangle so a constrained camera never stretches on a differently shaped target.
+			uint32 ContentWidth = TargetWidth;
+			uint32 ContentHeight = static_cast<uint32>(std::round(ContentWidth / CameraAspectRatio));
+			if (ContentHeight > TargetHeight)
+			{
+				ContentHeight = TargetHeight;
+				ContentWidth = static_cast<uint32>(std::round(ContentHeight * CameraAspectRatio));
+			}
+			View.ViewportWidth = std::max(1u, ContentWidth);
+			View.ViewportHeight = std::max(1u, ContentHeight);
+			View.ViewportX = (TargetWidth - View.ViewportWidth) / 2;
+			View.ViewportY = (TargetHeight - View.ViewportHeight) / 2;
+			return CameraAspectRatio;
+		}
+	}
+
 	class FEngineInputEventHandler final : public Mona::FMonaEventHandler
 	{
 	public:
@@ -163,10 +188,7 @@ namespace Durin
 							if (RendererModule != nullptr)
 							{
 								RendererModule->PrepareSceneResources(CommandList, Scene);
-								FSceneView BackBufferView = View;
-								BackBufferView.ViewportWidth = BackBuffer->GetSizeX();
-								BackBufferView.ViewportHeight = BackBuffer->GetSizeY();
-								RendererModule->RenderView(CommandList, Scene, BackBufferView, BackBuffer, true);
+								RendererModule->RenderView(CommandList, Scene, View, BackBuffer, true);
 							}
 
 							CommandList.EndDrawingViewport(ViewportRHI, true, false);
@@ -245,7 +267,7 @@ namespace Durin
 		{
 			if (const DCameraComponent* CameraComponent = GetActiveCameraComponent())
 			{
-				const float AspectRatio = Height > 0 ? static_cast<float>(Width) / static_cast<float>(Height) : 1.0f;
+				const float AspectRatio = ApplyCameraAspectRatio(*CameraComponent, Width, Height, OutView);
 				OutView.ViewMatrix = CameraComponent->GetViewMatrix();
 				OutView.ProjectionMatrix = CameraComponent->GetProjectionMatrix(AspectRatio);
 				OutView.ViewProjectionMatrix = OutView.ProjectionMatrix * OutView.ViewMatrix;

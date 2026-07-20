@@ -101,7 +101,9 @@ MViewport::Draw()
 
 For editor render-target viewports, `FSceneViewport::GetDisplayTexture()` simply exposes the current offscreen render target. The UI frame is built before scene rendering commands are enqueued, while ImGui samples the texture later in the same frame, so using the current render target removes the extra-frame resize lag while still letting the render pass populate it before sampling.
 
-The Level Editor camera preview uses this auxiliary path. Selecting an actor with a camera component supplies a camera-backed `FViewportClient`; the resulting 16:9 target is drawn as a non-interactive overlay in the main scene panel. The preview stays dormant when no camera is selected, the panel is hidden, or PIE owns the active scene.
+The Level Editor camera preview uses this auxiliary path. Selecting an actor with a camera component supplies a camera-backed `FViewportClient`; the resulting target follows the camera's reflected aspect-ratio mode and is drawn as a non-interactive overlay in the main scene panel. The preview stays dormant when no camera is selected, the panel is hidden, or PIE owns the active scene.
+
+Camera aspect ratios support viewport-driven framing, common fixed presets, and a custom numeric ratio. Fixed ratios produce a centered content rectangle inside a mismatched output target. The scene pass clears the complete target first, so the unused area remains black instead of stretching the camera image. `FSceneView::ViewportX/Y/Width/Height` describe this content rectangle and must be respected by projection helpers and renderer viewport/scissor setup.
 
 Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache is deliberately bounded so interactive resizing does not retain every transient dimension.
 

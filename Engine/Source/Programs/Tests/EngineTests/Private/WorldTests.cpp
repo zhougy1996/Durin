@@ -242,6 +242,13 @@ TEST(FCameraComponentTests, ProjectionParametersAreUpdatedAtomicallyAndClamped)
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 26.0f);
 	Camera->SetFarClip(10.0f);
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 26.0f);
+	EXPECT_EQ(Camera->GetAspectRatioMode(), Durin::ECameraAspectRatioMode::Viewport);
+	EXPECT_FLOAT_EQ(Camera->ResolveAspectRatio(4.0f / 3.0f), 4.0f / 3.0f);
+	Camera->SetAspectRatio(Durin::ECameraAspectRatioMode::Ratio16By9, 2.0f);
+	EXPECT_FLOAT_EQ(Camera->ResolveAspectRatio(4.0f / 3.0f), 16.0f / 9.0f);
+	Camera->SetAspectRatio(Durin::ECameraAspectRatioMode::Custom, 20.0f);
+	EXPECT_FLOAT_EQ(Camera->GetCustomAspectRatio(), 10.0f);
+	EXPECT_FLOAT_EQ(Camera->ResolveAspectRatio(4.0f / 3.0f), 10.0f);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }
@@ -438,6 +445,7 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	ParentActor->GetCameraComponent()->SetFieldOfViewDegrees(75.0f);
 	ParentActor->GetCameraComponent()->SetNearClip(0.25f);
 	ParentActor->GetCameraComponent()->SetFarClip(2500.0f);
+	ParentActor->GetCameraComponent()->SetAspectRatio(Durin::ECameraAspectRatioMode::Custom, 2.39f);
 
 	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
 	ASSERT_FALSE(Level->GetPackage()->IsDirty());
@@ -464,6 +472,8 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	EXPECT_NEAR(LoadedParent->GetCameraComponent()->GetFieldOfViewDegrees(), 75.0f, 1.e-6f);
 	EXPECT_NEAR(LoadedParent->GetCameraComponent()->GetNearClip(), 0.25f, 1.e-6f);
 	EXPECT_NEAR(LoadedParent->GetCameraComponent()->GetFarClip(), 2500.0f, 1.e-6f);
+	EXPECT_EQ(LoadedParent->GetCameraComponent()->GetAspectRatioMode(), Durin::ECameraAspectRatioMode::Custom);
+	EXPECT_NEAR(LoadedParent->GetCameraComponent()->GetCustomAspectRatio(), 2.39f, 1.e-6f);
 
 	Durin::DWorld* World = CreateWorld();
 	ASSERT_TRUE(World->SetCurrentLevel(Loaded));

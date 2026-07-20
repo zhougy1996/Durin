@@ -872,8 +872,11 @@ namespace Durin
 		const float ViewportHeight = ViewportMax.y - ViewportMin.y;
 		const float Padding = MonaImGui::ScaleUI(12.0f);
 		const float HeaderHeight = MonaImGui::ScaleUI(24.0f);
+		const DCameraComponent* Camera = CameraPreviewViewportClient->GetCamera();
+		const float MainViewportAspectRatio = ViewportHeight > 0.0f ? ViewportWidth / ViewportHeight : 16.0f / 9.0f;
+		const float PreviewAspectRatio = Camera->ResolveAspectRatio(MainViewportAspectRatio);
 		const float PreviewWidth = FMath::Clamp(ViewportWidth * 0.28f, MonaImGui::ScaleUI(220.0f), MonaImGui::ScaleUI(360.0f));
-		const float PreviewHeight = PreviewWidth * 9.0f / 16.0f;
+		const float PreviewHeight = PreviewWidth / PreviewAspectRatio;
 		if (PreviewWidth + Padding * 2.0f > ViewportWidth || PreviewHeight + HeaderHeight + Padding * 2.0f > ViewportHeight) return;
 
 		const ImVec2 ImageMin(ViewportMax.x - Padding - PreviewWidth, ViewportMax.y - Padding - PreviewHeight);

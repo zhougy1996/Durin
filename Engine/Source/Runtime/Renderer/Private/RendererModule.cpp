@@ -1514,8 +1514,24 @@ namespace Durin
 		ScenePassInfo.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
 		CommandList.BeginRenderPass(ScenePassInfo, "SceneColorRenderPass");
 		FSceneView RenderView = View;
+		RenderView.ViewportX = 0;
+		RenderView.ViewportY = 0;
 		RenderView.ViewportWidth = Width;
 		RenderView.ViewportHeight = Height;
+		if (RenderView.AspectRatioConstraint > 0.0f)
+		{
+			uint32 ContentWidth = Width;
+			uint32 ContentHeight = static_cast<uint32>(std::round(ContentWidth / RenderView.AspectRatioConstraint));
+			if (ContentHeight > Height)
+			{
+				ContentHeight = Height;
+				ContentWidth = static_cast<uint32>(std::round(ContentHeight * RenderView.AspectRatioConstraint));
+			}
+			RenderView.ViewportWidth = std::max(1u, ContentWidth);
+			RenderView.ViewportHeight = std::max(1u, ContentHeight);
+			RenderView.ViewportX = (Width - RenderView.ViewportWidth) / 2;
+			RenderView.ViewportY = (Height - RenderView.ViewportHeight) / 2;
+		}
 		RenderScene(CommandList, Scene, RenderView, SceneColor);
 		CommandList.EndRenderPass();
 
@@ -1544,8 +1560,9 @@ namespace Durin
 			return;
 		}
 
-		CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
-		CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
+		CommandList.SetViewport(static_cast<float>(View.ViewportX), static_cast<float>(View.ViewportY), 0.0f,
+			static_cast<float>(View.ViewportX + Width), static_cast<float>(View.ViewportY + Height), 1.0f);
+		CommandList.SetScissor(static_cast<float>(View.ViewportX), static_cast<float>(View.ViewportY), static_cast<float>(Width), static_cast<float>(Height));
 
 		const ERenderMode RenderMode = GRenderMode.load(std::memory_order_relaxed);
 		const ERasterMode RasterMode = GRasterMode.load(std::memory_order_relaxed);

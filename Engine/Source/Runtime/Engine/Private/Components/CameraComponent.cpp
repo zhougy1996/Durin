@@ -81,6 +81,37 @@ namespace Durin
 		MarkPackageDirty();
 	}
 
+	auto DCameraComponent::GetAspectRatioMode() const -> ECameraAspectRatioMode
+	{
+		return AspectRatioMode;
+	}
+
+	auto DCameraComponent::GetCustomAspectRatio() const -> float
+	{
+		return CustomAspectRatio;
+	}
+
+	auto DCameraComponent::SetAspectRatio(ECameraAspectRatioMode InMode, float InCustomAspectRatio) -> void
+	{
+		AspectRatioMode = InMode;
+		CustomAspectRatio = std::clamp(InCustomAspectRatio, 0.1f, 10.0f);
+		MarkPackageDirty();
+	}
+
+	auto DCameraComponent::ResolveAspectRatio(float ViewportAspectRatio) const -> float
+	{
+		switch (AspectRatioMode)
+		{
+		case ECameraAspectRatioMode::Ratio16By9: return 16.0f / 9.0f;
+		case ECameraAspectRatioMode::Ratio16By10: return 16.0f / 10.0f;
+		case ECameraAspectRatioMode::Ratio4By3: return 4.0f / 3.0f;
+		case ECameraAspectRatioMode::Ratio1By1: return 1.0f;
+		case ECameraAspectRatioMode::Custom: return std::clamp(CustomAspectRatio, 0.1f, 10.0f);
+		case ECameraAspectRatioMode::Viewport:
+		default: return std::max(ViewportAspectRatio, 0.001f);
+		}
+	}
+
 	auto DCameraComponent::SetLookAt(const FVector3& InLocation, const FVector3& InTarget) -> void
 	{
 		const FVector3 Forward = InTarget - InLocation;

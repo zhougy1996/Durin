@@ -809,6 +809,33 @@ TEST(FViewportSelectionTests, PrefersViewportClientAndFallsBackToPrimaryCamera)
 	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {7.0, 8.0, 9.0});
 }
 
+TEST(FViewportSelectionTests, ConstrainedCameraBuildsCenteredContentRect)
+{
+	InitializeDObjectSystem();
+	FTestEngine Engine;
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(&Engine, "ConstrainedViewportWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ConstrainedViewportLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(CameraActor, nullptr);
+	ASSERT_TRUE(Level->SetPrimaryCameraActor(CameraActor));
+	Engine.SetTestWorld(World);
+
+	Durin::FSceneView View = Engine.BuildMainSceneView(800, 600);
+	EXPECT_EQ(View.ViewportX, 0u);
+	EXPECT_EQ(View.ViewportY, 0u);
+	EXPECT_EQ(View.ViewportWidth, 800u);
+	EXPECT_EQ(View.ViewportHeight, 600u);
+
+	CameraActor->GetCameraComponent()->SetAspectRatio(Durin::ECameraAspectRatioMode::Ratio16By9, 16.0f / 9.0f);
+	View = Engine.BuildMainSceneView(800, 600);
+	EXPECT_EQ(View.ViewportX, 0u);
+	EXPECT_EQ(View.ViewportY, 75u);
+	EXPECT_EQ(View.ViewportWidth, 800u);
+	EXPECT_EQ(View.ViewportHeight, 450u);
+	EXPECT_FLOAT_EQ(View.AspectRatioConstraint, 16.0f / 9.0f);
+}
+
 TEST(FCameraPreviewViewportClientTests, BuildsViewFromAssignedCameraAndRejectsMissingCamera)
 {
 	InitializeDObjectSystem();
@@ -827,4 +854,7 @@ TEST(FCameraPreviewViewportClientTests, BuildsViewFromAssignedCameraAndRejectsMi
 	EXPECT_EQ(View.ViewportWidth, 320u);
 	EXPECT_EQ(View.ViewportHeight, 180u);
 	ExpectVectorNear(View.ViewLocation, {3.0, 4.0, 5.0});
+	CameraActor->GetCameraComponent()->SetAspectRatio(Durin::ECameraAspectRatioMode::Ratio4By3, 4.0f / 3.0f);
+	ASSERT_TRUE(Client.CalcSceneView(320, 180, View));
+	EXPECT_NEAR(std::abs(View.ProjectionMatrix[2][1] / View.ProjectionMatrix[1][0]), 4.0f / 3.0f, 1.e-5f);
 }

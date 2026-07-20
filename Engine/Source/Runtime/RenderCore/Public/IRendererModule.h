@@ -91,8 +91,12 @@ namespace Durin
 		FMatrix ProjectionMatrix{1.0};
 		FMatrix ViewProjectionMatrix{1.0};
 		FVector3 ViewLocation{0.0};
+		uint32 ViewportX = 0;
+		uint32 ViewportY = 0;
 		uint32 ViewportWidth = 0;
 		uint32 ViewportHeight = 0;
+		// Zero means fill the output target; positive values are fitted and centered by the renderer.
+		float AspectRatioConstraint = 0.0f;
 		FViewEditorGrid EditorGrid;
 		std::vector<FViewOverlayPrimitive> OverlayPrimitives;
 		std::vector<FViewOverlayLine> OverlayLines;
