@@ -4,8 +4,11 @@ namespace Durin::Detail
 {
 	struct FRegisteredWorkspace
 	{
+		FEditorWorkspaceDescriptor Descriptor;
 		std::shared_ptr<IEditorWorkspace> Workspace;
 		uint64 RegistrationId = 0;
+		// Registration order keeps host menus, initial tabs, and drawing deterministic despite map storage.
+		uint64 RegistrationOrder = 0;
 	};
 
 	struct FRegisteredAssetEditor
@@ -17,6 +20,7 @@ namespace Durin::Detail
 	struct FEditorWorkspaceRegistryState
 	{
 		uint64 NextRegistrationId = 1;
+		uint64 NextWorkspaceRegistrationOrder = 1;
 		uint64 NextDocumentId = 1;
 		FEditorDocumentId ActiveDocumentId;
 		std::vector<FEditorDocumentTab> Documents;
@@ -106,11 +110,22 @@ namespace Durin
 	{
 		if (Batch.Workspaces.empty() && Batch.AssetEditors.empty()) return {};
 		std::unordered_set<std::string> BatchWorkspaceTypes;
-		for (const std::shared_ptr<IEditorWorkspace>& Workspace : Batch.Workspaces)
+		std::unordered_set<std::string> BatchRootKeys;
+		for (const FEditorWorkspaceRegistration& Registration : Batch.Workspaces)
 		{
-			if (!Workspace || !Workspace->GetWorkspaceType().IsValid()) return {};
-			const std::string WorkspaceType(Workspace->GetWorkspaceType().GetValue());
+			const FEditorWorkspaceDescriptor& Descriptor = Registration.Descriptor;
+			if (!Registration.Workspace || !Descriptor.WorkspaceType.IsValid() || Descriptor.DisplayName.empty() || Descriptor.RootKey.empty()) return {};
+			if (Registration.Workspace->GetWorkspaceType() != Descriptor.WorkspaceType) return {};
+			if (Descriptor.bOpenByDefault && !Descriptor.HasSingletonDocument()) return {};
+			if (Descriptor.SingletonDocumentKey.empty() != Descriptor.SingletonDocumentLabel.empty()) return {};
+			const std::string WorkspaceType(Descriptor.WorkspaceType.GetValue());
 			if (State->Workspaces.contains(WorkspaceType) || !BatchWorkspaceTypes.insert(WorkspaceType).second) return {};
+			for (const auto& [ExistingType, Existing] : State->Workspaces)
+			{
+				(void)ExistingType;
+				if (Existing.Descriptor.RootKey == Descriptor.RootKey) return {};
+			}
+			if (!BatchRootKeys.insert(Descriptor.RootKey).second) return {};
 		}
 
 		std::unordered_set<std::string> BatchAssetClasses;
@@ -128,12 +143,14 @@ namespace Durin
 		// Validation is deliberately complete before mutation, so a malformed later
 		// entry cannot leave an earlier workspace or asset route installed.
 		const uint64 RegistrationId = State->NextRegistrationId++;
-		for (std::shared_ptr<IEditorWorkspace>& Workspace : Batch.Workspaces)
+		for (FEditorWorkspaceRegistration& Registration : Batch.Workspaces)
 		{
-			const std::string WorkspaceType(Workspace->GetWorkspaceType().GetValue());
+			const std::string WorkspaceType(Registration.Descriptor.WorkspaceType.GetValue());
 			State->Workspaces.emplace(WorkspaceType, Detail::FRegisteredWorkspace{
-				.Workspace = std::move(Workspace),
+				.Descriptor = std::move(Registration.Descriptor),
+				.Workspace = std::move(Registration.Workspace),
 				.RegistrationId = RegistrationId,
+				.RegistrationOrder = State->NextWorkspaceRegistrationOrder++,
 			});
 		}
 		for (FEditorAssetEditorRegistration& Registration : Batch.AssetEditors)
@@ -147,9 +164,9 @@ namespace Durin
 		return FEditorWorkspaceRegistrationHandle(State, RegistrationId);
 	}
 
-	auto FEditorWorkspaceManager::RegisterWorkspace(std::shared_ptr<IEditorWorkspace> Workspace) -> bool
+	auto FEditorWorkspaceManager::RegisterWorkspace(FEditorWorkspaceRegistration Registration) -> bool
 	{
-		FEditorWorkspaceRegistrationHandle Handle = RegisterBatch({.Workspaces = {std::move(Workspace)}});
+		FEditorWorkspaceRegistrationHandle Handle = RegisterBatch({.Workspaces = {std::move(Registration)}});
 		if (!Handle) return false;
 		LegacyRegistrations.push_back(std::move(Handle));
 		return true;
@@ -238,6 +255,22 @@ namespace Durin
 		return Found != State->Documents.end() && ActivateDocument(Found->Id);
 	}
 
+	auto FEditorWorkspaceManager::OpenDefaultWorkspaces() -> bool
+	{
+		for (const FEditorWorkspaceDescriptor& Descriptor : GetWorkspaceDescriptors())
+		{
+			if (!Descriptor.bOpenByDefault) continue;
+			if (!Descriptor.HasSingletonDocument()) return false;
+			if (!OpenDocument({
+				.WorkspaceType = Descriptor.WorkspaceType,
+				.DocumentKey = Descriptor.SingletonDocumentKey,
+				.Label = Descriptor.SingletonDocumentLabel,
+				.bClosable = Descriptor.bSingletonDocumentClosable,
+			}).IsValid()) return false;
+		}
+		return true;
+	}
+
 	auto FEditorWorkspaceManager::RequestCloseDocument(FEditorDocumentId DocumentId) -> bool
 	{
 		const auto Found = std::ranges::find(State->Documents, DocumentId, &FEditorDocumentTab::Id);
@@ -289,13 +322,33 @@ namespace Durin
 
 	auto FEditorWorkspaceManager::GetRegisteredWorkspaces() const -> std::vector<std::shared_ptr<IEditorWorkspace>>
 	{
-		std::vector<std::shared_ptr<IEditorWorkspace>> Result;
-		Result.reserve(State->Workspaces.size());
+		std::vector<const Detail::FRegisteredWorkspace*> Entries;
+		Entries.reserve(State->Workspaces.size());
 		for (const auto& [Type, Entry] : State->Workspaces)
 		{
 			(void)Type;
-			Result.push_back(Entry.Workspace);
+			Entries.push_back(&Entry);
 		}
+		std::ranges::sort(Entries, {}, &Detail::FRegisteredWorkspace::RegistrationOrder);
+		std::vector<std::shared_ptr<IEditorWorkspace>> Result;
+		Result.reserve(Entries.size());
+		for (const Detail::FRegisteredWorkspace* Entry : Entries) Result.push_back(Entry->Workspace);
+		return Result;
+	}
+
+	auto FEditorWorkspaceManager::GetWorkspaceDescriptors() const -> std::vector<FEditorWorkspaceDescriptor>
+	{
+		std::vector<const Detail::FRegisteredWorkspace*> Entries;
+		Entries.reserve(State->Workspaces.size());
+		for (const auto& [Type, Entry] : State->Workspaces)
+		{
+			(void)Type;
+			Entries.push_back(&Entry);
+		}
+		std::ranges::sort(Entries, {}, &Detail::FRegisteredWorkspace::RegistrationOrder);
+		std::vector<FEditorWorkspaceDescriptor> Result;
+		Result.reserve(Entries.size());
+		for (const Detail::FRegisteredWorkspace* Entry : Entries) Result.push_back(Entry->Descriptor);
 		return Result;
 	}
 

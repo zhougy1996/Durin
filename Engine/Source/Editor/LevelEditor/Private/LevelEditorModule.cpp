@@ -55,7 +55,33 @@ namespace Durin
 		Workspace->Construct();
 		std::shared_ptr<MMaterialEditor> MaterialWorkspace = std::make_shared<MMaterialEditor>(WorkspaceManager);
 		FEditorWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
-			.Workspaces = {Workspace, MaterialWorkspace},
+			.Workspaces = {
+				{
+					.Descriptor = {
+						.WorkspaceType = LevelEditorWorkspace::Type,
+						.DisplayName = "Level Editor",
+						.RootKey = LevelEditorWorkspace::RootKey,
+						.bShowInWindowMenu = true,
+						.bOpenByDefault = true,
+						.DefaultHostDockPreference = EEditorWorkspaceHostDockPreference::Center,
+						.SingletonDocumentKey = "LevelEditor",
+						.SingletonDocumentLabel = "Level Editor",
+						.bSingletonDocumentClosable = true,
+					},
+					.Workspace = Workspace,
+				},
+				{
+					.Descriptor = {
+						.WorkspaceType = MaterialEditorWorkspace::Type,
+						.DisplayName = "Material Editor",
+						.RootKey = std::string(MaterialEditorWorkspace::RootKey),
+						.bShowInWindowMenu = false,
+						.bOpenByDefault = false,
+						.DefaultHostDockPreference = EEditorWorkspaceHostDockPreference::Center,
+					},
+					.Workspace = MaterialWorkspace,
+				},
+			},
 			.AssetEditors = {
 				{
 					.AssetClassName = DLevel::StaticClass()->GetQualifiedName().ToString(),
@@ -80,13 +106,7 @@ namespace Durin
 			},
 		});
 		if (!Registration) return false;
-		if (!WorkspaceManager.OpenDocument({
-			.WorkspaceType = LevelEditorWorkspace::Type,
-			.DocumentKey = "LevelEditor",
-			.Label = "Level Editor",
-			.bClosable = true,
-		}).IsValid())
-			return false;
+		if (!WorkspaceManager.OpenDefaultWorkspaces()) return false;
 		WorkspaceRegistration = std::make_unique<FEditorWorkspaceRegistrationHandle>(std::move(Registration));
 		return true;
 	}

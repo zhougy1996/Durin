@@ -18,17 +18,23 @@ namespace Durin
 	{
 		constexpr uint32 EditorHostLayoutVersion = 2;
 
-		auto BuildDefaultEditorHostLayout(ImGuiID DockSpaceId, const ImVec2& DockSpaceSize) -> void
+		auto BuildDefaultEditorHostLayout(
+			ImGuiID DockSpaceId,
+			const ImVec2& DockSpaceSize,
+			const std::vector<FEditorWorkspaceDescriptor>& Descriptors
+		) -> void
 		{
 			ImGui::DockBuilderRemoveNode(DockSpaceId);
 			ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace | ImGuiDockNodeFlags_NoWindowMenuButton);
 			ImGui::DockBuilderSetNodeSize(DockSpaceId, DockSpaceSize);
 			if (ImGuiDockNode* DockSpaceNode = ImGui::DockBuilderGetNode(DockSpaceId))
 				DockSpaceNode->WindowClass = EditorWorkspaceUI::MakeEditorRootWindowClass();
-			const std::string LevelEditorRootName = EditorWorkspaceUI::MakeEditorRootWindowName("Level Editor", "LevelEditor");
-			const std::string MaterialEditorRootName = EditorWorkspaceUI::MakeEditorRootWindowName("Material Editor", "MaterialEditor");
-			ImGui::DockBuilderDockWindow(LevelEditorRootName.c_str(), DockSpaceId);
-			ImGui::DockBuilderDockWindow(MaterialEditorRootName.c_str(), DockSpaceId);
+			for (const FEditorWorkspaceDescriptor& Descriptor : Descriptors)
+			{
+				if (Descriptor.DefaultHostDockPreference != EEditorWorkspaceHostDockPreference::Center) continue;
+				const std::string RootWindowName = EditorWorkspaceUI::MakeEditorRootWindowName(Descriptor.DisplayName, Descriptor.RootKey);
+				ImGui::DockBuilderDockWindow(RootWindowName.c_str(), DockSpaceId);
+			}
 			ImGui::DockBuilderFinish(DockSpaceId);
 		}
 
@@ -57,21 +63,21 @@ namespace Durin
 				if (ActiveWorkspace) ActiveWorkspace->DrawMainMenu();
 				if (ImGui::BeginMenu("Window"))
 				{
-					const FEditorWorkspaceTypeId LevelEditorType{"LevelEditor"};
-					const auto LevelDocument = std::ranges::find(
-						WorkspaceManager.GetDocuments(), LevelEditorType, &FEditorDocumentTab::WorkspaceType
-					);
-					const bool bLevelEditorOpen = LevelDocument != WorkspaceManager.GetDocuments().end();
-					if (ImGui::MenuItem("Level Editor", nullptr, bLevelEditorOpen))
+					for (const FEditorWorkspaceDescriptor& Descriptor : WorkspaceManager.GetWorkspaceDescriptors())
 					{
-						if (bLevelEditorOpen) WorkspaceManager.ActivateDocument(LevelDocument->Id);
-						else
+						if (!Descriptor.bShowInWindowMenu) continue;
+						const auto Document = std::ranges::find(
+							WorkspaceManager.GetDocuments(), Descriptor.WorkspaceType, &FEditorDocumentTab::WorkspaceType
+						);
+						const bool bOpen = Document != WorkspaceManager.GetDocuments().end();
+						if (ImGui::MenuItem(Descriptor.DisplayName.c_str(), nullptr, bOpen, bOpen || Descriptor.HasSingletonDocument()))
 						{
-							WorkspaceManager.OpenDocument({
-								.WorkspaceType = LevelEditorType,
-								.DocumentKey = "LevelEditor",
-								.Label = "Level Editor",
-								.bClosable = true,
+							if (bOpen) WorkspaceManager.ActivateDocument(Document->Id);
+							else WorkspaceManager.OpenDocument({
+								.WorkspaceType = Descriptor.WorkspaceType,
+								.DocumentKey = Descriptor.SingletonDocumentKey,
+								.Label = Descriptor.SingletonDocumentLabel,
+								.bClosable = Descriptor.bSingletonDocumentClosable,
 							});
 						}
 					}
@@ -87,7 +93,7 @@ namespace Durin
 			if (bNeedsDefaultLayout)
 			{
 				// DockBuilder must finish before DockSpace submission so the new tree retains this frame's host window.
-				BuildDefaultEditorHostLayout(DockSpaceId, DockSpaceSize);
+				BuildDefaultEditorHostLayout(DockSpaceId, DockSpaceSize, WorkspaceManager.GetWorkspaceDescriptors());
 			}
 			EditorWorkspaceUI::SubmitEditorHostDockSpace(EditorHostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
 

@@ -135,11 +135,11 @@ requiring `MainFrame` to know literal workspace names and keys. It should cover:
 - Workspace factory or registration callback.
 - Optional default host docking preference.
 
-- [ ] Generate the Window menu from registered descriptors.
-- [ ] Generate the default host dock layout from registered descriptors.
-- [ ] Remove the literal `LevelEditor` and `MaterialEditor` root-window names
+- [x] Generate the Window menu from registered descriptors.
+- [x] Generate the default host dock layout from registered descriptors.
+- [x] Remove the literal `LevelEditor` and `MaterialEditor` root-window names
   from `MainFrameModule.cpp`.
-- [ ] Keep stable ImGui IDs so existing user layouts are preserved where
+- [x] Keep stable ImGui IDs so existing user layouts are preserved where
   possible; bump the host layout version only when migration requires it.
 
 ### Workspace Root Window
@@ -256,10 +256,10 @@ one change.
 - [ ] Verify Content Browser double-click routing selects the independently
   registered Material Editor.
 - [ ] Verify project-browser startup and opening a project after startup.
-- [ ] Verify the Window menu and default host layout are generated from
+- [x] Verify the Window menu and default host layout are generated from
   registrations without concrete editor-name literals.
 - [ ] Verify existing and reset layouts at multiple UI scales.
-- [ ] Build the full `all` target through `BuildTool` using the active Agent
+- [x] Build the full `all` target through `BuildTool` using the active Agent
   profile.
 - [ ] Run `DurinEditor` from the same full build and smoke-test Level and
   Material editing, saving, docking, project switching, and shutdown.

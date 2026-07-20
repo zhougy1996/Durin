@@ -55,6 +55,30 @@ namespace Durin
 		PerResource,
 	};
 
+	enum class EEditorWorkspaceHostDockPreference : uint8
+	{
+		None,
+		Center,
+	};
+
+	struct FEditorWorkspaceDescriptor
+	{
+		FEditorWorkspaceTypeId WorkspaceType;
+		std::string DisplayName;
+		std::string RootKey;
+		bool bShowInWindowMenu = true;
+		bool bOpenByDefault = false;
+		EEditorWorkspaceHostDockPreference DefaultHostDockPreference = EEditorWorkspaceHostDockPreference::Center;
+		std::string SingletonDocumentKey;
+		std::string SingletonDocumentLabel;
+		bool bSingletonDocumentClosable = true;
+
+		auto HasSingletonDocument() const -> bool
+		{
+			return !SingletonDocumentKey.empty() && !SingletonDocumentLabel.empty();
+		}
+	};
+
 	struct FEditorAssetEditorRegistration
 	{
 		std::string AssetClassName;
@@ -67,9 +91,15 @@ namespace Durin
 
 	class IEditorWorkspace;
 
+	struct FEditorWorkspaceRegistration
+	{
+		FEditorWorkspaceDescriptor Descriptor;
+		std::shared_ptr<IEditorWorkspace> Workspace;
+	};
+
 	struct FEditorWorkspaceRegistrationBatch
 	{
-		std::vector<std::shared_ptr<IEditorWorkspace>> Workspaces;
+		std::vector<FEditorWorkspaceRegistration> Workspaces;
 		std::vector<FEditorAssetEditorRegistration> AssetEditors;
 	};
 
@@ -125,12 +155,13 @@ namespace Durin
 		auto operator=(const FEditorWorkspaceManager&) -> FEditorWorkspaceManager& = delete;
 
 		DURINED_API auto RegisterBatch(FEditorWorkspaceRegistrationBatch Batch) -> FEditorWorkspaceRegistrationHandle;
-		DURINED_API auto RegisterWorkspace(std::shared_ptr<IEditorWorkspace> Workspace) -> bool;
+		DURINED_API auto RegisterWorkspace(FEditorWorkspaceRegistration Registration) -> bool;
 		DURINED_API auto RegisterAssetEditor(FEditorAssetEditorRegistration Registration) -> bool;
 		DURINED_API auto OpenDocument(FEditorDocumentRequest Request) -> FEditorDocumentId;
 		DURINED_API auto OpenAsset(std::string ResourceId, std::string_view AssetClassName) -> bool;
 		DURINED_API auto ActivateDocument(FEditorDocumentId DocumentId) -> bool;
 		DURINED_API auto ActivateWorkspace(const FEditorWorkspaceTypeId& WorkspaceType) -> bool;
+		DURINED_API auto OpenDefaultWorkspaces() -> bool;
 		DURINED_API auto RequestCloseDocument(FEditorDocumentId DocumentId) -> bool;
 		DURINED_API auto RefreshDocumentState() -> void;
 
@@ -139,6 +170,7 @@ namespace Durin
 		DURINED_API auto GetActiveDocument() const -> const FEditorDocumentTab*;
 		DURINED_API auto FindWorkspace(const FEditorWorkspaceTypeId& WorkspaceType) const -> std::shared_ptr<IEditorWorkspace>;
 		DURINED_API auto GetRegisteredWorkspaces() const -> std::vector<std::shared_ptr<IEditorWorkspace>>;
+		DURINED_API auto GetWorkspaceDescriptors() const -> std::vector<FEditorWorkspaceDescriptor>;
 
 	private:
 		auto FindDocument(FEditorDocumentId DocumentId) -> FEditorDocumentTab*;
