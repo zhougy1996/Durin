@@ -11,11 +11,13 @@ material-instance parameters, rebuild its CPU platform data, upload it through
 the render thread, and sample it as a static-mesh base-color texture. Missing
 or unavailable resources resolve to the renderer-owned white texture.
 
-The focused `FTexture2DTests.*` suite passed on 2026-07-20 using the
-`Win64-Debug-DurinEditor-Tests` preset. These tests cover the CPU-side asset
-workflow; they do not exercise a real Vulkan upload or shader sample.
-The complete 95-test `EngineTests` target, a full `all` rebuild, and an
-eight-second `DurinEditor` Vulkan/shader smoke test also passed on 2026-07-20.
+The focused `FTexture2DTests.*` and `FEditorTextureSmokeTests.*` suites passed
+on 2026-07-20 using the `Win64-Debug-DurinEditor-Tests` preset. The editor
+workflow smoke test imports a texture and mesh, assigns the texture through a
+material, and verifies the static-mesh scene proxy carries geometry, UVs, and
+the imported texture render resource. The complete 101-test `EngineTests`
+target, a full `all` build, and an eight-second `DurinEditor` Vulkan/shader
+smoke test also passed on 2026-07-20.
 
 ## Implemented
 
@@ -46,9 +48,9 @@ eight-second `DurinEditor` Vulkan/shader smoke test also passed on 2026-07-20.
   appropriate renderer default texture.
 - [x] Define the initial sampler policy. A shared linear-wrap sampler is
   sufficient for the first vertical slice.
-- [ ] Add a texture import entry and dialog to the editor and Content Browser.
-- [ ] Show imported texture assets with an image thumbnail or preview.
-- [ ] Add an editor smoke test that imports a texture, assigns it to a material,
+- [x] Add a texture import entry and dialog to the editor and Content Browser.
+- [x] Show imported texture assets with an image thumbnail or preview.
+- [x] Add an editor smoke test that imports a texture, assigns it to a material,
   and verifies that it is visible on a static mesh.
 
 ## Texture Build Pipeline
@@ -90,7 +92,7 @@ source filename.
 - [ ] Test compressed formats and non-block-aligned dimensions.
 - [ ] Test failed imports and rebuilds for transactional cleanup of packages and
   copied source files.
-- [ ] Run a successful full `all` build and `DurinEditor` smoke test after the
+- [x] Run a successful full `all` build and `DurinEditor` smoke test after the
   material and editor integration lands.
 
 ## Later Scope

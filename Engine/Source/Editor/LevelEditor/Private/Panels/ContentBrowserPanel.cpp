@@ -17,6 +17,7 @@
 #include "Math/Vector.h"
 #include "SourceImageThumbnailCache.h"
 #include "SourceImageThumbnailDecoder.h"
+#include "Texture/Texture2D.h"
 
 #ifdef _WIN32
 	#include <shellapi.h>
@@ -49,6 +50,17 @@ namespace Durin
 			std::string Name = Separator == std::string_view::npos ? std::string(QualifiedName) : std::string(QualifiedName.substr(Separator + 2));
 			if (Name.starts_with('D') && Name.size() > 1) Name.erase(Name.begin());
 			return Name;
+		}
+
+		auto FindTextureSourceFile(const std::filesystem::path& PackagePath) -> std::filesystem::path
+		{
+			std::error_code Ec;
+			for (std::filesystem::directory_iterator It(PackagePath.parent_path(), std::filesystem::directory_options::skip_permission_denied, Ec), End; !Ec && It != End; It.increment(Ec))
+			{
+				if (!It->is_regular_file(Ec) || It->path().stem() != PackagePath.stem()) continue;
+				if (IsSupportedSourceImageExtension(It->path().extension().generic_string())) return It->path();
+			}
+			return {};
 		}
 
 		constexpr ImGuiTableFlags DetailsTableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_NoSavedSettings;
@@ -180,7 +192,8 @@ namespace Durin
 		if (TypeFilter == 1) return Type == "Level";
 		if (TypeFilter == 2) return Type == "StaticMesh";
 		if (TypeFilter == 3) return Type.find("Material") != std::string::npos;
-		return Item.Kind != EContentBrowserItemKind::Asset || (Type != "Level" && Type != "StaticMesh" && Type.find("Material") == std::string::npos);
+		if (TypeFilter == 4) return Type == "Texture2D";
+		return Item.Kind != EContentBrowserItemKind::Asset || (Type != "Level" && Type != "StaticMesh" && Type.find("Material") == std::string::npos && Type != "Texture2D");
 	}
 
 	auto FContentBrowserPanel::RefreshItemsSnapshot() -> void
@@ -221,6 +234,18 @@ namespace Durin
 			std::error_code FileEc;
 			Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
 			Item.LastWriteTime = Data.LastWriteTime;
+			if (Data.AssetClassName == DTexture2D::StaticClass()->GetQualifiedName().ToString())
+			{
+				const std::filesystem::path ThumbnailPath = FindTextureSourceFile(Data.PhysicalPath);
+				if (!ThumbnailPath.empty())
+				{
+					Item.ThumbnailPhysicalPath = NormalizePath(ThumbnailPath.generic_string());
+					FileEc.clear();
+					Item.ThumbnailFileSize = std::filesystem::file_size(ThumbnailPath, FileEc);
+					FileEc.clear();
+					Item.ThumbnailLastWriteTime = std::filesystem::last_write_time(ThumbnailPath, FileEc);
+				}
+			}
 			ItemsSnapshot.push_back(std::move(Item));
 		}
 		RebuildItems();
@@ -377,7 +402,7 @@ namespace Durin
 			ImGui::EndChild();
 		};
 
-		const char* Filters[] = {"All types", "Levels", "Static meshes", "Materials", "Other"};
+		const char* Filters[] = {"All types", "Levels", "Static meshes", "Materials", "Textures", "Other"};
 		const float Spacing = ImGui::GetStyle().ItemSpacing.x;
 
 		// Keep the view controls ahead of flexible toolbar content so search and breadcrumbs cannot clip them.
@@ -645,8 +670,9 @@ namespace Durin
 					const size_t Index = static_cast<size_t>(Row) * Columns + Column;
 					if (Index >= Items.size()) break;
 					const FContentBrowserItem& Item = Items[Index];
-					if (bShowSourceFiles && Item.Kind == EContentBrowserItemKind::SourceFile && IsSupportedSourceImageExtension(Item.Extension))
-						ThumbnailCache->Request(Item.PhysicalPath, Item.FileSize, Item.LastWriteTime, Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd);
+					const std::string& ThumbnailPath = Item.ThumbnailPhysicalPath.empty() ? Item.PhysicalPath : Item.ThumbnailPhysicalPath;
+					if ((bShowSourceFiles && Item.Kind == EContentBrowserItemKind::SourceFile && IsSupportedSourceImageExtension(Item.Extension)) || !Item.ThumbnailPhysicalPath.empty())
+						ThumbnailCache->Request(ThumbnailPath, Item.ThumbnailPhysicalPath.empty() ? Item.FileSize : Item.ThumbnailFileSize, Item.ThumbnailPhysicalPath.empty() ? Item.LastWriteTime : Item.ThumbnailLastWriteTime, Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd);
 				}
 
 			for (int32 Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
@@ -692,7 +718,7 @@ namespace Durin
 						if (bSelected) DrawList->AddRect(CardMin, CardMax, ImGui::GetColorU32(ImGuiCol_CheckMark), CardRounding, 0, MonaImGui::ScaleUI(1.0f));
 					}
 
-					const FSourceImageThumbnailView Thumbnail = ThumbnailCache->Find(Item.PhysicalPath);
+					const FSourceImageThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailPhysicalPath.empty() ? Item.PhysicalPath : Item.ThumbnailPhysicalPath);
 					bool bDrewThumbnail = false;
 					if (Thumbnail.State == ESourceImageThumbnailState::Ready && Thumbnail.Texture && Mona::GActiveUIBackend)
 					{
@@ -914,7 +940,12 @@ namespace Durin
 		if (ImGui::BeginPopupContextWindow("ContentBrowserBackground", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 		{
 			if (ImGui::MenuItem("New Folder")) CreateFolder();
-			if (ImGui::MenuItem("Import Static Mesh...", nullptr, false, static_cast<bool>(RequestImport))) RequestImport(CurrentVirtualPath);
+			if (ImGui::BeginMenu("Import", static_cast<bool>(RequestImport)))
+			{
+				if (ImGui::MenuItem("Texture...")) RequestImport(CurrentVirtualPath, EContentBrowserImportType::Texture);
+				if (ImGui::MenuItem("Static Mesh...")) RequestImport(CurrentVirtualPath, EContentBrowserImportType::StaticMesh);
+				ImGui::EndMenu();
+			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Refresh")) Refresh(true);
 			if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles))

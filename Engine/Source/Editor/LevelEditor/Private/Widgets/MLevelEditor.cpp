@@ -27,6 +27,7 @@
 #include "Panels/SceneViewportPanel.h"
 #include "Panels/WorldOutlinerPanel.h"
 #include "StaticMeshImportDialog.h"
+#include "TextureImportDialog.h"
 #include "Widgets/EditorNotificationOverlay.h"
 #include "Widgets/MWindow.h"
 #include "Yaml/Yaml.h"
@@ -98,13 +99,25 @@ namespace Durin
 				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
 			}
 		);
+		TextureImportDialog = std::make_unique<FTextureImportDialog>(
+			[this] { EditorError.clear(); },
+			[this](std::string Message) { SetError(std::move(Message)); },
+			[this](std::string AssetPath) {
+				Asset::GetAssetRegistry().ScanMountedContent();
+				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
+			}
+		);
 		auto ContentBrowser = std::make_unique<FContentBrowserPanel>(
 			SessionSettings,
 			[this](const std::string& Path, const std::string& AssetClassName) {
 				return WorkspaceManager.OpenAsset(Path, AssetClassName);
 			},
-			[this](const std::string& DestinationDirectory) {
-				if (StaticMeshImportDialog) StaticMeshImportDialog->Open(DestinationDirectory);
+			[this](const std::string& DestinationDirectory, EContentBrowserImportType ImportType) {
+				if (ImportType == EContentBrowserImportType::Texture)
+				{
+					if (TextureImportDialog) TextureImportDialog->Open(DestinationDirectory);
+				}
+				else if (StaticMeshImportDialog) StaticMeshImportDialog->Open(DestinationDirectory);
 			},
 			[this](std::span<const FEditorAssetMove> Moves) {
 				return AssetMoveCoordinator->MoveAssets(Moves);
@@ -242,7 +255,7 @@ namespace Durin
 
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
 	{
-		if (!Context || !DocumentController || !StaticMeshImportDialog) return false;
+		if (!Context || !DocumentController || !StaticMeshImportDialog || !TextureImportDialog) return false;
 
 		const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeDockSpaceId(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion);
 		EditorWorkspaceUI::SetNextEditorRootWindowClass();
@@ -311,6 +324,7 @@ namespace Durin
 
 		DocumentController->DrawDialogs();
 		StaticMeshImportDialog->Draw();
+		TextureImportDialog->Draw();
 		DrawProjectSettings();
 		DrawAboutDialog();
 
@@ -376,6 +390,7 @@ namespace Durin
 			ImGui::Separator();
 			if (ImGui::BeginMenu("Import"))
 			{
+				if (ImGui::MenuItem("Texture...")) TextureImportDialog->Open();
 				if (ImGui::MenuItem("Static Mesh...")) StaticMeshImportDialog->Open();
 				ImGui::EndMenu();
 			}

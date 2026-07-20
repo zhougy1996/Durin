@@ -7,6 +7,7 @@ add_durin_test(EngineTests
 	Private/WorldTests.cpp
 	Private/ViewportTests.cpp
 	Private/EditorNotificationTests.cpp
+	Private/EditorTextureSmokeTests.cpp
 	Private/UIStyleTests.cpp
 	Private/SourceImageThumbnailTests.cpp
 	Private/SplineTests.cpp

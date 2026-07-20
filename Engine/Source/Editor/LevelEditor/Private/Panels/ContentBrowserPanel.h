@@ -26,6 +26,12 @@ namespace Durin
 		Details
 	};
 
+	enum class EContentBrowserImportType : uint8
+	{
+		Texture,
+		StaticMesh
+	};
+
 	struct FContentBrowserItem
 	{
 		EContentBrowserItemKind Kind = EContentBrowserItemKind::SourceFile;
@@ -34,6 +40,9 @@ namespace Durin
 		std::string PhysicalPath;
 		std::string AssetClassName;
 		std::string Extension;
+		std::string ThumbnailPhysicalPath;
+		uintmax_t ThumbnailFileSize = 0;
+		std::filesystem::file_time_type ThumbnailLastWriteTime{};
 		uintmax_t FileSize = 0;
 		std::filesystem::file_time_type LastWriteTime{};
 
@@ -44,7 +53,7 @@ namespace Durin
 	{
 	public:
 		using FOpenAsset = std::function<bool(const std::string&, const std::string&)>;
-		using FRequestImport = std::function<void(const std::string&)>;
+		using FRequestImport = std::function<void(const std::string&, EContentBrowserImportType)>;
 		using FMoveAssets = std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
 
 		FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport, FMoveAssets InMoveAssets);
