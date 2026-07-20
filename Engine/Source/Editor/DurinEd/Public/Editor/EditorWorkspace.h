@@ -76,6 +76,7 @@ namespace Durin
 		virtual auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool { return !Document.bDirty; }
 		virtual auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool { return Document.bDirty; }
 		virtual auto DrawMainMenu() -> void = 0;
+		virtual auto DrawWindowMenu() -> void {}
 		virtual auto DrawWorkspace(bool bActive) -> bool = 0;
 		virtual auto ResetLayout() -> void = 0;
 	};

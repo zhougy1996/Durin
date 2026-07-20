@@ -49,12 +49,34 @@ namespace Durin
 			ImGui::PopStyleVar(3);
 
 			WorkspaceManager.RefreshDocumentState();
+			std::shared_ptr<IEditorWorkspace> ActiveWorkspace;
+			if (const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
+				ActiveWorkspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType);
 			if (ImGui::BeginMenuBar())
 			{
-				if (const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
+				if (ActiveWorkspace) ActiveWorkspace->DrawMainMenu();
+				if (ImGui::BeginMenu("Window"))
 				{
-					if (const std::shared_ptr<IEditorWorkspace> Workspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType))
-						Workspace->DrawMainMenu();
+					const FEditorWorkspaceTypeId LevelEditorType{"LevelEditor"};
+					const auto LevelDocument = std::ranges::find(
+						WorkspaceManager.GetDocuments(), LevelEditorType, &FEditorDocumentTab::WorkspaceType
+					);
+					const bool bLevelEditorOpen = LevelDocument != WorkspaceManager.GetDocuments().end();
+					if (ImGui::MenuItem("Level Editor", nullptr, bLevelEditorOpen))
+					{
+						if (bLevelEditorOpen) WorkspaceManager.ActivateDocument(LevelDocument->Id);
+						else
+						{
+							WorkspaceManager.OpenDocument({
+								.WorkspaceType = LevelEditorType,
+								.DocumentKey = "LevelEditor",
+								.Label = "Level Editor",
+								.bClosable = true,
+							});
+						}
+					}
+					if (ActiveWorkspace) ActiveWorkspace->DrawWindowMenu();
+					ImGui::EndMenu();
 				}
 				ImGui::EndMenuBar();
 			}
@@ -69,9 +91,6 @@ namespace Durin
 			}
 			EditorWorkspaceUI::SubmitEditorHostDockSpace(EditorHostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
 
-			std::shared_ptr<IEditorWorkspace> ActiveWorkspace;
-			if (const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
-				ActiveWorkspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType);
 			for (const std::shared_ptr<IEditorWorkspace>& Workspace : WorkspaceManager.GetRegisteredWorkspaces())
 			{
 				if (Workspace->DrawWorkspace(Workspace == ActiveWorkspace))

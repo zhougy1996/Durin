@@ -240,8 +240,7 @@ namespace Durin
 
 	auto MLevelEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
 	{
-		(void)Document;
-		return false;
+		return !IsDocumentDirty(Document);
 	}
 
 	auto MLevelEditor::IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool
@@ -259,6 +258,14 @@ namespace Durin
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!Context || !DocumentController || !StaticMeshImportDialog || !TextureImportDialog) return false;
+		const bool bDocumentOpen = std::ranges::any_of(WorkspaceManager.GetDocuments(), [](const FEditorDocumentTab& Document) {
+			return Document.WorkspaceType == LevelEditorWorkspace::Type;
+		});
+		if (!bDocumentOpen)
+		{
+			bWasDockTabSelected = false;
+			return false;
+		}
 
 		const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeDockSpaceId(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion);
 		EditorWorkspaceUI::SetNextEditorRootWindowClass();
@@ -270,17 +277,29 @@ namespace Durin
 		const bool bLevelDirty = Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
 		const std::string RootWindowName = EditorWorkspaceUI::MakeEditorRootWindowName(bLevelDirty ? "Level Editor *" : "Level Editor", LevelEditorWorkspace::RootKey);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		const bool bRootVisible = ImGui::Begin(RootWindowName.c_str(), nullptr, ImGuiWindowFlags_NoCollapse);
+		bool bOpen = true;
+		const ImGuiWindowFlags RootWindowFlags = ImGuiWindowFlags_NoCollapse | (bLevelDirty ? ImGuiWindowFlags_UnsavedDocument : ImGuiWindowFlags_None);
+		const bool bRootVisible = ImGui::Begin(RootWindowName.c_str(), &bOpen, RootWindowFlags);
 		ImGui::PopStyleVar();
 		const bool bRootFocused = bRootVisible && ImGui::IsWindowFocused(
-			ImGuiFocusedFlags_RootAndChildWindows | ImGuiFocusedFlags_DockHierarchy
+			ImGuiFocusedFlags_RootAndChildWindows
 		);
+		const bool bDockTabSelected = bRootVisible && ImGui::IsWindowDocked();
+		// Track the selection edge because clicking a dock tab need not focus one of its child panels.
+		const bool bDockTabActivated = bDockTabSelected && !bWasDockTabSelected;
+		bWasDockTabSelected = bDockTabSelected;
 		if (!bRootVisible)
 		{
 			if (ImGui::DockBuilderGetNode(DockSpaceId) != nullptr)
 				EditorWorkspaceUI::SubmitDockSpace(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly);
 			ImGui::End();
-			return false;
+			if (!bOpen)
+			{
+				const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
+				if (ActiveDocument && ActiveDocument->WorkspaceType == LevelEditorWorkspace::Type)
+					WorkspaceManager.RequestCloseDocument(ActiveDocument->Id);
+			}
+			return bDockTabActivated;
 		}
 
 		bool bPlaying = GEditor && GEditor->IsPlaying();
@@ -324,6 +343,12 @@ namespace Durin
 		}
 		EditorWorkspaceUI::SubmitDockSpace(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion, DockSpaceSize);
 		ImGui::End();
+		if (!bOpen)
+		{
+			const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
+			if (ActiveDocument && ActiveDocument->WorkspaceType == LevelEditorWorkspace::Type)
+				WorkspaceManager.RequestCloseDocument(ActiveDocument->Id);
+		}
 
 		DocumentController->DrawDialogs();
 		StaticMeshImportDialog->Draw();
@@ -373,7 +398,7 @@ namespace Durin
 		{
 			NotificationOverlay->DrawNotifications(GEditor->GetNotificationManager(), GEditor->GetTransactionManager());
 		}
-		return bRootFocused;
+		return bRootFocused || bDockTabActivated;
 	}
 
 	auto MLevelEditor::DrawMainMenu() -> void
@@ -487,24 +512,25 @@ namespace Durin
 			}
 			ImGui::EndMenu();
 		}
-		if (ImGui::BeginMenu("Window"))
-		{
-			if (ImGui::BeginMenu("Level Editor"))
-			{
-				for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
-				{
-					bool bOpen = Panel->IsOpen();
-					if (ImGui::MenuItem(Panel->GetWindowName(), nullptr, &bOpen)) Panel->SetOpen(bOpen);
-				}
-				ImGui::Separator();
-				if (ImGui::MenuItem("Reset Layout")) ResetLayout();
-				ImGui::EndMenu();
-			}
-			ImGui::EndMenu();
-		}
 		if (ImGui::BeginMenu("Help"))
 		{
 			if (ImGui::MenuItem("About Durin...")) bAboutDialogOpen = true;
+			ImGui::EndMenu();
+		}
+	}
+
+	auto MLevelEditor::DrawWindowMenu() -> void
+	{
+		ImGui::Separator();
+		if (ImGui::BeginMenu("Level Editor"))
+		{
+			for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
+			{
+				bool bPanelOpen = Panel->IsOpen();
+				if (ImGui::MenuItem(Panel->GetWindowName(), nullptr, &bPanelOpen)) Panel->SetOpen(bPanelOpen);
+			}
+			ImGui::Separator();
+			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
 			ImGui::EndMenu();
 		}
 	}

@@ -106,6 +106,15 @@ namespace Durin
 	{
 		DMaterialInterface* Material = GetActiveMaterial();
 		if (!Material) return false;
+		FEditorDocumentId DocumentId;
+		for (const FEditorDocumentTab& Document : WorkspaceManager.GetDocuments())
+		{
+			if (Document.WorkspaceType == MaterialEditorWorkspace::Type && Document.ResourceId == ActiveResourceId)
+			{
+				DocumentId = Document.Id;
+				break;
+			}
+		}
 
 		EditorWorkspaceUI::SetNextEditorRootWindowClass();
 		if (bFocusRequested)
@@ -116,12 +125,19 @@ namespace Durin
 		const bool bDirty = Material->GetPackage() && Material->GetPackage()->IsDirty();
 		const std::string DisplayName = std::format("Material Editor - {}{}", AssetLeaf(ActiveResourceId), bDirty ? " *" : "");
 		const std::string RootWindowName = EditorWorkspaceUI::MakeEditorRootWindowName(DisplayName, MaterialEditorWorkspace::RootKey);
-		const bool bVisible = ImGui::Begin(RootWindowName.c_str(), nullptr, ImGuiWindowFlags_NoCollapse);
-		const bool bFocused = bVisible && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows | ImGuiFocusedFlags_DockHierarchy);
+		bool bOpen = true;
+		const ImGuiWindowFlags WindowFlags = ImGuiWindowFlags_NoCollapse | (bDirty ? ImGuiWindowFlags_UnsavedDocument : ImGuiWindowFlags_None);
+		const bool bVisible = ImGui::Begin(RootWindowName.c_str(), &bOpen, WindowFlags);
+		const bool bFocused = bVisible && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+		const bool bDockTabSelected = bVisible && ImGui::IsWindowDocked();
+		// A dock-tab click can select the window without transferring focus to its contents.
+		const bool bDockTabActivated = bDockTabSelected && !bWasDockTabSelected;
+		bWasDockTabSelected = bDockTabSelected;
 		if (!bVisible)
 		{
 			ImGui::End();
-			return false;
+			if (!bOpen && DocumentId.IsValid()) WorkspaceManager.RequestCloseDocument(DocumentId);
+			return bDockTabActivated;
 		}
 
 		const ImGuiIO& IO = ImGui::GetIO();
@@ -163,7 +179,8 @@ namespace Durin
 		}
 
 		ImGui::End();
-		return bFocused;
+		if (!bOpen && DocumentId.IsValid()) WorkspaceManager.RequestCloseDocument(DocumentId);
+		return bFocused || bDockTabActivated;
 	}
 
 	auto MMaterialEditor::ResetLayout() -> void

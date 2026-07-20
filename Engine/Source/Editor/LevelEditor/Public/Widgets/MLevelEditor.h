@@ -31,6 +31,7 @@ namespace Durin
 		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
 		LEVELEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
 		LEVELEDITOR_API auto DrawMainMenu() -> void override;
+		LEVELEDITOR_API auto DrawWindowMenu() -> void override;
 		LEVELEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
 		LEVELEDITOR_API auto ResetLayout() -> void override;
 
@@ -59,6 +60,7 @@ namespace Durin
 		bool bResetLayoutRequested = false;
 		bool bSelectDefaultBottomPanelRequested = true;
 		bool bFocusRequested = false;
+		bool bWasDockTabSelected = false;
 		bool bProjectSettingsOpen = false;
 		bool bAboutDialogOpen = false;
 		std::string DefaultLevel;

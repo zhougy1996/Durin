@@ -44,5 +44,6 @@ namespace Durin
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;
 		bool bFocusRequested = false;
+		bool bWasDockTabSelected = false;
 	};
 }

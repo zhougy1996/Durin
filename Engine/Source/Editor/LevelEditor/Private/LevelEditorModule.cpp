@@ -59,7 +59,7 @@ namespace Durin
 			.DocumentPolicy = EEditorDocumentPolicy::Singleton,
 			.SingletonDocumentKey = "LevelEditor",
 			.SingletonLabel = "Level Editor",
-			.bClosable = false,
+			.bClosable = true,
 		}))
 			return false;
 		if (!WorkspaceManager.RegisterAssetEditor({
@@ -80,7 +80,7 @@ namespace Durin
 			.WorkspaceType = LevelEditorWorkspace::Type,
 			.DocumentKey = "LevelEditor",
 			.Label = "Level Editor",
-			.bClosable = false,
+			.bClosable = true,
 		}).IsValid();
 	}
 
