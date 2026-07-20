@@ -113,14 +113,14 @@ The current registration path mutates `FEditorWorkspaceManager` one entry at a
 time. Failure after an earlier successful insertion leaves a partially
 initialized manager and makes retries unreliable.
 
-- [ ] Add unregister support or, preferably, scoped registration handles.
-- [ ] Support validating and committing a batch of workspace and asset editor
+- [x] Add unregister support or, preferably, scoped registration handles.
+- [x] Support validating and committing a batch of workspace and asset editor
   registrations atomically.
-- [ ] Reject duplicate workspace types and asset class mappings before applying
+- [x] Reject duplicate workspace types and asset class mappings before applying
   any entry in a batch.
-- [ ] Ensure unloading an editor module removes its registrations and closes or
+- [x] Ensure unloading an editor module removes its registrations and closes or
   rejects documents whose workspace would become unavailable.
-- [ ] Add tests for duplicate, partial-failure, rollback, and retry behavior.
+- [x] Add tests for duplicate, partial-failure, rollback, and retry behavior.
 
 ### Workspace Descriptor
 
@@ -246,7 +246,7 @@ one change.
 
 ## Validation
 
-- [ ] Add native tests for registration commit, rollback, unloading, and retry.
+- [x] Add native tests for registration commit, rollback, unloading, and retry.
 - [ ] Test opening multiple Material and Material Instance documents and
   switching the active document.
 - [ ] Test save, close, cancel, and discard behavior for dirty documents.
@@ -277,4 +277,3 @@ one change.
 - `Engine/Source/Editor/LevelEditor/Private/Widgets/MMaterialEditor.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/EditorSessionSettings.h`
-

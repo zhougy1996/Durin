@@ -7,6 +7,7 @@
 namespace Durin
 {
 	class FEditorSessionSettings;
+	class FEditorWorkspaceRegistrationHandle;
 	class FEditorWorkspaceManager;
 
 	class FLevelEditorModule final : public IModuleInterface
@@ -22,6 +23,7 @@ namespace Durin
 		LEVELEDITOR_API auto IsWindowMaximized() const -> bool;
 
 	private:
+		std::unique_ptr<FEditorWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<FEditorSessionSettings> SessionSettings;
 		std::vector<FLevelEditorCustomizationHandle> CustomizationHandles;
 	};

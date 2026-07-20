@@ -65,6 +65,41 @@ namespace Durin
 		bool bClosable = true;
 	};
 
+	class IEditorWorkspace;
+
+	struct FEditorWorkspaceRegistrationBatch
+	{
+		std::vector<std::shared_ptr<IEditorWorkspace>> Workspaces;
+		std::vector<FEditorAssetEditorRegistration> AssetEditors;
+	};
+
+	namespace Detail
+	{
+		struct FEditorWorkspaceRegistryState;
+	}
+
+	class DURINED_API FEditorWorkspaceRegistrationHandle
+	{
+	public:
+		FEditorWorkspaceRegistrationHandle() = default;
+		~FEditorWorkspaceRegistrationHandle();
+		FEditorWorkspaceRegistrationHandle(const FEditorWorkspaceRegistrationHandle&) = delete;
+		auto operator=(const FEditorWorkspaceRegistrationHandle&) -> FEditorWorkspaceRegistrationHandle& = delete;
+		FEditorWorkspaceRegistrationHandle(FEditorWorkspaceRegistrationHandle&& Other) noexcept;
+		auto operator=(FEditorWorkspaceRegistrationHandle&& Other) noexcept -> FEditorWorkspaceRegistrationHandle&;
+
+		auto IsValid() const -> bool { return RegistrationId != 0 && !State.expired(); }
+		explicit operator bool() const { return IsValid(); }
+		auto Reset() -> void;
+
+	private:
+		friend class FEditorWorkspaceManager;
+		FEditorWorkspaceRegistrationHandle(std::weak_ptr<Detail::FEditorWorkspaceRegistryState> InState, uint64 InRegistrationId);
+
+		std::weak_ptr<Detail::FEditorWorkspaceRegistryState> State;
+		uint64 RegistrationId = 0;
+	};
+
 	class DURINED_API IEditorWorkspace
 	{
 	public:
@@ -84,6 +119,12 @@ namespace Durin
 	class FEditorWorkspaceManager
 	{
 	public:
+		DURINED_API FEditorWorkspaceManager();
+		DURINED_API ~FEditorWorkspaceManager();
+		FEditorWorkspaceManager(const FEditorWorkspaceManager&) = delete;
+		auto operator=(const FEditorWorkspaceManager&) -> FEditorWorkspaceManager& = delete;
+
+		DURINED_API auto RegisterBatch(FEditorWorkspaceRegistrationBatch Batch) -> FEditorWorkspaceRegistrationHandle;
 		DURINED_API auto RegisterWorkspace(std::shared_ptr<IEditorWorkspace> Workspace) -> bool;
 		DURINED_API auto RegisterAssetEditor(FEditorAssetEditorRegistration Registration) -> bool;
 		DURINED_API auto OpenDocument(FEditorDocumentRequest Request) -> FEditorDocumentId;
@@ -93,7 +134,7 @@ namespace Durin
 		DURINED_API auto RequestCloseDocument(FEditorDocumentId DocumentId) -> bool;
 		DURINED_API auto RefreshDocumentState() -> void;
 
-		auto GetDocuments() const -> const std::vector<FEditorDocumentTab>& { return Documents; }
+		DURINED_API auto GetDocuments() const -> const std::vector<FEditorDocumentTab>&;
 		DURINED_API auto GetActiveDocument() -> FEditorDocumentTab*;
 		DURINED_API auto GetActiveDocument() const -> const FEditorDocumentTab*;
 		DURINED_API auto FindWorkspace(const FEditorWorkspaceTypeId& WorkspaceType) const -> std::shared_ptr<IEditorWorkspace>;
@@ -104,10 +145,7 @@ namespace Durin
 		auto FindDocument(const FEditorWorkspaceTypeId& WorkspaceType, std::string_view DocumentKey) -> FEditorDocumentTab*;
 		static auto AssetLabel(std::string_view ResourceId) -> std::string;
 
-		uint64 NextDocumentId = 1;
-		FEditorDocumentId ActiveDocumentId;
-		std::vector<FEditorDocumentTab> Documents;
-		std::unordered_map<std::string, std::shared_ptr<IEditorWorkspace>> Workspaces;
-		std::unordered_map<std::string, FEditorAssetEditorRegistration> AssetEditors;
+		std::shared_ptr<Detail::FEditorWorkspaceRegistryState> State;
+		std::vector<FEditorWorkspaceRegistrationHandle> LegacyRegistrations;
 	};
 }
