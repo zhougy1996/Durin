@@ -226,6 +226,7 @@ namespace Durin
 
 	auto MMaterialEditor::DrawParentPicker(DMaterialInstance* Instance) -> void
 	{
+		ImGui::PushID("MaterialParent");
 		MonaImGui::BeginPropertyRow("Parent");
 		DMaterialInterface* Current = Instance->GetParent();
 		const std::string Preview = AssetPathOrNone(Current);
@@ -250,6 +251,7 @@ namespace Durin
 			ImGui::EndCombo();
 		}
 		MonaImGui::EndPropertyRow();
+		ImGui::PopID();
 	}
 
 	auto MMaterialEditor::DrawBaseColor(DMaterialInterface* Material, DMaterialInstance* Instance) -> void
@@ -257,6 +259,7 @@ namespace Durin
 		FVector3 Value(0.95, 0.62, 0.22);
 		Material->GetVectorParameterValue(MaterialParameterBaseColor, Value);
 		bool bOverride = !Instance || Instance->HasVectorParameterOverride(MaterialParameterBaseColor);
+		ImGui::PushID(MaterialParameterBaseColor.data(), MaterialParameterBaseColor.data() + MaterialParameterBaseColor.size());
 		MonaImGui::BeginPropertyRow("Base Color");
 		if (Instance)
 		{
@@ -278,6 +281,7 @@ namespace Durin
 		}
 		if (Instance && !bOverride) ImGui::EndDisabled();
 		MonaImGui::EndPropertyRow();
+		ImGui::PopID();
 	}
 
 	auto MMaterialEditor::DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance, std::string_view Name, const char* Label, float DefaultValue, float Minimum, float Maximum) -> void
@@ -285,10 +289,13 @@ namespace Durin
 		float Value = DefaultValue;
 		Material->GetScalarParameterValue(Name, Value);
 		bool bOverride = !Instance || Instance->HasScalarParameterOverride(Name);
+		// The visible label belongs to the property-table column, while the actual controls use
+		// hidden labels. Scope the complete row by parameter name so base materials and instances
+		// both receive stable, distinct ImGui IDs.
+		ImGui::PushID(Name.data(), Name.data() + Name.size());
 		MonaImGui::BeginPropertyRow(Label);
 		if (Instance)
 		{
-			ImGui::PushID(Label);
 			if (ImGui::Checkbox("##Override", &bOverride))
 			{
 				if (bOverride) Instance->SetScalarParameterValue(Name, Value);
@@ -306,9 +313,9 @@ namespace Durin
 		if (Instance)
 		{
 			if (!bOverride) ImGui::EndDisabled();
-			ImGui::PopID();
 		}
 		MonaImGui::EndPropertyRow();
+		ImGui::PopID();
 	}
 
 	auto MMaterialEditor::DrawBaseColorTexture(DMaterialInterface* Material, DMaterialInstance* Instance) -> void
@@ -316,6 +323,7 @@ namespace Durin
 		DTexture2D* Texture = nullptr;
 		Material->GetTextureParameterValue(MaterialParameterBaseColorTexture, Texture);
 		bool bOverride = !Instance || Instance->HasTextureParameterOverride(MaterialParameterBaseColorTexture);
+		ImGui::PushID(MaterialParameterBaseColorTexture.data(), MaterialParameterBaseColorTexture.data() + MaterialParameterBaseColorTexture.size());
 		MonaImGui::BeginPropertyRow("Base Color Texture");
 		if (Instance)
 		{
@@ -331,6 +339,7 @@ namespace Durin
 			else if (auto* BaseMaterial = Cast<DMaterial>(Material)) BaseMaterial->SetTextureParameterValue(MaterialParameterBaseColorTexture, Selected);
 		});
 		MonaImGui::EndPropertyRow();
+		ImGui::PopID();
 	}
 
 	auto MMaterialEditor::DrawTexturePicker(DTexture2D* CurrentTexture, bool bEnabled, const std::function<void(DTexture2D*)>& AssignTexture) -> void

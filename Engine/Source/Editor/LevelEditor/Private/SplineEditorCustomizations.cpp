@@ -96,17 +96,21 @@ namespace Durin
 				}
 
 				bool bClosedLoop = Spline->IsClosedLoop();
+				ImGui::PushID("ClosedLoop");
 				MonaImGui::BeginPropertyRow("Closed Loop", bReadOnly);
 				if (ImGui::Checkbox("##Value", &bClosedLoop) && !bReadOnly) Spline->SetClosedLoop(bClosedLoop);
 				MonaImGui::EndPropertyRow(bReadOnly);
+				ImGui::PopID();
 
 				int32 ReparamSteps = Spline->GetReparamStepsPerSegment();
+				ImGui::PushID("ReparamSteps");
 				MonaImGui::BeginPropertyRow("Reparam Steps", bReadOnly);
 				if (ImGui::DragInt("##Value", &ReparamSteps, 1.0f, 1, 1024, "%d", ImGuiSliderFlags_AlwaysClamp) && !bReadOnly)
 				{
 					Spline->SetReparamStepsPerSegment(ReparamSteps);
 				}
 				MonaImGui::EndPropertyRow(bReadOnly);
+				ImGui::PopID();
 
 				MonaImGui::BeginPropertyRow("Points", bReadOnly);
 				if (ImGui::Button("Add Point") && !bReadOnly) AddPoint(*Spline);
@@ -210,12 +214,14 @@ namespace Durin
 
 			static auto DrawVector(DSplineComponent& Spline, uint32 PointIndex, const char* Label, FSplinePoint& Point, FVector3& Value, bool bReadOnly) -> void
 			{
+				ImGui::PushID(Label);
 				MonaImGui::BeginPropertyRow(Label, bReadOnly);
 				if (ImGui::DragScalarN("##Value", ImGuiDataType_Double, &Value.x, 3, 0.05f) && !bReadOnly)
 				{
 					Spline.UpdateSplinePoint(PointIndex, Point);
 				}
 				MonaImGui::EndPropertyRow(bReadOnly);
+				ImGui::PopID();
 			}
 		};
 	} // namespace

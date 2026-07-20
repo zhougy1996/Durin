@@ -176,6 +176,7 @@ namespace Durin::MonaImGui
 
 	auto EditColorProperty(const char* Label, FLinearColor& Color, bool bShowAlpha, bool bReadOnly) -> bool
 	{
+		ImGui::PushID(Label);
 		BeginPropertyRow(Label, bReadOnly);
 		FLinearColor DisplayColor(LinearToSRGB(Color.R), LinearToSRGB(Color.G), LinearToSRGB(Color.B), std::clamp(Color.A, 0.0f, 1.0f));
 		const ImGuiColorEditFlags Flags = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB;
@@ -190,6 +191,7 @@ namespace Durin::MonaImGui
 			if (bShowAlpha) Color.A = DisplayColor.A;
 		}
 		EndPropertyRow(bReadOnly);
+		ImGui::PopID();
 		return bChanged;
 	}
 } // namespace Durin::MonaImGui
