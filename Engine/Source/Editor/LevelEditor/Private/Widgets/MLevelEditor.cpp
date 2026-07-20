@@ -12,11 +12,9 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "IRendererModule.h"
 #include "LevelDocumentController.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorWorkspace.h"
-#include "Misc/Build.h"
 #include "Misc/Project.h"
 #include "Misc/Version.h"
 #include "MonaImGui.h"
@@ -338,6 +336,7 @@ namespace Durin
 		DocumentController->DrawDialogs();
 		StaticMeshImportDialog->Draw();
 		TextureImportDialog->Draw();
+		DrawEditorPreferences();
 		DrawProjectSettings();
 		DrawAboutDialog();
 
@@ -433,26 +432,7 @@ namespace Durin
 		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		if (bPlaying) ImGui::BeginDisabled();
 		if (ImGui::MenuItem("New Level", "Ctrl+N")) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
-		if (ImGui::MenuItem("Set Current Level as Project Default", nullptr, false, Context && Context->Level && Context->Level->GetPackage()))
-		{
-			DefaultLevel = Context->Level->GetPackage()->GetPackagePath();
-			SaveProjectSettings();
-		}
 		if (ImGui::MenuItem("Open Project...")) DocumentController->RequestAction(ELevelDocumentAction::OpenProject);
-		ImGui::Separator();
-		if (ImGui::BeginMenu("Import"))
-		{
-			if (ImGui::MenuItem("Texture...")) TextureImportDialog->Open();
-			if (ImGui::MenuItem("Static Mesh...")) StaticMeshImportDialog->Open();
-			ImGui::EndMenu();
-		}
-		ImGui::Separator();
-		if (Context && Context->Level)
-		{
-			DPackage* Package = Context->Level->GetPackage();
-			const std::string Label = Package ? Package->GetPackagePath() + (Package->IsDirty() ? " *" : "") : "Transient Level";
-			ImGui::TextDisabled("%s", Label.c_str());
-		}
 		if (bPlaying) ImGui::EndDisabled();
 	}
 
@@ -461,78 +441,12 @@ namespace Durin
 		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		if (bPlaying) ImGui::BeginDisabled();
 		if (ImGui::MenuItem("Project Settings...")) bProjectSettingsOpen = true;
+		if (ImGui::MenuItem("Editor Preferences...")) bEditorPreferencesOpen = true;
 		if (bPlaying) ImGui::EndDisabled();
 	}
 
 	auto MLevelEditor::DrawApplicationMenus() -> void
 	{
-		const bool bPlaying = GEditor && GEditor->IsPlaying();
-		if (ImGui::BeginMenu("Play"))
-		{
-			if (!bPlaying)
-			{
-				const bool bCanPlay = Context && Context->Level;
-				if (ImGui::MenuItem("Play From Start", "F5", false, bCanPlay)) StartPlay(EEditorPlayStartLocation::LevelStart, EEditorPlayDestination::EmbeddedViewport);
-				if (ImGui::MenuItem("Play From Camera", nullptr, false, bCanPlay)) StartPlay(EEditorPlayStartLocation::EditorCamera, EEditorPlayDestination::EmbeddedViewport);
-				ImGui::Separator();
-				if (ImGui::MenuItem("Play From Start in New Window", "Ctrl+F5", false, bCanPlay)) StartPlay(EEditorPlayStartLocation::LevelStart, EEditorPlayDestination::NewWindow);
-				if (ImGui::MenuItem("Play From Camera in New Window", nullptr, false, bCanPlay)) StartPlay(EEditorPlayStartLocation::EditorCamera, EEditorPlayDestination::NewWindow);
-				ImGui::Separator();
-				ImGui::MenuItem("Simulate Physics", nullptr, Context ? &Context->bSimulatePhysics : nullptr);
-			}
-			else
-			{
-				if (ImGui::MenuItem("Stop", "F5")) GEditor->StopPlaySession();
-				if (ImGui::MenuItem(GEditor->IsPlaySessionPaused() ? "Resume" : "Pause", "F6")) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
-				if (ImGui::MenuItem("Step", "F7", false, GEditor->IsPlaySessionPaused())) GEditor->StepPlaySession();
-				ImGui::Separator();
-				if (ImGui::MenuItem("Apply Selected Runtime Changes", nullptr, false, Context && !Context->GetSelectedActors().empty())) ApplyPlayChanges(true);
-				if (ImGui::MenuItem("Apply All Runtime Changes")) ApplyPlayChanges(false);
-				ImGui::Separator();
-				bool bPhysicsEnabled = GEditor->GetPlayWorld() && GEditor->GetPlayWorld()->IsPhysicsSimulationEnabled();
-				if (ImGui::MenuItem("Simulate Physics", nullptr, &bPhysicsEnabled) && GEditor->GetPlayWorld()) GEditor->GetPlayWorld()->SetPhysicsSimulationEnabled(bPhysicsEnabled);
-			}
-			ImGui::EndMenu();
-		}
-		if (ImGui::BeginMenu("View"))
-		{
-			if (ImGui::BeginMenu("Display"))
-			{
-				if (ImGui::BeginMenu("Color Theme"))
-				{
-					const MonaImGui::EColorTheme CurrentTheme = MonaImGui::GetColorTheme();
-					if (ImGui::MenuItem("Dark", nullptr, CurrentTheme == MonaImGui::EColorTheme::Dark))
-					{
-						MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Dark);
-						SessionSettings.Save(SceneViewportPanel);
-					}
-					if (ImGui::MenuItem("Light", nullptr, CurrentTheme == MonaImGui::EColorTheme::Light))
-					{
-						MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Light);
-						SessionSettings.Save(SceneViewportPanel);
-					}
-					ImGui::EndMenu();
-				}
-				ImGui::Separator();
-				ImGui::SeparatorText("UI Scale");
-				for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
-				{
-					const std::string Label = std::format("{}%", static_cast<int32>(Scale * 100.0f));
-					if (ImGui::MenuItem(Label.c_str(), nullptr, std::abs(SessionSettings.GetUIScale() - Scale) < 0.01f))
-						ApplyDisplaySettings(SessionSettings.GetWindowWidth(), SessionSettings.GetWindowHeight(), Scale);
-				}
-				ImGui::EndMenu();
-			}
-			if (GEngine)
-			{
-				if (IRendererModule* RendererModule = GEngine->GetRendererModule())
-				{
-					bool bEnableFXAA = RendererModule->IsFXAAEnabled();
-					if (ImGui::MenuItem("FXAA", nullptr, &bEnableFXAA)) RendererModule->SetFXAAEnabled(bEnableFXAA);
-				}
-			}
-			ImGui::EndMenu();
-		}
 		if (ImGui::BeginMenu("Help"))
 		{
 			if (ImGui::MenuItem("About Durin...")) bAboutDialogOpen = true;
@@ -559,8 +473,8 @@ namespace Durin
 	auto MLevelEditor::DrawAboutDialog() -> void
 	{
 		if (!bAboutDialogOpen) return;
-		const float DialogWidth = MonaImGui::ScaleUI(500.0f);
-		const float DialogHeight = MonaImGui::ScaleUI(300.0f);
+		const float DialogWidth = MonaImGui::ScaleUI(420.0f);
+		const float DialogHeight = MonaImGui::ScaleUI(170.0f);
 		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 		ImGui::SetNextWindowSize(ImVec2(DialogWidth, DialogHeight), ImGuiCond_Appearing);
 		const ImGuiWindowFlags AboutFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
@@ -572,29 +486,59 @@ namespace Durin
 		}
 
 		ImGui::Text("Durin Engine");
-		ImGui::TextDisabled("Editor and runtime technology");
 		ImGui::Separator();
-		if (ImGui::BeginTable("AboutEngineInfo", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
-		{
-			ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(100.0f));
-			const auto DrawInfoRow = [](const char* Label, const char* Value) {
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				ImGui::TextDisabled("%s", Label);
-				ImGui::TableSetColumnIndex(1);
-				ImGui::TextWrapped("%s", Value);
-			};
-			DrawInfoRow("Version", GetEngineVersionString().data());
-			DrawInfoRow("Build", DURIN_BUILD_TYPE_STRING);
-			DrawInfoRow("Profile", DURIN_PROFILE_NAME);
-			DrawInfoRow("Platform", DURIN_BUILD_PLATFORM_STRING);
-			ImGui::EndTable();
-		}
-		ImGui::Separator();
-		ImGui::TextWrapped("This build includes the Durin editor and runtime modules.");
+		ImGui::TextDisabled("Version");
+		ImGui::SameLine(MonaImGui::ScaleUI(90.0f));
+		ImGui::Text("%s", GetEngineVersionString().data());
 		ImGui::Spacing();
 		ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - MonaImGui::ScaleUI(82.0f));
 		if (ImGui::Button("Close", ImVec2(MonaImGui::ScaleUI(82.0f), 0.0f))) bAboutDialogOpen = false;
+		ImGui::End();
+	}
+
+	auto MLevelEditor::DrawEditorPreferences() -> void
+	{
+		if (!bEditorPreferencesOpen) return;
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(430.0f), MonaImGui::ScaleUI(230.0f)), ImGuiCond_Appearing);
+		if (ImGui::Begin("Editor Preferences###Durin.LevelEditor.EditorPreferences", &bEditorPreferencesOpen, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+		{
+			ImGui::SeparatorText("Appearance");
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextDisabled("Color theme");
+			ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
+			const MonaImGui::EColorTheme CurrentTheme = MonaImGui::GetColorTheme();
+			const char* ThemeLabel = CurrentTheme == MonaImGui::EColorTheme::Light ? "Light" : "Dark";
+			ImGui::SetNextItemWidth(-1.0f);
+			if (ImGui::BeginCombo("##ColorTheme", ThemeLabel))
+			{
+				for (const auto [Label, Theme] : {std::pair{"Dark", MonaImGui::EColorTheme::Dark}, std::pair{"Light", MonaImGui::EColorTheme::Light}})
+				{
+					if (ImGui::Selectable(Label, CurrentTheme == Theme))
+					{
+						MonaImGui::SetColorTheme(Theme);
+						SessionSettings.Save(SceneViewportPanel);
+					}
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextDisabled("UI scale");
+			ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
+			const float CurrentScale = SessionSettings.GetUIScale();
+			const std::string ScaleLabel = std::format("{}%", static_cast<int32>(CurrentScale * 100.0f));
+			ImGui::SetNextItemWidth(-1.0f);
+			if (ImGui::BeginCombo("##UIScale", ScaleLabel.c_str()))
+			{
+				for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
+				{
+					const std::string Label = std::format("{}%", static_cast<int32>(Scale * 100.0f));
+					if (ImGui::Selectable(Label.c_str(), std::abs(CurrentScale - Scale) < 0.01f))
+						ApplyDisplaySettings(SessionSettings.GetWindowWidth(), SessionSettings.GetWindowHeight(), Scale);
+				}
+				ImGui::EndCombo();
+			}
+		}
 		ImGui::End();
 	}
 

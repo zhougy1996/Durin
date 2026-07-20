@@ -48,6 +48,7 @@ namespace Durin
 
 	private:
 		auto DrawAboutDialog() -> void;
+		auto DrawEditorPreferences() -> void;
 		auto DrawProjectSettings() -> void;
 		auto ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void;
 		auto LoadProjectSettings() -> bool;
@@ -71,6 +72,7 @@ namespace Durin
 		FEditorWorkspaceRootWindow RootWindow;
 		bool bResetLayoutRequested = false;
 		bool bSelectDefaultBottomPanelRequested = true;
+		bool bEditorPreferencesOpen = false;
 		bool bProjectSettingsOpen = false;
 		bool bAboutDialogOpen = false;
 		std::string DefaultLevel;

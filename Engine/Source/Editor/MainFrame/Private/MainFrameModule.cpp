@@ -111,8 +111,6 @@ namespace Durin
 					for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
 					ImGui::EndMenu();
 				}
-				// Registered workspaces contribute stable application-level menus; focus only changes command routing.
-				for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawApplicationMenus();
 				if (ImGui::BeginMenu("Window"))
 				{
 					for (const FEditorWorkspaceDescriptor& Descriptor : WorkspaceManager.GetWorkspaceDescriptors())
@@ -136,6 +134,8 @@ namespace Durin
 					if (ActiveWorkspace) ActiveWorkspace->DrawWindowMenu();
 					ImGui::EndMenu();
 				}
+				// Registered workspaces contribute stable application-level menus; focus only changes command routing.
+				for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawApplicationMenus();
 				ImGui::EndMenuBar();
 			}
 

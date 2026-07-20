@@ -111,10 +111,11 @@ Main UI and windowing layers:
 
 `MainFrame` owns the editor root window. `DGameEngine` owns the standalone runtime window and scene viewport for non-editor startup.
 
-`MainFrame` also owns the stable application menu structure. Registered workspaces may contribute
-global File, Edit, and application menus, but activating a document changes only the target of
-Save, Undo, and Redo. Workspace-local actions belong in that editor's toolbar or panels rather
-than replacing the application menu bar.
+`MainFrame` also owns the stable application menu structure. The shell keeps File, Edit, Window,
+and Help as the compact top-level surface; registered workspaces may contribute commands without
+changing that structure. Activating a document changes only the target of Save, Undo, and Redo.
+Workspace-local actions belong in that editor's toolbar or panels rather than replacing the
+application menu bar.
 
 ## Validation Expectations
 

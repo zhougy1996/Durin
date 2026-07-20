@@ -660,6 +660,11 @@ namespace Durin
 				const bool bShowGrid = ViewportClient->IsGridVisible();
 				if (ImGui::MenuItem("World Grid", nullptr, bShowGrid)) ViewportClient->SetGridVisible(!bShowGrid);
 			}
+			if (Layout.RendererModule != nullptr)
+			{
+				bool bEnableFXAA = Layout.RendererModule->IsFXAAEnabled();
+				if (ImGui::MenuItem("FXAA", nullptr, &bEnableFXAA)) Layout.RendererModule->SetFXAAEnabled(bEnableFXAA);
+			}
 			ImGui::EndPopup();
 		}
 
