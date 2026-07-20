@@ -56,6 +56,8 @@ namespace Durin
 
 		ENGINE_API virtual auto OnComponentPendingKill() -> void;
 
+		ENGINE_API virtual auto OnOwnerVisibilityChanged() -> void;
+
 	private:
 		// Call OnRegister()
 		auto ExecuteRegisterEvents() -> void;

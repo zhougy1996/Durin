@@ -1,6 +1,7 @@
 #include "Components/PrimitiveComponent.h"
 
 #include "Engine/Engine.h"
+#include "Engine/Actor.h"
 #include "IScene.h"
 
 namespace Durin
@@ -29,6 +30,11 @@ namespace Durin
 		Super::OnUnregister();
 	}
 
+	auto DPrimitiveComponent::OnOwnerVisibilityChanged() -> void
+	{
+		MarkRenderStateDirty();
+	}
+
 	auto DPrimitiveComponent::CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy>
 	{
 		return nullptr;
@@ -46,6 +52,13 @@ namespace Durin
 		if (Scene == nullptr) return;
 
 		const FPrimitiveSceneId SceneId = EnsurePrimitiveSceneId();
+		// Hidden actors keep their component registration and scene identity so showing
+		// them again only needs to recreate the render proxy.
+		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden())
+		{
+			Scene->RemovePrimitive(SceneId);
+			return;
+		}
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy))
 		{
 			std::unique_ptr<PrimitiveSceneProxy> Proxy = CreateSceneProxy();

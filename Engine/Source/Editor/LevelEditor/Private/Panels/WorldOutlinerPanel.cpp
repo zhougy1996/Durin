@@ -46,6 +46,48 @@ namespace Durin
 			TObjectPtr<ACameraActor> After;
 		};
 
+		class FActorVisibilityTransaction final : public IEditorTransaction
+		{
+		public:
+			struct FEntry
+			{
+				TObjectPtr<AActor> Actor;
+				bool bBefore = false;
+				bool bAfter = false;
+			};
+
+			FActorVisibilityTransaction(std::vector<FEntry> InEntries, bool bInShow)
+				: Entries(std::move(InEntries)), bShow(bInShow) {}
+			auto GetDescription() const -> std::string_view override { return bShow ? "Show actors" : "Hide actors"; }
+			auto GetDetails(EEditorTransactionOperation Operation) const -> std::string override
+			{
+				const bool bApplyingAfter = Operation != EEditorTransactionOperation::Undo;
+				const size_t HiddenCount = std::ranges::count_if(Entries, [bApplyingAfter](const FEntry& Entry) { return bApplyingAfter ? Entry.bAfter : Entry.bBefore; });
+				return std::format("Set visibility for {} actor(s); {} hidden", Entries.size(), HiddenCount);
+			}
+			auto Undo() -> bool override { return Apply(false); }
+			auto Redo() -> bool override { return Apply(true); }
+
+		private:
+			auto Apply(bool bAfter) -> bool
+			{
+				bool bSuccess = true;
+				for (const FEntry& Entry : Entries)
+				{
+					if (!Entry.Actor)
+					{
+						bSuccess = false;
+						continue;
+					}
+					Entry.Actor->SetHidden(bAfter ? Entry.bAfter : Entry.bBefore);
+				}
+				return bSuccess;
+			}
+
+			std::vector<FEntry> Entries;
+			bool bShow = false;
+		};
+
 		auto ActorMatchesFilter(const AActor* Actor, std::string_view Filter) -> bool
 		{
 			return Actor && (ContainsInsensitive(Actor->GetName(), Filter) || ContainsInsensitive(ClassDisplayName(Actor->GetClass()), Filter));
@@ -179,6 +221,23 @@ namespace Durin
 
 		std::vector<AActor*> VisibleActors;
 		bool bRequestDelete = false;
+		auto SetActorVisibility = [&](const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) {
+			std::vector<FActorVisibilityTransaction::FEntry> Entries;
+			for (const TObjectPtr<AActor>& Actor : TargetActors)
+			{
+				if (Actor && Actor->IsHidden() != bHidden) Entries.push_back({Actor, Actor->IsHidden(), bHidden});
+			}
+			if (Entries.empty()) return;
+			auto Transaction = std::make_unique<FActorVisibilityTransaction>(std::move(Entries), !bHidden);
+			if (GEditor) GEditor->GetTransactionManager().Execute(std::move(Transaction));
+			else Transaction->Redo();
+		};
+		auto ShowAllActors = [&]() {
+			std::vector<TObjectPtr<AActor>> AllActors;
+			AllActors.reserve(Actors.size());
+			for (AActor* Actor : Actors) AllActors.emplace_back(Actor);
+			SetActorVisibility(AllActors, false);
+		};
 		auto BeginActorRename = [&](AActor* Actor) {
 			if (!Actor) return;
 			RenamingActor = Actor;
@@ -201,8 +260,11 @@ namespace Durin
 			}
 			ImGui::PushID(Actor);
 			const bool bPrimaryCamera = Context.Level->GetPrimaryCameraActor() == Actor;
-			const std::string Label = bPrimaryCamera ? std::format("{}  {}  [Primary]", ActorIcon(Actor), Actor->GetName()) : std::format("{}  {}", ActorIcon(Actor), Actor->GetName());
+			const std::string VisibilityIcon = Actor->IsHidden() ? std::format("{}  ", Icons::EyeSlash) : std::string();
+			const std::string Label = bPrimaryCamera ? std::format("{}{}  {}  [Primary]", VisibilityIcon, ActorIcon(Actor), Actor->GetName()) : std::format("{}{}  {}", VisibilityIcon, ActorIcon(Actor), Actor->GetName());
+			if (Actor->IsHidden()) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
 			const bool bOpen = MonaImGui::CompactTreeNode("ActorNode", Flags, "%s", Label.c_str());
+			if (Actor->IsHidden()) ImGui::PopStyleColor();
 			if (Filter.empty()) ExpandedActors[Actor] = bOpen;
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Actor->GetClass()->GetName().c_str());
 
@@ -223,15 +285,18 @@ namespace Durin
 				bLevelSelected = false;
 				if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
 				if (ImGui::MenuItem("Focus", "F") && Context.FocusActor) Context.FocusActor(Actor);
-				ImGui::Separator();
 				if (Context.bReadOnly)
 				{
+					ImGui::Separator();
 					ImGui::TextDisabled("Runtime actor");
 				}
-				else if (ImGui::MenuItem("Rename", "F2"))
-					BeginActorRename(Actor);
-				if (!Context.bReadOnly)
+				else
 				{
+					ImGui::Separator();
+					const bool bAllSelectedHidden = std::ranges::all_of(Context.GetSelectedActors(), [](const TObjectPtr<AActor>& Selected) { return Selected && Selected->IsHidden(); });
+					if (ImGui::MenuItem(bAllSelectedHidden ? "Show Selected" : "Hide Selected", "H")) SetActorVisibility(Context.GetSelectedActors(), !bAllSelectedHidden);
+					if (ImGui::MenuItem("Show All Actors", "Ctrl+H")) ShowAllActors();
+					ImGui::Separator();
 					if (auto* Camera = Cast<ACameraActor>(Actor))
 					{
 						if (bPrimaryCamera)
@@ -247,8 +312,9 @@ namespace Durin
 							else Context.Level->SetPrimaryCameraActor(Camera);
 						}
 					}
+					if (ImGui::MenuItem("Rename", "F2")) BeginActorRename(Actor);
+					if (ImGui::MenuItem("Delete", "Del")) bRequestDelete = true;
 				}
-				if (!Context.bReadOnly && ImGui::MenuItem("Delete", "Del")) bRequestDelete = true;
 				ImGui::EndPopup();
 			}
 
@@ -318,10 +384,7 @@ namespace Durin
 			bLevelSelected = true;
 			if (Context.bReadOnly) ImGui::BeginDisabled();
 			if (ImGui::IsWindowAppearing()) ActorTypeSearchText.fill(0);
-			if (ImGui::MenuItem("Rename", "F2"))
-				BeginLevelRename();
-			ImGui::Separator();
-			if (ImGui::BeginMenu("Add Actor"))
+			if (ImGui::BeginMenu("Add Actors"))
 			{
 				ImGui::SetNextItemWidth(std::min(MonaImGui::ScaleUI(240.0f), ImGui::GetContentRegionAvail().x));
 				ImGui::InputTextWithHint("###ActorTypeSearch", "Search actor types...", ActorTypeSearchText.data(), ActorTypeSearchText.size());
@@ -344,6 +407,9 @@ namespace Durin
 				}
 				ImGui::EndMenu();
 			}
+			if (ImGui::MenuItem("Show All Actors", "Ctrl+H")) ShowAllActors();
+			ImGui::Separator();
+			if (ImGui::MenuItem("Rename", "F2")) BeginLevelRename();
 			if (Context.bReadOnly) ImGui::EndDisabled();
 			ImGui::EndPopup();
 		}
@@ -392,6 +458,16 @@ namespace Durin
 				BeginActorRename(Actor);
 			else if (bLevelSelected)
 				BeginLevelRename();
+		}
+		if (!Context.bReadOnly && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_H, false))
+		{
+			if (IO.KeyCtrl)
+				ShowAllActors();
+			else if (!Context.GetSelectedActors().empty())
+			{
+				const bool bAllSelectedHidden = std::ranges::all_of(Context.GetSelectedActors(), [](const TObjectPtr<AActor>& Actor) { return Actor && Actor->IsHidden(); });
+				SetActorVisibility(Context.GetSelectedActors(), !bAllSelectedHidden);
+			}
 		}
 
 		const bool bRenameActor = RenamingActor.IsValid();

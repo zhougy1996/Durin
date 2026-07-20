@@ -194,7 +194,7 @@ namespace Durin
 		size_t Count = 0;
 		for (const TObjectPtr<AActor>& ActorPtr : Context.GetSelectedActors())
 		{
-			if (const AActor* Actor = ActorPtr.Get(); Actor && Actor->GetRootComponent())
+			if (const AActor* Actor = ActorPtr.Get(); Actor && !Actor->IsHidden() && Actor->GetRootComponent())
 			{
 				Sum += Actor->GetRootComponent()->GetWorldLocation();
 				++Count;
@@ -208,7 +208,7 @@ namespace Durin
 		Pivot = Sum / static_cast<double>(Count);
 		Basis = glm::identity<FQuat>();
 		const ETransformGizmoSpace EffectiveSpace = GetEffectiveSpace();
-		if (const AActor* Primary = Context.GetPrimarySelectedActor(); Primary && Primary->GetRootComponent())
+		if (const AActor* Primary = Context.GetPrimarySelectedActor(); Primary && !Primary->IsHidden() && Primary->GetRootComponent())
 		{
 			if (EffectiveSpace == ETransformGizmoSpace::Local)
 				Basis = Primary->GetRootComponent()->GetWorldRotation();
@@ -306,7 +306,7 @@ namespace Durin
 		for (const TObjectPtr<AActor>& ActorPtr : Context.GetSelectedActors())
 		{
 			AActor* Actor = ActorPtr.Get();
-			if (!Actor || !Actor->GetRootComponent()) continue;
+			if (!Actor || Actor->IsHidden() || !Actor->GetRootComponent()) continue;
 			bool bSelectedAncestor = false;
 			for (AActor* Parent = Actor->GetAttachParentActor(); Parent; Parent = Parent->GetAttachParentActor())
 			{

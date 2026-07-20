@@ -318,6 +318,20 @@ TEST(FWorldTests, RenamesActorsWithUniqueNames)
 	Durin::CollectGarbage();
 }
 
+TEST(FWorldTests, TracksActorVisibility)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::AActor* Actor = World->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Actor, nullptr);
+	EXPECT_FALSE(Actor->IsHidden());
+	Actor->SetHidden(true);
+	EXPECT_TRUE(Actor->IsHidden());
+	Actor->SetHidden(false);
+	EXPECT_FALSE(Actor->IsHidden());
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
 TEST(FWorldTests, RenamesComponentsWithUniqueNames)
 {
 	Durin::DWorld* World = CreateWorld();

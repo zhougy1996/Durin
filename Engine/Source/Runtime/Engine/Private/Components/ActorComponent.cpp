@@ -95,6 +95,10 @@ namespace Durin
 		}
 	}
 
+	auto DActorComponent::OnOwnerVisibilityChanged() -> void
+	{
+	}
+
 	auto DActorComponent::BeginPlay() -> void
 	{
 		check(bRegistered);

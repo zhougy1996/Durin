@@ -128,6 +128,17 @@ namespace Durin
 		return true;
 	}
 
+	auto AActor::SetHidden(bool bInHidden) -> void
+	{
+		if (bHidden == bInHidden) return;
+		bHidden = bInHidden;
+		for (const TObjectPtr<DActorComponent>& Component : OwnedComponents)
+		{
+			if (Component) Component->OnOwnerVisibilityChanged();
+		}
+		MarkPackageDirty();
+	}
+
 	auto AActor::AttachToActor(AActor* ParentActor, EAttachmentTransformRule Rule) -> bool
 	{
 		if (!ParentActor || ParentActor == this || !RootComponent || !ParentActor->GetRootComponent())

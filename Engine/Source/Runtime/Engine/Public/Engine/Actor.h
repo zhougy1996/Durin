@@ -34,6 +34,8 @@ namespace Durin
 
 		ENGINE_API auto GetActorTransform() const -> FTransform;
 		ENGINE_API auto SetActorTransform(const FTransform& InTransform) -> bool;
+		auto IsHidden() const -> bool { return bHidden; }
+		ENGINE_API auto SetHidden(bool bInHidden) -> void;
 
 		ENGINE_API auto AttachToActor(AActor* ParentActor, EAttachmentTransformRule Rule = EAttachmentTransformRule::KeepWorld) -> bool;
 		ENGINE_API auto DetachFromActor(EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
@@ -128,6 +130,9 @@ namespace Durin
 
 		DPROPERTY()
 		std::vector<TObjectPtr<DActorComponent>> InstanceComponents;
+
+		DPROPERTY()
+		bool bHidden = false;
 
 		uint8 bHasBegunPlay : 1 = false;
 		uint8 bTickEnabled : 1 = false;

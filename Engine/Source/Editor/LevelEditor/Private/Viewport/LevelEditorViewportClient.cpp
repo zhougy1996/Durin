@@ -115,7 +115,7 @@ namespace Durin
 		for (const TObjectPtr<AActor>& ActorPtr : Level->GetActors())
 		{
 			AActor* Actor = ActorPtr.Get();
-			if (!Actor) continue;
+			if (!Actor || Actor->IsHidden()) continue;
 			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
 			{
 				DActorComponent* Component = ComponentPtr.Get();
@@ -154,7 +154,7 @@ namespace Durin
 		for (const TObjectPtr<AActor>& ActorPtr : SelectedActors)
 		{
 			const AActor* Actor = ActorPtr.Get();
-			if (Actor == nullptr) continue;
+			if (Actor == nullptr || Actor->IsHidden()) continue;
 			const bool bPrimary = Actor == PrimarySelectedActor.Get();
 			const ImVec4& ThemeColor = MonaImGui::GetThemeColor(bPrimary ? MonaImGui::EUIThemeColor::SelectionPrimary : MonaImGui::EUIThemeColor::SelectionSecondary);
 			const FVector4f Color{ThemeColor.x, ThemeColor.y, ThemeColor.z, ThemeColor.w};
@@ -247,7 +247,7 @@ namespace Durin
 		for (const TObjectPtr<AActor>& ActorPtr : Level->GetActors())
 		{
 			AActor* Actor = ActorPtr.Get();
-			if (Actor == nullptr) continue;
+			if (Actor == nullptr || Actor->IsHidden()) continue;
 			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
 			{
 				auto* Component = Cast<DStaticMeshComponent>(ComponentPtr.Get());
