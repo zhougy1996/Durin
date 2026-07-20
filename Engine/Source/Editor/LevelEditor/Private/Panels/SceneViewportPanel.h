@@ -14,6 +14,7 @@ namespace Durin
 	class FSceneViewport;
 	class FCameraPreviewViewportClient;
 	class FLevelEditorViewportClient;
+	class AActor;
 	class DLevel;
 	struct FLevelViewportCameraState;
 	struct FViewportToolbarLayout;
@@ -36,6 +37,7 @@ namespace Durin
 		auto GetTransformGizmo() const -> const FTransformGizmo*;
 		auto IsGridVisible() const -> bool;
 		auto SetGridVisible(bool bVisible) -> void;
+		auto FocusActor(const AActor* Actor) -> void;
 
 	private:
 		auto CalculateToolbarLayout(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout;

@@ -69,6 +69,9 @@ namespace Durin
 
 		auto SceneViewport = std::make_unique<FSceneViewportPanel>();
 		SceneViewportPanel = SceneViewport.get();
+		Context->FocusActor = [this](AActor* Actor) {
+			if (SceneViewportPanel) SceneViewportPanel->FocusActor(Actor);
+		};
 		SessionSettings.ApplyTo(*SceneViewportPanel);
 		Panels.emplace_back(std::move(SceneViewport));
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());

@@ -365,6 +365,26 @@ TEST(FLevelEditorViewportClientTests, BuildsCenterPickingRayAndRejectsInvalidVie
 	ExpectVectorNear(Direction, Client.GetCameraTransform().GetForwardVector(), 1.e-6);
 }
 
+TEST(FLevelEditorViewportClientTests, FocusesTheSelectedActorFromViewportInput)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "FocusWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "FocusLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("FocusTarget");
+	ASSERT_NE(Actor, nullptr);
+	Actor->GetRootComponent()->SetWorldLocation({12.0, -4.0, 7.0});
+
+	Durin::FLevelEditorViewportClient Client;
+	Durin::FLevelEditorViewportInput Input;
+	Input.bFocused = true;
+	Input.bFocusSelection = true;
+	Client.Update(Level, Actor, Input);
+
+	ExpectVectorNear(Client.GetCameraTransform().GetOrbitPivot(), Actor->GetRootComponent()->GetWorldLocation());
+	EXPECT_DOUBLE_EQ(Client.GetCameraTransform().GetOrbitDistance(), 5.0);
+}
+
 TEST(FSceneViewProjectionTests, ProjectsAndBuildsRayFromSceneView)
 {
 	Durin::FSceneView View;

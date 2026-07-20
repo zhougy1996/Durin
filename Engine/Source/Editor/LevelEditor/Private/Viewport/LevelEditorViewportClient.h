@@ -58,6 +58,7 @@ namespace Durin
 		auto UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void;
 		auto ProjectWorldToViewport(const FVector3& WorldPosition, const FVector2f& ViewportSize, FVector2f& OutPosition) const -> bool;
 		auto SetSelectedActors(const std::vector<TObjectPtr<AActor>>& Actors, AActor* PrimaryActor) -> void;
+		auto FocusActor(const AActor* Actor) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo& { return TransformGizmo; }
 		auto GetTransformGizmo() const -> const FTransformGizmo& { return TransformGizmo; }
 		auto IsGridVisible() const -> bool { return bShowGrid; }

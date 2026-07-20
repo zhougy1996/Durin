@@ -452,6 +452,11 @@ namespace Durin
 		if (ViewportClient != nullptr) ViewportClient->SetGridVisible(bVisible);
 	}
 
+	auto FSceneViewportPanel::FocusActor(const AActor* Actor) -> void
+	{
+		if (ViewportClient != nullptr) ViewportClient->FocusActor(Actor);
+	}
+
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();

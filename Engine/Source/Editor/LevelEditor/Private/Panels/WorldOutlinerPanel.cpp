@@ -222,6 +222,8 @@ namespace Durin
 			{
 				bLevelSelected = false;
 				if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
+				if (ImGui::MenuItem("Focus", "F") && Context.FocusActor) Context.FocusActor(Actor);
+				ImGui::Separator();
 				if (Context.bReadOnly)
 				{
 					ImGui::TextDisabled("Runtime actor");

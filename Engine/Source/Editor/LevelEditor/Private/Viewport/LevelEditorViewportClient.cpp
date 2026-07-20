@@ -140,6 +140,15 @@ namespace Durin
 		PrimarySelectedActor = PrimaryActor;
 	}
 
+	auto FLevelEditorViewportClient::FocusActor(const AActor* Actor) -> void
+	{
+		if (Actor == nullptr) return;
+		if (const DSceneComponent* RootComponent = Actor->GetRootComponent())
+		{
+			CameraTransform.Focus(RootComponent->GetWorldLocation(), kFocusDistance);
+		}
+	}
+
 	auto FLevelEditorViewportClient::AppendSelectionBounds(FSceneView& View) const -> void
 	{
 		for (const TObjectPtr<AActor>& ActorPtr : SelectedActors)
@@ -214,13 +223,7 @@ namespace Durin
 			CameraTransform.Dolly(Input.MouseWheel * static_cast<float>(std::max(0.25, CameraTransform.GetOrbitDistance() * 0.15)));
 		}
 
-		if (Input.bHovered && !Input.bWantTextInput && Input.bFocusSelection && SelectedActor != nullptr)
-		{
-			if (const DSceneComponent* RootComponent = SelectedActor->GetRootComponent())
-			{
-				CameraTransform.Focus(RootComponent->GetWorldLocation(), kFocusDistance);
-			}
-		}
+		if (!Input.bWantTextInput && Input.bFocusSelection) FocusActor(SelectedActor);
 	}
 
 	auto FLevelEditorViewportClient::BuildPickingRay(const FVector2f& ViewportPosition, const FVector2f& ViewportSize, FVector3& OutOrigin, FVector3& OutDirection) const -> bool

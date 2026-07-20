@@ -18,6 +18,7 @@ namespace Durin
 		bool bSimulatePhysics = true;
 		std::function<void(std::string)> ReportError;
 		std::function<bool(std::string_view)> RenameLevel;
+		std::function<void(AActor*)> FocusActor;
 		std::function<void(EEditorPlayStartLocation, EEditorPlayDestination)> StartPlay;
 		std::function<void(bool)> ApplyPlayChanges;
 
