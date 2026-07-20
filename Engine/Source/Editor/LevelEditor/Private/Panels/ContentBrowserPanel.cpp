@@ -324,6 +324,14 @@ namespace Durin
 		ImGui::SameLine();
 		if (ImGui::BeginChild("ContentBrowserItems", ImVec2(0.0f, ContentHeight), ImGuiChildFlags_Borders)) DrawContentArea();
 		ImGui::EndChild();
+		// Context-menu actions can rebuild Items, so execute them only after both browser panes
+		// have finished traversing their current frame snapshots.
+		if (DeferredContentAction)
+		{
+			auto Action = std::move(DeferredContentAction);
+			DeferredContentAction = {};
+			Action();
+		}
 		DrawStatusBar();
 		DrawDialogs();
 
@@ -354,6 +362,14 @@ namespace Durin
 		ImGui::SameLine();
 		if (DrawToolbarIconButton(Icons::Refresh, "ContentBrowserRefresh")) Refresh(true);
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rescan mounted content");
+		ImGui::SameLine();
+		if (ImGui::Button("Create")) ImGui::OpenPopup("ContentBrowserCreatePopup");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Create or import content in the current folder");
+		if (ImGui::BeginPopup("ContentBrowserCreatePopup"))
+		{
+			DrawCreateMenu(CurrentPhysicalPath, CurrentVirtualPath);
+			ImGui::EndPopup();
+		}
 
 		auto DrawBreadcrumb = [&](float Width) {
 			if (!ImGui::BeginChild("ContentBrowserBreadcrumb", ImVec2(Width, ImGui::GetFrameHeight()), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar))
@@ -483,6 +499,14 @@ namespace Durin
 			if (Label.ends_with('/')) Label.pop_back();
 			DrawDirectoryNode(std::filesystem::path(Mount.PhysicalPath), Label, true);
 		}
+		if (ImGui::BeginPopupContextWindow("ContentBrowserTreeBackground", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
+		{
+			const bool bCurrentIsMountRoot = std::ranges::any_of(PathUtilities::GetRegisteredMountPoints(), [&](const PathUtilities::FMountPoint& Mount) {
+				return NormalizePath(Mount.PhysicalPath) == CurrentPhysicalPath;
+			});
+			DrawDirectoryContextMenu(CurrentPhysicalPath, bCurrentIsMountRoot);
+			ImGui::EndPopup();
+		}
 	}
 
 	auto FContentBrowserPanel::DrawDirectoryNode(const std::filesystem::path& Path, std::string_view Label, bool bMountRoot) -> void
@@ -511,7 +535,7 @@ namespace Durin
 		AcceptAssetDrop(PhysicalToVirtualDirectory(Physical));
 		if (ImGui::BeginPopupContextItem())
 		{
-			if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(Physical);
+			DrawDirectoryContextMenu(Physical, bMountRoot);
 			ImGui::EndPopup();
 		}
 		if (bOpen)
@@ -564,6 +588,8 @@ namespace Durin
 		}
 		if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput)
 		{
+			if (ImGui::GetIO().KeyCtrl && ImGui::GetIO().KeyShift && ImGui::IsKeyPressed(ImGuiKey_N)) CreateFolder(CurrentPhysicalPath);
+			if (ImGui::IsKeyPressed(ImGuiKey_F5)) Refresh(true);
 			if (ImGui::IsKeyPressed(ImGuiKey_Enter) && Selection.size() == 1)
 				if (auto It = std::ranges::find_if(Items, [&](const FContentBrowserItem& Item) { return Selection.contains(Item.StableId()); }); It != Items.end()) OpenItem(*It);
 			if (ImGui::IsKeyPressed(ImGuiKey_F2) && Selection.size() == 1)
@@ -892,12 +918,69 @@ namespace Durin
 	auto FContentBrowserPanel::DrawItemContextMenu(const FContentBrowserItem& Item) -> void
 	{
 		if (ImGui::MenuItem(Item.Kind == EContentBrowserItemKind::Folder ? "Open Folder" : "Open")) OpenItem(Item);
+		if (Item.Kind == EContentBrowserItemKind::Folder)
+		{
+			if (ImGui::BeginMenu("Create"))
+			{
+				DrawCreateMenu(Item.PhysicalPath, Item.VirtualPath);
+				ImGui::EndMenu();
+			}
+			ImGui::Separator();
+		}
 		if (ImGui::MenuItem("Rename", "F2", false, Selection.size() == 1)) BeginRename(Item);
 		if (ImGui::MenuItem("Delete", "Delete")) RequestDeleteSelection();
 		ImGui::Separator();
+		if (ImGui::MenuItem("Copy Name")) CopyToClipboard(Item.Name);
 		if (!Item.VirtualPath.empty() && ImGui::MenuItem("Copy Virtual Path")) CopyToClipboard(Item.VirtualPath);
 		if (ImGui::MenuItem("Copy Physical Path")) CopyToClipboard(Item.PhysicalPath);
 		if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(Item.PhysicalPath);
+	}
+
+	auto FContentBrowserPanel::DrawCreateMenu(std::string_view PhysicalDirectory, std::string_view VirtualDirectory) -> void
+	{
+		if (ImGui::MenuItem("New Folder", "Ctrl+Shift+N"))
+			DeferredContentAction = [this, Directory = std::string(PhysicalDirectory)] { CreateFolder(Directory); };
+		ImGui::SeparatorText("Assets");
+		if (ImGui::MenuItem("Material"))
+			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { CreateMaterialAsset(Directory, false); };
+		if (ImGui::MenuItem("Material Instance"))
+			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { CreateMaterialAsset(Directory, true); };
+		ImGui::SeparatorText("Import");
+		ImGui::BeginDisabled(!RequestImport);
+		if (ImGui::MenuItem("Texture..."))
+			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::Texture); };
+		if (ImGui::MenuItem("Static Mesh..."))
+			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::StaticMesh); };
+		ImGui::EndDisabled();
+	}
+
+	auto FContentBrowserPanel::DrawDirectoryContextMenu(std::string_view PhysicalDirectory, bool bMountRoot) -> void
+	{
+		const std::string VirtualDirectory = PhysicalToVirtualDirectory(PhysicalDirectory);
+		const bool bIsCurrent = NormalizePath(PhysicalDirectory) == CurrentPhysicalPath;
+		if (ImGui::MenuItem("Open Folder", nullptr, false, !bIsCurrent)) NavigateToPhysical(PhysicalDirectory);
+		if (ImGui::BeginMenu("Create", !VirtualDirectory.empty()))
+		{
+			DrawCreateMenu(PhysicalDirectory, VirtualDirectory);
+			ImGui::EndMenu();
+		}
+		ImGui::Separator();
+		ImGui::BeginDisabled(bMountRoot);
+		if (ImGui::MenuItem("Rename", "F2"))
+			if (const FContentBrowserItem* Item = FocusFolderInParent(PhysicalDirectory)) BeginRename(*Item);
+		if (ImGui::MenuItem("Delete", "Delete"))
+			if (FocusFolderInParent(PhysicalDirectory)) RequestDeleteSelection();
+		ImGui::EndDisabled();
+		ImGui::Separator();
+		if (!VirtualDirectory.empty() && ImGui::MenuItem("Copy Virtual Path")) CopyToClipboard(VirtualDirectory);
+		if (ImGui::MenuItem("Copy Physical Path")) CopyToClipboard(PhysicalDirectory);
+		if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(PhysicalDirectory);
+		if (ImGui::MenuItem("Refresh", "F5")) Refresh(true);
+		if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles))
+		{
+			bShowSourceFiles = !bShowSourceFiles;
+			RebuildItems();
+		}
 	}
 
 	auto FContentBrowserPanel::BeginAssetDragDrop(const FContentBrowserItem& Item) -> void
@@ -941,21 +1024,13 @@ namespace Durin
 	{
 		if (ImGui::BeginPopupContextWindow("ContentBrowserBackground", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 		{
-			if (ImGui::MenuItem("New Folder")) CreateFolder();
 			if (ImGui::BeginMenu("Create"))
 			{
-				if (ImGui::MenuItem("Material")) CreateMaterialAsset(false);
-				if (ImGui::MenuItem("Material Instance")) CreateMaterialAsset(true);
-				ImGui::EndMenu();
-			}
-			if (ImGui::BeginMenu("Import", static_cast<bool>(RequestImport)))
-			{
-				if (ImGui::MenuItem("Texture...")) RequestImport(CurrentVirtualPath, EContentBrowserImportType::Texture);
-				if (ImGui::MenuItem("Static Mesh...")) RequestImport(CurrentVirtualPath, EContentBrowserImportType::StaticMesh);
+				DrawCreateMenu(CurrentPhysicalPath, CurrentVirtualPath);
 				ImGui::EndMenu();
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("Refresh")) Refresh(true);
+			if (ImGui::MenuItem("Refresh", "F5")) Refresh(true);
 			if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles))
 			{
 				bShowSourceFiles = !bShowSourceFiles;
@@ -1218,12 +1293,18 @@ namespace Durin
 		return false;
 	}
 
-	auto FContentBrowserPanel::CreateFolder() -> void
+	auto FContentBrowserPanel::CreateFolder(std::string_view PhysicalDirectory) -> void
 	{
+		const std::string NormalizedDirectory = NormalizePath(PhysicalDirectory);
+		if (PhysicalToVirtualDirectory(NormalizedDirectory).empty())
+		{
+			SetError("Folders can only be created inside a mounted content directory.");
+			return;
+		}
 		for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
 		{
 			const std::string Name = Suffix == 0 ? "New Folder" : std::format("New Folder ({})", Suffix + 1);
-			const std::filesystem::path Path = std::filesystem::path(CurrentPhysicalPath) / Name;
+			const std::filesystem::path Path = std::filesystem::path(NormalizedDirectory) / Name;
 			if (std::filesystem::exists(Path)) continue;
 			std::error_code Ec;
 			if (!std::filesystem::create_directory(Path, Ec) || Ec)
@@ -1231,7 +1312,10 @@ namespace Durin
 				SetError(std::format("Could not create folder: {}", Ec.message()));
 				return;
 			}
-			Refresh(false);
+			if (CurrentPhysicalPath != NormalizedDirectory)
+				NavigateToPhysical(NormalizedDirectory);
+			else
+				Refresh(false);
 			if (auto It = std::ranges::find_if(Items, [&](const FContentBrowserItem& Item) { return Item.PhysicalPath == NormalizePath(Path.generic_string()); }); It != Items.end())
 			{
 				Selection.clear();
@@ -1240,11 +1324,12 @@ namespace Durin
 			}
 			return;
 		}
+		SetError("Could not find a unique folder name in this directory.");
 	}
 
-	auto FContentBrowserPanel::CreateMaterialAsset(bool bInstance) -> void
+	auto FContentBrowserPanel::CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void
 	{
-		std::string Directory = CurrentVirtualPath;
+		std::string Directory(VirtualDirectory);
 		if (!Directory.ends_with('/')) Directory += '/';
 		const std::string BaseName = bInstance ? "NewMaterialInstance" : "NewMaterial";
 		FAssetPath AssetPath;
@@ -1295,6 +1380,29 @@ namespace Durin
 		RevealAsset(AssetPath.ToString());
 		if (OpenAsset && !OpenAsset(AssetPath.ToString(), CreatedMaterial->GetClass()->GetQualifiedName().ToString()))
 			SetError("The material was created, but its editor could not be opened.");
+	}
+
+	auto FContentBrowserPanel::FocusFolderInParent(std::string_view PhysicalDirectory) -> const FContentBrowserItem*
+	{
+		const std::string NormalizedDirectory = NormalizePath(PhysicalDirectory);
+		const std::filesystem::path Parent = std::filesystem::path(NormalizedDirectory).parent_path();
+		if (!NavigateToPhysical(Parent.generic_string()))
+		{
+			SetError("The folder's parent is outside the mounted content roots.");
+			return nullptr;
+		}
+		auto It = std::ranges::find_if(Items, [&](const FContentBrowserItem& Item) {
+			return Item.Kind == EContentBrowserItemKind::Folder && Item.PhysicalPath == NormalizedDirectory;
+		});
+		if (It == Items.end())
+		{
+			SetError("The folder could not be found after refreshing its parent directory.");
+			return nullptr;
+		}
+		Selection.clear();
+		Selection.insert(It->StableId());
+		SelectionAnchor = It->StableId();
+		return &*It;
 	}
 
 	auto FContentBrowserPanel::RequestDeleteSelection() -> void

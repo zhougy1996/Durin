@@ -88,6 +88,8 @@ namespace Durin
 		auto DrawGrid() -> void;
 		auto DrawDetails() -> void;
 		auto DrawItemContextMenu(const FContentBrowserItem& Item) -> void;
+		auto DrawCreateMenu(std::string_view PhysicalDirectory, std::string_view VirtualDirectory) -> void;
+		auto DrawDirectoryContextMenu(std::string_view PhysicalDirectory, bool bMountRoot) -> void;
 		auto DrawBackgroundContextMenu() -> void;
 		auto DrawStatusBar() -> void;
 		auto DrawSelectionDetails() -> void;
@@ -102,8 +104,9 @@ namespace Durin
 		auto CommitRename(const FContentBrowserItem& Item) -> bool;
 		auto RenameFolder(const FContentBrowserItem& Item, std::string_view NewName) -> bool;
 		auto IsManagedCompanion(const FContentBrowserItem& Item) const -> bool;
-		auto CreateFolder() -> void;
-		auto CreateMaterialAsset(bool bInstance) -> void;
+		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
+		auto CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void;
+		auto FocusFolderInParent(std::string_view PhysicalDirectory) -> const FContentBrowserItem*;
 		auto RequestDeleteSelection() -> void;
 		auto DeleteSelection() -> void;
 		auto DeleteEmptyFolder(const FContentBrowserItem& Item) -> bool;
@@ -146,6 +149,7 @@ namespace Durin
 		bool bFocusRename = false;
 		bool bRenameEditorHovered = false;
 		bool bDeletePopupRequested = false;
+		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
 		std::unique_ptr<FSourceImageThumbnailCache> ThumbnailCache;
 	};
