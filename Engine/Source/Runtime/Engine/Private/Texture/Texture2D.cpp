@@ -175,7 +175,7 @@ namespace Durin
 		}
 
 		auto NewPlatformData = std::make_unique<FTexturePlatformData>();
-		NewPlatformData->PixelFormat = EPixelFormat::RGBA8_UNORM;
+		NewPlatformData->PixelFormat = bSRGB ? EPixelFormat::SRGBA8_UNORM : EPixelFormat::RGBA8_UNORM;
 		FTexture2DMipData& BaseMip = NewPlatformData->Mips.emplace_back();
 		BaseMip.Pixels = SourceData->Pixels;
 		BaseMip.Width = SourceData->Width;
@@ -191,6 +191,24 @@ namespace Durin
 		PlatformData = std::move(NewPlatformData);
 		QueueRenderResourceBuild();
 		return true;
+	}
+
+	auto DTexture2D::SetSRGB(bool bInSRGB, std::string& OutError) -> bool
+	{
+		OutError.clear();
+		if (bSRGB == bInSRGB) return true;
+		if (!SourceData || !SourceData->IsValid())
+		{
+			OutError = "Texture source data is unavailable or invalid.";
+			return false;
+		}
+		const bool bPreviousSRGB = bSRGB;
+		bSRGB = bInSRGB;
+		if (RebuildPlatformData(OutError)) return true;
+		bSRGB = bPreviousSRGB;
+		std::string RestoreError;
+		RebuildPlatformData(RestoreError);
+		return false;
 	}
 
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool
@@ -209,7 +227,7 @@ namespace Durin
 		return BuildSourceData(PhysicalPath.generic_string(), OutError);
 	}
 
-	auto DTexture2D::ImportAsset(std::string_view FilePath, std::string_view AssetPath) -> FTexture2DImportResult
+	auto DTexture2D::ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings) -> FTexture2DImportResult
 	{
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input)) return {false, "Source file does not exist.", nullptr};
@@ -229,6 +247,7 @@ namespace Durin
 		DTexture2D* Texture = nullptr;
 		Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Texture);
 		if (!CreateResult) return {false, CreateResult.Message, nullptr};
+		Texture->bSRGB = Settings.bSRGB;
 		std::string BuildError;
 		if (!Texture->BuildSourceData(Input.generic_string(), BuildError))
 		{

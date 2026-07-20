@@ -15,9 +15,10 @@ The focused `FTexture2DTests.*` and `FEditorTextureSmokeTests.*` suites passed
 on 2026-07-20 using the `Win64-Debug-DurinEditor-Tests` preset. The editor
 workflow smoke test imports a texture and mesh, assigns the texture through a
 material, and verifies the static-mesh scene proxy carries geometry, UVs, and
-the imported texture render resource. The complete 101-test `EngineTests`
-target, a full `all` build, and an eight-second `DurinEditor` Vulkan/shader
-smoke test also passed on 2026-07-20.
+the imported texture render resource. Texture imports default to sRGB and can
+explicitly select linear sampling for data textures. The complete 102-test
+`EngineTests` target, a full `all` build, and an eight-second `DurinEditor`
+Vulkan/shader smoke test also passed on 2026-07-20.
 
 ## Implemented
 
@@ -55,11 +56,12 @@ smoke test also passed on 2026-07-20.
 
 ## Texture Build Pipeline
 
-The current platform build always produces one `RGBA8_UNORM` mip. Extend it
+The current platform build produces one `RGBA8_UNORM` or `SRGBA8_UNORM` mip
+according to the asset's explicit color-space setting. Extend it
 with explicit build settings rather than inferring permanent behavior from the
 source filename.
 
-- [ ] Add sRGB versus linear color-space selection.
+- [x] Add sRGB versus linear color-space selection.
 - [ ] Generate a complete mip chain with an appropriate image filter.
 - [ ] Add texture usage presets, initially Color, Normal, and Data/Mask.
 - [ ] Select platform formats from usage and alpha requirements.

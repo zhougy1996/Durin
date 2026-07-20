@@ -23,6 +23,7 @@ namespace Durin
 		std::array<char, 512> SourcePathBuffer{};
 		std::array<char, 256> AssetPathBuffer{};
 		std::string LastSuggestedAssetPath;
+		bool bSRGB = true;
 		bool bOpenRequested = false;
 	};
 } // namespace Durin

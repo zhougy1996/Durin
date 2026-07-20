@@ -47,7 +47,8 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_EQ(SourceData->Width, 2u);
 	EXPECT_EQ(SourceData->Height, 1u);
 	ASSERT_TRUE(PlatformData->IsValid());
-	EXPECT_EQ(PlatformData->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
+	EXPECT_TRUE(Result.Asset->IsSRGB());
+	EXPECT_EQ(PlatformData->PixelFormat, Durin::EPixelFormat::SRGBA8_UNORM);
 	ASSERT_EQ(PlatformData->Mips.size(), 1u);
 	EXPECT_EQ(PlatformData->Mips[0].Pixels, SourceData->Pixels);
 	EXPECT_NE(PlatformData->Mips[0].Pixels.data(), SourceData->Pixels.data());
@@ -64,6 +65,8 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
 	EXPECT_EQ(Loaded->GetBuildRevision(), 1u);
 	EXPECT_EQ(Loaded->GetSourceFile(), "Transparent.png");
+	EXPECT_TRUE(Loaded->IsSRGB());
+	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::SRGBA8_UNORM);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
 	Durin::FAssetPath RenamedPath;
@@ -78,6 +81,39 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
 	EXPECT_FALSE(std::filesystem::exists(ImportRoot / "Renamed.png"));
+}
+
+TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "LinearTextureSource.png";
+	WriteTextureFixture(Source);
+	Durin::FTexture2DImportSettings Settings;
+	Settings.bSRGB = false;
+	Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureImportTests/Linear", Settings);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Result.Asset, nullptr);
+	EXPECT_FALSE(Result.Asset->IsSRGB());
+	ASSERT_NE(Result.Asset->GetPlatformData(), nullptr);
+	EXPECT_EQ(Result.Asset->GetPlatformData()->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Linear", AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	Durin::DTexture2D* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_FALSE(Loaded->IsSRGB());
+	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
+
+	const std::vector<Durin::uint8> SourcePixels = Loaded->GetSourceData()->Pixels;
+	std::string Error;
+	ASSERT_TRUE(Loaded->SetSRGB(true, Error)) << Error;
+	EXPECT_TRUE(Loaded->IsSRGB());
+	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::SRGBA8_UNORM);
+	EXPECT_EQ(Loaded->GetPlatformData()->Mips[0].Pixels, SourcePixels);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }
 
 TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)

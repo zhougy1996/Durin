@@ -57,6 +57,13 @@ namespace Durin
 		explicit operator bool() const { return bSucceeded; }
 	};
 
+	struct FTexture2DImportSettings
+	{
+		// Color textures normally contain sRGB-encoded bytes. Data textures must opt
+		// into linear sampling so the GPU does not apply an sRGB decode.
+		bool bSRGB = true;
+	};
+
 	DCLASS()
 	class ENGINE_API DTexture2D : public DObject
 	{
@@ -70,11 +77,13 @@ namespace Durin
 		auto GetPlatformData() const -> const FTexturePlatformData* { return PlatformData.get(); }
 		auto GetRenderResource() const -> const std::shared_ptr<FTexture2DRenderResource>& { return RenderResource; }
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
+		auto IsSRGB() const -> bool { return bSRGB; }
+		auto SetSRGB(bool bInSRGB, std::string& OutError) -> bool;
 
 		auto RebuildPlatformData(std::string& OutError) -> bool;
 		auto PostLoad(std::string& OutError) -> bool override;
 
-		static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath) -> FTexture2DImportResult;
+		static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
 
 	private:
 		auto BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
@@ -83,6 +92,9 @@ namespace Durin
 
 		DPROPERTY()
 		std::string SourceFile;
+
+		DPROPERTY()
+		bool bSRGB = true;
 
 		// Both representations are derived from the imported source file. Keeping them
 		// separate lets platform builds replace format/mips without mutating edit data.

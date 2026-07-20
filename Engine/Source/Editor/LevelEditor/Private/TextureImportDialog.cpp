@@ -23,6 +23,7 @@ namespace Durin
 		SourcePathBuffer.fill(0);
 		AssetPathBuffer.fill(0);
 		LastSuggestedAssetPath.clear();
+		bSRGB = true;
 		PreferredDestinationDirectory = DestinationDirectory;
 		if (!PreferredDestinationDirectory.empty() && !PreferredDestinationDirectory.ends_with('/')) PreferredDestinationDirectory += '/';
 		bOpenRequested = true;
@@ -83,6 +84,11 @@ namespace Durin
 			ImGui::TextUnformatted(std::format("{}.dasset   +   {}", ParsedAssetPath.GetAssetName(), SourceFileName).c_str());
 			ImGui::EndChild();
 		}
+
+		ImGui::Spacing();
+		ImGui::SeparatorText("Build settings");
+		ImGui::Checkbox("sRGB color texture", &bSRGB);
+		ImGui::TextDisabled("Disable for data, masks, and other values that are already linear.");
 
 		std::string ValidationMessage;
 		if (!bHasSource) ValidationMessage = "Select a source image to continue.";
@@ -174,7 +180,9 @@ namespace Durin
 	auto FTextureImportDialog::Import() -> bool
 	{
 		if (ClearError) ClearError();
-		FTexture2DImportResult Result = DTexture2D::ImportAsset(SourcePathBuffer.data(), AssetPathBuffer.data());
+		FTexture2DImportSettings Settings;
+		Settings.bSRGB = bSRGB;
+		FTexture2DImportResult Result = DTexture2D::ImportAsset(SourcePathBuffer.data(), AssetPathBuffer.data(), Settings);
 		if (!Result) { SetError(Result.Message); return false; }
 		if (Imported) Imported(AssetPathBuffer.data());
 		FAssetPath ImportedPath;
