@@ -8,29 +8,32 @@ namespace Durin::MonaImGui
 {
 	namespace
 	{
-		auto EditAxisValues(const char* Id, FVector3& Value, double Speed) -> bool
+		template<size_t NumComponents, typename TVector>
+		auto EditComponentValues(const char* Id, TVector& Value, double Speed) -> bool
 		{
-			static constexpr std::array<const char*, 3> AxisNames = {"X", "Y", "Z"};
-			const std::array<ImVec4, 3> AxisColors = {
+			static_assert(NumComponents >= 2 && NumComponents <= 4);
+			static constexpr std::array<const char*, 4> ComponentNames = {"X", "Y", "Z", "W"};
+			const std::array<ImVec4, 4> ComponentColors = {
 				GetThemeColor(EUIThemeColor::AxisX),
 				GetThemeColor(EUIThemeColor::AxisY),
-				GetThemeColor(EUIThemeColor::AxisZ)
+				GetThemeColor(EUIThemeColor::AxisZ),
+				ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled)
 			};
 
 			ImGui::PushID(Id);
 			bool bChanged = false;
 			ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ScaleUI(3.0f), 0.0f));
-			if (ImGui::BeginTable("##Axes", 3, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_NoPadOuterX))
+			if (ImGui::BeginTable("##Components", static_cast<int>(NumComponents), ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_NoPadOuterX))
 			{
-				for (int Axis = 0; Axis < 3; ++Axis)
+				for (size_t Component = 0; Component < NumComponents; ++Component)
 				{
 					ImGui::TableNextColumn();
 					ImGui::AlignTextToFramePadding();
-					ImGui::TextColored(AxisColors[Axis], "%s", AxisNames[Axis]);
+					ImGui::TextColored(ComponentColors[Component], "%s", ComponentNames[Component]);
 					ImGui::SameLine(0.0f, ScaleUI(3.0f));
 					ImGui::SetNextItemWidth(-FLT_MIN);
-					ImGui::PushID(Axis);
-					bChanged |= ImGui::DragScalar("##Value", ImGuiDataType_Double, &Value[Axis], static_cast<float>(Speed));
+					ImGui::PushID(static_cast<int>(Component));
+					bChanged |= ImGui::DragScalar("##Value", ImGuiDataType_Double, &Value[Component], static_cast<float>(Speed));
 					ImGui::PopID();
 				}
 				ImGui::EndTable();
@@ -50,6 +53,18 @@ namespace Durin::MonaImGui
 		{
 			const float SRGB = std::clamp(Value, 0.0f, 1.0f);
 			return SRGB <= 0.04045f ? SRGB / 12.92f : std::pow((SRGB + 0.055f) / 1.055f, 2.4f);
+		}
+
+		auto QuatToEulerDegrees(const FQuat& Value) -> FVector3
+		{
+			// Invalid quaternion storage should remain recoverable from the editor instead of producing NaN controls.
+			const FQuat Normalized = glm::dot(Value, Value) > 1.e-12 ? glm::normalize(Value) : glm::identity<FQuat>();
+			return glm::degrees(glm::eulerAngles(Normalized));
+		}
+
+		auto EulerDegreesToQuat(const FVector3& Value) -> FQuat
+		{
+			return glm::normalize(glm::quat(glm::radians(Value)));
 		}
 	} // namespace
 
@@ -71,6 +86,38 @@ namespace Durin::MonaImGui
 		ImGui::TableSetupColumn(Config.PropertyColumnLabel, ImGuiTableColumnFlags_WidthFixed, PropertyWidth);
 		ImGui::TableSetupColumn(Config.ValueColumnLabel, ImGuiTableColumnFlags_WidthStretch, Config.ValueColumnWeight);
 		if (Config.bShowHeaders) ImGui::TableHeadersRow();
+		return true;
+	}
+
+	auto EditVectorProperty(const char* Label, FVector2& Value, bool bReadOnly, double Speed) -> bool
+	{
+		BeginPropertyRow(Label, bReadOnly);
+		const bool bChanged = EditComponentValues<2>(Label, Value, Speed);
+		EndPropertyRow(bReadOnly);
+		return bChanged;
+	}
+
+	auto EditVectorProperty(const char* Label, FVector3& Value, bool bReadOnly, double Speed) -> bool
+	{
+		BeginPropertyRow(Label, bReadOnly);
+		const bool bChanged = EditComponentValues<3>(Label, Value, Speed);
+		EndPropertyRow(bReadOnly);
+		return bChanged;
+	}
+
+	auto EditVectorProperty(const char* Label, FVector4& Value, bool bReadOnly, double Speed) -> bool
+	{
+		BeginPropertyRow(Label, bReadOnly);
+		const bool bChanged = EditComponentValues<4>(Label, Value, Speed);
+		EndPropertyRow(bReadOnly);
+		return bChanged;
+	}
+
+	auto EditQuatProperty(const char* Label, FQuat& Value, bool bReadOnly) -> bool
+	{
+		FVector3 RotationDegrees = QuatToEulerDegrees(Value);
+		if (!EditVectorProperty(Label, RotationDegrees, bReadOnly, 0.25)) return false;
+		Value = EulerDegreesToQuat(RotationDegrees);
 		return true;
 	}
 
@@ -110,16 +157,16 @@ namespace Durin::MonaImGui
 
 		auto EditTransformRow = [&](const char* RowLabel, FVector3& Value, double Speed) -> bool {
 			BeginPropertyRow(RowLabel, bReadOnly, GetCompactTreeNodeToLabelSpacing());
-			const bool bChanged = EditAxisValues(RowLabel, Value, Speed);
+			const bool bChanged = EditComponentValues<3>(RowLabel, Value, Speed);
 			EndPropertyRow(bReadOnly);
 			return bChanged;
 		};
 
 		bool bChanged = EditTransformRow("Location", Transform.Translation, 0.05);
-		FVector3 RotationDegrees = glm::degrees(glm::eulerAngles(Transform.Rotation));
+		FVector3 RotationDegrees = QuatToEulerDegrees(Transform.Rotation);
 		if (EditTransformRow("Rotation", RotationDegrees, 0.25))
 		{
-			Transform.Rotation = glm::quat(glm::radians(RotationDegrees));
+			Transform.Rotation = EulerDegreesToQuat(RotationDegrees);
 			bChanged = true;
 		}
 		bChanged |= EditTransformRow("Scale", Transform.Scale3D, 0.01);

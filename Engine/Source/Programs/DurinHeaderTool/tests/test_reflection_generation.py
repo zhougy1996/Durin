@@ -12,6 +12,7 @@ from durin_header_tool import io as utils
 from durin_header_tool.generators.module_export_file_generator import generate_module_export_file
 from durin_header_tool.generators.module_reflection_files_generator import generate_reflection_files
 from durin_header_tool.model.reflection_info import make_generated_enum_helper_name, make_generated_helper_name
+from durin_header_tool.resolver.reflection_resolver import load_available_symbols
 
 
 class ReflectionGenerationTests(unittest.TestCase):
@@ -111,6 +112,14 @@ class ReflectionGenerationTests(unittest.TestCase):
         for property_name in ("Position", "ArriveTangent", "LeaveTangent", "Rotation", "Scale"):
             self.assertIn(f'NewProp_{property_name} = {{ "{property_name}",', content)
         self.assertIn("Z_Construct_DStruct_Durin_FVector3", content)
+
+    def test_default_double_vector_intrinsics_are_available(self):
+        symbols = load_available_symbols("Engine")
+
+        for type_name in ("FVector2", "FVector3", "FVector4"):
+            qualified_name = f"Durin::{type_name}"
+            self.assertIn(qualified_name, symbols)
+            self.assertEqual(symbols[qualified_name].GeneratedHelperName, f"Z_Construct_DStruct_Durin_{type_name}")
 
     def test_manifest_records_generator_contract(self):
         manifest_path = utils.get_module_manifest_file_path("Engine")

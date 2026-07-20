@@ -644,14 +644,11 @@ namespace Durin
 		const std::string Label = Property->GetArrayDim() > 1 ? std::format("{}[{}]", BaseName, ArrayIndex) : BaseName;
 		const bool bReadOnly = Context.bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
-		const bool bIsTransform = Kind == DurinCodeGen::EPropertyGenFlags::Struct
-								  && static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FTransform();
-		const bool bIsLinearColor = Kind == DurinCodeGen::EPropertyGenFlags::Struct
-									&& static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FLinearColor();
+		DStruct* Struct = Kind == DurinCodeGen::EPropertyGenFlags::Struct ? static_cast<FStructProperty*>(Property)->GetStruct() : nullptr;
 		ImGui::PushID(Property);
 		ImGui::PushID(static_cast<int>(ArrayIndex));
 
-		if (bIsTransform)
+		if (Struct == Z_Construct_DStruct_Durin_FTransform())
 		{
 			FTransform Value = *Property->ContainerPtrToValuePtr<FTransform>(Object, ArrayIndex);
 			if (MonaImGui::EditTransformProperty(Label.c_str(), Value, bReadOnly))
@@ -671,17 +668,55 @@ namespace Durin
 			return;
 		}
 
-		if (bIsLinearColor)
-		{
-			FLinearColor Value = *Property->ContainerPtrToValuePtr<FLinearColor>(Object, ArrayIndex);
-			const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
-			if (MonaImGui::EditColorProperty(Label.c_str(), Value, bShowAlpha, bReadOnly))
+		auto FinishMathStruct = [&]<typename TValue, typename TEditor>(TValue Value, TEditor&& Editor) -> void {
+			if (Editor(Value))
 			{
-				*Property->ContainerPtrToValuePtr<FLinearColor>(Object, ArrayIndex) = Value;
+				*Property->ContainerPtrToValuePtr<TValue>(Object, ArrayIndex) = Value;
 				Object->MarkPackageDirty();
 			}
 			ImGui::PopID();
 			ImGui::PopID();
+		};
+
+		if (Struct == Z_Construct_DStruct_Durin_FVector2())
+		{
+			FinishMathStruct(*Property->ContainerPtrToValuePtr<FVector2>(Object, ArrayIndex), [&](FVector2& Value) {
+				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly);
+			});
+			return;
+		}
+
+		if (Struct == Z_Construct_DStruct_Durin_FVector3())
+		{
+			FinishMathStruct(*Property->ContainerPtrToValuePtr<FVector3>(Object, ArrayIndex), [&](FVector3& Value) {
+				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly);
+			});
+			return;
+		}
+
+		if (Struct == Z_Construct_DStruct_Durin_FVector4())
+		{
+			FinishMathStruct(*Property->ContainerPtrToValuePtr<FVector4>(Object, ArrayIndex), [&](FVector4& Value) {
+				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly);
+			});
+			return;
+		}
+
+		if (Struct == Z_Construct_DStruct_Durin_FQuat())
+		{
+			FinishMathStruct(*Property->ContainerPtrToValuePtr<FQuat>(Object, ArrayIndex), [&](FQuat& Value) {
+				return MonaImGui::EditQuatProperty(Label.c_str(), Value, bReadOnly);
+			});
+			return;
+		}
+
+		if (Struct == Z_Construct_DStruct_Durin_FLinearColor())
+		{
+			FLinearColor Value = *Property->ContainerPtrToValuePtr<FLinearColor>(Object, ArrayIndex);
+			const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
+			FinishMathStruct(Value, [&](FLinearColor& EditedValue) {
+				return MonaImGui::EditColorProperty(Label.c_str(), EditedValue, bShowAlpha, bReadOnly);
+			});
 			return;
 		}
 

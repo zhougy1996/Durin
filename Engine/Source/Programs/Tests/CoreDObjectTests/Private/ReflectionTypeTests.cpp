@@ -2355,20 +2355,43 @@ namespace
 	TEST(FCoreDObjectReflectionTests, BuiltInMathStructsExposeNestedFieldMetadata)
 	{
 		EnsureDObjectInitialized();
+		Durin::DStruct* Vector2Struct = Durin::Z_Construct_DStruct_Durin_FVector2();
 		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
+		Durin::DStruct* Vector4Struct = Durin::Z_Construct_DStruct_Durin_FVector4();
 		Durin::DStruct* QuatStruct = Durin::Z_Construct_DStruct_Durin_FQuat();
 		Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
 		Durin::DStruct* ColorStruct = Durin::Z_Construct_DStruct_Durin_FLinearColor();
+		ASSERT_NE(Vector2Struct, nullptr);
 		ASSERT_NE(VectorStruct, nullptr);
+		ASSERT_NE(Vector4Struct, nullptr);
 		ASSERT_NE(QuatStruct, nullptr);
 		ASSERT_NE(TransformStruct, nullptr);
 		ASSERT_NE(ColorStruct, nullptr);
+		EXPECT_EQ(Vector2Struct->GetQualifiedName().ToString(), "Durin::FVector2");
 		EXPECT_EQ(VectorStruct->GetQualifiedName().ToString(), "Durin::FVector3");
+		EXPECT_EQ(Vector4Struct->GetQualifiedName().ToString(), "Durin::FVector4");
 		EXPECT_EQ(QuatStruct->GetQualifiedName().ToString(), "Durin::FQuat");
+		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector2"), Vector2Struct);
 		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector3"), VectorStruct);
+		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FVector4"), Vector4Struct);
 		EXPECT_EQ(Durin::FindStructByQualifiedName(Durin::FName("Durin::FTransform")), TransformStruct);
 		EXPECT_EQ(ColorStruct->GetQualifiedName().ToString(), "Durin::FLinearColor");
 		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FLinearColor"), ColorStruct);
+		for (const auto& [Struct, Components] : std::array{
+			std::pair{Vector2Struct, std::array<const char*, 4>{"x", "y", nullptr, nullptr}},
+			std::pair{VectorStruct, std::array<const char*, 4>{"x", "y", "z", nullptr}},
+			std::pair{Vector4Struct, std::array<const char*, 4>{"x", "y", "z", "w"}}
+		})
+		{
+			for (const char* Component : Components)
+			{
+				if (!Component) continue;
+				Durin::FProperty* Field = Struct->FindPropertyByName(Component, false);
+				ASSERT_NE(Field, nullptr);
+				EXPECT_EQ(Field->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Double);
+				EXPECT_EQ(Field->GetElementSize(), sizeof(double));
+			}
+		}
 		for (const char* Channel : {"R", "G", "B", "A"})
 		{
 			Durin::FProperty* Field = ColorStruct->FindPropertyByName(Channel, false);

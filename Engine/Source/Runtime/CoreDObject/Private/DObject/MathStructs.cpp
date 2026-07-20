@@ -29,6 +29,18 @@ namespace Durin
 		}
 	}
 
+	auto Z_Construct_DStruct_Durin_FVector2() -> DStruct*
+	{
+		static DStruct* Singleton = nullptr;
+		if (Singleton) return Singleton;
+		Singleton = MakeStruct("Durin::FVector2", "FVector2", sizeof(FVector2), alignof(FVector2));
+		static const DurinCodeGen::FPropertyParamsBase X = {"x", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, nullptr, &MutableMember<FVector2, &FVector2::x>, &ConstMember<FVector2, &FVector2::x>};
+		static const DurinCodeGen::FPropertyParamsBase Y = {"y", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, nullptr, &MutableMember<FVector2, &FVector2::y>, &ConstMember<FVector2, &FVector2::y>};
+		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&X, &Y};
+		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FVector2", "FVector2", sizeof(FVector2), alignof(FVector2), Properties, std::size(Properties)};
+		return DurinCodeGen::ConstructDStruct(Params);
+	}
+
 	auto Z_Construct_DStruct_Durin_FVector3() -> DStruct*
 	{
 		static DStruct* Singleton = nullptr;
@@ -39,6 +51,20 @@ namespace Durin
 		static const DurinCodeGen::FPropertyParamsBase Z = {"z", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, nullptr, &MutableMember<FVector3, &FVector3::z>, &ConstMember<FVector3, &FVector3::z>};
 		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&X, &Y, &Z};
 		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FVector3", "FVector3", sizeof(FVector3), alignof(FVector3), Properties, std::size(Properties)};
+		return DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto Z_Construct_DStruct_Durin_FVector4() -> DStruct*
+	{
+		static DStruct* Singleton = nullptr;
+		if (Singleton) return Singleton;
+		Singleton = MakeStruct("Durin::FVector4", "FVector4", sizeof(FVector4), alignof(FVector4));
+		static const DurinCodeGen::FPropertyParamsBase X = {"x", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, nullptr, &MutableMember<FVector4, &FVector4::x>, &ConstMember<FVector4, &FVector4::x>};
+		static const DurinCodeGen::FPropertyParamsBase Y = {"y", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, nullptr, &MutableMember<FVector4, &FVector4::y>, &ConstMember<FVector4, &FVector4::y>};
+		static const DurinCodeGen::FPropertyParamsBase Z = {"z", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, nullptr, &MutableMember<FVector4, &FVector4::z>, &ConstMember<FVector4, &FVector4::z>};
+		static const DurinCodeGen::FPropertyParamsBase W = {"w", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, nullptr, &MutableMember<FVector4, &FVector4::w>, &ConstMember<FVector4, &FVector4::w>};
+		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&X, &Y, &Z, &W};
+		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FVector4", "FVector4", sizeof(FVector4), alignof(FVector4), Properties, std::size(Properties)};
 		return DurinCodeGen::ConstructDStruct(Params);
 	}
 
@@ -84,9 +110,19 @@ namespace Durin
 	}
 }
 
+COREDOBJECT_API auto Z_Construct_DStruct_Durin_FVector2() -> Durin::DStruct*
+{
+	return Durin::Z_Construct_DStruct_Durin_FVector2();
+}
+
 COREDOBJECT_API auto Z_Construct_DStruct_Durin_FVector3() -> Durin::DStruct*
 {
 	return Durin::Z_Construct_DStruct_Durin_FVector3();
+}
+
+COREDOBJECT_API auto Z_Construct_DStruct_Durin_FVector4() -> Durin::DStruct*
+{
+	return Durin::Z_Construct_DStruct_Durin_FVector4();
 }
 
 COREDOBJECT_API auto Z_Construct_DStruct_Durin_FQuat() -> Durin::DStruct*

@@ -20,7 +20,14 @@ def load_available_symbols(module_name: str) -> dict[str, object]:
             raise FileNotFoundError(f"Export file for module '{dep_module}' not found at expected path: {export_file_path}")
         export_info = load_module_export_file(export_file_path)
         symbols.update(export_info.Symbols)
-    for qualified_name, short_name in (("Durin::FVector3", "FVector3"), ("Durin::FQuat", "FQuat"), ("Durin::FTransform", "FTransform"), ("Durin::FLinearColor", "FLinearColor")):
+    for qualified_name, short_name in (
+        ("Durin::FVector2", "FVector2"),
+        ("Durin::FVector3", "FVector3"),
+        ("Durin::FVector4", "FVector4"),
+        ("Durin::FQuat", "FQuat"),
+        ("Durin::FTransform", "FTransform"),
+        ("Durin::FLinearColor", "FLinearColor"),
+    ):
         symbols.setdefault(qualified_name, ExportedSymbolInfo(
             Kind="struct", ShortName=short_name, Namespace="Durin", QualifiedName=qualified_name,
             GeneratedHelperName=f"Z_Construct_DStruct_{qualified_name.replace('::', '_')}",
