@@ -12,4 +12,21 @@ namespace Durin::StringUtils
 		};
 		return std::search(Text.begin(), Text.end(), Filter.begin(), Filter.end(), EqualsInsensitive) != Text.end();
 	}
+
+	auto HumanizeName(std::string_view Name) -> std::string
+	{
+		std::string Result;
+		Result.reserve(Name.size() + 8);
+		for (size_t Index = 0; Index < Name.size(); ++Index)
+		{
+			const unsigned char Current = static_cast<unsigned char>(Name[Index]);
+			const bool bCurrentUpper = std::isupper(Current) != 0;
+			const bool bPreviousLowerOrDigit = Index > 0 && (std::islower(static_cast<unsigned char>(Name[Index - 1])) || std::isdigit(static_cast<unsigned char>(Name[Index - 1])));
+			const bool bAcronymBoundary = Index > 0 && Index + 1 < Name.size() && bCurrentUpper
+				&& std::isupper(static_cast<unsigned char>(Name[Index - 1])) && std::islower(static_cast<unsigned char>(Name[Index + 1]));
+			if (bCurrentUpper && (bPreviousLowerOrDigit || bAcronymBoundary)) Result.push_back(' ');
+			Result.push_back(Name[Index]);
+		}
+		return Result;
+	}
 } // namespace Durin::StringUtils

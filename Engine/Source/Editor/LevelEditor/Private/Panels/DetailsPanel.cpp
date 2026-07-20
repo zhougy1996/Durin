@@ -34,6 +34,13 @@ namespace Durin
 
 		constexpr const char* ComponentDragPayload = "DURIN_DETAILS_SCENE_COMPONENT";
 
+		struct FVisibleProperty
+		{
+			FProperty* Property = nullptr;
+			uint32 ArrayIndex = 0;
+			std::string Label;
+		};
+
 		auto IsClassChildOf(const DClass* Class, const DClass* Parent) -> bool
 		{
 			for (const DClass* Current = Class; Current != nullptr; Current = Current->GetSuperClass())
@@ -66,6 +73,17 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Map: return "map";
 			default: return "unsupported";
 			}
+		}
+
+		auto MakePropertyLabel(const FProperty& Property, uint32 ArrayIndex) -> std::string
+		{
+			static const FName DisplayNameMetaDataKey("DisplayName");
+			const std::string DisplayName = MakeDetailsPropertyDisplayName(
+				Property.NamePrivate.ToString(),
+				Property.GetKind(),
+				Property.GetMetaData(DisplayNameMetaDataKey)
+			);
+			return Property.GetArrayDim() > 1 ? std::format("{}[{}]", DisplayName, ArrayIndex) : DisplayName;
 		}
 
 		auto ImGuiDataTypeForProperty(DurinCodeGen::EPropertyGenFlags Kind) -> ImGuiDataType
@@ -538,17 +556,18 @@ namespace Durin
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		ImGui::InputTextWithHint("##PropertySearch", "Search properties...", PropertySearchText.data(), PropertySearchText.size());
 
-		std::vector<std::pair<FProperty*, uint32>> VisibleProperties;
+		std::vector<FVisibleProperty> VisibleProperties;
 		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
 			if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit)) return;
 			if (Cast<DStaticMeshComponent>(Object) && Property->NamePrivate == FName("Materials")) return;
 			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 			{
-				const std::string Name = Property->GetArrayDim() > 1 ? std::format("{}[{}]", Property->NamePrivate.ToString(), ArrayIndex) : Property->NamePrivate.ToString();
+				const std::string SourceName = Property->GetArrayDim() > 1 ? std::format("{}[{}]", Property->NamePrivate.ToString(), ArrayIndex) : Property->NamePrivate.ToString();
+				const std::string DisplayName = MakePropertyLabel(*Property, ArrayIndex);
 				const bool bIsTransform = Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
 										  && static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FTransform();
-				const std::string SearchText = bIsTransform ? std::format("{} Location Rotation Scale", Name) : Name;
-				if (ContainsInsensitive(SearchText, PropertySearchText.data())) VisibleProperties.emplace_back(Property, ArrayIndex);
+				const std::string SearchText = bIsTransform ? std::format("{} {} Location Rotation Scale", SourceName, DisplayName) : std::format("{} {}", SourceName, DisplayName);
+				if (ContainsInsensitive(SearchText, PropertySearchText.data())) VisibleProperties.push_back({Property, ArrayIndex, std::move(DisplayName)});
 			}
 		});
 
@@ -591,9 +610,9 @@ namespace Durin
 		}
 		const bool bReplaceReflectedProperties = DetailsCustomization && DetailsCustomization->DrawDetails(Context, Object);
 		if (bShowStaticMeshMaterials) DrawStaticMeshMaterials(Context, StaticMeshComponent);
-		if (!bReplaceReflectedProperties) for (const auto& [Property, ArrayIndex] : VisibleProperties)
+		if (!bReplaceReflectedProperties) for (const FVisibleProperty& VisibleProperty : VisibleProperties)
 		{
-			DrawProperty(Context, Object, Property, ArrayIndex);
+			DrawProperty(Context, Object, VisibleProperty.Property, VisibleProperty.ArrayIndex, VisibleProperty.Label);
 		}
 		MonaImGui::EndPropertyTable();
 	}
@@ -638,10 +657,8 @@ namespace Durin
 		}
 	}
 
-	auto FDetailsPanel::DrawProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex) -> void
+	auto FDetailsPanel::DrawProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, const std::string& Label) -> void
 	{
-		const std::string BaseName = Property->NamePrivate.ToString();
-		const std::string Label = Property->GetArrayDim() > 1 ? std::format("{}[{}]", BaseName, ArrayIndex) : BaseName;
 		const bool bReadOnly = Context.bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 		DStruct* Struct = Kind == DurinCodeGen::EPropertyGenFlags::Struct ? static_cast<FStructProperty*>(Property)->GetStruct() : nullptr;

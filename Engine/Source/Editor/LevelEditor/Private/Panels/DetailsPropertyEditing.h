@@ -1,10 +1,18 @@
 #pragma once
 
+#include "DObject/DObjectGlobals.h"
+
 namespace Durin
 {
 	class DObject;
 	class FLevelEditorContext;
 	class FProperty;
+
+	auto MakeDetailsPropertyDisplayName(
+		std::string_view PropertyName,
+		DurinCodeGen::EPropertyGenFlags Kind,
+		std::string_view ExplicitDisplayName = {}
+	) -> std::string;
 
 	auto AssignDetailsObjectProperty(
 		FLevelEditorContext& Context,
