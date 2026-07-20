@@ -12,20 +12,20 @@ The editor already has a useful workspace and document foundation in `DurinEd`:
 - `EditorWorkspaceUI` supplies stable ImGui window, dock class, and dock-space
   identifiers.
 
-The runtime workspace boundary is currently ahead of the module boundary.
-`MMaterialEditor` is a distinct workspace, but its implementation, asset editor
-registrations, API annotations, and lifetime are all owned by the `LevelEditor`
-module. `MainFrame` also hard-codes knowledge of Level Editor and Material Editor
-root windows and obtains host-window settings through `FLevelEditorModule`.
+The runtime workspace boundary and module boundary now match for materials.
+`MMaterialEditor`, its asset routes, API annotations, and lifetime are owned by
+the independent `MaterialEditor` module. `MainFrame` still loads the concrete
+Level Editor and Material Editor module interfaces while feature discovery is
+migrated, and it still obtains host-window settings through `FLevelEditorModule`.
 
-This arrangement is workable while only two workspaces exist, but it makes new
-asset editors harder to add, leaves reusable asset-selection and document-host
-behavior duplicated, and will cause `LevelEditor` to absorb unrelated material
-preview, compilation, and graph-editing responsibilities.
+This removes the risk of `LevelEditor` absorbing future material preview,
+compilation, and graph-editing responsibilities. The remaining concrete module
+loading in `MainFrame` is a temporary discovery boundary, and the host settings
+dependency remains for the dedicated settings-split phase.
 
 ## Goals
 
-- [ ] Make `MaterialEditor` an independently owned editor module.
+- [x] Make `MaterialEditor` an independently owned editor module.
 - [ ] Keep `DurinEd` as the shared editor framework rather than introducing a
   monolithic base editor class.
 - [ ] Make workspace discovery, host layout, and Window menu construction data
@@ -93,8 +93,8 @@ registration descriptors.
 
 ### MaterialEditor
 
-Create `Engine/Source/Editor/MaterialEditor` with its own `.dmodule`, CMake
-target, API header, module interface, workspace type, and implementation:
+`Engine/Source/Editor/MaterialEditor` has its own `.dmodule`, CMake target, API
+header, module interface, workspace type, and implementation:
 
 - `MMaterialEditor` and the Material workspace descriptor.
 - Registration of `DMaterial` and `DMaterialInstance`.
@@ -273,7 +273,9 @@ one change.
 - `Engine/Source/Editor/LevelEditor/Private/LevelEditorModule.cpp`
 - `Engine/Source/Editor/LevelEditor/Public/Widgets/MLevelEditor.h`
 - `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`
-- `Engine/Source/Editor/LevelEditor/Private/Widgets/MMaterialEditor.h`
-- `Engine/Source/Editor/LevelEditor/Private/Widgets/MMaterialEditor.cpp`
+- `Engine/Source/Editor/MaterialEditor/Public/MaterialEditorModule.h`
+- `Engine/Source/Editor/MaterialEditor/Private/MaterialEditorWorkspace.h`
+- `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.h`
+- `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/EditorSessionSettings.h`

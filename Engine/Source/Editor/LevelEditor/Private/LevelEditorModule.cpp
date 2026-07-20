@@ -4,10 +4,6 @@
 #include "EditorSessionSettings.h"
 #include "Engine/Level.h"
 #include "LevelEditorWorkspace.h"
-#include "MaterialEditorWorkspace.h"
-#include "Materials/Material.h"
-#include "Materials/MaterialInstance.h"
-#include "Widgets/MMaterialEditor.h"
 #include "Widgets/MLevelEditor.h"
 #include "Actors/CameraActor.h"
 #include "CameraEditorCustomizations.h"
@@ -40,7 +36,7 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
-		WorkspaceRegistration.reset();
+		UnregisterLevelEditorWorkspace();
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
 		for (auto It = CustomizationHandles.rbegin(); It != CustomizationHandles.rend(); ++It) Registry.Unregister(*It);
 		CustomizationHandles.clear();
@@ -53,7 +49,6 @@ namespace Durin
 		WorkspaceRegistration.reset();
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(*SessionSettings, WorkspaceManager);
 		Workspace->Construct();
-		std::shared_ptr<MMaterialEditor> MaterialWorkspace = std::make_shared<MMaterialEditor>(WorkspaceManager);
 		FEditorWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
@@ -70,17 +65,6 @@ namespace Durin
 					},
 					.Workspace = Workspace,
 				},
-				{
-					.Descriptor = {
-						.WorkspaceType = MaterialEditorWorkspace::Type,
-						.DisplayName = "Material Editor",
-						.RootKey = std::string(MaterialEditorWorkspace::RootKey),
-						.bShowInWindowMenu = false,
-						.bOpenByDefault = false,
-						.DefaultHostDockPreference = EEditorWorkspaceHostDockPreference::Center,
-					},
-					.Workspace = MaterialWorkspace,
-				},
 			},
 			.AssetEditors = {
 				{
@@ -91,24 +75,16 @@ namespace Durin
 					.SingletonLabel = "Level Editor",
 					.bClosable = true,
 				},
-				{
-					.AssetClassName = DMaterial::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = MaterialEditorWorkspace::Type,
-					.DocumentPolicy = EEditorDocumentPolicy::PerResource,
-					.bClosable = true,
-				},
-				{
-					.AssetClassName = DMaterialInstance::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = MaterialEditorWorkspace::Type,
-					.DocumentPolicy = EEditorDocumentPolicy::PerResource,
-					.bClosable = true,
-				},
 			},
 		});
 		if (!Registration) return false;
-		if (!WorkspaceManager.OpenDefaultWorkspaces()) return false;
 		WorkspaceRegistration = std::make_unique<FEditorWorkspaceRegistrationHandle>(std::move(Registration));
 		return true;
+	}
+
+	LEVELEDITOR_API auto FLevelEditorModule::UnregisterLevelEditorWorkspace() -> void
+	{
+		WorkspaceRegistration.reset();
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::GetWindowWidth() const -> int32

@@ -6,6 +6,7 @@
 #include "Editor/EditorWorkspaceUI.h"
 #include "Mona.h"
 #include "LevelEditorModule.h"
+#include "MaterialEditorModule.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -16,6 +17,27 @@ namespace Durin
 {
 	namespace
 	{
+		auto RegisterEditorWorkspaces(
+			FEditorWorkspaceManager& WorkspaceManager,
+			FLevelEditorModule& LevelEditorModule,
+			FMaterialEditorModule& MaterialEditorModule
+		) -> bool
+		{
+			if (!LevelEditorModule.RegisterLevelEditorWorkspace(WorkspaceManager)) return false;
+			if (!MaterialEditorModule.RegisterMaterialEditorWorkspace(WorkspaceManager))
+			{
+				LevelEditorModule.UnregisterLevelEditorWorkspace();
+				return false;
+			}
+			if (WorkspaceManager.OpenDefaultWorkspaces()) return true;
+
+			// Feature modules own their handles, but the host coordinates this multi-module
+			// startup so a failed default document cannot leave a partial editor behind.
+			MaterialEditorModule.UnregisterMaterialEditorWorkspace();
+			LevelEditorModule.UnregisterLevelEditorWorkspace();
+			return false;
+		}
+
 		auto BuildDefaultEditorHostLayout(
 			ImGuiID DockSpaceId,
 			const ImVec2& DockSpaceSize,
@@ -120,9 +142,11 @@ namespace Durin
 	auto FMainFrameModule::CreateDefaultMainFrame() -> void
 	{
 		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
+		FMaterialEditorModule& MaterialEditorModule = FModuleManager::LoadModuleChecked<FMaterialEditorModule>("MaterialEditor");
 		const FIntPoint WindowSize{LevelEditorModule.GetWindowWidth(), LevelEditorModule.GetWindowHeight()};
 		MonaImGui::SetGlobalUIScale(LevelEditorModule.GetUIScale());
 		FLevelEditorModule* LevelEditorModulePtr = &LevelEditorModule;
+		FMaterialEditorModule* MaterialEditorModulePtr = &MaterialEditorModule;
 		auto RootWindow = std::make_shared<MWindow>();
 		MonaImGui::BindMainViewportToWindow(RootWindow);
 
@@ -133,22 +157,22 @@ namespace Durin
 		const std::weak_ptr<MWindow> WeakRootWindow = RootWindow;
 		if (HasCurrentProject())
 		{
-			*bWorkspaceReady = LevelEditorModule.RegisterLevelEditorWorkspace(*WorkspaceManager);
-			if (!*bWorkspaceReady) ProjectBrowser->SetError("Could not initialize the Level Editor workspace.");
+			*bWorkspaceReady = RegisterEditorWorkspaces(*WorkspaceManager, LevelEditorModule, MaterialEditorModule);
+			if (!*bWorkspaceReady) ProjectBrowser->SetError("Could not initialize the editor workspaces.");
 			else ProjectBrowser->RecordCurrentProject();
 		}
 
 		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr](std::string_view ProjectFile, std::string& OutError) {
+		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr, MaterialEditorModulePtr](std::string_view ProjectFile, std::string& OutError) {
 			const std::array<std::string_view, 2> Arguments = {"--project", ProjectFile};
 			if (!InitializeCurrentProject(Arguments, &OutError)) return false;
 			PathUtilities::InitDefaultMountPoints();
-			*bWorkspaceReady = LevelEditorModulePtr->RegisterLevelEditorWorkspace(*WorkspaceManager);
+			*bWorkspaceReady = RegisterEditorWorkspaces(*WorkspaceManager, *LevelEditorModulePtr, *MaterialEditorModulePtr);
 			if (!*bWorkspaceReady)
 			{
-				OutError = "Could not initialize the Level Editor workspace.";
+				OutError = "Could not initialize the editor workspaces.";
 				return false;
 			}
 			if (const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock())

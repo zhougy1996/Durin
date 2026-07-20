@@ -17,6 +17,7 @@ namespace Durin
 		LEVELEDITOR_API auto StartupModule() -> void override;
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
 		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(FEditorWorkspaceManager& WorkspaceManager) -> bool;
+		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
 		LEVELEDITOR_API auto GetWindowWidth() const -> int32;
 		LEVELEDITOR_API auto GetWindowHeight() const -> int32;
 		LEVELEDITOR_API auto GetUIScale() const -> float;

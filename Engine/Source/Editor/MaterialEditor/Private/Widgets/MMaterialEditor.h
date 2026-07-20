@@ -2,7 +2,7 @@
 
 #include "Editor/EditorWorkspace.h"
 #include "Editor/EditorWorkspaceRootWindow.h"
-#include "LevelEditorAPI.h"
+#include "MaterialEditorAPI.h"
 #include "DObject/ObjectPtr.h"
 
 namespace Durin
@@ -15,14 +15,14 @@ namespace Durin
 	{
 	public:
 		explicit MMaterialEditor(FEditorWorkspaceManager& InWorkspaceManager);
-		LEVELEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
-		LEVELEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> bool override;
-		LEVELEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
-		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
-		LEVELEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
-		LEVELEDITOR_API auto DrawMainMenu() -> void override;
-		LEVELEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
-		LEVELEDITOR_API auto ResetLayout() -> void override;
+		MATERIALEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
+		MATERIALEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> bool override;
+		MATERIALEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
+		MATERIALEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
+		MATERIALEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
+		MATERIALEDITOR_API auto DrawMainMenu() -> void override;
+		MATERIALEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
+		MATERIALEDITOR_API auto ResetLayout() -> void override;
 
 	private:
 		auto FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*;

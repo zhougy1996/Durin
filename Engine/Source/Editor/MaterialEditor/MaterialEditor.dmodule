@@ -1,17 +1,13 @@
 {
-    "ModuleName": "MainFrame",
+    "ModuleName": "MaterialEditor",
     "LinkType": "Shared",
     "PCH": "SharedPCH_MonaEditor",
     "PrivateDependencies": [
         "Core",
-        "RHI",
         "Engine",
-        "ApplicationCore",
-        "MonaCore",
-        "Mona",
+        "AssetCore",
         "MonaImGui",
-        "LevelEditor",
-        "MaterialEditor",
         "DurinEd"
     ]
 }
+
