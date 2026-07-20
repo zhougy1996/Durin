@@ -1,7 +1,5 @@
 #include "LevelDocumentController.h"
 
-#include "Actors/CameraActor.h"
-#include "Actors/DirectionalLightActor.h"
 #include "AssetSystem.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorTransaction.h"
@@ -68,15 +66,7 @@ namespace Durin
 
 	auto FLevelDocumentController::ExecutePendingAction() -> void
 	{
-		if (PendingAction == ELevelDocumentAction::NewLevel)
-		{
-			LevelPathBuffer.fill(0);
-			const FProjectInfo* Project = GetCurrentProject();
-			const std::string DefaultPath = Project ? Project->MountRoot + "Levels/NewLevel" : "/Levels/NewLevel";
-			std::memcpy(LevelPathBuffer.data(), DefaultPath.data(), std::min(DefaultPath.size(), LevelPathBuffer.size() - 1));
-			QueuedPopup = EQueuedPopup::NewLevel;
-		}
-		else if (PendingAction == ELevelDocumentAction::OpenLevel)
+		if (PendingAction == ELevelDocumentAction::OpenLevel)
 		{
 			if (!PendingLevelPath.empty())
 			{
@@ -98,7 +88,6 @@ namespace Durin
 		switch (QueuedPopup)
 		{
 		case EQueuedPopup::UnsavedLevel: ImGui::OpenPopup("Unsaved Level"); break;
-		case EQueuedPopup::NewLevel: ImGui::OpenPopup("New Level"); break;
 		case EQueuedPopup::None: break;
 		}
 		QueuedPopup = EQueuedPopup::None;
@@ -129,20 +118,6 @@ namespace Durin
 			}
 			ImGui::EndPopup();
 		}
-
-		if (ImGui::BeginPopupModal("New Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-		{
-			ImGui::InputText("Virtual Path", LevelPathBuffer.data(), LevelPathBuffer.size());
-			if (ImGui::Button("Create")) CreateLevel(LevelPathBuffer.data());
-			ImGui::SameLine();
-			if (ImGui::Button("Cancel"))
-			{
-				PendingAction = ELevelDocumentAction::None;
-				ImGui::CloseCurrentPopup();
-			}
-			if (PendingAction == ELevelDocumentAction::None) ImGui::CloseCurrentPopup();
-			ImGui::EndPopup();
-		}
 	}
 
 	auto FLevelDocumentController::OpenDefaultLevel() -> void
@@ -150,38 +125,6 @@ namespace Durin
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project || DefaultLevel.empty() || !DefaultLevel.starts_with(Project->MountRoot)) return;
 		OpenLevel(DefaultLevel);
-	}
-
-	auto FLevelDocumentController::CreateLevel(std::string_view PathString) -> void
-	{
-		if (ClearError) ClearError();
-		FAssetPath Path;
-		std::string PathError;
-		if (!FAssetPath::TryCreate(PathString, Path, &PathError))
-		{
-			SetError(PathError);
-			return;
-		}
-		DLevel* Level = nullptr;
-		Asset::FAssetResult Result = Asset::CreateAsset(Path, Level);
-		if (!Result)
-		{
-			SetError(Result.Message);
-			return;
-		}
-		ACameraActor* Camera = Level->SpawnActor<ACameraActor>("Camera");
-		Level->SetPrimaryCameraActor(Camera);
-		ADirectionalLightActor* DirectionalLight = Level->SpawnActor<ADirectionalLightActor>("DirectionalLight");
-		if (DirectionalLight)
-		{
-			FTransform LightTransform = DirectionalLight->GetActorTransform();
-			LightTransform.Rotation = FQuat(FVector3(glm::radians(-35.0), glm::radians(25.0), glm::radians(-20.0)));
-			DirectionalLight->SetActorTransform(LightTransform);
-		}
-		if (!ActivateLevel(Level))
-			Asset::UnloadPackage(Path);
-		else
-			PendingAction = ELevelDocumentAction::None;
 	}
 
 	auto FLevelDocumentController::OpenLevel(std::string_view PathString) -> void

@@ -11,7 +11,6 @@ namespace Durin
 	enum class ELevelDocumentAction
 	{
 		None,
-		NewLevel,
 		OpenLevel,
 		OpenProject
 	};
@@ -40,12 +39,10 @@ namespace Durin
 		enum class EQueuedPopup
 		{
 			None,
-			UnsavedLevel,
-			NewLevel
+			UnsavedLevel
 		};
 
 		auto ExecutePendingAction() -> void;
-		auto CreateLevel(std::string_view Path) -> void;
 		auto OpenLevel(std::string_view Path) -> void;
 		auto ActivateLevel(DLevel* Level) -> bool;
 		auto SetError(std::string Message) const -> void;
@@ -59,7 +56,6 @@ namespace Durin
 		std::function<void(std::string)> ReportError;
 		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
-		std::array<char, 512> LevelPathBuffer{};
 		std::string PendingLevelPath;
 	};
 } // namespace Durin

@@ -150,7 +150,6 @@ namespace Durin
 		virtual auto Redo() -> bool { return false; }
 		virtual auto DrawFileMenu() -> void {}
 		virtual auto DrawEditMenu() -> void {}
-		virtual auto DrawApplicationMenus() -> void {}
 		virtual auto DrawWindowMenu() -> void {}
 		virtual auto DrawWorkspace(bool bActive) -> bool = 0;
 		virtual auto ResetLayout() -> void = 0;

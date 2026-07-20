@@ -16,7 +16,6 @@
 #include "LevelEditorContext.h"
 #include "LevelEditorWorkspace.h"
 #include "Misc/Project.h"
-#include "Misc/Version.h"
 #include "MonaImGui.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DetailsPanel.h"
@@ -307,7 +306,6 @@ namespace Durin
 			}
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F6, false) && GEditor && GEditor->IsPlaying()) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F7, false) && GEditor) GEditor->StepPlaySession();
-			if (!bPlaying && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
 		}
 		if (GEditor && bPlaying != GEditor->IsPlaying())
 		{
@@ -338,7 +336,6 @@ namespace Durin
 		TextureImportDialog->Draw();
 		DrawEditorPreferences();
 		DrawProjectSettings();
-		DrawAboutDialog();
 
 		if (!EditorError.empty()) ImGui::OpenPopup("Editor Error");
 		if (ImGui::BeginPopupModal("Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
@@ -431,7 +428,6 @@ namespace Durin
 	{
 		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		if (bPlaying) ImGui::BeginDisabled();
-		if (ImGui::MenuItem("New Level", "Ctrl+N")) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
 		if (ImGui::MenuItem("Open Project...")) DocumentController->RequestAction(ELevelDocumentAction::OpenProject);
 		if (bPlaying) ImGui::EndDisabled();
 	}
@@ -445,19 +441,10 @@ namespace Durin
 		if (bPlaying) ImGui::EndDisabled();
 	}
 
-	auto MLevelEditor::DrawApplicationMenus() -> void
-	{
-		if (ImGui::BeginMenu("Help"))
-		{
-			if (ImGui::MenuItem("About Durin...")) bAboutDialogOpen = true;
-			ImGui::EndMenu();
-		}
-	}
-
 	auto MLevelEditor::DrawWindowMenu() -> void
 	{
 		ImGui::Separator();
-		if (ImGui::BeginMenu("Level Editor"))
+		if (ImGui::BeginMenu("Panels###Durin.LevelEditor.Windows"))
 		{
 			for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 			{
@@ -468,32 +455,6 @@ namespace Durin
 			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
 			ImGui::EndMenu();
 		}
-	}
-
-	auto MLevelEditor::DrawAboutDialog() -> void
-	{
-		if (!bAboutDialogOpen) return;
-		const float DialogWidth = MonaImGui::ScaleUI(420.0f);
-		const float DialogHeight = MonaImGui::ScaleUI(170.0f);
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-		ImGui::SetNextWindowSize(ImVec2(DialogWidth, DialogHeight), ImGuiCond_Appearing);
-		const ImGuiWindowFlags AboutFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
-			ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-		if (!ImGui::Begin("About Durin###Durin.About", &bAboutDialogOpen, AboutFlags))
-		{
-			ImGui::End();
-			return;
-		}
-
-		ImGui::Text("Durin Engine");
-		ImGui::Separator();
-		ImGui::TextDisabled("Version");
-		ImGui::SameLine(MonaImGui::ScaleUI(90.0f));
-		ImGui::Text("%s", GetEngineVersionString().data());
-		ImGui::Spacing();
-		ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - MonaImGui::ScaleUI(82.0f));
-		if (ImGui::Button("Close", ImVec2(MonaImGui::ScaleUI(82.0f), 0.0f))) bAboutDialogOpen = false;
-		ImGui::End();
 	}
 
 	auto MLevelEditor::DrawEditorPreferences() -> void

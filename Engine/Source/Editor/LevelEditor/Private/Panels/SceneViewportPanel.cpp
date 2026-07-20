@@ -484,7 +484,7 @@ namespace Durin
 			if (CameraPreviewViewportClient != nullptr) CameraPreviewViewportClient->SetCamera(nullptr);
 			bViewportHovered = false;
 			bViewportFocused = false;
-			ImGui::TextDisabled("No level is open. Use File > New Level or Open Level.");
+			ImGui::TextDisabled("No level is open. Open a Level asset from Content Browser.");
 			ImGui::End();
 			return;
 		}

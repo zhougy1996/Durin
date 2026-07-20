@@ -10,6 +10,7 @@
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
+#include "Misc/Version.h"
 
 #include "Widgets/MFunctionWidget.h"
 
@@ -60,7 +61,31 @@ namespace Durin
 			ImGui::DockBuilderFinish(DockSpaceId);
 		}
 
-		auto DrawWorkspaceHost(FEditorWorkspaceManager& WorkspaceManager) -> void
+		auto DrawAboutDialog(bool& bOpen) -> void
+		{
+			if (!bOpen) return;
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(420.0f), MonaImGui::ScaleUI(170.0f)), ImGuiCond_Appearing);
+			const ImGuiWindowFlags Flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
+				ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+			if (!ImGui::Begin("About Durin###Durin.About", &bOpen, Flags))
+			{
+				ImGui::End();
+				return;
+			}
+
+			ImGui::Text("Durin Engine");
+			ImGui::Separator();
+			ImGui::TextDisabled("Version");
+			ImGui::SameLine(MonaImGui::ScaleUI(90.0f));
+			ImGui::Text("%s", GetEngineVersionString().data());
+			ImGui::Spacing();
+			ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - MonaImGui::ScaleUI(82.0f));
+			if (ImGui::Button("Close", ImVec2(MonaImGui::ScaleUI(82.0f), 0.0f))) bOpen = false;
+			ImGui::End();
+		}
+
+		auto DrawWorkspaceHost(FEditorWorkspaceManager& WorkspaceManager, bool& bAboutDialogOpen) -> void
 		{
 			ImGuiViewport* Viewport = ImGui::GetMainViewport();
 			ImGui::SetNextWindowPos(Viewport->WorkPos);
@@ -120,7 +145,8 @@ namespace Durin
 							WorkspaceManager.GetDocuments(), Descriptor.WorkspaceType, &FEditorDocumentTab::WorkspaceType
 						);
 						const bool bOpen = Document != WorkspaceManager.GetDocuments().end();
-						if (ImGui::MenuItem(Descriptor.DisplayName.c_str(), nullptr, bOpen, bOpen || Descriptor.HasSingletonDocument()))
+						const std::string MenuLabel = std::format("{}###Durin.Editor.WorkspaceMenu.{}", Descriptor.DisplayName, Descriptor.RootKey);
+						if (ImGui::MenuItem(MenuLabel.c_str(), nullptr, bOpen, bOpen || Descriptor.HasSingletonDocument()))
 						{
 							if (bOpen) WorkspaceManager.ActivateDocument(Document->Id);
 							else WorkspaceManager.OpenDocument({
@@ -134,10 +160,14 @@ namespace Durin
 					if (ActiveWorkspace) ActiveWorkspace->DrawWindowMenu();
 					ImGui::EndMenu();
 				}
-				// Registered workspaces contribute stable application-level menus; focus only changes command routing.
-				for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawApplicationMenus();
+				if (ImGui::BeginMenu("Help"))
+				{
+					if (ImGui::MenuItem("About Durin...")) bAboutDialogOpen = true;
+					ImGui::EndMenu();
+				}
 				ImGui::EndMenuBar();
 			}
+			DrawAboutDialog(bAboutDialogOpen);
 
 			const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
 			const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeEditorHostDockSpaceId(EditorWorkspaceUI::HostLayoutVersion);
@@ -210,10 +240,10 @@ namespace Durin
 			return true;
 		});
 
-		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser]() {
+		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser, bAboutDialogOpen = false]() mutable {
 			if (*bWorkspaceReady)
 			{
-				DrawWorkspaceHost(*WorkspaceManager);
+				DrawWorkspaceHost(*WorkspaceManager, bAboutDialogOpen);
 				return;
 			}
 			ProjectBrowser->Draw();

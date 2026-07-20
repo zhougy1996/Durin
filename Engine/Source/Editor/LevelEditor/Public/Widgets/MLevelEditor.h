@@ -41,13 +41,11 @@ namespace Durin
 		LEVELEDITOR_API auto Redo() -> bool override;
 		LEVELEDITOR_API auto DrawFileMenu() -> void override;
 		LEVELEDITOR_API auto DrawEditMenu() -> void override;
-		LEVELEDITOR_API auto DrawApplicationMenus() -> void override;
 		LEVELEDITOR_API auto DrawWindowMenu() -> void override;
 		LEVELEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
 		LEVELEDITOR_API auto ResetLayout() -> void override;
 
 	private:
-		auto DrawAboutDialog() -> void;
 		auto DrawEditorPreferences() -> void;
 		auto DrawProjectSettings() -> void;
 		auto ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void;
@@ -74,7 +72,6 @@ namespace Durin
 		bool bSelectDefaultBottomPanelRequested = true;
 		bool bEditorPreferencesOpen = false;
 		bool bProjectSettingsOpen = false;
-		bool bAboutDialogOpen = false;
 		std::string DefaultLevel;
 		std::string EditorError;
 	};
