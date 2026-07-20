@@ -1,45 +1,19 @@
 #include "Widgets/MMaterialEditor.h"
 
 #include "AssetSystem.h"
-#include "DObject/Class.h"
 #include "DObject/Package.h"
+#include "Editor/EditorAssetPicker.h"
 #include "Editor/EditorWorkspaceUI.h"
 #include "MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Math/Color.h"
-#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin
 {
-	namespace
-	{
-		using StringUtils::ContainsInsensitive;
-
-		auto AssetPathOrNone(const DObject* Object) -> std::string
-		{
-			return Object && Object->GetPackage() ? Object->GetPackage()->GetPackagePath() : "None";
-		}
-
-		auto AssetLeaf(std::string_view ResourceId) -> std::string
-		{
-			const size_t Separator = ResourceId.find_last_of("/\\");
-			return std::string(Separator == std::string_view::npos ? ResourceId : ResourceId.substr(Separator + 1));
-		}
-
-		auto IsClassChildOf(const DClass* Class, const DClass* Parent) -> bool
-		{
-			for (const DClass* Current = Class; Current != nullptr; Current = Current->GetSuperClass())
-			{
-				if (Current == Parent) return true;
-			}
-			return false;
-		}
-	}
-
 	MMaterialEditor::MMaterialEditor(FEditorWorkspaceManager& InWorkspaceManager)
 		: WorkspaceManager(InWorkspaceManager)
 	{
@@ -75,13 +49,14 @@ namespace Durin
 	auto MMaterialEditor::ActivateDocument(const FEditorDocumentTab& Document) -> void
 	{
 		if (FindOpenMaterial(Document.ResourceId)) ActiveResourceId = Document.ResourceId;
-		bFocusRequested = true;
+		DocumentWindows[Document.Id.Value].RequestFocus();
 	}
 
 	auto MMaterialEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
 	{
 		if (IsDocumentDirty(Document)) return false;
 		OpenMaterials.erase(Document.ResourceId);
+		DocumentWindows.erase(Document.Id.Value);
 		if (ActiveResourceId == Document.ResourceId) ActiveResourceId.clear();
 		return true;
 	}
@@ -97,90 +72,39 @@ namespace Durin
 		if (ImGui::BeginMenu("File"))
 		{
 			DMaterialInterface* Material = GetActiveMaterial();
-			if (ImGui::MenuItem("Save Material", "Ctrl+S", false, Material && Material->GetPackage())) SaveActiveMaterial();
+			if (ImGui::MenuItem("Save Material", "Ctrl+S", false, Material && Material->GetPackage())) SaveMaterial(Material);
 			ImGui::EndMenu();
 		}
 	}
 
 	auto MMaterialEditor::DrawWorkspace(bool bActive) -> bool
 	{
-		DMaterialInterface* Material = GetActiveMaterial();
-		if (!Material) return false;
-		FEditorDocumentId DocumentId;
+		bool bWorkspaceActivated = false;
+		std::vector<FEditorDocumentId> CloseRequests;
 		for (const FEditorDocumentTab& Document : WorkspaceManager.GetDocuments())
 		{
-			if (Document.WorkspaceType == MaterialEditorWorkspace::Type && Document.ResourceId == ActiveResourceId)
+			if (Document.WorkspaceType != MaterialEditorWorkspace::Type) continue;
+			DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
+			if (!Material) continue;
+			FEditorWorkspaceRootWindow& RootWindow = DocumentWindows[Document.Id.Value];
+			const FEditorWorkspaceRootWindowState WindowState = RootWindow.Begin({
+				.DisplayName = Document.Label,
+				.RootKey = EditorWorkspaceUI::MakeEditorDocumentRootKey(MaterialEditorWorkspace::RootKey, Document.DocumentKey),
+				.bDirty = Material->GetPackage() && Material->GetPackage()->IsDirty(),
+			});
+			if (WindowState.bFocused || WindowState.bActivated)
 			{
-				DocumentId = Document.Id;
-				break;
+				bWorkspaceActivated = true;
+				if (ActiveResourceId != Document.ResourceId) WorkspaceManager.ActivateDocument(Document.Id);
 			}
+			if (WindowState.bVisible)
+				DrawDocument(Document, Material, bActive && ActiveResourceId == Document.ResourceId);
+			RootWindow.End();
+			if (WindowState.bCloseRequested) CloseRequests.push_back(Document.Id);
 		}
-
-		EditorWorkspaceUI::SetNextEditorRootWindowClass();
-		if (bFocusRequested)
-		{
-			ImGui::SetNextWindowFocus();
-			bFocusRequested = false;
-		}
-		const bool bDirty = Material->GetPackage() && Material->GetPackage()->IsDirty();
-		const std::string DisplayName = std::format("Material Editor - {}{}", AssetLeaf(ActiveResourceId), bDirty ? " *" : "");
-		const std::string RootWindowName = EditorWorkspaceUI::MakeEditorRootWindowName(DisplayName, MaterialEditorWorkspace::RootKey);
-		bool bOpen = true;
-		const ImGuiWindowFlags WindowFlags = ImGuiWindowFlags_NoCollapse | (bDirty ? ImGuiWindowFlags_UnsavedDocument : ImGuiWindowFlags_None);
-		const bool bVisible = ImGui::Begin(RootWindowName.c_str(), &bOpen, WindowFlags);
-		const bool bFocused = bVisible && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		const bool bDockTabSelected = bVisible && ImGui::IsWindowDocked();
-		// A dock-tab click can select the window without transferring focus to its contents.
-		const bool bDockTabActivated = bDockTabSelected && !bWasDockTabSelected;
-		bWasDockTabSelected = bDockTabSelected;
-		if (!bVisible)
-		{
-			ImGui::End();
-			if (!bOpen && DocumentId.IsValid()) WorkspaceManager.RequestCloseDocument(DocumentId);
-			return bDockTabActivated;
-		}
-
-		const ImGuiIO& IO = ImGui::GetIO();
-		if ((bActive || bFocused) && IO.KeyCtrl && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_S, false)) SaveActiveMaterial();
-
-		if (ImGui::Button("Save")) SaveActiveMaterial();
-		ImGui::SameLine();
-		if (ImGui::BeginCombo("##OpenMaterialDocuments", ActiveResourceId.c_str()))
-		{
-			for (const FEditorDocumentTab& Document : WorkspaceManager.GetDocuments())
-			{
-				if (Document.WorkspaceType != MaterialEditorWorkspace::Type) continue;
-				if (ImGui::Selectable(Document.ResourceId.c_str(), Document.ResourceId == ActiveResourceId)) WorkspaceManager.ActivateDocument(Document.Id);
-			}
-			ImGui::EndCombo();
-		}
-		ImGui::Separator();
-		ImGui::TextDisabled("Asset");
-		ImGui::SameLine();
-		ImGui::TextUnformatted(ActiveResourceId.c_str());
-		ImGui::TextDisabled("Type");
-		ImGui::SameLine();
-		ImGui::TextUnformatted(Material->GetClass()->GetQualifiedName().ToString().c_str());
-		ImGui::Spacing();
-
-		if (auto* Instance = Cast<DMaterialInstance>(Material)) DrawMaterialInstance(Instance);
-		else if (auto* BaseMaterial = Cast<DMaterial>(Material)) DrawMaterial(BaseMaterial);
-
-		if (!ErrorMessage.empty()) ImGui::OpenPopup("Material Editor Error");
-		if (ImGui::BeginPopupModal("Material Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-		{
-			ImGui::TextWrapped("%s", ErrorMessage.c_str());
-			if (ImGui::Button("OK"))
-			{
-				ErrorMessage.clear();
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
-		}
-
-		ImGui::End();
-		if (!bOpen && DocumentId.IsValid()) WorkspaceManager.RequestCloseDocument(DocumentId);
-		return bFocused || bDockTabActivated;
+		// Closing mutates the document array, so defer it until iteration is complete.
+		for (FEditorDocumentId DocumentId : CloseRequests) WorkspaceManager.RequestCloseDocument(DocumentId);
+		return bWorkspaceActivated;
 	}
 
 	auto MMaterialEditor::ResetLayout() -> void
@@ -198,9 +122,8 @@ namespace Durin
 		return FindOpenMaterial(ActiveResourceId);
 	}
 
-	auto MMaterialEditor::SaveActiveMaterial() -> bool
+	auto MMaterialEditor::SaveMaterial(DMaterialInterface* Material) -> bool
 	{
-		DMaterialInterface* Material = GetActiveMaterial();
 		if (!Material || !Material->GetPackage()) return false;
 		const Asset::FAssetResult Result = Asset::SavePackage(Material->GetPackage());
 		if (!Result)
@@ -209,6 +132,36 @@ namespace Durin
 			return false;
 		}
 		return true;
+	}
+
+	auto MMaterialEditor::DrawDocument(const FEditorDocumentTab& Document, DMaterialInterface* Material, bool bActive) -> void
+	{
+		const ImGuiIO& IO = ImGui::GetIO();
+		if (bActive && IO.KeyCtrl && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_S, false)) SaveMaterial(Material);
+		if (ImGui::Button("Save")) SaveMaterial(Material);
+		ImGui::Separator();
+		ImGui::TextDisabled("Asset");
+		ImGui::SameLine();
+		ImGui::TextUnformatted(Document.ResourceId.c_str());
+		ImGui::TextDisabled("Type");
+		ImGui::SameLine();
+		ImGui::TextUnformatted(Material->GetClass()->GetQualifiedName().ToString().c_str());
+		ImGui::Spacing();
+		if (auto* Instance = Cast<DMaterialInstance>(Material)) DrawMaterialInstance(Instance);
+		else if (auto* BaseMaterial = Cast<DMaterial>(Material)) DrawMaterial(BaseMaterial);
+
+		if (ActiveResourceId != Document.ResourceId) return;
+		if (!ErrorMessage.empty()) ImGui::OpenPopup("Material Editor Error");
+		if (ImGui::BeginPopupModal("Material Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+		{
+			ImGui::TextWrapped("%s", ErrorMessage.c_str());
+			if (ImGui::Button("OK"))
+			{
+				ErrorMessage.clear();
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
 	}
 
 	auto MMaterialEditor::DrawMaterial(DMaterial* Material) -> void
@@ -246,27 +199,28 @@ namespace Durin
 		ImGui::PushID("MaterialParent");
 		MonaImGui::BeginPropertyRow("Parent");
 		DMaterialInterface* Current = Instance->GetParent();
-		const std::string Preview = AssetPathOrNone(Current);
-		if (ImGui::BeginCombo("##Parent", Preview.c_str()))
-		{
-			ImGui::SetNextItemWidth(-FLT_MIN);
-			ImGui::InputTextWithHint("##ParentSearch", "Search materials...", ParentSearchText.data(), ParentSearchText.size());
-			if (ImGui::Selectable("None", Current == nullptr)) Instance->SetParent(nullptr);
-			for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
-			{
-				DClass* AssetClass = FindClassByQualifiedName(Data.AssetClassName);
-				const std::string PathString = Path.ToString();
-				if (!AssetClass || !IsClassChildOf(AssetClass, DMaterialInterface::StaticClass()) || !ContainsInsensitive(PathString, ParentSearchText.data())) continue;
-				if (ImGui::Selectable(PathString.c_str(), Current && Current->GetPackage() && Current->GetPackage()->GetPackagePath() == PathString))
+		const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
+			.ComboId = "##Parent",
+			.SearchId = "##ParentSearch",
+			.SearchHint = "Search materials...",
+			.RequiredClass = DMaterialInterface::StaticClass(),
+			.ClassPolicy = EEditorAssetClassPolicy::Derived,
+			.CurrentSelection = Current,
+			.SearchText = ParentSearchText,
+			.bAllowNone = true,
+			.AssignSelection = [Instance](DObject* Selection, std::string& OutError) {
+				DMaterialInterface* Parent = Cast<DMaterialInterface>(Selection);
+				if (Selection && !Parent)
 				{
-					DMaterialInterface* Parent = nullptr;
-					const Asset::FAssetResult Result = Asset::LoadAsset(Path, Parent);
-					if (!Result) SetError(Result.Message);
-					else if (!Instance->SetParent(Parent)) SetError("A material instance cannot create a parent cycle.");
+					OutError = "The selected asset is not a material.";
+					return false;
 				}
-			}
-			ImGui::EndCombo();
-		}
+				if (Instance->SetParent(Parent)) return true;
+				OutError = "A material instance cannot create a parent cycle.";
+				return false;
+			},
+		});
+		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
 		MonaImGui::EndPropertyRow();
 		ImGui::PopID();
 	}
@@ -351,39 +305,32 @@ namespace Durin
 			}
 			ImGui::SameLine();
 		}
-		DrawTexturePicker(Texture, bOverride, [Material, Instance](DTexture2D* Selected) {
-			if (Instance) Instance->SetTextureParameterValue(MaterialParameterBaseColorTexture, Selected);
-			else if (auto* BaseMaterial = Cast<DMaterial>(Material)) BaseMaterial->SetTextureParameterValue(MaterialParameterBaseColorTexture, Selected);
+		if (!bOverride) ImGui::BeginDisabled();
+		const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
+			.ComboId = "##Texture",
+			.SearchId = "##TextureSearch",
+			.SearchHint = "Search textures...",
+			.RequiredClass = DTexture2D::StaticClass(),
+			.ClassPolicy = EEditorAssetClassPolicy::Derived,
+			.CurrentSelection = Texture,
+			.SearchText = TextureSearchText,
+			.bAllowNone = true,
+			.AssignSelection = [Material, Instance](DObject* Selection, std::string& OutError) {
+				DTexture2D* Selected = Cast<DTexture2D>(Selection);
+				if (Selection && !Selected)
+				{
+					OutError = "The selected asset is not a texture.";
+					return false;
+				}
+				if (Instance) Instance->SetTextureParameterValue(MaterialParameterBaseColorTexture, Selected);
+				else if (auto* BaseMaterial = Cast<DMaterial>(Material)) BaseMaterial->SetTextureParameterValue(MaterialParameterBaseColorTexture, Selected);
+				return true;
+			},
 		});
+		if (!bOverride) ImGui::EndDisabled();
+		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
 		MonaImGui::EndPropertyRow();
 		ImGui::PopID();
-	}
-
-	auto MMaterialEditor::DrawTexturePicker(DTexture2D* CurrentTexture, bool bEnabled, const std::function<void(DTexture2D*)>& AssignTexture) -> void
-	{
-		if (!bEnabled) ImGui::BeginDisabled();
-		const std::string Preview = AssetPathOrNone(CurrentTexture);
-		if (ImGui::BeginCombo("##Texture", Preview.c_str()))
-		{
-			ImGui::SetNextItemWidth(-FLT_MIN);
-			ImGui::InputTextWithHint("##TextureSearch", "Search textures...", TextureSearchText.data(), TextureSearchText.size());
-			if (ImGui::Selectable("None", CurrentTexture == nullptr)) AssignTexture(nullptr);
-			for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
-			{
-				DClass* AssetClass = FindClassByQualifiedName(Data.AssetClassName);
-				const std::string PathString = Path.ToString();
-				if (!AssetClass || !IsClassChildOf(AssetClass, DTexture2D::StaticClass()) || !ContainsInsensitive(PathString, TextureSearchText.data())) continue;
-				if (ImGui::Selectable(PathString.c_str(), CurrentTexture && CurrentTexture->GetPackage() && CurrentTexture->GetPackage()->GetPackagePath() == PathString))
-				{
-					DTexture2D* Texture = nullptr;
-					const Asset::FAssetResult Result = Asset::LoadAsset(Path, Texture);
-					if (!Result) SetError(Result.Message);
-					else AssignTexture(Texture);
-				}
-			}
-			ImGui::EndCombo();
-		}
-		if (!bEnabled) ImGui::EndDisabled();
 	}
 
 	auto MMaterialEditor::SetError(std::string Message) -> void

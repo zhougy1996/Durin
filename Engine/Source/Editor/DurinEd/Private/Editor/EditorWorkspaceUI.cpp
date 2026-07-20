@@ -12,6 +12,11 @@ namespace Durin::EditorWorkspaceUI
 		return std::format("{}###Durin.Editor.Root.{}", DisplayName, RootKey);
 	}
 
+	auto MakeEditorDocumentRootKey(std::string_view WorkspaceRootKey, std::string_view DocumentKey) -> std::string
+	{
+		return std::format("{}.{}", WorkspaceRootKey, DocumentKey);
+	}
+
 	auto MakeDockClassName(const FEditorWorkspaceTypeId& WorkspaceType) -> std::string
 	{
 		return std::format("Durin.DockClass.{}", WorkspaceType.GetValue());

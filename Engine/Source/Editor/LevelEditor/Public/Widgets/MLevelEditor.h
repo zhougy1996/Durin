@@ -2,6 +2,7 @@
 
 #include "LevelEditorAPI.h"
 #include "Editor/EditorWorkspace.h"
+#include "Editor/EditorWorkspaceRootWindow.h"
 
 namespace Durin
 {
@@ -57,10 +58,9 @@ namespace Durin
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
 		FContentBrowserPanel* ContentBrowserPanel = nullptr;
+		FEditorWorkspaceRootWindow RootWindow;
 		bool bResetLayoutRequested = false;
 		bool bSelectDefaultBottomPanelRequested = true;
-		bool bFocusRequested = false;
-		bool bWasDockTabSelected = false;
 		bool bProjectSettingsOpen = false;
 		bool bAboutDialogOpen = false;
 		std::string DefaultLevel;

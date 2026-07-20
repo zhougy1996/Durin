@@ -6,8 +6,11 @@
 
 namespace Durin::EditorWorkspaceUI
 {
+	inline constexpr uint32 HostLayoutVersion = 2;
+
 	DURINED_API auto MakeEditorHostDockSpaceName(uint32 LayoutVersion) -> std::string;
 	DURINED_API auto MakeEditorRootWindowName(std::string_view DisplayName, std::string_view RootKey) -> std::string;
+	DURINED_API auto MakeEditorDocumentRootKey(std::string_view WorkspaceRootKey, std::string_view DocumentKey) -> std::string;
 	DURINED_API auto MakeDockClassName(const FEditorWorkspaceTypeId& WorkspaceType) -> std::string;
 	DURINED_API auto MakeDockSpaceName(const FEditorWorkspaceTypeId& WorkspaceType, uint32 LayoutVersion) -> std::string;
 	DURINED_API auto MakePanelWindowName(std::string_view DisplayName, const FEditorWorkspaceTypeId& WorkspaceType, std::string_view PanelKey) -> std::string;

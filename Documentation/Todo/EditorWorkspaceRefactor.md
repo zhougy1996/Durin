@@ -148,12 +148,12 @@ requiring `MainFrame` to know literal workspace names and keys. It should cover:
 flags, root window class selection, dock-tab activation edge detection, and
 close forwarding to `FEditorWorkspaceManager`.
 
-- [ ] Extract a small composition-oriented root-window helper into `DurinEd`.
-- [ ] Return explicit visible, focused, activated, and close-requested state.
-- [ ] Support both a simple single-window workspace and a workspace containing
+- [x] Extract a small composition-oriented root-window helper into `DurinEd`.
+- [x] Return explicit visible, focused, activated, and close-requested state.
+- [x] Support both a simple single-window workspace and a workspace containing
   an internal dock space.
-- [ ] Keep editor-specific shortcut and content drawing in each workspace.
-- [ ] Do not introduce a base class containing Level-specific panels, settings,
+- [x] Keep editor-specific shortcut and content drawing in each workspace.
+- [x] Do not introduce a base class containing Level-specific panels, settings,
   or play-session behavior.
 
 ### Asset Picker
@@ -163,13 +163,13 @@ reflected object properties, and default-level selection all repeat variants of
 asset registry iteration, class resolution, inheritance filtering, search,
 loading, and error reporting.
 
-- [ ] Add a generic editor asset picker to `DurinEd`.
-- [ ] Filter by required asset class, with an explicit exact/derived-class
+- [x] Add a generic editor asset picker to `DurinEd`.
+- [x] Filter by required asset class, with an explicit exact/derived-class
   policy.
-- [ ] Support None/Clear, current selection, caller-owned search state, and
+- [x] Support None/Clear, current selection, caller-owned search state, and
   caller-provided assignment validation.
-- [ ] Return load failures without assuming a Level Editor context.
-- [ ] Migrate Material parent and texture pickers first.
+- [x] Return load failures without assuming a Level Editor context.
+- [x] Migrate Material parent and texture pickers first.
 - [ ] Migrate Details object and static-mesh material pickers after matching
   their transaction and validation behavior.
 - [ ] Evaluate default-level and other class-filtered selectors after the core
@@ -247,7 +247,7 @@ one change.
 ## Validation
 
 - [x] Add native tests for registration commit, rollback, unloading, and retry.
-- [ ] Test opening multiple Material and Material Instance documents and
+- [x] Test opening multiple Material and Material Instance documents and
   switching the active document.
 - [ ] Test save, close, cancel, and discard behavior for dirty documents.
 - [ ] Test Material Editor undo and redo for every parameter kind and parent

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/EditorWorkspace.h"
+#include "Editor/EditorWorkspaceRootWindow.h"
 #include "LevelEditorAPI.h"
 #include "DObject/ObjectPtr.h"
 
@@ -9,7 +10,6 @@ namespace Durin
 	class DMaterialInterface;
 	class DMaterial;
 	class DMaterialInstance;
-	class DTexture2D;
 
 	class MMaterialEditor final : public IEditorWorkspace
 	{
@@ -27,23 +27,22 @@ namespace Durin
 	private:
 		auto FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*;
 		auto GetActiveMaterial() const -> DMaterialInterface*;
-		auto SaveActiveMaterial() -> bool;
+		auto SaveMaterial(DMaterialInterface* Material) -> bool;
+		auto DrawDocument(const FEditorDocumentTab& Document, DMaterialInterface* Material, bool bActive) -> void;
 		auto DrawMaterial(DMaterial* Material) -> void;
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;
 		auto DrawParentPicker(DMaterialInstance* Instance) -> void;
 		auto DrawBaseColor(DMaterialInterface* Material, DMaterialInstance* Instance) -> void;
 		auto DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance, std::string_view Name, const char* Label, float DefaultValue, float Minimum, float Maximum) -> void;
 		auto DrawBaseColorTexture(DMaterialInterface* Material, DMaterialInstance* Instance) -> void;
-		auto DrawTexturePicker(DTexture2D* CurrentTexture, bool bEnabled, const std::function<void(DTexture2D*)>& AssignTexture) -> void;
 		auto SetError(std::string Message) -> void;
 
 		FEditorWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
+		std::unordered_map<uint64, FEditorWorkspaceRootWindow> DocumentWindows;
 		std::string ActiveResourceId;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;
-		bool bFocusRequested = false;
-		bool bWasDockTabSelected = false;
 	};
 }

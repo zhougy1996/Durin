@@ -16,8 +16,6 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr uint32 EditorHostLayoutVersion = 2;
-
 		auto BuildDefaultEditorHostLayout(
 			ImGuiID DockSpaceId,
 			const ImVec2& DockSpaceSize,
@@ -31,7 +29,9 @@ namespace Durin
 				DockSpaceNode->WindowClass = EditorWorkspaceUI::MakeEditorRootWindowClass();
 			for (const FEditorWorkspaceDescriptor& Descriptor : Descriptors)
 			{
-				if (Descriptor.DefaultHostDockPreference != EEditorWorkspaceHostDockPreference::Center) continue;
+				// Per-resource windows do not exist during the initial layout build; their root helper
+				// applies the same host preference when each document first appears.
+				if (Descriptor.DefaultHostDockPreference != EEditorWorkspaceHostDockPreference::Center || !Descriptor.HasSingletonDocument()) continue;
 				const std::string RootWindowName = EditorWorkspaceUI::MakeEditorRootWindowName(Descriptor.DisplayName, Descriptor.RootKey);
 				ImGui::DockBuilderDockWindow(RootWindowName.c_str(), DockSpaceId);
 			}
@@ -88,14 +88,14 @@ namespace Durin
 			}
 
 			const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
-			const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeEditorHostDockSpaceId(EditorHostLayoutVersion);
+			const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeEditorHostDockSpaceId(EditorWorkspaceUI::HostLayoutVersion);
 			const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
 			if (bNeedsDefaultLayout)
 			{
 				// DockBuilder must finish before DockSpace submission so the new tree retains this frame's host window.
 				BuildDefaultEditorHostLayout(DockSpaceId, DockSpaceSize, WorkspaceManager.GetWorkspaceDescriptors());
 			}
-			EditorWorkspaceUI::SubmitEditorHostDockSpace(EditorHostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
+			EditorWorkspaceUI::SubmitEditorHostDockSpace(EditorWorkspaceUI::HostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
 
 			for (const std::shared_ptr<IEditorWorkspace>& Workspace : WorkspaceManager.GetRegisteredWorkspaces())
 			{

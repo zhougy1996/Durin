@@ -1,4 +1,8 @@
+#include "Editor/EditorAssetPicker.h"
 #include "Editor/EditorWorkspace.h"
+#include "Editor/EditorWorkspaceUI.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 
 #include <gtest/gtest.h>
 
@@ -14,12 +18,17 @@ namespace
 
 		auto GetWorkspaceType() const -> const Durin::FEditorWorkspaceTypeId& override { return WorkspaceType; }
 		auto OpenDocument(const Durin::FEditorDocumentTab&) -> bool override { return true; }
-		auto ActivateDocument(const Durin::FEditorDocumentTab&) -> void override { ++ActivationCount; }
+		auto ActivateDocument(const Durin::FEditorDocumentTab& Document) -> void override
+		{
+			++ActivationCount;
+			LastActivatedResource = Document.ResourceId;
+		}
 		auto DrawMainMenu() -> void override {}
 		auto DrawWorkspace(bool) -> bool override { return false; }
 		auto ResetLayout() -> void override {}
 
 		int ActivationCount = 0;
+		std::string LastActivatedResource;
 
 	private:
 		Durin::FEditorWorkspaceTypeId WorkspaceType;
@@ -203,4 +212,61 @@ TEST(FEditorWorkspaceManagerTests, RejectsInvalidOrCollidingDescriptorsBeforeMut
 		},
 	}));
 	EXPECT_TRUE(Manager.GetWorkspaceDescriptors().empty());
+}
+
+TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsInOneWorkspace)
+{
+	Durin::FEditorWorkspaceManager Manager;
+	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
+	Durin::FEditorWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+		.Workspaces = {MakeWorkspaceRegistration(Workspace, "Material Editor")},
+		.AssetEditors = {
+			MakeAssetEditor("Material", "MaterialEditor"),
+			MakeAssetEditor("MaterialInstance", "MaterialEditor"),
+		},
+	});
+	ASSERT_TRUE(Registration);
+	ASSERT_TRUE(Manager.OpenAsset("/Game/Materials/M_Stone", "Material"));
+	ASSERT_TRUE(Manager.OpenAsset("/Game/Materials/MI_Stone", "MaterialInstance"));
+	ASSERT_EQ(Manager.GetDocuments().size(), 2);
+	EXPECT_EQ(Manager.GetDocuments()[0].Label, "M_Stone");
+	EXPECT_EQ(Manager.GetDocuments()[1].Label, "MI_Stone");
+	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Materials/MI_Stone");
+
+	EXPECT_TRUE(Manager.ActivateDocument(Manager.GetDocuments()[0].Id));
+	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Materials/M_Stone");
+}
+
+TEST(FEditorWorkspaceUITests, DocumentRootKeysRemainDistinctForSameNamedAssets)
+{
+	const std::string First = Durin::EditorWorkspaceUI::MakeEditorDocumentRootKey(
+		"MaterialEditor", "/Game/Environment/M_Stone"
+	);
+	const std::string Second = Durin::EditorWorkspaceUI::MakeEditorDocumentRootKey(
+		"MaterialEditor", "/Game/Props/M_Stone"
+	);
+	EXPECT_NE(First, Second);
+	EXPECT_NE(
+		Durin::EditorWorkspaceUI::MakeEditorRootWindowName("M_Stone", First),
+		Durin::EditorWorkspaceUI::MakeEditorRootWindowName("M_Stone", Second)
+	);
+}
+
+TEST(FEditorAssetPickerTests, AppliesExactAndDerivedClassPolicies)
+{
+	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesClass(
+		Durin::DMaterialInstance::StaticClass(),
+		Durin::DMaterialInterface::StaticClass(),
+		Durin::EEditorAssetClassPolicy::Derived
+	));
+	EXPECT_FALSE(Durin::EditorAssetPicker::MatchesClass(
+		Durin::DMaterialInstance::StaticClass(),
+		Durin::DMaterialInterface::StaticClass(),
+		Durin::EEditorAssetClassPolicy::Exact
+	));
+	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesClass(
+		Durin::DMaterialInterface::StaticClass(),
+		Durin::DMaterialInterface::StaticClass(),
+		Durin::EEditorAssetClassPolicy::Exact
+	));
 }

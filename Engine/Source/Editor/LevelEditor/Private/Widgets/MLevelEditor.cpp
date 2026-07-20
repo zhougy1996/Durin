@@ -235,7 +235,7 @@ namespace Durin
 	auto MLevelEditor::ActivateDocument(const FEditorDocumentTab& Document) -> void
 	{
 		(void)Document;
-		bFocusRequested = true;
+		RootWindow.RequestFocus();
 	}
 
 	auto MLevelEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
@@ -263,43 +263,32 @@ namespace Durin
 		});
 		if (!bDocumentOpen)
 		{
-			bWasDockTabSelected = false;
+			RootWindow.ResetActivationState();
 			return false;
 		}
 
 		const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeDockSpaceId(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion);
-		EditorWorkspaceUI::SetNextEditorRootWindowClass();
-		if (bFocusRequested)
-		{
-			ImGui::SetNextWindowFocus();
-			bFocusRequested = false;
-		}
 		const bool bLevelDirty = Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
-		const std::string RootWindowName = EditorWorkspaceUI::MakeEditorRootWindowName(bLevelDirty ? "Level Editor *" : "Level Editor", LevelEditorWorkspace::RootKey);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		bool bOpen = true;
-		const ImGuiWindowFlags RootWindowFlags = ImGuiWindowFlags_NoCollapse | (bLevelDirty ? ImGuiWindowFlags_UnsavedDocument : ImGuiWindowFlags_None);
-		const bool bRootVisible = ImGui::Begin(RootWindowName.c_str(), &bOpen, RootWindowFlags);
-		ImGui::PopStyleVar();
-		const bool bRootFocused = bRootVisible && ImGui::IsWindowFocused(
-			ImGuiFocusedFlags_RootAndChildWindows
-		);
-		const bool bDockTabSelected = bRootVisible && ImGui::IsWindowDocked();
-		// Track the selection edge because clicking a dock tab need not focus one of its child panels.
-		const bool bDockTabActivated = bDockTabSelected && !bWasDockTabSelected;
-		bWasDockTabSelected = bDockTabSelected;
-		if (!bRootVisible)
+		const FEditorWorkspaceRootWindowState RootWindowState = RootWindow.Begin({
+			.DisplayName = "Level Editor",
+			.RootKey = LevelEditorWorkspace::RootKey,
+			.bDirty = bLevelDirty,
+			.bZeroPadding = true,
+			.InternalDockSpace = FEditorWorkspaceInternalDockSpace{
+				.WorkspaceType = LevelEditorWorkspace::Type,
+				.LayoutVersion = LevelEditorWorkspace::LayoutVersion,
+			},
+		});
+		if (!RootWindowState.bVisible)
 		{
-			if (ImGui::DockBuilderGetNode(DockSpaceId) != nullptr)
-				EditorWorkspaceUI::SubmitDockSpace(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly);
-			ImGui::End();
-			if (!bOpen)
+			RootWindow.End();
+			if (RootWindowState.bCloseRequested)
 			{
 				const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
 				if (ActiveDocument && ActiveDocument->WorkspaceType == LevelEditorWorkspace::Type)
 					WorkspaceManager.RequestCloseDocument(ActiveDocument->Id);
 			}
-			return bDockTabActivated;
+			return RootWindowState.bActivated;
 		}
 
 		bool bPlaying = GEditor && GEditor->IsPlaying();
@@ -308,7 +297,7 @@ namespace Durin
 			? (bPlaying ? GEditor->GetPlayWorld() : GEditor->GetEditorWorld())
 			: (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
 		const ImGuiIO& IO = ImGui::GetIO();
-		if (bActive || bRootFocused)
+		if (bActive || RootWindowState.bFocused)
 		{
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F5, false) && GEditor)
 			{
@@ -342,8 +331,8 @@ namespace Durin
 			bResetLayoutRequested = false;
 		}
 		EditorWorkspaceUI::SubmitDockSpace(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion, DockSpaceSize);
-		ImGui::End();
-		if (!bOpen)
+		RootWindow.End();
+		if (RootWindowState.bCloseRequested)
 		{
 			const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
 			if (ActiveDocument && ActiveDocument->WorkspaceType == LevelEditorWorkspace::Type)
@@ -398,7 +387,7 @@ namespace Durin
 		{
 			NotificationOverlay->DrawNotifications(GEditor->GetNotificationManager(), GEditor->GetTransactionManager());
 		}
-		return bRootFocused || bDockTabActivated;
+		return RootWindowState.bFocused || RootWindowState.bActivated;
 	}
 
 	auto MLevelEditor::DrawMainMenu() -> void
