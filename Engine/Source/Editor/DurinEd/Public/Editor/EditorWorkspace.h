@@ -140,7 +140,17 @@ namespace Durin
 		virtual auto ActivateDocument(const FEditorDocumentTab& Document) -> void = 0;
 		virtual auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool { return !Document.bDirty; }
 		virtual auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool { return Document.bDirty; }
-		virtual auto DrawMainMenu() -> void = 0;
+		virtual auto CanSaveActiveDocument() const -> bool { return false; }
+		virtual auto SaveActiveDocument() -> bool { return false; }
+		virtual auto CanUndo() const -> bool { return false; }
+		virtual auto CanRedo() const -> bool { return false; }
+		virtual auto GetUndoDescription() const -> std::string_view { return {}; }
+		virtual auto GetRedoDescription() const -> std::string_view { return {}; }
+		virtual auto Undo() -> bool { return false; }
+		virtual auto Redo() -> bool { return false; }
+		virtual auto DrawFileMenu() -> void {}
+		virtual auto DrawEditMenu() -> void {}
+		virtual auto DrawApplicationMenus() -> void {}
 		virtual auto DrawWindowMenu() -> void {}
 		virtual auto DrawWorkspace(bool bActive) -> bool = 0;
 		virtual auto ResetLayout() -> void = 0;

@@ -31,7 +31,17 @@ namespace Durin
 		LEVELEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
 		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
 		LEVELEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
-		LEVELEDITOR_API auto DrawMainMenu() -> void override;
+		LEVELEDITOR_API auto CanSaveActiveDocument() const -> bool override;
+		LEVELEDITOR_API auto SaveActiveDocument() -> bool override;
+		LEVELEDITOR_API auto CanUndo() const -> bool override;
+		LEVELEDITOR_API auto CanRedo() const -> bool override;
+		LEVELEDITOR_API auto GetUndoDescription() const -> std::string_view override;
+		LEVELEDITOR_API auto GetRedoDescription() const -> std::string_view override;
+		LEVELEDITOR_API auto Undo() -> bool override;
+		LEVELEDITOR_API auto Redo() -> bool override;
+		LEVELEDITOR_API auto DrawFileMenu() -> void override;
+		LEVELEDITOR_API auto DrawEditMenu() -> void override;
+		LEVELEDITOR_API auto DrawApplicationMenus() -> void override;
 		LEVELEDITOR_API auto DrawWindowMenu() -> void override;
 		LEVELEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
 		LEVELEDITOR_API auto ResetLayout() -> void override;

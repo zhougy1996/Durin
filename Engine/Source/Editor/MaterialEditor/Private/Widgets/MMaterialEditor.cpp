@@ -67,17 +67,18 @@ namespace Durin
 		return Material && Material->GetPackage() && Material->GetPackage()->IsDirty();
 	}
 
-	auto MMaterialEditor::DrawMainMenu() -> void
+	auto MMaterialEditor::CanSaveActiveDocument() const -> bool
 	{
-		if (ImGui::BeginMenu("File"))
-		{
-			DMaterialInterface* Material = GetActiveMaterial();
-			if (ImGui::MenuItem("Save Material", "Ctrl+S", false, Material && Material->GetPackage())) SaveMaterial(Material);
-			ImGui::EndMenu();
-		}
+		DMaterialInterface* Material = GetActiveMaterial();
+		return Material && Material->GetPackage();
 	}
 
-	auto MMaterialEditor::DrawWorkspace(bool bActive) -> bool
+	auto MMaterialEditor::SaveActiveDocument() -> bool
+	{
+		return SaveMaterial(GetActiveMaterial());
+	}
+
+	auto MMaterialEditor::DrawWorkspace(bool) -> bool
 	{
 		bool bWorkspaceActivated = false;
 		std::vector<FEditorDocumentId> CloseRequests;
@@ -98,7 +99,7 @@ namespace Durin
 				if (ActiveResourceId != Document.ResourceId) WorkspaceManager.ActivateDocument(Document.Id);
 			}
 			if (WindowState.bVisible)
-				DrawDocument(Document, Material, bActive && ActiveResourceId == Document.ResourceId);
+				DrawDocument(Document, Material);
 			RootWindow.End();
 			if (WindowState.bCloseRequested) CloseRequests.push_back(Document.Id);
 		}
@@ -134,10 +135,8 @@ namespace Durin
 		return true;
 	}
 
-	auto MMaterialEditor::DrawDocument(const FEditorDocumentTab& Document, DMaterialInterface* Material, bool bActive) -> void
+	auto MMaterialEditor::DrawDocument(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
-		const ImGuiIO& IO = ImGui::GetIO();
-		if (bActive && IO.KeyCtrl && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_S, false)) SaveMaterial(Material);
 		if (ImGui::Button("Save")) SaveMaterial(Material);
 		ImGui::Separator();
 		ImGui::TextDisabled("Asset");

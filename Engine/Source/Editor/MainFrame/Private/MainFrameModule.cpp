@@ -80,9 +80,39 @@ namespace Durin
 			std::shared_ptr<IEditorWorkspace> ActiveWorkspace;
 			if (const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
 				ActiveWorkspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType);
+			const ImGuiIO& IO = ImGui::GetIO();
+			if (ActiveWorkspace && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
+				ActiveWorkspace->SaveActiveDocument();
+			if (ActiveWorkspace && IO.KeyCtrl && !IO.WantTextInput)
+			{
+				if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) ActiveWorkspace->Undo();
+				if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) ActiveWorkspace->Redo();
+			}
 			if (ImGui::BeginMenuBar())
 			{
-				if (ActiveWorkspace) ActiveWorkspace->DrawMainMenu();
+				const std::vector<std::shared_ptr<IEditorWorkspace>> Workspaces = WorkspaceManager.GetRegisteredWorkspaces();
+				if (ImGui::BeginMenu("File"))
+				{
+					if (ImGui::MenuItem("Save Current", "Ctrl+S", false, ActiveWorkspace && ActiveWorkspace->CanSaveActiveDocument()))
+						ActiveWorkspace->SaveActiveDocument();
+					ImGui::Separator();
+					for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawFileMenu();
+					ImGui::EndMenu();
+				}
+				if (ImGui::BeginMenu("Edit"))
+				{
+					const std::string UndoLabel = ActiveWorkspace && ActiveWorkspace->CanUndo() && !ActiveWorkspace->GetUndoDescription().empty()
+						? std::format("Undo {}", ActiveWorkspace->GetUndoDescription()) : "Undo";
+					const std::string RedoLabel = ActiveWorkspace && ActiveWorkspace->CanRedo() && !ActiveWorkspace->GetRedoDescription().empty()
+						? std::format("Redo {}", ActiveWorkspace->GetRedoDescription()) : "Redo";
+					if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, ActiveWorkspace && ActiveWorkspace->CanUndo())) ActiveWorkspace->Undo();
+					if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, ActiveWorkspace && ActiveWorkspace->CanRedo())) ActiveWorkspace->Redo();
+					ImGui::Separator();
+					for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
+					ImGui::EndMenu();
+				}
+				// Registered workspaces contribute stable application-level menus; focus only changes command routing.
+				for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawApplicationMenus();
 				if (ImGui::BeginMenu("Window"))
 				{
 					for (const FEditorWorkspaceDescriptor& Descriptor : WorkspaceManager.GetWorkspaceDescriptors())

@@ -23,7 +23,6 @@ namespace
 			++ActivationCount;
 			LastActivatedResource = Document.ResourceId;
 		}
-		auto DrawMainMenu() -> void override {}
 		auto DrawWorkspace(bool) -> bool override { return false; }
 		auto ResetLayout() -> void override {}
 

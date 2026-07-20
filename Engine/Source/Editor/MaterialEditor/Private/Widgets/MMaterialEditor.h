@@ -20,7 +20,8 @@ namespace Durin
 		MATERIALEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
 		MATERIALEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
 		MATERIALEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
-		MATERIALEDITOR_API auto DrawMainMenu() -> void override;
+		MATERIALEDITOR_API auto CanSaveActiveDocument() const -> bool override;
+		MATERIALEDITOR_API auto SaveActiveDocument() -> bool override;
 		MATERIALEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
 		MATERIALEDITOR_API auto ResetLayout() -> void override;
 
@@ -28,7 +29,7 @@ namespace Durin
 		auto FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*;
 		auto GetActiveMaterial() const -> DMaterialInterface*;
 		auto SaveMaterial(DMaterialInterface* Material) -> bool;
-		auto DrawDocument(const FEditorDocumentTab& Document, DMaterialInterface* Material, bool bActive) -> void;
+		auto DrawDocument(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawMaterial(DMaterial* Material) -> void;
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;
 		auto DrawParentPicker(DMaterialInstance* Instance) -> void;

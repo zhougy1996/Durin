@@ -310,10 +310,6 @@ namespace Durin
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F6, false) && GEditor && GEditor->IsPlaying()) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F7, false) && GEditor) GEditor->StepPlaySession();
 			if (!bPlaying && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N, false)) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
-			if (!bPlaying && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) DocumentController->SaveCurrentLevel();
-			const bool bGizmoDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
-			if (!bPlaying && !bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false) && GEditor) GEditor->GetTransactionManager().Undo();
-			if (!bPlaying && !bGizmoDragging && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false) && GEditor) GEditor->GetTransactionManager().Redo();
 		}
 		if (GEditor && bPlaying != GEditor->IsPlaying())
 		{
@@ -390,51 +386,87 @@ namespace Durin
 		return RootWindowState.bFocused || RootWindowState.bActivated;
 	}
 
-	auto MLevelEditor::DrawMainMenu() -> void
+	auto MLevelEditor::CanSaveActiveDocument() const -> bool
+	{
+		return !(GEditor && GEditor->IsPlaying()) && Context && Context->Level && Context->Level->GetPackage();
+	}
+
+	auto MLevelEditor::SaveActiveDocument() -> bool
+	{
+		return CanSaveActiveDocument() && DocumentController->SaveCurrentLevel();
+	}
+
+	auto MLevelEditor::CanUndo() const -> bool
+	{
+		const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
+		return !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactionManager().CanUndo();
+	}
+
+	auto MLevelEditor::CanRedo() const -> bool
+	{
+		const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
+		return !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactionManager().CanRedo();
+	}
+
+	auto MLevelEditor::GetUndoDescription() const -> std::string_view
+	{
+		return CanUndo() ? GEditor->GetTransactionManager().GetUndoDescription() : std::string_view{};
+	}
+
+	auto MLevelEditor::GetRedoDescription() const -> std::string_view
+	{
+		return CanRedo() ? GEditor->GetTransactionManager().GetRedoDescription() : std::string_view{};
+	}
+
+	auto MLevelEditor::Undo() -> bool
+	{
+		return CanUndo() && GEditor->GetTransactionManager().Undo();
+	}
+
+	auto MLevelEditor::Redo() -> bool
+	{
+		return CanRedo() && GEditor->GetTransactionManager().Redo();
+	}
+
+	auto MLevelEditor::DrawFileMenu() -> void
 	{
 		const bool bPlaying = GEditor && GEditor->IsPlaying();
-		if (ImGui::BeginMenu("File"))
+		if (bPlaying) ImGui::BeginDisabled();
+		if (ImGui::MenuItem("New Level", "Ctrl+N")) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
+		if (ImGui::MenuItem("Set Current Level as Project Default", nullptr, false, Context && Context->Level && Context->Level->GetPackage()))
 		{
-			if (bPlaying) ImGui::BeginDisabled();
-			if (ImGui::MenuItem("New Level", "Ctrl+N")) DocumentController->RequestAction(ELevelDocumentAction::NewLevel);
-			if (ImGui::MenuItem("Save Level", "Ctrl+S", false, Context && Context->Level && Context->Level->GetPackage())) DocumentController->SaveCurrentLevel();
-			if (ImGui::MenuItem("Set Current Level as Project Default", nullptr, false, Context && Context->Level && Context->Level->GetPackage()))
-			{
-				DefaultLevel = Context->Level->GetPackage()->GetPackagePath();
-				SaveProjectSettings();
-			}
-			if (ImGui::MenuItem("Open Project...")) DocumentController->RequestAction(ELevelDocumentAction::OpenProject);
-			ImGui::Separator();
-			if (ImGui::BeginMenu("Import"))
-			{
-				if (ImGui::MenuItem("Texture...")) TextureImportDialog->Open();
-				if (ImGui::MenuItem("Static Mesh...")) StaticMeshImportDialog->Open();
-				ImGui::EndMenu();
-			}
-			ImGui::Separator();
-			if (Context && Context->Level)
-			{
-				DPackage* Package = Context->Level->GetPackage();
-				const std::string Label = Package ? Package->GetPackagePath() + (Package->IsDirty() ? " *" : "") : "Transient Level";
-				ImGui::TextDisabled("%s", Label.c_str());
-			}
-			if (bPlaying) ImGui::EndDisabled();
+			DefaultLevel = Context->Level->GetPackage()->GetPackagePath();
+			SaveProjectSettings();
+		}
+		if (ImGui::MenuItem("Open Project...")) DocumentController->RequestAction(ELevelDocumentAction::OpenProject);
+		ImGui::Separator();
+		if (ImGui::BeginMenu("Import"))
+		{
+			if (ImGui::MenuItem("Texture...")) TextureImportDialog->Open();
+			if (ImGui::MenuItem("Static Mesh...")) StaticMeshImportDialog->Open();
 			ImGui::EndMenu();
 		}
-		if (ImGui::BeginMenu("Edit"))
+		ImGui::Separator();
+		if (Context && Context->Level)
 		{
-			if (bPlaying) ImGui::BeginDisabled();
-			const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
-			FEditorTransactionManager* Transactions = GEditor && !bDragging ? &GEditor->GetTransactionManager() : nullptr;
-			const std::string UndoLabel = Transactions && Transactions->CanUndo() ? std::format("Undo {}", Transactions->GetUndoDescription()) : "Undo";
-			const std::string RedoLabel = Transactions && Transactions->CanRedo() ? std::format("Redo {}", Transactions->GetRedoDescription()) : "Redo";
-			if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, Transactions && Transactions->CanUndo())) Transactions->Undo();
-			if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, Transactions && Transactions->CanRedo())) Transactions->Redo();
-			ImGui::Separator();
-			if (ImGui::MenuItem("Project Settings...")) bProjectSettingsOpen = true;
-			if (bPlaying) ImGui::EndDisabled();
-			ImGui::EndMenu();
+			DPackage* Package = Context->Level->GetPackage();
+			const std::string Label = Package ? Package->GetPackagePath() + (Package->IsDirty() ? " *" : "") : "Transient Level";
+			ImGui::TextDisabled("%s", Label.c_str());
 		}
+		if (bPlaying) ImGui::EndDisabled();
+	}
+
+	auto MLevelEditor::DrawEditMenu() -> void
+	{
+		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		if (bPlaying) ImGui::BeginDisabled();
+		if (ImGui::MenuItem("Project Settings...")) bProjectSettingsOpen = true;
+		if (bPlaying) ImGui::EndDisabled();
+	}
+
+	auto MLevelEditor::DrawApplicationMenus() -> void
+	{
+		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		if (ImGui::BeginMenu("Play"))
 		{
 			if (!bPlaying)
