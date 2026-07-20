@@ -21,6 +21,7 @@
 #include "MonaImGui.h"
 #include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
+#include "Viewport/CameraPreviewViewportClient.h"
 #include "Widgets/MViewport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -398,10 +399,18 @@ namespace Durin
 		{
 			GEngine->SetMainSceneViewport(SceneViewport);
 		}
+
+		CameraPreviewViewportClient = std::make_unique<FCameraPreviewViewportClient>();
+		CameraPreviewViewportWidget = std::make_shared<MViewport>();
+		CameraPreviewSceneViewport = std::make_shared<FSceneViewport>(CameraPreviewViewportClient.get(), CameraPreviewViewportWidget);
+		CameraPreviewViewportWidget->SetViewportInterface(CameraPreviewSceneViewport);
+		if (GEngine != nullptr) GEngine->RegisterAuxiliarySceneViewport(CameraPreviewSceneViewport);
 	}
 
 	FSceneViewportPanel::~FSceneViewportPanel()
 	{
+		if (GEngine != nullptr) GEngine->UnregisterAuxiliarySceneViewport(CameraPreviewSceneViewport.get());
+		CameraPreviewSceneViewport.reset();
 		if (GEngine != nullptr) GEngine->SetMainSceneViewport(nullptr);
 	}
 
@@ -456,6 +465,7 @@ namespace Durin
 		{
 			if (GEngine && !bPlayingInNewWindow) GEngine->SetGameInputEnabled(false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
+			if (CameraPreviewViewportClient != nullptr) CameraPreviewViewportClient->SetCamera(nullptr);
 			bViewportHovered = false;
 			bViewportFocused = false;
 			ImGui::End();
@@ -466,6 +476,7 @@ namespace Durin
 		{
 			if (GEngine && !bPlayingInNewWindow) GEngine->SetGameInputEnabled(false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
+			if (CameraPreviewViewportClient != nullptr) CameraPreviewViewportClient->SetCamera(nullptr);
 			bViewportHovered = false;
 			bViewportFocused = false;
 			ImGui::TextDisabled("No level is open. Use File > New Level or Open Level.");
@@ -474,6 +485,7 @@ namespace Durin
 		}
 		UpdateViewportSize();
 		if (ViewportClient != nullptr) ViewportClient->SetSelectedActors(Context.GetSelectedActors(), Context.GetPrimarySelectedActor());
+		UpdateCameraPreview(Context);
 		if (ViewportWidget != nullptr)
 		{
 			ViewportWidget->Draw();
@@ -522,6 +534,7 @@ namespace Durin
 				}
 				else UpdateViewportInput(Context, ToolbarLayout);
 				DrawToolbar(Context, ToolbarLayout);
+				DrawCameraPreview(VpMin, VpMax);
 				DrawOrientationOverlay(VpMin, VpMax);
 				DrawFPSOverlay(VpMin, VpMax);
 				if (Context.bReadOnly)
@@ -816,7 +829,7 @@ namespace Durin
 		}
 
 		const float AxisLength = FMath::Max(MonaImGui::ScaleUI(22.0f), FMath::Min(MonaImGui::ScaleUI(34.0f), FMath::Min(ViewportSize.x, ViewportSize.y) * 0.08f));
-		const ImVec2 Origin(FMath::Max(ViewportMin.x + AxisLength + MonaImGui::ScaleUI(18.0f), ViewportMax.x - MonaImGui::ScaleUI(72.0f)), FMath::Max(ViewportMin.y + AxisLength + MonaImGui::ScaleUI(18.0f), ViewportMax.y - MonaImGui::ScaleUI(46.0f)));
+		const ImVec2 Origin(ViewportMin.x + AxisLength + MonaImGui::ScaleUI(18.0f), ViewportMax.y - AxisLength - MonaImGui::ScaleUI(18.0f));
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
 		DrawList->AddCircleFilled(Origin, MonaImGui::ScaleUI(3.0f), MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ViewportText));
@@ -836,6 +849,52 @@ namespace Durin
 			DrawAxisText(DrawList, Add(End, Add(Mul(AxisDirections[AxisIndex], MonaImGui::ScaleUI(5.0f)), ImVec2(-TextSize.x * 0.5f, -TextSize.y * 0.5f))), AxisColors[AxisIndex], AxisLabels[AxisIndex]);
 		}
 		DrawList->PopClipRect();
+	}
+
+	auto FSceneViewportPanel::UpdateCameraPreview(FLevelEditorContext& Context) -> void
+	{
+		DCameraComponent* Camera = nullptr;
+		if (!Context.bReadOnly && !(GEditor && GEditor->IsPlaying()))
+		{
+			if (AActor* SelectedActor = Context.GetPrimarySelectedActor())
+			{
+				Camera = SelectedActor->FindComponentByClass<DCameraComponent>();
+			}
+		}
+		if (CameraPreviewViewportClient != nullptr) CameraPreviewViewportClient->SetCamera(Camera);
+	}
+
+	auto FSceneViewportPanel::DrawCameraPreview(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void
+	{
+		if (CameraPreviewViewportClient == nullptr || CameraPreviewViewportClient->GetCamera() == nullptr || CameraPreviewViewportWidget == nullptr) return;
+
+		const float ViewportWidth = ViewportMax.x - ViewportMin.x;
+		const float ViewportHeight = ViewportMax.y - ViewportMin.y;
+		const float Padding = MonaImGui::ScaleUI(12.0f);
+		const float HeaderHeight = MonaImGui::ScaleUI(24.0f);
+		const float PreviewWidth = FMath::Clamp(ViewportWidth * 0.28f, MonaImGui::ScaleUI(220.0f), MonaImGui::ScaleUI(360.0f));
+		const float PreviewHeight = PreviewWidth * 9.0f / 16.0f;
+		if (PreviewWidth + Padding * 2.0f > ViewportWidth || PreviewHeight + HeaderHeight + Padding * 2.0f > ViewportHeight) return;
+
+		const ImVec2 ImageMin(ViewportMax.x - Padding - PreviewWidth, ViewportMax.y - Padding - PreviewHeight);
+		const ImVec2 ImageMax(ImageMin.x + PreviewWidth, ImageMin.y + PreviewHeight);
+		const ImVec2 HeaderMin(ImageMin.x, ImageMin.y - HeaderHeight);
+		const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
+		CameraPreviewViewportWidget->SetDesiredSize({PreviewWidth, PreviewHeight});
+		ImGui::SetCursorScreenPos(ImageMin);
+		ImGui::PushClipRect(ViewportMin, ViewportMax, true);
+		CameraPreviewViewportWidget->Draw();
+		ImGui::PopClipRect();
+		ImGui::SetCursorScreenPos(SavedCursor);
+
+		ImDrawList* DrawList = ImGui::GetWindowDrawList();
+		ImVec4 HeaderColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
+		HeaderColor.w = 0.94f;
+		DrawList->AddRectFilled(HeaderMin, ImageMin, ImGui::GetColorU32(HeaderColor), MonaImGui::ScaleUI(5.0f), ImDrawFlags_RoundCornersTop);
+		DrawList->AddRect(HeaderMin, ImageMax, ImGui::GetColorU32(ImGuiCol_Border), MonaImGui::ScaleUI(5.0f));
+		const char* Label = "Camera Preview";
+		const ImVec2 LabelSize = ImGui::CalcTextSize(Label);
+		DrawList->AddText(ImVec2(HeaderMin.x + MonaImGui::ScaleUI(8.0f), HeaderMin.y + (HeaderHeight - LabelSize.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), Label);
 	}
 
 	auto FSceneViewportPanel::DrawFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void

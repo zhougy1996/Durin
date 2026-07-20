@@ -31,6 +31,7 @@
 #include "SplineEditorCustomizations.h"
 #include "Viewport/ViewportCameraTransform.h"
 #include "Viewport/LevelEditorViewportClient.h"
+#include "Viewport/CameraPreviewViewportClient.h"
 #include "Yaml/Yaml.h"
 
 #include <gtest/gtest.h>
@@ -806,4 +807,24 @@ TEST(FViewportSelectionTests, PrefersViewportClientAndFallsBackToPrimaryCamera)
 	Engine.SetTestWorld(World);
 	Engine.SetTestViewport(nullptr);
 	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {7.0, 8.0, 9.0});
+}
+
+TEST(FCameraPreviewViewportClientTests, BuildsViewFromAssignedCameraAndRejectsMissingCamera)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "CameraPreviewWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "CameraPreviewLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("PreviewCamera");
+	ASSERT_NE(CameraActor, nullptr);
+	CameraActor->GetCameraComponent()->SetWorldLocation({3.0, 4.0, 5.0});
+
+	Durin::FCameraPreviewViewportClient Client;
+	Durin::FSceneView View;
+	EXPECT_FALSE(Client.CalcSceneView(320, 180, View));
+	Client.SetCamera(CameraActor->GetCameraComponent());
+	ASSERT_TRUE(Client.CalcSceneView(320, 180, View));
+	EXPECT_EQ(View.ViewportWidth, 320u);
+	EXPECT_EQ(View.ViewportHeight, 180u);
+	ExpectVectorNear(View.ViewLocation, {3.0, 4.0, 5.0});
 }

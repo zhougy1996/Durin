@@ -31,6 +31,8 @@ namespace Durin
 		virtual auto RedrawViewports() -> void;
 
 		virtual auto SetMainSceneViewport(std::shared_ptr<FSceneViewport> InSceneViewport) -> void;
+		auto RegisterAuxiliarySceneViewport(const std::shared_ptr<FSceneViewport>& InSceneViewport) -> void;
+		auto UnregisterAuxiliarySceneViewport(const FSceneViewport* InSceneViewport) -> void;
 		virtual auto SetWorld(DWorld* InWorld) -> void;
 
 		auto BeginDestroy() -> void override;
@@ -45,10 +47,12 @@ namespace Durin
 
 	protected:
 		auto BuildMainSceneView(uint32 Width, uint32 Height) const -> FSceneView;
+		auto BuildSceneView(const FSceneViewport* SceneViewport, uint32 Width, uint32 Height, bool bAllowCameraFallback, FSceneView& OutView) const -> bool;
 
 		IRendererModule* RendererModule = nullptr;
 		std::unique_ptr<IScene> MainScene;
 		std::shared_ptr<FSceneViewport> MainSceneViewport;
+		std::vector<std::shared_ptr<FSceneViewport>> AuxiliarySceneViewports;
 
 		DPROPERTY(Transient)
 		TObjectPtr<DWorld> MainWorld;

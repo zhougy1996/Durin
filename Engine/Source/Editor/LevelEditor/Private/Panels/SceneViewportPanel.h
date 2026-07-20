@@ -11,6 +11,8 @@ namespace Durin
 	enum class EEditorPlayStartLocation : uint8;
 	enum class EEditorPlayDestination : uint8;
 	class MViewport;
+	class FSceneViewport;
+	class FCameraPreviewViewportClient;
 	class FLevelEditorViewportClient;
 	class DLevel;
 	struct FLevelViewportCameraState;
@@ -40,11 +42,16 @@ namespace Durin
 		auto DrawToolbar(FLevelEditorContext& Context, const FViewportToolbarLayout& Layout) -> void;
 		auto DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto DrawFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
+		auto DrawCameraPreview(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
+		auto UpdateCameraPreview(FLevelEditorContext& Context) -> void;
 		auto UpdateViewportSize() -> void;
 		auto UpdateViewportInput(FLevelEditorContext& Context, const FViewportToolbarLayout& ToolbarLayout) -> void;
 
 		std::unique_ptr<FLevelEditorViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
+		std::unique_ptr<FCameraPreviewViewportClient> CameraPreviewViewportClient;
+		std::shared_ptr<MViewport> CameraPreviewViewportWidget;
+		std::shared_ptr<FSceneViewport> CameraPreviewSceneViewport;
 		bool bViewportHovered = false;
 		bool bViewportFocused = false;
 		EEditorPlayStartLocation PreferredPlayStartLocation;

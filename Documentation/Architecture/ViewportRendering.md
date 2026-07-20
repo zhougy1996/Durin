@@ -20,6 +20,8 @@ The viewport stack intentionally mirrors the broad Unreal Engine split between a
 
 `FSceneViewport` is held by the engine through `DEngine::MainSceneViewport`. This keeps the scene viewport alive independently of transient widget references.
 
+Editor-only secondary views can be registered through the engine's auxiliary scene viewport list. The main viewport remains the semantic owner of input, PIE destination switching, and active-camera fallback; auxiliary viewports render only when their own viewport client supplies a valid view.
+
 The current paths are:
 
 - game startup: `MWindow -> MViewport -> FSceneViewport`
@@ -88,6 +90,8 @@ DEngine::RedrawViewports()
   updates FSceneViewport
   creates/resizes the offscreen render target when needed
   clears/renders the offscreen render target
+  updates registered auxiliary scene viewports
+  renders each valid auxiliary view into its own offscreen target
 
 MViewport::Draw()
   updates the referenced viewport
@@ -96,6 +100,10 @@ MViewport::Draw()
 ```
 
 For editor render-target viewports, `FSceneViewport::GetDisplayTexture()` simply exposes the current offscreen render target. The UI frame is built before scene rendering commands are enqueued, while ImGui samples the texture later in the same frame, so using the current render target removes the extra-frame resize lag while still letting the render pass populate it before sampling.
+
+The Level Editor camera preview uses this auxiliary path. Selecting an actor with a camera component supplies a camera-backed `FViewportClient`; the resulting 16:9 target is drawn as a non-interactive overlay in the main scene panel. The preview stays dormant when no camera is selected, the panel is hidden, or PIE owns the active scene.
+
+Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache is deliberately bounded so interactive resizing does not retain every transient dimension.
 
 ## Interface Boundary
 
@@ -124,6 +132,7 @@ For game window viewports, `FSceneViewport::UpdateRHIViewport()` asks `FMonaRend
 - Keep `MWindow` focused on native window state and widget content.
 - Put viewport widget behavior in `MViewport`.
 - Keep scene rendering state in `FSceneViewport` and engine/rendering code.
+- Keep primary viewport semantics separate from auxiliary editor views; auxiliary clients must explicitly provide their view and do not fall back to the world's active camera.
 - Do not make Mona widgets depend on Engine types.
 - Do not make `MViewport` own the scene viewport lifetime.
 - Use `MonaUI::DrawTexture(...)` only for render-target-backed UI display.

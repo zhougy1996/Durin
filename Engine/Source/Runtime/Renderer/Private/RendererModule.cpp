@@ -354,6 +354,12 @@ namespace Durin
 
 		struct FPostProcessRendererState
 		{
+			struct FSceneTargets
+			{
+				FTextureRHIRef Color;
+				FTextureRHIRef Depth;
+			};
+
 			std::shared_ptr<FShaderMapBase> CopyShaderMap;
 			std::shared_ptr<FShaderMapBase> FXAAShaderMap;
 			TShaderRef<FPostProcessVertexShader> CopyVertexShader;
@@ -368,10 +374,7 @@ namespace Durin
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
 			FSamplerRHIRef SceneColorSampler;
-			FTextureRHIRef SceneColor;
-			FTextureRHIRef SceneDepth;
-			uint32 SceneColorWidth = 0;
-			uint32 SceneColorHeight = 0;
+			std::unordered_map<uint64, FSceneTargets> SceneTargetsBySize;
 			bool bCreateAttempted = false;
 			std::atomic_bool bEnableFXAA = true;
 		};
@@ -1013,26 +1016,33 @@ namespace Durin
 			);
 		}
 
-		auto EnsureSceneColor(uint32 Width, uint32 Height) -> FRHITexture*
+		auto EnsureSceneTargets(uint32 Width, uint32 Height) -> FPostProcessRendererState::FSceneTargets*
 		{
-			if (GPostProcessState.SceneColor != nullptr
-				&& GPostProcessState.SceneColorWidth == Width
-				&& GPostProcessState.SceneColorHeight == Height)
+			const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
+			if (auto It = GPostProcessState.SceneTargetsBySize.find(Key); It != GPostProcessState.SceneTargetsBySize.end())
 			{
-				return GPostProcessState.SceneColor;
+				return &It->second;
 			}
 
 			FRHITextureCreateDesc SceneColorDesc = FRHITextureCreateDesc::Create2D("SceneColor", Width, Height, EPixelFormat::SRGBA8_UNORM);
 			SceneColorDesc.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource);
 			SceneColorDesc.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
-			GPostProcessState.SceneColor = RHICreateTexture(SceneColorDesc);
 			FRHITextureCreateDesc SceneDepthDesc = FRHITextureCreateDesc::Create2D("SceneDepth", Width, Height, EPixelFormat::D32);
 			SceneDepthDesc.SetFlags(ETextureCreateFlags::DepthStencilTargetable);
 			SceneDepthDesc.SetClearValue(FClearValueBinding(1.0f, 0u));
-			GPostProcessState.SceneDepth = RHICreateTexture(SceneDepthDesc);
-			GPostProcessState.SceneColorWidth = Width;
-			GPostProcessState.SceneColorHeight = Height;
-			return GPostProcessState.SceneColor;
+			auto [It, bInserted] = GPostProcessState.SceneTargetsBySize.emplace(Key, FPostProcessRendererState::FSceneTargets{
+				.Color = RHICreateTexture(SceneColorDesc),
+				.Depth = RHICreateTexture(SceneDepthDesc),
+			});
+			// Interactive viewport resizing can produce many transient dimensions. Keep a
+			// small pool so the main view and camera previews reuse their stable sizes
+			// without retaining every intermediate drag size for the entire session.
+			if (GPostProcessState.SceneTargetsBySize.size() > 8)
+			{
+				const auto EvictionIt = std::ranges::find_if(GPostProcessState.SceneTargetsBySize, [Key](const auto& Entry) { return Entry.first != Key; });
+				if (EvictionIt != GPostProcessState.SceneTargetsBySize.end()) GPostProcessState.SceneTargetsBySize.erase(EvictionIt);
+			}
+			return bInserted ? &It->second : nullptr;
 		}
 
 		auto ToShaderMatrix(const FMatrix& Matrix) -> glm::mat4
@@ -1409,10 +1419,7 @@ namespace Durin
 		GPostProcessState.VertexBuffer = nullptr;
 		GPostProcessState.IndexBuffer = nullptr;
 		GPostProcessState.SceneColorSampler = nullptr;
-		GPostProcessState.SceneColor = nullptr;
-		GPostProcessState.SceneDepth = nullptr;
-		GPostProcessState.SceneColorWidth = 0;
-		GPostProcessState.SceneColorHeight = 0;
+		GPostProcessState.SceneTargetsBySize.clear();
 		GPostProcessState.bCreateAttempted = false;
 		GPostProcessState.bEnableFXAA.store(true, std::memory_order_relaxed);
 	}
@@ -1488,11 +1495,12 @@ namespace Durin
 		}
 
 		EnsurePostProcessResources(CommandList);
-		FRHITexture* SceneColor = EnsureSceneColor(Width, Height);
-		if (SceneColor == nullptr)
+		FPostProcessRendererState::FSceneTargets* SceneTargets = EnsureSceneTargets(Width, Height);
+		if (SceneTargets == nullptr || SceneTargets->Color == nullptr || SceneTargets->Depth == nullptr)
 		{
 			return;
 		}
+		FRHITexture* SceneColor = SceneTargets->Color;
 		if (!View.OverlayPrimitives.empty()) EnsureGizmoResources(CommandList);
 		if (!View.OverlayLines.empty()) EnsureOverlayLineResources();
 		if (!View.OverlayIcons.empty()) EnsureOverlayIconResources(CommandList);
@@ -1501,7 +1509,7 @@ namespace Durin
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.RenderTargetLayout = MakeSceneRenderTargetLayout();
 		ScenePassInfo.ColorRenderTargets[0] = SceneColor;
-		ScenePassInfo.DepthStencilRenderTarget = GPostProcessState.SceneDepth;
+		ScenePassInfo.DepthStencilRenderTarget = SceneTargets->Depth;
 		ScenePassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		ScenePassInfo.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
 		CommandList.BeginRenderPass(ScenePassInfo, "SceneColorRenderPass");

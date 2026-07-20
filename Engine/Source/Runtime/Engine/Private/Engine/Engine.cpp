@@ -84,6 +84,7 @@ namespace Durin
 
 	auto DEngine::BeginDestroy() -> void
 	{
+		AuxiliarySceneViewports.clear();
 		MainSceneViewport.reset();
 		MainWorld = nullptr;
 		if (MainScene != nullptr)
@@ -108,75 +109,77 @@ namespace Durin
 
 	auto DEngine::RedrawViewports() -> void
 	{
-		if (MainSceneViewport == nullptr)
-		{
-			return;
-		}
+		auto RenderTargetViewport = [this](const std::shared_ptr<FSceneViewport>& SceneViewport, bool bAllowCameraFallback) {
+			if (SceneViewport == nullptr || SceneViewport->IsWindowBacked()) return;
+			const FVector2f DesiredSize = SceneViewport->GetDesiredSize();
+			const uint32 ViewWidth = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.x)));
+			const uint32 ViewHeight = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.y)));
+			FSceneView View;
+			if (!BuildSceneView(SceneViewport.get(), ViewWidth, ViewHeight, bAllowCameraFallback, View)) return;
 
-		MainSceneViewport->UpdateRHIViewport();
-		if (!MainSceneViewport->IsWindowBacked())
-		{
-			FTextureRHIRef RenderTargetRHI = MainSceneViewport->GetRenderTargetRHI();
-			if (RenderTargetRHI == nullptr)
-			{
-				return;
-			}
-
-			const FSceneView View = BuildMainSceneView(RenderTargetRHI->GetSizeX(), RenderTargetRHI->GetSizeY());
-			ENQUEUE_RENDER_COMMAND(RenderMainSceneRenderTarget)(
+			SceneViewport->UpdateRHIViewport();
+			FTextureRHIRef RenderTargetRHI = SceneViewport->GetRenderTargetRHI();
+			if (RenderTargetRHI == nullptr) return;
+			ENQUEUE_RENDER_COMMAND(RenderSceneRenderTarget)(
 				[RenderTargetRHI, View, Scene = MainScene.get(), RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					if (RendererModule != nullptr)
 					{
 						RendererModule->PrepareSceneResources(CommandList, Scene);
-					}
-
-					if (RendererModule != nullptr)
-					{
 						RendererModule->RenderView(CommandList, Scene, View, RenderTargetRHI, false);
 					}
 				}
 			);
-			return;
-		}
+		};
 
-		const TRefCountPtr<FRHIViewport>& ViewportRHI = MainSceneViewport->GetRHIViewport();
-		if (ViewportRHI == nullptr)
+		if (MainSceneViewport != nullptr && !MainSceneViewport->IsWindowBacked())
 		{
-			return;
+			RenderTargetViewport(MainSceneViewport, true);
+		}
+		else if (MainSceneViewport != nullptr)
+		{
+			MainSceneViewport->UpdateRHIViewport();
+			const TRefCountPtr<FRHIViewport>& ViewportRHI = MainSceneViewport->GetRHIViewport();
+			if (ViewportRHI != nullptr)
+			{
+				const FVector2f DesiredSize = MainSceneViewport->GetDesiredSize();
+				const uint32 ViewWidth = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.x)));
+				const uint32 ViewHeight = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.y)));
+				FSceneView View;
+				if (BuildSceneView(MainSceneViewport.get(), ViewWidth, ViewHeight, true, View))
+				{
+					ENQUEUE_RENDER_COMMAND(RenderMainSceneViewport)(
+						[ViewportRHI, View, Scene = MainScene.get(), RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
+							CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+							CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
+
+							FTextureRHIRef BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(ViewportRHI);
+							if (BackBuffer == nullptr)
+							{
+								CommandList.EndDrawingViewport(ViewportRHI, false, false);
+								return;
+							}
+
+							if (RendererModule != nullptr)
+							{
+								RendererModule->PrepareSceneResources(CommandList, Scene);
+								FSceneView BackBufferView = View;
+								BackBufferView.ViewportWidth = BackBuffer->GetSizeX();
+								BackBufferView.ViewportHeight = BackBuffer->GetSizeY();
+								RendererModule->RenderView(CommandList, Scene, BackBufferView, BackBuffer, true);
+							}
+
+							CommandList.EndDrawingViewport(ViewportRHI, true, false);
+						}
+					);
+				}
+			}
 		}
 
-		const FVector2f DesiredSize = MainSceneViewport->GetDesiredSize();
-		const uint32 ViewWidth = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.x)));
-		const uint32 ViewHeight = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(DesiredSize.y)));
-		const FSceneView View = BuildMainSceneView(ViewWidth, ViewHeight);
-		ENQUEUE_RENDER_COMMAND(RenderMainSceneViewport)(
-			[ViewportRHI, View, Scene = MainScene.get(), RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
-				CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-				CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
-
-				FTextureRHIRef BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(ViewportRHI);
-				if (BackBuffer == nullptr)
-				{
-					CommandList.EndDrawingViewport(ViewportRHI, false, false);
-					return;
-				}
-
-				if (RendererModule != nullptr)
-				{
-					RendererModule->PrepareSceneResources(CommandList, Scene);
-				}
-				if (RendererModule != nullptr)
-				{
-					FSceneView BackBufferView = View;
-					BackBufferView.ViewportWidth = BackBuffer->GetSizeX();
-					BackBufferView.ViewportHeight = BackBuffer->GetSizeY();
-					RendererModule->RenderView(CommandList, Scene, BackBufferView, BackBuffer, true);
-				}
-
-				CommandList.EndDrawingViewport(ViewportRHI, true, false);
-			}
-		);
+		for (const std::shared_ptr<FSceneViewport>& SceneViewport : AuxiliarySceneViewports)
+		{
+			RenderTargetViewport(SceneViewport, false);
+		}
 	}
 
 	auto DEngine::SetMainSceneViewport(std::shared_ptr<FSceneViewport> InSceneViewport) -> void
@@ -186,6 +189,22 @@ namespace Durin
 		{
 			MainSceneViewport->UpdateRHIViewport();
 		}
+	}
+
+	auto DEngine::RegisterAuxiliarySceneViewport(const std::shared_ptr<FSceneViewport>& InSceneViewport) -> void
+	{
+		if (InSceneViewport == nullptr || InSceneViewport->IsWindowBacked()) return;
+		if (std::ranges::find(AuxiliarySceneViewports, InSceneViewport) == AuxiliarySceneViewports.end())
+		{
+			AuxiliarySceneViewports.push_back(InSceneViewport);
+		}
+	}
+
+	auto DEngine::UnregisterAuxiliarySceneViewport(const FSceneViewport* InSceneViewport) -> void
+	{
+		std::erase_if(AuxiliarySceneViewports, [InSceneViewport](const std::shared_ptr<FSceneViewport>& Entry) {
+			return Entry.get() == InSceneViewport;
+		});
 	}
 
 	auto DEngine::SetWorld(DWorld* InWorld) -> void
@@ -205,26 +224,38 @@ namespace Durin
 	auto DEngine::BuildMainSceneView(uint32 Width, uint32 Height) const -> FSceneView
 	{
 		FSceneView View;
-		View.ViewportWidth = Width;
-		View.ViewportHeight = Height;
-		if (MainSceneViewport != nullptr)
+		BuildSceneView(MainSceneViewport.get(), Width, Height, true, View);
+		return View;
+	}
+
+	auto DEngine::BuildSceneView(const FSceneViewport* SceneViewport, uint32 Width, uint32 Height, bool bAllowCameraFallback, FSceneView& OutView) const -> bool
+	{
+		OutView = {};
+		OutView.ViewportWidth = Width;
+		OutView.ViewportHeight = Height;
+		if (SceneViewport != nullptr)
 		{
-			if (const FViewportClient* ViewportClient = MainSceneViewport->GetViewportClient())
+			if (const FViewportClient* ViewportClient = SceneViewport->GetViewportClient())
 			{
-				if (ViewportClient->CalcSceneView(Width, Height, View)) return View;
+				if (ViewportClient->CalcSceneView(Width, Height, OutView)) return true;
 			}
 		}
 
-		if (const DCameraComponent* CameraComponent = GetActiveCameraComponent())
+		if (bAllowCameraFallback)
 		{
-			const float AspectRatio = Height > 0 ? static_cast<float>(Width) / static_cast<float>(Height) : 1.0f;
-			View.ViewMatrix = CameraComponent->GetViewMatrix();
-			View.ProjectionMatrix = CameraComponent->GetProjectionMatrix(AspectRatio);
-			View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
-			View.ViewLocation = CameraComponent->GetWorldLocation();
+			if (const DCameraComponent* CameraComponent = GetActiveCameraComponent())
+			{
+				const float AspectRatio = Height > 0 ? static_cast<float>(Width) / static_cast<float>(Height) : 1.0f;
+				OutView.ViewMatrix = CameraComponent->GetViewMatrix();
+				OutView.ProjectionMatrix = CameraComponent->GetProjectionMatrix(AspectRatio);
+				OutView.ViewProjectionMatrix = OutView.ProjectionMatrix * OutView.ViewMatrix;
+				OutView.ViewLocation = CameraComponent->GetWorldLocation();
+				return true;
+			}
 		}
-
-		return View;
+		// The primary viewport historically renders a default identity view when no
+		// camera exists; auxiliary viewports instead stay dormant without a client view.
+		return bAllowCameraFallback;
 	}
 
 	DEngine* GEngine = nullptr;
