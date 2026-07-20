@@ -22,6 +22,9 @@ namespace Durin
 		auto ClearScalarParameterValue(std::string_view Name) -> bool;
 		auto ClearVectorParameterValue(std::string_view Name) -> bool;
 		auto ClearTextureParameterValue(std::string_view Name) -> bool;
+		auto HasScalarParameterOverride(std::string_view Name) const -> bool;
+		auto HasVectorParameterOverride(std::string_view Name) const -> bool;
+		auto HasTextureParameterOverride(std::string_view Name) const -> bool;
 		auto GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool override;
 		auto GetVectorParameterValue(std::string_view Name, FVector3& OutValue) const -> bool override;
 		auto GetTextureParameterValue(std::string_view Name, DTexture2D*& OutValue) const -> bool override;

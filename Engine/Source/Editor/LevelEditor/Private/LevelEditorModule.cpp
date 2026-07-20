@@ -4,6 +4,10 @@
 #include "EditorSessionSettings.h"
 #include "Engine/Level.h"
 #include "LevelEditorWorkspace.h"
+#include "MaterialEditorWorkspace.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
+#include "Widgets/MMaterialEditor.h"
 #include "Widgets/MLevelEditor.h"
 #include "Actors/CameraActor.h"
 #include "CameraEditorCustomizations.h"
@@ -47,6 +51,8 @@ namespace Durin
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(*SessionSettings, WorkspaceManager);
 		Workspace->Construct();
 		if (!WorkspaceManager.RegisterWorkspace(Workspace)) return false;
+		std::shared_ptr<MMaterialEditor> MaterialWorkspace = std::make_shared<MMaterialEditor>(WorkspaceManager);
+		if (!WorkspaceManager.RegisterWorkspace(MaterialWorkspace)) return false;
 		if (!WorkspaceManager.RegisterAssetEditor({
 			.AssetClassName = DLevel::StaticClass()->GetQualifiedName().ToString(),
 			.WorkspaceType = LevelEditorWorkspace::Type,
@@ -54,6 +60,20 @@ namespace Durin
 			.SingletonDocumentKey = "LevelEditor",
 			.SingletonLabel = "Level Editor",
 			.bClosable = false,
+		}))
+			return false;
+		if (!WorkspaceManager.RegisterAssetEditor({
+			.AssetClassName = DMaterial::StaticClass()->GetQualifiedName().ToString(),
+			.WorkspaceType = MaterialEditorWorkspace::Type,
+			.DocumentPolicy = EEditorDocumentPolicy::PerResource,
+			.bClosable = true,
+		}))
+			return false;
+		if (!WorkspaceManager.RegisterAssetEditor({
+			.AssetClassName = DMaterialInstance::StaticClass()->GetQualifiedName().ToString(),
+			.WorkspaceType = MaterialEditorWorkspace::Type,
+			.DocumentPolicy = EEditorDocumentPolicy::PerResource,
+			.bClosable = true,
 		}))
 			return false;
 		return WorkspaceManager.OpenDocument({

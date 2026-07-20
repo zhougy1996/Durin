@@ -306,6 +306,32 @@ TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialTests, InstanceOverrideStateTracksSetAndClear)
+{
+	InitializeDObjectSystem();
+	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "OverrideStateInstance");
+	EXPECT_FALSE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
+	EXPECT_FALSE(Instance->HasVectorParameterOverride(Durin::MaterialParameterBaseColor));
+	EXPECT_FALSE(Instance->HasTextureParameterOverride(Durin::MaterialParameterBaseColorTexture));
+
+	Instance->SetScalarParameterValue(Durin::MaterialParameterOpacity, 0.5f);
+	Instance->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.2, 0.4, 0.6));
+	Instance->SetTextureParameterValue(Durin::MaterialParameterBaseColorTexture, nullptr);
+	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
+	EXPECT_TRUE(Instance->HasVectorParameterOverride(Durin::MaterialParameterBaseColor));
+	EXPECT_TRUE(Instance->HasTextureParameterOverride(Durin::MaterialParameterBaseColorTexture));
+
+	EXPECT_TRUE(Instance->ClearScalarParameterValue(Durin::MaterialParameterOpacity));
+	EXPECT_TRUE(Instance->ClearVectorParameterValue(Durin::MaterialParameterBaseColor));
+	EXPECT_TRUE(Instance->ClearTextureParameterValue(Durin::MaterialParameterBaseColorTexture));
+	EXPECT_FALSE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
+	EXPECT_FALSE(Instance->HasVectorParameterOverride(Durin::MaterialParameterBaseColor));
+	EXPECT_FALSE(Instance->HasTextureParameterOverride(Durin::MaterialParameterBaseColorTexture));
+
+	Durin::MarkAsGarbage(Instance);
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialTests, TextureParametersInheritOverrideAndPreserveExplicitNull)
 {
 	InitializeDObjectSystem();

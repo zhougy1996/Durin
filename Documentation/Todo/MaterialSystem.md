@@ -18,12 +18,13 @@ alpha blending disabled, so it does not yet define translucent rendering.
 All static meshes share one shader map, one opaque pipeline policy, and one
 linear-repeat base-color sampler.
 
-Editor support currently stops at selecting an existing material for each
-static-mesh slot. The Content Browser cannot create material or material
-instance assets, no asset editor is registered for either type, and the
-generic Details panel does not edit their reflected parameter maps. Material
-assets can therefore be created and exercised through code/tests, but not
-authored through a usable editor workflow.
+The Content Browser can now create material and material-instance assets and
+open them in a dedicated Material Editor. The first editor slice exposes the
+current built-in scalar, color, and texture parameters, parent selection,
+per-parameter instance overrides, reset-to-parent behavior, and save support.
+It does not yet provide a rendered preview, thumbnails, drag/drop, arbitrary
+declared parameters, or complete rename/delete synchronization for open
+documents.
 
 ## Implemented
 
@@ -53,17 +54,22 @@ authored through a usable editor workflow.
 This is the highest-value next step because the runtime vertical slice exists
 but cannot be authored normally.
 
-- [ ] Add Content Browser creation actions for `DMaterial` and
-  `DMaterialInstance`, including unique naming, save, reveal, rename/move, and
-  delete behavior.
-- [ ] Register material and material-instance asset editors instead of routing
+- [x] Add Content Browser creation actions for `DMaterial` and
+  `DMaterialInstance`, including unique naming, initial save, reveal, and
+  automatic opening.
+- [ ] Keep open Material Editor documents synchronized when their assets are
+  renamed, moved, or deleted through the Content Browser.
+- [x] Register material and material-instance asset editors instead of routing
   double-clicks to the current "no editor" error.
-- [ ] Build a dedicated parameter editor for scalar, vector/color, and texture
-  values. Do not expose raw reflected `unordered_map` storage as the final UX.
-- [ ] Show inherited values, local override state, reset-to-parent actions, and
-  the resolved parent chain for material instances.
-- [ ] Add searchable asset pickers and drag/drop for texture parameters and
-  instance parents, with cycle and incompatible-type diagnostics.
+- [x] Build a dedicated editor for the current built-in scalar, color, and
+  texture values without exposing raw reflected `unordered_map` storage.
+- [x] Show inherited values, local override state, and reset-to-parent actions
+  for material instances.
+- [ ] Show the complete resolved parent chain and identify which ancestor
+  supplies each inherited value.
+- [x] Add searchable asset pickers for texture parameters and instance parents,
+  with cycle and incompatible-type diagnostics.
+- [ ] Add Content Browser drag/drop for texture parameters and instance parents.
 - [ ] Add a lit preview scene, mesh selection, camera controls, and live updates
   without requiring reassignment on a level component.
 - [ ] Add material and material-instance thumbnails with invalid/compiling

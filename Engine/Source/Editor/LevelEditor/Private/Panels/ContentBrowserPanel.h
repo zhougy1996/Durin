@@ -103,6 +103,7 @@ namespace Durin
 		auto RenameFolder(const FContentBrowserItem& Item, std::string_view NewName) -> bool;
 		auto IsManagedCompanion(const FContentBrowserItem& Item) const -> bool;
 		auto CreateFolder() -> void;
+		auto CreateMaterialAsset(bool bInstance) -> void;
 		auto RequestDeleteSelection() -> void;
 		auto DeleteSelection() -> void;
 		auto DeleteEmptyFolder(const FContentBrowserItem& Item) -> bool;

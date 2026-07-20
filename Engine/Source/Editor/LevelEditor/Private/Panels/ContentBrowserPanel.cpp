@@ -15,6 +15,8 @@
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "Math/Vector.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "SourceImageThumbnailCache.h"
 #include "SourceImageThumbnailDecoder.h"
 #include "Texture/Texture2D.h"
@@ -940,6 +942,12 @@ namespace Durin
 		if (ImGui::BeginPopupContextWindow("ContentBrowserBackground", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 		{
 			if (ImGui::MenuItem("New Folder")) CreateFolder();
+			if (ImGui::BeginMenu("Create"))
+			{
+				if (ImGui::MenuItem("Material")) CreateMaterialAsset(false);
+				if (ImGui::MenuItem("Material Instance")) CreateMaterialAsset(true);
+				ImGui::EndMenu();
+			}
 			if (ImGui::BeginMenu("Import", static_cast<bool>(RequestImport)))
 			{
 				if (ImGui::MenuItem("Texture...")) RequestImport(CurrentVirtualPath, EContentBrowserImportType::Texture);
@@ -1232,6 +1240,61 @@ namespace Durin
 			}
 			return;
 		}
+	}
+
+	auto FContentBrowserPanel::CreateMaterialAsset(bool bInstance) -> void
+	{
+		std::string Directory = CurrentVirtualPath;
+		if (!Directory.ends_with('/')) Directory += '/';
+		const std::string BaseName = bInstance ? "NewMaterialInstance" : "NewMaterial";
+		FAssetPath AssetPath;
+		bool bFoundPath = false;
+		for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
+		{
+			const std::string Name = Suffix == 0 ? BaseName : std::format("{}{}", BaseName, Suffix + 1);
+			if (!FAssetPath::TryCreate(Directory + Name, AssetPath)) continue;
+			if (!Asset::GetAssetRegistry().FindAsset(AssetPath) && !Asset::FindLoadedPackage(AssetPath))
+			{
+				bFoundPath = true;
+				break;
+			}
+		}
+		if (!bFoundPath)
+		{
+			SetError("Could not find a unique material asset name in this folder.");
+			return;
+		}
+
+		DMaterialInterface* CreatedMaterial = nullptr;
+		Asset::FAssetResult Result;
+		if (bInstance)
+		{
+			DMaterialInstance* Instance = nullptr;
+			Result = Asset::CreateAsset(AssetPath, Instance);
+			CreatedMaterial = Instance;
+		}
+		else
+		{
+			DMaterial* Material = nullptr;
+			Result = Asset::CreateAsset(AssetPath, Material);
+			CreatedMaterial = Material;
+		}
+		if (!Result || !CreatedMaterial)
+		{
+			SetError(Result ? "Could not create the material asset." : Result.Message);
+			return;
+		}
+		Result = Asset::SavePackage(CreatedMaterial->GetPackage());
+		if (!Result)
+		{
+			Asset::UnloadPackage(AssetPath);
+			SetError(Result.Message);
+			return;
+		}
+		Refresh(true);
+		RevealAsset(AssetPath.ToString());
+		if (OpenAsset && !OpenAsset(AssetPath.ToString(), CreatedMaterial->GetClass()->GetQualifiedName().ToString()))
+			SetError("The material was created, but its editor could not be opened.");
 	}
 
 	auto FContentBrowserPanel::RequestDeleteSelection() -> void

@@ -78,6 +78,21 @@ namespace Durin
 		return true;
 	}
 
+	auto DMaterialInstance::HasScalarParameterOverride(std::string_view Name) const -> bool
+	{
+		return ScalarParameterOverrides.contains(std::string(Name));
+	}
+
+	auto DMaterialInstance::HasVectorParameterOverride(std::string_view Name) const -> bool
+	{
+		return VectorParameterOverrides.contains(std::string(Name));
+	}
+
+	auto DMaterialInstance::HasTextureParameterOverride(std::string_view Name) const -> bool
+	{
+		return TextureParameterOverrides.contains(std::string(Name));
+	}
+
 	auto DMaterialInstance::GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool
 	{
 		const auto It = ScalarParameterOverrides.find(std::string(Name));

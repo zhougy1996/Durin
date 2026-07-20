@@ -16,7 +16,7 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr uint32 EditorHostLayoutVersion = 1;
+		constexpr uint32 EditorHostLayoutVersion = 2;
 
 		auto BuildDefaultEditorHostLayout(ImGuiID DockSpaceId, const ImVec2& DockSpaceSize) -> void
 		{
@@ -26,7 +26,9 @@ namespace Durin
 			if (ImGuiDockNode* DockSpaceNode = ImGui::DockBuilderGetNode(DockSpaceId))
 				DockSpaceNode->WindowClass = EditorWorkspaceUI::MakeEditorRootWindowClass();
 			const std::string LevelEditorRootName = EditorWorkspaceUI::MakeEditorRootWindowName("Level Editor", "LevelEditor");
+			const std::string MaterialEditorRootName = EditorWorkspaceUI::MakeEditorRootWindowName("Material Editor", "MaterialEditor");
 			ImGui::DockBuilderDockWindow(LevelEditorRootName.c_str(), DockSpaceId);
+			ImGui::DockBuilderDockWindow(MaterialEditorRootName.c_str(), DockSpaceId);
 			ImGui::DockBuilderFinish(DockSpaceId);
 		}
 
