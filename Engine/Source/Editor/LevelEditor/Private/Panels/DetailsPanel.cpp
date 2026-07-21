@@ -11,6 +11,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/MathStructs.h"
 #include "Engine/Actor.h"
+#include "Editor/EditorEngine.h"
 #include "Editor/EditorWorkspaceUI.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorHelpers.h"
@@ -1059,7 +1060,8 @@ namespace Durin
 		if (!PropertyEditSession.IsActive())
 		{
 			const std::string Description = std::format("Edit {}", Target.MemberProperty->NamePrivate.ToString());
-			if (!PropertyEditSession.Begin(Target, Description, &GetDetailsPropertyMutationAdapter(), &Error))
+			FEditorTransactionManager* Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr;
+			if (!PropertyEditSession.Begin(Target, Description, &GetDetailsPropertyMutationAdapter(), &Error, Transactions))
 			{
 				Context.SetError(std::move(Error));
 				return false;

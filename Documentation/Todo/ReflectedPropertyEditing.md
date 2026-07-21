@@ -49,8 +49,9 @@ top-level member property.
 
 Top-level Details value edits now emit the common events. Nested array and map
 leaf edits remain on the legacy path until their stable member-to-leaf paths are
-introduced with container editing. The next step is to add the generic
-reflected-property transaction and route undo/redo through the edit service.
+introduced with container editing. Committed top-level edits now also register
+one generic reflected-property transaction per edit session, with undo and redo
+routed through the same mutation adapter. The next step is container editing.
 
 ## Goals
 
@@ -222,16 +223,16 @@ Add a generic reflected-property transaction to `DurinEd`. It should retain a
 safe object reference, the property path, the before/after snapshots, the
 change kind, and a human-readable description.
 
-- [ ] Use `FEditorTransactionManager::CommitApplied()` after an interactive
+- [x] Use `FEditorTransactionManager::CommitApplied()` after an interactive
   edit has already placed the object in its final state.
-- [ ] Undo restores the before snapshot through the mutation adapter.
-- [ ] Redo restores the after snapshot through the mutation adapter.
-- [ ] Undo and redo issue the same object notification used by a normal commit.
-- [ ] A failed restore leaves transaction history coherent and reports the
+- [x] Undo restores the before snapshot through the mutation adapter.
+- [x] Redo restores the after snapshot through the mutation adapter.
+- [x] Undo and redo issue the same object notification used by a normal commit.
+- [x] A failed restore leaves transaction history coherent and reports the
   adapter error through the existing transaction event path.
-- [ ] A no-op comparison produces no transaction and does not dirty the
+- [x] A no-op comparison produces no transaction and does not dirty the
   package.
-- [ ] Continuous editing produces one entry per activation/deactivation cycle,
+- [x] Continuous editing produces one entry per activation/deactivation cycle,
   not one entry per frame.
 
 Dirty-state restoration is a separate policy from value restoration. The first
@@ -294,11 +295,11 @@ editor migration into one change.
 
 - [ ] Verify scalar, enum, string, object, and math-structure edits issue the
   expected interactive and committed events.
-- [ ] Verify a drag issues multiple preview events but creates one transaction.
-- [ ] Verify clicking without changing a value creates no event, dirty state,
+- [x] Verify a drag issues multiple preview events but creates one transaction.
+- [x] Verify clicking without changing a value creates no event, dirty state,
   or transaction.
-- [ ] Verify cancel restores the original value and derived runtime state.
-- [ ] Verify undo and redo call object notification and refresh scene/render
+- [x] Verify cancel restores the original value and derived runtime state.
+- [x] Verify undo and redo call object notification and refresh scene/render
   state.
 - [ ] Verify nested fixed arrays, dynamic arrays, structs, and maps produce the
   correct member, leaf, and path.
@@ -306,7 +307,7 @@ editor migration into one change.
   rename.
 - [ ] Verify rejected assignments do not mutate, dirty, notify, or enter the
   transaction history.
-- [ ] Verify object references held only by a transaction remain valid across
+- [x] Verify object references held only by a transaction remain valid across
   garbage collection, or that an expired target fails safely.
 - [ ] Verify switching selection or documents during an active edit follows the
   documented commit/cancel policy.

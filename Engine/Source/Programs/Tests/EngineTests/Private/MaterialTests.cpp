@@ -155,11 +155,14 @@ TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThr
 	ObjectProperty->SetObjectPropertyValue(Component, Second);
 	ASSERT_TRUE(Durin::CapturePropertyValue(MaterialProperty, Component, 0, Proposed));
 	ASSERT_TRUE(Durin::RestorePropertyValue(MaterialProperty, Component, 0, Original));
+	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession EditSession;
 	ASSERT_TRUE(EditSession.Begin(
 		Durin::FReflectedPropertyEditTarget::ForMember(Component, MaterialProperty),
 		"Edit Material",
-		&Durin::GetDetailsPropertyMutationAdapter()
+		&Durin::GetDetailsPropertyMutationAdapter(),
+		nullptr,
+		&Transactions
 	));
 	EXPECT_EQ(EditSession.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
 	EXPECT_EQ(EditSession.Commit(), Durin::EReflectedPropertyEditResult::Changed);
@@ -167,6 +170,15 @@ TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThr
 
 	EXPECT_NE(Before.Proxy, After.Proxy);
 	ExpectColorNear(After.Material.BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+	ASSERT_TRUE(Transactions.Undo());
+	const FSceneSnapshot Undone = CaptureScene(Harness.Scene);
+	EXPECT_NE(After.Proxy, Undone.Proxy);
+	ExpectColorNear(Undone.Material.BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ASSERT_TRUE(Transactions.Redo());
+	const FSceneSnapshot Redone = CaptureScene(Harness.Scene);
+	EXPECT_NE(Undone.Proxy, Redone.Proxy);
+	ExpectColorNear(Redone.Material.BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+	Transactions.Clear();
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();

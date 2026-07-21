@@ -78,6 +78,89 @@ namespace Durin
 		return GGenericMutationAdapter;
 	}
 
+	FReflectedPropertyTransaction::FReflectedPropertyTransaction(
+		FReflectedPropertyEditTarget InTarget,
+		FPropertyValueSnapshot InBefore,
+		FPropertyValueSnapshot InAfter,
+		std::string InDescription,
+		const IReflectedPropertyMutationAdapter* InAdapter
+	)
+		: Target(std::move(InTarget))
+		, Before(std::move(InBefore))
+		, After(std::move(InAfter))
+		, Description(std::move(InDescription))
+		, Adapter(InAdapter ? InAdapter : &GetGenericReflectedPropertyMutationAdapter())
+	{
+		// Transaction history is not reflected, so it must keep both the edited
+		// object and any object references inside its snapshots visible to GC.
+		if (GDObjectArray.Contains(Target.Object))
+		{
+			AddToRoot(Target.Object);
+			bObjectRooted = true;
+		}
+	}
+
+	FReflectedPropertyTransaction::~FReflectedPropertyTransaction()
+	{
+		if (bObjectRooted && GDObjectArray.Contains(Target.Object)) RemoveFromRoot(Target.Object);
+	}
+
+	auto FReflectedPropertyTransaction::GetDetails(EEditorTransactionOperation) const -> std::string
+	{
+		if (!LastError.empty()) return LastError;
+		if (!Target.Object || !Target.MemberProperty) return {};
+		return std::format("{}.{}", Target.Object->GetObjectPath(), Target.MemberProperty->NamePrivate.ToString());
+	}
+
+	auto FReflectedPropertyTransaction::Undo() -> bool
+	{
+		return Restore(Before, EPropertyChangeOrigin::Undo);
+	}
+
+	auto FReflectedPropertyTransaction::Redo() -> bool
+	{
+		return Restore(After, EPropertyChangeOrigin::Redo);
+	}
+
+	auto FReflectedPropertyTransaction::Restore(const FPropertyValueSnapshot& Snapshot, EPropertyChangeOrigin Origin) -> bool
+	{
+		LastError.clear();
+		if (!Target.Object || !Adapter)
+		{
+			LastError = "The reflected-property transaction target is unavailable.";
+			return false;
+		}
+		const bool bApplied = Origin == EPropertyChangeOrigin::Undo
+			? Adapter->Restore(Target, Snapshot, &LastError)
+			: Adapter->Apply(Target, Snapshot, &LastError);
+		if (!bApplied)
+		{
+			if (LastError.empty()) LastError = "The reflected-property transaction could not restore its value.";
+			return false;
+		}
+		Notify(Origin);
+		Target.Object->MarkPackageDirty();
+		return true;
+	}
+
+	auto FReflectedPropertyTransaction::Notify(EPropertyChangeOrigin Origin) const -> void
+	{
+		std::vector<FPropertyPathSegment> EventPath;
+		EventPath.reserve(Target.Path.size());
+		for (const FReflectedPropertyEditPathSegment& Segment : Target.Path)
+		{
+			EventPath.push_back({Segment.Property, Segment.Selector, Segment.Index, Segment.MapKeyData});
+		}
+		Target.Object->PostEditChangeProperty({
+			Target.MemberProperty,
+			Target.LeafProperty,
+			EventPath,
+			EPropertyChangePhase::Committed,
+			Target.Kind,
+			Origin
+		});
+	}
+
 	FReflectedPropertyEditSession::~FReflectedPropertyEditSession()
 	{
 		// An applied preview must never be abandoned merely because its UI owner is
@@ -90,7 +173,8 @@ namespace Durin
 		const FReflectedPropertyEditTarget& InTarget,
 		std::string_view InDescription,
 		const IReflectedPropertyMutationAdapter* InAdapter,
-		std::string* OutError
+		std::string* OutError,
+		FEditorTransactionManager* InTransactionManager
 	) -> bool
 	{
 		if (bActive) return Fail(OutError, "A reflected-property edit session is already active.");
@@ -98,6 +182,7 @@ namespace Durin
 
 		Target = InTarget;
 		Adapter = InAdapter ? InAdapter : &GetGenericReflectedPropertyMutationAdapter();
+		TransactionManager = InTransactionManager;
 		Description = InDescription;
 		if (!Adapter->Capture(Target, OriginalValue, OutError))
 		{
@@ -138,6 +223,14 @@ namespace Durin
 		{
 			Notify(EPropertyChangePhase::Committed);
 			Target.Object->MarkPackageDirty();
+			if (TransactionManager)
+			{
+				// Preview already placed the object in its final state. Register exactly
+				// one applied transaction here instead of replaying the value on commit.
+				TransactionManager->CommitApplied(std::make_unique<FReflectedPropertyTransaction>(
+					Target, OriginalValue, CurrentValue, Description, Adapter
+				));
+			}
 		}
 		Reset();
 		return bChanged ? EReflectedPropertyEditResult::Changed : EReflectedPropertyEditResult::NoChange;
@@ -181,5 +274,6 @@ namespace Durin
 		OriginalValue = {};
 		CurrentValue = {};
 		Description.clear();
+		TransactionManager = nullptr;
 	}
 }

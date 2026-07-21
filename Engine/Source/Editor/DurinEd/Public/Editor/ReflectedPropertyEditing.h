@@ -3,6 +3,7 @@
 #include "DObject/Archive.h"
 #include "DObject/PropertyChange.h"
 #include "DurinEdAPI.h"
+#include "Editor/EditorTransaction.h"
 
 namespace Durin
 {
@@ -41,6 +42,38 @@ namespace Durin
 
 	DURINED_API auto GetGenericReflectedPropertyMutationAdapter() -> const IReflectedPropertyMutationAdapter&;
 
+	class FReflectedPropertyTransaction final : public IEditorTransaction
+	{
+	public:
+		DURINED_API FReflectedPropertyTransaction(
+			FReflectedPropertyEditTarget InTarget,
+			FPropertyValueSnapshot InBefore,
+			FPropertyValueSnapshot InAfter,
+			std::string InDescription,
+			const IReflectedPropertyMutationAdapter* InAdapter = nullptr
+		);
+		DURINED_API ~FReflectedPropertyTransaction() override;
+		FReflectedPropertyTransaction(const FReflectedPropertyTransaction&) = delete;
+		auto operator=(const FReflectedPropertyTransaction&) -> FReflectedPropertyTransaction& = delete;
+
+		auto GetDescription() const -> std::string_view override { return Description; }
+		DURINED_API auto GetDetails(EEditorTransactionOperation Operation) const -> std::string override;
+		DURINED_API auto Undo() -> bool override;
+		DURINED_API auto Redo() -> bool override;
+
+	private:
+		auto Restore(const FPropertyValueSnapshot& Snapshot, EPropertyChangeOrigin Origin) -> bool;
+		auto Notify(EPropertyChangeOrigin Origin) const -> void;
+
+		FReflectedPropertyEditTarget Target;
+		FPropertyValueSnapshot Before;
+		FPropertyValueSnapshot After;
+		std::string Description;
+		std::string LastError;
+		const IReflectedPropertyMutationAdapter* Adapter = nullptr;
+		bool bObjectRooted = false;
+	};
+
 	enum class EReflectedPropertyEditResult : uint8
 	{
 		Failed,
@@ -59,9 +92,10 @@ namespace Durin
 		DURINED_API auto Begin(
 			const FReflectedPropertyEditTarget& InTarget,
 			std::string_view InDescription,
-			// Custom adapters are registry-owned in production and must outlive the session.
+			// Custom adapters are registry-owned and must outlive the session and its committed transaction.
 			const IReflectedPropertyMutationAdapter* InAdapter = nullptr,
-			std::string* OutError = nullptr
+			std::string* OutError = nullptr,
+			FEditorTransactionManager* InTransactionManager = nullptr
 		) -> bool;
 		DURINED_API auto Apply(const FPropertyValueSnapshot& ProposedValue, std::string* OutError = nullptr) -> EReflectedPropertyEditResult;
 		DURINED_API auto Commit(std::string* OutError = nullptr) -> EReflectedPropertyEditResult;
@@ -82,6 +116,7 @@ namespace Durin
 		FPropertyValueSnapshot OriginalValue;
 		FPropertyValueSnapshot CurrentValue;
 		std::string Description;
+		FEditorTransactionManager* TransactionManager = nullptr;
 		bool bActive = false;
 		bool bObjectRooted = false;
 	};

@@ -6,10 +6,9 @@ namespace Durin
 	{
 		if (!Transaction) return false;
 		const std::string Description(Transaction->GetDescription());
-		const std::string Details(Transaction->GetDetails(EEditorTransactionOperation::Execute));
 		if (!Transaction->Redo())
 		{
-			RecordFailure(EEditorTransactionOperation::Execute, 0, Description, Details);
+			RecordFailure(EEditorTransactionOperation::Execute, 0, Description, Transaction->GetDetails(EEditorTransactionOperation::Execute));
 			return false;
 		}
 		return CommitApplied(std::move(Transaction));
@@ -38,12 +37,12 @@ namespace Durin
 		if (!IsUndoHead(ExpectedId)) return false;
 		FEntry& Entry = UndoStack.back();
 		const std::string Description(Entry.Transaction->GetDescription());
-		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Undo));
 		if (!Entry.Transaction->Undo())
 		{
-			RecordFailure(EEditorTransactionOperation::Undo, Entry.Id, Description, Details);
+			RecordFailure(EEditorTransactionOperation::Undo, Entry.Id, Description, Entry.Transaction->GetDetails(EEditorTransactionOperation::Undo));
 			return false;
 		}
+		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Undo));
 		FEntry Applied = std::move(Entry);
 		UndoStack.pop_back();
 		RedoStack.emplace_back(std::move(Applied));
@@ -61,12 +60,12 @@ namespace Durin
 		if (!IsRedoHead(ExpectedId)) return false;
 		FEntry& Entry = RedoStack.back();
 		const std::string Description(Entry.Transaction->GetDescription());
-		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Redo));
 		if (!Entry.Transaction->Redo())
 		{
-			RecordFailure(EEditorTransactionOperation::Redo, Entry.Id, Description, Details);
+			RecordFailure(EEditorTransactionOperation::Redo, Entry.Id, Description, Entry.Transaction->GetDetails(EEditorTransactionOperation::Redo));
 			return false;
 		}
+		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Redo));
 		FEntry Applied = std::move(Entry);
 		RedoStack.pop_back();
 		UndoStack.emplace_back(std::move(Applied));
