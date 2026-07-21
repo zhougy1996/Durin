@@ -35,6 +35,7 @@ namespace Durin::VulkanRHI
 			case ERHITextureLayout::ColorAttachment: return vk::ImageLayout::eColorAttachmentOptimal;
 			case ERHITextureLayout::DepthStencilAttachment: return vk::ImageLayout::eDepthStencilAttachmentOptimal;
 			case ERHITextureLayout::ShaderReadOnly: return vk::ImageLayout::eShaderReadOnlyOptimal;
+			case ERHITextureLayout::General: return vk::ImageLayout::eGeneral;
 			case ERHITextureLayout::Present: return vk::ImageLayout::ePresentSrcKHR;
 			}
 			check(false);
@@ -62,6 +63,7 @@ namespace Durin::VulkanRHI
 			case ERHIAccess::ColorAttachmentWrite: return vk::PipelineStageFlagBits::eColorAttachmentOutput;
 			case ERHIAccess::DepthStencilReadWrite: return vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests;
 			case ERHIAccess::ShaderRead: return vk::PipelineStageFlagBits::eFragmentShader;
+			case ERHIAccess::ShaderReadWrite: return vk::PipelineStageFlagBits::eAllGraphics;
 			case ERHIAccess::Present: return vk::PipelineStageFlagBits::eBottomOfPipe;
 			}
 			check(false);
@@ -76,6 +78,7 @@ namespace Durin::VulkanRHI
 			case ERHIAccess::ColorAttachmentWrite: return vk::AccessFlagBits::eColorAttachmentWrite;
 			case ERHIAccess::DepthStencilReadWrite: return vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite;
 			case ERHIAccess::ShaderRead: return vk::AccessFlagBits::eShaderRead;
+			case ERHIAccess::ShaderReadWrite: return vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
 			case ERHIAccess::Present: return vk::AccessFlagBits::eMemoryRead;
 			}
 			check(false);

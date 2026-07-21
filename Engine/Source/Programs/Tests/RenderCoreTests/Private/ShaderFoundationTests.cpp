@@ -27,6 +27,17 @@ namespace Durin
 			DURIN_DECLARE_SHADER(FStaticFragmentShader, FShader, "/Unit/StaticShader", EShaderFrequency::Fragment, "fragmentMain");
 		};
 
+		class FStorageFragmentShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FStorageFragmentShader)
+				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(DataBuffer);
+				DURIN_SHADER_PARAMETER_STORAGE_IMAGE(OutputImage);
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_SHADER(FStorageFragmentShader, FShader, "/Unit/StorageShader", EShaderFrequency::Fragment, "fragmentMain");
+		};
+
 		class FIntermediateShader : public FShader
 		{
 		public:
@@ -460,6 +471,50 @@ namespace Durin
 		EXPECT_EQ(Bindings[1].Type, ERHIBindingType::Sampler);
 	}
 
+	TEST(FShaderFoundationTests, BuildShaderParameterBindingsResolvesStorageResources)
+	{
+		struct FParameters
+		{
+			FRHIStorageBufferRange DataBuffer;
+			FRHITexture* OutputImage = nullptr;
+		};
+
+		const std::array Metadata = {
+			MakeShaderParameterMemberMetadata<ERHIBindingType::StorageBuffer, decltype(FParameters::DataBuffer)>("DataBuffer", static_cast<uint32>(offsetof(FParameters, DataBuffer))),
+			MakeShaderParameterMemberMetadata<ERHIBindingType::StorageImage, decltype(FParameters::OutputImage)>("OutputImage", static_cast<uint32>(offsetof(FParameters, OutputImage)))
+		};
+
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({
+			.Name = "DataBuffer",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 1,
+			.BindingIndex = 2,
+			.Type = ERHIBindingType::StorageBuffer,
+			.ArraySize = 1
+		});
+		Reflection.ResourceBindings.push_back({
+			.Name = "OutputImage",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 1,
+			.BindingIndex = 3,
+			.Type = ERHIBindingType::StorageImage,
+			.ArraySize = 1
+		});
+
+		std::vector<FShaderParameterBinding> Bindings;
+		std::string ErrorMessage;
+		const FShaderParametersMetadata ParametersMetadata = MakeTestParametersMetadata<FParameters>(Metadata);
+		ASSERT_TRUE(BuildShaderParameterBindings(&ParametersMetadata, Reflection, Bindings, ErrorMessage)) << ErrorMessage;
+		ASSERT_EQ(Bindings.size(), 2u);
+		EXPECT_EQ(Bindings[0].Type, ERHIBindingType::StorageBuffer);
+		EXPECT_EQ(Bindings[0].SetIndex, 1u);
+		EXPECT_EQ(Bindings[0].BindingIndex, 2u);
+		EXPECT_EQ(Bindings[1].Type, ERHIBindingType::StorageImage);
+		EXPECT_EQ(Bindings[1].SetIndex, 1u);
+		EXPECT_EQ(Bindings[1].BindingIndex, 3u);
+	}
+
 	TEST(FShaderFoundationTests, BuildShaderParameterBindingsAllowsDynamicUniformMetadataForConstantBufferReflection)
 	{
 		struct FParameters
@@ -688,6 +743,19 @@ namespace Durin
 		ASSERT_EQ(Bindings.size(), 1u);
 		EXPECT_EQ(Bindings[0].BindingIndex, 2u);
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FStaticFragmentShader::FParameters, FontTexture));
+	}
+
+	TEST(FShaderFoundationTests, StorageShaderParameterMacrosCreateTypedMetadata)
+	{
+		FShaderType& ShaderType = FStorageFragmentShader::StaticType();
+		const auto ParameterMetadata = ShaderType.GetParameterMetadata();
+		ASSERT_EQ(ParameterMetadata.size(), 2u);
+		EXPECT_STREQ(ParameterMetadata[0].Name, "DataBuffer");
+		EXPECT_EQ(ParameterMetadata[0].Type, ERHIBindingType::StorageBuffer);
+		EXPECT_EQ(ParameterMetadata[0].Size, sizeof(FRHIStorageBufferRange));
+		EXPECT_STREQ(ParameterMetadata[1].Name, "OutputImage");
+		EXPECT_EQ(ParameterMetadata[1].Type, ERHIBindingType::StorageImage);
+		EXPECT_EQ(ParameterMetadata[1].Size, sizeof(FRHITexture*));
 	}
 
 	TEST(FShaderFoundationTests, ShaderDeclarationMacrosUseDefaultAndExplicitTypeNames)

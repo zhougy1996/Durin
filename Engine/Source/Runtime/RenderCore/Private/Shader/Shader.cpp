@@ -595,6 +595,13 @@ namespace Durin
 				ResourceParameter.Offset = UniformBufferRange->Offset;
 				ResourceParameter.Size = UniformBufferRange->Size;
 			}
+			else if (Binding.Type == ERHIBindingType::StorageBuffer)
+			{
+				const auto* StorageBufferRange = reinterpret_cast<const FRHIStorageBufferRange*>(ParameterBytes + Binding.Offset);
+				ResourceParameter.Resource = StorageBufferRange->Buffer;
+				ResourceParameter.Offset = StorageBufferRange->Offset;
+				ResourceParameter.Size = StorageBufferRange->Size;
+			}
 			else
 			{
 				const auto* ResourceField = reinterpret_cast<FRHIResource* const*>(ParameterBytes + Binding.Offset);

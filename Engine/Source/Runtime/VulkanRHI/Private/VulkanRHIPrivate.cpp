@@ -221,6 +221,8 @@ namespace Durin::VulkanRHI
 		case ERHIBindingType::UniformBufferDynamic: return vk::DescriptorType::eUniformBufferDynamic;
 		case ERHIBindingType::Texture: return vk::DescriptorType::eSampledImage;
 		case ERHIBindingType::Sampler: return vk::DescriptorType::eSampler;
+		case ERHIBindingType::StorageBuffer: return vk::DescriptorType::eStorageBuffer;
+		case ERHIBindingType::StorageImage: return vk::DescriptorType::eStorageImage;
 		default:
 			DURIN_ERROR("Unsupported Vulkan binding type: value={}.", static_cast<int32>(InType));
 			return vk::DescriptorType::eUniformBuffer;

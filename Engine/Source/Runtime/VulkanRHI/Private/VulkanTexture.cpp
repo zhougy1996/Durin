@@ -49,6 +49,9 @@ namespace Durin::VulkanRHI
 		ImageExtent.height = FMath::Max(1u, ImageExtent.height);
 
 		const bool bDepthStencil = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable);
+		const bool bStorage = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::Storage);
+		checkf(!bStorage || !bDepthStencil, "Vulkan storage images do not support depth/stencil textures in this RHI");
+		checkf(!bStorage || InCreateDesc.NumSamples == 1, "Vulkan storage images must be single-sampled");
 		vk::ImageUsageFlags ImageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
 		if (EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable))
 		{
@@ -57,6 +60,10 @@ namespace Durin::VulkanRHI
 		if (bDepthStencil)
 		{
 			ImageUsage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
+		}
+		if (bStorage)
+		{
+			ImageUsage |= vk::ImageUsageFlagBits::eStorage;
 		}
 
 		vk::ImageCreateInfo imageInfo{};
@@ -147,7 +154,34 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
 	{
-		return new FVulkanTexture(*Device, CreateDesc);
+		TRefCountPtr<FVulkanTexture> Texture = new FVulkanTexture(*Device, CreateDesc);
+		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage))
+		{
+			// Storage descriptors require GENERAL. Establish it once at creation so an
+			// image without initial upload is immediately valid for shader access.
+			vk::ImageMemoryBarrier Barrier;
+			Barrier.setSrcAccessMask(vk::AccessFlagBits::eNone)
+				.setDstAccessMask(vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite)
+				.setOldLayout(vk::ImageLayout::eUndefined)
+				.setNewLayout(vk::ImageLayout::eGeneral)
+				.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+				.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+				.setImage(Texture->Image)
+				.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, CreateDesc.NumMips, 0, CreateDesc.ArraySize));
+
+			RHIGetVkCommandBuffer(RHICmdList).pipelineBarrier(
+				vk::PipelineStageFlagBits::eTopOfPipe,
+				vk::PipelineStageFlagBits::eAllGraphics,
+				vk::DependencyFlags{}, {}, {}, Barrier);
+			for (uint32 ArrayLayer = 0; ArrayLayer < CreateDesc.ArraySize; ++ArrayLayer)
+			{
+				for (uint32 MipIndex = 0; MipIndex < CreateDesc.NumMips; ++MipIndex)
+				{
+					Texture->SetSubresourceLayout(MipIndex, ArrayLayer, vk::ImageLayout::eGeneral);
+				}
+			}
+		}
+		return Texture;
 	}
 
 	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler>
@@ -189,7 +223,11 @@ namespace Durin::VulkanRHI
 		const bool bHasPreviousContents = OldLayout != vk::ImageLayout::eUndefined;
 
 		vk::ImageMemoryBarrier PreCopyBarrier;
-		PreCopyBarrier.setSrcAccessMask(bHasPreviousContents ? vk::AccessFlagBits::eShaderRead : vk::AccessFlagBits::eNone)
+		const bool bStorage = EnumHasAnyFlags(VulkanTexture->CreateFlags, ETextureCreateFlags::Storage);
+		const vk::AccessFlags PreviousAccess = bStorage
+			? vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite
+			: vk::AccessFlagBits::eShaderRead;
+		PreCopyBarrier.setSrcAccessMask(bHasPreviousContents ? PreviousAccess : vk::AccessFlags{})
 			.setDstAccessMask(vk::AccessFlagBits::eTransferWrite)
 			.setOldLayout(OldLayout)
 			.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
@@ -212,18 +250,23 @@ namespace Durin::VulkanRHI
 
 		CmdBuffer.copyBufferToImage(StagingBuffer.GetHandle(), VulkanTexture->Image, vk::ImageLayout::eTransferDstOptimal, CopyRegion);
 
-		// Transition image to shader read
+		// Storage-capable images remain GENERAL so sampled and storage descriptors
+		// agree on one tracked layout after uploads.
+		const vk::ImageLayout FinalLayout = bStorage ? vk::ImageLayout::eGeneral : vk::ImageLayout::eShaderReadOnlyOptimal;
+		const vk::AccessFlags FinalAccess = bStorage
+			? vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite
+			: vk::AccessFlagBits::eShaderRead;
 		vk::ImageMemoryBarrier PostCopyBarrier;
 		PostCopyBarrier.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-			.setDstAccessMask(vk::AccessFlagBits::eShaderRead)
+			.setDstAccessMask(FinalAccess)
 			.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-			.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+			.setNewLayout(FinalLayout)
 			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 			.setImage(VulkanTexture->Image)
 			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, 0, 1));
 
 		CmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllGraphics, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
-		VulkanTexture->SetSubresourceLayout(MipIndex, 0, vk::ImageLayout::eShaderReadOnlyOptimal);
+		VulkanTexture->SetSubresourceLayout(MipIndex, 0, FinalLayout);
 	}
 } // namespace Durin::VulkanRHI

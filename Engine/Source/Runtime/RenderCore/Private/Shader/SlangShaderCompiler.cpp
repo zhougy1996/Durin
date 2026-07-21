@@ -262,6 +262,10 @@ namespace Durin
 			case slang::BindingType::ConstantBuffer:
 			case slang::BindingType::Texture:
 			case slang::BindingType::MutableTexture:
+			case slang::BindingType::TypedBuffer:
+			case slang::BindingType::RawBuffer:
+			case slang::BindingType::MutableTypedBuffer:
+			case slang::BindingType::MutableRawBuffer:
 			case slang::BindingType::Sampler:
 			{
 				const SlangInt DescriptorSetIndex = TypeLayout->getBindingRangeDescriptorSetIndex(BindingRangeIndex);
@@ -349,6 +353,10 @@ namespace Durin
 				case slang::BindingType::ConstantBuffer:
 				case slang::BindingType::Texture:
 				case slang::BindingType::MutableTexture:
+				case slang::BindingType::TypedBuffer:
+				case slang::BindingType::RawBuffer:
+				case slang::BindingType::MutableTypedBuffer:
+				case slang::BindingType::MutableRawBuffer:
 				case slang::BindingType::Sampler:
 				{
 					const SlangInt DescriptorSetIndex = TypeLayout->getBindingRangeDescriptorSetIndex(BindingRangeIndex);
@@ -372,8 +380,16 @@ namespace Durin
 						Binding.Type = ERHIBindingType::UniformBuffer;
 						break;
 					case slang::BindingType::Texture:
-					case slang::BindingType::MutableTexture:
 						Binding.Type = ERHIBindingType::Texture;
+						break;
+					case slang::BindingType::MutableTexture:
+						Binding.Type = ERHIBindingType::StorageImage;
+						break;
+					case slang::BindingType::TypedBuffer:
+					case slang::BindingType::RawBuffer:
+					case slang::BindingType::MutableTypedBuffer:
+					case slang::BindingType::MutableRawBuffer:
+						Binding.Type = ERHIBindingType::StorageBuffer;
 						break;
 					case slang::BindingType::Sampler:
 						Binding.Type = ERHIBindingType::Sampler;

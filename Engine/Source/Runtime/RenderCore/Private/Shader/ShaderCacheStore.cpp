@@ -57,7 +57,8 @@ namespace Durin
 			return true;
 		}
 
-		constexpr uint32 GShaderReflectionVersion = 4;
+		// Version 5 distinguishes storage buffers/images from sampled resources.
+		constexpr uint32 GShaderReflectionVersion = 5;
 
 		auto SaveShaderReflection(const std::string& FilePath, const FCompiledShader& CompiledShader) -> bool
 		{

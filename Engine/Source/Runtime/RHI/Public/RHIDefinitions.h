@@ -124,7 +124,9 @@ namespace Durin
 		// Texture can be used as a depth-stencil target
 		DepthStencilTargetable = 1ull << 2,
 		// Texture can be used as a shader resource.
-		ShaderResource = 1ull << 3
+		ShaderResource = 1ull << 3,
+		// Texture can be bound as a storage image for shader read/write access.
+		Storage = 1ull << 4
 	};
 	ENUM_CLASS_FLAGS(ETextureCreateFlags);
 

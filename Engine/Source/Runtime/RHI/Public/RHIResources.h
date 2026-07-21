@@ -30,6 +30,8 @@ namespace Durin
 		Texture = 1,
 		Sampler = 2,
 		UniformBufferDynamic = 3,
+		StorageBuffer = 4,
+		StorageImage = 5,
 	};
 
 	class FRHIResource
@@ -498,6 +500,7 @@ namespace Durin
 		ColorAttachment,
 		DepthStencilAttachment,
 		ShaderReadOnly,
+		General,
 		Present,
 	};
 
@@ -507,6 +510,7 @@ namespace Durin
 		ColorAttachmentWrite,
 		DepthStencilReadWrite,
 		ShaderRead,
+		ShaderReadWrite,
 		Present,
 	};
 
@@ -560,6 +564,7 @@ namespace Durin
 					case ERHITextureLayout::ColorAttachment: return Access == ERHIAccess::ColorAttachmentWrite;
 					case ERHITextureLayout::DepthStencilAttachment: return Access == ERHIAccess::DepthStencilReadWrite;
 					case ERHITextureLayout::ShaderReadOnly: return Access == ERHIAccess::ShaderRead;
+					case ERHITextureLayout::General: return Access == ERHIAccess::ShaderReadWrite;
 					case ERHITextureLayout::Present: return Access == ERHIAccess::Present;
 					}
 					return false;
@@ -707,6 +712,13 @@ namespace Durin
 	};
 
 	struct FRHIUniformBufferRange
+	{
+		FRHIBuffer* Buffer = nullptr;
+		uint32 Offset = 0;
+		uint32 Size = 0;
+	};
+
+	struct FRHIStorageBufferRange
 	{
 		FRHIBuffer* Buffer = nullptr;
 		uint32 Offset = 0;

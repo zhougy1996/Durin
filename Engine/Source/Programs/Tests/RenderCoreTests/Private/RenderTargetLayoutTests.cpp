@@ -97,6 +97,10 @@ namespace Durin
 		Layout = MakeLayout();
 		Layout.ColorAttachments[0].RenderTarget.LoadAction = ERHIRenderTargetLoadAction::Load;
 		EXPECT_FALSE(Layout.IsValid());
+		Layout = MakeLayout();
+		Layout.ColorAttachments[1].RenderTarget.FinalLayout = ERHITextureLayout::General;
+		Layout.ColorAttachments[1].RenderTarget.FinalAccess = ERHIAccess::ShaderReadWrite;
+		EXPECT_TRUE(Layout.IsValid());
 		Layout = {};
 		EXPECT_FALSE(Layout.IsValid());
 	}
