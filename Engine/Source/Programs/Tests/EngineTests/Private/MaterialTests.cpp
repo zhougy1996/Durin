@@ -7,12 +7,12 @@
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Engine/Engine.h"
 #include "Editor/ReflectedPropertyEditing.h"
+#include "Editor/ReflectedPropertyView.h"
 #include "DObject/Class.h"
 #include "LevelEditorContext.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
-#include "Panels/DetailsPropertyEditing.h"
 #include "RenderingThread.h"
 #include "Scene.h"
 #include "StaticMesh/StaticMesh.h"
@@ -196,35 +196,25 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "TransactionalMaterial");
 	auto* Property = static_cast<Durin::FMapProperty*>(Material->GetClass()->FindPropertyByName("ScalarParameters"));
 	ASSERT_NE(Property, nullptr);
-	Durin::uint64 ParameterIndex = UINT64_MAX;
-	for (Durin::uint64 Index = 0; Index < Property->Num(Material); ++Index)
-	{
-		const auto* Key = static_cast<const std::string*>(Property->GetKeyPtr(Material, Index));
-		if (Key && *Key == Durin::MaterialParameterOpacity) ParameterIndex = Index;
-	}
-	ASSERT_NE(ParameterIndex, UINT64_MAX);
-
-	const void* Key = Property->GetKeyPtr(Material, ParameterIndex);
-	void* Value = Property->GetMutableMappedValuePtr(Material, ParameterIndex);
-	Durin::FPropertyValueSnapshot KeySnapshot;
-	ASSERT_TRUE(Durin::CapturePropertyValue(Property->GetKeyProp(), Key, 0, KeySnapshot));
-	Durin::FReflectedPropertyEditTarget Target = Durin::FReflectedPropertyEditTarget::ForMember(Material, Property)
-		.ForMapEntry(Property->GetValueProp(), Value, KeySnapshot.GetBytes());
-
-	Durin::FPropertyValueSnapshot Original;
-	Durin::FPropertyValueSnapshot Proposed;
-	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Material, 0, Original));
-	*static_cast<float*>(Value) = 0.4f;
-	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Material, 0, Proposed));
-	ASSERT_TRUE(Durin::RestorePropertyValue(Property, Material, 0, Original));
-
 	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Target, "Edit Opacity", nullptr, nullptr, &Transactions));
+	Durin::FReflectedPropertyView PropertyView;
+	std::string Error;
+	Durin::FReflectedPropertyViewContext Context{
+		.Transactions = &Transactions,
+		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+	};
 	const Durin::uint64 BeforeVersion = Material->GetRenderStateVersion();
-	EXPECT_EQ(Session.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_TRUE(PropertyView.SubmitStringMapValueEdit(Context, Material, Property, Durin::MaterialParameterOpacity,
+		[](Durin::FProperty* ValueProperty, void* Container) {
+			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.6f;
+		}, true));
+	EXPECT_TRUE(PropertyView.SubmitStringMapValueEdit(Context, Material, Property, Durin::MaterialParameterOpacity,
+		[](Durin::FProperty* ValueProperty, void* Container) {
+			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.4f;
+		}, true));
 	EXPECT_GT(Material->GetRenderStateVersion(), BeforeVersion);
-	EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
+	PropertyView.FinishActiveEdit(&Context, false);
+	EXPECT_TRUE(Error.empty());
 	float Opacity = 0.0f;
 	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameterOpacity, Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.4f);
@@ -236,6 +226,34 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 	EXPECT_FLOAT_EQ(Opacity, 0.4f);
 	Transactions.Clear();
 	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInSharedHistory)
+{
+	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "TransactionalOverrideInstance");
+	auto* Property = static_cast<Durin::FMapProperty*>(Instance->GetClass()->FindPropertyByName("ScalarParameterOverrides"));
+	ASSERT_NE(Property, nullptr);
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyView PropertyView;
+	std::string Error;
+	Durin::FReflectedPropertyViewContext Context{
+		.Transactions = &Transactions,
+		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+	};
+
+	EXPECT_TRUE(PropertyView.SetStringMapEntryEnabled(Context, Instance, Property, Durin::MaterialParameterOpacity, true,
+		[](Durin::FProperty* ValueProperty, void* Container) {
+			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.5f;
+		}));
+	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
+	EXPECT_TRUE(Error.empty());
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_FALSE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
+	Transactions.Clear();
+	Durin::MarkAsGarbage(Instance);
 	Durin::CollectGarbage();
 }
 

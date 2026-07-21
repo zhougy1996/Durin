@@ -59,9 +59,17 @@ rules are now process-lifetime registrations in the shared editor mutation
 registry. Details resolves them without owning type checks. Material Editor
 parent and parameter controls use the same edit session and transaction path;
 material parameter notifications invalidate render data for interactive edits,
-commit, cancel, undo, and redo. The next optional step is evaluating generated
-property-specific callback metadata after these common usage examples have had
-time to stabilize.
+commit, cancel, undo, and redo.
+
+The reusable UI path now lives in `DurinEd::FReflectedPropertyView`. It owns
+only transient widget/edit-session state and receives the transaction manager
+from its host, so Details and Material Editor contribute to the same ordered
+Undo/Redo history. Details delegates reflected scalar, object, structure,
+array, and map drawing to the view. Material Editor retains its semantic
+parameter layout and inherited/override presentation while delegating generic
+property proposals, string-key map values, and map-entry presence changes to
+the same view. The next optional step is evaluating generated property-specific
+callback metadata after these common usage examples have had time to stabilize.
 
 ## Goals
 
@@ -294,7 +302,10 @@ the event contract is proven.
 7. [x] Register semantic adapters and remove equivalent Details-panel type checks.
 8. [x] Migrate Material Editor parameter controls to the same continuous-edit and
    transaction behavior where their setter semantics are compatible.
-9. Evaluate generated property-specific callback metadata only after the common
+9. [x] Extract the embeddable reflected-property view from Level Editor and let
+   Details and domain-specific editors share its widget/session behavior while
+   injecting the editor-owned transaction manager.
+10. Evaluate generated property-specific callback metadata only after the common
    contract has stable usage examples.
 
 Each step should keep the existing editor behavior usable. Do not combine the
@@ -334,8 +345,7 @@ editor migration into one change.
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h`
 - `Engine/Source/Runtime/CoreDObject/Private/DObject/Archive.cpp`
 - `Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h`
+- `Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyView.h`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.h`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp`
-- `Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPropertyEditing.h`
-- `Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPropertyEditing.cpp`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp`

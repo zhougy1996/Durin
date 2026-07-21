@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DObject/ObjectPtr.h"
-#include "Editor/ReflectedPropertyEditing.h"
+#include "Editor/ReflectedPropertyView.h"
 #include "Panels/LevelEditorPanel.h"
 #include "Widgets/EditorRenameDialog.h"
 
@@ -25,13 +25,8 @@ namespace Durin
 		auto DrawComponents(FLevelEditorContext& Context, AActor* Actor) -> void;
 		auto DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void;
 		auto DrawStaticMeshMaterials(FLevelEditorContext& Context, class DStaticMeshComponent* Component) -> void;
-		auto DrawProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, const std::string& Label) -> void;
-		auto DrawPropertyValue(FLevelEditorContext& Context, DObject* Object, FProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly, const FReflectedPropertyEditTarget& EditTarget, bool bUseTransaction = true) -> bool;
-		auto DrawArrayProperty(FLevelEditorContext& Context, DObject* Object, class FArrayProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly, const FReflectedPropertyEditTarget& EditTarget) -> bool;
-		auto DrawMapProperty(FLevelEditorContext& Context, DObject* Object, class FMapProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly, const FReflectedPropertyEditTarget& EditTarget) -> bool;
-		auto SubmitPropertyEdit(FLevelEditorContext& Context, const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& ProposedValue, bool bContinuous) -> bool;
 		auto FinishActivePropertyEdit(FLevelEditorContext* Context, bool bCancel) -> void;
-		auto IsActivePropertyEdit(const FReflectedPropertyEditTarget& Target) const -> bool;
+		auto MakePropertyViewContext(FLevelEditorContext& Context) const -> FReflectedPropertyViewContext;
 
 		std::array<char, 128> ComponentTypeSearchText{};
 		std::array<char, 128> PropertySearchText{};
@@ -44,8 +39,7 @@ namespace Durin
 		FEditorRenameDialog RenameDialog;
 		std::array<char, 256> AssetSearchText{};
 		FEditorSessionSettings& SessionSettings;
-		FReflectedPropertyEditSession PropertyEditSession;
-		DObject* ActiveEditObject = nullptr;
+		FReflectedPropertyView PropertyView;
 		float ComponentPaneRatio;
 		bool bAddComponentAsChild = false;
 	};

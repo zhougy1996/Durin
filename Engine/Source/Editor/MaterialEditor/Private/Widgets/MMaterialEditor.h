@@ -4,7 +4,7 @@
 #include "Editor/EditorWorkspaceRootWindow.h"
 #include "MaterialEditorAPI.h"
 #include "DObject/ObjectPtr.h"
-#include "Editor/ReflectedPropertyEditing.h"
+#include "Editor/ReflectedPropertyView.h"
 
 namespace Durin
 {
@@ -39,8 +39,8 @@ namespace Durin
 		auto DrawBaseColor(DMaterialInterface* Material, DMaterialInstance* Instance) -> void;
 		auto DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance, std::string_view Name, const char* Label, float DefaultValue, float Minimum, float Maximum) -> void;
 		auto DrawBaseColorTexture(DMaterialInterface* Material, DMaterialInstance* Instance) -> void;
-		auto SubmitPropertyEdit(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& ProposedValue, bool bContinuous) -> bool;
 		auto FinishActivePropertyEdit(bool bCancel) -> void;
+		auto MakePropertyViewContext() -> FReflectedPropertyViewContext;
 		auto SetError(std::string Message) -> void;
 
 		FEditorWorkspaceManager& WorkspaceManager;
@@ -51,7 +51,6 @@ namespace Durin
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;
-		FReflectedPropertyEditSession PropertyEditSession;
-		DObject* ActiveEditObject = nullptr;
+		FReflectedPropertyView PropertyView;
 	};
 }

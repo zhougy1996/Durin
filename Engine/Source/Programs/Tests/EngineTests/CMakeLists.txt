@@ -1,7 +1,7 @@
 include(GoogleTest)
 
 add_durin_test(EngineTests
-	Private/DetailsPropertyEditingTests.cpp
+	Private/ReflectedPropertyViewTests.cpp
 	Private/ReflectedPropertyEditingTests.cpp
 	Private/MaterialTests.cpp
 	Private/TextureTests.cpp
@@ -24,7 +24,6 @@ add_durin_test(EngineTests
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelEditorCustomizations.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelEditorContext.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelViewportSessionSettings.cpp
-	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPropertyEditing.cpp
 )
 
 target_include_directories(EngineTests PRIVATE

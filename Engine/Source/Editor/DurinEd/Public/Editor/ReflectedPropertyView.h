@@ -1,0 +1,98 @@
+#pragma once
+
+#include "Editor/ReflectedPropertyEditing.h"
+
+namespace Durin
+{
+	class DObject;
+	class FArrayProperty;
+	class FMapProperty;
+	class FProperty;
+
+	struct FReflectedPropertyViewContext
+	{
+		FEditorTransactionManager* Transactions = nullptr;
+		std::function<void(std::string)> ReportError;
+		bool bReadOnly = false;
+	};
+
+	// An embeddable immediate-mode property view. It owns only transient widget/edit
+	// state; committed history remains owned by the transaction manager supplied by its host.
+	class FReflectedPropertyView
+	{
+	public:
+		DURINED_API auto DrawProperty(
+			const FReflectedPropertyViewContext& Context,
+			DObject* Object,
+			FProperty* Property,
+			uint32 ArrayIndex,
+			const std::string& Label
+		) -> void;
+
+		DURINED_API auto DrawPropertyValue(
+			const FReflectedPropertyViewContext& Context,
+			DObject* Object,
+			FProperty* Property,
+			void* Container,
+			uint32 ArrayIndex,
+			const std::string& Label,
+			bool bReadOnly,
+			const FReflectedPropertyEditTarget& EditTarget,
+			bool bUseTransaction = true
+		) -> bool;
+
+		DURINED_API auto SubmitPropertyEdit(
+			const FReflectedPropertyViewContext& Context,
+			const FReflectedPropertyEditTarget& Target,
+			const FPropertyValueSnapshot& ProposedValue,
+			bool bContinuous
+		) -> bool;
+		DURINED_API auto SubmitPropertyValueEdit(
+			const FReflectedPropertyViewContext& Context,
+			const FReflectedPropertyEditTarget& Target,
+			const std::function<void()>& AssignValue,
+			bool bContinuous
+		) -> bool;
+		DURINED_API auto SubmitStringMapValueEdit(
+			const FReflectedPropertyViewContext& Context,
+			DObject* Object,
+			FMapProperty* Property,
+			std::string_view Key,
+			const std::function<void(FProperty*, void*)>& AssignValue,
+			bool bContinuous
+		) -> bool;
+		DURINED_API auto SetStringMapEntryEnabled(
+			const FReflectedPropertyViewContext& Context,
+			DObject* Object,
+			FMapProperty* Property,
+			std::string_view Key,
+			bool bEnabled,
+			const std::function<void(FProperty*, void*)>& InitializeValue
+		) -> bool;
+
+		DURINED_API auto FinishActiveEdit(const FReflectedPropertyViewContext* Context, bool bCancel) -> void;
+		DURINED_API auto HandleOwnerContext(const FReflectedPropertyViewContext& Context, DObject* Object) -> void;
+		auto IsEditing() const -> bool { return EditSession.IsActive(); }
+		auto IsEditingObject(const DObject* Object) const -> bool { return EditSession.IsActive() && ActiveEditObject == Object; }
+		auto IsEditingTarget(const FReflectedPropertyEditTarget& Target) const -> bool { return EditSession.MatchesTarget(Target); }
+
+	private:
+		auto DrawArrayProperty(const FReflectedPropertyViewContext& Context, DObject* Object, FArrayProperty* Property,
+			void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,
+			const FReflectedPropertyEditTarget& EditTarget) -> bool;
+		auto DrawMapProperty(const FReflectedPropertyViewContext& Context, DObject* Object, FMapProperty* Property,
+			void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,
+			const FReflectedPropertyEditTarget& EditTarget) -> bool;
+		auto ReportError(const FReflectedPropertyViewContext& Context, std::string Error) const -> void;
+
+		std::array<char, 256> AssetSearchText{};
+		FReflectedPropertyEditSession EditSession;
+		DObject* ActiveEditObject = nullptr;
+	};
+
+	DURINED_API auto MakeReflectedPropertyDisplayName(
+		std::string_view PropertyName,
+		DurinCodeGen::EPropertyGenFlags Kind,
+		std::string_view ExplicitDisplayName = {}
+	) -> std::string;
+}

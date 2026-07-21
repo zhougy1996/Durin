@@ -19,28 +19,6 @@ namespace Durin
 {
 	namespace
 	{
-		auto CaptureProposedValue(
-			const FProperty* Property,
-			void* Container,
-			uint32 ArrayIndex,
-			const std::function<void()>& Mutation,
-			FPropertyValueSnapshot& OutSnapshot,
-			std::string* OutError
-		) -> bool
-		{
-			FPropertyValueSnapshot Original;
-			if (!CapturePropertyValue(Property, Container, ArrayIndex, Original, OutError)) return false;
-			Mutation();
-			const bool bCaptured = CapturePropertyValue(Property, Container, ArrayIndex, OutSnapshot, OutError);
-			std::string RestoreError;
-			if (!RestorePropertyValue(Property, Container, ArrayIndex, Original, &RestoreError))
-			{
-				if (OutError) *OutError = std::move(RestoreError);
-				return false;
-			}
-			return bCaptured;
-		}
-
 		auto FindParameterMap(DObject* Object, FName PropertyName) -> FMapProperty*
 		{
 			FProperty* Property = Object ? Object->GetClass()->FindPropertyByName(PropertyName) : nullptr;
@@ -48,118 +26,6 @@ namespace Durin
 				? static_cast<FMapProperty*>(Property) : nullptr;
 		}
 
-		auto FindParameterIndex(const FMapProperty* Property, const DObject* Object, std::string_view Name) -> uint64
-		{
-			if (!Property || !Property->GetKeyProp() || Property->GetKeyProp()->GetKind() != DurinCodeGen::EPropertyGenFlags::String) return UINT64_MAX;
-			auto* KeyProperty = static_cast<FStringProperty*>(Property->GetKeyProp());
-			const uint64 Num = Property->Num(Object);
-			for (uint64 Index = 0; Index < Num; ++Index)
-			{
-				const void* Key = Property->GetKeyPtr(Object, Index);
-				if (Key && *KeyProperty->GetStringValuePtr(Key) == Name) return Index;
-			}
-			return UINT64_MAX;
-		}
-
-		auto CaptureMapKey(const FMapProperty* Property, const void* Key) -> std::vector<uint8>
-		{
-			FPropertyValueSnapshot Snapshot;
-			if (!Property || !CapturePropertyValue(Property->GetKeyProp(), Key, 0, Snapshot)) return {};
-			return Snapshot.GetBytes();
-		}
-
-		auto MakeParameterTarget(DObject* Object, FMapProperty* Property, uint64 Index) -> FReflectedPropertyEditTarget
-		{
-			FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Object, Property);
-			const void* Key = Property->GetKeyPtr(Object, Index);
-			// The proposal snapshot restores the whole map before the session starts,
-			// so an entry address is not stable even for non-structural value edits.
-			return Target.ForMapEntry(Property->GetValueProp(), Object, CaptureMapKey(Property, Key));
-		}
-
-		auto MakeStructuralParameterTarget(DObject* Object, FMapProperty* Property, const void* Key, EPropertyChangeKind Kind) -> FReflectedPropertyEditTarget
-		{
-			FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Object, Property);
-			Target.Path.back().Selector = EPropertyPathSelector::MapKey;
-			Target.Path.back().MapKeyData = CaptureMapKey(Property, Key);
-			Target.Kind = Kind;
-			return Target;
-		}
-
-		auto CaptureOverrideProposal(
-			DObject* Object,
-			FMapProperty* Property,
-			std::string_view Name,
-			bool bEnable,
-			const std::function<void(FProperty*, void*)>& InitializeValue,
-			FReflectedPropertyEditTarget& OutTarget,
-			FPropertyValueSnapshot& OutSnapshot,
-			std::string* OutError
-		) -> bool
-		{
-			void* Key = Property->CreateKey();
-			void* Value = Property->CreateValue();
-			if (!Key || !Value)
-			{
-				if (OutError) *OutError = "Unable to create a material parameter override.";
-				if (Key) Property->DestroyKey(Key);
-				if (Value) Property->DestroyValue(Value);
-				return false;
-			}
-			*static_cast<FStringProperty*>(Property->GetKeyProp())->GetStringValuePtr(Key) = Name;
-			InitializeValue(Property->GetValueProp(), Value);
-			OutTarget = MakeStructuralParameterTarget(Object, Property, Key,
-				bEnable ? EPropertyChangeKind::MapInsert : EPropertyChangeKind::MapRemove);
-			const bool bCaptured = CaptureProposedValue(Property, Object, 0, [&] {
-				if (bEnable) Property->Insert(Object, Key, Value);
-				else Property->Remove(Object, Key);
-			}, OutSnapshot, OutError);
-			Property->DestroyKey(Key);
-			Property->DestroyValue(Value);
-			return bCaptured;
-		}
-
-		auto CaptureParameterValueProposal(
-			DObject* Object,
-			FMapProperty* Property,
-			std::string_view Name,
-			const std::function<void(FProperty*, void*)>& AssignValue,
-			FReflectedPropertyEditTarget& OutTarget,
-			FPropertyValueSnapshot& OutSnapshot,
-			std::string* OutError
-		) -> bool
-		{
-			const uint64 Index = FindParameterIndex(Property, Object, Name);
-			if (Index != UINT64_MAX)
-			{
-				OutTarget = MakeParameterTarget(Object, Property, Index);
-				return CaptureProposedValue(Property, Object, 0, [&] {
-					AssignValue(Property->GetValueProp(), Property->GetMutableMappedValuePtr(Object, Index));
-				}, OutSnapshot, OutError);
-			}
-
-			void* Key = Property->CreateKey();
-			void* Value = Property->CreateValue();
-			if (!Key || !Value)
-			{
-				if (OutError) *OutError = "Unable to create a material parameter value.";
-				if (Key) Property->DestroyKey(Key);
-				if (Value) Property->DestroyValue(Value);
-				return false;
-			}
-			*static_cast<FStringProperty*>(Property->GetKeyProp())->GetStringValuePtr(Key) = Name;
-			AssignValue(Property->GetValueProp(), Value);
-			OutTarget = FReflectedPropertyEditTarget::ForMember(Object, Property)
-				.ForMapEntry(Property->GetValueProp(), Object, CaptureMapKey(Property, Key));
-			// Named base parameters conceptually exist even in assets serialized before
-			// a default was introduced, so their first assignment remains ValueSet.
-			const bool bCaptured = CaptureProposedValue(Property, Object, 0, [&] {
-				Property->Insert(Object, Key, Value);
-			}, OutSnapshot, OutError);
-			Property->DestroyKey(Key);
-			Property->DestroyValue(Value);
-			return bCaptured;
-		}
 	}
 
 	MMaterialEditor::MMaterialEditor(FEditorWorkspaceManager& InWorkspaceManager)
@@ -169,7 +35,7 @@ namespace Durin
 
 	MMaterialEditor::~MMaterialEditor()
 	{
-		if (PropertyEditSession.IsActive()) PropertyEditSession.Cancel();
+		PropertyView.FinishActiveEdit(nullptr, true);
 		MaterialPreviews.clear();
 	}
 
@@ -203,14 +69,14 @@ namespace Durin
 	auto MMaterialEditor::ActivateDocument(const FEditorDocumentTab& Document) -> void
 	{
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
-		if (PropertyEditSession.IsActive() && ActiveEditObject != Material) FinishActivePropertyEdit(false);
+		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Material)) FinishActivePropertyEdit(false);
 		if (Material) ActiveResourceId = Document.ResourceId;
 		DocumentWindows[Document.Id.Value].RequestFocus();
 	}
 
 	auto MMaterialEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
 	{
-		if (PropertyEditSession.IsActive() && ActiveEditObject == FindOpenMaterial(Document.ResourceId)) FinishActivePropertyEdit(false);
+		if (PropertyView.IsEditingObject(FindOpenMaterial(Document.ResourceId))) FinishActivePropertyEdit(false);
 		if (IsDocumentDirty(Document)) return false;
 		OpenMaterials.erase(Document.ResourceId);
 		DocumentWindows.erase(Document.Id.Value);
@@ -238,7 +104,7 @@ namespace Durin
 
 	auto MMaterialEditor::DrawWorkspace(bool bActive) -> bool
 	{
-		if (!bActive && PropertyEditSession.IsActive()) FinishActivePropertyEdit(false);
+		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
 		bool bWorkspaceActivated = false;
 		std::vector<FEditorDocumentId> CloseRequests;
 		for (const FEditorDocumentTab& Document : WorkspaceManager.GetDocuments())
@@ -387,11 +253,12 @@ namespace Durin
 					OutError = "The reflected material parent property is unavailable.";
 					return false;
 				}
-				FPropertyValueSnapshot Proposed;
-				if (!CaptureProposedValue(Property, Instance, 0, [&] {
+				const bool bAssigned = PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
+					FReflectedPropertyEditTarget::ForMember(Instance, Property), [&] {
 					static_cast<FObjectProperty*>(Property)->SetObjectPropertyValue(Instance, Parent);
-				}, Proposed, &OutError)) return false;
-				return SubmitPropertyEdit(FReflectedPropertyEditTarget::ForMember(Instance, Property), Proposed, false);
+				}, false);
+				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected material parent.";
+				return bAssigned;
 			},
 		});
 		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
@@ -411,15 +278,12 @@ namespace Durin
 			if (ImGui::Checkbox("##BaseColorOverride", &bOverride))
 			{
 				auto* Property = FindParameterMap(Instance, FName("VectorParameterOverrides"));
-				FReflectedPropertyEditTarget Target;
-				FPropertyValueSnapshot Proposed;
-				std::string Error;
-				if (!Property || !CaptureOverrideProposal(Instance, Property, MaterialParameterBaseColor, bOverride,
+				if (!Property || !PropertyView.SetStringMapEntryEnabled(MakePropertyViewContext(), Instance, Property,
+					MaterialParameterBaseColor, bOverride,
 					[&](FProperty* ValueProperty, void* Container) {
 						*ValueProperty->ContainerPtrToValuePtr<FVector3>(Container) = Value;
-					}, Target, Proposed, &Error) || !SubmitPropertyEdit(Target, Proposed, false))
+					}))
 				{
-					if (!Error.empty()) SetError(std::move(Error));
 					bOverride = !bOverride;
 				}
 			}
@@ -435,18 +299,15 @@ namespace Durin
 			if (!Property) SetError("The reflected base-color parameter is unavailable.");
 			else
 			{
-				FReflectedPropertyEditTarget Target;
-				FPropertyValueSnapshot Proposed;
-				std::string Error;
-				if (!CaptureParameterValueProposal(Material, Property, MaterialParameterBaseColor,
+				PropertyView.SubmitStringMapValueEdit(MakePropertyViewContext(), Material, Property,
+					MaterialParameterBaseColor,
 					[&](FProperty* ValueProperty, void* Container) {
 						*ValueProperty->ContainerPtrToValuePtr<FVector3>(Container) = Edited;
-					}, Target, Proposed, &Error)) SetError(std::move(Error));
-				else SubmitPropertyEdit(Target, Proposed, true);
+					}, true);
 			}
 		}
-		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyEditSession.IsActive()) FinishActivePropertyEdit(false);
-		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyEditSession.IsActive()) FinishActivePropertyEdit(true);
+		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
+		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
 		if (Instance && !bOverride) ImGui::EndDisabled();
 		MonaImGui::EndPropertyRow();
 		ImGui::PopID();
@@ -467,15 +328,12 @@ namespace Durin
 			if (ImGui::Checkbox("##Override", &bOverride))
 			{
 				auto* Property = FindParameterMap(Instance, FName("ScalarParameterOverrides"));
-				FReflectedPropertyEditTarget Target;
-				FPropertyValueSnapshot Proposed;
-				std::string Error;
-				if (!Property || !CaptureOverrideProposal(Instance, Property, Name, bOverride,
+				if (!Property || !PropertyView.SetStringMapEntryEnabled(MakePropertyViewContext(), Instance, Property,
+					Name, bOverride,
 					[&](FProperty* ValueProperty, void* Container) {
 						*ValueProperty->ContainerPtrToValuePtr<float>(Container) = Value;
-					}, Target, Proposed, &Error) || !SubmitPropertyEdit(Target, Proposed, false))
+					}))
 				{
-					if (!Error.empty()) SetError(std::move(Error));
 					bOverride = !bOverride;
 				}
 			}
@@ -489,18 +347,14 @@ namespace Durin
 			if (!Property) SetError("The reflected scalar parameter is unavailable.");
 			else
 			{
-				FReflectedPropertyEditTarget Target;
-				FPropertyValueSnapshot Proposed;
-				std::string Error;
-				if (!CaptureParameterValueProposal(Material, Property, Name,
+				PropertyView.SubmitStringMapValueEdit(MakePropertyViewContext(), Material, Property, Name,
 					[&](FProperty* ValueProperty, void* Container) {
 						*ValueProperty->ContainerPtrToValuePtr<float>(Container) = Value;
-					}, Target, Proposed, &Error)) SetError(std::move(Error));
-				else SubmitPropertyEdit(Target, Proposed, true);
+					}, true);
 			}
 		}
-		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyEditSession.IsActive()) FinishActivePropertyEdit(false);
-		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyEditSession.IsActive()) FinishActivePropertyEdit(true);
+		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
+		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
 		if (Instance)
 		{
 			if (!bOverride) ImGui::EndDisabled();
@@ -521,15 +375,12 @@ namespace Durin
 			if (ImGui::Checkbox("##BaseColorTextureOverride", &bOverride))
 			{
 				auto* Property = FindParameterMap(Instance, FName("TextureParameterOverrides"));
-				FReflectedPropertyEditTarget Target;
-				FPropertyValueSnapshot Proposed;
-				std::string Error;
-				if (!Property || !CaptureOverrideProposal(Instance, Property, MaterialParameterBaseColorTexture, bOverride,
+				if (!Property || !PropertyView.SetStringMapEntryEnabled(MakePropertyViewContext(), Instance, Property,
+					MaterialParameterBaseColorTexture, bOverride,
 					[&](FProperty* ValueProperty, void* Container) {
 						static_cast<FObjectProperty*>(ValueProperty)->SetObjectPropertyValue(Container, Texture);
-					}, Target, Proposed, &Error) || !SubmitPropertyEdit(Target, Proposed, false))
+					}))
 				{
-					if (!Error.empty()) SetError(std::move(Error));
 					bOverride = !bOverride;
 				}
 			}
@@ -558,13 +409,13 @@ namespace Durin
 					OutError = "The reflected texture parameter is unavailable.";
 					return false;
 				}
-				FReflectedPropertyEditTarget Target;
-				FPropertyValueSnapshot Proposed;
-				if (!CaptureParameterValueProposal(Material, Property, MaterialParameterBaseColorTexture,
+				const bool bAssigned = PropertyView.SubmitStringMapValueEdit(MakePropertyViewContext(), Material, Property,
+					MaterialParameterBaseColorTexture,
 					[&](FProperty* ValueProperty, void* Container) {
 						static_cast<FObjectProperty*>(ValueProperty)->SetObjectPropertyValue(Container, Selected);
-					}, Target, Proposed, &OutError)) return false;
-				return SubmitPropertyEdit(Target, Proposed, false);
+					}, false);
+				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected texture parameter.";
+				return bAssigned;
 			},
 		});
 		if (!bOverride) ImGui::EndDisabled();
@@ -573,44 +424,18 @@ namespace Durin
 		ImGui::PopID();
 	}
 
-	auto MMaterialEditor::SubmitPropertyEdit(
-		const FReflectedPropertyEditTarget& Target,
-		const FPropertyValueSnapshot& ProposedValue,
-		bool bContinuous
-	) -> bool
-	{
-		if (PropertyEditSession.IsActive() && !PropertyEditSession.MatchesTarget(Target)) FinishActivePropertyEdit(false);
-		std::string Error;
-		if (!PropertyEditSession.IsActive())
-		{
-			FEditorTransactionManager* Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr;
-			const std::string Description = std::format("Edit {}", Target.MemberProperty->NamePrivate.ToString());
-			if (!PropertyEditSession.Begin(Target, Description, nullptr, &Error, Transactions))
-			{
-				SetError(std::move(Error));
-				return false;
-			}
-			ActiveEditObject = Target.Object;
-		}
-
-		const EReflectedPropertyEditResult Result = PropertyEditSession.Apply(ProposedValue, &Error);
-		if (Result == EReflectedPropertyEditResult::Failed)
-		{
-			SetError(std::move(Error));
-			FinishActivePropertyEdit(true);
-			return false;
-		}
-		if (!bContinuous) FinishActivePropertyEdit(false);
-		return true;
-	}
-
 	auto MMaterialEditor::FinishActivePropertyEdit(bool bCancel) -> void
 	{
-		if (!PropertyEditSession.IsActive()) return;
-		std::string Error;
-		const EReflectedPropertyEditResult Result = bCancel ? PropertyEditSession.Cancel(&Error) : PropertyEditSession.Commit(&Error);
-		if (Result == EReflectedPropertyEditResult::Failed) SetError(std::move(Error));
-		if (!PropertyEditSession.IsActive()) ActiveEditObject = nullptr;
+		const FReflectedPropertyViewContext Context = MakePropertyViewContext();
+		PropertyView.FinishActiveEdit(&Context, bCancel);
+	}
+
+	auto MMaterialEditor::MakePropertyViewContext() -> FReflectedPropertyViewContext
+	{
+		return {
+			.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
+			.ReportError = [this](std::string Error) { SetError(std::move(Error)); },
+		};
 	}
 
 	auto MMaterialEditor::SetError(std::string Message) -> void
