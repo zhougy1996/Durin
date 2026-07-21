@@ -8,8 +8,16 @@ namespace Durin::MonaImGui
 {
 	namespace
 	{
+		auto AccumulateLastItemState(FPropertyEditWidgetState* State) -> void
+		{
+			if (!State) return;
+			State->bActive |= ImGui::IsItemActive();
+			State->bActivated |= ImGui::IsItemActivated();
+			State->bDeactivatedAfterEdit |= ImGui::IsItemDeactivatedAfterEdit();
+		}
+
 		template<size_t NumComponents, typename TVector>
-		auto EditComponentValues(const char* Id, TVector& Value, double Speed) -> bool
+		auto EditComponentValues(const char* Id, TVector& Value, double Speed, FPropertyEditWidgetState* State) -> bool
 		{
 			static_assert(NumComponents >= 2 && NumComponents <= 4);
 			static constexpr std::array<const char*, 4> ComponentNames = {"X", "Y", "Z", "W"};
@@ -34,6 +42,7 @@ namespace Durin::MonaImGui
 					ImGui::SetNextItemWidth(-FLT_MIN);
 					ImGui::PushID(static_cast<int>(Component));
 					bChanged |= ImGui::DragScalar("##Value", ImGuiDataType_Double, &Value[Component], static_cast<float>(Speed));
+					AccumulateLastItemState(State);
 					ImGui::PopID();
 				}
 				ImGui::EndTable();
@@ -89,34 +98,34 @@ namespace Durin::MonaImGui
 		return true;
 	}
 
-	auto EditVectorProperty(const char* Label, FVector2& Value, bool bReadOnly, double Speed) -> bool
+	auto EditVectorProperty(const char* Label, FVector2& Value, bool bReadOnly, double Speed, FPropertyEditWidgetState* OutState) -> bool
 	{
 		BeginPropertyRow(Label, bReadOnly);
-		const bool bChanged = EditComponentValues<2>(Label, Value, Speed);
+		const bool bChanged = EditComponentValues<2>(Label, Value, Speed, OutState);
 		EndPropertyRow(bReadOnly);
 		return bChanged;
 	}
 
-	auto EditVectorProperty(const char* Label, FVector3& Value, bool bReadOnly, double Speed) -> bool
+	auto EditVectorProperty(const char* Label, FVector3& Value, bool bReadOnly, double Speed, FPropertyEditWidgetState* OutState) -> bool
 	{
 		BeginPropertyRow(Label, bReadOnly);
-		const bool bChanged = EditComponentValues<3>(Label, Value, Speed);
+		const bool bChanged = EditComponentValues<3>(Label, Value, Speed, OutState);
 		EndPropertyRow(bReadOnly);
 		return bChanged;
 	}
 
-	auto EditVectorProperty(const char* Label, FVector4& Value, bool bReadOnly, double Speed) -> bool
+	auto EditVectorProperty(const char* Label, FVector4& Value, bool bReadOnly, double Speed, FPropertyEditWidgetState* OutState) -> bool
 	{
 		BeginPropertyRow(Label, bReadOnly);
-		const bool bChanged = EditComponentValues<4>(Label, Value, Speed);
+		const bool bChanged = EditComponentValues<4>(Label, Value, Speed, OutState);
 		EndPropertyRow(bReadOnly);
 		return bChanged;
 	}
 
-	auto EditQuatProperty(const char* Label, FQuat& Value, bool bReadOnly) -> bool
+	auto EditQuatProperty(const char* Label, FQuat& Value, bool bReadOnly, FPropertyEditWidgetState* OutState) -> bool
 	{
 		FVector3 RotationDegrees = QuatToEulerDegrees(Value);
-		if (!EditVectorProperty(Label, RotationDegrees, bReadOnly, 0.25)) return false;
+		if (!EditVectorProperty(Label, RotationDegrees, bReadOnly, 0.25, OutState)) return false;
 		Value = EulerDegreesToQuat(RotationDegrees);
 		return true;
 	}
@@ -148,7 +157,7 @@ namespace Durin::MonaImGui
 		if (bReadOnly) ImGui::EndDisabled();
 	}
 
-	auto EditTransformProperty(const char* Label, FTransform& Transform, bool bReadOnly) -> bool
+	auto EditTransformProperty(const char* Label, FTransform& Transform, bool bReadOnly, FPropertyEditWidgetState* OutState) -> bool
 	{
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
@@ -157,7 +166,7 @@ namespace Durin::MonaImGui
 
 		auto EditTransformRow = [&](const char* RowLabel, FVector3& Value, double Speed) -> bool {
 			BeginPropertyRow(RowLabel, bReadOnly, GetCompactTreeNodeToLabelSpacing());
-			const bool bChanged = EditComponentValues<3>(RowLabel, Value, Speed);
+			const bool bChanged = EditComponentValues<3>(RowLabel, Value, Speed, OutState);
 			EndPropertyRow(bReadOnly);
 			return bChanged;
 		};
@@ -174,7 +183,7 @@ namespace Durin::MonaImGui
 		return bChanged;
 	}
 
-	auto EditColorProperty(const char* Label, FLinearColor& Color, bool bShowAlpha, bool bReadOnly) -> bool
+	auto EditColorProperty(const char* Label, FLinearColor& Color, bool bShowAlpha, bool bReadOnly, FPropertyEditWidgetState* OutState) -> bool
 	{
 		ImGui::PushID(Label);
 		BeginPropertyRow(Label, bReadOnly);
@@ -183,6 +192,7 @@ namespace Durin::MonaImGui
 		const bool bChanged = bShowAlpha
 			? ImGui::ColorEdit4("##Value", DisplayColor.RGBA, Flags)
 			: ImGui::ColorEdit3("##Value", DisplayColor.RGBA, Flags);
+		AccumulateLastItemState(OutState);
 		if (bChanged)
 		{
 			Color.R = SRGBToLinear(DisplayColor.R);

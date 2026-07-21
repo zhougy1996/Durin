@@ -1,6 +1,7 @@
 #include "AssetSystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectArray.h"
+#include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
 #include "Engine/PrimitiveSceneProxy.h"
@@ -145,10 +146,23 @@ TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThr
 	Component->RegisterComponent();
 	const FSceneSnapshot Before = CaptureScene(Harness.Scene);
 
-	Durin::FLevelEditorContext Context;
 	Durin::FProperty* MaterialProperty = Component->GetClass()->FindPropertyByName("Material");
 	ASSERT_NE(MaterialProperty, nullptr);
-	EXPECT_TRUE(Durin::AssignDetailsObjectProperty(Context, Component, MaterialProperty, 0, Second));
+	Durin::FPropertyValueSnapshot Original;
+	Durin::FPropertyValueSnapshot Proposed;
+	ASSERT_TRUE(Durin::CapturePropertyValue(MaterialProperty, Component, 0, Original));
+	auto* ObjectProperty = static_cast<Durin::FObjectProperty*>(MaterialProperty);
+	ObjectProperty->SetObjectPropertyValue(Component, Second);
+	ASSERT_TRUE(Durin::CapturePropertyValue(MaterialProperty, Component, 0, Proposed));
+	ASSERT_TRUE(Durin::RestorePropertyValue(MaterialProperty, Component, 0, Original));
+	Durin::FReflectedPropertyEditSession EditSession;
+	ASSERT_TRUE(EditSession.Begin(
+		Durin::FReflectedPropertyEditTarget::ForMember(Component, MaterialProperty),
+		"Edit Material",
+		&Durin::GetDetailsPropertyMutationAdapter()
+	));
+	EXPECT_EQ(EditSession.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_EQ(EditSession.Commit(), Durin::EReflectedPropertyEditResult::Changed);
 	const FSceneSnapshot After = CaptureScene(Harness.Scene);
 
 	EXPECT_NE(Before.Proxy, After.Proxy);

@@ -39,10 +39,18 @@ top-level member property.
   adapter interface for later setter-backed validation.
 - [x] Root the edited object while a session owns raw reflected container
   addresses, and deep-copy map-key path bytes used by callbacks.
+- [x] Route top-level scalar, enum, string, math-structure, and object Details
+  widgets through the shared edit session.
+- [x] Preserve continuous activation/deactivation across compound vector and
+  transform controls, and cancel an active preview when inspection context is
+  lost or becomes read-only.
+- [x] Retain setter-backed transform, static-mesh/material, and material-parent
+  behavior behind the Details mutation adapter.
 
-The Details panel does not emit these events yet. The next integration step is
-to migrate scalar, enum, string, math-structure, and object widgets onto the
-edit session while retaining their existing semantic setter paths.
+Top-level Details value edits now emit the common events. Nested array and map
+leaf edits remain on the legacy path until their stable member-to-leaf paths are
+introduced with container editing. The next step is to add the generic
+reflected-property transaction and route undo/redo through the edit service.
 
 ## Goals
 
@@ -302,7 +310,7 @@ editor migration into one change.
   garbage collection, or that an expired target fails safely.
 - [ ] Verify switching selection or documents during an active edit follows the
   documented commit/cancel policy.
-- [ ] Build the full `all` target through `BuildTool` using the active Agent
+- [x] Build the full `all` target through `BuildTool` using the active Agent
   profile.
 - [ ] Run `DurinEditor` from the same full build and smoke-test Details editing,
   save, undo, redo, PIE read-only behavior, and shutdown.

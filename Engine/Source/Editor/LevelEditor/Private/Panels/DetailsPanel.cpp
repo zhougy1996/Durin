@@ -136,6 +136,29 @@ namespace Durin
 			}
 		}
 
+		template<typename TWriteProposed>
+		auto CaptureProposedPropertyValue(
+			const FProperty* Property,
+			void* Container,
+			uint32 ArrayIndex,
+			TWriteProposed&& WriteProposed,
+			FPropertyValueSnapshot& OutSnapshot,
+			std::string* OutError
+		) -> bool
+		{
+			FPropertyValueSnapshot Previous;
+			if (!CapturePropertyValue(Property, Container, ArrayIndex, Previous, OutError)) return false;
+			WriteProposed();
+			const bool bCaptured = CapturePropertyValue(Property, Container, ArrayIndex, OutSnapshot, OutError);
+			std::string RestoreError;
+			if (!RestorePropertyValue(Property, Container, ArrayIndex, Previous, &RestoreError))
+			{
+				if (OutError) *OutError = std::move(RestoreError);
+				return false;
+			}
+			return bCaptured;
+		}
+
 	} // namespace
 
 	FDetailsPanel::FDetailsPanel(FEditorSessionSettings& InSessionSettings)
@@ -148,6 +171,7 @@ namespace Durin
 	{
 		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Details", "Details", GetOpenPtr()))
 		{
+			FinishActivePropertyEdit(&Context, true);
 			ImGui::End();
 			return;
 		}
@@ -155,6 +179,7 @@ namespace Durin
 		AActor* Actor = Context.GetPrimarySelectedActor();
 		if (Actor == nullptr)
 		{
+			FinishActivePropertyEdit(&Context, true);
 			PropertyActor = nullptr;
 			SelectedComponent = nullptr;
 			RenamingComponent = nullptr;
@@ -166,6 +191,7 @@ namespace Durin
 
 		if (PropertyActor.Get() != Actor)
 		{
+			FinishActivePropertyEdit(&Context, true);
 			PropertyActor = Actor;
 			SelectedComponent = nullptr;
 			RenamingComponent = nullptr;
@@ -546,6 +572,8 @@ namespace Durin
 
 	auto FDetailsPanel::DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void
 	{
+		if (PropertyEditSession.IsActive() && (ActiveEditObject != Object || Context.bReadOnly))
+			FinishActivePropertyEdit(&Context, true);
 		if (!Object)
 		{
 			ImGui::TextDisabled("Nothing to inspect.");
@@ -662,7 +690,9 @@ namespace Durin
 		const bool bReadOnly = Context.bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		ImGui::PushID(Property);
 		ImGui::PushID(static_cast<int>(ArrayIndex));
-		if (DrawPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, true)) Object->MarkPackageDirty();
+		if (DrawPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, true)
+			&& (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Array || Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Map))
+			Object->MarkPackageDirty();
 		ImGui::PopID();
 		ImGui::PopID();
 	}
@@ -681,60 +711,76 @@ namespace Durin
 		bReadOnly |= Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 		DStruct* Struct = Kind == DurinCodeGen::EPropertyGenFlags::Struct ? static_cast<FStructProperty*>(Property)->GetStruct() : nullptr;
+		const FReflectedPropertyEditTarget EditTarget = FReflectedPropertyEditTarget::ForMember(Object, Property, ArrayIndex);
+		auto SubmitProposed = [&](auto&& WriteProposed, bool bContinuous) -> bool {
+			if (!bAllowObjectCustomization)
+			{
+				WriteProposed();
+				return true;
+			}
+			FPropertyValueSnapshot Proposed;
+			std::string Error;
+			if (!CaptureProposedPropertyValue(Property, Container, ArrayIndex, std::forward<decltype(WriteProposed)>(WriteProposed), Proposed, &Error))
+			{
+				Context.SetError(std::move(Error));
+				return false;
+			}
+			return SubmitPropertyEdit(Context, EditTarget, Proposed, bContinuous);
+		};
+		auto FinishContinuousEdit = [&](const MonaImGui::FPropertyEditWidgetState& State) {
+			if (State.bDeactivatedAfterEdit && IsActivePropertyEdit(EditTarget)) FinishActivePropertyEdit(&Context, false);
+			else if (State.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && IsActivePropertyEdit(EditTarget)) FinishActivePropertyEdit(&Context, true);
+		};
 
 		if (Struct == Z_Construct_DStruct_Durin_FTransform())
 		{
 			FTransform Value = *Property->ContainerPtrToValuePtr<FTransform>(Container, ArrayIndex);
-			if (MonaImGui::EditTransformProperty(Label.c_str(), Value, bReadOnly))
+			MonaImGui::FPropertyEditWidgetState State;
+			const bool bChanged = MonaImGui::EditTransformProperty(Label.c_str(), Value, bReadOnly, &State);
+			if (bChanged)
 			{
-				if (bAllowObjectCustomization)
-				{
-					if (auto* SceneComponent = Cast<DSceneComponent>(Object); SceneComponent && Property->NamePrivate == FName("RelativeTransform"))
-					{
-						SceneComponent->SetRelativeTransform(Value);
-						return true;
-					}
-				}
-				*Property->ContainerPtrToValuePtr<FTransform>(Container, ArrayIndex) = Value;
-				return true;
+				SubmitProposed([&] { *Property->ContainerPtrToValuePtr<FTransform>(Container, ArrayIndex) = Value; }, true);
 			}
-			return false;
+			FinishContinuousEdit(State);
+			return bChanged;
 		}
 
 		auto EditMathStruct = [&]<typename TValue, typename TEditor>(TValue Value, TEditor&& Editor) -> bool {
-			if (Editor(Value))
+			MonaImGui::FPropertyEditWidgetState State;
+			const bool bChanged = Editor(Value, State);
+			if (bChanged)
 			{
-				*Property->ContainerPtrToValuePtr<TValue>(Container, ArrayIndex) = Value;
-				return true;
+				SubmitProposed([&] { *Property->ContainerPtrToValuePtr<TValue>(Container, ArrayIndex) = Value; }, true);
 			}
-			return false;
+			FinishContinuousEdit(State);
+			return bChanged;
 		};
 
 		if (Struct == Z_Construct_DStruct_Durin_FVector2())
 		{
-			return EditMathStruct(*Property->ContainerPtrToValuePtr<FVector2>(Container, ArrayIndex), [&](FVector2& Value) {
-				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly);
+			return EditMathStruct(*Property->ContainerPtrToValuePtr<FVector2>(Container, ArrayIndex), [&](FVector2& Value, auto& State) {
+				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly, 0.05, &State);
 			});
 		}
 
 		if (Struct == Z_Construct_DStruct_Durin_FVector3())
 		{
-			return EditMathStruct(*Property->ContainerPtrToValuePtr<FVector3>(Container, ArrayIndex), [&](FVector3& Value) {
-				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly);
+			return EditMathStruct(*Property->ContainerPtrToValuePtr<FVector3>(Container, ArrayIndex), [&](FVector3& Value, auto& State) {
+				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly, 0.05, &State);
 			});
 		}
 
 		if (Struct == Z_Construct_DStruct_Durin_FVector4())
 		{
-			return EditMathStruct(*Property->ContainerPtrToValuePtr<FVector4>(Container, ArrayIndex), [&](FVector4& Value) {
-				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly);
+			return EditMathStruct(*Property->ContainerPtrToValuePtr<FVector4>(Container, ArrayIndex), [&](FVector4& Value, auto& State) {
+				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly, 0.05, &State);
 			});
 		}
 
 		if (Struct == Z_Construct_DStruct_Durin_FQuat())
 		{
-			return EditMathStruct(*Property->ContainerPtrToValuePtr<FQuat>(Container, ArrayIndex), [&](FQuat& Value) {
-				return MonaImGui::EditQuatProperty(Label.c_str(), Value, bReadOnly);
+			return EditMathStruct(*Property->ContainerPtrToValuePtr<FQuat>(Container, ArrayIndex), [&](FQuat& Value, auto& State) {
+				return MonaImGui::EditQuatProperty(Label.c_str(), Value, bReadOnly, &State);
 			});
 		}
 
@@ -742,8 +788,8 @@ namespace Durin
 		{
 			FLinearColor Value = *Property->ContainerPtrToValuePtr<FLinearColor>(Container, ArrayIndex);
 			const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
-			return EditMathStruct(Value, [&](FLinearColor& EditedValue) {
-				return MonaImGui::EditColorProperty(Label.c_str(), EditedValue, bShowAlpha, bReadOnly);
+			return EditMathStruct(Value, [&](FLinearColor& EditedValue, auto& State) {
+				return MonaImGui::EditColorProperty(Label.c_str(), EditedValue, bShowAlpha, bReadOnly, &State);
 			});
 		}
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Array)
@@ -756,12 +802,19 @@ namespace Durin
 		bool bChanged = false;
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Bool)
 		{
-			bool* Value = Property->ContainerPtrToValuePtr<bool>(Container, ArrayIndex);
-			bChanged = ImGui::Checkbox("##Value", Value);
+			bool Value = *Property->ContainerPtrToValuePtr<bool>(Container, ArrayIndex);
+			bChanged = ImGui::Checkbox("##Value", &Value);
+			if (bChanged) SubmitProposed([&] { *Property->ContainerPtrToValuePtr<bool>(Container, ArrayIndex) = Value; }, false);
 		}
 		else if (const ImGuiDataType DataType = ImGuiDataTypeForProperty(Kind); DataType != ImGuiDataType_COUNT)
 		{
-			bChanged = ImGui::DragScalar("##Value", DataType, Property->GetValuePtr(Container, ArrayIndex), Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
+			std::array<uint8, sizeof(uint64)> Value{};
+			check(Property->GetElementSize() <= Value.size());
+			std::memcpy(Value.data(), Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize());
+			bChanged = ImGui::DragScalar("##Value", DataType, Value.data(), Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
+			MonaImGui::FPropertyEditWidgetState State{ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
+			if (bChanged) SubmitProposed([&] { std::memcpy(Property->GetValuePtr(Container, ArrayIndex), Value.data(), Property->GetElementSize()); }, true);
+			FinishContinuousEdit(State);
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::String)
 		{
@@ -771,9 +824,10 @@ namespace Durin
 			std::memcpy(Buffer.data(), CurrentValue.data(), FMath::Min(CurrentValue.size(), Buffer.size() - 1));
 			if (ImGui::InputText("##Value", Buffer.data(), Buffer.size()))
 			{
-				*StringProperty->GetStringValuePtr(Container, ArrayIndex) = Buffer.data();
+				SubmitProposed([&] { *StringProperty->GetStringValuePtr(Container, ArrayIndex) = Buffer.data(); }, true);
 				bChanged = true;
 			}
+			FinishContinuousEdit({ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()});
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)
 		{
@@ -794,7 +848,7 @@ namespace Durin
 						const bool bSelected = Value.Value == CurrentValue;
 						if (ImGui::Selectable(Value.Name.ToString().c_str(), bSelected))
 						{
-							WriteEnumValue(*EnumProperty, Container, ArrayIndex, Value.Value);
+							SubmitProposed([&] { WriteEnumValue(*EnumProperty, Container, ArrayIndex, Value.Value); }, false);
 							bChanged = true;
 						}
 					});
@@ -806,6 +860,7 @@ namespace Durin
 		{
 			auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
 			DObject* Current = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
+			DObject* SelectedObject = Current;
 			const std::string Preview = Current && Current->GetPackage() ? Current->GetPackage()->GetPackagePath() : "None";
 			if (ImGui::BeginCombo("##Value", Preview.c_str()))
 			{
@@ -813,8 +868,7 @@ namespace Durin
 				ImGui::InputTextWithHint("##AssetSearch", "Search assets...", AssetSearchText.data(), AssetSearchText.size());
 				if (ImGui::Selectable("Clear", Current == nullptr))
 				{
-					if (bAllowObjectCustomization) bChanged = AssignObjectProperty(Context, Object, Property, ArrayIndex, nullptr);
-					else if (Current) { ObjectProperty->SetObjectPropertyValue(Container, nullptr, ArrayIndex); bChanged = true; }
+					if (Current) { SelectedObject = nullptr; bChanged = true; }
 				}
 				DClass* RequiredClass = ObjectProperty->GetReferencedClass();
 				for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
@@ -828,17 +882,16 @@ namespace Durin
 						Asset::FAssetResult Result = Asset::LoadAsset(Path, Loaded);
 						if (!Result)
 							Context.SetError(Result.Message);
-						else if (bAllowObjectCustomization)
-							bChanged = AssignObjectProperty(Context, Object, Property, ArrayIndex, Loaded);
 						else if (Loaded != Current)
 						{
-							ObjectProperty->SetObjectPropertyValue(Container, Loaded, ArrayIndex);
+							SelectedObject = Loaded;
 							bChanged = true;
 						}
 					}
 				}
 				ImGui::EndCombo();
 			}
+			if (bChanged) SubmitProposed([&] { ObjectProperty->SetObjectPropertyValue(Container, SelectedObject, ArrayIndex); }, false);
 		}
 		else
 		{
@@ -992,8 +1045,63 @@ namespace Durin
 		return bChanged;
 	}
 
-	auto FDetailsPanel::AssignObjectProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, DObject* Value) -> bool
+	auto FDetailsPanel::SubmitPropertyEdit(
+		FLevelEditorContext& Context,
+		const FReflectedPropertyEditTarget& Target,
+		const FPropertyValueSnapshot& ProposedValue,
+		bool bContinuous
+	) -> bool
 	{
-		return AssignDetailsObjectProperty(Context, Object, Property, ArrayIndex, Value);
+		if (PropertyEditSession.IsActive() && !IsActivePropertyEdit(Target))
+			FinishActivePropertyEdit(&Context, false);
+
+		std::string Error;
+		if (!PropertyEditSession.IsActive())
+		{
+			const std::string Description = std::format("Edit {}", Target.MemberProperty->NamePrivate.ToString());
+			if (!PropertyEditSession.Begin(Target, Description, &GetDetailsPropertyMutationAdapter(), &Error))
+			{
+				Context.SetError(std::move(Error));
+				return false;
+			}
+			ActiveEditObject = Target.Object;
+			ActiveEditProperty = Target.LeafProperty;
+			ActiveEditContainer = Target.LeafContainer;
+			ActiveEditArrayIndex = Target.LeafArrayIndex;
+		}
+
+		const EReflectedPropertyEditResult Result = PropertyEditSession.Apply(ProposedValue, &Error);
+		if (Result == EReflectedPropertyEditResult::Failed)
+		{
+			Context.SetError(std::move(Error));
+			FinishActivePropertyEdit(&Context, true);
+			return false;
+		}
+		if (!bContinuous) FinishActivePropertyEdit(&Context, false);
+		return Result == EReflectedPropertyEditResult::Changed;
+	}
+
+	auto FDetailsPanel::FinishActivePropertyEdit(FLevelEditorContext* Context, bool bCancel) -> void
+	{
+		if (!PropertyEditSession.IsActive()) return;
+		std::string Error;
+		const EReflectedPropertyEditResult Result = bCancel ? PropertyEditSession.Cancel(&Error) : PropertyEditSession.Commit(&Error);
+		if (Result == EReflectedPropertyEditResult::Failed && Context) Context->SetError(std::move(Error));
+		if (!PropertyEditSession.IsActive())
+		{
+			ActiveEditObject = nullptr;
+			ActiveEditProperty = nullptr;
+			ActiveEditContainer = nullptr;
+			ActiveEditArrayIndex = 0;
+		}
+	}
+
+	auto FDetailsPanel::IsActivePropertyEdit(const FReflectedPropertyEditTarget& Target) const -> bool
+	{
+		return PropertyEditSession.IsActive()
+			&& ActiveEditObject == Target.Object
+			&& ActiveEditProperty == Target.LeafProperty
+			&& ActiveEditContainer == Target.LeafContainer
+			&& ActiveEditArrayIndex == Target.LeafArrayIndex;
 	}
 } // namespace Durin

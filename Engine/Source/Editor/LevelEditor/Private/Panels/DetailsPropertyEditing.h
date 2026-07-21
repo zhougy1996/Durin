@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DObject/DObjectGlobals.h"
+#include "Editor/ReflectedPropertyEditing.h"
 
 namespace Durin
 {
@@ -21,4 +22,6 @@ namespace Durin
 		uint32 ArrayIndex,
 		DObject* Value
 	) -> bool;
+
+	auto GetDetailsPropertyMutationAdapter() -> const IReflectedPropertyMutationAdapter&;
 }
