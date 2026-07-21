@@ -7,6 +7,7 @@ that match the task at hand.
 
 - Local setup, configure/build/run, and outputs: `Documentation/Setup/BuildAndRun.md`; dependencies and worktree sharing: `Documentation/Setup/ThirdPartyBootstrap.md`; native tests: `Documentation/Setup/NativeTests.md`.
 - Generated build metadata and CMake ownership: `Documentation/Architecture/BuildSystem.md`; profiles and presets: `Documentation/Architecture/Profiles.md`; workspace/project/module boundaries: `Documentation/Architecture/WorkspaceProjects.md`; startup, modules, rendering, and UI ownership: `Documentation/Architecture/RuntimeArchitecture.md`.
+- TODO plan index, required structure, and writing rules: `Documentation/Todo/README.md`. Read this entrypoint before creating or restructuring a TODO plan; do not sample unrelated TODO files to infer the format.
 - Machine-local build overrides belong in `.agents/build-config.json`. Run `Setup.bat` to create it when needed; it is optional machine data, not team policy.
 
 ## Repository Rules
