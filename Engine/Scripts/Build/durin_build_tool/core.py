@@ -53,19 +53,66 @@ def lock_file_path(root: Path = LOCK_DIR) -> Path:
     return root / "checkout.lock"
 
 
-def stop_active_operation() -> bool:
-    """Stop the BuildTool process recorded in the checkout ownership lock."""
-    lock_path = lock_file_path()
+def lock_is_owned(path: Path) -> bool:
+    """Return whether another process currently holds the checkout lock."""
     try:
-        content = lock_path.read_text(encoding="utf-8")
+        handle = path.open("r+b")
     except FileNotFoundError:
         return False
     except OSError as exc:
-        raise BuildToolError(f'Could not read BuildTool lock "{lock_path}": {exc}') from exc
+        raise BuildToolError(f'Could not open BuildTool lock "{path}": {exc}') from exc
     try:
-        metadata = json.loads(content)
+        if path.stat().st_size == 0:
+            return False
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return True
+        if os.name == "nt":
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        return False
+    finally:
+        handle.close()
+
+
+def read_lock_metadata(path: Path) -> dict[str, Any]:
+    """Read metadata without touching the locked ownership byte."""
+    try:
+        with path.open("rb") as handle:
+            handle.seek(1)
+            content = handle.read()
+    except OSError as exc:
+        raise BuildToolError(f'Could not read BuildTool lock "{path}": {exc}') from exc
+    # Older lock files stored the opening JSON brace in the locked byte.
+    for candidate in (content, b"{" + content):
+        try:
+            metadata = json.loads(candidate.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if isinstance(metadata, dict):
+            return metadata
+    raise BuildToolError(f'BuildTool lock does not contain valid metadata: "{path}"')
+
+
+def stop_active_operation() -> bool:
+    """Stop the BuildTool process recorded in the checkout ownership lock."""
+    lock_path = lock_file_path()
+    if not lock_is_owned(lock_path):
+        return False
+    metadata = read_lock_metadata(lock_path)
+    try:
         pid = int(metadata["pid"])
-    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+    except (ValueError, TypeError, KeyError) as exc:
         raise BuildToolError(f'BuildTool lock does not contain a valid process ID: "{lock_path}"') from exc
     if pid <= 0 or pid == os.getpid():
         raise BuildToolError(f'BuildTool lock contains an invalid process ID: {pid}')
@@ -94,10 +141,10 @@ def interruption_marker_path(preset: str, root: Path = STATE_DIR) -> Path:
     return root / f"{state_file_component(preset)}.interrupted.json"
 
 
-def read_state_description(path: Path) -> str:
+def read_state_description(path: Path, *, locked: bool = False) -> str:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        value = read_lock_metadata(path) if locked else json.loads(path.read_text(encoding="utf-8"))
+    except (BuildToolError, OSError, json.JSONDecodeError):
         return f'Existing state file: "{path}"'
     if not isinstance(value, dict):
         return f'Existing state file: "{path}"'
@@ -149,10 +196,12 @@ class BuildToolLock:
             self.handle = None
             raise BuildToolError(
                 "Another Durin BuildTool operation already owns this checkout. "
-                + read_state_description(self.path)
+                + read_state_description(self.path, locked=True)
             ) from exc
         self.handle.seek(0)
+        # Byte zero is reserved for ownership so other processes can read the JSON while it is locked.
         self.handle.truncate()
+        self.handle.write(b"\0")
         self.handle.write((json.dumps(self.metadata, indent=2) + "\n").encode("utf-8"))
         self.handle.flush()
         return self

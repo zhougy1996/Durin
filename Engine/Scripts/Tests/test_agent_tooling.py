@@ -230,6 +230,28 @@ class CliTests(unittest.TestCase):
     def test_rebuild_defaults_to_all(self) -> None:
         self.assertEqual(build_cli.parse_args(["rebuild"]).target, "all")
 
+    def test_shell_stop_accepts_bare_command(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        stdout = io.StringIO()
+        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch.object(build_cli, "stop_active_operation", return_value=True) as stop, mock.patch(
+            "builtins.input", side_effect=["stop", "exit"]
+        ):
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        stop.assert_called_once_with()
+        self.assertIn("Stopped the active BuildTool operation.", stdout.getvalue())
+
+    def test_shell_help_prefers_commands_without_slashes(self) -> None:
+        stdout = io.StringIO()
+        build_cli.print_shell_help(BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()))
+        help_text = stdout.getvalue()
+        self.assertIn("  stop ", help_text)
+        self.assertIn("  build ", help_text)
+        self.assertNotIn("  /build ", help_text)
+
     def test_wrapper_uses_new_entrypoint_and_forwards_arguments(self) -> None:
         content = (REPO_ROOT / "BuildTool.bat").read_text(encoding="utf-8")
         self.assertIn('set "VSLANG=1033"', content)
@@ -690,6 +712,33 @@ class CoreTests(unittest.TestCase):
                 with self.assertRaisesRegex(build_config.BuildToolError, "already owns"):
                     with build_core.BuildToolLock(path, {"pid": 2}):
                         pass
+
+    def test_stop_ignores_stale_unowned_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkout.lock"
+            path.write_text(json.dumps({"pid": 424242}), encoding="utf-8")
+            with mock.patch.object(build_core, "lock_file_path", return_value=path), mock.patch.object(
+                build_core.subprocess, "run"
+            ) as run, mock.patch.object(build_core.os, "killpg", create=True) as killpg:
+                self.assertFalse(build_core.stop_active_operation())
+            run.assert_not_called()
+            killpg.assert_not_called()
+
+    def test_stop_terminates_process_recorded_by_owned_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "checkout.lock"
+            with build_core.BuildToolLock(path, {"pid": 424242}), mock.patch.object(
+                build_core, "lock_file_path", return_value=path
+            ):
+                if os.name == "nt":
+                    result = mock.Mock(returncode=0)
+                    with mock.patch.object(build_core.subprocess, "run", return_value=result) as run:
+                        self.assertTrue(build_core.stop_active_operation())
+                    self.assertEqual(run.call_args.args[0][:3], ["taskkill", "/PID", "424242"])
+                else:
+                    with mock.patch.object(build_core.os, "killpg") as killpg:
+                        self.assertTrue(build_core.stop_active_operation())
+                    killpg.assert_called_once_with(424242, build_core.signal.SIGTERM)
 
     def test_interruption_marker_requires_rebuild(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

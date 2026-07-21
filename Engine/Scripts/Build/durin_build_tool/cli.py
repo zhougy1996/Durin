@@ -199,19 +199,20 @@ def confirm_purge(output: BuildOutput, paths: Sequence[Path], all_presets: bool)
 def print_shell_help(output: BuildOutput) -> None:
     output.info(
         "Commands:\n"
-        "  /presets                  List presets and select one by number\n"
-        "  /preset [full-name]       Show or select the current preset\n"
-        "  /status                   Show resolved build context and recovery state\n"
-        "  /configure [--fresh]      Configure the current preset\n"
-        "  /build [target]           Build a target (default: all)\n"
-        "  /clean                    Clean the current preset\n"
-        "  /purge [options]          Delete artifacts (--all-presets, --yes)\n"
-        "  /rebuild [target]         Clean, configure, and build (default: all)\n"
-        "  /test <target> [filter]   Build and run a native test target\n"
-        "  /run [arguments...]       Run the existing runtime executable\n"
-        "  /open-runtime             Open the current preset's runtime directory\n"
-        "  /help                     Show this help\n"
-        "  /exit                     Leave the shell"
+        "  presets                  List presets and select one by number\n"
+        "  preset [full-name]       Show or select the current preset\n"
+        "  status                   Show resolved build context and recovery state\n"
+        "  stop                     Stop an operation running in another BuildTool process\n"
+        "  configure [--fresh]      Configure the current preset\n"
+        "  build [target]           Build a target (default: all)\n"
+        "  clean                    Clean the current preset\n"
+        "  purge [options]          Delete artifacts (--all-presets, --yes)\n"
+        "  rebuild [target]         Clean, configure, and build (default: all)\n"
+        "  test <target> [filter]   Build and run a native test target\n"
+        "  run [arguments...]       Run the existing runtime executable\n"
+        "  open-runtime             Open the current preset's runtime directory\n"
+        "  help                     Show this help\n"
+        "  exit                     Leave the shell"
     )
 
 
@@ -244,13 +245,13 @@ def resolve_shell_preset(value: str, context: BuildContext) -> str:
     matches = [preset for preset in context.profile.presets if preset.lower() == value.lower()]
     if len(matches) == 1:
         return matches[0]
-    raise BuildToolError(f'Unknown preset "{value}". Use its full name or run /presets.')
+    raise BuildToolError(f'Unknown preset "{value}". Use its full name or run presets.')
 
 
 def resolve_shell_preset_number(value: str, context: BuildContext) -> str:
     if value.isdigit() and 1 <= int(value) <= len(context.profile.presets):
         return context.profile.presets[int(value) - 1]
-    raise BuildToolError(f'Invalid preset number "{value}". Enter a number shown by /presets.')
+    raise BuildToolError(f'Invalid preset number "{value}". Enter a number shown by presets.')
 
 
 def show_status(output: BuildOutput, context: BuildContext, preset_name: str) -> None:
@@ -283,7 +284,7 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
     current_preset = base.preset.name
     output.info("Durin BuildTool shell")
     show_status(output, base, current_preset)
-    output.info("Type /help for available commands.")
+    output.info("Type help for available commands.")
     selecting_preset = False
     while True:
         try:
@@ -292,7 +293,7 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
             output.info("")
             return
         except KeyboardInterrupt:
-            output.warning("Use /exit to leave the shell.")
+            output.warning("Use exit to leave the shell.")
             continue
         if selecting_preset:
             selecting_preset = False
@@ -323,6 +324,14 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                 continue
             if command == "status":
                 show_status(output, base, current_preset)
+                continue
+            if command == "stop":
+                if values:
+                    raise BuildToolError("stop does not accept arguments.")
+                if stop_active_operation():
+                    output.success("Stopped the active BuildTool operation.")
+                else:
+                    output.info("No active BuildTool operation was found.")
                 continue
             if command == "preset":
                 if not values:
@@ -390,7 +399,7 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                     run_arguments=values,
                 )
             else:
-                raise BuildToolError(f'Unknown shell command "{parts[0]}". Type /help for available commands.')
+                raise BuildToolError(f'Unknown shell command "{parts[0]}". Type help for available commands.')
             child_context = derive_context(base, child_request)
             execute_context(
                 child_context,

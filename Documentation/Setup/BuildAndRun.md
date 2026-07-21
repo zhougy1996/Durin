@@ -77,12 +77,12 @@ Run `BuildTool` without arguments, or pass `shell`, to open the human-oriented c
 .\BuildTool shell
 ```
 
-If Ctrl+C is not forwarded by the terminal or batch wrapper, run `.\BuildTool stop` from a second terminal. It stops the active BuildTool process and its complete CMake/Ninja child process tree for this checkout.
+If Ctrl+C is not forwarded by the terminal or batch wrapper, run `.\BuildTool stop` from a second terminal, or enter `stop` in another already-open BuildTool shell. It stops the active BuildTool process and its complete CMake/Ninja child process tree for this checkout. The foreground shell cannot accept `stop` while it is waiting for its own operation, so stopping that operation requires another process.
 
 The selected preset is session-local and does not modify `.agents/build-config.json`:
 
 ```text
-BuildTool> /presets
+BuildTool> presets
    1  Win64-Debug-DurinEditor
    2  Win64-Debug-DurinEditor-Tests [default, current]
    3  Win64-Debug-DurinGame
@@ -90,20 +90,21 @@ BuildTool> /presets
    5  Win64-Release-DurinGame
    6  Win64-Shipping-DurinGame
 BuildTool> 4
-BuildTool> /preset
+BuildTool> preset
 CMake preset: "Win64-Release-DurinEditor"
-BuildTool> /preset Win64-Debug-DurinGame
-BuildTool> /configure --fresh
-BuildTool> /build
-BuildTool> /rebuild DurinLauncher
-BuildTool> /test CoreTests FJsonDocumentTests.*
-BuildTool> /run
-BuildTool> /open-runtime
-BuildTool> /status
-BuildTool> /exit
+BuildTool> preset Win64-Debug-DurinGame
+BuildTool> configure --fresh
+BuildTool> build
+BuildTool> rebuild DurinLauncher
+BuildTool> test CoreTests FJsonDocumentTests.*
+BuildTool> run
+BuildTool> open-runtime
+BuildTool> status
+BuildTool> stop
+BuildTool> exit
 ```
 
-`/presets` displays the registered list, prints an input hint, and accepts a number on the next `BuildTool>` prompt. `/preset` without an argument displays the current preset; with an argument it requires the full preset name. `/build` and `/rebuild` default to target `all`. `/run [arguments...]` launches the current preset's existing runtime executable and returns to the shell when it exits. `/open-runtime` opens the selected preset's existing runtime directory in the platform file manager. `/status` reports the resolved profile, preset, build directory, configuration, CMake command, parallelism, and interruption recovery state. Use `/help` for the complete command list. Shell commands reuse the environment resolved when the shell starts, so switching presets does not rerun Visual Studio environment discovery.
+`presets` displays the registered list, prints an input hint, and accepts a number on the next `BuildTool>` prompt. `preset` without an argument displays the current preset; with an argument it requires the full preset name. `build` and `rebuild` default to target `all`. `run [arguments...]` launches the current preset's existing runtime executable and returns to the shell when it exits. `open-runtime` opens the selected preset's existing runtime directory in the platform file manager. `status` reports the resolved profile, preset, build directory, configuration, CMake command, parallelism, and interruption recovery state. `stop` stops an operation held by another BuildTool process. Use `help` for the complete command list. A leading slash remains accepted for compatibility but is not required. Shell commands reuse the environment resolved when the shell starts, so switching presets does not rerun Visual Studio environment discovery.
 
 ## Clean And Purge
 
