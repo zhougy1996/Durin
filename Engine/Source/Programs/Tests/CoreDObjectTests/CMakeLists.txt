@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 add_durin_test(CoreDObjectTests
+	Private/PropertyChangeTests.cpp
 	Private/ReflectionTypeTests.cpp
 )
 

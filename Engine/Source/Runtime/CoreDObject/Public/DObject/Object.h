@@ -2,6 +2,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectMacros.h"
+#include "DObject/PropertyChange.h"
 #include "DObjectGlobals.h"
 
 namespace Durin
@@ -102,6 +103,10 @@ namespace Durin
 		COREDOBJECT_API virtual auto FinishDestroy() -> void;
 
 		COREDOBJECT_API virtual auto PostLoad(std::string& OutError) -> bool;
+
+		// Editor mutation state stays outside DObject; this synchronous hook only
+		// lets the object refresh state derived from a successfully changed value.
+		COREDOBJECT_API virtual auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void;
 
 		static void IntrinsicClassInit(DClass* Class);
 

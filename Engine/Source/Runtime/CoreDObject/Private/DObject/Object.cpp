@@ -235,6 +235,11 @@ namespace Durin
 		return true;
 	}
 
+	auto DObject::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		(void)Event;
+	}
+
 	auto DObject::MarkPackageDirty() -> void
 	{
 		if (DPackage* Package = GetPackage()) Package->MarkDirty();
