@@ -102,10 +102,21 @@ namespace
 	}
 
 	template<typename K, typename V>
+	auto MapPropertyGetMutableValue(void* Container, Durin::uint64 Index) -> void*
+	{
+		auto It = static_cast<TTestMap<K, V>*>(Container)->begin();
+		std::advance(It, static_cast<size_t>(Index));
+		return &It->second;
+	}
+
+	template<typename K, typename V>
 	auto MapPropertyClear(void* Container) -> void { static_cast<TTestMap<K, V>*>(Container)->clear(); }
 
 	template<typename T>
 	auto MapPropertyCreateValue() -> void* { return new T(); }
+
+	template<typename T>
+	auto MapPropertyCreateValueCopy(const void* Value) -> void* { return new T(*static_cast<const T*>(Value)); }
 
 	template<typename T>
 	auto MapPropertyDestroyValue(void* Value) -> void { delete static_cast<T*>(Value); }
@@ -117,16 +128,47 @@ namespace
 	}
 
 	template<typename K, typename V>
+	auto MapPropertyContains(const void* Container, const void* Key) -> bool
+	{
+		return static_cast<const TTestMap<K, V>*>(Container)->contains(*static_cast<const K*>(Key));
+	}
+
+	template<typename K, typename V>
+	auto MapPropertyRenameKey(void* Container, const void* OldKey, const void* NewKey) -> bool
+	{
+		auto* Map = static_cast<TTestMap<K, V>*>(Container);
+		const K OldKeyCopy = *static_cast<const K*>(OldKey);
+		const K NewKeyCopy = *static_cast<const K*>(NewKey);
+		if (OldKeyCopy == NewKeyCopy || Map->contains(NewKeyCopy)) return false;
+		auto Node = Map->extract(OldKeyCopy);
+		if (Node.empty()) return false;
+		Node.key() = NewKeyCopy;
+		Map->insert(std::move(Node));
+		return true;
+	}
+
+	template<typename K, typename V>
+	auto MapPropertyRemove(void* Container, const void* Key) -> bool
+	{
+		return static_cast<TTestMap<K, V>*>(Container)->erase(*static_cast<const K*>(Key)) != 0;
+	}
+
+	template<typename K, typename V>
 	const Durin::DurinCodeGen::FMapPropertyHelper GMapPropertyHelper = {
 		&MapPropertyNum<K, V>,
 		&MapPropertyGetKey<K, V>,
 		&MapPropertyGetValue<K, V>,
+		&MapPropertyGetMutableValue<K, V>,
 		&MapPropertyClear<K, V>,
 		&MapPropertyCreateValue<K>,
+		&MapPropertyCreateValueCopy<K>,
 		&MapPropertyDestroyValue<K>,
 		&MapPropertyCreateValue<V>,
 		&MapPropertyDestroyValue<V>,
-		&MapPropertyInsert<K, V>
+		&MapPropertyInsert<K, V>,
+		&MapPropertyContains<K, V>,
+		&MapPropertyRenameKey<K, V>,
+		&MapPropertyRemove<K, V>
 	};
 
 	Durin::DEnum* Z_Construct_DEnum_EReflectedEnumForTest_NoRegister();
@@ -1603,6 +1645,41 @@ namespace
 		EXPECT_FALSE(ObjectArrayContains(Owner));
 		EXPECT_FALSE(ObjectArrayContains(SharedReference));
 		EXPECT_FALSE(ObjectArrayContains(ArrayMapReference));
+	}
+
+	TEST(FCoreDObjectReflectionTests, MapPropertySupportsEditorMutationOperations)
+	{
+		EnsureDObjectInitialized();
+		auto* Owner = Durin::NewObject<DGCReferenceSchemaDerivedForTest>(nullptr, Durin::FName("MapPropertyMutationOwner"));
+		auto* Property = static_cast<Durin::FMapProperty*>(Owner->GetClass()->FindPropertyByName("DirectMap"));
+		ASSERT_NE(Property, nullptr);
+		ASSERT_TRUE(Property->HasMapHelper());
+
+		const std::string InitialKey = "Initial";
+		Durin::TObjectPtr<Durin::DObject> InitialValue;
+		Property->Insert(Owner, &InitialKey, &InitialValue);
+		ASSERT_EQ(Property->Num(Owner), 1u);
+		EXPECT_TRUE(Property->Contains(Owner, &InitialKey));
+
+		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("MapPropertyMutationReference"));
+		auto* MutableValue = static_cast<Durin::TObjectPtr<Durin::DObject>*>(Property->GetMutableMappedValuePtr(Owner, 0));
+		ASSERT_NE(MutableValue, nullptr);
+		*MutableValue = ReferencedObject;
+		EXPECT_EQ(Owner->DirectMap.at(InitialKey).Get(), ReferencedObject);
+
+		void* KeyCopy = Property->CreateKeyCopy(Property->GetKeyPtr(Owner, 0));
+		ASSERT_NE(KeyCopy, nullptr);
+		EXPECT_EQ(*static_cast<std::string*>(KeyCopy), InitialKey);
+		const std::string RenamedKey = "Renamed";
+		EXPECT_TRUE(Property->RenameKey(Owner, KeyCopy, &RenamedKey));
+		Property->DestroyKey(KeyCopy);
+		EXPECT_FALSE(Property->Contains(Owner, &InitialKey));
+		EXPECT_EQ(Owner->DirectMap.at(RenamedKey).Get(), ReferencedObject);
+		EXPECT_TRUE(Property->Remove(Owner, &RenamedKey));
+		EXPECT_TRUE(Owner->DirectMap.empty());
+
+		Durin::MarkAsGarbage(Owner);
+		Durin::MarkAsGarbage(ReferencedObject);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ObjectGraphSerializationRoundTripsScalarStringAndObjectReference)

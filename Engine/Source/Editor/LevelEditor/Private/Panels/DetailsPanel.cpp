@@ -660,104 +660,118 @@ namespace Durin
 	auto FDetailsPanel::DrawProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, const std::string& Label) -> void
 	{
 		const bool bReadOnly = Context.bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
-		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
-		DStruct* Struct = Kind == DurinCodeGen::EPropertyGenFlags::Struct ? static_cast<FStructProperty*>(Property)->GetStruct() : nullptr;
 		ImGui::PushID(Property);
 		ImGui::PushID(static_cast<int>(ArrayIndex));
+		if (DrawPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, true)) Object->MarkPackageDirty();
+		ImGui::PopID();
+		ImGui::PopID();
+	}
+
+	auto FDetailsPanel::DrawPropertyValue(
+		FLevelEditorContext& Context,
+		DObject* Object,
+		FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		const std::string& Label,
+		bool bReadOnly,
+		bool bAllowObjectCustomization
+	) -> bool
+	{
+		bReadOnly |= Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
+		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
+		DStruct* Struct = Kind == DurinCodeGen::EPropertyGenFlags::Struct ? static_cast<FStructProperty*>(Property)->GetStruct() : nullptr;
 
 		if (Struct == Z_Construct_DStruct_Durin_FTransform())
 		{
-			FTransform Value = *Property->ContainerPtrToValuePtr<FTransform>(Object, ArrayIndex);
+			FTransform Value = *Property->ContainerPtrToValuePtr<FTransform>(Container, ArrayIndex);
 			if (MonaImGui::EditTransformProperty(Label.c_str(), Value, bReadOnly))
 			{
-				if (auto* SceneComponent = Cast<DSceneComponent>(Object); SceneComponent && Property->NamePrivate == FName("RelativeTransform"))
+				if (bAllowObjectCustomization)
 				{
-					SceneComponent->SetRelativeTransform(Value);
+					if (auto* SceneComponent = Cast<DSceneComponent>(Object); SceneComponent && Property->NamePrivate == FName("RelativeTransform"))
+					{
+						SceneComponent->SetRelativeTransform(Value);
+						return true;
+					}
 				}
-				else
-				{
-					*Property->ContainerPtrToValuePtr<FTransform>(Object, ArrayIndex) = Value;
-				}
-				Object->MarkPackageDirty();
+				*Property->ContainerPtrToValuePtr<FTransform>(Container, ArrayIndex) = Value;
+				return true;
 			}
-			ImGui::PopID();
-			ImGui::PopID();
-			return;
+			return false;
 		}
 
-		auto FinishMathStruct = [&]<typename TValue, typename TEditor>(TValue Value, TEditor&& Editor) -> void {
+		auto EditMathStruct = [&]<typename TValue, typename TEditor>(TValue Value, TEditor&& Editor) -> bool {
 			if (Editor(Value))
 			{
-				*Property->ContainerPtrToValuePtr<TValue>(Object, ArrayIndex) = Value;
-				Object->MarkPackageDirty();
+				*Property->ContainerPtrToValuePtr<TValue>(Container, ArrayIndex) = Value;
+				return true;
 			}
-			ImGui::PopID();
-			ImGui::PopID();
+			return false;
 		};
 
 		if (Struct == Z_Construct_DStruct_Durin_FVector2())
 		{
-			FinishMathStruct(*Property->ContainerPtrToValuePtr<FVector2>(Object, ArrayIndex), [&](FVector2& Value) {
+			return EditMathStruct(*Property->ContainerPtrToValuePtr<FVector2>(Container, ArrayIndex), [&](FVector2& Value) {
 				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly);
 			});
-			return;
 		}
 
 		if (Struct == Z_Construct_DStruct_Durin_FVector3())
 		{
-			FinishMathStruct(*Property->ContainerPtrToValuePtr<FVector3>(Object, ArrayIndex), [&](FVector3& Value) {
+			return EditMathStruct(*Property->ContainerPtrToValuePtr<FVector3>(Container, ArrayIndex), [&](FVector3& Value) {
 				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly);
 			});
-			return;
 		}
 
 		if (Struct == Z_Construct_DStruct_Durin_FVector4())
 		{
-			FinishMathStruct(*Property->ContainerPtrToValuePtr<FVector4>(Object, ArrayIndex), [&](FVector4& Value) {
+			return EditMathStruct(*Property->ContainerPtrToValuePtr<FVector4>(Container, ArrayIndex), [&](FVector4& Value) {
 				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly);
 			});
-			return;
 		}
 
 		if (Struct == Z_Construct_DStruct_Durin_FQuat())
 		{
-			FinishMathStruct(*Property->ContainerPtrToValuePtr<FQuat>(Object, ArrayIndex), [&](FQuat& Value) {
+			return EditMathStruct(*Property->ContainerPtrToValuePtr<FQuat>(Container, ArrayIndex), [&](FQuat& Value) {
 				return MonaImGui::EditQuatProperty(Label.c_str(), Value, bReadOnly);
 			});
-			return;
 		}
 
 		if (Struct == Z_Construct_DStruct_Durin_FLinearColor())
 		{
-			FLinearColor Value = *Property->ContainerPtrToValuePtr<FLinearColor>(Object, ArrayIndex);
+			FLinearColor Value = *Property->ContainerPtrToValuePtr<FLinearColor>(Container, ArrayIndex);
 			const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
-			FinishMathStruct(Value, [&](FLinearColor& EditedValue) {
+			return EditMathStruct(Value, [&](FLinearColor& EditedValue) {
 				return MonaImGui::EditColorProperty(Label.c_str(), EditedValue, bShowAlpha, bReadOnly);
 			});
-			return;
 		}
+		if (Kind == DurinCodeGen::EPropertyGenFlags::Array)
+			return DrawArrayProperty(Context, Object, static_cast<FArrayProperty*>(Property), Container, ArrayIndex, Label, bReadOnly);
+		if (Kind == DurinCodeGen::EPropertyGenFlags::Map)
+			return DrawMapProperty(Context, Object, static_cast<FMapProperty*>(Property), Container, ArrayIndex, Label, bReadOnly);
 
 		MonaImGui::BeginPropertyRow(Label.c_str(), bReadOnly);
 
 		bool bChanged = false;
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Bool)
 		{
-			bool* Value = Property->ContainerPtrToValuePtr<bool>(Object, ArrayIndex);
+			bool* Value = Property->ContainerPtrToValuePtr<bool>(Container, ArrayIndex);
 			bChanged = ImGui::Checkbox("##Value", Value);
 		}
 		else if (const ImGuiDataType DataType = ImGuiDataTypeForProperty(Kind); DataType != ImGuiDataType_COUNT)
 		{
-			bChanged = ImGui::DragScalar("##Value", DataType, Property->GetValuePtr(Object, ArrayIndex), Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
+			bChanged = ImGui::DragScalar("##Value", DataType, Property->GetValuePtr(Container, ArrayIndex), Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::String)
 		{
 			auto* StringProperty = static_cast<FStringProperty*>(Property);
 			std::array<char, 512> Buffer{};
-			const std::string& CurrentValue = *StringProperty->GetStringValuePtr(Object, ArrayIndex);
+			const std::string& CurrentValue = *StringProperty->GetStringValuePtr(Container, ArrayIndex);
 			std::memcpy(Buffer.data(), CurrentValue.data(), FMath::Min(CurrentValue.size(), Buffer.size() - 1));
 			if (ImGui::InputText("##Value", Buffer.data(), Buffer.size()))
 			{
-				*StringProperty->GetStringValuePtr(Object, ArrayIndex) = Buffer.data();
+				*StringProperty->GetStringValuePtr(Container, ArrayIndex) = Buffer.data();
 				bChanged = true;
 			}
 		}
@@ -771,7 +785,7 @@ namespace Durin
 			}
 			else
 			{
-				int64 CurrentValue = ReadEnumValue(*EnumProperty, Object, ArrayIndex);
+				int64 CurrentValue = ReadEnumValue(*EnumProperty, Container, ArrayIndex);
 				FName CurrentName;
 				const std::string Preview = Enum->FindNameByValue(CurrentValue, CurrentName) ? CurrentName.ToString() : std::format("{}", CurrentValue);
 				if (ImGui::BeginCombo("##Value", Preview.c_str()))
@@ -780,7 +794,7 @@ namespace Durin
 						const bool bSelected = Value.Value == CurrentValue;
 						if (ImGui::Selectable(Value.Name.ToString().c_str(), bSelected))
 						{
-							WriteEnumValue(*EnumProperty, Object, ArrayIndex, Value.Value);
+							WriteEnumValue(*EnumProperty, Container, ArrayIndex, Value.Value);
 							bChanged = true;
 						}
 					});
@@ -791,13 +805,17 @@ namespace Durin
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Object)
 		{
 			auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
-			DObject* Current = ObjectProperty->GetObjectPropertyValue(Object, ArrayIndex);
+			DObject* Current = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
 			const std::string Preview = Current && Current->GetPackage() ? Current->GetPackage()->GetPackagePath() : "None";
 			if (ImGui::BeginCombo("##Value", Preview.c_str()))
 			{
 				ImGui::SetNextItemWidth(-FLT_MIN);
 				ImGui::InputTextWithHint("##AssetSearch", "Search assets...", AssetSearchText.data(), AssetSearchText.size());
-				if (ImGui::Selectable("Clear", Current == nullptr)) bChanged = AssignObjectProperty(Context, Object, Property, ArrayIndex, nullptr);
+				if (ImGui::Selectable("Clear", Current == nullptr))
+				{
+					if (bAllowObjectCustomization) bChanged = AssignObjectProperty(Context, Object, Property, ArrayIndex, nullptr);
+					else if (Current) { ObjectProperty->SetObjectPropertyValue(Container, nullptr, ArrayIndex); bChanged = true; }
+				}
 				DClass* RequiredClass = ObjectProperty->GetReferencedClass();
 				for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 				{
@@ -810,8 +828,13 @@ namespace Durin
 						Asset::FAssetResult Result = Asset::LoadAsset(Path, Loaded);
 						if (!Result)
 							Context.SetError(Result.Message);
-						else
+						else if (bAllowObjectCustomization)
 							bChanged = AssignObjectProperty(Context, Object, Property, ArrayIndex, Loaded);
+						else if (Loaded != Current)
+						{
+							ObjectProperty->SetObjectPropertyValue(Container, Loaded, ArrayIndex);
+							bChanged = true;
+						}
 					}
 				}
 				ImGui::EndCombo();
@@ -823,9 +846,150 @@ namespace Durin
 		}
 
 		MonaImGui::EndPropertyRow(bReadOnly);
-		if (bChanged && Kind != DurinCodeGen::EPropertyGenFlags::Object) Object->MarkPackageDirty();
-		ImGui::PopID();
-		ImGui::PopID();
+		return bChanged;
+	}
+
+	auto FDetailsPanel::DrawArrayProperty(
+		FLevelEditorContext& Context,
+		DObject* Object,
+		FArrayProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		const std::string& Label,
+		bool bReadOnly
+	) -> bool
+	{
+		if (!Property->HasArrayHelper() || !Property->GetInner())
+		{
+			MonaImGui::BeginPropertyRow(Label.c_str(), true);
+			ImGui::TextDisabled("<array metadata unavailable>");
+			MonaImGui::EndPropertyRow(true);
+			return false;
+		}
+
+		uint64 Num = Property->Num(Container, ArrayIndex);
+		ImGui::TableNextRow();
+		ImGui::TableSetColumnIndex(0);
+		const bool bOpen = MonaImGui::CompactTreeNode("##Array", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s (%llu)", Label.c_str(), Num);
+		ImGui::TableSetColumnIndex(1);
+		if (bReadOnly) ImGui::BeginDisabled();
+		bool bChanged = false;
+		if (ImGui::SmallButton("+"))
+		{
+			Property->Resize(Container, Num + 1, ArrayIndex);
+			++Num;
+			bChanged = true;
+		}
+		ImGui::SameLine();
+		if (Num == 0) ImGui::BeginDisabled();
+		if (ImGui::SmallButton("-") && Num > 0)
+		{
+			Property->Resize(Container, Num - 1, ArrayIndex);
+			--Num;
+			bChanged = true;
+		}
+		if (Num == 0) ImGui::EndDisabled();
+		if (bReadOnly) ImGui::EndDisabled();
+
+		if (bOpen)
+		{
+			for (uint64 Index = 0; Index < Num; ++Index)
+			{
+				void* Element = Property->GetMutableElementPtr(Container, Index, ArrayIndex);
+				if (!Element) continue;
+				ImGui::PushID(static_cast<int>(Index));
+				bChanged |= DrawPropertyValue(Context, Object, Property->GetInner(), Element, 0, std::format("[{}]", Index), bReadOnly);
+				ImGui::PopID();
+			}
+			ImGui::TreePop();
+		}
+		return bChanged;
+	}
+
+	auto FDetailsPanel::DrawMapProperty(
+		FLevelEditorContext& Context,
+		DObject* Object,
+		FMapProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		const std::string& Label,
+		bool bReadOnly
+	) -> bool
+	{
+		if (!Property->HasMapHelper() || !Property->GetKeyProp() || !Property->GetValueProp())
+		{
+			MonaImGui::BeginPropertyRow(Label.c_str(), true);
+			ImGui::TextDisabled("<map metadata unavailable>");
+			MonaImGui::EndPropertyRow(true);
+			return false;
+		}
+
+		uint64 Num = Property->Num(Container, ArrayIndex);
+		ImGui::TableNextRow();
+		ImGui::TableSetColumnIndex(0);
+		const bool bOpen = MonaImGui::CompactTreeNode("##Map", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s (%llu)", Label.c_str(), Num);
+		ImGui::TableSetColumnIndex(1);
+		if (bReadOnly) ImGui::BeginDisabled();
+		bool bChanged = false;
+		if (ImGui::SmallButton("+ Add"))
+		{
+			void* Key = Property->CreateKey();
+			void* Value = Property->CreateValue();
+			if (!Key || !Value)
+			{
+				Context.SetError("Unable to create a default map entry.");
+			}
+			else if (Property->Contains(Container, Key, ArrayIndex))
+			{
+				Context.SetError("Rename the existing default-key entry before adding another one.");
+			}
+			else
+			{
+				Property->Insert(Container, Key, Value, ArrayIndex);
+				Num = Property->Num(Container, ArrayIndex);
+				bChanged = true;
+			}
+			Property->DestroyKey(Key);
+			Property->DestroyValue(Value);
+		}
+		if (bReadOnly) ImGui::EndDisabled();
+
+		if (bOpen)
+		{
+			for (uint64 Index = 0; Index < Num; ++Index)
+			{
+				const void* Key = Property->GetKeyPtr(Container, Index, ArrayIndex);
+				void* Value = Property->GetMutableMappedValuePtr(Container, Index, ArrayIndex);
+				if (!Key || !Value) continue;
+				ImGui::PushID(Key);
+
+				void* EditedKey = Property->CreateKeyCopy(Key);
+				const bool bKeyChanged = EditedKey && DrawPropertyValue(Context, Object, Property->GetKeyProp(), EditedKey, 0, std::format("[{}] Key", Index), bReadOnly);
+				bChanged |= DrawPropertyValue(Context, Object, Property->GetValueProp(), Value, 0, std::format("[{}] Value", Index), bReadOnly);
+
+				MonaImGui::BeginPropertyRow(std::format("[{}] Actions", Index).c_str(), bReadOnly);
+				const bool bRemove = ImGui::SmallButton("Remove");
+				MonaImGui::EndPropertyRow(bReadOnly);
+				if (bRemove)
+				{
+					bChanged |= Property->Remove(Container, Key, ArrayIndex);
+				}
+				else if (bKeyChanged && !Property->RenameKey(Container, Key, EditedKey, ArrayIndex))
+				{
+					Context.SetError("Map keys must be unique.");
+				}
+				else if (bKeyChanged)
+				{
+					bChanged = true;
+				}
+				Property->DestroyKey(EditedKey);
+				ImGui::PopID();
+				// Rename and erase may change iteration order, so resume traversal next frame.
+				if (bRemove || bKeyChanged) break;
+			}
+			ImGui::TreePop();
+		}
+		return bChanged;
 	}
 
 	auto FDetailsPanel::AssignObjectProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, DObject* Value) -> bool

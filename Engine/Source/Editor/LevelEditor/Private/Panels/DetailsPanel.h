@@ -25,6 +25,9 @@ namespace Durin
 		auto DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void;
 		auto DrawStaticMeshMaterials(FLevelEditorContext& Context, class DStaticMeshComponent* Component) -> void;
 		auto DrawProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, const std::string& Label) -> void;
+		auto DrawPropertyValue(FLevelEditorContext& Context, DObject* Object, FProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly, bool bAllowObjectCustomization = false) -> bool;
+		auto DrawArrayProperty(FLevelEditorContext& Context, DObject* Object, class FArrayProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly) -> bool;
+		auto DrawMapProperty(FLevelEditorContext& Context, DObject* Object, class FMapProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly) -> bool;
 		auto AssignObjectProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, DObject* Value) -> bool;
 
 		std::array<char, 128> ComponentTypeSearchText{};

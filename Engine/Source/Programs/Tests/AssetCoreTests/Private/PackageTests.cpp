@@ -34,8 +34,13 @@ namespace
 	{
 		auto It = static_cast<const FScoreMap*>(Container)->begin(); std::advance(It, Index); return &It->second;
 	}
+	auto MapMutableValue(void* Container, Durin::uint64 Index) -> void*
+	{
+		auto It = static_cast<FScoreMap*>(Container)->begin(); std::advance(It, Index); return &It->second;
+	}
 	auto MapClear(void* Container) -> void { static_cast<FScoreMap*>(Container)->clear(); }
 	auto CreateString() -> void* { return new std::string(); }
+	auto CopyString(const void* Value) -> void* { return new std::string(*static_cast<const std::string*>(Value)); }
 	auto DestroyString(void* Value) -> void { delete static_cast<std::string*>(Value); }
 	auto CreateInt() -> void* { return new Durin::int32(); }
 	auto DestroyInt(void* Value) -> void { delete static_cast<Durin::int32*>(Value); }
@@ -43,8 +48,29 @@ namespace
 	{
 		static_cast<FScoreMap*>(Container)->insert_or_assign(*static_cast<const std::string*>(Key), *static_cast<const Durin::int32*>(Value));
 	}
+	auto MapContains(const void* Container, const void* Key) -> bool
+	{
+		return static_cast<const FScoreMap*>(Container)->contains(*static_cast<const std::string*>(Key));
+	}
+	auto MapRenameKey(void* Container, const void* OldKey, const void* NewKey) -> bool
+	{
+		auto* Map = static_cast<FScoreMap*>(Container);
+		const std::string OldKeyCopy = *static_cast<const std::string*>(OldKey);
+		const std::string NewKeyCopy = *static_cast<const std::string*>(NewKey);
+		if (OldKeyCopy == NewKeyCopy || Map->contains(NewKeyCopy)) return false;
+		auto Node = Map->extract(OldKeyCopy);
+		if (Node.empty()) return false;
+		Node.key() = NewKeyCopy;
+		Map->insert(std::move(Node));
+		return true;
+	}
+	auto MapRemove(void* Container, const void* Key) -> bool
+	{
+		return static_cast<FScoreMap*>(Container)->erase(*static_cast<const std::string*>(Key)) != 0;
+	}
 	const Durin::DurinCodeGen::FMapPropertyHelper GScoreMapHelper = {
-		&MapNum, &MapKey, &MapValue, &MapClear, &CreateString, &DestroyString, &CreateInt, &DestroyInt, &MapInsert
+		&MapNum, &MapKey, &MapValue, &MapMutableValue, &MapClear, &CreateString, &CopyString, &DestroyString,
+		&CreateInt, &DestroyInt, &MapInsert, &MapContains, &MapRenameKey, &MapRemove
 	};
 
 	class DPackageAssetForTest : public Durin::DObject

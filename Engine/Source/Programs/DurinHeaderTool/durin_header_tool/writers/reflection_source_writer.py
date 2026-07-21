@@ -483,12 +483,17 @@ def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
                 _line(f"static Durin::uint64 NewProp_{prop.name}_MapNum(const void* Container);", 1),
                 _line(f"static const void* NewProp_{prop.name}_MapGetKey(const void* Container, Durin::uint64 Index);", 1),
                 _line(f"static const void* NewProp_{prop.name}_MapGetValue(const void* Container, Durin::uint64 Index);", 1),
+                _line(f"static void* NewProp_{prop.name}_MapGetMutableValue(void* Container, Durin::uint64 Index);", 1),
                 _line(f"static void NewProp_{prop.name}_MapClear(void* Container);", 1),
                 _line(f"static void* NewProp_{prop.name}_MapCreateKey();", 1),
+                _line(f"static void* NewProp_{prop.name}_MapCreateKeyCopy(const void* Key);", 1),
                 _line(f"static void NewProp_{prop.name}_MapDestroyKey(void* Key);", 1),
                 _line(f"static void* NewProp_{prop.name}_MapCreateValue();", 1),
                 _line(f"static void NewProp_{prop.name}_MapDestroyValue(void* Value);", 1),
                 _line(f"static void NewProp_{prop.name}_MapInsert(void* Container, const void* Key, const void* Value);", 1),
+                _line(f"static bool NewProp_{prop.name}_MapContains(const void* Container, const void* Key);", 1),
+                _line(f"static bool NewProp_{prop.name}_MapRenameKey(void* Container, const void* OldKey, const void* NewKey);", 1),
+                _line(f"static bool NewProp_{prop.name}_MapRemove(void* Container, const void* Key);", 1),
                 _line(f"static const Durin::DurinCodeGen::FMapPropertyHelper NewProp_{prop.name}_MapHelper;", 1),
             ]
         )
@@ -622,11 +627,19 @@ def _map_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedProper
         "\tstd::advance(It, static_cast<size_t>(Index));\n"
         "\treturn &It->second;\n"
         "}\n\n"
+        f"void* {statics}::{name}_MapGetMutableValue(void* Container, Durin::uint64 Index)\n"
+        "{\n"
+        f"\tauto* Value = static_cast<{map_type}*>(Container);\n"
+        "\tauto It = Value->begin();\n"
+        "\tstd::advance(It, static_cast<size_t>(Index));\n"
+        "\treturn &It->second;\n"
+        "}\n\n"
         f"void {statics}::{name}_MapClear(void* Container)\n"
         "{\n"
         f"\tstatic_cast<{map_type}*>(Container)->clear();\n"
         "}\n\n"
         f"void* {statics}::{name}_MapCreateKey() {{ using FType = {map_type}::key_type; return new FType(); }}\n"
+        f"void* {statics}::{name}_MapCreateKeyCopy(const void* Key) {{ using FType = {map_type}::key_type; return new FType(*static_cast<const FType*>(Key)); }}\n"
         f"void {statics}::{name}_MapDestroyKey(void* Key) {{ using FType = {map_type}::key_type; delete static_cast<FType*>(Key); }}\n"
         f"void* {statics}::{name}_MapCreateValue() {{ using FType = {map_type}::mapped_type; return new FType(); }}\n"
         f"void {statics}::{name}_MapDestroyValue(void* Value) {{ using FType = {map_type}::mapped_type; delete static_cast<FType*>(Value); }}\n"
@@ -637,10 +650,38 @@ def _map_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedProper
         "\tusing FValueType = FMapType::mapped_type;\n"
         "\tstatic_cast<FMapType*>(Container)->insert_or_assign(*static_cast<const FKeyType*>(Key), *static_cast<const FValueType*>(Value));\n"
         "}\n\n"
+        f"bool {statics}::{name}_MapContains(const void* Container, const void* Key)\n"
+        "{\n"
+        f"\tusing FMapType = {map_type};\n"
+        "\tusing FKeyType = FMapType::key_type;\n"
+        "\treturn static_cast<const FMapType*>(Container)->contains(*static_cast<const FKeyType*>(Key));\n"
+        "}\n\n"
+        f"bool {statics}::{name}_MapRenameKey(void* Container, const void* OldKey, const void* NewKey)\n"
+        "{\n"
+        f"\tusing FMapType = {map_type};\n"
+        "\tusing FKeyType = FMapType::key_type;\n"
+        "\tauto* Value = static_cast<FMapType*>(Container);\n"
+        "\tconst FKeyType OldKeyCopy = *static_cast<const FKeyType*>(OldKey);\n"
+        "\tconst FKeyType NewKeyCopy = *static_cast<const FKeyType*>(NewKey);\n"
+        "\tif (OldKeyCopy == NewKeyCopy) return false;\n"
+        "\tif (Value->contains(NewKeyCopy)) return false;\n"
+        "\tauto Node = Value->extract(OldKeyCopy);\n"
+        "\tif (Node.empty()) return false;\n"
+        "\tNode.key() = NewKeyCopy;\n"
+        "\tValue->insert(std::move(Node));\n"
+        "\treturn true;\n"
+        "}\n\n"
+        f"bool {statics}::{name}_MapRemove(void* Container, const void* Key)\n"
+        "{\n"
+        f"\tusing FMapType = {map_type};\n"
+        "\tusing FKeyType = FMapType::key_type;\n"
+        "\treturn static_cast<FMapType*>(Container)->erase(*static_cast<const FKeyType*>(Key)) != 0;\n"
+        "}\n\n"
         f"const Durin::DurinCodeGen::FMapPropertyHelper {statics}::{name}_MapHelper = {{\n"
-        f"\t&{statics}::{name}_MapNum, &{statics}::{name}_MapGetKey, &{statics}::{name}_MapGetValue,\n"
-        f"\t&{statics}::{name}_MapClear, &{statics}::{name}_MapCreateKey, &{statics}::{name}_MapDestroyKey,\n"
-        f"\t&{statics}::{name}_MapCreateValue, &{statics}::{name}_MapDestroyValue, &{statics}::{name}_MapInsert\n"
+        f"\t&{statics}::{name}_MapNum, &{statics}::{name}_MapGetKey, &{statics}::{name}_MapGetValue, &{statics}::{name}_MapGetMutableValue,\n"
+        f"\t&{statics}::{name}_MapClear, &{statics}::{name}_MapCreateKey, &{statics}::{name}_MapCreateKeyCopy, &{statics}::{name}_MapDestroyKey,\n"
+        f"\t&{statics}::{name}_MapCreateValue, &{statics}::{name}_MapDestroyValue, &{statics}::{name}_MapInsert,\n"
+        f"\t&{statics}::{name}_MapContains, &{statics}::{name}_MapRenameKey, &{statics}::{name}_MapRemove\n"
         "};\n"
     )
 

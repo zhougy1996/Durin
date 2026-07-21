@@ -123,12 +123,17 @@ namespace Durin
 			uint64 (*Num)(const void* Container);
 			const void* (*GetKey)(const void* Container, uint64 Index);
 			const void* (*GetValue)(const void* Container, uint64 Index);
+			void* (*GetMutableValue)(void* Container, uint64 Index);
 			void (*Clear)(void* Container);
 			void* (*CreateKey)();
+			void* (*CreateKeyCopy)(const void* Key);
 			void (*DestroyKey)(void* Key);
 			void* (*CreateValue)();
 			void (*DestroyValue)(void* Value);
 			void (*Insert)(void* Container, const void* Key, const void* Value);
+			bool (*Contains)(const void* Container, const void* Key);
+			bool (*RenameKey)(void* Container, const void* OldKey, const void* NewKey);
+			bool (*Remove)(void* Container, const void* Key);
 		};
 
 		struct FEnumValueParams
