@@ -6,6 +6,24 @@
 
 namespace Durin
 {
+	class FProperty;
+	class FPropertyValueSnapshot;
+
+	COREDOBJECT_API auto CapturePropertyValue(
+		const FProperty* Property,
+		const void* Container,
+		uint32 ArrayIndex,
+		FPropertyValueSnapshot& OutSnapshot,
+		std::string* OutError = nullptr
+	) -> bool;
+	COREDOBJECT_API auto RestorePropertyValue(
+		const FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		const FPropertyValueSnapshot& Snapshot,
+		std::string* OutError = nullptr
+	) -> bool;
+
 	class FArchive
 	{
 	public:
@@ -61,6 +79,40 @@ namespace Durin
 	private:
 		const std::vector<uint8>& Bytes;
 		uint64 Offset = 0;
+	};
+
+	class FPropertyValueSnapshot
+	{
+	public:
+		FPropertyValueSnapshot() = default;
+		COREDOBJECT_API ~FPropertyValueSnapshot();
+		COREDOBJECT_API FPropertyValueSnapshot(const FPropertyValueSnapshot& Other);
+		COREDOBJECT_API auto operator=(const FPropertyValueSnapshot& Other) -> FPropertyValueSnapshot&;
+		COREDOBJECT_API FPropertyValueSnapshot(FPropertyValueSnapshot&& Other) noexcept;
+		COREDOBJECT_API auto operator=(FPropertyValueSnapshot&& Other) noexcept -> FPropertyValueSnapshot&;
+
+		auto IsValid() const -> bool { return Property != nullptr; }
+		auto GetProperty() const -> const FProperty* { return Property; }
+		auto GetBytes() const -> const std::vector<uint8>& { return Bytes; }
+		auto GetReferencedObjects() const -> const std::vector<DObject*>& { return ReferencedObjects; }
+		COREDOBJECT_API auto operator==(const FPropertyValueSnapshot& Other) const -> bool;
+
+	private:
+		const FProperty* Property = nullptr;
+		std::vector<uint8> Bytes;
+		// Snapshot references are rooted independently of the edited object's current
+		// value so cancel and future transactions cannot restore a dangling object.
+		std::vector<DObject*> ReferencedObjects;
+
+		auto AddReferenceRoots() -> void;
+		auto ReleaseReferenceRoots() -> void;
+
+		friend COREDOBJECT_API auto CapturePropertyValue(
+			const FProperty*, const void*, uint32, FPropertyValueSnapshot&, std::string*
+		) -> bool;
+		friend COREDOBJECT_API auto RestorePropertyValue(
+			const FProperty*, void*, uint32, const FPropertyValueSnapshot&, std::string*
+		) -> bool;
 	};
 
 	COREDOBJECT_API auto SerializeDObjectProperties(FArchive& Ar, DObject* Object) -> void;

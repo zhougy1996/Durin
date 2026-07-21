@@ -3,6 +3,7 @@ include(GoogleTest)
 add_durin_test(CoreDObjectTests
 	Private/PropertyChangeTests.cpp
 	Private/ReflectionTypeTests.cpp
+	Private/ZPropertyValueSnapshotTests.cpp
 )
 
 target_link_libraries(CoreDObjectTests PRIVATE

@@ -52,7 +52,7 @@ namespace Durin
 			return Class;
 		}
 
-		auto SerializePropertyValue(FArchive& Ar, FProperty* Property, void* Container, uint32 ArrayIndex) -> void
+		auto SerializePropertyValue(FArchive& Ar, FProperty* Property, void* Container, uint32 ArrayIndex, bool bIncludeRawObjectReferences = false) -> void
 		{
 			switch (Property->GetKind())
 			{
@@ -80,7 +80,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			{
 				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
-				if (!ObjectProperty->IsObjectPtrWrapper())
+				if (!bIncludeRawObjectReferences && !ObjectProperty->IsObjectPtrWrapper())
 				{
 					break;
 				}
@@ -100,7 +100,7 @@ namespace Durin
 				void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
 				Struct->ForEachProperty([&](FProperty* Field) {
 					if (!Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
-					for (uint32 Index = 0; Index < Field->GetArrayDim(); ++Index) SerializePropertyValue(Ar, Field, StructValue, Index);
+					for (uint32 Index = 0; Index < Field->GetArrayDim(); ++Index) SerializePropertyValue(Ar, Field, StructValue, Index, bIncludeRawObjectReferences);
 				}, false);
 				break;
 			}
@@ -122,7 +122,7 @@ namespace Durin
 				for (uint64 Index = 0; Index < Num; ++Index)
 				{
 					void* Element = ArrayProperty->GetMutableElementPtr(Container, Index, ArrayIndex);
-					SerializePropertyValue(Ar, Inner, Element, 0);
+					SerializePropertyValue(Ar, Inner, Element, 0, bIncludeRawObjectReferences);
 				}
 				break;
 			}
@@ -136,8 +136,8 @@ namespace Durin
 				{
 					for (uint64 Index = 0; Index < Num; ++Index)
 					{
-						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), const_cast<void*>(MapProperty->GetKeyPtr(Container, Index, ArrayIndex)), 0);
-						SerializePropertyValue(Ar, MapProperty->GetValueProp(), const_cast<void*>(MapProperty->GetMappedValuePtr(Container, Index, ArrayIndex)), 0);
+						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), const_cast<void*>(MapProperty->GetKeyPtr(Container, Index, ArrayIndex)), 0, bIncludeRawObjectReferences);
+						SerializePropertyValue(Ar, MapProperty->GetValueProp(), const_cast<void*>(MapProperty->GetMappedValuePtr(Container, Index, ArrayIndex)), 0, bIncludeRawObjectReferences);
 					}
 				}
 				else
@@ -147,8 +147,8 @@ namespace Durin
 					{
 						void* Key = MapProperty->CreateKey();
 						void* Value = MapProperty->CreateValue();
-						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), Key, 0);
-						SerializePropertyValue(Ar, MapProperty->GetValueProp(), Value, 0);
+						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), Key, 0, bIncludeRawObjectReferences);
+						SerializePropertyValue(Ar, MapProperty->GetValueProp(), Value, 0, bIncludeRawObjectReferences);
 						MapProperty->Insert(Container, Key, Value, ArrayIndex);
 						MapProperty->DestroyKey(Key);
 						MapProperty->DestroyValue(Value);
@@ -158,6 +158,75 @@ namespace Durin
 			}
 			default:
 				break;
+			}
+		}
+
+		auto ValidateSnapshotProperty(const FProperty* Property, std::string* OutError) -> bool
+		{
+			if (!Property)
+			{
+				if (OutError) *OutError = "Cannot snapshot a null property.";
+				return false;
+			}
+
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::Bool:
+			case DurinCodeGen::EPropertyGenFlags::Int8:
+			case DurinCodeGen::EPropertyGenFlags::Int16:
+			case DurinCodeGen::EPropertyGenFlags::Int32:
+			case DurinCodeGen::EPropertyGenFlags::Int64:
+			case DurinCodeGen::EPropertyGenFlags::UInt8:
+			case DurinCodeGen::EPropertyGenFlags::UInt16:
+			case DurinCodeGen::EPropertyGenFlags::UInt32:
+			case DurinCodeGen::EPropertyGenFlags::UInt64:
+			case DurinCodeGen::EPropertyGenFlags::Float:
+			case DurinCodeGen::EPropertyGenFlags::Double:
+			case DurinCodeGen::EPropertyGenFlags::Enum:
+			case DurinCodeGen::EPropertyGenFlags::String:
+			case DurinCodeGen::EPropertyGenFlags::Object:
+				return true;
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				const auto* StructProperty = static_cast<const FStructProperty*>(Property);
+				if (!StructProperty->GetStruct())
+				{
+					if (OutError) *OutError = "Cannot snapshot a struct property without reflected fields.";
+					return false;
+				}
+				bool bValid = true;
+				StructProperty->GetStruct()->ForEachProperty([&](FProperty* Field) {
+					if (bValid && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
+					{
+						bValid = ValidateSnapshotProperty(Field, OutError);
+					}
+				}, false);
+				return bValid;
+			}
+			case DurinCodeGen::EPropertyGenFlags::Array:
+			{
+				const auto* ArrayProperty = static_cast<const FArrayProperty*>(Property);
+				if (!ArrayProperty->HasArrayHelper() || !ArrayProperty->GetInner())
+				{
+					if (OutError) *OutError = "Cannot snapshot an array property without its helper and inner property.";
+					return false;
+				}
+				return ValidateSnapshotProperty(ArrayProperty->GetInner(), OutError);
+			}
+			case DurinCodeGen::EPropertyGenFlags::Map:
+			{
+				const auto* MapProperty = static_cast<const FMapProperty*>(Property);
+				if (!MapProperty->HasMapHelper() || !MapProperty->GetKeyProp() || !MapProperty->GetValueProp())
+				{
+					if (OutError) *OutError = "Cannot snapshot a map property without its helper, key, and value properties.";
+					return false;
+				}
+				return ValidateSnapshotProperty(MapProperty->GetKeyProp(), OutError)
+					&& ValidateSnapshotProperty(MapProperty->GetValueProp(), OutError);
+			}
+			default:
+				if (OutError) *OutError = "The reflected property kind does not support value snapshots.";
+				return false;
 			}
 		}
 
@@ -344,6 +413,173 @@ namespace Durin
 		uint64 AddressValue = 0;
 		*this << AddressValue;
 		Object = reinterpret_cast<DObject*>(AddressValue);
+	}
+
+	FPropertyValueSnapshot::~FPropertyValueSnapshot()
+	{
+		ReleaseReferenceRoots();
+	}
+
+	FPropertyValueSnapshot::FPropertyValueSnapshot(const FPropertyValueSnapshot& Other)
+		: Property(Other.Property)
+		, Bytes(Other.Bytes)
+		, ReferencedObjects(Other.ReferencedObjects)
+	{
+		AddReferenceRoots();
+	}
+
+	auto FPropertyValueSnapshot::operator=(const FPropertyValueSnapshot& Other) -> FPropertyValueSnapshot&
+	{
+		if (this == &Other) return *this;
+		FPropertyValueSnapshot Copy(Other);
+		*this = std::move(Copy);
+		return *this;
+	}
+
+	FPropertyValueSnapshot::FPropertyValueSnapshot(FPropertyValueSnapshot&& Other) noexcept
+		: Property(Other.Property)
+		, Bytes(std::move(Other.Bytes))
+		, ReferencedObjects(std::move(Other.ReferencedObjects))
+	{
+		Other.Property = nullptr;
+		Other.ReferencedObjects.clear();
+	}
+
+	auto FPropertyValueSnapshot::operator=(FPropertyValueSnapshot&& Other) noexcept -> FPropertyValueSnapshot&
+	{
+		if (this == &Other) return *this;
+		ReleaseReferenceRoots();
+		Property = Other.Property;
+		Bytes = std::move(Other.Bytes);
+		ReferencedObjects = std::move(Other.ReferencedObjects);
+		Other.Property = nullptr;
+		Other.ReferencedObjects.clear();
+		return *this;
+	}
+
+	auto FPropertyValueSnapshot::operator==(const FPropertyValueSnapshot& Other) const -> bool
+	{
+		return Property == Other.Property && Bytes == Other.Bytes && ReferencedObjects == Other.ReferencedObjects;
+	}
+
+	auto FPropertyValueSnapshot::AddReferenceRoots() -> void
+	{
+		for (DObject* Object : ReferencedObjects) AddToRoot(Object);
+	}
+
+	auto FPropertyValueSnapshot::ReleaseReferenceRoots() -> void
+	{
+		for (DObject* Object : ReferencedObjects)
+		{
+			// Explicit destruction can invalidate an otherwise rooted reference. Avoid
+			// dereferencing a removed object while tearing down the snapshot afterward.
+			if (GDObjectArray.Contains(Object)) RemoveFromRoot(Object);
+		}
+		ReferencedObjects.clear();
+	}
+
+	auto CapturePropertyValue(
+		const FProperty* Property,
+		const void* Container,
+		uint32 ArrayIndex,
+		FPropertyValueSnapshot& OutSnapshot,
+		std::string* OutError
+	) -> bool
+	{
+		if (OutError) OutError->clear();
+		if (!Container)
+		{
+			if (OutError) *OutError = "Cannot snapshot a property from a null container.";
+			return false;
+		}
+		if (!ValidateSnapshotProperty(Property, OutError)) return false;
+		if (ArrayIndex >= Property->GetArrayDim())
+		{
+			if (OutError) *OutError = "Property snapshot array index is out of range.";
+			return false;
+		}
+
+		class FSnapshotWriter final : public FMemoryWriter
+		{
+		public:
+			FSnapshotWriter(std::vector<uint8>& InBytes, std::vector<DObject*>& InReferences)
+				: FMemoryWriter(InBytes), References(InReferences) {}
+			auto SerializeObjectReference(DObject*& Object) -> void override
+			{
+				uint64 Id = 0;
+				if (Object)
+				{
+					auto It = std::find(References.begin(), References.end(), Object);
+					if (It == References.end())
+					{
+						References.push_back(Object);
+						Id = static_cast<uint64>(References.size());
+					}
+					else
+					{
+						Id = static_cast<uint64>(std::distance(References.begin(), It)) + 1;
+					}
+				}
+				*this << Id;
+			}
+		private:
+			std::vector<DObject*>& References;
+		};
+
+		FPropertyValueSnapshot Snapshot;
+		Snapshot.Property = Property;
+		FSnapshotWriter Writer(Snapshot.Bytes, Snapshot.ReferencedObjects);
+		SerializePropertyValue(Writer, const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, true);
+		Snapshot.AddReferenceRoots();
+		OutSnapshot = std::move(Snapshot);
+		return true;
+	}
+
+	auto RestorePropertyValue(
+		const FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		const FPropertyValueSnapshot& Snapshot,
+		std::string* OutError
+	) -> bool
+	{
+		if (OutError) OutError->clear();
+		if (!Container)
+		{
+			if (OutError) *OutError = "Cannot restore a property into a null container.";
+			return false;
+		}
+		if (!ValidateSnapshotProperty(Property, OutError)) return false;
+		if (Snapshot.Property != Property)
+		{
+			if (OutError) *OutError = "Property snapshot was captured from a different reflected property.";
+			return false;
+		}
+		if (ArrayIndex >= Property->GetArrayDim())
+		{
+			if (OutError) *OutError = "Property restore array index is out of range.";
+			return false;
+		}
+
+		class FSnapshotReader final : public FMemoryReader
+		{
+		public:
+			FSnapshotReader(const std::vector<uint8>& InBytes, const std::vector<DObject*>& InReferences)
+				: FMemoryReader(InBytes), References(InReferences) {}
+			auto SerializeObjectReference(DObject*& Object) -> void override
+			{
+				uint64 Id = 0;
+				*this << Id;
+				check(Id <= References.size());
+				Object = Id == 0 ? nullptr : References[static_cast<size_t>(Id - 1)];
+			}
+		private:
+			const std::vector<DObject*>& References;
+		};
+
+		FSnapshotReader Reader(Snapshot.Bytes, Snapshot.ReferencedObjects);
+		SerializePropertyValue(Reader, const_cast<FProperty*>(Property), Container, ArrayIndex, true);
+		return true;
 	}
 
 	auto SerializeDObjectProperties(FArchive& Ar, DObject* Object) -> void

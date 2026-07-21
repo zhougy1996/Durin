@@ -28,9 +28,14 @@ top-level member property.
   stable serialized map-key selectors.
 - [x] Add the default no-op `DObject::PostEditChangeProperty()` virtual hook.
 - [x] Cover scalar and nested-container event delivery in `CoreDObjectTests`.
+- [x] Add focused property-value capture and restore for reflected scalar,
+  string, object-reference, struct, array, and map values.
+- [x] Keep object references found recursively in a snapshot rooted until every
+  snapshot copy releases them.
+- [x] Reject unsupported or mismatched property snapshots with an error.
 
-The Details panel does not emit these events yet. That integration begins with
-the property-value snapshot codec and editor-owned edit session described below.
+The Details panel does not emit these events yet. The next integration step is
+the editor-owned edit session and generic mutation adapter described below.
 
 ## Goals
 
