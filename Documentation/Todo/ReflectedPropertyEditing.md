@@ -33,9 +33,16 @@ top-level member property.
 - [x] Keep object references found recursively in a snapshot rooted until every
   snapshot copy releases them.
 - [x] Reject unsupported or mismatched property snapshots with an error.
+- [x] Add an editor-owned edit session that captures the original value,
+  coalesces repeated previews, commits real changes, and restores cancellation.
+- [x] Add a generic reflected-storage mutation adapter and leave a stable
+  adapter interface for later setter-backed validation.
+- [x] Root the edited object while a session owns raw reflected container
+  addresses, and deep-copy map-key path bytes used by callbacks.
 
 The Details panel does not emit these events yet. The next integration step is
-the editor-owned edit session and generic mutation adapter described below.
+to migrate scalar, enum, string, math-structure, and object widgets onto the
+edit session while retaining their existing semantic setter paths.
 
 ## Goals
 

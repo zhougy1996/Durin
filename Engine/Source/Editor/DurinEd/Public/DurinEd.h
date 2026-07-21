@@ -2,4 +2,5 @@
 
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorNotification.h"
+#include "Editor/ReflectedPropertyEditing.h"
 #include "Editor/EditorTransaction.h"
