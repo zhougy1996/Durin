@@ -1,6 +1,6 @@
 # Reflected Property Editing TODO
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-07-22
 
 ## Current Status
 
@@ -47,11 +47,14 @@ top-level member property.
 - [x] Retain setter-backed transform, static-mesh/material, and material-parent
   behavior behind the Details mutation adapter.
 
-Top-level Details value edits now emit the common events. Nested array and map
-leaf edits remain on the legacy path until their stable member-to-leaf paths are
-introduced with container editing. Committed top-level edits now also register
-one generic reflected-property transaction per edit session, with undo and redo
-routed through the same mutation adapter. The next step is container editing.
+Top-level and nested array/map Details edits now emit the common events and
+register generic reflected-property transactions. Nested edits notify the exact
+leaf path, while their before/after snapshots are rooted at the stable
+object-owned member so an array reallocation or map rehash cannot invalidate
+Undo/Redo storage. Structural operations commit once per button/key action, and
+continuous element widgets still coalesce into one transaction. The next step
+is registering the remaining semantic adapters and removing equivalent Details
+type checks.
 
 ## Goals
 
@@ -246,15 +249,15 @@ last saved revision.
 Array and map operations need explicit change kinds because they cannot always
 be described as assignment to an existing leaf.
 
-- [ ] Capture array add, remove, resize, and element assignment separately.
-- [ ] Preserve sufficient before/after data to undo removed or resized-away
+- [x] Capture array add, remove, resize, and element assignment separately.
+- [x] Preserve sufficient before/after data to undo removed or resized-away
   elements.
-- [ ] Capture map insert, remove, value assignment, and key rename separately.
-- [ ] Reject a map key rename that would collide with an existing key before
+- [x] Capture map insert, remove, value assignment, and key rename separately.
+- [x] Reject a map key rename that would collide with an existing key before
   notifying the object.
-- [ ] Build the event path from the outer member through every nested container
+- [x] Build the event path from the outer member through every nested container
   so the object can invalidate the correct derived state.
-- [ ] Ensure a structural mutation cannot leave an active child widget holding
+- [x] Ensure a structural mutation cannot leave an active child widget holding
   a stale element address.
 
 ## Optional Property-Specific Sugar
@@ -303,7 +306,7 @@ editor migration into one change.
   state.
 - [ ] Verify nested fixed arrays, dynamic arrays, structs, and maps produce the
   correct member, leaf, and path.
-- [ ] Verify map paths remain meaningful after insertion, removal, and key
+- [x] Verify map paths remain meaningful after insertion, removal, and key
   rename.
 - [ ] Verify rejected assignments do not mutate, dirty, notify, or enter the
   transaction history.

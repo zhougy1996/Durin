@@ -160,6 +160,23 @@ namespace Durin
 			return bCaptured;
 		}
 
+		auto CaptureMapPathKey(const FProperty* KeyProperty, const void* Key) -> std::vector<uint8>
+		{
+			FPropertyValueSnapshot Snapshot;
+			if (!CapturePropertyValue(KeyProperty, Key, 0, Snapshot)) return {};
+			std::vector<uint8> Result = Snapshot.GetBytes();
+			// Snapshot object tokens are local indices. Append rooted pointer identities
+			// so two different object keys cannot collapse to the same event path bytes.
+			for (DObject* Reference : Snapshot.GetReferencedObjects())
+			{
+				const uintptr_t Identity = reinterpret_cast<uintptr_t>(Reference);
+				const size_t Offset = Result.size();
+				Result.resize(Offset + sizeof(Identity));
+				std::memcpy(Result.data() + Offset, &Identity, sizeof(Identity));
+			}
+			return Result;
+		}
+
 	} // namespace
 
 	FDetailsPanel::FDetailsPanel(FEditorSessionSettings& InSessionSettings)
@@ -691,9 +708,7 @@ namespace Durin
 		const bool bReadOnly = Context.bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		ImGui::PushID(Property);
 		ImGui::PushID(static_cast<int>(ArrayIndex));
-		if (DrawPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, true)
-			&& (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Array || Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Map))
-			Object->MarkPackageDirty();
+		DrawPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, FReflectedPropertyEditTarget::ForMember(Object, Property, ArrayIndex));
 		ImGui::PopID();
 		ImGui::PopID();
 	}
@@ -706,22 +721,23 @@ namespace Durin
 		uint32 ArrayIndex,
 		const std::string& Label,
 		bool bReadOnly,
-		bool bAllowObjectCustomization
+		const FReflectedPropertyEditTarget& EditTarget,
+		bool bUseTransaction
 	) -> bool
 	{
 		bReadOnly |= Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 		DStruct* Struct = Kind == DurinCodeGen::EPropertyGenFlags::Struct ? static_cast<FStructProperty*>(Property)->GetStruct() : nullptr;
-		const FReflectedPropertyEditTarget EditTarget = FReflectedPropertyEditTarget::ForMember(Object, Property, ArrayIndex);
 		auto SubmitProposed = [&](auto&& WriteProposed, bool bContinuous) -> bool {
-			if (!bAllowObjectCustomization)
+			if (!bUseTransaction)
 			{
 				WriteProposed();
 				return true;
 			}
 			FPropertyValueSnapshot Proposed;
 			std::string Error;
-			if (!CaptureProposedPropertyValue(Property, Container, ArrayIndex, std::forward<decltype(WriteProposed)>(WriteProposed), Proposed, &Error))
+			if (!CaptureProposedPropertyValue(EditTarget.SnapshotProperty, EditTarget.SnapshotContainer, EditTarget.SnapshotArrayIndex,
+				std::forward<decltype(WriteProposed)>(WriteProposed), Proposed, &Error))
 			{
 				Context.SetError(std::move(Error));
 				return false;
@@ -729,6 +745,7 @@ namespace Durin
 			return SubmitPropertyEdit(Context, EditTarget, Proposed, bContinuous);
 		};
 		auto FinishContinuousEdit = [&](const MonaImGui::FPropertyEditWidgetState& State) {
+			if (!bUseTransaction) return;
 			if (State.bDeactivatedAfterEdit && IsActivePropertyEdit(EditTarget)) FinishActivePropertyEdit(&Context, false);
 			else if (State.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && IsActivePropertyEdit(EditTarget)) FinishActivePropertyEdit(&Context, true);
 		};
@@ -794,9 +811,9 @@ namespace Durin
 			});
 		}
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Array)
-			return DrawArrayProperty(Context, Object, static_cast<FArrayProperty*>(Property), Container, ArrayIndex, Label, bReadOnly);
+			return DrawArrayProperty(Context, Object, static_cast<FArrayProperty*>(Property), Container, ArrayIndex, Label, bReadOnly, EditTarget);
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Map)
-			return DrawMapProperty(Context, Object, static_cast<FMapProperty*>(Property), Container, ArrayIndex, Label, bReadOnly);
+			return DrawMapProperty(Context, Object, static_cast<FMapProperty*>(Property), Container, ArrayIndex, Label, bReadOnly, EditTarget);
 
 		MonaImGui::BeginPropertyRow(Label.c_str(), bReadOnly);
 
@@ -910,7 +927,8 @@ namespace Durin
 		void* Container,
 		uint32 ArrayIndex,
 		const std::string& Label,
-		bool bReadOnly
+		bool bReadOnly,
+		const FReflectedPropertyEditTarget& EditTarget
 	) -> bool
 	{
 		if (!Property->HasArrayHelper() || !Property->GetInner())
@@ -928,22 +946,40 @@ namespace Durin
 		ImGui::TableSetColumnIndex(1);
 		if (bReadOnly) ImGui::BeginDisabled();
 		bool bChanged = false;
+		auto SubmitStructure = [&](EPropertyChangeKind Kind, auto&& Mutation) -> bool {
+			FReflectedPropertyEditTarget StructuralTarget = EditTarget;
+			StructuralTarget.Kind = Kind;
+			FPropertyValueSnapshot Proposed;
+			std::string Error;
+			if (!CaptureProposedPropertyValue(StructuralTarget.SnapshotProperty, StructuralTarget.SnapshotContainer,
+				StructuralTarget.SnapshotArrayIndex, std::forward<decltype(Mutation)>(Mutation), Proposed, &Error))
+			{
+				Context.SetError(std::move(Error));
+				return false;
+			}
+			return SubmitPropertyEdit(Context, StructuralTarget, Proposed, false);
+		};
 		if (ImGui::SmallButton("+"))
 		{
-			Property->Resize(Container, Num + 1, ArrayIndex);
-			++Num;
-			bChanged = true;
+			bChanged = SubmitStructure(EPropertyChangeKind::ArrayAdd, [&] { Property->Resize(Container, Num + 1, ArrayIndex); });
+			if (bChanged) ++Num;
 		}
 		ImGui::SameLine();
 		if (Num == 0) ImGui::BeginDisabled();
 		if (ImGui::SmallButton("-") && Num > 0)
 		{
-			Property->Resize(Container, Num - 1, ArrayIndex);
-			--Num;
-			bChanged = true;
+			bChanged = SubmitStructure(EPropertyChangeKind::ArrayRemove, [&] { Property->Resize(Container, Num - 1, ArrayIndex); });
+			if (bChanged) --Num;
 		}
 		if (Num == 0) ImGui::EndDisabled();
 		if (bReadOnly) ImGui::EndDisabled();
+		// Restoring the stable outer snapshot may reallocate this array itself when
+		// it is nested. Do not traverse through the pre-mutation container address.
+		if (bChanged)
+		{
+			if (bOpen) ImGui::TreePop();
+			return true;
+		}
 
 		if (bOpen)
 		{
@@ -952,8 +988,11 @@ namespace Durin
 				void* Element = Property->GetMutableElementPtr(Container, Index, ArrayIndex);
 				if (!Element) continue;
 				ImGui::PushID(static_cast<int>(Index));
-				bChanged |= DrawPropertyValue(Context, Object, Property->GetInner(), Element, 0, std::format("[{}]", Index), bReadOnly);
+				const FReflectedPropertyEditTarget ElementTarget = EditTarget.ForArrayElement(Property->GetInner(), Element, Index);
+				const bool bElementChanged = DrawPropertyValue(Context, Object, Property->GetInner(), Element, 0, std::format("[{}]", Index), bReadOnly, ElementTarget);
+				bChanged |= bElementChanged;
 				ImGui::PopID();
+				if (bElementChanged) break;
 			}
 			ImGui::TreePop();
 		}
@@ -967,7 +1006,8 @@ namespace Durin
 		void* Container,
 		uint32 ArrayIndex,
 		const std::string& Label,
-		bool bReadOnly
+		bool bReadOnly,
+		const FReflectedPropertyEditTarget& EditTarget
 	) -> bool
 	{
 		if (!Property->HasMapHelper() || !Property->GetKeyProp() || !Property->GetValueProp())
@@ -985,6 +1025,18 @@ namespace Durin
 		ImGui::TableSetColumnIndex(1);
 		if (bReadOnly) ImGui::BeginDisabled();
 		bool bChanged = false;
+		auto SubmitStructure = [&](FReflectedPropertyEditTarget StructuralTarget, EPropertyChangeKind Kind, auto&& Mutation, bool bContinuous = false) -> bool {
+			StructuralTarget.Kind = Kind;
+			FPropertyValueSnapshot Proposed;
+			std::string Error;
+			if (!CaptureProposedPropertyValue(StructuralTarget.SnapshotProperty, StructuralTarget.SnapshotContainer,
+				StructuralTarget.SnapshotArrayIndex, std::forward<decltype(Mutation)>(Mutation), Proposed, &Error))
+			{
+				Context.SetError(std::move(Error));
+				return false;
+			}
+			return SubmitPropertyEdit(Context, StructuralTarget, Proposed, bContinuous);
+		};
 		if (ImGui::SmallButton("+ Add"))
 		{
 			void* Key = Property->CreateKey();
@@ -999,14 +1051,24 @@ namespace Durin
 			}
 			else
 			{
-				Property->Insert(Container, Key, Value, ArrayIndex);
-				Num = Property->Num(Container, ArrayIndex);
-				bChanged = true;
+				FReflectedPropertyEditTarget InsertTarget = EditTarget;
+				InsertTarget.Path.back().Selector = EPropertyPathSelector::MapKey;
+				InsertTarget.Path.back().MapKeyData = CaptureMapPathKey(Property->GetKeyProp(), Key);
+				bChanged = SubmitStructure(std::move(InsertTarget), EPropertyChangeKind::MapInsert,
+					[&] { Property->Insert(Container, Key, Value, ArrayIndex); });
+				if (bChanged) Num = Property->Num(Container, ArrayIndex);
 			}
 			Property->DestroyKey(Key);
 			Property->DestroyValue(Value);
 		}
 		if (bReadOnly) ImGui::EndDisabled();
+		// A nested map address may have moved when the outer member snapshot was
+		// restored and applied. Resume drawing from freshly resolved storage next frame.
+		if (bChanged)
+		{
+			if (bOpen) ImGui::TreePop();
+			return true;
+		}
 
 		if (bOpen)
 		{
@@ -1016,26 +1078,46 @@ namespace Durin
 				void* Value = Property->GetMutableMappedValuePtr(Container, Index, ArrayIndex);
 				if (!Key || !Value) continue;
 				ImGui::PushID(Key);
+				const std::vector<uint8> SerializedKey = CaptureMapPathKey(Property->GetKeyProp(), Key);
 
 				void* EditedKey = Property->CreateKeyCopy(Key);
-				const bool bKeyChanged = EditedKey && DrawPropertyValue(Context, Object, Property->GetKeyProp(), EditedKey, 0, std::format("[{}] Key", Index), bReadOnly);
-				bChanged |= DrawPropertyValue(Context, Object, Property->GetValueProp(), Value, 0, std::format("[{}] Value", Index), bReadOnly);
+				FReflectedPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(Property->GetKeyProp(), EditedKey, SerializedKey);
+				KeyTarget.Kind = EPropertyChangeKind::MapKeyRename;
+				const bool bKeyChanged = EditedKey && DrawPropertyValue(Context, Object, Property->GetKeyProp(), EditedKey, 0, std::format("[{}] Key", Index), bReadOnly, KeyTarget, false);
+				const MonaImGui::FPropertyEditWidgetState KeyState{
+					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()
+				};
+				const FReflectedPropertyEditTarget ValueTarget = EditTarget.ForMapEntry(Property->GetValueProp(), Value, SerializedKey);
+				const bool bValueChanged = DrawPropertyValue(Context, Object, Property->GetValueProp(), Value, 0, std::format("[{}] Value", Index), bReadOnly, ValueTarget);
+				bChanged |= bValueChanged;
+				if (bValueChanged)
+				{
+					Property->DestroyKey(EditedKey);
+					ImGui::PopID();
+					break;
+				}
 
 				MonaImGui::BeginPropertyRow(std::format("[{}] Actions", Index).c_str(), bReadOnly);
 				const bool bRemove = ImGui::SmallButton("Remove");
 				MonaImGui::EndPropertyRow(bReadOnly);
 				if (bRemove)
 				{
-					bChanged |= Property->Remove(Container, Key, ArrayIndex);
+					FReflectedPropertyEditTarget RemoveTarget = EditTarget;
+					RemoveTarget.Path.back().Selector = EPropertyPathSelector::MapKey;
+					RemoveTarget.Path.back().MapKeyData = SerializedKey;
+					bChanged |= SubmitStructure(std::move(RemoveTarget), EPropertyChangeKind::MapRemove, [&] { Property->Remove(Container, Key, ArrayIndex); });
 				}
-				else if (bKeyChanged && !Property->RenameKey(Container, Key, EditedKey, ArrayIndex))
+				else if (bKeyChanged && Property->Contains(Container, EditedKey, ArrayIndex))
 				{
 					Context.SetError("Map keys must be unique.");
 				}
 				else if (bKeyChanged)
 				{
-					bChanged = true;
+					bChanged |= SubmitStructure(KeyTarget, EPropertyChangeKind::MapKeyRename,
+						[&] { Property->RenameKey(Container, Key, EditedKey, ArrayIndex); }, true);
 				}
+				if (KeyState.bDeactivatedAfterEdit && IsActivePropertyEdit(KeyTarget)) FinishActivePropertyEdit(&Context, false);
+				else if (KeyState.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && IsActivePropertyEdit(KeyTarget)) FinishActivePropertyEdit(&Context, true);
 				Property->DestroyKey(EditedKey);
 				ImGui::PopID();
 				// Rename and erase may change iteration order, so resume traversal next frame.
@@ -1067,9 +1149,6 @@ namespace Durin
 				return false;
 			}
 			ActiveEditObject = Target.Object;
-			ActiveEditProperty = Target.LeafProperty;
-			ActiveEditContainer = Target.LeafContainer;
-			ActiveEditArrayIndex = Target.LeafArrayIndex;
 		}
 
 		const EReflectedPropertyEditResult Result = PropertyEditSession.Apply(ProposedValue, &Error);
@@ -1092,18 +1171,11 @@ namespace Durin
 		if (!PropertyEditSession.IsActive())
 		{
 			ActiveEditObject = nullptr;
-			ActiveEditProperty = nullptr;
-			ActiveEditContainer = nullptr;
-			ActiveEditArrayIndex = 0;
 		}
 	}
 
 	auto FDetailsPanel::IsActivePropertyEdit(const FReflectedPropertyEditTarget& Target) const -> bool
 	{
-		return PropertyEditSession.IsActive()
-			&& ActiveEditObject == Target.Object
-			&& ActiveEditProperty == Target.LeafProperty
-			&& ActiveEditContainer == Target.LeafContainer
-			&& ActiveEditArrayIndex == Target.LeafArrayIndex;
+		return PropertyEditSession.MatchesTarget(Target);
 	}
 } // namespace Durin

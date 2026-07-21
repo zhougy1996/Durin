@@ -20,17 +20,17 @@ namespace Durin
 		public:
 			auto Capture(const FReflectedPropertyEditTarget& Target, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
 			{
-				return CapturePropertyValue(Target.LeafProperty, Target.LeafContainer, Target.LeafArrayIndex, OutSnapshot, OutError);
+				return CapturePropertyValue(Target.SnapshotProperty, Target.SnapshotContainer, Target.SnapshotArrayIndex, OutSnapshot, OutError);
 			}
 
 			auto Apply(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& ProposedValue, std::string* OutError) const -> bool override
 			{
-				return RestorePropertyValue(Target.LeafProperty, Target.LeafContainer, Target.LeafArrayIndex, ProposedValue, OutError);
+				return RestorePropertyValue(Target.SnapshotProperty, Target.SnapshotContainer, Target.SnapshotArrayIndex, ProposedValue, OutError);
 			}
 
 			auto Restore(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
 			{
-				return RestorePropertyValue(Target.LeafProperty, Target.LeafContainer, Target.LeafArrayIndex, Snapshot, OutError);
+				return RestorePropertyValue(Target.SnapshotProperty, Target.SnapshotContainer, Target.SnapshotArrayIndex, Snapshot, OutError);
 			}
 		};
 
@@ -39,8 +39,10 @@ namespace Durin
 		auto ValidateTarget(const FReflectedPropertyEditTarget& Target, std::string* OutError) -> bool
 		{
 			if (!Target.Object) return Fail(OutError, "The edit target has no owning object.");
-			if (!Target.MemberProperty || !Target.LeafProperty || !Target.LeafContainer) return Fail(OutError, "The edit target is incomplete.");
+			if (!Target.MemberProperty || !Target.LeafProperty || !Target.LeafContainer
+				|| !Target.SnapshotProperty || !Target.SnapshotContainer) return Fail(OutError, "The edit target is incomplete.");
 			if (Target.LeafArrayIndex >= Target.LeafProperty->GetArrayDim()) return Fail(OutError, "The leaf property array index is out of range.");
+			if (Target.SnapshotArrayIndex >= Target.SnapshotProperty->GetArrayDim()) return Fail(OutError, "The snapshot property array index is out of range.");
 			if (Target.Path.empty() || Target.Path.front().Property != Target.MemberProperty || Target.Path.back().Property != Target.LeafProperty)
 			{
 				return Fail(OutError, "The property path must run from the member property to the leaf property.");
@@ -65,11 +67,46 @@ namespace Durin
 		Target.LeafProperty = Property;
 		Target.LeafContainer = Object;
 		Target.LeafArrayIndex = ArrayIndex;
+		Target.SnapshotProperty = Property;
+		Target.SnapshotContainer = Object;
+		Target.SnapshotArrayIndex = ArrayIndex;
 		Target.Path.push_back({
 			Property,
 			Property && Property->GetArrayDim() > 1 ? EPropertyPathSelector::StaticArrayIndex : EPropertyPathSelector::None,
 			ArrayIndex
 		});
+		return Target;
+	}
+
+	auto FReflectedPropertyEditTarget::ForArrayElement(const FProperty* ElementProperty, void* ElementContainer, uint64 ElementIndex) const -> FReflectedPropertyEditTarget
+	{
+		FReflectedPropertyEditTarget Target = *this;
+		Target.LeafProperty = ElementProperty;
+		Target.LeafContainer = ElementContainer;
+		Target.LeafArrayIndex = 0;
+		if (!Target.Path.empty())
+		{
+			Target.Path.back().Selector = EPropertyPathSelector::ArrayIndex;
+			Target.Path.back().Index = ElementIndex;
+		}
+		Target.Path.push_back({ElementProperty});
+		Target.Kind = EPropertyChangeKind::ValueSet;
+		return Target;
+	}
+
+	auto FReflectedPropertyEditTarget::ForMapEntry(const FProperty* EntryProperty, void* EntryContainer, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget
+	{
+		FReflectedPropertyEditTarget Target = *this;
+		Target.LeafProperty = EntryProperty;
+		Target.LeafContainer = EntryContainer;
+		Target.LeafArrayIndex = 0;
+		if (!Target.Path.empty())
+		{
+			Target.Path.back().Selector = EPropertyPathSelector::MapKey;
+			Target.Path.back().MapKeyData = std::move(SerializedKey);
+		}
+		Target.Path.push_back({EntryProperty});
+		Target.Kind = EPropertyChangeKind::ValueSet;
 		return Target;
 	}
 
@@ -178,9 +215,16 @@ namespace Durin
 	) -> bool
 	{
 		if (bActive) return Fail(OutError, "A reflected-property edit session is already active.");
-		if (!ValidateTarget(InTarget, OutError)) return false;
-
 		Target = InTarget;
+		// Older/custom callers that describe only a leaf still get the original
+		// behavior; container-aware callers explicitly select a stable snapshot root.
+		if (!Target.SnapshotProperty) Target.SnapshotProperty = Target.LeafProperty;
+		if (!Target.SnapshotContainer) Target.SnapshotContainer = Target.LeafContainer;
+		if (!ValidateTarget(Target, OutError))
+		{
+			Reset();
+			return false;
+		}
 		Adapter = InAdapter ? InAdapter : &GetGenericReflectedPropertyMutationAdapter();
 		TransactionManager = InTransactionManager;
 		Description = InDescription;
@@ -213,6 +257,27 @@ namespace Durin
 		CurrentValue = std::move(AppliedValue);
 		Notify(EPropertyChangePhase::Interactive);
 		return EReflectedPropertyEditResult::Changed;
+	}
+
+	auto FReflectedPropertyEditSession::MatchesTarget(const FReflectedPropertyEditTarget& Other) const -> bool
+	{
+		if (!bActive || Target.Object != Other.Object || Target.MemberProperty != Other.MemberProperty
+			|| Target.LeafProperty != Other.LeafProperty || Target.SnapshotProperty != Other.SnapshotProperty
+			|| Target.SnapshotContainer != Other.SnapshotContainer || Target.SnapshotArrayIndex != Other.SnapshotArrayIndex
+			|| Target.Path.size() != Other.Path.size()) return false;
+		for (size_t Index = 0; Index < Target.Path.size(); ++Index)
+		{
+			const FReflectedPropertyEditPathSegment& Left = Target.Path[Index];
+			const FReflectedPropertyEditPathSegment& Right = Other.Path[Index];
+			if (Left.Property != Right.Property || Left.Selector != Right.Selector || Left.Index != Right.Index) return false;
+			// A key's bytes necessarily change during a rename. The active ImGui item
+			// is the sole editor of this leaf, so member/leaf/path shape is the stable
+			// identity while the transaction retains the original key in Target.Path.
+			const bool bContinuousKeyRename = Target.Kind == EPropertyChangeKind::MapKeyRename
+				&& Other.Kind == EPropertyChangeKind::MapKeyRename && Left.Selector == EPropertyPathSelector::MapKey;
+			if (!bContinuousKeyRename && Left.MapKeyData != Right.MapKeyData) return false;
+		}
+		return true;
 	}
 
 	auto FReflectedPropertyEditSession::Commit(std::string* OutError) -> EReflectedPropertyEditResult

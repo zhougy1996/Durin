@@ -25,10 +25,17 @@ namespace Durin
 		const FProperty* LeafProperty = nullptr;
 		void* LeafContainer = nullptr;
 		uint32 LeafArrayIndex = 0;
+		// Nested container elements can move after an array resize or map rehash.
+		// Transactions therefore snapshot a stable ancestor, normally the object-owned member.
+		const FProperty* SnapshotProperty = nullptr;
+		void* SnapshotContainer = nullptr;
+		uint32 SnapshotArrayIndex = 0;
 		std::vector<FReflectedPropertyEditPathSegment> Path;
 		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
 
 		DURINED_API static auto ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex = 0) -> FReflectedPropertyEditTarget;
+		DURINED_API auto ForArrayElement(const FProperty* ElementProperty, void* ElementContainer, uint64 ElementIndex) const -> FReflectedPropertyEditTarget;
+		DURINED_API auto ForMapEntry(const FProperty* EntryProperty, void* EntryContainer, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget;
 	};
 
 	class DURINED_API IReflectedPropertyMutationAdapter
@@ -102,6 +109,7 @@ namespace Durin
 		DURINED_API auto Cancel(std::string* OutError = nullptr) -> EReflectedPropertyEditResult;
 
 		auto IsActive() const -> bool { return bActive; }
+		DURINED_API auto MatchesTarget(const FReflectedPropertyEditTarget& Other) const -> bool;
 		auto HasChanges() const -> bool { return bActive && !(OriginalValue == CurrentValue); }
 		auto GetDescription() const -> std::string_view { return Description; }
 		auto GetOriginalValue() const -> const FPropertyValueSnapshot& { return OriginalValue; }

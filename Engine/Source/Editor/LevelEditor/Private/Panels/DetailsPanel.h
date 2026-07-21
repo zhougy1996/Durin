@@ -26,9 +26,9 @@ namespace Durin
 		auto DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void;
 		auto DrawStaticMeshMaterials(FLevelEditorContext& Context, class DStaticMeshComponent* Component) -> void;
 		auto DrawProperty(FLevelEditorContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, const std::string& Label) -> void;
-		auto DrawPropertyValue(FLevelEditorContext& Context, DObject* Object, FProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly, bool bAllowObjectCustomization = false) -> bool;
-		auto DrawArrayProperty(FLevelEditorContext& Context, DObject* Object, class FArrayProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly) -> bool;
-		auto DrawMapProperty(FLevelEditorContext& Context, DObject* Object, class FMapProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly) -> bool;
+		auto DrawPropertyValue(FLevelEditorContext& Context, DObject* Object, FProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly, const FReflectedPropertyEditTarget& EditTarget, bool bUseTransaction = true) -> bool;
+		auto DrawArrayProperty(FLevelEditorContext& Context, DObject* Object, class FArrayProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly, const FReflectedPropertyEditTarget& EditTarget) -> bool;
+		auto DrawMapProperty(FLevelEditorContext& Context, DObject* Object, class FMapProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly, const FReflectedPropertyEditTarget& EditTarget) -> bool;
 		auto SubmitPropertyEdit(FLevelEditorContext& Context, const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& ProposedValue, bool bContinuous) -> bool;
 		auto FinishActivePropertyEdit(FLevelEditorContext* Context, bool bCancel) -> void;
 		auto IsActivePropertyEdit(const FReflectedPropertyEditTarget& Target) const -> bool;
@@ -46,9 +46,6 @@ namespace Durin
 		FEditorSessionSettings& SessionSettings;
 		FReflectedPropertyEditSession PropertyEditSession;
 		DObject* ActiveEditObject = nullptr;
-		const FProperty* ActiveEditProperty = nullptr;
-		void* ActiveEditContainer = nullptr;
-		uint32 ActiveEditArrayIndex = 0;
 		float ComponentPaneRatio;
 		bool bAddComponentAsChild = false;
 	};

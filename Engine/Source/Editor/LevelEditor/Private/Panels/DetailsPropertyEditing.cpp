@@ -79,10 +79,11 @@ namespace Durin
 			auto ApplySnapshot(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool
 			{
 				const auto& Generic = GetGenericReflectedPropertyMutationAdapter();
-				const bool bRelativeTransform = Cast<DSceneComponent>(Target.Object)
+				const bool bTopLevelValue = Target.SnapshotProperty == Target.LeafProperty && Target.SnapshotContainer == Target.Object;
+				const bool bRelativeTransform = bTopLevelValue && Cast<DSceneComponent>(Target.Object)
 					&& Target.LeafProperty->NamePrivate == FName("RelativeTransform")
 					&& Target.LeafProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct;
-				const bool bObjectProperty = Target.LeafProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Object;
+				const bool bObjectProperty = bTopLevelValue && Target.LeafProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Object;
 				if (!bRelativeTransform && !bObjectProperty) return Generic.Apply(Target, Snapshot, OutError);
 
 				// Decode through reflected storage, then restore it before invoking the setter.
