@@ -1,6 +1,6 @@
 # Texture Support TODO
 
-Last reviewed: 2026-07-20
+Last reviewed: 2026-07-21
 
 ## Current Status
 
@@ -12,13 +12,14 @@ the render thread, and sample it as a static-mesh base-color texture. Missing
 or unavailable resources resolve to the renderer-owned white texture.
 
 The focused `FTexture2DTests.*` and `FEditorTextureSmokeTests.*` suites passed
-on 2026-07-20 using the `Win64-Debug-DurinEditor-Tests` preset. The editor
+on 2026-07-21 using the `Win64-Debug-DurinEditor-Tests` preset. The editor
 workflow smoke test imports a texture and mesh, assigns the texture through a
 material, and verifies the static-mesh scene proxy carries geometry, UVs, and
-the imported texture render resource. Texture imports default to sRGB and can
-explicitly select linear sampling for data textures. The complete 102-test
-`EngineTests` target, a full `all` build, and an eight-second `DurinEditor`
-Vulkan/shader smoke test also passed on 2026-07-20.
+the imported texture render resource. Texture imports expose Color, Normal, and
+Data/Mask presets, build complete usage-aware mip chains, and retain an explicit
+color-space override. The complete 117-test `EngineTests` target, a full `all`
+build, and an eight-second `DurinEditor` Vulkan/shader smoke test also passed on
+2026-07-21.
 
 ## Implemented
 
@@ -56,14 +57,15 @@ Vulkan/shader smoke test also passed on 2026-07-20.
 
 ## Texture Build Pipeline
 
-The current platform build produces one `RGBA8_UNORM` or `SRGBA8_UNORM` mip
-according to the asset's explicit color-space setting. Extend it
+The current platform build produces a complete uncompressed `RGBA8_UNORM` or
+`SRGBA8_UNORM` mip chain according to the asset usage and explicit color-space
+override. Extend it
 with explicit build settings rather than inferring permanent behavior from the
 source filename.
 
 - [x] Add sRGB versus linear color-space selection.
-- [ ] Generate a complete mip chain with an appropriate image filter.
-- [ ] Add texture usage presets, initially Color, Normal, and Data/Mask.
+- [x] Generate a complete mip chain with usage-appropriate image filters.
+- [x] Add texture usage presets, initially Color, Normal, and Data/Mask.
 - [ ] Select platform formats from usage and alpha requirements.
 - [ ] Add BC1/BC3/BC5/BC7 compression for supported desktop targets.
 - [ ] Add maximum-resolution and quality settings.

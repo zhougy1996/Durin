@@ -2,6 +2,8 @@
 
 namespace Durin
 {
+	enum class ETextureUsage : uint8;
+
 	class FTextureImportDialog
 	{
 	public:
@@ -23,7 +25,7 @@ namespace Durin
 		std::array<char, 512> SourcePathBuffer{};
 		std::array<char, 256> AssetPathBuffer{};
 		std::string LastSuggestedAssetPath;
-		bool bSRGB = true;
+		ETextureUsage Usage = static_cast<ETextureUsage>(0);
 		bool bOpenRequested = false;
 	};
 } // namespace Durin

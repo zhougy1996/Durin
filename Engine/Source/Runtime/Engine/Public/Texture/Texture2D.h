@@ -16,6 +16,14 @@ namespace Durin
 		RGBA8
 	};
 
+	DENUM()
+	enum class ETextureUsage : uint8
+	{
+		Color,
+		Normal,
+		DataMask
+	};
+
 	struct ENGINE_API FTextureSourceData
 	{
 		std::vector<uint8> Pixels;
@@ -59,9 +67,11 @@ namespace Durin
 
 	struct FTexture2DImportSettings
 	{
-		// Color textures normally contain sRGB-encoded bytes. Data textures must opt
-		// into linear sampling so the GPU does not apply an sRGB decode.
-		bool bSRGB = true;
+		ETextureUsage Usage = ETextureUsage::Color;
+
+		// Empty selects the preset default. Keeping this override explicit prevents a
+		// usage change from silently preserving an incompatible color space.
+		std::optional<bool> bSRGB;
 	};
 
 	DCLASS()
@@ -77,7 +87,9 @@ namespace Durin
 		auto GetPlatformData() const -> const FTexturePlatformData* { return PlatformData.get(); }
 		auto GetRenderResource() const -> const std::shared_ptr<FTexture2DRenderResource>& { return RenderResource; }
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
+		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
+		auto SetUsage(ETextureUsage InUsage, std::string& OutError) -> bool;
 		auto SetSRGB(bool bInSRGB, std::string& OutError) -> bool;
 
 		auto RebuildPlatformData(std::string& OutError) -> bool;
@@ -92,6 +104,9 @@ namespace Durin
 
 		DPROPERTY()
 		std::string SourceFile;
+
+		DPROPERTY()
+		ETextureUsage Usage = ETextureUsage::Color;
 
 		DPROPERTY()
 		bool bSRGB = true;

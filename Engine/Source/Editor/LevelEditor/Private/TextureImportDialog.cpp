@@ -23,7 +23,7 @@ namespace Durin
 		SourcePathBuffer.fill(0);
 		AssetPathBuffer.fill(0);
 		LastSuggestedAssetPath.clear();
-		bSRGB = true;
+		Usage = ETextureUsage::Color;
 		PreferredDestinationDirectory = DestinationDirectory;
 		if (!PreferredDestinationDirectory.empty() && !PreferredDestinationDirectory.ends_with('/')) PreferredDestinationDirectory += '/';
 		bOpenRequested = true;
@@ -87,8 +87,14 @@ namespace Durin
 
 		ImGui::Spacing();
 		ImGui::SeparatorText("Build settings");
-		ImGui::Checkbox("sRGB color texture", &bSRGB);
-		ImGui::TextDisabled("Disable for data, masks, and other values that are already linear.");
+		const char* UsageNames[] = {"Color", "Normal", "Data / Mask"};
+		int UsageIndex = static_cast<int>(Usage);
+		if (ImGui::Combo("Usage", &UsageIndex, UsageNames, static_cast<int>(std::size(UsageNames)))) Usage = static_cast<ETextureUsage>(UsageIndex);
+		ImGui::TextDisabled(Usage == ETextureUsage::Color
+			? "sRGB color sampling with color-aware mip filtering."
+			: Usage == ETextureUsage::Normal
+				? "Linear sampling with normalized-vector mip filtering."
+				: "Linear sampling with independent-channel mip filtering.");
 
 		std::string ValidationMessage;
 		if (!bHasSource) ValidationMessage = "Select a source image to continue.";
@@ -181,7 +187,7 @@ namespace Durin
 	{
 		if (ClearError) ClearError();
 		FTexture2DImportSettings Settings;
-		Settings.bSRGB = bSRGB;
+		Settings.Usage = Usage;
 		FTexture2DImportResult Result = DTexture2D::ImportAsset(SourcePathBuffer.data(), AssetPathBuffer.data(), Settings);
 		if (!Result) { SetError(Result.Message); return false; }
 		if (Imported) Imported(AssetPathBuffer.data());
