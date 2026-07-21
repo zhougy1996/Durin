@@ -8,13 +8,14 @@
 namespace Durin
 {
 	class FViewportClient;
+	class IScene;
 
 	class FSceneViewport : public FViewport, public Mona::IMonaViewport
 	{
 	public:
 		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MWindow>& InWindow);
 
-		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MViewport>& InViewportWidget);
+		ENGINE_API FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MViewport>& InViewportWidget, IScene* InRenderScene = nullptr);
 
 		ENGINE_API ~FSceneViewport() override;
 
@@ -30,6 +31,9 @@ namespace Durin
 
 		ENGINE_API auto GetDisplayTexture() const -> const FTextureRHIRef& override;
 
+		// Auxiliary editor viewports may render an isolated scene instead of leaking preview primitives into the level.
+		ENGINE_API auto GetRenderScene() const -> IScene* { return RenderScene; }
+
 	private:
 		ENGINE_API auto UnregisterDisplayTexture() -> void;
 
@@ -40,5 +44,7 @@ namespace Durin
 		std::weak_ptr<MViewport> ViewportWidget;
 
 		FTextureRHIRef RenderTargetRHI;
+
+		IScene* RenderScene = nullptr;
 	};
 }

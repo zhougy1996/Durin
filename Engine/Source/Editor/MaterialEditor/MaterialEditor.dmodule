@@ -4,10 +4,11 @@
     "PCH": "SharedPCH_MonaEditor",
     "PrivateDependencies": [
         "Core",
+		"RenderCore",
         "Engine",
+		"Mona",
         "AssetCore",
         "MonaImGui",
         "DurinEd"
     ]
 }
-

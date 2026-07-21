@@ -145,8 +145,9 @@ namespace Durin
 			SceneViewport->UpdateRHIViewport();
 			FTextureRHIRef RenderTargetRHI = SceneViewport->GetRenderTargetRHI();
 			if (RenderTargetRHI == nullptr) return;
+			IScene* Scene = SceneViewport->GetRenderScene() != nullptr ? SceneViewport->GetRenderScene() : MainScene.get();
 			ENQUEUE_RENDER_COMMAND(RenderSceneRenderTarget)(
-				[RenderTargetRHI, View, Scene = MainScene.get(), RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
+				[RenderTargetRHI, View, Scene, RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					if (RendererModule != nullptr)
 					{

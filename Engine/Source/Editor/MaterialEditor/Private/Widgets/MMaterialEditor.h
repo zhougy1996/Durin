@@ -10,11 +10,13 @@ namespace Durin
 	class DMaterialInterface;
 	class DMaterial;
 	class DMaterialInstance;
+	class FMaterialPreview;
 
 	class MMaterialEditor final : public IEditorWorkspace
 	{
 	public:
 		explicit MMaterialEditor(FEditorWorkspaceManager& InWorkspaceManager);
+		MATERIALEDITOR_API ~MMaterialEditor() override;
 		MATERIALEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
 		MATERIALEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> bool override;
 		MATERIALEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
@@ -41,6 +43,7 @@ namespace Durin
 		FEditorWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
 		std::unordered_map<uint64, FEditorWorkspaceRootWindow> DocumentWindows;
+		std::unordered_map<uint64, std::unique_ptr<FMaterialPreview>> MaterialPreviews;
 		std::string ActiveResourceId;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};

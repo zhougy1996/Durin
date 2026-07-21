@@ -3,6 +3,7 @@
 #include "AssetCore.h"
 #include "AssetSystem.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Misc/Paths.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -340,6 +341,28 @@ namespace Durin
 		LOD.Sections.push_back({"Default", 0, 3, 0, 2, 0, {}});
 		Mesh->SetRenderData(std::move(RenderData));
 		return Mesh;
+	}
+
+	auto DStaticMesh::CreateTransientFromFile(
+		std::string_view FilePath,
+		DObject* Outer,
+		std::string_view ObjectName,
+		std::string& OutError,
+		const FStaticMeshImportSettings& InImportSettings) -> DStaticMesh*
+	{
+		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
+		if (!std::filesystem::is_regular_file(Input))
+		{
+			OutError = std::format("Static mesh source file does not exist: {}", Input.generic_string());
+			return nullptr;
+		}
+		if (!InImportSettings.IsValid(&OutError)) return nullptr;
+
+		DStaticMesh* Mesh = NewObject<DStaticMesh>(Outer, ObjectName);
+		Mesh->ImportSettings = InImportSettings;
+		if (Mesh->BuildRenderData(Input.generic_string(), OutError)) return Mesh;
+		MarkAsGarbage(Mesh);
+		return nullptr;
 	}
 
 	auto DStaticMesh::BuildRenderData(std::string_view FilePath, std::string& OutError) -> bool

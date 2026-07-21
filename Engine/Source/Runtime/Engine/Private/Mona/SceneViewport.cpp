@@ -17,10 +17,11 @@ namespace Durin
 	{
 	}
 
-	FSceneViewport::FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MViewport>& InViewportWidget)
+	FSceneViewport::FSceneViewport(FViewportClient* InViewportClient, const std::shared_ptr<MViewport>& InViewportWidget, IScene* InRenderScene)
 		: FViewport(InViewportClient)
 		, RenderMode(Mona::EMonaViewportRenderMode::RenderTarget)
 		, ViewportWidget(InViewportWidget)
+		, RenderScene(InRenderScene)
 	{
 	}
 

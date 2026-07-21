@@ -474,6 +474,29 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteLODAndPackedAttributes)
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialTests, EngineMaterialPreviewMeshesLoadAsTransientGeometry)
+{
+	InitializeDObjectSystem();
+	const std::string PreviewContent = Durin::FPaths::EngineContentDir() + "Editor/MaterialPreview/";
+	for (const std::string_view Name : {"Sphere", "Box"})
+	{
+		std::string Error;
+		Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateTransientFromFile(
+			PreviewContent + std::string(Name) + ".obj", nullptr, std::format("TestMaterialPreview{}", Name), Error);
+		ASSERT_NE(Mesh, nullptr) << Error;
+		const Durin::FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
+		ASSERT_NE(RenderData, nullptr);
+		ASSERT_EQ(RenderData->LODResources.size(), 1u);
+		const Durin::FStaticMeshLODResources& LOD = RenderData->LODResources[0];
+		EXPECT_GT(LOD.Positions.size(), 8u);
+		EXPECT_GT(LOD.Indices.size(), 12u);
+		EXPECT_EQ(LOD.NumTexCoords, 1u);
+		EXPECT_EQ(LOD.TexCoords[0].size(), LOD.Positions.size());
+		Durin::MarkAsGarbage(Mesh);
+	}
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlots)
 {
 	InitializeDObjectSystem();

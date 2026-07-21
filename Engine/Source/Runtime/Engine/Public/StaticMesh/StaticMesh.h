@@ -69,6 +69,14 @@ namespace Durin
 		auto PostLoad(std::string& OutError) -> bool override;
 
 		static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
+		// Editor preview geometry stays as ordinary source content; this creates only the transient runtime mesh.
+		static auto CreateTransientFromFile(
+			std::string_view FilePath,
+			DObject* Outer,
+			std::string_view ObjectName,
+			std::string& OutError,
+			const FStaticMeshImportSettings& InImportSettings = {}
+		) -> DStaticMesh*;
 		static auto ImportAsset(
 			std::string_view FilePath,
 			std::string_view AssetPath,

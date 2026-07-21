@@ -1,4 +1,5 @@
 #include "Widgets/MMaterialEditor.h"
+#include "Widgets/MaterialPreview.h"
 
 #include "AssetSystem.h"
 #include "DObject/Package.h"
@@ -17,6 +18,11 @@ namespace Durin
 	MMaterialEditor::MMaterialEditor(FEditorWorkspaceManager& InWorkspaceManager)
 		: WorkspaceManager(InWorkspaceManager)
 	{
+	}
+
+	MMaterialEditor::~MMaterialEditor()
+	{
+		MaterialPreviews.clear();
 	}
 
 	auto MMaterialEditor::GetWorkspaceType() const -> const FEditorWorkspaceTypeId&
@@ -57,6 +63,7 @@ namespace Durin
 		if (IsDocumentDirty(Document)) return false;
 		OpenMaterials.erase(Document.ResourceId);
 		DocumentWindows.erase(Document.Id.Value);
+		MaterialPreviews.erase(Document.Id.Value);
 		if (ActiveResourceId == Document.ResourceId) ActiveResourceId.clear();
 		return true;
 	}
@@ -85,6 +92,10 @@ namespace Durin
 		for (const FEditorDocumentTab& Document : WorkspaceManager.GetDocuments())
 		{
 			if (Document.WorkspaceType != MaterialEditorWorkspace::Type) continue;
+			if (const auto PreviewIt = MaterialPreviews.find(Document.Id.Value); PreviewIt != MaterialPreviews.end())
+			{
+				PreviewIt->second->SetVisible(false);
+			}
 			DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
 			if (!Material) continue;
 			FEditorWorkspaceRootWindow& RootWindow = DocumentWindows[Document.Id.Value];
@@ -145,6 +156,10 @@ namespace Durin
 		ImGui::TextDisabled("Type");
 		ImGui::SameLine();
 		ImGui::TextUnformatted(Material->GetClass()->GetQualifiedName().ToString().c_str());
+		ImGui::Spacing();
+		std::unique_ptr<FMaterialPreview>& Preview = MaterialPreviews[Document.Id.Value];
+		if (Preview == nullptr) Preview = std::make_unique<FMaterialPreview>(Document.Id.Value);
+		Preview->Draw(Material);
 		ImGui::Spacing();
 		if (auto* Instance = Cast<DMaterialInstance>(Material)) DrawMaterialInstance(Instance);
 		else if (auto* BaseMaterial = Cast<DMaterial>(Material)) DrawMaterial(BaseMaterial);
