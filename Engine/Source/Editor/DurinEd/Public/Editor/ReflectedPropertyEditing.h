@@ -8,6 +8,7 @@
 namespace Durin
 {
 	class DObject;
+	class DClass;
 	class FProperty;
 
 	struct FReflectedPropertyEditPathSegment
@@ -48,6 +49,16 @@ namespace Durin
 	};
 
 	DURINED_API auto GetGenericReflectedPropertyMutationAdapter() -> const IReflectedPropertyMutationAdapter&;
+	// Registered adapters are process-lifetime editor services because committed
+	// transactions retain their selected adapter for future undo and redo.
+	DURINED_API auto RegisterReflectedPropertyMutationAdapter(
+		const DClass* ObjectClass,
+		FName PropertyName,
+		std::unique_ptr<IReflectedPropertyMutationAdapter> Adapter
+	) -> bool;
+	DURINED_API auto GetReflectedPropertyMutationAdapter(
+		const FReflectedPropertyEditTarget& Target
+	) -> const IReflectedPropertyMutationAdapter&;
 
 	class FReflectedPropertyTransaction final : public IEditorTransaction
 	{

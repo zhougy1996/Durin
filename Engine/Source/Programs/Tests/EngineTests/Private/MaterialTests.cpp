@@ -6,6 +6,7 @@
 #include "EngineTestSupport.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Engine/Engine.h"
+#include "Editor/ReflectedPropertyEditing.h"
 #include "DObject/Class.h"
 #include "LevelEditorContext.h"
 #include "Materials/Material.h"
@@ -160,7 +161,7 @@ TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThr
 	ASSERT_TRUE(EditSession.Begin(
 		Durin::FReflectedPropertyEditTarget::ForMember(Component, MaterialProperty),
 		"Edit Material",
-		&Durin::GetDetailsPropertyMutationAdapter(),
+		nullptr,
 		nullptr,
 		&Transactions
 	));
@@ -187,6 +188,85 @@ TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThr
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcrossUndoRedo)
+{
+	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "TransactionalMaterial");
+	auto* Property = static_cast<Durin::FMapProperty*>(Material->GetClass()->FindPropertyByName("ScalarParameters"));
+	ASSERT_NE(Property, nullptr);
+	Durin::uint64 ParameterIndex = UINT64_MAX;
+	for (Durin::uint64 Index = 0; Index < Property->Num(Material); ++Index)
+	{
+		const auto* Key = static_cast<const std::string*>(Property->GetKeyPtr(Material, Index));
+		if (Key && *Key == Durin::MaterialParameterOpacity) ParameterIndex = Index;
+	}
+	ASSERT_NE(ParameterIndex, UINT64_MAX);
+
+	const void* Key = Property->GetKeyPtr(Material, ParameterIndex);
+	void* Value = Property->GetMutableMappedValuePtr(Material, ParameterIndex);
+	Durin::FPropertyValueSnapshot KeySnapshot;
+	ASSERT_TRUE(Durin::CapturePropertyValue(Property->GetKeyProp(), Key, 0, KeySnapshot));
+	Durin::FReflectedPropertyEditTarget Target = Durin::FReflectedPropertyEditTarget::ForMember(Material, Property)
+		.ForMapEntry(Property->GetValueProp(), Value, KeySnapshot.GetBytes());
+
+	Durin::FPropertyValueSnapshot Original;
+	Durin::FPropertyValueSnapshot Proposed;
+	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Material, 0, Original));
+	*static_cast<float*>(Value) = 0.4f;
+	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Material, 0, Proposed));
+	ASSERT_TRUE(Durin::RestorePropertyValue(Property, Material, 0, Original));
+
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(Target, "Edit Opacity", nullptr, nullptr, &Transactions));
+	const Durin::uint64 BeforeVersion = Material->GetRenderStateVersion();
+	EXPECT_EQ(Session.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_GT(Material->GetRenderStateVersion(), BeforeVersion);
+	EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
+	float Opacity = 0.0f;
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameterOpacity, Opacity));
+	EXPECT_FLOAT_EQ(Opacity, 0.4f);
+	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameterOpacity, Opacity));
+	EXPECT_FLOAT_EQ(Opacity, 1.0f);
+	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameterOpacity, Opacity));
+	EXPECT_FLOAT_EQ(Opacity, 0.4f);
+	Transactions.Clear();
+	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, RegisteredParentAdapterRejectsCyclesWithoutCreatingHistory)
+{
+	Durin::DMaterialInstance* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CycleFirst");
+	Durin::DMaterialInstance* Second = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CycleSecond");
+	ASSERT_TRUE(First->SetParent(Second));
+	Durin::FProperty* ParentProperty = Second->GetClass()->FindPropertyByName("Parent");
+	ASSERT_NE(ParentProperty, nullptr);
+
+	Durin::FPropertyValueSnapshot Original;
+	Durin::FPropertyValueSnapshot Proposed;
+	ASSERT_TRUE(Durin::CapturePropertyValue(ParentProperty, Second, 0, Original));
+	static_cast<Durin::FObjectProperty*>(ParentProperty)->SetObjectPropertyValue(Second, First);
+	ASSERT_TRUE(Durin::CapturePropertyValue(ParentProperty, Second, 0, Proposed));
+	ASSERT_TRUE(Durin::RestorePropertyValue(ParentProperty, Second, 0, Original));
+
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(Durin::FReflectedPropertyEditTarget::ForMember(Second, ParentProperty), "Edit Parent", nullptr, nullptr, &Transactions));
+	std::string Error;
+	EXPECT_EQ(Session.Apply(Proposed, &Error), Durin::EReflectedPropertyEditResult::Failed);
+	EXPECT_EQ(Error, "A material instance cannot create a parent cycle.");
+	EXPECT_EQ(Second->GetParent(), nullptr);
+	EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::NoChange);
+	EXPECT_FALSE(Transactions.CanUndo());
+
+	First->SetParent(nullptr);
+	Durin::MarkAsGarbage(Second);
+	Durin::MarkAsGarbage(First);
 	Durin::CollectGarbage();
 }
 

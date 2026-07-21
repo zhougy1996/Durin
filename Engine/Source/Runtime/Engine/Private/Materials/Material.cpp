@@ -8,6 +8,8 @@ namespace Durin
 		VectorParameters.emplace(MaterialParameterBaseColor, FVector3(0.95, 0.62, 0.22));
 		TextureParameters.emplace(MaterialParameterBaseColorTexture, nullptr);
 		ScalarParameters.emplace(MaterialParameterOpacity, 1.0f);
+		ScalarParameters.emplace(MaterialParameterSpecularStrength, 0.35f);
+		ScalarParameters.emplace(MaterialParameterShininess, 32.0f);
 	}
 
 	auto DMaterial::SetScalarParameterValue(std::string_view Name, float Value) -> void

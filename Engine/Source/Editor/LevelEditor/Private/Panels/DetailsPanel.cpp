@@ -1143,7 +1143,7 @@ namespace Durin
 		{
 			const std::string Description = std::format("Edit {}", Target.MemberProperty->NamePrivate.ToString());
 			FEditorTransactionManager* Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr;
-			if (!PropertyEditSession.Begin(Target, Description, &GetDetailsPropertyMutationAdapter(), &Error, Transactions))
+			if (!PropertyEditSession.Begin(Target, Description, nullptr, &Error, Transactions))
 			{
 				Context.SetError(std::move(Error));
 				return false;

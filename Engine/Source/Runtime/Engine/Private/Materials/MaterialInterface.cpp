@@ -2,6 +2,7 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Property.h"
 #include "Materials/MaterialInstance.h"
 #include "Texture/Texture2D.h"
 
@@ -66,6 +67,20 @@ namespace Durin
 			Result.Shininess = std::clamp(Shininess, 1.0f, 256.0f);
 		}
 		return Result;
+	}
+
+	auto DMaterialInterface::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+		if (!Event.MemberProperty) return;
+		const FName Name = Event.MemberProperty->NamePrivate;
+		if (Name == FName("ScalarParameters") || Name == FName("VectorParameters") || Name == FName("TextureParameters")
+			|| Name == FName("ScalarParameterOverrides") || Name == FName("VectorParameterOverrides") || Name == FName("TextureParameterOverrides"))
+		{
+			// Reflected editor transactions restore map storage directly. Route every
+			// phase through the same render invalidation normally supplied by setters.
+			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		}
 	}
 
 	auto DMaterialInterface::BeginDestroy() -> void

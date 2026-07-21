@@ -52,25 +52,32 @@ register generic reflected-property transactions. Nested edits notify the exact
 leaf path, while their before/after snapshots are rooted at the stable
 object-owned member so an array reallocation or map rehash cannot invalidate
 Undo/Redo storage. Structural operations commit once per button/key action, and
-continuous element widgets still coalesce into one transaction. The next step
-is registering the remaining semantic adapters and removing equivalent Details
-type checks.
+continuous element widgets still coalesce into one transaction.
+
+Setter-backed transform, static-mesh/material assignment, and material-parent
+rules are now process-lifetime registrations in the shared editor mutation
+registry. Details resolves them without owning type checks. Material Editor
+parent and parameter controls use the same edit session and transaction path;
+material parameter notifications invalidate render data for interactive edits,
+commit, cancel, undo, and redo. The next optional step is evaluating generated
+property-specific callback metadata after these common usage examples have had
+time to stabilize.
 
 ## Goals
 
-- [ ] Give reflected objects one stable post-edit notification contract.
-- [ ] Preserve both the top-level member property and the exact edited leaf in
+- [x] Give reflected objects one stable post-edit notification contract.
+- [x] Preserve both the top-level member property and the exact edited leaf in
   each change event.
-- [ ] Distinguish interactive preview updates from the final committed change.
-- [ ] Represent scalar assignment and array/map structural changes explicitly.
-- [ ] Route commit, cancel, undo, and redo through the same mutation and
+- [x] Distinguish interactive preview updates from the final committed change.
+- [x] Represent scalar assignment and array/map structural changes explicitly.
+- [x] Route commit, cancel, undo, and redo through the same mutation and
   notification path.
-- [ ] Coalesce a continuous ImGui interaction into one undo transaction.
-- [ ] Mark packages dirty once a real edit is committed without requiring each
+- [x] Coalesce a continuous ImGui interaction into one undo transaction.
+- [x] Mark packages dirty once a real edit is committed without requiring each
   widget or object callback to do so.
-- [ ] Keep value validation and object invariants in setters or property
+- [x] Keep value validation and object invariants in setters or property
   adapters rather than treating a post-edit callback as validation.
-- [ ] Remove Details-panel type special cases when an equivalent validated
+- [x] Remove Details-panel type special cases when an equivalent validated
   property adapter and object notification path exists.
 
 ## Non-Goals
@@ -284,8 +291,8 @@ the event contract is proven.
 5. Add the generic reflected-property transaction and route undo/redo through
    the edit service.
 6. Add array and map structural operations with stable paths and snapshots.
-7. Register semantic adapters and remove equivalent Details-panel type checks.
-8. Migrate Material Editor parameter controls to the same continuous-edit and
+7. [x] Register semantic adapters and remove equivalent Details-panel type checks.
+8. [x] Migrate Material Editor parameter controls to the same continuous-edit and
    transaction behavior where their setter semantics are compatible.
 9. Evaluate generated property-specific callback metadata only after the common
    contract has stable usage examples.

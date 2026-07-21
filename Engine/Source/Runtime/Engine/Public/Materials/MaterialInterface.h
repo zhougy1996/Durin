@@ -26,6 +26,7 @@ namespace Durin
 
 		auto GetRenderData() const -> FMaterialRenderData;
 		auto GetRenderStateVersion() const -> uint64 { return RenderStateVersion; }
+		auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		auto BeginDestroy() -> void override;
 
 	protected:
