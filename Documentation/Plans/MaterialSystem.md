@@ -1,4 +1,4 @@
-# Material System TODO
+# Material System Plan
 
 Last reviewed: 2026-07-20
 
@@ -112,7 +112,7 @@ whether a property changes shader/pipeline identity.
   normal/data/mask inputs in linear space.
 - [ ] Add per-input UV channel selection and a basic UV scale/offset transform.
 - [ ] Coordinate texture usage presets, mip generation, compression, and
-  residency work with `Documentation/Todo/TextureSupport.md` rather than
+  residency work with `Documentation/Plans/TextureSupport.md` rather than
   duplicating that pipeline in the material system.
 - [ ] Add image-based lighting or another environment-lighting baseline before
   treating the PBR output as production-ready.
@@ -208,4 +208,4 @@ whether a property changes shader/pipeline identity.
 
 - `Documentation/Architecture/MaterialSystem.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
-- `Documentation/Todo/TextureSupport.md`
+- `Documentation/Plans/TextureSupport.md`

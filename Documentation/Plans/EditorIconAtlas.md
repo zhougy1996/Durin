@@ -1,4 +1,4 @@
-# Editor Icon Atlas TODO
+# Editor Icon Atlas Plan
 
 Last reviewed: 2026-07-20
 

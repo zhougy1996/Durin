@@ -1,4 +1,4 @@
-# SkyBoxComponent TODO
+# SkyBoxComponent Plan
 
 Last reviewed: 2026-07-22
 
@@ -210,14 +210,14 @@ Depends on all preceding stages. This stage does not expand the effect; it close
 - [ ] Rapidly replace, rebuild, and delete cube assets; repeatedly hide, show, and delete the SkyBox Actor; then inspect stale-command handling and resource lifetime.
 - [ ] With Vulkan Validation enabled, verify six layers, multiple mips, descriptor binding, layout transitions, and module destruction.
 - [ ] Complete a full `all` build with one preset, then launch `DurinEditor` from the same preset for the hidden-window runtime smoke test.
-- [ ] Update this TODO's checkboxes, Current Status, and `Last reviewed`, and move long-lived contracts into the appropriate Architecture documentation.
-- [ ] Update the Cube Map entry under Later Scope in `Documentation/Todo/TextureSupport.md` so the two TODOs do not contradict the implemented feature.
+- [ ] Update this plan's checkboxes, Current Status, and `Last reviewed`, and move long-lived contracts into the appropriate Architecture documentation.
+- [ ] Update the Cube Map entry under Later Scope in `Documentation/Plans/TextureSupport.md` so the two plans do not contradict the implemented feature.
 
 #### Acceptance Gate
 
 - All targeted tests, the full build, Vulkan Validation, and the DurinEditor smoke test pass.
 - The manual visibility matrix reveals no face-orientation errors, translation parallax, aspect-ratio stretching, or draw-order errors.
-- Architecture documentation describes the implemented thread, resource, and rendering boundaries, and this TODO can be marked complete.
+- Architecture documentation describes the implemented thread, resource, and rendering boundaries, and this plan can be marked complete.
 
 ## Validation Matrix
 
@@ -249,7 +249,7 @@ The "simple SkyBoxComponent" is complete only when all of the following conditio
 
 ## Deferred Follow-ups
 
-The following items require separate design and scheduling after this TODO is complete. They do not count as incomplete conditions for this plan:
+The following items require separate design and scheduling after this plan is complete. They do not count as incomplete conditions for this plan:
 
 - HDR/EXR import and floating-point `DTextureCube`.
 - Equirectangular HDRI-to-cubemap conversion and offline edge processing.
@@ -261,9 +261,9 @@ The following items require separate design and scheduling after this TODO is co
 
 ## Related Documentation
 
-- [TODO Plan Documentation Guide](README.md)
+- [Implementation Plan Documentation Guide](README.md)
 - [Sky Rendering Approach Overview](../Reference/SkyRenderingOverview.md)
-- [Texture Support TODO](TextureSupport.md)
+- [Texture Support Plan](TextureSupport.md)
 - [Runtime Architecture](../Architecture/RuntimeArchitecture.md)
 - [Viewport Rendering](../Architecture/ViewportRendering.md)
 - [Build and Run](../Setup/BuildAndRun.md)

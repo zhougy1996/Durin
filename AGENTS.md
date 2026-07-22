@@ -6,7 +6,7 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
 - Setup, build, run, and outputs: `Documentation/Setup/BuildAndRun.md`; dependencies/worktrees: `Documentation/Setup/ThirdPartyBootstrap.md`; native tests: `Documentation/Setup/NativeTests.md`.
 - Build metadata/CMake: `Documentation/Architecture/BuildSystem.md`; profiles/presets: `Documentation/Architecture/Profiles.md`; workspace boundaries: `Documentation/Architecture/WorkspaceProjects.md`; runtime/rendering/UI: `Documentation/Architecture/RuntimeArchitecture.md`.
-- TODO plan index, required structure, and writing rules: `Documentation/Todo/README.md`. Read this entrypoint before creating or restructuring a TODO plan; do not sample unrelated TODO files to infer the format.
+- Plan index, required structure, and writing rules: `Documentation/Plans/README.md`. Read this entrypoint before creating or restructuring an implementation plan; do not sample unrelated plan files to infer the format.
 - Machine-local build overrides belong in optional `.agents/build-config.json`; create it with `Setup.bat` when needed.
 
 ## Repository Rules

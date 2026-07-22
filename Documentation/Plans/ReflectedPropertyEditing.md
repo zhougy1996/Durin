@@ -1,4 +1,4 @@
-# Reflected Property Editing TODO
+# Reflected Property Editing Plan
 
 Last reviewed: 2026-07-22
 

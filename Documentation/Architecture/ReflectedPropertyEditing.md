@@ -234,7 +234,7 @@ transactions are delegated to the view.
 
 Some editor edit sites still bypass the shared view, including the actor root
 transform row, static-mesh material-slot rows, and some object customizations.
-These are tracked in the TODO and must migrate without removing their setter
+These are tracked in the implementation plan and must migrate without removing their setter
 semantics.
 
 ## Validation

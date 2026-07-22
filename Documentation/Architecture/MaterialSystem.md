@@ -36,4 +36,4 @@ Built-in parameter names are `BaseColor` (vector), `BaseColorTexture` (texture),
 - Static properties belong in shader-map/permutation keys; dynamic parameters belong in uniform/resource bindings.
 - Material object mutation crosses to the rendering thread through explicit update commands. Replacing the material assigned to a component still rebuilds its scene proxy because the dependency binding changes.
 
-The prioritized implementation backlog and current editor/rendering limitations are tracked in `Documentation/Todo/MaterialSystem.md`.
+The prioritized implementation backlog and current editor/rendering limitations are tracked in `Documentation/Plans/MaterialSystem.md`.

@@ -1,4 +1,4 @@
-# Multithreading System TODO
+# Multithreading System Plan
 
 Last reviewed: 2026-07-20
 
@@ -121,7 +121,7 @@ systems.
   and render-thread resource creation.
 - [ ] Move texture source decoding and platform-data building off the game
   thread, coordinated with the texture work tracked in
-  `Documentation/Todo/TextureSupport.md`.
+  `Documentation/Plans/TextureSupport.md`.
 - [ ] Add request generation or cancellation to async imports and thumbnail
   work so stale editor requests have explicit scheduler-visible outcomes, not
   only consumer-side result rejection.
@@ -188,4 +188,4 @@ systems.
 - `Documentation/Architecture/MultithreadingRoadmap.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
 - `Documentation/Setup/NativeTests.md`
-- `Documentation/Todo/TextureSupport.md`
+- `Documentation/Plans/TextureSupport.md`

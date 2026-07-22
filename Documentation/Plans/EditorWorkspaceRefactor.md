@@ -1,4 +1,4 @@
-# Editor Workspace Refactor TODO
+# Editor Workspace Refactor Plan
 
 Last reviewed: 2026-07-20
 

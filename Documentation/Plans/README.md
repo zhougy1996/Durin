@@ -1,6 +1,6 @@
-# TODO Plan Documentation Guide
+# Implementation Plan Documentation Guide
 
-This directory contains implementation plans whose scope has been narrowed enough to execute directly. Read this document before locating or creating a TODO; there is no need to read unrelated TODOs to infer the documentation style.
+This directory contains implementation plans whose scope has been narrowed enough to execute directly. Read this document before locating or creating a plan; there is no need to read unrelated plans to infer the documentation style.
 
 ## Document Index
 
@@ -14,22 +14,22 @@ This directory contains implementation plans whose scope has been narrowed enoug
 | [Editor Workspace Refactor](EditorWorkspaceRefactor.md) | Editor workspaces, panels, and document lifecycles |
 | [Editor Icon Atlas](EditorIconAtlas.md) | Offline atlas pipeline for editor visualization icons |
 
-Update this index whenever a TODO document is added, renamed, or deleted.
+Update this index whenever a plan document is added, renamed, or deleted.
 
-## Boundaries Between TODOs and Other Documentation
+## Boundaries Between Plans and Other Documentation
 
 - `Documentation/Reference` records research, external examples, and candidate approaches; it does not represent a selected direction.
 - `Documentation/Architecture` records adopted architectural constraints that require long-term maintenance.
-- `Documentation/Todo` records executable paths and acceptance gates from the current state to a target state.
+- `Documentation/Plans` records executable paths and acceptance gates from the current state to a target state.
 
-When an approach has not yet been selected, keep it in Reference. Create a TODO only after the scope, non-goals, and key technical decisions are clear. Once implementation is complete, move long-lived requirements into Architecture instead of allowing the TODO to become a second architecture specification.
+When an approach has not yet been selected, keep it in Reference. Create a plan only after the scope, non-goals, and key technical decisions are clear. Once implementation is complete, move long-lived requirements into Architecture instead of allowing the plan to become a second architecture specification.
 
 ## Standard Document Structure
 
-New TODOs use the following structure by default. Topic-specific sections may be added, but scope, stage acceptance, and the definition of done must not be omitted.
+New plans use the following structure by default. Topic-specific sections may be added, but scope, stage acceptance, and the definition of done must not be omitted.
 
 ```markdown
-# <Feature> TODO
+# <Feature> Plan
 
 Last reviewed: YYYY-MM-DD
 
@@ -80,11 +80,11 @@ Prefer to order stages as "low-level contracts -> resource lifecycle -> scene da
 - Unit tests cover data constraints, boundaries, and failure paths.
 - Integration tests cover assets, reflection, serialization, threading, and module boundaries.
 - Rendering features list both real-backend validation and visible-result checks.
-- Final build, test, and run procedures follow the root `AGENTS.md` and Setup documentation. Do not duplicate a potentially stale command set in every TODO.
+- Final build, test, and run procedures follow the root `AGENTS.md` and Setup documentation. Do not duplicate a potentially stale command set in every plan.
 
 ### 5. Maintain Status After Implementation Begins
 
 - Check off tasks as they land instead of updating the entire plan only after it is complete.
 - Update `Last reviewed` and `Current Status` with every substantive change.
 - If implementation diverges from the plan, update the decision and its rationale before continuing to check off tasks.
-- After every `Definition of Done` condition is satisfied, move long-lived rules into Architecture and then mark the TODO complete or move it into a history area. Do not remove its index entry without recording its destination.
+- After every `Definition of Done` condition is satisfied, move long-lived rules into Architecture and then mark the plan complete or move it into a history area. Do not remove its index entry without recording its destination.

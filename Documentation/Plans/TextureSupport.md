@@ -1,4 +1,4 @@
-# Texture Support TODO
+# Texture Support Plan
 
 Last reviewed: 2026-07-21
 
