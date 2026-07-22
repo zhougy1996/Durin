@@ -111,10 +111,22 @@ namespace Durin
 		auto IsEditingTarget(const FReflectedPropertyEditTarget& Target) const -> bool { return EditSession.MatchesTarget(Target); }
 
 	private:
-		enum class EPropertyValueEditDestination : uint8
+		struct FPropertyWidgetEditResult
 		{
-			EditPipeline,
-			DetachedTemporary
+			// The destination is always scratch or detached storage selected by the caller.
+			// Widget code never receives an object or reflected edit target.
+			std::function<void(FProperty*, void*, uint32)> AssignValue;
+			bool bChanged = false;
+			bool bContinuous = false;
+			bool bActive = false;
+			bool bDeactivatedAfterEdit = false;
+		};
+		struct FMapInsertDraft
+		{
+			FReflectedPropertyEditTarget Target;
+			FPropertyValueSnapshot Key;
+			FPropertyValueSnapshot Value;
+			bool bActive = false;
 		};
 
 		auto EditPropertyValue(
@@ -127,27 +139,16 @@ namespace Durin
 			bool bReadOnly,
 			const FReflectedPropertyEditTarget& EditTarget
 		) -> bool;
-		auto EditDetachedTemporaryPropertyValue(
+		auto EditPropertyWidget(
 			const FReflectedPropertyViewContext& Context,
-			DObject* Object,
 			FProperty* Property,
 			void* Container,
 			uint32 ArrayIndex,
 			const std::string& Label,
-			bool bReadOnly,
-			const FReflectedPropertyEditTarget& EditTarget
-		) -> bool;
-		auto EditPropertyValueImpl(
-			const FReflectedPropertyViewContext& Context,
-			DObject* Object,
-			FProperty* Property,
-			void* Container,
-			uint32 ArrayIndex,
-			const std::string& Label,
-			bool bReadOnly,
-			const FReflectedPropertyEditTarget& EditTarget,
-			EPropertyValueEditDestination Destination
-		) -> bool;
+			bool bReadOnly
+		) -> FPropertyWidgetEditResult;
+		auto SubmitWidgetEdit(const FReflectedPropertyViewContext& Context,
+			const FReflectedPropertyEditTarget& EditTarget, const FPropertyWidgetEditResult& Edit) -> bool;
 		auto EditArrayProperty(const FReflectedPropertyViewContext& Context, DObject* Object, FArrayProperty* Property,
 			void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,
 			const FReflectedPropertyEditTarget& EditTarget) -> bool;
@@ -157,6 +158,7 @@ namespace Durin
 		auto ReportError(const FReflectedPropertyViewContext& Context, std::string Error) const -> void;
 
 		std::array<char, 256> AssetSearchText{};
+		FMapInsertDraft MapInsertDraft;
 		FReflectedPropertyEditSession EditSession;
 		DObject* OwnerContextObject = nullptr;
 		DObject* ActiveEditOwnerObject = nullptr;

@@ -224,6 +224,10 @@ capture enough before/after state to restore removed or resized-away values.
 Map key rename rejects collisions before notification. After any structural
 operation, the view stops traversing the old container for that frame because
 the operation may have invalidated child addresses or changed iteration order.
+Map insertion is drafted before mutation: key and supported leaf-value widgets
+edit temporary proposals, and `MapInsert` is submitted only when the user
+confirms the new entry. A default-key collision therefore does not require
+inserting and then renaming a live entry.
 
 `FReflectedPropertyBinding` represents a logical container value without retaining
 its current leaf address. The current factory binds a string-key map value by
@@ -258,6 +262,13 @@ one top-level reflected property and recursively handles supported structs,
 arrays, and maps.
 `EditPropertyValue()` and the container-recursion helpers are private so callers
 cannot construct unsafe container addresses or edit paths.
+
+Leaf widgets are separated from submission. A widget reads the displayed value
+into ordinary temporary state and returns a detached assignment proposal that
+contains no object or edit target. Ordinary properties apply that proposal only
+to a generated scratch leaf before submitting the stable member snapshot. Map
+key widgets apply the same proposal to a temporary key and then submit an
+explicit `MapKeyRename`; they never write key storage inside the live map.
 
 Custom widgets can use `SubmitPropertyValueEdit()` to retain their presentation
 while sharing proposal capture, session lifecycle, notifications, and history.
