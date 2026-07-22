@@ -69,9 +69,12 @@ in the same property table.
 Current built-in composition includes:
 
 - Actor `Transform`, bound to the root component's `RelativeTransform`;
-- static-mesh material-slot rows, with the raw `Materials` array hidden;
 - Camera projection rows; and
 - Spline transform, curve settings, and point rows.
+
+`DStaticMeshComponent.Materials` uses the ordinary reflected array editor. Its
+registered mutation adapter preserves `SetMaterial(index, value)` semantics for
+element edits and Undo/Redo without a Level Editor-specific asset picker.
 
 Details owns only the inspected object, search input, table, and customization
 dispatch. It contains no Actor or static-mesh type branches. Real property rows
@@ -281,8 +284,9 @@ Level Editor Details owns one property view. It still owns object selection,
 the search input state, class display, customization dispatch, and a shared
 property table used to compose domain rows. Ordinary reflected-property
 enumeration, search matching, fixed-array expansion, and labels are delegated
-to `EditObject()`; Actor transform, static-mesh material slots, and registered
-customizations continue to compose through the same view.
+to `EditObject()`; Actor transform and registered customizations continue to
+compose through the same view. Static-mesh materials remain in ordinary
+reflected-property enumeration.
 
 Material Editor owns another property view but supplies a semantic parameter
 layout. One descriptor table defines parameter name, label, reflected value type,

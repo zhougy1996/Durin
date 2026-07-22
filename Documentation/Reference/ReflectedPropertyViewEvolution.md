@@ -193,8 +193,8 @@ Builder.AddProperty(
 ```
 
 这个展示仍通过 `RelativeTransform` 的语义 Mutation Adapter 调用 setter，
-而不是直接写存储。StaticMeshComponent 的材质槽也已通过 customization
-保留槽名称和 setter 语义，并隐藏默认 `Materials` 数组行。
+而不是直接写存储。StaticMeshComponent 的 `Materials` 保留为普通反射数组；
+数组元素通过已注册的 Mutation Adapter 保持 `SetMaterial(index, value)` 语义。
 
 不要为 Actor 和 ActorComponent 各复制一套属性遍历，也不要把 RootComponent
 知识硬编码进通用 `EditObject()`。

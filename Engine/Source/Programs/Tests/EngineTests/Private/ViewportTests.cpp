@@ -12,6 +12,7 @@
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Property.h"
 #include "DirectionalLightEditorCustomizations.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
@@ -476,7 +477,7 @@ TEST(FObjectPropertyViewBuilderTests, ComposesPropertiesHidingReplacementAndSear
 	Durin::CollectGarbage();
 }
 
-TEST(FObjectPropertyViewCustomizationTests, DeclaresActorTransformAndStaticMeshMaterialRows)
+TEST(FObjectPropertyViewCustomizationTests, DeclaresActorTransformRow)
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PropertyCustomizationWorld");
@@ -492,12 +493,9 @@ TEST(FObjectPropertyViewCustomizationTests, DeclaresActorTransformAndStaticMeshM
 	Durin::CreateActorDetailsCustomization()->CustomizeDetails(Context, Actor, ActorBuilder);
 	EXPECT_EQ(ActorBuilder.GetVisibleRowCount(), 1u);
 
-	Durin::FObjectPropertyViewBuilder MeshBuilder("material");
-	Durin::CreateStaticMeshDetailsCustomization()->CustomizeDetails(Context, Component, MeshBuilder);
 	Durin::FProperty* MaterialsProperty = Component->GetClass()->FindPropertyByName("Materials");
 	ASSERT_NE(MaterialsProperty, nullptr);
-	EXPECT_TRUE(MeshBuilder.IsPropertyHidden(*MaterialsProperty));
-	EXPECT_GT(MeshBuilder.GetVisibleRowCount(), 0u);
+	EXPECT_TRUE(MaterialsProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
