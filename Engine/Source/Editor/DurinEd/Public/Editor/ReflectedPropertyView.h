@@ -147,6 +147,8 @@ namespace Durin
 			const std::string& Label,
 			bool bReadOnly
 		) -> FPropertyWidgetEditResult;
+		auto EditStructPropertyWidget(FProperty* Property, void* Container, uint32 ArrayIndex,
+			const std::string& Label, bool bReadOnly) -> FPropertyWidgetEditResult;
 		auto SubmitWidgetEdit(const FReflectedPropertyViewContext& Context,
 			const FReflectedPropertyEditTarget& EditTarget, const FPropertyWidgetEditResult& Edit) -> bool;
 		auto EditArrayProperty(const FReflectedPropertyViewContext& Context, DObject* Object, FArrayProperty* Property,

@@ -415,15 +415,18 @@ namespace Durin
 	) -> bool
 	{
 		bReadOnly |= Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
-		if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Array)
+		switch (Property->GetKind())
+		{
+		case DurinCodeGen::EPropertyGenFlags::Array:
 			return EditArrayProperty(Context, Object, static_cast<FArrayProperty*>(Property), Container, ArrayIndex, Label, bReadOnly, EditTarget);
-		if (Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Map)
+		case DurinCodeGen::EPropertyGenFlags::Map:
 			return EditMapProperty(Context, Object, static_cast<FMapProperty*>(Property), Container, ArrayIndex, Label, bReadOnly, EditTarget);
-		return SubmitWidgetEdit(Context, EditTarget, EditPropertyWidget(Context, Property, Container, ArrayIndex, Label, bReadOnly));
+		default:
+			return SubmitWidgetEdit(Context, EditTarget, EditPropertyWidget(Context, Property, Container, ArrayIndex, Label, bReadOnly));
+		}
 	}
 
-	auto FReflectedPropertyView::EditPropertyWidget(
-		const FReflectedPropertyViewContext& Context,
+	auto FReflectedPropertyView::EditStructPropertyWidget(
 		FProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
@@ -432,26 +435,13 @@ namespace Durin
 	) -> FPropertyWidgetEditResult
 	{
 		FPropertyWidgetEditResult Result;
-		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
-		DStruct* Struct = Kind == DurinCodeGen::EPropertyGenFlags::Struct ? static_cast<FStructProperty*>(Property)->GetStruct() : nullptr;
+		DStruct* Struct = static_cast<FStructProperty*>(Property)->GetStruct();
 		auto CaptureResult = [&](bool bChanged, bool bContinuous, const MonaImGui::FPropertyEditWidgetState& State = {}) {
 			Result.bChanged = bChanged;
 			Result.bContinuous = bContinuous;
 			Result.bActive = State.bActive;
 			Result.bDeactivatedAfterEdit = State.bDeactivatedAfterEdit;
 		};
-
-		if (Struct == Z_Construct_DStruct_Durin_FTransform())
-		{
-			FTransform Value = *Property->ContainerPtrToValuePtr<FTransform>(Container, ArrayIndex);
-			MonaImGui::FPropertyEditWidgetState State;
-			const bool bChanged = MonaImGui::EditTransformProperty(Label.c_str(), Value, bReadOnly, &State);
-			CaptureResult(bChanged, true, State);
-			if (bChanged) Result.AssignValue = [Value](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
-				*DestinationProperty->ContainerPtrToValuePtr<FTransform>(DestinationContainer, DestinationArrayIndex) = Value;
-			};
-			return Result;
-		}
 
 		auto EditMathStruct = [&]<typename TValue, typename TEditor>(TEditor&& Editor) -> FPropertyWidgetEditResult {
 			TValue Value = *Property->ContainerPtrToValuePtr<TValue>(Container, ArrayIndex);
@@ -463,27 +453,27 @@ namespace Durin
 			};
 			return Result;
 		};
+		auto EditVector = [&]<typename TVector>() -> FPropertyWidgetEditResult {
+			return EditMathStruct.template operator()<TVector>([&](TVector& Value, auto& State) {
+				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly, 0.05, &State);
+			});
+		};
+
+		if (Struct == Z_Construct_DStruct_Durin_FTransform())
+		{
+			return EditMathStruct.template operator()<FTransform>([&](FTransform& Value, auto& State) {
+				return MonaImGui::EditTransformProperty(Label.c_str(), Value, bReadOnly, &State);
+			});
+		}
 
 		if (Struct == Z_Construct_DStruct_Durin_FVector2())
-		{
-			return EditMathStruct.template operator()<FVector2>([&](FVector2& Value, auto& State) {
-				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly, 0.05, &State);
-			});
-		}
+			return EditVector.template operator()<FVector2>();
 
 		if (Struct == Z_Construct_DStruct_Durin_FVector3())
-		{
-			return EditMathStruct.template operator()<FVector3>([&](FVector3& Value, auto& State) {
-				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly, 0.05, &State);
-			});
-		}
+			return EditVector.template operator()<FVector3>();
 
 		if (Struct == Z_Construct_DStruct_Durin_FVector4())
-		{
-			return EditMathStruct.template operator()<FVector4>([&](FVector4& Value, auto& State) {
-				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly, 0.05, &State);
-			});
-		}
+			return EditVector.template operator()<FVector4>();
 
 		if (Struct == Z_Construct_DStruct_Durin_FQuat())
 		{
@@ -499,6 +489,35 @@ namespace Durin
 				return MonaImGui::EditColorProperty(Label.c_str(), EditedValue, bShowAlpha, bReadOnly, &State);
 			});
 		}
+
+		MonaImGui::BeginPropertyRow(Label.c_str(), bReadOnly);
+		ImGui::TextDisabled("<struct>");
+		MonaImGui::EndPropertyRow(bReadOnly);
+		return Result;
+	}
+
+	auto FReflectedPropertyView::EditPropertyWidget(
+		const FReflectedPropertyViewContext& Context,
+		FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		const std::string& Label,
+		bool bReadOnly
+	) -> FPropertyWidgetEditResult
+	{
+		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
+		if (Kind == DurinCodeGen::EPropertyGenFlags::Struct)
+		{
+			return EditStructPropertyWidget(Property, Container, ArrayIndex, Label, bReadOnly);
+		}
+
+		FPropertyWidgetEditResult Result;
+		auto CaptureResult = [&](bool bChanged, bool bContinuous, const MonaImGui::FPropertyEditWidgetState& State = {}) {
+			Result.bChanged = bChanged;
+			Result.bContinuous = bContinuous;
+			Result.bActive = State.bActive;
+			Result.bDeactivatedAfterEdit = State.bDeactivatedAfterEdit;
+		};
 
 		MonaImGui::BeginPropertyRow(Label.c_str(), bReadOnly);
 
