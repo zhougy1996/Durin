@@ -23,6 +23,12 @@ namespace Durin
 	{
 		constexpr FPrimitiveSceneId PreviewPrimitiveId = 1;
 		constexpr double RotationTolerance = 1.0e-8;
+		constexpr float PreviewOrbitSensitivity = 0.25f;
+		constexpr double PreviewMinPitch = -85.0;
+		constexpr double PreviewMaxPitch = 85.0;
+		constexpr double PreviewMinDistance = 1.5;
+		constexpr double PreviewMaxDistance = 12.0;
+		constexpr double PreviewZoomScale = 0.85;
 
 		auto RotationFromForward(const FVector3& Direction) -> FQuat
 		{
@@ -44,6 +50,20 @@ namespace Durin
 		{
 		public:
 			auto SetEnabled(bool bInEnabled) -> void { bEnabled = bInEnabled; }
+			auto Orbit(const FVector2f& MouseDelta) -> void
+			{
+				Yaw += static_cast<double>(MouseDelta.x * PreviewOrbitSensitivity);
+				Pitch = std::clamp(
+					Pitch - static_cast<double>(MouseDelta.y * PreviewOrbitSensitivity),
+					PreviewMinPitch, PreviewMaxPitch);
+			}
+
+			auto Zoom(float MouseWheel) -> void
+			{
+				Distance = std::clamp(
+					Distance * std::pow(PreviewZoomScale, static_cast<double>(MouseWheel)),
+					PreviewMinDistance, PreviewMaxDistance);
+			}
 
 			auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool override
 			{
@@ -52,8 +72,13 @@ namespace Durin
 				constexpr float FieldOfViewDegrees = 42.0f;
 				constexpr float NearClip = 0.1f;
 				constexpr float FarClip = 100.0f;
-				const FVector3 Eye(2.6, -2.6, 1.8);
-				const FVector3 Forward = glm::normalize(-Eye);
+				const double PitchRadians = glm::radians(Pitch);
+				const double YawRadians = glm::radians(Yaw);
+				const FVector3 Forward = glm::normalize(FVector3(
+					std::cos(PitchRadians) * std::cos(YawRadians),
+					std::cos(PitchRadians) * std::sin(YawRadians),
+					std::sin(PitchRadians)));
+				const FVector3 Eye = -Forward * Distance;
 				const FVector3 Right = glm::normalize(glm::cross(FVectorConstants::Up, Forward));
 				const FVector3 Up = glm::normalize(glm::cross(Forward, Right));
 
@@ -90,6 +115,9 @@ namespace Durin
 			}
 
 		private:
+			double Yaw = 135.0;
+			double Pitch = -26.0;
+			double Distance = 4.1;
 			bool bEnabled = false;
 		};
 	}
@@ -191,10 +219,28 @@ namespace Durin
 			const float Height = std::max(8.0f, Available.y);
 			ViewportWidget->SetDesiredSize({Width, Height});
 			ViewportWidget->Draw();
+			UpdateViewportInput();
 			ImGui::EndChild();
 		}
 
 	private:
+		auto UpdateViewportInput() -> void
+		{
+			if (!ViewportWidget->WasTextureDrawn())
+			{
+				bOrbiting = false;
+				return;
+			}
+
+			const bool bHovered = ImGui::IsItemHovered();
+			if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) bOrbiting = true;
+			if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) bOrbiting = false;
+
+			const ImGuiIO& IO = ImGui::GetIO();
+			if (bOrbiting) ViewportClient->Orbit({IO.MouseDelta.x, IO.MouseDelta.y});
+			if (bHovered && IO.MouseWheel != 0.0f) ViewportClient->Zoom(IO.MouseWheel);
+		}
+
 		auto GetSelectedMesh() const -> DStaticMesh*
 		{
 			return Shape == EMaterialPreviewShape::Sphere ? Sphere.Get() : Box.Get();
@@ -260,6 +306,7 @@ namespace Durin
 		uint64 MaterialRevision = 1;
 		EMaterialPreviewShape Shape = EMaterialPreviewShape::Sphere;
 		bool bProxyDirty = true;
+		bool bOrbiting = false;
 		std::string Error;
 	};
 
