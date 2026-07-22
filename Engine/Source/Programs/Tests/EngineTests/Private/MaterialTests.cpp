@@ -295,12 +295,16 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 		.Transactions = &Transactions,
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
+	const Durin::FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(
+		Material, Property, Durin::MaterialParameterOpacity);
+	ASSERT_TRUE(Binding.IsValid());
+	EXPECT_TRUE(Binding.IsPresent());
 	const Durin::uint64 BeforeVersion = Material->GetRenderStateVersion();
-	EXPECT_TRUE(PropertyView.SubmitStringMapValueEdit(Context, Material, Property, Durin::MaterialParameterOpacity,
+	EXPECT_TRUE(PropertyView.SubmitBoundPropertyValueEdit(Context, Binding,
 		[](Durin::FProperty* ValueProperty, void* Container) {
 			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.6f;
 		}, true));
-	EXPECT_TRUE(PropertyView.SubmitStringMapValueEdit(Context, Material, Property, Durin::MaterialParameterOpacity,
+	EXPECT_TRUE(PropertyView.SubmitBoundPropertyValueEdit(Context, Binding,
 		[](Durin::FProperty* ValueProperty, void* Container) {
 			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.4f;
 		}, true));
@@ -335,9 +339,11 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 		.Transactions = &Transactions,
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
+	const Durin::FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(
+		Material, Property, Durin::MaterialParameterOpacity);
 
 	PropertyView.HandleOwnerContext(Context, Owner);
-	EXPECT_TRUE(PropertyView.SubmitStringMapValueEdit(Context, Material, Property, Durin::MaterialParameterOpacity,
+	EXPECT_TRUE(PropertyView.SubmitBoundPropertyValueEdit(Context, Binding,
 		[](Durin::FProperty* ValueProperty, void* Container) {
 			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.5f;
 		}, true));
@@ -370,19 +376,65 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInShare
 		.Transactions = &Transactions,
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
+	const Durin::FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(
+		Instance, Property, Durin::MaterialParameterOpacity);
+	ASSERT_TRUE(Binding.IsValid());
+	EXPECT_FALSE(Binding.IsPresent());
 
-	EXPECT_TRUE(PropertyView.SetStringMapEntryEnabled(Context, Instance, Property, Durin::MaterialParameterOpacity, true,
+	EXPECT_TRUE(PropertyView.SetBoundPropertyEnabled(Context, Binding, true,
 		[](Durin::FProperty* ValueProperty, void* Container) {
 			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.5f;
 		}));
 	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
+	EXPECT_TRUE(Binding.IsPresent());
 	EXPECT_TRUE(Error.empty());
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_FALSE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
+	EXPECT_FALSE(Binding.IsPresent());
 	ASSERT_TRUE(Transactions.Redo());
 	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
 	Transactions.Clear();
 	Durin::MarkAsGarbage(Instance);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, ReflectedPropertyBindingReresolvesAfterMapRehash)
+{
+	InitializeDObjectSystem();
+	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "StableBindingMaterial");
+	auto* Property = static_cast<Durin::FMapProperty*>(Material->GetClass()->FindPropertyByName("ScalarParameters"));
+	ASSERT_NE(Property, nullptr);
+	Durin::FReflectedPropertyView PropertyView;
+	const Durin::FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(
+		Material, Property, Durin::MaterialParameterOpacity);
+	ASSERT_TRUE(Binding.IsValid());
+
+	for (int Index = 0; Index < 128; ++Index)
+	{
+		Material->SetScalarParameterValue(std::format("Transient{}", Index), static_cast<float>(Index));
+	}
+	ASSERT_TRUE(Binding.IsPresent());
+
+	Durin::FEditorTransactionManager Transactions;
+	std::string Error;
+	Durin::FReflectedPropertyViewContext Context{
+		.Transactions = &Transactions,
+		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+	};
+	EXPECT_TRUE(PropertyView.SubmitBoundPropertyValueEdit(Context, Binding,
+		[](Durin::FProperty* ValueProperty, void* Container) {
+			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.25f;
+		}, false));
+	EXPECT_TRUE(Error.empty());
+	float Value = 0.0f;
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameterOpacity, Value));
+	EXPECT_FLOAT_EQ(Value, 0.25f);
+	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameterOpacity, Value));
+	EXPECT_FLOAT_EQ(Value, 1.0f);
+
+	Transactions.Clear();
+	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
 }
 

@@ -136,15 +136,15 @@ namespace Durin
 			return Result;
 		}
 
-		auto FindStringMapIndex(const FMapProperty* Property, const DObject* Object, std::string_view Key) -> uint64
+		auto FindMapIndex(const FMapProperty* Property, const DObject* Object, const FPropertyValueSnapshot& Key) -> uint64
 		{
-			if (!Property || !Property->GetKeyProp()
-				|| Property->GetKeyProp()->GetKind() != DurinCodeGen::EPropertyGenFlags::String) return UINT64_MAX;
-			auto* KeyProperty = static_cast<FStringProperty*>(Property->GetKeyProp());
+			if (!Property || !Property->GetKeyProp() || !Key.IsValid()) return UINT64_MAX;
 			for (uint64 Index = 0; Index < Property->Num(Object); ++Index)
 			{
 				const void* StoredKey = Property->GetKeyPtr(Object, Index);
-				if (StoredKey && *KeyProperty->GetStringValuePtr(StoredKey) == Key) return Index;
+				FPropertyValueSnapshot StoredKeySnapshot;
+				if (StoredKey && CapturePropertyValue(Property->GetKeyProp(), StoredKey, 0, StoredKeySnapshot)
+					&& StoredKeySnapshot == Key) return Index;
 			}
 			return UINT64_MAX;
 		}
@@ -162,6 +162,11 @@ namespace Durin
 			}
 			return std::format("{} {}", SourceName, DisplayName);
 		}
+	}
+
+	auto FReflectedPropertyBinding::IsPresent() const -> bool
+	{
+		return IsValid() && FindMapIndex(MemberProperty, Object, MapKey) != UINT64_MAX;
 	}
 
 	auto FReflectedPropertyView::EditObject(
@@ -707,60 +712,82 @@ namespace Durin
 		return SubmitPropertyEdit(Context, Target, Proposed, bContinuous);
 	}
 
-	auto FReflectedPropertyView::SubmitStringMapValueEdit(
-		const FReflectedPropertyViewContext& Context,
+	auto FReflectedPropertyView::BindStringMapValue(
 		DObject* Object,
 		FMapProperty* Property,
-		std::string_view Key,
+		std::string_view Key
+	) const -> FReflectedPropertyBinding
+	{
+		FReflectedPropertyBinding Binding;
+		if (!Object || !Property || !Property->GetKeyProp() || !Property->GetValueProp()
+			|| Property->GetKeyProp()->GetKind() != DurinCodeGen::EPropertyGenFlags::String) return Binding;
+
+		void* KeyValue = Property->CreateKey();
+		if (!KeyValue) return Binding;
+		*static_cast<FStringProperty*>(Property->GetKeyProp())->GetStringValuePtr(KeyValue) = Key;
+		if (CapturePropertyValue(Property->GetKeyProp(), KeyValue, 0, Binding.MapKey))
+		{
+			Binding.Object = Object;
+			Binding.MemberProperty = Property;
+			Binding.LeafProperty = Property->GetValueProp();
+			Binding.PathKeyData = CaptureMapPathKey(Property->GetKeyProp(), KeyValue);
+		}
+		Property->DestroyKey(KeyValue);
+		return Binding;
+	}
+
+	auto FReflectedPropertyView::SubmitBoundPropertyValueEdit(
+		const FReflectedPropertyViewContext& Context,
+		const FReflectedPropertyBinding& Binding,
 		const std::function<void(FProperty*, void*)>& AssignValue,
 		bool bContinuous
 	) -> bool
 	{
-		if (!Object || !Property || !Property->GetKeyProp() || !Property->GetValueProp() || !AssignValue
-			|| Property->GetKeyProp()->GetKind() != DurinCodeGen::EPropertyGenFlags::String)
+		if (!Binding.IsValid() || !AssignValue)
 		{
-			ReportError(Context, "The reflected string-map value is unavailable.");
+			ReportError(Context, "The reflected property binding is unavailable.");
 			return false;
 		}
 
-		const uint64 Index = FindStringMapIndex(Property, Object, Key);
-		void* NewKey = nullptr;
-		void* NewValue = nullptr;
-		FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Object, Property);
-		if (Index != UINT64_MAX)
+		FMapProperty* Property = Binding.MemberProperty;
+		DObject* Object = Binding.Object;
+		void* Key = Property->CreateKey();
+		void* Value = Property->CreateValue();
+		std::string Error;
+		if (!Key || !Value || !RestorePropertyValue(Property->GetKeyProp(), Key, 0, Binding.MapKey, &Error))
 		{
-			const void* StoredKey = Property->GetKeyPtr(Object, Index);
-			// Capturing/restoring the outer map can rehash it before Begin(), so the
-			// leaf address is only descriptive; the stable member snapshot drives mutation.
-			Target = Target.ForMapEntry(Property->GetValueProp(), Object, CaptureMapPathKey(Property->GetKeyProp(), StoredKey));
-		}
-		else
-		{
-			NewKey = Property->CreateKey();
-			NewValue = Property->CreateValue();
-			if (!NewKey || !NewValue)
-			{
-				if (NewKey) Property->DestroyKey(NewKey);
-				if (NewValue) Property->DestroyValue(NewValue);
-				ReportError(Context, "Unable to create a reflected string-map value.");
-				return false;
-			}
-			*static_cast<FStringProperty*>(Property->GetKeyProp())->GetStringValuePtr(NewKey) = Key;
-			Target = Target.ForMapEntry(Property->GetValueProp(), Object, CaptureMapPathKey(Property->GetKeyProp(), NewKey));
+			if (Key) Property->DestroyKey(Key);
+			if (Value) Property->DestroyValue(Value);
+			ReportError(Context, Error.empty() ? "Unable to resolve the reflected property binding." : std::move(Error));
+			return false;
 		}
 
-		FPropertyValueSnapshot Proposed;
-		std::string Error;
-		const bool bCaptured = CaptureProposedPropertyValue(Property, Object, 0, [&] {
-			if (Index != UINT64_MAX) AssignValue(Property->GetValueProp(), Property->GetMutableMappedValuePtr(Object, Index));
-			else
+		const uint64 Index = FindMapIndex(Property, Object, Binding.MapKey);
+		if (Index != UINT64_MAX)
+		{
+			FPropertyValueSnapshot CurrentValue;
+			if (!CapturePropertyValue(Property->GetValueProp(), Property->GetMappedValuePtr(Object, Index), 0, CurrentValue, &Error)
+				|| !RestorePropertyValue(Property->GetValueProp(), Value, 0, CurrentValue, &Error))
 			{
-				AssignValue(Property->GetValueProp(), NewValue);
-				Property->Insert(Object, NewKey, NewValue);
+				Property->DestroyKey(Key);
+				Property->DestroyValue(Value);
+				ReportError(Context, std::move(Error));
+				return false;
 			}
+		}
+		AssignValue(Binding.LeafProperty, Value);
+
+		// Leaf storage is deliberately scratch memory. The binding resolves the live
+		// map on each submission while the target snapshots the stable member root.
+		FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Object, Property)
+			.ForMapEntry(Binding.LeafProperty, Object, Binding.PathKeyData);
+
+		FPropertyValueSnapshot Proposed;
+		const bool bCaptured = CaptureProposedPropertyValue(Property, Object, 0, [&] {
+			Property->Insert(Object, Key, Value);
 		}, Proposed, &Error);
-		if (NewKey) Property->DestroyKey(NewKey);
-		if (NewValue) Property->DestroyValue(NewValue);
+		Property->DestroyKey(Key);
+		Property->DestroyValue(Value);
 		if (!bCaptured)
 		{
 			ReportError(Context, std::move(Error));
@@ -769,22 +796,21 @@ namespace Durin
 		return SubmitPropertyEdit(Context, Target, Proposed, bContinuous);
 	}
 
-	auto FReflectedPropertyView::SetStringMapEntryEnabled(
+	auto FReflectedPropertyView::SetBoundPropertyEnabled(
 		const FReflectedPropertyViewContext& Context,
-		DObject* Object,
-		FMapProperty* Property,
-		std::string_view Key,
+		const FReflectedPropertyBinding& Binding,
 		bool bEnabled,
 		const std::function<void(FProperty*, void*)>& InitializeValue
 	) -> bool
 	{
-		if (!Object || !Property || !Property->GetKeyProp() || !Property->GetValueProp() || !InitializeValue
-			|| Property->GetKeyProp()->GetKind() != DurinCodeGen::EPropertyGenFlags::String)
+		if (!Binding.IsValid() || (bEnabled && !InitializeValue))
 		{
-			ReportError(Context, "The reflected string-map entry is unavailable.");
+			ReportError(Context, "The reflected property binding is unavailable.");
 			return false;
 		}
-		const uint64 ExistingIndex = FindStringMapIndex(Property, Object, Key);
+		FMapProperty* Property = Binding.MemberProperty;
+		DObject* Object = Binding.Object;
+		const uint64 ExistingIndex = FindMapIndex(Property, Object, Binding.MapKey);
 		if ((ExistingIndex != UINT64_MAX) == bEnabled) return false;
 
 		void* EntryKey = Property->CreateKey();
@@ -796,15 +822,21 @@ namespace Durin
 			ReportError(Context, "Unable to create a reflected string-map entry.");
 			return false;
 		}
-		*static_cast<FStringProperty*>(Property->GetKeyProp())->GetStringValuePtr(EntryKey) = Key;
-		InitializeValue(Property->GetValueProp(), EntryValue);
+		std::string Error;
+		if (!RestorePropertyValue(Property->GetKeyProp(), EntryKey, 0, Binding.MapKey, &Error))
+		{
+			Property->DestroyKey(EntryKey);
+			Property->DestroyValue(EntryValue);
+			ReportError(Context, std::move(Error));
+			return false;
+		}
+		if (bEnabled) InitializeValue(Binding.LeafProperty, EntryValue);
 		FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Object, Property);
 		Target.Path.back().Selector = EPropertyPathSelector::MapKey;
-		Target.Path.back().MapKeyData = CaptureMapPathKey(Property->GetKeyProp(), EntryKey);
+		Target.Path.back().MapKeyData = Binding.PathKeyData;
 		Target.Kind = bEnabled ? EPropertyChangeKind::MapInsert : EPropertyChangeKind::MapRemove;
 
 		FPropertyValueSnapshot Proposed;
-		std::string Error;
 		const bool bCaptured = CaptureProposedPropertyValue(Property, Object, 0, [&] {
 			if (bEnabled) Property->Insert(Object, EntryKey, EntryValue);
 			else Property->Remove(Object, EntryKey);

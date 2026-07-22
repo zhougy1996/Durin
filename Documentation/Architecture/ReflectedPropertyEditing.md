@@ -222,13 +222,17 @@ Map key rename rejects collisions before notification. After any structural
 operation, the view stops traversing the old container for that frame because
 the operation may have invalidated child addresses or changed iteration order.
 
-`FReflectedPropertyView` also provides controlled string-key map helpers used by
-Material Editor:
+`FReflectedPropertyBinding` represents a logical container value without retaining
+its current leaf address. The current factory binds a string-key map value by
+capturing its reflected key snapshot and stable event-path bytes. `IsPresent()`
+and every edit re-scan the live map, so a resize or rehash between frames cannot
+invalidate the binding.
 
-- `SubmitStringMapValueEdit()` edits or creates one logical map value while
-  retaining value-set semantics; and
-- `SetStringMapEntryEnabled()` records override insertion/removal as structural
-  transactions.
+`SubmitBoundPropertyValueEdit()` gives custom UI only a temporary value container,
+then submits the resulting member snapshot with value-set semantics.
+`SetBoundPropertyEnabled()` records insertion/removal as structural transactions.
+Panels therefore neither retain nor mutate a live map leaf address and never
+construct reflected paths themselves.
 
 ## Reflected Property View
 
@@ -255,7 +259,7 @@ cannot construct unsafe container addresses or edit paths.
 Custom widgets can use `SubmitPropertyValueEdit()` to retain their presentation
 while sharing proposal capture, session lifecycle, notifications, and history.
 Camera and Spline customizations use it for their semantic layouts and actions;
-Material Editor uses it for its parent picker and uses the string-map helpers
+Material Editor uses it for its parent picker and uses stable string-map bindings
 for parameter values and override presence. Object-details customizations are
 given the host-owned view and context so composed rows share the same active
 session and transaction history as ordinary Details rows.
@@ -277,9 +281,11 @@ to `EditObject()`; Actor transform, static-mesh material slots, and registered
 customizations continue to compose through the same view.
 
 Material Editor owns another property view but supplies a semantic parameter
-layout. It retains inherited-value and override presentation, color and range
-controls, and asset-specific pickers. Generic proposals, sessions, and
-transactions are delegated to the view.
+layout. Scalar name, label, default, and range metadata now come from a descriptor
+table; color and texture rows retain their specialized controls. All parameter
+values and override presence use stable bindings, while inherited-value lookup,
+color controls, and asset-specific pickers remain host-owned. Generic proposals,
+sessions, and transactions are delegated to the view.
 
 Spline Details now routes transform, curve settings, point values, and point
 structural actions through the shared view while retaining its custom layout.
@@ -297,6 +303,7 @@ Automated coverage currently verifies:
 - no history for no-op, cancelled, or rejected edits;
 - object and snapshot reference lifetime;
 - array and map stable paths and structural restoration;
+- binding re-resolution after map rehash and presence across Undo/Redo;
 - semantic adapter rejection and Undo/Redo behavior;
 - material parameter render invalidation; and
 - material override insertion through shared transaction history; and

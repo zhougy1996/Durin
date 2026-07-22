@@ -116,10 +116,10 @@ CaptureProposedValue(...);
 
 外部需要编辑容器中的逻辑值时，使用受控 Binding，而不是构造裸地址。
 
-## 4. Property Binding
+## 4. Property Binding（最小版本已采用）
 
-Binding 表示一个可编辑逻辑值以及它对应的稳定反射 Snapshot/Path。候选
-用法：
+Binding 表示一个可编辑逻辑值以及它对应的稳定反射 Snapshot/Path。当前
+字符串 Map value 用法是：
 
 ```cpp
 FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(
@@ -127,24 +127,25 @@ FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(
     ScalarParametersProperty,
     "Opacity");
 
-PropertyView.EditBoundProperty(Context, Binding, {
-    .Label = "Opacity",
-    .Minimum = 0.0,
-    .Maximum = 1.0,
-});
+PropertyView.SubmitBoundPropertyValueEdit(Context, Binding,
+    [](FProperty* ValueProperty, void* ScratchValue) {
+        *ValueProperty->ContainerPtrToValuePtr<float>(ScratchValue) = 0.5f;
+    }, true);
 ```
 
-Binding 应负责：
+当前 Binding 已负责：
 
 - 解析真实 Member/Leaf；
 - 生成稳定的数组索引或序列化 Map Key 路径；
 - 选择稳定的 Snapshot 根；
 - 在 rehash/resize 后重新解析叶子地址；
 - 描述 ValueSet 或结构变更；
-- 可选地读取继承值和 Override 状态。
+- 通过 `IsPresent()` 读取 Override presence。
 
-当前的 `SubmitStringMapValueEdit()` 与 `SetStringMapEntryEnabled()` 可以视为
-Binding 之前的受控过渡 API，后续不应继续为每种容器组合增加平行函数。
+赋值回调收到的是临时 value storage，不是 Map 内部 leaf 地址。View 在每次
+提交前用 key snapshot 重新解析 live Map，再以对象成员为稳定 Snapshot root。
+旧的 `SubmitStringMapValueEdit()` 与 `SetStringMapEntryEnabled()` 已被
+`SubmitBoundPropertyValueEdit()` 与 `SetBoundPropertyEnabled()` 替代。
 
 ## 5. Customization（最小版本已采用）
 
@@ -225,6 +226,10 @@ Material Editor 继续拥有预览、分组、继承与 Override UX，但参数 
 连续编辑和事务交给 Property View。领域差异不是要删除的特例；应删除的是
 重复的 Snapshot、Session、Target 和控件生命周期代码。
 
+当前第一步已把所有材质参数 value/override 写入迁到 Binding，并用标量参数
+描述表收敛名称、标签、默认值和范围。颜色与纹理行仍保留专用展示；后续可在
+不丢失 color editor 和 asset picker 的前提下继续统一 descriptor dispatch。
+
 ## 8. 特例分类
 
 应逐步消除：
@@ -275,8 +280,8 @@ adapter、binding 和 customization 注入。
 
 1. ~~增加 `EditObject()`，迁移 Details 的属性遍历、搜索和标签生成。~~
 2. ~~保持 `EditPropertyValue()` 及容器递归入口为私有实现。~~
-3. 引入最小对象 customization/builder，先承载 Actor Transform 和材质槽。
-4. 引入稳定 Binding，替换 string-map 过渡 API 的外部细节。
+3. ~~引入最小对象 customization/builder，先承载 Actor Transform 和材质槽。~~
+4. ~~引入稳定 Binding，替换 string-map 过渡 API 的外部细节。~~
 5. 用参数描述表收敛 Material Editor 重复的标量/颜色/纹理行。
 6. 在使用案例稳定后，再评估生成的属性级回调或 customization 元数据。
 

@@ -38,12 +38,14 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
 - [x] Define a minimal object property-view customization registry and builder.
 - [x] Express Actor root transform and static-mesh material slots as
   customizations instead of type branches in Details.
-- [ ] Add a stable reflected-property binding abstraction for logical container
+- [x] Add a stable reflected-property binding abstraction for logical container
   values without exposing leaf addresses or manual paths.
-- [ ] Replace the public string-map transition helpers with bindings once the
+- [x] Replace the public string-map transition helpers with bindings once the
   binding contract is proven.
 - [ ] Convert Material Editor parameters to descriptors plus bound property rows
   while retaining inherited values, overrides, ranges, colors, and asset pickers.
+  Scalar metadata and all current parameter value/override writes now use the
+  first descriptor/binding layer; color and texture presentation remain explicit.
 
 ## Optional Generated Metadata
 
