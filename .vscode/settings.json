@@ -1,0 +1,10 @@
+{
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}/Build/Win64-Debug-DurinEditor-Tests",
+    "--background-index"
+  ],
+  "cmake.configureOnOpen": false,
+  "cmake.configureOnEdit": false,
+  "cmake.automaticReconfigure": false,
+  "cmake.buildBeforeRun": false
+}

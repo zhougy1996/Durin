@@ -6,6 +6,8 @@
 # Build Directories
 /Build/
 /.idea/
+/.vscode/*
+!/.vscode/settings.json
 /.venv/
 /out/
 /.claude/
