@@ -14,7 +14,7 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
 
 - [x] Route the actor root-transform row through `FReflectedPropertyView` while
   preserving `SetRelativeTransform()` semantics.
-- [ ] Route static-mesh material-slot rows through shared transactions while
+- [x] Route static-mesh material-slot rows through shared transactions while
   preserving slot labels and `SetMaterial()` behavior.
 - [ ] Migrate direct reflected-property writes in Level Editor customizations,
   beginning with spline editing.

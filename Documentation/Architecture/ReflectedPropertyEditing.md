@@ -119,12 +119,15 @@ call setters or enforce invariants. Current built-in registrations cover:
 
 - `DSceneComponent.RelativeTransform` through `SetRelativeTransform()`;
 - `DStaticMeshComponent.StaticMesh` through `SetStaticMesh()`;
-- `DStaticMeshComponent.Material` through `SetMaterial()`; and
+- `DStaticMeshComponent.Material` through `SetMaterial()`;
+- `DStaticMeshComponent.Materials[index]` through `SetMaterial(index, value)`; and
 - `DMaterialInstance.Parent` through `SetParent()`, including cycle rejection.
 
 Transactions retain the selected adapter for later Undo/Redo, so registered
 adapters must have process lifetime. Registration lookup supports base classes;
-later and more-derived registrations take precedence.
+later and more-derived registrations take precedence. Registrations are keyed by
+the object-owned member, allowing a deliberate container adapter to interpret a
+nested path while retaining the member snapshot as its stable mutation root.
 
 ## Edit Session Lifecycle
 
@@ -234,10 +237,8 @@ layout. It retains inherited-value and override presentation, color and range
 controls, and asset-specific pickers. Generic proposals, sessions, and
 transactions are delegated to the view.
 
-Some editor edit sites still bypass the shared view, including static-mesh
-material-slot rows and some object customizations.
-These are tracked in the implementation plan and must migrate without removing their setter
-semantics.
+Some object customizations still bypass the shared view. These are tracked in
+the implementation plan and must migrate without removing their setter semantics.
 
 ## Validation
 

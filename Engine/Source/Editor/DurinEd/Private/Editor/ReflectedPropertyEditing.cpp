@@ -147,6 +147,69 @@ namespace Durin
 			EObjectSetterKind Kind;
 		};
 
+		class FStaticMeshMaterialsMutationAdapter final : public IReflectedPropertyMutationAdapter
+		{
+		public:
+			auto Capture(const FReflectedPropertyEditTarget& Target, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
+			{
+				return GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
+			}
+			auto Apply(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
+			{
+				return ApplySnapshot(Target, Snapshot, OutError);
+			}
+			auto Restore(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
+			{
+				return ApplySnapshot(Target, Snapshot, OutError);
+			}
+
+		private:
+			static auto ApplySnapshot(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) -> bool
+			{
+				auto* Component = Cast<DStaticMeshComponent>(Target.Object);
+				if (!Component || !Target.SnapshotProperty
+					|| Target.SnapshotProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Array)
+					return Fail(OutError, "The static-mesh material array is unavailable.");
+
+				auto* ArrayProperty = static_cast<const FArrayProperty*>(Target.SnapshotProperty);
+				auto* ObjectProperty = ArrayProperty->GetInner() && ArrayProperty->GetInner()->GetKind() == DurinCodeGen::EPropertyGenFlags::Object
+					? static_cast<const FObjectProperty*>(ArrayProperty->GetInner()) : nullptr;
+				if (!ArrayProperty->HasArrayHelper() || !ObjectProperty)
+					return Fail(OutError, "The static-mesh material array metadata is unavailable.");
+
+				const auto& Generic = GetGenericReflectedPropertyMutationAdapter();
+				FPropertyValueSnapshot Previous;
+				if (!Generic.Capture(Target, Previous, OutError) || !Generic.Apply(Target, Snapshot, OutError)) return false;
+
+				std::vector<DMaterialInterface*> DesiredMaterials;
+				DesiredMaterials.reserve(ArrayProperty->Num(Target.SnapshotContainer, Target.SnapshotArrayIndex));
+				for (uint64 Index = 0; Index < ArrayProperty->Num(Target.SnapshotContainer, Target.SnapshotArrayIndex); ++Index)
+				{
+					const void* Element = ArrayProperty->GetElementPtr(Target.SnapshotContainer, Index, Target.SnapshotArrayIndex);
+					DObject* Value = Element ? ObjectProperty->GetObjectPropertyValue(Element) : nullptr;
+					auto* Material = Value ? Cast<DMaterialInterface>(Value) : nullptr;
+					if (Value && !Material)
+					{
+						Generic.Restore(Target, Previous, nullptr);
+						return Fail(OutError, "Selected asset is not a material.");
+					}
+					DesiredMaterials.push_back(Material);
+				}
+				if (!Generic.Restore(Target, Previous, OutError)) return false;
+
+				const uint64 CurrentCount = ArrayProperty->Num(Target.SnapshotContainer, Target.SnapshotArrayIndex);
+				const uint64 SlotCount = std::max<uint64>(CurrentCount, DesiredMaterials.size());
+				for (uint64 Index = 0; Index < SlotCount; ++Index)
+				{
+					Component->SetMaterial(static_cast<uint32>(Index), Index < DesiredMaterials.size() ? DesiredMaterials[Index] : nullptr);
+				}
+				// SetMaterial cannot shrink its backing array. The semantic calls above
+				// release removed bindings first; restoring the validated snapshot then
+				// recovers the exact reflected container shape for Cancel and Undo.
+				return Generic.Apply(Target, Snapshot, OutError);
+			}
+		};
+
 		struct FMutationAdapterRegistration
 		{
 			const DClass* ObjectClass = nullptr;
@@ -181,6 +244,7 @@ namespace Durin
 				RegisterMutationAdapter(DSceneComponent::StaticClass(), FName("RelativeTransform"), std::make_unique<FRelativeTransformMutationAdapter>());
 				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("StaticMesh"), std::make_unique<FObjectSetterMutationAdapter>(EObjectSetterKind::StaticMesh));
 				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("Material"), std::make_unique<FObjectSetterMutationAdapter>(EObjectSetterKind::Material));
+				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("Materials"), std::make_unique<FStaticMeshMaterialsMutationAdapter>());
 				RegisterMutationAdapter(DMaterialInstance::StaticClass(), FName("Parent"), std::make_unique<FObjectSetterMutationAdapter>(EObjectSetterKind::MaterialParent));
 				return true;
 			}();
@@ -279,14 +343,13 @@ namespace Durin
 	auto GetReflectedPropertyMutationAdapter(const FReflectedPropertyEditTarget& Target) -> const IReflectedPropertyMutationAdapter&
 	{
 		RegisterBuiltInMutationAdapters();
-		// Setter adapters only own direct members. Nested container leaves must keep
-		// using the stable outer snapshot selected by the generic adapter.
-		if (!Target.Object || Target.SnapshotProperty != Target.LeafProperty || Target.SnapshotContainer != Target.Object)
-			return GetGenericReflectedPropertyMutationAdapter();
+		if (!Target.Object || !Target.MemberProperty) return GetGenericReflectedPropertyMutationAdapter();
+		// Registrations own object members. A member-specific adapter may deliberately
+		// interpret nested paths while still capturing the stable outer snapshot.
 		// Later, more-derived registrations take precedence over an inherited rule.
 		for (const FMutationAdapterRegistration& Entry : GetMutationAdapterRegistrations() | std::views::reverse)
 		{
-			if (Target.Object->IsA(Entry.ObjectClass) && Target.LeafProperty->NamePrivate == Entry.PropertyName)
+			if (Target.Object->IsA(Entry.ObjectClass) && Target.MemberProperty->NamePrivate == Entry.PropertyName)
 				return *Entry.Adapter;
 		}
 		return GetGenericReflectedPropertyMutationAdapter();

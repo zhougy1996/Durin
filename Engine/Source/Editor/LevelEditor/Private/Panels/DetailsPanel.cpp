@@ -537,21 +537,29 @@ namespace Durin
 	{
 		DStaticMesh* Mesh = Component ? Component->GetStaticMesh() : nullptr;
 		const FStaticMeshRenderData* RenderData = Mesh ? Mesh->GetRenderData() : nullptr;
-		if (!RenderData) return;
+		FProperty* ReflectedMaterials = Component ? Component->GetClass()->FindPropertyByName("Materials") : nullptr;
+		auto* MaterialsProperty = ReflectedMaterials && ReflectedMaterials->GetKind() == DurinCodeGen::EPropertyGenFlags::Array
+			? static_cast<FArrayProperty*>(ReflectedMaterials) : nullptr;
+		auto* MaterialProperty = MaterialsProperty && MaterialsProperty->GetInner()
+			&& MaterialsProperty->GetInner()->GetKind() == DurinCodeGen::EPropertyGenFlags::Object
+			? static_cast<FObjectProperty*>(MaterialsProperty->GetInner()) : nullptr;
+		if (!RenderData || !MaterialsProperty || !MaterialsProperty->HasArrayHelper() || !MaterialProperty) return;
+		const FReflectedPropertyViewContext ViewContext = MakePropertyViewContext(Context);
 		for (uint32 SlotIndex = 0; SlotIndex < RenderData->MaterialSlots.size(); ++SlotIndex)
 		{
 			const std::string Label = std::format("Material[{}] {}", SlotIndex, RenderData->MaterialSlots[SlotIndex].Name);
 			if (!ContainsInsensitive(Label, PropertySearchText.data()) && PropertySearchText[0] != '\0') continue;
 			ImGui::PushID("StaticMeshMaterial");
 			ImGui::PushID(static_cast<int>(SlotIndex));
-			MonaImGui::BeginPropertyRow(Label.c_str(), false);
+			MonaImGui::BeginPropertyRow(Label.c_str(), Context.bReadOnly);
 			DMaterialInterface* Current = Component->GetMaterial(SlotIndex);
+			DMaterialInterface* SelectedMaterial = Current;
 			const std::string Preview = Current && Current->GetPackage() ? Current->GetPackage()->GetPackagePath() : "None";
 			if (ImGui::BeginCombo("##Value", Preview.c_str()))
 			{
 				ImGui::SetNextItemWidth(-FLT_MIN);
 				ImGui::InputTextWithHint("##AssetSearch", "Search materials...", AssetSearchText.data(), AssetSearchText.size());
-				if (ImGui::Selectable("Clear", Current == nullptr)) Component->SetMaterial(SlotIndex, nullptr);
+				if (ImGui::Selectable("Clear", Current == nullptr)) SelectedMaterial = nullptr;
 				for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 				{
 					DClass* AssetClass = FindClassByQualifiedName(Data.AssetClassName);
@@ -562,12 +570,23 @@ namespace Durin
 						DObject* Loaded = nullptr;
 						Asset::FAssetResult Result = Asset::LoadAsset(Path, Loaded);
 						if (!Result) Context.SetError(Result.Message);
-						else if (DMaterialInterface* Selected = Cast<DMaterialInterface>(Loaded)) Component->SetMaterial(SlotIndex, Selected);
+						else if (DMaterialInterface* Selected = Cast<DMaterialInterface>(Loaded)) SelectedMaterial = Selected;
 					}
 				}
 				ImGui::EndCombo();
 			}
-			MonaImGui::EndPropertyRow(false);
+			if (!Context.bReadOnly && SelectedMaterial != Current)
+			{
+				void* Element = SlotIndex < MaterialsProperty->Num(Component) ? MaterialsProperty->GetMutableElementPtr(Component, SlotIndex) : Component;
+				const FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Component, MaterialsProperty)
+					.ForArrayElement(MaterialProperty, Element, SlotIndex);
+				PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
+					if (MaterialsProperty->Num(Component) <= SlotIndex) MaterialsProperty->Resize(Component, static_cast<uint64>(SlotIndex) + 1);
+					if (void* MaterialElement = MaterialsProperty->GetMutableElementPtr(Component, SlotIndex))
+						MaterialProperty->SetObjectPropertyValue(MaterialElement, SelectedMaterial);
+				}, false);
+			}
+			MonaImGui::EndPropertyRow(Context.bReadOnly);
 			ImGui::PopID();
 			ImGui::PopID();
 		}

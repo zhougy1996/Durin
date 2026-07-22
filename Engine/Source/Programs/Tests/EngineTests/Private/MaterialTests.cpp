@@ -191,6 +191,97 @@ TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThr
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialTests, ReflectedMaterialSlotEditUsesSharedTransactionsAndSetterSemantics)
+{
+	FRenderSceneHarness Harness;
+	Durin::DMaterial* First = Durin::NewObject<Durin::DMaterial>(nullptr, "FirstReflectedSlotMaterial");
+	Durin::DMaterial* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "SecondReflectedSlotMaterial");
+	Durin::DMaterial* Replacement = Durin::NewObject<Durin::DMaterial>(nullptr, "ReplacementReflectedSlotMaterial");
+	First->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.1, 0.2, 0.3));
+	Second->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.4, 0.5, 0.6));
+	Replacement->SetVectorParameterValue(Durin::MaterialParameterBaseColor, Durin::FVector3(0.7, 0.8, 0.9));
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	Mesh->GetRenderData()->MaterialSlots.push_back({"Second", 1});
+	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "ReflectedSlotMeshComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(0, First);
+	Component->SetMaterial(1, Second);
+	Component->RegisterComponent();
+
+	Durin::FProperty* ReflectedMaterials = Component->GetClass()->FindPropertyByName("Materials");
+	ASSERT_NE(ReflectedMaterials, nullptr);
+	ASSERT_EQ(ReflectedMaterials->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Array);
+	auto* MaterialsProperty = static_cast<Durin::FArrayProperty*>(ReflectedMaterials);
+	ASSERT_NE(MaterialsProperty->GetInner(), nullptr);
+	ASSERT_EQ(MaterialsProperty->GetInner()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Object);
+	auto* MaterialProperty = static_cast<Durin::FObjectProperty*>(MaterialsProperty->GetInner());
+
+	auto MakeTarget = [&](Durin::uint32 SlotIndex) {
+		void* Element = SlotIndex < MaterialsProperty->Num(Component)
+			? MaterialsProperty->GetMutableElementPtr(Component, SlotIndex) : Component;
+		return Durin::FReflectedPropertyEditTarget::ForMember(Component, MaterialsProperty)
+			.ForArrayElement(MaterialProperty, Element, SlotIndex);
+	};
+	auto SubmitSlot = [&](Durin::FReflectedPropertyView& View, const Durin::FReflectedPropertyViewContext& Context,
+		Durin::uint32 SlotIndex, Durin::DMaterialInterface* Material) {
+		const Durin::FReflectedPropertyEditTarget Target = MakeTarget(SlotIndex);
+		return View.SubmitPropertyValueEdit(Context, Target, [&] {
+			if (MaterialsProperty->Num(Component) <= SlotIndex) MaterialsProperty->Resize(Component, static_cast<Durin::uint64>(SlotIndex) + 1);
+			MaterialProperty->SetObjectPropertyValue(MaterialsProperty->GetMutableElementPtr(Component, SlotIndex), Material);
+		}, false);
+	};
+
+	const Durin::FReflectedPropertyEditTarget SlotTarget = MakeTarget(1);
+	ASSERT_EQ(SlotTarget.Path.size(), 2u);
+	EXPECT_EQ(SlotTarget.MemberProperty, MaterialsProperty);
+	EXPECT_EQ(SlotTarget.LeafProperty, MaterialProperty);
+	EXPECT_EQ(SlotTarget.Path[0].Selector, Durin::EPropertyPathSelector::ArrayIndex);
+	EXPECT_EQ(SlotTarget.Path[0].Index, 1u);
+
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyView View;
+	const Durin::FReflectedPropertyViewContext Context{.Transactions = &Transactions};
+	const FSceneSnapshot Before = CaptureScene(Harness.Scene);
+	ASSERT_TRUE(SubmitSlot(View, Context, 1, Replacement));
+	EXPECT_EQ(Component->GetMaterial(0), First);
+	EXPECT_EQ(Component->GetMaterial(1), Replacement);
+	EXPECT_TRUE(Transactions.CanUndo());
+	const FSceneSnapshot After = CaptureScene(Harness.Scene);
+	EXPECT_NE(Before.Proxy, After.Proxy);
+	ASSERT_NE(After.Proxy, nullptr);
+	ExpectColorNear(After.Proxy->GetMaterialRenderData(0).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ExpectColorNear(After.Proxy->GetMaterialRenderData(1).BaseColor, Durin::FVector4f(0.7f, 0.8f, 0.9f, 1.0f));
+
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Component->GetMaterial(0), First);
+	EXPECT_EQ(Component->GetMaterial(1), Second);
+	const FSceneSnapshot Undone = CaptureScene(Harness.Scene);
+	EXPECT_NE(After.Proxy, Undone.Proxy);
+	ASSERT_NE(Undone.Proxy, nullptr);
+	ExpectColorNear(Undone.Proxy->GetMaterialRenderData(1).BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Component->GetMaterial(1), Replacement);
+
+	Transactions.Clear();
+	ASSERT_TRUE(SubmitSlot(View, Context, 1, nullptr));
+	EXPECT_EQ(Component->GetMaterial(1), nullptr);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Component->GetMaterial(1), Replacement);
+	Transactions.Clear();
+	EXPECT_FALSE(SubmitSlot(View, Context, 1, Replacement));
+	EXPECT_FALSE(Transactions.CanUndo());
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Replacement);
+	Durin::MarkAsGarbage(Second);
+	Durin::MarkAsGarbage(First);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcrossUndoRedo)
 {
 	InitializeDObjectSystem();
