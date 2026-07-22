@@ -4,62 +4,89 @@ namespace Durin
 {
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
+		, ParameterDefinitions(MakeCanonicalMaterialParameterDefinitions())
 	{
-		VectorParameters.emplace(MaterialParameterBaseColor, FVector3(0.95, 0.62, 0.22));
-		TextureParameters.emplace(MaterialParameterBaseColorTexture, nullptr);
-		ScalarParameters.emplace(MaterialParameterOpacity, 1.0f);
-		ScalarParameters.emplace(MaterialParameterSpecularStrength, 0.35f);
-		ScalarParameters.emplace(MaterialParameterShininess, 32.0f);
 	}
 
-	auto DMaterial::SetScalarParameterValue(std::string_view Name, float Value) -> void
+	auto DMaterial::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
 	{
-		const std::string Key(Name);
-		if (const auto It = ScalarParameters.find(Key); It != ScalarParameters.end() && It->second == Value) return;
-		ScalarParameters[Key] = Value;
-		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		return ParameterDefinitions;
 	}
 
-	auto DMaterial::SetVectorParameterValue(std::string_view Name, const FVector3& Value) -> void
+	auto DMaterial::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
 	{
-		const std::string Key(Name);
-		if (const auto It = VectorParameters.find(Key); It != VectorParameters.end() && It->second == Value) return;
-		VectorParameters[Key] = Value;
-		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
-	}
-
-	auto DMaterial::SetTextureParameterValue(std::string_view Name, DTexture2D* Value) -> void
-	{
-		const std::string Key(Name);
-		if (const auto It = TextureParameters.find(Key); It != TextureParameters.end() && It->second.Get() == Value) return;
-		TextureParameters[Key] = Value;
-		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
-	}
-
-	auto DMaterial::GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool
-	{
-		const auto It = ScalarParameters.find(std::string(Name));
-		if (It == ScalarParameters.end()) return false;
-		OutValue = It->second;
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
+		if (!Definition) return false;
+		OutParameter.Definition = Definition;
+		OutParameter.Value = Definition->Value;
+		OutParameter.Source = const_cast<DMaterial*>(this);
+		OutParameter.bHasLocalOverride = false;
 		return true;
 	}
 
-	auto DMaterial::GetVectorParameterValue(std::string_view Name, FVector3& OutValue) const -> bool
+	auto DMaterial::SetScalarParameterValue(FName Name, float Value) -> bool
 	{
-		const auto It = VectorParameters.find(std::string(Name));
-		if (It == VectorParameters.end()) return false;
-		OutValue = It->second;
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Scalar) return false;
+		auto& Mutable = ParameterDefinitions[static_cast<size_t>(Definition - ParameterDefinitions.data())].Value.ScalarValue;
+		if (Mutable == Value) return true;
+		Mutable = Value;
+		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
 		return true;
 	}
 
-	auto DMaterial::GetTextureParameterValue(std::string_view Name, DTexture2D*& OutValue) const -> bool
+	auto DMaterial::SetVectorParameterValue(FName Name, const FVector3& Value) -> bool
 	{
-		const auto It = TextureParameters.find(std::string(Name));
-		if (It == TextureParameters.end()) return false;
-		OutValue = It->second.Get();
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector) return false;
+		auto& Mutable = ParameterDefinitions[static_cast<size_t>(Definition - ParameterDefinitions.data())].Value.VectorValue;
+		if (Mutable == Value) return true;
+		Mutable = Value;
+		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
 		return true;
+	}
+
+	auto DMaterial::SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
+		auto& Mutable = ParameterDefinitions[static_cast<size_t>(Definition - ParameterDefinitions.data())].Value.TextureValue;
+		if (Mutable.Get() == Value) return true;
+		Mutable = Value;
+		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		return true;
+	}
+
+	auto DMaterial::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Scalar) return false;
+		OutValue = Definition->Value.ScalarValue;
+		return true;
+	}
+
+	auto DMaterial::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector) return false;
+		OutValue = Definition->Value.VectorValue;
+		return true;
+	}
+
+	auto DMaterial::GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
+		OutValue = Definition->Value.TextureValue.Get();
+		return true;
+	}
+
+	auto DMaterial::PostLoad(std::string& OutError) -> bool
+	{
+		if (!Super::PostLoad(OutError)) return false;
+		return ValidateCanonicalMaterialParameterDefinitions(ParameterDefinitions, OutError);
 	}
 }

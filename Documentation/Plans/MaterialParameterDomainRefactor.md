@@ -4,12 +4,13 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stage 0 is complete: Core provides `FGuid`, and GUID values are supported by
-DHT, reflection, object snapshots, asset serialization, and the generic property
-editor with undo/redo. Material APIs and storage still use `std::string_view`
-and three reflected string-keyed maps. The Material Editor uses a private fixed
-descriptor table and specialized scalar, color, and texture paths bound directly
-to those maps. Stage 1 has not started.
+Stages 0 and 1 are complete. Runtime Engine owns the reflected parameter schema,
+five permanent GUID identities and canonical `FName` values, and deterministic
+built-in definitions. `DMaterial` stores the ordered definition collection and
+validates its identity, type, order, and metadata during `PostLoad`; public name
+APIs use `FName`. The Material Editor now consumes Runtime metadata, although
+instances still use the three legacy string-keyed override maps and their editor
+bindings. Stage 2 has not started.
 
 This plan is an independently executable slice of Stage 2 in
 `Documentation/Plans/MaterialSystem.md`. Check off each stage only after its
@@ -122,15 +123,15 @@ dependency propagation, and render-thread snapshots.
 
 ### Stage 1: Introduce the Runtime Parameter Schema
 
-- [ ] Move parameter type, presentation, defaults, labels, ranges, and ordering
+- [x] Move parameter type, presentation, defaults, labels, ranges, and ordering
   out of the Material Editor and into reflected Runtime Engine types.
-- [ ] Define permanent built-in GUID and `FName` constants and create the five
+- [x] Define permanent built-in GUID and `FName` constants and create the five
   canonical definitions in deterministic order.
-- [ ] Replace `DMaterial`'s three maps with its ordered definition collection.
-- [ ] Validate the complete canonical schema during `PostLoad`; reject missing,
+- [x] Replace `DMaterial`'s three maps with its ordered definition collection.
+- [x] Validate the complete canonical schema during `PostLoad`; reject missing,
   duplicate, renamed, retyped, reordered, or otherwise invalid definitions with
   a specific error.
-- [ ] Change material lookup and typed APIs to GUID/`FName` and update all
+- [x] Change material lookup and typed APIs to GUID/`FName` and update all
   in-repository call sites.
 
 #### Acceptance Gate

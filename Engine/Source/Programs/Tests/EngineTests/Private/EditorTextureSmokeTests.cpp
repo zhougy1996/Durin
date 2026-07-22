@@ -58,7 +58,7 @@ namespace Durin
 		ASSERT_TRUE(FAssetPath::TryCreate("/EditorTextureSmoke/Materials/Textured", MaterialPath));
 		DMaterial* Material = nullptr;
 		ASSERT_TRUE(Asset::CreateAsset(MaterialPath, Material));
-		Material->SetTextureParameterValue(MaterialParameterBaseColorTexture, TextureImport.Asset);
+		Material->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 
 		AStaticMeshActor* Actor = NewObject<AStaticMeshActor>(nullptr, "TextureSmokeMesh");
 		ASSERT_NE(Actor, nullptr);

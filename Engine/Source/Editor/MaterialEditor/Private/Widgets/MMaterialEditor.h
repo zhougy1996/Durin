@@ -12,7 +12,7 @@ namespace Durin
 	class DMaterial;
 	class DMaterialInstance;
 	class FMaterialPreview;
-	struct FMaterialParameterDescriptor;
+	struct FMaterialParameterDefinition;
 
 	class MMaterialEditor final : public IEditorWorkspace
 	{
@@ -38,10 +38,10 @@ namespace Durin
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;
 		auto DrawParentPicker(DMaterialInstance* Instance) -> void;
 		auto DrawMaterialParameters(DMaterialInterface* Material, DMaterialInstance* Instance) -> void;
-		auto DrawMaterialParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDescriptor& Descriptor) -> void;
-		auto DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDescriptor& Descriptor) -> void;
-		auto DrawColorParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDescriptor& Descriptor) -> void;
-		auto DrawTextureParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDescriptor& Descriptor) -> void;
+		auto DrawMaterialParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
+		auto DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
+		auto DrawColorParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
+		auto DrawTextureParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> void;
 		auto MakePropertyViewContext() -> FReflectedPropertyViewContext;
 		auto SetError(std::string Message) -> void;

@@ -19,9 +19,14 @@ namespace Durin
 	public:
 		explicit DMaterialInterface(const FObjectInitializer& ObjectInitializer);
 
-		virtual auto GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool;
-		virtual auto GetVectorParameterValue(std::string_view Name, FVector3& OutValue) const -> bool;
-		virtual auto GetTextureParameterValue(std::string_view Name, DTexture2D*& OutValue) const -> bool;
+		virtual auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>;
+		auto FindParameterDefinition(const FGuid& Id) const -> const FMaterialParameterDefinition*;
+		auto FindParameterDefinition(FName Name) const -> const FMaterialParameterDefinition*;
+		virtual auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool;
+
+		virtual auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool;
+		virtual auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool;
+		virtual auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool;
 		virtual auto GetParent() const -> DMaterialInterface*;
 
 		auto GetRenderData() const -> FMaterialRenderData;

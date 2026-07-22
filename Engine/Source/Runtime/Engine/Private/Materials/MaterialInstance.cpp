@@ -2,6 +2,14 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto CanonicalKey(const FMaterialParameterDefinition& Definition) -> std::string
+		{
+			return Definition.Name.ToString();
+		}
+	}
+
 	DMaterialInstance::DMaterialInstance(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -27,103 +35,172 @@ namespace Durin
 		return Parent.Get();
 	}
 
-	auto DMaterialInstance::SetScalarParameterValue(std::string_view Name, float Value) -> void
+	auto DMaterialInstance::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
 	{
-		const std::string Key(Name);
-		if (const auto It = ScalarParameterOverrides.find(Key); It != ScalarParameterOverrides.end() && It->second == Value) return;
+		return Parent != nullptr ? Parent->GetParameterDefinitions() : std::span<const FMaterialParameterDefinition>{};
+	}
+
+	auto DMaterialInstance::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
+		if (!Definition) return false;
+		const std::string Key = CanonicalKey(*Definition);
+		OutParameter.Definition = Definition;
+		OutParameter.Source = const_cast<DMaterialInstance*>(this);
+		OutParameter.bHasLocalOverride = true;
+		switch (Definition->Type)
+		{
+		case EMaterialParameterType::Scalar:
+			if (const auto It = ScalarParameterOverrides.find(Key); It != ScalarParameterOverrides.end())
+			{
+				OutParameter.Value = FMaterialParameterValue::MakeScalar(It->second);
+				return true;
+			}
+			break;
+		case EMaterialParameterType::Vector:
+			if (const auto It = VectorParameterOverrides.find(Key); It != VectorParameterOverrides.end())
+			{
+				OutParameter.Value = FMaterialParameterValue::MakeVector(It->second);
+				return true;
+			}
+			break;
+		case EMaterialParameterType::Texture:
+			if (const auto It = TextureParameterOverrides.find(Key); It != TextureParameterOverrides.end())
+			{
+				OutParameter.Value = FMaterialParameterValue::MakeTexture(It->second.Get());
+				return true;
+			}
+			break;
+		}
+		if (Parent == nullptr || !Parent->ResolveParameterValue(Id, OutParameter)) return false;
+		OutParameter.bHasLocalOverride = false;
+		return true;
+	}
+
+	auto DMaterialInstance::SetScalarParameterValue(FName Name, float Value) -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Scalar) return false;
+		const std::string Key = CanonicalKey(*Definition);
+		if (const auto It = ScalarParameterOverrides.find(Key); It != ScalarParameterOverrides.end() && It->second == Value) return true;
 		ScalarParameterOverrides[Key] = Value;
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		return true;
 	}
 
-	auto DMaterialInstance::SetVectorParameterValue(std::string_view Name, const FVector3& Value) -> void
+	auto DMaterialInstance::SetVectorParameterValue(FName Name, const FVector3& Value) -> bool
 	{
-		const std::string Key(Name);
-		if (const auto It = VectorParameterOverrides.find(Key); It != VectorParameterOverrides.end() && It->second == Value) return;
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector) return false;
+		const std::string Key = CanonicalKey(*Definition);
+		if (const auto It = VectorParameterOverrides.find(Key); It != VectorParameterOverrides.end() && It->second == Value) return true;
 		VectorParameterOverrides[Key] = Value;
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		return true;
 	}
 
-	auto DMaterialInstance::SetTextureParameterValue(std::string_view Name, DTexture2D* Value) -> void
+	auto DMaterialInstance::SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool
 	{
-		const std::string Key(Name);
-		if (const auto It = TextureParameterOverrides.find(Key); It != TextureParameterOverrides.end() && It->second.Get() == Value) return;
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
+		const std::string Key = CanonicalKey(*Definition);
+		if (const auto It = TextureParameterOverrides.find(Key); It != TextureParameterOverrides.end() && It->second.Get() == Value) return true;
 		TextureParameterOverrides[Key] = Value;
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		return true;
 	}
 
-	auto DMaterialInstance::ClearScalarParameterValue(std::string_view Name) -> bool
+	auto DMaterialInstance::ClearScalarParameterValue(FName Name) -> bool
 	{
-		if (ScalarParameterOverrides.erase(std::string(Name)) == 0) return false;
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Scalar
+			|| ScalarParameterOverrides.erase(CanonicalKey(*Definition)) == 0) return false;
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
 		return true;
 	}
 
-	auto DMaterialInstance::ClearVectorParameterValue(std::string_view Name) -> bool
+	auto DMaterialInstance::ClearVectorParameterValue(FName Name) -> bool
 	{
-		if (VectorParameterOverrides.erase(std::string(Name)) == 0) return false;
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector
+			|| VectorParameterOverrides.erase(CanonicalKey(*Definition)) == 0) return false;
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
 		return true;
 	}
 
-	auto DMaterialInstance::ClearTextureParameterValue(std::string_view Name) -> bool
+	auto DMaterialInstance::ClearTextureParameterValue(FName Name) -> bool
 	{
-		if (TextureParameterOverrides.erase(std::string(Name)) == 0) return false;
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Texture
+			|| TextureParameterOverrides.erase(CanonicalKey(*Definition)) == 0) return false;
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
 		return true;
 	}
 
-	auto DMaterialInstance::HasScalarParameterOverride(std::string_view Name) const -> bool
+	auto DMaterialInstance::HasScalarParameterOverride(FName Name) const -> bool
 	{
-		return ScalarParameterOverrides.contains(std::string(Name));
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		return Definition && Definition->Type == EMaterialParameterType::Scalar
+			&& ScalarParameterOverrides.contains(CanonicalKey(*Definition));
 	}
 
-	auto DMaterialInstance::HasVectorParameterOverride(std::string_view Name) const -> bool
+	auto DMaterialInstance::HasVectorParameterOverride(FName Name) const -> bool
 	{
-		return VectorParameterOverrides.contains(std::string(Name));
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		return Definition && Definition->Type == EMaterialParameterType::Vector
+			&& VectorParameterOverrides.contains(CanonicalKey(*Definition));
 	}
 
-	auto DMaterialInstance::HasTextureParameterOverride(std::string_view Name) const -> bool
+	auto DMaterialInstance::HasTextureParameterOverride(FName Name) const -> bool
 	{
-		return TextureParameterOverrides.contains(std::string(Name));
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		return Definition && Definition->Type == EMaterialParameterType::Texture
+			&& TextureParameterOverrides.contains(CanonicalKey(*Definition));
 	}
 
-	auto DMaterialInstance::GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool
+	auto DMaterialInstance::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
 	{
-		const auto It = ScalarParameterOverrides.find(std::string(Name));
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Scalar) return false;
+		const auto It = ScalarParameterOverrides.find(CanonicalKey(*Definition));
 		if (It != ScalarParameterOverrides.end())
 		{
 			OutValue = It->second;
 			return true;
 		}
-		return Parent != nullptr && Parent->GetScalarParameterValue(Name, OutValue);
+		return Parent != nullptr && Parent->GetScalarParameterValue(Definition->Name, OutValue);
 	}
 
-	auto DMaterialInstance::GetVectorParameterValue(std::string_view Name, FVector3& OutValue) const -> bool
+	auto DMaterialInstance::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
 	{
-		const auto It = VectorParameterOverrides.find(std::string(Name));
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector) return false;
+		const auto It = VectorParameterOverrides.find(CanonicalKey(*Definition));
 		if (It != VectorParameterOverrides.end())
 		{
 			OutValue = It->second;
 			return true;
 		}
-		return Parent != nullptr && Parent->GetVectorParameterValue(Name, OutValue);
+		return Parent != nullptr && Parent->GetVectorParameterValue(Definition->Name, OutValue);
 	}
 
-	auto DMaterialInstance::GetTextureParameterValue(std::string_view Name, DTexture2D*& OutValue) const -> bool
+	auto DMaterialInstance::GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool
 	{
-		const auto It = TextureParameterOverrides.find(std::string(Name));
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Texture) return false;
+		const auto It = TextureParameterOverrides.find(CanonicalKey(*Definition));
 		if (It != TextureParameterOverrides.end())
 		{
 			OutValue = It->second.Get();
 			return true;
 		}
-		return Parent != nullptr && Parent->GetTextureParameterValue(Name, OutValue);
+		return Parent != nullptr && Parent->GetTextureParameterValue(Definition->Name, OutValue);
 	}
 
 	auto DMaterialInstance::BeginDestroy() -> void

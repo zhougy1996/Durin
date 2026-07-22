@@ -9,7 +9,6 @@
 #include "Engine/Engine.h"
 #include "Editor/ReflectedPropertyEditing.h"
 #include "Editor/ReflectedPropertyView.h"
-#include "Editor/MaterialEditor/Private/MaterialParameterDescriptors.h"
 #include "DObject/Class.h"
 #include "LevelEditorContext.h"
 #include "Materials/Material.h"
@@ -167,36 +166,113 @@ namespace
 		});
 		return It == Objects.end() ? nullptr : *It;
 	}
+
+	auto MakeMaterialValueTarget(Durin::DMaterial* Material, const Durin::FGuid& Id, Durin::FName FieldName)
+		-> std::optional<Durin::FReflectedPropertyEditTarget>
+	{
+		Durin::FProperty* DefinitionsProperty = Material->GetClass()->FindPropertyByName("ParameterDefinitions");
+		if (!DefinitionsProperty || DefinitionsProperty->GetKind() != Durin::DurinCodeGen::EPropertyGenFlags::Array) return std::nullopt;
+		auto* Definitions = static_cast<Durin::FArrayProperty*>(DefinitionsProperty);
+		if (!Definitions->GetInner()
+			|| Definitions->GetInner()->GetKind() != Durin::DurinCodeGen::EPropertyGenFlags::Struct) return std::nullopt;
+		auto* DefinitionProperty = static_cast<Durin::FStructProperty*>(Definitions->GetInner());
+		Durin::FProperty* ValueProperty = DefinitionProperty->GetStruct()->FindPropertyByName("Value");
+		if (!ValueProperty || ValueProperty->GetKind() != Durin::DurinCodeGen::EPropertyGenFlags::Struct) return std::nullopt;
+		auto* ValueStructProperty = static_cast<Durin::FStructProperty*>(ValueProperty);
+		Durin::FProperty* Field = ValueStructProperty->GetStruct()->FindPropertyByName(FieldName);
+		if (!Field) return std::nullopt;
+		const std::span DefinitionsView = Material->GetParameterDefinitions();
+		const auto It = std::ranges::find(DefinitionsView, Id, &Durin::FMaterialParameterDefinition::Id);
+		if (It == DefinitionsView.end()) return std::nullopt;
+		const Durin::uint64 Index = static_cast<Durin::uint64>(It - DefinitionsView.begin());
+		void* Definition = Definitions->GetMutableElementPtr(Material, Index);
+		void* Value = ValueProperty->GetValuePtr(Definition);
+		return Durin::FReflectedPropertyEditTarget::ForMember(Material, Definitions)
+			.ForArrayElement(Definitions->GetInner(), Definition, Index)
+			.ForStructMember(ValueProperty, Definition)
+			.ForStructMember(Field, Value);
+	}
 }
 
-TEST(FMaterialTests, ParameterDescriptorsCoverSpecializedPresentationsAndStorageMaps)
+TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 {
-	ASSERT_EQ(Durin::MaterialParameterDescriptors.size(), 5u);
-	std::unordered_set<std::string_view> Names;
-	for (const Durin::FMaterialParameterDescriptor& Descriptor : Durin::MaterialParameterDescriptors)
+	InitializeDObjectSystem();
+	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "SchemaMaterial");
+	const std::span Definitions = Material->GetParameterDefinitions();
+	ASSERT_EQ(Definitions.size(), 5u);
+	const std::array ExpectedIds{
+		Durin::MaterialParameters::BaseColorId,
+		Durin::MaterialParameters::BaseColorTextureId,
+		Durin::MaterialParameters::OpacityId,
+		Durin::MaterialParameters::SpecularStrengthId,
+		Durin::MaterialParameters::ShininessId,
+	};
+	std::unordered_set<Durin::FGuid> Ids;
+	std::unordered_set<Durin::FName> Names;
+	for (size_t Index = 0; Index < Definitions.size(); ++Index)
 	{
-		EXPECT_TRUE(Names.insert(Descriptor.Name).second);
-		EXPECT_FALSE(Descriptor.Name.empty());
-		EXPECT_NE(Descriptor.Label, nullptr);
-		EXPECT_STRNE(Descriptor.Label, "");
-		switch (Descriptor.Presentation)
+		const Durin::FMaterialParameterDefinition& Definition = Definitions[Index];
+		EXPECT_EQ(Definition.Id, ExpectedIds[Index]);
+		EXPECT_TRUE(Ids.insert(Definition.Id).second);
+		EXPECT_TRUE(Names.insert(Definition.Name).second);
+		EXPECT_FALSE(Definition.Name.IsNone());
+		EXPECT_FALSE(Definition.DisplayName.empty());
+		EXPECT_EQ(Definition.SortOrder, static_cast<Durin::int32>(Index));
+		switch (Definition.Presentation)
 		{
 		case Durin::EMaterialParameterPresentation::Drag:
-			EXPECT_EQ(Descriptor.ValueType, Durin::EMaterialParameterValueType::Scalar);
-			EXPECT_LT(Descriptor.Minimum, Descriptor.Maximum);
+			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Scalar);
+			EXPECT_TRUE(Definition.bHasRange);
+			EXPECT_LT(Definition.MinimumValue, Definition.MaximumValue);
 			break;
 		case Durin::EMaterialParameterPresentation::Color:
-			EXPECT_EQ(Descriptor.ValueType, Durin::EMaterialParameterValueType::Vector);
+			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector);
 			break;
 		case Durin::EMaterialParameterPresentation::AssetPicker:
-			EXPECT_EQ(Descriptor.ValueType, Durin::EMaterialParameterValueType::Texture);
+			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Texture);
 			break;
+		case Durin::EMaterialParameterPresentation::Default: FAIL() << "Built-in parameters require an explicit presentation."; break;
 		}
-		EXPECT_STRNE(Durin::GetMaterialParameterMapName(Descriptor.ValueType, false), "");
-		EXPECT_STRNE(Durin::GetMaterialParameterMapName(Descriptor.ValueType, true), "");
 	}
-	EXPECT_TRUE(Names.contains(Durin::MaterialParameterBaseColor));
-	EXPECT_TRUE(Names.contains(Durin::MaterialParameterBaseColorTexture));
+	EXPECT_EQ(Material->FindParameterDefinition(Durin::MaterialParameters::OpacityId), &Definitions[2]);
+	EXPECT_EQ(Material->FindParameterDefinition(Durin::FName("oPaCiTy")), &Definitions[2]);
+	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::MaterialParameters::BaseColorName(), 0.5f));
+	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::FName("UnknownParameter"), 0.5f));
+	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, RuntimeSchemaValidationReportsSpecificCorruption)
+{
+	InitializeDObjectSystem();
+	std::vector Definitions = Durin::MakeCanonicalMaterialParameterDefinitions();
+	std::string Error;
+	EXPECT_TRUE(Durin::ValidateCanonicalMaterialParameterDefinitions(Definitions, Error));
+	EXPECT_TRUE(Error.empty());
+
+	Definitions[1].Id = Definitions[0].Id;
+	EXPECT_FALSE(Durin::ValidateCanonicalMaterialParameterDefinitions(Definitions, Error));
+	EXPECT_NE(Error.find("duplicate GUID"), std::string::npos);
+
+	Definitions = Durin::MakeCanonicalMaterialParameterDefinitions();
+	Definitions[2].Name = Durin::FName("RenamedOpacity");
+	EXPECT_FALSE(Durin::ValidateCanonicalMaterialParameterDefinitions(Definitions, Error));
+	EXPECT_NE(Error.find("canonical identity"), std::string::npos);
+
+	Definitions = Durin::MakeCanonicalMaterialParameterDefinitions();
+	std::swap(Definitions[0], Definitions[1]);
+	EXPECT_FALSE(Durin::ValidateCanonicalMaterialParameterDefinitions(Definitions, Error));
+	EXPECT_NE(Error.find("canonical identity"), std::string::npos);
+
+	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "CorruptedSchemaMaterial");
+	auto* Property = static_cast<Durin::FArrayProperty*>(Material->GetClass()->FindPropertyByName("ParameterDefinitions"));
+	ASSERT_NE(Property, nullptr);
+	auto* Opacity = static_cast<Durin::FMaterialParameterDefinition*>(Property->GetMutableElementPtr(Material, 2));
+	Opacity->Type = Durin::EMaterialParameterType::Vector;
+	EXPECT_FALSE(Material->PostLoad(Error));
+	EXPECT_NE(Error.find("canonical identity"), std::string::npos);
+	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
 }
 
 TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThread)
@@ -369,8 +445,8 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "TransactionalMaterial");
-	auto* Property = static_cast<Durin::FMapProperty*>(Material->GetClass()->FindPropertyByName("ScalarParameters"));
-	ASSERT_NE(Property, nullptr);
+	const auto Target = MakeMaterialValueTarget(Material, Durin::MaterialParameters::OpacityId, Durin::FName("ScalarValue"));
+	ASSERT_TRUE(Target.has_value());
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyView PropertyView;
 	std::string Error;
@@ -378,18 +454,14 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 		.Transactions = &Transactions,
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
-	const Durin::FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(
-		Material, Property, Durin::MaterialParameterOpacity);
-	ASSERT_TRUE(Binding.IsValid());
-	EXPECT_TRUE(Binding.IsPresent());
 	const Durin::uint64 BeforeVersion = Material->GetRenderStateVersion();
-	EXPECT_TRUE(PropertyView.SubmitBoundPropertyValueEdit(Context, Binding,
-		[](Durin::FProperty* ValueProperty, void* Container) {
-			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.6f;
+	EXPECT_TRUE(PropertyView.SubmitPropertyValueEdit(Context, *Target,
+		[](Durin::FProperty* ValueProperty, void* Container, Durin::uint32 ArrayIndex) {
+			*ValueProperty->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = 0.6f;
 		}, true));
-	EXPECT_TRUE(PropertyView.SubmitBoundPropertyValueEdit(Context, Binding,
-		[](Durin::FProperty* ValueProperty, void* Container) {
-			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.4f;
+	EXPECT_TRUE(PropertyView.SubmitPropertyValueEdit(Context, *Target,
+		[](Durin::FProperty* ValueProperty, void* Container, Durin::uint32 ArrayIndex) {
+			*ValueProperty->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = 0.4f;
 		}, true));
 	EXPECT_GT(Material->GetRenderStateVersion(), BeforeVersion);
 	PropertyView.FinishActiveEdit(&Context, false);
@@ -413,8 +485,8 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 	InitializeDObjectSystem();
 	Durin::DMaterialInstance* Owner = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PropertyViewOwner");
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "PropertyViewTarget");
-	auto* Property = static_cast<Durin::FMapProperty*>(Material->GetClass()->FindPropertyByName("ScalarParameters"));
-	ASSERT_NE(Property, nullptr);
+	const auto Target = MakeMaterialValueTarget(Material, Durin::MaterialParameters::OpacityId, Durin::FName("ScalarValue"));
+	ASSERT_TRUE(Target.has_value());
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyView PropertyView;
 	std::string Error;
@@ -422,13 +494,10 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 		.Transactions = &Transactions,
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
-	const Durin::FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(
-		Material, Property, Durin::MaterialParameterOpacity);
-
 	PropertyView.HandleOwnerContext(Context, Owner);
-	EXPECT_TRUE(PropertyView.SubmitBoundPropertyValueEdit(Context, Binding,
-		[](Durin::FProperty* ValueProperty, void* Container) {
-			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.5f;
+	EXPECT_TRUE(PropertyView.SubmitPropertyValueEdit(Context, *Target,
+		[](Durin::FProperty* ValueProperty, void* Container, Durin::uint32 ArrayIndex) {
+			*ValueProperty->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = 0.5f;
 		}, true));
 	EXPECT_TRUE(PropertyView.IsEditingObject(Material));
 	PropertyView.HandleOwnerContext(Context, Owner);
@@ -449,7 +518,10 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 
 TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInSharedHistory)
 {
+	InitializeDObjectSystem();
+	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "TransactionalOverrideBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "TransactionalOverrideInstance");
+	ASSERT_TRUE(Instance->SetParent(Base));
 	auto* Property = static_cast<Durin::FMapProperty*>(Instance->GetClass()->FindPropertyByName("ScalarParameterOverrides"));
 	ASSERT_NE(Property, nullptr);
 	Durin::FEditorTransactionManager Transactions;
@@ -478,45 +550,18 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInShare
 	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
 	Transactions.Clear();
 	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, ReflectedPropertyBindingReresolvesAfterMapRehash)
+TEST(FMaterialTests, UnknownAndMismatchedSettersDoNotInvalidateRenderState)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "StableBindingMaterial");
-	auto* Property = static_cast<Durin::FMapProperty*>(Material->GetClass()->FindPropertyByName("ScalarParameters"));
-	ASSERT_NE(Property, nullptr);
-	Durin::FReflectedPropertyView PropertyView;
-	const Durin::FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(
-		Material, Property, Durin::MaterialParameterOpacity);
-	ASSERT_TRUE(Binding.IsValid());
-
-	for (int Index = 0; Index < 128; ++Index)
-	{
-		Material->SetScalarParameterValue(std::format("Transient{}", Index), static_cast<float>(Index));
-	}
-	ASSERT_TRUE(Binding.IsPresent());
-
-	Durin::FEditorTransactionManager Transactions;
-	std::string Error;
-	Durin::FReflectedPropertyViewContext Context{
-		.Transactions = &Transactions,
-		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
-	};
-	EXPECT_TRUE(PropertyView.SubmitBoundPropertyValueEdit(Context, Binding,
-		[](Durin::FProperty* ValueProperty, void* Container) {
-			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.25f;
-		}, false));
-	EXPECT_TRUE(Error.empty());
-	float Value = 0.0f;
-	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameterOpacity, Value));
-	EXPECT_FLOAT_EQ(Value, 0.25f);
-	ASSERT_TRUE(Transactions.Undo());
-	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameterOpacity, Value));
-	EXPECT_FLOAT_EQ(Value, 1.0f);
-
-	Transactions.Clear();
+	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "RejectedSetterMaterial");
+	const Durin::uint64 Version = Material->GetRenderStateVersion();
+	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::FName("UnknownParameter"), 0.25f));
+	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::MaterialParameters::BaseColorName(), 0.25f));
+	EXPECT_EQ(Material->GetRenderStateVersion(), Version);
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
 }
@@ -697,7 +742,9 @@ TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
 TEST(FMaterialTests, InstanceOverrideStateTracksSetAndClear)
 {
 	InitializeDObjectSystem();
+	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "OverrideStateBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "OverrideStateInstance");
+	ASSERT_TRUE(Instance->SetParent(Base));
 	EXPECT_FALSE(Instance->HasScalarParameterOverride(Durin::MaterialParameterOpacity));
 	EXPECT_FALSE(Instance->HasVectorParameterOverride(Durin::MaterialParameterBaseColor));
 	EXPECT_FALSE(Instance->HasTextureParameterOverride(Durin::MaterialParameterBaseColorTexture));
@@ -717,6 +764,7 @@ TEST(FMaterialTests, InstanceOverrideStateTracksSetAndClear)
 	EXPECT_FALSE(Instance->HasTextureParameterOverride(Durin::MaterialParameterBaseColorTexture));
 
 	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
 }
 

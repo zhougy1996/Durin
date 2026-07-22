@@ -7,7 +7,6 @@
 #include "Editor/EditorAssetPicker.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorWorkspaceUI.h"
-#include "MaterialParameterDescriptors.h"
 #include "MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -27,6 +26,49 @@ namespace Durin
 				? static_cast<FMapProperty*>(Property) : nullptr;
 		}
 
+		constexpr auto GetMaterialParameterMapName(EMaterialParameterType Type) -> const char*
+		{
+			switch (Type)
+			{
+			case EMaterialParameterType::Scalar: return "ScalarParameterOverrides";
+			case EMaterialParameterType::Vector: return "VectorParameterOverrides";
+			case EMaterialParameterType::Texture: return "TextureParameterOverrides";
+			default: return "";
+			}
+		}
+
+		auto MakeMaterialValueEditTarget(
+			DMaterial* Material,
+			const FGuid& ParameterId,
+			FName ValueFieldName
+		) -> std::optional<FReflectedPropertyEditTarget>
+		{
+			if (!Material) return std::nullopt;
+			FProperty* DefinitionsProperty = Material->GetClass()->FindPropertyByName(FName("ParameterDefinitions"));
+			if (!DefinitionsProperty || DefinitionsProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Array) return std::nullopt;
+			auto* Definitions = static_cast<FArrayProperty*>(DefinitionsProperty);
+			FProperty* DefinitionElement = Definitions->GetInner();
+			if (!DefinitionElement || DefinitionElement->GetKind() != DurinCodeGen::EPropertyGenFlags::Struct) return std::nullopt;
+			auto* DefinitionStructProperty = static_cast<FStructProperty*>(DefinitionElement);
+			DStruct* DefinitionStruct = DefinitionStructProperty->GetStruct();
+			FProperty* ValueProperty = DefinitionStruct ? DefinitionStruct->FindPropertyByName(FName("Value")) : nullptr;
+			if (!ValueProperty || ValueProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Struct) return std::nullopt;
+			auto* ValueStructProperty = static_cast<FStructProperty*>(ValueProperty);
+			FProperty* ValueField = ValueStructProperty->GetStruct()
+				? ValueStructProperty->GetStruct()->FindPropertyByName(ValueFieldName) : nullptr;
+			if (!ValueField) return std::nullopt;
+
+			const std::span DefinitionsView = Material->GetParameterDefinitions();
+			const auto It = std::ranges::find(DefinitionsView, ParameterId, &FMaterialParameterDefinition::Id);
+			if (It == DefinitionsView.end()) return std::nullopt;
+			const uint64 Index = static_cast<uint64>(It - DefinitionsView.begin());
+			void* DefinitionContainer = Definitions->GetMutableElementPtr(Material, Index);
+			void* ValueContainer = ValueProperty->GetValuePtr(DefinitionContainer);
+			return FReflectedPropertyEditTarget::ForMember(Material, Definitions)
+				.ForArrayElement(DefinitionElement, DefinitionContainer, Index)
+				.ForStructMember(ValueProperty, DefinitionContainer)
+				.ForStructMember(ValueField, ValueContainer);
+		}
 	}
 
 	MMaterialEditor::MMaterialEditor(FEditorWorkspaceManager& InWorkspaceManager)
@@ -261,33 +303,45 @@ namespace Durin
 
 	auto MMaterialEditor::DrawMaterialParameters(DMaterialInterface* Material, DMaterialInstance* Instance) -> void
 	{
-		for (const FMaterialParameterDescriptor& Descriptor : MaterialParameterDescriptors)
+		for (const FMaterialParameterDefinition& Definition : Material->GetParameterDefinitions())
 		{
-			DrawMaterialParameter(Material, Instance, Descriptor);
+			DrawMaterialParameter(Material, Instance, Definition);
 		}
 	}
 
 	auto MMaterialEditor::DrawMaterialParameter(DMaterialInterface* Material, DMaterialInstance* Instance,
-		const FMaterialParameterDescriptor& Descriptor) -> void
+		const FMaterialParameterDefinition& Definition) -> void
 	{
-		switch (Descriptor.Presentation)
+		switch (Definition.Presentation)
 		{
-		case EMaterialParameterPresentation::Drag: DrawScalarParameter(Material, Instance, Descriptor); break;
-		case EMaterialParameterPresentation::Color: DrawColorParameter(Material, Instance, Descriptor); break;
-		case EMaterialParameterPresentation::AssetPicker: DrawTextureParameter(Material, Instance, Descriptor); break;
+		case EMaterialParameterPresentation::Drag: DrawScalarParameter(Material, Instance, Definition); break;
+		case EMaterialParameterPresentation::Color: DrawColorParameter(Material, Instance, Definition); break;
+		case EMaterialParameterPresentation::AssetPicker: DrawTextureParameter(Material, Instance, Definition); break;
+		case EMaterialParameterPresentation::Default:
+			switch (Definition.Type)
+			{
+			case EMaterialParameterType::Scalar: DrawScalarParameter(Material, Instance, Definition); break;
+			case EMaterialParameterType::Vector: DrawColorParameter(Material, Instance, Definition); break;
+			case EMaterialParameterType::Texture: DrawTextureParameter(Material, Instance, Definition); break;
+			}
+			break;
 		}
 	}
 
 	auto MMaterialEditor::DrawColorParameter(DMaterialInterface* Material, DMaterialInstance* Instance,
-		const FMaterialParameterDescriptor& Descriptor) -> void
+		const FMaterialParameterDefinition& Definition) -> void
 	{
-		FVector3 Value(Descriptor.DefaultValue[0], Descriptor.DefaultValue[1], Descriptor.DefaultValue[2]);
-		Material->GetVectorParameterValue(Descriptor.Name, Value);
-		auto* Property = FindParameterMap(Material, FName(GetMaterialParameterMapName(Descriptor.ValueType, Instance != nullptr)));
-		const FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(Material, Property, Descriptor.Name);
+		FVector3 Value = Definition.Value.VectorValue;
+		Material->GetVectorParameterValue(Definition.Name, Value);
+		auto* Property = Instance ? FindParameterMap(Material, FName(GetMaterialParameterMapName(Definition.Type))) : nullptr;
+		const std::string ParameterName = Definition.Name.ToString();
+		const FReflectedPropertyBinding Binding = Instance
+			? PropertyView.BindStringMapValue(Material, Property, ParameterName) : FReflectedPropertyBinding{};
+		const auto BaseTarget = Instance ? std::optional<FReflectedPropertyEditTarget>{}
+			: MakeMaterialValueEditTarget(Cast<DMaterial>(Material), Definition.Id, FName("VectorValue"));
 		bool bOverride = !Instance || Binding.IsPresent();
-		ImGui::PushID(Descriptor.Name.data(), Descriptor.Name.data() + Descriptor.Name.size());
-		MonaImGui::BeginPropertyRow(Descriptor.Label);
+		ImGui::PushID(ParameterName.c_str());
+		MonaImGui::BeginPropertyRow(Definition.DisplayName.c_str());
 		if (Instance)
 		{
 			if (ImGui::Checkbox("##Override", &bOverride))
@@ -308,12 +362,20 @@ namespace Durin
 		if (ImGui::ColorEdit3("##Value", Color, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB) && bOverride)
 		{
 			const FVector3 Edited(Color[0], Color[1], Color[2]);
-			if (!Binding.IsValid()) SetError(std::format("The reflected {} parameter is unavailable.", Descriptor.Label));
-			else
+			if (Instance && !Binding.IsValid()) SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
+			else if (!Instance && !BaseTarget) SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
+			else if (Instance)
 			{
 				PropertyView.SubmitBoundPropertyValueEdit(MakePropertyViewContext(), Binding,
 					[&](FProperty* ValueProperty, void* Container) {
 						*ValueProperty->ContainerPtrToValuePtr<FVector3>(Container) = Edited;
+					}, true);
+			}
+			else
+			{
+				PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(), *BaseTarget,
+					[&](FProperty* ValueProperty, void* Container, uint32 ArrayIndex) {
+						*ValueProperty->ContainerPtrToValuePtr<FVector3>(Container, ArrayIndex) = Edited;
 					}, true);
 			}
 		}
@@ -325,18 +387,22 @@ namespace Durin
 	}
 
 	auto MMaterialEditor::DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance,
-		const FMaterialParameterDescriptor& Descriptor) -> void
+		const FMaterialParameterDefinition& Definition) -> void
 	{
-		float Value = Descriptor.DefaultValue[0];
-		Material->GetScalarParameterValue(Descriptor.Name, Value);
-		auto* Property = FindParameterMap(Material, FName(GetMaterialParameterMapName(Descriptor.ValueType, Instance != nullptr)));
-		const FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(Material, Property, Descriptor.Name);
+		float Value = Definition.Value.ScalarValue;
+		Material->GetScalarParameterValue(Definition.Name, Value);
+		auto* Property = Instance ? FindParameterMap(Material, FName(GetMaterialParameterMapName(Definition.Type))) : nullptr;
+		const std::string ParameterName = Definition.Name.ToString();
+		const FReflectedPropertyBinding Binding = Instance
+			? PropertyView.BindStringMapValue(Material, Property, ParameterName) : FReflectedPropertyBinding{};
+		const auto BaseTarget = Instance ? std::optional<FReflectedPropertyEditTarget>{}
+			: MakeMaterialValueEditTarget(Cast<DMaterial>(Material), Definition.Id, FName("ScalarValue"));
 		bool bOverride = !Instance || Binding.IsPresent();
 		// The visible label belongs to the property-table column, while the actual controls use
 		// hidden labels. Scope the complete row by parameter name so base materials and instances
 		// both receive stable, distinct ImGui IDs.
-		ImGui::PushID(Descriptor.Name.data(), Descriptor.Name.data() + Descriptor.Name.size());
-		MonaImGui::BeginPropertyRow(Descriptor.Label);
+		ImGui::PushID(ParameterName.c_str());
+		MonaImGui::BeginPropertyRow(Definition.DisplayName.c_str());
 		if (Instance)
 		{
 			if (ImGui::Checkbox("##Override", &bOverride))
@@ -353,14 +419,25 @@ namespace Durin
 			if (!bOverride) ImGui::BeginDisabled();
 		}
 		ImGui::SetNextItemWidth(-FLT_MIN);
-		if (ImGui::DragFloat("##Value", &Value, 0.01f, Descriptor.Minimum, Descriptor.Maximum, "%.3f", ImGuiSliderFlags_AlwaysClamp) && bOverride)
+		const float Minimum = Definition.bHasRange ? Definition.MinimumValue : 0.0f;
+		const float Maximum = Definition.bHasRange ? Definition.MaximumValue : 0.0f;
+		const ImGuiSliderFlags Flags = Definition.bHasRange ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
+		if (ImGui::DragFloat("##Value", &Value, 0.01f, Minimum, Maximum, "%.3f", Flags) && bOverride)
 		{
-			if (!Binding.IsValid()) SetError(std::format("The reflected {} parameter is unavailable.", Descriptor.Label));
-			else
+			if (Instance && !Binding.IsValid()) SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
+			else if (!Instance && !BaseTarget) SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
+			else if (Instance)
 			{
 				PropertyView.SubmitBoundPropertyValueEdit(MakePropertyViewContext(), Binding,
 					[&](FProperty* ValueProperty, void* Container) {
 						*ValueProperty->ContainerPtrToValuePtr<float>(Container) = Value;
+					}, true);
+			}
+			else
+			{
+				PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(), *BaseTarget,
+					[&](FProperty* ValueProperty, void* Container, uint32 ArrayIndex) {
+						*ValueProperty->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = Value;
 					}, true);
 			}
 		}
@@ -375,15 +452,19 @@ namespace Durin
 	}
 
 	auto MMaterialEditor::DrawTextureParameter(DMaterialInterface* Material, DMaterialInstance* Instance,
-		const FMaterialParameterDescriptor& Descriptor) -> void
+		const FMaterialParameterDefinition& Definition) -> void
 	{
 		DTexture2D* Texture = nullptr;
-		Material->GetTextureParameterValue(Descriptor.Name, Texture);
-		auto* Property = FindParameterMap(Material, FName(GetMaterialParameterMapName(Descriptor.ValueType, Instance != nullptr)));
-		const FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(Material, Property, Descriptor.Name);
+		Material->GetTextureParameterValue(Definition.Name, Texture);
+		auto* Property = Instance ? FindParameterMap(Material, FName(GetMaterialParameterMapName(Definition.Type))) : nullptr;
+		const std::string ParameterName = Definition.Name.ToString();
+		const FReflectedPropertyBinding Binding = Instance
+			? PropertyView.BindStringMapValue(Material, Property, ParameterName) : FReflectedPropertyBinding{};
+		const auto BaseTarget = Instance ? std::optional<FReflectedPropertyEditTarget>{}
+			: MakeMaterialValueEditTarget(Cast<DMaterial>(Material), Definition.Id, FName("TextureValue"));
 		bool bOverride = !Instance || Binding.IsPresent();
-		ImGui::PushID(Descriptor.Name.data(), Descriptor.Name.data() + Descriptor.Name.size());
-		MonaImGui::BeginPropertyRow(Descriptor.Label);
+		ImGui::PushID(ParameterName.c_str());
+		MonaImGui::BeginPropertyRow(Definition.DisplayName.c_str());
 		if (Instance)
 		{
 			if (ImGui::Checkbox("##Override", &bOverride))
@@ -408,22 +489,27 @@ namespace Durin
 			.CurrentSelection = Texture,
 			.SearchText = TextureSearchText,
 			.bAllowNone = true,
-			.AssignSelection = [this, Binding, Label = std::string(Descriptor.Label)](DObject* Selection, std::string& OutError) {
+			.AssignSelection = [this, Binding, BaseTarget, Label = Definition.DisplayName](DObject* Selection, std::string& OutError) {
 				DTexture2D* Selected = Cast<DTexture2D>(Selection);
 				if (Selection && !Selected)
 				{
 					OutError = "The selected asset is not a texture.";
 					return false;
 				}
-				if (!Binding.IsValid())
+				if (!Binding.IsValid() && !BaseTarget)
 				{
 					OutError = std::format("The reflected {} parameter is unavailable.", Label);
 					return false;
 				}
-				const bool bAssigned = PropertyView.SubmitBoundPropertyValueEdit(MakePropertyViewContext(), Binding,
-					[&](FProperty* ValueProperty, void* Container) {
-						static_cast<FObjectProperty*>(ValueProperty)->SetObjectPropertyValue(Container, Selected);
-					}, false);
+				const bool bAssigned = Binding.IsValid()
+					? PropertyView.SubmitBoundPropertyValueEdit(MakePropertyViewContext(), Binding,
+						[&](FProperty* ValueProperty, void* Container) {
+							static_cast<FObjectProperty*>(ValueProperty)->SetObjectPropertyValue(Container, Selected);
+						}, false)
+					: PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(), *BaseTarget,
+						[&](FProperty* ValueProperty, void* Container, uint32 ArrayIndex) {
+							static_cast<FObjectProperty*>(ValueProperty)->SetObjectPropertyValue(Container, Selected, ArrayIndex);
+						}, false);
 				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected texture parameter.";
 				return bAssigned;
 			},

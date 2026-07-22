@@ -13,17 +13,41 @@ namespace Durin
 	{
 	}
 
-	auto DMaterialInterface::GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool
+	auto DMaterialInterface::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
+	{
+		return {};
+	}
+
+	auto DMaterialInterface::FindParameterDefinition(const FGuid& Id) const -> const FMaterialParameterDefinition*
+	{
+		const std::span Definitions = GetParameterDefinitions();
+		const auto It = std::ranges::find(Definitions, Id, &FMaterialParameterDefinition::Id);
+		return It == Definitions.end() ? nullptr : &*It;
+	}
+
+	auto DMaterialInterface::FindParameterDefinition(FName Name) const -> const FMaterialParameterDefinition*
+	{
+		const std::span Definitions = GetParameterDefinitions();
+		const auto It = std::ranges::find(Definitions, Name, &FMaterialParameterDefinition::Name);
+		return It == Definitions.end() ? nullptr : &*It;
+	}
+
+	auto DMaterialInterface::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
 	{
 		return false;
 	}
 
-	auto DMaterialInterface::GetVectorParameterValue(std::string_view Name, FVector3& OutValue) const -> bool
+	auto DMaterialInterface::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
 	{
 		return false;
 	}
 
-	auto DMaterialInterface::GetTextureParameterValue(std::string_view Name, DTexture2D*& OutValue) const -> bool
+	auto DMaterialInterface::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
+	{
+		return false;
+	}
+
+	auto DMaterialInterface::GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool
 	{
 		return false;
 	}
@@ -37,7 +61,7 @@ namespace Durin
 	{
 		FMaterialRenderData Result;
 		FVector3 BaseColor;
-		if (GetVectorParameterValue(MaterialParameterBaseColor, BaseColor))
+		if (GetVectorParameterValue(MaterialParameters::BaseColorName(), BaseColor))
 		{
 			Result.BaseColor.r = static_cast<float>(std::clamp(BaseColor.x, 0.0, 1.0));
 			Result.BaseColor.g = static_cast<float>(std::clamp(BaseColor.y, 0.0, 1.0));
@@ -45,24 +69,24 @@ namespace Durin
 		}
 
 		DTexture2D* BaseColorTexture = nullptr;
-		if (GetTextureParameterValue(MaterialParameterBaseColorTexture, BaseColorTexture) && BaseColorTexture != nullptr)
+		if (GetTextureParameterValue(MaterialParameters::BaseColorTextureName(), BaseColorTexture) && BaseColorTexture != nullptr)
 		{
 			Result.BaseColorTexture = BaseColorTexture->GetRenderResource();
 		}
 
 		float Opacity = Result.BaseColor.a;
-		if (GetScalarParameterValue(MaterialParameterOpacity, Opacity))
+		if (GetScalarParameterValue(MaterialParameters::OpacityName(), Opacity))
 		{
 			Result.BaseColor.a = std::clamp(Opacity, 0.0f, 1.0f);
 		}
 
 		float SpecularStrength = Result.SpecularStrength;
-		if (GetScalarParameterValue(MaterialParameterSpecularStrength, SpecularStrength))
+		if (GetScalarParameterValue(MaterialParameters::SpecularStrengthName(), SpecularStrength))
 		{
 			Result.SpecularStrength = std::clamp(SpecularStrength, 0.0f, 1.0f);
 		}
 		float Shininess = Result.Shininess;
-		if (GetScalarParameterValue(MaterialParameterShininess, Shininess))
+		if (GetScalarParameterValue(MaterialParameters::ShininessName(), Shininess))
 		{
 			Result.Shininess = std::clamp(Shininess, 1.0f, 256.0f);
 		}
@@ -74,7 +98,7 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
-		if (Name == FName("ScalarParameters") || Name == FName("VectorParameters") || Name == FName("TextureParameters")
+		if (Name == FName("ParameterDefinitions")
 			|| Name == FName("ScalarParameterOverrides") || Name == FName("VectorParameterOverrides") || Name == FName("TextureParameterOverrides"))
 		{
 			// Reflected editor transactions restore map storage directly. Route every

@@ -16,18 +16,20 @@ namespace Durin
 
 		auto SetParent(DMaterialInterface* InParent) -> bool;
 		auto GetParent() const -> DMaterialInterface* override;
-		auto SetScalarParameterValue(std::string_view Name, float Value) -> void;
-		auto SetVectorParameterValue(std::string_view Name, const FVector3& Value) -> void;
-		auto SetTextureParameterValue(std::string_view Name, DTexture2D* Value) -> void;
-		auto ClearScalarParameterValue(std::string_view Name) -> bool;
-		auto ClearVectorParameterValue(std::string_view Name) -> bool;
-		auto ClearTextureParameterValue(std::string_view Name) -> bool;
-		auto HasScalarParameterOverride(std::string_view Name) const -> bool;
-		auto HasVectorParameterOverride(std::string_view Name) const -> bool;
-		auto HasTextureParameterOverride(std::string_view Name) const -> bool;
-		auto GetScalarParameterValue(std::string_view Name, float& OutValue) const -> bool override;
-		auto GetVectorParameterValue(std::string_view Name, FVector3& OutValue) const -> bool override;
-		auto GetTextureParameterValue(std::string_view Name, DTexture2D*& OutValue) const -> bool override;
+		auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
+		auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
+		auto SetScalarParameterValue(FName Name, float Value) -> bool;
+		auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
+		auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool;
+		auto ClearScalarParameterValue(FName Name) -> bool;
+		auto ClearVectorParameterValue(FName Name) -> bool;
+		auto ClearTextureParameterValue(FName Name) -> bool;
+		auto HasScalarParameterOverride(FName Name) const -> bool;
+		auto HasVectorParameterOverride(FName Name) const -> bool;
+		auto HasTextureParameterOverride(FName Name) const -> bool;
+		auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
+		auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
+		auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		auto BeginDestroy() -> void override;
 		auto PostLoad(std::string& OutError) -> bool override;
 
