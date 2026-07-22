@@ -25,11 +25,15 @@ add_durin_test(EngineTests
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/ObjectPropertyEditorCustomizations.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelEditorContext.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelViewportSessionSettings.cpp
+	# Compile the preview implementation directly so its private GC lifetime contract can be exercised.
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialPreview.cpp
 )
 
 target_include_directories(EngineTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
 	${CMAKE_SOURCE_DIR}/Engine/Source
 )
 

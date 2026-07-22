@@ -1,4 +1,5 @@
 #include "AssetSystem.h"
+#include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -15,10 +16,12 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
 #include "RenderingThread.h"
+#include "RendererModule.h"
 #include "Scene.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Texture/Texture2D.h"
+#include "Widgets/MaterialPreview.h"
 
 #include <gtest/gtest.h>
 
@@ -52,6 +55,7 @@ namespace
 		}
 
 		auto ResetTestScene() -> void { MainScene.reset(); }
+		auto SetTestRendererModule(Durin::IRendererModule* InRendererModule) -> void { RendererModule = InRendererModule; }
 	};
 
 	auto WaitForRenderingThread() -> void
@@ -125,12 +129,43 @@ namespace
 		bool bActive = true;
 	};
 
+	class FMaterialPreviewHarness
+	{
+	public:
+		FMaterialPreviewHarness()
+		{
+			InitializeDObjectSystem();
+			Durin::InitRenderingThread();
+			Engine.SetTestRendererModule(&RendererModule);
+			Durin::GEngine = &Engine;
+		}
+
+		~FMaterialPreviewHarness()
+		{
+			Durin::GEngine = nullptr;
+			WaitForRenderingThread();
+			Durin::ShutdownRenderingThread();
+		}
+
+		FMaterialTestEngine Engine;
+		Durin::FRendererModule RendererModule;
+	};
+
 	auto ExpectColorNear(const Durin::FVector4f& Actual, const Durin::FVector4f& Expected) -> void
 	{
 		EXPECT_NEAR(Actual.r, Expected.r, 1.e-6f);
 		EXPECT_NEAR(Actual.g, Expected.g, 1.e-6f);
 		EXPECT_NEAR(Actual.b, Expected.b, 1.e-6f);
 		EXPECT_NEAR(Actual.a, Expected.a, 1.e-6f);
+	}
+
+	auto FindObjectByName(std::string_view Name) -> Durin::DObject*
+	{
+		const auto& Objects = Durin::GDObjectArray.GetAll();
+		const auto It = std::ranges::find_if(Objects, [Name](const Durin::DObject* Object) {
+			return Object && Object->GetName() == Name;
+		});
+		return It == Objects.end() ? nullptr : *It;
 	}
 }
 
@@ -848,6 +883,39 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesLoadAsTransientGeometry)
 		Durin::MarkAsGarbage(Mesh);
 	}
 	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, MaterialPreviewResourcesRemainAliveAcrossGarbageCollection)
+{
+	FMaterialPreviewHarness Harness;
+
+	constexpr Durin::uint64 PreviewId = 987654321;
+	const std::string SphereName = std::format("MaterialPreviewSphere_{}", PreviewId);
+	const std::string BoxName = std::format("MaterialPreviewBox_{}", PreviewId);
+	const std::string LightName = std::format("MaterialPreviewLight_{}", PreviewId);
+	{
+		Durin::FMaterialPreview Preview(PreviewId);
+		ASSERT_NE(FindObjectByName(SphereName), nullptr);
+		ASSERT_NE(FindObjectByName(BoxName), nullptr);
+		ASSERT_NE(FindObjectByName(LightName), nullptr);
+
+		Durin::CollectGarbage();
+		auto* Sphere = Durin::Cast<Durin::DStaticMesh>(FindObjectByName(SphereName));
+		auto* Box = Durin::Cast<Durin::DStaticMesh>(FindObjectByName(BoxName));
+		auto* Light = Durin::Cast<Durin::DDirectionalLightComponent>(FindObjectByName(LightName));
+		ASSERT_NE(Sphere, nullptr);
+		ASSERT_NE(Box, nullptr);
+		ASSERT_NE(Light, nullptr);
+		ASSERT_NE(Sphere->GetRenderData(), nullptr);
+		ASSERT_NE(Box->GetRenderData(), nullptr);
+		EXPECT_FALSE(Sphere->GetRenderData()->LODResources.empty());
+		EXPECT_FALSE(Box->GetRenderData()->LODResources.empty());
+	}
+
+	Durin::CollectGarbage();
+	EXPECT_EQ(FindObjectByName(SphereName), nullptr);
+	EXPECT_EQ(FindObjectByName(BoxName), nullptr);
+	EXPECT_EQ(FindObjectByName(LightName), nullptr);
 }
 
 TEST(FMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlots)

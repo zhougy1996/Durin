@@ -3,6 +3,7 @@
 #include "Client/ViewportClient.h"
 #include "Components/DirectionalLightComponent.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Engine/Engine.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "IRendererModule.h"
@@ -109,11 +110,15 @@ namespace Durin
 			Sphere = DStaticMesh::CreateTransientFromFile(
 				ContentRoot + "Sphere.obj", GEngine, std::format("MaterialPreviewSphere_{}", PreviewId), Error);
 			if (Sphere == nullptr) return;
+			// FImpl is not reflected, so its TObjectPtr members are not GC ownership edges.
+			AddToRoot(Sphere.Get());
 			Box = DStaticMesh::CreateTransientFromFile(
 				ContentRoot + "Box.obj", GEngine, std::format("MaterialPreviewBox_{}", PreviewId), Error);
 			if (Box == nullptr) return;
+			AddToRoot(Box.Get());
 
 			PreviewLight = NewObject<DDirectionalLightComponent>(GEngine, std::format("MaterialPreviewLight_{}", PreviewId));
+			AddToRoot(PreviewLight.Get());
 			// Aim the key light from just above the camera so color and specular edits remain readable on every shape.
 			PreviewLight->SetWorldRotation(RotationFromForward(FVector3(-2.6, 2.6, -2.4)));
 			PreviewScene->AddDirectionalLight(PreviewLight);
@@ -138,6 +143,9 @@ namespace Durin
 				if (GRenderingThread) FlushRenderingCommands();
 				PreviewScene.reset();
 			}
+			RemoveFromRoot(PreviewLight.Get());
+			RemoveFromRoot(Box.Get());
+			RemoveFromRoot(Sphere.Get());
 		}
 
 		auto SetVisible(bool bInVisible) -> void
