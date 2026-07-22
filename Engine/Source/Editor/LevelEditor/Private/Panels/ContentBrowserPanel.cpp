@@ -562,11 +562,6 @@ namespace Durin
 		// the clicked item appears before or after the active rename editor in ImGui's submission order.
 		if (!RenameTarget.empty() && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bRenameEditorHovered)
 			RenameTarget.clear();
-		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bContentItemHovered)
-		{
-			Selection.clear();
-			SelectionAnchor.clear();
-		}
 		if (Items.empty())
 		{
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 24.0f);
@@ -1031,7 +1026,13 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawBackgroundContextMenu() -> void
 	{
-		if (!bContentItemHovered && !bRenameEditorHovered && ImGui::IsWindowHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+		const bool bBackgroundHovered = !bContentItemHovered && !bRenameEditorHovered && ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+		if (bBackgroundHovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
+		{
+			Selection.clear();
+			SelectionAnchor.clear();
+		}
+		if (bBackgroundHovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
 			ImGui::OpenPopup("ContentBrowserBackground");
 		if (ImGui::BeginPopup("ContentBrowserBackground"))
 		{
