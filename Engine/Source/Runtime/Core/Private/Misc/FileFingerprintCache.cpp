@@ -76,6 +76,7 @@ namespace Durin
 		{
 			std::lock_guard Lock(Mutex);
 			Entries.insert_or_assign(NormalizedPath, NewEntry);
+			++ContentReadCount;
 		}
 
 		OutFingerprint.NormalizedPath = NormalizedPath;
@@ -85,9 +86,67 @@ namespace Durin
 		return true;
 	}
 
+	auto FFileFingerprintCache::TryReuse(const FFileFingerprint& StoredFingerprint, bool& bOutCurrent, std::string& OutErrorMessage) -> bool
+	{
+		bOutCurrent = false;
+		const std::string NormalizedPath = NormalizePath(std::filesystem::path(StoredFingerprint.NormalizedPath));
+		if (NormalizedPath != StoredFingerprint.NormalizedPath)
+		{
+			return true;
+		}
+
+		std::error_code ErrorCode;
+		if (!std::filesystem::exists(NormalizedPath, ErrorCode))
+		{
+			if (ErrorCode)
+			{
+				OutErrorMessage = std::format("Failed to stat file {}: {}", NormalizedPath, ErrorCode.message());
+				return false;
+			}
+			return true;
+		}
+
+		const std::filesystem::file_time_type LastWriteTime = std::filesystem::last_write_time(NormalizedPath, ErrorCode);
+		if (ErrorCode)
+		{
+			OutErrorMessage = std::format("Failed to query file timestamp {}: {}", NormalizedPath, ErrorCode.message());
+			return false;
+		}
+
+		const uint64 FileSize = std::filesystem::file_size(NormalizedPath, ErrorCode);
+		if (ErrorCode)
+		{
+			OutErrorMessage = std::format("Failed to query file size {}: {}", NormalizedPath, ErrorCode.message());
+			return false;
+		}
+
+		if (LastWriteTime != StoredFingerprint.LastWriteTime || FileSize != StoredFingerprint.FileSize)
+		{
+			return true;
+		}
+
+		{
+			std::lock_guard Lock(Mutex);
+			Entries.insert_or_assign(NormalizedPath, FEntry{
+				.LastWriteTime = StoredFingerprint.LastWriteTime,
+				.FileSize = StoredFingerprint.FileSize,
+				.ContentHash = StoredFingerprint.ContentHash
+			});
+		}
+		bOutCurrent = true;
+		return true;
+	}
+
+	auto FFileFingerprintCache::GetContentReadCount() const -> uint64
+	{
+		std::lock_guard Lock(Mutex);
+		return ContentReadCount;
+	}
+
 	auto FFileFingerprintCache::Clear() -> void
 	{
 		std::lock_guard Lock(Mutex);
 		Entries.clear();
+		ContentReadCount = 0;
 	}
 } // namespace Durin

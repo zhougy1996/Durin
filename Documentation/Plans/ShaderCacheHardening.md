@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Implementation in progress. Baseline `RenderCoreTests` passed 26 tests on 2026-07-23. Phase 1 is complete and Phase 2 is active. Phase 1 validation passed all 32 `RenderCoreTests` after adding six cache integrity and identity cases.
+Implementation in progress. Baseline `RenderCoreTests` passed 26 tests on 2026-07-23. Phases 1 and 2 are complete and Phase 3 is active. Phase 1 passed 32 tests; Phase 2 passed all 38 `RenderCoreTests`, including warm restart, conditional macro dependency, and eight-way concurrent request coverage.
 
 ## Goal
 
@@ -58,12 +58,12 @@ The existing compile service already separates path resolution, dependency disco
 
 ### Phase 2: Warm-Path Manifests and Request Coalescing
 
-- [ ] Replace the single source signature gate with macro-specific dependency manifests.
-- [ ] Reuse persisted fingerprints on unchanged size and modification time without reading file contents.
-- [ ] Resolve and persist a fresh dependency graph whenever a manifest is absent or stale.
-- [ ] Coalesce identical in-process compile-service requests.
-- [ ] Load one Slang module per compile request and derive all entry-point programs from it.
-- [ ] Add warm-hit, transitive invalidation, alternating macro graph, and concurrent request tests.
+- [x] Replace the single source signature gate with macro-specific dependency manifests.
+- [x] Reuse persisted fingerprints on unchanged size and modification time without reading file contents.
+- [x] Resolve and persist a fresh dependency graph whenever a manifest is absent or stale.
+- [x] Coalesce identical in-process compile-service requests.
+- [x] Load one Slang module per compile request and derive all entry-point programs from it.
+- [x] Add warm-hit, transitive invalidation, alternating macro graph, and concurrent request tests.
 
 #### Acceptance Gate
 

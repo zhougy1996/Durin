@@ -27,7 +27,7 @@ namespace Durin::FShaderPaths
 
 	RENDERCORE_API auto ShaderDirectory(std::string_view VirtualShaderPath) -> std::string;
 
-	RENDERCORE_API auto MetaPath(std::string_view VirtualShaderPath) -> std::string;
+	RENDERCORE_API auto MetaPath(std::string_view VirtualShaderPath, std::string_view DependencyKey) -> std::string;
 
 	RENDERCORE_API auto BinaryPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, EShaderFrequency Frequency, std::string_view CacheKey) -> std::string;
 

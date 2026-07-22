@@ -254,11 +254,10 @@ namespace Durin::FShaderPaths
 		return MakeDirectoryString(ResolveShaderDirectoryPath(VirtualShaderPath) / std::string(CacheKey));
 	}
 
-	auto MetaPath(std::string_view VirtualShaderPath) -> std::string
+	auto MetaPath(std::string_view VirtualShaderPath, std::string_view DependencyKey) -> std::string
 	{
 		const std::filesystem::path ShaderDirectoryPath = ResolveShaderDirectoryPath(VirtualShaderPath);
-		const std::string MetaFileName = ShaderDirectoryPath.filename().generic_string() + ".dmeta";
-		return (ShaderDirectoryPath / MetaFileName).generic_string();
+		return (ShaderDirectoryPath / "Manifests" / (std::string(DependencyKey) + ".json")).generic_string();
 	}
 
 	auto BinaryPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, EShaderFrequency Frequency, std::string_view CacheKey) -> std::string

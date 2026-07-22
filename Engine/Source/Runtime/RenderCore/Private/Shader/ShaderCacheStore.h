@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Hash/XxHash.h"
+#include "Misc/FileFingerprintCache.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
@@ -9,6 +10,14 @@ namespace Durin
 	struct FShaderMetaData
 	{
 		FXxHash128 SourceTreeSignature{};
+		std::vector<FFileFingerprint> Dependencies;
+	};
+
+	// Addresses the dependency manifest before the current source-tree signature is known.
+	struct FShaderDependencyKey
+	{
+		FXxHash128 Value{};
+		std::string Hex;
 	};
 
 	// Identifies a specific compiled variant (source tree + macros).
@@ -29,11 +38,11 @@ namespace Durin
 		FShaderCacheStore(const FShaderCacheStore&) = delete;
 		auto operator=(const FShaderCacheStore&) -> FShaderCacheStore& = delete;
 
-		// Load the .slang.meta file for a virtual shader path. Returns false on any IO / parse / schema error.
-		auto LoadMetaData(std::string_view VirtualShaderPath, FShaderMetaData& OutMetaData) -> bool;
+		// Load the macro-specific dependency manifest. Returns false on any IO / parse / schema error.
+		auto LoadMetaData(std::string_view VirtualShaderPath, const FShaderDependencyKey& DependencyKey, FShaderMetaData& OutMetaData) -> bool;
 
-		// Write the .slang.meta file.
-		auto SaveMetaData(std::string_view VirtualShaderPath, const FShaderMetaData& MetaData) -> bool;
+		// Atomically write the macro-specific dependency manifest.
+		auto SaveMetaData(std::string_view VirtualShaderPath, const FShaderDependencyKey& DependencyKey, const FShaderMetaData& MetaData) -> bool;
 
 		// Try to load pre-compiled .spv artifacts from the variant directory.
 		auto TryLoad(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, FShaderCompilerOutput& OutOutput) -> bool;

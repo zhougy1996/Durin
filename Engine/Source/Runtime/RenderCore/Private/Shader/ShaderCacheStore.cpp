@@ -332,16 +332,18 @@ namespace Durin
 			return true;
 		}
 
-		// Parser constants must match the JSON document serialization schema.
-		constexpr uint32 GShaderMetaVersion = 4;
+		// Parser constants must match the dependency-manifest serialization schema.
+		constexpr uint32 GShaderMetaVersion = 5;
+		constexpr size_t GMaximumShaderDependencies = 4096;
+		constexpr size_t GMaximumDependencyPathLength = 32768;
 	}
 
 	FShaderCacheStore::FShaderCacheStore() = default;
 	FShaderCacheStore::~FShaderCacheStore() = default;
 
-	auto FShaderCacheStore::LoadMetaData(std::string_view VirtualShaderPath, FShaderMetaData& OutMetaData) -> bool
+	auto FShaderCacheStore::LoadMetaData(std::string_view VirtualShaderPath, const FShaderDependencyKey& DependencyKey, FShaderMetaData& OutMetaData) -> bool
 	{
-		const std::string MetaPath = FShaderPaths::MetaPath(VirtualShaderPath);
+		const std::string MetaPath = FShaderPaths::MetaPath(VirtualShaderPath, DependencyKey.Hex);
 		if (!FFileHelper::FileExists(MetaPath))
 		{
 			return false;
@@ -369,17 +371,66 @@ namespace Durin
 		}
 		OutMetaData.SourceTreeSignature = FXxHash128::FromString(SourceTreeSignature);
 
+		const FJsonNodeView Dependencies = Root.GetView("Dependencies");
+		if (!Dependencies.IsArray() || Dependencies.Num() == 0 || Dependencies.Num() > GMaximumShaderDependencies)
+		{
+			return false;
+		}
+
+		OutMetaData.Dependencies.reserve(Dependencies.Num());
+		for (size_t Index = 0; Index < Dependencies.Num(); ++Index)
+		{
+			const FJsonNodeView DependencyNode = Dependencies.GetView(Index);
+			const FJsonNodeView PathNode = DependencyNode.GetView("Path");
+			const FJsonNodeView LastWriteTimeNode = DependencyNode.GetView("LastWriteTime");
+			const FJsonNodeView FileSizeNode = DependencyNode.GetView("FileSize");
+			const FJsonNodeView ContentHashNode = DependencyNode.GetView("ContentHash");
+			if (!DependencyNode.IsObject() || !PathNode.IsString() || !LastWriteTimeNode.IsInt()
+				|| !FileSizeNode.IsUInt() || !ContentHashNode.IsString())
+			{
+				return false;
+			}
+
+			FFileFingerprint Fingerprint;
+			Fingerprint.NormalizedPath = PathNode.GetString();
+			const std::string ContentHash = ContentHashNode.GetString();
+			if (Fingerprint.NormalizedPath.empty() || Fingerprint.NormalizedPath.size() > GMaximumDependencyPathLength
+				|| !StringUtils::IsHex(ContentHash, 16))
+			{
+				return false;
+			}
+			using FFileTimeRep = std::filesystem::file_time_type::duration::rep;
+			Fingerprint.LastWriteTime = std::filesystem::file_time_type(
+				std::filesystem::file_time_type::duration(static_cast<FFileTimeRep>(LastWriteTimeNode.GetInt())));
+			Fingerprint.FileSize = FileSizeNode.GetUInt();
+			Fingerprint.ContentHash = FXxHash64::FromString(ContentHash);
+			OutMetaData.Dependencies.push_back(std::move(Fingerprint));
+		}
+
 		return true;
 	}
 
-	auto FShaderCacheStore::SaveMetaData(std::string_view VirtualShaderPath, const FShaderMetaData& MetaData) -> bool
+	auto FShaderCacheStore::SaveMetaData(std::string_view VirtualShaderPath, const FShaderDependencyKey& DependencyKey, const FShaderMetaData& MetaData) -> bool
 	{
+		if (MetaData.Dependencies.empty() || MetaData.Dependencies.size() > GMaximumShaderDependencies)
+		{
+			return false;
+		}
 		FJsonDocument Document;
 		FJsonNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureObject();
 		Root.SetChildValue("Version", GShaderMetaVersion);
 		Root.SetChildValue("SourceTreeSignature", MetaData.SourceTreeSignature.ToString());
-		return SaveJsonAtomically(Document, FShaderPaths::MetaPath(VirtualShaderPath));
+		FJsonNodeRef Dependencies = Root.AddArray("Dependencies");
+		for (const FFileFingerprint& Fingerprint : MetaData.Dependencies)
+		{
+			FJsonNodeRef DependencyNode = Dependencies.AppendObject();
+			DependencyNode.SetChildValue("Path", Fingerprint.NormalizedPath);
+			DependencyNode.SetChildValue("LastWriteTime", static_cast<int64>(Fingerprint.LastWriteTime.time_since_epoch().count()));
+			DependencyNode.SetChildValue("FileSize", Fingerprint.FileSize);
+			DependencyNode.SetChildValue("ContentHash", Fingerprint.ContentHash.ToString());
+		}
+		return SaveJsonAtomically(Document, FShaderPaths::MetaPath(VirtualShaderPath, DependencyKey.Hex));
 	}
 
 	auto FShaderCacheStore::TryLoad(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, FShaderCompilerOutput& OutOutput) -> bool

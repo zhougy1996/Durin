@@ -3,11 +3,14 @@ include(GoogleTest)
 add_durin_test(RenderCoreTests
 	Private/ShaderFoundationTests.cpp
 	Private/ShaderCacheStoreTests.cpp
+	Private/ShaderCompileServiceTests.cpp
 	Private/ShaderReflectionTests.cpp
 	Private/RenderTargetLayoutTests.cpp
 	../../../Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
 	../../../Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
 	../../../Runtime/RenderCore/Private/Shader/ShaderCacheStore.cpp
+	../../../Runtime/RenderCore/Private/Shader/ShaderCompileService.cpp
+	../../../Runtime/RenderCore/Private/Shader/SlangShaderDependencyResolver.cpp
 )
 
 target_include_directories(RenderCoreTests PRIVATE

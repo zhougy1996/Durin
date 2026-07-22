@@ -894,7 +894,7 @@ namespace Durin
 
 	TEST(FShaderFoundationTests, UnmountedShaderCacheFallsBackUnderEngineDirectory)
 	{
-		const std::string MetaPath = FShaderPaths::MetaPath("/Unit/TestShader");
+		const std::string MetaPath = FShaderPaths::MetaPath("/Unit/TestShader", "00112233445566778899aabbccddeeff");
 		EXPECT_TRUE(MetaPath.starts_with(FPaths::EngineDir() + "ShaderCache/SPIR-V/"));
 	}
 

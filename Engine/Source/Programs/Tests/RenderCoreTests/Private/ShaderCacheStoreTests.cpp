@@ -11,6 +11,8 @@
 
 #include "gtest/gtest.h"
 
+#include <fstream>
+
 namespace Durin
 {
 	namespace
@@ -175,5 +177,92 @@ namespace Durin
 		ShaderCompileUtilities::BuildVariantKey("/ShaderCacheTests/Test", MetaData, Macros, "slang-build-a", First);
 		ShaderCompileUtilities::BuildVariantKey("/ShaderCacheTests/Test", MetaData, Macros, "slang-build-b", Second);
 		EXPECT_NE(First.Value, Second.Value);
+	}
+
+	TEST_F(FShaderCacheStoreTests, DependencyManifestWarmValidationAvoidsContentReads)
+	{
+		const std::filesystem::path DependencyPath = GetTestCacheRoot() / "DependencySources" / "Common.slang";
+		std::filesystem::create_directories(DependencyPath.parent_path());
+		{
+			std::ofstream Stream(DependencyPath, std::ios::binary | std::ios::trunc);
+			Stream << "static const float Value = 1.0;\n";
+		}
+
+		FFileFingerprintCache ColdFingerprints;
+		FShaderMetaData Expected;
+		std::string ErrorMessage;
+		ASSERT_TRUE(ShaderCompileUtilities::BuildShaderMetaData(
+			{DependencyPath.generic_string()}, ColdFingerprints, Expected, ErrorMessage)) << ErrorMessage;
+		EXPECT_EQ(ColdFingerprints.GetContentReadCount(), 1u);
+
+		FShaderDependencyKey DependencyKey;
+		ShaderCompileUtilities::BuildDependencyKey("/ShaderCacheTests/Manifest", {}, "test-compiler", DependencyKey);
+		FShaderCacheStore Store;
+		ASSERT_TRUE(Store.SaveMetaData("/ShaderCacheTests/Manifest", DependencyKey, Expected));
+
+		FShaderMetaData Loaded;
+		ASSERT_TRUE(Store.LoadMetaData("/ShaderCacheTests/Manifest", DependencyKey, Loaded));
+		FFileFingerprintCache WarmFingerprints;
+		bool bCurrent = false;
+		ASSERT_TRUE(ShaderCompileUtilities::TryReuseMetaData(Loaded, WarmFingerprints, bCurrent, ErrorMessage)) << ErrorMessage;
+		EXPECT_TRUE(bCurrent);
+		EXPECT_EQ(WarmFingerprints.GetContentReadCount(), 0u);
+	}
+
+	TEST_F(FShaderCacheStoreTests, DependencyManifestInvalidatesWhenDependencyChanges)
+	{
+		const std::filesystem::path DependencyPath = GetTestCacheRoot() / "DependencySources" / "Changed.slang";
+		std::filesystem::create_directories(DependencyPath.parent_path());
+		{
+			std::ofstream Stream(DependencyPath, std::ios::binary | std::ios::trunc);
+			Stream << "before\n";
+		}
+
+		FFileFingerprintCache ColdFingerprints;
+		FShaderMetaData MetaData;
+		std::string ErrorMessage;
+		ASSERT_TRUE(ShaderCompileUtilities::BuildShaderMetaData(
+			{DependencyPath.generic_string()}, ColdFingerprints, MetaData, ErrorMessage)) << ErrorMessage;
+		{
+			std::ofstream Stream(DependencyPath, std::ios::binary | std::ios::trunc);
+			Stream << "after with a different size\n";
+		}
+
+		FFileFingerprintCache WarmFingerprints;
+		bool bCurrent = true;
+		ASSERT_TRUE(ShaderCompileUtilities::TryReuseMetaData(MetaData, WarmFingerprints, bCurrent, ErrorMessage)) << ErrorMessage;
+		EXPECT_FALSE(bCurrent);
+	}
+
+	TEST_F(FShaderCacheStoreTests, MacroSpecificDependencyManifestsDoNotDisplaceEachOther)
+	{
+		const std::filesystem::path DependencyPath = GetTestCacheRoot() / "DependencySources" / "Variant.slang";
+		std::filesystem::create_directories(DependencyPath.parent_path());
+		{
+			std::ofstream Stream(DependencyPath, std::ios::binary | std::ios::trunc);
+			Stream << "variant\n";
+		}
+
+		FFileFingerprintCache Fingerprints;
+		FShaderMetaData MetaData;
+		std::string ErrorMessage;
+		ASSERT_TRUE(ShaderCompileUtilities::BuildShaderMetaData(
+			{DependencyPath.generic_string()}, Fingerprints, MetaData, ErrorMessage)) << ErrorMessage;
+
+		FShaderDependencyKey FirstKey;
+		FShaderDependencyKey SecondKey;
+		ShaderCompileUtilities::BuildDependencyKey(
+			"/ShaderCacheTests/MacroManifest", {FShaderMacroDefinition("USE_A")}, "test-compiler", FirstKey);
+		ShaderCompileUtilities::BuildDependencyKey(
+			"/ShaderCacheTests/MacroManifest", {FShaderMacroDefinition("USE_B")}, "test-compiler", SecondKey);
+		ASSERT_NE(FirstKey.Value, SecondKey.Value);
+
+		FShaderCacheStore Store;
+		ASSERT_TRUE(Store.SaveMetaData("/ShaderCacheTests/MacroManifest", FirstKey, MetaData));
+		ASSERT_TRUE(Store.SaveMetaData("/ShaderCacheTests/MacroManifest", SecondKey, MetaData));
+		FShaderMetaData FirstLoaded;
+		FShaderMetaData SecondLoaded;
+		EXPECT_TRUE(Store.LoadMetaData("/ShaderCacheTests/MacroManifest", FirstKey, FirstLoaded));
+		EXPECT_TRUE(Store.LoadMetaData("/ShaderCacheTests/MacroManifest", SecondKey, SecondLoaded));
 	}
 } // namespace Durin

@@ -9,6 +9,7 @@ namespace Durin::ShaderCompileUtilities
 	{
 		constexpr std::string_view GShaderSourceTreeSignatureVersion = "DurinShaderSourceTreeSignature_v2";
 		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v5";
+		constexpr std::string_view GShaderDependencyKeyVersion = "DurinShaderDependencyKey_v1";
 		constexpr std::string_view GSlangBackendName = "slang";
 		constexpr std::string_view GSlangTargetFormat = "SPIR-V";
 		constexpr std::string_view GSlangTargetProfile = "spirv_1_5";
@@ -71,6 +72,7 @@ namespace Durin::ShaderCompileUtilities
 			UpdateHashStringField(TreeSignatureBuilder, Fingerprint.NormalizedPath);
 			TreeSignatureBuilder.UpdateValue(Fingerprint.FileSize);
 			TreeSignatureBuilder.UpdateValue(Fingerprint.ContentHash);
+			OutMetaData.Dependencies.push_back(std::move(Fingerprint));
 		}
 
 		OutMetaData.SourceTreeSignature = TreeSignatureBuilder.Finalize();
@@ -110,8 +112,71 @@ namespace Durin::ShaderCompileUtilities
 		OutVariantKey.Hex = OutVariantKey.Value.ToString();
 	}
 
-	auto IsMetaDataCurrent(const FShaderMetaData& CurrentMetaData, const FShaderMetaData& CachedMetaData) -> bool
+	auto BuildDependencyKey(
+		std::string_view VirtualShaderPath,
+		const std::vector<FShaderMacroDefinition>& Macros,
+		std::string_view CompilerEnvironment,
+		FShaderDependencyKey& OutDependencyKey
+	) -> void
 	{
-		return CurrentMetaData.SourceTreeSignature == CachedMetaData.SourceTreeSignature;
+		FXxHash128Builder Builder;
+		UpdateHashStringField(Builder, GShaderDependencyKeyVersion);
+		UpdateHashStringField(Builder, VirtualShaderPath);
+		UpdateHashStringField(Builder, CompilerEnvironment);
+		Builder.UpdateValue(static_cast<uint64>(Macros.size()));
+		for (const FShaderMacroDefinition& Macro : Macros)
+		{
+			UpdateHashStringField(Builder, Macro.Name);
+			Builder.UpdateValue(Macro.HasValue());
+			if (Macro.Value)
+			{
+				UpdateHashStringField(Builder, *Macro.Value);
+			}
+		}
+		OutDependencyKey.Value = Builder.Finalize();
+		OutDependencyKey.Hex = OutDependencyKey.Value.ToString();
+	}
+
+	auto TryReuseMetaData(
+		const FShaderMetaData& CachedMetaData,
+		FFileFingerprintCache& FileFingerprintCache,
+		bool& bOutCurrent,
+		std::string& OutErrorMessage
+	) -> bool
+	{
+		bOutCurrent = false;
+		if (CachedMetaData.SourceTreeSignature.IsZero() || CachedMetaData.Dependencies.empty())
+		{
+			return true;
+		}
+
+		for (const FFileFingerprint& Fingerprint : CachedMetaData.Dependencies)
+		{
+			bool bFingerprintCurrent = false;
+			if (!FileFingerprintCache.TryReuse(Fingerprint, bFingerprintCurrent, OutErrorMessage))
+			{
+				return false;
+			}
+			if (!bFingerprintCurrent)
+			{
+				return true;
+			}
+		}
+
+		FXxHash128Builder SignatureBuilder;
+		UpdateHashStringField(SignatureBuilder, GShaderSourceTreeSignatureVersion);
+		for (const FFileFingerprint& Fingerprint : CachedMetaData.Dependencies)
+		{
+			UpdateHashStringField(SignatureBuilder, Fingerprint.NormalizedPath);
+			SignatureBuilder.UpdateValue(Fingerprint.FileSize);
+			SignatureBuilder.UpdateValue(Fingerprint.ContentHash);
+		}
+		if (SignatureBuilder.Finalize() != CachedMetaData.SourceTreeSignature)
+		{
+			return true;
+		}
+
+		bOutCurrent = true;
+		return true;
 	}
 } // namespace Durin::ShaderCompileUtilities

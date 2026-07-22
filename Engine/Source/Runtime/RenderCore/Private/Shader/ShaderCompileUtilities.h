@@ -26,6 +26,18 @@ namespace Durin
 			FShaderVariantKey& OutVariantKey
 		) -> void;
 
-		auto IsMetaDataCurrent(const FShaderMetaData& CurrentMetaData, const FShaderMetaData& CachedMetaData) -> bool;
+		auto BuildDependencyKey(
+			std::string_view VirtualShaderPath,
+			const std::vector<FShaderMacroDefinition>& Macros,
+			std::string_view CompilerEnvironment,
+			FShaderDependencyKey& OutDependencyKey
+		) -> void;
+
+		auto TryReuseMetaData(
+			const FShaderMetaData& CachedMetaData,
+			FFileFingerprintCache& FileFingerprintCache,
+			bool& bOutCurrent,
+			std::string& OutErrorMessage
+		) -> bool;
 	} // namespace ShaderCompileUtilities
 } // namespace Durin

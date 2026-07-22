@@ -529,26 +529,25 @@ namespace Durin
 
 	auto FSlangShaderCompiler::CompileInternal(
 		slang::ISession* InSession,
-		const char8* InShaderFilePath,
+		slang::IModule* InModule,
 		const std::span<const char8* const>& InEntryPoints,
 		Slang::ComPtr<slang::IComponentType>& OutComposedProgram,
 		Slang::ComPtr<slang::IBlob>& OutDiagnostics
 	) const -> Slang::Result
 	{
-		slang::IModule* Module = InSession->loadModule(InShaderFilePath, OutDiagnostics.writeRef());
-		if (!Module)
+		if (!InSession || !InModule)
 		{
 			return SLANG_FAIL;
 		}
 
 		std::vector<slang::IComponentType*> ComponentTypes;
-		ComponentTypes.push_back(Module);
+		ComponentTypes.push_back(InModule);
 
 		std::vector<Slang::ComPtr<slang::IEntryPoint>> EntryPointObjects;
 		for (const char8* Name : InEntryPoints)
 		{
 			Slang::ComPtr<slang::IEntryPoint> EntryPoint;
-			SLANG_RETURN_ON_FAIL(Module->findEntryPointByName(Name, EntryPoint.writeRef()));
+			SLANG_RETURN_ON_FAIL(InModule->findEntryPointByName(Name, EntryPoint.writeRef()));
 			EntryPointObjects.push_back(EntryPoint);
 			ComponentTypes.push_back(EntryPoint.get());
 		}
@@ -669,6 +668,16 @@ namespace Durin
 			return Output;
 		}
 
+		Slang::ComPtr<slang::IBlob> ModuleDiagnostics;
+		slang::IModule* Module = CompileSession->loadModule(SourceFilePath.data(), ModuleDiagnostics.writeRef());
+		if (!Module)
+		{
+			Output.ErrorMessage = ModuleDiagnostics
+				? std::string{"Failed to load shader module. Diagnostics: \n"} + static_cast<const char*>(ModuleDiagnostics->getBufferPointer())
+				: "Failed to load shader module";
+			return Output;
+		}
+
 		Output.CompiledShaders.resize(EntryPointCount);
 		for (uint32 Index = 0; Index < EntryPointCount; ++Index)
 		{
@@ -676,7 +685,7 @@ namespace Durin
 
 			Slang::ComPtr<slang::IBlob> DiagnosticsBlob;
 			Slang::ComPtr<slang::IComponentType> ComposedProgram;
-			const Slang::Result CompileResult = CompileInternal(CompileSession.get(), SourceFilePath.data(), SingleEntryPoint, ComposedProgram, DiagnosticsBlob);
+			const Slang::Result CompileResult = CompileInternal(CompileSession.get(), Module, SingleEntryPoint, ComposedProgram, DiagnosticsBlob);
 			if (SLANG_FAILED(CompileResult) && !ComposedProgram)
 			{
 				if (DiagnosticsBlob != nullptr)

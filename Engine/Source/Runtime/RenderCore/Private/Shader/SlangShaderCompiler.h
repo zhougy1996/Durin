@@ -21,7 +21,7 @@ namespace Durin
 
 		auto CompileInternal(
 			slang::ISession* InSession,
-			const char8* InShaderFilePath,
+			slang::IModule* InModule,
 			const std::span<const char8* const>& InEntryPoints,
 			Slang::ComPtr<slang::IComponentType>& OutComposedProgram,
 			Slang::ComPtr<slang::IBlob>& OutDiagnostics

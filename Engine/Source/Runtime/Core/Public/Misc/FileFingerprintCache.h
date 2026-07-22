@@ -21,6 +21,9 @@ namespace Durin
 		CORE_API ~FFileFingerprintCache();
 
 		CORE_API auto TryGet(std::string_view FilePath, FFileFingerprint& OutFingerprint, std::string& OutErrorMessage) -> bool;
+		// Reuses a persisted content hash when size and modification time still match.
+		CORE_API auto TryReuse(const FFileFingerprint& StoredFingerprint, bool& bOutCurrent, std::string& OutErrorMessage) -> bool;
+		CORE_API auto GetContentReadCount() const -> uint64;
 		CORE_API auto Clear() -> void;
 
 		DURIN_NONCOPYABLE(FFileFingerprintCache);
@@ -35,7 +38,8 @@ namespace Durin
 
 		auto NormalizePath(const std::filesystem::path& InPath) const -> std::string;
 
-		std::mutex Mutex;
+		mutable std::mutex Mutex;
 		std::unordered_map<std::string, FEntry> Entries;
+		uint64 ContentReadCount = 0;
 	};
 } // namespace Durin
