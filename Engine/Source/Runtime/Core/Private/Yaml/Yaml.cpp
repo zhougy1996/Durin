@@ -191,7 +191,10 @@ namespace Durin
 				return;
 			}
 
-			Node.clear();
+			const bool bHasKey = Node.has_key();
+			Node.clear_children();
+			Node.clear_val();
+			Node.set_type(bHasKey ? ryml::KEYVAL : ryml::VAL);
 			Node << InValue;
 		}
 
@@ -207,7 +210,9 @@ namespace Durin
 			ryml::NodeRef ChildNode = ParentNode[ToCSubstr(InKey)];
 			if (ChildNode.readable())
 			{
-				ChildNode.clear();
+				ChildNode.clear_children();
+				ChildNode.clear_val();
+				ChildNode.set_type(ryml::KEYVAL);
 			}
 			ChildNode << InValue;
 		}
@@ -607,7 +612,9 @@ namespace Durin
 			ryml::NodeRef ChildNode = Node[ToCSubstr(InKey)];
 			if (ChildNode.readable())
 			{
-				ChildNode.clear();
+				ChildNode.clear_children();
+				ChildNode.clear_val();
+				ChildNode.set_type(ryml::KEYVAL);
 			}
 			ChildNode << ToCSubstr(InValue);
 		}

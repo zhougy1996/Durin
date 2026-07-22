@@ -162,6 +162,33 @@ features:
 		std::filesystem::remove(OutputPath, ErrorCode);
 	}
 
+	TEST(FYamlDocumentTests, ModifyParsedScalarsAndRoundTrip)
+	{
+		Durin::FYamlDocument Document;
+		Durin::FYamlParseError Error;
+		ASSERT_TRUE(Document.Parse(R"(Editor:
+  DefaultLevel: /Game/Levels/TestLevel
+  Enabled: false
+)", &Error));
+
+		Durin::FYamlNodeRef Editor = Document.GetMutableRoot().GetRef("Editor");
+		ASSERT_TRUE(Editor.IsMap());
+		Editor.SetChildValue("DefaultLevel", "/Game/Levels/NewLevel");
+		Editor.SetChildValue("Enabled", true);
+
+		const std::filesystem::path OutputPath = MakeYamlTestPath("YamlModifiedRoundTrip.yaml");
+		ASSERT_TRUE(Document.SaveToFile(OutputPath.string()));
+
+		Durin::FYamlDocument ReloadedDocument;
+		ASSERT_TRUE(ReloadedDocument.LoadFromFile(OutputPath.string(), &Error));
+		const Durin::FYamlNodeView ReloadedEditor = ReloadedDocument.GetRootView().GetView("Editor");
+		EXPECT_EQ(ReloadedEditor.GetView("DefaultLevel").GetString(), "/Game/Levels/NewLevel");
+		EXPECT_TRUE(ReloadedEditor.GetView("Enabled").GetBool());
+
+		std::error_code ErrorCode;
+		std::filesystem::remove(OutputPath, ErrorCode);
+	}
+
 	TEST(FYamlDocumentTests, InvalidYamlReportsLocation)
 	{
 		Durin::FYamlDocument Document;
