@@ -139,3 +139,7 @@ If two requested entry points sanitize to the same file name, binary cache load/
 - Virtual shader paths are cache identities owned by callers of `GetOrCompileShader()`.
 - Physical source paths are consumed only by the private compile and dependency-resolution steps.
 - The current schema intentionally does not support old metadata compatibility or migration.
+
+## Open Issues
+
+Known integrity, invalidation, warm-load, resource-retention, and persistence gaps are tracked in [Shader Loading and Cache Issues](../Issues/ShaderLoadingAndCache.md).

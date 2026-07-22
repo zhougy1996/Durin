@@ -21,6 +21,7 @@ Update this index whenever a plan document is added, renamed, or deleted.
 ## Boundaries Between Plans and Other Documentation
 
 - `Documentation/Reference` records research, external examples, and candidate approaches; it does not represent a selected direction.
+- `Documentation/Issues` records verified, unresolved problems and supporting evidence before an implementation path has been selected or completed.
 - `Documentation/Architecture` records adopted architectural constraints that require long-term maintenance.
 - `Documentation/Plans` records executable paths and acceptance gates from the current state to a target state.
 
