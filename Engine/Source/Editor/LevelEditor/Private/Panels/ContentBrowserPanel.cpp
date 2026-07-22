@@ -1027,13 +1027,27 @@ namespace Durin
 	auto FContentBrowserPanel::DrawBackgroundContextMenu() -> void
 	{
 		const bool bBackgroundHovered = !bContentItemHovered && !bRenameEditorHovered && ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
-		if (bBackgroundHovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
+		if (bBackgroundHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
 			Selection.clear();
 			SelectionAnchor.clear();
 		}
-		if (bBackgroundHovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
-			ImGui::OpenPopup("ContentBrowserBackground");
+		if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+		{
+			// Lock the click origin before an item popup can obscure its item and make the
+			// release frame look like a background interaction.
+			bBackgroundContextPending = bBackgroundHovered;
+			if (bBackgroundContextPending)
+			{
+				Selection.clear();
+				SelectionAnchor.clear();
+			}
+		}
+		if (ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+		{
+			if (bBackgroundContextPending) ImGui::OpenPopup("ContentBrowserBackground");
+			bBackgroundContextPending = false;
+		}
 		if (ImGui::BeginPopup("ContentBrowserBackground"))
 		{
 			if (ImGui::BeginMenu("Create"))

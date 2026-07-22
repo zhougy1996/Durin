@@ -144,6 +144,7 @@ namespace Durin
 		bool bShowSelectionDetails = false;
 		bool bIconSizeLocked = false;
 		bool bContentItemHovered = false;
+		bool bBackgroundContextPending = false;
 		float IconSize;
 		float DirectoryTreeWidth;
 		std::string RenameTarget;
