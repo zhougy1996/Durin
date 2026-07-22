@@ -23,9 +23,7 @@ namespace Durin
 	{
 		constexpr FPrimitiveSceneId PreviewPrimitiveId = 1;
 		constexpr double RotationTolerance = 1.0e-8;
-		constexpr float PreviewOrbitSensitivity = 0.25f;
-		constexpr double PreviewMinPitch = -85.0;
-		constexpr double PreviewMaxPitch = 85.0;
+		constexpr float PreviewRotationSensitivity = 0.25f;
 		constexpr double PreviewMinDistance = 1.5;
 		constexpr double PreviewMaxDistance = 12.0;
 		constexpr double PreviewZoomScale = 0.85;
@@ -50,13 +48,6 @@ namespace Durin
 		{
 		public:
 			auto SetEnabled(bool bInEnabled) -> void { bEnabled = bInEnabled; }
-			auto Orbit(const FVector2f& MouseDelta) -> void
-			{
-				Yaw += static_cast<double>(MouseDelta.x * PreviewOrbitSensitivity);
-				Pitch = std::clamp(
-					Pitch - static_cast<double>(MouseDelta.y * PreviewOrbitSensitivity),
-					PreviewMinPitch, PreviewMaxPitch);
-			}
 
 			auto Zoom(float MouseWheel) -> void
 			{
@@ -72,13 +63,8 @@ namespace Durin
 				constexpr float FieldOfViewDegrees = 42.0f;
 				constexpr float NearClip = 0.1f;
 				constexpr float FarClip = 100.0f;
-				const double PitchRadians = glm::radians(Pitch);
-				const double YawRadians = glm::radians(Yaw);
-				const FVector3 Forward = glm::normalize(FVector3(
-					std::cos(PitchRadians) * std::cos(YawRadians),
-					std::cos(PitchRadians) * std::sin(YawRadians),
-					std::sin(PitchRadians)));
-				const FVector3 Eye = -Forward * Distance;
+				const FVector3 Eye = glm::normalize(FVector3(2.6, -2.6, 1.8)) * Distance;
+				const FVector3 Forward = glm::normalize(-Eye);
 				const FVector3 Right = glm::normalize(glm::cross(FVectorConstants::Up, Forward));
 				const FVector3 Up = glm::normalize(glm::cross(Forward, Right));
 
@@ -115,8 +101,6 @@ namespace Durin
 			}
 
 		private:
-			double Yaw = 135.0;
-			double Pitch = -26.0;
 			double Distance = 4.1;
 			bool bEnabled = false;
 		};
@@ -228,16 +212,29 @@ namespace Durin
 		{
 			if (!ViewportWidget->WasTextureDrawn())
 			{
-				bOrbiting = false;
+				bRotating = false;
 				return;
 			}
 
 			const bool bHovered = ImGui::IsItemHovered();
-			if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) bOrbiting = true;
-			if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) bOrbiting = false;
+			if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) bRotating = true;
+			if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) bRotating = false;
 
 			const ImGuiIO& IO = ImGui::GetIO();
-			if (bOrbiting) ViewportClient->Orbit({IO.MouseDelta.x, IO.MouseDelta.y});
+			if (bRotating && (IO.MouseDelta.x != 0.0f || IO.MouseDelta.y != 0.0f))
+			{
+				const FVector3 CameraForward = glm::normalize(FVector3(-2.6, 2.6, -1.8));
+				const FVector3 CameraRight = glm::normalize(glm::cross(FVectorConstants::Up, CameraForward));
+				const FQuat Yaw = glm::angleAxis(
+					glm::radians(-static_cast<double>(IO.MouseDelta.x * PreviewRotationSensitivity)),
+					FVectorConstants::Up);
+				const FQuat Pitch = glm::angleAxis(
+					glm::radians(-static_cast<double>(IO.MouseDelta.y * PreviewRotationSensitivity)),
+					CameraRight);
+				PreviewRotation = glm::normalize(Yaw * Pitch * PreviewRotation);
+				if (PreviewScene != nullptr && CurrentMaterial != nullptr)
+					PreviewScene->UpdatePrimitiveTransform(PreviewPrimitiveId, glm::mat4_cast(PreviewRotation));
+			}
 			if (bHovered && IO.MouseWheel != 0.0f) ViewportClient->Zoom(IO.MouseWheel);
 		}
 
@@ -277,7 +274,7 @@ namespace Durin
 				PreviewScene->AddOrReplacePrimitive(
 					PreviewPrimitiveId,
 					std::make_unique<FStaticMeshSceneProxy>(Mesh->GetRenderData(), MakeMaterialUpdates(Material)),
-					FMatrix(1.0));
+					glm::mat4_cast(PreviewRotation));
 				CurrentMaterial = Material;
 				MaterialVersion = Version;
 				bProxyDirty = false;
@@ -304,9 +301,10 @@ namespace Durin
 		DMaterialInterface* CurrentMaterial = nullptr;
 		uint64 MaterialVersion = 0;
 		uint64 MaterialRevision = 1;
+		FQuat PreviewRotation = glm::identity<FQuat>();
 		EMaterialPreviewShape Shape = EMaterialPreviewShape::Sphere;
 		bool bProxyDirty = true;
-		bool bOrbiting = false;
+		bool bRotating = false;
 		std::string Error;
 	};
 
