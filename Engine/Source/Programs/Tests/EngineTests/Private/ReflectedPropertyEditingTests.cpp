@@ -107,6 +107,49 @@ namespace
 		}
 	};
 
+	class FPartiallyApplyingMutationAdapter final : public Durin::IReflectedPropertyMutationAdapter
+	{
+	public:
+		auto Capture(const Durin::FReflectedPropertyEditTarget& Target, Durin::FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
+		{
+			return Durin::GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
+		}
+		auto Apply(const Durin::FReflectedPropertyEditTarget& Target, const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
+		{
+			if (!Durin::GetGenericReflectedPropertyMutationAdapter().Apply(Target, Snapshot, OutError)) return false;
+			if (OutError) *OutError = "Failed after mutation for testing.";
+			return false;
+		}
+		auto Restore(const Durin::FReflectedPropertyEditTarget& Target, const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
+		{
+			return Durin::GetGenericReflectedPropertyMutationAdapter().Restore(Target, Snapshot, OutError);
+		}
+	};
+
+	class FRetryableRestoreMutationAdapter final : public Durin::IReflectedPropertyMutationAdapter
+	{
+	public:
+		auto Capture(const Durin::FReflectedPropertyEditTarget& Target, Durin::FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
+		{
+			return Durin::GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
+		}
+		auto Apply(const Durin::FReflectedPropertyEditTarget& Target, const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
+		{
+			return Durin::GetGenericReflectedPropertyMutationAdapter().Apply(Target, Snapshot, OutError);
+		}
+		auto Restore(const Durin::FReflectedPropertyEditTarget& Target, const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
+		{
+			if (!bAllowRestore)
+			{
+				if (OutError) *OutError = "Restore rejected for testing.";
+				return false;
+			}
+			return Durin::GetGenericReflectedPropertyMutationAdapter().Restore(Target, Snapshot, OutError);
+		}
+
+		mutable bool bAllowRestore = false;
+	};
+
 	auto MakeValueProperty() -> std::unique_ptr<Durin::FNumericProperty>
 	{
 		return std::make_unique<Durin::FNumericProperty>(
@@ -313,6 +356,63 @@ TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifyi
 	EXPECT_EQ(Container.Value, 5);
 	EXPECT_TRUE(Object.Changes.empty());
 	EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::NoChange);
+}
+
+TEST(FReflectedPropertyEditSessionTests, CharacterizesPartialMutationAfterAdapterFailure)
+{
+	auto Property = MakeValueProperty();
+	FValueContainer Container{5};
+	DEditObserver Object;
+	FPartiallyApplyingMutationAdapter Adapter;
+	{
+		Durin::FReflectedPropertyEditSession Session;
+		std::string Error;
+		ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", &Adapter, &Error)) << Error;
+
+		EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8), &Error), Durin::EReflectedPropertyEditResult::Failed);
+		EXPECT_EQ(Error, "Failed after mutation for testing.");
+		EXPECT_EQ(Container.Value, 8);
+		EXPECT_FALSE(Session.HasChanges());
+		EXPECT_TRUE(Object.Changes.empty());
+	}
+	EXPECT_EQ(Container.Value, 8);
+}
+
+TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForRetry)
+{
+	auto Property = MakeValueProperty();
+	FValueContainer Container{5};
+	DEditObserver Object;
+	FRetryableRestoreMutationAdapter Adapter;
+	Durin::FReflectedPropertyEditSession Session;
+	std::string Error;
+	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", &Adapter, &Error)) << Error;
+	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8)), Durin::EReflectedPropertyEditResult::Changed);
+
+	EXPECT_EQ(Session.Cancel(&Error), Durin::EReflectedPropertyEditResult::Failed);
+	EXPECT_EQ(Error, "Restore rejected for testing.");
+	EXPECT_TRUE(Session.IsActive());
+	EXPECT_EQ(Container.Value, 8);
+	Adapter.bAllowRestore = true;
+	EXPECT_EQ(Session.Cancel(&Error), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_FALSE(Session.IsActive());
+	EXPECT_EQ(Container.Value, 5);
+}
+
+TEST(FReflectedPropertyEditSessionTests, CharacterizesMissingTerminalEventAfterReturningToOriginalValue)
+{
+	auto Property = MakeValueProperty();
+	FValueContainer Container{5};
+	DEditObserver Object;
+	Durin::FReflectedPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value"));
+	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8)), Durin::EReflectedPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 5)), Durin::EReflectedPropertyEditResult::Changed);
+
+	EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::NoChange);
+	ASSERT_EQ(Object.Changes.size(), 2u);
+	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Interactive);
+	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Interactive);
 }
 
 TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAbandonPreviewState)

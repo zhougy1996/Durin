@@ -9,6 +9,9 @@ transactions, bindings, and semantic mutation adapters are implemented. The
 remaining UI migration and validation work is now secondary to simplifying the
 mutation model itself.
 
+Phase 0 is complete: existing adapter semantics and known failure behavior are
+now classified and protected by characterization tests. Phase 1 is next.
+
 The current implementation exposes too many overlapping concepts: the view
 constructs proposals in scratch storage, edit targets retain both stable and
 ephemeral addresses, every edit resolves an adapter, and object semantics may
@@ -189,15 +192,33 @@ has exactly one terminal outcome even when it creates no history entry.
 
 ### Stage 0: Classify Existing Mutation Semantics
 
-- [ ] Record, for every registered adapter, its rejection/normalization rules,
+- [x] Record, for every registered adapter, its rejection/normalization rules,
   live storage write, derived-state reaction, and Undo/Redo requirements.
-- [ ] Classify each rule as pre-apply validation, generic storage write,
+- [x] Classify each rule as pre-apply validation, generic storage write,
   post-apply reaction, view presentation, or a justified policy exception.
-- [ ] Prove whether any current property requires `IPropertyMutationPolicy`.
+- [x] Prove whether any current property requires `IPropertyMutationPolicy`.
   Do not preserve an adapter merely because a setter exists today.
-- [ ] Add assertions or focused tests that reproduce partial-apply rejection,
+- [x] Add assertions or focused tests that reproduce partial-apply rejection,
   cancellation failure, edit-away-and-back, and container invalidation risks
   before changing the contracts.
+
+#### Classification Result
+
+| Current registration | Validation/normalization | Reflected write | Derived-state reaction | Selected destination |
+| --- | --- | --- | --- | --- |
+| `DSceneComponent.RelativeTransform` | Normalize quaternion | Assign complete transform | Recompute component-to-world | Pre/Post hooks |
+| `DCameraComponent.ProjectionSettings` | Clamp FOV, clip planes, and aspect ratio as one candidate | Assign complete settings | None beyond canonical state | Pre hook + generic write |
+| `DSplineComponent.SplineCurve` | Clamp reparameterization steps | Assign complete curve | Rebuild spline cache | Pre/Post hooks |
+| `DStaticMeshComponent.StaticMesh` | Enforce object type through reflected metadata | Assign object reference | Mark render state dirty | Generic write + Post hook |
+| `DStaticMeshComponent.Material` | Enforce material type | Keep legacy slot-zero mirror coherent | Bind/unbind material and mark render state dirty | Pre/Post hooks |
+| `DStaticMeshComponent.Materials` | Enforce every element type | Assign exact array shape and slot-zero mirror | Bind/unbind changed materials and mark render state dirty | Pre/Post hooks |
+| `DMaterialInstance.Parent` | Enforce type and reject parent cycles | Assign parent reference | Maintain dependency links and invalidate render data | Pre/Post hooks |
+
+No current built-in adapter requires a retained mutation-policy exception. All
+canonical values are reflected storage owned by the edited object, and their
+setter behavior can be split into detached validation/normalization plus
+post-write reaction. `IPropertyMutationPolicy` remains an uninstantiated escape
+hatch for a future externally owned canonical value.
 
 #### Acceptance Gate
 
