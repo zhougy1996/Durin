@@ -7,9 +7,9 @@ Durin is a game engine project built with C++, CMake, and Vulkan. The primary de
 - Windows 10 or 11 x64
 - Git
 - Python 3.10 or newer, with the Python Launcher enabled or Python added to `PATH`
-- Visual Studio 2022 with the **Desktop development with C++** workload and the English language pack
-- CMake
-- Vulkan SDK
+- Visual Studio 2022 17.14 or newer with MSVC Build Tools 14.44+, the **Desktop development with C++** workload, and the English language pack
+- CMake 3.24 or newer
+- LunarG Vulkan SDK with `Include/vulkan/vulkan.h`, `Include/vma/vk_mem_alloc.h`, and `Lib/vulkan-1.lib`
 - Network access to GitHub and the Python Package Index
 
 The build driver discovers the Visual Studio environment automatically and prefers the Ninja bundled with Visual Studio, so a separate Ninja installation is normally unnecessary. BuildTool enforces `VSLANG=1033` and verifies that MSVC emits English diagnostics; this keeps CMake and Ninja dependency parsing consistent in both interactive terminals and Agent output pipes.
@@ -26,10 +26,11 @@ cd Durin
 
 `Setup.bat` performs the following steps:
 
-1. Creates the repository-local `.venv` using the system Python installation.
-2. Installs the pinned dependencies from `requirements.txt`, including the `clang.cindex` bindings, native `libclang` library required by DurinHeaderTool, and Rich terminal support used by BuildTool.
-3. Creates the optional machine-local Agent build configuration at `.agents/build-config.json`.
-4. Downloads and prepares third-party dependencies including glm, spdlog, glfw, rapidyaml, assimp, Slang, and googletest.
+1. Checks all readily detectable prerequisites before modifying the checkout, including tool versions and the required Vulkan SDK files.
+2. Creates the repository-local `.venv` using the system Python installation.
+3. Installs the pinned dependencies from `requirements.txt`, including the `clang.cindex` bindings, native `libclang` library required by DurinHeaderTool, and Rich terminal support used by BuildTool.
+4. Creates the optional machine-local Agent build configuration at `.agents/build-config.json`.
+5. Downloads and prepares third-party dependencies including glm, spdlog, glfw, rapidyaml, assimp, Slang, and googletest. Vulkan Memory Allocator is supplied by the Vulkan SDK and is not downloaded separately.
 
 Setup is idempotent and reuses dependencies that are already prepared. If a download is interrupted, restore network access and run `Setup.bat` again. After setup succeeds, all build commands use the Python interpreter from `.venv`, preventing mismatches between the Python bindings and libclang.
 
@@ -87,6 +88,8 @@ The script shares `Engine/External` and `.venv` from the main worktree. `Build`,
 - **`.venv` uses an outdated or incorrect Python:** Remove `.venv` and rerun `Setup.bat`. Do not mix system site-packages into the virtual environment.
 - **`clang.cindex` or libclang is missing:** Rerun `Setup.bat`. The required version is managed by the root `requirements.txt`.
 - **BuildTool reports a missing virtual environment:** Setup has not completed; run `Setup.bat` first.
+- **Setup reports an old MSVC toolset:** Update Visual Studio 2022 to 17.14 or newer and install MSVC Build Tools 14.44 or newer.
+- **Setup reports a missing `vk_mem_alloc.h`:** Update the Vulkan SDK, or download VulkanMemoryAllocator's `vk_mem_alloc.h` and place it under the SDK's `Include/vma` directory.
 - **BuildTool reports localized MSVC diagnostics:** Add the English language pack through Visual Studio Installer, then rerun BuildTool. Existing Ninja trees with a non-English dependency prefix are refreshed automatically by the next `configure`, `build`, or `test` operation.
 - **A third-party source directory exists but is incomplete:** Move or repair the directory identified by the error, then rerun setup.
 

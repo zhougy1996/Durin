@@ -93,5 +93,6 @@ Third-party manifests live under `Engine/Scripts/Bootstrap/thirdparty/*.json` an
 
 - `--all` skips test-only dependencies unless `--with-tests` is supplied.
 - `googletest` is test-only.
+- Vulkan Memory Allocator is supplied by the Vulkan SDK rather than this bootstrap. See `BuildAndRun.md` for the required SDK layout and the older-SDK fallback.
 - Main project configure and build still start from `CMakePresets.json`.
 - Legacy third-party assets can be inspected with `python Engine/Scripts/Bootstrap/cleanup_legacy_thirdparty.py --dry-run`.

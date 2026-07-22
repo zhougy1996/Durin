@@ -33,6 +33,18 @@ class BootstrapError(RuntimeError):
     pass
 
 
+def configured_cmake_command() -> str:
+    if environment_command := os.environ.get("CMAKE_COMMAND"):
+        return environment_command
+    config_path = REPO_ROOT / ".agents" / "build-config.json"
+    try:
+        value = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "cmake"
+    configured = value.get("cmakeCommand") if isinstance(value, dict) else None
+    return configured if isinstance(configured, str) and configured else "cmake"
+
+
 def detect_platform_name() -> str:
     for prefix, platform_name in PLATFORM_NAMES.items():
         if sys.platform.startswith(prefix):
@@ -300,7 +312,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--cmake",
-        default=os.environ.get("CMAKE_COMMAND", "cmake"),
+        default=configured_cmake_command(),
         help="CMake executable to use for shared-install libraries.",
     )
     parser.add_argument(

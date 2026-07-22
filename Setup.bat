@@ -7,6 +7,12 @@ set "GIT_DIR_VALUE="
 set "GIT_DIR_ABS="
 set "EXIT_CODE=0"
 
+call "%ROOT%Engine\Scripts\Bootstrap\Preflight.bat"
+if errorlevel 1 (
+  set "EXIT_CODE=!errorlevel!"
+  goto end
+)
+
 if exist "%GIT_ENTRY%\" goto bootstrap
 if not exist "%GIT_ENTRY%" goto bootstrap
 

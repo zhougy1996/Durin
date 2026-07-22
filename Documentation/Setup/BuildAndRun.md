@@ -4,13 +4,21 @@ This is the operational guide for configuring, building, testing, and debugging 
 
 ## Setup
 
-Install Python 3.10 or newer, Visual Studio 2022 with the **Desktop development with C++** workload and the English language pack, Git, CMake, and the Vulkan SDK. Then run `Setup.bat` once in every new Windows checkout or worktree.
+Install the following Windows prerequisites, then run `Setup.bat` once in every new checkout or worktree:
 
-In a normal checkout, `Setup.bat` creates `.venv`, installs the pinned Python dependencies from `requirements.txt` (including the `clang.cindex` bindings and native `libclang` library), creates the local Agent configuration, and prepares all third-party libraries. The operation is idempotent and can be rerun after an interrupted download. In a linked Git worktree it instead links `Engine/External` and `.venv` from the prepared main worktree.
+- Python 3.10 or newer, including `venv`.
+- Visual Studio 2022 or newer with the **Desktop development with C++** workload, x64 MSVC tools, a Windows SDK, and the English language pack.
+- MSVC Build Tools 14.44 or newer (Visual Studio 2022 17.14). Durin uses C++20 standard-library features including `std::format_string`, `std::format`, and `std::source_location`.
+- Git, CMake 3.24 or newer, and Ninja. The Ninja bundled with Visual Studio is accepted.
+- The LunarG Vulkan SDK. `VULKAN_SDK` must name an installation containing `Include/vulkan/vulkan.h`, `Include/vma/vk_mem_alloc.h`, and `Lib/vulkan-1.lib`. Current SDK releases include VMA. For an older SDK, either update it or download `vk_mem_alloc.h` from VulkanMemoryAllocator and place it under that SDK's `Include/vma` directory; Durin does not bootstrap a second VMA copy.
+
+`Setup.bat` runs a non-mutating prerequisite check before it creates a virtual environment, downloads packages, or builds third-party libraries. It reports all detected prerequisite problems together so an old MSVC toolset, incomplete Vulkan SDK, or missing command does not first appear halfway through bootstrap or during the main build. BuildTool separately validates the Visual Studio English language pack when it first initializes MSVC.
+
+In a normal checkout, `Setup.bat` creates `.venv`, installs the pinned Python dependencies from `requirements.txt` (including the `clang.cindex` bindings and native `libclang` library), creates the local Agent configuration, and prepares all repository-managed third-party libraries. The operation is idempotent and can be rerun after an interrupted download. In a linked Git worktree it instead links `Engine/External` and `.venv` from the prepared main worktree.
 
 `BuildTool.bat` intentionally requires `.venv`; it will ask you to run `Setup.bat` rather than silently using a different system Python.
 
-Machine-specific CMake, profile, environment, or job overrides belong in `.agents/build-config.json`. Normally, leave them empty and let the build driver detect the Visual Studio environment and parallelism.
+Machine-specific CMake, profile, environment, or job overrides belong in `.agents/build-config.json`. Normally, leave them empty and let the build driver detect the Visual Studio environment and parallelism. When `cmakeCommand` is present, both Setup's preflight and third-party bootstrap use it; `CMAKE_COMMAND` still takes precedence.
 
 ## Windows Workflow
 

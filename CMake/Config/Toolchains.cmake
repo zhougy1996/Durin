@@ -18,7 +18,7 @@ set(DURIN_ARCH "${DURIN_TARGET_PLATFORM}")
 message(STATUS "Platform: ${DURIN_TARGET_PLATFORM}")
 message(STATUS "Generator: ${CMAKE_GENERATOR}")
 
-find_package(Vulkan)
+find_package(Vulkan REQUIRED)
 message(STATUS "Vulkan: ${Vulkan_VERSION} (${Vulkan_LIBRARY})")
 
 set(Python_ROOT_DIR "${DURIN_WORKSPACE_DIR}/.venv")

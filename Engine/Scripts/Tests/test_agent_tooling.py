@@ -23,6 +23,7 @@ from durin_build_tool import core as build_core
 from durin_build_tool.output import BuildOutput
 
 from Engine.Scripts.Bootstrap import agent_config
+from Engine.Scripts.Bootstrap import setup_preflight
 
 
 class BuildConfigTests(unittest.TestCase):
@@ -353,6 +354,35 @@ class CliTests(unittest.TestCase):
         content = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
         self.assertRegex(content, r"(?m)^libclang==\d+\.\d+\.\d+$")
         self.assertRegex(content, r"(?m)^rich==\d+\.\d+\.\d+$")
+
+    def test_setup_runs_preflight_before_mutating_checkout(self) -> None:
+        content = (REPO_ROOT / "Setup.bat").read_text(encoding="utf-8")
+        self.assertLess(content.index("Preflight.bat"), content.index(":bootstrap"))
+        self.assertLess(content.index("Preflight.bat"), content.index("SetupPython.bat"))
+
+
+class SetupPreflightTests(unittest.TestCase):
+    def test_cmake_minimum_version_is_checked(self) -> None:
+        completed = subprocess.CompletedProcess(["cmake", "--version"], 0, "cmake version 3.23.5\n", "")
+        with mock.patch.object(setup_preflight, "command_path", return_value="cmake"), mock.patch.object(
+            setup_preflight.subprocess, "run", return_value=completed
+        ):
+            error = setup_preflight.check_cmake()
+        self.assertIn("requires 3.24 or newer", error or "")
+
+    def test_vulkan_sdk_check_reports_every_required_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            error = setup_preflight.check_vulkan_sdk({"VULKAN_SDK": directory})
+        self.assertIn("vulkan.h", error or "")
+        self.assertIn("vk_mem_alloc.h", error or "")
+        self.assertIn("vulkan-1.lib", error or "")
+
+    def test_old_msvc_toolset_has_actionable_version_error(self) -> None:
+        environment = {"PATH": "tools", "VCTOOLSVERSION": "14.43.34808"}
+        with mock.patch.object(setup_preflight, "command_path", return_value="cl.exe"):
+            error = setup_preflight.check_msvc_version(environment)
+        self.assertIn("requires 14.44 or newer", error or "")
+        self.assertIn("std::format_string", error or "")
 
 
 class OutputTests(unittest.TestCase):
