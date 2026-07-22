@@ -14,6 +14,7 @@ This directory contains implementation plans whose scope has been narrowed enoug
 | [Multithreading System](MultithreadingSystem.md) | Task system, thread boundaries, and rendering concurrency evolution |
 | [Editor Workspace Refactor](EditorWorkspaceRefactor.md) | Editor workspaces, panels, and document lifecycles |
 | [Editor Icon Atlas](EditorIconAtlas.md) | Offline atlas pipeline for editor visualization icons |
+| [Asset Registry and Thumbnail Cache](AssetRegistryAndThumbnailCache.md) | Persistent asset discovery metadata and rebuildable Content Browser thumbnails |
 
 Update this index whenever a plan document is added, renamed, or deleted.
 
