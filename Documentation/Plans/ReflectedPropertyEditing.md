@@ -1,73 +1,392 @@
-# Reflected Property Editing Plan
+# Reflected Property Editing Simplification Plan
 
-Last reviewed: 2026-07-22
+Last reviewed: 2026-07-23
 
-The implemented architecture is documented in
-[Reflected Property Editing](../Architecture/ReflectedPropertyEditing.md).
-Future API design considerations are recorded in
+## Current Status
+
+The shared reflected-property view, edit sessions, snapshots, notifications,
+transactions, bindings, and semantic mutation adapters are implemented. The
+remaining UI migration and validation work is now secondary to simplifying the
+mutation model itself.
+
+The current implementation exposes too many overlapping concepts: the view
+constructs proposals in scratch storage, edit targets retain both stable and
+ephemeral addresses, every edit resolves an adapter, and object semantics may
+live in a setter, an adapter, or `PostEditChangeProperty()`. This plan narrows
+that model before more property-specific behavior is added.
+
+The implemented architecture remains documented in
+[Reflected Property Editing](../Architecture/ReflectedPropertyEditing.md) until
+each stage below lands. Earlier view API exploration remains in
 [Reflected Property View Evolution](../Reference/ReflectedPropertyViewEvolution.md).
 
-This file tracks only remaining work. It must not duplicate the implemented
-event, snapshot, mutation-adapter, session, transaction, or view contracts.
+## Goal
 
-## Remaining UI Migration
+Make the normal property-editing path understandable as one flow:
 
-- [x] Route the actor root-transform row through `FReflectedPropertyView` while
-  preserving `SetRelativeTransform()` semantics.
-- [x] Route static-mesh material-slot rows through shared transactions while
-  preserving slot labels and `SetMaterial()` behavior.
-- [x] Migrate spline customization value and structural edits through shared
-  reflected-property sessions while preserving spline setter/cache semantics.
-- [x] Migrate the remaining direct reflected-property writes in Level Editor
-  customizations.
-- [ ] Ensure every host deliberately commits or cancels an active interaction
-  when selection, document, workspace activity, or read-only state changes.
+```text
+widget -> detached draft -> edit session -> object mutation hooks -> transaction
+```
 
-## Object-Level View
+Most reflected properties must use the same generic, atomic apply path. The
+object validates or normalizes a detached candidate before storage changes and
+reacts to the applied value afterward. A property mutation policy remains only
+for mutations that genuinely cannot be expressed by generic reflected storage
+plus object hooks.
 
-- [x] Add `FReflectedPropertyView::EditObject()` so hosts do not manually
-  enumerate ordinary `Edit` properties.
-- [x] Move default labels, static-array expansion, search, filtering, and
-  optional property-table ownership behind that API.
-- [x] Keep `EditProperty()` public as the controlled customization/composition
-  entry point.
-- [x] Make `EditPropertyValue()` and raw container-recursion helpers private.
+## Scope
 
-## Customization and Binding
+- Hide scratch allocation, construction, and cleanup behind an internal
+  detached property-draft abstraction.
+- Make edit targets and committed transactions retain only stable object,
+  member, path, operation, and snapshot identity.
+- Add a pre-apply object hook for validation and normalization of a detached
+  proposal, and retain `PostEditChangeProperty()` as the unified reaction hook.
+- Replace the adapter-on-every-edit model with a generic mutation path and a
+  narrowly scoped `IPropertyMutationPolicy` escape hatch.
+- Migrate existing transform, camera, spline, static-mesh, material-slot, and
+  material-parent semantics to the simplest valid mechanism.
+- Define atomic failure, cancellation, host-transition, Undo, and Redo behavior.
+- Remove bypasses, legacy target fallback, and registry precedence rules that
+  are no longer required after migration.
+- Close automated and editor-smoke validation gaps for the simplified flow.
 
-- [x] Define a minimal object property-view customization registry and builder.
-- [x] Express Actor root transform and static-mesh material slots as
-  customizations instead of type branches in Details.
-- [x] Add a stable reflected-property binding abstraction for logical container
-  values without exposing leaf addresses or manual paths.
-- [x] Replace the public string-map transition helpers with bindings once the
-  binding contract is proven.
-- [x] Convert Material Editor parameters to descriptors plus bound property rows
-  while retaining inherited values, overrides, ranges, colors, and asset pickers.
+## Non-Goals
 
-## Optional Generated Metadata
+- Observing arbitrary runtime C++ assignments outside the editor pipeline.
+- Moving transaction history or editor UI dependencies into `DObject`.
+- Replacing domain-specific widgets, object customizations, or stable container
+  bindings with a single generic presentation.
+- Adding generated property callback metadata before the runtime contract is
+  stable and the remaining policy use cases are measured.
+- Restoring package dirty state when Undo reaches the last saved revision.
+- Making all setters editor-only or requiring gameplay code to use reflection.
 
-- [ ] Evaluate generated property-specific callback or customization metadata
-  only after object customization and binding usage has stabilized.
-- [ ] Resolve callbacks to validated function pointers during generation; do
-  not perform per-edit string lookup.
-- [ ] Route generated callbacks through the common event/mutation pipeline so
-  phase, path, container, Undo, and Redo semantics remain identical.
+## Design Decisions and Invariants
 
-## Validation Gaps
+### Draft, not UI context
 
-- [ ] Add direct coverage for scalar, enum, string, object, math-structure, and
-  nested fixed-array event paths through the property view.
-- [ ] Verify rejected assignments do not mutate, dirty, notify, or enter history.
-- [ ] Verify selection/document changes during an active interaction follow the
-  documented commit/cancel policy.
-- [ ] Smoke-test Details editing, save, Undo/Redo, PIE read-only behavior, asset
-  document switching, and shutdown in `DurinEditor`.
+The current scratch value is a detached, complete candidate for the stable
+snapshot root. It exists so a leaf widget can edit nested or container data
+without touching live object storage. It is not widget state and is not an
+additional public layer.
 
-## Recommended Order
+The implementation will call this internal concept a property draft. The view
+may create and edit a draft, but allocation, reflection construction,
+leaf-resolution, snapshot capture, and destruction belong to one RAII type.
+Public proposal callbacks receive only the resolved draft leaf for the duration
+of the callback.
 
-1. Add `EditObject()` and migrate Details enumeration.
-2. Introduce object customization for composite rows. (Complete)
-3. Introduce stable property bindings and simplify Material Editor.
-4. Close validation gaps.
-5. Re-evaluate generated metadata.
+### Stable targets only
+
+An edit target is stable identity, not cached storage. It retains the rooted
+object, object-owned member, owned member-to-leaf path, mutation kind, and any
+stable key/index data required by that path. The current leaf container and
+other addresses derived from array or map storage are resolved immediately
+before capture or apply and are never retained by an active transaction.
+
+Missing snapshot-root or container data is an invalid target. `Begin()` must
+not silently synthesize these values from a leaf as a compatibility fallback.
+
+### One default mutation pipeline
+
+The normal apply sequence is:
+
+```text
+resolve stable target
+capture current value
+validate and normalize detached draft through PreEditChangeProperty
+write reflected storage once
+recapture the actual value
+notify PostEditChangeProperty with the actual applied path/value context
+```
+
+The pre-apply hook operates on detached data and may reject or normalize it
+without mutating the live object. The post-apply hook cannot reject the edit or
+change reflected canonical storage; it updates caches, render state,
+dependencies, or other derived runtime state. Every live value change uses this
+ordering. Terminal Commit, Cancel, Undo, and Redo notifications retain explicit
+phase and origin without reapplying an already committed value.
+
+If validation, target resolution, policy application, or snapshot capture
+fails, the operation restores the captured value before returning failure and
+does not notify, dirty the package, or enter transaction history. Restoration
+failure is surfaced as a hard editor error and the session remains recoverable;
+destruction must not silently discard an applied preview whose cancel failed.
+
+### Mutation policy is an escape hatch
+
+`IPropertyMutationPolicy` replaces the semantic role of
+`IReflectedPropertyMutationAdapter`, but is not selected for every edit. It is
+allowed only when a mutation cannot be made atomic through detached validation,
+one reflected write, and post-apply reconstruction. Examples may include an
+external subsystem that owns the canonical value or a setter whose atomic
+effects cannot be decomposed into validation and reaction hooks.
+
+Policies are stateless, process-lifetime services. Registration uses validated
+class/member identity and deterministic most-derived selection; reverse
+registration order must not define behavior. Transactions retain stable target
+identity and snapshots, not raw leaf addresses or an arbitrary adapter pointer.
+
+### One semantic owner per rule
+
+- Candidate rejection and normalization belong in the pre-apply object hook.
+- Reflected storage assignment belongs in the generic mutation implementation.
+- Cache, scene, render, and dependency refresh belong in the post-apply hook.
+- Presentation, ranges, and interaction state belong in the view/customization.
+- Undo/Redo ordering and dirty-state policy belong in the transaction layer.
+- A mutation policy may own a rule only when the generic split is impossible,
+  and the reason must be recorded beside its registration.
+
+### Explicit interaction termination
+
+Every host transition follows one documented policy and reports failure:
+
+| Transition | Active edit result |
+| --- | --- |
+| Widget confirms or loses edit focus normally | Commit |
+| User presses Escape | Cancel |
+| Inspected object or document is replaced | Cancel |
+| View becomes read-only or PIE starts | Cancel |
+| Workspace or panel closes with an active preview | Cancel |
+| Editor shutdown with an unfinished preview | Cancel |
+
+An edit that returns to its original value still receives the terminal event
+selected by the user action: normal completion is `Committed`, while Escape or
+a cancelling host transition is `Cancelled`. Every begun interaction therefore
+has exactly one terminal outcome even when it creates no history entry.
+
+## Current Foundations and Gaps
+
+### Foundations to preserve
+
+- Focused property snapshots retain referenced objects.
+- Member-to-leaf paths survive container resize and map rehash.
+- One continuous interaction creates at most one transaction.
+- Stable bindings re-resolve logical map values for every operation.
+- `FPropertyChangedEvent` already distinguishes phase, kind, origin, member,
+  leaf, and path.
+- `FEditorTransactionManager` remains host-owned and shared across editor views.
+
+### Gaps to remove
+
+- Proposal decoding currently applies a candidate temporarily to live storage
+  and then restores it before calling some setters.
+- Targets mix stable snapshot identity with ephemeral leaf/container addresses.
+- `Begin()` contains compatibility fallback for incomplete targets.
+- Every edit pays for an adapter abstraction even when generic reflection is
+  sufficient.
+- The material-slot adapter combines semantic setter calls with a direct array
+  rewrite to restore shape.
+- Adapter failure does not state or enforce a fully atomic contract.
+- Session destruction ignores cancellation failure before resetting state.
+- `bUseTransaction == false` bypasses sessions, semantic mutation,
+  notification, cancellation, and dirty-state behavior as one bundle.
+- Host transition behavior and no-op terminal notification are inconsistent.
+- Adapter lookup outcome depends on reverse registration order.
+
+## Implementation Stages
+
+### Stage 0: Classify Existing Mutation Semantics
+
+- [ ] Record, for every registered adapter, its rejection/normalization rules,
+  live storage write, derived-state reaction, and Undo/Redo requirements.
+- [ ] Classify each rule as pre-apply validation, generic storage write,
+  post-apply reaction, view presentation, or a justified policy exception.
+- [ ] Prove whether any current property requires `IPropertyMutationPolicy`.
+  Do not preserve an adapter merely because a setter exists today.
+- [ ] Add assertions or focused tests that reproduce partial-apply rejection,
+  cancellation failure, edit-away-and-back, and container invalidation risks
+  before changing the contracts.
+
+#### Acceptance Gate
+
+- Every current adapter has one selected destination and every retained policy
+  has a written reason that generic apply plus object hooks cannot satisfy.
+- The failure cases being simplified are covered by tests that fail against the
+  unsafe behavior or explicitly capture the current behavior to be changed.
+
+### Stage 1: Introduce Stable Targets and Internal Drafts
+
+- [ ] Add one RAII property-draft implementation that owns reflected temporary
+  storage and exposes scoped leaf resolution.
+- [ ] Move scratch construction and proposal-to-snapshot capture out of
+  `FReflectedPropertyView` recursion helpers into that implementation.
+- [ ] Remove persisted leaf-container addresses from transaction state and
+  re-resolve the target path for every capture, apply, Cancel, Undo, and Redo.
+- [ ] Make target factories construct complete valid targets and delete the
+  `Begin()` snapshot/container fallback.
+- [ ] Keep bindings as stable logical target factories; do not expose draft or
+  path internals to Material Editor or Details customizations.
+
+#### Acceptance Gate
+
+- No proposal construction writes live object storage.
+- Resizing or rehashing a container between frames cannot invalidate an active
+  session or committed transaction.
+- Invalid or incomplete targets fail at construction/begin with a reported
+  error and no live mutation.
+
+### Stage 2: Establish the Generic Object Mutation Hooks
+
+- [ ] Define the detached pre-apply proposal contract, including mutable
+  normalization, rejection error reporting, property path, mutation kind,
+  phase, and origin.
+- [ ] Implement the atomic generic apply sequence and its rollback guard.
+- [ ] Route `PostEditChangeProperty()` through the same path for Interactive,
+  Commit, Cancel, Undo, and Redo without allowing post-notification rejection.
+- [ ] Ensure the snapshot recorded after apply reflects normalization and any
+  deliberate cross-field changes, not merely the widget's raw proposal.
+- [ ] Specify and test reentrancy: object hooks may update derived state but may
+  not start a nested edit of the same target.
+
+#### Acceptance Gate
+
+- A generic scalar, nested struct field, array element, and map value all use
+  the same atomic hook pipeline.
+- Rejection and normalization happen before live mutation; failed apply leaves
+  value, notifications, dirty state, and history unchanged.
+- Cancel and Undo/Redo produce the same derived object state as a fresh apply.
+
+### Stage 3: Migrate Semantic Adapters
+
+- [ ] Move `RelativeTransform` validation and scene/render reactions into the
+  object hook split while preserving `SetRelativeTransform()` behavior.
+- [ ] Move camera projection cross-field normalization into detached pre-apply
+  handling and projection refresh into post-apply handling.
+- [ ] Move spline validation and curve-cache rebuilds into the hook split.
+- [ ] Move static-mesh assignment and material-slot resource reactions into
+  post-apply handling without setter-plus-direct-storage dual writes.
+- [ ] Move material-parent cycle rejection into pre-apply handling and material
+  invalidation into post-apply handling.
+- [ ] Replace any proven exceptions with narrowly registered
+  `IPropertyMutationPolicy` implementations and delete migrated adapters.
+- [ ] Make policy resolution independent of registration order and add
+  base/derived-class selection coverage.
+
+#### Acceptance Gate
+
+- Each migrated property preserves setter rejection, clamping, cache rebuild,
+  scene/render refresh, Cancel, and Undo/Redo behavior.
+- The generic path is used unless a Stage 0 policy exception was proven.
+- No implementation decodes a proposal by temporarily writing live storage.
+
+### Stage 4: Simplify Session and Transaction Semantics
+
+- [ ] Make session Apply, Commit, and Cancel delegate to one atomic mutation
+  operation rather than duplicating adapter, snapshot, and notification rules.
+- [ ] Define a recoverable session state for failed Apply or Cancel; do not
+  clear the target or original snapshot until live restoration succeeds.
+- [ ] Replace `bUseTransaction` with explicit APIs for editable transactional
+  values versus genuinely read-only/display-only values. No writable path may
+  bypass validation and notification as a side effect of disabling history.
+- [ ] Store stable target identity and before/after snapshots in transactions;
+  resolve generic mutation or the registered policy at execution time.
+- [ ] Emit one terminal event for every begun interaction, including an edit
+  that ends at its original value, while keeping no-op history empty.
+
+#### Acceptance Gate
+
+- One interaction has zero or more Interactive events and exactly one
+  Committed or Cancelled terminal event.
+- A failed cancel remains visible/retryable and cannot be silently abandoned by
+  the session destructor.
+- No writable reflected-property UI bypasses object hooks, error reporting, or
+  cancellation merely to avoid recording history.
+
+### Stage 5: Make Host Lifecycle Policy Explicit
+
+- [ ] Apply the termination table to Details selection changes, Material Editor
+  document changes, workspace activation/closure, PIE read-only transitions,
+  panel destruction, and editor shutdown.
+- [ ] Propagate commit/cancel errors through the host error callback and prevent
+  a document or target transition when live preview restoration failed.
+- [ ] Remove host-specific fallback behavior that resets a view without a
+  deliberate terminal action.
+
+#### Acceptance Gate
+
+- Automated host-level tests cover object/document replacement and read-only
+  transitions during an interaction.
+- Manual smoke checks confirm the same behavior for workspace close, PIE, and
+  editor shutdown, with no preview mutation left uncommitted or unrestored.
+
+### Stage 6: Consolidate API, Tests, and Documentation
+
+- [ ] Remove obsolete adapter types, registry APIs, scratch helpers, raw target
+  fields, fallback branches, and comments describing the old model.
+- [ ] Keep generated property metadata deferred unless policy registration is
+  still repetitive after migration; if evaluated, resolve validated member
+  identity at generation time without per-edit string lookup.
+- [ ] Update the architecture document only after each new contract is
+  implemented and validated.
+- [ ] Complete the validation matrix and run an editor smoke test through the
+  repository build/run workflow.
+
+#### Acceptance Gate
+
+- Public headers expose only concepts required by hosts or customizations.
+- Architecture documentation describes the implemented flow and contains no
+  adapter-on-every-edit or persistent raw-leaf assumptions.
+- Full build, native tests, and hidden-window editor smoke validation pass.
+
+## Validation Matrix
+
+| Area | Required evidence |
+| --- | --- |
+| Draft isolation | Nested, array, and map proposals do not mutate live storage before Apply |
+| Generic values | Scalar, enum, string, object, math struct, and nested fixed-array edits |
+| Validation | Rejection and normalization before mutation, including parent-cycle errors |
+| Derived state | Transform, camera, spline, static-mesh, material-slot, and material invalidation |
+| Interaction | Continuous preview, confirm, Escape, and edit-away-and-back terminal event |
+| Failure atomicity | Apply failure, rollback failure reporting, Cancel retry, and destructor safety |
+| Containers | Resize/rehash between frames, structural Undo/Redo, map-key collision |
+| Policy lookup | Generic default, justified exception, base/derived selection, registration order independence |
+| Host lifecycle | Selection, document, workspace, read-only/PIE, shutdown |
+| History/dirty | No history or dirtying for rejection/cancel; one entry per committed interaction |
+| Editor smoke | Details edit/save/Undo/Redo, Material Editor switch, PIE, close, shutdown |
+
+## Definition of Done
+
+- A normal reflected property edit can be explained and traced as draft,
+  generic atomic mutation, object hooks, and transaction without an adapter.
+- Scratch storage is entirely internal to the draft implementation and no live
+  object storage is used to decode a proposal.
+- Transactions and sessions retain no ephemeral container or leaf addresses.
+- Existing semantic properties preserve validation and runtime side effects,
+  with mutation policies limited to documented, tested exceptions.
+- Apply and Cancel failure cannot leave an untracked preview or silently reset
+  session state.
+- All host transitions have a deliberate commit/cancel outcome.
+- The validation matrix, full build, native tests, and hidden-window editor
+  smoke test pass.
+- Long-lived implemented rules have moved into Architecture documentation and
+  this plan's status is marked complete.
+
+## Deferred Follow-ups
+
+- Generated property-specific validation/reaction metadata, after policy use is
+  measured on the simplified implementation.
+- Saved-revision-aware package dirty-state restoration.
+- Multi-object editing and copy/paste of property drafts.
+- Cross-object atomic transactions.
+
+## Related Documentation
+
+- [Reflected Property Editing](../Architecture/ReflectedPropertyEditing.md)
+- [Reflected Property View Evolution](../Reference/ReflectedPropertyViewEvolution.md)
+- [Native Tests](../Setup/NativeTests.md)
+- [Build and Run](../Setup/BuildAndRun.md)
+
+## Related Code
+
+```text
+Engine/Source/Runtime/CoreDObject/Public/DObject/PropertyChange.h
+Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h
+Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyEditing.h
+Engine/Source/Editor/DurinEd/Private/Editor/ReflectedPropertyEditing.cpp
+Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyView.h
+Engine/Source/Editor/DurinEd/Private/Editor/ReflectedPropertyView.cpp
+Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h
+Engine/Source/Programs/Tests/EngineTests/Private/ReflectedPropertyEditingTests.cpp
+```
