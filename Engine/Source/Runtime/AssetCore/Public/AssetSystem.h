@@ -40,7 +40,9 @@ namespace Durin::Asset
 		std::string AssetClassName;
 		uint32 FormatVersion = 0;
 		std::vector<FAssetPath> Dependencies;
+		uintmax_t FileSize = 0;
 		std::filesystem::file_time_type LastWriteTime{};
+		int64 LastWriteTimeTicks = 0;
 	};
 
 	struct FAssetMoveContribution

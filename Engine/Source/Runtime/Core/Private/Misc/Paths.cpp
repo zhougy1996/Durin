@@ -8,6 +8,7 @@ namespace Durin
 	namespace
 	{
 		std::filesystem::path ActiveProjectFile;
+		std::filesystem::path DerivedDataCacheOverride;
 
 		auto IsEngineDirCandidate(const std::filesystem::path& Candidate) -> bool
 		{
@@ -178,6 +179,19 @@ namespace Durin
 	{
 		if (!ActiveProjectFile.empty()) return ActiveProjectFile.parent_path().generic_string() + "/";
 		return EngineDir();
+	}
+
+	auto FPaths::DerivedDataCacheDir() -> std::string
+	{
+		const std::filesystem::path Root = DerivedDataCacheOverride.empty()
+			? std::filesystem::path(ProjectDir()) / "DerivedDataCache"
+			: DerivedDataCacheOverride;
+		return Root.lexically_normal().generic_string() + "/";
+	}
+
+	auto FPaths::SetDerivedDataCacheDirForTests(std::string_view Directory) -> void
+	{
+		DerivedDataCacheOverride = Directory.empty() ? std::filesystem::path{} : std::filesystem::absolute(Directory).lexically_normal();
 	}
 
 	auto FPaths::EngineContentDir() -> std::string

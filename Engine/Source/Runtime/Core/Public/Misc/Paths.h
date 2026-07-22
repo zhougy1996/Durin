@@ -34,6 +34,8 @@ namespace Durin
 		static CORE_API auto EngineDir() -> std::string;
 
 		static CORE_API auto ProjectDir() -> std::string;
+		static CORE_API auto DerivedDataCacheDir() -> std::string;
+		static CORE_API auto SetDerivedDataCacheDirForTests(std::string_view Directory) -> void;
 
 		static CORE_API auto EngineContentDir() -> std::string;
 

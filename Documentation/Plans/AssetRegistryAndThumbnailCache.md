@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Planning complete; implementation has not started. The selected design keeps disk enumeration as the source-of-truth reconciliation step, avoids reopening unchanged asset packages, and places all persistent cache files under the existing ignored `DerivedDataCache` project directory.
+Stage 0 is complete. Core now owns the project-first derived-data-cache path, test-only cache-root injection, fixed-endian bounded cache serialization, atomic replacement, domain headers, and normalized asset fingerprints. Stage 1 package-header streaming is next.
 
 ## Goal
 
@@ -57,6 +57,7 @@ Make editor and game startup reuse previously discovered asset metadata while st
 
 - A registry entry is identified by its mount virtual root plus its normalized path relative to that mount. Absolute paths are retained only as current-session resolved data so relocating a checkout does not invalidate every entry.
 - The cheap file fingerprint is exact file size plus normalized last-write-time ticks. A matching path and fingerprint permits reuse of cached class, format-version, and dependency metadata.
+- Persisted timestamps are signed nanoseconds in the platform filesystem-clock domain with fixed little-endian encoding. Finer filesystem precision is truncated; the serialization marker rejects incompatible cache ABIs.
 - A path absent from the cache is new; a cached path absent from disk is removed; a fingerprint mismatch is changed. New and changed files have their package header reparsed before entering the live registry.
 - `size + mtime` is an intentional fast-path contract, not cryptographic identity. An explicit full-validation mode reparses every header for tests, diagnostics, CI, and recovery from tools that preserve timestamps. Ordinary editor refresh uses incremental reconciliation.
 - Cache-wide compatibility includes a registry schema version, the supported `.dasset` package format version, endianness/serialization marker, and a deterministic manifest of normalized mount virtual roots. A mismatch discards the snapshot before reconciliation.
@@ -109,11 +110,11 @@ Make editor and game startup reuse previously discovered asset metadata while st
 
 ### Stage 0: Cache contracts and paths
 
-- [ ] Add a canonical `FPaths` query for the active derived-data-cache root using the project-first and engine-fallback ownership rule.
-- [ ] Define versioned registry-cache and thumbnail-index headers, bounds, deterministic ordering, and failure reporting.
-- [ ] Define a platform-stable persisted timestamp representation and document its conversion/precision behavior.
-- [ ] Extend `FAssetData` or an internal scan record with file size and the normalized fingerprint used by reconciliation.
-- [ ] Add test-only cache-root override/injection so tests never write to a developer project cache.
+- [x] Add a canonical `FPaths` query for the active derived-data-cache root using the project-first and engine-fallback ownership rule.
+- [x] Define versioned registry-cache and thumbnail-index headers, bounds, deterministic ordering, and failure reporting.
+- [x] Define a platform-stable persisted timestamp representation and document its conversion/precision behavior.
+- [x] Extend `FAssetData` or an internal scan record with file size and the normalized fingerprint used by reconciliation.
+- [x] Add test-only cache-root override/injection so tests never write to a developer project cache.
 
 #### Acceptance Gate
 

@@ -6,6 +6,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Misc/FileHelper.h"
+#include "Misc/DerivedDataCache.h"
 #include "Misc/Paths.h"
 
 namespace Durin::Asset
@@ -544,7 +545,17 @@ namespace Durin::Asset
 				FAssetResult Result = ReadPackageFile(Bytes, PackageFile, true);
 				if (!Result) { ScanErrors.push_back(std::move(Result)); continue; }
 				if (NewAssets.contains(DiskPath)) { ScanErrors.push_back(Error(EAssetError::AlreadyExists, std::format("Duplicate asset path {}.", DiskPath.ToString()))); continue; }
-				NewAssets.emplace(DiskPath, FAssetData{DiskPath, It->path().generic_string(), PackageFile.AssetClassName, PackageFile.FormatVersion, PackageFile.Dependencies, It->last_write_time(Ec)});
+				const auto LastWriteTime = It->last_write_time(Ec);
+				const auto FileSize = It->file_size(Ec);
+				NewAssets.emplace(DiskPath, FAssetData{
+					.PackagePath = DiskPath,
+					.PhysicalPath = It->path().generic_string(),
+					.AssetClassName = PackageFile.AssetClassName,
+					.FormatVersion = PackageFile.FormatVersion,
+					.Dependencies = PackageFile.Dependencies,
+					.FileSize = FileSize,
+					.LastWriteTime = LastWriteTime,
+					.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
 			}
 		}
 		Assets = std::move(NewAssets);
@@ -665,7 +676,16 @@ namespace Durin::Asset
 			std::filesystem::remove(Backup, Ec);
 		}
 		Package->ClearDirty();
-		Registry.AddOrUpdate(FAssetData{Path, Destination.generic_string(), File.AssetClassName, AssetVersion, File.Dependencies, std::filesystem::last_write_time(Destination)});
+		const auto LastWriteTime = std::filesystem::last_write_time(Destination);
+		Registry.AddOrUpdate(FAssetData{
+			.PackagePath = Path,
+			.PhysicalPath = Destination.generic_string(),
+			.AssetClassName = File.AssetClassName,
+			.FormatVersion = AssetVersion,
+			.Dependencies = File.Dependencies,
+			.FileSize = std::filesystem::file_size(Destination),
+			.LastWriteTime = LastWriteTime,
+			.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
 		return {};
 	}
 
@@ -1028,7 +1048,16 @@ namespace Durin::Asset
 		Package->ClearDirty();
 		LoadingPackages.erase(Path);
 		OutPackage = Package;
-		Registry.AddOrUpdate(FAssetData{Path, PhysicalPath, File.AssetClassName, File.FormatVersion, File.Dependencies, std::filesystem::last_write_time(PhysicalPath)});
+		const auto LastWriteTime = std::filesystem::last_write_time(PhysicalPath);
+		Registry.AddOrUpdate(FAssetData{
+			.PackagePath = Path,
+			.PhysicalPath = PhysicalPath,
+			.AssetClassName = File.AssetClassName,
+			.FormatVersion = File.FormatVersion,
+			.Dependencies = File.Dependencies,
+			.FileSize = std::filesystem::file_size(PhysicalPath),
+			.LastWriteTime = LastWriteTime,
+			.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
 		return {};
 	}
 
