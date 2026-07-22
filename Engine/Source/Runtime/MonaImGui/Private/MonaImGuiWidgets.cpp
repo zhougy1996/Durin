@@ -6,6 +6,16 @@ namespace Durin::MonaImGui
 {
 	namespace
 	{
+		auto ResizeStringInput(ImGuiInputTextCallbackData* Data) -> int
+		{
+			auto* Value = static_cast<std::string*>(Data->UserData);
+			check(Data->EventFlag == ImGuiInputTextFlags_CallbackResize);
+			check(Data->Buf == Value->data());
+			Value->resize(static_cast<size_t>(Data->BufTextLen));
+			Data->Buf = Value->data();
+			return 0;
+		}
+
 		auto GetCompactTreeNodePadding() -> ImVec2
 		{
 			const ImVec2 FramePadding = ImGui::GetStyle().FramePadding;
@@ -31,6 +41,19 @@ namespace Durin::MonaImGui
 	{
 		const FUIStyleMetrics Metrics = GetUIStyleMetrics();
 		return ImGui::Button(Label, ImVec2(bCompact ? Metrics.CompactButtonWidth : Metrics.StandardButtonWidth, 0.0f));
+	}
+
+	auto InputText(const char* Label, std::string& Value, ImGuiInputTextFlags Flags) -> bool
+	{
+		check((Flags & ImGuiInputTextFlags_CallbackResize) == 0);
+		return ImGui::InputText(
+			Label,
+			Value.data(),
+			Value.capacity() + 1,
+			Flags | ImGuiInputTextFlags_CallbackResize,
+			ResizeStringInput,
+			&Value
+		);
 	}
 
 	auto CompactTreeNode(const char* Label, ImGuiTreeNodeFlags Flags) -> bool

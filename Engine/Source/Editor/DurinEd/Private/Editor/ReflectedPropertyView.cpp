@@ -519,13 +519,11 @@ namespace Durin
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::String)
 		{
 			auto* StringProperty = static_cast<FStringProperty*>(Property);
-			std::array<char, 512> Buffer{};
-			const std::string& CurrentValue = *StringProperty->GetStringValuePtr(Container, ArrayIndex);
-			std::memcpy(Buffer.data(), CurrentValue.data(), FMath::Min(CurrentValue.size(), Buffer.size() - 1));
-			if (ImGui::InputText("##Value", Buffer.data(), Buffer.size()))
+			std::string Value = *StringProperty->GetStringValuePtr(Container, ArrayIndex);
+			if (MonaImGui::InputText("##Value", Value))
 			{
 				SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
-					*StringProperty->GetStringValuePtr(ProposedTarget.LeafContainer, ProposedTarget.LeafArrayIndex) = Buffer.data();
+					*StringProperty->GetStringValuePtr(ProposedTarget.LeafContainer, ProposedTarget.LeafArrayIndex) = Value;
 				}, true);
 				bChanged = true;
 			}
