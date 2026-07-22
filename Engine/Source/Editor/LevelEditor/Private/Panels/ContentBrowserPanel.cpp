@@ -4,6 +4,7 @@
 #include "ContentBrowserDragDrop.h"
 #include "Editor/EditorWorkspaceUI.h"
 #include "EditorSessionSettings.h"
+#include "Engine/Level.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorContext.h"
 #include "LevelEditorHelpers.h"
@@ -362,14 +363,6 @@ namespace Durin
 		ImGui::SameLine();
 		if (DrawToolbarIconButton(Icons::Refresh, "ContentBrowserRefresh")) Refresh(true);
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rescan mounted content");
-		ImGui::SameLine();
-		if (ImGui::Button("Create")) ImGui::OpenPopup("ContentBrowserCreatePopup");
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Create or import content in the current folder");
-		if (ImGui::BeginPopup("ContentBrowserCreatePopup"))
-		{
-			DrawCreateMenu(CurrentPhysicalPath, CurrentVirtualPath);
-			ImGui::EndPopup();
-		}
 
 		auto DrawBreadcrumb = [&](float Width) {
 			if (!ImGui::BeginChild("ContentBrowserBreadcrumb", ImVec2(Width, ImGui::GetFrameHeight()), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar))
@@ -925,6 +918,11 @@ namespace Durin
 				DrawCreateMenu(Item.PhysicalPath, Item.VirtualPath);
 				ImGui::EndMenu();
 			}
+			if (ImGui::BeginMenu("Import"))
+			{
+				DrawImportMenu(Item.VirtualPath);
+				ImGui::EndMenu();
+			}
 			ImGui::Separator();
 		}
 		if (ImGui::MenuItem("Rename", "F2", false, Selection.size() == 1)) BeginRename(Item);
@@ -941,11 +939,16 @@ namespace Durin
 		if (ImGui::MenuItem("New Folder", "Ctrl+Shift+N"))
 			DeferredContentAction = [this, Directory = std::string(PhysicalDirectory)] { CreateFolder(Directory); };
 		ImGui::SeparatorText("Assets");
+		if (ImGui::MenuItem("Level"))
+			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { CreateLevelAsset(Directory); };
 		if (ImGui::MenuItem("Material"))
 			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { CreateMaterialAsset(Directory, false); };
 		if (ImGui::MenuItem("Material Instance"))
 			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { CreateMaterialAsset(Directory, true); };
-		ImGui::SeparatorText("Import");
+	}
+
+	auto FContentBrowserPanel::DrawImportMenu(std::string_view VirtualDirectory) -> void
+	{
 		ImGui::BeginDisabled(!RequestImport);
 		if (ImGui::MenuItem("Texture..."))
 			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::Texture); };
@@ -962,6 +965,11 @@ namespace Durin
 		if (ImGui::BeginMenu("Create", !VirtualDirectory.empty()))
 		{
 			DrawCreateMenu(PhysicalDirectory, VirtualDirectory);
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Import", !VirtualDirectory.empty()))
+		{
+			DrawImportMenu(VirtualDirectory);
 			ImGui::EndMenu();
 		}
 		ImGui::Separator();
@@ -1027,6 +1035,11 @@ namespace Durin
 			if (ImGui::BeginMenu("Create"))
 			{
 				DrawCreateMenu(CurrentPhysicalPath, CurrentVirtualPath);
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Import"))
+			{
+				DrawImportMenu(CurrentVirtualPath);
 				ImGui::EndMenu();
 			}
 			ImGui::Separator();
@@ -1325,6 +1338,46 @@ namespace Durin
 			return;
 		}
 		SetError("Could not find a unique folder name in this directory.");
+	}
+
+	auto FContentBrowserPanel::CreateLevelAsset(std::string_view VirtualDirectory) -> void
+	{
+		std::string Directory(VirtualDirectory);
+		if (!Directory.ends_with('/')) Directory += '/';
+		FAssetPath AssetPath;
+		bool bFoundPath = false;
+		for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
+		{
+			const std::string Name = Suffix == 0 ? "NewLevel" : std::format("NewLevel{}", Suffix + 1);
+			if (!FAssetPath::TryCreate(Directory + Name, AssetPath)) continue;
+			if (!Asset::GetAssetRegistry().FindAsset(AssetPath) && !Asset::FindLoadedPackage(AssetPath))
+			{
+				bFoundPath = true;
+				break;
+			}
+		}
+		if (!bFoundPath)
+		{
+			SetError("Could not find a unique level asset name in this folder.");
+			return;
+		}
+
+		DLevel* Level = nullptr;
+		Asset::FAssetResult Result = Asset::CreateAsset(AssetPath, Level);
+		if (!Result || !Level)
+		{
+			SetError(Result ? "Could not create the level asset." : Result.Message);
+			return;
+		}
+		Result = Asset::SavePackage(Level->GetPackage());
+		if (!Result)
+		{
+			Asset::UnloadPackage(AssetPath);
+			SetError(Result.Message);
+			return;
+		}
+		Refresh(true);
+		RevealAsset(AssetPath.ToString());
 	}
 
 	auto FContentBrowserPanel::CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void

@@ -89,6 +89,7 @@ namespace Durin
 		auto DrawDetails() -> void;
 		auto DrawItemContextMenu(const FContentBrowserItem& Item) -> void;
 		auto DrawCreateMenu(std::string_view PhysicalDirectory, std::string_view VirtualDirectory) -> void;
+		auto DrawImportMenu(std::string_view VirtualDirectory) -> void;
 		auto DrawDirectoryContextMenu(std::string_view PhysicalDirectory, bool bMountRoot) -> void;
 		auto DrawBackgroundContextMenu() -> void;
 		auto DrawStatusBar() -> void;
@@ -105,6 +106,7 @@ namespace Durin
 		auto RenameFolder(const FContentBrowserItem& Item, std::string_view NewName) -> bool;
 		auto IsManagedCompanion(const FContentBrowserItem& Item) const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
+		auto CreateLevelAsset(std::string_view VirtualDirectory) -> void;
 		auto CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void;
 		auto FocusFolderInParent(std::string_view PhysicalDirectory) -> const FContentBrowserItem*;
 		auto RequestDeleteSelection() -> void;
