@@ -15,6 +15,7 @@ namespace Durin::Asset
 	{
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
 		constexpr uint32 AssetVersion = 2;
+		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
 
 		struct FByteWriter
 		{
@@ -61,10 +62,10 @@ namespace Durin::Asset
 				return true;
 			}
 
-			auto ReadString(std::string& Value) -> bool
+			auto ReadString(std::string& Value, uint64 MaximumSize = std::numeric_limits<uint64>::max()) -> bool
 			{
 				uint64 Size = 0;
-				if (!Read(Size) || Size > Bytes.size() - Offset) return false;
+				if (!Read(Size) || Size > MaximumSize || Size > Bytes.size() - Offset) return false;
 				Value.assign(reinterpret_cast<const char*>(Bytes.data() + Offset), static_cast<size_t>(Size));
 				Offset += static_cast<size_t>(Size);
 				return true;
@@ -74,6 +75,49 @@ namespace Durin::Asset
 			{
 				if (Offset + Size > Bytes.size()) return false;
 				Out = Bytes.subspan(Offset, Size);
+				Offset += Size;
+				return true;
+			}
+		};
+
+		struct FFileByteReader
+		{
+			std::ifstream Stream;
+			uint64 FileSize = 0;
+			uint64 Offset = 0;
+
+			explicit FFileByteReader(std::string_view Path)
+				: Stream(std::string(Path), std::ios::binary)
+			{
+				if (!Stream) return;
+				Stream.seekg(0, std::ios::end);
+				const std::streamoff Size = Stream.tellg();
+				if (Size < 0) { Stream.setstate(std::ios::failbit); return; }
+				FileSize = static_cast<uint64>(Size);
+				Stream.seekg(0, std::ios::beg);
+			}
+
+			auto IsOpen() const -> bool { return Stream.is_open() && !Stream.fail(); }
+
+			template<typename T> auto Read(T& Value) -> bool
+			{
+				if (sizeof(T) > FileSize - std::min(Offset, FileSize)) return false;
+				Stream.read(reinterpret_cast<char*>(&Value), sizeof(T));
+				if (!Stream) return false;
+				Offset += sizeof(T);
+				return true;
+			}
+
+			auto ReadString(std::string& Value, uint64 MaximumSize = MaximumPackageStringBytes) -> bool
+			{
+				uint64 Size = 0;
+				if (!Read(Size) || Size > MaximumSize || Size > FileSize - std::min(Offset, FileSize)) return false;
+				Value.resize(static_cast<size_t>(Size));
+				if (Size != 0)
+				{
+					Stream.read(Value.data(), static_cast<std::streamsize>(Size));
+					if (!Stream) return false;
+				}
 				Offset += Size;
 				return true;
 			}
@@ -459,26 +503,34 @@ namespace Durin::Asset
 			}
 		}
 
-		auto ReadPackageFile(std::span<const uint8> Bytes, FPackageFile& OutFile, bool bHeaderOnly) -> FAssetResult
+		template<typename ReaderType>
+		auto ReadPackageHeader(ReaderType& Reader, FPackageFile& OutFile, uint64& OutObjectCount) -> FAssetResult
 		{
-			FByteReader Reader{Bytes};
 			uint32 Magic = 0, Version = 0;
 			if (!Reader.Read(Magic) || !Reader.Read(Version)) return Error(EAssetError::CorruptFile, "Truncated asset header.");
 			if (Magic != AssetMagic) return Error(EAssetError::CorruptFile, "Invalid asset magic.");
 			if (Version != AssetVersion) return Error(EAssetError::UnsupportedVersion, std::format("Unsupported asset version {}.", Version));
 			OutFile.FormatVersion = Version;
-			if (!Reader.ReadString(OutFile.AssetClassName)) return Error(EAssetError::CorruptFile, "Invalid asset header strings.");
+			if (!Reader.ReadString(OutFile.AssetClassName, MaximumPackageStringBytes)) return Error(EAssetError::CorruptFile, "Invalid asset header strings.");
 			uint64 DependencyCount = 0;
 			if (!Reader.Read(DependencyCount) || DependencyCount > 100000) return Error(EAssetError::CorruptFile, "Invalid dependency count.");
 			for (uint64 Index = 0; Index < DependencyCount; ++Index)
 			{
 				std::string DependencyString;
 				FAssetPath Dependency;
-				if (!Reader.ReadString(DependencyString) || !FAssetPath::TryCreate(DependencyString, Dependency)) return Error(EAssetError::CorruptFile, "Invalid dependency path.");
+				if (!Reader.ReadString(DependencyString, MaximumPackageStringBytes) || !FAssetPath::TryCreate(DependencyString, Dependency)) return Error(EAssetError::CorruptFile, "Invalid dependency path.");
 				OutFile.Dependencies.push_back(std::move(Dependency));
 			}
+			if (!Reader.Read(OutObjectCount) || OutObjectCount == 0 || OutObjectCount > 1000000) return Error(EAssetError::CorruptFile, "Invalid object count.");
+			return {};
+		}
+
+		auto ReadPackageFile(std::span<const uint8> Bytes, FPackageFile& OutFile, bool bHeaderOnly) -> FAssetResult
+		{
+			FByteReader Reader{Bytes};
 			uint64 ObjectCount = 0;
-			if (!Reader.Read(ObjectCount) || ObjectCount == 0 || ObjectCount > 1000000) return Error(EAssetError::CorruptFile, "Invalid object count.");
+			FAssetResult HeaderResult = ReadPackageHeader(Reader, OutFile, ObjectCount);
+			if (!HeaderResult) return HeaderResult;
 			if (bHeaderOnly) return {};
 			OutFile.Objects.resize(static_cast<size_t>(ObjectCount));
 			for (FObjectRecord& Object : OutFile.Objects)
@@ -513,6 +565,21 @@ namespace Durin::Asset
 		}
 	}
 
+	auto ReadAssetPackageHeader(std::string_view PhysicalPath, FAssetPackageHeader& OutHeader) -> FAssetResult
+	{
+		OutHeader = {};
+		FFileByteReader Reader(PhysicalPath);
+		if (!Reader.IsOpen()) return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
+		FPackageFile File;
+		FAssetResult Result = ReadPackageHeader(Reader, File, OutHeader.ObjectCount);
+		OutHeader.BytesRead = Reader.Offset;
+		if (!Result) return Result;
+		OutHeader.AssetClassName = std::move(File.AssetClassName);
+		OutHeader.FormatVersion = File.FormatVersion;
+		OutHeader.Dependencies = std::move(File.Dependencies);
+		return {};
+	}
+
 	auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void
 	{
 		if (Class && Contributor) GetMoveContributors().insert_or_assign(Class, std::move(Contributor));
@@ -534,15 +601,14 @@ namespace Durin::Asset
 			for (std::filesystem::recursive_directory_iterator It(Mount.PhysicalPath, Ec), End; !Ec && It != End; It.increment(Ec))
 			{
 				if (!It->is_regular_file() || It->path().extension() != ".dasset") continue;
-				std::vector<uint8> Bytes;
-				FPackageFile PackageFile;
+				FAssetPackageHeader PackageHeader;
 				FAssetPath DiskPath;
-				if (!FFileHelper::LoadFileToArray(Bytes, It->path().generic_string()) || !PhysicalToAssetPath(It->path(), DiskPath))
+				if (!PhysicalToAssetPath(It->path(), DiskPath))
 				{
-					ScanErrors.push_back(Error(EAssetError::IoError, std::format("Failed to read asset header {}.", It->path().generic_string())));
+					ScanErrors.push_back(Error(EAssetError::InvalidPath, std::format("Failed to map asset path {}.", It->path().generic_string())));
 					continue;
 				}
-				FAssetResult Result = ReadPackageFile(Bytes, PackageFile, true);
+				FAssetResult Result = ReadAssetPackageHeader(It->path().generic_string(), PackageHeader);
 				if (!Result) { ScanErrors.push_back(std::move(Result)); continue; }
 				if (NewAssets.contains(DiskPath)) { ScanErrors.push_back(Error(EAssetError::AlreadyExists, std::format("Duplicate asset path {}.", DiskPath.ToString()))); continue; }
 				const auto LastWriteTime = It->last_write_time(Ec);
@@ -550,9 +616,9 @@ namespace Durin::Asset
 				NewAssets.emplace(DiskPath, FAssetData{
 					.PackagePath = DiskPath,
 					.PhysicalPath = It->path().generic_string(),
-					.AssetClassName = PackageFile.AssetClassName,
-					.FormatVersion = PackageFile.FormatVersion,
-					.Dependencies = PackageFile.Dependencies,
+					.AssetClassName = std::move(PackageHeader.AssetClassName),
+					.FormatVersion = PackageHeader.FormatVersion,
+					.Dependencies = std::move(PackageHeader.Dependencies),
 					.FileSize = FileSize,
 					.LastWriteTime = LastWriteTime,
 					.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});

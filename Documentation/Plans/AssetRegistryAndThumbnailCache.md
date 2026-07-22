@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stage 0 is complete. Core now owns the project-first derived-data-cache path, test-only cache-root injection, fixed-endian bounded cache serialization, atomic replacement, domain headers, and normalized asset fingerprints. Stage 1 package-header streaming is next.
+Stages 0 and 1 are complete. Asset discovery now reads package metadata through a bounded file stream, shares structural header validation with full package loading, and reports bytes consumed for diagnostics. Stage 2 persistent registry reconciliation is next.
 
 ## Goal
 
@@ -123,10 +123,10 @@ Make editor and game startup reuse previously discovered asset metadata while st
 
 ### Stage 1: Bounded package-header reader
 
-- [ ] Refactor package parsing so header-only discovery reads from a bounded file stream/range instead of loading the complete file.
-- [ ] Preserve one validation path for magic, package version, class name, dependencies, object count, truncation, and allocation limits.
-- [ ] Keep full package loading behavior and serialization compatibility unchanged.
-- [ ] Instrument tests with a package containing a large object payload and prove header discovery does not read that payload.
+- [x] Refactor package parsing so header-only discovery reads from a bounded file stream/range instead of loading the complete file.
+- [x] Preserve one validation path for magic, package version, class name, dependencies, object count, truncation, and allocation limits.
+- [x] Keep full package loading behavior and serialization compatibility unchanged.
+- [x] Instrument tests with a package containing a large object payload and prove header discovery does not read that payload.
 
 #### Acceptance Gate
 

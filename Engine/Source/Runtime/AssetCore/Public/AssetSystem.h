@@ -45,6 +45,19 @@ namespace Durin::Asset
 		int64 LastWriteTimeTicks = 0;
 	};
 
+	struct FAssetPackageHeader
+	{
+		std::string AssetClassName;
+		uint32 FormatVersion = 0;
+		std::vector<FAssetPath> Dependencies;
+		uint64 ObjectCount = 0;
+		uint64 BytesRead = 0;
+	};
+
+	// Reads and validates only the package metadata needed by discovery. BytesRead is exposed
+	// so diagnostics and tests can verify that object payloads were not consumed.
+	ASSETCORE_API auto ReadAssetPackageHeader(std::string_view PhysicalPath, FAssetPackageHeader& OutHeader) -> FAssetResult;
+
 	struct FAssetMoveContribution
 	{
 		std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Files;

@@ -143,6 +143,77 @@ namespace
 		}();
 		(void)Initialized;
 	}
+
+	auto WriteTestBytes(const std::filesystem::path& Path, std::span<const Durin::uint8> Bytes) -> void
+	{
+		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
+		ASSERT_TRUE(Stream.is_open());
+		Stream.write(reinterpret_cast<const char*>(Bytes.data()), static_cast<std::streamsize>(Bytes.size()));
+		ASSERT_TRUE(Stream.good());
+	}
+}
+
+TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LargeHeaderOnly", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Asset->Scores.resize(1024 * 1024, 7);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	const auto File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "LargeHeaderOnly.dasset";
+	ASSERT_GT(std::filesystem::file_size(File), 4u * 1024u * 1024u);
+
+	Durin::Asset::FAssetPackageHeader Header;
+	ASSERT_TRUE(Durin::Asset::ReadAssetPackageHeader(File.generic_string(), Header));
+	EXPECT_EQ(Header.AssetClassName, "Tests::DPackageAssetForTest");
+	EXPECT_EQ(Header.FormatVersion, 2u);
+	EXPECT_EQ(Header.ObjectCount, 2u);
+	EXPECT_LT(Header.BytesRead, 1024u);
+}
+
+TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/HeaderValidationSource", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	const auto Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets";
+	const auto Source = Root / "HeaderValidationSource.dasset";
+	std::vector<Durin::uint8> Valid;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Valid, Source.generic_string()));
+	ASSERT_GT(Valid.size(), 16u);
+	Durin::Asset::FAssetPackageHeader Header;
+	ASSERT_TRUE(Durin::Asset::ReadAssetPackageHeader(Source.generic_string(), Header));
+
+	auto Truncated = std::span<const Durin::uint8>(Valid).first(4);
+	const auto TruncatedFile = Root / "HeaderTruncated.dasset";
+	WriteTestBytes(TruncatedFile, Truncated);
+	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(TruncatedFile.generic_string(), Header).Error, Durin::Asset::EAssetError::CorruptFile);
+
+	auto Corrupt = Valid;
+	Corrupt[0] ^= 0xff;
+	const auto CorruptFile = Root / "HeaderCorrupt.dasset";
+	WriteTestBytes(CorruptFile, Corrupt);
+	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(CorruptFile.generic_string(), Header).Error, Durin::Asset::EAssetError::CorruptFile);
+
+	auto Unsupported = Valid;
+	const Durin::uint32 OldVersion = 1;
+	std::memcpy(Unsupported.data() + sizeof(Durin::uint32), &OldVersion, sizeof(OldVersion));
+	const auto UnsupportedFile = Root / "HeaderUnsupported.dasset";
+	WriteTestBytes(UnsupportedFile, Unsupported);
+	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(UnsupportedFile.generic_string(), Header).Error, Durin::Asset::EAssetError::UnsupportedVersion);
+
+	auto Oversized = Valid;
+	const Durin::uint64 OversizedString = 1024 * 1024 + 1;
+	std::memcpy(Oversized.data() + sizeof(Durin::uint32) * 2, &OversizedString, sizeof(OversizedString));
+	const auto OversizedFile = Root / "HeaderOversized.dasset";
+	WriteTestBytes(OversizedFile, Oversized);
+	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(OversizedFile.generic_string(), Header).Error, Durin::Asset::EAssetError::CorruptFile);
+	EXPECT_LE(Header.BytesRead, 16u);
 }
 
 TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
