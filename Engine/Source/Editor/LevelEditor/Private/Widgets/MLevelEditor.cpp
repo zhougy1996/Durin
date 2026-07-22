@@ -255,6 +255,13 @@ namespace Durin
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!Context || !DocumentController || !StaticMeshImportDialog || !TextureImportDialog) return false;
+		if (bActive && !bWasActive)
+		{
+			// Internal panel windows are not submitted while another workspace is visible, so
+			// restore the asset-oriented default before the last submitted tab wins selection.
+			bSelectDefaultBottomPanelRequested = true;
+		}
+		bWasActive = bActive;
 		const bool bDocumentOpen = std::ranges::any_of(WorkspaceManager.GetDocuments(), [](const FEditorDocumentTab& Document) {
 			return Document.WorkspaceType == LevelEditorWorkspace::Type;
 		});

@@ -70,6 +70,7 @@ namespace Durin
 		FEditorWorkspaceRootWindow RootWindow;
 		bool bResetLayoutRequested = false;
 		bool bSelectDefaultBottomPanelRequested = true;
+		bool bWasActive = false;
 		bool bEditorPreferencesOpen = false;
 		bool bProjectSettingsOpen = false;
 		std::string DefaultLevel;
