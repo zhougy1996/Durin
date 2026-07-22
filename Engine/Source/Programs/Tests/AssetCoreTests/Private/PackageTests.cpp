@@ -23,6 +23,9 @@ namespace
 	const Durin::DurinCodeGen::FArrayPropertyHelper GIntVectorHelper = {
 		&VectorNum<Durin::int32>, &VectorGet<Durin::int32>, &VectorGetMutable<Durin::int32>, &VectorResize<Durin::int32>
 	};
+	const Durin::DurinCodeGen::FArrayPropertyHelper GGuidVectorHelper = {
+		&VectorNum<Durin::FGuid>, &VectorGet<Durin::FGuid>, &VectorGetMutable<Durin::FGuid>, &VectorResize<Durin::FGuid>
+	};
 
 	using FScoreMap = std::unordered_map<std::string, Durin::int32>;
 	auto MapNum(const void* Container) -> Durin::uint64 { return static_cast<const FScoreMap*>(Container)->size(); }
@@ -100,6 +103,9 @@ namespace
 		{
 			static const Durin::DurinCodeGen::FPropertyParamsBase ValueProp = {"Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Value)), sizeof(Value), Durin::DurinCodeGen::EPropertyGenFlags::Int32};
 			static const Durin::DurinCodeGen::FPropertyParamsBase LabelProp = {"Label", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Label)), sizeof(Label), Durin::DurinCodeGen::EPropertyGenFlags::String};
+			static const Durin::DurinCodeGen::FGuidPropertyParams GuidProp = {"PersistentId", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, PersistentId)), sizeof(PersistentId), Durin::DurinCodeGen::EPropertyGenFlags::Guid};
+			static const Durin::DurinCodeGen::FGuidPropertyParams GuidInner = {"RelatedIds_Inner", Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::FGuid), Durin::DurinCodeGen::EPropertyGenFlags::Guid};
+			static const Durin::DurinCodeGen::FArrayPropertyParams GuidsProp = {"RelatedIds", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, RelatedIds)), sizeof(RelatedIds), Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, nullptr, &GuidInner, nullptr, nullptr, false, &GGuidVectorHelper};
 			static const Durin::DurinCodeGen::FPropertyParamsBase ScoreInner = {"Scores_Inner", Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32};
 			static const Durin::DurinCodeGen::FPropertyParamsBase ScoresProp = {"Scores", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Scores)), sizeof(Scores), Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, nullptr, &ScoreInner, nullptr, nullptr, false, &GIntVectorHelper};
 			static const Durin::DurinCodeGen::FPropertyParamsBase MapKeyProp = {"NamedScores_Key", Durin::EPropertyFlags::None, 1, 0, sizeof(std::string), Durin::DurinCodeGen::EPropertyGenFlags::String};
@@ -107,7 +113,7 @@ namespace
 			static const Durin::DurinCodeGen::FPropertyParamsBase NamedScoresProp = {"NamedScores", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, NamedScores)), sizeof(NamedScores), Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, nullptr, nullptr, &MapKeyProp, &MapValueProp, false, nullptr, &GScoreMapHelper};
 			static const Durin::DurinCodeGen::FPropertyParamsBase ChildProp = {"DefaultChild", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, DefaultChild)), sizeof(DefaultChild), Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass, nullptr, nullptr, nullptr, nullptr, true};
 			static const Durin::DurinCodeGen::FPropertyParamsBase ExternalProp = {"ExternalReference", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, ExternalReference)), sizeof(ExternalReference), Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass, nullptr, nullptr, nullptr, nullptr, true};
-			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&ValueProp, &LabelProp, &ScoresProp, &NamedScoresProp, &ChildProp, &ExternalProp};
+			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&ValueProp, &LabelProp, &GuidProp, &GuidsProp, &ScoresProp, &NamedScoresProp, &ChildProp, &ExternalProp};
 			static const Durin::DurinCodeGen::FClassParams Params = {&StaticClassNoRegister, "Tests::DPackageAssetForTest", "DPackageAssetForTest", Properties, std::size(Properties)};
 			static Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(Params);
 			return Class;
@@ -115,6 +121,8 @@ namespace
 
 		Durin::int32 Value = 0;
 		std::string Label;
+		Durin::FGuid PersistentId;
+		std::vector<Durin::FGuid> RelatedIds;
 		std::vector<Durin::int32> Scores;
 		FScoreMap NamedScores;
 		Durin::TObjectPtr<Durin::DObject> DefaultChild;
@@ -147,6 +155,8 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	Asset->Value = 42;
 	Asset->Label = "RoundTrip";
+	Asset->PersistentId = Durin::FGuid(0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff);
+	Asset->RelatedIds = {Durin::FGuid(1, 2, 3, 4), Durin::FGuid(5, 6, 7, 8)};
 	Asset->Scores = {3, 5, 8};
 	Asset->NamedScores = {{"Alpha", 11}, {"Beta", 17}};
 	ASSERT_NE(Asset->DefaultChild.Get(), nullptr);
@@ -163,6 +173,8 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->Value, 42);
 	EXPECT_EQ(Loaded->Label, "RoundTrip");
+	EXPECT_EQ(Loaded->PersistentId, (Durin::FGuid(0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff)));
+	EXPECT_EQ(Loaded->RelatedIds, (std::vector<Durin::FGuid>{Durin::FGuid(1, 2, 3, 4), Durin::FGuid(5, 6, 7, 8)}));
 	EXPECT_EQ(Loaded->Scores, (std::vector<Durin::int32>{3, 5, 8}));
 	EXPECT_EQ(Loaded->NamedScores.at("Alpha"), 11);
 	EXPECT_EQ(Loaded->NamedScores.at("Beta"), 17);

@@ -62,7 +62,19 @@ namespace
 		Durin::int32 Value = 0;
 		std::string Label;
 		Durin::FName Name;
+		Durin::FGuid Guid;
+		std::vector<Durin::FGuid> Guids;
 		std::vector<Durin::TObjectPtr<Durin::DObject>> References;
+	};
+
+	struct FNestedGuid
+	{
+		Durin::FGuid Value;
+	};
+
+	struct FNestedGuidOwner
+	{
+		FNestedGuid Nested;
 	};
 
 	auto ContainsObject(const Durin::DObject* Object) -> bool
@@ -88,7 +100,10 @@ namespace
 			Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FSnapshotOwner, Name)),
 			static_cast<Durin::uint16>(sizeof(Durin::FName)), Durin::DurinCodeGen::EPropertyGenFlags::Name, nullptr
 		);
-		FSnapshotOwner Owner{17, "before", Durin::FName("BeforeName_3")};
+		FSnapshotOwner Owner;
+		Owner.Value = 17;
+		Owner.Label = "before";
+		Owner.Name = Durin::FName("BeforeName_3");
 		Durin::FPropertyValueSnapshot ValueSnapshot;
 		Durin::FPropertyValueSnapshot LabelSnapshot;
 		Durin::FPropertyValueSnapshot NameSnapshot;
@@ -111,6 +126,71 @@ namespace
 		EXPECT_EQ(Duplicate, LabelSnapshot);
 		EXPECT_FALSE(Durin::RestorePropertyValue(&ValueProperty, &Owner, 0, LabelSnapshot, &Error));
 		EXPECT_FALSE(Error.empty());
+	}
+
+	TEST(FPropertyValueSnapshotTests, RestoresDirectNestedAndArrayGuidValuesByteForByte)
+	{
+		EnsureSnapshotTestsInitialized();
+		Durin::FGuidProperty GuidProperty(
+			Durin::FFieldVariant(), Durin::FName("Guid"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FSnapshotOwner, Guid)),
+			static_cast<Durin::uint16>(sizeof(Durin::FGuid)), Durin::DurinCodeGen::EPropertyGenFlags::Guid, nullptr
+		);
+		Durin::FArrayProperty GuidArrayProperty(
+			Durin::FFieldVariant(), Durin::FName("Guids"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FSnapshotOwner, Guids)),
+			static_cast<Durin::uint16>(sizeof(std::vector<Durin::FGuid>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &GSnapshotVectorHelper<Durin::FGuid>
+		);
+		Durin::FGuidProperty GuidArrayInner(
+			Durin::FFieldVariant(&GuidArrayProperty), Durin::FName("Guids_Inner"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, static_cast<Durin::uint16>(sizeof(Durin::FGuid)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Guid, nullptr
+		);
+		GuidArrayProperty.SetInner(&GuidArrayInner);
+
+		Durin::DStruct NestedStruct(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FNestedGuid"), Durin::FName("FNestedGuid"),
+			sizeof(FNestedGuid), alignof(FNestedGuid), Durin::EObjectFlags::Transient
+		);
+		Durin::FGuidProperty NestedValueProperty(
+			Durin::FFieldVariant(&NestedStruct), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FNestedGuid, Value)),
+			static_cast<Durin::uint16>(sizeof(Durin::FGuid)), Durin::DurinCodeGen::EPropertyGenFlags::Guid, nullptr
+		);
+		NestedStruct.ChildProperties = &NestedValueProperty;
+		Durin::FStructProperty NestedProperty(
+			Durin::FFieldVariant(), Durin::FName("Nested"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FNestedGuidOwner, Nested)),
+			static_cast<Durin::uint16>(sizeof(FNestedGuid)), Durin::DurinCodeGen::EPropertyGenFlags::Struct, &NestedStruct
+		);
+
+		const Durin::FGuid Direct(0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff);
+		const std::vector<Durin::FGuid> Array{
+			Durin::FGuid(1, 2, 3, 4), Durin::FGuid(0xffffffff, 0xabcdef01, 0x23456789, 0x87654321)
+		};
+		const Durin::FGuid Nested(0xdeadbeef, 0xcafebabe, 0x10203040, 0x50607080);
+		FSnapshotOwner Owner;
+		Owner.Guid = Direct;
+		Owner.Guids = Array;
+		FNestedGuidOwner NestedOwner{{Nested}};
+		Durin::FPropertyValueSnapshot DirectSnapshot, ArraySnapshot, NestedSnapshot;
+		std::string Error;
+
+		ASSERT_TRUE(Durin::CapturePropertyValue(&GuidProperty, &Owner, 0, DirectSnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::CapturePropertyValue(&GuidArrayProperty, &Owner, 0, ArraySnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::CapturePropertyValue(&NestedProperty, &NestedOwner, 0, NestedSnapshot, &Error)) << Error;
+		EXPECT_EQ(DirectSnapshot.GetBytes().size(), sizeof(Durin::FGuid));
+		Owner.Guid = {};
+		Owner.Guids = {Durin::FGuid(9, 9, 9, 9)};
+		NestedOwner.Nested.Value = {};
+		ASSERT_TRUE(Durin::RestorePropertyValue(&GuidProperty, &Owner, 0, DirectSnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::RestorePropertyValue(&GuidArrayProperty, &Owner, 0, ArraySnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::RestorePropertyValue(&NestedProperty, &NestedOwner, 0, NestedSnapshot, &Error)) << Error;
+
+		EXPECT_EQ(Owner.Guid, Direct);
+		EXPECT_EQ(Owner.Guids, Array);
+		EXPECT_EQ(NestedOwner.Nested.Value, Nested);
 	}
 
 	TEST(FPropertyValueSnapshotTests, KeepsNestedObjectReferencesAliveUntilReleased)

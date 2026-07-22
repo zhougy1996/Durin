@@ -22,6 +22,7 @@ PROPERTY_PARAM_BY_KIND = {
     "Bool": "FBoolPropertyParams",
     "String": "FStringPropertyParams",
     "Name": "FNamePropertyParams",
+    "Guid": "FGuidPropertyParams",
     "Enum": "FEnumPropertyParams",
     "Object": "FObjectPropertyParams",
     "Array": "FArrayPropertyParams",

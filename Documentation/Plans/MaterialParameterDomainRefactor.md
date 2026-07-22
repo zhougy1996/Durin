@@ -4,11 +4,12 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Planning is complete and implementation has not started. `FName` is supported
-by reflection, asset serialization, snapshots, and the generic property editor,
-but material APIs and storage still use `std::string_view` and three reflected
-string-keyed maps. The Material Editor uses a private fixed descriptor table and
-specialized scalar, color, and texture paths bound directly to those maps.
+Stage 0 is complete: Core provides `FGuid`, and GUID values are supported by
+DHT, reflection, object snapshots, asset serialization, and the generic property
+editor with undo/redo. Material APIs and storage still use `std::string_view`
+and three reflected string-keyed maps. The Material Editor uses a private fixed
+descriptor table and specialized scalar, color, and texture paths bound directly
+to those maps. Stage 1 has not started.
 
 This plan is an independently executable slice of Stage 2 in
 `Documentation/Plans/MaterialSystem.md`. Check off each stage only after its
@@ -105,13 +106,13 @@ dependency propagation, and render-thread snapshots.
 
 ### Stage 0: Establish FGuid Infrastructure
 
-- [ ] Implement `FGuid` storage, validity, equality/order, hashing, generation,
+- [x] Implement `FGuid` storage, validity, equality/order, hashing, generation,
   canonical formatting, and strict parsing in Core.
-- [ ] Add the GUID property kind, property class, generator parameters, cast
+- [x] Add the GUID property kind, property class, generator parameters, cast
   flags, construction, and DHT type recognition.
-- [ ] Add GUID handling to asset serialization, object graph archives, property
+- [x] Add GUID handling to asset serialization, object graph archives, property
   snapshots, comparisons, restore paths, and generic property display/editing.
-- [ ] Add DHT, Core, CoreDObject, AssetCore, and reflected editor tests for
+- [x] Add DHT, Core, CoreDObject, AssetCore, and reflected editor tests for
   direct, nested, and array GUID values.
 
 #### Acceptance Gate

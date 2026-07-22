@@ -17,6 +17,11 @@ namespace
 		Durin::int32 Value = 0;
 	};
 
+	struct FGuidValueContainer
+	{
+		Durin::FGuid Value;
+	};
+
 	struct FObjectValueContainer
 	{
 		Durin::TObjectPtr<Durin::DObject> Value;
@@ -111,6 +116,15 @@ namespace
 		);
 	}
 
+	auto MakeGuidProperty() -> std::unique_ptr<Durin::FGuidProperty>
+	{
+		return std::make_unique<Durin::FGuidProperty>(
+			Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::Edit, 1, static_cast<Durin::uint16>(offsetof(FGuidValueContainer, Value)),
+			static_cast<Durin::uint16>(sizeof(Durin::FGuid)), Durin::DurinCodeGen::EPropertyGenFlags::Guid, nullptr
+		);
+	}
+
 	template<typename T>
 	auto VectorNum(const void* Container) -> Durin::uint64 { return static_cast<Durin::uint64>(static_cast<const std::vector<T>*>(Container)->size()); }
 	template<typename T>
@@ -198,6 +212,35 @@ namespace
 		Target.Path.push_back({Property});
 		return Target;
 	}
+}
+
+TEST(FReflectedPropertyEditSessionTests, CommitsAndUndoRedoesGuidValues)
+{
+	auto Property = MakeGuidProperty();
+	const Durin::FGuid Original(1, 2, 3, 4);
+	const Durin::FGuid Proposed(0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff);
+	FGuidValueContainer Container{Original};
+	FGuidValueContainer ProposedContainer{Proposed};
+	DEditObserver Object;
+	Durin::FPropertyValueSnapshot ProposedSnapshot;
+	ASSERT_TRUE(Durin::CapturePropertyValue(Property.get(), &ProposedContainer, 0, ProposedSnapshot));
+
+	Durin::FReflectedPropertyEditTarget Target;
+	Target.Object = &Object;
+	Target.MemberProperty = Property.get();
+	Target.LeafProperty = Property.get();
+	Target.LeafContainer = &Container;
+	Target.Path.push_back({Property.get()});
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(Target, "Edit Guid", nullptr, nullptr, &Transactions));
+	EXPECT_EQ(Session.Apply(ProposedSnapshot), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_EQ(Container.Value, Proposed);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Container.Value, Original);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Container.Value, Proposed);
 }
 
 TEST(FReflectedPropertyEditSessionTests, AppliesInteractiveValuesAndCommitsOnce)

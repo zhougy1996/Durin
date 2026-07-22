@@ -86,6 +86,13 @@ namespace Durin
 				if (Ar.IsLoading()) *Value = FName(SerializedValue);
 				break;
 			}
+			case DurinCodeGen::EPropertyGenFlags::Guid:
+			{
+				auto* GuidProperty = static_cast<FGuidProperty*>(Property);
+				FGuid* Value = GuidProperty->GetGuidValuePtr(Container, ArrayIndex);
+				Ar << Value->A << Value->B << Value->C << Value->D;
+				break;
+			}
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			{
 				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
@@ -194,6 +201,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Enum:
 			case DurinCodeGen::EPropertyGenFlags::String:
 			case DurinCodeGen::EPropertyGenFlags::Name:
+			case DurinCodeGen::EPropertyGenFlags::Guid:
 			case DurinCodeGen::EPropertyGenFlags::Object:
 				return true;
 			case DurinCodeGen::EPropertyGenFlags::Struct:

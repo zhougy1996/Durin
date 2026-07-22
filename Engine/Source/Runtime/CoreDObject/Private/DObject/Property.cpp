@@ -32,6 +32,7 @@ namespace Durin
 	IMPLEMENT_FIELD(FBoolProperty, FProperty, EClassCastFlags::FBoolProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FStringProperty, FProperty, EClassCastFlags::FStringProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FNameProperty, FProperty, EClassCastFlags::FNameProperty, COREDOBJECT_API)
+	IMPLEMENT_FIELD(FGuidProperty, FProperty, EClassCastFlags::FGuidProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FEnumProperty, FProperty, EClassCastFlags::FEnumProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FObjectProperty, FProperty, EClassCastFlags::FObjectProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FStructProperty, FProperty, EClassCastFlags::FStructProperty, COREDOBJECT_API)
@@ -150,6 +151,28 @@ namespace Durin
 	}
 
 	FNameProperty::FNameProperty(
+		FFieldVariant InOwner,
+		FName InName,
+		EObjectFlags InObjectFlags,
+		EPropertyFlags InPropertyFlags,
+		uint16 InArrayDim,
+		uint16 InOffset,
+		uint16 InElementSize,
+		DurinCodeGen::EPropertyGenFlags InKind,
+		DClass* InReferencedClass
+	)
+		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass)
+	{
+		ClassPrivate = StaticClass();
+	}
+
+	FGuidProperty::FGuidProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
+		: FProperty(InOwner, InName, InObjectFlags)
+	{
+		ClassPrivate = StaticClass();
+	}
+
+	FGuidProperty::FGuidProperty(
 		FFieldVariant InOwner,
 		FName InName,
 		EObjectFlags InObjectFlags,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DObject/Property.h"
+#include "Misc/Guid.h"
 
 namespace Durin
 {
@@ -97,6 +98,35 @@ namespace Durin
 		auto GetNameValuePtr(const void* Container, uint32 ArrayIndex = 0) const -> const FName*
 		{
 			return ContainerPtrToValuePtr<FName>(Container, ArrayIndex);
+		}
+	};
+
+	class FGuidProperty : public FProperty
+	{
+		DECLARE_FIELD(FGuidProperty, FProperty, EClassCastFlags::FGuidProperty, COREDOBJECT_API)
+	public:
+		COREDOBJECT_API FGuidProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags);
+
+		COREDOBJECT_API FGuidProperty(
+			FFieldVariant InOwner,
+			FName InName,
+			EObjectFlags InObjectFlags,
+			EPropertyFlags InPropertyFlags,
+			uint16 InArrayDim,
+			uint16 InOffset,
+			uint16 InElementSize,
+			DurinCodeGen::EPropertyGenFlags InKind,
+			DClass* InReferencedClass
+		);
+
+		auto GetGuidValuePtr(void* Container, uint32 ArrayIndex = 0) const -> FGuid*
+		{
+			return ContainerPtrToValuePtr<FGuid>(Container, ArrayIndex);
+		}
+
+		auto GetGuidValuePtr(const void* Container, uint32 ArrayIndex = 0) const -> const FGuid*
+		{
+			return ContainerPtrToValuePtr<FGuid>(Container, ArrayIndex);
 		}
 	};
 

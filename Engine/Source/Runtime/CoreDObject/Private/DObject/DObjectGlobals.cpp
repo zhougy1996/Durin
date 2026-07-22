@@ -67,6 +67,19 @@ namespace Durin
 					ReferencedClass
 				);
 				break;
+			case DurinCodeGen::EPropertyGenFlags::Guid:
+				Property = new FGuidProperty(
+					Owner,
+					FName(PropertyParams->NameUTF8),
+					EObjectFlags::NoFlags,
+					PropertyParams->Flags,
+					PropertyParams->ArrayDim,
+					PropertyParams->Offset,
+					PropertyParams->ElementSize,
+					PropertyParams->Kind,
+					ReferencedClass
+				);
+				break;
 			case DurinCodeGen::EPropertyGenFlags::Enum:
 				Property = new FEnumProperty(
 					Owner,

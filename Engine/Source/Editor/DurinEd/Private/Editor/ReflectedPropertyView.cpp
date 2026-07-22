@@ -44,6 +44,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Double: return "double";
 			case DurinCodeGen::EPropertyGenFlags::String: return "string";
 			case DurinCodeGen::EPropertyGenFlags::Name: return "name";
+			case DurinCodeGen::EPropertyGenFlags::Guid: return "guid";
 			case DurinCodeGen::EPropertyGenFlags::Enum: return "enum";
 			case DurinCodeGen::EPropertyGenFlags::Object: return "object";
 			case DurinCodeGen::EPropertyGenFlags::Struct: return "struct";
@@ -553,6 +554,21 @@ namespace Durin
 			CaptureResult(bChanged, true, {ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()});
 			if (bChanged) Result.AssignValue = [Value = std::move(Value)](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
 				*static_cast<FNameProperty*>(DestinationProperty)->GetNameValuePtr(DestinationContainer, DestinationArrayIndex) = FName(Value);
+			};
+		}
+		else if (Kind == DurinCodeGen::EPropertyGenFlags::Guid)
+		{
+			auto* GuidProperty = static_cast<FGuidProperty*>(Property);
+			std::string Value = GuidProperty->GetGuidValuePtr(Container, ArrayIndex)->ToString();
+			const bool bTextChanged = MonaImGui::InputText("##Value", Value);
+			const MonaImGui::FPropertyEditWidgetState State{
+				ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()
+			};
+			FGuid ParsedValue;
+			const bool bChanged = bTextChanged && FGuid::Parse(Value, ParsedValue);
+			CaptureResult(bChanged, true, State);
+			if (bChanged) Result.AssignValue = [ParsedValue](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
+				*static_cast<FGuidProperty*>(DestinationProperty)->GetGuidValuePtr(DestinationContainer, DestinationArrayIndex) = ParsedValue;
 			};
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)

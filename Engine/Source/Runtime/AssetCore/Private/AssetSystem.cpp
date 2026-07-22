@@ -203,6 +203,15 @@ namespace Durin::Asset
 			case DurinCodeGen::EPropertyGenFlags::Name:
 				Writer.WriteString(static_cast<FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex)->ToString());
 				return {};
+			case DurinCodeGen::EPropertyGenFlags::Guid:
+			{
+				const FGuid& Value = *static_cast<FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex);
+				Writer.Write(Value.A);
+				Writer.Write(Value.B);
+				Writer.Write(Value.C);
+				Writer.Write(Value.D);
+				return {};
+			}
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			{
 				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
@@ -315,6 +324,14 @@ namespace Durin::Asset
 				std::string Value;
 				if (!Reader.ReadString(Value)) return Error(EAssetError::CorruptFile, "Truncated name property.");
 				*static_cast<FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex) = FName(Value);
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Guid:
+			{
+				FGuid Value;
+				if (!Reader.Read(Value.A) || !Reader.Read(Value.B) || !Reader.Read(Value.C) || !Reader.Read(Value.D))
+					return Error(EAssetError::CorruptFile, "Truncated GUID property.");
+				*static_cast<FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex) = Value;
 				return {};
 			}
 			case DurinCodeGen::EPropertyGenFlags::Object:

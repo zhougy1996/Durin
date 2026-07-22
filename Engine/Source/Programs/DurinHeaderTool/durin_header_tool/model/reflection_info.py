@@ -8,7 +8,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "17"
+TOOL_VERSION = "18"
 MAX_CONTAINER_PROPERTY_DEPTH = 4
 
 
@@ -147,6 +147,8 @@ _PROPERTY_KIND_BY_TYPE = {
     "std::string": "String",
     "FName": "Name",
     "Durin::FName": "Name",
+    "FGuid": "Guid",
+    "Durin::FGuid": "Guid",
 }
 
 _PROPERTY_FLAG_BY_SPECIFIER = {
@@ -516,6 +518,8 @@ def _cpp_type_spelling(type_spelling: str, exported_symbols: dict[str, object] |
         "float": "float",
         "double": "double",
         "std::string": "std::string",
+        "FGuid": "Durin::FGuid",
+        "Durin::FGuid": "Durin::FGuid",
     }
     if type_spelling in primitive_types:
         return primitive_types[type_spelling]
@@ -583,6 +587,7 @@ def _source_property_from_type_spelling(
             "Double": "sizeof(double)",
             "String": "sizeof(std::string)",
             "Name": "sizeof(Durin::FName)",
+            "Guid": "sizeof(Durin::FGuid)",
         }
         return ReflectedPropertyInfo(name=name, type_name=type_spelling, kind=kind, array_dim=array_dim, element_size=size_by_kind[kind], flags=flags)
 

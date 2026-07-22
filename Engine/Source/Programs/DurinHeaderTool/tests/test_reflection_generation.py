@@ -75,7 +75,14 @@ namespace Durin
     struct FVector3 {};
     struct FLinearColor {};
     class FName {};
+    struct FGuid {};
     class DObject {};
+}
+
+namespace std
+{
+    template<typename T>
+    class vector {};
 }
 
 namespace Fixture
@@ -93,6 +100,12 @@ namespace Fixture
 
         DPROPERTY(Edit)
         Durin::FName Identifier{};
+
+        DPROPERTY(Edit)
+        Durin::FGuid PersistentId{};
+
+        DPROPERTY()
+        std::vector<Durin::FGuid> RelatedIds;
     };
 
     DSTRUCT()
@@ -181,7 +194,7 @@ namespace Fixture
     def test_class_display_and_default_object_name_metadata(self):
         self.assertIn('"Fixture::ASampleActor",', self.generated_cpp)
         self.assertIn('"ASampleActor",', self.generated_cpp)
-        self.assertIn('3,\n\t"Sample Actor",', self.generated_cpp)
+        self.assertIn('5,\n\t"Sample Actor",', self.generated_cpp)
         self.assertIn('"Sample Actor",', self.generated_cpp)
         self.assertIn('"SampleActor"', self.generated_cpp)
 
@@ -208,6 +221,12 @@ namespace Fixture
     def test_fname_property_is_generated(self):
         self.assertIn("Durin::DurinCodeGen::FNamePropertyParams NewProp_Identifier", self.generated_cpp)
         self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Name", self.generated_cpp)
+
+    def test_guid_properties_are_generated_directly_and_in_arrays(self):
+        self.assertIn("Durin::DurinCodeGen::FGuidPropertyParams NewProp_PersistentId", self.generated_cpp)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Guid", self.generated_cpp)
+        self.assertIn("Durin::DurinCodeGen::FArrayPropertyParams NewProp_RelatedIds", self.generated_cpp)
+        self.assertIn("Durin::DurinCodeGen::FGuidPropertyParams NewProp_RelatedIds_Inner", self.generated_cpp)
 
     def test_brace_initialized_intrinsic_struct_properties_are_generated(self):
         for property_name in ("Position", "Tangent"):
