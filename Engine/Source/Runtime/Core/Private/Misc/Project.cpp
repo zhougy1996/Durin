@@ -91,7 +91,10 @@ namespace Durin
 	auto LaunchPendingEditorRelaunch(std::string* OutError) -> bool
 	{
 		if (!GPendingEditorRelaunchArguments) return true;
-		const std::string Arguments = std::format("--wait-for-process={} {}", FPlatformProcess::CurrentProcessId(), *GPendingEditorRelaunchArguments);
+		const std::string HiddenWindowArgument = GIsWindowDisplaySuppressed ? " --hidden-window" : "";
+		const std::string Arguments = std::format(
+			"--wait-for-process={} {}{}", FPlatformProcess::CurrentProcessId(), *GPendingEditorRelaunchArguments, HiddenWindowArgument
+		);
 		GPendingEditorRelaunchArguments.reset();
 		return FPlatformProcess::LaunchProcess(FPlatformProcess::ExecutablePath(), Arguments, OutError);
 	}

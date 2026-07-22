@@ -5,6 +5,7 @@
 namespace Durin
 {
 	bool GIsRequestingExit = false;
+	bool GIsWindowDisplaySuppressed = false;
 
 	std::vector<const char*> GMonaRequiredVulkanInstanceExtensions;
 

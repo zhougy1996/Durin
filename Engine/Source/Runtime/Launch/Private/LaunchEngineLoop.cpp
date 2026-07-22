@@ -40,6 +40,7 @@ namespace Durin
 	{
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
+		GIsWindowDisplaySuppressed = std::ranges::find(Arguments, std::string_view("--hidden-window")) != Arguments.end();
 
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());

@@ -4,6 +4,7 @@
 #include "Application/GenericApplication.h"
 #include "Application/GenericApplicationMessageHandler.h"
 #include "ApplicationCore.h"
+#include "CoreGlobals.h"
 
 #if defined(_WIN32)
 #include <dwmapi.h>
@@ -505,6 +506,7 @@ namespace Durin
 
 	auto FGlfwWindow::Show() -> void
 	{
+		if (GIsWindowDisplaySuppressed) return;
 		glfwShowWindow(GlfwWindow);
 	}
 

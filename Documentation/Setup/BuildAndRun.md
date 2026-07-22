@@ -69,6 +69,20 @@ the final `--args` option:
 .\BuildTool run --preset Win64-Debug-DurinGame --args -ExampleArgument
 ```
 
+For unattended runtime smoke tests, pass `--hidden-window` to suppress every
+native application window, including secondary UI viewports:
+
+```powershell
+.\BuildTool run --args --hidden-window
+```
+
+An interactive `BuildTool run` can be stopped with Ctrl+C; BuildTool terminates
+the tracked application job and any relaunched descendants. For a timed Windows
+smoke test, launch the runtime with PowerShell `Start-Process`, pass
+`--hidden-window`, retain the process returned by `-PassThru`, and stop that
+process after verification. `-WindowStyle Hidden` only affects process startup
+and is not a substitute for the application argument.
+
 Select another registered configure preset with `--preset`:
 
 ```powershell

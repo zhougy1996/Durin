@@ -11,6 +11,10 @@ namespace Durin
 	// RequestEngineExit() and IsEngineExitRequested() are the functions to use.
 	extern CORE_API bool GIsRequestingExit;
 
+	// Launch sets this for unattended runtime validation so every native window,
+	// including secondary UI viewports, remains hidden for the process lifetime.
+	extern CORE_API bool GIsWindowDisplaySuppressed;
+
 	FORCEINLINE auto RequestEngineExit() -> void
 	{
 		GIsRequestingExit = true;
