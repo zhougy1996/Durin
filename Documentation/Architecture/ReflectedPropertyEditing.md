@@ -17,7 +17,7 @@ It provides:
 - one Undo/Redo entry for one continuous interaction;
 - array and map value and structural transactions;
 - detached pre-apply validation and normalization for generic mutations;
-- setter-backed mutation adapters for properties with runtime invariants; and
+- object hook implementations for properties with runtime invariants; and
 - an embeddable reflected-property view shared by Details and domain editors.
 
 It does not make every runtime property assignment observable, replace gameplay
@@ -39,7 +39,7 @@ FReflectedPropertyEditSession
   captures, applies, commits, or cancels one logical edit
         |
         +--> generic detached draft + DObject::PreEditChangeProperty()
-        |      or a registered semantic mutation adapter
+        |      or a registered exceptional mutation adapter
         |
         +--> DObject::PostEditChangeProperty()
         |
@@ -74,13 +74,13 @@ Current built-in composition includes:
 - Spline transform, curve settings, and point rows.
 
 `DStaticMeshComponent.Materials` uses the ordinary reflected array editor. Its
-registered mutation adapter preserves `SetMaterial(index, value)` semantics for
-element edits and Undo/Redo without a Level Editor-specific asset picker.
+object hooks validate the detached array and reconcile material dependencies,
+the serialized slot-zero mirror, and render state after generic writes.
 
 Details owns only the inspected object, search input, table, and customization
 dispatch. It contains no Actor or static-mesh type branches. Real property rows
 still enter `EditProperty()`, while custom controls submit through the same
-session and mutation-adapter pipeline.
+session and mutation pipeline.
 
 ## Object Notification Contract
 
@@ -111,10 +111,11 @@ indices, dynamic-array indices, and map keys. Map entries use serialized key
 data instead of iteration indices because rehashing can reorder entries.
 Path spans and key bytes are valid only for the synchronous callback.
 
-Objects use the post hook to refresh derived runtime state. For example,
-`DMaterialInterface` invalidates material render data for edits to base and
-override parameter maps. Generic validation happens on the detached proposal;
-existing semantic adapters retain legacy validation until their migration.
+Objects use the post hook to refresh derived runtime state. Scene transforms
+refresh their hierarchy, splines rebuild curve caches, static-mesh components
+reconcile material dependencies and render state, and materials invalidate
+dependent render data. Camera projection and material-parent validation happen
+on the detached proposal before the generic write.
 
 ## Property Snapshots
 
@@ -146,7 +147,7 @@ build targets without making panels reconstruct path rules themselves. Leaf
 addresses are construction-time conveniences only; active sessions and
 transactions retain stable roots and paths and re-resolve ephemeral storage.
 
-## Mutation Adapters
+## Generic Mutation and Exceptional Adapters
 
 The generic path reads and writes the stable reflected snapshot root. It
 captures live state, restores the candidate into an internal detached draft,
@@ -154,24 +155,19 @@ invokes the pre hook, captures the normalized draft, writes live storage once,
 and recaptures the actual value. A failed write or recapture attempts rollback
 and emits no post event. Same-target nested edits from a hook are rejected.
 
-A process-lifetime registry still supplies semantic adapters for properties that must
-call setters or enforce invariants. Current built-in registrations cover:
+All current built-in semantic properties use this generic path. Transform
+quaternion normalization, camera cross-field clamping, spline step clamping,
+material type checks, and material-parent cycle rejection live in pre hooks.
+Hierarchy/cache/render/dependency reactions live in post hooks. Static-mesh
+material and material-instance parent dependencies keep derived mirrors so a
+post hook can compare the newly written canonical storage with the previously
+registered dependencies without a setter-plus-direct-storage dual write.
 
-- `DSceneComponent.RelativeTransform` through `SetRelativeTransform()`;
-- `DCameraComponent.ProjectionSettings` and its nested fields through the
-  atomic projection/aspect-ratio setters;
-- `DSplineComponent.SplineCurve` and its nested point/setting paths through the
-  spline component setters, including curve-cache rebuilds;
-- `DStaticMeshComponent.StaticMesh` through `SetStaticMesh()`;
-- `DStaticMeshComponent.Material` through `SetMaterial()`;
-- `DStaticMeshComponent.Materials[index]` through `SetMaterial(index, value)`; and
-- `DMaterialInstance.Parent` through `SetParent()`, including cycle rejection.
-
-Transactions retain the selected adapter for later Undo/Redo, so registered
-adapters must have process lifetime. Registration lookup supports base classes;
-later and more-derived registrations take precedence. Registrations are keyed by
-the object-owned member, allowing a deliberate container adapter to interpret a
-nested path while retaining the member snapshot as its stable mutation root.
+The process-lifetime adapter registry remains temporarily available as an
+exception mechanism and for compatibility tests, but has no built-in
+registrations. Transactions retain an explicitly selected exceptional adapter
+for later Undo/Redo. Lookup walks the edited object's class hierarchy from most
+derived to base, so selection is independent of registration order.
 
 ## Edit Session Lifecycle
 
@@ -185,7 +181,7 @@ Begin(target)
 
 Apply(proposal)
   validate/normalize a detached draft on the generic path
-  atomically apply and recapture the actual value, or use the selected adapter
+  atomically apply and recapture the actual value, or use an exceptional adapter
   notify Interactive when it changed
 
 Commit()
@@ -212,9 +208,9 @@ state, or workspace activity changes so errors can be reported deliberately.
 ## Transactions and Dirty State
 
 `FReflectedPropertyTransaction` retains the target, before/after snapshots,
-description, and selected adapter. Generic Undo and Redo use the same detached
-pre-apply and rollback path as interactive edits; legacy semantic properties
-still use their adapter. Both deliver the same post notification with the
+description, and selected mutation implementation. Generic Undo and Redo use
+the same detached pre-apply and rollback path as interactive edits. Both
+deliver the same post notification with the
 corresponding origin.
 
 The session calls `FEditorTransactionManager::CommitApplied()` because the live
@@ -283,10 +279,10 @@ explicit `MapKeyRename`; they never write key storage inside the live map.
 
 Custom widgets can use `SubmitPropertyValueEdit()` to retain their presentation
 while sharing proposal capture, session lifecycle, notifications, and history.
-Proposal callbacks receive a leaf resolved inside generated scratch-value storage;
+Proposal callbacks receive a leaf resolved inside generated draft storage;
 they never mutate the live object while constructing the proposed snapshot. Runtime
 setters, cache rebuilds, and other semantic side effects therefore run only through
-the selected mutation adapter when the proposal is applied.
+the object hooks when the proposal is applied.
 Camera and Spline customizations use it for their semantic layouts and actions;
 Material Editor uses it for its parent picker and uses stable string-map bindings
 for parameter values and override presence. Object-details customizations are
@@ -322,9 +318,9 @@ transactions are delegated to the view.
 Spline Details now routes transform, curve settings, point values, and point
 structural actions through the shared view while retaining its custom layout.
 Camera Details similarly routes FOV, clip planes, aspect-ratio mode, and custom
-ratio through a stable `ProjectionSettings -> Leaf` path. Its adapter snapshots
-the whole settings structure so clamping one field can safely update another
-and Cancel or Undo restores the complete projection state.
+ratio through a stable `ProjectionSettings -> Leaf` path. The draft snapshots
+the whole settings structure so its pre hook can clamp one field and safely
+update another; Cancel and Undo restore the complete projection state.
 
 ## Validation
 
@@ -336,7 +332,7 @@ Automated coverage currently verifies:
 - object and snapshot reference lifetime;
 - array and map stable paths and structural restoration;
 - binding re-resolution after map rehash and presence across Undo/Redo;
-- semantic adapter rejection and Undo/Redo behavior;
+- generic semantic-hook rejection, normalization, reactions, and Undo/Redo;
 - material parameter render invalidation; and
 - material override insertion through shared transaction history; and
 - spline continuous edits, Cancel, structural edits, stable nested paths, cache

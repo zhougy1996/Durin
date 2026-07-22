@@ -53,6 +53,8 @@ namespace Durin
 
 		ENGINE_API auto UpdateSpline() -> void;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:
 		auto TransformTangentToWorld(const FVector3& LocalTangent) const -> FVector3;

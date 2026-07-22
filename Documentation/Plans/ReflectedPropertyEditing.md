@@ -9,11 +9,12 @@ transactions, bindings, and semantic mutation adapters are implemented. The
 remaining UI migration and validation work is now secondary to simplifying the
 mutation model itself.
 
-Phases 0 through 2 are complete: adapter semantics are classified, proposal
+Phases 0 through 3 are complete: adapter semantics are classified, proposal
 storage is owned by an internal property draft, active sessions/transactions
 re-resolve ephemeral leaf storage, and generic mutations now pass through
-detached object validation/normalization with rollback protection. Phase 3 is
-next but has not started.
+detached object validation/normalization with rollback protection. All built-in
+semantic adapters have been migrated to object hooks, leaving no proven policy
+exception. Phase 4 is next but has not started.
 
 The current implementation exposes too many overlapping concepts: the view
 constructs proposals in scratch storage, edit targets retain both stable and
@@ -290,18 +291,18 @@ thread-local target guard rejects same-target nested edits from object hooks.
 
 ### Stage 3: Migrate Semantic Adapters
 
-- [ ] Move `RelativeTransform` validation and scene/render reactions into the
+- [x] Move `RelativeTransform` validation and scene/render reactions into the
   object hook split while preserving `SetRelativeTransform()` behavior.
-- [ ] Move camera projection cross-field normalization into detached pre-apply
-  handling and projection refresh into post-apply handling.
-- [ ] Move spline validation and curve-cache rebuilds into the hook split.
-- [ ] Move static-mesh assignment and material-slot resource reactions into
+- [x] Move camera projection cross-field normalization into detached pre-apply
+  handling and confirm there is no separate projection cache to refresh.
+- [x] Move spline validation and curve-cache rebuilds into the hook split.
+- [x] Move static-mesh assignment and material-slot resource reactions into
   post-apply handling without setter-plus-direct-storage dual writes.
-- [ ] Move material-parent cycle rejection into pre-apply handling and material
+- [x] Move material-parent cycle rejection into pre-apply handling and material
   invalidation into post-apply handling.
-- [ ] Replace any proven exceptions with narrowly registered
+- [x] Replace any proven exceptions with narrowly registered
   `IPropertyMutationPolicy` implementations and delete migrated adapters.
-- [ ] Make policy resolution independent of registration order and add
+- [x] Make policy resolution independent of registration order and add
   base/derived-class selection coverage.
 
 #### Acceptance Gate
@@ -310,6 +311,21 @@ thread-local target guard rejects same-target nested edits from object hooks.
   scene/render refresh, Cancel, and Undo/Redo behavior.
 - The generic path is used unless a Stage 0 policy exception was proven.
 - No implementation decodes a proposal by temporarily writing live storage.
+
+#### Implementation Result
+
+The seven former built-in registrations now use the generic atomic path.
+Transform, camera, spline, material-array, and material-parent pre hooks read
+and normalize or reject detached draft roots directly. Post hooks rebuild
+transform/spline derived state and reconcile static-mesh material bindings,
+slot-zero compatibility storage, render state, and material parent dependency
+links for Interactive, Cancel, Undo, and Redo.
+
+No current property required an `IPropertyMutationPolicy`. The legacy adapter
+registry remains only as a temporary exceptional/compatibility API pending the
+Stage 6 surface cleanup; it has no built-in registrations. Its lookup now walks
+most-derived to base class, with coverage proving that reverse registration
+order does not change selection.
 
 ### Stage 4: Simplify Session and Transaction Semantics
 

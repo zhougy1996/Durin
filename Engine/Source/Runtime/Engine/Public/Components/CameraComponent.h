@@ -58,6 +58,7 @@ namespace Durin
 		ENGINE_API auto GetProjectionSettings() const -> const FCameraProjectionSettings&;
 		ENGINE_API auto SetProjectionSettings(const FCameraProjectionSettings& InSettings) -> void;
 		ENGINE_API auto ResolveAspectRatio(float ViewportAspectRatio) const -> float;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 
 		ENGINE_API auto SetLookAt(const FVector3& InLocation, const FVector3& InTarget) -> void;
 		ENGINE_API auto GetViewMatrix() const -> FMatrix;

@@ -566,7 +566,7 @@ TEST(FMaterialTests, UnknownAndMismatchedSettersDoNotInvalidateRenderState)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, RegisteredParentAdapterRejectsCyclesWithoutCreatingHistory)
+TEST(FMaterialTests, ParentHookRejectsCyclesWithoutCreatingHistory)
 {
 	Durin::DMaterialInstance* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CycleFirst");
 	Durin::DMaterialInstance* Second = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CycleSecond");

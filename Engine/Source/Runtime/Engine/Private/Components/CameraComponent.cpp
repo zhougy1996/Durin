@@ -1,5 +1,6 @@
 #include "Components/CameraComponent.h"
 
+#include "DObject/Property.h"
 #include <glm/gtc/quaternion.hpp>
 
 namespace Durin
@@ -107,6 +108,20 @@ namespace Durin
 	{
 		SetProjectionParameters(InSettings.FieldOfViewDegrees, InSettings.NearClip, InSettings.FarClip);
 		SetAspectRatio(InSettings.AspectRatioMode, InSettings.CustomAspectRatio);
+	}
+
+	auto DCameraComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	{
+		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (!Proposal.MemberProperty || Proposal.MemberProperty->NamePrivate != FName("ProjectionSettings")
+			|| Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return true;
+		auto* Settings = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FCameraProjectionSettings>(
+			Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+		Settings->FieldOfViewDegrees = std::clamp(Settings->FieldOfViewDegrees, 1.0f, 170.0f);
+		Settings->NearClip = std::max(Settings->NearClip, 0.001f);
+		Settings->FarClip = std::max(Settings->FarClip, Settings->NearClip + 1.0f);
+		Settings->CustomAspectRatio = std::clamp(Settings->CustomAspectRatio, 0.1f, 10.0f);
+		return true;
 	}
 
 	auto DCameraComponent::ResolveAspectRatio(float ViewportAspectRatio) const -> float

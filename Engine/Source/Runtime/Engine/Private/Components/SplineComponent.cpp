@@ -1,5 +1,7 @@
 #include "Components/SplineComponent.h"
 
+#include "DObject/Property.h"
+
 namespace Durin
 {
 	namespace
@@ -132,6 +134,26 @@ namespace Durin
 		if (!Super::PostLoad(OutError)) return false;
 		UpdateSpline();
 		return true;
+	}
+
+	auto DSplineComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	{
+		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (Proposal.MemberProperty && Proposal.MemberProperty->NamePrivate == FName("SplineCurve")
+			&& Proposal.DraftRootProperty == Proposal.MemberProperty && Proposal.DraftRootContainer)
+		{
+			auto* Curve = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FSplineCurve>(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+			Curve->SetReparamStepsPerSegment(std::clamp(Curve->GetReparamStepsPerSegment(), 1, 1024));
+		}
+		return true;
+	}
+
+	auto DSplineComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("SplineCurve")
+			&& (Event.Phase != EPropertyChangePhase::Committed || Event.Origin != EPropertyChangeOrigin::Edit)) UpdateSpline();
 	}
 
 	auto DSplineComponent::TransformTangentToWorld(const FVector3& LocalTangent) const -> FVector3

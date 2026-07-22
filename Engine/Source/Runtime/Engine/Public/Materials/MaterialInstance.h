@@ -32,12 +32,16 @@ namespace Durin
 		auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		auto BeginDestroy() -> void override;
 		auto PostLoad(std::string& OutError) -> bool override;
+		auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
+		auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:
 		auto OnParentRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
+		auto ReconcileParentDependency() -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DMaterialInterface> Parent;
+		TObjectPtr<DMaterialInterface> RegisteredParent;
 
 		DPROPERTY(Edit)
 		std::unordered_map<std::string, float> ScalarParameterOverrides;

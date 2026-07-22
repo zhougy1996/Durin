@@ -2,16 +2,11 @@
 #include "Editor/PropertyValueDraft.h"
 
 #include "DObject/DObjectArray.h"
+#include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
-#include "Components/SceneComponent.h"
-#include "Components/CameraComponent.h"
-#include "Components/SplineComponent.h"
-#include "Components/StaticMeshComponent.h"
-#include "Materials/MaterialInstance.h"
-#include "StaticMesh/StaticMesh.h"
 
 namespace Durin
 {
@@ -152,255 +147,6 @@ namespace Durin
 			return true;
 		}
 
-		auto DecodeObjectProposal(
-			const FReflectedPropertyEditTarget& Target,
-			const FPropertyValueSnapshot& Snapshot,
-			DObject*& OutValue,
-			FPropertyValueSnapshot& OutPrevious,
-			std::string* OutError
-		) -> bool
-		{
-			const auto& Generic = GetGenericReflectedPropertyMutationAdapter();
-			if (!Generic.Capture(Target, OutPrevious, OutError) || !Generic.Apply(Target, Snapshot, OutError)) return false;
-			auto* ObjectProperty = static_cast<const FObjectProperty*>(Target.LeafProperty);
-			OutValue = ObjectProperty->GetObjectPropertyValue(Target.LeafContainer, Target.LeafArrayIndex);
-			return Generic.Restore(Target, OutPrevious, OutError);
-		}
-
-		class FRelativeTransformMutationAdapter final : public IReflectedPropertyMutationAdapter
-		{
-		public:
-			auto Capture(const FReflectedPropertyEditTarget& Target, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
-			{
-				return GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
-			}
-			auto Apply(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-			{
-				return ApplySnapshot(Target, Snapshot, OutError);
-			}
-			auto Restore(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-			{
-				return ApplySnapshot(Target, Snapshot, OutError);
-			}
-
-		private:
-			static auto ApplySnapshot(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) -> bool
-			{
-				const auto& Generic = GetGenericReflectedPropertyMutationAdapter();
-				FPropertyValueSnapshot Previous;
-				if (!Generic.Capture(Target, Previous, OutError) || !Generic.Apply(Target, Snapshot, OutError)) return false;
-				const FTransform Value = *Target.LeafProperty->ContainerPtrToValuePtr<FTransform>(Target.LeafContainer, Target.LeafArrayIndex);
-				if (!Generic.Restore(Target, Previous, OutError)) return false;
-				Cast<DSceneComponent>(Target.Object)->SetRelativeTransform(Value);
-				return true;
-			}
-		};
-
-		class FSplineCurveMutationAdapter final : public IReflectedPropertyMutationAdapter
-		{
-		public:
-			auto Capture(const FReflectedPropertyEditTarget& Target, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
-			{
-				return GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
-			}
-			auto Apply(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-			{
-				return ApplySnapshot(Target, Snapshot, OutError);
-			}
-			auto Restore(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-			{
-				return ApplySnapshot(Target, Snapshot, OutError);
-			}
-
-		private:
-			static auto ApplySnapshot(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) -> bool
-			{
-				auto* Component = Cast<DSplineComponent>(Target.Object);
-				auto* CurveProperty = Target.SnapshotProperty
-					&& Target.SnapshotProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
-					? static_cast<const FStructProperty*>(Target.SnapshotProperty) : nullptr;
-				if (!Component || !CurveProperty || CurveProperty->GetStruct() != FSplineCurve::StaticStruct())
-					return Fail(OutError, "The spline curve metadata is unavailable.");
-
-				const auto& Generic = GetGenericReflectedPropertyMutationAdapter();
-				FPropertyValueSnapshot Previous;
-				if (!Generic.Capture(Target, Previous, OutError) || !Generic.Apply(Target, Snapshot, OutError)) return false;
-				const FSplineCurve DesiredCurve = *Target.SnapshotProperty->ContainerPtrToValuePtr<FSplineCurve>(
-					Target.SnapshotContainer, Target.SnapshotArrayIndex);
-				if (!Generic.Restore(Target, Previous, OutError)) return false;
-
-				if (Component->GetSplinePoints() != DesiredCurve.GetPoints())
-					Component->SetSplinePoints(DesiredCurve.GetPoints());
-				if (Component->IsClosedLoop() != DesiredCurve.IsClosedLoop())
-					Component->SetClosedLoop(DesiredCurve.IsClosedLoop());
-				if (Component->GetReparamStepsPerSegment() != DesiredCurve.GetReparamStepsPerSegment())
-					Component->SetReparamStepsPerSegment(DesiredCurve.GetReparamStepsPerSegment());
-				return true;
-			}
-		};
-
-		class FCameraProjectionMutationAdapter final : public IReflectedPropertyMutationAdapter
-		{
-		public:
-			auto Capture(const FReflectedPropertyEditTarget& Target, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
-			{
-				return GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
-			}
-			auto Apply(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-			{
-				return ApplySnapshot(Target, Snapshot, OutError);
-			}
-			auto Restore(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-			{
-				return ApplySnapshot(Target, Snapshot, OutError);
-			}
-
-		private:
-			static auto ApplySnapshot(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) -> bool
-			{
-				auto* Camera = Cast<DCameraComponent>(Target.Object);
-				auto* ProjectionProperty = Target.SnapshotProperty
-					&& Target.SnapshotProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
-					? static_cast<const FStructProperty*>(Target.SnapshotProperty) : nullptr;
-				if (!Camera || !ProjectionProperty || ProjectionProperty->GetStruct() != FCameraProjectionSettings::StaticStruct())
-					return Fail(OutError, "The camera projection metadata is unavailable.");
-
-				const auto& Generic = GetGenericReflectedPropertyMutationAdapter();
-				FPropertyValueSnapshot Previous;
-				if (!Generic.Capture(Target, Previous, OutError) || !Generic.Apply(Target, Snapshot, OutError)) return false;
-				const FCameraProjectionSettings Desired = *Target.SnapshotProperty->ContainerPtrToValuePtr<FCameraProjectionSettings>(
-					Target.SnapshotContainer, Target.SnapshotArrayIndex);
-				if (!Generic.Restore(Target, Previous, OutError)) return false;
-				Camera->SetProjectionSettings(Desired);
-				return true;
-			}
-		};
-
-		enum class EObjectSetterKind : uint8
-		{
-			StaticMesh,
-			Material,
-			MaterialParent,
-		};
-
-		class FObjectSetterMutationAdapter final : public IReflectedPropertyMutationAdapter
-		{
-		public:
-			explicit FObjectSetterMutationAdapter(EObjectSetterKind InKind) : Kind(InKind) {}
-
-			auto Capture(const FReflectedPropertyEditTarget& Target, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
-			{
-				return GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
-			}
-			auto Apply(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-			{
-				return ApplySnapshot(Target, Snapshot, OutError);
-			}
-			auto Restore(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-			{
-				return ApplySnapshot(Target, Snapshot, OutError);
-			}
-
-		private:
-			auto ApplySnapshot(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool
-			{
-				DObject* Value = nullptr;
-				FPropertyValueSnapshot Previous;
-				if (!DecodeObjectProposal(Target, Snapshot, Value, Previous, OutError)) return false;
-				switch (Kind)
-				{
-				case EObjectSetterKind::StaticMesh:
-				{
-					auto* Mesh = Value ? Cast<DStaticMesh>(Value) : nullptr;
-					if (Value && !Mesh) return Fail(OutError, "Selected asset is not a static mesh.");
-					Cast<DStaticMeshComponent>(Target.Object)->SetStaticMesh(Mesh);
-					return true;
-				}
-				case EObjectSetterKind::Material:
-				{
-					auto* Material = Value ? Cast<DMaterialInterface>(Value) : nullptr;
-					if (Value && !Material) return Fail(OutError, "Selected asset is not a material.");
-					Cast<DStaticMeshComponent>(Target.Object)->SetMaterial(Material);
-					return true;
-				}
-				case EObjectSetterKind::MaterialParent:
-				{
-					auto* Parent = Value ? Cast<DMaterialInterface>(Value) : nullptr;
-					if (Value && !Parent) return Fail(OutError, "Selected asset is not a material.");
-					if (!Cast<DMaterialInstance>(Target.Object)->SetParent(Parent))
-						return Fail(OutError, "A material instance cannot create a parent cycle.");
-					return true;
-				}
-				}
-				return false;
-			}
-
-			EObjectSetterKind Kind;
-		};
-
-		class FStaticMeshMaterialsMutationAdapter final : public IReflectedPropertyMutationAdapter
-		{
-		public:
-			auto Capture(const FReflectedPropertyEditTarget& Target, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
-			{
-				return GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
-			}
-			auto Apply(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-			{
-				return ApplySnapshot(Target, Snapshot, OutError);
-			}
-			auto Restore(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-			{
-				return ApplySnapshot(Target, Snapshot, OutError);
-			}
-
-		private:
-			static auto ApplySnapshot(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) -> bool
-			{
-				auto* Component = Cast<DStaticMeshComponent>(Target.Object);
-				if (!Component || !Target.SnapshotProperty
-					|| Target.SnapshotProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Array)
-					return Fail(OutError, "The static-mesh material array is unavailable.");
-
-				auto* ArrayProperty = static_cast<const FArrayProperty*>(Target.SnapshotProperty);
-				auto* ObjectProperty = ArrayProperty->GetInner() && ArrayProperty->GetInner()->GetKind() == DurinCodeGen::EPropertyGenFlags::Object
-					? static_cast<const FObjectProperty*>(ArrayProperty->GetInner()) : nullptr;
-				if (!ArrayProperty->HasArrayHelper() || !ObjectProperty)
-					return Fail(OutError, "The static-mesh material array metadata is unavailable.");
-
-				const auto& Generic = GetGenericReflectedPropertyMutationAdapter();
-				FPropertyValueSnapshot Previous;
-				if (!Generic.Capture(Target, Previous, OutError) || !Generic.Apply(Target, Snapshot, OutError)) return false;
-
-				std::vector<DMaterialInterface*> DesiredMaterials;
-				DesiredMaterials.reserve(ArrayProperty->Num(Target.SnapshotContainer, Target.SnapshotArrayIndex));
-				for (uint64 Index = 0; Index < ArrayProperty->Num(Target.SnapshotContainer, Target.SnapshotArrayIndex); ++Index)
-				{
-					const void* Element = ArrayProperty->GetElementPtr(Target.SnapshotContainer, Index, Target.SnapshotArrayIndex);
-					DObject* Value = Element ? ObjectProperty->GetObjectPropertyValue(Element) : nullptr;
-					auto* Material = Value ? Cast<DMaterialInterface>(Value) : nullptr;
-					if (Value && !Material)
-					{
-						Generic.Restore(Target, Previous, nullptr);
-						return Fail(OutError, "Selected asset is not a material.");
-					}
-					DesiredMaterials.push_back(Material);
-				}
-				if (!Generic.Restore(Target, Previous, OutError)) return false;
-
-				const uint64 CurrentCount = ArrayProperty->Num(Target.SnapshotContainer, Target.SnapshotArrayIndex);
-				const uint64 SlotCount = std::max<uint64>(CurrentCount, DesiredMaterials.size());
-				for (uint64 Index = 0; Index < SlotCount; ++Index)
-				{
-					Component->SetMaterial(static_cast<uint32>(Index), Index < DesiredMaterials.size() ? DesiredMaterials[Index] : nullptr);
-				}
-				// SetMaterial cannot shrink its backing array. The semantic calls above
-				// release removed bindings first; restoring the validated snapshot then
-				// recovers the exact reflected container shape for Cancel and Undo.
-				return Generic.Apply(Target, Snapshot, OutError);
-			}
-		};
-
 		struct FMutationAdapterRegistration
 		{
 			const DClass* ObjectClass = nullptr;
@@ -427,21 +173,6 @@ namespace Durin
 			})) return false;
 			Registrations.push_back({ObjectClass, PropertyName, std::move(Adapter)});
 			return true;
-		}
-
-		auto RegisterBuiltInMutationAdapters() -> void
-		{
-			static const bool bRegistered = [] {
-				RegisterMutationAdapter(DSceneComponent::StaticClass(), FName("RelativeTransform"), std::make_unique<FRelativeTransformMutationAdapter>());
-				RegisterMutationAdapter(DCameraComponent::StaticClass(), FName("ProjectionSettings"), std::make_unique<FCameraProjectionMutationAdapter>());
-				RegisterMutationAdapter(DSplineComponent::StaticClass(), FName("SplineCurve"), std::make_unique<FSplineCurveMutationAdapter>());
-				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("StaticMesh"), std::make_unique<FObjectSetterMutationAdapter>(EObjectSetterKind::StaticMesh));
-				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("Material"), std::make_unique<FObjectSetterMutationAdapter>(EObjectSetterKind::Material));
-				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("Materials"), std::make_unique<FStaticMeshMaterialsMutationAdapter>());
-				RegisterMutationAdapter(DMaterialInstance::StaticClass(), FName("Parent"), std::make_unique<FObjectSetterMutationAdapter>(EObjectSetterKind::MaterialParent));
-				return true;
-			}();
-			(void)bRegistered;
 		}
 
 		auto ValidateTarget(const FReflectedPropertyEditTarget& Target, std::string* OutError) -> bool
@@ -645,21 +376,20 @@ namespace Durin
 		std::unique_ptr<IReflectedPropertyMutationAdapter> Adapter
 	) -> bool
 	{
-		RegisterBuiltInMutationAdapters();
 		return RegisterMutationAdapter(ObjectClass, PropertyName, std::move(Adapter));
 	}
 
 	auto GetReflectedPropertyMutationAdapter(const FReflectedPropertyEditTarget& Target) -> const IReflectedPropertyMutationAdapter&
 	{
-		RegisterBuiltInMutationAdapters();
 		if (!Target.Object || !Target.MemberProperty) return GetGenericReflectedPropertyMutationAdapter();
 		// Registrations own object members. A member-specific adapter may deliberately
 		// interpret nested paths while still capturing the stable outer snapshot.
-		// Later, more-derived registrations take precedence over an inherited rule.
-		for (const FMutationAdapterRegistration& Entry : GetMutationAdapterRegistrations() | std::views::reverse)
+		for (const DClass* Class = Target.Object->GetClass(); Class; Class = Class->GetSuperClass())
 		{
-			if (Target.Object->IsA(Entry.ObjectClass) && Target.MemberProperty->NamePrivate == Entry.PropertyName)
-				return *Entry.Adapter;
+			const auto It = std::ranges::find_if(GetMutationAdapterRegistrations(), [&](const FMutationAdapterRegistration& Entry) {
+				return Entry.ObjectClass == Class && Target.MemberProperty->NamePrivate == Entry.PropertyName;
+			});
+			if (It != GetMutationAdapterRegistrations().end()) return *It->Adapter;
 		}
 		return GetGenericReflectedPropertyMutationAdapter();
 	}

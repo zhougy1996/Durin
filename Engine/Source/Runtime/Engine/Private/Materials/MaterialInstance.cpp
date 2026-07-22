@@ -1,5 +1,7 @@
 #include "Materials/MaterialInstance.h"
 
+#include "DObject/DurinPropertyTypes.h"
+
 namespace Durin
 {
 	namespace
@@ -22,12 +24,51 @@ namespace Durin
 			if (Candidate == this) return false;
 		}
 		if (Parent == InParent) return true;
-		if (Parent != nullptr) Parent->RemoveDependentInstance(this);
 		Parent = InParent;
-		if (Parent != nullptr) Parent->AddDependentInstance(this);
+		ReconcileParentDependency();
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::ParameterValues);
 		return true;
+	}
+
+	auto DMaterialInstance::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	{
+		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (!Proposal.MemberProperty || Proposal.MemberProperty->NamePrivate != FName("Parent")
+			|| !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
+		if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Object)
+		{
+			OutError = "The material parent metadata is unavailable.";
+			return false;
+		}
+		DObject* Value = static_cast<const FObjectProperty*>(Proposal.DraftRootProperty)->GetObjectPropertyValue(
+			Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+		auto* CandidateParent = Value ? Cast<DMaterialInterface>(Value) : nullptr;
+		if (Value && !CandidateParent)
+		{
+			OutError = "Selected asset is not a material.";
+			return false;
+		}
+		for (DMaterialInterface* Candidate = CandidateParent; Candidate != nullptr; Candidate = Candidate->GetParent())
+		{
+			if (Candidate == this)
+			{
+				OutError = "A material instance cannot create a parent cycle.";
+				return false;
+			}
+		}
+		return true;
+	}
+
+	auto DMaterialInstance::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Parent")
+			&& (Event.Phase != EPropertyChangePhase::Committed || Event.Origin != EPropertyChangeOrigin::Edit))
+		{
+			ReconcileParentDependency();
+			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::ParameterValues);
+		}
 	}
 
 	auto DMaterialInstance::GetParent() const -> DMaterialInterface*
@@ -205,7 +246,8 @@ namespace Durin
 
 	auto DMaterialInstance::BeginDestroy() -> void
 	{
-		if (Parent != nullptr) Parent->RemoveDependentInstance(this);
+		if (RegisteredParent != nullptr) RegisteredParent->RemoveDependentInstance(this);
+		RegisteredParent = nullptr;
 		Parent = nullptr;
 		Super::BeginDestroy();
 	}
@@ -221,12 +263,20 @@ namespace Durin
 				return false;
 			}
 		}
-		if (Parent != nullptr) Parent->AddDependentInstance(this);
+		ReconcileParentDependency();
 		return true;
 	}
 
 	auto DMaterialInstance::OnParentRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void
 	{
 		MarkRenderDataDirty(DirtyFlags | EMaterialRenderDirtyFlags::ParentChain);
+	}
+
+	auto DMaterialInstance::ReconcileParentDependency() -> void
+	{
+		if (RegisteredParent == Parent) return;
+		if (RegisteredParent != nullptr) RegisteredParent->RemoveDependentInstance(this);
+		RegisteredParent = Parent;
+		if (RegisteredParent != nullptr) RegisteredParent->AddDependentInstance(this);
 	}
 }

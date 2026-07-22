@@ -27,6 +27,8 @@ namespace Durin
 	public:
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto OnComponentPendingKill() -> void override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 		ENGINE_API auto GetRelativeTransform() const -> const FTransform&;
 		ENGINE_API auto SetRelativeTransform(const FTransform& InTransform) -> void;

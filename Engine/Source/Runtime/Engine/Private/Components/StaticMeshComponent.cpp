@@ -1,5 +1,6 @@
 #include "Components/StaticMeshComponent.h"
 
+#include "DObject/DurinPropertyTypes.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Materials/MaterialInterface.h"
 #include "StaticMesh/StaticMesh.h"
@@ -31,17 +32,11 @@ namespace Durin
 
 	auto DStaticMeshComponent::SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> void
 	{
-		DMaterialInterface* PreviousMaterial = GetMaterial(SlotIndex);
-		if (PreviousMaterial == InMaterial) return;
+		if (GetMaterial(SlotIndex) == InMaterial) return;
 		if (Materials.size() <= SlotIndex) Materials.resize(static_cast<size_t>(SlotIndex) + 1);
 		Materials[SlotIndex] = InMaterial;
 		if (SlotIndex == 0) Material = InMaterial;
-
-		const bool bPreviousMaterialStillUsed = std::ranges::any_of(Materials, [PreviousMaterial](const TObjectPtr<DMaterialInterface>& Candidate) {
-			return Candidate.Get() == PreviousMaterial;
-		});
-		if (!bPreviousMaterialStillUsed) UnbindMaterial(PreviousMaterial);
-		BindMaterial(InMaterial);
+		ReconcileMaterialBindings();
 		++MaterialComponentRevision;
 		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
 		MarkPackageDirty();
@@ -70,8 +65,88 @@ namespace Durin
 		if (!Super::PostLoad(OutError)) return false;
 		if (Materials.empty() && Material != nullptr) Materials.push_back(Material);
 		if (!Materials.empty()) Material = Materials[0];
-		for (const TObjectPtr<DMaterialInterface>& SlotMaterial : Materials) BindMaterial(SlotMaterial.Get());
+		ReconcileMaterialBindings();
 		return true;
+	}
+
+	auto DStaticMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	{
+		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
+		const FName Name = Proposal.MemberProperty->NamePrivate;
+		if (Name == FName("StaticMesh") || Name == FName("Material"))
+		{
+			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Object)
+			{
+				OutError = "The static-mesh object property metadata is unavailable.";
+				return false;
+			}
+			DObject* Value = static_cast<const FObjectProperty*>(Proposal.DraftRootProperty)->GetObjectPropertyValue(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+			if (Name == FName("StaticMesh") && Value && !Cast<DStaticMesh>(Value))
+			{
+				OutError = "Selected asset is not a static mesh.";
+				return false;
+			}
+			if (Name == FName("Material") && Value && !Cast<DMaterialInterface>(Value))
+			{
+				OutError = "Selected asset is not a material.";
+				return false;
+			}
+			return true;
+		}
+		if (Name != FName("Materials")) return true;
+		if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Array)
+		{
+			OutError = "The static-mesh material array metadata is unavailable.";
+			return false;
+		}
+		auto* ArrayProperty = static_cast<const FArrayProperty*>(Proposal.DraftRootProperty);
+		auto* ObjectProperty = ArrayProperty->GetInner() && ArrayProperty->GetInner()->GetKind() == DurinCodeGen::EPropertyGenFlags::Object
+			? static_cast<const FObjectProperty*>(ArrayProperty->GetInner()) : nullptr;
+		if (!ObjectProperty)
+		{
+			OutError = "The static-mesh material array metadata is unavailable.";
+			return false;
+		}
+		for (uint64 Index = 0; Index < ArrayProperty->Num(Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex); ++Index)
+		{
+			const void* Element = ArrayProperty->GetElementPtr(Proposal.DraftRootContainer, Index, Proposal.DraftRootArrayIndex);
+			DObject* Value = Element ? ObjectProperty->GetObjectPropertyValue(Element) : nullptr;
+			if (Value && !Cast<DMaterialInterface>(Value))
+			{
+				OutError = "Selected asset is not a material.";
+				return false;
+			}
+		}
+		return true;
+	}
+
+	auto DStaticMeshComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed
+			&& Event.Origin == EPropertyChangeOrigin::Edit)) return;
+		const FName Name = Event.MemberProperty->NamePrivate;
+		if (Name == FName("StaticMesh"))
+		{
+			MarkRenderStateDirty();
+			return;
+		}
+		if (Name == FName("Material"))
+		{
+			if (Materials.empty()) Materials.resize(1);
+			Materials[0] = Material;
+		}
+		else if (Name == FName("Materials"))
+		{
+			Material = Materials.empty() ? nullptr : Materials[0];
+		}
+		else return;
+		ReconcileMaterialBindings();
+		++MaterialComponentRevision;
+		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
+		MarkRenderStateDirty();
 	}
 
 	auto DStaticMeshComponent::CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy>
@@ -105,8 +180,8 @@ namespace Durin
 
 	auto DStaticMeshComponent::BeginDestroy() -> void
 	{
-		for (const TObjectPtr<DMaterialInterface>& SlotMaterial : Materials) UnbindMaterial(SlotMaterial.Get());
-		if (Materials.empty()) UnbindMaterial(Material.Get());
+		for (const TObjectPtr<DMaterialInterface>& SlotMaterial : BoundMaterials) UnbindMaterial(SlotMaterial.Get());
+		BoundMaterials.clear();
 		Super::BeginDestroy();
 	}
 
@@ -144,5 +219,20 @@ namespace Durin
 	auto DStaticMeshComponent::UnbindMaterial(DMaterialInterface* InMaterial) -> void
 	{
 		if (InMaterial != nullptr) InMaterial->RemoveBoundComponent(this);
+	}
+
+	auto DStaticMeshComponent::ReconcileMaterialBindings() -> void
+	{
+		for (const TObjectPtr<DMaterialInterface>& Previous : BoundMaterials)
+		{
+			if (Previous != nullptr && std::ranges::none_of(Materials, [&](const auto& Current) { return Current == Previous; }))
+				UnbindMaterial(Previous.Get());
+		}
+		for (const TObjectPtr<DMaterialInterface>& Current : Materials)
+		{
+			if (Current != nullptr && std::ranges::none_of(BoundMaterials, [&](const auto& Previous) { return Previous == Current; }))
+				BindMaterial(Current.Get());
+		}
+		BoundMaterials = Materials;
 	}
 }

@@ -7,6 +7,10 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/ObjectPtr.h"
 #include "Components/CameraComponent.h"
+#include "Components/SceneComponent.h"
+#include "Components/SplineComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInstance.h"
 #include "EngineTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -758,6 +762,98 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookPipelineAppliesNestedStructF
 
 	Durin::MarkAsGarbage(Camera);
 	Durin::MarkAsGarbage(ProposedCamera);
+	Durin::CollectGarbage();
+}
+
+TEST(FReflectedPropertyEditSessionTests, BuiltInSemanticPropertiesUseGenericHooks)
+{
+	InitializeDObjectSystem();
+	const auto& Generic = Durin::GetGenericReflectedPropertyMutationAdapter();
+	auto ExpectGeneric = [&](Durin::DObject* Object, const char* PropertyName) {
+		auto* Property = Object->GetClass()->FindPropertyByName(Durin::FName(PropertyName));
+		ASSERT_NE(Property, nullptr) << PropertyName;
+		EXPECT_EQ(&Durin::GetReflectedPropertyMutationAdapter(
+			Durin::FReflectedPropertyEditTarget::ForMember(Object, Property)), &Generic) << PropertyName;
+	};
+
+	auto* Scene = Durin::NewObject<Durin::DSceneComponent>(nullptr, "GenericHookScene");
+	auto* Camera = Durin::NewObject<Durin::DCameraComponent>(nullptr, "GenericHookCamera");
+	auto* Spline = Durin::NewObject<Durin::DSplineComponent>(nullptr, "GenericHookSpline");
+	auto* Mesh = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "GenericHookMesh");
+	auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "GenericHookMaterial");
+	ExpectGeneric(Scene, "RelativeTransform");
+	ExpectGeneric(Camera, "ProjectionSettings");
+	ExpectGeneric(Spline, "SplineCurve");
+	ExpectGeneric(Mesh, "StaticMesh");
+	ExpectGeneric(Mesh, "Material");
+	ExpectGeneric(Mesh, "Materials");
+	ExpectGeneric(Material, "Parent");
+
+	Durin::MarkAsGarbage(Material);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Spline);
+	Durin::MarkAsGarbage(Camera);
+	Durin::MarkAsGarbage(Scene);
+	Durin::CollectGarbage();
+}
+
+TEST(FReflectedPropertyEditSessionTests, RelativeTransformHookNormalizesAndRefreshesHierarchyAcrossCancel)
+{
+	InitializeDObjectSystem();
+	auto* Parent = Durin::NewObject<Durin::DSceneComponent>(nullptr, "HookTransformParent");
+	auto* Child = Durin::NewObject<Durin::DSceneComponent>(nullptr, "HookTransformChild");
+	auto* ProposalObject = Durin::NewObject<Durin::DSceneComponent>(nullptr, "HookTransformProposal");
+	Durin::FTransform ParentTransform;
+	ParentTransform.Translation = {10.0, 0.0, 0.0};
+	Parent->SetRelativeTransform(ParentTransform);
+	ASSERT_TRUE(Child->SetupAttachment(Parent));
+
+	auto* Property = Child->GetClass()->FindPropertyByName(Durin::FName("RelativeTransform"));
+	ASSERT_NE(Property, nullptr);
+	auto* ProposedTransform = Property->ContainerPtrToValuePtr<Durin::FTransform>(ProposalObject);
+	ProposedTransform->Translation = {3.0, 0.0, 0.0};
+	ProposedTransform->Rotation *= 2.0;
+	Durin::FPropertyValueSnapshot Proposed;
+	ASSERT_TRUE(Durin::CapturePropertyValue(Property, ProposalObject, 0, Proposed));
+
+	Durin::FReflectedPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(Durin::FReflectedPropertyEditTarget::ForMember(Child, Property), "Edit Transform"));
+	ASSERT_EQ(Session.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_NEAR(glm::length(Child->GetRelativeRotation()), 1.0, 1.e-8);
+	EXPECT_DOUBLE_EQ(Child->GetWorldLocation().x, 13.0);
+	ASSERT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_DOUBLE_EQ(Child->GetWorldLocation().x, 10.0);
+
+	Child->DetachFromComponent(Durin::EDetachmentTransformRule::KeepWorld);
+	Durin::MarkAsGarbage(ProposalObject);
+	Durin::MarkAsGarbage(Child);
+	Durin::MarkAsGarbage(Parent);
+	Durin::CollectGarbage();
+}
+
+TEST(FReflectedPropertyEditSessionTests, AdapterLookupSelectsMostDerivedClassIndependentOfRegistrationOrder)
+{
+	InitializeDObjectSystem();
+	auto Derived = std::make_unique<FRejectingMutationAdapter>();
+	auto* DerivedAddress = Derived.get();
+	ASSERT_TRUE(Durin::RegisterReflectedPropertyMutationAdapter(
+		Durin::DCameraComponent::StaticClass(), Durin::FName("ComponentToWorld"), std::move(Derived)));
+	auto Base = std::make_unique<FUndoRejectingMutationAdapter>();
+	auto* BaseAddress = Base.get();
+	ASSERT_TRUE(Durin::RegisterReflectedPropertyMutationAdapter(
+		Durin::DSceneComponent::StaticClass(), Durin::FName("ComponentToWorld"), std::move(Base)));
+
+	auto* Camera = Durin::NewObject<Durin::DCameraComponent>(nullptr, "DerivedPolicyCamera");
+	auto* Scene = Durin::NewObject<Durin::DSceneComponent>(nullptr, "BasePolicyScene");
+	auto* Property = Camera->GetClass()->FindPropertyByName(Durin::FName("ComponentToWorld"));
+	ASSERT_NE(Property, nullptr);
+	EXPECT_EQ(&Durin::GetReflectedPropertyMutationAdapter(
+		Durin::FReflectedPropertyEditTarget::ForMember(Camera, Property)), DerivedAddress);
+	EXPECT_EQ(&Durin::GetReflectedPropertyMutationAdapter(
+		Durin::FReflectedPropertyEditTarget::ForMember(Scene, Property)), BaseAddress);
+
+	Durin::MarkAsGarbage(Scene);
+	Durin::MarkAsGarbage(Camera);
 	Durin::CollectGarbage();
 }
 

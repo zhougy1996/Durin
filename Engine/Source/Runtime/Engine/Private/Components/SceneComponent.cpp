@@ -1,9 +1,38 @@
 #include "Components/SceneComponent.h"
 
+#include "DObject/Property.h"
 #include "Engine/Actor.h"
 
 namespace Durin
 {
+	namespace
+	{
+		auto IsAppliedChange(const FPropertyChangedEvent& Event) -> bool
+		{
+			return Event.Phase != EPropertyChangePhase::Committed || Event.Origin != EPropertyChangeOrigin::Edit;
+		}
+	}
+
+	auto DSceneComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	{
+		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (Proposal.MemberProperty && Proposal.MemberProperty->NamePrivate == FName("RelativeTransform")
+			&& Proposal.DraftRootProperty == Proposal.MemberProperty && Proposal.DraftRootContainer)
+		{
+			auto* Transform = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FTransform>(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+			Transform->Rotation = glm::normalize(Transform->Rotation);
+		}
+		return true;
+	}
+
+	auto DSceneComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+		if (IsAppliedChange(Event) && Event.MemberProperty
+			&& Event.MemberProperty->NamePrivate == FName("RelativeTransform")) UpdateComponentToWorld();
+	}
+
 	auto DSceneComponent::BeginDestroy() -> void
 	{
 		Super::BeginDestroy();
