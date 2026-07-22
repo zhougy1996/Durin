@@ -58,6 +58,22 @@ namespace Durin::Asset
 	// so diagnostics and tests can verify that object payloads were not consumed.
 	ASSETCORE_API auto ReadAssetPackageHeader(std::string_view PhysicalPath, FAssetPackageHeader& OutHeader) -> FAssetResult;
 
+	enum class EAssetRegistryScanMode : uint8
+	{
+		Incremental,
+		FullValidation
+	};
+
+	struct FAssetRegistryScanStats
+	{
+		uint64 Enumerated = 0;
+		uint64 Reused = 0;
+		uint64 Reparsed = 0;
+		uint64 Removed = 0;
+		uint64 Failed = 0;
+		uint64 HeaderBytesRead = 0;
+	};
+
 	struct FAssetMoveContribution
 	{
 		std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Files;
@@ -91,15 +107,19 @@ namespace Durin::Asset
 	class FAssetRegistry
 	{
 	public:
-		ASSETCORE_API auto ScanMountedContent() -> FAssetResult;
+		ASSETCORE_API auto ScanMountedContent(EAssetRegistryScanMode Mode = EAssetRegistryScanMode::Incremental) -> FAssetResult;
 		ASSETCORE_API auto FindAsset(const FAssetPath& Path) const -> const FAssetData*;
 		auto GetAssets() const -> const std::unordered_map<FAssetPath, FAssetData>& { return Assets; }
 		auto GetScanErrors() const -> const std::vector<FAssetResult>& { return ScanErrors; }
+		auto GetLastScanStats() const -> const FAssetRegistryScanStats& { return LastScanStats; }
+		auto GetCacheWarning() const -> const std::string& { return CacheWarning; }
 
 	private:
 		auto AddOrUpdate(FAssetData Data) -> void;
 		std::unordered_map<FAssetPath, FAssetData> Assets;
 		std::vector<FAssetResult> ScanErrors;
+		FAssetRegistryScanStats LastScanStats;
+		std::string CacheWarning;
 
 		friend class FAssetManager;
 	};

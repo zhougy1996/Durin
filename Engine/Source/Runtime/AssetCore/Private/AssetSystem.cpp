@@ -168,21 +168,6 @@ namespace Durin::Asset
 			return FPaths::Resolve(Path.GetView()) + ".dasset";
 		}
 
-		auto PhysicalToAssetPath(const std::filesystem::path& File, FAssetPath& OutPath) -> bool
-		{
-			const std::filesystem::path NormalizedFile = std::filesystem::absolute(File).lexically_normal();
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-			{
-				const std::filesystem::path Root = std::filesystem::absolute(Mount.PhysicalPath).lexically_normal();
-				std::error_code Ec;
-				std::filesystem::path Relative = std::filesystem::relative(NormalizedFile, Root, Ec);
-				if (Ec || Relative.empty() || Relative.native().starts_with(L"..")) continue;
-				Relative.replace_extension();
-				return FAssetPath::TryCreate(Mount.VirtualRoot + Relative.generic_string(), OutPath);
-			}
-			return false;
-		}
-
 		auto GetTypeSignature(FProperty* Property) -> std::string
 		{
 			if (!Property) return "Invalid";
@@ -552,6 +537,169 @@ namespace Durin::Asset
 			return {};
 		}
 
+		constexpr uint64 MaximumRegistryEntries = 1000000;
+		constexpr uint32 MaximumRegistryDependencies = 100000;
+
+		struct FRegistryCacheEntry
+		{
+			std::string MountRoot;
+			std::string RelativePath;
+			std::string AssetClassName;
+			uint32 FormatVersion = 0;
+			std::vector<FAssetPath> Dependencies;
+			uint64 FileSize = 0;
+			int64 LastWriteTimeTicks = 0;
+		};
+
+		auto RegistryCachePath() -> std::filesystem::path
+		{
+			return std::filesystem::path(FPaths::DerivedDataCacheDir()) / "AssetRegistry" / "Registry.bin";
+		}
+
+		auto GetMountManifest() -> std::vector<std::string>
+		{
+			std::vector<std::string> Roots;
+			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints()) Roots.push_back(Mount.VirtualRoot);
+			std::ranges::sort(Roots);
+			Roots.erase(std::unique(Roots.begin(), Roots.end()), Roots.end());
+			return Roots;
+		}
+
+		auto MakeRegistryIdentity(std::string_view MountRoot, std::string_view RelativePath) -> std::string
+		{
+			return std::format("{}\n{}", MountRoot, RelativePath);
+		}
+
+		auto LoadRegistryCache(const std::vector<std::string>& ExpectedMounts,
+			std::unordered_map<std::string, FRegistryCacheEntry>& OutEntries, std::string& OutWarning) -> bool
+		{
+			OutEntries.clear();
+			const std::filesystem::path Path = RegistryCachePath();
+			std::error_code Ec;
+			if (!std::filesystem::exists(Path, Ec)) return false;
+			const uintmax_t Size = std::filesystem::file_size(Path, Ec);
+			if (Ec || Size > 256ull * 1024ull * 1024ull)
+			{
+				OutWarning = std::format("Ignoring invalid asset registry cache {}.", Path.generic_string());
+				return false;
+			}
+			std::vector<uint8> Bytes;
+			if (!FFileHelper::LoadFileToArray(Bytes, Path.generic_string()))
+			{
+				OutWarning = std::format("Failed to read asset registry cache {}.", Path.generic_string());
+				return false;
+			}
+			DerivedDataCache::FReader Reader(Bytes);
+			uint32 MountCount = 0;
+			if (!Reader.ReadAndValidateHeader(DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetVersion)
+				|| !Reader.ReadU32(MountCount) || MountCount > MaximumRegistryEntries)
+			{
+				OutWarning = "Ignoring incompatible or corrupt asset registry cache header.";
+				return false;
+			}
+			std::vector<std::string> Mounts;
+			Mounts.reserve(MountCount);
+			for (uint32 Index = 0; Index < MountCount; ++Index)
+			{
+				std::string Root;
+				if (!Reader.ReadString(Root)) { OutWarning = "Ignoring truncated asset registry mount manifest."; return false; }
+				Mounts.push_back(std::move(Root));
+			}
+			if (Mounts != ExpectedMounts)
+			{
+				OutWarning = "Ignoring asset registry cache because the mount manifest changed.";
+				return false;
+			}
+			uint64 EntryCount = 0;
+			if (!Reader.ReadU64(EntryCount) || EntryCount > MaximumRegistryEntries)
+			{
+				OutWarning = "Ignoring invalid asset registry cache entry count.";
+				return false;
+			}
+			for (uint64 Index = 0; Index < EntryCount; ++Index)
+			{
+				FRegistryCacheEntry Entry;
+				uint32 DependencyCount = 0;
+				if (!Reader.ReadString(Entry.MountRoot) || !Reader.ReadString(Entry.RelativePath)
+					|| !Reader.ReadString(Entry.AssetClassName) || !Reader.ReadU32(Entry.FormatVersion)
+					|| !Reader.ReadU32(DependencyCount) || DependencyCount > MaximumRegistryDependencies)
+				{
+					OutWarning = "Ignoring corrupt asset registry cache entry.";
+					OutEntries.clear();
+					return false;
+				}
+				Entry.Dependencies.reserve(DependencyCount);
+				for (uint32 DependencyIndex = 0; DependencyIndex < DependencyCount; ++DependencyIndex)
+				{
+					std::string DependencyString;
+					FAssetPath Dependency;
+					if (!Reader.ReadString(DependencyString) || !FAssetPath::TryCreate(DependencyString, Dependency))
+					{
+						OutWarning = "Ignoring invalid dependency in asset registry cache.";
+						OutEntries.clear();
+						return false;
+					}
+					Entry.Dependencies.push_back(std::move(Dependency));
+				}
+				if (!Reader.ReadU64(Entry.FileSize) || !Reader.ReadI64(Entry.LastWriteTimeTicks)
+					|| Entry.FormatVersion != AssetVersion
+					|| !std::ranges::binary_search(ExpectedMounts, Entry.MountRoot)
+					|| std::filesystem::path(Entry.RelativePath).is_absolute()
+					|| std::filesystem::path(Entry.RelativePath).extension() != ".dasset"
+					|| Entry.RelativePath.starts_with("../") || Entry.RelativePath.find("/../") != std::string::npos)
+				{
+					OutWarning = "Ignoring invalid asset registry cache identity.";
+					OutEntries.clear();
+					return false;
+				}
+				const std::string Identity = MakeRegistryIdentity(Entry.MountRoot, Entry.RelativePath);
+				if (!OutEntries.emplace(Identity, std::move(Entry)).second)
+				{
+					OutWarning = "Ignoring duplicate asset registry cache identity.";
+					OutEntries.clear();
+					return false;
+				}
+			}
+			if (!Reader.IsAtEnd())
+			{
+				OutWarning = "Ignoring asset registry cache with trailing data.";
+				OutEntries.clear();
+				return false;
+			}
+			return true;
+		}
+
+		auto WriteRegistryCache(const std::vector<std::string>& Mounts, std::vector<FRegistryCacheEntry> Entries,
+			std::string& OutWarning) -> bool
+		{
+			std::ranges::sort(Entries, [](const FRegistryCacheEntry& A, const FRegistryCacheEntry& B) {
+				return std::tie(A.MountRoot, A.RelativePath) < std::tie(B.MountRoot, B.RelativePath);
+			});
+			DerivedDataCache::FWriter Writer;
+			Writer.WriteHeader({DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetVersion});
+			Writer.WriteU32(static_cast<uint32>(Mounts.size()));
+			for (const std::string& Mount : Mounts) Writer.WriteString(Mount);
+			Writer.WriteU64(Entries.size());
+			for (const FRegistryCacheEntry& Entry : Entries)
+			{
+				Writer.WriteString(Entry.MountRoot);
+				Writer.WriteString(Entry.RelativePath);
+				Writer.WriteString(Entry.AssetClassName);
+				Writer.WriteU32(Entry.FormatVersion);
+				Writer.WriteU32(static_cast<uint32>(Entry.Dependencies.size()));
+				for (const FAssetPath& Dependency : Entry.Dependencies) Writer.WriteString(Dependency.GetView());
+				Writer.WriteU64(Entry.FileSize);
+				Writer.WriteI64(Entry.LastWriteTimeTicks);
+			}
+			std::string ErrorMessage;
+			if (!DerivedDataCache::WriteFileAtomically(RegistryCachePath(), Writer.GetBytes(), &ErrorMessage))
+			{
+				OutWarning = std::move(ErrorMessage);
+				return false;
+			}
+			return true;
+		}
+
 		auto FindExistingInner(DObject* Outer, std::string_view Name, DClass* Class, bool& bTypeMismatch) -> DObject*
 		{
 			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Outer))
@@ -590,41 +738,111 @@ namespace Durin::Asset
 		if (Class && Contributor) GetDeleteContributors().insert_or_assign(Class, std::move(Contributor));
 	}
 
-	auto FAssetRegistry::ScanMountedContent() -> FAssetResult
+	auto FAssetRegistry::ScanMountedContent(EAssetRegistryScanMode Mode) -> FAssetResult
 	{
 		std::unordered_map<FAssetPath, FAssetData> NewAssets;
+		std::vector<FRegistryCacheEntry> NewCacheEntries;
+		std::unordered_map<std::string, FRegistryCacheEntry> CachedEntries;
+		std::unordered_set<std::string> SeenCachedIdentities;
 		ScanErrors.clear();
+		LastScanStats = {};
+		CacheWarning.clear();
+		const std::vector<std::string> MountManifest = GetMountManifest();
+		const bool bCacheLoaded = LoadRegistryCache(MountManifest, CachedEntries, CacheWarning);
 		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
 		{
 			std::error_code Ec;
 			if (!std::filesystem::exists(Mount.PhysicalPath, Ec)) continue;
 			for (std::filesystem::recursive_directory_iterator It(Mount.PhysicalPath, Ec), End; !Ec && It != End; It.increment(Ec))
 			{
-				if (!It->is_regular_file() || It->path().extension() != ".dasset") continue;
+				std::error_code FileEc;
+				if (!It->is_regular_file(FileEc) || It->path().extension() != ".dasset") continue;
+				++LastScanStats.Enumerated;
 				FAssetPackageHeader PackageHeader;
 				FAssetPath DiskPath;
-				if (!PhysicalToAssetPath(It->path(), DiskPath))
+				std::filesystem::path Relative = std::filesystem::relative(It->path(), Mount.PhysicalPath, FileEc).lexically_normal();
+				const std::string RelativeString = Relative.generic_string();
+				std::filesystem::path PackageRelative = Relative;
+				PackageRelative.replace_extension();
+				if (FileEc || Relative.is_absolute() || RelativeString.starts_with("../")
+					|| !FAssetPath::TryCreate(Mount.VirtualRoot + PackageRelative.generic_string(), DiskPath))
 				{
 					ScanErrors.push_back(Error(EAssetError::InvalidPath, std::format("Failed to map asset path {}.", It->path().generic_string())));
+					++LastScanStats.Failed;
 					continue;
 				}
-				FAssetResult Result = ReadAssetPackageHeader(It->path().generic_string(), PackageHeader);
-				if (!Result) { ScanErrors.push_back(std::move(Result)); continue; }
-				if (NewAssets.contains(DiskPath)) { ScanErrors.push_back(Error(EAssetError::AlreadyExists, std::format("Duplicate asset path {}.", DiskPath.ToString()))); continue; }
-				const auto LastWriteTime = It->last_write_time(Ec);
-				const auto FileSize = It->file_size(Ec);
+				const std::string Identity = MakeRegistryIdentity(Mount.VirtualRoot, RelativeString);
+				if (CachedEntries.contains(Identity)) SeenCachedIdentities.insert(Identity);
+				const auto LastWriteTime = It->last_write_time(FileEc);
+				const auto FileSize = It->file_size(FileEc);
+				if (FileEc)
+				{
+					ScanErrors.push_back(Error(EAssetError::IoError, std::format("Failed to fingerprint asset {}.", It->path().generic_string())));
+					++LastScanStats.Failed;
+					continue;
+				}
+				const int64 LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime);
+				std::string AssetClassName;
+				uint32 FormatVersion = 0;
+				std::vector<FAssetPath> Dependencies;
+				const auto CachedIt = CachedEntries.find(Identity);
+				if (Mode == EAssetRegistryScanMode::Incremental && CachedIt != CachedEntries.end()
+					&& CachedIt->second.FileSize == FileSize && CachedIt->second.LastWriteTimeTicks == LastWriteTimeTicks)
+				{
+					AssetClassName = CachedIt->second.AssetClassName;
+					FormatVersion = CachedIt->second.FormatVersion;
+					Dependencies = CachedIt->second.Dependencies;
+					++LastScanStats.Reused;
+				}
+				else
+				{
+					FAssetResult Result = ReadAssetPackageHeader(It->path().generic_string(), PackageHeader);
+					LastScanStats.HeaderBytesRead += PackageHeader.BytesRead;
+					if (!Result)
+					{
+						Result.Message = std::format("{} ({})", Result.Message, It->path().generic_string());
+						ScanErrors.push_back(std::move(Result));
+						++LastScanStats.Failed;
+						continue;
+					}
+					AssetClassName = std::move(PackageHeader.AssetClassName);
+					FormatVersion = PackageHeader.FormatVersion;
+					Dependencies = std::move(PackageHeader.Dependencies);
+					++LastScanStats.Reparsed;
+				}
+				if (NewAssets.contains(DiskPath))
+				{
+					ScanErrors.push_back(Error(EAssetError::AlreadyExists, std::format("Duplicate asset path {}.", DiskPath.ToString())));
+					++LastScanStats.Failed;
+					continue;
+				}
+				NewCacheEntries.push_back(FRegistryCacheEntry{
+					.MountRoot = Mount.VirtualRoot,
+					.RelativePath = RelativeString,
+					.AssetClassName = AssetClassName,
+					.FormatVersion = FormatVersion,
+					.Dependencies = Dependencies,
+					.FileSize = FileSize,
+					.LastWriteTimeTicks = LastWriteTimeTicks});
 				NewAssets.emplace(DiskPath, FAssetData{
 					.PackagePath = DiskPath,
 					.PhysicalPath = It->path().generic_string(),
-					.AssetClassName = std::move(PackageHeader.AssetClassName),
-					.FormatVersion = PackageHeader.FormatVersion,
-					.Dependencies = std::move(PackageHeader.Dependencies),
+					.AssetClassName = std::move(AssetClassName),
+					.FormatVersion = FormatVersion,
+					.Dependencies = std::move(Dependencies),
 					.FileSize = FileSize,
 					.LastWriteTime = LastWriteTime,
-					.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
+					.LastWriteTimeTicks = LastWriteTimeTicks});
+			}
+			if (Ec)
+			{
+				ScanErrors.push_back(Error(EAssetError::IoError, std::format("Failed to enumerate mount {}.", Mount.VirtualRoot)));
+				++LastScanStats.Failed;
 			}
 		}
+		if (bCacheLoaded) LastScanStats.Removed = CachedEntries.size() - SeenCachedIdentities.size();
 		Assets = std::move(NewAssets);
+		WriteRegistryCache(MountManifest, std::move(NewCacheEntries), CacheWarning);
 		return {};
 	}
 

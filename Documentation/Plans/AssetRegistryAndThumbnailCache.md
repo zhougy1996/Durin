@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stages 0 and 1 are complete. Asset discovery now reads package metadata through a bounded file stream, shares structural header validation with full package loading, and reports bytes consumed for diagnostics. Stage 2 persistent registry reconciliation is next.
+Stages 0 through 2 are complete. Registry discovery now validates and reconciles a deterministic project-local snapshot, reuses exact fingerprint matches, supports explicit full validation, atomically publishes a fresh live map, and reports scan/cache diagnostics. Stage 3 mutation and lifecycle integration is next.
 
 ## Goal
 
@@ -136,13 +136,13 @@ Make editor and game startup reuse previously discovered asset metadata while st
 
 ### Stage 2: Persistent registry reconciliation
 
-- [ ] Load and validate `AssetRegistry/Registry.bin` before mounted-content discovery.
-- [ ] Enumerate each mounted directory once and classify unchanged, added, modified, removed, duplicate, and erroneous entries.
-- [ ] Reuse metadata only for exact cheap-fingerprint matches; reparse new and modified headers.
-- [ ] Build a fresh map and publish it atomically after reconciliation completes.
-- [ ] Implement explicit full validation that reparses all discovered headers while retaining the same error reporting and final-map semantics.
-- [ ] Serialize the reconciled snapshot deterministically through temporary-file replacement.
-- [ ] Expose diagnostic counters for enumerated, reused, reparsed, removed, and failed entries so startup behavior is testable and observable.
+- [x] Load and validate `AssetRegistry/Registry.bin` before mounted-content discovery.
+- [x] Enumerate each mounted directory once and classify unchanged, added, modified, removed, duplicate, and erroneous entries.
+- [x] Reuse metadata only for exact cheap-fingerprint matches; reparse new and modified headers.
+- [x] Build a fresh map and publish it atomically after reconciliation completes.
+- [x] Implement explicit full validation that reparses all discovered headers while retaining the same error reporting and final-map semantics.
+- [x] Serialize the reconciled snapshot deterministically through temporary-file replacement.
+- [x] Expose diagnostic counters for enumerated, reused, reparsed, removed, and failed entries so startup behavior is testable and observable.
 
 #### Acceptance Gate
 

@@ -138,6 +138,7 @@ namespace
 			Durin::DObjectInit();
 			const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets";
 			std::filesystem::remove_all(Root);
+			Durin::FPaths::SetDerivedDataCacheDirForTests((std::filesystem::path(DURIN_TEST_WORK_DIR) / "DerivedDataCache").generic_string());
 			Durin::PathUtilities::RegisterMountPoint("/TestAssets/", Root.generic_string() + "/");
 			return true;
 		}();
@@ -520,4 +521,110 @@ TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
 	ASSERT_FALSE(Durin::Asset::GetAssetRegistry().GetScanErrors().empty());
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetScanErrors().back().Error, Durin::Asset::EAssetError::UnsupportedVersion);
+}
+
+TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInvalidCache)
+{
+	InitializeAssetTests();
+	const auto WorkRoot = std::filesystem::path(DURIN_TEST_WORK_DIR) / "RegistryReconciliation";
+	const auto OriginalAssets = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets";
+	const auto ContentA = WorkRoot / "ContentA";
+	const auto ContentB = WorkRoot / "ContentB";
+	const auto CacheRoot = WorkRoot / "DerivedDataCache";
+	std::filesystem::remove_all(WorkRoot);
+	std::filesystem::create_directories(ContentA);
+	Durin::FAssetPath SeedPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RegistryReconciliationSeed", SeedPath));
+	DPackageAssetForTest* SeedAsset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SeedPath, SeedAsset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(SeedAsset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SeedPath));
+	const auto ValidSource = OriginalAssets / "RegistryReconciliationSeed.dasset";
+	std::filesystem::copy_file(ValidSource, ContentA / "Alpha.dasset");
+	std::filesystem::copy_file(ValidSource, ContentA / "Beta.dasset");
+	Durin::PathUtilities::RegisterMountPoint("/TestAssets/", ContentA.generic_string() + "/");
+	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
+	auto& Registry = Durin::Asset::FAssetManager::Get().GetRegistry();
+
+	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	EXPECT_EQ(Registry.GetLastScanStats().Enumerated, 2u);
+	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
+	EXPECT_EQ(Registry.GetAssets().size(), 2u);
+	const auto CacheFile = CacheRoot / "AssetRegistry" / "Registry.bin";
+	std::vector<Durin::uint8> FirstCache;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstCache, CacheFile.generic_string()));
+
+	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
+	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
+	EXPECT_EQ(Registry.GetLastScanStats().HeaderBytesRead, 0u);
+	std::vector<Durin::uint8> SecondCache;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondCache, CacheFile.generic_string()));
+	EXPECT_EQ(SecondCache, FirstCache);
+
+	const auto Alpha = ContentA / "Alpha.dasset";
+	std::filesystem::last_write_time(Alpha, std::filesystem::last_write_time(Alpha) + std::chrono::seconds(2));
+	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
+	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
+
+	std::filesystem::copy_file(ValidSource, ContentA / "Gamma.dasset");
+	std::filesystem::remove(ContentA / "Beta.dasset");
+	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
+	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
+	EXPECT_EQ(Registry.GetLastScanStats().Removed, 1u);
+	EXPECT_EQ(Registry.GetAssets().size(), 2u);
+
+	std::filesystem::rename(ContentA / "Gamma.dasset", ContentA / "Delta.dasset");
+	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
+	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
+	EXPECT_EQ(Registry.GetLastScanStats().Removed, 1u);
+
+	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	EXPECT_EQ(Registry.GetLastScanStats().Reused, 0u);
+	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
+	EXPECT_EQ(Registry.GetAssets().size(), 2u);
+
+	const std::array<Durin::uint8, 3> CorruptCache = {1, 2, 3};
+	WriteTestBytes(CacheFile, CorruptCache);
+	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
+	EXPECT_FALSE(Registry.GetCacheWarning().empty());
+
+	std::vector<Durin::uint8> IncompatibleCache;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(IncompatibleCache, CacheFile.generic_string()));
+	const Durin::uint32 IncompatibleSchema = 99;
+	std::memcpy(IncompatibleCache.data() + sizeof(Durin::uint32), &IncompatibleSchema, sizeof(IncompatibleSchema));
+	WriteTestBytes(CacheFile, IncompatibleCache);
+	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
+	EXPECT_FALSE(Registry.GetCacheWarning().empty());
+
+	std::filesystem::create_directories(ContentB);
+	for (const auto& Source : {Alpha, ContentA / "Delta.dasset"})
+	{
+		const auto Destination = ContentB / Source.filename();
+		std::filesystem::copy_file(Source, Destination);
+		std::filesystem::last_write_time(Destination, std::filesystem::last_write_time(Source));
+	}
+	Durin::PathUtilities::RegisterMountPoint("/TestAssets/", ContentB.generic_string() + "/");
+	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
+	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
+
+	const auto AdditionalContent = WorkRoot / "AdditionalContent";
+	std::filesystem::create_directories(AdditionalContent);
+	Durin::PathUtilities::RegisterMountPoint("/Additional/", AdditionalContent.generic_string() + "/");
+	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
+	EXPECT_NE(Registry.GetCacheWarning().find("mount manifest changed"), std::string::npos);
+
+	const auto BlockedCacheRoot = WorkRoot / "BlockedCacheRoot";
+	WriteTestBytes(BlockedCacheRoot, CorruptCache);
+	Durin::FPaths::SetDerivedDataCacheDirForTests(BlockedCacheRoot.generic_string());
+	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	EXPECT_EQ(Registry.GetAssets().size(), 2u);
+	EXPECT_FALSE(Registry.GetCacheWarning().empty());
 }
