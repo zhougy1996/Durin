@@ -52,6 +52,32 @@ The view and session own only an edit in progress. Committed history belongs to
 the transaction manager supplied by the host, so edits from Details, Material
 Editor, and other editor surfaces participate in one ordered Undo/Redo history.
 
+## Object View Customization
+
+Level Editor extends the shared property view through
+`FLevelEditorCustomizationRegistry` and `FObjectPropertyViewBuilder`. The
+registry resolves every registered class in base-to-derived order, allowing a
+derived object to compose its own rows with inherited customizations.
+
+Each `IObjectDetailsCustomization` describes a layout for the current frame. It
+may add a real reflected property from the inspected object or another object,
+add a custom row callback, hide a default property, or replace all default
+rows. The builder owns search matching for those declarations; Details then
+draws the builder rows and appends ordinary properties through `EditObject()`
+in the same property table.
+
+Current built-in composition includes:
+
+- Actor `Transform`, bound to the root component's `RelativeTransform`;
+- static-mesh material-slot rows, with the raw `Materials` array hidden;
+- Camera projection rows; and
+- Spline transform, curve settings, and point rows.
+
+Details owns only the inspected object, search input, table, and customization
+dispatch. It contains no Actor or static-mesh type branches. Real property rows
+still enter `EditProperty()`, while custom controls submit through the same
+session and mutation-adapter pipeline.
+
 ## Object Notification Contract
 
 `DObject::PostEditChangeProperty(const FPropertyChangedEvent&)` is the common

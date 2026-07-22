@@ -90,38 +90,48 @@ namespace Durin
 		class FCameraDetailsCustomization final : public IObjectDetailsCustomization
 		{
 		public:
-			auto DrawDetails(FLevelEditorContext& Context, DObject* Object, FReflectedPropertyView& PropertyView,
-				const FReflectedPropertyViewContext& ViewContext) -> bool override
+			auto CustomizeDetails(FLevelEditorContext& Context, DObject* Object,
+				FObjectPropertyViewBuilder& Builder) -> void override
 			{
 				DCameraComponent* Camera = Cast<DCameraComponent>(Object);
 				if (!Camera)
 				{
 					if (auto* Actor = Cast<ACameraActor>(Object)) Camera = Actor->GetCameraComponent();
 				}
-				if (!Camera) return false;
-				const FReflection Reflection = ResolveReflection(*Camera);
-				if (!Reflection.IsValid())
-				{
-					Context.SetError("Camera projection reflection metadata is unavailable.");
-					return true;
-				}
-
-				ImGui::PushID(Camera);
-				DrawValue(PropertyView, ViewContext, *Camera, Reflection, "Field Of View", Reflection.FieldOfView,
-					0.1f, 1.0f, 170.0f, "%.1f deg");
-				DrawValue(PropertyView, ViewContext, *Camera, Reflection, "Near Clip", Reflection.NearClip,
-					0.01f, 0.001f, std::numeric_limits<float>::max(), "%.3f");
-				DrawValue(PropertyView, ViewContext, *Camera, Reflection, "Far Clip", Reflection.FarClip,
-					1.0f, Camera->GetNearClip() + 1.0f, std::numeric_limits<float>::max(), "%.1f");
-				DrawAspectRatioMode(PropertyView, ViewContext, *Camera, Reflection);
-				if (Camera->GetAspectRatioMode() == ECameraAspectRatioMode::Custom)
-					DrawValue(PropertyView, ViewContext, *Camera, Reflection, "Custom Ratio", Reflection.CustomAspectRatio,
-						0.01f, 0.1f, 10.0f, "%.3f");
-				ImGui::PopID();
-				return Cast<DCameraComponent>(Object) != nullptr;
+				if (!Camera) return;
+				if (Cast<DCameraComponent>(Object)) Builder.ReplaceDefaultProperties();
+				Builder.AddCustomRow(
+					"Camera Projection Field Of View Near Clip Far Clip Aspect Ratio Custom Ratio",
+					[&Context, Camera](FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext) {
+						return DrawCameraDetails(Context, *Camera, PropertyView, ViewContext);
+					});
 			}
 
 		private:
+			static auto DrawCameraDetails(FLevelEditorContext& Context, DCameraComponent& Camera,
+				FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext) -> bool
+			{
+				const FReflection Reflection = ResolveReflection(Camera);
+				if (!Reflection.IsValid())
+				{
+					Context.SetError("Camera projection reflection metadata is unavailable.");
+					return false;
+				}
+
+				ImGui::PushID(&Camera);
+				DrawValue(PropertyView, ViewContext, Camera, Reflection, "Field Of View", Reflection.FieldOfView,
+					0.1f, 1.0f, 170.0f, "%.1f deg");
+				DrawValue(PropertyView, ViewContext, Camera, Reflection, "Near Clip", Reflection.NearClip,
+					0.01f, 0.001f, std::numeric_limits<float>::max(), "%.3f");
+				DrawValue(PropertyView, ViewContext, Camera, Reflection, "Far Clip", Reflection.FarClip,
+					1.0f, Camera.GetNearClip() + 1.0f, std::numeric_limits<float>::max(), "%.1f");
+				DrawAspectRatioMode(PropertyView, ViewContext, Camera, Reflection);
+				if (Camera.GetAspectRatioMode() == ECameraAspectRatioMode::Custom)
+					DrawValue(PropertyView, ViewContext, Camera, Reflection, "Custom Ratio", Reflection.CustomAspectRatio,
+						0.01f, 0.1f, 10.0f, "%.3f");
+				ImGui::PopID();
+				return false;
+			}
 			struct FReflection
 			{
 				FStructProperty* Projection = nullptr;

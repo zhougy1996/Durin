@@ -3,13 +3,16 @@
 #include "Editor/EditorWorkspace.h"
 #include "EditorSessionSettings.h"
 #include "Engine/Level.h"
+#include "Engine/Actor.h"
 #include "LevelEditorWorkspace.h"
+#include "ObjectPropertyEditorCustomizations.h"
 #include "Widgets/MLevelEditor.h"
 #include "Actors/CameraActor.h"
 #include "CameraEditorCustomizations.h"
 #include "Components/CameraComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SplineComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "DirectionalLightEditorCustomizations.h"
 #include "SplineEditorCustomizations.h"
 
@@ -25,6 +28,8 @@ namespace Durin
 		SessionSettings->Load();
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
 		const std::shared_ptr<IObjectDetailsCustomization> CameraDetails = CreateCameraDetailsCustomization();
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(AActor::StaticClass(), CreateActorDetailsCustomization()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshDetailsCustomization()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DDirectionalLightComponent::StaticClass(), CreateDirectionalLightComponentVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ACameraActor::StaticClass(), CameraDetails));

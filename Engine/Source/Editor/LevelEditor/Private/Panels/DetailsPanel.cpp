@@ -1,10 +1,8 @@
 #include "Panels/DetailsPanel.h"
 #include "Editor/ReflectedPropertyView.h"
 
-#include "AssetSystem.h"
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
-#include "Components/StaticMeshComponent.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -18,13 +16,10 @@
 #include "LevelEditorWorkspace.h"
 #include "LevelEditorCustomizations.h"
 #include "EditorSessionSettings.h"
-#include "Materials/MaterialInterface.h"
 #include "Math/Color.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
-#include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
@@ -34,15 +29,6 @@ namespace Durin
 		using StringUtils::ContainsInsensitive;
 
 		constexpr const char* ComponentDragPayload = "DURIN_DETAILS_SCENE_COMPONENT";
-
-		auto IsClassChildOf(const DClass* Class, const DClass* Parent) -> bool
-		{
-			for (const DClass* Current = Class; Current != nullptr; Current = Current->GetSuperClass())
-			{
-				if (Current == Parent) return true;
-			}
-			return false;
-		}
 
 	} // namespace
 
@@ -469,44 +455,22 @@ namespace Durin
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		ImGui::InputTextWithHint("##PropertySearch", "Search properties...", PropertySearchText.data(), PropertySearchText.size());
 
-		auto* Actor = Cast<AActor>(Object);
-		auto* StaticMeshComponent = Cast<DStaticMeshComponent>(Object);
-		const std::shared_ptr<IObjectDetailsCustomization> DetailsCustomization = FLevelEditorCustomizationRegistry::Get().FindObjectDetails(Object->GetClass());
-		bool bShowStaticMeshMaterials = StaticMeshComponent && StaticMeshComponent->GetNumMaterials() > 0;
-		if (bShowStaticMeshMaterials && PropertySearchText[0] != '\0')
+		FObjectPropertyViewBuilder Builder(PropertySearchText.data());
+		for (const std::shared_ptr<IObjectDetailsCustomization>& Customization
+			: FLevelEditorCustomizationRegistry::Get().FindObjectDetailsCustomizations(Object->GetClass()))
 		{
-			bShowStaticMeshMaterials = ContainsInsensitive("Materials Material Slots", PropertySearchText.data());
-			const DStaticMesh* Mesh = StaticMeshComponent->GetStaticMesh();
-			const FStaticMeshRenderData* Data = Mesh ? Mesh->GetRenderData() : nullptr;
-			if (!bShowStaticMeshMaterials && Data)
-			{
-				bShowStaticMeshMaterials = std::ranges::any_of(Data->MaterialSlots, [this](const FStaticMeshMaterialSlot& Slot) {
-					return ContainsInsensitive(Slot.Name, PropertySearchText.data());
-				});
-			}
+			Customization->CustomizeDetails(Context, Object, Builder);
 		}
-		DSceneComponent* ActorRootComponent = Actor ? Actor->GetRootComponent() : nullptr;
-		FProperty* ActorTransformProperty = ActorRootComponent ? ActorRootComponent->GetClass()->FindPropertyByName("RelativeTransform") : nullptr;
-		const bool bShowActorTransform = ActorTransformProperty
-										 && ContainsInsensitive("Transform Location Rotation Scale", PropertySearchText.data());
 		if (!MonaImGui::BeginPropertyTable("DetailsPropertyTable")) return;
 
-		if (bShowActorTransform)
-		{
-			ImGui::PushID("ActorTransform");
-			PropertyView.EditProperty(ViewContext, ActorRootComponent, ActorTransformProperty, 0, {.Label = "Transform"});
-			ImGui::PopID();
-		}
-		const bool bReplaceReflectedProperties = DetailsCustomization
-			&& DetailsCustomization->DrawDetails(Context, Object, PropertyView, ViewContext);
-		if (bShowStaticMeshMaterials) DrawStaticMeshMaterials(Context, StaticMeshComponent);
+		const FObjectPropertyViewBuilderResult BuilderResult = Builder.DrawRows(PropertyView, ViewContext);
 		FObjectPropertyViewResult ObjectViewResult;
-		if (!bReplaceReflectedProperties)
+		if (!Builder.IsReplacingDefaultProperties())
 		{
 			ObjectViewResult = PropertyView.EditObject(ViewContext, Object, {
 				.SearchText = PropertySearchText.data(),
-				.Filter = [StaticMeshComponent](const FProperty& Property, uint32) {
-					return !StaticMeshComponent || Property.NamePrivate != FName("Materials");
+				.Filter = [&Builder](const FProperty& Property, uint32) {
+					return !Builder.IsPropertyHidden(Property);
 				},
 				.bCreatePropertyTable = false,
 				.bShowEmptyMessage = false,
@@ -514,71 +478,11 @@ namespace Durin
 		}
 		MonaImGui::EndPropertyTable();
 
-		if (!bShowActorTransform && !bShowStaticMeshMaterials && !DetailsCustomization
-			&& ObjectViewResult.VisiblePropertyCount == 0)
+		if (BuilderResult.VisibleRowCount + ObjectViewResult.VisiblePropertyCount == 0)
 		{
 			ImGui::TextDisabled(PropertySearchText[0] != '\0'
 				? "No properties match the current search."
 				: "This object has no reflected Edit properties.");
-		}
-	}
-
-	auto FDetailsPanel::DrawStaticMeshMaterials(FLevelEditorContext& Context, DStaticMeshComponent* Component) -> void
-	{
-		DStaticMesh* Mesh = Component ? Component->GetStaticMesh() : nullptr;
-		const FStaticMeshRenderData* RenderData = Mesh ? Mesh->GetRenderData() : nullptr;
-		FProperty* ReflectedMaterials = Component ? Component->GetClass()->FindPropertyByName("Materials") : nullptr;
-		auto* MaterialsProperty = ReflectedMaterials && ReflectedMaterials->GetKind() == DurinCodeGen::EPropertyGenFlags::Array
-			? static_cast<FArrayProperty*>(ReflectedMaterials) : nullptr;
-		auto* MaterialProperty = MaterialsProperty && MaterialsProperty->GetInner()
-			&& MaterialsProperty->GetInner()->GetKind() == DurinCodeGen::EPropertyGenFlags::Object
-			? static_cast<FObjectProperty*>(MaterialsProperty->GetInner()) : nullptr;
-		if (!RenderData || !MaterialsProperty || !MaterialsProperty->HasArrayHelper() || !MaterialProperty) return;
-		const FReflectedPropertyViewContext ViewContext = MakePropertyViewContext(Context);
-		for (uint32 SlotIndex = 0; SlotIndex < RenderData->MaterialSlots.size(); ++SlotIndex)
-		{
-			const std::string Label = std::format("Material[{}] {}", SlotIndex, RenderData->MaterialSlots[SlotIndex].Name);
-			if (!ContainsInsensitive(Label, PropertySearchText.data()) && PropertySearchText[0] != '\0') continue;
-			ImGui::PushID("StaticMeshMaterial");
-			ImGui::PushID(static_cast<int>(SlotIndex));
-			MonaImGui::BeginPropertyRow(Label.c_str(), Context.bReadOnly);
-			DMaterialInterface* Current = Component->GetMaterial(SlotIndex);
-			DMaterialInterface* SelectedMaterial = Current;
-			const std::string Preview = Current && Current->GetPackage() ? Current->GetPackage()->GetPackagePath() : "None";
-			if (ImGui::BeginCombo("##Value", Preview.c_str()))
-			{
-				ImGui::SetNextItemWidth(-FLT_MIN);
-				ImGui::InputTextWithHint("##AssetSearch", "Search materials...", AssetSearchText.data(), AssetSearchText.size());
-				if (ImGui::Selectable("Clear", Current == nullptr)) SelectedMaterial = nullptr;
-				for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
-				{
-					DClass* AssetClass = FindClassByQualifiedName(Data.AssetClassName);
-					const std::string PathString = Path.ToString();
-					if (!AssetClass || !IsClassChildOf(AssetClass, DMaterialInterface::StaticClass()) || !ContainsInsensitive(PathString, AssetSearchText.data())) continue;
-					if (ImGui::Selectable(PathString.c_str(), Current && Current->GetPackage() && Current->GetPackage()->GetPackagePath() == PathString))
-					{
-						DObject* Loaded = nullptr;
-						Asset::FAssetResult Result = Asset::LoadAsset(Path, Loaded);
-						if (!Result) Context.SetError(Result.Message);
-						else if (DMaterialInterface* Selected = Cast<DMaterialInterface>(Loaded)) SelectedMaterial = Selected;
-					}
-				}
-				ImGui::EndCombo();
-			}
-			if (!Context.bReadOnly && SelectedMaterial != Current)
-			{
-				void* Element = SlotIndex < MaterialsProperty->Num(Component) ? MaterialsProperty->GetMutableElementPtr(Component, SlotIndex) : Component;
-				const FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Component, MaterialsProperty)
-					.ForArrayElement(MaterialProperty, Element, SlotIndex);
-				PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
-					if (MaterialsProperty->Num(Component) <= SlotIndex) MaterialsProperty->Resize(Component, static_cast<uint64>(SlotIndex) + 1);
-					if (void* MaterialElement = MaterialsProperty->GetMutableElementPtr(Component, SlotIndex))
-						MaterialProperty->SetObjectPropertyValue(MaterialElement, SelectedMaterial);
-				}, false);
-			}
-			MonaImGui::EndPropertyRow(Context.bReadOnly);
-			ImGui::PopID();
-			ImGui::PopID();
 		}
 	}
 

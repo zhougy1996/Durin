@@ -7,9 +7,9 @@
 ## 1. 要解决的问题
 
 当前共享 View 已统一属性控件、编辑会话和事务，Level Editor customization
-中的直接写入也已完成迁移，普通属性枚举也已进入 `EditObject()`。剩余演进
-重点是对象 customization、稳定 binding，以及部分领域编辑器中重复的字符串
-属性查找。后续目标是：
+中的直接写入也已完成迁移，普通属性枚举已进入 `EditObject()`，最小对象
+customization registry/builder 也已落地。剩余演进重点是稳定 binding，以及
+部分领域编辑器中重复的字符串属性查找。后续目标是：
 
 - 普通 `DObject` 编辑只需传入对象，不再由面板遍历反射属性；
 - Actor、ActorComponent 和资产对象共用同一个对象入口；
@@ -69,12 +69,9 @@ auto FReflectedPropertyView::EditObject(
 - 对每个普通字段调用 `EditProperty()`。
 
 当前 Level Editor Details 传入自己的搜索缓冲区，并让 `EditObject()` 在宿主
-Property Table 内追加普通属性。这允许 Actor Transform、材质槽和现有 Details
-customization 在 builder 落地前继续共享一个表格。类名和搜索输入控件仍由
-Details 展示；View 已拥有搜索匹配规则，而不是由 Panel 重复枚举属性。
-
-对象级 customization 调度尚未进入 `EditObject()`；它属于下一阶段的 registry
-与 builder 设计，不应通过临时类型分支硬编码进通用 View。
+Property Table 内追加普通属性。类名和搜索输入控件仍由 Details 展示；普通
+属性的搜索匹配由 View 负责，customization 行的搜索匹配由 builder 负责。
+对象级 customization 保持为宿主调度层，不硬编码进通用 `EditObject()`。
 
 Actor 和 ActorComponent 不需要单独的遍历 API：
 
@@ -149,19 +146,19 @@ Binding 应负责：
 当前的 `SubmitStringMapValueEdit()` 与 `SetStringMapEntryEnabled()` 可以视为
 Binding 之前的受控过渡 API，后续不应继续为每种容器组合增加平行函数。
 
-## 5. Customization
+## 5. Customization（最小版本已采用）
 
-建议把领域展示扩展注册到共享 View，而不是继续堆积面板类型判断：
+Level Editor 已把领域展示扩展注册到对象属性视图组合层，不再继续堆积面板
+类型判断。当前接口采用：
 
 ```cpp
-class IObjectPropertyViewCustomization
+class IObjectDetailsCustomization
 {
 public:
-    virtual auto Draw(
-        FReflectedPropertyView& View,
+    virtual auto CustomizeDetails(
+        FLevelEditorContext& Context,
         DObject* Object,
-        const FReflectedPropertyViewContext& Context,
-        FPropertyViewBuilder& Builder
+        FObjectPropertyViewBuilder& Builder
     ) -> void = 0;
 };
 ```
@@ -169,17 +166,17 @@ public:
 Builder 可以提供：
 
 ```cpp
-Builder.AddProperty(Property);
-Builder.AddProperty(Property, {.Label = "..."});
-Builder.AddBoundProperty(Binding, Options);
-Builder.AddCustomRow(Label, DrawCallback);
+Builder.AddProperty(Object, Property);
+Builder.AddProperty(Object, Property, 0, {.Label = "..."}, SearchKeywords);
+Builder.AddCustomRow(SearchKeywords, DrawCallback);
 Builder.HideProperty(Property);
-Builder.BeginGroup("Rendering");
+Builder.ReplaceDefaultProperties();
 ```
 
-Customization 注册应支持基类匹配和派生类覆盖，生命周期由 Editor 模块
-管理。避免每帧通过字符串查找回调；若未来加入生成元数据，应由代码生成器
-验证函数和签名。
+注册表按基类到派生类顺序组合 customization，生命周期由 Level Editor 模块
+管理。builder 对新增属性与自定义行统一执行搜索，Details 仍只创建一个共享
+Property Table。分组、重排默认属性和 bound property 等能力暂未加入；应由
+实际需求推动，避免最小 builder 提前膨胀。
 
 ## 6. Actor 与 ActorComponent
 
@@ -190,12 +187,13 @@ Customization 注册应支持基类匹配和派生类覆盖，生命周期由 Ed
 Builder.AddProperty(
     Actor->GetRootComponent(),
     RelativeTransformProperty,
+    0,
     {.Label = "Transform"});
 ```
 
 这个展示仍通过 `RelativeTransform` 的语义 Mutation Adapter 调用 setter，
-而不是直接写存储。StaticMeshComponent 的材质槽也应使用 customization 或
-binding 保留槽名称和 setter 语义。
+而不是直接写存储。StaticMeshComponent 的材质槽也已通过 customization
+保留槽名称和 setter 语义，并隐藏默认 `Materials` 数组行。
 
 不要为 Actor 和 ActorComponent 各复制一套属性遍历，也不要把 RootComponent
 知识硬编码进通用 `EditObject()`。

@@ -1,6 +1,9 @@
 #include "LevelEditorCustomizations.h"
 
 #include "DObject/Class.h"
+#include "DObject/Property.h"
+#include "Editor/ReflectedPropertyView.h"
+#include "Misc/StringHelper.h"
 #include "SceneViewProjection.h"
 
 namespace Durin
@@ -25,6 +28,72 @@ namespace Durin
 			return nullptr;
 		}
 	} // namespace
+
+	FObjectPropertyViewBuilder::FObjectPropertyViewBuilder(std::string_view InSearchText)
+		: SearchText(InSearchText)
+	{
+	}
+
+	auto FObjectPropertyViewBuilder::AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex,
+		const FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void
+	{
+		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return;
+		const std::string Label = Options.Label.empty() ? MakeReflectedPropertyLabel(*Property, ArrayIndex) : Options.Label;
+		Rows.push_back({Object, Property, ArrayIndex, Label,
+			std::format("{} {} {}", Property->NamePrivate.ToString(), Label, SearchKeywords), {}});
+	}
+
+	auto FObjectPropertyViewBuilder::AddCustomRow(std::string_view SearchKeywords, FCustomRowDrawer Drawer) -> void
+	{
+		if (!Drawer) return;
+		Rows.push_back({nullptr, nullptr, 0, {}, std::string(SearchKeywords), std::move(Drawer)});
+	}
+
+	auto FObjectPropertyViewBuilder::HideProperty(FProperty* Property) -> void
+	{
+		if (Property) HiddenProperties.insert(Property);
+	}
+
+	auto FObjectPropertyViewBuilder::ReplaceDefaultProperties() -> void
+	{
+		bReplaceDefaultProperties = true;
+	}
+
+	auto FObjectPropertyViewBuilder::IsPropertyHidden(const FProperty& Property) const -> bool
+	{
+		return HiddenProperties.contains(const_cast<FProperty*>(&Property));
+	}
+
+	auto FObjectPropertyViewBuilder::IsReplacingDefaultProperties() const -> bool
+	{
+		return bReplaceDefaultProperties;
+	}
+
+	auto FObjectPropertyViewBuilder::MatchesSearch(std::string_view Candidate) const -> bool
+	{
+		return SearchText.empty() || StringUtils::ContainsInsensitive(Candidate, SearchText);
+	}
+
+	auto FObjectPropertyViewBuilder::GetVisibleRowCount() const -> uint32
+	{
+		return static_cast<uint32>(std::ranges::count_if(Rows, [this](const FRow& Row) { return MatchesSearch(Row.SearchText); }));
+	}
+
+	auto FObjectPropertyViewBuilder::DrawRows(FReflectedPropertyView& PropertyView,
+		const FReflectedPropertyViewContext& ViewContext) const -> FObjectPropertyViewBuilderResult
+	{
+		FObjectPropertyViewBuilderResult Result;
+		for (const FRow& Row : Rows)
+		{
+			if (!MatchesSearch(Row.SearchText)) continue;
+			++Result.VisibleRowCount;
+			if (Row.Property)
+				Result.bChanged |= PropertyView.EditProperty(ViewContext, Row.Object, Row.Property, Row.ArrayIndex, {.Label = Row.Label});
+			else
+				Result.bChanged |= Row.Drawer(PropertyView, ViewContext);
+		}
+		return Result;
+	}
 
 	auto FEditorVisualizationCollector::AddLine(const FEditorVisualizationLine& Line) -> void
 	{
@@ -131,5 +200,18 @@ namespace Durin
 	auto FLevelEditorCustomizationRegistry::FindObjectDetails(const DClass* Class) const -> std::shared_ptr<IObjectDetailsCustomization>
 	{
 		return FindMostSpecific<IObjectDetailsCustomization>(Class, ObjectDetails);
+	}
+
+	auto FLevelEditorCustomizationRegistry::FindObjectDetailsCustomizations(const DClass* Class) const -> std::vector<std::shared_ptr<IObjectDetailsCustomization>>
+	{
+		std::vector<std::shared_ptr<IObjectDetailsCustomization>> Result;
+		std::vector<const DClass*> Hierarchy;
+		for (const DClass* Current = Class; Current != nullptr; Current = Current->GetSuperClass()) Hierarchy.push_back(Current);
+		for (auto It = Hierarchy.rbegin(); It != Hierarchy.rend(); ++It)
+		{
+			if (const auto Entry = ObjectDetails.find(const_cast<DClass*>(*It)); Entry != ObjectDetails.end())
+				Result.push_back(Entry->second.Customization);
+		}
+		return Result;
 	}
 } // namespace Durin

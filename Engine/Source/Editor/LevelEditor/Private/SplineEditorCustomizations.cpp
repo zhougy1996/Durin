@@ -86,17 +86,30 @@ namespace Durin
 		class FSplineDetailsCustomization final : public IObjectDetailsCustomization
 		{
 		public:
-			auto DrawDetails(FLevelEditorContext& Context, DObject* Object, FReflectedPropertyView& PropertyView,
-				const FReflectedPropertyViewContext& ViewContext) -> bool override
+			auto CustomizeDetails(FLevelEditorContext& Context, DObject* Object,
+				FObjectPropertyViewBuilder& Builder) -> void override
 			{
 				auto* Spline = Cast<DSplineComponent>(Object);
-				if (!Spline) return false;
+				if (!Spline) return;
+				Builder.ReplaceDefaultProperties();
+				Builder.AddCustomRow(
+					"Spline Transform Location Rotation Scale Closed Loop Reparam Steps Points Tangent Type Actions",
+					[&Context, Spline](FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext) {
+						return DrawSplineDetails(Context, *Spline, PropertyView, ViewContext);
+					});
+			}
+
+		private:
+			static auto DrawSplineDetails(FLevelEditorContext& Context, DSplineComponent& SplineObject,
+				FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext) -> bool
+			{
+				auto* Spline = &SplineObject;
 				const bool bReadOnly = ViewContext.bReadOnly;
 				const FReflection Reflection = ResolveReflection(*Spline);
 				if (!Reflection.IsValid())
 				{
 					Context.SetError("Spline reflection metadata is unavailable.");
-					return true;
+					return false;
 				}
 
 				PropertyView.EditProperty(ViewContext, Spline, Reflection.RelativeTransform, 0, {.Label = "Transform"});
@@ -193,10 +206,8 @@ namespace Durin
 					Points.erase(Points.begin() + *RemoveIndex);
 					SubmitPoints(PropertyView, ViewContext, *Spline, Reflection, std::move(Points), EPropertyChangeKind::ArrayRemove);
 				}
-				return true;
+				return false;
 			}
-
-		private:
 			struct FReflection
 			{
 				FProperty* RelativeTransform = nullptr;

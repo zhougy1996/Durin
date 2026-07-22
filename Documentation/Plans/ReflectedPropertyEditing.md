@@ -35,8 +35,8 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
 
 ## Customization and Binding
 
-- [ ] Define a minimal object property-view customization registry and builder.
-- [ ] Express Actor root transform and static-mesh material slots as
+- [x] Define a minimal object property-view customization registry and builder.
+- [x] Express Actor root transform and static-mesh material slots as
   customizations instead of type branches in Details.
 - [ ] Add a stable reflected-property binding abstraction for logical container
   values without exposing leaf addresses or manual paths.
@@ -67,7 +67,7 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
 ## Recommended Order
 
 1. Add `EditObject()` and migrate Details enumeration.
-2. Introduce object customization for composite rows.
+2. Introduce object customization for composite rows. (Complete)
 3. Introduce stable property bindings and simplify Material Editor.
 4. Close validation gaps.
 5. Re-evaluate generated metadata.

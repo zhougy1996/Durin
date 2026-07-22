@@ -1,6 +1,7 @@
 #pragma once
 
 #include "LevelEditorAPI.h"
+#include "Editor/ReflectedPropertyView.h"
 #include "IRendererModule.h"
 
 namespace Durin
@@ -10,8 +11,6 @@ namespace Durin
 	class DClass;
 	class DLevel;
 	class DObject;
-	class FReflectedPropertyView;
-	struct FReflectedPropertyViewContext;
 	struct FLevelEditorContext;
 
 	struct FEditorVisualizationContext
@@ -81,13 +80,54 @@ namespace Durin
 		virtual auto DrawVisualization(DActorComponent* Component, const FEditorVisualizationContext& Context, FEditorVisualizationCollector& Collector) const -> void = 0;
 	};
 
+	struct FObjectPropertyViewBuilderResult
+	{
+		uint32 VisibleRowCount = 0;
+		bool bChanged = false;
+	};
+
+	class FObjectPropertyViewBuilder
+	{
+	public:
+		using FCustomRowDrawer = std::function<bool(FReflectedPropertyView&, const FReflectedPropertyViewContext&)>;
+
+		LEVELEDITOR_API explicit FObjectPropertyViewBuilder(std::string_view InSearchText = {});
+		LEVELEDITOR_API auto AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex = 0,
+			const FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void;
+		LEVELEDITOR_API auto AddCustomRow(std::string_view SearchKeywords, FCustomRowDrawer Drawer) -> void;
+		LEVELEDITOR_API auto HideProperty(FProperty* Property) -> void;
+		LEVELEDITOR_API auto ReplaceDefaultProperties() -> void;
+		LEVELEDITOR_API auto IsPropertyHidden(const FProperty& Property) const -> bool;
+		LEVELEDITOR_API auto IsReplacingDefaultProperties() const -> bool;
+		LEVELEDITOR_API auto GetVisibleRowCount() const -> uint32;
+		LEVELEDITOR_API auto DrawRows(FReflectedPropertyView& PropertyView,
+			const FReflectedPropertyViewContext& ViewContext) const -> FObjectPropertyViewBuilderResult;
+
+	private:
+		struct FRow
+		{
+			DObject* Object = nullptr;
+			FProperty* Property = nullptr;
+			uint32 ArrayIndex = 0;
+			std::string Label;
+			std::string SearchText;
+			FCustomRowDrawer Drawer;
+		};
+
+		auto MatchesSearch(std::string_view Candidate) const -> bool;
+
+		std::string SearchText;
+		std::vector<FRow> Rows;
+		std::unordered_set<FProperty*> HiddenProperties;
+		bool bReplaceDefaultProperties = false;
+	};
+
 	class IObjectDetailsCustomization
 	{
 	public:
 		virtual ~IObjectDetailsCustomization() = default;
-		// Return true when the customization replaces the object's reflected property rows.
-		virtual auto DrawDetails(FLevelEditorContext& Context, DObject* Object, FReflectedPropertyView& PropertyView,
-			const FReflectedPropertyViewContext& ViewContext) -> bool = 0;
+		virtual auto CustomizeDetails(FLevelEditorContext& Context, DObject* Object,
+			FObjectPropertyViewBuilder& Builder) -> void = 0;
 	};
 
 	enum class ELevelEditorCustomizationKind : uint8
@@ -112,6 +152,7 @@ namespace Durin
 		LEVELEDITOR_API auto Unregister(FLevelEditorCustomizationHandle Handle) -> bool;
 		LEVELEDITOR_API auto FindComponentVisualizer(const DClass* Class) const -> std::shared_ptr<IComponentEditorVisualizer>;
 		LEVELEDITOR_API auto FindObjectDetails(const DClass* Class) const -> std::shared_ptr<IObjectDetailsCustomization>;
+		LEVELEDITOR_API auto FindObjectDetailsCustomizations(const DClass* Class) const -> std::vector<std::shared_ptr<IObjectDetailsCustomization>>;
 
 	private:
 		template<typename T>

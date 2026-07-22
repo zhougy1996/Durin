@@ -23,6 +23,7 @@
 #include "LevelEditorContext.h"
 #include "LevelEditorCustomizations.h"
 #include "MonaImGui.h"
+#include "ObjectPropertyEditorCustomizations.h"
 #include "Mona/SceneViewport.h"
 #include "Misc/Paths.h"
 #include "SceneViewProjection.h"
@@ -107,8 +108,8 @@ namespace
 	class FTestDetailsCustomization final : public Durin::IObjectDetailsCustomization
 	{
 	public:
-		auto DrawDetails(Durin::FLevelEditorContext&, Durin::DObject*, Durin::FReflectedPropertyView&,
-			const Durin::FReflectedPropertyViewContext&) -> bool override { return false; }
+		auto CustomizeDetails(Durin::FLevelEditorContext&, Durin::DObject*,
+			Durin::FObjectPropertyViewBuilder&) -> void override {}
 	};
 
 	struct FCustomizationGuard
@@ -442,9 +443,64 @@ TEST(FLevelEditorCustomizationRegistryTests, RejectsDuplicatesFindsBaseClassAndU
 	FCustomizationGuard DetailsGuard{Registry.RegisterObjectDetails(Durin::DSceneComponent::StaticClass(), Details)};
 	ASSERT_TRUE(DetailsGuard.Handle);
 	EXPECT_EQ(Registry.FindObjectDetails(Durin::DCameraComponent::StaticClass()), Details);
+	const auto DerivedDetails = std::make_shared<FTestDetailsCustomization>();
+	FCustomizationGuard DerivedDetailsGuard{Registry.RegisterObjectDetails(Durin::DCameraComponent::StaticClass(), DerivedDetails)};
+	ASSERT_TRUE(DerivedDetailsGuard.Handle);
+	const auto DetailsChain = Registry.FindObjectDetailsCustomizations(Durin::DCameraComponent::StaticClass());
+	ASSERT_EQ(DetailsChain.size(), 2u);
+	EXPECT_EQ(DetailsChain[0], Details);
+	EXPECT_EQ(DetailsChain[1], DerivedDetails);
 	ASSERT_TRUE(Registry.Unregister(DetailsGuard.Handle));
 	DetailsGuard.Handle = {};
-	EXPECT_EQ(Registry.FindObjectDetails(Durin::DCameraComponent::StaticClass()), nullptr);
+	EXPECT_EQ(Registry.FindObjectDetails(Durin::DCameraComponent::StaticClass()), DerivedDetails);
+}
+
+TEST(FObjectPropertyViewBuilderTests, ComposesPropertiesHidingReplacementAndSearch)
+{
+	InitializeDObjectSystem();
+	auto* RootComponent = Durin::NewObject<Durin::DSceneComponent>(nullptr, "BuilderComponent");
+	ASSERT_NE(RootComponent, nullptr);
+	Durin::FProperty* TransformProperty = RootComponent->GetClass()->FindPropertyByName("RelativeTransform");
+	ASSERT_NE(TransformProperty, nullptr);
+
+	Durin::FObjectPropertyViewBuilder Builder("rotation");
+	Builder.AddProperty(RootComponent, TransformProperty, 0, {.Label = "Transform"}, "Location Rotation Scale");
+	Builder.AddCustomRow("Materials Material Slots", [](Durin::FReflectedPropertyView&, const Durin::FReflectedPropertyViewContext&) { return false; });
+	Builder.HideProperty(TransformProperty);
+	Builder.ReplaceDefaultProperties();
+
+	EXPECT_EQ(Builder.GetVisibleRowCount(), 1u);
+	EXPECT_TRUE(Builder.IsPropertyHidden(*TransformProperty));
+	EXPECT_TRUE(Builder.IsReplacingDefaultProperties());
+	Durin::MarkObjectHierarchyAsGarbage(RootComponent);
+	Durin::CollectGarbage();
+}
+
+TEST(FObjectPropertyViewCustomizationTests, DeclaresActorTransformAndStaticMeshMaterialRows)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PropertyCustomizationWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PropertyCustomizationLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<Durin::AStaticMeshActor>("StaticMesh");
+	ASSERT_NE(Actor, nullptr);
+	Durin::DStaticMeshComponent* Component = Actor->GetStaticMeshComponent();
+	Component->SetStaticMesh(Durin::DStaticMesh::CreateDebugTriangle(Level));
+
+	Durin::FLevelEditorContext Context;
+	Durin::FObjectPropertyViewBuilder ActorBuilder("scale");
+	Durin::CreateActorDetailsCustomization()->CustomizeDetails(Context, Actor, ActorBuilder);
+	EXPECT_EQ(ActorBuilder.GetVisibleRowCount(), 1u);
+
+	Durin::FObjectPropertyViewBuilder MeshBuilder("material");
+	Durin::CreateStaticMeshDetailsCustomization()->CustomizeDetails(Context, Component, MeshBuilder);
+	Durin::FProperty* MaterialsProperty = Component->GetClass()->FindPropertyByName("Materials");
+	ASSERT_NE(MaterialsProperty, nullptr);
+	EXPECT_TRUE(MeshBuilder.IsPropertyHidden(*MaterialsProperty));
+	EXPECT_GT(MeshBuilder.GetVisibleRowCount(), 0u);
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FEditorVisualizationCollectorTests, UsesTheSameLinesForRenderingAndPicking)

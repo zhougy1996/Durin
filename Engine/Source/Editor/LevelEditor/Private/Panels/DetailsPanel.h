@@ -24,7 +24,6 @@ namespace Durin
 	private:
 		auto DrawComponents(FLevelEditorContext& Context, AActor* Actor) -> void;
 		auto DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void;
-		auto DrawStaticMeshMaterials(FLevelEditorContext& Context, class DStaticMeshComponent* Component) -> void;
 		auto FinishActivePropertyEdit(FLevelEditorContext* Context, bool bCancel) -> void;
 		auto MakePropertyViewContext(FLevelEditorContext& Context) const -> FReflectedPropertyViewContext;
 
@@ -37,7 +36,6 @@ namespace Durin
 		TObjectPtr<DActorComponent> SelectedComponent;
 		TObjectPtr<DActorComponent> RenamingComponent;
 		FEditorRenameDialog RenameDialog;
-		std::array<char, 256> AssetSearchText{};
 		FEditorSessionSettings& SessionSettings;
 		FReflectedPropertyView PropertyView;
 		float ComponentPaneRatio;
