@@ -10,6 +10,7 @@
 #include "Misc/AssertionMacros.h"
 #include "Logging/LogMacros.h"
 #include "Misc/EnumClassFlags.h"
+#include "Misc/Guid.h"
 #include "Misc/Name.h"
 #include "Misc/Time.h"
 #include "Modules/ModuleManager.h"

@@ -3,6 +3,7 @@ include(GoogleTest)
 add_durin_test(CoreTests
 	Private/ConsoleCommandTests.cpp
 	Private/DelegateTests.cpp
+	Private/GuidTests.cpp
 	Private/JsonTests.cpp
 	Private/LoggerTests.cpp
 	Private/NameTests.cpp
