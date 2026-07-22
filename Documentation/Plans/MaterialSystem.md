@@ -83,6 +83,12 @@ The current arbitrary named maps are useful storage, but they do not describe
 which parameters a material declares, their types, defaults, UI metadata, or
 whether a property changes shader/pipeline identity.
 
+The parameter identity, declaration, override, and schema-driven editor slice
+is specified independently in
+`Documentation/Plans/MaterialParameterDomainRefactor.md`. Complete and validate
+that plan before continuing with the static-property and render-representation
+items in this stage.
+
 - [ ] Introduce explicit parameter declarations with stable identifiers,
   display metadata, type, default value, grouping, range, and optional color or
   texture-usage hints.
@@ -208,4 +214,5 @@ whether a property changes shader/pipeline identity.
 
 - `Documentation/Architecture/MaterialSystem.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
+- `Documentation/Plans/MaterialParameterDomainRefactor.md`
 - `Documentation/Plans/TextureSupport.md`

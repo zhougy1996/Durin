@@ -9,6 +9,7 @@ This directory contains implementation plans whose scope has been narrowed enoug
 | [SkyBoxComponent](SkyBoxComponent.md) | Complete vertical slice for the first static cubemap sky background |
 | [Texture Support](TextureSupport.md) | Texture2D assets, platform data, material sampling, and validation |
 | [Material System](MaterialSystem.md) | Material editing, surface models, shader maps, and runtime materials |
+| [Material Parameter Domain Refactor](MaterialParameterDomainRefactor.md) | Stable parameter identity, schema-driven material values, instance overrides, and generic editing |
 | [Reflected Property Editing](ReflectedPropertyEditing.md) | Reflected property editing, transactions, notifications, and customization |
 | [Multithreading System](MultithreadingSystem.md) | Task system, thread boundaries, and rendering concurrency evolution |
 | [Editor Workspace Refactor](EditorWorkspaceRefactor.md) | Editor workspaces, panels, and document lifecycles |
