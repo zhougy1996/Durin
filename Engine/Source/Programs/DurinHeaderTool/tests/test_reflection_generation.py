@@ -1,7 +1,9 @@
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -9,16 +11,29 @@ if str(ROOT) not in sys.path:
 
 from durin_header_tool import config as configs
 from durin_header_tool import io as utils
-from durin_header_tool.generators.module_export_file_generator import generate_module_export_file
-from durin_header_tool.generators.module_reflection_files_generator import generate_reflection_files
+from durin_header_tool.config.module_config import DurinModuleConfig
+from durin_header_tool.extractors.export_symbol_extractor import extract_module_export_info
+from durin_header_tool.generators.module_reflection_files_generator import (
+    _write_reflection_files,
+    make_new_module_manifest,
+)
+from durin_header_tool.model.export_info import ExportedSymbolInfo, save_module_export_file
+from durin_header_tool.model.reflection_manifest import ModuleManifest, save_module_manifest_file
 from durin_header_tool.model.reflection_info import (
     ReflectedEnumInfo,
     ReflectedEnumValueInfo,
     make_generated_enum_helper_name,
     make_generated_helper_name,
 )
-from durin_header_tool.resolver.reflection_resolver import load_available_symbols
-from durin_header_tool.writers.reflection_source_writer import _enum_definitions
+from durin_header_tool.parser.reflection_parser import parse_reflection_header
+from durin_header_tool.resolver.reflection_resolver import (
+    load_available_symbols,
+    resolved_symbol_dependencies_for_header,
+)
+from durin_header_tool.writers.reflection_source_writer import (
+    _enum_definitions,
+    generate_cpp_content,
+)
 
 
 class ReflectionSourceWriterTests(unittest.TestCase):
@@ -45,24 +60,97 @@ class ReflectionSourceWriterTests(unittest.TestCase):
 class ReflectionGenerationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        configs.ARCH = "Win64"
-        configs.PROFILE_NAME = "DurinEditor"
-        configs.BUILD_IDENTIFIER = "DHTTests"
-        configs.TOOL_FINGERPRINT = "dht-tests-value-lifecycle"
-        configs.init_configs()
+        # Keep parser/writer integration coverage self-contained; unit tests must not scan production modules.
+        cls._temp_dir = tempfile.TemporaryDirectory()
+        cls.temp_root = Path(cls._temp_dir.name)
+        cls.module_dir = cls.temp_root / "Fixture"
+        cls.header = "Public/FixtureTypes.h"
+        header_path = cls.module_dir / cls.header
+        header_path.parent.mkdir(parents=True)
+        header_path.write_text(
+            '''#pragma once
 
-        for module_name in ("CoreDObject", "Engine"):
-            generate_module_export_file(module_name)
-            generate_reflection_files(module_name)
+namespace Durin
+{
+    struct FVector3 {};
+    struct FLinearColor {};
+    class DObject {};
+}
+
+namespace Fixture
+{
+    DCLASS(DisplayName = "Sample Actor", DefaultObjectName = "SampleActor")
+    class ASampleActor : public Durin::DObject
+    {
+        GENERATED_BODY()
+
+        DPROPERTY(Edit, ReadOnly)
+        float Value = 0.0f;
+
+        DPROPERTY(Edit, MetaData = "HideAlpha=true")
+        Durin::FLinearColor Color{};
+    };
+
+    DSTRUCT()
+    struct FCurvePoint
+    {
+        GENERATED_BODY()
+
+        DPROPERTY()
+        Durin::FVector3 Position{};
+
+        DPROPERTY()
+        Durin::FVector3 Tangent{};
+    };
+}
+''',
+            encoding="utf-8",
+        )
+        cls.module_config = DurinModuleConfig(
+            module_name="Fixture",
+            module_dir=cls.module_dir,
+            reflect_headers=[cls.header],
+        )
+        cls.dht_output_dir = cls.temp_root / "DHT"
+
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=cls.module_config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            mock.patch.object(utils, "get_module_dht_output_dir", return_value=cls.dht_output_dir),
+        ):
+            cls.export_info = extract_module_export_info("Fixture")
+            cls.symbols = dict(cls.export_info.Symbols)
+            cls.symbols.update({
+                "Durin::DObject": ExportedSymbolInfo(
+                    Kind="class", ShortName="DObject", Namespace="Durin", QualifiedName="Durin::DObject",
+                    GeneratedHelperName="Z_Construct_DClass_Durin_DObject", Header="DObject/Object.h", API="COREDOBJECT_API",
+                ),
+                "Durin::FVector3": ExportedSymbolInfo(
+                    Kind="struct", ShortName="FVector3", Namespace="Durin", QualifiedName="Durin::FVector3",
+                    GeneratedHelperName="Z_Construct_DStruct_Durin_FVector3", Header="DObject/MathStructs.h", API="COREDOBJECT_API",
+                ),
+                "Durin::FLinearColor": ExportedSymbolInfo(
+                    Kind="struct", ShortName="FLinearColor", Namespace="Durin", QualifiedName="Durin::FLinearColor",
+                    GeneratedHelperName="Z_Construct_DStruct_Durin_FLinearColor", Header="DObject/MathStructs.h", API="COREDOBJECT_API",
+                ),
+            })
+            cls.header_info = parse_reflection_header("Fixture", cls.header, exported_symbols=cls.symbols)
+            cls.generated_cpp = generate_cpp_content(cls.header_info, cls.symbols)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._temp_dir.cleanup()
 
     def test_export_schema_uses_qualified_symbol_identity(self):
-        export_path = utils.get_module_export_file_path("Engine")
-        data = json.loads(export_path.read_text(encoding="utf-8"))
+        export_path = self.temp_root / "Fixture.export"
+        with mock.patch.object(utils, "get_module_export_file_path", return_value=export_path):
+            content = save_module_export_file(self.export_info)
+        data = json.loads(content)
 
         self.assertEqual(data["SchemaVersion"], 4)
-        actor = data["Symbols"]["Durin::AActor"]
-        self.assertEqual(actor["QualifiedName"], "Durin::AActor")
-        self.assertEqual(actor["GeneratedHelperName"], "Z_Construct_DClass_Durin_AActor")
+        actor = data["Symbols"]["Fixture::ASampleActor"]
+        self.assertEqual(actor["QualifiedName"], "Fixture::ASampleActor")
+        self.assertEqual(actor["GeneratedHelperName"], "Z_Construct_DClass_Fixture_ASampleActor")
         self.assertEqual(actor["BaseQualifiedName"], "Durin::DObject")
 
     def test_qualified_helper_name_and_validation(self):
@@ -78,74 +166,53 @@ class ReflectionGenerationTests(unittest.TestCase):
             make_generated_helper_name("Durin::Gameplay_AActor")
 
     def test_generated_types_use_module_cpp_package(self):
-        actor_cpp = utils.get_module_dht_output_dir("Engine") / "Actor.gen.cpp"
-        actor_content = actor_cpp.read_text(encoding="utf-8")
-        self.assertIn('"/Cpp/Engine",', actor_content)
+        self.assertIn('"/Cpp/Fixture",', self.generated_cpp)
 
-        module_cpp = utils.get_module_dht_output_dir("Engine") / "Engine.module.gen.cpp"
-        module_content = module_cpp.read_text(encoding="utf-8")
-        self.assertIn('Durin::RegisterCompiledInPackage("Engine")', module_content)
+        manifest = ModuleManifest(module_name="Fixture")
+        with mock.patch.object(utils, "get_module_dht_output_dir", return_value=self.dht_output_dir):
+            _write_reflection_files("Fixture", [], {}, manifest, max_workers=1)
+        module_content = (self.dht_output_dir / "Fixture.module.gen.cpp").read_text(encoding="utf-8")
+        self.assertIn('Durin::RegisterCompiledInPackage("Fixture")', module_content)
 
     def test_class_display_and_default_object_name_metadata(self):
-        static_mesh_actor_cpp = utils.get_module_dht_output_dir("Engine") / "StaticMeshActor.gen.cpp"
-        content = static_mesh_actor_cpp.read_text(encoding="utf-8")
+        self.assertIn('"Fixture::ASampleActor",', self.generated_cpp)
+        self.assertIn('"ASampleActor",', self.generated_cpp)
+        self.assertIn('2,\n\t"Sample Actor",', self.generated_cpp)
+        self.assertIn('"Sample Actor",', self.generated_cpp)
+        self.assertIn('"SampleActor"', self.generated_cpp)
 
-        self.assertIn('"Durin::AStaticMeshActor",', content)
-        self.assertIn('"AStaticMeshActor",', content)
-        self.assertIn('1,\n\t"Static Mesh Actor",', content)
-        self.assertIn('"Static Mesh Actor",', content)
-        self.assertIn('"StaticMeshActor"', content)
-
-    def test_engine_runtime_property_flags(self):
-        scene_component_cpp = utils.get_module_dht_output_dir("Engine") / "SceneComponent.gen.cpp"
-        scene_component_content = scene_component_cpp.read_text(encoding="utf-8")
-
+    def test_property_flags_metadata_and_value_lifecycle_are_generated(self):
         self.assertIn(
-            'NewProp_RelativeTransform = { "RelativeTransform", Durin::EPropertyFlags::Edit,',
-            scene_component_content,
+            'NewProp_Value = { "Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly,',
+            self.generated_cpp,
         )
-        self.assertIn(
-            'NewProp_ComponentToWorld = { "ComponentToWorld", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly | Durin::EPropertyFlags::Transient,',
-            scene_component_content,
-        )
-        self.assertIn(
-            'NewProp_AttachChildren = { "AttachChildren", Durin::EPropertyFlags::Transient,',
-            scene_component_content,
-        )
-
-        engine_cpp = utils.get_module_dht_output_dir("Engine") / "Engine.gen.cpp"
-        engine_content = engine_cpp.read_text(encoding="utf-8")
-        self.assertIn(
-            'NewProp_MainWorld = { "MainWorld", Durin::EPropertyFlags::Transient,',
-            engine_content,
-        )
-
-        directional_light_cpp = utils.get_module_dht_output_dir("Engine") / "DirectionalLightComponent.gen.cpp"
-        directional_light_content = directional_light_cpp.read_text(encoding="utf-8")
-        self.assertIn("Z_Construct_DStruct_Durin_FLinearColor", directional_light_content)
         self.assertIn(
             'NewProp_Color_MetaData[] = { { "HideAlpha", "true" } };',
-            directional_light_content,
+            self.generated_cpp,
         )
+        self.assertIn("Z_Construct_DStruct_Durin_FLinearColor", self.generated_cpp)
         self.assertIn(
             'NewProp_Color = { "Color", Durin::EPropertyFlags::Edit,',
-            directional_light_content,
+            self.generated_cpp,
         )
-        self.assertIn("sizeof(std::remove_extent_t<decltype(((Durin::DDirectionalLightComponent*)0)->Color)>)", directional_light_content)
-        self.assertIn("alignof(std::remove_extent_t<decltype(((Durin::DDirectionalLightComponent*)0)->Color)>)", directional_light_content)
-        self.assertIn("InitializePropertyValue<std::remove_extent_t<decltype(((Durin::DDirectionalLightComponent*)0)->Color)>>", directional_light_content)
-        self.assertIn("DestroyPropertyValue<std::remove_extent_t<decltype(((Durin::DDirectionalLightComponent*)0)->Color)>>", directional_light_content)
+        value_type = "std::remove_extent_t<decltype(((Fixture::ASampleActor*)0)->Color)>"
+        self.assertIn(f"sizeof({value_type})", self.generated_cpp)
+        self.assertIn(f"alignof({value_type})", self.generated_cpp)
+        self.assertIn(f"InitializePropertyValue<{value_type}>", self.generated_cpp)
+        self.assertIn(f"DestroyPropertyValue<{value_type}>", self.generated_cpp)
 
     def test_brace_initialized_intrinsic_struct_properties_are_generated(self):
-        spline_types_cpp = utils.get_module_dht_output_dir("Engine") / "SplineTypes.gen.cpp"
-        content = spline_types_cpp.read_text(encoding="utf-8")
-
-        for property_name in ("Position", "ArriveTangent", "LeaveTangent", "Rotation", "Scale"):
-            self.assertIn(f'NewProp_{property_name} = {{ "{property_name}",', content)
-        self.assertIn("Z_Construct_DStruct_Durin_FVector3", content)
+        for property_name in ("Position", "Tangent"):
+            self.assertIn(f'NewProp_{property_name} = {{ "{property_name}",', self.generated_cpp)
+        self.assertIn("Z_Construct_DStruct_Durin_FVector3", self.generated_cpp)
 
     def test_default_double_vector_intrinsics_are_available(self):
-        symbols = load_available_symbols("Engine")
+        missing_export = self.temp_root / "missing.export"
+        with (
+            mock.patch.object(utils, "get_module_export_file_path", return_value=missing_export),
+            mock.patch.object(configs, "collect_all_dependent_module_with_export_file", return_value=[]),
+        ):
+            symbols = load_available_symbols("Fixture")
 
         for type_name in ("FVector2", "FVector3", "FVector4"):
             qualified_name = f"Durin::{type_name}"
@@ -153,16 +220,27 @@ class ReflectionGenerationTests(unittest.TestCase):
             self.assertEqual(symbols[qualified_name].GeneratedHelperName, f"Z_Construct_DStruct_Durin_{type_name}")
 
     def test_manifest_records_generator_contract(self):
-        manifest_path = utils.get_module_manifest_file_path("Engine")
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_path = self.temp_root / "Fixture.manifest"
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=self.module_config),
+            mock.patch.object(configs, "collect_all_dependent_module_with_export_file", return_value=[]),
+            mock.patch.object(configs, "ARCH", "Win64"),
+            mock.patch.object(configs, "PROFILE_NAME", "DurinEditor"),
+            mock.patch.object(configs, "TOOL_FINGERPRINT", "fixture-fingerprint"),
+            mock.patch.object(utils, "get_module_manifest_file_path", return_value=manifest_path),
+        ):
+            manifest = make_new_module_manifest("Fixture")
+            manifest.resolved_symbol_dependencies[self.header] = resolved_symbol_dependencies_for_header(self.header_info, self.symbols)
+            content = save_module_manifest_file(manifest)
+        data = json.loads(content)
 
         self.assertEqual(data["SchemaVersion"], 3)
-        self.assertEqual(data["ToolFingerprint"], "dht-tests-value-lifecycle")
+        self.assertEqual(data["ToolFingerprint"], "fixture-fingerprint")
         self.assertEqual(data["SymbolNameScheme"], "qualified-underscore-v1")
-        self.assertEqual(data["ModuleName"], "Engine")
+        self.assertEqual(data["ModuleName"], "Fixture")
         self.assertEqual(data["Profile"], "DurinEditor")
         self.assertEqual(data["Platform"], "Win64")
-        actor_dependencies = data["ResolvedSymbolDependencies"]["Public/Engine/Actor.h"]
+        actor_dependencies = data["ResolvedSymbolDependencies"][self.header]
         self.assertEqual(actor_dependencies["Durin::DObject"]["GeneratedHelperName"], "Z_Construct_DClass_Durin_DObject")
 
 
