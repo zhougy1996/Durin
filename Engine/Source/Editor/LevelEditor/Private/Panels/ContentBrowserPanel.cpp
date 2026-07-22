@@ -1031,7 +1031,9 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawBackgroundContextMenu() -> void
 	{
-		if (ImGui::BeginPopupContextWindow("ContentBrowserBackground", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
+		if (!bContentItemHovered && !bRenameEditorHovered && ImGui::IsWindowHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+			ImGui::OpenPopup("ContentBrowserBackground");
+		if (ImGui::BeginPopup("ContentBrowserBackground"))
 		{
 			if (ImGui::BeginMenu("Create"))
 			{
