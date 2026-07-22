@@ -235,6 +235,13 @@ namespace Durin
 		return true;
 	}
 
+	auto DObject::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	{
+		(void)Proposal;
+		(void)OutError;
+		return true;
+	}
+
 	auto DObject::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		(void)Event;

@@ -1,4 +1,5 @@
 #include "Editor/ReflectedPropertyEditing.h"
+#include "Editor/PropertyValueDraft.h"
 
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -42,6 +43,114 @@ namespace Durin
 		};
 
 		const FGenericReflectedPropertyMutationAdapter GGenericMutationAdapter;
+
+		auto MakeEventPath(const FReflectedPropertyEditTarget& Target) -> std::vector<FPropertyPathSegment>
+		{
+			std::vector<FPropertyPathSegment> Result;
+			Result.reserve(Target.Path.size());
+			for (const FReflectedPropertyEditPathSegment& Segment : Target.Path)
+				Result.push_back({Segment.Property, Segment.Selector, Segment.Index, Segment.MapKeyData});
+			return Result;
+		}
+
+		auto IsSameMutationTarget(const FReflectedPropertyEditTarget& Left, const FReflectedPropertyEditTarget& Right) -> bool
+		{
+			if (Left.Object != Right.Object || Left.MemberProperty != Right.MemberProperty
+				|| Left.LeafProperty != Right.LeafProperty || Left.SnapshotProperty != Right.SnapshotProperty
+				|| Left.SnapshotContainer != Right.SnapshotContainer || Left.SnapshotArrayIndex != Right.SnapshotArrayIndex
+				|| Left.Path.size() != Right.Path.size()) return false;
+			for (size_t Index = 0; Index < Left.Path.size(); ++Index)
+			{
+				const auto& A = Left.Path[Index];
+				const auto& B = Right.Path[Index];
+				if (A.Property != B.Property || A.Selector != B.Selector || A.Index != B.Index
+					|| A.MapKeyData != B.MapKeyData || A.MapKey != B.MapKey) return false;
+			}
+			return true;
+		}
+
+		thread_local std::vector<const FReflectedPropertyEditTarget*> GActiveGenericMutations;
+
+		class FGenericMutationScope
+		{
+		public:
+			explicit FGenericMutationScope(const FReflectedPropertyEditTarget& Target)
+				: Target(&Target) { GActiveGenericMutations.push_back(this->Target); }
+			~FGenericMutationScope() { GActiveGenericMutations.pop_back(); }
+		private:
+			const FReflectedPropertyEditTarget* Target;
+		};
+
+		auto ApplyGenericMutation(
+			const FReflectedPropertyEditTarget& Target,
+			const FPropertyValueSnapshot& ProposedValue,
+			EPropertyChangePhase Phase,
+			EPropertyChangeOrigin Origin,
+			FPropertyValueSnapshot* OutAppliedValue,
+			std::string* OutError
+		) -> bool
+		{
+			if (std::ranges::any_of(GActiveGenericMutations, [&](const auto* Active) { return IsSameMutationTarget(*Active, Target); }))
+				return Fail(OutError, "A reflected property hook cannot start a nested edit of the same target.");
+			FGenericMutationScope Scope(Target);
+
+			FPropertyValueSnapshot Before;
+			if (!GGenericMutationAdapter.Capture(Target, Before, OutError)) return false;
+			FPropertyValueDraft Draft(Target, OutError);
+			if (!Draft.IsValid() || !Draft.Restore(ProposedValue, OutError)) return false;
+
+			FReflectedPropertyEditTarget DraftTarget;
+			const bool bResolvedLeaf = Draft.Resolve(Target, DraftTarget, nullptr);
+			if (!bResolvedLeaf && Target.Kind != EPropertyChangeKind::MapKeyRename
+				&& Target.Kind != EPropertyChangeKind::MapRemove)
+				return Fail(OutError, "The detached property proposal leaf could not be resolved.");
+
+			std::vector<FPropertyPathSegment> EventPath = MakeEventPath(Target);
+			FPropertyEditProposal Proposal{
+				Target.MemberProperty,
+				Target.LeafProperty,
+				EventPath,
+				Phase,
+				Target.Kind,
+				Origin,
+				Draft.GetRootProperty(),
+				Draft.GetRootContainer(),
+				Draft.GetRootArrayIndex(),
+				bResolvedLeaf ? DraftTarget.LeafContainer : nullptr,
+				bResolvedLeaf ? DraftTarget.LeafArrayIndex : 0
+			};
+			std::string HookError;
+			if (!Target.Object->PreEditChangeProperty(Proposal, HookError))
+			{
+				if (OutError) *OutError = HookError.empty() ? "The object rejected the reflected property proposal." : HookError;
+				return false;
+			}
+
+			FPropertyValueSnapshot Normalized;
+			if (!Draft.Capture(Normalized, OutError)) return false;
+			std::string ApplyError;
+			if (!GGenericMutationAdapter.Apply(Target, Normalized, &ApplyError))
+			{
+				std::string RollbackError;
+				if (!GGenericMutationAdapter.Restore(Target, Before, &RollbackError))
+					ApplyError += std::format(" Rollback also failed: {}", RollbackError);
+				if (OutError) *OutError = ApplyError;
+				return false;
+			}
+
+			FPropertyValueSnapshot Applied;
+			std::string CaptureError;
+			if (!GGenericMutationAdapter.Capture(Target, Applied, &CaptureError))
+			{
+				std::string RollbackError;
+				if (!GGenericMutationAdapter.Restore(Target, Before, &RollbackError))
+					CaptureError += std::format(" Rollback also failed: {}", RollbackError);
+				if (OutError) *OutError = CaptureError;
+				return false;
+			}
+			if (OutAppliedValue) *OutAppliedValue = std::move(Applied);
+			return true;
+		}
 
 		auto DecodeObjectProposal(
 			const FReflectedPropertyEditTarget& Target,
@@ -611,9 +720,11 @@ namespace Durin
 		}
 		FReflectedPropertyEditTarget ResolvedTarget;
 		if (!ResolveMutationTarget(Target, Adapter, ResolvedTarget, &LastError)) return false;
-		const bool bApplied = Origin == EPropertyChangeOrigin::Undo
-			? Adapter->Restore(ResolvedTarget, Snapshot, &LastError)
-			: Adapter->Apply(ResolvedTarget, Snapshot, &LastError);
+		const bool bApplied = Adapter == &GGenericMutationAdapter
+			? ApplyGenericMutation(ResolvedTarget, Snapshot, EPropertyChangePhase::Committed, Origin, nullptr, &LastError)
+			: (Origin == EPropertyChangeOrigin::Undo
+				? Adapter->Restore(ResolvedTarget, Snapshot, &LastError)
+				: Adapter->Apply(ResolvedTarget, Snapshot, &LastError));
 		if (!bApplied)
 		{
 			if (LastError.empty()) LastError = "The reflected-property transaction could not restore its value.";
@@ -626,12 +737,7 @@ namespace Durin
 
 	auto FReflectedPropertyTransaction::Notify(EPropertyChangeOrigin Origin) const -> void
 	{
-		std::vector<FPropertyPathSegment> EventPath;
-		EventPath.reserve(Target.Path.size());
-		for (const FReflectedPropertyEditPathSegment& Segment : Target.Path)
-		{
-			EventPath.push_back({Segment.Property, Segment.Selector, Segment.Index, Segment.MapKeyData});
-		}
+		std::vector<FPropertyPathSegment> EventPath = MakeEventPath(Target);
 		Target.Object->PostEditChangeProperty({
 			Target.MemberProperty,
 			Target.LeafProperty,
@@ -696,11 +802,15 @@ namespace Durin
 		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EReflectedPropertyEditResult::Failed; }
 		if (ProposedValue == CurrentValue) return EReflectedPropertyEditResult::NoChange;
 		FReflectedPropertyEditTarget ResolvedTarget;
-		if (!ResolveMutationTarget(Target, Adapter, ResolvedTarget, OutError)
-			|| !Adapter->Apply(ResolvedTarget, ProposedValue, OutError)) return EReflectedPropertyEditResult::Failed;
-
 		FPropertyValueSnapshot AppliedValue;
-		if (!ResolveMutationTarget(Target, Adapter, ResolvedTarget, OutError)
+		if (!ResolveMutationTarget(Target, Adapter, ResolvedTarget, OutError)) return EReflectedPropertyEditResult::Failed;
+		if (Adapter == &GGenericMutationAdapter)
+		{
+			if (!ApplyGenericMutation(ResolvedTarget, ProposedValue, EPropertyChangePhase::Interactive,
+				EPropertyChangeOrigin::Edit, &AppliedValue, OutError)) return EReflectedPropertyEditResult::Failed;
+		}
+		else if (!Adapter->Apply(ResolvedTarget, ProposedValue, OutError)
+			|| !ResolveMutationTarget(Target, Adapter, ResolvedTarget, OutError)
 			|| !Adapter->Capture(ResolvedTarget, AppliedValue, OutError)) return EReflectedPropertyEditResult::Failed;
 		if (AppliedValue == CurrentValue) return EReflectedPropertyEditResult::NoChange;
 		CurrentValue = std::move(AppliedValue);
@@ -755,8 +865,13 @@ namespace Durin
 		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EReflectedPropertyEditResult::Failed; }
 		const bool bChanged = HasChanges();
 		FReflectedPropertyEditTarget ResolvedTarget;
-		if (bChanged && (!ResolveMutationTarget(Target, Adapter, ResolvedTarget, OutError)
-			|| !Adapter->Restore(ResolvedTarget, OriginalValue, OutError))) return EReflectedPropertyEditResult::Failed;
+		if (bChanged && !ResolveMutationTarget(Target, Adapter, ResolvedTarget, OutError)) return EReflectedPropertyEditResult::Failed;
+		if (bChanged && Adapter == &GGenericMutationAdapter)
+		{
+			if (!ApplyGenericMutation(ResolvedTarget, OriginalValue, EPropertyChangePhase::Cancelled,
+				EPropertyChangeOrigin::Edit, nullptr, OutError)) return EReflectedPropertyEditResult::Failed;
+		}
+		else if (bChanged && !Adapter->Restore(ResolvedTarget, OriginalValue, OutError)) return EReflectedPropertyEditResult::Failed;
 		if (bChanged) Notify(EPropertyChangePhase::Cancelled);
 		Reset();
 		return bChanged ? EReflectedPropertyEditResult::Changed : EReflectedPropertyEditResult::NoChange;
@@ -764,12 +879,7 @@ namespace Durin
 
 	auto FReflectedPropertyEditSession::Notify(EPropertyChangePhase Phase) const -> void
 	{
-		std::vector<FPropertyPathSegment> EventPath;
-		EventPath.reserve(Target.Path.size());
-		for (const FReflectedPropertyEditPathSegment& Segment : Target.Path)
-		{
-			EventPath.push_back({Segment.Property, Segment.Selector, Segment.Index, Segment.MapKeyData});
-		}
+		std::vector<FPropertyPathSegment> EventPath = MakeEventPath(Target);
 		Target.Object->PostEditChangeProperty({
 			Target.MemberProperty,
 			Target.LeafProperty,

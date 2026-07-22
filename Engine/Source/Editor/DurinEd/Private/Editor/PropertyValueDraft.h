@@ -59,6 +59,14 @@ namespace Durin
 		auto operator=(const FPropertyValueDraft&) -> FPropertyValueDraft& = delete;
 
 		auto IsValid() const -> bool { return bValid; }
+		auto GetRootProperty() const -> const FProperty* { return Property; }
+		auto GetRootContainer() const -> void* { return Memory; }
+		auto GetRootArrayIndex() const -> uint32 { return ArrayIndex; }
+
+		auto Restore(const FPropertyValueSnapshot& Snapshot, std::string* OutError) -> bool
+		{
+			return bValid && RestorePropertyValue(Property, Memory, ArrayIndex, Snapshot, OutError);
+		}
 
 		auto Resolve(const FReflectedPropertyEditTarget& Source, FReflectedPropertyEditTarget& OutTarget,
 			std::string* OutError) const -> bool

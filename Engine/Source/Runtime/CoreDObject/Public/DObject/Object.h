@@ -104,6 +104,9 @@ namespace Durin
 
 		COREDOBJECT_API virtual auto PostLoad(std::string& OutError) -> bool;
 
+		// Validates or normalizes detached reflected storage before a live write.
+		COREDOBJECT_API virtual auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool;
+
 		// Editor mutation state stays outside DObject; this synchronous hook only
 		// lets the object refresh state derived from a successfully changed value.
 		COREDOBJECT_API virtual auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void;

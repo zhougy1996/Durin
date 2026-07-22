@@ -9,10 +9,11 @@ transactions, bindings, and semantic mutation adapters are implemented. The
 remaining UI migration and validation work is now secondary to simplifying the
 mutation model itself.
 
-Phases 0 and 1 are complete: adapter semantics are classified, proposal storage
-is owned by an internal property draft, and active sessions/transactions
-re-resolve ephemeral leaf storage from stable snapshot roots and paths. Phase 2
-is next.
+Phases 0 through 2 are complete: adapter semantics are classified, proposal
+storage is owned by an internal property draft, active sessions/transactions
+re-resolve ephemeral leaf storage, and generic mutations now pass through
+detached object validation/normalization with rollback protection. Phase 3 is
+next but has not started.
 
 The current implementation exposes too many overlapping concepts: the view
 constructs proposals in scratch storage, edit targets retain both stable and
@@ -252,16 +253,32 @@ hatch for a future externally owned canonical value.
 
 ### Stage 2: Establish the Generic Object Mutation Hooks
 
-- [ ] Define the detached pre-apply proposal contract, including mutable
+- [x] Define the detached pre-apply proposal contract, including mutable
   normalization, rejection error reporting, property path, mutation kind,
   phase, and origin.
-- [ ] Implement the atomic generic apply sequence and its rollback guard.
-- [ ] Route `PostEditChangeProperty()` through the same path for Interactive,
+- [x] Implement the atomic generic apply sequence and its rollback guard.
+- [x] Route `PostEditChangeProperty()` through the same path for Interactive,
   Commit, Cancel, Undo, and Redo without allowing post-notification rejection.
-- [ ] Ensure the snapshot recorded after apply reflects normalization and any
+- [x] Ensure the snapshot recorded after apply reflects normalization and any
   deliberate cross-field changes, not merely the widget's raw proposal.
-- [ ] Specify and test reentrancy: object hooks may update derived state but may
+- [x] Specify and test reentrancy: object hooks may update derived state but may
   not start a nested edit of the same target.
+
+#### Implementation Result
+
+`FPropertyEditProposal` exposes borrowed detached root and resolved leaf
+storage together with path, kind, phase, and origin. Map removal and key rename
+are the explicit structural exception: when the old leaf no longer exists in
+the candidate, the leaf container is null while the complete mutable draft root
+remains available.
+
+The generic mutation path captures live state, restores the candidate only into
+a draft, invokes `PreEditChangeProperty()`, captures the normalized draft,
+writes reflected storage once, and recaptures the actual value. A failed write
+or recapture attempts rollback before returning without post notification,
+dirtying, or history. Apply, Cancel, Undo, and Redo use this path; Commit emits
+the terminal post event without replaying the already-applied value. A
+thread-local target guard rejects same-target nested edits from object hooks.
 
 #### Acceptance Gate
 

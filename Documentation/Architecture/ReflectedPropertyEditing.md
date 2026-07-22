@@ -16,6 +16,7 @@ It provides:
 - interactive preview, commit, and cancel semantics;
 - one Undo/Redo entry for one continuous interaction;
 - array and map value and structural transactions;
+- detached pre-apply validation and normalization for generic mutations;
 - setter-backed mutation adapters for properties with runtime invariants; and
 - an embeddable reflected-property view shared by Details and domain editors.
 
@@ -37,8 +38,8 @@ FReflectedPropertyView
 FReflectedPropertyEditSession
   captures, applies, commits, or cancels one logical edit
         |
-        +--> IReflectedPropertyMutationAdapter
-        |      generic reflected storage or registered semantic setter
+        +--> generic detached draft + DObject::PreEditChangeProperty()
+        |      or a registered semantic mutation adapter
         |
         +--> DObject::PostEditChangeProperty()
         |
@@ -83,6 +84,14 @@ session and mutation-adapter pipeline.
 
 ## Object Notification Contract
 
+`DObject::PreEditChangeProperty(FPropertyEditProposal&, std::string&)` is the
+generic path's synchronous validation and normalization hook. The proposal
+contains the complete mutable detached snapshot root, a resolved draft leaf,
+and the same member, leaf, path, phase, kind, and origin dimensions used by the
+post event. Returning false rejects the candidate before live storage changes.
+Map removal and key rename may have no leaf in the candidate; in that case the
+leaf container is null and the full draft root remains available.
+
 `DObject::PostEditChangeProperty(const FPropertyChangedEvent&)` is the common
 notification hook. Its default implementation is a no-op.
 
@@ -102,10 +111,10 @@ indices, dynamic-array indices, and map keys. Map entries use serialized key
 data instead of iteration indices because rehashing can reorder entries.
 Path spans and key bytes are valid only for the synchronous callback.
 
-Objects use the hook to refresh derived runtime state. For example,
+Objects use the post hook to refresh derived runtime state. For example,
 `DMaterialInterface` invalidates material render data for edits to base and
-override parameter maps. Validation that may reject a value happens before this
-notification, in a setter or mutation adapter.
+override parameter maps. Generic validation happens on the detached proposal;
+existing semantic adapters retain legacy validation until their migration.
 
 ## Property Snapshots
 
@@ -128,23 +137,24 @@ address, but it cannot invalidate the stored member snapshot used by Undo/Redo.
 
 - the owning object;
 - member and leaf properties;
-- the current leaf container and fixed-array index;
 - the stable snapshot property and container;
 - the owned member-to-leaf path; and
 - the mutation kind.
 
 `ForMember()`, `ForStructMember()`, `ForArrayElement()`, and `ForMapEntry()`
-build targets without making panels reconstruct path rules themselves. The
-active session roots its target object while it retains raw reflected
-addresses.
+build targets without making panels reconstruct path rules themselves. Leaf
+addresses are construction-time conveniences only; active sessions and
+transactions retain stable roots and paths and re-resolve ephemeral storage.
 
 ## Mutation Adapters
 
-Every edit uses `IReflectedPropertyMutationAdapter` to capture, apply, and
-restore values.
+The generic path reads and writes the stable reflected snapshot root. It
+captures live state, restores the candidate into an internal detached draft,
+invokes the pre hook, captures the normalized draft, writes live storage once,
+and recaptures the actual value. A failed write or recapture attempts rollback
+and emits no post event. Same-target nested edits from a hook are rejected.
 
-The generic adapter reads and writes the stable reflected snapshot root. A
-process-lifetime registry supplies semantic adapters for properties that must
+A process-lifetime registry still supplies semantic adapters for properties that must
 call setters or enforce invariants. Current built-in registrations cover:
 
 - `DSceneComponent.RelativeTransform` through `SetRelativeTransform()`;
@@ -174,8 +184,8 @@ Begin(target)
   root the target object
 
 Apply(proposal)
-  apply through the adapter
-  recapture the actual applied value
+  validate/normalize a detached draft on the generic path
+  atomically apply and recapture the actual value, or use the selected adapter
   notify Interactive when it changed
 
 Commit()
@@ -185,7 +195,7 @@ Commit()
   CommitApplied() one before/after transaction
 
 Cancel()
-  restore the original value through the same adapter
+  restore through the same generic hook path or selected adapter
   notify Cancelled
   create no transaction
 ```
@@ -202,9 +212,10 @@ state, or workspace activity changes so errors can be reported deliberately.
 ## Transactions and Dirty State
 
 `FReflectedPropertyTransaction` retains the target, before/after snapshots,
-description, and adapter. Undo restores the before snapshot; Redo restores the
-after snapshot. Both use the adapter and deliver the same object notification
-with the corresponding origin.
+description, and selected adapter. Generic Undo and Redo use the same detached
+pre-apply and rollback path as interactive edits; legacy semantic properties
+still use their adapter. Both deliver the same post notification with the
+corresponding origin.
 
 The session calls `FEditorTransactionManager::CommitApplied()` because the live
 interactive edit has already placed the object in its final state. A no-op or
@@ -266,7 +277,7 @@ cannot construct unsafe container addresses or edit paths.
 Leaf widgets are separated from submission. A widget reads the displayed value
 into ordinary temporary state and returns a detached assignment proposal that
 contains no object or edit target. Ordinary properties apply that proposal only
-to a generated scratch leaf before submitting the stable member snapshot. Map
+to an internal property-draft leaf before submitting the stable member snapshot. Map
 key widgets apply the same proposal to a temporary key and then submit an
 explicit `MapKeyRename`; they never write key storage inside the live map.
 
