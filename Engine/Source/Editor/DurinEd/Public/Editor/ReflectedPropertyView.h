@@ -111,6 +111,12 @@ namespace Durin
 		auto IsEditingTarget(const FReflectedPropertyEditTarget& Target) const -> bool { return EditSession.MatchesTarget(Target); }
 
 	private:
+		enum class EPropertyValueEditDestination : uint8
+		{
+			EditPipeline,
+			DetachedTemporary
+		};
+
 		auto EditPropertyValue(
 			const FReflectedPropertyViewContext& Context,
 			DObject* Object,
@@ -119,8 +125,28 @@ namespace Durin
 			uint32 ArrayIndex,
 			const std::string& Label,
 			bool bReadOnly,
+			const FReflectedPropertyEditTarget& EditTarget
+		) -> bool;
+		auto EditDetachedTemporaryPropertyValue(
+			const FReflectedPropertyViewContext& Context,
+			DObject* Object,
+			FProperty* Property,
+			void* Container,
+			uint32 ArrayIndex,
+			const std::string& Label,
+			bool bReadOnly,
+			const FReflectedPropertyEditTarget& EditTarget
+		) -> bool;
+		auto EditPropertyValueImpl(
+			const FReflectedPropertyViewContext& Context,
+			DObject* Object,
+			FProperty* Property,
+			void* Container,
+			uint32 ArrayIndex,
+			const std::string& Label,
+			bool bReadOnly,
 			const FReflectedPropertyEditTarget& EditTarget,
-			bool bUseTransaction = true
+			EPropertyValueEditDestination Destination
 		) -> bool;
 		auto EditArrayProperty(const FReflectedPropertyViewContext& Context, DObject* Object, FArrayProperty* Property,
 			void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,

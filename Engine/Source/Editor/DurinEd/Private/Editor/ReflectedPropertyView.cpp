@@ -396,15 +396,47 @@ namespace Durin
 		uint32 ArrayIndex,
 		const std::string& Label,
 		bool bReadOnly,
+		const FReflectedPropertyEditTarget& EditTarget
+	) -> bool
+	{
+		return EditPropertyValueImpl(Context, Object, Property, Container, ArrayIndex, Label, bReadOnly, EditTarget,
+			EPropertyValueEditDestination::EditPipeline);
+	}
+
+	auto FReflectedPropertyView::EditDetachedTemporaryPropertyValue(
+		const FReflectedPropertyViewContext& Context,
+		DObject* Object,
+		FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		const std::string& Label,
+		bool bReadOnly,
+		const FReflectedPropertyEditTarget& EditTarget
+	) -> bool
+	{
+		// Detached widget state is never an editable reflected target. Its owner must
+		// explicitly submit the resulting value through the edit pipeline.
+		return EditPropertyValueImpl(Context, Object, Property, Container, ArrayIndex, Label, bReadOnly, EditTarget,
+			EPropertyValueEditDestination::DetachedTemporary);
+	}
+
+	auto FReflectedPropertyView::EditPropertyValueImpl(
+		const FReflectedPropertyViewContext& Context,
+		DObject* Object,
+		FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		const std::string& Label,
+		bool bReadOnly,
 		const FReflectedPropertyEditTarget& EditTarget,
-		bool bUseTransaction
+		EPropertyValueEditDestination Destination
 	) -> bool
 	{
 		bReadOnly |= Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 		DStruct* Struct = Kind == DurinCodeGen::EPropertyGenFlags::Struct ? static_cast<FStructProperty*>(Property)->GetStruct() : nullptr;
 		auto SubmitProposed = [&](auto&& WriteProposed, bool bContinuous) -> bool {
-			if (!bUseTransaction)
+			if (Destination == EPropertyValueEditDestination::DetachedTemporary)
 			{
 				WriteProposed(EditTarget, nullptr);
 				return true;
@@ -419,7 +451,7 @@ namespace Durin
 			return SubmitPropertyEdit(Context, EditTarget, Proposed, bContinuous);
 		};
 		auto FinishContinuousEdit = [&](const MonaImGui::FPropertyEditWidgetState& State) {
-			if (!bUseTransaction) return;
+			if (Destination == EPropertyValueEditDestination::DetachedTemporary) return;
 			if (State.bDeactivatedAfterEdit && IsEditingTarget(EditTarget)) FinishActiveEdit(&Context, false);
 			else if (State.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && IsEditingTarget(EditTarget)) FinishActiveEdit(&Context, true);
 		};
@@ -793,7 +825,7 @@ namespace Durin
 				void* EditedKey = Property->CreateKeyCopy(Key);
 				FReflectedPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(Property->GetKeyProp(), EditedKey, KeySnapshot, SerializedKey);
 				KeyTarget.Kind = EPropertyChangeKind::MapKeyRename;
-				const bool bKeyChanged = EditedKey && EditPropertyValue(Context, Object, Property->GetKeyProp(), EditedKey, 0, std::format("[{}] Key", Index), bReadOnly, KeyTarget, false);
+				const bool bKeyChanged = EditedKey && EditDetachedTemporaryPropertyValue(Context, Object, Property->GetKeyProp(), EditedKey, 0, std::format("[{}] Key", Index), bReadOnly, KeyTarget);
 				const MonaImGui::FPropertyEditWidgetState KeyState{
 					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()
 				};
