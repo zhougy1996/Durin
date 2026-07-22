@@ -27,7 +27,10 @@ namespace Durin
 		bWindowBegun = true;
 		if (Config.bZeroPadding) ImGui::PopStyleVar();
 		State.bFocused = State.bVisible && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		const bool bDockTabSelected = State.bVisible && ImGui::IsWindowDocked();
+		const ImGuiWindow* Window = ImGui::GetCurrentWindow();
+		// Begin() may return true one frame before a queued dock-tab selection becomes visible.
+		// Use the dock state directly so document activation follows the tab the user actually sees.
+		const bool bDockTabSelected = Window->DockIsActive && Window->DockTabIsVisible;
 		// A selected dock tab may not transfer focus to one of its child controls.
 		State.bActivated = bDockTabSelected && !bWasDockTabSelected;
 		bWasDockTabSelected = bDockTabSelected;
