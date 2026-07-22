@@ -1,36 +1,32 @@
-# TODO 计划文档指南
+# TODO Plan Documentation Guide
 
-本目录保存已经收窄范围、可以直接执行的实施计划。查找或新建 TODO 时，
-先读本文档；不需要通读其他 TODO 来推断文档风格。
+This directory contains implementation plans whose scope has been narrowed enough to execute directly. Read this document before locating or creating a TODO; there is no need to read unrelated TODOs to infer the documentation style.
 
-## 文档索引
+## Document Index
 
-| 计划 | 主要范围 |
+| Plan | Primary Scope |
 | --- | --- |
-| [SkyBoxComponent](SkyBoxComponent.md) | 第一版静态 Cubemap 天空背景的完整垂直链路 |
-| [Texture Support](TextureSupport.md) | Texture2D 资产、平台数据、材质采样与验证 |
-| [Material System](MaterialSystem.md) | 材质编辑、表面模型、Shader Map 与运行时材质 |
-| [Reflected Property Editing](ReflectedPropertyEditing.md) | 反射属性编辑、事务、通知和定制化 |
-| [Multithreading System](MultithreadingSystem.md) | 任务系统、线程边界和渲染并发演进 |
-| [Editor Workspace Refactor](EditorWorkspaceRefactor.md) | 编辑器 Workspace 、面板和文档生命周期 |
-| [Editor Icon Atlas](EditorIconAtlas.md) | 编辑器可视化图标的离线 Atlas 管线 |
+| [SkyBoxComponent](SkyBoxComponent.md) | Complete vertical slice for the first static cubemap sky background |
+| [Texture Support](TextureSupport.md) | Texture2D assets, platform data, material sampling, and validation |
+| [Material System](MaterialSystem.md) | Material editing, surface models, shader maps, and runtime materials |
+| [Reflected Property Editing](ReflectedPropertyEditing.md) | Reflected property editing, transactions, notifications, and customization |
+| [Multithreading System](MultithreadingSystem.md) | Task system, thread boundaries, and rendering concurrency evolution |
+| [Editor Workspace Refactor](EditorWorkspaceRefactor.md) | Editor workspaces, panels, and document lifecycles |
+| [Editor Icon Atlas](EditorIconAtlas.md) | Offline atlas pipeline for editor visualization icons |
 
-新增、重命名或删除 TODO 文档时，必须同步更新本索引。
+Update this index whenever a TODO document is added, renamed, or deleted.
 
-## TODO 与其他文档的边界
+## Boundaries Between TODOs and Other Documentation
 
-- `Documentation/Reference` 记录调研、外部案例和候选方案，不代表已选定路线。
-- `Documentation/Architecture` 记录已经采用且需要长期维护的架构约束。
-- `Documentation/Todo` 记录从当前状态到目标状态的可执行路径和验收门槛。
+- `Documentation/Reference` records research, external examples, and candidate approaches; it does not represent a selected direction.
+- `Documentation/Architecture` records adopted architectural constraints that require long-term maintenance.
+- `Documentation/Todo` records executable paths and acceptance gates from the current state to a target state.
 
-当选型尚未完成时，先保留在 Reference；只有在范围、非目标和关键技术决策已经
-明确后，才形成 TODO。实现落地后，将需要长期遵守的内容迁入 Architecture，
-不要让 TODO 成为第二份架构规范。
+When an approach has not yet been selected, keep it in Reference. Create a TODO only after the scope, non-goals, and key technical decisions are clear. Once implementation is complete, move long-lived requirements into Architecture instead of allowing the TODO to become a second architecture specification.
 
-## 统一文档结构
+## Standard Document Structure
 
-新 TODO 默认使用以下结构。可以增加专题章节，但不应省略范围、阶段验收和
-完成定义。
+New TODOs use the following structure by default. Topic-specific sections may be added, but scope, stage acceptance, and the definition of done must not be omitted.
 
 ```markdown
 # <Feature> TODO
@@ -55,46 +51,40 @@ Last reviewed: YYYY-MM-DD
 ## Related Code
 ```
 
-## 编写规则
+## Writing Rules
 
-### 1. 先收窄范围
+### 1. Narrow the Scope First
 
-- `Goal` 用一段话描述用户最终能够看到或使用什么。
-- `Scope` 列出必须打通的端到端链路。
-- `Non-Goals` 明确排除容易顺手扩张的能力。
-- 不使用“完善”、“支持好”、“视情况处理”等无法验收的表述。
+- Use `Goal` to describe in one paragraph what the user will ultimately be able to see or use.
+- Use `Scope` to list the end-to-end paths that must be completed.
+- Use `Non-Goals` to explicitly exclude capabilities that could easily expand the work incidentally.
+- Avoid statements such as "improve," "support well," or "handle as appropriate" that cannot be accepted objectively.
 
-### 2. 先写决策和不变量
+### 2. State Decisions and Invariants First
 
-计划应明确已经选定的输入格式、所有权、线程边界、失败回退和渲染顺序。
-如果某项仍需要选型，把它写成 Stage 0 中必须关闭的问题，不要把互相冲突的
-候选路线同时写成实施任务。
+The plan should state the selected input formats, ownership model, thread boundaries, failure fallbacks, and rendering order. If an item still requires a decision, make resolving it a required Stage 0 task instead of listing conflicting candidate approaches as simultaneous implementation tasks.
 
-### 3. 阶段必须可独立验收
+### 3. Make Every Stage Independently Acceptable
 
-每个 Stage 包含：
+Each stage contains:
 
-- 该阶段的产物，而不只是要修改的文件。
-- 可勾选的具体任务。
-- `Acceptance Gate`，说明什么证据允许进入下一阶段。
-- 与前置阶段的显式依赖。
+- The stage deliverable, not merely the files to modify.
+- Concrete, checkable tasks.
+- An `Acceptance Gate` describing the evidence required before proceeding to the next stage.
+- Explicit dependencies on earlier stages.
 
-阶段顺序优先按“底层契约 → 资源生命周期 → 场景数据 → 渲染效果 → 编辑器工作流 →
-端到端验证”组织，但应以真实依赖关系为准。
+Prefer to order stages as "low-level contracts -> resource lifecycle -> scene data -> rendering result -> editor workflow -> end-to-end validation," while following the actual dependency graph when it differs.
 
-### 4. 分开实现任务和验证任务
+### 4. Separate Implementation Tasks From Validation Tasks
 
-- 单元测试覆盖数据约束、边界和失败路径。
-- 集成测试覆盖资产、反射、序列化、线程与模块边界。
-- 渲染功能需要列出真实后端验证和可视结果检查。
-- 最终构建、测试和运行方式遵守根目录 `AGENTS.md` 与 Setup 文档，不在每份 TODO 中
-  复制一套可能过期的命令。
+- Unit tests cover data constraints, boundaries, and failure paths.
+- Integration tests cover assets, reflection, serialization, threading, and module boundaries.
+- Rendering features list both real-backend validation and visible-result checks.
+- Final build, test, and run procedures follow the root `AGENTS.md` and Setup documentation. Do not duplicate a potentially stale command set in every TODO.
 
-### 5. 完成后维护状态
+### 5. Maintain Status After Implementation Begins
 
-- 任务落地时即时勾选，不等到整份计划完成后集中更新。
-- 每次实质性更新同步修改 `Last reviewed` 和 `Current Status`。
-- 发现实现已经偏离计划时，先更新决策和原因，再继续勾选任务。
-- 所有 `Definition of Done` 条件满足后，将长期规则写入 Architecture，然后将 TODO 标记为完成
-  或移入历史区；不在本文档里删除其索引而不留下去向。
-
+- Check off tasks as they land instead of updating the entire plan only after it is complete.
+- Update `Last reviewed` and `Current Status` with every substantive change.
+- If implementation diverges from the plan, update the decision and its rationale before continuing to check off tasks.
+- After every `Definition of Done` condition is satisfied, move long-lived rules into Architecture and then mark the TODO complete or move it into a history area. Do not remove its index entry without recording its destination.
