@@ -106,6 +106,7 @@ class CommandRequest:
     target: str = ""
     jobs: int | None = None
     test_filter: str = ""
+    test_timeout_seconds: int = 300
     run_arguments: tuple[str, ...] = ()
     profile: str = ""
     preset: str = ""

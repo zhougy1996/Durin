@@ -200,8 +200,12 @@ class CliTests(unittest.TestCase):
         self.assertTrue(purge.yes)
         run = build_cli.parse_args(["run", "--preset", "game", "--args", "-log"])
         self.assertEqual(run.run_arguments, ("-log",))
-        test = build_cli.parse_args(["test", "--target", "CoreTests", "--filter", "Core.*"])
+        test = build_cli.parse_args(
+            ["test", "--target", "CoreTests", "--filter", "Core.*", "--timeout", "45"]
+        )
         self.assertEqual(test.test_filter, "Core.*")
+        self.assertEqual(test.test_timeout_seconds, 45)
+        self.assertEqual(build_cli.parse_args(["test", "--target", "CoreTests"]).test_timeout_seconds, 300)
 
     def test_build_requires_target_with_command_specific_help(self) -> None:
         with self.assertRaisesRegex(build_config.BuildToolError, "BuildTool build --help"):
@@ -792,6 +796,50 @@ class CoreTests(unittest.TestCase):
             with self.assertRaises(build_config.BuildToolInterruptedError):
                 build_core.run_command(["cmake", "--version"], environment={}, output=output)
         terminate.assert_called_once_with(process)
+
+    def test_command_timeout_terminates_child_process_tree(self) -> None:
+        process = mock.Mock()
+        process.wait.side_effect = build_core.subprocess.TimeoutExpired(["CoreTests"], 0)
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
+            build_core,
+            "terminate_process_tree",
+        ) as terminate, self.assertRaisesRegex(build_config.BuildToolError, "timed out"):
+            build_core.run_command(
+                ["CoreTests"],
+                environment={},
+                output=output,
+                timeout_seconds=0.001,
+            )
+        terminate.assert_called_once_with(process)
+
+    def test_native_test_failure_does_not_leave_recovery_marker(self) -> None:
+        preset = self.make_preset()
+        context = build_config.BuildContext(
+            build_config.CommandRequest(build_config.Action.TEST, target="CoreTests"),
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {"debug": preset},
+            preset,
+            "windows",
+            cmake="cmake",
+            jobs=1,
+            environment={},
+        )
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            marker = root / "interrupted.json"
+            lock = root / "checkout.lock"
+            with mock.patch.object(build_core, "interruption_marker_path", return_value=marker), mock.patch.object(
+                build_core, "lock_file_path", return_value=lock
+            ), mock.patch.object(build_core, "perform_action"), mock.patch.object(
+                build_core,
+                "run_native_test",
+                side_effect=build_config.BuildToolError("test failed"),
+            ), self.assertRaisesRegex(build_config.BuildToolError, "test failed"):
+                build_core.execute_context(context, output, confirm_purge=lambda _paths, _all: False)
+            self.assertFalse(marker.exists())
 
     def test_purge_paths_cover_build_outputs_and_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -752,6 +752,8 @@ def run_command(
     environment: Mapping[str, str],
     output: BuildOutput,
     recovery_required_on_interrupt: bool = True,
+    interruption_message: str | None = None,
+    timeout_seconds: int | None = None,
     wait_for_descendants: bool = False,
 ) -> None:
     command_list = list(command)
@@ -782,7 +784,27 @@ def run_command(
             process_job.close()
             raise
     try:
-        return_code = process.wait()
+        started_at = perf_counter()
+        deadline = perf_counter() + timeout_seconds if timeout_seconds else None
+        while True:
+            wait_seconds = 30.0
+            if deadline is not None:
+                remaining = deadline - perf_counter()
+                if remaining <= 0:
+                    if process_job:
+                        process_job.terminate()
+                    terminate_process_tree(process)
+                    raise BuildToolError(
+                        f'Command timed out after {timeout_seconds}s: "{command_list[0]}"',
+                        command=command_list,
+                        recovery="Inspect the command output above, then rerun the same command.",
+                    )
+                wait_seconds = min(wait_seconds, remaining)
+            try:
+                return_code = process.wait(timeout=wait_seconds)
+                break
+            except subprocess.TimeoutExpired:
+                output.info(f"Command is still running ({perf_counter() - started_at:.0f}s elapsed).")
         if process_job:
             # Relaunched editors inherit job membership, so active membership reaches zero only after the final instance exits.
             process_job.wait()
@@ -791,9 +813,9 @@ def run_command(
             process_job.terminate()
         terminate_process_tree(process)
         if not recovery_required_on_interrupt:
-            raise BuildToolError("Application run was interrupted.", command=command_list) from exc
+            raise BuildToolError(interruption_message or "Application run was interrupted.", command=command_list) from exc
         raise BuildToolInterruptedError(
-            "Durin BuildTool was interrupted.",
+            interruption_message or "Durin BuildTool was interrupted.",
             command=command_list,
             recovery=(
                 "Confirm that the old build process tree has exited, then run "
@@ -1109,15 +1131,25 @@ def perform_action(context: BuildContext, output: BuildOutput) -> None:
             environment=environment,
             output=output,
         )
-    if request.action is Action.TEST:
-        executable = test_executable_path(context.profile, context.preset, target)
-        if not executable.is_file():
-            raise BuildToolError(f'Test target "{target}" did not produce "{executable}".')
-        command = [str(executable)]
-        if request.test_filter:
-            command.append(f"--gtest_filter={request.test_filter}")
-        with output.stage("Test"):
-            run_command(command, environment=environment, output=output)
+
+
+def run_native_test(context: BuildContext, output: BuildOutput) -> None:
+    request = context.request
+    executable = test_executable_path(context.profile, context.preset, context.target)
+    if not executable.is_file():
+        raise BuildToolError(f'Test target "{context.target}" did not produce "{executable}".')
+    command = [str(executable)]
+    if request.test_filter:
+        command.append(f"--gtest_filter={request.test_filter}")
+    with output.stage("Test"):
+        run_command(
+            command,
+            environment=context.environment or os.environ,
+            output=output,
+            recovery_required_on_interrupt=False,
+            interruption_message="Native test run was interrupted.",
+            timeout_seconds=request.test_timeout_seconds or None,
+        )
 
 
 def run_application(context: BuildContext, output: BuildOutput) -> None:
@@ -1262,6 +1294,10 @@ def execute_context(
                 metadata=metadata,
                 operation=lambda: perform_action(context, output),
             )
+            # Native tests only read completed build outputs. Their assertion failures,
+            # hangs, and interruptions must not poison incremental build state.
+            if context.request.action is Action.TEST:
+                run_native_test(context, output)
     elapsed = perf_counter() - started
     if context.request.action is not Action.PURGE:
         output.success(f"{context.request.action.value} completed in {elapsed:.2f}s.")

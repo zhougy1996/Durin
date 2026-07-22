@@ -101,6 +101,14 @@ def make_parser() -> BuildArgumentParser:
     add_jobs(test, inherited=True)
     test.add_argument("--target", required=True, help="native test target")
     test.add_argument("--filter", default="", help="GoogleTest filter")
+    test.add_argument(
+        "--timeout",
+        type=int,
+        choices=range(0, 86401),
+        default=300,
+        metavar="0..86400",
+        help="test executable timeout in seconds; 0 disables it (default: 300)",
+    )
 
     purge = subparsers.add_parser("purge", help="delete generated build artifacts")
     add_common_options(purge, inherited=True)
@@ -137,6 +145,7 @@ def namespace_request(args: argparse.Namespace) -> CommandRequest:
         target=getattr(args, "target", ""),
         jobs=getattr(args, "jobs", None),
         test_filter=getattr(args, "filter", ""),
+        test_timeout_seconds=getattr(args, "timeout", 300),
         run_arguments=tuple(getattr(args, "run_arguments", ())),
         profile=getattr(args, "profile", ""),
         preset=getattr(args, "preset", ""),
@@ -161,6 +170,7 @@ def command_request(
     preset: str,
     target: str = "",
     test_filter: str = "",
+    test_timeout_seconds: int = 300,
     run_arguments: Sequence[str] = (),
     all_presets: bool = False,
     yes: bool = False,
@@ -172,6 +182,7 @@ def command_request(
         preset=preset,
         target=target,
         test_filter=test_filter,
+        test_timeout_seconds=test_timeout_seconds,
         run_arguments=tuple(run_arguments),
         all_presets=all_presets,
         yes=yes,
@@ -208,7 +219,7 @@ def print_shell_help(output: BuildOutput) -> None:
         "  clean                    Clean the current preset\n"
         "  purge [options]          Delete artifacts (--all-presets, --yes)\n"
         "  rebuild [target]         Clean, configure, and build (default: all)\n"
-        "  test <target> [filter]   Build and run a native test target\n"
+        "  test <target> [filter]   Build and run a native test target (300s timeout)\n"
         "  run [arguments...]       Run the existing runtime executable\n"
         "  open-runtime             Open the current preset's runtime directory\n"
         "  help                     Show this help\n"

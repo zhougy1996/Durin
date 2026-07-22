@@ -39,6 +39,8 @@ BuildTool separates its resolved context, execution stages, raw CMake/Ninja outp
 .\BuildTool build --target all --plain
 ```
 
+While a child command is alive, BuildTool emits a short heartbeat every 30 seconds until the child produces a final result. This distinguishes a genuinely running build from a completed command without requiring a second status or build invocation.
+
 On Windows, the first toolchain-backed command captures and validates the Visual Studio environment. BuildTool caches that environment delta under `Build/.agent-state/` so later invocations avoid rerunning `VsDevCmd.bat` and the compiler language probe. The cache refreshes automatically when the setup script, its arguments, or `cl.exe` changes, while caller-provided environment values and `PATH` changes remain live.
 
 The registered Windows build environment defaults to `Win64-Debug-DurinEditor-Tests`, allowing the same output set to run the editor and native tests. Before launching the editor for a smoke test or final validation, build the complete runtime:
@@ -154,9 +156,11 @@ CMake records MSVC's localized `/showIncludes` prefix during configuration. If r
 
 ## Recovery
 
-For Agent-driven builds, prevent recovery from being needed: give the shell invocation a timeout of at least one hour (longer for a full build), and keep waiting on the same yielded invocation until it produces a final exit result. A runner yield, cell ID, quiet output, or elapsed UI window does not mean that BuildTool stopped and must not trigger a second build or recovery-state inspection.
+For Agent-driven `build` and `rebuild` commands, give the shell invocation a timeout of at least 10 minutes and raise it for a full build when prior measurements justify that. If the runner returns a running cell ID, wait on that same cell in intervals no longer than 60 seconds. Do not call `wait` after a final exit result. A runner yield, quiet output, or elapsed UI window alone does not mean that BuildTool stopped and must not trigger a second build or recovery-state inspection.
 
-Do not start a second build while an earlier CMake, Ninja, compiler, or linker process tree may still be running. If a build is cancelled, times out, or its terminal closes, wait for that process tree to exit and run:
+The recovery marker covers only operations that mutate configured or compiled build state. A normal compiler, linker, configuration, or clean failure removes the in-progress marker; fix the reported error and rerun the same command. For `test`, the marker is cleared as soon as its target finishes building, before the test executable starts. Failed assertions, test-process crashes, test timeouts, interrupted tests, and application exits therefore never require a rebuild.
+
+Do not start a second build while an earlier CMake, Ninja, compiler, or linker process tree may still be running. If such a process is cancelled, externally terminated, or loses its controlling BuildTool process, wait for the process tree to exit and check `BuildTool status`. Run the following only when it reports `Recovery state: rebuild required`:
 
 ```powershell
 .\BuildTool rebuild --target all
@@ -164,7 +168,7 @@ Do not start a second build while an earlier CMake, Ninja, compiler, or linker p
 
 When the interrupted operation used a non-default preset, add `--preset <affected-preset>` or select that preset in the interactive shell before rebuilding.
 
-Use the same recovery after an accidental IDE build. IDE outputs share the final binary directory, and their timestamps can make an incremental Agent build incorrectly report that everything is current. The driver also blocks unsafe incremental `build` and `test` operations for the affected preset after a detected interruption until a `rebuild` succeeds.
+Use the same recovery after an accidental IDE build. IDE outputs share the final binary directory, and their timestamps can make an incremental Agent build incorrectly report that everything is current. The driver also blocks unsafe incremental `build` and the build phase of `test` for the affected preset after a detected build-state interruption until a `rebuild` succeeds.
 
 BuildTool serializes all registered presets with one checkout-level ownership lock because different CMake trees can still share final outputs and generated metadata. Do not mix direct CMake build operations with `BuildTool` ownership of the same checkout.
 

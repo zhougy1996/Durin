@@ -9,9 +9,12 @@ Build and run a test executable through the root wrapper:
 ```powershell
 .\BuildTool test --target CoreTests
 .\BuildTool test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
+.\BuildTool test --target CoreTests --timeout 60
 ```
 
-The first command runs the target's discovered tests. The second passes a GoogleTest filter. Build ownership, recovery, and parallelism rules are documented in `Documentation/Setup/BuildAndRun.md`.
+The first command runs the target's discovered tests. The second passes a GoogleTest filter. The test executable has a 300-second timeout by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for an intentionally long diagnostic run. The timeout starts after the target has finished building.
+
+BuildTool clears build recovery state before launching the test executable. A failed assertion, crash, timeout, or interrupted test should be diagnosed and rerun with `test`; it does not require `rebuild`. Build ownership, recovery, and parallelism rules are documented in `Documentation/Setup/BuildAndRun.md`.
 
 In the interactive shell, use the equivalent commands:
 
