@@ -6,6 +6,27 @@
 
 namespace Durin
 {
+	namespace
+	{
+		template<typename T>
+		auto ReadEnumValue(const void* ValuePtr) -> uint64
+		{
+			T Value;
+			std::memcpy(&Value, ValuePtr, sizeof(Value));
+			if constexpr (std::is_signed_v<T>)
+				return static_cast<uint64>(static_cast<int64>(Value));
+			else
+				return static_cast<uint64>(Value);
+		}
+
+		template<typename T>
+		auto WriteEnumValue(void* ValuePtr, uint64 Value) -> void
+		{
+			const T NarrowValue = static_cast<T>(Value);
+			std::memcpy(ValuePtr, &NarrowValue, sizeof(NarrowValue));
+		}
+	}
+
 	IMPLEMENT_FIELD(FProperty, FField, EClassCastFlags::FProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FNumericProperty, FProperty, EClassCastFlags::FNumericProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FBoolProperty, FProperty, EClassCastFlags::FBoolProperty, COREDOBJECT_API)
@@ -148,6 +169,48 @@ namespace Durin
 	auto FEnumProperty::GetUnderlyingType() const -> DurinCodeGen::EEnumUnderlyingType
 	{
 		return ReferencedEnum ? ReferencedEnum->GetUnderlyingType() : DurinCodeGen::EEnumUnderlyingType::Unknown;
+	}
+
+	auto FEnumProperty::GetValueAsUInt64(const void* Container, uint32 ArrayIndex) const -> uint64
+	{
+		const void* ValuePtr = GetValuePtr(Container, ArrayIndex);
+		switch (GetUnderlyingType())
+		{
+		case DurinCodeGen::EEnumUnderlyingType::Int8: return ReadEnumValue<int8>(ValuePtr);
+		case DurinCodeGen::EEnumUnderlyingType::Int16: return ReadEnumValue<int16>(ValuePtr);
+		case DurinCodeGen::EEnumUnderlyingType::Int32: return ReadEnumValue<int32>(ValuePtr);
+		case DurinCodeGen::EEnumUnderlyingType::Int64: return ReadEnumValue<int64>(ValuePtr);
+		case DurinCodeGen::EEnumUnderlyingType::UInt8: return ReadEnumValue<uint8>(ValuePtr);
+		case DurinCodeGen::EEnumUnderlyingType::UInt16: return ReadEnumValue<uint16>(ValuePtr);
+		case DurinCodeGen::EEnumUnderlyingType::UInt32: return ReadEnumValue<uint32>(ValuePtr);
+		case DurinCodeGen::EEnumUnderlyingType::UInt64: return ReadEnumValue<uint64>(ValuePtr);
+		default: return 0;
+		}
+	}
+
+	auto FEnumProperty::SetValueFromUInt64(void* Container, uint64 Value, uint32 ArrayIndex) const -> void
+	{
+		void* ValuePtr = GetValuePtr(Container, ArrayIndex);
+		switch (GetUnderlyingType())
+		{
+		case DurinCodeGen::EEnumUnderlyingType::Int8:
+		case DurinCodeGen::EEnumUnderlyingType::UInt8:
+			WriteEnumValue<uint8>(ValuePtr, Value);
+			break;
+		case DurinCodeGen::EEnumUnderlyingType::Int16:
+		case DurinCodeGen::EEnumUnderlyingType::UInt16:
+			WriteEnumValue<uint16>(ValuePtr, Value);
+			break;
+		case DurinCodeGen::EEnumUnderlyingType::Int32:
+		case DurinCodeGen::EEnumUnderlyingType::UInt32:
+			WriteEnumValue<uint32>(ValuePtr, Value);
+			break;
+		case DurinCodeGen::EEnumUnderlyingType::Int64:
+		case DurinCodeGen::EEnumUnderlyingType::UInt64:
+			WriteEnumValue<uint64>(ValuePtr, Value);
+			break;
+		default: break;
+		}
 	}
 
 	FObjectProperty::FObjectProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)

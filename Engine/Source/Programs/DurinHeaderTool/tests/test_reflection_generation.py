@@ -11,8 +11,35 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 from durin_header_tool.generators.module_export_file_generator import generate_module_export_file
 from durin_header_tool.generators.module_reflection_files_generator import generate_reflection_files
-from durin_header_tool.model.reflection_info import make_generated_enum_helper_name, make_generated_helper_name
+from durin_header_tool.model.reflection_info import (
+    ReflectedEnumInfo,
+    ReflectedEnumValueInfo,
+    make_generated_enum_helper_name,
+    make_generated_helper_name,
+)
 from durin_header_tool.resolver.reflection_resolver import load_available_symbols
+from durin_header_tool.writers.reflection_source_writer import _enum_definitions
+
+
+class ReflectionSourceWriterTests(unittest.TestCase):
+    def test_enum_values_use_unsigned_64_bit_channel(self):
+        enum_info = ReflectedEnumInfo(
+            short_name="EValue",
+            namespace="Durin",
+            qualified_name="Durin::EValue",
+            generated_helper_name="Z_Construct_DEnum_Durin_EValue",
+            header="Value.h",
+            api="CORE_API",
+            values=[
+                ReflectedEnumValueInfo(name="Negative", value=-1),
+                ReflectedEnumValueInfo(name="High", value=(1 << 64) - 1),
+            ],
+        )
+
+        content = _enum_definitions(enum_info, "/Cpp/Core")
+
+        self.assertIn('{ "Negative", static_cast<Durin::uint64>(-1) },', content)
+        self.assertIn('{ "High", static_cast<Durin::uint64>(18446744073709551615) },', content)
 
 
 class ReflectionGenerationTests(unittest.TestCase):

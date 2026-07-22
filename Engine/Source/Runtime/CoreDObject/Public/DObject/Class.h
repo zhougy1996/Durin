@@ -147,7 +147,7 @@ namespace Durin
 	struct FEnumValue
 	{
 		FName Name;
-		int64 Value = 0;
+		uint64 Value = 0;
 	};
 
 	class DEnum : public DType
@@ -184,8 +184,8 @@ namespace Durin
 		auto GetUnderlyingSize() const -> uint16 { return UnderlyingSize; }
 		auto GetValues() const -> const std::vector<FEnumValue>& { return Values; }
 
-		COREDOBJECT_API auto FindValueByName(FName InName, int64& OutValue) const -> bool;
-		COREDOBJECT_API auto FindNameByValue(int64 InValue, FName& OutName) const -> bool;
+		COREDOBJECT_API auto FindValueByName(FName InName, uint64& OutValue) const -> bool;
+		COREDOBJECT_API auto FindNameByValue(uint64 InValue, FName& OutName) const -> bool;
 		COREDOBJECT_API auto ForEachValue(const std::function<void(const FEnumValue&)>& Visitor) const -> void;
 
 	private:

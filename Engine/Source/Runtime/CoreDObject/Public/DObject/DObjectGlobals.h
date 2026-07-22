@@ -151,7 +151,7 @@ namespace Durin
 		struct FEnumValueParams
 		{
 			const char* NameUTF8;
-			int64 Value;
+			uint64 Value;
 		};
 
 		struct FEnumParams

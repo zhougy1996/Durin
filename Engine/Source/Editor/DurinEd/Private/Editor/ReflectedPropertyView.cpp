@@ -70,35 +70,20 @@ namespace Durin
 			}
 		}
 
-		auto ReadEnumValue(const FEnumProperty& Property, const void* Container, uint32 ArrayIndex) -> int64
+		auto FormatEnumValue(const DEnum& Enum, uint64 Value) -> std::string
 		{
-			switch (Property.GetUnderlyingType())
+			switch (Enum.GetUnderlyingType())
 			{
-			case DurinCodeGen::EEnumUnderlyingType::Int8: return *Property.GetEnumValuePtr<int8>(Container, ArrayIndex);
-			case DurinCodeGen::EEnumUnderlyingType::Int16: return *Property.GetEnumValuePtr<int16>(Container, ArrayIndex);
-			case DurinCodeGen::EEnumUnderlyingType::Int32: return *Property.GetEnumValuePtr<int32>(Container, ArrayIndex);
-			case DurinCodeGen::EEnumUnderlyingType::Int64: return *Property.GetEnumValuePtr<int64>(Container, ArrayIndex);
-			case DurinCodeGen::EEnumUnderlyingType::UInt8: return *Property.GetEnumValuePtr<uint8>(Container, ArrayIndex);
-			case DurinCodeGen::EEnumUnderlyingType::UInt16: return *Property.GetEnumValuePtr<uint16>(Container, ArrayIndex);
-			case DurinCodeGen::EEnumUnderlyingType::UInt32: return *Property.GetEnumValuePtr<uint32>(Container, ArrayIndex);
-			case DurinCodeGen::EEnumUnderlyingType::UInt64: return static_cast<int64>(*Property.GetEnumValuePtr<uint64>(Container, ArrayIndex));
-			default: return 0;
+			case DurinCodeGen::EEnumUnderlyingType::Int8:
+			case DurinCodeGen::EEnumUnderlyingType::Int16:
+			case DurinCodeGen::EEnumUnderlyingType::Int32:
+			case DurinCodeGen::EEnumUnderlyingType::Int64:
+			{
+				int64 SignedValue;
+				std::memcpy(&SignedValue, &Value, sizeof(SignedValue));
+				return std::format("{}", SignedValue);
 			}
-		}
-
-		auto WriteEnumValue(const FEnumProperty& Property, void* Container, uint32 ArrayIndex, int64 Value) -> void
-		{
-			switch (Property.GetUnderlyingType())
-			{
-			case DurinCodeGen::EEnumUnderlyingType::Int8: *Property.GetEnumValuePtr<int8>(Container, ArrayIndex) = static_cast<int8>(Value); break;
-			case DurinCodeGen::EEnumUnderlyingType::Int16: *Property.GetEnumValuePtr<int16>(Container, ArrayIndex) = static_cast<int16>(Value); break;
-			case DurinCodeGen::EEnumUnderlyingType::Int32: *Property.GetEnumValuePtr<int32>(Container, ArrayIndex) = static_cast<int32>(Value); break;
-			case DurinCodeGen::EEnumUnderlyingType::Int64: *Property.GetEnumValuePtr<int64>(Container, ArrayIndex) = Value; break;
-			case DurinCodeGen::EEnumUnderlyingType::UInt8: *Property.GetEnumValuePtr<uint8>(Container, ArrayIndex) = static_cast<uint8>(Value); break;
-			case DurinCodeGen::EEnumUnderlyingType::UInt16: *Property.GetEnumValuePtr<uint16>(Container, ArrayIndex) = static_cast<uint16>(Value); break;
-			case DurinCodeGen::EEnumUnderlyingType::UInt32: *Property.GetEnumValuePtr<uint32>(Container, ArrayIndex) = static_cast<uint32>(Value); break;
-			case DurinCodeGen::EEnumUnderlyingType::UInt64: *Property.GetEnumValuePtr<uint64>(Container, ArrayIndex) = static_cast<uint64>(Value); break;
-			default: break;
+			default: return std::format("{}", Value);
 			}
 		}
 
@@ -569,9 +554,9 @@ namespace Durin
 			}
 			else
 			{
-				int64 CurrentValue = ReadEnumValue(*EnumProperty, Container, ArrayIndex);
+				const uint64 CurrentValue = EnumProperty->GetValueAsUInt64(Container, ArrayIndex);
 				FName CurrentName;
-				const std::string Preview = Enum->FindNameByValue(CurrentValue, CurrentName) ? CurrentName.ToString() : std::format("{}", CurrentValue);
+				const std::string Preview = Enum->FindNameByValue(CurrentValue, CurrentName) ? CurrentName.ToString() : FormatEnumValue(*Enum, CurrentValue);
 				if (ImGui::BeginCombo("##Value", Preview.c_str()))
 				{
 					Enum->ForEachValue([&](const FEnumValue& Value) {
@@ -580,7 +565,7 @@ namespace Durin
 						{
 							CaptureResult(true, false);
 							Result.AssignValue = [ProposedValue = Value.Value](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
-								WriteEnumValue(*static_cast<FEnumProperty*>(DestinationProperty), DestinationContainer, DestinationArrayIndex, ProposedValue);
+								static_cast<FEnumProperty*>(DestinationProperty)->SetValueFromUInt64(DestinationContainer, ProposedValue, DestinationArrayIndex);
 							};
 						}
 					});

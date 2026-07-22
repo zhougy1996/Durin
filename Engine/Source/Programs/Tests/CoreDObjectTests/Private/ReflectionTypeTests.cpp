@@ -40,6 +40,18 @@ namespace
 		B = 4
 	};
 
+	enum class ESignedEnumValueForTest : Durin::int8
+	{
+		Negative = -1,
+		Positive = 1
+	};
+
+	enum class EUnsignedEnumValueForTest : Durin::uint64
+	{
+		Low = 0,
+		High = std::numeric_limits<Durin::uint64>::max()
+	};
+
 	template<typename T>
 	auto VectorPropertyNum(const void* Container) -> Durin::uint64
 	{
@@ -176,6 +188,12 @@ namespace
 	struct FReflectedEnumPropertyOwnerForTest
 	{
 		EReflectedEnumForTest Mode = EReflectedEnumForTest::A;
+	};
+
+	struct FWideEnumPropertyOwnerForTest
+	{
+		ESignedEnumValueForTest Signed = ESignedEnumValueForTest::Negative;
+		EUnsignedEnumValueForTest Unsigned = EUnsignedEnumValueForTest::High;
 	};
 
 	class DLifecycleTestObject : public Durin::DObject
@@ -1997,7 +2015,7 @@ namespace
 		EXPECT_EQ(Enum->GetValues().size(), 2u);
 		EXPECT_EQ(Durin::FindEnumByQualifiedName("EReflectedEnumForTest"), Enum);
 
-		Durin::int64 Value = -1;
+		Durin::uint64 Value = std::numeric_limits<Durin::uint64>::max();
 		EXPECT_TRUE(Enum->FindValueByName(Durin::FName("A"), Value));
 		EXPECT_EQ(Value, 0);
 
@@ -2043,6 +2061,64 @@ namespace
 		FReflectedEnumPropertyOwnerForTest Instance;
 		*EnumProperty->GetEnumValuePtr<EReflectedEnumForTest>(&Instance) = EReflectedEnumForTest::B;
 		EXPECT_EQ(Instance.Mode, EReflectedEnumForTest::B);
+	}
+
+	TEST(FCoreDObjectReflectionTests, EnumPropertyUsesUnsigned64BitValueChannel)
+	{
+		auto SignedEnum = std::make_unique<Durin::DEnum>(
+			Durin::EC_StaticConstructor,
+			Durin::FName("ESignedEnumValueForTest"),
+			Durin::FName("ESignedEnumValueForTest"),
+			Durin::FName("ESignedEnumValueForTest"),
+			true,
+			Durin::DurinCodeGen::EEnumUnderlyingType::Int8,
+			static_cast<Durin::uint16>(sizeof(ESignedEnumValueForTest)),
+			std::vector<Durin::FEnumValue>{
+				{ Durin::FName("Negative"), std::numeric_limits<Durin::uint64>::max() },
+				{ Durin::FName("Positive"), 1 }
+			},
+			Durin::EObjectFlags::NoFlags
+		);
+		auto UnsignedEnum = std::make_unique<Durin::DEnum>(
+			Durin::EC_StaticConstructor,
+			Durin::FName("EUnsignedEnumValueForTest"),
+			Durin::FName("EUnsignedEnumValueForTest"),
+			Durin::FName("EUnsignedEnumValueForTest"),
+			true,
+			Durin::DurinCodeGen::EEnumUnderlyingType::UInt64,
+			static_cast<Durin::uint16>(sizeof(EUnsignedEnumValueForTest)),
+			std::vector<Durin::FEnumValue>{
+				{ Durin::FName("Low"), 0 },
+				{ Durin::FName("High"), std::numeric_limits<Durin::uint64>::max() }
+			},
+			Durin::EObjectFlags::NoFlags
+		);
+
+		Durin::FEnumProperty SignedProperty(
+			{}, Durin::FName("Signed"), Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1,
+			static_cast<Durin::uint16>(offsetof(FWideEnumPropertyOwnerForTest, Signed)),
+			static_cast<Durin::uint16>(sizeof(ESignedEnumValueForTest)), Durin::DurinCodeGen::EPropertyGenFlags::Enum, nullptr, SignedEnum.get()
+		);
+		Durin::FEnumProperty UnsignedProperty(
+			{}, Durin::FName("Unsigned"), Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1,
+			static_cast<Durin::uint16>(offsetof(FWideEnumPropertyOwnerForTest, Unsigned)),
+			static_cast<Durin::uint16>(sizeof(EUnsignedEnumValueForTest)), Durin::DurinCodeGen::EPropertyGenFlags::Enum, nullptr, UnsignedEnum.get()
+		);
+		FWideEnumPropertyOwnerForTest Instance;
+		const Durin::uint64 MaxValue = std::numeric_limits<Durin::uint64>::max();
+
+		EXPECT_EQ(SignedProperty.GetValueAsUInt64(&Instance), MaxValue);
+		EXPECT_EQ(UnsignedProperty.GetValueAsUInt64(&Instance), MaxValue);
+		Durin::FName Name;
+		EXPECT_TRUE(SignedEnum->FindNameByValue(MaxValue, Name));
+		EXPECT_EQ(Name.ToString(), "Negative");
+		EXPECT_TRUE(UnsignedEnum->FindNameByValue(MaxValue, Name));
+		EXPECT_EQ(Name.ToString(), "High");
+
+		SignedProperty.SetValueFromUInt64(&Instance, 1);
+		UnsignedProperty.SetValueFromUInt64(&Instance, 0);
+		EXPECT_EQ(Instance.Signed, ESignedEnumValueForTest::Positive);
+		EXPECT_EQ(Instance.Unsigned, EUnsignedEnumValueForTest::Low);
 	}
 
 	TEST(FCoreDObjectReflectionTests, ConstructDClassAttachesGeneratedPropertiesToStructBase)

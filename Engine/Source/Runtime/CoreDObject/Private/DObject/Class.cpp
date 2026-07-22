@@ -104,7 +104,7 @@ namespace Durin
 		return FoundProperty;
 	}
 
-	auto DEnum::FindValueByName(FName InName, int64& OutValue) const -> bool
+	auto DEnum::FindValueByName(FName InName, uint64& OutValue) const -> bool
 	{
 		for (const FEnumValue& Value : Values)
 		{
@@ -117,7 +117,7 @@ namespace Durin
 		return false;
 	}
 
-	auto DEnum::FindNameByValue(int64 InValue, FName& OutName) const -> bool
+	auto DEnum::FindNameByValue(uint64 InValue, FName& OutName) const -> bool
 	{
 		for (const FEnumValue& Value : Values)
 		{

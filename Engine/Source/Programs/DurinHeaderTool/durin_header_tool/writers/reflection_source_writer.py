@@ -352,7 +352,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
     if enum_info.values:
         builder.append(f"const Durin::DurinCodeGen::FEnumValueParams {generated_statics_name}::{values_name}[] = {{\n")
         for value_info in enum_info.values:
-            _append_line(builder, f"{{ \"{value_info.name}\", static_cast<Durin::int64>({value_info.value}) }},", 1)
+            _append_line(builder, f"{{ \"{value_info.name}\", static_cast<Durin::uint64>({value_info.value}) }},", 1)
         builder.append("};\n\n")
 
     _append_lines(

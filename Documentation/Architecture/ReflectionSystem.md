@@ -284,6 +284,11 @@ The object graph format is an internal v1 binary memory format for tests and eng
 - underlying numeric kind and size
 - read-only name/value table
 
+Enum metadata and reflective access use a canonical `uint64` value channel. Signed
+values are sign-extended into that channel, while unsigned values preserve their
+full range. `FEnumProperty` still reads and writes the enum's declared underlying
+width, so reflected objects retain their native layout and serialization size.
+
 Enum properties use `FEnumProperty`. The property still stores the ordinary property metadata such as name, offset, array dimension, and size, and additionally references the generated `DEnum` singleton for the enum type.
 
 ## Property Metadata

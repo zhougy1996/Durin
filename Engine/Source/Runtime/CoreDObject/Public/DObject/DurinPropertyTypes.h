@@ -92,6 +92,8 @@ namespace Durin
 
 		auto GetEnum() const -> DEnum* { return ReferencedEnum; }
 		COREDOBJECT_API auto GetUnderlyingType() const -> DurinCodeGen::EEnumUnderlyingType;
+		COREDOBJECT_API auto GetValueAsUInt64(const void* Container, uint32 ArrayIndex = 0) const -> uint64;
+		COREDOBJECT_API auto SetValueFromUInt64(void* Container, uint64 Value, uint32 ArrayIndex = 0) const -> void;
 
 		template<typename T>
 		auto GetEnumValuePtr(void* Container, uint32 ArrayIndex = 0) const -> T*
