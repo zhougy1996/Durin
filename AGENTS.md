@@ -4,7 +4,7 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
 ## Task Documentation
 
-- Setup, build, run, and outputs: `Documentation/Setup/BuildAndRun.md`; dependencies/worktrees: `Documentation/Setup/ThirdPartyBootstrap.md`; native tests: `Documentation/Setup/NativeTests.md`.
+- Setup, build, run, and outputs: `Documentation/Setup/BuildAndRun.md`; IDE code models/debugging: `Documentation/Setup/IDECodeModel.md`; dependencies/worktrees: `Documentation/Setup/ThirdPartyBootstrap.md`; native tests: `Documentation/Setup/NativeTests.md`.
 - Build metadata/CMake: `Documentation/Architecture/BuildSystem.md`; profiles/presets: `Documentation/Architecture/Profiles.md`; workspace boundaries: `Documentation/Architecture/WorkspaceProjects.md`; runtime/rendering/UI: `Documentation/Architecture/RuntimeArchitecture.md`.
 - Plan index, required structure, and writing rules: `Documentation/Plans/README.md`. Read this entrypoint before creating or restructuring an implementation plan; do not sample unrelated plan files to infer the format.
 - Machine-local build overrides belong in optional `.agents/build-config.json`; create it with `Setup.bat` when needed.

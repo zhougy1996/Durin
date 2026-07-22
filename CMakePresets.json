@@ -40,7 +40,8 @@
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
         "DURIN_PROFILE_NAME": "DurinEditor",
         "BUILD_TESTING": "OFF",
-        "DURIN_ENABLE_PCH": "OFF"
+        "DURIN_ENABLE_PCH": "OFF",
+        "DURIN_IDE_CODE_MODEL_ONLY": "ON"
       }
     },
     {

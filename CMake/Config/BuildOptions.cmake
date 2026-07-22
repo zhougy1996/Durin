@@ -16,6 +16,42 @@ if(NOT DEFINED DURIN_FORCE_INCLUDE_PCH)
 	set(DURIN_FORCE_INCLUDE_PCH ON CACHE BOOL "Force-include PCH headers even when PCH artifacts are disabled.")
 endif()
 
+option(DURIN_IDE_CODE_MODEL_ONLY "Generate IDE code-model metadata but reject every build target." OFF)
+
+function(_durin_attach_code_model_build_guard directory guard_target)
+	get_property(_durin_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+	foreach(_durin_target IN LISTS _durin_targets)
+		if(_durin_target STREQUAL guard_target)
+			continue()
+		endif()
+
+		get_target_property(_durin_target_imported "${_durin_target}" IMPORTED)
+		if(NOT _durin_target_imported)
+			add_dependencies("${_durin_target}" "${guard_target}")
+		endif()
+	endforeach()
+
+	get_property(_durin_subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+	foreach(_durin_subdirectory IN LISTS _durin_subdirectories)
+		_durin_attach_code_model_build_guard("${_durin_subdirectory}" "${guard_target}")
+	endforeach()
+endfunction()
+
+function(durin_enforce_code_model_only_build)
+	if(NOT DURIN_IDE_CODE_MODEL_ONLY)
+		return()
+	endif()
+
+	set(_durin_guard_target DurinCodeModelOnlyBuildGuard)
+	add_custom_target(${_durin_guard_target} ALL
+		COMMAND ${CMAKE_COMMAND} -E echo
+			"ERROR: This IDE preset is code-model-only and cannot build. Use BuildTool.bat with a registered build preset."
+		COMMAND ${CMAKE_COMMAND} -E false
+		VERBATIM
+	)
+	_durin_attach_code_model_build_guard("${CMAKE_SOURCE_DIR}" "${_durin_guard_target}")
+endfunction()
+
 set(DURIN_BUILD_IDENTIFIER "" CACHE STRING "Optional identifier that isolates workflow-owned binary and intermediate outputs.")
 if(DURIN_BUILD_IDENTIFIER AND NOT DURIN_BUILD_IDENTIFIER MATCHES "^[A-Za-z0-9][A-Za-z0-9._-]*$")
 	message(FATAL_ERROR

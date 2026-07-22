@@ -70,6 +70,9 @@ Select another registered configure preset with `--preset`:
 
 `CMakePresets.json` remains the source of truth for preset configuration. `AgentBuildProfiles.json` controls which presets BuildTool may own for each host environment. The IDE-only `Win64-Debug-DurinEditor-FastConfigure` preset is intentionally excluded.
 
+FastConfigure is marked code-model-only. Its generated build targets fail before
+DHT, compilation, or linking can start; it may only configure for IDE indexing.
+
 ## Interactive Shell
 
 Run `BuildTool` without arguments, or pass `shell`, to open the human-oriented command shell:
@@ -142,17 +145,9 @@ On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/durin_build_
 
 ## IDE Code Model And Debugging
 
-In CLion, configure the Agent-owned checkout as follows:
-
-1. Select `Win64-Debug-DurinEditor-FastConfigure` as the CMake profile.
-2. Set the profile environment to `VSLANG=1033`.
-3. Create a Native Application configuration for `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
-4. Remove `Build` and all other compilation steps from **Before launch**.
-5. Run CMake Configure/Reload only while `BuildTool` is idle.
-
-FastConfigure has its own CMake/Ninja tree and disables PCH artifacts, while still force-including the project PCH headers for the code model. It shares final binaries and generated DHT metadata with the Tests preset, so a separate IDE tree prevents object collisions but does not make concurrent configuration or IDE builds safe.
-
-CMake records MSVC's localized `/showIncludes` prefix during configuration. If raw lines such as `注意: 包含文件:` appear after setting `VSLANG=1033`, reset the IDE CMake cache or remove only `Build/Win64-Debug-DurinEditor-FastConfigure`, then configure it again. Do not remove the driver-owned Tests tree as IDE maintenance.
+Use Visual Studio Code or CLion only for the code model, editing, and debugging.
+Keep BuildTool as the checkout's only build owner. The complete setup for both
+editors is documented in `Documentation/Setup/IDECodeModel.md`.
 
 ## Recovery
 
@@ -187,6 +182,7 @@ Build identifiers and DHT intermediate paths are described in `Documentation/Arc
 
 - `Documentation/Setup/ThirdPartyBootstrap.md`
 - `Documentation/Setup/NativeTests.md`
+- `Documentation/Setup/IDECodeModel.md`
 - `Documentation/Architecture/BuildSystem.md`
 - `Documentation/Architecture/Profiles.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`

@@ -3,6 +3,8 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from dataclasses import replace
@@ -67,6 +69,16 @@ class BuildConfigTests(unittest.TestCase):
         for profile in profiles.values():
             self.assertIn(profile.default_preset, profile.presets)
             self.assertTrue(set(profile.presets).issubset(presets))
+
+    def test_fast_configure_is_code_model_only_and_not_buildtool_owned(self) -> None:
+        profiles = build_config.load_profiles()
+        presets = build_config.load_configure_presets()
+        preset_name = "Win64-Debug-DurinEditor-FastConfigure"
+        self.assertTrue(
+            build_config.preset_cache_bool(presets[preset_name], "DURIN_IDE_CODE_MODEL_ONLY")
+        )
+        for profile in profiles.values():
+            self.assertNotIn(preset_name, profile.presets)
 
     def test_cmake_preset_inheritance_is_resolved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -185,6 +197,81 @@ class BuildConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(build_config.BuildToolError, "inside the checkout"):
                 build_config.preset_build_directory(preset, root=Path(directory))
+
+
+class CMakeCodeModelGuardTests(unittest.TestCase):
+    def test_code_model_guard_fails_before_target_command_runs(self) -> None:
+        local_config = build_config.load_local_config()
+        cmake = local_config.cmake_command or shutil.which("cmake")
+        if not cmake:
+            self.skipTest("CMake is not available")
+        ninja = shutil.which("ninja")
+        if not ninja and os.name == "nt":
+            for parent in Path(cmake).resolve().parents:
+                bundled_ninja = parent / "ninja" / "win" / "x64" / "ninja.exe"
+                if bundled_ninja.is_file():
+                    ninja = str(bundled_ninja)
+                    break
+        if not ninja:
+            self.skipTest("Ninja is not available")
+
+        build_options = (REPO_ROOT / "CMake" / "Config" / "BuildOptions.cmake").as_posix()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            build = root / "build"
+            module = source / "Module"
+            module.mkdir(parents=True)
+            (source / "CMakeLists.txt").write_text(
+                "\n".join(
+                    [
+                        "cmake_minimum_required(VERSION 3.24)",
+                        "project(CodeModelGuard NONE)",
+                        f'include("{build_options}")',
+                        "add_subdirectory(Module)",
+                        "durin_enforce_code_model_only_build()",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (module / "CMakeLists.txt").write_text(
+                "\n".join(
+                    [
+                        "add_custom_target(WouldBuild",
+                        '  COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_BINARY_DIR}/target-ran"',
+                        ")",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            configure = subprocess.run(
+                [
+                    cmake,
+                    "-S",
+                    str(source),
+                    "-B",
+                    str(build),
+                    "-G",
+                    "Ninja",
+                    f"-DCMAKE_MAKE_PROGRAM={Path(ninja).as_posix()}",
+                    "-DDURIN_IDE_CODE_MODEL_ONLY=ON",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(configure.returncode, 0, configure.stdout + configure.stderr)
+
+            guarded_build = subprocess.run(
+                [cmake, "--build", str(build), "--target", "WouldBuild"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            output = guarded_build.stdout + guarded_build.stderr
+            self.assertNotEqual(guarded_build.returncode, 0, output)
+            self.assertIn("This IDE preset is code-model-only and cannot build", output)
+            self.assertFalse((build / "target-ran").exists())
 
 
 class CliTests(unittest.TestCase):
