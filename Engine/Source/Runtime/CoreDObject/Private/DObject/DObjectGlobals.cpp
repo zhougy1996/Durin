@@ -174,6 +174,12 @@ namespace Durin
 			}
 
 			Property->SetValueAccessors(PropertyParams->MutableValueAccessor, PropertyParams->ConstValueAccessor);
+			Property->SetValueLifecycle(
+				PropertyParams->ValueSize,
+				PropertyParams->ValueAlignment,
+				PropertyParams->InitializeValue,
+				PropertyParams->DestroyValue
+			);
 			for (size_t Index = 0; PropertyParams->MetaData && Index < PropertyParams->NumMetaData; ++Index)
 			{
 				const DurinCodeGen::FMetaDataPair& Pair = PropertyParams->MetaData[Index];

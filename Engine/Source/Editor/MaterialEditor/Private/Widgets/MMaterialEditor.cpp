@@ -247,8 +247,8 @@ namespace Durin
 					return false;
 				}
 				const bool bAssigned = PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
-					FReflectedPropertyEditTarget::ForMember(Instance, Property), [&] {
-					static_cast<FObjectProperty*>(Property)->SetObjectPropertyValue(Instance, Parent);
+					FReflectedPropertyEditTarget::ForMember(Instance, Property), [&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+					static_cast<FObjectProperty*>(ScratchProperty)->SetObjectPropertyValue(ScratchContainer, Parent, ScratchArrayIndex);
 				}, false);
 				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected material parent.";
 				return bAssigned;

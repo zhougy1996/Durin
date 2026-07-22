@@ -17,6 +17,7 @@ namespace Durin
 		EPropertyPathSelector Selector = EPropertyPathSelector::None;
 		uint64 Index = 0;
 		std::vector<uint8> MapKeyData;
+		FPropertyValueSnapshot MapKey;
 	};
 
 	struct FReflectedPropertyEditTarget
@@ -38,6 +39,8 @@ namespace Durin
 		DURINED_API auto ForStructMember(const FProperty* Property, void* StructContainer, uint32 ArrayIndex = 0) const -> FReflectedPropertyEditTarget;
 		DURINED_API auto ForArrayElement(const FProperty* ElementProperty, void* ElementContainer, uint64 ElementIndex) const -> FReflectedPropertyEditTarget;
 		DURINED_API auto ForMapEntry(const FProperty* EntryProperty, void* EntryContainer, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget;
+		DURINED_API auto ForMapEntry(const FProperty* EntryProperty, void* EntryContainer,
+			FPropertyValueSnapshot KeySnapshot, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget;
 	};
 
 	class DURINED_API IReflectedPropertyMutationAdapter

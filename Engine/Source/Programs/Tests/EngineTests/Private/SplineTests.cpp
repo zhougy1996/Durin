@@ -253,10 +253,15 @@ TEST(FSplineEditingTests, SharedTransactionsPreserveSplineSetterSemanticsAndStab
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
 		const Durin::FReflectedPropertyEditTarget Target = Reflection.PointFieldTarget(Spline, 1, Reflection.Position);
-		return View.SubmitPropertyValueEdit(Context, Target, [&] {
-			void* Point = Reflection.Points->GetMutableElementPtr(Reflection.GetCurve(Spline), 1);
-			*Reflection.Position->ContainerPtrToValuePtr<Durin::FVector3>(Point) = Position;
+		const Durin::FVector3 LiveValueBeforeProposal = Spline->GetSplinePoint(1)->Position;
+		bool bLiveValueUntouched = false;
+		const bool bSubmitted = View.SubmitPropertyValueEdit(Context, Target,
+			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
+				bLiveValueUntouched = Spline->GetSplinePoint(1)->Position == LiveValueBeforeProposal;
+				*ScratchProperty->ContainerPtrToValuePtr<Durin::FVector3>(ScratchContainer, ScratchArrayIndex) = Position;
 		}, bContinuous);
+		EXPECT_TRUE(bLiveValueUntouched);
+		return bSubmitted;
 	};
 
 	const Durin::FReflectedPropertyEditTarget PositionTarget = Reflection.PointFieldTarget(Spline, 1, Reflection.Position);
@@ -288,8 +293,9 @@ TEST(FSplineEditingTests, SharedTransactionsPreserveSplineSetterSemanticsAndStab
 	auto SubmitCurveField = [&](Durin::FProperty* Field, auto Value) {
 		const Durin::FReflectedPropertyEditTarget Target = Reflection.CurveTarget(Spline)
 			.ForStructMember(Field, Reflection.GetCurve(Spline));
-		return View.SubmitPropertyValueEdit(Context, Target, [&] {
-			*Field->ContainerPtrToValuePtr<std::decay_t<decltype(Value)>>(Reflection.GetCurve(Spline)) = Value;
+		return View.SubmitPropertyValueEdit(Context, Target,
+			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
+				*ScratchProperty->ContainerPtrToValuePtr<std::decay_t<decltype(Value)>>(ScratchContainer, ScratchArrayIndex) = Value;
 		}, false);
 	};
 	ASSERT_TRUE(SubmitCurveField(Reflection.ClosedLoop, true));
@@ -306,8 +312,12 @@ TEST(FSplineEditingTests, SharedTransactionsPreserveSplineSetterSemanticsAndStab
 	AddedPoints.push_back(MakePoint({50.0, 0.0, 0.0}, Durin::ESplinePointType::Linear));
 	Durin::FReflectedPropertyEditTarget PointsTarget = Reflection.PointsTarget(Spline);
 	PointsTarget.Kind = Durin::EPropertyChangeKind::ArrayAdd;
-	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, PointsTarget, [&] {
-		Reflection.GetCurve(Spline)->SetPoints(AddedPoints);
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, PointsTarget,
+		[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
+			auto* ScratchArray = static_cast<Durin::FArrayProperty*>(ScratchProperty);
+			ScratchArray->Resize(ScratchContainer, AddedPoints.size(), ScratchArrayIndex);
+			for (size_t Index = 0; Index < AddedPoints.size(); ++Index)
+				*static_cast<Durin::FSplinePoint*>(ScratchArray->GetMutableElementPtr(ScratchContainer, Index, ScratchArrayIndex)) = AddedPoints[Index];
 	}, false));
 	EXPECT_EQ(Spline->GetNumSplinePoints(), 3u);
 	ASSERT_TRUE(Transactions.Undo());

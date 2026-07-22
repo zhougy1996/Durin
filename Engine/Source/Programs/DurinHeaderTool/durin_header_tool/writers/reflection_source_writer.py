@@ -556,6 +556,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
     value = f"&{class_info.generated_statics_name}::NewProp_{prop.value.name}" if prop.value else "nullptr"
     offset = "0" if nested else f"static_cast<Durin::uint16>(STRUCT_OFFSET({class_info.qualified_name}, {prop.name}))"
     element_size = f"sizeof(decltype((({class_info.qualified_name}*)0)->{prop.name}))" if prop.element_size == "sizeof_self" else prop.element_size
+    value_type = _cpp_type_spelling(prop.type_name, symbols) if nested else f"std::remove_extent_t<decltype((({class_info.qualified_name}*)0)->{prop.name})>"
     array_helper = f"&{class_info.generated_statics_name}::NewProp_{prop.name}_ArrayHelper" if prop.kind == "Array" else "nullptr"
     map_helper = f"&{class_info.generated_statics_name}::NewProp_{prop.name}_MapHelper" if prop.kind == "Map" else "nullptr"
     content += (
@@ -565,7 +566,9 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         f"static_cast<Durin::uint16>({element_size}), "
         f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_class_helper}, {referenced_enum_helper}, {inner}, {key}, {value}, "
         f"{_bool_literal(prop.is_object_ptr_wrapper)}, {array_helper}, {map_helper}, {referenced_struct_helper}, nullptr, nullptr, "
-        f"{metadata_ref}, {metadata_count} }};\n"
+        f"{metadata_ref}, {metadata_count}, sizeof({value_type}), alignof({value_type}), "
+        f"&Durin::DurinCodeGen::InitializePropertyValue<{value_type}>, "
+        f"&Durin::DurinCodeGen::DestroyPropertyValue<{value_type}> }};\n"
     )
     return content
 

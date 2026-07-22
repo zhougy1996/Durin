@@ -295,8 +295,9 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitFloat = [&](Durin::FProperty* Field, float Value, bool bContinuous) {
-		return View.SubmitPropertyValueEdit(Context, MakeTarget(Field), [&] {
-			*Field->ContainerPtrToValuePtr<float>(GetSettings()) = Value;
+		return View.SubmitPropertyValueEdit(Context, MakeTarget(Field),
+			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
+				*ScratchProperty->ContainerPtrToValuePtr<float>(ScratchContainer, ScratchArrayIndex) = Value;
 		}, bContinuous);
 	};
 
@@ -326,8 +327,9 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.1f);
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 1000.0f);
 
-	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, MakeTarget(AspectRatioMode), [&] {
-		*AspectRatioMode->ContainerPtrToValuePtr<Durin::ECameraAspectRatioMode>(GetSettings()) = Durin::ECameraAspectRatioMode::Custom;
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, MakeTarget(AspectRatioMode),
+		[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
+			*ScratchProperty->ContainerPtrToValuePtr<Durin::ECameraAspectRatioMode>(ScratchContainer, ScratchArrayIndex) = Durin::ECameraAspectRatioMode::Custom;
 	}, false));
 	ASSERT_TRUE(SubmitFloat(CustomAspectRatio, 20.0f, false));
 	EXPECT_EQ(Camera->GetAspectRatioMode(), Durin::ECameraAspectRatioMode::Custom);

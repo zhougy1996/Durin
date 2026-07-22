@@ -255,10 +255,23 @@ TEST(FMaterialTests, ReflectedMaterialSlotEditUsesSharedTransactionsAndSetterSem
 	};
 	auto SubmitSlot = [&](Durin::FReflectedPropertyView& View, const Durin::FReflectedPropertyViewContext& Context,
 		Durin::uint32 SlotIndex, Durin::DMaterialInterface* Material) {
-		const Durin::FReflectedPropertyEditTarget Target = MakeTarget(SlotIndex);
-		return View.SubmitPropertyValueEdit(Context, Target, [&] {
-			if (MaterialsProperty->Num(Component) <= SlotIndex) MaterialsProperty->Resize(Component, static_cast<Durin::uint64>(SlotIndex) + 1);
-			MaterialProperty->SetObjectPropertyValue(MaterialsProperty->GetMutableElementPtr(Component, SlotIndex), Material);
+		const Durin::FReflectedPropertyEditTarget MaterialsTarget =
+			Durin::FReflectedPropertyEditTarget::ForMember(Component, MaterialsProperty);
+		if (SlotIndex < MaterialsProperty->Num(Component))
+		{
+			const Durin::FReflectedPropertyEditTarget SlotTarget = MakeTarget(SlotIndex);
+			return View.SubmitPropertyValueEdit(Context, SlotTarget,
+				[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
+					static_cast<Durin::FObjectProperty*>(ScratchProperty)->SetObjectPropertyValue(
+						ScratchContainer, Material, ScratchArrayIndex);
+			}, false);
+		}
+		return View.SubmitPropertyValueEdit(Context, MaterialsTarget,
+			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
+				auto* ScratchMaterials = static_cast<Durin::FArrayProperty*>(ScratchProperty);
+				ScratchMaterials->Resize(ScratchContainer, static_cast<Durin::uint64>(SlotIndex) + 1, ScratchArrayIndex);
+				MaterialProperty->SetObjectPropertyValue(
+					ScratchMaterials->GetMutableElementPtr(ScratchContainer, SlotIndex, ScratchArrayIndex), Material);
 		}, false);
 	};
 
@@ -301,6 +314,10 @@ TEST(FMaterialTests, ReflectedMaterialSlotEditUsesSharedTransactionsAndSetterSem
 	Transactions.Clear();
 	EXPECT_FALSE(SubmitSlot(View, Context, 1, Replacement));
 	EXPECT_FALSE(Transactions.CanUndo());
+	ASSERT_TRUE(SubmitSlot(View, Context, 2, Replacement));
+	EXPECT_EQ(Component->GetMaterial(2), Replacement);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Component->GetNumMaterials(), 2u);
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();

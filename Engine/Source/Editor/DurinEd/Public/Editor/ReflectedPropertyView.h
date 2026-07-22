@@ -83,7 +83,7 @@ namespace Durin
 		DURINED_API auto SubmitPropertyValueEdit(
 			const FReflectedPropertyViewContext& Context,
 			const FReflectedPropertyEditTarget& Target,
-			const std::function<void()>& AssignValue,
+			const std::function<void(FProperty*, void*, uint32)>& AssignValue,
 			bool bContinuous
 		) -> bool;
 		DURINED_API auto BindStringMapValue(

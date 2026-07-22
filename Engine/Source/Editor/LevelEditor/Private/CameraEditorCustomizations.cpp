@@ -211,8 +211,9 @@ namespace Durin
 					{
 						if (ImGui::Selectable(Option.Label, Option.Mode == CurrentMode) && !ViewContext.bReadOnly)
 						{
-							PropertyView.SubmitPropertyValueEdit(ViewContext, Reflection.MakeTarget(Camera, Reflection.AspectRatioMode), [&] {
-								*Reflection.AspectRatioMode->ContainerPtrToValuePtr<ECameraAspectRatioMode>(Reflection.GetSettings(Camera)) = Option.Mode;
+							PropertyView.SubmitPropertyValueEdit(ViewContext, Reflection.MakeTarget(Camera, Reflection.AspectRatioMode),
+								[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+									*ScratchProperty->ContainerPtrToValuePtr<ECameraAspectRatioMode>(ScratchContainer, ScratchArrayIndex) = Option.Mode;
 							}, false);
 						}
 					}
@@ -235,8 +236,9 @@ namespace Durin
 					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
 				if (bChanged && !ViewContext.bReadOnly)
 				{
-					PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
-						*Field->ContainerPtrToValuePtr<float>(Reflection.GetSettings(Camera)) = Value;
+					PropertyView.SubmitPropertyValueEdit(ViewContext, Target,
+						[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+							*ScratchProperty->ContainerPtrToValuePtr<float>(ScratchContainer, ScratchArrayIndex) = Value;
 					}, true);
 				}
 				FinishContinuousEdit(PropertyView, ViewContext, Target, State);

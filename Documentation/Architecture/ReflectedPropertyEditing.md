@@ -258,6 +258,10 @@ cannot construct unsafe container addresses or edit paths.
 
 Custom widgets can use `SubmitPropertyValueEdit()` to retain their presentation
 while sharing proposal capture, session lifecycle, notifications, and history.
+Proposal callbacks receive a leaf resolved inside generated scratch-value storage;
+they never mutate the live object while constructing the proposed snapshot. Runtime
+setters, cache rebuilds, and other semantic side effects therefore run only through
+the selected mutation adapter when the proposal is applied.
 Camera and Spline customizations use it for their semantic layouts and actions;
 Material Editor uses it for its parent picker and uses stable string-map bindings
 for parameter values and override presence. Object-details customizations are

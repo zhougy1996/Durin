@@ -119,8 +119,9 @@ namespace Durin
 				MonaImGui::BeginPropertyRow("Closed Loop", bReadOnly);
 				if (ImGui::Checkbox("##Value", &bClosedLoop) && !bReadOnly)
 				{
-					PropertyView.SubmitPropertyValueEdit(ViewContext, Reflection.MakeCurveFieldTarget(Spline, Reflection.ClosedLoop), [&] {
-						*Reflection.ClosedLoop->ContainerPtrToValuePtr<bool>(Reflection.GetCurve(Spline)) = bClosedLoop;
+					PropertyView.SubmitPropertyValueEdit(ViewContext, Reflection.MakeCurveFieldTarget(Spline, Reflection.ClosedLoop),
+						[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+							*ScratchProperty->ContainerPtrToValuePtr<bool>(ScratchContainer, ScratchArrayIndex) = bClosedLoop;
 					}, false);
 				}
 				MonaImGui::EndPropertyRow(bReadOnly);
@@ -135,8 +136,9 @@ namespace Durin
 				const FReflectedPropertyEditTarget ReparamTarget = Reflection.MakeCurveFieldTarget(Spline, Reflection.ReparamSteps);
 				if (bReparamChanged && !bReadOnly)
 				{
-					PropertyView.SubmitPropertyValueEdit(ViewContext, ReparamTarget, [&] {
-						*Reflection.ReparamSteps->ContainerPtrToValuePtr<int32>(Reflection.GetCurve(Spline)) = ReparamSteps;
+					PropertyView.SubmitPropertyValueEdit(ViewContext, ReparamTarget,
+						[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+							*ScratchProperty->ContainerPtrToValuePtr<int32>(ScratchContainer, ScratchArrayIndex) = ReparamSteps;
 					}, true);
 				}
 				FinishContinuousEdit(PropertyView, ViewContext, ReparamTarget, ReparamState);
@@ -294,8 +296,12 @@ namespace Durin
 			{
 				FReflectedPropertyEditTarget Target = Reflection.MakePointsTarget(&Spline);
 				Target.Kind = Kind;
-				return PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
-					Reflection.GetCurve(&Spline)->SetPoints(std::move(Points));
+				return PropertyView.SubmitPropertyValueEdit(ViewContext, Target,
+					[Points = std::move(Points)](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+						auto* ScratchArray = static_cast<FArrayProperty*>(ScratchProperty);
+						ScratchArray->Resize(ScratchContainer, Points.size(), ScratchArrayIndex);
+						for (size_t Index = 0; Index < Points.size(); ++Index)
+							*static_cast<FSplinePoint*>(ScratchArray->GetMutableElementPtr(ScratchContainer, Index, ScratchArrayIndex)) = Points[Index];
 				}, false);
 			}
 
@@ -322,9 +328,9 @@ namespace Durin
 				DSplineComponent& Spline, const FReflection& Reflection, const FReflectedPropertyEditTarget& Target,
 				uint32 PointIndex, const FSplinePoint& Point, bool bContinuous) -> bool
 			{
-				return PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
-					if (void* Container = Reflection.Points->GetMutableElementPtr(Reflection.GetCurve(&Spline), PointIndex))
-						*static_cast<FSplinePoint*>(Container) = Point;
+				return PropertyView.SubmitPropertyValueEdit(ViewContext, Target,
+					[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+						*ScratchProperty->ContainerPtrToValuePtr<FSplinePoint>(ScratchContainer, ScratchArrayIndex) = Point;
 				}, bContinuous);
 			}
 
@@ -368,9 +374,9 @@ namespace Durin
 				const FReflectedPropertyEditTarget Target = Reflection.MakePointFieldTarget(&Spline, PointIndex, Field);
 				if (bChanged && !bReadOnly)
 				{
-					PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
-						*Field->ContainerPtrToValuePtr<FVector3>(
-							Reflection.Points->GetMutableElementPtr(Reflection.GetCurve(&Spline), PointIndex)) = Value;
+					PropertyView.SubmitPropertyValueEdit(ViewContext, Target,
+						[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+							*ScratchProperty->ContainerPtrToValuePtr<FVector3>(ScratchContainer, ScratchArrayIndex) = Value;
 					}, true);
 				}
 				FinishContinuousEdit(PropertyView, ViewContext, Target, State);

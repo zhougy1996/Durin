@@ -118,16 +118,28 @@ namespace Durin
 				bool bChanged = false;
 				if (!ViewContext.bReadOnly && SelectedMaterial != Current)
 				{
-					void* Element = SlotIndex < MaterialsProperty->Num(Component)
-						? MaterialsProperty->GetMutableElementPtr(Component, SlotIndex) : Component;
-					const FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Component, MaterialsProperty)
-						.ForArrayElement(MaterialProperty, Element, SlotIndex);
-					bChanged = PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
-						if (MaterialsProperty->Num(Component) <= SlotIndex)
-							MaterialsProperty->Resize(Component, static_cast<uint64>(SlotIndex) + 1);
-						if (void* MaterialElement = MaterialsProperty->GetMutableElementPtr(Component, SlotIndex))
-							MaterialProperty->SetObjectPropertyValue(MaterialElement, SelectedMaterial);
-					}, false);
+					const FReflectedPropertyEditTarget MaterialsTarget =
+						FReflectedPropertyEditTarget::ForMember(Component, MaterialsProperty);
+					if (void* Element = MaterialsProperty->GetMutableElementPtr(Component, SlotIndex))
+					{
+						const FReflectedPropertyEditTarget SlotTarget =
+							MaterialsTarget.ForArrayElement(MaterialProperty, Element, SlotIndex);
+						bChanged = PropertyView.SubmitPropertyValueEdit(ViewContext, SlotTarget,
+							[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+								static_cast<FObjectProperty*>(ScratchProperty)->SetObjectPropertyValue(
+									ScratchContainer, SelectedMaterial, ScratchArrayIndex);
+						}, false);
+					}
+					else
+					{
+						bChanged = PropertyView.SubmitPropertyValueEdit(ViewContext, MaterialsTarget,
+							[&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+								auto* ScratchMaterials = static_cast<FArrayProperty*>(ScratchProperty);
+								ScratchMaterials->Resize(ScratchContainer, static_cast<uint64>(SlotIndex) + 1, ScratchArrayIndex);
+								if (void* ScratchElement = ScratchMaterials->GetMutableElementPtr(ScratchContainer, SlotIndex, ScratchArrayIndex))
+									MaterialProperty->SetObjectPropertyValue(ScratchElement, SelectedMaterial);
+						}, false);
+					}
 				}
 				MonaImGui::EndPropertyRow(ViewContext.bReadOnly);
 				ImGui::PopID();

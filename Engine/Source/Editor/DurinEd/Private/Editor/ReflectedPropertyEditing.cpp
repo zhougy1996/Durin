@@ -410,6 +410,12 @@ namespace Durin
 
 	auto FReflectedPropertyEditTarget::ForMapEntry(const FProperty* EntryProperty, void* EntryContainer, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget
 	{
+		return ForMapEntry(EntryProperty, EntryContainer, {}, std::move(SerializedKey));
+	}
+
+	auto FReflectedPropertyEditTarget::ForMapEntry(const FProperty* EntryProperty, void* EntryContainer,
+		FPropertyValueSnapshot KeySnapshot, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget
+	{
 		FReflectedPropertyEditTarget Target = *this;
 		Target.LeafProperty = EntryProperty;
 		Target.LeafContainer = EntryContainer;
@@ -418,6 +424,7 @@ namespace Durin
 		{
 			Target.Path.back().Selector = EPropertyPathSelector::MapKey;
 			Target.Path.back().MapKeyData = std::move(SerializedKey);
+			Target.Path.back().MapKey = std::move(KeySnapshot);
 		}
 		Target.Path.push_back({EntryProperty});
 		Target.Kind = EPropertyChangeKind::ValueSet;
@@ -614,7 +621,7 @@ namespace Durin
 			// identity while the transaction retains the original key in Target.Path.
 			const bool bContinuousKeyRename = Target.Kind == EPropertyChangeKind::MapKeyRename
 				&& Other.Kind == EPropertyChangeKind::MapKeyRename && Left.Selector == EPropertyPathSelector::MapKey;
-			if (!bContinuousKeyRename && Left.MapKeyData != Right.MapKeyData) return false;
+			if (!bContinuousKeyRename && (Left.MapKeyData != Right.MapKeyData || Left.MapKey != Right.MapKey)) return false;
 		}
 		return true;
 	}

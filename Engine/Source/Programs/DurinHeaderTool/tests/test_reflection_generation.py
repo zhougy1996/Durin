@@ -21,7 +21,7 @@ class ReflectionGenerationTests(unittest.TestCase):
         configs.ARCH = "Win64"
         configs.PROFILE_NAME = "DurinEditor"
         configs.BUILD_IDENTIFIER = "DHTTests"
-        configs.TOOL_FINGERPRINT = "dht-tests"
+        configs.TOOL_FINGERPRINT = "dht-tests-value-lifecycle"
         configs.init_configs()
 
         for module_name in ("CoreDObject", "Engine"):
@@ -104,6 +104,10 @@ class ReflectionGenerationTests(unittest.TestCase):
             'NewProp_Color = { "Color", Durin::EPropertyFlags::Edit,',
             directional_light_content,
         )
+        self.assertIn("sizeof(std::remove_extent_t<decltype(((Durin::DDirectionalLightComponent*)0)->Color)>)", directional_light_content)
+        self.assertIn("alignof(std::remove_extent_t<decltype(((Durin::DDirectionalLightComponent*)0)->Color)>)", directional_light_content)
+        self.assertIn("InitializePropertyValue<std::remove_extent_t<decltype(((Durin::DDirectionalLightComponent*)0)->Color)>>", directional_light_content)
+        self.assertIn("DestroyPropertyValue<std::remove_extent_t<decltype(((Durin::DDirectionalLightComponent*)0)->Color)>>", directional_light_content)
 
     def test_brace_initialized_intrinsic_struct_properties_are_generated(self):
         spline_types_cpp = utils.get_module_dht_output_dir("Engine") / "SplineTypes.gen.cpp"
@@ -126,7 +130,7 @@ class ReflectionGenerationTests(unittest.TestCase):
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
 
         self.assertEqual(data["SchemaVersion"], 3)
-        self.assertEqual(data["ToolFingerprint"], "dht-tests")
+        self.assertEqual(data["ToolFingerprint"], "dht-tests-value-lifecycle")
         self.assertEqual(data["SymbolNameScheme"], "qualified-underscore-v1")
         self.assertEqual(data["ModuleName"], "Engine")
         self.assertEqual(data["Profile"], "DurinEditor")

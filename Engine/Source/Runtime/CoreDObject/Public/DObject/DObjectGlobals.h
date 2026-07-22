@@ -110,6 +110,18 @@ namespace Durin
 
 		struct FPropertyParamsBase;
 
+		template<typename T>
+		auto InitializePropertyValue(void* Memory) -> void
+		{
+			std::construct_at(static_cast<T*>(Memory));
+		}
+
+		template<typename T>
+		auto DestroyPropertyValue(void* Memory) -> void
+		{
+			std::destroy_at(static_cast<T*>(Memory));
+		}
+
 		struct FArrayPropertyHelper
 		{
 			uint64 (*Num)(const void* Container);
@@ -192,6 +204,10 @@ namespace Durin
 			const void* (*ConstValueAccessor)(const void* Container, uint32 ArrayIndex) = nullptr;
 			const FMetaDataPair* MetaData = nullptr;
 			size_t NumMetaData = 0;
+			uint32 ValueSize = 0;
+			uint32 ValueAlignment = 0;
+			void (*InitializeValue)(void* Memory) = nullptr;
+			void (*DestroyValue)(void* Memory) = nullptr;
 		};
 
 		struct FGenericPropertyParams : public FPropertyParamsBase
