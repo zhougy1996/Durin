@@ -1,6 +1,9 @@
 #include "SplineEditorCustomizations.h"
 
 #include "Components/SplineComponent.h"
+#include "DObject/DurinPropertyTypes.h"
+#include "DObject/Property.h"
+#include "Editor/ReflectedPropertyView.h"
 #include "Engine/Actor.h"
 #include "LevelEditorContext.h"
 #include "MonaImGui.h"
@@ -83,37 +86,52 @@ namespace Durin
 		class FSplineDetailsCustomization final : public IObjectDetailsCustomization
 		{
 		public:
-			auto DrawDetails(FLevelEditorContext& Context, DObject* Object) -> bool override
+			auto DrawDetails(FLevelEditorContext& Context, DObject* Object, FReflectedPropertyView& PropertyView,
+				const FReflectedPropertyViewContext& ViewContext) -> bool override
 			{
 				auto* Spline = Cast<DSplineComponent>(Object);
 				if (!Spline) return false;
-				const bool bReadOnly = Context.bReadOnly;
-
-				FTransform RelativeTransform = Spline->GetRelativeTransform();
-				if (MonaImGui::EditTransformProperty("Transform", RelativeTransform, bReadOnly) && !bReadOnly)
+				const bool bReadOnly = ViewContext.bReadOnly;
+				const FReflection Reflection = ResolveReflection(*Spline);
+				if (!Reflection.IsValid())
 				{
-					Spline->SetRelativeTransform(RelativeTransform);
+					Context.SetError("Spline reflection metadata is unavailable.");
+					return true;
 				}
+
+				PropertyView.EditProperty(ViewContext, Spline, Reflection.RelativeTransform, 0, {.Label = "Transform"});
 
 				bool bClosedLoop = Spline->IsClosedLoop();
 				ImGui::PushID("ClosedLoop");
 				MonaImGui::BeginPropertyRow("Closed Loop", bReadOnly);
-				if (ImGui::Checkbox("##Value", &bClosedLoop) && !bReadOnly) Spline->SetClosedLoop(bClosedLoop);
+				if (ImGui::Checkbox("##Value", &bClosedLoop) && !bReadOnly)
+				{
+					PropertyView.SubmitPropertyValueEdit(ViewContext, Reflection.MakeCurveFieldTarget(Spline, Reflection.ClosedLoop), [&] {
+						*Reflection.ClosedLoop->ContainerPtrToValuePtr<bool>(Reflection.GetCurve(Spline)) = bClosedLoop;
+					}, false);
+				}
 				MonaImGui::EndPropertyRow(bReadOnly);
 				ImGui::PopID();
 
 				int32 ReparamSteps = Spline->GetReparamStepsPerSegment();
 				ImGui::PushID("ReparamSteps");
 				MonaImGui::BeginPropertyRow("Reparam Steps", bReadOnly);
-				if (ImGui::DragInt("##Value", &ReparamSteps, 1.0f, 1, 1024, "%d", ImGuiSliderFlags_AlwaysClamp) && !bReadOnly)
+				const bool bReparamChanged = ImGui::DragInt("##Value", &ReparamSteps, 1.0f, 1, 1024, "%d", ImGuiSliderFlags_AlwaysClamp);
+				const MonaImGui::FPropertyEditWidgetState ReparamState{
+					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
+				const FReflectedPropertyEditTarget ReparamTarget = Reflection.MakeCurveFieldTarget(Spline, Reflection.ReparamSteps);
+				if (bReparamChanged && !bReadOnly)
 				{
-					Spline->SetReparamStepsPerSegment(ReparamSteps);
+					PropertyView.SubmitPropertyValueEdit(ViewContext, ReparamTarget, [&] {
+						*Reflection.ReparamSteps->ContainerPtrToValuePtr<int32>(Reflection.GetCurve(Spline)) = ReparamSteps;
+					}, true);
 				}
+				FinishContinuousEdit(PropertyView, ViewContext, ReparamTarget, ReparamState);
 				MonaImGui::EndPropertyRow(bReadOnly);
 				ImGui::PopID();
 
 				MonaImGui::BeginPropertyRow("Points", bReadOnly);
-				if (ImGui::Button("Add Point") && !bReadOnly) AddPoint(*Spline);
+				if (ImGui::Button("Add Point") && !bReadOnly) AddPoint(PropertyView, ViewContext, *Spline, Reflection);
 				MonaImGui::EndPropertyRow(bReadOnly);
 
 				std::optional<uint32> RemoveIndex;
@@ -131,19 +149,26 @@ namespace Durin
 					PointTransform.Rotation = Point.Rotation;
 					PointTransform.Scale3D = Point.Scale;
 					const std::string PointLabel = std::format("Point {}", PointIndex);
-					if (MonaImGui::EditTransformProperty(PointLabel.c_str(), PointTransform, bReadOnly) && !bReadOnly)
+					MonaImGui::FPropertyEditWidgetState PointTransformState;
+					const bool bPointTransformChanged = MonaImGui::EditTransformProperty(
+						PointLabel.c_str(), PointTransform, bReadOnly, &PointTransformState);
+					const FReflectedPropertyEditTarget PointTarget = Reflection.MakePointTarget(Spline, PointIndex);
+					if (bPointTransformChanged && !bReadOnly)
 					{
 						Point.Position = PointTransform.Translation;
 						Point.Rotation = PointTransform.Rotation;
 						Point.Scale = PointTransform.Scale3D;
-						Spline->UpdateSplinePoint(PointIndex, Point);
+						SubmitPoint(PropertyView, ViewContext, *Spline, Reflection, PointTarget, PointIndex, Point, true);
 					}
+					FinishContinuousEdit(PropertyView, ViewContext, PointTarget, PointTransformState);
 
-					DrawPointType(*Spline, PointIndex, Point, bReadOnly);
+					DrawPointType(PropertyView, ViewContext, *Spline, Reflection, PointIndex, Point, bReadOnly);
 					if (Point.Type == ESplinePointType::Curve)
 					{
-						DrawVector(*Spline, PointIndex, "Arrive Tangent", Point, Point.ArriveTangent, bReadOnly);
-						DrawVector(*Spline, PointIndex, "Leave Tangent", Point, Point.LeaveTangent, bReadOnly);
+						DrawVector(PropertyView, ViewContext, *Spline, Reflection, PointIndex, "Arrive Tangent",
+							Reflection.ArriveTangent, Point.ArriveTangent, bReadOnly);
+						DrawVector(PropertyView, ViewContext, *Spline, Reflection, PointIndex, "Leave Tangent",
+							Reflection.LeaveTangent, Point.LeaveTangent, bReadOnly);
 					}
 
 					MonaImGui::BeginPropertyRow("Actions", bReadOnly);
@@ -160,17 +185,111 @@ namespace Durin
 				{
 					std::vector<FSplinePoint> Points = Spline->GetSplinePoints();
 					std::swap(Points[SwapIndices->first], Points[SwapIndices->second]);
-					Spline->SetSplinePoints(std::move(Points));
+					SubmitPoints(PropertyView, ViewContext, *Spline, Reflection, std::move(Points), EPropertyChangeKind::ValueSet);
 				}
 				else if (RemoveIndex)
 				{
-					Spline->RemoveSplinePoint(*RemoveIndex);
+					std::vector<FSplinePoint> Points = Spline->GetSplinePoints();
+					Points.erase(Points.begin() + *RemoveIndex);
+					SubmitPoints(PropertyView, ViewContext, *Spline, Reflection, std::move(Points), EPropertyChangeKind::ArrayRemove);
 				}
 				return true;
 			}
 
 		private:
-			static auto AddPoint(DSplineComponent& Spline) -> void
+			struct FReflection
+			{
+				FProperty* RelativeTransform = nullptr;
+				FStructProperty* SplineCurve = nullptr;
+				FArrayProperty* Points = nullptr;
+				FProperty* Point = nullptr;
+				FProperty* ClosedLoop = nullptr;
+				FProperty* ReparamSteps = nullptr;
+				FProperty* ArriveTangent = nullptr;
+				FProperty* LeaveTangent = nullptr;
+				FProperty* Type = nullptr;
+
+				auto IsValid() const -> bool
+				{
+					return RelativeTransform && SplineCurve && Points && Point && ClosedLoop && ReparamSteps
+						&& ArriveTangent && LeaveTangent && Type;
+				}
+				auto GetCurve(DSplineComponent* Spline) const -> FSplineCurve*
+				{
+					return SplineCurve->ContainerPtrToValuePtr<FSplineCurve>(Spline);
+				}
+				auto MakeCurveTarget(DSplineComponent* Spline) const -> FReflectedPropertyEditTarget
+				{
+					return FReflectedPropertyEditTarget::ForMember(Spline, SplineCurve);
+				}
+				auto MakeCurveFieldTarget(DSplineComponent* Spline, FProperty* Field) const -> FReflectedPropertyEditTarget
+				{
+					return MakeCurveTarget(Spline).ForStructMember(Field, GetCurve(Spline));
+				}
+				auto MakePointsTarget(DSplineComponent* Spline) const -> FReflectedPropertyEditTarget
+				{
+					return MakeCurveTarget(Spline).ForStructMember(Points, GetCurve(Spline));
+				}
+				auto MakePointTarget(DSplineComponent* Spline, uint32 PointIndex) const -> FReflectedPropertyEditTarget
+				{
+					void* PointContainer = Points->GetMutableElementPtr(GetCurve(Spline), PointIndex);
+					return MakePointsTarget(Spline).ForArrayElement(Point, PointContainer, PointIndex);
+				}
+				auto MakePointFieldTarget(DSplineComponent* Spline, uint32 PointIndex, FProperty* Field) const -> FReflectedPropertyEditTarget
+				{
+					void* PointContainer = Points->GetMutableElementPtr(GetCurve(Spline), PointIndex);
+					return MakePointTarget(Spline, PointIndex).ForStructMember(Field, PointContainer);
+				}
+			};
+
+			static auto ResolveReflection(DSplineComponent& Spline) -> FReflection
+			{
+				FReflection Result;
+				Result.RelativeTransform = Spline.GetClass()->FindPropertyByName("RelativeTransform");
+				FProperty* CurveProperty = Spline.GetClass()->FindPropertyByName("SplineCurve");
+				if (!CurveProperty || CurveProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Struct) return Result;
+				Result.SplineCurve = static_cast<FStructProperty*>(CurveProperty);
+				DStruct* CurveStruct = Result.SplineCurve->GetStruct();
+				if (!CurveStruct) return Result;
+				FProperty* PointsProperty = CurveStruct->FindPropertyByName(FName("Points"));
+				if (!PointsProperty || PointsProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Array) return Result;
+				Result.Points = static_cast<FArrayProperty*>(PointsProperty);
+				Result.Point = Result.Points->GetInner();
+				Result.ClosedLoop = CurveStruct->FindPropertyByName(FName("bClosedLoop"));
+				Result.ReparamSteps = CurveStruct->FindPropertyByName(FName("ReparamStepsPerSegment"));
+				auto* PointProperty = Result.Point && Result.Point->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
+					? static_cast<FStructProperty*>(Result.Point) : nullptr;
+				DStruct* PointStruct = PointProperty ? PointProperty->GetStruct() : nullptr;
+				if (PointStruct)
+				{
+					Result.ArriveTangent = PointStruct->FindPropertyByName(FName("ArriveTangent"));
+					Result.LeaveTangent = PointStruct->FindPropertyByName(FName("LeaveTangent"));
+					Result.Type = PointStruct->FindPropertyByName(FName("Type"));
+				}
+				return Result;
+			}
+
+			static auto FinishContinuousEdit(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
+				const FReflectedPropertyEditTarget& Target, const MonaImGui::FPropertyEditWidgetState& State) -> void
+			{
+				if (State.bDeactivatedAfterEdit && PropertyView.IsEditingTarget(Target)) PropertyView.FinishActiveEdit(&ViewContext, false);
+				else if (State.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditingTarget(Target))
+					PropertyView.FinishActiveEdit(&ViewContext, true);
+			}
+
+			static auto SubmitPoints(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
+				DSplineComponent& Spline, const FReflection& Reflection, std::vector<FSplinePoint> Points,
+				EPropertyChangeKind Kind) -> bool
+			{
+				FReflectedPropertyEditTarget Target = Reflection.MakePointsTarget(&Spline);
+				Target.Kind = Kind;
+				return PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
+					Reflection.GetCurve(&Spline)->SetPoints(std::move(Points));
+				}, false);
+			}
+
+			static auto AddPoint(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
+				DSplineComponent& Spline, const FReflection& Reflection) -> void
 			{
 				FSplinePoint Point;
 				const uint32 PointCount = Spline.GetNumSplinePoints();
@@ -183,10 +302,23 @@ namespace Durin
 						Point.Type = ESplinePointType::CurveAuto;
 					}
 				}
-				Spline.AddSplinePoint(Point);
+				std::vector<FSplinePoint> Points = Spline.GetSplinePoints();
+				Points.push_back(Point);
+				SubmitPoints(PropertyView, ViewContext, Spline, Reflection, std::move(Points), EPropertyChangeKind::ArrayAdd);
 			}
 
-			static auto DrawPointType(DSplineComponent& Spline, uint32 PointIndex, FSplinePoint& Point, bool bReadOnly) -> void
+			static auto SubmitPoint(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
+				DSplineComponent& Spline, const FReflection& Reflection, const FReflectedPropertyEditTarget& Target,
+				uint32 PointIndex, const FSplinePoint& Point, bool bContinuous) -> bool
+			{
+				return PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
+					if (void* Container = Reflection.Points->GetMutableElementPtr(Reflection.GetCurve(&Spline), PointIndex))
+						*static_cast<FSplinePoint*>(Container) = Point;
+				}, bContinuous);
+			}
+
+			static auto DrawPointType(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
+				DSplineComponent& Spline, const FReflection& Reflection, uint32 PointIndex, FSplinePoint& Point, bool bReadOnly) -> void
 			{
 				static constexpr std::array<std::pair<ESplinePointType, const char*>, 4> Types = {{
 					{ESplinePointType::Linear, "Linear"},
@@ -204,7 +336,8 @@ namespace Durin
 						if (ImGui::Selectable(Name, Point.Type == Type) && !bReadOnly)
 						{
 							Point.Type = Type;
-							Spline.UpdateSplinePoint(PointIndex, Point);
+							const FReflectedPropertyEditTarget Target = Reflection.MakePointFieldTarget(&Spline, PointIndex, Reflection.Type);
+							SubmitPoint(PropertyView, ViewContext, Spline, Reflection, Target, PointIndex, Point, false);
 						}
 					}
 					ImGui::EndCombo();
@@ -212,14 +345,24 @@ namespace Durin
 				MonaImGui::EndPropertyRow(bReadOnly);
 			}
 
-			static auto DrawVector(DSplineComponent& Spline, uint32 PointIndex, const char* Label, FSplinePoint& Point, FVector3& Value, bool bReadOnly) -> void
+			static auto DrawVector(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
+				DSplineComponent& Spline, const FReflection& Reflection, uint32 PointIndex, const char* Label,
+				FProperty* Field, FVector3& Value, bool bReadOnly) -> void
 			{
 				ImGui::PushID(Label);
 				MonaImGui::BeginPropertyRow(Label, bReadOnly);
-				if (ImGui::DragScalarN("##Value", ImGuiDataType_Double, &Value.x, 3, 0.05f) && !bReadOnly)
+				const bool bChanged = ImGui::DragScalarN("##Value", ImGuiDataType_Double, &Value.x, 3, 0.05f);
+				const MonaImGui::FPropertyEditWidgetState State{
+					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
+				const FReflectedPropertyEditTarget Target = Reflection.MakePointFieldTarget(&Spline, PointIndex, Field);
+				if (bChanged && !bReadOnly)
 				{
-					Spline.UpdateSplinePoint(PointIndex, Point);
+					PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
+						*Field->ContainerPtrToValuePtr<FVector3>(
+							Reflection.Points->GetMutableElementPtr(Reflection.GetCurve(&Spline), PointIndex)) = Value;
+					}, true);
 				}
+				FinishContinuousEdit(PropertyView, ViewContext, Target, State);
 				MonaImGui::EndPropertyRow(bReadOnly);
 				ImGui::PopID();
 			}

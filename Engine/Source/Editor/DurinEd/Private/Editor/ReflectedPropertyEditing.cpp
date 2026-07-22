@@ -6,6 +6,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
 #include "Components/SceneComponent.h"
+#include "Components/SplineComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstance.h"
 #include "StaticMesh/StaticMesh.h"
@@ -81,6 +82,49 @@ namespace Durin
 				const FTransform Value = *Target.LeafProperty->ContainerPtrToValuePtr<FTransform>(Target.LeafContainer, Target.LeafArrayIndex);
 				if (!Generic.Restore(Target, Previous, OutError)) return false;
 				Cast<DSceneComponent>(Target.Object)->SetRelativeTransform(Value);
+				return true;
+			}
+		};
+
+		class FSplineCurveMutationAdapter final : public IReflectedPropertyMutationAdapter
+		{
+		public:
+			auto Capture(const FReflectedPropertyEditTarget& Target, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
+			{
+				return GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
+			}
+			auto Apply(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
+			{
+				return ApplySnapshot(Target, Snapshot, OutError);
+			}
+			auto Restore(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
+			{
+				return ApplySnapshot(Target, Snapshot, OutError);
+			}
+
+		private:
+			static auto ApplySnapshot(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) -> bool
+			{
+				auto* Component = Cast<DSplineComponent>(Target.Object);
+				auto* CurveProperty = Target.SnapshotProperty
+					&& Target.SnapshotProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
+					? static_cast<const FStructProperty*>(Target.SnapshotProperty) : nullptr;
+				if (!Component || !CurveProperty || CurveProperty->GetStruct() != FSplineCurve::StaticStruct())
+					return Fail(OutError, "The spline curve metadata is unavailable.");
+
+				const auto& Generic = GetGenericReflectedPropertyMutationAdapter();
+				FPropertyValueSnapshot Previous;
+				if (!Generic.Capture(Target, Previous, OutError) || !Generic.Apply(Target, Snapshot, OutError)) return false;
+				const FSplineCurve DesiredCurve = *Target.SnapshotProperty->ContainerPtrToValuePtr<FSplineCurve>(
+					Target.SnapshotContainer, Target.SnapshotArrayIndex);
+				if (!Generic.Restore(Target, Previous, OutError)) return false;
+
+				if (Component->GetSplinePoints() != DesiredCurve.GetPoints())
+					Component->SetSplinePoints(DesiredCurve.GetPoints());
+				if (Component->IsClosedLoop() != DesiredCurve.IsClosedLoop())
+					Component->SetClosedLoop(DesiredCurve.IsClosedLoop());
+				if (Component->GetReparamStepsPerSegment() != DesiredCurve.GetReparamStepsPerSegment())
+					Component->SetReparamStepsPerSegment(DesiredCurve.GetReparamStepsPerSegment());
 				return true;
 			}
 		};
@@ -242,6 +286,7 @@ namespace Durin
 		{
 			static const bool bRegistered = [] {
 				RegisterMutationAdapter(DSceneComponent::StaticClass(), FName("RelativeTransform"), std::make_unique<FRelativeTransformMutationAdapter>());
+				RegisterMutationAdapter(DSplineComponent::StaticClass(), FName("SplineCurve"), std::make_unique<FSplineCurveMutationAdapter>());
 				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("StaticMesh"), std::make_unique<FObjectSetterMutationAdapter>(EObjectSetterKind::StaticMesh));
 				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("Material"), std::make_unique<FObjectSetterMutationAdapter>(EObjectSetterKind::Material));
 				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("Materials"), std::make_unique<FStaticMeshMaterialsMutationAdapter>());
@@ -290,6 +335,21 @@ namespace Durin
 			Property && Property->GetArrayDim() > 1 ? EPropertyPathSelector::StaticArrayIndex : EPropertyPathSelector::None,
 			ArrayIndex
 		});
+		return Target;
+	}
+
+	auto FReflectedPropertyEditTarget::ForStructMember(const FProperty* Property, void* StructContainer, uint32 ArrayIndex) const -> FReflectedPropertyEditTarget
+	{
+		FReflectedPropertyEditTarget Target = *this;
+		Target.LeafProperty = Property;
+		Target.LeafContainer = StructContainer;
+		Target.LeafArrayIndex = ArrayIndex;
+		Target.Path.push_back({
+			Property,
+			Property && Property->GetArrayDim() > 1 ? EPropertyPathSelector::StaticArrayIndex : EPropertyPathSelector::None,
+			ArrayIndex
+		});
+		Target.Kind = EPropertyChangeKind::ValueSet;
 		return Target;
 	}
 

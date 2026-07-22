@@ -259,8 +259,8 @@ adapter、binding 和 customization 注入。
 
 ## 10. 建议实施顺序
 
-1. 让剩余直接编辑点使用现有 View 提交 API；Static Mesh Material Slots 已完成，
-   下一项是 Spline customization。
+1. 让剩余直接编辑点使用现有 View 提交 API；Static Mesh Material Slots 和
+   Spline customization 已完成，继续迁移其他 Level Editor customization。
 2. 增加 `EditObject()`，迁移 Details 的属性遍历、搜索和标签生成。
 3. 保持 `EditPropertyValue()` 及容器递归入口为私有实现。
 4. 引入最小对象 customization/builder，先承载 Actor Transform 和材质槽。

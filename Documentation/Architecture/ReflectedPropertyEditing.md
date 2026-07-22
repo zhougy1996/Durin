@@ -104,9 +104,10 @@ address, but it cannot invalidate the stored member snapshot used by Undo/Redo.
 - the owned member-to-leaf path; and
 - the mutation kind.
 
-`ForMember()`, `ForArrayElement()`, and `ForMapEntry()` build targets without
-making panels reconstruct path rules themselves. The active session roots its
-target object while it retains raw reflected addresses.
+`ForMember()`, `ForStructMember()`, `ForArrayElement()`, and `ForMapEntry()`
+build targets without making panels reconstruct path rules themselves. The
+active session roots its target object while it retains raw reflected
+addresses.
 
 ## Mutation Adapters
 
@@ -118,6 +119,8 @@ process-lifetime registry supplies semantic adapters for properties that must
 call setters or enforce invariants. Current built-in registrations cover:
 
 - `DSceneComponent.RelativeTransform` through `SetRelativeTransform()`;
+- `DSplineComponent.SplineCurve` and its nested point/setting paths through the
+  spline component setters, including curve-cache rebuilds;
 - `DStaticMeshComponent.StaticMesh` through `SetStaticMesh()`;
 - `DStaticMeshComponent.Material` through `SetMaterial()`;
 - `DStaticMeshComponent.Materials[index]` through `SetMaterial(index, value)`; and
@@ -216,8 +219,11 @@ cannot construct unsafe container addresses or edit paths.
 
 Custom widgets can use `SubmitPropertyValueEdit()` to retain their presentation
 while sharing proposal capture, session lifecycle, notifications, and history.
-Material Editor uses this for its parent picker and uses the string-map helpers
-for parameter values and override presence.
+Spline customization uses it for its point layout and structural actions;
+Material Editor uses it for its parent picker and uses the string-map helpers
+for parameter values and override presence. Object-details customizations are
+given the host-owned view and context so composed rows share the same active
+session and transaction history as ordinary Details rows.
 
 `HandleOwnerContext()` cancels an active edit if the object presented by the
 view is replaced or the view becomes read-only. The presented owner is tracked
@@ -237,8 +243,11 @@ layout. It retains inherited-value and override presentation, color and range
 controls, and asset-specific pickers. Generic proposals, sessions, and
 transactions are delegated to the view.
 
-Some object customizations still bypass the shared view. These are tracked in
-the implementation plan and must migrate without removing their setter semantics.
+Spline Details now routes transform, curve settings, point values, and point
+structural actions through the shared view while retaining its custom layout.
+Some other object customizations still bypass the shared view; these are
+tracked in the implementation plan and must migrate without removing their
+setter semantics.
 
 ## Validation
 
@@ -251,7 +260,9 @@ Automated coverage currently verifies:
 - array and map stable paths and structural restoration;
 - semantic adapter rejection and Undo/Redo behavior;
 - material parameter render invalidation; and
-- material override insertion through shared transaction history.
+- material override insertion through shared transaction history; and
+- spline continuous edits, Cancel, structural edits, stable nested paths, cache
+  rebuilds, setter clamping, and Undo/Redo.
 
 UI behavior still requires editor smoke and manual interaction coverage for
 selection changes, document changes, read-only PIE state, save, and shutdown.

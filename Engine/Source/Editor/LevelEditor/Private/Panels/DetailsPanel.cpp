@@ -524,7 +524,8 @@ namespace Durin
 			PropertyView.EditProperty(ViewContext, ActorRootComponent, ActorTransformProperty, 0, {.Label = "Transform"});
 			ImGui::PopID();
 		}
-		const bool bReplaceReflectedProperties = DetailsCustomization && DetailsCustomization->DrawDetails(Context, Object);
+		const bool bReplaceReflectedProperties = DetailsCustomization
+			&& DetailsCustomization->DrawDetails(Context, Object, PropertyView, ViewContext);
 		if (bShowStaticMeshMaterials) DrawStaticMeshMaterials(Context, StaticMeshComponent);
 		if (!bReplaceReflectedProperties) for (const FVisibleProperty& VisibleProperty : VisibleProperties)
 		{

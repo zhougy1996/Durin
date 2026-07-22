@@ -107,7 +107,8 @@ namespace
 	class FTestDetailsCustomization final : public Durin::IObjectDetailsCustomization
 	{
 	public:
-		auto DrawDetails(Durin::FLevelEditorContext&, Durin::DObject*) -> bool override { return false; }
+		auto DrawDetails(Durin::FLevelEditorContext&, Durin::DObject*, Durin::FReflectedPropertyView&,
+			const Durin::FReflectedPropertyViewContext&) -> bool override { return false; }
 	};
 
 	struct FCustomizationGuard

@@ -10,6 +10,8 @@ namespace Durin
 	class DClass;
 	class DLevel;
 	class DObject;
+	class FReflectedPropertyView;
+	struct FReflectedPropertyViewContext;
 	struct FLevelEditorContext;
 
 	struct FEditorVisualizationContext
@@ -84,7 +86,8 @@ namespace Durin
 	public:
 		virtual ~IObjectDetailsCustomization() = default;
 		// Return true when the customization replaces the object's reflected property rows.
-		virtual auto DrawDetails(FLevelEditorContext& Context, DObject* Object) -> bool = 0;
+		virtual auto DrawDetails(FLevelEditorContext& Context, DObject* Object, FReflectedPropertyView& PropertyView,
+			const FReflectedPropertyViewContext& ViewContext) -> bool = 0;
 	};
 
 	enum class ELevelEditorCustomizationKind : uint8

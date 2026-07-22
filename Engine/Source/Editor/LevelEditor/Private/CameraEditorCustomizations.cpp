@@ -133,7 +133,8 @@ namespace Durin
 		class FCameraDetailsCustomization final : public IObjectDetailsCustomization
 		{
 		public:
-			auto DrawDetails(FLevelEditorContext&, DObject* Object) -> bool override
+			auto DrawDetails(FLevelEditorContext&, DObject* Object, FReflectedPropertyView&,
+				const FReflectedPropertyViewContext&) -> bool override
 			{
 				DCameraComponent* Camera = Cast<DCameraComponent>(Object);
 				if (!Camera)

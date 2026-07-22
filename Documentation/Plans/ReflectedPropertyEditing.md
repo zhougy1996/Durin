@@ -16,8 +16,10 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
   preserving `SetRelativeTransform()` semantics.
 - [x] Route static-mesh material-slot rows through shared transactions while
   preserving slot labels and `SetMaterial()` behavior.
-- [ ] Migrate direct reflected-property writes in Level Editor customizations,
-  beginning with spline editing.
+- [x] Migrate spline customization value and structural edits through shared
+  reflected-property sessions while preserving spline setter/cache semantics.
+- [ ] Migrate the remaining direct reflected-property writes in Level Editor
+  customizations.
 - [ ] Ensure every host deliberately commits or cancels an active interaction
   when selection, document, workspace activity, or read-only state changes.
 
