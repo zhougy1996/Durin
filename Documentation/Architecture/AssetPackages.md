@@ -4,9 +4,9 @@ Durin object assets are stored as versioned `.dasset` packages. A package has on
 
 ## Paths And Mounts
 
-Asset identities use extensionless virtual paths such as `/Engine/Materials/Default` or `/SandBox/Levels/TestLevel`. The first path segment must match a registered content mount. `PathUtilities::InitDefaultMountPoints()` registers `/Engine/` and the project selected at launch with `--project=<path-to-project.dproject>`.
+Asset identities use extensionless virtual paths such as `/Engine/Materials/Default` or `/Game/Levels/TestLevel`. The first path segment must match a registered content mount. `PathUtilities::InitDefaultMountPoints()` registers `/Engine/` and mounts the `Content` directory of the project selected with `--project=<path-to-project.dproject>` at `/Game/`, independent of its `ProjectName`.
 
-The physical filename is the resolved virtual path plus `.dasset`. Main assets use the package path as their object path; inner objects append a colon and their relative Outer chain, for example `/SandBox/Objects/Test:Root.Component`.
+The physical filename is the resolved virtual path plus `.dasset`. Main assets use the package path as their object path; inner objects append a colon and their relative Outer chain, for example `/Game/Objects/Test:Root.Component`.
 
 ## Runtime Lifetime
 

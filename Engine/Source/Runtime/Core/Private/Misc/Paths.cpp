@@ -2,7 +2,6 @@
 
 #include "HAL/PlatformProcess.h"
 #include "Threading/RunnableThread.h"
-#include "Json/Json.h"
 
 namespace Durin
 {
@@ -136,16 +135,8 @@ namespace Durin
 
 			if (!FPaths::ProjectFile().empty())
 			{
-				FJsonDocument ProjectDocument;
-				if (ProjectDocument.LoadFromFile(FPaths::ProjectFile()))
-				{
-					const std::string ProjectName = ProjectDocument.GetRootView().GetView("ProjectName").GetString();
-					if (!ProjectName.empty())
-					{
-						const std::filesystem::path ContentDir = std::filesystem::path(FPaths::ProjectFile()).parent_path() / "Content";
-						RegisterMountPointWithoutSorting(std::format("/{}/", ProjectName), ContentDir.generic_string() + "/");
-					}
-				}
+				const std::filesystem::path ContentDir = std::filesystem::path(FPaths::ProjectFile()).parent_path() / "Content";
+				RegisterMountPointWithoutSorting(ProjectContentMountRoot, ContentDir.generic_string() + "/");
 			}
 
 			std::ranges::sort(MountPoints, [](const FMountPoint& A, const FMountPoint& B) {

@@ -6,6 +6,8 @@ namespace Durin
 {
 	namespace PathUtilities
 	{
+		inline constexpr std::string_view ProjectContentMountRoot = "/Game/";
+
 		struct FMountPoint
 		{
 			std::string VirtualRoot;
@@ -40,7 +42,7 @@ namespace Durin
 		static CORE_API auto EngineThirdPartyRuntimeBinariesDir() -> std::string;
 
 		// Resolve virtual path to physical path.
-		// For example,  "/Engine/" to "DURIN_ROOT/Engine/", or "/MyProject/" to "MyProject_Dir/".
+		// For example, "/Engine/" to "DURIN_ROOT/Engine/", or "/Game/" to the active project's Content directory.
 		static CORE_API auto Resolve(std::string_view VirtualPath) -> std::string;
 	};
 }

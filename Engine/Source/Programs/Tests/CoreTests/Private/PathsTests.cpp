@@ -42,6 +42,6 @@ TEST(FPathsTests, ExplicitProjectFileControlsProjectDirectoryAndMount)
 		Durin::GIsGameThreadIdInitialized = true;
 	}
 	Durin::PathUtilities::InitDefaultMountPoints();
-	const std::filesystem::path Resolved = Durin::FPaths::Resolve("/ExternalGame/Levels/Test");
+	const std::filesystem::path Resolved = Durin::FPaths::Resolve("/Game/Levels/Test");
 	EXPECT_EQ(Resolved.lexically_normal(), (ProjectDir / "Content/Levels/Test").lexically_normal());
 }

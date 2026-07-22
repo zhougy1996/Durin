@@ -66,7 +66,7 @@ TEST(FProjectTests, LoadsExplicitProjectFile)
 	ASSERT_TRUE(Durin::InitializeCurrentProject(Arguments, &Error)) << Error;
 	ASSERT_TRUE(Durin::HasCurrentProject());
 	EXPECT_EQ(Durin::GetCurrentProject()->Name, "SandBox");
-	EXPECT_EQ(Durin::GetCurrentProject()->MountRoot, "/SandBox/");
+	EXPECT_EQ(Durin::GetCurrentProject()->MountRoot, "/Game/");
 	EXPECT_EQ(Durin::FPaths::ProjectDir(), Durin::GetCurrentProject()->ProjectDir);
 }
 

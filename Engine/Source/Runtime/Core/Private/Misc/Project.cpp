@@ -75,7 +75,7 @@ namespace Durin
 		Info.ProjectFile = Normalized;
 		Info.ProjectDir = std::filesystem::path(Normalized).parent_path().generic_string() + "/";
 		Info.ContentDir = Info.ProjectDir + "Content/";
-		Info.MountRoot = std::format("/{}/", ProjectName);
+		Info.MountRoot = PathUtilities::ProjectContentMountRoot;
 		GCurrentProject = std::move(Info);
 		return true;
 	}
