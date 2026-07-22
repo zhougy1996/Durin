@@ -9,8 +9,10 @@ transactions, bindings, and semantic mutation adapters are implemented. The
 remaining UI migration and validation work is now secondary to simplifying the
 mutation model itself.
 
-Phase 0 is complete: existing adapter semantics and known failure behavior are
-now classified and protected by characterization tests. Phase 1 is next.
+Phases 0 and 1 are complete: adapter semantics are classified, proposal storage
+is owned by an internal property draft, and active sessions/transactions
+re-resolve ephemeral leaf storage from stable snapshot roots and paths. Phase 2
+is next.
 
 The current implementation exposes too many overlapping concepts: the view
 constructs proposals in scratch storage, edit targets retain both stable and
@@ -229,15 +231,15 @@ hatch for a future externally owned canonical value.
 
 ### Stage 1: Introduce Stable Targets and Internal Drafts
 
-- [ ] Add one RAII property-draft implementation that owns reflected temporary
+- [x] Add one RAII property-draft implementation that owns reflected temporary
   storage and exposes scoped leaf resolution.
-- [ ] Move scratch construction and proposal-to-snapshot capture out of
+- [x] Move scratch construction and proposal-to-snapshot capture out of
   `FReflectedPropertyView` recursion helpers into that implementation.
-- [ ] Remove persisted leaf-container addresses from transaction state and
+- [x] Remove persisted leaf-container addresses from transaction state and
   re-resolve the target path for every capture, apply, Cancel, Undo, and Redo.
-- [ ] Make target factories construct complete valid targets and delete the
+- [x] Make target factories construct complete valid targets and delete the
   `Begin()` snapshot/container fallback.
-- [ ] Keep bindings as stable logical target factories; do not expose draft or
+- [x] Keep bindings as stable logical target factories; do not expose draft or
   path internals to Material Editor or Details customizations.
 
 #### Acceptance Gate

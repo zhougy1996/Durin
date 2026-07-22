@@ -25,6 +25,8 @@ namespace Durin
 		DObject* Object = nullptr;
 		const FProperty* MemberProperty = nullptr;
 		const FProperty* LeafProperty = nullptr;
+		// Construction-time convenience only. Sessions and transactions clear these
+		// ephemeral fields and resolve them again from SnapshotContainer plus Path.
 		void* LeafContainer = nullptr;
 		uint32 LeafArrayIndex = 0;
 		// Nested container elements can move after an array resize or map rehash.
@@ -42,6 +44,14 @@ namespace Durin
 		DURINED_API auto ForMapEntry(const FProperty* EntryProperty, void* EntryContainer,
 			FPropertyValueSnapshot KeySnapshot, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget;
 	};
+
+	// Resolves ephemeral leaf storage from the stable snapshot root and owned path.
+	// The resolved copy is valid only until the addressed container is mutated.
+	DURINED_API auto ResolveReflectedPropertyEditTarget(
+		const FReflectedPropertyEditTarget& Target,
+		FReflectedPropertyEditTarget& OutResolvedTarget,
+		std::string* OutError = nullptr
+	) -> bool;
 
 	class DURINED_API IReflectedPropertyMutationAdapter
 	{

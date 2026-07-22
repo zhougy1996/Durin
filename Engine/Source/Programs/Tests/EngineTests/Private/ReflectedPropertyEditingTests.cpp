@@ -252,6 +252,8 @@ namespace
 		Target.MemberProperty = Property;
 		Target.LeafProperty = Property;
 		Target.LeafContainer = &Container;
+		Target.SnapshotProperty = Property;
+		Target.SnapshotContainer = &Container;
 		Target.Path.push_back({Property});
 		return Target;
 	}
@@ -273,6 +275,8 @@ TEST(FReflectedPropertyEditSessionTests, CommitsAndUndoRedoesGuidValues)
 	Target.MemberProperty = Property.get();
 	Target.LeafProperty = Property.get();
 	Target.LeafContainer = &Container;
+	Target.SnapshotProperty = Property.get();
+	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({Property.get()});
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
@@ -317,6 +321,13 @@ TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValid
 	auto Property = MakeValueProperty();
 	FValueContainer Container{7};
 	DEditObserver Object;
+	Durin::FReflectedPropertyEditTarget Incomplete = MakeTarget(Object, Property.get(), Container);
+	Incomplete.SnapshotProperty = nullptr;
+	Incomplete.SnapshotContainer = nullptr;
+	EXPECT_FALSE(Session.Begin(Incomplete, {}, nullptr, &Error));
+	EXPECT_EQ(Error, "The edit target is incomplete.");
+	EXPECT_FALSE(Session.IsActive());
+
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), {}, nullptr, &Error)) << Error;
 	EXPECT_EQ(Session.GetDescription(), "Edit Value");
 	EXPECT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::NoChange);
@@ -450,6 +461,8 @@ TEST(FReflectedPropertyEditSessionTests, KeepsRegisteredTargetAliveForTheSession
 	Target.MemberProperty = Property.get();
 	Target.LeafProperty = Property.get();
 	Target.LeafContainer = &Container;
+	Target.SnapshotProperty = Property.get();
+	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({Property.get()});
 
 	Durin::FReflectedPropertyEditSession Session;
@@ -555,6 +568,8 @@ TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsRegisteredTarget
 	Target.MemberProperty = Property.get();
 	Target.LeafProperty = Property.get();
 	Target.LeafContainer = &Container;
+	Target.SnapshotProperty = Property.get();
+	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({Property.get()});
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
@@ -592,6 +607,8 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 	Target.MemberProperty = &Property;
 	Target.LeafProperty = &Property;
 	Target.LeafContainer = &Container;
+	Target.SnapshotProperty = &Property;
+	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({&Property});
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
@@ -715,7 +732,7 @@ TEST(FReflectedPropertyEditSessionTests, MapTransactionsPreserveStableKeyPathsAn
 	const std::string Alpha = "Alpha";
 	ASSERT_TRUE(Durin::CapturePropertyValue(&KeyProperty, &Alpha, 0, KeySnapshot));
 	Durin::FReflectedPropertyEditTarget ValueTarget = MapTarget.ForMapEntry(
-		ValueProperty.get(), &Container.Values.at("Alpha"), KeySnapshot.GetBytes()
+		ValueProperty.get(), &Container.Values.at("Alpha"), KeySnapshot, KeySnapshot.GetBytes()
 	);
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession ValueSession;
@@ -760,18 +777,21 @@ TEST(FReflectedPropertyEditSessionTests, MapTransactionsPreserveStableKeyPathsAn
 	Transactions.Clear();
 
 	std::string EditedKey = "Alpha";
-	Durin::FReflectedPropertyEditTarget RenameTarget = MapTarget.ForMapEntry(&KeyProperty, &EditedKey, KeySnapshot.GetBytes());
+	Durin::FReflectedPropertyEditTarget RenameTarget = MapTarget.ForMapEntry(
+		&KeyProperty, &EditedKey, KeySnapshot, KeySnapshot.GetBytes());
 	RenameTarget.Kind = Durin::EPropertyChangeKind::MapKeyRename;
 	Durin::FReflectedPropertyEditSession RenameSession;
 	ASSERT_TRUE(RenameSession.Begin(RenameTarget, "Rename Map Key", nullptr, nullptr, &Transactions));
 	FMapValueContainer FirstRename{{{"Renamed", 1}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot FirstRenameSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &FirstRename, 0, FirstRenameSnapshot));
-	ASSERT_EQ(RenameSession.Apply(FirstRenameSnapshot), Durin::EReflectedPropertyEditResult::Changed);
+	std::string RenameError;
+	ASSERT_EQ(RenameSession.Apply(FirstRenameSnapshot, &RenameError), Durin::EReflectedPropertyEditResult::Changed) << RenameError;
 	const std::string Renamed = "Renamed";
 	Durin::FPropertyValueSnapshot RenamedKeySnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(&KeyProperty, &Renamed, 0, RenamedKeySnapshot));
-	Durin::FReflectedPropertyEditTarget ContinuedRename = MapTarget.ForMapEntry(&KeyProperty, &EditedKey, RenamedKeySnapshot.GetBytes());
+	Durin::FReflectedPropertyEditTarget ContinuedRename = MapTarget.ForMapEntry(
+		&KeyProperty, &EditedKey, RenamedKeySnapshot, RenamedKeySnapshot.GetBytes());
 	ContinuedRename.Kind = Durin::EPropertyChangeKind::MapKeyRename;
 	EXPECT_TRUE(RenameSession.MatchesTarget(ContinuedRename));
 	FMapValueContainer FinalRename{{{"Final", 1}, {"Beta", 2}}};

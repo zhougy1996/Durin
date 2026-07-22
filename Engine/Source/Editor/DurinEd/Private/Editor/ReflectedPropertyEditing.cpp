@@ -338,7 +338,7 @@ namespace Durin
 		auto ValidateTarget(const FReflectedPropertyEditTarget& Target, std::string* OutError) -> bool
 		{
 			if (!Target.Object) return Fail(OutError, "The edit target has no owning object.");
-			if (!Target.MemberProperty || !Target.LeafProperty || !Target.LeafContainer
+			if (!Target.MemberProperty || !Target.LeafProperty
 				|| !Target.SnapshotProperty || !Target.SnapshotContainer) return Fail(OutError, "The edit target is incomplete.");
 			if (Target.LeafArrayIndex >= Target.LeafProperty->GetArrayDim()) return Fail(OutError, "The leaf property array index is out of range.");
 			if (Target.SnapshotArrayIndex >= Target.SnapshotProperty->GetArrayDim()) return Fail(OutError, "The snapshot property array index is out of range.");
@@ -356,6 +356,100 @@ namespace Durin
 			}
 			return true;
 		}
+
+		auto ResolveMutationTarget(
+			const FReflectedPropertyEditTarget& Target,
+			const IReflectedPropertyMutationAdapter* Adapter,
+			FReflectedPropertyEditTarget& OutResolvedTarget,
+			std::string* OutError
+		) -> bool
+		{
+			if (Adapter == &GGenericMutationAdapter)
+			{
+				OutResolvedTarget = Target;
+				return true;
+			}
+			return ResolveReflectedPropertyEditTarget(Target, OutResolvedTarget, OutError);
+		}
+	}
+
+	auto ResolveReflectedPropertyEditTarget(
+		const FReflectedPropertyEditTarget& Target,
+		FReflectedPropertyEditTarget& OutResolvedTarget,
+		std::string* OutError
+	) -> bool
+	{
+		if (!ValidateTarget(Target, OutError)) return false;
+		if (Target.Path.front().Property != Target.SnapshotProperty)
+			return Fail(OutError, "The property path does not begin at the snapshot root.");
+
+		void* Container = Target.SnapshotContainer;
+		uint32 CurrentArrayIndex = Target.SnapshotArrayIndex;
+		for (size_t PathIndex = 0; PathIndex < Target.Path.size(); ++PathIndex)
+		{
+			const FReflectedPropertyEditPathSegment& Segment = Target.Path[PathIndex];
+			auto* CurrentProperty = const_cast<FProperty*>(Segment.Property);
+			if (PathIndex + 1 == Target.Path.size())
+			{
+				OutResolvedTarget = Target;
+				OutResolvedTarget.LeafContainer = Container;
+				OutResolvedTarget.LeafArrayIndex = CurrentArrayIndex;
+				return true;
+			}
+
+			FProperty* NextProperty = const_cast<FProperty*>(Target.Path[PathIndex + 1].Property);
+			switch (Segment.Selector)
+			{
+			case EPropertyPathSelector::None:
+			case EPropertyPathSelector::StaticArrayIndex:
+				Container = CurrentProperty->GetValuePtr(Container, CurrentArrayIndex);
+				CurrentArrayIndex = Target.Path[PathIndex + 1].Selector == EPropertyPathSelector::StaticArrayIndex
+					? static_cast<uint32>(Target.Path[PathIndex + 1].Index) : 0;
+				break;
+			case EPropertyPathSelector::ArrayIndex:
+			{
+				auto* ArrayProperty = CurrentProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Array
+					? static_cast<FArrayProperty*>(CurrentProperty) : nullptr;
+				if (!ArrayProperty || Segment.Index >= ArrayProperty->Num(Container, CurrentArrayIndex))
+					return Fail(OutError, "The reflected array path index is unavailable.");
+				Container = ArrayProperty->GetMutableElementPtr(Container, Segment.Index, CurrentArrayIndex);
+				CurrentArrayIndex = 0;
+				break;
+			}
+			case EPropertyPathSelector::MapKey:
+			{
+				auto* MapProperty = CurrentProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Map
+					? static_cast<FMapProperty*>(CurrentProperty) : nullptr;
+				if (!MapProperty || !Segment.MapKey.IsValid())
+					return Fail(OutError, "The reflected map path lacks a stable key snapshot.");
+				uint64 MapIndex = UINT64_MAX;
+				for (uint64 Index = 0; Index < MapProperty->Num(Container, CurrentArrayIndex); ++Index)
+				{
+					FPropertyValueSnapshot StoredKey;
+					const void* Key = MapProperty->GetKeyPtr(Container, Index, CurrentArrayIndex);
+					if (Key && CapturePropertyValue(MapProperty->GetKeyProp(), Key, 0, StoredKey)
+						&& StoredKey == Segment.MapKey)
+					{
+						MapIndex = Index;
+						break;
+					}
+				}
+				if (MapIndex == UINT64_MAX) return Fail(OutError, "The reflected map key is unavailable.");
+				if (NextProperty == MapProperty->GetKeyProp())
+					Container = const_cast<void*>(MapProperty->GetKeyPtr(Container, MapIndex, CurrentArrayIndex));
+				else if (NextProperty == MapProperty->GetValueProp())
+					Container = MapProperty->GetMutableMappedValuePtr(Container, MapIndex, CurrentArrayIndex);
+				else
+					return Fail(OutError, "The reflected map path does not select its key or value property.");
+				CurrentArrayIndex = 0;
+				break;
+			}
+			default:
+				return Fail(OutError, "The reflected property path selector is unsupported.");
+			}
+			if (!Container || !NextProperty) return Fail(OutError, "The reflected property path could not be resolved.");
+		}
+		return Fail(OutError, "The reflected property path is empty.");
 	}
 
 	auto FReflectedPropertyEditTarget::ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex) -> FReflectedPropertyEditTarget
@@ -474,6 +568,8 @@ namespace Durin
 		, Description(std::move(InDescription))
 		, Adapter(InAdapter ? InAdapter : &GetGenericReflectedPropertyMutationAdapter())
 	{
+		Target.LeafContainer = nullptr;
+		Target.LeafArrayIndex = 0;
 		// Transaction history is not reflected, so it must keep both the edited
 		// object and any object references inside its snapshots visible to GC.
 		if (GDObjectArray.Contains(Target.Object))
@@ -513,9 +609,11 @@ namespace Durin
 			LastError = "The reflected-property transaction target is unavailable.";
 			return false;
 		}
+		FReflectedPropertyEditTarget ResolvedTarget;
+		if (!ResolveMutationTarget(Target, Adapter, ResolvedTarget, &LastError)) return false;
 		const bool bApplied = Origin == EPropertyChangeOrigin::Undo
-			? Adapter->Restore(Target, Snapshot, &LastError)
-			: Adapter->Apply(Target, Snapshot, &LastError);
+			? Adapter->Restore(ResolvedTarget, Snapshot, &LastError)
+			: Adapter->Apply(ResolvedTarget, Snapshot, &LastError);
 		if (!bApplied)
 		{
 			if (LastError.empty()) LastError = "The reflected-property transaction could not restore its value.";
@@ -562,10 +660,6 @@ namespace Durin
 	{
 		if (bActive) return Fail(OutError, "A reflected-property edit session is already active.");
 		Target = InTarget;
-		// Older/custom callers that describe only a leaf still get the original
-		// behavior; container-aware callers explicitly select a stable snapshot root.
-		if (!Target.SnapshotProperty) Target.SnapshotProperty = Target.LeafProperty;
-		if (!Target.SnapshotContainer) Target.SnapshotContainer = Target.LeafContainer;
 		if (!ValidateTarget(Target, OutError))
 		{
 			Reset();
@@ -576,12 +670,16 @@ namespace Durin
 		Description = InDescription.empty()
 			? std::format("Edit {}", Target.MemberProperty->NamePrivate.ToString())
 			: InDescription;
-		if (!Adapter->Capture(Target, OriginalValue, OutError))
+		FReflectedPropertyEditTarget ResolvedTarget;
+		if (!ResolveMutationTarget(Target, Adapter, ResolvedTarget, OutError)
+			|| !Adapter->Capture(ResolvedTarget, OriginalValue, OutError))
 		{
 			Reset();
 			return false;
 		}
 		CurrentValue = OriginalValue;
+		Target.LeafContainer = nullptr;
+		Target.LeafArrayIndex = 0;
 		// Editor services are not reflected GC owners, so the session roots its target
 		// explicitly while raw leaf-container addresses and callbacks depend on it.
 		if (GDObjectArray.Contains(Target.Object))
@@ -597,10 +695,13 @@ namespace Durin
 	{
 		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EReflectedPropertyEditResult::Failed; }
 		if (ProposedValue == CurrentValue) return EReflectedPropertyEditResult::NoChange;
-		if (!Adapter->Apply(Target, ProposedValue, OutError)) return EReflectedPropertyEditResult::Failed;
+		FReflectedPropertyEditTarget ResolvedTarget;
+		if (!ResolveMutationTarget(Target, Adapter, ResolvedTarget, OutError)
+			|| !Adapter->Apply(ResolvedTarget, ProposedValue, OutError)) return EReflectedPropertyEditResult::Failed;
 
 		FPropertyValueSnapshot AppliedValue;
-		if (!Adapter->Capture(Target, AppliedValue, OutError)) return EReflectedPropertyEditResult::Failed;
+		if (!ResolveMutationTarget(Target, Adapter, ResolvedTarget, OutError)
+			|| !Adapter->Capture(ResolvedTarget, AppliedValue, OutError)) return EReflectedPropertyEditResult::Failed;
 		if (AppliedValue == CurrentValue) return EReflectedPropertyEditResult::NoChange;
 		CurrentValue = std::move(AppliedValue);
 		Notify(EPropertyChangePhase::Interactive);
@@ -653,7 +754,9 @@ namespace Durin
 	{
 		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EReflectedPropertyEditResult::Failed; }
 		const bool bChanged = HasChanges();
-		if (bChanged && !Adapter->Restore(Target, OriginalValue, OutError)) return EReflectedPropertyEditResult::Failed;
+		FReflectedPropertyEditTarget ResolvedTarget;
+		if (bChanged && (!ResolveMutationTarget(Target, Adapter, ResolvedTarget, OutError)
+			|| !Adapter->Restore(ResolvedTarget, OriginalValue, OutError))) return EReflectedPropertyEditResult::Failed;
 		if (bChanged) Notify(EPropertyChangePhase::Cancelled);
 		Reset();
 		return bChanged ? EReflectedPropertyEditResult::Changed : EReflectedPropertyEditResult::NoChange;
