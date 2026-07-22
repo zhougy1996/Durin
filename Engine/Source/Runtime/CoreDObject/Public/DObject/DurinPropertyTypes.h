@@ -71,6 +71,35 @@ namespace Durin
 		}
 	};
 
+	class FNameProperty : public FProperty
+	{
+		DECLARE_FIELD(FNameProperty, FProperty, EClassCastFlags::FNameProperty, COREDOBJECT_API)
+	public:
+		COREDOBJECT_API FNameProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags);
+
+		COREDOBJECT_API FNameProperty(
+			FFieldVariant InOwner,
+			FName InName,
+			EObjectFlags InObjectFlags,
+			EPropertyFlags InPropertyFlags,
+			uint16 InArrayDim,
+			uint16 InOffset,
+			uint16 InElementSize,
+			DurinCodeGen::EPropertyGenFlags InKind,
+			DClass* InReferencedClass
+		);
+
+		auto GetNameValuePtr(void* Container, uint32 ArrayIndex = 0) const -> FName*
+		{
+			return ContainerPtrToValuePtr<FName>(Container, ArrayIndex);
+		}
+
+		auto GetNameValuePtr(const void* Container, uint32 ArrayIndex = 0) const -> const FName*
+		{
+			return ContainerPtrToValuePtr<FName>(Container, ArrayIndex);
+		}
+	};
+
 	class FEnumProperty : public FProperty
 	{
 		DECLARE_FIELD(FEnumProperty, FProperty, EClassCastFlags::FEnumProperty, COREDOBJECT_API)

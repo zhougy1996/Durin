@@ -200,6 +200,9 @@ namespace Durin::Asset
 			case DurinCodeGen::EPropertyGenFlags::String:
 				Writer.WriteString(*static_cast<FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex));
 				return {};
+			case DurinCodeGen::EPropertyGenFlags::Name:
+				Writer.WriteString(static_cast<FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex)->ToString());
+				return {};
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			{
 				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
@@ -305,6 +308,13 @@ namespace Durin::Asset
 				std::string Value;
 				if (!Reader.ReadString(Value)) return Error(EAssetError::CorruptFile, "Truncated string property.");
 				*static_cast<FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex) = std::move(Value);
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Name:
+			{
+				std::string Value;
+				if (!Reader.ReadString(Value)) return Error(EAssetError::CorruptFile, "Truncated name property.");
+				*static_cast<FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex) = FName(Value);
 				return {};
 			}
 			case DurinCodeGen::EPropertyGenFlags::Object:

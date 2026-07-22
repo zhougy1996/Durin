@@ -145,6 +145,8 @@ _PROPERTY_KIND_BY_TYPE = {
     "double": "Double",
     "bool": "Bool",
     "std::string": "String",
+    "FName": "Name",
+    "Durin::FName": "Name",
 }
 
 _PROPERTY_FLAG_BY_SPECIFIER = {
@@ -580,6 +582,7 @@ def _source_property_from_type_spelling(
             "Float": "sizeof(float)",
             "Double": "sizeof(double)",
             "String": "sizeof(std::string)",
+            "Name": "sizeof(Durin::FName)",
         }
         return ReflectedPropertyInfo(name=name, type_name=type_spelling, kind=kind, array_dim=array_dim, element_size=size_by_kind[kind], flags=flags)
 

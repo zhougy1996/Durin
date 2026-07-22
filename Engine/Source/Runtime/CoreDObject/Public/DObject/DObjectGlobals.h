@@ -105,7 +105,8 @@ namespace Durin
 			Object,
 			Array,
 			Map,
-			Struct
+			Struct,
+			Name
 		};
 
 		struct FPropertyParamsBase;
@@ -227,6 +228,7 @@ namespace Durin
 		using FDoublePropertyParams = FPropertyParamsBase;
 		using FBoolPropertyParams = FPropertyParamsBase;
 		using FStringPropertyParams = FPropertyParamsBase;
+		using FNamePropertyParams = FPropertyParamsBase;
 		using FEnumPropertyParams = FPropertyParamsBase;
 		using FObjectPropertyParams = FPropertyParamsBase;
 		using FArrayPropertyParams = FPropertyParamsBase;

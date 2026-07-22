@@ -61,6 +61,7 @@ namespace
 	{
 		Durin::int32 Value = 0;
 		std::string Label;
+		Durin::FName Name;
 		std::vector<Durin::TObjectPtr<Durin::DObject>> References;
 	};
 
@@ -69,7 +70,7 @@ namespace
 		return Durin::GDObjectArray.Contains(Object);
 	}
 
-	TEST(FPropertyValueSnapshotTests, RestoresScalarAndStringValues)
+	TEST(FPropertyValueSnapshotTests, RestoresScalarStringAndNameValues)
 	{
 		EnsureSnapshotTestsInitialized();
 		Durin::FNumericProperty ValueProperty(
@@ -82,20 +83,30 @@ namespace
 			Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FSnapshotOwner, Label)),
 			static_cast<Durin::uint16>(sizeof(std::string)), Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr
 		);
-		FSnapshotOwner Owner{17, "before"};
+		Durin::FNameProperty NameProperty(
+			Durin::FFieldVariant(), Durin::FName("Name"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FSnapshotOwner, Name)),
+			static_cast<Durin::uint16>(sizeof(Durin::FName)), Durin::DurinCodeGen::EPropertyGenFlags::Name, nullptr
+		);
+		FSnapshotOwner Owner{17, "before", Durin::FName("BeforeName_3")};
 		Durin::FPropertyValueSnapshot ValueSnapshot;
 		Durin::FPropertyValueSnapshot LabelSnapshot;
+		Durin::FPropertyValueSnapshot NameSnapshot;
 		std::string Error;
 
 		ASSERT_TRUE(Durin::CapturePropertyValue(&ValueProperty, &Owner, 0, ValueSnapshot, &Error)) << Error;
 		ASSERT_TRUE(Durin::CapturePropertyValue(&LabelProperty, &Owner, 0, LabelSnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::CapturePropertyValue(&NameProperty, &Owner, 0, NameSnapshot, &Error)) << Error;
 		Owner.Value = 91;
 		Owner.Label = "after";
+		Owner.Name = Durin::FName("AfterName");
 		ASSERT_TRUE(Durin::RestorePropertyValue(&ValueProperty, &Owner, 0, ValueSnapshot, &Error)) << Error;
 		ASSERT_TRUE(Durin::RestorePropertyValue(&LabelProperty, &Owner, 0, LabelSnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::RestorePropertyValue(&NameProperty, &Owner, 0, NameSnapshot, &Error)) << Error;
 
 		EXPECT_EQ(Owner.Value, 17);
 		EXPECT_EQ(Owner.Label, "before");
+		EXPECT_EQ(Owner.Name.ToString(), "BeforeName_3");
 		Durin::FPropertyValueSnapshot Duplicate = LabelSnapshot;
 		EXPECT_EQ(Duplicate, LabelSnapshot);
 		EXPECT_FALSE(Durin::RestorePropertyValue(&ValueProperty, &Owner, 0, LabelSnapshot, &Error));

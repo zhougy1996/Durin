@@ -74,6 +74,7 @@ namespace Durin
 {
     struct FVector3 {};
     struct FLinearColor {};
+    class FName {};
     class DObject {};
 }
 
@@ -89,6 +90,9 @@ namespace Fixture
 
         DPROPERTY(Edit, MetaData = "HideAlpha=true")
         Durin::FLinearColor Color{};
+
+        DPROPERTY(Edit)
+        Durin::FName Identifier{};
     };
 
     DSTRUCT()
@@ -177,7 +181,7 @@ namespace Fixture
     def test_class_display_and_default_object_name_metadata(self):
         self.assertIn('"Fixture::ASampleActor",', self.generated_cpp)
         self.assertIn('"ASampleActor",', self.generated_cpp)
-        self.assertIn('2,\n\t"Sample Actor",', self.generated_cpp)
+        self.assertIn('3,\n\t"Sample Actor",', self.generated_cpp)
         self.assertIn('"Sample Actor",', self.generated_cpp)
         self.assertIn('"SampleActor"', self.generated_cpp)
 
@@ -200,6 +204,10 @@ namespace Fixture
         self.assertIn(f"alignof({value_type})", self.generated_cpp)
         self.assertIn(f"InitializePropertyValue<{value_type}>", self.generated_cpp)
         self.assertIn(f"DestroyPropertyValue<{value_type}>", self.generated_cpp)
+
+    def test_fname_property_is_generated(self):
+        self.assertIn("Durin::DurinCodeGen::FNamePropertyParams NewProp_Identifier", self.generated_cpp)
+        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Name", self.generated_cpp)
 
     def test_brace_initialized_intrinsic_struct_properties_are_generated(self):
         for property_name in ("Position", "Tangent"):

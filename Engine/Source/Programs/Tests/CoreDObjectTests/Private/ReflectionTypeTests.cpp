@@ -27,6 +27,7 @@ namespace
 		Durin::DObject* ObjectValue = nullptr;
 		Durin::TObjectPtr<Durin::DObject> ObjectPtrValue;
 		std::string StringValue;
+		Durin::FName NameValue;
 		std::vector<Durin::DObject*> ObjectArray;
 		std::vector<Durin::TObjectPtr<Durin::DObject>> ObjectPtrArray;
 		std::unordered_map<std::string, Durin::int32> StringToInt;
@@ -2123,6 +2124,7 @@ namespace
 
 	TEST(FCoreDObjectReflectionTests, ConstructDClassAttachesGeneratedPropertiesToStructBase)
 	{
+		EnsureDObjectInitialized();
 		static const Durin::DurinCodeGen::FInt32PropertyParams ValuePropertyParams = {
 			"Value",
 			Durin::EPropertyFlags::None,
@@ -2170,6 +2172,19 @@ namespace
 			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, StringValue)),
 			static_cast<Durin::uint16>(sizeof(std::string)),
 			Durin::DurinCodeGen::EPropertyGenFlags::String,
+			nullptr,
+			nullptr,
+			nullptr,
+			nullptr,
+			nullptr
+		};
+		static const Durin::DurinCodeGen::FNamePropertyParams NamePropertyParams = {
+			"NameValue",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, NameValue)),
+			static_cast<Durin::uint16>(sizeof(Durin::FName)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Name,
 			nullptr,
 			nullptr,
 			nullptr,
@@ -2374,6 +2389,7 @@ namespace
 			&ObjectPropertyParams,
 			&ObjectPtrPropertyParams,
 			&StringPropertyParams,
+			&NamePropertyParams,
 			&ObjectArrayPropertyParams,
 			&ObjectPtrArrayPropertyParams,
 			&StringToIntPropertyParams,
@@ -2385,7 +2401,7 @@ namespace
 			"FReflectedPropertyOwnerForTest",
 			"FReflectedPropertyOwnerForTest",
 			PropertyParams,
-			9
+			10
 		};
 
 		Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(ClassParams);
@@ -2432,6 +2448,12 @@ namespace
 		ASSERT_NE(StringProperty, nullptr);
 		*StringProperty->GetStringValuePtr(&Instance) = "Durin";
 		EXPECT_EQ(Instance.StringValue, "Durin");
+
+		auto* NameProperty = static_cast<Durin::FNameProperty*>(Class->FindPropertyByName("NameValue"));
+		ASSERT_NE(NameProperty, nullptr);
+		EXPECT_TRUE(NameProperty->ClassPrivate->IsChildOf(Durin::FNameProperty::StaticClass()));
+		*NameProperty->GetNameValuePtr(&Instance) = Durin::FName("ReflectedName_7");
+		EXPECT_EQ(Instance.NameValue.ToString(), "ReflectedName_7");
 
 		auto* ArrayProperty = static_cast<Durin::FArrayProperty*>(Class->FindPropertyByName("ObjectArray"));
 		ASSERT_NE(ArrayProperty, nullptr);

@@ -77,6 +77,15 @@ namespace Durin
 				Ar.SerializeString(*Value);
 				break;
 			}
+			case DurinCodeGen::EPropertyGenFlags::Name:
+			{
+				auto* NameProperty = static_cast<FNameProperty*>(Property);
+				FName* Value = NameProperty->GetNameValuePtr(Container, ArrayIndex);
+				std::string SerializedValue = Ar.IsSaving() ? Value->ToString() : std::string();
+				Ar.SerializeString(SerializedValue);
+				if (Ar.IsLoading()) *Value = FName(SerializedValue);
+				break;
+			}
 			case DurinCodeGen::EPropertyGenFlags::Object:
 			{
 				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
@@ -184,6 +193,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Double:
 			case DurinCodeGen::EPropertyGenFlags::Enum:
 			case DurinCodeGen::EPropertyGenFlags::String:
+			case DurinCodeGen::EPropertyGenFlags::Name:
 			case DurinCodeGen::EPropertyGenFlags::Object:
 				return true;
 			case DurinCodeGen::EPropertyGenFlags::Struct:
