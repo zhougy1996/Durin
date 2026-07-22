@@ -221,6 +221,33 @@ namespace Durin
 		ASSERT_EQ(ShaderMapA.GetMergedPipelineLayout().PushConstantRanges.size(), ShaderMapB.GetMergedPipelineLayout().PushConstantRanges.size());
 	}
 
+	TEST(FShaderFoundationTests, ShaderMapResourceCacheReleasesExpiredEntries)
+	{
+		ClearShaderMapResourceCache();
+		FShaderType ShaderType("ReclaimableShader", "/Unit/ReclaimableShader", EShaderFrequency::Vertex, "vertexMain");
+		const std::array<const FShaderType*, 1> ShaderTypes = {&ShaderType};
+		FShaderCompilerOutput Output;
+		Output.bSucceeded = true;
+		Output.CompiledShaders = {MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "ReclaimableShader", 77)};
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Unit/ReclaimableShader";
+		Options.EntryPoints = {"vertexMain"};
+		Options.Frequencies = {EShaderFrequency::Vertex};
+
+		{
+			FShaderMapBase ShaderMap;
+			std::string ErrorMessage;
+			ASSERT_TRUE(ShaderMap.Initialize(ShaderTypes, Output, Options, ErrorMessage)) << ErrorMessage;
+			const FShaderMapResourceCacheStats Stats = GetShaderMapResourceCacheStats();
+			EXPECT_EQ(Stats.EntryCount, 1u);
+			EXPECT_EQ(Stats.LiveEntryCount, 1u);
+		}
+
+		const FShaderMapResourceCacheStats ReleasedStats = GetShaderMapResourceCacheStats();
+		EXPECT_EQ(ReleasedStats.EntryCount, 0u);
+		EXPECT_EQ(ReleasedStats.LiveEntryCount, 0u);
+	}
+
 	TEST(FShaderFoundationTests, ShaderMapInitializeSeparatesCachedResourcesForMacroOrBytecodeChanges)
 	{
 		FShaderType VertexShaderType("UnitVertexShader", "/Unit/TestShader", EShaderFrequency::Vertex, "vertexMain");

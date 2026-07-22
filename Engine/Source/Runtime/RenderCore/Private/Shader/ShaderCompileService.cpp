@@ -118,17 +118,45 @@ namespace Durin
 
 			auto GetStats() const -> FShaderCompileServiceStats
 			{
+				std::lock_guard Lock(OutputCacheMutex);
 				return FShaderCompileServiceStats{
 					.DependencyResolutions = DependencyResolutions.load(std::memory_order_relaxed),
 					.ManifestHits = ManifestHits.load(std::memory_order_relaxed),
 					.MemoryHits = MemoryHits.load(std::memory_order_relaxed),
 					.DiskHits = DiskHits.load(std::memory_order_relaxed),
 					.Compilations = Compilations.load(std::memory_order_relaxed),
-					.ContentReads = FileFingerprintCache.GetContentReadCount()
+					.ContentReads = FileFingerprintCache.GetContentReadCount(),
+					.OutputEntries = OutputCache.size()
 				};
 			}
 
 		private:
+			static constexpr size_t GMaximumOutputEntries = 128;
+
+			struct FOutputCacheEntry
+			{
+				FShaderCompilerOutput Output;
+				std::list<std::string>::iterator Recency;
+			};
+
+			auto AddOutput(std::string Key, const FShaderCompilerOutput& Output) -> void
+			{
+				std::lock_guard Lock(OutputCacheMutex);
+				if (auto FoundIt = OutputCache.find(Key); FoundIt != OutputCache.end())
+				{
+					FoundIt->second.Output = Output;
+					OutputRecency.splice(OutputRecency.begin(), OutputRecency, FoundIt->second.Recency);
+					return;
+				}
+				OutputRecency.push_front(std::move(Key));
+				OutputCache.emplace(OutputRecency.front(), FOutputCacheEntry{Output, OutputRecency.begin()});
+				while (OutputCache.size() > GMaximumOutputEntries)
+				{
+					OutputCache.erase(OutputRecency.back());
+					OutputRecency.pop_back();
+				}
+			}
+
 			struct FInFlightRequest
 			{
 				std::condition_variable Condition;
@@ -189,15 +217,15 @@ namespace Durin
 					if (const auto FoundIt = OutputCache.find(OutputKey); FoundIt != OutputCache.end())
 					{
 						MemoryHits.fetch_add(1, std::memory_order_relaxed);
-						return FoundIt->second;
+						OutputRecency.splice(OutputRecency.begin(), OutputRecency, FoundIt->second.Recency);
+						return FoundIt->second.Output;
 					}
 				}
 
 				if (!EffectiveOptions.bForceRecompile && CacheStore.TryLoad(VirtualShaderPath, EffectiveOptions, VariantKey, Output))
 				{
 					DiskHits.fetch_add(1, std::memory_order_relaxed);
-					std::lock_guard Lock(OutputCacheMutex);
-					OutputCache.insert_or_assign(OutputKey, Output);
+					AddOutput(OutputKey, Output);
 					return Output;
 				}
 
@@ -214,10 +242,7 @@ namespace Durin
 				{
 					DURIN_WARN("Shader compiled successfully, but cache write failed for {}", VirtualShaderPath);
 				}
-				{
-					std::lock_guard Lock(OutputCacheMutex);
-					OutputCache.insert_or_assign(OutputKey, Output);
-				}
+				AddOutput(OutputKey, Output);
 
 				return Output;
 			}
@@ -228,8 +253,9 @@ namespace Durin
 			FFileFingerprintCache FileFingerprintCache;
 			std::mutex InFlightMutex;
 			std::unordered_map<std::string, std::shared_ptr<FInFlightRequest>> InFlightRequests;
-			std::mutex OutputCacheMutex;
-			std::unordered_map<std::string, FShaderCompilerOutput> OutputCache;
+			mutable std::mutex OutputCacheMutex;
+			std::list<std::string> OutputRecency;
+			std::unordered_map<std::string, FOutputCacheEntry> OutputCache;
 			std::atomic_uint64_t DependencyResolutions = 0;
 			std::atomic_uint64_t ManifestHits = 0;
 			std::atomic_uint64_t MemoryHits = 0;

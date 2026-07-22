@@ -12,6 +12,7 @@ namespace Durin
 		uint64 DiskHits = 0;
 		uint64 Compilations = 0;
 		uint64 ContentReads = 0;
+		uint64 OutputEntries = 0;
 	};
 
 	auto InitShaderCompileService() -> void;

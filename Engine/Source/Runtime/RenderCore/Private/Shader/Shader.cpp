@@ -80,30 +80,45 @@ namespace Durin
 			std::shared_ptr<FShaderMapResource> Resource;
 		};
 
+		struct FWeakShaderMapCacheEntry
+		{
+			std::weak_ptr<FShaderMapResourceCode> Code;
+			std::weak_ptr<FShaderMapResource> Resource;
+		};
+
 		class FShaderMapResourceCache
 		{
 		public:
-			auto Find(const FXxHash128& Key) -> FShaderMapCacheEntry
-			{
-				std::lock_guard Lock(Mutex);
-				const auto FoundIt = Entries.find(Key);
-				return FoundIt != Entries.end() ? FoundIt->second : FShaderMapCacheEntry{};
-			}
-
 			auto FindOrAdd(const FXxHash128& Key, const FShaderCompilerOutput& Output) -> FShaderMapCacheEntry
 			{
 				std::lock_guard Lock(Mutex);
 				if (const auto FoundIt = Entries.find(Key); FoundIt != Entries.end())
 				{
-					return FoundIt->second;
+					FShaderMapCacheEntry Existing{FoundIt->second.Code.lock(), FoundIt->second.Resource.lock()};
+					if (Existing.Code && Existing.Resource)
+					{
+						return Existing;
+					}
+					Entries.erase(FoundIt);
 				}
 
 				FShaderMapCacheEntry Entry;
 				Entry.Code = std::make_shared<FShaderMapResourceCode>();
 				Entry.Resource = std::make_shared<FShaderMapResource>(Entry.Code);
 				Entry.Resource->AddShaderCompilerOutput(Output);
-				Entries.emplace(Key, Entry);
+				Entries.emplace(Key, FWeakShaderMapCacheEntry{Entry.Code, Entry.Resource});
 				return Entry;
+			}
+
+			auto GetStats() -> FShaderMapResourceCacheStats
+			{
+				std::lock_guard Lock(Mutex);
+				for (auto It = Entries.begin(); It != Entries.end();)
+				{
+					if (It->second.Code.expired() || It->second.Resource.expired()) It = Entries.erase(It);
+					else ++It;
+				}
+				return {.EntryCount = Entries.size(), .LiveEntryCount = Entries.size()};
 			}
 
 			auto Clear() -> void
@@ -114,7 +129,7 @@ namespace Durin
 
 		private:
 			std::mutex Mutex;
-			std::unordered_map<FXxHash128, FShaderMapCacheEntry> Entries;
+			std::unordered_map<FXxHash128, FWeakShaderMapCacheEntry> Entries;
 		};
 
 		auto GetShaderMapResourceCache() -> FShaderMapResourceCache&
@@ -1012,5 +1027,10 @@ namespace Durin
 	auto ClearShaderMapResourceCache() -> void
 	{
 		GetShaderMapResourceCache().Clear();
+	}
+
+	auto GetShaderMapResourceCacheStats() -> FShaderMapResourceCacheStats
+	{
+		return GetShaderMapResourceCache().GetStats();
 	}
 } // namespace Durin

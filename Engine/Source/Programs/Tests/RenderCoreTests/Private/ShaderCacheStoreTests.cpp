@@ -6,6 +6,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Json/Json.h"
 #include "Misc/FileHelper.h"
+#include "Misc/StringConvert.h"
 #include "Shader/ShaderCacheStore.h"
 #include "Shader/ShaderCompileUtilities.h"
 
@@ -55,11 +56,11 @@ namespace Durin
 			return Options;
 		}
 
-		auto MakeVariantKey() -> FShaderVariantKey
+		auto MakeVariantKey(std::string_view Hex = GVariantHex) -> FShaderVariantKey
 		{
 			FShaderVariantKey Key;
-			Key.Value = FXxHash128::FromString(GVariantHex);
-			Key.Hex = GVariantHex;
+			Key.Value = FXxHash128::FromString(Hex);
+			Key.Hex = Hex;
 			return Key;
 		}
 
@@ -108,6 +109,55 @@ namespace Durin
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 1u);
 		EXPECT_EQ(Loaded.CompiledShaders.front().Hash, Expected.CompiledShaders.front().Hash);
 		EXPECT_EQ(*Loaded.CompiledShaders.front().Code, *Expected.CompiledShaders.front().Code);
+	}
+
+	TEST_F(FShaderCacheStoreTests, RetentionPrunesOldVariantsAndPreservesNonVariantDirectories)
+	{
+		const FShaderCompileOptions Options = MakeOptions();
+		FShaderCacheStore Store({.MaxVariantsPerShader = 2, .MaxBytesPerShader = 1024 * 1024});
+		const std::filesystem::path ShaderDirectory = FShaderPaths::ShaderDirectory(Options.VirtualShaderPath);
+		const std::filesystem::path NonVariantDirectory = ShaderDirectory / "keep-this-directory";
+		std::filesystem::create_directories(NonVariantDirectory);
+		{ std::ofstream Stream(NonVariantDirectory / "sentinel.txt"); Stream << "sentinel"; }
+
+		ASSERT_TRUE(Store.Save(Options.VirtualShaderPath, Options, MakeVariantKey("00000000000000000000000000000001"), MakeCompiledOutput(Options)));
+		ASSERT_TRUE(Store.Save(Options.VirtualShaderPath, Options, MakeVariantKey("00000000000000000000000000000002"), MakeCompiledOutput(Options)));
+		ASSERT_TRUE(Store.Save(Options.VirtualShaderPath, Options, MakeVariantKey("00000000000000000000000000000003"), MakeCompiledOutput(Options)));
+
+		size_t VariantCount = 0;
+		for (const std::filesystem::directory_entry& Entry : std::filesystem::directory_iterator(ShaderDirectory))
+		{
+			if (Entry.is_directory() && StringUtils::IsHex(Entry.path().filename().generic_string(), 32)) ++VariantCount;
+		}
+		EXPECT_EQ(VariantCount, 2u);
+		EXPECT_TRUE(std::filesystem::exists(ShaderDirectory / "00000000000000000000000000000003"));
+		EXPECT_TRUE(std::filesystem::exists(NonVariantDirectory / "sentinel.txt"));
+	}
+
+	TEST_F(FShaderCacheStoreTests, RetentionHonorsByteBudgetWithoutLeavingShaderRoot)
+	{
+		const FShaderCompileOptions Options = MakeOptions();
+		FShaderCacheStore Store({.MaxVariantsPerShader = 8, .MaxBytesPerShader = 1});
+		const std::filesystem::path OutsideSentinel = GetTestCacheRoot() / "outside-sentinel.txt";
+		{ std::ofstream Stream(OutsideSentinel); Stream << "outside"; }
+		ASSERT_TRUE(Store.Save(Options.VirtualShaderPath, Options, MakeVariantKey("10000000000000000000000000000001"), MakeCompiledOutput(Options)));
+		ASSERT_TRUE(Store.Save(Options.VirtualShaderPath, Options, MakeVariantKey("10000000000000000000000000000002"), MakeCompiledOutput(Options)));
+
+		const std::filesystem::path ShaderDirectory = FShaderPaths::ShaderDirectory(Options.VirtualShaderPath);
+		EXPECT_FALSE(std::filesystem::exists(ShaderDirectory / "10000000000000000000000000000001"));
+		EXPECT_TRUE(std::filesystem::exists(ShaderDirectory / "10000000000000000000000000000002"));
+		EXPECT_TRUE(std::filesystem::exists(OutsideSentinel));
+	}
+
+	TEST_F(FShaderCacheStoreTests, RejectsCacheKeysThatCouldEscapeTheShaderDirectory)
+	{
+		const FShaderCompileOptions Options = MakeOptions();
+		FShaderVariantKey InvalidKey;
+		InvalidKey.Hex = "../escape";
+		FShaderCacheStore Store;
+		EXPECT_FALSE(Store.Save(Options.VirtualShaderPath, Options, InvalidKey, MakeCompiledOutput(Options)));
+		FShaderCompilerOutput Loaded;
+		EXPECT_FALSE(Store.TryLoad(Options.VirtualShaderPath, Options, InvalidKey, Loaded));
 	}
 
 	TEST_F(FShaderCacheStoreTests, RejectsInvalidSpirvMagic)

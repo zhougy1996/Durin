@@ -402,6 +402,12 @@ namespace Durin
 		FPipelineLayoutDesc& OutPipelineLayout,
 		std::string& OutErrorMessage
 	) -> bool;
+	struct FShaderMapResourceCacheStats
+	{
+		uint64 EntryCount = 0;
+		uint64 LiveEntryCount = 0;
+	};
+	RENDERCORE_API auto GetShaderMapResourceCacheStats() -> FShaderMapResourceCacheStats;
 	RENDERCORE_API auto ClearShaderMapResourceCache() -> void;
 
 	class FShaderMapResourceCode

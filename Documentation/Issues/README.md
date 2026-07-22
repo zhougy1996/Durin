@@ -6,7 +6,13 @@ This directory tracks verified engineering problems that remain unresolved. Issu
 
 | Issue | Priority | Scope |
 | --- | --- | --- |
-| [Shader Loading and Cache](ShaderLoadingAndCache.md) | P1 | Shader cache integrity, invalidation, warm-load cost, resource retention, and persistence |
+| None | - | - |
+
+## Resolved Issues
+
+| Issue | Resolution |
+| --- | --- |
+| [Shader Loading and Cache](ShaderLoadingAndCache.md) | Completed by the [Shader Cache Hardening Plan](../Plans/ShaderCacheHardening.md) on 2026-07-23 |
 
 ## Documentation Boundaries
 

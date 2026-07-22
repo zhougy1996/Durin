@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Implementation in progress. Baseline `RenderCoreTests` passed 26 tests on 2026-07-23. Phases 1 and 2 are complete and Phase 3 is active. Phase 1 passed 32 tests; Phase 2 passed all 38 `RenderCoreTests`, including warm restart, conditional macro dependency, and eight-way concurrent request coverage.
+Complete. All three phases landed independently. Phase 3 passed all 42 `RenderCoreTests`; final validation passed 362 native tests across five targets, the full `Win64-Debug-DurinEditor-Tests` `all` build, and an eight-second hidden-window editor shader smoke on 2026-07-23.
 
 ## Goal
 
@@ -73,10 +73,10 @@ The existing compile service already separates path resolution, dependency disco
 
 ### Phase 3: Bounded Resource and Disk Lifetime
 
-- [ ] Replace permanent strong shader-map resource ownership with reclaimable entries.
-- [ ] Add bounded per-shader disk retention using validated variant directory names and deterministic cleanup.
-- [ ] Add resource reclamation and cache-root confinement tests.
-- [ ] Update architecture documentation, resolve the issue record, and record final validation.
+- [x] Replace permanent strong shader-map resource ownership with reclaimable entries.
+- [x] Add bounded per-shader disk retention using validated variant directory names and deterministic cleanup.
+- [x] Add resource reclamation and cache-root confinement tests.
+- [x] Update architecture documentation, resolve the issue record, and record final validation.
 
 #### Acceptance Gate
 
@@ -108,6 +108,16 @@ The existing compile service already separates path resolution, dependency disco
 
 - Cross-process locking beyond atomic last-writer-wins publication, unless real shared-cache use demonstrates a need.
 - Remote cache transport and packaged shader libraries.
+
+## Validation Record
+
+- `CoreTests`: 99 passed.
+- `CoreDObjectTests`: 49 passed.
+- `AssetCoreTests`: 25 passed.
+- `RenderCoreTests`: 42 passed.
+- `EngineTests`: 147 passed.
+- Full `Win64-Debug-DurinEditor-Tests` `all` build: passed.
+- `DurinEditor --hidden-window`: remained healthy for the eight-second smoke window.
 
 ## Related Documentation
 

@@ -27,12 +27,18 @@ namespace Durin
 		std::string Hex;
 	};
 
+	struct FShaderCacheRetentionPolicy
+	{
+		uint32 MaxVariantsPerShader = 64;
+		uint64 MaxBytesPerShader = 256ull * 1024ull * 1024ull;
+	};
+
 	// File-system storage for compiled shader artifacts.
 	// Owns IO and JSON serialization; does not perform compilation or hash computation.
 	class FShaderCacheStore
 	{
 	public:
-		FShaderCacheStore();
+		explicit FShaderCacheStore(FShaderCacheRetentionPolicy RetentionPolicy = {});
 		~FShaderCacheStore();
 
 		FShaderCacheStore(const FShaderCacheStore&) = delete;
@@ -49,5 +55,11 @@ namespace Durin
 
 		// Write compiled .spv artifacts to the variant directory.
 		auto Save(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, const FShaderCompilerOutput& Output) -> bool;
+
+	private:
+		auto EnforceRetention(std::string_view VirtualShaderPath, std::string_view ProtectedVariantKey) -> void;
+
+		FShaderCacheRetentionPolicy RetentionPolicy;
+		std::mutex RetentionMutex;
 	};
 }

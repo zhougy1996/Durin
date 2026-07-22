@@ -4,7 +4,11 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Implementation in progress through the [Shader Cache Hardening Plan](../Plans/ShaderCacheHardening.md). The current cache avoids repeated SPIR-V code generation, but its warm path still performs substantial source processing and several cache failure modes do not reliably recover as ordinary misses.
+Resolved on 2026-07-23 by the completed [Shader Cache Hardening Plan](../Plans/ShaderCacheHardening.md). Phase 1 landed in `e9411ee2`, Phase 2 in `946bf3b8`, and the Phase 3 commit containing this resolution closes the remaining resource and disk-lifetime findings.
+
+The adopted contract is documented in [Shader Cache](../Architecture/ShaderCache.md). Cache loads are self-validating and atomically published, macro-specific manifests make unchanged warm starts inexpensive, identical requests are coalesced, compiler and artifact identities are unambiguous, shader-map resources are reclaimable, and disk variants are retained within explicit bounds.
+
+Final validation passed all 362 native tests across five targets, a complete `Win64-Debug-DurinEditor-Tests` `all` build, and an eight-second `DurinEditor --hidden-window` shader smoke test.
 
 ## Scope Reviewed
 
@@ -19,7 +23,9 @@ The current cache consists of:
 
 At review time, the engine cache contained 59 files across 11 variant directories and used 55,161 bytes. The size is currently small, but multiple retained Gizmo and StaticMesh variants demonstrate that stale variant directories accumulate.
 
-## Verified Findings
+## Original Verified Findings
+
+The findings below preserve the pre-implementation review baseline. They are resolved by the implementation and validation summarized above.
 
 ### P1: Cached SPIR-V integrity and request identity are not validated
 
@@ -119,7 +125,7 @@ Candidate direction:
 5. Complete compiler and artifact identity.
 6. Bound process memory, GPU retention, and disk usage.
 
-## Validation Gaps
+## Original Validation Gaps
 
 Existing RenderCore tests cover shader-map resource reuse, cache-key distinctions at the in-memory layer, reflection, pipeline layout construction, parameter binding, and limited shader path behavior. They do not exercise the disk-backed cache store end to end.
 

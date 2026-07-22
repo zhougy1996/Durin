@@ -121,6 +121,11 @@ namespace Durin
 		constexpr uint32 GMaximumDescriptorIndex = 65535u;
 		constexpr uint32 GMaximumPushConstantBytes = 65536u;
 
+		auto IsValidCacheKey(std::string_view Key) -> bool
+		{
+			return StringUtils::IsHex(Key, 32);
+		}
+
 		auto IsValidFrequency(uint64 Value) -> bool
 		{
 			return Value <= static_cast<uint64>(EShaderFrequency::RayMiss);
@@ -338,11 +343,15 @@ namespace Durin
 		constexpr size_t GMaximumDependencyPathLength = 32768;
 	}
 
-	FShaderCacheStore::FShaderCacheStore() = default;
+	FShaderCacheStore::FShaderCacheStore(FShaderCacheRetentionPolicy InRetentionPolicy)
+		: RetentionPolicy(InRetentionPolicy)
+	{
+	}
 	FShaderCacheStore::~FShaderCacheStore() = default;
 
 	auto FShaderCacheStore::LoadMetaData(std::string_view VirtualShaderPath, const FShaderDependencyKey& DependencyKey, FShaderMetaData& OutMetaData) -> bool
 	{
+		if (!IsValidCacheKey(DependencyKey.Hex)) return false;
 		const std::string MetaPath = FShaderPaths::MetaPath(VirtualShaderPath, DependencyKey.Hex);
 		if (!FFileHelper::FileExists(MetaPath))
 		{
@@ -412,7 +421,7 @@ namespace Durin
 
 	auto FShaderCacheStore::SaveMetaData(std::string_view VirtualShaderPath, const FShaderDependencyKey& DependencyKey, const FShaderMetaData& MetaData) -> bool
 	{
-		if (MetaData.Dependencies.empty() || MetaData.Dependencies.size() > GMaximumShaderDependencies)
+		if (!IsValidCacheKey(DependencyKey.Hex) || MetaData.Dependencies.empty() || MetaData.Dependencies.size() > GMaximumShaderDependencies)
 		{
 			return false;
 		}
@@ -436,7 +445,7 @@ namespace Durin
 	auto FShaderCacheStore::TryLoad(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, FShaderCompilerOutput& OutOutput) -> bool
 	{
 		const uint32 EntryPointCount = static_cast<uint32>(Options.EntryPoints.size());
-		if (!ValidateEntryPointCounts(Options, "load"))
+		if (!IsValidCacheKey(VariantKey.Hex) || !ValidateEntryPointCounts(Options, "load"))
 		{
 			return false;
 		}
@@ -502,6 +511,11 @@ namespace Durin
 
 	auto FShaderCacheStore::Save(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, const FShaderCompilerOutput& Output) -> bool
 	{
+		if (!IsValidCacheKey(VariantKey.Hex))
+		{
+			DURIN_WARN("Shader cache save skipped because the variant key is invalid.");
+			return false;
+		}
 		if (Output.CompiledShaders.size() != Options.EntryPoints.size())
 		{
 			DURIN_WARN("Shader cache save skipped because compiler output count does not match requested entry point count.");
@@ -511,6 +525,8 @@ namespace Durin
 		{
 			return false;
 		}
+		// Keep publication and retention in one critical section so cleanup cannot observe another in-process writer's partial variant.
+		std::lock_guard RetentionLock(RetentionMutex);
 
 		std::vector<std::string> CachePaths;
 		if (!BuildBinaryCachePaths(VirtualShaderPath, Options, VariantKey, CachePaths))
@@ -564,6 +580,67 @@ namespace Durin
 			}
 		}
 
+		EnforceRetention(VirtualShaderPath, VariantKey.Hex);
 		return true;
+	}
+
+	auto FShaderCacheStore::EnforceRetention(std::string_view VirtualShaderPath, std::string_view ProtectedVariantKey) -> void
+	{
+		struct FVariantDirectory
+		{
+			std::filesystem::path Path;
+			std::string Name;
+			uint64 Bytes = 0;
+			std::filesystem::file_time_type LastWriteTime{};
+		};
+
+		std::error_code ErrorCode;
+		std::filesystem::path ShaderRoot = std::filesystem::absolute(FShaderPaths::ShaderDirectory(VirtualShaderPath), ErrorCode).lexically_normal();
+		if (ErrorCode) return;
+		// ShaderDirectory uses a trailing separator; remove its empty filename before direct-child comparisons.
+		if (ShaderRoot.filename().empty()) ShaderRoot = ShaderRoot.parent_path();
+
+		std::vector<FVariantDirectory> Variants;
+		uint64 TotalBytes = 0;
+		for (std::filesystem::directory_iterator It(ShaderRoot, ErrorCode), End; !ErrorCode && It != End; It.increment(ErrorCode))
+		{
+			const std::filesystem::path Candidate = std::filesystem::absolute(It->path(), ErrorCode).lexically_normal();
+			if (ErrorCode) break;
+			const std::string Name = Candidate.filename().generic_string();
+			const std::filesystem::file_status Status = It->symlink_status(ErrorCode);
+			if (ErrorCode) break;
+			if (!std::filesystem::is_directory(Status) || Candidate.parent_path() != ShaderRoot || !IsValidCacheKey(Name)) continue;
+
+			FVariantDirectory Variant{.Path = Candidate, .Name = Name, .LastWriteTime = It->last_write_time(ErrorCode)};
+			if (ErrorCode) break;
+			for (std::filesystem::recursive_directory_iterator FileIt(Candidate, ErrorCode), FileEnd; !ErrorCode && FileIt != FileEnd; FileIt.increment(ErrorCode))
+			{
+				if (FileIt->is_regular_file(ErrorCode)) Variant.Bytes += FileIt->file_size(ErrorCode);
+			}
+			if (ErrorCode) break;
+			TotalBytes += Variant.Bytes;
+			Variants.push_back(std::move(Variant));
+		}
+		if (ErrorCode) return;
+
+		std::ranges::sort(Variants, [](const FVariantDirectory& Left, const FVariantDirectory& Right) {
+			return Left.LastWriteTime != Right.LastWriteTime ? Left.LastWriteTime < Right.LastWriteTime : Left.Name < Right.Name;
+		});
+		size_t RemainingVariants = Variants.size();
+		const size_t AllowedVariants = std::max<size_t>(1, RetentionPolicy.MaxVariantsPerShader);
+		for (const FVariantDirectory& Variant : Variants)
+		{
+			if (RemainingVariants <= AllowedVariants && TotalBytes <= RetentionPolicy.MaxBytesPerShader) break;
+			if (Variant.Name == ProtectedVariantKey) continue;
+			std::error_code RemoveError;
+			std::filesystem::remove_all(Variant.Path, RemoveError);
+			if (RemoveError)
+			{
+				DURIN_WARN("Failed to prune shader cache variant {}: {}", Variant.Path.generic_string(), RemoveError.message());
+				continue;
+			}
+			TotalBytes -= Variant.Bytes;
+			--RemainingVariants;
+		}
 	}
 }
