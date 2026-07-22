@@ -113,6 +113,7 @@ namespace Durin
 
 		DURINED_API auto Begin(
 			const FReflectedPropertyEditTarget& InTarget,
+			// An empty description uses "Edit <MemberProperty>" after target validation.
 			std::string_view InDescription,
 			// Custom adapters are registry-owned and must outlive the session and its committed transaction.
 			const IReflectedPropertyMutationAdapter* InAdapter = nullptr,

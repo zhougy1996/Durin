@@ -863,8 +863,7 @@ namespace Durin
 		std::string Error;
 		if (!EditSession.IsActive())
 		{
-			const std::string Description = std::format("Edit {}", Target.MemberProperty->NamePrivate.ToString());
-			if (!EditSession.Begin(Target, Description, nullptr, &Error, Context.Transactions))
+			if (!EditSession.Begin(Target, {}, nullptr, &Error, Context.Transactions))
 			{
 				ReportError(Context, std::move(Error));
 				return false;

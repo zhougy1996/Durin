@@ -220,6 +220,22 @@ TEST(FReflectedPropertyEditSessionTests, AppliesInteractiveValuesAndCommitsOnce)
 	EXPECT_FALSE(Session.IsActive());
 }
 
+TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValidTargets)
+{
+	Durin::FReflectedPropertyEditSession Session;
+	std::string Error;
+	EXPECT_FALSE(Session.Begin({}, {}, nullptr, &Error));
+	EXPECT_EQ(Error, "The edit target has no owning object.");
+	EXPECT_FALSE(Session.IsActive());
+
+	auto Property = MakeValueProperty();
+	FValueContainer Container{7};
+	DEditObserver Object;
+	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), {}, nullptr, &Error)) << Error;
+	EXPECT_EQ(Session.GetDescription(), "Edit Value");
+	EXPECT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::NoChange);
+}
+
 TEST(FReflectedPropertyEditSessionTests, CancelRestoresOriginalValueAndOwnedPathData)
 {
 	auto Property = MakeValueProperty();

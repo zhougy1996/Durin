@@ -573,7 +573,9 @@ namespace Durin
 		}
 		Adapter = InAdapter ? InAdapter : &GetReflectedPropertyMutationAdapter(Target);
 		TransactionManager = InTransactionManager;
-		Description = InDescription;
+		Description = InDescription.empty()
+			? std::format("Edit {}", Target.MemberProperty->NamePrivate.ToString())
+			: InDescription;
 		if (!Adapter->Capture(Target, OriginalValue, OutError))
 		{
 			Reset();
