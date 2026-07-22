@@ -8,6 +8,7 @@
 #include "Engine/Engine.h"
 #include "Editor/ReflectedPropertyEditing.h"
 #include "Editor/ReflectedPropertyView.h"
+#include "Editor/MaterialEditor/Private/MaterialParameterDescriptors.h"
 #include "DObject/Class.h"
 #include "LevelEditorContext.h"
 #include "Materials/Material.h"
@@ -131,6 +132,36 @@ namespace
 		EXPECT_NEAR(Actual.b, Expected.b, 1.e-6f);
 		EXPECT_NEAR(Actual.a, Expected.a, 1.e-6f);
 	}
+}
+
+TEST(FMaterialTests, ParameterDescriptorsCoverSpecializedPresentationsAndStorageMaps)
+{
+	ASSERT_EQ(Durin::MaterialParameterDescriptors.size(), 5u);
+	std::unordered_set<std::string_view> Names;
+	for (const Durin::FMaterialParameterDescriptor& Descriptor : Durin::MaterialParameterDescriptors)
+	{
+		EXPECT_TRUE(Names.insert(Descriptor.Name).second);
+		EXPECT_FALSE(Descriptor.Name.empty());
+		EXPECT_NE(Descriptor.Label, nullptr);
+		EXPECT_STRNE(Descriptor.Label, "");
+		switch (Descriptor.Presentation)
+		{
+		case Durin::EMaterialParameterPresentation::Drag:
+			EXPECT_EQ(Descriptor.ValueType, Durin::EMaterialParameterValueType::Scalar);
+			EXPECT_LT(Descriptor.Minimum, Descriptor.Maximum);
+			break;
+		case Durin::EMaterialParameterPresentation::Color:
+			EXPECT_EQ(Descriptor.ValueType, Durin::EMaterialParameterValueType::Vector);
+			break;
+		case Durin::EMaterialParameterPresentation::AssetPicker:
+			EXPECT_EQ(Descriptor.ValueType, Durin::EMaterialParameterValueType::Texture);
+			break;
+		}
+		EXPECT_STRNE(Durin::GetMaterialParameterMapName(Descriptor.ValueType, false), "");
+		EXPECT_STRNE(Durin::GetMaterialParameterMapName(Descriptor.ValueType, true), "");
+	}
+	EXPECT_TRUE(Names.contains(Durin::MaterialParameterBaseColor));
+	EXPECT_TRUE(Names.contains(Durin::MaterialParameterBaseColorTexture));
 }
 
 TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThread)

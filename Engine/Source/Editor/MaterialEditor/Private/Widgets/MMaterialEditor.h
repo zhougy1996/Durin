@@ -12,6 +12,7 @@ namespace Durin
 	class DMaterial;
 	class DMaterialInstance;
 	class FMaterialPreview;
+	struct FMaterialParameterDescriptor;
 
 	class MMaterialEditor final : public IEditorWorkspace
 	{
@@ -36,9 +37,11 @@ namespace Durin
 		auto DrawMaterial(DMaterial* Material) -> void;
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;
 		auto DrawParentPicker(DMaterialInstance* Instance) -> void;
-		auto DrawBaseColor(DMaterialInterface* Material, DMaterialInstance* Instance) -> void;
-		auto DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance, std::string_view Name, const char* Label, float DefaultValue, float Minimum, float Maximum) -> void;
-		auto DrawBaseColorTexture(DMaterialInterface* Material, DMaterialInstance* Instance) -> void;
+		auto DrawMaterialParameters(DMaterialInterface* Material, DMaterialInstance* Instance) -> void;
+		auto DrawMaterialParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDescriptor& Descriptor) -> void;
+		auto DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDescriptor& Descriptor) -> void;
+		auto DrawColorParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDescriptor& Descriptor) -> void;
+		auto DrawTextureParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDescriptor& Descriptor) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> void;
 		auto MakePropertyViewContext() -> FReflectedPropertyViewContext;
 		auto SetError(std::string Message) -> void;

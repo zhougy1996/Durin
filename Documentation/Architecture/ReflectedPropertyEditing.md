@@ -281,11 +281,13 @@ to `EditObject()`; Actor transform, static-mesh material slots, and registered
 customizations continue to compose through the same view.
 
 Material Editor owns another property view but supplies a semantic parameter
-layout. Scalar name, label, default, and range metadata now come from a descriptor
-table; color and texture rows retain their specialized controls. All parameter
-values and override presence use stable bindings, while inherited-value lookup,
-color controls, and asset-specific pickers remain host-owned. Generic proposals,
-sessions, and transactions are delegated to the view.
+layout. One descriptor table defines parameter name, label, reflected value type,
+presentation, defaults, and ranges. A shared dispatch maps those descriptors to
+scalar drag, color, or texture-asset rows and derives the corresponding base or
+override map from the value type. All parameter values and override presence use
+stable bindings, while inherited-value lookup and the specialized `ColorEdit3`
+and asset-picker controls remain host-owned. Generic proposals, sessions, and
+transactions are delegated to the view.
 
 Spline Details now routes transform, curve settings, point values, and point
 structural actions through the shared view while retaining its custom layout.
@@ -327,5 +329,6 @@ Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyEditing.h
 Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyView.h
 Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h
 Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp
+Engine/Source/Editor/MaterialEditor/Private/MaterialParameterDescriptors.h
 Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp
 ```

@@ -219,6 +219,7 @@ static constexpr FMaterialParameterDescriptor Parameters[] = {
     {"SpecularStrength", Float, 0.0, 1.0, Slider},
     {"Shininess", Float, 1.0, 256.0, Slider},
     {"BaseColor", Vector, 0.0, 1.0, Color},
+    {"BaseColorTexture", Texture, 0.0, 0.0, AssetPicker},
 };
 ```
 
@@ -226,9 +227,10 @@ Material Editor 继续拥有预览、分组、继承与 Override UX，但参数 
 连续编辑和事务交给 Property View。领域差异不是要删除的特例；应删除的是
 重复的 Snapshot、Session、Target 和控件生命周期代码。
 
-当前第一步已把所有材质参数 value/override 写入迁到 Binding，并用标量参数
-描述表收敛名称、标签、默认值和范围。颜色与纹理行仍保留专用展示；后续可在
-不丢失 color editor 和 asset picker 的前提下继续统一 descriptor dispatch。
+当前所有材质参数 value/override 写入均已迁到 Binding。统一描述表携带名称、
+标签、value type、presentation、默认值和范围，并由同一 dispatch 选择标量拖动、
+颜色或纹理资产行。Base/Override Map 也按 value type 统一解析，同时继续保留
+`ColorEdit3` 和 asset picker 的专用交互。
 
 ## 8. 特例分类
 
@@ -282,7 +284,7 @@ adapter、binding 和 customization 注入。
 2. ~~保持 `EditPropertyValue()` 及容器递归入口为私有实现。~~
 3. ~~引入最小对象 customization/builder，先承载 Actor Transform 和材质槽。~~
 4. ~~引入稳定 Binding，替换 string-map 过渡 API 的外部细节。~~
-5. 用参数描述表收敛 Material Editor 重复的标量/颜色/纹理行。
+5. ~~用参数描述表收敛 Material Editor 重复的标量/颜色/纹理行。~~
 6. 在使用案例稳定后，再评估生成的属性级回调或 customization 元数据。
 
 每一步都应保持现有编辑器可用，并验证连续编辑、Cancel、Undo/Redo、对象切换

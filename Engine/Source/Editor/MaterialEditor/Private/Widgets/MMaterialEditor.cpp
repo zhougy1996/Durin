@@ -7,6 +7,7 @@
 #include "Editor/EditorAssetPicker.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorWorkspaceUI.h"
+#include "MaterialParameterDescriptors.h"
 #include "MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -19,21 +20,6 @@ namespace Durin
 {
 	namespace
 	{
-		struct FScalarParameterDescriptor
-		{
-			std::string_view Name;
-			const char* Label;
-			float DefaultValue;
-			float Minimum;
-			float Maximum;
-		};
-
-		constexpr std::array ScalarParameterDescriptors{
-			FScalarParameterDescriptor{MaterialParameterOpacity, "Opacity", 1.0f, 0.0f, 1.0f},
-			FScalarParameterDescriptor{MaterialParameterSpecularStrength, "Specular Strength", 0.35f, 0.0f, 1.0f},
-			FScalarParameterDescriptor{MaterialParameterShininess, "Shininess", 32.0f, 1.0f, 256.0f},
-		};
-
 		auto FindParameterMap(DObject* Object, FName PropertyName) -> FMapProperty*
 		{
 			FProperty* Property = Object ? Object->GetClass()->FindPropertyByName(PropertyName) : nullptr;
@@ -215,13 +201,7 @@ namespace Durin
 	{
 		ImGui::SeparatorText("Surface Parameters");
 		if (!MonaImGui::BeginPropertyTable("MaterialParameters")) return;
-		DrawBaseColor(Material, nullptr);
-		DrawBaseColorTexture(Material, nullptr);
-		for (const FScalarParameterDescriptor& Descriptor : ScalarParameterDescriptors)
-		{
-			DrawScalarParameter(Material, nullptr, Descriptor.Name, Descriptor.Label,
-				Descriptor.DefaultValue, Descriptor.Minimum, Descriptor.Maximum);
-		}
+		DrawMaterialParameters(Material, nullptr);
 		MonaImGui::EndPropertyTable();
 	}
 
@@ -235,13 +215,7 @@ namespace Durin
 		}
 		ImGui::SeparatorText("Parameter Overrides");
 		if (!MonaImGui::BeginPropertyTable("MaterialInstanceParameters")) return;
-		DrawBaseColor(Instance, Instance);
-		DrawBaseColorTexture(Instance, Instance);
-		for (const FScalarParameterDescriptor& Descriptor : ScalarParameterDescriptors)
-		{
-			DrawScalarParameter(Instance, Instance, Descriptor.Name, Descriptor.Label,
-				Descriptor.DefaultValue, Descriptor.Minimum, Descriptor.Maximum);
-		}
+		DrawMaterialParameters(Instance, Instance);
 		MonaImGui::EndPropertyTable();
 	}
 
@@ -285,18 +259,38 @@ namespace Durin
 		ImGui::PopID();
 	}
 
-	auto MMaterialEditor::DrawBaseColor(DMaterialInterface* Material, DMaterialInstance* Instance) -> void
+	auto MMaterialEditor::DrawMaterialParameters(DMaterialInterface* Material, DMaterialInstance* Instance) -> void
 	{
-		FVector3 Value(0.95, 0.62, 0.22);
-		Material->GetVectorParameterValue(MaterialParameterBaseColor, Value);
-		auto* Property = FindParameterMap(Material, FName(Instance ? "VectorParameterOverrides" : "VectorParameters"));
-		const FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(Material, Property, MaterialParameterBaseColor);
+		for (const FMaterialParameterDescriptor& Descriptor : MaterialParameterDescriptors)
+		{
+			DrawMaterialParameter(Material, Instance, Descriptor);
+		}
+	}
+
+	auto MMaterialEditor::DrawMaterialParameter(DMaterialInterface* Material, DMaterialInstance* Instance,
+		const FMaterialParameterDescriptor& Descriptor) -> void
+	{
+		switch (Descriptor.Presentation)
+		{
+		case EMaterialParameterPresentation::Drag: DrawScalarParameter(Material, Instance, Descriptor); break;
+		case EMaterialParameterPresentation::Color: DrawColorParameter(Material, Instance, Descriptor); break;
+		case EMaterialParameterPresentation::AssetPicker: DrawTextureParameter(Material, Instance, Descriptor); break;
+		}
+	}
+
+	auto MMaterialEditor::DrawColorParameter(DMaterialInterface* Material, DMaterialInstance* Instance,
+		const FMaterialParameterDescriptor& Descriptor) -> void
+	{
+		FVector3 Value(Descriptor.DefaultValue[0], Descriptor.DefaultValue[1], Descriptor.DefaultValue[2]);
+		Material->GetVectorParameterValue(Descriptor.Name, Value);
+		auto* Property = FindParameterMap(Material, FName(GetMaterialParameterMapName(Descriptor.ValueType, Instance != nullptr)));
+		const FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(Material, Property, Descriptor.Name);
 		bool bOverride = !Instance || Binding.IsPresent();
-		ImGui::PushID(MaterialParameterBaseColor.data(), MaterialParameterBaseColor.data() + MaterialParameterBaseColor.size());
-		MonaImGui::BeginPropertyRow("Base Color");
+		ImGui::PushID(Descriptor.Name.data(), Descriptor.Name.data() + Descriptor.Name.size());
+		MonaImGui::BeginPropertyRow(Descriptor.Label);
 		if (Instance)
 		{
-			if (ImGui::Checkbox("##BaseColorOverride", &bOverride))
+			if (ImGui::Checkbox("##Override", &bOverride))
 			{
 				if (!PropertyView.SetBoundPropertyEnabled(MakePropertyViewContext(), Binding, bOverride,
 					[&](FProperty* ValueProperty, void* Container) {
@@ -311,10 +305,10 @@ namespace Durin
 		}
 		float Color[3] = {static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z)};
 		ImGui::SetNextItemWidth(-FLT_MIN);
-		if (ImGui::ColorEdit3("##BaseColor", Color, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB) && bOverride)
+		if (ImGui::ColorEdit3("##Value", Color, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB) && bOverride)
 		{
 			const FVector3 Edited(Color[0], Color[1], Color[2]);
-			if (!Binding.IsValid()) SetError("The reflected base-color parameter is unavailable.");
+			if (!Binding.IsValid()) SetError(std::format("The reflected {} parameter is unavailable.", Descriptor.Label));
 			else
 			{
 				PropertyView.SubmitBoundPropertyValueEdit(MakePropertyViewContext(), Binding,
@@ -330,18 +324,19 @@ namespace Durin
 		ImGui::PopID();
 	}
 
-	auto MMaterialEditor::DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance, std::string_view Name, const char* Label, float DefaultValue, float Minimum, float Maximum) -> void
+	auto MMaterialEditor::DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance,
+		const FMaterialParameterDescriptor& Descriptor) -> void
 	{
-		float Value = DefaultValue;
-		Material->GetScalarParameterValue(Name, Value);
-		auto* Property = FindParameterMap(Material, FName(Instance ? "ScalarParameterOverrides" : "ScalarParameters"));
-		const FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(Material, Property, Name);
+		float Value = Descriptor.DefaultValue[0];
+		Material->GetScalarParameterValue(Descriptor.Name, Value);
+		auto* Property = FindParameterMap(Material, FName(GetMaterialParameterMapName(Descriptor.ValueType, Instance != nullptr)));
+		const FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(Material, Property, Descriptor.Name);
 		bool bOverride = !Instance || Binding.IsPresent();
 		// The visible label belongs to the property-table column, while the actual controls use
 		// hidden labels. Scope the complete row by parameter name so base materials and instances
 		// both receive stable, distinct ImGui IDs.
-		ImGui::PushID(Name.data(), Name.data() + Name.size());
-		MonaImGui::BeginPropertyRow(Label);
+		ImGui::PushID(Descriptor.Name.data(), Descriptor.Name.data() + Descriptor.Name.size());
+		MonaImGui::BeginPropertyRow(Descriptor.Label);
 		if (Instance)
 		{
 			if (ImGui::Checkbox("##Override", &bOverride))
@@ -358,9 +353,9 @@ namespace Durin
 			if (!bOverride) ImGui::BeginDisabled();
 		}
 		ImGui::SetNextItemWidth(-FLT_MIN);
-		if (ImGui::DragFloat("##Value", &Value, 0.01f, Minimum, Maximum, "%.3f", ImGuiSliderFlags_AlwaysClamp) && bOverride)
+		if (ImGui::DragFloat("##Value", &Value, 0.01f, Descriptor.Minimum, Descriptor.Maximum, "%.3f", ImGuiSliderFlags_AlwaysClamp) && bOverride)
 		{
-			if (!Binding.IsValid()) SetError("The reflected scalar parameter is unavailable.");
+			if (!Binding.IsValid()) SetError(std::format("The reflected {} parameter is unavailable.", Descriptor.Label));
 			else
 			{
 				PropertyView.SubmitBoundPropertyValueEdit(MakePropertyViewContext(), Binding,
@@ -379,18 +374,19 @@ namespace Durin
 		ImGui::PopID();
 	}
 
-	auto MMaterialEditor::DrawBaseColorTexture(DMaterialInterface* Material, DMaterialInstance* Instance) -> void
+	auto MMaterialEditor::DrawTextureParameter(DMaterialInterface* Material, DMaterialInstance* Instance,
+		const FMaterialParameterDescriptor& Descriptor) -> void
 	{
 		DTexture2D* Texture = nullptr;
-		Material->GetTextureParameterValue(MaterialParameterBaseColorTexture, Texture);
-		auto* Property = FindParameterMap(Material, FName(Instance ? "TextureParameterOverrides" : "TextureParameters"));
-		const FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(Material, Property, MaterialParameterBaseColorTexture);
+		Material->GetTextureParameterValue(Descriptor.Name, Texture);
+		auto* Property = FindParameterMap(Material, FName(GetMaterialParameterMapName(Descriptor.ValueType, Instance != nullptr)));
+		const FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(Material, Property, Descriptor.Name);
 		bool bOverride = !Instance || Binding.IsPresent();
-		ImGui::PushID(MaterialParameterBaseColorTexture.data(), MaterialParameterBaseColorTexture.data() + MaterialParameterBaseColorTexture.size());
-		MonaImGui::BeginPropertyRow("Base Color Texture");
+		ImGui::PushID(Descriptor.Name.data(), Descriptor.Name.data() + Descriptor.Name.size());
+		MonaImGui::BeginPropertyRow(Descriptor.Label);
 		if (Instance)
 		{
-			if (ImGui::Checkbox("##BaseColorTextureOverride", &bOverride))
+			if (ImGui::Checkbox("##Override", &bOverride))
 			{
 				if (!PropertyView.SetBoundPropertyEnabled(MakePropertyViewContext(), Binding, bOverride,
 					[&](FProperty* ValueProperty, void* Container) {
@@ -412,7 +408,7 @@ namespace Durin
 			.CurrentSelection = Texture,
 			.SearchText = TextureSearchText,
 			.bAllowNone = true,
-			.AssignSelection = [this, Binding](DObject* Selection, std::string& OutError) {
+			.AssignSelection = [this, Binding, Label = std::string(Descriptor.Label)](DObject* Selection, std::string& OutError) {
 				DTexture2D* Selected = Cast<DTexture2D>(Selection);
 				if (Selection && !Selected)
 				{
@@ -421,7 +417,7 @@ namespace Durin
 				}
 				if (!Binding.IsValid())
 				{
-					OutError = "The reflected texture parameter is unavailable.";
+					OutError = std::format("The reflected {} parameter is unavailable.", Label);
 					return false;
 				}
 				const bool bAssigned = PropertyView.SubmitBoundPropertyValueEdit(MakePropertyViewContext(), Binding,

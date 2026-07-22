@@ -42,10 +42,8 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
   values without exposing leaf addresses or manual paths.
 - [x] Replace the public string-map transition helpers with bindings once the
   binding contract is proven.
-- [ ] Convert Material Editor parameters to descriptors plus bound property rows
+- [x] Convert Material Editor parameters to descriptors plus bound property rows
   while retaining inherited values, overrides, ranges, colors, and asset pickers.
-  Scalar metadata and all current parameter value/override writes now use the
-  first descriptor/binding layer; color and texture presentation remain explicit.
 
 ## Optional Generated Metadata
 
