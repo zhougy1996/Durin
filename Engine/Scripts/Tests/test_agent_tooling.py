@@ -835,6 +835,40 @@ class CoreTests(unittest.TestCase):
                     with build_core.BuildToolLock(path, {"pid": 2}):
                         pass
 
+    def test_inaccessible_lock_reports_acl_recovery(self) -> None:
+        path = Path("checkout.lock")
+        denied = PermissionError(13, "Permission denied", str(path))
+        with mock.patch.object(Path, "open", side_effect=denied), mock.patch.object(
+            build_core, "recover_inaccessible_windows_lock", return_value=False
+        ), self.assertRaises(build_config.BuildToolError) as raised:
+            build_core.open_checkout_lock(path)
+        self.assertIn("file-permission problem", str(raised.exception))
+        self.assertIn("icacls", raised.exception.recovery)
+        self.assertIn("Remove-Item", raised.exception.recovery)
+
+    def test_inaccessible_windows_lock_is_reopened_after_stale_recovery(self) -> None:
+        path = Path("checkout.lock")
+        handle = mock.Mock()
+        denied = PermissionError(13, "Permission denied", str(path))
+        with mock.patch.object(Path, "open", side_effect=[denied, handle]), mock.patch.object(
+            build_core, "recover_inaccessible_windows_lock", return_value=True
+        ):
+            self.assertIs(build_core.open_checkout_lock(path), handle)
+
+    def test_windows_lock_acl_is_reset_to_directory_inheritance(self) -> None:
+        result = mock.Mock(returncode=0)
+        with mock.patch.object(build_core.os, "name", "nt"), mock.patch.object(
+            build_core.subprocess, "run", return_value=result
+        ) as run:
+            self.assertTrue(build_core.normalize_windows_lock_acl(Path("checkout.lock")))
+        self.assertEqual(run.call_args.args[0], ["icacls", "checkout.lock", "/reset", "/q"])
+
+    def test_windows_lock_acl_reset_is_best_effort(self) -> None:
+        with mock.patch.object(build_core.os, "name", "nt"), mock.patch.object(
+            build_core.subprocess, "run", return_value=mock.Mock(returncode=5)
+        ):
+            self.assertFalse(build_core.normalize_windows_lock_acl(Path("checkout.lock")))
+
     def test_stop_ignores_stale_unowned_lock(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "checkout.lock"
@@ -914,6 +948,14 @@ class CoreTests(unittest.TestCase):
             with self.assertRaises(build_config.BuildToolInterruptedError):
                 build_core.run_command(["cmake", "--version"], environment={}, output=output)
         terminate.assert_called_once_with(process)
+
+    def test_run_command_does_not_inherit_buildtool_handles(self) -> None:
+        process = mock.Mock()
+        process.wait.return_value = 0
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_core.subprocess, "Popen", return_value=process) as popen:
+            build_core.run_command(["cmake", "--version"], environment={}, output=output)
+        self.assertTrue(popen.call_args.kwargs["close_fds"])
 
     def test_command_timeout_terminates_child_process_tree(self) -> None:
         process = mock.Mock()

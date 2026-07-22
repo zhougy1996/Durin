@@ -53,6 +53,75 @@ def lock_file_path(root: Path = LOCK_DIR) -> Path:
     return root / "checkout.lock"
 
 
+def lock_acl_recovery(path: Path) -> str:
+    directory = path.parent
+    return (
+        "Confirm that no BuildTool, DurinEditor, CMake, or Ninja process for this checkout is still running. "
+        f'Then, from your normal PowerShell, run: icacls "{directory}" /inheritance:e /T; '
+        f'Remove-Item -LiteralPath "{path}" -Force'
+    )
+
+
+def inaccessible_lock_error(path: Path, exc: OSError) -> BuildToolError:
+    return BuildToolError(
+        f'Could not access BuildTool checkout lock "{path}": {exc}. '
+        "The lock file could not be opened, so this is a file-permission problem rather than proof "
+        "that another process still owns the checkout.",
+        recovery=lock_acl_recovery(path),
+    )
+
+
+def recover_inaccessible_windows_lock(path: Path) -> bool:
+    """Replace an inaccessible, unowned lock without splitting an active Windows lock."""
+    if os.name != "nt":
+        return False
+    quarantine = path.with_name(f"{path.name}.{os.getpid()}.stale")
+    try:
+        os.replace(path, quarantine)
+    except OSError:
+        # Windows denies rename while BuildTool has the file open. Failure therefore
+        # preserves a possibly live lock and lets the caller report ACL recovery.
+        return False
+    try:
+        quarantine.unlink(missing_ok=True)
+    except OSError:
+        # The renamed file is no longer the ownership path. Its incompatible ACL
+        # may prevent cleanup, but must not keep the checkout unusable.
+        pass
+    return True
+
+
+def open_checkout_lock(path: Path) -> Any:
+    try:
+        return path.open("a+b")
+    except PermissionError as exc:
+        if recover_inaccessible_windows_lock(path):
+            try:
+                return path.open("a+b")
+            except OSError as retry_exc:
+                raise inaccessible_lock_error(path, retry_exc) from retry_exc
+        raise inaccessible_lock_error(path, exc) from exc
+    except OSError as exc:
+        raise BuildToolError(f'Could not open BuildTool checkout lock "{path}": {exc}') from exc
+
+
+def normalize_windows_lock_acl(path: Path) -> bool:
+    """Try to reset a lock file to the ACL inherited from the shared lock directory."""
+    if os.name != "nt":
+        return True
+    result = subprocess.run(
+        ["icacls", str(path), "/reset", "/q"],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    # An existing lock can be writable without granting this sandbox identity
+    # WRITE_DAC. Lock ownership remains valid in that case; a later inaccessible
+    # opener will use the stale-file recovery path and receive explicit guidance.
+    return result.returncode == 0
+
+
 def lock_is_owned(path: Path) -> bool:
     """Return whether another process currently holds the checkout lock."""
     try:
@@ -177,7 +246,7 @@ class BuildToolLock:
 
     def __enter__(self) -> "BuildToolLock":
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = self.path.open("a+b")
+        self.handle = open_checkout_lock(self.path)
         if self.path.stat().st_size == 0:
             self.handle.write(b"\0")
             self.handle.flush()
@@ -198,6 +267,7 @@ class BuildToolLock:
                 "Another Durin BuildTool operation already owns this checkout. "
                 + read_state_description(self.path, locked=True)
             ) from exc
+        normalize_windows_lock_acl(self.path)
         self.handle.seek(0)
         # Byte zero is reserved for ownership so other processes can read the JSON while it is locked.
         self.handle.truncate()
@@ -771,6 +841,7 @@ def run_command(
             cwd=REPO_ROOT,
             env=dict(environment),
             stderr=subprocess.STDOUT,
+            close_fds=True,
             **popen_options,
         )
     except OSError as exc:

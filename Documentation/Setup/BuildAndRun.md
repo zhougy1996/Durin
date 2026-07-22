@@ -189,6 +189,17 @@ Use the same recovery after an accidental IDE build. IDE outputs share the final
 
 BuildTool serializes all registered presets with one checkout-level ownership lock because different CMake trees can still share final outputs and generated metadata. Do not mix direct CMake build operations with `BuildTool` ownership of the same checkout.
 
+The checkout lock file normally remains on disk after BuildTool exits; the OS byte
+lock, not the file's presence or its recorded PID, determines ownership. BuildTool
+overwrites metadata when it acquires an unowned file and attempts to reset the
+file ACL to inherit from `Build/.agent-locks`, so later invocations from another
+Agent sandbox identity can reuse it. On Windows, BuildTool also attempts to replace an inaccessible stale
+file; Windows refuses that replacement while a live BuildTool still has the file
+open. If the directory ACL itself prevents recovery, the error distinguishes the
+permission problem from a live lock and prints `icacls` and `Remove-Item` recovery
+commands. Run those commands only after confirming that BuildTool, DurinEditor,
+CMake, and Ninja have exited for the checkout.
+
 ## Output Layout
 
 - Editor: `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`
