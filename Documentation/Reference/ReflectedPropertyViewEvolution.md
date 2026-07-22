@@ -31,7 +31,7 @@
 
 ## 3. 候选公开 API
 
-### 3.1 DrawObject：默认入口
+### 3.1 EditObject：默认入口
 
 ```cpp
 struct FObjectPropertyViewOptions
@@ -42,14 +42,14 @@ struct FObjectPropertyViewOptions
     std::function<bool(const FProperty&)> Filter;
 };
 
-auto FReflectedPropertyView::DrawObject(
+auto FReflectedPropertyView::EditObject(
     const FReflectedPropertyViewContext& Context,
     DObject* Object,
     const FObjectPropertyViewOptions& Options = {}
 ) -> void;
 ```
 
-`DrawObject()` 应在内部完成：
+`EditObject()` 应在内部完成：
 
 - 处理空对象和对象切换；
 - 遍历继承链上的 `Edit` 属性；
@@ -58,19 +58,19 @@ auto FReflectedPropertyView::DrawObject(
 - 搜索与 Filter；
 - 创建可选的 Property Table；
 - 调用对象级 customization；
-- 对每个普通字段调用 `DrawProperty()`。
+- 对每个普通字段调用 `EditProperty()`。
 
 Actor 和 ActorComponent 不需要单独的遍历 API：
 
 ```cpp
-PropertyView.DrawObject(Context, SelectedActor);
-PropertyView.DrawObject(Context, SelectedComponent);
+PropertyView.EditObject(Context, SelectedActor);
+PropertyView.EditObject(Context, SelectedComponent);
 ```
 
-### 3.2 DrawProperty：保留为公开组合入口
+### 3.2 EditProperty：保留为公开组合入口
 
 ```cpp
-auto DrawProperty(
+auto EditProperty(
     const FReflectedPropertyViewContext& Context,
     DObject* Object,
     FProperty* Property,
@@ -79,7 +79,7 @@ auto DrawProperty(
 ) -> bool;
 ```
 
-`DrawProperty()` 不应完全私有。Customization 需要用它完成：
+`EditProperty()` 不应完全私有。Customization 需要用它完成：
 
 - 调整真实反射属性的顺序；
 - 按组展示选定属性；
@@ -88,16 +88,16 @@ auto DrawProperty(
 
 它是正式的组合接口，不应成为绕过事务系统的临时逃生口。
 
-### 3.3 DrawPropertyValue：收回内部
+### 3.3 EditPropertyValue：收回内部
 
 低层递归接口需要调用者传入 `void* Container`、Snapshot 根、Leaf、Path
 和 Map Key。错误组合可能产生悬空地址或无效 Undo/Redo。因此建议将以下
 接口设为私有：
 
 ```cpp
-DrawPropertyValue(...);
-DrawArrayProperty(...);
-DrawMapProperty(...);
+EditPropertyValue(...);
+EditArrayProperty(...);
+EditMapProperty(...);
 CaptureProposedValue(...);
 ```
 
@@ -114,7 +114,7 @@ FReflectedPropertyBinding Binding = PropertyView.BindStringMapValue(
     ScalarParametersProperty,
     "Opacity");
 
-PropertyView.DrawBoundProperty(Context, Binding, {
+PropertyView.EditBoundProperty(Context, Binding, {
     .Label = "Opacity",
     .Minimum = 0.0,
     .Maximum = 1.0,
@@ -167,7 +167,7 @@ Customization 注册应支持基类匹配和派生类覆盖，生命周期由 Ed
 
 ## 6. Actor 与 ActorComponent
 
-普通字段全部走 `DrawObject()`。Actor Transform 是跨对象的虚拟展示：实际
+普通字段全部走 `EditObject()`。Actor Transform 是跨对象的虚拟展示：实际
 数据属于 RootComponent，因此应由 Actor customization 组合真实属性：
 
 ```cpp
@@ -182,7 +182,7 @@ Builder.AddProperty(
 binding 保留槽名称和 setter 语义。
 
 不要为 Actor 和 ActorComponent 各复制一套属性遍历，也不要把 RootComponent
-知识硬编码进通用 `DrawObject()`。
+知识硬编码进通用 `EditObject()`。
 
 ## 7. Material Editor
 
@@ -243,11 +243,11 @@ Material Editor 继续拥有预览、分组、继承与 Override UX，但参数 
 搜索、资产选择、连续拖动、Escape 和活跃对象都是有状态的。裸函数最终会
 依赖 global/static 状态，或要求调用者传入一个等价于 View 的巨大 Context。
 
-### 完全隐藏 DrawProperty
+### 完全隐藏 EditProperty
 
 Customization 将无法重排或组合真实属性，只能重新实现控件和事务。
 
-### 公开 DrawPropertyValue
+### 公开 EditPropertyValue
 
 它暴露不稳定容器地址和过多内部约束，调用者容易破坏 Snapshot 和 Path
 不变量。
@@ -259,10 +259,10 @@ adapter、binding 和 customization 注入。
 
 ## 10. 建议实施顺序
 
-1. 让剩余直接编辑点使用现有 View 提交 API，包括 Actor Transform、Static
-   Mesh Material Slots 和 Spline customization。
-2. 增加 `DrawObject()`，迁移 Details 的属性遍历、搜索和标签生成。
-3. 将 `DrawPropertyValue()` 及容器递归入口收回私有。
+1. 让剩余直接编辑点使用现有 View 提交 API，包括 Static Mesh Material Slots
+   和 Spline customization。
+2. 增加 `EditObject()`，迁移 Details 的属性遍历、搜索和标签生成。
+3. 保持 `EditPropertyValue()` 及容器递归入口为私有实现。
 4. 引入最小对象 customization/builder，先承载 Actor Transform 和材质槽。
 5. 引入稳定 Binding，替换 string-map 过渡 API 的外部细节。
 6. 用参数描述表收敛 Material Editor 重复的标量/颜色/纹理行。

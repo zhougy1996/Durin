@@ -39,7 +39,6 @@ namespace Durin
 		{
 			FProperty* Property = nullptr;
 			uint32 ArrayIndex = 0;
-			std::string Label;
 		};
 
 		auto IsClassChildOf(const DClass* Class, const DClass* Parent) -> bool
@@ -49,17 +48,6 @@ namespace Durin
 				if (Current == Parent) return true;
 			}
 			return false;
-		}
-
-		auto MakePropertyLabel(const FProperty& Property, uint32 ArrayIndex) -> std::string
-		{
-			static const FName DisplayNameMetaDataKey("DisplayName");
-			const std::string DisplayName = MakeReflectedPropertyDisplayName(
-				Property.NamePrivate.ToString(),
-				Property.GetKind(),
-				Property.GetMetaData(DisplayNameMetaDataKey)
-			);
-			return Property.GetArrayDim() > 1 ? std::format("{}[{}]", DisplayName, ArrayIndex) : DisplayName;
 		}
 
 	} // namespace
@@ -494,11 +482,11 @@ namespace Durin
 			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 			{
 				const std::string SourceName = Property->GetArrayDim() > 1 ? std::format("{}[{}]", Property->NamePrivate.ToString(), ArrayIndex) : Property->NamePrivate.ToString();
-				const std::string DisplayName = MakePropertyLabel(*Property, ArrayIndex);
+				const std::string DisplayName = MakeReflectedPropertyLabel(*Property, ArrayIndex);
 				const bool bIsTransform = Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
 										  && static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FTransform();
 				const std::string SearchText = bIsTransform ? std::format("{} {} Location Rotation Scale", SourceName, DisplayName) : std::format("{} {}", SourceName, DisplayName);
-				if (ContainsInsensitive(SearchText, PropertySearchText.data())) VisibleProperties.push_back({Property, ArrayIndex, std::move(DisplayName)});
+				if (ContainsInsensitive(SearchText, PropertySearchText.data())) VisibleProperties.push_back({Property, ArrayIndex});
 			}
 		});
 
@@ -518,7 +506,9 @@ namespace Durin
 				});
 			}
 		}
-		const bool bShowActorTransform = Actor && Actor->GetRootComponent()
+		DSceneComponent* ActorRootComponent = Actor ? Actor->GetRootComponent() : nullptr;
+		FProperty* ActorTransformProperty = ActorRootComponent ? ActorRootComponent->GetClass()->FindPropertyByName("RelativeTransform") : nullptr;
+		const bool bShowActorTransform = ActorTransformProperty
 										 && ContainsInsensitive("Transform Location Rotation Scale", PropertySearchText.data());
 		if (!bShowActorTransform && !bShowStaticMeshMaterials && VisibleProperties.empty() && !DetailsCustomization)
 		{
@@ -531,19 +521,14 @@ namespace Durin
 		if (bShowActorTransform)
 		{
 			ImGui::PushID("ActorTransform");
-			FTransform Transform = Actor->GetRootComponent()->GetRelativeTransform();
-			if (MonaImGui::EditTransformProperty("Transform", Transform, false))
-			{
-				Actor->GetRootComponent()->SetRelativeTransform(Transform);
-				Actor->MarkPackageDirty();
-			}
+			PropertyView.EditProperty(ViewContext, ActorRootComponent, ActorTransformProperty, 0, {.Label = "Transform"});
 			ImGui::PopID();
 		}
 		const bool bReplaceReflectedProperties = DetailsCustomization && DetailsCustomization->DrawDetails(Context, Object);
 		if (bShowStaticMeshMaterials) DrawStaticMeshMaterials(Context, StaticMeshComponent);
 		if (!bReplaceReflectedProperties) for (const FVisibleProperty& VisibleProperty : VisibleProperties)
 		{
-			PropertyView.DrawProperty(ViewContext, Object, VisibleProperty.Property, VisibleProperty.ArrayIndex, VisibleProperty.Label);
+			PropertyView.EditProperty(ViewContext, Object, VisibleProperty.Property, VisibleProperty.ArrayIndex);
 		}
 		MonaImGui::EndPropertyTable();
 	}

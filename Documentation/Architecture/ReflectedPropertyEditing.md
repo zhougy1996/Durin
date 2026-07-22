@@ -206,34 +206,36 @@ context containing:
 - an error-reporting callback; and
 - read-only state.
 
-The current primary API is `DrawProperty()`. It renders one top-level reflected
+The current primary API is `EditProperty()`. It renders and edits one top-level reflected
 property and recursively handles supported structs, arrays, and maps.
-`DrawPropertyValue()` is currently public but represents the lower-level
-container-recursion implementation; the proposed API cleanup is documented in
-the Reference document.
+`EditPropertyValue()` and the container-recursion helpers are private so callers
+cannot construct unsafe container addresses or edit paths.
 
 Custom widgets can use `SubmitPropertyValueEdit()` to retain their presentation
 while sharing proposal capture, session lifecycle, notifications, and history.
 Material Editor uses this for its parent picker and uses the string-map helpers
 for parameter values and override presence.
 
-`HandleOwnerContext()` cancels an active edit if its object is replaced or the
-view becomes read-only. `FinishActiveEdit()` lets a host deliberately commit or
-cancel when a document or workspace changes.
+`HandleOwnerContext()` cancels an active edit if the object presented by the
+view is replaced or the view becomes read-only. The presented owner is tracked
+separately from the mutation target so an object-level view can compose real
+properties from another object, such as an Actor editing its RootComponent.
+`FinishActiveEdit()` lets a host deliberately commit or cancel when a document
+or workspace changes.
 
 ## Current Host Integration
 
 Level Editor Details owns one property view. It still owns object selection,
 search, class display, the property table, customization dispatch, and reflected
-property enumeration. It delegates supported property rows to `DrawProperty()`.
+property enumeration. It delegates supported property rows to `EditProperty()`.
 
 Material Editor owns another property view but supplies a semantic parameter
 layout. It retains inherited-value and override presentation, color and range
 controls, and asset-specific pickers. Generic proposals, sessions, and
 transactions are delegated to the view.
 
-Some editor edit sites still bypass the shared view, including the actor root
-transform row, static-mesh material-slot rows, and some object customizations.
+Some editor edit sites still bypass the shared view, including static-mesh
+material-slot rows and some object customizations.
 These are tracked in the implementation plan and must migrate without removing their setter
 semantics.
 

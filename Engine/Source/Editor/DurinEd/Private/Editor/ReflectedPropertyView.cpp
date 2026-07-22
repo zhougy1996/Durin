@@ -149,17 +149,27 @@ namespace Durin
 			return UINT64_MAX;
 		}
 	}
-	auto FReflectedPropertyView::DrawProperty(const FReflectedPropertyViewContext& Context, DObject* Object, FProperty* Property, uint32 ArrayIndex, const std::string& Label) -> void
+	auto FReflectedPropertyView::EditProperty(
+		const FReflectedPropertyViewContext& Context,
+		DObject* Object,
+		FProperty* Property,
+		uint32 ArrayIndex,
+		const FPropertyViewOptions& Options
+	) -> bool
 	{
+		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return false;
+		std::string Label = Options.Label;
+		if (Label.empty()) Label = MakeReflectedPropertyLabel(*Property, ArrayIndex);
 		const bool bReadOnly = Context.bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		ImGui::PushID(Property);
 		ImGui::PushID(static_cast<int>(ArrayIndex));
-		DrawPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, FReflectedPropertyEditTarget::ForMember(Object, Property, ArrayIndex));
+		const bool bChanged = EditPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, FReflectedPropertyEditTarget::ForMember(Object, Property, ArrayIndex));
 		ImGui::PopID();
 		ImGui::PopID();
+		return bChanged;
 	}
 
-	auto FReflectedPropertyView::DrawPropertyValue(
+	auto FReflectedPropertyView::EditPropertyValue(
 		const FReflectedPropertyViewContext& Context,
 		DObject* Object,
 		FProperty* Property,
@@ -257,9 +267,9 @@ namespace Durin
 			});
 		}
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Array)
-			return DrawArrayProperty(Context, Object, static_cast<FArrayProperty*>(Property), Container, ArrayIndex, Label, bReadOnly, EditTarget);
+			return EditArrayProperty(Context, Object, static_cast<FArrayProperty*>(Property), Container, ArrayIndex, Label, bReadOnly, EditTarget);
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Map)
-			return DrawMapProperty(Context, Object, static_cast<FMapProperty*>(Property), Container, ArrayIndex, Label, bReadOnly, EditTarget);
+			return EditMapProperty(Context, Object, static_cast<FMapProperty*>(Property), Container, ArrayIndex, Label, bReadOnly, EditTarget);
 
 		MonaImGui::BeginPropertyRow(Label.c_str(), bReadOnly);
 
@@ -366,7 +376,7 @@ namespace Durin
 		return bChanged;
 	}
 
-	auto FReflectedPropertyView::DrawArrayProperty(
+	auto FReflectedPropertyView::EditArrayProperty(
 		const FReflectedPropertyViewContext& Context,
 		DObject* Object,
 		FArrayProperty* Property,
@@ -435,7 +445,7 @@ namespace Durin
 				if (!Element) continue;
 				ImGui::PushID(static_cast<int>(Index));
 				const FReflectedPropertyEditTarget ElementTarget = EditTarget.ForArrayElement(Property->GetInner(), Element, Index);
-				const bool bElementChanged = DrawPropertyValue(Context, Object, Property->GetInner(), Element, 0, std::format("[{}]", Index), bReadOnly, ElementTarget);
+				const bool bElementChanged = EditPropertyValue(Context, Object, Property->GetInner(), Element, 0, std::format("[{}]", Index), bReadOnly, ElementTarget);
 				bChanged |= bElementChanged;
 				ImGui::PopID();
 				if (bElementChanged) break;
@@ -445,7 +455,7 @@ namespace Durin
 		return bChanged;
 	}
 
-	auto FReflectedPropertyView::DrawMapProperty(
+	auto FReflectedPropertyView::EditMapProperty(
 		const FReflectedPropertyViewContext& Context,
 		DObject* Object,
 		FMapProperty* Property,
@@ -529,12 +539,12 @@ namespace Durin
 				void* EditedKey = Property->CreateKeyCopy(Key);
 				FReflectedPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(Property->GetKeyProp(), EditedKey, SerializedKey);
 				KeyTarget.Kind = EPropertyChangeKind::MapKeyRename;
-				const bool bKeyChanged = EditedKey && DrawPropertyValue(Context, Object, Property->GetKeyProp(), EditedKey, 0, std::format("[{}] Key", Index), bReadOnly, KeyTarget, false);
+				const bool bKeyChanged = EditedKey && EditPropertyValue(Context, Object, Property->GetKeyProp(), EditedKey, 0, std::format("[{}] Key", Index), bReadOnly, KeyTarget, false);
 				const MonaImGui::FPropertyEditWidgetState KeyState{
 					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()
 				};
 				const FReflectedPropertyEditTarget ValueTarget = EditTarget.ForMapEntry(Property->GetValueProp(), Value, SerializedKey);
-				const bool bValueChanged = DrawPropertyValue(Context, Object, Property->GetValueProp(), Value, 0, std::format("[{}] Value", Index), bReadOnly, ValueTarget);
+				const bool bValueChanged = EditPropertyValue(Context, Object, Property->GetValueProp(), Value, 0, std::format("[{}] Value", Index), bReadOnly, ValueTarget);
 				bChanged |= bValueChanged;
 				if (bValueChanged)
 				{
@@ -594,6 +604,7 @@ namespace Durin
 				return false;
 			}
 			ActiveEditObject = Target.Object;
+			ActiveEditOwnerObject = OwnerContextObject ? OwnerContextObject : Target.Object;
 		}
 
 		const EReflectedPropertyEditResult Result = EditSession.Apply(ProposedValue, &Error);
@@ -751,14 +762,16 @@ namespace Durin
 		if (!EditSession.IsActive())
 		{
 			ActiveEditObject = nullptr;
+			ActiveEditOwnerObject = nullptr;
 		}
 	}
 
 
 	auto FReflectedPropertyView::HandleOwnerContext(const FReflectedPropertyViewContext& Context, DObject* Object) -> void
 	{
-		if (EditSession.IsActive() && (ActiveEditObject != Object || Context.bReadOnly))
+		if (EditSession.IsActive() && (ActiveEditOwnerObject != Object || Context.bReadOnly))
 			FinishActiveEdit(&Context, true);
+		OwnerContextObject = Object;
 	}
 
 	auto FReflectedPropertyView::ReportError(const FReflectedPropertyViewContext& Context, std::string Error) const -> void
@@ -777,5 +790,17 @@ namespace Durin
 			PropertyName.remove_prefix(1);
 		}
 		return StringUtils::HumanizeName(PropertyName);
+	}
+
+	auto MakeReflectedPropertyLabel(const FProperty& Property, uint32 ArrayIndex) -> std::string
+	{
+		static const FName DisplayNameMetaDataKey("DisplayName");
+		std::string Label = MakeReflectedPropertyDisplayName(
+			Property.NamePrivate.ToString(),
+			Property.GetKind(),
+			Property.GetMetaData(DisplayNameMetaDataKey)
+		);
+		if (Property.GetArrayDim() > 1) Label = std::format("{}[{}]", Label, ArrayIndex);
+		return Label;
 	}
 }

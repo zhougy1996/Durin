@@ -12,7 +12,7 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
 
 ## Remaining UI Migration
 
-- [ ] Route the actor root-transform row through `FReflectedPropertyView` while
+- [x] Route the actor root-transform row through `FReflectedPropertyView` while
   preserving `SetRelativeTransform()` semantics.
 - [ ] Route static-mesh material-slot rows through shared transactions while
   preserving slot labels and `SetMaterial()` behavior.
@@ -23,14 +23,13 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
 
 ## Object-Level View
 
-- [ ] Add `FReflectedPropertyView::DrawObject()` so hosts do not manually
+- [ ] Add `FReflectedPropertyView::EditObject()` so hosts do not manually
   enumerate ordinary `Edit` properties.
 - [ ] Move default labels, static-array expansion, search, filtering, and
   optional property-table ownership behind that API.
-- [ ] Keep `DrawProperty()` public as the controlled customization/composition
+- [x] Keep `EditProperty()` public as the controlled customization/composition
   entry point.
-- [ ] Make `DrawPropertyValue()` and raw container-recursion helpers private
-  after external callers have safe bindings.
+- [x] Make `EditPropertyValue()` and raw container-recursion helpers private.
 
 ## Customization and Binding
 
@@ -66,7 +65,7 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
 ## Recommended Order
 
 1. Finish remaining direct-edit migrations.
-2. Add `DrawObject()` and migrate Details enumeration.
+2. Add `EditObject()` and migrate Details enumeration.
 3. Introduce object customization for composite rows.
 4. Introduce stable property bindings and simplify Material Editor.
 5. Close validation gaps.

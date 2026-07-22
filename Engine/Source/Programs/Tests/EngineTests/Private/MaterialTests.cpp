@@ -193,6 +193,7 @@ TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThr
 
 TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcrossUndoRedo)
 {
+	InitializeDObjectSystem();
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "TransactionalMaterial");
 	auto* Property = static_cast<Durin::FMapProperty*>(Material->GetClass()->FindPropertyByName("ScalarParameters"));
 	ASSERT_NE(Property, nullptr);
@@ -226,6 +227,43 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 	EXPECT_FLOAT_EQ(Opacity, 0.4f);
 	Transactions.Clear();
 	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEditTarget)
+{
+	InitializeDObjectSystem();
+	Durin::DMaterialInstance* Owner = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PropertyViewOwner");
+	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "PropertyViewTarget");
+	auto* Property = static_cast<Durin::FMapProperty*>(Material->GetClass()->FindPropertyByName("ScalarParameters"));
+	ASSERT_NE(Property, nullptr);
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyView PropertyView;
+	std::string Error;
+	Durin::FReflectedPropertyViewContext Context{
+		.Transactions = &Transactions,
+		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+	};
+
+	PropertyView.HandleOwnerContext(Context, Owner);
+	EXPECT_TRUE(PropertyView.SubmitStringMapValueEdit(Context, Material, Property, Durin::MaterialParameterOpacity,
+		[](Durin::FProperty* ValueProperty, void* Container) {
+			*ValueProperty->ContainerPtrToValuePtr<float>(Container) = 0.5f;
+		}, true));
+	EXPECT_TRUE(PropertyView.IsEditingObject(Material));
+	PropertyView.HandleOwnerContext(Context, Owner);
+	EXPECT_TRUE(PropertyView.IsEditing());
+
+	PropertyView.HandleOwnerContext(Context, Material);
+	EXPECT_FALSE(PropertyView.IsEditing());
+	EXPECT_TRUE(Error.empty());
+	float Opacity = 0.0f;
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameterOpacity, Opacity));
+	EXPECT_FLOAT_EQ(Opacity, 1.0f);
+
+	Transactions.Clear();
+	Durin::MarkAsGarbage(Material);
+	Durin::MarkAsGarbage(Owner);
 	Durin::CollectGarbage();
 }
 
