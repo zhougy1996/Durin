@@ -6,6 +6,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
 #include "Components/SceneComponent.h"
+#include "Components/CameraComponent.h"
 #include "Components/SplineComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstance.h"
@@ -125,6 +126,43 @@ namespace Durin
 					Component->SetClosedLoop(DesiredCurve.IsClosedLoop());
 				if (Component->GetReparamStepsPerSegment() != DesiredCurve.GetReparamStepsPerSegment())
 					Component->SetReparamStepsPerSegment(DesiredCurve.GetReparamStepsPerSegment());
+				return true;
+			}
+		};
+
+		class FCameraProjectionMutationAdapter final : public IReflectedPropertyMutationAdapter
+		{
+		public:
+			auto Capture(const FReflectedPropertyEditTarget& Target, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
+			{
+				return GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
+			}
+			auto Apply(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
+			{
+				return ApplySnapshot(Target, Snapshot, OutError);
+			}
+			auto Restore(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
+			{
+				return ApplySnapshot(Target, Snapshot, OutError);
+			}
+
+		private:
+			static auto ApplySnapshot(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) -> bool
+			{
+				auto* Camera = Cast<DCameraComponent>(Target.Object);
+				auto* ProjectionProperty = Target.SnapshotProperty
+					&& Target.SnapshotProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
+					? static_cast<const FStructProperty*>(Target.SnapshotProperty) : nullptr;
+				if (!Camera || !ProjectionProperty || ProjectionProperty->GetStruct() != FCameraProjectionSettings::StaticStruct())
+					return Fail(OutError, "The camera projection metadata is unavailable.");
+
+				const auto& Generic = GetGenericReflectedPropertyMutationAdapter();
+				FPropertyValueSnapshot Previous;
+				if (!Generic.Capture(Target, Previous, OutError) || !Generic.Apply(Target, Snapshot, OutError)) return false;
+				const FCameraProjectionSettings Desired = *Target.SnapshotProperty->ContainerPtrToValuePtr<FCameraProjectionSettings>(
+					Target.SnapshotContainer, Target.SnapshotArrayIndex);
+				if (!Generic.Restore(Target, Previous, OutError)) return false;
+				Camera->SetProjectionSettings(Desired);
 				return true;
 			}
 		};
@@ -286,6 +324,7 @@ namespace Durin
 		{
 			static const bool bRegistered = [] {
 				RegisterMutationAdapter(DSceneComponent::StaticClass(), FName("RelativeTransform"), std::make_unique<FRelativeTransformMutationAdapter>());
+				RegisterMutationAdapter(DCameraComponent::StaticClass(), FName("ProjectionSettings"), std::make_unique<FCameraProjectionMutationAdapter>());
 				RegisterMutationAdapter(DSplineComponent::StaticClass(), FName("SplineCurve"), std::make_unique<FSplineCurveMutationAdapter>());
 				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("StaticMesh"), std::make_unique<FObjectSetterMutationAdapter>(EObjectSetterKind::StaticMesh));
 				RegisterMutationAdapter(DStaticMeshComponent::StaticClass(), FName("Material"), std::make_unique<FObjectSetterMutationAdapter>(EObjectSetterKind::Material));

@@ -17,6 +17,26 @@ namespace Durin
 		Custom
 	};
 
+	DSTRUCT()
+	struct ENGINE_API FCameraProjectionSettings
+	{
+		GENERATED_BODY()
+
+		DPROPERTY(Edit)
+		float FieldOfViewDegrees = 60.0f;
+		DPROPERTY(Edit)
+		float NearClip = 0.1f;
+		DPROPERTY(Edit)
+		float FarClip = 1000.0f;
+		DPROPERTY(Edit)
+		// Preserve the historical viewport-driven framing unless a camera explicitly opts into a fixed output shape.
+		ECameraAspectRatioMode AspectRatioMode = ECameraAspectRatioMode::Viewport;
+		DPROPERTY(Edit)
+		float CustomAspectRatio = 16.0f / 9.0f;
+
+		auto operator==(const FCameraProjectionSettings&) const -> bool = default;
+	};
+
 	DCLASS()
 	class DCameraComponent : public DSceneComponent
 	{
@@ -35,6 +55,8 @@ namespace Durin
 		ENGINE_API auto GetAspectRatioMode() const -> ECameraAspectRatioMode;
 		ENGINE_API auto GetCustomAspectRatio() const -> float;
 		ENGINE_API auto SetAspectRatio(ECameraAspectRatioMode InMode, float InCustomAspectRatio) -> void;
+		ENGINE_API auto GetProjectionSettings() const -> const FCameraProjectionSettings&;
+		ENGINE_API auto SetProjectionSettings(const FCameraProjectionSettings& InSettings) -> void;
 		ENGINE_API auto ResolveAspectRatio(float ViewportAspectRatio) const -> float;
 
 		ENGINE_API auto SetLookAt(const FVector3& InLocation, const FVector3& InTarget) -> void;
@@ -43,15 +65,6 @@ namespace Durin
 
 private:
 		DPROPERTY(Edit)
-		float FieldOfViewDegrees = 60.0f;
-		DPROPERTY(Edit)
-		float NearClip = 0.1f;
-		DPROPERTY(Edit)
-		float FarClip = 1000.0f;
-		DPROPERTY(Edit)
-		// Preserve the historical viewport-driven framing unless a camera explicitly opts into a fixed output shape.
-		ECameraAspectRatioMode AspectRatioMode = ECameraAspectRatioMode::Viewport;
-		DPROPERTY(Edit)
-		float CustomAspectRatio = 16.0f / 9.0f;
+		FCameraProjectionSettings ProjectionSettings;
 	};
 }

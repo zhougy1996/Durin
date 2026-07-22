@@ -6,8 +6,9 @@
 
 ## 1. 要解决的问题
 
-当前共享 View 已统一属性控件、编辑会话和事务，但宿主仍需手动遍历属性，
-部分领域编辑器仍有重复的控件生命周期和字符串属性查找。后续目标是：
+当前共享 View 已统一属性控件、编辑会话和事务，Level Editor customization
+中的直接写入也已完成迁移，但宿主仍需手动遍历属性，部分领域编辑器仍有
+重复的字符串属性查找。后续目标是：
 
 - 普通 `DObject` 编辑只需传入对象，不再由面板遍历反射属性；
 - Actor、ActorComponent 和资产对象共用同一个对象入口；
@@ -259,14 +260,12 @@ adapter、binding 和 customization 注入。
 
 ## 10. 建议实施顺序
 
-1. 让剩余直接编辑点使用现有 View 提交 API；Static Mesh Material Slots 和
-   Spline customization 已完成，继续迁移其他 Level Editor customization。
-2. 增加 `EditObject()`，迁移 Details 的属性遍历、搜索和标签生成。
-3. 保持 `EditPropertyValue()` 及容器递归入口为私有实现。
-4. 引入最小对象 customization/builder，先承载 Actor Transform 和材质槽。
-5. 引入稳定 Binding，替换 string-map 过渡 API 的外部细节。
-6. 用参数描述表收敛 Material Editor 重复的标量/颜色/纹理行。
-7. 在使用案例稳定后，再评估生成的属性级回调或 customization 元数据。
+1. 增加 `EditObject()`，迁移 Details 的属性遍历、搜索和标签生成。
+2. 保持 `EditPropertyValue()` 及容器递归入口为私有实现。
+3. 引入最小对象 customization/builder，先承载 Actor Transform 和材质槽。
+4. 引入稳定 Binding，替换 string-map 过渡 API 的外部细节。
+5. 用参数描述表收敛 Material Editor 重复的标量/颜色/纹理行。
+6. 在使用案例稳定后，再评估生成的属性级回调或 customization 元数据。
 
 每一步都应保持现有编辑器可用，并验证连续编辑、Cancel、Undo/Redo、对象切换
 和容器地址失效场景。

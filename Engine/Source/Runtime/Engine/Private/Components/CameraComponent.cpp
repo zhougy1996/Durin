@@ -45,68 +45,79 @@ namespace Durin
 
 	auto DCameraComponent::GetFieldOfViewDegrees() const -> float
 	{
-		return FieldOfViewDegrees;
+		return ProjectionSettings.FieldOfViewDegrees;
 	}
 
 	auto DCameraComponent::SetFieldOfViewDegrees(float InFieldOfViewDegrees) -> void
 	{
-		SetProjectionParameters(InFieldOfViewDegrees, NearClip, FarClip);
+		SetProjectionParameters(InFieldOfViewDegrees, ProjectionSettings.NearClip, ProjectionSettings.FarClip);
 	}
 
 	auto DCameraComponent::GetNearClip() const -> float
 	{
-		return NearClip;
+		return ProjectionSettings.NearClip;
 	}
 
 	auto DCameraComponent::SetNearClip(float InNearClip) -> void
 	{
-		SetProjectionParameters(FieldOfViewDegrees, InNearClip, FarClip);
+		SetProjectionParameters(ProjectionSettings.FieldOfViewDegrees, InNearClip, ProjectionSettings.FarClip);
 	}
 
 	auto DCameraComponent::GetFarClip() const -> float
 	{
-		return FarClip;
+		return ProjectionSettings.FarClip;
 	}
 
 	auto DCameraComponent::SetFarClip(float InFarClip) -> void
 	{
-		SetProjectionParameters(FieldOfViewDegrees, NearClip, InFarClip);
+		SetProjectionParameters(ProjectionSettings.FieldOfViewDegrees, ProjectionSettings.NearClip, InFarClip);
 	}
 
 	auto DCameraComponent::SetProjectionParameters(float InFieldOfViewDegrees, float InNearClip, float InFarClip) -> void
 	{
-		FieldOfViewDegrees = std::clamp(InFieldOfViewDegrees, 1.0f, 170.0f);
-		NearClip = std::max(InNearClip, 0.001f);
-		FarClip = std::max(InFarClip, NearClip + 1.0f);
+		ProjectionSettings.FieldOfViewDegrees = std::clamp(InFieldOfViewDegrees, 1.0f, 170.0f);
+		ProjectionSettings.NearClip = std::max(InNearClip, 0.001f);
+		ProjectionSettings.FarClip = std::max(InFarClip, ProjectionSettings.NearClip + 1.0f);
 		MarkPackageDirty();
 	}
 
 	auto DCameraComponent::GetAspectRatioMode() const -> ECameraAspectRatioMode
 	{
-		return AspectRatioMode;
+		return ProjectionSettings.AspectRatioMode;
 	}
 
 	auto DCameraComponent::GetCustomAspectRatio() const -> float
 	{
-		return CustomAspectRatio;
+		return ProjectionSettings.CustomAspectRatio;
 	}
 
 	auto DCameraComponent::SetAspectRatio(ECameraAspectRatioMode InMode, float InCustomAspectRatio) -> void
 	{
-		AspectRatioMode = InMode;
-		CustomAspectRatio = std::clamp(InCustomAspectRatio, 0.1f, 10.0f);
+		ProjectionSettings.AspectRatioMode = InMode;
+		ProjectionSettings.CustomAspectRatio = std::clamp(InCustomAspectRatio, 0.1f, 10.0f);
 		MarkPackageDirty();
+	}
+
+	auto DCameraComponent::GetProjectionSettings() const -> const FCameraProjectionSettings&
+	{
+		return ProjectionSettings;
+	}
+
+	auto DCameraComponent::SetProjectionSettings(const FCameraProjectionSettings& InSettings) -> void
+	{
+		SetProjectionParameters(InSettings.FieldOfViewDegrees, InSettings.NearClip, InSettings.FarClip);
+		SetAspectRatio(InSettings.AspectRatioMode, InSettings.CustomAspectRatio);
 	}
 
 	auto DCameraComponent::ResolveAspectRatio(float ViewportAspectRatio) const -> float
 	{
-		switch (AspectRatioMode)
+		switch (ProjectionSettings.AspectRatioMode)
 		{
 		case ECameraAspectRatioMode::Ratio16By9: return 16.0f / 9.0f;
 		case ECameraAspectRatioMode::Ratio16By10: return 16.0f / 10.0f;
 		case ECameraAspectRatioMode::Ratio4By3: return 4.0f / 3.0f;
 		case ECameraAspectRatioMode::Ratio1By1: return 1.0f;
-		case ECameraAspectRatioMode::Custom: return std::clamp(CustomAspectRatio, 0.1f, 10.0f);
+		case ECameraAspectRatioMode::Custom: return std::clamp(ProjectionSettings.CustomAspectRatio, 0.1f, 10.0f);
 		case ECameraAspectRatioMode::Viewport:
 		default: return std::max(ViewportAspectRatio, 0.001f);
 		}
@@ -153,11 +164,11 @@ namespace Durin
 	auto DCameraComponent::GetProjectionMatrix(float AspectRatio) const -> FMatrix
 	{
 		const float SafeAspectRatio = std::max(AspectRatio, 0.001f);
-		const float HalfFovRadians = glm::radians(FieldOfViewDegrees) * 0.5f;
+		const float HalfFovRadians = glm::radians(ProjectionSettings.FieldOfViewDegrees) * 0.5f;
 		const float YScale = 1.0f / std::tan(HalfFovRadians);
 		const float XScale = YScale / SafeAspectRatio;
-		const float DepthScale = FarClip / (FarClip - NearClip);
-		const float DepthBias = -NearClip * FarClip / (FarClip - NearClip);
+		const float DepthScale = ProjectionSettings.FarClip / (ProjectionSettings.FarClip - ProjectionSettings.NearClip);
+		const float DepthBias = -ProjectionSettings.NearClip * ProjectionSettings.FarClip / (ProjectionSettings.FarClip - ProjectionSettings.NearClip);
 
 		FMatrix Projection(0.0);
 		Projection[1][0] = XScale;

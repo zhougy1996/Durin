@@ -119,6 +119,8 @@ process-lifetime registry supplies semantic adapters for properties that must
 call setters or enforce invariants. Current built-in registrations cover:
 
 - `DSceneComponent.RelativeTransform` through `SetRelativeTransform()`;
+- `DCameraComponent.ProjectionSettings` and its nested fields through the
+  atomic projection/aspect-ratio setters;
 - `DSplineComponent.SplineCurve` and its nested point/setting paths through the
   spline component setters, including curve-cache rebuilds;
 - `DStaticMeshComponent.StaticMesh` through `SetStaticMesh()`;
@@ -219,7 +221,7 @@ cannot construct unsafe container addresses or edit paths.
 
 Custom widgets can use `SubmitPropertyValueEdit()` to retain their presentation
 while sharing proposal capture, session lifecycle, notifications, and history.
-Spline customization uses it for its point layout and structural actions;
+Camera and Spline customizations use it for their semantic layouts and actions;
 Material Editor uses it for its parent picker and uses the string-map helpers
 for parameter values and override presence. Object-details customizations are
 given the host-owned view and context so composed rows share the same active
@@ -245,9 +247,10 @@ transactions are delegated to the view.
 
 Spline Details now routes transform, curve settings, point values, and point
 structural actions through the shared view while retaining its custom layout.
-Some other object customizations still bypass the shared view; these are
-tracked in the implementation plan and must migrate without removing their
-setter semantics.
+Camera Details similarly routes FOV, clip planes, aspect-ratio mode, and custom
+ratio through a stable `ProjectionSettings -> Leaf` path. Its adapter snapshots
+the whole settings structure so clamping one field can safely update another
+and Cancel or Undo restores the complete projection state.
 
 ## Validation
 
@@ -262,7 +265,9 @@ Automated coverage currently verifies:
 - material parameter render invalidation; and
 - material override insertion through shared transaction history; and
 - spline continuous edits, Cancel, structural edits, stable nested paths, cache
-  rebuilds, setter clamping, and Undo/Redo.
+  rebuilds, setter clamping, and Undo/Redo; and
+- camera continuous edits, atomic cross-field clamping, Cancel, stable nested
+  paths, aspect-ratio edits, and Undo/Redo.
 
 UI behavior still requires editor smoke and manual interaction coverage for
 selection changes, document changes, read-only PIE state, save, and shutdown.

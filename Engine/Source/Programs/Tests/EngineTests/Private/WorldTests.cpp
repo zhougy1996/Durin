@@ -13,6 +13,9 @@
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
+#include "DObject/DurinPropertyTypes.h"
+#include "Editor/EditorTransaction.h"
+#include "Editor/ReflectedPropertyView.h"
 #include "Engine/Engine.h"
 #include "Engine/GameEngine.h"
 #include "Engine/Level.h"
@@ -250,6 +253,92 @@ TEST(FCameraComponentTests, ProjectionParametersAreUpdatedAtomicallyAndClamped)
 	EXPECT_FLOAT_EQ(Camera->GetCustomAspectRatio(), 10.0f);
 	EXPECT_FLOAT_EQ(Camera->ResolveAspectRatio(4.0f / 3.0f), 10.0f);
 	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAndStablePaths)
+{
+	InitializeDObjectSystem();
+	auto* Camera = Durin::NewObject<Durin::DCameraComponent>(nullptr, "TransactionalCamera");
+	auto* Projection = static_cast<Durin::FStructProperty*>(Camera->GetClass()->FindPropertyByName("ProjectionSettings"));
+	ASSERT_NE(Projection, nullptr);
+	ASSERT_EQ(Projection->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Struct);
+	Durin::DStruct* ProjectionStruct = Projection->GetStruct();
+	ASSERT_NE(ProjectionStruct, nullptr);
+	Durin::FProperty* FieldOfView = ProjectionStruct->FindPropertyByName(Durin::FName("FieldOfViewDegrees"));
+	Durin::FProperty* NearClip = ProjectionStruct->FindPropertyByName(Durin::FName("NearClip"));
+	Durin::FProperty* AspectRatioMode = ProjectionStruct->FindPropertyByName(Durin::FName("AspectRatioMode"));
+	Durin::FProperty* CustomAspectRatio = ProjectionStruct->FindPropertyByName(Durin::FName("CustomAspectRatio"));
+	ASSERT_NE(FieldOfView, nullptr);
+	ASSERT_NE(NearClip, nullptr);
+	ASSERT_NE(AspectRatioMode, nullptr);
+	ASSERT_NE(CustomAspectRatio, nullptr);
+
+	auto GetSettings = [&] {
+		return Projection->ContainerPtrToValuePtr<Durin::FCameraProjectionSettings>(Camera);
+	};
+	auto MakeTarget = [&](Durin::FProperty* Field) {
+		return Durin::FReflectedPropertyEditTarget::ForMember(Camera, Projection).ForStructMember(Field, GetSettings());
+	};
+	const Durin::FReflectedPropertyEditTarget NearTarget = MakeTarget(NearClip);
+	ASSERT_EQ(NearTarget.Path.size(), 2u);
+	EXPECT_EQ(NearTarget.MemberProperty, Projection);
+	EXPECT_EQ(NearTarget.LeafProperty, NearClip);
+	EXPECT_EQ(NearTarget.Path[0].Property, Projection);
+	EXPECT_EQ(NearTarget.Path[1].Property, NearClip);
+
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyView View;
+	std::string Error;
+	const Durin::FReflectedPropertyViewContext Context{
+		.Transactions = &Transactions,
+		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+	};
+	auto SubmitFloat = [&](Durin::FProperty* Field, float Value, bool bContinuous) {
+		return View.SubmitPropertyValueEdit(Context, MakeTarget(Field), [&] {
+			*Field->ContainerPtrToValuePtr<float>(GetSettings()) = Value;
+		}, bContinuous);
+	};
+
+	ASSERT_TRUE(SubmitFloat(FieldOfView, 80.0f, true));
+	ASSERT_TRUE(SubmitFloat(FieldOfView, 90.0f, true));
+	View.FinishActiveEdit(&Context, false);
+	EXPECT_TRUE(Error.empty());
+	EXPECT_FLOAT_EQ(Camera->GetFieldOfViewDegrees(), 90.0f);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_FLOAT_EQ(Camera->GetFieldOfViewDegrees(), 60.0f);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_FLOAT_EQ(Camera->GetFieldOfViewDegrees(), 90.0f);
+
+	Transactions.Clear();
+	ASSERT_TRUE(SubmitFloat(NearClip, 2000.0f, true));
+	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 2000.0f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 2001.0f);
+	View.FinishActiveEdit(&Context, true);
+	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.1f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 1000.0f);
+	EXPECT_FALSE(Transactions.CanUndo());
+
+	ASSERT_TRUE(SubmitFloat(NearClip, -5.0f, false));
+	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.001f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 1000.0f);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.1f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 1000.0f);
+
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, MakeTarget(AspectRatioMode), [&] {
+		*AspectRatioMode->ContainerPtrToValuePtr<Durin::ECameraAspectRatioMode>(GetSettings()) = Durin::ECameraAspectRatioMode::Custom;
+	}, false));
+	ASSERT_TRUE(SubmitFloat(CustomAspectRatio, 20.0f, false));
+	EXPECT_EQ(Camera->GetAspectRatioMode(), Durin::ECameraAspectRatioMode::Custom);
+	EXPECT_FLOAT_EQ(Camera->GetCustomAspectRatio(), 10.0f);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_FLOAT_EQ(Camera->GetCustomAspectRatio(), 16.0f / 9.0f);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Camera->GetAspectRatioMode(), Durin::ECameraAspectRatioMode::Viewport);
+
+	Transactions.Clear();
+	Durin::MarkAsGarbage(Camera);
 	Durin::CollectGarbage();
 }
 

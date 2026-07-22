@@ -2,8 +2,9 @@
 
 #include "Actors/CameraActor.h"
 #include "Components/CameraComponent.h"
-#include "Editor/EditorEngine.h"
-#include "Editor/EditorTransaction.h"
+#include "DObject/DurinPropertyTypes.h"
+#include "DObject/Property.h"
+#include "Editor/ReflectedPropertyView.h"
 #include "Engine/Level.h"
 #include "LevelEditorContext.h"
 #include "MonaImGui.h"
@@ -12,50 +13,6 @@ namespace Durin
 {
 	namespace
 	{
-		struct FCameraProjectionSettings
-		{
-			float FieldOfViewDegrees = 60.0f;
-			float NearClip = 0.1f;
-			float FarClip = 1000.0f;
-			ECameraAspectRatioMode AspectRatioMode = ECameraAspectRatioMode::Viewport;
-			float CustomAspectRatio = 16.0f / 9.0f;
-
-			auto operator==(const FCameraProjectionSettings&) const -> bool = default;
-		};
-
-		auto GetProjectionSettings(const DCameraComponent* Camera) -> FCameraProjectionSettings
-		{
-			return {Camera->GetFieldOfViewDegrees(), Camera->GetNearClip(), Camera->GetFarClip(), Camera->GetAspectRatioMode(), Camera->GetCustomAspectRatio()};
-		}
-
-		auto ApplyProjectionSettings(DCameraComponent* Camera, const FCameraProjectionSettings& Settings) -> bool
-		{
-			if (!Camera) return false;
-			Camera->SetProjectionParameters(Settings.FieldOfViewDegrees, Settings.NearClip, Settings.FarClip);
-			Camera->SetAspectRatio(Settings.AspectRatioMode, Settings.CustomAspectRatio);
-			return true;
-		}
-
-		class FCameraProjectionTransaction final : public IEditorTransaction
-		{
-		public:
-			FCameraProjectionTransaction(DCameraComponent* InCamera, FCameraProjectionSettings InBefore, FCameraProjectionSettings InAfter)
-				: Camera(InCamera), Before(InBefore), After(InAfter) {}
-
-			auto GetDescription() const -> std::string_view override { return "Edit camera projection"; }
-			auto GetDetails(EEditorTransactionOperation) const -> std::string override
-			{
-				return Camera ? std::format("Camera '{}' projection: FOV {:.1f}, Near {:.3f}, Far {:.3f}, Aspect {:.3f}", Camera->GetName(), After.FieldOfViewDegrees, After.NearClip, After.FarClip, Camera->ResolveAspectRatio(After.CustomAspectRatio)) : std::string{};
-			}
-			auto Undo() -> bool override { return ApplyProjectionSettings(Camera.Get(), Before); }
-			auto Redo() -> bool override { return ApplyProjectionSettings(Camera.Get(), After); }
-
-		private:
-			TObjectPtr<DCameraComponent> Camera;
-			FCameraProjectionSettings Before;
-			FCameraProjectionSettings After;
-		};
-
 		class FCameraComponentVisualizer final : public IComponentEditorVisualizer
 		{
 		public:
@@ -133,8 +90,8 @@ namespace Durin
 		class FCameraDetailsCustomization final : public IObjectDetailsCustomization
 		{
 		public:
-			auto DrawDetails(FLevelEditorContext&, DObject* Object, FReflectedPropertyView&,
-				const FReflectedPropertyViewContext&) -> bool override
+			auto DrawDetails(FLevelEditorContext& Context, DObject* Object, FReflectedPropertyView& PropertyView,
+				const FReflectedPropertyViewContext& ViewContext) -> bool override
 			{
 				DCameraComponent* Camera = Cast<DCameraComponent>(Object);
 				if (!Camera)
@@ -142,19 +99,52 @@ namespace Durin
 					if (auto* Actor = Cast<ACameraActor>(Object)) Camera = Actor->GetCameraComponent();
 				}
 				if (!Camera) return false;
+				const FReflection Reflection = ResolveReflection(*Camera);
+				if (!Reflection.IsValid())
+				{
+					Context.SetError("Camera projection reflection metadata is unavailable.");
+					return true;
+				}
 
 				ImGui::PushID(Camera);
-				DrawValue(Camera, "Field Of View", EField::FieldOfView, 0.1f, 1.0f, 170.0f, "%.1f deg");
-				DrawValue(Camera, "Near Clip", EField::NearClip, 0.01f, 0.001f, std::numeric_limits<float>::max(), "%.3f");
-				DrawValue(Camera, "Far Clip", EField::FarClip, 1.0f, Camera->GetNearClip() + 1.0f, std::numeric_limits<float>::max(), "%.1f");
-				DrawAspectRatioMode(Camera);
-				if (Camera->GetAspectRatioMode() == ECameraAspectRatioMode::Custom) DrawCustomAspectRatio(Camera);
+				DrawValue(PropertyView, ViewContext, *Camera, Reflection, "Field Of View", Reflection.FieldOfView,
+					0.1f, 1.0f, 170.0f, "%.1f deg");
+				DrawValue(PropertyView, ViewContext, *Camera, Reflection, "Near Clip", Reflection.NearClip,
+					0.01f, 0.001f, std::numeric_limits<float>::max(), "%.3f");
+				DrawValue(PropertyView, ViewContext, *Camera, Reflection, "Far Clip", Reflection.FarClip,
+					1.0f, Camera->GetNearClip() + 1.0f, std::numeric_limits<float>::max(), "%.1f");
+				DrawAspectRatioMode(PropertyView, ViewContext, *Camera, Reflection);
+				if (Camera->GetAspectRatioMode() == ECameraAspectRatioMode::Custom)
+					DrawValue(PropertyView, ViewContext, *Camera, Reflection, "Custom Ratio", Reflection.CustomAspectRatio,
+						0.01f, 0.1f, 10.0f, "%.3f");
 				ImGui::PopID();
 				return Cast<DCameraComponent>(Object) != nullptr;
 			}
 
 		private:
-			enum class EField : uint8 { FieldOfView, NearClip, FarClip };
+			struct FReflection
+			{
+				FStructProperty* Projection = nullptr;
+				FProperty* FieldOfView = nullptr;
+				FProperty* NearClip = nullptr;
+				FProperty* FarClip = nullptr;
+				FProperty* AspectRatioMode = nullptr;
+				FProperty* CustomAspectRatio = nullptr;
+
+				auto IsValid() const -> bool
+				{
+					return Projection && FieldOfView && NearClip && FarClip && AspectRatioMode && CustomAspectRatio;
+				}
+				auto GetSettings(DCameraComponent& Camera) const -> FCameraProjectionSettings*
+				{
+					return Projection->ContainerPtrToValuePtr<FCameraProjectionSettings>(&Camera);
+				}
+				auto MakeTarget(DCameraComponent& Camera, FProperty* Field) const -> FReflectedPropertyEditTarget
+				{
+					return FReflectedPropertyEditTarget::ForMember(&Camera, Projection).ForStructMember(Field, GetSettings(Camera));
+				}
+			};
+
 			struct FAspectRatioOption
 			{
 				ECameraAspectRatioMode Mode;
@@ -170,93 +160,79 @@ namespace Durin
 				FAspectRatioOption{ECameraAspectRatioMode::Custom, "Custom"}
 			};
 
-			auto DrawAspectRatioMode(DCameraComponent* Camera) -> void
+			static auto ResolveReflection(DCameraComponent& Camera) -> FReflection
 			{
-				const FCameraProjectionSettings Before = GetProjectionSettings(Camera);
+				FReflection Result;
+				FProperty* Projection = Camera.GetClass()->FindPropertyByName("ProjectionSettings");
+				if (!Projection || Projection->GetKind() != DurinCodeGen::EPropertyGenFlags::Struct) return Result;
+				Result.Projection = static_cast<FStructProperty*>(Projection);
+				DStruct* Struct = Result.Projection->GetStruct();
+				if (!Struct) return Result;
+				Result.FieldOfView = Struct->FindPropertyByName(FName("FieldOfViewDegrees"));
+				Result.NearClip = Struct->FindPropertyByName(FName("NearClip"));
+				Result.FarClip = Struct->FindPropertyByName(FName("FarClip"));
+				Result.AspectRatioMode = Struct->FindPropertyByName(FName("AspectRatioMode"));
+				Result.CustomAspectRatio = Struct->FindPropertyByName(FName("CustomAspectRatio"));
+				return Result;
+			}
+
+			static auto FinishContinuousEdit(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
+				const FReflectedPropertyEditTarget& Target, const MonaImGui::FPropertyEditWidgetState& State) -> void
+			{
+				if (State.bDeactivatedAfterEdit && PropertyView.IsEditingTarget(Target)) PropertyView.FinishActiveEdit(&ViewContext, false);
+				else if (State.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditingTarget(Target))
+					PropertyView.FinishActiveEdit(&ViewContext, true);
+			}
+
+			static auto DrawAspectRatioMode(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
+				DCameraComponent& Camera, const FReflection& Reflection) -> void
+			{
+				const ECameraAspectRatioMode CurrentMode = Camera.GetAspectRatioMode();
 				const char* Preview = "Unknown";
 				for (const FAspectRatioOption& Option : AspectRatioOptions)
 				{
-					if (Option.Mode == Before.AspectRatioMode) Preview = Option.Label;
+					if (Option.Mode == CurrentMode) Preview = Option.Label;
 				}
 				ImGui::PushID("AspectRatioMode");
-				MonaImGui::BeginPropertyRow("Aspect Ratio", false);
+				MonaImGui::BeginPropertyRow("Aspect Ratio", ViewContext.bReadOnly);
 				if (ImGui::BeginCombo("##Value", Preview))
 				{
 					for (const FAspectRatioOption& Option : AspectRatioOptions)
 					{
-						if (ImGui::Selectable(Option.Label, Option.Mode == Before.AspectRatioMode))
+						if (ImGui::Selectable(Option.Label, Option.Mode == CurrentMode) && !ViewContext.bReadOnly)
 						{
-							FCameraProjectionSettings After = Before;
-							After.AspectRatioMode = Option.Mode;
-							ApplyProjectionSettings(Camera, After);
-							if (After != Before && GEditor) GEditor->GetTransactionManager().CommitApplied(std::make_unique<FCameraProjectionTransaction>(Camera, Before, After));
+							PropertyView.SubmitPropertyValueEdit(ViewContext, Reflection.MakeTarget(Camera, Reflection.AspectRatioMode), [&] {
+								*Reflection.AspectRatioMode->ContainerPtrToValuePtr<ECameraAspectRatioMode>(Reflection.GetSettings(Camera)) = Option.Mode;
+							}, false);
 						}
 					}
 					ImGui::EndCombo();
 				}
-				MonaImGui::EndPropertyRow(false);
+				MonaImGui::EndPropertyRow(ViewContext.bReadOnly);
 				ImGui::PopID();
 			}
 
-			auto DrawCustomAspectRatio(DCameraComponent* Camera) -> void
+			static auto DrawValue(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
+				DCameraComponent& Camera, const FReflection& Reflection, const char* Label, FProperty* Field,
+				float Speed, float Min, float Max, const char* Format) -> void
 			{
-				const FCameraProjectionSettings BeforeWidget = GetProjectionSettings(Camera);
-				float Value = BeforeWidget.CustomAspectRatio;
-				MonaImGui::BeginPropertyRow("Custom Ratio", false);
-				const bool bChanged = ImGui::DragFloat("##CustomAspectRatio", &Value, 0.01f, 0.1f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-				if (ImGui::IsItemActivated())
-				{
-					EditingCamera = Camera;
-					EditingBefore = BeforeWidget;
-				}
-				if (bChanged)
-				{
-					FCameraProjectionSettings Changed = BeforeWidget;
-					Changed.CustomAspectRatio = Value;
-					ApplyProjectionSettings(Camera, Changed);
-				}
-				CommitActiveEdit(Camera);
-				MonaImGui::EndPropertyRow(false);
-			}
-
-			auto CommitActiveEdit(DCameraComponent* Camera) -> void
-			{
-				if (ImGui::IsItemDeactivatedAfterEdit() && EditingCamera.Get() == Camera)
-				{
-					const FCameraProjectionSettings After = GetProjectionSettings(Camera);
-					if (After != EditingBefore && GEditor)
-						GEditor->GetTransactionManager().CommitApplied(std::make_unique<FCameraProjectionTransaction>(Camera, EditingBefore, After));
-					EditingCamera = nullptr;
-				}
-			}
-
-			auto DrawValue(DCameraComponent* Camera, const char* Label, EField Field, float Speed, float Min, float Max, const char* Format) -> void
-			{
-				const FCameraProjectionSettings BeforeWidget = GetProjectionSettings(Camera);
-				float Value = Field == EField::FieldOfView ? BeforeWidget.FieldOfViewDegrees : Field == EField::NearClip ? BeforeWidget.NearClip : BeforeWidget.FarClip;
-				ImGui::PushID(static_cast<int>(Field));
-				MonaImGui::BeginPropertyRow(Label, false);
+				float Value = *Field->ContainerPtrToValuePtr<float>(Reflection.GetSettings(Camera));
+				const FReflectedPropertyEditTarget Target = Reflection.MakeTarget(Camera, Field);
+				ImGui::PushID(Field);
+				MonaImGui::BeginPropertyRow(Label, ViewContext.bReadOnly);
 				const bool bChanged = ImGui::DragFloat("##Value", &Value, Speed, Min, Max, Format, ImGuiSliderFlags_AlwaysClamp);
-				if (ImGui::IsItemActivated())
+				const MonaImGui::FPropertyEditWidgetState State{
+					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
+				if (bChanged && !ViewContext.bReadOnly)
 				{
-					EditingCamera = Camera;
-					EditingBefore = BeforeWidget;
+					PropertyView.SubmitPropertyValueEdit(ViewContext, Target, [&] {
+						*Field->ContainerPtrToValuePtr<float>(Reflection.GetSettings(Camera)) = Value;
+					}, true);
 				}
-				if (bChanged)
-				{
-					FCameraProjectionSettings Changed = BeforeWidget;
-					if (Field == EField::FieldOfView) Changed.FieldOfViewDegrees = Value;
-					else if (Field == EField::NearClip) Changed.NearClip = Value;
-					else Changed.FarClip = Value;
-					ApplyProjectionSettings(Camera, Changed);
-				}
-				CommitActiveEdit(Camera);
-				MonaImGui::EndPropertyRow(false);
+				FinishContinuousEdit(PropertyView, ViewContext, Target, State);
+				MonaImGui::EndPropertyRow(ViewContext.bReadOnly);
 				ImGui::PopID();
 			}
-
-			TObjectPtr<DCameraComponent> EditingCamera;
-			FCameraProjectionSettings EditingBefore;
 		};
 	} // namespace
 

@@ -18,7 +18,7 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
   preserving slot labels and `SetMaterial()` behavior.
 - [x] Migrate spline customization value and structural edits through shared
   reflected-property sessions while preserving spline setter/cache semantics.
-- [ ] Migrate the remaining direct reflected-property writes in Level Editor
+- [x] Migrate the remaining direct reflected-property writes in Level Editor
   customizations.
 - [ ] Ensure every host deliberately commits or cancels an active interaction
   when selection, document, workspace activity, or read-only state changes.
@@ -66,9 +66,8 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
 
 ## Recommended Order
 
-1. Finish remaining direct-edit migrations.
-2. Add `EditObject()` and migrate Details enumeration.
-3. Introduce object customization for composite rows.
-4. Introduce stable property bindings and simplify Material Editor.
-5. Close validation gaps.
-6. Re-evaluate generated metadata.
+1. Add `EditObject()` and migrate Details enumeration.
+2. Introduce object customization for composite rows.
+3. Introduce stable property bindings and simplify Material Editor.
+4. Close validation gaps.
+5. Re-evaluate generated metadata.
