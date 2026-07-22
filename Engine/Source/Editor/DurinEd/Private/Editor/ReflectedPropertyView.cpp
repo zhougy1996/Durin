@@ -428,10 +428,10 @@ namespace Durin
 		{
 			FTransform Value = *Property->ContainerPtrToValuePtr<FTransform>(Container, ArrayIndex);
 			MonaImGui::FPropertyEditWidgetState State;
-			const bool bChanged = MonaImGui::EditTransformProperty(Label.c_str(), Value, bReadOnly, &State);
+			bool bChanged = MonaImGui::EditTransformProperty(Label.c_str(), Value, bReadOnly, &State);
 			if (bChanged)
 			{
-				SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
+				bChanged = SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
 					*Property->ContainerPtrToValuePtr<FTransform>(ProposedTarget.LeafContainer, ProposedTarget.LeafArrayIndex) = Value;
 				}, true);
 			}
@@ -441,10 +441,10 @@ namespace Durin
 
 		auto EditMathStruct = [&]<typename TValue, typename TEditor>(TValue Value, TEditor&& Editor) -> bool {
 			MonaImGui::FPropertyEditWidgetState State;
-			const bool bChanged = Editor(Value, State);
+			bool bChanged = Editor(Value, State);
 			if (bChanged)
 			{
-				SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
+				bChanged = SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
 					*Property->ContainerPtrToValuePtr<TValue>(ProposedTarget.LeafContainer, ProposedTarget.LeafArrayIndex) = Value;
 				}, true);
 			}
@@ -500,7 +500,7 @@ namespace Durin
 		{
 			bool Value = *Property->ContainerPtrToValuePtr<bool>(Container, ArrayIndex);
 			bChanged = ImGui::Checkbox("##Value", &Value);
-			if (bChanged) SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
+			if (bChanged) bChanged = SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
 				*Property->ContainerPtrToValuePtr<bool>(ProposedTarget.LeafContainer, ProposedTarget.LeafArrayIndex) = Value;
 			}, false);
 		}
@@ -511,7 +511,7 @@ namespace Durin
 			std::memcpy(Value.data(), Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize());
 			bChanged = ImGui::DragScalar("##Value", DataType, Value.data(), Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
 			MonaImGui::FPropertyEditWidgetState State{ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
-			if (bChanged) SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
+			if (bChanged) bChanged = SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
 				std::memcpy(Property->GetValuePtr(ProposedTarget.LeafContainer, ProposedTarget.LeafArrayIndex), Value.data(), Property->GetElementSize());
 			}, true);
 			FinishContinuousEdit(State);
@@ -522,10 +522,9 @@ namespace Durin
 			std::string Value = *StringProperty->GetStringValuePtr(Container, ArrayIndex);
 			if (MonaImGui::InputText("##Value", Value))
 			{
-				SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
+				bChanged = SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
 					*StringProperty->GetStringValuePtr(ProposedTarget.LeafContainer, ProposedTarget.LeafArrayIndex) = Value;
 				}, true);
-				bChanged = true;
 			}
 			FinishContinuousEdit({ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()});
 		}
@@ -548,10 +547,9 @@ namespace Durin
 						const bool bSelected = Value.Value == CurrentValue;
 						if (ImGui::Selectable(Value.Name.ToString().c_str(), bSelected))
 						{
-							SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
+							bChanged = SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
 								WriteEnumValue(*EnumProperty, ProposedTarget.LeafContainer, ProposedTarget.LeafArrayIndex, Value.Value);
 							}, false);
-							bChanged = true;
 						}
 					});
 					ImGui::EndCombo();
@@ -593,7 +591,7 @@ namespace Durin
 				}
 				ImGui::EndCombo();
 			}
-			if (bChanged) SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
+			if (bChanged) bChanged = SubmitProposed([&](const FReflectedPropertyEditTarget& ProposedTarget, FReflectedPropertyScratch*) {
 				ObjectProperty->SetObjectPropertyValue(ProposedTarget.LeafContainer, SelectedObject, ProposedTarget.LeafArrayIndex);
 			}, false);
 		}
