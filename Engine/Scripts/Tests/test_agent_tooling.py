@@ -689,6 +689,7 @@ class CoreTests(unittest.TestCase):
             runtime_path.return_value.touch()
             build_core.run_application(context, output)
         self.assertTrue(run.call_args.kwargs["wait_for_descendants"])
+        self.assertFalse(run.call_args.kwargs["show_heartbeat"])
 
     def test_run_command_waits_for_windows_process_job(self) -> None:
         process = mock.Mock(pid=42, returncode=0)

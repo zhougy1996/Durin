@@ -755,6 +755,7 @@ def run_command(
     interruption_message: str | None = None,
     timeout_seconds: int | None = None,
     wait_for_descendants: bool = False,
+    show_heartbeat: bool = True,
 ) -> None:
     command_list = list(command)
     output.command(subprocess.list2cmdline(command_list))
@@ -804,7 +805,8 @@ def run_command(
                 return_code = process.wait(timeout=wait_seconds)
                 break
             except subprocess.TimeoutExpired:
-                output.info(f"Command is still running ({perf_counter() - started_at:.0f}s elapsed).")
+                if show_heartbeat:
+                    output.info(f"Command is still running ({perf_counter() - started_at:.0f}s elapsed).")
         if process_job:
             # Relaunched editors inherit job membership, so active membership reaches zero only after the final instance exits.
             process_job.wait()
@@ -1166,6 +1168,7 @@ def run_application(context: BuildContext, output: BuildOutput) -> None:
             output=output,
             recovery_required_on_interrupt=False,
             wait_for_descendants=True,
+            show_heartbeat=False,
         )
 
 

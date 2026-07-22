@@ -47,7 +47,7 @@ BuildTool separates its resolved context, execution stages, raw CMake/Ninja outp
 .\BuildTool build --target all --plain
 ```
 
-While a child command is alive, BuildTool emits a short heartbeat every 30 seconds until the child produces a final result. This distinguishes a genuinely running build from a completed command without requiring a second status or build invocation.
+While a build, configure, clean, or test child command is alive, BuildTool emits a short heartbeat every 30 seconds until the child produces a final result. This distinguishes a genuinely running operation from a completed command without requiring a second status or build invocation. The interactive `run` command suppresses this heartbeat because the runtime is expected to remain open until the user exits it.
 
 On Windows, the first toolchain-backed command captures and validates the Visual Studio environment. BuildTool caches that environment delta under `Build/.agent-state/` so later invocations avoid rerunning `VsDevCmd.bat` and the compiler language probe. The cache refreshes automatically when the setup script, its arguments, or `cl.exe` changes, while caller-provided environment values and `PATH` changes remain live.
 
