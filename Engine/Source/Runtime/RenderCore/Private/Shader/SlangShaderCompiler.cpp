@@ -712,6 +712,12 @@ namespace Durin
 		return Output;
 	}
 
+	auto FSlangShaderCompiler::GetEnvironmentIdentity() const -> std::string
+	{
+		const char* BuildTag = GlobalSession ? GlobalSession->getBuildTagString() : nullptr;
+		return std::format("slang:{};target=spirv;profile={}", BuildTag ? BuildTag : "unknown", GSlangTargetProfile);
+	}
+
 	auto FSlangShaderCompiler::InitGlobalSession() -> void
 	{
 		if (SLANG_FAILED(slang_createGlobalSession(SLANG_API_VERSION, GlobalSession.writeRef())))

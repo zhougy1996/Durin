@@ -37,6 +37,8 @@ namespace Durin
 		std::vector<const char8*> EntryPoints;
 		std::vector<EShaderFrequency> Frequencies;
 		std::vector<FShaderMacroDefinition> Macros;
+		// Backend/compiler build identity. The compile service fills this before cache lookup.
+		std::string CompilerEnvironment;
 		bool bForceRecompile = false;
 	};
 

@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Open. The current cache avoids repeated SPIR-V code generation, but its warm path still performs substantial source processing and several cache failure modes do not reliably recover as ordinary misses.
+Implementation in progress through the [Shader Cache Hardening Plan](../Plans/ShaderCacheHardening.md). The current cache avoids repeated SPIR-V code generation, but its warm path still performs substantial source processing and several cache failure modes do not reliably recover as ordinary misses.
 
 ## Scope Reviewed
 

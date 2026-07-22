@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RenderCoreAPI.h"
+#include "RHIDefinitions.h"
 
 namespace Durin::FShaderPaths
 {
@@ -28,7 +29,9 @@ namespace Durin::FShaderPaths
 
 	RENDERCORE_API auto MetaPath(std::string_view VirtualShaderPath) -> std::string;
 
-	RENDERCORE_API auto BinaryPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, std::string_view CacheKey) -> std::string;
+	RENDERCORE_API auto BinaryPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, EShaderFrequency Frequency, std::string_view CacheKey) -> std::string;
+
+	RENDERCORE_API auto ReflectionPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, EShaderFrequency Frequency, std::string_view CacheKey) -> std::string;
 
 	auto InitDefaultMountPoints() -> void;
 }

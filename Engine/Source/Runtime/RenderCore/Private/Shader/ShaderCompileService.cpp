@@ -32,6 +32,7 @@ namespace Durin
 				const std::string SourceFilePath = FShaderPaths::SourcePath(VirtualShaderPath);
 				FShaderCompileOptions EffectiveOptions = Options;
 				EffectiveOptions.VirtualShaderPath = std::string(VirtualShaderPath);
+				EffectiveOptions.CompilerEnvironment = Compiler.GetEnvironmentIdentity();
 
 				std::vector<FShaderMacroDefinition> NormalizedMacros;
 				if (!ShaderCompileUtilities::NormalizeMacros(EffectiveOptions, NormalizedMacros, Output.ErrorMessage))
@@ -54,7 +55,7 @@ namespace Durin
 				}
 
 				FShaderVariantKey VariantKey;
-				ShaderCompileUtilities::BuildVariantKey(VirtualShaderPath, CurrentMetaData, NormalizedMacros, VariantKey);
+				ShaderCompileUtilities::BuildVariantKey(VirtualShaderPath, CurrentMetaData, NormalizedMacros, EffectiveOptions.CompilerEnvironment, VariantKey);
 
 				FShaderMetaData CachedMetaData;
 				const bool bMetaDataCurrent = CacheStore.LoadMetaData(VirtualShaderPath, CachedMetaData)

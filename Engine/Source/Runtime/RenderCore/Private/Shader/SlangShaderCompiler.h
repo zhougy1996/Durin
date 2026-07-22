@@ -14,6 +14,7 @@ namespace Durin
 		~FSlangShaderCompiler() override;
 
 		auto Compile(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput override;
+		auto GetEnvironmentIdentity() const -> std::string;
 
 	private:
 		auto CreateSession(const FShaderCompileOptions& Options, Slang::ComPtr<slang::ISession>& OutSession, std::string& OutErrorMessage) const -> bool;

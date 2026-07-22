@@ -2,6 +2,7 @@
 
 #include "Misc/Paths.h"
 #include "Misc/StringConvert.h"
+#include "Hash/XxHash.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin::FShaderPaths
@@ -188,6 +189,16 @@ namespace Durin::FShaderPaths
 		return Result;
 	}
 
+	static auto MakeArtifactStem(std::string_view EntryPoint, EShaderFrequency Frequency) -> std::string
+	{
+		FXxHash128Builder Builder;
+		Builder.UpdateValue(static_cast<uint64>(EntryPoint.size()));
+		Builder.Update(EntryPoint);
+		Builder.UpdateValue(Frequency);
+		const std::string ReadableName = StringUtils::SanitizeFileName(EntryPoint, "Shader");
+		return ReadableName + "." + Builder.Finalize().ToString();
+	}
+
 	static auto GetRelativeShaderCacheDirectory(std::string_view RelativeVirtualShaderPath) -> std::filesystem::path
 	{
 		std::filesystem::path CachePath;
@@ -250,9 +261,15 @@ namespace Durin::FShaderPaths
 		return (ShaderDirectoryPath / MetaFileName).generic_string();
 	}
 
-	auto BinaryPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, std::string_view CacheKey) -> std::string
+	auto BinaryPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, EShaderFrequency Frequency, std::string_view CacheKey) -> std::string
 	{
-		const std::string FileName = StringUtils::SanitizeFileName(EntryPoint, "Shader") + ".spv";
+		const std::string FileName = MakeArtifactStem(EntryPoint, Frequency) + ".spv";
+		return (ResolveShaderDirectoryPath(VirtualShaderPath) / std::string(CacheKey) / FileName).generic_string();
+	}
+
+	auto ReflectionPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, EShaderFrequency Frequency, std::string_view CacheKey) -> std::string
+	{
+		const std::string FileName = MakeArtifactStem(EntryPoint, Frequency) + ".reflect.json";
 		return (ResolveShaderDirectoryPath(VirtualShaderPath) / std::string(CacheKey) / FileName).generic_string();
 	}
 

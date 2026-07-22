@@ -8,7 +8,7 @@ namespace Durin::ShaderCompileUtilities
 	namespace
 	{
 		constexpr std::string_view GShaderSourceTreeSignatureVersion = "DurinShaderSourceTreeSignature_v2";
-		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v4";
+		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v5";
 		constexpr std::string_view GSlangBackendName = "slang";
 		constexpr std::string_view GSlangTargetFormat = "SPIR-V";
 		constexpr std::string_view GSlangTargetProfile = "spirv_1_5";
@@ -81,6 +81,7 @@ namespace Durin::ShaderCompileUtilities
 		std::string_view VirtualShaderPath,
 		const FShaderMetaData& MetaData,
 		const std::vector<FShaderMacroDefinition>& Macros,
+		std::string_view CompilerEnvironment,
 		FShaderVariantKey& OutVariantKey
 	) -> void
 	{
@@ -89,6 +90,7 @@ namespace Durin::ShaderCompileUtilities
 		UpdateHashStringField(Builder, GSlangBackendName);
 		UpdateHashStringField(Builder, GSlangTargetFormat);
 		UpdateHashStringField(Builder, GSlangTargetProfile);
+		UpdateHashStringField(Builder, CompilerEnvironment);
 		UpdateHashStringField(Builder, VirtualShaderPath);
 		Builder.UpdateValue(MetaData.SourceTreeSignature);
 

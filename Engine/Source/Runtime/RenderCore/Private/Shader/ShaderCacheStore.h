@@ -36,7 +36,6 @@ namespace Durin
 		auto SaveMetaData(std::string_view VirtualShaderPath, const FShaderMetaData& MetaData) -> bool;
 
 		// Try to load pre-compiled .spv artifacts from the variant directory.
-		// Metadata validation must be performed by the caller before invoking this.
 		auto TryLoad(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options, const FShaderVariantKey& VariantKey, FShaderCompilerOutput& OutOutput) -> bool;
 
 		// Write compiled .spv artifacts to the variant directory.

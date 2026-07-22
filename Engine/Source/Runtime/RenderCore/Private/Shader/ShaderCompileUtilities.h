@@ -22,6 +22,7 @@ namespace Durin
 			std::string_view VirtualShaderPath,
 			const FShaderMetaData& MetaData,
 			const std::vector<FShaderMacroDefinition>& Macros,
+			std::string_view CompilerEnvironment,
 			FShaderVariantKey& OutVariantKey
 		) -> void;
 
