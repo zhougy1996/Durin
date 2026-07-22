@@ -567,7 +567,6 @@ namespace Durin
 			Selection.clear();
 			SelectionAnchor.clear();
 		}
-		DrawBackgroundContextMenu();
 		if (Items.empty())
 		{
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 24.0f);
@@ -843,6 +842,7 @@ namespace Durin
 				}
 			}
 		}
+		DrawBackgroundContextMenu();
 		ImGui::EndTable();
 	}
 
@@ -904,6 +904,7 @@ namespace Durin
 			ImGui::TextUnformatted(Item.Kind == EContentBrowserItemKind::Folder ? "-" : FormatFileTime(Item.LastWriteTime).c_str());
 			ImGui::PopID();
 		}
+		DrawBackgroundContextMenu();
 		ImGui::EndTable();
 		ImGui::PopStyleVar();
 	}
