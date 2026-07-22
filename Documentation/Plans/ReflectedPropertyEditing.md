@@ -25,9 +25,9 @@ event, snapshot, mutation-adapter, session, transaction, or view contracts.
 
 ## Object-Level View
 
-- [ ] Add `FReflectedPropertyView::EditObject()` so hosts do not manually
+- [x] Add `FReflectedPropertyView::EditObject()` so hosts do not manually
   enumerate ordinary `Edit` properties.
-- [ ] Move default labels, static-array expansion, search, filtering, and
+- [x] Move default labels, static-array expansion, search, filtering, and
   optional property-table ownership behind that API.
 - [x] Keep `EditProperty()` public as the controlled customization/composition
   entry point.

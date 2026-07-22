@@ -35,12 +35,6 @@ namespace Durin
 
 		constexpr const char* ComponentDragPayload = "DURIN_DETAILS_SCENE_COMPONENT";
 
-		struct FVisibleProperty
-		{
-			FProperty* Property = nullptr;
-			uint32 ArrayIndex = 0;
-		};
-
 		auto IsClassChildOf(const DClass* Class, const DClass* Parent) -> bool
 		{
 			for (const DClass* Current = Class; Current != nullptr; Current = Current->GetSuperClass())
@@ -475,21 +469,6 @@ namespace Durin
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		ImGui::InputTextWithHint("##PropertySearch", "Search properties...", PropertySearchText.data(), PropertySearchText.size());
 
-		std::vector<FVisibleProperty> VisibleProperties;
-		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
-			if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit)) return;
-			if (Cast<DStaticMeshComponent>(Object) && Property->NamePrivate == FName("Materials")) return;
-			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
-			{
-				const std::string SourceName = Property->GetArrayDim() > 1 ? std::format("{}[{}]", Property->NamePrivate.ToString(), ArrayIndex) : Property->NamePrivate.ToString();
-				const std::string DisplayName = MakeReflectedPropertyLabel(*Property, ArrayIndex);
-				const bool bIsTransform = Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
-										  && static_cast<FStructProperty*>(Property)->GetStruct() == Z_Construct_DStruct_Durin_FTransform();
-				const std::string SearchText = bIsTransform ? std::format("{} {} Location Rotation Scale", SourceName, DisplayName) : std::format("{} {}", SourceName, DisplayName);
-				if (ContainsInsensitive(SearchText, PropertySearchText.data())) VisibleProperties.push_back({Property, ArrayIndex});
-			}
-		});
-
 		auto* Actor = Cast<AActor>(Object);
 		auto* StaticMeshComponent = Cast<DStaticMeshComponent>(Object);
 		const std::shared_ptr<IObjectDetailsCustomization> DetailsCustomization = FLevelEditorCustomizationRegistry::Get().FindObjectDetails(Object->GetClass());
@@ -510,12 +489,6 @@ namespace Durin
 		FProperty* ActorTransformProperty = ActorRootComponent ? ActorRootComponent->GetClass()->FindPropertyByName("RelativeTransform") : nullptr;
 		const bool bShowActorTransform = ActorTransformProperty
 										 && ContainsInsensitive("Transform Location Rotation Scale", PropertySearchText.data());
-		if (!bShowActorTransform && !bShowStaticMeshMaterials && VisibleProperties.empty() && !DetailsCustomization)
-		{
-			ImGui::TextDisabled(PropertySearchText[0] != '\0' ? "No properties match the current search." : "This object has no reflected Edit properties.");
-			return;
-		}
-
 		if (!MonaImGui::BeginPropertyTable("DetailsPropertyTable")) return;
 
 		if (bShowActorTransform)
@@ -527,11 +500,27 @@ namespace Durin
 		const bool bReplaceReflectedProperties = DetailsCustomization
 			&& DetailsCustomization->DrawDetails(Context, Object, PropertyView, ViewContext);
 		if (bShowStaticMeshMaterials) DrawStaticMeshMaterials(Context, StaticMeshComponent);
-		if (!bReplaceReflectedProperties) for (const FVisibleProperty& VisibleProperty : VisibleProperties)
+		FObjectPropertyViewResult ObjectViewResult;
+		if (!bReplaceReflectedProperties)
 		{
-			PropertyView.EditProperty(ViewContext, Object, VisibleProperty.Property, VisibleProperty.ArrayIndex);
+			ObjectViewResult = PropertyView.EditObject(ViewContext, Object, {
+				.SearchText = PropertySearchText.data(),
+				.Filter = [StaticMeshComponent](const FProperty& Property, uint32) {
+					return !StaticMeshComponent || Property.NamePrivate != FName("Materials");
+				},
+				.bCreatePropertyTable = false,
+				.bShowEmptyMessage = false,
+			});
 		}
 		MonaImGui::EndPropertyTable();
+
+		if (!bShowActorTransform && !bShowStaticMeshMaterials && !DetailsCustomization
+			&& ObjectViewResult.VisiblePropertyCount == 0)
+		{
+			ImGui::TextDisabled(PropertySearchText[0] != '\0'
+				? "No properties match the current search."
+				: "This object has no reflected Edit properties.");
+		}
 	}
 
 	auto FDetailsPanel::DrawStaticMeshMaterials(FLevelEditorContext& Context, DStaticMeshComponent* Component) -> void

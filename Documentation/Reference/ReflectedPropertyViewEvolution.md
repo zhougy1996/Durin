@@ -7,8 +7,9 @@
 ## 1. 要解决的问题
 
 当前共享 View 已统一属性控件、编辑会话和事务，Level Editor customization
-中的直接写入也已完成迁移，但宿主仍需手动遍历属性，部分领域编辑器仍有
-重复的字符串属性查找。后续目标是：
+中的直接写入也已完成迁移，普通属性枚举也已进入 `EditObject()`。剩余演进
+重点是对象 customization、稳定 binding，以及部分领域编辑器中重复的字符串
+属性查找。后续目标是：
 
 - 普通 `DObject` 编辑只需传入对象，不再由面板遍历反射属性；
 - Actor、ActorComponent 和资产对象共用同一个对象入口；
@@ -30,24 +31,31 @@
 因此不建议改名为 `FObjectEditor`，也不建议使用隐藏全局状态的裸
 `EditObject(Object)` 函数。
 
-## 3. 候选公开 API
+## 3. 公开 API 基线与候选扩展
 
-### 3.1 EditObject：默认入口
+### 3.1 EditObject：已采用的默认入口
 
 ```cpp
 struct FObjectPropertyViewOptions
 {
-    bool bShowClassName = true;
-    bool bShowSearch = true;
+    std::string_view SearchText;
+    std::function<bool(const FProperty&, uint32)> Filter;
+    const char* PropertyTableId = "ReflectedPropertyTable";
     bool bCreatePropertyTable = true;
-    std::function<bool(const FProperty&)> Filter;
+    bool bShowEmptyMessage = true;
+};
+
+struct FObjectPropertyViewResult
+{
+    uint32 VisiblePropertyCount = 0;
+    bool bChanged = false;
 };
 
 auto FReflectedPropertyView::EditObject(
     const FReflectedPropertyViewContext& Context,
     DObject* Object,
     const FObjectPropertyViewOptions& Options = {}
-) -> void;
+) -> FObjectPropertyViewResult;
 ```
 
 `EditObject()` 应在内部完成：
@@ -58,8 +66,15 @@ auto FReflectedPropertyView::EditObject(
 - 生成 DisplayName 和静态数组标签；
 - 搜索与 Filter；
 - 创建可选的 Property Table；
-- 调用对象级 customization；
 - 对每个普通字段调用 `EditProperty()`。
+
+当前 Level Editor Details 传入自己的搜索缓冲区，并让 `EditObject()` 在宿主
+Property Table 内追加普通属性。这允许 Actor Transform、材质槽和现有 Details
+customization 在 builder 落地前继续共享一个表格。类名和搜索输入控件仍由
+Details 展示；View 已拥有搜索匹配规则，而不是由 Panel 重复枚举属性。
+
+对象级 customization 调度尚未进入 `EditObject()`；它属于下一阶段的 registry
+与 builder 设计，不应通过临时类型分支硬编码进通用 View。
 
 Actor 和 ActorComponent 不需要单独的遍历 API：
 
@@ -260,8 +275,8 @@ adapter、binding 和 customization 注入。
 
 ## 10. 建议实施顺序
 
-1. 增加 `EditObject()`，迁移 Details 的属性遍历、搜索和标签生成。
-2. 保持 `EditPropertyValue()` 及容器递归入口为私有实现。
+1. ~~增加 `EditObject()`，迁移 Details 的属性遍历、搜索和标签生成。~~
+2. ~~保持 `EditPropertyValue()` 及容器递归入口为私有实现。~~
 3. 引入最小对象 customization/builder，先承载 Actor Transform 和材质槽。
 4. 引入稳定 Binding，替换 string-map 过渡 API 的外部细节。
 5. 用参数描述表收敛 Material Editor 重复的标量/颜色/纹理行。

@@ -148,7 +148,73 @@ namespace Durin
 			}
 			return UINT64_MAX;
 		}
+
+		auto MakePropertySearchText(const FProperty& Property, uint32 ArrayIndex) -> std::string
+		{
+			const std::string SourceName = Property.GetArrayDim() > 1
+				? std::format("{}[{}]", Property.NamePrivate.ToString(), ArrayIndex)
+				: Property.NamePrivate.ToString();
+			const std::string DisplayName = MakeReflectedPropertyLabel(Property, ArrayIndex);
+			if (Property.GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
+				&& static_cast<const FStructProperty&>(Property).GetStruct() == Z_Construct_DStruct_Durin_FTransform())
+			{
+				return std::format("{} {} Location Rotation Scale", SourceName, DisplayName);
+			}
+			return std::format("{} {}", SourceName, DisplayName);
+		}
 	}
+
+	auto FReflectedPropertyView::EditObject(
+		const FReflectedPropertyViewContext& Context,
+		DObject* Object,
+		const FObjectPropertyViewOptions& Options
+	) -> FObjectPropertyViewResult
+	{
+		HandleOwnerContext(Context, Object);
+		if (!Object)
+		{
+			if (Options.bShowEmptyMessage) ImGui::TextDisabled("Nothing to inspect.");
+			return {};
+		}
+
+		struct FVisibleProperty
+		{
+			FProperty* Property = nullptr;
+			uint32 ArrayIndex = 0;
+		};
+		std::vector<FVisibleProperty> VisibleProperties;
+		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
+			if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit)) return;
+			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
+			{
+				if (Options.Filter && !Options.Filter(*Property, ArrayIndex)) continue;
+				if (!ContainsInsensitive(MakePropertySearchText(*Property, ArrayIndex), Options.SearchText)) continue;
+				VisibleProperties.push_back({Property, ArrayIndex});
+			}
+		});
+
+		FObjectPropertyViewResult Result{.VisiblePropertyCount = static_cast<uint32>(VisibleProperties.size())};
+		if (VisibleProperties.empty())
+		{
+			if (Options.bShowEmptyMessage)
+			{
+				ImGui::TextDisabled(Options.SearchText.empty()
+					? "This object has no reflected Edit properties."
+					: "No properties match the current search.");
+			}
+			return Result;
+		}
+
+		const bool bOwnsPropertyTable = Options.bCreatePropertyTable;
+		if (bOwnsPropertyTable && !MonaImGui::BeginPropertyTable(Options.PropertyTableId)) return Result;
+		for (const FVisibleProperty& VisibleProperty : VisibleProperties)
+		{
+			Result.bChanged |= EditProperty(Context, Object, VisibleProperty.Property, VisibleProperty.ArrayIndex);
+		}
+		if (bOwnsPropertyTable) MonaImGui::EndPropertyTable();
+		return Result;
+	}
+
 	auto FReflectedPropertyView::EditProperty(
 		const FReflectedPropertyViewContext& Context,
 		DObject* Object,

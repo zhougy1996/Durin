@@ -21,11 +21,32 @@ namespace Durin
 		std::string Label;
 	};
 
+	struct FObjectPropertyViewOptions
+	{
+		std::string_view SearchText;
+		std::function<bool(const FProperty&, uint32)> Filter;
+		const char* PropertyTableId = "ReflectedPropertyTable";
+		bool bCreatePropertyTable = true;
+		bool bShowEmptyMessage = true;
+	};
+
+	struct FObjectPropertyViewResult
+	{
+		uint32 VisiblePropertyCount = 0;
+		bool bChanged = false;
+	};
+
 	// An embeddable immediate-mode property view. It owns only transient widget/edit
 	// state; committed history remains owned by the transaction manager supplied by its host.
 	class FReflectedPropertyView
 	{
 	public:
+		DURINED_API auto EditObject(
+			const FReflectedPropertyViewContext& Context,
+			DObject* Object,
+			const FObjectPropertyViewOptions& Options = {}
+		) -> FObjectPropertyViewResult;
+
 		DURINED_API auto EditProperty(
 			const FReflectedPropertyViewContext& Context,
 			DObject* Object,

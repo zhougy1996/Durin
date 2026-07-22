@@ -214,8 +214,15 @@ context containing:
 - an error-reporting callback; and
 - read-only state.
 
-The current primary API is `EditProperty()`. It renders and edits one top-level reflected
-property and recursively handles supported structs, arrays, and maps.
+`EditObject()` is the default object-level API. It enumerates inherited `Edit`
+properties, expands fixed arrays, applies caller-provided search and filtering,
+generates default labels, and can either own its property table or compose rows
+inside a table owned by the host. It returns the visible row count and whether
+any row changed so a composing host can provide its own empty state.
+
+`EditProperty()` remains the controlled composition API. It renders and edits
+one top-level reflected property and recursively handles supported structs,
+arrays, and maps.
 `EditPropertyValue()` and the container-recursion helpers are private so callers
 cannot construct unsafe container addresses or edit paths.
 
@@ -237,8 +244,11 @@ or workspace changes.
 ## Current Host Integration
 
 Level Editor Details owns one property view. It still owns object selection,
-search, class display, the property table, customization dispatch, and reflected
-property enumeration. It delegates supported property rows to `EditProperty()`.
+the search input state, class display, customization dispatch, and a shared
+property table used to compose domain rows. Ordinary reflected-property
+enumeration, search matching, fixed-array expansion, and labels are delegated
+to `EditObject()`; Actor transform, static-mesh material slots, and registered
+customizations continue to compose through the same view.
 
 Material Editor owns another property view but supplies a semantic parameter
 layout. It retains inherited-value and override presentation, color and range
@@ -267,7 +277,9 @@ Automated coverage currently verifies:
 - spline continuous edits, Cancel, structural edits, stable nested paths, cache
   rebuilds, setter clamping, and Undo/Redo; and
 - camera continuous edits, atomic cross-field clamping, Cancel, stable nested
-  paths, aspect-ratio edits, and Undo/Redo.
+  paths, aspect-ratio edits, and Undo/Redo; and
+- object-level `Edit` enumeration, filtering, fixed-array expansion, search,
+  and default fixed-array labels.
 
 UI behavior still requires editor smoke and manual interaction coverage for
 selection changes, document changes, read-only PIE state, save, and shutdown.
