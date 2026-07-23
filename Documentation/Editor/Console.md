@@ -64,14 +64,12 @@ example plain "two words" 'three words' escaped\ value
 ## Output Controls
 
 - **Search output** filters log messages, command echoes, results, and errors.
-- Log records use resizable **Time**, **Level**, **Source**, and **Message**
-  columns. Column widths are restored with the rest of the ImGui layout.
-  Hover a Source value to inspect its module, thread, and source location.
+- Log records keep their compact text presentation while aligning **Time**,
+  **Level**, **Source**, and **Message** at stable positions. Hover a Source
+  value to inspect its module, thread, and source location.
 - The level buttons independently show or hide Trace, Debug, Info, Warn, Error,
   and Fatal log records. They do not hide command results. Fatal uses the error
   presentation color but remains an independent filter level.
-- Warn, Error, Fatal, history-gap, and command-error rows use severity accents
-  so important output remains easy to scan.
 - **Follow** keeps the view at the newest record while the user is already at
   the bottom. Scrolling upward temporarily suspends following.
 - The toolbar and context menu provide **Copy** for currently visible,
