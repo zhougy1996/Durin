@@ -12,7 +12,7 @@ This directory tracks verified engineering problems that remain unresolved. Issu
 
 | Issue | Resolution |
 | --- | --- |
-| [Shader Loading and Cache](ShaderLoadingAndCache.md) | Completed by the [Shader Cache Hardening Plan](../Plans/ShaderCacheHardening.md) on 2026-07-23 |
+| [Shader Loading and Cache](ShaderLoadingAndCache.md) | Completed by the [Shader Cache Hardening Plan](../Plans/Archive/ShaderCacheHardening.md) on 2026-07-23 |
 
 ## Documentation Boundaries
 

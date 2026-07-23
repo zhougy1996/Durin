@@ -1,6 +1,6 @@
 # Shader Cache Hardening Plan
 
-Last reviewed: 2026-07-23
+Last reviewed: 2026-07-24
 
 ## Current Status
 
@@ -38,7 +38,7 @@ Make the runtime shader cache self-validating, cheap on unchanged warm starts, s
 
 ## Current Foundations and Gaps
 
-The existing compile service already separates path resolution, dependency discovery, fingerprinting, compilation, reflection, and storage. Variant keys include source content and normalized macros, and `FFileFingerprintCache` avoids repeated hashes within one process. The unresolved gaps are recorded in [Shader Loading and Cache Issues](../Issues/ShaderLoadingAndCache.md).
+The existing compile service already separates path resolution, dependency discovery, fingerprinting, compilation, reflection, and storage. Variant keys include source content and normalized macros, and `FFileFingerprintCache` avoids repeated hashes within one process. The unresolved gaps are recorded in [Shader Loading and Cache Issues](../../Issues/ShaderLoadingAndCache.md).
 
 ## Implementation Stages
 
@@ -121,10 +121,10 @@ The existing compile service already separates path resolution, dependency disco
 
 ## Related Documentation
 
-- [Shader Loading and Cache Issues](../Issues/ShaderLoadingAndCache.md)
-- [Shader Cache](../Architecture/ShaderCache.md)
-- [Versioning](../Architecture/Versioning.md)
-- [Native C++ Tests](../Setup/NativeTests.md)
+- [Shader Loading and Cache Issues](../../Issues/ShaderLoadingAndCache.md)
+- [Shader Cache](../../Architecture/ShaderCache.md)
+- [Versioning](../../Architecture/Versioning.md)
+- [Native C++ Tests](../../Setup/NativeTests.md)
 
 ## Related Code
 

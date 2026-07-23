@@ -76,6 +76,6 @@ Cache schemas are intentionally strict and do not migrate old layouts. Schema, c
 
 ## Related Documentation
 
-- [Shader Cache Hardening Plan](../Plans/ShaderCacheHardening.md)
+- [Shader Cache Hardening Plan](../Plans/Archive/ShaderCacheHardening.md)
 - [Versioning](Versioning.md)
 - [Native C++ Tests](../Setup/NativeTests.md)

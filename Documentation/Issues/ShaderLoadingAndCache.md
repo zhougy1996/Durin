@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Resolved on 2026-07-23 by the completed [Shader Cache Hardening Plan](../Plans/ShaderCacheHardening.md). Phase 1 landed in `e9411ee2`, Phase 2 in `946bf3b8`, and the Phase 3 commit containing this resolution closes the remaining resource and disk-lifetime findings.
+Resolved on 2026-07-23 by the completed [Shader Cache Hardening Plan](../Plans/Archive/ShaderCacheHardening.md). Phase 1 landed in `e9411ee2`, Phase 2 in `946bf3b8`, and the Phase 3 commit containing this resolution closes the remaining resource and disk-lifetime findings.
 
 The adopted contract is documented in [Shader Cache](../Architecture/ShaderCache.md). Cache loads are self-validating and atomically published, macro-specific manifests make unchanged warm starts inexpensive, identical requests are coalesced, compiler and artifact identities are unambiguous, shader-map resources are reclaimable, and disk variants are retained within explicit bounds.
 
