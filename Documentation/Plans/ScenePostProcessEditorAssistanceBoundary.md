@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Planning complete; implementation has not started. The renderer currently draws the editor world grid, overlay lines, icons, and gizmos into scene color before FXAA. FXAA therefore softens those editor-only primitives, and a future temporal anti-aliasing path would also risk accumulating them into history without valid motion vectors.
+Stage 0 is complete. Renderer-owned builders now define independently testable scene-target, scene-post-process, and final editor-assistance layouts. Scene depth is preserved, post-process color remains attachment-ready, and a no-draw final assistance contract pass plus present/offscreen validation pipelines exercise the selected color-plus-`D32` Vulkan compatibility before draw-order migration. The renderer still draws editor assistance into scene color before FXAA until Stage 1 and Stage 3 move submission and composition.
 
 ## Goal
 
@@ -95,11 +95,11 @@ Establish a renderer-level boundary where scene anti-aliasing and other scene po
 
 ### Stage 0: Establish testable phase and attachment contracts
 
-- [ ] Extract or expose narrowly scoped render-target layout builders so scene, scene-post-process, and final editor-assistance contracts can be tested without starting the editor.
-- [ ] Define names that distinguish scene targets from final viewport output and distinguish scene rendering from editor-assistance preparation and drawing.
-- [ ] Add focused tests for scene-depth store/load requirements and present versus offscreen final layouts.
-- [ ] Confirm through a minimal Vulkan pipeline/render-pass path that a final color target and preserved `D32` depth attachment are compatible for both output variants.
-- [ ] Record any RHI or Vulkan constraint discovered before migrating draw order.
+- [x] Extract or expose narrowly scoped render-target layout builders so scene, scene-post-process, and final editor-assistance contracts can be tested without starting the editor.
+- [x] Define names that distinguish scene targets from final viewport output and distinguish scene rendering from editor-assistance preparation and drawing. The selected phase names are scene rendering, scene post-process, editor-assistance preparation, and editor-assistance drawing/composition; Stage 1 introduces the latter two entry points.
+- [x] Add focused tests for scene-depth store/load requirements and present versus offscreen final layouts.
+- [x] Confirm through a minimal Vulkan pipeline/render-pass path that a final color target and preserved `D32` depth attachment are compatible for both output variants.
+- [x] Record any RHI or Vulkan constraint discovered before migrating draw order. No new RHI abstraction is required; existing load/store, initial/final layout, and access contracts represent the boundary.
 
 #### Acceptance Gate
 

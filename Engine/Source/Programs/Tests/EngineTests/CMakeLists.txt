@@ -8,6 +8,7 @@ add_durin_test(EngineTests
 	Private/WorldTests.cpp
 	Private/ViewportTests.cpp
 	Private/EditorGridRenderingTests.cpp
+	Private/RendererRenderTargetLayoutTests.cpp
 	Private/EditorNotificationTests.cpp
 	Private/EditorWorkspaceTests.cpp
 	Private/EditorTextureSmokeTests.cpp
