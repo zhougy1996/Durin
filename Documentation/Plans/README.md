@@ -4,6 +4,7 @@ These plans have an active execution path. Plan authoring and archival rules are
 
 | Plan | Primary Scope |
 | --- | --- |
+| [BuildTool Shell Consistency](BuildToolShellConsistency.md) | Cross-platform argument integrity, CLI/shell command parity, failure diagnostics, and lazy shell initialization |
 | [Actor Component System](ActorComponentSystem.md) | Reflected actor/component ownership, lifecycle, world integration, transforms, scene registration, and serialization |
 | [SkyBoxComponent](SkyBoxComponent.md) | Complete vertical slice for the first static cubemap sky background |
 | [Texture Support](TextureSupport.md) | Texture2D assets, platform data, material sampling, and validation |
