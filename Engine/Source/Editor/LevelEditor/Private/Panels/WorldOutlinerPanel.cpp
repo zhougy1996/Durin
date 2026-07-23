@@ -452,6 +452,10 @@ namespace Durin
 		const ImGuiIO& IO = ImGui::GetIO();
 		const bool bOutlinerFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 		if (bOutlinerFocused && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A, false)) Context.SetSelectedActors(VisibleActors);
+		if (bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F, false))
+		{
+			if (AActor* Actor = Context.GetPrimarySelectedActor(); Actor && Context.FocusActor) Context.FocusActor(Actor);
+		}
 		if (!Context.bReadOnly && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false))
 		{
 			if (AActor* Actor = Context.GetPrimarySelectedActor())
