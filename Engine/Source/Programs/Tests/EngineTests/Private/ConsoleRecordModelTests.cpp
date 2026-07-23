@@ -47,6 +47,19 @@ TEST(FConsoleRecordModelTests, RepresentsHistoryGapsAndFatalLogs)
 	EXPECT_EQ(Durin::FConsoleRecordModel::LogLevelCount, 6u);
 }
 
+TEST(FConsoleRecordModelTests, SplitsMultilineTextIntoSingleLineRecords)
+{
+	Durin::FConsoleRecordModel Model;
+	Model.AddText(Durin::EConsoleRecordType::Result, "Available commands:\r\n  help\n  pie.play");
+
+	const std::deque<Durin::FConsoleRecord>& Records = Model.GetRecords();
+	ASSERT_EQ(Records.size(), 3u);
+	EXPECT_EQ(Records[0].Type, Durin::EConsoleRecordType::Result);
+	EXPECT_EQ(Records[0].Text, "Available commands:");
+	EXPECT_EQ(Records[1].Text, "  help");
+	EXPECT_EQ(Records[2].Text, "  pie.play");
+}
+
 TEST(FConsoleRecordModelTests, KeepsHistoryGapVisibleAtCapacity)
 {
 	Durin::FConsoleRecordModel Model;

@@ -10,8 +10,17 @@ namespace Durin
 
 	auto FConsoleRecordModel::AddText(EConsoleRecordType Type, std::string Text) -> void
 	{
-		Records.push_back({Type, {}, std::move(Text)});
-		Trim();
+		size_t LineStart = 0;
+		for (;;)
+		{
+			const size_t LineEnd = Text.find('\n', LineStart);
+			std::string Line = Text.substr(LineStart, LineEnd - LineStart);
+			if (!Line.empty() && Line.back() == '\r') Line.pop_back();
+			Records.push_back({Type, {}, std::move(Line)});
+			Trim();
+			if (LineEnd == std::string::npos || LineEnd + 1 == Text.size()) break;
+			LineStart = LineEnd + 1;
+		}
 	}
 
 	auto FConsoleRecordModel::SetHistoryGap(uint64 EvictedRecordCount) -> void
