@@ -430,6 +430,8 @@ TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValid
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), {}, nullptr, &Error)) << Error;
 	EXPECT_EQ(Session.GetDescription(), "Edit Value");
 	EXPECT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::NoChange);
+	ASSERT_EQ(Object.Changes.size(), 1u);
+	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Cancelled);
 }
 
 TEST(FReflectedPropertyEditSessionTests, CancelRestoresOriginalValueAndOwnedPathData)
@@ -466,9 +468,11 @@ TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifyi
 	EXPECT_EQ(Container.Value, 5);
 	EXPECT_TRUE(Object.Changes.empty());
 	EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::NoChange);
+	ASSERT_EQ(Object.Changes.size(), 1u);
+	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Committed);
 }
 
-TEST(FReflectedPropertyEditSessionTests, CharacterizesPartialMutationAfterAdapterFailure)
+TEST(FReflectedPropertyEditSessionTests, RollsBackPartialMutationAfterAdapterFailure)
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
@@ -481,11 +485,13 @@ TEST(FReflectedPropertyEditSessionTests, CharacterizesPartialMutationAfterAdapte
 
 		EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8), &Error), Durin::EReflectedPropertyEditResult::Failed);
 		EXPECT_EQ(Error, "Failed after mutation for testing.");
-		EXPECT_EQ(Container.Value, 8);
+		EXPECT_EQ(Container.Value, 5);
 		EXPECT_FALSE(Session.HasChanges());
 		EXPECT_TRUE(Object.Changes.empty());
 	}
-	EXPECT_EQ(Container.Value, 8);
+	EXPECT_EQ(Container.Value, 5);
+	ASSERT_EQ(Object.Changes.size(), 1u);
+	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Cancelled);
 }
 
 TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForRetry)
@@ -507,9 +513,12 @@ TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForR
 	EXPECT_EQ(Session.Cancel(&Error), Durin::EReflectedPropertyEditResult::Changed);
 	EXPECT_FALSE(Session.IsActive());
 	EXPECT_EQ(Container.Value, 5);
+	ASSERT_EQ(Object.Changes.size(), 2u);
+	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Interactive);
+	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Cancelled);
 }
 
-TEST(FReflectedPropertyEditSessionTests, CharacterizesMissingTerminalEventAfterReturningToOriginalValue)
+TEST(FReflectedPropertyEditSessionTests, EmitsTerminalEventAfterReturningToOriginalValue)
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
@@ -520,9 +529,10 @@ TEST(FReflectedPropertyEditSessionTests, CharacterizesMissingTerminalEventAfterR
 	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 5)), Durin::EReflectedPropertyEditResult::Changed);
 
 	EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::NoChange);
-	ASSERT_EQ(Object.Changes.size(), 2u);
+	ASSERT_EQ(Object.Changes.size(), 3u);
 	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Interactive);
 	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Interactive);
+	EXPECT_EQ(Object.Changes[2].Phase, Durin::EPropertyChangePhase::Committed);
 }
 
 TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAbandonPreviewState)
@@ -534,7 +544,8 @@ TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAba
 		Durin::FReflectedPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "No-op Edit"));
 		EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::NoChange);
-		EXPECT_TRUE(Object.Changes.empty());
+		ASSERT_EQ(Object.Changes.size(), 1u);
+		EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Committed);
 	}
 
 	{
@@ -544,9 +555,9 @@ TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAba
 		EXPECT_EQ(Container.Value, 27);
 	}
 	EXPECT_EQ(Container.Value, 13);
-	ASSERT_EQ(Object.Changes.size(), 2u);
-	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Interactive);
-	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Cancelled);
+	ASSERT_EQ(Object.Changes.size(), 3u);
+	EXPECT_EQ(Object.Changes[1].Phase, Durin::EPropertyChangePhase::Interactive);
+	EXPECT_EQ(Object.Changes[2].Phase, Durin::EPropertyChangePhase::Cancelled);
 }
 
 TEST(FReflectedPropertyEditSessionTests, KeepsRegisteredTargetAliveForTheSession)
@@ -632,28 +643,24 @@ TEST(FReflectedPropertyEditSessionTests, NoOpAndCancelledEditsDoNotCreateTransac
 	EXPECT_TRUE(Transactions.ConsumeEvents().empty());
 }
 
-TEST(FReflectedPropertyEditSessionTests, FailedUndoKeepsHistoryAndReportsAdapterError)
+TEST(FReflectedPropertyEditSessionTests, RejectsUnregisteredAdapterFromTransactionHistory)
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
 	DEditObserver Object;
-	FUndoRejectingMutationAdapter Adapter;
+	FRetryableRestoreMutationAdapter Adapter;
+	Adapter.bAllowRestore = true;
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", &Adapter, nullptr, &Transactions));
 	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8)), Durin::EReflectedPropertyEditResult::Changed);
-	ASSERT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
-	Transactions.ConsumeEvents();
-
-	EXPECT_FALSE(Transactions.Undo());
-	EXPECT_EQ(Container.Value, 8);
-	EXPECT_TRUE(Transactions.CanUndo());
-	EXPECT_FALSE(Transactions.CanRedo());
-	const std::vector<Durin::FEditorTransactionEvent> Events = Transactions.ConsumeEvents();
-	ASSERT_EQ(Events.size(), 1u);
-	EXPECT_EQ(Events[0].Type, Durin::EEditorTransactionEventType::Failed);
-	EXPECT_EQ(Events[0].Operation, Durin::EEditorTransactionOperation::Undo);
-	EXPECT_EQ(Events[0].Details, "Undo rejected for testing.");
+	std::string Error;
+	EXPECT_EQ(Session.Commit(&Error), Durin::EReflectedPropertyEditResult::Failed);
+	EXPECT_EQ(Error, "Transactional reflected-property edits require a registered mutation adapter.");
+	EXPECT_TRUE(Session.IsActive());
+	EXPECT_FALSE(Transactions.CanUndo());
+	EXPECT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_EQ(Container.Value, 5);
 }
 
 TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsRegisteredTargetAlive)
@@ -851,6 +858,16 @@ TEST(FReflectedPropertyEditSessionTests, AdapterLookupSelectsMostDerivedClassInd
 		Durin::FReflectedPropertyEditTarget::ForMember(Camera, Property)), DerivedAddress);
 	EXPECT_EQ(&Durin::GetReflectedPropertyMutationAdapter(
 		Durin::FReflectedPropertyEditTarget::ForMember(Scene, Property)), BaseAddress);
+
+	{
+		Durin::FReflectedPropertyEditTarget TransactionTarget = Durin::FReflectedPropertyEditTarget::ForMember(Scene, Property);
+		Durin::FPropertyValueSnapshot Snapshot;
+		ASSERT_TRUE(Durin::CapturePropertyValue(Property, Scene, 0, Snapshot));
+		Durin::FReflectedPropertyTransaction Transaction(
+			TransactionTarget, Snapshot, Snapshot, "Resolve Registered Adapter");
+		EXPECT_FALSE(Transaction.Undo());
+		EXPECT_EQ(Transaction.GetDetails(Durin::EEditorTransactionOperation::Undo), "Undo rejected for testing.");
+	}
 
 	Durin::MarkAsGarbage(Scene);
 	Durin::MarkAsGarbage(Camera);

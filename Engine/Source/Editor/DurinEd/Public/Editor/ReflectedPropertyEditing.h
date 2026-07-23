@@ -77,12 +77,13 @@ namespace Durin
 	class FReflectedPropertyTransaction final : public IEditorTransaction
 	{
 	public:
+		// Transactions retain stable identity and resolve any registered exceptional
+		// adapter when Undo or Redo executes; they never retain an adapter pointer.
 		DURINED_API FReflectedPropertyTransaction(
 			FReflectedPropertyEditTarget InTarget,
 			FPropertyValueSnapshot InBefore,
 			FPropertyValueSnapshot InAfter,
-			std::string InDescription,
-			const IReflectedPropertyMutationAdapter* InAdapter = nullptr
+			std::string InDescription
 		);
 		DURINED_API ~FReflectedPropertyTransaction() override;
 		FReflectedPropertyTransaction(const FReflectedPropertyTransaction&) = delete;
@@ -95,14 +96,12 @@ namespace Durin
 
 	private:
 		auto Restore(const FPropertyValueSnapshot& Snapshot, EPropertyChangeOrigin Origin) -> bool;
-		auto Notify(EPropertyChangeOrigin Origin) const -> void;
 
 		FReflectedPropertyEditTarget Target;
 		FPropertyValueSnapshot Before;
 		FPropertyValueSnapshot After;
 		std::string Description;
 		std::string LastError;
-		const IReflectedPropertyMutationAdapter* Adapter = nullptr;
 		bool bObjectRooted = false;
 	};
 
@@ -125,7 +124,8 @@ namespace Durin
 			const FReflectedPropertyEditTarget& InTarget,
 			// An empty description uses "Edit <MemberProperty>" after target validation.
 			std::string_view InDescription,
-			// Custom adapters are registry-owned and must outlive the session and its committed transaction.
+			// A custom adapter may drive a non-transactional session directly. Transactional
+			// edits require the same adapter to be registered by class/member identity.
 			const IReflectedPropertyMutationAdapter* InAdapter = nullptr,
 			std::string* OutError = nullptr,
 			FEditorTransactionManager* InTransactionManager = nullptr
@@ -142,7 +142,6 @@ namespace Durin
 		auto GetCurrentValue() const -> const FPropertyValueSnapshot& { return CurrentValue; }
 
 	private:
-		auto Notify(EPropertyChangePhase Phase) const -> void;
 		auto Reset() -> void;
 
 		FReflectedPropertyEditTarget Target;

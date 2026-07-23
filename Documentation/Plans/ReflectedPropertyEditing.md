@@ -9,18 +9,20 @@ transactions, bindings, and semantic mutation adapters are implemented. The
 remaining UI migration and validation work is now secondary to simplifying the
 mutation model itself.
 
-Phases 0 through 3 are complete: adapter semantics are classified, proposal
+Phases 0 through 4 are complete: adapter semantics are classified, proposal
 storage is owned by an internal property draft, active sessions/transactions
 re-resolve ephemeral leaf storage, and generic mutations now pass through
 detached object validation/normalization with rollback protection. All built-in
 semantic adapters have been migrated to object hooks, leaving no proven policy
-exception. Phase 4 is next but has not started.
+exception. Sessions now use one atomic mutation executor, failed restoration
+remains retryable, every interaction emits one terminal event, and transactions
+resolve any registered exceptional policy when Undo/Redo executes. Phase 5 is
+next but has not started.
 
-The current implementation exposes too many overlapping concepts: the view
-constructs proposals in scratch storage, edit targets retain both stable and
-ephemeral addresses, every edit resolves an adapter, and object semantics may
-live in a setter, an adapter, or `PostEditChangeProperty()`. This plan narrows
-that model before more property-specific behavior is added.
+The remaining simplification work is concentrated at the host and public API
+boundaries. Host transitions still need one enforced cancellation policy, and
+the now-unused built-in adapter surface remains available until final cleanup.
+Those boundaries are narrowed before more property-specific behavior is added.
 
 The implemented architecture remains documented in
 [Reflected Property Editing](../Architecture/ReflectedPropertyEditing.md) until
@@ -329,17 +331,38 @@ order does not change selection.
 
 ### Stage 4: Simplify Session and Transaction Semantics
 
-- [ ] Make session Apply, Commit, and Cancel delegate to one atomic mutation
+- [x] Make session Apply, Commit, and Cancel delegate to one atomic mutation
   operation rather than duplicating adapter, snapshot, and notification rules.
-- [ ] Define a recoverable session state for failed Apply or Cancel; do not
+- [x] Define a recoverable session state for failed Apply or Cancel; do not
   clear the target or original snapshot until live restoration succeeds.
-- [ ] Replace `bUseTransaction` with explicit APIs for editable transactional
+- [x] Replace `bUseTransaction` with explicit APIs for editable transactional
   values versus genuinely read-only/display-only values. No writable path may
   bypass validation and notification as a side effect of disabling history.
-- [ ] Store stable target identity and before/after snapshots in transactions;
+- [x] Store stable target identity and before/after snapshots in transactions;
   resolve generic mutation or the registered policy at execution time.
-- [ ] Emit one terminal event for every begun interaction, including an edit
+- [x] Emit one terminal event for every begun interaction, including an edit
   that ends at its original value, while keeping no-op history empty.
+
+#### Implementation Result
+
+Apply, Commit, Cancel, Undo, and Redo now share one mutation executor that
+resolves stable targets, applies generic or exceptional semantics, captures the
+actual result, rolls exceptional partial failure back, and owns post-event
+ordering. A failed Apply or Cancel updates the session only from observable live
+state and keeps the stable target and original snapshot until restoration can
+be retried. Destruction reports a fatal editor error if its final safety cancel
+cannot restore the preview.
+
+The earlier `bUseTransaction` bypass is no longer present. Writable submissions
+always enter the session, validation, notification, and cancellation pipeline;
+`bReadOnly` is the explicit display-only mode, while the host transaction
+manager controls history ownership without disabling mutation semantics.
+
+Transactions retain only stable target identity and snapshots. Exceptional
+adapters must be registered by class/member identity before a transactional
+edit can commit, and Undo/Redo resolves that registration at execution time.
+Commit and Cancel deliver a terminal event even when the final snapshot equals
+the original, without dirtying the package or adding no-op history.
 
 #### Acceptance Gate
 

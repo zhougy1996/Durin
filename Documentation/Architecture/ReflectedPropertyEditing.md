@@ -165,9 +165,11 @@ registered dependencies without a setter-plus-direct-storage dual write.
 
 The process-lifetime adapter registry remains temporarily available as an
 exception mechanism and for compatibility tests, but has no built-in
-registrations. Transactions retain an explicitly selected exceptional adapter
-for later Undo/Redo. Lookup walks the edited object's class hierarchy from most
-derived to base, so selection is independent of registration order.
+registrations. Transactional edits may use an exceptional adapter only through
+validated class/member registration. Transactions retain stable target identity
+and snapshots, then resolve the adapter again when Undo or Redo executes. Lookup
+walks the edited object's class hierarchy from most derived to base, so
+selection is independent of registration order.
 
 ## Edit Session Lifecycle
 
@@ -185,13 +187,11 @@ Apply(proposal)
   notify Interactive when it changed
 
 Commit()
-  ignore a no-op
   notify Committed
-  mark the package dirty
-  CommitApplied() one before/after transaction
+  if changed, mark the package dirty and CommitApplied() one transaction
 
 Cancel()
-  restore through the same generic hook path or selected adapter
+  if changed, restore through the same generic hook path or selected adapter
   notify Cancelled
   create no transaction
 ```
@@ -199,19 +199,26 @@ Cancel()
 Checkboxes, selections, and structural buttons normally begin and commit in one
 frame. Drag, text, color, vector, and transform widgets keep the session active
 until deactivation. Repeated `Apply()` calls therefore produce preview events
-but only one transaction. Escape restores the original value.
+but only one transaction. Escape restores the original value. Every successful
+Begin has exactly one terminal Committed or Cancelled event, including an
+interaction that never changes or returns to its original snapshot; those no-op
+interactions do not dirty the package or enter history.
 
 Destroying a session cancels an applied preview as a safety fallback. Hosts
 should still explicitly commit or cancel when selection, document, read-only
-state, or workspace activity changes so errors can be reported deliberately.
+state, or workspace activity changes so errors can be reported deliberately. A
+failed Apply or Cancel keeps the session active with its stable target and
+original snapshot so restoration can be retried. If the destructor's final
+safety cancel fails, it emits a fatal editor error instead of silently
+discarding the preview state.
 
 ## Transactions and Dirty State
 
-`FReflectedPropertyTransaction` retains the target, before/after snapshots,
-description, and selected mutation implementation. Generic Undo and Redo use
-the same detached pre-apply and rollback path as interactive edits. Both
-deliver the same post notification with the
-corresponding origin.
+`FReflectedPropertyTransaction` retains the stable target, before/after
+snapshots, and description. It resolves the generic implementation or registered
+exceptional adapter when Undo or Redo executes. Both operations use the same
+atomic execution and rollback path as interactive edits and deliver the same
+post notification with the corresponding origin.
 
 The session calls `FEditorTransactionManager::CommitApplied()` because the live
 interactive edit has already placed the object in its final state. A no-op or
@@ -327,8 +334,11 @@ update another; Cancel and Undo restore the complete projection state.
 Automated coverage currently verifies:
 
 - preview/commit/cancel event phases;
+- terminal events for no-op and edit-away-and-back interactions;
 - one transaction for a continuous interaction;
 - no history for no-op, cancelled, or rejected edits;
+- exceptional-adapter partial-apply rollback and cancel retry;
+- execution-time transaction adapter resolution;
 - object and snapshot reference lifetime;
 - array and map stable paths and structural restoration;
 - binding re-resolution after map rehash and presence across Undo/Redo;
