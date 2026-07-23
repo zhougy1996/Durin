@@ -84,12 +84,14 @@ GridFragmentOutput FragmentMain(GridVSOutput input)
         discard;
 
     float3 rayDirection = rayDelta / rayLength;
+    // The visible grazing fade reaches zero well before this numerical guard, so the
+    // hard rejection cannot expose a horizon edge or a derivative-quad seam.
     if (!IsFinite(rayDirection) || abs(rayDirection.z) <= 1.0e-6)
         discard;
 
     float rayDistance = (Grid.GridPlane.x - nearPosition.z) / rayDirection.z;
     float fadeDistance = max(Grid.ViewPositionFadeDistance.w, 1.0);
-    if (!IsFinite(rayDistance) || rayDistance < 0.0 || rayDistance > fadeDistance)
+    if (!IsFinite(rayDistance) || rayDistance < 0.0)
         discard;
 
     float3 worldPosition = nearPosition + rayDirection * rayDistance;
@@ -103,10 +105,15 @@ GridFragmentOutput FragmentMain(GridVSOutput input)
 
     float3 toView = Grid.ViewPositionFadeDistance.xyz - worldPosition;
     float distanceToView = length(toView);
+    // Reject only after the smooth distance fade has reached zero. Keeping this hard
+    // bound outside the visible interval prevents an early clip edge near the far range.
+    if (!IsFinite(distanceToView) || distanceToView >= fadeDistance)
+        discard;
+
     float distanceFade = 1.0 - smoothstep(fadeDistance * 0.55, fadeDistance, distanceToView);
     // A grid viewed edge-on aliases heavily and no longer conveys useful scale, so let it
     // disappear before the projected cells collapse into a noisy horizon band.
-    float angleFade = smoothstep(0.025, 0.16, abs(toView.z) / max(distanceToView, 1.0e-5));
+    float angleFade = smoothstep(0.025, 0.16, abs(rayDirection.z));
 
     float2 worldPositionDx = ddx(worldPosition.xy);
     float2 worldPositionDy = ddy(worldPosition.xy);

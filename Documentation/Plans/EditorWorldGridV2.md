@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stages 0 and 1 are implemented and validated. Stage 2 is implemented and passes focused automated checks plus the real Vulkan shader/pipeline smoke test; its visual acceptance scenarios remain part of the later validation matrix. The renderer uploads validated, mutually inverse `WorldToClip` and `ClipToWorld` transforms through the V2 uniform layout and skips the grid draw before uniform allocation when the view-projection transform is invalid. The grid now uses a resource-free fullscreen vertex stage, reconstructs each fragment's world-space ray intersection with the horizontal grid plane, and publishes the reprojected hit depth while retaining the existing appearance logic as the Stage 3 baseline.
+Stages 0 through 3 are implemented. Stages 0 and 1 are validated; Stages 2 and 3 pass focused automated checks plus the real Vulkan shader/pipeline smoke test, while their visual acceptance scenarios remain in the Stage 4 validation matrix. The grid uses a resource-free fullscreen vertex stage, reconstructs each fragment's world-space ray intersection with the horizontal grid plane, publishes the reprojected hit depth, and evaluates distance, grazing-angle, derivative-safe decimal LOD, and world-axis appearance from the reconstructed hit.
 
 ## Goal
 
@@ -125,12 +125,12 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 
 ### Stage 3: Port adaptive appearance and stabilize boundary behavior
 
-- [ ] Drive distance fade from the reconstructed world hit to the camera position.
-- [ ] Drive grazing-angle fade from the reconstructed ray direction and preserve a smooth transition before the parallel-ray rejection threshold.
-- [ ] Compute world-position derivatives before decimal LOD selection and reuse them for line antialiasing.
-- [ ] Port the existing three-level decimal LOD blend without changing its level-renaming continuity across decade boundaries.
-- [ ] Port X/Y world axes and existing color priority.
-- [ ] Ensure invalid lanes, horizon-adjacent lanes, and hard discard thresholds do not introduce a new quad-derivative seam.
+- [x] Drive distance fade from the reconstructed world hit to the camera position.
+- [x] Drive grazing-angle fade from the reconstructed ray direction and preserve a smooth transition before the parallel-ray rejection threshold.
+- [x] Compute world-position derivatives before decimal LOD selection and reuse them for line antialiasing.
+- [x] Port the existing three-level decimal LOD blend without changing its level-renaming continuity across decade boundaries.
+- [x] Port X/Y world axes and existing color priority.
+- [x] Ensure invalid lanes, horizon-adjacent lanes, and hard discard thresholds do not introduce a new quad-derivative seam.
 
 #### Acceptance Gate
 
@@ -142,7 +142,7 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 - [ ] Complete a full `all` build using the repository BuildTool workflow.
 - [ ] Run `DurinEditor` from that same build profile and verify `/Engine/EditorGrid` compiles without Shader, Pipeline, or Vulkan Validation errors.
 - [ ] Perform the visual matrix below with FXAA enabled and disabled.
-- [ ] Update `Documentation/Reference/EditorWorldGridShader.md` from planned V2 behavior to verified implementation details, removing descriptions that only apply to the finite triangle.
+- [ ] Update `Documentation/Reference/EditorWorldGridShader.md` with verified V2 implementation details while clearly retaining V1-only behavior as historical evolution documentation.
 - [ ] Move any new long-lived renderer constraint into the appropriate Architecture document if implementation establishes one.
 
 #### Acceptance Gate
