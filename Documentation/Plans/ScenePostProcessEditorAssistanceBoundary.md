@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stage 2 is complete. Scene depth and post-process color have explicit preserved attachment contracts, and the grid, overlay line, overlay icon, filled gizmo, and wire gizmo renderers now own compatible offscreen and present final-composition pipelines in addition to their temporary scene-pass variants. The former fullscreen contract probes are removed because real assistance shaders now validate both final layouts. Drawing intentionally remains in the scene pass before FXAA until Stage 3 moves composition.
+Stage 3 is complete. Opaque scene rendering now ends before scene post-processing, and the complete editor-assistance phase is prepared and composed afterward using preserved scene depth and output-specific pipelines. The final pass restores the constrained content viewport and scissor, retains grid/X-Ray/visible ordering, and owns the Present or ShaderReadOnly transition. Obsolete scene-layout assistance pipelines and pre-FXAA draw calls are removed.
 
 ## Goal
 
@@ -131,12 +131,12 @@ Establish a renderer-level boundary where scene anti-aliasing and other scene po
 
 ### Stage 3: Move editor assistance after scene post-processing
 
-- [ ] Render opaque scene color and depth without editor assistance.
-- [ ] Execute FXAA or the post-process copy path using scene color only.
-- [ ] Compose the complete editor-assistance phase into the post-processed output while using preserved scene depth.
-- [ ] Preserve viewport/scissor behavior for constrained aspect ratios and both primary and auxiliary viewports.
-- [ ] Ensure final Present or ShaderReadOnly transitions happen after assistance composition.
-- [ ] Remove obsolete scene-layout assistance pipelines and old pre-FXAA draw calls.
+- [x] Render opaque scene color and depth without editor assistance.
+- [x] Execute FXAA or the post-process copy path using scene color only.
+- [x] Compose the complete editor-assistance phase into the post-processed output while using preserved scene depth.
+- [x] Preserve viewport/scissor behavior for constrained aspect ratios and both primary and auxiliary viewports.
+- [x] Ensure final Present or ShaderReadOnly transitions happen after assistance composition.
+- [x] Remove obsolete scene-layout assistance pipelines and old pre-FXAA draw calls.
 
 #### Acceptance Gate
 

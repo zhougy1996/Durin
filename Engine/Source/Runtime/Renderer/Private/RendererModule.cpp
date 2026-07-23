@@ -252,10 +252,6 @@ namespace Durin
 			TShaderRef<FGizmoVertexShader> VertexShader;
 			TShaderRef<FGizmoFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FGraphicsPipelineStateRHIRef XRayPipelineState;
-			FGraphicsPipelineStateRHIRef VisiblePipelineState;
-			FGraphicsPipelineStateRHIRef WireXRayPipelineState;
-			FGraphicsPipelineStateRHIRef WireVisiblePipelineState;
 			FFinalEditorAssistancePipelineStates FinalXRayPipelineStates;
 			FFinalEditorAssistancePipelineStates FinalVisiblePipelineStates;
 			FFinalEditorAssistancePipelineStates FinalWireXRayPipelineStates;
@@ -272,8 +268,6 @@ namespace Durin
 			TShaderRef<FOverlayLineVertexShader> VertexShader;
 			TShaderRef<FOverlayLineFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FGraphicsPipelineStateRHIRef XRayPipelineState;
-			FGraphicsPipelineStateRHIRef VisiblePipelineState;
 			FFinalEditorAssistancePipelineStates FinalXRayPipelineStates;
 			FFinalEditorAssistancePipelineStates FinalVisiblePipelineStates;
 			FBufferRHIRef VertexBuffer;
@@ -290,8 +284,6 @@ namespace Durin
 			TShaderRef<FOverlayIconVertexShader> VertexShader;
 			TShaderRef<FOverlayIconFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FGraphicsPipelineStateRHIRef XRayPipelineState;
-			FGraphicsPipelineStateRHIRef VisiblePipelineState;
 			FFinalEditorAssistancePipelineStates FinalXRayPipelineStates;
 			FFinalEditorAssistancePipelineStates FinalVisiblePipelineStates;
 			FBufferRHIRef VertexBuffer;
@@ -310,7 +302,6 @@ namespace Durin
 			TShaderRef<FEditorGridVertexShader> VertexShader;
 			TShaderRef<FEditorGridFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FGraphicsPipelineStateRHIRef PipelineState;
 			FFinalEditorAssistancePipelineStates FinalPipelineStates;
 			bool bCreateAttempted = false;
 		};
@@ -395,6 +386,12 @@ namespace Durin
 				&& IsReady(GOverlayLineState.FinalVisiblePipelineStates)
 				&& IsReady(GOverlayIconState.FinalXRayPipelineStates)
 				&& IsReady(GOverlayIconState.FinalVisiblePipelineStates);
+		}
+
+		auto GetFinalEditorAssistancePipeline(const FFinalEditorAssistancePipelineStates& States, bool bPresentOutput)
+			-> FGraphicsPipelineStateRHIRef
+		{
+			return bPresentOutput ? States.Present : States.Offscreen;
 		}
 
 		auto BeginGizmoMesh(const std::vector<FVector3f>& Vertices, const std::vector<uint32>& Indices) -> FGizmoMeshRange
@@ -532,7 +529,6 @@ namespace Durin
 			Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, sizeof(FVector3f));
 			GGizmoState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
 			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
 			Initializer.BoundShaders.VertexShader = GGizmoState.VertexShader.GetRHIShader();
 			Initializer.BoundShaders.FragmentShader = GGizmoState.FragmentShader.GetRHIShader();
 			Initializer.VertexDeclaration = GGizmoState.VertexDeclaration;
@@ -541,23 +537,19 @@ namespace Durin
 			Initializer.bEnableDepthWrite = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
 			Initializer.bEnableDepthTest = false;
-			GGizmoState.XRayPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("GizmoXRayPipeline", Initializer);
 			GGizmoState.FinalXRayPipelineStates = CreateFinalEditorAssistancePipelineStates(
 				"GizmoXRayOffscreenPipeline", "GizmoXRayPresentPipeline", Initializer
 			);
 			Initializer.bEnableDepthTest = true;
-			GGizmoState.VisiblePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("GizmoVisiblePipeline", Initializer);
 			GGizmoState.FinalVisiblePipelineStates = CreateFinalEditorAssistancePipelineStates(
 				"GizmoVisibleOffscreenPipeline", "GizmoVisiblePresentPipeline", Initializer
 			);
 			Initializer.PrimitiveTopology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
 			Initializer.bEnableDepthTest = false;
-			GGizmoState.WireXRayPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("GizmoWireXRayPipeline", Initializer);
 			GGizmoState.FinalWireXRayPipelineStates = CreateFinalEditorAssistancePipelineStates(
 				"GizmoWireXRayOffscreenPipeline", "GizmoWireXRayPresentPipeline", Initializer
 			);
 			Initializer.bEnableDepthTest = true;
-			GGizmoState.WireVisiblePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("GizmoWireVisiblePipeline", Initializer);
 			GGizmoState.FinalWireVisiblePipelineStates = CreateFinalEditorAssistancePipelineStates(
 				"GizmoWireVisibleOffscreenPipeline", "GizmoWireVisiblePresentPipeline", Initializer
 			);
@@ -621,7 +613,6 @@ namespace Durin
 			GOverlayLineState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
 
 			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
 			Initializer.BoundShaders.VertexShader = GOverlayLineState.VertexShader.GetRHIShader();
 			Initializer.BoundShaders.FragmentShader = GOverlayLineState.FragmentShader.GetRHIShader();
 			Initializer.VertexDeclaration = GOverlayLineState.VertexDeclaration;
@@ -630,12 +621,10 @@ namespace Durin
 			Initializer.bEnableDepthWrite = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
 			Initializer.bEnableDepthTest = false;
-			GOverlayLineState.XRayPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("OverlayLineXRayPipeline", Initializer);
 			GOverlayLineState.FinalXRayPipelineStates = CreateFinalEditorAssistancePipelineStates(
 				"OverlayLineXRayOffscreenPipeline", "OverlayLineXRayPresentPipeline", Initializer
 			);
 			Initializer.bEnableDepthTest = true;
-			GOverlayLineState.VisiblePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("OverlayLineVisiblePipeline", Initializer);
 			GOverlayLineState.FinalVisiblePipelineStates = CreateFinalEditorAssistancePipelineStates(
 				"OverlayLineVisibleOffscreenPipeline", "OverlayLineVisiblePresentPipeline", Initializer
 			);
@@ -801,7 +790,6 @@ namespace Durin
 			GOverlayIconState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
 
 			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
 			Initializer.BoundShaders.VertexShader = GOverlayIconState.VertexShader.GetRHIShader();
 			Initializer.BoundShaders.FragmentShader = GOverlayIconState.FragmentShader.GetRHIShader();
 			Initializer.VertexDeclaration = GOverlayIconState.VertexDeclaration;
@@ -810,12 +798,10 @@ namespace Durin
 			Initializer.bEnableDepthWrite = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
 			Initializer.bEnableDepthTest = false;
-			GOverlayIconState.XRayPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("OverlayIconXRayPipeline", Initializer);
 			GOverlayIconState.FinalXRayPipelineStates = CreateFinalEditorAssistancePipelineStates(
 				"OverlayIconXRayOffscreenPipeline", "OverlayIconXRayPresentPipeline", Initializer
 			);
 			Initializer.bEnableDepthTest = true;
-			GOverlayIconState.VisiblePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("OverlayIconVisiblePipeline", Initializer);
 			GOverlayIconState.FinalVisiblePipelineStates = CreateFinalEditorAssistancePipelineStates(
 				"OverlayIconVisibleOffscreenPipeline", "OverlayIconVisiblePresentPipeline", Initializer
 			);
@@ -858,7 +844,6 @@ namespace Durin
 			GEditorGridState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(Elements);
 
 			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
 			Initializer.BoundShaders.VertexShader = GEditorGridState.VertexShader.GetRHIShader();
 			Initializer.BoundShaders.FragmentShader = GEditorGridState.FragmentShader.GetRHIShader();
 			Initializer.VertexDeclaration = GEditorGridState.VertexDeclaration;
@@ -867,7 +852,6 @@ namespace Durin
 			Initializer.bEnableDepthTest = true;
 			Initializer.bEnableDepthWrite = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
-			GEditorGridState.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("EditorWorldGridPipeline", Initializer);
 			GEditorGridState.FinalPipelineStates = CreateFinalEditorAssistancePipelineStates(
 				"EditorWorldGridOffscreenPipeline", "EditorWorldGridPresentPipeline", Initializer
 			);
@@ -1082,16 +1066,17 @@ namespace Durin
 			return glm::transpose(glm::mat4(Matrix));
 		}
 
-		auto DrawEditorGrid(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void
+		auto DrawEditorGrid(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bPresentOutput) -> void
 		{
-			if (!View.EditorGrid.bVisible || GEditorGridState.PipelineState == nullptr
+			const FGraphicsPipelineStateRHIRef Pipeline = GetFinalEditorAssistancePipeline(GEditorGridState.FinalPipelineStates, bPresentOutput);
+			if (!View.EditorGrid.bVisible || Pipeline == nullptr
 				|| !GEditorGridState.VertexShader || !GEditorGridState.FragmentShader
 				|| GPostProcessState.VertexBuffer == nullptr || GPostProcessState.IndexBuffer == nullptr) return;
 
 			EditorGridRendering::FEditorGridUniform Uniform;
 			if (!EditorGridRendering::BuildUniform(View, Uniform)) return;
 
-			CommandList.SetGraphicsPipelineState(*GEditorGridState.PipelineState);
+			CommandList.SetGraphicsPipelineState(*Pipeline);
 			CommandList.BindVertexBuffer(0, GPostProcessState.VertexBuffer, 0);
 			CommandList.BindIndexBuffer(GPostProcessState.IndexBuffer, 0);
 			const FRHIUniformBufferRange GridBuffer = CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
@@ -1157,7 +1142,7 @@ namespace Durin
 			}
 		}
 
-		auto DrawGizmoPrimitives(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bXRay) -> void
+		auto DrawGizmoPrimitives(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bXRay, bool bPresentOutput) -> void
 		{
 			if (View.OverlayPrimitives.empty() || GGizmoState.VertexBuffer == nullptr || GGizmoState.IndexBuffer == nullptr) return;
 			CommandList.BindVertexBuffer(0, GGizmoState.VertexBuffer, 0);
@@ -1165,9 +1150,10 @@ namespace Durin
 			for (const FViewOverlayPrimitive& Primitive : View.OverlayPrimitives)
 			{
 				const bool bWire = Primitive.Shape == EViewOverlayShape::WireBox;
-				const FGraphicsPipelineStateRHIRef Pipeline = bWire
-					? (bXRay ? GGizmoState.WireXRayPipelineState : GGizmoState.WireVisiblePipelineState)
-					: (bXRay ? GGizmoState.XRayPipelineState : GGizmoState.VisiblePipelineState);
+				const FFinalEditorAssistancePipelineStates& PipelineStates = bWire
+					? (bXRay ? GGizmoState.FinalWireXRayPipelineStates : GGizmoState.FinalWireVisiblePipelineStates)
+					: (bXRay ? GGizmoState.FinalXRayPipelineStates : GGizmoState.FinalVisiblePipelineStates);
+				const FGraphicsPipelineStateRHIRef Pipeline = GetFinalEditorAssistancePipeline(PipelineStates, bPresentOutput);
 				if (Pipeline == nullptr) continue;
 				CommandList.SetGraphicsPipelineState(*Pipeline);
 				const size_t ShapeIndex = static_cast<size_t>(Primitive.Shape);
@@ -1223,10 +1209,13 @@ namespace Durin
 			GOverlayLineState.IndexCount = static_cast<uint32>(Indices.size());
 		}
 
-		auto DrawOverlayLines(FRHICommandListImmediate& CommandList, bool bXRay) -> void
+		auto DrawOverlayLines(FRHICommandListImmediate& CommandList, bool bXRay, bool bPresentOutput) -> void
 		{
 			if (GOverlayLineState.IndexCount == 0 || GOverlayLineState.VertexBuffer == nullptr || GOverlayLineState.IndexBuffer == nullptr) return;
-			const FGraphicsPipelineStateRHIRef Pipeline = bXRay ? GOverlayLineState.XRayPipelineState : GOverlayLineState.VisiblePipelineState;
+			const FGraphicsPipelineStateRHIRef Pipeline = GetFinalEditorAssistancePipeline(
+				bXRay ? GOverlayLineState.FinalXRayPipelineStates : GOverlayLineState.FinalVisiblePipelineStates,
+				bPresentOutput
+			);
 			if (Pipeline == nullptr) return;
 			CommandList.SetGraphicsPipelineState(*Pipeline);
 			CommandList.BindVertexBuffer(0, GOverlayLineState.VertexBuffer, 0);
@@ -1298,11 +1287,14 @@ namespace Durin
 			GOverlayIconState.IndexCount = static_cast<uint32>(Indices.size());
 		}
 
-		auto DrawOverlayIcons(FRHICommandListImmediate& CommandList, bool bXRay) -> void
+		auto DrawOverlayIcons(FRHICommandListImmediate& CommandList, bool bXRay, bool bPresentOutput) -> void
 		{
 			if (GOverlayIconState.IndexCount == 0 || GOverlayIconState.VertexBuffer == nullptr || GOverlayIconState.IndexBuffer == nullptr
 				|| GOverlayIconState.Atlas == nullptr || GOverlayIconState.AtlasSampler == nullptr) return;
-			const FGraphicsPipelineStateRHIRef Pipeline = bXRay ? GOverlayIconState.XRayPipelineState : GOverlayIconState.VisiblePipelineState;
+			const FGraphicsPipelineStateRHIRef Pipeline = GetFinalEditorAssistancePipeline(
+				bXRay ? GOverlayIconState.FinalXRayPipelineStates : GOverlayIconState.FinalVisiblePipelineStates,
+				bPresentOutput
+			);
 			if (Pipeline == nullptr) return;
 			CommandList.SetGraphicsPipelineState(*Pipeline);
 			CommandList.BindVertexBuffer(0, GOverlayIconState.VertexBuffer, 0);
@@ -1557,11 +1549,6 @@ namespace Durin
 			RenderView.ViewportY = (Height - RenderView.ViewportHeight) / 2;
 		}
 		RenderScene(CommandList, Scene, RenderView, SceneColor);
-		if (bFinalEditorAssistancePipelinesReady)
-		{
-			PrepareEditorAssistance(CommandList, RenderView);
-			DrawEditorAssistance(CommandList, RenderView);
-		}
 		CommandList.EndRenderPass();
 
 		FRHIRenderPassInfo PostProcessPassInfo{};
@@ -1571,13 +1558,21 @@ namespace Durin
 		CommandList.BeginRenderPass(PostProcessPassInfo, bPresentOutput ? "PostProcessPresentRenderPass" : "PostProcessOffscreenRenderPass");
 		DrawPostProcess(CommandList, SceneColor, Width, Height, bPresentOutput);
 		CommandList.EndRenderPass();
+		if (bFinalEditorAssistancePipelinesReady)
+		{
+			PrepareEditorAssistance(CommandList, RenderView);
+		}
 
 		FRHIRenderPassInfo EditorAssistancePassInfo{};
 		EditorAssistancePassInfo.RenderTargetLayout = RendererRenderTargetLayouts::MakeFinalEditorAssistanceOutput(GetViewportOutput(bPresentOutput));
 		EditorAssistancePassInfo.ColorRenderTargets[0] = OutputTarget;
 		EditorAssistancePassInfo.DepthStencilRenderTarget = SceneTargets->Depth;
 		CommandList.BeginRenderPass(EditorAssistancePassInfo,
-			bPresentOutput ? "EditorAssistancePresentContractRenderPass" : "EditorAssistanceOffscreenContractRenderPass");
+			bPresentOutput ? "EditorAssistancePresentRenderPass" : "EditorAssistanceOffscreenRenderPass");
+		if (bFinalEditorAssistancePipelinesReady)
+		{
+			DrawEditorAssistance(CommandList, RenderView, bPresentOutput);
+		}
 		CommandList.EndRenderPass();
 	}
 
@@ -1619,20 +1614,25 @@ namespace Durin
 		PrepareOverlayIcons(CommandList, View);
 	}
 
-	auto FRendererModule::DrawEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void
+	auto FRendererModule::DrawEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bPresentOutput) -> void
 	{
+		CommandList.SetViewport(static_cast<float>(View.ViewportX), static_cast<float>(View.ViewportY), 0.0f,
+			static_cast<float>(View.ViewportX + View.ViewportWidth), static_cast<float>(View.ViewportY + View.ViewportHeight), 1.0f);
+		CommandList.SetScissor(static_cast<float>(View.ViewportX), static_cast<float>(View.ViewportY),
+			static_cast<float>(View.ViewportWidth), static_cast<float>(View.ViewportHeight));
+
 		using enum RendererEditorAssistance::EDrawOperation;
 		for (const RendererEditorAssistance::EDrawOperation Operation : RendererEditorAssistance::GetDrawOrder())
 		{
 			switch (Operation)
 			{
-			case EditorGrid: DrawEditorGrid(CommandList, View); break;
-			case XRayGizmos: DrawGizmoPrimitives(CommandList, View, true); break;
-			case XRayOverlayLines: DrawOverlayLines(CommandList, true); break;
-			case XRayOverlayIcons: DrawOverlayIcons(CommandList, true); break;
-			case VisibleGizmos: DrawGizmoPrimitives(CommandList, View, false); break;
-			case VisibleOverlayLines: DrawOverlayLines(CommandList, false); break;
-			case VisibleOverlayIcons: DrawOverlayIcons(CommandList, false); break;
+			case EditorGrid: DrawEditorGrid(CommandList, View, bPresentOutput); break;
+			case XRayGizmos: DrawGizmoPrimitives(CommandList, View, true, bPresentOutput); break;
+			case XRayOverlayLines: DrawOverlayLines(CommandList, true, bPresentOutput); break;
+			case XRayOverlayIcons: DrawOverlayIcons(CommandList, true, bPresentOutput); break;
+			case VisibleGizmos: DrawGizmoPrimitives(CommandList, View, false, bPresentOutput); break;
+			case VisibleOverlayLines: DrawOverlayLines(CommandList, false, bPresentOutput); break;
+			case VisibleOverlayIcons: DrawOverlayIcons(CommandList, false, bPresentOutput); break;
 			}
 		}
 	}

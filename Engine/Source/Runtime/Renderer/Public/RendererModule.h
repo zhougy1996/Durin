@@ -25,6 +25,6 @@ namespace Durin
 
 	private:
 		auto PrepareEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void;
-		auto DrawEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void;
+		auto DrawEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bPresentOutput) -> void;
 	};
 }
