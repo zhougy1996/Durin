@@ -65,7 +65,8 @@ example plain "two words" 'three words' escaped\ value
 
 - **Search output** filters log messages, command echoes, results, and errors.
 - Log records use compact colored `T`, `D`, `I`, `W`, `E`, and `F` level
-  initials in one fixed-width slot. Source and Message follow naturally without
+  initials centered in one fixed-width slot with a slightly emphasized weight.
+  Source and Message follow naturally without
   padded columns. Info uses the theme's success green, while Debug, Warn, and
   Error/Fatal use the theme's info blue, warning amber, and error red. Hover a
   level for its full name, or a Source value to inspect its module, thread, and

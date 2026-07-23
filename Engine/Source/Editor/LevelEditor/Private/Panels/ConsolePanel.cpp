@@ -90,9 +90,17 @@ namespace Durin
 			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleTimestamp), "%s", TimeText.data());
 			ImGui::SameLine(0.0f, Spacing);
 			const float LevelStartX = ImGui::GetCursorPosX();
-			ImGui::TextColored(LevelColor(Record.Level), "%s", LevelInitial(Record.Level));
+			const char* LevelText = LevelInitial(Record.Level);
+			const float LevelSlotWidth = ImGui::CalcTextSize("W").x;
+			const float LevelTextWidth = ImGui::CalcTextSize(LevelText).x;
+			ImGui::SetCursorPosX(LevelStartX + (LevelSlotWidth - LevelTextWidth) * 0.5f);
+			const ImVec4 Color = LevelColor(Record.Level);
+			ImGui::TextColored(Color, "%s", LevelText);
+			// A subtle second pass gives narrow glyphs such as "I" enough weight to read as a level marker.
+			ImGui::GetWindowDrawList()->AddText(
+				ImGui::GetItemRectMin() + ImVec2(MonaImGui::ScaleUI(0.6f), 0.0f), ImGui::ColorConvertFloat4ToU32(Color), LevelText);
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", LevelName(Record.Level));
-			ImGui::SameLine(LevelStartX + ImGui::CalcTextSize("W").x, Spacing);
+			ImGui::SameLine(LevelStartX + LevelSlotWidth, Spacing);
 			const std::string_view Category = Record.GetCategory();
 			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleModule), "[%.*s]",
 				static_cast<int>(Category.size()), Category.data());
