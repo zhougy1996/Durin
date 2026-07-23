@@ -892,6 +892,7 @@ namespace Durin
 		const ImVec2 ImageMin(ViewportMax.x - Padding - PreviewWidth, ViewportMax.y - Padding - PreviewHeight);
 		const ImVec2 ImageMax(ImageMin.x + PreviewWidth, ImageMin.y + PreviewHeight);
 		const ImVec2 HeaderMin(ImageMin.x, ImageMin.y - HeaderHeight);
+		const ImVec2 HeaderMax(ImageMax.x, ImageMin.y);
 		const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
 		CameraPreviewViewportWidget->SetDesiredSize({PreviewWidth, PreviewHeight});
 		ImGui::SetCursorScreenPos(ImageMin);
@@ -903,7 +904,7 @@ namespace Durin
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		ImVec4 HeaderColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
 		HeaderColor.w = 0.94f;
-		DrawList->AddRectFilled(HeaderMin, ImageMin, ImGui::GetColorU32(HeaderColor), MonaImGui::ScaleUI(5.0f), ImDrawFlags_RoundCornersTop);
+		DrawList->AddRectFilled(HeaderMin, HeaderMax, ImGui::GetColorU32(HeaderColor), MonaImGui::ScaleUI(5.0f), ImDrawFlags_RoundCornersTop);
 		DrawList->AddRect(HeaderMin, ImageMax, ImGui::GetColorU32(ImGuiCol_Border), MonaImGui::ScaleUI(5.0f));
 		const char* Label = "Camera Preview";
 		const ImVec2 LabelSize = ImGui::CalcTextSize(Label);
