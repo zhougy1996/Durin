@@ -13,11 +13,18 @@ namespace Durin::VulkanRHI
 	class FVulkanSemaphore;
 	struct FVulkanView;
 
+	enum class EVulkanPresentResourceState : uint8
+	{
+		Available,
+		PresentPending,
+		Retired
+	};
+
 	struct FVulkanViewportFrameResources
 	{
 		FVulkanSemaphore* RenderingDoneSemaphore = nullptr;
 		vk::Fence PresentFence = VK_NULL_HANDLE;
-		bool bPresentPending = false;
+		EVulkanPresentResourceState State = EVulkanPresentResourceState::Available;
 	};
 
 	class FVulkanViewport;
@@ -121,8 +128,6 @@ namespace Durin::VulkanRHI
 		bool bHasPendingResize = false;
 
 		bool bSwapchainNeedsRecreate = false;
-
-		bool bRequiresQueueIdle = false;
 
 		bool bIsFullScreen;
 

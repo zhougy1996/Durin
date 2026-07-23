@@ -225,17 +225,22 @@ namespace Durin::VulkanRHI
 		InContext.AddSignalSemaphore(RenderingDoneSemaphore);
 		InContext.Finalize();
 		const bool bTrackPresent = Device.SupportsSwapchainMaintenance1();
-		const bool bPresented = Swapchain->Present(&InPresentQueue, RenderingDoneSemaphore, bTrackPresent ? FrameResource.PresentFence : VK_NULL_HANDLE);
-		FrameResource.bPresentPending = bTrackPresent && bPresented;
-		bRequiresQueueIdle |= bTrackPresent && !bPresented;
+		const FVulkanPresentOutcome PresentOutcome =
+			Swapchain->Present(&InPresentQueue, RenderingDoneSemaphore, bTrackPresent ? FrameResource.PresentFence : VK_NULL_HANDLE);
+		if (bTrackPresent)
+		{
+			FrameResource.State = PresentOutcome.bQueueOperationsEnqueued
+				? EVulkanPresentResourceState::PresentPending
+				: EVulkanPresentResourceState::Retired;
+		}
 		const bool bNeedsRecreate = Swapchain->NeedsRecreate();
-		if (!bPresented || bNeedsRecreate)
+		if (!PresentOutcome.bPresented || bNeedsRecreate)
 		{
 			MarkSwapchainNeedsRecreate();
 		}
 		AcquiredBackBufferIndex = -1;
 		AcquiredSemaphore = nullptr;
-		return bPresented;
+		return PresentOutcome.bPresented;
 	}
 
 	auto FVulkanViewport::GetFormat() const -> EPixelFormat
@@ -312,11 +317,6 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::RecreateFrameResources(uint32 NumSwapchainImages) -> void
 	{
-		if (FrameResources.size() == NumSwapchainImages)
-		{
-			return;
-		}
-
 		DestroyFrameResources();
 
 		FrameResources.resize(NumSwapchainImages);
@@ -334,7 +334,7 @@ namespace Durin::VulkanRHI
 	{
 		for (FVulkanViewportFrameResources& FrameResource : FrameResources)
 		{
-			check(!FrameResource.bPresentPending);
+			check(FrameResource.State != EVulkanPresentResourceState::PresentPending);
 			delete FrameResource.RenderingDoneSemaphore;
 			FrameResource.RenderingDoneSemaphore = nullptr;
 			if (FrameResource.PresentFence != VK_NULL_HANDLE)
@@ -348,39 +348,54 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::WaitForFrameResource(FVulkanViewportFrameResources& FrameResource) -> void
 	{
-		if (!FrameResource.bPresentPending)
+		if (FrameResource.State == EVulkanPresentResourceState::Available)
 		{
 			return;
 		}
+		check(FrameResource.State == EVulkanPresentResourceState::PresentPending);
 
 		const vk::Result Result = Device.GetHandle().waitForFences(FrameResource.PresentFence, vk::True, UINT64_MAX);
 		check(Result == vk::Result::eSuccess);
 		Device.GetHandle().resetFences(FrameResource.PresentFence);
-		FrameResource.bPresentPending = false;
+		FrameResource.State = EVulkanPresentResourceState::Available;
 	}
 
 	auto FVulkanViewport::WaitForSwapchainIdle() -> void
 	{
-		if (!Device.SupportsSwapchainMaintenance1() || bRequiresQueueIdle)
+		if (!Device.SupportsSwapchainMaintenance1())
 		{
 			Device.GetGraphicsQueue()->GetHandle().waitIdle();
 			if (Device.GetPresentQueue() != Device.GetGraphicsQueue())
 			{
 				Device.GetPresentQueue()->GetHandle().waitIdle();
 			}
-			for (FVulkanViewportFrameResources& FrameResource : FrameResources)
-			{
-				FrameResource.bPresentPending = false;
-			}
-			bRequiresQueueIdle = false;
 			return;
 		}
 
 		// Present fences cover both rendering-done semaphore consumption and the
 		// presentation engine's access, so unrelated viewport work may continue.
+		bool bHasRetiredResources = false;
 		for (FVulkanViewportFrameResources& FrameResource : FrameResources)
 		{
-			WaitForFrameResource(FrameResource);
+			if (FrameResource.State == EVulkanPresentResourceState::PresentPending)
+			{
+				WaitForFrameResource(FrameResource);
+			}
+			else if (FrameResource.State == EVulkanPresentResourceState::Retired)
+			{
+				bHasRetiredResources = true;
+			}
+		}
+
+		// A failed-to-enqueue present did not consume its rendering-done semaphore.
+		// Drain the queues before destroying those resources during recreation.
+		if (bHasRetiredResources)
+		{
+			Device.GetGraphicsQueue()->GetHandle().waitIdle();
+			if (Device.GetPresentQueue() != Device.GetGraphicsQueue())
+			{
+				Device.GetPresentQueue()->GetHandle().waitIdle();
+			}
 		}
 	}
 

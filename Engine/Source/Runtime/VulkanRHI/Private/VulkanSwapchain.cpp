@@ -24,6 +24,16 @@ namespace Durin::VulkanRHI
 			return Result == vk::Result::eErrorOutOfDateKHR || Result == vk::Result::eSuboptimalKHR;
 		}
 
+		auto ArePresentQueueOperationsEnqueued(const vk::Result Result) -> bool
+		{
+			// Presentation-engine rejection still leaves the queue operations enqueued.
+			return Result == vk::Result::eSuccess
+				|| Result == vk::Result::eSuboptimalKHR
+				|| Result == vk::Result::eErrorOutOfDateKHR
+				|| Result == vk::Result::eErrorSurfaceLostKHR
+				|| Result == vk::Result::eErrorFullScreenExclusiveModeLostEXT;
+		}
+
 		auto GetSystemErrorResult(const vk::SystemError& Error) -> vk::Result
 		{
 			return static_cast<vk::Result>(Error.code().value());
@@ -206,11 +216,11 @@ namespace Durin::VulkanRHI
 		return static_cast<uint32>(CurrentImageIndex);
 	}
 
-	auto FVulkanSwapchain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore, vk::Fence PresentFence) -> bool
+	auto FVulkanSwapchain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore, vk::Fence PresentFence) -> FVulkanPresentOutcome
 	{
 		if (CurrentImageIndex < 0)
 		{
-			return false;
+			return {};
 		}
 
 		vk::PresentInfoKHR PresentInfo;
@@ -246,7 +256,10 @@ namespace Durin::VulkanRHI
 				DURIN_ERROR("Failed to present a Vulkan swapchain image: result={}, image={}, extent={}x{}, error={}",
 					vk::to_string(ErrorResult), ImageIndex, Extent.width, Extent.height, Error.what());
 			}
-			return false;
+			return {
+				.bPresented = false,
+				.bQueueOperationsEnqueued = ArePresentQueueOperationsEnqueued(ErrorResult)
+			};
 		}
 
 		if (Result != vk::Result::eSuccess && Result != vk::Result::eSuboptimalKHR)
@@ -261,7 +274,10 @@ namespace Durin::VulkanRHI
 					vk::to_string(Result), ImageIndex, Extent.width, Extent.height);
 			}
 			CurrentImageIndex = -1;
-			return false;
+			return {
+				.bPresented = false,
+				.bQueueOperationsEnqueued = ArePresentQueueOperationsEnqueued(Result)
+			};
 		}
 		if (Result == vk::Result::eSuboptimalKHR)
 		{
@@ -269,7 +285,10 @@ namespace Durin::VulkanRHI
 		}
 
 		CurrentImageIndex = -1;
-		return true;
+		return {
+			.bPresented = true,
+			.bQueueOperationsEnqueued = true
+		};
 	}
 
 	auto FVulkanSwapchain::MarkNeedsRecreate(const std::string_view Operation, const vk::Result Result) -> void
