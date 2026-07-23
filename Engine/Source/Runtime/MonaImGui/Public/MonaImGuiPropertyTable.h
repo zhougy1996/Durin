@@ -4,9 +4,9 @@
 #include "MonaImGuiAPI.h"
 #include "ThirdParty/ImGui/ImGuiCommon.h"
 
-namespace Durin::MonaImGui
+namespace Durin::MonaImGui::PropertyEdit
 {
-	struct FPropertyEditWidgetState
+	struct FWidgetState
 	{
 		// Compound controls aggregate every child item so callers can treat a
 		// vector or transform drag as one continuous property interaction.
@@ -15,7 +15,7 @@ namespace Durin::MonaImGui
 		bool bDeactivatedAfterEdit = false;
 	};
 
-	struct FPropertyTableConfig
+	struct FTableConfig
 	{
 		const char* PropertyColumnLabel = "Property";
 		const char* ValueColumnLabel = "Value";
@@ -30,18 +30,18 @@ namespace Durin::MonaImGui
 		bool bShowHeaders = false;
 	};
 
-	MONAIMGUI_API auto BeginPropertyTable(const char* Id, const FPropertyTableConfig& Config = {}) -> bool;
-	MONAIMGUI_API auto EndPropertyTable() -> void;
-	MONAIMGUI_API auto BeginPropertyRow(const char* Label, bool bReadOnly = false, float LabelIndent = 0.0f) -> void;
-	MONAIMGUI_API auto EndPropertyRow(bool bReadOnly = false) -> void;
+	MONAIMGUI_API auto BeginTable(const char* Id, const FTableConfig& Config = {}) -> bool;
+	MONAIMGUI_API auto EndTable() -> void;
+	MONAIMGUI_API auto BeginRow(const char* Label, bool bReadOnly = false, float LabelIndent = 0.0f) -> void;
+	MONAIMGUI_API auto EndRow(bool bReadOnly = false) -> void;
 	// Edits vector components in one property row. Must be called inside a property table.
-	MONAIMGUI_API auto EditVectorProperty(const char* Label, FVector2& Value, bool bReadOnly = false, double Speed = 0.05, FPropertyEditWidgetState* OutState = nullptr) -> bool;
-	MONAIMGUI_API auto EditVectorProperty(const char* Label, FVector3& Value, bool bReadOnly = false, double Speed = 0.05, FPropertyEditWidgetState* OutState = nullptr) -> bool;
-	MONAIMGUI_API auto EditVectorProperty(const char* Label, FVector4& Value, bool bReadOnly = false, double Speed = 0.05, FPropertyEditWidgetState* OutState = nullptr) -> bool;
+	MONAIMGUI_API auto EditVector(const char* Label, FVector2& Value, bool bReadOnly = false, double Speed = 0.05, FWidgetState* OutState = nullptr) -> bool;
+	MONAIMGUI_API auto EditVector(const char* Label, FVector3& Value, bool bReadOnly = false, double Speed = 0.05, FWidgetState* OutState = nullptr) -> bool;
+	MONAIMGUI_API auto EditVector(const char* Label, FVector4& Value, bool bReadOnly = false, double Speed = 0.05, FWidgetState* OutState = nullptr) -> bool;
 	// Presents quaternion storage as Euler degrees and normalizes edited results.
-	MONAIMGUI_API auto EditQuatProperty(const char* Label, FQuat& Value, bool bReadOnly = false, FPropertyEditWidgetState* OutState = nullptr) -> bool;
+	MONAIMGUI_API auto EditQuat(const char* Label, FQuat& Value, bool bReadOnly = false, FWidgetState* OutState = nullptr) -> bool;
 	// Draws an expandable Transform property. Must be called inside a property table.
-	MONAIMGUI_API auto EditTransformProperty(const char* Label, FTransform& Transform, bool bReadOnly = false, FPropertyEditWidgetState* OutState = nullptr) -> bool;
+	MONAIMGUI_API auto EditTransform(const char* Label, FTransform& Transform, bool bReadOnly = false, FWidgetState* OutState = nullptr) -> bool;
 	// Edits linear storage through an sRGB-facing picker. Must be called inside a property table.
-	MONAIMGUI_API auto EditColorProperty(const char* Label, FLinearColor& Color, bool bShowAlpha = true, bool bReadOnly = false, FPropertyEditWidgetState* OutState = nullptr) -> bool;
-} // namespace Durin::MonaImGui
+	MONAIMGUI_API auto EditColor(const char* Label, FLinearColor& Color, bool bShowAlpha = true, bool bReadOnly = false, FWidgetState* OutState = nullptr) -> bool;
+} // namespace Durin::MonaImGui::PropertyEdit

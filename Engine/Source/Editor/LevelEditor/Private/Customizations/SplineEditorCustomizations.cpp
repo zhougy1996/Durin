@@ -116,7 +116,7 @@ namespace Durin
 
 				bool bClosedLoop = Spline->IsClosedLoop();
 				ImGui::PushID("ClosedLoop");
-				MonaImGui::BeginPropertyRow("Closed Loop", bReadOnly);
+				MonaImGui::PropertyEdit::BeginRow("Closed Loop", bReadOnly);
 				if (ImGui::Checkbox("##Value", &bClosedLoop) && !bReadOnly)
 				{
 					PropertyView.SubmitPropertyValueEdit(ViewContext, Reflection.MakeCurveFieldTarget(Spline, Reflection.ClosedLoop),
@@ -124,14 +124,14 @@ namespace Durin
 							*ScratchProperty->ContainerPtrToValuePtr<bool>(ScratchContainer, ScratchArrayIndex) = bClosedLoop;
 					}, false);
 				}
-				MonaImGui::EndPropertyRow(bReadOnly);
+				MonaImGui::PropertyEdit::EndRow(bReadOnly);
 				ImGui::PopID();
 
 				int32 ReparamSteps = Spline->GetReparamStepsPerSegment();
 				ImGui::PushID("ReparamSteps");
-				MonaImGui::BeginPropertyRow("Reparam Steps", bReadOnly);
+				MonaImGui::PropertyEdit::BeginRow("Reparam Steps", bReadOnly);
 				const bool bReparamChanged = ImGui::DragInt("##Value", &ReparamSteps, 1.0f, 1, 1024, "%d", ImGuiSliderFlags_AlwaysClamp);
-				const MonaImGui::FPropertyEditWidgetState ReparamState{
+				const MonaImGui::PropertyEdit::FWidgetState ReparamState{
 					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
 				const FReflectedPropertyEditTarget ReparamTarget = Reflection.MakeCurveFieldTarget(Spline, Reflection.ReparamSteps);
 				if (bReparamChanged && !bReadOnly)
@@ -142,12 +142,12 @@ namespace Durin
 					}, true);
 				}
 				FinishContinuousEdit(PropertyView, ViewContext, ReparamTarget, ReparamState);
-				MonaImGui::EndPropertyRow(bReadOnly);
+				MonaImGui::PropertyEdit::EndRow(bReadOnly);
 				ImGui::PopID();
 
-				MonaImGui::BeginPropertyRow("Points", bReadOnly);
+				MonaImGui::PropertyEdit::BeginRow("Points", bReadOnly);
 				if (ImGui::Button("Add Point") && !bReadOnly) AddPoint(PropertyView, ViewContext, *Spline, Reflection);
-				MonaImGui::EndPropertyRow(bReadOnly);
+				MonaImGui::PropertyEdit::EndRow(bReadOnly);
 
 				std::optional<uint32> RemoveIndex;
 				std::optional<std::pair<uint32, uint32>> SwapIndices;
@@ -164,8 +164,8 @@ namespace Durin
 					PointTransform.Rotation = Point.Rotation;
 					PointTransform.Scale3D = Point.Scale;
 					const std::string PointLabel = std::format("Point {}", PointIndex);
-					MonaImGui::FPropertyEditWidgetState PointTransformState;
-					const bool bPointTransformChanged = MonaImGui::EditTransformProperty(
+					MonaImGui::PropertyEdit::FWidgetState PointTransformState;
+					const bool bPointTransformChanged = MonaImGui::PropertyEdit::EditTransform(
 						PointLabel.c_str(), PointTransform, bReadOnly, &PointTransformState);
 					const FReflectedPropertyEditTarget PointTarget = Reflection.MakePointTarget(Spline, PointIndex);
 					if (bPointTransformChanged && !bReadOnly)
@@ -186,13 +186,13 @@ namespace Durin
 							Reflection.LeaveTangent, Point.LeaveTangent, bReadOnly);
 					}
 
-					MonaImGui::BeginPropertyRow("Actions", bReadOnly);
+					MonaImGui::PropertyEdit::BeginRow("Actions", bReadOnly);
 					if (ImGui::SmallButton("Up") && PointIndex > 0 && !bReadOnly) SwapIndices = {{PointIndex, PointIndex - 1}};
 					ImGui::SameLine();
 					if (ImGui::SmallButton("Down") && PointIndex + 1 < PointCount && !bReadOnly) SwapIndices = {{PointIndex, PointIndex + 1}};
 					ImGui::SameLine();
 					if (ImGui::SmallButton("Remove") && !bReadOnly) RemoveIndex = PointIndex;
-					MonaImGui::EndPropertyRow(bReadOnly);
+					MonaImGui::PropertyEdit::EndRow(bReadOnly);
 					ImGui::PopID();
 				}
 
@@ -283,7 +283,7 @@ namespace Durin
 			}
 
 			static auto FinishContinuousEdit(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
-				const FReflectedPropertyEditTarget& Target, const MonaImGui::FPropertyEditWidgetState& State) -> void
+				const FReflectedPropertyEditTarget& Target, const MonaImGui::PropertyEdit::FWidgetState& State) -> void
 			{
 				if (State.bDeactivatedAfterEdit && PropertyView.IsEditingTarget(Target)) PropertyView.FinishActiveEdit(&ViewContext, false);
 				else if (State.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditingTarget(Target))
@@ -345,7 +345,7 @@ namespace Durin
 				}};
 				const auto Current = std::ranges::find_if(Types, [&](const auto& Entry) { return Entry.first == Point.Type; });
 				const char* Preview = Current != Types.end() ? Current->second : "Unknown";
-				MonaImGui::BeginPropertyRow("Type", bReadOnly);
+				MonaImGui::PropertyEdit::BeginRow("Type", bReadOnly);
 				if (ImGui::BeginCombo("##Value", Preview))
 				{
 					for (const auto& [Type, Name] : Types)
@@ -359,7 +359,7 @@ namespace Durin
 					}
 					ImGui::EndCombo();
 				}
-				MonaImGui::EndPropertyRow(bReadOnly);
+				MonaImGui::PropertyEdit::EndRow(bReadOnly);
 			}
 
 			static auto DrawVector(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
@@ -367,9 +367,9 @@ namespace Durin
 				FProperty* Field, FVector3& Value, bool bReadOnly) -> void
 			{
 				ImGui::PushID(Label);
-				MonaImGui::BeginPropertyRow(Label, bReadOnly);
+				MonaImGui::PropertyEdit::BeginRow(Label, bReadOnly);
 				const bool bChanged = ImGui::DragScalarN("##Value", ImGuiDataType_Double, &Value.x, 3, 0.05f);
-				const MonaImGui::FPropertyEditWidgetState State{
+				const MonaImGui::PropertyEdit::FWidgetState State{
 					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
 				const FReflectedPropertyEditTarget Target = Reflection.MakePointFieldTarget(&Spline, PointIndex, Field);
 				if (bChanged && !bReadOnly)
@@ -380,7 +380,7 @@ namespace Durin
 					}, true);
 				}
 				FinishContinuousEdit(PropertyView, ViewContext, Target, State);
-				MonaImGui::EndPropertyRow(bReadOnly);
+				MonaImGui::PropertyEdit::EndRow(bReadOnly);
 				ImGui::PopID();
 			}
 		};

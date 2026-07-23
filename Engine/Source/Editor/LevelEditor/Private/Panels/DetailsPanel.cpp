@@ -461,7 +461,7 @@ namespace Durin
 		{
 			Customization->CustomizeDetails(Context, Object, Builder);
 		}
-		if (!MonaImGui::BeginPropertyTable("DetailsPropertyTable")) return;
+		if (!MonaImGui::PropertyEdit::BeginTable("DetailsPropertyTable")) return;
 
 		const FObjectPropertyViewBuilderResult BuilderResult = Builder.DrawRows(PropertyView, ViewContext);
 		FObjectPropertyViewResult ObjectViewResult;
@@ -476,7 +476,7 @@ namespace Durin
 				.bShowEmptyMessage = false,
 			});
 		}
-		MonaImGui::EndPropertyTable();
+		MonaImGui::PropertyEdit::EndTable();
 
 		if (BuilderResult.VisibleRowCount + ObjectViewResult.VisiblePropertyCount == 0)
 		{

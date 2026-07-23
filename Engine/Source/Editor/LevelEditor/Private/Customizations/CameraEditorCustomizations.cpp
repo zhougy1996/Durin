@@ -187,7 +187,7 @@ namespace Durin
 			}
 
 			static auto FinishContinuousEdit(FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext,
-				const FReflectedPropertyEditTarget& Target, const MonaImGui::FPropertyEditWidgetState& State) -> void
+				const FReflectedPropertyEditTarget& Target, const MonaImGui::PropertyEdit::FWidgetState& State) -> void
 			{
 				if (State.bDeactivatedAfterEdit && PropertyView.IsEditingTarget(Target)) PropertyView.FinishActiveEdit(&ViewContext, false);
 				else if (State.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditingTarget(Target))
@@ -204,7 +204,7 @@ namespace Durin
 					if (Option.Mode == CurrentMode) Preview = Option.Label;
 				}
 				ImGui::PushID("AspectRatioMode");
-				MonaImGui::BeginPropertyRow("Aspect Ratio", ViewContext.bReadOnly);
+				MonaImGui::PropertyEdit::BeginRow("Aspect Ratio", ViewContext.bReadOnly);
 				if (ImGui::BeginCombo("##Value", Preview))
 				{
 					for (const FAspectRatioOption& Option : AspectRatioOptions)
@@ -219,7 +219,7 @@ namespace Durin
 					}
 					ImGui::EndCombo();
 				}
-				MonaImGui::EndPropertyRow(ViewContext.bReadOnly);
+				MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
 				ImGui::PopID();
 			}
 
@@ -230,9 +230,9 @@ namespace Durin
 				float Value = *Field->ContainerPtrToValuePtr<float>(Reflection.GetSettings(Camera));
 				const FReflectedPropertyEditTarget Target = Reflection.MakeTarget(Camera, Field);
 				ImGui::PushID(Field);
-				MonaImGui::BeginPropertyRow(Label, ViewContext.bReadOnly);
+				MonaImGui::PropertyEdit::BeginRow(Label, ViewContext.bReadOnly);
 				const bool bChanged = ImGui::DragFloat("##Value", &Value, Speed, Min, Max, Format, ImGuiSliderFlags_AlwaysClamp);
-				const MonaImGui::FPropertyEditWidgetState State{
+				const MonaImGui::PropertyEdit::FWidgetState State{
 					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
 				if (bChanged && !ViewContext.bReadOnly)
 				{
@@ -242,7 +242,7 @@ namespace Durin
 					}, true);
 				}
 				FinishContinuousEdit(PropertyView, ViewContext, Target, State);
-				MonaImGui::EndPropertyRow(ViewContext.bReadOnly);
+				MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
 				ImGui::PopID();
 			}
 		};

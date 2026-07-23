@@ -210,12 +210,12 @@ namespace Durin
 		}
 
 		const bool bOwnsPropertyTable = Options.bCreatePropertyTable;
-		if (bOwnsPropertyTable && !MonaImGui::BeginPropertyTable(Options.PropertyTableId)) return Result;
+		if (bOwnsPropertyTable && !MonaImGui::PropertyEdit::BeginTable(Options.PropertyTableId)) return Result;
 		for (const FVisibleProperty& VisibleProperty : VisibleProperties)
 		{
 			Result.bChanged |= EditProperty(Context, Object, VisibleProperty.Property, VisibleProperty.ArrayIndex);
 		}
-		if (bOwnsPropertyTable) MonaImGui::EndPropertyTable();
+		if (bOwnsPropertyTable) MonaImGui::PropertyEdit::EndTable();
 		return Result;
 	}
 
@@ -272,7 +272,7 @@ namespace Durin
 	{
 		FPropertyWidgetEditResult Result;
 		DStruct* Struct = static_cast<FStructProperty*>(Property)->GetStruct();
-		auto CaptureResult = [&](bool bChanged, bool bContinuous, const MonaImGui::FPropertyEditWidgetState& State = {}) {
+		auto CaptureResult = [&](bool bChanged, bool bContinuous, const MonaImGui::PropertyEdit::FWidgetState& State = {}) {
 			Result.bChanged = bChanged;
 			Result.bContinuous = bContinuous;
 			Result.bActive = State.bActive;
@@ -281,7 +281,7 @@ namespace Durin
 
 		auto EditMathStruct = [&]<typename TValue, typename TEditor>(TEditor&& Editor) -> FPropertyWidgetEditResult {
 			TValue Value = *Property->ContainerPtrToValuePtr<TValue>(Container, ArrayIndex);
-			MonaImGui::FPropertyEditWidgetState State;
+			MonaImGui::PropertyEdit::FWidgetState State;
 			const bool bChanged = Editor(Value, State);
 			CaptureResult(bChanged, true, State);
 			if (bChanged) Result.AssignValue = [Value](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
@@ -291,14 +291,14 @@ namespace Durin
 		};
 		auto EditVector = [&]<typename TVector>() -> FPropertyWidgetEditResult {
 			return EditMathStruct.template operator()<TVector>([&](TVector& Value, auto& State) {
-				return MonaImGui::EditVectorProperty(Label.c_str(), Value, bReadOnly, 0.05, &State);
+				return MonaImGui::PropertyEdit::EditVector(Label.c_str(), Value, bReadOnly, 0.05, &State);
 			});
 		};
 
 		if (Struct == Z_Construct_DStruct_Durin_FTransform())
 		{
 			return EditMathStruct.template operator()<FTransform>([&](FTransform& Value, auto& State) {
-				return MonaImGui::EditTransformProperty(Label.c_str(), Value, bReadOnly, &State);
+				return MonaImGui::PropertyEdit::EditTransform(Label.c_str(), Value, bReadOnly, &State);
 			});
 		}
 
@@ -314,7 +314,7 @@ namespace Durin
 		if (Struct == Z_Construct_DStruct_Durin_FQuat())
 		{
 			return EditMathStruct.template operator()<FQuat>([&](FQuat& Value, auto& State) {
-				return MonaImGui::EditQuatProperty(Label.c_str(), Value, bReadOnly, &State);
+				return MonaImGui::PropertyEdit::EditQuat(Label.c_str(), Value, bReadOnly, &State);
 			});
 		}
 
@@ -322,13 +322,13 @@ namespace Durin
 		{
 			const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
 			return EditMathStruct.template operator()<FLinearColor>([&](FLinearColor& EditedValue, auto& State) {
-				return MonaImGui::EditColorProperty(Label.c_str(), EditedValue, bShowAlpha, bReadOnly, &State);
+				return MonaImGui::PropertyEdit::EditColor(Label.c_str(), EditedValue, bShowAlpha, bReadOnly, &State);
 			});
 		}
 
-		MonaImGui::BeginPropertyRow(Label.c_str(), bReadOnly);
+		MonaImGui::PropertyEdit::BeginRow(Label.c_str(), bReadOnly);
 		ImGui::TextDisabled("<struct>");
-		MonaImGui::EndPropertyRow(bReadOnly);
+		MonaImGui::PropertyEdit::EndRow(bReadOnly);
 		return Result;
 	}
 
@@ -348,14 +348,14 @@ namespace Durin
 		}
 
 		FPropertyWidgetEditResult Result;
-		auto CaptureResult = [&](bool bChanged, bool bContinuous, const MonaImGui::FPropertyEditWidgetState& State = {}) {
+		auto CaptureResult = [&](bool bChanged, bool bContinuous, const MonaImGui::PropertyEdit::FWidgetState& State = {}) {
 			Result.bChanged = bChanged;
 			Result.bContinuous = bContinuous;
 			Result.bActive = State.bActive;
 			Result.bDeactivatedAfterEdit = State.bDeactivatedAfterEdit;
 		};
 
-		MonaImGui::BeginPropertyRow(Label.c_str(), bReadOnly);
+		MonaImGui::PropertyEdit::BeginRow(Label.c_str(), bReadOnly);
 
 		if (Kind == DurinCodeGen::EPropertyGenFlags::Bool)
 		{
@@ -373,7 +373,7 @@ namespace Durin
 			std::memcpy(Value.data(), Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize());
 			const bool bChanged = ImGui::DragScalar("##Value", DataType, Value.data(),
 				Kind == DurinCodeGen::EPropertyGenFlags::Float || Kind == DurinCodeGen::EPropertyGenFlags::Double ? 0.05f : 1.0f);
-			const MonaImGui::FPropertyEditWidgetState State{
+			const MonaImGui::PropertyEdit::FWidgetState State{
 				ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()
 			};
 			CaptureResult(bChanged, true, State);
@@ -410,7 +410,7 @@ namespace Durin
 			auto* GuidProperty = static_cast<FGuidProperty*>(Property);
 			std::string Value = GuidProperty->GetGuidValuePtr(Container, ArrayIndex)->ToString();
 			const bool bTextChanged = MonaImGui::InputText("##Value", Value);
-			const MonaImGui::FPropertyEditWidgetState State{
+			const MonaImGui::PropertyEdit::FWidgetState State{
 				ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()
 			};
 			FGuid ParsedValue;
@@ -495,7 +495,7 @@ namespace Durin
 			ImGui::TextDisabled("<%s>", PropertyKindName(Kind));
 		}
 
-		MonaImGui::EndPropertyRow(bReadOnly);
+		MonaImGui::PropertyEdit::EndRow(bReadOnly);
 		return Result;
 	}
 
@@ -541,9 +541,9 @@ namespace Durin
 	{
 		if (!Property->HasArrayHelper() || !Property->GetInner())
 		{
-			MonaImGui::BeginPropertyRow(Label.c_str(), true);
+			MonaImGui::PropertyEdit::BeginRow(Label.c_str(), true);
 			ImGui::TextDisabled("<array metadata unavailable>");
-			MonaImGui::EndPropertyRow(true);
+			MonaImGui::PropertyEdit::EndRow(true);
 			return false;
 		}
 
@@ -628,9 +628,9 @@ namespace Durin
 	{
 		if (!Property->HasMapHelper() || !Property->GetKeyProp() || !Property->GetValueProp())
 		{
-			MonaImGui::BeginPropertyRow(Label.c_str(), true);
+			MonaImGui::PropertyEdit::BeginRow(Label.c_str(), true);
 			ImGui::TextDisabled("<map metadata unavailable>");
-			MonaImGui::EndPropertyRow(true);
+			MonaImGui::PropertyEdit::EndRow(true);
 			return false;
 		}
 
@@ -727,12 +727,12 @@ namespace Durin
 							ReportError(Context, std::move(Error));
 					}
 
-					MonaImGui::BeginPropertyRow("New Entry", bReadOnly);
+					MonaImGui::PropertyEdit::BeginRow("New Entry", bReadOnly);
 					const bool bConfirmInsert = ImGui::SmallButton("Add");
 					ImGui::SameLine();
 					const bool bCancelInsert = ImGui::SmallButton("Cancel")
 						|| ((KeyEdit.bActive || ValueEdit.bActive) && ImGui::IsKeyPressed(ImGuiKey_Escape));
-					MonaImGui::EndPropertyRow(bReadOnly);
+					MonaImGui::PropertyEdit::EndRow(bReadOnly);
 					if (bCancelInsert)
 					{
 						MapInsertDraft = {};
@@ -797,9 +797,9 @@ namespace Durin
 					break;
 				}
 
-				MonaImGui::BeginPropertyRow(std::format("[{}] Actions", Index).c_str(), bReadOnly);
+				MonaImGui::PropertyEdit::BeginRow(std::format("[{}] Actions", Index).c_str(), bReadOnly);
 				const bool bRemove = ImGui::SmallButton("Remove");
-				MonaImGui::EndPropertyRow(bReadOnly);
+				MonaImGui::PropertyEdit::EndRow(bReadOnly);
 				if (bRemove)
 				{
 					FReflectedPropertyEditTarget RemoveTarget = EditTarget;

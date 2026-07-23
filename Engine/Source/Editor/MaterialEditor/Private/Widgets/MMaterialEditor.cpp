@@ -242,29 +242,29 @@ namespace Durin
 	auto MMaterialEditor::DrawMaterial(DMaterial* Material) -> void
 	{
 		ImGui::SeparatorText("Surface Parameters");
-		if (!MonaImGui::BeginPropertyTable("MaterialParameters")) return;
+		if (!MonaImGui::PropertyEdit::BeginTable("MaterialParameters")) return;
 		DrawMaterialParameters(Material, nullptr);
-		MonaImGui::EndPropertyTable();
+		MonaImGui::PropertyEdit::EndTable();
 	}
 
 	auto MMaterialEditor::DrawMaterialInstance(DMaterialInstance* Instance) -> void
 	{
 		ImGui::SeparatorText("Inheritance");
-		if (MonaImGui::BeginPropertyTable("MaterialInstanceParent"))
+		if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParent"))
 		{
 			DrawParentPicker(Instance);
-			MonaImGui::EndPropertyTable();
+			MonaImGui::PropertyEdit::EndTable();
 		}
 		ImGui::SeparatorText("Parameter Overrides");
-		if (!MonaImGui::BeginPropertyTable("MaterialInstanceParameters")) return;
+		if (!MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters")) return;
 		DrawMaterialParameters(Instance, Instance);
-		MonaImGui::EndPropertyTable();
+		MonaImGui::PropertyEdit::EndTable();
 	}
 
 	auto MMaterialEditor::DrawParentPicker(DMaterialInstance* Instance) -> void
 	{
 		ImGui::PushID("MaterialParent");
-		MonaImGui::BeginPropertyRow("Parent");
+		MonaImGui::PropertyEdit::BeginRow("Parent");
 		DMaterialInterface* Current = Instance->GetParent();
 		const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
 			.ComboId = "##Parent",
@@ -297,7 +297,7 @@ namespace Durin
 			},
 		});
 		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
-		MonaImGui::EndPropertyRow();
+		MonaImGui::PropertyEdit::EndRow();
 		ImGui::PopID();
 	}
 
@@ -341,7 +341,7 @@ namespace Durin
 			: MakeMaterialValueEditTarget(Cast<DMaterial>(Material), Definition.Id, FName("VectorValue"));
 		bool bOverride = !Instance || Binding.IsPresent();
 		ImGui::PushID(ParameterName.c_str());
-		MonaImGui::BeginPropertyRow(Definition.DisplayName.c_str());
+		MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
 		if (Instance)
 		{
 			if (ImGui::Checkbox("##Override", &bOverride))
@@ -382,7 +382,7 @@ namespace Durin
 		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
 		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
 		if (Instance && !bOverride) ImGui::EndDisabled();
-		MonaImGui::EndPropertyRow();
+		MonaImGui::PropertyEdit::EndRow();
 		ImGui::PopID();
 	}
 
@@ -402,7 +402,7 @@ namespace Durin
 		// hidden labels. Scope the complete row by parameter name so base materials and instances
 		// both receive stable, distinct ImGui IDs.
 		ImGui::PushID(ParameterName.c_str());
-		MonaImGui::BeginPropertyRow(Definition.DisplayName.c_str());
+		MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
 		if (Instance)
 		{
 			if (ImGui::Checkbox("##Override", &bOverride))
@@ -447,7 +447,7 @@ namespace Durin
 		{
 			if (!bOverride) ImGui::EndDisabled();
 		}
-		MonaImGui::EndPropertyRow();
+		MonaImGui::PropertyEdit::EndRow();
 		ImGui::PopID();
 	}
 
@@ -464,7 +464,7 @@ namespace Durin
 			: MakeMaterialValueEditTarget(Cast<DMaterial>(Material), Definition.Id, FName("TextureValue"));
 		bool bOverride = !Instance || Binding.IsPresent();
 		ImGui::PushID(ParameterName.c_str());
-		MonaImGui::BeginPropertyRow(Definition.DisplayName.c_str());
+		MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
 		if (Instance)
 		{
 			if (ImGui::Checkbox("##Override", &bOverride))
@@ -516,7 +516,7 @@ namespace Durin
 		});
 		if (!bOverride) ImGui::EndDisabled();
 		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
-		MonaImGui::EndPropertyRow();
+		MonaImGui::PropertyEdit::EndRow();
 		ImGui::PopID();
 	}
 
