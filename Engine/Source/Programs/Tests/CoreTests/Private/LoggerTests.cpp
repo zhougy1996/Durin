@@ -39,6 +39,136 @@ namespace
 		std::ifstream Stream(Path, std::ios::binary);
 		return {std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
 	}
+
+	auto ReadAll(Durin::FLogger& Logger, uint64_t NextSequence = 1, uint32_t BatchSize = 512) -> std::vector<Durin::FLogRecord>
+	{
+		std::vector<Durin::FLogRecord> Records;
+		for (;;)
+		{
+			Durin::FLogReadResult Read = Logger.ReadRecords(NextSequence, BatchSize);
+			if (Read.Records.empty()) break;
+			NextSequence = Read.NextSequence;
+			Records.insert(Records.end(), std::make_move_iterator(Read.Records.begin()), std::make_move_iterator(Read.Records.end()));
+		}
+		return Records;
+	}
+}
+
+TEST(FLoggerTests, EmptyHistoryPreservesTheRequestedCursor)
+{
+	Durin::FLogger Logger;
+	const Durin::FLogReadResult Read = Logger.ReadRecords(37, 0);
+	EXPECT_TRUE(Read.Records.empty());
+	EXPECT_EQ(Read.OldestAvailableSequence, 0u);
+	EXPECT_EQ(Read.NewestAvailableSequence, 0u);
+	EXPECT_EQ(Read.NextSequence, 37u);
+	EXPECT_EQ(Read.EvictedRecordCount, 0u);
+}
+
+TEST(FLoggerTests, RetainsBootstrapAndRuntimeRecordsForLateReaders)
+{
+	Durin::FLogger Logger;
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "Bootstrap", "First startup record");
+	Logger.Log(Durin::ELogLevel::Debug, std::source_location::current(), "Bootstrap", "Second startup record");
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("HistoryStartup"))));
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Runtime record");
+	Logger.Flush();
+
+	const std::vector<Durin::FLogRecord> Records = ReadAll(Logger);
+	ASSERT_EQ(Records.size(), 3u);
+	EXPECT_EQ(Records[0].Message, "First startup record");
+	EXPECT_EQ(Records[1].Message, "Second startup record");
+	EXPECT_EQ(Records[2].Message, "Runtime record");
+	EXPECT_TRUE(std::ranges::is_sorted(Records, {}, &Durin::FLogRecord::Sequence));
+}
+
+TEST(FLoggerTests, ReadsHistoryInBoundedBatches)
+{
+	Durin::FLogger Logger;
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("HistoryBatches"))));
+	for (int Index = 0; Index < 25; ++Index)
+	{
+		Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Batch {}", Index);
+	}
+	Logger.Flush();
+
+	uint64_t Cursor = 1;
+	std::vector<Durin::FLogRecord> Records;
+	for (int BatchIndex = 0; BatchIndex < 4; ++BatchIndex)
+	{
+		Durin::FLogReadResult Read = Logger.ReadRecords(Cursor, 7);
+		EXPECT_LE(Read.Records.size(), 7u);
+		Cursor = Read.NextSequence;
+		Records.insert(Records.end(), Read.Records.begin(), Read.Records.end());
+	}
+	ASSERT_EQ(Records.size(), 25u);
+	EXPECT_EQ(Cursor, Records.back().Sequence + 1);
+	EXPECT_TRUE(Logger.ReadRecords(Cursor, 7).Records.empty());
+}
+
+TEST(FLoggerTests, ReportsHistoryEvictionGaps)
+{
+	Durin::FLogger Logger;
+	Durin::FLogSettings Settings = MakeSettings(MakeTestDirectory("HistoryEviction"));
+	Settings.HistoryCapacity = 1; // Clamped to the documented minimum.
+	ASSERT_TRUE(Logger.Initialize(Settings));
+	for (int Index = 0; Index < 300; ++Index)
+	{
+		Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Evict {}", Index);
+	}
+	Logger.Flush();
+
+	const Durin::FLogReadResult Read = Logger.ReadRecords(1, 4096);
+	ASSERT_EQ(Read.Records.size(), 256u);
+	EXPECT_EQ(Read.OldestAvailableSequence, 45u);
+	EXPECT_EQ(Read.NewestAvailableSequence, 300u);
+	EXPECT_EQ(Read.EvictedRecordCount, 44u);
+	EXPECT_EQ(Read.NextSequence, 301u);
+}
+
+TEST(FLoggerTests, PreservesOrderedHistoryDuringConcurrentProductionAndReads)
+{
+	Durin::FLogger Logger;
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("ConcurrentHistory"))));
+	std::atomic<bool> bStopReader = false;
+	auto Reader = std::async(std::launch::async, [&] {
+		std::vector<uint64_t> Sequences;
+		uint64_t Cursor = 1;
+		while (!bStopReader.load(std::memory_order_acquire))
+		{
+			Durin::FLogReadResult Read = Logger.ReadRecords(Cursor, 17);
+			Cursor = Read.NextSequence;
+			for (const Durin::FLogRecord& Record : Read.Records) Sequences.push_back(Record.Sequence);
+			if (Read.Records.empty()) std::this_thread::yield();
+		}
+		for (;;)
+		{
+			Durin::FLogReadResult Read = Logger.ReadRecords(Cursor, 17);
+			if (Read.Records.empty()) break;
+			Cursor = Read.NextSequence;
+			for (const Durin::FLogRecord& Record : Read.Records) Sequences.push_back(Record.Sequence);
+		}
+		return Sequences;
+	});
+
+	std::vector<std::thread> Producers;
+	for (int ThreadIndex = 0; ThreadIndex < 4; ++ThreadIndex)
+	{
+		Producers.emplace_back([&Logger, ThreadIndex] {
+			for (int MessageIndex = 0; MessageIndex < 100; ++MessageIndex)
+			{
+				Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "{}:{}", ThreadIndex, MessageIndex);
+			}
+		});
+	}
+	for (std::thread& Producer : Producers) Producer.join();
+	Logger.Flush();
+	bStopReader.store(true, std::memory_order_release);
+	const std::vector<uint64_t> Sequences = Reader.get();
+
+	ASSERT_EQ(Sequences.size(), 400u);
+	EXPECT_TRUE(std::ranges::is_sorted(Sequences));
+	EXPECT_EQ(std::unordered_set<uint64_t>(Sequences.begin(), Sequences.end()).size(), Sequences.size());
 }
 
 TEST(FLoggerTests, DeliversOwnedStructuredRecordsAndUnregistersListeners)
@@ -268,6 +398,54 @@ TEST(FLoggerTests, ListenerCanRemoveItselfThrowAndLogRecursively)
 	EXPECT_EQ(SelfCount.load(std::memory_order_relaxed), 1);
 }
 
+TEST(FLoggerTests, RecursiveLogsRemainOrderedBehindAlreadyQueuedRecords)
+{
+	Durin::FLogger Logger;
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("RecursiveHistoryOrder"))));
+	std::mutex Mutex;
+	std::condition_variable Entered;
+	std::condition_variable Release;
+	bool bEntered = false;
+	bool bRelease = false;
+	bool bNestedQueued = false;
+	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
+		if (Record.Message != "Outer") return;
+		std::unique_lock Lock(Mutex);
+		bEntered = true;
+		Entered.notify_one();
+		Release.wait(Lock, [&] { return bRelease; });
+		Lock.unlock();
+		Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "Recursive", "Nested");
+		Lock.lock();
+		bNestedQueued = true;
+		Entered.notify_one();
+	});
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Outer");
+	{
+		std::unique_lock Lock(Mutex);
+		ASSERT_TRUE(Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bEntered; }));
+	}
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Already queued");
+	{
+		std::scoped_lock Lock(Mutex);
+		bRelease = true;
+	}
+	Release.notify_one();
+	{
+		std::unique_lock Lock(Mutex);
+		ASSERT_TRUE(Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bNestedQueued; }));
+	}
+	Logger.Flush();
+	Logger.RemoveListener(Handle);
+
+	const std::vector<Durin::FLogRecord> Records = ReadAll(Logger);
+	ASSERT_EQ(Records.size(), 3u);
+	EXPECT_EQ(Records[0].Message, "Outer");
+	EXPECT_EQ(Records[1].Message, "Already queued");
+	EXPECT_EQ(Records[2].Message, "Nested");
+	EXPECT_TRUE(std::ranges::is_sorted(Records, {}, &Durin::FLogRecord::Sequence));
+}
+
 TEST(FLoggerTests, ListenerCanRequestShutdownWithoutDeadlock)
 {
 	Durin::FLogger Logger;
@@ -338,6 +516,52 @@ TEST(FLoggerTests, ReplaysBootstrapRecordsAndSupportsIdempotentLifecycle)
 	Logger.Shutdown();
 	Logger.Shutdown();
 	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "Bootstrap", "After shutdown");
+}
+
+TEST(FLoggerTests, ReportsBootstrapOverflowInStructuredHistory)
+{
+	Durin::FLogger Logger;
+	testing::internal::CaptureStderr();
+	for (int Index = 0; Index < 5001; ++Index)
+	{
+		Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "Bootstrap", "Overflow {}", Index);
+	}
+	(void)testing::internal::GetCapturedStderr();
+	Durin::FLogSettings Settings = MakeSettings(MakeTestDirectory("BootstrapOverflow"));
+	Settings.HistoryCapacity = 65536;
+	ASSERT_TRUE(Logger.Initialize(Settings));
+	Logger.Flush();
+
+	const Durin::FLogReadResult Read = Logger.ReadRecords(1, 4096);
+	ASSERT_EQ(Read.EvictedRecordCount, 1u);
+	ASSERT_EQ(Read.Records.size(), 4096u);
+	std::vector<Durin::FLogRecord> Records = Read.Records;
+	const std::vector<Durin::FLogRecord> Remaining = ReadAll(Logger, Read.NextSequence, 4096);
+	Records.insert(Records.end(), Remaining.begin(), Remaining.end());
+	ASSERT_EQ(Records.size(), 5001u);
+	EXPECT_EQ(Records.front().Sequence, 2u);
+	EXPECT_EQ(Records.back().Sequence, 5002u);
+	EXPECT_NE(Records.back().Message.find("Discarded 1 bootstrap log records"), std::string::npos);
+}
+
+TEST(FLoggerTests, ClearsHistoryAndRestartsSequenceAcrossLifecycleSessions)
+{
+	Durin::FLogger Logger;
+	const Durin::FLogSettings Settings = MakeSettings(MakeTestDirectory("HistoryLifecycle"));
+	ASSERT_TRUE(Logger.Initialize(Settings));
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "First session");
+	Logger.Flush();
+	ASSERT_EQ(Logger.ReadRecords(1).Records.size(), 1u);
+	Logger.Shutdown();
+	EXPECT_TRUE(Logger.ReadRecords(1).Records.empty());
+
+	ASSERT_TRUE(Logger.Initialize(Settings));
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Second session");
+	Logger.Flush();
+	const Durin::FLogReadResult Read = Logger.ReadRecords(1);
+	ASSERT_EQ(Read.Records.size(), 1u);
+	EXPECT_EQ(Read.Records.front().Sequence, 1u);
+	EXPECT_EQ(Read.Records.front().Message, "Second session");
 }
 
 TEST(FLoggerTests, RotatesFilesAndCleansOldSessions)

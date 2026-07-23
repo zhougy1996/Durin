@@ -34,12 +34,22 @@ namespace Durin
 		ELogLevel ConsoleLevel = ELogLevel::Debug;
 		ELogLevel FileLevel = ELogLevel::Trace;
 		uint32 QueueCapacity = 8192;
+		uint32 HistoryCapacity = 5000;
 		uint32 FlushIntervalMilliseconds = 1000;
 		uint64 MaxFileSizeBytes = 20ull * 1024ull * 1024ull;
 		uint32 MaxFilesPerSession = 5;
 		uint32 MaxSessions = 10;
 		std::string LogDirectory;
 		std::string ProfileName = "Durin";
+	};
+
+	struct FLogReadResult
+	{
+		std::vector<FLogRecord> Records;
+		uint64 OldestAvailableSequence = 0;
+		uint64 NewestAvailableSequence = 0;
+		uint64 NextSequence = 1;
+		uint64 EvictedRecordCount = 0;
 	};
 
 	using FLogListenerHandle = uint64;
@@ -70,6 +80,9 @@ namespace Durin
 
 		CORE_API auto ShouldLog(ELogLevel Level) const -> bool;
 		CORE_API auto SetConsoleLogLevel(ELogLevel Level) -> void;
+		// NextSequence identifies the next desired record. Results are ordered and
+		// report when that cursor has fallen behind the retained history window.
+		CORE_API auto ReadRecords(uint64 NextSequence, uint32 MaxRecords = 512) const -> FLogReadResult;
 		CORE_API auto AddListener(FLogListener Listener) -> FLogListenerHandle;
 		// Listener callbacks run on the logger dispatch thread. Once this returns on
 		// another thread, no callback for Handle is still executing.

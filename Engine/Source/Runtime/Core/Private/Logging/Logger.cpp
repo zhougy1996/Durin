@@ -20,7 +20,11 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr size_t BootstrapCapacity = 256;
+		constexpr uint32 DefaultHistoryCapacity = 5000;
+		constexpr uint32 MinHistoryCapacity = 256;
+		constexpr uint32 MaxHistoryCapacity = 65536;
+		constexpr uint32 MinReadBatchSize = 1;
+		constexpr uint32 MaxReadBatchSize = 4096;
 
 		auto ToSpdLevel(ELogLevel Level) -> spdlog::level::level_enum
 		{
@@ -142,8 +146,16 @@ namespace Durin
 			uint32 Executing = 0;
 		};
 
+		struct FQueuedRecord
+		{
+			FLogRecord Record;
+			bool bNotifyListeners = true;
+		};
+
 		auto ShouldLog(ELogLevel Level) const -> bool
 		{
+			// Session history is intentionally unfiltered; sink thresholds are presentation policies.
+			if (HistoryCapacity.load(std::memory_order_relaxed) > 0) return true;
 			const int32 NumericLevel = static_cast<int32>(Level);
 			if (ListenerCount.load(std::memory_order_relaxed) > 0) return true;
 			return NumericLevel >= ConsoleLevel.load(std::memory_order_relaxed) ||
@@ -175,7 +187,11 @@ namespace Durin
 			{
 				Record.Sequence = NextSequence++;
 				WriteFallback(Record);
-				if (BootstrapRecords.size() == BootstrapCapacity) BootstrapRecords.pop_front();
+				if (BootstrapRecords.size() == DefaultHistoryCapacity)
+				{
+					BootstrapRecords.pop_front();
+					++EvictedBootstrapRecordCount;
+				}
 				BootstrapRecords.push_back(std::move(Record));
 				return;
 			}
@@ -214,12 +230,26 @@ namespace Durin
 			Record.Sequence = NextSequence++;
 			const uint64 Sequence = Record.Sequence;
 			LastQueuedSequence = Sequence;
-			Queue.push_back(std::move(Record));
+			Queue.push_back({std::move(Record), true});
 			WorkAvailable.notify_one();
 			if (!bReliable) return;
 			Processed.wait(Lock, [this, Sequence] { return LastProcessedSequence >= Sequence || State == EState::Stopped; });
 			Lock.unlock();
 			FlushSinks();
+		}
+
+		auto EnqueueFromDispatcher(FLogRecord Record) -> void
+		{
+			std::scoped_lock Lock(QueueMutex);
+			if (State != EState::Running || Queue.size() >= Settings.QueueCapacity)
+			{
+				WriteFallback(Record);
+				return;
+			}
+			Record.Sequence = NextSequence++;
+			LastQueuedSequence = Record.Sequence;
+			Queue.push_back({std::move(Record), false});
+			WorkAvailable.notify_one();
 		}
 
 		auto DispatchLoop() -> void
@@ -228,26 +258,36 @@ namespace Durin
 			auto NextFlush = std::chrono::steady_clock::now() + std::chrono::milliseconds(Settings.FlushIntervalMilliseconds);
 			for (;;)
 			{
-				FLogRecord Record;
+				FQueuedRecord QueuedRecord;
 				{
 					std::unique_lock Lock(QueueMutex);
-					if (!WorkAvailable.wait_until(Lock, NextFlush, [this] { return !Queue.empty() || State == EState::Stopping; }))
+					if (!WorkAvailable.wait_until(Lock, NextFlush, [this] {
+						return !BootstrapRecords.empty() || !Queue.empty() || State == EState::Stopping;
+					}))
 					{
 						Lock.unlock();
 						FlushSinks();
 						NextFlush = std::chrono::steady_clock::now() + std::chrono::milliseconds(Settings.FlushIntervalMilliseconds);
 						continue;
 					}
-					if (Queue.empty() && State == EState::Stopping) break;
-					Record = std::move(Queue.front());
-					Queue.pop_front();
-					SpaceAvailable.notify_all();
+					if (BootstrapRecords.empty() && Queue.empty() && State == EState::Stopping) break;
+					if (!BootstrapRecords.empty())
+					{
+						QueuedRecord = {std::move(BootstrapRecords.front()), true};
+						BootstrapRecords.pop_front();
+					}
+					else
+					{
+						QueuedRecord = std::move(Queue.front());
+						Queue.pop_front();
+						SpaceAvailable.notify_all();
+					}
 				}
 
-				ProcessRecord(Record, true);
+				ProcessRecord(QueuedRecord.Record, QueuedRecord.bNotifyListeners);
 				{
 					std::scoped_lock Lock(QueueMutex);
-					LastProcessedSequence = Record.Sequence;
+					LastProcessedSequence = QueuedRecord.Record.Sequence;
 					QueueDropSummaryLocked();
 				}
 				Processed.notify_all();
@@ -283,12 +323,48 @@ namespace Durin
 			Summary.Message = std::format("Dropped {} log records (trace {}, debug {}, info {}, warn {}) because the async queue was full.",
 				Total, Dropped[0], Dropped[1], Dropped[2], Dropped[3]);
 			Dropped.fill(0);
-			Queue.push_back(std::move(Summary));
+			Queue.push_back({std::move(Summary), true});
 			WorkAvailable.notify_one();
+		}
+
+		auto AppendHistory(const FLogRecord& Record) -> void
+		{
+			std::scoped_lock Lock(HistoryMutex);
+			if (History.size() == Settings.HistoryCapacity) History.pop_front();
+			History.push_back(Record);
+		}
+
+		auto ReadRecords(uint64 NextSequence, uint32 MaxRecords) const -> FLogReadResult
+		{
+			FLogReadResult Result;
+			Result.NextSequence = NextSequence;
+			const uint32 BatchSize = std::clamp(MaxRecords, MinReadBatchSize, MaxReadBatchSize);
+			std::scoped_lock Lock(HistoryMutex);
+			if (History.empty()) return Result;
+
+			Result.OldestAvailableSequence = History.front().Sequence;
+			Result.NewestAvailableSequence = History.back().Sequence;
+			uint64 ReadSequence = NextSequence;
+			if (ReadSequence < Result.OldestAvailableSequence)
+			{
+				Result.EvictedRecordCount = Result.OldestAvailableSequence - ReadSequence;
+				ReadSequence = Result.OldestAvailableSequence;
+			}
+			const auto First = std::ranges::lower_bound(History, ReadSequence, {}, &FLogRecord::Sequence);
+			const size_t Available = static_cast<size_t>(std::distance(First, History.end()));
+			const size_t Count = std::min<size_t>(Available, BatchSize);
+			Result.Records.reserve(Count);
+			for (auto Iterator = First; Iterator != History.end() && Result.Records.size() < Count; ++Iterator)
+			{
+				Result.Records.push_back(*Iterator);
+			}
+			if (!Result.Records.empty()) Result.NextSequence = Result.Records.back().Sequence + 1;
+			return Result;
 		}
 
 		auto ProcessRecord(const FLogRecord& Record, bool bNotifyListeners) -> void
 		{
+			AppendHistory(Record);
 			try
 			{
 				const spdlog::source_loc Source{Record.File.c_str(), static_cast<int>(Record.Line), Record.Function.c_str()};
@@ -376,8 +452,9 @@ namespace Durin
 		std::condition_variable WorkAvailable;
 		std::condition_variable SpaceAvailable;
 		std::condition_variable Processed;
-		std::deque<FLogRecord> Queue;
+		std::deque<FQueuedRecord> Queue;
 		std::deque<FLogRecord> BootstrapRecords;
+		uint64 EvictedBootstrapRecordCount = 0;
 		std::array<uint64, 6> Dropped{};
 		uint64 NextSequence = 1;
 		uint64 LastQueuedSequence = 0;
@@ -386,6 +463,10 @@ namespace Durin
 		FLogSettings Settings;
 		std::jthread DispatchThread;
 		std::atomic<uint32> DispatchThreadId = 0;
+		std::atomic<uint32> HistoryCapacity = DefaultHistoryCapacity;
+
+		mutable std::mutex HistoryMutex;
+		std::deque<FLogRecord> History;
 
 		std::shared_ptr<spdlog::logger> ConsoleLogger;
 		std::shared_ptr<spdlog::logger> FileLogger;
@@ -433,11 +514,7 @@ namespace Durin
 		FLogRecord Record = Impl->BuildRecord(Level, Loc, Module, std::move(Message));
 		if (FPlatformLTS::GetCurrentThreadId() == Impl->DispatchThreadId.load(std::memory_order_acquire))
 		{
-			{
-				std::scoped_lock Lock(Impl->QueueMutex);
-				Record.Sequence = Impl->NextSequence++;
-			}
-			Impl->ProcessRecord(Record, false);
+			Impl->EnqueueFromDispatcher(std::move(Record));
 			return;
 		}
 		Impl->Enqueue(std::move(Record));
@@ -447,6 +524,11 @@ namespace Durin
 	{
 		Impl->ConsoleLevel.store(static_cast<int32>(Level), std::memory_order_relaxed);
 		if (Impl->ConsoleLogger) Impl->ConsoleLogger->set_level(ToSpdLevel(Level));
+	}
+
+	auto FLogger::ReadRecords(uint64 NextSequence, uint32 MaxRecords) const -> FLogReadResult
+	{
+		return Impl->ReadRecords(NextSequence, MaxRecords);
 	}
 
 	auto FLogger::AddListener(FLogListener Listener) -> FLogListenerHandle
@@ -494,6 +576,7 @@ namespace Durin
 
 		FLogSettings Settings = InSettings;
 		Settings.QueueCapacity = std::clamp(Settings.QueueCapacity, 256u, 1024u * 1024u);
+		Settings.HistoryCapacity = std::clamp(Settings.HistoryCapacity, MinHistoryCapacity, MaxHistoryCapacity);
 		Settings.FlushIntervalMilliseconds = std::clamp(Settings.FlushIntervalMilliseconds, 50u, 60000u);
 		Settings.MaxFileSizeBytes = std::clamp<uint64>(Settings.MaxFileSizeBytes, 1024ull, 1024ull * 1024ull * 1024ull);
 		Settings.MaxFilesPerSession = std::clamp(Settings.MaxFilesPerSession, 1u, 100u);
@@ -546,16 +629,34 @@ namespace Durin
 
 		{
 			std::scoped_lock Lock(Impl->QueueMutex);
+			if (Impl->State == FImpl::EState::Stopped)
+			{
+				Impl->Queue.clear();
+				Impl->BootstrapRecords.clear();
+				Impl->Dropped.fill(0);
+				Impl->EvictedBootstrapRecordCount = 0;
+				Impl->NextSequence = 1;
+				Impl->LastQueuedSequence = 0;
+				Impl->LastProcessedSequence = 0;
+				std::scoped_lock HistoryLock(Impl->HistoryMutex);
+				Impl->History.clear();
+			}
 			Impl->Settings = std::move(Settings);
+			Impl->HistoryCapacity.store(Impl->Settings.HistoryCapacity, std::memory_order_relaxed);
 			Impl->ConsoleLogger = std::move(ConsoleLogger);
 			Impl->FileLogger = std::move(FileLogger);
 			Impl->ConsoleLevel.store(static_cast<int32>(Impl->Settings.ConsoleLevel), std::memory_order_relaxed);
 			Impl->FileLevel.store(static_cast<int32>(Impl->Settings.FileLevel), std::memory_order_relaxed);
-			while (!Impl->BootstrapRecords.empty())
+			if (!Impl->BootstrapRecords.empty()) Impl->LastQueuedSequence = Impl->BootstrapRecords.back().Sequence;
+			if (Impl->EvictedBootstrapRecordCount > 0)
 			{
-				Impl->LastQueuedSequence = Impl->BootstrapRecords.front().Sequence;
-				Impl->Queue.push_back(std::move(Impl->BootstrapRecords.front()));
-				Impl->BootstrapRecords.pop_front();
+				FLogRecord Warning = Impl->BuildRecord(ELogLevel::Warn, std::source_location::current(), "Core",
+					std::format("Discarded {} bootstrap log records because pre-initialization history exceeded {} records.",
+						Impl->EvictedBootstrapRecordCount, DefaultHistoryCapacity));
+				Warning.Sequence = Impl->NextSequence++;
+				Impl->LastQueuedSequence = Warning.Sequence;
+				Impl->Queue.push_back({std::move(Warning), true});
+				Impl->EvictedBootstrapRecordCount = 0;
 			}
 			if (!FileFailure.empty())
 			{
@@ -563,7 +664,7 @@ namespace Durin
 					std::format("File logging disabled: {}", FileFailure));
 				Warning.Sequence = Impl->NextSequence++;
 				Impl->LastQueuedSequence = Warning.Sequence;
-				Impl->Queue.push_back(std::move(Warning));
+				Impl->Queue.push_back({std::move(Warning), true});
 			}
 			Impl->State = FImpl::EState::Running;
 			Impl->DispatchThread = std::jthread([Impl = Impl.get()] { Impl->DispatchLoop(); });
@@ -622,7 +723,12 @@ namespace Durin
 				Impl->BootstrapRecords.clear();
 				return;
 			}
-			if (Impl->State == FImpl::EState::Stopped) return;
+			if (Impl->State == FImpl::EState::Stopped)
+			{
+				std::scoped_lock HistoryLock(Impl->HistoryMutex);
+				Impl->History.clear();
+				return;
+			}
 			if (Impl->State == FImpl::EState::Running)
 			{
 				Impl->State = FImpl::EState::Stopping;
@@ -639,6 +745,10 @@ namespace Durin
 		{
 			std::scoped_lock Lock(Impl->QueueMutex);
 			Impl->State = FImpl::EState::Stopped;
+		}
+		{
+			std::scoped_lock Lock(Impl->HistoryMutex);
+			Impl->History.clear();
 		}
 		Impl->Processed.notify_all();
 	}
@@ -673,6 +783,7 @@ namespace Durin
 			Settings.ConsoleLevel = ReadLevel(Logging.GetView("ConsoleLevel"), Settings.ConsoleLevel, "Logging.ConsoleLevel");
 			Settings.FileLevel = ReadLevel(Logging.GetView("FileLevel"), Settings.FileLevel, "Logging.FileLevel");
 			Settings.QueueCapacity = static_cast<uint32>(std::min<uint64>(Logging.GetView("QueueCapacity").GetUInt(Settings.QueueCapacity), 1024ull * 1024ull));
+			Settings.HistoryCapacity = static_cast<uint32>(std::min<uint64>(Logging.GetView("HistoryCapacity").GetUInt(Settings.HistoryCapacity), MaxHistoryCapacity));
 			Settings.FlushIntervalMilliseconds = static_cast<uint32>(std::min<uint64>(Logging.GetView("FlushIntervalMilliseconds").GetUInt(Settings.FlushIntervalMilliseconds), 60000));
 			const uint64 MaxFileSizeMiB = std::min<uint64>(Logging.GetView("MaxFileSizeMiB").GetUInt(Settings.MaxFileSizeBytes / (1024ull * 1024ull)), 1024);
 			Settings.MaxFileSizeBytes = MaxFileSizeMiB * 1024ull * 1024ull;

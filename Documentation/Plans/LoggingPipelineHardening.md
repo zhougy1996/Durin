@@ -4,12 +4,17 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stage 0 is complete. The existing logger and editor Console paths have been reviewed, the listener consumer audit is complete, and the public history/read/shutdown contracts below are frozen for implementation. Three deterministic characterization tests now preserve the current late-listener and reliable-listener behavior before production code changes.
+Stages 0 and 1 are complete. The logger now owns bounded structured session history, exposes the frozen sequence-cursor read contract, retains the default 5,000-record bootstrap window, reports bootstrap overflow explicitly, and resets history and sequence state across lifecycle sessions. Recursive dispatcher-thread logs are requeued without listener notification so retained history remains in strict sequence order.
 
 Validation evidence on 2026-07-23:
 
 - `BuildTool test --target CoreTests --filter FLoggerTests.* --timeout 60`: 14 tests passed.
 - `BuildTool test --target CoreTests --timeout 60`: 106 tests passed across 23 suites.
+
+Validation evidence on 2026-07-23 after Stage 1:
+
+- `BuildTool test --target CoreTests --filter FLoggerTests.* --timeout 60`: 22 tests passed.
+- `BuildTool test --target CoreTests --timeout 60`: 114 tests passed across 23 suites.
 
 The current Console subscribes after most engine startup work has already begun. Listener delivery is decided when the asynchronous dispatcher processes a record rather than when the record is produced, so the Console receives an unpredictable tail of pre-subscription records and no already-processed history. The selected direction is to make `FLogger` own bounded structured session history and let the Console consume it by sequence cursor instead of using a callback listener as its data transport.
 
@@ -199,14 +204,14 @@ The selected reliability and shutdown contract is:
 
 Depends on Stage 0.
 
-- [ ] Add `HistoryCapacity` to `FLogSettings`, configuration parsing, validation, and test fixtures.
-- [ ] Assign sequence numbers at the single accepted-record boundary and preserve them through bootstrap transfer, sink dispatch, history insertion, and drop summaries.
-- [ ] Add the bounded history container to `FLogger::FImpl` and append accepted records in dispatcher order.
-- [ ] Expand bootstrap retention to the default history window or implement equivalent bounded bootstrap accounting.
-- [ ] Generate an explicit structured bootstrap-overflow summary when pre-initialization retention is exceeded.
-- [ ] Implement the non-blocking cursor read API with bounded batches and explicit eviction-gap reporting.
-- [ ] Ensure history snapshots copy or move no data while invoking external code and hold locks only for the bounded snapshot operation.
-- [ ] Add unit tests for empty history, complete startup history, ordered concurrent history, batched reads, eviction gaps, bootstrap overflow, and lifecycle restart behavior.
+- [x] Add `HistoryCapacity` to `FLogSettings`, configuration parsing, validation, and test fixtures.
+- [x] Assign sequence numbers at the accepted-record boundary and preserve them through bootstrap transfer, sink dispatch, history insertion, recursive dispatch, and drop summaries.
+- [x] Add the bounded history container to `FLogger::FImpl` and append accepted records in dispatcher order.
+- [x] Expand bootstrap retention to the default history window with bounded overflow accounting.
+- [x] Generate an explicit structured bootstrap-overflow summary when pre-initialization retention is exceeded.
+- [x] Implement the non-blocking cursor read API with bounded batches and explicit eviction-gap reporting.
+- [x] Ensure history snapshots invoke no external code and hold the history lock only for the bounded snapshot operation.
+- [x] Add unit tests for empty history, complete startup history, ordered concurrent history, batched reads, eviction gaps, bootstrap overflow, recursive ordering, and lifecycle restart behavior.
 
 #### Acceptance Gate
 
