@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stage 0 is complete. Renderer-owned builders now define independently testable scene-target, scene-post-process, and final editor-assistance layouts. Scene depth is preserved, post-process color remains attachment-ready, and a no-draw final assistance contract pass plus present/offscreen validation pipelines exercise the selected color-plus-`D32` Vulkan compatibility before draw-order migration. The renderer still draws editor assistance into scene color before FXAA until Stage 1 and Stage 3 move submission and composition.
+Stage 1 is complete. Renderer-owned builders define independently testable scene-target, scene-post-process, and final editor-assistance layouts, while scene geometry submission, editor-assistance preparation, and editor-assistance drawing now have separate entry points. A tested draw-order contract keeps the grid first, then X-Ray and visible gizmo, line, and icon variants. Drawing intentionally remains in the scene pass before FXAA until Stage 2 creates the final-composition pipelines and Stage 3 moves composition.
 
 ## Goal
 
@@ -107,11 +107,11 @@ Establish a renderer-level boundary where scene anti-aliasing and other scene po
 
 ### Stage 1: Separate scene and editor-assistance submission
 
-- [ ] Refactor `RenderScene()` so it submits scene-owned geometry only.
-- [ ] Introduce an editor-assistance preparation step for dynamic overlay line and icon buffers without drawing them into scene color.
-- [ ] Introduce one editor-assistance draw step that preserves the existing grid, X-Ray, and visible ordering.
-- [ ] Keep this stage behaviorally neutral until the new final-output render pass and pipelines are ready.
-- [ ] Add focused source-level or renderer-helper coverage for phase membership and ordering where practical.
+- [x] Refactor `RenderScene()` so it submits scene-owned geometry only.
+- [x] Introduce an editor-assistance preparation step for dynamic overlay line and icon buffers without drawing them into scene color.
+- [x] Introduce one editor-assistance draw step that preserves the existing grid, X-Ray, and visible ordering.
+- [x] Keep this stage behaviorally neutral until the new final-output render pass and pipelines are ready.
+- [x] Add focused source-level or renderer-helper coverage for phase membership and ordering where practical.
 
 #### Acceptance Gate
 

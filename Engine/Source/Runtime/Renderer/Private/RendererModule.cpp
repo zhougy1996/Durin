@@ -2,6 +2,7 @@
 
 #include "DefaultTextures.h"
 #include "EditorGridRendering.h"
+#include "RendererEditorAssistance.h"
 #include "RendererRenderTargetLayouts.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -1498,6 +1499,8 @@ namespace Durin
 			RenderView.ViewportY = (Height - RenderView.ViewportHeight) / 2;
 		}
 		RenderScene(CommandList, Scene, RenderView, SceneColor);
+		PrepareEditorAssistance(CommandList, RenderView);
+		DrawEditorAssistance(CommandList, RenderView);
 		CommandList.EndRenderPass();
 
 		FRHIRenderPassInfo PostProcessPassInfo{};
@@ -1547,15 +1550,30 @@ namespace Durin
 				DrawStaticMeshProxy(CommandList, View, Light, RenderMode, RasterMode, Proxy);
 			}
 		});
-		DrawEditorGrid(CommandList, View);
+	}
+
+	auto FRendererModule::PrepareEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void
+	{
 		PrepareOverlayLines(CommandList, View);
 		PrepareOverlayIcons(CommandList, View);
-		DrawGizmoPrimitives(CommandList, View, true);
-		DrawOverlayLines(CommandList, true);
-		DrawOverlayIcons(CommandList, true);
-		DrawGizmoPrimitives(CommandList, View, false);
-		DrawOverlayLines(CommandList, false);
-		DrawOverlayIcons(CommandList, false);
+	}
+
+	auto FRendererModule::DrawEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void
+	{
+		using enum RendererEditorAssistance::EDrawOperation;
+		for (const RendererEditorAssistance::EDrawOperation Operation : RendererEditorAssistance::GetDrawOrder())
+		{
+			switch (Operation)
+			{
+			case EditorGrid: DrawEditorGrid(CommandList, View); break;
+			case XRayGizmos: DrawGizmoPrimitives(CommandList, View, true); break;
+			case XRayOverlayLines: DrawOverlayLines(CommandList, true); break;
+			case XRayOverlayIcons: DrawOverlayIcons(CommandList, true); break;
+			case VisibleGizmos: DrawGizmoPrimitives(CommandList, View, false); break;
+			case VisibleOverlayLines: DrawOverlayLines(CommandList, false); break;
+			case VisibleOverlayIcons: DrawOverlayIcons(CommandList, false); break;
+			}
+		}
 	}
 
 	IMPLEMENT_MODULE(FRendererModule, Renderer)
