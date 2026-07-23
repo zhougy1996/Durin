@@ -30,6 +30,7 @@ TEST(FConsoleRecordModelTests, RepresentsHistoryGapsAndFatalLogs)
 	FatalRecord.Sequence = 38;
 	FatalRecord.Level = Durin::ELogLevel::Fatal;
 	FatalRecord.Module = "Engine";
+	FatalRecord.Category = "Runtime";
 	FatalRecord.Message = "Fatal failure";
 	Model.AddLog(std::move(FatalRecord));
 	Model.SetHistoryGap(37);
@@ -38,6 +39,8 @@ TEST(FConsoleRecordModelTests, RepresentsHistoryGapsAndFatalLogs)
 	ASSERT_EQ(Records.size(), 2u);
 	EXPECT_EQ(Records.front().Type, Durin::EConsoleRecordType::Log);
 	EXPECT_EQ(Records.front().Log.Level, Durin::ELogLevel::Fatal);
+	EXPECT_EQ(Records.front().Log.Module, "Engine");
+	EXPECT_EQ(Records.front().Log.Category, "Runtime");
 	EXPECT_EQ(Records.back().Type, Durin::EConsoleRecordType::HistoryGap);
 	EXPECT_NE(Records.back().Text.find("37"), std::string::npos);
 	EXPECT_EQ(Durin::FConsoleRecordModel::LogLevelCount, 6u);

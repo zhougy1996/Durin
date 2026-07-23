@@ -19,6 +19,7 @@ namespace Durin
 		std::chrono::system_clock::time_point Timestamp;
 		ELogLevel Level = ELogLevel::Info;
 		std::string Module;
+		std::string Category;
 		std::string Message;
 
 		uint64 Sequence = 0;
@@ -74,7 +75,18 @@ namespace Durin
 			{
 				return;
 			}
-			LogInternal(Level, Loc, Module, Fmt.get(), std::make_format_args(args...));
+			LogInternal(Level, Loc, Module, Module, Fmt.get(), std::make_format_args(args...));
+		}
+
+		template<typename... Args>
+		void LogCategory(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string_view Category,
+			std::format_string<Args...> Fmt, Args&&... args)
+		{
+			if (!ShouldLog(Level))
+			{
+				return;
+			}
+			LogInternal(Level, Loc, Module, Category, Fmt.get(), std::make_format_args(args...));
 		}
 
 		CORE_API auto ShouldLog(ELogLevel Level) const -> bool;
@@ -90,7 +102,8 @@ namespace Durin
 		CORE_API auto Shutdown() -> void;
 
 	private:
-		CORE_API auto LogInternal(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string_view Fmt, std::format_args Args) const -> void;
+		CORE_API auto LogInternal(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string_view Category,
+			std::string_view Fmt, std::format_args Args) const -> void;
 
 		class FImpl;
 		std::unique_ptr<FImpl> Impl;

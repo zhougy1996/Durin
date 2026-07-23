@@ -187,12 +187,31 @@ TEST(FLoggerTests, RetainsOwnedStructuredRecords)
 	EXPECT_GT(Record.Sequence, 0u);
 	EXPECT_EQ(Record.Level, Durin::ELogLevel::Info);
 	EXPECT_EQ(Record.Module, "LoggerTests");
+	EXPECT_EQ(Record.Category, "LoggerTests");
 	EXPECT_EQ(Record.Message, "Value 42");
 	EXPECT_FALSE(Record.ThreadName.empty());
 	EXPECT_GT(Record.ThreadId, 0u);
 	EXPECT_FALSE(Record.File.empty());
 	EXPECT_GT(Record.Line, 0u);
 	EXPECT_FALSE(Record.Function.empty());
+}
+
+TEST(FLoggerTests, RetainsExplicitCategoryWithoutLosingModuleProvenance)
+{
+	const std::filesystem::path Directory = MakeTestDirectory("Category");
+	Durin::FLogger Logger;
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(Directory)));
+	Logger.LogCategory(Durin::ELogLevel::Error, std::source_location::current(), "Launch", "GC", "Collected {} objects", 42);
+
+	const Durin::FLogReadResult Read = Logger.ReadRecords(1);
+	ASSERT_EQ(Read.Records.size(), 1u);
+	EXPECT_EQ(Read.Records.front().Module, "Launch");
+	EXPECT_EQ(Read.Records.front().Category, "GC");
+	EXPECT_EQ(Read.Records.front().Message, "Collected 42 objects");
+
+	const std::vector<std::filesystem::path> Files = FindLogFiles(Directory);
+	ASSERT_EQ(Files.size(), 1u);
+	EXPECT_NE(ReadFile(Files.front()).find("[Launch][GC] Collected 42 objects"), std::string::npos);
 }
 
 TEST(FLoggerTests, ErrorAndFatalReturnOnlyAfterFileIsFlushed)
@@ -285,6 +304,7 @@ TEST(FLoggerTests, ReplaysBootstrapRecordsAndSupportsIdempotentLifecycle)
 	const std::vector<Durin::FLogRecord> Records = ReadAll(Logger);
 	ASSERT_EQ(Records.size(), 1u);
 	EXPECT_EQ(Records.front().Module, "Bootstrap");
+	EXPECT_EQ(Records.front().Category, "Bootstrap");
 	EXPECT_EQ(Records.front().Message, "Before initialize");
 	Logger.Shutdown();
 	Logger.Shutdown();

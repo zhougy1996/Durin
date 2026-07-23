@@ -66,7 +66,8 @@ namespace Durin
 		auto FormatLog(const FLogRecord& Record) -> std::string
 		{
 			const std::array<char, 16> TimeText = FormatTime(Record);
-			return std::format("[{}][{}][{}] {}", TimeText.data(), LevelName(Record.Level), Record.Module, Record.Message);
+			const std::string_view Category = Record.Category.empty() ? std::string_view(Record.Module) : std::string_view(Record.Category);
+			return std::format("[{}][{}][{}] {}", TimeText.data(), LevelName(Record.Level), Category, Record.Message);
 		}
 
 		auto DrawLogRecord(const FLogRecord& Record) -> void
@@ -76,7 +77,11 @@ namespace Durin
 			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
 			ImGui::TextColored(LevelColor(Record.Level), "%-5s", LevelName(Record.Level));
 			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
-			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleModule), "[%s]", Record.Module.c_str());
+			const std::string_view Category = Record.Category.empty() ? std::string_view(Record.Module) : std::string_view(Record.Category);
+			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleModule), "[%.*s]",
+				static_cast<int>(Category.size()), Category.data());
+			if (Category != Record.Module && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+				ImGui::SetTooltip("Module: %s", Record.Module.c_str());
 			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
 			ImGui::TextUnformatted(Record.Message.c_str());
 		}
@@ -324,7 +329,8 @@ namespace Durin
 		{
 			const size_t LevelIndex = static_cast<size_t>(Record.Log.Level);
 			if (LevelIndex >= LevelVisibility.size() || !LevelVisibility[LevelIndex]) return false;
-			return SearchText[0] == '\0' || ContainsInsensitive(Record.Log.Module, SearchText.data()) || ContainsInsensitive(Record.Log.Message, SearchText.data());
+			return SearchText[0] == '\0' || ContainsInsensitive(Record.Log.Module, SearchText.data()) ||
+				ContainsInsensitive(Record.Log.Category, SearchText.data()) || ContainsInsensitive(Record.Log.Message, SearchText.data());
 		}
 		return SearchText[0] == '\0' || ContainsInsensitive(Record.Text, SearchText.data());
 	}
@@ -353,7 +359,7 @@ namespace Durin
 		const FConsoleCommandResult Result = FConsoleCommandRegistry::Get().Execute(CommandLine);
 		(void)ApplyPendingRequests();
 		if (!Result.Message.empty()) State->Records.AddText(Result.bSuccess ? EConsoleRecordType::Result : EConsoleRecordType::Error, Result.Message);
-		if (!Result.bSuccess) DURIN_ERROR("Console command failed: {}", Result.Message);
+		if (!Result.bSuccess) DURIN_ERROR_CATEGORY("Console", "Console command failed: {}", Result.Message);
 		MarkRecordsChanged();
 		bHasNewConsoleRecords = true;
 	}

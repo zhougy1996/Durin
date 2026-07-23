@@ -146,7 +146,8 @@ namespace Durin
 				NumericLevel >= FileLevel.load(std::memory_order_relaxed);
 		}
 
-		auto BuildRecord(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string Message) const -> FLogRecord
+		auto BuildRecord(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string_view Category,
+			std::string Message) const -> FLogRecord
 		{
 			FLogRecord Record;
 			Record.Timestamp = std::chrono::system_clock::now();
@@ -156,6 +157,7 @@ namespace Durin
 			else if (GIsGameThreadIdInitialized && Record.ThreadId == GGameThreadId) Record.ThreadName = "GameThread";
 			else Record.ThreadName = "Unknown";
 			Record.Module = Module;
+			Record.Category = Category.empty() ? Module : Category;
 			Record.File = Loc.file_name();
 			Record.Line = Loc.line();
 			Record.Function = Loc.function_name();
@@ -287,6 +289,7 @@ namespace Durin
 			Summary.ThreadId = FPlatformLTS::GetCurrentThreadId();
 			Summary.ThreadName = "LogDispatcher";
 			Summary.Module = "Core";
+			Summary.Category = "Logging";
 			Summary.Message = std::format("Dropped {} log records (trace {}, debug {}, info {}, warn {}) because the async queue was full.",
 				Total, Dropped[0], Dropped[1], Dropped[2], Dropped[3]);
 			Dropped.fill(0);
@@ -332,12 +335,13 @@ namespace Durin
 		auto ProcessRecord(const FLogRecord& Record) -> void
 		{
 			AppendHistory(Record);
+			const std::string_view Category = Record.Category.empty() ? std::string_view(Record.Module) : std::string_view(Record.Category);
 			if (ConsoleLogger && static_cast<int32>(Record.Level) >= ConsoleLevel.load(std::memory_order_relaxed))
 			{
 				try
 				{
 					const spdlog::source_loc Source{Record.File.c_str(), static_cast<int>(Record.Line), Record.Function.c_str()};
-					const std::string Payload = std::format("[{}] {}", Record.Module, Record.Message);
+					const std::string Payload = std::format("[{}] {}", Category, Record.Message);
 					ConsoleLogger->log(Record.Timestamp, Source, ToSpdLevel(Record.Level),
 						spdlog::string_view_t(Payload.data(), Payload.size()));
 				}
@@ -355,8 +359,11 @@ namespace Durin
 				try
 				{
 					const spdlog::source_loc Source{Record.File.c_str(), static_cast<int>(Record.Line), Record.Function.c_str()};
-					const std::string Payload = std::format("[#{}][{}:{}][{}] {}", Record.Sequence,
-						Record.ThreadId, Record.ThreadName, Record.Module, Record.Message);
+					const std::string Scope = Category == Record.Module
+						? std::format("[{}]", Record.Module)
+						: std::format("[{}][{}]", Record.Module, Category);
+					const std::string Payload = std::format("[#{}][{}:{}]{} {}", Record.Sequence,
+						Record.ThreadId, Record.ThreadName, Scope, Record.Message);
 					FileLogger->log(Record.Timestamp, Source, ToSpdLevel(Record.Level),
 						spdlog::string_view_t(Payload.data(), Payload.size()));
 				}
@@ -403,7 +410,13 @@ namespace Durin
 
 		auto WriteFallback(const FLogRecord& Record) const -> void
 		{
-			WriteFallbackText(std::format("[{}][{}] {}", LevelName(Record.Level), Record.Module, Record.Message));
+			const std::string_view Category = Record.Category.empty() ? std::string_view(Record.Module) : std::string_view(Record.Category);
+			if (Category == Record.Module)
+			{
+				WriteFallbackText(std::format("[{}][{}] {}", LevelName(Record.Level), Record.Module, Record.Message));
+				return;
+			}
+			WriteFallbackText(std::format("[{}][{}][{}] {}", LevelName(Record.Level), Record.Module, Category, Record.Message));
 		}
 
 		auto WriteFallbackText(std::string_view Text) const -> void
@@ -463,7 +476,8 @@ namespace Durin
 		return Impl->ShouldLog(Level);
 	}
 
-	auto FLogger::LogInternal(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string_view Fmt, std::format_args Args) const -> void
+	auto FLogger::LogInternal(ELogLevel Level, std::source_location Loc, std::string_view Module, std::string_view Category,
+		std::string_view Fmt, std::format_args Args) const -> void
 	{
 		std::string Message;
 		try
@@ -474,7 +488,7 @@ namespace Durin
 		{
 			Message = std::format("Log formatting failed: {} (format: {})", Error.what(), Fmt);
 		}
-		FLogRecord Record = Impl->BuildRecord(Level, Loc, Module, std::move(Message));
+		FLogRecord Record = Impl->BuildRecord(Level, Loc, Module, Category, std::move(Message));
 		Impl->Enqueue(std::move(Record));
 	}
 
@@ -574,7 +588,7 @@ namespace Durin
 			if (!Impl->BootstrapRecords.empty()) Impl->LastQueuedSequence = Impl->BootstrapRecords.back().Sequence;
 			if (Impl->EvictedBootstrapRecordCount > 0)
 			{
-				FLogRecord Warning = Impl->BuildRecord(ELogLevel::Warn, std::source_location::current(), "Core",
+				FLogRecord Warning = Impl->BuildRecord(ELogLevel::Warn, std::source_location::current(), "Core", "Logging",
 					std::format("Discarded {} bootstrap log records because pre-initialization history exceeded {} records.",
 						Impl->EvictedBootstrapRecordCount, DefaultHistoryCapacity));
 				Warning.Sequence = Impl->NextSequence++;
@@ -584,7 +598,7 @@ namespace Durin
 			}
 			if (!FileFailure.empty())
 			{
-				FLogRecord Warning = Impl->BuildRecord(ELogLevel::Warn, std::source_location::current(), "Core",
+				FLogRecord Warning = Impl->BuildRecord(ELogLevel::Warn, std::source_location::current(), "Core", "Logging",
 					std::format("File logging disabled: {}", FileFailure));
 				Warning.Sequence = Impl->NextSequence++;
 				Impl->LastQueuedSequence = Warning.Sequence;
