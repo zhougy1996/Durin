@@ -39,6 +39,20 @@ namespace Durin
 			}
 		}
 
+		auto LevelInitial(ELogLevel Level) -> const char*
+		{
+			switch (Level)
+			{
+			case ELogLevel::Trace: return "T";
+			case ELogLevel::Debug: return "D";
+			case ELogLevel::Info: return "I";
+			case ELogLevel::Warn: return "W";
+			case ELogLevel::Error: return "E";
+			case ELogLevel::Fatal: return "F";
+			default: return "?";
+			}
+		}
+
 		auto LevelColor(ELogLevel Level) -> ImVec4
 		{
 			switch (Level)
@@ -71,30 +85,18 @@ namespace Durin
 
 		auto DrawLogRecord(const FLogRecord& Record) -> void
 		{
-			constexpr float LevelColumnOffset = 76.0f;
-			constexpr float SourceColumnOffset = 138.0f;
-			constexpr float MessageColumnOffset = 300.0f;
 			const std::array<char, 16> TimeText = FormatTime(Record);
-			const float LineStartX = ImGui::GetCursorPosX();
+			const float Spacing = MonaImGui::GetUIStyleMetrics().SpacingS;
 			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleTimestamp), "%s", TimeText.data());
-			ImGui::SameLine(LineStartX + MonaImGui::ScaleUI(LevelColumnOffset), 0.0f);
-			ImGui::TextColored(LevelColor(Record.Level), "%s", LevelName(Record.Level));
-			ImGui::SameLine(LineStartX + MonaImGui::ScaleUI(SourceColumnOffset), 0.0f);
+			ImGui::SameLine(0.0f, Spacing);
+			const float LevelStartX = ImGui::GetCursorPosX();
+			ImGui::TextColored(LevelColor(Record.Level), "%s", LevelInitial(Record.Level));
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("%s", LevelName(Record.Level));
+			ImGui::SameLine(LevelStartX + ImGui::CalcTextSize("W").x, Spacing);
 			const std::string_view Category = Record.GetCategory();
-			const ImVec2 SourceMin = ImGui::GetCursorScreenPos();
-			const ImVec2 SourceMax{
-				SourceMin.x + MonaImGui::ScaleUI(MessageColumnOffset - SourceColumnOffset - 8.0f),
-				SourceMin.y + ImGui::GetTextLineHeight()};
-			ImGui::PushID(static_cast<int>(Record.Sequence));
-			ImGui::InvisibleButton("##LogSource", ImVec2(SourceMax.x - SourceMin.x, SourceMax.y - SourceMin.y));
-			const bool bSourceHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal);
-			ImGui::PopID();
-			const std::string SourceText = std::format("[{}]", Category);
-			ImDrawList* DrawList = ImGui::GetWindowDrawList();
-			DrawList->PushClipRect(SourceMin, SourceMax, true);
-			DrawList->AddText(SourceMin, MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ConsoleModule), SourceText.c_str());
-			DrawList->PopClipRect();
-			if (bSourceHovered)
+			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleModule), "[%.*s]",
+				static_cast<int>(Category.size()), Category.data());
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
 			{
 				ImGui::BeginTooltip();
 				ImGui::Text("Module: %s", Record.Module.c_str());
@@ -105,7 +107,7 @@ namespace Durin
 				if (!Record.File.empty()) ImGui::Text("Source: %s:%u", Record.File.c_str(), Record.Line);
 				ImGui::EndTooltip();
 			}
-			ImGui::SameLine(LineStartX + MonaImGui::ScaleUI(MessageColumnOffset), 0.0f);
+			ImGui::SameLine(0.0f, Spacing);
 			ImGui::TextUnformatted(Record.Message.c_str());
 		}
 
