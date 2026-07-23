@@ -4,16 +4,16 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 1 and 2 are complete. Direct action normalization and host-aware shell
-tokenization preserve command arguments across interfaces. Interactive failures
-now retain the active request and derived context, measure the actual operation
-time, use action-specific or neutral titles as appropriate, and keep the session
-available after recoverable validation, child-command, and interruption errors.
-Canonical diagnostics omit compatibility slash prefixes while slash-prefixed
-input remains accepted. The complete Agent tooling suite passes with 85 tests.
+Stages 1 through 3 are complete. Argument handling and failure reporting preserve
+their direct-command semantics in the interactive shell. One command
+specification now drives direct parsers, shell normalization, defaults, accepted
+options, compatibility operands and aliases, and help. `build` and `rebuild`
+default to `all`; shell test timeout/filter options match direct use; ineffective
+options are rejected; and `presets`, `status`, and `open-runtime` are available
+directly. The complete Agent tooling suite passes with 94 tests.
 
-Stage 3 is next. The independently maintained shell command grammar still has
-the interface-parity gaps described below.
+Stage 4 is next. Shell startup still resolves the toolchain eagerly and the
+remaining interaction polish is described below.
 
 ## Goal
 
@@ -95,16 +95,15 @@ the user to recover without reconstructing the operation from earlier log output
   values unchanged.
 - Interactive tokenization now has explicit Windows and POSIX paths; Windows
   drive paths and backslashes reach runtime arguments unchanged.
-- Shell command parsing and help are handwritten separately from the direct CLI,
-  which has produced different target defaults, unavailable test timeout control,
-  and options that are accepted but unused.
+- Direct and shell parsing share command metadata, canonical named syntax,
+  defaults, validation boundaries, compatibility operands, aliases, and help.
 - Shell failure reporting retains request/context details, child command and
   exit information, recovery guidance, and the measured operation duration.
-- `BuildTool shell --help` describes only shell startup options, not the commands
-  available after entering the shell.
+- `BuildTool shell --help` and in-shell `help` share the same generated command
+  descriptions.
 - Tooling tests cover host-specific tokenization, command-like option values,
-  Windows shell dispatch, and shell parse, validation, child-command, and
-  interruption failures. Cross-interface parity remains uncovered until Stage 3.
+  Windows shell dispatch, shell failures, direct/shell request parity, options,
+  invalid operands, aliases, and generated help.
 
 ## Implementation Stages
 
@@ -156,21 +155,21 @@ the user to recover without reconstructing the operation from earlier log output
 
 ### Stage 3: P1 Shared Command Model and Interface Parity
 
-- [ ] Define shared metadata for command names, aliases, supported options,
+- [x] Define shared metadata for command names, aliases, supported options,
   positional operands, defaults, and help summaries.
-- [ ] Generate or configure both direct parsers and shell dispatch from that
+- [x] Generate or configure both direct parsers and shell dispatch from that
   metadata while keeping execution in the existing core layer.
-- [ ] Make `build` and `rebuild` default to `all` in both interfaces and keep
+- [x] Make `build` and `rebuild` default to `all` in both interfaces and keep
   `test` target-required.
-- [ ] Support canonical named options in the shell, including test filter and
+- [x] Support canonical named options in the shell, including test filter and
   timeout, while retaining documented compact forms as compatibility aliases.
-- [ ] Stop accepting command options that have no effect; keep only the common
+- [x] Stop accepting command options that have no effect; keep only the common
   options actually consumed by each direct command.
-- [ ] Add direct `presets`, `status`, and `open-runtime` actions with stable
+- [x] Add direct `presets`, `status`, and `open-runtime` actions with stable
   `--plain` output.
-- [ ] Make top-level help, subcommand help, `shell --help`, and in-shell `help`
+- [x] Make top-level help, subcommand help, `shell --help`, and in-shell `help`
   derive from the shared command descriptions.
-- [ ] Add table-driven parity tests covering defaults, options, invalid operands,
+- [x] Add table-driven parity tests covering defaults, options, invalid operands,
   aliases, and help for every command.
 
 #### Acceptance Gate

@@ -76,6 +76,19 @@ Shared module naming is part of the runtime contract. Current outputs follow `<P
 
 The runtime module loader expects that naming convention.
 
+## BuildTool Command Interface
+
+BuildTool's direct parser and interactive shell share one command specification
+for command names, slash aliases, accepted options, compact shell operands,
+defaults, summaries, and help. Lowercase named syntax is canonical; interactive
+slash prefixes and compact operands remain compatibility forms.
+
+`build` and `rebuild` default to target `all`, while `test` requires an explicit
+target. An option belongs only to commands that consume it: toolchain and job
+overrides are not accepted by artifact-only commands such as `purge`, `run`, or
+`open-runtime`. The direct `presets`, `status`, and `open-runtime` actions use the
+same display and context paths as their interactive counterparts.
+
 ## Related Docs
 
 - `Documentation/Architecture/Versioning.md`

@@ -29,15 +29,24 @@ Use the root wrapper for configuration, builds, and tests:
 ```powershell
 .\BuildTool configure
 .\BuildTool configure --fresh
+.\BuildTool build
 .\BuildTool build --target LevelEditor
 .\BuildTool run
 .\BuildTool test --target CoreTests --filter FJsonDocumentTests.*
 .\BuildTool clean
 .\BuildTool rebuild --target all
+.\BuildTool presets
+.\BuildTool status
+.\BuildTool open-runtime
 .\BuildTool stop
 ```
 
 Commands are case-insensitive for compatibility, but lowercase is canonical. `build` and `test` configure automatically when needed, so an explicit first `configure` is optional. Omit `--jobs` to use automatic parallelism; pass `--jobs <count>` only when a local limit is required. From another batch file, use `call BuildTool.bat <arguments>`.
+
+`build` and `rebuild` default to target `all`; `test` always requires an explicit
+`--target`. `presets`, `status`, and `open-runtime` are also available directly,
+so preset discovery, resolved-context inspection, and runtime-directory access do
+not require entering the interactive shell.
 
 An ordinary `configure` preserves the existing CMake cache. Pass `--fresh` to discard it explicitly. `rebuild` and automatic recovery from an unusable or incompatible build tree always fresh-configure before building.
 
@@ -122,16 +131,16 @@ CMake preset: "Win64-Release-DurinEditor"
 BuildTool> preset Win64-Debug-DurinGame
 BuildTool> configure --fresh
 BuildTool> build
-BuildTool> rebuild DurinLauncher
-BuildTool> test CoreTests FJsonDocumentTests.*
-BuildTool> run
+BuildTool> rebuild --target DurinLauncher
+BuildTool> test --target CoreTests --filter FJsonDocumentTests.* --timeout 300
+BuildTool> run --args --hidden-window
 BuildTool> open-runtime
 BuildTool> status
 BuildTool> stop
 BuildTool> exit
 ```
 
-`presets` displays the registered list, prints an input hint, and accepts a number on the next `BuildTool>` prompt. `preset` without an argument displays the current preset; with an argument it requires the full preset name. `build` and `rebuild` default to target `all`. `run [arguments...]` launches the current preset's existing runtime executable and returns to the shell when it exits. `open-runtime` opens the selected preset's existing runtime directory in the platform file manager. `status` reports the resolved profile, preset, build directory, configuration, CMake command, parallelism, and interruption recovery state. `stop` stops an operation held by another BuildTool process. Use `help` for the complete command list. A leading slash remains accepted for compatibility but is not required. Shell commands reuse the environment resolved when the shell starts, so switching presets does not rerun Visual Studio environment discovery.
+`presets` displays the registered list, prints an input hint, and accepts a number on the next `BuildTool>` prompt. `preset` without an argument displays the current preset; with an argument it requires the full preset name. `build` and `rebuild` default to target `all`. Shell commands accept the same named options as their direct forms. The compact forms `build <target>`, `rebuild <target>`, `test <target> [filter]`, and `run [arguments...]` remain accepted for compatibility, while help shows the canonical named syntax. `run` launches the current preset's existing runtime executable and returns to the shell when it exits. `open-runtime` opens the selected preset's existing runtime directory in the platform file manager. `status` reports the resolved profile, preset, build directory, configuration, CMake command, parallelism, and interruption recovery state. `stop` stops an operation held by another BuildTool process. Use `help` for the complete command list. A leading slash remains accepted for compatibility but is not required. Shell commands reuse the environment resolved when the shell starts, so switching presets does not rerun Visual Studio environment discovery.
 
 ## Clean And Purge
 
@@ -147,9 +156,9 @@ BuildTool> exit
 Inside the interactive shell:
 
 ```text
-BuildTool> /purge
-BuildTool> /purge --yes
-BuildTool> /purge --all-presets
+BuildTool> purge
+BuildTool> purge --yes
+BuildTool> purge --all-presets
 ```
 
 Purge asks for explicit confirmation unless `--yes` is supplied: enter `PURGE` for the current preset or `PURGE ALL` for the all-presets scope. Use `--all-presets` to remove artifacts for every preset registered to the selected Agent host profile:

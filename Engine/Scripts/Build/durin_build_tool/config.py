@@ -46,6 +46,9 @@ class BuildToolInterruptedError(BuildToolError):
 class Action(str, Enum):
     SHELL = "shell"
     STOP = "stop"
+    PRESETS = "presets"
+    STATUS = "status"
+    OPEN_RUNTIME = "open-runtime"
     CONFIGURE = "configure"
     BUILD = "build"
     CLEAN = "clean"
@@ -132,7 +135,7 @@ class BuildContext:
 
     @property
     def target(self) -> str:
-        if self.request.action is Action.REBUILD and not self.request.target:
+        if self.request.action in {Action.BUILD, Action.REBUILD} and not self.request.target:
             return "all"
         return self.request.target
 

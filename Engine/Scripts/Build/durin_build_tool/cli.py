@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import os
 import shlex
 import sys
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from time import perf_counter
-from typing import Sequence
+from typing import Any, Sequence
 
+from rich.markup import escape
 from rich.table import Table
 
 from .config import (
@@ -30,12 +30,190 @@ from .core import (
 from .output import BuildOutput
 
 
+@dataclass(frozen=True)
+class ArgumentSpec:
+    flags: tuple[str, ...]
+    dest: str
+    kwargs: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class CommandSpec:
+    action: Action
+    summary: str
+    shell_usage: str
+    arguments: tuple[ArgumentSpec, ...] = ()
+    compact_operands: tuple[str, ...] = ()
+
+    @property
+    def name(self) -> str:
+        return self.action.value
+
+    @property
+    def aliases(self) -> tuple[str, ...]:
+        return (f"/{self.name}",)
+
+
+PROFILE = ArgumentSpec(("--profile",), "profile", {"help": "host build profile"})
+PRESET = ArgumentSpec(("--preset",), "preset", {"help": "registered CMake configure preset"})
+CMAKE = ArgumentSpec(("--cmake",), "cmake", {"help": "CMake executable override"})
+ENVIRONMENT_SETUP = ArgumentSpec(
+    ("--environment-setup",),
+    "environment_setup",
+    {"help": "toolchain environment script override"},
+)
+JOBS = ArgumentSpec(
+    ("--jobs",),
+    "jobs",
+    {
+        "type": int,
+        "choices": range(1, 257),
+        "metavar": "1..256",
+        "help": "parallel build job limit",
+    },
+)
+PLAIN = ArgumentSpec(
+    ("--plain",),
+    "plain",
+    {"action": "store_true", "help": "disable colors and styled terminal output"},
+)
+FRESH = ArgumentSpec(
+    ("--fresh",),
+    "fresh",
+    {"action": "store_true", "help": "discard the existing CMake cache first"},
+)
+TARGET_ALL = ArgumentSpec(
+    ("--target",),
+    "target",
+    {"default": "all", "help": "CMake target to build (default: all)"},
+)
+TARGET_TEST = ArgumentSpec(
+    ("--target",),
+    "target",
+    {"required": True, "help": "native test target"},
+)
+TEST_FILTER = ArgumentSpec(("--filter",), "filter", {"default": "", "help": "GoogleTest filter"})
+TEST_TIMEOUT = ArgumentSpec(
+    ("--timeout",),
+    "timeout",
+    {
+        "type": int,
+        "choices": range(0, 86401),
+        "default": 300,
+        "metavar": "0..86400",
+        "help": "test executable timeout in seconds; 0 disables it (default: 300)",
+    },
+)
+ALL_PRESETS = ArgumentSpec(
+    ("--all-presets",),
+    "all_presets",
+    {"action": "store_true", "help": "purge every registered preset"},
+)
+YES = ArgumentSpec(("--yes",), "yes", {"action": "store_true", "help": "skip purge confirmation"})
+RUN_ARGUMENTS = ArgumentSpec(
+    ("--args",),
+    "run_arguments",
+    {
+        "nargs": argparse.REMAINDER,
+        "default": (),
+        "help": "arguments passed to the application; must be the final BuildTool option",
+    },
+)
+
+CONTEXT_ARGUMENTS = (PROFILE, PRESET, PLAIN)
+TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN)
+COMMAND_SPECS = (
+    CommandSpec(
+        Action.SHELL,
+        "open the interactive shell",
+        "shell",
+        TOOL_ARGUMENTS,
+    ),
+    CommandSpec(Action.STOP, "stop the active BuildTool operation", "stop", (PLAIN,)),
+    CommandSpec(
+        Action.PRESETS,
+        "list registered presets",
+        "presets",
+        CONTEXT_ARGUMENTS,
+    ),
+    CommandSpec(
+        Action.STATUS,
+        "show resolved build context and recovery state",
+        "status",
+        TOOL_ARGUMENTS,
+    ),
+    CommandSpec(
+        Action.OPEN_RUNTIME,
+        "open the selected preset's runtime directory",
+        "open-runtime",
+        CONTEXT_ARGUMENTS,
+    ),
+    CommandSpec(
+        Action.CONFIGURE,
+        "configure the selected preset",
+        "configure [--fresh]",
+        TOOL_ARGUMENTS + (FRESH,),
+    ),
+    CommandSpec(
+        Action.BUILD,
+        "build a CMake target",
+        "build [--target TARGET]",
+        TOOL_ARGUMENTS + (TARGET_ALL,),
+        ("target",),
+    ),
+    CommandSpec(
+        Action.CLEAN,
+        "clean the selected preset",
+        "clean",
+        TOOL_ARGUMENTS,
+    ),
+    CommandSpec(
+        Action.PURGE,
+        "delete generated build artifacts",
+        "purge [--all-presets] [--yes]",
+        CONTEXT_ARGUMENTS + (ALL_PRESETS, YES),
+    ),
+    CommandSpec(
+        Action.REBUILD,
+        "clean, configure, and build",
+        "rebuild [--target TARGET]",
+        TOOL_ARGUMENTS + (TARGET_ALL,),
+        ("target",),
+    ),
+    CommandSpec(
+        Action.TEST,
+        "build and run a native test target",
+        "test --target TARGET [--filter FILTER] [--timeout SECONDS]",
+        TOOL_ARGUMENTS + (TARGET_TEST, TEST_FILTER, TEST_TIMEOUT),
+        ("target", "filter"),
+    ),
+    CommandSpec(
+        Action.RUN,
+        "run the selected preset's existing application",
+        "run [--args ...]",
+        CONTEXT_ARGUMENTS + (RUN_ARGUMENTS,),
+        ("run_arguments",),
+    ),
+)
+COMMAND_BY_NAME = {spec.name: spec for spec in COMMAND_SPECS}
+SHELL_COMMANDS = {
+    name: spec
+    for spec in COMMAND_SPECS
+    for name in (spec.name, *spec.aliases)
+}
+SHELL_CONTROL_ALIASES = {
+    "/exit": "exit",
+    "/quit": "quit",
+    "/help": "help",
+    "/?": "?",
+    "/preset": "preset",
+}
+ROOT_ARGUMENTS = TOOL_ARGUMENTS
 COMMON_OPTIONS_WITH_VALUES = {
-    "--profile",
-    "--preset",
-    "--cmake",
-    "--environment-setup",
-    "--jobs",
+    flag
+    for argument in ROOT_ARGUMENTS
+    if argument.kwargs.get("action") != "store_true"
+    for flag in argument.flags
 }
 
 
@@ -44,97 +222,61 @@ class BuildArgumentParser(argparse.ArgumentParser):
         raise BuildToolError(f"{message}\nRun '{self.prog} --help' for command usage.")
 
 
-def add_common_options(parser: argparse.ArgumentParser, *, inherited: bool = False) -> None:
-    default = argparse.SUPPRESS if inherited else ""
-    parser.add_argument("--profile", default=default, help="host build profile")
-    parser.add_argument("--preset", default=default, help="registered CMake configure preset")
-    parser.add_argument("--cmake", default=default, help="CMake executable override")
-    parser.add_argument("--environment-setup", default=default, help="toolchain environment script override")
-    parser.add_argument(
-        "--plain",
-        action="store_true",
-        default=argparse.SUPPRESS if inherited else False,
-        help="disable colors and styled terminal output",
-    )
+def add_argument_spec(
+    parser: argparse.ArgumentParser,
+    argument: ArgumentSpec,
+    *,
+    suppress_default: bool = False,
+) -> None:
+    kwargs = dict(argument.kwargs)
+    kwargs["dest"] = argument.dest
+    if suppress_default:
+        kwargs["default"] = argparse.SUPPRESS
+    parser.add_argument(*argument.flags, **kwargs)
 
 
-def add_jobs(parser: argparse.ArgumentParser, *, inherited: bool = False) -> None:
-    parser.add_argument(
-        "--jobs",
-        type=int,
-        choices=range(1, 257),
-        default=argparse.SUPPRESS if inherited else None,
-        metavar="1..256",
-        help="parallel build job limit",
+def shell_command_help() -> str:
+    command_width = max(len(spec.shell_usage) for spec in COMMAND_SPECS if spec.action is not Action.SHELL)
+    lines = ["Interactive commands:"]
+    for spec in COMMAND_SPECS:
+        if spec.action is Action.SHELL:
+            continue
+        lines.append(f"  {spec.shell_usage:<{command_width}}  {spec.summary}")
+    lines.extend(
+        [
+            f"  {'preset [full-name]':<{command_width}}  show or select the current preset",
+            f"  {'help':<{command_width}}  show interactive command help",
+            f"  {'exit':<{command_width}}  leave the shell",
+        ]
     )
+    return "\n".join(lines)
 
 
 def make_parser() -> BuildArgumentParser:
     parser = BuildArgumentParser(
         prog="BuildTool",
         description="Configure, build, test, clean, and run Durin.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.set_defaults(action=Action.SHELL.value)
-    add_common_options(parser)
-    add_jobs(parser)
+    for argument in ROOT_ARGUMENTS:
+        add_argument_spec(parser, argument, suppress_default=True)
     subparsers = parser.add_subparsers(dest="action", metavar="COMMAND")
-
-    shell = subparsers.add_parser("shell", help="open the interactive shell")
-    add_common_options(shell, inherited=True)
-    add_jobs(shell, inherited=True)
-
-    stop = subparsers.add_parser("stop", help="stop the active BuildTool operation")
-    add_common_options(stop, inherited=True)
-
-    configure = subparsers.add_parser("configure", help="configure the selected preset")
-    add_common_options(configure, inherited=True)
-    add_jobs(configure, inherited=True)
-    configure.add_argument("--fresh", action="store_true", help="discard the existing CMake cache first")
-
-    build = subparsers.add_parser("build", help="build a CMake target")
-    add_common_options(build, inherited=True)
-    add_jobs(build, inherited=True)
-    build.add_argument("--target", required=True, help="CMake target to build")
-
-    clean = subparsers.add_parser("clean", help="clean the selected preset")
-    add_common_options(clean, inherited=True)
-    add_jobs(clean, inherited=True)
-
-    rebuild = subparsers.add_parser("rebuild", help="clean, configure, and build")
-    add_common_options(rebuild, inherited=True)
-    add_jobs(rebuild, inherited=True)
-    rebuild.add_argument("--target", default="all", help="CMake target to build (default: all)")
-
-    test = subparsers.add_parser("test", help="build and run a native test target")
-    add_common_options(test, inherited=True)
-    add_jobs(test, inherited=True)
-    test.add_argument("--target", required=True, help="native test target")
-    test.add_argument("--filter", default="", help="GoogleTest filter")
-    test.add_argument(
-        "--timeout",
-        type=int,
-        choices=range(0, 86401),
-        default=300,
-        metavar="0..86400",
-        help="test executable timeout in seconds; 0 disables it (default: 300)",
-    )
-
-    purge = subparsers.add_parser("purge", help="delete generated build artifacts")
-    add_common_options(purge, inherited=True)
-    add_jobs(purge, inherited=True)
-    purge.add_argument("--all-presets", action="store_true", help="purge every registered preset")
-    purge.add_argument("--yes", action="store_true", help="skip purge confirmation")
-
-    run = subparsers.add_parser("run", help="run the selected preset's existing application")
-    add_common_options(run, inherited=True)
-    add_jobs(run, inherited=True)
-    run.add_argument(
-        "--args",
-        dest="run_arguments",
-        nargs=argparse.REMAINDER,
-        default=(),
-        help="arguments passed to the application; must be the final BuildTool option",
-    )
+    for spec in COMMAND_SPECS:
+        command_parser = subparsers.add_parser(
+            spec.name,
+            help=spec.summary,
+            description=spec.summary,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=shell_command_help() if spec.action is Action.SHELL else None,
+        )
+        command_parser.set_defaults(action=spec.name)
+        for argument in spec.arguments:
+            add_argument_spec(
+                command_parser,
+                argument,
+                suppress_default=argument in ROOT_ARGUMENTS,
+            )
     return parser
 
 
@@ -211,55 +353,137 @@ def split_shell_command(line: str, *, current_host: str) -> list[str]:
         raise BuildToolError(f"Invalid shell command: {exc}.") from exc
 
 
-def namespace_request(args: argparse.Namespace) -> CommandRequest:
-    return CommandRequest(
-        action=Action(args.action or Action.SHELL.value),
-        target=getattr(args, "target", ""),
-        jobs=getattr(args, "jobs", None),
-        test_filter=getattr(args, "filter", ""),
-        test_timeout_seconds=getattr(args, "timeout", 300),
-        run_arguments=tuple(getattr(args, "run_arguments", ())),
-        profile=getattr(args, "profile", ""),
-        preset=getattr(args, "preset", ""),
-        cmake=getattr(args, "cmake", ""),
-        environment_setup=getattr(args, "environment_setup", ""),
-        all_presets=getattr(args, "all_presets", False),
-        yes=getattr(args, "yes", False),
-        fresh=getattr(args, "fresh", False),
-        plain=getattr(args, "plain", False),
-    )
+NAMESPACE_FIELDS = {
+    "target": "target",
+    "jobs": "jobs",
+    "filter": "test_filter",
+    "timeout": "test_timeout_seconds",
+    "run_arguments": "run_arguments",
+    "profile": "profile",
+    "preset": "preset",
+    "cmake": "cmake",
+    "environment_setup": "environment_setup",
+    "all_presets": "all_presets",
+    "yes": "yes",
+    "fresh": "fresh",
+    "plain": "plain",
+}
+
+
+def namespace_request(
+    args: argparse.Namespace,
+    *,
+    defaults: CommandRequest | None = None,
+) -> CommandRequest:
+    request = defaults or CommandRequest(Action.SHELL)
+    changes: dict[str, Any] = {"action": Action(args.action or Action.SHELL.value)}
+    for namespace_name, request_name in NAMESPACE_FIELDS.items():
+        if hasattr(args, namespace_name):
+            value = getattr(args, namespace_name)
+            changes[request_name] = tuple(value) if request_name == "run_arguments" else value
+    return replace(request, **changes)
+
+
+def argument_flag(spec: CommandSpec, dest: str) -> str:
+    return next(argument.flags[0] for argument in spec.arguments if argument.dest == dest)
+
+
+def parse_request(
+    argv: Sequence[str],
+    *,
+    defaults: CommandRequest | None = None,
+) -> CommandRequest:
+    args = make_parser().parse_args(normalize_action(argv))
+    action = Action(args.action or Action.SHELL.value)
+    spec = COMMAND_BY_NAME[action.value]
+    supplied = set(vars(args)) - {"action"}
+    allowed = {argument.dest for argument in spec.arguments}
+    unsupported = sorted(supplied - allowed)
+    if unsupported:
+        flags = ", ".join(argument_flag(COMMAND_BY_NAME[Action.SHELL.value], name) for name in unsupported)
+        raise BuildToolError(f"{spec.name} does not accept {flags}.")
+    request = namespace_request(args, defaults=defaults)
+    clean_defaults = CommandRequest(action)
+    cleared = {
+        request_name: getattr(clean_defaults, request_name)
+        for namespace_name, request_name in NAMESPACE_FIELDS.items()
+        if namespace_name not in allowed
+    }
+    return replace(request, **cleared)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> CommandRequest:
     values = normalize_action(sys.argv[1:] if argv is None else argv)
-    return namespace_request(make_parser().parse_args(values))
+    return parse_request(values)
 
 
-def command_request(
-    base: CommandRequest,
-    action: Action,
+def normalize_shell_command(parts: Sequence[str]) -> list[str]:
+    spec = SHELL_COMMANDS.get(parts[0].lower())
+    if spec is None or spec.action is Action.SHELL:
+        raise BuildToolError(f'Unknown shell command "{parts[0]}". Type help for available commands.')
+    command = spec.name
+    values = list(parts[1:])
+    option_by_flag = {
+        flag: argument
+        for argument in spec.arguments
+        for flag in argument.flags
+    }
+    normalized: list[str] = []
+    positionals: list[str] = []
+    supplied_destinations: set[str] = set()
+    index = 0
+    while index < len(values):
+        value = values[index]
+        flag = value.partition("=")[0]
+        argument = option_by_flag.get(flag)
+        if argument is None:
+            if spec.action is Action.RUN:
+                normalized.extend(["--args", *values[index:]])
+                supplied_destinations.add("run_arguments")
+                index = len(values)
+                break
+            if value.startswith("-"):
+                normalized.append(value)
+                index += 1
+                continue
+            positionals.append(value)
+            index += 1
+            continue
+        normalized.append(value)
+        supplied_destinations.add(argument.dest)
+        if argument.kwargs.get("nargs") is argparse.REMAINDER:
+            normalized.extend(values[index + 1 :])
+            index = len(values)
+            break
+        if "=" not in value and argument.kwargs.get("action") != "store_true":
+            if index + 1 < len(values):
+                normalized.append(values[index + 1])
+            index += 2
+        else:
+            index += 1
+
+    available_operands = [
+        operand for operand in spec.compact_operands if operand not in supplied_destinations
+    ]
+    if len(positionals) > len(available_operands):
+        if spec.action in {Action.BUILD, Action.REBUILD}:
+            raise BuildToolError(f"{command} accepts at most one target.")
+        if spec.action is Action.TEST:
+            raise BuildToolError("test requires a target and accepts an optional GoogleTest filter.")
+        raise BuildToolError(f"{command} does not accept positional arguments.")
+    for operand, value in zip(available_operands, positionals):
+        normalized.extend([argument_flag(spec, operand), value])
+    return [command, *normalized]
+
+
+def parse_shell_request(
+    parts: Sequence[str],
+    session: CommandRequest,
     *,
-    preset: str,
-    target: str = "",
-    test_filter: str = "",
-    test_timeout_seconds: int = 300,
-    run_arguments: Sequence[str] = (),
-    all_presets: bool = False,
-    yes: bool = False,
-    fresh: bool = False,
+    current_preset: str,
 ) -> CommandRequest:
-    return replace(
-        base,
-        action=action,
-        preset=preset,
-        target=target,
-        test_filter=test_filter,
-        test_timeout_seconds=test_timeout_seconds,
-        run_arguments=tuple(run_arguments),
-        all_presets=all_presets,
-        yes=yes,
-        fresh=fresh,
-    )
+    defaults = replace(session, action=Action.SHELL, preset=current_preset)
+    return parse_request(normalize_shell_command(parts), defaults=defaults)
 
 
 def confirm_purge(output: BuildOutput, paths: Sequence[Path], all_presets: bool) -> bool:
@@ -280,23 +504,7 @@ def confirm_purge(output: BuildOutput, paths: Sequence[Path], all_presets: bool)
 
 
 def print_shell_help(output: BuildOutput) -> None:
-    output.info(
-        "Commands:\n"
-        "  presets                  List presets and select one by number\n"
-        "  preset [full-name]       Show or select the current preset\n"
-        "  status                   Show resolved build context and recovery state\n"
-        "  stop                     Stop an operation running in another BuildTool process\n"
-        "  configure [--fresh]      Configure the current preset\n"
-        "  build [target]           Build a target (default: all)\n"
-        "  clean                    Clean the current preset\n"
-        "  purge [options]          Delete artifacts (--all-presets, --yes)\n"
-        "  rebuild [target]         Clean, configure, and build (default: all)\n"
-        "  test <target> [filter]   Build and run a native test target (300s timeout)\n"
-        "  run [arguments...]       Run the existing runtime executable\n"
-        "  open-runtime             Open the current preset's runtime directory\n"
-        "  help                     Show this help\n"
-        "  exit                     Leave the shell"
-    )
+    output.info(escape(shell_command_help()))
 
 
 def show_presets(output: BuildOutput, context: BuildContext, current_preset: str) -> None:
@@ -308,7 +516,7 @@ def show_presets(output: BuildOutput, context: BuildContext, current_preset: str
             if preset == current_preset:
                 markers.append("current")
             suffix = f' [{", ".join(markers)}]' if markers else ""
-            output.info(f"  {index:>2}  {preset}{suffix}")
+            output.info(escape(f"  {index:>2}  {preset}{suffix}"))
         return
     table = Table(title="Registered presets")
     table.add_column("#", justify="right")
@@ -337,16 +545,15 @@ def resolve_shell_preset_number(value: str, context: BuildContext) -> str:
     raise BuildToolError(f'Invalid preset number "{value}". Enter a number shown by presets.')
 
 
-def show_status(output: BuildOutput, context: BuildContext, preset_name: str) -> None:
-    status_context = derive_context(context, replace(context.request, preset=preset_name))
-    marker = interruption_marker_path(preset_name)
+def show_status(output: BuildOutput, context: BuildContext) -> None:
+    marker = interruption_marker_path(context.preset.name)
     values = {
-        "Profile": status_context.profile.name,
-        "Preset": preset_name,
-        "Build directory": preset_build_directory(status_context.preset),
-        "Configuration": preset_cache_string(status_context.preset, "CMAKE_BUILD_TYPE"),
-        "Parallel jobs": status_context.jobs,
-        "CMake": status_context.cmake,
+        "Profile": context.profile.name,
+        "Preset": context.preset.name,
+        "Build directory": preset_build_directory(context.preset),
+        "Configuration": preset_cache_string(context.preset, "CMAKE_BUILD_TYPE"),
+        "Parallel jobs": context.jobs,
+        "CMake": context.cmake,
         "Recovery state": "rebuild required" if marker.is_file() else "clean",
     }
     if output.plain:
@@ -366,7 +573,7 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
     base = create_context(request)
     current_preset = base.preset.name
     output.info("Durin BuildTool shell")
-    show_status(output, base, current_preset)
+    show_status(output, base)
     output.info("Type help for available commands.")
     selecting_preset = False
     while True:
@@ -396,30 +603,16 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
         child_context: BuildContext | None = None
         try:
             parts = split_shell_command(line, current_host=base.current_host)
-            command = parts[0].lower().lstrip("/")
+            shell_name = parts[0].lower()
+            spec = SHELL_COMMANDS.get(shell_name)
+            command = spec.name if spec is not None else SHELL_CONTROL_ALIASES.get(shell_name, shell_name)
             values = parts[1:]
-            if command in {action.value for action in Action if action is not Action.SHELL}:
-                child_request = command_request(request, Action(command), preset=current_preset)
+            if spec is not None and spec.action is not Action.SHELL:
+                child_request = replace(request, action=spec.action, preset=current_preset)
             if command in {"exit", "quit"}:
                 return
             if command in {"help", "?"}:
                 print_shell_help(output)
-                continue
-            if command == "presets":
-                show_presets(output, base, current_preset)
-                output.info("Enter a preset number, or press Enter to keep the current preset.")
-                selecting_preset = True
-                continue
-            if command == "status":
-                show_status(output, base, current_preset)
-                continue
-            if command == "stop":
-                if values:
-                    raise BuildToolError("stop does not accept arguments.")
-                if stop_active_operation():
-                    output.success("Stopped the active BuildTool operation.")
-                else:
-                    output.info("No active BuildTool operation was found.")
                 continue
             if command == "preset":
                 if not values:
@@ -430,69 +623,55 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                 current_preset = resolve_shell_preset(values[0], base)
                 output.success(f'CMake preset selected: "{current_preset}"')
                 continue
-            if command == "open-runtime":
-                if values:
-                    raise BuildToolError("open-runtime does not accept positional arguments.")
-                runtime_context = derive_context(base, replace(request, preset=current_preset))
-                open_runtime_directory(runtime_context, output)
+            child_request = parse_shell_request(parts, request, current_preset=current_preset)
+            child_output = (
+                output
+                if child_request.plain == request.plain
+                else BuildOutput(
+                    plain=child_request.plain,
+                    stdout=output.console.file,
+                    stderr=output.error_console.file,
+                )
+            )
+            if child_request.action is Action.STOP:
+                if stop_active_operation():
+                    child_output.success("Stopped the active BuildTool operation.")
+                else:
+                    child_output.info("No active BuildTool operation was found.")
                 continue
-            if command in {"configure", "clean"}:
-                if command == "configure":
-                    if values not in ([], ["--fresh"]):
-                        raise BuildToolError("configure accepts only --fresh.")
-                elif values:
-                    raise BuildToolError("clean does not accept positional arguments.")
-                action = Action(command)
-                child_request = command_request(
-                    request,
-                    action,
-                    preset=current_preset,
-                    fresh=values == ["--fresh"],
-                )
-            elif command == "purge":
-                allowed = {"--all-presets", "--yes"}
-                if any(value not in allowed for value in values) or len(set(values)) != len(values):
-                    raise BuildToolError("purge accepts only --all-presets and --yes.")
-                child_request = command_request(
-                    request,
+            session_profile = request.profile or base.profile.name
+            needs_independent_context = (
+                child_request.profile not in {"", session_profile}
+                or child_request.cmake != request.cmake
+                or child_request.environment_setup != request.environment_setup
+            )
+            if needs_independent_context:
+                prepare_tools = child_request.action not in {
+                    Action.PRESETS,
+                    Action.OPEN_RUNTIME,
                     Action.PURGE,
-                    preset=current_preset,
-                    all_presets="--all-presets" in values,
-                    yes="--yes" in values,
-                )
-            elif command in {"build", "rebuild"}:
-                if len(values) > 1:
-                    raise BuildToolError(f"{command} accepts at most one target.")
-                child_request = command_request(
-                    request,
-                    Action(command),
-                    preset=current_preset,
-                    target=values[0] if values else "all",
-                )
-            elif command == "test":
-                if not 1 <= len(values) <= 2:
-                    raise BuildToolError("test requires a target and accepts an optional GoogleTest filter.")
-                child_request = command_request(
-                    request,
-                    Action.TEST,
-                    preset=current_preset,
-                    target=values[0],
-                    test_filter=values[1] if len(values) == 2 else "",
-                )
-            elif command == "run":
-                child_request = command_request(
-                    request,
                     Action.RUN,
-                    preset=current_preset,
-                    run_arguments=values,
-                )
+                }
+                child_context = create_context(child_request, prepare_tools=prepare_tools)
             else:
-                raise BuildToolError(f'Unknown shell command "{parts[0]}". Type help for available commands.')
-            child_context = derive_context(base, child_request)
+                child_context = derive_context(base, child_request)
+            if child_request.action is Action.PRESETS:
+                show_presets(child_output, child_context, child_context.preset.name)
+                child_output.info("Enter a preset number, or press Enter to keep the current preset.")
+                selecting_preset = True
+                continue
+            if child_request.action is Action.STATUS:
+                show_status(child_output, child_context)
+                continue
+            if child_request.action is Action.OPEN_RUNTIME:
+                open_runtime_directory(child_context, child_output)
+                continue
             execute_context(
                 child_context,
-                output,
-                confirm_purge=lambda paths, all_presets: confirm_purge(output, paths, all_presets),
+                child_output,
+                confirm_purge=lambda paths, all_presets: confirm_purge(
+                    child_output, paths, all_presets
+                ),
             )
         except (BuildToolError, ValueError) as exc:
             error = exc if isinstance(exc, BuildToolError) else BuildToolError(f"Invalid command: {exc}")
@@ -522,8 +701,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 output.info("No active BuildTool operation was found.")
             return 0
-        prepare_tools = request.action not in {Action.PURGE, Action.RUN}
+        prepare_tools = request.action not in {
+            Action.PRESETS,
+            Action.OPEN_RUNTIME,
+            Action.PURGE,
+            Action.RUN,
+        }
         context = create_context(request, prepare_tools=prepare_tools)
+        if request.action is Action.PRESETS:
+            show_presets(output, context, context.preset.name)
+            return 0
+        if request.action is Action.STATUS:
+            show_status(output, context)
+            return 0
+        if request.action is Action.OPEN_RUNTIME:
+            open_runtime_directory(context, output)
+            return 0
         execute_context(
             context,
             output,

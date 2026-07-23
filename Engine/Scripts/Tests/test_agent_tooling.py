@@ -295,9 +295,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(test.test_timeout_seconds, 45)
         self.assertEqual(build_cli.parse_args(["test", "--target", "CoreTests"]).test_timeout_seconds, 300)
 
-    def test_build_requires_target_with_command_specific_help(self) -> None:
-        with self.assertRaisesRegex(build_config.BuildToolError, "BuildTool build --help"):
-            build_cli.parse_args(["build"])
+    def test_build_defaults_to_all_and_test_requires_target(self) -> None:
+        self.assertEqual(build_cli.parse_args(["build"]).target, "all")
+        with self.assertRaisesRegex(build_config.BuildToolError, "BuildTool test --help"):
+            build_cli.parse_args(["test"])
 
     def test_build_help_does_not_show_purge_options(self) -> None:
         parser = build_cli.make_parser()
@@ -305,6 +306,238 @@ class CliTests(unittest.TestCase):
         help_text = build_parser.format_help()
         self.assertIn("--target", help_text)
         self.assertNotIn("--all-presets", help_text)
+
+    def test_every_direct_command_and_help_come_from_shared_specs(self) -> None:
+        parser = build_cli.make_parser()
+        subparsers = parser._subparsers._group_actions[0].choices
+        self.assertEqual(set(subparsers), {spec.name for spec in build_cli.COMMAND_SPECS})
+        top_level_help = parser.format_help()
+        for spec in build_cli.COMMAND_SPECS:
+            self.assertIn(spec.name, top_level_help)
+            self.assertIn(spec.summary, top_level_help)
+            command_help = subparsers[spec.name].format_help()
+            for argument in spec.arguments:
+                self.assertIn(argument.flags[0], command_help)
+
+    def test_shell_startup_and_interactive_help_share_command_descriptions(self) -> None:
+        parser = build_cli.make_parser()
+        shell_parser = parser._subparsers._group_actions[0].choices["shell"]
+        shared_help = build_cli.shell_command_help()
+        self.assertIn(shared_help, shell_parser.format_help())
+        stdout = io.StringIO()
+        build_cli.print_shell_help(BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()))
+        self.assertEqual(stdout.getvalue().strip(), shared_help)
+        styled_stdout = io.StringIO()
+        build_cli.print_shell_help(
+            BuildOutput(
+                stdout=styled_stdout,
+                stderr=io.StringIO(),
+                force_terminal=True,
+            )
+        )
+        self.assertIn("configure [--fresh]", styled_stdout.getvalue())
+        self.assertIn("preset [full-name]", styled_stdout.getvalue())
+
+    def test_options_with_no_effect_are_rejected(self) -> None:
+        invalid = [
+            ["purge", "--jobs", "2"],
+            ["--jobs", "2", "purge"],
+            ["run", "--cmake", "cmake"],
+            ["--environment-setup", "setup.bat", "open-runtime"],
+            ["stop", "--preset", "debug"],
+        ]
+        for argv in invalid:
+            with self.subTest(argv=argv), self.assertRaises(build_config.BuildToolError):
+                build_cli.parse_args(argv)
+
+    def test_direct_read_only_commands_are_parsed_and_dispatched(self) -> None:
+        self.assertIs(build_cli.parse_args(["presets"]).action, build_config.Action.PRESETS)
+        self.assertIs(build_cli.parse_args(["status"]).action, build_config.Action.STATUS)
+        self.assertIs(build_cli.parse_args(["open-runtime"]).action, build_config.Action.OPEN_RUNTIME)
+        context = mock.Mock()
+        context.preset.name = "debug"
+        with mock.patch.object(build_cli, "create_context", return_value=context) as create, mock.patch.object(
+            build_cli, "show_presets"
+        ) as presets, mock.patch.object(build_cli, "execute_context") as execute:
+            self.assertEqual(build_cli.main(["presets", "--plain"]), 0)
+        create.assert_called_once_with(mock.ANY, prepare_tools=False)
+        presets.assert_called_once()
+        execute.assert_not_called()
+        with mock.patch.object(build_cli, "create_context", return_value=context), mock.patch.object(
+            build_cli, "show_status"
+        ) as status, mock.patch.object(build_cli, "execute_context") as execute:
+            self.assertEqual(build_cli.main(["status", "--plain"]), 0)
+        status.assert_called_once()
+        execute.assert_not_called()
+        with mock.patch.object(build_cli, "create_context", return_value=context) as create, mock.patch.object(
+            build_cli, "open_runtime_directory"
+        ) as open_runtime, mock.patch.object(build_cli, "execute_context") as execute:
+            self.assertEqual(build_cli.main(["open-runtime", "--plain"]), 0)
+        create.assert_called_once_with(mock.ANY, prepare_tools=False)
+        open_runtime.assert_called_once()
+        execute.assert_not_called()
+
+    def test_plain_preset_listing_preserves_state_markers(self) -> None:
+        context = mock.Mock()
+        context.profile.presets = ("debug", "release")
+        context.profile.default_preset = "debug"
+        stdout = io.StringIO()
+        build_cli.show_presets(
+            BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()),
+            context,
+            "debug",
+        )
+        self.assertIn("debug [default, current]", stdout.getvalue())
+
+    def test_canonical_direct_and_shell_commands_produce_equal_requests(self) -> None:
+        cases = [
+            (["stop", "--plain"], ["stop", "--plain"]),
+            (["presets", "--preset", "debug", "--plain"], ["presets", "--preset", "debug", "--plain"]),
+            (["status", "--preset", "debug", "--jobs", "3"], ["status", "--preset", "debug", "--jobs", "3"]),
+            (["open-runtime", "--preset", "debug"], ["open-runtime", "--preset", "debug"]),
+            (["configure", "--preset", "debug", "--fresh"], ["configure", "--preset", "debug", "--fresh"]),
+            (["build", "--preset", "debug"], ["build", "--preset", "debug"]),
+            (["clean", "--preset", "debug"], ["clean", "--preset", "debug"]),
+            (
+                ["purge", "--preset", "debug", "--all-presets", "--yes"],
+                ["purge", "--preset", "debug", "--all-presets", "--yes"],
+            ),
+            (["rebuild", "--preset", "debug", "--target", "Core"], ["rebuild", "--preset", "debug", "--target", "Core"]),
+            (
+                [
+                    "test",
+                    "--preset",
+                    "debug",
+                    "--target",
+                    "CoreTests",
+                    "--filter",
+                    "Core.*",
+                    "--timeout",
+                    "45",
+                ],
+                [
+                    "test",
+                    "--preset",
+                    "debug",
+                    "--target",
+                    "CoreTests",
+                    "--filter",
+                    "Core.*",
+                    "--timeout",
+                    "45",
+                ],
+            ),
+            (
+                ["run", "--preset", "debug", "--args", "--hidden-window"],
+                ["run", "--preset", "debug", "--args", "--hidden-window"],
+            ),
+        ]
+        session = build_config.CommandRequest(build_config.Action.SHELL)
+        for direct_argv, shell_parts in cases:
+            with self.subTest(command=direct_argv[0]):
+                expected = build_cli.parse_args(direct_argv)
+                self.assertEqual(
+                    build_cli.parse_shell_request(shell_parts, session, current_preset="debug"),
+                    expected,
+                )
+                slash_alias = [f"/{shell_parts[0]}", *shell_parts[1:]]
+                self.assertEqual(
+                    build_cli.parse_shell_request(slash_alias, session, current_preset="debug"),
+                    expected,
+                )
+
+    def test_shell_compact_forms_match_canonical_direct_requests(self) -> None:
+        cases = [
+            (["/build", "Core"], ["build", "--preset", "debug", "--target", "Core"]),
+            (["rebuild"], ["rebuild", "--preset", "debug"]),
+            (
+                ["test", "CoreTests", "FJsonDocumentTests.*", "--timeout", "45"],
+                [
+                    "test",
+                    "--preset",
+                    "debug",
+                    "--target",
+                    "CoreTests",
+                    "--filter",
+                    "FJsonDocumentTests.*",
+                    "--timeout",
+                    "45",
+                ],
+            ),
+            (
+                ["run", "--hidden-window", "--project", "Example"],
+                [
+                    "run",
+                    "--preset",
+                    "debug",
+                    "--args",
+                    "--hidden-window",
+                    "--project",
+                    "Example",
+                ],
+            ),
+        ]
+        session = build_config.CommandRequest(build_config.Action.SHELL)
+        for shell_parts, direct_argv in cases:
+            with self.subTest(command=shell_parts[0]):
+                self.assertEqual(
+                    build_cli.parse_shell_request(shell_parts, session, current_preset="debug"),
+                    build_cli.parse_args(direct_argv),
+                )
+
+    def test_shell_session_defaults_and_named_overrides_are_preserved(self) -> None:
+        session = build_config.CommandRequest(
+            build_config.Action.SHELL,
+            jobs=7,
+            profile="profile",
+            preset="initial",
+            cmake="custom-cmake",
+            environment_setup="setup.bat",
+            plain=True,
+        )
+        shell_request = build_cli.parse_shell_request(
+            ["build", "--target", "Core", "--jobs", "3"],
+            session,
+            current_preset="debug",
+        )
+        direct_request = build_cli.parse_args(
+            [
+                "build",
+                "--target",
+                "Core",
+                "--jobs",
+                "3",
+                "--profile",
+                "profile",
+                "--preset",
+                "debug",
+                "--cmake",
+                "custom-cmake",
+                "--environment-setup",
+                "setup.bat",
+                "--plain",
+            ]
+        )
+        self.assertEqual(shell_request, direct_request)
+
+    def test_shell_commands_reject_invalid_operands_from_shared_model(self) -> None:
+        invalid = [
+            ["stop", "extra"],
+            ["presets", "extra"],
+            ["status", "extra"],
+            ["open-runtime", "extra"],
+            ["configure", "extra"],
+            ["build", "Core", "Extra"],
+            ["clean", "extra"],
+            ["purge", "extra"],
+            ["rebuild", "Core", "Extra"],
+            ["test", "CoreTests", "Core.*", "extra"],
+            ["run", "--preset"],
+        ]
+        session = build_config.CommandRequest(build_config.Action.SHELL)
+        for parts in invalid:
+            with self.subTest(command=parts[0]), self.assertRaises(build_config.BuildToolError):
+                build_cli.parse_shell_request(parts, session, current_preset="debug")
 
     def test_plain_option_is_available_after_command(self) -> None:
         request = build_cli.parse_args(["configure", "--plain"])
