@@ -21,7 +21,7 @@
 #include "Misc/Version.h"
 
 #include "Shader/ShaderPaths.h"
-#include "DurinEngine.h"
+#include "EngineGlobals.h"
 
 #if DURIN_WITH_EDITOR
 	#include "Editor/EditorEngine.h"

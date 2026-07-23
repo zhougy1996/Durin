@@ -1,4 +1,4 @@
-#include "DurinEngine.h"
+#include "EngineGlobals.h"
 
 #include "Misc/Time.h"
 
