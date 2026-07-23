@@ -9,7 +9,7 @@ These plans have an active execution path. Plan authoring and archival rules are
 | [Texture Support](TextureSupport.md) | Texture2D assets, platform data, material sampling, and validation |
 | [Material System](MaterialSystem.md) | Material editing, surface models, shader maps, and runtime materials |
 | [Material Parameter Domain Refactor](MaterialParameterDomainRefactor.md) | Stable parameter identity, schema-driven material values, instance overrides, and generic editing |
-| [Multithreading System](MultithreadingSystem.md) and [Long-Range Roadmap](MultithreadingRoadmap.md) | Current task-system priorities and the broader staged concurrency target |
+| [Multithreading V1](MultithreadingV1.md) | Production-safe CPU task states, lifecycle, dependencies, cancellation, parallel loops, and async consumer handoff |
 | [Editor Workspace Refactor](EditorWorkspaceRefactor.md) | Editor workspaces, panels, and document lifecycles |
 | [Editor Icon Atlas](EditorIconAtlas.md) | Offline atlas pipeline for editor visualization icons |
 | [Asset Registry and Thumbnail Cache](AssetRegistryAndThumbnailCache.md) | Persistent asset discovery metadata and rebuildable Content Browser thumbnails |
