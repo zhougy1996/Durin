@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stages 0 and 1 are implemented and validated. The fragment-depth contract passes Slang compilation and the real Vulkan grid pipeline. The renderer now uploads validated, mutually inverse `WorldToClip` and `ClipToWorld` transforms through the V2 uniform layout and skips the grid draw before uniform allocation when the view-projection transform is invalid. The existing world-space grid triangle remains the baseline until the V2 path passes the validation matrix.
+Stages 0 and 1 are implemented and validated. Stage 2 is implemented and passes focused automated checks plus the real Vulkan shader/pipeline smoke test; its visual acceptance scenarios remain part of the later validation matrix. The renderer uploads validated, mutually inverse `WorldToClip` and `ClipToWorld` transforms through the V2 uniform layout and skips the grid draw before uniform allocation when the view-projection transform is invalid. The grid now uses a resource-free fullscreen vertex stage, reconstructs each fragment's world-space ray intersection with the horizontal grid plane, and publishes the reprojected hit depth while retaining the existing appearance logic as the Stage 3 baseline.
 
 ## Goal
 
@@ -113,11 +113,11 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 
 ### Stage 2: Replace finite geometry with ray-plane reconstruction
 
-- [ ] Emit the shared triangle positions directly as clip-space positions in `VertexMain` and forward clip XY for interpolation.
-- [ ] Unproject NDC near and far positions with `ClipToWorld` in `FragmentMain`.
-- [ ] Intersect the reconstructed ray with `Z = Height`, handling parallel, behind-near, non-finite, and outside-depth-range cases explicitly.
-- [ ] Reproject the intersection through `WorldToClip` and return its normalized depth as `SV_Depth` alongside the grid color.
-- [ ] Keep the draw count, alpha blending, culling, depth-test, and depth-write states unchanged unless Stage 0 proves a required backend adjustment.
+- [x] Emit the shared triangle positions directly as clip-space positions in `VertexMain` and forward clip XY for interpolation.
+- [x] Unproject NDC near and far positions with `ClipToWorld` in `FragmentMain`.
+- [x] Intersect the reconstructed ray with `Z = Height`, handling parallel, behind-near, non-finite, and outside-depth-range cases explicitly.
+- [x] Reproject the intersection through `WorldToClip` and return its normalized depth as `SV_Depth` alongside the grid color.
+- [x] Keep the draw count, alpha blending, culling, depth-test, and depth-write states unchanged unless Stage 0 proves a required backend adjustment.
 
 #### Acceptance Gate
 

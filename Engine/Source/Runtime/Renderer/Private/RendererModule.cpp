@@ -154,9 +154,6 @@ namespace Durin
 		class FEditorGridVertexShader : public FShader
 		{
 		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FEditorGridVertexShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Grid);
-			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_SHADER(FEditorGridVertexShader, FShader, "/Engine/EditorGrid", EShaderFrequency::Vertex, "VertexMain");
 		};
 
@@ -1053,9 +1050,6 @@ namespace Durin
 			CommandList.BindVertexBuffer(0, GPostProcessState.VertexBuffer, 0);
 			CommandList.BindIndexBuffer(GPostProcessState.IndexBuffer, 0);
 			const FRHIUniformBufferRange GridBuffer = CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
-			FEditorGridVertexShader::FParameters VertexParameters;
-			VertexParameters.Grid = GridBuffer;
-			SetShaderParameters(CommandList, GEditorGridState.VertexShader, VertexParameters);
 			FEditorGridFragmentShader::FParameters FragmentParameters;
 			FragmentParameters.Grid = GridBuffer;
 			SetShaderParameters(CommandList, GEditorGridState.FragmentShader, FragmentParameters);
