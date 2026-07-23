@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stages 0 through 2 are complete. The logger now owns bounded structured session history, exposes the frozen sequence-cursor read contract, retains the default 5,000-record bootstrap window, reports bootstrap overflow explicitly, and resets history and sequence state across lifecycle sessions. Recursive dispatcher-thread logs are requeued without listener notification so retained history remains in strict sequence order. Reliable Error and Fatal completion is now published after active sinks have been attempted and intentionally flushed, before compatibility listeners run. Shutdown releases reliable producers, sink and flush failures use fallback stderr without stranding waiters, and drop summaries wait for real queue capacity.
+Stages 0 through 3 are complete. The logger now owns bounded structured session history, exposes the frozen sequence-cursor read contract, retains the default 5,000-record bootstrap window, reports bootstrap overflow explicitly, and resets history and sequence state across lifecycle sessions. Recursive dispatcher-thread logs are requeued without listener notification so retained history remains in strict sequence order. Reliable Error and Fatal completion is published after active sinks have been attempted and intentionally flushed, before compatibility listeners run. The editor Console now polls retained history by sequence cursor, continues consuming while hidden, keeps one combined bounded record model, surfaces eviction gaps, and supports Fatal throughout filtering and presentation.
 
 Validation evidence on 2026-07-23:
 
@@ -20,6 +20,14 @@ Validation evidence on 2026-07-23 after Stage 2:
 
 - `BuildTool test --target CoreTests --filter FLoggerTests.* --timeout 60`: 24 tests passed.
 - `BuildTool test --target CoreTests --timeout 60`: 116 tests passed across 23 suites.
+
+Validation evidence on 2026-07-23 after Stage 3:
+
+- `BuildTool test --target EngineTests --filter FConsoleRecordModelTests.* --timeout 60`: 3 tests passed.
+- `BuildTool test --target EngineTests --timeout 120`: 167 tests passed across 43 suites.
+- `BuildTool build --target LevelEditor`: succeeded.
+- `BuildTool build --target all`: succeeded for `Win64-Debug-DurinEditor-Tests`.
+- `DurinEditor.exe --hidden-window`: remained running for the 8-second smoke window.
 
 The current Console subscribes after most engine startup work has already begun. Listener delivery is decided when the asynchronous dispatcher processes a record rather than when the record is produced, so the Console receives an unpredictable tail of pre-subscription records and no already-processed history. The selected direction is to make `FLogger` own bounded structured session history and let the Console consume it by sequence cursor instead of using a callback listener as its data transport.
 
@@ -246,15 +254,15 @@ Depends on Stage 1.
 
 Depends on Stages 1 and 2.
 
-- [ ] Remove the Console's logger listener handle and `PendingLogs` callback buffer.
-- [ ] Store the Console's last consumed sequence and poll a bounded batch at the start of `Draw()`.
-- [ ] Continue draining bounded batches while the panel is hidden so visibility does not alter retention behavior.
-- [ ] Represent history eviction or producer drops with a visible Console warning record.
-- [ ] Preserve the combined 5,000-record cap across log records, commands, results, and errors without first constructing an unbounded intermediate collection.
-- [ ] Add Fatal to level naming, coloring, filter state, search, copy, and documentation.
-- [ ] Keep Console-owned `Records` on the UI thread; make the `clear` command marshal or assert that mutation occurs on that thread.
-- [ ] Avoid rebuilding avoidable filter allocations every frame when neither records nor filters changed.
-- [ ] Add focused tests around the non-ImGui Console record model where practical, leaving rendering-specific behavior for integration validation.
+- [x] Remove the Console's logger listener handle and `PendingLogs` callback buffer.
+- [x] Store the Console's last consumed sequence and poll a bounded batch at the start of `Draw()`.
+- [x] Continue draining bounded batches while the panel is hidden so visibility does not alter retention behavior.
+- [x] Represent history eviction or producer drops with a visible Console warning record.
+- [x] Preserve the combined 5,000-record cap across log records, commands, results, and errors without first constructing an unbounded intermediate collection.
+- [x] Add Fatal to level naming, coloring, filter state, search, copy, and documentation.
+- [x] Keep Console-owned `Records` on the UI thread; make the `clear` command marshal or assert that mutation occurs on that thread.
+- [x] Avoid rebuilding avoidable filter allocations every frame when neither records nor filters changed.
+- [x] Add focused tests around the non-ImGui Console record model where practical, leaving rendering-specific behavior for integration validation.
 
 #### Acceptance Gate
 

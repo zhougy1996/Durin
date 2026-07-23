@@ -10,6 +10,7 @@ namespace Durin
 		virtual ~ILevelEditorPanel() = default;
 
 		virtual auto GetWindowName() const -> const char* = 0;
+		virtual auto TickWhenHidden() -> void {}
 		virtual auto Draw(FLevelEditorContext& Context) -> void = 0;
 
 		auto IsOpen() const -> bool { return bOpen; }

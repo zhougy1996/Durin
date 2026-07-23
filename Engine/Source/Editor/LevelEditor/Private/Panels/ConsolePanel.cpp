@@ -1,5 +1,7 @@
 #include "Panels/ConsolePanel.h"
 
+#include "Panels/ConsoleRecordModel.h"
+
 #include "Editor/EditorWorkspaceUI.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Workspace/LevelEditorWorkspace.h"
@@ -10,26 +12,10 @@
 
 namespace Durin
 {
-	enum class EConsoleRecordType
-	{
-		Log,
-		Command,
-		Result,
-		Error
-	};
-
-	struct FConsoleRecord
-	{
-		EConsoleRecordType Type = EConsoleRecordType::Log;
-		FLogRecord Log;
-		std::string Text;
-	};
-
 	struct FConsolePanelState
 	{
-		std::mutex Mutex;
-		std::vector<FLogRecord> PendingLogs;
-		std::deque<FConsoleRecord> Records;
+		std::atomic<bool> bClearRequested = false;
+		FConsoleRecordModel Records;
 	};
 
 	namespace
@@ -37,7 +23,6 @@ namespace Durin
 		using LevelEditorHelpers::DrawToolbarIconButton;
 		using StringUtils::ContainsInsensitive;
 
-		constexpr size_t MaxConsoleRecords = 5000;
 		constexpr size_t MaxCommandHistory = 100;
 
 		auto LevelName(ELogLevel Level) -> const char*
@@ -49,6 +34,7 @@ namespace Durin
 			case ELogLevel::Info: return "Info";
 			case ELogLevel::Warn: return "Warn";
 			case ELogLevel::Error: return "Error";
+			case ELogLevel::Fatal: return "Fatal";
 			default: return "Unknown";
 			}
 		}
@@ -62,6 +48,7 @@ namespace Durin
 			case ELogLevel::Info: return ImGui::GetStyleColorVec4(ImGuiCol_Text);
 			case ELogLevel::Warn: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning);
 			case ELogLevel::Error: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error);
+			case ELogLevel::Fatal: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error);
 			default: return {1.0f, 1.0f, 1.0f, 1.0f};
 			}
 		}
@@ -113,20 +100,11 @@ namespace Durin
 		: State(std::make_shared<FConsolePanelState>())
 	{
 		const std::weak_ptr<FConsolePanelState> WeakState = State;
-		ListenerHandle = FLogger::Get().AddListener([WeakState](const FLogRecord& Record) {
-			if (const auto SharedState = WeakState.lock())
-			{
-				std::scoped_lock Lock(SharedState->Mutex);
-				SharedState->PendingLogs.push_back(Record);
-			}
-		});
 		ClearCommandHandle = FConsoleCommandRegistry::Get().RegisterCommand({"clear", "Clears the editor console.", "clear", [WeakState](std::span<const std::string> Args) {
 																				 if (!Args.empty()) return FConsoleCommandResult::Failure("Usage: clear");
 																				 if (const auto SharedState = WeakState.lock())
 																				 {
-																					 std::scoped_lock Lock(SharedState->Mutex);
-																					 SharedState->PendingLogs.clear();
-																					 SharedState->Records.clear();
+																					 SharedState->bClearRequested.store(true, std::memory_order_release);
 																				 }
 																				 return FConsoleCommandResult::Success();
 																			 }});
@@ -135,14 +113,19 @@ namespace Durin
 	FConsolePanel::~FConsolePanel()
 	{
 		FConsoleCommandRegistry::Get().UnregisterCommand(ClearCommandHandle);
-		FLogger::Get().RemoveListener(ListenerHandle);
 		State.reset();
+	}
+
+	auto FConsolePanel::TickWhenHidden() -> void
+	{
+		(void)PollLogRecords();
 	}
 
 	auto FConsolePanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		(void)Context;
-		const bool bReceivedRecords = DrainPendingRecords() || std::exchange(bHasNewConsoleRecords, false);
+		const bool bHadNewConsoleRecords = std::exchange(bHasNewConsoleRecords, false);
+		const bool bReceivedRecords = PollLogRecords() || bHadNewConsoleRecords;
 		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Console", "OutputLog", GetOpenPtr()))
 		{
 			ImGui::End();
@@ -160,7 +143,7 @@ namespace Durin
 				{
 					const ELogLevel Level = static_cast<ELogLevel>(Index);
 					ImGui::PushStyleColor(ImGuiCol_Text, LevelColor(Level));
-					ImGui::MenuItem(LevelName(Level), nullptr, &LevelVisibility[Index]);
+					if (ImGui::MenuItem(LevelName(Level), nullptr, &LevelVisibility[Index])) bVisibleRecordsDirty = true;
 					ImGui::PopStyleColor();
 				}
 				ImGui::EndMenu();
@@ -169,29 +152,28 @@ namespace Durin
 		}
 		ImGui::SameLine();
 		ImGui::SetNextItemWidth(-1.0f);
-		ImGui::InputTextWithHint("###ConsoleSearch", "Search output...", SearchText.data(), SearchText.size());
+		if (ImGui::InputTextWithHint("###ConsoleSearch", "Search output...", SearchText.data(), SearchText.size())) bVisibleRecordsDirty = true;
 		ImGui::Separator();
 
 		const float InputHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
 		if (ImGui::BeginChild("ConsoleRecords", ImVec2(0, -InputHeight), false, ImGuiWindowFlags_HorizontalScrollbar))
 		{
-			std::vector<size_t> VisibleRecords;
-			for (size_t Index = 0; Index < State->Records.size(); ++Index)
-				if (IsRecordVisible(Index)) VisibleRecords.push_back(Index);
+			RefreshVisibleRecords();
 			ImGuiListClipper Clipper;
-			Clipper.Begin(static_cast<int>(VisibleRecords.size()));
+			Clipper.Begin(static_cast<int>(VisibleRecordIndices.size()));
 			while (Clipper.Step())
 			{
 				for (int VisibleIndex = Clipper.DisplayStart; VisibleIndex < Clipper.DisplayEnd; ++VisibleIndex)
 				{
-					const FConsoleRecord& Record = State->Records[VisibleRecords[VisibleIndex]];
+					const FConsoleRecord& Record = State->Records.GetRecords()[VisibleRecordIndices[VisibleIndex]];
 					if (Record.Type == EConsoleRecordType::Log)
 						DrawLogRecord(Record.Log);
 					else
 					{
-						const ImVec4 Color = Record.Type == EConsoleRecordType::Command ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info) :
-											 Record.Type == EConsoleRecordType::Error	? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error) :
-																						  ImGui::GetStyleColorVec4(ImGuiCol_Text);
+						const ImVec4 Color = Record.Type == EConsoleRecordType::Command	   ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info) :
+											 Record.Type == EConsoleRecordType::HistoryGap ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning) :
+											 Record.Type == EConsoleRecordType::Error	   ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error) :
+																							 ImGui::GetStyleColorVec4(ImGuiCol_Text);
 						ImGui::TextColored(Color, "%s", Record.Text.c_str());
 					}
 				}
@@ -265,30 +247,78 @@ namespace Durin
 				std::string Text = "Matches:";
 				for (const std::string& Match : Matches)
 					Text += " " + Match;
-				Panel->State->Records.push_back({EConsoleRecordType::Result, {}, std::move(Text)});
+				Panel->State->Records.AddText(EConsoleRecordType::Result, std::move(Text));
+				Panel->MarkRecordsChanged();
 				Panel->bHasNewConsoleRecords = true;
 			}
 		}
 		return 0;
 	}
 
-	auto FConsolePanel::DrainPendingRecords() -> bool
+	auto FConsolePanel::PollLogRecords() -> bool
 	{
-		std::vector<FLogRecord> PendingLogs;
+		bool bChanged = ApplyPendingRequests();
+		FLogReadResult Read = FLogger::Get().ReadRecords(NextLogSequence);
+		if (Read.NewestAvailableSequence != 0 && Read.NewestAvailableSequence < NextLogSequence)
 		{
-			std::scoped_lock Lock(State->Mutex);
-			PendingLogs.swap(State->PendingLogs);
+			State->Records.Clear();
+			NextLogSequence = 1;
+			EvictedLogRecordCount = 0;
+			Read = FLogger::Get().ReadRecords(NextLogSequence);
+			bChanged = true;
 		}
-		for (FLogRecord& Log : PendingLogs)
-			State->Records.push_back({EConsoleRecordType::Log, std::move(Log), {}});
-		while (State->Records.size() > MaxConsoleRecords)
-			State->Records.pop_front();
-		return !PendingLogs.empty();
+		if (Read.EvictedRecordCount > 0)
+		{
+			EvictedLogRecordCount += Read.EvictedRecordCount;
+			bChanged = true;
+		}
+		bool bAddedLogs = false;
+		for (FLogRecord& Log : Read.Records)
+		{
+			State->Records.AddLog(std::move(Log));
+			bAddedLogs = true;
+			bChanged = true;
+		}
+		if (EvictedLogRecordCount > 0 && (Read.EvictedRecordCount > 0 || bAddedLogs))
+		{
+			// Keep the diagnostic visible after a full retained-history batch fills the model.
+			State->Records.SetHistoryGap(EvictedLogRecordCount);
+		}
+		NextLogSequence = Read.NextSequence;
+		if (bChanged) MarkRecordsChanged();
+		return bChanged;
+	}
+
+	auto FConsolePanel::ApplyPendingRequests() -> bool
+	{
+		if (!State->bClearRequested.exchange(false, std::memory_order_acq_rel)) return false;
+		State->Records.Clear();
+		EvictedLogRecordCount = 0;
+		bWasAtBottom = true;
+		bHasNewConsoleRecords = false;
+		MarkRecordsChanged();
+		return true;
+	}
+
+	auto FConsolePanel::MarkRecordsChanged() -> void
+	{
+		bVisibleRecordsDirty = true;
+	}
+
+	auto FConsolePanel::RefreshVisibleRecords() -> void
+	{
+		if (!bVisibleRecordsDirty) return;
+		VisibleRecordIndices.clear();
+		const std::deque<FConsoleRecord>& Records = State->Records.GetRecords();
+		VisibleRecordIndices.reserve(Records.size());
+		for (size_t Index = 0; Index < Records.size(); ++Index)
+			if (IsRecordVisible(Index)) VisibleRecordIndices.push_back(Index);
+		bVisibleRecordsDirty = false;
 	}
 
 	auto FConsolePanel::IsRecordVisible(size_t Index) const -> bool
 	{
-		const FConsoleRecord& Record = State->Records[Index];
+		const FConsoleRecord& Record = State->Records.GetRecords()[Index];
 		if (Record.Type == EConsoleRecordType::Log)
 		{
 			const size_t LevelIndex = static_cast<size_t>(Record.Log.Level);
@@ -301,10 +331,11 @@ namespace Durin
 	auto FConsolePanel::CopyVisibleRecords() const -> void
 	{
 		std::string ClipboardText;
-		for (size_t Index = 0; Index < State->Records.size(); ++Index)
+		const std::deque<FConsoleRecord>& Records = State->Records.GetRecords();
+		for (size_t Index = 0; Index < Records.size(); ++Index)
 		{
 			if (!IsRecordVisible(Index)) continue;
-			const FConsoleRecord& Record = State->Records[Index];
+			const FConsoleRecord& Record = Records[Index];
 			ClipboardText += Record.Type == EConsoleRecordType::Log ? FormatLog(Record.Log) : Record.Text;
 			ClipboardText.push_back('\n');
 		}
@@ -314,23 +345,24 @@ namespace Durin
 	auto FConsolePanel::ExecuteCommand(std::string CommandLine) -> void
 	{
 		if (CommandLine.find_first_not_of(" \t\r\n") == std::string::npos) return;
-		State->Records.push_back({EConsoleRecordType::Command, {}, "> " + CommandLine});
+		State->Records.AddText(EConsoleRecordType::Command, "> " + CommandLine);
 		if (History.empty() || History.back() != CommandLine) History.push_back(CommandLine);
 		if (History.size() > MaxCommandHistory) History.erase(History.begin());
 		HistoryPosition = -1;
 		const FConsoleCommandResult Result = FConsoleCommandRegistry::Get().Execute(CommandLine);
-		if (!Result.Message.empty()) State->Records.push_back({Result.bSuccess ? EConsoleRecordType::Result : EConsoleRecordType::Error, {}, Result.Message});
+		(void)ApplyPendingRequests();
+		if (!Result.Message.empty()) State->Records.AddText(Result.bSuccess ? EConsoleRecordType::Result : EConsoleRecordType::Error, Result.Message);
 		if (!Result.bSuccess) DURIN_ERROR("Console command failed: {}", Result.Message);
-		while (State->Records.size() > MaxConsoleRecords)
-			State->Records.pop_front();
+		MarkRecordsChanged();
 		bHasNewConsoleRecords = true;
 	}
 
 	auto FConsolePanel::Clear() -> void
 	{
-		std::scoped_lock Lock(State->Mutex);
-		State->PendingLogs.clear();
-		State->Records.clear();
+		State->bClearRequested.store(false, std::memory_order_release);
+		State->Records.Clear();
+		EvictedLogRecordCount = 0;
+		MarkRecordsChanged();
 		bWasAtBottom = true;
 		bHasNewConsoleRecords = false;
 	}

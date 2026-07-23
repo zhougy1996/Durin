@@ -368,7 +368,11 @@ namespace Durin
 
 		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 		{
-			if (!Panel->IsOpen()) continue;
+			if (!Panel->IsOpen())
+			{
+				Panel->TickWhenHidden();
+				continue;
+			}
 			const bool bDisablePanel = bPlaying && Panel.get() == ContentBrowserPanel;
 			if (bDisablePanel) ImGui::BeginDisabled();
 			Panel->Draw(*Context);
