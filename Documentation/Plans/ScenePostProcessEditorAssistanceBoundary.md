@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stage 1 is complete. Renderer-owned builders define independently testable scene-target, scene-post-process, and final editor-assistance layouts, while scene geometry submission, editor-assistance preparation, and editor-assistance drawing now have separate entry points. A tested draw-order contract keeps the grid first, then X-Ray and visible gizmo, line, and icon variants. Drawing intentionally remains in the scene pass before FXAA until Stage 2 creates the final-composition pipelines and Stage 3 moves composition.
+Stage 2 is complete. Scene depth and post-process color have explicit preserved attachment contracts, and the grid, overlay line, overlay icon, filled gizmo, and wire gizmo renderers now own compatible offscreen and present final-composition pipelines in addition to their temporary scene-pass variants. The former fullscreen contract probes are removed because real assistance shaders now validate both final layouts. Drawing intentionally remains in the scene pass before FXAA until Stage 3 moves composition.
 
 ## Goal
 
@@ -119,11 +119,11 @@ Establish a renderer-level boundary where scene anti-aliasing and other scene po
 
 ### Stage 2: Preserve depth and create final-composition pipelines
 
-- [ ] Store scene depth at the end of the opaque scene pass.
-- [ ] Define final-composition render-target layouts that load the appropriate color contents, load preserved scene depth, and finish in Present or ShaderReadOnly according to the output type.
-- [ ] Create present and offscreen compatible pipelines for the grid, overlay lines, overlay icons, and gizmo primitives.
-- [ ] Keep visible pipelines depth-tested, X-Ray pipelines depth-test disabled, and all assistance depth writes disabled.
-- [ ] Update renderer resource release and pipeline-failure paths for the expanded pipeline set.
+- [x] Store scene depth at the end of the opaque scene pass.
+- [x] Define final-composition render-target layouts that load the appropriate color contents, load preserved scene depth, and finish in Present or ShaderReadOnly according to the output type.
+- [x] Create present and offscreen compatible pipelines for the grid, overlay lines, overlay icons, and gizmo primitives.
+- [x] Keep visible pipelines depth-tested, X-Ray pipelines depth-test disabled, and all assistance depth writes disabled.
+- [x] Update renderer resource release and pipeline-failure paths for the expanded pipeline set.
 
 #### Acceptance Gate
 
