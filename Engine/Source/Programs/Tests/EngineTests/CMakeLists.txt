@@ -19,6 +19,7 @@ add_durin_test(EngineTests
 	Private/SourceImageThumbnailTests.cpp
 	Private/SplineTests.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Assets/SourceImageThumbnailDecoder.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Assets/SourceImageThumbnailDiskCache.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportCameraTransform.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/CameraPreviewViewportClient.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/LevelEditorViewportClient.cpp

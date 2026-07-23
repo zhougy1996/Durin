@@ -1,6 +1,7 @@
 #include "Assets/SourceImageThumbnailCache.h"
 
 #include "Assets/SourceImageThumbnailDecoder.h"
+#include "Assets/SourceImageThumbnailDiskCache.h"
 
 #include "DynamicRHI.h"
 #include "MonaCoreGlobals.h"
@@ -42,6 +43,7 @@ namespace Durin
 			std::mutex Mutex;
 			std::vector<FDecodeResult> DecodedResults;
 			std::vector<FUploadResult> UploadedResults;
+			std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = std::make_shared<FSourceImageThumbnailDiskCache>();
 		};
 	} // namespace
 
@@ -195,13 +197,16 @@ namespace Durin
 				FEntry& Entry = It->second;
 				Entry.State = ESourceImageThumbnailState::Decoding;
 				const uint64 Serial = Entry.Serial;
+				const uintmax_t FileSize = Entry.FileSize;
+				const std::filesystem::file_time_type LastWriteTime = Entry.LastWriteTime;
 				const std::string PhysicalPath = Request.PhysicalPath;
 				const std::weak_ptr<FAsyncThumbnailState> WeakState = AsyncState;
-				const FTaskHandle Task = LaunchTask("DecodeSourceImageThumbnail", [WeakState, PhysicalPath, Serial] {
+				const std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = AsyncState->DiskCache;
+				const FTaskHandle Task = LaunchTask("DecodeSourceImageThumbnail", [WeakState, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial] {
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
 					Result.Serial = Serial;
-					Result.bSucceeded = DecodeSourceImageThumbnail(PhysicalPath, ThumbnailMaximumDimension, Result.Thumbnail, Result.Error);
+					Result.bSucceeded = DiskCache->LoadOrGenerate(PhysicalPath, FileSize, LastWriteTime, Result.Thumbnail, Result.Error);
 					if (const std::shared_ptr<FAsyncThumbnailState> State = WeakState.lock())
 					{
 						std::lock_guard Lock(State->Mutex);

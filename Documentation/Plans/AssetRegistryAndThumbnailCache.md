@@ -4,7 +4,7 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 0 through 3 are complete. Registry discovery now validates and reconciles a deterministic project-local snapshot, reuses exact fingerprint matches, supports explicit full validation, atomically publishes a fresh live map, and reports scan/cache diagnostics. Successful save, load-time discovery, move, delete, and import-style save operations mark the snapshot dirty; explicit reconciliation and orderly asset-manager shutdown flush coalesced mutations without making cache failures fatal. AssetCore mutation lifecycle tests and the LevelEditor build pass. Stage 4 persistent source-image thumbnails is next.
+Stages 0 through 4 are complete. Registry discovery now validates and reconciles a deterministic project-local snapshot, reuses exact fingerprint matches, supports explicit full validation, atomically publishes a fresh live map, and reports scan/cache diagnostics. Successful save, load-time discovery, move, delete, and import-style save operations mark the snapshot dirty; explicit reconciliation and orderly asset-manager shutdown flush coalesced mutations without making cache failures fatal. Source-image thumbnails now use a versioned project-local index and key-addressed PNG objects, serve warm requests without reopening the source image, preserve the existing asynchronous upload and GPU-eviction lifecycle, and safely regenerate after fingerprint, settings, version, index, or object invalidation. EngineTests and the LevelEditor build pass. Stage 5 end-to-end validation and architecture handoff is next.
 
 ## Goal
 
@@ -167,12 +167,12 @@ Make editor and game startup reuse previously discovered asset metadata while st
 
 ### Stage 4: Persistent source-image thumbnails
 
-- [ ] Introduce a versioned thumbnail index and content-addressed object path confined to `DerivedDataCache/Thumbnails`.
-- [ ] Extend thumbnail requests with generator parameters and derive stable keys from source identity, fingerprint, and generator/output versions.
-- [ ] On a disk hit, asynchronously decode the cached resized PNG and use the existing validated upload path.
-- [ ] On a miss, decode the source once, resize to the cache dimensions, atomically encode/store the PNG, update the index, and upload the same generated pixels.
-- [ ] Coalesce concurrent requests and preserve visible-item priority, cancellation, serial invalidation, and GPU eviction behavior.
-- [ ] Add bounded LRU maintenance for encoded objects and stale index entries with resolved-path containment checks before deletion.
+- [x] Introduce a versioned thumbnail index and content-addressed object path confined to `DerivedDataCache/Thumbnails`.
+- [x] Extend thumbnail requests with generator parameters and derive stable keys from source identity, fingerprint, and generator/output versions.
+- [x] On a disk hit, asynchronously decode the cached resized PNG and use the existing validated upload path.
+- [x] On a miss, decode the source once, resize to the cache dimensions, atomically encode/store the PNG, update the index, and upload the same generated pixels.
+- [x] Coalesce concurrent requests and preserve visible-item priority, cancellation, serial invalidation, and GPU eviction behavior.
+- [x] Add bounded LRU maintenance for encoded objects and stale index entries with resolved-path containment checks before deletion.
 
 #### Acceptance Gate
 
