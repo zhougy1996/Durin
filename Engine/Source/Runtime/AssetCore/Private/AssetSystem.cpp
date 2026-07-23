@@ -777,6 +777,7 @@ namespace Durin::Asset
 
 	auto FAssetRegistry::ScanMountedContent(EAssetRegistryScanMode Mode) -> FAssetResult
 	{
+		const auto ScanStartTime = std::chrono::steady_clock::now();
 		std::unordered_map<FAssetPath, FAssetData> NewAssets;
 		std::vector<FRegistryCacheEntry> NewCacheEntries;
 		std::unordered_map<std::string, FRegistryCacheEntry> CachedEntries;
@@ -833,6 +834,7 @@ namespace Durin::Asset
 				}
 				else
 				{
+					++LastScanStats.HeaderReadAttempts;
 					FAssetResult Result = ReadAssetPackageHeader(It->path().generic_string(), PackageHeader);
 					LastScanStats.HeaderBytesRead += PackageHeader.BytesRead;
 					if (!Result)
@@ -880,8 +882,12 @@ namespace Durin::Asset
 		if (bCacheLoaded) LastScanStats.Removed = CachedEntries.size() - SeenCachedIdentities.size();
 		Assets = std::move(NewAssets);
 		bPersistentSnapshotDirty = !WriteRegistryCache(MountManifest, std::move(NewCacheEntries), CacheWarning);
-		DURIN_INFO_CATEGORY("AssetRegistry", "Scanned {} asset package(s): {} reused, {} reparsed, {} removed, {} failed.",
-			LastScanStats.Enumerated, LastScanStats.Reused, LastScanStats.Reparsed, LastScanStats.Removed, LastScanStats.Failed);
+		LastScanStats.DurationMilliseconds = std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - ScanStartTime).count();
+		DURIN_INFO_CATEGORY("AssetRegistry",
+			"Scanned {} asset package(s) in {:.3f} ms: {} reused, {} reparsed, {} header read(s), {} header byte(s), {} removed, {} failed.",
+			LastScanStats.Enumerated, LastScanStats.DurationMilliseconds, LastScanStats.Reused, LastScanStats.Reparsed,
+			LastScanStats.HeaderReadAttempts, LastScanStats.HeaderBytesRead, LastScanStats.Removed, LastScanStats.Failed);
 		if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
 		return {};
 	}

@@ -4,7 +4,7 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 0 through 4 are complete. Registry discovery now validates and reconciles a deterministic project-local snapshot, reuses exact fingerprint matches, supports explicit full validation, atomically publishes a fresh live map, and reports scan/cache diagnostics. Successful save, load-time discovery, move, delete, and import-style save operations mark the snapshot dirty; explicit reconciliation and orderly asset-manager shutdown flush coalesced mutations without making cache failures fatal. Source-image thumbnails now use a versioned project-local index and key-addressed PNG objects, serve warm requests without reopening the source image, preserve the existing asynchronous upload and GPU-eviction lifecycle, and safely regenerate after fingerprint, settings, version, index, or object invalidation. EngineTests and the LevelEditor build pass. Stage 5 end-to-end validation and architecture handoff is next.
+Complete. Registry discovery now validates and reconciles a deterministic project-local snapshot, reuses exact fingerprint matches, supports explicit full validation, atomically publishes a fresh live map, and reports scan timing and I/O diagnostics. Successful save, load-time discovery, move, delete, and import-style save operations mark the snapshot dirty; explicit reconciliation and orderly asset-manager shutdown flush coalesced mutations without making cache failures fatal. Source-image thumbnails use a versioned project-local index and key-addressed PNG objects, serve warm requests without reopening the source image, preserve the existing asynchronous upload and GPU-eviction lifecycle, and safely regenerate after fingerprint, settings, version, index, or object invalidation. Final validation on 2026-07-24 passed all 29 `AssetCoreTests`, all 171 `EngineTests`, the complete `Win64-Debug-DurinEditor-Tests` `all` build, and two eight-second hidden-window DurinEditor launches covering cold and restart startup. The focused registry scenario measured two header reads/118 bytes cold, zero reads warm, one read/59 bytes after one asset changed, and two reads/118 bytes under full validation. Long-lived ownership, invalidation, recovery, and budget rules are recorded in `Documentation/Architecture/AssetPackages.md`.
 
 ## Goal
 
@@ -183,11 +183,11 @@ Make editor and game startup reuse previously discovered asset metadata while st
 
 ### Stage 5: End-to-end validation and architecture handoff
 
-- [ ] Add focused timing and I/O counters comparing cold startup, warm startup, one changed asset, and full validation.
-- [ ] Run native AssetCore and editor thumbnail tests through the repository BuildTool workflow.
-- [ ] Complete a full editor build and hidden-window DurinEditor smoke test using the same preset.
-- [ ] Manually verify Content Browser refresh, picker filtering, texture thumbnail restart hits, and recovery after deleting `DerivedDataCache`.
-- [ ] Record long-lived cache ownership, invalidation, and recovery rules in Architecture documentation after the implementation stabilizes.
+- [x] Add focused timing and I/O counters comparing cold startup, warm startup, one changed asset, and full validation.
+- [x] Run native AssetCore and editor thumbnail tests through the repository BuildTool workflow.
+- [x] Complete a full editor build and hidden-window DurinEditor smoke test using the same preset.
+- [x] Manually verify Content Browser refresh, picker filtering, texture thumbnail restart hits, and recovery after deleting `DerivedDataCache`.
+- [x] Record long-lived cache ownership, invalidation, and recovery rules in Architecture documentation after the implementation stabilizes.
 
 #### Acceptance Gate
 
@@ -240,10 +240,10 @@ Make editor and game startup reuse previously discovered asset metadata while st
 
 ## Related Documentation
 
-- [Content Version Control](../Git/ContentVersionControl.md)
-- [Level System](../Architecture/LevelSystem.md)
-- [Build and Run](../Setup/BuildAndRun.md)
-- [Native Tests](../Setup/NativeTests.md)
+- [Content Version Control](../../Git/ContentVersionControl.md)
+- [Level System](../../Architecture/LevelSystem.md)
+- [Build and Run](../../Setup/BuildAndRun.md)
+- [Native Tests](../../Setup/NativeTests.md)
 
 ## Related Code
 

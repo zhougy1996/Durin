@@ -4,6 +4,7 @@ Archived plans preserve completed implementation decisions, validation evidence,
 
 | Plan | Landed Outcome |
 | --- | --- |
+| [Asset Registry and Thumbnail Cache](AssetRegistryAndThumbnailCache.md) | Persistent fingerprint-reconciled asset discovery metadata and restart-safe, bounded source-image thumbnails |
 | [Logging Pipeline Hardening](LoggingPipelineHardening.md) | Bounded session history, reliable sink completion, cursor-driven Console consumption, and complete validation |
 | [Editor World Grid V2](EditorWorldGridV2.md) | Screen-space ray-plane reconstruction for the editor world grid |
 | [Scene Post-Processing and Editor Assistance Boundary](ScenePostProcessEditorAssistanceBoundary.md) | Post-process-first, depth-aware editor assistance for Present and Offscreen viewport outputs |

@@ -549,6 +549,9 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	EXPECT_EQ(Registry.GetLastScanStats().Enumerated, 2u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
+	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 2u);
+	EXPECT_GT(Registry.GetLastScanStats().HeaderBytesRead, 0u);
+	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
 	EXPECT_EQ(Registry.GetAssets().size(), 2u);
 	const auto CacheFile = CacheRoot / "AssetRegistry" / "Registry.bin";
 	std::vector<Durin::uint8> FirstCache;
@@ -557,7 +560,9 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
+	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 0u);
 	EXPECT_EQ(Registry.GetLastScanStats().HeaderBytesRead, 0u);
+	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
 	std::vector<Durin::uint8> SecondCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondCache, CacheFile.generic_string()));
 	EXPECT_EQ(SecondCache, FirstCache);
@@ -567,6 +572,9 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
+	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 1u);
+	EXPECT_GT(Registry.GetLastScanStats().HeaderBytesRead, 0u);
+	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
 
 	std::filesystem::copy_file(ValidSource, ContentA / "Gamma.dasset");
 	std::filesystem::remove(ContentA / "Beta.dasset");
@@ -585,6 +593,9 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 0u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
+	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 2u);
+	EXPECT_GT(Registry.GetLastScanStats().HeaderBytesRead, 0u);
+	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
 	EXPECT_EQ(Registry.GetAssets().size(), 2u);
 
 	const std::array<Durin::uint8, 3> CorruptCache = {1, 2, 3};

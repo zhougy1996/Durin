@@ -71,7 +71,9 @@ namespace Durin::Asset
 		uint64 Reparsed = 0;
 		uint64 Removed = 0;
 		uint64 Failed = 0;
+		uint64 HeaderReadAttempts = 0;
 		uint64 HeaderBytesRead = 0;
+		double DurationMilliseconds = 0.0;
 	};
 
 	struct FAssetMoveContribution
