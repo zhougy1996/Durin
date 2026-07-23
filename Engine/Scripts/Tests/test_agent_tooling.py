@@ -319,6 +319,97 @@ class CliTests(unittest.TestCase):
         self.assertIs(request.action, build_config.Action.BUILD)
         self.assertTrue(request.plain)
 
+    def test_command_like_option_values_do_not_hide_uppercase_action(self) -> None:
+        request = build_cli.parse_args(
+            ["--cmake", "Build", "--profile=Run", "BUILD", "--target", "all"]
+        )
+        self.assertIs(request.action, build_config.Action.BUILD)
+        self.assertEqual(request.cmake, "Build")
+        self.assertEqual(request.profile, "Run")
+
+    def test_windows_shell_split_preserves_paths_and_runtime_arguments(self) -> None:
+        self.assertEqual(
+            build_cli.split_shell_command(
+                'run C:\\Temp\\foo "\\\\server\\share\\My File.txt" "" '
+                '"C:\\Temp\\trailing\\\\" --define=a\\b --gtest_filter=Core.*',
+                current_host="windows",
+            ),
+            [
+                "run",
+                "C:\\Temp\\foo",
+                "\\\\server\\share\\My File.txt",
+                "",
+                "C:\\Temp\\trailing\\",
+                "--define=a\\b",
+                "--gtest_filter=Core.*",
+            ],
+        )
+
+    def test_windows_shell_split_reverses_python_command_line_quoting(self) -> None:
+        arguments = [
+            "run",
+            "C:\\Temp\\foo",
+            "\\\\server\\share\\My File.txt",
+            "",
+            'quote"value',
+            "C:\\Temp\\trailing\\",
+            "--flag",
+        ]
+        self.assertEqual(
+            build_cli.split_shell_command(
+                subprocess.list2cmdline(arguments),
+                current_host="windows",
+            ),
+            arguments,
+        )
+
+    def test_posix_shell_split_preserves_quoted_and_escaped_arguments(self) -> None:
+        self.assertEqual(
+            build_cli.split_shell_command(
+                r"""run 'path with spaces' "" path\ with\ spaces --gtest_filter=Core.*""",
+                current_host="linux",
+            ),
+            ["run", "path with spaces", "", "path with spaces", "--gtest_filter=Core.*"],
+        )
+
+    def test_shell_split_reports_malformed_quotes(self) -> None:
+        with self.assertRaisesRegex(build_config.BuildToolError, "unmatched double quote"):
+            build_cli.split_shell_command('run "unterminated', current_host="windows")
+        with self.assertRaisesRegex(build_config.BuildToolError, "No closing quotation"):
+            build_cli.split_shell_command("run 'unterminated", current_host="linux")
+
+    def test_windows_shell_dispatch_preserves_runtime_arguments(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        base.current_host = "windows"
+        child_context = mock.Mock()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch.object(
+            build_cli, "derive_context", return_value=child_context
+        ) as derive, mock.patch.object(build_cli, "execute_context"), mock.patch(
+            "builtins.input",
+            side_effect=['run C:\\Temp\\foo "" --define=a\\b', "exit"],
+        ):
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        child_request = derive.call_args.args[1]
+        self.assertIs(child_request.action, build_config.Action.RUN)
+        self.assertEqual(child_request.run_arguments, ("C:\\Temp\\foo", "", "--define=a\\b"))
+
+    def test_malformed_shell_quoting_reports_error_and_keeps_session_open(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        base.current_host = "windows"
+        stderr = io.StringIO()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+        with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch("builtins.input", side_effect=['run "unterminated', "exit"]) as prompt:
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        self.assertEqual(prompt.call_count, 2)
+        self.assertIn("Invalid shell command: unmatched double quote.", stderr.getvalue())
+
     def test_rebuild_defaults_to_all(self) -> None:
         self.assertEqual(build_cli.parse_args(["rebuild"]).target, "all")
 

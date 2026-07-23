@@ -4,10 +4,14 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Proposed. The current BuildTool tooling test suite passes, but the interactive
-shell has two verified argument-parsing defects and its independently maintained
-command grammar has drifted from the direct CLI. No implementation work has
-started.
+Stage 1 is complete. Direct action normalization now skips known global-option
+values before locating the subcommand, and the interactive shell uses explicit
+Windows or POSIX tokenization. Windows paths, UNC paths, quoted and empty
+arguments, trailing backslashes, runtime flags, and malformed quoting have
+regression coverage. The complete Agent tooling suite passes with 81 tests.
+
+Stage 2 is next. The independently maintained shell command grammar and failure
+reporting still have the gaps described below.
 
 ## Goal
 
@@ -85,10 +89,10 @@ the user to recover without reconstructing the operation from earlier log output
   selection without changing machine-local configuration.
 - Build execution, recovery tracking, purge safety, and runtime process ownership
   are centralized below the CLI layer and do not need redesign.
-- `normalize_action` currently scans every argument token. A command-like option
-  value can stop normalization before the actual subcommand.
-- The interactive shell currently uses the default POSIX mode of `shlex.split`;
-  on Windows, an unquoted path loses its backslashes.
+- Direct action normalization is subcommand-aware and leaves known global-option
+  values unchanged.
+- Interactive tokenization now has explicit Windows and POSIX paths; Windows
+  drive paths and backslashes reach runtime arguments unchanged.
 - Shell command parsing and help are handwritten separately from the direct CLI,
   which has produced different target defaults, unavailable test timeout control,
   and options that are accepted but unused.
@@ -96,23 +100,23 @@ the user to recover without reconstructing the operation from earlier log output
   elapsed time of zero.
 - `BuildTool shell --help` describes only shell startup options, not the commands
   available after entering the shell.
-- Existing tooling tests cover direct parsing, shell `stop`, and basic help
-  presentation, but do not cover host-specific tokenization, command-like option
-  values, shell failure context, or cross-interface parity.
+- Tooling tests now cover host-specific tokenization, command-like option values,
+  and Windows shell dispatch. Shell failure context and cross-interface parity
+  remain uncovered until Stages 2 and 3.
 
 ## Implementation Stages
 
 ### Stage 1: P0 Argument Integrity
 
-- [ ] Replace whole-argument scanning in direct action normalization with
+- [x] Replace whole-argument scanning in direct action normalization with
   subcommand-aware normalization that cannot mutate or interpret option values.
-- [ ] Introduce a host-aware interactive command tokenizer with explicit Windows
+- [x] Introduce a host-aware interactive command tokenizer with explicit Windows
   and POSIX behavior.
-- [ ] Preserve quoted spaces, empty arguments, backslashes, option-like runtime
+- [x] Preserve quoted spaces, empty arguments, backslashes, option-like runtime
   arguments, and GoogleTest filter punctuation.
-- [ ] Convert malformed quoting into a concise BuildTool usage error without
+- [x] Convert malformed quoting into a concise BuildTool usage error without
   terminating the interactive session.
-- [ ] Add focused tests for mixed-case commands following command-like option
+- [x] Add focused tests for mixed-case commands following command-like option
   values and for representative Windows and POSIX argument strings.
 
 #### Acceptance Gate

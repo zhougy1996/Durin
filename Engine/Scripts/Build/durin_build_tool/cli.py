@@ -30,6 +30,15 @@ from .core import (
 from .output import BuildOutput
 
 
+COMMON_OPTIONS_WITH_VALUES = {
+    "--profile",
+    "--preset",
+    "--cmake",
+    "--environment-setup",
+    "--jobs",
+}
+
+
 class BuildArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         raise BuildToolError(f"{message}\nRun '{self.prog} --help' for command usage.")
@@ -132,11 +141,74 @@ def make_parser() -> BuildArgumentParser:
 def normalize_action(argv: Sequence[str]) -> list[str]:
     values = list(argv)
     commands = {action.value for action in Action}
-    for index, value in enumerate(values):
+    index = 0
+    while index < len(values):
+        value = values[index]
+        option = value.partition("=")[0]
+        if value.startswith("-"):
+            index += 1 if "=" in value or option not in COMMON_OPTIONS_WITH_VALUES else 2
+            continue
         if value.lower() in commands:
             values[index] = value.lower()
-            break
+        break
     return values
+
+
+def split_windows_command_line(line: str) -> list[str]:
+    arguments: list[str] = []
+    current: list[str] = []
+    in_quotes = False
+    token_started = False
+    index = 0
+    while index < len(line):
+        character = line[index]
+        if character in " \t" and not in_quotes:
+            if token_started:
+                arguments.append("".join(current))
+                current.clear()
+                token_started = False
+            index += 1
+            continue
+        if character == "\\":
+            slash_start = index
+            while index < len(line) and line[index] == "\\":
+                index += 1
+            slash_count = index - slash_start
+            # Windows only treats backslashes as escapes when they immediately precede a quote.
+            if index < len(line) and line[index] == '"':
+                current.extend("\\" * (slash_count // 2))
+                token_started = True
+                if slash_count % 2:
+                    current.append('"')
+                else:
+                    in_quotes = not in_quotes
+                index += 1
+            else:
+                current.extend("\\" * slash_count)
+                token_started = True
+            continue
+        if character == '"':
+            token_started = True
+            in_quotes = not in_quotes
+            index += 1
+            continue
+        current.append(character)
+        token_started = True
+        index += 1
+    if in_quotes:
+        raise BuildToolError("Invalid shell command: unmatched double quote.")
+    if token_started:
+        arguments.append("".join(current))
+    return arguments
+
+
+def split_shell_command(line: str, *, current_host: str) -> list[str]:
+    if current_host == "windows":
+        return split_windows_command_line(line)
+    try:
+        return shlex.split(line, posix=True)
+    except ValueError as exc:
+        raise BuildToolError(f"Invalid shell command: {exc}.") from exc
 
 
 def namespace_request(args: argparse.Namespace) -> CommandRequest:
@@ -320,7 +392,7 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
         if not line:
             continue
         try:
-            parts = shlex.split(line)
+            parts = split_shell_command(line, current_host=base.current_host)
             command = parts[0].lower().lstrip("/")
             values = parts[1:]
             if command in {"exit", "quit"}:
