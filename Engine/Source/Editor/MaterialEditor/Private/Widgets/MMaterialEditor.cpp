@@ -78,7 +78,7 @@ namespace Durin
 
 	MMaterialEditor::~MMaterialEditor()
 	{
-		PropertyView.FinishActiveEdit(nullptr, true);
+		FinishActivePropertyEdit(true);
 		MaterialPreviews.clear();
 	}
 
@@ -112,14 +112,19 @@ namespace Durin
 	auto MMaterialEditor::ActivateDocument(const FEditorDocumentTab& Document) -> void
 	{
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
-		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Material)) FinishActivePropertyEdit(false);
+		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Material) && !FinishActivePropertyEdit(true)) return;
 		if (Material) ActiveResourceId = Document.ResourceId;
 		DocumentWindows[Document.Id.Value].RequestFocus();
 	}
 
+	auto MMaterialEditor::RequestDeactivate() -> bool
+	{
+		return FinishActivePropertyEdit(true);
+	}
+
 	auto MMaterialEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
 	{
-		if (PropertyView.IsEditingObject(FindOpenMaterial(Document.ResourceId))) FinishActivePropertyEdit(false);
+		if (PropertyView.IsEditingObject(FindOpenMaterial(Document.ResourceId)) && !FinishActivePropertyEdit(true)) return false;
 		if (IsDocumentDirty(Document)) return false;
 		OpenMaterials.erase(Document.ResourceId);
 		DocumentWindows.erase(Document.Id.Value);
@@ -147,7 +152,7 @@ namespace Durin
 
 	auto MMaterialEditor::DrawWorkspace(bool bActive) -> bool
 	{
-		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
+		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
 		bool bWorkspaceActivated = false;
 		std::vector<FEditorDocumentId> CloseRequests;
 		for (const FEditorDocumentTab& Document : WorkspaceManager.GetDocuments())
@@ -520,10 +525,10 @@ namespace Durin
 		ImGui::PopID();
 	}
 
-	auto MMaterialEditor::FinishActivePropertyEdit(bool bCancel) -> void
+	auto MMaterialEditor::FinishActivePropertyEdit(bool bCancel) -> bool
 	{
 		const FReflectedPropertyViewContext Context = MakePropertyViewContext();
-		PropertyView.FinishActiveEdit(&Context, bCancel);
+		return PropertyView.FinishActiveEdit(&Context, bCancel);
 	}
 
 	auto MMaterialEditor::MakePropertyViewContext() -> FReflectedPropertyViewContext

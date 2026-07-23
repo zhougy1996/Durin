@@ -39,6 +39,16 @@ namespace Durin::Detail
 		const bool bActiveDocumentRemoved = std::ranges::any_of(State.Documents, [&](const FEditorDocumentTab& Document) {
 			return Document.Id == State.ActiveDocumentId && RemovedWorkspaceTypes.contains(std::string(Document.WorkspaceType.GetValue()));
 		});
+		if (bActiveDocumentRemoved)
+		{
+			const auto Active = std::ranges::find(State.Documents, State.ActiveDocumentId, &FEditorDocumentTab::Id);
+			if (Active != State.Documents.end())
+			{
+				const auto Workspace = State.Workspaces.find(std::string(Active->WorkspaceType.GetValue()));
+				checkf(Workspace == State.Workspaces.end() || Workspace->second.Workspace->RequestDeactivate(),
+					"An editor workspace cannot be unloaded while an active property preview cannot be cancelled");
+			}
+		}
 		// A module cannot leave documents backed by its code in the manager after unloading.
 		std::erase_if(State.Documents, [&](const FEditorDocumentTab& Document) {
 			return RemovedWorkspaceTypes.contains(std::string(Document.WorkspaceType.GetValue()));
@@ -187,14 +197,17 @@ namespace Durin
 
 		if (FEditorDocumentTab* Existing = FindDocument(Request.WorkspaceType, Request.DocumentKey))
 		{
+			const bool bReplacingActiveResource = State->ActiveDocumentId == Existing->Id
+				&& Existing->ResourceId != Request.ResourceId;
+			if (!RequestDeactivateActiveDocument(bReplacingActiveResource ? FEditorDocumentId{} : Existing->Id)) return {};
 			FEditorDocumentTab Candidate = *Existing;
 			Candidate.ResourceId = std::move(Request.ResourceId);
 			Candidate.Label = std::move(Request.Label);
 			Candidate.bClosable = Request.bClosable;
 			if (!Workspace->OpenDocument(Candidate)) return {};
 			*Existing = std::move(Candidate);
-			State->ActiveDocumentId = Existing->Id;
 			Workspace->ActivateDocument(*Existing);
+			State->ActiveDocumentId = Existing->Id;
 			return Existing->Id;
 		}
 
@@ -205,11 +218,12 @@ namespace Durin
 		Document.ResourceId = std::move(Request.ResourceId);
 		Document.Label = std::move(Request.Label);
 		Document.bClosable = Request.bClosable;
+		if (!RequestDeactivateActiveDocument()) return {};
 		if (!Workspace->OpenDocument(Document)) return {};
 
 		State->Documents.push_back(std::move(Document));
-		State->ActiveDocumentId = State->Documents.back().Id;
 		Workspace->ActivateDocument(State->Documents.back());
+		State->ActiveDocumentId = State->Documents.back().Id;
 		return State->Documents.back().Id;
 	}
 
@@ -242,8 +256,9 @@ namespace Durin
 		if (!Document) return false;
 		const std::shared_ptr<IEditorWorkspace> Workspace = FindWorkspace(Document->WorkspaceType);
 		if (!Workspace) return false;
-		State->ActiveDocumentId = DocumentId;
+		if (!RequestDeactivateActiveDocument(DocumentId)) return false;
 		Workspace->ActivateDocument(*Document);
+		State->ActiveDocumentId = DocumentId;
 		return true;
 	}
 
@@ -364,6 +379,15 @@ namespace Durin
 			return Document.WorkspaceType == WorkspaceType && Document.DocumentKey == DocumentKey;
 		});
 		return Found == State->Documents.end() ? nullptr : &*Found;
+	}
+
+	auto FEditorWorkspaceManager::RequestDeactivateActiveDocument(FEditorDocumentId NextDocumentId) -> bool
+	{
+		if (!State->ActiveDocumentId.IsValid() || State->ActiveDocumentId == NextDocumentId) return true;
+		const FEditorDocumentTab* ActiveDocument = GetActiveDocument();
+		if (!ActiveDocument) return true;
+		const std::shared_ptr<IEditorWorkspace> Workspace = FindWorkspace(ActiveDocument->WorkspaceType);
+		return !Workspace || Workspace->RequestDeactivate();
 	}
 
 	auto FEditorWorkspaceManager::AssetLabel(std::string_view ResourceId) -> std::string

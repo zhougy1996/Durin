@@ -104,8 +104,10 @@ namespace Durin
 			const std::function<void(FProperty*, void*)>& InitializeValue
 		) -> bool;
 
-		DURINED_API auto FinishActiveEdit(const FReflectedPropertyViewContext* Context, bool bCancel) -> void;
-		DURINED_API auto HandleOwnerContext(const FReflectedPropertyViewContext& Context, DObject* Object) -> void;
+		// Returns false only when the requested terminal action failed and the
+		// recoverable edit must remain active.
+		DURINED_API auto FinishActiveEdit(const FReflectedPropertyViewContext* Context, bool bCancel) -> bool;
+		DURINED_API auto HandleOwnerContext(const FReflectedPropertyViewContext& Context, DObject* Object) -> bool;
 		auto IsEditing() const -> bool { return EditSession.IsActive(); }
 		auto IsEditingObject(const DObject* Object) const -> bool { return EditSession.IsActive() && ActiveEditObject == Object; }
 		auto IsEditingTarget(const FReflectedPropertyEditTarget& Target) const -> bool { return EditSession.MatchesTarget(Target); }

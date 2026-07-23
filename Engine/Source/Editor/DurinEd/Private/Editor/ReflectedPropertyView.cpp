@@ -174,7 +174,7 @@ namespace Durin
 		const FObjectPropertyViewOptions& Options
 	) -> FObjectPropertyViewResult
 	{
-		HandleOwnerContext(Context, Object);
+		if (!HandleOwnerContext(Context, Object)) return {};
 		if (!Object)
 		{
 			if (Options.bShowEmptyMessage) ImGui::TextDisabled("Nothing to inspect.");
@@ -1062,9 +1062,9 @@ namespace Durin
 		return SubmitPropertyEdit(Context, Target, Proposed, false);
 	}
 
-	auto FReflectedPropertyView::FinishActiveEdit(const FReflectedPropertyViewContext* Context, bool bCancel) -> void
+	auto FReflectedPropertyView::FinishActiveEdit(const FReflectedPropertyViewContext* Context, bool bCancel) -> bool
 	{
-		if (!EditSession.IsActive()) return;
+		if (!EditSession.IsActive()) return true;
 		std::string Error;
 		const EReflectedPropertyEditResult Result = bCancel ? EditSession.Cancel(&Error) : EditSession.Commit(&Error);
 		if (Result == EReflectedPropertyEditResult::Failed && Context) ReportError(*Context, std::move(Error));
@@ -1073,15 +1073,19 @@ namespace Durin
 			ActiveEditObject = nullptr;
 			ActiveEditOwnerObject = nullptr;
 		}
+		return Result != EReflectedPropertyEditResult::Failed;
 	}
 
 
-	auto FReflectedPropertyView::HandleOwnerContext(const FReflectedPropertyViewContext& Context, DObject* Object) -> void
+	auto FReflectedPropertyView::HandleOwnerContext(const FReflectedPropertyViewContext& Context, DObject* Object) -> bool
 	{
 		if (EditSession.IsActive() && (ActiveEditOwnerObject != Object || Context.bReadOnly))
-			FinishActiveEdit(&Context, true);
+		{
+			if (!FinishActiveEdit(&Context, true)) return false;
+		}
 		if (OwnerContextObject != Object || Context.bReadOnly) MapInsertDraft = {};
 		OwnerContextObject = Object;
+		return true;
 	}
 
 	auto FReflectedPropertyView::ReportError(const FReflectedPropertyViewContext& Context, std::string Error) const -> void

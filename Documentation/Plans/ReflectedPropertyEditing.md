@@ -1,6 +1,6 @@
 # Reflected Property Editing Simplification Plan
 
-Last reviewed: 2026-07-23
+Last reviewed: 2026-07-24
 
 ## Current Status
 
@@ -16,13 +16,18 @@ detached object validation/normalization with rollback protection. All built-in
 semantic adapters have been migrated to object hooks, leaving no proven policy
 exception. Sessions now use one atomic mutation executor, failed restoration
 remains retryable, every interaction emits one terminal event, and transactions
-resolve any registered exceptional policy when Undo/Redo executes. Phase 5 is
-next but has not started.
+resolve any registered exceptional policy when Undo/Redo executes. Phase 5
+host-lifecycle implementation and automated coverage are complete. Object,
+document, workspace, panel, read-only/PIE, and shutdown transitions now request
+cancellation through a failure-reporting host boundary. A failed restoration
+keeps the edit and active document or target recoverable instead of allowing
+the transition. The full build, EngineTests, and hidden-window startup smoke
+pass; the interactive workspace-close, PIE, and editor-shutdown checks remain
+before the Stage 5 acceptance gate is closed.
 
-The remaining simplification work is concentrated at the host and public API
-boundaries. Host transitions still need one enforced cancellation policy, and
-the now-unused built-in adapter surface remains available until final cleanup.
-Those boundaries are narrowed before more property-specific behavior is added.
+The remaining simplification work is concentrated at final interactive host
+validation and the public API boundary. The now-unused built-in adapter surface
+remains available until Stage 6 cleanup.
 
 The implemented architecture remains documented in
 [Reflected Property Editing](../Architecture/ReflectedPropertyEditing.md) until
@@ -375,13 +380,29 @@ the original, without dirtying the package or adding no-op history.
 
 ### Stage 5: Make Host Lifecycle Policy Explicit
 
-- [ ] Apply the termination table to Details selection changes, Material Editor
+- [x] Apply the termination table to Details selection changes, Material Editor
   document changes, workspace activation/closure, PIE read-only transitions,
   panel destruction, and editor shutdown.
-- [ ] Propagate commit/cancel errors through the host error callback and prevent
+- [x] Propagate commit/cancel errors through the host error callback and prevent
   a document or target transition when live preview restoration failed.
-- [ ] Remove host-specific fallback behavior that resets a view without a
+- [x] Remove host-specific fallback behavior that resets a view without a
   deliberate terminal action.
+
+#### Implementation Result
+
+`FReflectedPropertyView` terminal and owner-context operations now report
+failure while retaining the recoverable session. Details keeps the prior
+inspection target or reopens the panel when cancellation fails, cancels before
+PIE and workspace/document closure, and performs the same cancellation during
+destruction. Material Editor cancels rather than commits when switching,
+closing, deactivating, or shutting down.
+
+`FEditorWorkspaceManager` requests deactivation before changing its active
+document or workspace and leaves the current document active when restoration
+fails. Workspace unregistration treats an unrestorable active preview as a hard
+shutdown error rather than unloading code beneath a live session. Automated
+coverage exercises object replacement, read-only transition, cancellation
+retry, and blocked document activation.
 
 #### Acceptance Gate
 

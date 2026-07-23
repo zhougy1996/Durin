@@ -23,10 +23,17 @@ namespace
 			++ActivationCount;
 			LastActivatedResource = Document.ResourceId;
 		}
+		auto RequestDeactivate() -> bool override
+		{
+			++DeactivationRequestCount;
+			return bAllowDeactivation;
+		}
 		auto DrawWorkspace(bool) -> bool override { return false; }
 		auto ResetLayout() -> void override {}
 
 		int ActivationCount = 0;
+		int DeactivationRequestCount = 0;
+		bool bAllowDeactivation = true;
 		std::string LastActivatedResource;
 
 	private:
@@ -234,6 +241,33 @@ TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsI
 
 	EXPECT_TRUE(Manager.ActivateDocument(Manager.GetDocuments()[0].Id));
 	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Materials/M_Stone");
+}
+
+TEST(FEditorWorkspaceManagerTests, KeepsActiveDocumentWhenHostCannotRestoreItsPreview)
+{
+	Durin::FEditorWorkspaceManager Manager;
+	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
+	Durin::FEditorWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+		.Workspaces = {MakeWorkspaceRegistration(Workspace, "Material Editor")},
+		.AssetEditors = {
+			MakeAssetEditor("Material", "MaterialEditor"),
+			MakeAssetEditor("MaterialInstance", "MaterialEditor"),
+		},
+	});
+	ASSERT_TRUE(Registration);
+	ASSERT_TRUE(Manager.OpenAsset("/Game/Materials/M_Stone", "Material"));
+	ASSERT_TRUE(Manager.OpenAsset("/Game/Materials/MI_Stone", "MaterialInstance"));
+	const Durin::FEditorDocumentId First = Manager.GetDocuments()[0].Id;
+	const Durin::FEditorDocumentId Second = Manager.GetDocuments()[1].Id;
+	ASSERT_EQ(Manager.GetActiveDocument()->Id, Second);
+
+	Workspace->bAllowDeactivation = false;
+	EXPECT_FALSE(Manager.ActivateDocument(First));
+	Workspace->bAllowDeactivation = true;
+	ASSERT_NE(Manager.GetActiveDocument(), nullptr);
+	EXPECT_EQ(Manager.GetActiveDocument()->Id, Second);
+	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Materials/MI_Stone");
+	EXPECT_EQ(Workspace->DeactivationRequestCount, 2);
 }
 
 TEST(FEditorWorkspaceUITests, DocumentRootKeysRemainDistinctForSameNamedAssets)

@@ -40,6 +40,7 @@ namespace Durin
 
 	MLevelEditor::~MLevelEditor()
 	{
+		RequestDeactivate();
 		if (Context && SceneViewportPanel)
 		{
 			SessionSettings.CaptureViewportState(*Context, *SceneViewportPanel);
@@ -72,7 +73,9 @@ namespace Durin
 		SessionSettings.ApplyTo(*SceneViewportPanel);
 		Panels.emplace_back(std::move(SceneViewport));
 		Panels.emplace_back(std::make_unique<FWorldOutlinerPanel>());
-		Panels.emplace_back(std::make_unique<FDetailsPanel>(SessionSettings));
+		auto Details = std::make_unique<FDetailsPanel>(SessionSettings);
+		DetailsPanel = Details.get();
+		Panels.emplace_back(std::move(Details));
 		Panels.emplace_back(std::make_unique<FConsolePanel>());
 		AssetMoveCoordinator = std::make_unique<FEditorAssetMoveCoordinator>(
 			*Context,
@@ -235,9 +238,14 @@ namespace Durin
 		RootWindow.RequestFocus();
 	}
 
+	auto MLevelEditor::RequestDeactivate() -> bool
+	{
+		return !Context || !DetailsPanel || DetailsPanel->RequestDeactivate(*Context);
+	}
+
 	auto MLevelEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
 	{
-		return !IsDocumentDirty(Document);
+		return RequestDeactivate() && !IsDocumentDirty(Document);
 	}
 
 	auto MLevelEditor::IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool
@@ -460,7 +468,10 @@ namespace Durin
 			for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 			{
 				bool bPanelOpen = Panel->IsOpen();
-				if (ImGui::MenuItem(Panel->GetWindowName(), nullptr, &bPanelOpen)) Panel->SetOpen(bPanelOpen);
+				if (ImGui::MenuItem(Panel->GetWindowName(), nullptr, &bPanelOpen))
+				{
+					if (bPanelOpen || Panel.get() != DetailsPanel || RequestDeactivate()) Panel->SetOpen(bPanelOpen);
+				}
 			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
@@ -598,6 +609,7 @@ namespace Durin
 	auto MLevelEditor::StartPlay(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void
 	{
 		if (!GEditor || !Context || !Context->Level) return;
+		if (!RequestDeactivate()) return;
 		if (SceneViewportPanel) SceneViewportPanel->SetPreferredPlayMode(StartLocation, Destination);
 		FEditorPlayRequest Request;
 		Request.SourceLevel = Context->Level;

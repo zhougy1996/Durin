@@ -18,13 +18,15 @@ namespace Durin
 	{
 	public:
 		explicit FDetailsPanel(FEditorSessionSettings& InSessionSettings);
+		~FDetailsPanel() override;
 		auto GetWindowName() const -> const char* override { return "Details"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
+		auto RequestDeactivate(FLevelEditorContext& Context) -> bool;
 
 	private:
 		auto DrawComponents(FLevelEditorContext& Context, AActor* Actor) -> void;
 		auto DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void;
-		auto FinishActivePropertyEdit(FLevelEditorContext* Context, bool bCancel) -> void;
+		auto FinishActivePropertyEdit(FLevelEditorContext* Context, bool bCancel) -> bool;
 		auto MakePropertyViewContext(FLevelEditorContext& Context) const -> FReflectedPropertyViewContext;
 
 		std::array<char, 128> ComponentTypeSearchText{};

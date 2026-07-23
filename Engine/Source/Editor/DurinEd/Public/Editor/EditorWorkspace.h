@@ -138,6 +138,9 @@ namespace Durin
 		virtual auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& = 0;
 		virtual auto OpenDocument(const FEditorDocumentTab& Document) -> bool = 0;
 		virtual auto ActivateDocument(const FEditorDocumentTab& Document) -> void = 0;
+		// Called before the manager changes the active document or workspace.
+		// Returning false keeps the current host state active.
+		virtual auto RequestDeactivate() -> bool { return true; }
 		virtual auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool { return !Document.bDirty; }
 		virtual auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool { return Document.bDirty; }
 		virtual auto CanSaveActiveDocument() const -> bool { return false; }
@@ -184,6 +187,7 @@ namespace Durin
 	private:
 		auto FindDocument(FEditorDocumentId DocumentId) -> FEditorDocumentTab*;
 		auto FindDocument(const FEditorWorkspaceTypeId& WorkspaceType, std::string_view DocumentKey) -> FEditorDocumentTab*;
+		auto RequestDeactivateActiveDocument(FEditorDocumentId NextDocumentId = {}) -> bool;
 		static auto AssetLabel(std::string_view ResourceId) -> std::string;
 
 		std::shared_ptr<Detail::FEditorWorkspaceRegistryState> State;

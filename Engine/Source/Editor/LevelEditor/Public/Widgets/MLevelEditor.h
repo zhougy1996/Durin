@@ -17,6 +17,7 @@ namespace Durin
 	class FStaticMeshImportDialog;
 	class FTextureImportDialog;
 	class FContentBrowserPanel;
+	class FDetailsPanel;
 	class FEditorNotificationOverlay;
 	struct FLevelEditorContext;
 
@@ -29,6 +30,7 @@ namespace Durin
 		LEVELEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
 		LEVELEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> bool override;
 		LEVELEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
+		LEVELEDITOR_API auto RequestDeactivate() -> bool override;
 		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
 		LEVELEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
 		LEVELEDITOR_API auto CanSaveActiveDocument() const -> bool override;
@@ -67,6 +69,7 @@ namespace Durin
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
 		FContentBrowserPanel* ContentBrowserPanel = nullptr;
+		FDetailsPanel* DetailsPanel = nullptr;
 		FEditorWorkspaceRootWindow RootWindow;
 		bool bResetLayoutRequested = false;
 		bool bSelectDefaultBottomPanelRequested = true;

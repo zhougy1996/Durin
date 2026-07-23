@@ -38,11 +38,16 @@ namespace Durin
 	{
 	}
 
+	FDetailsPanel::~FDetailsPanel()
+	{
+		PropertyView.FinishActiveEdit(nullptr, true);
+	}
+
 	auto FDetailsPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Details", "Details", GetOpenPtr()))
 		{
-			FinishActivePropertyEdit(&Context, true);
+			if (!FinishActivePropertyEdit(&Context, true)) SetOpen(true);
 			ImGui::End();
 			return;
 		}
@@ -50,7 +55,12 @@ namespace Durin
 		AActor* Actor = Context.GetPrimarySelectedActor();
 		if (Actor == nullptr)
 		{
-			FinishActivePropertyEdit(&Context, true);
+			if (!FinishActivePropertyEdit(&Context, true))
+			{
+				ImGui::TextDisabled("The active property preview must be restored before changing selection.");
+				ImGui::End();
+				return;
+			}
 			PropertyActor = nullptr;
 			SelectedComponent = nullptr;
 			RenamingComponent = nullptr;
@@ -62,12 +72,23 @@ namespace Durin
 
 		if (PropertyActor.Get() != Actor)
 		{
-			FinishActivePropertyEdit(&Context, true);
-			PropertyActor = Actor;
-			SelectedComponent = nullptr;
-			RenamingComponent = nullptr;
-			RenameDialog.Cancel();
-			PendingExpandComponent = nullptr;
+			if (!FinishActivePropertyEdit(&Context, true))
+			{
+				Actor = PropertyActor.Get();
+			}
+			else
+			{
+				PropertyActor = Actor;
+				SelectedComponent = nullptr;
+				RenamingComponent = nullptr;
+				RenameDialog.Cancel();
+				PendingExpandComponent = nullptr;
+			}
+		}
+		if (!Actor)
+		{
+			ImGui::End();
+			return;
 		}
 		if (SelectedComponent && std::ranges::none_of(Actor->GetOwnedComponents(), [this](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == SelectedComponent.Get(); }))
 		{
@@ -444,7 +465,11 @@ namespace Durin
 	auto FDetailsPanel::DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void
 	{
 		const FReflectedPropertyViewContext ViewContext = MakePropertyViewContext(Context);
-		PropertyView.HandleOwnerContext(ViewContext, Object);
+		if (!PropertyView.HandleOwnerContext(ViewContext, Object))
+		{
+			ImGui::TextDisabled("The active property preview must be restored before changing targets.");
+			return;
+		}
 		if (!Object)
 		{
 			ImGui::TextDisabled("Nothing to inspect.");
@@ -495,14 +520,18 @@ namespace Durin
 		};
 	}
 
-	auto FDetailsPanel::FinishActivePropertyEdit(FLevelEditorContext* Context, bool bCancel) -> void
+	auto FDetailsPanel::RequestDeactivate(FLevelEditorContext& Context) -> bool
+	{
+		return FinishActivePropertyEdit(&Context, true);
+	}
+
+	auto FDetailsPanel::FinishActivePropertyEdit(FLevelEditorContext* Context, bool bCancel) -> bool
 	{
 		if (!Context)
 		{
-			PropertyView.FinishActiveEdit(nullptr, bCancel);
-			return;
+			return PropertyView.FinishActiveEdit(nullptr, bCancel);
 		}
 		const FReflectedPropertyViewContext ViewContext = MakePropertyViewContext(*Context);
-		PropertyView.FinishActiveEdit(&ViewContext, bCancel);
+		return PropertyView.FinishActiveEdit(&ViewContext, bCancel);
 	}
 } // namespace Durin

@@ -22,6 +22,7 @@ namespace Durin
 		MATERIALEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
 		MATERIALEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> bool override;
 		MATERIALEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
+		MATERIALEDITOR_API auto RequestDeactivate() -> bool override;
 		MATERIALEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
 		MATERIALEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
 		MATERIALEDITOR_API auto CanSaveActiveDocument() const -> bool override;
@@ -42,7 +43,7 @@ namespace Durin
 		auto DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
 		auto DrawColorParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
 		auto DrawTextureParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
-		auto FinishActivePropertyEdit(bool bCancel) -> void;
+		auto FinishActivePropertyEdit(bool bCancel) -> bool;
 		auto MakePropertyViewContext() -> FReflectedPropertyViewContext;
 		auto SetError(std::string Message) -> void;
 
