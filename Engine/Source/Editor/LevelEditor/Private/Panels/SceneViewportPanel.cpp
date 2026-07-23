@@ -62,7 +62,7 @@ namespace Durin
 		{
 			for (const TViewportModeOption<T>& Option : Options)
 			{
-				if (ImGui::Selectable(Option.Label, Option.Value == CurrentMode)) SetMode(Option.Value);
+				if (ImGui::RadioButton(Option.Label, Option.Value == CurrentMode)) SetMode(Option.Value);
 			}
 		}
 
@@ -158,6 +158,17 @@ namespace Durin
 			ToolbarColor.w = 0.94f;
 			DrawList->AddRectFilled(Min, Max, ImGui::GetColorU32(ToolbarColor), MonaImGui::ScaleUI(6.0f));
 			DrawList->AddRect(Min, Max, ImGui::GetColorU32(ImGuiCol_Border), MonaImGui::ScaleUI(6.0f));
+		}
+
+		auto DrawPlayStateBorder(const ImVec2& ViewportMin, const ImVec2& ViewportMax, bool bPaused) -> void
+		{
+			const ImVec2 Inset(MonaImGui::ScaleUI(1.0f), MonaImGui::ScaleUI(1.0f));
+			const ImU32 Color = MonaImGui::GetThemeColorU32(
+				bPaused ? MonaImGui::EUIThemeColor::Warning : MonaImGui::EUIThemeColor::Success);
+			ImDrawList* DrawList = ImGui::GetWindowDrawList();
+			DrawList->PushClipRect(ViewportMin, ViewportMax, true);
+			DrawList->AddRect(Add(ViewportMin, Inset), Add(ViewportMax, Mul(Inset, -1.0f)), Color, 0.0f, 0, MonaImGui::ScaleUI(2.0f));
+			DrawList->PopClipRect();
 		}
 
 		auto DrawToolbarSelectionIndicator(ImDrawList* DrawList, const ImVec2& Position, float Width, float Height, float ContentWidth) -> void
@@ -384,7 +395,6 @@ namespace Durin
 		float RuntimeButtonWidth = 0.0f;
 		bool bCompact = false;
 		bool bOverflow = false;
-		bool bPlayLabels = false;
 	};
 
 	FSceneViewportPanel::FSceneViewportPanel()
@@ -538,6 +548,10 @@ namespace Durin
 					ViewportClient->SetSelectedActors({}, nullptr);
 				}
 				else UpdateViewportInput(Context, ToolbarLayout);
+				if (GEditor && GEditor->IsPlaying())
+				{
+					DrawPlayStateBorder(VpMin, VpMax, GEditor->IsPlaySessionPaused());
+				}
 				DrawToolbar(Context, ToolbarLayout);
 				DrawCameraPreview(VpMin, VpMax);
 				DrawOrientationOverlay(VpMin, VpMax);
@@ -607,11 +621,9 @@ namespace Durin
 		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(10.0f);
 		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - MonaImGui::ScaleUI(4.0f), Layout.ViewModeButtonPosition.y - MonaImGui::ScaleUI(4.0f));
 		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - MonaImGui::ScaleUI(6.0f), Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(4.0f));
-		Layout.bPlayLabels = LayoutMode == EEditorUILayoutMode::Full;
 		const float PlayLabelWidth = ImGui::CalcTextSize("Play").x;
-		const float RuntimeLabelWidth = std::max({ImGui::CalcTextSize("Resume").x, ImGui::CalcTextSize("Pause").x, ImGui::CalcTextSize("Step").x, ImGui::CalcTextSize("Stop").x});
-		Layout.PlayButtonWidth = Layout.bPlayLabels ? FMath::Max(MonaImGui::ScaleUI(68.0f), TransformIconWidth + ContentGap + PlayLabelWidth + ContentPadding * 2.0f) : Layout.Height;
-		Layout.RuntimeButtonWidth = Layout.bPlayLabels ? FMath::Max(MonaImGui::ScaleUI(72.0f), TransformIconWidth + ContentGap + RuntimeLabelWidth + ContentPadding * 2.0f) : Layout.Height;
+		Layout.PlayButtonWidth = FMath::Max(MonaImGui::ScaleUI(68.0f), TransformIconWidth + ContentGap + PlayLabelWidth + ContentPadding * 2.0f);
+		Layout.RuntimeButtonWidth = Layout.Height;
 		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		const float PlayControlsWidth = bPlaying ? Layout.RuntimeButtonWidth * 3.0f + Layout.DropDownWidth : Layout.PlayButtonWidth + Layout.DropDownWidth;
 		// Keep Play visually independent from both the editing tools and the viewport edge.
@@ -655,16 +667,18 @@ namespace Durin
 				if (RendererModule != nullptr) RendererModule->SetRasterMode(Mode);
 			});
 			ImGui::Separator();
-			ImGui::TextDisabled("Overlays");
-			if (ViewportClient != nullptr)
-			{
-				const bool bShowGrid = ViewportClient->IsGridVisible();
-				if (ImGui::MenuItem("World Grid", nullptr, bShowGrid)) ViewportClient->SetGridVisible(!bShowGrid);
-			}
+			ImGui::TextDisabled("Post Processing");
 			if (Layout.RendererModule != nullptr)
 			{
 				bool bEnableFXAA = Layout.RendererModule->IsFXAAEnabled();
-				if (ImGui::MenuItem("FXAA", nullptr, &bEnableFXAA)) Layout.RendererModule->SetFXAAEnabled(bEnableFXAA);
+				if (ImGui::Checkbox("FXAA", &bEnableFXAA)) Layout.RendererModule->SetFXAAEnabled(bEnableFXAA);
+			}
+			ImGui::Separator();
+			ImGui::TextDisabled("Overlays");
+			if (ViewportClient != nullptr)
+			{
+				bool bShowGrid = ViewportClient->IsGridVisible();
+				if (ImGui::Checkbox("World Grid", &bShowGrid)) ViewportClient->SetGridVisible(bShowGrid);
 			}
 			ImGui::EndPopup();
 		}
@@ -719,7 +733,7 @@ namespace Durin
 		}
 		else
 		{
-			ToolbarButton("##TransformSpace", SpaceLabel(Gizmo.GetSpace()), EViewportToolbarIcon::ChevronDown, Layout.SpaceButtonWidth, Gizmo.GetSpace() != ETransformGizmoSpace::World, "Choose transform space; scale always uses Local", [&] { ImGui::OpenPopup("TransformSpacePopup"); });
+			ToolbarButton("##TransformSpace", SpaceLabel(Gizmo.GetSpace()), EViewportToolbarIcon::ChevronDown, Layout.SpaceButtonWidth, false, "Choose transform space; scale always uses Local", [&] { ImGui::OpenPopup("TransformSpacePopup"); });
 			if (ImGui::BeginPopup("TransformSpacePopup"))
 			{
 				DrawTransformSpaceOptions();
@@ -761,10 +775,6 @@ namespace Durin
 
 		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		const bool bPaused = bPlaying && GEditor->IsPlaySessionPaused();
-		const char* PlayLabel = Layout.bPlayLabels ? "Play" : nullptr;
-		const char* PauseLabel = Layout.bPlayLabels ? (bPaused ? "Resume" : "Pause") : nullptr;
-		const char* StepLabel = Layout.bPlayLabels ? "Step" : nullptr;
-		const char* StopLabel = Layout.bPlayLabels ? "Stop" : nullptr;
 		float PlayX = Layout.PlayButtonPosition.x;
 		const float PlayY = Layout.PlayButtonPosition.y;
 		if (!bPlaying)
@@ -772,7 +782,7 @@ namespace Durin
 			const char* StartLabel = PreferredPlayStartLocation == EEditorPlayStartLocation::EditorCamera ? "Editor Camera" : "Level Start";
 			const char* DestinationLabel = PreferredPlayDestination == EEditorPlayDestination::NewWindow ? "New Window" : "Viewport";
 			const std::string PlayTooltip = std::format("Play from {} in {} (F5)", StartLabel, DestinationLabel);
-			const FSplitButtonResult PlayResult = DrawPlaySplitButton(ImVec2(PlayX, PlayY), Layout.PlayButtonWidth, Layout.DropDownWidth, Layout.Height, PlayLabel, PlayTooltip.c_str());
+			const FSplitButtonResult PlayResult = DrawPlaySplitButton(ImVec2(PlayX, PlayY), Layout.PlayButtonWidth, Layout.DropDownWidth, Layout.Height, "Play", PlayTooltip.c_str());
 			if (PlayResult.bPrimaryPressed && Context.StartPlay)
 				Context.StartPlay(PreferredPlayStartLocation, PreferredPlayDestination);
 			if (PlayResult.bSecondaryPressed)
@@ -799,14 +809,14 @@ namespace Durin
 		}
 		else
 		{
-			if (DrawToolbarButton("##ViewportPause", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), PauseLabel, bPaused ? EViewportToolbarIcon::Play : EViewportToolbarIcon::Pause, false, bPaused ? "Resume play (F6)" : "Pause play (F6)", true, bPaused))
+			if (DrawToolbarButton("##ViewportPause", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), nullptr, bPaused ? EViewportToolbarIcon::Play : EViewportToolbarIcon::Pause, false, bPaused ? "Resume play (F6)" : "Pause play (F6)", true, bPaused))
 				GEditor->SetPlaySessionPaused(!bPaused);
 			PlayX += Layout.RuntimeButtonWidth;
 			if (!bPaused) ImGui::BeginDisabled();
-			if (DrawToolbarButton("##ViewportStep", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), StepLabel, EViewportToolbarIcon::Step, false, "Advance one frame while paused (F7)", true)) GEditor->StepPlaySession();
+			if (DrawToolbarButton("##ViewportStep", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), nullptr, EViewportToolbarIcon::Step, false, "Advance one frame while paused (F7)", true)) GEditor->StepPlaySession();
 			if (!bPaused) ImGui::EndDisabled();
 			PlayX += Layout.RuntimeButtonWidth;
-			if (DrawToolbarButton("##ViewportStop", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), StopLabel, EViewportToolbarIcon::Stop, false, "Stop play (F5)", true)) GEditor->StopPlaySession();
+			if (DrawToolbarButton("##ViewportStop", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), nullptr, EViewportToolbarIcon::Stop, false, "Stop play (F5)", true)) GEditor->StopPlaySession();
 			PlayX += Layout.RuntimeButtonWidth;
 			if (DrawToolbarButton("##ViewportRuntimeOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Runtime options", true)) ImGui::OpenPopup("ViewportRuntimeOptionsPopup");
 			if (ImGui::BeginPopup("ViewportRuntimeOptionsPopup"))
@@ -816,7 +826,7 @@ namespace Durin
 				if (ImGui::MenuItem("Apply All Runtime Changes") && Context.ApplyPlayChanges) Context.ApplyPlayChanges(false);
 				ImGui::Separator();
 				bool bPhysicsEnabled = GEditor->GetPlayWorld() && GEditor->GetPlayWorld()->IsPhysicsSimulationEnabled();
-				if (ImGui::MenuItem("Simulate Physics", nullptr, &bPhysicsEnabled) && GEditor->GetPlayWorld()) GEditor->GetPlayWorld()->SetPhysicsSimulationEnabled(bPhysicsEnabled);
+				if (ImGui::Checkbox("Simulate Physics", &bPhysicsEnabled) && GEditor->GetPlayWorld()) GEditor->GetPlayWorld()->SetPhysicsSimulationEnabled(bPhysicsEnabled);
 				ImGui::EndPopup();
 			}
 		}
