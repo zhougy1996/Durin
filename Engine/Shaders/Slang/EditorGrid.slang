@@ -9,6 +9,12 @@ struct GridVSOutput
     float3 worldPosition : TEXCOORD;
 };
 
+struct GridFragmentOutput
+{
+    float4 color : SV_Target;
+    float depth : SV_Depth;
+};
+
 struct GridUniform
 {
     float4x4 WorldToClip;
@@ -49,7 +55,7 @@ float AxisLine(float coordinate)
 }
 
 [shader("fragment")]
-float4 FragmentMain(GridVSOutput input) : SV_Target
+GridFragmentOutput FragmentMain(GridVSOutput input)
 {
     float3 toView = Grid.ViewPositionFadeDistance.xyz - input.worldPosition;
     float distanceToView = length(toView);
@@ -94,5 +100,11 @@ float4 FragmentMain(GridVSOutput input) : SV_Target
     color.a *= distanceFade * angleFade;
     if (color.a <= 0.002)
         discard;
-    return color;
+
+    GridFragmentOutput output;
+    output.color = color;
+    // Stage 0 contract spike: preserve the rasterized V1 grid depth while proving that
+    // the real grid pipeline accepts a color output paired with fragment depth.
+    output.depth = input.pos.z;
+    return output;
 }

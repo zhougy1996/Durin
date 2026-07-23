@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Ready for implementation. The rendering approach is selected: rasterize a true screen-space fullscreen triangle, reconstruct a world-space ray per fragment, intersect it with the editor grid plane, and output the intersection depth. The existing world-space grid triangle remains the baseline until the V2 path passes the validation matrix.
+Stage 0 is implemented and validated. Slang compiles a fragment entry point returning color plus `SV_Depth`, reflection and pipeline layout generation produce no bindings for those output semantics, and the existing Vulkan editor-grid pipeline accepts the depth-writing fragment shader with depth testing enabled and depth writes disabled. No backend constraint was discovered. The existing world-space grid triangle remains the baseline until the V2 path passes the validation matrix.
 
 ## Goal
 
@@ -90,10 +90,10 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 
 ### Stage 0: Prove the fragment-depth contract
 
-- [ ] Add or extend a RenderCore shader-compilation test with a minimal fragment entry point that returns color and `SV_Depth`.
-- [ ] Confirm reflection and pipeline layout generation do not treat the depth semantic as a descriptor or color attachment.
-- [ ] Confirm the Vulkan graphics pipeline accepts the grid fragment shader while depth testing is enabled and depth writes are disabled.
-- [ ] Record any backend constraint discovered by the spike in this plan before changing the grid algorithm.
+- [x] Add or extend a RenderCore shader-compilation test with a minimal fragment entry point that returns color and `SV_Depth`.
+- [x] Confirm reflection and pipeline layout generation do not treat the depth semantic as a descriptor or color attachment.
+- [x] Confirm the Vulkan graphics pipeline accepts the grid fragment shader while depth testing is enabled and depth writes are disabled.
+- [x] Record any backend constraint discovered by the spike in this plan before changing the grid algorithm. No backend constraint was discovered.
 
 #### Acceptance Gate
 
