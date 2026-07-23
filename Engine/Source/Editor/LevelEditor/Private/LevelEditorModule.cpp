@@ -1,19 +1,19 @@
 #include "LevelEditorModule.h"
 
 #include "Editor/EditorWorkspace.h"
-#include "EditorSessionSettings.h"
+#include "Settings/EditorSessionSettings.h"
 #include "Engine/Level.h"
 #include "Engine/Actor.h"
-#include "LevelEditorWorkspace.h"
-#include "ObjectPropertyEditorCustomizations.h"
+#include "Workspace/LevelEditorWorkspace.h"
+#include "Customizations/ObjectPropertyEditorCustomizations.h"
 #include "Widgets/MLevelEditor.h"
 #include "Actors/CameraActor.h"
-#include "CameraEditorCustomizations.h"
+#include "Customizations/CameraEditorCustomizations.h"
 #include "Components/CameraComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SplineComponent.h"
-#include "DirectionalLightEditorCustomizations.h"
-#include "SplineEditorCustomizations.h"
+#include "Customizations/DirectionalLightEditorCustomizations.h"
+#include "Customizations/SplineEditorCustomizations.h"
 
 namespace Durin
 {

@@ -1,7 +1,7 @@
 #include "MaterialEditorModule.h"
 
 #include "Editor/EditorWorkspace.h"
-#include "MaterialEditorWorkspace.h"
+#include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Widgets/MMaterialEditor.h"

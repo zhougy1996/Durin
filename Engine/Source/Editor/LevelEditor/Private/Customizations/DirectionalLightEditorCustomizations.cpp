@@ -1,4 +1,4 @@
-#include "DirectionalLightEditorCustomizations.h"
+#include "Customizations/DirectionalLightEditorCustomizations.h"
 
 #include "Components/DirectionalLightComponent.h"
 #include "MonaImGui.h"

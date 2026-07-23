@@ -75,5 +75,5 @@ UI/font icon system.
 - `Engine/Source/Runtime/RenderCore/Public/IRendererModule.h`
 - `Engine/Source/Runtime/Renderer/Private/RendererModule.cpp`
 - `Engine/Source/Editor/LevelEditor/Public/LevelEditorCustomizations.h`
-- `Engine/Source/Editor/LevelEditor/Private/CameraEditorCustomizations.cpp`
-- `Engine/Source/Editor/LevelEditor/Private/DirectionalLightEditorCustomizations.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Customizations/CameraEditorCustomizations.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Customizations/DirectionalLightEditorCustomizations.cpp`

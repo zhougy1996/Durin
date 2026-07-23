@@ -274,8 +274,8 @@ one change.
 - `Engine/Source/Editor/LevelEditor/Public/Widgets/MLevelEditor.h`
 - `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`
 - `Engine/Source/Editor/MaterialEditor/Public/MaterialEditorModule.h`
-- `Engine/Source/Editor/MaterialEditor/Private/MaterialEditorWorkspace.h`
+- `Engine/Source/Editor/MaterialEditor/Private/Workspace/MaterialEditorWorkspace.h`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.h`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp`
-- `Engine/Source/Editor/LevelEditor/Private/EditorSessionSettings.h`
+- `Engine/Source/Editor/LevelEditor/Private/Settings/EditorSessionSettings.h`

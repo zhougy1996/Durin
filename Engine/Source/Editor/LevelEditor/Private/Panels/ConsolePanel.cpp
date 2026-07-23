@@ -2,8 +2,8 @@
 
 #include "Editor/EditorWorkspaceUI.h"
 #include "Icons/FontAwesomeIcons.h"
-#include "LevelEditorWorkspace.h"
-#include "LevelEditorHelpers.h"
+#include "Workspace/LevelEditorWorkspace.h"
+#include "Workspace/LevelEditorHelpers.h"
 #include "Logging/Logger.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"

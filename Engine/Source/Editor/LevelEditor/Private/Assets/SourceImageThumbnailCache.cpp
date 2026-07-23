@@ -1,6 +1,6 @@
-#include "SourceImageThumbnailCache.h"
+#include "Assets/SourceImageThumbnailCache.h"
 
-#include "SourceImageThumbnailDecoder.h"
+#include "Assets/SourceImageThumbnailDecoder.h"
 
 #include "DynamicRHI.h"
 #include "MonaCoreGlobals.h"

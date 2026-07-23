@@ -16,18 +16,18 @@ add_durin_test(EngineTests
 	Private/UIStyleTests.cpp
 	Private/SourceImageThumbnailTests.cpp
 	Private/SplineTests.cpp
-	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/SourceImageThumbnailDecoder.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Assets/SourceImageThumbnailDecoder.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportCameraTransform.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/CameraPreviewViewportClient.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/LevelEditorViewportClient.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Viewport/TransformGizmo.cpp
-	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/CameraEditorCustomizations.cpp
-	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/DirectionalLightEditorCustomizations.cpp
-	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/SplineEditorCustomizations.cpp
-	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelEditorCustomizations.cpp
-	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/ObjectPropertyEditorCustomizations.cpp
-	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelEditorContext.cpp
-	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/LevelViewportSessionSettings.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Customizations/CameraEditorCustomizations.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Customizations/DirectionalLightEditorCustomizations.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Customizations/SplineEditorCustomizations.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Customizations/LevelEditorCustomizations.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Customizations/ObjectPropertyEditorCustomizations.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorContext.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Settings/LevelViewportSessionSettings.cpp
 	# Compile the preview implementation directly so its private GC lifetime contract can be exercised.
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialPreview.cpp
 )

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "LevelViewportSessionSettings.h"
+#include "Settings/LevelViewportSessionSettings.h"
 
 namespace Durin
 {

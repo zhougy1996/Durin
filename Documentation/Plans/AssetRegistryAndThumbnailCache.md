@@ -251,7 +251,7 @@ Make editor and game startup reuse previously discovered asset metadata while st
 - `Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp`
 - `Engine/Source/Runtime/Core/Public/Misc/Paths.h`
 - `Engine/Source/Runtime/Core/Private/Misc/Paths.cpp`
-- `Engine/Source/Editor/LevelEditor/Private/SourceImageThumbnailCache.h`
-- `Engine/Source/Editor/LevelEditor/Private/SourceImageThumbnailCache.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/SourceImageThumbnailCache.h`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/SourceImageThumbnailCache.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserPanel.cpp`
 - `Engine/Source/Programs/Tests/AssetCoreTests/Private/PackageTests.cpp`

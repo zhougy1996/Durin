@@ -1,11 +1,11 @@
-#include "SplineEditorCustomizations.h"
+#include "Customizations/SplineEditorCustomizations.h"
 
 #include "Components/SplineComponent.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Property.h"
 #include "Editor/ReflectedPropertyView.h"
 #include "Engine/Actor.h"
-#include "LevelEditorContext.h"
+#include "Workspace/LevelEditorContext.h"
 #include "MonaImGui.h"
 
 namespace Durin

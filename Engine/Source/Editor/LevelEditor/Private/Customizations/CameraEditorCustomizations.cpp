@@ -1,4 +1,4 @@
-#include "CameraEditorCustomizations.h"
+#include "Customizations/CameraEditorCustomizations.h"
 
 #include "Actors/CameraActor.h"
 #include "Components/CameraComponent.h"
@@ -6,7 +6,7 @@
 #include "DObject/Property.h"
 #include "Editor/ReflectedPropertyView.h"
 #include "Engine/Level.h"
-#include "LevelEditorContext.h"
+#include "Workspace/LevelEditorContext.h"
 #include "MonaImGui.h"
 
 namespace Durin

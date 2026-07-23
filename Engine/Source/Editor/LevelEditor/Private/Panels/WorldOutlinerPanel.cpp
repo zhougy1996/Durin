@@ -12,9 +12,9 @@
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorTransaction.h"
 #include "Icons/FontAwesomeIcons.h"
-#include "LevelEditorContext.h"
-#include "LevelEditorHelpers.h"
-#include "LevelEditorWorkspace.h"
+#include "Workspace/LevelEditorContext.h"
+#include "Workspace/LevelEditorHelpers.h"
+#include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 

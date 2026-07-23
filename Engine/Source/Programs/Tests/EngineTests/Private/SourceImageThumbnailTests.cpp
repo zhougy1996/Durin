@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "SourceImageThumbnailDecoder.h"
+#include "Assets/SourceImageThumbnailDecoder.h"
 
 namespace Durin
 {

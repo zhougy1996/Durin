@@ -5,7 +5,7 @@
 #include "Editor/EditorTransaction.h"
 #include "Editor/EditorWorkspaceUI.h"
 #include "Icons/FontAwesomeIcons.h"
-#include "LevelEditorWorkspace.h"
+#include "Workspace/LevelEditorWorkspace.h"
 #include "MonaImGui.h"
 
 namespace Durin

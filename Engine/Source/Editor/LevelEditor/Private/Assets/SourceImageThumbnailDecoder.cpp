@@ -1,4 +1,4 @@
-#include "SourceImageThumbnailDecoder.h"
+#include "Assets/SourceImageThumbnailDecoder.h"
 
 #include "ImageDecoder.h"
 

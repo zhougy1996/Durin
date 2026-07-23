@@ -7,7 +7,7 @@
 #include "Editor/EditorAssetPicker.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorWorkspaceUI.h"
-#include "MaterialEditorWorkspace.h"
+#include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Math/Color.h"

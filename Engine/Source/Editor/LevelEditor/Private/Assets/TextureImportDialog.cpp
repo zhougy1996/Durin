@@ -1,4 +1,4 @@
-#include "TextureImportDialog.h"
+#include "Assets/TextureImportDialog.h"
 
 #include "AssetSystem.h"
 #include "Dialogs/FileDialog.h"

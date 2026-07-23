@@ -1,8 +1,8 @@
-#include "EditorAssetMoveCoordinator.h"
+#include "Assets/EditorAssetMoveCoordinator.h"
 
-#include "EditorSessionSettings.h"
+#include "Settings/EditorSessionSettings.h"
 #include "Engine/Level.h"
-#include "LevelEditorContext.h"
+#include "Workspace/LevelEditorContext.h"
 #include "Misc/Project.h"
 #include "Panels/SceneViewportPanel.h"
 

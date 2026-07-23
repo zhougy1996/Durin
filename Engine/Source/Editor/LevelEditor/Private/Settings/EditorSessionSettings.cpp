@@ -1,9 +1,9 @@
-#include "EditorSessionSettings.h"
+#include "Settings/EditorSessionSettings.h"
 
 #include "AssetSystem.h"
 #include "Application/GenericApplication.h"
 #include "Engine/Level.h"
-#include "LevelEditorContext.h"
+#include "Workspace/LevelEditorContext.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "MonaImGui.h"

@@ -1,4 +1,4 @@
-#include "StaticMeshImportDialog.h"
+#include "Assets/StaticMeshImportDialog.h"
 
 #include "AssetSystem.h"
 #include "Dialogs/FileDialog.h"

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Panels/LevelEditorPanel.h"
-#include "EditorAssetMoveCoordinator.h"
+#include "Assets/EditorAssetMoveCoordinator.h"
 
 #include <array>
 #include <filesystem>

@@ -1,8 +1,8 @@
-#include "ObjectPropertyEditorCustomizations.h"
+#include "Customizations/ObjectPropertyEditorCustomizations.h"
 
 #include "Components/SceneComponent.h"
 #include "Engine/Actor.h"
-#include "LevelEditorContext.h"
+#include "Workspace/LevelEditorContext.h"
 
 namespace Durin
 {

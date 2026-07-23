@@ -10,7 +10,7 @@
 #include "Editor/ReflectedPropertyEditing.h"
 #include "Editor/ReflectedPropertyView.h"
 #include "DObject/Class.h"
-#include "LevelEditorContext.h"
+#include "Workspace/LevelEditorContext.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
