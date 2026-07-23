@@ -45,5 +45,6 @@ namespace Durin
 		bool bHasNewConsoleRecords = false;
 		bool bVisibleRecordsDirty = true;
 		bool bRefocusInput = false;
+		bool bScrollToLatest = false;
 	};
 } // namespace Durin

@@ -212,8 +212,14 @@ namespace Durin
 			}
 			else
 			{
+				const bool bShouldFollow = bScrollToLatest || (bAutoScroll && bIsAtBottom && bReceivedRecords);
 				ImGuiListClipper Clipper;
 				Clipper.Begin(static_cast<int>(VisibleRecordIndices.size()));
+				if (bShouldFollow)
+				{
+					const int EndIndex = static_cast<int>(VisibleRecordIndices.size());
+					Clipper.IncludeItemsByIndex(std::max(0, EndIndex - 2), EndIndex);
+				}
 				while (Clipper.Step())
 				{
 					for (int VisibleIndex = Clipper.DisplayStart; VisibleIndex < Clipper.DisplayEnd; ++VisibleIndex)
@@ -231,8 +237,9 @@ namespace Durin
 						}
 					}
 				}
+				if (bShouldFollow) ImGui::SetScrollHereY(1.0f);
 			}
-			if (bAutoScroll && bIsAtBottom && bReceivedRecords) ImGui::SetScrollHereY(1.0f);
+			bScrollToLatest = false;
 			if (ImGui::BeginPopupContextWindow("ConsoleRecordsContext", ImGuiPopupFlags_MouseButtonRight))
 			{
 				if (ImGui::MenuItem("Copy Visible")) CopyVisibleRecords();
@@ -253,7 +260,7 @@ namespace Durin
 			ImGui::SetKeyboardFocusHere();
 			bRefocusInput = false;
 		}
-		if (ImGui::InputTextWithHint("###ConsoleInput", "Type a command (Tab complete, Up/Down history)", CommandText.data(), CommandText.size(), Flags, InputTextCallback, this))
+		if (ImGui::InputTextWithHint("###ConsoleInput", "Command (Enter: run, Tab: autocomplete, Up/Down: history)", CommandText.data(), CommandText.size(), Flags, InputTextCallback, this))
 		{
 			ExecuteCommand(CommandText.data());
 			CommandText.fill('\0');
@@ -303,6 +310,7 @@ namespace Durin
 				Panel->State->Records.AddText(EConsoleRecordType::Result, std::move(Text));
 				Panel->MarkRecordsChanged();
 				Panel->bHasNewConsoleRecords = true;
+				Panel->bScrollToLatest = true;
 			}
 		}
 		return 0;
@@ -405,9 +413,9 @@ namespace Durin
 		const FConsoleCommandResult Result = FConsoleCommandRegistry::Get().Execute(CommandLine);
 		(void)ApplyPendingRequests();
 		if (!Result.Message.empty()) State->Records.AddText(Result.bSuccess ? EConsoleRecordType::Result : EConsoleRecordType::Error, Result.Message);
-		if (!Result.bSuccess) DURIN_ERROR_CATEGORY("Console", "Console command failed: {}", Result.Message);
 		MarkRecordsChanged();
 		bHasNewConsoleRecords = true;
+		bScrollToLatest = true;
 	}
 
 	auto FConsolePanel::Clear() -> void

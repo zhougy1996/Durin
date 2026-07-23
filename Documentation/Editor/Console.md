@@ -49,8 +49,11 @@ clear
 
 ## Input And Navigation
 
-- Press **Enter** to execute the current command.
-- Press **Tab** to complete a command name. When several commands match, the
+- Press **Enter** to execute the current command. The submitted command is
+  echoed with a `>` prefix, followed by its result or inline error. Command
+  feedback remains local to the Console and is not duplicated into the
+  application log.
+- Press **Tab** to autocomplete a command name. When several commands match, the
   Console prints the candidates and completes their shared prefix.
 - Press **Up** or **Down** to browse up to 100 commands from the current editor
   session.
@@ -75,7 +78,8 @@ example plain "two words" 'three words' escaped\ value
   and Fatal log records. They do not hide command results. Fatal uses the error
   presentation color but remains an independent filter level.
 - **Follow** keeps the view at the newest record while the user is already at
-  the bottom. Scrolling upward temporarily suspends following.
+  the bottom. Scrolling upward temporarily suspends following for incoming
+  logs; submitting a command still reveals its echo and result.
 - The toolbar and context menu provide **Copy** for currently visible,
   filtered records and **Clear** with the same behavior as the `clear` command.
 
