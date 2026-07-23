@@ -416,50 +416,50 @@ namespace Durin
 		const char* Filters[] = {"All types", "Levels", "Static meshes", "Materials", "Textures", "Other"};
 		const float Spacing = ImGui::GetStyle().ItemSpacing.x;
 
-		// Keep the view controls ahead of flexible toolbar content so search and breadcrumbs cannot clip them.
-		if (!bCompactLayout)
-			ImGui::NewLine();
-		else
+		auto DrawViewControls = [&]() {
+			const bool bGridView = ViewMode == EContentBrowserViewMode::Grid;
+			const bool bToggleView = DrawToolbarIconButton(bGridView ? Icons::List : Icons::TableCells, "ContentBrowserView");
+			if (bToggleView) ViewMode = bGridView ? EContentBrowserViewMode::Details : EContentBrowserViewMode::Grid;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip(bGridView ? "Switch to list view" : "Switch to icon view");
 			ImGui::SameLine();
-		const bool bGridView = ViewMode == EContentBrowserViewMode::Grid;
-		const bool bToggleView = DrawToolbarIconButton(bGridView ? Icons::Menu : Icons::TableCells, "ContentBrowserView");
-		if (bToggleView) ViewMode = bGridView ? EContentBrowserViewMode::Details : EContentBrowserViewMode::Grid;
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip(bGridView ? "Switch to list view" : "Switch to icon view");
-		ImGui::SameLine();
-		if (DrawToolbarIconButton(Icons::Info, "ContentBrowserDetails")) bShowSelectionDetails = !bShowSelectionDetails;
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle selection details");
-		ImGui::SameLine();
-		if (DrawToolbarIconButton(Icons::Gear, "ContentBrowserSettings")) ImGui::OpenPopup("ContentBrowserSettingsPopup");
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Content Browser settings");
-		if (ImGui::BeginPopup("ContentBrowserSettingsPopup"))
-		{
-			if (!bFullLayout)
+			if (DrawToolbarIconButton(Icons::Info, "ContentBrowserDetails")) bShowSelectionDetails = !bShowSelectionDetails;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle selection details");
+			ImGui::SameLine();
+			if (DrawToolbarIconButton(Icons::Gear, "ContentBrowserSettings")) ImGui::OpenPopup("ContentBrowserSettingsPopup");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Content Browser settings");
+			if (ImGui::BeginPopup("ContentBrowserSettingsPopup"))
 			{
-				ImGui::TextDisabled("Type filter");
+				if (!bFullLayout)
+				{
+					ImGui::TextDisabled("Type filter");
+					ImGui::SetNextItemWidth(-FLT_MIN);
+					if (ImGui::Combo("##CompactContentTypeFilter", &TypeFilter, Filters, std::size(Filters))) RebuildItems();
+					ImGui::Separator();
+				}
+				ImGui::TextDisabled("Thumbnail size");
 				ImGui::SetNextItemWidth(-FLT_MIN);
-				if (ImGui::Combo("##CompactContentTypeFilter", &TypeFilter, Filters, std::size(Filters))) RebuildItems();
+				ImGui::SliderFloat("##ContentIconSize", &IconSize, FEditorSessionSettings::MinimumContentBrowserIconSize, FEditorSessionSettings::MaximumContentBrowserIconSize, "%.0f px");
+				ImGui::Checkbox("Lock Ctrl + wheel resizing", &bIconSizeLocked);
 				ImGui::Separator();
+				if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles))
+				{
+					bShowSourceFiles = !bShowSourceFiles;
+					RebuildItems();
+				}
+				ImGui::EndPopup();
 			}
-			ImGui::TextDisabled("Thumbnail size");
-			ImGui::SetNextItemWidth(-FLT_MIN);
-			ImGui::SliderFloat("##ContentIconSize", &IconSize, FEditorSessionSettings::MinimumContentBrowserIconSize, FEditorSessionSettings::MaximumContentBrowserIconSize, "%.0f px");
-			ImGui::Checkbox("Lock Ctrl + wheel resizing", &bIconSizeLocked);
-			ImGui::Separator();
-			if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles))
-			{
-				bShowSourceFiles = !bShowSourceFiles;
-				RebuildItems();
-			}
-			ImGui::EndPopup();
-		}
+		};
 
 		if (bFullLayout)
 		{
 			const float FilterWidth = MonaImGui::ScaleUI(120.0f);
 			const float SearchWidth = MonaImGui::ScaleUI(210.0f);
+			const float ViewControlsWidth = ImGui::GetFrameHeight() * 3.0f + Spacing * 2.0f;
 			ImGui::SameLine();
-			const float BreadcrumbWidth = std::max(MonaImGui::ScaleUI(160.0f), ImGui::GetContentRegionAvail().x - FilterWidth - SearchWidth - Spacing * 2.0f);
+			const float BreadcrumbWidth = std::max(MonaImGui::ScaleUI(160.0f), ImGui::GetContentRegionAvail().x - ViewControlsWidth - FilterWidth - SearchWidth - Spacing * 3.0f);
 			DrawBreadcrumb(BreadcrumbWidth);
+			ImGui::SameLine();
+			DrawViewControls();
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(FilterWidth);
 			if (ImGui::Combo("##ContentTypeFilter", &TypeFilter, Filters, std::size(Filters))) RebuildItems();
@@ -470,12 +470,16 @@ namespace Durin
 		else if (bCompactLayout)
 		{
 			ImGui::SameLine();
+			DrawViewControls();
+			ImGui::SameLine();
 			ImGui::SetNextItemWidth(-FLT_MIN);
 			if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
 		}
 
 		if (!bCompactLayout)
 		{
+			ImGui::NewLine();
+			DrawViewControls();
 			ImGui::NewLine();
 			ImGui::SetNextItemWidth(-FLT_MIN);
 			if (ImGui::InputTextWithHint("##ContentSearchNarrow", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
