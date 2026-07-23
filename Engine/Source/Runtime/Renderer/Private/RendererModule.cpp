@@ -240,7 +240,7 @@ namespace Durin
 			int32 VertexOffset = 0;
 		};
 
-		struct FFinalEditorAssistancePipelineStates
+		struct FEditorAssistanceOutputPipelines
 		{
 			FGraphicsPipelineStateRHIRef Offscreen;
 			FGraphicsPipelineStateRHIRef Present;
@@ -252,10 +252,10 @@ namespace Durin
 			TShaderRef<FGizmoVertexShader> VertexShader;
 			TShaderRef<FGizmoFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FFinalEditorAssistancePipelineStates FinalXRayPipelineStates;
-			FFinalEditorAssistancePipelineStates FinalVisiblePipelineStates;
-			FFinalEditorAssistancePipelineStates FinalWireXRayPipelineStates;
-			FFinalEditorAssistancePipelineStates FinalWireVisiblePipelineStates;
+			FEditorAssistanceOutputPipelines XRayOutputPipelines;
+			FEditorAssistanceOutputPipelines VisibleOutputPipelines;
+			FEditorAssistanceOutputPipelines WireXRayOutputPipelines;
+			FEditorAssistanceOutputPipelines WireVisibleOutputPipelines;
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
 			std::array<FGizmoMeshRange, 6> MeshRanges{};
@@ -268,8 +268,8 @@ namespace Durin
 			TShaderRef<FOverlayLineVertexShader> VertexShader;
 			TShaderRef<FOverlayLineFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FFinalEditorAssistancePipelineStates FinalXRayPipelineStates;
-			FFinalEditorAssistancePipelineStates FinalVisiblePipelineStates;
+			FEditorAssistanceOutputPipelines XRayOutputPipelines;
+			FEditorAssistanceOutputPipelines VisibleOutputPipelines;
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
 			uint32 VertexCapacity = 0;
@@ -284,8 +284,8 @@ namespace Durin
 			TShaderRef<FOverlayIconVertexShader> VertexShader;
 			TShaderRef<FOverlayIconFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FFinalEditorAssistancePipelineStates FinalXRayPipelineStates;
-			FFinalEditorAssistancePipelineStates FinalVisiblePipelineStates;
+			FEditorAssistanceOutputPipelines XRayOutputPipelines;
+			FEditorAssistanceOutputPipelines VisibleOutputPipelines;
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
 			FTextureRHIRef Atlas;
@@ -302,7 +302,7 @@ namespace Durin
 			TShaderRef<FEditorGridVertexShader> VertexShader;
 			TShaderRef<FEditorGridFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FFinalEditorAssistancePipelineStates FinalPipelineStates;
+			FEditorAssistanceOutputPipelines OutputPipelines;
 			bool bCreateAttempted = false;
 		};
 
@@ -353,45 +353,45 @@ namespace Durin
 		FEditorGridRendererState GEditorGridState;
 		std::atomic<ERenderMode> GRenderMode = ERenderMode::Lit;
 		std::atomic<ERasterMode> GRasterMode = ERasterMode::Solid;
-		bool GFinalEditorAssistancePipelineFailureLogged = false;
+		bool GEditorAssistancePipelineFailureLogged = false;
 
-		auto CreateFinalEditorAssistancePipelineStates(
+		auto CreateEditorAssistanceOutputPipelines(
 			FName OffscreenPipelineName,
 			FName PresentPipelineName,
 			FGraphicsPipelineStateInitializer Initializer
-		) -> FFinalEditorAssistancePipelineStates
+		) -> FEditorAssistanceOutputPipelines
 		{
-			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeFinalEditorAssistanceOutput(
+			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeEditorAssistanceOutput(
 				RendererRenderTargetLayouts::EViewportOutput::Offscreen
 			);
 			FGraphicsPipelineStateRHIRef Offscreen = GDynamicRHI->RHICreateGraphicsPipelineState(OffscreenPipelineName, Initializer);
-			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeFinalEditorAssistanceOutput(
+			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeEditorAssistanceOutput(
 				RendererRenderTargetLayouts::EViewportOutput::Present
 			);
 			FGraphicsPipelineStateRHIRef Present = GDynamicRHI->RHICreateGraphicsPipelineState(PresentPipelineName, Initializer);
 			return {.Offscreen = std::move(Offscreen), .Present = std::move(Present)};
 		}
 
-		auto AreFinalEditorAssistancePipelinesReady() -> bool
+		auto AreEditorAssistanceOutputPipelinesReady() -> bool
 		{
-			auto IsReady = [](const FFinalEditorAssistancePipelineStates& States) {
-				return States.Offscreen != nullptr && States.Present != nullptr;
+			auto IsReady = [](const FEditorAssistanceOutputPipelines& Pipelines) {
+				return Pipelines.Offscreen != nullptr && Pipelines.Present != nullptr;
 			};
-			return IsReady(GEditorGridState.FinalPipelineStates)
-				&& IsReady(GGizmoState.FinalXRayPipelineStates)
-				&& IsReady(GGizmoState.FinalVisiblePipelineStates)
-				&& IsReady(GGizmoState.FinalWireXRayPipelineStates)
-				&& IsReady(GGizmoState.FinalWireVisiblePipelineStates)
-				&& IsReady(GOverlayLineState.FinalXRayPipelineStates)
-				&& IsReady(GOverlayLineState.FinalVisiblePipelineStates)
-				&& IsReady(GOverlayIconState.FinalXRayPipelineStates)
-				&& IsReady(GOverlayIconState.FinalVisiblePipelineStates);
+			return IsReady(GEditorGridState.OutputPipelines)
+				&& IsReady(GGizmoState.XRayOutputPipelines)
+				&& IsReady(GGizmoState.VisibleOutputPipelines)
+				&& IsReady(GGizmoState.WireXRayOutputPipelines)
+				&& IsReady(GGizmoState.WireVisibleOutputPipelines)
+				&& IsReady(GOverlayLineState.XRayOutputPipelines)
+				&& IsReady(GOverlayLineState.VisibleOutputPipelines)
+				&& IsReady(GOverlayIconState.XRayOutputPipelines)
+				&& IsReady(GOverlayIconState.VisibleOutputPipelines);
 		}
 
-		auto GetFinalEditorAssistancePipeline(const FFinalEditorAssistancePipelineStates& States, bool bPresentOutput)
+		auto GetEditorAssistanceOutputPipeline(const FEditorAssistanceOutputPipelines& Pipelines, bool bPresentOutput)
 			-> FGraphicsPipelineStateRHIRef
 		{
-			return bPresentOutput ? States.Present : States.Offscreen;
+			return bPresentOutput ? Pipelines.Present : Pipelines.Offscreen;
 		}
 
 		auto BeginGizmoMesh(const std::vector<FVector3f>& Vertices, const std::vector<uint32>& Indices) -> FGizmoMeshRange
@@ -537,20 +537,20 @@ namespace Durin
 			Initializer.bEnableDepthWrite = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
 			Initializer.bEnableDepthTest = false;
-			GGizmoState.FinalXRayPipelineStates = CreateFinalEditorAssistancePipelineStates(
+			GGizmoState.XRayOutputPipelines = CreateEditorAssistanceOutputPipelines(
 				"GizmoXRayOffscreenPipeline", "GizmoXRayPresentPipeline", Initializer
 			);
 			Initializer.bEnableDepthTest = true;
-			GGizmoState.FinalVisiblePipelineStates = CreateFinalEditorAssistancePipelineStates(
+			GGizmoState.VisibleOutputPipelines = CreateEditorAssistanceOutputPipelines(
 				"GizmoVisibleOffscreenPipeline", "GizmoVisiblePresentPipeline", Initializer
 			);
 			Initializer.PrimitiveTopology = FGraphicsPipelineStateInitializer::EPrimitiveTopology::LineList;
 			Initializer.bEnableDepthTest = false;
-			GGizmoState.FinalWireXRayPipelineStates = CreateFinalEditorAssistancePipelineStates(
+			GGizmoState.WireXRayOutputPipelines = CreateEditorAssistanceOutputPipelines(
 				"GizmoWireXRayOffscreenPipeline", "GizmoWireXRayPresentPipeline", Initializer
 			);
 			Initializer.bEnableDepthTest = true;
-			GGizmoState.FinalWireVisiblePipelineStates = CreateFinalEditorAssistancePipelineStates(
+			GGizmoState.WireVisibleOutputPipelines = CreateEditorAssistanceOutputPipelines(
 				"GizmoWireVisibleOffscreenPipeline", "GizmoWireVisiblePresentPipeline", Initializer
 			);
 
@@ -621,11 +621,11 @@ namespace Durin
 			Initializer.bEnableDepthWrite = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
 			Initializer.bEnableDepthTest = false;
-			GOverlayLineState.FinalXRayPipelineStates = CreateFinalEditorAssistancePipelineStates(
+			GOverlayLineState.XRayOutputPipelines = CreateEditorAssistanceOutputPipelines(
 				"OverlayLineXRayOffscreenPipeline", "OverlayLineXRayPresentPipeline", Initializer
 			);
 			Initializer.bEnableDepthTest = true;
-			GOverlayLineState.FinalVisiblePipelineStates = CreateFinalEditorAssistancePipelineStates(
+			GOverlayLineState.VisibleOutputPipelines = CreateEditorAssistanceOutputPipelines(
 				"OverlayLineVisibleOffscreenPipeline", "OverlayLineVisiblePresentPipeline", Initializer
 			);
 		}
@@ -798,11 +798,11 @@ namespace Durin
 			Initializer.bEnableDepthWrite = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
 			Initializer.bEnableDepthTest = false;
-			GOverlayIconState.FinalXRayPipelineStates = CreateFinalEditorAssistancePipelineStates(
+			GOverlayIconState.XRayOutputPipelines = CreateEditorAssistanceOutputPipelines(
 				"OverlayIconXRayOffscreenPipeline", "OverlayIconXRayPresentPipeline", Initializer
 			);
 			Initializer.bEnableDepthTest = true;
-			GOverlayIconState.FinalVisiblePipelineStates = CreateFinalEditorAssistancePipelineStates(
+			GOverlayIconState.VisibleOutputPipelines = CreateEditorAssistanceOutputPipelines(
 				"OverlayIconVisibleOffscreenPipeline", "OverlayIconVisiblePresentPipeline", Initializer
 			);
 
@@ -852,7 +852,7 @@ namespace Durin
 			Initializer.bEnableDepthTest = true;
 			Initializer.bEnableDepthWrite = false;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
-			GEditorGridState.FinalPipelineStates = CreateFinalEditorAssistancePipelineStates(
+			GEditorGridState.OutputPipelines = CreateEditorAssistanceOutputPipelines(
 				"EditorWorldGridOffscreenPipeline", "EditorWorldGridPresentPipeline", Initializer
 			);
 		}
@@ -1068,7 +1068,7 @@ namespace Durin
 
 		auto DrawEditorGrid(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bPresentOutput) -> void
 		{
-			const FGraphicsPipelineStateRHIRef Pipeline = GetFinalEditorAssistancePipeline(GEditorGridState.FinalPipelineStates, bPresentOutput);
+			const FGraphicsPipelineStateRHIRef Pipeline = GetEditorAssistanceOutputPipeline(GEditorGridState.OutputPipelines, bPresentOutput);
 			if (!View.EditorGrid.bVisible || Pipeline == nullptr
 				|| !GEditorGridState.VertexShader || !GEditorGridState.FragmentShader
 				|| GPostProcessState.VertexBuffer == nullptr || GPostProcessState.IndexBuffer == nullptr) return;
@@ -1150,10 +1150,10 @@ namespace Durin
 			for (const FViewOverlayPrimitive& Primitive : View.OverlayPrimitives)
 			{
 				const bool bWire = Primitive.Shape == EViewOverlayShape::WireBox;
-				const FFinalEditorAssistancePipelineStates& PipelineStates = bWire
-					? (bXRay ? GGizmoState.FinalWireXRayPipelineStates : GGizmoState.FinalWireVisiblePipelineStates)
-					: (bXRay ? GGizmoState.FinalXRayPipelineStates : GGizmoState.FinalVisiblePipelineStates);
-				const FGraphicsPipelineStateRHIRef Pipeline = GetFinalEditorAssistancePipeline(PipelineStates, bPresentOutput);
+				const FEditorAssistanceOutputPipelines& OutputPipelines = bWire
+					? (bXRay ? GGizmoState.WireXRayOutputPipelines : GGizmoState.WireVisibleOutputPipelines)
+					: (bXRay ? GGizmoState.XRayOutputPipelines : GGizmoState.VisibleOutputPipelines);
+				const FGraphicsPipelineStateRHIRef Pipeline = GetEditorAssistanceOutputPipeline(OutputPipelines, bPresentOutput);
 				if (Pipeline == nullptr) continue;
 				CommandList.SetGraphicsPipelineState(*Pipeline);
 				const size_t ShapeIndex = static_cast<size_t>(Primitive.Shape);
@@ -1212,8 +1212,8 @@ namespace Durin
 		auto DrawOverlayLines(FRHICommandListImmediate& CommandList, bool bXRay, bool bPresentOutput) -> void
 		{
 			if (GOverlayLineState.IndexCount == 0 || GOverlayLineState.VertexBuffer == nullptr || GOverlayLineState.IndexBuffer == nullptr) return;
-			const FGraphicsPipelineStateRHIRef Pipeline = GetFinalEditorAssistancePipeline(
-				bXRay ? GOverlayLineState.FinalXRayPipelineStates : GOverlayLineState.FinalVisiblePipelineStates,
+			const FGraphicsPipelineStateRHIRef Pipeline = GetEditorAssistanceOutputPipeline(
+				bXRay ? GOverlayLineState.XRayOutputPipelines : GOverlayLineState.VisibleOutputPipelines,
 				bPresentOutput
 			);
 			if (Pipeline == nullptr) return;
@@ -1291,8 +1291,8 @@ namespace Durin
 		{
 			if (GOverlayIconState.IndexCount == 0 || GOverlayIconState.VertexBuffer == nullptr || GOverlayIconState.IndexBuffer == nullptr
 				|| GOverlayIconState.Atlas == nullptr || GOverlayIconState.AtlasSampler == nullptr) return;
-			const FGraphicsPipelineStateRHIRef Pipeline = GetFinalEditorAssistancePipeline(
-				bXRay ? GOverlayIconState.FinalXRayPipelineStates : GOverlayIconState.FinalVisiblePipelineStates,
+			const FGraphicsPipelineStateRHIRef Pipeline = GetEditorAssistanceOutputPipeline(
+				bXRay ? GOverlayIconState.XRayOutputPipelines : GOverlayIconState.VisibleOutputPipelines,
 				bPresentOutput
 			);
 			if (Pipeline == nullptr) return;
@@ -1431,7 +1431,7 @@ namespace Durin
 		GPostProcessState.SceneTargetsBySize.clear();
 		GPostProcessState.bCreateAttempted = false;
 		GPostProcessState.bEnableFXAA.store(true, std::memory_order_relaxed);
-		GFinalEditorAssistancePipelineFailureLogged = false;
+		GEditorAssistancePipelineFailureLogged = false;
 	}
 
 	auto FRendererModule::CreateScene() -> std::unique_ptr<IScene>
@@ -1515,10 +1515,10 @@ namespace Durin
 		EnsureOverlayLineResources();
 		EnsureOverlayIconResources(CommandList);
 		EnsureEditorGridResources();
-		const bool bFinalEditorAssistancePipelinesReady = AreFinalEditorAssistancePipelinesReady();
-		if (!bFinalEditorAssistancePipelinesReady && !GFinalEditorAssistancePipelineFailureLogged)
+		const bool bEditorAssistanceOutputPipelinesReady = AreEditorAssistanceOutputPipelinesReady();
+		if (!bEditorAssistanceOutputPipelinesReady && !GEditorAssistancePipelineFailureLogged)
 		{
-			GFinalEditorAssistancePipelineFailureLogged = true;
+			GEditorAssistancePipelineFailureLogged = true;
 			DURIN_ERROR("Editor assistance pipeline creation is incomplete; editor assistance drawing is disabled");
 		}
 
@@ -1558,18 +1558,18 @@ namespace Durin
 		CommandList.BeginRenderPass(PostProcessPassInfo, bPresentOutput ? "PostProcessPresentRenderPass" : "PostProcessOffscreenRenderPass");
 		DrawPostProcess(CommandList, SceneColor, Width, Height, bPresentOutput);
 		CommandList.EndRenderPass();
-		if (bFinalEditorAssistancePipelinesReady)
+		if (bEditorAssistanceOutputPipelinesReady)
 		{
 			PrepareEditorAssistance(CommandList, RenderView);
 		}
 
 		FRHIRenderPassInfo EditorAssistancePassInfo{};
-		EditorAssistancePassInfo.RenderTargetLayout = RendererRenderTargetLayouts::MakeFinalEditorAssistanceOutput(GetViewportOutput(bPresentOutput));
+		EditorAssistancePassInfo.RenderTargetLayout = RendererRenderTargetLayouts::MakeEditorAssistanceOutput(GetViewportOutput(bPresentOutput));
 		EditorAssistancePassInfo.ColorRenderTargets[0] = OutputTarget;
 		EditorAssistancePassInfo.DepthStencilRenderTarget = SceneTargets->Depth;
 		CommandList.BeginRenderPass(EditorAssistancePassInfo,
 			bPresentOutput ? "EditorAssistancePresentRenderPass" : "EditorAssistanceOffscreenRenderPass");
-		if (bFinalEditorAssistancePipelinesReady)
+		if (bEditorAssistanceOutputPipelinesReady)
 		{
 			DrawEditorAssistance(CommandList, RenderView, bPresentOutput);
 		}

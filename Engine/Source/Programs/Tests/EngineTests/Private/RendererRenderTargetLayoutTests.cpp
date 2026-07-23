@@ -30,11 +30,11 @@ namespace Durin
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::ColorAttachmentWrite);
 	}
 
-	TEST(FRendererRenderTargetLayoutTests, FinalEditorAssistanceLoadsPreservedColorAndDepth)
+	TEST(FRendererRenderTargetLayoutTests, EditorAssistanceOutputLoadsPreservedColorAndDepth)
 	{
 		for (const EViewportOutput Output : {EViewportOutput::Offscreen, EViewportOutput::Present})
 		{
-			const FRHIRenderTargetLayout Layout = MakeFinalEditorAssistanceOutput(Output);
+			const FRHIRenderTargetLayout Layout = MakeEditorAssistanceOutput(Output);
 
 			ASSERT_TRUE(Layout.IsValid());
 			ASSERT_EQ(Layout.NumColorRenderTargets, 1);
@@ -50,10 +50,10 @@ namespace Durin
 		}
 	}
 
-	TEST(FRendererRenderTargetLayoutTests, FinalOutputVariantOwnsOnlyTheColorFinalTransition)
+	TEST(FRendererRenderTargetLayoutTests, OutputVariantOwnsOnlyTheColorFinalTransition)
 	{
-		const FRHIRenderTargetLayout Offscreen = MakeFinalEditorAssistanceOutput(EViewportOutput::Offscreen);
-		const FRHIRenderTargetLayout Present = MakeFinalEditorAssistanceOutput(EViewportOutput::Present);
+		const FRHIRenderTargetLayout Offscreen = MakeEditorAssistanceOutput(EViewportOutput::Offscreen);
+		const FRHIRenderTargetLayout Present = MakeEditorAssistanceOutput(EViewportOutput::Present);
 
 		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
 		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::ShaderRead);

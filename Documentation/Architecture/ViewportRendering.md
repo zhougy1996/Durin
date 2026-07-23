@@ -107,7 +107,9 @@ Camera aspect ratios support viewport-driven framing, common fixed presets, and 
 
 Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache is deliberately bounded so interactive resizing does not retain every transient dimension.
 
-Under the adopted renderer boundary, scene post-processing produces the image that is then composed with editor assistance for both window-backed and render-target-backed viewports. Editor assistance is a Renderer phase, not Mona or ImGui content: it may use preserved scene depth, but it remains outside scene anti-aliasing and any future temporal history. The final composed result continues through the existing presentation or `MonaUI::DrawTexture(...)` path without exposing intermediate scene targets to the widget layer. The current pre-FXAA assistance ordering is a migration gap tracked in `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`.
+Scene post-processing produces the image that is then composed with editor assistance for both window-backed and render-target-backed viewports. Editor assistance is a Renderer phase, not Mona or ImGui content: it loads preserved scene depth for occlusion, but remains outside scene anti-aliasing and any future temporal history. The final assistance pass restores the view's constrained content viewport and scissor after the fullscreen post-process pass, so fixed-aspect black bars remain untouched. Window-backed output then transitions to Present; render-target-backed output becomes ShaderReadOnly and continues through `MonaUI::DrawTexture(...)` without exposing intermediate scene targets to the widget layer.
+
+The editor-assistance draw order is grid first, then X-Ray gizmos, lines, and icons, followed by their depth-tested visible variants. Main and auxiliary viewports reuse size-keyed scene intermediates sequentially, while each output target receives its own post-process and final assistance passes.
 
 ## Interface Boundary
 

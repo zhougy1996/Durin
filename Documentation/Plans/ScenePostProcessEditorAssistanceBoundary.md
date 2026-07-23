@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stage 3 is complete. Opaque scene rendering now ends before scene post-processing, and the complete editor-assistance phase is prepared and composed afterward using preserved scene depth and output-specific pipelines. The final pass restores the constrained content viewport and scissor, retains grid/X-Ray/visible ordering, and owns the Present or ShaderReadOnly transition. Obsolete scene-layout assistance pipelines and pre-FXAA draw calls are removed.
+Stage 4 automated validation and documentation are complete. The focused Engine/Renderer/grid/viewport and RenderCore suites pass, the full `all` build succeeds, and the hidden-window Vulkan log is clean. Runtime Architecture, Viewport Rendering, and the Editor World Grid reference now describe the landed post-process boundary. The repeatable FXAA visual procedure is documented, but its operator-captured evidence remains intentionally pending.
 
 ## Goal
 
@@ -144,16 +144,31 @@ Establish a renderer-level boundary where scene anti-aliasing and other scene po
 
 ### Stage 4: Regression validation and documentation
 
-- [ ] Run focused RenderCore, Renderer/Engine, grid, and viewport tests affected by layout and ordering changes.
-- [ ] Complete the repository full `all` build through the root BuildTool workflow.
-- [ ] Run `DurinEditor` from the same profile with `--hidden-window` and verify Shader, Pipeline, Vulkan Validation, Error, and Fatal logs remain clean.
+- [x] Run focused RenderCore, Renderer/Engine, grid, and viewport tests affected by layout and ordering changes.
+- [x] Complete the repository full `all` build through the root BuildTool workflow.
+- [x] Run `DurinEditor` from the same profile with `--hidden-window` and verify Shader, Pipeline, Vulkan Validation, Error, and Fatal logs remain clean.
 - [ ] Manually compare FXAA enabled and disabled in low-altitude grid, horizon, mesh-occlusion, icon, selection-line, camera-frustum, and transform-gizmo scenarios.
 - [ ] Validate both an offscreen Level Editor viewport and a window-backed runtime viewport.
-- [ ] Update Runtime Architecture, Viewport Rendering, and Editor World Grid reference documents to describe the landed boundary and remove migration-pending wording.
+- [x] Update Runtime Architecture, Viewport Rendering, and Editor World Grid reference documents to describe the landed boundary and remove migration-pending wording.
+
+The remaining two items require operator visual judgment. The procedure below and `Documentation/Reference/EditorWorldGridShader.md` section 19.8 define how to collect that evidence; they are not satisfied by hidden-window execution alone.
 
 #### Acceptance Gate
 
 - Automated checks, full build, hidden-window Vulkan smoke, and the visual matrix pass; long-lived documents describe the implemented ordering and temporal exclusion contract rather than the former pre-FXAA integration.
+
+### Manual Visual Procedure
+
+1. Open the Level Editor viewport and use its View Mode popup under **Overlays > FXAA** to change only the FXAA state.
+2. Fix the level, selection, camera Transform, viewport dimensions, and DPI before capturing the first pair.
+3. Capture FXAA disabled and enabled pairs for low-altitude grid, horizon fade, Mesh-over-grid occlusion, overlay icons, selection lines, camera frustum, and Transform Gizmo.
+4. Confirm that FXAA changes scene geometry edges but does not soften or change the width, opacity, or ordering of editor assistance.
+5. Confirm that Mesh depth occludes the grid and visible variants, while X-Ray variants remain faintly visible through geometry.
+6. Use a fixed-aspect camera preview while the main viewport remains visible to cover black bars, constrained scissor behavior, auxiliary targets, and the Offscreen path.
+7. Repeat the representative grid, occlusion, icon, line, and gizmo cases in a window-backed runtime viewport to cover the Present path.
+8. Record the FXAA state, output type, level, camera Transform, selection, viewport size, DPI, and evidence filename for each pair.
+
+The comparison is semantic rather than pixel-identical: expected differences should be concentrated on scene geometry edges, while editor-assistance appearance and depth relationships remain stable.
 
 ## Validation Matrix
 

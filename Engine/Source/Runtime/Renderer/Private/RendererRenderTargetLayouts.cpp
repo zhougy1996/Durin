@@ -67,7 +67,7 @@ namespace Durin::RendererRenderTargetLayouts
 		return Layout;
 	}
 
-	auto MakeFinalEditorAssistanceOutput(EViewportOutput Output) -> FRHIRenderTargetLayout
+	auto MakeEditorAssistanceOutput(EViewportOutput Output) -> FRHIRenderTargetLayout
 	{
 		const bool bPresent = Output == EViewportOutput::Present;
 		FRHIRenderTargetLayout Layout;

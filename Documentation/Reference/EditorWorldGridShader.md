@@ -449,7 +449,7 @@ if (color.a <= 0.002)
 
 ## 13. Pipeline 与渲染顺序
 
-`EnsureEditorGridResources()` 创建的 Pipeline 具有以下状态：
+`EnsureEditorGridResources()` 为 Offscreen 与 Present 输出分别创建兼容最终合成 Render Pass 的 Pipeline，状态为：
 
 ```text
 Alpha Blend       = Enabled
@@ -460,18 +460,21 @@ Depth Write       = Disabled
 
 关闭背面剔除允许从网格上方和下方查看。开启深度测试使场景 Mesh 可以遮挡网格；关闭深度写入避免网格作为透明编辑器辅助层污染场景深度。
 
-V1 主场景 Pass 中的相对绘制顺序为：
+当前 Renderer 的阶段和相对绘制顺序为：
 
 ```text
-Static Meshes
+Static Meshes -> Scene Color + Scene Depth
+FXAA 或 Scene Copy -> Post-Processed Output
 Editor World Grid
-Editor Overlay Lines / Icons / Gizmos
+X-Ray Editor Overlay / Gizmo
+Visible Editor Overlay / Gizmo
 ```
 
 因此：
 
-- 网格在已有场景深度之后绘制，会被 Mesh 遮挡。
+- 网格在场景后处理完成后绘制，并加载保留的场景深度，因此仍会被 Mesh 遮挡。
 - 相机视锥、图标和 Transform Gizmo 在网格之后绘制，仍然清晰可见。
+- FXAA 不会采样网格或其他 Editor Assistance，它们也不会进入未来的 Motion Vector 或 TAA History。
 - 网格不是 ImGui 绘制内容，能够使用场景深度和 Renderer Pipeline。
 
 V1 的网格深度由世界空间三角形经过固定功能投影后自动产生。V2 改为真正的屏幕空间覆盖后，三角形自身的深度不再代表网格交点；V2 必须把射线和平面的交点重新投影，并通过 `SV_Depth` 输出交点深度，才能保持这里的遮挡关系。
@@ -548,7 +551,7 @@ Depth Test  = Enabled
 Depth Write = Disabled
 ```
 
-在当前尚未完成辅助层迁移的实现中，同时检查网格是否仍在 Static Mesh 之后、Overlay 之前绘制。迁移完成后，应检查网格位于场景后处理之后、其他 Editor Assistance 之前，并继续使用保留的场景深度完成遮挡。
+同时检查网格是否位于场景后处理之后、其他 Editor Assistance 之前，并确认最终合成 Pass 加载了场景 Pass 保留的深度。X-Ray Overlay 不参与这项遮挡判断；应以网格和 Visible Overlay 为准。
 
 ### 16.5 轴线颜色方向错误
 
@@ -755,11 +758,11 @@ V2 在执行离散 LOD 选择前先对连续 `worldPosition.xy` 计算 `ddx/ddy`
 - 无效交点和导数 Quad 边界不能形成新的接缝。
 - FXAA 开启和关闭时都要验证低空地平线视角。
 
-### 19.8 当前渲染集成与验证边界
+### 19.8 当前渲染集成与验证方法
 
 Renderer 继续复用 Post Process 的三顶点缓冲和索引缓冲，每个 View 调用一次 `DrawIndexed(3)`。Pipeline 状态保持：Alpha Blend 开启、背面剔除关闭、深度测试开启、深度写入关闭。
 
-当前已落地的 V2 集成顺序仍为 Static Mesh、Editor World Grid、Editor Overlay/Gizmo，然后对完整 Scene Color 执行 FXAA。这个顺序会使 FXAA 把程序化细网格视为高对比度场景边缘并明显软化。已采用的长期边界是先完成场景后处理，再使用保留的场景深度合成 Editor World Grid 和其余 Editor Assistance；辅助层不写入场景深度、Motion Vector 或未来的 TAA History。迁移计划见 `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`。
+当前集成先完成 Static Mesh 场景渲染和 FXAA/复制，再使用保留的场景深度合成 Editor World Grid 与其余 Editor Assistance。网格使用输出类型对应的 Offscreen 或 Present Pipeline；辅助层不写入场景深度、Motion Vector 或未来的 TAA History。
 
 当前实现已经通过以下可重复验证：
 
@@ -769,5 +772,16 @@ Renderer 继续复用 Post Process 的三顶点缓冲和索引缓冲，每个 Vi
 - 真实 Vulkan 编辑器隐藏窗口冒烟；`/Engine/EditorGrid` 使用当前源码哈希完成编译，日志无 Shader、Pipeline、Vulkan Validation、Error 或 Fatal。
 
 隐藏窗口冒烟不能代替相机运动、FXAA 开关、深度遮挡和极端宽高比的视觉观察。此类项目应在计划的验证矩阵中保留为人工证据，而不能仅凭运行时无错误标记为通过。
+
+人工视觉验证使用同一关卡、相机 Transform、视口尺寸和 DPI，按以下步骤记录成对证据：
+
+1. 关闭 FXAA，记录网格低空、地平线、Mesh 遮挡、图标、选择线、相机视锥和 Transform Gizmo 场景。
+2. 不移动相机或改变选择状态，只开启 FXAA，再记录同一组画面。
+3. 确认场景 Mesh 边缘随 FXAA 改变，而网格、图标、线和 Gizmo 的局部清晰度、宽度及透明度基本不变。
+4. 确认 Mesh 仍遮挡网格和 Visible Overlay，X-Ray 部分仍以低透明度穿透显示。
+5. 在固定宽高比相机预览中确认黑边不包含辅助绘制，并同时显示主视口与预览视口以检查中间目标没有串用。
+6. 在窗口支持的运行视口重复一次 Present 路径；Level Editor 主视口与相机预览覆盖 Offscreen 路径。
+
+证据至少记录 FXAA 状态、关卡、相机 Transform、视口尺寸、DPI、输出类型和截图/录屏文件名。对比重点是差异发生在哪里，而不是要求两张图逐像素相同。
 
 V2 算法的完整阶段、验收门槛和验证矩阵保存在 `Documentation/Plans/Archive/EditorWorldGridV2.md`。场景后处理与编辑器辅助层的迁移见 `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`。

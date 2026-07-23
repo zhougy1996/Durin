@@ -119,9 +119,9 @@ Opaque scene
   -> application UI
 ```
 
-Scene post-processing must not consume editor assistance as source image data or accumulate it into temporal history. Editor assistance may read or test against the preserved scene depth so meshes continue to occlude the grid and visible overlay variants, but it does not write scene depth or motion vectors. Each assistance primitive remains responsible for its own local edge treatment, such as derivative-based grid-line antialiasing.
+Scene post-processing does not consume editor assistance as source image data or accumulate it into temporal history. The scene pass stores its depth, FXAA or the disabled copy path writes post-processed scene color, and the editor-assistance pass then loads that color together with the preserved depth. Meshes therefore continue to occlude the grid and visible overlay variants, while X-Ray variants remain depth-independent. Assistance pipelines keep depth writes disabled and produce neither motion vectors nor temporal-history input. Each assistance primitive remains responsible for its own local edge treatment, such as derivative-based grid-line antialiasing.
 
-The current renderer still draws editor assistance into scene color before FXAA. Migration to the adopted boundary, including depth preservation and final-output render-target layouts, is tracked in `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`.
+The final assistance pass owns the output transition: window-backed viewports finish in Present, while offscreen viewports finish ShaderReadOnly for Mona composition. Present and offscreen assistance pipelines are stored as output variants of the same renderer responsibility rather than as scene-pass pipelines.
 
 Main UI and windowing layers:
 
