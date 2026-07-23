@@ -2,11 +2,15 @@
 
 本文记录 Durin 编辑器世界网格的当前实现、数学含义、渲染顺序、调参方式和已知约束。它是供实现维护和问题排查使用的参考资料，不是架构规范，也不要求被 `AGENTS.md` 或其他文档索引。
 
-> 当前状态：本文第 1 至 18 节描述的是已经落地的 V1 实现。V1 复用全屏三角形顶点缓冲，但会在 Vertex Shader 中把顶点改造成一个有限的世界空间平面，因此不是真正的屏幕空间无限网格。选定的 V2 方向是“屏幕空间全屏三角形 + 每像素射线与平面求交 + 交点深度输出”，具体实施步骤见 `Documentation/Plans/EditorWorldGridV2.md`。在 V2 完成验证之前，不应把第 19 节的设计当作当前运行时行为。
+> 当前状态：V2 是当前运行时实现，采用“屏幕空间全屏三角形 + 每像素射线与平面求交 + 交点深度输出”。第 1 至 18 节保留 V1 有限世界三角形的历史实现、问题诊断和迁移动机，用于追溯设计演进；第 19 节记录已落地的 V2 契约。阅读当前行为时应以第 19 节及实际代码为准。
+
+## V1 历史实现（演进记录）
+
+以下章节描述 V2 落地前的有限世界空间三角形方案。内容有意保留，但不再代表当前运行时行为。
 
 ## 1. 功能目标
 
-编辑器世界网格用于在缺少场景物体时提供稳定的空间参照。当前实现具有以下行为：
+编辑器世界网格用于在缺少场景物体时提供稳定的空间参照。V1 实现具有以下行为：
 
 - 网格位于世界空间 `Z = Height` 平面，Level Editor 默认使用 `Z = 0`。
 - 网格中心在 XY 平面跟随编辑器相机，避免使用一个固定且极大的世界网格 Mesh。
@@ -94,7 +98,7 @@ struct GridUniform
 | `AxisXColor` | `rgba` | 世界 X 轴颜色和透明度 |
 | `AxisYColor` | `rgba` | 世界 Y 轴颜色和透明度 |
 
-Level Editor 当前使用以下默认关系：
+Level Editor 的 V1 实现使用以下默认关系：
 
 ```text
 Height              = 0
@@ -174,7 +178,7 @@ float distanceFade = 1.0 - smoothstep(
 
 当网格接近侧视时，大量平行线会被压缩到少数像素中。即使单条线使用导数抗锯齿，整体仍可能产生闪烁和摩尔纹。
 
-当前实现使用视线方向的垂直比例衡量观察角度：
+V1 实现使用视线方向的垂直比例衡量观察角度：
 
 ```slang
 float angleFade = smoothstep(
@@ -205,7 +209,7 @@ abs(toView.z) / distanceToView
 
 GPU Fragment Shader 以小像素块执行。`ddx()` 和 `ddy()` 用相邻像素估计输入值在屏幕 X/Y 方向的变化。
 
-当前实现先对连续的世界坐标求导：
+V1 实现先对连续的世界坐标求导：
 
 ```slang
 float2 worldPositionDx = ddx(input.worldPosition.xy);
@@ -239,7 +243,7 @@ float2 worldPositionWidth = max(
 
 ### 7.2 必须先求导，再选择 LOD
 
-这是当前实现最重要的稳定性约束之一。
+这是 V1 实现最重要的稳定性约束之一，并由 V2 继续保留。
 
 错误写法：
 
@@ -456,7 +460,7 @@ Depth Write       = Disabled
 
 关闭背面剔除允许从网格上方和下方查看。开启深度测试使场景 Mesh 可以遮挡网格；关闭深度写入避免网格作为透明编辑器辅助层污染场景深度。
 
-当前主场景 Pass 中的相对绘制顺序为：
+V1 主场景 Pass 中的相对绘制顺序为：
 
 ```text
 Static Meshes
@@ -494,7 +498,7 @@ V1 的网格深度由世界空间三角形经过固定功能投影后自动产�
 
 ## 15. 常用调参位置
 
-| 目标 | 参数或代码 | 当前值 | 主要副作用 |
+| 目标 | 参数或代码 | V1 值 | 主要副作用 |
 | --- | --- | ---: | --- |
 | 调整网格屏幕密度 | `worldUnitsPerPixel * 24.0` | `24` px | 太小容易密集闪烁，太大缺少尺度细节 |
 | 调整 LOD 过渡范围 | `smoothstep(0.15, 0.85, ...)` | `0.15..0.85` | 范围太窄会看到切换，太宽会长期混合多级线 |
@@ -569,9 +573,9 @@ Y axis -> x = 0 -> AxisLine(worldPosition.x)
 - 靠近相机的整块区域被切开、消失或重新出现：优先检查世界空间三角形与 Near Clip 的相交。
 - 地平线附近整片明暗快速变化：优先检查 `angleFade`、最终 Alpha 和 `discard` 阈值。
 
-Level Editor 当前 `NearClip` 为 `0.1`。当相机到 `Z = Height` 的垂直距离接近或小于该值时，V1 世界空间三角形可以穿过近裁剪面。旋转相机不会让相机姿态跳变，但会改变近裁剪面与网格平面的交线，因此屏幕上的有效三角形区域可能明显变化。
+V1 落地时 Level Editor 的 `NearClip` 为 `0.1`。当相机到 `Z = Height` 的垂直距离接近或小于该值时，V1 世界空间三角形可以穿过近裁剪面。旋转相机不会让相机姿态跳变，但会改变近裁剪面与网格平面的交线，因此屏幕上的有效三角形区域可能明显变化。
 
-与此同时，掠射视角会使 `ddx(input.worldPosition.xy)` 和 `ddy(input.worldPosition.xy)` 快速增大，十进制 LOD 等值线在屏幕上移动得更快。当前三级交叉淡化保证 decade 边界在数学上能够连续重命名，但不能消除近水平投影本身的高敏感性。
+与此同时，掠射视角会使 `ddx(input.worldPosition.xy)` 和 `ddy(input.worldPosition.xy)` 快速增大，十进制 LOD 等值线在屏幕上移动得更快。V1 的三级交叉淡化保证 decade 边界在数学上能够连续重命名，但不能消除近水平投影本身的高敏感性。
 
 短期调参可以扩大角度淡出、降低硬丢弃造成的可见边界，或者限制相机过度贴近网格；这些方法只能缓解症状。计划中的 V2 通过屏幕射线求交消除有限几何穿过 Near Clip 造成的拓扑变化，同时仍需保留地平线淡出和导数安全的 LOD。
 
@@ -595,9 +599,9 @@ BuildTool.bat build --target all --plain
 
 由于 Slang Shader 在运行时加载和编译，完整构建后还应启动同一 Profile 的 `DurinEditor`，确认日志包含 `/Engine/EditorGrid` 编译成功，并检查运行时没有 Shader、Pipeline 或 Validation 错误。
 
-## 18. 当前设计边界
+## 18. V1 设计边界
 
-当前网格是面向 Level Editor 的世界 XY 参考平面，不支持：
+V1 网格是面向 Level Editor 的世界 XY 参考平面，不支持：
 
 - 任意旋转工作平面。
 - 正交视口专用的不同密度策略。
@@ -621,13 +625,13 @@ V1 还具有以下实现边界：
 - 网格参与深度测试但不写入深度。
 - 网格保持单次或少量批量绘制，不退化为逐线 Draw Call。
 
-## 19. V2 选定方向：屏幕空间射线求交
+## 19. V2 当前实现：屏幕空间射线求交
 
 ### 19.1 为什么替换 V1 的世界空间几何
 
 V1 已经只提交一次三角形绘制，性能和 Draw Call 结构没有明显问题。V2 的主要目标不是进一步减少几何，而是让“无限网格”的表达与实现一致：屏幕上的每个像素独立判断其观察射线是否与 `Z = Height` 平面相交，不再依赖一个会被 Near Clip 裁剪的巨大世界三角形。
 
-预期数据流为：
+当前数据流为：
 
 ```text
 共享全屏三角形
@@ -688,7 +692,7 @@ Depth Write = Disabled
 Alpha Blend = Enabled
 ```
 
-这样 Grid 使用真实交点深度参与已有场景深度测试，但仍不会污染深度附件。由于仓库当前没有已签入的 `SV_Depth` Shader 先例，实施计划把 Slang 编译、SPIR-V 反射和 Vulkan Pipeline 验证放在 Stage 0，确认后再替换 V1。
+这样 Grid 使用真实交点深度参与已有场景深度测试，但仍不会污染深度附件。`SV_Depth` 契约已经由 RenderCore 聚焦测试和真实 Vulkan 网格 Pipeline 验证；深度语义不会被反射为描述符或颜色附件。
 
 ### 19.4 V2 保留的 V1 数学
 
@@ -701,15 +705,45 @@ Alpha Blend = Enabled
 - 在射线接近平行于平面时执行掠射角淡出。
 - 极低 Alpha 像素最终丢弃。
 
-掠射角可以直接使用归一化射线的垂直分量：
+掠射角直接使用归一化射线的垂直分量：
 
 ```slang
 float angleFade = smoothstep(0.025, 0.16, abs(rayDirection.z));
 ```
 
-对透视射线上的有效平面交点，它与 V1 的 `abs(toView.z) / distanceToView` 表达同一几何量，但不再通过一个趋向无穷大的交点距离做比值，含义也更直接。
+对透视射线上的有效平面交点，它与 V1 的 `abs(toView.z) / distanceToView` 表达同一几何量，但不再通过一个趋向无穷大的交点距离做比值，含义也更直接。可见淡出在 `abs(rayDirection.z) = 0.025` 处已经归零，而数值平行拒绝阈值为 `1.0e-6`，因此硬拒绝位于不可见区间内。
 
-### 19.5 V2 不会自动解决的问题
+### 19.5 当前 Uniform 与资源绑定契约
+
+Shader 的当前 Uniform 布局为：
+
+```slang
+struct GridUniform
+{
+    float4x4 WorldToClip;
+    float4x4 ClipToWorld;
+    float4 GridPlane;
+    float4 ViewPositionFadeDistance;
+    float4 MinorColor;
+    float4 MajorColor;
+    float4 AxisXColor;
+    float4 AxisYColor;
+};
+```
+
+- `GridPlane.x` 是水平网格的世界 Z 高度。
+- `ViewPositionFadeDistance.xyz` 是相机世界位置，`w` 是淡出距离。
+- CPU 使用双精度矩阵验证并计算逆矩阵，再按 Shader 布局转置为 float 上传。
+- 非有限或不可逆的 View-Projection 会在动态 Uniform 分配和 Draw 之前跳过网格。
+- Vertex Shader 只传递全屏 Clip XY，不读取资源；`Grid` 只绑定到实际使用它的 Fragment Shader。Slang 会移除未使用的阶段资源，因此 C++ 参数声明必须与逐阶段反射一致。
+
+### 19.6 边界稳定性
+
+V2 在执行离散 LOD 选择前先对连续 `worldPosition.xy` 计算 `ddx/ddy`。距离硬拒绝只发生在 `distanceFade` 已经归零之后，平行硬拒绝只发生在 `angleFade` 已经归零的区间内。这样无效 lane 和有效 lane 的边界不会把新的可见导数接缝带入网格。
+
+非有限齐次坐标、无效齐次除法、退化射线、平行射线、Near 点反方向交点以及 `0..1` 之外的重投影深度仍会立即丢弃，因为这些情况没有可定义的可见网格结果。
+
+### 19.7 V2 不会自动解决的问题
 
 屏幕空间射线求交可以消除有限三角形边界和 Near Clip 裁剪拓扑变化，但不能让地平线附近的透视投影变得不敏感。当射线接近平行于平面时，交点仍会快速移向远处，世界单位/像素仍会增大。
 
@@ -720,5 +754,18 @@ float angleFade = smoothstep(0.025, 0.16, abs(rayDirection.z));
 - 离散 LOD 选择不参与屏幕导数。
 - 无效交点和导数 Quad 边界不能形成新的接缝。
 - FXAA 开启和关闭时都要验证低空地平线视角。
+
+### 19.8 当前渲染集成与验证边界
+
+Renderer 继续复用 Post Process 的三顶点缓冲和索引缓冲，每个 View 调用一次 `DrawIndexed(3)`。Pipeline 状态保持：Alpha Blend 开启、背面剔除关闭、深度测试开启、深度写入关闭；绘制顺序仍为 Static Mesh、Editor World Grid、Editor Overlay/Gizmo。
+
+当前实现已经通过以下可重复验证：
+
+- RenderCore 的颜色加 `SV_Depth` 编译与反射测试。
+- Engine 的矩阵互逆、Uniform 数据和无效矩阵拒绝测试。
+- 同一测试 Profile 的完整 `all` 构建。
+- 真实 Vulkan 编辑器隐藏窗口冒烟；`/Engine/EditorGrid` 使用当前源码哈希完成编译，日志无 Shader、Pipeline、Vulkan Validation、Error 或 Fatal。
+
+隐藏窗口冒烟不能代替相机运动、FXAA 开关、深度遮挡和极端宽高比的视觉观察。此类项目应在计划的验证矩阵中保留为人工证据，而不能仅凭运行时无错误标记为通过。
 
 完整阶段、验收门槛和验证矩阵见 `Documentation/Plans/EditorWorldGridV2.md`。

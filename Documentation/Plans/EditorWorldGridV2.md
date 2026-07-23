@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stages 0 through 3 are implemented. Stages 0 and 1 are validated; Stages 2 and 3 pass focused automated checks plus the real Vulkan shader/pipeline smoke test, while their visual acceptance scenarios remain in the Stage 4 validation matrix. The grid uses a resource-free fullscreen vertex stage, reconstructs each fragment's world-space ray intersection with the horizontal grid plane, publishes the reprojected hit depth, and evaluates distance, grazing-angle, derivative-safe decimal LOD, and world-axis appearance from the reconstructed hit.
+Stages 0 through 3 are implemented. Stage 4 automated regression checks, the full build, real Vulkan smoke test, and reference update are complete. The visual matrix remains open because the repository has no scripted camera/capture harness and hidden-window runtime validation cannot provide visual evidence. The grid uses a resource-free fullscreen vertex stage, reconstructs each fragment's world-space ray intersection with the horizontal grid plane, publishes the reprojected hit depth, and evaluates distance, grazing-angle, derivative-safe decimal LOD, and world-axis appearance from the reconstructed hit.
 
 ## Goal
 
@@ -138,12 +138,12 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 
 ### Stage 4: Regression validation and documentation
 
-- [ ] Run the focused RenderCore and Engine tests affected by the shader and view contract.
-- [ ] Complete a full `all` build using the repository BuildTool workflow.
-- [ ] Run `DurinEditor` from that same build profile and verify `/Engine/EditorGrid` compiles without Shader, Pipeline, or Vulkan Validation errors.
-- [ ] Perform the visual matrix below with FXAA enabled and disabled.
-- [ ] Update `Documentation/Reference/EditorWorldGridShader.md` with verified V2 implementation details while clearly retaining V1-only behavior as historical evolution documentation.
-- [ ] Move any new long-lived renderer constraint into the appropriate Architecture document if implementation establishes one.
+- [x] Run the focused RenderCore and Engine tests affected by the shader and view contract.
+- [x] Complete a full `all` build using the repository BuildTool workflow.
+- [x] Run `DurinEditor` from that same build profile and verify `/Engine/EditorGrid` compiles without Shader, Pipeline, or Vulkan Validation errors.
+- [ ] Perform the visual matrix below with FXAA enabled and disabled. Pending manual capture; no scripted camera/capture harness exists.
+- [x] Update `Documentation/Reference/EditorWorldGridShader.md` with verified V2 implementation details while clearly retaining V1-only behavior as historical evolution documentation.
+- [x] Move any new long-lived renderer constraint into the appropriate Architecture document if implementation establishes one. No new architecture-level constraint was established; the stage-reflection binding behavior is recorded in the grid reference.
 
 #### Acceptance Gate
 
@@ -163,8 +163,8 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 | Mesh intersects or stands on grid | Mesh depth occludes grid; grid does not occlude later editor overlays | Editor capture |
 | Camera crosses world origin | Red X and green Y axes remain fixed and correctly oriented | Editor capture |
 | Extremely wide and narrow viewports | Reconstruction and derivatives remain stable across aspect ratios | Editor captures |
-| Shader compilation | Color plus `SV_Depth` compiles and reflects correctly | Focused RenderCore test |
-| Repository integration | Renderer, editor, and tests share one valid build profile | Full build, tests, hidden-window smoke test |
+| Shader compilation | Color plus `SV_Depth` compiles and reflects correctly | Passed focused RenderCore test, 2026-07-23 |
+| Repository integration | Renderer, editor, and tests share one valid build profile | Passed full build, focused tests, and hidden-window Vulkan smoke; grid hash `a0337be0c01a3cc3bf3e190d886ab22a`, 2026-07-23 |
 
 ## Definition of Done
 
