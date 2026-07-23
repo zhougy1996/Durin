@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stages 0 through 3 are complete. The logger now owns bounded structured session history, exposes the frozen sequence-cursor read contract, retains the default 5,000-record bootstrap window, reports bootstrap overflow explicitly, and resets history and sequence state across lifecycle sessions. Recursive dispatcher-thread logs are requeued without listener notification so retained history remains in strict sequence order. Reliable Error and Fatal completion is published after active sinks have been attempted and intentionally flushed, before compatibility listeners run. The editor Console now polls retained history by sequence cursor, continues consuming while hidden, keeps one combined bounded record model, surfaces eviction gaps, and supports Fatal throughout filtering and presentation.
+Stages 0 through 4 are complete. The logger now owns bounded structured session history, exposes the frozen sequence-cursor read contract, retains the default 5,000-record bootstrap window, reports bootstrap overflow explicitly, and resets history and sequence state across lifecycle sessions. Reliable Error and Fatal completion is published after active sinks have been attempted and intentionally flushed. The editor Console polls retained history by sequence cursor, continues consuming while hidden, keeps one combined bounded record model, surfaces eviction gaps, and supports Fatal throughout filtering and presentation. The callback-listener API and all callback-specific dispatch, synchronization, recursion, and producer-admission behavior have been removed; sequence-cursor history is now the only structured-log consumption model.
 
 Validation evidence on 2026-07-23:
 
@@ -28,6 +28,13 @@ Validation evidence on 2026-07-23 after Stage 3:
 - `BuildTool build --target LevelEditor`: succeeded.
 - `BuildTool build --target all`: succeeded for `Win64-Debug-DurinEditor-Tests`.
 - `DurinEditor.exe --hidden-window`: remained running for the 8-second smoke window.
+
+Validation evidence on 2026-07-23 after Stage 4:
+
+- Repository-wide audit: no `FLogListener`, `AddListener`, or `RemoveListener` call sites remain outside this historical plan.
+- `BuildTool test --target CoreTests --filter FLoggerTests.* --timeout 60`: 15 tests passed.
+- `BuildTool test --target CoreTests --timeout 60`: 107 tests passed across 23 suites.
+- `BuildTool build --target all`: succeeded for `Win64-Debug-DurinEditor-Tests`.
 
 The current Console subscribes after most engine startup work has already begun. Listener delivery is decided when the asynchronous dispatcher processes a record rather than when the record is produced, so the Console receives an unpredictable tail of pre-subscription records and no already-processed history. The selected direction is to make `FLogger` own bounded structured session history and let the Console consume it by sequence cursor instead of using a callback listener as its data transport.
 
@@ -105,9 +112,8 @@ Provide a deterministic, bounded, and thread-safe logging pipeline in which the 
 ### API compatibility
 
 - The cursor reader is the preferred structured-log consumption API.
-- `AddListener` remains only until repository consumers and tests are migrated. Its exact live-only semantics, callback thread, recursion behavior, and removal guarantees must be documented if it remains public.
-- If no external compatibility requirement is identified, remove `AddListener`, `RemoveListener`, listener-count-based `ShouldLog`, and their synchronization machinery after migration.
-- If callback compatibility must remain, callbacks are observational and cannot participate in reliable sink acknowledgement. They must have an independently bounded delivery policy.
+- The callback-listener API has no remaining repository compatibility consumer and is removed.
+- Retained history and sink thresholds determine producer admission; observer presence cannot alter global logging cost or reliable completion.
 
 ## Current Foundations and Gaps
 
@@ -274,12 +280,11 @@ Depends on Stages 1 and 2.
 
 Depends on Stage 3.
 
-- [ ] Repeat the repository-wide consumer audit after Console migration.
-- [ ] Remove the listener API, listener count, callback execution tracking, recursive-listener special cases, and listener-specific tests if no compatibility consumer remains.
-- [ ] Otherwise, define listeners as live-only observers with an explicit minimum level and independently bounded delivery.
-- [ ] Ensure retained history and sink thresholds, rather than listener count alone, determine producer admission.
-- [ ] Define and test observer ordering, callback thread, self-removal, shutdown, exceptions, and recursive logging if listeners remain.
-- [ ] Update public header comments so no callback behavior depends on implementation inference.
+- [x] Repeat the repository-wide consumer audit after Console migration.
+- [x] Remove the listener API, listener count, callback execution tracking, recursive-listener special cases, and listener-specific tests because no compatibility consumer remains.
+- [x] Keep retained history and sink thresholds as the only producer-admission inputs.
+- [x] Replace callback-dependent characterization with direct history, concurrency, overload, durability, and lifecycle coverage.
+- [x] Update the public header so the structured cursor reader is the sole consumer-facing log delivery API.
 
 #### Acceptance Gate
 

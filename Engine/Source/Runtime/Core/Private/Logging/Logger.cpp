@@ -137,27 +137,11 @@ namespace Durin
 	public:
 		enum class EState { Bootstrap, Running, Stopping, Stopped };
 
-		struct FListenerNode
-		{
-			FLogListener Callback;
-			std::mutex Mutex;
-			std::condition_variable Finished;
-			bool bEnabled = true;
-			uint32 Executing = 0;
-		};
-
-		struct FQueuedRecord
-		{
-			FLogRecord Record;
-			bool bNotifyListeners = true;
-		};
-
 		auto ShouldLog(ELogLevel Level) const -> bool
 		{
 			// Session history is intentionally unfiltered; sink thresholds are presentation policies.
 			if (HistoryCapacity.load(std::memory_order_relaxed) > 0) return true;
 			const int32 NumericLevel = static_cast<int32>(Level);
-			if (ListenerCount.load(std::memory_order_relaxed) > 0) return true;
 			return NumericLevel >= ConsoleLevel.load(std::memory_order_relaxed) ||
 				NumericLevel >= FileLevel.load(std::memory_order_relaxed);
 		}
@@ -230,33 +214,18 @@ namespace Durin
 			Record.Sequence = NextSequence++;
 			const uint64 Sequence = Record.Sequence;
 			LastQueuedSequence = Sequence;
-			Queue.push_back({std::move(Record), true});
+			Queue.push_back(std::move(Record));
 			WorkAvailable.notify_one();
 			if (!bReliable) return;
 			Durable.wait(Lock, [this, Sequence] { return LastDurableSequence >= Sequence || State != EState::Running; });
 		}
 
-		auto EnqueueFromDispatcher(FLogRecord Record) -> void
-		{
-			std::scoped_lock Lock(QueueMutex);
-			if (State != EState::Running || Queue.size() >= Settings.QueueCapacity)
-			{
-				WriteFallback(Record);
-				return;
-			}
-			Record.Sequence = NextSequence++;
-			LastQueuedSequence = Record.Sequence;
-			Queue.push_back({std::move(Record), false});
-			WorkAvailable.notify_one();
-		}
-
 		auto DispatchLoop() -> void
 		{
-			DispatchThreadId.store(FPlatformLTS::GetCurrentThreadId(), std::memory_order_release);
 			auto NextFlush = std::chrono::steady_clock::now() + std::chrono::milliseconds(Settings.FlushIntervalMilliseconds);
 			for (;;)
 			{
-				FQueuedRecord QueuedRecord;
+				FLogRecord Record;
 				{
 					std::unique_lock Lock(QueueMutex);
 					if (!WorkAvailable.wait_until(Lock, NextFlush, [this] {
@@ -271,21 +240,21 @@ namespace Durin
 					if (BootstrapRecords.empty() && Queue.empty() && State == EState::Stopping) break;
 					if (!BootstrapRecords.empty())
 					{
-						QueuedRecord = {std::move(BootstrapRecords.front()), true};
+						Record = std::move(BootstrapRecords.front());
 						BootstrapRecords.pop_front();
 					}
 					else
 					{
-						QueuedRecord = std::move(Queue.front());
+						Record = std::move(Queue.front());
 						Queue.pop_front();
 						SpaceAvailable.notify_all();
 					}
 				}
 
-				ProcessRecord(QueuedRecord.Record, QueuedRecord.bNotifyListeners);
+				ProcessRecord(Record);
 				{
 					std::scoped_lock Lock(QueueMutex);
-					LastProcessedSequence = QueuedRecord.Record.Sequence;
+					LastProcessedSequence = Record.Sequence;
 					QueueDropSummaryLocked();
 				}
 				Processed.notify_all();
@@ -300,7 +269,6 @@ namespace Durin
 				std::scoped_lock Lock(QueueMutex);
 				State = EState::Stopped;
 			}
-			DispatchThreadId.store(0, std::memory_order_release);
 			Processed.notify_all();
 			Durable.notify_all();
 			SpaceAvailable.notify_all();
@@ -322,7 +290,7 @@ namespace Durin
 			Summary.Message = std::format("Dropped {} log records (trace {}, debug {}, info {}, warn {}) because the async queue was full.",
 				Total, Dropped[0], Dropped[1], Dropped[2], Dropped[3]);
 			Dropped.fill(0);
-			Queue.push_back({std::move(Summary), true});
+			Queue.push_back(std::move(Summary));
 			WorkAvailable.notify_one();
 		}
 
@@ -361,7 +329,7 @@ namespace Durin
 			return Result;
 		}
 
-		auto ProcessRecord(const FLogRecord& Record, bool bNotifyListeners) -> void
+		auto ProcessRecord(const FLogRecord& Record) -> void
 		{
 			AppendHistory(Record);
 			if (ConsoleLogger && static_cast<int32>(Record.Level) >= ConsoleLevel.load(std::memory_order_relaxed))
@@ -410,46 +378,6 @@ namespace Durin
 				}
 				Durable.notify_all();
 			}
-			if (bNotifyListeners) NotifyListeners(Record);
-		}
-
-		auto NotifyListeners(const FLogRecord& Record) -> void
-		{
-			std::vector<std::shared_ptr<FListenerNode>> Snapshot;
-			{
-				std::scoped_lock Lock(ListenerMutex);
-				Snapshot.reserve(Listeners.size());
-				for (const auto& [Handle, Listener] : Listeners)
-				{
-					(void)Handle;
-					Snapshot.push_back(Listener);
-				}
-			}
-			for (const std::shared_ptr<FListenerNode>& Listener : Snapshot)
-			{
-				{
-					std::scoped_lock Lock(Listener->Mutex);
-					if (!Listener->bEnabled) continue;
-					++Listener->Executing;
-				}
-				try
-				{
-					Listener->Callback(Record);
-				}
-				catch (const std::exception& Error)
-				{
-					WriteFallbackText(std::format("Log listener threw an exception: {}", Error.what()));
-				}
-				catch (...)
-				{
-					WriteFallbackText("Log listener threw an unknown exception.");
-				}
-				{
-					std::scoped_lock Lock(Listener->Mutex);
-					--Listener->Executing;
-				}
-				Listener->Finished.notify_all();
-			}
 		}
 
 		auto FlushSinks() const -> void
@@ -491,7 +419,7 @@ namespace Durin
 		std::condition_variable SpaceAvailable;
 		std::condition_variable Processed;
 		std::condition_variable Durable;
-		std::deque<FQueuedRecord> Queue;
+		std::deque<FLogRecord> Queue;
 		std::deque<FLogRecord> BootstrapRecords;
 		uint64 EvictedBootstrapRecordCount = 0;
 		std::array<uint64, 6> Dropped{};
@@ -502,7 +430,6 @@ namespace Durin
 		EState State = EState::Bootstrap;
 		FLogSettings Settings;
 		std::jthread DispatchThread;
-		std::atomic<uint32> DispatchThreadId = 0;
 		std::atomic<uint32> HistoryCapacity = DefaultHistoryCapacity;
 
 		mutable std::mutex HistoryMutex;
@@ -513,10 +440,6 @@ namespace Durin
 		std::atomic<int32> ConsoleLevel{static_cast<int32>(ELogLevel::Debug)};
 		std::atomic<int32> FileLevel{static_cast<int32>(ELogLevel::Trace)};
 
-		std::mutex ListenerMutex;
-		std::unordered_map<FLogListenerHandle, std::shared_ptr<FListenerNode>> Listeners;
-		std::atomic<FLogListenerHandle> NextListenerHandle = 1;
-		std::atomic<uint32> ListenerCount = 0;
 		mutable std::mutex FallbackMutex;
 	};
 
@@ -552,11 +475,6 @@ namespace Durin
 			Message = std::format("Log formatting failed: {} (format: {})", Error.what(), Fmt);
 		}
 		FLogRecord Record = Impl->BuildRecord(Level, Loc, Module, std::move(Message));
-		if (FPlatformLTS::GetCurrentThreadId() == Impl->DispatchThreadId.load(std::memory_order_acquire))
-		{
-			Impl->EnqueueFromDispatcher(std::move(Record));
-			return;
-		}
 		Impl->Enqueue(std::move(Record));
 	}
 
@@ -569,40 +487,6 @@ namespace Durin
 	auto FLogger::ReadRecords(uint64 NextSequence, uint32 MaxRecords) const -> FLogReadResult
 	{
 		return Impl->ReadRecords(NextSequence, MaxRecords);
-	}
-
-	auto FLogger::AddListener(FLogListener Listener) -> FLogListenerHandle
-	{
-		if (!Listener) return 0;
-		const FLogListenerHandle Handle = Impl->NextListenerHandle.fetch_add(1, std::memory_order_relaxed);
-		auto Node = std::make_shared<FImpl::FListenerNode>();
-		Node->Callback = std::move(Listener);
-		{
-			std::scoped_lock Lock(Impl->ListenerMutex);
-			Impl->Listeners.emplace(Handle, std::move(Node));
-		}
-		Impl->ListenerCount.fetch_add(1, std::memory_order_relaxed);
-		return Handle;
-	}
-
-	auto FLogger::RemoveListener(FLogListenerHandle Handle) -> void
-	{
-		if (Handle == 0) return;
-		std::shared_ptr<FImpl::FListenerNode> Node;
-		{
-			std::scoped_lock Lock(Impl->ListenerMutex);
-			const auto Iterator = Impl->Listeners.find(Handle);
-			if (Iterator == Impl->Listeners.end()) return;
-			Node = std::move(Iterator->second);
-			Impl->Listeners.erase(Iterator);
-		}
-		Impl->ListenerCount.fetch_sub(1, std::memory_order_relaxed);
-		std::unique_lock Lock(Node->Mutex);
-		Node->bEnabled = false;
-		if (FPlatformLTS::GetCurrentThreadId() != Impl->DispatchThreadId.load(std::memory_order_acquire))
-		{
-			Node->Finished.wait(Lock, [&Node] { return Node->Executing == 0; });
-		}
 	}
 
 	auto FLogger::Initialize(const FLogSettings& InSettings) -> bool
@@ -695,7 +579,7 @@ namespace Durin
 						Impl->EvictedBootstrapRecordCount, DefaultHistoryCapacity));
 				Warning.Sequence = Impl->NextSequence++;
 				Impl->LastQueuedSequence = Warning.Sequence;
-				Impl->Queue.push_back({std::move(Warning), true});
+				Impl->Queue.push_back(std::move(Warning));
 				Impl->EvictedBootstrapRecordCount = 0;
 			}
 			if (!FileFailure.empty())
@@ -704,7 +588,7 @@ namespace Durin
 					std::format("File logging disabled: {}", FileFailure));
 				Warning.Sequence = Impl->NextSequence++;
 				Impl->LastQueuedSequence = Warning.Sequence;
-				Impl->Queue.push_back({std::move(Warning), true});
+				Impl->Queue.push_back(std::move(Warning));
 			}
 			Impl->State = FImpl::EState::Running;
 			Impl->DispatchThread = std::jthread([Impl = Impl.get()] { Impl->DispatchLoop(); });
@@ -749,21 +633,6 @@ namespace Durin
 
 	auto FLogger::Shutdown() -> void
 	{
-		if (FPlatformLTS::GetCurrentThreadId() == Impl->DispatchThreadId.load(std::memory_order_acquire))
-		{
-			{
-				std::scoped_lock Lock(Impl->QueueMutex);
-				if (Impl->State == FImpl::EState::Running)
-				{
-					Impl->State = FImpl::EState::Stopping;
-					Impl->QueueDropSummaryLocked();
-				}
-			}
-			Impl->WorkAvailable.notify_all();
-			Impl->SpaceAvailable.notify_all();
-			Impl->Durable.notify_all();
-			return;
-		}
 		std::scoped_lock LifecycleLock(Impl->LifecycleMutex);
 		bool bNotifyWorker = false;
 		{

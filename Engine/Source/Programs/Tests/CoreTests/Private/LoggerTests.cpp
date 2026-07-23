@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <barrier>
+
 namespace
 {
 	auto MakeTestDirectory(std::string_view Suffix) -> std::filesystem::path
@@ -171,124 +173,26 @@ TEST(FLoggerTests, PreservesOrderedHistoryDuringConcurrentProductionAndReads)
 	EXPECT_EQ(std::unordered_set<uint64_t>(Sequences.begin(), Sequences.end()).size(), Sequences.size());
 }
 
-TEST(FLoggerTests, DeliversOwnedStructuredRecordsAndUnregistersListeners)
+TEST(FLoggerTests, RetainsOwnedStructuredRecords)
 {
 	Durin::FLogger Logger;
 	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("Structured"))));
-	std::mutex Mutex;
-	std::vector<Durin::FLogRecord> Records;
-	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		std::scoped_lock Lock(Mutex);
-		Records.push_back(Record);
-	});
 
 	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Value {}", 42);
 	Logger.Flush();
-	Logger.RemoveListener(Handle);
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Ignored");
-	Logger.Flush();
 
-	std::scoped_lock Lock(Mutex);
-	ASSERT_EQ(Records.size(), 1u);
-	EXPECT_GT(Records[0].Sequence, 0u);
-	EXPECT_EQ(Records[0].Level, Durin::ELogLevel::Info);
-	EXPECT_EQ(Records[0].Module, "LoggerTests");
-	EXPECT_EQ(Records[0].Message, "Value 42");
-	EXPECT_FALSE(Records[0].ThreadName.empty());
-	EXPECT_GT(Records[0].ThreadId, 0u);
-	EXPECT_FALSE(Records[0].File.empty());
-	EXPECT_GT(Records[0].Line, 0u);
-	EXPECT_FALSE(Records[0].Function.empty());
-}
-
-TEST(FLoggerTests, SupportsConcurrentProducersAndOrderedDispatch)
-{
-	Durin::FLogger Logger;
-	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("Concurrent"))));
-	std::mutex Mutex;
-	std::vector<uint64_t> Sequences;
-	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		std::scoped_lock Lock(Mutex);
-		Sequences.push_back(Record.Sequence);
-	});
-
-	std::vector<std::thread> Threads;
-	for (int ThreadIndex = 0; ThreadIndex < 4; ++ThreadIndex)
-	{
-		Threads.emplace_back([&Logger, ThreadIndex]() {
-			for (int MessageIndex = 0; MessageIndex < 25; ++MessageIndex)
-			{
-				Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "{}:{}", ThreadIndex, MessageIndex);
-			}
-		});
-	}
-	for (std::thread& Thread : Threads) Thread.join();
-	Logger.Flush();
-	Logger.RemoveListener(Handle);
-
-	std::scoped_lock Lock(Mutex);
-	ASSERT_EQ(Sequences.size(), 100u);
-	EXPECT_TRUE(std::ranges::is_sorted(Sequences));
-	EXPECT_EQ(std::unordered_set<uint64_t>(Sequences.begin(), Sequences.end()).size(), Sequences.size());
-}
-
-TEST(FLoggerTests, LateListenerOmitsRecordsAlreadyProcessedBeforeRegistration)
-{
-	Durin::FLogger Logger;
-	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("LateListenerProcessed"))));
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Before registration");
-	Logger.Flush();
-
-	std::vector<std::string> Messages;
-	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		Messages.push_back(Record.Message);
-	});
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "After registration");
-	Logger.Flush();
-	Logger.RemoveListener(Handle);
-
-	ASSERT_EQ(Messages.size(), 1u);
-	EXPECT_EQ(Messages.front(), "After registration");
-}
-
-TEST(FLoggerTests, LateListenerReceivesRecordsQueuedBeforeRegistration)
-{
-	Durin::FLogger Logger;
-	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("LateListenerQueued"))));
-	std::mutex Mutex;
-	std::condition_variable Entered;
-	std::condition_variable Release;
-	bool bEntered = false;
-	bool bRelease = false;
-	const Durin::FLogListenerHandle BlockingHandle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		if (Record.Message != "Block dispatcher") return;
-		std::unique_lock Lock(Mutex);
-		bEntered = true;
-		Entered.notify_one();
-		Release.wait(Lock, [&] { return bRelease; });
-	});
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Block dispatcher");
-	{
-		std::unique_lock Lock(Mutex);
-		ASSERT_TRUE(Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bEntered; }));
-	}
-
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Queued before registration");
-	std::vector<std::string> LateMessages;
-	const Durin::FLogListenerHandle LateHandle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		LateMessages.push_back(Record.Message);
-	});
-	{
-		std::scoped_lock Lock(Mutex);
-		bRelease = true;
-	}
-	Release.notify_one();
-	Logger.Flush();
-	Logger.RemoveListener(LateHandle);
-	Logger.RemoveListener(BlockingHandle);
-
-	ASSERT_EQ(LateMessages.size(), 1u);
-	EXPECT_EQ(LateMessages.front(), "Queued before registration");
+	const Durin::FLogReadResult Read = Logger.ReadRecords(1);
+	ASSERT_EQ(Read.Records.size(), 1u);
+	const Durin::FLogRecord& Record = Read.Records.front();
+	EXPECT_GT(Record.Sequence, 0u);
+	EXPECT_EQ(Record.Level, Durin::ELogLevel::Info);
+	EXPECT_EQ(Record.Module, "LoggerTests");
+	EXPECT_EQ(Record.Message, "Value 42");
+	EXPECT_FALSE(Record.ThreadName.empty());
+	EXPECT_GT(Record.ThreadId, 0u);
+	EXPECT_FALSE(Record.File.empty());
+	EXPECT_GT(Record.Line, 0u);
+	EXPECT_FALSE(Record.Function.empty());
 }
 
 TEST(FLoggerTests, ErrorReturnsOnlyAfterFileIsFlushed)
@@ -305,230 +209,27 @@ TEST(FLoggerTests, ErrorReturnsOnlyAfterFileIsFlushed)
 	EXPECT_NE(Contents.find("[#"), std::string::npos);
 }
 
-TEST(FLoggerTests, ReliableLoggingDoesNotWaitForListenerCompletion)
-{
-	const std::filesystem::path Directory = MakeTestDirectory("ReliableListenerDelay");
-	Durin::FLogger Logger;
-	ASSERT_TRUE(Logger.Initialize(MakeSettings(Directory)));
-	std::mutex Mutex;
-	std::condition_variable Entered;
-	std::condition_variable Release;
-	bool bEntered = false;
-	bool bRelease = false;
-	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		if (Record.Message != "Reliable block") return;
-		std::unique_lock Lock(Mutex);
-		bEntered = true;
-		Entered.notify_one();
-		Release.wait(Lock, [&] { return bRelease; });
-	});
-
-	auto Logging = std::async(std::launch::async, [&] {
-		Logger.Log(Durin::ELogLevel::Error, std::source_location::current(), "LoggerTests", "Reliable block");
-	});
-	bool bListenerEntered = false;
-	{
-		std::unique_lock Lock(Mutex);
-		bListenerEntered = Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bEntered; });
-	}
-	const std::future_status LoggingStatus = Logging.wait_for(std::chrono::seconds(2));
-	EXPECT_EQ(LoggingStatus, std::future_status::ready);
-	if (LoggingStatus == std::future_status::ready)
-	{
-		const std::vector<std::filesystem::path> Files = FindLogFiles(Directory);
-		EXPECT_EQ(Files.size(), 1u);
-		if (Files.size() == 1u)
-		{
-			EXPECT_NE(ReadFile(Files.front()).find("[LoggerTests] Reliable block"), std::string::npos);
-		}
-	}
-	{
-		std::scoped_lock Lock(Mutex);
-		bRelease = true;
-	}
-	Release.notify_one();
-	EXPECT_EQ(Logging.wait_for(std::chrono::seconds(2)), std::future_status::ready);
-	EXPECT_TRUE(bListenerEntered);
-	Logger.RemoveListener(Handle);
-}
-
-TEST(FLoggerTests, ThrowingListenerDoesNotPreventReliableCompletion)
-{
-	const std::filesystem::path Directory = MakeTestDirectory("ReliableThrowingListener");
-	Durin::FLogger Logger;
-	ASSERT_TRUE(Logger.Initialize(MakeSettings(Directory)));
-	std::promise<void> Entered;
-	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		if (Record.Message != "Reliable throw") return;
-		Entered.set_value();
-		throw std::runtime_error("expected reliable listener exception");
-	});
-
-	auto Logging = std::async(std::launch::async, [&] {
-		Logger.Log(Durin::ELogLevel::Error, std::source_location::current(), "LoggerTests", "Reliable throw");
-	});
-	EXPECT_EQ(Logging.wait_for(std::chrono::seconds(2)), std::future_status::ready);
-	EXPECT_EQ(Entered.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
-	Logger.Flush();
-	Logger.RemoveListener(Handle);
-
-	const std::vector<std::filesystem::path> Files = FindLogFiles(Directory);
-	ASSERT_EQ(Files.size(), 1u);
-	EXPECT_NE(ReadFile(Files.front()).find("[LoggerTests] Reliable throw"), std::string::npos);
-}
-
-TEST(FLoggerTests, ShutdownReleasesReliableProducerBlockedBehindListener)
+TEST(FLoggerTests, ShutdownCompletesWithConcurrentReliableProducers)
 {
 	Durin::FLogger Logger;
-	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("ReliableShutdownRelease"))));
-	std::mutex Mutex;
-	std::condition_variable Entered;
-	std::condition_variable Release;
-	bool bEntered = false;
-	bool bRelease = false;
-	Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		if (Record.Message != "Block dispatcher") return;
-		std::unique_lock Lock(Mutex);
-		bEntered = true;
-		Entered.notify_one();
-		Release.wait(Lock, [&] { return bRelease; });
-	});
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Block dispatcher");
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("ReliableShutdown"))));
+	constexpr int ProducerCount = 8;
+	std::barrier Start(ProducerCount + 1);
+	std::vector<std::future<void>> Producers;
+	for (int ProducerIndex = 0; ProducerIndex < ProducerCount; ++ProducerIndex)
 	{
-		std::unique_lock Lock(Mutex);
-		ASSERT_TRUE(Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bEntered; }));
+		Producers.push_back(std::async(std::launch::async, [&Logger, &Start, ProducerIndex] {
+			Start.arrive_and_wait();
+			Logger.Log(Durin::ELogLevel::Error, std::source_location::current(), "LoggerTests",
+				"Reliable during shutdown {}", ProducerIndex);
+		}));
 	}
-
-	std::promise<void> ProducerStarted;
-	auto Logging = std::async(std::launch::async, [&] {
-		ProducerStarted.set_value();
-		Logger.Log(Durin::ELogLevel::Error, std::source_location::current(), "LoggerTests", "Release on shutdown");
-	});
-	ProducerStarted.get_future().wait();
-	auto Shutdown = std::async(std::launch::async, [&] { Logger.Shutdown(); });
-	EXPECT_EQ(Logging.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+	Start.arrive_and_wait();
+	Logger.Shutdown();
+	for (std::future<void>& Producer : Producers)
 	{
-		std::scoped_lock Lock(Mutex);
-		bRelease = true;
+		EXPECT_EQ(Producer.wait_for(std::chrono::seconds(2)), std::future_status::ready);
 	}
-	Release.notify_one();
-	EXPECT_EQ(Shutdown.wait_for(std::chrono::seconds(2)), std::future_status::ready);
-}
-
-TEST(FLoggerTests, RemoveListenerWaitsForExecutingCallback)
-{
-	Durin::FLogger Logger;
-	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("SafeRemove"))));
-	std::mutex Mutex;
-	std::condition_variable Entered;
-	std::condition_variable Release;
-	bool bEntered = false;
-	bool bRelease = false;
-	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord&) {
-		std::unique_lock Lock(Mutex);
-		bEntered = true;
-		Entered.notify_one();
-		Release.wait(Lock, [&] { return bRelease; });
-	});
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Block");
-	{
-		std::unique_lock Lock(Mutex);
-		ASSERT_TRUE(Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bEntered; }));
-	}
-
-	auto Removal = std::async(std::launch::async, [&] { Logger.RemoveListener(Handle); });
-	EXPECT_EQ(Removal.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
-	{
-		std::scoped_lock Lock(Mutex);
-		bRelease = true;
-	}
-	Release.notify_one();
-	EXPECT_EQ(Removal.wait_for(std::chrono::seconds(2)), std::future_status::ready);
-}
-
-TEST(FLoggerTests, ListenerCanRemoveItselfThrowAndLogRecursively)
-{
-	Durin::FLogger Logger;
-	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("ListenerEdges"))));
-	std::atomic<int32_t> SelfCount = 0;
-	Durin::FLogListenerHandle SelfHandle = 0;
-	SelfHandle = Logger.AddListener([&](const Durin::FLogRecord&) {
-		SelfCount.fetch_add(1, std::memory_order_relaxed);
-		Logger.RemoveListener(SelfHandle);
-		Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "Recursive", "Nested");
-	});
-	const Durin::FLogListenerHandle ThrowingHandle = Logger.AddListener([](const Durin::FLogRecord&) {
-		throw std::runtime_error("expected test exception");
-	});
-
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "First");
-	Logger.Flush();
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Second");
-	Logger.Flush();
-	Logger.RemoveListener(ThrowingHandle);
-	EXPECT_EQ(SelfCount.load(std::memory_order_relaxed), 1);
-}
-
-TEST(FLoggerTests, RecursiveLogsRemainOrderedBehindAlreadyQueuedRecords)
-{
-	Durin::FLogger Logger;
-	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("RecursiveHistoryOrder"))));
-	std::mutex Mutex;
-	std::condition_variable Entered;
-	std::condition_variable Release;
-	bool bEntered = false;
-	bool bRelease = false;
-	bool bNestedQueued = false;
-	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		if (Record.Message != "Outer") return;
-		std::unique_lock Lock(Mutex);
-		bEntered = true;
-		Entered.notify_one();
-		Release.wait(Lock, [&] { return bRelease; });
-		Lock.unlock();
-		Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "Recursive", "Nested");
-		Lock.lock();
-		bNestedQueued = true;
-		Entered.notify_one();
-	});
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Outer");
-	{
-		std::unique_lock Lock(Mutex);
-		ASSERT_TRUE(Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bEntered; }));
-	}
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Already queued");
-	{
-		std::scoped_lock Lock(Mutex);
-		bRelease = true;
-	}
-	Release.notify_one();
-	{
-		std::unique_lock Lock(Mutex);
-		ASSERT_TRUE(Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bNestedQueued; }));
-	}
-	Logger.Flush();
-	Logger.RemoveListener(Handle);
-
-	const std::vector<Durin::FLogRecord> Records = ReadAll(Logger);
-	ASSERT_EQ(Records.size(), 3u);
-	EXPECT_EQ(Records[0].Message, "Outer");
-	EXPECT_EQ(Records[1].Message, "Already queued");
-	EXPECT_EQ(Records[2].Message, "Nested");
-	EXPECT_TRUE(std::ranges::is_sorted(Records, {}, &Durin::FLogRecord::Sequence));
-}
-
-TEST(FLoggerTests, ListenerCanRequestShutdownWithoutDeadlock)
-{
-	Durin::FLogger Logger;
-	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("CallbackShutdown"))));
-	std::promise<void> ShutdownReturned;
-	Logger.AddListener([&](const Durin::FLogRecord&) {
-		Logger.Shutdown();
-		ShutdownReturned.set_value();
-	});
-	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Stop from callback");
-	EXPECT_EQ(ShutdownReturned.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
-	Logger.Shutdown(); // Joins the dispatcher when shutdown was initiated by its callback.
 }
 
 TEST(FLoggerTests, ReportsDroppedLowPriorityRecordsAfterQueueRecovers)
@@ -536,38 +237,26 @@ TEST(FLoggerTests, ReportsDroppedLowPriorityRecordsAfterQueueRecovers)
 	Durin::FLogger Logger;
 	Durin::FLogSettings Settings = MakeSettings(MakeTestDirectory("Overflow"));
 	Settings.QueueCapacity = 256;
+	Settings.HistoryCapacity = 65536;
+	Settings.FileLevel = Durin::ELogLevel::Fatal;
 	ASSERT_TRUE(Logger.Initialize(Settings));
-	std::mutex Mutex;
-	std::condition_variable Entered;
-	std::condition_variable Release;
-	bool bEntered = false;
-	bool bRelease = false;
-	std::atomic<bool> bSawSummary = false;
-	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		if (Record.Message.starts_with("Dropped ")) bSawSummary.store(true, std::memory_order_relaxed);
-		if (Record.Message != "Block") return;
-		std::unique_lock Lock(Mutex);
-		bEntered = true;
-		Entered.notify_one();
-		Release.wait(Lock, [&] { return bRelease; });
-	});
-	Logger.Log(Durin::ELogLevel::Trace, std::source_location::current(), "LoggerTests", "Block");
+	constexpr int ProducerCount = 16;
+	constexpr int RecordsPerProducer = 2000;
+	std::barrier Start(ProducerCount);
+	std::vector<std::thread> Producers;
+	for (int ProducerIndex = 0; ProducerIndex < ProducerCount; ++ProducerIndex)
 	{
-		std::unique_lock Lock(Mutex);
-		ASSERT_TRUE(Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bEntered; }));
+		Producers.emplace_back([&Logger, &Start, ProducerIndex] {
+			Start.arrive_and_wait();
+			for (int Index = 0; Index < RecordsPerProducer; ++Index)
+			{
+				Logger.Log(Durin::ELogLevel::Trace, std::source_location::current(), "LoggerTests",
+					"Overflow {}:{}", ProducerIndex, Index);
+			}
+		});
 	}
-	for (int Index = 0; Index < 600; ++Index)
-	{
-		Logger.Log(Durin::ELogLevel::Trace, std::source_location::current(), "LoggerTests", "Overflow {}", Index);
-	}
-	{
-		std::scoped_lock Lock(Mutex);
-		bRelease = true;
-	}
-	Release.notify_one();
+	for (std::thread& Producer : Producers) Producer.join();
 	Logger.Flush();
-	Logger.RemoveListener(Handle);
-	EXPECT_TRUE(bSawSummary.load(std::memory_order_relaxed));
 
 	const std::vector<Durin::FLogRecord> Records = ReadAll(Logger);
 	const size_t AcceptedOverflowRecords = std::ranges::count_if(Records, [](const Durin::FLogRecord& Record) {
@@ -576,8 +265,8 @@ TEST(FLoggerTests, ReportsDroppedLowPriorityRecordsAfterQueueRecovers)
 	const size_t SummaryRecords = std::ranges::count_if(Records, [](const Durin::FLogRecord& Record) {
 		return Record.Message.starts_with("Dropped ");
 	});
-	EXPECT_LE(AcceptedOverflowRecords, Settings.QueueCapacity);
-	EXPECT_EQ(SummaryRecords, 1u);
+	EXPECT_LT(AcceptedOverflowRecords, static_cast<size_t>(ProducerCount * RecordsPerProducer));
+	EXPECT_GE(SummaryRecords, 1u);
 	EXPECT_TRUE(std::ranges::is_sorted(Records, {}, &Durin::FLogRecord::Sequence));
 }
 
@@ -585,16 +274,14 @@ TEST(FLoggerTests, ReplaysBootstrapRecordsAndSupportsIdempotentLifecycle)
 {
 	Durin::FLogger Logger;
 	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "Bootstrap", "Before initialize");
-	std::atomic<int32_t> Count = 0;
-	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
-		if (Record.Module == "Bootstrap") Count.fetch_add(1, std::memory_order_relaxed);
-	});
 	const Durin::FLogSettings Settings = MakeSettings(MakeTestDirectory("Bootstrap"));
 	ASSERT_TRUE(Logger.Initialize(Settings));
 	ASSERT_TRUE(Logger.Initialize(Settings));
 	Logger.Flush();
-	EXPECT_EQ(Count.load(std::memory_order_relaxed), 1);
-	Logger.RemoveListener(Handle);
+	const std::vector<Durin::FLogRecord> Records = ReadAll(Logger);
+	ASSERT_EQ(Records.size(), 1u);
+	EXPECT_EQ(Records.front().Module, "Bootstrap");
+	EXPECT_EQ(Records.front().Message, "Before initialize");
 	Logger.Shutdown();
 	Logger.Shutdown();
 	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "Bootstrap", "After shutdown");

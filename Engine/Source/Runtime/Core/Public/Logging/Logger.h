@@ -52,9 +52,6 @@ namespace Durin
 		uint64 EvictedRecordCount = 0;
 	};
 
-	using FLogListenerHandle = uint64;
-	using FLogListener = std::function<void(const FLogRecord&)>;
-
 	CORE_API auto StringToLogLevel(std::string_view InLogLevel, ELogLevel DefaultLevel = ELogLevel::Debug) -> ELogLevel;
 
 	class FLogger
@@ -68,8 +65,8 @@ namespace Durin
 
 		CORE_API static auto Get() -> FLogger&;
 
-		// Error and Fatal calls wait for active sink attempts and flushing, but never
-		// for listener callbacks. Shutdown may release an accepted reliable call early.
+		// Error and Fatal calls wait for active sink attempts and flushing.
+		// Shutdown may release an accepted reliable call early.
 		template<typename... Args>
 		void Log(ELogLevel Level, std::source_location Loc, std::string_view Module, std::format_string<Args...> Fmt, Args&&... args)
 		{
@@ -85,10 +82,6 @@ namespace Durin
 		// NextSequence identifies the next desired record. Results are ordered and
 		// report when that cursor has fallen behind the retained history window.
 		CORE_API auto ReadRecords(uint64 NextSequence, uint32 MaxRecords = 512) const -> FLogReadResult;
-		CORE_API auto AddListener(FLogListener Listener) -> FLogListenerHandle;
-		// Listener callbacks run on the logger dispatch thread. Once this returns on
-		// another thread, no callback for Handle is still executing.
-		CORE_API auto RemoveListener(FLogListenerHandle Handle) -> void;
 
 		// Compatibility entry point using the standard runtime defaults.
 		CORE_API auto Initialize() -> void;
