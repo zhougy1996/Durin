@@ -13,6 +13,7 @@
 /.claude/
 /AGENTS_LOCAL.md
 /.agents/
+/.agents.pre-link-backup/
 
 # Regenerable content and editor output. Authored source assets and .dasset
 # packages under Content remain versioned; only derived/local data is ignored.

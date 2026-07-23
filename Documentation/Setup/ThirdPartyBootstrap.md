@@ -23,9 +23,9 @@ For a fresh Windows clone, use the root `Setup.bat` instead of invoking this scr
 ## Worktree Sharing
 
 - `PrepareWorktree.bat` links this worktree's `Engine/External` and `.venv` to a prepared dependency worktree.
-- The same helper copies `.agents/build-config.json` from that dependency worktree. It skips the write when the files already match.
-- If the source worktree has no Agent build config, the helper creates the target config from `Documentation/Setup/TP_AGENT_BUILD_CONFIG.json` without requiring it to be filled in.
-- On Windows, shared directories use directory junctions by default; the Agent build config is always a regular per-worktree file.
+- The same helper links the complete `.agents` directory from that dependency worktree, so machine-local configuration and helper changes are shared immediately.
+- When migrating an existing worktree with a real non-empty `.agents` directory, the helper preserves it as `.agents.pre-link-backup` before creating the link.
+- On Windows, all three shared directories use directory junctions by default; `.agents/build-config.json` remains a regular file in the source worktree and is reached through that shared directory.
 - Preview the operation with `Engine\Scripts\Bootstrap\PrepareWorktree.bat --dry-run`.
 - By default, linked Git worktrees pull those links from the main worktree root.
 - Use `--source` when the prepared dependency worktree is not the main worktree root.

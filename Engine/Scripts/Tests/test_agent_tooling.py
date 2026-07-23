@@ -23,6 +23,7 @@ from durin_build_tool import core as build_core
 from durin_build_tool.output import BuildOutput
 
 from Engine.Scripts.Bootstrap import agent_config
+from Engine.Scripts.Bootstrap import prepare_worktree
 from Engine.Scripts.Bootstrap import setup_preflight
 
 
@@ -786,10 +787,13 @@ class CliTests(unittest.TestCase):
         self.assertRegex(content, r"(?m)^libclang==\d+\.\d+\.\d+$")
         self.assertRegex(content, r"(?m)^rich==\d+\.\d+\.\d+$")
 
-    def test_setup_creates_agent_config_before_preflight(self) -> None:
+    def test_setup_prepares_configuration_before_each_preflight(self) -> None:
         content = (REPO_ROOT / "Setup.bat").read_text(encoding="utf-8")
-        self.assertLess(content.index("InitializeAgentConfig.bat"), content.index("Preflight.bat"))
-        self.assertLess(content.index("Preflight.bat"), content.index("SetupPython.bat"))
+        bootstrap = content[content.index(":bootstrap") : content.index(":prepare_worktree")]
+        linked = content[content.index(":prepare_worktree") : content.index(":end")]
+        self.assertLess(bootstrap.index("InitializeAgentConfig.bat"), bootstrap.index("Preflight.bat"))
+        self.assertLess(bootstrap.index("Preflight.bat"), bootstrap.index("SetupPython.bat"))
+        self.assertLess(linked.index("PrepareWorktree.bat"), linked.index("Preflight.bat"))
         self.assertEqual(content.count("InitializeAgentConfig.bat"), 1)
 
     def test_agent_config_initializer_supports_python_launcher_before_venv_exists(self) -> None:
@@ -798,6 +802,38 @@ class CliTests(unittest.TestCase):
         )
         self.assertIn("where py", content)
         self.assertIn('py -3 "%SCRIPT_DIR%initialize_agent_config.py" %*', content)
+
+    def test_worktree_preparer_supports_python_launcher_before_venv_is_linked(self) -> None:
+        content = (REPO_ROOT / "Engine/Scripts/Bootstrap/PrepareWorktree.bat").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("where py", content)
+        self.assertIn('py -3 "%SCRIPT_DIR%prepare_worktree.py" %*', content)
+
+    def test_worktree_preparer_links_complete_agent_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            target = root / "target"
+            (source / ".agents").mkdir(parents=True)
+            (target / ".agents").mkdir(parents=True)
+            (target / ".agents" / "build-config.json").write_text("local", encoding="utf-8")
+            with mock.patch.object(prepare_worktree, "REPO_ROOT", target), mock.patch.object(
+                prepare_worktree, "create_link"
+            ) as create:
+                prepare_worktree.prepare_agent_link(source, link_type="symlink", dry_run=False)
+            self.assertFalse((target / ".agents").exists())
+            self.assertEqual(
+                (target / ".agents.pre-link-backup" / "build-config.json").read_text(encoding="utf-8"),
+                "local",
+            )
+            create.assert_called_once_with(
+                (source / ".agents").resolve(),
+                (target / ".agents").absolute(),
+                link_type="symlink",
+                target_is_directory=True,
+                dry_run=False,
+            )
 
 
 class SetupPreflightTests(unittest.TestCase):
@@ -808,6 +844,27 @@ class SetupPreflightTests(unittest.TestCase):
         ):
             error = setup_preflight.check_cmake()
         self.assertIn("requires 3.24 or newer", error or "")
+
+    def test_visual_studio_environment_override_is_loaded_from_agent_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / ".agents" / "build-config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps(
+                    {
+                        "environmentSetup": {
+                            "script": str(root / "toolchain/VsDevCmd.bat"),
+                            "arguments": ["-arch=x64", "-host_arch=x64"],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(setup_preflight, "REPO_ROOT", root):
+                script, arguments = setup_preflight.configured_visual_studio_environment()
+        self.assertEqual(script, (root / "toolchain/VsDevCmd.bat").resolve())
+        self.assertEqual(arguments, ["-arch=x64", "-host_arch=x64"])
 
     def test_vulkan_sdk_check_reports_every_required_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1500,20 +1557,6 @@ class AgentConfigLifecycleTests(unittest.TestCase):
             target.write_text("local edit\n", encoding="utf-8")
             agent_config.ensure_agent_config(root)
             self.assertEqual(target.read_text(encoding="utf-8"), "local edit\n")
-
-    def test_sync_copies_source_and_skips_matching_content(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "source"
-            target = root / "target"
-            self.create_repo(source)
-            self.create_repo(target)
-            source_config = agent_config.ensure_agent_config(source)
-            source_config.write_text("source config\n", encoding="utf-8")
-            target_config = agent_config.sync_agent_config(source, target)
-            previous = target_config.stat().st_mtime_ns
-            agent_config.sync_agent_config(source, target)
-            self.assertEqual(target_config.stat().st_mtime_ns, previous)
 
     def test_dry_run_does_not_create_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

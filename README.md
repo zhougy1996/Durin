@@ -26,13 +26,13 @@ cd Durin
 
 `Setup.bat` performs the following steps:
 
-1. Checks all readily detectable prerequisites before modifying the checkout, including tool versions and the required Vulkan SDK files.
-2. Creates the repository-local `.venv` using the system Python installation.
-3. Installs the pinned dependencies from `requirements.txt`, including the `clang.cindex` bindings, native `libclang` library required by DurinHeaderTool, and Rich terminal support used by BuildTool.
-4. Creates the optional machine-local Agent build configuration at `.agents/build-config.json`.
+1. Creates the optional machine-local Agent build configuration at `.agents/build-config.json` when it does not already exist.
+2. Checks all readily detectable prerequisites, including tool versions and the required Vulkan SDK files.
+3. Creates the repository-local `.venv` using the system Python installation.
+4. Installs the pinned dependencies from `requirements.txt`, including the `clang.cindex` bindings, native `libclang` library required by DurinHeaderTool, and Rich terminal support used by BuildTool.
 5. Downloads and prepares third-party dependencies including glm, spdlog, glfw, rapidyaml, assimp, Slang, and googletest. Vulkan Memory Allocator is supplied by the Vulkan SDK and is not downloaded separately.
 
-Setup is idempotent and reuses dependencies that are already prepared. If a download is interrupted, restore network access and run `Setup.bat` again. After setup succeeds, all build commands use the Python interpreter from `.venv`, preventing mismatches between the Python bindings and libclang.
+Setup is idempotent, never overwrites an existing local Agent build configuration, and reuses dependencies that are already prepared. If prerequisite detection cannot find a machine-specific CMake or Visual Studio environment, edit `.agents/build-config.json` and run `Setup.bat` again. If a download is interrupted, restore network access and rerun the same command. After setup succeeds, all build commands use the Python interpreter from `.venv`, preventing mismatches between the Python bindings and libclang.
 
 ## Build and Run
 
@@ -80,11 +80,12 @@ After the main worktree has completed `Setup.bat`, run the same command once in 
 .\Setup.bat
 ```
 
-The script shares `Engine/External` and `.venv` from the main worktree. `Build`, `Engine/Intermediate`, and `Engine/Binaries` always remain local to each worktree. If the prepared dependencies are stored in a non-default worktree, use `Engine\Scripts\Bootstrap\PrepareWorktree.bat --source <prepared-worktree>`.
+The script links `.agents`, `Engine/External`, and `.venv` from the main worktree, so machine-local Agent configuration changes are immediately shared by every linked worktree. When upgrading an existing worktree that already has a real `.agents` directory, Setup preserves it as `.agents.pre-link-backup` before creating the link. `Build`, `Engine/Intermediate`, and `Engine/Binaries` always remain local to each worktree. If the prepared dependencies are stored in a non-default worktree, use `Engine\Scripts\Bootstrap\PrepareWorktree.bat --source <prepared-worktree>`.
 
 ## Troubleshooting
 
 - **Python was not found:** Install Python 3.10 or newer, verify that `py -3 --version` or `python --version` works, and rerun `Setup.bat`.
+- **Setup cannot find CMake or the Visual Studio environment:** Set the corresponding override in `.agents/build-config.json` and rerun `Setup.bat`; the existing configuration is preserved.
 - **`.venv` uses an outdated or incorrect Python:** Remove `.venv` and rerun `Setup.bat`. Do not mix system site-packages into the virtual environment.
 - **`clang.cindex` or libclang is missing:** Rerun `Setup.bat`. The required version is managed by the root `requirements.txt`.
 - **BuildTool reports a missing virtual environment:** Setup has not completed; run `Setup.bat` first.

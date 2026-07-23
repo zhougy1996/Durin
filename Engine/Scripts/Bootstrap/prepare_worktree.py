@@ -8,14 +8,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_config import AgentConfigError, sync_agent_config
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
 
 ENV_SOURCE_NAMES = ("DURIN_WORKTREE_SOURCE", "DURIN_EXTERNAL_SOURCE", "DURIN_EXTERNAL_ROOT")
 DEFAULT_SOURCE_WORKTREE_NAME = "Durin"
+AGENT_DIR_NAME = ".agents"
+AGENT_BACKUP_DIR_NAME = ".agents.pre-link-backup"
 VENV_DIR_NAME = ".venv"
 
 
@@ -267,6 +267,43 @@ def prepare_external_link(source_worktree: Path, *, link_type: str, dry_run: boo
     )
 
 
+def prepare_agent_link(source_worktree: Path, *, link_type: str, dry_run: bool) -> None:
+    source_dir = normalize_path(source_worktree / AGENT_DIR_NAME)
+    target_dir = absolute_path(REPO_ROOT / AGENT_DIR_NAME)
+    backup_dir = absolute_path(REPO_ROOT / AGENT_BACKUP_DIR_NAME)
+
+    if not source_dir.is_dir():
+        raise PrepareWorktreeError(f'Source {AGENT_DIR_NAME} directory does not exist: "{source_dir}"')
+
+    if target_dir.is_dir() and not is_link_like(target_dir) and not is_empty_directory(target_dir):
+        if backup_dir.exists() or is_link_like(backup_dir):
+            raise PrepareWorktreeError(
+                f"Cannot preserve the existing Agent directory because the backup path already exists: "
+                f"\"{backup_dir}\""
+            )
+        print(f'Preserving existing {AGENT_DIR_NAME}: "{target_dir}" -> "{backup_dir}"')
+        if dry_run:
+            print(f'[dry-run] move "{target_dir}" -> "{backup_dir}"')
+            print(f'[dry-run] link {AGENT_DIR_NAME}: "{target_dir}" -> "{source_dir}"')
+            create_link(
+                source_dir,
+                target_dir,
+                link_type=link_type,
+                target_is_directory=True,
+                dry_run=True,
+            )
+            return
+        target_dir.rename(backup_dir)
+
+    prepare_directory_link(
+        source_dir,
+        target_dir,
+        label=AGENT_DIR_NAME,
+        link_type=link_type,
+        dry_run=dry_run,
+    )
+
+
 def prepare_venv_link(source_worktree: Path, *, link_type: str, dry_run: bool) -> None:
     prepare_directory_link(
         source_worktree / VENV_DIR_NAME,
@@ -280,8 +317,8 @@ def prepare_venv_link(source_worktree: Path, *, link_type: str, dry_run: bool) -
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Prepare a Durin Git worktree by linking shared dependency directories "
-            "and copying the local Agent build config from a prepared worktree."
+            "Prepare a Durin Git worktree by linking shared machine configuration "
+            "and dependency directories from a prepared worktree."
         )
     )
     parser.add_argument(
@@ -317,11 +354,11 @@ def main() -> int:
         print(f"Target worktree: \"{REPO_ROOT}\"")
         print(f"Link type: {link_type}")
 
+        prepare_agent_link(source_worktree, link_type=link_type, dry_run=args.dry_run)
         prepare_external_link(source_worktree, link_type=link_type, dry_run=args.dry_run)
         prepare_venv_link(source_worktree, link_type=link_type, dry_run=args.dry_run)
-        sync_agent_config(source_worktree, REPO_ROOT, dry_run=args.dry_run)
 
-    except (PrepareWorktreeError, AgentConfigError) as exc:
+    except PrepareWorktreeError as exc:
         print(exc, file=sys.stderr)
         return 1
     except OSError as exc:

@@ -7,13 +7,15 @@ set "PYTHON_EXE=%REPO_ROOT%\.venv\Scripts\python.exe"
 
 if exist "%PYTHON_EXE%" (
   call "%PYTHON_EXE%" "%SCRIPT_DIR%initialize_agent_config.py" %*
-  exit /b %errorlevel%
+  if errorlevel 1 exit /b 1
+  exit /b 0
 )
 
 where py >nul 2>nul
 if not errorlevel 1 (
   py -3 "%SCRIPT_DIR%initialize_agent_config.py" %*
-  exit /b %errorlevel%
+  if errorlevel 1 exit /b 1
+  exit /b 0
 )
 
 where python >nul 2>nul

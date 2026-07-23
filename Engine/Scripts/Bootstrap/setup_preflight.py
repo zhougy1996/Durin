@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Mapping
+from typing import Mapping, Sequence
 
 
 MINIMUM_PYTHON = (3, 10)
@@ -56,9 +56,22 @@ def find_vsdevcmd(environment: Mapping[str, str]) -> Path:
     return script
 
 
-def capture_visual_studio_environment(script: Path) -> dict[str, str]:
+def capture_visual_studio_environment(script: Path, arguments: Sequence[str]) -> dict[str, str]:
+    if not script.is_file():
+        raise RuntimeError(f'Visual Studio environment script is missing: "{script}"')
     comspec = os.environ.get("COMSPEC", "cmd.exe")
-    command = f'"{comspec}" /d /s /c ""{script}" -arch=x64 -host_arch=x64 >nul && set"'
+    command = [
+        comspec,
+        "/d",
+        "/s",
+        "/c",
+        "call",
+        str(script),
+        *arguments,
+        ">nul",
+        "&&",
+        "set",
+    ]
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"Visual Studio x64 environment initialization failed ({result.returncode}).")
@@ -83,6 +96,28 @@ def configured_cmake_command() -> str:
         return "cmake"
     configured = value.get("cmakeCommand") if isinstance(value, dict) else None
     return configured if isinstance(configured, str) and configured else "cmake"
+
+
+def configured_visual_studio_environment() -> tuple[Path | None, list[str]]:
+    config_path = REPO_ROOT / ".agents" / "build-config.json"
+    try:
+        value = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, []
+    setup = value.get("environmentSetup") if isinstance(value, dict) else None
+    if not isinstance(setup, dict):
+        return None, []
+    script = setup.get("script")
+    arguments = setup.get("arguments")
+    configured_script = (
+        Path(script).expanduser().resolve() if isinstance(script, str) and script.strip() else None
+    )
+    configured_arguments = (
+        arguments
+        if isinstance(arguments, list) and all(isinstance(argument, str) for argument in arguments)
+        else []
+    )
+    return configured_script, configured_arguments
 
 
 def check_cmake() -> str | None:
@@ -171,7 +206,10 @@ def collect_errors() -> list[str]:
         errors.append(cmake_error)
 
     try:
-        vs_environment = capture_visual_studio_environment(find_vsdevcmd(os.environ))
+        configured_script, configured_arguments = configured_visual_studio_environment()
+        script = configured_script or find_vsdevcmd(os.environ)
+        arguments = configured_arguments or ["-arch=x64", "-host_arch=x64"]
+        vs_environment = capture_visual_studio_environment(script, arguments)
     except RuntimeError as exc:
         errors.append(str(exc))
         return errors

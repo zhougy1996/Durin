@@ -7,12 +7,20 @@ set "PYTHON_EXE=%REPO_ROOT%\.venv\Scripts\python.exe"
 
 if exist "%PYTHON_EXE%" (
   call "%PYTHON_EXE%" "%SCRIPT_DIR%prepare_worktree.py" %*
-  exit /b %errorlevel%
+  if errorlevel 1 exit /b 1
+  exit /b 0
+)
+
+where py >nul 2>nul
+if not errorlevel 1 (
+  py -3 "%SCRIPT_DIR%prepare_worktree.py" %*
+  if errorlevel 1 exit /b 1
+  exit /b 0
 )
 
 where python >nul 2>nul
 if errorlevel 1 (
-  echo Python was not found in PATH and "%PYTHON_EXE%" does not exist.
+  echo Python was not found through the py launcher or PATH, and "%PYTHON_EXE%" does not exist.
   exit /b 1
 )
 
