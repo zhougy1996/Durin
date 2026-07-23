@@ -12,7 +12,8 @@ namespace Durin
 	class DMaterial;
 	class DMaterialInstance;
 	class FMaterialPreview;
-	struct FMaterialParameterDefinition;
+	class FMaterialParameterPanelModel;
+	struct FMaterialParameterPanelEntry;
 
 	class MMaterialEditor final : public IEditorWorkspace
 	{
@@ -38,11 +39,12 @@ namespace Durin
 		auto DrawMaterial(DMaterial* Material) -> void;
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;
 		auto DrawParentPicker(DMaterialInstance* Instance) -> void;
-		auto DrawMaterialParameters(DMaterialInterface* Material, DMaterialInstance* Instance) -> void;
-		auto DrawMaterialParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
-		auto DrawScalarParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
-		auto DrawColorParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
-		auto DrawTextureParameter(DMaterialInterface* Material, DMaterialInstance* Instance, const FMaterialParameterDefinition& Definition) -> void;
+		auto DrawMaterialParameters(DMaterialInterface* Material) -> void;
+		auto DrawMaterialParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
+		auto DrawScalarParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
+		auto DrawColorParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
+		auto DrawTextureParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
+		auto DrawOrphanParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
 		auto MakePropertyViewContext() -> FReflectedPropertyViewContext;
 		auto SetError(std::string Message) -> void;

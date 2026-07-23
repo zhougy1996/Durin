@@ -137,7 +137,8 @@ namespace Durin
 		{
 			if (Left.Object != Right.Object || Left.MemberProperty != Right.MemberProperty
 				|| Left.LeafProperty != Right.LeafProperty || Left.SnapshotProperty != Right.SnapshotProperty
-				|| Left.SnapshotArrayIndex != Right.SnapshotArrayIndex || Left.Path.size() != Right.Path.size()) return false;
+				|| Left.SnapshotArrayIndex != Right.SnapshotArrayIndex
+				|| Left.LogicalIdentity != Right.LogicalIdentity || Left.Path.size() != Right.Path.size()) return false;
 			for (size_t Index = 0; Index < Left.Path.size(); ++Index)
 			{
 				const FReflectedPropertyEditPathSegment& A = Left.Path[Index];

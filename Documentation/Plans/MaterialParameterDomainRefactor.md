@@ -4,7 +4,7 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 0, 1, and 2 are complete. Runtime Engine owns the reflected parameter
+Stages 0 through 3 are complete. Runtime Engine owns the reflected parameter
 schema, five permanent GUID identities and canonical `FName` values, and
 deterministic built-in definitions. `DMaterial` stores the ordered definition
 collection, while `DMaterialInstance` stores one ordered GUID override
@@ -12,8 +12,10 @@ collection. Instance resolution reports the supplying ancestor, preserves
 orphans across parent changes, and excludes them from rendering. Render data is
 resolved directly from the five built-in GUIDs, with existing invalidation,
 resource lifetime, serialization, duplication, and output behavior covered by
-focused Engine tests. The Material Editor still uses its legacy map-specific
-bindings; Stage 3 is next.
+focused Engine tests. The Material Editor now builds its parameter rows and
+control selection from the runtime schema, displays inherited sources and
+orphans, and edits reflected collection roots through GUID-resolved scratch
+storage. Stage 4 cleanup and architecture recording are next.
 
 This plan is an independently executable slice of Stage 2 in
 `Documentation/Plans/MaterialSystem.md`. Check off each stage only after its
@@ -165,18 +167,18 @@ dependency propagation, and render-thread snapshots.
 
 ### Stage 3: Make the Parameter Panel Schema-Driven
 
-- [ ] Remove the editor-private descriptor table, reflected map-name lookup, and
+- [x] Remove the editor-private descriptor table, reflected map-name lookup, and
   `BindStringMapValue` usage from the Material Editor.
-- [ ] Add a reusable material parameter panel model whose inputs are definitions,
+- [x] Add a reusable material parameter panel model whose inputs are definitions,
   resolved values, value sources, and override policy.
-- [ ] Select scalar, ranged scalar, color, and asset-picker controls exclusively
+- [x] Select scalar, ranged scalar, color, and asset-picker controls exclusively
   from parameter type, presentation, and metadata.
-- [ ] Show override state, inherited value, supplying ancestor, reset-to-parent,
+- [x] Show override state, inherited value, supplying ancestor, reset-to-parent,
   and orphan removal for instances.
-- [ ] Submit edits against the reflected collection root and locate the target
+- [x] Submit edits against the reflected collection root and locate the target
   entry by GUID in scratch storage so transactions never depend on a mutable
   array index.
-- [ ] Preserve continuous-edit coalescing, Escape cancellation, undo/redo,
+- [x] Preserve continuous-edit coalescing, Escape cancellation, undo/redo,
   package dirtiness, save/reload, and live preview updates.
 
 #### Acceptance Gate

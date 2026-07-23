@@ -4,6 +4,7 @@ add_durin_test(EngineTests
 	Private/ReflectedPropertyViewTests.cpp
 	Private/ReflectedPropertyEditingTests.cpp
 	Private/MaterialTests.cpp
+	Private/MaterialParameterPanelModelTests.cpp
 	Private/TextureTests.cpp
 	Private/WorldTests.cpp
 	Private/ViewportTests.cpp
@@ -32,6 +33,7 @@ add_durin_test(EngineTests
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Panels/ConsoleRecordModel.cpp
 	# Compile the preview implementation directly so its private GC lifetime contract can be exercised.
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialPreview.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialParameterPanelModel.cpp
 )
 
 target_include_directories(EngineTests PRIVATE

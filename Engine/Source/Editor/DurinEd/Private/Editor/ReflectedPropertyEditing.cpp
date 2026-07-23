@@ -48,7 +48,7 @@ namespace Durin
 			if (Left.Object != Right.Object || Left.MemberProperty != Right.MemberProperty
 				|| Left.LeafProperty != Right.LeafProperty || Left.SnapshotProperty != Right.SnapshotProperty
 				|| Left.SnapshotContainer != Right.SnapshotContainer || Left.SnapshotArrayIndex != Right.SnapshotArrayIndex
-				|| Left.Path.size() != Right.Path.size()) return false;
+				|| Left.LogicalIdentity != Right.LogicalIdentity || Left.Path.size() != Right.Path.size()) return false;
 			for (size_t Index = 0; Index < Left.Path.size(); ++Index)
 			{
 				const auto& A = Left.Path[Index];
@@ -514,6 +514,7 @@ namespace Durin
 		if (!bActive || Target.Object != Other.Object || Target.MemberProperty != Other.MemberProperty
 			|| Target.LeafProperty != Other.LeafProperty || Target.SnapshotProperty != Other.SnapshotProperty
 			|| Target.SnapshotContainer != Other.SnapshotContainer || Target.SnapshotArrayIndex != Other.SnapshotArrayIndex
+			|| Target.Kind != Other.Kind || Target.LogicalIdentity != Other.LogicalIdentity
 			|| Target.Path.size() != Other.Path.size()) return false;
 		for (size_t Index = 0; Index < Target.Path.size(); ++Index)
 		{

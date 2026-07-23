@@ -30,6 +30,9 @@ namespace Durin
 		void* SnapshotContainer = nullptr;
 		uint32 SnapshotArrayIndex = 0;
 		std::vector<FReflectedPropertyEditPathSegment> Path;
+		// Logical identity distinguishes independently edited values that intentionally
+		// share one stable snapshot root, such as GUID-addressed array entries.
+		std::vector<uint8> LogicalIdentity;
 		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
 
 		DURINED_API static auto ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex = 0) -> FReflectedPropertyEditTarget;
