@@ -548,8 +548,9 @@ namespace Durin
 					const char* Status = bPlayingInNewWindow ? "PLAYING IN NEW WINDOW" : GEditor && GEditor->IsPlaySessionPaused() ? "PLAY PAUSED" : "PLAYING";
 					const ImVec2 TextSize = ImGui::CalcTextSize(Status);
 					const ImVec2 Padding(MonaImGui::ScaleUI(8.0f), MonaImGui::ScaleUI(4.0f));
-					const ImVec2 BadgeMin(VpMin.x + MonaImGui::ScaleUI(10.0f), VpMax.y - TextSize.y - Padding.y * 2.0f - MonaImGui::ScaleUI(10.0f));
-					const ImVec2 BadgeMax(BadgeMin.x + TextSize.x + Padding.x * 2.0f, BadgeMin.y + TextSize.y + Padding.y * 2.0f);
+					const ImVec2 BadgeSize(TextSize.x + Padding.x * 2.0f, TextSize.y + Padding.y * 2.0f);
+					const ImVec2 BadgeMin((VpMin.x + VpMax.x - BadgeSize.x) * 0.5f, VpMax.y - BadgeSize.y - MonaImGui::ScaleUI(10.0f));
+					const ImVec2 BadgeMax = Add(BadgeMin, BadgeSize);
 					ImVec4 BadgeColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
 					BadgeColor.w = 0.88f;
 					DrawList->AddRectFilled(BadgeMin, BadgeMax, ImGui::GetColorU32(BadgeColor), BadgeMax.y - BadgeMin.y);
