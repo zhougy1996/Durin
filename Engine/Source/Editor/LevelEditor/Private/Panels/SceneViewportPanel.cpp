@@ -243,6 +243,14 @@ namespace Durin
 			bool bSecondaryPressed = false;
 		};
 
+		struct FRuntimeControlResult
+		{
+			bool bStopPressed = false;
+			bool bPausePressed = false;
+			bool bStepPressed = false;
+			bool bOptionsPressed = false;
+		};
+
 		auto DrawPlaySplitButton(const ImVec2& Position, float PrimaryWidth, float SecondaryWidth, float Height, const char* Label, const char* PlayTooltip) -> FSplitButtonResult
 		{
 			const ImGuiStyle& Style = ImGui::GetStyle();
@@ -297,6 +305,59 @@ namespace Durin
 				ImGui::EndTooltip();
 			}
 			return {bPrimaryPressed, bSecondaryPressed};
+		}
+
+		auto DrawRuntimeControlGroup(const ImVec2& Position, float ControlWidth, float OptionsWidth, float Height, bool bPaused) -> FRuntimeControlResult
+		{
+			const ImGuiStyle& Style = ImGui::GetStyle();
+			ImDrawList* DrawList = ImGui::GetWindowDrawList();
+			const float GroupWidth = ControlWidth * 3.0f + OptionsWidth;
+			const ImVec2 Max(Position.x + GroupWidth, Position.y + Height);
+			DrawList->AddRectFilled(Position, Max, ImGui::GetColorU32(ImGuiCol_Button), Style.FrameRounding);
+
+			auto DrawSegment = [&](const char* Id, float Offset, float Width, EViewportToolbarIcon Icon, ImU32 EnabledIconColor, const char* Tooltip, bool bEnabled, ImDrawFlags Rounding) {
+				const ImVec2 SegmentMin(Position.x + Offset, Position.y);
+				const ImVec2 SegmentMax(SegmentMin.x + Width, Max.y);
+				if (!bEnabled) ImGui::BeginDisabled();
+				ImGui::SetCursorScreenPos(SegmentMin);
+				const bool bPressed = ImGui::InvisibleButton(Id, ImVec2(Width, Height));
+				const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+				const bool bHeld = ImGui::IsItemActive();
+				if (!bEnabled) ImGui::EndDisabled();
+				if (bEnabled && (bHovered || bHeld))
+				{
+					DrawList->AddRectFilled(SegmentMin, SegmentMax, ImGui::GetColorU32(bHeld ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), Style.FrameRounding, Rounding);
+				}
+				const ImU32 IconColor = bEnabled ? EnabledIconColor : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+				DrawToolbarIcon(DrawList, Icon, ImVec2((SegmentMin.x + SegmentMax.x) * 0.5f, Position.y + Height * 0.5f), IconColor, ImGui::GetFontSize() / 15.0f);
+				if (bHovered)
+				{
+					ImGui::BeginTooltip();
+					ImGui::TextUnformatted(Tooltip);
+					ImGui::EndTooltip();
+				}
+				return bPressed;
+			};
+
+			FRuntimeControlResult Result;
+			Result.bStopPressed = DrawSegment("##ViewportStop", 0.0f, ControlWidth, EViewportToolbarIcon::Stop,
+				MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Error), "Stop play (F5)", true, ImDrawFlags_RoundCornersLeft);
+			Result.bPausePressed = DrawSegment("##ViewportPause", ControlWidth, ControlWidth, bPaused ? EViewportToolbarIcon::Play : EViewportToolbarIcon::Pause,
+				MonaImGui::GetThemeColorU32(bPaused ? MonaImGui::EUIThemeColor::Success : MonaImGui::EUIThemeColor::Warning),
+				bPaused ? "Resume play (F6)" : "Pause play (F6)", true, ImDrawFlags_RoundCornersNone);
+			Result.bStepPressed = DrawSegment("##ViewportStep", ControlWidth * 2.0f, ControlWidth, EViewportToolbarIcon::Step,
+				MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Info), "Advance one frame while paused (F7)", bPaused, ImDrawFlags_RoundCornersNone);
+			Result.bOptionsPressed = DrawSegment("##ViewportRuntimeOptions", ControlWidth * 3.0f, OptionsWidth, EViewportToolbarIcon::ChevronDown,
+				ImGui::GetColorU32(ImGuiCol_Text), "Runtime options", true, ImDrawFlags_RoundCornersRight);
+
+			const float SeparatorInset = MonaImGui::ScaleUI(5.0f);
+			for (const float Offset : {ControlWidth, ControlWidth * 2.0f, ControlWidth * 3.0f})
+			{
+				const float SeparatorX = Position.x + Offset;
+				DrawList->AddLine(ImVec2(SeparatorX, Position.y + SeparatorInset), ImVec2(SeparatorX, Max.y - SeparatorInset), ImGui::GetColorU32(ImGuiCol_Border));
+			}
+			DrawList->AddRect(Position, Max, ImGui::GetColorU32(ImGuiCol_Border), Style.FrameRounding);
+			return Result;
 		}
 
 		auto DrawSnapSplitButton(const ImVec2& Position, float PrimaryWidth, float SecondaryWidth, float Height, bool bEnabled, bool bPopupOpen) -> FSplitButtonResult
@@ -809,16 +870,15 @@ namespace Durin
 		}
 		else
 		{
-			if (DrawToolbarButton("##ViewportPause", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), nullptr, bPaused ? EViewportToolbarIcon::Play : EViewportToolbarIcon::Pause, false, bPaused ? "Resume play (F6)" : "Pause play (F6)", true, bPaused))
-				GEditor->SetPlaySessionPaused(!bPaused);
-			PlayX += Layout.RuntimeButtonWidth;
-			if (!bPaused) ImGui::BeginDisabled();
-			if (DrawToolbarButton("##ViewportStep", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), nullptr, EViewportToolbarIcon::Step, false, "Advance one frame while paused (F7)", true)) GEditor->StepPlaySession();
-			if (!bPaused) ImGui::EndDisabled();
-			PlayX += Layout.RuntimeButtonWidth;
-			if (DrawToolbarButton("##ViewportStop", ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth, Layout.Height), nullptr, EViewportToolbarIcon::Stop, false, "Stop play (F5)", true)) GEditor->StopPlaySession();
-			PlayX += Layout.RuntimeButtonWidth;
-			if (DrawToolbarButton("##ViewportRuntimeOptions", ImVec2(PlayX, PlayY), ImVec2(Layout.DropDownWidth, Layout.Height), nullptr, EViewportToolbarIcon::ChevronDown, false, "Runtime options", true)) ImGui::OpenPopup("ViewportRuntimeOptionsPopup");
+			const FRuntimeControlResult RuntimeResult = DrawRuntimeControlGroup(
+				ImVec2(PlayX, PlayY), Layout.RuntimeButtonWidth, Layout.DropDownWidth, Layout.Height, bPaused);
+			if (RuntimeResult.bStopPressed) GEditor->StopPlaySession();
+			else
+			{
+				if (RuntimeResult.bPausePressed) GEditor->SetPlaySessionPaused(!bPaused);
+				if (RuntimeResult.bStepPressed) GEditor->StepPlaySession();
+				if (RuntimeResult.bOptionsPressed) ImGui::OpenPopup("ViewportRuntimeOptionsPopup");
+			}
 			if (ImGui::BeginPopup("ViewportRuntimeOptionsPopup"))
 			{
 				const bool bHasSelection = !Context.GetSelectedActors().empty();
