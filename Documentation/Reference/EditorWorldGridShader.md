@@ -784,4 +784,4 @@ Renderer 继续复用 Post Process 的三顶点缓冲和索引缓冲，每个 Vi
 
 证据至少记录 FXAA 状态、关卡、相机 Transform、视口尺寸、DPI、输出类型和截图/录屏文件名。对比重点是差异发生在哪里，而不是要求两张图逐像素相同。
 
-V2 算法的完整阶段、验收门槛和验证矩阵保存在 `Documentation/Plans/Archive/EditorWorldGridV2.md`。场景后处理与编辑器辅助层的迁移见 `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`。
+V2 算法的完整阶段、验收门槛和验证矩阵保存在 `Documentation/Plans/Archive/EditorWorldGridV2.md`。场景后处理与编辑器辅助层的迁移历史保存在 `Documentation/Plans/Archive/ScenePostProcessEditorAssistanceBoundary.md`。

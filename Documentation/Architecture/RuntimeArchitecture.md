@@ -152,5 +152,5 @@ bar.
 - `Documentation/Architecture/Profiles.md`
 - `Documentation/Architecture/MultithreadingRoadmap.md`
 - `Documentation/Architecture/ViewportRendering.md`
-- `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`
+- `Documentation/Plans/Archive/ScenePostProcessEditorAssistanceBoundary.md`
 - `Documentation/Setup/BuildAndRun.md`

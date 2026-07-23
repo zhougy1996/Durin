@@ -16,7 +16,6 @@ This directory contains implementation plans whose scope has been narrowed enoug
 | [Editor Icon Atlas](EditorIconAtlas.md) | Offline atlas pipeline for editor visualization icons |
 | [Asset Registry and Thumbnail Cache](AssetRegistryAndThumbnailCache.md) | Persistent asset discovery metadata and rebuildable Content Browser thumbnails |
 | [Shader Cache Hardening](ShaderCacheHardening.md) | Shader cache integrity, warm-path manifests, request coalescing, and bounded retention |
-| [Scene Post-Processing and Editor Assistance Boundary](ScenePostProcessEditorAssistanceBoundary.md) | Separate scene post-processing from depth-aware editor visualization composition |
 
 ## Archived Plans
 
@@ -24,9 +23,21 @@ Archived plans preserve implementation decisions, validation evidence, and incom
 
 | Plan | Outcome |
 | --- | --- |
-| [Editor World Grid V2](Archive/EditorWorldGridV2.md) | Landed screen-space ray-plane reconstruction; later renderer-phase work moved to the active scene/editor boundary plan |
+| [Editor World Grid V2](Archive/EditorWorldGridV2.md) | Landed screen-space ray-plane reconstruction; its later renderer-phase follow-up is also archived below |
+| [Scene Post-Processing and Editor Assistance Boundary](Archive/ScenePostProcessEditorAssistanceBoundary.md) | Landed post-process-first, depth-aware editor assistance for Present and Offscreen viewport outputs |
 
 Update this index whenever a plan document is added, renamed, or deleted.
+
+## Archive Workflow and Reading Policy
+
+When a plan reaches its acceptance gates:
+
+1. Record the completion evidence in `Current Status`, update `Last reviewed`, and close only the checklists that actually passed.
+2. Move the file to `Documentation/Plans/Archive/` without rewriting its goal, scope, decisions, stages, validation matrix, or other historical body text.
+3. Move its index entry from **Document Index** to **Archived Plans** and summarize the landed outcome.
+4. Update direct links that must continue resolving after the move. Long-lived implementation rules must already live in Architecture or Reference documentation rather than depending on the archived plan.
+
+Archived plans are historical evidence, not default task instructions. Do not read or sample archived plan bodies for ordinary implementation work, plan formatting, or repository orientation. Read an archived plan only when the user explicitly names it, an active task-relevant document identifies it as required context, or decision provenance is necessary to resolve the current task. The archive index is sufficient when only the existence or outcome of prior work matters.
 
 ## Boundaries Between Plans and Other Documentation
 

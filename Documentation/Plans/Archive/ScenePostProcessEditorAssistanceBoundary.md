@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stage 4 automated validation and documentation are complete. The focused Engine/Renderer/grid/viewport and RenderCore suites pass, the full `all` build succeeds, and the hidden-window Vulkan log is clean. Runtime Architecture, Viewport Rendering, and the Editor World Grid reference now describe the landed post-process boundary. The repeatable FXAA visual procedure is documented, but its operator-captured evidence remains intentionally pending.
+Archived on 2026-07-23 after all implementation stages, focused regression suites, the full `all` build, hidden-window Vulkan validation, long-lived documentation updates, and operator visual validation completed successfully. Manual FXAA on/off checks across the documented grid, overlay, gizmo, depth-occlusion, constrained viewport, Offscreen, and Present scenarios found no issue.
 
 ## Goal
 
@@ -147,11 +147,11 @@ Establish a renderer-level boundary where scene anti-aliasing and other scene po
 - [x] Run focused RenderCore, Renderer/Engine, grid, and viewport tests affected by layout and ordering changes.
 - [x] Complete the repository full `all` build through the root BuildTool workflow.
 - [x] Run `DurinEditor` from the same profile with `--hidden-window` and verify Shader, Pipeline, Vulkan Validation, Error, and Fatal logs remain clean.
-- [ ] Manually compare FXAA enabled and disabled in low-altitude grid, horizon, mesh-occlusion, icon, selection-line, camera-frustum, and transform-gizmo scenarios.
-- [ ] Validate both an offscreen Level Editor viewport and a window-backed runtime viewport.
+- [x] Manually compare FXAA enabled and disabled in low-altitude grid, horizon, mesh-occlusion, icon, selection-line, camera-frustum, and transform-gizmo scenarios.
+- [x] Validate both an offscreen Level Editor viewport and a window-backed runtime viewport.
 - [x] Update Runtime Architecture, Viewport Rendering, and Editor World Grid reference documents to describe the landed boundary and remove migration-pending wording.
 
-The remaining two items require operator visual judgment. The procedure below and `Documentation/Reference/EditorWorldGridShader.md` section 19.8 define how to collect that evidence; they are not satisfied by hidden-window execution alone.
+Operator visual validation completed on 2026-07-23 using the procedure below and reported no issue. No repository-owned capture artifact was requested; the result is recorded as operator evidence rather than an automated image baseline.
 
 #### Acceptance Gate
 
