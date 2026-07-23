@@ -60,35 +60,33 @@ namespace Durin
 	auto DMaterialInterface::GetRenderData() const -> FMaterialRenderData
 	{
 		FMaterialRenderData Result;
-		FVector3 BaseColor;
-		if (GetVectorParameterValue(MaterialParameters::BaseColorName(), BaseColor))
+		FResolvedMaterialParameter Parameter;
+		if (ResolveParameterValue(MaterialParameters::BaseColorId, Parameter))
 		{
+			const FVector3& BaseColor = Parameter.Value.VectorValue;
 			Result.BaseColor.r = static_cast<float>(std::clamp(BaseColor.x, 0.0, 1.0));
 			Result.BaseColor.g = static_cast<float>(std::clamp(BaseColor.y, 0.0, 1.0));
 			Result.BaseColor.b = static_cast<float>(std::clamp(BaseColor.z, 0.0, 1.0));
 		}
 
-		DTexture2D* BaseColorTexture = nullptr;
-		if (GetTextureParameterValue(MaterialParameters::BaseColorTextureName(), BaseColorTexture) && BaseColorTexture != nullptr)
+		if (ResolveParameterValue(MaterialParameters::BaseColorTextureId, Parameter)
+			&& Parameter.Value.TextureValue != nullptr)
 		{
-			Result.BaseColorTexture = BaseColorTexture->GetRenderResource();
+			Result.BaseColorTexture = Parameter.Value.TextureValue->GetRenderResource();
 		}
 
-		float Opacity = Result.BaseColor.a;
-		if (GetScalarParameterValue(MaterialParameters::OpacityName(), Opacity))
+		if (ResolveParameterValue(MaterialParameters::OpacityId, Parameter))
 		{
-			Result.BaseColor.a = std::clamp(Opacity, 0.0f, 1.0f);
+			Result.BaseColor.a = std::clamp(Parameter.Value.ScalarValue, 0.0f, 1.0f);
 		}
 
-		float SpecularStrength = Result.SpecularStrength;
-		if (GetScalarParameterValue(MaterialParameters::SpecularStrengthName(), SpecularStrength))
+		if (ResolveParameterValue(MaterialParameters::SpecularStrengthId, Parameter))
 		{
-			Result.SpecularStrength = std::clamp(SpecularStrength, 0.0f, 1.0f);
+			Result.SpecularStrength = std::clamp(Parameter.Value.ScalarValue, 0.0f, 1.0f);
 		}
-		float Shininess = Result.Shininess;
-		if (GetScalarParameterValue(MaterialParameters::ShininessName(), Shininess))
+		if (ResolveParameterValue(MaterialParameters::ShininessId, Parameter))
 		{
-			Result.Shininess = std::clamp(Shininess, 1.0f, 256.0f);
+			Result.Shininess = std::clamp(Parameter.Value.ScalarValue, 1.0f, 256.0f);
 		}
 		return Result;
 	}
@@ -98,10 +96,9 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
 		const FName Name = Event.MemberProperty->NamePrivate;
-		if (Name == FName("ParameterDefinitions")
-			|| Name == FName("ScalarParameterOverrides") || Name == FName("VectorParameterOverrides") || Name == FName("TextureParameterOverrides"))
+		if (Name == FName("ParameterDefinitions") || Name == FName("ParameterOverrides"))
 		{
-			// Reflected editor transactions restore map storage directly. Route every
+			// Reflected editor transactions restore collection storage directly. Route every
 			// phase through the same render invalidation normally supplied by setters.
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
 		}

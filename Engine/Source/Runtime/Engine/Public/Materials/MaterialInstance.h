@@ -17,7 +17,16 @@ namespace Durin
 		auto SetParent(DMaterialInterface* InParent) -> bool;
 		auto GetParent() const -> DMaterialInterface* override;
 		auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
+		auto GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>;
 		auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
+		auto SetParameterOverride(
+			const FGuid& Id,
+			EMaterialParameterType Type,
+			const FMaterialParameterValue& Value
+		) -> bool;
+		auto ClearParameterOverride(const FGuid& Id) -> bool;
+		auto HasLocalParameterOverride(const FGuid& Id) const -> bool;
+		auto IsParameterOverrideOrphan(const FGuid& Id) const -> bool;
 		auto SetScalarParameterValue(FName Name, float Value) -> bool;
 		auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
 		auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool;
@@ -44,13 +53,7 @@ namespace Durin
 		TObjectPtr<DMaterialInterface> RegisteredParent;
 
 		DPROPERTY(Edit)
-		std::unordered_map<std::string, float> ScalarParameterOverrides;
-
-		DPROPERTY(Edit)
-		std::unordered_map<std::string, FVector3> VectorParameterOverrides;
-
-		DPROPERTY(Edit)
-		std::unordered_map<std::string, TObjectPtr<DTexture2D>> TextureParameterOverrides;
+		std::vector<FMaterialParameterOverride> ParameterOverrides;
 
 		friend class DMaterialInterface;
 	};

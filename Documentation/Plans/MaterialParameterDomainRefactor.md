@@ -1,16 +1,19 @@
 # Material Parameter Domain Refactor Plan
 
-Last reviewed: 2026-07-23
+Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 0 and 1 are complete. Runtime Engine owns the reflected parameter schema,
-five permanent GUID identities and canonical `FName` values, and deterministic
-built-in definitions. `DMaterial` stores the ordered definition collection and
-validates its identity, type, order, and metadata during `PostLoad`; public name
-APIs use `FName`. The Material Editor now consumes Runtime metadata, although
-instances still use the three legacy string-keyed override maps and their editor
-bindings. Stage 2 has not started.
+Stages 0, 1, and 2 are complete. Runtime Engine owns the reflected parameter
+schema, five permanent GUID identities and canonical `FName` values, and
+deterministic built-in definitions. `DMaterial` stores the ordered definition
+collection, while `DMaterialInstance` stores one ordered GUID override
+collection. Instance resolution reports the supplying ancestor, preserves
+orphans across parent changes, and excludes them from rendering. Render data is
+resolved directly from the five built-in GUIDs, with existing invalidation,
+resource lifetime, serialization, duplication, and output behavior covered by
+focused Engine tests. The Material Editor still uses its legacy map-specific
+bindings; Stage 3 is next.
 
 This plan is an independently executable slice of Stage 2 in
 `Documentation/Plans/MaterialSystem.md`. Check off each stage only after its
@@ -142,16 +145,16 @@ dependency propagation, and render-thread snapshots.
 
 ### Stage 2: Replace Instance Storage and Preserve Rendering
 
-- [ ] Replace the three instance maps with the unified GUID override collection.
-- [ ] Implement definition-aware set, clear, local override, orphan detection,
+- [x] Replace the three instance maps with the unified GUID override collection.
+- [x] Implement definition-aware set, clear, local override, orphan detection,
   resolved value, and resolved source APIs across arbitrary valid parent chains.
-- [ ] Preserve orphan overrides on parent changes while excluding them from
+- [x] Preserve orphan overrides on parent changes while excluding them from
   resolved values and `FMaterialRenderData`.
-- [ ] Rebuild `GetRenderData()` from the five built-in GUIDs while preserving
+- [x] Rebuild `GetRenderData()` from the five built-in GUIDs while preserving
   current defaults, clamp rules, texture resources, and output values.
-- [ ] Route direct API edits, reflected transactions, and parent propagation
+- [x] Route direct API edits, reflected transactions, and parent propagation
   through the existing package and render invalidation rules.
-- [ ] Verify nested texture references remain visible to dependency collection,
+- [x] Verify nested texture references remain visible to dependency collection,
   serialization, duplication, and garbage collection.
 
 #### Acceptance Gate
