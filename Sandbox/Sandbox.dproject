@@ -1,0 +1,9 @@
+{
+    "ProjectName": "Sandbox",
+    "ModuleDirs": {
+        "Sandbox": "Source/Runtime/Sandbox"
+    },
+    "BaseModules": [
+        "Sandbox"
+    ]
+}

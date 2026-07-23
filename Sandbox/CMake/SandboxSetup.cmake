@@ -1,4 +1,4 @@
-# SandBox project entry script: establishes project paths for the shared Durin build flow.
+# Sandbox project entry script: establishes project paths for the shared Durin build flow.
 
 include_guard(GLOBAL)
 

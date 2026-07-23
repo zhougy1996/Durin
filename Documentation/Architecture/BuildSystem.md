@@ -40,7 +40,7 @@ cache, dependency-loading, and worker details are DEBUG-only. Set the
 `DURIN_DHT_LOG_LEVEL` cache setting to `DEBUG` for diagnostics or `WARNING` for
 Ninja-only progress unless DHT reports a problem.
 
-Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `SandBox/CMake/SandBoxSetup.cmake` run before that helper and may perform project-specific setup such as third-party registration.
+Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `Sandbox/CMake/SandboxSetup.cmake` run before that helper and may perform project-specific setup such as third-party registration.
 
 `add_durin_module(...)` imports generated per-module CMake metadata, wires reflection-generated sources and export files, applies shared PCH settings, and builds the resulting shared or static library.
 

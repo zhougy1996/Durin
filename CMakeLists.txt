@@ -33,7 +33,7 @@ set(DURIN_CMAKE_DIR "${PROJECT_SOURCE_DIR}/CMake")
 include("${DURIN_CMAKE_DIR}/DurinWorkspaceSetup.cmake")
 
 add_subdirectory(Engine)
-add_subdirectory(SandBox)
+add_subdirectory(Sandbox)
 
 durin_enforce_code_model_only_build()
 

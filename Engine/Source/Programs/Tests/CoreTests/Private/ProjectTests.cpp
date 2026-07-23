@@ -59,13 +59,13 @@ TEST(FProjectTests, PlatformProcessReportsCurrentProcessId)
 
 TEST(FProjectTests, LoadsExplicitProjectFile)
 {
-	const std::string ProjectFile = Durin::FPaths::RootDir() + "SandBox/SandBox.dproject";
+	const std::string ProjectFile = Durin::FPaths::RootDir() + "Sandbox/Sandbox.dproject";
 	const std::array<std::string, 1> OwnedArguments{std::format("--project={}", ProjectFile)};
 	const std::array<std::string_view, 1> Arguments{OwnedArguments[0]};
 	std::string Error;
 	ASSERT_TRUE(Durin::InitializeCurrentProject(Arguments, &Error)) << Error;
 	ASSERT_TRUE(Durin::HasCurrentProject());
-	EXPECT_EQ(Durin::GetCurrentProject()->Name, "SandBox");
+	EXPECT_EQ(Durin::GetCurrentProject()->Name, "Sandbox");
 	EXPECT_EQ(Durin::GetCurrentProject()->MountRoot, "/Game/");
 	EXPECT_EQ(Durin::FPaths::ProjectDir(), Durin::GetCurrentProject()->ProjectDir);
 }

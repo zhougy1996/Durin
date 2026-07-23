@@ -18,13 +18,13 @@ The workspace is the repository root, opened as the top-level CMake source direc
 Typical workspace contents:
 
 - `Engine/`
-- game projects such as `SandBox/`
+- game projects such as `Sandbox/`
 - root `CMakeLists.txt`
 - root `CMakePresets.json`
 
 ## Projects And Modules
 
-Projects are top-level owners such as `Engine` or `SandBox`. They typically own `.dproject`, `Source/`, `Configs/`, `Intermediate/`, and `Binaries/`.
+Projects are top-level owners such as `Engine` or `Sandbox`. They typically own `.dproject`, `Source/`, `Configs/`, `Intermediate/`, and `Binaries/`.
 
 At runtime, launch a specific project with `--project=<path-to-project.dproject>`. The project root is the descriptor's parent directory, so projects may live outside the engine workspace. Its `ProjectName` supplies the virtual mount name and its `Content` directory supplies the physical mount.
 
@@ -42,8 +42,8 @@ Important rule: `DURIN_PROFILE_NAME` is workspace-global. One configure or build
 
 Examples:
 
-- `Win64-Debug-DurinEditor` builds both `Engine` and `SandBox` in `DurinEditor` mode
-- `Win64-Debug-DurinGame` builds both `Engine` and `SandBox` in `DurinGame` mode
+- `Win64-Debug-DurinEditor` builds both `Engine` and `Sandbox` in `DurinEditor` mode
+- `Win64-Debug-DurinGame` builds both `Engine` and `Sandbox` in `DurinGame` mode
 
 Because profiles are workspace-global today, game projects should continue using shared profile names such as `DurinEditor` and `DurinGame` rather than project-specific profile names.
 
