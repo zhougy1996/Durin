@@ -233,9 +233,7 @@ namespace Durin
 			Queue.push_back({std::move(Record), true});
 			WorkAvailable.notify_one();
 			if (!bReliable) return;
-			Processed.wait(Lock, [this, Sequence] { return LastProcessedSequence >= Sequence || State == EState::Stopped; });
-			Lock.unlock();
-			FlushSinks();
+			Durable.wait(Lock, [this, Sequence] { return LastDurableSequence >= Sequence || State != EState::Running; });
 		}
 
 		auto EnqueueFromDispatcher(FLogRecord Record) -> void
@@ -304,6 +302,7 @@ namespace Durin
 			}
 			DispatchThreadId.store(0, std::memory_order_release);
 			Processed.notify_all();
+			Durable.notify_all();
 			SpaceAvailable.notify_all();
 		}
 
@@ -311,7 +310,7 @@ namespace Durin
 		{
 			uint64 Total = 0;
 			for (uint64 Count : Dropped) Total += Count;
-			if (Total == 0) return;
+			if (Total == 0 || Queue.size() >= Settings.QueueCapacity) return;
 			FLogRecord Summary;
 			Summary.Sequence = NextSequence++;
 			LastQueuedSequence = Summary.Sequence;
@@ -365,28 +364,52 @@ namespace Durin
 		auto ProcessRecord(const FLogRecord& Record, bool bNotifyListeners) -> void
 		{
 			AppendHistory(Record);
-			try
+			if (ConsoleLogger && static_cast<int32>(Record.Level) >= ConsoleLevel.load(std::memory_order_relaxed))
 			{
-				const spdlog::source_loc Source{Record.File.c_str(), static_cast<int>(Record.Line), Record.Function.c_str()};
-				if (ConsoleLogger && static_cast<int32>(Record.Level) >= ConsoleLevel.load(std::memory_order_relaxed))
+				try
 				{
+					const spdlog::source_loc Source{Record.File.c_str(), static_cast<int>(Record.Line), Record.Function.c_str()};
 					const std::string Payload = std::format("[{}] {}", Record.Module, Record.Message);
 					ConsoleLogger->log(Record.Timestamp, Source, ToSpdLevel(Record.Level),
 						spdlog::string_view_t(Payload.data(), Payload.size()));
 				}
-				if (FileLogger && static_cast<int32>(Record.Level) >= FileLevel.load(std::memory_order_relaxed))
+				catch (const std::exception& Error)
 				{
+					WriteFallbackText(std::format("Console log sink failure: {}", Error.what()));
+				}
+				catch (...)
+				{
+					WriteFallbackText("Console log sink failed with an unknown exception.");
+				}
+			}
+			if (FileLogger && static_cast<int32>(Record.Level) >= FileLevel.load(std::memory_order_relaxed))
+			{
+				try
+				{
+					const spdlog::source_loc Source{Record.File.c_str(), static_cast<int>(Record.Line), Record.Function.c_str()};
 					const std::string Payload = std::format("[#{}][{}:{}][{}] {}", Record.Sequence,
 						Record.ThreadId, Record.ThreadName, Record.Module, Record.Message);
 					FileLogger->log(Record.Timestamp, Source, ToSpdLevel(Record.Level),
 						spdlog::string_view_t(Payload.data(), Payload.size()));
 				}
+				catch (const std::exception& Error)
+				{
+					WriteFallbackText(std::format("File log sink failure: {}", Error.what()));
+				}
+				catch (...)
+				{
+					WriteFallbackText("File log sink failed with an unknown exception.");
+				}
 			}
-			catch (const std::exception& Error)
+			if (Record.Level >= ELogLevel::Error)
 			{
-				WriteFallbackText(std::format("Logger sink failure: {}", Error.what()));
+				FlushSinks();
+				{
+					std::scoped_lock Lock(QueueMutex);
+					LastDurableSequence = Record.Sequence;
+				}
+				Durable.notify_all();
 			}
-			if (Record.Level >= ELogLevel::Error) FlushSinks();
 			if (bNotifyListeners) NotifyListeners(Record);
 		}
 
@@ -431,8 +454,23 @@ namespace Durin
 
 		auto FlushSinks() const -> void
 		{
-			if (ConsoleLogger) ConsoleLogger->flush();
-			if (FileLogger) FileLogger->flush();
+			const auto Flush = [this](const std::shared_ptr<spdlog::logger>& Logger, std::string_view Name) {
+				if (!Logger) return;
+				try
+				{
+					Logger->flush();
+				}
+				catch (const std::exception& Error)
+				{
+					WriteFallbackText(std::format("{} log sink flush failure: {}", Name, Error.what()));
+				}
+				catch (...)
+				{
+					WriteFallbackText(std::format("{} log sink flush failed with an unknown exception.", Name));
+				}
+			};
+			Flush(ConsoleLogger, "Console");
+			Flush(FileLogger, "File");
 		}
 
 		auto WriteFallback(const FLogRecord& Record) const -> void
@@ -452,6 +490,7 @@ namespace Durin
 		std::condition_variable WorkAvailable;
 		std::condition_variable SpaceAvailable;
 		std::condition_variable Processed;
+		std::condition_variable Durable;
 		std::deque<FQueuedRecord> Queue;
 		std::deque<FLogRecord> BootstrapRecords;
 		uint64 EvictedBootstrapRecordCount = 0;
@@ -459,6 +498,7 @@ namespace Durin
 		uint64 NextSequence = 1;
 		uint64 LastQueuedSequence = 0;
 		uint64 LastProcessedSequence = 0;
+		uint64 LastDurableSequence = 0;
 		EState State = EState::Bootstrap;
 		FLogSettings Settings;
 		std::jthread DispatchThread;
@@ -613,7 +653,6 @@ namespace Durin
 			FileSink->set_pattern("[%Y-%m-%d %H:%M:%S.%e][%l][%s:%#] %v");
 			FileLogger = std::make_shared<spdlog::logger>("DurinFile", FileSink);
 			FileLogger->set_level(spdlog::level::trace);
-			FileLogger->flush_on(spdlog::level::err);
 		}
 		catch (const std::exception& Error)
 		{
@@ -638,6 +677,7 @@ namespace Durin
 				Impl->NextSequence = 1;
 				Impl->LastQueuedSequence = 0;
 				Impl->LastProcessedSequence = 0;
+				Impl->LastDurableSequence = 0;
 				std::scoped_lock HistoryLock(Impl->HistoryMutex);
 				Impl->History.clear();
 			}
@@ -694,9 +734,15 @@ namespace Durin
 			Impl->FlushSinks();
 			return;
 		}
-		Impl->QueueDropSummaryLocked();
-		const uint64 Target = Impl->LastQueuedSequence;
-		Impl->Processed.wait(Lock, [this, Target] { return Impl->LastProcessedSequence >= Target || Impl->State != FImpl::EState::Running; });
+		for (;;)
+		{
+			Impl->QueueDropSummaryLocked();
+			const uint64 Target = Impl->LastQueuedSequence;
+			Impl->Processed.wait(Lock, [this, Target] { return Impl->LastProcessedSequence >= Target || Impl->State != FImpl::EState::Running; });
+			if (Impl->State != FImpl::EState::Running) break;
+			Impl->QueueDropSummaryLocked();
+			if (Impl->LastProcessedSequence >= Impl->LastQueuedSequence) break;
+		}
 		Lock.unlock();
 		Impl->FlushSinks();
 	}
@@ -707,10 +753,15 @@ namespace Durin
 		{
 			{
 				std::scoped_lock Lock(Impl->QueueMutex);
-				if (Impl->State == FImpl::EState::Running) Impl->State = FImpl::EState::Stopping;
+				if (Impl->State == FImpl::EState::Running)
+				{
+					Impl->State = FImpl::EState::Stopping;
+					Impl->QueueDropSummaryLocked();
+				}
 			}
 			Impl->WorkAvailable.notify_all();
 			Impl->SpaceAvailable.notify_all();
+			Impl->Durable.notify_all();
 			return;
 		}
 		std::scoped_lock LifecycleLock(Impl->LifecycleMutex);
@@ -732,6 +783,7 @@ namespace Durin
 			if (Impl->State == FImpl::EState::Running)
 			{
 				Impl->State = FImpl::EState::Stopping;
+				Impl->QueueDropSummaryLocked();
 				bNotifyWorker = true;
 			}
 		}
@@ -739,6 +791,7 @@ namespace Durin
 		{
 			Impl->WorkAvailable.notify_all();
 			Impl->SpaceAvailable.notify_all();
+			Impl->Durable.notify_all();
 		}
 		if (Impl->DispatchThread.joinable()) Impl->DispatchThread.join();
 		Impl->FlushSinks();
@@ -751,6 +804,7 @@ namespace Durin
 			Impl->History.clear();
 		}
 		Impl->Processed.notify_all();
+		Impl->Durable.notify_all();
 	}
 
 	auto StringToLogLevel(std::string_view InLogLevel, ELogLevel DefaultLevel) -> ELogLevel

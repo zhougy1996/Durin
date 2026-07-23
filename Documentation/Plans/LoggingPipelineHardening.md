@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stages 0 and 1 are complete. The logger now owns bounded structured session history, exposes the frozen sequence-cursor read contract, retains the default 5,000-record bootstrap window, reports bootstrap overflow explicitly, and resets history and sequence state across lifecycle sessions. Recursive dispatcher-thread logs are requeued without listener notification so retained history remains in strict sequence order.
+Stages 0 through 2 are complete. The logger now owns bounded structured session history, exposes the frozen sequence-cursor read contract, retains the default 5,000-record bootstrap window, reports bootstrap overflow explicitly, and resets history and sequence state across lifecycle sessions. Recursive dispatcher-thread logs are requeued without listener notification so retained history remains in strict sequence order. Reliable Error and Fatal completion is now published after active sinks have been attempted and intentionally flushed, before compatibility listeners run. Shutdown releases reliable producers, sink and flush failures use fallback stderr without stranding waiters, and drop summaries wait for real queue capacity.
 
 Validation evidence on 2026-07-23:
 
@@ -15,6 +15,11 @@ Validation evidence on 2026-07-23 after Stage 1:
 
 - `BuildTool test --target CoreTests --filter FLoggerTests.* --timeout 60`: 22 tests passed.
 - `BuildTool test --target CoreTests --timeout 60`: 114 tests passed across 23 suites.
+
+Validation evidence on 2026-07-23 after Stage 2:
+
+- `BuildTool test --target CoreTests --filter FLoggerTests.* --timeout 60`: 24 tests passed.
+- `BuildTool test --target CoreTests --timeout 60`: 116 tests passed across 23 suites.
 
 The current Console subscribes after most engine startup work has already begun. Listener delivery is decided when the asynchronous dispatcher processes a record rather than when the record is produced, so the Console receives an unpredictable tail of pre-subscription records and no already-processed history. The selected direction is to make `FLogger` own bounded structured session history and let the Console consume it by sequence cursor instead of using a callback listener as its data transport.
 
@@ -223,13 +228,13 @@ Depends on Stage 0.
 
 Depends on Stage 1.
 
-- [ ] Split sink completion state from any observer or compatibility-listener completion state.
-- [ ] Mark a reliable sequence durable immediately after its required sinks complete their intentional flush path.
-- [ ] Consolidate redundant Error/Fatal flush mechanisms while retaining the existing file-visibility guarantee when the logging call returns.
-- [ ] Ensure a stalled or throwing observer cannot delay the durability acknowledgement for the current record.
-- [ ] Prevent reliable producers from waiting indefinitely after shutdown begins or after all required sinks fail.
-- [ ] Make drop-summary admission respect queue capacity under producer/dispatcher races.
-- [ ] Add deterministic tests using barriers rather than sleeps for stalled observers, sink completion, shutdown release, queue saturation, and summary ordering.
+- [x] Split sink completion state from any observer or compatibility-listener completion state.
+- [x] Mark a reliable sequence durable immediately after its required sinks complete their intentional flush path.
+- [x] Consolidate redundant Error/Fatal flush mechanisms while retaining the existing file-visibility guarantee when the logging call returns.
+- [x] Ensure a stalled or throwing observer cannot delay the durability acknowledgement for the current record.
+- [x] Prevent reliable producers from waiting indefinitely after shutdown begins or after all required sinks fail.
+- [x] Make drop-summary admission respect queue capacity under producer/dispatcher races.
+- [x] Add deterministic tests using barriers rather than sleeps for stalled observers, sink completion, shutdown release, queue saturation, and summary ordering.
 
 #### Acceptance Gate
 

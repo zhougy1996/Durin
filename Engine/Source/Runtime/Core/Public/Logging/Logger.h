@@ -68,6 +68,8 @@ namespace Durin
 
 		CORE_API static auto Get() -> FLogger&;
 
+		// Error and Fatal calls wait for active sink attempts and flushing, but never
+		// for listener callbacks. Shutdown may release an accepted reliable call early.
 		template<typename... Args>
 		void Log(ELogLevel Level, std::source_location Loc, std::string_view Module, std::format_string<Args...> Fmt, Args&&... args)
 		{
