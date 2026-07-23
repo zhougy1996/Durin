@@ -212,7 +212,7 @@ namespace Durin
 			}
 			else
 			{
-				const bool bShouldFollow = bScrollToLatest || (bAutoScroll && bIsAtBottom && bReceivedRecords);
+				const bool bShouldFollow = ScrollToLatestFrames > 0 || (bAutoScroll && bIsAtBottom && bReceivedRecords);
 				ImGuiListClipper Clipper;
 				Clipper.Begin(static_cast<int>(VisibleRecordIndices.size()));
 				if (bShouldFollow)
@@ -235,11 +235,12 @@ namespace Durin
 																								 ImGui::GetStyleColorVec4(ImGuiCol_Text);
 							ImGui::TextColored(Color, "%s", Record.Text.c_str());
 						}
+						if (bShouldFollow && VisibleIndex == static_cast<int>(VisibleRecordIndices.size()) - 1)
+							ImGui::SetScrollHereY(1.0f);
 					}
 				}
-				if (bShouldFollow) ImGui::SetScrollHereY(1.0f);
 			}
-			bScrollToLatest = false;
+			if (ScrollToLatestFrames > 0) --ScrollToLatestFrames;
 			if (ImGui::BeginPopupContextWindow("ConsoleRecordsContext", ImGuiPopupFlags_MouseButtonRight))
 			{
 				if (ImGui::MenuItem("Copy Visible")) CopyVisibleRecords();
@@ -310,7 +311,7 @@ namespace Durin
 				Panel->State->Records.AddText(EConsoleRecordType::Result, std::move(Text));
 				Panel->MarkRecordsChanged();
 				Panel->bHasNewConsoleRecords = true;
-				Panel->bScrollToLatest = true;
+				Panel->ScrollToLatestFrames = 2;
 			}
 		}
 		return 0;
@@ -320,7 +321,8 @@ namespace Durin
 	{
 		bool bChanged = ApplyPendingRequests();
 		FLogReadResult Read = FLogger::Get().ReadRecords(NextLogSequence);
-		if (Read.NewestAvailableSequence != 0 && Read.NewestAvailableSequence < NextLogSequence)
+		// Being exactly one past the newest sequence means the reader is caught up, not that the logger restarted.
+		if (Read.NewestAvailableSequence != 0 && NextLogSequence > 1 && Read.NewestAvailableSequence < NextLogSequence - 1)
 		{
 			State->Records.Clear();
 			NextLogSequence = 1;
@@ -415,7 +417,7 @@ namespace Durin
 		if (!Result.Message.empty()) State->Records.AddText(Result.bSuccess ? EConsoleRecordType::Result : EConsoleRecordType::Error, Result.Message);
 		MarkRecordsChanged();
 		bHasNewConsoleRecords = true;
-		bScrollToLatest = true;
+		ScrollToLatestFrames = 2;
 	}
 
 	auto FConsolePanel::Clear() -> void
