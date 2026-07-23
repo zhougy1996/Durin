@@ -2,6 +2,8 @@
 
 本文记录 Durin 编辑器世界网格的当前实现、数学含义、渲染顺序、调参方式和已知约束。它是供实现维护和问题排查使用的参考资料，不是架构规范，也不要求被 `AGENTS.md` 或其他文档索引。
 
+> 当前状态：本文第 1 至 18 节描述的是已经落地的 V1 实现。V1 复用全屏三角形顶点缓冲，但会在 Vertex Shader 中把顶点改造成一个有限的世界空间平面，因此不是真正的屏幕空间无限网格。选定的 V2 方向是“屏幕空间全屏三角形 + 每像素射线与平面求交 + 交点深度输出”，具体实施步骤见 `Documentation/Plans/EditorWorldGridV2.md`。在 V2 完成验证之前，不应把第 19 节的设计当作当前运行时行为。
+
 ## 1. 功能目标
 
 编辑器世界网格用于在缺少场景物体时提供稳定的空间参照。当前实现具有以下行为：
@@ -105,7 +107,7 @@ AxisAlpha           = ThemeAxisAlpha * 0.82
 
 三角形范围略大于淡出范围，目的是让网格在到达几何边界前已经完全透明，避免看到有限平面的硬边。
 
-## 4. 为什么只画一个三角形
+## 4. V1 为什么只画一个世界空间三角形
 
 网格不是由大量 Line Primitive 构成。Renderer 复用 Post Process 的全屏三角形顶点：
 
@@ -137,7 +139,9 @@ output.pos = mul(Grid.WorldToClip, float4(output.worldPosition, 1.0));
 
 `worldPosition` 经过透视正确插值后传入 Fragment Shader，因此每个像素都能恢复它在世界网格平面上的 XY 位置。
 
-这不是数学意义上的无限网格。它是一个跟随相机移动、在几何边界前完成淡出的有限程序化平面。
+这不是数学意义上的无限网格，也不是“全屏覆盖后在每个像素中重建射线”的实现。共享缓冲中的顶点最初具有全屏三角形形状，但经过 `VertexMain` 后已经成为普通的世界空间几何，照常参与投影、近远裁剪和光栅化。
+
+因此 V1 实际上是一个跟随相机移动、在几何边界前完成淡出的有限程序化平面。这个区别在普通俯视角度下不明显，但在相机高度接近 Near Clip、同时视线接近水平面时非常重要：有限平面可能穿过近裁剪面，旋转会让裁剪边界扫过屏幕。
 
 ## 5. 距离淡出
 
@@ -192,6 +196,8 @@ abs(toView.z) / distanceToView
 - 数值较大：从较高角度观察网格，正常显示。
 
 `0.025` 到 `0.16` 是经验区间。它主要控制地平线附近的稳定性，不应被用来控制普通远距离淡出。
+
+当相机非常接近网格高度时，`abs(toView.z)` 在大范围像素上都很小。此时轻微旋转会同时改变屏幕像素对应的世界位置、导数和可见淡出区域；像素可能集中跨过 `angleFade` 过渡或最终 `discard` 阈值。这不是相机姿态本身不连续，而是低高度掠射视角把多个 Shader 临界条件压缩到了很小的屏幕变化范围内。
 
 ## 7. 屏幕导数与世界单位/像素
 
@@ -464,6 +470,8 @@ Editor Overlay Lines / Icons / Gizmos
 - 相机视锥、图标和 Transform Gizmo 在网格之后绘制，仍然清晰可见。
 - 网格不是 ImGui 绘制内容，能够使用场景深度和 Renderer Pipeline。
 
+V1 的网格深度由世界空间三角形经过固定功能投影后自动产生。V2 改为真正的屏幕空间覆盖后，三角形自身的深度不再代表网格交点；V2 必须把射线和平面的交点重新投影，并通过 `SV_Depth` 输出交点深度，才能保持这里的遮挡关系。
+
 ## 14. 性能特征
 
 每个可见编辑器 View 的网格成本大致为：
@@ -553,6 +561,20 @@ Y axis -> x = 0 -> AxisLine(worldPosition.x)
 
 检查三级网格的映射关系和过渡权重。十进制边界前后的级别必须能连续重命名，不能只绘制一个会瞬间变为 10 倍间距的单级网格。
 
+### 16.7 相机贴近网格时旋转发生跳变
+
+先区分可见症状：
+
+- 网格疏密或主次线层级突然变化：优先检查 `worldUnitsPerPixel` 和十进制 LOD 过渡。
+- 靠近相机的整块区域被切开、消失或重新出现：优先检查世界空间三角形与 Near Clip 的相交。
+- 地平线附近整片明暗快速变化：优先检查 `angleFade`、最终 Alpha 和 `discard` 阈值。
+
+Level Editor 当前 `NearClip` 为 `0.1`。当相机到 `Z = Height` 的垂直距离接近或小于该值时，V1 世界空间三角形可以穿过近裁剪面。旋转相机不会让相机姿态跳变，但会改变近裁剪面与网格平面的交线，因此屏幕上的有效三角形区域可能明显变化。
+
+与此同时，掠射视角会使 `ddx(input.worldPosition.xy)` 和 `ddy(input.worldPosition.xy)` 快速增大，十进制 LOD 等值线在屏幕上移动得更快。当前三级交叉淡化保证 decade 边界在数学上能够连续重命名，但不能消除近水平投影本身的高敏感性。
+
+短期调参可以扩大角度淡出、降低硬丢弃造成的可见边界，或者限制相机过度贴近网格；这些方法只能缓解症状。计划中的 V2 通过屏幕射线求交消除有限几何穿过 Near Clip 造成的拓扑变化，同时仍需保留地平线淡出和导数安全的 LOD。
+
 ## 17. 修改后的验证建议
 
 网格 Shader 修改至少应检查以下视角：
@@ -584,10 +606,119 @@ BuildTool.bat build --target all --plain
 - 吸附设置与视觉网格间距联动。
 - 无限精度的大世界坐标原点重定位。
 
+V1 还具有以下实现边界：
+
+- 它是有限世界空间几何，不是真正的屏幕空间无限网格。
+- 当相机高度接近 Near Clip 时，几何与近裁剪面的交线会随旋转移动。
+- 掠射角淡出、LOD 选择和透明度丢弃在低高度视角下可能集中跨越阈值。
+- 世界位置、矩阵和 Uniform 最终以 Shader `float` 精度计算，不解决大世界精度问题。
+
 如果未来添加这些能力，应继续保持以下不变量：
 
 - 网格世界定位与屏幕抗锯齿职责分离。
 - 离散 LOD 选择不能参与 GPU 屏幕导数。
-- 几何边界必须位于完全淡出的区域之外。
+- 如果实现仍包含有限几何边界，边界必须位于完全淡出的区域之外。
 - 网格参与深度测试但不写入深度。
 - 网格保持单次或少量批量绘制，不退化为逐线 Draw Call。
+
+## 19. V2 选定方向：屏幕空间射线求交
+
+### 19.1 为什么替换 V1 的世界空间几何
+
+V1 已经只提交一次三角形绘制，性能和 Draw Call 结构没有明显问题。V2 的主要目标不是进一步减少几何，而是让“无限网格”的表达与实现一致：屏幕上的每个像素独立判断其观察射线是否与 `Z = Height` 平面相交，不再依赖一个会被 Near Clip 裁剪的巨大世界三角形。
+
+预期数据流为：
+
+```text
+共享全屏三角形
+  -> Vertex Shader 直接输出 Clip Position
+  -> Fragment Shader 使用 ClipToWorld 重建 Near/Far 世界点
+  -> 构造世界射线
+  -> 与 Z = Height 求交
+  -> 使用交点 XY 计算 Grid、LOD、轴线和淡出
+  -> 使用 WorldToClip 重投影交点
+  -> 输出 Color + SV_Depth
+```
+
+### 19.2 射线重建
+
+Vertex Shader 直接保留共享全屏三角形的裁剪空间坐标，并把 `clipXY` 传给 Fragment Shader。Fragment Shader 分别使用 NDC 深度 `0` 和 `1` 反投影：
+
+```slang
+float4 nearH = mul(Grid.ClipToWorld, float4(input.clipXY, 0.0, 1.0));
+float4 farH  = mul(Grid.ClipToWorld, float4(input.clipXY, 1.0, 1.0));
+float3 nearWorld = nearH.xyz / nearH.w;
+float3 farWorld  = farH.xyz / farH.w;
+float3 rayVector = farWorld - nearWorld;
+```
+
+使用 Near/Far 两点而不是假设所有射线都从相机位置出发，可以让 Uniform 和 Shader 契约自然兼容未来的正交投影；V2 本身仍只承诺当前透视 Level Editor 视口。
+
+水平面交点参数为：
+
+```text
+t = (Height - nearWorld.z) / rayVector.z
+worldHit = nearWorld + rayVector * t
+```
+
+以下情况不产生 Grid：
+
+- `abs(rayVector.z)` 小于平行阈值。
+- `t < 0`，交点位于 Near 点之后的反方向。
+- 交点或齐次除法结果不是有限值。
+- 重投影后的深度不在当前 `0..1` 深度范围内。
+- 交点超出距离淡出范围并已完全透明。
+
+### 19.3 为什么仍然需要输出深度
+
+真正的全屏三角形位于人为指定的裁剪空间深度，它自身不代表网格平面的空间位置。如果只输出颜色而不提供交点深度，固定功能深度测试无法判断网格应该位于场景 Mesh 前面还是后面。
+
+V2 将交点重新投影：
+
+```slang
+float4 hitClip = mul(Grid.WorldToClip, float4(worldHit, 1.0));
+float hitDepth = hitClip.z / hitClip.w;
+```
+
+Fragment Shader 返回颜色和 `SV_Depth = hitDepth`。Pipeline 继续保持：
+
+```text
+Depth Test  = Enabled
+Depth Write = Disabled
+Alpha Blend = Enabled
+```
+
+这样 Grid 使用真实交点深度参与已有场景深度测试，但仍不会污染深度附件。由于仓库当前没有已签入的 `SV_Depth` Shader 先例，实施计划把 Slang 编译、SPIR-V 反射和 Vulkan Pipeline 验证放在 Stage 0，确认后再替换 V1。
+
+### 19.4 V2 保留的 V1 数学
+
+射线求交只替换“如何得到每个像素的世界网格坐标”，以下行为继续保留：
+
+- 对连续 `worldHit.xy` 先求 `ddx/ddy`，再选择离散十进制 LOD。
+- 同时采样 lower、upper 和 next-major 三级网格并交叉淡化。
+- 使用世界 XY 坐标计算红色 X 轴与绿色 Y 轴。
+- 根据相机到交点的距离执行远端淡出。
+- 在射线接近平行于平面时执行掠射角淡出。
+- 极低 Alpha 像素最终丢弃。
+
+掠射角可以直接使用归一化射线的垂直分量：
+
+```slang
+float angleFade = smoothstep(0.025, 0.16, abs(rayDirection.z));
+```
+
+对透视射线上的有效平面交点，它与 V1 的 `abs(toView.z) / distanceToView` 表达同一几何量，但不再通过一个趋向无穷大的交点距离做比值，含义也更直接。
+
+### 19.5 V2 不会自动解决的问题
+
+屏幕空间射线求交可以消除有限三角形边界和 Near Clip 裁剪拓扑变化，但不能让地平线附近的透视投影变得不敏感。当射线接近平行于平面时，交点仍会快速移向远处，世界单位/像素仍会增大。
+
+因此 V2 仍必须满足：
+
+- 平行射线阈值之前有平滑角度淡出。
+- 距离淡出在 Far Clip 之前完成。
+- 离散 LOD 选择不参与屏幕导数。
+- 无效交点和导数 Quad 边界不能形成新的接缝。
+- FXAA 开启和关闭时都要验证低空地平线视角。
+
+完整阶段、验收门槛和验证矩阵见 `Documentation/Plans/EditorWorldGridV2.md`。

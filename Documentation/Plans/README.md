@@ -16,6 +16,7 @@ This directory contains implementation plans whose scope has been narrowed enoug
 | [Editor Icon Atlas](EditorIconAtlas.md) | Offline atlas pipeline for editor visualization icons |
 | [Asset Registry and Thumbnail Cache](AssetRegistryAndThumbnailCache.md) | Persistent asset discovery metadata and rebuildable Content Browser thumbnails |
 | [Shader Cache Hardening](ShaderCacheHardening.md) | Shader cache integrity, warm-path manifests, request coalescing, and bounded retention |
+| [Editor World Grid V2](EditorWorldGridV2.md) | Screen-space ray-plane reconstruction for a stable infinite editor grid |
 
 Update this index whenever a plan document is added, renamed, or deleted.
 
