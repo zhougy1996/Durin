@@ -16,7 +16,6 @@ This directory contains implementation plans whose scope has been narrowed enoug
 | [Editor Icon Atlas](EditorIconAtlas.md) | Offline atlas pipeline for editor visualization icons |
 | [Asset Registry and Thumbnail Cache](AssetRegistryAndThumbnailCache.md) | Persistent asset discovery metadata and rebuildable Content Browser thumbnails |
 | [Shader Cache Hardening](ShaderCacheHardening.md) | Shader cache integrity, warm-path manifests, request coalescing, and bounded retention |
-| [Logging Pipeline Hardening](LoggingPipelineHardening.md) | Deterministic session history, reliable sink delivery, bounded console consumption, and logging validation |
 
 ## Archived Plans
 
@@ -24,6 +23,7 @@ Archived plans preserve implementation decisions, validation evidence, and incom
 
 | Plan | Outcome |
 | --- | --- |
+| [Logging Pipeline Hardening](Archive/LoggingPipelineHardening.md) | Landed deterministic bounded session history, reliable sink completion, cursor-driven Console consumption, and complete automated and interactive validation |
 | [Editor World Grid V2](Archive/EditorWorldGridV2.md) | Landed screen-space ray-plane reconstruction; its later renderer-phase follow-up is also archived below |
 | [Scene Post-Processing and Editor Assistance Boundary](Archive/ScenePostProcessEditorAssistanceBoundary.md) | Landed post-process-first, depth-aware editor assistance for Present and Offscreen viewport outputs |
 
