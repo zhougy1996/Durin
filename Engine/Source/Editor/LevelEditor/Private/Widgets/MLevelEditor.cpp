@@ -60,7 +60,7 @@ namespace Durin
 		};
 		Context->ApplyPlayChanges = [this](bool bSelectedOnly) { ApplyPlayChanges(bSelectedOnly); };
 
-		Asset::GetAssetRegistry().ScanMountedContent();
+		Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
 		SessionSettings.PruneInvalidViewportStates();
 		LoadProjectSettings();
 		SessionSettings.Save(nullptr);
@@ -98,7 +98,7 @@ namespace Durin
 			[this] { EditorError.clear(); },
 			[this](std::string Message) { SetError(std::move(Message)); },
 			[this](std::string AssetPath) {
-				Asset::GetAssetRegistry().ScanMountedContent();
+				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
 				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
 			}
 		);
@@ -106,7 +106,7 @@ namespace Durin
 			[this] { EditorError.clear(); },
 			[this](std::string Message) { SetError(std::move(Message)); },
 			[this](std::string AssetPath) {
-				Asset::GetAssetRegistry().ScanMountedContent();
+				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
 				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
 			}
 		);

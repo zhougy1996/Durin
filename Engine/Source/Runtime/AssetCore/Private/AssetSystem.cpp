@@ -700,6 +700,43 @@ namespace Durin::Asset
 			return true;
 		}
 
+		auto BuildRegistryCacheEntries(const std::unordered_map<FAssetPath, FAssetData>& Assets,
+			std::vector<FRegistryCacheEntry>& OutEntries, std::string& OutWarning) -> bool
+		{
+			OutEntries.clear();
+			OutEntries.reserve(Assets.size());
+			for (const auto& [Path, Data] : Assets)
+			{
+				const auto MountIt = std::ranges::find_if(PathUtilities::GetRegisteredMountPoints(), [&Path](const PathUtilities::FMountPoint& Mount) {
+					return Path.GetView().starts_with(Mount.VirtualRoot);
+				});
+				if (MountIt == PathUtilities::GetRegisteredMountPoints().end())
+				{
+					OutWarning = std::format("Could not persist asset registry entry {} because its mount is unavailable.", Path.ToString());
+					OutEntries.clear();
+					return false;
+				}
+				const std::string_view RelativeAssetPath = Path.GetView().substr(MountIt->VirtualRoot.size());
+				const std::string RelativeString = std::format("{}.dasset", RelativeAssetPath);
+				if (RelativeAssetPath.empty() || std::filesystem::path(RelativeString).is_absolute()
+					|| RelativeString.starts_with("../") || RelativeString.find("/../") != std::string::npos)
+				{
+					OutWarning = std::format("Could not persist invalid asset registry path {}.", Path.ToString());
+					OutEntries.clear();
+					return false;
+				}
+				OutEntries.push_back(FRegistryCacheEntry{
+					.MountRoot = MountIt->VirtualRoot,
+					.RelativePath = RelativeString,
+					.AssetClassName = Data.AssetClassName,
+					.FormatVersion = Data.FormatVersion,
+					.Dependencies = Data.Dependencies,
+					.FileSize = Data.FileSize,
+					.LastWriteTimeTicks = Data.LastWriteTimeTicks});
+			}
+			return true;
+		}
+
 		auto FindExistingInner(DObject* Outer, std::string_view Name, DClass* Class, bool& bTypeMismatch) -> DObject*
 		{
 			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Outer))
@@ -842,8 +879,27 @@ namespace Durin::Asset
 		}
 		if (bCacheLoaded) LastScanStats.Removed = CachedEntries.size() - SeenCachedIdentities.size();
 		Assets = std::move(NewAssets);
-		WriteRegistryCache(MountManifest, std::move(NewCacheEntries), CacheWarning);
+		bPersistentSnapshotDirty = !WriteRegistryCache(MountManifest, std::move(NewCacheEntries), CacheWarning);
+		DURIN_INFO_CATEGORY("AssetRegistry", "Scanned {} asset package(s): {} reused, {} reparsed, {} removed, {} failed.",
+			LastScanStats.Enumerated, LastScanStats.Reused, LastScanStats.Reparsed, LastScanStats.Removed, LastScanStats.Failed);
+		if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
 		return {};
+	}
+
+	auto FAssetRegistry::FlushPersistentSnapshot() -> void
+	{
+		if (!bPersistentSnapshotDirty) return;
+		std::vector<FRegistryCacheEntry> Entries;
+		std::string Warning;
+		if (BuildRegistryCacheEntries(Assets, Entries, Warning)
+			&& WriteRegistryCache(GetMountManifest(), std::move(Entries), Warning))
+		{
+			bPersistentSnapshotDirty = false;
+			CacheWarning.clear();
+			return;
+		}
+		CacheWarning = std::move(Warning);
+		if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
 	}
 
 	auto FAssetRegistry::FindAsset(const FAssetPath& Path) const -> const FAssetData*
@@ -852,7 +908,16 @@ namespace Durin::Asset
 		return It == Assets.end() ? nullptr : &It->second;
 	}
 
-	auto FAssetRegistry::AddOrUpdate(FAssetData Data) -> void { Assets.insert_or_assign(Data.PackagePath, std::move(Data)); }
+	auto FAssetRegistry::AddOrUpdate(FAssetData Data) -> void
+	{
+		Assets.insert_or_assign(Data.PackagePath, std::move(Data));
+		bPersistentSnapshotDirty = true;
+	}
+
+	auto FAssetRegistry::Remove(const FAssetPath& Path) -> void
+	{
+		if (Assets.erase(Path) != 0) bPersistentSnapshotDirty = true;
+	}
 
 	auto FAssetManager::Get() -> FAssetManager&
 	{
@@ -881,6 +946,7 @@ namespace Durin::Asset
 			return Error(EAssetError::InvalidObjectGraph, "Failed to assign package asset.");
 		}
 		LoadedPackages.emplace(Path, Package);
+		Registry.bPersistentSnapshotDirty = true;
 		return {};
 	}
 
@@ -1051,7 +1117,7 @@ namespace Durin::Asset
 		}
 		LoadedPackages.erase(OldPath);
 		LoadedPackages.emplace(NewPath, MovingPackage);
-		Registry.Assets.erase(OldPath);
+		Registry.Remove(OldPath);
 		std::error_code DirectoryEc;
 		std::filesystem::create_directories(NewFile.parent_path(), DirectoryEc);
 		if (DirectoryEc) { LoadedPackages.erase(NewPath); LoadedPackages.emplace(OldPath, MovingPackage); Rollback(); return Error(EAssetError::IoError, "Failed to create the destination directory."); }
@@ -1190,7 +1256,7 @@ namespace Durin::Asset
 			StagedFiles.push_back({File, Staged, RecoveryCopy});
 		}
 
-		Registry.Assets.erase(Path);
+		Registry.Remove(Path);
 		for (const FStagedDeleteFile& File : StagedFiles)
 		{
 			std::error_code Ec;
@@ -1380,6 +1446,7 @@ namespace Durin::Asset
 
 	auto FAssetManager::Shutdown() -> void
 	{
+		Registry.FlushPersistentSnapshot();
 		std::vector<DPackage*> Packages;
 		Packages.reserve(LoadedPackages.size());
 		for (const auto& [Path, Package] : LoadedPackages)

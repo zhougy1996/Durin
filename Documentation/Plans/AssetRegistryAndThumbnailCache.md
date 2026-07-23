@@ -1,10 +1,10 @@
 # Asset Registry and Thumbnail Cache Plan
 
-Last reviewed: 2026-07-23
+Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 0 through 2 are complete. Registry discovery now validates and reconciles a deterministic project-local snapshot, reuses exact fingerprint matches, supports explicit full validation, atomically publishes a fresh live map, and reports scan/cache diagnostics. Stage 3 mutation and lifecycle integration is next.
+Stages 0 through 3 are complete. Registry discovery now validates and reconciles a deterministic project-local snapshot, reuses exact fingerprint matches, supports explicit full validation, atomically publishes a fresh live map, and reports scan/cache diagnostics. Successful save, load-time discovery, move, delete, and import-style save operations mark the snapshot dirty; explicit reconciliation and orderly asset-manager shutdown flush coalesced mutations without making cache failures fatal. AssetCore mutation lifecycle tests and the LevelEditor build pass. Stage 4 persistent source-image thumbnails is next.
 
 ## Goal
 
@@ -153,11 +153,11 @@ Make editor and game startup reuse previously discovered asset metadata while st
 
 ### Stage 3: Mutation integration and lifecycle
 
-- [ ] Mark the registry snapshot dirty from successful save, create, move, delete, import, and load-time discovery updates.
-- [ ] Coalesce writes without allowing shutdown to lose successful in-process registry mutations.
-- [ ] Route editor startup, game startup, Content Browser refresh, and existing post-import rescans through the reconciliation API with explicit incremental/full intent.
-- [ ] Ensure shutdown flush ordering occurs before asset-manager state is destroyed.
-- [ ] Report cache statistics and recoverable persistence warnings without turning them into asset-operation failures.
+- [x] Mark the registry snapshot dirty from successful save, create, move, delete, import, and load-time discovery updates.
+- [x] Coalesce writes without allowing shutdown to lose successful in-process registry mutations.
+- [x] Route editor startup, game startup, Content Browser refresh, and existing post-import rescans through the reconciliation API with explicit incremental/full intent.
+- [x] Ensure shutdown flush ordering occurs before asset-manager state is destroyed.
+- [x] Report cache statistics and recoverable persistence warnings without turning them into asset-operation failures.
 
 #### Acceptance Gate
 

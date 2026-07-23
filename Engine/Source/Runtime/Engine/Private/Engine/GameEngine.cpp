@@ -43,7 +43,7 @@ namespace Durin
 				const std::string DefaultLevel = ProjectSettings.GetRootView().GetView("Editor").GetView("DefaultLevel").GetString();
 				FAssetPath LevelPath;
 				DLevel* Level = nullptr;
-				Asset::GetAssetRegistry().ScanMountedContent();
+				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
 				if (!DefaultLevel.empty() && FAssetPath::TryCreate(DefaultLevel, LevelPath))
 				{
 					const Asset::FAssetResult Result = Asset::LoadAsset(LevelPath, Level);

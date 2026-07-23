@@ -108,18 +108,22 @@ namespace Durin::Asset
 	{
 	public:
 		ASSETCORE_API auto ScanMountedContent(EAssetRegistryScanMode Mode = EAssetRegistryScanMode::Incremental) -> FAssetResult;
+		ASSETCORE_API auto FlushPersistentSnapshot() -> void;
 		ASSETCORE_API auto FindAsset(const FAssetPath& Path) const -> const FAssetData*;
 		auto GetAssets() const -> const std::unordered_map<FAssetPath, FAssetData>& { return Assets; }
 		auto GetScanErrors() const -> const std::vector<FAssetResult>& { return ScanErrors; }
 		auto GetLastScanStats() const -> const FAssetRegistryScanStats& { return LastScanStats; }
 		auto GetCacheWarning() const -> const std::string& { return CacheWarning; }
+		auto IsPersistentSnapshotDirty() const -> bool { return bPersistentSnapshotDirty; }
 
 	private:
 		auto AddOrUpdate(FAssetData Data) -> void;
+		auto Remove(const FAssetPath& Path) -> void;
 		std::unordered_map<FAssetPath, FAssetData> Assets;
 		std::vector<FAssetResult> ScanErrors;
 		FAssetRegistryScanStats LastScanStats;
 		std::string CacheWarning;
+		bool bPersistentSnapshotDirty = false;
 
 		friend class FAssetManager;
 	};

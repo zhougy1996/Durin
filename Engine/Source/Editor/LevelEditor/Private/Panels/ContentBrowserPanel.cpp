@@ -177,7 +177,7 @@ namespace Durin
 	{
 		if (bRescanRegistry)
 		{
-			const Asset::FAssetResult Result = Asset::GetAssetRegistry().ScanMountedContent();
+			const Asset::FAssetResult Result = Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
 			if (!Result) SetError(Result.Message);
 		}
 		if (!CurrentPhysicalPath.empty() && !std::filesystem::is_directory(CurrentPhysicalPath))
