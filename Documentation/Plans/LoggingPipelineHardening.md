@@ -4,7 +4,12 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Planning complete. The existing logger and editor Console paths have been reviewed, and the current `FLoggerTests` suite passes. Implementation has not started.
+Stage 0 is complete. The existing logger and editor Console paths have been reviewed, the listener consumer audit is complete, and the public history/read/shutdown contracts below are frozen for implementation. Three deterministic characterization tests now preserve the current late-listener and reliable-listener behavior before production code changes.
+
+Validation evidence on 2026-07-23:
+
+- `BuildTool test --target CoreTests --filter FLoggerTests.* --timeout 60`: 14 tests passed.
+- `BuildTool test --target CoreTests --timeout 60`: 106 tests passed across 23 suites.
 
 The current Console subscribes after most engine startup work has already begun. Listener delivery is decided when the asynchronous dispatcher processes a record rather than when the record is produced, so the Console receives an unpredictable tail of pre-subscription records and no already-processed history. The selected direction is to make `FLogger` own bounded structured session history and let the Console consume it by sequence cursor instead of using a callback listener as its data transport.
 
@@ -111,16 +116,79 @@ Provide a deterministic, bounded, and thread-safe logging pipeline in which the 
 - Error records can be flushed redundantly through multiple mechanisms.
 - Existing tests do not cover a late reader, the history/live boundary, history eviction, Fatal Console visibility, or a stalled observer during reliable logging.
 
+### Stage 0 contract freeze
+
+The current path is:
+
+```text
+producer thread
+  -> ShouldLog and message formatting
+  -> bounded producer queue
+  -> logger dispatch thread
+  -> console/file sinks
+  -> listener callbacks
+  -> processed-sequence acknowledgement
+
+editor main thread
+  -> constructs FConsolePanel after engine and editor startup work
+  -> registers a listener
+  -> listener copies records into PendingLogs
+  -> Draw drains PendingLogs into the displayed record deque
+```
+
+Shutdown changes the logger from Running to Stopping, drains accepted queue records, joins the dispatcher from a non-dispatch thread, flushes sinks, and enters Stopped. Logs attempted after Stopped use the fallback stderr path and do not re-enter the asynchronous queue.
+
+The repository-wide listener audit found no production consumer other than `FConsolePanel`. Remaining call sites are the public declaration, logger implementation, and Core tests. The listener API can therefore be removed after the Console migrates unless an external compatibility requirement is identified before Stage 4.
+
+The selected capacity contract is:
+
+- `HistoryCapacity` defaults to 5,000 records.
+- Configuration clamps `HistoryCapacity` to the inclusive range 256 through 65,536 records.
+- A history read defaults to 512 records and clamps a requested batch to the inclusive range 1 through 4,096 records.
+- The Console may perform one default-sized read per frame. It does not loop without a frame boundary to consume an arbitrarily large backlog.
+- Bootstrap retention uses the configured history capacity once configuration is available and the default capacity before `Initialize()`.
+
+The selected public read contract is equivalent to:
+
+```cpp
+struct FLogReadResult
+{
+    std::vector<FLogRecord> Records;
+    uint64 OldestAvailableSequence = 0;
+    uint64 NewestAvailableSequence = 0;
+    uint64 NextSequence = 1;
+    uint64 EvictedRecordCount = 0;
+};
+
+auto ReadRecords(uint64 NextSequence, uint32 MaxRecords = 512) const
+    -> FLogReadResult;
+```
+
+- The input and output cursor identify the next sequence requested, not the last sequence consumed. A new session reader starts with `NextSequence == 1`.
+- Empty history reports zero oldest/newest sequences and returns the input cursor unchanged.
+- If the input cursor precedes retained history, `EvictedRecordCount` is the distance to the oldest retained sequence and reading resumes there.
+- Returned records are ascending and capped by the validated batch size. The output cursor is one greater than the last scanned sequence, or remains unchanged when nothing is available.
+- Logger reads do not apply presentation filters. The Console advances its cursor across every returned record and applies level/search filters to its own bounded display model.
+
+The selected reliability and shutdown contract is:
+
+- Error and Fatal wait only until every active required sink has attempted the record and the required flush has completed.
+- A sink exception completes that sink attempt, reports through fallback stderr, and cannot leave a producer waiting indefinitely.
+- Once shutdown begins, already accepted records are drained in sequence order. Producers waiting for queue capacity are awakened; a record that can no longer be admitted uses fallback stderr and returns.
+- A reliable producer already waiting for sink completion is released when its sink attempt completes or the logger reaches Stopped, whichever occurs first.
+- Observer delivery, history reading, and editor UI work are never part of reliable completion.
+- Calls made after Stopped remain fallback-only and are not inserted into session history.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the logging contract and baseline
 
-- [ ] Record the current logger, Console, startup, and shutdown paths in implementation notes attached to the change.
-- [ ] Confirm through a repository-wide search whether any project or module outside `ConsolePanel` uses the public listener API.
-- [ ] Select and document validated minimum and maximum values for `HistoryCapacity` and per-read batch size.
-- [ ] Define the exact result type for cursor reads, including records, oldest/newest available sequence, next cursor, and gap count.
-- [ ] Define shutdown behavior for blocked Error/Fatal producers and failed sinks.
-- [ ] Add failing characterization tests for late registration behavior, listener-delayed reliable logging, and bootstrap/history limits before changing implementation.
+- [x] Record the current logger, Console, startup, and shutdown paths in implementation notes attached to the change.
+- [x] Confirm through a repository-wide search whether any project or module outside `ConsolePanel` uses the public listener API.
+- [x] Select and document validated minimum and maximum values for `HistoryCapacity` and per-read batch size.
+- [x] Define the exact result type for cursor reads, including records, oldest/newest available sequence, next cursor, and gap count.
+- [x] Define shutdown behavior for blocked Error/Fatal producers and failed sinks.
+- [x] Add deterministic characterization tests for late registration boundaries and listener-delayed reliable logging before changing implementation. Bootstrap/history limit tests begin in Stage 1 when the configurable history contract exists.
 
 #### Acceptance Gate
 

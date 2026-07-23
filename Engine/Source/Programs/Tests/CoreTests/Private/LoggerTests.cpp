@@ -102,6 +102,65 @@ TEST(FLoggerTests, SupportsConcurrentProducersAndOrderedDispatch)
 	EXPECT_EQ(std::unordered_set<uint64_t>(Sequences.begin(), Sequences.end()).size(), Sequences.size());
 }
 
+TEST(FLoggerTests, LateListenerOmitsRecordsAlreadyProcessedBeforeRegistration)
+{
+	Durin::FLogger Logger;
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("LateListenerProcessed"))));
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Before registration");
+	Logger.Flush();
+
+	std::vector<std::string> Messages;
+	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
+		Messages.push_back(Record.Message);
+	});
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "After registration");
+	Logger.Flush();
+	Logger.RemoveListener(Handle);
+
+	ASSERT_EQ(Messages.size(), 1u);
+	EXPECT_EQ(Messages.front(), "After registration");
+}
+
+TEST(FLoggerTests, LateListenerReceivesRecordsQueuedBeforeRegistration)
+{
+	Durin::FLogger Logger;
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("LateListenerQueued"))));
+	std::mutex Mutex;
+	std::condition_variable Entered;
+	std::condition_variable Release;
+	bool bEntered = false;
+	bool bRelease = false;
+	const Durin::FLogListenerHandle BlockingHandle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
+		if (Record.Message != "Block dispatcher") return;
+		std::unique_lock Lock(Mutex);
+		bEntered = true;
+		Entered.notify_one();
+		Release.wait(Lock, [&] { return bRelease; });
+	});
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Block dispatcher");
+	{
+		std::unique_lock Lock(Mutex);
+		ASSERT_TRUE(Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bEntered; }));
+	}
+
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "Queued before registration");
+	std::vector<std::string> LateMessages;
+	const Durin::FLogListenerHandle LateHandle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
+		LateMessages.push_back(Record.Message);
+	});
+	{
+		std::scoped_lock Lock(Mutex);
+		bRelease = true;
+	}
+	Release.notify_one();
+	Logger.Flush();
+	Logger.RemoveListener(LateHandle);
+	Logger.RemoveListener(BlockingHandle);
+
+	ASSERT_EQ(LateMessages.size(), 1u);
+	EXPECT_EQ(LateMessages.front(), "Queued before registration");
+}
+
 TEST(FLoggerTests, ErrorReturnsOnlyAfterFileIsFlushed)
 {
 	const std::filesystem::path Directory = MakeTestDirectory("ReliableFile");
@@ -114,6 +173,45 @@ TEST(FLoggerTests, ErrorReturnsOnlyAfterFileIsFlushed)
 	const std::string Contents = ReadFile(Files.front());
 	EXPECT_NE(Contents.find("[LoggerTests] Reliable 17"), std::string::npos);
 	EXPECT_NE(Contents.find("[#"), std::string::npos);
+}
+
+TEST(FLoggerTests, ReliableLoggingCurrentlyWaitsForListenerCompletion)
+{
+	Durin::FLogger Logger;
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(MakeTestDirectory("ReliableListenerDelay"))));
+	std::mutex Mutex;
+	std::condition_variable Entered;
+	std::condition_variable Release;
+	bool bEntered = false;
+	bool bRelease = false;
+	const Durin::FLogListenerHandle Handle = Logger.AddListener([&](const Durin::FLogRecord& Record) {
+		if (Record.Message != "Reliable block") return;
+		std::unique_lock Lock(Mutex);
+		bEntered = true;
+		Entered.notify_one();
+		Release.wait(Lock, [&] { return bRelease; });
+	});
+
+	auto Logging = std::async(std::launch::async, [&] {
+		Logger.Log(Durin::ELogLevel::Error, std::source_location::current(), "LoggerTests", "Reliable block");
+	});
+	bool bListenerEntered = false;
+	{
+		std::unique_lock Lock(Mutex);
+		bListenerEntered = Entered.wait_for(Lock, std::chrono::seconds(2), [&] { return bEntered; });
+	}
+	if (bListenerEntered)
+	{
+		EXPECT_EQ(Logging.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+	}
+	{
+		std::scoped_lock Lock(Mutex);
+		bRelease = true;
+	}
+	Release.notify_one();
+	EXPECT_EQ(Logging.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+	EXPECT_TRUE(bListenerEntered);
+	Logger.RemoveListener(Handle);
 }
 
 TEST(FLoggerTests, RemoveListenerWaitsForExecutingCallback)
