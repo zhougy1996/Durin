@@ -36,18 +36,17 @@ When a plan reaches its acceptance gates:
 1. Record the completion evidence in `Current Status`, update `Last reviewed`, and close only the checklists that actually passed.
 2. Move the file to `Documentation/Plans/Archive/` without rewriting its goal, scope, decisions, stages, validation matrix, or other historical body text.
 3. Move its index entry from **Document Index** to **Archived Plans** and summarize the landed outcome.
-4. Update direct links that must continue resolving after the move. Long-lived implementation rules must already live in Architecture or Reference documentation rather than depending on the archived plan.
+4. Update direct links that must continue resolving after the move. Long-lived implementation rules must already live in Architecture documentation rather than depending on the archived plan.
 
 Archived plans are historical evidence, not default task instructions. Do not read or sample archived plan bodies for ordinary implementation work, plan formatting, or repository orientation. Read an archived plan only when the user explicitly names it, an active task-relevant document identifies it as required context, or decision provenance is necessary to resolve the current task. The archive index is sufficient when only the existence or outcome of prior work matters.
 
 ## Boundaries Between Plans and Other Documentation
 
-- `Documentation/Reference` records research, external examples, and candidate approaches; it does not represent a selected direction.
 - `Documentation/Issues` records verified, unresolved problems and supporting evidence before an implementation path has been selected or completed.
 - `Documentation/Architecture` records adopted architectural constraints that require long-term maintenance.
 - `Documentation/Plans` records executable paths and acceptance gates from the current state to a target state.
 
-When an approach has not yet been selected, keep it in Reference. Create a plan only after the scope, non-goals, and key technical decisions are clear. Once implementation is complete, move long-lived requirements into Architecture instead of allowing the plan to become a second architecture specification.
+Keep informal research, external examples, and candidate approaches outside version control under the ignored `Documentation/Local/` directory or in an external knowledge base. Repository documents must not link to those local notes. Create a plan only after the scope, non-goals, and key technical decisions are clear. Once implementation is complete, move long-lived requirements into Architecture instead of allowing the plan to become a second architecture specification.
 
 ## Standard Document Structure
 

@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Archived on 2026-07-23 after the V2 implementation, automated regression checks, full build, real Vulkan smoke test, and reference update were completed. The visual matrix remains historically unchecked because the repository has no scripted camera/capture harness and hidden-window runtime validation cannot provide visual evidence. Later FXAA observation showed that the implemented grid is correct locally but belongs after scene anti-aliasing; that renderer-phase migration is preserved in `Documentation/Plans/Archive/ScenePostProcessEditorAssistanceBoundary.md` rather than extending this completed grid-algorithm plan.
+Archived on 2026-07-23 after the V2 implementation, automated regression checks, full build, real Vulkan smoke test, and local evolution-note update were completed. The visual matrix remains historically unchecked because the repository has no scripted camera/capture harness and hidden-window runtime validation cannot provide visual evidence. Later FXAA observation showed that the implemented grid is correct locally but belongs after scene anti-aliasing; that renderer-phase migration is preserved in `Documentation/Plans/Archive/ScenePostProcessEditorAssistanceBoundary.md` rather than extending this completed grid-algorithm plan.
 
 ## Goal
 
@@ -19,7 +19,7 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 - Retain distance fading, grazing-angle fading, derivative-based antialiasing, decimal LOD blending, world axes, alpha blending, and depth writes disabled.
 - Add focused shader-compilation coverage for fragment depth output and update existing view-publication tests for the V2 uniform contract where appropriate.
 - Validate the result in the real Vulkan editor at low altitude, near the near plane, above and below the grid, and across ordinary overview distances.
-- Update the long-lived grid reference after implementation details are verified.
+- Update the local grid evolution notes after implementation details are verified.
 
 ## Non-Goals
 
@@ -142,12 +142,12 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 - [x] Complete a full `all` build using the repository BuildTool workflow.
 - [x] Run `DurinEditor` from that same build profile and verify `/Engine/EditorGrid` compiles without Shader, Pipeline, or Vulkan Validation errors.
 - [ ] Perform the visual matrix below with FXAA enabled and disabled. Pending manual capture; no scripted camera/capture harness exists.
-- [x] Update `Documentation/Reference/EditorWorldGridShader.md` with verified V2 implementation details while clearly retaining V1-only behavior as historical evolution documentation.
-- [x] Move any new long-lived renderer constraint into the appropriate Architecture document if implementation establishes one. No new architecture-level constraint was established; the stage-reflection binding behavior is recorded in the grid reference.
+- [x] Record the verified V2 implementation details and retain V1-only behavior in local evolution notes.
+- [x] Move any new long-lived renderer constraint into the appropriate Architecture document if implementation establishes one. No new architecture-level constraint was established; the stage-reflection binding behavior is retained in local evolution notes.
 
 #### Acceptance Gate
 
-- Automated checks pass, the full editor build succeeds, runtime logs are clean, every visual scenario passes, and the reference describes the landed implementation rather than the pre-V2 design.
+- Automated checks pass, the full editor build succeeds, runtime logs are clean, every visual scenario passes, and local evolution notes describe the landed implementation rather than the pre-V2 design.
 
 ## Validation Matrix
 
@@ -174,7 +174,7 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 - Derivative-safe antialiasing and continuous decimal LOD transitions remain intact.
 - Above-plane, below-plane, on-plane, horizon, origin, aspect-ratio, FXAA, and depth-occlusion scenarios pass.
 - Focused tests, the full build, and the real Vulkan editor validation pass without Shader, Pipeline, or Validation errors.
-- The reference document describes the verified V2 implementation and any long-lived renderer constraints are recorded outside this plan.
+- Local evolution notes describe the verified V2 implementation and any long-lived renderer constraints are recorded in Architecture documentation.
 
 ## Deferred Follow-ups
 
@@ -187,7 +187,6 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 
 ## Related Documentation
 
-- `Documentation/Reference/EditorWorldGridShader.md`
 - `Documentation/Plans/Archive/ScenePostProcessEditorAssistanceBoundary.md`
 - `Documentation/Setup/BuildAndRun.md`
 - `Documentation/Setup/NativeTests.md`

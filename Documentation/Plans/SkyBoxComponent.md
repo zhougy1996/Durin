@@ -262,7 +262,6 @@ The following items require separate design and scheduling after this plan is co
 ## Related Documentation
 
 - [Implementation Plan Documentation Guide](README.md)
-- [Sky Rendering Approach Overview](../Reference/SkyRenderingOverview.md)
 - [Texture Support Plan](TextureSupport.md)
 - [Runtime Architecture](../Architecture/RuntimeArchitecture.md)
 - [Viewport Rendering](../Architecture/ViewportRendering.md)

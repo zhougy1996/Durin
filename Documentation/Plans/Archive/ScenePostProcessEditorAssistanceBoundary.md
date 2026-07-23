@@ -19,7 +19,7 @@ Establish a renderer-level boundary where scene anti-aliasing and other scene po
 - Support both presentable window backbuffers and shader-readable offscreen viewport targets.
 - Keep editor assistance out of scene anti-aliasing input, future temporal history, and motion-vector production.
 - Add focused layout and phase-contract coverage where it can be tested without visual capture, then validate the real Vulkan editor and the FXAA visual cases.
-- Update long-lived architecture and grid reference documentation to describe the landed implementation.
+- Update long-lived Architecture documentation and local grid evolution notes to describe the landed implementation.
 
 ## Non-Goals
 
@@ -149,7 +149,7 @@ Establish a renderer-level boundary where scene anti-aliasing and other scene po
 - [x] Run `DurinEditor` from the same profile with `--hidden-window` and verify Shader, Pipeline, Vulkan Validation, Error, and Fatal logs remain clean.
 - [x] Manually compare FXAA enabled and disabled in low-altitude grid, horizon, mesh-occlusion, icon, selection-line, camera-frustum, and transform-gizmo scenarios.
 - [x] Validate both an offscreen Level Editor viewport and a window-backed runtime viewport.
-- [x] Update Runtime Architecture, Viewport Rendering, and Editor World Grid reference documents to describe the landed boundary and remove migration-pending wording.
+- [x] Update Runtime Architecture, Viewport Rendering, and local Editor World Grid evolution notes to describe the landed boundary and remove migration-pending wording.
 
 Operator visual validation completed on 2026-07-23 using the procedure below and reported no issue. No repository-owned capture artifact was requested; the result is recorded as operator evidence rather than an automated image baseline.
 
@@ -197,7 +197,7 @@ The comparison is semantic rather than pixel-identical: expected differences sho
 - Present and offscreen targets use compatible render-target layouts and finish in their required states.
 - Editor assistance is explicitly excluded from future temporal history and motion-vector contracts.
 - Focused tests, full build, Vulkan editor smoke, and the visual validation matrix pass.
-- Architecture and reference documents describe the landed behavior, and the archived V2 plan remains available as evolution history.
+- Architecture documents describe the landed behavior, local notes retain supporting research, and the archived V2 plan remains available as evolution history.
 
 ## Deferred Follow-ups
 
@@ -211,7 +211,6 @@ The comparison is semantic rather than pixel-identical: expected differences sho
 
 - `Documentation/Architecture/RuntimeArchitecture.md`
 - `Documentation/Architecture/ViewportRendering.md`
-- `Documentation/Reference/EditorWorldGridShader.md`
 - `Documentation/Plans/Archive/EditorWorldGridV2.md`
 - `Documentation/Setup/BuildAndRun.md`
 - `Documentation/Setup/NativeTests.md`

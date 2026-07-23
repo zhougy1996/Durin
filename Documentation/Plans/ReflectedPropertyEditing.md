@@ -26,8 +26,8 @@ Those boundaries are narrowed before more property-specific behavior is added.
 
 The implemented architecture remains documented in
 [Reflected Property Editing](../Architecture/ReflectedPropertyEditing.md) until
-each stage below lands. Earlier view API exploration remains in
-[Reflected Property View Evolution](../Reference/ReflectedPropertyViewEvolution.md).
+each stage below lands. Earlier unselected view API exploration is kept outside
+the repository.
 
 ## Goal
 
@@ -453,7 +453,6 @@ the original, without dirtying the package or adding no-op history.
 ## Related Documentation
 
 - [Reflected Property Editing](../Architecture/ReflectedPropertyEditing.md)
-- [Reflected Property View Evolution](../Reference/ReflectedPropertyViewEvolution.md)
 - [Native Tests](../Setup/NativeTests.md)
 - [Build and Run](../Setup/BuildAndRun.md)
 

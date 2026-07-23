@@ -1,9 +1,9 @@
 # Reflected Property Editing
 
 This document describes the reflected-property editing system currently
-implemented by `CoreDObject` and `DurinEd`. Proposed extensions to the UI API
-are documented separately in
-[Reflected Property View Evolution](../Reference/ReflectedPropertyViewEvolution.md).
+implemented by `CoreDObject` and `DurinEd`. It records adopted behavior only;
+unselected UI API extensions remain outside the repository until they become
+an issue or an executable plan.
 
 ## Scope
 

@@ -377,3 +377,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Machine-local research notes and manually curated documentation
+Documentation/Local/
