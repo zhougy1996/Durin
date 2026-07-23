@@ -378,6 +378,7 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
         except KeyboardInterrupt:
             output.warning("Use exit to leave the shell.")
             continue
+        operation_started = perf_counter()
         if selecting_preset:
             selecting_preset = False
             if not line:
@@ -387,14 +388,18 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                     current_preset = resolve_shell_preset_number(line, base)
                     output.success(f'CMake preset selected: "{current_preset}"')
                 except BuildToolError as exc:
-                    output.failure(exc, None, 0.0)
+                    output.failure(exc, None, perf_counter() - operation_started)
                 continue
         if not line:
             continue
+        child_request: CommandRequest | None = None
+        child_context: BuildContext | None = None
         try:
             parts = split_shell_command(line, current_host=base.current_host)
             command = parts[0].lower().lstrip("/")
             values = parts[1:]
+            if command in {action.value for action in Action if action is not Action.SHELL}:
+                child_request = command_request(request, Action(command), preset=current_preset)
             if command in {"exit", "quit"}:
                 return
             if command in {"help", "?"}:
@@ -421,22 +426,22 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                     output.info(f'CMake preset: "{current_preset}"')
                     continue
                 if len(values) != 1:
-                    raise BuildToolError("/preset accepts one full preset name.")
+                    raise BuildToolError("preset accepts one full preset name.")
                 current_preset = resolve_shell_preset(values[0], base)
                 output.success(f'CMake preset selected: "{current_preset}"')
                 continue
             if command == "open-runtime":
                 if values:
-                    raise BuildToolError("/open-runtime does not accept positional arguments.")
+                    raise BuildToolError("open-runtime does not accept positional arguments.")
                 runtime_context = derive_context(base, replace(request, preset=current_preset))
                 open_runtime_directory(runtime_context, output)
                 continue
             if command in {"configure", "clean"}:
                 if command == "configure":
                     if values not in ([], ["--fresh"]):
-                        raise BuildToolError("/configure accepts only --fresh.")
+                        raise BuildToolError("configure accepts only --fresh.")
                 elif values:
-                    raise BuildToolError("/clean does not accept positional arguments.")
+                    raise BuildToolError("clean does not accept positional arguments.")
                 action = Action(command)
                 child_request = command_request(
                     request,
@@ -447,7 +452,7 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
             elif command == "purge":
                 allowed = {"--all-presets", "--yes"}
                 if any(value not in allowed for value in values) or len(set(values)) != len(values):
-                    raise BuildToolError("/purge accepts only --all-presets and --yes.")
+                    raise BuildToolError("purge accepts only --all-presets and --yes.")
                 child_request = command_request(
                     request,
                     Action.PURGE,
@@ -457,7 +462,7 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                 )
             elif command in {"build", "rebuild"}:
                 if len(values) > 1:
-                    raise BuildToolError(f"/{command} accepts at most one target.")
+                    raise BuildToolError(f"{command} accepts at most one target.")
                 child_request = command_request(
                     request,
                     Action(command),
@@ -466,7 +471,7 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                 )
             elif command == "test":
                 if not 1 <= len(values) <= 2:
-                    raise BuildToolError("/test requires a target and accepts an optional GoogleTest filter.")
+                    raise BuildToolError("test requires a target and accepts an optional GoogleTest filter.")
                 child_request = command_request(
                     request,
                     Action.TEST,
@@ -491,12 +496,19 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
             )
         except (BuildToolError, ValueError) as exc:
             error = exc if isinstance(exc, BuildToolError) else BuildToolError(f"Invalid command: {exc}")
-            output.failure(error, None, 0.0)
+            output.failure(
+                error,
+                child_context,
+                perf_counter() - operation_started,
+                request=child_request,
+                preset=current_preset,
+            )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     started = perf_counter()
     output: BuildOutput | None = None
+    request: CommandRequest | None = None
     context: BuildContext | None = None
     try:
         request = parse_args(argv)
@@ -520,9 +532,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     except BuildToolError as exc:
         output = output or BuildOutput(plain="--plain" in (argv or sys.argv[1:]))
-        output.failure(exc, context, perf_counter() - started)
+        output.failure(exc, context, perf_counter() - started, request=request)
         return 1
     except OSError as exc:
         output = output or BuildOutput(plain="--plain" in (argv or sys.argv[1:]))
-        output.failure(BuildToolError(f"Operating system error: {exc}"), context, perf_counter() - started)
+        output.failure(
+            BuildToolError(f"Operating system error: {exc}"),
+            context,
+            perf_counter() - started,
+            request=request,
+        )
         return 1

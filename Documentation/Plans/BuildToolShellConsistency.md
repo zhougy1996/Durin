@@ -4,14 +4,16 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stage 1 is complete. Direct action normalization now skips known global-option
-values before locating the subcommand, and the interactive shell uses explicit
-Windows or POSIX tokenization. Windows paths, UNC paths, quoted and empty
-arguments, trailing backslashes, runtime flags, and malformed quoting have
-regression coverage. The complete Agent tooling suite passes with 81 tests.
+Stages 1 and 2 are complete. Direct action normalization and host-aware shell
+tokenization preserve command arguments across interfaces. Interactive failures
+now retain the active request and derived context, measure the actual operation
+time, use action-specific or neutral titles as appropriate, and keep the session
+available after recoverable validation, child-command, and interruption errors.
+Canonical diagnostics omit compatibility slash prefixes while slash-prefixed
+input remains accepted. The complete Agent tooling suite passes with 85 tests.
 
-Stage 2 is next. The independently maintained shell command grammar and failure
-reporting still have the gaps described below.
+Stage 3 is next. The independently maintained shell command grammar still has
+the interface-parity gaps described below.
 
 ## Goal
 
@@ -96,13 +98,13 @@ the user to recover without reconstructing the operation from earlier log output
 - Shell command parsing and help are handwritten separately from the direct CLI,
   which has produced different target defaults, unavailable test timeout control,
   and options that are accepted but unused.
-- A failing shell operation reports no child context and always reports an
-  elapsed time of zero.
+- Shell failure reporting retains request/context details, child command and
+  exit information, recovery guidance, and the measured operation duration.
 - `BuildTool shell --help` describes only shell startup options, not the commands
   available after entering the shell.
-- Tooling tests now cover host-specific tokenization, command-like option values,
-  and Windows shell dispatch. Shell failure context and cross-interface parity
-  remain uncovered until Stages 2 and 3.
+- Tooling tests cover host-specific tokenization, command-like option values,
+  Windows shell dispatch, and shell parse, validation, child-command, and
+  interruption failures. Cross-interface parity remains uncovered until Stage 3.
 
 ## Implementation Stages
 
@@ -130,17 +132,17 @@ the user to recover without reconstructing the operation from earlier log output
 
 ### Stage 2: P1 Failure Context and Recovery Feedback
 
-- [ ] Track the active child request, derived context, and start time around every
+- [x] Track the active child request, derived context, and start time around every
   shell-dispatched operation.
-- [ ] Report the actual action, preset, target, command, exit code, and elapsed
+- [x] Report the actual action, preset, target, command, exit code, and elapsed
   time when those values are available.
-- [ ] Use an action-neutral error title when failure happens before a build
+- [x] Use an action-neutral error title when failure happens before a build
   action is known, and an action-specific title after dispatch.
-- [ ] Keep recoverable command errors inside the shell while preserving the
+- [x] Keep recoverable command errors inside the shell while preserving the
   existing process-interruption and recovery-marker semantics.
-- [ ] Remove compatibility slash prefixes from canonical error wording while
+- [x] Remove compatibility slash prefixes from canonical error wording while
   continuing to accept leading slashes as input aliases.
-- [ ] Add tests for parse failures, validation failures, child-command failures,
+- [x] Add tests for parse failures, validation failures, child-command failures,
   interrupted operations, and continued shell use after each recoverable error.
 
 #### Acceptance Gate

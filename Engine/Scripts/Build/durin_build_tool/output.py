@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .config import BuildContext, BuildToolError, preset_build_directory
+from .config import Action, BuildContext, BuildToolError, CommandRequest, preset_build_directory
 
 
 class BuildOutput:
@@ -110,8 +110,17 @@ class BuildOutput:
             self.console.print(f"[dim]{title} completed in {perf_counter() - started:.2f}s[/dim]")
             self.flush()
 
-    def failure(self, error: BuildToolError, context: BuildContext | None, elapsed: float) -> None:
+    def failure(
+        self,
+        error: BuildToolError,
+        context: BuildContext | None,
+        elapsed: float,
+        *,
+        request: CommandRequest | None = None,
+        preset: str = "",
+    ) -> None:
         details = []
+        active_request = context.request if context is not None else request
         if context is not None:
             details.extend(
                 [
@@ -120,14 +129,27 @@ class BuildOutput:
                     ("Target", context.target or "—"),
                 ]
             )
+        elif active_request is not None and active_request.action is not Action.SHELL:
+            details.extend(
+                [
+                    ("Action", active_request.action.value),
+                    ("Preset", preset or active_request.preset or "—"),
+                    ("Target", active_request.target or "—"),
+                ]
+            )
         if error.command:
             details.append(("Command", " ".join(error.command)))
         if error.exit_code is not None:
             details.append(("Exit code", str(error.exit_code)))
         details.append(("Elapsed", f"{elapsed:.2f}s"))
+        title = (
+            f"{active_request.action.value.capitalize()} failed"
+            if active_request is not None and active_request.action is not Action.SHELL
+            else "Command failed"
+        )
 
         if self.plain:
-            self.error_console.print(f"ERROR: {error}")
+            self.error_console.print(f"ERROR: {title}: {error}")
             for label, value in details:
                 self.error_console.print(f"  {label}: {value}")
             if error.recovery:
@@ -143,5 +165,5 @@ class BuildOutput:
         if error.recovery:
             body.append("\nRecovery: ", style="bold yellow")
             body.append(error.recovery)
-        self.error_console.print(Panel(body, title="Build failed", border_style="red"))
+        self.error_console.print(Panel(body, title=title, border_style="red"))
         self.flush()

@@ -405,10 +405,117 @@ class CliTests(unittest.TestCase):
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
         with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
             build_cli, "show_status"
+        ), mock.patch.object(
+            build_cli, "perf_counter", side_effect=[10.0, 10.25, 11.0]
         ), mock.patch("builtins.input", side_effect=['run "unterminated', "exit"]) as prompt:
             build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
         self.assertEqual(prompt.call_count, 2)
-        self.assertIn("Invalid shell command: unmatched double quote.", stderr.getvalue())
+        failure = stderr.getvalue()
+        self.assertIn("ERROR: Command failed: Invalid shell command: unmatched double quote.", failure)
+        self.assertIn("Elapsed: 0.25s", failure)
+        self.assertNotIn("Action:", failure)
+
+    def test_shell_validation_failure_has_action_context_and_accepts_slash_alias(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        base.current_host = "windows"
+        stderr = io.StringIO()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+        with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch.object(
+            build_cli, "derive_context"
+        ) as derive, mock.patch.object(
+            build_cli, "perf_counter", side_effect=[20.0, 21.5, 22.0]
+        ), mock.patch("builtins.input", side_effect=["/build Core Extra", "exit"]) as prompt:
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        failure = stderr.getvalue()
+        self.assertEqual(prompt.call_count, 2)
+        derive.assert_not_called()
+        self.assertIn("ERROR: Build failed: build accepts at most one target.", failure)
+        self.assertNotIn("/build accepts", failure)
+        self.assertIn("Action: build", failure)
+        self.assertIn("Preset: debug", failure)
+        self.assertIn("Target: —", failure)
+        self.assertIn("Elapsed: 1.50s", failure)
+
+    def test_shell_child_failure_retains_context_command_and_elapsed_time(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        base.current_host = "windows"
+        stderr = io.StringIO()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+
+        def derive(_base: object, child_request: build_config.CommandRequest) -> mock.Mock:
+            child_context = mock.Mock()
+            child_context.request = child_request
+            child_context.preset.name = child_request.preset
+            child_context.target = child_request.target
+            return child_context
+
+        error = build_config.BuildToolError(
+            "compiler failed",
+            command=["cmake", "--build", "Build/debug", "--target", "Core"],
+            exit_code=2,
+            recovery="Inspect the command output above, then rerun the same command.",
+        )
+        with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch.object(
+            build_cli, "derive_context", side_effect=derive
+        ), mock.patch.object(
+            build_cli, "execute_context", side_effect=error
+        ) as execute, mock.patch.object(
+            build_cli, "perf_counter", side_effect=[30.0, 34.75, 35.0]
+        ), mock.patch("builtins.input", side_effect=["build Core", "exit"]) as prompt:
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        failure = stderr.getvalue()
+        self.assertEqual(prompt.call_count, 2)
+        execute.assert_called_once()
+        self.assertIn("ERROR: Build failed: compiler failed", failure)
+        self.assertIn("Action: build", failure)
+        self.assertIn("Preset: debug", failure)
+        self.assertIn("Target: Core", failure)
+        self.assertIn("Command: cmake --build Build/debug --target Core", failure)
+        self.assertIn("Exit code: 2", failure)
+        self.assertIn("Elapsed: 4.75s", failure)
+        self.assertIn("Inspect the command output above, then rerun the same command.", failure)
+
+    def test_interrupted_shell_operation_reports_recovery_and_keeps_session_open(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        base.current_host = "windows"
+        child_context = mock.Mock()
+        child_context.request = build_config.CommandRequest(
+            build_config.Action.REBUILD,
+            preset="debug",
+            target="all",
+        )
+        child_context.preset.name = "debug"
+        child_context.target = "all"
+        stderr = io.StringIO()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+        interruption = build_config.BuildToolInterruptedError(
+            "Durin BuildTool was interrupted.",
+            command=["cmake", "--build", "Build/debug"],
+            recovery="Confirm the old process tree exited, then run rebuild --target all.",
+        )
+        with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch.object(
+            build_cli, "derive_context", return_value=child_context
+        ), mock.patch.object(
+            build_cli, "execute_context", side_effect=interruption
+        ), mock.patch.object(
+            build_cli, "perf_counter", side_effect=[40.0, 42.0, 43.0]
+        ), mock.patch("builtins.input", side_effect=["rebuild", "exit"]) as prompt:
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        failure = stderr.getvalue()
+        self.assertEqual(prompt.call_count, 2)
+        self.assertIn("ERROR: Rebuild failed: Durin BuildTool was interrupted.", failure)
+        self.assertIn("Action: rebuild", failure)
+        self.assertIn("Elapsed: 2.00s", failure)
+        self.assertIn("Confirm the old process tree exited, then run rebuild --target all.", failure)
 
     def test_rebuild_defaults_to_all(self) -> None:
         self.assertEqual(build_cli.parse_args(["rebuild"]).target, "all")
@@ -510,6 +617,21 @@ class OutputTests(unittest.TestCase):
         self.assertIn("cmake --build Build", text)
         self.assertIn("Exit code: 1", text)
         self.assertIn("fix the compiler error", text)
+
+    def test_failure_without_derived_context_uses_available_request_details(self) -> None:
+        stderr = io.StringIO()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+        request = build_config.CommandRequest(
+            build_config.Action.TEST,
+            target="CoreTests",
+            preset="debug",
+        )
+        output.failure(build_config.BuildToolError("validation failed"), None, 0.5, request=request)
+        text = stderr.getvalue()
+        self.assertIn("ERROR: Test failed: validation failed", text)
+        self.assertIn("Action: test", text)
+        self.assertIn("Preset: debug", text)
+        self.assertIn("Target: CoreTests", text)
 
     def test_no_color_environment_forces_plain_output(self) -> None:
         with mock.patch.dict(os.environ, {"NO_COLOR": "1"}):
