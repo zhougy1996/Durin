@@ -4,7 +4,7 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 0 through 3 are complete. Runtime Engine owns the reflected parameter
+All stages are complete. Runtime Engine owns the reflected parameter
 schema, five permanent GUID identities and canonical `FName` values, and
 deterministic built-in definitions. `DMaterial` stores the ordered definition
 collection, while `DMaterialInstance` stores one ordered GUID override
@@ -15,7 +15,11 @@ resource lifetime, serialization, duplication, and output behavior covered by
 focused Engine tests. The Material Editor now builds its parameter rows and
 control selection from the runtime schema, displays inherited sources and
 orphans, and edits reflected collection roots through GUID-resolved scratch
-storage. Stage 4 cleanup and architecture recording are next.
+storage. Legacy string constants and string-map editing bindings have been
+removed. Compatibility coverage proves old map fields are skipped, canonical
+base defaults are restored, parent links survive, and old instance overrides
+are absent. Final validation passed all 178 EngineTests, the full `all` build,
+and an eight-second hidden-window DurinEditor smoke test.
 
 This plan is an independently executable slice of Stage 2 in
 `Documentation/Plans/MaterialSystem.md`. Check off each stage only after its
@@ -189,14 +193,14 @@ dependency propagation, and render-thread snapshots.
 
 ### Stage 4: Remove Legacy Paths and Record the Architecture
 
-- [ ] Remove obsolete string-map helpers, constants, tests, and editor-specific
+- [x] Remove obsolete string-map helpers, constants, tests, and editor-specific
   parameter descriptors without adding migration fields.
-- [ ] Add an explicit legacy-load test proving incompatible map fields are
+- [x] Add an explicit legacy-load test proving incompatible map fields are
   skipped, base defaults are restored, parent links survive, and old overrides
   are absent.
-- [ ] Update material architecture documentation and this plan's status to
+- [x] Update material architecture documentation and this plan's status to
   record GUID identity, `FName` lookup, schema ownership, and renderer boundary.
-- [ ] Run all affected test targets, a full `all` build, and a hidden-window
+- [x] Run all affected test targets, a full `all` build, and a hidden-window
   DurinEditor smoke test using the repository build workflow.
 
 #### Acceptance Gate

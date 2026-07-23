@@ -130,14 +130,6 @@ namespace Durin
 		ENGINE_API auto ShininessName() -> const FName&;
 	}
 
-	// Transitional source constants keep existing call sites concise while the
-	// parameter APIs themselves now accept FName exclusively.
-	inline constexpr std::string_view MaterialParameterBaseColor = "BaseColor";
-	inline constexpr std::string_view MaterialParameterBaseColorTexture = "BaseColorTexture";
-	inline constexpr std::string_view MaterialParameterOpacity = "Opacity";
-	inline constexpr std::string_view MaterialParameterSpecularStrength = "SpecularStrength";
-	inline constexpr std::string_view MaterialParameterShininess = "Shininess";
-
 	ENGINE_API auto GetCanonicalMaterialParameterDefinitions() -> std::span<const FMaterialParameterDefinition>;
 	ENGINE_API auto MakeCanonicalMaterialParameterDefinitions() -> std::vector<FMaterialParameterDefinition>;
 	ENGINE_API auto ValidateCanonicalMaterialParameterDefinitions(

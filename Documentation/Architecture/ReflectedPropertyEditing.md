@@ -240,18 +240,6 @@ edit temporary proposals, and `MapInsert` is submitted only when the user
 confirms the new entry. A default-key collision therefore does not require
 inserting and then renaming a live entry.
 
-`FReflectedPropertyBinding` represents a logical container value without retaining
-its current leaf address. The current factory binds a string-key map value by
-capturing its reflected key snapshot and stable event-path bytes. `IsPresent()`
-and every edit re-scan the live map, so a resize or rehash between frames cannot
-invalidate the binding.
-
-`SubmitBoundPropertyValueEdit()` gives custom UI only a temporary value container,
-then submits the resulting member snapshot with value-set semantics.
-`SetBoundPropertyEnabled()` records insertion/removal as structural transactions.
-Panels therefore neither retain nor mutate a live map leaf address and never
-construct reflected paths themselves.
-
 ## Reflected Property View
 
 `FReflectedPropertyView` is an embeddable immediate-mode view, not a dockable
@@ -287,11 +275,11 @@ Proposal callbacks receive a leaf resolved inside generated draft storage;
 they never mutate the live object while constructing the proposed snapshot. Runtime
 setters, cache rebuilds, and other semantic side effects therefore run only through
 the object hooks when the proposal is applied.
-Camera and Spline customizations use it for their semantic layouts and actions;
-Material Editor uses it for its parent picker and uses stable string-map bindings
-for parameter values and override presence. Object-details customizations are
-given the host-owned view and context so composed rows share the same active
-session and transaction history as ordinary Details rows.
+Camera and Spline customizations use it for their semantic layouts and actions.
+Material Editor uses it for its parent picker and delegates parameter collection
+edits to its schema-driven panel model. Object-details customizations are given
+the host-owned view and context so composed rows share the same active session
+and transaction history as ordinary Details rows.
 
 `HandleOwnerContext()` cancels an active edit if the object presented by the
 view is replaced or the view becomes read-only. The presented owner is tracked
@@ -310,14 +298,16 @@ to `EditObject()`; Actor transform and registered customizations continue to
 compose through the same view. Static-mesh materials remain in ordinary
 reflected-property enumeration.
 
-Material Editor owns another property view but supplies a semantic parameter
-layout. One descriptor table defines parameter name, label, reflected value type,
-presentation, defaults, and ranges. A shared dispatch maps those descriptors to
-scalar drag, color, or texture-asset rows and derives the corresponding base or
-override map from the value type. All parameter values and override presence use
-stable bindings, while inherited-value lookup and the specialized `ColorEdit3`
-and asset-picker controls remain host-owned. Generic proposals, sessions, and
-transactions are delegated to the view.
+Material Editor owns another property view and a reusable parameter-panel model.
+Runtime Engine definitions provide parameter type, labels, ordering,
+presentation, ranges, and texture hints. The model snapshots each definition,
+resolved value, supplying ancestor, override state, and orphan state into rows.
+Edits snapshot the reflected definition or override collection root, then locate
+the target entry by GUID in detached draft storage. A parameter GUID is also the
+logical transaction identity, so two parameters sharing one collection root
+cannot coalesce into the same continuous edit. The specialized scalar, color,
+and asset-picker controls remain host-owned; proposal submission, sessions, and
+transactions remain delegated to the shared reflected-property infrastructure.
 
 Spline Details now routes transform, curve settings, point values, and point
 structural actions through the shared view while retaining its custom layout.
@@ -337,10 +327,10 @@ Automated coverage currently verifies:
 - pre-apply rejection and retryable cancel failure through object hooks;
 - object and snapshot reference lifetime;
 - array and map stable paths and structural restoration;
-- binding re-resolution after map rehash and presence across Undo/Redo;
 - generic semantic-hook rejection, normalization, reactions, and Undo/Redo;
 - material parameter render invalidation; and
-- material override insertion through shared transaction history; and
+- GUID-resolved material definition and override edits, override
+  insertion/removal, orphan removal, and shared transaction history; and
 - spline continuous edits, Cancel, structural edits, stable nested paths, cache
   rebuilds, setter clamping, and Undo/Redo; and
 - camera continuous edits, atomic cross-field clamping, Cancel, stable nested
@@ -362,6 +352,6 @@ Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyEditing.h
 Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyView.h
 Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h
 Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp
-Engine/Source/Editor/MaterialEditor/Private/MaterialParameterDescriptors.h
+Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialParameterPanelModel.h
 Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp
 ```

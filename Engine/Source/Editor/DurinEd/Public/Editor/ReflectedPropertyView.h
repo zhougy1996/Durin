@@ -9,25 +9,6 @@ namespace Durin
 	class FMapProperty;
 	class FProperty;
 
-	// A logical reflected value whose address is resolved on demand. Bindings retain
-	// stable selectors and snapshot roots, so container reallocation does not escape
-	// into editor panels.
-	class FReflectedPropertyBinding
-	{
-	public:
-		auto IsValid() const -> bool { return Object != nullptr && MemberProperty != nullptr && LeafProperty != nullptr; }
-		DURINED_API auto IsPresent() const -> bool;
-
-	private:
-		DObject* Object = nullptr;
-		FMapProperty* MemberProperty = nullptr;
-		FProperty* LeafProperty = nullptr;
-		FPropertyValueSnapshot MapKey;
-		std::vector<uint8> PathKeyData;
-
-		friend class FReflectedPropertyView;
-	};
-
 	struct FReflectedPropertyViewContext
 	{
 		FEditorTransactionManager* Transactions = nullptr;
@@ -85,23 +66,6 @@ namespace Durin
 			const FReflectedPropertyEditTarget& Target,
 			const std::function<void(FProperty*, void*, uint32)>& AssignValue,
 			bool bContinuous
-		) -> bool;
-		DURINED_API auto BindStringMapValue(
-			DObject* Object,
-			FMapProperty* Property,
-			std::string_view Key
-		) const -> FReflectedPropertyBinding;
-		DURINED_API auto SubmitBoundPropertyValueEdit(
-			const FReflectedPropertyViewContext& Context,
-			const FReflectedPropertyBinding& Binding,
-			const std::function<void(FProperty*, void*)>& AssignValue,
-			bool bContinuous
-		) -> bool;
-		DURINED_API auto SetBoundPropertyEnabled(
-			const FReflectedPropertyViewContext& Context,
-			const FReflectedPropertyBinding& Binding,
-			bool bEnabled,
-			const std::function<void(FProperty*, void*)>& InitializeValue
 		) -> bool;
 
 		// Returns false only when the requested terminal action failed and the

@@ -79,20 +79,15 @@ but cannot be authored normally.
 
 ## Stage 2: Define the Material Domain Model
 
-The current arbitrary named maps are useful storage, but they do not describe
-which parameters a material declares, their types, defaults, UI metadata, or
-whether a property changes shader/pipeline identity.
+The parameter identity, declaration, GUID override, and schema-driven editor
+slice is complete and preserved in
+`Documentation/Plans/Archive/MaterialParameterDomainRefactor.md`. Static
+properties and the compiled render representation remain in this stage.
 
-The parameter identity, declaration, override, and schema-driven editor slice
-is specified independently in
-`Documentation/Plans/MaterialParameterDomainRefactor.md`. Complete and validate
-that plan before continuing with the static-property and render-representation
-items in this stage.
-
-- [ ] Introduce explicit parameter declarations with stable identifiers,
+- [x] Introduce explicit parameter declarations with stable identifiers,
   display metadata, type, default value, grouping, range, and optional color or
   texture-usage hints.
-- [ ] Separate declared parameters from resolved instance values so instances
+- [x] Separate declared parameters from resolved instance values so instances
   cannot silently accumulate misspelled or type-incompatible overrides.
 - [ ] Define material static properties: blend mode, shading model, two-sided
   state, depth-write policy, and masked-opacity threshold.
@@ -214,5 +209,5 @@ items in this stage.
 
 - `Documentation/Architecture/MaterialSystem.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
-- `Documentation/Plans/MaterialParameterDomainRefactor.md`
+- `Documentation/Plans/Archive/MaterialParameterDomainRefactor.md`
 - `Documentation/Plans/TextureSupport.md`
