@@ -211,7 +211,7 @@ The comparison is semantic rather than pixel-identical: expected differences sho
 
 - `Documentation/Architecture/RuntimeArchitecture.md`
 - `Documentation/Architecture/ViewportRendering.md`
-- `Documentation/Plans/Archive/EditorWorldGridV2.md`
+- `Documentation/Plans/Archive/2026-07/EditorWorldGridV2.md`
 - `Documentation/Setup/BuildAndRun.md`
 - `Documentation/Setup/NativeTests.md`
 

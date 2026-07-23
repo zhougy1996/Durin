@@ -121,9 +121,9 @@ The existing compile service already separates path resolution, dependency disco
 
 ## Related Documentation
 
-- [Shader Cache](../../Architecture/ShaderCache.md)
-- [Versioning](../../Architecture/Versioning.md)
-- [Native C++ Tests](../../Setup/NativeTests.md)
+- [Shader Cache](../../../Architecture/ShaderCache.md)
+- [Versioning](../../../Architecture/Versioning.md)
+- [Native C++ Tests](../../../Setup/NativeTests.md)
 
 ## Related Code
 

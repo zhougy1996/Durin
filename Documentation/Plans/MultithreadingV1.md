@@ -356,7 +356,7 @@ Build, test, and smoke commands come from
 - [ ] The full `all` build and hidden-window `DurinEditor` startup/shutdown smoke
   test pass on the same Agent Build Profile.
 - [ ] Lasting contracts are documented in Architecture and this plan is moved to
-  `Documentation/Plans/Archive/`.
+  `Documentation/Plans/Archive/YYYY-MM/` for its completion month.
 
 ## Deferred Follow-ups
 

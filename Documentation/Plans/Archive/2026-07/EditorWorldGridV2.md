@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Archived on 2026-07-23 after the V2 implementation, automated regression checks, full build, real Vulkan smoke test, and local evolution-note update were completed. The visual matrix remains historically unchecked because the repository has no scripted camera/capture harness and hidden-window runtime validation cannot provide visual evidence. Later FXAA observation showed that the implemented grid is correct locally but belongs after scene anti-aliasing; that renderer-phase migration is preserved in `Documentation/Plans/Archive/ScenePostProcessEditorAssistanceBoundary.md` rather than extending this completed grid-algorithm plan.
+Archived on 2026-07-23 after the V2 implementation, automated regression checks, full build, real Vulkan smoke test, and local evolution-note update were completed. The visual matrix remains historically unchecked because the repository has no scripted camera/capture harness and hidden-window runtime validation cannot provide visual evidence. Later FXAA observation showed that the implemented grid is correct locally but belongs after scene anti-aliasing; that renderer-phase migration is preserved in `Documentation/Plans/Archive/2026-07/ScenePostProcessEditorAssistanceBoundary.md` rather than extending this completed grid-algorithm plan.
 
 ## Goal
 
@@ -187,7 +187,7 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 
 ## Related Documentation
 
-- `Documentation/Plans/Archive/ScenePostProcessEditorAssistanceBoundary.md`
+- `Documentation/Plans/Archive/2026-07/ScenePostProcessEditorAssistanceBoundary.md`
 - `Documentation/Setup/BuildAndRun.md`
 - `Documentation/Setup/NativeTests.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`

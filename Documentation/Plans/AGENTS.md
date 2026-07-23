@@ -6,9 +6,12 @@ These instructions apply under `Documentation/Plans/`.
 
 - Active plans turn selected decisions into executable stages and acceptance gates.
 - `README.md` indexes only active plans.
-- `Archive/README.md` indexes completed plans.
+- `Archive/README.md` indexes archive months; each `Archive/YYYY-MM/README.md`
+  indexes the plans completed in that month.
 - Do not sample unrelated active or archived plans to infer structure; use the standard below.
-- Read an archived plan only for named or required historical provenance.
+- Start archive discovery at `Archive/README.md`, enter only the relevant monthly
+  index, and read an archived plan only for named or required historical
+  provenance. Do not bulk-read other months.
 
 ## Standard Structure
 
@@ -60,8 +63,11 @@ Last reviewed: YYYY-MM-DD
 When every required acceptance gate is satisfied:
 
 1. Record completion evidence in `Current Status`, update `Last reviewed`, and close only checks that passed.
-2. Move the plan to `Documentation/Plans/Archive/` without rewriting its historical body.
-3. Remove it from `Plans/README.md` and add its landed outcome to `Plans/Archive/README.md`.
+2. Move the plan to `Documentation/Plans/Archive/YYYY-MM/`, using the month of
+   the archive completion date recorded in `Current Status`, without rewriting
+   its historical body. Later maintenance does not move it to another month.
+3. Remove it from `Plans/README.md`, add its landed outcome to that month's
+   `README.md`, and add the month to `Plans/Archive/README.md` if it is new.
 4. Repair direct links to the archived location.
 5. Confirm lasting behavior is documented in Architecture.
 

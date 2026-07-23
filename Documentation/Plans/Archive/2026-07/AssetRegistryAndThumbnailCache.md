@@ -240,10 +240,10 @@ Make editor and game startup reuse previously discovered asset metadata while st
 
 ## Related Documentation
 
-- [Content Version Control](../../Git/ContentVersionControl.md)
-- [Level System](../../Architecture/LevelSystem.md)
-- [Build and Run](../../Setup/BuildAndRun.md)
-- [Native Tests](../../Setup/NativeTests.md)
+- [Content Version Control](../../../Git/ContentVersionControl.md)
+- [Level System](../../../Architecture/LevelSystem.md)
+- [Build and Run](../../../Setup/BuildAndRun.md)
+- [Native Tests](../../../Setup/NativeTests.md)
 
 ## Related Code
 

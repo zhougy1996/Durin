@@ -4,7 +4,7 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-All stages are complete. Runtime Engine owns the reflected parameter
+Archived on 2026-07-24 after all stages completed. Runtime Engine owns the reflected parameter
 schema, five permanent GUID identities and canonical `FName` values, and
 deterministic built-in definitions. `DMaterial` stores the ordered definition
 collection, while `DMaterialInstance` stores one ordered GUID override
@@ -245,7 +245,7 @@ dependency propagation, and render-thread snapshots.
 ## Related Documentation
 
 - `Documentation/Plans/MaterialSystem.md`
-- `Documentation/Plans/Archive/ReflectedPropertyEditing.md`
+- `Documentation/Plans/Archive/2026-07/ReflectedPropertyEditing.md`
 - `Documentation/Architecture/MaterialSystem.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
 

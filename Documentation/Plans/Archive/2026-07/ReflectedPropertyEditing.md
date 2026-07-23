@@ -17,7 +17,7 @@ validation passed all 166 EngineTests, a complete `all` build, and an
 eight-second hidden-window DurinEditor startup smoke.
 
 Long-lived behavior is documented in
-[Reflected Property Editing](../../Architecture/ReflectedPropertyEditing.md).
+[Reflected Property Editing](../../../Architecture/ReflectedPropertyEditing.md).
 Earlier unselected view API exploration remains outside the repository.
 
 ## Goal
@@ -473,9 +473,9 @@ passed 166 EngineTests, the full `all` build, and the hidden-window editor smoke
 
 ## Related Documentation
 
-- [Reflected Property Editing](../../Architecture/ReflectedPropertyEditing.md)
-- [Native Tests](../Setup/NativeTests.md)
-- [Build and Run](../Setup/BuildAndRun.md)
+- [Reflected Property Editing](../../../Architecture/ReflectedPropertyEditing.md)
+- [Native Tests](../../../Setup/NativeTests.md)
+- [Build and Run](../../../Setup/BuildAndRun.md)
 
 ## Related Code
 

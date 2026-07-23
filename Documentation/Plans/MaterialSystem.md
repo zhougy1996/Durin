@@ -81,7 +81,7 @@ but cannot be authored normally.
 
 The parameter identity, declaration, GUID override, and schema-driven editor
 slice is complete and preserved in
-`Documentation/Plans/Archive/MaterialParameterDomainRefactor.md`. Static
+`Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`. Static
 properties and the compiled render representation remain in this stage.
 
 - [x] Introduce explicit parameter declarations with stable identifiers,
@@ -210,5 +210,5 @@ properties and the compiled render representation remain in this stage.
 - `Documentation/Architecture/MaterialSystem.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
 - `Documentation/Plans/StaticMeshMaterialSlots.md`
-- `Documentation/Plans/Archive/MaterialParameterDomainRefactor.md`
+- `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`
 - `Documentation/Plans/TextureSupport.md`
