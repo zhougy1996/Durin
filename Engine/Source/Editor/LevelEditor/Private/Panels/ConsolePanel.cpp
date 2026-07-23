@@ -69,20 +69,79 @@ namespace Durin
 			return std::format("[{}][{}][{}] {}", TimeText.data(), LevelName(Record.Level), Record.GetCategory(), Record.Message);
 		}
 
+		auto SetLogRowBackground(ELogLevel Level) -> void
+		{
+			if (Level < ELogLevel::Warn) return;
+			ImVec4 Color = LevelColor(Level);
+			Color.w = Level >= ELogLevel::Error ? 0.12f : 0.07f;
+			ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::ColorConvertFloat4ToU32(Color));
+		}
+
 		auto DrawLogRecord(const FLogRecord& Record) -> void
 		{
 			const std::array<char, 16> TimeText = FormatTime(Record);
+			ImGui::TableNextRow();
+			SetLogRowBackground(Record.Level);
+			ImGui::TableSetColumnIndex(0);
 			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleTimestamp), "%s", TimeText.data());
-			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
-			ImGui::TextColored(LevelColor(Record.Level), "%-5s", LevelName(Record.Level));
-			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
+			ImGui::TableSetColumnIndex(1);
+			ImGui::TextColored(LevelColor(Record.Level), "%s", LevelName(Record.Level));
+			ImGui::TableSetColumnIndex(2);
 			const std::string_view Category = Record.GetCategory();
-			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleModule), "[%.*s]",
+			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleModule), "%.*s",
 				static_cast<int>(Category.size()), Category.data());
-			if (Category != Record.Module && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-				ImGui::SetTooltip("Module: %s", Record.Module.c_str());
-			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+			{
+				ImGui::BeginTooltip();
+				ImGui::Text("Module: %s", Record.Module.c_str());
+				if (!Record.ThreadName.empty())
+					ImGui::Text("Thread: %s (%u)", Record.ThreadName.c_str(), Record.ThreadId);
+				else if (Record.ThreadId != 0)
+					ImGui::Text("Thread: %u", Record.ThreadId);
+				if (!Record.File.empty()) ImGui::Text("Source: %s:%u", Record.File.c_str(), Record.Line);
+				ImGui::EndTooltip();
+			}
+			ImGui::TableSetColumnIndex(3);
 			ImGui::TextUnformatted(Record.Message.c_str());
+		}
+
+		auto TextRecordLabel(EConsoleRecordType Type) -> const char*
+		{
+			switch (Type)
+			{
+			case EConsoleRecordType::Command: return "Command";
+			case EConsoleRecordType::Result: return "Result";
+			case EConsoleRecordType::HistoryGap: return "Warning";
+			case EConsoleRecordType::Error: return "Error";
+			default: return "";
+			}
+		}
+
+		auto TextRecordColor(EConsoleRecordType Type) -> ImVec4
+		{
+			switch (Type)
+			{
+			case EConsoleRecordType::Command: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info);
+			case EConsoleRecordType::HistoryGap: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning);
+			case EConsoleRecordType::Error: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error);
+			default: return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+			}
+		}
+
+		auto DrawTextRecord(const FConsoleRecord& Record) -> void
+		{
+			const ImVec4 Color = TextRecordColor(Record.Type);
+			ImGui::TableNextRow();
+			if (Record.Type == EConsoleRecordType::HistoryGap || Record.Type == EConsoleRecordType::Error)
+			{
+				ImVec4 Background = Color;
+				Background.w = Record.Type == EConsoleRecordType::Error ? 0.12f : 0.07f;
+				ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::ColorConvertFloat4ToU32(Background));
+			}
+			ImGui::TableSetColumnIndex(1);
+			ImGui::TextColored(Color, "%s", TextRecordLabel(Record.Type));
+			ImGui::TableSetColumnIndex(3);
+			ImGui::TextColored(Color, "%s", Record.Text.c_str());
 		}
 
 		auto CommonPrefix(const std::vector<std::string>& Values) -> std::string
@@ -155,6 +214,12 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 		ImGui::SameLine();
+		if (DrawToolbarIconButton(Icons::Copy, "ConsoleCopyVisible")) CopyVisibleRecords();
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Copy visible records");
+		ImGui::SameLine();
+		if (DrawToolbarIconButton(Icons::Trash, "ConsoleClear")) Clear();
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Clear console");
+		ImGui::SameLine();
 		ImGui::SetNextItemWidth(-1.0f);
 		if (ImGui::InputTextWithHint("###ConsoleSearch", "Search output...", SearchText.data(), SearchText.size())) bVisibleRecordsDirty = true;
 		ImGui::Separator();
@@ -166,23 +231,34 @@ namespace Durin
 			// new records change the content extent, so scrolling up immediately breaks follow mode.
 			const bool bIsAtBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 2.0f;
 			RefreshVisibleRecords();
-			ImGuiListClipper Clipper;
-			Clipper.Begin(static_cast<int>(VisibleRecordIndices.size()));
-			while (Clipper.Step())
+			if (VisibleRecordIndices.empty())
 			{
-				for (int VisibleIndex = Clipper.DisplayStart; VisibleIndex < Clipper.DisplayEnd; ++VisibleIndex)
+				ImGui::TextDisabled("%s", State->Records.GetRecords().empty() ? "No console records." : "No records match the current filters.");
+			}
+			else
+			{
+				const ImGuiTableFlags TableFlags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg |
+					ImGuiTableFlags_SizingStretchProp;
+				if (ImGui::BeginTable("ConsoleRecordTable", 4, TableFlags))
 				{
-					const FConsoleRecord& Record = State->Records.GetRecords()[VisibleRecordIndices[VisibleIndex]];
-					if (Record.Type == EConsoleRecordType::Log)
-						DrawLogRecord(Record.Log);
-					else
+					ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(72.0f));
+					ImGui::TableSetupColumn("Level", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(62.0f));
+					ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(150.0f));
+					ImGui::TableSetupColumn("Message", ImGuiTableColumnFlags_WidthStretch);
+					ImGuiListClipper Clipper;
+					Clipper.Begin(static_cast<int>(VisibleRecordIndices.size()));
+					while (Clipper.Step())
 					{
-						const ImVec4 Color = Record.Type == EConsoleRecordType::Command	   ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info) :
-											 Record.Type == EConsoleRecordType::HistoryGap ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning) :
-											 Record.Type == EConsoleRecordType::Error	   ? MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error) :
-																							 ImGui::GetStyleColorVec4(ImGuiCol_Text);
-						ImGui::TextColored(Color, "%s", Record.Text.c_str());
+						for (int VisibleIndex = Clipper.DisplayStart; VisibleIndex < Clipper.DisplayEnd; ++VisibleIndex)
+						{
+							const FConsoleRecord& Record = State->Records.GetRecords()[VisibleRecordIndices[VisibleIndex]];
+							if (Record.Type == EConsoleRecordType::Log)
+								DrawLogRecord(Record.Log);
+							else
+								DrawTextRecord(Record);
+						}
 					}
+					ImGui::EndTable();
 				}
 			}
 			if (bAutoScroll && bIsAtBottom && bReceivedRecords) ImGui::SetScrollHereY(1.0f);
