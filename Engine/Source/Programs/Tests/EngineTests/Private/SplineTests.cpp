@@ -70,13 +70,13 @@ namespace
 		}
 		auto PointsTarget(Durin::DSplineComponent* Spline) const -> Durin::FReflectedPropertyEditTarget
 		{
-			return CurveTarget(Spline).ForStructMember(Points, GetCurve(Spline));
+			return CurveTarget(Spline).ForStructMember(Points);
 		}
 		auto PointFieldTarget(Durin::DSplineComponent* Spline, Durin::uint32 Index, Durin::FProperty* Field) const
 			-> Durin::FReflectedPropertyEditTarget
 		{
 			void* PointContainer = Points->GetMutableElementPtr(GetCurve(Spline), Index);
-			return PointsTarget(Spline).ForArrayElement(Point, PointContainer, Index).ForStructMember(Field, PointContainer);
+			return PointsTarget(Spline).ForArrayElement(Point, Index).ForStructMember(Field);
 		}
 	};
 } // namespace
@@ -292,7 +292,7 @@ TEST(FSplineEditingTests, SharedTransactionsPreserveSplineSetterSemanticsAndStab
 
 	auto SubmitCurveField = [&](Durin::FProperty* Field, auto Value) {
 		const Durin::FReflectedPropertyEditTarget Target = Reflection.CurveTarget(Spline)
-			.ForStructMember(Field, Reflection.GetCurve(Spline));
+			.ForStructMember(Field);
 		return View.SubmitPropertyValueEdit(Context, Target,
 			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
 				*ScratchProperty->ContainerPtrToValuePtr<std::decay_t<decltype(Value)>>(ScratchContainer, ScratchArrayIndex) = Value;

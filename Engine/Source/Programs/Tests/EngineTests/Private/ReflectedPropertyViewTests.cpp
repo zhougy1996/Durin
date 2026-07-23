@@ -16,35 +16,17 @@ namespace
 		{
 		}
 
-		Durin::int32 Value = 5;
-	};
-
-	class FPropertyViewRetryableRestoreAdapter final : public Durin::IReflectedPropertyMutationAdapter
-	{
-	public:
-		auto Capture(const Durin::FReflectedPropertyEditTarget& Target,
-			Durin::FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
+		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal, std::string& OutError) -> bool override
 		{
-			return Durin::GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
-		}
-
-		auto Apply(const Durin::FReflectedPropertyEditTarget& Target,
-			const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-		{
-			return Durin::GetGenericReflectedPropertyMutationAdapter().Apply(Target, Snapshot, OutError);
-		}
-
-		auto Restore(const Durin::FReflectedPropertyEditTarget& Target,
-			const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-		{
-			if (!bAllowRestore)
+			if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled && !bAllowRestore)
 			{
-				if (OutError) *OutError = "Host transition restore rejected for testing.";
+				OutError = "Host transition restore rejected for testing.";
 				return false;
 			}
-			return Durin::GetGenericReflectedPropertyMutationAdapter().Restore(Target, Snapshot, OutError);
+			return true;
 		}
 
+		Durin::int32 Value = 5;
 		bool bAllowRestore = true;
 	};
 
@@ -76,15 +58,10 @@ namespace
 				[](void* Memory) { std::construct_at(static_cast<Durin::int32*>(Memory)); },
 				[](void* Memory) { std::destroy_at(static_cast<Durin::int32*>(Memory)); });
 			Class->ChildProperties = Property;
-			auto OwnedAdapter = std::make_unique<FPropertyViewRetryableRestoreAdapter>();
-			Adapter = OwnedAdapter.get();
-			EXPECT_TRUE(Durin::RegisterReflectedPropertyMutationAdapter(
-				Class, Durin::FName("Value"), std::move(OwnedAdapter)));
 		}
 
 		Durin::DClass* Class = nullptr;
 		Durin::FNumericProperty* Property = nullptr;
-		FPropertyViewRetryableRestoreAdapter* Adapter = nullptr;
 	};
 
 	auto GetPropertyViewHostTestReflection() -> FPropertyViewHostTestReflection&
@@ -182,18 +159,18 @@ TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestorat
 	const Durin::FReflectedPropertyViewContext Context{
 		.ReportError = [&](std::string Message) { Error = std::move(Message); },
 	};
-	Reflection.Adapter->bAllowRestore = true;
+	First.bAllowRestore = true;
 	EXPECT_TRUE(BeginPropertyViewHostPreview(View, Context, First));
 	EXPECT_TRUE(View.IsEditingObject(&First));
 	EXPECT_EQ(First.Value, 8);
 
-	Reflection.Adapter->bAllowRestore = false;
+	First.bAllowRestore = false;
 	EXPECT_FALSE(View.HandleOwnerContext(Context, &Second));
 	EXPECT_TRUE(View.IsEditingObject(&First));
 	EXPECT_EQ(First.Value, 8);
 	EXPECT_EQ(Error, "Host transition restore rejected for testing.");
 
-	Reflection.Adapter->bAllowRestore = true;
+	First.bAllowRestore = true;
 	EXPECT_TRUE(View.HandleOwnerContext(Context, &Second));
 	EXPECT_FALSE(View.IsEditing());
 	EXPECT_EQ(First.Value, 5);
@@ -208,11 +185,11 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	const Durin::FReflectedPropertyViewContext EditableContext{
 		.ReportError = [&](std::string Message) { Error = std::move(Message); },
 	};
-	Reflection.Adapter->bAllowRestore = true;
+	Object.bAllowRestore = true;
 	EXPECT_TRUE(BeginPropertyViewHostPreview(View, EditableContext, Object));
 	EXPECT_EQ(Object.Value, 8);
 
-	Reflection.Adapter->bAllowRestore = false;
+	Object.bAllowRestore = false;
 	Durin::FReflectedPropertyViewContext ReadOnlyContext = EditableContext;
 	ReadOnlyContext.bReadOnly = true;
 	EXPECT_FALSE(View.HandleOwnerContext(ReadOnlyContext, &Object));
@@ -220,7 +197,7 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	EXPECT_EQ(Object.Value, 8);
 	EXPECT_EQ(Error, "Host transition restore rejected for testing.");
 
-	Reflection.Adapter->bAllowRestore = true;
+	Object.bAllowRestore = true;
 	EXPECT_TRUE(View.HandleOwnerContext(ReadOnlyContext, &Object));
 	EXPECT_FALSE(View.IsEditing());
 	EXPECT_EQ(Object.Value, 5);

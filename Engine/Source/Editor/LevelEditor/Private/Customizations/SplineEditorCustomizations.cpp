@@ -237,21 +237,21 @@ namespace Durin
 				}
 				auto MakeCurveFieldTarget(DSplineComponent* Spline, FProperty* Field) const -> FReflectedPropertyEditTarget
 				{
-					return MakeCurveTarget(Spline).ForStructMember(Field, GetCurve(Spline));
+					return MakeCurveTarget(Spline).ForStructMember(Field);
 				}
 				auto MakePointsTarget(DSplineComponent* Spline) const -> FReflectedPropertyEditTarget
 				{
-					return MakeCurveTarget(Spline).ForStructMember(Points, GetCurve(Spline));
+					return MakeCurveTarget(Spline).ForStructMember(Points);
 				}
 				auto MakePointTarget(DSplineComponent* Spline, uint32 PointIndex) const -> FReflectedPropertyEditTarget
 				{
 					void* PointContainer = Points->GetMutableElementPtr(GetCurve(Spline), PointIndex);
-					return MakePointsTarget(Spline).ForArrayElement(Point, PointContainer, PointIndex);
+					return MakePointsTarget(Spline).ForArrayElement(Point, PointIndex);
 				}
 				auto MakePointFieldTarget(DSplineComponent* Spline, uint32 PointIndex, FProperty* Field) const -> FReflectedPropertyEditTarget
 				{
 					void* PointContainer = Points->GetMutableElementPtr(GetCurve(Spline), PointIndex);
-					return MakePointTarget(Spline, PointIndex).ForStructMember(Field, PointContainer);
+					return MakePointTarget(Spline, PointIndex).ForStructMember(Field);
 				}
 			};
 

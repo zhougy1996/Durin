@@ -115,7 +115,7 @@ namespace Durin
 	private:
 		struct FPropertyWidgetEditResult
 		{
-			// The destination is always scratch or detached storage selected by the caller.
+			// The destination is always temporary or detached storage selected by the caller.
 			// Widget code never receives an object or reflected edit target.
 			std::function<void(FProperty*, void*, uint32)> AssignValue;
 			bool bChanged = false;

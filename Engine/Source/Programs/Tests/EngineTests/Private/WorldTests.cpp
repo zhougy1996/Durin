@@ -278,7 +278,7 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 		return Projection->ContainerPtrToValuePtr<Durin::FCameraProjectionSettings>(Camera);
 	};
 	auto MakeTarget = [&](Durin::FProperty* Field) {
-		return Durin::FReflectedPropertyEditTarget::ForMember(Camera, Projection).ForStructMember(Field, GetSettings());
+		return Durin::FReflectedPropertyEditTarget::ForMember(Camera, Projection).ForStructMember(Field);
 	};
 	const Durin::FReflectedPropertyEditTarget NearTarget = MakeTarget(NearClip);
 	ASSERT_EQ(NearTarget.Path.size(), 2u);

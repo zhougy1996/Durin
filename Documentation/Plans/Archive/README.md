@@ -8,5 +8,6 @@ Archived plans preserve completed implementation decisions, validation evidence,
 | [Editor World Grid V2](EditorWorldGridV2.md) | Screen-space ray-plane reconstruction for the editor world grid |
 | [Scene Post-Processing and Editor Assistance Boundary](ScenePostProcessEditorAssistanceBoundary.md) | Post-process-first, depth-aware editor assistance for Present and Offscreen viewport outputs |
 | [Shader Cache Hardening](ShaderCacheHardening.md) | Self-validating atomic artifacts, warm manifests, request coalescing, reclaimable resources, and bounded disk retention |
+| [Reflected Property Editing](ReflectedPropertyEditing.md) | Stable detached drafts, atomic object-hook mutation, shared transactions, explicit host cancellation, and a consolidated public API |
 
 Read an archived plan only when its history or decision provenance is relevant. Archive maintenance rules are in [the parent instructions](../AGENTS.md).

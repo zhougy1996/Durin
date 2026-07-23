@@ -151,7 +151,7 @@ namespace Durin
 				}
 				auto MakeTarget(DCameraComponent& Camera, FProperty* Field) const -> FReflectedPropertyEditTarget
 				{
-					return FReflectedPropertyEditTarget::ForMember(&Camera, Projection).ForStructMember(Field, GetSettings(Camera));
+					return FReflectedPropertyEditTarget::ForMember(&Camera, Projection).ForStructMember(Field);
 				}
 			};
 

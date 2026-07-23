@@ -188,9 +188,9 @@ namespace
 		void* Definition = Definitions->GetMutableElementPtr(Material, Index);
 		void* Value = ValueProperty->GetValuePtr(Definition);
 		return Durin::FReflectedPropertyEditTarget::ForMember(Material, Definitions)
-			.ForArrayElement(Definitions->GetInner(), Definition, Index)
-			.ForStructMember(ValueProperty, Definition)
-			.ForStructMember(Field, Value);
+			.ForArrayElement(Definitions->GetInner(), Index)
+			.ForStructMember(ValueProperty)
+			.ForStructMember(Field);
 	}
 }
 
@@ -304,7 +304,6 @@ TEST(FMaterialTests, DetailsMaterialAssignmentReplacesRegisteredProxyOnRenderThr
 		Durin::FReflectedPropertyEditTarget::ForMember(Component, MaterialProperty),
 		"Edit Material",
 		nullptr,
-		nullptr,
 		&Transactions
 	));
 	EXPECT_EQ(EditSession.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
@@ -362,7 +361,7 @@ TEST(FMaterialTests, ReflectedMaterialSlotEditUsesSharedTransactionsAndSetterSem
 		void* Element = SlotIndex < MaterialsProperty->Num(Component)
 			? MaterialsProperty->GetMutableElementPtr(Component, SlotIndex) : Component;
 		return Durin::FReflectedPropertyEditTarget::ForMember(Component, MaterialsProperty)
-			.ForArrayElement(MaterialProperty, Element, SlotIndex);
+			.ForArrayElement(MaterialProperty, SlotIndex);
 	};
 	auto SubmitSlot = [&](Durin::FReflectedPropertyView& View, const Durin::FReflectedPropertyViewContext& Context,
 		Durin::uint32 SlotIndex, Durin::DMaterialInterface* Material) {
@@ -583,7 +582,7 @@ TEST(FMaterialTests, ParentHookRejectsCyclesWithoutCreatingHistory)
 
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Durin::FReflectedPropertyEditTarget::ForMember(Second, ParentProperty), "Edit Parent", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(Session.Begin(Durin::FReflectedPropertyEditTarget::ForMember(Second, ParentProperty), "Edit Parent", nullptr, &Transactions));
 	std::string Error;
 	EXPECT_EQ(Session.Apply(Proposed, &Error), Durin::EReflectedPropertyEditResult::Failed);
 	EXPECT_EQ(Error, "A material instance cannot create a parent cycle.");

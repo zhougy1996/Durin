@@ -4,35 +4,21 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-The shared reflected-property view, edit sessions, snapshots, notifications,
-transactions, bindings, and semantic mutation adapters are implemented. The
-remaining UI migration and validation work is now secondary to simplifying the
-mutation model itself.
+Complete. Stages 0 through 6 and every acceptance gate passed. Reflected edits
+now use one stable-target, detached-draft, object-hook, and transaction flow.
+The obsolete mutation-adapter registry and ephemeral leaf fields have been
+removed from the public API, and no exceptional mutation policy is required by
+the implemented properties.
 
-Phases 0 through 4 are complete: adapter semantics are classified, proposal
-storage is owned by an internal property draft, active sessions/transactions
-re-resolve ephemeral leaf storage, and generic mutations now pass through
-detached object validation/normalization with rollback protection. All built-in
-semantic adapters have been migrated to object hooks, leaving no proven policy
-exception. Sessions now use one atomic mutation executor, failed restoration
-remains retryable, every interaction emits one terminal event, and transactions
-resolve any registered exceptional policy when Undo/Redo executes. Phase 5
-host-lifecycle implementation and automated coverage are complete. Object,
-document, workspace, panel, read-only/PIE, and shutdown transitions now request
-cancellation through a failure-reporting host boundary. A failed restoration
-keeps the edit and active document or target recoverable instead of allowing
-the transition. The full build, EngineTests, and hidden-window startup smoke
-pass; the interactive workspace-close, PIE, and editor-shutdown checks remain
-before the Stage 5 acceptance gate is closed.
+Automated coverage verifies draft isolation, generic and semantic mutations,
+containers, transactions, retryable cancellation, and host transitions.
+Interactive workspace-close, PIE, and editor-shutdown checks passed. Final
+validation passed all 166 EngineTests, a complete `all` build, and an
+eight-second hidden-window DurinEditor startup smoke.
 
-The remaining simplification work is concentrated at final interactive host
-validation and the public API boundary. The now-unused built-in adapter surface
-remains available until Stage 6 cleanup.
-
-The implemented architecture remains documented in
-[Reflected Property Editing](../Architecture/ReflectedPropertyEditing.md) until
-each stage below lands. Earlier unselected view API exploration is kept outside
-the repository.
+Long-lived behavior is documented in
+[Reflected Property Editing](../../Architecture/ReflectedPropertyEditing.md).
+Earlier unselected view API exploration remains outside the repository.
 
 ## Goal
 
@@ -413,15 +399,29 @@ retry, and blocked document activation.
 
 ### Stage 6: Consolidate API, Tests, and Documentation
 
-- [ ] Remove obsolete adapter types, registry APIs, scratch helpers, raw target
+- [x] Remove obsolete adapter types, registry APIs, scratch helpers, raw target
   fields, fallback branches, and comments describing the old model.
-- [ ] Keep generated property metadata deferred unless policy registration is
+- [x] Keep generated property metadata deferred unless policy registration is
   still repetitive after migration; if evaluated, resolve validated member
   identity at generation time without per-edit string lookup.
-- [ ] Update the architecture document only after each new contract is
+- [x] Update the architecture document only after each new contract is
   implemented and validated.
-- [ ] Complete the validation matrix and run an editor smoke test through the
+- [x] Complete the validation matrix and run an editor smoke test through the
   repository build/run workflow.
+
+#### Implementation Result
+
+The public mutation-adapter type, generic-adapter accessor, registry, lookup,
+and custom session injection were removed. Mutation execution now directly
+uses the generic detached-draft pipeline for Apply, Cancel, Undo, and Redo.
+Stable edit targets no longer expose construction-time leaf container or array
+index fields; draft leaf resolution is private to `DurinEd`.
+
+No policy registrations remain, so generated policy metadata stays deferred.
+Failure tests now reject restoration through the same object pre-edit hook used
+by production code rather than through compatibility adapters. Architecture
+documentation describes only the implemented generic flow. Final validation
+passed 166 EngineTests, the full `all` build, and the hidden-window editor smoke.
 
 #### Acceptance Gate
 
@@ -441,7 +441,7 @@ retry, and blocked document activation.
 | Interaction | Continuous preview, confirm, Escape, and edit-away-and-back terminal event |
 | Failure atomicity | Apply failure, rollback failure reporting, Cancel retry, and destructor safety |
 | Containers | Resize/rehash between frames, structural Undo/Redo, map-key collision |
-| Policy lookup | Generic default, justified exception, base/derived selection, registration order independence |
+| Policy boundary | No implemented exception; public adapter/registry surface removed |
 | Host lifecycle | Selection, document, workspace, read-only/PIE, shutdown |
 | History/dirty | No history or dirtying for rejection/cancel; one entry per committed interaction |
 | Editor smoke | Details edit/save/Undo/Redo, Material Editor switch, PIE, close, shutdown |
@@ -473,7 +473,7 @@ retry, and blocked document activation.
 
 ## Related Documentation
 
-- [Reflected Property Editing](../Architecture/ReflectedPropertyEditing.md)
+- [Reflected Property Editing](../../Architecture/ReflectedPropertyEditing.md)
 - [Native Tests](../Setup/NativeTests.md)
 - [Build and Run](../Setup/BuildAndRun.md)
 

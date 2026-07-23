@@ -65,9 +65,9 @@ namespace Durin
 			void* DefinitionContainer = Definitions->GetMutableElementPtr(Material, Index);
 			void* ValueContainer = ValueProperty->GetValuePtr(DefinitionContainer);
 			return FReflectedPropertyEditTarget::ForMember(Material, Definitions)
-				.ForArrayElement(DefinitionElement, DefinitionContainer, Index)
-				.ForStructMember(ValueProperty, DefinitionContainer)
-				.ForStructMember(ValueField, ValueContainer);
+				.ForArrayElement(DefinitionElement, Index)
+				.ForStructMember(ValueProperty)
+				.ForStructMember(ValueField);
 		}
 	}
 

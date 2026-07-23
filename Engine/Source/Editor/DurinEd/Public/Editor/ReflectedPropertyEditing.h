@@ -8,7 +8,6 @@
 namespace Durin
 {
 	class DObject;
-	class DClass;
 	class FProperty;
 
 	struct FReflectedPropertyEditPathSegment
@@ -25,10 +24,6 @@ namespace Durin
 		DObject* Object = nullptr;
 		const FProperty* MemberProperty = nullptr;
 		const FProperty* LeafProperty = nullptr;
-		// Construction-time convenience only. Sessions and transactions clear these
-		// ephemeral fields and resolve them again from SnapshotContainer plus Path.
-		void* LeafContainer = nullptr;
-		uint32 LeafArrayIndex = 0;
 		// Nested container elements can move after an array resize or map rehash.
 		// Transactions therefore snapshot a stable ancestor, normally the object-owned member.
 		const FProperty* SnapshotProperty = nullptr;
@@ -38,47 +33,16 @@ namespace Durin
 		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
 
 		DURINED_API static auto ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex = 0) -> FReflectedPropertyEditTarget;
-		DURINED_API auto ForStructMember(const FProperty* Property, void* StructContainer, uint32 ArrayIndex = 0) const -> FReflectedPropertyEditTarget;
-		DURINED_API auto ForArrayElement(const FProperty* ElementProperty, void* ElementContainer, uint64 ElementIndex) const -> FReflectedPropertyEditTarget;
-		DURINED_API auto ForMapEntry(const FProperty* EntryProperty, void* EntryContainer, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget;
-		DURINED_API auto ForMapEntry(const FProperty* EntryProperty, void* EntryContainer,
+		DURINED_API auto ForStructMember(const FProperty* Property, uint32 ArrayIndex = 0) const -> FReflectedPropertyEditTarget;
+		DURINED_API auto ForArrayElement(const FProperty* ElementProperty, uint64 ElementIndex) const -> FReflectedPropertyEditTarget;
+		DURINED_API auto ForMapEntry(const FProperty* EntryProperty, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget;
+		DURINED_API auto ForMapEntry(const FProperty* EntryProperty,
 			FPropertyValueSnapshot KeySnapshot, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget;
 	};
-
-	// Resolves ephemeral leaf storage from the stable snapshot root and owned path.
-	// The resolved copy is valid only until the addressed container is mutated.
-	DURINED_API auto ResolveReflectedPropertyEditTarget(
-		const FReflectedPropertyEditTarget& Target,
-		FReflectedPropertyEditTarget& OutResolvedTarget,
-		std::string* OutError = nullptr
-	) -> bool;
-
-	class DURINED_API IReflectedPropertyMutationAdapter
-	{
-	public:
-		virtual ~IReflectedPropertyMutationAdapter() = default;
-		virtual auto Capture(const FReflectedPropertyEditTarget& Target, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool = 0;
-		virtual auto Apply(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& ProposedValue, std::string* OutError) const -> bool = 0;
-		virtual auto Restore(const FReflectedPropertyEditTarget& Target, const FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool = 0;
-	};
-
-	DURINED_API auto GetGenericReflectedPropertyMutationAdapter() -> const IReflectedPropertyMutationAdapter&;
-	// Registered adapters are process-lifetime editor services because committed
-	// transactions retain their selected adapter for future undo and redo.
-	DURINED_API auto RegisterReflectedPropertyMutationAdapter(
-		const DClass* ObjectClass,
-		FName PropertyName,
-		std::unique_ptr<IReflectedPropertyMutationAdapter> Adapter
-	) -> bool;
-	DURINED_API auto GetReflectedPropertyMutationAdapter(
-		const FReflectedPropertyEditTarget& Target
-	) -> const IReflectedPropertyMutationAdapter&;
 
 	class FReflectedPropertyTransaction final : public IEditorTransaction
 	{
 	public:
-		// Transactions retain stable identity and resolve any registered exceptional
-		// adapter when Undo or Redo executes; they never retain an adapter pointer.
 		DURINED_API FReflectedPropertyTransaction(
 			FReflectedPropertyEditTarget InTarget,
 			FPropertyValueSnapshot InBefore,
@@ -124,9 +88,6 @@ namespace Durin
 			const FReflectedPropertyEditTarget& InTarget,
 			// An empty description uses "Edit <MemberProperty>" after target validation.
 			std::string_view InDescription,
-			// A custom adapter may drive a non-transactional session directly. Transactional
-			// edits require the same adapter to be registered by class/member identity.
-			const IReflectedPropertyMutationAdapter* InAdapter = nullptr,
 			std::string* OutError = nullptr,
 			FEditorTransactionManager* InTransactionManager = nullptr
 		) -> bool;
@@ -145,7 +106,6 @@ namespace Durin
 		auto Reset() -> void;
 
 		FReflectedPropertyEditTarget Target;
-		const IReflectedPropertyMutationAdapter* Adapter = nullptr;
 		FPropertyValueSnapshot OriginalValue;
 		FPropertyValueSnapshot CurrentValue;
 		std::string Description;

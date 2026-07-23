@@ -102,85 +102,6 @@ namespace
 		bool bLastProposalHadLeaf = false;
 	};
 
-	class FRejectingMutationAdapter final : public Durin::IReflectedPropertyMutationAdapter
-	{
-	public:
-		auto Capture(const Durin::FReflectedPropertyEditTarget& Target, Durin::FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
-		{
-			return Durin::CapturePropertyValue(Target.LeafProperty, Target.LeafContainer, Target.LeafArrayIndex, OutSnapshot, OutError);
-		}
-		auto Apply(const Durin::FReflectedPropertyEditTarget&, const Durin::FPropertyValueSnapshot&, std::string* OutError) const -> bool override
-		{
-			if (OutError) *OutError = "Rejected for testing.";
-			return false;
-		}
-		auto Restore(const Durin::FReflectedPropertyEditTarget&, const Durin::FPropertyValueSnapshot&, std::string*) const -> bool override
-		{
-			return false;
-		}
-	};
-
-	class FUndoRejectingMutationAdapter final : public Durin::IReflectedPropertyMutationAdapter
-	{
-	public:
-		auto Capture(const Durin::FReflectedPropertyEditTarget& Target, Durin::FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
-		{
-			return Durin::GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
-		}
-		auto Apply(const Durin::FReflectedPropertyEditTarget& Target, const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-		{
-			return Durin::GetGenericReflectedPropertyMutationAdapter().Apply(Target, Snapshot, OutError);
-		}
-		auto Restore(const Durin::FReflectedPropertyEditTarget&, const Durin::FPropertyValueSnapshot&, std::string* OutError) const -> bool override
-		{
-			if (OutError) *OutError = "Undo rejected for testing.";
-			return false;
-		}
-	};
-
-	class FPartiallyApplyingMutationAdapter final : public Durin::IReflectedPropertyMutationAdapter
-	{
-	public:
-		auto Capture(const Durin::FReflectedPropertyEditTarget& Target, Durin::FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
-		{
-			return Durin::GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
-		}
-		auto Apply(const Durin::FReflectedPropertyEditTarget& Target, const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-		{
-			if (!Durin::GetGenericReflectedPropertyMutationAdapter().Apply(Target, Snapshot, OutError)) return false;
-			if (OutError) *OutError = "Failed after mutation for testing.";
-			return false;
-		}
-		auto Restore(const Durin::FReflectedPropertyEditTarget& Target, const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-		{
-			return Durin::GetGenericReflectedPropertyMutationAdapter().Restore(Target, Snapshot, OutError);
-		}
-	};
-
-	class FRetryableRestoreMutationAdapter final : public Durin::IReflectedPropertyMutationAdapter
-	{
-	public:
-		auto Capture(const Durin::FReflectedPropertyEditTarget& Target, Durin::FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool override
-		{
-			return Durin::GetGenericReflectedPropertyMutationAdapter().Capture(Target, OutSnapshot, OutError);
-		}
-		auto Apply(const Durin::FReflectedPropertyEditTarget& Target, const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-		{
-			return Durin::GetGenericReflectedPropertyMutationAdapter().Apply(Target, Snapshot, OutError);
-		}
-		auto Restore(const Durin::FReflectedPropertyEditTarget& Target, const Durin::FPropertyValueSnapshot& Snapshot, std::string* OutError) const -> bool override
-		{
-			if (!bAllowRestore)
-			{
-				if (OutError) *OutError = "Restore rejected for testing.";
-				return false;
-			}
-			return Durin::GetGenericReflectedPropertyMutationAdapter().Restore(Target, Snapshot, OutError);
-		}
-
-		mutable bool bAllowRestore = false;
-	};
-
 	auto MakeValueProperty() -> std::unique_ptr<Durin::FNumericProperty>
 	{
 		auto Property = std::make_unique<Durin::FNumericProperty>(
@@ -288,7 +209,6 @@ namespace
 		Target.Object = &Object;
 		Target.MemberProperty = Property;
 		Target.LeafProperty = Property;
-		Target.LeafContainer = &Container;
 		Target.SnapshotProperty = Property;
 		Target.SnapshotContainer = &Container;
 		Target.Path.push_back({Property});
@@ -311,13 +231,12 @@ TEST(FReflectedPropertyEditSessionTests, CommitsAndUndoRedoesGuidValues)
 	Target.Object = &Object;
 	Target.MemberProperty = Property.get();
 	Target.LeafProperty = Property.get();
-	Target.LeafContainer = &Container;
 	Target.SnapshotProperty = Property.get();
 	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({Property.get()});
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Target, "Edit Guid", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(Session.Begin(Target, "Edit Guid", nullptr, &Transactions));
 	EXPECT_EQ(Session.Apply(ProposedSnapshot), Durin::EReflectedPropertyEditResult::Changed);
 	EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
 	EXPECT_EQ(Container.Value, Proposed);
@@ -354,7 +273,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsAndNormalizesDetached
 	DEditObserver Object;
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Validated Edit", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Validated Edit", nullptr, &Transactions));
 
 	Object.PreChange = [](Durin::FPropertyEditProposal&, std::string& Error) {
 		Error = "Rejected detached proposal.";
@@ -413,7 +332,7 @@ TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValid
 {
 	Durin::FReflectedPropertyEditSession Session;
 	std::string Error;
-	EXPECT_FALSE(Session.Begin({}, {}, nullptr, &Error));
+	EXPECT_FALSE(Session.Begin({}, {}, &Error));
 	EXPECT_EQ(Error, "The edit target has no owning object.");
 	EXPECT_FALSE(Session.IsActive());
 
@@ -423,11 +342,11 @@ TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValid
 	Durin::FReflectedPropertyEditTarget Incomplete = MakeTarget(Object, Property.get(), Container);
 	Incomplete.SnapshotProperty = nullptr;
 	Incomplete.SnapshotContainer = nullptr;
-	EXPECT_FALSE(Session.Begin(Incomplete, {}, nullptr, &Error));
+	EXPECT_FALSE(Session.Begin(Incomplete, {}, &Error));
 	EXPECT_EQ(Error, "The edit target is incomplete.");
 	EXPECT_FALSE(Session.IsActive());
 
-	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), {}, nullptr, &Error)) << Error;
+	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), {}, &Error)) << Error;
 	EXPECT_EQ(Session.GetDescription(), "Edit Value");
 	EXPECT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::NoChange);
 	ASSERT_EQ(Object.Changes.size(), 1u);
@@ -459,10 +378,13 @@ TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifyi
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
 	DEditObserver Object;
-	FRejectingMutationAdapter Adapter;
+	Object.PreChange = [](Durin::FPropertyEditProposal&, std::string& OutError) {
+		OutError = "Rejected for testing.";
+		return false;
+	};
 	Durin::FReflectedPropertyEditSession Session;
 	std::string Error;
-	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", &Adapter, &Error)) << Error;
+	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", &Error)) << Error;
 
 	EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8), &Error), Durin::EReflectedPropertyEditResult::Failed);
 	EXPECT_EQ(Container.Value, 5);
@@ -472,44 +394,30 @@ TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifyi
 	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Committed);
 }
 
-TEST(FReflectedPropertyEditSessionTests, RollsBackPartialMutationAfterAdapterFailure)
-{
-	auto Property = MakeValueProperty();
-	FValueContainer Container{5};
-	DEditObserver Object;
-	FPartiallyApplyingMutationAdapter Adapter;
-	{
-		Durin::FReflectedPropertyEditSession Session;
-		std::string Error;
-		ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", &Adapter, &Error)) << Error;
-
-		EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8), &Error), Durin::EReflectedPropertyEditResult::Failed);
-		EXPECT_EQ(Error, "Failed after mutation for testing.");
-		EXPECT_EQ(Container.Value, 5);
-		EXPECT_FALSE(Session.HasChanges());
-		EXPECT_TRUE(Object.Changes.empty());
-	}
-	EXPECT_EQ(Container.Value, 5);
-	ASSERT_EQ(Object.Changes.size(), 1u);
-	EXPECT_EQ(Object.Changes[0].Phase, Durin::EPropertyChangePhase::Cancelled);
-}
-
 TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForRetry)
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
 	DEditObserver Object;
-	FRetryableRestoreMutationAdapter Adapter;
+	bool bAllowRestore = false;
+	Object.PreChange = [&](Durin::FPropertyEditProposal& Proposal, std::string& OutError) {
+		if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled && !bAllowRestore)
+		{
+			OutError = "Restore rejected for testing.";
+			return false;
+		}
+		return true;
+	};
 	Durin::FReflectedPropertyEditSession Session;
 	std::string Error;
-	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", &Adapter, &Error)) << Error;
+	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", &Error)) << Error;
 	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8)), Durin::EReflectedPropertyEditResult::Changed);
 
 	EXPECT_EQ(Session.Cancel(&Error), Durin::EReflectedPropertyEditResult::Failed);
 	EXPECT_EQ(Error, "Restore rejected for testing.");
 	EXPECT_TRUE(Session.IsActive());
 	EXPECT_EQ(Container.Value, 8);
-	Adapter.bAllowRestore = true;
+	bAllowRestore = true;
 	EXPECT_EQ(Session.Cancel(&Error), Durin::EReflectedPropertyEditResult::Changed);
 	EXPECT_FALSE(Session.IsActive());
 	EXPECT_EQ(Container.Value, 5);
@@ -560,7 +468,7 @@ TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAba
 	EXPECT_EQ(Object.Changes[2].Phase, Durin::EPropertyChangePhase::Cancelled);
 }
 
-TEST(FReflectedPropertyEditSessionTests, KeepsRegisteredTargetAliveForTheSession)
+TEST(FReflectedPropertyEditSessionTests, KeepsTargetAliveForTheSession)
 {
 	InitializeDObjectSystem();
 	auto Property = MakeValueProperty();
@@ -570,7 +478,6 @@ TEST(FReflectedPropertyEditSessionTests, KeepsRegisteredTargetAliveForTheSession
 	Target.Object = Object;
 	Target.MemberProperty = Property.get();
 	Target.LeafProperty = Property.get();
-	Target.LeafContainer = &Container;
 	Target.SnapshotProperty = Property.get();
 	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({Property.get()});
@@ -591,7 +498,7 @@ TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTrans
 	DEditObserver Object;
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", nullptr, &Transactions));
 
 	EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 11)), Durin::EReflectedPropertyEditResult::Changed);
 	EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 19)), Durin::EReflectedPropertyEditResult::Changed);
@@ -631,11 +538,11 @@ TEST(FReflectedPropertyEditSessionTests, NoOpAndCancelledEditsDoNotCreateTransac
 	Durin::FEditorTransactionManager Transactions;
 
 	Durin::FReflectedPropertyEditSession NoOpSession;
-	ASSERT_TRUE(NoOpSession.Begin(MakeTarget(Object, Property.get(), Container), "No-op", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(NoOpSession.Begin(MakeTarget(Object, Property.get(), Container), "No-op", nullptr, &Transactions));
 	EXPECT_EQ(NoOpSession.Commit(), Durin::EReflectedPropertyEditResult::NoChange);
 
 	Durin::FReflectedPropertyEditSession CancelledSession;
-	ASSERT_TRUE(CancelledSession.Begin(MakeTarget(Object, Property.get(), Container), "Cancelled", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(CancelledSession.Begin(MakeTarget(Object, Property.get(), Container), "Cancelled", nullptr, &Transactions));
 	ASSERT_EQ(CancelledSession.Apply(CaptureValue(Property.get(), Container, 9)), Durin::EReflectedPropertyEditResult::Changed);
 	EXPECT_EQ(CancelledSession.Cancel(), Durin::EReflectedPropertyEditResult::Changed);
 	EXPECT_EQ(Container.Value, 3);
@@ -643,27 +550,7 @@ TEST(FReflectedPropertyEditSessionTests, NoOpAndCancelledEditsDoNotCreateTransac
 	EXPECT_TRUE(Transactions.ConsumeEvents().empty());
 }
 
-TEST(FReflectedPropertyEditSessionTests, RejectsUnregisteredAdapterFromTransactionHistory)
-{
-	auto Property = MakeValueProperty();
-	FValueContainer Container{5};
-	DEditObserver Object;
-	FRetryableRestoreMutationAdapter Adapter;
-	Adapter.bAllowRestore = true;
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", &Adapter, nullptr, &Transactions));
-	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8)), Durin::EReflectedPropertyEditResult::Changed);
-	std::string Error;
-	EXPECT_EQ(Session.Commit(&Error), Durin::EReflectedPropertyEditResult::Failed);
-	EXPECT_EQ(Error, "Transactional reflected-property edits require a registered mutation adapter.");
-	EXPECT_TRUE(Session.IsActive());
-	EXPECT_FALSE(Transactions.CanUndo());
-	EXPECT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::Changed);
-	EXPECT_EQ(Container.Value, 5);
-}
-
-TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsRegisteredTargetAlive)
+TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsTargetAlive)
 {
 	InitializeDObjectSystem();
 	auto Property = MakeValueProperty();
@@ -673,13 +560,12 @@ TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsRegisteredTarget
 	Target.Object = Object;
 	Target.MemberProperty = Property.get();
 	Target.LeafProperty = Property.get();
-	Target.LeafContainer = &Container;
 	Target.SnapshotProperty = Property.get();
 	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({Property.get()});
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Target, "Edit Rooted Value", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(Session.Begin(Target, "Edit Rooted Value", nullptr, &Transactions));
 	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 12)), Durin::EReflectedPropertyEditResult::Changed);
 	ASSERT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
 
@@ -713,13 +599,12 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 	Target.Object = Owner;
 	Target.MemberProperty = &Property;
 	Target.LeafProperty = &Property;
-	Target.LeafContainer = &Container;
 	Target.SnapshotProperty = &Property;
 	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({&Property});
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Target, "Edit Object Value", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(Session.Begin(Target, "Edit Object Value", nullptr, &Transactions));
 	ASSERT_EQ(Session.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
 	ASSERT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
 
@@ -757,11 +642,10 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookPipelineAppliesNestedStructF
 	ProposedCamera->SetProjectionSettings(ProposedSettings);
 	Durin::FPropertyValueSnapshot Proposed;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Projection, ProposedCamera, 0, Proposed));
-	const auto* Settings = Projection->ContainerPtrToValuePtr<Durin::FCameraProjectionSettings>(Camera);
 	const Durin::FReflectedPropertyEditTarget Target = Durin::FReflectedPropertyEditTarget::ForMember(Camera, Projection)
-		.ForStructMember(NearClip, const_cast<Durin::FCameraProjectionSettings*>(Settings));
+		.ForStructMember(NearClip);
 	Durin::FReflectedPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Target, "Generic Nested Edit", &Durin::GetGenericReflectedPropertyMutationAdapter()));
+	ASSERT_TRUE(Session.Begin(Target, "Generic Nested Edit"));
 	EXPECT_EQ(Session.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 4.0f);
 	EXPECT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::Changed);
@@ -769,38 +653,6 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookPipelineAppliesNestedStructF
 
 	Durin::MarkAsGarbage(Camera);
 	Durin::MarkAsGarbage(ProposedCamera);
-	Durin::CollectGarbage();
-}
-
-TEST(FReflectedPropertyEditSessionTests, BuiltInSemanticPropertiesUseGenericHooks)
-{
-	InitializeDObjectSystem();
-	const auto& Generic = Durin::GetGenericReflectedPropertyMutationAdapter();
-	auto ExpectGeneric = [&](Durin::DObject* Object, const char* PropertyName) {
-		auto* Property = Object->GetClass()->FindPropertyByName(Durin::FName(PropertyName));
-		ASSERT_NE(Property, nullptr) << PropertyName;
-		EXPECT_EQ(&Durin::GetReflectedPropertyMutationAdapter(
-			Durin::FReflectedPropertyEditTarget::ForMember(Object, Property)), &Generic) << PropertyName;
-	};
-
-	auto* Scene = Durin::NewObject<Durin::DSceneComponent>(nullptr, "GenericHookScene");
-	auto* Camera = Durin::NewObject<Durin::DCameraComponent>(nullptr, "GenericHookCamera");
-	auto* Spline = Durin::NewObject<Durin::DSplineComponent>(nullptr, "GenericHookSpline");
-	auto* Mesh = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "GenericHookMesh");
-	auto* Material = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "GenericHookMaterial");
-	ExpectGeneric(Scene, "RelativeTransform");
-	ExpectGeneric(Camera, "ProjectionSettings");
-	ExpectGeneric(Spline, "SplineCurve");
-	ExpectGeneric(Mesh, "StaticMesh");
-	ExpectGeneric(Mesh, "Material");
-	ExpectGeneric(Mesh, "Materials");
-	ExpectGeneric(Material, "Parent");
-
-	Durin::MarkAsGarbage(Material);
-	Durin::MarkAsGarbage(Mesh);
-	Durin::MarkAsGarbage(Spline);
-	Durin::MarkAsGarbage(Camera);
-	Durin::MarkAsGarbage(Scene);
 	Durin::CollectGarbage();
 }
 
@@ -838,42 +690,6 @@ TEST(FReflectedPropertyEditSessionTests, RelativeTransformHookNormalizesAndRefre
 	Durin::CollectGarbage();
 }
 
-TEST(FReflectedPropertyEditSessionTests, AdapterLookupSelectsMostDerivedClassIndependentOfRegistrationOrder)
-{
-	InitializeDObjectSystem();
-	auto Derived = std::make_unique<FRejectingMutationAdapter>();
-	auto* DerivedAddress = Derived.get();
-	ASSERT_TRUE(Durin::RegisterReflectedPropertyMutationAdapter(
-		Durin::DCameraComponent::StaticClass(), Durin::FName("ComponentToWorld"), std::move(Derived)));
-	auto Base = std::make_unique<FUndoRejectingMutationAdapter>();
-	auto* BaseAddress = Base.get();
-	ASSERT_TRUE(Durin::RegisterReflectedPropertyMutationAdapter(
-		Durin::DSceneComponent::StaticClass(), Durin::FName("ComponentToWorld"), std::move(Base)));
-
-	auto* Camera = Durin::NewObject<Durin::DCameraComponent>(nullptr, "DerivedPolicyCamera");
-	auto* Scene = Durin::NewObject<Durin::DSceneComponent>(nullptr, "BasePolicyScene");
-	auto* Property = Camera->GetClass()->FindPropertyByName(Durin::FName("ComponentToWorld"));
-	ASSERT_NE(Property, nullptr);
-	EXPECT_EQ(&Durin::GetReflectedPropertyMutationAdapter(
-		Durin::FReflectedPropertyEditTarget::ForMember(Camera, Property)), DerivedAddress);
-	EXPECT_EQ(&Durin::GetReflectedPropertyMutationAdapter(
-		Durin::FReflectedPropertyEditTarget::ForMember(Scene, Property)), BaseAddress);
-
-	{
-		Durin::FReflectedPropertyEditTarget TransactionTarget = Durin::FReflectedPropertyEditTarget::ForMember(Scene, Property);
-		Durin::FPropertyValueSnapshot Snapshot;
-		ASSERT_TRUE(Durin::CapturePropertyValue(Property, Scene, 0, Snapshot));
-		Durin::FReflectedPropertyTransaction Transaction(
-			TransactionTarget, Snapshot, Snapshot, "Resolve Registered Adapter");
-		EXPECT_FALSE(Transaction.Undo());
-		EXPECT_EQ(Transaction.GetDetails(Durin::EEditorTransactionOperation::Undo), "Undo rejected for testing.");
-	}
-
-	Durin::MarkAsGarbage(Scene);
-	Durin::MarkAsGarbage(Camera);
-	Durin::CollectGarbage();
-}
-
 TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshotAndExactPath)
 {
 	auto Inner = MakeValueProperty();
@@ -881,12 +697,11 @@ TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshot
 	FArrayValueContainer Container{{3, 7, 11}};
 	DEditObserver Object;
 	Durin::FReflectedPropertyEditTarget ArrayTarget = Durin::FReflectedPropertyEditTarget::ForMember(&Object, Array.get());
-	ArrayTarget.LeafContainer = &Container;
 	ArrayTarget.SnapshotContainer = &Container;
-	Durin::FReflectedPropertyEditTarget ElementTarget = ArrayTarget.ForArrayElement(Inner.get(), &Container.Values[1], 1);
+	Durin::FReflectedPropertyEditTarget ElementTarget = ArrayTarget.ForArrayElement(Inner.get(), 1);
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(ElementTarget, "Edit Array Element", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(Session.Begin(ElementTarget, "Edit Array Element", nullptr, &Transactions));
 
 	FArrayValueContainer FirstProposal{{3, 19, 11}};
 	Durin::FPropertyValueSnapshot FirstSnapshot;
@@ -894,7 +709,7 @@ TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshot
 	ASSERT_EQ(Session.Apply(FirstSnapshot), Durin::EReflectedPropertyEditResult::Changed);
 	// Whole-container restore is allowed to move storage, but path identity must
 	// keep the same continuous widget in one edit session.
-	ElementTarget = ArrayTarget.ForArrayElement(Inner.get(), &Container.Values[1], 1);
+	ElementTarget = ArrayTarget.ForArrayElement(Inner.get(), 1);
 	EXPECT_TRUE(Session.MatchesTarget(ElementTarget));
 	FArrayValueContainer SecondProposal{{3, 23, 11}};
 	Durin::FPropertyValueSnapshot SecondSnapshot;
@@ -924,7 +739,6 @@ TEST(FReflectedPropertyEditSessionTests, ArrayStructuralKindsRestoreRemovedAndRe
 	FArrayValueContainer Container{{4, 8, 15}};
 	DEditObserver Object;
 	Durin::FReflectedPropertyEditTarget Target = Durin::FReflectedPropertyEditTarget::ForMember(&Object, Array.get());
-	Target.LeafContainer = &Container;
 	Target.SnapshotContainer = &Container;
 	Durin::FEditorTransactionManager Transactions;
 
@@ -934,7 +748,7 @@ TEST(FReflectedPropertyEditSessionTests, ArrayStructuralKindsRestoreRemovedAndRe
 		Durin::FPropertyValueSnapshot Snapshot;
 		EXPECT_TRUE(Durin::CapturePropertyValue(Array.get(), &Proposed, 0, Snapshot));
 		Durin::FReflectedPropertyEditSession Session;
-		EXPECT_TRUE(Session.Begin(Target, "Edit Array Structure", nullptr, nullptr, &Transactions));
+		EXPECT_TRUE(Session.Begin(Target, "Edit Array Structure", nullptr, &Transactions));
 		EXPECT_EQ(Session.Apply(Snapshot), Durin::EReflectedPropertyEditResult::Changed);
 		EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
 		EXPECT_EQ(Object.Changes.back().Kind, Kind);
@@ -965,17 +779,16 @@ TEST(FReflectedPropertyEditSessionTests, MapTransactionsPreserveStableKeyPathsAn
 	FMapValueContainer Container{{{"Alpha", 1}, {"Beta", 2}}};
 	DEditObserver Object;
 	Durin::FReflectedPropertyEditTarget MapTarget = Durin::FReflectedPropertyEditTarget::ForMember(&Object, MapProperty.get());
-	MapTarget.LeafContainer = &Container;
 	MapTarget.SnapshotContainer = &Container;
 	Durin::FPropertyValueSnapshot KeySnapshot;
 	const std::string Alpha = "Alpha";
 	ASSERT_TRUE(Durin::CapturePropertyValue(&KeyProperty, &Alpha, 0, KeySnapshot));
 	Durin::FReflectedPropertyEditTarget ValueTarget = MapTarget.ForMapEntry(
-		ValueProperty.get(), &Container.Values.at("Alpha"), KeySnapshot, KeySnapshot.GetBytes()
+		ValueProperty.get(), KeySnapshot, KeySnapshot.GetBytes()
 	);
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyEditSession ValueSession;
-	ASSERT_TRUE(ValueSession.Begin(ValueTarget, "Edit Map Value", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(ValueSession.Begin(ValueTarget, "Edit Map Value", nullptr, &Transactions));
 	FMapValueContainer ValueProposal{{{"Alpha", 9}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot ValueSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &ValueProposal, 0, ValueSnapshot));
@@ -999,7 +812,7 @@ TEST(FReflectedPropertyEditSessionTests, MapTransactionsPreserveStableKeyPathsAn
 		Durin::FPropertyValueSnapshot Snapshot;
 		ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &Proposed, 0, Snapshot));
 		Durin::FReflectedPropertyEditSession Session;
-		ASSERT_TRUE(Session.Begin(Target, "Edit Map Structure", nullptr, nullptr, &Transactions));
+		ASSERT_TRUE(Session.Begin(Target, "Edit Map Structure", nullptr, &Transactions));
 		ASSERT_EQ(Session.Apply(Snapshot), Durin::EReflectedPropertyEditResult::Changed);
 		ASSERT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
 		EXPECT_EQ(Object.Changes.back().Kind, Kind);
@@ -1017,10 +830,10 @@ TEST(FReflectedPropertyEditSessionTests, MapTransactionsPreserveStableKeyPathsAn
 
 	std::string EditedKey = "Alpha";
 	Durin::FReflectedPropertyEditTarget RenameTarget = MapTarget.ForMapEntry(
-		&KeyProperty, &EditedKey, KeySnapshot, KeySnapshot.GetBytes());
+		&KeyProperty, KeySnapshot, KeySnapshot.GetBytes());
 	RenameTarget.Kind = Durin::EPropertyChangeKind::MapKeyRename;
 	Durin::FReflectedPropertyEditSession RenameSession;
-	ASSERT_TRUE(RenameSession.Begin(RenameTarget, "Rename Map Key", nullptr, nullptr, &Transactions));
+	ASSERT_TRUE(RenameSession.Begin(RenameTarget, "Rename Map Key", nullptr, &Transactions));
 	FMapValueContainer FirstRename{{{"Renamed", 1}, {"Beta", 2}}};
 	Durin::FPropertyValueSnapshot FirstRenameSnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(MapProperty.get(), &FirstRename, 0, FirstRenameSnapshot));
@@ -1030,7 +843,7 @@ TEST(FReflectedPropertyEditSessionTests, MapTransactionsPreserveStableKeyPathsAn
 	Durin::FPropertyValueSnapshot RenamedKeySnapshot;
 	ASSERT_TRUE(Durin::CapturePropertyValue(&KeyProperty, &Renamed, 0, RenamedKeySnapshot));
 	Durin::FReflectedPropertyEditTarget ContinuedRename = MapTarget.ForMapEntry(
-		&KeyProperty, &EditedKey, RenamedKeySnapshot, RenamedKeySnapshot.GetBytes());
+		&KeyProperty, RenamedKeySnapshot, RenamedKeySnapshot.GetBytes());
 	ContinuedRename.Kind = Durin::EPropertyChangeKind::MapKeyRename;
 	EXPECT_TRUE(RenameSession.MatchesTarget(ContinuedRename));
 	FMapValueContainer FinalRename{{{"Final", 1}, {"Beta", 2}}};

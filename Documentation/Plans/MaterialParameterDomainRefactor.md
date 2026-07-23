@@ -236,7 +236,7 @@ dependency propagation, and render-thread snapshots.
 ## Related Documentation
 
 - `Documentation/Plans/MaterialSystem.md`
-- `Documentation/Plans/ReflectedPropertyEditing.md`
+- `Documentation/Plans/Archive/ReflectedPropertyEditing.md`
 - `Documentation/Architecture/MaterialSystem.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
 

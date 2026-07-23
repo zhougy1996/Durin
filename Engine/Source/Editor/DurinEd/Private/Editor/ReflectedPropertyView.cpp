@@ -96,9 +96,9 @@ namespace Durin
 		{
 			FPropertyValueDraft Draft(Target, OutError);
 			if (!Draft.IsValid()) return false;
-			FReflectedPropertyEditTarget DraftTarget;
-			if (!Draft.Resolve(Target, DraftTarget, OutError)) return false;
-			WriteProposed(DraftTarget, &Draft);
+			FResolvedPropertyValue DraftValue;
+			if (!Draft.Resolve(Target, DraftValue.Property, DraftValue.Container, DraftValue.ArrayIndex, OutError)) return false;
+			WriteProposed(DraftValue, &Draft);
 			const bool bCaptured = Draft.Capture(OutSnapshot, OutError);
 			return bCaptured;
 		}
@@ -511,9 +511,9 @@ namespace Durin
 			FPropertyValueSnapshot Proposed;
 			std::string Error;
 			if (!CaptureProposedPropertyValue(EditTarget,
-				[&](const FReflectedPropertyEditTarget& ScratchTarget, FPropertyValueDraft*) {
-					Edit.AssignValue(const_cast<FProperty*>(ScratchTarget.LeafProperty),
-						ScratchTarget.LeafContainer, ScratchTarget.LeafArrayIndex);
+				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
+					Edit.AssignValue(const_cast<FProperty*>(DraftValue.Property),
+						DraftValue.Container, DraftValue.ArrayIndex);
 				}, Proposed, &Error))
 			{
 				ReportError(Context, std::move(Error));
@@ -560,8 +560,8 @@ namespace Durin
 			FPropertyValueSnapshot Proposed;
 			std::string Error;
 			if (!CaptureProposedPropertyValue(StructuralTarget,
-				[&](const FReflectedPropertyEditTarget& ScratchTarget, FPropertyValueDraft*) {
-					Mutation(*static_cast<const FArrayProperty*>(ScratchTarget.LeafProperty), ScratchTarget.LeafContainer, ScratchTarget.LeafArrayIndex);
+				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
+					Mutation(*static_cast<const FArrayProperty*>(DraftValue.Property), DraftValue.Container, DraftValue.ArrayIndex);
 				}, Proposed, &Error))
 			{
 				ReportError(Context, std::move(Error));
@@ -572,8 +572,8 @@ namespace Durin
 		if (ImGui::SmallButton("+"))
 		{
 			bChanged = SubmitStructure(EPropertyChangeKind::ArrayAdd,
-				[&](const FArrayProperty& ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
-					ScratchProperty.Resize(ScratchContainer, Num + 1, ScratchArrayIndex);
+				[&](const FArrayProperty& DraftProperty, void* DraftContainer, uint32 DraftArrayIndex) {
+					DraftProperty.Resize(DraftContainer, Num + 1, DraftArrayIndex);
 				});
 			if (bChanged) ++Num;
 		}
@@ -582,8 +582,8 @@ namespace Durin
 		if (ImGui::SmallButton("-") && Num > 0)
 		{
 			bChanged = SubmitStructure(EPropertyChangeKind::ArrayRemove,
-				[&](const FArrayProperty& ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
-					ScratchProperty.Resize(ScratchContainer, Num - 1, ScratchArrayIndex);
+				[&](const FArrayProperty& DraftProperty, void* DraftContainer, uint32 DraftArrayIndex) {
+					DraftProperty.Resize(DraftContainer, Num - 1, DraftArrayIndex);
 				});
 			if (bChanged) --Num;
 		}
@@ -604,7 +604,7 @@ namespace Durin
 				void* Element = Property->GetMutableElementPtr(Container, Index, ArrayIndex);
 				if (!Element) continue;
 				ImGui::PushID(static_cast<int>(Index));
-				const FReflectedPropertyEditTarget ElementTarget = EditTarget.ForArrayElement(Property->GetInner(), Element, Index);
+				const FReflectedPropertyEditTarget ElementTarget = EditTarget.ForArrayElement(Property->GetInner(), Index);
 				const bool bElementChanged = EditPropertyValue(Context, Object, Property->GetInner(), Element, 0, std::format("[{}]", Index), bReadOnly, ElementTarget);
 				bChanged |= bElementChanged;
 				ImGui::PopID();
@@ -647,8 +647,8 @@ namespace Durin
 			std::string Error;
 			std::string MutationError;
 			if (!CaptureProposedPropertyValue(StructuralTarget,
-				[&](const FReflectedPropertyEditTarget& ScratchTarget, FPropertyValueDraft* Draft) {
-					Mutation(ScratchTarget, *Draft, MutationError);
+				[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft* Draft) {
+					Mutation(DraftValue, *Draft, MutationError);
 				}, Proposed, &Error))
 			{
 				ReportError(Context, std::move(Error));
@@ -750,9 +750,9 @@ namespace Durin
 							InsertTarget.Path.back().MapKeyData = CaptureMapPathKey(Property->GetKeyProp(), DraftKey);
 							InsertTarget.Path.back().MapKey = MapInsertDraft.Key;
 							bChanged = SubmitStructure(std::move(InsertTarget), EPropertyChangeKind::MapInsert,
-								[&](const FReflectedPropertyEditTarget& ScratchTarget, FPropertyValueDraft&, std::string&) {
-									auto* ScratchProperty = static_cast<const FMapProperty*>(ScratchTarget.LeafProperty);
-									ScratchProperty->Insert(ScratchTarget.LeafContainer, DraftKey, DraftValue, ScratchTarget.LeafArrayIndex);
+								[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&, std::string&) {
+									auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
+									DraftProperty->Insert(DraftMap.Container, DraftKey, DraftValue, DraftMap.ArrayIndex);
 								});
 							if (bChanged) MapInsertDraft = {};
 						}
@@ -783,12 +783,12 @@ namespace Durin
 				const std::vector<uint8> SerializedKey = CaptureMapPathKey(Property->GetKeyProp(), Key);
 
 				FReflectedPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(
-					Property->GetKeyProp(), const_cast<void*>(Key), KeySnapshot, SerializedKey);
+					Property->GetKeyProp(), KeySnapshot, SerializedKey);
 				KeyTarget.Kind = EPropertyChangeKind::MapKeyRename;
 				const FPropertyWidgetEditResult KeyEdit = EditPropertyWidget(
 					Context, Property->GetKeyProp(), const_cast<void*>(Key), 0, std::format("[{}] Key", Index), bReadOnly);
 				const bool bKeyChanged = KeyEdit.bChanged;
-				const FReflectedPropertyEditTarget ValueTarget = EditTarget.ForMapEntry(Property->GetValueProp(), Value, KeySnapshot, SerializedKey);
+				const FReflectedPropertyEditTarget ValueTarget = EditTarget.ForMapEntry(Property->GetValueProp(), KeySnapshot, SerializedKey);
 				const bool bValueChanged = EditPropertyValue(Context, Object, Property->GetValueProp(), Value, 0, std::format("[{}] Value", Index), bReadOnly, ValueTarget);
 				bChanged |= bValueChanged;
 				if (bValueChanged)
@@ -807,9 +807,9 @@ namespace Durin
 					RemoveTarget.Path.back().MapKeyData = SerializedKey;
 					RemoveTarget.Path.back().MapKey = KeySnapshot;
 					bChanged |= SubmitStructure(std::move(RemoveTarget), EPropertyChangeKind::MapRemove,
-						[&](const FReflectedPropertyEditTarget& ScratchTarget, FPropertyValueDraft&, std::string&) {
-							auto* ScratchProperty = static_cast<const FMapProperty*>(ScratchTarget.LeafProperty);
-							ScratchProperty->Remove(ScratchTarget.LeafContainer, Key, ScratchTarget.LeafArrayIndex);
+						[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&, std::string&) {
+							auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
+							DraftProperty->Remove(DraftMap.Container, Key, DraftMap.ArrayIndex);
 						});
 				}
 				else if (bKeyChanged)
@@ -835,12 +835,14 @@ namespace Durin
 						else
 						{
 							bChanged |= SubmitStructure(KeyTarget, EPropertyChangeKind::MapKeyRename,
-								[&](const FReflectedPropertyEditTarget&, FPropertyValueDraft& Draft, std::string& MutationError) {
-									FReflectedPropertyEditTarget ScratchMapTarget;
-									if (!Draft.Resolve(EditTarget, ScratchMapTarget, &MutationError)) return;
-									auto* ScratchProperty = static_cast<const FMapProperty*>(ScratchMapTarget.LeafProperty);
-									if (!ScratchProperty->RenameKey(ScratchMapTarget.LeafContainer, Key, ProposedKey,
-										ScratchMapTarget.LeafArrayIndex)) MutationError = "Unable to rename the reflected map key.";
+								[&](const FResolvedPropertyValue&, FPropertyValueDraft& Draft, std::string& MutationError) {
+									const FProperty* DraftProperty = nullptr;
+									void* DraftContainer = nullptr;
+									uint32 DraftArrayIndex = 0;
+									if (!Draft.Resolve(EditTarget, DraftProperty, DraftContainer, DraftArrayIndex, &MutationError)) return;
+									auto* DraftMap = static_cast<const FMapProperty*>(DraftProperty);
+									if (!DraftMap->RenameKey(DraftContainer, Key, ProposedKey,
+										DraftArrayIndex)) MutationError = "Unable to rename the reflected map key.";
 								}, true);
 						}
 					}
@@ -870,7 +872,7 @@ namespace Durin
 		std::string Error;
 		if (!EditSession.IsActive())
 		{
-			if (!EditSession.Begin(Target, {}, nullptr, &Error, Context.Transactions))
+			if (!EditSession.Begin(Target, {}, &Error, Context.Transactions))
 			{
 				ReportError(Context, std::move(Error));
 				return false;
@@ -905,8 +907,8 @@ namespace Durin
 		FPropertyValueSnapshot Proposed;
 		std::string Error;
 		if (!CaptureProposedPropertyValue(Target,
-			[&](const FReflectedPropertyEditTarget& ScratchTarget, FPropertyValueDraft*) {
-				AssignValue(const_cast<FProperty*>(ScratchTarget.LeafProperty), ScratchTarget.LeafContainer, ScratchTarget.LeafArrayIndex);
+			[&](const FResolvedPropertyValue& DraftValue, FPropertyValueDraft*) {
+				AssignValue(const_cast<FProperty*>(DraftValue.Property), DraftValue.Container, DraftValue.ArrayIndex);
 			}, Proposed, &Error))
 		{
 			ReportError(Context, std::move(Error));
@@ -981,17 +983,17 @@ namespace Durin
 		}
 		AssignValue(Binding.LeafProperty, Value);
 
-		// Leaf storage is deliberately scratch memory. The binding resolves the live
+		// Leaf storage is deliberately temporary draft memory. The binding resolves the live
 		// map on each submission while the target snapshots the stable member root.
 		FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Object, Property)
-			.ForMapEntry(Binding.LeafProperty, Object, Binding.MapKey, Binding.PathKeyData);
+			.ForMapEntry(Binding.LeafProperty, Binding.MapKey, Binding.PathKeyData);
 
 		FPropertyValueSnapshot Proposed;
 		const FReflectedPropertyEditTarget RootTarget = FReflectedPropertyEditTarget::ForMember(Object, Property);
 		const bool bCaptured = CaptureProposedPropertyValue(RootTarget,
-			[&](const FReflectedPropertyEditTarget& ScratchTarget, FPropertyValueDraft*) {
-				auto* ScratchProperty = static_cast<const FMapProperty*>(ScratchTarget.LeafProperty);
-				ScratchProperty->Insert(ScratchTarget.LeafContainer, Key, Value, ScratchTarget.LeafArrayIndex);
+			[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft*) {
+				auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
+				DraftProperty->Insert(DraftMap.Container, Key, Value, DraftMap.ArrayIndex);
 			}, Proposed, &Error);
 		Property->DestroyKey(Key);
 		Property->DestroyValue(Value);
@@ -1047,10 +1049,10 @@ namespace Durin
 		FPropertyValueSnapshot Proposed;
 		const FReflectedPropertyEditTarget RootTarget = FReflectedPropertyEditTarget::ForMember(Object, Property);
 		const bool bCaptured = CaptureProposedPropertyValue(RootTarget,
-			[&](const FReflectedPropertyEditTarget& ScratchTarget, FPropertyValueDraft*) {
-				auto* ScratchProperty = static_cast<const FMapProperty*>(ScratchTarget.LeafProperty);
-				if (bEnabled) ScratchProperty->Insert(ScratchTarget.LeafContainer, EntryKey, EntryValue, ScratchTarget.LeafArrayIndex);
-				else ScratchProperty->Remove(ScratchTarget.LeafContainer, EntryKey, ScratchTarget.LeafArrayIndex);
+			[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft*) {
+				auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
+				if (bEnabled) DraftProperty->Insert(DraftMap.Container, EntryKey, EntryValue, DraftMap.ArrayIndex);
+				else DraftProperty->Remove(DraftMap.Container, EntryKey, DraftMap.ArrayIndex);
 			}, Proposed, &Error);
 		Property->DestroyKey(EntryKey);
 		Property->DestroyValue(EntryValue);

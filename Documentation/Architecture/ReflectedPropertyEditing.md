@@ -38,8 +38,7 @@ FReflectedPropertyView
 FReflectedPropertyEditSession
   captures, applies, commits, or cancels one logical edit
         |
-        +--> generic detached draft + DObject::PreEditChangeProperty()
-        |      or a registered exceptional mutation adapter
+        +--> detached draft + DObject::PreEditChangeProperty()
         |
         +--> DObject::PostEditChangeProperty()
         |
@@ -143,11 +142,12 @@ address, but it cannot invalidate the stored member snapshot used by Undo/Redo.
 - the mutation kind.
 
 `ForMember()`, `ForStructMember()`, `ForArrayElement()`, and `ForMapEntry()`
-build targets without making panels reconstruct path rules themselves. Leaf
-addresses are construction-time conveniences only; active sessions and
-transactions retain stable roots and paths and re-resolve ephemeral storage.
+build targets without making panels reconstruct path rules themselves. Targets
+contain no resolved leaf address. Draft construction resolves temporary draft
+storage internally, while sessions and transactions retain only the stable
+snapshot root and owned path.
 
-## Generic Mutation and Exceptional Adapters
+## Generic Mutation
 
 The generic path reads and writes the stable reflected snapshot root. It
 captures live state, restores the candidate into an internal detached draft,
@@ -163,13 +163,12 @@ material and material-instance parent dependencies keep derived mirrors so a
 post hook can compare the newly written canonical storage with the previously
 registered dependencies without a setter-plus-direct-storage dual write.
 
-The process-lifetime adapter registry remains temporarily available as an
-exception mechanism and for compatibility tests, but has no built-in
-registrations. Transactional edits may use an exceptional adapter only through
-validated class/member registration. Transactions retain stable target identity
-and snapshots, then resolve the adapter again when Undo or Redo executes. Lookup
-walks the edited object's class hierarchy from most derived to base, so
-selection is independent of registration order.
+There is no public mutation-adapter or registry surface. No implemented
+property requires an exceptional mutation policy: every canonical value is
+reflected object storage and every current semantic rule fits detached
+validation plus post-write reaction. A future externally owned canonical value
+must first demonstrate that this split is impossible before a new policy
+contract is introduced.
 
 ## Edit Session Lifecycle
 
@@ -177,13 +176,12 @@ selection is independent of registration order.
 
 ```text
 Begin(target)
-  resolve adapter
   capture original value
   root the target object
 
 Apply(proposal)
-  validate/normalize a detached draft on the generic path
-  atomically apply and recapture the actual value, or use an exceptional adapter
+  validate/normalize a detached draft
+  atomically apply and recapture the actual value
   notify Interactive when it changed
 
 Commit()
@@ -191,7 +189,7 @@ Commit()
   if changed, mark the package dirty and CommitApplied() one transaction
 
 Cancel()
-  if changed, restore through the same generic hook path or selected adapter
+  if changed, restore through the same generic hook path
   notify Cancelled
   create no transaction
 ```
@@ -215,10 +213,9 @@ discarding the preview state.
 ## Transactions and Dirty State
 
 `FReflectedPropertyTransaction` retains the stable target, before/after
-snapshots, and description. It resolves the generic implementation or registered
-exceptional adapter when Undo or Redo executes. Both operations use the same
-atomic execution and rollback path as interactive edits and deliver the same
-post notification with the corresponding origin.
+snapshots, and description. Undo and Redo use the same atomic generic execution
+and rollback path as interactive edits and deliver the same post notification
+with the corresponding origin.
 
 The session calls `FEditorTransactionManager::CommitApplied()` because the live
 interactive edit has already placed the object in its final state. A no-op or
@@ -337,8 +334,7 @@ Automated coverage currently verifies:
 - terminal events for no-op and edit-away-and-back interactions;
 - one transaction for a continuous interaction;
 - no history for no-op, cancelled, or rejected edits;
-- exceptional-adapter partial-apply rollback and cancel retry;
-- execution-time transaction adapter resolution;
+- pre-apply rejection and retryable cancel failure through object hooks;
 - object and snapshot reference lifetime;
 - array and map stable paths and structural restoration;
 - binding re-resolution after map rehash and presence across Undo/Redo;
@@ -352,8 +348,9 @@ Automated coverage currently verifies:
 - object-level `Edit` enumeration, filtering, fixed-array expansion, search,
   and default fixed-array labels.
 
-UI behavior still requires editor smoke and manual interaction coverage for
-selection changes, document changes, read-only PIE state, save, and shutdown.
+Host-level automation covers object and document replacement plus read-only
+transitions. Interactive checks cover workspace close, PIE, and editor shutdown,
+and hidden-window editor startup is part of final validation.
 
 ## Related Code
 

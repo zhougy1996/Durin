@@ -5,6 +5,16 @@
 
 namespace Durin
 {
+	struct FResolvedPropertyValue
+	{
+		const FProperty* Property = nullptr;
+		void* Container = nullptr;
+		uint32 ArrayIndex = 0;
+	};
+
+	auto ResolveReflectedPropertyValue(const FReflectedPropertyEditTarget& Target,
+		FResolvedPropertyValue& OutValue, std::string* OutError = nullptr) -> bool;
+
 	// Owns one detached, fully constructed snapshot-root value. Leaf addresses
 	// resolved from this draft never point into the live edited object.
 	class FPropertyValueDraft
@@ -68,15 +78,19 @@ namespace Durin
 			return bValid && RestorePropertyValue(Property, Memory, ArrayIndex, Snapshot, OutError);
 		}
 
-		auto Resolve(const FReflectedPropertyEditTarget& Source, FReflectedPropertyEditTarget& OutTarget,
-			std::string* OutError) const -> bool
+		auto Resolve(const FReflectedPropertyEditTarget& Source, const FProperty*& OutProperty,
+			void*& OutContainer, uint32& OutArrayIndex, std::string* OutError) const -> bool
 		{
 			if (!bValid || Source.SnapshotProperty != Property || Source.SnapshotArrayIndex != ArrayIndex)
 				return Fail(OutError, "The edit target does not match its reflected property draft root.");
 			FReflectedPropertyEditTarget DraftTarget = Source;
 			DraftTarget.SnapshotContainer = Memory;
-			DraftTarget.LeafContainer = nullptr;
-			return ResolveReflectedPropertyEditTarget(DraftTarget, OutTarget, OutError);
+			FResolvedPropertyValue Resolved;
+			if (!ResolveReflectedPropertyValue(DraftTarget, Resolved, OutError)) return false;
+			OutProperty = Resolved.Property;
+			OutContainer = Resolved.Container;
+			OutArrayIndex = Resolved.ArrayIndex;
+			return true;
 		}
 
 		auto Capture(FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool
