@@ -66,8 +66,10 @@ example plain "two words" 'three words' escaped\ value
 - **Search output** filters log messages, command echoes, results, and errors.
 - Log records use compact colored `T`, `D`, `I`, `W`, `E`, and `F` level
   initials in one fixed-width slot. Source and Message follow naturally without
-  padded columns. Hover a level for its full name, or a Source value to inspect
-  its module, thread, and source location.
+  padded columns. Info uses the theme's success green, while Debug, Warn, and
+  Error/Fatal use the theme's info blue, warning amber, and error red. Hover a
+  level for its full name, or a Source value to inspect its module, thread, and
+  source location.
 - The level buttons independently show or hide Trace, Debug, Info, Warn, Error,
   and Fatal log records. They do not hide command results. Fatal uses the error
   presentation color but remains an independent filter level.

@@ -59,7 +59,7 @@ namespace Durin
 			{
 			case ELogLevel::Trace: return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
 			case ELogLevel::Debug: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info);
-			case ELogLevel::Info: return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+			case ELogLevel::Info: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Success);
 			case ELogLevel::Warn: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning);
 			case ELogLevel::Error: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error);
 			case ELogLevel::Fatal: return MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error);
