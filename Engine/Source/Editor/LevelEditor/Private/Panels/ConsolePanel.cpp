@@ -158,6 +158,9 @@ namespace Durin
 		const float InputHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
 		if (ImGui::BeginChild("ConsoleRecords", ImVec2(0, -InputHeight), false, ImGuiWindowFlags_HorizontalScrollbar))
 		{
+			// Sample after ImGui has applied this frame's wheel/scrollbar input, but before
+			// new records change the content extent, so scrolling up immediately breaks follow mode.
+			const bool bIsAtBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 2.0f;
 			RefreshVisibleRecords();
 			ImGuiListClipper Clipper;
 			Clipper.Begin(static_cast<int>(VisibleRecordIndices.size()));
@@ -178,8 +181,7 @@ namespace Durin
 					}
 				}
 			}
-			if (bAutoScroll && bWasAtBottom && bReceivedRecords) ImGui::SetScrollHereY(1.0f);
-			bWasAtBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 2.0f;
+			if (bAutoScroll && bIsAtBottom && bReceivedRecords) ImGui::SetScrollHereY(1.0f);
 			if (ImGui::BeginPopupContextWindow("ConsoleRecordsContext", ImGuiPopupFlags_MouseButtonRight))
 			{
 				if (ImGui::MenuItem("Copy Visible")) CopyVisibleRecords();
@@ -294,7 +296,6 @@ namespace Durin
 		if (!State->bClearRequested.exchange(false, std::memory_order_acq_rel)) return false;
 		State->Records.Clear();
 		EvictedLogRecordCount = 0;
-		bWasAtBottom = true;
 		bHasNewConsoleRecords = false;
 		MarkRecordsChanged();
 		return true;
@@ -363,7 +364,6 @@ namespace Durin
 		State->Records.Clear();
 		EvictedLogRecordCount = 0;
 		MarkRecordsChanged();
-		bWasAtBottom = true;
 		bHasNewConsoleRecords = false;
 	}
 } // namespace Durin

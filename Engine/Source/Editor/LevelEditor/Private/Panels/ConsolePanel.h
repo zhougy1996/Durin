@@ -42,7 +42,6 @@ namespace Durin
 		std::vector<std::string> History;
 		int HistoryPosition = -1;
 		bool bAutoScroll = true;
-		bool bWasAtBottom = true;
 		bool bHasNewConsoleRecords = false;
 		bool bVisibleRecordsDirty = true;
 		bool bRefocusInput = false;
