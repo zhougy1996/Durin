@@ -4,7 +4,17 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stages 0 through 4 are complete. The logger now owns bounded structured session history, exposes the frozen sequence-cursor read contract, retains the default 5,000-record bootstrap window, reports bootstrap overflow explicitly, and resets history and sequence state across lifecycle sessions. Reliable Error and Fatal completion is published after active sinks have been attempted and intentionally flushed. The editor Console polls retained history by sequence cursor, continues consuming while hidden, keeps one combined bounded record model, surfaces eviction gaps, and supports Fatal throughout filtering and presentation. The callback-listener API and all callback-specific dispatch, synchronization, recursion, and producer-admission behavior have been removed; sequence-cursor history is now the only structured-log consumption model.
+Stages 0 through 4 and the automated portion of Stage 5 are complete. The logger now owns bounded structured session history, exposes the frozen sequence-cursor read contract, retains the default 5,000-record bootstrap window, reports bootstrap overflow explicitly, and resets history and sequence state across lifecycle sessions. Reliable Error and Fatal completion is published after active sinks have been attempted and intentionally flushed. The editor Console polls retained history by sequence cursor, continues consuming while hidden, keeps one combined bounded record model, surfaces eviction gaps, and supports Fatal throughout filtering and presentation. The callback-listener API and all callback-specific dispatch, synchronization, recursion, and producer-admission behavior have been removed; sequence-cursor history is now the only structured-log consumption model.
+
+Final automated validation on 2026-07-23 used `Win64-Debug-DurinEditor-Tests` throughout:
+
+- `BuildTool test --target CoreTests --timeout 120`: 107 tests passed across 23 suites, including ordered history, exact eviction gaps, queue-overload summaries, Error/Fatal immediate file visibility, and concurrent reliable-producer shutdown.
+- `BuildTool test --target EngineTests --timeout 180`: 167 tests passed across 43 suites, including the bounded Console record model, retained-history gap presentation, and Fatal records.
+- `BuildTool build --target all`: succeeded.
+- `DurinEditor.exe --hidden-window`: remained running for 8 seconds, accepted a close event on its hidden GLFW window, completed normal engine/module/thread shutdown, and exited with code 0. Captured stderr was empty.
+- The resulting current-session log contained 87 records with continuous sequence numbers `#1` through `#87`, from launch through `Durin Engine exited.`, with no fallback, drop, or eviction diagnostic.
+
+Accepted validation limitation: the hidden-window smoke and native tests cover startup retention, all levels through Fatal, bounded high-volume behavior, commands, and record-model gap handling, but this environment cannot visually inspect ImGui clipboard contents, scroll position, or filter interaction. The Stage 5 interactive Console workflow item remains a manual editor check rather than being reported as automated evidence.
 
 Validation evidence on 2026-07-23:
 
@@ -296,15 +306,15 @@ Depends on Stage 3.
 
 Depends on Stages 1 through 4.
 
-- [ ] Run the complete Core native test target, not only filtered logger tests.
-- [ ] Build the full editor target using the repository BuildTool workflow.
-- [ ] Run `DurinEditor` with `--hidden-window` and verify clean startup and shutdown without logger deadlocks or unexpected fallback output.
+- [x] Run the complete Core native test target, not only filtered logger tests.
+- [x] Build the full editor target using the repository BuildTool workflow.
+- [x] Run `DurinEditor` with `--hidden-window` and verify clean startup and shutdown without logger deadlocks or unexpected fallback output.
 - [ ] Perform an interactive Console check for startup history, level filters, Fatal display, search, copy, clear, auto-scroll, and command output.
-- [ ] Exercise a controlled high-volume logging source and confirm bounded memory, responsive UI, ordered sequences, and visible loss summaries.
-- [ ] Verify the current-session log file contains the same accepted records required by its configured level, including Error/Fatal durability.
-- [ ] Update `Documentation/Editor/Console.md` with retained-history, gap, capacity, and Fatal behavior.
-- [ ] Add the adopted long-lived logging ownership, ordering, reliability, and overload rules to an Architecture document.
-- [ ] Record commands, results, executable profile, and any accepted limitations in `Current Status` before closing the plan.
+- [x] Exercise a controlled high-volume logging source and confirm bounded memory, responsive UI, ordered sequences, and visible loss summaries.
+- [x] Verify the current-session log file contains the same accepted records required by its configured level, including Error/Fatal durability.
+- [x] Update `Documentation/Editor/Console.md` with retained-history, gap, capacity, and Fatal behavior.
+- [x] Add the adopted long-lived logging ownership, ordering, reliability, and overload rules to an Architecture document.
+- [x] Record commands, results, executable profile, and any accepted limitations in `Current Status` before closing the plan.
 
 #### Acceptance Gate
 
@@ -320,11 +330,11 @@ Depends on Stages 1 through 4.
 | Startup history | Late-reader unit and editor integration test | Retained bootstrap and initialization records appear deterministically |
 | History eviction | Small-capacity unit test | Exact gap count and oldest available sequence are reported |
 | Producer overload | Saturated-queue unit test | Severity policy is enforced and one ordered drop summary is emitted |
-| Reliable logging | Error/Fatal sink test with blocked observer | Call returns after sink durability without waiting for observer release |
+| Reliable logging | Error/Fatal sink visibility and concurrent shutdown tests | Calls return after sink durability; shutdown releases every reliable producer |
 | Shutdown | Reliable producer and shutdown concurrency test | No indefinite wait, deadlock, or lost required sink flush |
 | Console levels | Console model or integration test | Trace through Fatal can each be shown and hidden independently |
 | Console bounds | Burst larger than history/display limits | Bounded retained records, bounded batch work, visible gap summary |
-| Console workflow | Interactive editor check | Search, copy, clear, follow, command output, and startup history work together |
+| Console workflow | Interactive editor check | Search, copy, clear, follow, command output, and startup history work together; manual-only check remains |
 | File behavior | Existing rotation and failure tests | Rotation, cleanup, fallback, source metadata, and durability remain correct |
 | Runtime integration | Full build and hidden-window smoke run | Editor remains running through the smoke interval and exits cleanly when stopped |
 

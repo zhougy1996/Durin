@@ -195,7 +195,7 @@ TEST(FLoggerTests, RetainsOwnedStructuredRecords)
 	EXPECT_FALSE(Record.Function.empty());
 }
 
-TEST(FLoggerTests, ErrorReturnsOnlyAfterFileIsFlushed)
+TEST(FLoggerTests, ErrorAndFatalReturnOnlyAfterFileIsFlushed)
 {
 	const std::filesystem::path Directory = MakeTestDirectory("ReliableFile");
 	Durin::FLogger Logger;
@@ -204,9 +204,13 @@ TEST(FLoggerTests, ErrorReturnsOnlyAfterFileIsFlushed)
 
 	const std::vector<std::filesystem::path> Files = FindLogFiles(Directory);
 	ASSERT_EQ(Files.size(), 1u);
-	const std::string Contents = ReadFile(Files.front());
-	EXPECT_NE(Contents.find("[LoggerTests] Reliable 17"), std::string::npos);
-	EXPECT_NE(Contents.find("[#"), std::string::npos);
+	const std::string ErrorContents = ReadFile(Files.front());
+	EXPECT_NE(ErrorContents.find("[LoggerTests] Reliable 17"), std::string::npos);
+	EXPECT_NE(ErrorContents.find("[#"), std::string::npos);
+
+	Logger.Log(Durin::ELogLevel::Fatal, std::source_location::current(), "LoggerTests", "Fatal reliable {}", 23);
+	const std::string FatalContents = ReadFile(Files.front());
+	EXPECT_NE(FatalContents.find("[LoggerTests] Fatal reliable 23"), std::string::npos);
 }
 
 TEST(FLoggerTests, ShutdownCompletesWithConcurrentReliableProducers)
