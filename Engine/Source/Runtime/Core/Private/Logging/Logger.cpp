@@ -157,7 +157,7 @@ namespace Durin
 			else if (GIsGameThreadIdInitialized && Record.ThreadId == GGameThreadId) Record.ThreadName = "GameThread";
 			else Record.ThreadName = "Unknown";
 			Record.Module = Module;
-			Record.Category = Category.empty() ? Module : Category;
+			if (!Category.empty() && Category != Module) Record.CategoryOverride = Category;
 			Record.File = Loc.file_name();
 			Record.Line = Loc.line();
 			Record.Function = Loc.function_name();
@@ -289,7 +289,7 @@ namespace Durin
 			Summary.ThreadId = FPlatformLTS::GetCurrentThreadId();
 			Summary.ThreadName = "LogDispatcher";
 			Summary.Module = "Core";
-			Summary.Category = "Logging";
+			Summary.CategoryOverride = "Logging";
 			Summary.Message = std::format("Dropped {} log records (trace {}, debug {}, info {}, warn {}) because the async queue was full.",
 				Total, Dropped[0], Dropped[1], Dropped[2], Dropped[3]);
 			Dropped.fill(0);
@@ -335,7 +335,7 @@ namespace Durin
 		auto ProcessRecord(const FLogRecord& Record) -> void
 		{
 			AppendHistory(Record);
-			const std::string_view Category = Record.Category.empty() ? std::string_view(Record.Module) : std::string_view(Record.Category);
+			const std::string_view Category = Record.GetCategory();
 			if (ConsoleLogger && static_cast<int32>(Record.Level) >= ConsoleLevel.load(std::memory_order_relaxed))
 			{
 				try
@@ -410,7 +410,7 @@ namespace Durin
 
 		auto WriteFallback(const FLogRecord& Record) const -> void
 		{
-			const std::string_view Category = Record.Category.empty() ? std::string_view(Record.Module) : std::string_view(Record.Category);
+			const std::string_view Category = Record.GetCategory();
 			if (Category == Record.Module)
 			{
 				WriteFallbackText(std::format("[{}][{}] {}", LevelName(Record.Level), Record.Module, Record.Message));

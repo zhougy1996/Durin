@@ -19,7 +19,7 @@ namespace Durin
 		std::chrono::system_clock::time_point Timestamp;
 		ELogLevel Level = ELogLevel::Info;
 		std::string Module;
-		std::string Category;
+		std::string CategoryOverride;
 		std::string Message;
 
 		uint64 Sequence = 0;
@@ -28,6 +28,11 @@ namespace Durin
 		std::string File;
 		uint32 Line = 0;
 		std::string Function;
+
+		auto GetCategory() const -> std::string_view
+		{
+			return CategoryOverride.empty() ? std::string_view(Module) : std::string_view(CategoryOverride);
+		}
 	};
 
 	struct FLogSettings
@@ -75,7 +80,7 @@ namespace Durin
 			{
 				return;
 			}
-			LogInternal(Level, Loc, Module, Module, Fmt.get(), std::make_format_args(args...));
+			LogInternal(Level, Loc, Module, {}, Fmt.get(), std::make_format_args(args...));
 		}
 
 		template<typename... Args>

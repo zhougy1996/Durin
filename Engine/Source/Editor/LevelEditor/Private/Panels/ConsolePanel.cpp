@@ -66,8 +66,7 @@ namespace Durin
 		auto FormatLog(const FLogRecord& Record) -> std::string
 		{
 			const std::array<char, 16> TimeText = FormatTime(Record);
-			const std::string_view Category = Record.Category.empty() ? std::string_view(Record.Module) : std::string_view(Record.Category);
-			return std::format("[{}][{}][{}] {}", TimeText.data(), LevelName(Record.Level), Category, Record.Message);
+			return std::format("[{}][{}][{}] {}", TimeText.data(), LevelName(Record.Level), Record.GetCategory(), Record.Message);
 		}
 
 		auto DrawLogRecord(const FLogRecord& Record) -> void
@@ -77,7 +76,7 @@ namespace Durin
 			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
 			ImGui::TextColored(LevelColor(Record.Level), "%-5s", LevelName(Record.Level));
 			ImGui::SameLine(0.0f, MonaImGui::GetUIStyleMetrics().SpacingM);
-			const std::string_view Category = Record.Category.empty() ? std::string_view(Record.Module) : std::string_view(Record.Category);
+			const std::string_view Category = Record.GetCategory();
 			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ConsoleModule), "[%.*s]",
 				static_cast<int>(Category.size()), Category.data());
 			if (Category != Record.Module && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
@@ -330,7 +329,7 @@ namespace Durin
 			const size_t LevelIndex = static_cast<size_t>(Record.Log.Level);
 			if (LevelIndex >= LevelVisibility.size() || !LevelVisibility[LevelIndex]) return false;
 			return SearchText[0] == '\0' || ContainsInsensitive(Record.Log.Module, SearchText.data()) ||
-				ContainsInsensitive(Record.Log.Category, SearchText.data()) || ContainsInsensitive(Record.Log.Message, SearchText.data());
+				ContainsInsensitive(Record.Log.CategoryOverride, SearchText.data()) || ContainsInsensitive(Record.Log.Message, SearchText.data());
 		}
 		return SearchText[0] == '\0' || ContainsInsensitive(Record.Text, SearchText.data());
 	}
