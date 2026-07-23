@@ -786,10 +786,18 @@ class CliTests(unittest.TestCase):
         self.assertRegex(content, r"(?m)^libclang==\d+\.\d+\.\d+$")
         self.assertRegex(content, r"(?m)^rich==\d+\.\d+\.\d+$")
 
-    def test_setup_runs_preflight_before_mutating_checkout(self) -> None:
+    def test_setup_creates_agent_config_before_preflight(self) -> None:
         content = (REPO_ROOT / "Setup.bat").read_text(encoding="utf-8")
-        self.assertLess(content.index("Preflight.bat"), content.index(":bootstrap"))
+        self.assertLess(content.index("InitializeAgentConfig.bat"), content.index("Preflight.bat"))
         self.assertLess(content.index("Preflight.bat"), content.index("SetupPython.bat"))
+        self.assertEqual(content.count("InitializeAgentConfig.bat"), 1)
+
+    def test_agent_config_initializer_supports_python_launcher_before_venv_exists(self) -> None:
+        content = (REPO_ROOT / "Engine/Scripts/Bootstrap/InitializeAgentConfig.bat").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("where py", content)
+        self.assertIn('py -3 "%SCRIPT_DIR%initialize_agent_config.py" %*', content)
 
 
 class SetupPreflightTests(unittest.TestCase):

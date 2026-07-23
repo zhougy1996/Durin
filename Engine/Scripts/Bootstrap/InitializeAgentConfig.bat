@@ -10,9 +10,15 @@ if exist "%PYTHON_EXE%" (
   exit /b %errorlevel%
 )
 
+where py >nul 2>nul
+if not errorlevel 1 (
+  py -3 "%SCRIPT_DIR%initialize_agent_config.py" %*
+  exit /b %errorlevel%
+)
+
 where python >nul 2>nul
 if errorlevel 1 (
-  echo Python was not found in PATH and "%PYTHON_EXE%" does not exist.
+  echo Python was not found through the py launcher or PATH, and "%PYTHON_EXE%" does not exist.
   exit /b 1
 )
 

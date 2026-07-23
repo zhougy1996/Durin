@@ -7,6 +7,12 @@ set "GIT_DIR_VALUE="
 set "GIT_DIR_ABS="
 set "EXIT_CODE=0"
 
+call "%ROOT%Engine\Scripts\Bootstrap\InitializeAgentConfig.bat"
+if errorlevel 1 (
+  set "EXIT_CODE=!errorlevel!"
+  goto end
+)
+
 call "%ROOT%Engine\Scripts\Bootstrap\Preflight.bat"
 if errorlevel 1 (
   set "EXIT_CODE=!errorlevel!"
@@ -41,11 +47,6 @@ goto prepare_worktree
 
 :bootstrap
 call "%ROOT%Engine\Scripts\Bootstrap\SetupPython.bat"
-if errorlevel 1 (
-  set "EXIT_CODE=!errorlevel!"
-  goto end
-)
-call "%ROOT%Engine\Scripts\Bootstrap\InitializeAgentConfig.bat"
 if errorlevel 1 (
   set "EXIT_CODE=!errorlevel!"
   goto end
