@@ -1,5 +1,11 @@
 # Multithreading Roadmap
 
+Last reviewed: 2026-07-24
+
+## Current Status
+
+Long-range companion to the prioritized [Multithreading System Plan](MultithreadingSystem.md). Stages 1 through 3 are substantially implemented; the system plan owns current status, near-term priority, and acceptance tracking, while this document preserves the broader staged target.
+
 This document describes a staged plan for Durin's multithreading framework. The goal is to grow from the current runnable-thread and rendering-thread primitives into a task system that can support async loading, CPU computation, render command scheduling, and eventually RenderGraph compilation and execution.
 
 The roadmap is intentionally incremental. Each stage should leave the engine in a usable state and should produce APIs that later systems can depend on without knowing about lower-level scheduler details.

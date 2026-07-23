@@ -6,7 +6,7 @@ Last reviewed: 2026-07-20
 
 Durin has a usable minimal worker-task foundation, but it is not yet a general
 task scheduler. The first three stages of
-`Documentation/Architecture/MultithreadingRoadmap.md` are substantially
+`Documentation/Plans/MultithreadingRoadmap.md` are substantially
 implemented: named threads have roles, a manual-reset event primitive exists,
 the engine owns a fixed worker pool, and callers can launch named tasks and wait
 for one or many handles. Worker-side waits help execute queued work, which
@@ -185,7 +185,7 @@ systems.
 
 ## Related Docs
 
-- `Documentation/Architecture/MultithreadingRoadmap.md`
+- `Documentation/Plans/MultithreadingRoadmap.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
 - `Documentation/Setup/NativeTests.md`
 - `Documentation/Plans/TextureSupport.md`

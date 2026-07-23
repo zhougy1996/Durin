@@ -13,15 +13,6 @@ Durin's material architecture follows the useful ownership split from Unreal Eng
 
 Built-in parameter names are `BaseColor` (vector), `BaseColorTexture` (texture), `Opacity` (scalar), `SpecularStrength` (scalar), and `Shininess` (scalar). Missing values preserve the orange fallback material and renderer-owned default textures.
 
-## Implementation Roadmap
-
-1. **Foundation (implemented):** material interface, base material, instances, named scalar/vector parameters, inheritance, component binding, render proxy snapshot, serialization tests.
-2. **Textures and samplers (vertical slice implemented):** texture parameters, default textures, a shared linear-wrap sampler, render-resource snapshots, and base-color fragment-shader binding are implemented. Texture build, derived-data, and residency work continues separately.
-3. **Static permutations:** add blend mode, shading model, two-sided state, vertex-factory keys, shader-map identity, and pipeline-state caching.
-4. **Material graph compilation:** introduce graph assets, typed expressions, HLSL/Slang generation, dependency tracking, diagnostics, and derived-data caching.
-5. **Runtime/editor workflow (in progress):** render-thread parameter update commands and the first material/material-instance asset editor are implemented; dynamic material instances, rendered previews, thumbnails, hot reload, and statistics remain.
-6. **Advanced rendering (in progress):** mesh sections and multiple slots are implemented; depth/shadow passes, deferred/PBR inputs, decals, translucent sorting, and platform quality levels remain.
-
 ## Static Mesh Vertex Contract
 
 - Static meshes retain up to four UV channels. Missing channels are filled with `(0, 0)` while the LOD records how many source channels were present.

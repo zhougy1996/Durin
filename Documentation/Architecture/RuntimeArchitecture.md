@@ -183,7 +183,7 @@ bar.
 - `Documentation/Architecture/EditorUIStyle.md`
 - `Documentation/Architecture/BuildSystem.md`
 - `Documentation/Architecture/Profiles.md`
-- `Documentation/Architecture/MultithreadingRoadmap.md`
+- `Documentation/Plans/MultithreadingRoadmap.md`
 - `Documentation/Architecture/ViewportRendering.md`
 - `Documentation/Plans/Archive/ScenePostProcessEditorAssistanceBoundary.md`
 - `Documentation/Setup/BuildAndRun.md`

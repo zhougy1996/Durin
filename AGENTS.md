@@ -4,10 +4,11 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
 ## Task Documentation
 
+- Documentation map and reading policy: `Documentation/README.md`. Read only task-relevant topic documents.
 - Setup, build, run, and outputs: `Documentation/Setup/BuildAndRun.md`; IDE code models/debugging: `Documentation/Setup/IDECodeModel.md`; dependencies/worktrees: `Documentation/Setup/ThirdPartyBootstrap.md`; native tests: `Documentation/Setup/NativeTests.md`.
 - Build metadata/CMake: `Documentation/Architecture/BuildSystem.md`; profiles/presets: `Documentation/Architecture/Profiles.md`; workspace boundaries: `Documentation/Architecture/WorkspaceProjects.md`; runtime/rendering/UI: `Documentation/Architecture/RuntimeArchitecture.md`.
-- Plan index, required structure, and writing rules: `Documentation/Plans/README.md`. Read this entrypoint before creating or restructuring an implementation plan; do not sample unrelated plan files to infer the format.
-- Open engineering issue index and issue-writing rules: `Documentation/Issues/README.md` and `Documentation/Issues/AGENTS.md`.
+- Active plan index: `Documentation/Plans/README.md`; completed plan index: `Documentation/Plans/Archive/README.md`. Plan authoring rules are in `Documentation/Plans/AGENTS.md`; do not sample unrelated plans to infer format.
+- Open engineering issue index: `Documentation/Issues/README.md`. Issue authoring rules are in `Documentation/Issues/AGENTS.md`; resolved issues are removed after provenance moves to Git, an archived plan, and Architecture.
 - Machine-local build overrides belong in optional `.agents/build-config.json`; create it with `Setup.bat` when needed.
 
 ## Repository Rules

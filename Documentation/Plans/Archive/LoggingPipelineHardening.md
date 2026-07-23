@@ -362,7 +362,7 @@ Depends on Stages 1 through 4.
 
 ## Related Documentation
 
-- `Documentation/Plans/README.md`
+- `Documentation/Plans/Archive/README.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
 - `Documentation/Editor/Console.md`
 - `Documentation/Setup/BuildAndRun.md`

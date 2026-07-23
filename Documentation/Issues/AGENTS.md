@@ -21,5 +21,6 @@ These instructions apply to `Documentation/Issues/`.
 
 - Update `README.md` whenever an issue document is added, renamed, resolved, or removed.
 - When work begins, link the issue to its implementation plan or change. Do not duplicate the plan's stage checklist here.
-- Mark an issue resolved only after the change and its validation have landed. Record the resolving commit or replacement document before removing it from the open index.
+- Mark an issue resolved only after the change and its validation have landed. Record the resolving commit or replacement document, transfer lasting rules to Architecture, then remove the issue document and its open-index entry.
+- Do not create an Issues archive or a resolved-issues index. Git and archived implementation plans preserve history.
 - Keep filenames descriptive and topic-based; do not encode transient priority or issue numbers in filenames.

@@ -1,4 +1,28 @@
-# Actor Component System Roadmap
+# Actor Component System Plan
+
+Last reviewed: 2026-07-24
+
+## Current Status
+
+Planning baseline. The reflected actor/component type hierarchy exists, but ownership, lifecycle routing, world spawning, transform hierarchy, scene registration, and serialization still require implementation. Resolve the ownership decisions recorded below before work proceeds beyond the early lifecycle stages.
+
+## Goal
+
+Grow the current reflected actor/component skeleton into a coherent runtime model whose construction, ownership, destruction, transforms, rendering registration, and persistence all follow the engine object system.
+
+## Scope
+
+- Actor and component construction and ownership.
+- Lifecycle callbacks and destruction.
+- World spawn and ownership.
+- Scene-component transforms and primitive scene registration.
+- Serialization and editor-facing reflected metadata.
+
+## Non-Goals
+
+- A parallel object or RTTI system outside `DObject`.
+- Advanced gameplay frameworks, networking, or replication.
+- Renderer features unrelated to component registration.
 
 This document describes how to grow the current Actor-Component System from the existing `DObject` reflection foundation into a usable runtime model.
 
@@ -201,13 +225,7 @@ Recommended tests:
 - `Engine` or a new engine test target: actor spawn, component ownership, lifecycle callback order, destroy cleanup.
 - Rendering smoke: spawn `AStaticMeshActor`, register components, run `DurinEditor` or `DurinGame` long enough to validate scene registration.
 
-Recommended build path:
-
-```powershell
-cmake --build Build/Win64-Debug-DurinEditor --target CoreDObject Engine LevelEditor DurinLauncher --parallel
-```
-
-For UI or rendering-visible changes, also run `DurinEditor`, because component registration bugs often appear only when the scene and viewport are live.
+Use the root `BuildTool` workflow and native-test guidance rather than direct CMake commands. For UI or rendering-visible changes, complete the required full build and hidden-window `DurinEditor` smoke because component registration bugs often appear only when the scene and viewport are live.
 
 ## Open Decisions
 

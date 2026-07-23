@@ -38,7 +38,7 @@ Make the runtime shader cache self-validating, cheap on unchanged warm starts, s
 
 ## Current Foundations and Gaps
 
-The existing compile service already separates path resolution, dependency discovery, fingerprinting, compilation, reflection, and storage. Variant keys include source content and normalized macros, and `FFileFingerprintCache` avoids repeated hashes within one process. The unresolved gaps are recorded in [Shader Loading and Cache Issues](../../Issues/ShaderLoadingAndCache.md).
+The existing compile service already separates path resolution, dependency discovery, fingerprinting, compilation, reflection, and storage. Variant keys include source content and normalized macros, and `FFileFingerprintCache` avoids repeated hashes within one process. The original review findings were resolved by this plan and remain available in repository history.
 
 ## Implementation Stages
 
@@ -98,7 +98,7 @@ The existing compile service already separates path resolution, dependency disco
 
 ## Definition of Done
 
-- Every open finding in `Documentation/Issues/ShaderLoadingAndCache.md` is implemented and covered by an automated test or an explicit integration validation.
+- Every finding from the original shader cache review is implemented and covered by an automated test or an explicit integration validation.
 - All phase commits exist independently and contain their corresponding plan status update.
 - Architecture documentation describes the final cache contract rather than the superseded implementation.
 - The issue record is marked resolved and points to this plan and the resolving commits.
@@ -121,7 +121,6 @@ The existing compile service already separates path resolution, dependency disco
 
 ## Related Documentation
 
-- [Shader Loading and Cache Issues](../../Issues/ShaderLoadingAndCache.md)
 - [Shader Cache](../../Architecture/ShaderCache.md)
 - [Versioning](../../Architecture/Versioning.md)
 - [Native C++ Tests](../../Setup/NativeTests.md)
