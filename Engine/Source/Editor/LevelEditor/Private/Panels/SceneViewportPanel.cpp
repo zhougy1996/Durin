@@ -75,7 +75,7 @@ namespace Durin
 			Translate,
 			Rotate,
 			Scale,
-			Snap,
+			SnapGrid,
 			Play,
 			Pause,
 			Step,
@@ -115,17 +115,14 @@ namespace Durin
 					DrawList->AddRectFilled(ImVec2(End.x - 2.5f * Scale, End.y - 2.5f * Scale), ImVec2(End.x + 2.5f * Scale, End.y + 2.5f * Scale), Color, 1.0f * Scale);
 					break;
 				}
-			case EViewportToolbarIcon::Snap:
+			case EViewportToolbarIcon::SnapGrid:
 				{
-					const float HalfWidth = 6.0f * Scale;
-					const float HalfHeight = 6.0f * Scale;
-					DrawList->PathLineTo(ImVec2(Center.x - HalfWidth, Center.y - HalfHeight));
-					DrawList->PathLineTo(ImVec2(Center.x - HalfWidth, Center.y + Scale));
-					DrawList->PathArcTo(ImVec2(Center.x, Center.y + Scale), HalfWidth, 3.14159f, 0.0f, 12);
-					DrawList->PathLineTo(ImVec2(Center.x + HalfWidth, Center.y - HalfHeight));
-					DrawList->PathStroke(Color, 0, Thickness);
-					DrawList->AddLine(ImVec2(Center.x - HalfWidth - Scale, Center.y - HalfHeight), ImVec2(Center.x - HalfWidth + 3.0f * Scale, Center.y - HalfHeight), Color, Thickness);
-					DrawList->AddLine(ImVec2(Center.x + HalfWidth - 3.0f * Scale, Center.y - HalfHeight), ImVec2(Center.x + HalfWidth + Scale, Center.y - HalfHeight), Color, Thickness);
+					const float Radius = 6.0f * Scale;
+					for (const float Offset : {-Radius, 0.0f, Radius})
+					{
+						DrawList->AddLine(ImVec2(Center.x - Radius, Center.y + Offset), ImVec2(Center.x + Radius, Center.y + Offset), Color, Thickness);
+						DrawList->AddLine(ImVec2(Center.x + Offset, Center.y - Radius), ImVec2(Center.x + Offset, Center.y + Radius), Color, Thickness);
+					}
 					break;
 				}
 			case EViewportToolbarIcon::Play:
@@ -406,7 +403,7 @@ namespace Durin
 			DrawList->AddLine(ImVec2(SecondaryPosition.x, Position.y + MonaImGui::ScaleUI(5.0f)), ImVec2(SecondaryPosition.x, Max.y - MonaImGui::ScaleUI(5.0f)), ImGui::GetColorU32(ImGuiCol_Border));
 			const ImU32 TextColor = ImGui::GetColorU32(bEnabled || bPopupOpen || bPrimaryHovered || bSecondaryHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 			const float IconScale = ImGui::GetFontSize() / 15.0f;
-			DrawToolbarIcon(DrawList, EViewportToolbarIcon::Snap, ImVec2(Position.x + PrimaryWidth * 0.5f, Position.y + Height * 0.5f), TextColor, IconScale);
+			DrawToolbarIcon(DrawList, EViewportToolbarIcon::SnapGrid, ImVec2(Position.x + PrimaryWidth * 0.5f, Position.y + Height * 0.5f), TextColor, IconScale);
 			DrawToolbarIcon(DrawList, EViewportToolbarIcon::ChevronDown, ImVec2(SecondaryPosition.x + SecondaryWidth * 0.5f, Position.y + Height * 0.5f), TextColor, IconScale);
 			if (bEnabled)
 			{
@@ -463,6 +460,7 @@ namespace Durin
 		ImVec2 PlayButtonPosition;
 		float Height = 0.0f;
 		float Gap = 0.0f;
+		float ToolButtonGap = 0.0f;
 		float ModeButtonWidth = 0.0f;
 		float SpaceButtonWidth = 0.0f;
 		float SnapButtonWidth = 0.0f;
@@ -686,6 +684,7 @@ namespace Durin
 		const float ChevronWidth = 10.0f * FontSize / 15.0f;
 		Layout.Height = FMath::Max(MonaImGui::ScaleUI(30.0f), FontSize + MonaImGui::ScaleUI(12.0f));
 		Layout.Gap = MonaImGui::ScaleUI(6.0f);
+		Layout.ToolButtonGap = MonaImGui::ScaleUI(3.0f);
 		Layout.ModeButtonWidth = Layout.Height;
 		Layout.SpaceButtonWidth = FMath::Max(MonaImGui::ScaleUI(82.0f), ImGui::CalcTextSize("Parent").x + ContentGap + ChevronWidth + ContentPadding * 2.0f);
 		Layout.SnapButtonWidth = Layout.Height;
@@ -693,7 +692,7 @@ namespace Durin
 		Layout.ViewModeButtonPosition = ImVec2(ViewportMin.x + MonaImGui::ScaleUI(10.0f), ViewportMin.y + MonaImGui::ScaleUI(8.0f));
 		Layout.ViewModeButtonSize = ImVec2(ImGui::CalcTextSize(Layout.ViewModeLabel.c_str()).x + ContentGap + ChevronWidth + ContentPadding * 2.0f, Layout.Height);
 		const float SecondaryWidth = Layout.bOverflow ? Layout.DropDownWidth : Layout.SpaceButtonWidth + Layout.SnapButtonWidth + Layout.DropDownWidth;
-		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(10.0f);
+		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 2.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(10.0f);
 		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - MonaImGui::ScaleUI(4.0f), Layout.ViewModeButtonPosition.y - MonaImGui::ScaleUI(4.0f));
 		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - MonaImGui::ScaleUI(6.0f), Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(4.0f));
 		const float PlayLabelWidth = ImGui::CalcTextSize("Play").x;
@@ -788,7 +787,9 @@ namespace Durin
 			ImGui::TextDisabled("Scale always uses Local space");
 		};
 		ToolbarButton("##MoveMode", nullptr, EViewportToolbarIcon::Translate, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Translate, "Move tool (W)", [&] { Gizmo.SetMode(ETransformGizmoMode::Translate); });
+		X += Layout.ToolButtonGap;
 		ToolbarButton("##RotateMode", nullptr, EViewportToolbarIcon::Rotate, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Rotate, "Rotate tool (E)", [&] { Gizmo.SetMode(ETransformGizmoMode::Rotate); });
+		X += Layout.ToolButtonGap;
 		ToolbarButton("##ScaleMode", nullptr, EViewportToolbarIcon::Scale, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Scale, "Scale tool (R)", [&] { Gizmo.SetMode(ETransformGizmoMode::Scale); });
 		X += Layout.Gap;
 		if (Layout.bOverflow)
