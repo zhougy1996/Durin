@@ -18,8 +18,9 @@ struct GridFragmentOutput
 struct GridUniform
 {
     float4x4 WorldToClip;
-    // xy is the camera-following center, z is the world height, w is the half extent.
-    float4 CenterHeightExtent;
+    float4x4 ClipToWorld;
+    // x is the horizontal grid plane's world-space height; yzw are reserved.
+    float4 GridPlane;
     float4 ViewPositionFadeDistance;
     float4 MinorColor;
     float4 MajorColor;
@@ -34,8 +35,8 @@ GridVSOutput VertexMain(GridVSInput input)
 {
     GridVSOutput output;
     output.worldPosition = float3(
-        Grid.CenterHeightExtent.xy + input.pos * Grid.CenterHeightExtent.w,
-        Grid.CenterHeightExtent.z
+        Grid.ViewPositionFadeDistance.xy + input.pos * Grid.ViewPositionFadeDistance.w * 1.1,
+        Grid.GridPlane.x
     );
     output.pos = mul(Grid.WorldToClip, float4(output.worldPosition, 1.0));
     return output;

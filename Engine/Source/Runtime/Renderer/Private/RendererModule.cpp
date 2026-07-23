@@ -1,6 +1,7 @@
 #include "RendererModule.h"
 
 #include "DefaultTextures.h"
+#include "EditorGridRendering.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -260,17 +261,6 @@ namespace Durin
 			FVector4f Position{0.0f};
 			FVector2f UV{0.0f};
 			FVector4f Color{1.0f};
-		};
-
-		struct FEditorGridUniform
-		{
-			glm::mat4 WorldToClip{1.0f};
-			FVector4f CenterHeightExtent{0.0f};
-			FVector4f ViewPositionFadeDistance{0.0f};
-			FVector4f MinorColor{1.0f};
-			FVector4f MajorColor{1.0f};
-			FVector4f AxisXColor{1.0f};
-			FVector4f AxisYColor{1.0f};
 		};
 
 		struct FGizmoMeshRange
@@ -1056,20 +1046,8 @@ namespace Durin
 				|| !GEditorGridState.VertexShader || !GEditorGridState.FragmentShader
 				|| GPostProcessState.VertexBuffer == nullptr || GPostProcessState.IndexBuffer == nullptr) return;
 
-			const float FadeDistance = std::max(1.0f, View.EditorGrid.FadeDistance);
-			FEditorGridUniform Uniform;
-			Uniform.WorldToClip = ToShaderMatrix(View.ViewProjectionMatrix);
-			Uniform.CenterHeightExtent = {
-				static_cast<float>(View.ViewLocation.x),
-				static_cast<float>(View.ViewLocation.y),
-				static_cast<float>(View.EditorGrid.Height),
-				FadeDistance * 1.1f
-			};
-			Uniform.ViewPositionFadeDistance = FVector4f(FVector3f(View.ViewLocation), FadeDistance);
-			Uniform.MinorColor = View.EditorGrid.MinorColor;
-			Uniform.MajorColor = View.EditorGrid.MajorColor;
-			Uniform.AxisXColor = View.EditorGrid.AxisXColor;
-			Uniform.AxisYColor = View.EditorGrid.AxisYColor;
+			EditorGridRendering::FEditorGridUniform Uniform;
+			if (!EditorGridRendering::BuildUniform(View, Uniform)) return;
 
 			CommandList.SetGraphicsPipelineState(*GEditorGridState.PipelineState);
 			CommandList.BindVertexBuffer(0, GPostProcessState.VertexBuffer, 0);

@@ -4,7 +4,7 @@ Last reviewed: 2026-07-23
 
 ## Current Status
 
-Stage 0 is implemented and validated. Slang compiles a fragment entry point returning color plus `SV_Depth`, reflection and pipeline layout generation produce no bindings for those output semantics, and the existing Vulkan editor-grid pipeline accepts the depth-writing fragment shader with depth testing enabled and depth writes disabled. No backend constraint was discovered. The existing world-space grid triangle remains the baseline until the V2 path passes the validation matrix.
+Stages 0 and 1 are implemented and validated. The fragment-depth contract passes Slang compilation and the real Vulkan grid pipeline. The renderer now uploads validated, mutually inverse `WorldToClip` and `ClipToWorld` transforms through the V2 uniform layout and skips the grid draw before uniform allocation when the view-projection transform is invalid. The existing world-space grid triangle remains the baseline until the V2 path passes the validation matrix.
 
 ## Goal
 
@@ -101,11 +101,11 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 
 ### Stage 1: Establish the V2 uniform and matrix contract
 
-- [ ] Replace the finite-plane extent data in `FEditorGridUniform` with the data needed for reconstruction: `WorldToClip`, `ClipToWorld`, plane height, camera position, fade distance, and existing colors.
-- [ ] Compute and validate the inverse view-projection matrix in `DrawEditorGrid()` before allocating the dynamic uniform buffer.
-- [ ] Preserve CPU-to-shader matrix transposition conventions for both matrices.
-- [ ] Skip the grid draw when inversion would upload non-finite values.
-- [ ] Update focused tests or test helpers that assert the editor-grid view contract.
+- [x] Replace the finite-plane extent data in `FEditorGridUniform` with the data needed for reconstruction: `WorldToClip`, `ClipToWorld`, plane height, camera position, fade distance, and existing colors.
+- [x] Compute and validate the inverse view-projection matrix in `DrawEditorGrid()` before allocating the dynamic uniform buffer.
+- [x] Preserve CPU-to-shader matrix transposition conventions for both matrices.
+- [x] Skip the grid draw when inversion would upload non-finite values.
+- [x] Update focused tests or test helpers that assert the editor-grid view contract.
 
 #### Acceptance Gate
 

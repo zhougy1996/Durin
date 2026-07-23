@@ -7,6 +7,7 @@ add_durin_test(EngineTests
 	Private/TextureTests.cpp
 	Private/WorldTests.cpp
 	Private/ViewportTests.cpp
+	Private/EditorGridRenderingTests.cpp
 	Private/EditorNotificationTests.cpp
 	Private/EditorWorkspaceTests.cpp
 	Private/EditorTextureSmokeTests.cpp
@@ -34,6 +35,7 @@ target_include_directories(EngineTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source
 )
 
