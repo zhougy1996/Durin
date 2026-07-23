@@ -102,6 +102,27 @@ Main render layers:
 
 The active backend is effectively Vulkan-first today, so `RHI` changes often require matching work in `VulkanRHI` and sometimes `MonaImGui`.
 
+### Scene post-processing and editor assistance
+
+The renderer has two distinct composition domains:
+
+- **Scene post-processing** transforms scene-owned image data. Anti-aliasing, tone mapping, temporal history, and future scene effects belong here.
+- **Editor assistance** adds editor-only world visualization after scene post-processing. The world grid, selection and camera overlays, icons, and transform gizmos belong here.
+
+The adopted ordering is:
+
+```text
+Opaque scene
+  -> scene post-processing and scene anti-aliasing
+  -> depth-aware editor assistance
+  -> viewport presentation or offscreen sampling
+  -> application UI
+```
+
+Scene post-processing must not consume editor assistance as source image data or accumulate it into temporal history. Editor assistance may read or test against the preserved scene depth so meshes continue to occlude the grid and visible overlay variants, but it does not write scene depth or motion vectors. Each assistance primitive remains responsible for its own local edge treatment, such as derivative-based grid-line antialiasing.
+
+The current renderer still draws editor assistance into scene color before FXAA. Migration to the adopted boundary, including depth preservation and final-output render-target layouts, is tracked in `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`.
+
 Main UI and windowing layers:
 
 - `ApplicationCore`
@@ -131,4 +152,5 @@ bar.
 - `Documentation/Architecture/Profiles.md`
 - `Documentation/Architecture/MultithreadingRoadmap.md`
 - `Documentation/Architecture/ViewportRendering.md`
+- `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`
 - `Documentation/Setup/BuildAndRun.md`

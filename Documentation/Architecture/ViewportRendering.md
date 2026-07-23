@@ -107,6 +107,8 @@ Camera aspect ratios support viewport-driven framing, common fixed presets, and 
 
 Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache is deliberately bounded so interactive resizing does not retain every transient dimension.
 
+Under the adopted renderer boundary, scene post-processing produces the image that is then composed with editor assistance for both window-backed and render-target-backed viewports. Editor assistance is a Renderer phase, not Mona or ImGui content: it may use preserved scene depth, but it remains outside scene anti-aliasing and any future temporal history. The final composed result continues through the existing presentation or `MonaUI::DrawTexture(...)` path without exposing intermediate scene targets to the widget layer. The current pre-FXAA assistance ordering is a migration gap tracked in `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`.
+
 ## Interface Boundary
 
 `MViewport` talks only to `Mona::IMonaViewport`, not to `FSceneViewport`.

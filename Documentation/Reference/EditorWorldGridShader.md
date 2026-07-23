@@ -548,7 +548,7 @@ Depth Test  = Enabled
 Depth Write = Disabled
 ```
 
-同时检查网格是否仍在 Static Mesh 之后、Overlay 之前绘制。
+在当前尚未完成辅助层迁移的实现中，同时检查网格是否仍在 Static Mesh 之后、Overlay 之前绘制。迁移完成后，应检查网格位于场景后处理之后、其他 Editor Assistance 之前，并继续使用保留的场景深度完成遮挡。
 
 ### 16.5 轴线颜色方向错误
 
@@ -757,7 +757,9 @@ V2 在执行离散 LOD 选择前先对连续 `worldPosition.xy` 计算 `ddx/ddy`
 
 ### 19.8 当前渲染集成与验证边界
 
-Renderer 继续复用 Post Process 的三顶点缓冲和索引缓冲，每个 View 调用一次 `DrawIndexed(3)`。Pipeline 状态保持：Alpha Blend 开启、背面剔除关闭、深度测试开启、深度写入关闭；绘制顺序仍为 Static Mesh、Editor World Grid、Editor Overlay/Gizmo。
+Renderer 继续复用 Post Process 的三顶点缓冲和索引缓冲，每个 View 调用一次 `DrawIndexed(3)`。Pipeline 状态保持：Alpha Blend 开启、背面剔除关闭、深度测试开启、深度写入关闭。
+
+当前已落地的 V2 集成顺序仍为 Static Mesh、Editor World Grid、Editor Overlay/Gizmo，然后对完整 Scene Color 执行 FXAA。这个顺序会使 FXAA 把程序化细网格视为高对比度场景边缘并明显软化。已采用的长期边界是先完成场景后处理，再使用保留的场景深度合成 Editor World Grid 和其余 Editor Assistance；辅助层不写入场景深度、Motion Vector 或未来的 TAA History。迁移计划见 `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`。
 
 当前实现已经通过以下可重复验证：
 
@@ -768,4 +770,4 @@ Renderer 继续复用 Post Process 的三顶点缓冲和索引缓冲，每个 Vi
 
 隐藏窗口冒烟不能代替相机运动、FXAA 开关、深度遮挡和极端宽高比的视觉观察。此类项目应在计划的验证矩阵中保留为人工证据，而不能仅凭运行时无错误标记为通过。
 
-完整阶段、验收门槛和验证矩阵见 `Documentation/Plans/EditorWorldGridV2.md`。
+V2 算法的完整阶段、验收门槛和验证矩阵保存在 `Documentation/Plans/Archive/EditorWorldGridV2.md`。场景后处理与编辑器辅助层的迁移见 `Documentation/Plans/ScenePostProcessEditorAssistanceBoundary.md`。
