@@ -8,6 +8,7 @@ namespace Durin
 	{
 		inline constexpr std::string_view ProjectContentMountRoot = "/Game/";
 
+		// Maps one normalized virtual root to its physical directory.
 		struct FMountPoint
 		{
 			std::string VirtualRoot;
@@ -21,6 +22,7 @@ namespace Durin
 		CORE_API auto InitDefaultMountPoints() -> void;
 	}
 
+	// Resolves engine and active-project locations from process-wide path state.
 	class FPaths
 	{
 	public:

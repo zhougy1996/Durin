@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	// Reports a YAML parser failure in both byte and source-text coordinates.
 	struct FYamlParseError
 	{
 		int32 Code = 0;
@@ -17,6 +18,7 @@ namespace Durin
 
 	struct FYamlNodeAccess;
 
+	// Provides a non-owning read-only view whose lifetime is bounded by its document.
 	class FYamlNodeView
 	{
 	public:
@@ -76,6 +78,7 @@ namespace Durin
 		friend class FYamlDocument;
 	};
 
+	// Provides a non-owning mutable reference into a document-owned YAML tree.
 	class FYamlNodeRef
 		: public FYamlNodeView
 	{
@@ -143,6 +146,7 @@ namespace Durin
 		friend class FYamlDocument;
 	};
 
+	// Owns a YAML tree and issues non-owning views into that tree.
 	class FYamlDocument
 	{
 	public:

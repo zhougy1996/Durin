@@ -5,6 +5,7 @@
 
 namespace Durin
 {
+	// Represents a decomposed affine transform composed in scale, rotation, translation order.
 	struct FTransform
 	{
 		FQuat Rotation;

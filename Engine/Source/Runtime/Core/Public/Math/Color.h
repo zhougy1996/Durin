@@ -296,6 +296,7 @@ namespace Durin
 		static CORE_API const FLinearColor Yellow;
 	};
 
+	// Stores an 8-bit-per-channel color in the engine's packed BGRA memory layout.
 	struct FColor
 	{
 		union

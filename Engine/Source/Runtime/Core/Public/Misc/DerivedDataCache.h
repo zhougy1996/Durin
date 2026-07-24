@@ -11,6 +11,7 @@ namespace Durin::DerivedDataCache
 	inline constexpr uint32 ThumbnailIndexMagic = 0x58444954; // TIDX
 	inline constexpr uint32 ThumbnailIndexSchemaVersion = 1;
 
+	// Identifies the binary cache family, schema, payload format, and byte order.
 	struct FCacheHeader
 	{
 		uint32 Magic = 0;
@@ -19,15 +20,16 @@ namespace Durin::DerivedDataCache
 		uint32 Marker = SerializationMarker;
 	};
 
-	class CORE_API FWriter
+	// Builds the canonical little-endian byte representation used by derived-data caches.
+	class FWriter
 	{
 	public:
-		auto WriteU8(uint8 Value) -> void;
-		auto WriteU32(uint32 Value) -> void;
-		auto WriteU64(uint64 Value) -> void;
-		auto WriteI64(int64 Value) -> void;
-		auto WriteString(std::string_view Value) -> void;
-		auto WriteHeader(const FCacheHeader& Header) -> void;
+		CORE_API auto WriteU8(uint8 Value) -> void;
+		CORE_API auto WriteU32(uint32 Value) -> void;
+		CORE_API auto WriteU64(uint64 Value) -> void;
+		CORE_API auto WriteI64(int64 Value) -> void;
+		CORE_API auto WriteString(std::string_view Value) -> void;
+		CORE_API auto WriteHeader(const FCacheHeader& Header) -> void;
 		auto GetBytes() const -> const std::vector<uint8>& { return Bytes; }
 		auto TakeBytes() -> std::vector<uint8> { return std::move(Bytes); }
 
@@ -35,17 +37,18 @@ namespace Durin::DerivedDataCache
 		std::vector<uint8> Bytes;
 	};
 
-	class CORE_API FReader
+	// Reads canonical cache bytes without owning the source span.
+	class FReader
 	{
 	public:
 		explicit FReader(std::span<const uint8> InBytes) : Bytes(InBytes) {}
 
-		auto ReadU8(uint8& Value) -> bool;
-		auto ReadU32(uint32& Value) -> bool;
-		auto ReadU64(uint64& Value) -> bool;
-		auto ReadI64(int64& Value) -> bool;
-		auto ReadString(std::string& Value, uint64 MaximumBytes = MaximumCacheStringBytes) -> bool;
-		auto ReadAndValidateHeader(uint32 ExpectedMagic, uint32 ExpectedSchemaVersion, uint32 ExpectedFormatVersion, FCacheHeader* OutHeader = nullptr) -> bool;
+		CORE_API auto ReadU8(uint8& Value) -> bool;
+		CORE_API auto ReadU32(uint32& Value) -> bool;
+		CORE_API auto ReadU64(uint64& Value) -> bool;
+		CORE_API auto ReadI64(int64& Value) -> bool;
+		CORE_API auto ReadString(std::string& Value, uint64 MaximumBytes = MaximumCacheStringBytes) -> bool;
+		CORE_API auto ReadAndValidateHeader(uint32 ExpectedMagic, uint32 ExpectedSchemaVersion, uint32 ExpectedFormatVersion, FCacheHeader* OutHeader = nullptr) -> bool;
 		auto IsAtEnd() const -> bool { return Offset == Bytes.size(); }
 		auto GetRemainingBytes() const -> size_t { return Bytes.size() - Offset; }
 

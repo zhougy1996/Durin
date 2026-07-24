@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Describes whether a persisted recent-project entry can currently be opened.
 	enum class ERecentProjectStatus : uint8
 	{
 		Available,
@@ -11,6 +12,7 @@ namespace Durin
 		Invalid,
 	};
 
+	// Stores one normalized recent-project entry and its latest validation result.
 	struct FRecentProjectInfo
 	{
 		std::string Name;
@@ -19,6 +21,7 @@ namespace Durin
 		std::string Error;
 	};
 
+	// Persists a bounded, most-recent-first project list and refreshes entry validity.
 	class FProjectHistory
 	{
 	public:

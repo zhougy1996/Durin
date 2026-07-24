@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Orders log severity from diagnostic tracing through unrecoverable failure.
 	enum class ELogLevel
 	{
 		Trace,
@@ -14,6 +15,7 @@ namespace Durin
 		Fatal,
 	};
 
+	// Captures an immutable log event with source and thread provenance.
 	struct FLogRecord
 	{
 		std::chrono::system_clock::time_point Timestamp;
@@ -35,6 +37,7 @@ namespace Durin
 		}
 	};
 
+	// Configures asynchronous queueing, retained history, and rotating file sinks.
 	struct FLogSettings
 	{
 		ELogLevel ConsoleLevel = ELogLevel::Debug;
@@ -49,6 +52,7 @@ namespace Durin
 		std::string ProfileName = "Durin";
 	};
 
+	// Returns a history window and the sequence bounds needed to detect eviction.
 	struct FLogReadResult
 	{
 		std::vector<FLogRecord> Records;
@@ -60,6 +64,7 @@ namespace Durin
 
 	CORE_API auto StringToLogLevel(std::string_view InLogLevel, ELogLevel DefaultLevel = ELogLevel::Debug) -> ELogLevel;
 
+	// Owns the process-wide asynchronous logging pipeline and its output sinks.
 	class FLogger
 	{
 	public:

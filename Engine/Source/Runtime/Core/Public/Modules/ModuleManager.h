@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	// Defines the startup and shutdown hooks implemented by dynamically loaded modules.
 	class IModuleInterface
 	{
 	public:
@@ -15,6 +16,7 @@ namespace Durin
 		virtual void ShutdownModule() {};
 	};
 
+	// Owns one loaded module instance and the native handle backing it.
 	class FModuleInfo
 	{
 	public:
@@ -35,6 +37,7 @@ namespace Durin
 
 	using InitializeModuleFunc = IModuleInterface* (*)();
 
+	// Loads modules on demand and shuts initialized modules down in reverse load order.
 	class FModuleManager
 	{
 	public:

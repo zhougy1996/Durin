@@ -8,6 +8,7 @@ namespace Durin
 {
 	using FQueuedWorkFunction = std::function<void()>;
 
+	// Owns a fixed worker set and drains named work items from a shared queue.
 	class FQueuedThreadPool
 	{
 	public:

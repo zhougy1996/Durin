@@ -6,6 +6,7 @@ namespace Durin
 {
 	using FConsoleCommandHandle = uint64;
 
+	// Reports command success together with optional user-facing output.
 	struct FConsoleCommandResult
 	{
 		bool bSuccess = true;
@@ -15,6 +16,7 @@ namespace Durin
 		static auto Failure(std::string Message) -> FConsoleCommandResult { return {false, std::move(Message)}; }
 	};
 
+	// Describes a registered command and the callback that executes it.
 	struct FConsoleCommandDesc
 	{
 		std::string Name;
@@ -23,6 +25,7 @@ namespace Durin
 		std::function<FConsoleCommandResult(std::span<const std::string>)> Execute;
 	};
 
+	// Owns the process-wide, thread-safe console command registry.
 	class FConsoleCommandRegistry
 	{
 	public:

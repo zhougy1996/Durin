@@ -26,6 +26,7 @@ namespace Durin
 		IOThread,
 	};
 
+	// Owns a platform thread running an FRunnable and records its engine thread role.
 	class FRunnableThread
 	{
 	public:

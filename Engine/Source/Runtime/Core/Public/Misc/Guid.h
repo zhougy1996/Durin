@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Stores a stable 128-bit identifier; the all-zero value is invalid.
 	struct FGuid
 	{
 		uint32 A = 0;

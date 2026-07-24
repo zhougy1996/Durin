@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Holds the normalized paths and mount root of the active project.
 	struct FProjectInfo
 	{
 		std::string Name;

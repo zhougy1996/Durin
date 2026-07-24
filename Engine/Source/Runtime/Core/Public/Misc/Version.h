@@ -5,6 +5,7 @@
 
 namespace Durin
 {
+	// Represents the engine's semantic version and optional prerelease channel.
 	struct FEngineVersion
 	{
 		uint32 Major = 0;

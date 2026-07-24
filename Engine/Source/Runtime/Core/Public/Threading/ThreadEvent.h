@@ -8,6 +8,7 @@
 
 namespace Durin
 {
+	// Provides a thread-safe manual-reset event; Trigger stays visible until Reset.
 	class FThreadEvent
 	{
 	public:

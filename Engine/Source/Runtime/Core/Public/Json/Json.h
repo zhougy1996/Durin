@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	// Reports a JSON parser failure in both byte and source-text coordinates.
 	struct FJsonParseError
 	{
 		int32 Code = 0;
@@ -16,6 +17,7 @@ namespace Durin
 		std::string Message;
 	};
 
+	// Identifies how a mutable JSON node is linked to its parent.
 	enum class EJsonNodeLink : uint8
 	{
 		None = 0,
@@ -23,6 +25,7 @@ namespace Durin
 		ArrayIndex
 	};
 
+	// Provides a non-owning read-only view whose lifetime is bounded by its document.
 	class FJsonNodeView
 	{
 	public:
@@ -90,6 +93,7 @@ namespace Durin
 		friend struct FJsonNodeAccess;
 	};
 
+	// Provides a non-owning mutable node reference that updates its parent link on replacement.
 	class FJsonNodeRef
 		: public FJsonNodeView
 	{
@@ -191,6 +195,7 @@ namespace Durin
 		friend struct FJsonNodeAccess;
 	};
 
+	// Owns a JSON tree and issues non-owning views into that tree.
 	class FJsonDocument
 	{
 	public:

@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Defines the lifecycle callbacks executed by an FRunnableThread.
 	class FRunnable
 	{
 	public:

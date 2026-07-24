@@ -10,6 +10,7 @@ namespace Durin
 
 	class FTaskCompletionState;
 
+	// Shares the completion state of an asynchronously launched task.
 	class FTaskHandle
 	{
 	public:

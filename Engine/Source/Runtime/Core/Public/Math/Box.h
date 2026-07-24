@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Accumulates a finite axis-aligned bounding box and tracks whether it contains data.
 	struct FBox
 	{
 		FVector3 Min{0.0};

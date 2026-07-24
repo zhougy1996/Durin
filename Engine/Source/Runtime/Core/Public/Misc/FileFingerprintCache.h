@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	// Couples normalized file metadata with the content hash computed for that state.
 	struct FFileFingerprint
 	{
 		std::string NormalizedPath;
@@ -14,6 +15,7 @@ namespace Durin
 		FXxHash64 ContentHash{};
 	};
 
+	// Reuses content hashes while size and modification time still match.
 	class FFileFingerprintCache
 	{
 	public:

@@ -5,6 +5,7 @@
 
 namespace Durin
 {
+	// Identifies one delegate binding without owning the bound callable.
 	class FDelegateHandle
 	{
 	public:
@@ -128,6 +129,7 @@ namespace Durin
 	template<typename Signature, EDelegateThreadSafety ThreadSafety = EDelegateThreadSafety::NotThreadSafe>
 	class TDelegate;
 
+	// Owns at most one callable with optional weak-instance lifetime tracking.
 	template<typename ReturnType, EDelegateThreadSafety ThreadSafety, typename... Args>
 	class TDelegate<ReturnType(Args...), ThreadSafety>
 	{
@@ -323,6 +325,7 @@ namespace Durin
 		mutable FMutex Mutex;
 	};
 
+	// Owns an ordered set of listeners and broadcasts from a stable binding snapshot.
 	template<typename Signature, EDelegateThreadSafety ThreadSafety = EDelegateThreadSafety::NotThreadSafe>
 	class TMulticastDelegate
 	{

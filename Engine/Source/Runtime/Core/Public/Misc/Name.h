@@ -22,6 +22,7 @@ namespace Durin
 		None = 0
 	};
 
+	// Identifies one interned name entry; zero denotes no entry.
 	struct FNameEntryId
 	{
 	public:
@@ -60,6 +61,7 @@ namespace Durin
 		uint16 Len = 0;
 	};
 
+	// Stores one immutable interned UTF-8 name and its comparison identity.
 	struct FNameEntry
 	{
 	private:
@@ -108,6 +110,7 @@ namespace Durin
 		friend class FNamePoolShardBase;
 	};
 
+	// Stores a compact interned name identity plus an optional numeric suffix.
 	class FName
 	{
 	public:
