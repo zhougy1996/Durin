@@ -24,6 +24,7 @@ namespace Durin::Detail
 		uint64 NextDocumentId = 1;
 		FEditorDocumentId ActiveDocumentId;
 		std::vector<FEditorDocumentTab> Documents;
+		std::unordered_map<uint64, FEditorDocumentTab> DeferredDocumentOpens;
 		std::unordered_map<std::string, FRegisteredWorkspace> Workspaces;
 		std::unordered_map<std::string, FRegisteredAssetEditor> AssetEditors;
 	};
@@ -52,6 +53,9 @@ namespace Durin::Detail
 		// A module cannot leave documents backed by its code in the manager after unloading.
 		std::erase_if(State.Documents, [&](const FEditorDocumentTab& Document) {
 			return RemovedWorkspaceTypes.contains(std::string(Document.WorkspaceType.GetValue()));
+		});
+		std::erase_if(State.DeferredDocumentOpens, [&](const auto& Pair) {
+			return RemovedWorkspaceTypes.contains(std::string(Pair.second.WorkspaceType.GetValue()));
 		});
 		std::erase_if(State.AssetEditors, [&](const auto& Pair) {
 			return Pair.second.RegistrationId == RegistrationId ||
@@ -204,7 +208,13 @@ namespace Durin
 			Candidate.ResourceId = std::move(Request.ResourceId);
 			Candidate.Label = std::move(Request.Label);
 			Candidate.bClosable = Request.bClosable;
-			if (!Workspace->OpenDocument(Candidate)) return {};
+			const EEditorDocumentOpenResult OpenResult = Workspace->OpenDocument(Candidate);
+			if (OpenResult == EEditorDocumentOpenResult::Rejected) return {};
+			if (OpenResult == EEditorDocumentOpenResult::Deferred)
+			{
+				State->DeferredDocumentOpens[Existing->Id.Value] = std::move(Candidate);
+				return Existing->Id;
+			}
 			*Existing = std::move(Candidate);
 			Workspace->ActivateDocument(*Existing);
 			State->ActiveDocumentId = Existing->Id;
@@ -219,12 +229,46 @@ namespace Durin
 		Document.Label = std::move(Request.Label);
 		Document.bClosable = Request.bClosable;
 		if (!RequestDeactivateActiveDocument()) return {};
-		if (!Workspace->OpenDocument(Document)) return {};
+		const EEditorDocumentOpenResult OpenResult = Workspace->OpenDocument(Document);
+		if (OpenResult == EEditorDocumentOpenResult::Rejected) return {};
+		if (OpenResult == EEditorDocumentOpenResult::Deferred)
+		{
+			const FEditorDocumentId DeferredId = Document.Id;
+			State->DeferredDocumentOpens[DeferredId.Value] = std::move(Document);
+			return DeferredId;
+		}
 
 		State->Documents.push_back(std::move(Document));
 		Workspace->ActivateDocument(State->Documents.back());
 		State->ActiveDocumentId = State->Documents.back().Id;
 		return State->Documents.back().Id;
+	}
+
+	auto FEditorWorkspaceManager::CompleteDeferredDocumentOpen(FEditorDocumentId DocumentId, bool bSucceeded) -> bool
+	{
+		const auto Pending = State->DeferredDocumentOpens.find(DocumentId.Value);
+		if (Pending == State->DeferredDocumentOpens.end()) return false;
+		if (!bSucceeded)
+		{
+			State->DeferredDocumentOpens.erase(Pending);
+			return true;
+		}
+
+		FEditorDocumentTab Document = std::move(Pending->second);
+		State->DeferredDocumentOpens.erase(Pending);
+		const std::shared_ptr<IEditorWorkspace> Workspace = FindWorkspace(Document.WorkspaceType);
+		if (!Workspace) return false;
+
+		if (FEditorDocumentTab* Existing = FindDocument(DocumentId))
+			*Existing = std::move(Document);
+		else
+			State->Documents.push_back(std::move(Document));
+
+		FEditorDocumentTab* OpenedDocument = FindDocument(DocumentId);
+		if (!OpenedDocument) return false;
+		Workspace->ActivateDocument(*OpenedDocument);
+		State->ActiveDocumentId = OpenedDocument->Id;
+		return true;
 	}
 
 	auto FEditorWorkspaceManager::OpenAsset(std::string ResourceId, std::string_view AssetClassName) -> bool
@@ -288,6 +332,7 @@ namespace Durin
 
 	auto FEditorWorkspaceManager::RequestCloseDocument(FEditorDocumentId DocumentId) -> bool
 	{
+		State->DeferredDocumentOpens.erase(DocumentId.Value);
 		const auto Found = std::ranges::find(State->Documents, DocumentId, &FEditorDocumentTab::Id);
 		if (Found == State->Documents.end() || !Found->bClosable) return false;
 		const std::shared_ptr<IEditorWorkspace> Workspace = FindWorkspace(Found->WorkspaceType);

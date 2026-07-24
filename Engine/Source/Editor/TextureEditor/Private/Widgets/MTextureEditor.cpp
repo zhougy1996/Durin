@@ -63,27 +63,27 @@ namespace Durin
 		return TextureEditorWorkspace::Type;
 	}
 
-	auto MTextureEditor::OpenDocument(const FEditorDocumentTab& Document) -> bool
+	auto MTextureEditor::OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return false;
-		if (FindOpenTexture(Document.ResourceId)) return true;
+		if (Document.ResourceId.empty()) return EEditorDocumentOpenResult::Rejected;
+		if (FindOpenTexture(Document.ResourceId)) return EEditorDocumentOpenResult::Opened;
 		FAssetPath AssetPath;
 		std::string PathError;
 		if (!FAssetPath::TryCreate(Document.ResourceId, AssetPath, &PathError))
 		{
 			SetError(std::move(PathError));
-			return false;
+			return EEditorDocumentOpenResult::Rejected;
 		}
 		DTexture2D* Texture = nullptr;
 		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Texture);
 		if (!Result || !Texture)
 		{
 			SetError(Result ? "The selected asset is not a Texture2D." : Result.Message);
-			return false;
+			return EEditorDocumentOpenResult::Rejected;
 		}
 		OpenTextures.emplace(Document.ResourceId, Texture);
 		PreviewStates.try_emplace(Document.ResourceId);
-		return true;
+		return EEditorDocumentOpenResult::Opened;
 	}
 
 	auto MTextureEditor::ActivateDocument(const FEditorDocumentTab& Document) -> void

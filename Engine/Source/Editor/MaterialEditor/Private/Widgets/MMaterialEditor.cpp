@@ -44,26 +44,26 @@ namespace Durin
 		return MaterialEditorWorkspace::Type;
 	}
 
-	auto MMaterialEditor::OpenDocument(const FEditorDocumentTab& Document) -> bool
+	auto MMaterialEditor::OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return false;
-		if (FindOpenMaterial(Document.ResourceId)) return true;
+		if (Document.ResourceId.empty()) return EEditorDocumentOpenResult::Rejected;
+		if (FindOpenMaterial(Document.ResourceId)) return EEditorDocumentOpenResult::Opened;
 		FAssetPath AssetPath;
 		std::string PathError;
 		if (!FAssetPath::TryCreate(Document.ResourceId, AssetPath, &PathError))
 		{
 			SetError(std::move(PathError));
-			return false;
+			return EEditorDocumentOpenResult::Rejected;
 		}
 		DMaterialInterface* Material = nullptr;
 		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Material);
 		if (!Result || !Material)
 		{
 			SetError(Result ? "The selected asset is not a material." : Result.Message);
-			return false;
+			return EEditorDocumentOpenResult::Rejected;
 		}
 		OpenMaterials.emplace(Document.ResourceId, Material);
-		return true;
+		return EEditorDocumentOpenResult::Opened;
 	}
 
 	auto MMaterialEditor::ActivateDocument(const FEditorDocumentTab& Document) -> void

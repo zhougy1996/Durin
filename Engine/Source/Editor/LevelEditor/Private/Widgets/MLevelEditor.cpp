@@ -91,7 +91,13 @@ namespace Durin
 			*AssetMoveCoordinator,
 			DefaultLevel,
 			[this] { EditorError.clear(); },
-			[this](std::string Message) { SetError(std::move(Message)); }
+			[this](std::string Message) { SetError(std::move(Message)); },
+			[this](bool bSucceeded) {
+				if (!DeferredOpenDocumentId.IsValid()) return;
+				const FEditorDocumentId CompletedId = std::exchange(DeferredOpenDocumentId, {});
+				if (!WorkspaceManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded))
+					SetError("The deferred level document request is no longer available.");
+			}
 		);
 		StaticMeshImportDialog = std::make_unique<FStaticMeshImportDialog>(
 			[this] { EditorError.clear(); },
@@ -225,10 +231,19 @@ namespace Durin
 		return LevelEditorWorkspace::Type;
 	}
 
-	auto MLevelEditor::OpenDocument(const FEditorDocumentTab& Document) -> bool
+	auto MLevelEditor::OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return true;
-		return DocumentController && DocumentController->RequestOpenLevel(Document.ResourceId);
+		if (Document.ResourceId.empty()) return EEditorDocumentOpenResult::Opened;
+		if (!DocumentController) return EEditorDocumentOpenResult::Rejected;
+		switch (DocumentController->RequestOpenLevel(Document.ResourceId))
+		{
+		case ELevelDocumentOpenResult::Opened: return EEditorDocumentOpenResult::Opened;
+		case ELevelDocumentOpenResult::Deferred:
+			DeferredOpenDocumentId = Document.Id;
+			return EEditorDocumentOpenResult::Deferred;
+		case ELevelDocumentOpenResult::Rejected: return EEditorDocumentOpenResult::Rejected;
+		}
+		return EEditorDocumentOpenResult::Rejected;
 	}
 
 	auto MLevelEditor::ActivateDocument(const FEditorDocumentTab& Document) -> void

@@ -49,6 +49,13 @@ namespace Durin
 		bool bClosable = true;
 	};
 
+	enum class EEditorDocumentOpenResult : uint8
+	{
+		Rejected,
+		Opened,
+		Deferred,
+	};
+
 	enum class EEditorDocumentPolicy : uint8
 	{
 		Singleton,
@@ -136,7 +143,8 @@ namespace Durin
 		virtual ~IEditorWorkspace() = default;
 
 		virtual auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& = 0;
-		virtual auto OpenDocument(const FEditorDocumentTab& Document) -> bool = 0;
+		// Deferred opens keep the current tab metadata until the workspace reports completion.
+		virtual auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult = 0;
 		virtual auto ActivateDocument(const FEditorDocumentTab& Document) -> void = 0;
 		// Called before the manager changes the active document or workspace.
 		// Returning false keeps the current host state active.
@@ -170,6 +178,7 @@ namespace Durin
 		DURINED_API auto RegisterWorkspace(FEditorWorkspaceRegistration Registration) -> bool;
 		DURINED_API auto RegisterAssetEditor(FEditorAssetEditorRegistration Registration) -> bool;
 		DURINED_API auto OpenDocument(FEditorDocumentRequest Request) -> FEditorDocumentId;
+		DURINED_API auto CompleteDeferredDocumentOpen(FEditorDocumentId DocumentId, bool bSucceeded) -> bool;
 		DURINED_API auto OpenAsset(std::string ResourceId, std::string_view AssetClassName) -> bool;
 		DURINED_API auto ActivateDocument(FEditorDocumentId DocumentId) -> bool;
 		DURINED_API auto ActivateWorkspace(const FEditorWorkspaceTypeId& WorkspaceType) -> bool;

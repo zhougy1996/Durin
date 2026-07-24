@@ -17,7 +17,7 @@ namespace Durin
 		explicit MTextureEditor(FEditorWorkspaceManager& InWorkspaceManager);
 		TEXTUREEDITOR_API ~MTextureEditor() override;
 		TEXTUREEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
-		TEXTUREEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> bool override;
+		TEXTUREEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult override;
 		TEXTUREEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
 		TEXTUREEDITOR_API auto RequestDeactivate() -> bool override;
 		TEXTUREEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;

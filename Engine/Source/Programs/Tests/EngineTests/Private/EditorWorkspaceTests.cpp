@@ -17,7 +17,10 @@ namespace
 		}
 
 		auto GetWorkspaceType() const -> const Durin::FEditorWorkspaceTypeId& override { return WorkspaceType; }
-		auto OpenDocument(const Durin::FEditorDocumentTab&) -> bool override { return true; }
+		auto OpenDocument(const Durin::FEditorDocumentTab&) -> Durin::EEditorDocumentOpenResult override
+		{
+			return OpenResult;
+		}
 		auto ActivateDocument(const Durin::FEditorDocumentTab& Document) -> void override
 		{
 			++ActivationCount;
@@ -34,6 +37,7 @@ namespace
 		int ActivationCount = 0;
 		int DeactivationRequestCount = 0;
 		bool bAllowDeactivation = true;
+		Durin::EEditorDocumentOpenResult OpenResult = Durin::EEditorDocumentOpenResult::Opened;
 		std::string LastActivatedResource;
 
 	private:
@@ -241,6 +245,52 @@ TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsI
 
 	EXPECT_TRUE(Manager.ActivateDocument(Manager.GetDocuments()[0].Id));
 	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Materials/M_Stone");
+}
+
+TEST(FEditorWorkspaceManagerTests, CommitsDeferredSingletonReplacementOnlyAfterCompletion)
+{
+	Durin::FEditorWorkspaceManager Manager;
+	auto Workspace = std::make_shared<FTestWorkspace>("LevelEditor");
+	Durin::FEditorWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+		.Workspaces = {MakeWorkspaceRegistration(Workspace, "Level Editor")},
+	});
+	ASSERT_TRUE(Registration);
+
+	const Durin::FEditorDocumentId DocumentId = Manager.OpenDocument({
+		.WorkspaceType = Durin::FEditorWorkspaceTypeId("LevelEditor"),
+		.DocumentKey = "LevelEditor",
+		.ResourceId = "/Game/Maps/First",
+		.Label = "First",
+	});
+	ASSERT_TRUE(DocumentId.IsValid());
+	ASSERT_EQ(Manager.GetDocuments().size(), 1);
+
+	Workspace->OpenResult = Durin::EEditorDocumentOpenResult::Deferred;
+	const Durin::FEditorDocumentId DeferredId = Manager.OpenDocument({
+		.WorkspaceType = Durin::FEditorWorkspaceTypeId("LevelEditor"),
+		.DocumentKey = "LevelEditor",
+		.ResourceId = "/Game/Maps/Second",
+		.Label = "Second",
+	});
+	EXPECT_EQ(DeferredId, DocumentId);
+	EXPECT_EQ(Manager.GetDocuments().front().ResourceId, "/Game/Maps/First");
+	EXPECT_EQ(Manager.GetDocuments().front().Label, "First");
+
+	EXPECT_TRUE(Manager.CompleteDeferredDocumentOpen(DeferredId, false));
+	EXPECT_EQ(Manager.GetDocuments().front().ResourceId, "/Game/Maps/First");
+	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Maps/First");
+
+	const Durin::FEditorDocumentId SecondDeferredId = Manager.OpenDocument({
+		.WorkspaceType = Durin::FEditorWorkspaceTypeId("LevelEditor"),
+		.DocumentKey = "LevelEditor",
+		.ResourceId = "/Game/Maps/Second",
+		.Label = "Second",
+	});
+	ASSERT_EQ(SecondDeferredId, DocumentId);
+	EXPECT_TRUE(Manager.CompleteDeferredDocumentOpen(DocumentId, true));
+	EXPECT_EQ(Manager.GetDocuments().front().ResourceId, "/Game/Maps/Second");
+	EXPECT_EQ(Manager.GetDocuments().front().Label, "Second");
+	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Maps/Second");
 }
 
 TEST(FEditorWorkspaceManagerTests, KeepsActiveDocumentWhenHostCannotRestoreItsPreview)

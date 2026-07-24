@@ -22,7 +22,8 @@ namespace Durin
 		FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 		std::string& InDefaultLevel,
 		std::function<void()> InClearError,
-		std::function<void(std::string)> InReportError
+		std::function<void(std::string)> InReportError,
+		std::function<void(bool)> InCompleteDeferredOpen
 	)
 		: Context(InContext)
 		, SessionSettings(InSessionSettings)
@@ -31,6 +32,7 @@ namespace Durin
 		, DefaultLevel(InDefaultLevel)
 		, ClearError(std::move(InClearError))
 		, ReportError(std::move(InReportError))
+		, CompleteDeferredOpen(std::move(InCompleteDeferredOpen))
 	{
 	}
 
@@ -46,41 +48,51 @@ namespace Durin
 		ExecutePendingAction();
 	}
 
-	auto FLevelDocumentController::RequestOpenLevel(std::string Path) -> bool
+	auto FLevelDocumentController::RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult
 	{
 		FAssetPath AssetPath;
-		if (!FAssetPath::TryCreate(Path, AssetPath)) return false;
+		if (!FAssetPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
 		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(AssetPath);
-		if (!Data || Data->AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString()) return false;
+		if (!Data || Data->AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString())
+			return ELevelDocumentOpenResult::Rejected;
 		PendingLevelPath = std::move(Path);
 		PendingAction = ELevelDocumentAction::OpenLevel;
 		if (Context.Level && Context.Level->GetPackage() && Context.Level->GetPackage()->IsDirty())
 		{
 			QueuedPopup = EQueuedPopup::UnsavedLevel;
-			return true;
+			return ELevelDocumentOpenResult::Deferred;
 		}
-		OpenLevel(PendingLevelPath);
+		const bool bOpened = OpenLevel(PendingLevelPath);
 		PendingLevelPath.clear();
-		return true;
+		PendingAction = ELevelDocumentAction::None;
+		return bOpened ? ELevelDocumentOpenResult::Opened : ELevelDocumentOpenResult::Rejected;
 	}
 
-	auto FLevelDocumentController::ExecutePendingAction() -> void
+	auto FLevelDocumentController::ExecutePendingAction() -> bool
 	{
 		if (PendingAction == ELevelDocumentAction::OpenLevel)
 		{
 			if (!PendingLevelPath.empty())
 			{
 				const std::string Path = std::exchange(PendingLevelPath, {});
-				OpenLevel(Path);
-				return;
+				const bool bOpened = OpenLevel(Path);
+				PendingAction = ELevelDocumentAction::None;
+				return bOpened;
 			}
 			PendingAction = ELevelDocumentAction::None;
+			return false;
 		}
 		else if (PendingAction == ELevelDocumentAction::OpenProject)
 		{
 			std::string Error;
-			if (!RelaunchEditorForProject({}, &Error)) SetError(std::move(Error));
+			if (!RelaunchEditorForProject({}, &Error))
+			{
+				SetError(std::move(Error));
+				return false;
+			}
+			return true;
 		}
+		return false;
 	}
 
 	auto FLevelDocumentController::DrawDialogs() -> void
@@ -100,20 +112,26 @@ namespace Durin
 				if (SaveCurrentLevel())
 				{
 					ImGui::CloseCurrentPopup();
-					ExecutePendingAction();
+					const bool bCompletesDeferredOpen = PendingAction == ELevelDocumentAction::OpenLevel;
+					const bool bSucceeded = ExecutePendingAction();
+					if (bCompletesDeferredOpen && CompleteDeferredOpen) CompleteDeferredOpen(bSucceeded);
 				}
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Discard"))
 			{
 				ImGui::CloseCurrentPopup();
-				ExecutePendingAction();
+				const bool bCompletesDeferredOpen = PendingAction == ELevelDocumentAction::OpenLevel;
+				const bool bSucceeded = ExecutePendingAction();
+				if (bCompletesDeferredOpen && CompleteDeferredOpen) CompleteDeferredOpen(bSucceeded);
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Cancel"))
 			{
+				const bool bCancelsDeferredOpen = PendingAction == ELevelDocumentAction::OpenLevel;
 				PendingAction = ELevelDocumentAction::None;
 				PendingLevelPath.clear();
+				if (bCancelsDeferredOpen && CompleteDeferredOpen) CompleteDeferredOpen(false);
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::EndPopup();
@@ -127,7 +145,7 @@ namespace Durin
 		OpenLevel(DefaultLevel);
 	}
 
-	auto FLevelDocumentController::OpenLevel(std::string_view PathString) -> void
+	auto FLevelDocumentController::OpenLevel(std::string_view PathString) -> bool
 	{
 		if (ClearError) ClearError();
 		FAssetPath Path;
@@ -135,17 +153,18 @@ namespace Durin
 		if (!FAssetPath::TryCreate(PathString, Path, &PathError))
 		{
 			SetError(PathError);
-			return;
+			return false;
 		}
 		DLevel* Level = nullptr;
 		Asset::FAssetResult Result = Asset::LoadAsset(Path, Level);
 		if (!Result)
 		{
 			SetError(Result.Message);
-			return;
+			return false;
 		}
-		if (!ActivateLevel(Level)) return;
+		if (!ActivateLevel(Level)) return false;
 		PendingAction = ELevelDocumentAction::None;
+		return true;
 	}
 
 	auto FLevelDocumentController::SaveCurrentLevel() -> bool

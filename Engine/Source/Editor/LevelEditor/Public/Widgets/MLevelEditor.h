@@ -28,7 +28,7 @@ namespace Durin
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
-		LEVELEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> bool override;
+		LEVELEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult override;
 		LEVELEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
 		LEVELEDITOR_API auto RequestDeactivate() -> bool override;
 		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
@@ -75,6 +75,7 @@ namespace Durin
 		bool bProjectSettingsOpen = false;
 		std::string DefaultLevel;
 		std::string EditorError;
+		FEditorDocumentId DeferredOpenDocumentId;
 		FEditorDocumentId PendingCloseDocumentId;
 	};
 } // namespace Durin

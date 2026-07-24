@@ -34,6 +34,10 @@ redo through the workspace interface by delegating to the global
 `FEditorTransactionManager`. Ctrl+Z and Ctrl+Y route through the active
 workspace in `DrawWorkspaceHost`. Save/Discard/Cancel confirmation dialogs
 handle dirty-document close for all three workspaces.
+Singleton Level replacements now use an explicit deferred-open result. The
+workspace manager preserves the current document metadata while the unsaved
+Level dialog is open and commits the replacement only after the Level switch
+succeeds.
 
 The shared editor asset picker now supports a width-reserving trailing action,
 a path-prefix filter for project-scoped asset enumeration, and persistent
@@ -307,6 +311,8 @@ one change.
   apply, but persists across project open/close and document transitions.
 - [x] Each workspace shows a Save/Discard/Cancel modal when dismissing a dirty
   document instead of silently rejecting the close.
+- [x] Deferred singleton Level opens retain the current tab identity until the
+  unsaved-change decision and Level activation both succeed.
 
 ### Stage 7: Shared asset picker rollout
 
@@ -331,6 +337,8 @@ a material preview viewport actually requires them.
 - [x] Test opening multiple Material and Material Instance documents and
   switching the active document.
 - [x] Test save, close, cancel, and discard behavior for dirty documents.
+- [x] Test that deferred singleton replacements preserve current document
+  metadata on cancel and commit it only on successful completion.
 - [x] Test Material Editor undo and redo for every parameter kind and parent
   changes.
 - [ ] Verify Level assets still open in the singleton Level workspace.
@@ -349,6 +357,10 @@ The 2026-07-25 changes (material editor undo/redo, dirty-document close
 confirmation, reflected object picker, default-level picker) were validated
 with a successful full `all` build and all 196 `EngineTests` passing. The
 broader interactive workflow smoke test remains open.
+
+Deferred Level document replacement was validated with all 197 `EngineTests`,
+a successful full `all` build, and hidden-window editor initialization from the
+same test preset.
 
 ## Related Code
 

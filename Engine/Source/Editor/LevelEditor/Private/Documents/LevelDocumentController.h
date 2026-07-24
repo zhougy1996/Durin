@@ -15,6 +15,13 @@ namespace Durin
 		OpenProject
 	};
 
+	enum class ELevelDocumentOpenResult
+	{
+		Rejected,
+		Opened,
+		Deferred,
+	};
+
 	class FLevelDocumentController
 	{
 	public:
@@ -25,11 +32,12 @@ namespace Durin
 			FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 			std::string& InDefaultLevel,
 			std::function<void()> InClearError,
-			std::function<void(std::string)> InReportError
+			std::function<void(std::string)> InReportError,
+			std::function<void(bool)> InCompleteDeferredOpen
 		);
 
 		auto RequestAction(ELevelDocumentAction Action) -> void;
-		auto RequestOpenLevel(std::string Path) -> bool;
+		auto RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult;
 		auto DrawDialogs() -> void;
 		auto OpenDefaultLevel() -> void;
 		auto SaveCurrentLevel() -> bool;
@@ -42,8 +50,8 @@ namespace Durin
 			UnsavedLevel
 		};
 
-		auto ExecutePendingAction() -> void;
-		auto OpenLevel(std::string_view Path) -> void;
+		auto ExecutePendingAction() -> bool;
+		auto OpenLevel(std::string_view Path) -> bool;
 		auto ActivateLevel(DLevel* Level) -> bool;
 		auto SetError(std::string Message) const -> void;
 
@@ -54,6 +62,7 @@ namespace Durin
 		std::string& DefaultLevel;
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
+		std::function<void(bool)> CompleteDeferredOpen;
 		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::string PendingLevelPath;

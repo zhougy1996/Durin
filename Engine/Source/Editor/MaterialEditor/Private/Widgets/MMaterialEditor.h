@@ -21,7 +21,7 @@ namespace Durin
 		explicit MMaterialEditor(FEditorWorkspaceManager& InWorkspaceManager);
 		MATERIALEDITOR_API ~MMaterialEditor() override;
 		MATERIALEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
-		MATERIALEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> bool override;
+		MATERIALEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult override;
 		MATERIALEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
 		MATERIALEDITOR_API auto RequestDeactivate() -> bool override;
 		MATERIALEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
