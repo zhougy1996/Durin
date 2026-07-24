@@ -27,10 +27,12 @@ namespace Durin
 	class DMaterialInterface;
 	class DStaticMesh;
 	class DTexture2D;
+	class DTextureCube;
 
 	class FSceneViewport;
 	class FViewport;
 	class FViewportClient;
 	class FTexture2DRenderResource;
+	class FTextureCubeRenderResource;
 	class IScene;
 } // namespace Durin

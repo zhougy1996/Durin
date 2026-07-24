@@ -6,8 +6,8 @@ Last reviewed: 2026-07-25
 
 Stage 0 has fixed the Durin-space face, array-layer, source orientation, and
 direction-to-UV conventions in Architecture documentation and a labeled six-face
-test cube. Import-error integration remains pending until the cube importer is
-implemented.
+test cube. The cube importer now reports convention face names in per-face
+decode, missing-source, shape, and format errors.
 
 Stage 1 is in progress. `TextureCube` creation now establishes and validates the
 six-layer square-image contract, texture uploads explicitly name an array slice,
@@ -18,8 +18,17 @@ Vulkan Validation enabled and no cube creation or upload diagnostics. RHI
 contract tests and the existing Texture2D tests pass. A repeatable multi-mip
 sampling smoke remains before the Stage 1 acceptance gate is complete.
 
-The engine still has no `DTextureCube`, `DSkyBoxComponent`, or sky rendering
-stage, so there is not yet a user-visible skybox vertical slice.
+Stage 2 is in progress. `DTextureCube` now imports six validated source images
+transactionally, persists their paths, rebuilds full face mip chains after
+reload, follows asset move/delete operations, and queues revisioned cube
+creation, per-face/per-mip upload, and release through a shared render resource.
+Asset tests cover successful lifecycle, invalid-import rollback, and
+render-thread stale-revision rejection. Direct multi-mip Vulkan sampling and
+the later component-to-cube GC reference path remain before every related
+acceptance item is complete.
+
+The engine still has no `DSkyBoxComponent` or sky rendering stage, so there is
+not yet a user-visible skybox vertical slice.
 
 ## Goal
 
@@ -135,15 +144,15 @@ Depends on Stage 0. This stage proves only that the GPU can correctly create, up
 
 Depends on Stage 1. This stage completes the non-editor path from six source images to a cube RHI resource usable by the render thread.
 
-- [ ] Extract reusable RGBA8 decoding, dimension limits, and color-mip generation from Texture2D into a shared Engine image-building utility instead of duplicating codec selection and error handling.
-- [ ] Define `FTextureCubeSourceData`, `FTextureCubePlatformData`, and per-face/per-mip storage with an explicit face enum.
-- [ ] Implement six source-file references, reflection/serialization, `PostLoad` rebuilding, and error reporting for `DTextureCube`.
-- [ ] Implement atomic import: validate all six faces before creating/saving the asset and copying source files; clean up all artifacts from the attempt if any step fails.
-- [ ] Generate a full mip chain for all six faces and validate every level's dimensions, row pitch, data length, and pixel format.
-- [ ] Implement an `FTextureCubeRenderResource` shared-lifetime proxy so build/rebuild/release accesses the RHI only on the render thread.
-- [ ] Add revision rejection for rapid consecutive rebuilds so stale commands cannot overwrite a newer cube resource.
+- [x] Extract reusable RGBA8 decoding, dimension limits, and color-mip generation from Texture2D into a shared Engine image-building utility instead of duplicating codec selection and error handling.
+- [x] Define `FTextureCubeSourceData`, `FTextureCubePlatformData`, and per-face/per-mip storage with an explicit face enum.
+- [x] Implement six source-file references, reflection/serialization, `PostLoad` rebuilding, and error reporting for `DTextureCube`.
+- [x] Implement atomic import: validate all six faces before creating/saving the asset and copying source files; clean up all artifacts from the attempt if any step fails.
+- [x] Generate a full mip chain for all six faces and validate every level's dimensions, row pitch, data length, and pixel format.
+- [x] Implement an `FTextureCubeRenderResource` shared-lifetime proxy so build/rebuild/release accesses the RHI only on the render thread.
+- [x] Add revision rejection for rapid consecutive rebuilds so stale commands cannot overwrite a newer cube resource.
 - [ ] Ensure cube asset references are serialized, dependency-tracked, and retained correctly by GC, with no dangling references after assets are deleted or moved.
-- [ ] Add tests for import, dimension mismatch, nonsquare inputs, missing faces, reload, serialization, move, delete, and stale revisions.
+- [x] Add tests for import, dimension mismatch, nonsquare inputs, missing faces, reload, serialization, move, delete, and stale revisions.
 
 #### Acceptance Gate
 

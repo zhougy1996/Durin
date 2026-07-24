@@ -7,6 +7,7 @@ add_durin_test(EngineTests
 	Private/MaterialParameterPanelModelTests.cpp
 	Private/StaticMeshMaterialSlotDetailsTests.cpp
 	Private/TextureTests.cpp
+	Private/TextureCubeTests.cpp
 	Private/WorldTests.cpp
 	Private/ViewportTests.cpp
 	Private/EditorGridRenderingTests.cpp
