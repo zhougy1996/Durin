@@ -14,6 +14,7 @@ be added after July ends.
 - [BuildTool Shell Consistency](BuildToolShellConsistency.md)
 - [Content Browser CPU Optimization](ContentBrowserCpuOptimization.md)
 - [Enum Editor Metadata](EnumEditorMetadata.md)
+- [C++ Coding Standards Migration](CppCodingStandardsMigration.md)
 
 Read an archived plan only when its history or decision provenance is relevant.
 Archive maintenance rules are in [the parent instructions](../../AGENTS.md).

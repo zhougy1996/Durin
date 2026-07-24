@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Drives process-wide engine startup, ticking, and ordered shutdown.
 	class FEngineLoop
 	{
 	public:
@@ -13,6 +14,7 @@ namespace Durin
 		auto Exit() -> void;
 
 	private:
+		// Previous tick timestamp in the platform clock's seconds domain.
 		double LastTickTime = 0.0;
 	};
 

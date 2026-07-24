@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	// Presents an engine viewport texture inside the Mona widget tree.
 	class MViewport : public MWidget
 	{
 	public:
@@ -25,10 +26,13 @@ namespace Durin
 		MONA_API auto WasTextureDrawn() const -> bool;
 
 	private:
+		// Logical widget size requested from the layout system.
 		FVector2f DesiredSize = {640.0f, 360.0f};
 
+		// The widget observes the viewport without extending its runtime lifetime.
 		std::weak_ptr<Mona::IMonaViewport> ViewportInterface;
 
+		// Records whether the latest draw submitted a valid viewport texture.
 		bool bLastDrawSucceeded = false;
 	};
 }
