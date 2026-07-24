@@ -18,20 +18,20 @@ renderer-owned white texture.
 The current build remains an editor-oriented, uncompressed implementation rather
 than a production texture pipeline. `DTexture2D::PostLoad` still reopens and
 decodes the copied source image, platform data always uses `RGBA8_UNORM` or
-`SRGBA8_UNORM`, and all mips are fully resident. The import dialog exposes Color,
-Normal, and Data/Mask usage presets, but there is no dedicated Texture2D editor
-for inspecting the built mip chain or changing usage and the explicit sRGB
-override after import. Normal and Data/Mask currently affect build defaults and
-mip filtering only; the shipped material shader consumes only the base-color
-texture parameter.
+`SRGBA8_UNORM`, and all mips are fully resident. A dedicated Texture Editor now
+shows source and platform diagnostics and changes usage or the explicit sRGB
+override through validated reflected transactions with Dirty, save, cancel,
+Undo, and Redo behavior. Normal and Data/Mask currently affect build defaults
+and mip filtering only; the shipped material shader consumes only the
+base-color texture parameter.
 
-The focused `FTexture2DTests.*` and `FEditorTextureSmokeTests.*` suites passed on
-2026-07-21 using the `Win64-Debug-DurinEditor-Tests` preset. That validation
-covered import, persistence, usage-aware mip generation, material assignment,
-UV propagation, and render-resource snapshotting. Subsequent integrated
-validation on 2026-07-24 passed 196 `EngineTests`, the full `all` build, and an
-eight-second `DurinEditor --hidden-window` smoke run after the material schema,
-persistent thumbnail cache, and static-mesh material-slot integrations landed.
+The original focused `FTexture2DTests.*` and `FEditorTextureSmokeTests.*` suites
+passed on 2026-07-21 using the `Win64-Debug-DurinEditor-Tests` preset. On
+2026-07-24, the new reflected build-setting coverage passed all six
+`FTexture2DTests.*`, including rejection, Dirty state, and Undo/Redo behavior.
+Final integrated validation then passed all 196 `EngineTests`, the full `all`
+build, and an eight-second `DurinEditor --hidden-window` smoke run with the new
+Texture Editor module loaded by MainFrame.
 
 ## Implemented
 
@@ -53,6 +53,8 @@ persistent thumbnail cache, and static-mesh material-slot integrations landed.
 - [x] Vulkan support for uploading individual mip levels.
 - [x] Persistent project-local Content Browser thumbnails derived from texture
   source images, with invalidation and regeneration.
+- [x] Dedicated per-resource Texture Editor with source/platform diagnostics,
+  save state, and transactional build-setting controls.
 - [x] Focused import, reload, move, delete, and invalid-input tests.
 
 ## Required for the First Usable End-to-End Workflow
@@ -75,17 +77,34 @@ persistent thumbnail cache, and static-mesh material-slot integrations landed.
 - [x] Add an editor smoke test that imports a texture, assigns it to a material,
   and verifies that it is visible on a static mesh.
 
-## Remaining Editor Workflow
+## Implementation Stages
 
-- [ ] Add a dedicated Texture2D asset editor or Details workflow.
-- [ ] Expose source dimensions, transparency, usage, sRGB override, platform
+### Stage 1: Post-Import Build Settings
+
+- [x] Add a dedicated Texture2D asset editor or Details workflow.
+- [x] Expose source dimensions, transparency, usage, sRGB override, platform
   format, mip count, and build diagnostics after import.
-- [ ] Allow usage and sRGB changes to rebuild transactionally, participate in
+- [x] Allow usage and sRGB changes to rebuild transactionally, participate in
   undo/redo, dirty the package, and refresh dependent materials and previews.
+
+#### Acceptance Gate
+
+- The Content Browser opens Texture2D assets in a per-resource editor; valid
+  setting changes rebuild platform data and the shared render resource, invalid
+  proposals leave the asset unchanged, save/Dirty/close behavior is consistent,
+  and focused transaction plus full integration validation passes.
+
+### Stage 2: Built Texture Preview and Failure States
+
 - [ ] Preview the built platform texture and selectable mip levels rather than
   only the copied source image.
 - [ ] Surface missing-source, decode, build, upload, and unsupported-format
   states to the user.
+
+#### Acceptance Gate
+
+- The editor can inspect the actual built mip chain and presents actionable,
+  persistent state for every source/build/upload failure boundary.
 
 ## Texture Build Pipeline
 
@@ -145,8 +164,8 @@ These features are intentionally outside the first Texture2D/material slice:
 
 ## Recommended Implementation Order
 
-1. Add the Texture2D asset editor and expose transactional post-import build
-   settings and diagnostics.
+1. Preview the built platform texture and selectable mip levels in the Texture
+   Editor, and expose actionable load/build/upload failures.
 2. Add desktop block compression, platform capability validation, and focused
    Vulkan coverage for compressed and multi-mip uploads.
 3. Cache built platform data behind a versioned derived-data key so ordinary
@@ -162,6 +181,7 @@ These features are intentionally outside the first Texture2D/material slice:
 - `Documentation/Architecture/AssetPackages.md`
 - `Documentation/Architecture/MaterialSystem.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
+- `Documentation/Architecture/TextureSystem.md`
 - `Documentation/Plans/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/AssetRegistryAndThumbnailCache.md`
 - `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`
@@ -174,5 +194,6 @@ These features are intentionally outside the first Texture2D/material slice:
 - `Engine/Source/Runtime/Engine/Private/Texture/Texture2DRenderResource.cpp`
 - `Engine/Source/Runtime/Engine/Private/Materials/MaterialTypes.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureImportDialog.cpp`
+- `Engine/Source/Editor/TextureEditor/`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp`
 - `Engine/Shaders/Slang/StaticMesh.slang`

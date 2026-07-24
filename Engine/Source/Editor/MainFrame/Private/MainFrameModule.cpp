@@ -7,6 +7,7 @@
 #include "Mona.h"
 #include "LevelEditorModule.h"
 #include "MaterialEditorModule.h"
+#include "TextureEditorModule.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -23,7 +24,8 @@ namespace Durin
 		auto RegisterEditorWorkspaces(
 			FEditorWorkspaceManager& WorkspaceManager,
 			FLevelEditorModule& LevelEditorModule,
-			FMaterialEditorModule& MaterialEditorModule
+			FMaterialEditorModule& MaterialEditorModule,
+			FTextureEditorModule& TextureEditorModule
 		) -> bool
 		{
 			if (!LevelEditorModule.RegisterLevelEditorWorkspace(WorkspaceManager)) return false;
@@ -32,10 +34,17 @@ namespace Durin
 				LevelEditorModule.UnregisterLevelEditorWorkspace();
 				return false;
 			}
+			if (!TextureEditorModule.RegisterTextureEditorWorkspace(WorkspaceManager))
+			{
+				MaterialEditorModule.UnregisterMaterialEditorWorkspace();
+				LevelEditorModule.UnregisterLevelEditorWorkspace();
+				return false;
+			}
 			if (WorkspaceManager.OpenDefaultWorkspaces()) return true;
 
 			// Feature modules own their handles, but the host coordinates this multi-module
 			// startup so a failed default document cannot leave a partial editor behind.
+			TextureEditorModule.UnregisterTextureEditorWorkspace();
 			MaterialEditorModule.UnregisterMaterialEditorWorkspace();
 			LevelEditorModule.UnregisterLevelEditorWorkspace();
 			return false;
@@ -277,9 +286,11 @@ namespace Durin
 		MonaImGui::SetGlobalUIScale(HostSettings->GetUIScale());
 		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 		FMaterialEditorModule& MaterialEditorModule = FModuleManager::LoadModuleChecked<FMaterialEditorModule>("MaterialEditor");
+		FTextureEditorModule& TextureEditorModule = FModuleManager::LoadModuleChecked<FTextureEditorModule>("TextureEditor");
 		const FIntPoint WindowSize{HostSettings->GetWindowWidth(), HostSettings->GetWindowHeight()};
 		FLevelEditorModule* LevelEditorModulePtr = &LevelEditorModule;
 		FMaterialEditorModule* MaterialEditorModulePtr = &MaterialEditorModule;
+		FTextureEditorModule* TextureEditorModulePtr = &TextureEditorModule;
 		auto RootWindow = std::make_shared<MWindow>();
 		MonaImGui::BindMainViewportToWindow(RootWindow);
 
@@ -290,7 +301,7 @@ namespace Durin
 		const std::weak_ptr<MWindow> WeakRootWindow = RootWindow;
 		if (HasCurrentProject())
 		{
-			*bWorkspaceReady = RegisterEditorWorkspaces(*WorkspaceManager, LevelEditorModule, MaterialEditorModule);
+			*bWorkspaceReady = RegisterEditorWorkspaces(*WorkspaceManager, LevelEditorModule, MaterialEditorModule, TextureEditorModule);
 			if (!*bWorkspaceReady) ProjectBrowser->SetError("Could not initialize the editor workspaces.");
 			else ProjectBrowser->RecordCurrentProject();
 		}
@@ -298,11 +309,11 @@ namespace Durin
 		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr, MaterialEditorModulePtr](std::string_view ProjectFile, std::string& OutError) {
+		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr, MaterialEditorModulePtr, TextureEditorModulePtr](std::string_view ProjectFile, std::string& OutError) {
 			const std::array<std::string_view, 2> Arguments = {"--project", ProjectFile};
 			if (!InitializeCurrentProject(Arguments, &OutError)) return false;
 			PathUtilities::InitDefaultMountPoints();
-			*bWorkspaceReady = RegisterEditorWorkspaces(*WorkspaceManager, *LevelEditorModulePtr, *MaterialEditorModulePtr);
+			*bWorkspaceReady = RegisterEditorWorkspaces(*WorkspaceManager, *LevelEditorModulePtr, *MaterialEditorModulePtr, *TextureEditorModulePtr);
 			if (!*bWorkspaceReady)
 			{
 				OutError = "Could not initialize the editor workspaces.";

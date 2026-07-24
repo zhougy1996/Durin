@@ -18,6 +18,7 @@
         "MainFrame": "Source/Editor/MainFrame",
         "LevelEditor": "Source/Editor/LevelEditor",
         "MaterialEditor": "Source/Editor/MaterialEditor",
+        "TextureEditor": "Source/Editor/TextureEditor",
         "DurinLauncher": "Source/Editor/DurinLauncher"
     },
     "BaseModules": [
@@ -31,7 +32,8 @@
                 "DurinEd",
                 "MainFrame",
                 "LevelEditor",
-                "MaterialEditor"
+                "MaterialEditor",
+                "TextureEditor"
             ]
         },
         "DurinGame": {

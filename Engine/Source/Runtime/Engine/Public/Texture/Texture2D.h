@@ -94,11 +94,15 @@ namespace Durin
 
 		auto RebuildPlatformData(std::string& OutError) -> bool;
 		auto PostLoad(std::string& OutError) -> bool override;
+		auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
+		auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 		static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
 
 	private:
 		auto BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
+		auto BuildPlatformData(ETextureUsage InUsage, bool bInSRGB,
+			std::unique_ptr<FTexturePlatformData>& OutPlatformData, std::string& OutError) const -> bool;
 		auto InvalidatePlatformData() -> void;
 		auto QueueRenderResourceBuild() -> void;
 
@@ -120,5 +124,11 @@ namespace Durin
 		// Its RHI member is intentionally never accessed through DTexture2D.
 		std::shared_ptr<FTexture2DRenderResource> RenderResource;
 		uint64 BuildRevision = 0;
+
+		// Reflected edits validate and build detached settings before live storage
+		// changes. PostEditChangeProperty consumes this exact candidate atomically.
+		std::unique_ptr<FTexturePlatformData> PendingEditPlatformData;
+		ETextureUsage PendingEditUsage = ETextureUsage::Color;
+		bool bPendingEditSRGB = true;
 	};
 }

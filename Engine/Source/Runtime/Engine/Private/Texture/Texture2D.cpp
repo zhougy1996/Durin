@@ -3,6 +3,7 @@
 #include "AssetCore.h"
 #include "AssetSystem.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/DurinPropertyTypes.h"
 #include "ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "DynamicRHI.h"
@@ -273,22 +274,35 @@ namespace Durin
 
 	auto DTexture2D::RebuildPlatformData(std::string& OutError) -> bool
 	{
-		OutError.clear();
-		if (!SourceData || !SourceData->IsValid())
+		std::unique_ptr<FTexturePlatformData> NewPlatformData;
+		if (!BuildPlatformData(Usage, bSRGB, NewPlatformData, OutError))
 		{
-			OutError = "Texture source data is unavailable or invalid.";
 			InvalidatePlatformData();
 			return false;
 		}
-		if (!IsValidTextureUsage(Usage))
+		PlatformData = std::move(NewPlatformData);
+		QueueRenderResourceBuild();
+		return true;
+	}
+
+	auto DTexture2D::BuildPlatformData(ETextureUsage InUsage, bool bInSRGB,
+		std::unique_ptr<FTexturePlatformData>& OutPlatformData, std::string& OutError) const -> bool
+	{
+		OutError.clear();
+		OutPlatformData.reset();
+		if (!SourceData || !SourceData->IsValid())
+		{
+			OutError = "Texture source data is unavailable or invalid.";
+			return false;
+		}
+		if (!IsValidTextureUsage(InUsage))
 		{
 			OutError = "Texture usage preset is invalid.";
-			InvalidatePlatformData();
 			return false;
 		}
 
 		auto NewPlatformData = std::make_unique<FTexturePlatformData>();
-		NewPlatformData->PixelFormat = SelectTexturePixelFormat(Usage, bSRGB, SourceData->bHasTransparency);
+		NewPlatformData->PixelFormat = SelectTexturePixelFormat(InUsage, bInSRGB, SourceData->bHasTransparency);
 		FTexture2DMipData& BaseMip = NewPlatformData->Mips.emplace_back();
 		BaseMip.Pixels = SourceData->Pixels;
 		BaseMip.Width = SourceData->Width;
@@ -296,17 +310,14 @@ namespace Durin
 		BaseMip.RowPitch = SourceData->Width * TextureChannelCount;
 		while (NewPlatformData->Mips.back().Width > 1 || NewPlatformData->Mips.back().Height > 1)
 		{
-			NewPlatformData->Mips.push_back(BuildNextMip(NewPlatformData->Mips.back(), Usage, bSRGB));
+			NewPlatformData->Mips.push_back(BuildNextMip(NewPlatformData->Mips.back(), InUsage, bInSRGB));
 		}
 		if (!NewPlatformData->IsValid())
 		{
 			OutError = "Failed to build texture platform data.";
-			InvalidatePlatformData();
 			return false;
 		}
-
-		PlatformData = std::move(NewPlatformData);
-		QueueRenderResourceBuild();
+		OutPlatformData = std::move(NewPlatformData);
 		return true;
 	}
 
@@ -328,7 +339,11 @@ namespace Durin
 		const bool bPreviousSRGB = bSRGB;
 		Usage = InUsage;
 		bSRGB = GetDefaultSRGB(Usage);
-		if (RebuildPlatformData(OutError)) return true;
+		if (RebuildPlatformData(OutError))
+		{
+			MarkPackageDirty();
+			return true;
+		}
 		Usage = PreviousUsage;
 		bSRGB = bPreviousSRGB;
 		std::string RestoreError;
@@ -347,7 +362,11 @@ namespace Durin
 		}
 		const bool bPreviousSRGB = bSRGB;
 		bSRGB = bInSRGB;
-		if (RebuildPlatformData(OutError)) return true;
+		if (RebuildPlatformData(OutError))
+		{
+			MarkPackageDirty();
+			return true;
+		}
 		bSRGB = bPreviousSRGB;
 		std::string RestoreError;
 		RebuildPlatformData(RestoreError);
@@ -368,6 +387,59 @@ namespace Durin
 			return false;
 		}
 		return BuildSourceData(PhysicalPath.generic_string(), OutError);
+	}
+
+	auto DTexture2D::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
+	{
+		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
+		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
+
+		ETextureUsage CandidateUsage = Usage;
+		bool bCandidateSRGB = bSRGB;
+		const FName PropertyName = Proposal.MemberProperty->NamePrivate;
+		if (PropertyName == FName("Usage"))
+		{
+			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Enum)
+			{
+				OutError = "The texture usage metadata is unavailable.";
+				return false;
+			}
+			CandidateUsage = static_cast<ETextureUsage>(static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex));
+			bCandidateSRGB = GetDefaultSRGB(CandidateUsage);
+		}
+		else if (PropertyName == FName("bSRGB"))
+		{
+			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Bool)
+			{
+				OutError = "The texture color-space metadata is unavailable.";
+				return false;
+			}
+			bCandidateSRGB = *Proposal.DraftRootProperty->ContainerPtrToValuePtr<bool>(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+		}
+		else return true;
+
+		std::unique_ptr<FTexturePlatformData> CandidatePlatformData;
+		if (!BuildPlatformData(CandidateUsage, bCandidateSRGB, CandidatePlatformData, OutError)) return false;
+		PendingEditUsage = CandidateUsage;
+		bPendingEditSRGB = bCandidateSRGB;
+		PendingEditPlatformData = std::move(CandidatePlatformData);
+		return true;
+	}
+
+	auto DTexture2D::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+		if (!Event.MemberProperty) return;
+		const FName PropertyName = Event.MemberProperty->NamePrivate;
+		if (PropertyName != FName("Usage") && PropertyName != FName("bSRGB")) return;
+		if (Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit) return;
+		if (!PendingEditPlatformData || PendingEditUsage != Usage) return;
+
+		bSRGB = bPendingEditSRGB;
+		PlatformData = std::move(PendingEditPlatformData);
+		QueueRenderResourceBuild();
 	}
 
 	auto DTexture2D::ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings) -> FTexture2DImportResult

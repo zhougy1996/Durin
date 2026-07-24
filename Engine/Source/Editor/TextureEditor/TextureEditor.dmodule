@@ -1,18 +1,14 @@
 {
-    "ModuleName": "MainFrame",
+    "ModuleName": "TextureEditor",
     "LinkType": "Shared",
     "PCH": "SharedPCH_MonaEditor",
     "PrivateDependencies": [
         "Core",
+        "CoreDObject",
         "RHI",
         "Engine",
-        "ApplicationCore",
-        "MonaCore",
-        "Mona",
+        "AssetCore",
         "MonaImGui",
-        "LevelEditor",
-        "MaterialEditor",
-        "TextureEditor",
         "DurinEd"
     ]
 }

@@ -1,5 +1,9 @@
 #include "AssetSystem.h"
+#include "DObject/DurinPropertyTypes.h"
+#include "DObject/Package.h"
 #include "DObject/ObjectLifecycle.h"
+#include "Editor/EditorTransaction.h"
+#include "Editor/ReflectedPropertyView.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "Texture/Texture2D.h"
@@ -221,6 +225,85 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	EXPECT_EQ(Loaded->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Loaded->IsSRGB());
 	EXPECT_EQ(Loaded->GetPlatformData()->Mips.back().Pixels, (std::vector<Durin::uint8>{128, 37, 37, 128}));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+}
+
+TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndoRedo)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TransactionalTextureSource.png";
+	WriteTextureFixture(Source);
+	Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
+		Source.generic_string(), "/TextureImportTests/Transactional");
+	ASSERT_TRUE(Result) << Result.Message;
+	Durin::DTexture2D* Texture = Result.Asset;
+	ASSERT_NE(Texture, nullptr);
+	ASSERT_NE(Texture->GetPackage(), nullptr);
+	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
+
+	Durin::FProperty* UsageProperty = Texture->GetClass()->FindPropertyByName("Usage");
+	Durin::FProperty* SRGBProperty = Texture->GetClass()->FindPropertyByName("bSRGB");
+	ASSERT_NE(UsageProperty, nullptr);
+	ASSERT_NE(SRGBProperty, nullptr);
+	Durin::FReflectedPropertyView PropertyView;
+	Durin::FEditorTransactionManager Transactions;
+	std::string Error;
+	const Durin::FReflectedPropertyViewContext Context{
+		.Transactions = &Transactions,
+		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+	};
+
+	const auto SubmitUsage = [&](Durin::ETextureUsage Usage) {
+		return PropertyView.SubmitPropertyValueEdit(Context,
+			Durin::FReflectedPropertyEditTarget::ForMember(Texture, UsageProperty),
+			[Usage](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
+					Container, static_cast<Durin::uint64>(Usage), ArrayIndex);
+			}, false);
+	};
+	const auto SubmitSRGB = [&](bool bSRGB) {
+		return PropertyView.SubmitPropertyValueEdit(Context,
+			Durin::FReflectedPropertyEditTarget::ForMember(Texture, SRGBProperty),
+			[bSRGB](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+				*Property->ContainerPtrToValuePtr<bool>(Container, ArrayIndex) = bSRGB;
+			}, false);
+	};
+
+	const Durin::uint64 InitialRevision = Texture->GetBuildRevision();
+	ASSERT_TRUE(SubmitUsage(Durin::ETextureUsage::Normal)) << Error;
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
+	EXPECT_FALSE(Texture->IsSRGB());
+	ASSERT_NE(Texture->GetPlatformData(), nullptr);
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
+	EXPECT_EQ(Texture->GetPlatformData()->Mips.back().Pixels, (std::vector<Durin::uint8>{128, 37, 37, 128}));
+	EXPECT_GT(Texture->GetBuildRevision(), InitialRevision);
+	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
+
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
+	EXPECT_TRUE(Texture->IsSRGB());
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::SRGBA8_UNORM);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
+	EXPECT_FALSE(Texture->IsSRGB());
+
+	ASSERT_TRUE(SubmitSRGB(true)) << Error;
+	EXPECT_TRUE(Texture->IsSRGB());
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::SRGBA8_UNORM);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_FALSE(Texture->IsSRGB());
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
+
+	Error.clear();
+	EXPECT_FALSE(SubmitUsage(static_cast<Durin::ETextureUsage>(255)));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
+	EXPECT_FALSE(Texture->IsSRGB());
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Transactional", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }

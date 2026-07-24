@@ -1,0 +1,1 @@
+add_durin_module(TextureEditor)
