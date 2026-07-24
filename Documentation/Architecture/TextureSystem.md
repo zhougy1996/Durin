@@ -40,7 +40,9 @@ Each texture owns one shared `FTexture2DRenderResource` proxy. Game-thread code
 may retain the proxy but never reads its RHI texture. Build and release requests
 carry monotonically increasing revisions to the render thread. Stale commands
 cannot replace newer data, and every mip is uploaded before the new RHI texture
-becomes the applied revision.
+becomes the applied revision. Diagnostic resource state is tagged with the
+request revision, and upload failures are reported only for the matching build;
+a later request clears the prior failure instead of inheriting it permanently.
 
 Material render data and static-mesh scene proxies retain the shared proxy, not
 a reflected texture object or a raw RHI texture. Rebuilding a texture updates
@@ -58,9 +60,14 @@ resolve through renderer-owned default textures.
   revision, and current platform-data status;
 - normal workspace save, Dirty, close protection, Undo, and Redo behavior.
 
-The editor does not yet preview the built platform texture or individual mip
-levels. Content Browser thumbnails remain persistent derivatives of the copied
-source image rather than the built platform representation.
+The editor previews the built platform representation and allows each mip level
+to be selected. Every open texture document owns independent preview state and
+one registered preview texture, so simultaneously visible documents cannot
+reuse or overwrite one another's image. Missing or invalid platform data falls
+back to decoded source data when available; otherwise the preview is released.
+Persistent source, decode, build, upload, and format status is shown with retry
+controls. Content Browser thumbnails remain persistent derivatives of the
+copied source image rather than the built platform representation.
 
 ## Current Limitations
 

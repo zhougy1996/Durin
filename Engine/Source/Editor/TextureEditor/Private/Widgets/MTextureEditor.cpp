@@ -5,6 +5,7 @@
 #include "DObject/Package.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorWorkspaceUI.h"
+#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
 #include "MonaCoreGlobals.h"
@@ -38,33 +39,14 @@ namespace Durin
 			MonaImGui::PropertyEdit::EndRow(true);
 		}
 
-		auto GetBuildStatusName(DTexture2D::ETextureBuildStatus Status) -> const char*
+		auto GetEnumValueDisplayName(const char* QualifiedEnumName, uint64 Value) -> std::string
 		{
-			switch (Status)
+			if (const DEnum* Enum = FindEnumByQualifiedName(QualifiedEnumName))
 			{
-			case DTexture2D::ETextureBuildStatus::Unbuilt:           return "Unbuilt";
-			case DTexture2D::ETextureBuildStatus::Ready:             return "Ready";
-			case DTexture2D::ETextureBuildStatus::MissingSource:     return "Missing Source";
-			case DTexture2D::ETextureBuildStatus::DecodeFailure:     return "Decode Failure";
-			case DTexture2D::ETextureBuildStatus::BuildFailure:      return "Build Failure";
-			case DTexture2D::ETextureBuildStatus::UploadFailure:     return "Upload Failure";
-			case DTexture2D::ETextureBuildStatus::UnsupportedFormat: return "Unsupported Format";
+				FName Name;
+				if (Enum->FindNameByValue(Value, Name)) return StringUtils::HumanizeName(Name.ToString());
 			}
-			return "Unknown";
-		}
-
-		auto GetRenderResourceStateName(ERenderResourceState State) -> const char*
-		{
-			switch (State)
-			{
-			case ERenderResourceState::Idle:      return "Idle";
-			case ERenderResourceState::Pending:   return "Pending";
-			case ERenderResourceState::Building:  return "Building";
-			case ERenderResourceState::Ready:     return "Ready";
-			case ERenderResourceState::Failed:    return "Failed";
-			case ERenderResourceState::Released:  return "Released";
-			}
-			return "Unknown";
+			return std::format("Unknown ({})", Value);
 		}
 	}
 
@@ -102,9 +84,7 @@ namespace Durin
 			return false;
 		}
 		OpenTextures.emplace(Document.ResourceId, Texture);
-		Preview = std::make_unique<FTexturePreview>();
-		SelectedMipIndex = 0;
-		LastObservedRevision = 0;
+		PreviewStates.try_emplace(Document.ResourceId);
 		return true;
 	}
 
@@ -130,15 +110,11 @@ namespace Durin
 			return false;
 		}
 		OpenTextures.erase(Document.ResourceId);
+		PreviewStates.erase(Document.ResourceId);
 		DocumentWindows.erase(Document.Id.Value);
 		if (ActiveResourceId == Document.ResourceId)
 		{
 			ActiveResourceId.clear();
-			if (Preview)
-			{
-				Preview->Release();
-				Preview.reset();
-			}
 		}
 		return true;
 	}
@@ -308,7 +284,7 @@ namespace Durin
 		ImGui::Spacing();
 
 		DrawFailureState(Texture);
-		DrawPreview(Texture);
+		DrawPreview(Document.ResourceId, Texture);
 		ImGui::Spacing();
 		DrawSourceData(Texture);
 		ImGui::Spacing();
@@ -331,8 +307,8 @@ namespace Durin
 
 	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void
 	{
-		const DTexture2D::ETextureBuildStatus Status = Texture->GetBuildStatus();
-		if (Status == DTexture2D::ETextureBuildStatus::Ready || Status == DTexture2D::ETextureBuildStatus::Unbuilt)
+		const ETextureBuildStatus Status = Texture->GetBuildStatus();
+		if (Status == ETextureBuildStatus::Ready || Status == ETextureBuildStatus::Unbuilt)
 			return;
 
 		const char* Title = "Build Error";
@@ -341,29 +317,29 @@ namespace Durin
 
 		switch (Status)
 		{
-		case DTexture2D::ETextureBuildStatus::MissingSource:
+		case ETextureBuildStatus::MissingSource:
 			Title = "Missing Source";
 			TitleColor = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);
 			Message = std::format("The source file could not be found:\n{}", Texture->GetLastBuildError());
 			break;
-		case DTexture2D::ETextureBuildStatus::DecodeFailure:
+		case ETextureBuildStatus::DecodeFailure:
 			Title = "Decode Failure";
 			TitleColor = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);
 			Message = std::format("The source image could not be decoded:\n{}", Texture->GetLastBuildError());
 			break;
-		case DTexture2D::ETextureBuildStatus::BuildFailure:
+		case ETextureBuildStatus::BuildFailure:
 			Title = "Build Failure";
 			TitleColor = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);
 			Message = std::format("The platform texture data could not be built:\n{}", Texture->GetLastBuildError());
 			break;
-		case DTexture2D::ETextureBuildStatus::UploadFailure:
+		case ETextureBuildStatus::UploadFailure:
 			Title = "GPU Upload Failure";
 			TitleColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
 			Message = "The texture could not be uploaded to the GPU.";
 			if (!Texture->GetLastBuildError().empty())
 				Message += std::format("\n{}", Texture->GetLastBuildError());
 			break;
-		case DTexture2D::ETextureBuildStatus::UnsupportedFormat:
+		case ETextureBuildStatus::UnsupportedFormat:
 			Title = "Unsupported Format";
 			TitleColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
 			Message = "The selected pixel format is not supported by this GPU.";
@@ -386,21 +362,18 @@ namespace Durin
 		if (ImGui::Button("Retry Build"))
 		{
 			std::string Error;
-			if (Texture->PostLoad(Error))
-			{
-				LastObservedRevision = Texture->GetBuildRevision();
-			}
-			else
+			if (!Texture->PostLoad(Error))
 			{
 				SetError(Error);
 			}
 		}
 
-		if (Status == DTexture2D::ETextureBuildStatus::UploadFailure && Texture->GetRenderResource())
+		if (Status == ETextureBuildStatus::UploadFailure && Texture->GetRenderResource())
 		{
 			ImGui::SameLine();
 			const ERenderResourceState RState = Texture->GetRenderResource()->GetResourceState();
-			ImGui::TextDisabled("(GPU state: %s)", GetRenderResourceStateName(RState));
+			const std::string StateName = GetEnumValueDisplayName("Durin::ERenderResourceState", static_cast<uint64>(RState));
+			ImGui::TextDisabled("(GPU state: %s)", StateName.c_str());
 		}
 
 		ImGui::EndChild();
@@ -408,18 +381,18 @@ namespace Durin
 		ImGui::Spacing();
 	}
 
-	auto MTextureEditor::DrawPreview(DTexture2D* Texture) -> void
+	auto MTextureEditor::DrawPreview(const std::string& ResourceId, DTexture2D* Texture) -> void
 	{
 		ImGui::SeparatorText("Preview");
 
-		if (!Preview)
-			Preview = std::make_unique<FTexturePreview>();
+		FTexturePreviewState& PreviewState = PreviewStates.try_emplace(ResourceId).first->second;
+		FTexturePreview& Preview = *PreviewState.Preview;
 
 		const FTexturePlatformData* Platform = Texture->GetPlatformData();
 		const FTextureSourceData* Source = Texture->GetSourceData();
 
-		const bool bRevisionChanged = (Texture->GetBuildRevision() != LastObservedRevision);
-		if (bRevisionChanged) SelectedMipIndex = 0;
+		const bool bRevisionChanged = Texture->GetBuildRevision() != PreviewState.LastObservedRevision;
+		if (bRevisionChanged) PreviewState.SelectedMipIndex = 0;
 
 		const uint32 MipCount = (Platform && Platform->IsValid())
 			? static_cast<uint32>(Platform->Mips.size())
@@ -427,52 +400,55 @@ namespace Durin
 
 		if (MipCount == 0)
 		{
+			Preview.Release();
+			PreviewState.LastUploadedMipIndex = UINT32_MAX;
+			PreviewState.LastObservedRevision = Texture->GetBuildRevision();
 			ImGui::TextWrapped("No preview data available.");
 			return;
 		}
 
 		// Clamp selected mip to valid range.
-		if (SelectedMipIndex >= MipCount) SelectedMipIndex = MipCount - 1;
+		if (PreviewState.SelectedMipIndex >= MipCount) PreviewState.SelectedMipIndex = MipCount - 1;
 
 		// Mip selector.
 		if (MipCount > 1)
 		{
-			int MipInt = static_cast<int>(SelectedMipIndex);
+			int MipInt = static_cast<int>(PreviewState.SelectedMipIndex);
 			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(200.0f));
 			if (ImGui::SliderInt("Mip Level", &MipInt, 0, static_cast<int>(MipCount - 1), "%d", ImGuiSliderFlags_AlwaysClamp))
-				SelectedMipIndex = static_cast<uint32>(MipInt);
+				PreviewState.SelectedMipIndex = static_cast<uint32>(MipInt);
 			ImGui::SameLine();
-			const uint32 MipWidth = Platform ? Platform->Mips[SelectedMipIndex].Width : Source->Width;
-			const uint32 MipHeight = Platform ? Platform->Mips[SelectedMipIndex].Height : Source->Height;
+			const uint32 MipWidth = Platform ? Platform->Mips[PreviewState.SelectedMipIndex].Width : Source->Width;
+			const uint32 MipHeight = Platform ? Platform->Mips[PreviewState.SelectedMipIndex].Height : Source->Height;
 			ImGui::TextDisabled("%s", FormatDimensions(MipWidth, MipHeight).c_str());
 		}
 
 		// Upload preview image.
-		const bool bMipChanged = (SelectedMipIndex != LastUploadedMipIndex);
-		const bool bRebuildNeeded = bRevisionChanged || bMipChanged || !Preview->IsValid();
+		const bool bMipChanged = PreviewState.SelectedMipIndex != PreviewState.LastUploadedMipIndex;
+		const bool bRebuildNeeded = bRevisionChanged || bMipChanged || !Preview.IsValid();
 		if (bRebuildNeeded)
 		{
 			if (Platform && Platform->IsValid())
-				Preview->Upload(*Platform, SelectedMipIndex);
+				Preview.Upload(*Platform, PreviewState.SelectedMipIndex);
 			else if (Source && Source->IsValid())
-				Preview->UploadSource(*Source);
-			LastUploadedMipIndex = SelectedMipIndex;
-			LastObservedRevision = Texture->GetBuildRevision();
+				Preview.UploadSource(*Source);
+			PreviewState.LastUploadedMipIndex = PreviewState.SelectedMipIndex;
+			PreviewState.LastObservedRevision = Texture->GetBuildRevision();
 		}
 
 		// Draw the image.
-		if (Preview->IsValid())
+		if (Preview.IsValid())
 		{
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
-			const float AspectRatio = static_cast<float>(Preview->GetWidth()) / static_cast<float>(std::max(Preview->GetHeight(), 1u));
+			const float AspectRatio = static_cast<float>(Preview.GetWidth()) / static_cast<float>(std::max(Preview.GetHeight(), 1u));
 			const float MaxPreviewHeight = MonaImGui::ScaleUI(512.0f);
-			const float ImageHeight = std::min(Available.y * 0.5f, MaxPreviewHeight);
+			const float ImageHeight = std::max(0.0f, std::min(Available.y * 0.5f, MaxPreviewHeight));
 			const float ImageWidth = ImageHeight * AspectRatio;
 
-			if (Mona::GActiveUIBackend)
+			if (ImageHeight > 0.0f && Mona::GActiveUIBackend)
 			{
 				ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - ImageWidth) * 0.5f + ImGui::GetCursorPosX());
-				Mona::GActiveUIBackend->DrawImage(Preview->GetTexture(), FVector2f(ImageWidth, ImageHeight));
+				Mona::GActiveUIBackend->DrawImage(Preview.GetTexture(), FVector2f(ImageWidth, ImageHeight));
 			}
 		}
 		else
@@ -495,10 +471,10 @@ namespace Durin
 		}
 		else
 		{
-			const DTexture2D::ETextureBuildStatus Status = Texture->GetBuildStatus();
-			if (Status == DTexture2D::ETextureBuildStatus::DecodeFailure)
+			const ETextureBuildStatus Status = Texture->GetBuildStatus();
+			if (Status == ETextureBuildStatus::DecodeFailure)
 				DrawInfoRow("Status", "Source data unavailable (Decode failure)");
-			else if (Status == DTexture2D::ETextureBuildStatus::MissingSource)
+			else if (Status == ETextureBuildStatus::MissingSource)
 				DrawInfoRow("Status", "Source data unavailable (Source file missing)");
 			else
 				DrawInfoRow("Status", "Source data unavailable");
@@ -522,7 +498,7 @@ namespace Durin
 		{
 			uint64 TotalBytes = 0;
 			for (const FTexture2DMipData& Mip : Platform->Mips) TotalBytes += Mip.Pixels.size();
-			DrawInfoRow("Status", GetBuildStatusName(Texture->GetBuildStatus()));
+			DrawInfoRow("Status", GetEnumValueDisplayName("Durin::ETextureBuildStatus", static_cast<uint64>(Texture->GetBuildStatus())));
 			DrawInfoRow("Pixel Format", GetPixelFormatInfo(Platform->PixelFormat).Name);
 			DrawInfoRow("Mip Count", std::format("{}", Platform->Mips.size()));
 			DrawInfoRow("Mip Range", std::format("{} to {}", FormatDimensions(Platform->Mips.front().Width, Platform->Mips.front().Height),
@@ -532,14 +508,15 @@ namespace Durin
 		}
 		else
 		{
-			DrawInfoRow("Status", GetBuildStatusName(Texture->GetBuildStatus()));
+			DrawInfoRow("Status", GetEnumValueDisplayName("Durin::ETextureBuildStatus", static_cast<uint64>(Texture->GetBuildStatus())));
 		}
 
 		DrawInfoRow("Build Revision", std::format("{}", Texture->GetBuildRevision()));
 
 		if (const std::shared_ptr<FTexture2DRenderResource>& Resource = Texture->GetRenderResource())
 		{
-			DrawInfoRow("GPU State", GetRenderResourceStateName(Resource->GetResourceState()));
+			DrawInfoRow("GPU State", GetEnumValueDisplayName(
+				"Durin::ERenderResourceState", static_cast<uint64>(Resource->GetResourceState())));
 		}
 
 		MonaImGui::PropertyEdit::EndTable();

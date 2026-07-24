@@ -18,7 +18,8 @@ namespace Durin
 	{
 		check(PlatformDataSnapshot && PlatformDataSnapshot->IsValid());
 		RequestedRevision.store(Revision, std::memory_order_release);
-		ResourceState.store(ERenderResourceState::Pending, std::memory_order_release);
+		FailedRevision.store(0, std::memory_order_release);
+		SetResourceState(ERenderResourceState::Pending, Revision);
 		auto Self = shared_from_this();
 		ENQUEUE_RENDER_COMMAND(BuildTexture2DResource)([Self = std::move(Self), PlatformDataSnapshot = std::move(PlatformDataSnapshot), Revision](FRHICommandListImmediate& CommandList) {
 			Self->Build_RenderThread(CommandList, *PlatformDataSnapshot, Revision);
@@ -28,7 +29,8 @@ namespace Durin
 	auto FTexture2DRenderResource::QueueRelease(uint64 Revision) -> void
 	{
 		RequestedRevision.store(Revision, std::memory_order_release);
-		ResourceState.store(ERenderResourceState::Pending, std::memory_order_release);
+		FailedRevision.store(0, std::memory_order_release);
+		SetResourceState(ERenderResourceState::Pending, Revision);
 		auto Self = shared_from_this();
 		ENQUEUE_RENDER_COMMAND(ReleaseTexture2DResource)([Self = std::move(Self), Revision](FRHICommandListImmediate&) {
 			Self->Release_RenderThread(Revision);
@@ -53,16 +55,27 @@ namespace Durin
 		return AppliedRevision;
 	}
 
+	auto FTexture2DRenderResource::GetResourceState() const -> ERenderResourceState
+	{
+		std::lock_guard Lock(ResourceStateMutex);
+		const uint64 Requested = RequestedRevision.load(std::memory_order_acquire);
+		if (ResourceStateRevision != Requested) return ERenderResourceState::Pending;
+		return ResourceState;
+	}
+
+	auto FTexture2DRenderResource::SetResourceState(ERenderResourceState State, uint64 Revision) -> void
+	{
+		std::lock_guard Lock(ResourceStateMutex);
+		ResourceState = State;
+		ResourceStateRevision = Revision;
+	}
+
 	auto FTexture2DRenderResource::Build_RenderThread(FRHICommandListImmediate& CommandList, const FTexturePlatformData& PlatformData, uint64 Revision) -> void
 	{
 		check(IsInRenderingThread());
-		if (Revision != RequestedRevision.load(std::memory_order_acquire))
-		{
-			ResourceState.store(ERenderResourceState::Idle, std::memory_order_release);
-			return;
-		}
+		if (Revision != RequestedRevision.load(std::memory_order_acquire)) return;
 
-		ResourceState.store(ERenderResourceState::Building, std::memory_order_release);
+		SetResourceState(ERenderResourceState::Building, Revision);
 		const FTexture2DMipData& BaseMip = PlatformData.Mips.front();
 		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("DTexture2D", BaseMip.Width, BaseMip.Height, PlatformData.PixelFormat)
 			.SetNumMips(static_cast<uint8>(PlatformData.Mips.size()))
@@ -70,8 +83,8 @@ namespace Durin
 		FTextureRHIRef NewTexture = GDynamicRHI->RHICreateTexture(CommandList, Desc);
 		if (NewTexture == nullptr)
 		{
-			ResourceState.store(ERenderResourceState::Failed, std::memory_order_release);
-			bFailed.store(true, std::memory_order_release);
+			FailedRevision.store(Revision, std::memory_order_release);
+			SetResourceState(ERenderResourceState::Failed, Revision);
 			return;
 		}
 
@@ -86,7 +99,8 @@ namespace Durin
 		if (Revision != RequestedRevision.load(std::memory_order_acquire)) return;
 		TextureRHI = std::move(NewTexture);
 		AppliedRevision = Revision;
-		ResourceState.store(ERenderResourceState::Ready, std::memory_order_release);
+		FailedRevision.store(0, std::memory_order_release);
+		SetResourceState(ERenderResourceState::Ready, Revision);
 	}
 
 	auto FTexture2DRenderResource::Release_RenderThread(uint64 Revision) -> void
@@ -95,6 +109,7 @@ namespace Durin
 		if (Revision != RequestedRevision.load(std::memory_order_acquire)) return;
 		TextureRHI = nullptr;
 		AppliedRevision = Revision;
-		ResourceState.store(ERenderResourceState::Released, std::memory_order_release);
+		FailedRevision.store(0, std::memory_order_release);
+		SetResourceState(ERenderResourceState::Released, Revision);
 	}
 }

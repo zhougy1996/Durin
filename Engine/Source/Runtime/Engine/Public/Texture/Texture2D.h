@@ -24,6 +24,29 @@ namespace Durin
 		DataMask
 	};
 
+	DENUM()
+	enum class ETextureBuildStatus : uint8
+	{
+		Unbuilt,           // No valid platform data is installed.
+		Ready,             // Platform data is valid and its render build is queued.
+		MissingSource,     // The copied source path is empty or missing.
+		DecodeFailure,     // Source bytes could not be decoded.
+		BuildFailure,      // Platform-data construction failed.
+		UploadFailure,     // The current render-resource revision failed.
+		UnsupportedFormat, // The selected platform format is unavailable.
+	};
+
+	DENUM()
+	enum class ERenderResourceState : uint8
+	{
+		Idle,
+		Pending,
+		Building,
+		Ready,
+		Failed,
+		Released,
+	};
+
 	struct ENGINE_API FTextureSourceData
 	{
 		std::vector<uint8> Pixels;
@@ -79,17 +102,6 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
-		enum class ETextureBuildStatus : uint8
-		{
-			Unbuilt,           // PostLoad has not run or platform data was invalidated
-			Ready,             // Fully built and render resource queued
-			MissingSource,     // SourceFile is empty or the file does not exist
-			DecodeFailure,     // Image decoding failed (unsupported/corrupt file)
-			BuildFailure,      // FTexturePlatformData construction failed
-			UploadFailure,     // RHI texture creation or mip upload failed
-			UnsupportedFormat, // Selected pixel format unsupported by current RHI
-		};
-
 		explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
 		~DTexture2D() override;
 

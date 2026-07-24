@@ -1,4 +1,5 @@
 #include "AssetSystem.h"
+#include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
 #include "DObject/ObjectLifecycle.h"
@@ -333,12 +334,12 @@ TEST(FTexture2DTests, FailureState_RecordsMissingSourceOnPostLoad)
 	ASSERT_TRUE(CreateResult) << CreateResult.Message;
 	ASSERT_NE(Texture, nullptr);
 	// At creation time, the build has not run.
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::DTexture2D::ETextureBuildStatus::Unbuilt);
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Unbuilt);
 	// PostLoad with an empty source file.
 	std::string Error;
 	EXPECT_FALSE(Texture->PostLoad(Error));
 	EXPECT_FALSE(Error.empty());
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::DTexture2D::ETextureBuildStatus::MissingSource);
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::MissingSource);
 	EXPECT_FALSE(Texture->GetLastBuildError().empty());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 }
@@ -358,7 +359,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 	WriteTextureFixture(Source);
 	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureFailureTests/Ready");
 	ASSERT_TRUE(Result) << Result.Message;
-	EXPECT_EQ(Result.Asset->GetBuildStatus(), Durin::DTexture2D::ETextureBuildStatus::Ready);
+	EXPECT_EQ(Result.Asset->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_TRUE(Result.Asset->GetLastBuildError().empty());
 
 	Durin::FAssetPath AssetPath;
@@ -367,7 +368,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }
 
-TEST(FTexture2DTests, FailureState_ClearsAfterInvalidatePlatformData)
+TEST(FTexture2DTests, MissingSourceInvalidatesDerivedDataAndCanRecover)
 {
 	InitializeDObjectSystem();
 	static const bool bMountInitialized = [] {
@@ -384,16 +385,48 @@ TEST(FTexture2DTests, FailureState_ClearsAfterInvalidatePlatformData)
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTexture2D* Texture = Result.Asset;
 	ASSERT_NE(Texture, nullptr);
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::DTexture2D::ETextureBuildStatus::Ready);
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	ASSERT_NE(Texture->GetSourceData(), nullptr);
+	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureInvalidateTests/Invalid", AssetPath));
+	const std::filesystem::path CopiedSource =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureInvalidateMount" / "Invalid.png";
+	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
 
-	// Trigger a build failure: set invalid usage then try to rebuild.
 	std::string Error;
-	Texture->SetUsage(Durin::ETextureUsage::DataMask, Error);
-	EXPECT_EQ(Texture->GetBuildStatus(), Durin::DTexture2D::ETextureBuildStatus::Ready);
+	EXPECT_FALSE(Texture->PostLoad(Error));
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::MissingSource);
+	EXPECT_EQ(Texture->GetSourceData(), nullptr);
+	EXPECT_EQ(Texture->GetPlatformData(), nullptr);
+	EXPECT_FALSE(Texture->GetLastBuildError().empty());
 
+	WriteTextureFixture(CopiedSource);
+	ASSERT_TRUE(Texture->PostLoad(Error)) << Error;
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_NE(Texture->GetSourceData(), nullptr);
+	EXPECT_NE(Texture->GetPlatformData(), nullptr);
+	EXPECT_TRUE(Texture->GetLastBuildError().empty());
+
+	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+}
+
+TEST(FTexture2DTests, StatusEnumsExposeRuntimeReflectionNames)
+{
+	InitializeDObjectSystem();
+	Durin::DEnum* BuildStatusEnum = Durin::FindEnumByQualifiedName("Durin::ETextureBuildStatus");
+	Durin::DEnum* ResourceStateEnum = Durin::FindEnumByQualifiedName("Durin::ERenderResourceState");
+	ASSERT_NE(BuildStatusEnum, nullptr);
+	ASSERT_NE(ResourceStateEnum, nullptr);
+
+	Durin::FName Name;
+	EXPECT_TRUE(BuildStatusEnum->FindNameByValue(
+		static_cast<Durin::uint64>(Durin::ETextureBuildStatus::MissingSource), Name));
+	EXPECT_EQ(Name, Durin::FName("MissingSource"));
+	EXPECT_TRUE(ResourceStateEnum->FindNameByValue(
+		static_cast<Durin::uint64>(Durin::ERenderResourceState::Building), Name));
+	EXPECT_EQ(Name, Durin::FName("Building"));
 }

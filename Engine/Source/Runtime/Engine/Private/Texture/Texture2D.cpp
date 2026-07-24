@@ -407,6 +407,8 @@ namespace Durin
 		if (SourceFile.empty())
 		{
 			OutError = "Texture asset has no source file.";
+			SourceData.reset();
+			InvalidatePlatformData();
 			BuildStatus = ETextureBuildStatus::MissingSource;
 			LastBuildError = OutError;
 			return false;
@@ -415,6 +417,8 @@ namespace Durin
 		if (!std::filesystem::is_regular_file(PhysicalPath))
 		{
 			OutError = std::format("Texture source file does not exist: {}", SourceFile);
+			SourceData.reset();
+			InvalidatePlatformData();
 			BuildStatus = ETextureBuildStatus::MissingSource;
 			LastBuildError = OutError;
 			return false;
@@ -480,7 +484,7 @@ namespace Durin
 	auto DTexture2D::RefreshBuildStatus() -> void
 	{
 		if (!RenderResource) return;
-		if (RenderResource->bFailed.load(std::memory_order_acquire))
+		if (RenderResource->GetFailedRevision() == BuildRevision)
 		{
 			if (BuildStatus == ETextureBuildStatus::Ready)
 			{

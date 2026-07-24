@@ -29,9 +29,12 @@ The original focused `FTexture2DTests.*` and `FEditorTextureSmokeTests.*` suites
 passed on 2026-07-21 using the `Win64-Debug-DurinEditor-Tests` preset. On
 2026-07-24, the new reflected build-setting coverage passed all six
 `FTexture2DTests.*`, including rejection, Dirty state, and Undo/Redo behavior.
-Final integrated validation then passed all 196 `EngineTests`, the full `all`
-build, and an eight-second `DurinEditor --hidden-window` smoke run with the new
-Texture Editor module loaded by MainFrame.
+The built-preview review on 2026-07-24 isolated preview state per document,
+made render-resource diagnostics and failures revision-aware and recoverable,
+invalidated stale derived data when a copied source disappears, and replaced
+handwritten status-name switches with reflected enum metadata. All ten focused
+`FTexture2DTests.*` and all 200 `EngineTests` passed, followed by a successful
+full `all` build and an eight-second `DurinEditor --hidden-window` smoke run.
 
 ## Implemented
 
@@ -96,7 +99,7 @@ Texture Editor module loaded by MainFrame.
 
 ### Stage 2: Built Texture Preview and Failure States
 
-- [ ] Preview the built platform texture and selectable mip levels rather than
+- [x] Preview the built platform texture and selectable mip levels rather than
   only the copied source image.
 - [ ] Surface missing-source, decode, build, upload, and unsupported-format
   states to the user.
