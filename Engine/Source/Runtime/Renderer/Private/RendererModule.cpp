@@ -24,6 +24,7 @@ namespace Durin
 			FTextureRHIRef White;
 			FTextureRHIRef Black;
 			FTextureRHIRef FlatNormal;
+			FTextureRHIRef BlackCube;
 		};
 
 		FDefaultTextureState GDefaultTextures;
@@ -36,7 +37,25 @@ namespace Durin
 			if (Texture != nullptr)
 			{
 				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 1, 1);
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, Region, 4, Color.data());
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, 0, Region, 4, Color.data());
+			}
+			return Texture;
+		}
+
+		auto CreateSolidCubeTexture(FRHICommandListImmediate& CommandList, const char* DebugName, const std::array<uint8, 4>& Color) -> FTextureRHIRef
+		{
+			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::CreateCube(DebugName)
+				.SetExtent(1)
+				.SetFormat(EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource);
+			FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			if (Texture != nullptr)
+			{
+				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 1, 1);
+				for (uint32 ArraySlice = 0; ArraySlice < TextureCubeFaceCount; ++ArraySlice)
+				{
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, ArraySlice, Region, 4, Color.data());
+				}
 			}
 			return Texture;
 		}
@@ -48,6 +67,7 @@ namespace Durin
 			GDefaultTextures.White = CreateSolidTexture(CommandList, "DefaultWhite", {255, 255, 255, 255});
 			GDefaultTextures.Black = CreateSolidTexture(CommandList, "DefaultBlack", {0, 0, 0, 255});
 			GDefaultTextures.FlatNormal = CreateSolidTexture(CommandList, "DefaultFlatNormal", {128, 128, 255, 255});
+			GDefaultTextures.BlackCube = CreateSolidCubeTexture(CommandList, "DefaultBlackCube", {0, 0, 0, 255});
 		}
 
 		auto GetViewportOutput(bool bPresent) -> RendererRenderTargetLayouts::EViewportOutput
@@ -813,7 +833,7 @@ namespace Durin
 			if (GOverlayIconState.Atlas != nullptr)
 			{
 				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 128, 64);
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, GOverlayIconState.Atlas, 0, Region, 128 * 4, Pixels.data());
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, GOverlayIconState.Atlas, 0, 0, Region, 128 * 4, Pixels.data());
 			}
 			GOverlayIconState.AtlasSampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
 		}
@@ -1388,6 +1408,12 @@ namespace Durin
 		return GetDefaultTexture_RenderThread(Fallback);
 	}
 
+	auto GetDefaultCubeTexture_RenderThread() -> FRHITexture*
+	{
+		check(IsInRenderingThread());
+		return GDefaultTextures.BlackCube;
+	}
+
 	auto FRendererModule::StartupModule() -> void
 	{
 		ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)([](FRHICommandListImmediate& CommandList) {
@@ -1407,7 +1433,8 @@ namespace Durin
 
 	auto FRendererModule::ShutdownModule() -> void
 	{
-		checkf(GDefaultTextures.White == nullptr && GDefaultTextures.Black == nullptr && GDefaultTextures.FlatNormal == nullptr,
+		checkf(GDefaultTextures.White == nullptr && GDefaultTextures.Black == nullptr && GDefaultTextures.FlatNormal == nullptr
+				&& GDefaultTextures.BlackCube == nullptr,
 			"Renderer defaults must be released before the rendering thread stops");
 		GStaticMeshState = {};
 		GGizmoState = {};

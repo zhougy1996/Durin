@@ -506,7 +506,7 @@ namespace Durin::MonaImGui
 			const uint8* TexPixels = InTex->Pixels;
 
 			ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTexture)([=](FRHICommandListImmediate& CommandList) {
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, BackendTexture->Texture, 0, UpdateRegion, SourcePitch, TexPixels);
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, BackendTexture->Texture, 0, 0, UpdateRegion, SourcePitch, TexPixels);
 			});
 
 			FlushRenderingCommands(); // Make sure the texture update is processed before the texture is used for rendering in the next frame.
@@ -528,7 +528,7 @@ namespace Durin::MonaImGui
 				FUpdateTextureRegion2D UpdateRegion(UpdateRect.x, UpdateRect.y, UpdateRect.x, UpdateRect.y, UpdateRect.w, UpdateRect.h);
 				const uint8* UpdatePixels = InTex->Pixels;
 				ENQUEUE_RENDER_COMMAND(ImGuiImpl_UpdateTextureRegion)([=](FRHICommandListImmediate& CommandList) {
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, BackendTexture->Texture, 0, UpdateRegion, SourcePitch, UpdatePixels);
+					GDynamicRHI->RHIUpdateTexture2D(CommandList, BackendTexture->Texture, 0, 0, UpdateRegion, SourcePitch, UpdatePixels);
 				});
 			}
 

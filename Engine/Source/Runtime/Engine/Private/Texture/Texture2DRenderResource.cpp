@@ -92,7 +92,7 @@ namespace Durin
 		{
 			const FTexture2DMipData& Mip = PlatformData.Mips[MipIndex];
 			const FUpdateTextureRegion2D Region(0, 0, 0, 0, Mip.Width, Mip.Height);
-			GDynamicRHI->RHIUpdateTexture2D(CommandList, NewTexture, MipIndex, Region, Mip.RowPitch, Mip.Pixels.data());
+			GDynamicRHI->RHIUpdateTexture2D(CommandList, NewTexture, MipIndex, 0, Region, Mip.RowPitch, Mip.Pixels.data());
 		}
 
 		// A newer request may have arrived while this command was executing.

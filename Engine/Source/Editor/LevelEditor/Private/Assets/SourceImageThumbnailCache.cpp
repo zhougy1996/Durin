@@ -181,7 +181,7 @@ namespace Durin
 					if (Texture)
 					{
 						const FUpdateTextureRegion2D Region(0, 0, 0, 0, Width, Height);
-						GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, Region, Width * 4, Pixels->data());
+						GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, 0, Region, Width * 4, Pixels->data());
 					}
 					if (const std::shared_ptr<FAsyncThumbnailState> State = WeakState.lock())
 					{

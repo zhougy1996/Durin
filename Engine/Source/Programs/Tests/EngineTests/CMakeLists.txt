@@ -80,6 +80,7 @@ durin_test_deploy_target_binary(EngineTests DurinEd)
 durin_test_deploy_runtime_files(EngineTests assimp::assimp)
 durin_test_deploy_runtime_files(EngineTests Slang_Imported)
 durin_test_deploy_directory_to_data(EngineTests "${CMAKE_SOURCE_DIR}/Engine/Source/Programs/Tests/AssetCoreTests/TestData")
+durin_test_deploy_directory_to_data(EngineTests "${CMAKE_CURRENT_SOURCE_DIR}/TestData")
 
 get_target_property(_durin_engine_tests_work_dir EngineTests DURIN_TEST_WORK_DIR)
 

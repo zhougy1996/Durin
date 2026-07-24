@@ -6,6 +6,7 @@ add_durin_test(RenderCoreTests
 	Private/ShaderCompileServiceTests.cpp
 	Private/ShaderReflectionTests.cpp
 	Private/RenderTargetLayoutTests.cpp
+	Private/RHITextureTests.cpp
 	../../../Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
 	../../../Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
 	../../../Runtime/RenderCore/Private/Shader/ShaderCacheStore.cpp

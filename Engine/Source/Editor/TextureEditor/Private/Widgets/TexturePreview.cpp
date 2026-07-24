@@ -32,7 +32,7 @@ namespace Durin
 			if (NewTexture)
 			{
 				const FUpdateTextureRegion2D Region(0, 0, 0, 0, Width, Height);
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, NewTexture, 0, Region, RowPitch, PixelSnapshot->data());
+				GDynamicRHI->RHIUpdateTexture2D(CommandList, NewTexture, 0, 0, Region, RowPitch, PixelSnapshot->data());
 			}
 		});
 		FlushRenderingCommands();

@@ -120,6 +120,19 @@ namespace Durin
 		TextureCubeArray
 	};
 
+	// Identifies one cubemap face and its physical array-layer index.
+	enum class ETextureCubeFace : uint8
+	{
+		PositiveX = 0,
+		NegativeX = 1,
+		PositiveY = 2,
+		NegativeY = 3,
+		PositiveZ = 4,
+		NegativeZ = 5
+	};
+
+	inline constexpr uint16 TextureCubeFaceCount = 6;
+
 	// Declares the allowed hardware usages of an RHI texture.
 	enum class ETextureCreateFlags : uint64
 	{

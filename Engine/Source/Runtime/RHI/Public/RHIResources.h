@@ -386,7 +386,8 @@ namespace Durin
 
 		static auto CreateCube(const char* InDebugName) -> FRHITextureCreateDesc
 		{
-			return {InDebugName, ETextureDimension::TextureCube};
+			return FRHITextureCreateDesc(InDebugName, ETextureDimension::TextureCube)
+				.SetArraySize(TextureCubeFaceCount);
 		}
 
 		static auto CreateCubeArray(const char* InDebugName) -> FRHITextureCreateDesc
@@ -462,6 +463,26 @@ namespace Durin
 		}
 	};
 
+	// Validates the backend-neutral constraints required before creating a texture.
+	RHI_API auto ValidateTextureCreateDesc(const FRHITextureCreateDesc& CreateDesc, std::string& OutError) -> bool;
+
+	// Validates one uncompressed two-dimensional mip/slice upload before backend access.
+	RHI_API auto ValidateTexture2DUpdate(
+		const FRHITextureDesc& TextureDesc,
+		uint32 MipIndex,
+		uint32 ArraySlice,
+		const FUpdateTextureRegion2D& UpdateRegion,
+		uint32 SourcePitch,
+		std::string& OutError
+	) -> bool;
+
+	// Resolves a nonzero Durin-space direction to the documented cube face and top-left-origin image UV.
+	RHI_API auto ResolveTextureCubeFaceUv(
+		const FVector3& Direction,
+		ETextureCubeFace& OutFace,
+		FVector2f& OutUv
+	) -> bool;
+
 	// Represents a backend texture created from an immutable texture descriptor.
 	class FRHITexture : public FRHIResource
 	{
@@ -470,15 +491,34 @@ namespace Durin
 			: FRHIResource(ERHIResourceType::Texture)
 		{
 		}
+
+		explicit FRHITexture(const FRHITextureDesc& InDesc)
+			: FRHIResource(ERHIResourceType::Texture)
+			, Dimension(InDesc.Dimension)
+			, SizeX(static_cast<uint32>(InDesc.Extent.x))
+			, SizeY(static_cast<uint32>(InDesc.Extent.y))
+			, PixelFormat(InDesc.Format)
+			, ArraySize(InDesc.ArraySize)
+			, NumMips(InDesc.NumMips)
+			, NumSamples(InDesc.NumSamples)
+		{
+		}
+
+		auto GetDimension() const -> ETextureDimension { return Dimension; }
 		auto GetSizeX() const -> uint32 { return SizeX; }
 		auto GetSizeY() const -> uint32 { return SizeY; }
 		auto GetFormat() const -> EPixelFormat { return PixelFormat; }
+		auto GetArraySize() const -> uint16 { return ArraySize; }
+		auto GetNumMips() const -> uint8 { return NumMips; }
 		auto GetNumSamples() const -> uint8 { return NumSamples; }
 
 	protected:
+		ETextureDimension Dimension = ETextureDimension::Texture2D;
 		uint32 SizeX = 0;
 		uint32 SizeY = 0;
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
+		uint16 ArraySize = 1;
+		uint8 NumMips = 1;
 		uint8 NumSamples = 1;
 	};
 

@@ -1,14 +1,25 @@
 # SkyBoxComponent Plan
 
-Last reviewed: 2026-07-22
+Last reviewed: 2026-07-25
 
 ## Current Status
 
-Durin already has Texture2D assets, RGBA8 image decoding, mip generation, render-thread resource upload, shader texture sampling, intermediate Scene Color/Depth targets, and a post-processing path. The RHI also declares a `TextureCube` dimension, and the Vulkan backend can select a cube image view type.
+Stage 0 has fixed the Durin-space face, array-layer, source orientation, and
+direction-to-UV conventions in Architecture documentation and a labeled six-face
+test cube. Import-error integration remains pending until the cube importer is
+implemented.
 
-These capabilities do not yet form a usable vertical cubemap path. Cube textures lack a complete convention for creating and uploading six layers, Vulkan images lack the cube-compatible creation flag, the upload interface is fixed to array layer 0, and the engine has no `DTextureCube`, `DSkyBoxComponent`, or sky rendering stage.
+Stage 1 is in progress. `TextureCube` creation now establishes and validates the
+six-layer square-image contract, texture uploads explicitly name an array slice,
+and Vulkan cube images use the cube-compatible flag with per-mip/per-slice
+barriers, copies, and layout tracking. Renderer startup creates and uploads all
+six faces of the black fallback cube; a hidden DurinEditor run completed with
+Vulkan Validation enabled and no cube creation or upload diagnostics. RHI
+contract tests and the existing Texture2D tests pass. A repeatable multi-mip
+sampling smoke remains before the Stage 1 acceptance gate is complete.
 
-This plan defines the first implementation. No tasks have started.
+The engine still has no `DTextureCube`, `DSkyBoxComponent`, or sky rendering
+stage, so there is not yet a user-visible skybox vertical slice.
 
 ## Goal
 
@@ -90,10 +101,10 @@ The following capabilities must not enter the first version as incidental expans
 
 This stage produces no user-visible result. It prevents repeated flipping of the six faces' axes, orientation, and texture origin in later stages.
 
-- [ ] Document the mapping between Durin world coordinates, camera Forward/Up, and Vulkan cubemap faces.
-- [ ] Define the orientation, up direction, and required flipping for the six source images `+X, -X, +Y, -Y, +Z, -Z`.
-- [ ] Add a small, directionally unambiguous six-color cubemap with labeled edge markers to the test-data directory.
-- [ ] Define CPU direction-to-expected-face/UV cases as the ground-truth table for visual shader validation.
+- [x] Document the mapping between Durin world coordinates, camera Forward/Up, and Vulkan cubemap faces.
+- [x] Define the orientation, up direction, and required flipping for the six source images `+X, -X, +Y, -Y, +Z, -Z`.
+- [x] Add a small, directionally unambiguous six-color cubemap with labeled edge markers to the test-data directory.
+- [x] Define CPU direction-to-expected-face/UV cases as the ground-truth table for visual shader validation.
 - [ ] Put the final convention in cube-texture import errors and user documentation, not only in shader comments.
 
 #### Acceptance Gate
@@ -105,13 +116,13 @@ This stage produces no user-visible result. It prevents repeated flipping of the
 
 Depends on Stage 0. This stage proves only that the GPU can correctly create, upload, and sample a six-layer texture; it does not introduce a UObject.
 
-- [ ] Make `FRHITextureCreateDesc::CreateCube()` establish the six-layer convention and validate that Width/Height are equal and nonzero.
-- [ ] Add an explicit `ArraySlice` to the RHI upload interface while preserving the behavior of existing Texture2D slice-0 call sites.
-- [ ] Validate mip/slice/region/source pitch at the public RHI boundary and provide actionable diagnostics for invalid calls.
-- [ ] Make Vulkan cube images include `eCubeCompatible`, with image views covering six layers from base layer 0.
-- [ ] Update Vulkan staging copies and layout transitions to operate only on the specified mip/slice without disrupting other uploaded faces.
-- [ ] Check descriptor/view dimension mapping so a shader-declared `TextureCube` never receives a 2D image view.
-- [ ] Add RHI unit tests for create descriptions and invalid subresources.
+- [x] Make `FRHITextureCreateDesc::CreateCube()` establish the six-layer convention and validate that Width/Height are equal and nonzero.
+- [x] Add an explicit `ArraySlice` to the RHI upload interface while preserving the behavior of existing Texture2D slice-0 call sites.
+- [x] Validate mip/slice/region/source pitch at the public RHI boundary and provide actionable diagnostics for invalid calls.
+- [x] Make Vulkan cube images include `eCubeCompatible`, with image views covering six layers from base layer 0.
+- [x] Update Vulkan staging copies and layout transitions to operate only on the specified mip/slice without disrupting other uploaded faces.
+- [x] Check descriptor/view dimension mapping so a shader-declared `TextureCube` never receives a 2D image view.
+- [x] Add RHI unit tests for create descriptions and invalid subresources.
 - [ ] Add a minimal Vulkan smoke path for cube creation, six-layer upload, and sampling with validation enabled.
 
 #### Acceptance Gate
@@ -264,6 +275,7 @@ The following items require separate design and scheduling after this plan is co
 - [Implementation Plan Documentation Guide](README.md)
 - [Texture Support Plan](TextureSupport.md)
 - [Runtime Architecture](../Architecture/RuntimeArchitecture.md)
+- [Cube Textures](../Architecture/CubeTextures.md)
 - [Viewport Rendering](../Architecture/ViewportRendering.md)
 - [Build and Run](../Setup/BuildAndRun.md)
 - [Native Tests](../Setup/NativeTests.md)

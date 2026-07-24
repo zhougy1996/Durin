@@ -32,24 +32,19 @@ namespace Durin::VulkanRHI
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc)
-		: Device(InDevice)
+		: FRHITexture(InCreateDesc)
+		, Device(InDevice)
 		, OwnerType(EImageOwnerType::LocalOwner)
 		, Format(ToVulkan_PixelFormat(InCreateDesc.Format))
 		, CreateFlags(InCreateDesc.Flags)
-		, NumMips(InCreateDesc.NumMips)
-		, ArraySize(InCreateDesc.ArraySize)
 		, SubresourceLayouts(static_cast<size_t>(InCreateDesc.NumMips) * InCreateDesc.ArraySize, vk::ImageLayout::eUndefined)
 	{
-		SizeX = static_cast<uint32>(FMath::Max(1, InCreateDesc.Extent.x));
-		SizeY = static_cast<uint32>(FMath::Max(1, InCreateDesc.Extent.y));
-		PixelFormat = InCreateDesc.Format;
-		NumSamples = InCreateDesc.NumSamples;
 		vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
-		ImageExtent.width = FMath::Max(1u, ImageExtent.width);
-		ImageExtent.height = FMath::Max(1u, ImageExtent.height);
 
 		const bool bDepthStencil = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable);
 		const bool bStorage = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::Storage);
+		const bool bCube = InCreateDesc.Dimension == ETextureDimension::TextureCube
+			|| InCreateDesc.Dimension == ETextureDimension::TextureCubeArray;
 		checkf(!bStorage || !bDepthStencil, "Vulkan storage images do not support depth/stencil textures in this RHI");
 		checkf(!bStorage || InCreateDesc.NumSamples == 1, "Vulkan storage images must be single-sampled");
 		vk::ImageUsageFlags ImageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
@@ -78,6 +73,7 @@ namespace Durin::VulkanRHI
 			.setUsage(ImageUsage)
 			.setSharingMode(vk::SharingMode::eExclusive)
 			.setInitialLayout(vk::ImageLayout::eUndefined);
+		if (bCube) imageInfo.setFlags(vk::ImageCreateFlagBits::eCubeCompatible);
 
 		FVulkanMemoryManager& MemoryManager = InDevice.GetMemoryManager();
 		MemoryManager.CreateImage(Allocation, Image, imageInfo);
@@ -154,6 +150,8 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
 	{
+		std::string ValidationError;
+		checkf(ValidateTextureCreateDesc(CreateDesc, ValidationError), "Invalid RHI texture create description: {}", ValidationError);
 		TRefCountPtr<FVulkanTexture> Texture = new FVulkanTexture(*Device, CreateDesc);
 		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage))
 		{
@@ -189,21 +187,27 @@ namespace Durin::VulkanRHI
 		return new FVulkanSampler(*Device, CreateDesc);
 	}
 
-	auto FVulkanDynamicRHI::RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void
+	auto FVulkanDynamicRHI::RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void
 	{
+		checkf(Texture != nullptr, "RHIUpdateTexture2D requires a texture.");
+		checkf(SourceData != nullptr, "RHIUpdateTexture2D requires source data.");
+		FRHITextureDesc TextureDesc;
+		TextureDesc.Dimension = Texture->GetDimension();
+		TextureDesc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
+		TextureDesc.Format = Texture->GetFormat();
+		TextureDesc.ArraySize = Texture->GetArraySize();
+		TextureDesc.NumMips = Texture->GetNumMips();
+		TextureDesc.NumSamples = Texture->GetNumSamples();
+		std::string ValidationError;
+		checkf(
+			ValidateTexture2DUpdate(TextureDesc, MipIndex, ArraySlice, UpdateRegion, SourcePitch, ValidationError),
+			"Invalid RHI texture upload: {}",
+			ValidationError
+		);
+
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
 		const auto CmdBuffer = RHIGetVkCommandBuffer(RHICmdList);
 		const uint32 ElementSize = GetFormatElementSize(VulkanTexture->Format);
-
-		check(SourceData);
-		check(MipIndex < VulkanTexture->GetNumMips());
-		const uint32 MipWidth = FMath::Max(1u, VulkanTexture->GetSizeX() >> MipIndex);
-		const uint32 MipHeight = FMath::Max(1u, VulkanTexture->GetSizeY() >> MipIndex);
-		check(UpdateRegion.SrcX >= 0 && UpdateRegion.SrcY >= 0);
-		check(UpdateRegion.Width > 0 && UpdateRegion.Height > 0);
-		check(static_cast<uint64>(UpdateRegion.DestX) + UpdateRegion.Width <= MipWidth);
-		check(static_cast<uint64>(UpdateRegion.DestY) + UpdateRegion.Height <= MipHeight);
-		check((static_cast<uint64>(UpdateRegion.SrcX) + UpdateRegion.Width) * ElementSize <= SourcePitch);
 
 		// Repack only the requested rectangle. SourceData always points at the full source image.
 		const uint32 PackedRowPitch = UpdateRegion.Width * ElementSize;
@@ -219,7 +223,7 @@ namespace Durin::VulkanRHI
 		}
 		StagingBuffer.FlushMappedMemory();
 
-		const vk::ImageLayout OldLayout = VulkanTexture->GetSubresourceLayout(MipIndex, 0);
+		const vk::ImageLayout OldLayout = VulkanTexture->GetSubresourceLayout(MipIndex, ArraySlice);
 		const bool bHasPreviousContents = OldLayout != vk::ImageLayout::eUndefined;
 
 		vk::ImageMemoryBarrier PreCopyBarrier;
@@ -234,7 +238,7 @@ namespace Durin::VulkanRHI
 			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 			.setImage(VulkanTexture->Image)
-			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, 0, 1));
+			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, ArraySlice, 1));
 
 		const vk::PipelineStageFlags SourceStage = bHasPreviousContents ? vk::PipelineStageFlagBits::eAllGraphics : vk::PipelineStageFlagBits::eTopOfPipe;
 		CmdBuffer.pipelineBarrier(SourceStage, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, PreCopyBarrier);
@@ -244,7 +248,7 @@ namespace Durin::VulkanRHI
 		CopyRegion.setBufferOffset(0)
 			.setBufferRowLength(0)
 			.setBufferImageHeight(0)
-			.setImageSubresource(vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, MipIndex, 0, 1))
+			.setImageSubresource(vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, MipIndex, ArraySlice, 1))
 			.setImageOffset(vk::Offset3D{static_cast<int32>(UpdateRegion.DestX), static_cast<int32>(UpdateRegion.DestY), 0})
 			.setImageExtent(vk::Extent3D{UpdateRegion.Width, UpdateRegion.Height, 1});
 
@@ -264,9 +268,9 @@ namespace Durin::VulkanRHI
 			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
 			.setImage(VulkanTexture->Image)
-			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, 0, 1));
+			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, ArraySlice, 1));
 
 		CmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllGraphics, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
-		VulkanTexture->SetSubresourceLayout(MipIndex, 0, FinalLayout);
+		VulkanTexture->SetSubresourceLayout(MipIndex, ArraySlice, FinalLayout);
 	}
 } // namespace Durin::VulkanRHI
