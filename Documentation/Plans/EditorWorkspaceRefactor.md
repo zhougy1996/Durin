@@ -41,8 +41,10 @@ succeeds.
 
 The shared editor asset picker now supports a width-reserving trailing action,
 a path-prefix filter for project-scoped asset enumeration, and persistent
-enabled/disabled presentation. Static-mesh material slots use the trailing
-action for reset-to-default behavior. Reflected Object property editing and the
+enabled/disabled presentation. It also accepts a soft current-selection path so
+settings UI can display and highlight an asset without retaining a loaded object.
+Static-mesh material slots use the trailing action for reset-to-default behavior.
+Reflected Object property editing and the
 project-settings default-level selector both use the shared picker.
 
 ## Goals
@@ -321,6 +323,8 @@ one change.
   object property in the Details panel under the shared picker.
 - [x] Migrate the project-settings default-level combo to the shared picker
   and add `PathPrefixFilter` to support project-scoped asset enumeration.
+- [x] Preserve the project-settings default-level path as the picker's visible
+  and highlighted current selection without forcing the Level asset to stay loaded.
 - [x] Remove the unused local `IsClassChildOf` helper that duplicated
   `EditorAssetPicker::MatchesClass`.
 - [ ] Add `PathPrefixFilter` unit coverage.
@@ -361,6 +365,10 @@ broader interactive workflow smoke test remains open.
 Deferred Level document replacement was validated with all 197 `EngineTests`,
 a successful full `all` build, and hidden-window editor initialization from the
 same test preset.
+
+The default-Level picker current-selection fix was validated with both
+`FEditorAssetPickerTests`, a successful full `all` build, and hidden-window
+editor initialization from the same test preset.
 
 ## Related Code
 

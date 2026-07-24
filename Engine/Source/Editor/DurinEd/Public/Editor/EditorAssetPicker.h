@@ -30,6 +30,9 @@ namespace Durin
 		const DClass* RequiredClass = nullptr;
 		EEditorAssetClassPolicy ClassPolicy = EEditorAssetClassPolicy::Derived;
 		DObject* CurrentSelection = nullptr;
+		// Supplies the current asset identity when the owner stores a soft path
+		// instead of keeping the asset loaded.
+		std::string_view CurrentSelectionPath;
 		std::span<char> SearchText;
 		bool bAllowNone = true;
 		const char* NoneLabel = "None";
@@ -59,6 +62,11 @@ namespace Durin
 			EEditorAssetClassPolicy Policy
 		) -> bool;
 		DURINED_API auto GetAssetPathOrNone(const DObject* Object, std::string_view NoneLabel = "None") -> std::string;
+		DURINED_API auto GetAssetPathOrNone(
+			const DObject* Object,
+			std::string_view ObjectPath,
+			std::string_view NoneLabel
+		) -> std::string;
 		DURINED_API auto Draw(const FEditorAssetPickerConfig& Config) -> FEditorAssetPickerResult;
 	}
 }

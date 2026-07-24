@@ -576,6 +576,7 @@ namespace Durin
 					.SearchHint = "Search levels...",
 					.RequiredClass = DLevel::StaticClass(),
 					.ClassPolicy = EEditorAssetClassPolicy::Exact,
+					.CurrentSelectionPath = DefaultLevel,
 					.SearchText = LevelSearchText,
 					.bAllowNone = true,
 					.NoneLabel = "None",

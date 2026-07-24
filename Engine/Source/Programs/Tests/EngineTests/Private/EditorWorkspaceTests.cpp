@@ -353,3 +353,12 @@ TEST(FEditorAssetPickerTests, AppliesExactAndDerivedClassPolicies)
 		Durin::EEditorAssetClassPolicy::Exact
 	));
 }
+
+TEST(FEditorAssetPickerTests, UsesSoftPathForUnloadedCurrentSelection)
+{
+	EXPECT_EQ(
+		Durin::EditorAssetPicker::GetAssetPathOrNone(nullptr, "/Game/Levels/Default", "None"),
+		"/Game/Levels/Default"
+	);
+	EXPECT_EQ(Durin::EditorAssetPicker::GetAssetPathOrNone(nullptr, {}, "None"), "None");
+}

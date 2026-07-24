@@ -144,6 +144,11 @@ namespace Durin::EditorAssetPicker
 		return Object && Object->GetPackage() ? Object->GetPackage()->GetPackagePath() : std::string(NoneLabel);
 	}
 
+	auto GetAssetPathOrNone(const DObject* Object, std::string_view ObjectPath, std::string_view NoneLabel) -> std::string
+	{
+		return ObjectPath.empty() ? GetAssetPathOrNone(Object, NoneLabel) : std::string(ObjectPath);
+	}
+
 	auto Draw(const FEditorAssetPickerConfig& Config) -> FEditorAssetPickerResult
 	{
 		FEditorAssetPickerResult PickerResult;
@@ -157,7 +162,9 @@ namespace Durin::EditorAssetPicker
 			return PickerResult;
 		}
 
-		const std::string Preview = GetAssetPathOrNone(Config.CurrentSelection, Config.NoneLabel ? Config.NoneLabel : "None");
+		const std::string_view NoneLabel = Config.NoneLabel ? Config.NoneLabel : "None";
+		const std::string CurrentPath = GetAssetPathOrNone(Config.CurrentSelection, Config.CurrentSelectionPath, {});
+		const std::string Preview = CurrentPath.empty() ? std::string(NoneLabel) : CurrentPath;
 		if (Config.TrailingAction)
 		{
 			const float ReservedWidth = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
@@ -183,9 +190,10 @@ namespace Durin::EditorAssetPicker
 					PickerResult.Error = Error.empty() ? "The selected asset was rejected." : std::move(Error);
 					return;
 				}
-				PickerResult.bSelectionChanged = Selection != Config.CurrentSelection;
+				const std::string SelectedPath = GetAssetPathOrNone(Selection, {});
+				PickerResult.bSelectionChanged = SelectedPath != CurrentPath;
 			};
-			if (Config.bAllowNone && ImGui::Selectable(Config.NoneLabel ? Config.NoneLabel : "None", Config.CurrentSelection == nullptr))
+			if (Config.bAllowNone && ImGui::Selectable(NoneLabel.data(), CurrentPath.empty()))
 				Assign(nullptr);
 
 			const FCandidateCacheKey CandidateKey{
@@ -207,8 +215,7 @@ namespace Durin::EditorAssetPicker
 				for (int Index = Clipper.DisplayStart; Index < Clipper.DisplayEnd; ++Index)
 				{
 					const FAssetPath& Path = *Search.MatchingPaths[Index];
-					const bool bSelected = Config.CurrentSelection && Config.CurrentSelection->GetPackage() &&
-						Config.CurrentSelection->GetPackage()->GetPackagePath() == Path.GetView();
+					const bool bSelected = CurrentPath == Path.GetView();
 					if (!ImGui::Selectable(Path.ToString().c_str(), bSelected)) continue;
 					DObject* LoadedAsset = nullptr;
 					const Asset::FAssetResult LoadResult = Asset::LoadAsset(Path, LoadedAsset);
