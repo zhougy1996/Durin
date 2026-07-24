@@ -1,11 +1,51 @@
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 import json
+from pathlib import Path
 
 from durin_header_tool.io import FileFingerprint, LightFileFingerprint
 from durin_header_tool import io as utils
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 
-REFLECTION_MANIFEST_SCHEMA_VERSION = 3
+REFLECTION_MANIFEST_SCHEMA_VERSION = 4
+
+
+def make_generated_output_names(module_name: str, reflect_headers: Iterable[str]) -> list[str]:
+    outputs = {f"{module_name}.module.gen.cpp"}
+    for header in reflect_headers:
+        header_filename = Path(header).stem
+        outputs.add(f"{header_filename}.gen.h")
+        outputs.add(f"{header_filename}.gen.cpp")
+    return sorted(outputs)
+
+
+def _load_generated_output_names(
+    data: dict[str, object],
+    field_name: str,
+    manifest_file_path: Path,
+    *,
+    fallback: list[str] | None = None,
+) -> list[str]:
+    raw_outputs = data.get(field_name)
+    if raw_outputs is None and fallback is not None:
+        return fallback
+    if not isinstance(raw_outputs, list):
+        raise ValueError(f"Field '{field_name}' in module manifest file '{manifest_file_path}' must be an array.")
+
+    outputs = []
+    for output in raw_outputs:
+        if (
+            not isinstance(output, str)
+            or not output
+            or "/" in output
+            or "\\" in output
+            or not (output.endswith(".gen.h") or output.endswith(".gen.cpp"))
+        ):
+            raise ValueError(
+                f"Field '{field_name}' in module manifest file '{manifest_file_path}' contains an invalid generated output name."
+            )
+        outputs.append(output)
+    return sorted(set(outputs))
 
 
 @dataclass
@@ -21,6 +61,8 @@ class ModuleManifest:
     dep_module_exports: dict[str, LightFileFingerprint] = field(default_factory=dict)
     reflect_headers: dict[str, FileFingerprint] = field(default_factory=dict)
     resolved_symbol_dependencies: dict[str, dict[str, dict[str, str]]] = field(default_factory=dict)
+    generated_outputs: list[str] = field(default_factory=list)
+    pending_cleanup_outputs: list[str] = field(default_factory=list)
 
 
 def load_module_manifest_file(module_name: str) -> ModuleManifest:
@@ -40,8 +82,17 @@ def load_module_manifest_file(module_name: str) -> ModuleManifest:
         if not isinstance(data.get(field_name, {}), dict):
             raise ValueError(f"Field '{field_name}' in module manifest file '{manifest_file_path}' must be a JSON object.")
 
+    module_name_from_file = data.get("ModuleName", module_name)
+    reflect_headers = {
+        key: _file_fingerprint_from_json(value)
+        for key, value in data.get("ReflectHeaders", {}).items()
+    }
+    fallback_outputs = None
+    if data.get("SchemaVersion", 0) < REFLECTION_MANIFEST_SCHEMA_VERSION:
+        fallback_outputs = make_generated_output_names(module_name_from_file, reflect_headers)
+
     return ModuleManifest(
-        module_name=data.get("ModuleName", module_name),
+        module_name=module_name_from_file,
         schema_version=data.get("SchemaVersion", 0),
         tool_version=data.get("ToolVersion", ""),
         tool_fingerprint=data.get("ToolFingerprint", ""),
@@ -53,11 +104,20 @@ def load_module_manifest_file(module_name: str) -> ModuleManifest:
             key: _light_fingerprint_from_json(value)
             for key, value in data.get("DependencyExports", {}).items()
         },
-        reflect_headers={
-            key: _file_fingerprint_from_json(value)
-            for key, value in data.get("ReflectHeaders", {}).items()
-        },
+        reflect_headers=reflect_headers,
         resolved_symbol_dependencies=data.get("ResolvedSymbolDependencies", {}),
+        generated_outputs=_load_generated_output_names(
+            data,
+            "GeneratedOutputs",
+            manifest_file_path,
+            fallback=fallback_outputs,
+        ),
+        pending_cleanup_outputs=_load_generated_output_names(
+            data,
+            "PendingCleanupOutputs",
+            manifest_file_path,
+            fallback=[],
+        ),
     )
 
 
@@ -73,6 +133,8 @@ def save_module_manifest_file(manifest: ModuleManifest) -> str:
         "Platform": manifest.platform,
         "GeneratorOptionsHash": manifest.generator_options_hash,
         "ReflectHeaders": {key: _file_fingerprint_to_json(value) for key, value in sorted(manifest.reflect_headers.items())},
+        "GeneratedOutputs": sorted(set(manifest.generated_outputs)),
+        "PendingCleanupOutputs": sorted(set(manifest.pending_cleanup_outputs)),
         "DependencyExports": {key: _light_fingerprint_to_json(value) for key, value in sorted(manifest.dep_module_exports.items())},
         "ResolvedSymbolDependencies": {
             header: {

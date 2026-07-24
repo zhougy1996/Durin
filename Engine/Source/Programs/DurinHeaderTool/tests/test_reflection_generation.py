@@ -442,12 +442,17 @@ namespace Beta
             content = save_module_manifest_file(manifest)
         data = json.loads(content)
 
-        self.assertEqual(data["SchemaVersion"], 3)
+        self.assertEqual(data["SchemaVersion"], 4)
         self.assertEqual(data["ToolFingerprint"], "fixture-fingerprint")
         self.assertEqual(data["SymbolNameScheme"], "qualified-underscore-v1")
         self.assertEqual(data["ModuleName"], "Fixture")
         self.assertEqual(data["Profile"], "DurinEditor")
         self.assertEqual(data["Platform"], "Win64")
+        self.assertEqual(
+            data["GeneratedOutputs"],
+            ["Fixture.module.gen.cpp", "FixtureTypes.gen.cpp", "FixtureTypes.gen.h"],
+        )
+        self.assertEqual(data["PendingCleanupOutputs"], [])
         actor_dependencies = data["ResolvedSymbolDependencies"][self.header]
         self.assertEqual(actor_dependencies["Durin::DObject"]["GeneratedHelperName"], "Z_Construct_DClass_Durin_DObject")
 

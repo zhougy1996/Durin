@@ -9,7 +9,12 @@ from durin_header_tool.cache.reflection_cache import (
     dependency_exports_changed,
     reflection_manifest_contract_changed,
 )
-from durin_header_tool.model.reflection_manifest import ModuleManifest, load_module_manifest_file, save_module_manifest_file
+from durin_header_tool.model.reflection_manifest import (
+    ModuleManifest,
+    load_module_manifest_file,
+    make_generated_output_names,
+    save_module_manifest_file,
+)
 from durin_header_tool.model.reflection_info import (
     SYMBOL_NAME_SCHEME,
     TOOL_VERSION,
@@ -96,6 +101,7 @@ def make_new_module_manifest(module_name: str, old_manifest: ModuleManifest = No
         tool_fingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
         symbol_name_scheme=SYMBOL_NAME_SCHEME,
         generator_options_hash="cpp-packages-v1",
+        generated_outputs=make_generated_output_names(module_name, module_config.reflect_headers),
     )
     dependent_modules_with_export_file = configs.collect_all_dependent_module_with_export_file(module_name)
 
@@ -114,6 +120,20 @@ def make_new_module_manifest(module_name: str, old_manifest: ModuleManifest = No
         manifest.reflect_headers[header] = utils.get_file_fingerprint_with_old_cache(header_file_path, old_header_fingerprint)
 
     return manifest
+
+
+def _cleanup_stale_generated_outputs(module_name: str, output_names: list[str]) -> None:
+    if not output_names:
+        return
+
+    output_dir = utils.get_module_dht_output_dir(module_name)
+    for output_name in output_names:
+        (output_dir / output_name).unlink(missing_ok=True)
+    logging.debug(
+        "[DHT] Reflection %s: removed %d stale generated outputs",
+        module_name,
+        len(output_names),
+    )
 
 
 def _generate_reflection_output_impl(module_name: str, header: str, symbols: dict[str, object]) -> dict[str, object]:
@@ -283,7 +303,15 @@ def generate_reflection_files(module_name: str, max_workers: int = 1) -> None:
         new_manifest,
         max_workers,
     )
+    old_outputs = set(old_manifest.generated_outputs) if old_manifest else set()
+    old_pending_cleanup = set(old_manifest.pending_cleanup_outputs) if old_manifest else set()
+    new_outputs = set(new_manifest.generated_outputs)
+    new_manifest.pending_cleanup_outputs = sorted((old_outputs | old_pending_cleanup) - new_outputs)
     save_module_manifest_file(new_manifest)
+    if new_manifest.pending_cleanup_outputs:
+        _cleanup_stale_generated_outputs(module_name, new_manifest.pending_cleanup_outputs)
+        new_manifest.pending_cleanup_outputs = []
+        save_module_manifest_file(new_manifest)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
     logging.info(
         "[DHT] Reflection %s: regenerated %d/%d headers (%d classes, %d properties) in %.0f ms",

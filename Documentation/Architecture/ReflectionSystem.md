@@ -173,10 +173,14 @@ version, tool fingerprint, options, profile, platform, and reflected-header
 fingerprints. It lets `generate_module_export_file` skip entirely when no inputs
 changed. If only some headers changed, DurinHeaderTool reparses those headers and
 reuses unchanged header symbols by grouping entries from the previous public
-`.export` file, then assembles the new public `.export` file. When multiple headers
-require parsing, the export generator parses them in a bounded worker pool and
-merges results in module header order. Other modules should not depend on or read
-this private cache file.
+`.export` file, including a cached empty result for a header that exports no
+symbols, then assembles the new public `.export` file. Reflected-header content
+identity is the stored MD5; timestamp and size are only a cheap guard that avoids
+rehashing an unchanged file. Touching a header therefore refreshes its cached
+filesystem metadata without invalidating export or reflection parsing when its
+content hash is unchanged. When multiple headers require parsing, the export
+generator parses them in a bounded worker pool and merges results in module
+header order. Other modules should not depend on or read this private cache file.
 
 `CoreDObject` uses `DObject/MirrorExportTypes.h` under `_DHT_EXPORTS_PARSER` to publish intrinsic core types such as `Durin::DObject`, `Durin::DType`, `Durin::DStructBase`, and `Durin::DClass` without generating duplicate runtime class registration for those intrinsic types.
 
@@ -188,7 +192,7 @@ Each reflected module writes:
 <Module>.manifest
 ```
 
-The manifest currently uses schema v3 JSON and is private to DurinHeaderTool. It records:
+The manifest currently uses schema v4 JSON and is private to DurinHeaderTool. It records:
 
 - `SchemaVersion`
 - `ToolVersion`
@@ -199,6 +203,8 @@ The manifest currently uses schema v3 JSON and is private to DurinHeaderTool. It
 - `Platform`
 - `GeneratorOptionsHash`
 - reflected header fingerprints
+- `GeneratedOutputs`, the complete set of reflection outputs owned by the module
+- `PendingCleanupOutputs`, stale owned outputs whose deletion must be retried
 - dependency export fingerprints
 - resolved reflected-symbol dependencies per header
 
@@ -206,7 +212,16 @@ Changing the tool version, tool fingerprint, schema, symbol-name scheme, profile
 platform, options hash, dependency exports, or reflected header fingerprints
 invalidates generated reflection outputs.
 
-Dependency export changes are filtered through resolved symbol dependencies. If an upstream export changes but a header does not reference the changed reflected symbols, that header can keep its existing generated files. Missing generated outputs still force regeneration for the affected header. A missing, truncated, or structurally invalid export or manifest is treated as a cache miss and regenerated; the reflection manifest is written last so an interrupted generator cannot commit an incomplete output set.
+Dependency export changes are filtered through resolved symbol dependencies. If an upstream export changes but a header does not reference the changed reflected symbols, that header can keep its existing generated files. Missing generated outputs still force regeneration for the affected header. A missing, truncated, or structurally invalid export or manifest is treated as a cache miss and regenerated.
+
+After all new reflection outputs are committed, DHT writes the new manifest with
+the difference between the old and new ownership sets in
+`PendingCleanupOutputs`. It then deletes only those named files and clears the
+pending list in a final atomic manifest write. An interrupted or failed deletion
+is therefore retried by the next generation command, while a failed generation
+never removes outputs belonging to the last successful manifest. Schema v3
+manifests derive their initial ownership set from `ReflectHeaders` during the
+one-time schema upgrade.
 
 ## Generated Header Contract
 
