@@ -114,4 +114,41 @@ namespace Durin::EditorWorkspaceUI
 		const ImGuiID DockSpaceId = MakeEditorHostDockSpaceId(LayoutVersion);
 		return ImGui::DockSpace(DockSpaceId, Size, Flags, &WindowClass);
 	}
+
+	auto DrawDocumentCloseConfirmation(FEditorWorkspaceManager& WorkspaceManager) -> void
+	{
+		const FEditorDocumentTab* PendingDocument = WorkspaceManager.GetPendingCloseDocument();
+		if (!PendingDocument) return;
+
+		ImGui::OpenPopup("Confirm Close Document###Durin.Editor.DocumentCloseConfirmation");
+		if (!ImGui::BeginPopupModal(
+				"Confirm Close Document###Durin.Editor.DocumentCloseConfirmation",
+				nullptr,
+				ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings
+			))
+			return;
+
+		ImGui::TextWrapped("Save changes to \"%s\" before closing?", PendingDocument->Label.c_str());
+		ImGui::Spacing();
+		if (ImGui::Button("Save", ImVec2(100, 0)))
+		{
+			if (WorkspaceManager.ResolvePendingDocumentClose(EEditorDocumentCloseResponse::Save) ==
+				EEditorDocumentCloseResult::Closed)
+				ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Discard", ImVec2(100, 0)))
+		{
+			if (WorkspaceManager.ResolvePendingDocumentClose(EEditorDocumentCloseResponse::Discard) ==
+				EEditorDocumentCloseResult::Closed)
+				ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(100, 0)))
+		{
+			WorkspaceManager.ResolvePendingDocumentClose(EEditorDocumentCloseResponse::Cancel);
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
 }

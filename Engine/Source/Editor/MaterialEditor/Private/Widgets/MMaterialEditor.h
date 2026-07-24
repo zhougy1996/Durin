@@ -25,7 +25,9 @@ namespace Durin
 		MATERIALEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult override;
 		MATERIALEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
 		MATERIALEDITOR_API auto RequestDeactivate() -> bool override;
-		MATERIALEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
+		MATERIALEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> EEditorDocumentCloseResult override;
+		MATERIALEDITOR_API auto SaveDocument(const FEditorDocumentTab& Document) -> bool override;
+		MATERIALEDITOR_API auto DiscardDocument(const FEditorDocumentTab& Document) -> bool override;
 		MATERIALEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
 		MATERIALEDITOR_API auto CanSaveActiveDocument() const -> bool override;
 		MATERIALEDITOR_API auto SaveActiveDocument() -> bool override;
@@ -58,14 +60,12 @@ namespace Durin
 
 		FEditorWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
-		std::unordered_map<uint64, FEditorWorkspaceRootWindow> DocumentWindows;
+		FEditorWorkspaceDocumentHost DocumentHost;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialPreview>> MaterialPreviews;
 		std::string ActiveResourceId;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;
 		FReflectedPropertyView PropertyView;
-		// Set when a dirty document close is deferred for user confirmation.
-		FEditorDocumentId PendingCloseDocumentId;
 	};
 }

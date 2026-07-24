@@ -91,7 +91,7 @@ namespace Durin
 		DTexture2D* Texture = FindOpenTexture(Document.ResourceId);
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Texture) && !FinishActivePropertyEdit(true)) return;
 		if (Texture) ActiveResourceId = Document.ResourceId;
-		DocumentWindows[Document.Id.Value].RequestFocus();
+		DocumentHost.RequestFocus(Document.Id);
 	}
 
 	auto MTextureEditor::RequestDeactivate() -> bool
@@ -99,21 +99,27 @@ namespace Durin
 		return FinishActivePropertyEdit(true);
 	}
 
-	auto MTextureEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
+	auto MTextureEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> EEditorDocumentCloseResult
 	{
-		if (PropertyView.IsEditingObject(FindOpenTexture(Document.ResourceId)) && !FinishActivePropertyEdit(true)) return false;
-		if (IsDocumentDirty(Document))
-		{
-			PendingCloseDocumentId = Document.Id;
-			return false;
-		}
+		if (PropertyView.IsEditingObject(FindOpenTexture(Document.ResourceId)) && !FinishActivePropertyEdit(true))
+			return EEditorDocumentCloseResult::Rejected;
+		if (IsDocumentDirty(Document)) return EEditorDocumentCloseResult::PendingConfirmation;
 		OpenTextures.erase(Document.ResourceId);
 		PreviewStates.erase(Document.ResourceId);
-		DocumentWindows.erase(Document.Id.Value);
-		if (ActiveResourceId == Document.ResourceId)
-		{
-			ActiveResourceId.clear();
-		}
+		if (ActiveResourceId == Document.ResourceId) ActiveResourceId.clear();
+		return EEditorDocumentCloseResult::Closed;
+	}
+
+	auto MTextureEditor::SaveDocument(const FEditorDocumentTab& Document) -> bool
+	{
+		return SaveTexture(FindOpenTexture(Document.ResourceId));
+	}
+
+	auto MTextureEditor::DiscardDocument(const FEditorDocumentTab& Document) -> bool
+	{
+		DTexture2D* Texture = FindOpenTexture(Document.ResourceId);
+		if (!Texture || !Texture->GetPackage()) return false;
+		Texture->GetPackage()->ClearDirty();
 		return true;
 	}
 
@@ -167,77 +173,17 @@ namespace Durin
 	auto MTextureEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
-		bool bWorkspaceActivated = false;
-		std::vector<FEditorDocumentId> CloseRequests;
-		for (const FEditorDocumentTab& Document : WorkspaceManager.GetDocuments())
-		{
-			if (Document.WorkspaceType != TextureEditorWorkspace::Type) continue;
-			DTexture2D* Texture = FindOpenTexture(Document.ResourceId);
-			if (!Texture) continue;
-			FEditorWorkspaceRootWindow& RootWindow = DocumentWindows[Document.Id.Value];
-			const FEditorWorkspaceRootWindowState WindowState = RootWindow.Begin({
-				.DisplayName = Document.Label,
-				.RootKey = EditorWorkspaceUI::MakeEditorDocumentRootKey(TextureEditorWorkspace::RootKey, Document.DocumentKey),
-				.bDirty = Texture->GetPackage() && Texture->GetPackage()->IsDirty(),
-			});
-			if (WindowState.bFocused || WindowState.bActivated)
-			{
-				bWorkspaceActivated = true;
-				if (ActiveResourceId != Document.ResourceId) WorkspaceManager.ActivateDocument(Document.Id);
+		return DocumentHost.DrawDocuments(
+			WorkspaceManager,
+			TextureEditorWorkspace::Type,
+			TextureEditorWorkspace::RootKey,
+			[this](const FEditorDocumentTab& Document) {
+				return FindOpenTexture(Document.ResourceId) != nullptr;
+			},
+			[this](const FEditorDocumentTab& Document) {
+				DrawDocument(Document, FindOpenTexture(Document.ResourceId));
 			}
-			if (WindowState.bVisible) DrawDocument(Document, Texture);
-			RootWindow.End();
-			if (WindowState.bCloseRequested) CloseRequests.push_back(Document.Id);
-		}
-		for (FEditorDocumentId DocumentId : CloseRequests) WorkspaceManager.RequestCloseDocument(DocumentId);
-
-		if (PendingCloseDocumentId.IsValid())
-		{
-			const FEditorDocumentTab* PendingDocument = [&]() -> const FEditorDocumentTab* {
-				for (const FEditorDocumentTab& Doc : WorkspaceManager.GetDocuments())
-					if (Doc.Id == PendingCloseDocumentId) return &Doc;
-				return nullptr;
-			}();
-			if (!PendingDocument)
-			{
-				PendingCloseDocumentId = {};
-				return bWorkspaceActivated;
-			}
-			ImGui::OpenPopup("ConfirmClose");
-			if (ImGui::BeginPopupModal("ConfirmClose", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-			{
-				ImGui::TextWrapped("Save changes to \"%s\" before closing?", PendingDocument->Label.c_str());
-				ImGui::Spacing();
-				if (ImGui::Button("Save", ImVec2(100, 0)))
-				{
-					DTexture2D* Texture = FindOpenTexture(PendingDocument->ResourceId);
-					if (SaveTexture(Texture))
-					{
-						ImGui::CloseCurrentPopup();
-						WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
-						PendingCloseDocumentId = {};
-					}
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("Discard", ImVec2(100, 0)))
-				{
-					if (DTexture2D* Texture = FindOpenTexture(PendingDocument->ResourceId))
-						if (Texture->GetPackage()) Texture->GetPackage()->ClearDirty();
-					ImGui::CloseCurrentPopup();
-					WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
-					PendingCloseDocumentId = {};
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("Cancel", ImVec2(100, 0)))
-				{
-					ImGui::CloseCurrentPopup();
-					PendingCloseDocumentId = {};
-				}
-				ImGui::EndPopup();
-			}
-		}
-
-		return bWorkspaceActivated;
+		);
 	}
 
 	auto MTextureEditor::ResetLayout() -> void

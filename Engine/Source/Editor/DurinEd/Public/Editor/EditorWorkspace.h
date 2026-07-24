@@ -61,6 +61,23 @@ namespace Durin
 		Deferred,
 	};
 
+	// Reports whether a close request completed, needs confirmation, was rejected, or was cancelled.
+	enum class EEditorDocumentCloseResult : uint8
+	{
+		Rejected,
+		Closed,
+		PendingConfirmation,
+		Cancelled,
+	};
+
+	// Selects how the host resolves a pending dirty-document close.
+	enum class EEditorDocumentCloseResponse : uint8
+	{
+		Save,
+		Discard,
+		Cancel,
+	};
+
 	// Selects whether an asset editor shares one document or opens per resource.
 	enum class EEditorDocumentPolicy : uint8
 	{
@@ -166,7 +183,23 @@ namespace Durin
 		// Called before the manager changes the active document or workspace.
 		// Returning false keeps the current host state active.
 		virtual auto RequestDeactivate() -> bool { return true; }
-		virtual auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool { return !Document.bDirty; }
+		// Release workspace-owned document state only when returning Closed.
+		virtual auto RequestCloseDocument(const FEditorDocumentTab& Document) -> EEditorDocumentCloseResult
+		{
+			return Document.bDirty ? EEditorDocumentCloseResult::PendingConfirmation : EEditorDocumentCloseResult::Closed;
+		}
+		// Resolve resource-specific persistence before the manager retries a pending close.
+		virtual auto SaveDocument(const FEditorDocumentTab& Document) -> bool
+		{
+			(void)Document;
+			return false;
+		}
+		// Resolve resource-specific rollback before the manager retries a pending close.
+		virtual auto DiscardDocument(const FEditorDocumentTab& Document) -> bool
+		{
+			(void)Document;
+			return false;
+		}
 		virtual auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool { return Document.bDirty; }
 		virtual auto CanSaveActiveDocument() const -> bool { return false; }
 		virtual auto SaveActiveDocument() -> bool { return false; }
@@ -201,12 +234,15 @@ namespace Durin
 		DURINED_API auto ActivateDocument(FEditorDocumentId DocumentId) -> bool;
 		DURINED_API auto ActivateWorkspace(const FEditorWorkspaceTypeId& WorkspaceType) -> bool;
 		DURINED_API auto OpenDefaultWorkspaces() -> bool;
-		DURINED_API auto RequestCloseDocument(FEditorDocumentId DocumentId) -> bool;
+		DURINED_API auto RequestCloseDocument(FEditorDocumentId DocumentId) -> EEditorDocumentCloseResult;
+		// Applies one response to the single pending close without losing it on save or discard failure.
+		DURINED_API auto ResolvePendingDocumentClose(EEditorDocumentCloseResponse Response) -> EEditorDocumentCloseResult;
 		DURINED_API auto RefreshDocumentState() -> void;
 
 		DURINED_API auto GetDocuments() const -> const std::vector<FEditorDocumentTab>&;
 		DURINED_API auto GetActiveDocument() -> FEditorDocumentTab*;
 		DURINED_API auto GetActiveDocument() const -> const FEditorDocumentTab*;
+		DURINED_API auto GetPendingCloseDocument() const -> const FEditorDocumentTab*;
 		DURINED_API auto FindWorkspace(const FEditorWorkspaceTypeId& WorkspaceType) const -> std::shared_ptr<IEditorWorkspace>;
 		DURINED_API auto GetRegisteredWorkspaces() const -> std::vector<std::shared_ptr<IEditorWorkspace>>;
 		DURINED_API auto GetWorkspaceDescriptors() const -> std::vector<FEditorWorkspaceDescriptor>;

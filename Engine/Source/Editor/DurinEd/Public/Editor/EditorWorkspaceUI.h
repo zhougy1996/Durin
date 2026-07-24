@@ -40,4 +40,5 @@ namespace Durin::EditorWorkspaceUI
 		const ImVec2& Size,
 		ImGuiDockNodeFlags Flags = ImGuiDockNodeFlags_None
 	) -> ImGuiID;
+	DURINED_API auto DrawDocumentCloseConfirmation(FEditorWorkspaceManager& WorkspaceManager) -> void;
 }

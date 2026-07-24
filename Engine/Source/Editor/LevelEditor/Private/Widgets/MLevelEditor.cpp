@@ -257,14 +257,24 @@ namespace Durin
 		return !Context || !DetailsPanel || DetailsPanel->RequestDeactivate(*Context);
 	}
 
-	auto MLevelEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
+	auto MLevelEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> EEditorDocumentCloseResult
 	{
-		if (!RequestDeactivate()) return false;
-		if (IsDocumentDirty(Document))
-		{
-			PendingCloseDocumentId = Document.Id;
-			return false;
-		}
+		if (!RequestDeactivate()) return EEditorDocumentCloseResult::Rejected;
+		if (IsDocumentDirty(Document)) return EEditorDocumentCloseResult::PendingConfirmation;
+		return EEditorDocumentCloseResult::Closed;
+	}
+
+	auto MLevelEditor::SaveDocument(const FEditorDocumentTab& Document) -> bool
+	{
+		(void)Document;
+		return SaveActiveDocument();
+	}
+
+	auto MLevelEditor::DiscardDocument(const FEditorDocumentTab& Document) -> bool
+	{
+		(void)Document;
+		if (!Context || !Context->Level || !Context->Level->GetPackage()) return false;
+		Context->Level->GetPackage()->ClearDirty();
 		return true;
 	}
 
@@ -405,51 +415,6 @@ namespace Durin
 		if (NotificationOverlay && GEditor)
 		{
 			NotificationOverlay->DrawNotifications(GEditor->GetNotificationManager(), GEditor->GetTransactionManager());
-		}
-
-		if (PendingCloseDocumentId.IsValid())
-		{
-			const FEditorDocumentTab* PendingDocument = [&]() -> const FEditorDocumentTab* {
-				for (const FEditorDocumentTab& Doc : WorkspaceManager.GetDocuments())
-					if (Doc.Id == PendingCloseDocumentId) return &Doc;
-				return nullptr;
-			}();
-			if (!PendingDocument)
-			{
-				PendingCloseDocumentId = {};
-				return RootWindowState.bFocused || RootWindowState.bActivated;
-			}
-			ImGui::OpenPopup("ConfirmClose");
-			if (ImGui::BeginPopupModal("ConfirmClose", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-			{
-				ImGui::TextWrapped("Save changes to \"%s\" before closing?", PendingDocument->Label.c_str());
-				ImGui::Spacing();
-				if (ImGui::Button("Save", ImVec2(100, 0)))
-				{
-					if (SaveActiveDocument())
-					{
-						ImGui::CloseCurrentPopup();
-						WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
-						PendingCloseDocumentId = {};
-					}
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("Discard", ImVec2(100, 0)))
-				{
-					if (Context && Context->Level && Context->Level->GetPackage())
-						Context->Level->GetPackage()->ClearDirty();
-					ImGui::CloseCurrentPopup();
-					WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
-					PendingCloseDocumentId = {};
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("Cancel", ImVec2(100, 0)))
-				{
-					ImGui::CloseCurrentPopup();
-					PendingCloseDocumentId = {};
-				}
-				ImGui::EndPopup();
-			}
 		}
 
 		return RootWindowState.bFocused || RootWindowState.bActivated;

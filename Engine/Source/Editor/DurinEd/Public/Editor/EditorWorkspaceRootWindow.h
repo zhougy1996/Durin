@@ -48,4 +48,23 @@ namespace Durin
 		bool bWasDockTabSelected = false;
 		bool bWindowBegun = false;
 	};
+
+	// Hosts the repeated root-window lifecycle for one per-resource workspace.
+	class FEditorWorkspaceDocumentHost
+	{
+	public:
+		DURINED_API auto RequestFocus(FEditorDocumentId DocumentId) -> void;
+		// Draws every document of one workspace and defers manager mutation until iteration completes.
+		DURINED_API auto DrawDocuments(
+			FEditorWorkspaceManager& WorkspaceManager,
+			const FEditorWorkspaceTypeId& WorkspaceType,
+			std::string_view WorkspaceRootKey,
+			const std::function<bool(const FEditorDocumentTab&)>& CanDrawDocument,
+			const std::function<void(const FEditorDocumentTab&)>& DrawDocument,
+			const std::function<void(const FEditorDocumentTab&)>& PrepareDocument = {}
+		) -> bool;
+
+	private:
+		std::unordered_map<uint64, FEditorWorkspaceRootWindow> DocumentWindows;
+	};
 }

@@ -31,14 +31,41 @@ namespace
 			++DeactivationRequestCount;
 			return bAllowDeactivation;
 		}
+		auto RequestCloseDocument(const Durin::FEditorDocumentTab&) -> Durin::EEditorDocumentCloseResult override
+		{
+			++CloseRequestCount;
+			return CloseResult;
+		}
+		auto SaveDocument(const Durin::FEditorDocumentTab& Document) -> bool override
+		{
+			++SaveCount;
+			LastSavedResource = Document.ResourceId;
+			if (bAllowSave) CloseResult = Durin::EEditorDocumentCloseResult::Closed;
+			return bAllowSave;
+		}
+		auto DiscardDocument(const Durin::FEditorDocumentTab& Document) -> bool override
+		{
+			++DiscardCount;
+			LastDiscardedResource = Document.ResourceId;
+			if (bAllowDiscard) CloseResult = Durin::EEditorDocumentCloseResult::Closed;
+			return bAllowDiscard;
+		}
 		auto DrawWorkspace(bool) -> bool override { return false; }
 		auto ResetLayout() -> void override {}
 
 		int ActivationCount = 0;
 		int DeactivationRequestCount = 0;
+		int CloseRequestCount = 0;
+		int SaveCount = 0;
+		int DiscardCount = 0;
 		bool bAllowDeactivation = true;
+		bool bAllowSave = true;
+		bool bAllowDiscard = true;
 		Durin::EEditorDocumentOpenResult OpenResult = Durin::EEditorDocumentOpenResult::Opened;
+		Durin::EEditorDocumentCloseResult CloseResult = Durin::EEditorDocumentCloseResult::Closed;
 		std::string LastActivatedResource;
+		std::string LastSavedResource;
+		std::string LastDiscardedResource;
 
 	private:
 		Durin::FEditorWorkspaceTypeId WorkspaceType;
@@ -318,6 +345,73 @@ TEST(FEditorWorkspaceManagerTests, KeepsActiveDocumentWhenHostCannotRestoreItsPr
 	EXPECT_EQ(Manager.GetActiveDocument()->Id, Second);
 	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Materials/MI_Stone");
 	EXPECT_EQ(Workspace->DeactivationRequestCount, 2);
+}
+
+TEST(FEditorWorkspaceManagerTests, CoordinatesPendingDocumentCloseResponses)
+{
+	Durin::FEditorWorkspaceManager Manager;
+	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
+	Durin::FEditorWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+		.Workspaces = {MakeWorkspaceRegistration(Workspace, "Material Editor")},
+	});
+	ASSERT_TRUE(Registration);
+
+	const Durin::FEditorDocumentId First = Manager.OpenDocument({
+		.WorkspaceType = Durin::FEditorWorkspaceTypeId("MaterialEditor"),
+		.DocumentKey = "First",
+		.ResourceId = "/Game/Materials/M_First",
+		.Label = "M_First",
+	});
+	const Durin::FEditorDocumentId Second = Manager.OpenDocument({
+		.WorkspaceType = Durin::FEditorWorkspaceTypeId("MaterialEditor"),
+		.DocumentKey = "Second",
+		.ResourceId = "/Game/Materials/M_Second",
+		.Label = "M_Second",
+	});
+	ASSERT_TRUE(First.IsValid());
+	ASSERT_TRUE(Second.IsValid());
+
+	Workspace->CloseResult = Durin::EEditorDocumentCloseResult::PendingConfirmation;
+	EXPECT_EQ(Manager.RequestCloseDocument(First), Durin::EEditorDocumentCloseResult::PendingConfirmation);
+	ASSERT_NE(Manager.GetPendingCloseDocument(), nullptr);
+	EXPECT_EQ(Manager.GetPendingCloseDocument()->Id, First);
+	EXPECT_EQ(Manager.RequestCloseDocument(First), Durin::EEditorDocumentCloseResult::PendingConfirmation);
+	EXPECT_EQ(Manager.RequestCloseDocument(Second), Durin::EEditorDocumentCloseResult::Rejected);
+
+	Workspace->bAllowSave = false;
+	EXPECT_EQ(
+		Manager.ResolvePendingDocumentClose(Durin::EEditorDocumentCloseResponse::Save),
+		Durin::EEditorDocumentCloseResult::PendingConfirmation
+	);
+	EXPECT_EQ(Manager.GetDocuments().size(), 2);
+	ASSERT_NE(Manager.GetPendingCloseDocument(), nullptr);
+
+	Workspace->bAllowSave = true;
+	EXPECT_EQ(
+		Manager.ResolvePendingDocumentClose(Durin::EEditorDocumentCloseResponse::Save),
+		Durin::EEditorDocumentCloseResult::Closed
+	);
+	EXPECT_EQ(Workspace->LastSavedResource, "/Game/Materials/M_First");
+	ASSERT_EQ(Manager.GetDocuments().size(), 1);
+	EXPECT_EQ(Manager.GetDocuments().front().Id, Second);
+	EXPECT_EQ(Manager.GetPendingCloseDocument(), nullptr);
+
+	Workspace->CloseResult = Durin::EEditorDocumentCloseResult::PendingConfirmation;
+	EXPECT_EQ(Manager.RequestCloseDocument(Second), Durin::EEditorDocumentCloseResult::PendingConfirmation);
+	EXPECT_EQ(
+		Manager.ResolvePendingDocumentClose(Durin::EEditorDocumentCloseResponse::Cancel),
+		Durin::EEditorDocumentCloseResult::Cancelled
+	);
+	EXPECT_EQ(Manager.GetDocuments().size(), 1);
+	EXPECT_EQ(Manager.GetPendingCloseDocument(), nullptr);
+
+	EXPECT_EQ(Manager.RequestCloseDocument(Second), Durin::EEditorDocumentCloseResult::PendingConfirmation);
+	EXPECT_EQ(
+		Manager.ResolvePendingDocumentClose(Durin::EEditorDocumentCloseResponse::Discard),
+		Durin::EEditorDocumentCloseResult::Closed
+	);
+	EXPECT_EQ(Workspace->LastDiscardedResource, "/Game/Materials/M_Second");
+	EXPECT_TRUE(Manager.GetDocuments().empty());
 }
 
 TEST(FEditorWorkspaceUITests, DocumentRootKeysRemainDistinctForSameNamedAssets)

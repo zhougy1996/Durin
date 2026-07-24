@@ -47,6 +47,15 @@ Static-mesh material slots use the trailing action for reset-to-default behavior
 Reflected Object property editing and the
 project-settings default-level selector both use the shared picker.
 
+Dirty-document close coordination is now owned by `DurinEd`.
+`EEditorDocumentCloseResult` distinguishes closed, pending, rejected, and
+cancelled outcomes; `FEditorWorkspaceManager` owns the pending document and
+resolves Save/Discard/Cancel through workspace callbacks; and `MainFrame` draws
+one shared confirmation modal. A composition-oriented document host now owns
+the repeated per-resource root-window iteration for Material and Texture while
+those workspaces retain resource lookup, preview, save, discard, release, and
+body drawing.
+
 ## Goals
 
 - [x] Make `MaterialEditor` an independently owned editor module.
@@ -179,6 +188,11 @@ close forwarding to `FEditorWorkspaceManager`.
 - [x] Keep editor-specific shortcut and content drawing in each workspace.
 - [x] Do not introduce a base class containing Level-specific panels, settings,
   or play-session behavior.
+- [x] Add a composition-oriented multi-document host for the common
+  per-resource root-window iteration, activation, and close forwarding used by
+  Material and Texture workspaces.
+- [x] Keep resource lookup, preview visibility, and document body drawing in
+  the owning workspace through callbacks.
 
 ### Asset Picker
 
@@ -205,11 +219,10 @@ loading, and error reporting.
 
 ### Dirty Document Close Flow
 
-When a close is requested on a dirty document, each workspace now shows a
-Save/Discard/Cancel modal dialog instead of silently rejecting the request. The
-confirmation is workspace-scoped: a `PendingCloseDocumentId` holds the deferred
-document until the user acts, and the same close guard prevents duplicate
-dialogs.
+When a close is requested on a dirty document, the workspace manager should own
+the pending document and the editor host should show one shared
+Save/Discard/Cancel modal. Workspaces retain only the resource-specific
+operations needed to prepare, save, discard, and release a document.
 
 - [x] Define an explicit close result such as closed, pending confirmation, or
   rejected.
@@ -311,8 +324,10 @@ one change.
   sync with transaction history.
 - [x] The global transaction manager clears on PIE start/stop and play-changes
   apply, but persists across project open/close and document transitions.
-- [x] Each workspace shows a Save/Discard/Cancel modal when dismissing a dirty
-  document instead of silently rejecting the close.
+- [x] The editor host shows one shared Save/Discard/Cancel modal when a
+  workspace defers a dirty-document close.
+- [x] Material and Texture use the shared per-resource document host for root
+  windows, activation, and close forwarding.
 - [x] Deferred singleton Level opens retain the current tab identity until the
   unsaved-change decision and Level activation both succeed.
 
@@ -365,6 +380,13 @@ broader interactive workflow smoke test remains open.
 Deferred Level document replacement was validated with all 197 `EngineTests`,
 a successful full `all` build, and hidden-window editor initialization from the
 same test preset.
+
+Shared document close coordination and the Material/Texture document host were
+validated on 2026-07-25 with all 11 `FEditorWorkspaceManagerTests`, a successful
+full `all` build, and hidden-window editor initialization from the same test
+preset. The initialization smoke run was stopped after the editor reported
+successful startup; interactive Save/Discard/Cancel UI coverage remains part of
+the broader open workflow smoke test.
 
 The default-Level picker current-selection fix was validated with both
 `FEditorAssetPickerTests`, a successful full `all` build, and hidden-window

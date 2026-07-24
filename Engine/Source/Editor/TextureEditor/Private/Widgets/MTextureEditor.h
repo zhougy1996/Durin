@@ -21,7 +21,9 @@ namespace Durin
 		TEXTUREEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult override;
 		TEXTUREEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
 		TEXTUREEDITOR_API auto RequestDeactivate() -> bool override;
-		TEXTUREEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
+		TEXTUREEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> EEditorDocumentCloseResult override;
+		TEXTUREEDITOR_API auto SaveDocument(const FEditorDocumentTab& Document) -> bool override;
+		TEXTUREEDITOR_API auto DiscardDocument(const FEditorDocumentTab& Document) -> bool override;
 		TEXTUREEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
 		TEXTUREEDITOR_API auto CanSaveActiveDocument() const -> bool override;
 		TEXTUREEDITOR_API auto SaveActiveDocument() -> bool override;
@@ -49,13 +51,10 @@ namespace Durin
 
 		FEditorWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DTexture2D>> OpenTextures;
-		std::unordered_map<uint64, FEditorWorkspaceRootWindow> DocumentWindows;
+		FEditorWorkspaceDocumentHost DocumentHost;
 		std::string ActiveResourceId;
 		std::string ErrorMessage;
 		FReflectedPropertyView PropertyView;
-		// Set when a dirty document close is deferred for user confirmation.
-		FEditorDocumentId PendingCloseDocumentId;
-
 		// Retains the preview selection independently for each open texture.
 		struct FTexturePreviewState
 		{

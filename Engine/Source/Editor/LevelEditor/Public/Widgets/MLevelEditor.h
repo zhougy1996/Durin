@@ -32,7 +32,9 @@ namespace Durin
 		LEVELEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult override;
 		LEVELEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
 		LEVELEDITOR_API auto RequestDeactivate() -> bool override;
-		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> bool override;
+		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> EEditorDocumentCloseResult override;
+		LEVELEDITOR_API auto SaveDocument(const FEditorDocumentTab& Document) -> bool override;
+		LEVELEDITOR_API auto DiscardDocument(const FEditorDocumentTab& Document) -> bool override;
 		LEVELEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
 		LEVELEDITOR_API auto CanSaveActiveDocument() const -> bool override;
 		LEVELEDITOR_API auto SaveActiveDocument() -> bool override;
@@ -79,6 +81,5 @@ namespace Durin
 		std::string DefaultLevel;
 		std::string EditorError;
 		FEditorDocumentId DeferredOpenDocumentId;
-		FEditorDocumentId PendingCloseDocumentId;
 	};
 } // namespace Durin

@@ -71,7 +71,7 @@ namespace Durin
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Material) && !FinishActivePropertyEdit(true)) return;
 		if (Material) ActiveResourceId = Document.ResourceId;
-		DocumentWindows[Document.Id.Value].RequestFocus();
+		DocumentHost.RequestFocus(Document.Id);
 	}
 
 	auto MMaterialEditor::RequestDeactivate() -> bool
@@ -79,19 +79,27 @@ namespace Durin
 		return FinishActivePropertyEdit(true);
 	}
 
-	auto MMaterialEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
+	auto MMaterialEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> EEditorDocumentCloseResult
 	{
-		if (PropertyView.IsEditingObject(FindOpenMaterial(Document.ResourceId)) && !FinishActivePropertyEdit(true)) return false;
-		if (IsDocumentDirty(Document))
-		{
-			// Defer close so the user can choose Save, Discard, or Cancel.
-			PendingCloseDocumentId = Document.Id;
-			return false;
-		}
+		if (PropertyView.IsEditingObject(FindOpenMaterial(Document.ResourceId)) && !FinishActivePropertyEdit(true))
+			return EEditorDocumentCloseResult::Rejected;
+		if (IsDocumentDirty(Document)) return EEditorDocumentCloseResult::PendingConfirmation;
 		OpenMaterials.erase(Document.ResourceId);
-		DocumentWindows.erase(Document.Id.Value);
 		MaterialPreviews.erase(Document.Id.Value);
 		if (ActiveResourceId == Document.ResourceId) ActiveResourceId.clear();
+		return EEditorDocumentCloseResult::Closed;
+	}
+
+	auto MMaterialEditor::SaveDocument(const FEditorDocumentTab& Document) -> bool
+	{
+		return SaveMaterial(FindOpenMaterial(Document.ResourceId));
+	}
+
+	auto MMaterialEditor::DiscardDocument(const FEditorDocumentTab& Document) -> bool
+	{
+		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
+		if (!Material || !Material->GetPackage()) return false;
+		Material->GetPackage()->ClearDirty();
 		return true;
 	}
 
@@ -115,85 +123,21 @@ namespace Durin
 	auto MMaterialEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!bActive && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
-		bool bWorkspaceActivated = false;
-		std::vector<FEditorDocumentId> CloseRequests;
-		for (const FEditorDocumentTab& Document : WorkspaceManager.GetDocuments())
-		{
-			if (Document.WorkspaceType != MaterialEditorWorkspace::Type) continue;
-			if (const auto PreviewIt = MaterialPreviews.find(Document.Id.Value); PreviewIt != MaterialPreviews.end())
-			{
-				PreviewIt->second->SetVisible(false);
+		return DocumentHost.DrawDocuments(
+			WorkspaceManager,
+			MaterialEditorWorkspace::Type,
+			MaterialEditorWorkspace::RootKey,
+			[this](const FEditorDocumentTab& Document) {
+				return FindOpenMaterial(Document.ResourceId) != nullptr;
+			},
+			[this](const FEditorDocumentTab& Document) {
+				DrawDocument(Document, FindOpenMaterial(Document.ResourceId));
+			},
+			[this](const FEditorDocumentTab& Document) {
+				if (const auto PreviewIt = MaterialPreviews.find(Document.Id.Value); PreviewIt != MaterialPreviews.end())
+					PreviewIt->second->SetVisible(false);
 			}
-			DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
-			if (!Material) continue;
-			FEditorWorkspaceRootWindow& RootWindow = DocumentWindows[Document.Id.Value];
-			const FEditorWorkspaceRootWindowState WindowState = RootWindow.Begin({
-				.DisplayName = Document.Label,
-				.RootKey = EditorWorkspaceUI::MakeEditorDocumentRootKey(MaterialEditorWorkspace::RootKey, Document.DocumentKey),
-				.bDirty = Material->GetPackage() && Material->GetPackage()->IsDirty(),
-			});
-			if (WindowState.bFocused || WindowState.bActivated)
-			{
-				bWorkspaceActivated = true;
-				if (ActiveResourceId != Document.ResourceId) WorkspaceManager.ActivateDocument(Document.Id);
-			}
-			if (WindowState.bVisible)
-				DrawDocument(Document, Material);
-			RootWindow.End();
-			if (WindowState.bCloseRequested) CloseRequests.push_back(Document.Id);
-		}
-		// Closing mutates the document array, so defer it until iteration is complete.
-		for (FEditorDocumentId DocumentId : CloseRequests) WorkspaceManager.RequestCloseDocument(DocumentId);
-
-		// If a close was deferred for a dirty document, show a confirmation dialog.
-		if (PendingCloseDocumentId.IsValid())
-		{
-			const FEditorDocumentTab* PendingDocument = [&]() -> const FEditorDocumentTab* {
-				for (const FEditorDocumentTab& Doc : WorkspaceManager.GetDocuments())
-					if (Doc.Id == PendingCloseDocumentId) return &Doc;
-				return nullptr;
-			}();
-			if (!PendingDocument)
-			{
-				PendingCloseDocumentId = {};
-				return bWorkspaceActivated;
-			}
-			ImGui::OpenPopup("ConfirmClose");
-			if (ImGui::BeginPopupModal("ConfirmClose", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-			{
-				ImGui::TextWrapped("Save changes to \"%s\" before closing?", PendingDocument->Label.c_str());
-				ImGui::Spacing();
-				if (ImGui::Button("Save", ImVec2(100, 0)))
-				{
-					DMaterialInterface* Material = FindOpenMaterial(PendingDocument->ResourceId);
-					if (SaveMaterial(Material))
-					{
-						ImGui::CloseCurrentPopup();
-						WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
-						PendingCloseDocumentId = {};
-					}
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("Discard", ImVec2(100, 0)))
-				{
-					// Clear dirty flag so the document can close without triggering the guard again.
-					if (DMaterialInterface* Material = FindOpenMaterial(PendingDocument->ResourceId))
-						if (Material->GetPackage()) Material->GetPackage()->ClearDirty();
-					ImGui::CloseCurrentPopup();
-					WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
-					PendingCloseDocumentId = {};
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("Cancel", ImVec2(100, 0)))
-				{
-					ImGui::CloseCurrentPopup();
-					PendingCloseDocumentId = {};
-				}
-				ImGui::EndPopup();
-			}
-		}
-
-		return bWorkspaceActivated;
+		);
 	}
 
 	auto MMaterialEditor::ResetLayout() -> void

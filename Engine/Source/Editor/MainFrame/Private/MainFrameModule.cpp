@@ -263,6 +263,7 @@ namespace Durin
 				if (Workspace->DrawWorkspace(Workspace == ActiveWorkspace))
 					WorkspaceManager.ActivateWorkspace(Workspace->GetWorkspaceType());
 			}
+			EditorWorkspaceUI::DrawDocumentCloseConfirmation(WorkspaceManager);
 
 			ImGui::End();
 		}

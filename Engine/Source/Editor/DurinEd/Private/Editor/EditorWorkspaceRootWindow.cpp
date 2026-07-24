@@ -58,4 +58,54 @@ namespace Durin
 		ImGui::End();
 		bWindowBegun = false;
 	}
+
+	auto FEditorWorkspaceDocumentHost::RequestFocus(FEditorDocumentId DocumentId) -> void
+	{
+		DocumentWindows[DocumentId.Value].RequestFocus();
+	}
+
+	auto FEditorWorkspaceDocumentHost::DrawDocuments(
+		FEditorWorkspaceManager& WorkspaceManager,
+		const FEditorWorkspaceTypeId& WorkspaceType,
+		std::string_view WorkspaceRootKey,
+		const std::function<bool(const FEditorDocumentTab&)>& CanDrawDocument,
+		const std::function<void(const FEditorDocumentTab&)>& DrawDocument,
+		const std::function<void(const FEditorDocumentTab&)>& PrepareDocument
+	) -> bool
+	{
+		bool bWorkspaceActivated = false;
+		std::vector<FEditorDocumentId> CloseRequests;
+		std::unordered_set<uint64> OpenDocumentIds;
+		for (const FEditorDocumentTab& Document : WorkspaceManager.GetDocuments())
+		{
+			if (Document.WorkspaceType != WorkspaceType) continue;
+			OpenDocumentIds.insert(Document.Id.Value);
+			if (PrepareDocument) PrepareDocument(Document);
+			if (!CanDrawDocument(Document)) continue;
+
+			FEditorWorkspaceRootWindow& RootWindow = DocumentWindows[Document.Id.Value];
+			const FEditorWorkspaceRootWindowState WindowState = RootWindow.Begin({
+				.DisplayName = Document.Label,
+				.RootKey = EditorWorkspaceUI::MakeEditorDocumentRootKey(WorkspaceRootKey, Document.DocumentKey),
+				.bDirty = Document.bDirty,
+			});
+			if (WindowState.bFocused || WindowState.bActivated)
+			{
+				bWorkspaceActivated = true;
+				const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
+				if (!ActiveDocument || ActiveDocument->Id != Document.Id)
+					WorkspaceManager.ActivateDocument(Document.Id);
+			}
+			if (WindowState.bVisible) DrawDocument(Document);
+			RootWindow.End();
+			if (WindowState.bCloseRequested) CloseRequests.push_back(Document.Id);
+		}
+
+		std::erase_if(DocumentWindows, [&](const auto& Entry) {
+			return !OpenDocumentIds.contains(Entry.first);
+		});
+		for (FEditorDocumentId DocumentId : CloseRequests)
+			WorkspaceManager.RequestCloseDocument(DocumentId);
+		return bWorkspaceActivated;
+	}
 }

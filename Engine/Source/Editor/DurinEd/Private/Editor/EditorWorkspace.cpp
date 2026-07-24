@@ -26,6 +26,7 @@ namespace Durin::Detail
 		uint64 NextWorkspaceRegistrationOrder = 1;
 		uint64 NextDocumentId = 1;
 		FEditorDocumentId ActiveDocumentId;
+		FEditorDocumentId PendingCloseDocumentId;
 		std::vector<FEditorDocumentTab> Documents;
 		std::unordered_map<uint64, FEditorDocumentTab> DeferredDocumentOpens;
 		std::unordered_map<std::string, FRegisteredWorkspace> Workspaces;
@@ -57,6 +58,10 @@ namespace Durin::Detail
 		std::erase_if(State.Documents, [&](const FEditorDocumentTab& Document) {
 			return RemovedWorkspaceTypes.contains(std::string(Document.WorkspaceType.GetValue()));
 		});
+		if (const auto PendingClose = std::ranges::find(
+				State.Documents, State.PendingCloseDocumentId, &FEditorDocumentTab::Id
+			); PendingClose == State.Documents.end())
+			State.PendingCloseDocumentId = {};
 		std::erase_if(State.DeferredDocumentOpens, [&](const auto& Pair) {
 			return RemovedWorkspaceTypes.contains(std::string(Pair.second.WorkspaceType.GetValue()));
 		});
@@ -333,23 +338,66 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditorWorkspaceManager::RequestCloseDocument(FEditorDocumentId DocumentId) -> bool
+	auto FEditorWorkspaceManager::RequestCloseDocument(FEditorDocumentId DocumentId) -> EEditorDocumentCloseResult
 	{
-		State->DeferredDocumentOpens.erase(DocumentId.Value);
+		if (State->PendingCloseDocumentId.IsValid())
+		{
+			return State->PendingCloseDocumentId == DocumentId
+				? EEditorDocumentCloseResult::PendingConfirmation
+				: EEditorDocumentCloseResult::Rejected;
+		}
+		if (State->DeferredDocumentOpens.erase(DocumentId.Value) != 0)
+			return EEditorDocumentCloseResult::Closed;
 		const auto Found = std::ranges::find(State->Documents, DocumentId, &FEditorDocumentTab::Id);
-		if (Found == State->Documents.end() || !Found->bClosable) return false;
+		if (Found == State->Documents.end() || !Found->bClosable) return EEditorDocumentCloseResult::Rejected;
 		const std::shared_ptr<IEditorWorkspace> Workspace = FindWorkspace(Found->WorkspaceType);
-		if (!Workspace || !Workspace->RequestCloseDocument(*Found)) return false;
+		if (!Workspace) return EEditorDocumentCloseResult::Rejected;
+		const EEditorDocumentCloseResult CloseResult = Workspace->RequestCloseDocument(*Found);
+		if (CloseResult == EEditorDocumentCloseResult::PendingConfirmation)
+		{
+			State->PendingCloseDocumentId = DocumentId;
+			return CloseResult;
+		}
+		if (CloseResult == EEditorDocumentCloseResult::Rejected) return CloseResult;
 
 		const size_t ClosedIndex = static_cast<size_t>(std::distance(State->Documents.begin(), Found));
 		const bool bWasActive = State->ActiveDocumentId == DocumentId;
 		State->Documents.erase(Found);
-		if (!bWasActive) return true;
+		if (!bWasActive) return EEditorDocumentCloseResult::Closed;
 
 		State->ActiveDocumentId = {};
-		if (State->Documents.empty()) return true;
+		if (State->Documents.empty()) return EEditorDocumentCloseResult::Closed;
 		const size_t NextIndex = std::min(ClosedIndex, State->Documents.size() - 1);
-		return ActivateDocument(State->Documents[NextIndex].Id);
+		ActivateDocument(State->Documents[NextIndex].Id);
+		return EEditorDocumentCloseResult::Closed;
+	}
+
+	auto FEditorWorkspaceManager::ResolvePendingDocumentClose(
+		EEditorDocumentCloseResponse Response
+	) -> EEditorDocumentCloseResult
+	{
+		FEditorDocumentTab* Document = FindDocument(State->PendingCloseDocumentId);
+		if (!Document)
+		{
+			State->PendingCloseDocumentId = {};
+			return EEditorDocumentCloseResult::Rejected;
+		}
+		if (Response == EEditorDocumentCloseResponse::Cancel)
+		{
+			State->PendingCloseDocumentId = {};
+			return EEditorDocumentCloseResult::Cancelled;
+		}
+
+		const std::shared_ptr<IEditorWorkspace> Workspace = FindWorkspace(Document->WorkspaceType);
+		if (!Workspace) return EEditorDocumentCloseResult::Rejected;
+		const bool bResolved = Response == EEditorDocumentCloseResponse::Save
+			? Workspace->SaveDocument(*Document)
+			: Workspace->DiscardDocument(*Document);
+		if (!bResolved) return EEditorDocumentCloseResult::PendingConfirmation;
+
+		const FEditorDocumentId DocumentId = Document->Id;
+		State->PendingCloseDocumentId = {};
+		return RequestCloseDocument(DocumentId);
 	}
 
 	auto FEditorWorkspaceManager::RefreshDocumentState() -> void
@@ -374,6 +422,12 @@ namespace Durin
 	auto FEditorWorkspaceManager::GetActiveDocument() const -> const FEditorDocumentTab*
 	{
 		const auto Found = std::ranges::find(State->Documents, State->ActiveDocumentId, &FEditorDocumentTab::Id);
+		return Found == State->Documents.end() ? nullptr : &*Found;
+	}
+
+	auto FEditorWorkspaceManager::GetPendingCloseDocument() const -> const FEditorDocumentTab*
+	{
+		const auto Found = std::ranges::find(State->Documents, State->PendingCloseDocumentId, &FEditorDocumentTab::Id);
 		return Found == State->Documents.end() ? nullptr : &*Found;
 	}
 
