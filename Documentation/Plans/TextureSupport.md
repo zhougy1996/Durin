@@ -1,25 +1,37 @@
 # Texture Support Plan
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-07-24
 
 ## Current Status
 
-Texture support has a working asset, material, and render-resource vertical
-slice, but it is not yet exposed as a complete editor workflow. The current
-implementation can import a `DTexture2D`, preserve it through material and
-material-instance parameters, rebuild its CPU platform data, upload it through
-the render thread, and sample it as a static-mesh base-color texture. Missing
-or unavailable resources resolve to the renderer-owned white texture.
+The first usable Texture2D-to-static-mesh workflow is complete. The Content
+Browser can import PNG, JPEG, BMP, and TGA images through a texture-specific
+dialog, show persistent source-image thumbnails, and expose the resulting asset
+through the schema-driven Material Editor texture picker. Materials and material
+instances preserve texture references, inheritance, and local overrides, while
+resolved static-mesh material slots snapshot the render resource without letting
+the renderer read reflected material objects. The render thread uploads every mip
+and the static-mesh shader samples the base-color texture through a shared
+linear-wrap sampler. Missing or not-yet-ready resources resolve to the
+renderer-owned white texture.
 
-The focused `FTexture2DTests.*` and `FEditorTextureSmokeTests.*` suites passed
-on 2026-07-21 using the `Win64-Debug-DurinEditor-Tests` preset. The editor
-workflow smoke test imports a texture and mesh, assigns the texture through a
-material, and verifies the static-mesh scene proxy carries geometry, UVs, and
-the imported texture render resource. Texture imports expose Color, Normal, and
-Data/Mask presets, build complete usage-aware mip chains, and retain an explicit
-color-space override. The complete 117-test `EngineTests` target, a full `all`
-build, and an eight-second `DurinEditor` Vulkan/shader smoke test also passed on
-2026-07-21.
+The current build remains an editor-oriented, uncompressed implementation rather
+than a production texture pipeline. `DTexture2D::PostLoad` still reopens and
+decodes the copied source image, platform data always uses `RGBA8_UNORM` or
+`SRGBA8_UNORM`, and all mips are fully resident. The import dialog exposes Color,
+Normal, and Data/Mask usage presets, but there is no dedicated Texture2D editor
+for inspecting the built mip chain or changing usage and the explicit sRGB
+override after import. Normal and Data/Mask currently affect build defaults and
+mip filtering only; the shipped material shader consumes only the base-color
+texture parameter.
+
+The focused `FTexture2DTests.*` and `FEditorTextureSmokeTests.*` suites passed on
+2026-07-21 using the `Win64-Debug-DurinEditor-Tests` preset. That validation
+covered import, persistence, usage-aware mip generation, material assignment,
+UV propagation, and render-resource snapshotting. Subsequent integrated
+validation on 2026-07-24 passed 196 `EngineTests`, the full `all` build, and an
+eight-second `DurinEditor --hidden-window` smoke run after the material schema,
+persistent thumbnail cache, and static-mesh material-slot integrations landed.
 
 ## Implemented
 
@@ -32,9 +44,15 @@ build, and an eight-second `DurinEditor` Vulkan/shader smoke test also passed on
 - [x] Revision checks that prevent stale render commands from replacing newer resources.
 - [x] Renderer-owned white, black, and flat-normal fallback textures.
 - [x] Base-color material texture parameters, instance inheritance, and local overrides.
+- [x] Schema-driven Material Editor texture selection, inherited-source display,
+  override reset, save/reload, and live preview invalidation.
 - [x] Static-mesh base-color sampling with a shared linear-wrap sampler and white fallback.
+- [x] Static-mesh material-slot resolution and live dependency updates preserve
+  the selected texture render-resource snapshot.
 - [x] RHI and Vulkan format definitions for uncompressed and BC texture formats.
 - [x] Vulkan support for uploading individual mip levels.
+- [x] Persistent project-local Content Browser thumbnails derived from texture
+  source images, with invalidation and regeneration.
 - [x] Focused import, reload, move, delete, and invalid-input tests.
 
 ## Required for the First Usable End-to-End Workflow
@@ -52,16 +70,31 @@ build, and an eight-second `DurinEditor` Vulkan/shader smoke test also passed on
   sufficient for the first vertical slice.
 - [x] Add a texture import entry and dialog to the editor and Content Browser.
 - [x] Show imported texture assets with an image thumbnail or preview.
+- [x] Select textures from the Material Editor and preserve inherited or local
+  instance values through undo/redo and save/reload.
 - [x] Add an editor smoke test that imports a texture, assigns it to a material,
   and verifies that it is visible on a static mesh.
+
+## Remaining Editor Workflow
+
+- [ ] Add a dedicated Texture2D asset editor or Details workflow.
+- [ ] Expose source dimensions, transparency, usage, sRGB override, platform
+  format, mip count, and build diagnostics after import.
+- [ ] Allow usage and sRGB changes to rebuild transactionally, participate in
+  undo/redo, dirty the package, and refresh dependent materials and previews.
+- [ ] Preview the built platform texture and selectable mip levels rather than
+  only the copied source image.
+- [ ] Surface missing-source, decode, build, upload, and unsupported-format
+  states to the user.
 
 ## Texture Build Pipeline
 
 The current platform build produces a complete uncompressed `RGBA8_UNORM` or
 `SRGBA8_UNORM` mip chain according to the asset usage and explicit color-space
-override. Extend it
-with explicit build settings rather than inferring permanent behavior from the
-source filename.
+override. Usage and source transparency already enter the format-selection
+function, but the uncompressed backend currently ignores both except for the
+sRGB choice. Extend it with explicit build settings rather than inferring
+permanent behavior from the source filename.
 
 - [x] Add sRGB versus linear color-space selection.
 - [x] Generate a complete mip chain with usage-appropriate image filters.
@@ -112,9 +145,34 @@ These features are intentionally outside the first Texture2D/material slice:
 
 ## Recommended Implementation Order
 
-1. Complete the base-color material texture and shared-sampler rendering path.
-2. Add editor import, assignment, thumbnail, and preview support.
-3. Add color-space settings, mip generation, and texture usage presets.
-4. Add desktop block compression and derived-data caching.
-5. Add render-thread, Vulkan, and editor end-to-end validation.
-6. Add residency management and advanced texture types only when required.
+1. Add the Texture2D asset editor and expose transactional post-import build
+   settings and diagnostics.
+2. Add desktop block compression, platform capability validation, and focused
+   Vulkan coverage for compressed and multi-mip uploads.
+3. Cache built platform data behind a versioned derived-data key so ordinary
+   loads and cooked/runtime builds do not depend on source decoding.
+4. Move decode and build work off the main thread and make load/build/upload
+   states visible to material fallback and the editor.
+5. Add residency accounting; introduce streaming only when profiling justifies it.
+6. Add advanced texture types and additional material texture roles only when
+   their consuming renderer paths are defined.
+
+## Related Documentation
+
+- `Documentation/Architecture/AssetPackages.md`
+- `Documentation/Architecture/MaterialSystem.md`
+- `Documentation/Architecture/RuntimeArchitecture.md`
+- `Documentation/Plans/MaterialSystem.md`
+- `Documentation/Plans/Archive/2026-07/AssetRegistryAndThumbnailCache.md`
+- `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`
+- `Documentation/Plans/Archive/2026-07/StaticMeshMaterialSlots.md`
+
+## Related Code
+
+- `Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h`
+- `Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp`
+- `Engine/Source/Runtime/Engine/Private/Texture/Texture2DRenderResource.cpp`
+- `Engine/Source/Runtime/Engine/Private/Materials/MaterialTypes.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/TextureImportDialog.cpp`
+- `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp`
+- `Engine/Shaders/Slang/StaticMesh.slang`
