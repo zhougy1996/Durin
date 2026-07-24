@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import sys
 from dataclasses import dataclass, replace
@@ -15,7 +16,9 @@ from .config import (
     Action,
     BuildContext,
     BuildToolError,
+    CMAKE_ENV_VARS,
     CommandRequest,
+    JOBS_ENV_VAR,
     preset_build_directory,
     preset_cache_string,
 )
@@ -25,6 +28,8 @@ from .core import (
     execute_context,
     interruption_marker_path,
     open_runtime_directory,
+    prepare_command_context,
+    prepare_toolchain_environment,
     stop_active_operation,
 )
 from .output import BuildOutput
@@ -138,7 +143,7 @@ COMMAND_SPECS = (
     ),
     CommandSpec(
         Action.STATUS,
-        "show resolved build context and recovery state",
+        "show build context and toolchain state",
         "status",
         TOOL_ARGUMENTS,
     ),
@@ -195,6 +200,14 @@ COMMAND_SPECS = (
         ("run_arguments",),
     ),
 )
+
+TOOLCHAIN_ACTIONS = {
+    Action.CONFIGURE,
+    Action.BUILD,
+    Action.CLEAN,
+    Action.REBUILD,
+    Action.TEST,
+}
 COMMAND_BY_NAME = {spec.name: spec for spec in COMMAND_SPECS}
 SHELL_COMMANDS = {
     name: spec
@@ -547,13 +560,28 @@ def resolve_shell_preset_number(value: str, context: BuildContext) -> str:
 
 def show_status(output: BuildOutput, context: BuildContext) -> None:
     marker = interruption_marker_path(context.preset.name)
+    toolchain_resolved = context.environment is not None
+    cmake_default = context.request.cmake or next(
+        (os.environ[name].strip() for name in CMAKE_ENV_VARS if os.environ.get(name, "").strip()),
+        "",
+    )
+    cmake_default = cmake_default or context.config.cmake_command or "cmake"
+    if context.request.jobs is not None:
+        jobs_default: object = context.request.jobs
+    elif os.environ.get(JOBS_ENV_VAR, "").strip():
+        jobs_default = os.environ[JOBS_ENV_VAR].strip()
+    elif context.config.jobs:
+        jobs_default = context.config.jobs
+    else:
+        jobs_default = "automatic"
     values = {
         "Profile": context.profile.name,
         "Preset": context.preset.name,
         "Build directory": preset_build_directory(context.preset),
         "Configuration": preset_cache_string(context.preset, "CMAKE_BUILD_TYPE"),
-        "Parallel jobs": context.jobs,
-        "CMake": context.cmake,
+        "Toolchain context": "resolved" if toolchain_resolved else "unresolved",
+        "Parallel jobs": context.jobs or f"unresolved (default: {jobs_default})",
+        "CMake": context.cmake or f'unresolved (default: {cmake_default})',
         "Recovery state": "rebuild required" if marker.is_file() else "clean",
     }
     if output.plain:
@@ -569,8 +597,7 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
 
 
 def run_shell(request: CommandRequest, output: BuildOutput) -> None:
-    # Shell initialization intentionally resolves the expensive toolchain environment only once.
-    base = create_context(request)
+    base = create_context(request, prepare_tools=False)
     current_preset = base.preset.name
     output.info("Durin BuildTool shell")
     show_status(output, base)
@@ -578,25 +605,29 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
     selecting_preset = False
     while True:
         try:
-            line = input("BuildTool> ").strip()
+            line = input("Preset> " if selecting_preset else "BuildTool> ").strip()
         except EOFError:
             output.info("")
             return
         except KeyboardInterrupt:
+            if selecting_preset:
+                selecting_preset = False
+                output.cancelled("Preset selection cancelled; current preset unchanged.")
+                continue
             output.warning("Use exit to leave the shell.")
             continue
         operation_started = perf_counter()
         if selecting_preset:
             selecting_preset = False
             if not line:
+                output.cancelled("Preset selection cancelled; current preset unchanged.")
                 continue
-            if line.isdigit():
-                try:
-                    current_preset = resolve_shell_preset_number(line, base)
-                    output.success(f'CMake preset selected: "{current_preset}"')
-                except BuildToolError as exc:
-                    output.failure(exc, None, perf_counter() - operation_started)
-                continue
+            try:
+                current_preset = resolve_shell_preset_number(line, base)
+                output.success(f'CMake preset selected: "{current_preset}"')
+            except BuildToolError as exc:
+                output.failure(exc, None, perf_counter() - operation_started)
+            continue
         if not line:
             continue
         child_request: CommandRequest | None = None
@@ -642,19 +673,32 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
             session_profile = request.profile or base.profile.name
             needs_independent_context = (
                 child_request.profile not in {"", session_profile}
-                or child_request.cmake != request.cmake
                 or child_request.environment_setup != request.environment_setup
+                or (
+                    child_request.action not in TOOLCHAIN_ACTIONS
+                    and child_request.cmake != request.cmake
+                )
             )
             if needs_independent_context:
-                prepare_tools = child_request.action not in {
-                    Action.PRESETS,
-                    Action.OPEN_RUNTIME,
-                    Action.PURGE,
-                    Action.RUN,
-                }
+                prepare_tools = child_request.action in TOOLCHAIN_ACTIONS
                 child_context = create_context(child_request, prepare_tools=prepare_tools)
             else:
                 child_context = derive_context(base, child_request)
+                if child_request.action in TOOLCHAIN_ACTIONS and base.environment is None:
+                    prepare_toolchain_environment(base)
+                    child_context = derive_context(base, child_request)
+                needs_command_preparation = (
+                    not child_context.cmake
+                    or not child_context.jobs
+                    or child_request.cmake != request.cmake
+                    or child_request.jobs != request.jobs
+                )
+                if child_request.action in TOOLCHAIN_ACTIONS and needs_command_preparation:
+                    prepare_command_context(child_context)
+                    if child_request.cmake == request.cmake:
+                        base.cmake = child_context.cmake
+                    if child_request.jobs == request.jobs:
+                        base.jobs = child_context.jobs
             if child_request.action is Action.PRESETS:
                 show_presets(child_output, child_context, child_context.preset.name)
                 child_output.info("Enter a preset number, or press Enter to keep the current preset.")
@@ -701,12 +745,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 output.info("No active BuildTool operation was found.")
             return 0
-        prepare_tools = request.action not in {
-            Action.PRESETS,
-            Action.OPEN_RUNTIME,
-            Action.PURGE,
-            Action.RUN,
-        }
+        prepare_tools = request.action in TOOLCHAIN_ACTIONS
         context = create_context(request, prepare_tools=prepare_tools)
         if request.action is Action.PRESETS:
             show_presets(output, context, context.preset.name)

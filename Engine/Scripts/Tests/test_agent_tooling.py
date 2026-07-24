@@ -364,10 +364,11 @@ class CliTests(unittest.TestCase):
         create.assert_called_once_with(mock.ANY, prepare_tools=False)
         presets.assert_called_once()
         execute.assert_not_called()
-        with mock.patch.object(build_cli, "create_context", return_value=context), mock.patch.object(
+        with mock.patch.object(build_cli, "create_context", return_value=context) as create, mock.patch.object(
             build_cli, "show_status"
         ) as status, mock.patch.object(build_cli, "execute_context") as execute:
             self.assertEqual(build_cli.main(["status", "--plain"]), 0)
+        create.assert_called_once_with(mock.ANY, prepare_tools=False)
         status.assert_called_once()
         execute.assert_not_called()
         with mock.patch.object(build_cli, "create_context", return_value=context) as create, mock.patch.object(
@@ -389,6 +390,161 @@ class CliTests(unittest.TestCase):
             "debug",
         )
         self.assertIn("debug [default, current]", stdout.getvalue())
+
+    def test_status_reports_unresolved_toolchain_defaults(self) -> None:
+        preset = build_config.ConfigurePreset(
+            "debug",
+            {
+                "binaryDir": "${sourceDir}/Build/debug",
+                "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug"},
+            },
+        )
+        profile = mock.Mock()
+        profile.name = "profile"
+        context = build_config.BuildContext(
+            build_config.CommandRequest(
+                build_config.Action.STATUS,
+                cmake="custom-cmake",
+                jobs=4,
+            ),
+            build_config.LocalConfig(),
+            profile,
+            {"debug": preset},
+            preset,
+            "windows",
+        )
+        stdout = io.StringIO()
+        with mock.patch.object(build_cli, "interruption_marker_path", return_value=Path("missing.marker")):
+            build_cli.show_status(
+                BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()),
+                context,
+            )
+        status = stdout.getvalue()
+        self.assertIn("Toolchain context: unresolved", status)
+        self.assertIn("Parallel jobs: unresolved (default: 4)", status)
+        self.assertIn("CMake: unresolved (default: custom-cmake)", status)
+
+        context.environment = {"PATH": "cached"}
+        context.cmake = "resolved-cmake"
+        context.jobs = 6
+        stdout = io.StringIO()
+        build_cli.show_status(
+            BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()),
+            context,
+        )
+        status = stdout.getvalue()
+        self.assertIn("Toolchain context: resolved", status)
+        self.assertIn("Parallel jobs: 6", status)
+        self.assertIn("CMake: resolved-cmake", status)
+
+    def test_shell_startup_is_lightweight_and_lock_free(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        base.current_host = "windows"
+        base.environment = None
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_cli, "create_context", return_value=base) as create, mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch.object(build_cli, "prepare_toolchain_environment") as prepare, mock.patch.object(
+            build_cli, "prepare_command_context"
+        ) as prepare_command, mock.patch.object(
+            build_cli, "execute_context"
+        ) as execute, mock.patch("builtins.input", side_effect=["exit"]):
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        create.assert_called_once_with(mock.ANY, prepare_tools=False)
+        prepare.assert_not_called()
+        prepare_command.assert_not_called()
+        execute.assert_not_called()
+
+    def test_shell_resolves_toolchain_once_and_reuses_it_after_preset_switch(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        base.current_host = "windows"
+        base.environment = None
+        base.cmake = ""
+        base.jobs = 0
+        base.profile.name = "profile"
+        base.profile.presets = ("debug", "release")
+        base.config = build_config.LocalConfig()
+        cached_environment = {"PATH": "cached"}
+
+        def prepare_environment(context: mock.Mock) -> None:
+            context.environment = cached_environment
+
+        def prepare_command(context: mock.Mock) -> None:
+            context.cmake = "custom-cmake" if context.request.cmake else "cmake"
+            context.jobs = context.request.jobs or 8
+
+        def derive(context: mock.Mock, request: build_config.CommandRequest) -> mock.Mock:
+            child = mock.Mock()
+            child.request = request
+            child.preset.name = request.preset
+            child.target = request.target
+            child.environment = context.environment
+            child.cmake = context.cmake
+            child.config = context.config
+            return child
+
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch.object(
+            build_cli, "prepare_toolchain_environment", side_effect=prepare_environment
+        ) as prepare_environment_context, mock.patch.object(
+            build_cli, "prepare_command_context", side_effect=prepare_command
+        ) as prepare_command_context, mock.patch.object(
+            build_cli, "derive_context", side_effect=derive
+        ), mock.patch.object(build_cli, "execute_context") as execute, mock.patch(
+            "builtins.input", side_effect=["build --cmake custom", "preset release", "build", "exit"]
+        ):
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        prepare_environment_context.assert_called_once_with(base)
+        self.assertEqual(prepare_command_context.call_count, 2)
+        self.assertEqual([call.args[0].preset.name for call in execute.call_args_list], ["debug", "release"])
+        self.assertTrue(all(call.args[0].environment is cached_environment for call in execute.call_args_list))
+        self.assertEqual([call.args[0].cmake for call in execute.call_args_list], ["custom-cmake", "cmake"])
+
+    def test_preset_selection_uses_distinct_prompt_and_reports_cancellation(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        base.current_host = "windows"
+        base.environment = None
+        base.profile.name = "profile"
+        base.profile.presets = ("debug", "release")
+        prompts: list[str] = []
+        responses = iter(["presets", "", "exit"])
+
+        def read_input(prompt: str) -> str:
+            prompts.append(prompt)
+            return next(responses)
+
+        stdout = io.StringIO()
+        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
+        with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch.object(build_cli, "derive_context", return_value=base), mock.patch.object(
+            build_cli, "show_presets"
+        ), mock.patch("builtins.input", side_effect=read_input):
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        self.assertEqual(prompts, ["BuildTool> ", "Preset> ", "BuildTool> "])
+        self.assertIn("Preset selection cancelled; current preset unchanged.", stdout.getvalue())
+
+    def test_preset_selection_reports_invalid_non_numeric_input(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        base.current_host = "windows"
+        base.environment = None
+        base.profile.name = "profile"
+        base.profile.presets = ("debug", "release")
+        stderr = io.StringIO()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
+        with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch.object(build_cli, "derive_context", return_value=base), mock.patch.object(
+            build_cli, "show_presets"
+        ), mock.patch("builtins.input", side_effect=["presets", "release", "exit"]):
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        self.assertIn('Invalid preset number "release"', stderr.getvalue())
 
     def test_canonical_direct_and_shell_commands_produce_equal_requests(self) -> None:
         cases = [

@@ -45,7 +45,7 @@ Commands are case-insensitive for compatibility, but lowercase is canonical. `bu
 
 `build` and `rebuild` default to target `all`; `test` always requires an explicit
 `--target`. `presets`, `status`, and `open-runtime` are also available directly,
-so preset discovery, resolved-context inspection, and runtime-directory access do
+so preset discovery, context inspection, and runtime-directory access do
 not require entering the interactive shell.
 
 An ordinary `configure` preserves the existing CMake cache. Pass `--fresh` to discard it explicitly. `rebuild` and automatic recovery from an unusable or incompatible build tree always fresh-configure before building.
@@ -113,6 +113,13 @@ Run `BuildTool` without arguments, or pass `shell`, to open the human-oriented c
 .\BuildTool shell
 ```
 
+Opening the shell loads repository configuration, build profiles, and registered
+presets, but does not initialize CMake, Visual Studio, or the compiler toolchain.
+The first `configure`, `build`, `clean`, `rebuild`, or `test` command resolves and
+validates the toolchain once; later commands and preset switches reuse that
+environment for the rest of the session. Read-only and artifact commands remain
+available when the compiler toolchain is unavailable.
+
 If Ctrl+C is not forwarded by the terminal or batch wrapper, run `.\BuildTool stop` from a second terminal, or enter `stop` in another already-open BuildTool shell. It stops the active BuildTool process and its complete CMake/Ninja child process tree for this checkout. The foreground shell cannot accept `stop` while it is waiting for its own operation, so stopping that operation requires another process.
 
 The selected preset is session-local and does not modify `.agents/build-config.json`:
@@ -125,7 +132,7 @@ BuildTool> presets
    4  Win64-Release-DurinEditor
    5  Win64-Release-DurinGame
    6  Win64-Shipping-DurinGame
-BuildTool> 4
+Preset> 4
 BuildTool> preset
 CMake preset: "Win64-Release-DurinEditor"
 BuildTool> preset Win64-Debug-DurinGame
@@ -140,7 +147,22 @@ BuildTool> stop
 BuildTool> exit
 ```
 
-`presets` displays the registered list, prints an input hint, and accepts a number on the next `BuildTool>` prompt. `preset` without an argument displays the current preset; with an argument it requires the full preset name. `build` and `rebuild` default to target `all`. Shell commands accept the same named options as their direct forms. The compact forms `build <target>`, `rebuild <target>`, `test <target> [filter]`, and `run [arguments...]` remain accepted for compatibility, while help shows the canonical named syntax. `run` launches the current preset's existing runtime executable and returns to the shell when it exits. `open-runtime` opens the selected preset's existing runtime directory in the platform file manager. `status` reports the resolved profile, preset, build directory, configuration, CMake command, parallelism, and interruption recovery state. `stop` stops an operation held by another BuildTool process. Use `help` for the complete command list. A leading slash remains accepted for compatibility but is not required. Shell commands reuse the environment resolved when the shell starts, so switching presets does not rerun Visual Studio environment discovery.
+`presets` displays the registered list and accepts a number on a distinct
+`Preset>` prompt. Pressing Enter or Ctrl+C explicitly cancels selection without
+changing the current preset; invalid numeric or non-numeric input is reported as
+an invalid selection. `preset` without an argument displays the current preset;
+with an argument it requires the full preset name. `build` and `rebuild` default
+to target `all`. Shell commands accept the same named options as their direct
+forms. The compact forms `build <target>`, `rebuild <target>`, `test <target>
+[filter]`, and `run [arguments...]` remain accepted for compatibility, while help
+shows the canonical named syntax. `run` launches the current preset's existing
+runtime executable and returns to the shell when it exits. `open-runtime` opens
+the selected preset's existing runtime directory in the platform file manager.
+`status` reports the profile, preset, build directory, configuration, recovery
+state, and whether CMake, parallelism, and the toolchain environment are resolved
+or still deferred. `stop` stops an operation held by another BuildTool process.
+Use `help` for the complete command list. A leading slash remains accepted for
+compatibility but is not required.
 
 ## Clean And Purge
 

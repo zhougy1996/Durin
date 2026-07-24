@@ -949,15 +949,36 @@ def create_context(
     validate_request(request, preset)
     context = BuildContext(request, config, profile, presets, preset, current_host)
     if prepare_tools:
-        context.cmake = resolve_cmake_command(request.cmake, config.cmake_command)
-        context.jobs = resolve_jobs(request.jobs, config.jobs)
-        context.environment = build_environment(
-            profile,
-            config.environment_setup,
-            current_host=current_host,
-        )
-        ensure_required_commands(profile, context.environment)
+        prepare_toolchain_context(context)
     return context
+
+
+def prepare_toolchain_context(context: BuildContext) -> None:
+    prepare_toolchain_environment(context)
+    prepare_command_context(context)
+
+
+def prepare_toolchain_environment(context: BuildContext) -> None:
+    if context.environment is not None:
+        return
+    environment = build_environment(
+        context.profile,
+        context.config.environment_setup,
+        current_host=context.current_host,
+    )
+    ensure_required_commands(context.profile, environment)
+    context.environment = environment
+
+
+def prepare_command_context(context: BuildContext) -> None:
+    cmake = resolve_cmake_command(
+        context.request.cmake,
+        context.config.cmake_command,
+        environment=context.environment,
+    )
+    jobs = resolve_jobs(context.request.jobs, context.config.jobs)
+    context.cmake = cmake
+    context.jobs = jobs
 
 
 def derive_context(
@@ -974,7 +995,7 @@ def derive_context(
         preset=preset,
         current_host=base.current_host,
         cmake=base.cmake,
-        jobs=request.jobs or base.jobs,
+        jobs=base.jobs if request.jobs is None else request.jobs,
         environment=base.environment,
     )
 

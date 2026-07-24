@@ -4,16 +4,15 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 1 through 3 are complete. Argument handling and failure reporting preserve
-their direct-command semantics in the interactive shell. One command
-specification now drives direct parsers, shell normalization, defaults, accepted
-options, compatibility operands and aliases, and help. `build` and `rebuild`
-default to `all`; shell test timeout/filter options match direct use; ineffective
-options are rejected; and `presets`, `status`, and `open-runtime` are available
-directly. The complete Agent tooling suite passes with 94 tests.
-
-Stage 4 is next. Shell startup still resolves the toolchain eagerly and the
-remaining interaction polish is described below.
+All four stages are complete. Shell startup now remains toolchain-free until the
+first configure, build, clean, rebuild, or test command; the resolved environment
+is then reused across preset switches. The shared command specification preserves
+direct/shell argument parity, defaults, options, compatibility operands, aliases,
+help, and failure context. Status distinguishes unresolved defaults from resolved
+toolchain values, preset selection has a distinct prompt with explicit
+cancellation and invalid-input feedback, and idle shells remain lock-free. The
+complete Agent tooling suite passes with 102 tests; direct status, preset listing,
+and a scripted read-only shell were also validated on Windows.
 
 ## Goal
 
@@ -184,20 +183,20 @@ the user to recover without reconstructing the operation from earlier log output
 
 ### Stage 4: P2 Shell Startup and Interaction Polish
 
-- [ ] Split lightweight repository/profile/preset context creation from
+- [x] Split lightweight repository/profile/preset context creation from
   toolchain-backed context preparation.
-- [ ] Resolve and cache the toolchain environment on the first configure, build,
+- [x] Resolve and cache the toolchain environment on the first configure, build,
   clean, rebuild, or test operation that requires it.
-- [ ] Allow presets, status, purge, run, and open-runtime to operate when the
+- [x] Allow presets, status, purge, run, and open-runtime to operate when the
   compiler toolchain is unavailable, subject to their existing command-specific
   requirements.
-- [ ] Make status distinguish unresolved session defaults from a resolved
+- [x] Make status distinguish unresolved session defaults from a resolved
   toolchain context without implying that a validation has already occurred.
-- [ ] Use a distinct preset-selection prompt and make cancellation and invalid
+- [x] Use a distinct preset-selection prompt and make cancellation and invalid
   numeric selection explicit.
-- [ ] Keep an idle shell lock-free and verify that a second BuildTool process can
+- [x] Keep an idle shell lock-free and verify that a second BuildTool process can
   still run `stop` or acquire the operation lock.
-- [ ] Update BuildTool shell documentation and examples after behavior is
+- [x] Update BuildTool shell documentation and examples after behavior is
   validated.
 
 #### Acceptance Gate

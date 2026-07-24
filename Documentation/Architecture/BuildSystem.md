@@ -89,6 +89,15 @@ overrides are not accepted by artifact-only commands such as `purge`, `run`, or
 `open-runtime`. The direct `presets`, `status`, and `open-runtime` actions use the
 same display and context paths as their interactive counterparts.
 
+Interactive shell startup resolves only repository configuration, the host build
+profile, registered presets, and the selected preset. CMake discovery, job-count
+resolution, environment setup, compiler validation, and required-command checks
+are deferred until the first configure, build, clean, rebuild, or test request.
+The resolved toolchain environment is cached by the shell and reused across
+preset switches; operation locking remains scoped to command execution, so an
+idle shell does not own the checkout lock. Status output distinguishes unresolved
+session defaults from a validated toolchain context.
+
 ## Related Docs
 
 - `Documentation/Architecture/Versioning.md`

@@ -4,7 +4,7 @@ Archived plans preserve completed implementation decisions, validation evidence,
 
 | Month | Plans | Landed Areas |
 | --- | ---: | --- |
-| [2026-07](2026-07/README.md) | 8 | Asset metadata and thumbnails, logging, editor rendering, shader caching, reflected property editing, material parameters, and static-mesh material slots |
+| [2026-07](2026-07/README.md) | 9 | Asset metadata and thumbnails, logging, editor rendering, shader caching, reflected property editing, material parameters, static-mesh material slots, and BuildTool shell consistency |
 
 Start with the relevant monthly index, then read an archived plan only when its
 history or decision provenance is required. Do not bulk-read other months.
