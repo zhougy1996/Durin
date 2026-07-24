@@ -7,8 +7,12 @@
 #include "Editor/EditorWorkspaceUI.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
+#include "MonaCoreGlobals.h"
+#include "MonaUIBackend.h"
 #include "PixelFormat.h"
 #include "Texture/Texture2D.h"
+#include "Texture/Texture2DRenderResource.h"
+#include "Widgets/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 
 namespace Durin
@@ -32,6 +36,35 @@ namespace Durin
 			MonaImGui::PropertyEdit::BeginRow(Label, true);
 			ImGui::TextUnformatted(Value.data(), Value.data() + Value.size());
 			MonaImGui::PropertyEdit::EndRow(true);
+		}
+
+		auto GetBuildStatusName(DTexture2D::ETextureBuildStatus Status) -> const char*
+		{
+			switch (Status)
+			{
+			case DTexture2D::ETextureBuildStatus::Unbuilt:           return "Unbuilt";
+			case DTexture2D::ETextureBuildStatus::Ready:             return "Ready";
+			case DTexture2D::ETextureBuildStatus::MissingSource:     return "Missing Source";
+			case DTexture2D::ETextureBuildStatus::DecodeFailure:     return "Decode Failure";
+			case DTexture2D::ETextureBuildStatus::BuildFailure:      return "Build Failure";
+			case DTexture2D::ETextureBuildStatus::UploadFailure:     return "Upload Failure";
+			case DTexture2D::ETextureBuildStatus::UnsupportedFormat: return "Unsupported Format";
+			}
+			return "Unknown";
+		}
+
+		auto GetRenderResourceStateName(ERenderResourceState State) -> const char*
+		{
+			switch (State)
+			{
+			case ERenderResourceState::Idle:      return "Idle";
+			case ERenderResourceState::Pending:   return "Pending";
+			case ERenderResourceState::Building:  return "Building";
+			case ERenderResourceState::Ready:     return "Ready";
+			case ERenderResourceState::Failed:    return "Failed";
+			case ERenderResourceState::Released:  return "Released";
+			}
+			return "Unknown";
 		}
 	}
 
@@ -69,6 +102,9 @@ namespace Durin
 			return false;
 		}
 		OpenTextures.emplace(Document.ResourceId, Texture);
+		Preview = std::make_unique<FTexturePreview>();
+		SelectedMipIndex = 0;
+		LastObservedRevision = 0;
 		return true;
 	}
 
@@ -95,7 +131,15 @@ namespace Durin
 		}
 		OpenTextures.erase(Document.ResourceId);
 		DocumentWindows.erase(Document.Id.Value);
-		if (ActiveResourceId == Document.ResourceId) ActiveResourceId.clear();
+		if (ActiveResourceId == Document.ResourceId)
+		{
+			ActiveResourceId.clear();
+			if (Preview)
+			{
+				Preview->Release();
+				Preview.reset();
+			}
+		}
 		return true;
 	}
 
@@ -251,6 +295,8 @@ namespace Durin
 
 	auto MTextureEditor::DrawDocument(const FEditorDocumentTab& Document, DTexture2D* Texture) -> void
 	{
+		Texture->RefreshBuildStatus();
+
 		if (ImGui::Button("Save")) SaveTexture(Texture);
 		ImGui::Separator();
 		ImGui::TextDisabled("Asset");
@@ -259,6 +305,10 @@ namespace Durin
 		ImGui::TextDisabled("Type");
 		ImGui::SameLine();
 		ImGui::TextUnformatted(Texture->GetClass()->GetQualifiedName().ToString().c_str());
+		ImGui::Spacing();
+
+		DrawFailureState(Texture);
+		DrawPreview(Texture);
 		ImGui::Spacing();
 		DrawSourceData(Texture);
 		ImGui::Spacing();
@@ -279,6 +329,158 @@ namespace Durin
 		}
 	}
 
+	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void
+	{
+		const DTexture2D::ETextureBuildStatus Status = Texture->GetBuildStatus();
+		if (Status == DTexture2D::ETextureBuildStatus::Ready || Status == DTexture2D::ETextureBuildStatus::Unbuilt)
+			return;
+
+		const char* Title = "Build Error";
+		ImVec4 TitleColor(1.0f, 0.5f, 0.3f, 1.0f); // Amber default
+		std::string Message;
+
+		switch (Status)
+		{
+		case DTexture2D::ETextureBuildStatus::MissingSource:
+			Title = "Missing Source";
+			TitleColor = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);
+			Message = std::format("The source file could not be found:\n{}", Texture->GetLastBuildError());
+			break;
+		case DTexture2D::ETextureBuildStatus::DecodeFailure:
+			Title = "Decode Failure";
+			TitleColor = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);
+			Message = std::format("The source image could not be decoded:\n{}", Texture->GetLastBuildError());
+			break;
+		case DTexture2D::ETextureBuildStatus::BuildFailure:
+			Title = "Build Failure";
+			TitleColor = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);
+			Message = std::format("The platform texture data could not be built:\n{}", Texture->GetLastBuildError());
+			break;
+		case DTexture2D::ETextureBuildStatus::UploadFailure:
+			Title = "GPU Upload Failure";
+			TitleColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+			Message = "The texture could not be uploaded to the GPU.";
+			if (!Texture->GetLastBuildError().empty())
+				Message += std::format("\n{}", Texture->GetLastBuildError());
+			break;
+		case DTexture2D::ETextureBuildStatus::UnsupportedFormat:
+			Title = "Unsupported Format";
+			TitleColor = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+			Message = "The selected pixel format is not supported by this GPU.";
+			if (!Texture->GetLastBuildError().empty())
+				Message += std::format("\n{}", Texture->GetLastBuildError());
+			break;
+		default:
+			break;
+		}
+
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.08f, 0.08f, 0.5f));
+		ImGui::BeginChild("TextureFailureState", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders);
+		ImGui::TextColored(TitleColor, "%s", Title);
+		ImGui::Spacing();
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.9f, 0.85f, 1.0f));
+		ImGui::TextWrapped("%s", Message.c_str());
+		ImGui::PopStyleColor();
+
+		ImGui::Spacing();
+		if (ImGui::Button("Retry Build"))
+		{
+			std::string Error;
+			if (Texture->PostLoad(Error))
+			{
+				LastObservedRevision = Texture->GetBuildRevision();
+			}
+			else
+			{
+				SetError(Error);
+			}
+		}
+
+		if (Status == DTexture2D::ETextureBuildStatus::UploadFailure && Texture->GetRenderResource())
+		{
+			ImGui::SameLine();
+			const ERenderResourceState RState = Texture->GetRenderResource()->GetResourceState();
+			ImGui::TextDisabled("(GPU state: %s)", GetRenderResourceStateName(RState));
+		}
+
+		ImGui::EndChild();
+		ImGui::PopStyleColor();
+		ImGui::Spacing();
+	}
+
+	auto MTextureEditor::DrawPreview(DTexture2D* Texture) -> void
+	{
+		ImGui::SeparatorText("Preview");
+
+		if (!Preview)
+			Preview = std::make_unique<FTexturePreview>();
+
+		const FTexturePlatformData* Platform = Texture->GetPlatformData();
+		const FTextureSourceData* Source = Texture->GetSourceData();
+
+		const bool bRevisionChanged = (Texture->GetBuildRevision() != LastObservedRevision);
+		if (bRevisionChanged) SelectedMipIndex = 0;
+
+		const uint32 MipCount = (Platform && Platform->IsValid())
+			? static_cast<uint32>(Platform->Mips.size())
+			: (Source ? 1u : 0u);
+
+		if (MipCount == 0)
+		{
+			ImGui::TextWrapped("No preview data available.");
+			return;
+		}
+
+		// Clamp selected mip to valid range.
+		if (SelectedMipIndex >= MipCount) SelectedMipIndex = MipCount - 1;
+
+		// Mip selector.
+		if (MipCount > 1)
+		{
+			int MipInt = static_cast<int>(SelectedMipIndex);
+			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(200.0f));
+			if (ImGui::SliderInt("Mip Level", &MipInt, 0, static_cast<int>(MipCount - 1), "%d", ImGuiSliderFlags_AlwaysClamp))
+				SelectedMipIndex = static_cast<uint32>(MipInt);
+			ImGui::SameLine();
+			const uint32 MipWidth = Platform ? Platform->Mips[SelectedMipIndex].Width : Source->Width;
+			const uint32 MipHeight = Platform ? Platform->Mips[SelectedMipIndex].Height : Source->Height;
+			ImGui::TextDisabled("%s", FormatDimensions(MipWidth, MipHeight).c_str());
+		}
+
+		// Upload preview image.
+		const bool bMipChanged = (SelectedMipIndex != LastUploadedMipIndex);
+		const bool bRebuildNeeded = bRevisionChanged || bMipChanged || !Preview->IsValid();
+		if (bRebuildNeeded)
+		{
+			if (Platform && Platform->IsValid())
+				Preview->Upload(*Platform, SelectedMipIndex);
+			else if (Source && Source->IsValid())
+				Preview->UploadSource(*Source);
+			LastUploadedMipIndex = SelectedMipIndex;
+			LastObservedRevision = Texture->GetBuildRevision();
+		}
+
+		// Draw the image.
+		if (Preview->IsValid())
+		{
+			const ImVec2 Available = ImGui::GetContentRegionAvail();
+			const float AspectRatio = static_cast<float>(Preview->GetWidth()) / static_cast<float>(std::max(Preview->GetHeight(), 1u));
+			const float MaxPreviewHeight = MonaImGui::ScaleUI(512.0f);
+			const float ImageHeight = std::min(Available.y * 0.5f, MaxPreviewHeight);
+			const float ImageWidth = ImageHeight * AspectRatio;
+
+			if (Mona::GActiveUIBackend)
+			{
+				ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - ImageWidth) * 0.5f + ImGui::GetCursorPosX());
+				Mona::GActiveUIBackend->DrawImage(Preview->GetTexture(), FVector2f(ImageWidth, ImageHeight));
+			}
+		}
+		else
+		{
+			ImGui::TextDisabled("Preview unavailable.");
+		}
+	}
+
 	auto MTextureEditor::DrawSourceData(DTexture2D* Texture) -> void
 	{
 		ImGui::SeparatorText("Source");
@@ -291,7 +493,16 @@ namespace Durin
 			DrawInfoRow("Transparency", Source->bHasTransparency ? "Present" : "Opaque");
 			DrawInfoRow("Decoded Format", Source->Format == ETextureSourceFormat::RGBA8 ? "RGBA8" : "Invalid");
 		}
-		else DrawInfoRow("Status", "Source data unavailable");
+		else
+		{
+			const DTexture2D::ETextureBuildStatus Status = Texture->GetBuildStatus();
+			if (Status == DTexture2D::ETextureBuildStatus::DecodeFailure)
+				DrawInfoRow("Status", "Source data unavailable (Decode failure)");
+			else if (Status == DTexture2D::ETextureBuildStatus::MissingSource)
+				DrawInfoRow("Status", "Source data unavailable (Source file missing)");
+			else
+				DrawInfoRow("Status", "Source data unavailable");
+		}
 		MonaImGui::PropertyEdit::EndTable();
 	}
 
@@ -311,7 +522,7 @@ namespace Durin
 		{
 			uint64 TotalBytes = 0;
 			for (const FTexture2DMipData& Mip : Platform->Mips) TotalBytes += Mip.Pixels.size();
-			DrawInfoRow("Status", "Ready");
+			DrawInfoRow("Status", GetBuildStatusName(Texture->GetBuildStatus()));
 			DrawInfoRow("Pixel Format", GetPixelFormatInfo(Platform->PixelFormat).Name);
 			DrawInfoRow("Mip Count", std::format("{}", Platform->Mips.size()));
 			DrawInfoRow("Mip Range", std::format("{} to {}", FormatDimensions(Platform->Mips.front().Width, Platform->Mips.front().Height),
@@ -319,8 +530,18 @@ namespace Durin
 			DrawInfoRow("Platform Bytes", FormatByteCount(TotalBytes));
 			DrawInfoRow("Residency", "Fully resident");
 		}
-		else DrawInfoRow("Status", "Platform data unavailable or invalid");
+		else
+		{
+			DrawInfoRow("Status", GetBuildStatusName(Texture->GetBuildStatus()));
+		}
+
 		DrawInfoRow("Build Revision", std::format("{}", Texture->GetBuildRevision()));
+
+		if (const std::shared_ptr<FTexture2DRenderResource>& Resource = Texture->GetRenderResource())
+		{
+			DrawInfoRow("GPU State", GetRenderResourceStateName(Resource->GetResourceState()));
+		}
+
 		MonaImGui::PropertyEdit::EndTable();
 	}
 

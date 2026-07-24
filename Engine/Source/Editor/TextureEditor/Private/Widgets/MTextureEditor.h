@@ -9,6 +9,7 @@
 namespace Durin
 {
 	class DTexture2D;
+	class FTexturePreview;
 
 	class MTextureEditor final : public IEditorWorkspace
 	{
@@ -37,6 +38,8 @@ namespace Durin
 		auto GetActiveTexture() const -> DTexture2D*;
 		auto SaveTexture(DTexture2D* Texture) -> bool;
 		auto DrawDocument(const FEditorDocumentTab& Document, DTexture2D* Texture) -> void;
+		auto DrawFailureState(DTexture2D* Texture) -> void;
+		auto DrawPreview(DTexture2D* Texture) -> void;
 		auto DrawSourceData(DTexture2D* Texture) -> void;
 		auto DrawBuildSettings(DTexture2D* Texture) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
@@ -51,5 +54,11 @@ namespace Durin
 		FReflectedPropertyView PropertyView;
 		// Set when a dirty document close is deferred for user confirmation.
 		FEditorDocumentId PendingCloseDocumentId;
+
+		// Built-texture preview.
+		std::unique_ptr<FTexturePreview> Preview;
+		uint32 SelectedMipIndex = 0;
+		uint32 LastUploadedMipIndex = UINT32_MAX;
+		uint64 LastObservedRevision = 0;
 	};
 }

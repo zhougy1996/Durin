@@ -322,3 +322,78 @@ TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Unsupported", AssetPath));
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(AssetPath), nullptr);
 }
+
+TEST(FTexture2DTests, FailureState_RecordsMissingSourceOnPostLoad)
+{
+	InitializeDObjectSystem();
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/FailureTestMissing", AssetPath));
+	Durin::DTexture2D* Texture = nullptr;
+	Durin::Asset::FAssetResult CreateResult = Durin::Asset::CreateAsset(AssetPath, Texture);
+	ASSERT_TRUE(CreateResult) << CreateResult.Message;
+	ASSERT_NE(Texture, nullptr);
+	// At creation time, the build has not run.
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::DTexture2D::ETextureBuildStatus::Unbuilt);
+	// PostLoad with an empty source file.
+	std::string Error;
+	EXPECT_FALSE(Texture->PostLoad(Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::DTexture2D::ETextureBuildStatus::MissingSource);
+	EXPECT_FALSE(Texture->GetLastBuildError().empty());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+}
+
+TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
+{
+	InitializeDObjectSystem();
+	static const bool bMountInitialized = [] {
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureFailureMount";
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/TextureFailureTests/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "FailureReadySource.png";
+	WriteTextureFixture(Source);
+	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureFailureTests/Ready");
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_EQ(Result.Asset->GetBuildStatus(), Durin::DTexture2D::ETextureBuildStatus::Ready);
+	EXPECT_TRUE(Result.Asset->GetLastBuildError().empty());
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureFailureTests/Ready", AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+}
+
+TEST(FTexture2DTests, FailureState_ClearsAfterInvalidatePlatformData)
+{
+	InitializeDObjectSystem();
+	static const bool bMountInitialized = [] {
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureInvalidateMount";
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/TextureInvalidateTests/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "InvalidateSource.png";
+	WriteTextureFixture(Source);
+	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureInvalidateTests/Invalid");
+	ASSERT_TRUE(Result) << Result.Message;
+	Durin::DTexture2D* Texture = Result.Asset;
+	ASSERT_NE(Texture, nullptr);
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::DTexture2D::ETextureBuildStatus::Ready);
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureInvalidateTests/Invalid", AssetPath));
+
+	// Trigger a build failure: set invalid usage then try to rebuild.
+	std::string Error;
+	Texture->SetUsage(Durin::ETextureUsage::DataMask, Error);
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::DTexture2D::ETextureBuildStatus::Ready);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+}

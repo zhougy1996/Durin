@@ -230,6 +230,14 @@ namespace Durin
 	auto DTexture2D::InvalidatePlatformData() -> void
 	{
 		PlatformData.reset();
+		// Preserve specific failure states set by callers (DecodeFailure, BuildFailure, etc.).
+		// Only downgrade Ready to Unbuilt; a caller that wants a specific failure status
+		// sets it after this call.
+		if (BuildStatus == ETextureBuildStatus::Ready)
+		{
+			BuildStatus = ETextureBuildStatus::Unbuilt;
+			LastBuildError.clear();
+		}
 		const uint64 ReleaseRevision = ++BuildRevision;
 		if (GDynamicRHI != nullptr) RenderResource->QueueRelease(ReleaseRevision);
 	}
@@ -248,6 +256,8 @@ namespace Durin
 		Asset::FDecodedImage DecodedImage;
 		if (!Asset::DecodeImageFromFile(PhysicalFilePath, DecodedImage, OutError))
 		{
+			BuildStatus = ETextureBuildStatus::DecodeFailure;
+			LastBuildError = OutError;
 			SourceData.reset();
 			InvalidatePlatformData();
 			return false;
@@ -263,6 +273,8 @@ namespace Durin
 		if (!NewSourceData->IsValid())
 		{
 			OutError = "Decoded texture source data is invalid.";
+			BuildStatus = ETextureBuildStatus::DecodeFailure;
+			LastBuildError = OutError;
 			SourceData.reset();
 			InvalidatePlatformData();
 			return false;
@@ -277,10 +289,20 @@ namespace Durin
 		std::unique_ptr<FTexturePlatformData> NewPlatformData;
 		if (!BuildPlatformData(Usage, bSRGB, NewPlatformData, OutError))
 		{
+			// Classify the failure: UnsupportedFormat when the pixel-format selector
+			// returns Unknown; everything else is a general BuildFailure.
+			const bool bHasTransparency = SourceData ? SourceData->bHasTransparency : false;
+			if (SelectTexturePixelFormat(Usage, bSRGB, bHasTransparency) == EPixelFormat::Unknown)
+				BuildStatus = ETextureBuildStatus::UnsupportedFormat;
+			else
+				BuildStatus = ETextureBuildStatus::BuildFailure;
+			LastBuildError = OutError;
 			InvalidatePlatformData();
 			return false;
 		}
 		PlatformData = std::move(NewPlatformData);
+		BuildStatus = ETextureBuildStatus::Ready;
+		LastBuildError.clear();
 		QueueRenderResourceBuild();
 		return true;
 	}
@@ -303,6 +325,11 @@ namespace Durin
 
 		auto NewPlatformData = std::make_unique<FTexturePlatformData>();
 		NewPlatformData->PixelFormat = SelectTexturePixelFormat(InUsage, bInSRGB, SourceData->bHasTransparency);
+		if (NewPlatformData->PixelFormat == EPixelFormat::Unknown)
+		{
+			OutError = "Selected pixel format is not supported by the current RHI backend.";
+			return false;
+		}
 		FTexture2DMipData& BaseMip = NewPlatformData->Mips.emplace_back();
 		BaseMip.Pixels = SourceData->Pixels;
 		BaseMip.Width = SourceData->Width;
@@ -375,15 +402,21 @@ namespace Durin
 
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool
 	{
+		BuildStatus = ETextureBuildStatus::Unbuilt;
+		LastBuildError.clear();
 		if (SourceFile.empty())
 		{
 			OutError = "Texture asset has no source file.";
+			BuildStatus = ETextureBuildStatus::MissingSource;
+			LastBuildError = OutError;
 			return false;
 		}
 		const std::filesystem::path PhysicalPath = ResolveTextureSource(*this);
 		if (!std::filesystem::is_regular_file(PhysicalPath))
 		{
 			OutError = std::format("Texture source file does not exist: {}", SourceFile);
+			BuildStatus = ETextureBuildStatus::MissingSource;
+			LastBuildError = OutError;
 			return false;
 		}
 		return BuildSourceData(PhysicalPath.generic_string(), OutError);
@@ -439,7 +472,22 @@ namespace Durin
 
 		bSRGB = bPendingEditSRGB;
 		PlatformData = std::move(PendingEditPlatformData);
+		BuildStatus = ETextureBuildStatus::Ready;
+		LastBuildError.clear();
 		QueueRenderResourceBuild();
+	}
+
+	auto DTexture2D::RefreshBuildStatus() -> void
+	{
+		if (!RenderResource) return;
+		if (RenderResource->bFailed.load(std::memory_order_acquire))
+		{
+			if (BuildStatus == ETextureBuildStatus::Ready)
+			{
+				BuildStatus = ETextureBuildStatus::UploadFailure;
+				LastBuildError = "GPU texture creation or upload failed.";
+			}
+		}
 	}
 
 	auto DTexture2D::ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings) -> FTexture2DImportResult

@@ -79,6 +79,17 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
+		enum class ETextureBuildStatus : uint8
+		{
+			Unbuilt,           // PostLoad has not run or platform data was invalidated
+			Ready,             // Fully built and render resource queued
+			MissingSource,     // SourceFile is empty or the file does not exist
+			DecodeFailure,     // Image decoding failed (unsupported/corrupt file)
+			BuildFailure,      // FTexturePlatformData construction failed
+			UploadFailure,     // RHI texture creation or mip upload failed
+			UnsupportedFormat, // Selected pixel format unsupported by current RHI
+		};
+
 		explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
 		~DTexture2D() override;
 
@@ -89,6 +100,8 @@ namespace Durin
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
+		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
+		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
 		auto SetUsage(ETextureUsage InUsage, std::string& OutError) -> bool;
 		auto SetSRGB(bool bInSRGB, std::string& OutError) -> bool;
 
@@ -96,6 +109,7 @@ namespace Durin
 		auto PostLoad(std::string& OutError) -> bool override;
 		auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+		auto RefreshBuildStatus() -> void;
 
 		static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
 
@@ -124,6 +138,10 @@ namespace Durin
 		// Its RHI member is intentionally never accessed through DTexture2D.
 		std::shared_ptr<FTexture2DRenderResource> RenderResource;
 		uint64 BuildRevision = 0;
+
+		// Persistent failure state. Set by the build pipeline and cleared on success.
+		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;
+		std::string LastBuildError;
 
 		// Reflected edits validate and build detached settings before live storage
 		// changes. PostEditChangeProperty consumes this exact candidate atomically.

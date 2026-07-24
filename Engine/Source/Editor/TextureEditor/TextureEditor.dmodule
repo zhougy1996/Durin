@@ -9,6 +9,7 @@
         "Engine",
         "AssetCore",
         "MonaImGui",
+        "MonaCore",
         "DurinEd"
     ]
 }
