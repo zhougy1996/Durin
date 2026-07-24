@@ -245,6 +245,40 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(ColorAssetPath));
 }
 
+TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "LimitedTextureSource.tga";
+	WriteNpotTextureFixture(Source);
+	Durin::FTexture2DImportSettings Settings;
+	Settings.MaxResolution = 4;
+	Settings.CompressionQuality = Durin::ETextureCompressionQuality::Low;
+	Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
+		Source.generic_string(), "/TextureImportTests/Limited", Settings);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Result.Asset, nullptr);
+	EXPECT_EQ(Result.Asset->GetMaxResolution(), 4u);
+	EXPECT_EQ(Result.Asset->GetCompressionQuality(), Durin::ETextureCompressionQuality::Low);
+	const Durin::FTexturePlatformData* PlatformData = Result.Asset->GetPlatformData();
+	ASSERT_NE(PlatformData, nullptr);
+	ASSERT_EQ(PlatformData->Mips.size(), 2u);
+	EXPECT_EQ(std::pair(PlatformData->Mips[0].Width, PlatformData->Mips[0].Height), std::pair(2u, 1u));
+	EXPECT_EQ(std::pair(PlatformData->Mips[1].Width, PlatformData->Mips[1].Height), std::pair(1u, 1u));
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Limited", AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	Durin::DTexture2D* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->GetMaxResolution(), 4u);
+	EXPECT_EQ(Loaded->GetCompressionQuality(), Durin::ETextureCompressionQuality::Low);
+	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
+	EXPECT_EQ(Loaded->GetPlatformData()->Mips.front().Width, 2u);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+}
+
 TEST(FTexture2DTests, CompressedLayoutsCoverNpotAndTailMips)
 {
 	const Durin::FPixelFormatLayout BC1Npot = Durin::GetPixelFormatLayout(Durin::EPixelFormat::BC1_UNORM, 5, 3);
@@ -334,8 +368,12 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 
 	Durin::FProperty* UsageProperty = Texture->GetClass()->FindPropertyByName("Usage");
 	Durin::FProperty* SRGBProperty = Texture->GetClass()->FindPropertyByName("bSRGB");
+	Durin::FProperty* MaxResolutionProperty = Texture->GetClass()->FindPropertyByName("MaxResolution");
+	Durin::FProperty* CompressionQualityProperty = Texture->GetClass()->FindPropertyByName("CompressionQuality");
 	ASSERT_NE(UsageProperty, nullptr);
 	ASSERT_NE(SRGBProperty, nullptr);
+	ASSERT_NE(MaxResolutionProperty, nullptr);
+	ASSERT_NE(CompressionQualityProperty, nullptr);
 	Durin::FReflectedPropertyView PropertyView;
 	Durin::FEditorTransactionManager Transactions;
 	std::string Error;
@@ -357,6 +395,21 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 			Durin::FReflectedPropertyEditTarget::ForMember(Texture, SRGBProperty),
 			[bSRGB](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
 				*Property->ContainerPtrToValuePtr<bool>(Container, ArrayIndex) = bSRGB;
+			}, false);
+	};
+	const auto SubmitMaxResolution = [&](Durin::uint32 MaxResolution) {
+		return PropertyView.SubmitPropertyValueEdit(Context,
+			Durin::FReflectedPropertyEditTarget::ForMember(Texture, MaxResolutionProperty),
+			[MaxResolution](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+				*Property->ContainerPtrToValuePtr<Durin::uint32>(Container, ArrayIndex) = MaxResolution;
+			}, false);
+	};
+	const auto SubmitCompressionQuality = [&](Durin::ETextureCompressionQuality Quality) {
+		return PropertyView.SubmitPropertyValueEdit(Context,
+			Durin::FReflectedPropertyEditTarget::ForMember(Texture, CompressionQualityProperty),
+			[Quality](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
+					Container, static_cast<Durin::uint64>(Quality), ArrayIndex);
 			}, false);
 	};
 
@@ -384,12 +437,33 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	EXPECT_FALSE(Texture->IsSRGB());
 	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
 
+	ASSERT_TRUE(SubmitMaxResolution(1)) << Error;
+	EXPECT_EQ(Texture->GetMaxResolution(), 1u);
+	ASSERT_EQ(Texture->GetPlatformData()->Mips.size(), 1u);
+	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Width, 1u);
+	ASSERT_TRUE(SubmitCompressionQuality(Durin::ETextureCompressionQuality::High)) << Error;
+	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::High);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::Normal);
+	EXPECT_EQ(Texture->GetMaxResolution(), 1u);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Texture->GetMaxResolution(), 0u);
+	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Width, 2u);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Texture->GetMaxResolution(), 1u);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::High);
+
 	Error.clear();
 	EXPECT_FALSE(SubmitUsage(static_cast<Durin::ETextureUsage>(255)));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Texture->IsSRGB());
 	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
+	Error.clear();
+	EXPECT_FALSE(SubmitCompressionQuality(static_cast<Durin::ETextureCompressionQuality>(255)));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::High);
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Transactional", AssetPath));

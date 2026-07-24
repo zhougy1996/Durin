@@ -158,7 +158,7 @@ namespace Durin
 	auto DTexture2D::RebuildPlatformData(std::string& OutError) -> bool
 	{
 		std::unique_ptr<FTexturePlatformData> NewPlatformData;
-		if (!BuildPlatformData(Usage, bSRGB, NewPlatformData, OutError))
+		if (!BuildPlatformData(Usage, bSRGB, MaxResolution, CompressionQuality, NewPlatformData, OutError))
 		{
 			// Classify the failure: UnsupportedFormat when the pixel-format selector
 			// returns Unknown; everything else is a general BuildFailure.
@@ -178,7 +178,8 @@ namespace Durin
 		return true;
 	}
 
-	auto DTexture2D::BuildPlatformData(ETextureUsage InUsage, bool bInSRGB,
+	auto DTexture2D::BuildPlatformData(ETextureUsage InUsage, bool bInSRGB, uint32 InMaxResolution,
+		ETextureCompressionQuality InCompressionQuality,
 		std::unique_ptr<FTexturePlatformData>& OutPlatformData, std::string& OutError) const -> bool
 	{
 		OutError.clear();
@@ -189,7 +190,8 @@ namespace Durin
 			return false;
 		}
 		auto NewPlatformData = std::make_unique<FTexturePlatformData>();
-		if (!TextureBuild::BuildMipChain(*SourceData, InUsage, bInSRGB, *NewPlatformData, OutError)) return false;
+		if (!TextureBuild::BuildMipChain(*SourceData, InUsage, bInSRGB, *NewPlatformData, OutError,
+			InMaxResolution, InCompressionQuality)) return false;
 		OutPlatformData = std::move(NewPlatformData);
 		return true;
 	}
@@ -246,6 +248,55 @@ namespace Durin
 		return false;
 	}
 
+	auto DTexture2D::SetMaxResolution(uint32 InMaxResolution, std::string& OutError) -> bool
+	{
+		OutError.clear();
+		if (MaxResolution == InMaxResolution) return true;
+		if (!SourceData || !SourceData->IsValid())
+		{
+			OutError = "Texture source data is unavailable or invalid.";
+			return false;
+		}
+		const uint32 PreviousMaxResolution = MaxResolution;
+		MaxResolution = InMaxResolution;
+		if (RebuildPlatformData(OutError))
+		{
+			MarkPackageDirty();
+			return true;
+		}
+		MaxResolution = PreviousMaxResolution;
+		std::string RestoreError;
+		RebuildPlatformData(RestoreError);
+		return false;
+	}
+
+	auto DTexture2D::SetCompressionQuality(ETextureCompressionQuality InQuality, std::string& OutError) -> bool
+	{
+		OutError.clear();
+		if (!TextureBuild::IsValidCompressionQuality(InQuality))
+		{
+			OutError = "Texture compression quality is invalid.";
+			return false;
+		}
+		if (CompressionQuality == InQuality) return true;
+		if (!SourceData || !SourceData->IsValid())
+		{
+			OutError = "Texture source data is unavailable or invalid.";
+			return false;
+		}
+		const ETextureCompressionQuality PreviousQuality = CompressionQuality;
+		CompressionQuality = InQuality;
+		if (RebuildPlatformData(OutError))
+		{
+			MarkPackageDirty();
+			return true;
+		}
+		CompressionQuality = PreviousQuality;
+		std::string RestoreError;
+		RebuildPlatformData(RestoreError);
+		return false;
+	}
+
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool
 	{
 		BuildStatus = ETextureBuildStatus::Unbuilt;
@@ -279,6 +330,8 @@ namespace Durin
 
 		ETextureUsage CandidateUsage = Usage;
 		bool bCandidateSRGB = bSRGB;
+		uint32 CandidateMaxResolution = MaxResolution;
+		ETextureCompressionQuality CandidateCompressionQuality = CompressionQuality;
 		const FName PropertyName = Proposal.MemberProperty->NamePrivate;
 		if (PropertyName == FName("Usage"))
 		{
@@ -301,12 +354,36 @@ namespace Durin
 			bCandidateSRGB = *Proposal.DraftRootProperty->ContainerPtrToValuePtr<bool>(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
 		}
+		else if (PropertyName == FName("MaxResolution"))
+		{
+			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::UInt32)
+			{
+				OutError = "The texture maximum-resolution metadata is unavailable.";
+				return false;
+			}
+			CandidateMaxResolution = *Proposal.DraftRootProperty->ContainerPtrToValuePtr<uint32>(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+		}
+		else if (PropertyName == FName("CompressionQuality"))
+		{
+			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Enum)
+			{
+				OutError = "The texture compression-quality metadata is unavailable.";
+				return false;
+			}
+			CandidateCompressionQuality = static_cast<ETextureCompressionQuality>(
+				static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
+					Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex));
+		}
 		else return true;
 
 		std::unique_ptr<FTexturePlatformData> CandidatePlatformData;
-		if (!BuildPlatformData(CandidateUsage, bCandidateSRGB, CandidatePlatformData, OutError)) return false;
+		if (!BuildPlatformData(CandidateUsage, bCandidateSRGB, CandidateMaxResolution,
+			CandidateCompressionQuality, CandidatePlatformData, OutError)) return false;
 		PendingEditUsage = CandidateUsage;
 		bPendingEditSRGB = bCandidateSRGB;
+		PendingEditMaxResolution = CandidateMaxResolution;
+		PendingEditCompressionQuality = CandidateCompressionQuality;
 		PendingEditPlatformData = std::move(CandidatePlatformData);
 		return true;
 	}
@@ -316,9 +393,12 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
 		const FName PropertyName = Event.MemberProperty->NamePrivate;
-		if (PropertyName != FName("Usage") && PropertyName != FName("bSRGB")) return;
+		if (PropertyName != FName("Usage") && PropertyName != FName("bSRGB")
+			&& PropertyName != FName("MaxResolution") && PropertyName != FName("CompressionQuality")) return;
 		if (Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit) return;
-		if (!PendingEditPlatformData || PendingEditUsage != Usage) return;
+		if (!PendingEditPlatformData || PendingEditUsage != Usage
+			|| PendingEditMaxResolution != MaxResolution
+			|| PendingEditCompressionQuality != CompressionQuality) return;
 
 		bSRGB = bPendingEditSRGB;
 		PlatformData = std::move(PendingEditPlatformData);
@@ -354,6 +434,8 @@ namespace Durin
 		if (!std::filesystem::is_regular_file(Input)) return {false, "Source file does not exist.", nullptr};
 		if (!Asset::IsSupportedImageExtension(Input.extension().generic_string())) return {false, "Unsupported texture source format.", nullptr};
 		if (!TextureBuild::IsValidUsage(Settings.Usage)) return {false, "Texture usage preset is invalid.", nullptr};
+		if (!TextureBuild::IsValidCompressionQuality(Settings.CompressionQuality))
+			return {false, "Texture compression quality is invalid.", nullptr};
 
 		FAssetPath ParsedAssetPath;
 		std::string PathError;
@@ -371,6 +453,8 @@ namespace Durin
 		if (!CreateResult) return {false, CreateResult.Message, nullptr};
 		Texture->Usage = Settings.Usage;
 		Texture->bSRGB = Settings.bSRGB.value_or(TextureBuild::GetDefaultSRGB(Settings.Usage));
+		Texture->MaxResolution = Settings.MaxResolution;
+		Texture->CompressionQuality = Settings.CompressionQuality;
 		std::string BuildError;
 		if (!Texture->BuildSourceData(Input.generic_string(), BuildError))
 		{

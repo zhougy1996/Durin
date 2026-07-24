@@ -432,10 +432,18 @@ namespace Durin
 		if (!MonaImGui::PropertyEdit::BeginTable("TextureBuildSettings")) return;
 		FProperty* UsageProperty = Texture->GetClass()->FindPropertyByName("Usage");
 		FProperty* SRGBProperty = Texture->GetClass()->FindPropertyByName("bSRGB");
+		FProperty* MaxResolutionProperty = Texture->GetClass()->FindPropertyByName("MaxResolution");
+		FProperty* CompressionQualityProperty = Texture->GetClass()->FindPropertyByName("CompressionQuality");
 		if (UsageProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, UsageProperty, 0, {.Label = "Usage"});
 		else DrawInfoRow("Usage", "Reflection metadata unavailable");
 		if (SRGBProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, SRGBProperty, 0, {.Label = "sRGB"});
 		else DrawInfoRow("sRGB", "Reflection metadata unavailable");
+		if (MaxResolutionProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, MaxResolutionProperty, 0,
+			{.Label = "Max Resolution (0 = source)"});
+		else DrawInfoRow("Max Resolution", "Reflection metadata unavailable");
+		if (CompressionQualityProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, CompressionQualityProperty, 0,
+			{.Label = "Compression Quality"});
+		else DrawInfoRow("Compression Quality", "Reflection metadata unavailable");
 
 		const FTexturePlatformData* Platform = Texture->GetPlatformData();
 		if (Platform && Platform->IsValid())

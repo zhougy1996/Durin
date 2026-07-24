@@ -10,6 +10,7 @@ namespace Durin::TextureBuild
 
 	ENGINE_API auto IsValidUsage(ETextureUsage Usage) -> bool;
 	ENGINE_API auto GetDefaultSRGB(ETextureUsage Usage) -> bool;
+	ENGINE_API auto IsValidCompressionQuality(ETextureCompressionQuality Quality) -> bool;
 	ENGINE_API auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat;
 
 	// Decodes a supported source image into the canonical top-left-origin RGBA8 representation.
@@ -17,5 +18,6 @@ namespace Durin::TextureBuild
 
 	// Builds and platform-compresses the complete mip chain used by both 2D and cube textures.
 	ENGINE_API auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
-		FTexturePlatformData& OutPlatformData, std::string& OutError) -> bool;
+		FTexturePlatformData& OutPlatformData, std::string& OutError, uint32 MaxResolution = 0,
+		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal) -> bool;
 }

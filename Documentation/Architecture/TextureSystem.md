@@ -5,8 +5,8 @@ explicit source, platform, render-resource, editor, and material boundaries.
 
 ## Asset and Build Ownership
 
-- `DTexture2D` owns the copied source-file reference plus the reflected `Usage`
-  and `bSRGB` build settings.
+- `DTexture2D` owns the copied source-file reference plus the reflected `Usage`,
+  `bSRGB`, `MaxResolution`, and `CompressionQuality` build settings.
 - `FTextureSourceData` is decoded RGBA8 edit data. It records source dimensions,
   original channel count, and whether transparency is present.
 - `FTexturePlatformData` is rebuilt from source data. It contains a complete,
@@ -24,22 +24,31 @@ explicit source, platform, render-resource, editor, and material boundaries.
 - NPOT edges are extended by clamping to the last source texel before each 4x4
   block is encoded. This keeps every mip valid without changing its logical
   dimensions.
+- `MaxResolution` is zero when the source-sized base mip should be retained.
+  Otherwise the builder selects the first generated mip whose width and height
+  both fit the limit. The cap is mip-aligned and preserves the usage-aware
+  filter path and source aspect ratio.
+- Compression quality is an offline search-effort choice. Low, Normal, and High
+  map to progressively stronger endpoint, channel, and BC7 partition searches.
+  It changes build time and encoded quality, not the selected pixel format or
+  runtime memory layout.
 
 ## Transactional Build-Setting Edits
 
-The Texture Editor changes `Usage` and `bSRGB` through reflected-property
-transactions. `DTexture2D::PreEditChangeProperty` builds complete candidate
-platform data from detached proposal storage before the live setting changes.
-An invalid usage or failed build rejects the proposal without changing the
-asset.
+The Texture Editor changes `Usage`, `bSRGB`, `MaxResolution`, and
+`CompressionQuality` through reflected-property transactions.
+`DTexture2D::PreEditChangeProperty` builds complete candidate platform data
+from detached proposal storage before the live setting changes. An invalid
+usage or quality value, or any failed build, rejects the proposal without
+changing the asset.
 
 After a successful write, `PostEditChangeProperty` atomically installs the
 validated candidate and queues a new render-resource revision. Cancel, Undo,
 and Redo use the same hooks and therefore rebuild the matching platform data.
 Changing usage resets sRGB to that preset's default; editing sRGB afterward is
 an explicit override. Committed edits dirty the package through the shared
-reflected transaction path. Direct `SetUsage` and `SetSRGB` calls follow the
-same rebuild rule and dirty the package after success.
+reflected transaction path. Direct build-setting setters follow the same
+rebuild rule and dirty the package after success.
 
 ## Render-Thread Boundary
 
@@ -74,7 +83,8 @@ the mip edge, so NPOT base levels and sub-4x4 tail mips remain valid.
 `TextureEditor` registers a per-resource workspace for `DTexture2D`. It exposes:
 
 - source file, dimensions, source channel count, transparency, and decoded format;
-- transactional Usage and sRGB controls;
+- transactional Usage, sRGB, maximum-resolution, and compression-quality
+  controls;
 - platform format, mip count and range, byte size, residency policy, build
   revision, and current platform-data status;
 - normal workspace save, Dirty, close protection, Undo, and Redo behavior.
@@ -92,9 +102,7 @@ copied source image rather than the built platform representation.
 
 - Platform data is rebuilt by decoding the source image during every normal
   `PostLoad`; there is no texture derived-data key or cooked payload.
-- Desktop compression currently uses one fixed quality level. Maximum
-  resolution, user-facing quality controls, and alpha-coverage-preserving mip
-  generation are not implemented.
+- Alpha-coverage-preserving mip generation is not implemented.
 - Build work is synchronous, every mip is fully resident, and there is no memory
   accounting or streaming.
 - The shipped material shader consumes only the base-color texture parameter.

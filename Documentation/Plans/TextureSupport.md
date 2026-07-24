@@ -17,13 +17,13 @@ renderer-owned white texture.
 
 The current build remains an editor-oriented implementation rather than a
 production texture pipeline. `DTexture2D::PostLoad` still reopens and decodes the
-copied source image, desktop compression uses a fixed quality level, and all
-mips are fully resident. A dedicated Texture Editor now
-shows source and platform diagnostics and changes usage or the explicit sRGB
-override through validated reflected transactions with Dirty, save, cancel,
-Undo, and Redo behavior. Normal and Data/Mask currently affect build defaults
-and mip filtering only; the shipped material shader consumes only the
-base-color texture parameter.
+copied source image, and all built mips are fully resident. A dedicated Texture
+Editor now shows source and platform diagnostics and changes usage, the
+explicit sRGB override, maximum resolution, or compression quality through
+validated reflected transactions with Dirty, save, cancel, Undo, and Redo
+behavior. Normal and Data/Mask currently affect build defaults and mip filtering
+only; the shipped material shader consumes only the base-color texture
+parameter.
 
 The original focused `FTexture2DTests.*` and `FEditorTextureSmokeTests.*` suites
 passed on 2026-07-21 using the `Win64-Debug-DurinEditor-Tests` preset. On
@@ -53,6 +53,14 @@ BC5 for Normal, and BC7 for Data/Mask, encodes every mip through a commit-pinned
 `bc7enc_rdo` dependency, and extends NPOT block edges without changing logical
 mip dimensions. All eleven focused texture tests and all 204 `EngineTests`
 passed, followed by a successful full `all` build and a ten-second
+`DurinEditor --hidden-window` Vulkan smoke run.
+Maximum resolution now selects a mip-aligned base level without introducing a
+second resize path, while Low, Normal, and High compression quality settings
+control the search effort used by every desktop BC encoder. Both settings are
+serialized and rebuild through the same validated Texture Editor transactions
+as Usage and sRGB, including Dirty, Undo, and Redo behavior.
+All twelve focused `FTexture2DTests.*` and all 205 `EngineTests` passed after
+the change, followed by a successful full `all` build and a ten-second
 `DurinEditor --hidden-window` Vulkan smoke run.
 
 ## Implemented
@@ -131,19 +139,17 @@ passed, followed by a successful full `all` build and a ten-second
 
 ### Stage 3: Desktop Platform Formats and Compression
 
-The current platform build produces a complete uncompressed `RGBA8_UNORM` or
-`SRGBA8_UNORM` mip chain according to the asset usage and explicit color-space
-override. Usage and source transparency already enter the format-selection
-function, but the uncompressed backend currently ignores both except for the
-sRGB choice. Extend it with explicit build settings rather than inferring
-permanent behavior from the source filename.
+The current platform build produces a complete compressed desktop BC mip chain
+according to the asset usage, transparency, explicit color-space override,
+maximum resolution, and compression quality. These remain explicit serialized
+build settings rather than permanent behavior inferred from the source filename.
 
 - [x] Add sRGB versus linear color-space selection.
 - [x] Generate a complete mip chain with usage-appropriate image filters.
 - [x] Add texture usage presets, initially Color, Normal, and Data/Mask.
 - [x] Select platform formats from usage and alpha requirements.
 - [x] Add BC1/BC3/BC5/BC7 compression for supported desktop targets.
-- [ ] Add maximum-resolution and quality settings.
+- [x] Add maximum-resolution and quality settings.
 - [ ] Decide how alpha coverage should be preserved while generating mips.
 - [x] Validate platform-format support before creating the RHI resource.
 

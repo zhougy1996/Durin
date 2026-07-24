@@ -10,8 +10,6 @@ namespace Durin::TextureBuild
 	namespace
 	{
 		constexpr uint32 BlockWidth = 4;
-		constexpr uint32 CompressionLevel = 10;
-
 		auto GatherTextureBlock(const FTexture2DMipData& Source, uint32 BlockX, uint32 BlockY,
 			std::array<uint8, BlockWidth * BlockWidth * ChannelCount>& OutPixels) -> void
 		{
@@ -28,7 +26,19 @@ namespace Durin::TextureBuild
 			}
 		}
 
+		auto GetCompressionLevel(ETextureCompressionQuality Quality) -> uint32
+		{
+			switch (Quality)
+			{
+			case ETextureCompressionQuality::Low: return 4;
+			case ETextureCompressionQuality::Normal: return 10;
+			case ETextureCompressionQuality::High: return 18;
+			default: return 10;
+			}
+		}
+
 		auto CompressTextureMip(const FTexture2DMipData& Source, EPixelFormat Format,
+			ETextureCompressionQuality Quality,
 			FTexture2DMipData& OutMip, std::string& OutError) -> bool
 		{
 			const FPixelFormatLayout Layout = GetPixelFormatLayout(Format, Source.Width, Source.Height);
@@ -54,6 +64,24 @@ namespace Durin::TextureBuild
 			bc7enc_compress_block_params_init(&BC7Params);
 			if (!GetPixelFormatInfo(Format).bIsSRGB)
 				bc7enc_compress_block_params_init_linear_weights(&BC7Params);
+			switch (Quality)
+			{
+			case ETextureCompressionQuality::Low:
+				BC7Params.m_max_partitions = 16;
+				BC7Params.m_try_least_squares = false;
+				break;
+			case ETextureCompressionQuality::Normal:
+				break;
+			case ETextureCompressionQuality::High:
+				BC7Params.m_uber_level = 2;
+				break;
+			default:
+				OutError = "Texture compression quality is invalid.";
+				return false;
+			}
+			const uint32 CompressionLevel = GetCompressionLevel(Quality);
+			const uint32 AlphaSearchRadius = Quality == ETextureCompressionQuality::Low ? 1
+				: Quality == ETextureCompressionQuality::High ? 5 : rgbcx::BC4_DEFAULT_SEARCH_RAD;
 
 			std::array<uint8, BlockWidth * BlockWidth * ChannelCount> BlockPixels{};
 			for (uint32 BlockY = 0; BlockY < Layout.BlocksHigh; ++BlockY)
@@ -73,10 +101,10 @@ namespace Durin::TextureBuild
 						break;
 					case EPixelFormat::BC3_UNORM:
 					case EPixelFormat::BC3_UNORM_SRGB:
-						rgbcx::encode_bc3_hq(CompressionLevel, DestBlock, BlockPixels.data());
+						rgbcx::encode_bc3_hq(CompressionLevel, DestBlock, BlockPixels.data(), AlphaSearchRadius);
 						break;
 					case EPixelFormat::BC5_UNORM:
-						rgbcx::encode_bc5_hq(DestBlock, BlockPixels.data());
+						rgbcx::encode_bc5_hq(DestBlock, BlockPixels.data(), 0, 1, 4, AlphaSearchRadius);
 						break;
 					case EPixelFormat::BC7_UNORM:
 					case EPixelFormat::BC7_UNORM_SRGB:
@@ -191,6 +219,13 @@ namespace Durin::TextureBuild
 		return Usage == ETextureUsage::Color;
 	}
 
+	auto IsValidCompressionQuality(ETextureCompressionQuality Quality) -> bool
+	{
+		return Quality == ETextureCompressionQuality::Low
+			|| Quality == ETextureCompressionQuality::Normal
+			|| Quality == ETextureCompressionQuality::High;
+	}
+
 	auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat
 	{
 		switch (Usage)
@@ -231,7 +266,8 @@ namespace Durin::TextureBuild
 	}
 
 	auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
-		FTexturePlatformData& OutPlatformData, std::string& OutError) -> bool
+		FTexturePlatformData& OutPlatformData, std::string& OutError, uint32 MaxResolution,
+		ETextureCompressionQuality CompressionQuality) -> bool
 	{
 		OutPlatformData = {};
 		if (!SourceData.IsValid())
@@ -242,6 +278,11 @@ namespace Durin::TextureBuild
 		if (!IsValidUsage(Usage))
 		{
 			OutError = "Texture usage preset is invalid.";
+			return false;
+		}
+		if (!IsValidCompressionQuality(CompressionQuality))
+		{
+			OutError = "Texture compression quality is invalid.";
 			return false;
 		}
 		OutPlatformData.PixelFormat = SelectPixelFormat(Usage, bSRGB, SourceData.bHasTransparency);
@@ -260,11 +301,22 @@ namespace Durin::TextureBuild
 		{
 			UncompressedMips.push_back(BuildNextMip(UncompressedMips.back(), Usage, bSRGB));
 		}
-		OutPlatformData.Mips.reserve(UncompressedMips.size());
-		for (const FTexture2DMipData& UncompressedMip : UncompressedMips)
+		size_t FirstMipIndex = 0;
+		if (MaxResolution > 0)
+		{
+			while (FirstMipIndex + 1 < UncompressedMips.size()
+				&& (UncompressedMips[FirstMipIndex].Width > MaxResolution
+					|| UncompressedMips[FirstMipIndex].Height > MaxResolution))
+			{
+				++FirstMipIndex;
+			}
+		}
+		OutPlatformData.Mips.reserve(UncompressedMips.size() - FirstMipIndex);
+		for (size_t MipIndex = FirstMipIndex; MipIndex < UncompressedMips.size(); ++MipIndex)
 		{
 			FTexture2DMipData& CompressedMip = OutPlatformData.Mips.emplace_back();
-			if (!CompressTextureMip(UncompressedMip, OutPlatformData.PixelFormat, CompressedMip, OutError))
+			if (!CompressTextureMip(UncompressedMips[MipIndex], OutPlatformData.PixelFormat,
+				CompressionQuality, CompressedMip, OutError))
 			{
 				OutPlatformData = {};
 				return false;

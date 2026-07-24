@@ -26,6 +26,15 @@ namespace Durin
 		DataMask DMETA(DisplayName = "Data / Mask")
 	};
 
+	// Controls the offline desktop block-compression search effort.
+	DENUM(DisplayName = "Texture Compression Quality")
+	enum class ETextureCompressionQuality : uint8
+	{
+		Low,
+		Normal,
+		High
+	};
+
 	// Reports the persistent result of source decoding, platform build, and GPU upload.
 	DENUM(DisplayName = "Texture Build Status")
 	enum class ETextureBuildStatus : uint8
@@ -108,6 +117,8 @@ namespace Durin
 	struct FTexture2DImportSettings
 	{
 		ETextureUsage Usage = ETextureUsage::Color;
+		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
+		uint32 MaxResolution = 0;
 
 		// Empty selects the preset default. Keeping this override explicit prevents a
 		// usage change from silently preserving an incompatible color space.
@@ -130,10 +141,14 @@ namespace Durin
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
+		auto GetMaxResolution() const -> uint32 { return MaxResolution; }
+		auto GetCompressionQuality() const -> ETextureCompressionQuality { return CompressionQuality; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
 		ENGINE_API auto SetUsage(ETextureUsage InUsage, std::string& OutError) -> bool;
 		ENGINE_API auto SetSRGB(bool bInSRGB, std::string& OutError) -> bool;
+		ENGINE_API auto SetMaxResolution(uint32 InMaxResolution, std::string& OutError) -> bool;
+		ENGINE_API auto SetCompressionQuality(ETextureCompressionQuality InQuality, std::string& OutError) -> bool;
 
 		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
@@ -145,7 +160,8 @@ namespace Durin
 
 	private:
 		auto BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
-		auto BuildPlatformData(ETextureUsage InUsage, bool bInSRGB,
+		auto BuildPlatformData(ETextureUsage InUsage, bool bInSRGB, uint32 InMaxResolution,
+			ETextureCompressionQuality InCompressionQuality,
 			std::unique_ptr<FTexturePlatformData>& OutPlatformData, std::string& OutError) const -> bool;
 		auto InvalidatePlatformData() -> void;
 		auto QueueRenderResourceBuild() -> void;
@@ -158,6 +174,14 @@ namespace Durin
 
 		DPROPERTY()
 		bool bSRGB = true;
+
+		// Zero retains the source-sized base mip. Other values select the largest
+		// generated mip whose dimensions both fit within the limit.
+		DPROPERTY()
+		uint32 MaxResolution = 0;
+
+		DPROPERTY()
+		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
 
 		// Both representations are derived from the imported source file. Keeping them
 		// separate lets platform builds replace format/mips without mutating edit data.
@@ -178,5 +202,7 @@ namespace Durin
 		std::unique_ptr<FTexturePlatformData> PendingEditPlatformData;
 		ETextureUsage PendingEditUsage = ETextureUsage::Color;
 		bool bPendingEditSRGB = true;
+		uint32 PendingEditMaxResolution = 0;
+		ETextureCompressionQuality PendingEditCompressionQuality = ETextureCompressionQuality::Normal;
 	};
 }
