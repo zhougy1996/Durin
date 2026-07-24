@@ -31,6 +31,7 @@ namespace Durin
 	namespace
 	{
 		template<typename T>
+		// Couples a viewport-mode value with its label, tooltip, and toolbar icon.
 		struct TViewportModeOption
 		{
 			T Value;
@@ -69,6 +70,7 @@ namespace Durin
 		auto Add(const ImVec2& A, const ImVec2& B) -> ImVec2 { return ImVec2(A.x + B.x, A.y + B.y); }
 		auto Mul(const ImVec2& Value, float Scale) -> ImVec2 { return ImVec2(Value.x * Scale, Value.y * Scale); }
 
+		// Identifies semantic toolbar icons independent of the active font glyphs.
 		enum class EViewportToolbarIcon : uint8
 		{
 			None,
@@ -248,12 +250,14 @@ namespace Durin
 			return bPressed;
 		}
 
+		// Reports which half of a split toolbar button was activated.
 		struct FSplitButtonResult
 		{
 			bool bPrimaryPressed = false;
 			bool bSecondaryPressed = false;
 		};
 
+		// Reports play-control requests gathered during one toolbar draw.
 		struct FRuntimeControlResult
 		{
 			bool bStopPressed = false;
@@ -443,6 +447,7 @@ namespace Durin
 		}
 	} // namespace
 
+	// Retains responsive toolbar group placement for the current viewport size.
 	struct FViewportToolbarLayout
 	{
 		IRendererModule* RendererModule = nullptr;

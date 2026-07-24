@@ -156,6 +156,7 @@ namespace Durin
 			return {};
 		}
 
+		// Couples a reflected property with the display label selected by filtering.
 		struct FVisibleProperty
 		{
 			FProperty* Property = nullptr;

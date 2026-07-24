@@ -17,6 +17,7 @@ namespace Durin
 	class FRenderCommandFence;
 	class MWindow;
 
+	// Tracks the lifecycle transition of a play-in-editor session.
 	enum class EEditorPlayState : uint8
 	{
 		Stopped,
@@ -26,18 +27,21 @@ namespace Durin
 		Stopping
 	};
 
+	// Selects the initial player viewpoint for a play-in-editor session.
 	enum class EEditorPlayStartLocation : uint8
 	{
 		LevelStart,
 		EditorCamera
 	};
 
+	// Selects whether play renders in the editor or a separate window.
 	enum class EEditorPlayDestination : uint8
 	{
 		EmbeddedViewport,
 		NewWindow
 	};
 
+	// Describes the source world, viewpoint, and physics policy for starting play.
 	struct FEditorPlayRequest
 	{
 		DLevel* SourceLevel = nullptr;
@@ -48,6 +52,7 @@ namespace Durin
 		bool bSimulatePhysics = true;
 	};
 
+	// Owns editor services and coordinates editor and play-world lifetimes.
 	DCLASS()
 	class DEditorEngine : public DEngine
 	{
@@ -80,12 +85,15 @@ namespace Durin
 		std::unique_ptr<FEditorTransactionManager> TransactionManager;
 		std::unique_ptr<FEditorNotificationManager> NotificationManager;
 
+		// Authoritative world being edited; retained for the editor engine lifetime.
 		DPROPERTY(Transient)
 		TObjectPtr<DWorld> EditorWorld;
 
+		// Duplicated runtime world while a play session is active.
 		DPROPERTY(Transient)
 		TObjectPtr<DWorld> PlayWorld;
 
+		// Level currently loaded in the authoritative editor world.
 		DPROPERTY(Transient)
 		TObjectPtr<DLevel> EditorLevel;
 
@@ -94,6 +102,7 @@ namespace Durin
 		DPROPERTY(Transient)
 		std::vector<TObjectPtr<DWorld>> RetiredPlayWorlds;
 
+		// Levels are paired with retired worlds until the same render fences complete.
 		DPROPERTY(Transient)
 		std::vector<TObjectPtr<DLevel>> RetiredPlayLevels;
 

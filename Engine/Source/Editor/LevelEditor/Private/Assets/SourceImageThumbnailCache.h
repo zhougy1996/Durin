@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Tracks whether a source thumbnail is absent, loading, ready, or failed.
 	enum class ESourceImageThumbnailState : uint8
 	{
 		NotRequested,
@@ -14,6 +15,7 @@ namespace Durin
 		Failed
 	};
 
+	// Exposes one cache entry without transferring texture ownership.
 	struct FSourceImageThumbnailView
 	{
 		ESourceImageThumbnailState State = ESourceImageThumbnailState::NotRequested;
@@ -24,6 +26,7 @@ namespace Durin
 		std::string Error;
 	};
 
+	// Coordinates asynchronous decode, GPU upload, memory eviction, and disk reuse.
 	class FSourceImageThumbnailCache
 	{
 	public:

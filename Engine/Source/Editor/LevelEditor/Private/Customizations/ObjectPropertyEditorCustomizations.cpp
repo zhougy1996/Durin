@@ -8,6 +8,7 @@ namespace Durin
 {
 	namespace
 	{
+		// Adds actor-specific rows and hides redundant reflected properties.
 		class FActorDetailsCustomization final : public IObjectDetailsCustomization
 		{
 		public:

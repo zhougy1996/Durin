@@ -19,6 +19,7 @@ namespace Durin
 	struct FLevelViewportCameraState;
 	struct FViewportToolbarLayout;
 
+	// Owns the level viewport, camera clients, toolbar, and play embedding state.
 	class FSceneViewportPanel final : public ILevelEditorPanel
 	{
 	public:

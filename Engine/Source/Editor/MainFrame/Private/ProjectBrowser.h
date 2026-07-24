@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Draws and owns state for the startup project-selection window.
 	class FProjectBrowser
 	{
 	public:

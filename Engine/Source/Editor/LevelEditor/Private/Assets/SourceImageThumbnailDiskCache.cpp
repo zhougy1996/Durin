@@ -13,6 +13,7 @@ namespace Durin
 		constexpr uint32 MaximumIndexEntries = 1'000'000;
 		constexpr uint64 MaximumEncodedObjectBytes = 16ull * 1024ull * 1024ull;
 
+		// Stores validated metadata for one encoded thumbnail cache object.
 		struct FIndexEntry
 		{
 			std::string Key;
@@ -195,6 +196,7 @@ namespace Durin
 		}
 	} // namespace
 
+	// Owns the cache index, file paths, budget accounting, and synchronization.
 	struct FSourceImageThumbnailDiskCache::FImpl
 	{
 		explicit FImpl(FSourceImageThumbnailDiskCacheSettings InSettings)

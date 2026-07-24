@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Carries decoded RGBA thumbnail pixels and their dimensions.
 	struct FDecodedSourceImageThumbnail
 	{
 		std::vector<uint8> Pixels;

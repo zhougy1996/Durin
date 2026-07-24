@@ -12,6 +12,7 @@ namespace Durin::EditorAssetPicker
 	{
 		constexpr size_t MaxCachedSearches = 128;
 
+		// Identifies a reusable asset candidate set by class and path policy.
 		struct FCandidateCacheKey
 		{
 			const DClass* RequiredClass = nullptr;
@@ -21,6 +22,7 @@ namespace Durin::EditorAssetPicker
 			auto operator==(const FCandidateCacheKey&) const -> bool = default;
 		};
 
+		// Hashes every field that participates in candidate-cache identity.
 		struct FCandidateCacheKeyHash
 		{
 			auto operator()(const FCandidateCacheKey& Key) const -> size_t
@@ -32,6 +34,7 @@ namespace Durin::EditorAssetPicker
 			}
 		};
 
+		// Retains one normalized search result set for a candidate generation.
 		struct FSearchCacheEntry
 		{
 			FCandidateCacheKey CandidateKey;
@@ -42,6 +45,7 @@ namespace Durin::EditorAssetPicker
 			int LastUsedFrame = -1;
 		};
 
+		// Owns shared candidate and search caches across asset-picker instances.
 		struct FAssetPickerCache
 		{
 			uint64 RegistryRevision = 0;

@@ -4,6 +4,7 @@ namespace Durin
 {
 	struct FLevelEditorContext;
 
+	// Defines one independently drawn panel within the level-editor workspace.
 	class ILevelEditorPanel
 	{
 	public:

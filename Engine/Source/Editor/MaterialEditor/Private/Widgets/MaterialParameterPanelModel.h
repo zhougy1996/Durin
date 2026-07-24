@@ -8,6 +8,7 @@ namespace Durin
 	class DMaterialInterface;
 	class DMaterialInstance;
 
+	// Selects the editor control appropriate for one material parameter schema.
 	enum class EMaterialParameterControlKind : uint8
 	{
 		Scalar,
@@ -17,6 +18,7 @@ namespace Durin
 		Unsupported,
 	};
 
+	// Captures one resolved material parameter and its override provenance.
 	struct FMaterialParameterPanelEntry
 	{
 		// Rows own a schema snapshot because applying a reflected collection-root

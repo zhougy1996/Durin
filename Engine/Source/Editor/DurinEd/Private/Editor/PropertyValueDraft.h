@@ -5,6 +5,7 @@
 
 namespace Durin
 {
+	// Resolves a reflected edit path to its current property storage.
 	struct FResolvedPropertyValue
 	{
 		const FProperty* Property = nullptr;

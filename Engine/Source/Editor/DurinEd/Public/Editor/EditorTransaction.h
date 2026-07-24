@@ -6,6 +6,7 @@ namespace Durin
 {
 	using FEditorTransactionId = uint64;
 
+	// Identifies the history transition reported by a transaction event.
 	enum class EEditorTransactionEventType : uint8
 	{
 		Executed,
@@ -14,6 +15,7 @@ namespace Durin
 		Failed,
 	};
 
+	// Identifies the transaction operation that produced an event or failure.
 	enum class EEditorTransactionOperation : uint8
 	{
 		Execute,
@@ -21,6 +23,7 @@ namespace Durin
 		Redo,
 	};
 
+	// Carries one user-visible transaction history event.
 	struct FEditorTransactionEvent
 	{
 		EEditorTransactionEventType Type = EEditorTransactionEventType::Executed;
@@ -30,16 +33,18 @@ namespace Durin
 		std::string Details;
 	};
 
-	class DURINED_API IEditorTransaction
+	// Defines a reversible editor operation stored in transaction history.
+	class IEditorTransaction
 	{
 	public:
 		virtual ~IEditorTransaction() = default;
-		virtual auto GetDescription() const -> std::string_view = 0;
+		DURINED_API virtual auto GetDescription() const -> std::string_view = 0;
 		virtual auto GetDetails(EEditorTransactionOperation Operation) const -> std::string { (void)Operation; return {}; }
-		virtual auto Undo() -> bool = 0;
-		virtual auto Redo() -> bool = 0;
+		DURINED_API virtual auto Undo() -> bool = 0;
+		DURINED_API virtual auto Redo() -> bool = 0;
 	};
 
+	// Owns bounded undo/redo stacks and emits their user-visible outcomes.
 	class FEditorTransactionManager
 	{
 	public:
@@ -64,6 +69,7 @@ namespace Durin
 		DURINED_API auto Clear() -> void;
 
 	private:
+		// Couples a monotonic session identifier with its reversible operation.
 		struct FEntry
 		{
 			FEditorTransactionId Id = 0;

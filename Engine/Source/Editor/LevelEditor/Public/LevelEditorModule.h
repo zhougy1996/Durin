@@ -10,6 +10,7 @@ namespace Durin
 	class FEditorWorkspaceRegistrationHandle;
 	class FEditorWorkspaceManager;
 
+	// Registers the level workspace and its editor customizations.
 	class FLevelEditorModule final : public IModuleInterface
 	{
 	public:

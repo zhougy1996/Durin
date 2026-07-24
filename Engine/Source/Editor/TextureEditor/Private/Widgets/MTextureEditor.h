@@ -11,6 +11,7 @@ namespace Durin
 {
 	class DTexture2D;
 
+	// Hosts one texture document with preview, mip, and metadata controls.
 	class MTextureEditor final : public IEditorWorkspace
 	{
 	public:
@@ -55,6 +56,7 @@ namespace Durin
 		// Set when a dirty document close is deferred for user confirmation.
 		FEditorDocumentId PendingCloseDocumentId;
 
+		// Retains the preview selection independently for each open texture.
 		struct FTexturePreviewState
 		{
 			std::unique_ptr<FTexturePreview> Preview = std::make_unique<FTexturePreview>();

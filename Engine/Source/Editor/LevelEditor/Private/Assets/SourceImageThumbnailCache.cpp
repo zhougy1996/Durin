@@ -19,6 +19,7 @@ namespace Durin
 		constexpr uint32 MaximumUploadsPerFrame = 2;
 		constexpr uint64 ThumbnailMemoryBudget = 64ull * 1024ull * 1024ull;
 
+		// Transfers decoded pixels from a worker to the game-thread cache.
 		struct FDecodeResult
 		{
 			std::string PhysicalPath;
@@ -28,6 +29,7 @@ namespace Durin
 			bool bSucceeded = false;
 		};
 
+		// Transfers an uploaded texture and byte cost into a cache entry.
 		struct FUploadResult
 		{
 			std::string PhysicalPath;
@@ -38,6 +40,7 @@ namespace Durin
 			bool bHasTransparency = false;
 		};
 
+		// Keeps worker queues alive independently from the public cache object.
 		struct FAsyncThumbnailState
 		{
 			std::mutex Mutex;
@@ -47,8 +50,10 @@ namespace Durin
 		};
 	} // namespace
 
+	// Owns asynchronous thumbnail state and coordinates decode and upload queues.
 	struct FSourceImageThumbnailCache::FImpl
 	{
+		// Owns one thumbnail's state, texture, revision, and recency metadata.
 		struct FEntry
 		{
 			ESourceImageThumbnailState State = ESourceImageThumbnailState::NotRequested;
@@ -65,6 +70,7 @@ namespace Durin
 			std::string Error;
 		};
 
+		// Captures the source identity required by one queued decode request.
 		struct FPendingRequest
 		{
 			std::string PhysicalPath;

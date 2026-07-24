@@ -12,6 +12,7 @@
 
 namespace Durin
 {
+	// Retains console input and filtering state across panel reconstruction.
 	struct FConsolePanelState
 	{
 		std::atomic<bool> bClearRequested = false;

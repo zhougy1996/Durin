@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Configures disk budget and image dimensions for source thumbnails.
 	struct FSourceImageThumbnailDiskCacheSettings
 	{
 		std::filesystem::path CacheRoot;
@@ -15,6 +16,7 @@ namespace Durin
 		uint64 DiskBudgetBytes = 256ull * 1024ull * 1024ull;
 	};
 
+	// Reports current disk-cache occupancy and entry count.
 	struct FSourceImageThumbnailDiskCacheStats
 	{
 		uint64 CacheHits = 0;
@@ -22,6 +24,7 @@ namespace Durin
 		uint64 Regenerations = 0;
 	};
 
+	// Owns the versioned on-disk cache for decoded source-image thumbnails.
 	class FSourceImageThumbnailDiskCache
 	{
 	public:

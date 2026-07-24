@@ -2,6 +2,7 @@
 
 namespace Durin::Detail
 {
+	// Couples a registered workspace with the batch lease that owns it.
 	struct FRegisteredWorkspace
 	{
 		FEditorWorkspaceDescriptor Descriptor;
@@ -11,12 +12,14 @@ namespace Durin::Detail
 		uint64 RegistrationOrder = 0;
 	};
 
+	// Couples an asset-editor mapping with the batch lease that owns it.
 	struct FRegisteredAssetEditor
 	{
 		FEditorAssetEditorRegistration Registration;
 		uint64 RegistrationId = 0;
 	};
 
+	// Owns registration tables and removes every entry associated with a lease.
 	struct FEditorWorkspaceRegistryState
 	{
 		uint64 NextRegistrationId = 1;

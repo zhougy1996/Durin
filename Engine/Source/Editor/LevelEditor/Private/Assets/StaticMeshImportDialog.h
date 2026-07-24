@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Selects a predefined static-mesh import policy.
 	enum class EStaticMeshImportPreset : uint8
 	{
 		Durin,
@@ -11,6 +12,7 @@ namespace Durin
 		Custom
 	};
 
+	// Collects static-mesh import options and reports import progress.
 	class FStaticMeshImportDialog
 	{
 	public:

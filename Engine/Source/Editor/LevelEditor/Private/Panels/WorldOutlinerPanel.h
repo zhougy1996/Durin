@@ -8,6 +8,8 @@ namespace Durin
 {
 	class AActor;
 	class DLevel;
+
+	// Builds and draws the searchable actor hierarchy for the active level.
 	class FWorldOutlinerPanel final : public ILevelEditorPanel
 	{
 	public:
@@ -17,6 +19,7 @@ namespace Durin
 	private:
 		static constexpr uint32 InvalidNodeIndex = ~uint32{0};
 
+		// Stores one flattened hierarchy row and indices into the same node array.
 		struct FOutlinerNode
 		{
 			TObjectPtr<AActor> Actor;

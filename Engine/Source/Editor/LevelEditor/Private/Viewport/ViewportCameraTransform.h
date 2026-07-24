@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Persists level-viewport camera position, orbit target, and Euler angles.
 	struct FLevelViewportCameraState
 	{
 		FVector3 Location{-5.0, -5.0, 3.0};
@@ -13,6 +14,7 @@ namespace Durin
 		FReal Yaw = 45.0;
 	};
 
+	// Applies fly, pan, orbit, dolly, and focus operations to an editor camera.
 	class FViewportCameraTransform
 	{
 	public:

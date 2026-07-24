@@ -4,10 +4,10 @@ Last reviewed: 2026-07-25
 
 ## Current Status
 
-Stages 1 through 5 are complete. The application and UI runtime
-(`ApplicationCore`, `MonaCore`, and `MonaImGui`) passed each targeted build plus
-a complete test-enabled `all` integration build. Editor modules and final
-repository verification remain pending.
+Stages 1 through 6 are complete. All repository-owned editor modules passed
+their targeted builds, a complete test-enabled `all` integration build, and a
+timed `--hidden-window` editor smoke test. Final repository verification remains
+pending.
 
 ## Goal
 
@@ -63,6 +63,10 @@ into one unreviewable repository-wide rewrite.
 - The application/UI runtime scan found no reflected declarations or
   class-level export macros; its migration focused on semantic comments for
   platform, ownership, event, viewport, and backend contracts.
+- The editor scan found five class-level export macros and one reflected class
+  with five reflected properties. Export annotations now sit on cross-module
+  functions, and the reflected declaration follows the comment and spacing
+  conventions.
 - Member-comment requirements need semantic review and cannot be closed by a
   regex-only count.
 
@@ -144,7 +148,7 @@ into one unreviewable repository-wide rewrite.
 
 ### Stage 6: Editor modules
 
-- [ ] Inventory and migrate repository-owned editor modules in dependency order.
+- [x] Inventory and migrate repository-owned editor modules in dependency order.
 
 #### Acceptance Gate
 

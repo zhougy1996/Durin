@@ -2,6 +2,7 @@
 
 namespace Durin
 {
+	// Selects the default docking arrangement for the level editor.
 	enum class EEditorUILayoutMode : uint8
 	{
 		Narrow,

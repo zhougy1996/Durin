@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Owns the editor host window and workspace manager for the process.
 	class FMainFrameModule : public IMainFrameModule
 	{
 	public:

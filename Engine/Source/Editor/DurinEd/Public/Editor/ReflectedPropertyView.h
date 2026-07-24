@@ -9,6 +9,7 @@ namespace Durin
 	class FMapProperty;
 	class FProperty;
 
+	// Supplies transaction, error, and read-only policy to a property view.
 	struct FReflectedPropertyViewContext
 	{
 		FEditorTransactionManager* Transactions = nullptr;
@@ -16,11 +17,13 @@ namespace Durin
 		bool bReadOnly = false;
 	};
 
+	// Overrides presentation for one reflected property row.
 	struct FPropertyViewOptions
 	{
 		std::string Label;
 	};
 
+	// Configures filtering and table ownership for an object property view.
 	struct FObjectPropertyViewOptions
 	{
 		std::string_view SearchText;
@@ -30,6 +33,7 @@ namespace Durin
 		bool bShowEmptyMessage = true;
 	};
 
+	// Summarizes visible rows and committed changes from one object draw.
 	struct FObjectPropertyViewResult
 	{
 		uint32 VisiblePropertyCount = 0;
@@ -77,6 +81,7 @@ namespace Durin
 		auto IsEditingTarget(const FReflectedPropertyEditTarget& Target) const -> bool { return EditSession.MatchesTarget(Target); }
 
 	private:
+		// Captures widget output without exposing a live reflected target to UI code.
 		struct FPropertyWidgetEditResult
 		{
 			// The destination is always temporary or detached storage selected by the caller.
@@ -87,6 +92,8 @@ namespace Durin
 			bool bActive = false;
 			bool bDeactivatedAfterEdit = false;
 		};
+
+		// Retains detached key/value drafts while a map insertion UI is active.
 		struct FMapInsertDraft
 		{
 			FReflectedPropertyEditTarget Target;

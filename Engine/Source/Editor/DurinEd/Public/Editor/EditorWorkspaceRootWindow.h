@@ -6,12 +6,14 @@
 
 namespace Durin
 {
+	// Describes an optional dock space nested inside a workspace root window.
 	struct FEditorWorkspaceInternalDockSpace
 	{
 		FEditorWorkspaceTypeId WorkspaceType;
 		uint32 LayoutVersion = 0;
 	};
 
+	// Configures one frame of an editor workspace root window.
 	struct FEditorWorkspaceRootWindowConfig
 	{
 		std::string_view DisplayName;
@@ -23,6 +25,7 @@ namespace Durin
 		std::optional<FEditorWorkspaceInternalDockSpace> InternalDockSpace;
 	};
 
+	// Reports visibility, activation, focus, and close intent for one frame.
 	struct FEditorWorkspaceRootWindowState
 	{
 		bool bVisible = false;
@@ -31,13 +34,14 @@ namespace Durin
 		bool bCloseRequested = false;
 	};
 
-	class DURINED_API FEditorWorkspaceRootWindow
+	// Balances ImGui root-window lifetime and tracks dock-tab activation.
+	class FEditorWorkspaceRootWindow
 	{
 	public:
 		auto RequestFocus() -> void { bFocusRequested = true; }
 		auto ResetActivationState() -> void { bWasDockTabSelected = false; }
-		auto Begin(const FEditorWorkspaceRootWindowConfig& Config) -> FEditorWorkspaceRootWindowState;
-		auto End() -> void;
+		DURINED_API auto Begin(const FEditorWorkspaceRootWindowConfig& Config) -> FEditorWorkspaceRootWindowState;
+		DURINED_API auto End() -> void;
 
 	private:
 		bool bFocusRequested = false;

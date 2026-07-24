@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Provides a stable string identity for one editor workspace kind.
 	class FEditorWorkspaceTypeId
 	{
 	public:
@@ -21,6 +22,7 @@ namespace Durin
 		std::string Value;
 	};
 
+	// Identifies an open editor document within the current workspace session.
 	struct FEditorDocumentId
 	{
 		uint64 Value = 0;
@@ -29,6 +31,7 @@ namespace Durin
 		auto operator==(const FEditorDocumentId&) const -> bool = default;
 	};
 
+	// Stores host-visible state for one open editor document tab.
 	struct FEditorDocumentTab
 	{
 		FEditorDocumentId Id;
@@ -40,6 +43,7 @@ namespace Durin
 		bool bClosable = true;
 	};
 
+	// Describes a request to open or activate a workspace document.
 	struct FEditorDocumentRequest
 	{
 		FEditorWorkspaceTypeId WorkspaceType;
@@ -49,6 +53,7 @@ namespace Durin
 		bool bClosable = true;
 	};
 
+	// Reports whether a workspace rejected, completed, or deferred an open request.
 	enum class EEditorDocumentOpenResult : uint8
 	{
 		Rejected,
@@ -56,18 +61,21 @@ namespace Durin
 		Deferred,
 	};
 
+	// Selects whether an asset editor shares one document or opens per resource.
 	enum class EEditorDocumentPolicy : uint8
 	{
 		Singleton,
 		PerResource,
 	};
 
+	// Suggests where a workspace should dock when first hosted.
 	enum class EEditorWorkspaceHostDockPreference : uint8
 	{
 		None,
 		Center,
 	};
 
+	// Defines host-facing metadata and singleton-document policy for a workspace.
 	struct FEditorWorkspaceDescriptor
 	{
 		FEditorWorkspaceTypeId WorkspaceType;
@@ -86,6 +94,7 @@ namespace Durin
 		}
 	};
 
+	// Maps an asset class to the workspace and document policy that edits it.
 	struct FEditorAssetEditorRegistration
 	{
 		std::string AssetClassName;
@@ -98,12 +107,14 @@ namespace Durin
 
 	class IEditorWorkspace;
 
+	// Couples a workspace implementation with its host descriptor.
 	struct FEditorWorkspaceRegistration
 	{
 		FEditorWorkspaceDescriptor Descriptor;
 		std::shared_ptr<IEditorWorkspace> Workspace;
 	};
 
+	// Registers a dependency-consistent group of workspaces and asset editors.
 	struct FEditorWorkspaceRegistrationBatch
 	{
 		std::vector<FEditorWorkspaceRegistration> Workspaces;
@@ -112,40 +123,46 @@ namespace Durin
 
 	namespace Detail
 	{
+		// Shared registry storage kept alive independently from registration handles.
 		struct FEditorWorkspaceRegistryState;
 	}
 
-	class DURINED_API FEditorWorkspaceRegistrationHandle
+	// Owns one registry lease and unregisters its batch when reset or destroyed.
+	class FEditorWorkspaceRegistrationHandle
 	{
 	public:
 		FEditorWorkspaceRegistrationHandle() = default;
-		~FEditorWorkspaceRegistrationHandle();
+		DURINED_API ~FEditorWorkspaceRegistrationHandle();
 		FEditorWorkspaceRegistrationHandle(const FEditorWorkspaceRegistrationHandle&) = delete;
 		auto operator=(const FEditorWorkspaceRegistrationHandle&) -> FEditorWorkspaceRegistrationHandle& = delete;
-		FEditorWorkspaceRegistrationHandle(FEditorWorkspaceRegistrationHandle&& Other) noexcept;
-		auto operator=(FEditorWorkspaceRegistrationHandle&& Other) noexcept -> FEditorWorkspaceRegistrationHandle&;
+		DURINED_API FEditorWorkspaceRegistrationHandle(FEditorWorkspaceRegistrationHandle&& Other) noexcept;
+		DURINED_API auto operator=(FEditorWorkspaceRegistrationHandle&& Other) noexcept -> FEditorWorkspaceRegistrationHandle&;
 
 		auto IsValid() const -> bool { return RegistrationId != 0 && !State.expired(); }
 		explicit operator bool() const { return IsValid(); }
-		auto Reset() -> void;
+		DURINED_API auto Reset() -> void;
 
 	private:
 		friend class FEditorWorkspaceManager;
-		FEditorWorkspaceRegistrationHandle(std::weak_ptr<Detail::FEditorWorkspaceRegistryState> InState, uint64 InRegistrationId);
+		DURINED_API FEditorWorkspaceRegistrationHandle(
+			std::weak_ptr<Detail::FEditorWorkspaceRegistryState> InState,
+			uint64 InRegistrationId
+		);
 
 		std::weak_ptr<Detail::FEditorWorkspaceRegistryState> State;
 		uint64 RegistrationId = 0;
 	};
 
-	class DURINED_API IEditorWorkspace
+	// Defines document, history, menu, and layout services hosted by the editor shell.
+	class IEditorWorkspace
 	{
 	public:
 		virtual ~IEditorWorkspace() = default;
 
-		virtual auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& = 0;
+		DURINED_API virtual auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& = 0;
 		// Deferred opens keep the current tab metadata until the workspace reports completion.
-		virtual auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult = 0;
-		virtual auto ActivateDocument(const FEditorDocumentTab& Document) -> void = 0;
+		DURINED_API virtual auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult = 0;
+		DURINED_API virtual auto ActivateDocument(const FEditorDocumentTab& Document) -> void = 0;
 		// Called before the manager changes the active document or workspace.
 		// Returning false keeps the current host state active.
 		virtual auto RequestDeactivate() -> bool { return true; }
@@ -162,10 +179,11 @@ namespace Durin
 		virtual auto DrawFileMenu() -> void {}
 		virtual auto DrawEditMenu() -> void {}
 		virtual auto DrawWindowMenu() -> void {}
-		virtual auto DrawWorkspace(bool bActive) -> bool = 0;
-		virtual auto ResetLayout() -> void = 0;
+		DURINED_API virtual auto DrawWorkspace(bool bActive) -> bool = 0;
+		DURINED_API virtual auto ResetLayout() -> void = 0;
 	};
 
+	// Owns workspace registrations, open documents, and active-host transitions.
 	class FEditorWorkspaceManager
 	{
 	public:

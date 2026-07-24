@@ -57,6 +57,7 @@ namespace Durin
 			}
 		}
 
+		// Adds resolved material-slot editing to static-mesh component details.
 		class FStaticMeshComponentDetailsCustomization final : public IObjectDetailsCustomization
 		{
 		public:

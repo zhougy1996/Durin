@@ -13,6 +13,7 @@ namespace Durin
 	class DObject;
 	struct FLevelEditorContext;
 
+	// Supplies scene and selection state to component visualization extensions.
 	struct FEditorVisualizationContext
 	{
 		const FSceneView& View;
@@ -22,6 +23,7 @@ namespace Durin
 		bool bPrimarySelection = false;
 	};
 
+	// Describes a world-space line and its screen-space hit-test policy.
 	struct FEditorVisualizationLine
 	{
 		FVector3 Start{0.0};
@@ -36,6 +38,7 @@ namespace Durin
 		float PatternPeriodPixels = 12.0f;
 	};
 
+	// Describes a world-space icon and its screen-space hit-test policy.
 	struct FEditorVisualizationIcon
 	{
 		EViewOverlayIcon Icon = EViewOverlayIcon::Camera;
@@ -49,6 +52,7 @@ namespace Durin
 		bool bDepthIndependentHit = true;
 	};
 
+	// Reports the highest-priority visualization hit at one viewport position.
 	struct FEditorVisualizationHit
 	{
 		AActor* Actor = nullptr;
@@ -58,6 +62,7 @@ namespace Durin
 		bool bDepthIndependent = false;
 	};
 
+	// Collects component overlays and performs their shared viewport hit testing.
 	class FEditorVisualizationCollector
 	{
 	public:
@@ -73,6 +78,7 @@ namespace Durin
 		std::vector<FEditorVisualizationIcon> Icons;
 	};
 
+	// Defines a component-specific producer of editor viewport overlays.
 	class IComponentEditorVisualizer
 	{
 	public:
@@ -80,12 +86,14 @@ namespace Durin
 		virtual auto DrawVisualization(DActorComponent* Component, const FEditorVisualizationContext& Context, FEditorVisualizationCollector& Collector) const -> void = 0;
 	};
 
+	// Summarizes rows and changes produced by an object details builder.
 	struct FObjectPropertyViewBuilderResult
 	{
 		uint32 VisibleRowCount = 0;
 		bool bChanged = false;
 	};
 
+	// Builds searchable reflected and custom rows for one details view.
 	class FObjectPropertyViewBuilder
 	{
 	public:
@@ -104,6 +112,7 @@ namespace Durin
 			const FReflectedPropertyViewContext& ViewContext) const -> FObjectPropertyViewBuilderResult;
 
 	private:
+		// Stores either one reflected-property row or one custom drawer.
 		struct FRow
 		{
 			DObject* Object = nullptr;
@@ -122,6 +131,7 @@ namespace Durin
 		bool bReplaceDefaultProperties = false;
 	};
 
+	// Defines class-specific contributions to an object details view.
 	class IObjectDetailsCustomization
 	{
 	public:
@@ -130,12 +140,14 @@ namespace Durin
 			FObjectPropertyViewBuilder& Builder) -> void = 0;
 	};
 
+	// Distinguishes viewport visualizers from object-details customizations.
 	enum class ELevelEditorCustomizationKind : uint8
 	{
 		ComponentVisualizer,
 		ObjectDetails
 	};
 
+	// Identifies one registered editor customization for later removal.
 	struct FLevelEditorCustomizationHandle
 	{
 		uint64 Id = 0;
@@ -143,6 +155,7 @@ namespace Durin
 		explicit operator bool() const { return Id != 0; }
 	};
 
+	// Resolves inherited component and details customizations by reflected class.
 	class FLevelEditorCustomizationRegistry
 	{
 	public:
@@ -156,6 +169,7 @@ namespace Durin
 
 	private:
 		template<typename T>
+		// Couples a registration identifier with its shared customization instance.
 		struct TEntry
 		{
 			uint64 HandleId = 0;

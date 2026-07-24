@@ -2,6 +2,7 @@
 
 namespace Durin
 {
+	// Reports whether a rename dialog is idle, accepted, or cancelled.
 	enum class EEditorRenameDialogResult : uint8
 	{
 		None,
@@ -9,6 +10,7 @@ namespace Durin
 		Cancelled,
 	};
 
+	// Owns modal rename input and validates the proposed asset name.
 	class FEditorRenameDialog
 	{
 	public:

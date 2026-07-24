@@ -10,6 +10,7 @@ namespace Durin
 	class DObject;
 	class FProperty;
 
+	// Identifies one stable traversal step from a reflected member to a nested value.
 	struct FReflectedPropertyEditPathSegment
 	{
 		const FProperty* Property = nullptr;
@@ -19,6 +20,7 @@ namespace Durin
 		FPropertyValueSnapshot MapKey;
 	};
 
+	// Describes a reflected edit using a stable snapshot root and logical path.
 	struct FReflectedPropertyEditTarget
 	{
 		DObject* Object = nullptr;
@@ -43,6 +45,7 @@ namespace Durin
 			FPropertyValueSnapshot KeySnapshot, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget;
 	};
 
+	// Restores before/after snapshots for one committed reflected-property edit.
 	class FReflectedPropertyTransaction final : public IEditorTransaction
 	{
 	public:
@@ -72,6 +75,7 @@ namespace Durin
 		bool bObjectRooted = false;
 	};
 
+	// Reports whether a reflected edit failed, changed nothing, or changed value.
 	enum class EReflectedPropertyEditResult : uint8
 	{
 		Failed,
@@ -79,6 +83,7 @@ namespace Durin
 		Changed,
 	};
 
+	// Coalesces continuous widget changes into one reflected-property transaction.
 	class FReflectedPropertyEditSession
 	{
 	public:

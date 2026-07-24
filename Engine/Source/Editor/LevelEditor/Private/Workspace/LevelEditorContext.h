@@ -10,6 +10,7 @@ namespace Durin
 	class DWorld;
 	class DLevel;
 
+	// Shares active world, selection, play, and viewport state across editor panels.
 	struct FLevelEditorContext
 	{
 		DWorld* World = nullptr;

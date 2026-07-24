@@ -61,6 +61,7 @@ namespace Durin
 
 		thread_local std::vector<const FReflectedPropertyEditTarget*> GActiveGenericMutations;
 
+		// Balances pre/post mutation callbacks even when a container edit fails.
 		class FGenericMutationScope
 		{
 		public:
@@ -175,12 +176,14 @@ namespace Durin
 			return true;
 		}
 
+		// Identifies the container mutation applied while resolving an edit path.
 		enum class EMutationOperation : uint8
 		{
 			Apply,
 			NotifyOnly,
 		};
 
+		// Reports whether a container mutation changed storage and its resulting index.
 		struct FMutationExecutionResult
 		{
 			FPropertyValueSnapshot AppliedValue;

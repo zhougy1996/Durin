@@ -8,6 +8,7 @@ namespace Durin
 	class FEditorWorkspaceRegistrationHandle;
 	class FEditorWorkspaceManager;
 
+	// Registers the texture workspace and texture asset-editor mapping.
 	class FTextureEditorModule final : public IModuleInterface
 	{
 	public:

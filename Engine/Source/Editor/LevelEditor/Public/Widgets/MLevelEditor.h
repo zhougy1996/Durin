@@ -21,6 +21,7 @@ namespace Durin
 	class FEditorNotificationOverlay;
 	struct FLevelEditorContext;
 
+	// Hosts level documents, panels, play controls, and project settings.
 	class MLevelEditor final : public IEditorWorkspace
 	{
 	public:
@@ -57,6 +58,7 @@ namespace Durin
 		auto BuildDefaultLayout(uint32 DockSpaceId, float DockSpaceWidth, float DockSpaceHeight) -> void;
 
 		std::unique_ptr<FLevelEditorContext> Context;
+		// Module-owned services outlive this registered workspace.
 		FLevelEditorSessionSettings& SessionSettings;
 		FEditorWorkspaceManager& WorkspaceManager;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
@@ -65,6 +67,7 @@ namespace Durin
 		std::unique_ptr<FTextureImportDialog> TextureImportDialog;
 		FEditorNotificationOverlay* NotificationOverlay = nullptr;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
+		// Panel pointers are non-owning aliases into the Panels collection.
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
 		FContentBrowserPanel* ContentBrowserPanel = nullptr;
 		FDetailsPanel* DetailsPanel = nullptr;

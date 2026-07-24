@@ -38,12 +38,14 @@ namespace Durin
 			return glm::normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
 		}
 
+		// Selects the mesh used to visualize a material in the preview scene.
 		enum class EMaterialPreviewShape : uint8
 		{
 			Sphere,
 			Box
 		};
 
+		// Builds the orbiting scene view for the material preview viewport.
 		class FMaterialPreviewViewportClient final : public FViewportClient
 		{
 		public:
@@ -106,6 +108,7 @@ namespace Durin
 		};
 	}
 
+	// Owns the preview world, mesh actors, viewport, and camera state.
 	class FMaterialPreview::FImpl
 	{
 	public:

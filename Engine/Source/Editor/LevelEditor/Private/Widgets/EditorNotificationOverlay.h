@@ -7,6 +7,7 @@ namespace Durin
 	class FEditorNotificationManager;
 	class FEditorTransactionManager;
 
+	// Draws active notifications and transaction feedback over the editor.
 	class FEditorNotificationOverlay final : public ILevelEditorPanel
 	{
 	public:

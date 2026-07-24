@@ -10,6 +10,7 @@ namespace Durin
 	class AActor;
 	class DLevel;
 
+	// Captures one frame of normalized viewport navigation and gizmo input.
 	struct FLevelEditorViewportInput
 	{
 		float DeltaSeconds = 0.0f;
@@ -43,6 +44,7 @@ namespace Durin
 		FVector2f ViewportSize{0.0f};
 	};
 
+	// Builds the editor scene view and coordinates navigation, picking, and gizmos.
 	class FLevelEditorViewportClient final : public FViewportClient
 	{
 	public:
@@ -73,6 +75,7 @@ namespace Durin
 		std::vector<TObjectPtr<AActor>> SelectedActors;
 		TObjectPtr<AActor> PrimarySelectedActor;
 		TObjectPtr<AActor> HoveredVisualizationActor;
+		// Perspective values are stored in degrees and world-space distance units.
 		float FieldOfViewDegrees = 60.0f;
 		float NearClip = 0.1f;
 		float FarClip = 10000.0f;

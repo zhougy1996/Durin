@@ -13,6 +13,7 @@ namespace Durin
 {
 	namespace
 	{
+		// Draws camera icons and frusta for camera components in the level viewport.
 		class FCameraComponentVisualizer final : public IComponentEditorVisualizer
 		{
 		public:
@@ -87,6 +88,7 @@ namespace Durin
 			}
 		};
 
+		// Adds camera projection controls and preview behavior to actor details.
 		class FCameraDetailsCustomization final : public IObjectDetailsCustomization
 		{
 		public:
@@ -132,6 +134,7 @@ namespace Durin
 				ImGui::PopID();
 				return false;
 			}
+			// Caches reflected camera properties required by the custom details rows.
 			struct FReflection
 			{
 				FStructProperty* Projection = nullptr;
@@ -155,6 +158,7 @@ namespace Durin
 				}
 			};
 
+			// Couples a display label with its fixed camera aspect ratio.
 			struct FAspectRatioOption
 			{
 				ECameraAspectRatioMode Mode;

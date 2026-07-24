@@ -13,6 +13,7 @@ namespace Durin
 	class FSourceImageThumbnailCache;
 	struct FLevelEditorContext;
 
+	// Distinguishes folders, assets, and source files in the content browser.
 	enum class EContentBrowserItemKind : uint8
 	{
 		Folder,
@@ -20,18 +21,21 @@ namespace Durin
 		SourceFile
 	};
 
+	// Selects grid or list presentation for content-browser items.
 	enum class EContentBrowserViewMode : uint8
 	{
 		Grid,
 		Details
 	};
 
+	// Selects the import workflow inferred for an external file.
 	enum class EContentBrowserImportType : uint8
 	{
 		Texture,
 		StaticMesh
 	};
 
+	// Captures one mounted content item and its searchable metadata.
 	struct FContentBrowserItem
 	{
 		EContentBrowserItemKind Kind = EContentBrowserItemKind::SourceFile;
@@ -49,6 +53,7 @@ namespace Durin
 		auto StableId() const -> const std::string& { return PhysicalPath; }
 	};
 
+	// Owns navigation, filtering, thumbnails, drag/drop, and import UI for assets.
 	class FContentBrowserPanel final : public ILevelEditorPanel
 	{
 	public:
@@ -64,6 +69,7 @@ namespace Durin
 		auto RevealAsset(std::string_view AssetPath) -> void;
 
 	private:
+		// Maps one virtual mount to its source and imported physical roots.
 		struct FMountSnapshot
 		{
 			std::string VirtualRoot;
@@ -71,6 +77,7 @@ namespace Durin
 			std::string PhysicalRoot;
 		};
 
+		// Identifies the active content-browser sort key.
 		enum class ESortColumn : uint8
 		{
 			Name,

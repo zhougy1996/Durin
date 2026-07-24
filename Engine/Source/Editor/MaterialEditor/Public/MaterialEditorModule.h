@@ -8,6 +8,7 @@ namespace Durin
 	class FEditorWorkspaceRegistrationHandle;
 	class FEditorWorkspaceManager;
 
+	// Registers the material workspace and material asset-editor mapping.
 	class FMaterialEditorModule final : public IModuleInterface
 	{
 	public:
@@ -21,4 +22,3 @@ namespace Durin
 		std::unique_ptr<FEditorWorkspaceRegistrationHandle> WorkspaceRegistration;
 	};
 }
-

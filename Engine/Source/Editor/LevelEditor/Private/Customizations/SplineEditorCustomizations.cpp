@@ -23,6 +23,7 @@ namespace Durin
 			return FVector3(Spline.GetComponentToWorldMatrix() * FVector4(LocalPosition, 1.0));
 		}
 
+		// Draws spline segments and editable control points in the level viewport.
 		class FSplineComponentVisualizer final : public IComponentEditorVisualizer
 		{
 		public:
@@ -83,6 +84,7 @@ namespace Durin
 			}
 		};
 
+		// Adds spline point editing operations to component details.
 		class FSplineDetailsCustomization final : public IObjectDetailsCustomization
 		{
 		public:
@@ -210,6 +212,7 @@ namespace Durin
 				}
 				return false;
 			}
+			// Caches reflected spline properties required by the custom details rows.
 			struct FReflection
 			{
 				FProperty* RelativeTransform = nullptr;

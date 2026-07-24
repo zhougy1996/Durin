@@ -8,6 +8,7 @@ namespace Durin
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
+	// Identifies the pending level-document workflow requested by the user.
 	enum class ELevelDocumentAction
 	{
 		None,
@@ -15,6 +16,7 @@ namespace Durin
 		OpenProject
 	};
 
+	// Reports whether opening a level completed, failed, or awaits confirmation.
 	enum class ELevelDocumentOpenResult
 	{
 		Rejected,
@@ -22,6 +24,7 @@ namespace Durin
 		Deferred,
 	};
 
+	// Coordinates new/open/save/close flows and their confirmation popups.
 	class FLevelDocumentController
 	{
 	public:
@@ -44,6 +47,7 @@ namespace Durin
 		auto RenameCurrentLevel(std::string_view NewName) -> bool;
 
 	private:
+		// Selects the modal confirmation that must be resolved before continuing.
 		enum class EQueuedPopup
 		{
 			None,

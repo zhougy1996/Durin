@@ -6,6 +6,7 @@ namespace Durin
 {
 	using FEditorNotificationId = uint64;
 
+	// Selects notification styling and default lifetime behavior.
 	enum class EEditorNotificationType : uint8
 	{
 		Info,
@@ -15,6 +16,7 @@ namespace Durin
 		Progress,
 	};
 
+	// Defines an optional user action attached to a notification.
 	struct FEditorNotificationAction
 	{
 		std::string Label;
@@ -22,6 +24,7 @@ namespace Durin
 		std::function<void()> Invoke;
 	};
 
+	// Describes a transient notification submitted by any producer thread.
 	struct FEditorNotificationDesc
 	{
 		EEditorNotificationType Type = EEditorNotificationType::Info;
@@ -33,6 +36,7 @@ namespace Durin
 		std::optional<FEditorNotificationAction> Action;
 	};
 
+	// Describes a cancellable progress notification with optional progress.
 	struct FEditorProgressNotificationDesc
 	{
 		std::string Message;
@@ -40,6 +44,7 @@ namespace Durin
 		std::function<void()> Cancel;
 	};
 
+	// Stores game-thread notification state shared by overlays and history.
 	struct FEditorNotification
 	{
 		FEditorNotificationId Id = 0;
@@ -54,6 +59,7 @@ namespace Durin
 		bool bHovered = false;
 	};
 
+	// Serializes notification producers and owns live and session-history entries.
 	class FEditorNotificationManager
 	{
 	public:

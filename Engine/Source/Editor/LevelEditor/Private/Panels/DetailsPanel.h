@@ -14,6 +14,7 @@ namespace Durin
 	class FProperty;
 	class FLevelEditorSessionSettings;
 
+	// Draws reflected and customized properties for the current editor selection.
 	class FDetailsPanel final : public ILevelEditorPanel
 	{
 	public:

@@ -7,6 +7,7 @@ namespace Durin
 {
 	namespace
 	{
+		// Draws the direction indicator for directional-light components.
 		class FDirectionalLightComponentVisualizer final : public IComponentEditorVisualizer
 		{
 		public:

@@ -11,8 +11,11 @@ namespace Durin
 	class DPackage;
 	struct FLevelEditorViewportInput;
 
+	// Selects translation, rotation, or scale manipulation.
 	enum class ETransformGizmoMode : uint8 { Translate, Rotate, Scale };
+	// Selects the basis used by translation and rotation handles.
 	enum class ETransformGizmoSpace : uint8 { World, Local, Parent };
+	// Identifies the active axis, plane, or uniform gizmo handle.
 	enum class ETransformGizmoHandle : uint8
 	{
 		None,
@@ -21,6 +24,7 @@ namespace Durin
 		Uniform
 	};
 
+	// Defines translation, rotation-degree, and scale increments for snapping.
 	struct FTransformGizmoSnapSettings
 	{
 		bool bEnabled = false;
@@ -29,6 +33,7 @@ namespace Durin
 		float Scale = 0.1f;
 	};
 
+	// Owns transform-drag state and commits one transaction for the selection.
 	class FTransformGizmo
 	{
 	public:
@@ -47,11 +52,14 @@ namespace Durin
 		auto GetSnapSettings() const -> const FTransformGizmoSnapSettings& { return SnapSettings; }
 
 	private:
+		// Retains an actor's starting transform for drag cancellation and history.
 		struct FActorSnapshot
 		{
 			TObjectPtr<AActor> Actor;
 			FTransform Initial;
 		};
+
+		// Restores each affected package's pre-drag dirty state when cancelled.
 		struct FPackageDirtySnapshot
 		{
 			TObjectPtr<DPackage> Package;

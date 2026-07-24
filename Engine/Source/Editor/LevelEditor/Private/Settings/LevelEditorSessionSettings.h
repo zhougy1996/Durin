@@ -9,6 +9,7 @@ namespace Durin
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
+	// Persists project-scoped level-editor layout and viewport session state.
 	class FLevelEditorSessionSettings
 	{
 	public:

@@ -15,6 +15,7 @@ namespace Durin
 	class FMaterialParameterPanelModel;
 	struct FMaterialParameterPanelEntry;
 
+	// Hosts one material document with preview and parameter editing state.
 	class MMaterialEditor final : public IEditorWorkspace
 	{
 	public:

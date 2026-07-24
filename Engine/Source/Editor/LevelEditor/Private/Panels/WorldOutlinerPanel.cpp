@@ -27,6 +27,7 @@ namespace Durin
 
 		constexpr auto ActorPayloadType = "DURIN_OUTLINER_ACTOR";
 
+		// Restores the level's primary-camera selection.
 		class FPrimaryCameraTransaction final : public IEditorTransaction
 		{
 		public:
@@ -46,9 +47,11 @@ namespace Durin
 			TObjectPtr<ACameraActor> After;
 		};
 
+		// Restores visibility for every actor changed by one outliner operation.
 		class FActorVisibilityTransaction final : public IEditorTransaction
 		{
 		public:
+			// Stores one actor's visibility before and after the outliner action.
 			struct FEntry
 			{
 				TObjectPtr<AActor> Actor;

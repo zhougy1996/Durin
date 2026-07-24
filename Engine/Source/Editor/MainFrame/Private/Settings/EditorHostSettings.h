@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Persists editor-host layout and startup behavior outside project settings.
 	class FEditorHostSettings
 	{
 	public:

@@ -10,6 +10,7 @@ namespace Durin
 {
 	struct FConsolePanelState;
 
+	// Draws console history and submits commands through the editor console.
 	class FConsolePanel final : public ILevelEditorPanel
 	{
 	public:

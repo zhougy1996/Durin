@@ -4,6 +4,7 @@ namespace Durin
 {
 	enum class ETextureUsage : uint8;
 
+	// Collects texture import options and submits the selected source file.
 	class FTextureImportDialog
 	{
 	public:

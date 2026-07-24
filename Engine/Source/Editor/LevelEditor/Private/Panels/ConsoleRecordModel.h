@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Distinguishes log output from command history and command results.
 	enum class EConsoleRecordType
 	{
 		Log,
@@ -13,6 +14,7 @@ namespace Durin
 		Error
 	};
 
+	// Stores one timestamped, searchable console entry.
 	struct FConsoleRecord
 	{
 		EConsoleRecordType Type = EConsoleRecordType::Log;
@@ -20,6 +22,7 @@ namespace Durin
 		std::string Text;
 	};
 
+	// Builds a bounded filtered view over editor console history.
 	class FConsoleRecordModel
 	{
 	public:

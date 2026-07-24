@@ -103,9 +103,11 @@ namespace Durin
 			return glm::normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
 		}
 
+		// Restores before/after transforms for every actor changed by one gizmo drag.
 		class FActorTransformTransaction final : public IEditorTransaction
 		{
 		public:
+			// Stores one actor's before/after transform for transaction replay.
 			struct FEntry
 			{
 				TObjectPtr<AActor> Actor;
@@ -263,6 +265,7 @@ namespace Durin
 
 		if (Mode == ETransformGizmoMode::Translate)
 		{
+			// Couples a translation plane normal with its screen-space ranking.
 			struct FPlane
 			{
 				size_t A;
@@ -571,6 +574,7 @@ namespace Durin
 		}
 		if (Mode == ETransformGizmoMode::Translate)
 		{
+			// Couples a translation plane normal with its screen-space ranking.
 			struct FPlane
 			{
 				size_t A;
