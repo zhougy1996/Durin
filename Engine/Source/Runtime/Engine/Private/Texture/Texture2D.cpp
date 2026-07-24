@@ -337,8 +337,16 @@ namespace Durin
 		{
 			if (BuildStatus == ETextureBuildStatus::Ready)
 			{
-				BuildStatus = ETextureBuildStatus::UploadFailure;
-				LastBuildError = "GPU texture creation or upload failed.";
+				if (RenderResource->GetFailureReason() == ETextureRenderFailure::UnsupportedFormat)
+				{
+					BuildStatus = ETextureBuildStatus::UnsupportedFormat;
+					LastBuildError = "The current RHI does not support this texture format and usage.";
+				}
+				else
+				{
+					BuildStatus = ETextureBuildStatus::UploadFailure;
+					LastBuildError = "GPU texture creation or upload failed.";
+				}
 			}
 		}
 	}

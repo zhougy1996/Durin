@@ -50,6 +50,12 @@ that same proxy, so already-bound materials and previews observe the replacement
 without rebinding reflected dependencies. Missing or not-yet-ready resources
 resolve through renderer-owned default textures.
 
+Before creating a texture, the render resource asks the active RHI whether the
+selected format supports the requested optimal-tiling usage. Vulkan derives this
+answer from physical-device format features. An unsupported format is rejected
+before image creation and remains distinguishable from a general creation or
+upload failure in the asset's persistent editor diagnostics.
+
 ## Editor Contract
 
 `TextureEditor` registers a per-resource workspace for `DTexture2D`. It exposes:
@@ -73,8 +79,7 @@ copied source image rather than the built platform representation.
 
 - Platform data is rebuilt by decoding the source image during every normal
   `PostLoad`; there is no texture derived-data key or cooked payload.
-- Platform format selection is uncompressed and does not yet validate backend
-  capability before RHI creation.
+- Platform format selection is uncompressed.
 - Build work is synchronous, every mip is fully resident, and there is no memory
   accounting or streaming.
 - The shipped material shader consumes only the base-color texture parameter.

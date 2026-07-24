@@ -30,6 +30,7 @@ namespace Durin
 		// cannot overwrite the visible state of a newer request.
 		ENGINE_API auto GetResourceState() const -> ERenderResourceState;
 		auto GetFailedRevision() const -> uint64 { return FailedRevision.load(std::memory_order_acquire); }
+		auto GetFailureReason() const -> ETextureRenderFailure { return FailureReason.load(std::memory_order_acquire); }
 
 	private:
 		auto Build_RenderThread(FRHICommandListImmediate& CommandList, const FTexturePlatformData& PlatformData, uint64 Revision) -> void;
@@ -40,6 +41,7 @@ namespace Durin
 		uint64 AppliedRevision = 0;
 		std::atomic<uint64> RequestedRevision = 0;
 		std::atomic<uint64> FailedRevision = 0;
+		std::atomic<ETextureRenderFailure> FailureReason = ETextureRenderFailure::None;
 		mutable std::mutex ResourceStateMutex;
 		ERenderResourceState ResourceState = ERenderResourceState::Idle;
 		uint64 ResourceStateRevision = 0;

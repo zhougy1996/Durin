@@ -51,6 +51,14 @@ namespace Durin
 		Released,
 	};
 
+	// Identifies the current render-resource revision's actionable failure boundary.
+	enum class ETextureRenderFailure : uint8
+	{
+		None,
+		UnsupportedFormat,
+		CreateOrUpload,
+	};
+
 	// Owns decoded source pixels before platform-specific conversion.
 	struct FTextureSourceData
 	{

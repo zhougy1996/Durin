@@ -38,6 +38,11 @@ full `all` build and an eight-second `DurinEditor --hidden-window` smoke run.
 Stage 2 was formally closed on 2026-07-25 after all ten focused
 `FTexture2DTests.*` passed again, confirming the built mip preview and persistent,
 recoverable source/build/upload failure-state foundation.
+The same day's first compression prerequisite added backend texture-format
+capability queries and rejects unsupported optimal-tiling usages before Vulkan
+image creation while preserving a distinct Unsupported Format diagnostic. The
+ten focused texture tests, a full `all` build, and a hidden-window editor smoke
+run passed after the change.
 
 ## Implemented
 
@@ -112,7 +117,7 @@ recoverable source/build/upload failure-state foundation.
 - The editor can inspect the actual built mip chain and presents actionable,
   persistent state for every source/build/upload failure boundary.
 
-## Texture Build Pipeline
+### Stage 3: Desktop Platform Formats and Compression
 
 The current platform build produces a complete uncompressed `RGBA8_UNORM` or
 `SRGBA8_UNORM` mip chain according to the asset usage and explicit color-space
@@ -128,7 +133,14 @@ permanent behavior from the source filename.
 - [ ] Add BC1/BC3/BC5/BC7 compression for supported desktop targets.
 - [ ] Add maximum-resolution and quality settings.
 - [ ] Decide how alpha coverage should be preserved while generating mips.
-- [ ] Validate platform-format support before creating the RHI resource.
+- [x] Validate platform-format support before creating the RHI resource.
+
+#### Acceptance Gate
+
+- Color, Normal, and Data/Mask usages select their intended desktop formats;
+  supported BC payloads remain valid for non-block-aligned dimensions and every
+  mip uploads and samples through Vulkan, while unsupported device formats fail
+  before resource creation with an actionable Texture Editor diagnostic.
 
 ## Derived Data and Residency
 

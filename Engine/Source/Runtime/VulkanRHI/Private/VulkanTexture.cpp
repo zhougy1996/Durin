@@ -182,6 +182,24 @@ namespace Durin::VulkanRHI
 		return Texture;
 	}
 
+	auto FVulkanDynamicRHI::RHIIsTextureFormatSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool
+	{
+		const vk::Format Format = ToVulkan_PixelFormat(CreateDesc.Format);
+		if (Format == vk::Format::eUndefined) return false;
+
+		vk::FormatFeatureFlags RequiredFeatures = vk::FormatFeatureFlagBits::eSampledImage
+			| vk::FormatFeatureFlagBits::eTransferDst;
+		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable))
+			RequiredFeatures |= vk::FormatFeatureFlagBits::eColorAttachment;
+		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable))
+			RequiredFeatures |= vk::FormatFeatureFlagBits::eDepthStencilAttachment;
+		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage))
+			RequiredFeatures |= vk::FormatFeatureFlagBits::eStorageImage;
+
+		const vk::FormatProperties Properties = Device->GetGpu().getFormatProperties(Format);
+		return (Properties.optimalTilingFeatures & RequiredFeatures) == RequiredFeatures;
+	}
+
 	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler>
 	{
 		return new FVulkanSampler(*Device, CreateDesc);
