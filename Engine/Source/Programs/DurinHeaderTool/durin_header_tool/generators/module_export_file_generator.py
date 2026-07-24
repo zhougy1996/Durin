@@ -126,12 +126,11 @@ def _is_header_current(old_manifest: ModuleExportManifest, new_manifest: ModuleE
 def _symbols_for_header_from_export(export_info: ModuleExportInfo, header: str) -> dict | None:
     if export_info is None:
         return None
-    symbols = {
+    return {
         qualified_name: symbol
         for qualified_name, symbol in export_info.Symbols.items()
         if symbol.Header == header
     }
-    return symbols if symbols else None
 
 
 def _load_or_parse_header_export(

@@ -24,7 +24,8 @@ from durin_header_tool.generators import module_reflection_files_generator as re
 from durin_header_tool.generators import module_cmake_file_generator
 from durin_header_tool.generators import project_cmake_file_generator
 from durin_header_tool.cache.reflection_cache import reflection_manifest_contract_changed
-from durin_header_tool.model.export_info import ModuleExportManifest
+from durin_header_tool.io import FileFingerprint
+from durin_header_tool.model.export_info import ModuleExportInfo, ModuleExportManifest
 from durin_header_tool.model.reflection_manifest import ModuleManifest
 from durin_header_tool.runtime.worker_context import initialize_worker_config
 from durin_header_tool.runtime.parallelism import resolve_worker_count
@@ -143,6 +144,56 @@ class OutputLockTests(unittest.TestCase):
 
 
 class CacheRecoveryTests(unittest.TestCase):
+    def test_file_fingerprint_content_identity_ignores_timestamp_and_size(self):
+        old_fingerprint = FileFingerprint(timestamp=1.0, file_size=10, md5="same-content")
+        touched_fingerprint = FileFingerprint(timestamp=2.0, file_size=10, md5="same-content")
+        changed_fingerprint = FileFingerprint(timestamp=2.0, file_size=11, md5="different-content")
+
+        self.assertEqual(old_fingerprint, touched_fingerprint)
+        self.assertNotEqual(old_fingerprint, changed_fingerprint)
+
+    def test_touched_header_keeps_export_and_reflection_cache_current(self):
+        header = "Public/Engine/Actor.h"
+        old_fingerprint = FileFingerprint(timestamp=1.0, file_size=10, md5="same-content")
+        touched_fingerprint = FileFingerprint(timestamp=2.0, file_size=10, md5="same-content")
+        old_export_manifest = ModuleExportManifest(Module="Engine")
+        new_export_manifest = ModuleExportManifest(Module="Engine")
+        old_export_manifest.ReflectHeaders[header] = old_fingerprint
+        new_export_manifest.ReflectHeaders[header] = touched_fingerprint
+
+        self.assertTrue(export_generator._is_export_current(old_export_manifest, new_export_manifest, True))
+
+        old_reflection_manifest = ModuleManifest(module_name="Engine")
+        new_reflection_manifest = ModuleManifest(module_name="Engine")
+        old_reflection_manifest.reflect_headers[header] = old_fingerprint
+        new_reflection_manifest.reflect_headers[header] = touched_fingerprint
+        old_reflection_manifest.resolved_symbol_dependencies[header] = {}
+        with mock.patch.object(reflection_generator, "_generated_outputs_missing", return_value=False):
+            headers = reflection_generator.get_reflection_headers_requiring_regeneration(
+                "Engine",
+                old_reflection_manifest,
+                new_reflection_manifest,
+            )
+
+        self.assertEqual(headers, [])
+
+    def test_unchanged_zero_symbol_header_reuses_empty_export_result(self):
+        header = "Public/Engine/Empty.h"
+        fingerprint = FileFingerprint(timestamp=1.0, file_size=10, md5="content")
+        old_manifest = ModuleExportManifest(Module="Engine", ReflectHeaders={header: fingerprint})
+        new_manifest = ModuleExportManifest(Module="Engine", ReflectHeaders={header: fingerprint})
+        old_export = ModuleExportInfo(Module="Engine")
+
+        symbols = export_generator._load_or_parse_header_export(
+            "Engine",
+            header,
+            old_manifest,
+            new_manifest,
+            old_export,
+        )
+
+        self.assertEqual(symbols, {})
+
     def test_tool_fingerprint_invalidates_reflection_manifest(self):
         old_manifest = ModuleManifest(module_name="Engine", tool_fingerprint="old")
         new_manifest = ModuleManifest(module_name="Engine", tool_fingerprint="new")
@@ -159,6 +210,56 @@ class CacheRecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest_path = Path(temp_dir) / "Engine.manifest"
             manifest_path.write_text("{", encoding="utf-8")
+            with mock.patch.object(reflection_generator.utils, "get_module_manifest_file_path", return_value=manifest_path):
+                self.assertIsNone(reflection_generator._load_previous_manifest("Engine"))
+
+    def test_v3_reflection_manifest_derives_generated_output_ownership(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest_path = Path(temp_dir) / "Engine.manifest"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "SchemaVersion": 3,
+                        "ModuleName": "Engine",
+                        "ReflectHeaders": {
+                            "Public/Engine/Actor.h": {
+                                "Timestamp": 0.0,
+                                "FileSize": 0,
+                                "MD5": "",
+                            }
+                        },
+                        "DependencyExports": {},
+                        "ResolvedSymbolDependencies": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(reflection_generator.utils, "get_module_manifest_file_path", return_value=manifest_path):
+                manifest = reflection_generator.load_module_manifest_file("Engine")
+
+        self.assertEqual(
+            manifest.generated_outputs,
+            ["Actor.gen.cpp", "Actor.gen.h", "Engine.module.gen.cpp"],
+        )
+        self.assertEqual(manifest.pending_cleanup_outputs, [])
+
+    def test_invalid_generated_output_ownership_is_a_cache_miss(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest_path = Path(temp_dir) / "Engine.manifest"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "SchemaVersion": 4,
+                        "ModuleName": "Engine",
+                        "ReflectHeaders": {},
+                        "DependencyExports": {},
+                        "ResolvedSymbolDependencies": {},
+                        "GeneratedOutputs": ["../Actor.gen.h"],
+                        "PendingCleanupOutputs": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
             with mock.patch.object(reflection_generator.utils, "get_module_manifest_file_path", return_value=manifest_path):
                 self.assertIsNone(reflection_generator._load_previous_manifest("Engine"))
 
@@ -208,6 +309,103 @@ class CacheRecoveryTests(unittest.TestCase):
                 reflection_generator.generate_reflection_files("Engine")
 
         save_manifest.assert_not_called()
+
+    def test_removed_reflect_header_outputs_are_deleted_after_manifest_commit(self):
+        old_manifest = ModuleManifest(
+            module_name="Engine",
+            generated_outputs=[
+                "Actor.gen.cpp",
+                "Actor.gen.h",
+                "Engine.module.gen.cpp",
+                "World.gen.cpp",
+                "World.gen.h",
+            ],
+            pending_cleanup_outputs=["PreviouslyPending.gen.cpp"],
+        )
+        new_manifest = ModuleManifest(
+            module_name="Engine",
+            generated_outputs=[
+                "Engine.module.gen.cpp",
+                "World.gen.cpp",
+                "World.gen.h",
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            stale_names = ["Actor.gen.cpp", "Actor.gen.h", "PreviouslyPending.gen.cpp"]
+            for output_name in stale_names + ["World.gen.h", "Unowned.gen.h"]:
+                (output_dir / output_name).write_text("generated", encoding="utf-8")
+
+            manifest_commits = []
+
+            def record_manifest_commit(manifest):
+                manifest_commits.append(
+                    (
+                        list(manifest.pending_cleanup_outputs),
+                        [(output_dir / output_name).exists() for output_name in stale_names],
+                    )
+                )
+
+            with (
+                mock.patch.object(reflection_generator, "_load_previous_manifest", return_value=old_manifest),
+                mock.patch.object(reflection_generator, "make_new_module_manifest", return_value=new_manifest),
+                mock.patch.object(
+                    reflection_generator,
+                    "get_reflection_headers_requiring_regeneration",
+                    return_value=[],
+                ),
+                mock.patch.object(reflection_generator, "_write_reflection_files", return_value=(0, 0)),
+                mock.patch.object(reflection_generator, "save_module_manifest_file", side_effect=record_manifest_commit),
+                mock.patch.object(reflection_generator.utils, "get_module_dht_output_dir", return_value=output_dir),
+            ):
+                reflection_generator.generate_reflection_files("Engine")
+
+            self.assertEqual(
+                manifest_commits,
+                [
+                    (stale_names, [True, True, True]),
+                    ([], [False, False, False]),
+                ],
+            )
+            self.assertTrue((output_dir / "World.gen.h").exists())
+            self.assertTrue((output_dir / "Unowned.gen.h").exists())
+
+    def test_cleanup_failure_keeps_pending_outputs_in_committed_manifest(self):
+        old_manifest = ModuleManifest(
+            module_name="Engine",
+            generated_outputs=["Actor.gen.h", "Engine.module.gen.cpp"],
+        )
+        new_manifest = ModuleManifest(
+            module_name="Engine",
+            generated_outputs=["Engine.module.gen.cpp"],
+        )
+        manifest_commits = []
+
+        with (
+            mock.patch.object(reflection_generator, "_load_previous_manifest", return_value=old_manifest),
+            mock.patch.object(reflection_generator, "make_new_module_manifest", return_value=new_manifest),
+            mock.patch.object(
+                reflection_generator,
+                "get_reflection_headers_requiring_regeneration",
+                return_value=[],
+            ),
+            mock.patch.object(reflection_generator, "_write_reflection_files", return_value=(0, 0)),
+            mock.patch.object(
+                reflection_generator,
+                "save_module_manifest_file",
+                side_effect=lambda manifest: manifest_commits.append(list(manifest.pending_cleanup_outputs)),
+            ),
+            mock.patch.object(
+                reflection_generator,
+                "_cleanup_stale_generated_outputs",
+                side_effect=OSError("cleanup failed"),
+            ),
+        ):
+            with self.assertRaisesRegex(OSError, "cleanup failed"):
+                reflection_generator.generate_reflection_files("Engine")
+
+        self.assertEqual(manifest_commits, [["Actor.gen.h"]])
 
 
 class ModuleDependencyTests(unittest.TestCase):

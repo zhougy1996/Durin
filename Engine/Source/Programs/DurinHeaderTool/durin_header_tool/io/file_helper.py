@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import logging
 import hashlib
@@ -13,8 +13,10 @@ class LightFileFingerprint:
 
 @dataclass
 class FileFingerprint:
-    timestamp: float = 0.0
-    file_size: int = 0
+    # Timestamp and size are only a cheap guard for reusing the stored hash.
+    # Once a hash is available, content identity is defined by the hash alone.
+    timestamp: float = field(default=0.0, compare=False)
+    file_size: int = field(default=0, compare=False)
     md5: str = ""
 
 @dataclass
@@ -89,7 +91,7 @@ def verify_file_fingerprint(file_path: Path, old_fingerprint: FileFingerprint) -
             return False, old_fingerprint
 
         new_fingerprint = FileFingerprint(timestamp=current_timestamp, file_size=current_file_size, md5=calc_md5(file_path))
-        return True, new_fingerprint
+        return new_fingerprint != old_fingerprint, new_fingerprint
         
     except (PermissionError, OSError) as e:
         raise IOError(f"Error accessing file {file_path}: {e}")
