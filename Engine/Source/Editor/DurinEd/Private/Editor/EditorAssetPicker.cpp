@@ -75,7 +75,7 @@ namespace Durin::EditorAssetPicker
 			Paths.reserve(Asset::GetAssetRegistry().GetAssets().size());
 			for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 			{
-				if (!Key.PathPrefix.empty() && !Path.GetView().starts_with(Key.PathPrefix)) continue;
+				if (!MatchesPathPrefix(Path.GetView(), Key.PathPrefix)) continue;
 				if (!MatchesClass(FindClassByQualifiedName(Data.AssetClassName), Key.RequiredClass, Key.ClassPolicy)) continue;
 				Paths.push_back(Path);
 			}
@@ -128,6 +128,11 @@ namespace Durin::EditorAssetPicker
 			}
 			return Search;
 		}
+	}
+
+	auto MatchesPathPrefix(std::string_view AssetPath, std::string_view PathPrefix) -> bool
+	{
+		return PathPrefix.empty() || AssetPath.starts_with(PathPrefix);
 	}
 
 	auto MatchesClass(const DClass* Candidate, const DClass* Required, EEditorAssetClassPolicy Policy) -> bool

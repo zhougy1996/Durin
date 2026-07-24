@@ -60,6 +60,8 @@ namespace Durin
 
 	namespace EditorAssetPicker
 	{
+		// Returns whether an asset path passes an optional literal path-prefix filter.
+		DURINED_API auto MatchesPathPrefix(std::string_view AssetPath, std::string_view PathPrefix) -> bool;
 		DURINED_API auto MatchesClass(
 			const DClass* Candidate,
 			const DClass* Required,

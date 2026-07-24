@@ -342,7 +342,7 @@ one change.
   and highlighted current selection without forcing the Level asset to stay loaded.
 - [x] Remove the unused local `IsClassChildOf` helper that duplicated
   `EditorAssetPicker::MatchesClass`.
-- [ ] Add `PathPrefixFilter` unit coverage.
+- [x] Add `PathPrefixFilter` unit coverage.
 
 ### Stage 8: Material preview module dependency
 
@@ -391,6 +391,12 @@ the broader open workflow smoke test.
 The default-Level picker current-selection fix was validated with both
 `FEditorAssetPickerTests`, a successful full `all` build, and hidden-window
 editor initialization from the same test preset.
+
+`PathPrefixFilter` candidate matching was isolated as a shared pure predicate
+and validated on 2026-07-25 with all 3 `FEditorAssetPickerTests`, all 205
+`EngineTests`, a successful full `all` build, and an 8-second hidden-window
+editor startup smoke. Coverage includes empty, nested project, and root-mismatch
+cases.
 
 ## Related Code
 

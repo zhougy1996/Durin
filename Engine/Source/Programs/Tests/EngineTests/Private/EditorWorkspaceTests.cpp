@@ -456,3 +456,12 @@ TEST(FEditorAssetPickerTests, UsesSoftPathForUnloadedCurrentSelection)
 	);
 	EXPECT_EQ(Durin::EditorAssetPicker::GetAssetPathOrNone(nullptr, {}, "None"), "None");
 }
+
+TEST(FEditorAssetPickerTests, FiltersCandidatesByPathPrefix)
+{
+	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesPathPrefix("/Engine/Materials/Default", {}));
+	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/"));
+	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/Levels/"));
+	EXPECT_FALSE(Durin::EditorAssetPicker::MatchesPathPrefix("/Engine/Levels/Default", "/Game/"));
+	EXPECT_FALSE(Durin::EditorAssetPicker::MatchesPathPrefix("/Gameplay/Levels/Default", "/Game/"));
+}
