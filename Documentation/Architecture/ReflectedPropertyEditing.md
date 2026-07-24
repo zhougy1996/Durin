@@ -69,12 +69,23 @@ in the same property table.
 Current built-in composition includes:
 
 - Actor `Transform`, bound to the root component's `RelativeTransform`;
-- Camera projection rows; and
-- Spline transform, curve settings, and point rows.
+- Camera projection rows;
+- Spline transform, curve settings, and point rows; and
+- static-mesh material-slot rows derived from the assigned mesh.
 
-`DStaticMeshComponent.Materials` uses the ordinary reflected array editor. Its
-object hooks validate the detached array and reconcile material dependencies,
-the serialized slot-zero mirror, and render state after generic writes.
+The static-mesh customization hides the raw sparse override collection and the
+two private legacy migration fields. It emits exactly one fixed row per current
+mesh-owned slot, with imported order and label, resolved source, a
+material-interface picker, and Reset when an override exists. Structural array
+controls are never exposed. Detached overrides appear in a separate,
+GUID-sorted warning group with an explicit Remove action.
+
+Slot assignment, replacement, reset, and orphan removal snapshot the reflected
+`MaterialOverrides` collection root, locate the target entry by GUID in draft
+storage, and use that GUID as the logical transaction identity. The component
+pre hook validates GUID uniqueness, non-null compatible values, and collection
+shape before live storage changes. Its post hook reconciles dependencies and
+render state for edit, Cancel, Undo, and Redo through the same shared path.
 
 Details owns only the inspected object, search input, table, and customization
 dispatch. It contains no Actor or static-mesh type branches. Real property rows
@@ -295,8 +306,9 @@ the search input state, class display, customization dispatch, and a shared
 property table used to compose domain rows. Ordinary reflected-property
 enumeration, search matching, fixed-array expansion, and labels are delegated
 to `EditObject()`; Actor transform and registered customizations continue to
-compose through the same view. Static-mesh materials remain in ordinary
-reflected-property enumeration.
+compose through the same view. Static-mesh material assignments are a domain
+customization: the mesh controls visible row count and labels, while edits still
+submit the stable reflected override root through the host property view.
 
 Material Editor owns another property view and a reusable parameter-panel model.
 Runtime Engine definitions provide parameter type, labels, ordering,
@@ -328,7 +340,9 @@ Automated coverage currently verifies:
 - object and snapshot reference lifetime;
 - array and map stable paths and structural restoration;
 - generic semantic-hook rejection, normalization, reactions, and Undo/Redo;
-- material parameter render invalidation; and
+- material parameter render invalidation;
+- fixed static-mesh slot rows, GUID-scoped root transactions, orphan removal,
+  search, read-only behavior, and material type filtering; and
 - GUID-resolved material definition and override edits, override
   insertion/removal, orphan removal, and shared transaction history; and
 - spline continuous edits, Cancel, structural edits, stable nested paths, cache

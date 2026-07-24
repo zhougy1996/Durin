@@ -4,7 +4,7 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 0 through 4 are complete. The source-slot and compatibility contracts are frozen,
+All stages are complete as of 2026-07-24. The source-slot and compatibility contracts are frozen,
 generated importer fixtures cover reorder, rename, duplicate names, addition,
 removal, filtering, and exact-name behavior, and characterization tests capture
 the version-zero component representation, load ordering, section mapping,
@@ -32,8 +32,15 @@ updates. Static meshes notify bound components whenever rebuilt render data
 replaces the prior layout, forcing a proxy rebuild without exposing GUIDs to the
 render thread. End-to-end coverage assigns through the fixed-row model, saves and
 reloads, reorders the source, reimports, and verifies that the preserved GUID
-override still reaches the correct rendered slot. The next step is Stage 5 legacy
-retirement and architecture documentation.
+override still reaches the correct rendered slot. The final legacy audit found
+no production index-array assignment path, structural Details exposure, or
+render-side GUID lookup. The version-zero `Material` and `Materials` fields stay
+private and non-editable until those assets are no longer supported because the
+field-table loader otherwise skips the only migration inputs. Lasting ownership,
+reconciliation, resolution, orphan, dependency, renderer, and transaction rules
+now live in Architecture. Final validation passed 19 focused material-slot tests,
+30 AssetCore tests, 196 Engine tests, the full `all` build, and an eight-second
+`DurinEditor --hidden-window` smoke run. This plan is archived as completed.
 
 This plan replaces the index-shaped component array with persistent
 mesh-owned slot identities, sparse component overrides, and a fixed-row Details
@@ -441,26 +448,26 @@ The reconciliation fixtures establish these expected identity results:
 
 ### Stage 5: Retire Legacy Paths and Record the Architecture
 
-- [ ] Search production code and tests for direct component `Material`/
+- [x] Search production code and tests for direct component `Material`/
   `Materials` storage access, unchecked index growth, generic-array Details
   assumptions, and render-side GUID lookup.
-- [ ] Remove the legacy slot-zero mirror and index array when the compatibility
+- [x] Remove the legacy slot-zero mirror and index array when the compatibility
   gate permits; otherwise leave them private, deprecated, read-only migration
   inputs with an explicit removal condition.
-- [ ] Remove obsolete generic-array material-slot tests and replace them with
+- [x] Remove obsolete generic-array material-slot tests and replace them with
   fixed-row and GUID-override coverage.
-- [ ] Update `Documentation/Architecture/MaterialSystem.md` with mesh slot
+- [x] Update `Documentation/Architecture/MaterialSystem.md` with mesh slot
   ownership, identity, reconciliation, resolution, orphan, dependency, and
   renderer-boundary rules.
-- [ ] Update `Documentation/Architecture/ReflectedPropertyEditing.md` to
+- [x] Update `Documentation/Architecture/ReflectedPropertyEditing.md` to
   replace the ordinary `Materials` array description with the Details
   customization and collection-root transaction behavior.
-- [ ] Update `Documentation/Plans/MaterialSystem.md` to reference the landed
+- [x] Update `Documentation/Plans/MaterialSystem.md` to reference the landed
   slot architecture and remove any stale index-array claims.
-- [ ] Run focused native tests, the complete affected test suites, the full
+- [x] Run focused native tests, the complete affected test suites, the full
   `all` build, and the hidden-window `DurinEditor` smoke procedure documented
   by repository setup guidance.
-- [ ] Record completion evidence, archive this plan, update active/archive
+- [x] Record completion evidence, archive this plan, update active/archive
   indexes, and repair direct links.
 
 #### Acceptance Gate

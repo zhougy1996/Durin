@@ -69,7 +69,9 @@ namespace Durin
 		DPROPERTY()
 		std::vector<FStaticMeshMaterialOverride> MaterialOverrides;
 
-		// Transitional version-zero migration inputs. New saves clear both fields.
+		// Deprecated version-zero migration inputs. They remain private and non-editable because removing
+		// either reflected field would make old packages skip the only data needed for GUID migration.
+		// Remove them only when version-zero static-mesh component assets are no longer supported.
 		DPROPERTY()
 		TObjectPtr<DMaterialInterface> Material;
 

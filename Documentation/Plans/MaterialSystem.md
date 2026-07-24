@@ -1,6 +1,6 @@
 # Material System Plan
 
-Last reviewed: 2026-07-20
+Last reviewed: 2026-07-24
 
 ## Current Status
 
@@ -26,6 +26,13 @@ It does not yet provide a rendered preview, thumbnails, drag/drop, arbitrary
 declared parameters, or complete rename/delete synchronization for open
 documents.
 
+Static-mesh material assignment now uses the landed mesh-slot architecture:
+meshes own persistent reconciled slot GUIDs and optional defaults, components
+store sparse GUID overrides and explicit orphans, Details presents fixed rows,
+and scene proxies consume compact slot-ordered snapshots. The completed design
+and compatibility boundary are preserved in
+`Documentation/Plans/Archive/2026-07/StaticMeshMaterialSlots.md`.
+
 ## Implemented
 
 - [x] `DMaterialInterface`, `DMaterial`, and inherited `DMaterialInstance`
@@ -40,8 +47,9 @@ documents.
 - [x] Material-to-instance and material-to-component dependency propagation.
 - [x] Render-thread material updates that preserve the existing scene proxy
   and reject stale component revisions.
-- [x] Static-mesh sections, imported material slots, and per-component slot
-  overrides.
+- [x] Mesh-owned persistent material-slot identities, reimport reconciliation,
+  sparse GUID component overrides, mesh defaults, explicit orphans, and
+  fixed-row Details editing.
 - [x] Base-color texture sampling with renderer-owned fallback textures and a
   shared linear-repeat sampler.
 - [x] Basic lit/unlit static-mesh rendering using base color, opacity,
@@ -175,7 +183,7 @@ properties and the compiled render representation remain in this stage.
 ## Validation Gaps
 
 - [ ] Test clamping and defaults for opacity, specular strength, and shininess.
-- [ ] Test stale component-revision rejection explicitly, including multiple
+- [x] Test stale component-revision rejection explicitly, including multiple
   rapid updates to different slots; either enforce `MaterialVersion` ordering
   or remove it from the update contract if it remains diagnostic-only.
 - [ ] Test missing, unloaded, not-ready, replaced, and destroyed texture
@@ -209,6 +217,6 @@ properties and the compiled render representation remain in this stage.
 
 - `Documentation/Architecture/MaterialSystem.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
-- `Documentation/Plans/StaticMeshMaterialSlots.md`
+- `Documentation/Plans/Archive/2026-07/StaticMeshMaterialSlots.md`
 - `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`
 - `Documentation/Plans/TextureSupport.md`
