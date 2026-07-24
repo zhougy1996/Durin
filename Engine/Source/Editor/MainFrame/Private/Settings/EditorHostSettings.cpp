@@ -9,7 +9,6 @@ namespace Durin
 	namespace
 	{
 		constexpr const char* HostSettingsFileName = "EditorHostSettings.yaml";
-		constexpr const char* LegacySessionSettingsFileName = "LevelEditorSession.yaml";
 
 		auto LoadDisplaySettings(const FYamlNodeView& Display, FEditorHostSettings& Settings) -> void
 		{
@@ -35,20 +34,17 @@ namespace Durin
 		}
 
 		const std::string HostPath = FPaths::LaunchDir() + HostSettingsFileName;
-		const bool bMigratingLegacySettings = !std::filesystem::exists(HostPath);
-		const std::string SourcePath = bMigratingLegacySettings
-			? FPaths::LaunchDir() + LegacySessionSettingsFileName : HostPath;
-		if (!std::filesystem::exists(SourcePath)) return true;
+		if (!std::filesystem::exists(HostPath)) return true;
 
 		FYamlDocument Document;
 		FYamlParseError Error;
-		if (!Document.LoadFromFile(SourcePath, &Error))
+		if (!Document.LoadFromFile(HostPath, &Error))
 		{
 			DURIN_WARN("Failed to load editor host settings: {}", Error.Message);
 			return false;
 		}
 		LoadDisplaySettings(Document.GetRootView().GetView("Display"), *this);
-		return !bMigratingLegacySettings || Save();
+		return true;
 	}
 
 	auto FEditorHostSettings::Save() const -> bool

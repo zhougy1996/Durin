@@ -20,9 +20,10 @@ lifecycle, and the shared asset picker are implemented and covered by native
 tests.
 
 `MainFrame` now owns `FEditorHostSettings`, including window size, maximized
-state, global UI scale, and color theme. It migrates the legacy `Display` map
-from `LevelEditorSession.yaml` into `EditorHostSettings.yaml` on first load.
-The remaining `FLevelEditorSessionSettings` owns only Level workspace state.
+state, global UI scale, and color theme in `EditorHostSettings.yaml`. A missing
+host file uses monitor-derived defaults; legacy Level Editor display values are
+intentionally not imported. The remaining `FLevelEditorSessionSettings` owns
+only Level workspace state.
 `MainFrame` still loads the concrete Level Editor and Material Editor module
 interfaces as a temporary feature-discovery boundary.
 
@@ -236,8 +237,8 @@ Details, and other Level workspace state.
   settings owner used by `MainFrame`.
 - [x] Rename the remaining settings type to make its Level Editor ownership
   explicit.
-- [x] Preserve existing persisted values or provide a one-time migration from
-  `LevelEditorSession.yaml`.
+- [x] Start `EditorHostSettings.yaml` with monitor-derived defaults and do not
+  couple it to the legacy `LevelEditorSession.yaml` display map.
 - [x] Give Material Editor separate settings only when it gains persistent
   layout or preview state.
 - [x] Remove the `MainFrame` dependency on `FLevelEditorModule` for native
@@ -267,14 +268,14 @@ one change.
 
 - [x] Move host display persistence and preferences UI into `MainFrame`.
 - [x] Rename and narrow the remaining Level Editor session settings owner.
-- [x] Migrate the legacy `Display` map without discarding the remaining legacy
-  Level workspace state.
+- [x] Leave the legacy Level workspace file independent and start host display
+  persistence from monitor-derived defaults.
 
 #### Acceptance Gate
 
 - `MainFrame` no longer obtains native window configuration from
   `FLevelEditorModule`; the full build, native tests, and hidden-window startup
-  validation pass with the migrated settings boundary.
+  validation pass with the separated settings boundary.
 
 ## Validation
 
