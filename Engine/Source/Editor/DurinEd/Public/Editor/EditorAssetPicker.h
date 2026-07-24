@@ -13,6 +13,15 @@ namespace Durin
 		Derived,
 	};
 
+	struct FEditorAssetPickerAction
+	{
+		const char* Icon = nullptr;
+		const char* ButtonId = nullptr;
+		const char* Tooltip = nullptr;
+		bool bEnabled = true;
+		std::function<bool(std::string&)> Execute;
+	};
+
 	struct FEditorAssetPickerConfig
 	{
 		const char* ComboId = "##Asset";
@@ -25,11 +34,15 @@ namespace Durin
 		bool bAllowNone = true;
 		const char* NoneLabel = "None";
 		std::function<bool(DObject*, std::string&)> AssignSelection;
+		// When present, the picker reserves stable trailing width and always draws
+		// the action, including its disabled state.
+		std::optional<FEditorAssetPickerAction> TrailingAction;
 	};
 
 	struct FEditorAssetPickerResult
 	{
 		bool bSelectionChanged = false;
+		bool bTrailingActionTriggered = false;
 		std::string Error;
 	};
 

@@ -307,8 +307,9 @@ enumeration, search matching, fixed-array expansion, and labels are delegated
 to `EditObject()`; Actor transform and registered customizations continue to
 compose through the same view. Static-mesh material assignments are a domain
 customization: the mesh controls visible row count and labels, the property-table
-UI presents those slots through shared non-resizable array helpers, and edits
-still submit the stable reflected override root through the host property view.
+UI presents those slots through shared non-resizable array helpers, and the
+shared asset picker reserves a persistent trailing reset action. Edits still
+submit the stable reflected override root through the host property view.
 
 Material Editor owns another property view and a reusable parameter-panel model.
 Runtime Engine definitions provide parameter type, labels, ordering,

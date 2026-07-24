@@ -4,6 +4,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Editor/EditorAssetPicker.h"
+#include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorCustomizations.h"
 #include "Materials/MaterialInterface.h"
 #include "MonaImGui.h"
@@ -14,6 +15,22 @@ namespace Durin
 {
 	namespace
 	{
+		auto GetResetTooltip(EStaticMeshMaterialSource Source) -> const char*
+		{
+			switch (Source)
+			{
+			case EStaticMeshMaterialSource::ComponentOverride:
+				return "Component override. Reset to the static mesh default material.";
+			case EStaticMeshMaterialSource::MeshDefault:
+				return "Inherited from the static mesh default material.";
+			case EStaticMeshMaterialSource::RendererFallback:
+				return "No component override or mesh default is assigned; the renderer fallback is used.";
+			case EStaticMeshMaterialSource::Orphan:
+				return "This override no longer matches a material slot on the assigned static mesh.";
+			}
+			return "The material source is unknown.";
+		}
+
 		auto FindOverridesProperty(DStaticMeshComponent* Component) -> FArrayProperty*
 		{
 			FProperty* Property = Component ? Component->GetClass()->FindPropertyByName("MaterialOverrides") : nullptr;
@@ -105,35 +122,33 @@ namespace Durin
 				FStaticMeshMaterialSlotDetailsModel Model(Component);
 				bool bChanged = false;
 				ImGui::PushID(Entry.SlotId.ToString().c_str());
-				if (MonaImGui::PropertyEdit::BeginFixedArrayElement(Entry.Label.c_str()))
-				{
-					MonaImGui::PropertyEdit::BeginRow("Material", Context.bReadOnly);
-					const FEditorAssetPickerResult Result = EditorAssetPicker::Draw({
-						.ComboId = "##Material", .SearchId = "##MaterialSearch", .SearchHint = "Search materials...",
-						.RequiredClass = DMaterialInterface::StaticClass(), .ClassPolicy = EEditorAssetClassPolicy::Derived,
-						.CurrentSelection = Entry.Material, .SearchText = AssetSearchText, .bAllowNone = false,
-						.AssignSelection = [&](DObject* Selection, std::string& Error) {
-							if (Context.bReadOnly) { Error = "Details are read-only."; return false; }
-							auto* Material = Cast<DMaterialInterface>(Selection);
-							if (!Material) { Error = "Static-mesh slots accept material assets only."; return false; }
-							bChanged = Model.AssignMaterial(PropertyView, Context, Entry, Material);
-							if (!bChanged) Error = "The material override could not be applied.";
+				MonaImGui::PropertyEdit::BeginRow(Entry.Label.c_str(), Context.bReadOnly);
+				const FEditorAssetPickerResult Result = EditorAssetPicker::Draw({
+					.ComboId = "##Material", .SearchId = "##MaterialSearch", .SearchHint = "Search materials...",
+					.RequiredClass = DMaterialInterface::StaticClass(), .ClassPolicy = EEditorAssetClassPolicy::Derived,
+					.CurrentSelection = Entry.Material, .SearchText = AssetSearchText, .bAllowNone = false,
+					.AssignSelection = [&](DObject* Selection, std::string& Error) {
+						if (Context.bReadOnly) { Error = "Details are read-only."; return false; }
+						auto* Material = Cast<DMaterialInterface>(Selection);
+						if (!Material) { Error = "Static-mesh slots accept material assets only."; return false; }
+						bChanged = Model.AssignMaterial(PropertyView, Context, Entry, Material);
+						if (!bChanged) Error = "The material override could not be applied.";
+						return bChanged;
+					},
+					.TrailingAction = FEditorAssetPickerAction{
+						.Icon = Icons::Refresh,
+						.ButtonId = "ResetOverride",
+						.Tooltip = GetResetTooltip(Entry.Source),
+						.bEnabled = Entry.bHasOverride,
+						.Execute = [&](std::string& Error) {
+							bChanged = Model.ResetOverride(PropertyView, Context, Entry);
+							if (!bChanged) Error = "The material override could not be reset.";
 							return bChanged;
 						},
-					});
-					MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
-					if (!Result.Error.empty() && Context.ReportError) Context.ReportError(Result.Error);
-
-					MonaImGui::PropertyEdit::BeginRow("Source", Context.bReadOnly);
-					ImGui::TextDisabled("%s", FStaticMeshMaterialSlotDetailsModel::GetSourceLabel(Entry.Source).data());
-					if (Entry.bHasOverride)
-					{
-						ImGui::SameLine();
-						if (ImGui::SmallButton("Reset")) bChanged |= Model.ResetOverride(PropertyView, Context, Entry);
-					}
-					MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
-					MonaImGui::PropertyEdit::EndFixedArrayElement();
-				}
+					},
+				});
+				MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
+				if (!Result.Error.empty() && Context.ReportError) Context.ReportError(Result.Error);
 				ImGui::PopID();
 				return bChanged;
 			}

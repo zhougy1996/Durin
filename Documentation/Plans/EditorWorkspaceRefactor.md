@@ -1,6 +1,6 @@
 # Editor Workspace Refactor Plan
 
-Last reviewed: 2026-07-20
+Last reviewed: 2026-07-24
 
 ## Current Status
 
@@ -22,6 +22,11 @@ This removes the risk of `LevelEditor` absorbing future material preview,
 compilation, and graph-editing responsibilities. The remaining concrete module
 loading in `MainFrame` is a temporary discovery boundary, and the host settings
 dependency remains for the dedicated settings-split phase.
+
+The shared editor asset picker now supports a width-reserving trailing action
+with persistent enabled and disabled presentation. Static-mesh material slots
+use that action for reset-to-default behavior without adding domain state to the
+shared picker.
 
 ## Goals
 
@@ -170,8 +175,10 @@ loading, and error reporting.
   caller-provided assignment validation.
 - [x] Return load failures without assuming a Level Editor context.
 - [x] Migrate Material parent and texture pickers first.
-- [ ] Migrate Details object and static-mesh material pickers after matching
-  their transaction and validation behavior.
+- [x] Migrate the static-mesh material picker while retaining its reflected
+  transaction and validation behavior.
+- [ ] Migrate remaining reflected Details object pickers after matching their
+  transaction and validation behavior.
 - [ ] Evaluate default-level and other class-filtered selectors after the core
   picker API has stabilized.
 - [ ] Leave room for thumbnails, drag and drop, favorites, and recently used

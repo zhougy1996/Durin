@@ -29,55 +29,84 @@ namespace Durin::EditorAssetPicker
 	auto Draw(const FEditorAssetPickerConfig& Config) -> FEditorAssetPickerResult
 	{
 		FEditorAssetPickerResult PickerResult;
-		if (!Config.RequiredClass || !Config.ComboId || !Config.SearchId || Config.SearchText.empty() || !Config.AssignSelection)
+		const bool bInvalidAction = Config.TrailingAction &&
+			(!Config.TrailingAction->Icon || !Config.TrailingAction->ButtonId || !Config.TrailingAction->Execute);
+		if (!Config.RequiredClass || !Config.ComboId || !Config.SearchId || Config.SearchText.empty() || !Config.AssignSelection || bInvalidAction)
 		{
 			PickerResult.Error = "The asset picker configuration is incomplete.";
 			return PickerResult;
 		}
 
 		const std::string Preview = GetAssetPathOrNone(Config.CurrentSelection, Config.NoneLabel ? Config.NoneLabel : "None");
-		if (!ImGui::BeginCombo(Config.ComboId, Preview.c_str())) return PickerResult;
-		ImGui::SetNextItemWidth(-FLT_MIN);
-		ImGui::InputTextWithHint(
-			Config.SearchId,
-			Config.SearchHint ? Config.SearchHint : "Search assets...",
-			Config.SearchText.data(),
-			Config.SearchText.size()
-		);
-
-		const auto Assign = [&](DObject* Selection) {
-			std::string Error;
-			if (!Config.AssignSelection(Selection, Error))
-			{
-				PickerResult.Error = Error.empty() ? "The selected asset was rejected." : std::move(Error);
-				return;
-			}
-			PickerResult.bSelectionChanged = Selection != Config.CurrentSelection;
-		};
-		if (Config.bAllowNone && ImGui::Selectable(Config.NoneLabel ? Config.NoneLabel : "None", Config.CurrentSelection == nullptr))
-			Assign(nullptr);
-
-		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+		if (Config.TrailingAction)
 		{
-			DClass* AssetClass = FindClassByQualifiedName(Data.AssetClassName);
-			const std::string PathString = Path.ToString();
-			if (!MatchesClass(AssetClass, Config.RequiredClass, Config.ClassPolicy) ||
-				!StringUtils::ContainsInsensitive(PathString, Config.SearchText.data()))
-				continue;
-
-			const bool bSelected = Config.CurrentSelection && Config.CurrentSelection->GetPackage() &&
-				Config.CurrentSelection->GetPackage()->GetPackagePath() == PathString;
-			if (!ImGui::Selectable(PathString.c_str(), bSelected)) continue;
-			DObject* LoadedAsset = nullptr;
-			const Asset::FAssetResult LoadResult = Asset::LoadAsset(Path, LoadedAsset);
-			if (!LoadResult || !LoadedAsset)
-			{
-				PickerResult.Error = LoadResult ? "The selected asset could not be loaded." : LoadResult.Message;
-				continue;
-			}
-			Assign(LoadedAsset);
+			const float ReservedWidth = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
+			ImGui::SetNextItemWidth(std::max(1.0f, ImGui::GetContentRegionAvail().x - ReservedWidth));
 		}
-		ImGui::EndCombo();
+		else ImGui::SetNextItemWidth(-FLT_MIN);
+
+		if (ImGui::BeginCombo(Config.ComboId, Preview.c_str()))
+		{
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			ImGui::InputTextWithHint(
+				Config.SearchId,
+				Config.SearchHint ? Config.SearchHint : "Search assets...",
+				Config.SearchText.data(),
+				Config.SearchText.size()
+			);
+
+			const auto Assign = [&](DObject* Selection) {
+				std::string Error;
+				if (!Config.AssignSelection(Selection, Error))
+				{
+					PickerResult.Error = Error.empty() ? "The selected asset was rejected." : std::move(Error);
+					return;
+				}
+				PickerResult.bSelectionChanged = Selection != Config.CurrentSelection;
+			};
+			if (Config.bAllowNone && ImGui::Selectable(Config.NoneLabel ? Config.NoneLabel : "None", Config.CurrentSelection == nullptr))
+				Assign(nullptr);
+
+			for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+			{
+				DClass* AssetClass = FindClassByQualifiedName(Data.AssetClassName);
+				const std::string PathString = Path.ToString();
+				if (!MatchesClass(AssetClass, Config.RequiredClass, Config.ClassPolicy) ||
+					!StringUtils::ContainsInsensitive(PathString, Config.SearchText.data()))
+					continue;
+
+				const bool bSelected = Config.CurrentSelection && Config.CurrentSelection->GetPackage() &&
+					Config.CurrentSelection->GetPackage()->GetPackagePath() == PathString;
+				if (!ImGui::Selectable(PathString.c_str(), bSelected)) continue;
+				DObject* LoadedAsset = nullptr;
+				const Asset::FAssetResult LoadResult = Asset::LoadAsset(Path, LoadedAsset);
+				if (!LoadResult || !LoadedAsset)
+				{
+					PickerResult.Error = LoadResult ? "The selected asset could not be loaded." : LoadResult.Message;
+					continue;
+				}
+				Assign(LoadedAsset);
+			}
+			ImGui::EndCombo();
+		}
+
+		if (Config.TrailingAction)
+		{
+			const FEditorAssetPickerAction& Action = *Config.TrailingAction;
+			ImGui::SameLine();
+			ImGui::BeginDisabled(!Action.bEnabled);
+			const bool bTriggered = MonaImGui::ToolbarIconButton(Action.Icon, Action.ButtonId);
+			ImGui::EndDisabled();
+			if (Action.Tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
+				ImGui::SetTooltip("%s", Action.Tooltip);
+			if (bTriggered)
+			{
+				std::string Error;
+				if (!Action.Execute(Error))
+					PickerResult.Error = Error.empty() ? "The asset picker action failed." : std::move(Error);
+				else PickerResult.bTrailingActionTriggered = true;
+			}
+		}
 		return PickerResult;
 	}
 }
