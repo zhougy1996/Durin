@@ -9,6 +9,7 @@ namespace Durin
 {
 	inline constexpr uint32 MaxStaticMeshUVChannels = 4;
 
+	// Preserves imported material-slot identity in runtime mesh data.
 	struct FStaticMeshMaterialSlot
 	{
 		std::string Name;
@@ -16,6 +17,7 @@ namespace Durin
 		FGuid SlotId;
 	};
 
+	// Describes one indexed draw range and its local-space bounds.
 	struct FStaticMeshSection
 	{
 		std::string Name;
@@ -27,6 +29,7 @@ namespace Durin
 		FBox LocalBounds;
 	};
 
+	// Stores the packed tangent frame, UVs, and color uploaded beside vertex positions.
 	struct FStaticMeshPackedVertex
 	{
 		std::array<int16, 4> Normal{};
@@ -37,6 +40,7 @@ namespace Durin
 
 	static_assert(sizeof(FStaticMeshPackedVertex) == 52);
 
+	// Owns CPU mesh arrays and their corresponding RHI buffers for one LOD.
 	struct FStaticMeshLODResources
 	{
 		std::vector<FVector3f> Positions;
@@ -65,6 +69,7 @@ namespace Durin
 		const std::array<FVector2f, MaxStaticMeshUVChannels>& TexCoords,
 		const FVector4f& Color) -> FStaticMeshPackedVertex;
 
+	// Owns all renderable LODs, material slots, and aggregate bounds for a static mesh.
 	struct FStaticMeshRenderData
 	{
 		std::vector<FStaticMeshLODResources> LODResources;

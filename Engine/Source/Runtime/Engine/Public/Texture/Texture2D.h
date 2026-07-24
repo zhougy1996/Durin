@@ -10,12 +10,14 @@ namespace Durin
 {
 	class FTexture2DRenderResource;
 
+	// Identifies the decoded pixel layout retained as editable texture source data.
 	enum class ETextureSourceFormat : uint8
 	{
 		Invalid,
 		RGBA8
 	};
 
+	// Selects semantic color handling and platform-build defaults for a texture.
 	DENUM()
 	enum class ETextureUsage : uint8
 	{
@@ -24,6 +26,7 @@ namespace Durin
 		DataMask DMETA(DisplayName = "Data / Mask")
 	};
 
+	// Reports the persistent result of source decoding, platform build, and GPU upload.
 	DENUM(DisplayName = "Texture Build Status")
 	enum class ETextureBuildStatus : uint8
 	{
@@ -36,6 +39,7 @@ namespace Durin
 		UnsupportedFormat, // The selected platform format is unavailable.
 	};
 
+	// Tracks the revisioned render-thread lifecycle of a texture resource.
 	DENUM()
 	enum class ERenderResourceState : uint8
 	{
@@ -47,7 +51,8 @@ namespace Durin
 		Released,
 	};
 
-	struct ENGINE_API FTextureSourceData
+	// Owns decoded source pixels before platform-specific conversion.
+	struct FTextureSourceData
 	{
 		std::vector<uint8> Pixels;
 		uint32 Width = 0;
@@ -56,29 +61,32 @@ namespace Durin
 		ETextureSourceFormat Format = ETextureSourceFormat::Invalid;
 		bool bHasTransparency = false;
 
-		auto IsValid() const -> bool;
+		ENGINE_API auto IsValid() const -> bool;
 	};
 
-	struct ENGINE_API FTexture2DMipData
+	// Owns one tightly described platform mip and its byte row pitch.
+	struct FTexture2DMipData
 	{
 		std::vector<uint8> Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint32 RowPitch = 0;
 
-		auto IsValid(EPixelFormat PixelFormat) const -> bool;
+		ENGINE_API auto IsValid(EPixelFormat PixelFormat) const -> bool;
 	};
 
-	struct ENGINE_API FTexturePlatformData
+	// Owns the pixel format and complete mip chain consumed by the render resource.
+	struct FTexturePlatformData
 	{
 		std::vector<FTexture2DMipData> Mips;
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 
-		auto IsValid() const -> bool;
+		ENGINE_API auto IsValid() const -> bool;
 	};
 
 	class DTexture2D;
 
+	// Reports texture import success and the created asset, when available.
 	struct FTexture2DImportResult
 	{
 		bool bSucceeded = false;
@@ -88,6 +96,7 @@ namespace Durin
 		explicit operator bool() const { return bSucceeded; }
 	};
 
+	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
 	{
 		ETextureUsage Usage = ETextureUsage::Color;
@@ -97,13 +106,14 @@ namespace Durin
 		std::optional<bool> bSRGB;
 	};
 
+	// Owns imported texture source, derived platform data, and a cross-thread render proxy.
 	DCLASS()
-	class ENGINE_API DTexture2D : public DObject
+	class DTexture2D : public DObject
 	{
 		GENERATED_BODY()
 	public:
-		explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
-		~DTexture2D() override;
+		ENGINE_API explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API ~DTexture2D() override;
 
 		auto GetSourceFile() const -> const std::string& { return SourceFile; }
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
@@ -114,16 +124,16 @@ namespace Durin
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
-		auto SetUsage(ETextureUsage InUsage, std::string& OutError) -> bool;
-		auto SetSRGB(bool bInSRGB, std::string& OutError) -> bool;
+		ENGINE_API auto SetUsage(ETextureUsage InUsage, std::string& OutError) -> bool;
+		ENGINE_API auto SetSRGB(bool bInSRGB, std::string& OutError) -> bool;
 
-		auto RebuildPlatformData(std::string& OutError) -> bool;
-		auto PostLoad(std::string& OutError) -> bool override;
-		auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
-		auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
-		auto RefreshBuildStatus() -> void;
+		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
+		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+		ENGINE_API auto RefreshBuildStatus() -> void;
 
-		static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
+		ENGINE_API static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
 
 	private:
 		auto BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;

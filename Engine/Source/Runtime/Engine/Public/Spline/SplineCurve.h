@@ -6,47 +6,48 @@
 
 namespace Durin
 {
+	// Owns spline control points and a lazily rebuilt distance-to-parameter table.
 	DSTRUCT()
-	struct ENGINE_API FSplineCurve
+	struct FSplineCurve
 	{
 		GENERATED_BODY()
 
-		FSplineCurve();
+		ENGINE_API FSplineCurve();
 
 		auto GetPoints() const -> const std::vector<FSplinePoint>& { return Points; }
-		auto GetPoint(uint32 PointIndex) const -> const FSplinePoint*;
+		ENGINE_API auto GetPoint(uint32 PointIndex) const -> const FSplinePoint*;
 		auto GetNumPoints() const -> uint32 { return static_cast<uint32>(Points.size()); }
-		auto GetNumSegments() const -> uint32;
+		ENGINE_API auto GetNumSegments() const -> uint32;
 
-		auto SetPoints(std::vector<FSplinePoint> InPoints) -> void;
-		auto AddPoint(const FSplinePoint& Point) -> uint32;
-		auto UpdatePoint(uint32 PointIndex, const FSplinePoint& Point) -> bool;
-		auto RemovePoint(uint32 PointIndex) -> bool;
-		auto ClearPoints() -> void;
+		ENGINE_API auto SetPoints(std::vector<FSplinePoint> InPoints) -> void;
+		ENGINE_API auto AddPoint(const FSplinePoint& Point) -> uint32;
+		ENGINE_API auto UpdatePoint(uint32 PointIndex, const FSplinePoint& Point) -> bool;
+		ENGINE_API auto RemovePoint(uint32 PointIndex) -> bool;
+		ENGINE_API auto ClearPoints() -> void;
 
 		auto IsClosedLoop() const -> bool { return bClosedLoop; }
-		auto SetClosedLoop(bool bInClosedLoop) -> void;
+		ENGINE_API auto SetClosedLoop(bool bInClosedLoop) -> void;
 
 		auto GetReparamStepsPerSegment() const -> int32 { return ReparamStepsPerSegment; }
-		auto SetReparamStepsPerSegment(int32 InSteps) -> void;
+		ENGINE_API auto SetReparamStepsPerSegment(int32 InSteps) -> void;
 
-		auto GetLocationAtParam(double Param) const -> FVector3;
-		auto GetTangentAtParam(double Param) const -> FVector3;
-		auto GetDirectionAtParam(double Param) const -> FVector3;
-		auto GetRotationAtParam(double Param) const -> FQuat;
-		auto GetScaleAtParam(double Param) const -> FVector3;
-		auto GetTransformAtParam(double Param) const -> FTransform;
+		ENGINE_API auto GetLocationAtParam(double Param) const -> FVector3;
+		ENGINE_API auto GetTangentAtParam(double Param) const -> FVector3;
+		ENGINE_API auto GetDirectionAtParam(double Param) const -> FVector3;
+		ENGINE_API auto GetRotationAtParam(double Param) const -> FQuat;
+		ENGINE_API auto GetScaleAtParam(double Param) const -> FVector3;
+		ENGINE_API auto GetTransformAtParam(double Param) const -> FTransform;
 
-		auto GetSplineLength() const -> double;
-		auto GetDistanceAtParam(double Param) const -> double;
-		auto GetParamAtDistance(double Distance) const -> double;
-		auto GetLocationAtDistance(double Distance) const -> FVector3;
-		auto GetTangentAtDistance(double Distance) const -> FVector3;
-		auto GetDirectionAtDistance(double Distance) const -> FVector3;
-		auto GetTransformAtDistance(double Distance) const -> FTransform;
+		ENGINE_API auto GetSplineLength() const -> double;
+		ENGINE_API auto GetDistanceAtParam(double Param) const -> double;
+		ENGINE_API auto GetParamAtDistance(double Distance) const -> double;
+		ENGINE_API auto GetLocationAtDistance(double Distance) const -> FVector3;
+		ENGINE_API auto GetTangentAtDistance(double Distance) const -> FVector3;
+		ENGINE_API auto GetDirectionAtDistance(double Distance) const -> FVector3;
+		ENGINE_API auto GetTransformAtDistance(double Distance) const -> FTransform;
 
 		// Rebuild explicitly after archive code writes reflected fields directly.
-		auto UpdateSpline() -> void;
+		ENGINE_API auto UpdateSpline() -> void;
 
 	private:
 		struct FReparamSample
@@ -74,9 +75,11 @@ namespace Durin
 		DPROPERTY(Edit)
 		bool bClosedLoop = false;
 
+		// Controls the sampling density of the distance reparameterization table.
 		DPROPERTY(Edit)
 		int32 ReparamStepsPerSegment = 10;
 
+		// Derived distance data is invalidated by every control-point or loop edit.
 		mutable bool bCacheDirty = true;
 		mutable std::vector<FReparamSample> ReparamTable;
 		mutable double SplineLength = 0.0;

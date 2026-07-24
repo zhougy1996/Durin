@@ -9,6 +9,7 @@ namespace Durin
 {
 	class DCameraComponent;
 
+	// Provides an actor-owned camera component for level camera selection.
 	DCLASS()
 	class ACameraActor : public AActor
 	{

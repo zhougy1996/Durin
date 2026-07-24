@@ -8,6 +8,7 @@ namespace Durin
 	class FRHICommandListBase;
 	struct FStaticMeshRenderData;
 
+	// Stores renderer-owned state detached from the game-thread primitive component.
 	class PrimitiveSceneProxy
 	{
 	public:
@@ -22,6 +23,7 @@ namespace Durin
 		FVector3 ActorPosition_;
 	};
 
+	// Couples static-mesh render resources with revisioned per-slot material data.
 	class FStaticMeshSceneProxy : public PrimitiveSceneProxy
 	{
 	public:

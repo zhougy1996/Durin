@@ -7,6 +7,8 @@
 namespace Durin
 {
 	class DLevel;
+
+	// Selects which transform is preserved or snapped while attaching a component.
 	enum class EAttachmentTransformRule : uint8
 	{
 		KeepWorld,
@@ -14,12 +16,14 @@ namespace Durin
 		SnapToTarget
 	};
 
+	// Selects whether detachment preserves world or relative transform values.
 	enum class EDetachmentTransformRule : uint8
 	{
 		KeepWorld,
 		KeepRelative
 	};
 
+	// Maintains relative/world transforms and an acyclic attachment hierarchy.
 	DCLASS()
 	class DSceneComponent : public DActorComponent
 	{
@@ -69,9 +73,11 @@ protected:
 		ENGINE_API virtual auto OnUpdateTransform() -> void;
 
 private:
+		// Authored transform relative to AttachParent, or world-relative when unattached.
 		DPROPERTY(Edit)
 		FTransform RelativeTransform;
 
+		// Derived world transform rebuilt from RelativeTransform and the attachment chain.
 		DPROPERTY(Edit, ReadOnly, Transient)
 		FTransform ComponentToWorld;
 

@@ -7,42 +7,43 @@
 
 namespace Durin
 {
+	// Resolves inherited material parameters and stores local overrides by stable identifier.
 	DCLASS()
-	class ENGINE_API DMaterialInstance : public DMaterialInterface
+	class DMaterialInstance : public DMaterialInterface
 	{
 		GENERATED_BODY()
 	public:
-		explicit DMaterialInstance(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API explicit DMaterialInstance(const FObjectInitializer& ObjectInitializer);
 
-		auto SetParent(DMaterialInterface* InParent) -> bool;
-		auto GetParent() const -> DMaterialInterface* override;
-		auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
-		auto GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>;
-		auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
-		auto SetParameterOverride(
+		ENGINE_API auto SetParent(DMaterialInterface* InParent) -> bool;
+		ENGINE_API auto GetParent() const -> DMaterialInterface* override;
+		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
+		ENGINE_API auto GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>;
+		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
+		ENGINE_API auto SetParameterOverride(
 			const FGuid& Id,
 			EMaterialParameterType Type,
 			const FMaterialParameterValue& Value
 		) -> bool;
-		auto ClearParameterOverride(const FGuid& Id) -> bool;
-		auto HasLocalParameterOverride(const FGuid& Id) const -> bool;
-		auto IsParameterOverrideOrphan(const FGuid& Id) const -> bool;
-		auto SetScalarParameterValue(FName Name, float Value) -> bool;
-		auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
-		auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool;
-		auto ClearScalarParameterValue(FName Name) -> bool;
-		auto ClearVectorParameterValue(FName Name) -> bool;
-		auto ClearTextureParameterValue(FName Name) -> bool;
-		auto HasScalarParameterOverride(FName Name) const -> bool;
-		auto HasVectorParameterOverride(FName Name) const -> bool;
-		auto HasTextureParameterOverride(FName Name) const -> bool;
-		auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
-		auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
-		auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
-		auto BeginDestroy() -> void override;
-		auto PostLoad(std::string& OutError) -> bool override;
-		auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
-		auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+		ENGINE_API auto ClearParameterOverride(const FGuid& Id) -> bool;
+		ENGINE_API auto HasLocalParameterOverride(const FGuid& Id) const -> bool;
+		ENGINE_API auto IsParameterOverrideOrphan(const FGuid& Id) const -> bool;
+		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> bool;
+		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
+		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool;
+		ENGINE_API auto ClearScalarParameterValue(FName Name) -> bool;
+		ENGINE_API auto ClearVectorParameterValue(FName Name) -> bool;
+		ENGINE_API auto ClearTextureParameterValue(FName Name) -> bool;
+		ENGINE_API auto HasScalarParameterOverride(FName Name) const -> bool;
+		ENGINE_API auto HasVectorParameterOverride(FName Name) const -> bool;
+		ENGINE_API auto HasTextureParameterOverride(FName Name) const -> bool;
+		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
+		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
+		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
+		ENGINE_API auto BeginDestroy() -> void override;
+		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:
 		auto OnParentRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
@@ -50,6 +51,8 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		TObjectPtr<DMaterialInterface> Parent;
+
+		// Tracks the dependency edge currently installed for Parent.
 		TObjectPtr<DMaterialInterface> RegisteredParent;
 
 		DPROPERTY(Edit)

@@ -8,6 +8,7 @@ namespace Durin
 {
 	class DDirectionalLightComponent;
 
+	// Provides an actor-owned directional light component for scene lighting.
 	DCLASS()
 	class ADirectionalLightActor : public AActor
 	{

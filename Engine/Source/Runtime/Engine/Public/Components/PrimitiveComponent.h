@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	// Selects the renderer-side state that must be synchronized for a primitive.
 	enum class EPrimitiveRenderStateDirtyFlags : uint8
 	{
 		None = 0,
@@ -16,6 +17,7 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EPrimitiveRenderStateDirtyFlags);
 
+	// Owns a stable scene primitive identity and synchronizes proxy, transform, and material changes.
 	DCLASS()
 	class DPrimitiveComponent : public DSceneComponent
 	{

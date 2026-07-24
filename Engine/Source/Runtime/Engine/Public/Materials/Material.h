@@ -7,23 +7,24 @@
 
 namespace Durin
 {
+	// Owns canonical base-material definitions and their editable default values.
 	DCLASS()
-	class ENGINE_API DMaterial : public DMaterialInterface
+	class DMaterial : public DMaterialInterface
 	{
 		GENERATED_BODY()
 	public:
-		explicit DMaterial(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API explicit DMaterial(const FObjectInitializer& ObjectInitializer);
 
-		auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
-		auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
+		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
+		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 
-		auto SetScalarParameterValue(FName Name, float Value) -> bool;
-		auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
-		auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool;
-		auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
-		auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
-		auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
-		auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> bool;
+		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
+		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool;
+		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
+		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
+		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
+		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
 	private:
 		// Definition identity and metadata are canonical; only the nested Value fields are editable.

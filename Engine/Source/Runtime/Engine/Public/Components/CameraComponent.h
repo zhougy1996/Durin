@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	// Selects viewport-derived or fixed camera projection framing.
 	DENUM()
 	enum class ECameraAspectRatioMode : uint8
 	{
@@ -17,26 +18,34 @@ namespace Durin
 		Custom
 	};
 
+	// Defines the perspective projection inputs shared by runtime and editor cameras.
 	DSTRUCT()
-	struct ENGINE_API FCameraProjectionSettings
+	struct FCameraProjectionSettings
 	{
 		GENERATED_BODY()
 
+		// Vertical field of view in degrees.
 		DPROPERTY(Edit)
 		float FieldOfViewDegrees = 60.0f;
+
 		DPROPERTY(Edit)
 		float NearClip = 0.1f;
+
 		DPROPERTY(Edit)
 		float FarClip = 1000.0f;
-		DPROPERTY(Edit)
+
 		// Preserve the historical viewport-driven framing unless a camera explicitly opts into a fixed output shape.
+		DPROPERTY(Edit)
 		ECameraAspectRatioMode AspectRatioMode = ECameraAspectRatioMode::Viewport;
+
+		// Used only when AspectRatioMode is Custom.
 		DPROPERTY(Edit)
 		float CustomAspectRatio = 16.0f / 9.0f;
 
 		auto operator==(const FCameraProjectionSettings&) const -> bool = default;
 	};
 
+	// Provides a scene transform plus validated perspective projection and view matrices.
 	DCLASS()
 	class DCameraComponent : public DSceneComponent
 	{
@@ -64,7 +73,7 @@ namespace Durin
 		ENGINE_API auto GetViewMatrix() const -> FMatrix;
 		ENGINE_API auto GetProjectionMatrix(float AspectRatio) const -> FMatrix;
 
-private:
+	private:
 		DPROPERTY(Edit)
 		FCameraProjectionSettings ProjectionSettings;
 	};

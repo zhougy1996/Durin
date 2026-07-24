@@ -10,6 +10,7 @@ namespace Durin
 	class FViewportClient;
 	class IScene;
 
+	// Bridges an engine viewport to either a native window or an embedded Mona viewport.
 	class FSceneViewport : public FViewport, public Mona::IMonaViewport
 	{
 	public:

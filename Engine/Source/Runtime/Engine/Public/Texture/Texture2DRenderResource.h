@@ -9,26 +9,26 @@ namespace Durin
 	struct FTexturePlatformData;
 
 	// Cross-thread lifetime proxy for DTexture2D. Only render commands may touch TextureRHI.
-	class ENGINE_API FTexture2DRenderResource final : public std::enable_shared_from_this<FTexture2DRenderResource>
+	class FTexture2DRenderResource final : public std::enable_shared_from_this<FTexture2DRenderResource>
 	{
 	public:
 		FTexture2DRenderResource() = default;
-		~FTexture2DRenderResource();
+		ENGINE_API ~FTexture2DRenderResource();
 
 		FTexture2DRenderResource(const FTexture2DRenderResource&) = delete;
 		auto operator=(const FTexture2DRenderResource&) -> FTexture2DRenderResource& = delete;
 
-		auto QueueBuild(std::shared_ptr<const FTexturePlatformData> PlatformDataSnapshot, uint64 Revision) -> void;
-		auto QueueRelease(uint64 Revision) -> void;
+		ENGINE_API auto QueueBuild(std::shared_ptr<const FTexturePlatformData> PlatformDataSnapshot, uint64 Revision) -> void;
+		ENGINE_API auto QueueRelease(uint64 Revision) -> void;
 
 		// These accessors are render-thread-only. Callers must resolve nullptr to a renderer default texture.
-		auto GetTextureRHI_RenderThread() const -> FRHITexture*;
-		auto IsReady_RenderThread() const -> bool;
-		auto GetAppliedRevision_RenderThread() const -> uint64;
+		ENGINE_API auto GetTextureRHI_RenderThread() const -> FRHITexture*;
+		ENGINE_API auto IsReady_RenderThread() const -> bool;
+		ENGINE_API auto GetAppliedRevision_RenderThread() const -> uint64;
 
 		// Thread-safe diagnostics. State is revision-tagged so stale render commands
 		// cannot overwrite the visible state of a newer request.
-		auto GetResourceState() const -> ERenderResourceState;
+		ENGINE_API auto GetResourceState() const -> ERenderResourceState;
 		auto GetFailedRevision() const -> uint64 { return FailedRevision.load(std::memory_order_acquire); }
 
 	private:

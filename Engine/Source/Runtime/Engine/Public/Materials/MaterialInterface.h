@@ -12,30 +12,31 @@ namespace Durin
 	class DStaticMeshComponent;
 	class DTexture2D;
 
+	// Defines the shared parameter-resolution and render-update contract for materials.
 	DCLASS()
-	class ENGINE_API DMaterialInterface : public DObject
+	class DMaterialInterface : public DObject
 	{
 		GENERATED_BODY()
 	public:
-		explicit DMaterialInterface(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API explicit DMaterialInterface(const FObjectInitializer& ObjectInitializer);
 
-		virtual auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>;
-		auto FindParameterDefinition(const FGuid& Id) const -> const FMaterialParameterDefinition*;
-		auto FindParameterDefinition(FName Name) const -> const FMaterialParameterDefinition*;
-		virtual auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool;
+		ENGINE_API virtual auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>;
+		ENGINE_API auto FindParameterDefinition(const FGuid& Id) const -> const FMaterialParameterDefinition*;
+		ENGINE_API auto FindParameterDefinition(FName Name) const -> const FMaterialParameterDefinition*;
+		ENGINE_API virtual auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool;
 
-		virtual auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool;
-		virtual auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool;
-		virtual auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool;
-		virtual auto GetParent() const -> DMaterialInterface*;
+		ENGINE_API virtual auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool;
+		ENGINE_API virtual auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool;
+		ENGINE_API virtual auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool;
+		ENGINE_API virtual auto GetParent() const -> DMaterialInterface*;
 
-		auto GetRenderData() const -> FMaterialRenderData;
+		ENGINE_API auto GetRenderData() const -> FMaterialRenderData;
 		auto GetRenderStateVersion() const -> uint64 { return RenderStateVersion; }
-		auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
-		auto BeginDestroy() -> void override;
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
+		ENGINE_API auto BeginDestroy() -> void override;
 
 	protected:
-		auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
+		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
 
 	private:
 		auto AddBoundComponent(DStaticMeshComponent* Component) -> void;

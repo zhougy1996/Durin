@@ -9,8 +9,9 @@ namespace Durin
 	class DStaticMesh;
 	class DMaterialInterface;
 
+	// Associates a component material override with a stable static-mesh slot identifier.
 	DSTRUCT()
-	struct ENGINE_API FStaticMeshMaterialOverride
+	struct FStaticMeshMaterialOverride
 	{
 		GENERATED_BODY()
 
@@ -21,6 +22,7 @@ namespace Durin
 		TObjectPtr<DMaterialInterface> Material;
 	};
 
+	// Binds a static mesh and per-slot materials to a render-scene primitive.
 	DCLASS()
 	class DStaticMeshComponent : public DMeshComponent
 	{

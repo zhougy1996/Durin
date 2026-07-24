@@ -2,6 +2,7 @@
 
 namespace Durin
 {
+	// Controls whether vertex-buffer resizing may retain extra capacity.
 	enum class EResizeBufferFlags
 	{
 		None = 0,					 // No flags
@@ -10,6 +11,7 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EResizeBufferFlags);
 
+	// Defines type-erased CPU vertex storage used by static-mesh build buffers.
 	class IStaticMeshVertexData
 	{
 	public:
@@ -32,6 +34,7 @@ namespace Durin
 		virtual auto GetAllowCPUAccess() -> bool const = 0;
 	};
 
+	// Implements IStaticMeshVertexData with contiguous typed storage and optional CPU retention.
 	template<typename VertexDataType>
 	class TStaticMeshVertexData : public IStaticMeshVertexData
 	{

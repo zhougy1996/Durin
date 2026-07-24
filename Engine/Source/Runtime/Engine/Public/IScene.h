@@ -10,6 +10,7 @@ namespace Durin
 	using FPrimitiveSceneId = uint64;
 	inline constexpr FPrimitiveSceneId InvalidPrimitiveSceneId = 0;
 
+	// Captures the renderer-facing directional light state without retaining a component.
 	struct FDirectionalLightSceneData
 	{
 		FVector3 Direction{-0.5, -0.5, -1.0};
@@ -20,6 +21,7 @@ namespace Durin
 		float AmbientIntensity = 0.0f;
 	};
 
+	// Defines the game-thread mutation boundary of a renderer-owned scene.
 	class IScene
 	{
 	public:

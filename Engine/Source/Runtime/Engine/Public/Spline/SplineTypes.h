@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	// Selects interpolation behavior for the segment leaving a spline point.
 	DENUM()
 	enum class ESplinePointType : uint8
 	{
@@ -16,8 +17,9 @@ namespace Durin
 		Constant
 	};
 
+	// Stores one editable spline control point and its local interpolation frame.
 	DSTRUCT()
-	struct ENGINE_API FSplinePoint
+	struct FSplinePoint
 	{
 		GENERATED_BODY()
 

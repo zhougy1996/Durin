@@ -9,6 +9,8 @@
 namespace Durin
 {
 	class DActorComponent;
+
+	// Owns a root scene component plus default and runtime-added component lifecycles.
 	DCLASS()
 	class AActor : public DObject
 	{
@@ -122,12 +124,15 @@ namespace Durin
 			return Component;
 		}
 
+		// Root component supplies the actor transform and attachment endpoint.
 		DPROPERTY()
 		TObjectPtr<DSceneComponent> RootComponent;
 
+		// All components structurally owned by this actor, including default components.
 		DPROPERTY()
 		std::vector<TObjectPtr<DActorComponent>> OwnedComponents;
 
+		// Runtime-added subset used for explicit instance-component management.
 		DPROPERTY()
 		std::vector<TObjectPtr<DActorComponent>> InstanceComponents;
 

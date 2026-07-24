@@ -22,6 +22,7 @@ namespace Durin
 {
 	struct FDirectionalLightSceneData;
 
+	// Publishes one directional light's color and intensity into the render scene.
 	DCLASS()
 	class DDirectionalLightComponent : public DSceneComponent
 	{

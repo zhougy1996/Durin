@@ -5,10 +5,11 @@ namespace Durin
 {
 	struct FSceneView;
 
-	class ENGINE_API FViewportClient
+	// Builds a scene view for a viewport without owning the viewport or rendered scene.
+	class FViewportClient
 	{
 	public:
-		virtual ~FViewportClient();
-		virtual auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool;
+		ENGINE_API virtual ~FViewportClient();
+		ENGINE_API virtual auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool;
 	};
 }

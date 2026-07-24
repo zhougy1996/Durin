@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	// Accumulates enabled-window input and exposes current plus one-tick transition state.
 	class FGameInputState
 	{
 	public:

@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	// Marks primitive components whose render proxy is backed by mesh geometry.
 	DCLASS()
 	class DMeshComponent : public DPrimitiveComponent
 	{

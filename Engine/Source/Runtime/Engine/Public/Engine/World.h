@@ -10,6 +10,7 @@ namespace Durin
 {
 	class AActor;
 
+	// Distinguishes editor, play-session, and standalone game world behavior.
 	enum class EWorldType : uint8
 	{
 		Editor,
@@ -17,15 +18,16 @@ namespace Durin
 		Game
 	};
 
+	// Owns the active level and drives actor lifetime, play state, ticking, and physics policy.
 	DCLASS()
-	class ENGINE_API DWorld : public DObject
+	class DWorld : public DObject
 	{
 		GENERATED_BODY()
 	public:
-		explicit DWorld(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API explicit DWorld(const FObjectInitializer& ObjectInitializer);
 		~DWorld() override = default;
-		auto BeginDestroy() -> void override;
-		auto SpawnActor(DClass* ActorClass, FName InName = FName()) -> AActor*;
+		ENGINE_API auto BeginDestroy() -> void override;
+		ENGINE_API auto SpawnActor(DClass* ActorClass, FName InName = FName()) -> AActor*;
 
 		template<typename T>
 		auto SpawnActor(FName InName = FName()) -> T*
@@ -33,15 +35,15 @@ namespace Durin
 			return static_cast<T*>(SpawnActor(T::StaticClass(), InName));
 		}
 
-		auto DestroyActor(AActor* Actor) -> bool;
-		auto DestroyAllActors() -> void;
-		auto ContainsActor(const AActor* Actor) const -> bool;
-		auto FindActorByName(FName Name) const -> AActor*;
-		auto GetActors() const -> const std::vector<TObjectPtr<AActor>>&;
-		auto SetCurrentLevel(DLevel* Level, bool bDestroyPreviousOwnedLevel = true) -> bool;
-		auto BeginPlay() -> void;
-		auto Tick(float DeltaSeconds) -> void;
-		auto EndPlay() -> void;
+		ENGINE_API auto DestroyActor(AActor* Actor) -> bool;
+		ENGINE_API auto DestroyAllActors() -> void;
+		ENGINE_API auto ContainsActor(const AActor* Actor) const -> bool;
+		ENGINE_API auto FindActorByName(FName Name) const -> AActor*;
+		ENGINE_API auto GetActors() const -> const std::vector<TObjectPtr<AActor>>&;
+		ENGINE_API auto SetCurrentLevel(DLevel* Level, bool bDestroyPreviousOwnedLevel = true) -> bool;
+		ENGINE_API auto BeginPlay() -> void;
+		ENGINE_API auto Tick(float DeltaSeconds) -> void;
+		ENGINE_API auto EndPlay() -> void;
 		auto HasBegunPlay() const -> bool { return bHasBegunPlay; }
 		auto IsPaused() const -> bool { return bPaused; }
 		auto SetPaused(bool bInPaused) -> void { bPaused = bInPaused; }
@@ -54,6 +56,7 @@ namespace Durin
 		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel.Get(); }
 
 	private:
+		// A world may intentionally have no active level during project transitions.
 		DPROPERTY(Transient)
 		TObjectPtr<DLevel> CurrentLevel;
 

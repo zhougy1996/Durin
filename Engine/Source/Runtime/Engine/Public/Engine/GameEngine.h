@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	// Initializes the runtime engine with the active game world and main viewport.
 	DCLASS()
 	class DGameEngine : public DEngine
 	{

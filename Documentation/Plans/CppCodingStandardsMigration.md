@@ -5,9 +5,10 @@ Last reviewed: 2026-07-25
 ## Current Status
 
 Inventory is complete for the first migration tranche: `Core`, `CoreDObject`, and
-`Engine`. Stages 1 and 2 are complete after successful `Core` and `CoreDObject`
-target builds. Stage 3 is in progress. Later module groups remain pending and
-are intentionally outside the current change.
+`Engine`. Stages 1 through 3 are complete after successful `Core`,
+`CoreDObject`, and `Engine` target builds plus a complete test-enabled `all`
+build. Later module groups remain pending and are intentionally outside the
+current change.
 
 ## Goal
 
@@ -103,11 +104,11 @@ into one unreviewable repository-wide rewrite.
 
 ### Stage 3: Engine
 
-- [ ] Add required comments to reflected and other key `Engine` types and
+- [x] Add required comments to reflected and other key `Engine` types and
   non-obvious member contracts.
-- [ ] Normalize reflected-member spacing.
-- [ ] Replace class- and struct-level `ENGINE_API` use with per-function exports.
-- [ ] Build the `Engine` target and then the complete `all` target.
+- [x] Normalize reflected-member spacing.
+- [x] Replace class- and struct-level `ENGINE_API` use with per-function exports.
+- [x] Build the `Engine` target and then the complete `all` target.
 
 #### Acceptance Gate
 

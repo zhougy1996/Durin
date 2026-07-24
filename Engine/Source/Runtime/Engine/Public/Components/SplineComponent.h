@@ -7,12 +7,14 @@
 
 namespace Durin
 {
+	// Selects whether spline evaluation results remain local or are transformed to world space.
 	enum class ESplineCoordinateSpace : uint8
 	{
 		Local,
 		World
 	};
 
+	// Exposes an editable spline curve in component-local or transformed world space.
 	DCLASS()
 	class DSplineComponent : public DSceneComponent
 	{

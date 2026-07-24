@@ -10,6 +10,7 @@ namespace Durin
 	class DMaterialInterface;
 	class DStaticMeshComponent;
 
+	// Selects a signed source axis when converting imported geometry to Durin space.
 	DENUM()
 	enum class EStaticMeshImportAxis : int8
 	{
@@ -21,8 +22,9 @@ namespace Durin
 		NegativeZ
 	};
 
+	// Defines the orthogonal source basis used during static-mesh import.
 	DSTRUCT()
-	struct ENGINE_API FStaticMeshImportSettings
+	struct FStaticMeshImportSettings
 	{
 		GENERATED_BODY()
 
@@ -35,10 +37,10 @@ namespace Durin
 		DPROPERTY()
 		EStaticMeshImportAxis UpAxis = EStaticMeshImportAxis::PositiveZ;
 
-		auto IsValid(std::string* OutError = nullptr) const -> bool;
+		ENGINE_API auto IsValid(std::string* OutError = nullptr) const -> bool;
 
-		static auto MakeDurin() -> FStaticMeshImportSettings;
-		static auto MakeYUpNegativeZForward() -> FStaticMeshImportSettings;
+		ENGINE_API static auto MakeDurin() -> FStaticMeshImportSettings;
+		ENGINE_API static auto MakeYUpNegativeZForward() -> FStaticMeshImportSettings;
 
 		auto operator==(const FStaticMeshImportSettings&) const -> bool = default;
 	};
@@ -47,11 +49,13 @@ namespace Durin
 	struct FStaticMeshRenderData;
 	struct FStaticMeshImportResult;
 
+	// Preserves one material slot's stable identity and source-import provenance.
 	DSTRUCT()
-	struct ENGINE_API FStaticMeshMaterialSlotDefinition
+	struct FStaticMeshMaterialSlotDefinition
 	{
 		GENERATED_BODY()
 
+		// Stable identity used to retain component overrides across reimport and reordering.
 		DPROPERTY()
 		FGuid SlotId;
 
@@ -61,6 +65,7 @@ namespace Durin
 		DPROPERTY()
 		std::string SourceName;
 
+		// Original importer index used only for source reconciliation.
 		DPROPERTY()
 		uint32 SourceMaterialIndex = 0;
 
@@ -68,36 +73,37 @@ namespace Durin
 		TObjectPtr<DMaterialInterface> DefaultMaterial;
 	};
 
+	// Owns imported mesh metadata, material slots, and rebuilt render resources.
 	DCLASS()
-	class ENGINE_API DStaticMesh : public DObject
+	class DStaticMesh : public DObject
 	{
 		GENERATED_BODY()
 	public:
-		explicit DStaticMesh(const FObjectInitializer& ObjectInitializer);
-		~DStaticMesh() override;
-		auto GetRenderData() const -> const FStaticMeshRenderData*;
-		auto GetRenderData() -> FStaticMeshRenderData*;
+		ENGINE_API explicit DStaticMesh(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API ~DStaticMesh() override;
+		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
+		ENGINE_API auto GetRenderData() -> FStaticMeshRenderData*;
 		auto GetSourceFile() const -> const std::string& { return SourceFile; }
 		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return ImportSettings; }
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		auto GetMaterialSlots() const -> std::span<const FStaticMeshMaterialSlotDefinition> { return MaterialSlots; }
-		auto GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*;
-		auto FindMaterialSlot(const FGuid& SlotId) const -> const FStaticMeshMaterialSlotDefinition*;
-		auto FindMaterialSlot(FName Name) const -> const FStaticMeshMaterialSlotDefinition*;
+		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*;
+		ENGINE_API auto FindMaterialSlot(const FGuid& SlotId) const -> const FStaticMeshMaterialSlotDefinition*;
+		ENGINE_API auto FindMaterialSlot(FName Name) const -> const FStaticMeshMaterialSlotDefinition*;
 
-		auto SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void;
-		auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void;
+		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
-		static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
+		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
 		// Editor preview geometry stays as ordinary source content; this creates only the transient runtime mesh.
-		static auto CreateTransientFromFile(
+		ENGINE_API static auto CreateTransientFromFile(
 			std::string_view FilePath,
 			DObject* Outer,
 			std::string_view ObjectName,
 			std::string& OutError,
 			const FStaticMeshImportSettings& InImportSettings = {}
 		) -> DStaticMesh*;
-		static auto ImportAsset(
+		ENGINE_API static auto ImportAsset(
 			std::string_view FilePath,
 			std::string_view AssetPath,
 			const FStaticMeshImportSettings& InImportSettings = {}) -> FStaticMeshImportResult;
@@ -130,6 +136,7 @@ namespace Durin
 		friend class DStaticMeshComponent;
 	};
 
+	// Reports static-mesh import success and the created asset, when available.
 	struct FStaticMeshImportResult
 	{
 		bool bSucceeded = false;

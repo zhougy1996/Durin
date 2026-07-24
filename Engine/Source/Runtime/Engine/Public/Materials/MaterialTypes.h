@@ -12,6 +12,7 @@ namespace Durin
 	class DMaterialInterface;
 	class FTexture2DRenderResource;
 
+	// Selects the active storage field in a material parameter value.
 	DENUM()
 	enum class EMaterialParameterType : uint8
 	{
@@ -20,6 +21,7 @@ namespace Durin
 		Texture,
 	};
 
+	// Selects editor presentation without changing the parameter's runtime type.
 	DENUM()
 	enum class EMaterialParameterPresentation : uint8
 	{
@@ -29,8 +31,9 @@ namespace Durin
 		AssetPicker,
 	};
 
+	// Stores the scalar, vector, and texture alternatives used by reflected material parameters.
 	DSTRUCT()
-	struct ENGINE_API FMaterialParameterValue
+	struct FMaterialParameterValue
 	{
 		GENERATED_BODY()
 
@@ -43,24 +46,27 @@ namespace Durin
 		DPROPERTY()
 		TObjectPtr<DTexture2D> TextureValue;
 
-		static auto MakeScalar(float Value) -> FMaterialParameterValue;
-		static auto MakeVector(const FVector3& Value) -> FMaterialParameterValue;
-		static auto MakeTexture(DTexture2D* Value) -> FMaterialParameterValue;
+		ENGINE_API static auto MakeScalar(float Value) -> FMaterialParameterValue;
+		ENGINE_API static auto MakeVector(const FVector3& Value) -> FMaterialParameterValue;
+		ENGINE_API static auto MakeTexture(DTexture2D* Value) -> FMaterialParameterValue;
 
 		auto operator==(const FMaterialParameterValue&) const -> bool = default;
 	};
 
+	// Defines stable parameter identity, default value, and editor presentation metadata.
 	DSTRUCT()
-	struct ENGINE_API FMaterialParameterDefinition
+	struct FMaterialParameterDefinition
 	{
 		GENERATED_BODY()
 
+		// Stable identity survives display-name and ordering changes.
 		DPROPERTY()
 		FGuid Id;
 
 		DPROPERTY()
 		FName Name;
 
+		// Selects which field of Value is semantically active.
 		DPROPERTY()
 		EMaterialParameterType Type = EMaterialParameterType::Scalar;
 
@@ -82,18 +88,21 @@ namespace Durin
 		DPROPERTY()
 		bool bHasRange = false;
 
+		// Applies only when bHasRange is true and Type is Scalar.
 		DPROPERTY()
 		float MinimumValue = 0.0f;
 
 		DPROPERTY()
 		float MaximumValue = 0.0f;
 
+		// Applies only to Texture parameters.
 		DPROPERTY()
 		ETextureUsage TextureUsage = ETextureUsage::Color;
 	};
 
+	// Overrides one parameter by stable identifier while retaining all value alternatives.
 	DSTRUCT()
-	struct ENGINE_API FMaterialParameterOverride
+	struct FMaterialParameterOverride
 	{
 		GENERATED_BODY()
 
@@ -137,6 +146,7 @@ namespace Durin
 		std::string& OutError
 	) -> bool;
 
+	// Contains the renderer-ready subset of resolved material parameters.
 	struct FMaterialRenderData
 	{
 		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
@@ -146,6 +156,7 @@ namespace Durin
 		float Shininess = 32.0f;
 	};
 
+	// Selects which part of material render state changed.
 	enum class EMaterialRenderDirtyFlags : uint8
 	{
 		None = 0,
@@ -154,6 +165,7 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EMaterialRenderDirtyFlags);
 
+	// Carries one revision-ordered material-slot update to an existing scene proxy.
 	struct FMaterialRenderUpdate
 	{
 		uint32 SlotIndex = 0;

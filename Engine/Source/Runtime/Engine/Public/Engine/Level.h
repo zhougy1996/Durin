@@ -12,14 +12,15 @@ namespace Durin
 	class DSceneComponent;
 	class DWorld;
 
+	// Owns an actor set, stable actor names, and the level's primary camera selection.
 	DCLASS()
-	class ENGINE_API DLevel : public DObject
+	class DLevel : public DObject
 	{
 		GENERATED_BODY()
 	public:
-		explicit DLevel(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API explicit DLevel(const FObjectInitializer& ObjectInitializer);
 		~DLevel() override = default;
-		auto SpawnActor(DClass* ActorClass, FName InName = FName()) -> AActor*;
+		ENGINE_API auto SpawnActor(DClass* ActorClass, FName InName = FName()) -> AActor*;
 
 		template<typename T>
 		auto SpawnActor(FName InName = FName()) -> T*
@@ -28,17 +29,17 @@ namespace Durin
 			return static_cast<T*>(SpawnActor(T::StaticClass(), InName));
 		}
 
-		auto DestroyActor(AActor* Actor) -> bool;
-		auto DestroyAllActors() -> void;
-		auto ContainsActor(const AActor* Actor) const -> bool;
-		auto FindActorByName(FName Name) const -> AActor*;
-		auto RenameActor(AActor* Actor, FName RequestedName) -> bool;
+		ENGINE_API auto DestroyActor(AActor* Actor) -> bool;
+		ENGINE_API auto DestroyAllActors() -> void;
+		ENGINE_API auto ContainsActor(const AActor* Actor) const -> bool;
+		ENGINE_API auto FindActorByName(FName Name) const -> AActor*;
+		ENGINE_API auto RenameActor(AActor* Actor, FName RequestedName) -> bool;
 		auto GetActors() const -> const std::vector<TObjectPtr<AActor>>& { return Actors; }
 
-		auto SetPrimaryCameraActor(ACameraActor* Actor) -> bool;
+		ENGINE_API auto SetPrimaryCameraActor(ACameraActor* Actor) -> bool;
 		auto GetPrimaryCameraActor() const -> ACameraActor* { return PrimaryCameraActor.Get(); }
 		auto GetWorld() const -> DWorld* { return OwningWorld; }
-		auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
 #if DURIN_WITH_EDITOR
 		auto GetEditorActorHierarchyRevision() const -> uint64 { return EditorActorHierarchyRevision; }

@@ -235,6 +235,11 @@ namespace Durin
 		MainWorld = InWorld;
 	}
 
+	auto DEngine::SetGameInputEnabled(bool bEnabled) -> void
+	{
+		GameInputState.SetEnabled(bEnabled);
+	}
+
 	auto DEngine::GetActiveCameraComponent() const -> DCameraComponent*
 	{
 		if (MainWorld && MainWorld->GetCurrentLevel())

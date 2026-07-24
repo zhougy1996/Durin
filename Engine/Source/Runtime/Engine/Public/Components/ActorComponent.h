@@ -9,6 +9,7 @@ namespace Durin
 {
 	class AActor;
 
+	// Defines actor-owned lifecycle, registration, play, and optional tick behavior.
 	DCLASS()
 	class DActorComponent : public DObject
 	{

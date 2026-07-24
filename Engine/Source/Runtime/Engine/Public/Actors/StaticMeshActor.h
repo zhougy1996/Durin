@@ -9,6 +9,7 @@ namespace Durin
 {
 	class DStaticMeshComponent;
 
+	// Provides an actor-owned static mesh component for renderable level geometry.
 	DCLASS(DisplayName = "Static Mesh Actor", DefaultObjectName = "StaticMeshActor")
 	class AStaticMeshActor : public AActor
 	{

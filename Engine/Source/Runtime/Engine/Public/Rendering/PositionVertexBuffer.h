@@ -8,11 +8,13 @@ namespace Durin
 {
 	class FPositionVertexData;
 
+	// Stores one local-space vertex position.
 	struct FPositionVertex
 	{
 		FVector3f Position;
 	};
 
+	// Owns optional CPU position data and its render-thread vertex buffer.
 	class FPositionVertexBuffer : public FVertexBuffer
 	{
 	public:
