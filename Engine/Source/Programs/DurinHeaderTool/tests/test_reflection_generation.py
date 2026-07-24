@@ -326,6 +326,59 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
             ):
                 parse_reflection_header("Fixture", header)
 
+    def test_same_short_name_in_different_namespaces_uses_local_class_source(self):
+        header = "Public/DuplicateShortNames.h"
+        source = '''namespace Alpha
+{
+    DCLASS()
+    class FItem
+    {
+        GENERATED_BODY()
+
+        DPROPERTY()
+        int32 First;
+    };
+}
+
+namespace Beta
+{
+    DCLASS()
+    class FItem
+    {
+        GENERATED_BODY()
+
+        DPROPERTY()
+        float Second;
+    };
+}
+'''
+        header_path = self.module_dir / header
+        header_path.write_text(source, encoding="utf-8")
+        config = DurinModuleConfig(
+            module_name="Fixture",
+            module_dir=self.module_dir,
+            reflect_headers=[header],
+        )
+        generated_body_lines = [
+            line_number
+            for line_number, line in enumerate(source.splitlines(), start=1)
+            if "GENERATED_BODY" in line
+        ]
+
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            mock.patch.object(utils, "get_module_dht_output_dir", return_value=self.dht_output_dir),
+            mock.patch("durin_header_tool.model.reflection_info._make_property", return_value=None),
+        ):
+            header_info = parse_reflection_header("Fixture", header)
+
+        classes = {class_info.qualified_name: class_info for class_info in header_info.classes}
+        self.assertEqual(classes["Alpha::FItem"].generated_body_line, generated_body_lines[0])
+        self.assertEqual(classes["Beta::FItem"].generated_body_line, generated_body_lines[1])
+        self.assertEqual([prop.name for prop in classes["Alpha::FItem"].properties], ["First"])
+        self.assertEqual([prop.name for prop in classes["Beta::FItem"].properties], ["Second"])
+
     def test_property_flags_metadata_and_value_lifecycle_are_generated(self):
         self.assertIn(
             'NewProp_Value = { "Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly,',

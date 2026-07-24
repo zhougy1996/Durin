@@ -390,13 +390,28 @@ def _qualified_name(cursor: clang.cindex.Cursor) -> str:
     return f"{namespace}::{cursor.spelling}" if namespace else cursor.spelling
 
 
-def _scan_generated_body_line(source: str, class_name: str) -> int:
-    class_seen = False
-    for index, line in enumerate(source.splitlines(), start=1):
-        if not class_seen and re.search(rf"\b(class|struct)\s+(?:\w+_API\s+)?{re.escape(class_name)}\b", line):
-            class_seen = True
-        if class_seen and "GENERATED_BODY" in line:
-            return index
+def _cursor_source_line_range(source: str, cursor: clang.cindex.Cursor) -> tuple[int, int]:
+    line_count = len(source.splitlines())
+    start_line = cursor.extent.start.line
+    end_line = cursor.extent.end.line
+    if start_line <= 0 or end_line < start_line or start_line > line_count:
+        return 0, 0
+    return start_line, min(end_line, line_count)
+
+
+def _scan_generated_body_line(source: str, class_cursor: clang.cindex.Cursor) -> int:
+    for child in class_cursor.get_children():
+        if child.spelling == "DHT_GENERATED_BODY":
+            return child.location.line
+
+    start_line, end_line = _cursor_source_line_range(source, class_cursor)
+    if start_line == 0:
+        return 0
+
+    for match in _GENERATED_BODY_PATTERN.finditer(source):
+        line = source.count("\n", 0, match.start()) + 1
+        if start_line <= line <= end_line and _is_cpp_code_position(source, match.start()):
+            return line
     return 0
 
 
@@ -574,24 +589,21 @@ def _make_property_from_source_decl(
 
 def _scan_source_properties_for_class(
     source: str,
-    class_name: str,
+    class_cursor: clang.cindex.Cursor,
     exported_symbols: dict[str, object] | None,
 ) -> list[ReflectedPropertyInfo]:
     properties: list[ReflectedPropertyInfo] = []
-    class_seen = False
+    start_line, end_line = _cursor_source_line_range(source, class_cursor)
+    if start_line == 0:
+        return properties
+
     in_class = False
     brace_depth = 0
     pending_annotation = ""
 
-    for line in source.splitlines():
+    for line in source.splitlines()[start_line - 1:end_line]:
         stripped = line.strip()
-        if not class_seen:
-            if re.search(rf"\b(class|struct)\s+(?:\w+_API\s+)?{re.escape(class_name)}\b", stripped):
-                class_seen = True
-            else:
-                continue
-
-        if class_seen and not in_class:
+        if not in_class:
             if "{" in stripped:
                 in_class = True
                 brace_depth += stripped.count("{") - stripped.count("}")
@@ -1343,7 +1355,7 @@ def parse_reflection_header(
                     generated_helper_name=make_generated_struct_helper_name(qualified_name),
                     header=header,
                     api=module_config.api_macro,
-                    generated_body_line=_scan_generated_body_line(source, child.spelling),
+                    generated_body_line=_scan_generated_body_line(source, child),
                 )
                 for member in child.get_children():
                     if member.kind == clang.cindex.CursorKind.FIELD_DECL:
@@ -1351,7 +1363,7 @@ def parse_reflection_header(
                         if prop:
                             reflected_struct.properties.append(prop)
                 existing_property_names = {prop.name for prop in reflected_struct.properties}
-                for prop in _scan_source_properties_for_class(source, child.spelling, exported_symbols):
+                for prop in _scan_source_properties_for_class(source, child, exported_symbols):
                     if prop.name not in existing_property_names:
                         reflected_struct.properties.append(prop)
                         existing_property_names.add(prop.name)
@@ -1370,7 +1382,7 @@ def parse_reflection_header(
                     header=header,
                     api=module_config.api_macro,
                     base_qualified_name=_base_qualified_name(child),
-                    generated_body_line=_scan_generated_body_line(source, child.spelling),
+                    generated_body_line=_scan_generated_body_line(source, child),
                     display_name=_string_metadata_from_annotation(pending_dclass_annotation, "DisplayName"),
                     default_object_name=_string_metadata_from_annotation(pending_dclass_annotation, "DefaultObjectName"),
                 )
@@ -1386,7 +1398,7 @@ def parse_reflection_header(
                         if prop:
                             reflected_class.properties.append(prop)
                 existing_property_names = {prop.name for prop in reflected_class.properties}
-                for prop in _scan_source_properties_for_class(source, child.spelling, exported_symbols):
+                for prop in _scan_source_properties_for_class(source, child, exported_symbols):
                     if prop.name not in existing_property_names:
                         reflected_class.properties.append(prop)
                         existing_property_names.add(prop.name)
