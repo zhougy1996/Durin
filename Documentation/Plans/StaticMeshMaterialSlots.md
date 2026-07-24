@@ -4,7 +4,7 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 0 and 1 are complete. The source-slot and compatibility contracts are frozen,
+Stages 0 through 2 are complete. The source-slot and compatibility contracts are frozen,
 generated importer fixtures cover reorder, rename, duplicate names, addition,
 removal, filtering, and exact-name behavior, and characterization tests capture
 the version-zero component representation, load ordering, section mapping,
@@ -15,12 +15,14 @@ rebuild reconcile unambiguous names and conservative index-only renames, while
 duplicate-name ambiguity receives new identities and diagnostics. Render data
 copies the reconciled order and keeps compact section indices. Version-zero
 meshes deterministically derive identities and remain dirty for resave.
-`DStaticMeshComponent::GetNumMaterials()` reports the mesh-derived slot count,
-but the component nevertheless serializes an ordinary
-editable material array, permits growth beyond the mesh slot count, and binds
-overrides by array index. Details therefore exposes Add/Remove/Resize controls,
-and a source reimport that changes slot ordering can silently assign an
-override to the wrong surface.
+Components now serialize sparse GUID-keyed overrides, resolve through component
+override, mesh default, then renderer fallback, retain unmatched overrides as
+detached orphans across mesh switches, and bind only resolved current
+materials. Version-zero `Material`/`Materials` data migrates after mesh
+definitions load; excess legacy entries receive diagnosed orphan identities,
+and new saves clear the transitional fields. The remaining visible gap is the
+generic Details surface, which Stage 3 replaces with fixed mesh-owned rows and
+an explicit orphan group.
 
 This plan replaces the index-shaped component array with persistent
 mesh-owned slot identities, sparse component overrides, and a fixed-row Details
@@ -337,26 +339,26 @@ The reconciliation fixtures establish these expected identity results:
 
 ### Stage 2: Replace Index Arrays with Sparse Component Overrides
 
-- [ ] Introduce the reflected `{SlotId, Material}` override structure,
+- [x] Introduce the reflected `{SlotId, Material}` override structure,
   collection, and component data version.
-- [ ] Implement lookup and mutation by GUID, plus a bounds-checked index
+- [x] Implement lookup and mutation by GUID, plus a bounds-checked index
   convenience API that translates through the current mesh definition.
-- [ ] Implement current/orphan classification and the three-level material
+- [x] Implement current/orphan classification and the three-level material
   resolution rule.
-- [ ] Update `SetStaticMesh()`, `PostLoad()`, `PreEditChangeProperty()`,
+- [x] Update `SetStaticMesh()`, `PostLoad()`, `PreEditChangeProperty()`,
   `PostEditChangeProperty()`, `BeginDestroy()`, and dependency reconciliation
   around sparse current overrides.
-- [ ] Bind only resolved current component overrides and mesh defaults needed
+- [x] Bind only resolved current component overrides and mesh defaults needed
   by the component; orphan materials must not trigger render updates.
-- [ ] Convert version-zero `Materials`/`Material` storage after mesh slot
+- [x] Convert version-zero `Materials`/`Material` storage after mesh slot
   definitions are available, clear migrated legacy values on new saves, and
   produce diagnostics for excess entries.
-- [ ] Ensure invalid GUIDs, duplicate current GUIDs, null entries, and
+- [x] Ensure invalid GUIDs, duplicate current GUIDs, null entries, and
   incompatible objects are rejected consistently by API and detached
   reflected edits.
-- [ ] Update garbage-collection reachability and asset dependency/reference
+- [x] Update garbage-collection reachability and asset dependency/reference
   reporting for mesh defaults, current overrides, and serialized orphans.
-- [ ] Add tests for API bounds, sparse resolution, reset-to-default, mesh
+- [x] Add tests for API bounds, sparse resolution, reset-to-default, mesh
   switching, orphan preservation/reactivation/removal, migration, load/save,
   copy/duplicate, Undo/Redo hooks, dependency binding, and destruction.
 

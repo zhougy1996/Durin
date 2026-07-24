@@ -1,13 +1,27 @@
 #include "Components/StaticMeshComponent.h"
 
+#include "DObject/Archive.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/PrimitiveSceneProxy.h"
+#include "Logging/LogMacros.h"
 #include "Materials/MaterialInterface.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
+	namespace
+	{
+		inline constexpr uint32 StaticMeshMaterialOverridesVersion = 1;
+
+		auto FindOverride(std::span<const FStaticMeshMaterialOverride> Overrides, const FGuid& SlotId)
+			-> const FStaticMeshMaterialOverride*
+		{
+			const auto It = std::ranges::find(Overrides, SlotId, &FStaticMeshMaterialOverride::SlotId);
+			return It == Overrides.end() ? nullptr : &*It;
+		}
+	}
+
 	auto DStaticMeshComponent::SetStaticMesh(DStaticMesh* InStaticMesh) -> void
 	{
 		if (StaticMesh == InStaticMesh)
@@ -16,6 +30,8 @@ namespace Durin
 		}
 
 		StaticMesh = InStaticMesh;
+		ReconcileMaterialBindings();
+		++MaterialComponentRevision;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
 	}
@@ -32,15 +48,8 @@ namespace Durin
 
 	auto DStaticMeshComponent::SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> void
 	{
-		if (GetMaterial(SlotIndex) == InMaterial) return;
-		if (Materials.size() <= SlotIndex) Materials.resize(static_cast<size_t>(SlotIndex) + 1);
-		Materials[SlotIndex] = InMaterial;
-		if (SlotIndex == 0) Material = InMaterial;
-		ReconcileMaterialBindings();
-		++MaterialComponentRevision;
-		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
-		MarkPackageDirty();
-		MarkRenderStateDirty();
+		const FStaticMeshMaterialSlotDefinition* Slot = StaticMesh != nullptr ? StaticMesh->GetMaterialSlot(SlotIndex) : nullptr;
+		if (Slot != nullptr) SetMaterialBySlotId(Slot->SlotId, InMaterial);
 	}
 
 	auto DStaticMeshComponent::GetMaterial() const -> DMaterialInterface*
@@ -50,21 +59,92 @@ namespace Durin
 
 	auto DStaticMeshComponent::GetMaterial(uint32 SlotIndex) const -> DMaterialInterface*
 	{
-		if (SlotIndex < Materials.size()) return Materials[SlotIndex].Get();
-		return SlotIndex == 0 ? Material.Get() : nullptr;
+		const FStaticMeshMaterialSlotDefinition* Slot = StaticMesh != nullptr ? StaticMesh->GetMaterialSlot(SlotIndex) : nullptr;
+		return Slot != nullptr ? GetMaterialBySlotId(Slot->SlotId) : nullptr;
+	}
+
+	auto DStaticMeshComponent::SetMaterialBySlotId(const FGuid& SlotId, DMaterialInterface* InMaterial) -> bool
+	{
+		if (!SlotId.IsValid() || StaticMesh == nullptr || StaticMesh->FindMaterialSlot(SlotId) == nullptr) return false;
+		if (InMaterial == nullptr) return ResetMaterialBySlotId(SlotId);
+		if (FStaticMeshMaterialOverride* Override = const_cast<FStaticMeshMaterialOverride*>(FindOverride(MaterialOverrides, SlotId)))
+		{
+			if (Override->Material == InMaterial) return true;
+			Override->Material = InMaterial;
+		}
+		else MaterialOverrides.push_back({.SlotId = SlotId, .Material = InMaterial});
+		ReconcileMaterialBindings();
+		++MaterialComponentRevision;
+		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
+		MarkPackageDirty();
+		MarkRenderStateDirty();
+		return true;
+	}
+
+	auto DStaticMeshComponent::ResetMaterialBySlotId(const FGuid& SlotId) -> bool
+	{
+		if (!SlotId.IsValid() || StaticMesh == nullptr || StaticMesh->FindMaterialSlot(SlotId) == nullptr) return false;
+		return RemoveMaterialOverride(SlotId);
+	}
+
+	auto DStaticMeshComponent::RemoveMaterialOverride(const FGuid& SlotId) -> bool
+	{
+		const size_t PreviousSize = MaterialOverrides.size();
+		std::erase_if(MaterialOverrides, [&SlotId](const FStaticMeshMaterialOverride& Override) { return Override.SlotId == SlotId; });
+		if (MaterialOverrides.size() == PreviousSize) return false;
+		ReconcileMaterialBindings();
+		++MaterialComponentRevision;
+		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
+		MarkPackageDirty();
+		if (StaticMesh != nullptr && StaticMesh->FindMaterialSlot(SlotId) != nullptr) MarkRenderStateDirty();
+		return true;
+	}
+
+	auto DStaticMeshComponent::GetMaterialBySlotId(const FGuid& SlotId) const -> DMaterialInterface*
+	{
+		const FStaticMeshMaterialSlotDefinition* Slot = StaticMesh != nullptr ? StaticMesh->FindMaterialSlot(SlotId) : nullptr;
+		if (Slot == nullptr) return nullptr;
+		if (const FStaticMeshMaterialOverride* Override = FindOverride(MaterialOverrides, SlotId)) return Override->Material.Get();
+		return Slot->DefaultMaterial.Get();
+	}
+
+	auto DStaticMeshComponent::GetMaterialOverride(const FGuid& SlotId) const -> DMaterialInterface*
+	{
+		const FStaticMeshMaterialOverride* Override = FindOverride(MaterialOverrides, SlotId);
+		return Override != nullptr ? Override->Material.Get() : nullptr;
+	}
+
+	auto DStaticMeshComponent::HasMaterialOverride(const FGuid& SlotId) const -> bool
+	{
+		return FindOverride(MaterialOverrides, SlotId) != nullptr;
+	}
+
+	auto DStaticMeshComponent::IsMaterialOverrideOrphan(const FGuid& SlotId) const -> bool
+	{
+		return HasMaterialOverride(SlotId) && (StaticMesh == nullptr || StaticMesh->FindMaterialSlot(SlotId) == nullptr);
 	}
 
 	auto DStaticMeshComponent::GetNumMaterials() const -> uint32
 	{
-		const FStaticMeshRenderData* RenderData = StaticMesh != nullptr ? StaticMesh->GetRenderData() : nullptr;
-		return RenderData != nullptr ? static_cast<uint32>(RenderData->MaterialSlots.size()) : 0;
+		return StaticMesh != nullptr ? StaticMesh->GetNumMaterialSlots() : 0;
+	}
+
+	auto DStaticMeshComponent::Serialize(FArchive& Ar) -> void
+	{
+		if (Ar.IsSaving())
+		{
+			MaterialOverridesVersion = StaticMeshMaterialOverridesVersion;
+			Material = nullptr;
+			Materials.clear();
+		}
+		Super::Serialize(Ar);
 	}
 
 	auto DStaticMeshComponent::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		if (Materials.empty() && Material != nullptr) Materials.push_back(Material);
-		if (!Materials.empty()) Material = Materials[0];
+		if (MaterialOverridesVersion == 0) MigrateLegacyMaterials();
+		if (!ValidateMaterialOverrides(MaterialOverrides, OutError)) return false;
 		ReconcileMaterialBindings();
 		return true;
 	}
@@ -74,7 +154,7 @@ namespace Durin
 		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
 		if (!Proposal.MemberProperty || !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
 		const FName Name = Proposal.MemberProperty->NamePrivate;
-		if (Name == FName("StaticMesh") || Name == FName("Material"))
+		if (Name == FName("StaticMesh"))
 		{
 			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Object)
 			{
@@ -83,43 +163,34 @@ namespace Durin
 			}
 			DObject* Value = static_cast<const FObjectProperty*>(Proposal.DraftRootProperty)->GetObjectPropertyValue(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-			if (Name == FName("StaticMesh") && Value && !Cast<DStaticMesh>(Value))
+			if (Value && !Cast<DStaticMesh>(Value))
 			{
 				OutError = "Selected asset is not a static mesh.";
 				return false;
 			}
-			if (Name == FName("Material") && Value && !Cast<DMaterialInterface>(Value))
-			{
-				OutError = "Selected asset is not a material.";
-				return false;
-			}
 			return true;
 		}
-		if (Name != FName("Materials")) return true;
+		if (Name != FName("MaterialOverrides")) return true;
 		if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Array)
 		{
 			OutError = "The static-mesh material array metadata is unavailable.";
 			return false;
 		}
 		auto* ArrayProperty = static_cast<const FArrayProperty*>(Proposal.DraftRootProperty);
-		auto* ObjectProperty = ArrayProperty->GetInner() && ArrayProperty->GetInner()->GetKind() == DurinCodeGen::EPropertyGenFlags::Object
-			? static_cast<const FObjectProperty*>(ArrayProperty->GetInner()) : nullptr;
-		if (!ObjectProperty)
+		if (!ArrayProperty->GetInner() || ArrayProperty->GetInner()->GetKind() != DurinCodeGen::EPropertyGenFlags::Struct)
 		{
-			OutError = "The static-mesh material array metadata is unavailable.";
+			OutError = "The static-mesh material override metadata is unavailable.";
 			return false;
 		}
+		std::vector<FStaticMeshMaterialOverride> Overrides;
+		Overrides.reserve(static_cast<size_t>(ArrayProperty->Num(Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex)));
 		for (uint64 Index = 0; Index < ArrayProperty->Num(Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex); ++Index)
 		{
-			const void* Element = ArrayProperty->GetElementPtr(Proposal.DraftRootContainer, Index, Proposal.DraftRootArrayIndex);
-			DObject* Value = Element ? ObjectProperty->GetObjectPropertyValue(Element) : nullptr;
-			if (Value && !Cast<DMaterialInterface>(Value))
-			{
-				OutError = "Selected asset is not a material.";
-				return false;
-			}
+			const auto* Element = static_cast<const FStaticMeshMaterialOverride*>(
+				ArrayProperty->GetElementPtr(Proposal.DraftRootContainer, Index, Proposal.DraftRootArrayIndex));
+			if (Element != nullptr) Overrides.push_back(*Element);
 		}
-		return true;
+		return ValidateMaterialOverrides(Overrides, OutError);
 	}
 
 	auto DStaticMeshComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
@@ -130,19 +201,12 @@ namespace Durin
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("StaticMesh"))
 		{
+			ReconcileMaterialBindings();
+			++MaterialComponentRevision;
 			MarkRenderStateDirty();
 			return;
 		}
-		if (Name == FName("Material"))
-		{
-			if (Materials.empty()) Materials.resize(1);
-			Materials[0] = Material;
-		}
-		else if (Name == FName("Materials"))
-		{
-			Material = Materials.empty() ? nullptr : Materials[0];
-		}
-		else return;
+		if (Name != FName("MaterialOverrides")) return;
 		ReconcileMaterialBindings();
 		++MaterialComponentRevision;
 		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
@@ -199,7 +263,7 @@ namespace Durin
 
 	auto DStaticMeshComponent::HandleMaterialRenderDataChanged(DMaterialInterface* ChangedMaterial, EMaterialRenderDirtyFlags DirtyFlags) -> void
 	{
-		const uint32 SlotCount = std::max<uint32>(static_cast<uint32>(Materials.size()), 1);
+		const uint32 SlotCount = GetNumMaterials();
 		for (uint32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
 		{
 			if (GetMaterial(SlotIndex) != ChangedMaterial) continue;
@@ -223,16 +287,89 @@ namespace Durin
 
 	auto DStaticMeshComponent::ReconcileMaterialBindings() -> void
 	{
+		std::vector<TObjectPtr<DMaterialInterface>> ResolvedMaterials;
+		if (StaticMesh != nullptr)
+		{
+			for (const FStaticMeshMaterialSlotDefinition& Slot : StaticMesh->GetMaterialSlots())
+			{
+				DMaterialInterface* Resolved = GetMaterialBySlotId(Slot.SlotId);
+				if (Resolved != nullptr && std::ranges::none_of(ResolvedMaterials,
+					[Resolved](const TObjectPtr<DMaterialInterface>& Candidate) { return Candidate.Get() == Resolved; }))
+					ResolvedMaterials.push_back(Resolved);
+			}
+		}
 		for (const TObjectPtr<DMaterialInterface>& Previous : BoundMaterials)
 		{
-			if (Previous != nullptr && std::ranges::none_of(Materials, [&](const auto& Current) { return Current == Previous; }))
+			if (Previous != nullptr && std::ranges::none_of(ResolvedMaterials, [&](const auto& Current) { return Current == Previous; }))
 				UnbindMaterial(Previous.Get());
 		}
-		for (const TObjectPtr<DMaterialInterface>& Current : Materials)
+		for (const TObjectPtr<DMaterialInterface>& Current : ResolvedMaterials)
 		{
 			if (Current != nullptr && std::ranges::none_of(BoundMaterials, [&](const auto& Previous) { return Previous == Current; }))
 				BindMaterial(Current.Get());
 		}
-		BoundMaterials = Materials;
+		BoundMaterials = std::move(ResolvedMaterials);
+	}
+
+	auto DStaticMeshComponent::ValidateMaterialOverrides(
+		std::span<const FStaticMeshMaterialOverride> Overrides,
+		std::string& OutError) const -> bool
+	{
+		std::unordered_set<FGuid> SlotIds;
+		for (const FStaticMeshMaterialOverride& Override : Overrides)
+		{
+			if (!Override.SlotId.IsValid())
+			{
+				OutError = "A static-mesh component contains a material override with an invalid slot GUID.";
+				return false;
+			}
+			if (!SlotIds.insert(Override.SlotId).second)
+			{
+				OutError = std::format("A static-mesh component contains duplicate overrides for slot GUID {}.", Override.SlotId.ToString());
+				return false;
+			}
+			if (Override.Material == nullptr)
+			{
+				OutError = std::format("A static-mesh component contains a null override for slot GUID {}.", Override.SlotId.ToString());
+				return false;
+			}
+			DObject* MaterialObject = reinterpret_cast<DObject*>(Override.Material.Get());
+			if (Cast<DMaterialInterface>(MaterialObject) == nullptr)
+			{
+				OutError = std::format("A static-mesh component contains an incompatible object for slot GUID {}.", Override.SlotId.ToString());
+				return false;
+			}
+		}
+		return true;
+	}
+
+	auto DStaticMeshComponent::MigrateLegacyMaterials() -> void
+	{
+		std::unordered_set<FGuid> UsedIds;
+		for (const FStaticMeshMaterialOverride& Override : MaterialOverrides) UsedIds.insert(Override.SlotId);
+		const size_t LegacyCount = std::max<size_t>(Materials.size(), Material != nullptr ? 1 : 0);
+		for (size_t Index = 0; Index < LegacyCount; ++Index)
+		{
+			DMaterialInterface* LegacyMaterial = Index < Materials.size() ? Materials[Index].Get() : Material.Get();
+			if (LegacyMaterial == nullptr) continue;
+			FGuid SlotId;
+			if (const FStaticMeshMaterialSlotDefinition* Slot = StaticMesh != nullptr
+				? StaticMesh->GetMaterialSlot(static_cast<uint32>(Index)) : nullptr)
+			{
+				SlotId = Slot->SlotId;
+			}
+			else
+			{
+				do SlotId = FGuid::NewGuid(); while (UsedIds.contains(SlotId));
+				DURIN_WARN("Static-mesh component '{}' retained legacy material index {} as orphan slot GUID {}.",
+					GetObjectPath(), Index, SlotId.ToString());
+			}
+			if (UsedIds.insert(SlotId).second)
+				MaterialOverrides.push_back({.SlotId = SlotId, .Material = LegacyMaterial});
+		}
+		MaterialOverridesVersion = StaticMeshMaterialOverridesVersion;
+		Material = nullptr;
+		Materials.clear();
+		MarkPackageDirty();
 	}
 }

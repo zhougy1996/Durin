@@ -495,7 +495,10 @@ TEST(FObjectPropertyViewCustomizationTests, DeclaresActorTransformRow)
 
 	Durin::FProperty* MaterialsProperty = Component->GetClass()->FindPropertyByName("Materials");
 	ASSERT_NE(MaterialsProperty, nullptr);
-	EXPECT_TRUE(MaterialsProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));
+	EXPECT_FALSE(MaterialsProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));
+	Durin::FProperty* OverridesProperty = Component->GetClass()->FindPropertyByName("MaterialOverrides");
+	ASSERT_NE(OverridesProperty, nullptr);
+	EXPECT_FALSE(OverridesProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
