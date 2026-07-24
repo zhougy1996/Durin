@@ -4,7 +4,11 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Planning is complete and implementation has not started. Static-mesh import
+Stage 0 is complete. The source-slot and compatibility contracts are frozen,
+generated importer fixtures cover reorder, rename, duplicate names, addition,
+removal, filtering, and exact-name behavior, and characterization tests capture
+the version-zero component representation, load ordering, section mapping,
+fallback, and live material dependency binding. Static-mesh import
 already produces a compact ordered material-slot list, sections reference that
 list by runtime index, and `DStaticMeshComponent::GetNumMaterials()` reports the
 mesh-derived slot count. The component nevertheless serializes an ordinary
@@ -114,6 +118,20 @@ The completed workflow must:
 - Matching consumes both old and new entries at most once. Duplicate or
   ambiguous candidates produce a diagnostic and new identities rather than
   silent many-to-one reuse.
+- The canonical `AssetCore` source key is the pair of the exact source material
+  name reported by Assimp and its zero-based index in the Assimp output scene.
+  Source names are UTF-8 byte strings and receive no trimming, case folding, or
+  Unicode normalization. An empty source name remains empty matching metadata
+  even though its display name is `Material_<SourceMaterialIndex>`.
+- Display-name uniqueness is presentation-only. Repeated non-empty source names
+  are emitted in source order as `Name`, `Name_1`, `Name_2`, and so on, but the
+  suffix is not part of source identity. Duplicate raw names are ambiguous for
+  name matching and are excluded from source-index fallback; the duplicate
+  group receives new identities rather than preserving assignments by position.
+- `SourceMaterialIndex` is the index in the Assimp output scene before Durin's
+  unused-slot filter. Durin does not compact it to the visible slot position,
+  although an individual Assimp format importer may already have omitted or
+  compacted unused source-file declarations before Durin receives the scene.
 - Legacy static meshes that have no serialized definitions use a deterministic
   mesh-local identity derived from their imported source slot key for the
   initial conversion. This prevents independently saving a migrated component
@@ -173,6 +191,15 @@ The completed workflow must:
 - Add explicit serialized data-version fields for mesh slot definitions and
   component overrides; an empty override collection is a valid authored state
   and cannot itself indicate whether migration ran.
+- Version zero means that the version field is absent. The first production
+  schema constants are `StaticMeshMaterialSlotsVersion = 1` and
+  `StaticMeshMaterialOverridesVersion = 1`.
+- Deterministic version-zero mesh GUID derivation hashes a domain separator,
+  the mesh package path, the exact source material name bytes, and the original
+  source material index in fixed little-endian form. Display names, filtered
+  slot positions, source-file absolute paths, and object memory identity are
+  excluded. Hash output is converted to `FGuid`; an all-zero result is replaced
+  by the fixed non-zero value documented beside the implementation.
 - Version-zero static meshes build source data first, derive deterministic
   initial slot definitions, and mark their package dirty for resave.
 - Version-zero components convert the legacy `Materials` array by current slot
@@ -237,18 +264,30 @@ The completed workflow must:
 
 ### Stage 0: Freeze the Slot and Compatibility Contracts
 
-- [ ] Specify the canonical source-slot matching key exported by `AssetCore`,
+- [x] Specify the canonical source-slot matching key exported by `AssetCore`,
   including normalization, duplicate-name disambiguation, and source-index
   semantics.
-- [ ] Add checked-in or generated test fixtures covering two named material
+- [x] Add checked-in or generated test fixtures covering two named material
   slots, source-order reversal, source rename, duplicate names, addition, and
   removal.
-- [ ] Capture a version-zero static-mesh/component round-trip fixture using the
+- [x] Capture a version-zero static-mesh/component round-trip fixture using the
   current `Material` and `Materials` fields.
-- [ ] Add characterization tests for current section-to-slot mapping, fallback
+- [x] Add characterization tests for current section-to-slot mapping, fallback
   behavior, package load ordering, and material dependency binding.
-- [ ] Record the selected data-version constants and deterministic legacy GUID
+- [x] Record the selected data-version constants and deterministic legacy GUID
   derivation inputs in the plan before production storage changes begin.
+
+The reconciliation fixtures establish these expected identity results:
+
+| Source change | Expected identity result |
+| --- | --- |
+| Initial `Red`, `Blue` import | Allocate one new persistent GUID for each slot. |
+| Reverse uniquely named `Red`, `Blue` | Preserve both GUIDs by unique raw source name and reverse their runtime order. |
+| Rename `Red` to `Crimson` without moving it | Preserve the GUID by unambiguous source-index fallback. |
+| Rename and reorder the same slot | Preserve any independently unique unchanged-name match; allocate a new GUID for the renamed unmatched slot. |
+| Add `Green` | Preserve existing uniquely named GUIDs and allocate one new GUID for `Green`. |
+| Remove `Red` | Preserve `Blue`; references to the removed `Red` GUID become orphans. |
+| Duplicate raw source names | Do not use display suffixes or source-index fallback for the duplicate group; emit an ambiguity diagnostic and allocate new GUIDs. |
 
 #### Acceptance Gate
 

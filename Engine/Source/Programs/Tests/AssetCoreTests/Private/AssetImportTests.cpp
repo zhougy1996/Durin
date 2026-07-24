@@ -120,6 +120,69 @@ namespace Durin::Asset
 			Options.SourceToEngine[3][3] = 1.0f;
 			return Options;
 		}
+
+		auto WriteMaterialSlotFixture(
+			std::string_view FileName,
+			const std::vector<std::string>& MaterialNames,
+			const std::vector<uint32>& PrimitiveMaterialIndices) -> std::filesystem::path
+		{
+			const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "MaterialSlotFixtures";
+			std::filesystem::create_directories(Root);
+			const std::filesystem::path Path = Root / FileName;
+			std::ofstream Stream(Path, std::ios::trunc);
+			EXPECT_TRUE(Stream.is_open());
+			Stream << R"({
+  "asset": { "version": "2.0" },
+  "buffers": [{
+    "byteLength": 224,
+    "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/zczMPc3MTD6amZk+zczMPgAAAD+amRk/AACAPwAAAAAAAAAAAACAPwAAAAAAAIA/AAAAAAAAAD8AAAAAAAAAAAAAgD8AAIA+AAABAAIAAAA="
+  }],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 36, "target": 34962 },
+    { "buffer": 0, "byteOffset": 36, "byteLength": 36, "target": 34962 },
+    { "buffer": 0, "byteOffset": 72, "byteLength": 48, "target": 34962 },
+    { "buffer": 0, "byteOffset": 120, "byteLength": 24, "target": 34962 },
+    { "buffer": 0, "byteOffset": 144, "byteLength": 24, "target": 34962 },
+    { "buffer": 0, "byteOffset": 168, "byteLength": 48, "target": 34962 },
+    { "buffer": 0, "byteOffset": 216, "byteLength": 8, "target": 34963 }
+  ],
+  "accessors": [
+    { "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0] },
+    { "bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3" },
+    { "bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC4" },
+    { "bufferView": 3, "componentType": 5126, "count": 3, "type": "VEC2" },
+    { "bufferView": 4, "componentType": 5126, "count": 3, "type": "VEC2" },
+    { "bufferView": 5, "componentType": 5126, "count": 3, "type": "VEC4" },
+    { "bufferView": 6, "componentType": 5123, "count": 3, "type": "SCALAR" }
+  ],
+  "materials": [)";
+			for (size_t Index = 0; Index < MaterialNames.size(); ++Index)
+			{
+				if (Index != 0) Stream << ',';
+				Stream << "\n    { \"name\": \"" << MaterialNames[Index] << "\" }";
+			}
+			Stream << R"(
+  ],
+  "meshes": [{
+    "name": "MaterialSlots",
+    "primitives": [)";
+			for (size_t Index = 0; Index < PrimitiveMaterialIndices.size(); ++Index)
+			{
+				if (Index != 0) Stream << ',';
+				Stream << "\n      { \"attributes\": { \"POSITION\": 0, \"NORMAL\": 1, \"TANGENT\": 2, \"TEXCOORD_0\": 3, \"TEXCOORD_1\": 4, \"COLOR_0\": 5 }, \"indices\": 6, \"material\": "
+					<< PrimitiveMaterialIndices[Index] << " }";
+			}
+			Stream << R"(
+    ]
+  }],
+  "nodes": [{ "name": "MaterialSlots", "mesh": 0 }],
+  "scenes": [{ "nodes": [0] }],
+  "scene": 0
+}
+)";
+			EXPECT_TRUE(Stream.good());
+			return Path;
+		}
 	}
 
 	TEST(FAssetImportTests, ImportFromFileLoadsTriangleMesh)
@@ -166,6 +229,42 @@ namespace Durin::Asset
 		ExpectVec3Eq(glm::vec3(3.0f, 2.0f, 3.0f), Scene.Meshes[0].Positions[1]);
 		EXPECT_EQ(Scene.Meshes[2].Indices, (std::vector<uint32>{0, 2, 1}));
 		EXPECT_FLOAT_EQ(Scene.Meshes[2].Tangents[0].w, -1.0f);
+	}
+
+	TEST(FAssetImportTests, MaterialSlotFixturesCharacterizeNamesOrderAndSourceIndices)
+	{
+		struct FCase
+		{
+			std::string FileName;
+			std::vector<std::string> MaterialNames;
+			std::vector<uint32> PrimitiveMaterialIndices;
+			std::vector<FImportedMaterialSlot> ExpectedSlots;
+		};
+		const std::vector<FCase> Cases = {
+			{"Base.gltf", {"Red", "Blue"}, {0, 1}, {{"Red", 0}, {"Blue", 1}}},
+			{"Reordered.gltf", {"Blue", "Red"}, {0, 1}, {{"Blue", 0}, {"Red", 1}}},
+			{"Renamed.gltf", {"Crimson", "Blue"}, {0, 1}, {{"Crimson", 0}, {"Blue", 1}}},
+			{"Duplicate.gltf", {"Shared", "Shared"}, {0, 1}, {{"Shared", 0}, {"Shared_1", 1}}},
+			{"Added.gltf", {"Red", "Green", "Blue"}, {0, 1, 2}, {{"Red", 0}, {"Green", 1}, {"Blue", 2}}},
+			{"Removed.gltf", {"Blue"}, {0}, {{"Blue", 0}}},
+			{"Filtered.gltf", {"Unused", "Red", "Blue"}, {1, 2}, {{"Red", 0}, {"Blue", 1}}},
+			{"ExactNames.gltf", {"", " red ", "Red"}, {0, 1, 2}, {{"Material_0", 0}, {" red ", 1}, {"Red", 2}}},
+		};
+
+		for (const FCase& Case : Cases)
+		{
+			SCOPED_TRACE(Case.FileName);
+			const std::filesystem::path Fixture = WriteMaterialSlotFixture(
+				Case.FileName, Case.MaterialNames, Case.PrimitiveMaterialIndices);
+			FImportedSceneData Scene;
+			ASSERT_TRUE(ImportFromFile(Fixture.generic_string(), Scene));
+			ASSERT_EQ(Scene.MaterialSlots.size(), Case.ExpectedSlots.size());
+			for (size_t Index = 0; Index < Case.ExpectedSlots.size(); ++Index)
+			{
+				EXPECT_EQ(Scene.MaterialSlots[Index].Name, Case.ExpectedSlots[Index].Name);
+				EXPECT_EQ(Scene.MaterialSlots[Index].SourceMaterialIndex, Case.ExpectedSlots[Index].SourceMaterialIndex);
+			}
+		}
 	}
 
 	TEST(FAssetImportTests, AppliesSourceCoordinateSystemToAllMeshAttributes)
