@@ -15,10 +15,10 @@ and the static-mesh shader samples the base-color texture through a shared
 linear-wrap sampler. Missing or not-yet-ready resources resolve to the
 renderer-owned white texture.
 
-The current build remains an editor-oriented, uncompressed implementation rather
-than a production texture pipeline. `DTexture2D::PostLoad` still reopens and
-decodes the copied source image, platform data always uses `RGBA8_UNORM` or
-`SRGBA8_UNORM`, and all mips are fully resident. A dedicated Texture Editor now
+The current build remains an editor-oriented implementation rather than a
+production texture pipeline. `DTexture2D::PostLoad` still reopens and decodes the
+copied source image, desktop compression uses a fixed quality level, and all
+mips are fully resident. A dedicated Texture Editor now
 shows source and platform diagnostics and changes usage or the explicit sRGB
 override through validated reflected transactions with Dirty, save, cancel,
 Undo, and Redo behavior. Normal and Data/Mask currently affect build defaults
@@ -48,6 +48,12 @@ pixel-format block metadata, including NPOT extents and sub-4x4 tail mips, rathe
 than treating compressed blocks as individual texels. All eleven focused
 `FTexture2DTests.*`, a full `all` build, and an eight-second
 `DurinEditor --hidden-window` Vulkan smoke run passed after the change.
+The desktop builder now selects BC1 for opaque Color, BC3 for transparent Color,
+BC5 for Normal, and BC7 for Data/Mask, encodes every mip through a commit-pinned
+`bc7enc_rdo` dependency, and extends NPOT block edges without changing logical
+mip dimensions. All eleven focused texture tests and all 204 `EngineTests`
+passed, followed by a successful full `all` build and a ten-second
+`DurinEditor --hidden-window` Vulkan smoke run.
 
 ## Implemented
 
@@ -66,6 +72,7 @@ than treating compressed blocks as individual texels. All eleven focused
 - [x] Static-mesh material-slot resolution and live dependency updates preserve
   the selected texture render-resource snapshot.
 - [x] RHI and Vulkan format definitions for uncompressed and BC texture formats.
+- [x] Usage- and alpha-driven BC1, BC3, BC5, and BC7 desktop compression.
 - [x] Vulkan support for uploading individual mip levels.
 - [x] Persistent project-local Content Browser thumbnails derived from texture
   source images, with invalidation and regeneration.
@@ -134,8 +141,8 @@ permanent behavior from the source filename.
 - [x] Add sRGB versus linear color-space selection.
 - [x] Generate a complete mip chain with usage-appropriate image filters.
 - [x] Add texture usage presets, initially Color, Normal, and Data/Mask.
-- [ ] Select platform formats from usage and alpha requirements.
-- [ ] Add BC1/BC3/BC5/BC7 compression for supported desktop targets.
+- [x] Select platform formats from usage and alpha requirements.
+- [x] Add BC1/BC3/BC5/BC7 compression for supported desktop targets.
 - [ ] Add maximum-resolution and quality settings.
 - [ ] Decide how alpha coverage should be preserved while generating mips.
 - [x] Validate platform-format support before creating the RHI resource.
@@ -168,7 +175,7 @@ permanent behavior from the source filename.
 - [ ] Test default-texture fallback while an asset is missing or not ready.
 - [ ] Test real Vulkan upload and shader sampling, including multiple mip levels.
 - [ ] Test sRGB and linear textures against known sample values.
-- [ ] Test compressed formats and non-block-aligned dimensions.
+- [x] Test compressed formats and non-block-aligned dimensions.
 - [ ] Test failed imports and rebuilds for transactional cleanup of packages and
   copied source files.
 - [x] Run a successful full `all` build and `DurinEditor` smoke test after the
@@ -189,8 +196,8 @@ These features are intentionally outside the first Texture2D/material slice:
 
 1. Preview the built platform texture and selectable mip levels in the Texture
    Editor, and expose actionable load/build/upload failures.
-2. Add desktop block compression, platform capability validation, and focused
-   Vulkan coverage for compressed and multi-mip uploads.
+2. Finish desktop compression controls with maximum resolution, quality, alpha
+   coverage, and focused Vulkan sampling coverage.
 3. Cache built platform data behind a versioned derived-data key so ordinary
    loads and cooked/runtime builds do not depend on source decoding.
 4. Move decode and build work off the main thread and make load/build/upload

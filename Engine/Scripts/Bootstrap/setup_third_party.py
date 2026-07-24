@@ -122,20 +122,28 @@ def ensure_git_source(manifest: dict[str, Any]) -> None:
             "Please remove it and run bootstrap again, or repair it manually."
         )
 
-    print(f"Cloning {manifest['name']} source {source['tag']} into \"{source_dir}\"...")
-    run_command(
-        [
-            "git",
-            "clone",
-            "--branch",
-            source["tag"],
-            "--depth",
-            "1",
-            *(["--recurse-submodules"] if source.get("recursive_submodules", False) else []),
-            source["url"],
-            str(source_dir),
-        ]
-    )
+    if commit := source.get("commit"):
+        print(f"Cloning {manifest['name']} source commit {commit} into \"{source_dir}\"...")
+        source_dir.parent.mkdir(parents=True, exist_ok=True)
+        run_command(["git", "init", str(source_dir)])
+        run_command(["git", "-C", str(source_dir), "remote", "add", "origin", source["url"]])
+        run_command(["git", "-C", str(source_dir), "fetch", "--depth", "1", "origin", commit])
+        run_command(["git", "-C", str(source_dir), "checkout", "--detach", "FETCH_HEAD"])
+    else:
+        print(f"Cloning {manifest['name']} source {source['tag']} into \"{source_dir}\"...")
+        run_command(
+            [
+                "git",
+                "clone",
+                "--branch",
+                source["tag"],
+                "--depth",
+                "1",
+                *(["--recurse-submodules"] if source.get("recursive_submodules", False) else []),
+                source["url"],
+                str(source_dir),
+            ]
+        )
 
     if source.get("recursive_submodules", False):
         update_git_submodules(source_dir)
@@ -364,6 +372,12 @@ def validate_manifests(manifests: list[dict[str, Any]]) -> None:
         source_kind = manifest["source"].get("type")
         if source_kind not in {"git", "archive"}:
             raise BootstrapError(f"Manifest {manifest['name']} has unsupported source type: {source_kind}")
+        if source_kind == "git":
+            revisions = [key for key in ("tag", "commit") if manifest["source"].get(key)]
+            if len(revisions) != 1:
+                raise BootstrapError(
+                    f"Git manifest {manifest['name']} must define exactly one source revision: tag or commit."
+                )
         if manifest["kind"] == "shared_install":
             if "cmake_dir" not in manifest or "install_required_file_sets" not in manifest:
                 raise BootstrapError(

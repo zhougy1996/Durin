@@ -63,6 +63,7 @@ target_link_libraries(EngineTests PRIVATE
 	Mona
 	MonaImGui
 	DurinEd
+	bc7enc_rdo::bc7enc_rdo
 	GTest::gtest_main
 )
 

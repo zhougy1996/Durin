@@ -21,7 +21,9 @@ namespace Durin
 		if (!GDynamicRHI || !Pixels || Width == 0 || Height == 0) return;
 
 		// Capture a snapshot of the pixel data for the render command.
-		const size_t PixelCount = static_cast<size_t>(RowPitch) * Height;
+		const FPixelFormatLayout Layout = GetPixelFormatLayout(Format, Width, Height);
+		if (Layout.DataSize == 0 || Layout.DataSize > std::numeric_limits<size_t>::max()) return;
+		const size_t PixelCount = static_cast<size_t>(Layout.DataSize);
 		auto PixelSnapshot = std::make_shared<std::vector<uint8>>(Pixels, Pixels + PixelCount);
 
 		FTextureRHIRef NewTexture;

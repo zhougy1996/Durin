@@ -15,7 +15,7 @@ namespace Durin::TextureBuild
 	// Decodes a supported source image into the canonical top-left-origin RGBA8 representation.
 	ENGINE_API auto DecodeRGBA8(std::string_view PhysicalFilePath, FTextureSourceData& OutSourceData, std::string& OutError) -> bool;
 
-	// Builds the complete RGBA8 mip chain used by both 2D and cube textures.
+	// Builds and platform-compresses the complete mip chain used by both 2D and cube textures.
 	ENGINE_API auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
 		FTexturePlatformData& OutPlatformData, std::string& OutError) -> bool;
 }

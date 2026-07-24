@@ -57,11 +57,15 @@ Current example: `slang`
 
 ### Direct Source
 
-Current examples: `glm`, `googletest`
+Current examples: `glm`, `bc7enc_rdo`, `googletest`
 
 - Source location: `Engine/External/Source/<Library>`
 - Build or install behavior: bootstrap clones source and the main project consumes it with `add_subdirectory(...)`
 - Runtime implications: no shared install tree is produced
+
+`bc7enc_rdo` has no release tags, so its manifest pins an exact upstream commit.
+Git sources may define exactly one `tag` or `commit`; commit-pinned sources are
+fetched shallowly and checked out detached for reproducible bootstrap results.
 
 ### Shared Install
 

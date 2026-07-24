@@ -9,14 +9,21 @@ explicit source, platform, render-resource, editor, and material boundaries.
   and `bSRGB` build settings.
 - `FTextureSourceData` is decoded RGBA8 edit data. It records source dimensions,
   original channel count, and whether transparency is present.
-- `FTexturePlatformData` is rebuilt from source data. It currently contains a
-  complete uncompressed `RGBA8_UNORM` or `SRGBA8_UNORM` mip chain.
+- `FTexturePlatformData` is rebuilt from source data. It contains a complete,
+  tightly packed desktop BC mip chain selected from usage, transparency, and
+  color space.
 - Source and platform data are intentionally separate. Future compression,
   target-platform selection, and derived-data caching replace platform data
   without mutating the decoded source representation.
 - Normal usage generates linear-space mips by averaging and renormalizing the
   encoded normal vector. Color usage filters RGB in linear space when sRGB is
   enabled. Data/Mask usage averages channels independently.
+- Opaque Color uses BC1, transparent Color uses BC3, Normal uses BC5, and
+  Data/Mask uses BC7. Color and Data/Mask select the matching sRGB variant when
+  the explicit color-space setting is enabled.
+- NPOT edges are extended by clamping to the last source texel before each 4x4
+  block is encoded. This keeps every mip valid without changing its logical
+  dimensions.
 
 ## Transactional Build-Setting Edits
 
@@ -85,7 +92,9 @@ copied source image rather than the built platform representation.
 
 - Platform data is rebuilt by decoding the source image during every normal
   `PostLoad`; there is no texture derived-data key or cooked payload.
-- Platform format selection is uncompressed.
+- Desktop compression currently uses one fixed quality level. Maximum
+  resolution, user-facing quality controls, and alpha-coverage-preserving mip
+  generation are not implemented.
 - Build work is synchronous, every mip is fully resident, and there is no memory
   accounting or streaming.
 - The shipped material shader consumes only the base-color texture parameter.

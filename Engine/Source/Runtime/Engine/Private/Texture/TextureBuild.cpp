@@ -2,10 +2,96 @@
 
 #include "ImageDecoder.h"
 
+#include <bc7enc.h>
+#include <rgbcx.h>
+
 namespace Durin::TextureBuild
 {
 	namespace
 	{
+		constexpr uint32 BlockWidth = 4;
+		constexpr uint32 CompressionLevel = 10;
+
+		auto GatherTextureBlock(const FTexture2DMipData& Source, uint32 BlockX, uint32 BlockY,
+			std::array<uint8, BlockWidth * BlockWidth * ChannelCount>& OutPixels) -> void
+		{
+			for (uint32 Y = 0; Y < BlockWidth; ++Y)
+			{
+				const uint32 SourceY = std::min(BlockY * BlockWidth + Y, Source.Height - 1);
+				for (uint32 X = 0; X < BlockWidth; ++X)
+				{
+					const uint32 SourceX = std::min(BlockX * BlockWidth + X, Source.Width - 1);
+					const size_t SourceOffset = static_cast<size_t>(SourceY) * Source.RowPitch + SourceX * ChannelCount;
+					const size_t DestOffset = (Y * BlockWidth + X) * ChannelCount;
+					std::memcpy(OutPixels.data() + DestOffset, Source.Pixels.data() + SourceOffset, ChannelCount);
+				}
+			}
+		}
+
+		auto CompressTextureMip(const FTexture2DMipData& Source, EPixelFormat Format,
+			FTexture2DMipData& OutMip, std::string& OutError) -> bool
+		{
+			const FPixelFormatLayout Layout = GetPixelFormatLayout(Format, Source.Width, Source.Height);
+			if (Layout.DataSize == 0 || Layout.RowPitch > std::numeric_limits<uint32>::max()
+				|| Layout.DataSize > std::numeric_limits<size_t>::max())
+			{
+				OutError = "Compressed texture mip layout exceeds supported limits.";
+				return false;
+			}
+
+			static std::once_flag EncoderInitFlag;
+			std::call_once(EncoderInitFlag, [] {
+				rgbcx::init(rgbcx::bc1_approx_mode::cBC1Ideal);
+				bc7enc_compress_block_init();
+			});
+
+			OutMip.Width = Source.Width;
+			OutMip.Height = Source.Height;
+			OutMip.RowPitch = static_cast<uint32>(Layout.RowPitch);
+			OutMip.Pixels.resize(static_cast<size_t>(Layout.DataSize));
+
+			bc7enc_compress_block_params BC7Params;
+			bc7enc_compress_block_params_init(&BC7Params);
+			if (!GetPixelFormatInfo(Format).bIsSRGB)
+				bc7enc_compress_block_params_init_linear_weights(&BC7Params);
+
+			std::array<uint8, BlockWidth * BlockWidth * ChannelCount> BlockPixels{};
+			for (uint32 BlockY = 0; BlockY < Layout.BlocksHigh; ++BlockY)
+			{
+				for (uint32 BlockX = 0; BlockX < Layout.BlocksWide; ++BlockX)
+				{
+					GatherTextureBlock(Source, BlockX, BlockY, BlockPixels);
+					uint8* DestBlock = OutMip.Pixels.data()
+						+ static_cast<size_t>(BlockY) * OutMip.RowPitch
+						+ static_cast<size_t>(BlockX) * GetPixelFormatInfo(Format).BytesPerBlock;
+					switch (Format)
+					{
+					case EPixelFormat::BC1_UNORM:
+					case EPixelFormat::BC1_UNORM_SRGB:
+						// Four-color mode keeps opaque textures opaque when sampled.
+						rgbcx::encode_bc1(CompressionLevel, DestBlock, BlockPixels.data(), false, false);
+						break;
+					case EPixelFormat::BC3_UNORM:
+					case EPixelFormat::BC3_UNORM_SRGB:
+						rgbcx::encode_bc3_hq(CompressionLevel, DestBlock, BlockPixels.data());
+						break;
+					case EPixelFormat::BC5_UNORM:
+						rgbcx::encode_bc5_hq(DestBlock, BlockPixels.data());
+						break;
+					case EPixelFormat::BC7_UNORM:
+					case EPixelFormat::BC7_UNORM_SRGB:
+						bc7enc_compress_block(DestBlock, BlockPixels.data(), &BC7Params);
+						break;
+					default:
+						OutError = std::format("Texture compression is unavailable for pixel format {}.",
+							GetPixelFormatInfo(Format).Name);
+						return false;
+					}
+				}
+			}
+			return true;
+		}
+
 		auto DecodeSRGB(uint8 Value) -> double
 		{
 			const double Encoded = static_cast<double>(Value) / 255.0;
@@ -107,9 +193,18 @@ namespace Durin::TextureBuild
 
 	auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat
 	{
-		(void)Usage;
-		(void)bHasTransparency;
-		return bSRGB ? EPixelFormat::SRGBA8_UNORM : EPixelFormat::RGBA8_UNORM;
+		switch (Usage)
+		{
+		case ETextureUsage::Color:
+			if (bHasTransparency) return bSRGB ? EPixelFormat::BC3_UNORM_SRGB : EPixelFormat::BC3_UNORM;
+			return bSRGB ? EPixelFormat::BC1_UNORM_SRGB : EPixelFormat::BC1_UNORM;
+		case ETextureUsage::Normal:
+			return EPixelFormat::BC5_UNORM;
+		case ETextureUsage::DataMask:
+			return bSRGB ? EPixelFormat::BC7_UNORM_SRGB : EPixelFormat::BC7_UNORM;
+		default:
+			return EPixelFormat::Unknown;
+		}
 	}
 
 	auto DecodeRGBA8(std::string_view PhysicalFilePath, FTextureSourceData& OutSourceData, std::string& OutError) -> bool
@@ -155,14 +250,25 @@ namespace Durin::TextureBuild
 			OutError = "Selected pixel format is not supported by the current RHI backend.";
 			return false;
 		}
-		FTexture2DMipData& BaseMip = OutPlatformData.Mips.emplace_back();
+		std::vector<FTexture2DMipData> UncompressedMips;
+		FTexture2DMipData& BaseMip = UncompressedMips.emplace_back();
 		BaseMip.Pixels = SourceData.Pixels;
 		BaseMip.Width = SourceData.Width;
 		BaseMip.Height = SourceData.Height;
 		BaseMip.RowPitch = SourceData.Width * ChannelCount;
-		while (OutPlatformData.Mips.back().Width > 1 || OutPlatformData.Mips.back().Height > 1)
+		while (UncompressedMips.back().Width > 1 || UncompressedMips.back().Height > 1)
 		{
-			OutPlatformData.Mips.push_back(BuildNextMip(OutPlatformData.Mips.back(), Usage, bSRGB));
+			UncompressedMips.push_back(BuildNextMip(UncompressedMips.back(), Usage, bSRGB));
+		}
+		OutPlatformData.Mips.reserve(UncompressedMips.size());
+		for (const FTexture2DMipData& UncompressedMip : UncompressedMips)
+		{
+			FTexture2DMipData& CompressedMip = OutPlatformData.Mips.emplace_back();
+			if (!CompressTextureMip(UncompressedMip, OutPlatformData.PixelFormat, CompressedMip, OutError))
+			{
+				OutPlatformData = {};
+				return false;
+			}
 		}
 		if (OutPlatformData.IsValid()) return true;
 		OutPlatformData = {};

@@ -9,7 +9,9 @@
 #include "Misc/Paths.h"
 #include "Texture/Texture2D.h"
 
+#include <bc7decomp.h>
 #include <gtest/gtest.h>
+#include <rgbcx.h>
 
 namespace
 {
@@ -46,6 +48,42 @@ namespace
 			}
 		}
 	}
+
+	auto DecodeFirstCompressedPixel(Durin::EPixelFormat Format, const std::vector<Durin::uint8>& Block)
+		-> std::array<Durin::uint8, 4>
+	{
+		std::array<Durin::uint8, 64> Pixels{};
+		switch (Format)
+		{
+		case Durin::EPixelFormat::BC1_UNORM:
+		case Durin::EPixelFormat::BC1_UNORM_SRGB:
+			EXPECT_FALSE(rgbcx::unpack_bc1(Block.data(), Pixels.data()));
+			break;
+		case Durin::EPixelFormat::BC3_UNORM:
+		case Durin::EPixelFormat::BC3_UNORM_SRGB:
+			EXPECT_TRUE(rgbcx::unpack_bc3(Block.data(), Pixels.data()));
+			break;
+		case Durin::EPixelFormat::BC5_UNORM:
+			rgbcx::unpack_bc5(Block.data(), Pixels.data());
+			break;
+		case Durin::EPixelFormat::BC7_UNORM:
+		case Durin::EPixelFormat::BC7_UNORM_SRGB:
+			static_assert(sizeof(bc7decomp::color_rgba) == 4);
+			EXPECT_TRUE(bc7decomp::unpack_bc7(Block.data(), reinterpret_cast<bc7decomp::color_rgba*>(Pixels.data())));
+			break;
+		default:
+			ADD_FAILURE() << "Unsupported compressed test format";
+			break;
+		}
+		return {Pixels[0], Pixels[1], Pixels[2], Pixels[3]};
+	}
+
+	auto ExpectPixelNear(const std::array<Durin::uint8, 4>& Actual,
+		const std::array<Durin::uint8, 4>& Expected, int Tolerance = 24) -> void
+	{
+		for (size_t Channel = 0; Channel < Expected.size(); ++Channel)
+			EXPECT_NEAR(Actual[Channel], Expected[Channel], Tolerance) << "channel " << Channel;
+	}
 }
 
 TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
@@ -77,14 +115,16 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(PlatformData->IsValid());
 	EXPECT_TRUE(Result.Asset->IsSRGB());
 	EXPECT_EQ(Result.Asset->GetUsage(), Durin::ETextureUsage::Color);
-	EXPECT_EQ(PlatformData->PixelFormat, Durin::EPixelFormat::SRGBA8_UNORM);
+	EXPECT_EQ(PlatformData->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
 	ASSERT_EQ(PlatformData->Mips.size(), 2u);
-	EXPECT_EQ(PlatformData->Mips[0].Pixels, SourceData->Pixels);
-	EXPECT_NE(PlatformData->Mips[0].Pixels.data(), SourceData->Pixels.data());
+	EXPECT_EQ(PlatformData->Mips[0].RowPitch, 16u);
+	EXPECT_EQ(PlatformData->Mips[0].Pixels.size(), 16u);
 	EXPECT_EQ(PlatformData->Mips[1].Width, 1u);
 	EXPECT_EQ(PlatformData->Mips[1].Height, 1u);
-	EXPECT_EQ(PlatformData->Mips[1].RowPitch, 4u);
-	EXPECT_EQ(PlatformData->Mips[1].Pixels, (std::vector<Durin::uint8>{188, 0, 0, 128}));
+	EXPECT_EQ(PlatformData->Mips[1].RowPitch, 16u);
+	EXPECT_EQ(PlatformData->Mips[1].Pixels.size(), 16u);
+	ExpectPixelNear(DecodeFirstCompressedPixel(PlatformData->PixelFormat, PlatformData->Mips[1].Pixels),
+		{188, 0, 0, 128});
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Transparent", AssetPath));
@@ -100,7 +140,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_EQ(Loaded->GetSourceFile(), "Transparent.png");
 	EXPECT_TRUE(Loaded->IsSRGB());
 	EXPECT_EQ(Loaded->GetUsage(), Durin::ETextureUsage::Color);
-	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::SRGBA8_UNORM);
+	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
 	Durin::FAssetPath RenamedPath;
@@ -128,12 +168,12 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		Durin::ETextureUsage Usage;
 		std::string_view AssetName;
 		Durin::EPixelFormat PixelFormat;
-		std::array<Durin::uint8, 4> LastMip;
+		std::array<Durin::uint8, 4> ExpectedPixel;
 	};
 	const std::array Presets = {
-		FExpectedPreset{Durin::ETextureUsage::Color, "PresetColor", Durin::EPixelFormat::SRGBA8_UNORM, {188, 0, 0, 128}},
-		FExpectedPreset{Durin::ETextureUsage::Normal, "PresetNormal", Durin::EPixelFormat::RGBA8_UNORM, {128, 37, 37, 128}},
-		FExpectedPreset{Durin::ETextureUsage::DataMask, "PresetDataMask", Durin::EPixelFormat::RGBA8_UNORM, {128, 0, 0, 128}}
+		FExpectedPreset{Durin::ETextureUsage::Color, "PresetColor", Durin::EPixelFormat::BC3_UNORM_SRGB, {188, 0, 0, 128}},
+		FExpectedPreset{Durin::ETextureUsage::Normal, "PresetNormal", Durin::EPixelFormat::BC5_UNORM, {128, 37, 0, 0}},
+		FExpectedPreset{Durin::ETextureUsage::DataMask, "PresetDataMask", Durin::EPixelFormat::BC7_UNORM, {128, 0, 0, 128}}
 	};
 
 	for (const FExpectedPreset& Preset : Presets)
@@ -149,8 +189,8 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		ASSERT_NE(Result.Asset->GetPlatformData(), nullptr);
 		EXPECT_EQ(Result.Asset->GetPlatformData()->PixelFormat, Preset.PixelFormat);
 		ASSERT_EQ(Result.Asset->GetPlatformData()->Mips.size(), 2u);
-		EXPECT_EQ(Result.Asset->GetPlatformData()->Mips.back().Pixels,
-			(std::vector<Durin::uint8>(Preset.LastMip.begin(), Preset.LastMip.end())));
+		ExpectPixelNear(DecodeFirstCompressedPixel(Preset.PixelFormat,
+			Result.Asset->GetPlatformData()->Mips.back().Pixels), Preset.ExpectedPixel);
 
 		Durin::FAssetPath AssetPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(AssetPathString, AssetPath));
@@ -159,8 +199,9 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
 		ASSERT_NE(Loaded, nullptr);
 		EXPECT_EQ(Loaded->GetUsage(), Preset.Usage);
-		EXPECT_EQ(Loaded->GetPlatformData()->Mips.back().Pixels,
-			(std::vector<Durin::uint8>(Preset.LastMip.begin(), Preset.LastMip.end())));
+		EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Preset.PixelFormat);
+		ExpectPixelNear(DecodeFirstCompressedPixel(Preset.PixelFormat,
+			Loaded->GetPlatformData()->Mips.back().Pixels), Preset.ExpectedPixel);
 		ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 		ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 	}
@@ -178,16 +219,30 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	ASSERT_NE(Result.Asset, nullptr);
 	const Durin::FTexturePlatformData* PlatformData = Result.Asset->GetPlatformData();
 	ASSERT_NE(PlatformData, nullptr);
+	EXPECT_EQ(PlatformData->PixelFormat, Durin::EPixelFormat::BC7_UNORM);
 	ASSERT_EQ(PlatformData->Mips.size(), 3u);
 	EXPECT_EQ(std::pair(PlatformData->Mips[0].Width, PlatformData->Mips[0].Height), std::pair(5u, 3u));
 	EXPECT_EQ(std::pair(PlatformData->Mips[1].Width, PlatformData->Mips[1].Height), std::pair(2u, 1u));
 	EXPECT_EQ(std::pair(PlatformData->Mips[2].Width, PlatformData->Mips[2].Height), std::pair(1u, 1u));
-	EXPECT_EQ(PlatformData->Mips[2].Pixels, (std::vector<Durin::uint8>{43, 43, 43, 255}));
+	ExpectPixelNear(DecodeFirstCompressedPixel(PlatformData->PixelFormat, PlatformData->Mips[2].Pixels),
+		{43, 43, 43, 255});
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Npot", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+
+	Durin::FTexture2DImportResult ColorResult = Durin::DTexture2D::ImportAsset(
+		Source.generic_string(), "/TextureImportTests/NpotColor");
+	ASSERT_TRUE(ColorResult) << ColorResult.Message;
+	ASSERT_NE(ColorResult.Asset, nullptr);
+	ASSERT_NE(ColorResult.Asset->GetPlatformData(), nullptr);
+	EXPECT_EQ(ColorResult.Asset->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC1_UNORM_SRGB);
+	EXPECT_TRUE(ColorResult.Asset->GetPlatformData()->IsValid());
+	Durin::FAssetPath ColorAssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/NpotColor", ColorAssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(ColorAssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(ColorAssetPath));
 }
 
 TEST(FTexture2DTests, CompressedLayoutsCoverNpotAndTailMips)
@@ -233,7 +288,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	EXPECT_FALSE(Result.Asset->IsSRGB());
 	EXPECT_EQ(Result.Asset->GetUsage(), Durin::ETextureUsage::Color);
 	ASSERT_NE(Result.Asset->GetPlatformData(), nullptr);
-	EXPECT_EQ(Result.Asset->GetPlatformData()->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
+	EXPECT_EQ(Result.Asset->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM);
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Linear", AssetPath));
@@ -242,20 +297,24 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_FALSE(Loaded->IsSRGB());
-	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
-	EXPECT_EQ(Loaded->GetPlatformData()->Mips.back().Pixels, (std::vector<Durin::uint8>{128, 0, 0, 128}));
+	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM);
+	ExpectPixelNear(DecodeFirstCompressedPixel(Loaded->GetPlatformData()->PixelFormat,
+		Loaded->GetPlatformData()->Mips.back().Pixels), {128, 0, 0, 128});
 
-	const std::vector<Durin::uint8> SourcePixels = Loaded->GetSourceData()->Pixels;
+	const std::vector<Durin::uint8> LinearTail = Loaded->GetPlatformData()->Mips.back().Pixels;
 	std::string Error;
 	ASSERT_TRUE(Loaded->SetSRGB(true, Error)) << Error;
 	EXPECT_TRUE(Loaded->IsSRGB());
-	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::SRGBA8_UNORM);
-	EXPECT_EQ(Loaded->GetPlatformData()->Mips[0].Pixels, SourcePixels);
-	EXPECT_EQ(Loaded->GetPlatformData()->Mips.back().Pixels, (std::vector<Durin::uint8>{188, 0, 0, 128}));
+	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
+	EXPECT_NE(Loaded->GetPlatformData()->Mips.back().Pixels, LinearTail);
+	ExpectPixelNear(DecodeFirstCompressedPixel(Loaded->GetPlatformData()->PixelFormat,
+		Loaded->GetPlatformData()->Mips.back().Pixels), {188, 0, 0, 128});
 	ASSERT_TRUE(Loaded->SetUsage(Durin::ETextureUsage::Normal, Error)) << Error;
 	EXPECT_EQ(Loaded->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Loaded->IsSRGB());
-	EXPECT_EQ(Loaded->GetPlatformData()->Mips.back().Pixels, (std::vector<Durin::uint8>{128, 37, 37, 128}));
+	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
+	ExpectPixelNear(DecodeFirstCompressedPixel(Loaded->GetPlatformData()->PixelFormat,
+		Loaded->GetPlatformData()->Mips.back().Pixels), {128, 37, 0, 0});
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }
@@ -306,32 +365,31 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Texture->IsSRGB());
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
-	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
-	EXPECT_EQ(Texture->GetPlatformData()->Mips.back().Pixels, (std::vector<Durin::uint8>{128, 37, 37, 128}));
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
 	EXPECT_GT(Texture->GetBuildRevision(), InitialRevision);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_TRUE(Texture->IsSRGB());
-	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::SRGBA8_UNORM);
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
 	ASSERT_TRUE(Transactions.Redo());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Texture->IsSRGB());
 
 	ASSERT_TRUE(SubmitSRGB(true)) << Error;
 	EXPECT_TRUE(Texture->IsSRGB());
-	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::SRGBA8_UNORM);
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_FALSE(Texture->IsSRGB());
-	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
 
 	Error.clear();
 	EXPECT_FALSE(SubmitUsage(static_cast<Durin::ETextureUsage>(255)));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Texture->IsSRGB());
-	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::RGBA8_UNORM);
+	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Transactional", AssetPath));
