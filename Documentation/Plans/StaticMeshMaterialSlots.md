@@ -4,14 +4,19 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stage 0 is complete. The source-slot and compatibility contracts are frozen,
+Stages 0 and 1 are complete. The source-slot and compatibility contracts are frozen,
 generated importer fixtures cover reorder, rename, duplicate names, addition,
 removal, filtering, and exact-name behavior, and characterization tests capture
 the version-zero component representation, load ordering, section mapping,
-fallback, and live material dependency binding. Static-mesh import
-already produces a compact ordered material-slot list, sections reference that
-list by runtime index, and `DStaticMeshComponent::GetNumMaterials()` reports the
-mesh-derived slot count. The component nevertheless serializes an ordinary
+fallback, and live material dependency binding. Static meshes now serialize
+ordered material-slot definitions with stable GUID identity, exact source-name
+metadata, source indices, and optional default materials. Import and source
+rebuild reconcile unambiguous names and conservative index-only renames, while
+duplicate-name ambiguity receives new identities and diagnostics. Render data
+copies the reconciled order and keeps compact section indices. Version-zero
+meshes deterministically derive identities and remain dirty for resave.
+`DStaticMeshComponent::GetNumMaterials()` reports the mesh-derived slot count,
+but the component nevertheless serializes an ordinary
 editable material array, permits growth beyond the mesh slot count, and binds
 overrides by array index. Details therefore exposes Add/Remove/Resize controls,
 and a source reimport that changes slot ordering can silently assign an
@@ -298,25 +303,25 @@ The reconciliation fixtures establish these expected identity results:
 
 ### Stage 1: Add Persistent Mesh-Owned Slot Definitions
 
-- [ ] Introduce the reflected static-mesh slot-definition structure and a
+- [x] Introduce the reflected static-mesh slot-definition structure and a
   serialized ordered collection on `DStaticMesh`.
-- [ ] Add read-only lookup APIs by slot index, GUID, and name without exposing
+- [x] Add read-only lookup APIs by slot index, GUID, and name without exposing
   mutable collection storage to components or renderer code.
-- [ ] Extend `AssetCore` source metadata only as far as required by the Stage 0
+- [x] Extend `AssetCore` source metadata only as far as required by the Stage 0
   matching contract.
-- [ ] Reconcile imported slots against previous definitions before building
+- [x] Reconcile imported slots against previous definitions before building
   render data, preserving GUIDs and default-material references for
   unambiguous matches.
-- [ ] Generate deterministic initial identities for version-zero assets and
+- [x] Generate deterministic initial identities for version-zero assets and
   ordinary persistent identities for genuinely new unmatched slots.
-- [ ] Copy the reconciled order/name/source-index data into
+- [x] Copy the reconciled order/name/source-index data into
   `FStaticMeshRenderData`; keep section mapping compact and validate every
   section index.
-- [ ] Define how transient/debug meshes create valid slot definitions without
+- [x] Define how transient/debug meshes create valid slot definitions without
   requiring package serialization.
-- [ ] Mark changed persistent slot metadata dirty only during import/reimport
+- [x] Mark changed persistent slot metadata dirty only during import/reimport
   or migration, not on every normal `PostLoad()` rebuild.
-- [ ] Add tests for GUID validity/uniqueness, save/load stability, default
+- [x] Add tests for GUID validity/uniqueness, save/load stability, default
   material reference reachability, reorder preservation, conservative
   rename/order handling, additions, removals, duplicate names, and
   deterministic legacy conversion.

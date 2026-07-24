@@ -1391,6 +1391,9 @@ namespace Durin::Asset
 			}
 		}
 
+		// Deserialization itself is clean, while PostLoad migrations may deliberately
+		// dirty the package so the upgraded representation is offered for resave.
+		Package->ClearDirty();
 		for (auto It = Objects.rbegin(); It != Objects.rend(); ++It)
 		{
 			std::string PostLoadError;
@@ -1401,7 +1404,6 @@ namespace Durin::Asset
 			}
 		}
 
-		Package->ClearDirty();
 		LoadingPackages.erase(Path);
 		OutPackage = Package;
 		const auto LastWriteTime = std::filesystem::last_write_time(PhysicalPath);

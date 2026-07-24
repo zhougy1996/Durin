@@ -263,6 +263,7 @@ namespace Durin::Asset
 			{
 				EXPECT_EQ(Scene.MaterialSlots[Index].Name, Case.ExpectedSlots[Index].Name);
 				EXPECT_EQ(Scene.MaterialSlots[Index].SourceMaterialIndex, Case.ExpectedSlots[Index].SourceMaterialIndex);
+				EXPECT_EQ(Scene.MaterialSlots[Index].SourceName, Case.MaterialNames[Case.PrimitiveMaterialIndices[Index]]);
 			}
 		}
 	}

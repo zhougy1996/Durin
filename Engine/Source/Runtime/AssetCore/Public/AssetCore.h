@@ -23,6 +23,7 @@ namespace Durin
 		{
 			std::string Name;
 			uint32 SourceMaterialIndex = 0;
+			std::string SourceName;
 		};
 
 		struct FImportedMeshData

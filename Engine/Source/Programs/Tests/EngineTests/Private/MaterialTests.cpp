@@ -100,6 +100,67 @@ namespace
 		return false;
 	}
 
+	auto ReplaceAll(std::string& Text, std::string_view From, std::string_view To) -> void
+	{
+		size_t Offset = 0;
+		while ((Offset = Text.find(From, Offset)) != std::string::npos)
+		{
+			Text.replace(Offset, From.size(), To);
+			Offset += To.size();
+		}
+	}
+
+	auto WriteStaticMeshSlotVariant(
+		const std::filesystem::path& Path,
+		std::string_view MaterialDeclarations,
+		std::optional<std::pair<std::string_view, std::string_view>> PrimitiveReplacement = std::nullopt,
+		bool bReplaceLastOnly = false,
+		std::optional<Durin::uint32> AppendedMaterialIndex = std::nullopt) -> void
+	{
+		std::ifstream Input(std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf");
+		ASSERT_TRUE(Input.is_open());
+		std::string Text((std::istreambuf_iterator<char>(Input)), std::istreambuf_iterator<char>());
+		const size_t MaterialsBegin = Text.find("\"materials\": [");
+		const size_t MaterialsEnd = Text.find("],", MaterialsBegin);
+		ASSERT_NE(MaterialsBegin, std::string::npos);
+		ASSERT_NE(MaterialsEnd, std::string::npos);
+		const size_t ContentBegin = Text.find('[', MaterialsBegin) + 1;
+		Text.replace(ContentBegin, MaterialsEnd - ContentBegin, MaterialDeclarations);
+		if (PrimitiveReplacement)
+		{
+			if (bReplaceLastOnly)
+			{
+				const size_t Offset = Text.rfind(PrimitiveReplacement->first);
+				ASSERT_NE(Offset, std::string::npos);
+				Text.replace(Offset, PrimitiveReplacement->first.size(), PrimitiveReplacement->second);
+			}
+			else
+			{
+				ReplaceAll(Text, PrimitiveReplacement->first, PrimitiveReplacement->second);
+			}
+		}
+		if (AppendedMaterialIndex)
+		{
+			const size_t PrimitiveBegin = Text.find("{ \"attributes\"");
+			const size_t PrimitiveEnd = Text.find('\n', PrimitiveBegin);
+			ASSERT_NE(PrimitiveBegin, std::string::npos);
+			ASSERT_NE(PrimitiveEnd, std::string::npos);
+			std::string Primitive = Text.substr(PrimitiveBegin, PrimitiveEnd - PrimitiveBegin);
+			if (!Primitive.empty() && Primitive.back() == ',') Primitive.pop_back();
+			const size_t MaterialOffset = Primitive.rfind("\"material\": ");
+			ASSERT_NE(MaterialOffset, std::string::npos);
+			const size_t ValueOffset = MaterialOffset + std::string_view("\"material\": ").size();
+			Primitive.replace(ValueOffset, 1, std::to_string(*AppendedMaterialIndex));
+			const size_t PrimitivesEnd = Text.find("\n      ]", PrimitiveEnd);
+			ASSERT_NE(PrimitivesEnd, std::string::npos);
+			Text.insert(PrimitivesEnd, ",\n        " + Primitive);
+		}
+		std::ofstream Output(Path, std::ios::trunc);
+		ASSERT_TRUE(Output.is_open());
+		Output << Text;
+		ASSERT_TRUE(Output.good());
+	}
+
 	class FMaterialTestEngine final : public Durin::DEngine
 	{
 	public:
@@ -1222,6 +1283,8 @@ TEST(FMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlots)
 	ASSERT_EQ(RenderData->MaterialSlots.size(), 2u);
 	EXPECT_EQ(RenderData->MaterialSlots[0].Name, "Red");
 	EXPECT_EQ(RenderData->MaterialSlots[1].Name, "Blue");
+	EXPECT_EQ(RenderData->MaterialSlots[0].SlotId, ImportResult.Asset->GetMaterialSlot(0)->SlotId);
+	EXPECT_EQ(RenderData->MaterialSlots[1].SlotId, ImportResult.Asset->GetMaterialSlot(1)->SlotId);
 	ASSERT_EQ(RenderData->LODResources.size(), 1u);
 	const Durin::FStaticMeshLODResources& LOD = RenderData->LODResources[0];
 	EXPECT_EQ(LOD.NumTexCoords, 2u);
@@ -1246,6 +1309,182 @@ TEST(FMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlots)
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MeshImportTests/MultiSection", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+}
+
+TEST(FMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDefaults)
+{
+	InitializeDObjectSystem();
+	static const bool bMountInitialized = [] {
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshSlotRoundTrip";
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotRoundTrip/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+
+	Durin::FAssetPath MeshPath;
+	Durin::FAssetPath MaterialPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotRoundTrip/Mesh", MeshPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotRoundTrip/Default", MaterialPath));
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
+	Durin::FStaticMeshImportResult Import = Durin::DStaticMesh::ImportAsset(Source.generic_string(), MeshPath.ToString());
+	ASSERT_TRUE(Import) << Import.Message;
+	ASSERT_EQ(Import.Asset->GetNumMaterialSlots(), 2u);
+	const std::vector<Durin::FGuid> OriginalIds{
+		Import.Asset->GetMaterialSlot(0)->SlotId,
+		Import.Asset->GetMaterialSlot(1)->SlotId};
+	EXPECT_TRUE(OriginalIds[0].IsValid());
+	EXPECT_TRUE(OriginalIds[1].IsValid());
+	EXPECT_NE(OriginalIds[0], OriginalIds[1]);
+	EXPECT_EQ(Import.Asset->FindMaterialSlot(OriginalIds[1]), Import.Asset->GetMaterialSlot(1));
+	EXPECT_EQ(Import.Asset->FindMaterialSlot(Durin::FName("Blue")), Import.Asset->GetMaterialSlot(1));
+	EXPECT_EQ(Import.Asset->GetMaterialSlot(2), nullptr);
+
+	Durin::DMaterial* DefaultMaterial = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(MaterialPath, DefaultMaterial));
+	ASSERT_TRUE(Durin::Asset::SavePackage(DefaultMaterial->GetPackage()));
+	auto* SlotsProperty = static_cast<Durin::FArrayProperty*>(Import.Asset->GetClass()->FindPropertyByName("MaterialSlots"));
+	ASSERT_NE(SlotsProperty, nullptr);
+	auto* FirstSlot = static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(SlotsProperty->GetMutableElementPtr(Import.Asset, 0));
+	ASSERT_NE(FirstSlot, nullptr);
+	FirstSlot->DefaultMaterial = DefaultMaterial;
+	Import.Asset->MarkPackageDirty();
+	ASSERT_TRUE(Durin::Asset::SavePackage(Import.Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
+
+	Durin::DStaticMesh* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	ASSERT_EQ(Loaded->GetNumMaterialSlots(), 2u);
+	EXPECT_EQ(Loaded->GetMaterialSlot(0)->SlotId, OriginalIds[0]);
+	EXPECT_EQ(Loaded->GetMaterialSlot(1)->SlotId, OriginalIds[1]);
+	ASSERT_NE(Loaded->GetMaterialSlot(0)->DefaultMaterial.Get(), nullptr);
+	EXPECT_EQ(Loaded->GetMaterialSlot(0)->DefaultMaterial->GetPackage()->GetPackagePath(), MaterialPath.ToString());
+	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
+}
+
+TEST(FMaterialTests, StaticMeshMaterialSlotReconciliationPreservesOnlyUnambiguousIdentity)
+{
+	InitializeDObjectSystem();
+	static const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshSlotReimport";
+	static const bool bMountInitialized = [] {
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotReimport/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+	const std::filesystem::path BaseSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
+
+	auto ImportBase = [&](std::string_view Name) -> Durin::DStaticMesh* {
+		const std::string AssetPath = std::format("/StaticMeshSlotReimport/{}", Name);
+		Durin::FStaticMeshImportResult Import = Durin::DStaticMesh::ImportAsset(BaseSource.generic_string(), AssetPath);
+		EXPECT_TRUE(Import) << Import.Message;
+		return Import.Asset;
+	};
+	auto Rebuild = [&](Durin::DStaticMesh* Mesh, std::string_view Name, std::string_view Materials,
+		std::optional<std::pair<std::string_view, std::string_view>> Replacement = std::nullopt, bool LastOnly = false,
+		std::optional<Durin::uint32> AppendedMaterialIndex = std::nullopt) {
+		const std::filesystem::path SourcePath = Root / (std::string(Name) + ".gltf");
+		WriteStaticMeshSlotVariant(SourcePath, Materials, Replacement, LastOnly, AppendedMaterialIndex);
+		std::string Error;
+		ASSERT_TRUE(Mesh->PostLoad(Error)) << Error;
+	};
+
+	Durin::DStaticMesh* Reordered = ImportBase("Reordered");
+	ASSERT_NE(Reordered, nullptr);
+	const Durin::FGuid RedId = Reordered->FindMaterialSlot(Durin::FName("Red"))->SlotId;
+	const Durin::FGuid BlueId = Reordered->FindMaterialSlot(Durin::FName("Blue"))->SlotId;
+	Rebuild(Reordered, "Reordered", R"({ "name": "Blue" }, { "name": "Red" })");
+	ASSERT_EQ(Reordered->GetNumMaterialSlots(), 2u);
+	EXPECT_EQ(Reordered->GetMaterialSlot(0)->SlotId, BlueId);
+	EXPECT_EQ(Reordered->GetMaterialSlot(1)->SlotId, RedId);
+
+	Durin::DStaticMesh* RenameAndReorder = ImportBase("RenameAndReorder");
+	ASSERT_NE(RenameAndReorder, nullptr);
+	const Durin::FGuid OldRedId = RenameAndReorder->FindMaterialSlot(Durin::FName("Red"))->SlotId;
+	const Durin::FGuid OldBlueId = RenameAndReorder->FindMaterialSlot(Durin::FName("Blue"))->SlotId;
+	Rebuild(RenameAndReorder, "RenameAndReorder", R"({ "name": "Blue" }, { "name": "Crimson" })");
+	EXPECT_EQ(RenameAndReorder->GetMaterialSlot(0)->SlotId, OldBlueId);
+	EXPECT_NE(RenameAndReorder->GetMaterialSlot(1)->SlotId, OldRedId);
+	EXPECT_NE(RenameAndReorder->GetMaterialSlot(1)->SlotId, OldBlueId);
+
+	Durin::DStaticMesh* Added = ImportBase("Added");
+	ASSERT_NE(Added, nullptr);
+	const Durin::FGuid AddedRedId = Added->FindMaterialSlot(Durin::FName("Red"))->SlotId;
+	const Durin::FGuid AddedBlueId = Added->FindMaterialSlot(Durin::FName("Blue"))->SlotId;
+	Rebuild(Added, "Added", R"({ "name": "Red" }, { "name": "Blue" }, { "name": "Green" })",
+		std::nullopt, false, 2);
+	ASSERT_EQ(Added->GetNumMaterialSlots(), 3u);
+	EXPECT_EQ(Added->FindMaterialSlot(Durin::FName("Red"))->SlotId, AddedRedId);
+	EXPECT_EQ(Added->FindMaterialSlot(Durin::FName("Blue"))->SlotId, AddedBlueId);
+	EXPECT_TRUE(Added->FindMaterialSlot(Durin::FName("Green"))->SlotId.IsValid());
+
+	Durin::DStaticMesh* Removed = ImportBase("Removed");
+	ASSERT_NE(Removed, nullptr);
+	const Durin::FGuid RemovedBlueId = Removed->FindMaterialSlot(Durin::FName("Blue"))->SlotId;
+	Rebuild(Removed, "Removed", R"({ "name": "Red" }, { "name": "Blue" })",
+		std::pair<std::string_view, std::string_view>{R"("material": 0)", R"("material": 1)"});
+	ASSERT_EQ(Removed->GetNumMaterialSlots(), 1u);
+	EXPECT_EQ(Removed->GetMaterialSlot(0)->SlotId, RemovedBlueId);
+
+	Durin::DStaticMesh* Duplicate = ImportBase("Duplicate");
+	ASSERT_NE(Duplicate, nullptr);
+	const Durin::FGuid DuplicateRedId = Duplicate->FindMaterialSlot(Durin::FName("Red"))->SlotId;
+	const Durin::FGuid DuplicateBlueId = Duplicate->FindMaterialSlot(Durin::FName("Blue"))->SlotId;
+	Rebuild(Duplicate, "Duplicate", R"({ "name": "Shared" }, { "name": "Shared" })");
+	ASSERT_EQ(Duplicate->GetNumMaterialSlots(), 2u);
+	EXPECT_NE(Duplicate->GetMaterialSlot(0)->SlotId, DuplicateRedId);
+	EXPECT_NE(Duplicate->GetMaterialSlot(0)->SlotId, DuplicateBlueId);
+	EXPECT_NE(Duplicate->GetMaterialSlot(1)->SlotId, DuplicateRedId);
+	EXPECT_NE(Duplicate->GetMaterialSlot(1)->SlotId, DuplicateBlueId);
+	EXPECT_NE(Duplicate->GetMaterialSlot(0)->SlotId, Duplicate->GetMaterialSlot(1)->SlotId);
+}
+
+TEST(FMaterialTests, VersionZeroStaticMeshMaterialSlotsMigrateDeterministically)
+{
+	InitializeDObjectSystem();
+	static const bool bMountInitialized = [] {
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshSlotMigration";
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotMigration/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+
+	Durin::FAssetPath MeshPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotMigration/Mesh", MeshPath));
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
+	Durin::FStaticMeshImportResult Import = Durin::DStaticMesh::ImportAsset(Source.generic_string(), MeshPath.ToString());
+	ASSERT_TRUE(Import) << Import.Message;
+	auto* VersionProperty = Import.Asset->GetClass()->FindPropertyByName("MaterialSlotsVersion");
+	auto* SlotsProperty = static_cast<Durin::FArrayProperty*>(Import.Asset->GetClass()->FindPropertyByName("MaterialSlots"));
+	ASSERT_NE(VersionProperty, nullptr);
+	ASSERT_NE(SlotsProperty, nullptr);
+	*static_cast<Durin::uint32*>(VersionProperty->GetValuePtr(Import.Asset)) = 0;
+	SlotsProperty->Resize(Import.Asset, 0);
+	Import.Asset->MarkPackageDirty();
+	ASSERT_TRUE(Durin::Asset::SavePackage(Import.Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+
+	Durin::DStaticMesh* FirstLoad = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, FirstLoad));
+	ASSERT_EQ(FirstLoad->GetNumMaterialSlots(), 2u);
+	const std::array FirstIds{FirstLoad->GetMaterialSlot(0)->SlotId, FirstLoad->GetMaterialSlot(1)->SlotId};
+	EXPECT_TRUE(FirstIds[0].IsValid());
+	EXPECT_TRUE(FirstIds[1].IsValid());
+	EXPECT_NE(FirstIds[0], FirstIds[1]);
+	EXPECT_TRUE(FirstLoad->GetPackage()->IsDirty()) << "Version-zero slot migration must request an asset resave.";
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+
+	Durin::DStaticMesh* SecondLoad = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, SecondLoad));
+	ASSERT_EQ(SecondLoad->GetNumMaterialSlots(), 2u);
+	EXPECT_EQ(SecondLoad->GetMaterialSlot(0)->SlotId, FirstIds[0]);
+	EXPECT_EQ(SecondLoad->GetMaterialSlot(1)->SlotId, FirstIds[1]);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 }
 
 TEST(FMaterialTests, StaticMeshImportSettingsValidateDistinctAxes)

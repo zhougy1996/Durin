@@ -227,7 +227,8 @@ namespace Durin
 				{
 					aiString MaterialName;
 					if (Scene->mMaterials[MaterialIndex] != nullptr) Scene->mMaterials[MaterialIndex]->Get(AI_MATKEY_NAME, MaterialName);
-					Result.Scene.MaterialSlots.push_back({MakeUniqueName(MaterialName.C_Str(), MaterialIndex, MaterialNameCounts), MaterialIndex});
+					const std::string SourceName = MaterialName.C_Str();
+					Result.Scene.MaterialSlots.push_back({MakeUniqueName(SourceName, MaterialIndex, MaterialNameCounts), MaterialIndex, SourceName});
 				}
 				if (!ImportNodeMeshes(*Scene, *Scene->mRootNode, ToAssimpMatrix(Options.SourceToEngine), Result.Scene, Result.ErrorMessage))
 				{
@@ -239,7 +240,7 @@ namespace Durin
 						return Mesh.MaterialIndex == Slot.SourceMaterialIndex;
 					});
 				});
-				if (Result.Scene.MaterialSlots.empty()) Result.Scene.MaterialSlots.push_back({"Default", 0});
+				if (Result.Scene.MaterialSlots.empty()) Result.Scene.MaterialSlots.push_back({"Default", 0, {}});
 
 				Result.bSucceeded = true;
 				return Result;

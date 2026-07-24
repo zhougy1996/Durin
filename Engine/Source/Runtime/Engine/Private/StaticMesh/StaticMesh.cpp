@@ -4,6 +4,8 @@
 #include "AssetSystem.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
+#include "Hash/XxHash.h"
+#include "Logging/LogMacros.h"
 #include "Misc/Paths.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -13,7 +15,55 @@ namespace Durin
 {
 	namespace
 	{
+		inline constexpr uint32 StaticMeshMaterialSlotsVersion = 1;
+		inline constexpr std::string_view LegacySlotGuidDomain = "Durin.StaticMeshMaterialSlot.v1";
 		constexpr float VectorTolerance = 1.0e-10f;
+
+		auto MakeGuidFromHash(const FXxHash128& Hash) -> FGuid
+		{
+			FGuid Result(
+				static_cast<uint32>(Hash.HashLow),
+				static_cast<uint32>(Hash.HashLow >> 32),
+				static_cast<uint32>(Hash.HashHigh),
+				static_cast<uint32>(Hash.HashHigh >> 32));
+			// A valid identity is required even for the theoretical all-zero hash result.
+			if (!Result.IsValid()) Result = FGuid(0, 0, 0, 1);
+			return Result;
+		}
+
+		auto MakeLegacySlotGuid(
+			std::string_view PackagePath,
+			std::string_view SourceName,
+			uint32 SourceMaterialIndex) -> FGuid
+		{
+			FXxHash128Builder Builder;
+			Builder.Update(LegacySlotGuidDomain);
+			Builder.Update(PackagePath);
+			Builder.Update(SourceName);
+			const std::array<uint8, 4> LittleEndianIndex{
+				static_cast<uint8>(SourceMaterialIndex),
+				static_cast<uint8>(SourceMaterialIndex >> 8),
+				static_cast<uint8>(SourceMaterialIndex >> 16),
+				static_cast<uint8>(SourceMaterialIndex >> 24)};
+			Builder.Update(std::span<const uint8>(LittleEndianIndex));
+			return MakeGuidFromHash(Builder.Finalize());
+		}
+
+		auto SlotDefinitionsEqual(
+			std::span<const FStaticMeshMaterialSlotDefinition> A,
+			std::span<const FStaticMeshMaterialSlotDefinition> B) -> bool
+		{
+			if (A.size() != B.size()) return false;
+			for (size_t Index = 0; Index < A.size(); ++Index)
+			{
+				if (A[Index].SlotId != B[Index].SlotId
+					|| A[Index].Name != B[Index].Name
+					|| A[Index].SourceName != B[Index].SourceName
+					|| A[Index].SourceMaterialIndex != B[Index].SourceMaterialIndex
+					|| A[Index].DefaultMaterial != B[Index].DefaultMaterial) return false;
+			}
+			return true;
+		}
 
 		auto ImportAxisVector(EStaticMeshImportAxis Axis, FVector3f& OutVector, uint32& OutComponent) -> bool
 		{
@@ -187,10 +237,12 @@ namespace Durin
 			return true;
 		}
 
-		auto FindMaterialSlotIndex(const FStaticMeshRenderData& RenderData, uint32 SourceMaterialIndex) -> uint32
+		auto FindMaterialSlotIndex(const FStaticMeshRenderData& RenderData, uint32 SourceMaterialIndex, uint32& OutSlotIndex) -> bool
 		{
 			const auto It = std::ranges::find(RenderData.MaterialSlots, SourceMaterialIndex, &FStaticMeshMaterialSlot::SourceMaterialIndex);
-			return It != RenderData.MaterialSlots.end() ? static_cast<uint32>(std::distance(RenderData.MaterialSlots.begin(), It)) : 0;
+			if (It == RenderData.MaterialSlots.end()) return false;
+			OutSlotIndex = static_cast<uint32>(std::distance(RenderData.MaterialSlots.begin(), It));
+			return true;
 		}
 
 		auto MakeUniqueSectionName(std::string Name, uint32 Index, std::unordered_map<std::string, uint32>& NameCounts) -> std::string
@@ -312,6 +364,23 @@ namespace Durin
 		return RenderData.get();
 	}
 
+	auto DStaticMesh::GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*
+	{
+		return SlotIndex < MaterialSlots.size() ? &MaterialSlots[SlotIndex] : nullptr;
+	}
+
+	auto DStaticMesh::FindMaterialSlot(const FGuid& SlotId) const -> const FStaticMeshMaterialSlotDefinition*
+	{
+		const auto It = std::ranges::find(MaterialSlots, SlotId, &FStaticMeshMaterialSlotDefinition::SlotId);
+		return It == MaterialSlots.end() ? nullptr : &*It;
+	}
+
+	auto DStaticMesh::FindMaterialSlot(FName Name) const -> const FStaticMeshMaterialSlotDefinition*
+	{
+		const auto It = std::ranges::find(MaterialSlots, Name, &FStaticMeshMaterialSlotDefinition::Name);
+		return It == MaterialSlots.end() ? nullptr : &*It;
+	}
+
 	auto DStaticMesh::SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void
 	{
 		if (InRenderData != nullptr) InRenderData->RecalculateBounds();
@@ -321,8 +390,10 @@ namespace Durin
 	auto DStaticMesh::CreateDebugTriangle(DObject* Outer) -> DStaticMesh*
 	{
 		DStaticMesh* Mesh = NewObject<DStaticMesh>(Outer, "DebugStaticMesh");
+		Mesh->MaterialSlotsVersion = StaticMeshMaterialSlotsVersion;
+		Mesh->MaterialSlots.push_back({.SlotId = FGuid::NewGuid(), .Name = FName("Default"), .SourceMaterialIndex = 0});
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
-		RenderData->MaterialSlots.push_back({"Default", 0});
+		RenderData->MaterialSlots.push_back({"Default", 0, Mesh->MaterialSlots[0].SlotId});
 		FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
 		LOD.Positions = {
 			FVector3f(-0.65f, -0.45f, 0.0f),
@@ -380,13 +451,85 @@ namespace Durin
 			return false;
 		}
 
+		const bool bVersionZeroMigration = MaterialSlotsVersion == 0 && !SourceFile.empty();
+		const std::vector<FStaticMeshMaterialSlotDefinition> PreviousSlots = MaterialSlots;
+		std::vector<FStaticMeshMaterialSlotDefinition> ReconciledSlots(ImportedScene.MaterialSlots.size());
+		std::vector<bool> OldConsumed(PreviousSlots.size(), false);
+		std::vector<bool> NewMatched(ReconciledSlots.size(), false);
+		std::unordered_map<std::string, uint32> OldNameCounts;
+		std::unordered_map<std::string, uint32> NewNameCounts;
+		for (const FStaticMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldNameCounts[Slot.SourceName];
+		for (const Asset::FImportedMaterialSlot& Slot : ImportedScene.MaterialSlots) ++NewNameCounts[Slot.SourceName];
+
+		auto PreserveSlot = [&](size_t NewIndex, size_t OldIndex) {
+			const Asset::FImportedMaterialSlot& Imported = ImportedScene.MaterialSlots[NewIndex];
+			ReconciledSlots[NewIndex] = PreviousSlots[OldIndex];
+			ReconciledSlots[NewIndex].Name = FName(Imported.Name);
+			ReconciledSlots[NewIndex].SourceName = Imported.SourceName;
+			ReconciledSlots[NewIndex].SourceMaterialIndex = Imported.SourceMaterialIndex;
+			OldConsumed[OldIndex] = true;
+			NewMatched[NewIndex] = true;
+		};
+
+		for (size_t NewIndex = 0; NewIndex < ImportedScene.MaterialSlots.size(); ++NewIndex)
+		{
+			const std::string& SourceName = ImportedScene.MaterialSlots[NewIndex].SourceName;
+			if (OldNameCounts[SourceName] != 1 || NewNameCounts[SourceName] != 1) continue;
+			const auto It = std::ranges::find(PreviousSlots, SourceName, &FStaticMeshMaterialSlotDefinition::SourceName);
+			if (It != PreviousSlots.end()) PreserveSlot(NewIndex, static_cast<size_t>(It - PreviousSlots.begin()));
+		}
+
+		for (size_t NewIndex = 0; NewIndex < ImportedScene.MaterialSlots.size(); ++NewIndex)
+		{
+			if (NewMatched[NewIndex]) continue;
+			const Asset::FImportedMaterialSlot& Imported = ImportedScene.MaterialSlots[NewIndex];
+			if (NewNameCounts[Imported.SourceName] != 1) continue;
+			for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
+			{
+				const FStaticMeshMaterialSlotDefinition& Previous = PreviousSlots[OldIndex];
+				if (OldConsumed[OldIndex] || OldNameCounts[Previous.SourceName] != 1
+					|| Previous.SourceMaterialIndex != Imported.SourceMaterialIndex) continue;
+				PreserveSlot(NewIndex, OldIndex);
+				break;
+			}
+		}
+
+		const std::string PackagePath = GetPackage() ? GetPackage()->GetPackagePath() : std::string{};
+		for (size_t NewIndex = 0; NewIndex < ImportedScene.MaterialSlots.size(); ++NewIndex)
+		{
+			if (NewMatched[NewIndex]) continue;
+			const Asset::FImportedMaterialSlot& Imported = ImportedScene.MaterialSlots[NewIndex];
+			FStaticMeshMaterialSlotDefinition& Definition = ReconciledSlots[NewIndex];
+			Definition.SlotId = bVersionZeroMigration
+				? MakeLegacySlotGuid(PackagePath, Imported.SourceName, Imported.SourceMaterialIndex)
+				: FGuid::NewGuid();
+			Definition.Name = FName(Imported.Name);
+			Definition.SourceName = Imported.SourceName;
+			Definition.SourceMaterialIndex = Imported.SourceMaterialIndex;
+			if (NewNameCounts[Imported.SourceName] > 1)
+			{
+				DURIN_WARN("Static mesh '{}' has ambiguous duplicate source material name '{}'; allocated a new slot identity.",
+					GetObjectPath(), Imported.SourceName);
+			}
+		}
+		std::unordered_set<FGuid> UsedSlotIds;
+		for (FStaticMeshMaterialSlotDefinition& Definition : ReconciledSlots)
+		{
+			if (Definition.SlotId.IsValid() && UsedSlotIds.insert(Definition.SlotId).second) continue;
+			do Definition.SlotId = FGuid::NewGuid();
+			while (!UsedSlotIds.insert(Definition.SlotId).second);
+			DURIN_WARN("Static mesh '{}' replaced an invalid or duplicate material slot identity.", GetObjectPath());
+		}
+
+		const bool bSlotMetadataChanged = MaterialSlotsVersion != StaticMeshMaterialSlotsVersion
+			|| !SlotDefinitionsEqual(MaterialSlots, ReconciledSlots);
+
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->MaterialSlots.reserve(ImportedScene.MaterialSlots.size());
-		for (const Asset::FImportedMaterialSlot& Slot : ImportedScene.MaterialSlots)
+		for (const FStaticMeshMaterialSlotDefinition& Slot : ReconciledSlots)
 		{
-			RenderData->MaterialSlots.push_back({Slot.Name, Slot.SourceMaterialIndex});
+			RenderData->MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex, Slot.SlotId});
 		}
-		if (RenderData->MaterialSlots.empty()) RenderData->MaterialSlots.push_back({"Default", 0});
 
 		FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
 		std::unordered_map<std::string, uint32> SectionNameCounts;
@@ -474,7 +617,12 @@ namespace Durin
 			Section.IndexCount = static_cast<uint32>(ImportedMesh.Indices.size());
 			Section.MinVertexIndex = BaseVertexIndex + *std::ranges::min_element(ImportedMesh.Indices);
 			Section.MaxVertexIndex = BaseVertexIndex + *std::ranges::max_element(ImportedMesh.Indices);
-			Section.MaterialSlotIndex = FindMaterialSlotIndex(*RenderData, ImportedMesh.MaterialIndex);
+			if (!FindMaterialSlotIndex(*RenderData, ImportedMesh.MaterialIndex, Section.MaterialSlotIndex))
+			{
+				OutError = std::format("Static mesh section '{}' references missing source material index {}.",
+					Section.Name, ImportedMesh.MaterialIndex);
+				return false;
+			}
 			LOD.Sections.emplace_back(std::move(Section));
 		}
 
@@ -504,7 +652,10 @@ namespace Durin
 		}
 		RenderData->RecalculateBounds();
 
+		MaterialSlots = std::move(ReconciledSlots);
+		MaterialSlotsVersion = StaticMeshMaterialSlotsVersion;
 		SetRenderData(std::move(RenderData));
+		if (bSlotMetadataChanged) MarkPackageDirty();
 		OutError.clear();
 		return true;
 	}

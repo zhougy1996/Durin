@@ -7,6 +7,8 @@
 
 namespace Durin
 {
+	class DMaterialInterface;
+
 	DENUM()
 	enum class EStaticMeshImportAxis : int8
 	{
@@ -42,15 +44,27 @@ namespace Durin
 
 	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
-	class DStaticMesh;
+	struct FStaticMeshImportResult;
 
-	struct FStaticMeshImportResult
+	DSTRUCT()
+	struct ENGINE_API FStaticMeshMaterialSlotDefinition
 	{
-		bool bSucceeded = false;
-		std::string Message;
-		DStaticMesh* Asset = nullptr;
+		GENERATED_BODY()
 
-		explicit operator bool() const { return bSucceeded; }
+		DPROPERTY()
+		FGuid SlotId;
+
+		DPROPERTY()
+		FName Name;
+
+		DPROPERTY()
+		std::string SourceName;
+
+		DPROPERTY()
+		uint32 SourceMaterialIndex = 0;
+
+		DPROPERTY()
+		TObjectPtr<DMaterialInterface> DefaultMaterial;
 	};
 
 	DCLASS()
@@ -64,6 +78,11 @@ namespace Durin
 		auto GetRenderData() -> FStaticMeshRenderData*;
 		auto GetSourceFile() const -> const std::string& { return SourceFile; }
 		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return ImportSettings; }
+		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
+		auto GetMaterialSlots() const -> std::span<const FStaticMeshMaterialSlotDefinition> { return MaterialSlots; }
+		auto GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*;
+		auto FindMaterialSlot(const FGuid& SlotId) const -> const FStaticMeshMaterialSlotDefinition*;
+		auto FindMaterialSlot(FName Name) const -> const FStaticMeshMaterialSlotDefinition*;
 
 		auto SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void;
 		auto PostLoad(std::string& OutError) -> bool override;
@@ -96,6 +115,21 @@ namespace Durin
 		DPROPERTY()
 		FStaticMeshImportSettings ImportSettings;
 
+		DPROPERTY()
+		uint32 MaterialSlotsVersion = 0;
+
+		DPROPERTY()
+		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;
+
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
+	};
+
+	struct FStaticMeshImportResult
+	{
+		bool bSucceeded = false;
+		std::string Message;
+		DStaticMesh* Asset = nullptr;
+
+		explicit operator bool() const { return bSucceeded; }
 	};
 }
