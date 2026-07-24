@@ -136,6 +136,33 @@ namespace Durin::MonaImGui::PropertyEdit
 		ImGui::PopStyleVar();
 	}
 
+	auto BeginFixedArray(const char* Id, const char* Label, uint64 Count, ImGuiTreeNodeFlags Flags) -> bool
+	{
+		ImGui::TableNextRow();
+		ImGui::TableSetColumnIndex(0);
+		return CompactTreeNode(Id,
+			Flags | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_FramePadding,
+			"%s (%llu)", Label, Count);
+	}
+
+	auto EndFixedArray() -> void
+	{
+		ImGui::TreePop();
+	}
+
+	auto BeginFixedArrayElement(const char* Label, ImGuiTreeNodeFlags Flags) -> bool
+	{
+		ImGui::TableNextRow();
+		ImGui::TableSetColumnIndex(0);
+		return CompactTreeNode(Label,
+			Flags | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns | ImGuiTreeNodeFlags_FramePadding);
+	}
+
+	auto EndFixedArrayElement() -> void
+	{
+		ImGui::TreePop();
+	}
+
 	auto BeginRow(const char* Label, bool bReadOnly, float LabelIndent) -> void
 	{
 		ImGui::TableNextRow();

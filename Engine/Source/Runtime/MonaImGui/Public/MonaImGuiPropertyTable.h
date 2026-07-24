@@ -32,6 +32,16 @@ namespace Durin::MonaImGui::PropertyEdit
 
 	MONAIMGUI_API auto BeginTable(const char* Id, const FTableConfig& Config = {}) -> bool;
 	MONAIMGUI_API auto EndTable() -> void;
+	// Draws an expandable array-shaped group without structural edit controls.
+	// Call EndFixedArray() only when BeginFixedArray() returns true.
+	MONAIMGUI_API auto BeginFixedArray(const char* Id, const char* Label, uint64 Count,
+		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_DefaultOpen) -> bool;
+	MONAIMGUI_API auto EndFixedArray() -> void;
+	// Draws one expandable element inside a fixed-array group. Call
+	// EndFixedArrayElement() only when BeginFixedArrayElement() returns true.
+	MONAIMGUI_API auto BeginFixedArrayElement(const char* Label,
+		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_DefaultOpen) -> bool;
+	MONAIMGUI_API auto EndFixedArrayElement() -> void;
 	MONAIMGUI_API auto BeginRow(const char* Label, bool bReadOnly = false, float LabelIndent = 0.0f) -> void;
 	MONAIMGUI_API auto EndRow(bool bReadOnly = false) -> void;
 	// Edits vector components in one property row. Must be called inside a property table.

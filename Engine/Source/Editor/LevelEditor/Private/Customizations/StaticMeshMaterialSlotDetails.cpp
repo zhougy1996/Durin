@@ -50,66 +50,90 @@ namespace Durin
 				if (FProperty* Property = Component->GetClass()->FindPropertyByName("MaterialOverrides")) Builder.HideProperty(Property);
 
 				const FStaticMeshMaterialSlotDetailsModel Model(Component);
-				if (Model.GetCurrentEntries().empty())
-				{
-					const bool bHasMesh = Model.HasMesh();
-					Builder.AddCustomRow(bHasMesh ? "Materials Material Slots Unavailable Empty" : "Materials Material Slots No Static Mesh",
-						[bHasMesh](FReflectedPropertyView&, const FReflectedPropertyViewContext&) {
-							ImGui::TextDisabled(bHasMesh
-								? "The assigned static mesh has no available material slots."
-								: "Assign a static mesh to edit its material slots.");
-							return false;
-						});
-				}
+				std::string SearchKeywords = "Materials Material Slots";
 				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetCurrentEntries())
 				{
-					Builder.AddCustomRow(Entry.SearchKeywords,
-						[Component, Entry](FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext) {
-							return DrawCurrentRow(Component, Entry, PropertyView, ViewContext);
-						});
+					SearchKeywords += ' ';
+					SearchKeywords += Entry.SearchKeywords;
 				}
 				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetOrphanEntries())
 				{
-					Builder.AddCustomRow(Entry.SearchKeywords,
-						[Component, Entry](FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext) {
-							return DrawOrphanRow(Component, Entry, PropertyView, ViewContext);
-						});
+					SearchKeywords += ' ';
+					SearchKeywords += Entry.SearchKeywords;
 				}
+				Builder.AddCustomRow(SearchKeywords,
+					[Component](FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext) {
+						return DrawMaterials(Component, PropertyView, ViewContext);
+					});
 			}
 
 		private:
+			static auto DrawMaterials(DStaticMeshComponent* Component, FReflectedPropertyView& PropertyView,
+				const FReflectedPropertyViewContext& Context) -> bool
+			{
+				const FStaticMeshMaterialSlotDetailsModel Model(Component);
+				ImGui::PushID("StaticMeshMaterials");
+				if (!MonaImGui::PropertyEdit::BeginFixedArray(
+					"##Materials", "Materials", static_cast<uint64>(Model.GetCurrentEntries().size())))
+				{
+					ImGui::PopID();
+					return false;
+				}
+
+				bool bChanged = false;
+				if (Model.GetCurrentEntries().empty())
+				{
+					MonaImGui::PropertyEdit::BeginRow("Material Slots", true);
+					ImGui::TextDisabled(Model.HasMesh()
+						? "The assigned static mesh has no available material slots."
+						: "Assign a static mesh to edit its material slots.");
+					MonaImGui::PropertyEdit::EndRow(true);
+				}
+				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetCurrentEntries())
+					bChanged |= DrawCurrentRow(Component, Entry, PropertyView, Context);
+				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetOrphanEntries())
+					bChanged |= DrawOrphanRow(Component, Entry, PropertyView, Context);
+
+				MonaImGui::PropertyEdit::EndFixedArray();
+				ImGui::PopID();
+				return bChanged;
+			}
+
 			static auto DrawCurrentRow(DStaticMeshComponent* Component, const FStaticMeshMaterialSlotDetailsEntry& Entry,
 				FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& Context) -> bool
 			{
 				FStaticMeshMaterialSlotDetailsModel Model(Component);
 				bool bChanged = false;
 				ImGui::PushID(Entry.SlotId.ToString().c_str());
-				MonaImGui::PropertyEdit::BeginRow(Entry.Label.c_str(), Context.bReadOnly);
-				ImGui::TextDisabled("%s", FStaticMeshMaterialSlotDetailsModel::GetSourceLabel(Entry.Source).data());
-				ImGui::SameLine();
-				ImGui::BeginDisabled(Context.bReadOnly);
-				const FEditorAssetPickerResult Result = EditorAssetPicker::Draw({
-					.ComboId = "##Material", .SearchId = "##MaterialSearch", .SearchHint = "Search materials...",
-					.RequiredClass = DMaterialInterface::StaticClass(), .ClassPolicy = EEditorAssetClassPolicy::Derived,
-					.CurrentSelection = Entry.Material, .SearchText = AssetSearchText, .bAllowNone = false,
-					.AssignSelection = [&](DObject* Selection, std::string& Error) {
-						if (Context.bReadOnly) { Error = "Details are read-only."; return false; }
-						auto* Material = Cast<DMaterialInterface>(Selection);
-						if (!Material) { Error = "Static-mesh slots accept material assets only."; return false; }
-						bChanged = Model.AssignMaterial(PropertyView, Context, Entry, Material);
-						if (!bChanged) Error = "The material override could not be applied.";
-						return bChanged;
-					},
-				});
-				ImGui::EndDisabled();
-				if (!Result.Error.empty() && Context.ReportError) Context.ReportError(Result.Error);
-				if (Entry.bHasOverride)
+				if (MonaImGui::PropertyEdit::BeginFixedArrayElement(Entry.Label.c_str()))
 				{
-					ImGui::SameLine();
-					if (ImGui::SmallButton("Reset") && !Context.bReadOnly)
-						bChanged |= Model.ResetOverride(PropertyView, Context, Entry);
+					MonaImGui::PropertyEdit::BeginRow("Material", Context.bReadOnly);
+					const FEditorAssetPickerResult Result = EditorAssetPicker::Draw({
+						.ComboId = "##Material", .SearchId = "##MaterialSearch", .SearchHint = "Search materials...",
+						.RequiredClass = DMaterialInterface::StaticClass(), .ClassPolicy = EEditorAssetClassPolicy::Derived,
+						.CurrentSelection = Entry.Material, .SearchText = AssetSearchText, .bAllowNone = false,
+						.AssignSelection = [&](DObject* Selection, std::string& Error) {
+							if (Context.bReadOnly) { Error = "Details are read-only."; return false; }
+							auto* Material = Cast<DMaterialInterface>(Selection);
+							if (!Material) { Error = "Static-mesh slots accept material assets only."; return false; }
+							bChanged = Model.AssignMaterial(PropertyView, Context, Entry, Material);
+							if (!bChanged) Error = "The material override could not be applied.";
+							return bChanged;
+						},
+					});
+					MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
+					if (!Result.Error.empty() && Context.ReportError) Context.ReportError(Result.Error);
+
+					MonaImGui::PropertyEdit::BeginRow("Source", Context.bReadOnly);
+					ImGui::TextDisabled("%s", FStaticMeshMaterialSlotDetailsModel::GetSourceLabel(Entry.Source).data());
+					if (Entry.bHasOverride)
+					{
+						ImGui::SameLine();
+						if (ImGui::SmallButton("Reset")) bChanged |= Model.ResetOverride(PropertyView, Context, Entry);
+					}
+					MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
+					MonaImGui::PropertyEdit::EndFixedArrayElement();
 				}
-				MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
 				ImGui::PopID();
 				return bChanged;
 			}
@@ -119,11 +143,17 @@ namespace Durin
 			{
 				FStaticMeshMaterialSlotDetailsModel Model(Component);
 				ImGui::PushID(Entry.SlotId.ToString().c_str());
-				MonaImGui::PropertyEdit::BeginRow(Entry.Label.c_str(), Context.bReadOnly);
-				ImGui::TextDisabled("Orphan: %s", EditorAssetPicker::GetAssetPathOrNone(Entry.Material).c_str());
-				ImGui::SameLine();
-				const bool bRemove = ImGui::SmallButton("Remove") && !Context.bReadOnly;
-				MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
+				bool bRemove = false;
+				if (MonaImGui::PropertyEdit::BeginFixedArrayElement(Entry.Label.c_str()))
+				{
+					MonaImGui::PropertyEdit::BeginRow("Material", true);
+					ImGui::TextDisabled("%s", EditorAssetPicker::GetAssetPathOrNone(Entry.Material).c_str());
+					MonaImGui::PropertyEdit::EndRow(true);
+					MonaImGui::PropertyEdit::BeginRow("Actions", Context.bReadOnly);
+					bRemove = ImGui::SmallButton("Remove");
+					MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
+					MonaImGui::PropertyEdit::EndFixedArrayElement();
+				}
 				ImGui::PopID();
 				return bRemove && Model.RemoveOrphan(PropertyView, Context, Entry);
 			}
