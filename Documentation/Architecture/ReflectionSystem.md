@@ -36,6 +36,35 @@ The system does not currently implement CDO behavior, hot reload, function refle
 
 `DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. Core-owned math types cannot depend on `CoreDObject`, so `FVector3`, `FQuat`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values.
 
+## Parsing Scope And Generated-File Naming
+
+DurinHeaderTool is a reflection metadata extractor, not a standalone C++ compiler
+or a complete semantic analyzer. It parses each configured reflected header with
+the available compiler context, which may include transitive headers, a
+precompiled header, and profile-provided default imports. That context is useful
+when it can resolve a reflected declaration, but DHT does not recursively require
+every referenced declaration or type definition to be available.
+
+The parser may therefore use a partial Clang translation unit that contains
+diagnostics unrelated to the reflection declarations being extracted. Such
+diagnostics do not by themselves make reflection generation invalid, and
+reflection generation does not require a diagnostic-free translation unit,
+source locations for referenced types, or canonical fully qualified spellings
+for every referenced type. DHT's contract is to extract the supported reflection
+markers and the declaration information required by the generated metadata. A
+failure is relevant when that required information cannot be extracted, not
+merely when Clang cannot completely compile the surrounding header.
+
+Generated reflection files are intentionally flat within each module's DHT
+output directory. A reflected header named `Actor.h` generates `Actor.gen.h` and
+`Actor.gen.cpp` regardless of the header's source subdirectory. This keeps the
+generated include contract simple, but makes the reflected header basename part
+of the module's generated-file identity. Consequently, reflected headers in the
+same module must have unique basenames; directory qualification does not
+disambiguate two reflected headers with the same filename. This is a deliberate
+module-authoring constraint rather than a requirement to mirror source
+directories in generated output.
+
 ## Build Flow
 
 The build flow is:
