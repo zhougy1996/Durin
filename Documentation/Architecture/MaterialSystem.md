@@ -67,15 +67,11 @@ warning. A legacy base material therefore retains constructor-provided canonical
 defaults, while a legacy instance retains its compatible `Parent` reference and
 has no old map overrides.
 
-Static-mesh components have an explicit compatibility path. Schema version zero
-loads the former index-shaped `Materials` collection and slot-zero `Material`
-mirror after the referenced mesh definitions are available, converts in-range
-entries to GUID overrides, and retains excess entries as diagnosed orphans. New
-saves write the GUID schema version and clear both legacy values. The two legacy
-reflected fields remain private and non-editable because removing them would make
-the current field-table loader skip the only migration inputs. They may be
-removed only when version-zero static-mesh component assets are no longer a
-supported input or a replacement package migration facility can read them.
+Static-mesh components persist only the GUID-keyed override collection. The
+former index-shaped `Materials` collection, slot-zero `Material` mirror, and
+unused override version field have been removed. If an older package still
+contains those field records, the field-table loader skips them as unknown data;
+they are not migrated.
 
 ## Static Mesh Vertex Contract
 

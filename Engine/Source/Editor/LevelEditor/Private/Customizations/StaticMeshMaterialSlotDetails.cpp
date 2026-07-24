@@ -48,8 +48,6 @@ namespace Durin
 				auto* Component = Cast<DStaticMeshComponent>(Object);
 				if (!Component) return;
 				if (FProperty* Property = Component->GetClass()->FindPropertyByName("MaterialOverrides")) Builder.HideProperty(Property);
-				if (FProperty* Property = Component->GetClass()->FindPropertyByName("Materials")) Builder.HideProperty(Property);
-				if (FProperty* Property = Component->GetClass()->FindPropertyByName("Material")) Builder.HideProperty(Property);
 
 				const FStaticMeshMaterialSlotDetailsModel Model(Component);
 				if (Model.GetCurrentEntries().empty())

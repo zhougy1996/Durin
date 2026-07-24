@@ -493,9 +493,9 @@ TEST(FObjectPropertyViewCustomizationTests, DeclaresActorTransformRow)
 	Durin::CreateActorDetailsCustomization()->CustomizeDetails(Context, Actor, ActorBuilder);
 	EXPECT_EQ(ActorBuilder.GetVisibleRowCount(), 1u);
 
-	Durin::FProperty* MaterialsProperty = Component->GetClass()->FindPropertyByName("Materials");
-	ASSERT_NE(MaterialsProperty, nullptr);
-	EXPECT_FALSE(MaterialsProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Material"), nullptr);
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Materials"), nullptr);
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverridesVersion"), nullptr);
 	Durin::FProperty* OverridesProperty = Component->GetClass()->FindPropertyByName("MaterialOverrides");
 	ASSERT_NE(OverridesProperty, nullptr);
 	EXPECT_FALSE(OverridesProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));

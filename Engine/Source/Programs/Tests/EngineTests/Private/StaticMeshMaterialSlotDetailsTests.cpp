@@ -177,12 +177,12 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	Durin::FObjectPropertyViewBuilder Builder("material");
 	Durin::CreateStaticMeshComponentDetailsCustomization()->CustomizeDetails(LevelContext, Component, Builder);
 	EXPECT_EQ(Builder.GetVisibleRowCount(), 1u);
-	for (std::string_view Name : {"MaterialOverrides", "Materials", "Material"})
-	{
-		Durin::FProperty* Property = Component->GetClass()->FindPropertyByName(Name);
-		ASSERT_NE(Property, nullptr);
-		EXPECT_TRUE(Builder.IsPropertyHidden(*Property));
-	}
+	Durin::FProperty* OverridesProperty = Component->GetClass()->FindPropertyByName("MaterialOverrides");
+	ASSERT_NE(OverridesProperty, nullptr);
+	EXPECT_TRUE(Builder.IsPropertyHidden(*OverridesProperty));
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Material"), nullptr);
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Materials"), nullptr);
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverridesVersion"), nullptr);
 
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyView PropertyView;

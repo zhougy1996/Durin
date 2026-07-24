@@ -1828,48 +1828,13 @@ TEST(FMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuild)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 }
 
-TEST(FMaterialTests, VersionZeroStaticMeshComponentMigratesLegacyMaterialsAndExcessOrphans)
-{
-	InitializeDObjectSystem();
-	Durin::DMaterial* First = Durin::NewObject<Durin::DMaterial>(nullptr, "LegacyFirst");
-	Durin::DMaterial* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "LegacySecond");
-	Durin::DMaterial* Excess = Durin::NewObject<Durin::DMaterial>(nullptr, "LegacyExcess");
-	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	const Durin::FGuid SecondId = AddDebugMaterialSlot(Mesh, "Second");
-	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "LegacyComponent");
-	Component->SetStaticMesh(Mesh);
-
-	auto* LegacyMaterials = static_cast<Durin::FArrayProperty*>(Component->GetClass()->FindPropertyByName("Materials"));
-	ASSERT_NE(LegacyMaterials, nullptr);
-	LegacyMaterials->Resize(Component, 3);
-	auto* Inner = static_cast<Durin::FObjectProperty*>(LegacyMaterials->GetInner());
-	Inner->SetObjectPropertyValue(LegacyMaterials->GetMutableElementPtr(Component, 0), First);
-	Inner->SetObjectPropertyValue(LegacyMaterials->GetMutableElementPtr(Component, 1), Second);
-	Inner->SetObjectPropertyValue(LegacyMaterials->GetMutableElementPtr(Component, 2), Excess);
-	std::string Error;
-	ASSERT_TRUE(Component->PostLoad(Error)) << Error;
-	EXPECT_EQ(Component->GetMaterial(0), First);
-	EXPECT_EQ(Component->GetMaterialBySlotId(SecondId), Second);
-	ASSERT_EQ(Component->GetMaterialOverrides().size(), 3u);
-	EXPECT_TRUE(Component->IsMaterialOverrideOrphan(Component->GetMaterialOverrides()[2].SlotId));
-	EXPECT_EQ(Component->GetMaterialOverrides()[2].Material.Get(), Excess);
-	EXPECT_EQ(LegacyMaterials->Num(Component), 0u);
-
-	Durin::MarkAsGarbage(Component);
-	Durin::MarkAsGarbage(Mesh);
-	Durin::MarkAsGarbage(Excess);
-	Durin::MarkAsGarbage(Second);
-	Durin::MarkAsGarbage(First);
-	Durin::CollectGarbage();
-}
-
 TEST(FMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDependenciesLoad)
 {
 	InitializeDObjectSystem();
 	static const bool bMountInitialized = [] {
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "LegacyStaticMeshSlots";
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshSlotOverrides";
 		std::filesystem::remove_all(Root);
-		Durin::PathUtilities::RegisterMountPoint("/LegacyStaticMeshSlots/", Root.generic_string() + "/");
+		Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotOverrides/", Root.generic_string() + "/");
 		return true;
 	}();
 	(void)bMountInitialized;
@@ -1878,10 +1843,10 @@ TEST(FMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDependenciesL
 	Durin::FAssetPath FirstMaterialPath;
 	Durin::FAssetPath SecondMaterialPath;
 	Durin::FAssetPath ComponentPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/LegacyStaticMeshSlots/Mesh", MeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/LegacyStaticMeshSlots/First", FirstMaterialPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/LegacyStaticMeshSlots/Second", SecondMaterialPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/LegacyStaticMeshSlots/Component", ComponentPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotOverrides/Mesh", MeshPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotOverrides/First", FirstMaterialPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotOverrides/Second", SecondMaterialPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotOverrides/Component", ComponentPath));
 
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	Durin::FStaticMeshImportResult MeshImport = Durin::DStaticMesh::ImportAsset(Source.generic_string(), MeshPath.ToString());
@@ -1907,12 +1872,11 @@ TEST(FMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDependenciesL
 	EXPECT_NE(std::ranges::find(ComponentData->Dependencies, SecondMaterialPath), ComponentData->Dependencies.end());
 
 	const std::filesystem::path FixturePath = std::filesystem::path(DURIN_TEST_WORK_DIR)
-		/ "LegacyStaticMeshSlots" / "Component.dasset";
+		/ "StaticMeshSlotOverrides" / "Component.dasset";
 	std::vector<Durin::uint8> FixtureBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FixtureBytes, FixturePath.generic_string()));
-	EXPECT_TRUE(ContainsSerializedField(FixtureBytes, "Material"));
-	EXPECT_TRUE(ContainsSerializedField(FixtureBytes, "Materials"));
-	EXPECT_TRUE(ContainsSerializedField(FixtureBytes, "MaterialOverridesVersion"));
+	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, "Materials"));
+	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, "MaterialOverridesVersion"));
 	EXPECT_TRUE(ContainsSerializedField(FixtureBytes, "MaterialOverrides"));
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ComponentPath));

@@ -73,11 +73,10 @@ Current built-in composition includes:
 - Spline transform, curve settings, and point rows; and
 - static-mesh material-slot rows derived from the assigned mesh.
 
-The static-mesh customization hides the raw sparse override collection and the
-two private legacy migration fields. It emits exactly one fixed row per current
-mesh-owned slot, with imported order and label, resolved source, a
-material-interface picker, and Reset when an override exists. Structural array
-controls are never exposed. Detached overrides appear in a separate,
+The static-mesh customization hides the raw sparse override collection. It emits
+exactly one fixed row per current mesh-owned slot, with imported order and label,
+resolved source, a material-interface picker, and Reset when an override exists.
+Structural array controls are never exposed. Detached overrides appear in a separate,
 GUID-sorted warning group with an explicit Remove action.
 
 Slot assignment, replacement, reset, and orphan removal snapshot the reflected

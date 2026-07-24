@@ -8,7 +8,6 @@ namespace Durin
 {
 	class DStaticMesh;
 	class DMaterialInterface;
-	class FArchive;
 
 	DSTRUCT()
 	struct ENGINE_API FStaticMeshMaterialOverride
@@ -43,7 +42,6 @@ namespace Durin
 		ENGINE_API auto GetMaterialOverrides() const -> std::span<const FStaticMeshMaterialOverride> { return MaterialOverrides; }
 		ENGINE_API auto GetNumMaterials() const -> uint32;
 		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy> override;
-		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
@@ -58,25 +56,12 @@ namespace Durin
 		auto ReconcileStaticMeshBinding() -> void;
 		auto ReconcileMaterialBindings() -> void;
 		auto ValidateMaterialOverrides(std::span<const FStaticMeshMaterialOverride> Overrides, std::string& OutError) const -> bool;
-		auto MigrateLegacyMaterials() -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
 
 		DPROPERTY()
-		uint32 MaterialOverridesVersion = 0;
-
-		DPROPERTY()
 		std::vector<FStaticMeshMaterialOverride> MaterialOverrides;
-
-		// Deprecated version-zero migration inputs. They remain private and non-editable because removing
-		// either reflected field would make old packages skip the only data needed for GUID migration.
-		// Remove them only when version-zero static-mesh component assets are no longer supported.
-		DPROPERTY()
-		TObjectPtr<DMaterialInterface> Material;
-
-		DPROPERTY()
-		std::vector<TObjectPtr<DMaterialInterface>> Materials;
 		std::vector<TObjectPtr<DMaterialInterface>> BoundMaterials;
 		DStaticMesh* BoundStaticMesh = nullptr;
 

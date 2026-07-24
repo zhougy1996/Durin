@@ -1,9 +1,7 @@
 #include "Components/StaticMeshComponent.h"
 
-#include "DObject/Archive.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/PrimitiveSceneProxy.h"
-#include "Logging/LogMacros.h"
 #include "Materials/MaterialInterface.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -12,8 +10,6 @@ namespace Durin
 {
 	namespace
 	{
-		inline constexpr uint32 StaticMeshMaterialOverridesVersion = 1;
-
 		auto FindOverride(std::span<const FStaticMeshMaterialOverride> Overrides, const FGuid& SlotId)
 			-> const FStaticMeshMaterialOverride*
 		{
@@ -130,21 +126,9 @@ namespace Durin
 		return StaticMesh != nullptr ? StaticMesh->GetNumMaterialSlots() : 0;
 	}
 
-	auto DStaticMeshComponent::Serialize(FArchive& Ar) -> void
-	{
-		if (Ar.IsSaving())
-		{
-			MaterialOverridesVersion = StaticMeshMaterialOverridesVersion;
-			Material = nullptr;
-			Materials.clear();
-		}
-		Super::Serialize(Ar);
-	}
-
 	auto DStaticMeshComponent::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		if (MaterialOverridesVersion == 0) MigrateLegacyMaterials();
 		if (!ValidateMaterialOverrides(MaterialOverrides, OutError)) return false;
 		ReconcileStaticMeshBinding();
 		ReconcileMaterialBindings();
@@ -365,33 +349,4 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMeshComponent::MigrateLegacyMaterials() -> void
-	{
-		std::unordered_set<FGuid> UsedIds;
-		for (const FStaticMeshMaterialOverride& Override : MaterialOverrides) UsedIds.insert(Override.SlotId);
-		const size_t LegacyCount = std::max<size_t>(Materials.size(), Material != nullptr ? 1 : 0);
-		for (size_t Index = 0; Index < LegacyCount; ++Index)
-		{
-			DMaterialInterface* LegacyMaterial = Index < Materials.size() ? Materials[Index].Get() : Material.Get();
-			if (LegacyMaterial == nullptr) continue;
-			FGuid SlotId;
-			if (const FStaticMeshMaterialSlotDefinition* Slot = StaticMesh != nullptr
-				? StaticMesh->GetMaterialSlot(static_cast<uint32>(Index)) : nullptr)
-			{
-				SlotId = Slot->SlotId;
-			}
-			else
-			{
-				do SlotId = FGuid::NewGuid(); while (UsedIds.contains(SlotId));
-				DURIN_WARN("Static-mesh component '{}' retained legacy material index {} as orphan slot GUID {}.",
-					GetObjectPath(), Index, SlotId.ToString());
-			}
-			if (UsedIds.insert(SlotId).second)
-				MaterialOverrides.push_back({.SlotId = SlotId, .Material = LegacyMaterial});
-		}
-		MaterialOverridesVersion = StaticMeshMaterialOverridesVersion;
-		Material = nullptr;
-		Materials.clear();
-		MarkPackageDirty();
-	}
 }
