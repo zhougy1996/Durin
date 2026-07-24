@@ -7,6 +7,7 @@ namespace Durin
 {
 	class DObject;
 
+	// Owns object handles and dense iteration state while indexing non-owning Outer relationships.
 	class FDObjectArray
 	{
 	public:

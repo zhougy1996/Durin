@@ -5,6 +5,7 @@
 
 namespace Durin
 {
+	// Receives mutable object-reference slots during garbage-collector traversal.
 	class FReferenceCollector
 	{
 	public:
@@ -12,6 +13,7 @@ namespace Durin
 		virtual auto AddReferencedObject(DObject*& Object) -> void = 0;
 	};
 
+	// Keeps one object rooted for the lifetime of this movable scope guard.
 	class FScopedObjectRoot
 	{
 	public:
@@ -26,6 +28,7 @@ namespace Durin
 		DObject* Object = nullptr;
 	};
 
+	// Summarizes the most recent mark-and-sweep collection and its phase timings.
 	struct FGarbageCollectionStats
 	{
 		uint64 MarkedObjectCount = 0;

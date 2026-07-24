@@ -5,6 +5,7 @@
 
 namespace Durin
 {
+	// Describes fixed-width integral and floating-point reflected storage.
 	class FNumericProperty : public FProperty
 	{
 		DECLARE_FIELD(FNumericProperty, FProperty, EClassCastFlags::FNumericProperty, COREDOBJECT_API)
@@ -24,6 +25,7 @@ namespace Durin
 		);
 	};
 
+	// Describes reflected Boolean storage and its generated accessor contract.
 	class FBoolProperty : public FProperty
 	{
 		DECLARE_FIELD(FBoolProperty, FProperty, EClassCastFlags::FBoolProperty, COREDOBJECT_API)
@@ -43,6 +45,7 @@ namespace Durin
 		);
 	};
 
+	// Describes reflected std::string storage and lifecycle.
 	class FStringProperty : public FProperty
 	{
 		DECLARE_FIELD(FStringProperty, FProperty, EClassCastFlags::FStringProperty, COREDOBJECT_API)
@@ -72,6 +75,7 @@ namespace Durin
 		}
 	};
 
+	// Describes reflected interned-name storage and lifecycle.
 	class FNameProperty : public FProperty
 	{
 		DECLARE_FIELD(FNameProperty, FProperty, EClassCastFlags::FNameProperty, COREDOBJECT_API)
@@ -101,6 +105,7 @@ namespace Durin
 		}
 	};
 
+	// Describes reflected GUID storage and lifecycle.
 	class FGuidProperty : public FProperty
 	{
 		DECLARE_FIELD(FGuidProperty, FProperty, EClassCastFlags::FGuidProperty, COREDOBJECT_API)
@@ -130,6 +135,7 @@ namespace Durin
 		}
 	};
 
+	// Couples reflected enum storage to its DEnum metadata and underlying numeric property.
 	class FEnumProperty : public FProperty
 	{
 		DECLARE_FIELD(FEnumProperty, FProperty, EClassCastFlags::FEnumProperty, COREDOBJECT_API)
@@ -170,6 +176,7 @@ namespace Durin
 		DEnum* ReferencedEnum = nullptr;
 	};
 
+	// Describes a reflected object reference and its required DClass constraint.
 	class FObjectProperty : public FProperty
 	{
 		DECLARE_FIELD(FObjectProperty, FProperty, EClassCastFlags::FObjectProperty, COREDOBJECT_API)
@@ -193,6 +200,7 @@ namespace Durin
 		COREDOBJECT_API auto SetObjectPropertyValue(void* Container, DObject* Value, uint32 ArrayIndex = 0) const -> void;
 	};
 
+	// Describes inline reflected value-struct storage managed through DStruct operations.
 	class FStructProperty : public FProperty
 	{
 		DECLARE_FIELD(FStructProperty, FProperty, EClassCastFlags::FStructProperty, COREDOBJECT_API)
@@ -217,6 +225,7 @@ namespace Durin
 		DStruct* Struct = nullptr;
 	};
 
+	// Describes reflected vector storage and the property metadata of each element.
 	class FArrayProperty : public FProperty
 	{
 		DECLARE_FIELD(FArrayProperty, FProperty, EClassCastFlags::FArrayProperty, COREDOBJECT_API)
@@ -251,6 +260,7 @@ namespace Durin
 		const DurinCodeGen::FArrayPropertyHelper* ArrayHelper = nullptr;
 	};
 
+	// Describes reflected unordered-map storage and its key/value property metadata.
 	class FMapProperty : public FProperty
 	{
 		DECLARE_FIELD(FMapProperty, FProperty, EClassCastFlags::FMapProperty, COREDOBJECT_API)

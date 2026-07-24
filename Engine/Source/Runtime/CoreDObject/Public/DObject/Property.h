@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	// Describes one reflected field's storage, flags, referenced type, and value lifecycle.
 	class FProperty : public FField
 	{
 		DECLARE_FIELD(FProperty, FField, EClassCastFlags::FProperty, COREDOBJECT_API)

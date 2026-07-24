@@ -6,6 +6,7 @@ namespace Durin
 {
 	struct FGarbageCollectionStats;
 
+	// Configures time, garbage-pressure, and object-growth triggers for automatic collection.
 	struct FGarbageCollectionSettings
 	{
 		bool bEnabled = true;
@@ -16,6 +17,7 @@ namespace Durin
 		uint64 ObjectGrowthThreshold = 1024;
 	};
 
+	// Identifies the policy condition that requested a garbage collection.
 	enum class EGarbageCollectionTrigger : uint8
 	{
 		None,
@@ -24,6 +26,7 @@ namespace Durin
 		ObjectGrowthPressure,
 	};
 
+	// Applies adaptive interval and pressure thresholds without owning the collector itself.
 	class FGarbageCollectionScheduler
 	{
 	public:

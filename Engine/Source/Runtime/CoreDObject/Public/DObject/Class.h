@@ -13,7 +13,7 @@ namespace Durin
 		class FGCReferenceSchemaRegistry;
 	}
 
-	// Base class for all reflected runtime types
+	// Provides the common object identity for all reflected runtime metadata.
 	class DType : public DObject
 	{
 	public:
@@ -25,7 +25,7 @@ namespace Durin
 		}
 	};
 
-	// Base class for all reflected types that contain fields and memory layout
+	// Describes reflected fields and memory layout shared by classes and value structs.
 	class DStructBase : public DType
 	{
 	public:
@@ -62,7 +62,7 @@ namespace Durin
 		COREDOBJECT_API auto FindPropertyByName(FName InName, bool bIncludeSuper = true) const -> FProperty*;
 	};
 
-	// Describe a class
+	// Describes a reflected DObject class, its inheritance, constructor, and presentation names.
 	class DClass : public DStructBase
 	{
 		DECLARE_CLASS_INTRINSIC_API(DClass, DStructBase, COREDOBJECT_API)
@@ -109,6 +109,7 @@ namespace Durin
 		std::string DefaultObjectName;
 	};
 
+	// Describes a reflected value struct and the operations required to manage its storage.
 	class DStruct : public DStructBase
 	{
 		DECLARE_CLASS_INTRINSIC_API(DStruct, DStructBase, COREDOBJECT_API)
@@ -144,6 +145,7 @@ namespace Durin
 		CopyFunction Copy = nullptr;
 	};
 
+	// Stores one reflected enum value with its stable code name and editor label.
 	struct FEnumValue
 	{
 		FName Name;
@@ -151,6 +153,7 @@ namespace Durin
 		std::string DisplayName;
 	};
 
+	// Describes a reflected enum's representation and ordered value records.
 	class DEnum : public DType
 	{
 	public:

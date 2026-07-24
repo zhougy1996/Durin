@@ -5,9 +5,9 @@ Last reviewed: 2026-07-25
 ## Current Status
 
 Inventory is complete for the first migration tranche: `Core`, `CoreDObject`, and
-`Engine`. Stage 1 is complete after a successful `Core` target build. Stages 2
-and 3 are in progress. Later module groups remain pending and are intentionally
-outside the current change.
+`Engine`. Stages 1 and 2 are complete after successful `Core` and `CoreDObject`
+target builds. Stage 3 is in progress. Later module groups remain pending and
+are intentionally outside the current change.
 
 ## Goal
 
@@ -89,10 +89,10 @@ into one unreviewable repository-wide rewrite.
 
 ### Stage 2: CoreDObject
 
-- [ ] Add required comments to reflected and other key `CoreDObject` types and
+- [x] Add required comments to reflected and other key `CoreDObject` types and
   non-obvious member contracts.
-- [ ] Replace class-level `COREDOBJECT_API` use with per-function exports.
-- [ ] Build the `CoreDObject` target.
+- [x] Replace class-level `COREDOBJECT_API` use with per-function exports.
+- [x] Build the `CoreDObject` target.
 
 #### Acceptance Gate
 

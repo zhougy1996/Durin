@@ -10,6 +10,7 @@ namespace Durin
 	class DEnum;
 	class DStruct;
 
+	// Collects the class, Outer, name, and flags needed to allocate one DObject.
 	struct FStaticConstructObjectParameters
 	{
 		DClass* Class = nullptr;
@@ -21,6 +22,7 @@ namespace Durin
 		size_t Size = 0;
 	};
 
+	// Carries the preallocated object storage and construction context into generated constructors.
 	class FObjectInitializer
 	{
 	public:

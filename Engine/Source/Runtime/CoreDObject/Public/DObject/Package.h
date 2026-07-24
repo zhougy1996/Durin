@@ -9,6 +9,7 @@
 
 namespace Durin
 {
+	// Distinguishes persistent asset packages from permanent compiled-in metadata packages.
 	enum class EPackageFlags : uint8
 	{
 		None = 0,
@@ -17,13 +18,14 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EPackageFlags);
 
+	// Owns an asset or a module's reflected metadata under one globally registered path.
 	DCLASS()
-	class COREDOBJECT_API DPackage : public DObject
+	class DPackage : public DObject
 	{
 		GENERATED_BODY()
 	public:
-		explicit DPackage(const FObjectInitializer& ObjectInitializer);
-		~DPackage() override;
+		COREDOBJECT_API explicit DPackage(const FObjectInitializer& ObjectInitializer);
+		COREDOBJECT_API ~DPackage() override;
 
 		auto GetPackagePath() const -> const std::string& { return PackagePath; }
 		auto GetAsset() const -> DObject* { return Asset.Get(); }
@@ -32,22 +34,28 @@ namespace Durin
 		auto IsAssetPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Asset); }
 		auto IsCppPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Cpp); }
 
-		auto InitializeAssetPackage(const FAssetPath& InPath) -> void;
-		auto RelocateAssetPackage(const FAssetPath& InPath) -> bool;
-		auto InitializeCppPackage(FName ModuleName) -> void;
-		auto SetAsset(DObject* InAsset) -> bool;
+		// Initialization is one-shot and requires an unparented package with no existing kind.
+		COREDOBJECT_API auto InitializeAssetPackage(const FAssetPath& InPath) -> void;
+		COREDOBJECT_API auto RelocateAssetPackage(const FAssetPath& InPath) -> bool;
+		COREDOBJECT_API auto InitializeCppPackage(FName ModuleName) -> void;
+
+		// Asset packages accept only an asset whose Outer is this package.
+		COREDOBJECT_API auto SetAsset(DObject* InAsset) -> bool;
 		auto MarkDirty() -> void { if (IsAssetPackage()) bDirty = true; }
 		auto ClearDirty() -> void { bDirty = false; }
 
 	private:
+		// Global registry key, using an asset path or the /Cpp/<Module> namespace.
 		DPROPERTY()
 		std::string PackagePath;
 
+		// Main persistent asset; structural children remain reachable through Outer relationships.
 		DPROPERTY()
 		TObjectPtr<DObject> Asset;
 
 		EPackageFlags PackageFlags = EPackageFlags::None;
 
+		// Tracks unsaved asset-package changes; compiled-in packages never become dirty.
 		DPROPERTY(Transient)
 		bool bDirty = false;
 	};

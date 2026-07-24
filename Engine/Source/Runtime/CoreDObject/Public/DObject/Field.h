@@ -12,6 +12,7 @@ namespace Durin
 
 	using FFieldConstructFuncType = FField* (*)(const FFieldVariant&, const FName&, EObjectFlags);
 
+	// Describes an FField runtime type and constructs field instances without DObject allocation.
 	class FFieldClass
 	{
 		/** Name of this field class */
@@ -77,6 +78,7 @@ namespace Durin
 		return new TClass(InOwner, InName, InFlags); \
 		}
 
+	// Stores either an FField owner or a tagged DObject owner in one pointer-sized value.
 	class FFieldVariant
 	{
 		union FFieldObjectUnion
@@ -153,6 +155,7 @@ namespace Durin
 		COREDOBJECT_API auto IsA(const DClass* InClass) const -> bool;
 	};
 
+	// Provides identity, ownership, chaining, and metadata for reflected non-object fields.
 	class FField
 	{
 	public:
@@ -195,4 +198,3 @@ namespace Durin
 		std::unordered_map<FName, std::string>* MetaDataMap;
 	};
 }
-

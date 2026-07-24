@@ -24,6 +24,7 @@ namespace Durin
 		std::string* OutError = nullptr
 	) -> bool;
 
+	// Defines directional byte and object-reference serialization for reflected object graphs.
 	class FArchive
 	{
 	public:
@@ -58,6 +59,7 @@ namespace Durin
 		EMode Mode;
 	};
 
+	// Appends serialized graph data to a caller-owned byte buffer.
 	class FMemoryWriter : public FArchive
 	{
 	public:
@@ -69,6 +71,7 @@ namespace Durin
 		std::vector<uint8>& Bytes;
 	};
 
+	// Reads serialized graph data from a caller-owned byte buffer.
 	class FMemoryReader : public FArchive
 	{
 	public:
@@ -81,6 +84,7 @@ namespace Durin
 		uint64 Offset = 0;
 	};
 
+	// Owns detached reflected property storage and roots referenced objects for safe restoration.
 	class FPropertyValueSnapshot
 	{
 	public:

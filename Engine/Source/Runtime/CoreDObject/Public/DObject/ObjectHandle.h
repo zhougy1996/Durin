@@ -9,6 +9,7 @@ namespace Durin
 {
 	class DObject;
 
+	// Identifies an object-array slot and generation so stale handles fail resolution.
 	struct FObjectHandle
 	{
 		static constexpr uint32 InvalidIndex = std::numeric_limits<uint32>::max();

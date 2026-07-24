@@ -17,6 +17,7 @@ namespace Durin
 	{
 	};
 
+	// Stores a garbage-collection-aware object handle and marks assigned objects reachable.
 	class FObjectPtr
 	{
 	public:
@@ -40,6 +41,7 @@ namespace Durin
 		FObjectHandle Handle = nullptr;
 	};
 
+	// Provides typed access over FObjectPtr while supporting forward-declared DObject types.
 	template<typename T>
 	class TObjectPtr
 	{

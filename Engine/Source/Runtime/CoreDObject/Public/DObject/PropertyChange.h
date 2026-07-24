@@ -6,6 +6,7 @@ namespace Durin
 {
 	class FProperty;
 
+	// Distinguishes preview, accepted, and abandoned reflected edits.
 	enum class EPropertyChangePhase : uint8
 	{
 		Interactive,
@@ -13,6 +14,7 @@ namespace Durin
 		Cancelled,
 	};
 
+	// Identifies the structural operation performed at the edited property leaf.
 	enum class EPropertyChangeKind : uint8
 	{
 		ValueSet,
@@ -24,6 +26,7 @@ namespace Durin
 		MapKeyRename,
 	};
 
+	// Identifies whether an edit originated directly or through transaction history.
 	enum class EPropertyChangeOrigin : uint8
 	{
 		Edit,
@@ -31,6 +34,7 @@ namespace Durin
 		Redo,
 	};
 
+	// Selects one nested value while traversing a reflected property path.
 	enum class EPropertyPathSelector : uint8
 	{
 		None,
@@ -39,6 +43,7 @@ namespace Durin
 		MapKey,
 	};
 
+	// Describes one borrowed step from an object-owned member toward an edited leaf.
 	struct FPropertyPathSegment
 	{
 		const FProperty* Property = nullptr;
@@ -49,6 +54,7 @@ namespace Durin
 		std::span<const uint8> MapKeyData;
 	};
 
+	// Reports a completed reflected edit using synchronous borrowed path storage.
 	struct FPropertyChangedEvent
 	{
 		const FProperty* MemberProperty = nullptr;

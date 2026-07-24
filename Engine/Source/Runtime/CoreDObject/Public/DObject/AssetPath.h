@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Stores a validated canonical asset path rooted in a registered virtual mount.
 	class FAssetPath
 	{
 	public:

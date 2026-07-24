@@ -40,6 +40,7 @@ namespace Durin
 	static_assert(sizeof(FWeakObjectPtr) == sizeof(FObjectHandle));
 	static_assert(std::is_trivially_copyable_v<FWeakObjectPtr>);
 
+	// Provides typed non-owning access with the same game-thread resolution contract as FWeakObjectPtr.
 	template<typename T>
 	class TWeakObjectPtr
 	{
