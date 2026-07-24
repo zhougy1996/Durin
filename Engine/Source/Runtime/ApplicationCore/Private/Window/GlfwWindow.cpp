@@ -14,6 +14,12 @@ namespace Durin
 {
 	namespace
 	{
+		auto SanitizeDpiScale(float DpiScale) -> float
+		{
+			// GLFW reports zero when the platform DPI query temporarily fails, such as while a display is sleeping.
+			return DpiScale > 0.0f && DpiScale < 99.0f ? DpiScale : 1.0f;
+		}
+
 #if defined(_WIN32)
 		auto ApplyWindowsWindowIcon(void* NativeWindowHandle) -> void
 		{
@@ -381,9 +387,7 @@ namespace Durin
 			float ScaleX = 1.0f;
 			float ScaleY = 1.0f;
 			glfwGetMonitorContentScale(GlfwMonitor, &ScaleX, &ScaleY);
-			// GLFW may return 0.0 when the monitor is asleep or disconnected.
-			// Clamp to a sane range so ImGui's DpiScale assertion passes.
-			MonitorInfo.DpiScale = std::clamp(ScaleX, 1.0f, 4.0f);
+			MonitorInfo.DpiScale = SanitizeDpiScale(ScaleX);
 		}
 
 		return Monitors;
@@ -628,7 +632,7 @@ namespace Durin
 		float ScaleX = 1.0f;
 		float ScaleY = 1.0f;
 		glfwGetWindowContentScale(GlfwWindow, &ScaleX, &ScaleY);
-		return ScaleX;
+		return SanitizeDpiScale(ScaleX);
 	}
 
 	auto FGlfwWindow::SetCursor(EMouseCursor Cursor) -> void
