@@ -15,7 +15,7 @@
 #include "Workspace/LevelEditorHelpers.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "LevelEditorCustomizations.h"
-#include "Settings/EditorSessionSettings.h"
+#include "Settings/LevelEditorSessionSettings.h"
 #include "Math/Color.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
@@ -32,7 +32,7 @@ namespace Durin
 
 	} // namespace
 
-	FDetailsPanel::FDetailsPanel(FEditorSessionSettings& InSessionSettings)
+	FDetailsPanel::FDetailsPanel(FLevelEditorSessionSettings& InSessionSettings)
 		: SessionSettings(InSessionSettings)
 		, ComponentPaneRatio(InSessionSettings.GetDetailsPaneRatio())
 	{

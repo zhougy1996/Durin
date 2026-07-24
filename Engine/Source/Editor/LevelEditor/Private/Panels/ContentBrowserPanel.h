@@ -9,7 +9,7 @@
 
 namespace Durin
 {
-	class FEditorSessionSettings;
+	class FLevelEditorSessionSettings;
 	class FSourceImageThumbnailCache;
 	struct FLevelEditorContext;
 
@@ -56,7 +56,7 @@ namespace Durin
 		using FRequestImport = std::function<void(const std::string&, EContentBrowserImportType)>;
 		using FMoveAssets = std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
 
-		FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport, FMoveAssets InMoveAssets);
+		FContentBrowserPanel(FLevelEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport, FMoveAssets InMoveAssets);
 		~FContentBrowserPanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Content Browser"; }
@@ -130,7 +130,7 @@ namespace Durin
 		auto MatchesTypeFilter(const FContentBrowserItem& Item) const -> bool;
 		auto SetError(std::string Message) -> void;
 
-		FEditorSessionSettings& SessionSettings;
+		FLevelEditorSessionSettings& SessionSettings;
 		FOpenAsset OpenAsset;
 		FRequestImport RequestImport;
 		FMoveAssets MoveAssets;

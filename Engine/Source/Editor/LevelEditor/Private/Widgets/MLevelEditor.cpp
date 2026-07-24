@@ -1,12 +1,11 @@
 #include "Widgets/MLevelEditor.h"
 
-#include "Application/MonaApplication.h"
 #include "AssetSystem.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorNotification.h"
 #include "Editor/EditorTransaction.h"
 #include "Editor/EditorWorkspaceUI.h"
-#include "Settings/EditorSessionSettings.h"
+#include "Settings/LevelEditorSessionSettings.h"
 #include "Assets/EditorAssetMoveCoordinator.h"
 #include "Engine/Engine.h"
 #include "Engine/Actor.h"
@@ -26,13 +25,12 @@
 #include "Assets/StaticMeshImportDialog.h"
 #include "Assets/TextureImportDialog.h"
 #include "Widgets/EditorNotificationOverlay.h"
-#include "Widgets/MWindow.h"
 #include "Yaml/Yaml.h"
 
 namespace Durin
 {
 	// MLevelEditor is the composition root for the editor-specific controllers.
-	MLevelEditor::MLevelEditor(FEditorSessionSettings& InSessionSettings, FEditorWorkspaceManager& InWorkspaceManager)
+	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings, FEditorWorkspaceManager& InWorkspaceManager)
 		: SessionSettings(InSessionSettings)
 		, WorkspaceManager(InWorkspaceManager)
 	{
@@ -349,7 +347,6 @@ namespace Durin
 		DocumentController->DrawDialogs();
 		StaticMeshImportDialog->Draw();
 		TextureImportDialog->Draw();
-		DrawEditorPreferences();
 		DrawProjectSettings();
 
 		if (!EditorError.empty()) ImGui::OpenPopup("Editor Error");
@@ -363,17 +360,6 @@ namespace Durin
 			}
 			ImGui::EndPopup();
 		}
-
-		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow())
-		{
-			const bool bCurrentMaximized = Window->IsMaximized();
-			if (bCurrentMaximized != SessionSettings.IsWindowMaximized())
-			{
-				SessionSettings.SetWindowMaximized(bCurrentMaximized);
-				SessionSettings.Save(SceneViewportPanel);
-			}
-		}
-
 		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 		{
 			if (!Panel->IsOpen())
@@ -456,7 +442,6 @@ namespace Durin
 		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		if (bPlaying) ImGui::BeginDisabled();
 		if (ImGui::MenuItem("Project Settings...")) bProjectSettingsOpen = true;
-		if (ImGui::MenuItem("Editor Preferences...")) bEditorPreferencesOpen = true;
 		if (bPlaying) ImGui::EndDisabled();
 	}
 
@@ -477,52 +462,6 @@ namespace Durin
 			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
 			ImGui::EndMenu();
 		}
-	}
-
-	auto MLevelEditor::DrawEditorPreferences() -> void
-	{
-		if (!bEditorPreferencesOpen) return;
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(430.0f), MonaImGui::ScaleUI(230.0f)), ImGuiCond_Appearing);
-		if (ImGui::Begin("Editor Preferences###Durin.LevelEditor.EditorPreferences", &bEditorPreferencesOpen, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-		{
-			ImGui::SeparatorText("Appearance");
-			ImGui::AlignTextToFramePadding();
-			ImGui::TextDisabled("Color theme");
-			ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
-			const MonaImGui::EColorTheme CurrentTheme = MonaImGui::GetColorTheme();
-			const char* ThemeLabel = CurrentTheme == MonaImGui::EColorTheme::Light ? "Light" : "Dark";
-			ImGui::SetNextItemWidth(-1.0f);
-			if (ImGui::BeginCombo("##ColorTheme", ThemeLabel))
-			{
-				for (const auto [Label, Theme] : {std::pair{"Dark", MonaImGui::EColorTheme::Dark}, std::pair{"Light", MonaImGui::EColorTheme::Light}})
-				{
-					if (ImGui::Selectable(Label, CurrentTheme == Theme))
-					{
-						MonaImGui::SetColorTheme(Theme);
-						SessionSettings.Save(SceneViewportPanel);
-					}
-				}
-				ImGui::EndCombo();
-			}
-			ImGui::AlignTextToFramePadding();
-			ImGui::TextDisabled("UI scale");
-			ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
-			const float CurrentScale = SessionSettings.GetUIScale();
-			const std::string ScaleLabel = std::format("{}%", static_cast<int32>(CurrentScale * 100.0f));
-			ImGui::SetNextItemWidth(-1.0f);
-			if (ImGui::BeginCombo("##UIScale", ScaleLabel.c_str()))
-			{
-				for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
-				{
-					const std::string Label = std::format("{}%", static_cast<int32>(Scale * 100.0f));
-					if (ImGui::Selectable(Label.c_str(), std::abs(CurrentScale - Scale) < 0.01f))
-						ApplyDisplaySettings(SessionSettings.GetWindowWidth(), SessionSettings.GetWindowHeight(), Scale);
-				}
-				ImGui::EndCombo();
-			}
-		}
-		ImGui::End();
 	}
 
 	auto MLevelEditor::DrawProjectSettings() -> void
@@ -587,17 +526,6 @@ namespace Durin
 			if (ImGui::Button("Save", ImVec2(ButtonWidth, 0.0f)) && SaveProjectSettings()) bProjectSettingsOpen = false;
 		}
 		ImGui::End();
-	}
-
-	auto MLevelEditor::ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void
-	{
-		SessionSettings.SetDisplaySettings(Width, Height, Scale);
-		MonaImGui::SetGlobalUIScale(Scale);
-		if (const std::shared_ptr<MWindow> Window = Mona::FMonaApplication::Get().GetActiveTopLevelWindow())
-		{
-			if (!Window->IsMaximized()) Window->ResizeWindow({static_cast<float>(Width), static_cast<float>(Height)});
-		}
-		SessionSettings.Save(SceneViewportPanel);
 	}
 
 	auto MLevelEditor::SetError(std::string Message) -> void

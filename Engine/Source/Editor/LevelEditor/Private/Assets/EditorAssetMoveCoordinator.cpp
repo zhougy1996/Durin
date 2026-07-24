@@ -1,6 +1,6 @@
 #include "Assets/EditorAssetMoveCoordinator.h"
 
-#include "Settings/EditorSessionSettings.h"
+#include "Settings/LevelEditorSessionSettings.h"
 #include "Engine/Level.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/Project.h"
@@ -10,7 +10,7 @@ namespace Durin
 {
 	FEditorAssetMoveCoordinator::FEditorAssetMoveCoordinator(
 		FLevelEditorContext& InContext,
-		FEditorSessionSettings& InSessionSettings,
+		FLevelEditorSessionSettings& InSessionSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
 		std::string& InDefaultLevel,
 		std::function<bool()> InSaveProjectSettings

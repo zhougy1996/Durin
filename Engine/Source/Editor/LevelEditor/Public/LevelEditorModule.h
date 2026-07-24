@@ -6,7 +6,7 @@
 
 namespace Durin
 {
-	class FEditorSessionSettings;
+	class FLevelEditorSessionSettings;
 	class FEditorWorkspaceRegistrationHandle;
 	class FEditorWorkspaceManager;
 
@@ -18,14 +18,9 @@ namespace Durin
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
 		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(FEditorWorkspaceManager& WorkspaceManager) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
-		LEVELEDITOR_API auto GetWindowWidth() const -> int32;
-		LEVELEDITOR_API auto GetWindowHeight() const -> int32;
-		LEVELEDITOR_API auto GetUIScale() const -> float;
-		LEVELEDITOR_API auto IsWindowMaximized() const -> bool;
-
 	private:
 		std::unique_ptr<FEditorWorkspaceRegistrationHandle> WorkspaceRegistration;
-		std::unique_ptr<FEditorSessionSettings> SessionSettings;
+		std::unique_ptr<FLevelEditorSessionSettings> SessionSettings;
 		std::vector<FLevelEditorCustomizationHandle> CustomizationHandles;
 	};
 }

@@ -14,14 +14,23 @@ The editor already has a useful workspace and document foundation in `DurinEd`:
 
 The runtime workspace boundary and module boundary now match for materials.
 `MMaterialEditor`, its asset routes, API annotations, and lifetime are owned by
-the independent `MaterialEditor` module. `MainFrame` still loads the concrete
-Level Editor and Material Editor module interfaces while feature discovery is
-migrated, and it still obtains host-window settings through `FLevelEditorModule`.
+the independent `MaterialEditor` module. Atomic scoped registrations, workspace
+descriptors, generated host layout and Window menus, reusable root-window
+lifecycle, and the shared asset picker are implemented and covered by native
+tests.
 
-This removes the risk of `LevelEditor` absorbing future material preview,
-compilation, and graph-editing responsibilities. The remaining concrete module
-loading in `MainFrame` is a temporary discovery boundary, and the host settings
-dependency remains for the dedicated settings-split phase.
+`MainFrame` now owns `FEditorHostSettings`, including window size, maximized
+state, global UI scale, and color theme. It migrates the legacy `Display` map
+from `LevelEditorSession.yaml` into `EditorHostSettings.yaml` on first load.
+The remaining `FLevelEditorSessionSettings` owns only Level workspace state.
+`MainFrame` still loads the concrete Level Editor and Material Editor module
+interfaces as a temporary feature-discovery boundary.
+
+Material parent and parameter edits now enter the shared reflected-property
+transaction path, including coalescing continuous scalar and color controls.
+The remaining transaction work is exposing undo and redo through the Material
+workspace, validating render-data and dirty-state restoration, and defining
+history lifetime across project and document transitions.
 
 The shared editor asset picker now supports a width-reserving trailing action
 with persistent enabled and disabled presentation. Static-mesh material slots
@@ -31,15 +40,15 @@ shared picker.
 ## Goals
 
 - [x] Make `MaterialEditor` an independently owned editor module.
-- [ ] Keep `DurinEd` as the shared editor framework rather than introducing a
+- [x] Keep `DurinEd` as the shared editor framework rather than introducing a
   monolithic base editor class.
-- [ ] Make workspace discovery, host layout, and Window menu construction data
+- [x] Make workspace discovery, host layout, and Window menu construction data
   driven.
-- [ ] Make workspace and asset editor registration atomic or safely reversible.
+- [x] Make workspace and asset editor registration atomic or safely reversible.
 - [ ] Share asset picker, root-window lifecycle, dirty-document close, error
   presentation, and transaction behavior where the semantics are genuinely
   common.
-- [ ] Separate editor-host settings from Level Editor session and viewport
+- [x] Separate editor-host settings from Level Editor session and viewport
   settings.
 - [ ] Preserve current Level, Material, and Material Instance opening behavior
   throughout the migration.
@@ -202,12 +211,13 @@ therefore appear to do nothing.
 
 ### Transactions
 
-Material setters correctly mark packages and render data dirty, but Material
-Editor edits currently bypass the shared `FEditorTransactionManager`.
+Material setters mark packages and render data dirty, and Material Editor value
+changes now enter the shared `FEditorTransactionManager` through reflected
+property editing. Workspace-level undo and redo routing is still incomplete.
 
-- [ ] Add transactions for parent changes and scalar, vector, and texture
+- [x] Add transactions for parent changes and scalar, vector, and texture
   parameter overrides.
-- [ ] Coalesce continuous controls so one drag or color edit produces one
+- [x] Coalesce continuous controls so one drag or color edit produces one
   transaction rather than one entry per frame.
 - [ ] Make Ctrl+Z and Ctrl+Y operate on the active workspace while retaining a
   coherent editor-wide history policy.
@@ -217,18 +227,20 @@ Editor edits currently bypass the shared `FEditorTransactionManager`.
 
 ## Settings Split
 
-`FEditorSessionSettings` currently mixes host-window state with Level-specific
-viewport, gizmo, Content Browser, and Details state.
+The former `FEditorSessionSettings` ownership has been split. `MainFrame` owns
+editor-host display persistence through `FEditorHostSettings`, while the renamed
+`FLevelEditorSessionSettings` contains only viewport, gizmo, Content Browser,
+Details, and other Level workspace state.
 
-- [ ] Move window size, maximized state, and global UI scale into an editor-host
+- [x] Move window size, maximized state, and global UI scale into an editor-host
   settings owner used by `MainFrame`.
-- [ ] Rename the remaining settings type to make its Level Editor ownership
+- [x] Rename the remaining settings type to make its Level Editor ownership
   explicit.
-- [ ] Preserve existing persisted values or provide a one-time migration from
+- [x] Preserve existing persisted values or provide a one-time migration from
   `LevelEditorSession.yaml`.
-- [ ] Give Material Editor separate settings only when it gains persistent
+- [x] Give Material Editor separate settings only when it gains persistent
   layout or preview state.
-- [ ] Remove the `MainFrame` dependency on `FLevelEditorModule` for native
+- [x] Remove the `MainFrame` dependency on `FLevelEditorModule` for native
   window configuration.
 
 ## Recommended Migration Order
@@ -251,6 +263,19 @@ Each step should leave the editor buildable and runnable. Avoid combining the
 module move, registration redesign, settings migration, and transaction work in
 one change.
 
+### Stage 5: Split editor-host settings from Level Editor session settings
+
+- [x] Move host display persistence and preferences UI into `MainFrame`.
+- [x] Rename and narrow the remaining Level Editor session settings owner.
+- [x] Migrate the legacy `Display` map without discarding the remaining legacy
+  Level workspace state.
+
+#### Acceptance Gate
+
+- `MainFrame` no longer obtains native window configuration from
+  `FLevelEditorModule`; the full build, native tests, and hidden-window startup
+  validation pass with the migrated settings boundary.
+
 ## Validation
 
 - [x] Add native tests for registration commit, rollback, unloading, and retry.
@@ -271,6 +296,11 @@ one change.
 - [ ] Run `DurinEditor` from the same full build and smoke-test Level and
   Material editing, saving, docking, project switching, and shutdown.
 
+The 2026-07-24 settings split was validated with the active Agent profile by a
+successful full `all` build, all 195 `EngineTests`, and an eight-second
+`--hidden-window` startup smoke test. The broader interactive workflow smoke
+test remains open.
+
 ## Related Code
 
 - `Engine/Source/Editor/DurinEd/Public/Editor/EditorWorkspace.h`
@@ -285,4 +315,4 @@ one change.
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.h`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp`
-- `Engine/Source/Editor/LevelEditor/Private/Settings/EditorSessionSettings.h`
+- `Engine/Source/Editor/LevelEditor/Private/Settings/LevelEditorSessionSettings.h`

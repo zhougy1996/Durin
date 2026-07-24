@@ -9,7 +9,7 @@ namespace Durin
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
-	class FEditorSessionSettings
+	class FLevelEditorSessionSettings
 	{
 	public:
 		static constexpr float MinimumContentBrowserIconSize = 56.0f;
@@ -30,13 +30,6 @@ namespace Durin
 		auto RestoreViewportState(DLevel* Level, FSceneViewportPanel& SceneViewportPanel) const -> void;
 		auto MoveViewportState(std::string_view OldPath, std::string_view NewPath) -> void;
 
-		auto GetWindowWidth() const -> int32 { return WindowWidth; }
-		auto GetWindowHeight() const -> int32 { return WindowHeight; }
-		auto GetUIScale() const -> float { return UIScale; }
-		auto IsWindowMaximized() const -> bool { return bWindowMaximized; }
-		auto SetDisplaySettings(int32 Width, int32 Height, float Scale) -> void;
-		auto SetWindowMaximized(bool bMaximized) -> void { bWindowMaximized = bMaximized; }
-
 		auto GetContentBrowserViewMode() const -> uint8 { return ContentBrowserViewMode; }
 		auto GetContentBrowserIconSize() const -> float { return ContentBrowserIconSize; }
 		auto IsContentBrowserIconSizeLocked() const -> bool { return bContentBrowserIconSizeLocked; }
@@ -51,10 +44,6 @@ namespace Durin
 		friend class FEditorAssetMoveCoordinator;
 
 		FLevelViewportStateMap ViewportStates;
-		bool bWindowMaximized = true;
-		int32 WindowWidth = 1280;
-		int32 WindowHeight = 800;
-		float UIScale = 1.0f;
 		bool bGizmoSnapEnabled = false;
 		float GizmoTranslationSnap = 0.5f;
 		float GizmoRotationSnap = 15.0f;

@@ -12,12 +12,12 @@ namespace Durin
 	class DSceneComponent;
 	class DObject;
 	class FProperty;
-	class FEditorSessionSettings;
+	class FLevelEditorSessionSettings;
 
 	class FDetailsPanel final : public ILevelEditorPanel
 	{
 	public:
-		explicit FDetailsPanel(FEditorSessionSettings& InSessionSettings);
+		explicit FDetailsPanel(FLevelEditorSessionSettings& InSessionSettings);
 		~FDetailsPanel() override;
 		auto GetWindowName() const -> const char* override { return "Details"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
@@ -38,7 +38,7 @@ namespace Durin
 		TObjectPtr<DActorComponent> SelectedComponent;
 		TObjectPtr<DActorComponent> RenamingComponent;
 		FEditorRenameDialog RenameDialog;
-		FEditorSessionSettings& SessionSettings;
+		FLevelEditorSessionSettings& SessionSettings;
 		FReflectedPropertyView PropertyView;
 		float ComponentPaneRatio;
 		bool bAddComponentAsChild = false;

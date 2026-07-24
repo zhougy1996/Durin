@@ -9,7 +9,7 @@ namespace Durin
 	enum class EEditorPlayStartLocation : uint8;
 	enum class EEditorPlayDestination : uint8;
 	class ILevelEditorPanel;
-	class FEditorSessionSettings;
+	class FLevelEditorSessionSettings;
 	class FEditorAssetMoveCoordinator;
 	class FEditorWorkspaceManager;
 	class FLevelDocumentController;
@@ -24,7 +24,7 @@ namespace Durin
 	class MLevelEditor final : public IEditorWorkspace
 	{
 	public:
-		MLevelEditor(FEditorSessionSettings& InSessionSettings, FEditorWorkspaceManager& InWorkspaceManager);
+		MLevelEditor(FLevelEditorSessionSettings& InSessionSettings, FEditorWorkspaceManager& InWorkspaceManager);
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
@@ -48,9 +48,7 @@ namespace Durin
 		LEVELEDITOR_API auto ResetLayout() -> void override;
 
 	private:
-		auto DrawEditorPreferences() -> void;
 		auto DrawProjectSettings() -> void;
-		auto ApplyDisplaySettings(int32 Width, int32 Height, float Scale) -> void;
 		auto LoadProjectSettings() -> bool;
 		auto SaveProjectSettings() -> bool;
 		auto SetError(std::string Message) -> void;
@@ -59,7 +57,7 @@ namespace Durin
 		auto BuildDefaultLayout(uint32 DockSpaceId, float DockSpaceWidth, float DockSpaceHeight) -> void;
 
 		std::unique_ptr<FLevelEditorContext> Context;
-		FEditorSessionSettings& SessionSettings;
+		FLevelEditorSessionSettings& SessionSettings;
 		FEditorWorkspaceManager& WorkspaceManager;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FEditorAssetMoveCoordinator> AssetMoveCoordinator;
@@ -74,7 +72,6 @@ namespace Durin
 		bool bResetLayoutRequested = false;
 		bool bSelectDefaultBottomPanelRequested = true;
 		bool bWasActive = false;
-		bool bEditorPreferencesOpen = false;
 		bool bProjectSettingsOpen = false;
 		std::string DefaultLevel;
 		std::string EditorError;

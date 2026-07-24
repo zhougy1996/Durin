@@ -4,7 +4,7 @@
 
 namespace Durin
 {
-	class FEditorSessionSettings;
+	class FLevelEditorSessionSettings;
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
@@ -20,7 +20,7 @@ namespace Durin
 	public:
 		FEditorAssetMoveCoordinator(
 			FLevelEditorContext& InContext,
-			FEditorSessionSettings& InSessionSettings,
+			FLevelEditorSessionSettings& InSessionSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
 			std::string& InDefaultLevel,
 			std::function<bool()> InSaveProjectSettings
@@ -33,7 +33,7 @@ namespace Durin
 		auto RollbackAssets(std::span<const FEditorAssetMove> CompletedMoves) const -> std::string;
 
 		FLevelEditorContext& Context;
-		FEditorSessionSettings& SessionSettings;
+		FLevelEditorSessionSettings& SessionSettings;
 		FSceneViewportPanel& SceneViewportPanel;
 		std::string& DefaultLevel;
 		std::function<bool()> SaveProjectSettings;

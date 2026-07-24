@@ -3,7 +3,7 @@
 #include "AssetSystem.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorTransaction.h"
-#include "Settings/EditorSessionSettings.h"
+#include "Settings/LevelEditorSessionSettings.h"
 #include "Assets/EditorAssetMoveCoordinator.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -17,7 +17,7 @@ namespace Durin
 	// Owns level document transitions and the unsaved-change workflow.
 	FLevelDocumentController::FLevelDocumentController(
 		FLevelEditorContext& InContext,
-		FEditorSessionSettings& InSessionSettings,
+		FLevelEditorSessionSettings& InSessionSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
 		FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
 		std::string& InDefaultLevel,

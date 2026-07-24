@@ -165,6 +165,14 @@ Main UI and windowing layers:
 
 `MainFrame` owns the editor root window. `DGameEngine` owns the standalone runtime window and scene viewport for non-editor startup.
 
+Editor-host display persistence belongs to `MainFrame`. `FEditorHostSettings`
+stores the native window size and maximized state together with the global UI
+scale and color theme in `EditorHostSettings.yaml`. When that file does not yet
+exist, the host imports the legacy `Display` map from `LevelEditorSession.yaml`
+and writes the new file. `FLevelEditorSessionSettings` remains owned by
+`LevelEditor` and persists only Level workspace state such as viewport cameras,
+gizmo preferences, Content Browser state, and Details layout.
+
 `MainFrame` also owns the stable application menu structure. The shell keeps File, Edit, Window,
 and Help as the compact top-level surface, including application-owned commands such as About.
 Registered workspaces may contribute File, Edit, and Window subcommands, but cannot add or replace

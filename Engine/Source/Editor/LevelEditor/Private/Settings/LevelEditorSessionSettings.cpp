@@ -1,12 +1,10 @@
-#include "Settings/EditorSessionSettings.h"
+#include "Settings/LevelEditorSessionSettings.h"
 
 #include "AssetSystem.h"
-#include "Application/GenericApplication.h"
 #include "Engine/Level.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
-#include "MonaImGui.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Yaml/Yaml.h"
 
@@ -18,18 +16,8 @@ namespace Durin
 		constexpr const char* SessionSettingsFileName = "LevelEditorSession.yaml";
 	}
 
-	auto FEditorSessionSettings::Load() -> bool
+	auto FLevelEditorSessionSettings::Load() -> bool
 	{
-		MonaImGui::SetColorTheme(MonaImGui::EColorTheme::Dark);
-		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
-		if (!Monitors.empty())
-		{
-			WindowWidth = std::min(1600, static_cast<int32>(Monitors.front().WorkSize.x * 0.9f));
-			WindowHeight = std::min(1000, static_cast<int32>(Monitors.front().WorkSize.y * 0.9f));
-			UIScale = Monitors.front().WorkSize.y >= 1800 ? 1.5f : Monitors.front().WorkSize.y >= 1300 ? 1.25f :
-																										 1.0f;
-		}
-
 		FYamlDocument Document;
 		FYamlParseError Error;
 		const std::string FilePath = FPaths::LaunchDir() + SessionSettingsFileName;
@@ -42,13 +30,6 @@ namespace Durin
 
 		const FYamlNodeView Root = Document.GetRootView();
 		LoadLevelViewportStates(Root, ViewportStates);
-
-		const FYamlNodeView Display = Root.GetView("Display");
-		WindowWidth = static_cast<int32>(Display.GetView("WindowWidth").GetInt(WindowWidth));
-		WindowHeight = static_cast<int32>(Display.GetView("WindowHeight").GetInt(WindowHeight));
-		UIScale = static_cast<float>(Display.GetView("UIScale").GetDouble(UIScale));
-		MonaImGui::SetColorTheme(Display.GetView("ColorTheme").GetString("Dark") == "Light" ? MonaImGui::EColorTheme::Light : MonaImGui::EColorTheme::Dark);
-		bWindowMaximized = Display.GetView("WindowMaximized").GetBool(true);
 
 		const FYamlNodeView Gizmo = Root.GetView("TransformGizmo");
 		GizmoMode = static_cast<uint8>(std::clamp<int64>(Gizmo.GetView("Mode").GetInt(0), 0, 2));
@@ -70,7 +51,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditorSessionSettings::PruneInvalidViewportStates() -> void
+	auto FLevelEditorSessionSettings::PruneInvalidViewportStates() -> void
 	{
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
@@ -88,19 +69,12 @@ namespace Durin
 		}
 	}
 
-	auto FEditorSessionSettings::Save(const FSceneViewportPanel* SceneViewportPanel) const -> bool
+	auto FLevelEditorSessionSettings::Save(const FSceneViewportPanel* SceneViewportPanel) const -> bool
 	{
 		FYamlDocument Document;
 		FYamlNodeRef Root = Document.GetMutableRoot();
 		Root.EnsureMap();
 		if (const FProjectInfo* Project = GetCurrentProject()) Root.SetChildValue("RecentProject", Project->ProjectFile);
-		FYamlNodeRef Display = Root.AddMap("Display");
-		Display.SetChildValue("WindowWidth", WindowWidth);
-		Display.SetChildValue("WindowHeight", WindowHeight);
-		Display.SetChildValue("UIScale", static_cast<double>(UIScale));
-		Display.SetChildValue("ColorTheme", MonaImGui::GetColorTheme() == MonaImGui::EColorTheme::Light ? "Light" : "Dark");
-		Display.SetChildValue("WindowMaximized", bWindowMaximized);
-
 		FYamlNodeRef GizmoNode = Root.AddMap("TransformGizmo");
 		if (SceneViewportPanel)
 		{
@@ -146,7 +120,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditorSessionSettings::ApplyTo(FSceneViewportPanel& SceneViewportPanel) const -> void
+	auto FLevelEditorSessionSettings::ApplyTo(FSceneViewportPanel& SceneViewportPanel) const -> void
 	{
 		if (FTransformGizmo* Gizmo = SceneViewportPanel.GetTransformGizmo())
 		{
@@ -157,7 +131,7 @@ namespace Durin
 		SceneViewportPanel.SetGridVisible(bShowWorldGrid);
 	}
 
-	auto FEditorSessionSettings::CaptureViewportState(const FLevelEditorContext& Context, const FSceneViewportPanel& SceneViewportPanel) -> void
+	auto FLevelEditorSessionSettings::CaptureViewportState(const FLevelEditorContext& Context, const FSceneViewportPanel& SceneViewportPanel) -> void
 	{
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project || !Context.Level) return;
@@ -168,7 +142,7 @@ namespace Durin
 			ViewportStates[Project->ProjectFile][Package->GetPackagePath()] = State;
 	}
 
-	auto FEditorSessionSettings::RestoreViewportState(DLevel* Level, FSceneViewportPanel& SceneViewportPanel) const -> void
+	auto FLevelEditorSessionSettings::RestoreViewportState(DLevel* Level, FSceneViewportPanel& SceneViewportPanel) const -> void
 	{
 		if (!Level) return;
 		const FProjectInfo* Project = GetCurrentProject();
@@ -186,7 +160,7 @@ namespace Durin
 		SceneViewportPanel.RestoreCameraState(Level, State);
 	}
 
-	auto FEditorSessionSettings::MoveViewportState(std::string_view OldPath, std::string_view NewPath) -> void
+	auto FLevelEditorSessionSettings::MoveViewportState(std::string_view OldPath, std::string_view NewPath) -> void
 	{
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project) return;
@@ -199,14 +173,7 @@ namespace Durin
 		ProjectIt->second[std::string(NewPath)] = State;
 	}
 
-	auto FEditorSessionSettings::SetDisplaySettings(int32 Width, int32 Height, float Scale) -> void
-	{
-		WindowWidth = Width;
-		WindowHeight = Height;
-		UIScale = Scale;
-	}
-
-	auto FEditorSessionSettings::SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void
+	auto FLevelEditorSessionSettings::SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void
 	{
 		ContentBrowserViewMode = std::min<uint8>(ViewMode, 1);
 		ContentBrowserIconSize = std::clamp(IconSize, MinimumContentBrowserIconSize, MaximumContentBrowserIconSize);
@@ -216,7 +183,7 @@ namespace Durin
 		ContentBrowserLastDirectory = std::move(LastDirectory);
 	}
 
-	auto FEditorSessionSettings::SetDetailsPaneRatio(float Ratio) -> void
+	auto FLevelEditorSessionSettings::SetDetailsPaneRatio(float Ratio) -> void
 	{
 		DetailsPaneRatio = std::clamp(Ratio, MinimumDetailsPaneRatio, MaximumDetailsPaneRatio);
 	}

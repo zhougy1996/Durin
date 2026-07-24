@@ -3,7 +3,7 @@
 #include "AssetSystem.h"
 #include "Assets/ContentBrowserDragDrop.h"
 #include "Editor/EditorWorkspaceUI.h"
-#include "Settings/EditorSessionSettings.h"
+#include "Settings/LevelEditorSessionSettings.h"
 #include "Engine/Level.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Workspace/LevelEditorContext.h"
@@ -73,7 +73,7 @@ namespace Durin
 		constexpr float GridIconNameSpacing = 1.0f;
 	} // namespace
 
-	FContentBrowserPanel::FContentBrowserPanel(FEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport, FMoveAssets InMoveAssets)
+	FContentBrowserPanel::FContentBrowserPanel(FLevelEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport, FMoveAssets InMoveAssets)
 		: SessionSettings(InSessionSettings)
 		, OpenAsset(std::move(InOpenAsset))
 		, RequestImport(std::move(InRequestImport))
@@ -444,7 +444,7 @@ namespace Durin
 				}
 				ImGui::TextDisabled("Thumbnail size");
 				ImGui::SetNextItemWidth(-FLT_MIN);
-				ImGui::SliderFloat("##ContentIconSize", &IconSize, FEditorSessionSettings::MinimumContentBrowserIconSize, FEditorSessionSettings::MaximumContentBrowserIconSize, "%.0f px");
+				ImGui::SliderFloat("##ContentIconSize", &IconSize, FLevelEditorSessionSettings::MinimumContentBrowserIconSize, FLevelEditorSessionSettings::MaximumContentBrowserIconSize, "%.0f px");
 				ImGui::Checkbox("Lock Ctrl + wheel resizing", &bIconSizeLocked);
 				ImGui::Separator();
 				if (ImGui::MenuItem("Show Source Files", nullptr, bShowSourceFiles))
@@ -558,7 +558,7 @@ namespace Durin
 		ThumbnailCache->BeginFrame();
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (ViewMode == EContentBrowserViewMode::Grid && !bIconSizeLocked && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && IO.KeyCtrl && IO.MouseWheel != 0.0f)
-			IconSize = std::clamp(IconSize + IO.MouseWheel * MonaImGui::ScaleUI(8.0f), FEditorSessionSettings::MinimumContentBrowserIconSize, FEditorSessionSettings::MaximumContentBrowserIconSize);
+			IconSize = std::clamp(IconSize + IO.MouseWheel * MonaImGui::ScaleUI(8.0f), FLevelEditorSessionSettings::MinimumContentBrowserIconSize, FLevelEditorSessionSettings::MaximumContentBrowserIconSize);
 		const bool bReserveDetails = bShowSelectionDetails && Selection.size() == 1;
 		if (bReserveDetails) ImGui::BeginChild("ContentBrowserMainView", ImVec2(0.0f, -132.0f));
 		bContentItemHovered = false;

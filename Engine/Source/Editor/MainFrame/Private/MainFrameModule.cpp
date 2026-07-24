@@ -11,8 +11,10 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/Version.h"
+#include "Settings/EditorHostSettings.h"
 
 #include "Widgets/MFunctionWidget.h"
+#include "Widgets/MWindow.h"
 
 namespace Durin
 {
@@ -85,7 +87,73 @@ namespace Durin
 			ImGui::End();
 		}
 
-		auto DrawWorkspaceHost(FEditorWorkspaceManager& WorkspaceManager, bool& bAboutDialogOpen) -> void
+		auto DrawEditorPreferences(FEditorHostSettings& Settings, MWindow& RootWindow, bool& bOpen) -> void
+		{
+			if (!bOpen) return;
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(430.0f), MonaImGui::ScaleUI(230.0f)), ImGuiCond_Appearing);
+			if (ImGui::Begin("Editor Preferences###Durin.EditorHost.EditorPreferences", &bOpen, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+			{
+				ImGui::SeparatorText("Appearance");
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextDisabled("Color theme");
+				ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
+				const MonaImGui::EColorTheme CurrentTheme = Settings.GetColorTheme();
+				const char* ThemeLabel = CurrentTheme == MonaImGui::EColorTheme::Light ? "Light" : "Dark";
+				ImGui::SetNextItemWidth(-1.0f);
+				if (ImGui::BeginCombo("##ColorTheme", ThemeLabel))
+				{
+					for (const auto [Label, Theme] : {std::pair{"Dark", MonaImGui::EColorTheme::Dark}, std::pair{"Light", MonaImGui::EColorTheme::Light}})
+					{
+						if (ImGui::Selectable(Label, CurrentTheme == Theme))
+						{
+							Settings.SetColorTheme(Theme);
+							MonaImGui::SetColorTheme(Theme);
+							Settings.Save();
+						}
+					}
+					ImGui::EndCombo();
+				}
+
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextDisabled("UI scale");
+				ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
+				const float CurrentScale = Settings.GetUIScale();
+				const std::string ScaleLabel = std::format("{}%", static_cast<int32>(CurrentScale * 100.0f));
+				ImGui::SetNextItemWidth(-1.0f);
+				if (ImGui::BeginCombo("##UIScale", ScaleLabel.c_str()))
+				{
+					for (const float Scale : {0.75f, 1.0f, 1.25f, 1.5f, 2.0f})
+					{
+						const std::string Label = std::format("{}%", static_cast<int32>(Scale * 100.0f));
+						if (!ImGui::Selectable(Label.c_str(), std::abs(CurrentScale - Scale) < 0.01f)) continue;
+						Settings.SetDisplaySettings(Settings.GetWindowWidth(), Settings.GetWindowHeight(), Scale);
+						MonaImGui::SetGlobalUIScale(Scale);
+						if (!RootWindow.IsMaximized()) RootWindow.ResizeWindow({
+							static_cast<float>(Settings.GetWindowWidth()), static_cast<float>(Settings.GetWindowHeight())});
+						Settings.Save();
+					}
+					ImGui::EndCombo();
+				}
+			}
+			ImGui::End();
+		}
+
+		auto ObserveEditorHostWindowState(FEditorHostSettings& Settings, const MWindow& RootWindow) -> void
+		{
+			const bool bMaximized = RootWindow.IsMaximized();
+			if (bMaximized == Settings.IsWindowMaximized()) return;
+			Settings.SetWindowMaximized(bMaximized);
+			Settings.Save();
+		}
+
+		auto DrawWorkspaceHost(
+			FEditorWorkspaceManager& WorkspaceManager,
+			FEditorHostSettings& HostSettings,
+			MWindow& RootWindow,
+			bool& bAboutDialogOpen,
+			bool& bEditorPreferencesOpen
+		) -> void
 		{
 			ImGuiViewport* Viewport = ImGui::GetMainViewport();
 			ImGui::SetNextWindowPos(Viewport->WorkPos);
@@ -133,6 +201,7 @@ namespace Durin
 					if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, ActiveWorkspace && ActiveWorkspace->CanUndo())) ActiveWorkspace->Undo();
 					if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, ActiveWorkspace && ActiveWorkspace->CanRedo())) ActiveWorkspace->Redo();
 					ImGui::Separator();
+					if (ImGui::MenuItem("Editor Preferences...")) bEditorPreferencesOpen = true;
 					for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
 					ImGui::EndMenu();
 				}
@@ -168,6 +237,7 @@ namespace Durin
 				ImGui::EndMenuBar();
 			}
 			DrawAboutDialog(bAboutDialogOpen);
+			DrawEditorPreferences(HostSettings, RootWindow, bEditorPreferencesOpen);
 
 			const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
 			const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeEditorHostDockSpaceId(EditorWorkspaceUI::HostLayoutVersion);
@@ -201,10 +271,13 @@ namespace Durin
 
 	auto FMainFrameModule::CreateDefaultMainFrame() -> void
 	{
+		auto HostSettings = std::make_shared<FEditorHostSettings>();
+		HostSettings->Load();
+		MonaImGui::SetColorTheme(HostSettings->GetColorTheme());
+		MonaImGui::SetGlobalUIScale(HostSettings->GetUIScale());
 		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 		FMaterialEditorModule& MaterialEditorModule = FModuleManager::LoadModuleChecked<FMaterialEditorModule>("MaterialEditor");
-		const FIntPoint WindowSize{LevelEditorModule.GetWindowWidth(), LevelEditorModule.GetWindowHeight()};
-		MonaImGui::SetGlobalUIScale(LevelEditorModule.GetUIScale());
+		const FIntPoint WindowSize{HostSettings->GetWindowWidth(), HostSettings->GetWindowHeight()};
 		FLevelEditorModule* LevelEditorModulePtr = &LevelEditorModule;
 		FMaterialEditorModule* MaterialEditorModulePtr = &MaterialEditorModule;
 		auto RootWindow = std::make_shared<MWindow>();
@@ -240,10 +313,13 @@ namespace Durin
 			return true;
 		});
 
-		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser, bAboutDialogOpen = false]() mutable {
+		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser, HostSettings, WeakRootWindow,
+			bAboutDialogOpen = false, bEditorPreferencesOpen = false]() mutable {
+			const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock();
+			if (RootWindow) ObserveEditorHostWindowState(*HostSettings, *RootWindow);
 			if (*bWorkspaceReady)
 			{
-				DrawWorkspaceHost(*WorkspaceManager, bAboutDialogOpen);
+				if (RootWindow) DrawWorkspaceHost(*WorkspaceManager, *HostSettings, *RootWindow, bAboutDialogOpen, bEditorPreferencesOpen);
 				return;
 			}
 			ProjectBrowser->Draw();
@@ -256,7 +332,7 @@ namespace Durin
 		Mona::FMonaApplication::Get().AddWindow(RootWindow, false);
 		Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
 
-		if (LevelEditorModule.IsWindowMaximized())
+		if (HostSettings->IsWindowMaximized())
 		{
 			RootWindow->MaximizeWindow();
 		}
