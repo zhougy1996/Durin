@@ -11,3 +11,4 @@ These plans have an active execution path. Plan authoring and archival rules are
 | [Multithreading V1](MultithreadingV1.md) | Production-safe CPU task states, lifecycle, dependencies, cancellation, parallel loops, and async consumer handoff |
 | [Editor Workspace Refactor](EditorWorkspaceRefactor.md) | Editor workspaces, panels, and document lifecycles |
 | [Editor Icon Atlas](EditorIconAtlas.md) | Offline atlas pipeline for editor visualization icons |
+| [Enum Editor Metadata](EnumEditorMetadata.md) | Reflected enum type/value display names, DHT metadata, and shared editor presentation |
