@@ -409,6 +409,54 @@ TEST(FWorldTests, RenamesActorsWithUniqueNames)
 	Durin::CollectGarbage();
 }
 
+#if DURIN_WITH_EDITOR
+TEST(FWorldTests, TracksEditorActorHierarchyRevision)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::DLevel* Level = World->GetCurrentLevel();
+	const auto InitialRevision = Level->GetEditorActorHierarchyRevision();
+
+	Durin::AActor* Parent = World->SpawnActor<Durin::ACameraActor>("Parent");
+	ASSERT_NE(Parent, nullptr);
+	const auto AfterParentSpawn = Level->GetEditorActorHierarchyRevision();
+	EXPECT_GT(AfterParentSpawn, InitialRevision);
+
+	Durin::AActor* Child = World->SpawnActor<Durin::ACameraActor>("Child");
+	ASSERT_NE(Child, nullptr);
+	const auto AfterChildSpawn = Level->GetEditorActorHierarchyRevision();
+	EXPECT_GT(AfterChildSpawn, AfterParentSpawn);
+
+	Child->SetHidden(true);
+	EXPECT_EQ(Level->GetEditorActorHierarchyRevision(), AfterChildSpawn);
+	Durin::FTransform Transform;
+	Transform.Translation = {1.0, 2.0, 3.0};
+	EXPECT_TRUE(Child->SetActorTransform(Transform));
+	EXPECT_EQ(Level->GetEditorActorHierarchyRevision(), AfterChildSpawn);
+
+	ASSERT_TRUE(Level->RenameActor(Child, "RenamedChild"));
+	const auto AfterRename = Level->GetEditorActorHierarchyRevision();
+	EXPECT_GT(AfterRename, AfterChildSpawn);
+	EXPECT_FALSE(Level->RenameActor(Child, Durin::FName()));
+	EXPECT_EQ(Level->GetEditorActorHierarchyRevision(), AfterRename);
+
+	ASSERT_TRUE(Child->GetRootComponent()->AttachToComponent(Parent->GetRootComponent()));
+	const auto AfterAttach = Level->GetEditorActorHierarchyRevision();
+	EXPECT_GT(AfterAttach, AfterRename);
+	EXPECT_FALSE(Parent->AttachToActor(Child));
+	EXPECT_EQ(Level->GetEditorActorHierarchyRevision(), AfterAttach);
+
+	ASSERT_TRUE(Child->GetRootComponent()->DetachFromComponent());
+	const auto AfterDetach = Level->GetEditorActorHierarchyRevision();
+	EXPECT_GT(AfterDetach, AfterAttach);
+
+	ASSERT_TRUE(World->DestroyActor(Child));
+	EXPECT_GT(Level->GetEditorActorHierarchyRevision(), AfterDetach);
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+#endif
+
 TEST(FWorldTests, TracksActorVisibility)
 {
 	Durin::DWorld* World = CreateWorld();

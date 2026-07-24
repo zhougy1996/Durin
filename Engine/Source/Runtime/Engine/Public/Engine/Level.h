@@ -9,6 +9,7 @@ namespace Durin
 {
 	class AActor;
 	class ACameraActor;
+	class DSceneComponent;
 	class DWorld;
 
 	DCLASS()
@@ -39,10 +40,18 @@ namespace Durin
 		auto GetWorld() const -> DWorld* { return OwningWorld; }
 		auto PostLoad(std::string& OutError) -> bool override;
 
+#if DURIN_WITH_EDITOR
+		auto GetEditorActorHierarchyRevision() const -> uint64 { return EditorActorHierarchyRevision; }
+#endif
+
 	private:
 		auto MakeUniqueActorName(FName RequestedName, const AActor* IgnoredActor = nullptr) const -> FName;
 		auto OnActorAdded(AActor* Actor) -> void;
 		auto SetOwningWorld(DWorld* World) -> void { OwningWorld = World; }
+
+#if DURIN_WITH_EDITOR
+		auto NotifyEditorActorHierarchyChanged() -> void { ++EditorActorHierarchyRevision; }
+#endif
 
 		DPROPERTY()
 		std::vector<TObjectPtr<AActor>> Actors;
@@ -52,6 +61,12 @@ namespace Durin
 
 		DWorld* OwningWorld = nullptr;
 
+#if DURIN_WITH_EDITOR
+		uint64 EditorActorHierarchyRevision = 1;
+#endif
+
+		friend class AActor;
+		friend class DSceneComponent;
 		friend class DWorld;
 	};
 }

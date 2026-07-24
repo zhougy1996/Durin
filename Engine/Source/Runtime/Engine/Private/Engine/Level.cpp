@@ -21,6 +21,9 @@ namespace Durin
 		AActor* Actor = NewObject<AActor>(ActorClass, this, MakeUniqueActorName(RequestedName));
 		if (!Actor) return nullptr;
 		Actors.emplace_back(Actor);
+#if DURIN_WITH_EDITOR
+		NotifyEditorActorHierarchyChanged();
+#endif
 		OnActorAdded(Actor);
 		if (OwningWorld && OwningWorld->HasBegunPlay()) Actor->BeginPlay();
 		if (!PrimaryCameraActor)
@@ -45,6 +48,9 @@ namespace Durin
 			Component->DestroyComponent();
 		}
 		Actors.erase(It);
+#if DURIN_WITH_EDITOR
+		NotifyEditorActorHierarchyChanged();
+#endif
 		if (bWasPrimaryCamera)
 		{
 			PrimaryCameraActor = nullptr;
@@ -78,6 +84,9 @@ namespace Durin
 	{
 		if (!ContainsActor(Actor) || RequestedName.IsNone()) return false;
 		Actor->Rename(MakeUniqueActorName(RequestedName, Actor));
+#if DURIN_WITH_EDITOR
+		NotifyEditorActorHierarchyChanged();
+#endif
 		MarkPackageDirty();
 		return true;
 	}
@@ -168,6 +177,9 @@ namespace Durin
 				if (auto* Camera = dynamic_cast<ACameraActor*>(Actor.Get())) { PrimaryCameraActor = Camera; break; }
 			}
 		}
+#if DURIN_WITH_EDITOR
+		NotifyEditorActorHierarchyChanged();
+#endif
 		return true;
 	}
 }

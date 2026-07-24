@@ -2,6 +2,9 @@
 
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
+#if DURIN_WITH_EDITOR
+#include "Engine/Level.h"
+#endif
 
 namespace Durin
 {
@@ -170,6 +173,11 @@ namespace Durin
 			return false;
 		}
 
+#if DURIN_WITH_EDITOR
+		AActor* Owner = GetOwner();
+		const bool bActorRoot = Owner && Owner->GetRootComponent() == this;
+		AActor* PreviousParentActor = bActorRoot ? Owner->GetAttachParentActor() : nullptr;
+#endif
 		const FTransform PreviousWorld = ComponentToWorld;
 		if (DSceneComponent* PreviousParent = AttachParent.Get())
 		{
@@ -196,6 +204,12 @@ namespace Durin
 
 		UpdateComponentToWorld();
 		MarkPackageDirty();
+#if DURIN_WITH_EDITOR
+		if (bActorRoot && PreviousParentActor != Owner->GetAttachParentActor())
+		{
+			if (auto* Level = dynamic_cast<DLevel*>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+		}
+#endif
 		return true;
 	}
 
@@ -207,6 +221,11 @@ namespace Durin
 			return false;
 		}
 
+#if DURIN_WITH_EDITOR
+		AActor* Owner = GetOwner();
+		const bool bActorRoot = Owner && Owner->GetRootComponent() == this;
+		AActor* PreviousParentActor = bActorRoot ? Owner->GetAttachParentActor() : nullptr;
+#endif
 		const FTransform PreviousWorld = ComponentToWorld;
 		Parent->RemoveAttachChild(this);
 		AttachParent = nullptr;
@@ -216,6 +235,12 @@ namespace Durin
 		}
 		UpdateComponentToWorld();
 		MarkPackageDirty();
+#if DURIN_WITH_EDITOR
+		if (bActorRoot && PreviousParentActor != Owner->GetAttachParentActor())
+		{
+			if (auto* Level = dynamic_cast<DLevel*>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+		}
+#endif
 		return true;
 	}
 

@@ -112,25 +112,146 @@ namespace Durin
 			return Icons::Circle;
 		}
 
-		auto ActorDepth(AActor* Actor, const std::unordered_set<AActor*>& Actors) -> size_t
+	} // namespace
+
+	auto FWorldOutlinerPanel::ResetHierarchyCache() -> void
+	{
+		CachedHierarchyLevel = nullptr;
+		CachedHierarchyRevision = 0;
+		HierarchyNodes.clear();
+		RootNodeIndices.clear();
+		ActorToNode.clear();
+		FilterVisibility.clear();
+		CachedFilter.clear();
+		bFilterCacheValid = false;
+		VisibleActors.clear();
+		LastVisibleActors.clear();
+		ExpandedActors.clear();
+	}
+
+	auto FWorldOutlinerPanel::RebuildHierarchyCache(DLevel* Level) -> void
+	{
+		CachedHierarchyLevel = Level;
+		CachedHierarchyRevision = Level ? Level->GetEditorActorHierarchyRevision() : 0;
+		HierarchyNodes.clear();
+		RootNodeIndices.clear();
+		ActorToNode.clear();
+		FilterVisibility.clear();
+		bFilterCacheValid = false;
+		VisibleActors.clear();
+		LastVisibleActors.clear();
+
+		if (!Level)
 		{
-			size_t Depth = 0;
-			std::unordered_set<AActor*> Visited;
-			for (AActor* Parent = Actor ? Actor->GetAttachParentActor() : nullptr; Parent && Actors.contains(Parent) && Visited.insert(Parent).second; Parent = Parent->GetAttachParentActor())
-				++Depth;
-			return Depth;
+			ExpandedActors.clear();
+			return;
 		}
 
-		auto IsDescendantOf(AActor* Actor, AActor* CandidateAncestor) -> bool
+		std::vector<AActor*> SortedActors;
+		SortedActors.reserve(Level->GetActors().size());
+		for (const TObjectPtr<AActor>& ActorPtr : Level->GetActors())
 		{
-			std::unordered_set<AActor*> Visited;
-			for (AActor* Parent = Actor ? Actor->GetAttachParentActor() : nullptr; Parent && Visited.insert(Parent).second; Parent = Parent->GetAttachParentActor())
-			{
-				if (Parent == CandidateAncestor) return true;
-			}
-			return false;
+			if (AActor* Actor = ActorPtr.Get()) SortedActors.push_back(Actor);
 		}
-	} // namespace
+		std::ranges::sort(SortedActors, [](AActor* Left, AActor* Right) { return Left->GetName() < Right->GetName(); });
+
+		HierarchyNodes.reserve(SortedActors.size());
+		ActorToNode.reserve(SortedActors.size());
+		for (AActor* Actor : SortedActors)
+		{
+			const uint32 NodeIndex = static_cast<uint32>(HierarchyNodes.size());
+			HierarchyNodes.push_back({.Actor = Actor});
+			ActorToNode.emplace(Actor, NodeIndex);
+		}
+
+		for (uint32 NodeIndex = 0; NodeIndex < HierarchyNodes.size(); ++NodeIndex)
+		{
+			AActor* Parent = HierarchyNodes[NodeIndex].Actor->GetAttachParentActor();
+			if (const auto It = ActorToNode.find(Parent); It != ActorToNode.end() && It->second != NodeIndex)
+				HierarchyNodes[NodeIndex].Parent = It->second;
+		}
+
+		// Loaded levels already reject cycles. Keep the cache defensive without walking every parent chain.
+		std::vector<uint8> VisitState(HierarchyNodes.size(), 0);
+		std::vector<uint32> Path;
+		Path.reserve(HierarchyNodes.size());
+		for (uint32 StartIndex = 0; StartIndex < HierarchyNodes.size(); ++StartIndex)
+		{
+			if (VisitState[StartIndex] != 0) continue;
+			Path.clear();
+			uint32 NodeIndex = StartIndex;
+			while (NodeIndex != InvalidNodeIndex && VisitState[NodeIndex] == 0)
+			{
+				VisitState[NodeIndex] = 1;
+				Path.push_back(NodeIndex);
+				NodeIndex = HierarchyNodes[NodeIndex].Parent;
+			}
+			if (NodeIndex != InvalidNodeIndex && VisitState[NodeIndex] == 1)
+				HierarchyNodes[Path.back()].Parent = InvalidNodeIndex;
+			for (uint32 PathNode : Path) VisitState[PathNode] = 2;
+		}
+
+		RootNodeIndices.reserve(HierarchyNodes.size());
+		for (uint32 NodeIndex = 0; NodeIndex < HierarchyNodes.size(); ++NodeIndex)
+		{
+			const uint32 ParentIndex = HierarchyNodes[NodeIndex].Parent;
+			if (ParentIndex == InvalidNodeIndex)
+				RootNodeIndices.push_back(NodeIndex);
+			else
+				HierarchyNodes[ParentIndex].Children.push_back(NodeIndex);
+		}
+
+		uint32 TraversalPosition = 0;
+		auto CacheTraversal = [&](auto&& Self, uint32 NodeIndex, uint32 Depth) -> void {
+			FOutlinerNode& Node = HierarchyNodes[NodeIndex];
+			Node.Depth = Depth;
+			Node.TraversalBegin = TraversalPosition++;
+			for (uint32 ChildIndex : Node.Children) Self(Self, ChildIndex, Depth + 1);
+			Node.TraversalEnd = TraversalPosition;
+		};
+		for (uint32 RootIndex : RootNodeIndices) CacheTraversal(CacheTraversal, RootIndex, 0);
+
+		std::erase_if(ExpandedActors, [&](const auto& Entry) { return !ActorToNode.contains(Entry.first); });
+	}
+
+	auto FWorldOutlinerPanel::RebuildFilterCache(std::string_view Filter) -> void
+	{
+		CachedFilter = Filter;
+		FilterVisibility.assign(HierarchyNodes.size(), Filter.empty());
+		bFilterCacheValid = true;
+		if (Filter.empty()) return;
+
+		auto CacheVisibility = [&](auto&& Self, uint32 NodeIndex) -> bool {
+			bool bVisible = ActorMatchesFilter(HierarchyNodes[NodeIndex].Actor.Get(), Filter);
+			for (uint32 ChildIndex : HierarchyNodes[NodeIndex].Children)
+				bVisible |= Self(Self, ChildIndex);
+			FilterVisibility[NodeIndex] = bVisible;
+			return bVisible;
+		};
+		for (uint32 RootIndex : RootNodeIndices) CacheVisibility(CacheVisibility, RootIndex);
+	}
+
+	auto FWorldOutlinerPanel::IsNodeVisible(uint32 NodeIndex) const -> bool
+	{
+		return NodeIndex < FilterVisibility.size() && FilterVisibility[NodeIndex] != 0;
+	}
+
+	auto FWorldOutlinerPanel::IsDescendantOf(const AActor* Actor, const AActor* CandidateAncestor) const -> bool
+	{
+		if (!Actor || !CandidateAncestor || Actor == CandidateAncestor) return false;
+		const auto ActorIt = ActorToNode.find(Actor);
+		const auto AncestorIt = ActorToNode.find(CandidateAncestor);
+		if (ActorIt == ActorToNode.end() || AncestorIt == ActorToNode.end()) return false;
+		const FOutlinerNode& Node = HierarchyNodes[ActorIt->second];
+		const FOutlinerNode& Ancestor = HierarchyNodes[AncestorIt->second];
+		return Ancestor.TraversalBegin <= Node.TraversalBegin && Node.TraversalEnd <= Ancestor.TraversalEnd;
+	}
+
+	auto FWorldOutlinerPanel::GetActorDepth(const AActor* Actor) const -> uint32
+	{
+		const auto It = ActorToNode.find(Actor);
+		return It != ActorToNode.end() ? HierarchyNodes[It->second].Depth : 0;
+	}
 
 	auto FWorldOutlinerPanel::Draw(FLevelEditorContext& Context) -> void
 	{
@@ -158,6 +279,7 @@ namespace Durin
 		if (Context.Level == nullptr)
 		{
 			DisplayedLevel = nullptr;
+			ResetHierarchyCache();
 			bLevelSelected = false;
 			bRenamingLevel = false;
 			RenamingActor = nullptr;
@@ -175,51 +297,14 @@ namespace Durin
 			RenameDialog.Cancel();
 		}
 
-		std::vector<AActor*> Actors;
-		std::unordered_set<AActor*> ActorSet;
-		for (const TObjectPtr<AActor>& ActorPtr : Context.World->GetActors())
-		{
-			if (AActor* Actor = ActorPtr.Get())
-			{
-				Actors.push_back(Actor);
-				ActorSet.insert(Actor);
-			}
-		}
-		const auto SortByName = [](AActor* Left, AActor* Right) { return Left->GetName() < Right->GetName(); };
-		std::ranges::sort(Actors, SortByName);
-
-		std::unordered_map<AActor*, std::vector<AActor*>> Children;
-		std::vector<AActor*> Roots;
-		for (AActor* Actor : Actors)
-		{
-			AActor* Parent = Actor->GetAttachParentActor();
-			if (Parent && ActorSet.contains(Parent) && !IsDescendantOf(Parent, Actor))
-				Children[Parent].push_back(Actor);
-			else
-				Roots.push_back(Actor);
-		}
-		for (auto& [Parent, Nodes] : Children)
-			std::ranges::sort(Nodes, SortByName);
-
+		if (CachedHierarchyLevel.Get() != Context.Level
+			|| CachedHierarchyRevision != Context.Level->GetEditorActorHierarchyRevision())
+			RebuildHierarchyCache(Context.Level);
 		const std::string_view Filter(SearchText.data());
+		if (!bFilterCacheValid || CachedFilter != Filter) RebuildFilterCache(Filter);
 		const bool bRestoreExpansion = bWasSearching && Filter.empty();
-		std::unordered_map<AActor*, bool> FilterVisibility;
-		std::function<bool(AActor*, std::unordered_set<AActor*>&)> IsVisible = [&](AActor* Actor, std::unordered_set<AActor*>& Stack) {
-			if (const auto It = FilterVisibility.find(Actor); It != FilterVisibility.end()) return It->second;
-			if (!Stack.insert(Actor).second) return FilterVisibility[Actor] = ActorMatchesFilter(Actor, Filter);
-			bool bVisible = ActorMatchesFilter(Actor, Filter);
-			for (AActor* Child : Children[Actor])
-				bVisible |= IsVisible(Child, Stack);
-			Stack.erase(Actor);
-			return FilterVisibility[Actor] = bVisible;
-		};
-		for (AActor* Root : Roots)
-		{
-			std::unordered_set<AActor*> Stack;
-			IsVisible(Root, Stack);
-		}
 
-		std::vector<AActor*> VisibleActors;
+		VisibleActors.clear();
 		bool bRequestDelete = false;
 		auto SetActorVisibility = [&](const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) {
 			std::vector<FActorVisibilityTransaction::FEntry> Entries;
@@ -234,8 +319,8 @@ namespace Durin
 		};
 		auto ShowAllActors = [&]() {
 			std::vector<TObjectPtr<AActor>> AllActors;
-			AllActors.reserve(Actors.size());
-			for (AActor* Actor : Actors) AllActors.emplace_back(Actor);
+			AllActors.reserve(HierarchyNodes.size());
+			for (const FOutlinerNode& Node : HierarchyNodes) AllActors.push_back(Node.Actor);
 			SetActorVisibility(AllActors, false);
 		};
 		auto BeginActorRename = [&](AActor* Actor) {
@@ -244,11 +329,13 @@ namespace Durin
 			bRenamingLevel = false;
 			RenameDialog.Open(Actor->GetName());
 		};
-		std::function<void(AActor*, std::unordered_set<AActor*>&)> DrawNode = [&](AActor* Actor, std::unordered_set<AActor*>& Stack) {
-			if (!Filter.empty() && !FilterVisibility[Actor]) return;
-			if (!Stack.insert(Actor).second) return;
+		auto DrawNode = [&](auto&& Self, uint32 NodeIndex) -> void {
+			if (!IsNodeVisible(NodeIndex)) return;
+			const FOutlinerNode& Node = HierarchyNodes[NodeIndex];
+			AActor* Actor = Node.Actor.Get();
+			if (!Actor) return;
 			VisibleActors.push_back(Actor);
-			const bool bHasVisibleChildren = std::ranges::any_of(Children[Actor], [&](AActor* Child) { return Filter.empty() || FilterVisibility[Child]; });
+			const bool bHasVisibleChildren = std::ranges::any_of(Node.Children, [&](uint32 ChildIndex) { return IsNodeVisible(ChildIndex); });
 			ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
 			if (!bHasVisibleChildren) Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 			if (Context.IsActorSelected(Actor)) Flags |= ImGuiTreeNodeFlags_Selected;
@@ -349,11 +436,9 @@ namespace Durin
 
 			if (bOpen && bHasVisibleChildren)
 			{
-				for (AActor* Child : Children[Actor])
-					DrawNode(Child, Stack);
+				for (uint32 ChildIndex : Node.Children) Self(Self, ChildIndex);
 				ImGui::TreePop();
 			}
-			Stack.erase(Actor);
 			ImGui::PopID();
 		};
 
@@ -434,11 +519,7 @@ namespace Durin
 
 		if (bLevelOpen)
 		{
-			for (AActor* Root : Roots)
-			{
-				std::unordered_set<AActor*> Stack;
-				DrawNode(Root, Stack);
-			}
+			for (uint32 RootIndex : RootNodeIndices) DrawNode(DrawNode, RootIndex);
 			if (VisibleActors.empty()) ImGui::TextDisabled(Filter.empty() ? "No actors in this level." : "No actors match '%s'.", SearchText.data());
 			ImGui::TreePop();
 		}
@@ -447,7 +528,7 @@ namespace Durin
 		bWasSearching = !Filter.empty();
 
 		ImGui::Spacing();
-		ImGui::TextDisabled("%zu actors | %zu selected", Actors.size(), Context.GetSelectedActors().size());
+		ImGui::TextDisabled("%zu actors | %zu selected", HierarchyNodes.size(), Context.GetSelectedActors().size());
 
 		const ImGuiIO& IO = ImGui::GetIO();
 		const bool bOutlinerFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -504,7 +585,7 @@ namespace Durin
 			ImGui::TextDisabled("This action cannot be undone.");
 			if (ImGui::Button("Delete"))
 			{
-				std::ranges::sort(PendingDeleteActors, [&](const TObjectPtr<AActor>& Left, const TObjectPtr<AActor>& Right) { return ActorDepth(Left.Get(), ActorSet) > ActorDepth(Right.Get(), ActorSet); });
+				std::ranges::sort(PendingDeleteActors, [&](const TObjectPtr<AActor>& Left, const TObjectPtr<AActor>& Right) { return GetActorDepth(Left.Get()) > GetActorDepth(Right.Get()); });
 				for (const TObjectPtr<AActor>& Actor : PendingDeleteActors)
 					if (Actor && !Context.World->DestroyActor(Actor.Get())) Context.SetError(std::format("Failed to delete '{}'.", Actor->GetName()));
 				Context.ClearSelection();
@@ -525,7 +606,7 @@ namespace Durin
 			Context.ClearSelection();
 			bLevelSelected = false;
 		}
-		LastVisibleActors = std::move(VisibleActors);
+		LastVisibleActors.swap(VisibleActors);
 		ImGui::End();
 	}
 } // namespace Durin

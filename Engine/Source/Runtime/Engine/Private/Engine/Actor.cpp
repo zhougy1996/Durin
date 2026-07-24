@@ -2,6 +2,9 @@
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
+#if DURIN_WITH_EDITOR
+#include "Engine/Level.h"
+#endif
 
 namespace Durin
 {
@@ -54,7 +57,16 @@ namespace Durin
 		{
 			return false;
 		}
+#if DURIN_WITH_EDITOR
+		AActor* PreviousParentActor = GetAttachParentActor();
+#endif
 		RootComponent = InRootComponent;
+#if DURIN_WITH_EDITOR
+		if (PreviousParentActor != GetAttachParentActor())
+		{
+			if (auto* Level = dynamic_cast<DLevel*>(GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+		}
+#endif
 		return true;
 	}
 
