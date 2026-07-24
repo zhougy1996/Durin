@@ -546,7 +546,9 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	auto& Registry = Durin::Asset::FAssetManager::Get().GetRegistry();
 
+	const Durin::uint64 RevisionBeforeInitialScan = Registry.GetRevision();
 	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	EXPECT_GT(Registry.GetRevision(), RevisionBeforeInitialScan);
 	EXPECT_EQ(Registry.GetLastScanStats().Enumerated, 2u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
 	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 2u);
@@ -557,7 +559,9 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	std::vector<Durin::uint8> FirstCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstCache, CacheFile.generic_string()));
 
+	const Durin::uint64 StableRevision = Registry.GetRevision();
 	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetRevision(), StableRevision);
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
 	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 0u);
@@ -570,6 +574,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	const auto Alpha = ContentA / "Alpha.dasset";
 	std::filesystem::last_write_time(Alpha, std::filesystem::last_write_time(Alpha) + std::chrono::seconds(2));
 	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_GT(Registry.GetRevision(), StableRevision);
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 1u);
@@ -652,6 +657,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	auto& Registry = Durin::Asset::GetAssetRegistry();
 	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	const Durin::uint64 EmptyRegistryRevision = Registry.GetRevision();
 
 	Durin::FAssetPath FirstPath;
 	Durin::FAssetPath MovedPath;
@@ -662,8 +668,10 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 
 	DPackageAssetForTest* FirstAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(FirstPath, FirstAsset));
+	EXPECT_EQ(Registry.GetRevision(), EmptyRegistryRevision);
 	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
 	ASSERT_TRUE(Durin::Asset::SavePackage(FirstAsset->GetPackage()));
+	EXPECT_GT(Registry.GetRevision(), EmptyRegistryRevision);
 	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
 	Durin::Asset::ShutdownAssetManager();
 	EXPECT_FALSE(Registry.IsPersistentSnapshotDirty());
@@ -672,7 +680,9 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
 
 	Durin::DObject* Reloaded = nullptr;
+	const Durin::uint64 RevisionBeforeLoad = Registry.GetRevision();
 	ASSERT_TRUE(Durin::Asset::LoadAsset(FirstPath, Reloaded));
+	EXPECT_EQ(Registry.GetRevision(), RevisionBeforeLoad);
 	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
 	Durin::Asset::ShutdownAssetManager();
 	ASSERT_TRUE(Registry.ScanMountedContent());

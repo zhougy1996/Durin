@@ -43,6 +43,8 @@ namespace Durin::Asset
 		uintmax_t FileSize = 0;
 		std::filesystem::file_time_type LastWriteTime{};
 		int64 LastWriteTimeTicks = 0;
+
+		auto operator==(const FAssetData&) const -> bool = default;
 	};
 
 	struct FAssetPackageHeader
@@ -117,6 +119,7 @@ namespace Durin::Asset
 		auto GetLastScanStats() const -> const FAssetRegistryScanStats& { return LastScanStats; }
 		auto GetCacheWarning() const -> const std::string& { return CacheWarning; }
 		auto IsPersistentSnapshotDirty() const -> bool { return bPersistentSnapshotDirty; }
+		auto GetRevision() const -> uint64 { return Revision; }
 
 	private:
 		auto AddOrUpdate(FAssetData Data) -> void;
@@ -126,6 +129,7 @@ namespace Durin::Asset
 		FAssetRegistryScanStats LastScanStats;
 		std::string CacheWarning;
 		bool bPersistentSnapshotDirty = false;
+		uint64 Revision = 1;
 
 		friend class FAssetManager;
 	};

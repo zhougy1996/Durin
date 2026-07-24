@@ -880,7 +880,11 @@ namespace Durin::Asset
 			}
 		}
 		if (bCacheLoaded) LastScanStats.Removed = CachedEntries.size() - SeenCachedIdentities.size();
-		Assets = std::move(NewAssets);
+		if (Assets != NewAssets)
+		{
+			Assets = std::move(NewAssets);
+			++Revision;
+		}
 		bPersistentSnapshotDirty = !WriteRegistryCache(MountManifest, std::move(NewCacheEntries), CacheWarning);
 		LastScanStats.DurationMilliseconds = std::chrono::duration<double, std::milli>(
 			std::chrono::steady_clock::now() - ScanStartTime).count();
@@ -916,13 +920,22 @@ namespace Durin::Asset
 
 	auto FAssetRegistry::AddOrUpdate(FAssetData Data) -> void
 	{
+		const auto Existing = Assets.find(Data.PackagePath);
+		if (Existing != Assets.end() && Existing->second == Data)
+		{
+			bPersistentSnapshotDirty = true;
+			return;
+		}
 		Assets.insert_or_assign(Data.PackagePath, std::move(Data));
 		bPersistentSnapshotDirty = true;
+		++Revision;
 	}
 
 	auto FAssetRegistry::Remove(const FAssetPath& Path) -> void
 	{
-		if (Assets.erase(Path) != 0) bPersistentSnapshotDirty = true;
+		if (Assets.erase(Path) == 0) return;
+		bPersistentSnapshotDirty = true;
+		++Revision;
 	}
 
 	auto FAssetManager::Get() -> FAssetManager&

@@ -39,6 +39,8 @@ namespace Durin
 		std::optional<FEditorAssetPickerAction> TrailingAction;
 		// When non-empty, only paths that start with this prefix are shown.
 		std::string_view PathPrefixFilter;
+		// Caps rows submitted to ImGui. Additional matches remain discoverable by search.
+		uint32 MaxVisibleResults = 200;
 	};
 
 	struct FEditorAssetPickerResult
