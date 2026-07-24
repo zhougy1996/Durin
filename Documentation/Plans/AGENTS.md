@@ -6,8 +6,9 @@ These instructions apply under `Documentation/Plans/`.
 
 - Active plans turn selected decisions into executable stages and acceptance gates.
 - `README.md` indexes only active plans.
-- `Archive/README.md` indexes archive months; each `Archive/YYYY-MM/README.md`
-  indexes the plans completed in that month.
+- `Archive/README.md` is a stable navigation index containing only archive month
+  links. Each `Archive/YYYY-MM/README.md` indexes the plans completed in that
+  month.
 - Do not sample unrelated active or archived plans to infer structure; use the standard below.
 - Start archive discovery at `Archive/README.md`, enter only the relevant monthly
   index, and read an archived plan only for named or required historical
@@ -66,9 +67,20 @@ When every required acceptance gate is satisfied:
 2. Move the plan to `Documentation/Plans/Archive/YYYY-MM/`, using the month of
    the archive completion date recorded in `Current Status`, without rewriting
    its historical body. Later maintenance does not move it to another month.
-3. Remove it from `Plans/README.md`, add its landed outcome to that month's
-   `README.md`, and add the month to `Plans/Archive/README.md` if it is new.
+3. Remove it from `Plans/README.md`, append its title and link to that month's
+   `README.md`, and add the month link to `Plans/Archive/README.md` if it is new.
 4. Repair direct links to the archived location.
 5. Confirm lasting behavior is documented in Architecture.
+
+Keep an open monthly index deliberately lightweight: list archived plan links,
+but do not maintain a running plan count, per-plan outcome summaries, or a
+month-wide synthesis. After the calendar month has ended, finalize that monthly
+index during the next archive maintenance pass by adding the final plan count
+and one concise monthly summary. Once finalized, do not revise the index for
+routine later maintenance. The individual archived plans remain the source for
+detailed outcomes and validation evidence.
+
+Do not add counts, landed-area summaries, or other frequently changing metadata
+to `Archive/README.md`; its purpose is month discovery only.
 
 Archived plans are historical evidence and are not default implementation instructions.
