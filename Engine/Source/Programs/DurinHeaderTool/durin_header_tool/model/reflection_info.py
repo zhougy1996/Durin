@@ -12,6 +12,12 @@ TOOL_VERSION = "18"
 MAX_CONTAINER_PROPERTY_DEPTH = 4
 
 
+@dataclass(frozen=True)
+class _DMetaUse:
+    line: int
+    column: int
+
+
 @dataclass
 class ReflectedEnumValueInfo:
     name: str
@@ -305,8 +311,19 @@ def _replace_macro_calls(source: str, macro_name: str, replacement) -> str:
     return "".join(pieces)
 
 
-def make_dht_parse_source(source: str) -> str:
+def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
     source = _GEN_INCLUDE_PATTERN.sub("", source)
+    dmeta_uses: dict[int, _DMetaUse] = {}
+
+    def replace_dmeta(payload: str, line: int, column: int) -> str:
+        _display_name_from_payload(payload, "DMETA", line, column)
+        use_id = len(dmeta_uses)
+        dmeta_uses[use_id] = _DMetaUse(line, column)
+        return f'__attribute__((annotate("{_annotation_payload(f"DMETA:{use_id}", payload)}")))'
+
+    # Record DMETA before rewriting other markers so diagnostics retain its
+    # original source location even when markers share a line.
+    source = _replace_macro_calls(source, "DMETA", replace_dmeta)
     source = _replace_macro_calls(
         source,
         "DCLASS",
@@ -329,12 +346,7 @@ def make_dht_parse_source(source: str) -> str:
             f"void DHT_ENUM_{line}_{column}();"
         )
 
-    def replace_dmeta(payload: str, line: int, column: int) -> str:
-        _display_name_from_payload(payload, "DMETA", line, column)
-        return f'__attribute__((annotate("{_annotation_payload("DMETA", payload)}")))'
-
     source = _replace_macro_calls(source, "DENUM", replace_denum)
-    source = _replace_macro_calls(source, "DMETA", replace_dmeta)
     source = _replace_macro_calls(
         source,
         "DPROPERTY",
@@ -342,7 +354,11 @@ def make_dht_parse_source(source: str) -> str:
             f'__attribute__((annotate("{_annotation_payload("DPROPERTY", payload)}")))',
     )
     source = _GENERATED_BODY_PATTERN.sub("void DHT_GENERATED_BODY();", source)
-    return source
+    return source, dmeta_uses
+
+
+def make_dht_parse_source(source: str) -> str:
+    return _make_dht_parse_source(source)[0]
 
 
 def qualified_name_to_helper_suffix(qualified_name: str) -> str:
@@ -1050,9 +1066,9 @@ def _is_scoped_enum(enum_cursor: clang.cindex.Cursor) -> bool:
         return "enum class" in enum_cursor.type.spelling
 
 
-def _cursor_location_key(cursor: clang.cindex.Cursor) -> tuple[str, int, int]:
-    location = cursor.location
-    return (str(location.file or ""), int(location.line), int(location.column))
+def _dmeta_use_id(annotation: str) -> int | None:
+    match = re.match(r"^DMETA:(\d+)(?:,|$)", annotation)
+    return int(match.group(1)) if match else None
 
 
 def _make_enum(
@@ -1060,7 +1076,7 @@ def _make_enum(
     module_config,
     header: str,
     annotation: str,
-    consumed_dmeta_locations: set[tuple[str, int, int]],
+    consumed_dmeta_uses: set[int],
 ) -> ReflectedEnumInfo:
     qualified_name = _qualified_name(enum_cursor)
     underlying_type = _normalize_type_spelling(enum_cursor.enum_type.spelling)
@@ -1069,9 +1085,10 @@ def _make_enum(
         if child.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL:
             value_annotation = _get_annotation(child)
             display_name = ""
-            if value_annotation.startswith("DMETA"):
+            dmeta_use_id = _dmeta_use_id(value_annotation)
+            if dmeta_use_id is not None:
                 display_name = _string_metadata_from_annotation(value_annotation, "DisplayName")
-                consumed_dmeta_locations.add(_cursor_location_key(child))
+                consumed_dmeta_uses.add(dmeta_use_id)
             values.append(
                 ReflectedEnumValueInfo(
                     name=child.spelling,
@@ -1347,13 +1364,23 @@ def _fake_generated_headers(module_name: str) -> list[tuple[str, str]]:
     return unsaved
 
 
-def _parse_translation_unit(module_name: str, header_path: Path, source: str, export_mode: bool) -> clang.cindex.TranslationUnit:
+def _parse_translation_unit(
+    module_name: str,
+    header_path: Path,
+    source: str,
+    export_mode: bool,
+) -> tuple[clang.cindex.TranslationUnit, dict[int, _DMetaUse]]:
     _init_clang()
     index = clang.cindex.Index.create()
-    parsed_source = make_dht_parse_source(source)
+    parsed_source, dmeta_uses = _make_dht_parse_source(source)
     unsaved_files = [(str(header_path), parsed_source)]
     unsaved_files.extend(_fake_generated_headers(module_name))
-    return index.parse(str(header_path), args=_clang_args(module_name, export_mode), unsaved_files=unsaved_files)
+    translation_unit = index.parse(
+        str(header_path),
+        args=_clang_args(module_name, export_mode),
+        unsaved_files=unsaved_files,
+    )
+    return translation_unit, dmeta_uses
 
 
 def parse_reflection_header(
@@ -1365,12 +1392,12 @@ def parse_reflection_header(
     module_config = configs.get_module_config(module_name)
     header_path = (module_config.module_dir / header).resolve()
     source = header_path.read_text(encoding="utf-8")
-    tu = _parse_translation_unit(module_name, header_path, source, export_mode)
+    tu, dmeta_uses = _parse_translation_unit(module_name, header_path, source, export_mode)
 
     classes: list[ReflectedClassInfo] = []
     enums: list[ReflectedEnumInfo] = []
     structs: list[ReflectedStructInfo] = []
-    consumed_dmeta_locations: set[tuple[str, int, int]] = set()
+    consumed_dmeta_uses: set[int] = set()
 
     def visit(parent: clang.cindex.Cursor) -> None:
         children = list(parent.get_children())
@@ -1378,6 +1405,9 @@ def parse_reflection_header(
         pending_dstruct = False
         pending_denum_annotation = ""
         for child in children:
+            if child.location.file is None or Path(str(child.location.file)) != header_path:
+                continue
+
             if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling.startswith("DHT_CLASS_"):
                 annotation = _get_annotation(child)
                 pending_dclass_annotation = annotation if annotation.startswith("DCLASS") else ""
@@ -1457,7 +1487,7 @@ def parse_reflection_header(
                         module_config,
                         header,
                         pending_denum_annotation,
-                        consumed_dmeta_locations,
+                        consumed_dmeta_uses,
                     )
                 )
                 pending_denum_annotation = ""
@@ -1468,14 +1498,13 @@ def parse_reflection_header(
 
     visit(tu.cursor)
 
-    for cursor in tu.cursor.walk_preorder():
-        annotation = _get_annotation(cursor)
-        if annotation.startswith("DMETA") and _cursor_location_key(cursor) not in consumed_dmeta_locations:
-            spelling = f" on '{cursor.spelling}'" if cursor.spelling else ""
-            raise ValueError(
-                f"DMETA at line {cursor.location.line}, column {cursor.location.column}{spelling}: "
-                "annotation is only valid on an enumerator in a reflected enum"
-            )
+    unconsumed_dmeta_uses = dmeta_uses.keys() - consumed_dmeta_uses
+    if unconsumed_dmeta_uses:
+        use = dmeta_uses[min(unconsumed_dmeta_uses)]
+        raise ValueError(
+            f"DMETA at line {use.line}, column {use.column}: "
+            "annotation is only valid on an enumerator in a reflected enum"
+        )
 
     rel = Path(header)
     include_path = _include_path_for_header(header)

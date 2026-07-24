@@ -323,8 +323,46 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
         ):
             with self.assertRaisesRegex(
                 ValueError,
+                "DMETA at line 5, column 15: "
                 "annotation is only valid on an enumerator in a reflected enum",
             ):
+                with mock.patch(
+                    "clang.cindex.Cursor.walk_preorder",
+                    side_effect=AssertionError("DMETA validation must not walk the entire translation unit"),
+                ):
+                    parse_reflection_header("Fixture", header)
+
+    def test_dmeta_usage_is_matched_by_source_occurrence(self):
+        header = "Public/MixedMetadata.h"
+        header_path = self.module_dir / header
+        header_path.write_text(
+            '''namespace Fixture
+{
+    DENUM()
+    enum EReflected
+    {
+        Accepted DMETA(DisplayName = "Same")
+    };
+
+    enum EPlain
+    {
+        Rejected DMETA(DisplayName = "Same")
+    };
+}
+''',
+            encoding="utf-8",
+        )
+        config = DurinModuleConfig(
+            module_name="Fixture",
+            module_dir=self.module_dir,
+            reflect_headers=[header],
+        )
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            mock.patch.object(utils, "get_module_dht_output_dir", return_value=self.dht_output_dir),
+        ):
+            with self.assertRaisesRegex(ValueError, "DMETA at line 11, column 18"):
                 parse_reflection_header("Fixture", header)
 
     def test_same_short_name_in_different_namespaces_uses_local_class_source(self):

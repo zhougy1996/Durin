@@ -45,6 +45,15 @@ precompiled header, and profile-provided default imports. That context is useful
 when it can resolve a reflected declaration, but DHT does not recursively require
 every referenced declaration or type definition to be available.
 
+Reflection marker ownership follows the physical source file. Each configured
+reflected header is responsible for markers written directly in that header;
+transitive project headers, third-party headers, and system headers are parsing
+context rather than diagnostic targets. A transitive reflected header is checked
+by its own DHT parse. Reflection markers must therefore be written directly in a
+configured reflected header rather than introduced indirectly by another macro.
+DHT hot-path AST traversal must preserve this boundary and must not recursively
+lint the complete translation unit.
+
 The parser may therefore use a partial Clang translation unit that contains
 diagnostics unrelated to the reflection declarations being extracted. Such
 diagnostics do not by themselves make reflection generation invalid, and
