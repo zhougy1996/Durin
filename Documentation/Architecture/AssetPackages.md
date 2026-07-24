@@ -6,6 +6,8 @@ Durin object assets are stored as versioned `.dasset` packages. A package has on
 
 Asset identities use extensionless virtual paths such as `/Engine/Materials/Default` or `/Game/Levels/TestLevel`. The first path segment must match a registered content mount. `PathUtilities::InitDefaultMountPoints()` registers `/Engine/` and mounts the `Content` directory of the project selected with `--project=<path-to-project.dproject>` at `/Game/`, independent of its `ProjectName`.
 
+Code that already owns non-empty, absolute, lexically normalized physical paths uses `PathUtilities::TryMakeLexicalRelativePath()` and `IsLexicalDescendantPath()` for mount containment. These helpers compare complete path components, reject `..`, ignore trailing separators, require matching roots, and treat Windows components as case-insensitive. Equality is valid containment for physical-to-virtual mount conversion but is not a descendant relationship. Filesystem-querying canonicalization remains limited to boundaries that actually inspect filesystem state.
+
 The physical filename is the resolved virtual path plus `.dasset`. Main assets use the package path as their object path; inner objects append a colon and their relative Outer chain, for example `/Game/Objects/Test:Root.Component`.
 
 ## Runtime Lifetime

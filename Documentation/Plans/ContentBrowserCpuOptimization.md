@@ -4,7 +4,15 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Proposed. A 22.62-second Visual Studio CPU sample of an otherwise idle
+In progress. Stage 1's lazy tree-drop destination resolution and Stage 2's
+lexical path relations were implemented on 2026-07-24. All 115 `CoreTests` and
+182 `EngineTests` pass, the full `Win64-Debug-DurinEditor-Tests` build succeeds,
+and a hidden-window editor smoke run remained healthy for eight seconds. Manual
+drag-and-drop validation, the fixed three-sample baseline, post-change
+profiling, and final regression validation remain open, so no performance
+acceptance claim has been made.
+
+A 22.62-second Visual Studio CPU sample of an otherwise idle
 `Win64-Debug-DurinEditor-Tests` editor session established the initial baseline.
 Within the editor process, the content browser accounted for 66.24% of inclusive
 samples, directory-tree drawing for 50.53%, physical-to-virtual directory
@@ -90,14 +98,22 @@ context menus, and asset drag-and-drop behavior.
 
 ### Stage 0: Lock the Baseline and Path Contracts
 
+Caller audit (2026-07-24): physical-to-virtual conversion serves navigation,
+folder snapshots, toolbar enablement, directory context actions, folder moves,
+and folder creation. Containment serves current-directory filtering,
+breadcrumbs, mount matching, and folder-move validation. The only remaining
+`std::filesystem::relative` use in the panel enumerates directories during an
+executed folder rename and therefore remains a filesystem mutation boundary,
+not steady-state drawing work.
+
 - [ ] Record the editor profile, visible panels, selected directory, expanded
   directory nodes, viewport state, warm-up duration, sample duration, and
   machine power state used for repeatable measurements.
 - [ ] Capture three 20–30 second idle samples after the editor has reached a
   stable frame rate and record the median process CPU consumption.
-- [ ] Identify every caller that relies on physical-path normalization,
+- [x] Identify every caller that relies on physical-path normalization,
   containment, and physical-to-virtual conversion.
-- [ ] Define focused cases for mount-root equality, direct children, recursive
+- [x] Define focused cases for mount-root equality, direct children, recursive
   descendants, siblings with shared text prefixes, `..` components, different
   roots or volumes, trailing separators, and case behavior on Windows.
 
@@ -110,12 +126,12 @@ context menus, and asset drag-and-drop behavior.
 
 ### Stage 1: Remove Idle Drag-and-Drop Path Work
 
-- [ ] Change the directory-tree drop-target path so it enters the ImGui drag
+- [x] Change the directory-tree drop-target path so it enters the ImGui drag
   target first and delays destination virtual-path construction until a
   compatible payload is delivered.
-- [ ] Preserve the existing item-grid and details-view drop behavior, which
+- [x] Preserve the existing item-grid and details-view drop behavior, which
   already use stored virtual paths.
-- [ ] Avoid temporary destination strings until a delivered move operation
+- [x] Avoid temporary destination strings until a delivered move operation
   actually needs one.
 - [ ] Exercise dragging over a directory, cancelling a drag, dropping onto a
   valid directory, and attempting an invalid or same-path move.
@@ -131,15 +147,15 @@ context menus, and asset drag-and-drop behavior.
 
 ### Stage 2: Make Normalized Path Relations Lexical
 
-- [ ] Introduce or extract a component-aware helper for containment and relative
+- [x] Introduce or extract a component-aware helper for containment and relative
   paths over absolute, normalized inputs.
-- [ ] Replace steady-state uses of `std::filesystem::relative` where the lexical
+- [x] Replace steady-state uses of `std::filesystem::relative` where the lexical
   helper's preconditions hold.
-- [ ] Normalize registered mount roots once per stable mount snapshot rather
+- [x] Normalize registered mount roots once per stable mount snapshot rather
   than once per visible node or toolbar frame.
-- [ ] Add focused native tests for the Stage 0 path matrix, including Windows
+- [x] Add focused native tests for the Stage 0 path matrix, including Windows
   drive and case behavior where applicable.
-- [ ] Retain error-code-based filesystem operations only at boundaries that
+- [x] Retain error-code-based filesystem operations only at boundaries that
   genuinely query filesystem state.
 
 #### Acceptance Gate
@@ -176,9 +192,9 @@ context menus, and asset drag-and-drop behavior.
 
 ### Stage 4: Performance and Regression Validation
 
-- [ ] Build through the root BuildTool using the relevant editor profile, as
+- [x] Build through the root BuildTool using the relevant editor profile, as
   documented in `Documentation/Setup/BuildAndRun.md`.
-- [ ] Run focused native tests and the applicable editor test suite.
+- [x] Run focused native tests and the applicable editor test suite.
 - [ ] Repeat three same-scenario Debug samples and compare median process CPU,
   content-browser inclusive samples, directory-tree inclusive samples, and the
   top exclusive functions against Stage 0.

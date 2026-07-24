@@ -64,6 +64,13 @@ namespace Durin
 		auto RevealAsset(std::string_view AssetPath) -> void;
 
 	private:
+		struct FMountSnapshot
+		{
+			std::string VirtualRoot;
+			std::string SourcePhysicalRoot;
+			std::string PhysicalRoot;
+		};
+
 		enum class ESortColumn : uint8
 		{
 			Name,
@@ -77,6 +84,7 @@ namespace Durin
 		auto RebuildItems() -> void;
 		auto NavigateToPhysical(std::string_view PhysicalPath, bool bAddHistory = true) -> bool;
 		auto NavigateHistory(int32 Delta) -> void;
+		auto RefreshMountSnapshot() -> void;
 		auto PhysicalToVirtualDirectory(std::string_view PhysicalPath) const -> std::string;
 		auto VirtualToPhysical(std::string_view VirtualPath) const -> std::string;
 		auto IsInsideCurrentDirectory(std::string_view PhysicalPath, bool bRecursive) const -> bool;
@@ -96,7 +104,7 @@ namespace Durin
 		auto DrawSelectionDetails() -> void;
 		auto DrawDialogs() -> void;
 		auto BeginAssetDragDrop(const FContentBrowserItem& Item) -> void;
-		auto AcceptAssetDrop(std::string_view DestinationVirtualDirectory) -> void;
+		auto AcceptAssetDrop(std::string_view DestinationDirectory, bool bPhysicalDirectory = false) -> void;
 
 		auto SelectItem(size_t Index) -> void;
 		auto OpenItem(const FContentBrowserItem& Item) -> void;
@@ -128,6 +136,7 @@ namespace Durin
 		FMoveAssets MoveAssets;
 		std::string CurrentPhysicalPath;
 		std::string CurrentVirtualPath;
+		std::vector<FMountSnapshot> MountSnapshot;
 		std::unordered_map<std::string, std::vector<std::filesystem::path>> DirectoryChildrenCache;
 		std::vector<FContentBrowserItem> ItemsSnapshot;
 		std::vector<FContentBrowserItem> Items;

@@ -11,6 +11,7 @@
 #include "Workspace/LevelEditorUILayout.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/Paths.h"
+#include "Misc/LexicalPath.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "MonaCoreGlobals.h"
@@ -37,14 +38,6 @@ namespace Durin
 		{
 			if (Path.empty()) return {};
 			return std::filesystem::absolute(std::filesystem::path(Path)).lexically_normal().generic_string();
-		}
-
-		auto IsDescendantPath(std::string_view Candidate, std::string_view Parent, bool bRecursive) -> bool
-		{
-			std::error_code Ec;
-			const std::filesystem::path Relative = std::filesystem::relative(std::filesystem::path(Candidate), std::filesystem::path(Parent), Ec);
-			if (Ec || Relative.empty() || Relative == "." || Relative.native().starts_with(L"..")) return false;
-			return bRecursive || Relative.parent_path().empty();
 		}
 
 		auto ClassLeaf(std::string_view QualifiedName) -> std::string
@@ -88,6 +81,7 @@ namespace Durin
 		, IconSize(InSessionSettings.GetContentBrowserIconSize())
 		, DirectoryTreeWidth(InSessionSettings.GetContentBrowserTreeWidth())
 	{
+		RefreshMountSnapshot();
 		ThumbnailCache = std::make_unique<FSourceImageThumbnailCache>();
 		ViewMode = static_cast<EContentBrowserViewMode>(SessionSettings.GetContentBrowserViewMode());
 		bIconSizeLocked = SessionSettings.IsContentBrowserIconSizeLocked();
@@ -96,26 +90,38 @@ namespace Durin
 			NavigateToPhysical(SessionSettings.GetContentBrowserLastDirectory());
 		if (CurrentPhysicalPath.empty())
 		{
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+			for (const FMountSnapshot& Mount : MountSnapshot)
 			{
-				if (std::filesystem::is_directory(Mount.PhysicalPath) && NavigateToPhysical(Mount.PhysicalPath)) break;
+				if (std::filesystem::is_directory(Mount.PhysicalRoot) && NavigateToPhysical(Mount.PhysicalRoot)) break;
 			}
 		}
 	}
 
 	FContentBrowserPanel::~FContentBrowserPanel() = default;
 
+	auto FContentBrowserPanel::RefreshMountSnapshot() -> void
+	{
+		const auto& RegisteredMounts = PathUtilities::GetRegisteredMountPoints();
+		const bool bUnchanged = RegisteredMounts.size() == MountSnapshot.size() && std::ranges::equal(RegisteredMounts, MountSnapshot, [](const auto& Registered, const FMountSnapshot& Cached) {
+			return Registered.VirtualRoot == Cached.VirtualRoot && Registered.PhysicalPath == Cached.SourcePhysicalRoot;
+		});
+		if (bUnchanged) return;
+
+		MountSnapshot.clear();
+		MountSnapshot.reserve(RegisteredMounts.size());
+		for (const PathUtilities::FMountPoint& Mount : RegisteredMounts)
+			MountSnapshot.push_back({Mount.VirtualRoot, Mount.PhysicalPath, NormalizePath(Mount.PhysicalPath)});
+	}
+
 	auto FContentBrowserPanel::PhysicalToVirtualDirectory(std::string_view PhysicalPath) const -> std::string
 	{
 		const std::string Normalized = NormalizePath(PhysicalPath);
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		for (const FMountSnapshot& Mount : MountSnapshot)
 		{
-			const std::string Root = NormalizePath(Mount.PhysicalPath);
-			if (Normalized != Root && !IsDescendantPath(Normalized, Root, true)) continue;
-			std::error_code Ec;
-			const std::filesystem::path Relative = std::filesystem::relative(Normalized, Root, Ec);
+			std::filesystem::path Relative;
+			if (!PathUtilities::TryMakeLexicalRelativePath(Normalized, Mount.PhysicalRoot, Relative)) continue;
 			std::string Virtual = Mount.VirtualRoot;
-			if (!Ec && !Relative.empty() && Relative != ".") Virtual += Relative.generic_string();
+			if (!Relative.empty()) Virtual += Relative.generic_string();
 			if (!Virtual.ends_with('/')) Virtual += '/';
 			return Virtual;
 		}
@@ -124,11 +130,11 @@ namespace Durin
 
 	auto FContentBrowserPanel::VirtualToPhysical(std::string_view VirtualPath) const -> std::string
 	{
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		for (const FMountSnapshot& Mount : MountSnapshot)
 		{
 			if (!VirtualPath.starts_with(Mount.VirtualRoot)) continue;
 			std::string_view Relative = VirtualPath.substr(Mount.VirtualRoot.size());
-			return NormalizePath((std::filesystem::path(Mount.PhysicalPath) / std::filesystem::path(Relative)).generic_string());
+			return NormalizePath((std::filesystem::path(Mount.PhysicalRoot) / std::filesystem::path(Relative)).generic_string());
 		}
 		return {};
 	}
@@ -170,11 +176,12 @@ namespace Durin
 
 	auto FContentBrowserPanel::IsInsideCurrentDirectory(std::string_view PhysicalPath, bool bRecursive) const -> bool
 	{
-		return IsDescendantPath(NormalizePath(PhysicalPath), CurrentPhysicalPath, bRecursive);
+		return PathUtilities::IsLexicalDescendantPath(NormalizePath(PhysicalPath), CurrentPhysicalPath, bRecursive);
 	}
 
 	auto FContentBrowserPanel::Refresh(bool bRescanRegistry) -> void
 	{
+		RefreshMountSnapshot();
 		if (bRescanRegistry)
 		{
 			const Asset::FAssetResult Result = Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
@@ -182,8 +189,8 @@ namespace Durin
 		}
 		if (!CurrentPhysicalPath.empty() && !std::filesystem::is_directory(CurrentPhysicalPath))
 		{
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-				if (NavigateToPhysical(Mount.PhysicalPath)) return;
+			for (const FMountSnapshot& Mount : MountSnapshot)
+				if (NavigateToPhysical(Mount.PhysicalRoot)) return;
 		}
 		RefreshItemsSnapshot();
 	}
@@ -303,6 +310,7 @@ namespace Durin
 	auto FContentBrowserPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		(void)Context;
+		RefreshMountSnapshot();
 		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr()))
 		{
 			ImGui::End();
@@ -385,18 +393,16 @@ namespace Durin
 				ImGui::PopID();
 			};
 			bool bFirst = true;
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+			for (const FMountSnapshot& Mount : MountSnapshot)
 			{
-				const std::string Root = NormalizePath(Mount.PhysicalPath);
-				if (CurrentPhysicalPath != Root && !IsDescendantPath(CurrentPhysicalPath, Root, true)) continue;
-				std::filesystem::path Progressive = Root;
+				std::filesystem::path Relative;
+				if (!PathUtilities::TryMakeLexicalRelativePath(CurrentPhysicalPath, Mount.PhysicalRoot, Relative)) continue;
+				std::filesystem::path Progressive = Mount.PhysicalRoot;
 				std::string RootLabel = Mount.VirtualRoot;
 				if (RootLabel.starts_with('/')) RootLabel.erase(RootLabel.begin());
 				if (RootLabel.ends_with('/')) RootLabel.pop_back();
-				DrawPathSegment(RootLabel, Root, CurrentPhysicalPath == Root);
-				std::error_code Ec;
-				const std::filesystem::path Relative = std::filesystem::relative(CurrentPhysicalPath, Root, Ec);
-				if (!Ec && Relative != ".")
+				DrawPathSegment(RootLabel, Mount.PhysicalRoot, Relative.empty());
+				if (!Relative.empty())
 					for (const auto& Segment : Relative)
 					{
 						ImGui::SameLine();
@@ -488,18 +494,18 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawDirectoryTree() -> void
 	{
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		for (const FMountSnapshot& Mount : MountSnapshot)
 		{
-			if (!std::filesystem::is_directory(Mount.PhysicalPath)) continue;
+			if (!std::filesystem::is_directory(Mount.PhysicalRoot)) continue;
 			std::string Label = Mount.VirtualRoot;
 			if (Label.starts_with('/')) Label.erase(Label.begin());
 			if (Label.ends_with('/')) Label.pop_back();
-			DrawDirectoryNode(std::filesystem::path(Mount.PhysicalPath), Label, true);
+			DrawDirectoryNode(std::filesystem::path(Mount.PhysicalRoot), Label, true);
 		}
 		if (ImGui::BeginPopupContextWindow("ContentBrowserTreeBackground", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 		{
-			const bool bCurrentIsMountRoot = std::ranges::any_of(PathUtilities::GetRegisteredMountPoints(), [&](const PathUtilities::FMountPoint& Mount) {
-				return NormalizePath(Mount.PhysicalPath) == CurrentPhysicalPath;
+			const bool bCurrentIsMountRoot = std::ranges::any_of(MountSnapshot, [&](const FMountSnapshot& Mount) {
+				return Mount.PhysicalRoot == CurrentPhysicalPath;
 			});
 			DrawDirectoryContextMenu(CurrentPhysicalPath, bCurrentIsMountRoot);
 			ImGui::EndPopup();
@@ -529,7 +535,7 @@ namespace Durin
 		const std::string NodeLabel = std::format("{} {}##{}", CurrentPhysicalPath == Physical ? Icons::FolderOpen : Icons::Folder, Label, Physical);
 		const bool bOpen = ImGui::TreeNodeEx(NodeLabel.c_str(), Flags);
 		if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) NavigateToPhysical(Physical);
-		AcceptAssetDrop(PhysicalToVirtualDirectory(Physical));
+		AcceptAssetDrop(Physical, true);
 		if (ImGui::BeginPopupContextItem())
 		{
 			DrawDirectoryContextMenu(Physical, bMountRoot);
@@ -1002,7 +1008,7 @@ namespace Durin
 		ImGui::EndDragDropSource();
 	}
 
-	auto FContentBrowserPanel::AcceptAssetDrop(std::string_view DestinationVirtualDirectory) -> void
+	auto FContentBrowserPanel::AcceptAssetDrop(std::string_view DestinationDirectory, bool bPhysicalDirectory) -> void
 	{
 		if (!ImGui::BeginDragDropTarget()) return;
 		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ContentBrowserAssetPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FContentBrowserAssetPayload))
@@ -1011,7 +1017,12 @@ namespace Durin
 			FAssetPath OldPath;
 			if (FAssetPath::TryCreate(AssetPayload->AssetPath.data(), OldPath))
 			{
-				std::string Destination(DestinationVirtualDirectory);
+				std::string Destination = bPhysicalDirectory ? PhysicalToVirtualDirectory(DestinationDirectory) : std::string(DestinationDirectory);
+				if (Destination.empty())
+				{
+					ImGui::EndDragDropTarget();
+					return;
+				}
 				if (!Destination.ends_with('/')) Destination += '/';
 				FAssetPath NewPath;
 				if (FAssetPath::TryCreate(Destination + std::string(OldPath.GetAssetName()), NewPath) && NewPath != OldPath)
@@ -1224,7 +1235,7 @@ namespace Durin
 		std::vector<std::filesystem::path> RelativeDirectories;
 		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 		{
-			if (!IsDescendantPath(NormalizePath(Data.PhysicalPath), Item.PhysicalPath, true)) continue;
+			if (!PathUtilities::IsLexicalDescendantPath(NormalizePath(Data.PhysicalPath), Item.PhysicalPath, true)) continue;
 			if (!Path.GetView().starts_with(OldVirtual))
 			{
 				SetError("An asset inside the folder has an inconsistent virtual path.");

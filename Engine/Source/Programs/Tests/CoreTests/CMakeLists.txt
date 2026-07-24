@@ -6,6 +6,7 @@ add_durin_test(CoreTests
 	Private/DerivedDataCacheTests.cpp
 	Private/GuidTests.cpp
 	Private/JsonTests.cpp
+	Private/LexicalPathTests.cpp
 	Private/LoggerTests.cpp
 	Private/NameTests.cpp
 	Private/ProjectTests.cpp
