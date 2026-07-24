@@ -28,6 +28,12 @@ namespace Durin
 		MATERIALEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
 		MATERIALEDITOR_API auto CanSaveActiveDocument() const -> bool override;
 		MATERIALEDITOR_API auto SaveActiveDocument() -> bool override;
+		MATERIALEDITOR_API auto CanUndo() const -> bool override;
+		MATERIALEDITOR_API auto CanRedo() const -> bool override;
+		MATERIALEDITOR_API auto GetUndoDescription() const -> std::string_view override;
+		MATERIALEDITOR_API auto GetRedoDescription() const -> std::string_view override;
+		MATERIALEDITOR_API auto Undo() -> bool override;
+		MATERIALEDITOR_API auto Redo() -> bool override;
 		MATERIALEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
 		MATERIALEDITOR_API auto ResetLayout() -> void override;
 
@@ -58,5 +64,7 @@ namespace Durin
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;
 		FReflectedPropertyView PropertyView;
+		// Set when a dirty document close is deferred for user confirmation.
+		FEditorDocumentId PendingCloseDocumentId;
 	};
 }

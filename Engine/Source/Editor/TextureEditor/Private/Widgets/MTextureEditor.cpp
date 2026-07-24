@@ -88,7 +88,11 @@ namespace Durin
 	auto MTextureEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
 	{
 		if (PropertyView.IsEditingObject(FindOpenTexture(Document.ResourceId)) && !FinishActivePropertyEdit(true)) return false;
-		if (IsDocumentDirty(Document)) return false;
+		if (IsDocumentDirty(Document))
+		{
+			PendingCloseDocumentId = Document.Id;
+			return false;
+		}
 		OpenTextures.erase(Document.ResourceId);
 		DocumentWindows.erase(Document.Id.Value);
 		if (ActiveResourceId == Document.ResourceId) ActiveResourceId.clear();
@@ -168,6 +172,53 @@ namespace Durin
 			if (WindowState.bCloseRequested) CloseRequests.push_back(Document.Id);
 		}
 		for (FEditorDocumentId DocumentId : CloseRequests) WorkspaceManager.RequestCloseDocument(DocumentId);
+
+		if (PendingCloseDocumentId.IsValid())
+		{
+			const FEditorDocumentTab* PendingDocument = [&]() -> const FEditorDocumentTab* {
+				for (const FEditorDocumentTab& Doc : WorkspaceManager.GetDocuments())
+					if (Doc.Id == PendingCloseDocumentId) return &Doc;
+				return nullptr;
+			}();
+			if (!PendingDocument)
+			{
+				PendingCloseDocumentId = {};
+				return bWorkspaceActivated;
+			}
+			ImGui::OpenPopup("ConfirmClose");
+			if (ImGui::BeginPopupModal("ConfirmClose", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+			{
+				ImGui::TextWrapped("Save changes to \"%s\" before closing?", PendingDocument->Label.c_str());
+				ImGui::Spacing();
+				if (ImGui::Button("Save", ImVec2(100, 0)))
+				{
+					DTexture2D* Texture = FindOpenTexture(PendingDocument->ResourceId);
+					if (SaveTexture(Texture))
+					{
+						ImGui::CloseCurrentPopup();
+						WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
+						PendingCloseDocumentId = {};
+					}
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Discard", ImVec2(100, 0)))
+				{
+					if (DTexture2D* Texture = FindOpenTexture(PendingDocument->ResourceId))
+						if (Texture->GetPackage()) Texture->GetPackage()->ClearDirty();
+					ImGui::CloseCurrentPopup();
+					WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
+					PendingCloseDocumentId = {};
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel", ImVec2(100, 0)))
+				{
+					ImGui::CloseCurrentPopup();
+					PendingCloseDocumentId = {};
+				}
+				ImGui::EndPopup();
+			}
+		}
+
 		return bWorkspaceActivated;
 	}
 

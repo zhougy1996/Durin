@@ -82,7 +82,12 @@ namespace Durin
 	auto MMaterialEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
 	{
 		if (PropertyView.IsEditingObject(FindOpenMaterial(Document.ResourceId)) && !FinishActivePropertyEdit(true)) return false;
-		if (IsDocumentDirty(Document)) return false;
+		if (IsDocumentDirty(Document))
+		{
+			// Defer close so the user can choose Save, Discard, or Cancel.
+			PendingCloseDocumentId = Document.Id;
+			return false;
+		}
 		OpenMaterials.erase(Document.ResourceId);
 		DocumentWindows.erase(Document.Id.Value);
 		MaterialPreviews.erase(Document.Id.Value);
@@ -139,6 +144,55 @@ namespace Durin
 		}
 		// Closing mutates the document array, so defer it until iteration is complete.
 		for (FEditorDocumentId DocumentId : CloseRequests) WorkspaceManager.RequestCloseDocument(DocumentId);
+
+		// If a close was deferred for a dirty document, show a confirmation dialog.
+		if (PendingCloseDocumentId.IsValid())
+		{
+			const FEditorDocumentTab* PendingDocument = [&]() -> const FEditorDocumentTab* {
+				for (const FEditorDocumentTab& Doc : WorkspaceManager.GetDocuments())
+					if (Doc.Id == PendingCloseDocumentId) return &Doc;
+				return nullptr;
+			}();
+			if (!PendingDocument)
+			{
+				PendingCloseDocumentId = {};
+				return bWorkspaceActivated;
+			}
+			ImGui::OpenPopup("ConfirmClose");
+			if (ImGui::BeginPopupModal("ConfirmClose", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+			{
+				ImGui::TextWrapped("Save changes to \"%s\" before closing?", PendingDocument->Label.c_str());
+				ImGui::Spacing();
+				if (ImGui::Button("Save", ImVec2(100, 0)))
+				{
+					DMaterialInterface* Material = FindOpenMaterial(PendingDocument->ResourceId);
+					if (SaveMaterial(Material))
+					{
+						ImGui::CloseCurrentPopup();
+						WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
+						PendingCloseDocumentId = {};
+					}
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Discard", ImVec2(100, 0)))
+				{
+					// Clear dirty flag so the document can close without triggering the guard again.
+					if (DMaterialInterface* Material = FindOpenMaterial(PendingDocument->ResourceId))
+						if (Material->GetPackage()) Material->GetPackage()->ClearDirty();
+					ImGui::CloseCurrentPopup();
+					WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
+					PendingCloseDocumentId = {};
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel", ImVec2(100, 0)))
+				{
+					ImGui::CloseCurrentPopup();
+					PendingCloseDocumentId = {};
+				}
+				ImGui::EndPopup();
+			}
+		}
+
 		return bWorkspaceActivated;
 	}
 
@@ -167,6 +221,36 @@ namespace Durin
 			return false;
 		}
 		return true;
+	}
+
+	auto MMaterialEditor::CanUndo() const -> bool
+	{
+		return GEditor && GEditor->GetTransactionManager().CanUndo();
+	}
+
+	auto MMaterialEditor::CanRedo() const -> bool
+	{
+		return GEditor && GEditor->GetTransactionManager().CanRedo();
+	}
+
+	auto MMaterialEditor::GetUndoDescription() const -> std::string_view
+	{
+		return CanUndo() ? GEditor->GetTransactionManager().GetUndoDescription() : std::string_view{};
+	}
+
+	auto MMaterialEditor::GetRedoDescription() const -> std::string_view
+	{
+		return CanRedo() ? GEditor->GetTransactionManager().GetRedoDescription() : std::string_view{};
+	}
+
+	auto MMaterialEditor::Undo() -> bool
+	{
+		return CanUndo() && GEditor->GetTransactionManager().Undo();
+	}
+
+	auto MMaterialEditor::Redo() -> bool
+	{
+		return CanRedo() && GEditor->GetTransactionManager().Redo();
 	}
 
 	auto MMaterialEditor::DrawDocument(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void

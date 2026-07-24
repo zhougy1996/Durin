@@ -75,5 +75,6 @@ namespace Durin
 		bool bProjectSettingsOpen = false;
 		std::string DefaultLevel;
 		std::string EditorError;
+		FEditorDocumentId PendingCloseDocumentId;
 	};
 } // namespace Durin

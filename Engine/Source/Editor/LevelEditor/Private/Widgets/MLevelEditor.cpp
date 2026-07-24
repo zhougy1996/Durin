@@ -1,6 +1,7 @@
 #include "Widgets/MLevelEditor.h"
 
 #include "AssetSystem.h"
+#include "Editor/EditorAssetPicker.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorNotification.h"
 #include "Editor/EditorTransaction.h"
@@ -243,7 +244,13 @@ namespace Durin
 
 	auto MLevelEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> bool
 	{
-		return RequestDeactivate() && !IsDocumentDirty(Document);
+		if (!RequestDeactivate()) return false;
+		if (IsDocumentDirty(Document))
+		{
+			PendingCloseDocumentId = Document.Id;
+			return false;
+		}
+		return true;
 	}
 
 	auto MLevelEditor::IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool
@@ -384,6 +391,52 @@ namespace Durin
 		{
 			NotificationOverlay->DrawNotifications(GEditor->GetNotificationManager(), GEditor->GetTransactionManager());
 		}
+
+		if (PendingCloseDocumentId.IsValid())
+		{
+			const FEditorDocumentTab* PendingDocument = [&]() -> const FEditorDocumentTab* {
+				for (const FEditorDocumentTab& Doc : WorkspaceManager.GetDocuments())
+					if (Doc.Id == PendingCloseDocumentId) return &Doc;
+				return nullptr;
+			}();
+			if (!PendingDocument)
+			{
+				PendingCloseDocumentId = {};
+				return RootWindowState.bFocused || RootWindowState.bActivated;
+			}
+			ImGui::OpenPopup("ConfirmClose");
+			if (ImGui::BeginPopupModal("ConfirmClose", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+			{
+				ImGui::TextWrapped("Save changes to \"%s\" before closing?", PendingDocument->Label.c_str());
+				ImGui::Spacing();
+				if (ImGui::Button("Save", ImVec2(100, 0)))
+				{
+					if (SaveActiveDocument())
+					{
+						ImGui::CloseCurrentPopup();
+						WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
+						PendingCloseDocumentId = {};
+					}
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Discard", ImVec2(100, 0)))
+				{
+					if (Context && Context->Level && Context->Level->GetPackage())
+						Context->Level->GetPackage()->ClearDirty();
+					ImGui::CloseCurrentPopup();
+					WorkspaceManager.RequestCloseDocument(PendingCloseDocumentId);
+					PendingCloseDocumentId = {};
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Cancel", ImVec2(100, 0)))
+				{
+					ImGui::CloseCurrentPopup();
+					PendingCloseDocumentId = {};
+				}
+				ImGui::EndPopup();
+			}
+		}
+
 		return RootWindowState.bFocused || RootWindowState.bActivated;
 	}
 
@@ -501,17 +554,32 @@ namespace Durin
 				ImGui::TextDisabled("Default level");
 				ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
 				ImGui::SetNextItemWidth(-1.0f);
-				if (ImGui::BeginCombo("##DefaultLevel", DefaultLevel.empty() ? "None" : DefaultLevel.c_str()))
-				{
-					if (ImGui::Selectable("None", DefaultLevel.empty())) DefaultLevel.clear();
-					for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
-					{
-						const std::string Value = Path.ToString();
-						if (!Value.starts_with(Project->MountRoot) || Data.AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString()) continue;
-						if (ImGui::Selectable(Value.c_str(), Value == DefaultLevel)) DefaultLevel = Value;
-					}
-					ImGui::EndCombo();
-				}
+				static std::array<char, 128> LevelSearchText{};
+				const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
+					.ComboId = "##DefaultLevel",
+					.SearchId = "##DefaultLevelSearch",
+					.SearchHint = "Search levels...",
+					.RequiredClass = DLevel::StaticClass(),
+					.ClassPolicy = EEditorAssetClassPolicy::Exact,
+					.SearchText = LevelSearchText,
+					.bAllowNone = true,
+					.NoneLabel = "None",
+					.AssignSelection = [this](DObject* Selection, std::string& OutError) {
+						if (Selection)
+						{
+							if (!Selection->GetPackage())
+							{
+								OutError = "The selected level is not in a package.";
+								return false;
+							}
+							DefaultLevel = Selection->GetPackage()->GetPackagePath();
+						}
+						else DefaultLevel.clear();
+						return true;
+					},
+					.PathPrefixFilter = Project->MountRoot,
+				});
+				if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
 			}
 			else
 			{

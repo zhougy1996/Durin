@@ -49,5 +49,7 @@ namespace Durin
 		std::string ActiveResourceId;
 		std::string ErrorMessage;
 		FReflectedPropertyView PropertyView;
+		// Set when a dirty document close is deferred for user confirmation.
+		FEditorDocumentId PendingCloseDocumentId;
 	};
 }
