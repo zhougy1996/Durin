@@ -56,6 +56,12 @@ answer from physical-device format features. An unsupported format is rejected
 before image creation and remains distinguishable from a general creation or
 upload failure in the asset's persistent editor diagnostics.
 
+RHI pixel-format metadata also owns the tightly packed block layout calculation.
+Platform-data validation and Vulkan uploads use the same block count, row pitch,
+and payload size for both uncompressed and BC formats. Vulkan repacks update
+regions by block row and permits a non-block-aligned extent only when it reaches
+the mip edge, so NPOT base levels and sub-4x4 tail mips remain valid.
+
 ## Editor Contract
 
 `TextureEditor` registers a per-resource workspace for `DTexture2D`. It exposes:

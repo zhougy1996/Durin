@@ -58,12 +58,27 @@ namespace Durin
 		}
 
 		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(TextureDesc.Format);
-		if (FormatInfo.BytesPerBlock == 0 || FormatInfo.BlockSize != 1)
+		if (FormatInfo.BytesPerBlock == 0 || FormatInfo.BlockSize == 0)
 		{
-			return Fail("Texture2D upload currently requires an uncompressed pixel format.");
+			return Fail("Texture upload requires a valid pixel format layout.");
 		}
 
-		const uint64 RequiredPitch = (static_cast<uint64>(UpdateRegion.SrcX) + UpdateRegion.Width) * FormatInfo.BytesPerBlock;
+		const uint32 BlockSize = FormatInfo.BlockSize;
+		if (UpdateRegion.DestX % BlockSize != 0 || UpdateRegion.DestY % BlockSize != 0
+			|| static_cast<uint32>(UpdateRegion.SrcX) % BlockSize != 0
+			|| static_cast<uint32>(UpdateRegion.SrcY) % BlockSize != 0)
+		{
+			return Fail("Texture upload source and destination offsets must be block-aligned.");
+		}
+		if ((UpdateRegion.Width % BlockSize != 0 && UpdateRegion.DestX + UpdateRegion.Width != MipWidth)
+			|| (UpdateRegion.Height % BlockSize != 0 && UpdateRegion.DestY + UpdateRegion.Height != MipHeight))
+		{
+			return Fail("Texture upload dimensions must be block-aligned unless the region reaches the mip edge.");
+		}
+
+		const uint64 SourceBlockX = static_cast<uint32>(UpdateRegion.SrcX) / BlockSize;
+		const uint64 RegionBlocksWide = (static_cast<uint64>(UpdateRegion.Width) + BlockSize - 1) / BlockSize;
+		const uint64 RequiredPitch = (SourceBlockX + RegionBlocksWide) * FormatInfo.BytesPerBlock;
 		if (RequiredPitch > SourcePitch) return Fail("Texture upload source pitch is too small for the requested source region.");
 
 		OutError.clear();

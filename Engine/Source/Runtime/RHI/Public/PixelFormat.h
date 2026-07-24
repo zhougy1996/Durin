@@ -113,6 +113,16 @@ namespace Durin
 		bool bIsSRGB : 1;
 	};
 
+	// Describes the tightly packed block layout for a two-dimensional texture region.
+	struct FPixelFormatLayout
+	{
+		uint64 BlocksWide = 0;
+		uint64 BlocksHigh = 0;
+		uint64 RowPitch = 0;
+		uint64 DataSize = 0;
+	};
+
 	RHI_API auto GetPixelFormatInfo(EPixelFormat Format) -> const FPixelFormatInfo&;
+	RHI_API auto GetPixelFormatLayout(EPixelFormat Format, uint32 Width, uint32 Height) -> FPixelFormatLayout;
 
 } // namespace Durin

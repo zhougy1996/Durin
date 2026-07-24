@@ -51,11 +51,8 @@ namespace Durin
 	auto FTexture2DMipData::IsValid(EPixelFormat PixelFormat) const -> bool
 	{
 		if (PixelFormat == EPixelFormat::Unknown || Width == 0 || Height == 0) return false;
-		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(PixelFormat);
-		const uint64 BlocksWide = (static_cast<uint64>(Width) + FormatInfo.BlockSize - 1) / FormatInfo.BlockSize;
-		const uint64 BlocksHigh = (static_cast<uint64>(Height) + FormatInfo.BlockSize - 1) / FormatInfo.BlockSize;
-		const uint64 ExpectedRowPitch = BlocksWide * FormatInfo.BytesPerBlock;
-		return RowPitch == ExpectedRowPitch && static_cast<uint64>(RowPitch) * BlocksHigh == Pixels.size();
+		const FPixelFormatLayout Layout = GetPixelFormatLayout(PixelFormat, Width, Height);
+		return Layout.DataSize > 0 && RowPitch == Layout.RowPitch && Pixels.size() == Layout.DataSize;
 	}
 
 	auto FTexturePlatformData::IsValid() const -> bool

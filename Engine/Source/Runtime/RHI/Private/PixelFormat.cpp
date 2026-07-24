@@ -88,4 +88,19 @@ namespace Durin
 		check(Info.Format == Format);
 		return Info;
 	}
+
+	auto GetPixelFormatLayout(EPixelFormat Format, uint32 Width, uint32 Height) -> FPixelFormatLayout
+	{
+		const FPixelFormatInfo& Info = GetPixelFormatInfo(Format);
+		if (Width == 0 || Height == 0 || Info.BlockSize == 0 || Info.BytesPerBlock == 0) return {};
+
+		FPixelFormatLayout Layout;
+		Layout.BlocksWide = (static_cast<uint64>(Width) + Info.BlockSize - 1) / Info.BlockSize;
+		Layout.BlocksHigh = (static_cast<uint64>(Height) + Info.BlockSize - 1) / Info.BlockSize;
+		if (Layout.BlocksWide > std::numeric_limits<uint64>::max() / Info.BytesPerBlock) return {};
+		Layout.RowPitch = Layout.BlocksWide * Info.BytesPerBlock;
+		if (Layout.BlocksHigh > std::numeric_limits<uint64>::max() / Layout.RowPitch) return {};
+		Layout.DataSize = Layout.BlocksHigh * Layout.RowPitch;
+		return Layout;
+	}
 } // namespace Durin

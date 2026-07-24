@@ -23,8 +23,6 @@ namespace Durin::VulkanRHI
 	auto ToVulkan_SamplerCompareOp(ESamplerCompareOp InCompareOp) -> vk::CompareOp;
 	auto ToVulkan_SamplerBorderColor(ESamplerBorderColor InBorderColor) -> vk::BorderColor;
 
-	auto GetFormatElementSize(vk::Format InFormat) -> uint32;
-
 	extern std::atomic<uint64> GVulkanBufferHandleIdCounter;
 	extern std::atomic<uint64> GVulkanBufferViewHandleIdCounter;
 	extern std::atomic<uint64> GVulkanImageViewHandleIdCounter;

@@ -323,11 +323,6 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto GetFormatElementSize(vk::Format InFormat) -> uint32
-	{
-		return vkuFormatElementSize(static_cast<VkFormat>(InFormat));
-	}
-
 	std::atomic<uint64> GVulkanBufferHandleIdCounter = 0;
 	std::atomic<uint64> GVulkanBufferViewHandleIdCounter = 0;
 	std::atomic<uint64> GVulkanImageViewHandleIdCounter = 0;

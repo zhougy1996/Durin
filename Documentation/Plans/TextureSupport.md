@@ -43,6 +43,11 @@ capability queries and rejects unsupported optimal-tiling usages before Vulkan
 image creation while preserving a distinct Unsupported Format diagnostic. The
 ten focused texture tests, a full `all` build, and a hidden-window editor smoke
 run passed after the change.
+The Vulkan upload path now derives staging row pitch and payload size from shared
+pixel-format block metadata, including NPOT extents and sub-4x4 tail mips, rather
+than treating compressed blocks as individual texels. All eleven focused
+`FTexture2DTests.*`, a full `all` build, and an eight-second
+`DurinEditor --hidden-window` Vulkan smoke run passed after the change.
 
 ## Implemented
 

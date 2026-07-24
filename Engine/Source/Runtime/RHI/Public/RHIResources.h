@@ -466,7 +466,7 @@ namespace Durin
 	// Validates the backend-neutral constraints required before creating a texture.
 	RHI_API auto ValidateTextureCreateDesc(const FRHITextureCreateDesc& CreateDesc, std::string& OutError) -> bool;
 
-	// Validates one uncompressed two-dimensional mip/slice upload before backend access.
+	// Validates one two-dimensional mip/slice upload, including block-compressed alignment constraints.
 	RHI_API auto ValidateTexture2DUpdate(
 		const FRHITextureDesc& TextureDesc,
 		uint32 MipIndex,

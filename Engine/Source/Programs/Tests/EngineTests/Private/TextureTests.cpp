@@ -190,6 +190,36 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }
 
+TEST(FTexture2DTests, CompressedLayoutsCoverNpotAndTailMips)
+{
+	const Durin::FPixelFormatLayout BC1Npot = Durin::GetPixelFormatLayout(Durin::EPixelFormat::BC1_UNORM, 5, 3);
+	EXPECT_EQ(BC1Npot.BlocksWide, 2u);
+	EXPECT_EQ(BC1Npot.BlocksHigh, 1u);
+	EXPECT_EQ(BC1Npot.RowPitch, 16u);
+	EXPECT_EQ(BC1Npot.DataSize, 16u);
+
+	const Durin::FPixelFormatLayout BC3Npot = Durin::GetPixelFormatLayout(Durin::EPixelFormat::BC3_UNORM, 5, 5);
+	EXPECT_EQ(BC3Npot.BlocksWide, 2u);
+	EXPECT_EQ(BC3Npot.BlocksHigh, 2u);
+	EXPECT_EQ(BC3Npot.RowPitch, 32u);
+	EXPECT_EQ(BC3Npot.DataSize, 64u);
+
+	const Durin::FPixelFormatLayout BC7Tail = Durin::GetPixelFormatLayout(Durin::EPixelFormat::BC7_UNORM, 1, 1);
+	EXPECT_EQ(BC7Tail.BlocksWide, 1u);
+	EXPECT_EQ(BC7Tail.BlocksHigh, 1u);
+	EXPECT_EQ(BC7Tail.RowPitch, 16u);
+	EXPECT_EQ(BC7Tail.DataSize, 16u);
+
+	Durin::FTexture2DMipData Mip;
+	Mip.Width = 5;
+	Mip.Height = 3;
+	Mip.RowPitch = static_cast<Durin::uint32>(BC1Npot.RowPitch);
+	Mip.Pixels.resize(static_cast<size_t>(BC1Npot.DataSize));
+	EXPECT_TRUE(Mip.IsValid(Durin::EPixelFormat::BC1_UNORM));
+	Mip.RowPitch = 8;
+	EXPECT_FALSE(Mip.IsValid(Durin::EPixelFormat::BC1_UNORM));
+}
+
 TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 {
 	InitializeDObjectSystem();

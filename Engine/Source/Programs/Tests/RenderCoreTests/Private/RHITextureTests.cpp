@@ -71,6 +71,29 @@ namespace Durin
 		EXPECT_NE(Error.find("exceeds"), std::string::npos);
 	}
 
+	TEST(FRHITextureTests, ValidatesBlockCompressedUploadAlignment)
+	{
+		const FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("Compressed")
+			.SetExtent(FIntPoint(10, 6))
+			.SetNumMips(2)
+			.SetFormat(EPixelFormat::BC1_UNORM);
+		std::string Error;
+
+		const FUpdateTextureRegion2D FullMip(0, 0, 0, 0, 10, 6);
+		EXPECT_TRUE(ValidateTexture2DUpdate(Desc, 0, 0, FullMip, 24, Error)) << Error;
+
+		const FUpdateTextureRegion2D TailMip(0, 0, 0, 0, 5, 3);
+		EXPECT_TRUE(ValidateTexture2DUpdate(Desc, 1, 0, TailMip, 16, Error)) << Error;
+
+		const FUpdateTextureRegion2D MisalignedOffset(2, 0, 0, 0, 4, 4);
+		EXPECT_FALSE(ValidateTexture2DUpdate(Desc, 0, 0, MisalignedOffset, 8, Error));
+		EXPECT_NE(Error.find("block-aligned"), std::string::npos);
+
+		const FUpdateTextureRegion2D PartialBlock(0, 0, 0, 0, 5, 4);
+		EXPECT_FALSE(ValidateTexture2DUpdate(Desc, 0, 0, PartialBlock, 16, Error));
+		EXPECT_NE(Error.find("mip edge"), std::string::npos);
+	}
+
 	TEST(FRHITextureTests, ResolvesDocumentedPrincipalAxesAndEdgeDirections)
 	{
 		const std::array Cases{

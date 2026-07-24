@@ -225,19 +225,23 @@ namespace Durin::VulkanRHI
 
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
 		const auto CmdBuffer = RHIGetVkCommandBuffer(RHICmdList);
-		const uint32 ElementSize = GetFormatElementSize(VulkanTexture->Format);
+		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(VulkanTexture->GetFormat());
+		const uint32 BlockSize = FormatInfo.BlockSize;
+		const uint32 BytesPerBlock = FormatInfo.BytesPerBlock;
 
-		// Repack only the requested rectangle. SourceData always points at the full source image.
-		const uint32 PackedRowPitch = UpdateRegion.Width * ElementSize;
-		const uint64 DataSize64 = static_cast<uint64>(UpdateRegion.Height) * PackedRowPitch;
-		check(DataSize64 <= std::numeric_limits<uint32>::max());
-		const uint32 DataSize = static_cast<uint32>(DataSize64);
+		const FPixelFormatLayout PackedLayout = GetPixelFormatLayout(VulkanTexture->GetFormat(), UpdateRegion.Width, UpdateRegion.Height);
+		const uint64 SourceBlockX = static_cast<uint32>(UpdateRegion.SrcX) / BlockSize;
+		const uint64 SourceBlockY = static_cast<uint32>(UpdateRegion.SrcY) / BlockSize;
+		check(PackedLayout.RowPitch <= std::numeric_limits<uint32>::max());
+		check(PackedLayout.DataSize <= std::numeric_limits<uint32>::max());
+		const uint32 PackedRowPitch = static_cast<uint32>(PackedLayout.RowPitch);
+		const uint32 DataSize = static_cast<uint32>(PackedLayout.DataSize);
 		FStagingBuffer StagingBuffer(*Device, DataSize);
 		auto* Mapped = static_cast<uint8*>(StagingBuffer.GetMappedPointer());
-		const auto* SourceRegion = SourceData + static_cast<size_t>(UpdateRegion.SrcY) * SourcePitch + static_cast<size_t>(UpdateRegion.SrcX) * ElementSize;
-		for (uint32 Row = 0; Row < UpdateRegion.Height; ++Row)
+		const auto* SourceRegion = SourceData + SourceBlockY * SourcePitch + SourceBlockX * BytesPerBlock;
+		for (uint64 BlockRow = 0; BlockRow < PackedLayout.BlocksHigh; ++BlockRow)
 		{
-			std::memcpy(Mapped + static_cast<size_t>(Row) * PackedRowPitch, SourceRegion + static_cast<size_t>(Row) * SourcePitch, PackedRowPitch);
+			std::memcpy(Mapped + BlockRow * PackedRowPitch, SourceRegion + BlockRow * SourcePitch, PackedRowPitch);
 		}
 		StagingBuffer.FlushMappedMemory();
 
