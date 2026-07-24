@@ -30,6 +30,7 @@ namespace Durin
 		}
 
 		StaticMesh = InStaticMesh;
+		ReconcileStaticMeshBinding();
 		ReconcileMaterialBindings();
 		++MaterialComponentRevision;
 		MarkPackageDirty();
@@ -145,6 +146,7 @@ namespace Durin
 		if (!Super::PostLoad(OutError)) return false;
 		if (MaterialOverridesVersion == 0) MigrateLegacyMaterials();
 		if (!ValidateMaterialOverrides(MaterialOverrides, OutError)) return false;
+		ReconcileStaticMeshBinding();
 		ReconcileMaterialBindings();
 		return true;
 	}
@@ -201,6 +203,7 @@ namespace Durin
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("StaticMesh"))
 		{
+			ReconcileStaticMeshBinding();
 			ReconcileMaterialBindings();
 			++MaterialComponentRevision;
 			MarkRenderStateDirty();
@@ -244,9 +247,19 @@ namespace Durin
 
 	auto DStaticMeshComponent::BeginDestroy() -> void
 	{
+		if (BoundStaticMesh != nullptr) BoundStaticMesh->RemoveBoundComponent(this);
+		BoundStaticMesh = nullptr;
 		for (const TObjectPtr<DMaterialInterface>& SlotMaterial : BoundMaterials) UnbindMaterial(SlotMaterial.Get());
 		BoundMaterials.clear();
 		Super::BeginDestroy();
+	}
+
+	auto DStaticMeshComponent::HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void
+	{
+		if (ChangedMesh == nullptr || ChangedMesh != StaticMesh.Get() || ChangedMesh != BoundStaticMesh) return;
+		ReconcileMaterialBindings();
+		++MaterialComponentRevision;
+		MarkRenderStateDirty();
 	}
 
 	auto DStaticMeshComponent::BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags DirtyFlags, FMaterialRenderUpdate& OutUpdate) -> bool
@@ -283,6 +296,15 @@ namespace Durin
 	auto DStaticMeshComponent::UnbindMaterial(DMaterialInterface* InMaterial) -> void
 	{
 		if (InMaterial != nullptr) InMaterial->RemoveBoundComponent(this);
+	}
+
+	auto DStaticMeshComponent::ReconcileStaticMeshBinding() -> void
+	{
+		DStaticMesh* CurrentMesh = StaticMesh.Get();
+		if (BoundStaticMesh == CurrentMesh) return;
+		if (BoundStaticMesh != nullptr) BoundStaticMesh->RemoveBoundComponent(this);
+		BoundStaticMesh = CurrentMesh;
+		if (BoundStaticMesh != nullptr) BoundStaticMesh->AddBoundComponent(this);
 	}
 
 	auto DStaticMeshComponent::ReconcileMaterialBindings() -> void

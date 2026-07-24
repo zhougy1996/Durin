@@ -11,6 +11,7 @@
 #include "Editor/ReflectedPropertyEditing.h"
 #include "Editor/ReflectedPropertyView.h"
 #include "DObject/Class.h"
+#include "StaticMeshMaterialSlotDetails.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -110,12 +111,13 @@ namespace
 		}
 	}
 
-	auto WriteStaticMeshSlotVariant(
+		auto WriteStaticMeshSlotVariant(
 		const std::filesystem::path& Path,
 		std::string_view MaterialDeclarations,
 		std::optional<std::pair<std::string_view, std::string_view>> PrimitiveReplacement = std::nullopt,
 		bool bReplaceLastOnly = false,
-		std::optional<Durin::uint32> AppendedMaterialIndex = std::nullopt) -> void
+		std::optional<Durin::uint32> AppendedMaterialIndex = std::nullopt,
+		bool bSwapPrimitiveMaterialIndices = false) -> void
 	{
 		std::ifstream Input(std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf");
 		ASSERT_TRUE(Input.is_open());
@@ -154,6 +156,25 @@ namespace
 			const size_t PrimitivesEnd = Text.find("\n      ]", PrimitiveEnd);
 			ASSERT_NE(PrimitivesEnd, std::string::npos);
 			Text.insert(PrimitivesEnd, ",\n        " + Primitive);
+		}
+		if (bSwapPrimitiveMaterialIndices)
+		{
+			ReplaceAll(Text, R"("material": 0)", R"("material": 2)");
+			ReplaceAll(Text, R"("material": 1)", R"("material": 0)");
+			ReplaceAll(Text, R"("material": 2)", R"("material": 1)");
+			const size_t FirstBegin = Text.find("        { \"attributes\"");
+			const size_t FirstEnd = Text.find('\n', FirstBegin);
+			const size_t SecondBegin = Text.find("        { \"attributes\"", FirstEnd);
+			const size_t SecondEnd = Text.find('\n', SecondBegin);
+			ASSERT_NE(FirstBegin, std::string::npos);
+			ASSERT_NE(FirstEnd, std::string::npos);
+			ASSERT_NE(SecondBegin, std::string::npos);
+			ASSERT_NE(SecondEnd, std::string::npos);
+			std::string First = Text.substr(FirstBegin, FirstEnd - FirstBegin);
+			std::string Second = Text.substr(SecondBegin, SecondEnd - SecondBegin);
+			if (!First.empty() && First.back() == ',') First.pop_back();
+			if (!Second.empty() && Second.back() == ',') Second.pop_back();
+			Text.replace(FirstBegin, SecondEnd - FirstBegin, Second + ",\n" + First);
 		}
 		std::ofstream Output(Path, std::ios::trunc);
 		ASSERT_TRUE(Output.is_open());
@@ -198,6 +219,15 @@ namespace
 		Durin::uint64 ProxyCount = 0;
 	};
 
+	struct FMaterialSlotsSnapshot
+	{
+		Durin::FStaticMeshSceneProxy* Proxy = nullptr;
+		Durin::FStaticMeshRenderData* RenderData = nullptr;
+		std::vector<Durin::FMaterialRenderData> Materials;
+		std::vector<Durin::uint64> MaterialVersions;
+		Durin::uint64 ComponentRevision = 0;
+	};
+
 	auto CaptureScene(Durin::FScene* Scene) -> FSceneSnapshot
 	{
 		FSceneSnapshot Snapshot;
@@ -214,6 +244,29 @@ namespace
 			Snapshot.Transform = Snapshot.Proxy->GetLocalToWorld();
 			Snapshot.ComponentRevision = Snapshot.Proxy->GetMaterialComponentRevision();
 			Snapshot.MaterialVersion = Snapshot.Proxy->GetMaterialVersion();
+		});
+		WaitForRenderingThread();
+		return Snapshot;
+	}
+
+	auto CaptureMaterialSlots(Durin::FScene* Scene) -> FMaterialSlotsSnapshot
+	{
+		FMaterialSlotsSnapshot Snapshot;
+		struct FCaptureMaterialSlotsCommand
+		{
+			static constexpr const char* GetName() { return "CaptureMaterialSlots"; }
+		};
+		Durin::EnqueueRenderCommand<FCaptureMaterialSlotsCommand>([Scene, &Snapshot](Durin::FRHICommandListImmediate&) {
+			if (Scene->GetPrimitiveSceneProxies().empty()) return;
+			Snapshot.Proxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(Scene->GetPrimitiveSceneProxies().front());
+			if (Snapshot.Proxy == nullptr) return;
+			Snapshot.RenderData = Snapshot.Proxy->GetRenderData();
+			Snapshot.ComponentRevision = Snapshot.Proxy->GetMaterialComponentRevision();
+			for (Durin::uint32 SlotIndex = 0; SlotIndex < Snapshot.Proxy->GetNumMaterials(); ++SlotIndex)
+			{
+				Snapshot.Materials.push_back(Snapshot.Proxy->GetMaterialRenderData(SlotIndex));
+				Snapshot.MaterialVersions.push_back(Snapshot.Proxy->GetMaterialVersion(SlotIndex));
+			}
 		});
 		WaitForRenderingThread();
 		return Snapshot;
@@ -1231,6 +1284,104 @@ TEST(FMaterialTests, StaticMeshProxyUsesEmptyFallbackForUnassignedSlots)
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMaterialSlot)
+{
+	FRenderSceneHarness Harness;
+	auto* Shared = Durin::NewObject<Durin::DMaterial>(nullptr, "SharedSlotMaterial");
+	auto* Override = Durin::NewObject<Durin::DMaterial>(nullptr, "OverrideSlotMaterial");
+	Shared->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3));
+	Override->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.7, 0.6));
+	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
+	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 0))->DefaultMaterial = Shared;
+	const Durin::FGuid OverrideId = AddDebugMaterialSlot(Mesh, "Override");
+	const Durin::FGuid SharedId = AddDebugMaterialSlot(Mesh, "SharedAgain");
+	AddDebugMaterialSlot(Mesh, "Fallback");
+	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 1))->DefaultMaterial = Shared;
+	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 2))->DefaultMaterial = Shared;
+	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SharedSlotComponent");
+	Component->SetStaticMesh(Mesh);
+	ASSERT_TRUE(Component->SetMaterialBySlotId(OverrideId, Override));
+	Component->RegisterComponent();
+
+	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(Initial.Materials.size(), 4u);
+	ExpectColorNear(Initial.Materials[0].BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ExpectColorNear(Initial.Materials[1].BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 1.0f));
+	ExpectColorNear(Initial.Materials[2].BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ExpectColorNear(Initial.Materials[3].BaseColor, Durin::FMaterialRenderData{}.BaseColor);
+	EXPECT_EQ(Component->GetMaterialBySlotId(SharedId), Shared);
+
+	Shared->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.4, 0.5, 0.6));
+	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
+	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
+	EXPECT_GT(Updated.ComponentRevision, Initial.ComponentRevision);
+	ExpectColorNear(Updated.Materials[0].BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
+	ExpectColorNear(Updated.Materials[1].BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 1.0f));
+	ExpectColorNear(Updated.Materials[2].BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
+	ExpectColorNear(Updated.Materials[3].BaseColor, Durin::FMaterialRenderData{}.BaseColor);
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Override);
+	Durin::MarkAsGarbage(Shared);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, StaticMeshProxyOrdersRapidCrossSlotUpdatesAndRejectsStaleRevisions)
+{
+	FRenderSceneHarness Harness;
+	auto* First = Durin::NewObject<Durin::DMaterial>(nullptr, "RapidFirstMaterial");
+	auto* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "RapidSecondMaterial");
+	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	AddDebugMaterialSlot(Mesh, "Second");
+	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "RapidSlotComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(0, First);
+	Component->SetMaterial(1, Second);
+	Component->RegisterComponent();
+	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
+
+	First->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
+	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
+	const FMaterialSlotsSnapshot Rapid = CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(Rapid.Materials.size(), 2u);
+	ExpectColorNear(Rapid.Materials[0].BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
+	ExpectColorNear(Rapid.Materials[1].BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+
+	Durin::FMaterialRenderUpdate Newer;
+	Newer.SlotIndex = 0;
+	Newer.ComponentRevision = Rapid.ComponentRevision + 2;
+	Newer.RenderData.BaseColor = Durin::FVector4f(0.9f, 0.8f, 0.7f, 1.0f);
+	Durin::FMaterialRenderUpdate Stale = Newer;
+	Stale.ComponentRevision = Rapid.ComponentRevision + 1;
+	Stale.RenderData.BaseColor = Durin::FVector4f(0.0f, 0.0f, 0.0f, 1.0f);
+	struct FApplyOrderedMaterialUpdatesCommand
+	{
+		static constexpr const char* GetName() { return "ApplyOrderedMaterialUpdates"; }
+	};
+	Durin::EnqueueRenderCommand<FApplyOrderedMaterialUpdatesCommand>(
+		[Proxy = Rapid.Proxy, Newer, Stale](Durin::FRHICommandListImmediate&) {
+			Proxy->UpdateMaterialRenderData(Newer);
+			Proxy->UpdateMaterialRenderData(Stale);
+		});
+	const FMaterialSlotsSnapshot Ordered = CaptureMaterialSlots(Harness.Scene);
+	ExpectColorNear(Ordered.Materials[0].BaseColor, Newer.RenderData.BaseColor);
+	EXPECT_EQ(Ordered.ComponentRevision, Newer.ComponentRevision);
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Second);
+	Durin::MarkAsGarbage(First);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialTests, DebugStaticMeshProvidesCompleteLODAndPackedAttributes)
 {
 	InitializeDObjectSystem();
@@ -1498,6 +1649,86 @@ TEST(FMaterialTests, StaticMeshMaterialSlotReconciliationPreservesOnlyUnambiguou
 	EXPECT_NE(Duplicate->GetMaterialSlot(1)->SlotId, DuplicateRedId);
 	EXPECT_NE(Duplicate->GetMaterialSlot(1)->SlotId, DuplicateBlueId);
 	EXPECT_NE(Duplicate->GetMaterialSlot(0)->SlotId, Duplicate->GetMaterialSlot(1)->SlotId);
+}
+
+TEST(FMaterialTests, FixedRowAssignmentRoundTripsAndSurvivesRenderedReimportReorder)
+{
+	FRenderSceneHarness Harness;
+	static const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshSlotEndToEnd";
+	static const bool bMountInitialized = [] {
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotEndToEnd/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+
+	Durin::FAssetPath MeshPath;
+	Durin::FAssetPath MaterialPath;
+	Durin::FAssetPath ComponentPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotEndToEnd/Mesh", MeshPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotEndToEnd/RedOverride", MaterialPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotEndToEnd/Component", ComponentPath));
+	const std::filesystem::path BaseSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
+	Durin::FStaticMeshImportResult Import = Durin::DStaticMesh::ImportAsset(BaseSource.generic_string(), MeshPath.ToString());
+	ASSERT_TRUE(Import) << Import.Message;
+	const Durin::FGuid RedId = Import.Asset->FindMaterialSlot(Durin::FName("Red"))->SlotId;
+
+	Durin::DMaterial* Material = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(MaterialPath, Material));
+	Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.85, 0.15, 0.1));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Material->GetPackage()));
+	Durin::DStaticMeshComponent* Component = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(ComponentPath, Component));
+	Component->SetStaticMesh(Import.Asset);
+	Durin::FStaticMeshMaterialSlotDetailsModel Model(Component);
+	const auto RedEntry = std::ranges::find(Model.GetCurrentEntries(), RedId, &Durin::FStaticMeshMaterialSlotDetailsEntry::SlotId);
+	ASSERT_NE(RedEntry, Model.GetCurrentEntries().end());
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyView PropertyView;
+	std::string EditError;
+	const Durin::FReflectedPropertyViewContext Context{
+		.Transactions = &Transactions,
+		.ReportError = [&EditError](std::string Error) { EditError = std::move(Error); }};
+	ASSERT_TRUE(Model.AssignMaterial(PropertyView, Context, *RedEntry, Material));
+	ASSERT_TRUE(EditError.empty());
+	ASSERT_TRUE(Durin::Asset::SavePackage(Component->GetPackage()));
+	Transactions.Clear();
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(ComponentPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	Component = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(ComponentPath, Component));
+	ASSERT_NE(Component, nullptr);
+	ASSERT_NE(Component->GetStaticMesh(), nullptr);
+	ASSERT_EQ(Component->GetMaterialBySlotId(RedId)->GetPackage()->GetPackagePath(), MaterialPath.ToString());
+	Component->RegisterComponent();
+	const FMaterialSlotsSnapshot BeforeReimport = CaptureMaterialSlots(Harness.Scene);
+
+	const std::filesystem::path ReimportSource = Root / "Mesh.gltf";
+	WriteStaticMeshSlotVariant(ReimportSource, R"({ "name": "Blue" }, { "name": "Red" })",
+		std::nullopt, false, std::nullopt, true);
+	std::string ReimportError;
+	ASSERT_TRUE(Component->GetStaticMesh()->PostLoad(ReimportError)) << ReimportError;
+	ASSERT_EQ(Component->GetStaticMesh()->GetMaterialSlot(0)->Name, Durin::FName("Blue"));
+	ASSERT_EQ(Component->GetStaticMesh()->GetMaterialSlot(1)->SlotId, RedId);
+	ASSERT_EQ(Component->GetStaticMesh()->GetRenderData()->LODResources[0].Sections[0].MaterialSlotIndex, 0u);
+	ASSERT_EQ(Component->GetStaticMesh()->GetRenderData()->LODResources[0].Sections[1].MaterialSlotIndex, 1u);
+	EXPECT_EQ(Component->GetMaterial(1)->GetPackage()->GetPackagePath(), MaterialPath.ToString());
+	const FMaterialSlotsSnapshot AfterReimport = CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(AfterReimport.Materials.size(), 2u);
+	EXPECT_NE(AfterReimport.Proxy, BeforeReimport.Proxy);
+	EXPECT_NE(AfterReimport.RenderData, BeforeReimport.RenderData);
+	ExpectColorNear(AfterReimport.Materials[1].BaseColor, Durin::FVector4f(0.85f, 0.15f, 0.1f, 1.0f));
+	ExpectColorNear(AfterReimport.Materials[0].BaseColor, Durin::FMaterialRenderData{}.BaseColor);
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(ComponentPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	Harness.Shutdown();
+	Durin::CollectGarbage();
 }
 
 TEST(FMaterialTests, VersionZeroStaticMeshMaterialSlotsMigrateDeterministically)

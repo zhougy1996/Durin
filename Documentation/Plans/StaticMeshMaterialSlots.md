@@ -4,7 +4,7 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 0 through 3 are complete. The source-slot and compatibility contracts are frozen,
+Stages 0 through 4 are complete. The source-slot and compatibility contracts are frozen,
 generated importer fixtures cover reorder, rename, duplicate names, addition,
 removal, filtering, and exact-name behavior, and characterization tests capture
 the version-zero component representation, load ordering, section mapping,
@@ -24,8 +24,16 @@ and new saves clear the transitional fields. Level Editor now replaces the raw
 component collections with one searchable fixed row per current mesh slot,
 resolved-source state, a material-only picker, Reset, and a deterministic
 orphan warning group. Assign, replace, reset, and orphan removal snapshot the
-reflected override root and use the slot GUID as transaction identity. The next
-step is Stage 4 render/reimport integration coverage.
+reflected override root and use the slot GUID as transaction identity. Scene
+proxies now snapshot materials in reconciled mesh-slot order, resolve component
+override through mesh default and renderer fallback, update every slot sharing a
+changed material in place, and use component revisions to reject stale cross-slot
+updates. Static meshes notify bound components whenever rebuilt render data
+replaces the prior layout, forcing a proxy rebuild without exposing GUIDs to the
+render thread. End-to-end coverage assigns through the fixed-row model, saves and
+reloads, reorders the source, reimports, and verifies that the preserved GUID
+override still reaches the correct rendered slot. The next step is Stage 5 legacy
+retirement and architecture documentation.
 
 This plan replaces the index-shaped component array with persistent
 mesh-owned slot identities, sparse component overrides, and a fixed-row Details
@@ -408,18 +416,18 @@ The reconciliation fixtures establish these expected identity results:
 
 ### Stage 4: Complete Render and Reimport Integration
 
-- [ ] Build scene-proxy material snapshots by current mesh slot order while
+- [x] Build scene-proxy material snapshots by current mesh slot order while
   resolving component override, mesh default, and fallback.
-- [ ] Route live material changes to every current slot that resolves to the
+- [x] Route live material changes to every current slot that resolves to the
   changed material, including one material used by multiple slots.
-- [ ] Rebuild the proxy when mesh assignment or reconciled slot layout changes;
+- [x] Rebuild the proxy when mesh assignment or reconciled slot layout changes;
   keep parameter-only material changes on the in-place render command path.
-- [ ] Confirm component revisions order rapid updates across independent slots
+- [x] Confirm component revisions order rapid updates across independent slots
   and that stale updates cannot overwrite newer resolved data.
-- [ ] Add proxy tests for mesh defaults, component precedence, fallback,
+- [x] Add proxy tests for mesh defaults, component precedence, fallback,
   multiple slots sharing a material, reimport reorder, orphan exclusion, and
   rapid cross-slot updates.
-- [ ] Add an asset/editor integration test covering import, assignment through
+- [x] Add an asset/editor integration test covering import, assignment through
   the fixed-row model, save/reload, source reorder, reimport, and preserved
   rendered assignment.
 

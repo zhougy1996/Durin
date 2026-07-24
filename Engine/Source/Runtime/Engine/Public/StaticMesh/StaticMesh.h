@@ -8,6 +8,7 @@
 namespace Durin
 {
 	class DMaterialInterface;
+	class DStaticMeshComponent;
 
 	DENUM()
 	enum class EStaticMeshImportAxis : int8
@@ -103,6 +104,8 @@ namespace Durin
 
 	private:
 		auto BuildRenderData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
+		auto AddBoundComponent(DStaticMeshComponent* Component) -> void;
+		auto RemoveBoundComponent(DStaticMeshComponent* Component) -> void;
 
 		DPROPERTY()
 		std::string SourceFile;
@@ -122,6 +125,9 @@ namespace Durin
 		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
+		std::vector<DStaticMeshComponent*> BoundComponents;
+
+		friend class DStaticMeshComponent;
 	};
 
 	struct FStaticMeshImportResult

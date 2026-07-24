@@ -52,8 +52,10 @@ namespace Durin
 	private:
 		auto BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags DirtyFlags, FMaterialRenderUpdate& OutUpdate) -> bool override;
 		auto HandleMaterialRenderDataChanged(DMaterialInterface* ChangedMaterial, EMaterialRenderDirtyFlags DirtyFlags) -> void;
+		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
 		auto BindMaterial(DMaterialInterface* InMaterial) -> void;
 		auto UnbindMaterial(DMaterialInterface* InMaterial) -> void;
+		auto ReconcileStaticMeshBinding() -> void;
 		auto ReconcileMaterialBindings() -> void;
 		auto ValidateMaterialOverrides(std::span<const FStaticMeshMaterialOverride> Overrides, std::string& OutError) const -> bool;
 		auto MigrateLegacyMaterials() -> void;
@@ -74,11 +76,13 @@ namespace Durin
 		DPROPERTY()
 		std::vector<TObjectPtr<DMaterialInterface>> Materials;
 		std::vector<TObjectPtr<DMaterialInterface>> BoundMaterials;
+		DStaticMesh* BoundStaticMesh = nullptr;
 
 		uint64 MaterialComponentRevision = 1;
 		uint32 PendingMaterialSlotIndex = 0;
 		EMaterialRenderDirtyFlags PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::None;
 
 		friend class DMaterialInterface;
+		friend class DStaticMesh;
 	};
 }

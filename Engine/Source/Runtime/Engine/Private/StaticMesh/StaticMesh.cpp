@@ -1,5 +1,7 @@
 #include "StaticMesh/StaticMesh.h"
 
+#include "Components/StaticMeshComponent.h"
+
 #include "AssetCore.h"
 #include "AssetSystem.h"
 #include "DObject/DObjectGlobals.h"
@@ -385,6 +387,22 @@ namespace Durin
 	{
 		if (InRenderData != nullptr) InRenderData->RecalculateBounds();
 		RenderData = std::move(InRenderData);
+		const std::vector<DStaticMeshComponent*> Components = BoundComponents;
+		for (DStaticMeshComponent* Component : Components)
+		{
+			if (Component != nullptr) Component->HandleStaticMeshRenderDataChanged(this);
+		}
+	}
+
+	auto DStaticMesh::AddBoundComponent(DStaticMeshComponent* Component) -> void
+	{
+		if (Component != nullptr && std::ranges::find(BoundComponents, Component) == BoundComponents.end())
+			BoundComponents.push_back(Component);
+	}
+
+	auto DStaticMesh::RemoveBoundComponent(DStaticMeshComponent* Component) -> void
+	{
+		std::erase(BoundComponents, Component);
 	}
 
 	auto DStaticMesh::CreateDebugTriangle(DObject* Outer) -> DStaticMesh*
