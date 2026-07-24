@@ -23,6 +23,7 @@ from durin_header_tool.model.reflection_manifest import ModuleManifest, save_mod
 from durin_header_tool.model.reflection_info import (
     ReflectedEnumInfo,
     ReflectedEnumValueInfo,
+    _scan_generated_body_line,
     make_dht_parse_source,
     make_generated_enum_helper_name,
     make_generated_helper_name,
@@ -378,6 +379,26 @@ namespace Beta
         self.assertEqual(classes["Beta::FItem"].generated_body_line, generated_body_lines[1])
         self.assertEqual([prop.name for prop in classes["Alpha::FItem"].properties], ["First"])
         self.assertEqual([prop.name for prop in classes["Beta::FItem"].properties], ["Second"])
+
+    def test_generated_body_line_comes_from_source_instead_of_synthetic_cursor(self):
+        source = '''namespace Fixture
+{
+    class FItem
+    {
+        GENERATED_BODY()
+    };
+}
+'''
+        class_cursor = mock.Mock()
+        class_cursor.extent.start.line = 3
+        class_cursor.extent.start.column = 5
+        class_cursor.extent.end.line = 3
+        synthetic_member = mock.Mock()
+        synthetic_member.spelling = "DHT_GENERATED_BODY"
+        synthetic_member.location.line = 3
+        class_cursor.get_children.return_value = [synthetic_member]
+
+        self.assertEqual(_scan_generated_body_line(source, class_cursor), 5)
 
     def test_property_flags_metadata_and_value_lifecycle_are_generated(self):
         self.assertIn(

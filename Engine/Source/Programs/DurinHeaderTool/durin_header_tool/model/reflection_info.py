@@ -390,24 +390,68 @@ def _qualified_name(cursor: clang.cindex.Cursor) -> str:
     return f"{namespace}::{cursor.spelling}" if namespace else cursor.spelling
 
 
+def _source_scope_end_line(source: str, start_line: int, start_column: int) -> int:
+    lines = source.splitlines(keepends=True)
+    position = sum(len(line) for line in lines[:start_line - 1]) + max(start_column - 1, 0)
+    state = "code"
+    escaped = False
+    brace_depth = 0
+    body_started = False
+
+    while position < len(source):
+        char = source[position]
+        next_char = source[position + 1] if position + 1 < len(source) else ""
+        if state in ("string", "character"):
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif (state == "string" and char == '"') or (state == "character" and char == "'"):
+                state = "code"
+        elif state == "line_comment":
+            if char == "\n":
+                state = "code"
+        elif state == "block_comment":
+            if char == "*" and next_char == "/":
+                state = "code"
+                position += 1
+        elif char == "/" and next_char == "/":
+            state = "line_comment"
+            position += 1
+        elif char == "/" and next_char == "*":
+            state = "block_comment"
+            position += 1
+        elif char == '"':
+            state = "string"
+        elif char == "'":
+            state = "character"
+        elif char == "{":
+            body_started = True
+            brace_depth += 1
+        elif char == "}" and body_started:
+            brace_depth -= 1
+            if brace_depth == 0:
+                return source.count("\n", 0, position) + 1
+        position += 1
+    return 0
+
+
 def _cursor_source_line_range(source: str, cursor: clang.cindex.Cursor) -> tuple[int, int]:
     line_count = len(source.splitlines())
     start_line = cursor.extent.start.line
-    end_line = cursor.extent.end.line
-    if start_line <= 0 or end_line < start_line or start_line > line_count:
+    if start_line <= 0 or start_line > line_count:
         return 0, 0
-    return start_line, min(end_line, line_count)
+    end_line = _source_scope_end_line(source, start_line, cursor.extent.start.column)
+    return (start_line, end_line) if end_line >= start_line else (0, 0)
 
 
 def _scan_generated_body_line(source: str, class_cursor: clang.cindex.Cursor) -> int:
-    for child in class_cursor.get_children():
-        if child.spelling == "DHT_GENERATED_BODY":
-            return child.location.line
-
     start_line, end_line = _cursor_source_line_range(source, class_cursor)
     if start_line == 0:
         return 0
 
+    # Synthetic member locations can collapse to the class declaration in PCH or
+    # error-recovery ASTs. The cursor extent selects the class; source owns macro lines.
     for match in _GENERATED_BODY_PATTERN.finditer(source):
         line = source.count("\n", 0, match.start()) + 1
         if start_line <= line <= end_line and _is_cpp_code_position(source, match.start()):
