@@ -1,6 +1,6 @@
 # Texture Support Plan
 
-Last reviewed: 2026-07-24
+Last reviewed: 2026-07-25
 
 ## Current Status
 
@@ -35,6 +35,9 @@ invalidated stale derived data when a copied source disappears, and replaced
 handwritten status-name switches with reflected enum metadata. All ten focused
 `FTexture2DTests.*` and all 200 `EngineTests` passed, followed by a successful
 full `all` build and an eight-second `DurinEditor --hidden-window` smoke run.
+Stage 2 was formally closed on 2026-07-25 after all ten focused
+`FTexture2DTests.*` passed again, confirming the built mip preview and persistent,
+recoverable source/build/upload failure-state foundation.
 
 ## Implemented
 
@@ -101,7 +104,7 @@ full `all` build and an eight-second `DurinEditor --hidden-window` smoke run.
 
 - [x] Preview the built platform texture and selectable mip levels rather than
   only the copied source image.
-- [ ] Surface missing-source, decode, build, upload, and unsupported-format
+- [x] Surface missing-source, decode, build, upload, and unsupported-format
   states to the user.
 
 #### Acceptance Gate
