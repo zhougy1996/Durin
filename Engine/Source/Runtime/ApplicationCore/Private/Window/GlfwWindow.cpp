@@ -381,7 +381,9 @@ namespace Durin
 			float ScaleX = 1.0f;
 			float ScaleY = 1.0f;
 			glfwGetMonitorContentScale(GlfwMonitor, &ScaleX, &ScaleY);
-			MonitorInfo.DpiScale = ScaleX;
+			// GLFW may return 0.0 when the monitor is asleep or disconnected.
+			// Clamp to a sane range so ImGui's DpiScale assertion passes.
+			MonitorInfo.DpiScale = std::clamp(ScaleX, 1.0f, 4.0f);
 		}
 
 		return Monitors;
