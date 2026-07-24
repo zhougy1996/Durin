@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import clang.cindex
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -23,6 +25,7 @@ from durin_header_tool.model.reflection_manifest import ModuleManifest, save_mod
 from durin_header_tool.model.reflection_info import (
     ReflectedEnumInfo,
     ReflectedEnumValueInfo,
+    _parse_translation_unit,
     _scan_generated_body_line,
     make_dht_parse_source,
     make_generated_enum_helper_name,
@@ -296,6 +299,29 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
 /* DMETA(DisplayName = Bare) */
 '''
         self.assertEqual(make_dht_parse_source(source), source)
+
+    def test_translation_unit_skips_function_bodies(self):
+        index = mock.Mock()
+        index.parse.return_value = mock.sentinel.translation_unit
+        with (
+            mock.patch("durin_header_tool.model.reflection_info._init_clang"),
+            mock.patch.object(clang.cindex.Index, "create", return_value=index),
+            mock.patch("durin_header_tool.model.reflection_info._clang_args", return_value=[]),
+            mock.patch("durin_header_tool.model.reflection_info._fake_generated_headers", return_value=[]),
+        ):
+            translation_unit, dmeta_uses = _parse_translation_unit(
+                "Fixture",
+                Path("FixtureTypes.h"),
+                "",
+                export_mode=False,
+            )
+
+        self.assertIs(translation_unit, mock.sentinel.translation_unit)
+        self.assertEqual(dmeta_uses, {})
+        self.assertEqual(
+            index.parse.call_args.kwargs["options"],
+            clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES,
+        )
 
     def test_dmeta_outside_reflected_enum_is_rejected(self):
         header = "Public/Misplaced.h"

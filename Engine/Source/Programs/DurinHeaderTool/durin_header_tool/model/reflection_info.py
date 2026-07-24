@@ -1379,6 +1379,7 @@ def _parse_translation_unit(
         str(header_path),
         args=_clang_args(module_name, export_mode),
         unsaved_files=unsaved_files,
+        options=clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES,
     )
     return translation_unit, dmeta_uses
 

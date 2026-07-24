@@ -54,6 +54,11 @@ configured reflected header rather than introduced indirectly by another macro.
 DHT hot-path AST traversal must preserve this boundary and must not recursively
 lint the complete translation unit.
 
+Clang translation units are parsed without function bodies. Reflection consumes
+declaration signatures, fields, constructor and destructor declarations, enum
+constants, and annotation attributes; inline implementation bodies are outside
+the reflection model and must not be made an extraction dependency.
+
 The parser may therefore use a partial Clang translation unit that contains
 diagnostics unrelated to the reflection declarations being extracted. Such
 diagnostics do not by themselves make reflection generation invalid, and
