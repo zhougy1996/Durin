@@ -4,7 +4,6 @@ These plans have an active execution path. Plan authoring and archival rules are
 
 | Plan | Primary Scope |
 | --- | --- |
-| [Content Browser CPU Optimization](ContentBrowserCpuOptimization.md) | Idle directory-tree path conversion, lexical path relations, node-cache churn, and repeatable CPU validation |
 | [Actor Component System](ActorComponentSystem.md) | Reflected actor/component ownership, lifecycle, world integration, transforms, scene registration, and serialization |
 | [SkyBoxComponent](SkyBoxComponent.md) | Complete vertical slice for the first static cubemap sky background |
 | [Texture Support](TextureSupport.md) | Texture2D assets, platform data, material sampling, and validation |

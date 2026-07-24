@@ -4,13 +4,25 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-In progress. Stage 1's lazy tree-drop destination resolution and Stage 2's
-lexical path relations were implemented on 2026-07-24. All 115 `CoreTests` and
-182 `EngineTests` pass, the full `Win64-Debug-DurinEditor-Tests` build succeeds,
-and a hidden-window editor smoke run remained healthy for eight seconds. Manual
-drag-and-drop validation, the fixed three-sample baseline, post-change
-profiling, and final regression validation remain open, so no performance
-acceptance claim has been made.
+Archived on 2026-07-24 by explicit owner acceptance. Stage 1's lazy tree-drop
+destination resolution and Stage 2's lexical path relations were implemented
+on 2026-07-24. All 115 `CoreTests` and 182 `EngineTests` pass, the full
+`Win64-Debug-DurinEditor-Tests` build succeeds, and a hidden-window editor smoke
+run remained healthy for eight seconds.
+
+A post-change Visual Studio CPU Usage sample supplied during validation reduced
+`FContentBrowserPanel::Draw` from 66.24% to 16.64% of inclusive samples and
+`DrawDirectoryTree` from 50.53% to 6.58%, relative reductions of approximately
+74.9% and 87.0%. `DrawToolbar` at 7.81% replaced the directory tree as the
+larger content-browser child hotspot. The owner accepted this result and chose
+to defer further optimization until a future measured need, so Stage 3's cache
+redesign was not pursued.
+
+The fixed three-sample process-CPU median, non-Debug comparison, and recorded
+visible interaction matrix were not completed. They remain unchecked below and
+must not be inferred from this archive. This is an explicitly accepted early
+closure based on the substantial sampled-hotspot reduction, not a claim that
+every originally planned validation gate passed.
 
 A 22.62-second Visual Studio CPU sample of an otherwise idle
 `Win64-Debug-DurinEditor-Tests` editor session established the initial baseline.
@@ -169,7 +181,7 @@ not steady-state drawing work.
 
 ### Stage 3: Remove Residual Per-Frame Node Churn
 
-- [ ] Re-profile after Stages 1 and 2 before changing the directory cache shape.
+- [x] Re-profile after Stages 1 and 2 before changing the directory cache shape.
 - [ ] If node normalization, child-vector copies, filename conversion, sorting,
   or label construction remains material, replace the cache value with stable
   node metadata containing normalized physical path, display name, virtual
@@ -202,7 +214,7 @@ not steady-state drawing work.
   Vulkan validation overhead.
 - [ ] Manually verify collapsed, partially expanded, and deeply expanded trees,
   including drag-and-drop and all directory mutation actions.
-- [ ] Record final evidence in this plan and move lasting path/cache invariants
+- [x] Record final evidence in this plan and move lasting path/cache invariants
   into the relevant Architecture documentation before archiving.
 
 #### Acceptance Gate
@@ -250,8 +262,8 @@ not steady-state drawing work.
 
 ## Related Documentation
 
-- [Build and Run](../Setup/BuildAndRun.md)
-- [Runtime Architecture](../Architecture/RuntimeArchitecture.md)
+- [Build and Run](../../../Setup/BuildAndRun.md)
+- [Runtime Architecture](../../../Architecture/RuntimeArchitecture.md)
 
 ## Related Code
 

@@ -13,6 +13,7 @@ These plans completed and entered the archive in July 2026.
 | [Material Parameter Domain Refactor](MaterialParameterDomainRefactor.md) | Permanent GUID parameter identity, runtime-owned schema, GUID instance overrides, schema-driven editing, and an explicit legacy-load boundary |
 | [Static Mesh Material Slots](StaticMeshMaterialSlots.md) | Mesh-owned stable slot GUIDs, sparse component overrides, deterministic reimport reconciliation, fixed-row Details editing, and compact render integration |
 | [BuildTool Shell Consistency](BuildToolShellConsistency.md) | Unified direct/shell command semantics, contextual failures, deferred shell toolchain initialization, and lock-free idle interaction |
+| [Content Browser CPU Optimization](ContentBrowserCpuOptimization.md) | Lazy tree-drop destination resolution and lexical mount-path relations, reducing sampled content-browser and directory-tree inclusive cost by approximately 74.9% and 87.0% in the accepted post-change sample |
 
 Read an archived plan only when its history or decision provenance is relevant.
 Archive maintenance rules are in [the parent instructions](../../AGENTS.md).
