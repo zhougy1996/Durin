@@ -36,8 +36,8 @@ namespace Durin::EditorAssetPicker
 		{
 			FCandidateCacheKey CandidateKey;
 			std::string SearchText;
-			uint32 MaxVisibleResults = 0;
-			std::vector<const FAssetPath*> VisiblePaths;
+			uint32 MaxSearchResults = 0;
+			std::vector<const FAssetPath*> MatchingPaths;
 			bool bTruncated = false;
 			int LastUsedFrame = -1;
 		};
@@ -79,12 +79,12 @@ namespace Durin::EditorAssetPicker
 			return Paths;
 		}
 
-		auto GetVisiblePaths(
+		auto GetMatchingPaths(
 			FAssetPickerCache& Cache,
 			ImGuiID PickerId,
 			const FCandidateCacheKey& CandidateKey,
 			std::string_view SearchText,
-			uint32 MaxVisibleResults
+			uint32 MaxSearchResults
 		) -> const FSearchCacheEntry&
 		{
 			auto SearchIterator = Cache.Searches.find(PickerId);
@@ -102,24 +102,25 @@ namespace Durin::EditorAssetPicker
 			FSearchCacheEntry& Search = SearchIterator->second;
 			Search.LastUsedFrame = ImGui::GetFrameCount();
 			if (Search.CandidateKey == CandidateKey && Search.SearchText == SearchText &&
-				Search.MaxVisibleResults == MaxVisibleResults)
+				Search.MaxSearchResults == MaxSearchResults)
 				return Search;
 
 			Search.CandidateKey = CandidateKey;
 			Search.SearchText = SearchText;
-			Search.MaxVisibleResults = MaxVisibleResults;
-			Search.VisiblePaths.clear();
-			Search.VisiblePaths.reserve(MaxVisibleResults);
+			Search.MaxSearchResults = MaxSearchResults;
+			Search.MatchingPaths.clear();
+			const std::vector<FAssetPath>& CandidatePaths = GetCandidatePaths(Cache, CandidateKey);
+			Search.MatchingPaths.reserve(std::min<size_t>(CandidatePaths.size(), MaxSearchResults));
 			Search.bTruncated = false;
-			for (const FAssetPath& Path : GetCandidatePaths(Cache, CandidateKey))
+			for (const FAssetPath& Path : CandidatePaths)
 			{
 				if (!StringUtils::ContainsInsensitive(Path.GetView(), SearchText)) continue;
-				if (Search.VisiblePaths.size() == MaxVisibleResults)
+				if (Search.MatchingPaths.size() == MaxSearchResults)
 				{
 					Search.bTruncated = true;
 					break;
 				}
-				Search.VisiblePaths.push_back(&Path);
+				Search.MatchingPaths.push_back(&Path);
 			}
 			return Search;
 		}
@@ -149,7 +150,8 @@ namespace Durin::EditorAssetPicker
 		const bool bInvalidAction = Config.TrailingAction &&
 			(!Config.TrailingAction->Icon || !Config.TrailingAction->ButtonId || !Config.TrailingAction->Execute);
 		if (!Config.RequiredClass || !Config.ComboId || !Config.SearchId || Config.SearchText.empty() ||
-			!Config.AssignSelection || Config.MaxVisibleResults == 0 || bInvalidAction)
+			!Config.AssignSelection || Config.MaxSearchResults == 0 ||
+			Config.MaxSearchResults > static_cast<uint32>(std::numeric_limits<int>::max()) || bInvalidAction)
 		{
 			PickerResult.Error = "The asset picker configuration is incomplete.";
 			return PickerResult;
@@ -191,30 +193,36 @@ namespace Durin::EditorAssetPicker
 				.ClassPolicy = Config.ClassPolicy,
 				.PathPrefix = std::string(Config.PathPrefixFilter)};
 			FAssetPickerCache& Cache = GetPickerCache();
-			const FSearchCacheEntry& Search = GetVisiblePaths(
+			const FSearchCacheEntry& Search = GetMatchingPaths(
 				Cache,
 				PickerId,
 				CandidateKey,
 				Config.SearchText.data(),
-				Config.MaxVisibleResults
+				Config.MaxSearchResults
 			);
-			for (const FAssetPath* Path : Search.VisiblePaths)
+			ImGuiListClipper Clipper;
+			Clipper.Begin(static_cast<int>(Search.MatchingPaths.size()));
+			while (Clipper.Step())
 			{
-				const bool bSelected = Config.CurrentSelection && Config.CurrentSelection->GetPackage() &&
-					Config.CurrentSelection->GetPackage()->GetPackagePath() == Path->GetView();
-				if (!ImGui::Selectable(Path->ToString().c_str(), bSelected)) continue;
-				DObject* LoadedAsset = nullptr;
-				const Asset::FAssetResult LoadResult = Asset::LoadAsset(*Path, LoadedAsset);
-				if (!LoadResult || !LoadedAsset)
+				for (int Index = Clipper.DisplayStart; Index < Clipper.DisplayEnd; ++Index)
 				{
-					PickerResult.Error = LoadResult ? "The selected asset could not be loaded." : LoadResult.Message;
-					continue;
+					const FAssetPath& Path = *Search.MatchingPaths[Index];
+					const bool bSelected = Config.CurrentSelection && Config.CurrentSelection->GetPackage() &&
+						Config.CurrentSelection->GetPackage()->GetPackagePath() == Path.GetView();
+					if (!ImGui::Selectable(Path.ToString().c_str(), bSelected)) continue;
+					DObject* LoadedAsset = nullptr;
+					const Asset::FAssetResult LoadResult = Asset::LoadAsset(Path, LoadedAsset);
+					if (!LoadResult || !LoadedAsset)
+					{
+						PickerResult.Error = LoadResult ? "The selected asset could not be loaded." : LoadResult.Message;
+						continue;
+					}
+					Assign(LoadedAsset);
 				}
-				Assign(LoadedAsset);
 			}
-			if (Search.VisiblePaths.empty()) ImGui::TextDisabled("No matching assets.");
+			if (Search.MatchingPaths.empty()) ImGui::TextDisabled("No matching assets.");
 			else if (Search.bTruncated)
-				ImGui::TextDisabled("Showing the first %u matches. Refine the search to see more.", Config.MaxVisibleResults);
+				ImGui::TextDisabled("Showing the first %u matches. Refine the search to see more.", Config.MaxSearchResults);
 			ImGui::EndCombo();
 		}
 
