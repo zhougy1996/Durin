@@ -74,6 +74,8 @@ namespace Durin::EditorAssetPicker
 				if (!MatchesClass(AssetClass, Config.RequiredClass, Config.ClassPolicy) ||
 					!StringUtils::ContainsInsensitive(PathString, Config.SearchText.data()))
 					continue;
+				if (!Config.PathPrefixFilter.empty() && !PathString.starts_with(Config.PathPrefixFilter))
+					continue;
 
 				const bool bSelected = Config.CurrentSelection && Config.CurrentSelection->GetPackage() &&
 					Config.CurrentSelection->GetPackage()->GetPackagePath() == PathString;

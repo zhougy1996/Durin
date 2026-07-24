@@ -37,6 +37,8 @@ namespace Durin
 		// When present, the picker reserves stable trailing width and always draws
 		// the action, including its disabled state.
 		std::optional<FEditorAssetPickerAction> TrailingAction;
+		// When non-empty, only paths that start with this prefix are shown.
+		std::string_view PathPrefixFilter;
 	};
 
 	struct FEditorAssetPickerResult

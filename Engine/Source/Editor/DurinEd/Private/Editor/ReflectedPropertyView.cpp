@@ -8,6 +8,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/MathStructs.h"
 #include "DObject/Package.h"
+#include "Editor/EditorAssetPicker.h"
 #include "Math/Color.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
@@ -18,15 +19,6 @@ namespace Durin
 	namespace
 	{
 		using StringUtils::ContainsInsensitive;
-
-		auto IsClassChildOf(const DClass* Class, const DClass* Parent) -> bool
-		{
-			for (const DClass* Current = Class; Current != nullptr; Current = Current->GetSuperClass())
-			{
-				if (Current == Parent) return true;
-			}
-			return false;
-		}
 
 		auto PropertyKindName(DurinCodeGen::EPropertyGenFlags Kind) -> const char*
 		{
@@ -435,39 +427,31 @@ namespace Durin
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Object)
 		{
 			auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
+			DClass* RequiredClass = ObjectProperty->GetReferencedClass();
 			DObject* Current = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
 			DObject* SelectedObject = Current;
-			bool bChanged = false;
-			const std::string Preview = Current && Current->GetPackage() ? Current->GetPackage()->GetPackagePath() : "None";
-			if (ImGui::BeginCombo("##Value", Preview.c_str()))
-			{
-				ImGui::SetNextItemWidth(-FLT_MIN);
-				ImGui::InputTextWithHint("##AssetSearch", "Search assets...", AssetSearchText.data(), AssetSearchText.size());
-				if (ImGui::Selectable("Clear", Current == nullptr))
-				{
-					if (Current) { SelectedObject = nullptr; bChanged = true; }
-				}
-				DClass* RequiredClass = ObjectProperty->GetReferencedClass();
-				for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
-				{
-					DClass* AssetClass = FindClassByQualifiedName(Data.AssetClassName);
-					const std::string PathString = Path.ToString();
-					if (!AssetClass || !RequiredClass || !IsClassChildOf(AssetClass, RequiredClass) || !ContainsInsensitive(PathString, AssetSearchText.data())) continue;
-					if (ImGui::Selectable(PathString.c_str(), Current && Current->GetPackage() && Current->GetPackage()->GetPackagePath() == PathString))
+			const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
+				.ComboId = "##Value",
+				.SearchId = "##ObjectSearch",
+				.SearchHint = "Search assets...",
+				.RequiredClass = RequiredClass,
+				.ClassPolicy = EEditorAssetClassPolicy::Derived,
+				.CurrentSelection = Current,
+				.SearchText = AssetSearchText,
+				.bAllowNone = true,
+				.AssignSelection = [&](DObject* Selection, std::string& OutError) {
+					if (Selection == Current) { SelectedObject = nullptr; return true; }
+					if (RequiredClass && Selection && !EditorAssetPicker::MatchesClass(Selection->GetClass(), RequiredClass, EEditorAssetClassPolicy::Derived))
 					{
-						DObject* Loaded = nullptr;
-						Asset::FAssetResult Result = Asset::LoadAsset(Path, Loaded);
-						if (!Result)
-							ReportError(Context, Result.Message);
-						else if (Loaded != Current)
-						{
-							SelectedObject = Loaded;
-							bChanged = true;
-						}
+						OutError = "The selected asset does not match the required class.";
+						return false;
 					}
-				}
-				ImGui::EndCombo();
-			}
+					SelectedObject = Selection;
+					return true;
+				},
+			});
+			if (!PickerResult.Error.empty()) ReportError(Context, PickerResult.Error);
+			const bool bChanged = PickerResult.bSelectionChanged;
 			CaptureResult(bChanged, false);
 			if (bChanged) Result.AssignValue = [SelectedObject](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
 				static_cast<FObjectProperty*>(DestinationProperty)->SetObjectPropertyValue(DestinationContainer, SelectedObject, DestinationArrayIndex);
