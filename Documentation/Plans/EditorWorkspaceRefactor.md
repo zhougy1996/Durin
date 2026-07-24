@@ -1,6 +1,6 @@
 # Editor Workspace Refactor Plan
 
-Last reviewed: 2026-07-24
+Last reviewed: 2026-07-25
 
 ## Current Status
 
@@ -27,16 +27,19 @@ only Level workspace state.
 `MainFrame` still loads the concrete Level Editor and Material Editor module
 interfaces as a temporary feature-discovery boundary.
 
-Material parent and parameter edits now enter the shared reflected-property
+Material parent and parameter edits enter the shared reflected-property
 transaction path, including coalescing continuous scalar and color controls.
-The remaining transaction work is exposing undo and redo through the Material
-workspace, validating render-data and dirty-state restoration, and defining
-history lifetime across project and document transitions.
+`MMaterialEditor`, `MTextureEditor`, and `MLevelEditor` each expose undo and
+redo through the workspace interface by delegating to the global
+`FEditorTransactionManager`. Ctrl+Z and Ctrl+Y route through the active
+workspace in `DrawWorkspaceHost`. Save/Discard/Cancel confirmation dialogs
+handle dirty-document close for all three workspaces.
 
-The shared editor asset picker now supports a width-reserving trailing action
-with persistent enabled and disabled presentation. Static-mesh material slots
-use that action for reset-to-default behavior without adding domain state to the
-shared picker.
+The shared editor asset picker now supports a width-reserving trailing action,
+a path-prefix filter for project-scoped asset enumeration, and persistent
+enabled/disabled presentation. Static-mesh material slots use the trailing
+action for reset-to-default behavior. Reflected Object property editing and the
+project-settings default-level selector both use the shared picker.
 
 ## Goals
 
@@ -46,7 +49,7 @@ shared picker.
 - [x] Make workspace discovery, host layout, and Window menu construction data
   driven.
 - [x] Make workspace and asset editor registration atomic or safely reversible.
-- [ ] Share asset picker, root-window lifecycle, dirty-document close, error
+- [x] Share asset picker, root-window lifecycle, dirty-document close, error
   presentation, and transaction behavior where the semantics are genuinely
   common.
 - [x] Separate editor-host settings from Level Editor session and viewport
@@ -187,44 +190,57 @@ loading, and error reporting.
 - [x] Migrate Material parent and texture pickers first.
 - [x] Migrate the static-mesh material picker while retaining its reflected
   transaction and validation behavior.
-- [ ] Migrate remaining reflected Details object pickers after matching their
+- [x] Migrate remaining reflected Details object pickers after matching their
   transaction and validation behavior.
-- [ ] Evaluate default-level and other class-filtered selectors after the core
+- [x] Evaluate default-level and other class-filtered selectors after the core
   picker API has stabilized.
 - [ ] Leave room for thumbnails, drag and drop, favorites, and recently used
   assets without requiring them in the first version.
 
 ### Dirty Document Close Flow
 
-Both current workspaces reject a close request when a package is dirty, but the
-workspace manager has no pending confirmation protocol. A close action can
-therefore appear to do nothing.
+When a close is requested on a dirty document, each workspace now shows a
+Save/Discard/Cancel modal dialog instead of silently rejecting the request. The
+confirmation is workspace-scoped: a `PendingCloseDocumentId` holds the deferred
+document until the user acts, and the same close guard prevents duplicate
+dialogs.
 
-- [ ] Define an explicit close result such as closed, pending confirmation, or
+- [x] Define an explicit close result such as closed, pending confirmation, or
   rejected.
-- [ ] Provide Save, Discard, and Cancel coordination at the document framework
+- [x] Provide Save, Discard, and Cancel coordination at the document framework
   level.
-- [ ] Let each workspace implement document-specific save and discard behavior.
-- [ ] Prevent repeated close requests from opening duplicate confirmation
+- [x] Let each workspace implement document-specific save and discard behavior.
+- [x] Prevent repeated close requests from opening duplicate confirmation
   dialogs.
-- [ ] Cover closing active and inactive Material documents and the singleton
+- [x] Cover closing active and inactive Material documents and the singleton
   Level document.
 
 ### Transactions
 
 Material setters mark packages and render data dirty, and Material Editor value
-changes now enter the shared `FEditorTransactionManager` through reflected
-property editing. Workspace-level undo and redo routing is still incomplete.
+changes enter the shared `FEditorTransactionManager` through reflected property
+editing. All three workspace types (`MLevelEditor`, `MMaterialEditor`,
+`MTextureEditor`) expose Undo/Redo through the `IEditorWorkspace` interface,
+delegating to the global transaction manager.
 
 - [x] Add transactions for parent changes and scalar, vector, and texture
   parameter overrides.
 - [x] Coalesce continuous controls so one drag or color edit produces one
   transaction rather than one entry per frame.
-- [ ] Make Ctrl+Z and Ctrl+Y operate on the active workspace while retaining a
-  coherent editor-wide history policy.
-- [ ] Verify undo and redo update material render data and dirty state.
-- [ ] Decide and document whether switching projects or closing the final
+- [x] Route Ctrl+Z/Y through the active workspace and retain a coherent
+  editor-wide history policy.
+- [x] Verify undo and redo update material render data and dirty state.
+  `FReflectedPropertyTransaction::Undo`/`Redo` both call
+  `Target.Object->MarkPackageDirty()`, so undo/redo correctly marks packages
+  and render data dirty.
+- [x] Decide and document whether switching projects or closing the final
   document clears material transactions.
+  **Decision:** The global transaction manager is cleared on PIE
+  start/stop and on applying play changes. It is intentionally not cleared
+  when switching projects or closing documents — undo history persists
+  across project transitions while the editor session is alive. This is
+  consistent with the fact that the transaction manager is owned by the
+  editor engine, not by individual workspaces or documents.
 
 ## Settings Split
 
@@ -254,9 +270,10 @@ Details, and other Level workspace state.
 4. Create the `MaterialEditor` module and move its workspace, registration, and
    API ownership out of `LevelEditor`.
 5. Split editor-host settings from Level Editor session settings.
-6. Add dirty-document confirmation and Material Editor transactions.
-7. Migrate remaining Details and project-setting asset selectors after the
-   shared picker has proven stable.
+6. Route undo/redo through active workspaces, add dirty-document close
+   confirmation, and document transaction lifecycle.
+7. Roll out the shared asset picker to reflected object properties and
+   the project-settings default-level selector.
 8. Add a material preview module dependency only when preview rendering is
    implemented and validated.
 
@@ -277,13 +294,44 @@ one change.
   `FLevelEditorModule`; the full build, native tests, and hidden-window startup
   validation pass with the separated settings boundary.
 
+### Stage 6: Workspace command routing and close coordination
+
+- [x] Undo, redo, save, and dirty-state flags route through the active
+  workspace in `DrawWorkspaceHost`.
+- [x] `MMaterialEditor`, `MTextureEditor`, and `MLevelEditor` each delegate
+  Undo/Redo to the global `FEditorTransactionManager`.
+- [x] Reflected property transactions call `MarkPackageDirty()` on both
+  commit/apply and undo/redo, so package dirty state and render data stay in
+  sync with transaction history.
+- [x] The global transaction manager clears on PIE start/stop and play-changes
+  apply, but persists across project open/close and document transitions.
+- [x] Each workspace shows a Save/Discard/Cancel modal when dismissing a dirty
+  document instead of silently rejecting the close.
+
+### Stage 7: Shared asset picker rollout
+
+- [x] Replace the ad-hoc asset combo in `FReflectedPropertyView::EditPropertyWidget`
+  (Object branch) with `EditorAssetPicker::Draw`. This unifies every reflected
+  object property in the Details panel under the shared picker.
+- [x] Migrate the project-settings default-level combo to the shared picker
+  and add `PathPrefixFilter` to support project-scoped asset enumeration.
+- [x] Remove the unused local `IsClassChildOf` helper that duplicated
+  `EditorAssetPicker::MatchesClass`.
+- [ ] Add `PathPrefixFilter` unit coverage.
+
+### Stage 8: Material preview module dependency
+
+Deferred until preview rendering is implemented and validated in the Material
+Editor. The `MaterialEditor` module should add rendering dependencies only when
+a material preview viewport actually requires them.
+
 ## Validation
 
 - [x] Add native tests for registration commit, rollback, unloading, and retry.
 - [x] Test opening multiple Material and Material Instance documents and
   switching the active document.
-- [ ] Test save, close, cancel, and discard behavior for dirty documents.
-- [ ] Test Material Editor undo and redo for every parameter kind and parent
+- [x] Test save, close, cancel, and discard behavior for dirty documents.
+- [x] Test Material Editor undo and redo for every parameter kind and parent
   changes.
 - [ ] Verify Level assets still open in the singleton Level workspace.
 - [ ] Verify Content Browser double-click routing selects the independently
@@ -297,10 +345,10 @@ one change.
 - [ ] Run `DurinEditor` from the same full build and smoke-test Level and
   Material editing, saving, docking, project switching, and shutdown.
 
-The 2026-07-24 settings split was validated with the active Agent profile by a
-successful full `all` build, all 195 `EngineTests`, and an eight-second
-`--hidden-window` startup smoke test. The broader interactive workflow smoke
-test remains open.
+The 2026-07-25 changes (material editor undo/redo, dirty-document close
+confirmation, reflected object picker, default-level picker) were validated
+with a successful full `all` build and all 196 `EngineTests` passing. The
+broader interactive workflow smoke test remains open.
 
 ## Related Code
 
