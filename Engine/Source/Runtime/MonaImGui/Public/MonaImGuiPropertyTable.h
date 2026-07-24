@@ -6,6 +6,7 @@
 
 namespace Durin::MonaImGui::PropertyEdit
 {
+	// Aggregates ImGui activation transitions for one logical property control.
 	struct FWidgetState
 	{
 		// Compound controls aggregate every child item so callers can treat a
@@ -15,6 +16,7 @@ namespace Durin::MonaImGui::PropertyEdit
 		bool bDeactivatedAfterEdit = false;
 	};
 
+	// Defines labels, sizing, and table flags shared by property editors.
 	struct FTableConfig
 	{
 		const char* PropertyColumnLabel = "Property";

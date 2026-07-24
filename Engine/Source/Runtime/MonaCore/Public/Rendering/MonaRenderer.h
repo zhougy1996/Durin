@@ -10,6 +10,7 @@ namespace Durin
 
 namespace Durin::Mona
 {
+	// Defines the renderer services required by Mona application windows.
 	class FMonaRenderer
 	{
 	public:

@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Provides the shared ownership, hierarchy, and draw contract for Mona widgets.
 	class MWidget : public std::enable_shared_from_this<MWidget>
 	{
 	public:
@@ -33,6 +34,7 @@ namespace Durin
 	protected:
 		FName Name;
 
+		// Weak ownership prevents parent-child widget cycles.
 		std::weak_ptr<MWidget> ParentWidget;
 	};
 }

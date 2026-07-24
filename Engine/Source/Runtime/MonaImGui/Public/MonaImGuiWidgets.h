@@ -5,6 +5,7 @@
 
 namespace Durin::MonaImGui
 {
+	// Selects the screen-space axis along which a splitter divides content.
 	enum class EUISplitterAxis : uint8
 	{
 		X,

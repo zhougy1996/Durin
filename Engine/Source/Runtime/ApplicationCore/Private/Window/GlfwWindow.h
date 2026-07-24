@@ -11,6 +11,7 @@ namespace Durin
 
 	auto DestroyGlfwCursors() -> void;
 
+	// Implements the generic window contract with an owned GLFW window.
 	class FGlfwWindow final : public FGenericWindow
 	{
 	public:

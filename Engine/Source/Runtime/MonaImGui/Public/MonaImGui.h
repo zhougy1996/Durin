@@ -14,6 +14,7 @@ namespace Durin
 
 	namespace MonaImGui
 	{
+		// Provides theme spacing and control widths in unscaled UI units.
 		struct FUIStyleMetrics
 		{
 			float SpacingXS = 2.0f;
@@ -27,12 +28,14 @@ namespace Durin
 			float StandardButtonWidth = 96.0f;
 		};
 
+		// Selects the complete Mona ImGui color palette.
 		enum class EColorTheme : uint8
 		{
 			Dark,
 			Light,
 		};
 
+		// Identifies semantic colors supplied by the active Mona ImGui theme.
 		enum class EUIThemeColor : uint8
 		{
 			Warning,

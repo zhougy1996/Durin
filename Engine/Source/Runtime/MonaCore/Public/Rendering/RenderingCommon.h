@@ -4,12 +4,14 @@
 
 namespace Durin::Mona
 {
+	// Distinguishes native-window presentation from offscreen texture rendering.
 	enum class EMonaViewportRenderMode
 	{
 		Window,
 		RenderTarget
 	};
 
+	// Defines the sizing and RHI resource contract for a Mona viewport.
 	class IMonaViewport
 	{
 	public:

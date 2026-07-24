@@ -7,6 +7,7 @@ namespace Durin
 
 	namespace Mona
 	{
+		// Centralizes hierarchy-aware searches and ordering for Mona windows.
 		class FMonaWindowHelper
 		{
 		public:
@@ -18,5 +19,4 @@ namespace Durin
 		};
 	}
 }
-
 

@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	// Coordinates a Mona widget tree with its native platform window.
 	class MWindow : public MWidget
 	{
 	public:
@@ -97,6 +98,7 @@ namespace Durin
 
 		FVector2f InitialDesiredSize = {};
 
+		// Cached screen and viewport geometry is updated from platform callbacks.
 		FVector2f ScreenPosition = {};
 
 		FVector2f Size = {};
@@ -107,8 +109,10 @@ namespace Durin
 
 		std::shared_ptr<MWidget> ContentWidget;
 
+		// The Mona window owns its platform window for the same visible lifetime.
 		std::shared_ptr<FGenericWindow> NativeWindow;
 
+		// Parent is weak while children are strong to keep the window tree acyclic.
 		std::weak_ptr<MWindow> ParentWindow;
 
 		std::vector<std::shared_ptr<MWindow>> ChildWindows;

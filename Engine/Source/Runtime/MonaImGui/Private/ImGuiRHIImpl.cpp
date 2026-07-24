@@ -24,6 +24,7 @@ namespace Durin::MonaImGui
 		return Layout;
 	}
 
+	// Declares the vertex shader used for ImGui draw lists.
 	class FImGuiVertexShader : public FShader
 	{
 	public:
@@ -34,6 +35,7 @@ namespace Durin::MonaImGui
 		DURIN_DECLARE_SHADER(FImGuiVertexShader, FShader, "/Engine/ImGui", EShaderFrequency::Vertex, "VertexMain");
 	};
 
+	// Declares the fragment shader used for ImGui draw lists.
 	class FImGuiFragmentShader : public FShader
 	{
 	public:
@@ -45,7 +47,7 @@ namespace Durin::MonaImGui
 		DURIN_DECLARE_SHADER(FImGuiFragmentShader, FShader, "/Engine/ImGui", EShaderFrequency::Fragment, "FragmentMain");
 	};
 
-	// State of the ImGui RHI backend, stored in a struct to ensure proper initialization order of static variables.
+	// Groups render-thread backend state to preserve deterministic static initialization.
 	struct FImGuiRHIImplRT_BackendState
 	{
 		std::shared_ptr<FShaderMapBase> ShaderMap;
@@ -59,17 +61,20 @@ namespace Durin::MonaImGui
 
 	static FImGuiRHIImplRT_BackendState GBackendState;
 
+	// Carries the orthographic transform consumed by the ImGui vertex shader.
 	struct FImGuiRHIImpl_ConstantBufferData
 	{
 		FVector2f Scale;
 		FVector2f Translation;
 	};
 
+	// Retains an RHI texture while it is registered with ImGui.
 	struct FImGuiRHIImpl_Texture
 	{
 		FTextureRHIRef Texture;
 	};
 
+	// Owns render buffers and alternating draw snapshots for an ImGui viewport.
 	struct FImGuiRHIImpl_RendererViewportData
 	{
 		FImGuiRHIImpl_WindowRenderBuffers RenderBuffers;

@@ -11,6 +11,7 @@ namespace Durin
 #if defined(_WIN32)
 	namespace
 	{
+		// Balances COM apartment initialization for one synchronous dialog call.
 		class FComScope
 		{
 		public:

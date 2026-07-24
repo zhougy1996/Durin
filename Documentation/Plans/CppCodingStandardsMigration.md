@@ -4,10 +4,10 @@ Last reviewed: 2026-07-25
 
 ## Current Status
 
-Stages 1 through 4 are complete. The rendering foundation (`RHI`, `VulkanRHI`,
-`RenderCore`, and `Renderer`) passed each targeted build plus a complete
-test-enabled `all` build after its export-boundary migration. Application, UI,
-and editor module groups remain pending.
+Stages 1 through 5 are complete. The application and UI runtime
+(`ApplicationCore`, `MonaCore`, and `MonaImGui`) passed each targeted build plus
+a complete test-enabled `all` integration build. Editor modules and final
+repository verification remain pending.
 
 ## Goal
 
@@ -60,6 +60,9 @@ into one unreviewable repository-wide rewrite.
   `Engine/Public/Components/CameraComponent.h`.
 - The rendering-foundation scan found no reflected declarations and found two
   class-level export macros, both in `Renderer`.
+- The application/UI runtime scan found no reflected declarations or
+  class-level export macros; its migration focused on semantic comments for
+  platform, ownership, event, viewport, and backend contracts.
 - Member-comment requirements need semantic review and cannot be closed by a
   regex-only count.
 
@@ -132,7 +135,7 @@ into one unreviewable repository-wide rewrite.
 
 ### Stage 5: Application and UI runtime
 
-- [ ] Inventory and migrate `ApplicationCore`, `MonaCore`, and `MonaImGui`.
+- [x] Inventory and migrate `ApplicationCore`, `MonaCore`, and `MonaImGui`.
 
 #### Acceptance Gate
 

@@ -7,12 +7,14 @@ struct ImGuiViewport;
 
 namespace Durin::MonaImGui
 {
+	// Holds transient vertex and index buffers for one in-flight ImGui frame.
 	struct FImGuiRHIImpl_FrameRenderBuffers
 	{
 		FBufferRHIRef VertexBuffer;
 		FBufferRHIRef IndexBuffer;
 	};
 
+	// Rotates ImGui render buffers across the engine's frames in flight.
 	struct FImGuiRHIImpl_WindowRenderBuffers
 	{
 		std::array<FImGuiRHIImpl_FrameRenderBuffers, kFrameInFlight> FrameRenderBuffers;

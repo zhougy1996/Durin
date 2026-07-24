@@ -11,6 +11,7 @@ namespace Durin
 
 namespace Durin::Mona
 {
+	// Tracks one window viewport and a resize request consumed on RHI access.
 	struct FMonaViewportInfo
 	{
 		TRefCountPtr<FRHIViewport> ViewportRHI;
@@ -23,6 +24,7 @@ namespace Durin::Mona
 	};
 
 
+	// Owns and lazily resizes the RHI viewports backing Mona windows.
 	class FMonaRHIRenderer : public FMonaRenderer
 	{
 	public:
@@ -35,6 +37,7 @@ namespace Durin::Mona
 
 		MONACORE_API auto GetRHIViewport(const MWindow& Window) -> TRefCountPtr<FRHIViewport> override;
 
+		// Window keys are non-owning; this renderer owns every mapped viewport record.
 		std::unordered_map<const MWindow*, FMonaViewportInfo*> WindowToViewportInfoMap;
 	};
 }

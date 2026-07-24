@@ -6,6 +6,7 @@
 
 namespace Durin::MonaImGui
 {
+	// Connects the Mona UI backend contract to ImGui platform and RHI adapters.
 	class FMonaImGuiBackend : public Mona::IMonaUIBackend
 	{
 	public:

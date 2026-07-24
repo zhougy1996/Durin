@@ -4,6 +4,7 @@
 
 namespace Durin::Mona
 {
+	// Defines overridable Mona-level handling for normalized window and input events.
 	class FMonaEventHandler
 	{
 	public:

@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Adapts a callback into a lightweight drawable Mona widget.
 	class MFunctionWidget : public MWidget
 	{
 	public:

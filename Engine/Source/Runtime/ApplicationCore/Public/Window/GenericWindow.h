@@ -8,6 +8,7 @@ namespace Durin
 {
 	class FGenericApplication;
 
+	// Selects how a platform window occupies its monitor.
 	enum class EWindowMode : uint8
 	{
 		Fullscreen,			// Fullscreen with a window border
@@ -15,6 +16,7 @@ namespace Durin
 		Windowed,			// Stretch the window to the size of the monitor
 	};
 
+	// Defines the platform-independent window contract used by runtime and UI code.
 	class FGenericWindow
 	{
 	public:
@@ -93,10 +95,12 @@ namespace Durin
 		APPLICATIONCORE_API virtual auto IsHovered() const -> bool;
 
 	protected:
+		// Retained so platform implementations can reapply the requested window policy.
 		std::shared_ptr<FGenericWindowDefinition> Definition;
 
 		EWindowMode WindowMode = EWindowMode::Windowed;
 
+		// Non-owning handle supplied by the platform windowing implementation.
 		void* OSNativeWindowHandle = nullptr;
 	};
 }

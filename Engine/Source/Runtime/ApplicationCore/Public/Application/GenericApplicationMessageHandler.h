@@ -7,6 +7,7 @@ namespace Durin
 {
 	class FGenericWindow;
 
+	// Receives normalized platform-window and input events from ApplicationCore.
 	class FGenericApplicationMessageHandler
 	{
 	public:

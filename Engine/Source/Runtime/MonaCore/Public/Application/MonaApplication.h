@@ -16,6 +16,7 @@ namespace Durin::Mona
 	class FMonaRenderer;
 	class FMonaEventHandler;
 
+	// Owns the Mona window set and coordinates platform events, UI, and rendering.
 	class FMonaApplication : public FGenericApplication, public FGenericApplicationMessageHandler
 	{
 	public:
@@ -116,10 +117,12 @@ namespace Durin::Mona
 
 		static std::shared_ptr<FMonaApplication> CurrentApplication;
 
+		// Strong ownership keeps all registered top-level and child windows alive.
 		std::vector<std::shared_ptr<MWindow>> Windows;
 
 		std::weak_ptr<MWindow> ActiveTopLevelWindow;
 
+		// Destruction is deferred until event dispatch and drawing are complete.
 		std::vector<std::shared_ptr<MWindow>> WindowDestroyQueue;
 
 		std::shared_ptr<FMonaRenderer> Renderer{};

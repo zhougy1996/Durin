@@ -3,6 +3,7 @@
 
 namespace Durin
 {
+	// Installs and removes the process-wide Mona ImGui backend.
 	class FMonaImGuiModule : public IModuleInterface
 	{
 	public:

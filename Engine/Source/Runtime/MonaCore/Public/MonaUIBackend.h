@@ -6,6 +6,7 @@
 
 namespace Durin::Mona
 {
+	// Abstracts the immediate-mode UI lifecycle and renderer texture bridge.
 	class IMonaUIBackend
 	{
 	public:

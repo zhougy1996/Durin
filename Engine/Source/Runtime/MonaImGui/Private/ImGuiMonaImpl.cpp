@@ -10,6 +10,7 @@ namespace Durin::MonaImGui
 {
 	ImGuiContext* GMonaImGuiContext = nullptr;
 
+	// Translates Mona application events into the active ImGui context.
 	class FMonaImGuiEventHandler : public Mona::FMonaEventHandler
 	{
 	public:
@@ -36,6 +37,7 @@ namespace Durin::MonaImGui
 
 	// ---- Platform Viewport Data -----------------------------------------
 
+	// Owns the Mona window and native callback state attached to an ImGui viewport.
 	struct ImGuiMonaImpl_ViewportData
 	{
 		std::shared_ptr<MWindow> Window;
@@ -46,6 +48,7 @@ namespace Durin::MonaImGui
 #endif
 	};
 
+	// Retains cross-frame mouse state needed by ImGui platform viewport events.
 	struct FMonaImGuiMouseState
 	{
 		std::weak_ptr<FGenericWindow> MouseWindow;
