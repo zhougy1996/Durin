@@ -225,7 +225,15 @@ The generated source includes:
 
 Generated code uses fully qualified C++ type names for reflected C++ types.
 
-`DENUM()` declarations are explicit reflected enum opt-ins. DurinHeaderTool exports them as `Kind: "enum"` symbols, records scoped/unscoped form and underlying type metadata, and emits `Z_Construct_DEnum_*` helpers plus generated value tables. Reflected enum fields also generate `FEnumProperty` metadata that points at the corresponding `DEnum`.
+`DENUM()` declarations are explicit reflected enum opt-ins. `DENUM(DisplayName = "...")`
+optionally supplies the editor-facing type label. An enumerator can similarly use
+`DMETA(DisplayName = "...")` immediately after its identifier and before any
+initializer. `DMETA` is valid only there; duplicate or unknown keys, malformed
+strings, and annotations outside a reflected enum are DHT errors. DurinHeaderTool
+exports reflected enums as `Kind: "enum"` symbols, records scoped/unscoped form
+and underlying type metadata, and emits `Z_Construct_DEnum_*` helpers plus
+generated value tables. Reflected enum fields also generate `FEnumProperty`
+metadata that points at the corresponding `DEnum`.
 
 ## Runtime Type Data
 
@@ -243,7 +251,10 @@ Generated code uses fully qualified C++ type names for reflected C++ types.
 
 `ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches top-level fields to `DStructBase::ChildProperties`. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
 
-`DurinCodeGen::ConstructDEnum(...)` forces enum registration for generated `DEnum` singletons. `DEnum` stores qualified name, short name, scoped flag, underlying kind/size, and a read-only name/value table.
+`DurinCodeGen::ConstructDEnum(...)` forces enum registration for generated
+`DEnum` singletons. `DEnum` stores qualified name, short name, display name,
+scoped flag, underlying kind/size, and a read-only value table. Generated UTF-8
+pointers are copied into process-lifetime runtime strings during construction.
 
 `DStructBase` stores its superclass through `SuperStructBase`. `DClass::GetSuperClass()` exposes this as a `DClass*`.
 
@@ -280,14 +291,27 @@ The object graph format is an internal v1 binary memory format for tests and eng
 
 - qualified enum name
 - short enum name
+- editor display name
 - scoped/unscoped form
 - underlying numeric kind and size
-- read-only name/value table
+- read-only name/value/display-name records
+
+When explicit display metadata is absent, CoreDObject derives the enum type label
+from the short name by removing a conventional leading `E` when the next
+character is uppercase, then humanizes word boundaries. Enumerator labels
+humanize their identifiers without removing a prefix. `DEnum` exposes
+`FindValueRecordByName(...)` and `FindValueRecordByValue(...)`; the latter returns
+the first declaration when aliases share a numeric value. The compatibility
+name/value lookup functions preserve their existing behavior.
 
 Enum metadata and reflective access use a canonical `uint64` value channel. Signed
 values are sign-extended into that channel, while unsigned values preserve their
 full range. `FEnumProperty` still reads and writes the enum's declared underlying
 width, so reflected objects retain their native layout and serialization size.
+`DisplayName` is presentation-only: it is never a lookup identity and is not
+serialized. `FEnumValue::Name` and `Value` remain the stable reflection and
+persistence identities. Numeric values missing from the reflected table remain
+invalid records and editor code displays their numeric representation.
 
 Enum properties use `FEnumProperty`. The property still stores the ordinary property metadata such as name, offset, array dimension, and size, and additionally references the generated `DEnum` singleton for the enum type.
 

@@ -414,19 +414,27 @@ TEST(FTexture2DTests, MissingSourceInvalidatesDerivedDataAndCanRecover)
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }
 
-TEST(FTexture2DTests, StatusEnumsExposeRuntimeReflectionNames)
+TEST(FTexture2DTests, StatusEnumsExposeSharedDisplayMetadata)
 {
 	InitializeDObjectSystem();
 	Durin::DEnum* BuildStatusEnum = Durin::FindEnumByQualifiedName("Durin::ETextureBuildStatus");
 	Durin::DEnum* ResourceStateEnum = Durin::FindEnumByQualifiedName("Durin::ERenderResourceState");
 	ASSERT_NE(BuildStatusEnum, nullptr);
 	ASSERT_NE(ResourceStateEnum, nullptr);
+	EXPECT_EQ(BuildStatusEnum->GetDisplayName(), "Texture Build Status");
+	EXPECT_EQ(ResourceStateEnum->GetDisplayName(), "Render Resource State");
 
-	Durin::FName Name;
-	EXPECT_TRUE(BuildStatusEnum->FindNameByValue(
-		static_cast<Durin::uint64>(Durin::ETextureBuildStatus::MissingSource), Name));
-	EXPECT_EQ(Name, Durin::FName("MissingSource"));
-	EXPECT_TRUE(ResourceStateEnum->FindNameByValue(
-		static_cast<Durin::uint64>(Durin::ERenderResourceState::Building), Name));
-	EXPECT_EQ(Name, Durin::FName("Building"));
+	const Durin::FEnumValue* Unbuilt = BuildStatusEnum->FindValueRecordByValue(
+		static_cast<Durin::uint64>(Durin::ETextureBuildStatus::Unbuilt));
+	const Durin::FEnumValue* MissingSource = BuildStatusEnum->FindValueRecordByValue(
+		static_cast<Durin::uint64>(Durin::ETextureBuildStatus::MissingSource));
+	const Durin::FEnumValue* Building = ResourceStateEnum->FindValueRecordByValue(
+		static_cast<Durin::uint64>(Durin::ERenderResourceState::Building));
+	ASSERT_NE(Unbuilt, nullptr);
+	ASSERT_NE(MissingSource, nullptr);
+	ASSERT_NE(Building, nullptr);
+	EXPECT_EQ(Unbuilt->DisplayName, "Not Built");
+	EXPECT_EQ(MissingSource->DisplayName, "Missing Source");
+	EXPECT_EQ(Building->DisplayName, "Building");
+	EXPECT_EQ(BuildStatusEnum->FindValueRecordByValue(255), nullptr);
 }

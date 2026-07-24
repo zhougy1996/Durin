@@ -6,6 +6,7 @@
 #define DCLASS(...)
 #define DSTRUCT(...)
 #define DENUM(...)
+#define DMETA(...)
 #define DPROPERTY(...)
 #define DFUNCTION(...)
 

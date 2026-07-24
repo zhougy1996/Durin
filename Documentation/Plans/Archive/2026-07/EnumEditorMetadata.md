@@ -4,12 +4,13 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Design selected; implementation has not started. Reflected enums currently expose
-their qualified name, short name, underlying representation, and a name/value
-table. Editor enum controls and feature-specific status views therefore either
-show the raw C++ enumerator name or independently humanize it. `DENUM(...)`
-arguments are recognized by DurinHeaderTool, but enum type and enumerator
-display metadata are not carried into generated or runtime metadata.
+Completed on 2026-07-24. DHT validates and transports enum display annotations,
+CoreDObject owns derived labels and record lookup, and both generic and Texture
+Editor enum presentation use the shared runtime metadata. All 47 DHT tests, 49
+CoreDObjectTests, and 200 EngineTests passed. The full
+`Win64-Debug-DurinEditor-Tests` `all` build succeeded, and DurinEditor reached
+successful engine initialization in a `--hidden-window` smoke run before the
+validation process was intentionally stopped through BuildTool.
 
 ## Goal
 
@@ -96,15 +97,15 @@ feature-local string transformations.
 
 ### Stage 0: Annotation Grammar and Diagnostics
 
-- [ ] Add the empty compile-time `DMETA(...)` macro alongside the existing
+- [x] Add the empty compile-time `DMETA(...)` macro alongside the existing
   reflection macros.
-- [ ] Extend DHT preprocessing so trailing enumerator annotations survive as
+- [x] Extend DHT preprocessing so trailing enumerator annotations survive as
   Clang annotations attached to the intended enum constant.
-- [ ] Parse `DENUM(DisplayName = "...")` and
+- [x] Parse `DENUM(DisplayName = "...")` and
   `DMETA(DisplayName = "...")` with the existing quoted-string rules.
-- [ ] Reject duplicate `DisplayName` keys, malformed strings, unknown keys, and
+- [x] Reject duplicate `DisplayName` keys, malformed strings, unknown keys, and
   `DMETA` outside a reflected enum with actionable source diagnostics.
-- [ ] Verify explicit-value, signed-value, scoped, unscoped, and comma-layout
+- [x] Verify explicit-value, signed-value, scoped, unscoped, and comma-layout
   enum syntax remains parseable.
 
 #### Acceptance Gate
@@ -115,18 +116,18 @@ feature-local string transformations.
 
 ### Stage 1: Generated and Runtime Metadata
 
-- [ ] Add optional display-name fields to `ReflectedEnumInfo` and
+- [x] Add optional display-name fields to `ReflectedEnumInfo` and
   `ReflectedEnumValueInfo`.
-- [ ] Extend `FEnumParams`, `FEnumValueParams`, generated enum tables, and
+- [x] Extend `FEnumParams`, `FEnumValueParams`, generated enum tables, and
   `FEnumValue` to transport explicit display names.
-- [ ] Store the enum type display name in `DEnum`.
-- [ ] Centralize type-prefix removal and display-name humanization in a shared
+- [x] Store the enum type display name in `DEnum`.
+- [x] Centralize type-prefix removal and display-name humanization in a shared
   CoreDObject helper used by classes and enums where their conventions match.
-- [ ] Apply fallback display names during reflected enum construction when
+- [x] Apply fallback display names during reflected enum construction when
   generated metadata omits them.
-- [ ] Add record-returning lookup APIs for name and numeric value, while keeping
+- [x] Add record-returning lookup APIs for name and numeric value, while keeping
   compatibility wrappers where they avoid unnecessary caller churn.
-- [ ] Define string ownership so generated UTF-8 pointers are copied into
+- [x] Define string ownership so generated UTF-8 pointers are copied into
   process-lifetime runtime metadata.
 
 #### Acceptance Gate
@@ -137,15 +138,15 @@ feature-local string transformations.
 
 ### Stage 2: Generic Editor Adoption
 
-- [ ] Render reflected enum combo previews with the selected value's
+- [x] Render reflected enum combo previews with the selected value's
   `DisplayName`.
-- [ ] Render combo choices with `DisplayName` while assigning the unchanged
+- [x] Render combo choices with `DisplayName` while assigning the unchanged
   numeric value.
-- [ ] Preserve the existing numeric representation for values absent from the
+- [x] Preserve the existing numeric representation for values absent from the
   reflected table.
-- [ ] Use the enum type display name in generic editor surfaces that currently
+- [x] Use the enum type display name in generic editor surfaces that currently
   expose its raw short name, where such surfaces exist.
-- [ ] Ensure UI labels have stable ImGui identities independent of duplicate
+- [x] Ensure UI labels have stable ImGui identities independent of duplicate
   display text.
 
 #### Acceptance Gate
@@ -156,13 +157,13 @@ feature-local string transformations.
 
 ### Stage 3: Texture Status Migration
 
-- [ ] Add intentional display metadata to texture build status, render-resource
+- [x] Add intentional display metadata to texture build status, render-resource
   state, and texture usage values where automatic humanization is insufficient.
-- [ ] Replace Texture Editor's qualified-name lookup plus local humanization
+- [x] Replace Texture Editor's qualified-name lookup plus local humanization
   path with the shared `DEnum` display API.
-- [ ] Search editor modules for handwritten reflected-enum name switches or
+- [x] Search editor modules for handwritten reflected-enum name switches or
   feature-local humanization and migrate only equivalent presentation code.
-- [ ] Leave behavioral switches intact when they encode logic rather than
+- [x] Leave behavioral switches intact when they encode logic rather than
   presentation.
 
 #### Acceptance Gate
@@ -173,16 +174,16 @@ feature-local string transformations.
 
 ### Stage 4: Documentation and Completion Validation
 
-- [ ] Update `Documentation/Architecture/ReflectionSystem.md` with annotation
+- [x] Update `Documentation/Architecture/ReflectionSystem.md` with annotation
   syntax, defaults, runtime APIs, duplicate-value behavior, and serialization
   invariants.
-- [ ] Add DHT generation tests for explicit, implicit, malformed, and escaped
+- [x] Add DHT generation tests for explicit, implicit, malformed, and escaped
   display names.
-- [ ] Add CoreDObject tests for type/value fallback generation and both lookup
+- [x] Add CoreDObject tests for type/value fallback generation and both lookup
   directions across signed and unsigned enums.
-- [ ] Add editor coverage for explicit labels, derived labels, duplicate display
+- [x] Add editor coverage for explicit labels, derived labels, duplicate display
   labels, and unknown numeric values.
-- [ ] Run the task-relevant native test suites and the repository-required full
+- [x] Run the task-relevant native test suites and the repository-required full
   editor validation described in the setup documentation.
 
 #### Acceptance Gate

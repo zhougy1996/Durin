@@ -21,13 +21,13 @@ namespace Durin
 	{
 		Color,
 		Normal,
-		DataMask
+		DataMask DMETA(DisplayName = "Data / Mask")
 	};
 
-	DENUM()
+	DENUM(DisplayName = "Texture Build Status")
 	enum class ETextureBuildStatus : uint8
 	{
-		Unbuilt,           // No valid platform data is installed.
+		Unbuilt DMETA(DisplayName = "Not Built"), // No valid platform data is installed.
 		Ready,             // Platform data is valid and its render build is queued.
 		MissingSource,     // The copied source path is empty or missing.
 		DecodeFailure,     // Source bytes could not be decoded.

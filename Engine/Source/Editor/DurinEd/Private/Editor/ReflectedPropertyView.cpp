@@ -406,13 +406,14 @@ namespace Durin
 			else
 			{
 				const uint64 CurrentValue = EnumProperty->GetValueAsUInt64(Container, ArrayIndex);
-				FName CurrentName;
-				const std::string Preview = Enum->FindNameByValue(CurrentValue, CurrentName) ? CurrentName.ToString() : FormatEnumValue(*Enum, CurrentValue);
+				const FEnumValue* CurrentRecord = Enum->FindValueRecordByValue(CurrentValue);
+				const std::string Preview = CurrentRecord ? CurrentRecord->DisplayName : FormatEnumValue(*Enum, CurrentValue);
 				if (ImGui::BeginCombo("##Value", Preview.c_str()))
 				{
 					Enum->ForEachValue([&](const FEnumValue& Value) {
 						const bool bSelected = Value.Value == CurrentValue;
-						if (ImGui::Selectable(Value.Name.ToString().c_str(), bSelected))
+						const std::string Label = std::format("{}##EnumValue_{}", Value.DisplayName, Value.Name.ToString());
+						if (ImGui::Selectable(Label.c_str(), bSelected))
 						{
 							CaptureResult(true, false);
 							Result.AssignValue = [ProposedValue = Value.Value](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {

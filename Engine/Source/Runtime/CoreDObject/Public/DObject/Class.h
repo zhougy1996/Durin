@@ -148,6 +148,7 @@ namespace Durin
 	{
 		FName Name;
 		uint64 Value = 0;
+		std::string DisplayName;
 	};
 
 	class DEnum : public DType
@@ -155,35 +156,29 @@ namespace Durin
 	public:
 		DECLARE_CLASS_INTRINSIC_API(DEnum, DType, COREDOBJECT_API)
 
-		DEnum(
+		COREDOBJECT_API DEnum(
 			EStaticConstructor,
 			FName InName,
 			FName InQualifiedName,
 			FName InShortName,
+			std::string_view InDisplayName,
 			bool bInIsScoped,
 			DurinCodeGen::EEnumUnderlyingType InUnderlyingType,
 			uint16 InUnderlyingSize,
 			std::vector<FEnumValue> InValues,
 			EObjectFlags InFlags
-		)
-			: DType(EC_StaticConstructor, InFlags)
-			, QualifiedName(InQualifiedName)
-			, ShortName(InShortName)
-			, bIsScoped(bInIsScoped)
-			, UnderlyingType(InUnderlyingType)
-			, UnderlyingSize(InUnderlyingSize)
-			, Values(std::move(InValues))
-		{
-			(void)InName;
-		}
+		);
 
 		auto GetQualifiedName() const -> FName { return QualifiedName; }
 		auto GetShortName() const -> FName { return ShortName; }
+		auto GetDisplayName() const -> std::string_view { return DisplayName; }
 		auto IsScoped() const -> bool { return bIsScoped; }
 		auto GetUnderlyingType() const -> DurinCodeGen::EEnumUnderlyingType { return UnderlyingType; }
 		auto GetUnderlyingSize() const -> uint16 { return UnderlyingSize; }
 		auto GetValues() const -> const std::vector<FEnumValue>& { return Values; }
 
+		COREDOBJECT_API auto FindValueRecordByName(FName InName) const -> const FEnumValue*;
+		COREDOBJECT_API auto FindValueRecordByValue(uint64 InValue) const -> const FEnumValue*;
 		COREDOBJECT_API auto FindValueByName(FName InName, uint64& OutValue) const -> bool;
 		COREDOBJECT_API auto FindNameByValue(uint64 InValue, FName& OutName) const -> bool;
 		COREDOBJECT_API auto ForEachValue(const std::function<void(const FEnumValue&)>& Visitor) const -> void;
@@ -191,6 +186,7 @@ namespace Durin
 	private:
 		FName QualifiedName;
 		FName ShortName;
+		std::string DisplayName;
 		bool bIsScoped = false;
 		DurinCodeGen::EEnumUnderlyingType UnderlyingType = DurinCodeGen::EEnumUnderlyingType::Unknown;
 		uint16 UnderlyingSize = 0;

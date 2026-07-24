@@ -43,6 +43,18 @@ namespace
 		return std::string(ShortName);
 	}
 
+	auto MakeDefaultDisplayName(std::string_view ShortName, std::string_view ConventionalPrefixes) -> std::string
+	{
+		const size_t Separator = ShortName.rfind("::");
+		if (Separator != std::string_view::npos) ShortName.remove_prefix(Separator + 2);
+		if (ShortName.size() >= 2 && ConventionalPrefixes.find(ShortName.front()) != std::string_view::npos
+			&& std::isupper(static_cast<unsigned char>(ShortName[1])))
+		{
+			ShortName.remove_prefix(1);
+		}
+		return Durin::StringUtils::HumanizeName(ShortName);
+	}
+
 }
 
 namespace Durin
@@ -104,30 +116,66 @@ namespace Durin
 		return FoundProperty;
 	}
 
-	auto DEnum::FindValueByName(FName InName, uint64& OutValue) const -> bool
+	DEnum::DEnum(
+		EStaticConstructor,
+		FName InName,
+		FName InQualifiedName,
+		FName InShortName,
+		std::string_view InDisplayName,
+		bool bInIsScoped,
+		DurinCodeGen::EEnumUnderlyingType InUnderlyingType,
+		uint16 InUnderlyingSize,
+		std::vector<FEnumValue> InValues,
+		EObjectFlags InFlags
+	)
+		: DType(EC_StaticConstructor, InFlags)
+		, QualifiedName(InQualifiedName)
+		, ShortName(InShortName)
+		, DisplayName(InDisplayName.empty() ? MakeDefaultDisplayName(InShortName.ToString(), "E") : InDisplayName)
+		, bIsScoped(bInIsScoped)
+		, UnderlyingType(InUnderlyingType)
+		, UnderlyingSize(InUnderlyingSize)
+		, Values(std::move(InValues))
+	{
+		(void)InName;
+		for (FEnumValue& Value : Values)
+		{
+			if (Value.DisplayName.empty()) Value.DisplayName = MakeDefaultDisplayName(Value.Name.ToString(), "");
+		}
+	}
+
+	auto DEnum::FindValueRecordByName(FName InName) const -> const FEnumValue*
 	{
 		for (const FEnumValue& Value : Values)
 		{
-			if (Value.Name == InName)
-			{
-				OutValue = Value.Value;
-				return true;
-			}
+			if (Value.Name == InName) return &Value;
 		}
-		return false;
+		return nullptr;
+	}
+
+	auto DEnum::FindValueRecordByValue(uint64 InValue) const -> const FEnumValue*
+	{
+		for (const FEnumValue& Value : Values)
+		{
+			if (Value.Value == InValue) return &Value;
+		}
+		return nullptr;
+	}
+
+	auto DEnum::FindValueByName(FName InName, uint64& OutValue) const -> bool
+	{
+		const FEnumValue* Value = FindValueRecordByName(InName);
+		if (!Value) return false;
+		OutValue = Value->Value;
+		return true;
 	}
 
 	auto DEnum::FindNameByValue(uint64 InValue, FName& OutName) const -> bool
 	{
-		for (const FEnumValue& Value : Values)
-		{
-			if (Value.Value == InValue)
-			{
-				OutName = Value.Name;
-				return true;
-			}
-		}
-		return false;
+		const FEnumValue* Value = FindValueRecordByValue(InValue);
+		if (!Value) return false;
+		OutName = Value->Name;
+		return true;
 	}
 
 	auto DEnum::ForEachValue(const std::function<void(const FEnumValue&)>& Visitor) const -> void
@@ -222,7 +270,7 @@ namespace Durin
 	{
 		ShortName = InShortName;
 		DefaultObjectName = InDefaultObjectName.empty() ? MakeDefaultObjectName(ShortName) : std::string(InDefaultObjectName);
-		DisplayName = InDisplayName.empty() ? StringUtils::HumanizeName(DefaultObjectName) : std::string(InDisplayName);
+		DisplayName = InDisplayName.empty() ? MakeDefaultDisplayName(DefaultObjectName, "") : std::string(InDisplayName);
 	}
 
 	auto GetDerivedClasses(const DClass* BaseClass, bool bIncludeBase) -> std::vector<DClass*>

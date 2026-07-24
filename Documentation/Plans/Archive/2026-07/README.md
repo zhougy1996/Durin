@@ -13,6 +13,7 @@ be added after July ends.
 - [Static Mesh Material Slots](StaticMeshMaterialSlots.md)
 - [BuildTool Shell Consistency](BuildToolShellConsistency.md)
 - [Content Browser CPU Optimization](ContentBrowserCpuOptimization.md)
+- [Enum Editor Metadata](EnumEditorMetadata.md)
 
 Read an archived plan only when its history or decision provenance is relevant.
 Archive maintenance rules are in [the parent instructions](../../AGENTS.md).

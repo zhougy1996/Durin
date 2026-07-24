@@ -945,14 +945,16 @@ namespace
 		if (!Enum)
 		{
 			std::vector<Durin::FEnumValue> Values = {
-				{ Durin::FName("A"), 0 },
+				{ Durin::FName("A"), 0, "Alpha" },
 				{ Durin::FName("B"), 4 },
+				{ Durin::FName("AliasB"), 4, "Second B" },
 			};
 			Enum = new Durin::DEnum(
 				Durin::EC_StaticConstructor,
 				Durin::FName("EReflectedEnumForTest"),
 				Durin::FName("EReflectedEnumForTest"),
 				Durin::FName("EReflectedEnumForTest"),
+				"Reflected Enum For Test",
 				true,
 				Durin::DurinCodeGen::EEnumUnderlyingType::UInt8,
 				static_cast<Durin::uint16>(sizeof(EReflectedEnumForTest)),
@@ -1992,18 +1994,20 @@ namespace
 	TEST(FCoreDObjectReflectionTests, ConstructDEnumCreatesRuntimeEnumMetadata)
 	{
 		static const Durin::DurinCodeGen::FEnumValueParams Values[] = {
-			{ "A", 0 },
-			{ "B", 4 },
+			{ "A", 0, "Alpha" },
+			{ "B", 4, nullptr },
+			{ "AliasB", 4, "Second B" },
 		};
 		static const Durin::DurinCodeGen::FEnumParams EnumParams = {
 			&Z_Construct_DEnum_EReflectedEnumForTest_NoRegister,
 			"EReflectedEnumForTest",
 			"EReflectedEnumForTest",
+			"Reflected Enum For Test",
 			true,
 			Durin::DurinCodeGen::EEnumUnderlyingType::UInt8,
 			static_cast<Durin::uint16>(sizeof(EReflectedEnumForTest)),
 			Values,
-			2
+			3
 		};
 
 		Durin::DEnum* Enum = Durin::DurinCodeGen::ConstructDEnum(EnumParams);
@@ -2013,7 +2017,10 @@ namespace
 		EXPECT_TRUE(Enum->IsA(Durin::DType::StaticClass()));
 		EXPECT_TRUE(Enum->IsScoped());
 		EXPECT_EQ(Enum->GetUnderlyingType(), Durin::DurinCodeGen::EEnumUnderlyingType::UInt8);
-		EXPECT_EQ(Enum->GetValues().size(), 2u);
+		EXPECT_EQ(Enum->GetDisplayName(), "Reflected Enum For Test");
+		ASSERT_EQ(Enum->GetValues().size(), 3u);
+		EXPECT_EQ(Enum->GetValues()[0].DisplayName, "Alpha");
+		EXPECT_EQ(Enum->GetValues()[1].DisplayName, "B");
 		EXPECT_EQ(Durin::FindEnumByQualifiedName("EReflectedEnumForTest"), Enum);
 
 		Durin::uint64 Value = std::numeric_limits<Durin::uint64>::max();
@@ -2023,6 +2030,10 @@ namespace
 		Durin::FName Name;
 		EXPECT_TRUE(Enum->FindNameByValue(4, Name));
 		EXPECT_EQ(Name.ToString(), "B");
+		ASSERT_NE(Enum->FindValueRecordByName(Durin::FName("AliasB")), nullptr);
+		EXPECT_EQ(Enum->FindValueRecordByName(Durin::FName("AliasB"))->DisplayName, "Second B");
+		ASSERT_NE(Enum->FindValueRecordByValue(4), nullptr);
+		EXPECT_EQ(Enum->FindValueRecordByValue(4)->Name.ToString(), "B");
 	}
 
 	TEST(FCoreDObjectReflectionTests, ConstructDClassAttachesEnumPropertyMetadata)
@@ -2071,6 +2082,7 @@ namespace
 			Durin::FName("ESignedEnumValueForTest"),
 			Durin::FName("ESignedEnumValueForTest"),
 			Durin::FName("ESignedEnumValueForTest"),
+			"",
 			true,
 			Durin::DurinCodeGen::EEnumUnderlyingType::Int8,
 			static_cast<Durin::uint16>(sizeof(ESignedEnumValueForTest)),
@@ -2085,6 +2097,7 @@ namespace
 			Durin::FName("EUnsignedEnumValueForTest"),
 			Durin::FName("EUnsignedEnumValueForTest"),
 			Durin::FName("EUnsignedEnumValueForTest"),
+			"",
 			true,
 			Durin::DurinCodeGen::EEnumUnderlyingType::UInt64,
 			static_cast<Durin::uint16>(sizeof(EUnsignedEnumValueForTest)),

@@ -5,7 +5,6 @@
 #include "DObject/Package.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorWorkspaceUI.h"
-#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
 #include "MonaCoreGlobals.h"
@@ -43,8 +42,7 @@ namespace Durin
 		{
 			if (const DEnum* Enum = FindEnumByQualifiedName(QualifiedEnumName))
 			{
-				FName Name;
-				if (Enum->FindNameByValue(Value, Name)) return StringUtils::HumanizeName(Name.ToString());
+				if (const FEnumValue* Record = Enum->FindValueRecordByValue(Value)) return Record->DisplayName;
 			}
 			return std::format("Unknown ({})", Value);
 		}

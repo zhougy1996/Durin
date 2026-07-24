@@ -16,6 +16,7 @@ MAX_CONTAINER_PROPERTY_DEPTH = 4
 class ReflectedEnumValueInfo:
     name: str
     value: int
+    display_name: str = ""
 
 
 @dataclass
@@ -30,6 +31,7 @@ class ReflectedEnumInfo:
     underlying_type: str = ""
     underlying_kind: str = "Unknown"
     underlying_size: int = 0
+    display_name: str = ""
     values: list[ReflectedEnumValueInfo] = field(default_factory=list)
 
     @property
@@ -125,9 +127,6 @@ class ReflectedHeaderInfo:
     structs: list[ReflectedStructInfo] = field(default_factory=list)
 
 
-_DCLASS_PATTERN = re.compile(r"\bDCLASS\s*\(([^)]*)\)")
-_DSTRUCT_PATTERN = re.compile(r"\bDSTRUCT\s*\(([^)]*)\)")
-_DENUM_PATTERN = re.compile(r"\bDENUM\s*\(([^)]*)\)")
 _DPROPERTY_PATTERN = re.compile(r"\bDPROPERTY\s*\(([^)]*)\)")
 _GENERATED_BODY_PATTERN = re.compile(r"\bGENERATED_BODY\s*\([^)]*\)")
 _GEN_INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\s+"[^"]+\.gen\.h"\s*$', re.MULTILINE)
@@ -172,12 +171,176 @@ def _annotation_payload(prefix: str, payload: str) -> str:
     return f'{prefix},{payload}' if payload else prefix
 
 
+def _display_name_from_payload(payload: str, macro_name: str, line: int, column: int) -> str:
+    location = f"{macro_name} at line {line}, column {column}"
+    if not payload.strip():
+        return ""
+
+    entries: list[str] = []
+    entry_start = 0
+    in_string = False
+    escaped = False
+    for index, char in enumerate(payload):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == ",":
+            entries.append(payload[entry_start:index])
+            entry_start = index + 1
+    if in_string:
+        raise ValueError(f"{location}: unterminated quoted string")
+    entries.append(payload[entry_start:])
+
+    display_name = ""
+    seen_display_name = False
+    for raw_entry in entries:
+        entry = raw_entry.strip()
+        if not entry:
+            raise ValueError(f"{location}: empty metadata entry")
+        key, separator, raw_value = entry.partition("=")
+        key = key.strip()
+        if not separator:
+            raise ValueError(f"{location}: metadata '{key}' requires = \"...\"")
+        if key != "DisplayName":
+            raise ValueError(f"{location}: unsupported metadata key '{key}'")
+        if seen_display_name:
+            raise ValueError(f"{location}: duplicate DisplayName metadata")
+        seen_display_name = True
+
+        raw_value = raw_value.strip()
+        match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value)
+        if not match:
+            raise ValueError(f"{location}: DisplayName requires a quoted string")
+        display_name = match.group(1).replace(r'\"', '"').replace(r"\\", "\\")
+    return display_name
+
+
+def _is_cpp_code_position(source: str, position: int) -> bool:
+    state = "code"
+    escaped = False
+    index = 0
+    while index < position:
+        char = source[index]
+        next_char = source[index + 1] if index + 1 < position else ""
+        if state in ("string", "character"):
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif (state == "string" and char == '"') or (state == "character" and char == "'"):
+                state = "code"
+        elif state == "line_comment":
+            if char == "\n":
+                state = "code"
+        elif state == "block_comment":
+            if char == "*" and next_char == "/":
+                state = "code"
+                index += 1
+        elif char == "/" and next_char == "/":
+            state = "line_comment"
+            index += 1
+        elif char == "/" and next_char == "*":
+            state = "block_comment"
+            index += 1
+        elif char == '"':
+            state = "string"
+        elif char == "'":
+            state = "character"
+        index += 1
+    return state == "code"
+
+
+def _replace_macro_calls(source: str, macro_name: str, replacement) -> str:
+    pattern = re.compile(rf"\b{re.escape(macro_name)}\s*\(")
+    search_from = 0
+    pieces: list[str] = []
+    output_from = 0
+    while match := pattern.search(source, search_from):
+        if not _is_cpp_code_position(source, match.start()):
+            search_from = match.end()
+            continue
+        line_start = source.rfind("\n", 0, match.start()) + 1
+        if source[line_start:match.start()].lstrip().startswith("#"):
+            search_from = match.end()
+            continue
+
+        depth = 1
+        index = match.end()
+        in_string = False
+        escaped = False
+        while index < len(source) and depth:
+            char = source[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+            elif char == '"':
+                in_string = True
+            elif char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+            index += 1
+        line = source.count("\n", 0, match.start()) + 1
+        column = match.start() - line_start + 1
+        if depth:
+            raise ValueError(f"{macro_name} at line {line}, column {column}: missing closing ')'")
+
+        payload = source[match.end():index - 1]
+        replacement_text = replacement(payload, line, column)
+        replacement_text += "\n" * payload.count("\n")
+        pieces.extend((source[output_from:match.start()], replacement_text))
+        output_from = index
+        search_from = index
+    pieces.append(source[output_from:])
+    return "".join(pieces)
+
+
 def make_dht_parse_source(source: str) -> str:
     source = _GEN_INCLUDE_PATTERN.sub("", source)
-    source = _DCLASS_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DCLASS", m.group(1))}"))) void DHT_CLASS();', source)
-    source = _DSTRUCT_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DSTRUCT", m.group(1))}"))) void DHT_STRUCT();', source)
-    source = _DENUM_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DENUM", m.group(1))}"))) void DHT_ENUM();', source)
-    source = _DPROPERTY_PATTERN.sub(lambda m: f'__attribute__((annotate("{_annotation_payload("DPROPERTY", m.group(1))}")))', source)
+    source = _replace_macro_calls(
+        source,
+        "DCLASS",
+        lambda payload, line, column:
+            f'__attribute__((annotate("{_annotation_payload("DCLASS", payload)}"))) '
+            f"void DHT_CLASS_{line}_{column}();",
+    )
+    source = _replace_macro_calls(
+        source,
+        "DSTRUCT",
+        lambda payload, line, column:
+            f'__attribute__((annotate("{_annotation_payload("DSTRUCT", payload)}"))) '
+            f"void DHT_STRUCT_{line}_{column}();",
+    )
+
+    def replace_denum(payload: str, line: int, column: int) -> str:
+        _display_name_from_payload(payload, "DENUM", line, column)
+        return (
+            f'__attribute__((annotate("{_annotation_payload("DENUM", payload)}"))) '
+            f"void DHT_ENUM_{line}_{column}();"
+        )
+
+    def replace_dmeta(payload: str, line: int, column: int) -> str:
+        _display_name_from_payload(payload, "DMETA", line, column)
+        return f'__attribute__((annotate("{_annotation_payload("DMETA", payload)}")))'
+
+    source = _replace_macro_calls(source, "DENUM", replace_denum)
+    source = _replace_macro_calls(source, "DMETA", replace_dmeta)
+    source = _replace_macro_calls(
+        source,
+        "DPROPERTY",
+        lambda payload, _line, _column:
+            f'__attribute__((annotate("{_annotation_payload("DPROPERTY", payload)}")))',
+    )
     source = _GENERATED_BODY_PATTERN.sub("void DHT_GENERATED_BODY();", source)
     return source
 
@@ -831,13 +994,35 @@ def _is_scoped_enum(enum_cursor: clang.cindex.Cursor) -> bool:
         return "enum class" in enum_cursor.type.spelling
 
 
-def _make_enum(enum_cursor: clang.cindex.Cursor, module_config, header: str) -> ReflectedEnumInfo:
+def _cursor_location_key(cursor: clang.cindex.Cursor) -> tuple[str, int, int]:
+    location = cursor.location
+    return (str(location.file or ""), int(location.line), int(location.column))
+
+
+def _make_enum(
+    enum_cursor: clang.cindex.Cursor,
+    module_config,
+    header: str,
+    annotation: str,
+    consumed_dmeta_locations: set[tuple[str, int, int]],
+) -> ReflectedEnumInfo:
     qualified_name = _qualified_name(enum_cursor)
     underlying_type = _normalize_type_spelling(enum_cursor.enum_type.spelling)
     values: list[ReflectedEnumValueInfo] = []
     for child in enum_cursor.get_children():
         if child.kind == clang.cindex.CursorKind.ENUM_CONSTANT_DECL:
-            values.append(ReflectedEnumValueInfo(name=child.spelling, value=int(child.enum_value)))
+            value_annotation = _get_annotation(child)
+            display_name = ""
+            if value_annotation.startswith("DMETA"):
+                display_name = _string_metadata_from_annotation(value_annotation, "DisplayName")
+                consumed_dmeta_locations.add(_cursor_location_key(child))
+            values.append(
+                ReflectedEnumValueInfo(
+                    name=child.spelling,
+                    value=int(child.enum_value),
+                    display_name=display_name,
+                )
+            )
     return ReflectedEnumInfo(
         short_name=enum_cursor.spelling,
         namespace=_semantic_namespace(enum_cursor),
@@ -849,6 +1034,7 @@ def _make_enum(enum_cursor: clang.cindex.Cursor, module_config, header: str) -> 
         underlying_type=underlying_type,
         underlying_kind=_underlying_kind_from_type_spelling(underlying_type),
         underlying_size=max(int(enum_cursor.enum_type.get_size() or 0), 0),
+        display_name=_string_metadata_from_annotation(annotation, "DisplayName"),
         values=values,
     )
 
@@ -1128,22 +1314,24 @@ def parse_reflection_header(
     classes: list[ReflectedClassInfo] = []
     enums: list[ReflectedEnumInfo] = []
     structs: list[ReflectedStructInfo] = []
+    consumed_dmeta_locations: set[tuple[str, int, int]] = set()
 
     def visit(parent: clang.cindex.Cursor) -> None:
         children = list(parent.get_children())
         pending_dclass_annotation = ""
         pending_dstruct = False
-        pending_denum = False
+        pending_denum_annotation = ""
         for child in children:
-            if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling == "DHT_CLASS":
+            if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling.startswith("DHT_CLASS_"):
                 annotation = _get_annotation(child)
                 pending_dclass_annotation = annotation if annotation.startswith("DCLASS") else ""
                 continue
-            if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling == "DHT_STRUCT":
+            if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling.startswith("DHT_STRUCT_"):
                 pending_dstruct = _get_annotation(child).startswith("DSTRUCT")
                 continue
-            if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling == "DHT_ENUM":
-                pending_denum = _get_annotation(child).startswith("DENUM")
+            if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling.startswith("DHT_ENUM_"):
+                annotation = _get_annotation(child)
+                pending_denum_annotation = annotation if annotation.startswith("DENUM") else ""
                 continue
 
             if pending_dstruct and child.kind == clang.cindex.CursorKind.STRUCT_DECL and child.spelling:
@@ -1206,15 +1394,32 @@ def parse_reflection_header(
                 pending_dclass_annotation = ""
                 continue
 
-            if pending_denum and child.kind == clang.cindex.CursorKind.ENUM_DECL and child.spelling:
-                enums.append(_make_enum(child, module_config, header))
-                pending_denum = False
+            if pending_denum_annotation and child.kind == clang.cindex.CursorKind.ENUM_DECL and child.spelling:
+                enums.append(
+                    _make_enum(
+                        child,
+                        module_config,
+                        header,
+                        pending_denum_annotation,
+                        consumed_dmeta_locations,
+                    )
+                )
+                pending_denum_annotation = ""
                 continue
 
             if child.kind in (clang.cindex.CursorKind.NAMESPACE, clang.cindex.CursorKind.TRANSLATION_UNIT):
                 visit(child)
 
     visit(tu.cursor)
+
+    for cursor in tu.cursor.walk_preorder():
+        annotation = _get_annotation(cursor)
+        if annotation.startswith("DMETA") and _cursor_location_key(cursor) not in consumed_dmeta_locations:
+            spelling = f" on '{cursor.spelling}'" if cursor.spelling else ""
+            raise ValueError(
+                f"DMETA at line {cursor.location.line}, column {cursor.location.column}{spelling}: "
+                "annotation is only valid on an enumerator in a reflected enum"
+            )
 
     rel = Path(header)
     include_path = _include_path_for_header(header)

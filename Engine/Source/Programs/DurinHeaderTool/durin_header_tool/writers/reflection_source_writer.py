@@ -354,7 +354,12 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
     if enum_info.values:
         builder.append(f"const Durin::DurinCodeGen::FEnumValueParams {generated_statics_name}::{values_name}[] = {{\n")
         for value_info in enum_info.values:
-            _append_line(builder, f"{{ \"{value_info.name}\", static_cast<Durin::uint64>({value_info.value}) }},", 1)
+            display_name = _cpp_string_literal(value_info.display_name) if value_info.display_name else "nullptr"
+            _append_line(
+                builder,
+                f"{{ {_cpp_string_literal(value_info.name)}, static_cast<Durin::uint64>({value_info.value}), {display_name} }},",
+                1,
+            )
         builder.append("};\n\n")
 
     _append_lines(
@@ -363,6 +368,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         (f"{enum_info.generated_helper_no_register_name},", 1),
         (f"\"{enum_info.qualified_name}\",", 1),
         (f"\"{enum_info.short_name}\",", 1),
+        (f"{_cpp_string_literal(enum_info.display_name) if enum_info.display_name else 'nullptr'},", 1),
         (f"{_bool_literal(enum_info.is_scoped)},", 1),
         (f"Durin::DurinCodeGen::EEnumUnderlyingType::{enum_info.underlying_kind},", 1),
         (f"static_cast<Durin::uint16>({enum_info.underlying_size}),", 1),
@@ -384,13 +390,14 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         (f"for (size_t Index = 0; Index < {generated_statics_name}::EnumParams.NumValues; ++Index)", 2),
         ("{", 2),
         (f"const Durin::DurinCodeGen::FEnumValueParams& ValueParams = {generated_statics_name}::EnumParams.Values[Index];", 3),
-        ("Values.push_back({ Durin::FName(ValueParams.NameUTF8), ValueParams.Value });", 3),
+        ("Values.push_back({ Durin::FName(ValueParams.NameUTF8), ValueParams.Value, ValueParams.DisplayName ? ValueParams.DisplayName : \"\" });", 3),
         ("}", 2),
         ("Singleton = new Durin::DEnum(", 2),
         ("Durin::EC_StaticConstructor,", 3),
         (f"Durin::FName(\"{enum_info.short_name}\"),", 3),
         (f"Durin::FName(\"{enum_info.qualified_name}\"),", 3),
         (f"Durin::FName(\"{enum_info.short_name}\"),", 3),
+        (f"{generated_statics_name}::EnumParams.DisplayName ? {generated_statics_name}::EnumParams.DisplayName : \"\",", 3),
         (f"{generated_statics_name}::EnumParams.bIsScoped,", 3),
         (f"{generated_statics_name}::EnumParams.UnderlyingType,", 3),
         (f"{generated_statics_name}::EnumParams.UnderlyingSize,", 3),

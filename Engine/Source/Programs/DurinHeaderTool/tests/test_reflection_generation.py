@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -22,6 +23,7 @@ from durin_header_tool.model.reflection_manifest import ModuleManifest, save_mod
 from durin_header_tool.model.reflection_info import (
     ReflectedEnumInfo,
     ReflectedEnumValueInfo,
+    make_dht_parse_source,
     make_generated_enum_helper_name,
     make_generated_helper_name,
 )
@@ -53,8 +55,29 @@ class ReflectionSourceWriterTests(unittest.TestCase):
 
         content = _enum_definitions(enum_info, "/Cpp/Core")
 
-        self.assertIn('{ "Negative", static_cast<Durin::uint64>(-1) },', content)
-        self.assertIn('{ "High", static_cast<Durin::uint64>(18446744073709551615) },', content)
+        self.assertIn('{ "Negative", static_cast<Durin::uint64>(-1), nullptr },', content)
+        self.assertIn('{ "High", static_cast<Durin::uint64>(18446744073709551615), nullptr },', content)
+
+    def test_enum_display_metadata_is_escaped_and_transported(self):
+        enum_info = ReflectedEnumInfo(
+            short_name="EMode",
+            namespace="Durin",
+            qualified_name="Durin::EMode",
+            generated_helper_name="Z_Construct_DEnum_Durin_EMode",
+            header="Mode.h",
+            api="CORE_API",
+            display_name='Editor "Mode"',
+            values=[
+                ReflectedEnumValueInfo(name="Path", value=1, display_name=r"C:\Mode"),
+                ReflectedEnumValueInfo(name="DefaultValue", value=2),
+            ],
+        )
+
+        content = _enum_definitions(enum_info, "/Cpp/Core")
+
+        self.assertIn(r'"Editor \"Mode\"",', content)
+        self.assertIn(r'{ "Path", static_cast<Durin::uint64>(1), "C:\\Mode" },', content)
+        self.assertIn('{ "DefaultValue", static_cast<Durin::uint64>(2), nullptr },', content)
 
 
 class ReflectionGenerationTests(unittest.TestCase):
@@ -87,6 +110,21 @@ namespace std
 
 namespace Fixture
 {
+    DENUM(DisplayName = "Fixture Mode")
+    enum class EFixtureMode : int
+    {
+        Disabled DMETA(DisplayName = "Not Enabled") = -1,
+        URLValue,
+        FinalValue DMETA(DisplayName = "Final (Ready)") = 7,
+    };
+
+    DENUM()
+    enum ELegacyMode : unsigned char
+    {
+        LegacyFirst,
+        LegacySecond = 4
+    };
+
     DCLASS(DisplayName = "Sample Actor", DefaultObjectName = "SampleActor")
     class ASampleActor : public Durin::DObject
     {
@@ -197,6 +235,96 @@ namespace Fixture
         self.assertIn('5,\n\t"Sample Actor",', self.generated_cpp)
         self.assertIn('"Sample Actor",', self.generated_cpp)
         self.assertIn('"SampleActor"', self.generated_cpp)
+
+    def test_enum_display_metadata_binds_to_type_and_values(self):
+        fixture_mode = next(enum for enum in self.header_info.enums if enum.short_name == "EFixtureMode")
+        self.assertTrue(fixture_mode.is_scoped)
+        self.assertEqual(fixture_mode.display_name, "Fixture Mode")
+        self.assertEqual(
+            [(value.name, value.value, value.display_name) for value in fixture_mode.values],
+            [
+                ("Disabled", -1, "Not Enabled"),
+                ("URLValue", 0, ""),
+                ("FinalValue", 7, "Final (Ready)"),
+            ],
+        )
+
+        legacy_mode = next(enum for enum in self.header_info.enums if enum.short_name == "ELegacyMode")
+        self.assertFalse(legacy_mode.is_scoped)
+        self.assertEqual(legacy_mode.display_name, "")
+        self.assertEqual(
+            [(value.name, value.value, value.display_name) for value in legacy_mode.values],
+            [("LegacyFirst", 0, ""), ("LegacySecond", 4, "")],
+        )
+
+    def test_invalid_enum_metadata_has_deterministic_diagnostics(self):
+        invalid_cases = [
+            (
+                'DENUM(DisplayName = "First", DisplayName = "Second") enum E { A };',
+                "duplicate DisplayName metadata",
+            ),
+            (
+                'DENUM(ToolTip = "No") enum E { A };',
+                "unsupported metadata key 'ToolTip'",
+            ),
+            (
+                'DENUM(DisplayName = Bare) enum E { A };',
+                "DisplayName requires a quoted string",
+            ),
+            (
+                'DENUM(DisplayName = "Broken) enum E { A };',
+                "missing closing ')'",
+            ),
+            (
+                'DENUM(DisplayName = "Missing"',
+                "missing closing ')'",
+            ),
+            (
+                'enum E { A DMETA(DisplayName = "First", DisplayName = "Second") };',
+                "duplicate DisplayName metadata",
+            ),
+        ]
+        for source, diagnostic in invalid_cases:
+            with self.subTest(diagnostic=diagnostic):
+                with self.assertRaisesRegex(ValueError, re.escape(diagnostic)):
+                    make_dht_parse_source(source)
+
+    def test_annotation_names_in_comments_and_strings_are_ignored(self):
+        source = '''// DENUM(Unknown = "comment")
+const char* Text = "DMETA(Unknown = \\"string\\")";
+/* DMETA(DisplayName = Bare) */
+'''
+        self.assertEqual(make_dht_parse_source(source), source)
+
+    def test_dmeta_outside_reflected_enum_is_rejected(self):
+        header = "Public/Misplaced.h"
+        header_path = self.module_dir / header
+        header_path.write_text(
+            '''namespace Fixture
+{
+    enum EPlain
+    {
+        Value DMETA(DisplayName = "Visible")
+    };
+}
+''',
+            encoding="utf-8",
+        )
+        config = DurinModuleConfig(
+            module_name="Fixture",
+            module_dir=self.module_dir,
+            reflect_headers=[header],
+        )
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            mock.patch.object(utils, "get_module_dht_output_dir", return_value=self.dht_output_dir),
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "annotation is only valid on an enumerator in a reflected enum",
+            ):
+                parse_reflection_header("Fixture", header)
 
     def test_property_flags_metadata_and_value_lifecycle_are_generated(self):
         self.assertIn(

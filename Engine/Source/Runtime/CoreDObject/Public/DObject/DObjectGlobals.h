@@ -154,6 +154,7 @@ namespace Durin
 		{
 			const char* NameUTF8;
 			uint64 Value;
+			const char* DisplayName;
 		};
 
 		struct FEnumParams
@@ -161,6 +162,7 @@ namespace Durin
 			DEnum* (*EnumNoRegisterFunc)();
 			const char* QualifiedEnumName;
 			const char* ShortEnumName;
+			const char* DisplayName;
 			bool bIsScoped;
 			EEnumUnderlyingType UnderlyingType;
 			uint16 UnderlyingSize;
