@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Defines the compiler backend contract used by the shader compile service.
 	class FShaderCompiler
 	{
 	public:

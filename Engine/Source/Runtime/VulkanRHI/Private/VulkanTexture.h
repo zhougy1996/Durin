@@ -7,6 +7,7 @@ namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 
+	// Distinguishes images destroyed by the texture from externally owned swapchain images.
 	enum class EImageOwnerType : uint8
 	{
 		None,
@@ -16,6 +17,7 @@ namespace Durin::VulkanRHI
 	};
 
 
+	// Owns or references a Vulkan image and its default image view.
 	class FVulkanTexture : public FRHITexture
 	{
 	public:
@@ -54,6 +56,7 @@ namespace Durin::VulkanRHI
 		std::vector<vk::ImageLayout> SubresourceLayouts;
 	};
 
+	// Owns immutable Vulkan sampler state derived from an RHI sampler descriptor.
 	class FVulkanSampler : public FRHISampler
 	{
 	public:

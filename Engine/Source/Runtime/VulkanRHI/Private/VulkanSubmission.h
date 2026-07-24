@@ -8,6 +8,7 @@ namespace Durin::VulkanRHI
 	class FVulkanQueue;
 	class FVulkanSemaphore;
 
+	// Owns one queue submission's command buffers, waits, signals, and completion fence.
 	class FVulkanPayload
 	{
 		friend class FVulkanQueue;
@@ -36,6 +37,7 @@ namespace Durin::VulkanRHI
 		FVulkanFence* Fence = nullptr;
 	};
 
+	// Retains submitted payloads until their GPU work completes and resources can recycle.
 	class FVulkanFrame
 	{
 	public:

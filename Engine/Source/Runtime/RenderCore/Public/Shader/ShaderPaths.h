@@ -5,6 +5,7 @@
 
 namespace Durin::FShaderPaths
 {
+	// Maps a stable virtual shader root to source and compiled-artifact directories.
 	struct FShaderMountPoint
 	{
 		std::string VirtualRoot;

@@ -12,6 +12,7 @@ namespace Durin
 	constexpr uint8 MaxVertexElementCount_NumBits = 5U;
 	static_assert(MaxVertexElementCount <= (1U << MaxVertexElementCount_NumBits), "MaxVertexElementCount exceeds the number of bits allocated for it.");
 
+	// Identifies the graphics API implemented by the active dynamic RHI.
 	enum class ERHIInterface
 	{
 		OpenGL,
@@ -21,6 +22,7 @@ namespace Durin
 		Metal
 	};
 
+	// Identifies the programmable pipeline stage targeted by compiled shader code.
 	enum class EShaderFrequency
 	{
 		Vertex,
@@ -31,6 +33,7 @@ namespace Durin
 		RayMiss,
 	};
 
+	// Selects the graphics or compute command context used for recording.
 	enum class ERHIPipeline : uint8
 	{
 		Graphics = 1 << 0,
@@ -41,6 +44,7 @@ namespace Durin
 		Num = 2
 	};
 
+	// Normalizes PCI vendor identifiers used for backend capability workarounds.
 	enum class EGpuVendorId
 	{
 		Unknown = -1,
@@ -78,6 +82,7 @@ namespace Durin
 		}
 	}
 
+	// Defines the packed storage and conversion format of a vertex attribute.
 	enum class EVertexElementType : uint8
 	{
 		None = 0,
@@ -105,6 +110,7 @@ namespace Durin
 		Count
 	};
 
+	// Defines the dimensional shape and array interpretation of an RHI texture.
 	enum class ETextureDimension : uint8
 	{
 		Texture2D,
@@ -114,6 +120,7 @@ namespace Durin
 		TextureCubeArray
 	};
 
+	// Declares the allowed hardware usages of an RHI texture.
 	enum class ETextureCreateFlags : uint64
 	{
 		None = 0,
@@ -216,6 +223,7 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EBufferUsageFlags);
 
+	// Identifies the shader stages that can access a binding or push-constant range.
 	enum class EShaderStageFlags
 	{
 		None = 0,
@@ -226,6 +234,7 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EShaderStageFlags);
 
+	// Defines the CPU access contract requested while locking an RHI resource.
 	enum class EResourceLockMode
 	{
 		ReadOnly,

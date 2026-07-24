@@ -5,6 +5,7 @@
 
 namespace Durin::RendererRenderTargetLayouts
 {
+	// Identifies the renderer output layout used for offscreen or presented views.
 	enum class EViewportOutput : uint8
 	{
 		Offscreen,

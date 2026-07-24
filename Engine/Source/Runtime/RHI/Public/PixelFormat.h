@@ -5,6 +5,7 @@
 
 namespace Durin
 {
+	// Enumerates the storage formats supported by the backend-neutral RHI contract.
 	enum class EPixelFormat : uint8
 	{
 		Unknown,
@@ -85,6 +86,7 @@ namespace Durin
 	};
 	static_assert(static_cast<uint8>(EPixelFormat::Count) <= 255, "EPixelFormat must fit in uint8");
 
+	// Classifies how texel channel bits are interpreted by shaders and hardware.
 	enum class EPixelFormatKind : uint8
 	{
 		Integer,
@@ -93,6 +95,7 @@ namespace Durin
 		DepthStencil
 	};
 
+	// Describes block layout and channel semantics for one pixel format.
 	struct FPixelFormatInfo
 	{
 		EPixelFormat Format;

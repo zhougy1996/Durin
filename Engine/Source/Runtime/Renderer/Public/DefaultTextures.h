@@ -7,6 +7,7 @@ namespace Durin
 	class FRHITexture;
 	class FTexture2DRenderResource;
 
+	// Identifies renderer-owned fallback textures that are always safe to bind.
 	enum class EDefaultTexture : uint8
 	{
 		White,

@@ -12,6 +12,7 @@ namespace Durin
 	class FShader;
 	class FShaderMapBase;
 
+	// Identifies the shader type and permutation being compiled or instantiated.
 	struct FShaderPermutationParameters
 	{
 		const FShaderType* ShaderType = nullptr;
@@ -29,6 +30,7 @@ namespace Durin
 	using FShouldCompilePermutationFunction = bool (*)(const FShaderPermutationParameters& Parameters);
 	using FModifyCompilationEnvironmentFunction = void (*)(const FShaderPermutationParameters& Parameters, FShaderCompileOptions& CompileOptions);
 
+	// Registers a shader class's source, entry point, stage, and construction hooks.
 	class FShaderType
 	{
 	public:
@@ -80,6 +82,7 @@ namespace Durin
 		FModifyCompilationEnvironmentFunction ModifyCompilationEnvironmentFn = nullptr;
 	};
 
+	// Represents one typed shader instance backed by a compiled RHI shader.
 	class FShader
 	{
 	public:
@@ -402,6 +405,7 @@ namespace Durin
 		FPipelineLayoutDesc& OutPipelineLayout,
 		std::string& OutErrorMessage
 	) -> bool;
+	// Reports cache occupancy for compiled shader-map resource code.
 	struct FShaderMapResourceCacheStats
 	{
 		uint64 EntryCount = 0;
@@ -410,6 +414,7 @@ namespace Durin
 	RENDERCORE_API auto GetShaderMapResourceCacheStats() -> FShaderMapResourceCacheStats;
 	RENDERCORE_API auto ClearShaderMapResourceCache() -> void;
 
+	// Owns compiled shader binaries and lazily creates their RHI resources.
 	class FShaderMapResourceCode
 	{
 	public:
@@ -434,6 +439,7 @@ namespace Durin
 		std::vector<FCompiledShader> CompiledShaders;
 	};
 
+	// Provides indexed access to the RHI shaders created for one shader map.
 	class FShaderMapResource
 	{
 	public:
@@ -454,6 +460,7 @@ namespace Durin
 		mutable std::mutex Mutex;
 	};
 
+	// Maps registered shader types to compiled instances sharing one resource bundle.
 	class FShaderMapBase
 	{
 	public:
@@ -493,6 +500,7 @@ namespace Durin
 	};
 
 	template<typename ShaderType>
+	// Provides typed access to a shader instance while retaining its owning shader map.
 	class TShaderRef
 	{
 	public:

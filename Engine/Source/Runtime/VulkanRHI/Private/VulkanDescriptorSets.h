@@ -5,6 +5,7 @@ namespace Durin::VulkanRHI
 	class FVulkanDevice;
 	class FVulkanLayout;
 
+	// Accumulates descriptor counts required to allocate a compatible Vulkan pool.
 	struct FVulkanDescriptorRequirements
 	{
 		uint32 MaxSets = 0;
@@ -28,6 +29,7 @@ namespace Durin::VulkanRHI
 		FVulkanDescriptorSetsLayoutInfo() = default;
 		FVulkanDescriptorSetsLayoutInfo(const std::vector<FBindingLayout>& InBindingLayouts);
 
+		// Describes bindings and allocation requirements for one descriptor-set index.
 		struct FSetLayout
 		{
 			std::vector<vk::DescriptorSetLayoutBinding> LayoutBindings;
@@ -54,6 +56,7 @@ namespace Durin::VulkanRHI
 			}
 		};
 
+		// Hashes one descriptor-set layout for structural cache lookup.
 		struct FSetLayoutHasher
 		{
 			auto operator()(const FSetLayout& Layout) const -> size_t
@@ -110,6 +113,7 @@ namespace Durin::VulkanRHI
 		friend std::hash<FVulkanDescriptorSetsLayoutInfo>;
 	};
 
+	// Owns one cached Vulkan descriptor-set layout and its allocation requirements.
 	struct FVulkanDescriptorSetLayoutEntry
 	{
 		// The Vulkan descriptor set layout handle
@@ -118,6 +122,7 @@ namespace Durin::VulkanRHI
 		uint64 HandleId = 0;
 	};
 
+	// Reuses Vulkan descriptor-set layouts with identical structural descriptions.
 	class FVulkanDescriptorSetLayoutCache
 	{
 	public:
@@ -175,6 +180,7 @@ namespace Durin::VulkanRHI
 		std::vector<vk::DescriptorSetLayout> LayoutHandles;
 	};
 
+	// Owns a Vulkan pipeline layout together with its descriptor-set layouts.
 	class FVulkanLayout
 	{
 	public:
@@ -193,6 +199,7 @@ namespace Durin::VulkanRHI
 		friend class FVulkanPipelineStateCacheManager;
 	};
 
+	// Allocates descriptor sets from one Vulkan pool with bounded capacity.
 	class FVulkanDescriptorPool
 	{
 	public:
@@ -220,6 +227,7 @@ namespace Durin::VulkanRHI
 		std::unordered_map<vk::DescriptorType, uint32> NumAllocatedDescriptors;
 	};
 
+	// Reuses descriptor sets whose bound-resource identity remains unchanged.
 	class FVulkanDescriptorSetCache
 	{
 	public:
@@ -229,6 +237,7 @@ namespace Durin::VulkanRHI
 		FVulkanDevice* Device;
 	};
 
+	// Coordinates descriptor allocation and caching across frames for one device.
 	class FVulkanGlobalDescriptorPool
 	{
 	public:

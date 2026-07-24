@@ -2,6 +2,7 @@
 
 namespace Durin::VulkanRHI
 {
+	// Supplies platform-specific Vulkan loader and presentation extensions.
 	class FVulkanGenericPlatform
 	{
 	public:

@@ -4,24 +4,25 @@
 
 namespace Durin
 {
-	class RENDERER_API FRendererModule final : public IRendererModule
+	// Owns renderer services, default resources, and the concrete scene rendering pipeline.
+	class FRendererModule final : public IRendererModule
 	{
 	public:
-		auto StartupModule() -> void override;
-		auto ShutdownModule() -> void override;
-		auto ReleaseResources() -> void override;
-		auto CreateScene() -> std::unique_ptr<IScene> override;
-		auto GetViewSettings() const -> FRendererViewSettings override;
-		auto SetViewSettings(const FRendererViewSettings& InSettings) -> void override;
-		auto SetFXAAEnabled(bool bInEnabled) -> void override;
-		auto IsFXAAEnabled() const -> bool override;
-		auto SetRenderMode(ERenderMode Mode) -> void override;
-		auto GetRenderMode() const -> ERenderMode override;
-		auto SetRasterMode(ERasterMode Mode) -> void override;
-		auto GetRasterMode() const -> ERasterMode override;
-		auto PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void override;
-		auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void override;
-		auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void override;
+		RENDERER_API auto StartupModule() -> void override;
+		RENDERER_API auto ShutdownModule() -> void override;
+		RENDERER_API auto ReleaseResources() -> void override;
+		RENDERER_API auto CreateScene() -> std::unique_ptr<IScene> override;
+		RENDERER_API auto GetViewSettings() const -> FRendererViewSettings override;
+		RENDERER_API auto SetViewSettings(const FRendererViewSettings& InSettings) -> void override;
+		RENDERER_API auto SetFXAAEnabled(bool bInEnabled) -> void override;
+		RENDERER_API auto IsFXAAEnabled() const -> bool override;
+		RENDERER_API auto SetRenderMode(ERenderMode Mode) -> void override;
+		RENDERER_API auto GetRenderMode() const -> ERenderMode override;
+		RENDERER_API auto SetRasterMode(ERasterMode Mode) -> void override;
+		RENDERER_API auto GetRasterMode() const -> ERasterMode override;
+		RENDERER_API auto PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void override;
+		RENDERER_API auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void override;
+		RENDERER_API auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void override;
 
 	private:
 		auto PrepareEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void;

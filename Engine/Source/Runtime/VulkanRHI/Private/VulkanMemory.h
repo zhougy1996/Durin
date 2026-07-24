@@ -8,6 +8,7 @@ namespace Durin::VulkanRHI
 	class FVulkanDevice;
 	class FVulkanFenceManager;
 
+	// Records mapping and ownership properties required to free a Vulkan allocation safely.
 	enum class EVulkanAllocationFlags
 	{
 		None = 0,
@@ -17,6 +18,7 @@ namespace Durin::VulkanRHI
 	};
 	ENUM_CLASS_FLAGS(EVulkanAllocationFlags)
 
+	// Carries a VMA allocation handle and the memory properties visible to its owner.
 	struct FVulkanAllocation
 	{
 		VmaAllocation Handle = nullptr;
@@ -38,6 +40,7 @@ namespace Durin::VulkanRHI
 		auto FlushMappedMemory(FVulkanDevice* Device) const -> void;
 	};
 
+	// Owns the Vulkan memory allocator and centralizes resource allocation policy.
 	class FVulkanMemoryManager
 	{
 	public:
@@ -76,6 +79,7 @@ namespace Durin::VulkanRHI
 		VmaAllocator Allocator;
 	};
 
+	// Wraps a reusable Vulkan fence and tracks whether it is idle, submitted, or signaled.
 	class FVulkanFence
 	{
 	public:
@@ -90,6 +94,7 @@ namespace Durin::VulkanRHI
 		auto IsSignaled() const -> bool { return State == EState::Signaled; }
 
 	private:
+		// Tracks whether a pooled fence is idle, submitted, or observed as signaled.
 		enum class EState
 		{
 			// Initial state
@@ -115,6 +120,7 @@ namespace Durin::VulkanRHI
 		friend class FVulkanFenceManager;
 	};
 
+	// Pools Vulkan fences and returns them only after their submissions complete.
 	class FVulkanFenceManager
 	{
 	public:
@@ -150,6 +156,7 @@ namespace Durin::VulkanRHI
 
 	};
 
+	// Owns a Vulkan semaphore used to order queue and presentation operations.
 	class FVulkanSemaphore
 	{
 	public:

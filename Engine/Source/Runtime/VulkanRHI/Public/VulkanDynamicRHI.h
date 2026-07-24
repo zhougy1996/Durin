@@ -10,6 +10,7 @@ namespace Durin::VulkanRHI
 	class FVulkanViewport;
 	class FVulkanCommandListContext;
 
+	// Extends the portable RHI with native Vulkan handles needed by Vulkan-aware integrations.
 	class IVulkanDynamicRHI : public FDynamicRHI
 	{
 	public:
@@ -20,6 +21,7 @@ namespace Durin::VulkanRHI
 		virtual auto RHIGetVkCommandBuffer(FRHICommandListBase& RHICmdList) const -> vk::CommandBuffer = 0;
 	};
 
+	// Owns the Vulkan instance and device and implements the backend-neutral RHI contract.
 	class FVulkanDynamicRHI final: public IVulkanDynamicRHI
 	{
 	public:
@@ -79,6 +81,7 @@ namespace Durin::VulkanRHI
 
 	extern FVulkanDynamicRHI* GVulkanRHI;
 
+	// Creates and publishes the Vulkan RHI implementation during module startup.
 	class FVulkanDynamicRHIModule : public IDynamicRHIModule
 	{
 	public:

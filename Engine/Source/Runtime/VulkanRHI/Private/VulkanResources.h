@@ -4,6 +4,7 @@
 
 namespace Durin::VulkanRHI
 {
+	// Retains the vertex element mapping consumed during Vulkan pipeline creation.
 	class FVulkanVertexDeclaration : public FRHIVertexDeclaration
 	{
 	public:

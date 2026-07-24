@@ -8,6 +8,7 @@ namespace Durin
 {
 	class FRHICommandListBase;
 
+	// Coordinates render-thread initialization and release of an object's RHI state.
 	class FRenderResource
 	{
 	public:
@@ -107,6 +108,7 @@ namespace Durin
 		EInitPhase InitPhase = EInitPhase::Default;
 	};
 
+	// Owns a vertex-buffer RHI allocation through the render-resource lifecycle.
 	class FVertexBuffer : public FRenderResource
 	{
 	public:

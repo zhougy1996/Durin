@@ -7,6 +7,7 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 
+	// Lets the game thread wait until all render commands queued before the fence have completed.
 	class FRenderCommandFence
 	{
 	public:
@@ -25,6 +26,7 @@ namespace Durin
 
 	namespace FFrameSync
 	{
+		// Selects end-of-frame synchronization or a thread-only command drain.
 		enum class EFlushMode
 		{
 			EndFrame,
@@ -42,6 +44,7 @@ namespace Durin
 	RENDERCORE_API auto FlushRenderingCommands() -> void;
 
 
+	// Owns the double-buffered command queue transferred from producers to the render thread.
 	class FRenderThreadCommandPipe
 	{
 	public:

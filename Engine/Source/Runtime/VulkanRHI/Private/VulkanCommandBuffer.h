@@ -11,6 +11,7 @@ namespace Durin::VulkanRHI
 	class FVulkanCommandBufferPool;
 	class FVulkanCommandBufferManager;
 
+	// Tracks a Vulkan command buffer through recording, submission, and completion states.
 	class FVulkanCommandBuffer
 	{
 	public:
@@ -36,6 +37,7 @@ namespace Durin::VulkanRHI
 
 		auto IsReadyForBegin() const -> bool { return State == EState::ReadyForBegin; }
 
+		// Enforces the legal recording and submission transitions of a command buffer.
 		enum class EState : uint8
 		{
 			ReadyForBegin,
@@ -67,6 +69,7 @@ namespace Durin::VulkanRHI
 		friend class FVulkanCommandBufferPool;
 	};
 
+	// Owns command buffers allocated from one Vulkan command pool.
 	class FVulkanCommandBufferPool
 	{
 	public:

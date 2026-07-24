@@ -8,18 +8,21 @@ namespace Durin
 	class FRHITexture;
 	class IScene;
 
+	// Selects whether scene shading evaluates material lighting.
 	enum class ERenderMode : uint8
 	{
 		Lit,
 		Unlit
 	};
 
+	// Selects filled or wireframe primitive rasterization.
 	enum class ERasterMode : uint8
 	{
 		Solid,
 		Wireframe
 	};
 
+	// Carries runtime-selectable rendering behavior shared by all scene views.
 	struct FRendererViewSettings
 	{
 		bool bEnableFXAA = true;
@@ -27,6 +30,7 @@ namespace Durin
 		ERasterMode RasterMode = ERasterMode::Solid;
 	};
 
+	// Identifies a procedural editor-assistance shape rendered over a scene view.
 	enum class EViewOverlayShape : uint8
 	{
 		Arrow,
@@ -37,18 +41,21 @@ namespace Durin
 		WireBox
 	};
 
+	// Identifies a screen-sized editor icon anchored in world space.
 	enum class EViewOverlayIcon : uint8
 	{
 		Camera,
 		DirectionalLight
 	};
 
+	// Selects solid or distance-patterned rendering for an overlay line.
 	enum class EViewOverlayLinePattern : uint8
 	{
 		Solid,
 		Dashed
 	};
 
+	// Describes a transformed procedural overlay primitive in world space.
 	struct FViewOverlayPrimitive
 	{
 		EViewOverlayShape Shape = EViewOverlayShape::Box;
@@ -56,6 +63,7 @@ namespace Durin
 		FVector4f Color{1.0f};
 	};
 
+	// Describes a world-space overlay segment with screen-space width and pattern.
 	struct FViewOverlayLine
 	{
 		FVector3 Start{0.0};
@@ -66,6 +74,7 @@ namespace Durin
 		float PatternPeriodPixels = 12.0f;
 	};
 
+	// Describes a world-space icon whose visual size is fixed in pixels.
 	struct FViewOverlayIcon
 	{
 		EViewOverlayIcon Icon = EViewOverlayIcon::Camera;
@@ -74,6 +83,7 @@ namespace Durin
 		float SizePixels = 30.0f;
 	};
 
+	// Configures the editor grid plane and its distance-based presentation.
 	struct FViewEditorGrid
 	{
 		bool bVisible = false;
@@ -85,6 +95,7 @@ namespace Durin
 		FVector4f AxisYColor{0.28f, 0.9f, 0.38f, 0.8f};
 	};
 
+	// Captures the matrices, viewport, and editor overlays required to render one view.
 	struct FSceneView
 	{
 		FMatrix ViewMatrix{1.0};
@@ -103,6 +114,7 @@ namespace Durin
 		std::vector<FViewOverlayIcon> OverlayIcons;
 	};
 
+	// Defines scene ownership and frame rendering services exposed by the renderer module.
 	class IRendererModule : public IModuleInterface
 	{
 	public:

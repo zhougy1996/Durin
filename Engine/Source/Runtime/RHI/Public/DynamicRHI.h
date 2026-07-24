@@ -8,6 +8,7 @@
 
 namespace Durin
 {
+	// Defines the backend-neutral device interface used to create resources and submit frame work.
 	class FDynamicRHI
 	{
 	public:
@@ -47,6 +48,7 @@ namespace Durin
 
 	extern RHI_API FDynamicRHI* GDynamicRHI;
 
+	// Creates the platform RHI implementation selected during runtime startup.
 	class IDynamicRHIModule : public IModuleInterface
 	{
 	public:

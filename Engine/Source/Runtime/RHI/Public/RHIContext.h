@@ -9,6 +9,7 @@ namespace Durin
 	class FRHIViewport;
 	class FRHITexture;
 
+	// Defines the backend command-recording operations consumed by RHI command lists.
 	class IRHICommandContext
 	{
 	public:

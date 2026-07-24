@@ -19,9 +19,11 @@ namespace Durin::VulkanRHI
 
 	extern uint64 GVulkanRHIDeletionFrameNumber;
 
+	// Defers destruction of Vulkan handles until all potentially referencing frames retire.
 	class FDeferredDeletionQueue
 	{
 	public:
+		// Identifies the Vulkan handle category stored for deferred destruction.
 		enum class EType
 		{
 			RenderPass,
@@ -73,6 +75,7 @@ namespace Durin::VulkanRHI
 		auto Clear() -> void;
 
 	private:
+		// Records one handle and the frame after which destroying it is safe.
 		struct FEntry
 		{
 			EType Type;
@@ -93,6 +96,7 @@ namespace Durin::VulkanRHI
 		std::vector<FEntry> Entries;
 	};
 
+	// Owns the selected physical/logical device and all device-scoped backend services.
 	class FVulkanDevice
 	{
 	public:

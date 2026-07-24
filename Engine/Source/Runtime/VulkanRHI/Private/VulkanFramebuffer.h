@@ -8,6 +8,7 @@ namespace Durin::VulkanRHI
 	class FVulkanDevice;
 	class FVulkanRenderPass;
 
+	// Owns a Vulkan framebuffer compatible with a specific cached render pass.
 	class FVulkanFramebuffer
 	{
 	public:

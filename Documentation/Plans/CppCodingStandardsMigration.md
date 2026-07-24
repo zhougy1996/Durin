@@ -4,11 +4,10 @@ Last reviewed: 2026-07-25
 
 ## Current Status
 
-Inventory is complete for the first migration tranche: `Core`, `CoreDObject`, and
-`Engine`. Stages 1 through 3 are complete after successful `Core`,
-`CoreDObject`, and `Engine` target builds plus a complete test-enabled `all`
-build. Later module groups remain pending and are intentionally outside the
-current change.
+Stages 1 through 4 are complete. The rendering foundation (`RHI`, `VulkanRHI`,
+`RenderCore`, and `Renderer`) passed each targeted build plus a complete
+test-enabled `all` build after its export-boundary migration. Application, UI,
+and editor module groups remain pending.
 
 ## Goal
 
@@ -59,6 +58,8 @@ into one unreviewable repository-wide rewrite.
   comment.
 - Four consecutive reflected-member gaps are missing in
   `Engine/Public/Components/CameraComponent.h`.
+- The rendering-foundation scan found no reflected declarations and found two
+  class-level export macros, both in `Renderer`.
 - Member-comment requirements need semantic review and cannot be closed by a
   regex-only count.
 
@@ -119,13 +120,15 @@ into one unreviewable repository-wide rewrite.
 
 ### Stage 4: Rendering foundation
 
-- [ ] Inventory and migrate `RHI`, `VulkanRHI`, `RenderCore`, and `Renderer` in
+- [x] Inventory and migrate `RHI`, `VulkanRHI`, `RenderCore`, and `Renderer` in
   dependency order.
 
 #### Acceptance Gate
 
-- Each migrated module passes its targeted build and the rendering group passes
-  an appropriate integration build.
+- Each migrated module passed its targeted build.
+- The rendering group passed a complete test-enabled `all` integration build.
+- The rendering group has no reflected declarations or repository-owned
+  class- or struct-level module export macros.
 
 ### Stage 5: Application and UI runtime
 

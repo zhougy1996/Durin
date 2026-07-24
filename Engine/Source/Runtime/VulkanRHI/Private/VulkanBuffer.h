@@ -7,6 +7,7 @@ namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 
+	// Owns a Vulkan buffer allocation and enforces its CPU lock lifecycle.
 	class FVulkanBuffer : public FRHIBuffer
 	{
 	public:
@@ -29,6 +30,7 @@ namespace Durin::VulkanRHI
 		auto FlushMappedMemory(uint32 Offset = 0, uint32 Size = 0) -> void;
 
 	protected:
+		// Tracks whether a buffer lock uses direct mapping or a staging allocation.
 		enum class ELockStatus : uint8
 		{
 			Unlocked,
@@ -45,6 +47,7 @@ namespace Durin::VulkanRHI
 		ELockStatus LockStatus = ELockStatus::Unlocked;
 	};
 
+	// Suballocates per-frame uniform ranges from persistently mapped Vulkan buffers.
 	class FVulkanDynamicUniformBufferAllocator
 	{
 	public:
@@ -57,12 +60,14 @@ namespace Durin::VulkanRHI
 		auto Allocate(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
 
 	private:
+		// Owns one persistently mapped backing buffer used for uniform suballocation.
 		struct FChunk
 		{
 			TRefCountPtr<FVulkanBuffer> Buffer;
 			uint32 Offset = 0;
 		};
 
+		// Tracks the active chunk and write offset independently for each frame in flight.
 		struct FFrameState
 		{
 			std::vector<FChunk> Chunks;
@@ -82,6 +87,7 @@ namespace Durin::VulkanRHI
 		uint32 CurrentFrameIndex = 0;
 	};
 
+	// Owns a host-visible temporary buffer used to transfer data to device-local resources.
 	class FStagingBuffer
 	{
 	public:

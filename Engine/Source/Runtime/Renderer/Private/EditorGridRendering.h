@@ -7,6 +7,7 @@
 
 namespace Durin::EditorGridRendering
 {
+	// Mirrors the editor-grid shader uniform layout uploaded for each view.
 	struct FEditorGridUniform
 	{
 		glm::mat4 WorldToClip{1.0f};

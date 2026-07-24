@@ -7,6 +7,7 @@ namespace Durin::VulkanRHI
 	class FVulkanSemaphore;
 	class FVulkanPayload;
 
+	// Serializes submissions to one Vulkan queue and tracks its family capabilities.
 	class FVulkanQueue
 	{
 	public:

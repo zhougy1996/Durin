@@ -9,6 +9,7 @@ namespace Durin::VulkanRHI
 	class FVulkanCommandBuffer;
 	class FVulkanCommandListContext;
 
+	// Identifies a cached Vulkan render pass by backend-neutral attachment layout.
 	struct FVulkanRenderPassKey
 	{
 		explicit FVulkanRenderPassKey(const FRHIRenderTargetLayout& InLayout = {});
@@ -18,11 +19,13 @@ namespace Durin::VulkanRHI
 		FRHIRenderTargetLayout Layout{};
 	};
 
+	// Hashes render-pass compatibility fields for cache lookup.
 	struct FVulkanRenderPassKeyHasher
 	{
 		auto operator()(const FVulkanRenderPassKey& Key) const -> size_t;
 	};
 
+	// Owns a Vulkan render pass created for one immutable attachment layout.
 	class FVulkanRenderPass
 	{
 	public:
@@ -42,6 +45,7 @@ namespace Durin::VulkanRHI
 		uint32 AttachmentCount = 0;
 	};
 
+	// Caches compatible render passes and framebuffers for one device.
 	class FVulkanRenderPassManager
 	{
 	public:

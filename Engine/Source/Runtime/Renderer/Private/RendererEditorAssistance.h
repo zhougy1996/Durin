@@ -5,6 +5,7 @@
 
 namespace Durin::RendererEditorAssistance
 {
+	// Selects the procedural editor-assistance geometry emitted by a draw helper.
 	enum class EDrawOperation : uint8
 	{
 		EditorGrid,

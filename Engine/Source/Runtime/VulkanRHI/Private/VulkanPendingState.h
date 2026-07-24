@@ -12,6 +12,7 @@ namespace Durin::VulkanRHI
 	class FVulkanGraphicsPipelineDescriptorState
 	{
 	public:
+		// Retains resolved descriptor sets and dynamic offsets for one draw submission.
 		struct FDescriptorSetsForDraw
 		{
 			const std::vector<vk::DescriptorSet>* DescriptorSets = nullptr;
@@ -29,6 +30,7 @@ namespace Durin::VulkanRHI
 		auto Reset() -> void;
 
 	private:
+		// Caches descriptor-set identity alongside the resolved Vulkan handle.
 		struct FVulkanDescriptorSetCacheEntry
 		{
 			uint64 Hash = 0;
@@ -48,6 +50,7 @@ namespace Durin::VulkanRHI
 		std::vector<FVulkanDescriptorSetCacheEntry> DescriptorSetCache;
 	};
 
+	// Accumulates graphics bindings and applies only dirty state before a draw.
 	class FVulkanPendingGraphicsState
 	{
 	public:

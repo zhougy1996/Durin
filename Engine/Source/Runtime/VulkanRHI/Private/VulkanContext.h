@@ -16,6 +16,7 @@ namespace Durin::VulkanRHI
 	class FVulkanPayload;
 	class FVulkanPendingGraphicsState;
 
+	// Translates backend-neutral command-list operations into Vulkan command recording.
 	class FVulkanCommandListContext : public IRHICommandContext
 	{
 	public:

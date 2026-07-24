@@ -7,12 +7,14 @@ namespace Durin::VulkanRHI
 	class FVulkanQueue;
 	class FVulkanSemaphore;
 
+	// Reports whether presentation succeeded and whether the swapchain must be recreated.
 	struct FVulkanPresentOutcome
 	{
 		bool bPresented = false;
 		bool bQueueOperationsEnqueued = false;
 	};
 
+	// Owns the window swapchain, its images, and acquire/present synchronization.
 	class FVulkanSwapchain
 	{
 	public:

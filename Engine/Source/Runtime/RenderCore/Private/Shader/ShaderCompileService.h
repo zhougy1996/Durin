@@ -4,6 +4,7 @@
 
 namespace Durin
 {
+	// Reports compile-service cache hits, misses, and actual compiler invocations.
 	struct FShaderCompileServiceStats
 	{
 		uint64 DependencyResolutions = 0;

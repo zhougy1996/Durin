@@ -14,6 +14,7 @@ namespace Durin::VulkanRHI
 	class FVulkanTexture;
 	class FVulkanSampler;
 
+	// Owns a Vulkan graphics pipeline and the descriptor layout used to bind it.
 	class FVulkanGraphicsPipelineState : public FRHIGraphicsPipelineState
 	{
 	public:
@@ -52,6 +53,7 @@ namespace Durin::VulkanRHI
 		friend class FVulkanPipelineStateCacheManager;
 	};
 
+	// Creates and reuses named Vulkan graphics pipeline state objects.
 	class FVulkanPipelineStateCacheManager
 	{
 	public:
@@ -71,6 +73,7 @@ namespace Durin::VulkanRHI
 		std::unordered_map<FName, TRefCountPtr<FVulkanGraphicsPipelineState>> PSOCache;
 	};
 
+	// Owns the driver pipeline cache used to accelerate Vulkan pipeline creation.
 	class FPipelineCache
 	{
 	public:

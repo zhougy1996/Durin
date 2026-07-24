@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	// Resolves the complete physical source dependency set used for shader cache identity.
 	class FSlangShaderDependencyResolver
 	{
 	public:

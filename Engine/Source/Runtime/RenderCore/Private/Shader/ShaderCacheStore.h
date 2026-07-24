@@ -27,6 +27,7 @@ namespace Durin
 		std::string Hex;
 	};
 
+	// Bounds disk-cache age and size while preserving artifacts used by the current run.
 	struct FShaderCacheRetentionPolicy
 	{
 		uint32 MaxVariantsPerShader = 64;

@@ -4,6 +4,7 @@ namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 
+	// Owns a Vulkan shader module for one compiled RHI shader stage.
 	class FVulkanShader : public FRHIShader
 	{
 	public:

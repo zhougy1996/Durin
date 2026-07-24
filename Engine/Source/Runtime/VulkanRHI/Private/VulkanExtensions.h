@@ -6,6 +6,7 @@ namespace Durin::VulkanRHI
 	class FVulkanInstanceExtension;
 	class FVulkanDeviceExtension;
 
+	// Describes an optional Vulkan extension and hooks for feature negotiation.
 	class FVulkanExtensionBase
 	{
 	public:
@@ -38,12 +39,14 @@ namespace Durin::VulkanRHI
 	using FVulkanInstanceExtensionArray = std::vector<std::unique_ptr<FVulkanInstanceExtension>>;
 	using FVulkanDeviceExtensionArray = std::vector<std::unique_ptr<FVulkanDeviceExtension>>;
 
+	// Specializes extension negotiation for Vulkan instance creation.
 	class FVulkanInstanceExtension : public FVulkanExtensionBase
 	{
 	public:
 		static auto GetDurinSupportedInstanceExtensions() -> FVulkanInstanceExtensionArray;
 	};
 
+	// Specializes extension negotiation for logical-device creation.
 	class FVulkanDeviceExtension : public FVulkanExtensionBase
 	{
 	public:

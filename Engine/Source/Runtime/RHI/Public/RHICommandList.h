@@ -17,6 +17,7 @@ namespace Durin
 	class FRHIViewport;
 	class FRHIGraphicsPipelineState;
 
+	// Provides backend-neutral command recording against the currently selected pipeline context.
 	class FRHICommandListBase
 	{
 	public:
@@ -60,6 +61,7 @@ namespace Durin
 		IRHICommandContext* GraphicsContext = nullptr;
 	};
 
+	// Selects how far an immediate command-list flush advances queued RHI work.
 	enum class EImmediateFlushType
 	{
 		WaitForOutstandingTasksOnly,
@@ -68,6 +70,7 @@ namespace Durin
 		FlushRHIThreadFlushResources
 	};
 
+	// Combines submission, resource cleanup, and frame-boundary work for an immediate flush.
 	enum class ERHISubmitFlags
 	{
 		None = 0,
@@ -81,6 +84,7 @@ namespace Durin
 
 	ENUM_CLASS_FLAGS(ERHISubmitFlags)
 
+	// Exposes the process-wide command list used for synchronous game/render thread RHI work.
 	class FRHICommandListImmediate : public FRHICommandListBase
 	{
 	public:
@@ -99,6 +103,7 @@ namespace Durin
 		RHI_API auto AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
 	};
 
+	// Owns the immediate command list and coordinates submission to the active backend.
 	class FRHICommandListExecutor
 	{
 	public:

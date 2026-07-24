@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	// Compiles registered shader sources to Vulkan-compatible binaries through Slang.
 	class FSlangShaderCompiler : public FShaderCompiler
 	{
 	public:

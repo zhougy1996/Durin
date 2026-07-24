@@ -5,19 +5,20 @@
 #include "IScene.h"
 namespace Durin
 {
-	class RENDERER_API FScene : public IScene
+	// Owns renderer-side primitive and light proxies for one engine scene.
+	class FScene : public IScene
 	{
 	public:
-		auto AddOrReplacePrimitive(FPrimitiveSceneId PrimitiveId, std::unique_ptr<PrimitiveSceneProxy> Proxy, const FMatrix& Transform) -> void override;
+		RENDERER_API auto AddOrReplacePrimitive(FPrimitiveSceneId PrimitiveId, std::unique_ptr<PrimitiveSceneProxy> Proxy, const FMatrix& Transform) -> void override;
 
-		auto RemovePrimitive(FPrimitiveSceneId PrimitiveId) -> void override;
+		RENDERER_API auto RemovePrimitive(FPrimitiveSceneId PrimitiveId) -> void override;
 
-		auto UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void override;
-		auto UpdatePrimitiveMaterial(FPrimitiveSceneId PrimitiveId, const FMaterialRenderUpdate& Update) -> void override;
-		auto Release() -> void override;
-		auto AddDirectionalLight(DDirectionalLightComponent* Light) -> void override;
-		auto RemoveDirectionalLight(DDirectionalLightComponent* Light) -> void override;
-		auto GetDirectionalLight(FDirectionalLightSceneData& OutLight) const -> bool override;
+		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void override;
+		RENDERER_API auto UpdatePrimitiveMaterial(FPrimitiveSceneId PrimitiveId, const FMaterialRenderUpdate& Update) -> void override;
+		RENDERER_API auto Release() -> void override;
+		RENDERER_API auto AddDirectionalLight(DDirectionalLightComponent* Light) -> void override;
+		RENDERER_API auto RemoveDirectionalLight(DDirectionalLightComponent* Light) -> void override;
+		RENDERER_API auto GetDirectionalLight(FDirectionalLightSceneData& OutLight) const -> bool override;
 
 		auto GetPrimitiveSceneProxies() const -> const std::vector<PrimitiveSceneProxy*>& { return PrimitiveSceneProxies; }
 

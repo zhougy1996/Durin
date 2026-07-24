@@ -13,6 +13,7 @@ namespace Durin::VulkanRHI
 	class FVulkanSemaphore;
 	struct FVulkanView;
 
+	// Tracks which presentation phase currently owns a frame's swapchain resources.
 	enum class EVulkanPresentResourceState : uint8
 	{
 		Available,
@@ -20,6 +21,7 @@ namespace Durin::VulkanRHI
 		Retired
 	};
 
+	// Bundles the semaphores and image index reused for one frame in flight.
 	struct FVulkanViewportFrameResources
 	{
 		FVulkanSemaphore* RenderingDoneSemaphore = nullptr;
@@ -29,6 +31,7 @@ namespace Durin::VulkanRHI
 
 	class FVulkanViewport;
 
+	// Presents the current swapchain image through the stable RHI back-buffer object.
 	class FVulkanBackBuffer : public FVulkanTexture
 	{
 	public:
@@ -40,6 +43,7 @@ namespace Durin::VulkanRHI
 		FVulkanViewport* Viewport;
 	};
 
+	// Coordinates swapchain recreation, image acquisition, and presentation for a window.
 	class FVulkanViewport : public FRHIViewport
 	{
 	public:

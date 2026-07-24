@@ -12,6 +12,7 @@ namespace Durin
 	class FRHICommandListImmediate;
 	class FRHIBuffer;
 
+	// Identifies the concrete resource category tracked by the RHI lifetime system.
 	enum class ERHIResourceType : uint8
 	{
 		Viewport,
@@ -24,6 +25,7 @@ namespace Durin
 		PipelineState,
 	};
 
+	// Identifies the descriptor category expected by a shader resource binding.
 	enum class ERHIBindingType : uint8
 	{
 		UniformBuffer = 0,
@@ -34,6 +36,7 @@ namespace Durin
 		StorageImage = 5,
 	};
 
+	// Provides thread-safe intrusive lifetime tracking for backend-owned GPU resources.
 	class FRHIResource
 	{
 	public:
@@ -75,6 +78,7 @@ namespace Durin
 		static RHI_API auto GatherResourcesToDelete(std::vector<FRHIResource*>& OutResourcesToDelete) -> void;
 
 	private:
+		// Packs reference count and deferred-deletion flags into one atomic lifetime state.
 		class FAtomicFlags
 		{
 			static constexpr uint32 DeletingBit = 1 << 31;
@@ -154,6 +158,7 @@ namespace Durin
 		ERHIResourceType ResourceType;
 	};
 
+	// Supplies the stable stage and content identity shared by shader instances.
 	struct FRHIShaderDesc
 	{
 		explicit FRHIShaderDesc(EShaderFrequency InFrequency, FXxHash128 InHash)
@@ -177,6 +182,7 @@ namespace Durin
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
 	};
 
+	// Extends shader identity with non-owning compiled-code input used during creation.
 	struct FRHIShaderCreateDesc : public FRHIShaderDesc
 	{
 		using FCodeView = std::span<const std::byte>;
@@ -218,6 +224,7 @@ namespace Durin
 		const char* DebugName = nullptr;
 	};
 
+	// Represents backend shader code together with its stage and stable content hash.
 	class FRHIShader : public FRHIResource
 	{
 	public:
@@ -239,6 +246,7 @@ namespace Durin
 		FXxHash128 Hash;
 	};
 
+	// Selects which clear-value representation is valid for an attachment.
 	enum class EClearBinding
 	{
 		None,  // No clear binding, the render target will not do hardware clears.
@@ -246,8 +254,10 @@ namespace Durin
 		DepthStencil,
 	};
 
+	// Carries the typed clear value associated with a render-target attachment.
 	struct FClearValueBinding
 	{
+		// Stores the paired depth and stencil values used by a depth attachment clear.
 		struct FDepthStencilValue
 		{
 			float Depth;
@@ -301,6 +311,7 @@ namespace Durin
 		EClearBinding Binding;
 	};
 
+	// Describes the shape, format, usage, and subresource layout of a texture.
 	struct FRHITextureDesc
 	{
 		FRHITextureDesc() = default;
@@ -350,6 +361,7 @@ namespace Durin
 		uint8 NumSamples = 1;
 	};
 
+	// Adds diagnostic identity to the immutable texture creation contract.
 	struct FRHITextureCreateDesc : public FRHITextureDesc
 	{
 		static auto Create(const char* InDebugName, ETextureDimension InDimension) -> FRHITextureCreateDesc
@@ -450,6 +462,7 @@ namespace Durin
 		}
 	};
 
+	// Represents a backend texture created from an immutable texture descriptor.
 	class FRHITexture : public FRHIResource
 	{
 	public:
@@ -469,6 +482,7 @@ namespace Durin
 		uint8 NumSamples = 1;
 	};
 
+	// Represents a window presentation surface and its backend swapchain state.
 	class FRHIViewport : public FRHIResource
 	{
 	public:
@@ -481,6 +495,7 @@ namespace Durin
 		RHI_API virtual auto GetFormat() const -> EPixelFormat = 0;
 	};
 
+	// Defines how an attachment's previous contents are treated at pass start.
 	enum class ERHIRenderTargetLoadAction : uint8
 	{
 		Load,
@@ -488,12 +503,14 @@ namespace Durin
 		DontCare,
 	};
 
+	// Defines whether an attachment's contents remain valid after a pass.
 	enum class ERHIRenderTargetStoreAction : uint8
 	{
 		Store,
 		DontCare,
 	};
 
+	// Describes the backend-neutral image layout expected at a pass boundary.
 	enum class ERHITextureLayout : uint8
 	{
 		Undefined,
@@ -504,6 +521,7 @@ namespace Durin
 		Present,
 	};
 
+	// Describes the backend-neutral access state expected for an attachment.
 	enum class ERHIAccess : uint8
 	{
 		None,
@@ -514,6 +532,7 @@ namespace Durin
 		Present,
 	};
 
+	// Describes one render-pass attachment's format and load/store transitions.
 	struct FRHIAttachmentLayout
 	{
 		EPixelFormat Format = EPixelFormat::Unknown;
@@ -530,6 +549,7 @@ namespace Durin
 		auto operator==(const FRHIAttachmentLayout&) const -> bool = default;
 	};
 
+	// Extends an attachment layout with optional multisample resolve state.
 	struct FRHIColorAttachmentLayout
 	{
 		FRHIAttachmentLayout RenderTarget;
@@ -539,6 +559,7 @@ namespace Durin
 		auto operator==(const FRHIColorAttachmentLayout&) const -> bool = default;
 	};
 
+	// Defines the attachment compatibility contract used to create render passes and pipelines.
 	struct FRHIRenderTargetLayout
 	{
 		std::array<FRHIColorAttachmentLayout, MaxSimultaneousRenderTargets> ColorAttachments{};
@@ -600,6 +621,7 @@ namespace Durin
 		}
 	};
 
+	// Produces a stable cache hash from render-target compatibility fields.
 	struct FRHIRenderTargetLayoutHasher
 	{
 		auto operator()(const FRHIRenderTargetLayout& Layout) const -> size_t
@@ -633,6 +655,7 @@ namespace Durin
 		}
 	};
 
+	// Collects live render-target resources used to derive a compatible layout.
 	struct FRHIRenderTargetsInfo
 	{
 		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets]{};
@@ -642,6 +665,7 @@ namespace Durin
 		bool bClearColor = false;
 	};
 
+	// Binds a render-target layout to concrete attachments and clear values for one pass.
 	struct FRHIRenderPassInfo
 	{
 		FRHIRenderTargetLayout RenderTargetLayout{};
@@ -654,6 +678,7 @@ namespace Durin
 
 	using FVertexDeclarationElementList = std::array<struct FVertexElement, MaxVertexElementCount>;
 
+	// Represents the backend mapping from vertex streams to shader attributes.
 	class FRHIVertexDeclaration : public FRHIResource
 	{
 	public:
@@ -665,12 +690,14 @@ namespace Durin
 		virtual auto GetElements() const -> const FVertexDeclarationElementList& = 0;
 	};
 
+	// Groups the shader stages currently bound to a graphics pipeline.
 	struct FBoundShaders
 	{
 		FRHIShader* VertexShader = nullptr;
 		FRHIShader* FragmentShader = nullptr;
 	};
 
+	// Defines a byte range of push constants visible to selected shader stages.
 	struct FPushConstantRange
 	{
 		EShaderStageFlags StageFlags;
@@ -678,6 +705,7 @@ namespace Durin
 		uint32 Size;
 	};
 
+	// Describes one resource slot within a descriptor-set layout.
 	struct FBindingLayoutItem
 	{
 		EShaderStageFlags StageFlags;
@@ -694,23 +722,27 @@ namespace Durin
 		}
 	};
 
+	// Defines all resource bindings belonging to one descriptor set.
 	struct FBindingLayout
 	{
 		std::vector<FBindingLayoutItem> BindingLayouts;
 	};
 
+	// Describes descriptor sets and push constants shared by a graphics pipeline.
 	struct FPipelineLayoutDesc
 	{
 		std::vector<FBindingLayout> BindingLayouts;
 		std::vector<FPushConstantRange> PushConstantRanges;
 	};
 
+	// Associates an RHI resource with one binding slot in a descriptor set.
 	struct FBindingSetItem
 	{
 		FRHIResource* Resource;
 		uint32 BindingSlot;
 	};
 
+	// References a byte range within a uniform buffer, including dynamic allocations.
 	struct FRHIUniformBufferRange
 	{
 		FRHIBuffer* Buffer = nullptr;
@@ -718,6 +750,7 @@ namespace Durin
 		uint32 Size = 0;
 	};
 
+	// References a byte range exposed to shaders as storage.
 	struct FRHIStorageBufferRange
 	{
 		FRHIBuffer* Buffer = nullptr;
@@ -725,11 +758,13 @@ namespace Durin
 		uint32 Size = 0;
 	};
 
+	// Collects the concrete resources used to create or resolve a binding set.
 	struct BindingSetDesc
 	{
 		std::vector<FBindingSetItem> Bindings;
 	};
 
+	// Represents a backend descriptor set containing concrete shader resources.
 	class FRHIBindingSet : public FRHIResource
 	{
 	public:
@@ -739,18 +774,21 @@ namespace Durin
 		}
 	};
 
+	// Selects texel reconstruction filtering for a sampler.
 	enum class ESamplerFilter : uint8
 	{
 		Nearest,
 		Linear,
 	};
 
+	// Selects filtering between adjacent mip levels.
 	enum class ESamplerMipmapMode : uint8
 	{
 		Nearest,
 		Linear,
 	};
 
+	// Defines how texture coordinates outside the normalized range are resolved.
 	enum class ESamplerAddressMode : uint8
 	{
 		Repeat,
@@ -759,6 +797,7 @@ namespace Durin
 		ClampToBorder,
 	};
 
+	// Selects the comparison applied by a depth-comparison sampler.
 	enum class ESamplerCompareOp : uint8
 	{
 		Never,
@@ -771,6 +810,7 @@ namespace Durin
 		Always,
 	};
 
+	// Selects the fixed border value returned by clamp-to-border sampling.
 	enum class ESamplerBorderColor : uint8
 	{
 		FloatTransparentBlack,
@@ -781,6 +821,7 @@ namespace Durin
 		IntOpaqueWhite,
 	};
 
+	// Describes immutable filtering, addressing, comparison, and LOD sampler state.
 	struct FRHISamplerDesc
 	{
 		static auto PointClamp() -> FRHISamplerDesc
@@ -862,6 +903,7 @@ namespace Durin
 		bool bUnnormalizedCoordinates = false;
 	};
 
+	// Represents backend sampler state used by texture bindings.
 	class FRHISampler : public FRHIResource
 	{
 	public:
@@ -873,6 +915,7 @@ namespace Durin
 		virtual auto IsImmutable() const -> bool { return false; }
 	};
 
+	// Collects all immutable state required to create a graphics pipeline.
 	class FGraphicsPipelineStateInitializer
 	{
 	public:
@@ -892,6 +935,7 @@ namespace Durin
 
 		bool bEnableDepthWrite = false;
 
+		// Selects filled or line rasterization for pipeline primitives.
 		enum class EPolygonMode : uint8
 		{
 			Fill,
@@ -900,6 +944,7 @@ namespace Durin
 
 		EPolygonMode PolygonMode = EPolygonMode::Fill;
 
+		// Defines how submitted vertices are assembled into primitives.
 		enum class EPrimitiveTopology : uint8
 		{
 			TriangleList,
@@ -909,6 +954,7 @@ namespace Durin
 		EPrimitiveTopology PrimitiveTopology = EPrimitiveTopology::TriangleList;
 	};
 
+	// Describes the byte size, element stride, and allowed usages of a buffer.
 	struct FRHIBufferDesc
 	{
 		uint32 Size{};
@@ -941,12 +987,14 @@ namespace Durin
 		}
 	};
 
+	// References caller-owned initial buffer bytes consumed during resource creation.
 	struct FResourceArrayUploadInfo
 	{
 		const void* Data = nullptr;
 		uint32 Size = 0;
 	};
 
+	// Adds initial upload data and diagnostic identity to buffer creation.
 	struct FRHIBufferCreateDesc : public FRHIBufferDesc
 	{
 		static auto Create(const char* InDebugName, EBufferUsageFlags InUsage) -> FRHIBufferCreateDesc
@@ -1014,6 +1062,7 @@ namespace Durin
 		const char* DebugName = nullptr;
 	};
 
+	// Represents a backend buffer while retaining its immutable creation descriptor.
 	class FRHIBuffer : public FRHIResource
 	{
 	public:
@@ -1038,6 +1087,7 @@ namespace Durin
 		FRHIBufferDesc Desc;
 	};
 
+	// Represents a backend graphics pipeline compatible with a fixed render-target layout.
 	class FRHIGraphicsPipelineState : public FRHIResource
 	{
 	public:

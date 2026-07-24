@@ -11,6 +11,7 @@
 
 namespace Durin
 {
+	// Maps one vertex-buffer field to the shader attribute that consumes it.
 	struct FVertexElement
 	{
 		// The vertex stream index this element comes from.

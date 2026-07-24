@@ -5,6 +5,7 @@
 
 namespace Durin
 {
+	// Represents a shader preprocessor definition with an optional explicit value.
 	struct FShaderMacroDefinition
 	{
 		FShaderMacroDefinition() = default;
@@ -29,6 +30,7 @@ namespace Durin
 		std::optional<std::string> Value = std::nullopt;
 	};
 
+	// Carries source identity, entry points, variants, and cache policy into compilation.
 	struct FShaderCompileOptions
 	{
 		// Stable cache identity resolved by the caller. Leave empty to disable disk-backed shader cache reads and writes.
@@ -42,6 +44,7 @@ namespace Durin
 		bool bForceRecompile = false;
 	};
 
+	// Describes one resource binding reflected from a compiled shader stage.
 	struct FShaderResourceBinding
 	{
 		std::string Name;
@@ -62,12 +65,14 @@ namespace Durin
 		}
 	};
 
+	// Aggregates descriptor bindings and push-constant ranges for compiled shader code.
 	struct FShaderReflectionData
 	{
 		std::vector<FShaderResourceBinding> ResourceBindings;
 		std::vector<FPushConstantRange> PushConstantRanges;
 	};
 
+	// Owns one compiled stage binary and the reflection data needed to bind it.
 	struct FCompiledShader
 	{
 		EShaderFrequency Frequency = EShaderFrequency::Vertex;
@@ -81,6 +86,7 @@ namespace Durin
 		FShaderReflectionData Reflection;
 	};
 
+	// Reports compilation status and either compiled stages or a diagnostic message.
 	struct FShaderCompilerOutput
 	{
 		bool bSucceeded = false;
