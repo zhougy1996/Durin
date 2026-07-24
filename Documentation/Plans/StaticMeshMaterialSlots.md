@@ -4,7 +4,7 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Stages 0 through 2 are complete. The source-slot and compatibility contracts are frozen,
+Stages 0 through 3 are complete. The source-slot and compatibility contracts are frozen,
 generated importer fixtures cover reorder, rename, duplicate names, addition,
 removal, filtering, and exact-name behavior, and characterization tests capture
 the version-zero component representation, load ordering, section mapping,
@@ -20,9 +20,12 @@ override, mesh default, then renderer fallback, retain unmatched overrides as
 detached orphans across mesh switches, and bind only resolved current
 materials. Version-zero `Material`/`Materials` data migrates after mesh
 definitions load; excess legacy entries receive diagnosed orphan identities,
-and new saves clear the transitional fields. The remaining visible gap is the
-generic Details surface, which Stage 3 replaces with fixed mesh-owned rows and
-an explicit orphan group.
+and new saves clear the transitional fields. Level Editor now replaces the raw
+component collections with one searchable fixed row per current mesh slot,
+resolved-source state, a material-only picker, Reset, and a deterministic
+orphan warning group. Assign, replace, reset, and orphan removal snapshot the
+reflected override root and use the slot GUID as transaction identity. The next
+step is Stage 4 render/reimport integration coverage.
 
 This plan replaces the index-shaped component array with persistent
 mesh-owned slot identities, sparse component overrides, and a fixed-row Details
@@ -374,23 +377,23 @@ The reconciliation fixtures establish these expected identity results:
 
 ### Stage 3: Build the Fixed-Row Details Customization
 
-- [ ] Add and register a `DStaticMeshComponent` Details customization in Level
+- [x] Add and register a `DStaticMeshComponent` Details customization in Level
   Editor, with module-lifetime registration/unregistration.
-- [ ] Remove `Edit` exposure from the raw legacy/new collections and hide any
+- [x] Remove `Edit` exposure from the raw legacy/new collections and hide any
   transitional property that would otherwise be enumerated.
-- [ ] Draw one searchable row per current mesh slot using imported order and
+- [x] Draw one searchable row per current mesh slot using imported order and
   names, with resolved source, override state, picker, and Reset action.
-- [ ] Filter the asset picker to `DMaterialInterface` and report rejected
+- [x] Filter the asset picker to `DMaterialInterface` and report rejected
   references through the host Details error channel.
-- [ ] Submit assignment and reset through the override collection root in
+- [x] Submit assignment and reset through the override collection root in
   detached draft storage; use `SlotId` as the logical transaction identity.
-- [ ] Draw a separate orphan warning group with deterministic ordering and
+- [x] Draw a separate orphan warning group with deterministic ordering and
   explicit Remove actions.
-- [ ] Handle no mesh, unloaded/build-failed mesh, read-only/PIE, selection
+- [x] Handle no mesh, unloaded/build-failed mesh, read-only/PIE, selection
   replacement, component removal, and mesh changes during an active edit.
-- [ ] Add model/view tests for row construction, labels, search keywords,
+- [x] Add model/view tests for row construction, labels, search keywords,
   inheritance/override/orphan state, and material type filtering.
-- [ ] Add editor transaction tests for assign, replace, reset, orphan removal,
+- [x] Add editor transaction tests for assign, replace, reset, orphan removal,
   Cancel, Undo, Redo, package Dirty state, and edits to two different slot
   GUIDs sharing one collection root.
 

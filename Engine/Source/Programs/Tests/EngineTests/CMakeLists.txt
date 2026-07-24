@@ -5,6 +5,7 @@ add_durin_test(EngineTests
 	Private/ReflectedPropertyEditingTests.cpp
 	Private/MaterialTests.cpp
 	Private/MaterialParameterPanelModelTests.cpp
+	Private/StaticMeshMaterialSlotDetailsTests.cpp
 	Private/TextureTests.cpp
 	Private/WorldTests.cpp
 	Private/ViewportTests.cpp
@@ -29,6 +30,7 @@ add_durin_test(EngineTests
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Customizations/SplineEditorCustomizations.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Customizations/LevelEditorCustomizations.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Customizations/ObjectPropertyEditorCustomizations.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Customizations/StaticMeshMaterialSlotDetails.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorContext.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Settings/LevelViewportSessionSettings.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Panels/ConsoleRecordModel.cpp
