@@ -2,6 +2,11 @@
 
 These conventions apply to repository-owned C++ source. Generated code and third-party code follow their generators or upstream projects and are not migration targets.
 
+## Includes
+
+`CoreStd.h` supplies common STL headers. Add another standard-library header
+only when the translation unit requires it.
+
 ## Comments
 
 Comments explain intent, contracts, invariants, ownership, or non-obvious tradeoffs. Do not translate the declaration or implementation into prose, narrate control flow, or add comments only to satisfy a coverage target. Prefer a concise comment immediately before the declaration it describes, and keep the comment accurate when the design changes.

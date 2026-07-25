@@ -2,26 +2,18 @@
 
 Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
-## Task Documentation
+## Task Routing
 
-- Documentation map and reading policy: `Documentation/README.md`. Read only task-relevant topic documents.
-- C++ coding conventions: `Documentation/Development/Standards/CodingStandards.md`; setup, build, run, and outputs: `Documentation/Development/Build/BuildAndRun.md`; IDE code models/debugging: `Documentation/Development/Tooling/IDECodeModel.md`; dependencies/worktrees: `Documentation/Development/Build/ThirdPartyBootstrap.md`; native tests: `Documentation/Development/Build/NativeTests.md`.
-- Build metadata/CMake: `Documentation/Development/Build/BuildSystem.md`; profiles/presets: `Documentation/Development/Build/Profiles.md`; workspace boundaries: `Documentation/Workspace/WorkspaceProjects.md`; runtime lifecycle: `Documentation/Runtime/Core/RuntimeLifecycle.md`; viewport rendering: `Documentation/Runtime/Rendering/ViewportRendering.md`; editor systems: `Documentation/Editor/Systems/`.
-- Active plan index: `Documentation/Plans/README.md`; completed plan index: `Documentation/Plans/Archive/README.md`. Plan authoring rules are in `Documentation/Plans/AGENTS.md`; do not sample unrelated plans to infer format.
-- Open engineering investigation index: `Documentation/Investigations/README.md`. Investigation authoring rules are in `Documentation/Investigations/AGENTS.md`; resolved investigations are removed after provenance moves to Git, an archived plan, and the owning domain documentation.
+- Do not pre-read `Documentation/` or expand every link in an index. Start from the task and the affected code.
+- For repository-owned C++ changes, read `Documentation/Development/Standards/CodingStandards.md`.
+- When a task needs a repository-specific contract, workflow, plan, or investigation and the owning document is not already named, use `Documentation/README.md` as the routing table. Open only the matching topic and follow further links only when required.
+- Authoring and lifecycle rules come from the nearest `AGENTS.md`; do not sample unrelated documents to infer their format.
 - Machine-local build overrides belong in optional `.agents/build-config.json`; create it with `Setup.bat` when needed.
 
 ## Repository Rules
 
-- Each checkout has one source/build writer; use separate worktrees for concurrency. Run all Agent build operations through root `BuildTool.bat` on Windows or `Engine/Scripts/Build/durin_build_tool/__main__.py` elsewhere.
-- IDEs observing an Agent checkout use `Win64-Debug-DurinEditor-FastConfigure` only for code model/debugging. Set `VSLANG=1033`, disable build-before-launch, never build from the IDE, and do not Configure/Reload while `BuildTool` runs.
-- Treat `BuildTool build` and `rebuild` as long-running: set `timeout_ms >= 600,000` (longer for a measured full build). Call `wait` only when the command explicitly yields a running cell ID, and wait on that same cell in intervals of at most 60 seconds. Once `exec` or `wait` returns a final exit result, stop waiting and act on it. BuildTool prints a 30-second heartbeat while a child command is still alive; quiet output or a yielded cell alone is not an interruption.
-- Run `rebuild --target all` only when a configure/build process was interrupted or externally terminated, its process tree has exited, and BuildTool still reports a recovery marker. Ordinary compiler/linker errors, failed assertions, test timeouts, and runtime exits do not require `rebuild`; fix the cause and rerun the same `build` or `test` command.
-- Generated metadata is part of the source of truth. If a module looks incomplete, inspect `Engine/Intermediate/Build/...` and DHT outputs before assuming files are missing.
-- Runtime-loaded module binaries must keep the `<Profile>-<Module>` naming convention from `CMake/Project/ProjectTargets.cmake`.
-- Rendering changes usually span `RHI` and `VulkanRHI`. Validate UI/rendering changes by building and running `DurinEditor`; smoke tests require a successful full `all` build of the same preset. Runtime smoke tests must pass `--hidden-window` so no editor or secondary viewport window is displayed; `Start-Process -WindowStyle Hidden` alone is insufficient. For an interactive shell run, use `BuildTool run --args --hidden-window` and stop it with Ctrl+C. For a timed Windows smoke test, use PowerShell `Start-Process -ArgumentList '--hidden-window' -WindowStyle Hidden -PassThru`, retain the returned process, monitor it, then stop it after verification.
-- `CoreStd.h` supplies common STL headers; add one only when the translation unit requires it.
-- Preserve concise comments that explain non-obvious constraints, invariants, or tradeoffs; update or remove them only when the design changes.
+- Each checkout has one source/build writer; use separate worktrees for concurrency.
+- Before any configure, build, test, or runtime launch, read `Documentation/Development/Build/BuildAndRun.md` and use the repository BuildTool entrypoint described there.
 
 ## Agent Handoff
 
