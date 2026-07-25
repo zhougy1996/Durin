@@ -15,7 +15,7 @@ public contracts. The test-enabled `all` build, all five native test targets
 
 Bring repository-owned C++ into conformance with the comment, reflected-member
 spacing, and module export conventions in
-[C++ Coding Standards](../../../Setup/CodingStandards.md) without combining the
+[C++ Coding Standards](../../../Development/Standards/CodingStandards.md) without combining the
 work into one unreviewable repository-wide rewrite.
 
 ## Scope
@@ -51,7 +51,7 @@ work into one unreviewable repository-wide rewrite.
 
 ## Current Foundations and Gaps
 
-- `Documentation/Setup/CodingStandards.md` is the authoritative convention.
+- `Documentation/Development/Standards/CodingStandards.md` is the authoritative convention.
 - The initial scan covered 308 repository-owned headers and excluded generated
   and third-party code.
 - In the first tranche, class- or struct-level export macros appear on 2 `Core`
@@ -200,10 +200,10 @@ work into one unreviewable repository-wide rewrite.
 
 ## Related Documentation
 
-- [C++ Coding Standards](../../../Setup/CodingStandards.md)
-- [Build and Run](../../../Setup/BuildAndRun.md)
-- [Generated Reflection System](../../../Architecture/ReflectionSystem.md)
-- [Build System](../../../Architecture/BuildSystem.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
 
 ## Related Code
 

@@ -312,7 +312,7 @@ Dependencies: Stages 1 through 4.
 
 - [ ] Run the complete validation matrix using the root BuildTool workflow.
 - [ ] Move stable scheduler, waiting, shutdown, and thread-ownership contracts
-  into Architecture documentation.
+  into the owning runtime documentation.
 - [ ] Record profiler or benchmark evidence for any feature proposed beyond V1.
 - [ ] Archive this plan only after every required acceptance gate and the
   Definition of Done are satisfied.
@@ -337,8 +337,8 @@ Dependencies: Stages 1 through 4.
 | Ownership | compile/runtime thread checks where applicable | weak-handle transport and game-thread application | editor closes requester while work is active |
 
 Build, test, and smoke commands come from
-`Documentation/Setup/BuildAndRun.md` and
-`Documentation/Setup/NativeTests.md`; this plan does not duplicate them.
+`Documentation/Development/Build/BuildAndRun.md` and
+`Documentation/Development/Build/NativeTests.md`; this plan does not duplicate them.
 
 ## Definition of Done
 
@@ -355,7 +355,7 @@ Build, test, and smoke commands come from
 - [ ] Render-command admission and shutdown are deterministic and tested.
 - [ ] The full `all` build and hidden-window `DurinEditor` startup/shutdown smoke
   test pass on the same Agent Build Profile.
-- [ ] Lasting contracts are documented in Architecture and this plan is moved to
+- [ ] Lasting contracts are documented in the owning domain and this plan is moved to
   `Documentation/Plans/Archive/YYYY-MM/` for its completion month.
 
 ## Deferred Follow-ups
@@ -377,11 +377,11 @@ Build, test, and smoke commands come from
 
 ## Related Documentation
 
-- `Documentation/Architecture/RuntimeArchitecture.md`
-- `Documentation/Architecture/GarbageCollection.md`
+- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Core/GarbageCollection.md`
 - `Documentation/Plans/TextureSupport.md`
-- `Documentation/Setup/BuildAndRun.md`
-- `Documentation/Setup/NativeTests.md`
+- `Documentation/Development/Build/BuildAndRun.md`
+- `Documentation/Development/Build/NativeTests.md`
 
 ## Related Code
 

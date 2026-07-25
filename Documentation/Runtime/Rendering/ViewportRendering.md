@@ -165,4 +165,4 @@ For game window viewports, `FSceneViewport::UpdateRHIViewport()` asks `FMonaRend
 
 ## User Guide
 
-- `Documentation/Editor/SceneViewportNavigation.md`
+- `Documentation/Editor/Guides/SceneViewportNavigation.md`

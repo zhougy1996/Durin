@@ -1,4 +1,4 @@
-# Open Engineering Issues
+# Engineering Investigations
 
 - [BuildTool Windows lock recovery boundary](BuildToolWindowsLockRecovery.md) —
   Windows ACL recovery currently leaks Windows-only guidance through the
@@ -9,4 +9,7 @@
   commands, so fixed worker and pool limits cannot both avoid oversubscription
   and lend idle compiler capacity to critical-path reflection generation.
 
-This index lists unresolved issues only. Authoring and lifecycle rules are in `AGENTS.md`; resolved history belongs in Git, an archived implementation plan, and the resulting Architecture documentation.
+This index lists verified unresolved investigations only. Authoring and
+lifecycle rules are in `AGENTS.md`; resolved history belongs in Git, an archived
+implementation plan, and the resulting runtime, editor, development, or
+workspace documentation.

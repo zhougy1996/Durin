@@ -11,15 +11,25 @@ These instructions apply under `Documentation/`.
 
 ## Document Boundaries
 
-- `Setup` contains operational build, test, IDE, dependency, and local workflow instructions.
-- `Architecture` describes behavior that is currently implemented and must remain true.
-- `Editor` contains user-facing editor workflows.
-- `Git` contains repository and content version-control workflows.
+- `Development` contains build, test, tooling, standards, dependency, and
+  version-control workflows. Build-system contracts belong beside the
+  operational guidance they govern.
+- `Runtime` contains currently implemented engine-runtime contracts and
+  long-lived invariants, organized by subsystem.
+- `Editor/Systems` contains currently implemented editor contracts and
+  long-lived invariants.
+- `Editor/Guides` contains user-facing editor workflows.
+- `Workspace` contains workspace, project, module, and profile ownership
+  boundaries that span development and runtime concerns.
 - `Plans` contains selected implementation paths, stages, and acceptance gates.
 - `Plans/Archive` preserves completed implementation decisions and validation evidence.
-- `Issues` contains verified unresolved problems before an implementation path has been selected.
+- `Investigations` contains verified unresolved problems before an
+  implementation path has been selected.
 
-Do not place implementation stages, open decisions, or future roadmaps in Architecture. Move lasting contracts into Architecture after implementation, and keep informal research under the ignored `Documentation/Local/` directory or outside the repository.
+Do not place implementation stages, open decisions, or future roadmaps in
+`Runtime`, `Editor/Systems`, or `Workspace`. After implementation, move lasting
+contracts into the owning domain. Keep informal research under the ignored
+`Documentation/Local/` directory or outside the repository.
 
 ## Maintenance
 

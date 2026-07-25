@@ -312,7 +312,7 @@ Depends on Stages 1 through 4.
 - [x] Perform an interactive Console check for startup history, level filters, Fatal display, search, copy, clear, auto-scroll, and command output.
 - [x] Exercise a controlled high-volume logging source and confirm bounded memory, responsive UI, ordered sequences, and visible loss summaries.
 - [x] Verify the current-session log file contains the same accepted records required by its configured level, including Error/Fatal durability.
-- [x] Update `Documentation/Editor/Console.md` with retained-history, gap, capacity, and Fatal behavior.
+- [x] Update `Documentation/Editor/Guides/Console.md` with retained-history, gap, capacity, and Fatal behavior.
 - [x] Add the adopted long-lived logging ownership, ordering, reliability, and overload rules to an Architecture document.
 - [x] Record commands, results, executable profile, and any accepted limitations in `Current Status` before closing the plan.
 
@@ -363,10 +363,10 @@ Depends on Stages 1 through 4.
 ## Related Documentation
 
 - `Documentation/Plans/Archive/2026-07/README.md`
-- `Documentation/Architecture/RuntimeArchitecture.md`
-- `Documentation/Editor/Console.md`
-- `Documentation/Setup/BuildAndRun.md`
-- `Documentation/Setup/NativeTests.md`
+- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Editor/Guides/Console.md`
+- `Documentation/Development/Build/BuildAndRun.md`
+- `Documentation/Development/Build/NativeTests.md`
 
 ## Related Code
 

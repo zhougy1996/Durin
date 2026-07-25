@@ -341,7 +341,7 @@ The supported reflected property payloads are numeric primitives, `bool`, `std::
 
 Object graph saving first gathers the root's structural descendants through the Outer index plus its serialized object references, assigns ids, writes object records, and serializes each object's reflected properties. This graph-gathering rule defines archive scope and is independent of GC reachability. Loading creates all object records first, then deserializes properties so object-reference ids can resolve to loaded objects.
 
-The object graph format is an internal v1 binary memory format for tests and engine plumbing. Long-lived content uses the separate field-tagged `.dasset` package format documented in `Documentation/Architecture/AssetPackages.md`; the memory format remains useful for transient cloning and focused tests.
+The object graph format is an internal v1 binary memory format for tests and engine plumbing. Long-lived content uses the separate field-tagged `.dasset` package format documented in `Documentation/Runtime/Assets/AssetPackages.md`; the memory format remains useful for transient cloning and focused tests.
 
 ## Enum Metadata
 

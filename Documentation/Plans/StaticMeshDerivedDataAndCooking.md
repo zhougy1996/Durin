@@ -337,7 +337,7 @@ payloads that load without source files or Assimp.
 - [ ] Inspect source-control output to confirm DDC and Cooked products remain
   ignored while `.dasset`, source art, and required metadata are tracked.
 - [ ] Move lasting source, key, format, load, cooking, and failure contracts into
-  Architecture documentation.
+  owning domain documentation.
 - [ ] Remove legacy colocated source resolution only after repository assets are
   migrated and compatibility coverage proves the removal deliberate.
 
@@ -382,7 +382,7 @@ payloads that load without source files or Assimp.
 - Material-preview meshes are stable shared `/Engine` assets and no longer
   create transient meshes from OBJ per preview.
 - Required tests, full build, and hidden-window editor smoke validation pass.
-- Lasting contracts are present in Architecture and storage documentation.
+- Lasting contracts are present in the owning runtime and storage documentation.
 
 ## Deferred Follow-ups
 
@@ -398,16 +398,16 @@ payloads that load without source files or Assimp.
 
 ## Related Documentation
 
-- `Documentation/Architecture/AssetPackages.md`
-- `Documentation/Architecture/AssetDataLifecycle.md`
-- `Documentation/Architecture/LevelSystem.md`
-- `Documentation/Architecture/MaterialSystem.md`
-- `Documentation/Architecture/RuntimeArchitecture.md`
-- `Documentation/Architecture/TextureSystem.md`
-- `Documentation/Git/ContentVersionControl.md`
+- `Documentation/Runtime/Assets/AssetPackages.md`
+- `Documentation/Runtime/Assets/AssetDataLifecycle.md`
+- `Documentation/Runtime/World/LevelSystem.md`
+- `Documentation/Runtime/Rendering/MaterialSystem.md`
+- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Rendering/TextureSystem.md`
+- `Documentation/Development/VersionControl/ContentVersionControl.md`
 - `Documentation/Plans/TextureSupport.md`
-- `Documentation/Setup/BuildAndRun.md`
-- `Documentation/Setup/NativeTests.md`
+- `Documentation/Development/Build/BuildAndRun.md`
+- `Documentation/Development/Build/NativeTests.md`
 
 ## Related Code
 

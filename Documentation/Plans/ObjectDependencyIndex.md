@@ -291,7 +291,7 @@ Current gaps:
 - [ ] Add tests for dependent destruction, dependency destruction, removal of
   mixed incoming/outgoing edges, delayed FinishDestroy, and object-slot
   generation reuse.
-- [ ] Extend garbage-collection Architecture documentation with the implemented
+- [ ] Extend garbage-collection runtime documentation with the implemented
   non-owning dependency-index lifecycle invariant.
 
 #### Acceptance Gate
@@ -391,8 +391,8 @@ Current gaps:
 | Rendering boundary | Existing material render-update tests and revision ordering | Hidden-window editor smoke test after a successful full build |
 
 Build and test commands come from
-`Documentation/Setup/BuildAndRun.md` and
-`Documentation/Setup/NativeTests.md`; this plan does not duplicate them.
+`Documentation/Development/Build/BuildAndRun.md` and
+`Documentation/Development/Build/NativeTests.md`; this plan does not duplicate them.
 
 ## Definition of Done
 
@@ -413,7 +413,7 @@ Build and test commands come from
   same invariants outside transactions.
 - Focused tests, full build, and the required hidden-window editor smoke test
   pass.
-- Lasting contracts are moved into Architecture and the completed plan is
+- Lasting contracts are moved into the owning domain and the completed plan is
   archived.
 
 ## Deferred Follow-ups
@@ -434,12 +434,12 @@ Build and test commands come from
 
 ## Related Documentation
 
-- `Documentation/Architecture/GarbageCollection.md`
-- `Documentation/Architecture/MaterialSystem.md`
-- `Documentation/Architecture/ReflectedPropertyEditing.md`
-- `Documentation/Architecture/RuntimeArchitecture.md`
-- `Documentation/Setup/BuildAndRun.md`
-- `Documentation/Setup/NativeTests.md`
+- `Documentation/Runtime/Core/GarbageCollection.md`
+- `Documentation/Runtime/Rendering/MaterialSystem.md`
+- `Documentation/Editor/Systems/ReflectedPropertyEditing.md`
+- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Development/Build/BuildAndRun.md`
+- `Documentation/Development/Build/NativeTests.md`
 
 ## Related Code
 

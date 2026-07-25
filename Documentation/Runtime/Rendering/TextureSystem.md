@@ -69,7 +69,7 @@ The DDC path is derived entirely from the key; `.dasset` never stores a cache
 file path or byte offset. Cooked source-free platform payloads and any future
 external `.dbulk` descriptor are not implemented by this editor cache. The
 selected cross-asset storage and cooked companion contract is documented in
-[Asset Data Lifecycle and Storage](AssetDataLifecycle.md).
+[Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md).
 
 ## Transactional Build-Setting Edits
 

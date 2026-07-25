@@ -223,7 +223,7 @@ the user to recover without reconstructing the operation from earlier log output
 | Documentation | Operational examples match accepted syntax, defaults, and recovery behavior |
 
 Use the repository setup and validation workflow documented in
-`Documentation/Setup/BuildAndRun.md`. The Python Agent tooling suite is the
+`Documentation/Development/Build/BuildAndRun.md`. The Python Agent tooling suite is the
 primary automated gate; a full native engine build is required only if the
 implementation changes execution below the CLI/context boundary.
 
@@ -250,10 +250,10 @@ implementation changes execution below the CLI/context boundary.
 
 ## Related Documentation
 
-- `Documentation/Setup/BuildAndRun.md`
-- `Documentation/Architecture/BuildSystem.md`
-- `Documentation/Setup/NativeTests.md`
-- `Documentation/Issues/BuildToolWindowsLockRecovery.md`
+- `Documentation/Development/Build/BuildAndRun.md`
+- `Documentation/Development/Build/BuildSystem.md`
+- `Documentation/Development/Build/NativeTests.md`
+- `Documentation/Investigations/BuildToolWindowsLockRecovery.md`
 
 ## Related Code
 

@@ -25,7 +25,7 @@ constants and treat that as a complete solution.
 
 Relevant implementation and architecture:
 
-- [`BuildSystem.md`](../Architecture/BuildSystem.md#generated-metadata-flow);
+- [`BuildSystem.md`](../Development/Build/BuildSystem.md#generated-metadata-flow);
 - [`BuildOptions.cmake`](../../CMake/Config/BuildOptions.cmake), which defines
   `DURIN_DHT_WORKERS`, `DURIN_DHT_JOB_POOL_SIZE`, and the `durin_dht` pool;
 - [`ProjectTargets.cmake`](../../CMake/Project/ProjectTargets.cmake), which

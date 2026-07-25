@@ -205,7 +205,7 @@ not steady-state drawing work.
 ### Stage 4: Performance and Regression Validation
 
 - [x] Build through the root BuildTool using the relevant editor profile, as
-  documented in `Documentation/Setup/BuildAndRun.md`.
+  documented in `Documentation/Development/Build/BuildAndRun.md`.
 - [x] Run focused native tests and the applicable editor test suite.
 - [ ] Repeat three same-scenario Debug samples and compare median process CPU,
   content-browser inclusive samples, directory-tree inclusive samples, and the
@@ -262,8 +262,8 @@ not steady-state drawing work.
 
 ## Related Documentation
 
-- [Build and Run](../../../Setup/BuildAndRun.md)
-- [Runtime Architecture](../../../Architecture/RuntimeArchitecture.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
 
 ## Related Code
 

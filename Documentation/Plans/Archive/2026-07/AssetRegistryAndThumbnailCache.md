@@ -4,7 +4,7 @@ Last reviewed: 2026-07-24
 
 ## Current Status
 
-Complete. Registry discovery now validates and reconciles a deterministic project-local snapshot, reuses exact fingerprint matches, supports explicit full validation, atomically publishes a fresh live map, and reports scan timing and I/O diagnostics. Successful save, load-time discovery, move, delete, and import-style save operations mark the snapshot dirty; explicit reconciliation and orderly asset-manager shutdown flush coalesced mutations without making cache failures fatal. Source-image thumbnails use a versioned project-local index and key-addressed PNG objects, serve warm requests without reopening the source image, preserve the existing asynchronous upload and GPU-eviction lifecycle, and safely regenerate after fingerprint, settings, version, index, or object invalidation. Final validation on 2026-07-24 passed all 29 `AssetCoreTests`, all 171 `EngineTests`, the complete `Win64-Debug-DurinEditor-Tests` `all` build, and two eight-second hidden-window DurinEditor launches covering cold and restart startup. The focused registry scenario measured two header reads/118 bytes cold, zero reads warm, one read/59 bytes after one asset changed, and two reads/118 bytes under full validation. Long-lived ownership, invalidation, recovery, and budget rules are recorded in `Documentation/Architecture/AssetPackages.md`.
+Complete. Registry discovery now validates and reconciles a deterministic project-local snapshot, reuses exact fingerprint matches, supports explicit full validation, atomically publishes a fresh live map, and reports scan timing and I/O diagnostics. Successful save, load-time discovery, move, delete, and import-style save operations mark the snapshot dirty; explicit reconciliation and orderly asset-manager shutdown flush coalesced mutations without making cache failures fatal. Source-image thumbnails use a versioned project-local index and key-addressed PNG objects, serve warm requests without reopening the source image, preserve the existing asynchronous upload and GPU-eviction lifecycle, and safely regenerate after fingerprint, settings, version, index, or object invalidation. Final validation on 2026-07-24 passed all 29 `AssetCoreTests`, all 171 `EngineTests`, the complete `Win64-Debug-DurinEditor-Tests` `all` build, and two eight-second hidden-window DurinEditor launches covering cold and restart startup. The focused registry scenario measured two header reads/118 bytes cold, zero reads warm, one read/59 bytes after one asset changed, and two reads/118 bytes under full validation. Long-lived ownership, invalidation, recovery, and budget rules are recorded in `Documentation/Runtime/Assets/AssetPackages.md`.
 
 ## Goal
 
@@ -103,7 +103,7 @@ Make editor and game startup reuse previously discovered asset metadata while st
 - Asset save and load already call `AddOrUpdate`; move and delete paths already have centralized registry-aware operations that can mark persistence dirty.
 - Default mounts already distinguish `/Engine/` from the active project virtual root.
 - `FSourceImageThumbnailCache` already provides asynchronous decode/upload, visible-item prioritization, request serial validation, source size/mtime invalidation, and GPU eviction. It has no disk index, resized encoded output, or restart persistence.
-- `DerivedDataCache/` is already documented as ignored and rebuildable in `Documentation/Git/ContentVersionControl.md` and excluded by the repository `.gitignore`.
+- `DerivedDataCache/` is already documented as ignored and rebuildable in `Documentation/Development/VersionControl/ContentVersionControl.md` and excluded by the repository `.gitignore`.
 - `FPaths` exposes project and engine roots but does not yet expose a canonical derived-data-cache root.
 
 ## Implementation Stages
@@ -240,10 +240,10 @@ Make editor and game startup reuse previously discovered asset metadata while st
 
 ## Related Documentation
 
-- [Content Version Control](../../../Git/ContentVersionControl.md)
-- [Level System](../../../Architecture/LevelSystem.md)
-- [Build and Run](../../../Setup/BuildAndRun.md)
-- [Native Tests](../../../Setup/NativeTests.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

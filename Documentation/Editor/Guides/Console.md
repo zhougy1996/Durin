@@ -87,7 +87,7 @@ example plain "two words" 'three words' escaped\ value
 its logger cursor, delete retained logger history, or truncate the log file.
 Already consumed records are therefore not replayed after a clear; new records
 continue from the current sequence. Log files continue to use the normal
-runtime log path documented in `Documentation/Setup/BuildAndRun.md`.
+runtime log path documented in `Documentation/Development/Build/BuildAndRun.md`.
 
 ## Registering A Command
 

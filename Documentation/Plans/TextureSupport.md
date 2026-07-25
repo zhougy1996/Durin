@@ -242,7 +242,7 @@ These features are intentionally outside the first Texture2D/material slice:
 - [ ] HDR source formats and floating-point texture assets.
 - [ ] DDS or KTX ingestion with prebuilt mip and compression data.
 - [x] Cube-map assets and static skybox sampling. See
-  [Cube Textures](../Architecture/CubeTextures.md) and
+  [Cube Textures](../Runtime/Rendering/CubeTextures.md) and
   [SkyBoxComponent](SkyBoxComponent.md).
 - [ ] Texture arrays, cube-map arrays, and volume textures.
 - [ ] Virtual textures or sparse residency.
@@ -265,11 +265,11 @@ These features are intentionally outside the first Texture2D/material slice:
 
 ## Related Documentation
 
-- `Documentation/Architecture/AssetPackages.md`
-- `Documentation/Architecture/AssetDataLifecycle.md`
-- `Documentation/Architecture/MaterialSystem.md`
-- `Documentation/Architecture/RuntimeArchitecture.md`
-- `Documentation/Architecture/TextureSystem.md`
+- `Documentation/Runtime/Assets/AssetPackages.md`
+- `Documentation/Runtime/Assets/AssetDataLifecycle.md`
+- `Documentation/Runtime/Rendering/MaterialSystem.md`
+- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Rendering/TextureSystem.md`
 - `Documentation/Plans/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/AssetRegistryAndThumbnailCache.md`
 - `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`

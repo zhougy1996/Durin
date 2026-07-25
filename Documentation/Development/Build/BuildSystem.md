@@ -100,9 +100,9 @@ session defaults from a validated toolchain context.
 
 ## Related Docs
 
-- `Documentation/Architecture/Versioning.md`
-- `Documentation/Architecture/ReflectionSystem.md`
-- `Documentation/Architecture/GarbageCollection.md`
-- `Documentation/Setup/BuildAndRun.md`
-- `Documentation/Architecture/Profiles.md`
-- `Documentation/Architecture/RuntimeArchitecture.md`
+- `Documentation/Runtime/Assets/Versioning.md`
+- `Documentation/Runtime/Core/ReflectionSystem.md`
+- `Documentation/Runtime/Core/GarbageCollection.md`
+- `Documentation/Development/Build/BuildAndRun.md`
+- `Documentation/Development/Build/Profiles.md`
+- `Documentation/Runtime/Core/RuntimeLifecycle.md`

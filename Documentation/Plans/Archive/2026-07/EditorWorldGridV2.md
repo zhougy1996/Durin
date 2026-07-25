@@ -188,9 +188,9 @@ Replace the Level Editor's camera-following finite world-space grid triangle wit
 ## Related Documentation
 
 - `Documentation/Plans/Archive/2026-07/ScenePostProcessEditorAssistanceBoundary.md`
-- `Documentation/Setup/BuildAndRun.md`
-- `Documentation/Setup/NativeTests.md`
-- `Documentation/Architecture/RuntimeArchitecture.md`
+- `Documentation/Development/Build/BuildAndRun.md`
+- `Documentation/Development/Build/NativeTests.md`
+- `Documentation/Runtime/Core/RuntimeLifecycle.md`
 
 ## Related Code
 

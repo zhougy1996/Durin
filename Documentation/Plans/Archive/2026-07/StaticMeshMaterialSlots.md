@@ -456,10 +456,10 @@ The reconciliation fixtures establish these expected identity results:
   inputs with an explicit removal condition.
 - [x] Remove obsolete generic-array material-slot tests and replace them with
   fixed-row and GUID-override coverage.
-- [x] Update `Documentation/Architecture/MaterialSystem.md` with mesh slot
+- [x] Update `Documentation/Runtime/Rendering/MaterialSystem.md` with mesh slot
   ownership, identity, reconciliation, resolution, orphan, dependency, and
   renderer-boundary rules.
-- [x] Update `Documentation/Architecture/ReflectedPropertyEditing.md` to
+- [x] Update `Documentation/Editor/Systems/ReflectedPropertyEditing.md` to
   replace the ordinary `Materials` array description with the Details
   customization and collection-root transaction behavior.
 - [x] Update `Documentation/Plans/MaterialSystem.md` to reference the landed
@@ -497,8 +497,8 @@ The reconciliation fixtures establish these expected identity results:
 | End to end | Full `all` build succeeds and `DurinEditor --hidden-window` remains alive for the timed smoke interval |
 
 All build, test, and smoke operations must use the root workflow documented in
-`Documentation/Setup/BuildAndRun.md` and
-`Documentation/Setup/NativeTests.md`.
+`Documentation/Development/Build/BuildAndRun.md` and
+`Documentation/Development/Build/NativeTests.md`.
 
 ## Definition of Done
 
@@ -535,13 +535,13 @@ All build, test, and smoke operations must use the root workflow documented in
 
 ## Related Documentation
 
-- `Documentation/Architecture/MaterialSystem.md`
-- `Documentation/Architecture/ReflectedPropertyEditing.md`
-- `Documentation/Architecture/LevelSystem.md`
+- `Documentation/Runtime/Rendering/MaterialSystem.md`
+- `Documentation/Editor/Systems/ReflectedPropertyEditing.md`
+- `Documentation/Runtime/World/LevelSystem.md`
 - `Documentation/Plans/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`
-- `Documentation/Setup/BuildAndRun.md`
-- `Documentation/Setup/NativeTests.md`
+- `Documentation/Development/Build/BuildAndRun.md`
+- `Documentation/Development/Build/NativeTests.md`
 
 ## Related Code
 

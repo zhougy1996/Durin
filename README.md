@@ -94,4 +94,4 @@ The script links `.agents`, `Engine/External`, and `.venv` from the main worktre
 - **BuildTool reports localized MSVC diagnostics:** Add the English language pack through Visual Studio Installer, then rerun BuildTool. Existing Ninja trees with a non-English dependency prefix are refreshed automatically by the next `configure`, `build`, or `test` operation.
 - **A third-party source directory exists but is incomplete:** Move or repair the directory identified by the error, then rerun setup.
 
-For more information, see [Build and Run](Documentation/Setup/BuildAndRun.md), [Third-Party Bootstrap](Documentation/Setup/ThirdPartyBootstrap.md), and [Native Tests](Documentation/Setup/NativeTests.md).
+For more information, see [Build and Run](Documentation/Development/Build/BuildAndRun.md), [Third-Party Bootstrap](Documentation/Development/Build/ThirdPartyBootstrap.md), and [Native Tests](Documentation/Development/Build/NativeTests.md).

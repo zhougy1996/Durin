@@ -215,8 +215,8 @@ properties and the compiled render representation remain in this stage.
 
 ## Related Documentation
 
-- `Documentation/Architecture/MaterialSystem.md`
-- `Documentation/Architecture/RuntimeArchitecture.md`
+- `Documentation/Runtime/Rendering/MaterialSystem.md`
+- `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Plans/Archive/2026-07/StaticMeshMaterialSlots.md`
 - `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`
 - `Documentation/Plans/TextureSupport.md`

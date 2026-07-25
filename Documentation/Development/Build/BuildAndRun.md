@@ -200,7 +200,7 @@ On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/durin_build_
 
 Use Visual Studio Code or CLion only for the code model, editing, and debugging.
 Keep BuildTool as the checkout's only build owner. The complete setup for both
-editors is documented in `Documentation/Setup/IDECodeModel.md`.
+editors is documented in `Documentation/Development/Tooling/IDECodeModel.md`.
 
 ## Recovery
 
@@ -240,13 +240,13 @@ CMake, and Ninja have exited for the checkout.
 
 The launcher target is `DurinLauncher`, while the executable name follows the active profile. Runtime path discovery assumes the executable remains in this repository-relative layout. If editor startup reports a missing DLL, check the active runtime directory and the shared `ThirdParty` directory.
 
-Build identifiers and DHT intermediate paths are described in `Documentation/Architecture/BuildSystem.md` and `Documentation/Architecture/Profiles.md`.
+Build identifiers and DHT intermediate paths are described in `Documentation/Development/Build/BuildSystem.md` and `Documentation/Development/Build/Profiles.md`.
 
 ## Related Docs
 
-- `Documentation/Setup/ThirdPartyBootstrap.md`
-- `Documentation/Setup/NativeTests.md`
-- `Documentation/Setup/IDECodeModel.md`
-- `Documentation/Architecture/BuildSystem.md`
-- `Documentation/Architecture/Profiles.md`
-- `Documentation/Architecture/RuntimeArchitecture.md`
+- `Documentation/Development/Build/ThirdPartyBootstrap.md`
+- `Documentation/Development/Build/NativeTests.md`
+- `Documentation/Development/Tooling/IDECodeModel.md`
+- `Documentation/Development/Build/BuildSystem.md`
+- `Documentation/Development/Build/Profiles.md`
+- `Documentation/Runtime/Core/RuntimeLifecycle.md`

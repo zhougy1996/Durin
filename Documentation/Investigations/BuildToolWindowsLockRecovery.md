@@ -31,7 +31,7 @@ Relevant implementation:
   `open_checkout_lock`, `recover_inaccessible_windows_lock`,
   `normalize_windows_lock_acl`, `BuildToolLock`, and `run_command`;
 - [`test_agent_tooling.py`](../../Engine/Scripts/Tests/test_agent_tooling.py);
-- [`BuildAndRun.md`](../Setup/BuildAndRun.md#recovery).
+- [`BuildAndRun.md`](../Development/Build/BuildAndRun.md#recovery).
 
 ## Verified Findings
 

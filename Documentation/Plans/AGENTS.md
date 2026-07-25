@@ -56,7 +56,9 @@ Last reviewed: YYYY-MM-DD
 - Update `Last reviewed`, `Current Status`, and checklists with every substantive implementation change.
 - Check off only work whose acceptance evidence exists.
 - Record a changed decision and rationale before continuing when implementation diverges from the plan.
-- Move long-lived implemented rules into Architecture rather than leaving the plan as a competing specification.
+- Move long-lived implemented rules into the owning `Runtime`,
+  `Editor/Systems`, `Development`, or `Workspace` domain rather than leaving
+  the plan as a competing specification.
 - Update `README.md` whenever an active plan is added, renamed, completed, or removed.
 
 ## Archive Workflow
@@ -70,7 +72,7 @@ When every required acceptance gate is satisfied:
 3. Remove it from `Plans/README.md`, append its title and link to that month's
    `README.md`, and add the month link to `Plans/Archive/README.md` if it is new.
 4. Repair direct links to the archived location.
-5. Confirm lasting behavior is documented in Architecture.
+5. Confirm lasting behavior is documented in the owning domain.
 
 Keep an open monthly index deliberately lightweight: list archived plan links,
 but do not maintain a running plan count, per-plan outcome summaries, or a

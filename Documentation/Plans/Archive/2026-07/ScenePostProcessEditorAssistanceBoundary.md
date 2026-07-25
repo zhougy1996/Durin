@@ -209,11 +209,11 @@ The comparison is semantic rather than pixel-identical: expected differences sho
 
 ## Related Documentation
 
-- `Documentation/Architecture/RuntimeArchitecture.md`
-- `Documentation/Architecture/ViewportRendering.md`
+- `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Rendering/ViewportRendering.md`
 - `Documentation/Plans/Archive/2026-07/EditorWorldGridV2.md`
-- `Documentation/Setup/BuildAndRun.md`
-- `Documentation/Setup/NativeTests.md`
+- `Documentation/Development/Build/BuildAndRun.md`
+- `Documentation/Development/Build/NativeTests.md`
 
 ## Related Code
 

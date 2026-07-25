@@ -224,14 +224,14 @@ Depends on all preceding stages. This stage does not expand the effect; it close
 - [x] Rapidly replace, rebuild, and delete cube assets; repeatedly hide, show, and delete the SkyBox Actor; then inspect stale-command handling and resource lifetime.
 - [x] With Vulkan Validation enabled, verify six layers, multiple mips, descriptor binding, layout transitions, and module destruction.
 - [x] Complete a full `all` build with one preset, then launch `DurinEditor` from the same preset for the hidden-window runtime smoke test.
-- [x] Update this plan's checkboxes, Current Status, and `Last reviewed`, and move long-lived contracts into the appropriate Architecture documentation.
+- [x] Update this plan's checkboxes, Current Status, and `Last reviewed`, and move long-lived contracts into the appropriate runtime documentation.
 - [x] Update the Cube Map entry under Later Scope in `Documentation/Plans/TextureSupport.md` so the two plans do not contradict the implemented feature.
 
 #### Acceptance Gate
 
 - All targeted tests, the full build, Vulkan Validation, and the DurinEditor smoke test pass.
 - The manual visibility matrix reveals no face-orientation errors, translation parallax, aspect-ratio stretching, or draw-order errors.
-- Architecture documentation describes the implemented thread, resource, and rendering boundaries, and this plan can be marked complete.
+- Runtime documentation describes the implemented thread, resource, and rendering boundaries, and this plan can be marked complete.
 
 ## Validation Matrix
 
@@ -259,7 +259,7 @@ The "simple SkyBoxComponent" is complete only when all of the following conditio
 - [x] No path allows direct game-thread access to the skybox RHI or render-thread reads from reflected UObjects.
 - [x] Missing or unready resources use a stable black fallback, and rapid rebuilding/deletion produces no dangling resources.
 - [x] Targeted tests, the full `all` build, Vulkan Validation, and the DurinEditor runtime smoke test all pass.
-- [x] Long-lived resource, scene, and renderer contracts from the actual implementation have moved into Architecture documentation.
+- [x] Long-lived resource, scene, and renderer contracts from the actual implementation have moved into runtime documentation.
 
 ## Deferred Follow-ups
 
@@ -277,11 +277,11 @@ The following items require separate design and scheduling after this plan is co
 
 - [Implementation Plan Documentation Guide](README.md)
 - [Texture Support Plan](TextureSupport.md)
-- [Runtime Architecture](../Architecture/RuntimeArchitecture.md)
-- [Cube Textures](../Architecture/CubeTextures.md)
-- [Viewport Rendering](../Architecture/ViewportRendering.md)
-- [Build and Run](../Setup/BuildAndRun.md)
-- [Native Tests](../Setup/NativeTests.md)
+- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
+- [Cube Textures](../Runtime/Rendering/CubeTextures.md)
+- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
+- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Native Tests](../Development/Build/NativeTests.md)
 
 ## Related Code
 

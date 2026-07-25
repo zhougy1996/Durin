@@ -1,12 +1,16 @@
 # AGENTS.md
 
-These instructions apply to `Documentation/Issues/`.
+These instructions apply to `Documentation/Investigations/`.
 
 ## Purpose
 
 - Record verified, unresolved engineering problems that are important enough to preserve across tasks.
 - Keep issue documents diagnostic and evidence-based. They describe the current behavior, impact, and candidate direction; they are not implementation plans or adopted architecture.
-- Use `Documentation/Plans/` after scope, decisions, stages, and acceptance gates have been selected. Move lasting constraints to `Documentation/Architecture/` after implementation stabilizes.
+- Use `Documentation/Plans/` after scope, decisions, stages, and acceptance
+  gates have been selected. Move lasting constraints to the owning
+  `Documentation/Runtime/`, `Documentation/Editor/Systems/`,
+  `Documentation/Development/`, or `Documentation/Workspace/` domain after
+  implementation stabilizes.
 
 ## Required Content
 
@@ -21,6 +25,10 @@ These instructions apply to `Documentation/Issues/`.
 
 - Update `README.md` whenever an issue document is added, renamed, resolved, or removed.
 - When work begins, link the issue to its implementation plan or change. Do not duplicate the plan's stage checklist here.
-- Mark an issue resolved only after the change and its validation have landed. Record the resolving commit or replacement document, transfer lasting rules to Architecture, then remove the issue document and its open-index entry.
-- Do not create an Issues archive or a resolved-issues index. Git and archived implementation plans preserve history.
+- Mark an investigation resolved only after the change and its validation have
+  landed. Record the resolving commit or replacement document, transfer lasting
+  rules to the owning domain, then remove the investigation document and its
+  open-index entry.
+- Do not create an Investigations archive or a resolved-investigations index.
+  Git and archived implementation plans preserve history.
 - Keep filenames descriptive and topic-based; do not encode transient priority or issue numbers in filenames.

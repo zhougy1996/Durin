@@ -4,13 +4,13 @@ Read documentation by task, not as one corpus.
 
 | Area | Purpose |
 | --- | --- |
-| [Setup](Setup/) | Build, test, IDE, dependency, and local workflow instructions |
-| [Architecture](Architecture/) | Current system contracts and long-lived invariants |
-| [Editor](Editor/) | User-facing editor workflows |
-| [Git](Git/) | Version-control and content-storage workflows |
+| [Development](Development/) | Build, test, tooling, standards, dependency, and version-control workflows |
+| [Runtime](Runtime/) | Runtime core, asset, world, and rendering system contracts |
+| [Editor](Editor/) | Editor system contracts and user-facing workflows |
+| [Workspace](Workspace/) | Workspace, project, module, and profile ownership boundaries |
 | [Plans](Plans/README.md) | Active implementation plans |
 | [Plan Archive](Plans/Archive/README.md) | Completed implementation history |
-| [Issues](Issues/README.md) | Verified unresolved engineering problems |
+| [Investigations](Investigations/README.md) | Verified unresolved engineering investigations |
 
 Use `rg --files Documentation` or a targeted `rg` query to discover topic files. Do not load every document or maintain a repository-wide file index.
 

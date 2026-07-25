@@ -2,7 +2,7 @@
 
 This document explains what a Durin profile is, how presets map onto profiles, which compile definitions they expose, and what must be updated when adding a new profile.
 
-For workspace, project, module, and profile boundaries, also read `Documentation/Architecture/WorkspaceProjects.md`.
+For workspace, project, module, and profile boundaries, also read `Documentation/Workspace/WorkspaceProjects.md`.
 
 ## Overview
 
@@ -27,9 +27,9 @@ Profile definitions live in `Engine/Source/Programs/DurinHeaderTool/durin_header
 - `DURIN_PROFILE_NAME`
 - a dedicated CMake build directory
 
-Testing and PCH options are preset behavior, not profile semantics. Multiple presets can map to the same profile and final-output directories; their operational roles are documented in `Documentation/Setup/BuildAndRun.md`.
+Testing and PCH options are preset behavior, not profile semantics. Multiple presets can map to the same profile and final-output directories; their operational roles are documented in `Documentation/Development/Build/BuildAndRun.md`.
 
-`DURIN_BUILD_IDENTIFIER` is optional workflow isolation, not a profile or build configuration. Normal builds leave it empty. DurinHeaderTool emits configuration-independent metadata under `Engine/Intermediate/Build[-Identifier]/<Platform>/<ProfileName>/`; identifier and locking details belong to `Documentation/Architecture/BuildSystem.md`.
+`DURIN_BUILD_IDENTIFIER` is optional workflow isolation, not a profile or build configuration. Normal builds leave it empty. DurinHeaderTool emits configuration-independent metadata under `Engine/Intermediate/Build[-Identifier]/<Platform>/<ProfileName>/`; identifier and locking details belong to `Documentation/Development/Build/BuildSystem.md`.
 
 Debug and Release presets for the same identifier and profile intentionally share this metadata.
 

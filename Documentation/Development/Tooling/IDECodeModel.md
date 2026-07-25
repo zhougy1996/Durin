@@ -130,6 +130,6 @@ before the next BuildTool build.
 
 ## Related Docs
 
-- `Documentation/Setup/BuildAndRun.md`
-- `Documentation/Architecture/BuildSystem.md`
-- `Documentation/Architecture/Profiles.md`
+- `Documentation/Development/Build/BuildAndRun.md`
+- `Documentation/Development/Build/BuildSystem.md`
+- `Documentation/Development/Build/Profiles.md`
