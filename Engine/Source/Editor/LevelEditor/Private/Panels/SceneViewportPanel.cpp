@@ -515,6 +515,16 @@ namespace Durin
 		if (ViewportClient != nullptr) ViewportClient->InitializeForLevel(Level, State);
 	}
 
+	auto FSceneViewportPanel::FinalizeViewportFrame(FLevelEditorContext& Context) -> void
+	{
+		if (!IsOpen() || ViewportClient == nullptr || ViewportWidget == nullptr || Context.Level == nullptr || Context.bReadOnly) return;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		if (!FLevelEditorViewportClient::ResolveViewportExtent(ViewportWidget->GetDesiredSize(), Width, Height)) return;
+		ViewportClient->SetSelectedActors(Context.GetSelectedActors(), Context.GetPrimarySelectedActor());
+		ViewportClient->PrepareSceneView(Context.Level, Width, Height);
+	}
+
 	auto FSceneViewportPanel::SetPreferredPlayMode(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void
 	{
 		PreferredPlayStartLocation = StartLocation;
@@ -602,7 +612,10 @@ namespace Durin
 						{
 							Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
 							FSceneView View;
-							ViewportClient->CalcSceneView(static_cast<uint32>(FMath::Max(1.0f, VpMax.x - VpMin.x)), static_cast<uint32>(FMath::Max(1.0f, VpMax.y - VpMin.y)), View);
+							uint32 Width = 0;
+							uint32 Height = 0;
+							FLevelEditorViewportClient::ResolveViewportExtent({VpMax.x - VpMin.x, VpMax.y - VpMin.y}, Width, Height);
+							ViewportClient->BuildViewMatrices(Width, Height, View);
 							const ImVec2 Mouse = ImGui::GetMousePos();
 							FVector3 Origin, Direction;
 							if (SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction) && Actor->GetRootComponent())
@@ -1061,11 +1074,15 @@ namespace Durin
 			|| ImGui::IsMouseHoveringRect(ToolbarLayout.PlayBackgroundMin, ToolbarLayout.PlayBackgroundMax);
 		const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 		if (bToolbarHovered || bPopupOpen) Input.bLeftMousePressed = false;
-		FSceneView SceneView;
-		ViewportClient->CalcSceneView(static_cast<uint32>(FMath::Max(1.0f, Input.ViewportSize.x)), static_cast<uint32>(FMath::Max(1.0f, Input.ViewportSize.y)), SceneView);
 		FEditorTransactionManager* Transactions = GEditor != nullptr ? &GEditor->GetTransactionManager() : nullptr;
+		ViewportClient->Update(Context.Level, Context.GetPrimarySelectedActor(), Input);
+		uint32 ViewWidth = 0;
+		uint32 ViewHeight = 0;
+		FSceneView SceneView;
+		if (!FLevelEditorViewportClient::ResolveViewportExtent(Input.ViewportSize, ViewWidth, ViewHeight)
+			|| !ViewportClient->BuildViewMatrices(ViewWidth, ViewHeight, SceneView)) return;
 		if (!ViewportClient->GetTransformGizmo().IsDragging() && Input.bHovered)
-			ViewportClient->UpdateHoveredVisualization(Context.Level, Input.MousePosition, Input.ViewportSize);
+			ViewportClient->UpdateHoveredVisualizationWithView(Context.Level, SceneView, Input.MousePosition);
 		else if (!Input.bHovered)
 			ViewportClient->UpdateHoveredVisualization(nullptr, {}, {});
 		ViewportClient->GetTransformGizmo().Update(Context, SceneView, Input, Transactions);
@@ -1081,10 +1098,9 @@ namespace Durin
 			Input.bRightMouseDown = false;
 			Input.MouseWheel = 0.0f;
 		}
-		ViewportClient->Update(Context.Level, Context.GetPrimarySelectedActor(), Input);
 		if (Input.bRequestSelection)
 		{
-			if (AActor* HitActor = ViewportClient->PickActor(Context.Level, Input.MousePosition, Input.ViewportSize))
+			if (AActor* HitActor = ViewportClient->PickActorWithView(Context.Level, SceneView, Input.MousePosition))
 			{
 				if (IO.KeyCtrl)
 					Context.ToggleActorSelection(HitActor);

@@ -418,6 +418,7 @@ namespace Durin
 			Panel->Draw(*Context);
 			if (bDisablePanel) ImGui::EndDisabled();
 		}
+		if (SceneViewportPanel) SceneViewportPanel->FinalizeViewportFrame(*Context);
 		if (bSelectDefaultBottomPanelRequested)
 		{
 			// Docking tabs do not exist until every panel has submitted its window this frame.

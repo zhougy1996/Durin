@@ -96,14 +96,23 @@ namespace
 	class FTestComponentVisualizer final : public Durin::IComponentEditorVisualizer
 	{
 	public:
+		explicit FTestComponentVisualizer(int* InDrawCount = nullptr)
+			: DrawCount(InDrawCount)
+		{
+		}
+
 		auto DrawVisualization(Durin::DActorComponent* Component, const Durin::FEditorVisualizationContext&, Durin::FEditorVisualizationCollector& Collector) const -> void override
 		{
+			if (DrawCount) ++*DrawCount;
 			auto* SceneComponent = Durin::Cast<Durin::DSceneComponent>(Component);
 			Durin::AActor* Actor = SceneComponent ? SceneComponent->GetOwner() : nullptr;
 			if (!Actor) return;
 			const Durin::FVector3 Center = SceneComponent->GetWorldLocation();
 			Collector.AddLine({Center - Durin::FVectorConstants::Right, Center + Durin::FVectorConstants::Right, Durin::FVector4f(1.0f), 2.0f, 8.0f, 5, Actor, Component});
 		}
+
+	private:
+		int* DrawCount = nullptr;
 	};
 
 	class FTestDetailsCustomization final : public Durin::IObjectDetailsCustomization
@@ -418,11 +427,11 @@ TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveAndControlPointLines)
 	View.ViewportHeight = 600;
 	Durin::FEditorVisualizationCollector Collector;
 	const std::shared_ptr<Durin::IComponentEditorVisualizer> Visualizer = Durin::CreateSplineComponentVisualizer();
-	Visualizer->DrawVisualization(Spline, {View, nullptr, true, false, true}, Collector);
+	Visualizer->DrawVisualization(Spline, {View, nullptr, true, true}, Collector);
 
 	ASSERT_FALSE(Collector.GetLines().empty());
 	EXPECT_TRUE(std::ranges::all_of(Collector.GetLines(), [Actor, Spline](const Durin::FEditorVisualizationLine& Line) {
-		return Line.Actor == Actor && Line.Component == Spline;
+		return Line.Actor.Get() == Actor && Line.Component.Get() == Spline;
 	}));
 	EXPECT_GT(Collector.GetLines().size(), static_cast<size_t>(Spline->GetReparamStepsPerSegment()));
 
@@ -570,6 +579,77 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameIconsForRenderingAndDepthInd
 	EXPECT_EQ(Collector.HitTest(View, ScreenCenter + Durin::FVector2f(24.0f, 0.0f)).Actor, nullptr);
 }
 
+TEST(FEditorVisualizationCollectorTests, AppliesOptionalHoverColorWithoutRegeneratingPrimitives)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "HoverColorWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "HoverColorLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Actor, nullptr);
+	Durin::FEditorVisualizationCollector Collector;
+	const Durin::FVector4f BaseColor{1.0f, 0.0f, 0.0f, 1.0f};
+	const Durin::FVector4f HoverColor{0.0f, 1.0f, 0.0f, 1.0f};
+	Collector.AddIcon({Durin::EViewOverlayIcon::Camera, {0.0, 0.0, 5.0}, BaseColor, 30.0f, 3.0f, 100,
+		Actor, Actor->GetCameraComponent(), true, HoverColor});
+
+	Durin::FSceneView BaseView;
+	Collector.AppendToView(BaseView);
+	Durin::FSceneView HoveredView;
+	Collector.AppendToView(HoveredView, Actor);
+	ASSERT_EQ(BaseView.OverlayIcons.size(), 1u);
+	ASSERT_EQ(HoveredView.OverlayIcons.size(), 1u);
+	EXPECT_EQ(BaseView.OverlayIcons.front().Color, BaseColor);
+	EXPECT_EQ(HoveredView.OverlayIcons.front().Color, HoverColor);
+	EXPECT_EQ(Collector.GetIcons().front().Color, BaseColor);
+
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
+	Durin::FSceneView ExpiredView;
+	Collector.AppendToView(ExpiredView);
+	EXPECT_TRUE(ExpiredView.OverlayIcons.empty());
+	EXPECT_EQ(Collector.HitTest(HoveredView, {0.0f, 0.0f}).Actor, nullptr);
+}
+
+TEST(FLevelEditorViewportClientTests, ReusesOneVisualizationSnapshotAcrossInputAndRendering)
+{
+	InitializeDObjectSystem();
+	int DrawCount = 0;
+	auto& Registry = Durin::FLevelEditorCustomizationRegistry::Get();
+	FCustomizationGuard Guard{Registry.RegisterComponentVisualizer(
+		Durin::DCameraComponent::StaticClass(), std::make_shared<FTestComponentVisualizer>(&DrawCount))};
+	ASSERT_TRUE(Guard.Handle);
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "ViewportSnapshotWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ViewportSnapshotLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Actor, nullptr);
+	Durin::FLevelEditorViewportClient Client;
+	Client.InitializeForLevel(Level);
+	Actor->GetCameraComponent()->SetWorldLocation(
+		Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
+
+	Client.PrepareSceneView(Level, 800, 600);
+	ASSERT_EQ(DrawCount, 1);
+	Durin::FSceneView InteractionView;
+	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, InteractionView));
+	Client.UpdateHoveredVisualizationWithView(Level, InteractionView, {400.0f, 300.0f});
+	EXPECT_EQ(Client.PickActorWithView(Level, InteractionView, {400.0f, 300.0f}), Actor);
+	EXPECT_EQ(DrawCount, 1);
+
+	Client.PrepareSceneView(Level, 800, 600);
+	EXPECT_EQ(DrawCount, 2);
+	Durin::FSceneView RenderView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, RenderView));
+	EXPECT_EQ(DrawCount, 2);
+	Durin::FVector3 RayOrigin;
+	Durin::FVector3 RayDirection;
+	EXPECT_TRUE(Client.BuildPickingRay({400.0f, 300.0f}, {800.0f, 600.0f}, RayOrigin, RayDirection));
+	Durin::FVector2f Projected;
+	EXPECT_TRUE(Client.ProjectWorldToViewport(Actor->GetCameraComponent()->GetWorldLocation(), {800.0f, 600.0f}, Projected));
+	EXPECT_EQ(DrawCount, 2);
+}
+
 TEST(FCameraComponentVisualizerTests, DrawsOnlyAnIconUntilSelected)
 {
 	InitializeDObjectSystem();
@@ -586,16 +666,18 @@ TEST(FCameraComponentVisualizerTests, DrawsOnlyAnIconUntilSelected)
 	ASSERT_NE(Visualizer, nullptr);
 
 	Durin::FEditorVisualizationCollector Unselected;
-	Visualizer->DrawVisualization(Actor->GetCameraComponent(), {View, Level, false, false, false}, Unselected);
+	Visualizer->DrawVisualization(Actor->GetCameraComponent(), {View, Level, false, false}, Unselected);
 	EXPECT_EQ(Unselected.GetIcons().size(), 1u);
 	EXPECT_TRUE(Unselected.GetLines().empty());
 	EXPECT_FLOAT_EQ(Unselected.GetIcons().front().SizePixels, Durin::MonaImGui::ScaleUI(36.0f));
+	EXPECT_TRUE(Unselected.GetIcons().front().HoverColor.has_value());
 
 	Actor->GetCameraComponent()->SetProjectionParameters(60.0f, 0.25f, 1.0f);
 	Durin::FEditorVisualizationCollector Selected;
-	Visualizer->DrawVisualization(Actor->GetCameraComponent(), {View, Level, true, false, true}, Selected);
+	Visualizer->DrawVisualization(Actor->GetCameraComponent(), {View, Level, true, true}, Selected);
 	EXPECT_EQ(Selected.GetIcons().size(), 1u);
 	EXPECT_FLOAT_EQ(Selected.GetIcons().front().SizePixels, Durin::MonaImGui::ScaleUI(40.0f));
+	EXPECT_FALSE(Selected.GetIcons().front().HoverColor.has_value());
 	ASSERT_EQ(Selected.GetLines().size(), 13u);
 	const Durin::FVector3 Forward = Actor->GetCameraComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward;
 	const Durin::FVector3 Origin = Actor->GetCameraComponent()->GetWorldLocation();
@@ -624,7 +706,7 @@ TEST(FCameraComponentVisualizerTests, UsesTheActualFarPlaneAtExtremeFieldOfView)
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	const std::shared_ptr<Durin::IComponentEditorVisualizer> Visualizer = Durin::CreateCameraComponentVisualizer();
 	Durin::FEditorVisualizationCollector Collector;
-	Visualizer->DrawVisualization(Actor->GetCameraComponent(), {View, Level, true, false, true}, Collector);
+	Visualizer->DrawVisualization(Actor->GetCameraComponent(), {View, Level, true, true}, Collector);
 	ASSERT_EQ(Collector.GetLines().size(), 13u);
 	EXPECT_EQ(std::ranges::count_if(Collector.GetLines(), [](const Durin::FEditorVisualizationLine& Line) {
 		return Line.Pattern == Durin::EViewOverlayLinePattern::Dashed;
@@ -654,13 +736,13 @@ TEST(FDirectionalLightComponentVisualizerTests, DrawsSelectableIconAndSelectedDi
 	ASSERT_NE(Visualizer, nullptr);
 
 	Durin::FEditorVisualizationCollector Unselected;
-	Visualizer->DrawVisualization(Actor->GetLightComponent(), {View, Level, false, false, false}, Unselected);
+	Visualizer->DrawVisualization(Actor->GetLightComponent(), {View, Level, false, false}, Unselected);
 	ASSERT_EQ(Unselected.GetIcons().size(), 1u);
 	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::EViewOverlayIcon::DirectionalLight);
 	EXPECT_TRUE(Unselected.GetLines().empty());
 
 	Durin::FEditorVisualizationCollector Selected;
-	Visualizer->DrawVisualization(Actor->GetLightComponent(), {View, Level, true, false, true}, Selected);
+	Visualizer->DrawVisualization(Actor->GetLightComponent(), {View, Level, true, true}, Selected);
 	ASSERT_EQ(Selected.GetIcons().size(), 1u);
 	ASSERT_EQ(Selected.GetLines().size(), 5u);
 	const Durin::FVector3 Origin = Actor->GetLightComponent()->GetWorldLocation();

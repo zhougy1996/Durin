@@ -25,11 +25,14 @@ namespace Durin
 
 				const bool bPrimary = Context.Level && Context.Level->GetPrimaryCameraActor() == Actor;
 				const MonaImGui::EUIThemeColor ThemeColor = Context.bSelected ? MonaImGui::EUIThemeColor::SelectionPrimary
-					: Context.bHovered ? MonaImGui::EUIThemeColor::Info
 					: bPrimary ? MonaImGui::EUIThemeColor::Success
 					: MonaImGui::EUIThemeColor::ViewportText;
 				const ImVec4& ImColor = MonaImGui::GetThemeColor(ThemeColor);
 				const FVector4f Color{ImColor.x, ImColor.y, ImColor.z, ImColor.w};
+				const ImVec4& ImHoverColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info);
+				const std::optional<FVector4f> HoverColor = Context.bSelected
+					? std::nullopt
+					: std::optional<FVector4f>{{ImHoverColor.x, ImHoverColor.y, ImHoverColor.z, ImHoverColor.w}};
 
 				const FVector3 Origin = Camera->GetWorldLocation();
 				Collector.AddIcon({
@@ -42,6 +45,7 @@ namespace Durin
 					.Actor = Actor,
 					.Component = Camera,
 					.bDepthIndependentHit = true,
+					.HoverColor = HoverColor,
 				});
 				if (!Context.bSelected) return;
 

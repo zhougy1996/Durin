@@ -33,6 +33,7 @@ namespace Durin
 		auto IsViewportFocused() const -> bool { return bViewportFocused; }
 		auto CaptureCameraState(DLevel* Level, FLevelViewportCameraState& OutState) const -> bool;
 		auto RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void;
+		auto FinalizeViewportFrame(FLevelEditorContext& Context) -> void;
 		auto SetPreferredPlayMode(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo*;
 		auto GetTransformGizmo() const -> const FTransformGizmo*;

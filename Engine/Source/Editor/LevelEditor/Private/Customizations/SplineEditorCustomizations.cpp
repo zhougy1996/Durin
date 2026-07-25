@@ -33,9 +33,10 @@ namespace Durin
 				AActor* Actor = Spline ? Spline->GetOwner() : nullptr;
 				if (!Spline || !Actor) return;
 
-				const FVector4f CurveColor = ToColor(Context.bSelected ? MonaImGui::EUIThemeColor::SelectionPrimary
-					: Context.bHovered ? MonaImGui::EUIThemeColor::Info
-					: MonaImGui::EUIThemeColor::ViewportText);
+				const FVector4f CurveColor = ToColor(Context.bSelected ? MonaImGui::EUIThemeColor::SelectionPrimary : MonaImGui::EUIThemeColor::ViewportText);
+				const std::optional<FVector4f> HoverColor = Context.bSelected
+					? std::nullopt
+					: std::optional<FVector4f>{ToColor(MonaImGui::EUIThemeColor::Info)};
 				const uint32 SegmentCount = Spline->GetNumSplineSegments();
 				const int32 StepsPerSegment = std::max(Spline->GetReparamStepsPerSegment(), 8);
 				for (uint32 SegmentIndex = 0; SegmentIndex < SegmentCount; ++SegmentIndex)
@@ -45,7 +46,8 @@ namespace Durin
 					{
 						const double Param = static_cast<double>(SegmentIndex) + static_cast<double>(Step) / StepsPerSegment;
 						const FVector3 Current = Spline->GetLocationAtParam(Param, ESplineCoordinateSpace::World);
-						Collector.AddLine({Previous, Current, CurveColor, Context.bSelected ? 3.0f : 2.0f, 7.0f, 20, Actor, Spline});
+						Collector.AddLine({Previous, Current, CurveColor, Context.bSelected ? 3.0f : 2.0f, 7.0f, 20, Actor, Spline,
+							EViewOverlayLinePattern::Solid, 12.0f, HoverColor});
 						Previous = Current;
 					}
 				}

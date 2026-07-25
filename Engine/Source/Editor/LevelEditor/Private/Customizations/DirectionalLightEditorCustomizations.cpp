@@ -17,11 +17,13 @@ namespace Durin
 				AActor* Actor = Light ? Light->GetOwner() : nullptr;
 				if (!Light || !Actor || Context.View.ViewportHeight == 0) return;
 
-				const MonaImGui::EUIThemeColor ThemeColor = Context.bSelected ? MonaImGui::EUIThemeColor::SelectionPrimary
-					: Context.bHovered ? MonaImGui::EUIThemeColor::Info
-					: MonaImGui::EUIThemeColor::Warning;
+				const MonaImGui::EUIThemeColor ThemeColor = Context.bSelected ? MonaImGui::EUIThemeColor::SelectionPrimary : MonaImGui::EUIThemeColor::Warning;
 				const ImVec4& ImColor = MonaImGui::GetThemeColor(ThemeColor);
 				const FVector4f Color{ImColor.x, ImColor.y, ImColor.z, ImColor.w};
+				const ImVec4& ImHoverColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Info);
+				const std::optional<FVector4f> HoverColor = Context.bSelected
+					? std::nullopt
+					: std::optional<FVector4f>{{ImHoverColor.x, ImHoverColor.y, ImHoverColor.z, ImHoverColor.w}};
 				const FVector3 Origin = Light->GetWorldLocation();
 				Collector.AddIcon({
 					.Icon = EViewOverlayIcon::DirectionalLight,
@@ -33,6 +35,7 @@ namespace Durin
 					.Actor = Actor,
 					.Component = Light,
 					.bDepthIndependentHit = true,
+					.HoverColor = HoverColor,
 				});
 				if (!Context.bSelected) return;
 

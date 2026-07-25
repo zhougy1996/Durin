@@ -70,6 +70,22 @@ namespace Durin
 	auto FLevelEditorViewportClient::CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool
 	{
 		if (GEditor && GEditor->IsPlaying()) return false;
+		if (PreparedSceneView.bReadyForRender && PreparedSceneView.FrameNumber == GFrameCounter
+			&& PreparedSceneView.Level.Get() == CurrentLevel && PreparedSceneView.Width == Width && PreparedSceneView.Height == Height)
+		{
+			OutView = PreparedSceneView.View;
+			return true;
+		}
+		if (!BuildCompleteSceneView(CurrentLevel, Width, Height, PreparedSceneView)) return false;
+		PreparedSceneView.bReadyForRender = false;
+		OutView = PreparedSceneView.View;
+		return true;
+	}
+
+	auto FLevelEditorViewportClient::BuildViewMatrices(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool
+	{
+		if ((GEditor && GEditor->IsPlaying()) || Width == 0 || Height == 0) return false;
+		OutView = {};
 		const float AspectRatio = Height > 0 ? static_cast<float>(Width) / static_cast<float>(Height) : 1.0f;
 		const float HalfFovRadians = glm::radians(FieldOfViewDegrees) * 0.5f;
 		const float YScale = 1.0f / std::tan(HalfFovRadians);
@@ -100,15 +116,45 @@ namespace Durin
 			.AxisXColor = {AxisXColor.x, AxisXColor.y, AxisXColor.z, AxisXColor.w * 0.82f},
 			.AxisYColor = {AxisYColor.x, AxisYColor.y, AxisYColor.z, AxisYColor.w * 0.82f},
 		};
-		AppendSelectionBounds(OutView);
-		FEditorVisualizationCollector VisualizationCollector;
-		CollectEditorVisualizations(CurrentLevel, OutView, VisualizationCollector);
-		VisualizationCollector.AppendToView(OutView);
-		TransformGizmo.AppendOverlayPrimitives(OutView);
 		return true;
 	}
 
-	auto FLevelEditorViewportClient::CollectEditorVisualizations(DLevel* Level, const FSceneView& View, FEditorVisualizationCollector& Collector) const -> void
+	auto FLevelEditorViewportClient::ResolveViewportExtent(const FVector2f& ViewportSize, uint32& OutWidth, uint32& OutHeight) -> bool
+	{
+		if (ViewportSize.x <= 0.0f || ViewportSize.y <= 0.0f) return false;
+		OutWidth = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(ViewportSize.x)));
+		OutHeight = static_cast<uint32>(FMath::Max(8, FMath::CeilToInt(ViewportSize.y)));
+		return true;
+	}
+
+	auto FLevelEditorViewportClient::BuildCompleteSceneView(DLevel* Level, uint32 Width, uint32 Height, FPreparedSceneView& OutFrame) const -> bool
+	{
+		FSceneView View;
+		if (!BuildViewMatrices(Width, Height, View)) return false;
+		FEditorVisualizationCollector Visualizations;
+		PopulateEditorOverlays(Level, View, Visualizations);
+		AppendSelectionBounds(View);
+		Visualizations.AppendToView(View, HoveredVisualizationActor.Get());
+		TransformGizmo.AppendOverlayPrimitives(View);
+		OutFrame.View = std::move(View);
+		OutFrame.Visualizations = std::move(Visualizations);
+		OutFrame.Level = Level;
+		OutFrame.FrameNumber = GFrameCounter;
+		OutFrame.Width = Width;
+		OutFrame.Height = Height;
+		return true;
+	}
+
+	auto FLevelEditorViewportClient::PrepareSceneView(DLevel* Level, uint32 Width, uint32 Height) -> void
+	{
+		if (Level != CurrentLevel) InitializeForLevel(Level);
+		if (!BuildCompleteSceneView(Level, Width, Height, PreparedSceneView))
+			InvalidatePreparedSceneView();
+		else
+			PreparedSceneView.bReadyForRender = true;
+	}
+
+	auto FLevelEditorViewportClient::PopulateEditorOverlays(DLevel* Level, const FSceneView& View, FEditorVisualizationCollector& Collector) const -> void
 	{
 		if (!Level) return;
 		const auto& Registry = FLevelEditorCustomizationRegistry::Get();
@@ -116,6 +162,8 @@ namespace Durin
 		{
 			AActor* Actor = ActorPtr.Get();
 			if (!Actor || Actor->IsHidden()) continue;
+			const bool bSelected = std::ranges::any_of(SelectedActors, [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; });
+			const bool bPrimarySelection = PrimarySelectedActor.Get() == Actor;
 			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
 			{
 				DActorComponent* Component = ComponentPtr.Get();
@@ -125,9 +173,8 @@ namespace Durin
 				const FEditorVisualizationContext Context{
 					.View = View,
 					.Level = Level,
-					.bSelected = std::ranges::any_of(SelectedActors, [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; }),
-					.bHovered = HoveredVisualizationActor.Get() == Actor,
-					.bPrimarySelection = PrimarySelectedActor.Get() == Actor,
+					.bSelected = bSelected,
+					.bPrimarySelection = bPrimarySelection,
 				};
 				Visualizer->DrawVisualization(Component, Context, Collector);
 			}
@@ -138,6 +185,7 @@ namespace Durin
 	{
 		SelectedActors = Actors;
 		PrimarySelectedActor = PrimaryActor;
+		InvalidatePreparedSceneView();
 	}
 
 	auto FLevelEditorViewportClient::FocusActor(const AActor* Actor) -> void
@@ -146,7 +194,15 @@ namespace Durin
 		if (const DSceneComponent* RootComponent = Actor->GetRootComponent())
 		{
 			CameraTransform.Focus(RootComponent->GetWorldLocation(), kFocusDistance);
+			InvalidatePreparedSceneView();
 		}
+	}
+
+	auto FLevelEditorViewportClient::SetGridVisible(bool bVisible) -> void
+	{
+		if (bShowGrid == bVisible) return;
+		bShowGrid = bVisible;
+		InvalidatePreparedSceneView();
 	}
 
 	auto FLevelEditorViewportClient::AppendSelectionBounds(FSceneView& View) const -> void
@@ -175,6 +231,7 @@ namespace Durin
 	auto FLevelEditorViewportClient::Update(DLevel* Level, AActor* SelectedActor, const FLevelEditorViewportInput& Input) -> void
 	{
 		if (Level != CurrentLevel) InitializeForLevel(Level);
+		InvalidatePreparedSceneView();
 		if (!Input.bFocused)
 		{
 			ResetNavigation();
@@ -228,17 +285,27 @@ namespace Durin
 
 	auto FLevelEditorViewportClient::BuildPickingRay(const FVector2f& ViewportPosition, const FVector2f& ViewportSize, FVector3& OutOrigin, FVector3& OutDirection) const -> bool
 	{
-		if (ViewportSize.x <= 0.0f || ViewportSize.y <= 0.0f) return false;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		if (!ResolveViewportExtent(ViewportSize, Width, Height)) return false;
 		FSceneView View;
-		if (!CalcSceneView(static_cast<uint32>(ViewportSize.x), static_cast<uint32>(ViewportSize.y), View)) return false;
+		if (!BuildViewMatrices(Width, Height, View)) return false;
 		return SceneViewProjection::BuildViewportRay(View, ViewportPosition, OutOrigin, OutDirection);
 	}
 
 	auto FLevelEditorViewportClient::PickActor(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) const -> AActor*
 	{
-		if (Level == nullptr || ViewportSize.x <= 0.0f || ViewportSize.y <= 0.0f) return nullptr;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		if (Level == nullptr || !ResolveViewportExtent(ViewportSize, Width, Height)) return nullptr;
 		FSceneView View;
-		if (!CalcSceneView(static_cast<uint32>(ViewportSize.x), static_cast<uint32>(ViewportSize.y), View)) return nullptr;
+		if (!BuildViewMatrices(Width, Height, View)) return nullptr;
+		return PickActorWithView(Level, View, ViewportPosition);
+	}
+
+	auto FLevelEditorViewportClient::PickActorWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) const -> AActor*
+	{
+		if (Level == nullptr) return nullptr;
 		FVector3 RayOrigin;
 		FVector3 RayDirection;
 		if (!SceneViewProjection::BuildViewportRay(View, ViewportPosition, RayOrigin, RayDirection)) return nullptr;
@@ -282,29 +349,47 @@ namespace Durin
 				}
 			}
 		}
-		FEditorVisualizationCollector VisualizationCollector;
-		CollectEditorVisualizations(Level, View, VisualizationCollector);
-		const FEditorVisualizationHit VisualizationHit = VisualizationCollector.HitTest(View, ViewportPosition);
+		FEditorVisualizationCollector ColdVisualizations;
+		const FEditorVisualizationCollector* Visualizations = &PreparedSceneView.Visualizations;
+		if (PreparedSceneView.Level.Get() != Level)
+		{
+			PopulateEditorOverlays(Level, View, ColdVisualizations);
+			Visualizations = &ColdVisualizations;
+		}
+		const FEditorVisualizationHit VisualizationHit = Visualizations->HitTest(View, ViewportPosition);
 		if (VisualizationHit.Actor && (VisualizationHit.bDepthIndependent || VisualizationHit.Distance < ClosestDistance)) ClosestActor = VisualizationHit.Actor;
 		return ClosestActor;
 	}
 
 	auto FLevelEditorViewportClient::UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void
 	{
-		HoveredVisualizationActor = nullptr;
-		if (!Level || ViewportSize.x <= 0.0f || ViewportSize.y <= 0.0f) return;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		if (!Level || !ResolveViewportExtent(ViewportSize, Width, Height))
+		{
+			UpdateHoveredVisualizationWithView(nullptr, FSceneView{}, {});
+			return;
+		}
 		FSceneView View;
-		if (!CalcSceneView(static_cast<uint32>(ViewportSize.x), static_cast<uint32>(ViewportSize.y), View)) return;
-		FEditorVisualizationCollector Collector;
-		CollectEditorVisualizations(Level, View, Collector);
-		HoveredVisualizationActor = Collector.HitTest(View, ViewportPosition).Actor;
+		if (!BuildViewMatrices(Width, Height, View)) return;
+		UpdateHoveredVisualizationWithView(Level, View, ViewportPosition);
+	}
+
+	auto FLevelEditorViewportClient::UpdateHoveredVisualizationWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) -> void
+	{
+		HoveredVisualizationActor = nullptr;
+		if (Level && PreparedSceneView.Level.Get() == Level)
+			HoveredVisualizationActor = PreparedSceneView.Visualizations.HitTest(View, ViewportPosition).Actor;
+		InvalidatePreparedSceneView();
 	}
 
 	auto FLevelEditorViewportClient::ProjectWorldToViewport(const FVector3& WorldPosition, const FVector2f& ViewportSize, FVector2f& OutPosition) const -> bool
 	{
-		if (ViewportSize.x <= 0.0f || ViewportSize.y <= 0.0f) return false;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		if (!ResolveViewportExtent(ViewportSize, Width, Height)) return false;
 		FSceneView View;
-		if (!CalcSceneView(static_cast<uint32>(ViewportSize.x), static_cast<uint32>(ViewportSize.y), View)) return false;
+		if (!BuildViewMatrices(Width, Height, View)) return false;
 		return SceneViewProjection::ProjectWorldToViewport(View, WorldPosition, OutPosition);
 	}
 
@@ -320,9 +405,16 @@ namespace Durin
 		CurrentLevel = Level;
 		ResetNavigation();
 		HoveredVisualizationActor = nullptr;
+		InvalidatePreparedSceneView(true);
 		if (SavedState != nullptr)
 			CameraTransform.SetState(*SavedState);
 		else
 			CameraTransform.Reset();
+	}
+
+	auto FLevelEditorViewportClient::InvalidatePreparedSceneView(bool bDiscardInteractionData) -> void
+	{
+		PreparedSceneView.bReadyForRender = false;
+		if (bDiscardInteractionData) PreparedSceneView = {};
 	}
 } // namespace Durin

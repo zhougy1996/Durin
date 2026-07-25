@@ -1,6 +1,7 @@
 #pragma once
 
 #include "LevelEditorAPI.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Editor/ReflectedPropertyView.h"
 #include "IRendererModule.h"
 
@@ -19,7 +20,6 @@ namespace Durin
 		const FSceneView& View;
 		DLevel* Level = nullptr;
 		bool bSelected = false;
-		bool bHovered = false;
 		bool bPrimarySelection = false;
 	};
 
@@ -32,10 +32,12 @@ namespace Durin
 		float WidthPixels = 1.0f;
 		float HitTolerancePixels = 6.0f;
 		int32 HitPriority = 0;
-		AActor* Actor = nullptr;
-		DActorComponent* Component = nullptr;
+		TWeakObjectPtr<AActor> Actor;
+		TWeakObjectPtr<DActorComponent> Component;
 		EViewOverlayLinePattern Pattern = EViewOverlayLinePattern::Solid;
 		float PatternPeriodPixels = 12.0f;
+		// Applied only when this primitive's actor is hovered; absence preserves its base color.
+		std::optional<FVector4f> HoverColor;
 	};
 
 	// Describes a world-space icon and its screen-space hit-test policy.
@@ -47,9 +49,11 @@ namespace Durin
 		float SizePixels = 30.0f;
 		float HitPaddingPixels = 3.0f;
 		int32 HitPriority = 100;
-		AActor* Actor = nullptr;
-		DActorComponent* Component = nullptr;
+		TWeakObjectPtr<AActor> Actor;
+		TWeakObjectPtr<DActorComponent> Component;
 		bool bDepthIndependentHit = true;
+		// Applied only when this primitive's actor is hovered; absence preserves its base color.
+		std::optional<FVector4f> HoverColor;
 	};
 
 	// Reports the highest-priority visualization hit at one viewport position.
@@ -68,7 +72,7 @@ namespace Durin
 	public:
 		LEVELEDITOR_API auto AddLine(const FEditorVisualizationLine& Line) -> void;
 		LEVELEDITOR_API auto AddIcon(const FEditorVisualizationIcon& Icon) -> void;
-		LEVELEDITOR_API auto AppendToView(FSceneView& View) const -> void;
+		LEVELEDITOR_API auto AppendToView(FSceneView& View, const AActor* HoveredActor = nullptr) const -> void;
 		LEVELEDITOR_API auto HitTest(const FSceneView& View, const FVector2f& ViewportPosition) const -> FEditorVisualizationHit;
 		auto GetLines() const -> const std::vector<FEditorVisualizationLine>& { return Lines; }
 		auto GetIcons() const -> const std::vector<FEditorVisualizationIcon>& { return Icons; }
