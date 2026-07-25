@@ -22,6 +22,7 @@
 #include "Assets/SourceImageThumbnailCache.h"
 #include "Assets/SourceImageThumbnailDecoder.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
 
 #ifdef _WIN32
 	#include <shellapi.h>
@@ -202,8 +203,10 @@ namespace Durin
 		if (TypeFilter == 1) return Type == "Level";
 		if (TypeFilter == 2) return Type == "StaticMesh";
 		if (TypeFilter == 3) return Type.find("Material") != std::string::npos;
-		if (TypeFilter == 4) return Type == "Texture2D";
-		return Item.Kind != EContentBrowserItemKind::Asset || (Type != "Level" && Type != "StaticMesh" && Type.find("Material") == std::string::npos && Type != "Texture2D");
+		if (TypeFilter == 4) return Type == "Texture2D" || Type == "Texture Cube";
+		return Item.Kind != EContentBrowserItemKind::Asset ||
+			(Type != "Level" && Type != "StaticMesh" && Type.find("Material") == std::string::npos &&
+				Type != "Texture2D" && Type != "Texture Cube");
 	}
 
 	auto FContentBrowserPanel::RefreshItemsSnapshot() -> void
@@ -277,7 +280,7 @@ namespace Durin
 			{
 				if (std::ranges::any_of(Relative, [](const std::filesystem::path& Component) { return Component.generic_string().starts_with('.'); })) continue;
 			}
-			const std::string Type = Item.Kind == EContentBrowserItemKind::Folder ? "Folder" : Item.Kind == EContentBrowserItemKind::SourceFile ? "Source File" : ClassLeaf(Item.AssetClassName);
+			const std::string Type = ItemTypeLabel(Item);
 			const std::string_view SearchPath = Item.VirtualPath.empty() ? std::string_view(Item.PhysicalPath) : std::string_view(Item.VirtualPath);
 			if (bSearching && !ContainsInsensitive(Item.Name, SearchBuffer.data()) && !ContainsInsensitive(SearchPath, SearchBuffer.data()) && !ContainsInsensitive(Type, SearchBuffer.data())) continue;
 			if (MatchesTypeFilter(Item)) Items.push_back(Item);
@@ -631,6 +634,27 @@ namespace Durin
 						Row("Referencers", std::format("{}", ReferencerCount));
 					}
 				}
+				if (ClassLeaf(Item.AssetClassName) == "TextureCube")
+				{
+					FAssetPath CubePath;
+					DTextureCube* Cube = nullptr;
+					if (FAssetPath::TryCreate(Item.VirtualPath, CubePath) && Asset::LoadAsset(CubePath, Cube) && Cube)
+					{
+						if (const FTextureCubePlatformData* Platform = Cube->GetPlatformData();
+							Platform && Platform->IsValid())
+						{
+							Row("Dimensions", std::format("{}x{}", Platform->Faces[0].Mips[0].Width,
+								Platform->Faces[0].Mips[0].Height));
+							Row("Faces", std::format("{}", TextureCubeFaceCount));
+							Row("Mips", std::format("{}", Platform->Faces[0].Mips.size()));
+						}
+						else
+						{
+							Row("Build", Cube->GetLastBuildError().empty()
+								? "Source data is unavailable." : Cube->GetLastBuildError());
+						}
+					}
+				}
 			}
 			ImGui::EndTable();
 		}
@@ -958,6 +982,8 @@ namespace Durin
 		ImGui::BeginDisabled(!RequestImport);
 		if (ImGui::MenuItem("Texture..."))
 			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::Texture); };
+		if (ImGui::MenuItem("Texture Cube..."))
+			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::TextureCube); };
 		if (ImGui::MenuItem("Static Mesh..."))
 			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::StaticMesh); };
 		ImGui::EndDisabled();
@@ -1652,7 +1678,12 @@ namespace Durin
 	auto FContentBrowserPanel::ItemTypeLabel(const FContentBrowserItem& Item) const -> std::string
 	{
 		if (Item.Kind == EContentBrowserItemKind::Folder) return "Folder";
-		if (Item.Kind == EContentBrowserItemKind::Asset) return ClassLeaf(Item.AssetClassName);
+		if (Item.Kind == EContentBrowserItemKind::Asset)
+		{
+			const std::string ClassName = ClassLeaf(Item.AssetClassName);
+			if (ClassName == "TextureCube") return "Texture Cube";
+			return ClassName;
+		}
 		return Item.Extension.empty() ? "Source File" : Item.Extension.substr(1) + " file";
 	}
 
@@ -1662,6 +1693,7 @@ namespace Durin
 		if (Item.Kind == EContentBrowserItemKind::SourceFile) return Icons::File;
 		const std::string Type = ItemTypeLabel(Item);
 		if (Type == "StaticMesh") return Icons::Cube;
+		if (Type == "Texture Cube") return Icons::Cube;
 		if (Type == "Level") return Icons::Home;
 		return Icons::FileLines;
 	}

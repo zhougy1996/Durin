@@ -113,6 +113,39 @@ namespace Durin
 			OutError = "Cube texture platform data is inconsistent.";
 			return false;
 		}
+
+		auto DecodeCubeInputs(const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
+			std::array<std::filesystem::path, TextureCubeFaceCount>& OutInputs,
+			FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool
+		{
+			for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
+			{
+				if (FaceFiles[FaceIndex].empty())
+				{
+					OutError = std::format("{} face source is missing.", FaceNames[FaceIndex]);
+					return false;
+				}
+				OutInputs[FaceIndex] = std::filesystem::absolute(FaceFiles[FaceIndex]).lexically_normal();
+				if (!std::filesystem::is_regular_file(OutInputs[FaceIndex]))
+				{
+					OutError = std::format("{} face source file does not exist.", FaceNames[FaceIndex]);
+					return false;
+				}
+				if (!Asset::IsSupportedImageExtension(OutInputs[FaceIndex].extension().generic_string()))
+				{
+					OutError = std::format("{} face uses an unsupported texture source format.", FaceNames[FaceIndex]);
+					return false;
+				}
+				std::string DecodeError;
+				if (!TextureBuild::DecodeRGBA8(OutInputs[FaceIndex].generic_string(),
+					OutSourceData.Faces[FaceIndex], DecodeError))
+				{
+					OutError = std::format("{} face decode failed: {}", FaceNames[FaceIndex], DecodeError);
+					return false;
+				}
+			}
+			return ValidateCubeSourceData(OutSourceData, OutError);
+		}
 	}
 
 	auto FTextureCubeSourceData::IsValid() const -> bool
@@ -316,25 +349,33 @@ namespace Durin
 		}
 	}
 
+	auto DTextureCube::ValidateImportSources(const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
+		const FTextureCubeImportSettings& Settings) -> FTextureCubeImportValidation
+	{
+		std::array<std::filesystem::path, TextureCubeFaceCount> Inputs;
+		FTextureCubeSourceData SourceData;
+		std::string Error;
+		if (!DecodeCubeInputs(FaceFiles, Inputs, SourceData, Error))
+			return {false, std::move(Error)};
+
+		FTextureCubePlatformData PlatformData;
+		if (!BuildCubePlatformData(SourceData, Settings.bSRGB, PlatformData, Error))
+			return {false, std::move(Error)};
+		return {
+			.bValid = true,
+			.Dimension = SourceData.Faces[0].Width,
+			.MipCount = static_cast<uint32>(PlatformData.Faces[0].Mips.size()),
+			.PixelFormat = PlatformData.PixelFormat,
+		};
+	}
+
 	auto DTextureCube::ImportAsset(const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		std::string_view AssetPath, const FTextureCubeImportSettings& Settings) -> FTextureCubeImportResult
 	{
 		std::array<std::filesystem::path, TextureCubeFaceCount> Inputs;
 		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
-		for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-		{
-			if (FaceFiles[FaceIndex].empty()) return {false, std::format("{} face source is missing.", FaceNames[FaceIndex]), nullptr};
-			Inputs[FaceIndex] = std::filesystem::absolute(FaceFiles[FaceIndex]).lexically_normal();
-			if (!std::filesystem::is_regular_file(Inputs[FaceIndex]))
-				return {false, std::format("{} face source file does not exist.", FaceNames[FaceIndex]), nullptr};
-			if (!Asset::IsSupportedImageExtension(Inputs[FaceIndex].extension().generic_string()))
-				return {false, std::format("{} face uses an unsupported texture source format.", FaceNames[FaceIndex]), nullptr};
-			std::string DecodeError;
-			if (!TextureBuild::DecodeRGBA8(Inputs[FaceIndex].generic_string(), NewSourceData->Faces[FaceIndex], DecodeError))
-				return {false, std::format("{} face decode failed: {}", FaceNames[FaceIndex], DecodeError), nullptr};
-		}
 		std::string ValidationError;
-		if (!ValidateCubeSourceData(*NewSourceData, ValidationError))
+		if (!DecodeCubeInputs(FaceFiles, Inputs, *NewSourceData, ValidationError))
 			return {false, std::move(ValidationError), nullptr};
 
 		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();

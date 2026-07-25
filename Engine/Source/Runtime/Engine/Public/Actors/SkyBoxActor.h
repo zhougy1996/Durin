@@ -9,7 +9,7 @@ namespace Durin
 	class DSkyBoxComponent;
 
 	// Provides an actor-owned skybox component for level placement.
-	DCLASS()
+	DCLASS(DisplayName = "Sky Box Actor", DefaultObjectName = "SkyBoxActor")
 	class ASkyBoxActor : public AActor
 	{
 		GENERATED_BODY()

@@ -149,6 +149,19 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	EXPECT_FALSE(Mismatch);
 	EXPECT_NE(Mismatch.Message.find("identical"), std::string::npos);
 
+	const std::filesystem::path Corrupt = std::filesystem::path(DURIN_TEST_WORK_DIR) / "CubeCorrupt.png";
+	{
+		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
+		Stream << "not an image";
+	}
+	Faces = GetConventionFaces();
+	Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)] = Corrupt.generic_string();
+	const Durin::FTextureCubeImportValidation CorruptValidation =
+		Durin::DTextureCube::ValidateImportSources(Faces);
+	EXPECT_FALSE(CorruptValidation);
+	EXPECT_NE(CorruptValidation.Message.find("NegativeZ"), std::string::npos);
+	EXPECT_NE(CorruptValidation.Message.find("decode failed"), std::string::npos);
+
 	for (std::string_view AssetName : {"MissingFace", "Nonsquare", "Mismatch"})
 	{
 		Durin::FAssetPath AssetPath;

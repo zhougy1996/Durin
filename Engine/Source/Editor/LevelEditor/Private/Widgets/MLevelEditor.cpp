@@ -25,6 +25,7 @@
 #include "Panels/WorldOutlinerPanel.h"
 #include "Assets/StaticMeshImportDialog.h"
 #include "Assets/TextureImportDialog.h"
+#include "Assets/TextureCubeImportDialog.h"
 #include "Widgets/EditorNotificationOverlay.h"
 #include "Yaml/Yaml.h"
 
@@ -115,6 +116,14 @@ namespace Durin
 				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
 			}
 		);
+		TextureCubeImportDialog = std::make_unique<FTextureCubeImportDialog>(
+			[this] { EditorError.clear(); },
+			[this](std::string Message) { SetError(std::move(Message)); },
+			[this](std::string AssetPath) {
+				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
+				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
+			}
+		);
 		auto ContentBrowser = std::make_unique<FContentBrowserPanel>(
 			SessionSettings,
 			[this](const std::string& Path, const std::string& AssetClassName) {
@@ -124,6 +133,10 @@ namespace Durin
 				if (ImportType == EContentBrowserImportType::Texture)
 				{
 					if (TextureImportDialog) TextureImportDialog->Open(DestinationDirectory);
+				}
+				else if (ImportType == EContentBrowserImportType::TextureCube)
+				{
+					if (TextureCubeImportDialog) TextureCubeImportDialog->Open(DestinationDirectory);
 				}
 				else if (StaticMeshImportDialog) StaticMeshImportDialog->Open(DestinationDirectory);
 			},
@@ -379,6 +392,7 @@ namespace Durin
 		DocumentController->DrawDialogs();
 		StaticMeshImportDialog->Draw();
 		TextureImportDialog->Draw();
+		TextureCubeImportDialog->Draw();
 		DrawProjectSettings();
 
 		if (!EditorError.empty()) ImGui::OpenPopup("Editor Error");

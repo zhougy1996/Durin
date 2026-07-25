@@ -48,6 +48,18 @@ creation even in a scene without an active sky. Repeatable rendered-pixel
 orientation, occlusion, and multi-mip sampling evidence remains for Stage 6 and
 the Stage 1 acceptance gate.
 
+Stage 5 implementation is complete. The Content Browser now exposes a
+six-slot `Texture Cube` import modal with face orientation guidance and
+preflight decode, shape, consistency, mip, format, destination, and collision
+validation. Texture Cube assets have a stable type presentation and
+dimension/face/mip summary. The reflected creation menu exposes `Sky Box Actor`,
+the shared Details picker limits its cube property to compatible assets, and
+ordinary reflected Tint, Intensity, and rotation edits keep their live scene
+and package-dirty behavior. Component Details reports the deterministically
+active and ignored actors when visible skyboxes conflict. An editor workflow
+test covers validation, import, reflected actor construction, assignment,
+level save/reload, scene snapshot publication, and conflict selection.
+
 ## Goal
 
 Users can place a `DSkyBoxComponent` in a level, assign a `DTextureCube` asset built from six LDR images, and see a static sky background without translation parallax in the main editor viewport, camera previews, and game viewports. Camera rotation changes the viewing direction, component rotation adjusts the sky orientation, and scene geometry and editor overlays always cover the sky correctly.
@@ -223,14 +235,14 @@ Depends on Stages 1 and 3. This stage produces the first visible skybox result.
 
 Depends on Stages 2-4. This stage makes the feature usable without test code or hard-coded assets.
 
-- [ ] Add a `Texture Cube` creation/import action to the Content Browser.
-- [ ] Provide explicit file-selection slots for all six faces, displaying `+X/-X/+Y/-Y/+Z/-Z` and orientation guidance before and after selection.
-- [ ] Validate missing files, decode failures, differing dimensions, and nonsquare inputs before user confirmation, and prevent submission of invalid combinations.
-- [ ] Make the Content Browser recognize the cube-texture type and provide at least a stable type icon plus a dimensions/mip/face summary in the first version.
-- [ ] Expose `ASkyBoxActor` in the actor-creation workflow and make the `DTextureCube` field in Details show only compatible assets.
-- [ ] Provide normal reflected editing for Tint, Intensity, and rotation, refreshing the viewport live and marking the package dirty correctly after changes.
-- [ ] When a scene contains multiple visible skyboxes, show a nonblocking diagnostic that identifies the active and ignored components.
-- [ ] Add an editor workflow test that imports a cube, creates an actor, assigns the asset, saves the level, reloads it, and verifies the scene snapshot.
+- [x] Add a `Texture Cube` creation/import action to the Content Browser.
+- [x] Provide explicit file-selection slots for all six faces, displaying `+X/-X/+Y/-Y/+Z/-Z` and orientation guidance before and after selection.
+- [x] Validate missing files, decode failures, differing dimensions, and nonsquare inputs before user confirmation, and prevent submission of invalid combinations.
+- [x] Make the Content Browser recognize the cube-texture type and provide at least a stable type icon plus a dimensions/mip/face summary in the first version.
+- [x] Expose `ASkyBoxActor` in the actor-creation workflow and make the `DTextureCube` field in Details show only compatible assets.
+- [x] Provide normal reflected editing for Tint, Intensity, and rotation, refreshing the viewport live and marking the package dirty correctly after changes.
+- [x] When a scene contains multiple visible skyboxes, show a nonblocking diagnostic that identifies the active and ignored components.
+- [x] Add an editor workflow test that imports a cube, creates an actor, assigns the asset, saves the level, reloads it, and verifies the scene snapshot.
 
 #### Acceptance Gate
 

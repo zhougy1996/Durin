@@ -132,6 +132,31 @@ face and labeled edge markers matching the source-orientation table.
   shader multiplies that linear value by `Tint * Intensity`, writes Scene
   Color, and leaves the existing post-process/output conversion path unchanged.
 
+## Editor Workflow
+
+- The Content Browser's Import menu provides `Texture Cube...`. Its modal owns
+  one source slot for each named face in `+X/-X/+Y/-Y/+Z/-Z` order and displays
+  both the corresponding Durin world direction and the source-image top/right
+  orientation from this document.
+- The modal calls the same decode, shape, cross-face consistency, mip-build, and
+  platform-format validation used by final import. Its confirmation action
+  remains disabled until all six sources and the mounted destination are valid,
+  and it revalidates immediately before creating any files.
+- Content Browser tiles use a stable cube icon and identify the asset as
+  `Texture Cube`. Selection details load the asset summary and report its
+  dimensions, six-face count, and mip count.
+- `Sky Box Actor` is available through the ordinary reflected actor-creation
+  menu and owns its `DSkyBoxComponent` by default. The component's reflected
+  object property names `DTextureCube` as its required class, so the shared
+  Details asset picker excludes incompatible assets.
+- Tint, nonnegative Intensity, and actor/component rotation use ordinary
+  reflected edits. Preview edits publish scene updates and committed edits
+  dirty the level package through the standard property transaction path.
+- If more than one visible skybox is registered, the component Details view
+  shows a nonblocking warning naming the active actor and every ignored actor.
+  The editor model mirrors the renderer's GUID, object-path, then instance-ID
+  ordering; it does not query render-thread scene state.
+
 ## Related Code
 
 - `Engine/Source/Runtime/Core/Public/Math/Vector.h`
@@ -143,3 +168,5 @@ face and labeled edge markers matching the source-orientation table.
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
 - `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.cpp`
 - `Engine/Shaders/Slang/SkyBox.slang`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/TextureCubeImportDialog.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Customizations/SkyBoxDetails.cpp`

@@ -16,6 +16,8 @@
 #include "Customizations/SplineEditorCustomizations.h"
 #include "StaticMeshMaterialSlotDetails.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkyBoxComponent.h"
+#include "SkyBoxDetails.h"
 
 namespace Durin
 {
@@ -37,6 +39,7 @@ namespace Durin
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization()));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSkyBoxComponent::StaticClass(), CreateSkyBoxDetailsCustomization()));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
 	}
 

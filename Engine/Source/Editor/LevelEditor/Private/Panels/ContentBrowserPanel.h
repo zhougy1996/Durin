@@ -32,6 +32,7 @@ namespace Durin
 	enum class EContentBrowserImportType : uint8
 	{
 		Texture,
+		TextureCube,
 		StaticMesh
 	};
 

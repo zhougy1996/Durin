@@ -16,6 +16,7 @@ namespace Durin
 	class FSceneViewportPanel;
 	class FStaticMeshImportDialog;
 	class FTextureImportDialog;
+	class FTextureCubeImportDialog;
 	class FContentBrowserPanel;
 	class FDetailsPanel;
 	class FEditorNotificationOverlay;
@@ -67,6 +68,7 @@ namespace Durin
 		std::unique_ptr<FEditorAssetMoveCoordinator> AssetMoveCoordinator;
 		std::unique_ptr<FStaticMeshImportDialog> StaticMeshImportDialog;
 		std::unique_ptr<FTextureImportDialog> TextureImportDialog;
+		std::unique_ptr<FTextureCubeImportDialog> TextureCubeImportDialog;
 		FEditorNotificationOverlay* NotificationOverlay = nullptr;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		// Panel pointers are non-owning aliases into the Panels collection.

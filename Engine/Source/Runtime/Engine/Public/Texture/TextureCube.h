@@ -31,6 +31,18 @@ namespace Durin
 		bool bSRGB = true;
 	};
 
+	// Summarizes a six-face source set after decode and platform-build validation.
+	struct FTextureCubeImportValidation
+	{
+		bool bValid = false;
+		std::string Message;
+		uint32 Dimension = 0;
+		uint32 MipCount = 0;
+		EPixelFormat PixelFormat = EPixelFormat::Unknown;
+
+		explicit operator bool() const { return bValid; }
+	};
+
 	struct FTextureCubeImportResult;
 
 	DCLASS()
@@ -58,6 +70,9 @@ namespace Durin
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			std::string_view AssetPath,
 			const FTextureCubeImportSettings& Settings = {}) -> FTextureCubeImportResult;
+		ENGINE_API static auto ValidateImportSources(
+			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
+			const FTextureCubeImportSettings& Settings = {}) -> FTextureCubeImportValidation;
 
 	private:
 		auto GetMutableSourceFile(ETextureCubeFace Face) -> std::string&;
