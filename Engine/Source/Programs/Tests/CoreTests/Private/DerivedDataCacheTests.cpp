@@ -45,6 +45,7 @@ TEST(FDerivedDataCacheTests, SerializesDeterministicallyAndRejectsIncompatibleOr
 		Writer.WriteString("/Game/Textures/Test");
 		Writer.WriteU64(42);
 		Writer.WriteI64(-123456789);
+		Writer.WriteBytes(std::array<Durin::uint8, 3>{7, 8, 9});
 		return Writer.TakeBytes();
 	};
 
@@ -57,13 +58,16 @@ TEST(FDerivedDataCacheTests, SerializesDeterministicallyAndRejectsIncompatibleOr
 	std::string Path;
 	Durin::uint64 Size = 0;
 	Durin::int64 Ticks = 0;
+	std::vector<Durin::uint8> Payload;
 	EXPECT_TRUE(Reader.ReadString(Path));
 	EXPECT_TRUE(Reader.ReadU64(Size));
 	EXPECT_TRUE(Reader.ReadI64(Ticks));
+	EXPECT_TRUE(Reader.ReadBytes(Payload, 3, 3));
 	EXPECT_TRUE(Reader.IsAtEnd());
 	EXPECT_EQ(Path, "/Game/Textures/Test");
 	EXPECT_EQ(Size, 42);
 	EXPECT_EQ(Ticks, -123456789);
+	EXPECT_EQ(Payload, (std::vector<Durin::uint8>{7, 8, 9}));
 
 	Durin::DerivedDataCache::FReader WrongVersion(First);
 	EXPECT_FALSE(WrongVersion.ReadAndValidateHeader(Magic, 4, 2));
@@ -72,6 +76,8 @@ TEST(FDerivedDataCacheTests, SerializesDeterministicallyAndRejectsIncompatibleOr
 	Oversized.WriteU64(Durin::DerivedDataCache::MaximumCacheStringBytes + 1);
 	Durin::DerivedDataCache::FReader Bounded(Oversized.GetBytes());
 	EXPECT_FALSE(Bounded.ReadString(Path));
+	Durin::DerivedDataCache::FReader BoundedBytes(First);
+	EXPECT_FALSE(BoundedBytes.ReadBytes(Payload, First.size() + 1, First.size() + 1));
 }
 
 TEST(FDerivedDataCacheTests, StableFileTicksRoundTripAtNanosecondPrecision)

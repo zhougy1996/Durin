@@ -67,6 +67,19 @@ The test uploads and explicitly samples all three mip levels of known linear and
 sRGB RGBA8 textures plus builder-produced BC1, BC3, BC5, and BC7 payloads. GPU
 readback verifies mip selection, sRGB decode, compressed color channels, and
 compressed alpha independently of a swapchain or visible window.
+Stage 4 is now in progress. Texture2D packages retain the imported source-content
+hash and lightweight source fingerprint, while versioned, checksummed platform
+mip payloads are stored beneath the project Derived Data Cache. A warm
+`PostLoad` validates the source fingerprint and restores platform data without
+opening or decoding the source image; changed sources, changed build settings,
+missing entries, and corrupt payloads become safe rebuilds. Cooked payload
+packaging remains open.
+All four focused `FDerivedDataCacheTests.*`, all fifteen focused
+`FTexture2DTests.*`, and all 214 `EngineTests` passed, followed by a successful
+full `all` build and a ten-second `DurinEditor --hidden-window` smoke run. The
+full `CoreTests` executable was also attempted; its DDC tests passed, but eleven
+unrelated Logger tests failed because their work-directory log files could not
+be opened for writing in the current environment.
 
 ## Implemented
 
@@ -166,19 +179,42 @@ inferred from the source filename.
   mip uploads and samples through Vulkan, while unsupported device formats fail
   before resource creation with an actionable Texture Editor diagnostic.
 
-## Derived Data and Residency
+### Stage 4: Versioned Derived Data and Cooked Payloads
 
-- [ ] Serialize or cache built platform data so normal asset loading does not
+- [x] Serialize or cache built platform data so normal asset loading does not
   decode the source image on every `PostLoad`.
-- [ ] Define a derived-data key that includes the source content, build
+- [x] Define a derived-data key that includes the source content, build
   settings, target platform, and texture builder version.
 - [ ] Ensure cooked/runtime builds do not require the original PNG, JPEG, BMP,
   or TGA file.
+
+#### Acceptance Gate
+
+- Warm editor loads restore validated platform mip data without source decoding;
+  source or setting changes and incompatible or corrupt cache objects rebuild
+  safely, and cooked runtime packages can load without source-image files.
+
+### Stage 5: Asynchronous Build and Material Readiness
+
 - [ ] Move source decoding and platform-data construction off the main thread.
 - [ ] Define load, unload, and failure states visible to material resolution.
+
+#### Acceptance Gate
+
+- Decode and build work cannot stall the main thread, and materials consistently
+  resolve the correct fallback across load, build, upload, unload, and failure.
+
+### Stage 6: Residency Accounting
+
 - [ ] Add residency accounting and memory statistics.
 - [ ] Defer texture streaming until profiling demonstrates that full residency
   is no longer acceptable.
+
+#### Acceptance Gate
+
+- CPU platform bytes and resident GPU texture bytes are attributable and visible;
+  streaming remains deferred unless measured workloads exceed the accepted
+  full-residency budget.
 
 ## Validation Gaps
 

@@ -29,6 +29,7 @@ namespace Durin::DerivedDataCache
 		CORE_API auto WriteU64(uint64 Value) -> void;
 		CORE_API auto WriteI64(int64 Value) -> void;
 		CORE_API auto WriteString(std::string_view Value) -> void;
+		CORE_API auto WriteBytes(std::span<const uint8> Value) -> void;
 		CORE_API auto WriteHeader(const FCacheHeader& Header) -> void;
 		auto GetBytes() const -> const std::vector<uint8>& { return Bytes; }
 		auto TakeBytes() -> std::vector<uint8> { return std::move(Bytes); }
@@ -48,6 +49,7 @@ namespace Durin::DerivedDataCache
 		CORE_API auto ReadU64(uint64& Value) -> bool;
 		CORE_API auto ReadI64(int64& Value) -> bool;
 		CORE_API auto ReadString(std::string& Value, uint64 MaximumBytes = MaximumCacheStringBytes) -> bool;
+		CORE_API auto ReadBytes(std::vector<uint8>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool;
 		CORE_API auto ReadAndValidateHeader(uint32 ExpectedMagic, uint32 ExpectedSchemaVersion, uint32 ExpectedFormatVersion, FCacheHeader* OutHeader = nullptr) -> bool;
 		auto IsAtEnd() const -> bool { return Offset == Bytes.size(); }
 		auto GetRemainingBytes() const -> size_t { return Bytes.size() - Offset; }

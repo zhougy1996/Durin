@@ -4,6 +4,9 @@
 #include "AssetSystem.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "Hash/XxHash.h"
+#include "Misc/DerivedDataCache.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"
@@ -13,6 +16,11 @@ namespace Durin
 {
 	namespace
 	{
+		constexpr uint32 TextureDerivedDataMagic = 0x44445854; // TXDD
+		constexpr uint32 TextureDerivedDataSchemaVersion = 1;
+		constexpr uint32 TextureBuilderVersion = 1;
+		constexpr uint64 MaximumTextureDerivedDataBytes = 2ull * 1024ull * 1024ull * 1024ull;
+
 		auto ResolveMountedFile(std::string_view VirtualPath) -> std::filesystem::path
 		{
 			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
@@ -37,6 +45,115 @@ namespace Durin
 			const std::filesystem::path LegacyPath = ResolveMountedFile(Texture.GetSourceFile());
 			if (std::filesystem::is_regular_file(LegacyPath)) return LegacyPath;
 			return (PackageFile.parent_path() / StoredPath.filename()).lexically_normal();
+		}
+
+		auto MakeTextureDerivedDataKey(const DTexture2D& Texture) -> std::string
+		{
+			DerivedDataCache::FWriter Key;
+			Key.WriteString("DurinTexture2D");
+			Key.WriteU32(TextureBuilderVersion);
+			Key.WriteString(DURIN_BUILD_PLATFORM_STRING);
+			Key.WriteString(Texture.GetSourceContentHash());
+			Key.WriteU8(static_cast<uint8>(Texture.GetUsage()));
+			Key.WriteU8(Texture.IsSRGB() ? 1 : 0);
+			Key.WriteU32(Texture.GetMaxResolution());
+			Key.WriteU8(static_cast<uint8>(Texture.GetCompressionQuality()));
+			Key.WriteU8(static_cast<uint8>(Texture.GetAlphaMipMode()));
+			Key.WriteU32(std::bit_cast<uint32>(Texture.GetAlphaCoverageThreshold()));
+			return FXxHash128::HashBuffer(Key.GetBytes()).ToString();
+		}
+
+		auto TextureDerivedDataPath(std::string_view Key) -> std::filesystem::path
+		{
+			check(Key.size() >= 2);
+			return std::filesystem::path(FPaths::DerivedDataCacheDir())
+				/ "Textures" / "Objects" / std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin");
+		}
+
+		auto SerializeTexturePlatformData(const FTexturePlatformData& PlatformData) -> std::vector<uint8>
+		{
+			DerivedDataCache::FWriter Payload;
+			Payload.WriteU8(static_cast<uint8>(PlatformData.PixelFormat));
+			Payload.WriteU32(static_cast<uint32>(PlatformData.Mips.size()));
+			for (const FTexture2DMipData& Mip : PlatformData.Mips)
+			{
+				Payload.WriteU32(Mip.Width);
+				Payload.WriteU32(Mip.Height);
+				Payload.WriteU32(Mip.RowPitch);
+				Payload.WriteU64(Mip.Pixels.size());
+				Payload.WriteBytes(Mip.Pixels);
+			}
+
+			const std::vector<uint8>& PayloadBytes = Payload.GetBytes();
+			DerivedDataCache::FWriter File;
+			File.WriteHeader({TextureDerivedDataMagic, TextureDerivedDataSchemaVersion, TextureBuilderVersion});
+			File.WriteU64(FXxHash64::HashBuffer(PayloadBytes).HashValue);
+			File.WriteU64(PayloadBytes.size());
+			File.WriteBytes(PayloadBytes);
+			return File.TakeBytes();
+		}
+
+		auto DeserializeTexturePlatformData(std::span<const uint8> Bytes,
+			std::unique_ptr<FTexturePlatformData>& OutPlatformData) -> bool
+		{
+			DerivedDataCache::FReader File(Bytes);
+			uint64 StoredHash = 0;
+			uint64 PayloadSize = 0;
+			std::vector<uint8> PayloadBytes;
+			if (!File.ReadAndValidateHeader(TextureDerivedDataMagic, TextureDerivedDataSchemaVersion, TextureBuilderVersion)
+				|| !File.ReadU64(StoredHash) || !File.ReadU64(PayloadSize)
+				|| !File.ReadBytes(PayloadBytes, PayloadSize, MaximumTextureDerivedDataBytes)
+				|| !File.IsAtEnd() || FXxHash64::HashBuffer(PayloadBytes).HashValue != StoredHash) return false;
+
+			DerivedDataCache::FReader Payload(PayloadBytes);
+			uint8 PixelFormatValue = 0;
+			uint32 MipCount = 0;
+			if (!Payload.ReadU8(PixelFormatValue)
+				|| PixelFormatValue == static_cast<uint8>(EPixelFormat::Unknown)
+				|| PixelFormatValue >= static_cast<uint8>(EPixelFormat::Count)
+				|| !Payload.ReadU32(MipCount) || MipCount == 0
+				|| MipCount > std::numeric_limits<uint8>::max()) return false;
+
+			auto PlatformData = std::make_unique<FTexturePlatformData>();
+			PlatformData->PixelFormat = static_cast<EPixelFormat>(PixelFormatValue);
+			PlatformData->Mips.reserve(MipCount);
+			uint64 TotalPayloadBytes = 0;
+			for (uint32 MipIndex = 0; MipIndex < MipCount; ++MipIndex)
+			{
+				FTexture2DMipData Mip;
+				uint64 MipByteCount = 0;
+				if (!Payload.ReadU32(Mip.Width) || !Payload.ReadU32(Mip.Height)
+					|| !Payload.ReadU32(Mip.RowPitch) || !Payload.ReadU64(MipByteCount)
+					|| MipByteCount > MaximumTextureDerivedDataBytes - TotalPayloadBytes
+					|| !Payload.ReadBytes(Mip.Pixels, MipByteCount, MaximumTextureDerivedDataBytes)) return false;
+				TotalPayloadBytes += MipByteCount;
+				PlatformData->Mips.push_back(std::move(Mip));
+			}
+			if (!Payload.IsAtEnd() || !PlatformData->IsValid()) return false;
+			OutPlatformData = std::move(PlatformData);
+			return true;
+		}
+
+		auto LoadTextureDerivedData(std::string_view Key,
+			std::unique_ptr<FTexturePlatformData>& OutPlatformData) -> bool
+		{
+			const std::filesystem::path Path = TextureDerivedDataPath(Key);
+			std::error_code Error;
+			const uint64 FileSize = std::filesystem::file_size(Path, Error);
+			if (Error || FileSize > MaximumTextureDerivedDataBytes) return false;
+			std::vector<uint8> Bytes;
+			return FFileHelper::LoadFileToArray(Bytes, Path.generic_string())
+				&& DeserializeTexturePlatformData(Bytes, OutPlatformData);
+		}
+
+		auto StoreTextureDerivedData(std::string_view Key, const FTexturePlatformData& PlatformData) -> void
+		{
+			const std::filesystem::path Path = TextureDerivedDataPath(Key);
+			std::error_code Error;
+			std::filesystem::create_directories(Path.parent_path(), Error);
+			if (Error) return;
+			const std::vector<uint8> Bytes = SerializeTexturePlatformData(PlatformData);
+			DerivedDataCache::WriteFileAtomically(Path, Bytes);
 		}
 	} // namespace
 
@@ -139,10 +256,47 @@ namespace Durin
 		RenderResource->QueueBuild(std::make_shared<const FTexturePlatformData>(*PlatformData), Revision);
 	}
 
-	auto DTexture2D::BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool
+	auto DTexture2D::DecodeSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool
 	{
+		std::vector<uint8> SourceBytes;
+		if (!FFileHelper::LoadFileToArray(SourceBytes, PhysicalFilePath))
+		{
+			OutError = std::format("Failed to read texture source file: {}", PhysicalFilePath);
+			return false;
+		}
+
 		auto NewSourceData = std::make_unique<FTextureSourceData>();
 		if (!TextureBuild::DecodeRGBA8(PhysicalFilePath, *NewSourceData, OutError))
+		{
+			return false;
+		}
+
+		SourceContentHash = FXxHash128::HashBuffer(SourceBytes).ToString();
+		UpdateSourceFingerprint(std::filesystem::path(PhysicalFilePath));
+		SourceWidth = NewSourceData->Width;
+		SourceHeight = NewSourceData->Height;
+		SourceChannelCount = NewSourceData->SourceChannelCount;
+		bSourceHasTransparency = NewSourceData->bHasTransparency;
+		SourceData = std::move(NewSourceData);
+		return true;
+	}
+
+	auto DTexture2D::UpdateSourceFingerprint(const std::filesystem::path& PhysicalFilePath) -> void
+	{
+		SourceFileSize = 0;
+		SourceLastWriteTime = 0;
+		std::error_code Error;
+		const uint64 FileSize = std::filesystem::file_size(PhysicalFilePath, Error);
+		if (Error) return;
+		const std::filesystem::file_time_type LastWriteTime = std::filesystem::last_write_time(PhysicalFilePath, Error);
+		if (Error) return;
+		SourceFileSize = FileSize;
+		SourceLastWriteTime = DerivedDataCache::FileTimeToStableTicks(LastWriteTime);
+	}
+
+	auto DTexture2D::BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool
+	{
+		if (!DecodeSourceData(PhysicalFilePath, OutError))
 		{
 			BuildStatus = ETextureBuildStatus::DecodeFailure;
 			LastBuildError = OutError;
@@ -150,13 +304,29 @@ namespace Durin
 			InvalidatePlatformData();
 			return false;
 		}
-
-		SourceData = std::move(NewSourceData);
 		return RebuildPlatformData(OutError);
+	}
+
+	auto DTexture2D::EnsureSourceData(std::string& OutError) -> bool
+	{
+		if (SourceData && SourceData->IsValid()) return true;
+		if (SourceFile.empty())
+		{
+			OutError = "Texture asset has no source file.";
+			return false;
+		}
+		const std::filesystem::path PhysicalPath = ResolveTextureSource(*this);
+		if (!std::filesystem::is_regular_file(PhysicalPath))
+		{
+			OutError = std::format("Texture source file does not exist: {}", SourceFile);
+			return false;
+		}
+		return DecodeSourceData(PhysicalPath.generic_string(), OutError);
 	}
 
 	auto DTexture2D::RebuildPlatformData(std::string& OutError) -> bool
 	{
+		if (!EnsureSourceData(OutError)) return false;
 		std::unique_ptr<FTexturePlatformData> NewPlatformData;
 		if (!BuildPlatformData(Usage, bSRGB, MaxResolution, CompressionQuality, AlphaMipMode,
 			AlphaCoverageThreshold, NewPlatformData, OutError))
@@ -175,6 +345,9 @@ namespace Durin
 		PlatformData = std::move(NewPlatformData);
 		BuildStatus = ETextureBuildStatus::Ready;
 		LastBuildError.clear();
+		DerivedDataKey = MakeTextureDerivedDataKey(*this);
+		bLoadedFromDerivedDataCache = false;
+		StoreTextureDerivedData(DerivedDataKey, *PlatformData);
 		QueueRenderResourceBuild();
 		return true;
 	}
@@ -207,11 +380,7 @@ namespace Durin
 			return false;
 		}
 		if (Usage == InUsage) return true;
-		if (!SourceData || !SourceData->IsValid())
-		{
-			OutError = "Texture source data is unavailable or invalid.";
-			return false;
-		}
+		if (!EnsureSourceData(OutError)) return false;
 		const ETextureUsage PreviousUsage = Usage;
 		const bool bPreviousSRGB = bSRGB;
 		Usage = InUsage;
@@ -232,11 +401,7 @@ namespace Durin
 	{
 		OutError.clear();
 		if (bSRGB == bInSRGB) return true;
-		if (!SourceData || !SourceData->IsValid())
-		{
-			OutError = "Texture source data is unavailable or invalid.";
-			return false;
-		}
+		if (!EnsureSourceData(OutError)) return false;
 		const bool bPreviousSRGB = bSRGB;
 		bSRGB = bInSRGB;
 		if (RebuildPlatformData(OutError))
@@ -254,11 +419,7 @@ namespace Durin
 	{
 		OutError.clear();
 		if (MaxResolution == InMaxResolution) return true;
-		if (!SourceData || !SourceData->IsValid())
-		{
-			OutError = "Texture source data is unavailable or invalid.";
-			return false;
-		}
+		if (!EnsureSourceData(OutError)) return false;
 		const uint32 PreviousMaxResolution = MaxResolution;
 		MaxResolution = InMaxResolution;
 		if (RebuildPlatformData(OutError))
@@ -281,11 +442,7 @@ namespace Durin
 			return false;
 		}
 		if (CompressionQuality == InQuality) return true;
-		if (!SourceData || !SourceData->IsValid())
-		{
-			OutError = "Texture source data is unavailable or invalid.";
-			return false;
-		}
+		if (!EnsureSourceData(OutError)) return false;
 		const ETextureCompressionQuality PreviousQuality = CompressionQuality;
 		CompressionQuality = InQuality;
 		if (RebuildPlatformData(OutError))
@@ -308,11 +465,7 @@ namespace Durin
 			return false;
 		}
 		if (AlphaMipMode == InMode) return true;
-		if (!SourceData || !SourceData->IsValid())
-		{
-			OutError = "Texture source data is unavailable or invalid.";
-			return false;
-		}
+		if (!EnsureSourceData(OutError)) return false;
 		const ETextureAlphaMipMode PreviousMode = AlphaMipMode;
 		AlphaMipMode = InMode;
 		if (RebuildPlatformData(OutError))
@@ -335,11 +488,7 @@ namespace Durin
 			return false;
 		}
 		if (AlphaCoverageThreshold == InThreshold) return true;
-		if (!SourceData || !SourceData->IsValid())
-		{
-			OutError = "Texture source data is unavailable or invalid.";
-			return false;
-		}
+		if (!EnsureSourceData(OutError)) return false;
 		const float PreviousThreshold = AlphaCoverageThreshold;
 		AlphaCoverageThreshold = InThreshold;
 		if (RebuildPlatformData(OutError))
@@ -357,6 +506,8 @@ namespace Durin
 	{
 		BuildStatus = ETextureBuildStatus::Unbuilt;
 		LastBuildError.clear();
+		DerivedDataKey.clear();
+		bLoadedFromDerivedDataCache = false;
 		if (SourceFile.empty())
 		{
 			OutError = "Texture asset has no source file.";
@@ -376,7 +527,31 @@ namespace Durin
 			LastBuildError = OutError;
 			return false;
 		}
-		return BuildSourceData(PhysicalPath.generic_string(), OutError);
+		std::error_code FingerprintError;
+		const uint64 CurrentFileSize = std::filesystem::file_size(PhysicalPath, FingerprintError);
+		const std::filesystem::file_time_type CurrentLastWriteTime =
+			std::filesystem::last_write_time(PhysicalPath, FingerprintError);
+		const bool bSourceFingerprintMatches = !FingerprintError
+			&& CurrentFileSize == SourceFileSize
+			&& DerivedDataCache::FileTimeToStableTicks(CurrentLastWriteTime) == SourceLastWriteTime;
+		if (!SourceContentHash.empty() && bSourceFingerprintMatches)
+		{
+			DerivedDataKey = MakeTextureDerivedDataKey(*this);
+			std::unique_ptr<FTexturePlatformData> CachedPlatformData;
+			if (LoadTextureDerivedData(DerivedDataKey, CachedPlatformData))
+			{
+				SourceData.reset();
+				PlatformData = std::move(CachedPlatformData);
+				BuildStatus = ETextureBuildStatus::Ready;
+				bLoadedFromDerivedDataCache = true;
+				QueueRenderResourceBuild();
+				return true;
+			}
+		}
+		const bool bMetadataChanged = SourceContentHash.empty() || !bSourceFingerprintMatches;
+		if (!BuildSourceData(PhysicalPath.generic_string(), OutError)) return false;
+		if (bMetadataChanged) MarkPackageDirty();
+		return true;
 	}
 
 	auto DTexture2D::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
@@ -456,6 +631,7 @@ namespace Durin
 		}
 		else return true;
 
+		if (!EnsureSourceData(OutError)) return false;
 		std::unique_ptr<FTexturePlatformData> CandidatePlatformData;
 		if (!BuildPlatformData(CandidateUsage, bCandidateSRGB, CandidateMaxResolution,
 			CandidateCompressionQuality, CandidateAlphaMipMode, CandidateAlphaCoverageThreshold,
@@ -489,6 +665,9 @@ namespace Durin
 		PlatformData = std::move(PendingEditPlatformData);
 		BuildStatus = ETextureBuildStatus::Ready;
 		LastBuildError.clear();
+		DerivedDataKey = MakeTextureDerivedDataKey(*this);
+		bLoadedFromDerivedDataCache = false;
+		StoreTextureDerivedData(DerivedDataKey, *PlatformData);
 		QueueRenderResourceBuild();
 	}
 
@@ -561,6 +740,7 @@ namespace Durin
 			return {false, std::format("Failed to copy source file to {}: {}", Destination.generic_string(), ErrorCode.message()), nullptr};
 		}
 		Texture->SourceFile = SourceFileName;
+		Texture->UpdateSourceFingerprint(Destination);
 		Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
 		if (!SaveResult)
 		{

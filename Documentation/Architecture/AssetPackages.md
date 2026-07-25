@@ -44,4 +44,18 @@ Durin stores asset discovery metadata and source-image thumbnails beneath `FPath
 
 `Thumbnails/Index.bin` maps stable source and generator keys to resized PNG objects under `Thumbnails/Objects/`. Keys include normalized source identity, source size and last-write time, maximum dimensions, generator schema, color-space policy, and output encoding version. A warm hit decodes the generated PNG without reopening the source image, then follows the existing asynchronous, serial-validated RHI upload path. Missing or modified sources, changed settings or versions, corrupt indexes or PNGs, and missing objects become safe misses. Object and index writes are atomic; persistence failure does not fail a valid in-memory thumbnail. Encoded objects use an independent disk LRU budget, while RHI textures retain their process-local GPU budget. Cleanup resolves and validates every target beneath the exact thumbnail cache root before deletion.
 
+`Textures/Objects/<key-prefix>/<key>.bin` stores Texture2D platform mip chains.
+The 128-bit key covers the imported source-content hash, every platform build
+setting, the target platform, and the texture-builder version. The package keeps
+the source hash plus file size and stable last-write time, allowing an unchanged
+source to reach the cache without reopening or decoding the image. Each cache
+object has a versioned header, bounded mip records, and a payload checksum.
+Missing, incompatible, truncated, corrupt, or structurally invalid objects are
+safe misses; a successful source build atomically replaces the object, while a
+cache write failure does not invalidate usable in-memory platform data.
+
+Texture DDC objects are content-addressed generated files, so `.dasset` packages
+do not store cache paths or byte offsets. External cooked bulk payloads and their
+descriptors remain a separate future package-format concern.
+
 Repository storage rules for packages, source assets, and generated data are documented in [Content Version Control](../Git/ContentVersionControl.md).

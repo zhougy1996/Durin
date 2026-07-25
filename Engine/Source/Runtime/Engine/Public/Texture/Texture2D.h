@@ -146,7 +146,14 @@ namespace Durin
 
 		auto GetSourceFile() const -> const std::string& { return SourceFile; }
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
+		auto GetSourceContentHash() const -> const std::string& { return SourceContentHash; }
+		auto GetSourceWidth() const -> uint32 { return SourceWidth; }
+		auto GetSourceHeight() const -> uint32 { return SourceHeight; }
+		auto GetSourceChannelCount() const -> uint8 { return SourceChannelCount; }
+		auto SourceHasTransparency() const -> bool { return bSourceHasTransparency; }
 		auto GetPlatformData() const -> const FTexturePlatformData* { return PlatformData.get(); }
+		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
+		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetRenderResource() const -> const std::shared_ptr<FTexture2DRenderResource>& { return RenderResource; }
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 		auto GetUsage() const -> ETextureUsage { return Usage; }
@@ -174,6 +181,9 @@ namespace Durin
 
 	private:
 		auto BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
+		auto DecodeSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
+		auto EnsureSourceData(std::string& OutError) -> bool;
+		auto UpdateSourceFingerprint(const std::filesystem::path& PhysicalFilePath) -> void;
 		auto BuildPlatformData(ETextureUsage InUsage, bool bInSRGB, uint32 InMaxResolution,
 			ETextureCompressionQuality InCompressionQuality, ETextureAlphaMipMode InAlphaMipMode,
 			float InAlphaCoverageThreshold,
@@ -183,6 +193,29 @@ namespace Durin
 
 		DPROPERTY()
 		std::string SourceFile;
+
+		// Imported content identity and lightweight diagnostics remain in the package
+		// so a warm derived-data load does not need to decode the source image.
+		DPROPERTY()
+		std::string SourceContentHash;
+
+		DPROPERTY()
+		uint64 SourceFileSize = 0;
+
+		DPROPERTY()
+		int64 SourceLastWriteTime = 0;
+
+		DPROPERTY()
+		uint32 SourceWidth = 0;
+
+		DPROPERTY()
+		uint32 SourceHeight = 0;
+
+		DPROPERTY()
+		uint8 SourceChannelCount = 0;
+
+		DPROPERTY()
+		bool bSourceHasTransparency = false;
 
 		DPROPERTY()
 		ETextureUsage Usage = ETextureUsage::Color;
@@ -209,6 +242,8 @@ namespace Durin
 		// separate lets platform builds replace format/mips without mutating edit data.
 		std::unique_ptr<FTextureSourceData> SourceData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
+		std::string DerivedDataKey;
+		bool bLoadedFromDerivedDataCache = false;
 
 		// The shared proxy can outlive this UObject while queued render commands drain.
 		// Its RHI member is intentionally never accessed through DTexture2D.

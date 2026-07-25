@@ -8,14 +8,20 @@ explicit source, platform, render-resource, editor, and material boundaries.
 - `DTexture2D` owns the copied source-file reference plus the reflected `Usage`,
   `bSRGB`, `MaxResolution`, `CompressionQuality`, `AlphaMipMode`, and
   `AlphaCoverageThreshold` build settings.
+- The package also retains the imported source-content hash, source file
+  fingerprint, dimensions, channel count, and transparency. These lightweight
+  fields preserve diagnostics and derived-data identity without keeping decoded
+  pixels resident.
 - `FTextureSourceData` is decoded RGBA8 edit data. It records source dimensions,
-  original channel count, and whether transparency is present.
+  original channel count, and whether transparency is present. A warm derived-
+  data load leaves it non-resident; changing a build setting decodes it on demand
+  before validating the candidate build.
 - `FTexturePlatformData` is rebuilt from source data. It contains a complete,
   tightly packed desktop BC mip chain selected from usage, transparency, and
   color space.
-- Source and platform data are intentionally separate. Future compression,
-  target-platform selection, and derived-data caching replace platform data
-  without mutating the decoded source representation.
+- Source and platform data are intentionally separate. Platform cache hits and
+  rebuilds replace platform data without mutating a resident decoded source
+  representation.
 - Normal usage generates linear-space mips by averaging and renormalizing the
   encoded normal vector. Color usage filters RGB in linear space when sRGB is
   enabled. Data/Mask usage averages channels independently.
@@ -41,6 +47,27 @@ explicit source, platform, render-resource, editor, and material boundaries.
   discrete texel count permits. The threshold must be strictly between zero and
   one and defaults to `0.5`. RGB filtering is unchanged. The setting remains
   serialized but inactive for opaque Color, Normal, and Data/Mask textures.
+
+## Derived Platform Data
+
+Texture2D platform mip chains are content-addressed beneath
+`DerivedDataCache/Textures/Objects/` as `.bin` objects. A canonical 128-bit key
+includes the imported source-content hash, usage, explicit color-space choice,
+maximum resolution, compression quality, alpha-mip policy and threshold, target
+platform, and texture-builder version.
+
+`PostLoad` first requires the editor source file and compares its size and stable
+last-write time with the package fingerprint. An unchanged source can restore
+the checksummed, versioned platform payload without reopening or decoding the
+image. A changed fingerprint decodes the source, recomputes its content hash,
+builds a new key and payload, and dirties the package so the new source identity
+can be saved. Missing, incompatible, corrupt, truncated, oversized, or invalid
+cache data is a non-fatal miss and rebuilds from source. Atomic cache persistence
+failure does not discard valid in-memory platform data.
+
+The DDC path is derived entirely from the key; `.dasset` never stores a cache
+file path or byte offset. Cooked source-free platform payloads and any future
+external `.dbulk` descriptor are not implemented by this editor cache.
 
 ## Transactional Build-Setting Edits
 
@@ -118,8 +145,8 @@ copied source image rather than the built platform representation.
 
 ## Current Limitations
 
-- Platform data is rebuilt by decoding the source image during every normal
-  `PostLoad`; there is no texture derived-data key or cooked payload.
+- Texture2D has an editor derived-data cache, but there is no cooked platform
+  payload and runtime packages still require the source image to exist.
 - Build work is synchronous, every mip is fully resident, and there is no memory
   accounting or streaming.
 - The shipped material shader consumes only the base-color texture parameter.

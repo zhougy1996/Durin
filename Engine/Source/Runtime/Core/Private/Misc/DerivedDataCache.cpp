@@ -43,6 +43,11 @@ namespace Durin::DerivedDataCache
 		Bytes.insert(Bytes.end(), Value.begin(), Value.end());
 	}
 
+	auto FWriter::WriteBytes(std::span<const uint8> Value) -> void
+	{
+		Bytes.insert(Bytes.end(), Value.begin(), Value.end());
+	}
+
 	auto FWriter::WriteHeader(const FCacheHeader& Header) -> void
 	{
 		WriteU32(Header.Magic);
@@ -55,6 +60,15 @@ namespace Durin::DerivedDataCache
 	{
 		if (Offset == Bytes.size()) return false;
 		Value = Bytes[Offset++];
+		return true;
+	}
+
+	auto FReader::ReadBytes(std::vector<uint8>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
+	{
+		if (ByteCount > MaximumBytes || ByteCount > GetRemainingBytes()) return false;
+		Value.assign(Bytes.begin() + static_cast<ptrdiff_t>(Offset),
+			Bytes.begin() + static_cast<ptrdiff_t>(Offset + static_cast<size_t>(ByteCount)));
+		Offset += static_cast<size_t>(ByteCount);
 		return true;
 	}
 

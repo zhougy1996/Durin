@@ -121,11 +121,52 @@ namespace
 			if (Pixels[Offset] >= Threshold) ++CoveredPixelCount;
 		return static_cast<double>(CoveredPixelCount) / (Pixels.size() / 4);
 	}
+
+	auto GetTextureCachePath(const Durin::DTexture2D& Texture) -> std::filesystem::path
+	{
+		const std::string& Key = Texture.GetDerivedDataKey();
+		EXPECT_GE(Key.size(), 2u);
+		return std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())
+			/ "Textures" / "Objects" / Key.substr(0, 2) / (Key + ".bin");
+	}
+
+	auto ExpectPlatformDataEqual(const Durin::FTexturePlatformData& Actual,
+		const Durin::FTexturePlatformData& Expected) -> void
+	{
+		EXPECT_EQ(Actual.PixelFormat, Expected.PixelFormat);
+		ASSERT_EQ(Actual.Mips.size(), Expected.Mips.size());
+		for (size_t MipIndex = 0; MipIndex < Actual.Mips.size(); ++MipIndex)
+		{
+			EXPECT_EQ(Actual.Mips[MipIndex].Width, Expected.Mips[MipIndex].Width);
+			EXPECT_EQ(Actual.Mips[MipIndex].Height, Expected.Mips[MipIndex].Height);
+			EXPECT_EQ(Actual.Mips[MipIndex].RowPitch, Expected.Mips[MipIndex].RowPitch);
+			EXPECT_EQ(Actual.Mips[MipIndex].Pixels, Expected.Mips[MipIndex].Pixels);
+		}
+	}
+
+	struct FScopedDerivedDataCacheRoot
+	{
+		explicit FScopedDerivedDataCacheRoot(const std::filesystem::path& Root)
+			: PreviousRoot(Durin::FPaths::DerivedDataCacheDir())
+		{
+			std::filesystem::remove_all(Root);
+			Durin::FPaths::SetDerivedDataCacheDirForTests(Root.generic_string());
+		}
+
+		~FScopedDerivedDataCacheRoot()
+		{
+			Durin::FPaths::SetDerivedDataCacheDirForTests(PreviousRoot);
+		}
+
+		std::string PreviousRoot;
+	};
 }
 
 TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 {
 	InitializeDObjectSystem();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImportDerivedDataCache");
 	static const bool bMountInitialized = [] {
 		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports";
 		std::filesystem::remove_all(Root);
@@ -169,9 +210,13 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 
 	Durin::DTexture2D* Loaded = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
-	ASSERT_NE(Loaded->GetSourceData(), nullptr);
+	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
-	EXPECT_TRUE(Loaded->GetSourceData()->IsValid());
+	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_EQ(Loaded->GetSourceWidth(), 2u);
+	EXPECT_EQ(Loaded->GetSourceHeight(), 1u);
+	EXPECT_EQ(Loaded->GetSourceChannelCount(), 4u);
+	EXPECT_TRUE(Loaded->SourceHasTransparency());
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
 	EXPECT_EQ(Loaded->GetBuildRevision(), 1u);
 	EXPECT_EQ(Loaded->GetSourceFile(), "Transparent.png");
@@ -192,6 +237,129 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
 	EXPECT_FALSE(std::filesystem::exists(ImportRoot / "Renamed.png"));
+}
+
+TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
+{
+	InitializeDObjectSystem();
+	static const bool bMountInitialized = [] {
+		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureDerivedDataMount";
+		std::filesystem::remove_all(Root);
+		Durin::PathUtilities::RegisterMountPoint("/TextureDerivedDataTests/", Root.generic_string() + "/");
+		return true;
+	}();
+	(void)bMountInitialized;
+	FScopedDerivedDataCacheRoot CacheRoot(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureDerivedDataCache");
+
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "DerivedDataSource.png";
+	WriteTextureFixture(Source);
+	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
+		Source.generic_string(), "/TextureDerivedDataTests/Cached");
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Result.Asset, nullptr);
+	EXPECT_FALSE(Result.Asset->GetSourceContentHash().empty());
+	EXPECT_EQ(Result.Asset->GetSourceContentHash().size(), 32u);
+	EXPECT_FALSE(Result.Asset->GetDerivedDataKey().empty());
+	EXPECT_FALSE(Result.Asset->WasLoadedFromDerivedDataCache());
+	const std::filesystem::path CachePath = GetTextureCachePath(*Result.Asset);
+	const std::string OriginalKey = Result.Asset->GetDerivedDataKey();
+	EXPECT_TRUE(std::filesystem::is_regular_file(CachePath));
+	const Durin::FTexturePlatformData ExpectedPlatformData = *Result.Asset->GetPlatformData();
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureDerivedDataTests/Cached", AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+
+	Durin::DTexture2D* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
+	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
+	ExpectPlatformDataEqual(*Loaded->GetPlatformData(), ExpectedPlatformData);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+
+	{
+		const std::array<Durin::uint8, 7> CorruptBytes = {0, 1, 2, 3, 4, 5, 6};
+		std::ofstream Stream(CachePath, std::ios::binary | std::ios::trunc);
+		Stream.write(reinterpret_cast<const char*>(CorruptBytes.data()), CorruptBytes.size());
+	}
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	EXPECT_FALSE(Loaded->WasLoadedFromDerivedDataCache());
+	ASSERT_NE(Loaded->GetSourceData(), nullptr);
+	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
+	ExpectPlatformDataEqual(*Loaded->GetPlatformData(), ExpectedPlatformData);
+	EXPECT_GT(std::filesystem::file_size(CachePath), 7u);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+
+	const std::filesystem::path CopiedSource =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureDerivedDataMount" / "Cached.png";
+	WriteNpotTextureFixture(CopiedSource);
+	std::filesystem::last_write_time(CopiedSource,
+		std::filesystem::last_write_time(CopiedSource) + std::chrono::seconds(1));
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	EXPECT_FALSE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_NE(Loaded->GetDerivedDataKey(), OriginalKey);
+	EXPECT_EQ(Loaded->GetSourceWidth(), 5u);
+	EXPECT_EQ(Loaded->GetSourceHeight(), 3u);
+	EXPECT_TRUE(Loaded->GetPackage()->IsDirty());
+	EXPECT_TRUE(std::filesystem::is_regular_file(GetTextureCachePath(*Loaded)));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Loaded->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+}
+
+TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
+{
+	InitializeDObjectSystem();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureDerivedDataKeyCache");
+	const std::filesystem::path FirstSource = std::filesystem::path(DURIN_TEST_WORK_DIR) / "DerivedKeyFirst.png";
+	const std::filesystem::path SecondSource = std::filesystem::path(DURIN_TEST_WORK_DIR) / "DerivedKeySecond.tga";
+	WriteTextureFixture(FirstSource);
+	WriteNpotTextureFixture(SecondSource);
+
+	const Durin::FTexture2DImportResult First = Durin::DTexture2D::ImportAsset(
+		FirstSource.generic_string(), "/TextureImportTests/DerivedKeyFirst");
+	const Durin::FTexture2DImportResult Second = Durin::DTexture2D::ImportAsset(
+		SecondSource.generic_string(), "/TextureImportTests/DerivedKeySecond");
+	ASSERT_TRUE(First) << First.Message;
+	ASSERT_TRUE(Second) << Second.Message;
+	ASSERT_NE(First.Asset, nullptr);
+	ASSERT_NE(Second.Asset, nullptr);
+	EXPECT_NE(First.Asset->GetSourceContentHash(), Second.Asset->GetSourceContentHash());
+	EXPECT_NE(First.Asset->GetDerivedDataKey(), Second.Asset->GetDerivedDataKey());
+
+	Durin::FAssetPath FirstPath;
+	Durin::FAssetPath SecondPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/DerivedKeyFirst", FirstPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/DerivedKeySecond", SecondPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(FirstPath));
+	Durin::DTexture2D* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(FirstPath, Loaded));
+	ASSERT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
+	const std::string OriginalKey = Loaded->GetDerivedDataKey();
+	std::string Error;
+	ASSERT_TRUE(Loaded->SetMaxResolution(1, Error)) << Error;
+	EXPECT_NE(Loaded->GetSourceData(), nullptr);
+	EXPECT_NE(Loaded->GetDerivedDataKey(), OriginalKey);
+	EXPECT_TRUE(std::filesystem::is_regular_file(GetTextureCachePath(*Loaded)));
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(FirstPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SecondPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(FirstPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(SecondPath));
 }
 
 TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)

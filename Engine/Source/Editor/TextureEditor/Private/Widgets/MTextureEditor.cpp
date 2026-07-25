@@ -413,6 +413,13 @@ namespace Durin
 			DrawInfoRow("Transparency", Source->bHasTransparency ? "Present" : "Opaque");
 			DrawInfoRow("Decoded Format", Source->Format == ETextureSourceFormat::RGBA8 ? "RGBA8" : "Invalid");
 		}
+		else if (Texture->GetSourceWidth() > 0 && Texture->GetSourceHeight() > 0)
+		{
+			DrawInfoRow("Dimensions", FormatDimensions(Texture->GetSourceWidth(), Texture->GetSourceHeight()));
+			DrawInfoRow("Source Channels", std::format("{}", Texture->GetSourceChannelCount()));
+			DrawInfoRow("Transparency", Texture->SourceHasTransparency() ? "Present" : "Opaque");
+			DrawInfoRow("Decoded Format", "Not resident (derived-data cache hit)");
+		}
 		else
 		{
 			const ETextureBuildStatus Status = Texture->GetBuildStatus();
