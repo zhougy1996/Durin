@@ -1,16 +1,19 @@
 # Static Mesh Derived Data and Cooking Plan
 
-Last reviewed: 2026-07-25
+Last reviewed: 2026-07-26
 
 ## Current Status
 
-Proposed. Durin currently imports every static-mesh source file during
+Stage 0 is in progress. Durin currently imports every static-mesh source file during
 `DStaticMesh::PostLoad`, and material previews create separate transient meshes
 directly from engine OBJ files. No static-mesh derived-data key, persistent
 platform payload, or cooked-runtime path exists.
 
 This plan selects the long-term source/import/derived/cooked boundaries and
-provides an implementation sequence. No stage has started.
+provides an implementation sequence. The shared asset-data lifecycle now fixes
+the loose `.dbulk` companion naming, package-relative lookup, logical payload
+descriptor, DDC separation, and future-archive boundary. Static-mesh-specific
+payload fields, fixtures, and source migration details remain to be frozen.
 
 ## Goal
 
@@ -203,7 +206,7 @@ payloads that load without source files or Assimp.
 - [ ] Define the target-platform identifier and mesh-builder version ownership.
 - [ ] Define the exact derived-data key byte encoding; do not hash formatted
   diagnostic strings or native struct memory.
-- [ ] Define cooked `.dbulk` naming and package-relative lookup rules, including
+- [x] Define cooked `.dbulk` naming and package-relative lookup rules, including
   how a future archive replaces the loose companion.
 - [ ] Add small deterministic fixtures covering one section, multiple material
   slots, multiple UV channels, vertex colors, and malformed payloads.
@@ -396,6 +399,7 @@ payloads that load without source files or Assimp.
 ## Related Documentation
 
 - `Documentation/Architecture/AssetPackages.md`
+- `Documentation/Architecture/AssetDataLifecycle.md`
 - `Documentation/Architecture/LevelSystem.md`
 - `Documentation/Architecture/MaterialSystem.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`

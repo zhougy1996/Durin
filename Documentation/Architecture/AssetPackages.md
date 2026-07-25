@@ -58,4 +58,8 @@ Texture DDC objects are content-addressed generated files, so `.dasset` packages
 do not store cache paths or byte offsets. External cooked bulk payloads and their
 descriptors remain a separate future package-format concern.
 
+The shared authored/DDC/cooked storage classes, `.bin` versus `.dbulk`
+semantics, loose companion naming, logical bulk descriptors, and runtime failure
+policy are defined in [Asset Data Lifecycle and Storage](AssetDataLifecycle.md).
+
 Repository storage rules for packages, source assets, and generated data are documented in [Content Version Control](../Git/ContentVersionControl.md).

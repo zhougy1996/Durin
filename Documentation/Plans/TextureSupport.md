@@ -16,14 +16,15 @@ linear-wrap sampler. Missing or not-yet-ready resources resolve to the
 renderer-owned white texture.
 
 The current build remains an editor-oriented implementation rather than a
-production texture pipeline. `DTexture2D::PostLoad` still reopens and decodes the
-copied source image, and all built mips are fully resident. A dedicated Texture
-Editor now shows source and platform diagnostics and changes usage, the
-explicit sRGB override, maximum resolution, or compression quality through
-validated reflected transactions with Dirty, save, cancel, Undo, and Redo
-behavior. Normal and Data/Mask currently affect build defaults and mip filtering
-only; the shipped material shader consumes only the base-color texture
-parameter.
+production texture pipeline. A warm `DTexture2D::PostLoad` restores platform
+data from DDC without decoding the copied source image, but there is not yet a
+cooked, source-independent runtime package and all built mips are fully
+resident. A dedicated Texture Editor shows source and platform diagnostics and
+changes usage, the explicit sRGB override, maximum resolution, compression
+quality, and alpha mip policy through validated reflected transactions with
+Dirty, save, cancel, Undo, and Redo behavior. Normal and Data/Mask currently
+affect build defaults and mip filtering only; the shipped material shader
+consumes only the base-color texture parameter.
 
 The original focused `FTexture2DTests.*` and `FEditorTextureSmokeTests.*` suites
 passed on 2026-07-21 using the `Win64-Debug-DurinEditor-Tests` preset. On
@@ -73,7 +74,10 @@ mip payloads are stored beneath the project Derived Data Cache. A warm
 `PostLoad` validates the source fingerprint and restores platform data without
 opening or decoding the source image; changed sources, changed build settings,
 missing entries, and corrupt payloads become safe rebuilds. Cooked payload
-packaging remains open.
+packaging remains open. The shared asset-data lifecycle now reserves `.bin` for
+unreferenced, rebuildable DDC objects and `.dbulk` for manifest-owned cooked
+payloads. The initial cooked layout uses one package-relative companion per
+`.dasset` while keeping payload references relocatable into a future archive.
 All four focused `FDerivedDataCacheTests.*`, all fifteen focused
 `FTexture2DTests.*`, and all 214 `EngineTests` passed, followed by a successful
 full `all` build and a ten-second `DurinEditor --hidden-window` smoke run. The
@@ -181,6 +185,8 @@ inferred from the source filename.
 
 ### Stage 4: Versioned Derived Data and Cooked Payloads
 
+- [x] Define the shared authored, source, DDC, cooked package, and cooked bulk
+  lifecycle rules, including `.bin` versus `.dbulk` semantics.
 - [x] Serialize or cache built platform data so normal asset loading does not
   decode the source image on every `PostLoad`.
 - [x] Define a derived-data key that includes the source content, build
@@ -260,6 +266,7 @@ These features are intentionally outside the first Texture2D/material slice:
 ## Related Documentation
 
 - `Documentation/Architecture/AssetPackages.md`
+- `Documentation/Architecture/AssetDataLifecycle.md`
 - `Documentation/Architecture/MaterialSystem.md`
 - `Documentation/Architecture/RuntimeArchitecture.md`
 - `Documentation/Architecture/TextureSystem.md`

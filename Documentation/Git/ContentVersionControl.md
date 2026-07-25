@@ -11,6 +11,12 @@ Durin keeps authored content reproducible alongside the source revision that con
 | Small text metadata and import settings | Git | They are reviewable and should evolve with their assets. |
 | `DerivedDataCache`, `Cooked`, and `Saved` | Ignored | These directories contain rebuildable or machine-local output. |
 
+`Cooked` is reproducible and therefore not source-controlled, but its contents
+are required distribution artifacts for a particular staged build. They must
+not be treated like disposable DDC entries while that build is installed or
+running. See [Asset Data Lifecycle and Storage](../Architecture/AssetDataLifecycle.md)
+for the `.dasset`, DDC `.bin`, and cooked `.dbulk` boundaries.
+
 Static-mesh `.dasset` files record the source model's filename relative to the package directory, while CPU and GPU render data is rebuilt from that colocated Content source. Commit and move the source model together with its `.dasset`; committing only the package does not produce a reproducible checkout. Older packages that stored a mounted `SourceMeshes` path can still load a colocated file with the same filename.
 
 ## Directory Convention
