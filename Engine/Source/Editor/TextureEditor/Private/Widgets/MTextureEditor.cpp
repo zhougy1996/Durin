@@ -434,6 +434,8 @@ namespace Durin
 		FProperty* SRGBProperty = Texture->GetClass()->FindPropertyByName("bSRGB");
 		FProperty* MaxResolutionProperty = Texture->GetClass()->FindPropertyByName("MaxResolution");
 		FProperty* CompressionQualityProperty = Texture->GetClass()->FindPropertyByName("CompressionQuality");
+		FProperty* AlphaMipModeProperty = Texture->GetClass()->FindPropertyByName("AlphaMipMode");
+		FProperty* AlphaCoverageThresholdProperty = Texture->GetClass()->FindPropertyByName("AlphaCoverageThreshold");
 		if (UsageProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, UsageProperty, 0, {.Label = "Usage"});
 		else DrawInfoRow("Usage", "Reflection metadata unavailable");
 		if (SRGBProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, SRGBProperty, 0, {.Label = "sRGB"});
@@ -444,6 +446,12 @@ namespace Durin
 		if (CompressionQualityProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, CompressionQualityProperty, 0,
 			{.Label = "Compression Quality"});
 		else DrawInfoRow("Compression Quality", "Reflection metadata unavailable");
+		if (AlphaMipModeProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture, AlphaMipModeProperty, 0,
+			{.Label = "Alpha Mip Mode"});
+		else DrawInfoRow("Alpha Mip Mode", "Reflection metadata unavailable");
+		if (AlphaCoverageThresholdProperty) PropertyView.EditProperty(MakePropertyViewContext(), Texture,
+			AlphaCoverageThresholdProperty, 0, {.Label = "Alpha Coverage Threshold"});
+		else DrawInfoRow("Alpha Coverage Threshold", "Reflection metadata unavailable");
 
 		const FTexturePlatformData* Platform = Texture->GetPlatformData();
 		if (Platform && Platform->IsValid())

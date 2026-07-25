@@ -207,6 +207,55 @@ namespace Durin::TextureBuild
 			}
 			return Result;
 		}
+
+		auto CalculateAlphaCoverage(const FTexture2DMipData& Mip, float Threshold, double Scale = 1.0) -> double
+		{
+			const uint8 EncodedThreshold = EncodeUNorm(Threshold);
+			uint64 CoveredPixelCount = 0;
+			for (uint32 Y = 0; Y < Mip.Height; ++Y)
+			{
+				for (uint32 X = 0; X < Mip.Width; ++X)
+				{
+					const size_t Offset = static_cast<size_t>(Y) * Mip.RowPitch + X * ChannelCount + 3;
+					const uint8 AdjustedAlpha = EncodeUNorm(static_cast<double>(Mip.Pixels[Offset]) / 255.0 * Scale);
+					if (AdjustedAlpha >= EncodedThreshold) ++CoveredPixelCount;
+				}
+			}
+			return static_cast<double>(CoveredPixelCount) / (static_cast<uint64>(Mip.Width) * Mip.Height);
+		}
+
+		auto PreserveAlphaCoverage(FTexture2DMipData& Mip, float Threshold, double TargetCoverage) -> void
+		{
+			double LowScale = 0.0;
+			double HighScale = 1.0;
+			while (CalculateAlphaCoverage(Mip, Threshold, HighScale) < TargetCoverage && HighScale < 256.0)
+				HighScale *= 2.0;
+
+			double BestScale = 1.0;
+			double BestError = std::abs(CalculateAlphaCoverage(Mip, Threshold) - TargetCoverage);
+			for (uint32 Iteration = 0; Iteration < 16; ++Iteration)
+			{
+				const double Scale = (LowScale + HighScale) * 0.5;
+				const double Coverage = CalculateAlphaCoverage(Mip, Threshold, Scale);
+				const double Error = std::abs(Coverage - TargetCoverage);
+				if (Error < BestError)
+				{
+					BestError = Error;
+					BestScale = Scale;
+				}
+				if (Coverage < TargetCoverage) LowScale = Scale;
+				else HighScale = Scale;
+			}
+
+			for (uint32 Y = 0; Y < Mip.Height; ++Y)
+			{
+				for (uint32 X = 0; X < Mip.Width; ++X)
+				{
+					const size_t Offset = static_cast<size_t>(Y) * Mip.RowPitch + X * ChannelCount + 3;
+					Mip.Pixels[Offset] = EncodeUNorm(static_cast<double>(Mip.Pixels[Offset]) / 255.0 * BestScale);
+				}
+			}
+		}
 	}
 
 	auto IsValidUsage(ETextureUsage Usage) -> bool
@@ -224,6 +273,16 @@ namespace Durin::TextureBuild
 		return Quality == ETextureCompressionQuality::Low
 			|| Quality == ETextureCompressionQuality::Normal
 			|| Quality == ETextureCompressionQuality::High;
+	}
+
+	auto IsValidAlphaMipMode(ETextureAlphaMipMode Mode) -> bool
+	{
+		return Mode == ETextureAlphaMipMode::Average || Mode == ETextureAlphaMipMode::PreserveCoverage;
+	}
+
+	auto IsValidAlphaCoverageThreshold(float Threshold) -> bool
+	{
+		return std::isfinite(Threshold) && Threshold > 0.0f && Threshold < 1.0f;
 	}
 
 	auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat
@@ -267,7 +326,8 @@ namespace Durin::TextureBuild
 
 	auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
 		FTexturePlatformData& OutPlatformData, std::string& OutError, uint32 MaxResolution,
-		ETextureCompressionQuality CompressionQuality) -> bool
+		ETextureCompressionQuality CompressionQuality, ETextureAlphaMipMode AlphaMipMode,
+		float AlphaCoverageThreshold) -> bool
 	{
 		OutPlatformData = {};
 		if (!SourceData.IsValid())
@@ -285,6 +345,16 @@ namespace Durin::TextureBuild
 			OutError = "Texture compression quality is invalid.";
 			return false;
 		}
+		if (!IsValidAlphaMipMode(AlphaMipMode))
+		{
+			OutError = "Texture alpha mip mode is invalid.";
+			return false;
+		}
+		if (!IsValidAlphaCoverageThreshold(AlphaCoverageThreshold))
+		{
+			OutError = "Texture alpha coverage threshold must be greater than zero and less than one.";
+			return false;
+		}
 		OutPlatformData.PixelFormat = SelectPixelFormat(Usage, bSRGB, SourceData.bHasTransparency);
 		if (OutPlatformData.PixelFormat == EPixelFormat::Unknown)
 		{
@@ -297,9 +367,15 @@ namespace Durin::TextureBuild
 		BaseMip.Width = SourceData.Width;
 		BaseMip.Height = SourceData.Height;
 		BaseMip.RowPitch = SourceData.Width * ChannelCount;
+		const bool bPreserveAlphaCoverage = Usage == ETextureUsage::Color
+			&& SourceData.bHasTransparency && AlphaMipMode == ETextureAlphaMipMode::PreserveCoverage;
+		const double SourceAlphaCoverage = bPreserveAlphaCoverage
+			? CalculateAlphaCoverage(BaseMip, AlphaCoverageThreshold) : 0.0;
 		while (UncompressedMips.back().Width > 1 || UncompressedMips.back().Height > 1)
 		{
 			UncompressedMips.push_back(BuildNextMip(UncompressedMips.back(), Usage, bSRGB));
+			if (bPreserveAlphaCoverage)
+				PreserveAlphaCoverage(UncompressedMips.back(), AlphaCoverageThreshold, SourceAlphaCoverage);
 		}
 		size_t FirstMipIndex = 0;
 		if (MaxResolution > 0)

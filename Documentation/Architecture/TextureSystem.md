@@ -6,7 +6,8 @@ explicit source, platform, render-resource, editor, and material boundaries.
 ## Asset and Build Ownership
 
 - `DTexture2D` owns the copied source-file reference plus the reflected `Usage`,
-  `bSRGB`, `MaxResolution`, and `CompressionQuality` build settings.
+  `bSRGB`, `MaxResolution`, `CompressionQuality`, `AlphaMipMode`, and
+  `AlphaCoverageThreshold` build settings.
 - `FTextureSourceData` is decoded RGBA8 edit data. It records source dimensions,
   original channel count, and whether transparency is present.
 - `FTexturePlatformData` is rebuilt from source data. It contains a complete,
@@ -32,11 +33,20 @@ explicit source, platform, render-resource, editor, and material boundaries.
   map to progressively stronger endpoint, channel, and BC7 partition searches.
   It changes build time and encoded quality, not the selected pixel format or
   runtime memory layout.
+- Alpha coverage preservation is an explicit opt-in for alpha-tested Color
+  textures. `Average` retains ordinary alpha filtering for translucent content.
+  `PreserveCoverage` measures the source fraction whose alpha meets
+  `AlphaCoverageThreshold`, then scales only the alpha channel of each generated
+  mip before compression so its thresholded coverage is as close as the mip's
+  discrete texel count permits. The threshold must be strictly between zero and
+  one and defaults to `0.5`. RGB filtering is unchanged. The setting remains
+  serialized but inactive for opaque Color, Normal, and Data/Mask textures.
 
 ## Transactional Build-Setting Edits
 
-The Texture Editor changes `Usage`, `bSRGB`, `MaxResolution`, and
-`CompressionQuality` through reflected-property transactions.
+The Texture Editor changes `Usage`, `bSRGB`, `MaxResolution`,
+`CompressionQuality`, `AlphaMipMode`, and `AlphaCoverageThreshold` through
+reflected-property transactions.
 `DTexture2D::PreEditChangeProperty` builds complete candidate platform data
 from detached proposal storage before the live setting changes. An invalid
 usage or quality value, or any failed build, rejects the proposal without
@@ -84,7 +94,7 @@ the mip edge, so NPOT base levels and sub-4x4 tail mips remain valid.
 
 - source file, dimensions, source channel count, transparency, and decoded format;
 - transactional Usage, sRGB, maximum-resolution, and compression-quality
-  controls;
+  controls, plus alpha mip mode and coverage threshold;
 - platform format, mip count and range, byte size, residency policy, build
   revision, and current platform-data status;
 - normal workspace save, Dirty, close protection, Undo, and Redo behavior.
@@ -102,7 +112,6 @@ copied source image rather than the built platform representation.
 
 - Platform data is rebuilt by decoding the source image during every normal
   `PostLoad`; there is no texture derived-data key or cooked payload.
-- Alpha-coverage-preserving mip generation is not implemented.
 - Build work is synchronous, every mip is fully resident, and there is no memory
   accounting or streaming.
 - The shipped material shader consumes only the base-color texture parameter.

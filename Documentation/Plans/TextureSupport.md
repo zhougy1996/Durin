@@ -141,8 +141,9 @@ the change, followed by a successful full `all` build and a ten-second
 
 The current platform build produces a complete compressed desktop BC mip chain
 according to the asset usage, transparency, explicit color-space override,
-maximum resolution, and compression quality. These remain explicit serialized
-build settings rather than permanent behavior inferred from the source filename.
+maximum resolution, compression quality, and opt-in alpha-coverage policy.
+These remain explicit serialized build settings rather than permanent behavior
+inferred from the source filename.
 
 - [x] Add sRGB versus linear color-space selection.
 - [x] Generate a complete mip chain with usage-appropriate image filters.
@@ -150,7 +151,7 @@ build settings rather than permanent behavior inferred from the source filename.
 - [x] Select platform formats from usage and alpha requirements.
 - [x] Add BC1/BC3/BC5/BC7 compression for supported desktop targets.
 - [x] Add maximum-resolution and quality settings.
-- [ ] Decide how alpha coverage should be preserved while generating mips.
+- [x] Decide how alpha coverage should be preserved while generating mips.
 - [x] Validate platform-format support before creating the RHI resource.
 
 #### Acceptance Gate

@@ -35,6 +35,14 @@ namespace Durin
 		High
 	};
 
+	// Controls how Color texture alpha is filtered into smaller mip levels.
+	DENUM(DisplayName = "Texture Alpha Mip Mode")
+	enum class ETextureAlphaMipMode : uint8
+	{
+		Average,
+		PreserveCoverage DMETA(DisplayName = "Preserve Coverage")
+	};
+
 	// Reports the persistent result of source decoding, platform build, and GPU upload.
 	DENUM(DisplayName = "Texture Build Status")
 	enum class ETextureBuildStatus : uint8
@@ -118,6 +126,8 @@ namespace Durin
 	{
 		ETextureUsage Usage = ETextureUsage::Color;
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
+		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average;
+		float AlphaCoverageThreshold = 0.5f;
 		uint32 MaxResolution = 0;
 
 		// Empty selects the preset default. Keeping this override explicit prevents a
@@ -143,12 +153,16 @@ namespace Durin
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetMaxResolution() const -> uint32 { return MaxResolution; }
 		auto GetCompressionQuality() const -> ETextureCompressionQuality { return CompressionQuality; }
+		auto GetAlphaMipMode() const -> ETextureAlphaMipMode { return AlphaMipMode; }
+		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
 		ENGINE_API auto SetUsage(ETextureUsage InUsage, std::string& OutError) -> bool;
 		ENGINE_API auto SetSRGB(bool bInSRGB, std::string& OutError) -> bool;
 		ENGINE_API auto SetMaxResolution(uint32 InMaxResolution, std::string& OutError) -> bool;
 		ENGINE_API auto SetCompressionQuality(ETextureCompressionQuality InQuality, std::string& OutError) -> bool;
+		ENGINE_API auto SetAlphaMipMode(ETextureAlphaMipMode InMode, std::string& OutError) -> bool;
+		ENGINE_API auto SetAlphaCoverageThreshold(float InThreshold, std::string& OutError) -> bool;
 
 		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
@@ -161,7 +175,8 @@ namespace Durin
 	private:
 		auto BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
 		auto BuildPlatformData(ETextureUsage InUsage, bool bInSRGB, uint32 InMaxResolution,
-			ETextureCompressionQuality InCompressionQuality,
+			ETextureCompressionQuality InCompressionQuality, ETextureAlphaMipMode InAlphaMipMode,
+			float InAlphaCoverageThreshold,
 			std::unique_ptr<FTexturePlatformData>& OutPlatformData, std::string& OutError) const -> bool;
 		auto InvalidatePlatformData() -> void;
 		auto QueueRenderResourceBuild() -> void;
@@ -182,6 +197,13 @@ namespace Durin
 
 		DPROPERTY()
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
+
+		DPROPERTY()
+		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average;
+
+		// Alpha-test threshold used only by PreserveCoverage Color mip generation.
+		DPROPERTY()
+		float AlphaCoverageThreshold = 0.5f;
 
 		// Both representations are derived from the imported source file. Keeping them
 		// separate lets platform builds replace format/mips without mutating edit data.
@@ -204,5 +226,7 @@ namespace Durin
 		bool bPendingEditSRGB = true;
 		uint32 PendingEditMaxResolution = 0;
 		ETextureCompressionQuality PendingEditCompressionQuality = ETextureCompressionQuality::Normal;
+		ETextureAlphaMipMode PendingEditAlphaMipMode = ETextureAlphaMipMode::Average;
+		float PendingEditAlphaCoverageThreshold = 0.5f;
 	};
 }

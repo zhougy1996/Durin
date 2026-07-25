@@ -158,7 +158,8 @@ namespace Durin
 	auto DTexture2D::RebuildPlatformData(std::string& OutError) -> bool
 	{
 		std::unique_ptr<FTexturePlatformData> NewPlatformData;
-		if (!BuildPlatformData(Usage, bSRGB, MaxResolution, CompressionQuality, NewPlatformData, OutError))
+		if (!BuildPlatformData(Usage, bSRGB, MaxResolution, CompressionQuality, AlphaMipMode,
+			AlphaCoverageThreshold, NewPlatformData, OutError))
 		{
 			// Classify the failure: UnsupportedFormat when the pixel-format selector
 			// returns Unknown; everything else is a general BuildFailure.
@@ -179,7 +180,8 @@ namespace Durin
 	}
 
 	auto DTexture2D::BuildPlatformData(ETextureUsage InUsage, bool bInSRGB, uint32 InMaxResolution,
-		ETextureCompressionQuality InCompressionQuality,
+		ETextureCompressionQuality InCompressionQuality, ETextureAlphaMipMode InAlphaMipMode,
+		float InAlphaCoverageThreshold,
 		std::unique_ptr<FTexturePlatformData>& OutPlatformData, std::string& OutError) const -> bool
 	{
 		OutError.clear();
@@ -191,7 +193,7 @@ namespace Durin
 		}
 		auto NewPlatformData = std::make_unique<FTexturePlatformData>();
 		if (!TextureBuild::BuildMipChain(*SourceData, InUsage, bInSRGB, *NewPlatformData, OutError,
-			InMaxResolution, InCompressionQuality)) return false;
+			InMaxResolution, InCompressionQuality, InAlphaMipMode, InAlphaCoverageThreshold)) return false;
 		OutPlatformData = std::move(NewPlatformData);
 		return true;
 	}
@@ -297,6 +299,60 @@ namespace Durin
 		return false;
 	}
 
+	auto DTexture2D::SetAlphaMipMode(ETextureAlphaMipMode InMode, std::string& OutError) -> bool
+	{
+		OutError.clear();
+		if (!TextureBuild::IsValidAlphaMipMode(InMode))
+		{
+			OutError = "Texture alpha mip mode is invalid.";
+			return false;
+		}
+		if (AlphaMipMode == InMode) return true;
+		if (!SourceData || !SourceData->IsValid())
+		{
+			OutError = "Texture source data is unavailable or invalid.";
+			return false;
+		}
+		const ETextureAlphaMipMode PreviousMode = AlphaMipMode;
+		AlphaMipMode = InMode;
+		if (RebuildPlatformData(OutError))
+		{
+			MarkPackageDirty();
+			return true;
+		}
+		AlphaMipMode = PreviousMode;
+		std::string RestoreError;
+		RebuildPlatformData(RestoreError);
+		return false;
+	}
+
+	auto DTexture2D::SetAlphaCoverageThreshold(float InThreshold, std::string& OutError) -> bool
+	{
+		OutError.clear();
+		if (!TextureBuild::IsValidAlphaCoverageThreshold(InThreshold))
+		{
+			OutError = "Texture alpha coverage threshold must be greater than zero and less than one.";
+			return false;
+		}
+		if (AlphaCoverageThreshold == InThreshold) return true;
+		if (!SourceData || !SourceData->IsValid())
+		{
+			OutError = "Texture source data is unavailable or invalid.";
+			return false;
+		}
+		const float PreviousThreshold = AlphaCoverageThreshold;
+		AlphaCoverageThreshold = InThreshold;
+		if (RebuildPlatformData(OutError))
+		{
+			MarkPackageDirty();
+			return true;
+		}
+		AlphaCoverageThreshold = PreviousThreshold;
+		std::string RestoreError;
+		RebuildPlatformData(RestoreError);
+		return false;
+	}
+
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool
 	{
 		BuildStatus = ETextureBuildStatus::Unbuilt;
@@ -332,6 +388,8 @@ namespace Durin
 		bool bCandidateSRGB = bSRGB;
 		uint32 CandidateMaxResolution = MaxResolution;
 		ETextureCompressionQuality CandidateCompressionQuality = CompressionQuality;
+		ETextureAlphaMipMode CandidateAlphaMipMode = AlphaMipMode;
+		float CandidateAlphaCoverageThreshold = AlphaCoverageThreshold;
 		const FName PropertyName = Proposal.MemberProperty->NamePrivate;
 		if (PropertyName == FName("Usage"))
 		{
@@ -375,15 +433,39 @@ namespace Durin
 				static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
 					Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex));
 		}
+		else if (PropertyName == FName("AlphaMipMode"))
+		{
+			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Enum)
+			{
+				OutError = "The texture alpha-mip-mode metadata is unavailable.";
+				return false;
+			}
+			CandidateAlphaMipMode = static_cast<ETextureAlphaMipMode>(
+				static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
+					Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex));
+		}
+		else if (PropertyName == FName("AlphaCoverageThreshold"))
+		{
+			if (Proposal.DraftRootProperty->GetKind() != DurinCodeGen::EPropertyGenFlags::Float)
+			{
+				OutError = "The texture alpha-coverage-threshold metadata is unavailable.";
+				return false;
+			}
+			CandidateAlphaCoverageThreshold = *Proposal.DraftRootProperty->ContainerPtrToValuePtr<float>(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+		}
 		else return true;
 
 		std::unique_ptr<FTexturePlatformData> CandidatePlatformData;
 		if (!BuildPlatformData(CandidateUsage, bCandidateSRGB, CandidateMaxResolution,
-			CandidateCompressionQuality, CandidatePlatformData, OutError)) return false;
+			CandidateCompressionQuality, CandidateAlphaMipMode, CandidateAlphaCoverageThreshold,
+			CandidatePlatformData, OutError)) return false;
 		PendingEditUsage = CandidateUsage;
 		bPendingEditSRGB = bCandidateSRGB;
 		PendingEditMaxResolution = CandidateMaxResolution;
 		PendingEditCompressionQuality = CandidateCompressionQuality;
+		PendingEditAlphaMipMode = CandidateAlphaMipMode;
+		PendingEditAlphaCoverageThreshold = CandidateAlphaCoverageThreshold;
 		PendingEditPlatformData = std::move(CandidatePlatformData);
 		return true;
 	}
@@ -394,11 +476,14 @@ namespace Durin
 		if (!Event.MemberProperty) return;
 		const FName PropertyName = Event.MemberProperty->NamePrivate;
 		if (PropertyName != FName("Usage") && PropertyName != FName("bSRGB")
-			&& PropertyName != FName("MaxResolution") && PropertyName != FName("CompressionQuality")) return;
+			&& PropertyName != FName("MaxResolution") && PropertyName != FName("CompressionQuality")
+			&& PropertyName != FName("AlphaMipMode") && PropertyName != FName("AlphaCoverageThreshold")) return;
 		if (Event.Phase == EPropertyChangePhase::Committed && Event.Origin == EPropertyChangeOrigin::Edit) return;
 		if (!PendingEditPlatformData || PendingEditUsage != Usage
 			|| PendingEditMaxResolution != MaxResolution
-			|| PendingEditCompressionQuality != CompressionQuality) return;
+			|| PendingEditCompressionQuality != CompressionQuality
+			|| PendingEditAlphaMipMode != AlphaMipMode
+			|| PendingEditAlphaCoverageThreshold != AlphaCoverageThreshold) return;
 
 		bSRGB = bPendingEditSRGB;
 		PlatformData = std::move(PendingEditPlatformData);
@@ -436,6 +521,10 @@ namespace Durin
 		if (!TextureBuild::IsValidUsage(Settings.Usage)) return {false, "Texture usage preset is invalid.", nullptr};
 		if (!TextureBuild::IsValidCompressionQuality(Settings.CompressionQuality))
 			return {false, "Texture compression quality is invalid.", nullptr};
+		if (!TextureBuild::IsValidAlphaMipMode(Settings.AlphaMipMode))
+			return {false, "Texture alpha mip mode is invalid.", nullptr};
+		if (!TextureBuild::IsValidAlphaCoverageThreshold(Settings.AlphaCoverageThreshold))
+			return {false, "Texture alpha coverage threshold must be greater than zero and less than one.", nullptr};
 
 		FAssetPath ParsedAssetPath;
 		std::string PathError;
@@ -455,6 +544,8 @@ namespace Durin
 		Texture->bSRGB = Settings.bSRGB.value_or(TextureBuild::GetDefaultSRGB(Settings.Usage));
 		Texture->MaxResolution = Settings.MaxResolution;
 		Texture->CompressionQuality = Settings.CompressionQuality;
+		Texture->AlphaMipMode = Settings.AlphaMipMode;
+		Texture->AlphaCoverageThreshold = Settings.AlphaCoverageThreshold;
 		std::string BuildError;
 		if (!Texture->BuildSourceData(Input.generic_string(), BuildError))
 		{

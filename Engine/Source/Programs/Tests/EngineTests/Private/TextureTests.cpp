@@ -8,6 +8,7 @@
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureBuild.h"
 
 #include <bc7decomp.h>
 #include <gtest/gtest.h>
@@ -83,6 +84,42 @@ namespace
 	{
 		for (size_t Channel = 0; Channel < Expected.size(); ++Channel)
 			EXPECT_NEAR(Actual[Channel], Expected[Channel], Tolerance) << "channel " << Channel;
+	}
+
+	auto DecodeBC3Mip(const Durin::FTexture2DMipData& Mip) -> std::vector<Durin::uint8>
+	{
+		std::vector<Durin::uint8> Result(static_cast<size_t>(Mip.Width) * Mip.Height * 4);
+		const Durin::uint32 BlocksWide = (Mip.Width + 3) / 4;
+		const Durin::uint32 BlocksHigh = (Mip.Height + 3) / 4;
+		for (Durin::uint32 BlockY = 0; BlockY < BlocksHigh; ++BlockY)
+		{
+			for (Durin::uint32 BlockX = 0; BlockX < BlocksWide; ++BlockX)
+			{
+				std::array<Durin::uint8, 64> BlockPixels{};
+				const Durin::uint8* Block = Mip.Pixels.data()
+					+ static_cast<size_t>(BlockY) * Mip.RowPitch + BlockX * 16;
+				EXPECT_TRUE(rgbcx::unpack_bc3(Block, BlockPixels.data()));
+				for (Durin::uint32 Y = 0; Y < 4 && BlockY * 4 + Y < Mip.Height; ++Y)
+				{
+					for (Durin::uint32 X = 0; X < 4 && BlockX * 4 + X < Mip.Width; ++X)
+					{
+						const size_t SourceOffset = (Y * 4 + X) * 4;
+						const size_t DestOffset = (static_cast<size_t>(BlockY * 4 + Y) * Mip.Width
+							+ BlockX * 4 + X) * 4;
+						std::memcpy(Result.data() + DestOffset, BlockPixels.data() + SourceOffset, 4);
+					}
+				}
+			}
+		}
+		return Result;
+	}
+
+	auto CalculateDecodedCoverage(const std::vector<Durin::uint8>& Pixels, Durin::uint8 Threshold) -> double
+	{
+		size_t CoveredPixelCount = 0;
+		for (size_t Offset = 3; Offset < Pixels.size(); Offset += 4)
+			if (Pixels[Offset] >= Threshold) ++CoveredPixelCount;
+		return static_cast<double>(CoveredPixelCount) / (Pixels.size() / 4);
 	}
 }
 
@@ -253,12 +290,16 @@ TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
 	Durin::FTexture2DImportSettings Settings;
 	Settings.MaxResolution = 4;
 	Settings.CompressionQuality = Durin::ETextureCompressionQuality::Low;
+	Settings.AlphaMipMode = Durin::ETextureAlphaMipMode::PreserveCoverage;
+	Settings.AlphaCoverageThreshold = 0.4f;
 	Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
 		Source.generic_string(), "/TextureImportTests/Limited", Settings);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
 	EXPECT_EQ(Result.Asset->GetMaxResolution(), 4u);
 	EXPECT_EQ(Result.Asset->GetCompressionQuality(), Durin::ETextureCompressionQuality::Low);
+	EXPECT_EQ(Result.Asset->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::PreserveCoverage);
+	EXPECT_FLOAT_EQ(Result.Asset->GetAlphaCoverageThreshold(), 0.4f);
 	const Durin::FTexturePlatformData* PlatformData = Result.Asset->GetPlatformData();
 	ASSERT_NE(PlatformData, nullptr);
 	ASSERT_EQ(PlatformData->Mips.size(), 2u);
@@ -273,10 +314,71 @@ TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetMaxResolution(), 4u);
 	EXPECT_EQ(Loaded->GetCompressionQuality(), Durin::ETextureCompressionQuality::Low);
+	EXPECT_EQ(Loaded->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::PreserveCoverage);
+	EXPECT_FLOAT_EQ(Loaded->GetAlphaCoverageThreshold(), 0.4f);
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
 	EXPECT_EQ(Loaded->GetPlatformData()->Mips.front().Width, 2u);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+}
+
+TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
+{
+	Durin::FTextureSourceData Source;
+	Source.Width = 8;
+	Source.Height = 8;
+	Source.SourceChannelCount = 4;
+	Source.Format = Durin::ETextureSourceFormat::RGBA8;
+	Source.bHasTransparency = true;
+	Source.Pixels.resize(8 * 8 * 4);
+	constexpr std::array<Durin::uint8, 16> OpaqueCounts = {
+		3, 3, 3, 3,
+		3, 2, 2, 1,
+		0, 0, 0, 0,
+		0, 0, 0, 0
+	};
+	for (Durin::uint32 BlockY = 0; BlockY < 4; ++BlockY)
+	{
+		for (Durin::uint32 BlockX = 0; BlockX < 4; ++BlockX)
+		{
+			const Durin::uint8 OpaqueCount = OpaqueCounts[BlockY * 4 + BlockX];
+			for (Durin::uint32 Pixel = 0; Pixel < 4; ++Pixel)
+			{
+				const Durin::uint32 X = BlockX * 2 + Pixel % 2;
+				const Durin::uint32 Y = BlockY * 2 + Pixel / 2;
+				const size_t Offset = (static_cast<size_t>(Y) * Source.Width + X) * 4;
+				Source.Pixels[Offset] = static_cast<Durin::uint8>(X * 24);
+				Source.Pixels[Offset + 1] = static_cast<Durin::uint8>(Y * 24);
+				Source.Pixels[Offset + 2] = 64;
+				Source.Pixels[Offset + 3] = Pixel < OpaqueCount ? 255 : 0;
+			}
+		}
+	}
+
+	Durin::FTexturePlatformData Average;
+	Durin::FTexturePlatformData Preserved;
+	std::string Error;
+	ASSERT_TRUE(Durin::TextureBuild::BuildMipChain(Source, Durin::ETextureUsage::Color, false,
+		Average, Error, 0, Durin::ETextureCompressionQuality::High,
+		Durin::ETextureAlphaMipMode::Average, 0.5f)) << Error;
+	ASSERT_TRUE(Durin::TextureBuild::BuildMipChain(Source, Durin::ETextureUsage::Color, false,
+		Preserved, Error, 0, Durin::ETextureCompressionQuality::High,
+		Durin::ETextureAlphaMipMode::PreserveCoverage, 0.5f)) << Error;
+	ASSERT_GE(Average.Mips.size(), 2u);
+	ASSERT_EQ(Preserved.Mips.size(), Average.Mips.size());
+
+	const std::vector<Durin::uint8> AveragePixels = DecodeBC3Mip(Average.Mips[1]);
+	const std::vector<Durin::uint8> PreservedPixels = DecodeBC3Mip(Preserved.Mips[1]);
+	const double SourceCoverage = 20.0 / 64.0;
+	const double AverageError = std::abs(CalculateDecodedCoverage(AveragePixels, 128) - SourceCoverage);
+	const double PreservedError = std::abs(CalculateDecodedCoverage(PreservedPixels, 128) - SourceCoverage);
+	EXPECT_LT(PreservedError, AverageError);
+	for (size_t Offset = 0; Offset < AveragePixels.size(); Offset += 4)
+	{
+		EXPECT_EQ(PreservedPixels[Offset], AveragePixels[Offset]);
+		EXPECT_EQ(PreservedPixels[Offset + 1], AveragePixels[Offset + 1]);
+		EXPECT_EQ(PreservedPixels[Offset + 2], AveragePixels[Offset + 2]);
+	}
 }
 
 TEST(FTexture2DTests, CompressedLayoutsCoverNpotAndTailMips)
@@ -370,10 +472,14 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	Durin::FProperty* SRGBProperty = Texture->GetClass()->FindPropertyByName("bSRGB");
 	Durin::FProperty* MaxResolutionProperty = Texture->GetClass()->FindPropertyByName("MaxResolution");
 	Durin::FProperty* CompressionQualityProperty = Texture->GetClass()->FindPropertyByName("CompressionQuality");
+	Durin::FProperty* AlphaMipModeProperty = Texture->GetClass()->FindPropertyByName("AlphaMipMode");
+	Durin::FProperty* AlphaCoverageThresholdProperty = Texture->GetClass()->FindPropertyByName("AlphaCoverageThreshold");
 	ASSERT_NE(UsageProperty, nullptr);
 	ASSERT_NE(SRGBProperty, nullptr);
 	ASSERT_NE(MaxResolutionProperty, nullptr);
 	ASSERT_NE(CompressionQualityProperty, nullptr);
+	ASSERT_NE(AlphaMipModeProperty, nullptr);
+	ASSERT_NE(AlphaCoverageThresholdProperty, nullptr);
 	Durin::FReflectedPropertyView PropertyView;
 	Durin::FEditorTransactionManager Transactions;
 	std::string Error;
@@ -410,6 +516,21 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 			[Quality](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
 				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
 					Container, static_cast<Durin::uint64>(Quality), ArrayIndex);
+			}, false);
+	};
+	const auto SubmitAlphaMipMode = [&](Durin::ETextureAlphaMipMode Mode) {
+		return PropertyView.SubmitPropertyValueEdit(Context,
+			Durin::FReflectedPropertyEditTarget::ForMember(Texture, AlphaMipModeProperty),
+			[Mode](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
+					Container, static_cast<Durin::uint64>(Mode), ArrayIndex);
+			}, false);
+	};
+	const auto SubmitAlphaCoverageThreshold = [&](float Threshold) {
+		return PropertyView.SubmitPropertyValueEdit(Context,
+			Durin::FReflectedPropertyEditTarget::ForMember(Texture, AlphaCoverageThresholdProperty),
+			[Threshold](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+				*Property->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = Threshold;
 			}, false);
 	};
 
@@ -453,6 +574,18 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	EXPECT_EQ(Texture->GetMaxResolution(), 1u);
 	ASSERT_TRUE(Transactions.Redo());
 	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::High);
+	ASSERT_TRUE(SubmitAlphaMipMode(Durin::ETextureAlphaMipMode::PreserveCoverage)) << Error;
+	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::PreserveCoverage);
+	ASSERT_TRUE(SubmitAlphaCoverageThreshold(0.4f)) << Error;
+	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.4f);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.5f);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::Average);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::PreserveCoverage);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.4f);
 
 	Error.clear();
 	EXPECT_FALSE(SubmitUsage(static_cast<Durin::ETextureUsage>(255)));
@@ -464,6 +597,14 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	EXPECT_FALSE(SubmitCompressionQuality(static_cast<Durin::ETextureCompressionQuality>(255)));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::High);
+	Error.clear();
+	EXPECT_FALSE(SubmitAlphaMipMode(static_cast<Durin::ETextureAlphaMipMode>(255)));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::PreserveCoverage);
+	Error.clear();
+	EXPECT_FALSE(SubmitAlphaCoverageThreshold(1.0f));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.4f);
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Transactional", AssetPath));
