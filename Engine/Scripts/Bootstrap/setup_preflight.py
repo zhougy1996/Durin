@@ -229,7 +229,7 @@ def main() -> int:
         print(f"Setup prerequisite check found {len(errors)} problem(s):", file=sys.stderr)
         for index, error in enumerate(errors, 1):
             print(f"  {index}. {error}", file=sys.stderr)
-        print("Resolve every item above, then run Setup.bat again.", file=sys.stderr)
+        print("Resolve every item above, then rerun the setup or prepare command.", file=sys.stderr)
         return 1
     print("Setup prerequisites are ready.")
     return 0

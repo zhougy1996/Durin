@@ -6,17 +6,6 @@ set "GIT_ENTRY=%ROOT%\.git"
 set "GIT_DIR_VALUE="
 set "GIT_DIR_ABS="
 set "EXIT_CODE=0"
-set "PAUSE_AT_END=1"
-
-if /I "%~1"=="--no-pause" (
-  set "PAUSE_AT_END=0"
-  shift
-)
-
-if not "%~1"=="" (
-  echo Unknown Setup argument: %~1
-  exit /b 2
-)
 
 if exist "%GIT_ENTRY%\" goto bootstrap
 if not exist "%GIT_ENTRY%" goto bootstrap
@@ -42,7 +31,7 @@ if "!GIT_DIR_VALUE:~1,1!"==":" (
 )
 
 if not exist "!GIT_DIR_ABS!\commondir" goto bootstrap
-goto prepare_worktree
+goto linked_worktree_error
 
 :bootstrap
 call "%ROOT%Engine\Scripts\Bootstrap\InitializeAgentConfig.bat"
@@ -64,15 +53,11 @@ call "%ROOT%Engine\Scripts\Bootstrap\Bootstrap.bat"
 set "EXIT_CODE=!errorlevel!"
 goto end
 
-:prepare_worktree
-call "%ROOT%Engine\Scripts\Bootstrap\PrepareWorktree.bat"
-if errorlevel 1 (
-  set "EXIT_CODE=!errorlevel!"
-  goto end
-)
-call "%ROOT%Engine\Scripts\Bootstrap\Preflight.bat"
-set "EXIT_CODE=!errorlevel!"
+:linked_worktree_error
+echo Setup.bat only initializes the main checkout.
+echo Run WorktreeTool prepare from this linked worktree instead.
+set "EXIT_CODE=1"
 
 :end
-if "!PAUSE_AT_END!"=="1" pause
+pause
 exit /b !EXIT_CODE!

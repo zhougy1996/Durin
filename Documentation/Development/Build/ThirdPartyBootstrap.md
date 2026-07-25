@@ -8,7 +8,7 @@ This document covers dependency preparation, shared external layout, and worktre
 - Windows wrappers:
   - `Engine/Scripts/Bootstrap/Bootstrap.bat`
   - `Engine/Scripts/Bootstrap/Setup_<Library>.bat`
-  - `Engine/Scripts/Bootstrap/PrepareWorktree.bat`
+  - Root `WorktreeTool.bat` for linked-worktree preparation
 
 Common commands:
 
@@ -22,15 +22,15 @@ For a fresh Windows clone, use the root `Setup.bat` instead of invoking this scr
 
 ## Worktree Sharing
 
-- `PrepareWorktree.bat` links this worktree's `Engine/External` and `.venv` to a prepared dependency worktree.
-- The same helper links the complete `.agents` directory from that dependency worktree, so machine-local configuration and helper changes are shared immediately.
+- `WorktreeTool prepare` links a linked worktree's `Engine/External` and `.venv` to a prepared dependency worktree.
+- The same command links the complete `.agents` directory from that dependency worktree, so machine-local configuration and helper changes are shared immediately.
 - When migrating an existing worktree with a real non-empty `.agents` directory, the helper preserves it as `.agents.pre-link-backup` before creating the link.
 - On Windows, all three shared directories use directory junctions by default; `.agents/build-config.json` remains a regular file in the source worktree and is reached through that shared directory.
-- Preview the operation with `Engine\Scripts\Bootstrap\PrepareWorktree.bat --dry-run`.
+- Preview the operation with `WorktreeTool prepare --dry-run`.
 - By default, linked Git worktrees pull those links from the main worktree root.
 - Use `--source` when the prepared dependency worktree is not the main worktree root.
-- `Setup.bat` switches to `PrepareWorktree.bat` only when the checkout has a valid linked-worktree `.git` pointer; otherwise it falls back to the normal full bootstrap.
-- `WorktreeTool add` creates a linked worktree and runs Setup there; invoking
+- `Setup.bat` initializes only the main checkout and reports an error when invoked from a linked worktree.
+- `WorktreeTool add` creates and prepares a linked worktree; invoking
   `WorktreeTool` without arguments opens terminals for every registered
   worktree.
 - `WorktreeTool remove` is the required Windows removal path. It refuses the

@@ -4,7 +4,9 @@ This is the operational guide for configuring, building, testing, and debugging 
 
 ## Setup
 
-Install the following Windows prerequisites, then run `Setup.bat` once in every new checkout or worktree:
+Install the following Windows prerequisites, then run `Setup.bat` once in the
+main checkout. Create linked worktrees with `WorktreeTool add`, or initialize an
+existing linked worktree with `WorktreeTool prepare`:
 
 - Python 3.10 or newer, including `venv`.
 - Visual Studio 2022 or newer with the **Desktop development with C++** workload, x64 MSVC tools, a Windows SDK, and the English language pack.
@@ -12,11 +14,13 @@ Install the following Windows prerequisites, then run `Setup.bat` once in every 
 - Git, CMake 3.24 or newer, and Ninja. The Ninja bundled with Visual Studio is accepted.
 - The LunarG Vulkan SDK. `VULKAN_SDK` must name an installation containing `Include/vulkan/vulkan.h`, `Include/vma/vk_mem_alloc.h`, and `Lib/vulkan-1.lib`. Current SDK releases include VMA. For an older SDK, either update it or download `vk_mem_alloc.h` from VulkanMemoryAllocator and place it under that SDK's `Include/vma` directory; Durin does not bootstrap a second VMA copy.
 
-In a normal checkout, `Setup.bat` first creates `.agents/build-config.json` from its tracked template when the local file is missing, then runs a non-mutating prerequisite check before it creates a virtual environment, downloads packages, or builds third-party libraries. Existing local configuration is never overwritten, so if preflight reports a tool that automatic detection cannot find, edit the configuration and rerun `Setup.bat`. Preflight reports all detected prerequisite problems together so an old MSVC toolset, incomplete Vulkan SDK, or missing command does not first appear halfway through bootstrap or during the main build. BuildTool separately validates the Visual Studio English language pack when it first initializes MSVC.
+In a normal checkout, `Setup.bat` first creates `.agents/build-config.json` from its tracked template when the local file is missing, then runs a non-mutating prerequisite check before it creates a virtual environment, downloads packages, or builds third-party libraries. Existing local configuration is never overwritten, so if preflight reports a tool that automatic detection cannot find, edit the configuration and rerun `Setup.bat`. Preflight reports all detected prerequisite problems together so an old MSVC toolset, incomplete Vulkan SDK, or missing command does not first appear halfway through bootstrap or during the main build. BuildTool separately validates the Visual Studio English language pack when it first initializes MSVC. Setup initializes only the main checkout; a linked worktree exits with an error directing the caller to `WorktreeTool prepare`.
 
-In a normal checkout, `Setup.bat` creates `.venv`, installs the pinned Python dependencies from `requirements.txt` (including the `clang.cindex` bindings and native `libclang` library), and prepares all repository-managed third-party libraries. The operation is idempotent and can be rerun after a failed prerequisite check or interrupted download. In a linked Git worktree it instead links `.agents`, `Engine/External`, and `.venv` from the prepared main worktree before running preflight.
+In a normal checkout, `Setup.bat` creates `.venv`, installs the pinned Python dependencies from `requirements.txt` (including the `clang.cindex` bindings and native `libclang` library), and prepares all repository-managed third-party libraries. The operation is idempotent and can be rerun after a failed prerequisite check or interrupted download. `WorktreeTool prepare` owns linked-worktree preparation: it links `.agents`, `Engine/External`, and `.venv` from the prepared source worktree before running preflight.
 
-`BuildTool.bat` intentionally requires `.venv`; it will ask you to run `Setup.bat` rather than silently using a different system Python.
+`BuildTool.bat` intentionally requires `.venv`; it will ask for `Setup.bat` in
+the main checkout or `WorktreeTool prepare` in a linked worktree rather than
+silently using a different system Python.
 
 Machine-specific CMake, profile, environment, or job overrides belong in `.agents/build-config.json`. Normally, leave them empty and let the build driver detect the Visual Studio environment and parallelism. Setup's preflight honors both `cmakeCommand` and `environmentSetup`; the third-party bootstrap also uses `cmakeCommand`, and `CMAKE_COMMAND` still takes precedence during Setup.
 
@@ -28,19 +32,24 @@ Use the root WorktreeTool to create, inspect, open, and remove linked worktrees:
 
 ```powershell
 .\WorktreeTool add ..\Durin-feature -b feature-branch
+.\WorktreeTool prepare ..\Durin-feature
 .\WorktreeTool list
 .\WorktreeTool
 .\WorktreeTool remove ..\Durin-feature
 ```
 
 With no arguments, WorktreeTool opens all registered worktrees in Windows
-Terminal. `add` runs Setup in the new worktree. `remove` is the required deletion
-path for prepared Windows worktrees because it validates and detaches the shared
-`.agents`, `.venv`, and `Engine/External` directory junctions before invoking
-Git. Do not recursively delete a prepared worktree or call `git worktree remove`
-directly: a deletion implementation that follows an NTFS junction can erase the
-corresponding directory in the main worktree. Use `remove --dry-run` to inspect
-the operation, and pass `--force` only to discard modified or untracked files.
+Terminal. `add` creates and prepares a worktree. `prepare` is idempotent and can
+initialize manually created worktrees or repair their shared links; omit its path
+to target the current checkout, pass `--source` for a non-default prepared
+worktree, or pass `--dry-run` to preview the operation. `remove` is the required
+deletion path for prepared Windows worktrees because it validates and detaches
+the shared `.agents`, `.venv`, and `Engine/External` directory junctions before
+invoking Git. Do not recursively delete a prepared worktree or call
+`git worktree remove` directly: a deletion implementation that follows an NTFS
+junction can erase the corresponding directory in the main worktree. Use
+`remove --dry-run` to inspect the operation, and pass `--force` only to discard
+modified or untracked files.
 
 Use the root wrapper for configuration, builds, and tests:
 

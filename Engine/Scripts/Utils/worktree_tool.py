@@ -15,6 +15,11 @@ from typing import Sequence
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
 SHARED_DIRECTORY_PATHS = (Path(".agents"), Path(".venv"), Path("Engine/External"))
+SOURCE_ENVIRONMENT_NAMES = (
+    "DURIN_WORKTREE_SOURCE",
+    "DURIN_EXTERNAL_SOURCE",
+    "DURIN_EXTERNAL_ROOT",
+)
 
 
 class WorktreeToolError(RuntimeError):
@@ -139,7 +144,7 @@ def environment_arguments(worktree: Path) -> list[str]:
     if not config_path.is_file():
         print(
             f"WARNING: Agent config is missing for worktree '{worktree}'. "
-            "Opening it without a configured environment; run Setup.bat there.",
+            "Opening it without a configured environment; run WorktreeTool prepare there.",
             file=sys.stderr,
         )
         return []
@@ -261,20 +266,18 @@ def add_worktree(args: argparse.Namespace) -> None:
     result = git_command(command, capture_output=False)
     require_git_success(result, "Adding Git worktree")
 
-    setup_script = target / "Setup.bat"
-    if not setup_script.is_file():
-        raise WorktreeToolError(
-            f'Worktree was created, but Setup.bat was not found: "{setup_script}"'
+    try:
+        prepare_registered_worktree(
+            target,
+            source_value=args.source,
+            link_type=args.link_type,
+            dry_run=False,
         )
-    setup_result = subprocess.run(
-        ["cmd.exe", "/d", "/c", "call", str(setup_script), "--no-pause"],
-        check=False,
-    )
-    if setup_result.returncode != 0:
+    except WorktreeToolError as exc:
         raise WorktreeToolError(
-            f'Worktree was created at "{target}", but Setup failed with '
-            f"exit code {setup_result.returncode}. Fix the reported problem and rerun Setup.bat there."
-        )
+            f'Worktree was created at "{target}", but preparation failed.\n{exc}\n'
+            f'Fix the reported problem and run WorktreeTool prepare "{target}".'
+        ) from exc
     print(f'Created and prepared worktree: "{target}"')
 
 
@@ -289,6 +292,251 @@ def is_reparse_point(path: Path) -> bool:
 
 def is_link_like(path: Path) -> bool:
     return path.is_symlink() or is_reparse_point(path)
+
+
+def choose_link_type(requested: str) -> str:
+    if requested == "auto":
+        return "junction" if is_windows() else "symlink"
+    return requested
+
+
+def resolve_source_worktree(path_value: str) -> Path:
+    path = Path(path_value).expanduser().resolve()
+    candidate = path.parent.parent if path.name.lower() == "external" else path
+    return candidate.resolve()
+
+
+def preparation_source(
+    source_value: str | None,
+    *,
+    target: Path,
+    worktrees: Sequence[Worktree],
+) -> Path:
+    selected = source_value
+    if not selected:
+        selected = next(
+            (os.environ[name] for name in SOURCE_ENVIRONMENT_NAMES if os.environ.get(name)),
+            str(worktrees[0].path),
+        )
+    source = resolve_source_worktree(selected)
+    if same_path(source, target):
+        raise WorktreeToolError(f'Source worktree is the same as the target: "{source}"')
+    return source
+
+
+def is_empty_directory(path: Path) -> bool:
+    return path.is_dir() and not any(path.iterdir())
+
+
+def remove_link_or_empty_directory(path: Path, *, dry_run: bool) -> None:
+    if dry_run:
+        print(f'[dry-run] remove "{path}"')
+        return
+    if is_link_like(path) or is_empty_directory(path):
+        path.rmdir()
+        return
+    raise WorktreeToolError(f'Refusing to remove non-empty real directory: "{path}"')
+
+
+def create_directory_link(
+    source: Path,
+    target: Path,
+    *,
+    link_type: str,
+    dry_run: bool,
+) -> None:
+    if link_type == "junction":
+        if not is_windows():
+            raise WorktreeToolError("Directory junctions are only supported on Windows.")
+        command = ["cmd.exe", "/d", "/c", "mklink", "/J", str(target), str(source)]
+        if dry_run:
+            print(f"[dry-run] {' '.join(command)}")
+            return
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise WorktreeToolError(
+                f'Could not create junction "{target}" -> "{source}": {detail}'
+            )
+        return
+    if link_type == "symlink":
+        if dry_run:
+            print(f'[dry-run] symlink "{target}" -> "{source}"')
+            return
+        os.symlink(source, target, target_is_directory=True)
+        return
+    raise WorktreeToolError(f"Unsupported link type: {link_type}")
+
+
+def linked_to(path: Path, expected_target: Path) -> bool:
+    return (
+        path.exists()
+        and is_link_like(path)
+        and same_path(path.resolve(strict=False), expected_target.resolve(strict=False))
+    )
+
+
+def prepare_directory_link(
+    source: Path,
+    target: Path,
+    *,
+    label: str,
+    link_type: str,
+    dry_run: bool,
+) -> None:
+    source = source.expanduser().resolve()
+    target = target.expanduser().absolute()
+    if not source.is_dir():
+        raise WorktreeToolError(f'Source {label} directory does not exist: "{source}"')
+    if linked_to(target, source):
+        print(f'{label} is already linked to "{source}".')
+        return
+    if target.exists() or is_link_like(target):
+        if is_link_like(target) or is_empty_directory(target):
+            remove_link_or_empty_directory(target, dry_run=dry_run)
+        else:
+            raise WorktreeToolError(
+                f'Target {label} already exists and is not an empty directory or link: "{target}"\n'
+                "Move it aside manually if you really want to replace it."
+            )
+    if dry_run:
+        print(f'[dry-run] link {label}: "{target}" -> "{source}"')
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+    create_directory_link(source, target, link_type=link_type, dry_run=dry_run)
+    print(f'Linked {label}: "{target}" -> "{source}"')
+
+
+def prepare_agent_link(
+    source_root: Path,
+    target_root: Path,
+    *,
+    link_type: str,
+    dry_run: bool,
+) -> None:
+    source = (source_root / ".agents").resolve()
+    target = (target_root / ".agents").absolute()
+    backup = (target_root / ".agents.pre-link-backup").absolute()
+    if not source.is_dir():
+        raise WorktreeToolError(f'Source .agents directory does not exist: "{source}"')
+    if target.is_dir() and not is_link_like(target) and not is_empty_directory(target):
+        if backup.exists() or is_link_like(backup):
+            raise WorktreeToolError(
+                f'Cannot preserve the existing Agent directory because the backup path exists: "{backup}"'
+            )
+        print(f'Preserving existing .agents: "{target}" -> "{backup}"')
+        if dry_run:
+            print(f'[dry-run] move "{target}" -> "{backup}"')
+            print(f'[dry-run] link .agents: "{target}" -> "{source}"')
+            create_directory_link(source, target, link_type=link_type, dry_run=True)
+            return
+        target.rename(backup)
+    prepare_directory_link(
+        source,
+        target,
+        label=".agents",
+        link_type=link_type,
+        dry_run=dry_run,
+    )
+
+
+def validate_preparation_targets(target_root: Path) -> None:
+    agent = target_root / ".agents"
+    agent_backup = target_root / ".agents.pre-link-backup"
+    if (
+        agent.is_dir()
+        and not is_link_like(agent)
+        and not is_empty_directory(agent)
+        and (agent_backup.exists() or is_link_like(agent_backup))
+    ):
+        raise WorktreeToolError(
+            f'Cannot preserve the existing Agent directory because the backup path exists: "{agent_backup}"'
+        )
+    for label, target in (
+        ("External", target_root / "Engine" / "External"),
+        (".venv", target_root / ".venv"),
+    ):
+        if target.exists() and not is_link_like(target) and not is_empty_directory(target):
+            raise WorktreeToolError(
+                f'Target {label} already exists and is not an empty directory or link: "{target}"\n'
+                "Move it aside manually if you really want to replace it."
+            )
+
+
+def run_preflight(target: Path) -> None:
+    preflight = target / "Engine" / "Scripts" / "Bootstrap" / "Preflight.bat"
+    if not preflight.is_file():
+        raise WorktreeToolError(f'Preflight script does not exist: "{preflight}"')
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", "call", str(preflight)],
+        cwd=target,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise WorktreeToolError(f"Preflight failed with exit code {result.returncode}.")
+
+
+def prepare_registered_worktree(
+    target: Path,
+    *,
+    source_value: str | None,
+    link_type: str,
+    dry_run: bool,
+) -> None:
+    target = target.expanduser().absolute()
+    worktrees = get_worktrees()
+    worktree = require_registered_linked_worktree(target, worktrees, require_unlocked=False)
+    source = preparation_source(source_value, target=worktree.path, worktrees=worktrees)
+    selected_link_type = choose_link_type(link_type)
+    required_sources = (
+        (".agents", source / ".agents"),
+        ("External", source / "Engine" / "External"),
+        (".venv", source / ".venv"),
+    )
+    missing_sources = [f'{label}: "{path}"' for label, path in required_sources if not path.is_dir()]
+    if missing_sources:
+        formatted = "\n".join(f"  {entry}" for entry in missing_sources)
+        raise WorktreeToolError(f"Prepared source directories are missing:\n{formatted}")
+    validate_preparation_targets(worktree.path)
+    print(f'Source worktree: "{source}"')
+    print(f'Target worktree: "{worktree.path}"')
+    print(f"Link type: {selected_link_type}")
+    prepare_agent_link(
+        source,
+        worktree.path,
+        link_type=selected_link_type,
+        dry_run=dry_run,
+    )
+    prepare_directory_link(
+        source / "Engine" / "External",
+        worktree.path / "Engine" / "External",
+        label="External",
+        link_type=selected_link_type,
+        dry_run=dry_run,
+    )
+    prepare_directory_link(
+        source / ".venv",
+        worktree.path / ".venv",
+        label=".venv",
+        link_type=selected_link_type,
+        dry_run=dry_run,
+    )
+    if dry_run:
+        print("Dry run complete; preflight was not run.")
+        return
+    sys.stdout.flush()
+    run_preflight(worktree.path)
+    print(f'Prepared worktree: "{worktree.path}"')
+
+
+def prepare_worktree_command(args: argparse.Namespace) -> None:
+    target = Path(args.path).expanduser().absolute() if args.path else REPO_ROOT
+    prepare_registered_worktree(
+        target,
+        source_value=args.source,
+        link_type=args.link_type,
+        dry_run=args.dry_run,
+    )
 
 
 def require_link_like_status(path: Path) -> bool:
@@ -328,14 +576,19 @@ def directory_links_under(root: Path) -> list[Path]:
     return links
 
 
-def require_registered_linked_worktree(target: Path, worktrees: Sequence[Worktree]) -> Worktree:
+def require_registered_linked_worktree(
+    target: Path,
+    worktrees: Sequence[Worktree],
+    *,
+    require_unlocked: bool = True,
+) -> Worktree:
     matches = [worktree for worktree in worktrees if same_path(worktree.path, target)]
     if not matches:
         raise WorktreeToolError(f'Path is not a registered Git worktree: "{target}"')
     worktree = matches[0]
     if same_path(worktree.path, worktrees[0].path):
-        raise WorktreeToolError("Refusing to remove the main worktree.")
-    if worktree.locked:
+        raise WorktreeToolError("Refusing to operate on the main worktree.")
+    if require_unlocked and worktree.locked:
         raise WorktreeToolError("Refusing to remove a locked worktree. Unlock it explicitly first.")
     return worktree
 
@@ -436,7 +689,7 @@ def remove_worktree(args: argparse.Namespace) -> None:
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="WorktreeTool",
-        description="Create, inspect, open, and safely remove Durin Git worktrees.",
+        description="Create, prepare, inspect, open, and safely remove Durin Git worktrees.",
     )
     subparsers = parser.add_subparsers(dest="action", required=True)
 
@@ -451,6 +704,28 @@ def create_parser() -> argparse.ArgumentParser:
     add_mode = add_parser.add_mutually_exclusive_group()
     add_mode.add_argument("-b", "--branch", help="create and check out a new branch")
     add_mode.add_argument("--detach", action="store_true", help="detach HEAD in the new worktree")
+    add_parser.add_argument("--source", help="prepared source worktree or Engine/External path")
+    add_parser.add_argument(
+        "--link-type",
+        choices=("auto", "junction", "symlink"),
+        default="auto",
+        help="shared-directory link type",
+    )
+
+    prepare_parser = subparsers.add_parser("prepare", help="prepare or repair a linked worktree")
+    prepare_parser.add_argument(
+        "path",
+        nargs="?",
+        help="linked worktree path; defaults to this checkout",
+    )
+    prepare_parser.add_argument("--source", help="prepared source worktree or Engine/External path")
+    prepare_parser.add_argument(
+        "--link-type",
+        choices=("auto", "junction", "symlink"),
+        default="auto",
+        help="shared-directory link type",
+    )
+    prepare_parser.add_argument("--dry-run", action="store_true", help="validate and print without changing")
 
     remove_parser = subparsers.add_parser("remove", help="safely remove a linked worktree")
     remove_parser.add_argument("path", help="linked worktree path")
@@ -479,6 +754,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
             display_worktrees(get_worktrees())
         elif args.action == "add":
             add_worktree(args)
+        elif args.action == "prepare":
+            prepare_worktree_command(args)
         elif args.action == "remove":
             remove_worktree(args)
         else:

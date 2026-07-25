@@ -24,7 +24,6 @@ from durin_build_tool import core as build_core
 from durin_build_tool.output import BuildOutput
 
 from Engine.Scripts.Bootstrap import agent_config
-from Engine.Scripts.Bootstrap import prepare_worktree
 from Engine.Scripts.Bootstrap import setup_preflight
 from Engine.Scripts.Utils import worktree_tool
 
@@ -938,6 +937,7 @@ class CliTests(unittest.TestCase):
         content = (REPO_ROOT / "BuildTool.bat").read_text(encoding="utf-8")
         self.assertIn('set "VSLANG=1033"', content)
         self.assertIn('Engine\\Scripts\\Build\\durin_build_tool\\__main__.py" %*', content)
+        self.assertIn("WorktreeTool prepare", content)
         self.assertNotIn("agent_build.py", content)
 
     def test_requirements_pin_rich_and_libclang(self) -> None:
@@ -945,13 +945,14 @@ class CliTests(unittest.TestCase):
         self.assertRegex(content, r"(?m)^libclang==\d+\.\d+\.\d+$")
         self.assertRegex(content, r"(?m)^rich==\d+\.\d+\.\d+$")
 
-    def test_setup_prepares_configuration_before_each_preflight(self) -> None:
+    def test_setup_initializes_only_the_main_checkout(self) -> None:
         content = (REPO_ROOT / "Setup.bat").read_text(encoding="utf-8")
-        bootstrap = content[content.index(":bootstrap") : content.index(":prepare_worktree")]
-        linked = content[content.index(":prepare_worktree") : content.index(":end")]
+        bootstrap = content[content.index(":bootstrap") : content.index(":linked_worktree_error")]
+        linked = content[content.index(":linked_worktree_error") : content.index(":end")]
         self.assertLess(bootstrap.index("InitializeAgentConfig.bat"), bootstrap.index("Preflight.bat"))
         self.assertLess(bootstrap.index("Preflight.bat"), bootstrap.index("SetupPython.bat"))
-        self.assertLess(linked.index("PrepareWorktree.bat"), linked.index("Preflight.bat"))
+        self.assertIn("WorktreeTool prepare", linked)
+        self.assertNotIn("PrepareWorktree.bat", content)
         self.assertEqual(content.count("InitializeAgentConfig.bat"), 1)
 
     def test_agent_config_initializer_supports_python_launcher_before_venv_exists(self) -> None:
@@ -961,13 +962,6 @@ class CliTests(unittest.TestCase):
         self.assertIn("where py", content)
         self.assertIn('py -3 "%SCRIPT_DIR%initialize_agent_config.py" %*', content)
 
-    def test_worktree_preparer_supports_python_launcher_before_venv_is_linked(self) -> None:
-        content = (REPO_ROOT / "Engine/Scripts/Bootstrap/PrepareWorktree.bat").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("where py", content)
-        self.assertIn('py -3 "%SCRIPT_DIR%prepare_worktree.py" %*', content)
-
     def test_worktree_preparer_links_complete_agent_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -976,10 +970,16 @@ class CliTests(unittest.TestCase):
             (source / ".agents").mkdir(parents=True)
             (target / ".agents").mkdir(parents=True)
             (target / ".agents" / "build-config.json").write_text("local", encoding="utf-8")
-            with mock.patch.object(prepare_worktree, "REPO_ROOT", target), mock.patch.object(
-                prepare_worktree, "create_link"
+            with mock.patch.object(
+                worktree_tool,
+                "create_directory_link",
             ) as create:
-                prepare_worktree.prepare_agent_link(source, link_type="symlink", dry_run=False)
+                worktree_tool.prepare_agent_link(
+                    source,
+                    target,
+                    link_type="symlink",
+                    dry_run=False,
+                )
             self.assertFalse((target / ".agents").exists())
             self.assertEqual(
                 (target / ".agents.pre-link-backup" / "build-config.json").read_text(encoding="utf-8"),
@@ -989,7 +989,6 @@ class CliTests(unittest.TestCase):
                 (source / ".agents").resolve(),
                 (target / ".agents").absolute(),
                 link_type="symlink",
-                target_is_directory=True,
                 dry_run=False,
             )
 
@@ -1000,6 +999,7 @@ class WorktreeToolTests(unittest.TestCase):
         args = worktree_tool.parse_args(["--dry-run"])
         self.assertEqual(args.action, "open")
         self.assertTrue(args.dry_run)
+        self.assertEqual(worktree_tool.parse_args(["prepare"]).action, "prepare")
 
     def test_worktree_porcelain_parser_preserves_branch_and_lock_state(self) -> None:
         worktrees = worktree_tool.parse_worktrees(
@@ -1020,6 +1020,39 @@ class WorktreeToolTests(unittest.TestCase):
             ],
         )
 
+    def test_add_prepares_without_calling_setup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "feature"
+            args = argparse.Namespace(
+                path=str(target),
+                branch="feature",
+                detach=False,
+                commit_ish=None,
+                source=None,
+                link_type="auto",
+            )
+            git_result = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(
+                worktree_tool,
+                "git_command",
+                return_value=git_result,
+            ) as git, mock.patch.object(
+                worktree_tool,
+                "prepare_registered_worktree",
+            ) as prepare:
+                worktree_tool.add_worktree(args)
+
+            git.assert_called_once_with(
+                ["worktree", "add", "-b", "feature", str(target)],
+                capture_output=False,
+            )
+            prepare.assert_called_once_with(
+                target,
+                source_value=None,
+                link_type="auto",
+                dry_run=False,
+            )
+
     def test_remove_refuses_main_worktree(self) -> None:
         main = Path("C:/repo")
         with self.assertRaisesRegex(worktree_tool.WorktreeToolError, "main worktree"):
@@ -1027,6 +1060,49 @@ class WorktreeToolTests(unittest.TestCase):
                 main,
                 [worktree_tool.Worktree(main, "main")],
             )
+
+    def test_prepare_allows_a_locked_linked_worktree(self) -> None:
+        main = worktree_tool.Worktree(Path("C:/repo"), "main")
+        locked = worktree_tool.Worktree(Path("C:/repo-feature"), "feature", True)
+        self.assertEqual(
+            worktree_tool.require_registered_linked_worktree(
+                locked.path,
+                [main, locked],
+                require_unlocked=False,
+            ),
+            locked,
+        )
+
+    def test_prepare_validates_all_source_directories_before_linking(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main"
+            linked = root / "feature"
+            main.mkdir()
+            linked.mkdir()
+            worktrees = [
+                worktree_tool.Worktree(main, "main"),
+                worktree_tool.Worktree(linked, "feature"),
+            ]
+            with mock.patch.object(
+                worktree_tool,
+                "get_worktrees",
+                return_value=worktrees,
+            ), mock.patch.object(
+                worktree_tool,
+                "prepare_agent_link",
+            ) as prepare_agent:
+                with self.assertRaisesRegex(
+                    worktree_tool.WorktreeToolError,
+                    "Prepared source directories are missing",
+                ):
+                    worktree_tool.prepare_registered_worktree(
+                        linked,
+                        source_value=str(main),
+                        link_type="auto",
+                        dry_run=True,
+                    )
+            prepare_agent.assert_not_called()
 
     def test_remove_refuses_unexpected_directory_links(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1158,11 +1234,8 @@ class WorktreeToolTests(unittest.TestCase):
         self.assertIn("Engine\\Scripts\\Utils\\worktree_tool.py", content)
         self.assertFalse((REPO_ROOT / "OpenWorktrees.bat").exists())
         self.assertFalse((REPO_ROOT / "Engine/Scripts/Utils/OpenWorktrees.ps1").exists())
-
-    def test_setup_supports_non_interactive_worktree_preparation(self) -> None:
-        content = (REPO_ROOT / "Setup.bat").read_text(encoding="utf-8")
-        self.assertIn('if /I "%~1"=="--no-pause"', content)
-        self.assertIn('if "!PAUSE_AT_END!"=="1" pause', content)
+        self.assertFalse((REPO_ROOT / "Engine/Scripts/Bootstrap/PrepareWorktree.bat").exists())
+        self.assertFalse((REPO_ROOT / "Engine/Scripts/Bootstrap/prepare_worktree.py").exists())
 
 
 class SetupPreflightTests(unittest.TestCase):

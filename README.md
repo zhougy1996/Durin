@@ -79,6 +79,7 @@ the complete linked-worktree lifecycle:
 
 ```powershell
 .\WorktreeTool add ..\Durin-feature -b feature-branch
+.\WorktreeTool prepare ..\Durin-feature
 .\WorktreeTool list
 .\WorktreeTool remove ..\Durin-feature
 ```
@@ -91,11 +92,16 @@ Windows Terminal, with up to four panes per tab:
 .\WorktreeTool --dry-run
 ```
 
-`add` creates the Git worktree and runs its Setup non-interactively. Setup links
-`.agents`, `Engine/External`, and `.venv` from the main worktree, so machine-local
-Agent configuration and prepared dependencies are shared immediately.
+`add` creates the Git worktree and prepares it automatically. `prepare` is also
+available explicitly for worktrees created manually, for repairs, and for
+previewing changes with `--dry-run`. Preparation links `.agents`,
+`Engine/External`, and `.venv` from the main worktree, so machine-local Agent
+configuration and prepared dependencies are shared immediately.
 `Build/`, `Engine/Intermediate/`, and `Engine/Binaries` remain local to each
 worktree.
+
+`Setup.bat` initializes only the main checkout. Running it from a linked
+worktree reports an error and directs the caller to `WorktreeTool prepare`.
 
 Always use `WorktreeTool remove` for prepared worktrees on Windows. It verifies
 that the target is a registered linked worktree, refuses the main or a locked
@@ -106,9 +112,9 @@ in the main worktree. Pass `--force` only when modified and untracked files may
 be discarded, or `--dry-run` to validate without changing anything.
 
 When upgrading an existing worktree that already has a real `.agents` directory,
-Setup preserves it as `.agents.pre-link-backup` before creating the link. If the
-prepared dependencies are stored in a non-default worktree, use
-`Engine\Scripts\Bootstrap\PrepareWorktree.bat --source <prepared-worktree>`.
+WorktreeTool preserves it as `.agents.pre-link-backup` before creating the link.
+If the prepared dependencies are stored in a non-default worktree, use
+`WorktreeTool prepare --source <prepared-worktree>`.
 
 ## Troubleshooting
 
@@ -116,7 +122,7 @@ prepared dependencies are stored in a non-default worktree, use
 - **Setup cannot find CMake or the Visual Studio environment:** Set the corresponding override in `.agents/build-config.json` and rerun `Setup.bat`; the existing configuration is preserved.
 - **`.venv` uses an outdated or incorrect Python:** Remove `.venv` and rerun `Setup.bat`. Do not mix system site-packages into the virtual environment.
 - **`clang.cindex` or libclang is missing:** Rerun `Setup.bat`. The required version is managed by the root `requirements.txt`.
-- **BuildTool reports a missing virtual environment:** Setup has not completed; run `Setup.bat` first.
+- **BuildTool reports a missing virtual environment:** Run `Setup.bat` in the main checkout, or `WorktreeTool prepare` in a linked worktree.
 - **Setup reports an old MSVC toolset:** Update Visual Studio 2022 to 17.14 or newer and install MSVC Build Tools 14.44 or newer.
 - **Setup reports a missing `vk_mem_alloc.h`:** Update the Vulkan SDK, or download VulkanMemoryAllocator's `vk_mem_alloc.h` and place it under the SDK's `Include/vma` directory.
 - **BuildTool reports localized MSVC diagnostics:** Add the English language pack through Visual Studio Installer, then rerun BuildTool. Existing Ninja trees with a non-English dependency prefix are refreshed automatically by the next `configure`, `build`, or `test` operation.
