@@ -83,7 +83,7 @@ namespace Durin
 			.SetExtent(BaseMip.Width, BaseMip.Height)
 			.SetFormat(PlatformData.PixelFormat)
 			.SetNumMips(static_cast<uint8>(PlatformData.Faces[0].Mips.size()))
-			.SetFlags(ETextureCreateFlags::ShaderResource);
+			.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
 		if (!GDynamicRHI->RHIIsTextureFormatSupported(Desc))
 		{
 			FailureReason.store(ETextureRenderFailure::UnsupportedFormat, std::memory_order_release);

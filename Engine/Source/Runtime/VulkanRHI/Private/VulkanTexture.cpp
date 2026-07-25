@@ -60,6 +60,10 @@ namespace Durin::VulkanRHI
 		{
 			ImageUsage |= vk::ImageUsageFlagBits::eStorage;
 		}
+		if (EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::CPUReadback))
+		{
+			ImageUsage |= vk::ImageUsageFlagBits::eTransferSrc;
+		}
 
 		vk::ImageCreateInfo imageInfo{};
 		imageInfo
@@ -195,6 +199,8 @@ namespace Durin::VulkanRHI
 			RequiredFeatures |= vk::FormatFeatureFlagBits::eDepthStencilAttachment;
 		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage))
 			RequiredFeatures |= vk::FormatFeatureFlagBits::eStorageImage;
+		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::CPUReadback))
+			RequiredFeatures |= vk::FormatFeatureFlagBits::eTransferSrc;
 
 		const vk::FormatProperties Properties = Device->GetGpu().getFormatProperties(Format);
 		return (Properties.optimalTilingFeatures & RequiredFeatures) == RequiredFeatures;
@@ -294,5 +300,131 @@ namespace Durin::VulkanRHI
 
 		CmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllGraphics, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
 		VulkanTexture->SetSubresourceLayout(MipIndex, ArraySlice, FinalLayout);
+	}
+
+	auto FVulkanDynamicRHI::RHIReadTexture2D(
+		FRHICommandListBase& RHICmdList,
+		FRHITexture* Texture,
+		uint32 MipIndex,
+		uint32 ArraySlice,
+		std::vector<uint8>& OutData
+	) -> bool
+	{
+		OutData.clear();
+		if (Texture == nullptr || MipIndex >= Texture->GetNumMips() || ArraySlice >= Texture->GetArraySize()
+			|| Texture->GetNumSamples() != 1)
+		{
+			DURIN_ERROR("Failed to read Vulkan texture: invalid texture or subresource.");
+			return false;
+		}
+
+		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
+		if (!EnumHasAnyFlags(VulkanTexture->CreateFlags, ETextureCreateFlags::CPUReadback))
+		{
+			DURIN_ERROR("Failed to read Vulkan texture: texture was not created with CPUReadback.");
+			return false;
+		}
+
+		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(Texture->GetFormat());
+		if (FormatInfo.BlockSize == 0 || FormatInfo.BytesPerBlock == 0
+			|| FormatInfo.bHasDepth || FormatInfo.bHasStencil)
+		{
+			DURIN_ERROR("Failed to read Vulkan texture: only color formats with a defined block layout are supported.");
+			return false;
+		}
+
+		const uint32 Width = std::max(1u, Texture->GetSizeX() >> MipIndex);
+		const uint32 Height = std::max(1u, Texture->GetSizeY() >> MipIndex);
+		const FPixelFormatLayout Layout = GetPixelFormatLayout(Texture->GetFormat(), Width, Height);
+		if (Layout.DataSize == 0 || Layout.DataSize > std::numeric_limits<uint32>::max())
+		{
+			DURIN_ERROR("Failed to read Vulkan texture: subresource size is unsupported.");
+			return false;
+		}
+
+		FVulkanMemoryManager& MemoryManager = Device->GetMemoryManager();
+		FVulkanAllocation ReadbackAllocation;
+		vk::Buffer ReadbackBuffer;
+		vk::BufferCreateInfo BufferInfo;
+		BufferInfo.setSize(Layout.DataSize)
+			.setUsage(vk::BufferUsageFlagBits::eTransferDst)
+			.setSharingMode(vk::SharingMode::eExclusive);
+		if (!MemoryManager.CreateBuffer(
+			ReadbackAllocation,
+			ReadbackBuffer,
+			EVulkanAllocationFlags::HostVisible | EVulkanAllocationFlags::PersistentMapped,
+			BufferInfo,
+			"TextureReadback"))
+		{
+			return false;
+		}
+
+		const vk::ImageLayout OldLayout = VulkanTexture->GetSubresourceLayout(MipIndex, ArraySlice);
+		if (OldLayout == vk::ImageLayout::eUndefined)
+		{
+			DURIN_ERROR("Failed to read Vulkan texture: subresource contents are undefined.");
+			MemoryManager.DestroyBuffer(ReadbackAllocation, ReadbackBuffer);
+			return false;
+		}
+
+		const bool bStorage = OldLayout == vk::ImageLayout::eGeneral;
+		const bool bColorAttachment = OldLayout == vk::ImageLayout::eColorAttachmentOptimal;
+		const vk::AccessFlags OldAccess = bStorage
+			? vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite
+			: bColorAttachment ? vk::AccessFlagBits::eColorAttachmentWrite : vk::AccessFlagBits::eShaderRead;
+		const vk::PipelineStageFlags OldStage = bColorAttachment
+			? vk::PipelineStageFlagBits::eColorAttachmentOutput : vk::PipelineStageFlagBits::eAllGraphics;
+		const vk::ImageSubresourceRange SubresourceRange(
+			vk::ImageAspectFlagBits::eColor, MipIndex, 1, ArraySlice, 1);
+		vk::ImageMemoryBarrier PreCopyBarrier;
+		PreCopyBarrier.setSrcAccessMask(OldAccess)
+			.setDstAccessMask(vk::AccessFlagBits::eTransferRead)
+			.setOldLayout(OldLayout)
+			.setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setImage(VulkanTexture->Image)
+			.setSubresourceRange(SubresourceRange);
+
+		const vk::CommandBuffer CmdBuffer = RHIGetVkCommandBuffer(RHICmdList);
+		CmdBuffer.pipelineBarrier(
+			OldStage, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, PreCopyBarrier);
+		vk::BufferImageCopy CopyRegion;
+		CopyRegion.setBufferOffset(0)
+			.setBufferRowLength(0)
+			.setBufferImageHeight(0)
+			.setImageSubresource(vk::ImageSubresourceLayers(
+				vk::ImageAspectFlagBits::eColor, MipIndex, ArraySlice, 1))
+			.setImageOffset(vk::Offset3D{0, 0, 0})
+			.setImageExtent(vk::Extent3D{Width, Height, 1});
+		CmdBuffer.copyImageToBuffer(
+			VulkanTexture->Image, vk::ImageLayout::eTransferSrcOptimal, ReadbackBuffer, CopyRegion);
+
+		vk::ImageMemoryBarrier PostCopyBarrier;
+		PostCopyBarrier.setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
+			.setDstAccessMask(OldAccess)
+			.setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
+			.setNewLayout(OldLayout)
+			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setImage(VulkanTexture->Image)
+			.setSubresourceRange(SubresourceRange);
+		CmdBuffer.pipelineBarrier(
+			vk::PipelineStageFlagBits::eTransfer, OldStage, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
+
+		auto& Context = static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext());
+		Context.Finalize();
+		Device->WaitUtilIdle();
+		MemoryManager.Invalidate(ReadbackAllocation, 0, Layout.DataSize);
+		const auto* MappedData = static_cast<const uint8*>(ReadbackAllocation.GetMappedData());
+		if (MappedData == nullptr)
+		{
+			DURIN_ERROR("Failed to read Vulkan texture: readback allocation is not mapped.");
+			MemoryManager.DestroyBuffer(ReadbackAllocation, ReadbackBuffer);
+			return false;
+		}
+		OutData.assign(MappedData, MappedData + Layout.DataSize);
+		MemoryManager.DestroyBuffer(ReadbackAllocation, ReadbackBuffer);
+		return true;
 	}
 } // namespace Durin::VulkanRHI

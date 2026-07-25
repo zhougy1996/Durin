@@ -4,61 +4,25 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stage 0 has fixed the Durin-space face, array-layer, source orientation, and
-direction-to-UV conventions in Architecture documentation and a labeled six-face
-test cube. The cube importer now reports convention face names in per-face
-decode, missing-source, shape, and format errors.
+Stages 0-5 are complete. The implemented slice includes the documented face
+convention, transactional six-face assets, revisioned render resources and
+scene snapshots, fullscreen sky rendering, deterministic conflict selection,
+and the editor import/create/assign/save/reload workflow.
 
-Stage 1 is in progress. `TextureCube` creation now establishes and validates the
-six-layer square-image contract, texture uploads explicitly name an array slice,
-and Vulkan cube images use the cube-compatible flag with per-mip/per-slice
-barriers, copies, and layout tracking. Renderer startup creates and uploads all
-six faces of the black fallback cube; a hidden DurinEditor run completed with
-Vulkan Validation enabled and no cube creation or upload diagnostics. RHI
-contract tests and the existing Texture2D tests pass. A repeatable multi-mip
-sampling smoke remains before the Stage 1 acceptance gate is complete.
+Stage 6 automated validation is complete. A Vulkan pixel test reads back every
+compressed face and mip, renders all six principal directions, verifies camera
+translation invariance and component rotation, preserves fitted letterboxing,
+and proves foreground geometry occludes the sky. The test also exercises
+render-pass final-layout tracking and render-thread resource retirement with
+Vulkan Validation enabled and no diagnostics. `EngineTests` passes 220/220 and
+`RenderCoreTests` passes 48/48. A full `all` build and a 10-second
+`DurinEditor --hidden-window` smoke from the same preset pass without logged
+errors or validation messages.
 
-Stage 2 implementation is complete. `DTextureCube` now imports six validated source images
-transactionally, persists their paths, rebuilds full face mip chains after
-reload, follows asset move/delete operations, and queues revisioned cube
-creation, per-face/per-mip upload, and release through a shared render resource.
-Desktop platform data is block-compressed with one format across all six faces;
-any transparent face promotes the entire cube from BC1 to BC3.
-Asset and component tests cover successful lifecycle, invalid-import rollback,
-render-thread stale-revision rejection, package dependency tracking, graph
-serialization, and GC retention. Direct multi-mip Vulkan sampling remains
-before the Stage 1 and integrated resource acceptance evidence is complete.
-
-Stage 3 is complete. `DSkyBoxComponent` and `ASkyBoxActor` are reflected, the
-component publishes revisioned UObject-free snapshots, and `FScene` owns them
-only on the rendering thread. Serialized GUID selection is deterministic for
-multiple visible skyboxes. Tests cover registration, visibility, transform and
-property updates, stale commands, scene release, serialization, dependencies,
-and GC.
-
-Stage 4 implementation is complete. A dedicated fullscreen-triangle shader
-reconstructs a translation-free world ray, applies inverse component rotation,
-samples the active cube (or the renderer black fallback), and writes linear
-Tint/Intensity-modulated color before static meshes and post process. Its
-depth-free pipeline, sampler, viewport/scissor handling, and lifetime are
-independent of static-mesh pipeline initialization. CPU tests cover ray
-translation invariance, inverse component rotation, invalid transforms, and
-parameter packing. The hidden Vulkan smoke exercises shader and pipeline
-creation even in a scene without an active sky. Repeatable rendered-pixel
-orientation, occlusion, and multi-mip sampling evidence remains for Stage 6 and
-the Stage 1 acceptance gate.
-
-Stage 5 implementation is complete. The Content Browser now exposes a
-six-slot `Texture Cube` import modal with face orientation guidance and
-preflight decode, shape, consistency, mip, format, destination, and collision
-validation. Texture Cube assets have a stable type presentation and
-dimension/face/mip summary. The reflected creation menu exposes `Sky Box Actor`,
-the shared Details picker limits its cube property to compatible assets, and
-ordinary reflected Tint, Intensity, and rotation edits keep their live scene
-and package-dirty behavior. Component Details reports the deterministically
-active and ignored actors when visible skyboxes conflict. An editor workflow
-test covers validation, import, reflected actor construction, assignment,
-level save/reload, scene snapshot publication, and conflict selection.
+The only remaining acceptance evidence is the interactive visibility matrix in
+the main editor viewport, camera preview, and PIE/game window at multiple aspect
+ratios and view modes. The plan remains active until that manual check is
+performed.
 
 ## Goal
 
@@ -144,7 +108,7 @@ This stage produces no user-visible result. It prevents repeated flipping of the
 - [x] Define the orientation, up direction, and required flipping for the six source images `+X, -X, +Y, -Y, +Z, -Z`.
 - [x] Add a small, directionally unambiguous six-color cubemap with labeled edge markers to the test-data directory.
 - [x] Define CPU direction-to-expected-face/UV cases as the ground-truth table for visual shader validation.
-- [ ] Put the final convention in cube-texture import errors and user documentation, not only in shader comments.
+- [x] Put the final convention in cube-texture import errors and user documentation, not only in shader comments.
 
 #### Acceptance Gate
 
@@ -162,7 +126,7 @@ Depends on Stage 0. This stage proves only that the GPU can correctly create, up
 - [x] Update Vulkan staging copies and layout transitions to operate only on the specified mip/slice without disrupting other uploaded faces.
 - [x] Check descriptor/view dimension mapping so a shader-declared `TextureCube` never receives a 2D image view.
 - [x] Add RHI unit tests for create descriptions and invalid subresources.
-- [ ] Add a minimal Vulkan smoke path for cube creation, six-layer upload, and sampling with validation enabled.
+- [x] Add a minimal Vulkan smoke path for cube creation, six-layer upload, and sampling with validation enabled.
 
 #### Acceptance Gate
 
@@ -254,14 +218,14 @@ Depends on Stages 2-4. This stage makes the feature usable without test code or 
 
 Depends on all preceding stages. This stage does not expand the effect; it closes reliability, regression, and documentation gaps.
 
-- [ ] Run targeted tests related to Texture2D, RHI, VulkanRHI, assets, reflection, scene, renderer, and editor behavior.
-- [ ] Add repeatable rendered-image or pixel-sampling tests covering all six principal axes, camera translation, camera rotation, component rotation, and geometry occlusion.
+- [x] Run targeted tests related to Texture2D, RHI, VulkanRHI, assets, reflection, scene, renderer, and editor behavior.
+- [x] Add repeatable rendered-image or pixel-sampling tests covering all six principal axes, camera translation, camera rotation, component rotation, and geometry occlusion.
 - [ ] Perform manual visibility checks at different aspect ratios in the main editor viewport, camera preview, and PIE/game window.
-- [ ] Rapidly replace, rebuild, and delete cube assets; repeatedly hide, show, and delete the SkyBox Actor; then inspect stale-command handling and resource lifetime.
-- [ ] With Vulkan Validation enabled, verify six layers, multiple mips, descriptor binding, layout transitions, and module destruction.
-- [ ] Complete a full `all` build with one preset, then launch `DurinEditor` from the same preset for the hidden-window runtime smoke test.
-- [ ] Update this plan's checkboxes, Current Status, and `Last reviewed`, and move long-lived contracts into the appropriate Architecture documentation.
-- [ ] Update the Cube Map entry under Later Scope in `Documentation/Plans/TextureSupport.md` so the two plans do not contradict the implemented feature.
+- [x] Rapidly replace, rebuild, and delete cube assets; repeatedly hide, show, and delete the SkyBox Actor; then inspect stale-command handling and resource lifetime.
+- [x] With Vulkan Validation enabled, verify six layers, multiple mips, descriptor binding, layout transitions, and module destruction.
+- [x] Complete a full `all` build with one preset, then launch `DurinEditor` from the same preset for the hidden-window runtime smoke test.
+- [x] Update this plan's checkboxes, Current Status, and `Last reviewed`, and move long-lived contracts into the appropriate Architecture documentation.
+- [x] Update the Cube Map entry under Later Scope in `Documentation/Plans/TextureSupport.md` so the two plans do not contradict the implemented feature.
 
 #### Acceptance Gate
 
@@ -287,15 +251,15 @@ Depends on all preceding stages. This stage does not expand the effect; it close
 
 The "simple SkyBoxComponent" is complete only when all of the following conditions are satisfied:
 
-- [ ] Users can import a six-face cube texture in the editor, create an `ASkyBoxActor`, and assign the asset in Details.
-- [ ] The skybox asset, Tint, Intensity, and rotation remain correct after saving and reloading the level.
+- [x] Users can import a six-face cube texture in the editor, create an `ASkyBoxActor`, and assign the asset in Details.
+- [x] The skybox asset, Tint, Intensity, and rotation remain correct after saving and reloading the level.
 - [ ] The main viewport, camera preview, and game window display the same correctly oriented static sky.
-- [ ] Camera translation has no parallax, and camera/component rotation follows the documented coordinate convention.
-- [ ] The sky does not cover scene geometry, the editor grid, or overlays, and does not stretch fixed-aspect-ratio views.
-- [ ] No path allows direct game-thread access to the skybox RHI or render-thread reads from reflected UObjects.
-- [ ] Missing or unready resources use a stable black fallback, and rapid rebuilding/deletion produces no dangling resources.
-- [ ] Targeted tests, the full `all` build, Vulkan Validation, and the DurinEditor runtime smoke test all pass.
-- [ ] Long-lived resource, scene, and renderer contracts from the actual implementation have moved into Architecture documentation.
+- [x] Camera translation has no parallax, and camera/component rotation follows the documented coordinate convention.
+- [x] The sky does not cover scene geometry, the editor grid, or overlays, and does not stretch fixed-aspect-ratio views.
+- [x] No path allows direct game-thread access to the skybox RHI or render-thread reads from reflected UObjects.
+- [x] Missing or unready resources use a stable black fallback, and rapid rebuilding/deletion produces no dangling resources.
+- [x] Targeted tests, the full `all` build, Vulkan Validation, and the DurinEditor runtime smoke test all pass.
+- [x] Long-lived resource, scene, and renderer contracts from the actual implementation have moved into Architecture documentation.
 
 ## Deferred Follow-ups
 

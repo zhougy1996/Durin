@@ -15,6 +15,7 @@ namespace Durin::VulkanRHI
 	class FVulkanSemaphore;
 	class FVulkanPayload;
 	class FVulkanPendingGraphicsState;
+	class FVulkanTexture;
 
 	// Translates backend-neutral command-list operations into Vulkan command recording.
 	class FVulkanCommandListContext : public IRHICommandContext
@@ -87,5 +88,8 @@ namespace Durin::VulkanRHI
 		std::unique_ptr<FVulkanPendingGraphicsState> PendingGfxState;
 
 		std::vector<FVulkanPayload*> Payloads;
+
+		// Render-pass implicit transitions become the starting point for later explicit copies.
+		std::vector<std::pair<FVulkanTexture*, vk::ImageLayout>> PendingAttachmentFinalLayouts;
 	};
 }

@@ -19,6 +19,21 @@ namespace Durin::VulkanRHI
 {
 	namespace
 	{
+		auto ToVulkanLayout(ERHITextureLayout Layout) -> vk::ImageLayout
+		{
+			switch (Layout)
+			{
+			case ERHITextureLayout::Undefined: return vk::ImageLayout::eUndefined;
+			case ERHITextureLayout::ColorAttachment: return vk::ImageLayout::eColorAttachmentOptimal;
+			case ERHITextureLayout::DepthStencilAttachment: return vk::ImageLayout::eDepthStencilAttachmentOptimal;
+			case ERHITextureLayout::ShaderReadOnly: return vk::ImageLayout::eShaderReadOnlyOptimal;
+			case ERHITextureLayout::General: return vk::ImageLayout::eGeneral;
+			case ERHITextureLayout::Present: return vk::ImageLayout::ePresentSrcKHR;
+			}
+			checkf(false, "Unsupported RHI texture layout.");
+			return vk::ImageLayout::eUndefined;
+		}
+
 		auto ValidateAttachment(const FRHIAttachmentLayout& Layout, const FRHITexture* Texture, uint32 Width, uint32 Height, const char* Label) -> void
 		{
 			checkf(Texture != nullptr, "{} attachment texture is null.", Label);
@@ -114,6 +129,27 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName DebugName) -> void
 	{
 		ValidateRenderPassInfo(RenderPassInfo);
+		check(PendingAttachmentFinalLayouts.empty());
+		for (uint32 Index = 0; Index < RenderPassInfo.RenderTargetLayout.NumColorRenderTargets; ++Index)
+		{
+			const FRHIColorAttachmentLayout& Attachment =
+				RenderPassInfo.RenderTargetLayout.ColorAttachments[Index];
+			PendingAttachmentFinalLayouts.emplace_back(
+				static_cast<FVulkanTexture*>(RenderPassInfo.ColorRenderTargets[Index]),
+				ToVulkanLayout(Attachment.RenderTarget.FinalLayout));
+			if (Attachment.bHasResolveTarget)
+			{
+				PendingAttachmentFinalLayouts.emplace_back(
+					static_cast<FVulkanTexture*>(RenderPassInfo.ColorResolveTargets[Index]),
+					ToVulkanLayout(Attachment.ResolveTarget.FinalLayout));
+			}
+		}
+		if (RenderPassInfo.RenderTargetLayout.bHasDepthStencil)
+		{
+			PendingAttachmentFinalLayouts.emplace_back(
+				static_cast<FVulkanTexture*>(RenderPassInfo.DepthStencilRenderTarget),
+				ToVulkanLayout(RenderPassInfo.RenderTargetLayout.DepthStencilAttachment.FinalLayout));
+		}
 		// Pass names are deliberately excluded from render-pass identity and only annotate GPU work.
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
 		FVulkanRenderPass* RenderPass = RenderPassManager.GetOrCreateRenderPass(RenderPassInfo.RenderTargetLayout);
@@ -124,6 +160,11 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIEndRenderPass() -> void
 	{
 		Device.GetRenderPassManager().EndRenderPass(GetCommandBuffer());
+		for (const auto& [Texture, FinalLayout] : PendingAttachmentFinalLayouts)
+		{
+			Texture->SetSubresourceLayout(0, 0, FinalLayout);
+		}
+		PendingAttachmentFinalLayouts.clear();
 	}
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void

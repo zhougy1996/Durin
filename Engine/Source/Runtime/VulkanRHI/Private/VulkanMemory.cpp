@@ -177,6 +177,11 @@ namespace Durin::VulkanRHI
 		vmaFlushAllocation(Allocator, Allocation.Handle, Offset, Size);
 	}
 
+	auto FVulkanMemoryManager::Invalidate(const FVulkanAllocation& Allocation, vk::DeviceSize Offset, vk::DeviceSize Size) const -> void
+	{
+		vmaInvalidateAllocation(Allocator, Allocation.Handle, Offset, Size);
+	}
+
 	auto FVulkanMemoryManager::GetMemoryType(uint32 MemoryTypeIndex) const -> vk::MemoryType
 	{
 		check(MemoryTypeIndex < MemoryProperties.memoryTypeCount);

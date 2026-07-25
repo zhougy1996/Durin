@@ -44,6 +44,14 @@ namespace Durin
 		virtual auto RHILockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void* = 0;
 		virtual auto RHIUnlockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer) -> void = 0;
 		virtual void RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) = 0;
+		// Synchronizes submitted work and returns one tightly packed subresource.
+		virtual auto RHIReadTexture2D(
+			FRHICommandListBase& RHICmdList,
+			FRHITexture* Texture,
+			uint32 MipIndex,
+			uint32 ArraySlice,
+			std::vector<uint8>& OutData
+		) -> bool = 0;
 
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 	};

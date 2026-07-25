@@ -146,7 +146,9 @@ namespace Durin
 		// Texture can be used as a shader resource.
 		ShaderResource = 1ull << 3,
 		// Texture can be bound as a storage image for shader read/write access.
-		Storage = 1ull << 4
+		Storage = 1ull << 4,
+		// Texture contents may be copied back to CPU memory for validation or tooling.
+		CPUReadback = 1ull << 5
 	};
 	ENUM_CLASS_FLAGS(ETextureCreateFlags);
 

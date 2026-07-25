@@ -1,6 +1,6 @@
 # Texture Support Plan
 
-Last reviewed: 2026-07-25
+Last reviewed: 2026-07-26
 
 ## Current Status
 
@@ -193,7 +193,10 @@ These features are intentionally outside the first Texture2D/material slice:
 
 - [ ] HDR source formats and floating-point texture assets.
 - [ ] DDS or KTX ingestion with prebuilt mip and compression data.
-- [ ] Texture arrays, cube maps, cube-map arrays, and volume textures.
+- [x] Cube-map assets and static skybox sampling. See
+  [Cube Textures](../Architecture/CubeTextures.md) and
+  [SkyBoxComponent](SkyBoxComponent.md).
+- [ ] Texture arrays, cube-map arrays, and volume textures.
 - [ ] Virtual textures or sparse residency.
 - [ ] Runtime-generated and writable texture assets.
 - [ ] Per-material sampler assets if shared sampler policies become insufficient.

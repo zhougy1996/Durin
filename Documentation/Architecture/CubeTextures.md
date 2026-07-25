@@ -90,6 +90,25 @@ face and labeled edge markers matching the source-orientation table.
   preserve unsupported-format diagnostics separately from general upload
   failures.
 
+## Validation Readback and Layout Tracking
+
+- Textures intended for CPU verification opt into `CPUReadback`, which adds
+  transfer-source usage. `RHIReadTexture2D` synchronously copies exactly one
+  named mip and array slice into tightly packed bytes; compressed subresources
+  retain their block-row representation. This is a validation and diagnostic
+  path, not a per-frame renderer path.
+- Vulkan readback transitions only the requested subresource from its tracked
+  layout to transfer source and back. It finalizes the command list, waits for
+  completion, invalidates noncoherent staging memory, and copies the result
+  before destroying the staging allocation.
+- Render-pass attachment final layouts are committed to each Vulkan texture's
+  per-mip/per-slice layout tracker when the pass ends. Later upload, readback,
+  and sampling barriers therefore start from the layout actually established
+  by the render pass rather than a stale creation or upload layout.
+- Cube render resources opt into readback so the Stage 6 Vulkan integration
+  test can compare every face and every mip with the asset platform data before
+  checking rendered pixels.
+
 ## Sky Component and Scene Snapshot
 
 - `DSkyBoxComponent` owns a reflected `TObjectPtr<DTextureCube>`, linear Tint,

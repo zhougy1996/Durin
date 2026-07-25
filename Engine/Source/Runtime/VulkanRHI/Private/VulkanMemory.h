@@ -64,6 +64,8 @@ namespace Durin::VulkanRHI
 
 		auto Flush(const FVulkanAllocation& Allocation, vk::DeviceSize Offset = 0, vk::DeviceSize Size = VK_WHOLE_SIZE) const -> void;
 
+		auto Invalidate(const FVulkanAllocation& Allocation, vk::DeviceSize Offset = 0, vk::DeviceSize Size = VK_WHOLE_SIZE) const -> void;
+
 		auto GetMemoryType(uint32 MemoryTypeIndex) const -> vk::MemoryType;
 
 		auto GetMemoryType(const FVulkanAllocation& Allocation) const -> vk::MemoryType;

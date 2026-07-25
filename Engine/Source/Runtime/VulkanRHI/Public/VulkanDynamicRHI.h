@@ -62,6 +62,13 @@ namespace Durin::VulkanRHI
 		auto RHILockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void* override;
 		auto RHIUnlockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer) -> void override;
 		auto RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void override;
+		auto RHIReadTexture2D(
+			FRHICommandListBase& RHICmdList,
+			FRHITexture* Texture,
+			uint32 MipIndex,
+			uint32 ArraySlice,
+			std::vector<uint8>& OutData
+		) -> bool override;
 
 		auto RHIBlockUntilGPUIdle() -> void override;
 
