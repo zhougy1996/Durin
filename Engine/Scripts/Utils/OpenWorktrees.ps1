@@ -47,13 +47,14 @@ function Get-EnvironmentArguments {
 
     $configPath = Join-Path $Worktree ".agents\build-config.json"
     if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
-        throw "Agent config is missing for worktree '$Worktree'. Run Setup.bat in that worktree first."
+        Write-Warning "Agent config is missing for worktree '$Worktree'. Opening it without a configured environment; run Setup.bat there to create the config."
+        return @()
     }
 
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     $setupScript = [string] $config.environmentSetup.script
     if ([string]::IsNullOrWhiteSpace($setupScript)) {
-        throw "environmentSetup.script is not configured in '$configPath'."
+        return @()
     }
     if (-not (Test-Path -LiteralPath $setupScript -PathType Leaf)) {
         throw "Environment setup script does not exist: '$setupScript'."
@@ -69,6 +70,7 @@ function Add-TerminalPane {
         [Parameter(Mandatory)] [System.Collections.Generic.List[string]] $Arguments,
         [Parameter(Mandatory)] [ValidateSet("new-tab", "split-pane")] [string] $Action,
         [Parameter(Mandatory)] [string] $Worktree,
+        [string[]] $EnvironmentArguments = @(),
         [string] $SplitDirection
     )
 
@@ -83,7 +85,7 @@ function Add-TerminalPane {
     $Arguments.Add((Split-Path -Leaf $Worktree))
     $Arguments.Add("cmd.exe")
     $Arguments.Add("/k")
-    foreach ($environmentArgument in @(Get-EnvironmentArguments -Worktree $Worktree)) {
+    foreach ($environmentArgument in $EnvironmentArguments) {
         $Arguments.Add($environmentArgument)
     }
 }
@@ -103,11 +105,12 @@ $worktrees = @(
 )
 
 Write-Host "Durin worktrees ($($worktrees.Count)):"
+$environmentArgumentsByPath = @{}
 foreach ($worktree in $worktrees) {
     $branchLabel = if ($worktree.Branch) { $worktree.Branch } else { "detached" }
     Write-Host "  [$branchLabel] $($worktree.Path)"
-    # Validate every config before opening a partially initialized window.
-    $null = @(Get-EnvironmentArguments -Worktree $worktree.Path)
+    # Resolve every config before opening a partially initialized window.
+    $environmentArgumentsByPath[$worktree.Path] = @(Get-EnvironmentArguments -Worktree $worktree.Path)
 }
 
 Write-Host "Layout: up to four panes per tab (2 x 2)."
@@ -133,13 +136,13 @@ for ($index = 0; $index -lt $worktrees.Count; $index++) {
 
     switch ($position) {
         0 {
-            Add-TerminalPane -Arguments $terminalArguments -Action "new-tab" -Worktree $worktrees[$index].Path
+            Add-TerminalPane -Arguments $terminalArguments -Action "new-tab" -Worktree $worktrees[$index].Path -EnvironmentArguments $environmentArgumentsByPath[$worktrees[$index].Path]
         }
         1 {
-            Add-TerminalPane -Arguments $terminalArguments -Action "split-pane" -SplitDirection "-V" -Worktree $worktrees[$index].Path
+            Add-TerminalPane -Arguments $terminalArguments -Action "split-pane" -SplitDirection "-V" -Worktree $worktrees[$index].Path -EnvironmentArguments $environmentArgumentsByPath[$worktrees[$index].Path]
         }
         2 {
-            Add-TerminalPane -Arguments $terminalArguments -Action "split-pane" -SplitDirection "-H" -Worktree $worktrees[$index].Path
+            Add-TerminalPane -Arguments $terminalArguments -Action "split-pane" -SplitDirection "-H" -Worktree $worktrees[$index].Path -EnvironmentArguments $environmentArgumentsByPath[$worktrees[$index].Path]
         }
         3 {
             # After the right side is split, focus the full-height left pane and
@@ -147,7 +150,7 @@ for ($index = 0; $index -lt $worktrees.Count; $index++) {
             $terminalArguments.Add("move-focus")
             $terminalArguments.Add("left")
             $terminalArguments.Add(";")
-            Add-TerminalPane -Arguments $terminalArguments -Action "split-pane" -SplitDirection "-H" -Worktree $worktrees[$index].Path
+            Add-TerminalPane -Arguments $terminalArguments -Action "split-pane" -SplitDirection "-H" -Worktree $worktrees[$index].Path -EnvironmentArguments $environmentArgumentsByPath[$worktrees[$index].Path]
         }
     }
 }
