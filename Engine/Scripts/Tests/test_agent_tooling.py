@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import os
@@ -25,6 +26,7 @@ from durin_build_tool.output import BuildOutput
 from Engine.Scripts.Bootstrap import agent_config
 from Engine.Scripts.Bootstrap import prepare_worktree
 from Engine.Scripts.Bootstrap import setup_preflight
+from Engine.Scripts.Utils import worktree_tool
 
 
 class BuildConfigTests(unittest.TestCase):
@@ -990,6 +992,177 @@ class CliTests(unittest.TestCase):
                 target_is_directory=True,
                 dry_run=False,
             )
+
+
+class WorktreeToolTests(unittest.TestCase):
+    def test_no_arguments_default_to_open(self) -> None:
+        self.assertEqual(worktree_tool.parse_args([]).action, "open")
+        args = worktree_tool.parse_args(["--dry-run"])
+        self.assertEqual(args.action, "open")
+        self.assertTrue(args.dry_run)
+
+    def test_worktree_porcelain_parser_preserves_branch_and_lock_state(self) -> None:
+        worktrees = worktree_tool.parse_worktrees(
+            "worktree C:/repo\n"
+            "HEAD 0123456789\n"
+            "branch refs/heads/main\n"
+            "\n"
+            "worktree C:/repo-feature\n"
+            "HEAD abcdef0123\n"
+            "detached\n"
+            "locked in use\n"
+        )
+        self.assertEqual(
+            worktrees,
+            [
+                worktree_tool.Worktree(Path("C:/repo"), "main", False),
+                worktree_tool.Worktree(Path("C:/repo-feature"), None, True),
+            ],
+        )
+
+    def test_remove_refuses_main_worktree(self) -> None:
+        main = Path("C:/repo")
+        with self.assertRaisesRegex(worktree_tool.WorktreeToolError, "main worktree"):
+            worktree_tool.require_registered_linked_worktree(
+                main,
+                [worktree_tool.Worktree(main, "main")],
+            )
+
+    def test_remove_refuses_unexpected_directory_links(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worktree = worktree_tool.Worktree(root, "feature")
+            unexpected = root / "unexpected"
+            with mock.patch.object(
+                worktree_tool,
+                "directory_links_under",
+                return_value=[unexpected],
+            ):
+                with self.assertRaisesRegex(
+                    worktree_tool.WorktreeToolError,
+                    "unexpected directory links",
+                ):
+                    worktree_tool.validate_directory_links(worktree)
+
+    def test_remove_detaches_shared_links_before_git_removal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main"
+            linked = root / "feature"
+            main.mkdir()
+            linked.mkdir()
+            shared_link = linked / ".venv"
+            args = argparse.Namespace(path=str(linked), force=False, dry_run=False)
+            worktrees = [
+                worktree_tool.Worktree(main, "main"),
+                worktree_tool.Worktree(linked, "feature"),
+            ]
+            detached = worktree_tool.DetachedLink(shared_link, main / ".venv", "junction")
+            git_result = subprocess.CompletedProcess([], 0, "", "")
+            events: list[str] = []
+
+            def detach(path: Path) -> worktree_tool.DetachedLink:
+                events.append(f"detach:{path.name}")
+                return detached
+
+            def run_git(arguments: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                events.append(f"git:{' '.join(arguments)}")
+                return git_result
+
+            with mock.patch.object(worktree_tool, "get_worktrees", return_value=worktrees), mock.patch.object(
+                worktree_tool,
+                "require_clean_worktree",
+            ), mock.patch.object(
+                worktree_tool,
+                "validate_directory_links",
+                return_value=[shared_link],
+            ), mock.patch.object(
+                worktree_tool,
+                "detach_link",
+                side_effect=detach,
+            ), mock.patch.object(
+                worktree_tool,
+                "git_command",
+                side_effect=run_git,
+            ):
+                worktree_tool.remove_worktree(args)
+
+        self.assertEqual(events[0], "detach:.venv")
+        self.assertEqual(events[1], f"git:worktree remove {linked}")
+
+    def test_remove_restores_detached_links_when_git_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main"
+            linked = root / "feature"
+            main.mkdir()
+            linked.mkdir()
+            shared_link = linked / ".venv"
+            args = argparse.Namespace(path=str(linked), force=False, dry_run=False)
+            worktrees = [
+                worktree_tool.Worktree(main, "main"),
+                worktree_tool.Worktree(linked, "feature"),
+            ]
+            detached = worktree_tool.DetachedLink(shared_link, main / ".venv", "junction")
+            git_result = subprocess.CompletedProcess([], 1, "", "locked")
+
+            with mock.patch.object(worktree_tool, "get_worktrees", return_value=worktrees), mock.patch.object(
+                worktree_tool,
+                "require_clean_worktree",
+            ), mock.patch.object(
+                worktree_tool,
+                "validate_directory_links",
+                return_value=[shared_link],
+            ), mock.patch.object(
+                worktree_tool,
+                "detach_link",
+                return_value=detached,
+            ), mock.patch.object(
+                worktree_tool,
+                "git_command",
+                return_value=git_result,
+            ), mock.patch.object(
+                worktree_tool,
+                "restore_link",
+            ) as restore:
+                with self.assertRaisesRegex(worktree_tool.WorktreeToolError, "Removing Git worktree"):
+                    worktree_tool.remove_worktree(args)
+
+            restore.assert_called_once_with(detached)
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows directory junctions")
+    def test_detaching_junction_preserves_its_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            link = root / "link"
+            target.mkdir()
+            marker = target / "preserved.txt"
+            marker.write_text("preserved", encoding="utf-8")
+            result = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+            detached = worktree_tool.detach_link(link)
+
+            self.assertEqual(detached.kind, "junction")
+            self.assertFalse(link.exists())
+            self.assertEqual(marker.read_text(encoding="utf-8"), "preserved")
+
+    def test_root_wrapper_replaces_old_open_worktrees_entrypoint(self) -> None:
+        content = (REPO_ROOT / "WorktreeTool.bat").read_text(encoding="utf-8")
+        self.assertIn("Engine\\Scripts\\Utils\\worktree_tool.py", content)
+        self.assertFalse((REPO_ROOT / "OpenWorktrees.bat").exists())
+        self.assertFalse((REPO_ROOT / "Engine/Scripts/Utils/OpenWorktrees.ps1").exists())
+
+    def test_setup_supports_non_interactive_worktree_preparation(self) -> None:
+        content = (REPO_ROOT / "Setup.bat").read_text(encoding="utf-8")
+        self.assertIn('if /I "%~1"=="--no-pause"', content)
+        self.assertIn('if "!PAUSE_AT_END!"=="1" pause', content)
 
 
 class SetupPreflightTests(unittest.TestCase):

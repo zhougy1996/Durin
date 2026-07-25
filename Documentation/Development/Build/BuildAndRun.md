@@ -24,6 +24,24 @@ Machine-specific CMake, profile, environment, or job overrides belong in `.agent
 
 A checkout has one source/build writer at a time. An Agent may own the current checkout; a separate worktree is needed only for concurrent Agents, branches, or human editing/build workflows. An IDE may observe and debug an Agent-owned checkout, but it must not build it.
 
+Use the root WorktreeTool to create, inspect, open, and remove linked worktrees:
+
+```powershell
+.\WorktreeTool add ..\Durin-feature -b feature-branch
+.\WorktreeTool list
+.\WorktreeTool
+.\WorktreeTool remove ..\Durin-feature
+```
+
+With no arguments, WorktreeTool opens all registered worktrees in Windows
+Terminal. `add` runs Setup in the new worktree. `remove` is the required deletion
+path for prepared Windows worktrees because it validates and detaches the shared
+`.agents`, `.venv`, and `Engine/External` directory junctions before invoking
+Git. Do not recursively delete a prepared worktree or call `git worktree remove`
+directly: a deletion implementation that follows an NTFS junction can erase the
+corresponding directory in the main worktree. Use `remove --dry-run` to inspect
+the operation, and pass `--force` only to discard modified or untracked files.
+
 Use the root wrapper for configuration, builds, and tests:
 
 ```powershell

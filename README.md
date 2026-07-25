@@ -72,15 +72,43 @@ Inside the shell, use `/presets`, `/preset`, `/build`, `/rebuild`, `/test`, `/ru
 
 Use `--plain` when BuildTool output is redirected or consumed by tooling and ANSI styling is not wanted. BuildTool also selects plain output automatically for non-interactive terminals and when `NO_COLOR` is set.
 
-## New Git Worktrees
+## Git Worktrees
 
-After the main worktree has completed `Setup.bat`, run the same command once in every new linked worktree:
+After the main worktree has completed `Setup.bat`, use the root WorktreeTool for
+the complete linked-worktree lifecycle:
 
 ```powershell
-.\Setup.bat
+.\WorktreeTool add ..\Durin-feature -b feature-branch
+.\WorktreeTool list
+.\WorktreeTool remove ..\Durin-feature
 ```
 
-The script links `.agents`, `Engine/External`, and `.venv` from the main worktree, so machine-local Agent configuration changes are immediately shared by every linked worktree. When upgrading an existing worktree that already has a real `.agents` directory, Setup preserves it as `.agents.pre-link-backup` before creating the link. `Build`, `Engine/Intermediate`, and `Engine/Binaries` always remain local to each worktree. If the prepared dependencies are stored in a non-default worktree, use `Engine\Scripts\Bootstrap\PrepareWorktree.bat --source <prepared-worktree>`.
+Run `WorktreeTool` without arguments to open every registered worktree in
+Windows Terminal, with up to four panes per tab:
+
+```powershell
+.\WorktreeTool
+.\WorktreeTool --dry-run
+```
+
+`add` creates the Git worktree and runs its Setup non-interactively. Setup links
+`.agents`, `Engine/External`, and `.venv` from the main worktree, so machine-local
+Agent configuration and prepared dependencies are shared immediately.
+`Build/`, `Engine/Intermediate/`, and `Engine/Binaries` remain local to each
+worktree.
+
+Always use `WorktreeTool remove` for prepared worktrees on Windows. It verifies
+that the target is a registered linked worktree, refuses the main or a locked
+worktree, checks for unexpected directory links, and detaches the three shared
+NTFS junctions before asking Git to remove the directory. Direct recursive
+deletion can traverse those junctions and delete the corresponding directories
+in the main worktree. Pass `--force` only when modified and untracked files may
+be discarded, or `--dry-run` to validate without changing anything.
+
+When upgrading an existing worktree that already has a real `.agents` directory,
+Setup preserves it as `.agents.pre-link-backup` before creating the link. If the
+prepared dependencies are stored in a non-default worktree, use
+`Engine\Scripts\Bootstrap\PrepareWorktree.bat --source <prepared-worktree>`.
 
 ## Troubleshooting
 

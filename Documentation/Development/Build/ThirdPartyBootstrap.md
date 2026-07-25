@@ -30,6 +30,14 @@ For a fresh Windows clone, use the root `Setup.bat` instead of invoking this scr
 - By default, linked Git worktrees pull those links from the main worktree root.
 - Use `--source` when the prepared dependency worktree is not the main worktree root.
 - `Setup.bat` switches to `PrepareWorktree.bat` only when the checkout has a valid linked-worktree `.git` pointer; otherwise it falls back to the normal full bootstrap.
+- `WorktreeTool add` creates a linked worktree and runs Setup there; invoking
+  `WorktreeTool` without arguments opens terminals for every registered
+  worktree.
+- `WorktreeTool remove` is the required Windows removal path. It refuses the
+  main worktree, locked worktrees, and unexpected directory links, then detaches
+  the three shared junctions before invoking Git. Direct recursive deletion can
+  follow a junction and remove the shared source directory outside the target
+  worktree.
 
 Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` local to each worktree; never junction or share them. Build ownership and IDE rules are documented in `BuildAndRun.md`.
 

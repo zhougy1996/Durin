@@ -6,6 +6,17 @@ set "GIT_ENTRY=%ROOT%\.git"
 set "GIT_DIR_VALUE="
 set "GIT_DIR_ABS="
 set "EXIT_CODE=0"
+set "PAUSE_AT_END=1"
+
+if /I "%~1"=="--no-pause" (
+  set "PAUSE_AT_END=0"
+  shift
+)
+
+if not "%~1"=="" (
+  echo Unknown Setup argument: %~1
+  exit /b 2
+)
 
 if exist "%GIT_ENTRY%\" goto bootstrap
 if not exist "%GIT_ENTRY%" goto bootstrap
@@ -63,5 +74,5 @@ call "%ROOT%Engine\Scripts\Bootstrap\Preflight.bat"
 set "EXIT_CODE=!errorlevel!"
 
 :end
-pause
+if "!PAUSE_AT_END!"=="1" pause
 exit /b !EXIT_CODE!
