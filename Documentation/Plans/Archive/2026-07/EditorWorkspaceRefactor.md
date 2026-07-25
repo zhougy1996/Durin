@@ -1,6 +1,6 @@
 # Editor Workspace Refactor Plan
 
-Last reviewed: 2026-07-25
+Last reviewed: 2026-07-26
 
 ## Current Status
 
@@ -56,6 +56,14 @@ the repeated per-resource root-window iteration for Material and Texture while
 those workspaces retain resource lookup, preview, save, discard, release, and
 body drawing.
 
+The plan completed on 2026-07-26. Automated acceptance comprises all 205
+`EngineTests`, a successful full `all` build, and hidden-window editor startup
+from the same build. Interactive acceptance confirmed Level, Material, and
+Material Instance opening and routing; project-browser transitions; layout
+behavior at the tested UI scales; editing, saving, docking, project switching,
+and shutdown. Rendering dependencies for a future material preview viewport
+remain explicitly deferred until that feature is implemented.
+
 ## Goals
 
 - [x] Make `MaterialEditor` an independently owned editor module.
@@ -69,7 +77,7 @@ body drawing.
   common.
 - [x] Separate editor-host settings from Level Editor session and viewport
   settings.
-- [ ] Preserve current Level, Material, and Material Instance opening behavior
+- [x] Preserve current Level, Material, and Material Instance opening behavior
   throughout the migration.
 
 ## Non-Goals
@@ -214,7 +222,7 @@ loading, and error reporting.
   transaction and validation behavior.
 - [x] Evaluate default-level and other class-filtered selectors after the core
   picker API has stabilized.
-- [ ] Leave room for thumbnails, drag and drop, favorites, and recently used
+- [x] Leave room for thumbnails, drag and drop, favorites, and recently used
   assets without requiring them in the first version.
 
 ### Dirty Document Close Flow
@@ -360,16 +368,16 @@ a material preview viewport actually requires them.
   metadata on cancel and commit it only on successful completion.
 - [x] Test Material Editor undo and redo for every parameter kind and parent
   changes.
-- [ ] Verify Level assets still open in the singleton Level workspace.
-- [ ] Verify Content Browser double-click routing selects the independently
+- [x] Verify Level assets still open in the singleton Level workspace.
+- [x] Verify Content Browser double-click routing selects the independently
   registered Material Editor.
-- [ ] Verify project-browser startup and opening a project after startup.
+- [x] Verify project-browser startup and opening a project after startup.
 - [x] Verify the Window menu and default host layout are generated from
   registrations without concrete editor-name literals.
-- [ ] Verify existing and reset layouts at multiple UI scales.
+- [x] Verify existing and reset layouts at multiple UI scales.
 - [x] Build the full `all` target through `BuildTool` using the active Agent
   profile.
-- [ ] Run `DurinEditor` from the same full build and smoke-test Level and
+- [x] Run `DurinEditor` from the same full build and smoke-test Level and
   Material editing, saving, docking, project switching, and shutdown.
 
 The 2026-07-25 changes (material editor undo/redo, dirty-document close
