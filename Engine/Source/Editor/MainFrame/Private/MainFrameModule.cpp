@@ -156,6 +156,52 @@ namespace Durin
 			Settings.Save();
 		}
 
+		auto DrawOpenEditorsMenu(FEditorWorkspaceManager& WorkspaceManager) -> void
+		{
+			if (!ImGui::BeginMenu("Editors")) return;
+
+			const std::vector<FEditorDocumentTab>& Documents = WorkspaceManager.GetDocuments();
+			const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
+			if (Documents.empty()) ImGui::MenuItem("No Open Editors", nullptr, false, false);
+			for (const FEditorDocumentTab& Document : Documents)
+			{
+				const std::string DisplayLabel = Document.bDirty ? std::format("{} *", Document.Label) : Document.Label;
+				const std::string MenuLabel = std::format("{}###Durin.Editor.DocumentMenu.{}", DisplayLabel, Document.Id.Value);
+				const bool bActive = ActiveDocument && ActiveDocument->Id == Document.Id;
+				if (ImGui::MenuItem(MenuLabel.c_str(), nullptr, bActive) && !bActive)
+					WorkspaceManager.ActivateDocument(Document.Id);
+			}
+
+			bool bDrewOpenCommand = false;
+			for (const FEditorWorkspaceDescriptor& Descriptor : WorkspaceManager.GetWorkspaceDescriptors())
+			{
+				if (!Descriptor.bShowInWindowMenu || !Descriptor.HasSingletonDocument()) continue;
+				const bool bDocumentOpen = std::ranges::any_of(Documents, [&](const FEditorDocumentTab& Document) {
+					return Document.WorkspaceType == Descriptor.WorkspaceType
+						&& Document.DocumentKey == Descriptor.SingletonDocumentKey;
+				});
+				if (bDocumentOpen) continue;
+				if (!bDrewOpenCommand)
+				{
+					ImGui::Separator();
+					bDrewOpenCommand = true;
+				}
+				const std::string MenuLabel = std::format(
+					"Open {}###Durin.Editor.WorkspaceMenu.{}", Descriptor.DisplayName, Descriptor.RootKey
+				);
+				if (ImGui::MenuItem(MenuLabel.c_str()))
+				{
+					WorkspaceManager.OpenDocument({
+						.WorkspaceType = Descriptor.WorkspaceType,
+						.DocumentKey = Descriptor.SingletonDocumentKey,
+						.Label = Descriptor.SingletonDocumentLabel,
+						.bClosable = Descriptor.bSingletonDocumentClosable,
+					});
+				}
+			}
+			ImGui::EndMenu();
+		}
+
 		auto DrawWorkspaceHost(
 			FEditorWorkspaceManager& WorkspaceManager,
 			FEditorHostSettings& HostSettings,
@@ -216,26 +262,13 @@ namespace Durin
 				}
 				if (ImGui::BeginMenu("Window"))
 				{
-					for (const FEditorWorkspaceDescriptor& Descriptor : WorkspaceManager.GetWorkspaceDescriptors())
+					DrawOpenEditorsMenu(WorkspaceManager);
+					if (ActiveWorkspace)
 					{
-						if (!Descriptor.bShowInWindowMenu) continue;
-						const auto Document = std::ranges::find(
-							WorkspaceManager.GetDocuments(), Descriptor.WorkspaceType, &FEditorDocumentTab::WorkspaceType
-						);
-						const bool bOpen = Document != WorkspaceManager.GetDocuments().end();
-						const std::string MenuLabel = std::format("{}###Durin.Editor.WorkspaceMenu.{}", Descriptor.DisplayName, Descriptor.RootKey);
-						if (ImGui::MenuItem(MenuLabel.c_str(), nullptr, bOpen, bOpen || Descriptor.HasSingletonDocument()))
-						{
-							if (bOpen) WorkspaceManager.ActivateDocument(Document->Id);
-							else WorkspaceManager.OpenDocument({
-								.WorkspaceType = Descriptor.WorkspaceType,
-								.DocumentKey = Descriptor.SingletonDocumentKey,
-								.Label = Descriptor.SingletonDocumentLabel,
-								.bClosable = Descriptor.bSingletonDocumentClosable,
-							});
-						}
+						ImGui::Separator();
+						ActiveWorkspace->DrawWindowMenu();
+						if (ImGui::MenuItem("Reset Active Editor Layout")) ActiveWorkspace->ResetLayout();
 					}
-					if (ActiveWorkspace) ActiveWorkspace->DrawWindowMenu();
 					ImGui::EndMenu();
 				}
 				if (ImGui::BeginMenu("Help"))

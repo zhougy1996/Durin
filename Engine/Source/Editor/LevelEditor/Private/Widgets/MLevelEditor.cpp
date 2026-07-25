@@ -499,7 +499,6 @@ namespace Durin
 
 	auto MLevelEditor::DrawWindowMenu() -> void
 	{
-		ImGui::Separator();
 		if (ImGui::BeginMenu("Panels###Durin.LevelEditor.Windows"))
 		{
 			for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
@@ -510,8 +509,6 @@ namespace Durin
 					if (bPanelOpen || Panel.get() != DetailsPanel || RequestDeactivate()) Panel->SetOpen(bPanelOpen);
 				}
 			}
-			ImGui::Separator();
-			if (ImGui::MenuItem("Reset Layout")) ResetLayout();
 			ImGui::EndMenu();
 		}
 	}

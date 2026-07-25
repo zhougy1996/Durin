@@ -35,8 +35,10 @@ one scoped batch. The manager validates the complete batch before mutation, and
 destroying its registration handle removes the routes and documents owned by
 that module.
 
-`MainFrame` derives the default host layout and Window menu from registered
-descriptors; it does not name concrete editor root windows.
+`MainFrame` derives the default host layout and singleton reopen commands from
+registered descriptors. The Window menu lists every open document, marks the
+active document, and exposes layout reset and workspace-specific panel commands
+for the active editor; it does not name concrete editor root windows.
 
 `LevelEditor`, `MaterialEditor`, and `TextureEditor` own their editor-specific
 panels and resource behavior. `DurinEd` must not depend on those concrete
