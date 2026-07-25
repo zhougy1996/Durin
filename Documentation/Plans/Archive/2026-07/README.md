@@ -16,6 +16,7 @@ be added after July ends.
 - [Enum Editor Metadata](EnumEditorMetadata.md)
 - [C++ Coding Standards Migration](CppCodingStandardsMigration.md)
 - [Editor Workspace Refactor](EditorWorkspaceRefactor.md)
+- [SkyBoxComponent](SkyBoxComponent.md)
 
 Read an archived plan only when its history or decision provenance is relevant.
 Archive maintenance rules are in [the parent instructions](../../AGENTS.md).

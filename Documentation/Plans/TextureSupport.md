@@ -243,7 +243,7 @@ These features are intentionally outside the first Texture2D/material slice:
 - [ ] DDS or KTX ingestion with prebuilt mip and compression data.
 - [x] Cube-map assets and static skybox sampling. See
   [Cube Textures](../Runtime/Rendering/CubeTextures.md) and
-  [SkyBoxComponent](SkyBoxComponent.md).
+  [SkyBoxComponent](Archive/2026-07/SkyBoxComponent.md).
 - [ ] Texture arrays, cube-map arrays, and volume textures.
 - [ ] Virtual textures or sparse residency.
 - [ ] Runtime-generated and writable texture assets.

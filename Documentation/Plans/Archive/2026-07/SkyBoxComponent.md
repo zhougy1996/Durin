@@ -4,12 +4,12 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0-5 are complete. The implemented slice includes the documented face
+All stages are complete. The implemented slice includes the documented face
 convention, transactional six-face assets, revisioned render resources and
 scene snapshots, fullscreen sky rendering, deterministic conflict selection,
 and the editor import/create/assign/save/reload workflow.
 
-Stage 6 automated validation is complete. A Vulkan pixel test reads back every
+Stage 6 validation is complete. A Vulkan pixel test reads back every
 compressed face and mip, renders all six principal directions, verifies camera
 translation invariance and component rotation, preserves fitted letterboxing,
 and proves foreground geometry occludes the sky. The test also exercises
@@ -19,10 +19,14 @@ Vulkan Validation enabled and no diagnostics. `EngineTests` passes 220/220 and
 `DurinEditor --hidden-window` smoke from the same preset pass without logged
 errors or validation messages.
 
-The only remaining acceptance evidence is the interactive visibility matrix in
-the main editor viewport, camera preview, and PIE/game window at multiple aspect
-ratios and view modes. The plan remains active until that manual check is
-performed.
+The interactive visibility matrix passed on 2026-07-26 in the main editor
+viewport, camera preview, embedded PIE viewport, and new game window across the
+required aspect ratios and view modes. It revealed no orientation, parallax,
+stretching, or draw-order errors. The apparent black bands between the
+directionally labeled convention faces were traced to the outermost three black
+pixels authored into each test image, not missing cube samples. Dedicated
+cross-face edge processing remains deferred as planned. The plan was completed
+and archived on 2026-07-26.
 
 ## Goal
 
@@ -220,7 +224,7 @@ Depends on all preceding stages. This stage does not expand the effect; it close
 
 - [x] Run targeted tests related to Texture2D, RHI, VulkanRHI, assets, reflection, scene, renderer, and editor behavior.
 - [x] Add repeatable rendered-image or pixel-sampling tests covering all six principal axes, camera translation, camera rotation, component rotation, and geometry occlusion.
-- [ ] Perform manual visibility checks at different aspect ratios in the main editor viewport, camera preview, and PIE/game window.
+- [x] Perform manual visibility checks at different aspect ratios in the main editor viewport, camera preview, and PIE/game window.
 - [x] Rapidly replace, rebuild, and delete cube assets; repeatedly hide, show, and delete the SkyBox Actor; then inspect stale-command handling and resource lifetime.
 - [x] With Vulkan Validation enabled, verify six layers, multiple mips, descriptor binding, layout transitions, and module destruction.
 - [x] Complete a full `all` build with one preset, then launch `DurinEditor` from the same preset for the hidden-window runtime smoke test.
@@ -253,7 +257,7 @@ The "simple SkyBoxComponent" is complete only when all of the following conditio
 
 - [x] Users can import a six-face cube texture in the editor, create an `ASkyBoxActor`, and assign the asset in Details.
 - [x] The skybox asset, Tint, Intensity, and rotation remain correct after saving and reloading the level.
-- [ ] The main viewport, camera preview, and game window display the same correctly oriented static sky.
+- [x] The main viewport, camera preview, and game window display the same correctly oriented static sky.
 - [x] Camera translation has no parallax, and camera/component rotation follows the documented coordinate convention.
 - [x] The sky does not cover scene geometry, the editor grid, or overlays, and does not stretch fixed-aspect-ratio views.
 - [x] No path allows direct game-thread access to the skybox RHI or render-thread reads from reflected UObjects.
