@@ -81,6 +81,7 @@ namespace Durin
 		bool bWasActive = false;
 		bool bProjectSettingsOpen = false;
 		std::string DefaultLevel;
+		std::string PendingDefaultLevel;
 		std::string EditorError;
 		FEditorDocumentId DeferredOpenDocumentId;
 	};

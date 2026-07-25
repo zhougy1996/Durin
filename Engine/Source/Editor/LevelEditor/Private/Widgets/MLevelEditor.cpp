@@ -488,7 +488,11 @@ namespace Durin
 	{
 		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		if (bPlaying) ImGui::BeginDisabled();
-		if (ImGui::MenuItem("Project Settings...")) bProjectSettingsOpen = true;
+		if (ImGui::MenuItem("Project Settings..."))
+		{
+			PendingDefaultLevel = DefaultLevel;
+			bProjectSettingsOpen = true;
+		}
 		if (bPlaying) ImGui::EndDisabled();
 	}
 
@@ -555,7 +559,7 @@ namespace Durin
 					.SearchHint = "Search levels...",
 					.RequiredClass = DLevel::StaticClass(),
 					.ClassPolicy = EEditorAssetClassPolicy::Exact,
-					.CurrentSelectionPath = DefaultLevel,
+					.CurrentSelectionPath = PendingDefaultLevel,
 					.SearchText = LevelSearchText,
 					.bAllowNone = true,
 					.NoneLabel = "None",
@@ -567,9 +571,9 @@ namespace Durin
 								OutError = "The selected level is not in a package.";
 								return false;
 							}
-							DefaultLevel = Selection->GetPackage()->GetPackagePath();
+							PendingDefaultLevel = Selection->GetPackage()->GetPackagePath();
 						}
-						else DefaultLevel.clear();
+						else PendingDefaultLevel.clear();
 						return true;
 					},
 					.PathPrefixFilter = Project->MountRoot,
@@ -586,7 +590,15 @@ namespace Durin
 			ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - ButtonWidth * 2.0f - ButtonGap);
 			if (ImGui::Button("Cancel", ImVec2(ButtonWidth, 0.0f))) bProjectSettingsOpen = false;
 			ImGui::SameLine();
-			if (ImGui::Button("Save", ImVec2(ButtonWidth, 0.0f)) && SaveProjectSettings()) bProjectSettingsOpen = false;
+			const bool bCanApply = Project && PendingDefaultLevel != DefaultLevel;
+			if (!bCanApply) ImGui::BeginDisabled();
+			if (ImGui::Button("Apply", ImVec2(ButtonWidth, 0.0f)))
+			{
+				const std::string PreviousDefaultLevel = DefaultLevel;
+				DefaultLevel = PendingDefaultLevel;
+				if (!SaveProjectSettings()) DefaultLevel = PreviousDefaultLevel;
+			}
+			if (!bCanApply) ImGui::EndDisabled();
 		}
 		ImGui::End();
 	}
