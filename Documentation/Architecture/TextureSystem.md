@@ -88,6 +88,14 @@ and payload size for both uncompressed and BC formats. Vulkan repacks update
 regions by block row and permits a non-block-aligned extent only when it reaches
 the mip edge, so NPOT base levels and sub-4x4 tail mips remain valid.
 
+`VulkanRHITests` is the hardware-backed acceptance boundary for this path. It
+starts the runtime Vulkan module without creating a window, uploads three
+distinct mip levels, samples each with explicit LOD in a compute shader, and
+reads results from host-visible memory. The same dispatch covers linear and sRGB
+RGBA8 plus builder-produced BC1, BC3, BC5, and BC7 textures, so format upload,
+mip addressing, hardware color-space conversion, and compressed sampling are
+checked against known values rather than inferred from editor startup.
+
 ## Editor Contract
 
 `TextureEditor` registers a per-resource workspace for `DTexture2D`. It exposes:

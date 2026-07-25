@@ -62,6 +62,11 @@ as Usage and sRGB, including Dirty, Undo, and Redo behavior.
 All twelve focused `FTexture2DTests.*` and all 205 `EngineTests` passed after
 the change, followed by a successful full `all` build and a ten-second
 `DurinEditor --hidden-window` Vulkan smoke run.
+Stage 3 was closed on 2026-07-26 with a dedicated hardware-backed Vulkan test.
+The test uploads and explicitly samples all three mip levels of known linear and
+sRGB RGBA8 textures plus builder-produced BC1, BC3, BC5, and BC7 payloads. GPU
+readback verifies mip selection, sRGB decode, compressed color channels, and
+compressed alpha independently of a swapchain or visible window.
 
 ## Implemented
 
@@ -180,8 +185,8 @@ inferred from the source filename.
 - [ ] Test render-resource build, replacement, stale-revision rejection, and
   release on the render thread.
 - [ ] Test default-texture fallback while an asset is missing or not ready.
-- [ ] Test real Vulkan upload and shader sampling, including multiple mip levels.
-- [ ] Test sRGB and linear textures against known sample values.
+- [x] Test real Vulkan upload and shader sampling, including multiple mip levels.
+- [x] Test sRGB and linear textures against known sample values.
 - [x] Test compressed formats and non-block-aligned dimensions.
 - [ ] Test failed imports and rebuilds for transactional cleanup of packages and
   copied source files.
