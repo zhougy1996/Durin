@@ -919,10 +919,13 @@ namespace Durin
 		EXPECT_FALSE(ErrorMessage.empty());
 	}
 
-	TEST(FShaderFoundationTests, UnmountedShaderCacheFallsBackUnderEngineDirectory)
+	TEST(FShaderFoundationTests, UnmountedShaderCacheFallsBackUnderDerivedDataCache)
 	{
 		const std::string MetaPath = FShaderPaths::MetaPath("/Unit/TestShader", "00112233445566778899aabbccddeeff");
-		EXPECT_TRUE(MetaPath.starts_with(FPaths::EngineDir() + "ShaderCache/SPIR-V/"));
+		const std::string OtherMetaPath = FShaderPaths::MetaPath("/Other/TestShader", "00112233445566778899aabbccddeeff");
+		EXPECT_TRUE(MetaPath.starts_with(FPaths::DerivedDataCacheDir() + "Shaders/SPIR-V/"));
+		EXPECT_EQ(MetaPath.find("ShaderCache"), std::string::npos);
+		EXPECT_NE(std::filesystem::path(MetaPath).parent_path().parent_path(), std::filesystem::path(OtherMetaPath).parent_path().parent_path());
 	}
 
 } // namespace Durin

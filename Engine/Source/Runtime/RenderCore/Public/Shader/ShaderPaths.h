@@ -5,19 +5,23 @@
 
 namespace Durin::FShaderPaths
 {
-	// Maps a stable virtual shader root to source and compiled-artifact directories.
+	// Maps a stable virtual shader root to source and cache directories.
 	struct FShaderMountPoint
 	{
 		std::string VirtualRoot;
 		std::string SourceDir;
-		std::string BinaryDir;
+		std::string CacheDir;
 	};
 
 	RENDERCORE_API auto GetRegisteredMountPoints() -> const std::vector<FShaderMountPoint>&;
 
 	// Shader mount points are expected to be registered only during RenderCore initialization.
-	// Runtime mutation after initialization is not supported.
-	RENDERCORE_API auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view SourceDir, std::string_view BinaryDir) -> void;
+	// Runtime mutation after initialization is not supported. The cache defaults to a
+	// mount-specific namespace beneath FPaths::DerivedDataCacheDir().
+	RENDERCORE_API auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view SourceDir) -> void;
+
+	// Explicit cache roots support tests and externally managed shader caches.
+	RENDERCORE_API auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view SourceDir, std::string_view CacheDir) -> void;
 
 	RENDERCORE_API auto SourcePath(std::string_view VirtualShaderPath) -> std::string;
 

@@ -40,9 +40,12 @@ support legacy colocated sources as an explicit migration rule.
 
 ## Derived Data Cache Objects
 
-DDC objects use `.bin` because they are generic, disposable implementation
-objects in a content-addressed cache. Their owning subsystem provides a magic
-value and versioned schema to identify the actual payload type.
+Generic content-addressed DDC objects use `.bin` and let their owning subsystem
+provide a magic value and versioned schema to identify the payload type. Domains
+whose native artifacts have their own strict validation may retain those
+formats beneath a namespaced DDC subtree; shader SPIR-V and reflection sidecars
+are examples. The lifetime contract remains the same: every entry is disposable
+and its authored inputs are authoritative.
 
 A DDC key must be built from a canonical byte encoding of every input that can
 change the output, including:

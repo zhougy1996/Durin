@@ -15,12 +15,12 @@ The runtime uses four bounded or reclaimable layers:
 
 ## Paths and Identities
 
-The registered shader mount supplies source and cache roots. For the default `/Engine/` mount, sources are under `Engine/Shaders/Slang/` and cache data is under `Engine/ShaderCache/SPIR-V/`.
+The registered shader mount supplies its source root and may explicitly override its cache root. Default mounts store rebuildable data beneath the active project's `DerivedDataCache/Shaders/SPIR-V/`; without a project, `FPaths::DerivedDataCacheDir()` falls back beneath the engine directory. Each virtual mount root receives a readable, hashed namespace so engine, project, plugin, and nested mounts cannot collide. Old standalone `ShaderCache` directories are not migrated or read.
 
 A virtual shader such as `/Engine/ImGui/Button` maps to this layout:
 
 ```text
-Engine/ShaderCache/SPIR-V/ImGui/Button.slang/
+<Project>/DerivedDataCache/Shaders/SPIR-V/Engine.<MountHash>/ImGui/Button.slang/
   Manifests/
     <DependencyKey>.json
   <VariantKey>/
@@ -69,6 +69,8 @@ The compiled-output LRU retains at most 128 request results. Shader-map cache en
 Each `FShaderCacheStore` defaults to at most 64 variant directories and 256 MiB per virtual shader. After a successful publication, maintenance orders variants by last-write time and then name, removes the oldest candidates, and always protects the variant just published. A single protected variant may exceed the byte budget because deleting the only valid result would make a successful publication immediately useless.
 
 Cleanup only considers non-symlink, immediate child directories whose names are valid 32-character hexadecimal keys. It does not remove manifest directories, unknown siblings, or any path outside the resolved shader directory. Removal failure is logged and does not turn a successful compile into a failure.
+
+The complete `DerivedDataCache` remains disposable while the editor is stopped. Authored Slang sources repopulate missing shader manifests and artifacts.
 
 ## Compatibility
 

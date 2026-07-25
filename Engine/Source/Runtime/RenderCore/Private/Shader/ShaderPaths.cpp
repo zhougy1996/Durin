@@ -9,6 +9,50 @@ namespace Durin::FShaderPaths
 {
 	namespace
 	{
+		auto NormalizeVirtualRoot(std::string_view VirtualRoot) -> std::string
+		{
+			std::string Result(VirtualRoot);
+			std::ranges::replace(Result, '\\', '/');
+			while (!Result.empty() && Result.back() == '/')
+			{
+				Result.pop_back();
+			}
+
+			if (Result.empty())
+			{
+				return "/";
+			}
+			if (Result.front() != '/')
+			{
+				Result.insert(Result.begin(), '/');
+			}
+
+			Result.push_back('/');
+			return Result;
+		}
+
+		auto MakeDefaultCacheDirectory(std::string_view VirtualRoot) -> std::string
+		{
+			const std::string NormalizedVirtualRoot = NormalizeVirtualRoot(VirtualRoot);
+			std::string ReadableName = StringUtils::SanitizeFileName(NormalizedVirtualRoot, "ShaderMount");
+			while (!ReadableName.empty() && ReadableName.front() == '_')
+			{
+				ReadableName.erase(ReadableName.begin());
+			}
+			while (!ReadableName.empty() && ReadableName.back() == '_')
+			{
+				ReadableName.pop_back();
+			}
+			if (ReadableName.empty())
+			{
+				ReadableName = "Root";
+			}
+
+			const FXxHash128 RootHash = FXxHash128::HashBuffer(NormalizedVirtualRoot);
+			const std::string Namespace = ReadableName + "." + RootHash.ToString();
+			return (std::filesystem::path(FPaths::DerivedDataCacheDir()) / "Shaders" / "SPIR-V" / Namespace).generic_string();
+		}
+
 		class FShaderMountRegistry
 		{
 		public:
@@ -22,13 +66,13 @@ namespace Durin::FShaderPaths
 				return bFrozen;
 			}
 
-			auto AddOrUpdateMountPoint(std::string_view VirtualRoot, std::string_view SourceDir, std::string_view BinaryDir) -> void
+			auto AddOrUpdateMountPoint(std::string_view VirtualRoot, std::string_view SourceDir, std::string_view CacheDir) -> void
 			{
 				checkf(!bFrozen, "Shader mount points are immutable after finalization.");
 
 				const std::string NormalizedVirtualRoot = NormalizeVirtualRoot(VirtualRoot);
 				const std::string NormalizedSourceDir = NormalizeDirectory(SourceDir);
-				const std::string NormalizedBinaryDir = NormalizeDirectory(BinaryDir);
+				const std::string NormalizedCacheDir = NormalizeDirectory(CacheDir);
 
 				const auto FoundIt = std::ranges::find_if(MountPoints, [&NormalizedVirtualRoot](const FShaderMountPoint& MountPoint) {
 					return MountPoint.VirtualRoot == NormalizedVirtualRoot;
@@ -37,13 +81,13 @@ namespace Durin::FShaderPaths
 				if (FoundIt != MountPoints.end())
 				{
 					FoundIt->SourceDir = NormalizedSourceDir;
-					FoundIt->BinaryDir = NormalizedBinaryDir;
-					DURIN_DEBUG("Shader mount point updated: {} -> {} (binary: {})", NormalizedVirtualRoot, NormalizedSourceDir, NormalizedBinaryDir);
+					FoundIt->CacheDir = NormalizedCacheDir;
+					DURIN_DEBUG("Shader mount point updated: {} -> {} (cache: {})", NormalizedVirtualRoot, NormalizedSourceDir, NormalizedCacheDir);
 				}
 				else
 				{
-					MountPoints.push_back({NormalizedVirtualRoot, NormalizedSourceDir, NormalizedBinaryDir});
-					DURIN_DEBUG("Shader mount point: {} -> {} (binary: {})", NormalizedVirtualRoot, NormalizedSourceDir, NormalizedBinaryDir);
+					MountPoints.push_back({NormalizedVirtualRoot, NormalizedSourceDir, NormalizedCacheDir});
+					DURIN_DEBUG("Shader mount point: {} -> {} (cache: {})", NormalizedVirtualRoot, NormalizedSourceDir, NormalizedCacheDir);
 				}
 			}
 
@@ -53,7 +97,7 @@ namespace Durin::FShaderPaths
 				AddOrUpdateMountPoint(
 					VirtualRoot,
 					NormalizedProjectDir + "Shaders/Slang/",
-					NormalizedProjectDir + "ShaderCache/SPIR-V/");
+					MakeDefaultCacheDirectory(VirtualRoot));
 			}
 
 			auto Finalize() -> void
@@ -79,28 +123,6 @@ namespace Durin::FShaderPaths
 			}
 
 		private:
-			static auto NormalizeVirtualRoot(std::string_view VirtualRoot) -> std::string
-			{
-				std::string Result(VirtualRoot);
-				std::ranges::replace(Result, '\\', '/');
-				while (!Result.empty() && Result.back() == '/')
-				{
-					Result.pop_back();
-				}
-
-				if (Result.empty())
-				{
-					return "/";
-				}
-				if (Result.front() != '/')
-				{
-					Result.insert(Result.begin(), '/');
-				}
-
-				Result.push_back('/');
-				return Result;
-			}
-
 			static auto NormalizePathString(std::string_view PathString) -> std::string
 			{
 				return std::filesystem::path(std::string(PathString)).lexically_normal().generic_string();
@@ -140,12 +162,17 @@ namespace Durin::FShaderPaths
 		return RelativePath.substr(RelativeBegin);
 	}
 
-	auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view SourceDir, std::string_view BinaryDir) -> void
+	auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view SourceDir) -> void
+	{
+		RegisterMountPoint(VirtualRoot, SourceDir, MakeDefaultCacheDirectory(VirtualRoot));
+	}
+
+	auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view SourceDir, std::string_view CacheDir) -> void
 	{
 		checkf(IsInGameThread(), "AddShaderMountPoint must be called from the game thread.");
 		checkf(!GShaderMountRegistry.IsFrozen(),
 			"Shader mount points are immutable after FShaderPaths::InitDefaultMountPoints(). Register all shader mount points during startup and restart to change them.");
-		GShaderMountRegistry.AddOrUpdateMountPoint(VirtualRoot, SourceDir, BinaryDir);
+		GShaderMountRegistry.AddOrUpdateMountPoint(VirtualRoot, SourceDir, CacheDir);
 	}
 
 	auto SourcePath(std::string_view VirtualShaderPath) -> std::string
@@ -237,11 +264,11 @@ namespace Durin::FShaderPaths
 			if (const FShaderMountPoint* MountPoint = GShaderMountRegistry.Find(VirtualShaderPath))
 			{
 				const std::string_view RelativeVirtualShaderPath = GetRelativeVirtualShaderPath(VirtualShaderPath, *MountPoint);
-				return (std::filesystem::path(MountPoint->BinaryDir) / GetRelativeShaderCacheDirectory(RelativeVirtualShaderPath)).lexically_normal();
+				return (std::filesystem::path(MountPoint->CacheDir) / GetRelativeShaderCacheDirectory(RelativeVirtualShaderPath)).lexically_normal();
 			}
 
 			DURIN_WARN("Failed to resolve virtual shader path. Make sure the path is correct and a mount point is registered for it. Virtual shader path: {}", VirtualShaderPath);
-			return std::filesystem::path(FPaths::EngineDir()) / "ShaderCache" / "SPIR-V" / (StringUtils::SanitizeFileName(VirtualShaderPath, "Shader") + ".slang");
+			return std::filesystem::path(MakeDefaultCacheDirectory(VirtualShaderPath)) / "Shader.slang";
 		}
 
 	auto ShaderDirectory(std::string_view VirtualShaderPath) -> std::string
