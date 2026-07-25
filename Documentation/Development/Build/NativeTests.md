@@ -2,6 +2,16 @@
 
 This document covers running native tests and adding test targets. Native tests are enabled by the Agent driver's `Win64-Debug-DurinEditor-Tests` preset.
 
+## Source Layout
+
+- Native test targets: `Engine/Tests/Native/<TargetName>/`
+- Target-owned checked-in inputs: `Engine/Tests/Native/<TargetName>/Data/`
+- Checked-in inputs shared by multiple targets: `Engine/Tests/Data/<FixtureName>/`
+
+Keep target-owned inputs beside the target that owns them. Promote an input to
+the shared data directory only when multiple test targets depend on the same
+fixture.
+
 ## Run Tests
 
 Build and run a test executable through the root wrapper:
@@ -38,7 +48,7 @@ Do not write generated files into `Bin/` or the checked-in data directory.
 
 ## Add A Test Target
 
-1. Create a folder under `Engine/Source/Programs/Tests`.
+1. Create a folder under `Engine/Tests/Native`.
 2. Add a `CMakeLists.txt` using `add_durin_test(...)`.
 3. Link the required engine modules and `GTest::gtest_main`.
 4. Deploy required engine DLLs and checked-in input data.

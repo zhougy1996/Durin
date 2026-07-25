@@ -48,6 +48,11 @@ Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `Sandbox/CMak
 
 `add_durin_module(...)` imports generated per-module CMake metadata, wires reflection-generated sources and export files, applies shared PCH settings, and builds the resulting shared or static library.
 
+When `BUILD_TESTING` is enabled, `add_durin_project(...)` registers native tests
+from `DURIN_PROJECT_TESTS_DIR`. The default is
+`<ProjectRoot>/Tests/Native`; a project may override it before calling
+`add_durin_project(...)`.
+
 Ordinary module sources under `Public` and `Private` are discovered by per-module
 CMake `GLOB_RECURSE CONFIGURE_DEPENDS` rules. Adding or removing a supported C/C++
 source or header therefore updates the Ninja graph during a normal build. DHT

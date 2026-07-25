@@ -2,8 +2,8 @@ include(GoogleTest)
 
 add_durin_test(VulkanRHITests
 	Private/VulkanTextureSamplingTests.cpp
-	../../../Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
-	../../../Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
 )
 
 target_include_directories(VulkanRHITests PRIVATE
@@ -32,7 +32,7 @@ durin_test_deploy_target_binary(VulkanRHITests RHI)
 durin_test_deploy_target_binary(VulkanRHITests RenderCore)
 durin_test_deploy_target_binary(VulkanRHITests VulkanRHI)
 durin_test_deploy_runtime_files(VulkanRHITests Slang_Imported)
-durin_test_deploy_directory_to_data(VulkanRHITests "${CMAKE_CURRENT_SOURCE_DIR}/TestData")
+durin_test_deploy_directory_to_data(VulkanRHITests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
 get_target_property(_durin_vulkan_rhi_tests_work_dir VulkanRHITests DURIN_TEST_WORK_DIR)
 

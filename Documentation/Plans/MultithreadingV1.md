@@ -396,5 +396,5 @@ Build, test, and smoke commands come from
 - `Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp`
 - `Engine/Source/Runtime/AssetCore/Private/AssetCore.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/SourceImageThumbnailCache.cpp`
-- `Engine/Source/Programs/Tests/CoreTests/Private/ThreadingTests.cpp`
-- `Engine/Source/Programs/Tests/AssetCoreTests/Private/AssetImportTests.cpp`
+- `Engine/Tests/Native/CoreTests/Private/ThreadingTests.cpp`
+- `Engine/Tests/Native/AssetCoreTests/Private/AssetImportTests.cpp`

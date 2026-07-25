@@ -25,7 +25,7 @@ target_link_libraries(CoreTests PRIVATE
 )
 
 durin_test_deploy_target_binary(CoreTests Core)
-durin_test_deploy_directory_to_data(CoreTests "${CMAKE_CURRENT_SOURCE_DIR}/TestData")
+durin_test_deploy_directory_to_data(CoreTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 durin_test_deploy_files_to_data(CoreTests "${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml")
 
 get_target_property(_durin_core_tests_work_dir CoreTests DURIN_TEST_WORK_DIR)

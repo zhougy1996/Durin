@@ -7,15 +7,15 @@ add_durin_test(RenderCoreTests
 	Private/ShaderReflectionTests.cpp
 	Private/RenderTargetLayoutTests.cpp
 	Private/RHITextureTests.cpp
-	../../../Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
-	../../../Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
-	../../../Runtime/RenderCore/Private/Shader/ShaderCacheStore.cpp
-	../../../Runtime/RenderCore/Private/Shader/ShaderCompileService.cpp
-	../../../Runtime/RenderCore/Private/Shader/SlangShaderDependencyResolver.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/ShaderCacheStore.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/ShaderCompileService.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/SlangShaderDependencyResolver.cpp
 )
 
 target_include_directories(RenderCoreTests PRIVATE
-	"${CMAKE_CURRENT_SOURCE_DIR}/../../../Runtime/RenderCore/Private"
+	"${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private"
 )
 
 target_link_libraries(RenderCoreTests PRIVATE
@@ -30,7 +30,7 @@ durin_test_deploy_target_binary(RenderCoreTests Core)
 durin_test_deploy_target_binary(RenderCoreTests RHI)
 durin_test_deploy_target_binary(RenderCoreTests RenderCore)
 durin_test_deploy_runtime_files(RenderCoreTests Slang_Imported)
-durin_test_deploy_directory_to_data(RenderCoreTests "${CMAKE_CURRENT_SOURCE_DIR}/TestData")
+durin_test_deploy_directory_to_data(RenderCoreTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
 get_target_property(_durin_render_core_tests_work_dir RenderCoreTests DURIN_TEST_WORK_DIR)
 

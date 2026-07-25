@@ -256,7 +256,7 @@ No descriptor set index or binding index appears at the callsite.
 
 These tests live in:
 
-- `Engine/Source/Programs/Tests/RenderCoreTests/Private/ShaderFoundationTests.cpp`
+- `Engine/Tests/Native/RenderCoreTests/Private/ShaderFoundationTests.cpp`
 
 ## Current Limitations
 

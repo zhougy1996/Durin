@@ -419,5 +419,5 @@ payloads that load without source files or Assimp.
 - `Engine/Source/Runtime/Core/Public/Misc/DerivedDataCache.h`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/StaticMeshImportDialog.cpp`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialPreview.cpp`
-- `Engine/Source/Programs/Tests/AssetCoreTests/Private/AssetImportTests.cpp`
-- `Engine/Source/Programs/Tests/EngineTests/Private/MaterialTests.cpp`
+- `Engine/Tests/Native/AssetCoreTests/Private/AssetImportTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/MaterialTests.cpp`
