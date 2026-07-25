@@ -168,9 +168,9 @@ namespace Durin
 			if (ViewportClient != nullptr) ViewportClient->SetEnabled(bInVisible);
 		}
 
-		auto Draw(DMaterialInterface* Material) -> void
+		auto Draw(DMaterialInterface* Material, float PanelHeight) -> void
 		{
-			if (!ImGui::BeginChild("MaterialPreview", ImVec2(0.0f, MonaImGui::ScaleUI(300.0f)), ImGuiChildFlags_Borders))
+			if (!ImGui::BeginChild("MaterialPreview", ImVec2(0.0f, PanelHeight), ImGuiChildFlags_Borders))
 			{
 				ImGui::EndChild();
 				return;
@@ -184,6 +184,7 @@ namespace Durin
 			}
 
 			SetVisible(true);
+			ImGui::SeparatorText("Preview");
 			const char* ShapeLabel = Shape == EMaterialPreviewShape::Sphere ? "Sphere" : "Box";
 			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(120.0f));
 			if (ImGui::BeginCombo("Preview Mesh", ShapeLabel))
@@ -323,8 +324,8 @@ namespace Durin
 		Impl->SetVisible(bInVisible);
 	}
 
-	auto FMaterialPreview::Draw(DMaterialInterface* Material) -> void
+	auto FMaterialPreview::Draw(DMaterialInterface* Material, float PanelHeight) -> void
 	{
-		Impl->Draw(Material);
+		Impl->Draw(Material, PanelHeight);
 	}
 }

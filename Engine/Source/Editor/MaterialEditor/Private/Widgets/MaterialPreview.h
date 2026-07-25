@@ -14,7 +14,7 @@ namespace Durin
 		~FMaterialPreview();
 
 		auto SetVisible(bool bInVisible) -> void;
-		auto Draw(DMaterialInterface* Material) -> void;
+		auto Draw(DMaterialInterface* Material, float PanelHeight = 0.0f) -> void;
 
 	private:
 		class FImpl;

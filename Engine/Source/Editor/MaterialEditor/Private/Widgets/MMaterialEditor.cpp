@@ -20,6 +20,15 @@ namespace Durin
 {
 	namespace
 	{
+		constexpr float DefaultSidebarRatio = 0.34f;
+		constexpr float DefaultPreviewPaneRatio = 0.68f;
+		constexpr float WideLayoutMinimumWidth = 760.0f;
+		constexpr float MinimumSidebarWidth = 280.0f;
+		constexpr float MinimumDetailsWidth = 360.0f;
+		constexpr float MinimumPreviewHeight = 260.0f;
+		constexpr float MinimumOverviewHeight = 110.0f;
+		constexpr float NarrowPreviewHeight = 340.0f;
+
 		auto FormatParameterSource(const FMaterialParameterPanelEntry& Entry) -> std::string
 		{
 			if (Entry.bHasLocalOverride) return "Local override";
@@ -142,6 +151,8 @@ namespace Durin
 
 	auto MMaterialEditor::ResetLayout() -> void
 	{
+		SidebarRatio = DefaultSidebarRatio;
+		PreviewPaneRatio = DefaultPreviewPaneRatio;
 	}
 
 	auto MMaterialEditor::FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*
@@ -199,21 +210,13 @@ namespace Durin
 
 	auto MMaterialEditor::DrawDocument(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
-		if (ImGui::Button("Save")) SaveMaterial(Material);
-		ImGui::Separator();
-		ImGui::TextDisabled("Asset");
-		ImGui::SameLine();
-		ImGui::TextUnformatted(Document.ResourceId.c_str());
-		ImGui::TextDisabled("Type");
-		ImGui::SameLine();
-		ImGui::TextUnformatted(Material->GetClass()->GetQualifiedName().ToString().c_str());
+		DrawToolbar(Document, Material);
 		ImGui::Spacing();
-		std::unique_ptr<FMaterialPreview>& Preview = MaterialPreviews[Document.Id.Value];
-		if (Preview == nullptr) Preview = std::make_unique<FMaterialPreview>(Document.Id.Value);
-		Preview->Draw(Material);
-		ImGui::Spacing();
-		if (auto* Instance = Cast<DMaterialInstance>(Material)) DrawMaterialInstance(Instance);
-		else if (auto* BaseMaterial = Cast<DMaterial>(Material)) DrawMaterial(BaseMaterial);
+
+		if (ImGui::GetContentRegionAvail().x >= MonaImGui::ScaleUI(WideLayoutMinimumWidth))
+			DrawWideLayout(Document, Material);
+		else
+			DrawNarrowLayout(Document, Material);
 
 		if (ActiveResourceId != Document.ResourceId) return;
 		if (!ErrorMessage.empty()) ImGui::OpenPopup("Material Editor Error");
@@ -227,6 +230,123 @@ namespace Durin
 			}
 			ImGui::EndPopup();
 		}
+	}
+
+	auto MMaterialEditor::DrawToolbar(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void
+	{
+		if (ImGui::Button("Save")) SaveMaterial(Material);
+		ImGui::SameLine();
+		ImGui::TextDisabled("Material");
+		ImGui::SameLine();
+		ImGui::TextUnformatted(Document.ResourceId.c_str());
+	}
+
+	auto MMaterialEditor::DrawWideLayout(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void
+	{
+		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
+		const ImVec2 Available = ImGui::GetContentRegionAvail();
+		const float ScaledMinimumSidebarWidth = MonaImGui::ScaleUI(MinimumSidebarWidth);
+		const float ScaledMinimumDetailsWidth = MonaImGui::ScaleUI(MinimumDetailsWidth);
+		const float SidebarWidth = std::clamp(
+			Available.x * SidebarRatio,
+			ScaledMinimumSidebarWidth,
+			std::max(ScaledMinimumSidebarWidth, Available.x - Metrics.SplitterThickness - ScaledMinimumDetailsWidth));
+
+		if (ImGui::BeginChild("MaterialEditorSidebar", ImVec2(SidebarWidth, Available.y)))
+		{
+			const float UsableHeight = std::max(Available.y - Metrics.SplitterThickness, 0.0f);
+			const float ScaledMinimumPreviewHeight = MonaImGui::ScaleUI(MinimumPreviewHeight);
+			const float ScaledMinimumOverviewHeight = MonaImGui::ScaleUI(MinimumOverviewHeight);
+			if (UsableHeight >= ScaledMinimumPreviewHeight + ScaledMinimumOverviewHeight)
+			{
+				const float PreviewHeight = std::clamp(
+					UsableHeight * PreviewPaneRatio,
+					ScaledMinimumPreviewHeight,
+					UsableHeight - ScaledMinimumOverviewHeight);
+
+				DrawPreviewPanel(Document, Material, PreviewHeight);
+				MonaImGui::DrawSplitter(
+					"MaterialEditorPreviewSplitter",
+					MonaImGui::EUISplitterAxis::Y,
+					ImGui::GetContentRegionAvail().x,
+					UsableHeight,
+					ScaledMinimumPreviewHeight,
+					ScaledMinimumOverviewHeight,
+					PreviewPaneRatio);
+				DrawOverviewPanel(Document, Material, 0.0f);
+			}
+			else
+			{
+				DrawPreviewPanel(Document, Material, 0.0f);
+			}
+		}
+		ImGui::EndChild();
+		ImGui::SameLine();
+		MonaImGui::DrawSplitter(
+			"MaterialEditorSidebarSplitter",
+			MonaImGui::EUISplitterAxis::X,
+			Available.y,
+			Available.x,
+			ScaledMinimumSidebarWidth,
+			ScaledMinimumDetailsWidth,
+			SidebarRatio);
+		ImGui::SameLine();
+		DrawDetailsPanel(Material, Available.y);
+	}
+
+	auto MMaterialEditor::DrawNarrowLayout(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void
+	{
+		DrawPreviewPanel(
+			Document,
+			Material,
+			MonaImGui::ScaleUI(NarrowPreviewHeight));
+		ImGui::Spacing();
+		DrawOverviewPanel(
+			Document,
+			Material,
+			MonaImGui::ScaleUI(MinimumOverviewHeight));
+		ImGui::Spacing();
+		DrawDetailsPanel(Material, 0.0f);
+	}
+
+	auto MMaterialEditor::DrawPreviewPanel(
+		const FEditorDocumentTab& Document,
+		DMaterialInterface* Material,
+		float Height
+	) -> void
+	{
+		std::unique_ptr<FMaterialPreview>& Preview = MaterialPreviews[Document.Id.Value];
+		if (Preview == nullptr) Preview = std::make_unique<FMaterialPreview>(Document.Id.Value);
+		Preview->Draw(Material, Height);
+	}
+
+	auto MMaterialEditor::DrawOverviewPanel(
+		const FEditorDocumentTab& Document,
+		DMaterialInterface* Material,
+		float Height
+	) -> void
+	{
+		if (ImGui::BeginChild("MaterialOverview", ImVec2(0.0f, Height), ImGuiChildFlags_Borders))
+		{
+			ImGui::SeparatorText("Material Overview");
+			ImGui::TextDisabled("Asset");
+			ImGui::TextWrapped("%s", Document.ResourceId.c_str());
+			ImGui::Spacing();
+			ImGui::TextDisabled("Type");
+			ImGui::TextUnformatted(Material->GetClass()->GetQualifiedName().ToString().c_str());
+		}
+		ImGui::EndChild();
+	}
+
+	auto MMaterialEditor::DrawDetailsPanel(DMaterialInterface* Material, float Height) -> void
+	{
+		if (ImGui::BeginChild("MaterialDetails", ImVec2(0.0f, Height), ImGuiChildFlags_Borders))
+		{
+			ImGui::SeparatorText("Details");
+			if (auto* Instance = Cast<DMaterialInstance>(Material)) DrawMaterialInstance(Instance);
+			else if (auto* BaseMaterial = Cast<DMaterial>(Material)) DrawMaterial(BaseMaterial);
+		}
+		ImGui::EndChild();
 	}
 
 	auto MMaterialEditor::DrawMaterial(DMaterial* Material) -> void

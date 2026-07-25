@@ -45,6 +45,12 @@ namespace Durin
 		auto GetActiveMaterial() const -> DMaterialInterface*;
 		auto SaveMaterial(DMaterialInterface* Material) -> bool;
 		auto DrawDocument(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void;
+		auto DrawToolbar(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void;
+		auto DrawWideLayout(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void;
+		auto DrawNarrowLayout(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void;
+		auto DrawPreviewPanel(const FEditorDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
+		auto DrawOverviewPanel(const FEditorDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
+		auto DrawDetailsPanel(DMaterialInterface* Material, float Height) -> void;
 		auto DrawMaterial(DMaterial* Material) -> void;
 		auto DrawMaterialInstance(DMaterialInstance* Instance) -> void;
 		auto DrawParentPicker(DMaterialInstance* Instance) -> void;
@@ -67,5 +73,7 @@ namespace Durin
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;
 		FReflectedPropertyView PropertyView;
+		float SidebarRatio = 0.34f;
+		float PreviewPaneRatio = 0.68f;
 	};
 }
