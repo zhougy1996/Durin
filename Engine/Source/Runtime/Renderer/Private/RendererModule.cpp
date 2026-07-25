@@ -4,6 +4,7 @@
 #include "EditorGridRendering.h"
 #include "RendererEditorAssistance.h"
 #include "RendererRenderTargetLayouts.h"
+#include "SkyBoxRendering.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -12,6 +13,7 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Texture/Texture2DRenderResource.h"
+#include "Texture/TextureCubeRenderResource.h"
 
 #include <glm/mat4x4.hpp>
 
@@ -157,6 +159,23 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Grid);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_SHADER(FEditorGridFragmentShader, FShader, "/Engine/EditorGrid", EShaderFrequency::Fragment, "FragmentMain");
+		};
+
+		class FSkyBoxVertexShader : public FShader
+		{
+		public:
+			DURIN_DECLARE_SHADER(FSkyBoxVertexShader, FShader, "/Engine/SkyBox", EShaderFrequency::Vertex, "VertexMain");
+		};
+
+		class FSkyBoxFragmentShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FSkyBoxFragmentShader)
+				DURIN_SHADER_PARAMETER_TEXTURE(SkyTexture);
+				DURIN_SHADER_PARAMETER_SAMPLER(SkySampler);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Sky);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FSkyBoxFragmentShader, FShader, "/Engine/SkyBox", EShaderFrequency::Fragment, "FragmentMain");
 		};
 
 		class FPostProcessVertexShader : public FShader
@@ -338,6 +357,18 @@ namespace Durin
 			bool bCreateAttempted = false;
 		};
 
+		struct FSkyBoxRendererState
+		{
+			std::shared_ptr<FShaderMapBase> ShaderMap;
+			TShaderRef<FSkyBoxVertexShader> VertexShader;
+			TShaderRef<FSkyBoxFragmentShader> FragmentShader;
+			FVertexDeclarationRHIRef VertexDeclaration;
+			FGraphicsPipelineStateRHIRef PipelineState;
+			FBufferRHIRef IndexBuffer;
+			FSamplerRHIRef Sampler;
+			bool bCreateAttempted = false;
+		};
+
 		struct FPostProcessRendererState
 		{
 			struct FSceneTargets
@@ -366,6 +397,7 @@ namespace Durin
 		};
 
 		FStaticMeshRendererState GStaticMeshState;
+		FSkyBoxRendererState GSkyBoxState;
 		FPostProcessRendererState GPostProcessState;
 		FGizmoRendererState GGizmoState;
 		FOverlayLineRendererState GOverlayLineState;
@@ -877,6 +909,55 @@ namespace Durin
 			);
 		}
 
+		auto EnsureSkyBoxResources() -> void
+		{
+			if (GSkyBoxState.bCreateAttempted) return;
+			GSkyBoxState.bCreateAttempted = true;
+
+			FShaderCompileOptions CompileOptions;
+			FShaderType& VertexShaderType = FSkyBoxVertexShader::StaticType();
+			FShaderType& FragmentShaderType = FSkyBoxFragmentShader::StaticType();
+			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
+			auto ShaderMap = std::make_shared<FShaderMapBase>();
+			std::string ErrorMessage;
+			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
+			{
+				DURIN_ERROR("Failed to initialize SkyBox shader map: {}", ErrorMessage);
+				return;
+			}
+
+			GSkyBoxState.ShaderMap = ShaderMap;
+			GSkyBoxState.VertexShader = TShaderRef<FSkyBoxVertexShader>(
+				static_cast<FSkyBoxVertexShader*>(ShaderMap->GetShader(&VertexShaderType)), ShaderMap.get());
+			GSkyBoxState.FragmentShader = TShaderRef<FSkyBoxFragmentShader>(
+				static_cast<FSkyBoxFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType)), ShaderMap.get());
+
+			// The sky vertex shader derives the fullscreen triangle from SV_VertexID.
+			// Vulkan still requires a vertex declaration object, but it has no elements
+			// and no vertex buffer is bound.
+			FVertexDeclarationElementList EmptyVertexElements{};
+			GSkyBoxState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(EmptyVertexElements);
+
+			FGraphicsPipelineStateInitializer Initializer;
+			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
+			Initializer.BoundShaders.VertexShader = GSkyBoxState.VertexShader.GetRHIShader();
+			Initializer.BoundShaders.FragmentShader = GSkyBoxState.FragmentShader.GetRHIShader();
+			Initializer.VertexDeclaration = GSkyBoxState.VertexDeclaration;
+			Initializer.bEnableAlphaBlend = false;
+			Initializer.bEnableBackFaceCulling = false;
+			Initializer.bEnableDepthTest = false;
+			Initializer.bEnableDepthWrite = false;
+			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
+			GSkyBoxState.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("SkyBoxPipeline", Initializer);
+			const std::array<uint32, 3> FullscreenIndices = {0, 1, 2};
+			FRHIBufferCreateDesc IndexBufferDesc = FRHIBufferCreateDesc::CreateIndex(
+				"SkyBoxFullscreenIndexBuffer", sizeof(FullscreenIndices), sizeof(uint32));
+			IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
+			IndexBufferDesc.InitialData = {FullscreenIndices.data(), sizeof(FullscreenIndices)};
+			GSkyBoxState.IndexBuffer = RHICreateBuffer(IndexBufferDesc);
+			GSkyBoxState.Sampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
+		}
+
 		auto EnsureStaticMeshPipeline() -> void
 		{
 			if (GStaticMeshState.bCreateAttempted)
@@ -1103,6 +1184,38 @@ namespace Durin
 			FEditorGridFragmentShader::FParameters FragmentParameters;
 			FragmentParameters.Grid = GridBuffer;
 			SetShaderParameters(CommandList, GEditorGridState.FragmentShader, FragmentParameters);
+			CommandList.DrawIndexed(3, 0, 0);
+		}
+
+		auto DrawSkyBox(FRHICommandListImmediate& CommandList, IScene& Scene, const FSceneView& View) -> void
+		{
+			FSkyBoxSceneData SkyBox;
+			if (!Scene.GetActiveSkyBox_RenderThread(SkyBox)) return;
+
+			if (GSkyBoxState.PipelineState == nullptr || GSkyBoxState.Sampler == nullptr
+				|| !GSkyBoxState.VertexShader || !GSkyBoxState.FragmentShader
+				|| GSkyBoxState.IndexBuffer == nullptr) return;
+
+			SkyBoxRendering::FSkyBoxUniform Uniform;
+			if (!SkyBoxRendering::BuildUniform(View, SkyBox, Uniform)) return;
+
+			FRHITexture* Texture = GetDefaultCubeTexture_RenderThread();
+			if (SkyBox.TextureResource != nullptr)
+			{
+				if (FRHITexture* ReadyTexture = SkyBox.TextureResource->GetTextureRHI_RenderThread())
+				{
+					Texture = ReadyTexture;
+				}
+			}
+			if (Texture == nullptr) return;
+
+			CommandList.SetGraphicsPipelineState(*GSkyBoxState.PipelineState);
+			CommandList.BindIndexBuffer(GSkyBoxState.IndexBuffer, 0);
+			FSkyBoxFragmentShader::FParameters Parameters;
+			Parameters.SkyTexture = Texture;
+			Parameters.SkySampler = GSkyBoxState.Sampler;
+			Parameters.Sky = CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			SetShaderParameters(CommandList, GSkyBoxState.FragmentShader, Parameters);
 			CommandList.DrawIndexed(3, 0, 0);
 		}
 
@@ -1426,6 +1539,7 @@ namespace Durin
 		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)([](FRHICommandListImmediate&) {
 			GDefaultTextures = {};
 			GStaticMeshState.BaseColorSampler = nullptr;
+			GSkyBoxState.Sampler = nullptr;
 			GOverlayIconState.Atlas = nullptr;
 			GOverlayIconState.AtlasSampler = nullptr;
 		});
@@ -1437,6 +1551,7 @@ namespace Durin
 				&& GDefaultTextures.BlackCube == nullptr,
 			"Renderer defaults must be released before the rendering thread stops");
 		GStaticMeshState = {};
+		GSkyBoxState = {};
 		GGizmoState = {};
 		GOverlayLineState = {};
 		GOverlayIconState = {};
@@ -1532,6 +1647,9 @@ namespace Durin
 		}
 
 		EnsurePostProcessResources(CommandList);
+		// Sky resources include a static index upload, so initialize them before
+		// entering the Scene Color render pass.
+		EnsureSkyBoxResources();
 		FPostProcessRendererState::FSceneTargets* SceneTargets = EnsureSceneTargets(Width, Height);
 		if (SceneTargets == nullptr || SceneTargets->Color == nullptr || SceneTargets->Depth == nullptr)
 		{
@@ -1612,16 +1730,15 @@ namespace Durin
 			return;
 		}
 
-		EnsureStaticMeshPipeline();
-		if (GStaticMeshState.SolidPipelineState == nullptr || GStaticMeshState.WireframePipelineState == nullptr || GStaticMeshState.BaseColorSampler == nullptr
-			|| !GStaticMeshState.VertexShader || !GStaticMeshState.FragmentShader)
-		{
-			return;
-		}
-
 		CommandList.SetViewport(static_cast<float>(View.ViewportX), static_cast<float>(View.ViewportY), 0.0f,
 			static_cast<float>(View.ViewportX + Width), static_cast<float>(View.ViewportY + Height), 1.0f);
 		CommandList.SetScissor(static_cast<float>(View.ViewportX), static_cast<float>(View.ViewportY), static_cast<float>(Width), static_cast<float>(Height));
+
+		DrawSkyBox(CommandList, *Scene, View);
+
+		EnsureStaticMeshPipeline();
+		if (GStaticMeshState.SolidPipelineState == nullptr || GStaticMeshState.WireframePipelineState == nullptr || GStaticMeshState.BaseColorSampler == nullptr
+			|| !GStaticMeshState.VertexShader || !GStaticMeshState.FragmentShader) return;
 
 		const ERenderMode RenderMode = GRenderMode.load(std::memory_order_relaxed);
 		const ERasterMode RasterMode = GRasterMode.load(std::memory_order_relaxed);

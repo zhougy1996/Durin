@@ -34,8 +34,19 @@ component publishes revisioned UObject-free snapshots, and `FScene` owns them
 only on the rendering thread. Serialized GUID selection is deterministic for
 multiple visible skyboxes. Tests cover registration, visibility, transform and
 property updates, stale commands, scene release, serialization, dependencies,
-and GC. The engine still has no sky rendering stage, so there is not yet a
-user-visible skybox vertical slice.
+and GC.
+
+Stage 4 implementation is complete. A dedicated fullscreen-triangle shader
+reconstructs a translation-free world ray, applies inverse component rotation,
+samples the active cube (or the renderer black fallback), and writes linear
+Tint/Intensity-modulated color before static meshes and post process. Its
+depth-free pipeline, sampler, viewport/scissor handling, and lifetime are
+independent of static-mesh pipeline initialization. CPU tests cover ray
+translation invariance, inverse component rotation, invalid transforms, and
+parameter packing. The hidden Vulkan smoke exercises shader and pipeline
+creation even in a scene without an active sky. Repeatable rendered-pixel
+orientation, occlusion, and multi-mip sampling evidence remains for Stage 6 and
+the Stage 1 acceptance gate.
 
 ## Goal
 
@@ -191,15 +202,15 @@ Depends on Stage 2. This stage establishes the data boundary between game object
 
 Depends on Stages 1 and 3. This stage produces the first visible skybox result.
 
-- [ ] Add a dedicated Slang skybox shader and binding declarations that generate fullscreen coverage from a fullscreen triangle.
-- [ ] Pass the inverse view/projection data needed for ray reconstruction, plus skybox rotation, Tint, and Intensity.
-- [ ] Implement direction reconstruction and cube sampling from the Stage 0 ground-truth table; do not "tune" undocumented negations or axis swaps in the shader until the result looks right.
-- [ ] Create a dedicated pipeline state with no vertex buffer, depth testing/writes, blending, or face culling, and with a target format matching Scene Color.
-- [ ] Add a renderer-owned linear sampler and 1x1 black fallback cubemap, releasing both safely when the module shuts down.
-- [ ] In `RenderScene()`, draw the skybox before static meshes, the editor grid, and overlays; issue no skybox draw when no component is active.
-- [ ] Respect `FSceneView::ViewportX/Y/Width/Height` so letterbox regions for fixed aspect ratios stay black and the sky is not stretched across the full target.
-- [ ] Use the same skybox background policy in Lit, Unlit, and Wireframe without coupling it to successful initialization of the static-mesh pipeline.
-- [ ] Ensure the sky writes Scene Color before the existing post process and test sRGB decoding plus linear Tint/Intensity multiplication.
+- [x] Add a dedicated Slang skybox shader and binding declarations that generate fullscreen coverage from a fullscreen triangle.
+- [x] Pass the inverse view/projection data needed for ray reconstruction, plus skybox rotation, Tint, and Intensity.
+- [x] Implement direction reconstruction and cube sampling from the Stage 0 ground-truth table; do not "tune" undocumented negations or axis swaps in the shader until the result looks right.
+- [x] Create a dedicated pipeline state with no vertex buffer, depth testing/writes, blending, or face culling, and with a target format matching Scene Color.
+- [x] Add a renderer-owned linear sampler and 1x1 black fallback cubemap, releasing both safely when the module shuts down.
+- [x] In `RenderScene()`, draw the skybox before static meshes, the editor grid, and overlays; issue no skybox draw when no component is active.
+- [x] Respect `FSceneView::ViewportX/Y/Width/Height` so letterbox regions for fixed aspect ratios stay black and the sky is not stretched across the full target.
+- [x] Use the same skybox background policy in Lit, Unlit, and Wireframe without coupling it to successful initialization of the static-mesh pipeline.
+- [x] Ensure the sky writes Scene Color before the existing post process and test sRGB decoding plus linear Tint/Intensity multiplication.
 
 #### Acceptance Gate
 

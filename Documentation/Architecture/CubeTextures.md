@@ -109,6 +109,29 @@ face and labeled edge markers matching the source-orientation table.
   removal from overriding newer state. Runtime instance IDs also keep duplicated
   components with the same serialized GUID as distinct scene entries.
 
+## Sky Rendering
+
+- The renderer uses a dedicated fullscreen triangle generated from
+  Vulkan `VertexIndex`; its pipeline has an empty vertex declaration and binds
+  no vertex buffer.
+- The sky pipeline targets the Scene Color pass with blending, culling, depth
+  testing, and depth writes disabled. It draws before static meshes; editor
+  grid, gizmos, lines, and icons are composed later and therefore remain above
+  the sky.
+- The fragment shader transforms a far clip-space position through inverse
+  view-projection, subtracts the camera world position, and normalizes the
+  result. It then applies the inverse normalized component rotation before cube
+  sampling. Component translation and scale never enter this transform.
+- The draw uses the view's fitted viewport and scissor, preserving black
+  letterbox regions. The same path is independent of Lit/Unlit and
+  Solid/Wireframe mesh settings.
+- Ready asset resources are sampled with a renderer-owned linear clamp sampler.
+  Missing, rebuilding, failed, or deleted resources bind the renderer-owned
+  black cube. A scene with no active sky issues no sky draw.
+- sRGB cube formats perform hardware conversion to linear on sampling. The
+  shader multiplies that linear value by `Tint * Intensity`, writes Scene
+  Color, and leaves the existing post-process/output conversion path unchanged.
+
 ## Related Code
 
 - `Engine/Source/Runtime/Core/Public/Math/Vector.h`
@@ -118,3 +141,5 @@ face and labeled edge markers matching the source-orientation table.
 - `Engine/Source/Runtime/Engine/Public/Components/SkyBoxComponent.h`
 - `Engine/Source/Runtime/Engine/Public/IScene.h`
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
+- `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.cpp`
+- `Engine/Shaders/Slang/SkyBox.slang`

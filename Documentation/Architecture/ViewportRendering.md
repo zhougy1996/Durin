@@ -107,6 +107,13 @@ Camera aspect ratios support viewport-driven framing, common fixed presets, and 
 
 Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache is deliberately bounded so interactive resizing does not retain every transient dimension.
 
+When a scene has an active skybox, the renderer draws it into Scene Color using
+the fitted content viewport and scissor before opaque meshes. The draw has no
+depth interaction, so geometry replaces the background normally. The complete
+target is still cleared first; fixed-aspect regions outside the content
+rectangle remain black. Main, auxiliary camera-preview, and window-backed views
+all use this same `FSceneView`-driven sky path.
+
 Scene post-processing produces the image that is then composed with editor assistance for both window-backed and render-target-backed viewports. Editor assistance is a Renderer phase, not Mona or ImGui content: it loads preserved scene depth for occlusion, but remains outside scene anti-aliasing and any future temporal history. The final assistance pass restores the view's constrained content viewport and scissor after the fullscreen post-process pass, so fixed-aspect black bars remain untouched. Window-backed output then transitions to Present; render-target-backed output becomes ShaderReadOnly and continues through `MonaUI::DrawTexture(...)` without exposing intermediate scene targets to the widget layer.
 
 The editor-assistance draw order is grid first, then X-Ray gizmos, lines, and icons, followed by their depth-tested visible variants. Main and auxiliary viewports reuse size-keyed scene intermediates sequentially, while each output target receives its own post-process and final assistance passes.
