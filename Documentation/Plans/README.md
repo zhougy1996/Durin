@@ -10,4 +10,5 @@ These plans have an active execution path. Plan authoring and archival rules are
 | [Static Mesh Derived Data and Cooking](StaticMeshDerivedDataAndCooking.md) | Source-model provenance, native mesh payloads, DDC caching, cooking, and shared material-preview assets |
 | [Material System](MaterialSystem.md) | Material editing, surface models, shader maps, and runtime materials |
 | [Multithreading V1](MultithreadingV1.md) | Production-safe CPU task states, lifecycle, dependencies, cancellation, parallel loops, and async consumer handoff |
+| [Object Dependency Index](ObjectDependencyIndex.md) | Central loaded-object dependency publication, reverse queries, lifecycle cleanup, and resource invalidation migration |
 | [Editor Icon Atlas](EditorIconAtlas.md) | Offline atlas pipeline for editor visualization icons |
