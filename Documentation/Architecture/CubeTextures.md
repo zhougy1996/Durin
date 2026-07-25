@@ -79,10 +79,35 @@ face and labeled edge markers matching the source-orientation table.
 - A cube must contain exactly six layers in the order above.
 - All faces use the same dimensions, pixel format, mip count, and source row
   convention.
+- Decoded faces remain RGBA8 source data. Desktop platform data uses one BC
+  format for the complete cube: opaque color uses BC1 and any transparency in
+  any face promotes all six faces to BC3.
 - Texture2D uploads use array slice 0. Cube uploads name their face explicitly
   and translate it to the corresponding array slice.
 - Vulkan cube images use the cube-compatible image flag and one cube image view
   spanning base layer 0 through layer 5.
+- Cube render resources query backend format support before image creation and
+  preserve unsupported-format diagnostics separately from general upload
+  failures.
+
+## Sky Component and Scene Snapshot
+
+- `DSkyBoxComponent` owns a reflected `TObjectPtr<DTextureCube>`, linear Tint,
+  nonnegative Intensity, a serialized stable scene GUID, and a runtime instance
+  ID. The reflected
+  pointer participates in package dependency tracking, serialization, and GC.
+- Translation and scale remain ordinary authored transform data but do not
+  enter the sky snapshot. Only the component's world rotation is published.
+- Registration, visibility, rotation, texture, Tint, and Intensity changes
+  enqueue revisioned snapshot replacement or removal through `IScene`.
+- `FScene` owns snapshots only on the rendering thread. A snapshot contains no
+  reflected object pointer; it retains the cube render-resource proxy instead.
+- Multiple visible sky components are retained so editor diagnostics can report
+  the conflict. The active entry is selected by serialized scene GUID, then
+  stable object path for duplicated GUIDs, independent of registration order.
+- Per-instance revision tombstones prevent an older queued replacement or
+  removal from overriding newer state. Runtime instance IDs also keep duplicated
+  components with the same serialized GUID as distinct scene entries.
 
 ## Related Code
 
@@ -90,3 +115,6 @@ face and labeled edge markers matching the source-orientation table.
 - `Engine/Source/Runtime/RHI/Public/RHIDefinitions.h`
 - `Engine/Source/Runtime/RHI/Public/RHIResources.h`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`
+- `Engine/Source/Runtime/Engine/Public/Components/SkyBoxComponent.h`
+- `Engine/Source/Runtime/Engine/Public/IScene.h`
+- `Engine/Source/Runtime/Renderer/Private/Scene.cpp`

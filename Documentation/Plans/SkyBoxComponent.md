@@ -1,6 +1,6 @@
 # SkyBoxComponent Plan
 
-Last reviewed: 2026-07-25
+Last reviewed: 2026-07-26
 
 ## Current Status
 
@@ -18,17 +18,24 @@ Vulkan Validation enabled and no cube creation or upload diagnostics. RHI
 contract tests and the existing Texture2D tests pass. A repeatable multi-mip
 sampling smoke remains before the Stage 1 acceptance gate is complete.
 
-Stage 2 is in progress. `DTextureCube` now imports six validated source images
+Stage 2 implementation is complete. `DTextureCube` now imports six validated source images
 transactionally, persists their paths, rebuilds full face mip chains after
 reload, follows asset move/delete operations, and queues revisioned cube
 creation, per-face/per-mip upload, and release through a shared render resource.
-Asset tests cover successful lifecycle, invalid-import rollback, and
-render-thread stale-revision rejection. Direct multi-mip Vulkan sampling and
-the later component-to-cube GC reference path remain before every related
-acceptance item is complete.
+Desktop platform data is block-compressed with one format across all six faces;
+any transparent face promotes the entire cube from BC1 to BC3.
+Asset and component tests cover successful lifecycle, invalid-import rollback,
+render-thread stale-revision rejection, package dependency tracking, graph
+serialization, and GC retention. Direct multi-mip Vulkan sampling remains
+before the Stage 1 and integrated resource acceptance evidence is complete.
 
-The engine still has no `DSkyBoxComponent` or sky rendering stage, so there is
-not yet a user-visible skybox vertical slice.
+Stage 3 is complete. `DSkyBoxComponent` and `ASkyBoxActor` are reflected, the
+component publishes revisioned UObject-free snapshots, and `FScene` owns them
+only on the rendering thread. Serialized GUID selection is deterministic for
+multiple visible skyboxes. Tests cover registration, visibility, transform and
+property updates, stale commands, scene release, serialization, dependencies,
+and GC. The engine still has no sky rendering stage, so there is not yet a
+user-visible skybox vertical slice.
 
 ## Goal
 
@@ -151,7 +158,7 @@ Depends on Stage 1. This stage completes the non-editor path from six source ima
 - [x] Generate a full mip chain for all six faces and validate every level's dimensions, row pitch, data length, and pixel format.
 - [x] Implement an `FTextureCubeRenderResource` shared-lifetime proxy so build/rebuild/release accesses the RHI only on the render thread.
 - [x] Add revision rejection for rapid consecutive rebuilds so stale commands cannot overwrite a newer cube resource.
-- [ ] Ensure cube asset references are serialized, dependency-tracked, and retained correctly by GC, with no dangling references after assets are deleted or moved.
+- [x] Ensure cube asset references are serialized, dependency-tracked, and retained correctly by GC, with no dangling references after assets are deleted or moved.
 - [x] Add tests for import, dimension mismatch, nonsquare inputs, missing faces, reload, serialization, move, delete, and stale revisions.
 
 #### Acceptance Gate
@@ -164,15 +171,15 @@ Depends on Stage 1. This stage completes the non-editor path from six source ima
 
 Depends on Stage 2. This stage establishes the data boundary between game objects and the renderer scene, initially without drawing.
 
-- [ ] Add the reflected class `DSkyBoxComponent : DSceneComponent` with a `DTextureCube` reference, Tint, and Intensity.
-- [ ] Assign the component a stable scene ID and define the minimal rendering snapshot in `FSkyBoxSceneData`: ID, cube render-resource proxy, rotation, Tint, Intensity, and revision.
-- [ ] Extend `IScene`/`FScene` with add-or-replace, remove, and active-sky queries while mutating the underlying container only on the render thread.
-- [ ] Implement component handling for `OnRegister`, `OnUnregister`, `OnOwnerVisibilityChanged`, and transform changes.
-- [ ] Integrate `PostEditChangeProperty` or an equivalent unified dirty-marking entry point so interactive and committed Details edits update the scene promptly while coalescing meaningless duplicate updates.
-- [ ] Implement the smallest-ID selection rule for multiple registered components and ensure hiding or deleting the active component selects the next one.
-- [ ] Add `ASkyBoxActor`, creating a default `DSkyBoxComponent` in its constructor without placing rendering logic in the actor.
-- [ ] Update Engine module reflection inputs and generated metadata; do not hand-write substitutes for DHT output.
-- [ ] Test registration/unregistration, visibility, rotation, property updates, multi-component selection, scene release, and stale revisions.
+- [x] Add the reflected class `DSkyBoxComponent : DSceneComponent` with a `DTextureCube` reference, Tint, and Intensity.
+- [x] Assign the component a stable scene ID and define the minimal rendering snapshot in `FSkyBoxSceneData`: ID, cube render-resource proxy, rotation, Tint, Intensity, and revision.
+- [x] Extend `IScene`/`FScene` with add-or-replace, remove, and active-sky queries while mutating the underlying container only on the render thread.
+- [x] Implement component handling for `OnRegister`, `OnUnregister`, `OnOwnerVisibilityChanged`, and transform changes.
+- [x] Integrate `PostEditChangeProperty` or an equivalent unified dirty-marking entry point so interactive and committed Details edits update the scene promptly while coalescing meaningless duplicate updates.
+- [x] Implement the smallest-ID selection rule for multiple registered components and ensure hiding or deleting the active component selects the next one.
+- [x] Add `ASkyBoxActor`, creating a default `DSkyBoxComponent` in its constructor without placing rendering logic in the actor.
+- [x] Update Engine module reflection inputs and generated metadata; do not hand-write substitutes for DHT output.
+- [x] Test registration/unregistration, visibility, rotation, property updates, multi-component selection, scene release, and stale revisions.
 
 #### Acceptance Gate
 
@@ -276,7 +283,7 @@ The following items require separate design and scheduling after this plan is co
 - `DSkyLightComponent` and diffuse/specular IBL.
 - Skydome materials and procedural Sky Atmosphere.
 - Multi-skybox transitions, spatial regions, and view-level overrides.
-- Cube-texture compression, derived-data caching, asynchronous builds, and residency management.
+- Cube-texture derived-data caching, asynchronous builds, and residency management.
 - An interactive cube-texture previewer and more advanced asset-editing workflows.
 
 ## Related Documentation

@@ -93,9 +93,14 @@ namespace Durin
 		{
 			OutPlatformData = {};
 			if (!ValidateCubeSourceData(SourceData, OutError)) return false;
+			const bool bCubeHasTransparency = std::ranges::any_of(SourceData.Faces,
+				[](const FTextureSourceData& Face) { return Face.bHasTransparency; });
 			for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 			{
-				if (!TextureBuild::BuildMipChain(SourceData.Faces[FaceIndex], ETextureUsage::Color, bSRGB,
+				FTextureSourceData BuildSource = SourceData.Faces[FaceIndex];
+				// All physical layers of one cube image must use one pixel format.
+				BuildSource.bHasTransparency = bCubeHasTransparency;
+				if (!TextureBuild::BuildMipChain(BuildSource, ETextureUsage::Color, bSRGB,
 					OutPlatformData.Faces[FaceIndex], OutError))
 				{
 					OutError = std::format("{} face platform build failed: {}", FaceNames[FaceIndex], OutError);
@@ -298,8 +303,16 @@ namespace Durin
 	{
 		if (RenderResource && RenderResource->GetFailedRevision() == BuildRevision)
 		{
-			BuildStatus = ETextureBuildStatus::UploadFailure;
-			LastBuildError = "GPU cube texture creation or upload failed.";
+			if (RenderResource->GetFailureReason() == ETextureRenderFailure::UnsupportedFormat)
+			{
+				BuildStatus = ETextureBuildStatus::UnsupportedFormat;
+				LastBuildError = "The current RHI does not support this cube texture format and usage.";
+			}
+			else
+			{
+				BuildStatus = ETextureBuildStatus::UploadFailure;
+				LastBuildError = "GPU cube texture creation or upload failed.";
+			}
 		}
 	}
 

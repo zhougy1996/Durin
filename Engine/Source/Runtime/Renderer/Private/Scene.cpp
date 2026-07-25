@@ -67,6 +67,8 @@ namespace Durin
 			CheckRenderingThread();
 			PrimitiveSceneProxies.clear();
 			PrimitiveToProxy.clear();
+			SkyBoxes.clear();
+			SkyBoxRevisions.clear();
 		});
 	}
 
@@ -85,5 +87,50 @@ namespace Durin
 		if (DirectionalLights.empty() || DirectionalLights.front() == nullptr) return false;
 		OutLight = DirectionalLights.front()->GetSceneData();
 		return true;
+	}
+
+	auto FScene::AddOrReplaceSkyBox(FSkyBoxSceneData Data) -> void
+	{
+		if (!Data.SceneId.IsValid() || Data.InstanceId == 0) return;
+		ENQUEUE_RENDER_COMMAND(AddOrReplaceSkyBox)([this, Data = std::move(Data)](FRHICommandListImmediate&) mutable {
+			CheckRenderingThread();
+			uint64& LatestRevision = SkyBoxRevisions[Data.InstanceId];
+			if (Data.Revision < LatestRevision) return;
+			LatestRevision = Data.Revision;
+			SkyBoxes.insert_or_assign(Data.InstanceId, std::move(Data));
+		});
+	}
+
+	auto FScene::RemoveSkyBox(uint64 InstanceId, uint64 Revision) -> void
+	{
+		if (InstanceId == 0) return;
+		ENQUEUE_RENDER_COMMAND(RemoveSkyBox)([this, InstanceId, Revision](FRHICommandListImmediate&) {
+			CheckRenderingThread();
+			uint64& LatestRevision = SkyBoxRevisions[InstanceId];
+			if (Revision < LatestRevision) return;
+			LatestRevision = Revision;
+			SkyBoxes.erase(InstanceId);
+		});
+	}
+
+	auto FScene::GetActiveSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool
+	{
+		CheckRenderingThread();
+		if (SkyBoxes.empty()) return false;
+		const auto Active = std::ranges::min_element(SkyBoxes,
+			[](const auto& Left, const auto& Right) {
+				const FSkyBoxSceneData& A = Left.second;
+				const FSkyBoxSceneData& B = Right.second;
+				return std::tie(A.SceneId, A.SelectionKey, A.InstanceId)
+					< std::tie(B.SceneId, B.SelectionKey, B.InstanceId);
+			});
+		OutSkyBox = Active->second;
+		return true;
+	}
+
+	auto FScene::GetSkyBoxCount_RenderThread() const -> size_t
+	{
+		CheckRenderingThread();
+		return SkyBoxes.size();
 	}
 }

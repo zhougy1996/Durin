@@ -7,6 +7,7 @@ namespace Durin
 {
 	class PrimitiveSceneProxy;
 	class DDirectionalLightComponent;
+	class FTextureCubeRenderResource;
 	using FPrimitiveSceneId = uint64;
 	inline constexpr FPrimitiveSceneId InvalidPrimitiveSceneId = 0;
 
@@ -19,6 +20,22 @@ namespace Durin
 		// components populate these values when they register with the scene.
 		float Intensity = 0.0f;
 		float AmbientIntensity = 0.0f;
+	};
+
+	// Captures sky state without retaining or reading reflected objects on the render thread.
+	struct FSkyBoxSceneData
+	{
+		// Persistent ordering key followed by a path tie-break for duplicated content.
+		FGuid SceneId;
+		std::string SelectionKey;
+
+		// Runtime identity keeps duplicated components as distinct scene entries.
+		uint64 InstanceId = 0;
+		std::shared_ptr<FTextureCubeRenderResource> TextureResource;
+		FQuat Rotation{1.0, 0.0, 0.0, 0.0};
+		FVector3f Tint{1.0f, 1.0f, 1.0f};
+		float Intensity = 1.0f;
+		uint64 Revision = 0;
 	};
 
 	// Defines the game-thread mutation boundary of a renderer-owned scene.
@@ -45,5 +62,10 @@ namespace Durin
 		virtual auto AddDirectionalLight(DDirectionalLightComponent* Light) -> void = 0;
 		virtual auto RemoveDirectionalLight(DDirectionalLightComponent* Light) -> void = 0;
 		virtual auto GetDirectionalLight(FDirectionalLightSceneData& OutLight) const -> bool = 0;
+
+		virtual auto AddOrReplaceSkyBox(FSkyBoxSceneData Data) -> void = 0;
+		virtual auto RemoveSkyBox(uint64 InstanceId, uint64 Revision) -> void = 0;
+		virtual auto GetActiveSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool = 0;
+		virtual auto GetSkyBoxCount_RenderThread() const -> size_t = 0;
 	};
 }

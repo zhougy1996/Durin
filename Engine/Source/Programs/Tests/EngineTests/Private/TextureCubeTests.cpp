@@ -28,7 +28,8 @@ namespace
 		return Result;
 	}
 
-	auto WriteSolidTga(const std::filesystem::path& Path, Durin::uint16 Width, Durin::uint16 Height) -> void
+	auto WriteSolidTga(const std::filesystem::path& Path, Durin::uint16 Width, Durin::uint16 Height,
+		Durin::uint8 Alpha = 255) -> void
 	{
 		std::array<Durin::uint8, 18> Header{};
 		Header[2] = 2;
@@ -40,7 +41,7 @@ namespace
 		Header[17] = 0x28;
 		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(Header.data()), Header.size());
-		const std::array<Durin::uint8, 4> Pixel = {32, 64, 128, 255};
+		const std::array<Durin::uint8, 4> Pixel = {32, 64, 128, Alpha};
 		for (Durin::uint32 PixelIndex = 0; PixelIndex < static_cast<Durin::uint32>(Width) * Height; ++PixelIndex)
 			Stream.write(reinterpret_cast<const char*>(Pixel.data()), Pixel.size());
 	}
@@ -158,6 +159,29 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	EXPECT_FALSE(std::filesystem::exists(Root / "MissingFace_px.png"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Nonsquare_px.tga"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Mismatch_px.tga"));
+}
+
+TEST(FTextureCubeTests, UsesOneCompressedFormatWhenOnlyOneFaceHasTransparency)
+{
+	const std::filesystem::path Root = InitializeCubeMount();
+	const std::filesystem::path TransparentFace = std::filesystem::path(DURIN_TEST_WORK_DIR) / "CubeTransparent.tga";
+	WriteSolidTga(TransparentFace, 128, 128, 128);
+	auto Faces = GetConventionFaces();
+	Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)] = TransparentFace.generic_string();
+
+	Durin::FTextureCubeImportResult Result = Durin::DTextureCube::ImportAsset(
+		Faces, "/TextureCubeTests/Transparent");
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Result.Asset->GetPlatformData(), nullptr);
+	EXPECT_EQ(Result.Asset->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
+	for (const Durin::FTexturePlatformData& Face : Result.Asset->GetPlatformData()->Faces)
+		EXPECT_EQ(Face.PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/Transparent", AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Transparent_nz.tga"));
 }
 
 TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedData)

@@ -18,6 +18,7 @@ namespace Durin
 		check(PlatformDataSnapshot && PlatformDataSnapshot->IsValid());
 		RequestedRevision.store(Revision, std::memory_order_release);
 		FailedRevision.store(0, std::memory_order_release);
+		FailureReason.store(ETextureRenderFailure::None, std::memory_order_release);
 		SetResourceState(ERenderResourceState::Pending, Revision);
 		auto Self = shared_from_this();
 		ENQUEUE_RENDER_COMMAND(BuildTextureCubeResource)([Self = std::move(Self), PlatformDataSnapshot = std::move(PlatformDataSnapshot), Revision](FRHICommandListImmediate& CommandList) {
@@ -29,6 +30,7 @@ namespace Durin
 	{
 		RequestedRevision.store(Revision, std::memory_order_release);
 		FailedRevision.store(0, std::memory_order_release);
+		FailureReason.store(ETextureRenderFailure::None, std::memory_order_release);
 		SetResourceState(ERenderResourceState::Pending, Revision);
 		auto Self = shared_from_this();
 		ENQUEUE_RENDER_COMMAND(ReleaseTextureCubeResource)([Self = std::move(Self), Revision](FRHICommandListImmediate&) {
@@ -82,9 +84,17 @@ namespace Durin
 			.SetFormat(PlatformData.PixelFormat)
 			.SetNumMips(static_cast<uint8>(PlatformData.Faces[0].Mips.size()))
 			.SetFlags(ETextureCreateFlags::ShaderResource);
+		if (!GDynamicRHI->RHIIsTextureFormatSupported(Desc))
+		{
+			FailureReason.store(ETextureRenderFailure::UnsupportedFormat, std::memory_order_release);
+			FailedRevision.store(Revision, std::memory_order_release);
+			SetResourceState(ERenderResourceState::Failed, Revision);
+			return;
+		}
 		FTextureRHIRef NewTexture = GDynamicRHI->RHICreateTexture(CommandList, Desc);
 		if (NewTexture == nullptr)
 		{
+			FailureReason.store(ETextureRenderFailure::CreateOrUpload, std::memory_order_release);
 			FailedRevision.store(Revision, std::memory_order_release);
 			SetResourceState(ERenderResourceState::Failed, Revision);
 			return;
@@ -104,6 +114,7 @@ namespace Durin
 		TextureRHI = std::move(NewTexture);
 		AppliedRevision = Revision;
 		FailedRevision.store(0, std::memory_order_release);
+		FailureReason.store(ETextureRenderFailure::None, std::memory_order_release);
 		SetResourceState(ERenderResourceState::Ready, Revision);
 	}
 
@@ -114,6 +125,7 @@ namespace Durin
 		TextureRHI = nullptr;
 		AppliedRevision = Revision;
 		FailedRevision.store(0, std::memory_order_release);
+		FailureReason.store(ETextureRenderFailure::None, std::memory_order_release);
 		SetResourceState(ERenderResourceState::Released, Revision);
 	}
 }

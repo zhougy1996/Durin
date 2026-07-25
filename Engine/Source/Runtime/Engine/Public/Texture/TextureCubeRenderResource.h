@@ -4,10 +4,11 @@
 #include "RHIResources.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin
+	namespace Durin
 {
 	struct FTextureCubePlatformData;
 
+	// Owns one revisioned cube RHI resource exclusively through render-thread commands.
 	class FTextureCubeRenderResource final : public std::enable_shared_from_this<FTextureCubeRenderResource>
 	{
 	public:
@@ -25,6 +26,7 @@ namespace Durin
 		ENGINE_API auto GetAppliedRevision_RenderThread() const -> uint64;
 		ENGINE_API auto GetResourceState() const -> ERenderResourceState;
 		auto GetFailedRevision() const -> uint64 { return FailedRevision.load(std::memory_order_acquire); }
+		auto GetFailureReason() const -> ETextureRenderFailure { return FailureReason.load(std::memory_order_acquire); }
 
 	private:
 		auto Build_RenderThread(FRHICommandListImmediate& CommandList, const FTextureCubePlatformData& PlatformData, uint64 Revision) -> void;
@@ -35,6 +37,7 @@ namespace Durin
 		uint64 AppliedRevision = 0;
 		std::atomic<uint64> RequestedRevision = 0;
 		std::atomic<uint64> FailedRevision = 0;
+		std::atomic<ETextureRenderFailure> FailureReason = ETextureRenderFailure::None;
 		mutable std::mutex ResourceStateMutex;
 		ERenderResourceState ResourceState = ERenderResourceState::Idle;
 		uint64 ResourceStateRevision = 0;
