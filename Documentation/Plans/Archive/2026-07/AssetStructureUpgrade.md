@@ -6,7 +6,7 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stages 1 through 3 are complete. AssetCore now has a structured load-report
+Completed and archived on 2026-07-27. AssetCore now has a structured load-report
 contract, distinguishes registered safe upgrades from unknown incompatible
 fields, and blocks normal saves that would discard compatibility-risk payloads.
 The Level Editor now keeps compatibility-affected loads pending until the user
@@ -16,12 +16,16 @@ placement changes instead of relying on a one-frame popup request.
 Engine now migrates the removed static-mesh component material fields into
 GUID-keyed overrides, retaining excess assignments as explicit orphans.
 
-Validation completed on 2026-07-27: all 49 AssetCore native tests passed,
-including structured safe-cleanup reporting, unknown-field protection, normal
-save rejection, and explicit data-loss consent. All 305 Engine native tests
-passed after the static-mesh material upgrader, including six focused upgrade
-tests and the real `/Game/Levels/NewLevel` fixture. The complete `all` target
-built successfully after each implemented stage.
+Stage 4 extracted the pending upgrade decisions into a testable Level Editor
+model, added checked-in old-level and unknown-newer-field fixtures, and recorded
+the lasting AssetCore ownership and Level workspace opening contracts.
+
+Final validation completed on 2026-07-27: all 49 AssetCore native tests and all
+313 Engine native tests passed, including seven Level Editor decision-model
+tests and two checked-in level-fixture tests. The complete `all` target built
+successfully with the `Win64-Debug-DurinEditor-Tests` Agent Build Profile, and
+the resulting editor remained alive for an eight-second hidden-window Sandbox
+smoke test.
 
 The reported `/Game/Levels/NewLevel` fixture contains empty legacy
 `DStaticMeshComponent::Material` and `Materials` values. Its expected outcome is
@@ -187,14 +191,14 @@ user chooses an outcome.
 
 ### Stage 4: End-to-End Validation and Lasting Documentation
 
-- [ ] Add Level Editor controller/model tests for every modal outcome and
+- [x] Add Level Editor controller/model tests for every modal outcome and
   deferred-document completion.
-- [ ] Add a real old-level package fixture and unknown-newer-field fixture.
-- [ ] Document the lasting ownership and opening workflow under the closest
+- [x] Add a real old-level package fixture and unknown-newer-field fixture.
+- [x] Document the lasting ownership and opening workflow under the closest
   Runtime and Editor architecture documents.
-- [ ] Complete the required full `all` build and hidden-window editor smoke
+- [x] Complete the required full `all` build and hidden-window editor smoke
   test because this stage changes a user-visible editor workflow.
-- [ ] Archive this plan after all acceptance gates pass.
+- [x] Archive this plan after all acceptance gates pass.
 
 #### Acceptance Gate
 

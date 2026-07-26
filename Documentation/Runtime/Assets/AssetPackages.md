@@ -20,7 +20,33 @@ Compiled-in reflection metadata uses a separate `Cpp` package kind. Each reflect
 
 The v2 binary header records the magic, format version, main asset class, dependencies, and object count. The asset path is derived from the mounted package filename, so moving a package within a content mount does not rewrite its payload. The registry reads only this header.
 
-Object records store object id, outer id, qualified class name, object name, and a field table. Fields are identified by declaring qualified class plus property name and include a recursive type signature and payload size. Unknown, removed, or type-incompatible fields are skipped while missing fields retain constructor defaults. Unknown classes, invalid Outer hierarchies, malformed references, truncation, and unsupported versions fail the complete load.
+Object records store object id, outer id, qualified class name, object name, and a field table. Fields are identified by declaring qualified class plus property name and include a recursive type signature and payload size. Missing fields retain constructor defaults. Unknown classes, invalid Outer hierarchies, malformed references, truncation, and unsupported versions fail the complete load.
+
+## Structure Compatibility
+
+AssetCore retains every unknown, removed, or type-incompatible serialized field
+in an `FAssetLoadReport` instead of reducing compatibility to a log message.
+Each object-level issue records the package and object identity, declaring
+class, original field signatures and payloads, classification, risk, summary,
+and optional handler identifier. Related legacy fields may be grouped into one
+issue.
+
+AssetCore owns report construction, payload retention, object-reference
+resolution helpers, and class-specific upgrader registration. Modules that own
+concrete reflected types register their schema rules without introducing an
+AssetCore dependency on those types. A registered rule may classify a complete
+change as `SafeCleanup` or `Migrated`; either classification marks the loaded
+package Dirty so an explicit save can persist it. Unhandled fields are
+`UnknownIncompatible` with `UnknownNewerSchema` risk and do not themselves mark
+the package Dirty. Rules that cannot preserve the represented data use
+`DataLossRisk`.
+
+A package whose load report contains compatibility-risk payloads rejects an
+ordinary save. Persisting the in-memory representation requires the caller to
+pass explicit data-loss consent; this prevents unknown newer fields from being
+silently discarded by normal editor saves. Opening without saving retains the
+loaded package and its Dirty state, so a later unload and reload presents the
+same compatibility workflow.
 
 Internal references use object ids. Cross-package strong references target the other package's main asset by `FAssetPath` and synchronously load that dependency. Circular dependencies work because object skeletons are constructed before dependency fields are applied.
 
@@ -29,7 +55,7 @@ Supported reflected payloads are numeric values, bool, strings, enums, `DStruct`
 ## Subsystem Boundary
 
 - `CoreDObject` owns `DPackage`, `FAssetPath`, object paths, qualified reflected class identities, and type-erased container access.
-- `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, and existing source-file importers.
+- `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, structure-compatibility reports and upgrader registration, and existing source-file importers.
 - `DLevel` objects are main assets inside packages; a `DWorld` remains a runtime/editor session container and activates one level at a time.
 
 Deferred work includes soft references, async loading, cooking, reimport, hot reload, redirects, and editor asset browsing.

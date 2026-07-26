@@ -110,7 +110,7 @@ namespace Durin
 
 	auto FLevelDocumentController::RequestAction(ELevelDocumentAction Action) -> void
 	{
-		if (PendingLoadedLevel) return;
+		if (PendingUpgrade.IsPending()) return;
 		PendingLevelPath.clear();
 		bPendingDocumentOpen = false;
 		PendingAction = Action;
@@ -124,7 +124,7 @@ namespace Durin
 
 	auto FLevelDocumentController::RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult
 	{
-		if (PendingLoadedLevel) return ELevelDocumentOpenResult::Rejected;
+		if (PendingUpgrade.IsPending()) return ELevelDocumentOpenResult::Rejected;
 		FAssetPath AssetPath;
 		if (!FAssetPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
 		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(AssetPath);
@@ -189,7 +189,7 @@ namespace Durin
 		QueuedPopup = EQueuedPopup::None;
 		// Startup window placement may invalidate a popup opened during the first frame.
 		// Pending compatibility state is authoritative, so keep the modal available until resolved.
-		if (PendingLoadedLevel && !ImGui::IsPopupOpen("Asset Structure Upgrade Required"))
+		if (PendingUpgrade.IsPending() && !ImGui::IsPopupOpen("Asset Structure Upgrade Required"))
 			ImGui::OpenPopup("Asset Structure Upgrade Required");
 		DrawUnsavedLevelDialog();
 		DrawAssetStructureUpgradeDialog();
@@ -248,6 +248,7 @@ namespace Durin
 			ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 			return;
 
+		const Asset::FAssetLoadReport& PendingLoadReport = PendingUpgrade.GetReport();
 		const bool bHasRisk = PendingLoadReport.HasRiskItems();
 		ImGui::TextWrapped(
 			"%s contains %llu compatibility change%s across %llu object%s and %llu serialized field%s.",
@@ -329,23 +330,28 @@ namespace Durin
 			ImGui::BeginDisabled(!bCompatibilityDataLossConfirmed);
 			if (ImGui::Button("Discard Incompatible Data, Save and Open"))
 			{
-				if (SaveAndActivatePendingLevel(true) || !PendingLoadedLevel) ImGui::CloseCurrentPopup();
+				const EAssetStructureUpgradeResult Result = ResolvePendingLevelUpgrade(
+					EAssetStructureUpgradeDecision::DiscardIncompatibleDataSaveAndOpen);
+				if (Result != EAssetStructureUpgradeResult::SaveFailed) ImGui::CloseCurrentPopup();
 			}
 			ImGui::EndDisabled();
 		}
 		else if (ImGui::Button("Upgrade, Save and Open"))
 		{
-			if (SaveAndActivatePendingLevel(false) || !PendingLoadedLevel) ImGui::CloseCurrentPopup();
+			const EAssetStructureUpgradeResult Result =
+				ResolvePendingLevelUpgrade(EAssetStructureUpgradeDecision::SaveAndOpen);
+			if (Result != EAssetStructureUpgradeResult::SaveFailed) ImGui::CloseCurrentPopup();
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Open Without Saving"))
 		{
-			if (ActivatePendingLevel() || !PendingLoadedLevel) ImGui::CloseCurrentPopup();
+			ResolvePendingLevelUpgrade(EAssetStructureUpgradeDecision::OpenWithoutSaving);
+			ImGui::CloseCurrentPopup();
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel Open"))
 		{
-			CancelPendingLevelOpen();
+			ResolvePendingLevelUpgrade(EAssetStructureUpgradeDecision::Cancel);
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();
@@ -378,8 +384,8 @@ namespace Durin
 		}
 		if (LoadReport.HasCompatibilityIssues())
 		{
-			PendingLoadedLevel = Level;
-			PendingLoadReport = std::move(LoadReport);
+			const bool bCompletesDeferredOpen = std::exchange(bPendingDocumentOpen, false);
+			PendingUpgrade.Begin(Level, std::move(LoadReport), bCompletesDeferredOpen);
 			bCompatibilityDataLossConfirmed = false;
 			QueuedPopup = EQueuedPopup::AssetStructureUpgrade;
 			return ELevelDocumentOpenResult::Deferred;
@@ -395,60 +401,37 @@ namespace Durin
 		return ELevelDocumentOpenResult::Opened;
 	}
 
-	auto FLevelDocumentController::SaveAndActivatePendingLevel(bool bAllowCompatibilityDataLoss) -> bool
+	auto FLevelDocumentController::ResolvePendingLevelUpgrade(
+		EAssetStructureUpgradeDecision Decision) -> EAssetStructureUpgradeResult
 	{
-		if (!PendingLoadedLevel || !PendingLoadedLevel->GetPackage())
+		FAssetStructureUpgradeOperations Operations{
+			.Save = [this](DLevel* Level, bool bAllowCompatibilityDataLoss) {
+				if (!Level || !Level->GetPackage())
+				return SetError("The pending level is no longer available."), false;
+				Asset::FAssetResult Result = Asset::SavePackage(
+					Level->GetPackage(),
+					{.bAllowCompatibilityDataLoss = bAllowCompatibilityDataLoss});
+				if (Result) return true;
+				SetError(Result.Message);
+				return false;
+			},
+			.Activate = [this](DLevel* Level) { return ActivateLevel(Level); },
+			.Unload = [this](const FAssetPath& Path) {
+				Asset::FAssetResult Result = Asset::UnloadPackage(Path);
+				if (!Result && Result.Error != Asset::EAssetError::NotFound)
+					SetError(std::format("Could not unload the pending level: {}", Result.Message));
+			},
+			.CompleteDeferredOpen = [this](bool bSucceeded) {
+				if (CompleteDeferredOpen) CompleteDeferredOpen(bSucceeded);
+			}};
+		const EAssetStructureUpgradeResult Result = PendingUpgrade.Resolve(Decision, Operations);
+		if (Result != EAssetStructureUpgradeResult::SaveFailed)
 		{
-			SetError("The pending level is no longer available.");
-			return false;
+			PendingAction = ELevelDocumentAction::None;
+			PendingLevelPath.clear();
+			bCompatibilityDataLossConfirmed = false;
 		}
-		Asset::FAssetResult Result = Asset::SavePackage(
-			PendingLoadedLevel->GetPackage(),
-			{.bAllowCompatibilityDataLoss = bAllowCompatibilityDataLoss});
-		if (!Result)
-		{
-			SetError(Result.Message);
-			return false;
-		}
-		return ActivatePendingLevel();
-	}
-
-	auto FLevelDocumentController::ActivatePendingLevel() -> bool
-	{
-		if (!PendingLoadedLevel)
-		{
-			SetError("The pending level is no longer available.");
-			return false;
-		}
-		if (!ActivateLevel(PendingLoadedLevel))
-		{
-			ResetPendingLevelState(true);
-			CompletePendingDocumentOpen(false);
-			return false;
-		}
-		ResetPendingLevelState(false);
-		CompletePendingDocumentOpen(true);
-		return true;
-	}
-
-	auto FLevelDocumentController::CancelPendingLevelOpen() -> void
-	{
-		ResetPendingLevelState(true);
-		CompletePendingDocumentOpen(false);
-	}
-
-	auto FLevelDocumentController::ResetPendingLevelState(bool bUnloadPackage) -> void
-	{
-		const FAssetPath LoadedPath = PendingLoadReport.PackagePath;
-		PendingLoadedLevel = nullptr;
-		PendingLoadReport = {};
-		PendingAction = ELevelDocumentAction::None;
-		PendingLevelPath.clear();
-		bCompatibilityDataLossConfirmed = false;
-		if (!bUnloadPackage) return;
-		Asset::FAssetResult Result = Asset::UnloadPackage(LoadedPath);
-		if (!Result && Result.Error != Asset::EAssetError::NotFound)
-			SetError(std::format("Could not unload the pending level: {}", Result.Message));
+		return Result;
 	}
 
 	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded) -> void

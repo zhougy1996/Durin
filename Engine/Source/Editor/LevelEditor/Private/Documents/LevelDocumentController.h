@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetSystem.h"
+#include "Documents/AssetStructureUpgradeModel.h"
 
 namespace Durin
 {
@@ -61,10 +61,8 @@ namespace Durin
 		auto OpenLevel(std::string_view Path) -> ELevelDocumentOpenResult;
 		auto DrawUnsavedLevelDialog() -> void;
 		auto DrawAssetStructureUpgradeDialog() -> void;
-		auto SaveAndActivatePendingLevel(bool bAllowCompatibilityDataLoss) -> bool;
-		auto ActivatePendingLevel() -> bool;
-		auto CancelPendingLevelOpen() -> void;
-		auto ResetPendingLevelState(bool bUnloadPackage) -> void;
+		auto ResolvePendingLevelUpgrade(
+			EAssetStructureUpgradeDecision Decision) -> EAssetStructureUpgradeResult;
 		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
 		auto ActivateLevel(DLevel* Level) -> bool;
 		auto SetError(std::string Message) const -> void;
@@ -80,8 +78,7 @@ namespace Durin
 		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::string PendingLevelPath;
-		DLevel* PendingLoadedLevel = nullptr;
-		Asset::FAssetLoadReport PendingLoadReport;
+		FAssetStructureUpgradeModel PendingUpgrade;
 		bool bPendingDocumentOpen = false;
 		bool bCompatibilityDataLossConfirmed = false;
 	};

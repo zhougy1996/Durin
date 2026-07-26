@@ -305,6 +305,39 @@ namespace
 		EXPECT_EQ(Issue.MigratedDataCount, MigratedCount);
 		return Issue;
 	}
+
+	auto PrepareCheckedInLevelFixture(std::string_view LevelFixture) -> std::filesystem::path
+	{
+		InitializeDObjectSystem();
+		static const std::filesystem::path Root =
+			std::filesystem::path(DURIN_TEST_WORK_DIR) / "AssetStructureUpgradeFixtures";
+		static const bool bMounted = [] {
+			std::filesystem::remove_all(Root);
+			std::filesystem::create_directories(Root / "Content" / "Levels");
+			std::filesystem::create_directories(Root / "Content" / "Models");
+			std::filesystem::create_directories(Root / "SourceAssets" / "Models" / "Models");
+			Durin::PathUtilities::RegisterMountPoint(
+				"/Game/", (Root / "Content").generic_string() + "/");
+			return true;
+		}();
+		(void)bMounted;
+
+		const std::filesystem::path FixtureRoot =
+			std::filesystem::path(DURIN_TEST_DATA_DIR) / "AssetStructureUpgrade";
+		std::filesystem::copy_file(
+			FixtureRoot / LevelFixture,
+			Root / "Content" / "Levels" / "NewLevel.dasset",
+			std::filesystem::copy_options::overwrite_existing);
+		std::filesystem::copy_file(
+			FixtureRoot / "Mesh_Teapot.dasset",
+			Root / "Content" / "Models" / "Mesh_Teapot.dasset",
+			std::filesystem::copy_options::overwrite_existing);
+		std::filesystem::copy_file(
+			FixtureRoot / "Mesh_Teapot.obj",
+			Root / "SourceAssets" / "Models" / "Models" / "Mesh_Teapot.obj",
+			std::filesystem::copy_options::overwrite_existing);
+		return Root;
+	}
 }
 
 TEST(FStaticMeshMaterialUpgradeTests, EmptyLegacyFieldsAreOneSafeCleanup)
@@ -326,30 +359,9 @@ TEST(FStaticMeshMaterialUpgradeTests, EmptyLegacyFieldsAreOneSafeCleanup)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.ComponentPath));
 }
 
-TEST(FStaticMeshMaterialUpgradeTests, NewLevelFixtureReportsExpectedSafeCleanup)
+TEST(FStaticMeshMaterialUpgradeTests, CheckedInLegacyLevelReportsExpectedSafeCleanup)
 {
-	InitializeDObjectSystem();
-	static const std::filesystem::path Root =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "NewLevelCompatibilityFixture";
-	static const bool Mounted = [] {
-		std::filesystem::remove_all(Root);
-		std::filesystem::create_directories(Root / "Content" / "Levels");
-		std::filesystem::create_directories(Root / "Content" / "Models");
-		std::filesystem::create_directories(Root / "SourceAssets" / "Models" / "Models");
-		std::filesystem::copy_file(
-			std::filesystem::path(DURIN_TEST_DATA_DIR) / "NewLevel.dasset",
-			Root / "Content" / "Levels" / "NewLevel.dasset");
-		std::filesystem::copy_file(
-			std::filesystem::path(DURIN_TEST_DATA_DIR) / "Mesh_Teapot.dasset",
-			Root / "Content" / "Models" / "Mesh_Teapot.dasset");
-		std::filesystem::copy_file(
-			std::filesystem::path(DURIN_TEST_DATA_DIR) / "Mesh_Teapot.obj",
-			Root / "SourceAssets" / "Models" / "Models" / "Mesh_Teapot.obj");
-		Durin::PathUtilities::RegisterMountPoint(
-			"/Game/", (Root / "Content").generic_string() + "/");
-		return true;
-	}();
-	(void)Mounted;
+	PrepareCheckedInLevelFixture("LegacyStaticMeshLevel.dasset");
 
 	Durin::FAssetPath LevelPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/Levels/NewLevel", LevelPath));
@@ -361,6 +373,33 @@ TEST(FStaticMeshMaterialUpgradeTests, NewLevelFixtureReportsExpectedSafeCleanup)
 		Report, Durin::Asset::EAssetCompatibilityClassification::SafeCleanup, 0);
 	EXPECT_NE(Issue.MigrationSummary.find("no material assignments"), std::string::npos);
 	EXPECT_TRUE(Level->GetPackage()->IsDirty());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+}
+
+TEST(FStaticMeshMaterialUpgradeTests, CheckedInUnknownNewerLevelRequiresExplicitDataLossConsent)
+{
+	PrepareCheckedInLevelFixture("UnknownNewerLevel.dasset");
+
+	Durin::FAssetPath LevelPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/Levels/NewLevel", LevelPath));
+	Durin::DLevel* Level = nullptr;
+	Durin::Asset::FAssetLoadReport Report;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(LevelPath, Level, &Report));
+	ASSERT_NE(Level, nullptr);
+	EXPECT_TRUE(Report.HasRiskItems());
+	EXPECT_EQ(Report.GetRiskItemCount(), 1u);
+	const auto Unknown = std::ranges::find(
+		Report.CompatibilityIssues,
+		Durin::Asset::EAssetCompatibilityClassification::UnknownIncompatible,
+		&Durin::Asset::FAssetCompatibilityIssue::Classification);
+	ASSERT_NE(Unknown, Report.CompatibilityIssues.end());
+	EXPECT_EQ(Unknown->DeclaringClass, "Durin::DLevel");
+	ASSERT_EQ(Unknown->LegacyFields.size(), 1u);
+	EXPECT_EQ(Unknown->LegacyFields.front().Name, "Future");
+	EXPECT_EQ(Unknown->Risk, Durin::Asset::EAssetCompatibilityRisk::UnknownNewerSchema);
+	EXPECT_EQ(
+		Durin::Asset::SavePackage(Level->GetPackage()).Error,
+		Durin::Asset::EAssetError::UnsupportedProperty);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
 }
 
