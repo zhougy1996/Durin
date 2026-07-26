@@ -1,0 +1,11 @@
+{
+    "ModuleName": "AssetImport",
+    "LinkType": "Shared",
+    "PCH": "Self",
+    "PrivateDependencies": [],
+    "PublicDependencies": [
+        "Core"
+    ],
+    "OptionalPrivateDependencies": [],
+    "OptionalPublicDependencies": []
+}

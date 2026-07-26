@@ -14,6 +14,9 @@
         "MonaCore",
         "Mona"
     ],
+    "OptionalPrivateDependencies": [
+        "AssetImport"
+    ],
     "ReflectHeaders": [
         "Public/Engine/Actor.h",
         "Public/Engine/Engine.h",

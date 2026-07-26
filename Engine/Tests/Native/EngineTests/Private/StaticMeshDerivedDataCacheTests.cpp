@@ -5,6 +5,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "EngineTestSupport.h"
+#include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "StaticMesh/StaticMesh.h"
@@ -69,6 +70,52 @@ namespace
 		std::string Error;
 		EXPECT_TRUE(Store.GetObjectPath(Key, Path, &Error)) << Error;
 		return Path;
+	}
+
+	auto WriteU32(std::vector<Durin::uint8>& Bytes, size_t Offset, Durin::uint32 Value) -> void
+	{
+		ASSERT_LE(Offset + 4, Bytes.size());
+		for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
+			Bytes[Offset + Byte] = static_cast<Durin::uint8>(Value >> (Byte * 8));
+	}
+
+	auto WriteU64(std::vector<Durin::uint8>& Bytes, size_t Offset, Durin::uint64 Value) -> void
+	{
+		ASSERT_LE(Offset + 8, Bytes.size());
+		for (Durin::uint32 Byte = 0; Byte < 8; ++Byte)
+			Bytes[Offset + Byte] = static_cast<Durin::uint8>(Value >> (Byte * 8));
+	}
+
+	auto SaveVariantPackage(
+		Durin::DStaticMesh& Mesh,
+		const std::filesystem::path& PackagePath,
+		const Durin::Asset::FCookedPayloadDescriptor& Descriptor,
+		std::optional<Durin::FGuid> FirstMaterialSlotId = std::nullopt) -> void
+	{
+		auto* DescriptorProperty = Mesh.GetClass()->FindPropertyByName("CookedPayload");
+		auto* MaterialSlotsProperty = Mesh.GetClass()->FindPropertyByName("MaterialSlots");
+		ASSERT_NE(DescriptorProperty, nullptr);
+		ASSERT_NE(MaterialSlotsProperty, nullptr);
+		auto* StoredDescriptor = static_cast<Durin::Asset::FCookedPayloadDescriptor*>(
+			DescriptorProperty->GetValuePtr(&Mesh));
+		auto* MaterialSlots = static_cast<std::vector<Durin::FStaticMeshMaterialSlotDefinition>*>(
+			MaterialSlotsProperty->GetValuePtr(&Mesh));
+		const Durin::Asset::FCookedPayloadDescriptor SavedDescriptor = *StoredDescriptor;
+		const std::vector<Durin::FStaticMeshMaterialSlotDefinition> SavedSlots = *MaterialSlots;
+		*StoredDescriptor = Descriptor;
+		if (FirstMaterialSlotId.has_value())
+		{
+			ASSERT_FALSE(MaterialSlots->empty());
+			MaterialSlots->front().SlotId = *FirstMaterialSlotId;
+		}
+		std::vector<Durin::uint8> PackageBytes;
+		const Durin::Asset::FAssetResult Result =
+			Durin::Asset::SerializeAssetPackageBytes(Mesh.GetPackage(), PackageBytes);
+		*StoredDescriptor = SavedDescriptor;
+		*MaterialSlots = SavedSlots;
+		ASSERT_TRUE(Result) << Result.Message;
+		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+			std::as_bytes(std::span(PackageBytes)), PackagePath));
 	}
 }
 
@@ -223,6 +270,81 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceImportData"));
 	EXPECT_FALSE(ContainsText(FirstPackage, "Assimp"));
 
+	Durin::Asset::FCookedBulkContainer DecodedBulk;
+	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(
+		FirstBulk,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game,
+		DecodedBulk,
+		&Error)) << Error;
+	ASSERT_EQ(DecodedBulk.Entries.size(), 1u);
+	ASSERT_EQ(DecodedBulk.Payloads.size(), 1u);
+
+	const std::filesystem::path WrongPlatformRoot =
+		std::filesystem::absolute(Fixture.Root / "CookWrongPlatform");
+	std::vector<Durin::uint8> WrongPlatformBulk = FirstBulk;
+	WriteU32(WrongPlatformBulk, 8, static_cast<Durin::uint32>(Durin::Asset::ECookTargetPlatform::Invalid));
+	std::filesystem::create_directories(WrongPlatformRoot / "Game");
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(FirstPackage)), WrongPlatformRoot / "Game/CookedMesh.dasset"));
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(WrongPlatformBulk)), WrongPlatformRoot / "Game/CookedMesh.dbulk"));
+
+	const std::filesystem::path WrongSchemaRoot =
+		std::filesystem::absolute(Fixture.Root / "CookWrongSchema");
+	std::vector<Durin::uint8> WrongSchemaPayload = DecodedBulk.Payloads.front();
+	WriteU32(WrongSchemaPayload, 4, Durin::StaticMeshPayloadSchemaVersion + 1);
+	WriteU64(
+		WrongSchemaPayload,
+		56,
+		Durin::FXxHash64::HashBuffer(std::span<const Durin::uint8>(WrongSchemaPayload).subspan(64)).HashValue);
+	std::vector<Durin::uint8> WrongSchemaBulk;
+	std::vector<Durin::Asset::FCookedPayloadDescriptor> WrongSchemaDescriptors;
+	std::vector<Durin::Asset::FCookedBulkPayload> WrongSchemaPayloads;
+	WrongSchemaPayloads.push_back({
+		.PayloadId = Durin::StaticMeshPrimaryCookedPayloadId,
+		.Flags = 1,
+		.PayloadSchemaVersion = Durin::StaticMeshPayloadSchemaVersion,
+		.Compression = Durin::Asset::ECookedPayloadCompression::None,
+		.Alignment = Durin::StaticMeshPayloadAlignment,
+		.Bytes = std::move(WrongSchemaPayload)});
+	ASSERT_TRUE(Durin::Asset::EncodeCookedBulk(
+		WrongSchemaPayloads,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game,
+		WrongSchemaBulk,
+		&WrongSchemaDescriptors,
+		&Error)) << Error;
+	std::filesystem::create_directories(WrongSchemaRoot / "Game");
+	SaveVariantPackage(
+		*Fixture.Mesh,
+		WrongSchemaRoot / "Game/CookedMesh.dasset",
+		WrongSchemaDescriptors.front());
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(WrongSchemaBulk)), WrongSchemaRoot / "Game/CookedMesh.dbulk"));
+
+	const std::filesystem::path CorruptPayloadRoot =
+		std::filesystem::absolute(Fixture.Root / "CookCorruptPayload");
+	std::vector<Durin::uint8> CorruptBulk = FirstBulk;
+	ASSERT_GT(CorruptBulk.size(), 64u);
+	CorruptBulk.back() ^= 0x80u;
+	std::filesystem::create_directories(CorruptPayloadRoot / "Game");
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(FirstPackage)), CorruptPayloadRoot / "Game/CookedMesh.dasset"));
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(CorruptBulk)), CorruptPayloadRoot / "Game/CookedMesh.dbulk"));
+
+	const std::filesystem::path MaterialMismatchRoot =
+		std::filesystem::absolute(Fixture.Root / "CookMaterialMismatch");
+	std::filesystem::create_directories(MaterialMismatchRoot / "Game");
+	SaveVariantPackage(
+		*Fixture.Mesh,
+		MaterialMismatchRoot / "Game/CookedMesh.dasset",
+		DecodedBulk.Entries.front(),
+		Durin::FGuid::NewGuid());
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(FirstBulk)), MaterialMismatchRoot / "Game/CookedMesh.dbulk"));
+
 	std::filesystem::remove_all(Fixture.CacheRoot);
 	std::filesystem::remove_all(Fixture.Root / "SourceAssets");
 	Durin::Asset::ShutdownAssetManager();
@@ -237,6 +359,12 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(CookedMesh, nullptr);
 	ASSERT_NE(CookedMesh->GetRenderData(), nullptr);
+	ASSERT_FALSE(CookedMesh->GetRenderData()->LODResources.empty());
+	ASSERT_FALSE(CookedMesh->GetRenderData()->LODResources.front().Positions.empty());
+	ASSERT_FALSE(CookedMesh->GetRenderData()->LODResources.front().Indices.empty());
+	ASSERT_EQ(
+		CookedMesh->GetRenderData()->MaterialSlots.size(),
+		CookedMesh->GetNumMaterialSlots());
 	EXPECT_EQ(
 		CookedMesh->GetDerivedDataDiagnostic().Status,
 		Durin::EStaticMeshDerivedDataStatus::CookedLoaded);
@@ -253,4 +381,23 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	EXPECT_EQ(CookedMesh, nullptr);
 	EXPECT_NE(MissingBulk.Message.find("Cooked static mesh"), std::string::npos);
 	Durin::Asset::ShutdownAssetManager();
+
+	auto ExpectCookedFailure = [](const std::filesystem::path& Root, std::string_view ExpectedText) {
+		ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
+			Durin::Asset::EPackageLoadMode::CookedRuntime, Root}));
+		Durin::PathUtilities::RegisterMountPoint(
+			"/Game/", (Root / "Game").generic_string() + "/");
+		Durin::FAssetPath Path;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", Path));
+		Durin::DStaticMesh* Mesh = nullptr;
+		const Durin::Asset::FAssetResult Result = Durin::Asset::LoadAsset(Path, Mesh);
+		EXPECT_FALSE(Result);
+		EXPECT_EQ(Mesh, nullptr);
+		EXPECT_NE(Result.Message.find(ExpectedText), std::string::npos) << Result.Message;
+		Durin::Asset::ShutdownAssetManager();
+	};
+	ExpectCookedFailure(WrongPlatformRoot, "target");
+	ExpectCookedFailure(WrongSchemaRoot, "schema version");
+	ExpectCookedFailure(CorruptPayloadRoot, "checksum");
+	ExpectCookedFailure(MaterialMismatchRoot, "material slot");
 }

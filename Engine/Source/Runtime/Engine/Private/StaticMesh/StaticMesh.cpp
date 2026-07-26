@@ -2,7 +2,6 @@
 
 #include "Components/StaticMeshComponent.h"
 
-#include "AssetCore.h"
 #include "AssetSystem.h"
 #include "DerivedDataObjectStore.h"
 #include "CoreGlobals.h"
@@ -19,6 +18,10 @@
 #include "Threading/RunnableThread.h"
 
 #include "RHICommandList.h"
+
+#if DURIN_WITH_EDITOR
+	#include "AssetImport.h"
+#endif
 
 namespace Durin
 {
@@ -200,6 +203,7 @@ namespace Durin
 			return Result;
 		}
 
+#if DURIN_WITH_EDITOR
 		auto MakeLegacySlotGuid(
 			std::string_view PackagePath,
 			std::string_view SourceName,
@@ -233,6 +237,7 @@ namespace Durin
 			}
 			return true;
 		}
+#endif
 
 		auto ImportAxisVector(EStaticMeshImportAxis Axis, FVector3f& OutVector, uint32& OutComponent) -> bool
 		{
@@ -248,6 +253,7 @@ namespace Durin
 			return false;
 		}
 
+#if DURIN_WITH_EDITOR
 		auto MakeImportOptions(const FStaticMeshImportSettings& Settings) -> Asset::FMeshImportOptions
 		{
 			FVector3f Forward;
@@ -422,6 +428,7 @@ namespace Durin
 			++Count;
 			return Result;
 		}
+#endif
 
 		auto ResolveMountedFile(std::string_view VirtualPath) -> std::filesystem::path
 		{
@@ -761,6 +768,7 @@ namespace Durin
 		bool& bOutSlotMetadataChanged,
 		std::string& OutError) -> bool
 	{
+#if DURIN_WITH_EDITOR
 		Asset::FImportedSceneData ImportedScene;
 		const FStaticMeshImportSettings& EffectiveImportSettings = GetImportSettings();
 		std::string ImportSettingsError;
@@ -981,6 +989,14 @@ namespace Durin
 		bOutSlotMetadataChanged = bSlotMetadataChanged;
 		OutError.clear();
 		return true;
+#else
+		(void)FilePath;
+		(void)OutRenderData;
+		(void)OutMaterialSlots;
+		(void)bOutSlotMetadataChanged;
+		OutError = "Static-mesh source building is unavailable in runtime-only targets.";
+		return false;
+#endif
 	}
 
 	auto DStaticMesh::PostLoad(std::string& OutError) -> bool

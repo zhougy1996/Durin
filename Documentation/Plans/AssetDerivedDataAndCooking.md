@@ -22,7 +22,7 @@ inputs live beneath the owning native-test data directories and require no
 importer, compressor, RHI, or window. AssetCore now implements deterministic
 DBLK and manifest codecs, reflected path-free descriptors, contained companion
 resolution, manifest-bounded cook publication and stale cleanup, and an
-explicit process package-load context. The complete 46-test AssetCoreTests
+explicit process package-load context. The complete 47-test AssetCoreTests
 suite passes with multi-payload, corruption, relocation, interruption, and
 cleanup coverage.
 
@@ -30,11 +30,14 @@ StaticMesh is now the first consumer connected to the shared cook layer. Its
 cook adapter deterministically contributes DMSH bytes, serializes a matching
 logical descriptor with runtime metadata, and its cooked `PostLoad` path
 validates the companion DBLK, descriptor, target, DMSH, and material-slot
-mapping before transactional publication. Clean-cook, source/DDC isolation,
-and missing-bulk coverage is in place. Texture2D still uses its earlier private
-TXDD cache, TextureCube still rebuilds from source during `PostLoad`, and
-runtime targets still inherit source tooling. Stage 2 continues with the
-editor-only Assimp boundary and the remaining malformed/render smoke coverage.
+mapping before transactional publication. Assimp and its synchronous/asynchronous
+source-model adapter now live in editor-only `AssetImport`; runtime-only Engine
+builds compile source rebuilding out and deploy neither the module nor Assimp.
+Clean-cook, source/DDC isolation, missing bulk, wrong target/schema, corrupt
+payload, material-slot mismatch, and runtime render-data smoke coverage are in
+place. Stage 2 is complete. Texture2D still uses its earlier private TXDD cache,
+TextureCube still rebuilds from source during `PostLoad`, and their source/build
+tooling remains migration work for Stages 3 through 5.
 
 ## Goal
 
@@ -889,9 +892,9 @@ Dependencies: Stage 1 and the completed predecessor StaticMesh Stages 0–3.
   DBLK entry, target platform, DMSH schema, checksum, and material-slot mapping.
 - [x] Ensure cooked decode and render-data publication remain transactional and
   never interpret a DDC path as a runtime reference.
-- [ ] Move Assimp and source-model import out of the runtime dependency graph
+- [x] Move Assimp and source-model import out of the runtime dependency graph
   needed by the cooked StaticMesh path.
-- [ ] Add clean-cook reproducibility, missing-source isolation, missing bulk,
+- [x] Add clean-cook reproducibility, missing-source isolation, missing bulk,
   wrong platform/schema, corrupt payload, material-slot, and render smoke tests.
 
 #### Acceptance Gate

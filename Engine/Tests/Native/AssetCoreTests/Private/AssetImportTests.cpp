@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "AssetCore.h"
+#include "AssetImport.h"
 #include "Threading/QueuedThreadPool.h"
 
 namespace Durin::Asset

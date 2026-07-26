@@ -1,0 +1,13 @@
+{
+    "ModuleName": "EngineAssetBuild",
+    "LinkType": "Shared",
+    "PCH": "Self",
+    "PrivateDependencies": [
+        "AssetImport"
+    ],
+    "PublicDependencies": [
+        "Engine"
+    ],
+    "OptionalPrivateDependencies": [],
+    "OptionalPublicDependencies": []
+}

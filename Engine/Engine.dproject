@@ -19,7 +19,9 @@
         "LevelEditor": "Source/Editor/LevelEditor",
         "MaterialEditor": "Source/Editor/MaterialEditor",
         "TextureEditor": "Source/Editor/TextureEditor",
-        "DurinLauncher": "Source/Editor/DurinLauncher"
+        "DurinLauncher": "Source/Editor/DurinLauncher",
+        "AssetImport": "Source/Editor/AssetImport",
+        "EngineAssetBuild": "Source/Editor/EngineAssetBuild"
     },
     "BaseModules": [
         "DurinLauncher",
@@ -33,7 +35,9 @@
                 "MainFrame",
                 "LevelEditor",
                 "MaterialEditor",
-                "TextureEditor"
+                "TextureEditor",
+                "AssetImport",
+                "EngineAssetBuild"
             ]
         },
         "DurinGame": {
