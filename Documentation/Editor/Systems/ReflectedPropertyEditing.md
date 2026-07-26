@@ -83,8 +83,9 @@ Slot assignment, replacement, reset, and orphan removal snapshot the reflected
 `MaterialOverrides` collection root, locate the target entry by GUID in draft
 storage, and use that GUID as the logical transaction identity. The component
 pre hook validates GUID uniqueness, non-null compatible values, and collection
-shape before live storage changes. Its post hook reconciles dependencies and
-render state for edit, Cancel, Undo, and Redo through the same shared path.
+shape before live storage changes. Its post hook rebuilds render state from
+current canonical mesh and override storage for edit, Cancel, Undo, and Redo
+through the same shared path.
 
 Details owns only the inspected object, search input, table, and customization
 dispatch. It contains no Actor or static-mesh type branches. Real property rows
@@ -122,9 +123,10 @@ Path spans and key bytes are valid only for the synchronous callback.
 
 Objects use the post hook to refresh derived runtime state. Scene transforms
 refresh their hierarchy, splines rebuild curve caches, static-mesh components
-reconcile material dependencies and render state, and materials invalidate
-dependent render data. Camera projection and material-parent validation happen
-on the detached proposal before the generic write.
+rebuild render state from current assignments, and materials run a batched
+loaded-object scan to invalidate dependent render data. Camera projection and
+material-parent validation happen on the detached proposal before the generic
+write.
 
 ## Property Snapshots
 
@@ -168,10 +170,12 @@ and emits no post event. Same-target nested edits from a hook are rejected.
 All current built-in semantic properties use this generic path. Transform
 quaternion normalization, camera cross-field clamping, spline step clamping,
 material type checks, and material-parent cycle rejection live in pre hooks.
-Hierarchy/cache/render/dependency reactions live in post hooks. Static-mesh
-material and material-instance parent dependencies keep derived mirrors so a
-post hook can compare the newly written canonical storage with the previously
-registered dependencies without a setter-plus-direct-storage dual write.
+Hierarchy, cache, and render reactions live in post hooks. Material-instance
+Parent and static-mesh component assignments are read directly from the newly
+written canonical storage: their post hooks need neither the previous
+relationship value nor a registered-value mirror. Material inheritance
+invalidation computes the affected loaded closure from current Parent chains;
+component invalidation resolves current mesh defaults and overrides.
 
 There is no public mutation-adapter or registry surface. No implemented
 property requires an exceptional mutation policy: every canonical value is

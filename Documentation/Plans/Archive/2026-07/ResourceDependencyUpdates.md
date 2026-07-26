@@ -6,11 +6,13 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 through 4 are complete. Deterministic material and static-mesh scan
-diagnostics are available, the 50 material dependency, batching, transaction,
-rendering, asset, static-mesh scan, and lifetime tests pass, the complete
-`Win64-Debug-DurinEditor-Tests` profile builds, and its hidden-window editor
-smoke test passes. Stage 5 is next.
+Completed and archived on 2026-07-26. Deterministic material and static-mesh
+scan diagnostics are available, the 50 material dependency, batching,
+transaction, rendering, asset, static-mesh scan, and lifetime tests pass, the
+complete `Win64-Debug-DurinEditor-Tests` profile builds, and its hidden-window
+editor smoke test passes. Material, reflected-property editing, and Asset
+Registry architecture now record the lasting forward-dependency,
+registration-free invalidation contracts.
 
 This plan replaces the unimplemented centralized object dependency index design
 recorded on 2026-07-26. The revised direction follows Unreal Engine's material
@@ -471,16 +473,16 @@ Current gaps:
 
 ### Stage 5: Architecture handoff and plan archive
 
-- [ ] Update Material System with forward dependency semantics, loaded scan
+- [x] Update Material System with forward dependency semantics, loaded scan
   behavior, update-context batching, and the absence of reverse registration.
-- [ ] Update Reflected Property Editing to remove registered-value mirror
+- [x] Update Reflected Property Editing to remove registered-value mirror
   language for materials and static-mesh components.
-- [ ] Document that Asset Registry package dependencies are not material
+- [x] Document that Asset Registry package dependencies are not material
   hierarchy tags.
-- [ ] Remove any Architecture text that describes `RegisteredParent`,
+- [x] Remove any Architecture text that describes `RegisteredParent`,
   `DependentInstances`, BoundMaterials, BoundStaticMesh, or provider
   BoundComponents as current behavior.
-- [ ] Record completion evidence, archive this plan, and update active/archive
+- [x] Record completion evidence, archive this plan, and update active/archive
   indexes.
 
 #### Acceptance Gate

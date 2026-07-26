@@ -51,13 +51,49 @@ declarations and a compiled renderer layout are deferred work.
   compact `FMaterialRenderUpdate` snapshot per slot. A mesh assignment or
   rebuilt mesh render layout replaces the proxy; parameter-only material and
   parent changes update the existing proxy in place.
-- Components bind each distinct material that currently resolves from an
-  override or mesh default. One changed material therefore emits an update for
-  every current slot that resolves to it. A component-wide revision orders
-  rapid changes across independent slots and rejects stale render commands.
+- A material update context batches changed roots, computes the affected loaded
+  material closure from canonical parent chains, advances each affected
+  material version once, and scans one stable loaded-object snapshot for
+  static-mesh component slots that currently resolve to an affected material.
+  Multiple roots merge dirty flags before any component update, and an inherited
+  change adds the parent-chain dirty flag.
+- The component scan reads only current mesh defaults and component overrides.
+  One changed material emits an update for every current slot that resolves to
+  it; duplicate slot use does not repeat the component scan. A component-wide
+  revision orders rapid changes across independent slots and rejects stale
+  render commands.
 - The static mesh shader implements a fixed directional-light Blinn-Phong path
   plus an unlit viewport mode. Missing values preserve the orange fallback
   material and renderer-owned default textures.
+
+## Dependency And Invalidation Model
+
+- Material dependencies are forward-only. `DMaterialInstance::Parent` is the
+  canonical relationship, and dependency tests walk that chain iteratively with
+  a cycle guard. A material depends on itself; a base material has no other
+  material dependency.
+- Loaded direct-child and transitive-dependent queries scan a stable
+  `GDObjectArray` snapshot on the game thread and return sorted,
+  generation-safe object handles. They do not load assets, retain dependents, or
+  expose the live object array during callbacks.
+- Materials and static meshes own no reverse component collections, and
+  instances and components keep no registered-value mirrors for Parent, mesh,
+  or material assignments. Loading, reflected edits, transactions,
+  duplication, destruction, and garbage collection therefore have no
+  registration-reconciliation step.
+- Material mutation flushes an Engine-owned `FMaterialUpdateContext`
+  synchronously unless a caller supplies a context to batch several roots.
+  Flush takes one loaded-object snapshot, computes the complete affected
+  material set, scans loaded static-mesh components once, and resolves each
+  handle immediately before use. Repeated flush without new roots is a no-op.
+- Static-mesh render-data changes use a separate on-demand loaded-component
+  scan and select components whose current mesh assignment equals the changed
+  mesh. Rebuilding render state then resolves current slot definitions,
+  defaults, overrides, and orphans directly from canonical storage.
+- Deterministic counters expose roots, scanned objects, tested and affected
+  materials, scanned components, and updated slots. These counters characterize
+  batching and scan cost; they are diagnostics, not a persistent dependency
+  index.
 
 ## Compatibility Boundary
 
@@ -93,6 +129,8 @@ they are not migrated.
 - Instances override parameters without duplicating declarations or the
   parent's shader program.
 - Static properties belong in shader-map/permutation keys; dynamic parameters belong in uniform/resource bindings.
-- Material object mutation crosses to the rendering thread through explicit update commands. Replacing the material assigned to a component still rebuilds its scene proxy because the dependency binding changes.
+- Material object mutation crosses to the rendering thread through explicit
+  update commands. Replacing the material assigned to a component still
+  rebuilds its scene proxy because the set of render snapshots changes.
 
 The prioritized implementation backlog and current editor/rendering limitations are tracked in `Documentation/Plans/MaterialSystem.md`.

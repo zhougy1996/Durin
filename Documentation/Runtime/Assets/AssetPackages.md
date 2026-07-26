@@ -44,6 +44,14 @@ Compiled shader manifests, SPIR-V, and reflection sidecars also live beneath `De
 
 `AssetRegistry/Registry.bin` is a versioned, deterministic snapshot keyed by virtual mount root and normalized mount-relative package path. Startup still enumerates mounted `.dasset` files once. Exact file-size and stable last-write-time matches reuse cached class, format-version, and dependency metadata without reading package headers; new or changed files use the bounded header reader, and missing files disappear from the freshly published live map. Full validation bypasses fingerprint reuse. Schema, package-format, serialization, or mount-manifest incompatibility and corrupt or missing snapshots cause a non-fatal rebuild. Successful mutations update the live registry and dirty the snapshot, which is atomically replaced after explicit reconciliation and during orderly asset-manager shutdown. The live registry exposes a monotonic process-local revision that advances only when its published asset metadata changes, allowing editor queries to cache derived views safely. Scan diagnostics expose elapsed milliseconds, enumeration/reuse/reparse/removal/failure counts, and package-header read attempts and bytes.
 
+Registry dependencies are package-level strong-reference edges collected from
+the package header. They support loading, unload guards, move/delete checks, and
+dependency-closure queries, but do not record which reflected property produced
+an edge. In particular, they are not material Parent tags and cannot answer
+which unloaded material instances are direct children of a material. Loaded
+material hierarchy queries instead inspect canonical Parent chains; an unloaded
+child query requires a future searchable-property metadata contract.
+
 `Thumbnails/Index.bin` maps stable source and generator keys to resized PNG objects under `Thumbnails/Objects/`. Keys include normalized source identity, source size and last-write time, maximum dimensions, generator schema, color-space policy, and output encoding version. A warm hit decodes the generated PNG without reopening the source image, then follows the existing asynchronous, serial-validated RHI upload path. Missing or modified sources, changed settings or versions, corrupt indexes or PNGs, and missing objects become safe misses. Object and index writes are atomic; persistence failure does not fail a valid in-memory thumbnail. Encoded objects use an independent disk LRU budget, while RHI textures retain their process-local GPU budget. Cleanup resolves and validates every target beneath the exact thumbnail cache root before deletion.
 
 `Textures/Objects/<key-prefix>/<key>.bin` stores Texture2D platform mip chains.

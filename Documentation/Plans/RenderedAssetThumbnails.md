@@ -447,7 +447,7 @@ introducing per-card live viewports or steady-state rendering work.
 - [Material System](MaterialSystem.md)
 - [Texture Support](TextureSupport.md)
 - [Static Mesh Derived Data and Cooking](StaticMeshDerivedDataAndCooking.md)
-- [Resource Dependency Updates](ResourceDependencyUpdates.md)
+- [Resource Dependency Updates](Archive/2026-07/ResourceDependencyUpdates.md)
 - [Material System Runtime Contract](../Runtime/Rendering/MaterialSystem.md)
 - [Cube Textures](../Runtime/Rendering/CubeTextures.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
