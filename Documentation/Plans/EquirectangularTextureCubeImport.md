@@ -6,7 +6,8 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 through 3 are complete. `DTextureCube` now serializes an explicit
+Stages 0 through 3 and the automated portion of Stage 4 are complete.
+`DTextureCube` now serializes an explicit
 source layout, package-relative panorama provenance, face-dimension override,
 exposure, and source dimensions. LDR and Radiance HDR panorama imports validate
 and build before filesystem mutation, copy one authoritative source beside the
@@ -20,13 +21,21 @@ dimension and HDR exposure settings, revalidates changes and final import, and
 previews the projection and LDR output. Content Browser selection details expose
 the authoritative panorama, source dimensions, import settings, and LDR format.
 
-Validation evidence on `Win64-Debug-DurinEditor-Tests`: the `LevelEditor` target
-builds and all 271 EngineTests pass,
-including panorama import/save/reload, source-layout compatibility, deterministic
-rebuild, consecutive reimport, failed-reimport preservation, missing/corrupt
-source diagnostics, move/rename/delete, existing six-face regressions, and the
-panorama editor workflow through sky actor assignment and level reload.
-Stage 4 rendering and lifecycle validation is next. The first slice deliberately
+Validation evidence on `Win64-Debug-DurinEditor-Tests`: 32 AssetCoreTests,
+51 RenderCoreTests, one VulkanRHITest, and all 271 EngineTests pass. The
+hardware-backed sky test runs on an NVIDIA GeForce RTX 3090 with
+`VK_LAYER_KHRONOS_validation`; it reads every face and mip of LDR and
+tone-mapped HDR panorama cubes, checks compressed/sRGB rendered colors,
+longitude-seam and face-boundary continuity, camera translation, component
+rotation and replacement, letterboxing, foreground occlusion, and resource
+retirement. The complete `all` target builds, and an eight-second
+`DurinEditor --hidden-window` smoke reaches successful editor initialization
+without Error, Fatal, VUID, or Vulkan Validation diagnostics.
+
+Representative visible checks with outdoor day, sunset, and indoor panoramas
+at multiple viewport aspect ratios remain pending because those sources are
+not repository fixtures and require an interactive review. Stage 4 therefore
+remains active and this plan is not archived. The first slice deliberately
 does not introduce floating-point texture assets, BC6H build output,
 image-based lighting, or runtime panorama sampling.
 
@@ -298,26 +307,26 @@ conversion tools or test code.
 Depends on Stages 1-3. This stage closes production and handoff evidence without
 expanding into native HDR or IBL.
 
-- [ ] Reuse the hardware-backed Vulkan cube test to read every generated face
+- [x] Reuse the hardware-backed Vulkan cube test to read every generated face
   and mip from panorama-derived platform data.
-- [ ] Render and verify all six principal directions, face boundaries,
+- [x] Render and verify all six principal directions, face boundaries,
   longitude seam placement, camera translation invariance, component rotation,
   letterboxing, and foreground occlusion.
-- [ ] Compare LDR and tone-mapped HDR imports against deterministic pixel
+- [x] Compare LDR and tone-mapped HDR imports against deterministic pixel
   tolerances after BC compression and sRGB sampling.
-- [ ] Exercise rapid reimport, missing-source recovery, asset move/delete,
+- [x] Exercise rapid reimport, missing-source recovery, asset move/delete,
   component replacement, editor shutdown, and render-resource retirement with
   Vulkan Validation enabled.
-- [ ] Run the affected AssetCore, Engine, RenderCore, Vulkan, and editor tests
+- [x] Run the affected AssetCore, Engine, RenderCore, Vulkan, and editor tests
   through the repository BuildTool workflow referenced by
   `Documentation/Development/Build/BuildAndRun.md`.
-- [ ] Complete a full build and hidden-window DurinEditor smoke run from one
+- [x] Complete a full build and hidden-window DurinEditor smoke run from one
   Agent Build Profile.
 - [ ] Perform visible checks with representative outdoor day, sunset, and
   indoor panoramas at multiple viewport aspect ratios.
-- [ ] Move lasting source-layout, projection, color, asset-lifecycle, and editor
+- [x] Move lasting source-layout, projection, color, asset-lifecycle, and editor
   workflow contracts into the owning runtime/editor documentation.
-- [ ] Update this plan's status, checklist, and evidence, then archive it only
+- [x] Update this plan's status, checklist, and evidence, then archive it only
   after every required gate passes.
 
 #### Acceptance Gate
@@ -347,16 +356,16 @@ expanding into native HDR or IBL.
 
 ## Definition of Done
 
-- [ ] The Content Browser imports a valid 2:1 LDR or Radiance HDR panorama as a
+- [x] The Content Browser imports a valid 2:1 LDR or Radiance HDR panorama as a
   correctly oriented existing-format `DTextureCube`.
-- [ ] The copied original panorama and serialized settings rebuild
+- [x] The copied original panorama and serialized settings rebuild
   deterministically after save/reload and survive asset move/rename.
-- [ ] HDR input is clearly identified as an offline HDR-to-LDR transform and
+- [x] HDR input is clearly identified as an offline HDR-to-LDR transform and
   never implies floating-point runtime storage or IBL.
-- [ ] Existing six-face assets and their editor workflow remain compatible.
-- [ ] Invalid or failed import/reimport operations leave no partial artifacts
+- [x] Existing six-face assets and their editor workflow remain compatible.
+- [x] Invalid or failed import/reimport operations leave no partial artifacts
   and preserve the last valid asset and render resource.
-- [ ] CPU projection, color, asset lifecycle, editor workflow, Vulkan readback,
+- [x] CPU projection, color, asset lifecycle, editor workflow, Vulkan readback,
   and rendered-result tests pass.
 - [ ] The full build, Vulkan Validation run, hidden-window editor smoke, and
   representative visible checks pass.

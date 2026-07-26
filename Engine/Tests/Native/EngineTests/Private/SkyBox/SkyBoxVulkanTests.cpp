@@ -1,6 +1,6 @@
 #include "SkyBoxTestSupport.h"
 
-TEST(FSkyBoxVulkanTests, SamplesEveryFaceAndMipWithoutParallaxAndPreservesOcclusion)
+TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax)
 {
 	InitializeSkyBoxAssetMount();
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
@@ -22,12 +22,22 @@ TEST(FSkyBoxVulkanTests, SamplesEveryFaceAndMipWithoutParallaxAndPreservesOcclus
 	Renderer.StartupModule();
 	Renderer.SetRenderMode(Durin::ERenderMode::Unlit);
 
-	Durin::FTextureCubeImportResult CubeResult = Durin::DTextureCube::ImportAsset(
-		GetSkyBoxConventionFaces(), "/SkyBoxAssetTests/VulkanCube");
+	Durin::FTextureCubeImportResult CubeResult = Durin::DTextureCube::ImportPanoramaAsset(
+		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga").generic_string(),
+		"/SkyBoxAssetTests/VulkanPanoramaLdr",
+		{.FaceDimension = 64});
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 	auto CubeResource = CubeResult.Asset->GetRenderResource();
 	ASSERT_NE(CubeResource, nullptr);
 	auto PlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*CubeResult.Asset->GetPlatformData());
+	Durin::FTextureCubeImportResult HdrCubeResult = Durin::DTextureCube::ImportPanoramaAsset(
+		GetSkyBoxPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
+		"/SkyBoxAssetTests/VulkanPanoramaHdr",
+		{.FaceDimension = 64, .ExposureEV = 1.0f});
+	ASSERT_TRUE(HdrCubeResult) << HdrCubeResult.Message;
+	auto HdrCubeResource = HdrCubeResult.Asset->GetRenderResource();
+	ASSERT_NE(HdrCubeResource, nullptr);
+	auto HdrPlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*HdrCubeResult.Asset->GetPlatformData());
 	auto* OcclusionMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* OcclusionMaterial = Durin::NewObject<Durin::DMaterial>(nullptr, "SkyBoxOcclusionMaterial");
 	OcclusionMaterial->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), {1.0, 0.0, 0.0});
@@ -60,6 +70,9 @@ TEST(FSkyBoxVulkanTests, SamplesEveryFaceAndMipWithoutParallaxAndPreservesOcclus
 		bool bSucceeded = true;
 		std::string Error;
 		std::array<std::vector<Durin::uint8>, Durin::TextureCubeFaceCount> PrincipalAxes;
+		std::array<std::vector<Durin::uint8>, Durin::TextureCubeFaceCount> HdrPrincipalAxes;
+		std::array<std::vector<Durin::uint8>, 2> LongitudeSeam;
+		std::array<std::vector<Durin::uint8>, 2> FaceBoundary;
 		std::vector<Durin::uint8> Translated;
 		std::vector<Durin::uint8> ComponentRotated;
 		std::vector<Durin::uint8> Letterboxed;
@@ -72,7 +85,7 @@ TEST(FSkyBoxVulkanTests, SamplesEveryFaceAndMipWithoutParallaxAndPreservesOcclus
 		static constexpr auto GetName() -> const char* { return "RenderSkyBoxValidationFrame"; }
 	};
 	Durin::EnqueueRenderCommand<FRenderSkyBoxValidationFrame>(
-		[&Renderer, &Scene, CubeResource, PlatformData, Result, OcclusionProxy]
+		[&Renderer, &Scene, CubeResource, PlatformData, HdrCubeResource, HdrPlatformData, Result, OcclusionProxy]
 		(Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GRenderFrameCounterRenderThread++;
 			Durin::GDynamicRHI->RHIBeginFrame();
@@ -101,6 +114,29 @@ TEST(FSkyBoxVulkanTests, SamplesEveryFaceAndMipWithoutParallaxAndPreservesOcclus
 						Result->bSucceeded = false;
 						Result->Error = std::format(
 							"Cube readback mismatch for face {} mip {}.", FaceIndex, MipIndex);
+						return;
+					}
+				}
+			}
+			Durin::FRHITexture* HdrCubeTexture = HdrCubeResource->GetTextureRHI_RenderThread();
+			if (HdrCubeTexture == nullptr)
+			{
+				Result->bSucceeded = false;
+				Result->Error = "HDR cube render resource was not ready.";
+				return;
+			}
+			for (Durin::uint32 FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
+			{
+				for (Durin::uint32 MipIndex = 0; MipIndex < HdrPlatformData->Faces[FaceIndex].Mips.size(); ++MipIndex)
+				{
+					std::vector<Durin::uint8> MipPixels;
+					if (!Durin::GDynamicRHI->RHIReadTexture2D(
+						CommandList, HdrCubeTexture, MipIndex, FaceIndex, MipPixels)
+						|| MipPixels != HdrPlatformData->Faces[FaceIndex].Mips[MipIndex].Pixels)
+					{
+						Result->bSucceeded = false;
+						Result->Error = std::format(
+							"HDR-derived cube readback mismatch for face {} mip {}.", FaceIndex, MipIndex);
 						return;
 					}
 				}
@@ -142,6 +178,11 @@ TEST(FSkyBoxVulkanTests, SamplesEveryFaceAndMipWithoutParallaxAndPreservesOcclus
 			{
 				if (!Render(MakePrincipalAxisView(Directions[FaceIndex], {}, 17, 17), Result->PrincipalAxes[FaceIndex])) return;
 			}
+			constexpr double EdgeOffset = 0.02;
+			if (!Render(MakePrincipalAxisView({-1.0, EdgeOffset, 0.0}, {}, 17, 17), Result->LongitudeSeam[0])) return;
+			if (!Render(MakePrincipalAxisView({-1.0, -EdgeOffset, 0.0}, {}, 17, 17), Result->LongitudeSeam[1])) return;
+			if (!Render(MakePrincipalAxisView({1.0, 1.0 - EdgeOffset, 0.0}, {}, 17, 17), Result->FaceBoundary[0])) return;
+			if (!Render(MakePrincipalAxisView({1.0 - EdgeOffset, 1.0, 0.0}, {}, 17, 17), Result->FaceBoundary[1])) return;
 			if (!Render(MakePrincipalAxisView(Directions[0], {19.0, -7.0, 4.0}, 17, 17), Result->Translated)) return;
 
 			Durin::FSkyBoxSceneData RotatedSky;
@@ -154,12 +195,25 @@ TEST(FSkyBoxVulkanTests, SamplesEveryFaceAndMipWithoutParallaxAndPreservesOcclus
 			Scene.AddOrReplaceSkyBox(RotatedSky);
 			if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->ComponentRotated)) return;
 
+			RotatedSky.TextureResource = HdrCubeResource;
+			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
+			RotatedSky.Revision = 3;
+			Scene.AddOrReplaceSkyBox(RotatedSky);
+			for (size_t FaceIndex = 0; FaceIndex < Directions.size(); ++FaceIndex)
+			{
+				if (!Render(MakePrincipalAxisView(
+					Directions[FaceIndex], {}, 17, 17), Result->HdrPrincipalAxes[FaceIndex])) return;
+			}
+
+			RotatedSky.TextureResource = CubeResource;
+			RotatedSky.Revision = 4;
+			Scene.AddOrReplaceSkyBox(RotatedSky);
 			Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
 			LetterboxView.AspectRatioConstraint = 0.5f;
 			if (!Render(LetterboxView, Result->Letterboxed)) return;
 
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
-			RotatedSky.Revision = 3;
+			RotatedSky.Revision = 5;
 			Scene.AddOrReplaceSkyBox(RotatedSky);
 			Durin::FMatrix OccluderTransform = glm::translate(
 				Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5));
@@ -180,27 +234,45 @@ TEST(FSkyBoxVulkanTests, SamplesEveryFaceAndMipWithoutParallaxAndPreservesOcclus
 			ExpectRgbNear(
 				Result->PrincipalAxes[FaceIndex],
 				17,
-				4,
-				4,
+				8,
+				8,
 				GetSourceColor(*CubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32),
-				8);
+				12);
+			ExpectRgbNear(
+				Result->HdrPrincipalAxes[FaceIndex],
+				17,
+				8,
+				8,
+				GetSourceColor(*HdrCubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32),
+				12);
 		}
+		ExpectRgbMatch(Result->LongitudeSeam[0], Result->LongitudeSeam[1], 17, 8, 8, 12);
+		ExpectRgbMatch(Result->FaceBoundary[0], Result->FaceBoundary[1], 17, 8, 8, 16);
 		ExpectRgbMatch(Result->Translated, Result->PrincipalAxes[0], 17, 8, 8);
 		EXPECT_EQ(FindClosestCenterRgb(Result->ComponentRotated, Result->PrincipalAxes, 17), 3u);
 		ExpectRgbNear(Result->Letterboxed, 17, 1, 8, {0, 0, 0, 255}, 2);
-		EXPECT_EQ(FindClosestCenterRgb(Result->Letterboxed, Result->PrincipalAxes, 17), 3u);
+		EXPECT_EQ(FindClosestCenterRgb(Result->Letterboxed, Result->PrincipalAxes, 17), 0u);
 		ExpectRgbNear(Result->Occluded, 17, 8, 8, {255, 0, 0, 255}, 8);
 	}
 
 	Scene.Release();
 	Durin::FAssetPath CubePath;
-	if (Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/VulkanCube", CubePath))
+	if (Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaLdr", CubePath))
 	{
 		EXPECT_TRUE(Durin::Asset::DeleteAsset(CubePath));
 	}
 	else
 	{
 		ADD_FAILURE() << "Failed to create the Vulkan cube cleanup path.";
+	}
+	Durin::FAssetPath HdrCubePath;
+	if (Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaHdr", HdrCubePath))
+	{
+		EXPECT_TRUE(Durin::Asset::DeleteAsset(HdrCubePath));
+	}
+	else
+	{
+		ADD_FAILURE() << "Failed to create the Vulkan HDR cube cleanup path.";
 	}
 	Durin::MarkAsGarbage(OcclusionComponent);
 	Durin::MarkAsGarbage(OcclusionMesh);
@@ -213,7 +285,8 @@ TEST(FSkyBoxVulkanTests, SamplesEveryFaceAndMipWithoutParallaxAndPreservesOcclus
 		static constexpr auto GetName() -> const char* { return "RetireSkyBoxValidationResource"; }
 	};
 	Durin::EnqueueRenderCommand<FRetireSkyBoxValidationResource>(
-		[Resource = std::move(CubeResource)](Durin::FRHICommandListImmediate&) {});
+		[Resource = std::move(CubeResource),
+			HdrResource = std::move(HdrCubeResource)](Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
 	Renderer.SetRenderMode(Durin::ERenderMode::Lit);
 	Renderer.ShutdownModule();

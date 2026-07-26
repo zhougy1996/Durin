@@ -86,6 +86,11 @@ namespace
 		return Result;
 	}
 
+	auto GetSkyBoxPanoramaFixture(std::string_view FileName) -> std::filesystem::path
+	{
+		return std::filesystem::path(DURIN_TEST_DATA_DIR) / "EquirectangularPanorama" / FileName;
+	}
+
 	auto InitializeSkyBoxAssetMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();

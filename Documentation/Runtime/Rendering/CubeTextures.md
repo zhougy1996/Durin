@@ -271,9 +271,12 @@ source pixel.
   per-mip/per-slice layout tracker when the pass ends. Later upload, readback,
   and sampling barriers therefore start from the layout actually established
   by the render pass rather than a stale creation or upload layout.
-- Cube render resources opt into readback so the Stage 6 Vulkan integration
-  test can compare every face and every mip with the asset platform data before
-  checking rendered pixels.
+- Cube render resources opt into readback so the hardware-backed Vulkan
+  integration test can compare every face and every mip with panorama-derived
+  LDR and tone-mapped HDR platform data before checking rendered pixels. The
+  same test samples both sides of the panorama longitude seam and a cube-face
+  boundary, then covers component replacement and resource retirement while
+  Vulkan Validation is active.
 
 ## Sky Component and Scene Snapshot
 
@@ -319,17 +322,25 @@ source pixel.
 
 ## Editor Workflow
 
-- The Content Browser's Import menu provides `Texture Cube...`. Its modal owns
-  one source slot for each named face in `+X/-X/+Y/-Y/+Z/-Z` order and displays
-  both the corresponding Durin world direction and the source-image top/right
-  orientation from this document.
-- The modal calls the same decode, shape, cross-face consistency, mip-build, and
-  platform-format validation used by final import. Its confirmation action
-  remains disabled until all six sources and the mounted destination are valid,
-  and it revalidates immediately before creating any files.
+- The Content Browser's Import menu provides `Texture Cube...`. The modal
+  switches between `Six Faces` and `Equirectangular Panorama` without discarding
+  either mode's current inputs. Six-face mode owns one source slot for each
+  named face in `+X/-X/+Y/-Y/+Z/-Z` order and displays the corresponding Durin
+  direction and source-image top/right orientation from this document.
+- Panorama mode accepts one PNG, JPEG, BMP, TGA, or Radiance HDR source. A face
+  dimension of zero selects the documented `Width / 4` default; explicit values
+  are limited to `[1, 4096]`. Exposure is retained across mode changes, is
+  editable only for HDR sources, and remains an offline HDR-to-LDR setting.
+- The modal calls the same decode, projection, color, mip-build, and
+  platform-format validation used by final import. It revalidates on every
+  relevant edit and immediately before filesystem mutation. The preview reports
+  source dimensions and range, output face dimension and mip count, projection
+  convention, and the existing LDR runtime format.
 - Content Browser tiles use a stable cube icon and identify the asset as
-  `Texture Cube`. Selection details load the asset summary and report its
-  dimensions, six-face count, and mip count.
+  `Texture Cube`. Selection details load the asset summary and report source
+  layout, authoritative panorama filename and original dimensions when
+  applicable, face override, HDR exposure, output dimensions, mip count, and
+  the explicitly LDR pixel format.
 - `Sky Box Actor` is available through the ordinary reflected actor-creation
   menu and owns its `DSkyBoxComponent` by default. The component's reflected
   object property names `DTextureCube` as its required class, so the shared
