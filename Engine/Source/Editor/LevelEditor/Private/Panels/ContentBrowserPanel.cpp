@@ -648,6 +648,21 @@ namespace Durin
 					DTextureCube* Cube = nullptr;
 					if (FAssetPath::TryCreate(Item.VirtualPath, CubePath) && Asset::LoadAsset(CubePath, Cube) && Cube)
 					{
+						const bool bPanorama =
+							Cube->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama;
+						Row("Source Layout", bPanorama ? "Equirectangular Panorama" : "Six Faces");
+						if (bPanorama)
+						{
+							Row("Source", Cube->GetPanoramaSourceFile());
+							Row("Source Size", std::format("{}x{}", Cube->GetOriginalSourceWidth(),
+								Cube->GetOriginalSourceHeight()));
+							Row("Face Override", Cube->GetPanoramaFaceDimension() == 0
+								? "Auto" : std::format("{} px", Cube->GetPanoramaFaceDimension()));
+							const bool bHDR = std::filesystem::path(Cube->GetPanoramaSourceFile())
+								.extension().generic_string() == ".hdr";
+							Row("Input Range", bHDR ? "Radiance HDR" : "LDR");
+							if (bHDR) Row("Exposure", std::format("{:+.1f} EV", Cube->GetPanoramaExposureEV()));
+						}
 						if (const FTextureCubePlatformData* Platform = Cube->GetPlatformData();
 							Platform && Platform->IsValid())
 						{
@@ -655,6 +670,7 @@ namespace Durin
 								Platform->Faces[0].Mips[0].Height));
 							Row("Faces", std::format("{}", TextureCubeFaceCount));
 							Row("Mips", std::format("{}", Platform->Faces[0].Mips.size()));
+							Row("Output", std::format("{} (LDR)", GetPixelFormatInfo(Platform->PixelFormat).Name));
 						}
 						else
 						{

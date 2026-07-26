@@ -88,3 +88,74 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CubePath));
 	Durin::ShutdownRenderingThread();
 }
+
+TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcrossLevelReload)
+{
+	InitializeSkyBoxAssetMount();
+	Durin::InitRenderingThread();
+	FSkyBoxTestEngine Engine;
+	Durin::FScene* Scene = Engine.CreateTestScene();
+	Durin::GEngine = &Engine;
+
+	const std::filesystem::path Panorama = std::filesystem::path(DURIN_TEST_DATA_DIR) /
+		"EquirectangularPanorama" / "AnalyticalHDR.hdr";
+	const Durin::FTextureCubePanoramaImportSettings Settings{
+		.FaceDimension = 2,
+		.ExposureEV = 1.0f};
+	const Durin::FTextureCubeImportValidation Validation =
+		Durin::DTextureCube::ValidatePanoramaImportSource(Panorama.generic_string(), Settings);
+	ASSERT_TRUE(Validation) << Validation.Message;
+	EXPECT_TRUE(Validation.bHDR);
+	EXPECT_EQ(Validation.SourceWidth, 8u);
+	EXPECT_EQ(Validation.SourceHeight, 4u);
+	EXPECT_EQ(Validation.Dimension, 2u);
+
+	Durin::FTextureCubeImportResult CubeResult = Durin::DTextureCube::ImportPanoramaAsset(
+		Panorama.generic_string(), "/SkyBoxAssetTests/PanoramaWorkflowCube", Settings);
+	ASSERT_TRUE(CubeResult) << CubeResult.Message;
+	Durin::FAssetPath CubePath;
+	Durin::FAssetPath LevelPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/PanoramaWorkflowCube", CubePath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/PanoramaWorkflowLevel", LevelPath));
+
+	Durin::DLevel* Level = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
+	auto* Actor = Level->SpawnActor<Durin::ASkyBoxActor>("PanoramaSky");
+	ASSERT_NE(Actor, nullptr);
+	Actor->GetSkyBoxComponent()->SetTextureCube(CubeResult.Asset);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
+
+	Durin::DLevel* LoadedLevel = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(LevelPath, LoadedLevel));
+	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(
+		LoadedLevel->FindActorByName("PanoramaSky"));
+	ASSERT_NE(LoadedActor, nullptr);
+	Durin::DTextureCube* LoadedCube = LoadedActor->GetSkyBoxComponent()->GetTextureCube();
+	ASSERT_NE(LoadedCube, nullptr);
+	EXPECT_EQ(LoadedCube->GetSourceLayout(), Durin::ETextureCubeSourceLayout::EquirectangularPanorama);
+	EXPECT_EQ(LoadedCube->GetOriginalSourceWidth(), 8u);
+	EXPECT_EQ(LoadedCube->GetOriginalSourceHeight(), 4u);
+	EXPECT_EQ(LoadedCube->GetPanoramaFaceDimension(), 2u);
+	EXPECT_FLOAT_EQ(LoadedCube->GetPanoramaExposureEV(), 1.0f);
+	EXPECT_EQ(LoadedCube->GetBuiltPixelFormat(), Durin::EPixelFormat::BC1_UNORM_SRGB);
+
+	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "PanoramaWorkflowWorld");
+	ASSERT_TRUE(World->SetCurrentLevel(LoadedLevel));
+	const FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
+	ASSERT_TRUE(Observation.bHasActive);
+	EXPECT_EQ(Observation.Active.TextureResource, LoadedCube->GetRenderResource());
+
+	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+	Durin::FlushRenderingCommands();
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+	Engine.ResetTestScene();
+	Durin::GEngine = nullptr;
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(LevelPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(CubePath));
+	Durin::ShutdownRenderingThread();
+}

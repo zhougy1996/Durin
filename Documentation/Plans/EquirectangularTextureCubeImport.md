@@ -6,7 +6,7 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 through 2 are complete. `DTextureCube` now serializes an explicit
+Stages 0 through 3 are complete. `DTextureCube` now serializes an explicit
 source layout, package-relative panorama provenance, face-dimension override,
 exposure, and source dimensions. LDR and Radiance HDR panorama imports validate
 and build before filesystem mutation, copy one authoritative source beside the
@@ -14,13 +14,19 @@ package, rebuild deterministically on `PostLoad`, and participate in
 layout-aware move, rename, and delete transactions. Reimport validates and
 builds detached replacement data before changing the copied source, serialized
 settings, platform data, or render-resource revision, and rolls back publication
-if package save fails.
+if package save fails. The `Texture Cube...` editor modal now preserves separate
+six-face and panorama inputs while switching modes, exposes bounded panorama
+dimension and HDR exposure settings, revalidates changes and final import, and
+previews the projection and LDR output. Content Browser selection details expose
+the authoritative panorama, source dimensions, import settings, and LDR format.
 
-Validation evidence on `Win64-Debug-DurinEditor-Tests`: all 270 EngineTests pass,
+Validation evidence on `Win64-Debug-DurinEditor-Tests`: the `LevelEditor` target
+builds and all 271 EngineTests pass,
 including panorama import/save/reload, source-layout compatibility, deterministic
 rebuild, consecutive reimport, failed-reimport preservation, missing/corrupt
-source diagnostics, move/rename/delete, and existing six-face regressions.
-Stage 3, the Content Browser workflow, is next. The first slice deliberately
+source diagnostics, move/rename/delete, existing six-face regressions, and the
+panorama editor workflow through sky actor assignment and level reload.
+Stage 4 rendering and lifecycle validation is next. The first slice deliberately
 does not introduce floating-point texture assets, BC6H build output,
 image-based lighting, or runtime panorama sampling.
 
@@ -260,22 +266,22 @@ rebuildable assets while preserving six-face behavior.
 Depends on Stage 2. This stage makes the feature usable without external
 conversion tools or test code.
 
-- [ ] Add `Six Faces` and `Equirectangular Panorama` source modes to the
+- [x] Add `Six Faces` and `Equirectangular Panorama` source modes to the
   `Texture Cube...` modal.
-- [ ] In panorama mode, provide one source picker with appropriate LDR and
+- [x] In panorama mode, provide one source picker with appropriate LDR and
   Radiance HDR filters, a bounded face-dimension override, and HDR-only exposure.
-- [ ] Show the source panorama dimensions, derived/output face dimension,
+- [x] Show the source panorama dimensions, derived/output face dimension,
   projection convention summary, mip count, and output format before import.
-- [ ] Revalidate immediately when source mode, file, dimension, or exposure
+- [x] Revalidate immediately when source mode, file, dimension, or exposure
   changes and again before filesystem mutation.
-- [ ] Disable irrelevant settings without losing the user's current values when
+- [x] Disable irrelevant settings without losing the user's current values when
   switching modes in one dialog session.
-- [ ] Make validation messages distinguish incorrect aspect ratio, unsupported
+- [x] Make validation messages distinguish incorrect aspect ratio, unsupported
   extension, decode failure, excessive size, invalid override, and HDR color
   failure.
-- [ ] Extend Content Browser selection details to identify panorama provenance
+- [x] Extend Content Browser selection details to identify panorama provenance
   and HDR-to-LDR import settings.
-- [ ] Add an editor workflow test covering panorama selection, import, actor
+- [x] Add an editor workflow test covering panorama selection, import, actor
   creation, assignment, level save/reload, and persisted source/settings.
 
 #### Acceptance Gate

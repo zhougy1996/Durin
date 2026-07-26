@@ -6,6 +6,7 @@
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
 #include "MonaImGui.h"
+#include "PixelFormat.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin
@@ -24,6 +25,14 @@ namespace Durin
 		{
 			return static_cast<size_t>(Face);
 		}
+
+		auto IsRadianceHDRPath(std::string_view Path) -> bool
+		{
+			std::string Extension = std::filesystem::path(Path).extension().generic_string();
+			std::ranges::transform(Extension, Extension.begin(),
+				[](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+			return Extension == ".hdr";
+		}
 	}
 
 	FTextureCubeImportDialog::FTextureCubeImportDialog(std::function<void()> InClearError,
@@ -37,11 +46,18 @@ namespace Durin
 	auto FTextureCubeImportDialog::Open(std::string_view DestinationDirectory) -> void
 	{
 		for (auto& Buffer : FacePathBuffers) Buffer.fill(0);
+		PanoramaPathBuffer.fill(0);
 		AssetPathBuffer.fill(0);
+		SourceLayout = ETextureCubeSourceLayout::SixFaces;
+		PanoramaFaceDimension = 0;
+		PanoramaExposureEV = 0.0f;
 		SourceValidationMessage = "Select all six face images to continue.";
+		ValidatedSourceWidth = 0;
+		ValidatedSourceHeight = 0;
 		ValidatedDimension = 0;
 		ValidatedMipCount = 0;
 		ValidatedPixelFormat = EPixelFormat::Unknown;
+		bValidatedHDR = false;
 		bSourcesValid = false;
 		PreferredDestinationDirectory = DestinationDirectory;
 		if (!PreferredDestinationDirectory.empty() && !PreferredDestinationDirectory.ends_with('/'))
@@ -64,47 +80,106 @@ namespace Durin
 			ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 			return;
 
-		ImGui::TextUnformatted("Create a TextureCube asset from six square images.");
-		ImGui::TextDisabled("Images use normal top-to-bottom row order and are copied beside the .dasset package.");
+		ImGui::TextUnformatted("Create a TextureCube asset from six faces or a 2:1 panorama.");
+		ImGui::TextDisabled("Authoritative source images are copied beside the .dasset package.");
 		ImGui::Spacing();
-		ImGui::SeparatorText("Cube faces");
-		if (ImGui::BeginTable("TextureCubeFaces", 4,
-			ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg))
+		ImGui::SeparatorText("Source");
+		const char* SourceMode = SourceLayout == ETextureCubeSourceLayout::SixFaces
+			? "Six Faces" : "Equirectangular Panorama";
+		if (ImGui::BeginCombo("Source mode", SourceMode))
 		{
-			ImGui::TableSetupColumn("Face", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(42.0f));
-			ImGui::TableSetupColumn("Direction", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(72.0f));
-			ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthStretch);
-			ImGui::TableSetupColumn("Orientation", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(132.0f));
-			ImGui::TableHeadersRow();
-			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+			for (const ETextureCubeSourceLayout Layout :
+				{ETextureCubeSourceLayout::SixFaces, ETextureCubeSourceLayout::EquirectangularPanorama})
 			{
-				ImGui::PushID(static_cast<int>(Index));
-				ImGui::TableNextRow();
-				ImGui::TableNextColumn();
-				ImGui::TextUnformatted(FaceLabels[Index].data());
-				ImGui::TableNextColumn();
-				ImGui::TextUnformatted(FaceDirections[Index].data());
-				ImGui::TableNextColumn();
-				const char* Path = FacePathBuffers[Index].data();
-				const std::string FileName = Path[0] == '\0'
-					? std::string("Choose image...")
-					: std::filesystem::path(Path).filename().generic_string();
-				ImGui::SetNextItemWidth(-FLT_MIN);
-				if (ImGui::Button(FileName.c_str(), ImVec2(-FLT_MIN, 0.0f)))
-					BrowseFace(static_cast<ETextureCubeFace>(Index));
-				if (Path[0] != '\0' && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Path);
-				ImGui::TableNextColumn();
-				ImGui::TextDisabled("%s", FaceOrientationHints[Index].data());
-				ImGui::PopID();
+				const char* Label = Layout == ETextureCubeSourceLayout::SixFaces
+					? "Six Faces" : "Equirectangular Panorama";
+				const bool bSelected = SourceLayout == Layout;
+				if (ImGui::Selectable(Label, bSelected))
+				{
+					SourceLayout = Layout;
+					RevalidateSources();
+				}
+				if (bSelected) ImGui::SetItemDefaultFocus();
 			}
-			ImGui::EndTable();
+			ImGui::EndCombo();
+		}
+
+		if (SourceLayout == ETextureCubeSourceLayout::SixFaces)
+		{
+			ImGui::TextDisabled("Images use normal top-to-bottom row order.");
+			if (ImGui::BeginTable("TextureCubeFaces", 4,
+				ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg))
+			{
+				ImGui::TableSetupColumn("Face", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(42.0f));
+				ImGui::TableSetupColumn("Direction", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(72.0f));
+				ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthStretch);
+				ImGui::TableSetupColumn("Orientation", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(132.0f));
+				ImGui::TableHeadersRow();
+				for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+				{
+					ImGui::PushID(static_cast<int>(Index));
+					ImGui::TableNextRow();
+					ImGui::TableNextColumn();
+					ImGui::TextUnformatted(FaceLabels[Index].data());
+					ImGui::TableNextColumn();
+					ImGui::TextUnformatted(FaceDirections[Index].data());
+					ImGui::TableNextColumn();
+					const char* Path = FacePathBuffers[Index].data();
+					const std::string FileName = Path[0] == '\0'
+						? std::string("Choose image...")
+						: std::filesystem::path(Path).filename().generic_string();
+					ImGui::SetNextItemWidth(-FLT_MIN);
+					if (ImGui::Button(FileName.c_str(), ImVec2(-FLT_MIN, 0.0f)))
+						BrowseFace(static_cast<ETextureCubeFace>(Index));
+					if (Path[0] != '\0' && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Path);
+					ImGui::TableNextColumn();
+					ImGui::TextDisabled("%s", FaceOrientationHints[Index].data());
+					ImGui::PopID();
+				}
+				ImGui::EndTable();
+			}
+		}
+		else
+		{
+			const char* Path = PanoramaPathBuffer.data();
+			const std::string FileName = Path[0] == '\0'
+				? std::string("Choose panorama...")
+				: std::filesystem::path(Path).filename().generic_string();
+			ImGui::TextUnformatted("Panorama");
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::Button(FileName.c_str(), ImVec2(-FLT_MIN, 0.0f))) BrowsePanorama();
+			if (Path[0] != '\0' && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Path);
+
+			int FaceDimension = static_cast<int>(PanoramaFaceDimension);
+			if (ImGui::DragInt("Face dimension", &FaceDimension, 1.0f, 0, 4096,
+				"%d px", ImGuiSliderFlags_AlwaysClamp))
+			{
+				PanoramaFaceDimension = static_cast<uint32>(FaceDimension);
+				RevalidateSources();
+			}
+			ImGui::TextDisabled("0 (Auto) derives one quarter of the panorama width.");
+
+			const bool bHDRSource = IsRadianceHDRPath(PanoramaPathBuffer.data());
+			ImGui::BeginDisabled(!bHDRSource);
+			if (ImGui::DragFloat("Exposure", &PanoramaExposureEV, 0.1f, -16.0f, 16.0f,
+				"%+.1f EV", ImGuiSliderFlags_AlwaysClamp))
+				RevalidateSources();
+			ImGui::EndDisabled();
+			if (!bHDRSource) ImGui::TextDisabled("Exposure applies only to Radiance HDR sources.");
 		}
 
 		if (bSourcesValid)
 		{
-			ImGui::TextDisabled("Validated: 6 faces, %ux%u, %u mips, format %u.",
+			if (SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
+			{
+				ImGui::SeparatorText("Projection summary");
+				ImGui::TextDisabled("Source: %ux%u %s panorama.", ValidatedSourceWidth,
+					ValidatedSourceHeight, bValidatedHDR ? "Radiance HDR" : "LDR");
+				ImGui::TextDisabled("Projection: longitude wraps; +Y is the north pole; pixel-center bilinear sampling.");
+			}
+			ImGui::TextDisabled("Output: 6 faces, %ux%u, %u mips, %s (LDR).",
 				ValidatedDimension, ValidatedDimension, ValidatedMipCount,
-				static_cast<uint32>(ValidatedPixelFormat));
+				GetPixelFormatInfo(ValidatedPixelFormat).Name);
 		}
 		else
 		{
@@ -183,17 +258,34 @@ namespace Durin
 		FacePathBuffers[Index].fill(0);
 		std::memcpy(FacePathBuffers[Index].data(), Result.FilePath.data(), Result.FilePath.size());
 		if (AssetPathBuffer[0] == '\0')
+			SuggestAssetPath(Result.FilePath);
+		RevalidateSources();
+	}
+
+	auto FTextureCubeImportDialog::BrowsePanorama() -> void
+	{
+		FFileDialogRequest Request;
+		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.Title = "Select an Equirectangular Panorama";
+		Request.Filters = {
+			{"All Supported Panoramas", "*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.hdr"},
+			{"Radiance HDR", "*.hdr"}, {"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"},
+			{"Bitmap", "*.bmp"}, {"Targa", "*.tga"}, {"All Files", "*.*"}};
+		if (const FProjectInfo* Project = GetCurrentProject()) Request.InitialDirectory = Project->ProjectDir;
+		if (PanoramaPathBuffer[0] != '\0')
+			Request.InitialDirectory = std::filesystem::path(PanoramaPathBuffer.data()).parent_path().generic_string();
+		const FFileDialogResult Result = OpenFileDialog(Request);
+		if (Result.Status == EFileDialogStatus::Cancelled) return;
+		if (Result.Status == EFileDialogStatus::Error) { SetError(Result.ErrorMessage); return; }
+		if (Result.FilePath.size() >= PanoramaPathBuffer.size())
 		{
-			const std::string AssetName = StringUtils::SanitizeFileName(
-				std::filesystem::path(Result.FilePath).stem().generic_string(), "TextureCube");
-			const FProjectInfo* Project = GetCurrentProject();
-			const std::string SuggestedPath = !PreferredDestinationDirectory.empty()
-				? PreferredDestinationDirectory + AssetName
-				: (Project ? Project->MountRoot : "/") + "Textures/" + AssetName;
-			AssetPathBuffer.fill(0);
-			std::memcpy(AssetPathBuffer.data(), SuggestedPath.data(),
-				std::min(SuggestedPath.size(), AssetPathBuffer.size() - 1));
+			SetError("The selected file path is too long for the panorama import form.");
+			return;
 		}
+
+		PanoramaPathBuffer.fill(0);
+		std::memcpy(PanoramaPathBuffer.data(), Result.FilePath.data(), Result.FilePath.size());
+		if (AssetPathBuffer[0] == '\0') SuggestAssetPath(Result.FilePath);
 		RevalidateSources();
 	}
 
@@ -238,15 +330,29 @@ namespace Durin
 
 	auto FTextureCubeImportDialog::RevalidateSources() -> bool
 	{
-		std::array<std::string, TextureCubeFaceCount> Faces;
-		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-			Faces[Index] = FacePathBuffers[Index].data();
-		const FTextureCubeImportValidation Validation = DTextureCube::ValidateImportSources(Faces);
+		FTextureCubeImportValidation Validation;
+		if (SourceLayout == ETextureCubeSourceLayout::SixFaces)
+		{
+			std::array<std::string, TextureCubeFaceCount> Faces;
+			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+				Faces[Index] = FacePathBuffers[Index].data();
+			Validation = DTextureCube::ValidateImportSources(Faces);
+		}
+		else
+		{
+			const FTextureCubePanoramaImportSettings Settings{
+				.FaceDimension = PanoramaFaceDimension,
+				.ExposureEV = IsRadianceHDRPath(PanoramaPathBuffer.data()) ? PanoramaExposureEV : 0.0f};
+			Validation = DTextureCube::ValidatePanoramaImportSource(PanoramaPathBuffer.data(), Settings);
+		}
 		bSourcesValid = static_cast<bool>(Validation);
 		SourceValidationMessage = Validation.Message;
+		ValidatedSourceWidth = Validation.SourceWidth;
+		ValidatedSourceHeight = Validation.SourceHeight;
 		ValidatedDimension = Validation.Dimension;
 		ValidatedMipCount = Validation.MipCount;
 		ValidatedPixelFormat = Validation.PixelFormat;
+		bValidatedHDR = Validation.bHDR;
 		return bSourcesValid;
 	}
 
@@ -254,15 +360,40 @@ namespace Durin
 	{
 		if (ClearError) ClearError();
 		if (!RevalidateSources()) return false;
-		std::array<std::string, TextureCubeFaceCount> Faces;
-		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-			Faces[Index] = FacePathBuffers[Index].data();
-		const FTextureCubeImportResult Result = DTextureCube::ImportAsset(Faces, AssetPathBuffer.data());
+		FTextureCubeImportResult Result;
+		if (SourceLayout == ETextureCubeSourceLayout::SixFaces)
+		{
+			std::array<std::string, TextureCubeFaceCount> Faces;
+			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+				Faces[Index] = FacePathBuffers[Index].data();
+			Result = DTextureCube::ImportAsset(Faces, AssetPathBuffer.data());
+		}
+		else
+		{
+			const FTextureCubePanoramaImportSettings Settings{
+				.FaceDimension = PanoramaFaceDimension,
+				.ExposureEV = bValidatedHDR ? PanoramaExposureEV : 0.0f};
+			Result = DTextureCube::ImportPanoramaAsset(
+				PanoramaPathBuffer.data(), AssetPathBuffer.data(), Settings);
+		}
 		if (!Result) { SetError(Result.Message); return false; }
 		if (Imported) Imported(AssetPathBuffer.data());
 		FAssetPath ImportedPath;
 		if (FAssetPath::TryCreate(AssetPathBuffer.data(), ImportedPath)) Asset::UnloadPackage(ImportedPath);
 		return true;
+	}
+
+	auto FTextureCubeImportDialog::SuggestAssetPath(std::string_view SourceFile) -> void
+	{
+		const std::string AssetName = StringUtils::SanitizeFileName(
+			std::filesystem::path(SourceFile).stem().generic_string(), "TextureCube");
+		const FProjectInfo* Project = GetCurrentProject();
+		const std::string SuggestedPath = !PreferredDestinationDirectory.empty()
+			? PreferredDestinationDirectory + AssetName
+			: (Project ? Project->MountRoot : "/") + "Textures/" + AssetName;
+		AssetPathBuffer.fill(0);
+		std::memcpy(AssetPathBuffer.data(), SuggestedPath.data(),
+			std::min(SuggestedPath.size(), AssetPathBuffer.size() - 1));
 	}
 
 	auto FTextureCubeImportDialog::SetError(std::string Message) const -> void
