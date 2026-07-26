@@ -6,19 +6,23 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 and 1 are complete. The projection, color, compatibility, source
-naming, and allocation contracts are locked in the owning cube-texture
-documentation. AssetCore now provides bounded old/new-scanline Radiance HDR
-decode, RHI owns the shared cube-pixel direction inverse, and Engine projects
-LDR or HDR panoramas into validated six-face RGBA8 source data without asset
-mutation. Analytical fixtures cover axes, seam, poles, linear-space filtering,
-exposure, and the fixed ACES fitted curve.
+Stages 0 through 2 are complete. `DTextureCube` now serializes an explicit
+source layout, package-relative panorama provenance, face-dimension override,
+exposure, and source dimensions. LDR and Radiance HDR panorama imports validate
+and build before filesystem mutation, copy one authoritative source beside the
+package, rebuild deterministically on `PostLoad`, and participate in
+layout-aware move, rename, and delete transactions. Reimport validates and
+builds detached replacement data before changing the copied source, serialized
+settings, platform data, or render-resource revision, and rolls back publication
+if package save fails.
 
-Validation evidence on `Win64-Debug-DurinEditor-Tests`: all 32 AssetCoreTests,
-all 51 RenderCoreTests, and the 10 equirectangular plus existing six-face cube
-tests pass. Stage 2, persistent panorama provenance in `DTextureCube`, is next.
-The first slice deliberately does not introduce floating-point texture assets,
-BC6H build output, image-based lighting, or runtime panorama sampling.
+Validation evidence on `Win64-Debug-DurinEditor-Tests`: all 270 EngineTests pass,
+including panorama import/save/reload, source-layout compatibility, deterministic
+rebuild, consecutive reimport, failed-reimport preservation, missing/corrupt
+source diagnostics, move/rename/delete, and existing six-face regressions.
+Stage 3, the Content Browser workflow, is next. The first slice deliberately
+does not introduce floating-point texture assets, BC6H build output,
+image-based lighting, or runtime panorama sampling.
 
 ## Goal
 
@@ -222,24 +226,24 @@ or mutating an asset.
 Depends on Stage 1. This stage makes panorama-derived cubes persistent,
 rebuildable assets while preserving six-face behavior.
 
-- [ ] Add the reflected source-layout enum, panorama source filename, face
+- [x] Add the reflected source-layout enum, panorama source filename, face
   dimension, and exposure fields to `DTextureCube`.
-- [ ] Keep existing six-face getters and packages compatible; expose explicit
+- [x] Keep existing six-face getters and packages compatible; expose explicit
   provenance queries rather than returning invented generated-face filenames.
-- [ ] Add panorama validation and import APIs that reuse Stage 1 projection and
+- [x] Add panorama validation and import APIs that reuse Stage 1 projection and
   the existing `BuildCubePlatformData` path.
-- [ ] Copy the original panorama beside the package and serialize only the
+- [x] Copy the original panorama beside the package and serialize only the
   package-relative authoritative filename.
-- [ ] Make `PostLoad` resolve and project the active source layout before the
+- [x] Make `PostLoad` resolve and project the active source layout before the
   common platform build.
-- [ ] Extend move/delete contributors and transactional rollback for the
+- [x] Extend move/delete contributors and transactional rollback for the
   panorama source without touching inactive layout fields.
-- [ ] Make reimport validate and build a replacement completely before swapping
+- [x] Make reimport validate and build a replacement completely before swapping
   source/settings/platform data or publishing a new render-resource revision.
-- [ ] Report source layout, original panorama dimensions, derived face
+- [x] Report source layout, original panorama dimensions, derived face
   dimension, mip count, output pixel format, and last build failure through
   stable asset diagnostics.
-- [ ] Add asset tests for import, save/reload, old-package compatibility,
+- [x] Add asset tests for import, save/reload, old-package compatibility,
   rebuild determinism, reimport success/failure, missing/corrupt source, move,
   rename, delete, and rapid revision replacement.
 

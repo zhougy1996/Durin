@@ -5,6 +5,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DynamicRHI.h"
 #include "Misc/Paths.h"
+#include "Texture/EquirectangularTextureCube.h"
 #include "Texture/TextureBuild.h"
 #include "Texture/TextureCubeRenderResource.h"
 
@@ -48,6 +49,14 @@ namespace Durin
 			const std::filesystem::path LegacyPath = ResolveMountedFile(Texture.GetSourceFile(Face));
 			if (std::filesystem::is_regular_file(LegacyPath)) return LegacyPath;
 			return (PackageFile.parent_path() / StoredPath.filename()).lexically_normal();
+		}
+
+		auto MakePanoramaSourceFileName(std::string_view AssetName, std::string_view Extension) -> std::string
+		{
+			std::string NormalizedExtension(Extension);
+			std::ranges::transform(NormalizedExtension, NormalizedExtension.begin(),
+				[](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+			return std::format("{}_panorama{}", AssetName, NormalizedExtension);
 		}
 
 		auto MakeSourceFileName(std::string_view AssetName, size_t FaceIndex, std::string_view Extension) -> std::string
@@ -146,6 +155,79 @@ namespace Durin
 			}
 			return ValidateCubeSourceData(OutSourceData, OutError);
 		}
+
+		auto DecodePanoramaInput(const std::filesystem::path& Input,
+			const FTextureCubePanoramaImportSettings& Settings, FTextureCubeSourceData& OutSourceData,
+			uint32& OutSourceWidth, uint32& OutSourceHeight, bool& bOutHDR, std::string& OutError) -> bool
+		{
+			OutSourceData = {};
+			OutSourceWidth = 0;
+			OutSourceHeight = 0;
+			bOutHDR = false;
+			if (!std::filesystem::is_regular_file(Input))
+			{
+				OutError = "Panorama source file does not exist.";
+				return false;
+			}
+
+			const std::string Extension = Input.extension().generic_string();
+			const TextureBuild::FEquirectangularTextureCubeProjectionSettings ProjectionSettings{
+				.FaceDimension = Settings.FaceDimension,
+				.ExposureEV = Settings.ExposureEV,
+			};
+			if (Asset::IsRadianceHDRExtension(Extension))
+			{
+				bOutHDR = true;
+				Asset::FDecodedFloatImage Panorama;
+				if (!Asset::DecodeRadianceHDRFromFile(Input.generic_string(), Panorama, OutError))
+				{
+					OutError = std::format("Panorama HDR decode failed: {}", OutError);
+					return false;
+				}
+				OutSourceWidth = Panorama.Width;
+				OutSourceHeight = Panorama.Height;
+				if (!TextureBuild::ProjectEquirectangularTextureCube(
+					Panorama, ProjectionSettings, OutSourceData, OutError))
+				{
+					OutError = std::format("Panorama projection failed: {}", OutError);
+					return false;
+				}
+				return true;
+			}
+			if (!Asset::IsSupportedImageExtension(Extension))
+			{
+				OutError = "Panorama uses an unsupported source format.";
+				return false;
+			}
+
+			Asset::FDecodedImage Panorama;
+			Asset::FImageDecodeLimits Limits;
+			Limits.MaximumDecodedPixels = TextureBuild::MaximumPanoramaPixels;
+			if (!Asset::DecodeImageFromFile(Input.generic_string(), Panorama, OutError, Limits))
+			{
+				OutError = std::format("Panorama LDR decode failed: {}", OutError);
+				return false;
+			}
+			OutSourceWidth = Panorama.Width;
+			OutSourceHeight = Panorama.Height;
+			if (!TextureBuild::ProjectEquirectangularTextureCube(
+				Panorama, ProjectionSettings, OutSourceData, OutError))
+			{
+				OutError = std::format("Panorama projection failed: {}", OutError);
+				return false;
+			}
+			return true;
+		}
+
+		auto ValidatePanorama(const std::filesystem::path& Input,
+			const FTextureCubePanoramaImportSettings& Settings, FTextureCubeSourceData& OutSourceData,
+			FTextureCubePlatformData& OutPlatformData, uint32& OutSourceWidth, uint32& OutSourceHeight,
+			bool& bOutHDR, std::string& OutError) -> bool
+		{
+			if (!DecodePanoramaInput(Input, Settings, OutSourceData, OutSourceWidth, OutSourceHeight, bOutHDR, OutError))
+				return false;
+			return BuildCubePlatformData(OutSourceData, true, OutPlatformData, OutError);
+		}
 	}
 
 	auto FTextureCubeSourceData::IsValid() const -> bool
@@ -184,6 +266,28 @@ namespace Durin
 				if (!Texture) return {};
 				const std::filesystem::path OldPackage = ResolveMountedFile(OldPath.ToString());
 				const std::filesystem::path NewPackage = ResolveMountedFile(NewPath.ToString());
+				if (Texture->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama)
+				{
+					const std::string Original = Texture->PanoramaSourceFile;
+					if (Original.empty()) return {};
+					const std::filesystem::path SourceName(Original);
+					const std::filesystem::path OldSource = SourceName.is_absolute()
+						? SourceName : OldPackage.parent_path() / SourceName;
+					const std::string Replacement = OldPath.GetAssetName() == NewPath.GetAssetName()
+						? SourceName.filename().generic_string()
+						: MakePanoramaSourceFileName(NewPath.GetAssetName(), SourceName.extension().generic_string());
+					const std::filesystem::path NewSource = NewPackage.parent_path() / Replacement;
+					if (OldSource.lexically_normal() != NewSource.lexically_normal())
+						Out.Files.emplace_back(OldSource.lexically_normal(), NewSource.lexically_normal());
+					if (Replacement != Original)
+					{
+						Out.Apply = [Texture, Replacement] { Texture->PanoramaSourceFile = Replacement; };
+						Out.Rollback = [Texture, Original] { Texture->PanoramaSourceFile = Original; };
+					}
+					return {};
+				}
+				if (Texture->GetSourceLayout() != ETextureCubeSourceLayout::SixFaces)
+					return {Asset::EAssetError::UnsupportedProperty, "Texture cube source layout is invalid."};
 				std::array<std::string, TextureCubeFaceCount> Originals;
 				std::array<std::string, TextureCubeFaceCount> Replacements;
 				for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
@@ -214,6 +318,13 @@ namespace Durin
 				Asset::FAssetDeleteContribution& Out) -> Asset::FAssetResult {
 				auto* Texture = Cast<DTextureCube>(Object);
 				if (!Texture) return {};
+				if (Texture->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama)
+				{
+					if (!Texture->PanoramaSourceFile.empty()) Out.Files.push_back(Texture->ResolvePanoramaSource());
+					return {};
+				}
+				if (Texture->GetSourceLayout() != ETextureCubeSourceLayout::SixFaces)
+					return {Asset::EAssetError::UnsupportedProperty, "Texture cube source layout is invalid."};
 				for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 				{
 					const ETextureCubeFace Face = static_cast<ETextureCubeFace>(FaceIndex);
@@ -252,6 +363,33 @@ namespace Durin
 		return const_cast<std::string&>(std::as_const(*this).GetSourceFile(Face));
 	}
 
+	auto DTextureCube::ResolvePanoramaSource() const -> std::filesystem::path
+	{
+		const std::filesystem::path StoredPath(PanoramaSourceFile);
+		const std::filesystem::path PackageFile = ResolveMountedFile(GetPackage()->GetPackagePath());
+		if (!StoredPath.is_absolute() && !PanoramaSourceFile.starts_with('/'))
+			return (PackageFile.parent_path() / StoredPath).lexically_normal();
+		const std::filesystem::path LegacyPath = ResolveMountedFile(PanoramaSourceFile);
+		if (std::filesystem::is_regular_file(LegacyPath)) return LegacyPath;
+		return (PackageFile.parent_path() / StoredPath.filename()).lexically_normal();
+	}
+
+	auto DTextureCube::GetBuiltFaceDimension() const -> uint32
+	{
+		return SourceData && SourceData->IsValid() ? SourceData->Faces[0].Width : 0;
+	}
+
+	auto DTextureCube::GetBuiltMipCount() const -> uint32
+	{
+		return PlatformData && PlatformData->IsValid()
+			? static_cast<uint32>(PlatformData->Faces[0].Mips.size()) : 0;
+	}
+
+	auto DTextureCube::GetBuiltPixelFormat() const -> EPixelFormat
+	{
+		return PlatformData && PlatformData->IsValid() ? PlatformData->PixelFormat : EPixelFormat::Unknown;
+	}
+
 	auto DTextureCube::InvalidatePlatformData() -> void
 	{
 		PlatformData.reset();
@@ -288,6 +426,51 @@ namespace Durin
 	auto DTextureCube::PostLoad(std::string& OutError) -> bool
 	{
 		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
+		if (SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
+		{
+			if (PanoramaSourceFile.empty())
+			{
+				OutError = "Panorama layout has no source file.";
+				BuildStatus = ETextureBuildStatus::MissingSource;
+				LastBuildError = OutError;
+				SourceData.reset();
+				InvalidatePlatformData();
+				return false;
+			}
+			const std::filesystem::path SourcePath = ResolvePanoramaSource();
+			if (!std::filesystem::is_regular_file(SourcePath))
+			{
+				OutError = std::format("Panorama source file does not exist: {}", PanoramaSourceFile);
+				BuildStatus = ETextureBuildStatus::MissingSource;
+				LastBuildError = OutError;
+				SourceData.reset();
+				InvalidatePlatformData();
+				return false;
+			}
+			bool bHDR = false;
+			if (!DecodePanoramaInput(SourcePath,
+				{.FaceDimension = PanoramaFaceDimension, .ExposureEV = PanoramaExposureEV},
+				*NewSourceData, OriginalSourceWidth, OriginalSourceHeight, bHDR, OutError))
+			{
+				BuildStatus = OutError.find("decode failed") != std::string::npos
+					? ETextureBuildStatus::DecodeFailure : ETextureBuildStatus::BuildFailure;
+				LastBuildError = OutError;
+				SourceData.reset();
+				InvalidatePlatformData();
+				return false;
+			}
+			SourceData = std::move(NewSourceData);
+			return RebuildPlatformData(OutError);
+		}
+		if (SourceLayout != ETextureCubeSourceLayout::SixFaces)
+		{
+			OutError = "Texture cube source layout is invalid.";
+			BuildStatus = ETextureBuildStatus::BuildFailure;
+			LastBuildError = OutError;
+			SourceData.reset();
+			InvalidatePlatformData();
+			return false;
+		}
 		for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 		{
 			const ETextureCubeFace Face = static_cast<ETextureCubeFace>(FaceIndex);
@@ -363,10 +546,240 @@ namespace Durin
 			return {false, std::move(Error)};
 		return {
 			.bValid = true,
+			.SourceLayout = ETextureCubeSourceLayout::SixFaces,
+			.SourceWidth = SourceData.Faces[0].Width,
+			.SourceHeight = SourceData.Faces[0].Height,
 			.Dimension = SourceData.Faces[0].Width,
 			.MipCount = static_cast<uint32>(PlatformData.Faces[0].Mips.size()),
 			.PixelFormat = PlatformData.PixelFormat,
 		};
+	}
+
+	auto DTextureCube::ValidatePanoramaImportSource(std::string_view PanoramaFile,
+		const FTextureCubePanoramaImportSettings& Settings) -> FTextureCubeImportValidation
+	{
+		if (PanoramaFile.empty()) return {false, "Panorama source is missing."};
+		const std::filesystem::path Input = std::filesystem::absolute(PanoramaFile).lexically_normal();
+		FTextureCubeSourceData SourceData;
+		FTextureCubePlatformData PlatformData;
+		uint32 SourceWidth = 0;
+		uint32 SourceHeight = 0;
+		bool bHDR = false;
+		std::string Error;
+		if (!ValidatePanorama(Input, Settings, SourceData, PlatformData,
+			SourceWidth, SourceHeight, bHDR, Error))
+		{
+			return {false, std::move(Error)};
+		}
+		return {
+			.bValid = true,
+			.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
+			.SourceWidth = SourceWidth,
+			.SourceHeight = SourceHeight,
+			.Dimension = SourceData.Faces[0].Width,
+			.MipCount = static_cast<uint32>(PlatformData.Faces[0].Mips.size()),
+			.PixelFormat = PlatformData.PixelFormat,
+			.bHDR = bHDR,
+		};
+	}
+
+	auto DTextureCube::ImportPanoramaAsset(std::string_view PanoramaFile, std::string_view AssetPath,
+		const FTextureCubePanoramaImportSettings& Settings) -> FTextureCubeImportResult
+	{
+		if (PanoramaFile.empty()) return {false, "Panorama source is missing.", nullptr};
+		const std::filesystem::path Input = std::filesystem::absolute(PanoramaFile).lexically_normal();
+		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
+		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();
+		uint32 SourceWidth = 0;
+		uint32 SourceHeight = 0;
+		bool bHDR = false;
+		std::string Error;
+		if (!ValidatePanorama(Input, Settings, *NewSourceData, *NewPlatformData,
+			SourceWidth, SourceHeight, bHDR, Error))
+		{
+			return {false, std::move(Error), nullptr};
+		}
+
+		FAssetPath ParsedAssetPath;
+		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
+			return {false, std::move(Error), nullptr};
+		if (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath))
+			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
+
+		const std::filesystem::path DestinationDirectory =
+			ResolveMountedFile(ParsedAssetPath.ToString()).parent_path();
+		const std::string SourceFileName = MakePanoramaSourceFileName(
+			ParsedAssetPath.GetAssetName(), Input.extension().generic_string());
+		const std::filesystem::path Destination = DestinationDirectory / SourceFileName;
+		if (std::filesystem::exists(Destination))
+			return {false, std::format("Imported panorama source already exists: {}",
+				Destination.generic_string()), nullptr};
+
+		DTextureCube* Texture = nullptr;
+		Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Texture);
+		if (!CreateResult) return {false, CreateResult.Message, nullptr};
+
+		std::error_code ErrorCode;
+		std::filesystem::create_directories(DestinationDirectory, ErrorCode);
+		ErrorCode.clear();
+		if (!std::filesystem::copy_file(Input, Destination, std::filesystem::copy_options::none, ErrorCode))
+		{
+			Asset::UnloadPackage(ParsedAssetPath);
+			return {false, std::format("Failed to copy panorama source: {}", ErrorCode.message()), nullptr};
+		}
+
+		Texture->SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama;
+		Texture->PanoramaSourceFile = SourceFileName;
+		Texture->PanoramaFaceDimension = Settings.FaceDimension;
+		Texture->PanoramaExposureEV = Settings.ExposureEV;
+		Texture->OriginalSourceWidth = SourceWidth;
+		Texture->OriginalSourceHeight = SourceHeight;
+		Texture->bSRGB = true;
+		Texture->SourceData = std::move(NewSourceData);
+		Texture->PlatformData = std::move(NewPlatformData);
+		Texture->BuildStatus = ETextureBuildStatus::Ready;
+
+		Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
+		if (!SaveResult)
+		{
+			std::filesystem::remove(Destination, ErrorCode);
+			Asset::UnloadPackage(ParsedAssetPath);
+			return {false, SaveResult.Message, nullptr};
+		}
+		Texture->QueueRenderResourceBuild();
+		return {true, {}, Texture};
+	}
+
+	auto DTextureCube::ReimportPanorama(std::string_view PanoramaFile,
+		const FTextureCubePanoramaImportSettings& Settings, std::string& OutError) -> bool
+	{
+		OutError.clear();
+		if (SourceLayout != ETextureCubeSourceLayout::EquirectangularPanorama)
+		{
+			OutError = "Only panorama-backed texture cubes can be reimported through this API.";
+			return false;
+		}
+		if (PanoramaFile.empty())
+		{
+			OutError = "Panorama source is missing.";
+			return false;
+		}
+
+		const std::filesystem::path Input = std::filesystem::absolute(PanoramaFile).lexically_normal();
+		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
+		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();
+		uint32 NewSourceWidth = 0;
+		uint32 NewSourceHeight = 0;
+		bool bHDR = false;
+		if (!ValidatePanorama(Input, Settings, *NewSourceData, *NewPlatformData,
+			NewSourceWidth, NewSourceHeight, bHDR, OutError))
+		{
+			return false;
+		}
+
+		const std::filesystem::path OldSource = ResolvePanoramaSource();
+		const std::filesystem::path DestinationDirectory =
+			ResolveMountedFile(GetPackage()->GetPackagePath()).parent_path();
+		const std::string NewSourceFileName = MakePanoramaSourceFileName(
+			GetName(), Input.extension().generic_string());
+		const std::filesystem::path NewSource = DestinationDirectory / NewSourceFileName;
+		std::error_code ErrorCode;
+		const bool bInputIsDestination = Input.lexically_normal() == NewSource.lexically_normal();
+		const std::filesystem::path TemporarySource =
+			NewSource.generic_string() + ".reimport.tmp";
+		const std::filesystem::path BackupSource =
+			NewSource.generic_string() + ".reimport.backup";
+		if (!bInputIsDestination)
+		{
+			if (NewSource != OldSource && std::filesystem::exists(NewSource))
+			{
+				OutError = std::format("Panorama replacement destination already exists: {}",
+					NewSource.generic_string());
+				return false;
+			}
+			std::filesystem::remove(TemporarySource, ErrorCode);
+			ErrorCode.clear();
+			if (!std::filesystem::copy_file(Input, TemporarySource,
+				std::filesystem::copy_options::none, ErrorCode))
+			{
+				OutError = std::format("Failed to stage panorama replacement: {}", ErrorCode.message());
+				return false;
+			}
+			if (NewSource == OldSource && std::filesystem::exists(NewSource))
+			{
+				std::filesystem::remove(BackupSource, ErrorCode);
+				ErrorCode.clear();
+				std::filesystem::rename(NewSource, BackupSource, ErrorCode);
+				if (ErrorCode)
+				{
+					const std::string MoveError = ErrorCode.message();
+					std::error_code CleanupError;
+					std::filesystem::remove(TemporarySource, CleanupError);
+					OutError = std::format("Failed to preserve the current panorama source: {}", MoveError);
+					return false;
+				}
+			}
+			ErrorCode.clear();
+			std::filesystem::rename(TemporarySource, NewSource, ErrorCode);
+			if (ErrorCode)
+			{
+				const std::string InstallError = ErrorCode.message();
+				if (std::filesystem::exists(BackupSource))
+				{
+					std::error_code RestoreError;
+					std::filesystem::rename(BackupSource, NewSource, RestoreError);
+				}
+				std::error_code CleanupError;
+				std::filesystem::remove(TemporarySource, CleanupError);
+				OutError = std::format("Failed to install panorama replacement: {}", InstallError);
+				return false;
+			}
+		}
+
+		const std::string OldSourceFileName = PanoramaSourceFile;
+		const uint32 OldFaceDimension = PanoramaFaceDimension;
+		const float OldExposureEV = PanoramaExposureEV;
+		const uint32 OldSourceWidth = OriginalSourceWidth;
+		const uint32 OldSourceHeight = OriginalSourceHeight;
+		auto OldSourceData = std::move(SourceData);
+		auto OldPlatformData = std::move(PlatformData);
+		PanoramaSourceFile = NewSourceFileName;
+		PanoramaFaceDimension = Settings.FaceDimension;
+		PanoramaExposureEV = Settings.ExposureEV;
+		OriginalSourceWidth = NewSourceWidth;
+		OriginalSourceHeight = NewSourceHeight;
+		SourceData = std::move(NewSourceData);
+		PlatformData = std::move(NewPlatformData);
+
+		const Asset::FAssetResult SaveResult = Asset::SavePackage(GetPackage());
+		if (!SaveResult)
+		{
+			PanoramaSourceFile = OldSourceFileName;
+			PanoramaFaceDimension = OldFaceDimension;
+			PanoramaExposureEV = OldExposureEV;
+			OriginalSourceWidth = OldSourceWidth;
+			OriginalSourceHeight = OldSourceHeight;
+			SourceData = std::move(OldSourceData);
+			PlatformData = std::move(OldPlatformData);
+			if (!bInputIsDestination)
+			{
+				std::filesystem::remove(NewSource, ErrorCode);
+				if (std::filesystem::exists(BackupSource))
+					std::filesystem::rename(BackupSource, OldSource, ErrorCode);
+			}
+			OutError = SaveResult.Message;
+			return false;
+		}
+
+		if (!bInputIsDestination)
+		{
+			std::filesystem::remove(BackupSource, ErrorCode);
+			if (OldSource != NewSource) std::filesystem::remove(OldSource, ErrorCode);
+		}
+		BuildStatus = ETextureBuildStatus::Ready;
+		LastBuildError.clear();
+		QueueRenderResourceBuild();
+		return true;
 	}
 
 	auto DTextureCube::ImportAsset(const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
@@ -425,6 +838,7 @@ namespace Durin
 
 		for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 			Texture->GetMutableSourceFile(static_cast<ETextureCubeFace>(FaceIndex)) = SourceFileNames[FaceIndex];
+		Texture->SourceLayout = ETextureCubeSourceLayout::SixFaces;
 		Texture->bSRGB = Settings.bSRGB;
 		Texture->SourceData = std::move(NewSourceData);
 		Texture->PlatformData = std::move(NewPlatformData);

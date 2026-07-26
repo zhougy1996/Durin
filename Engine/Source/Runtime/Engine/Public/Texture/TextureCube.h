@@ -11,6 +11,13 @@ namespace Durin
 {
 	class FTextureCubeRenderResource;
 
+	DENUM(DisplayName = "Texture Cube Source Layout")
+	enum class ETextureCubeSourceLayout : uint8
+	{
+		SixFaces,
+		EquirectangularPanorama DMETA(DisplayName = "Equirectangular Panorama"),
+	};
+
 	struct FTextureCubeSourceData
 	{
 		std::array<FTextureSourceData, TextureCubeFaceCount> Faces;
@@ -31,14 +38,25 @@ namespace Durin
 		bool bSRGB = true;
 	};
 
-	// Summarizes a six-face source set after decode and platform-build validation.
+	struct FTextureCubePanoramaImportSettings
+	{
+		// Zero derives the face dimension from one quarter of the panorama width.
+		uint32 FaceDimension = 0;
+		float ExposureEV = 0.0f;
+	};
+
+	// Summarizes a source after decode, projection, and platform-build validation.
 	struct FTextureCubeImportValidation
 	{
 		bool bValid = false;
 		std::string Message;
+		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
+		uint32 SourceWidth = 0;
+		uint32 SourceHeight = 0;
 		uint32 Dimension = 0;
 		uint32 MipCount = 0;
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
+		bool bHDR = false;
 
 		explicit operator bool() const { return bValid; }
 	};
@@ -54,6 +72,15 @@ namespace Durin
 		ENGINE_API ~DTextureCube() override;
 
 		ENGINE_API auto GetSourceFile(ETextureCubeFace Face) const -> const std::string&;
+		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
+		auto GetPanoramaSourceFile() const -> const std::string& { return PanoramaSourceFile; }
+		auto GetPanoramaFaceDimension() const -> uint32 { return PanoramaFaceDimension; }
+		auto GetPanoramaExposureEV() const -> float { return PanoramaExposureEV; }
+		auto GetOriginalSourceWidth() const -> uint32 { return OriginalSourceWidth; }
+		auto GetOriginalSourceHeight() const -> uint32 { return OriginalSourceHeight; }
+		ENGINE_API auto GetBuiltFaceDimension() const -> uint32;
+		ENGINE_API auto GetBuiltMipCount() const -> uint32;
+		ENGINE_API auto GetBuiltPixelFormat() const -> EPixelFormat;
 		auto GetSourceData() const -> const FTextureCubeSourceData* { return SourceData.get(); }
 		auto GetPlatformData() const -> const FTextureCubePlatformData* { return PlatformData.get(); }
 		auto GetRenderResource() const -> const std::shared_ptr<FTextureCubeRenderResource>& { return RenderResource; }
@@ -73,11 +100,26 @@ namespace Durin
 		ENGINE_API static auto ValidateImportSources(
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			const FTextureCubeImportSettings& Settings = {}) -> FTextureCubeImportValidation;
+		ENGINE_API static auto ImportPanoramaAsset(
+			std::string_view PanoramaFile,
+			std::string_view AssetPath,
+			const FTextureCubePanoramaImportSettings& Settings = {}) -> FTextureCubeImportResult;
+		ENGINE_API static auto ValidatePanoramaImportSource(
+			std::string_view PanoramaFile,
+			const FTextureCubePanoramaImportSettings& Settings = {}) -> FTextureCubeImportValidation;
+		ENGINE_API auto ReimportPanorama(
+			std::string_view PanoramaFile,
+			const FTextureCubePanoramaImportSettings& Settings,
+			std::string& OutError) -> bool;
 
 	private:
 		auto GetMutableSourceFile(ETextureCubeFace Face) -> std::string&;
+		auto ResolvePanoramaSource() const -> std::filesystem::path;
 		auto InvalidatePlatformData() -> void;
 		auto QueueRenderResourceBuild() -> void;
+
+		DPROPERTY(DisplayName = "Source Layout")
+		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 
 		DPROPERTY(DisplayName = "Positive X Source")
 		std::string PositiveXSourceFile;
@@ -96,6 +138,21 @@ namespace Durin
 
 		DPROPERTY(DisplayName = "Negative Z Source")
 		std::string NegativeZSourceFile;
+
+		DPROPERTY(DisplayName = "Panorama Source")
+		std::string PanoramaSourceFile;
+
+		DPROPERTY(DisplayName = "Panorama Face Dimension")
+		uint32 PanoramaFaceDimension = 0;
+
+		DPROPERTY(DisplayName = "Panorama Exposure EV")
+		float PanoramaExposureEV = 0.0f;
+
+		DPROPERTY()
+		uint32 OriginalSourceWidth = 0;
+
+		DPROPERTY()
+		uint32 OriginalSourceHeight = 0;
 
 		DPROPERTY()
 		bool bSRGB = true;
