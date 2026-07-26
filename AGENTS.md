@@ -10,6 +10,12 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 - Authoring and lifecycle rules come from the nearest `AGENTS.md`; do not sample unrelated documents to infer their format.
 - Machine-local build overrides belong in optional `.agents/build-config.json`; create it with `Setup.bat` when needed.
 
+## Plan Stage Continuation
+
+- Treat completed-stage handoffs and their baseline commits as established context. Start with the current stage, prior handoff, recorded working set, and relevant diff; do not rediscover completed-stage architecture.
+- Validate recorded symbols with targeted searches and initially inspect no more than five relevant code files. Expand only when code conflicts with the handoff, a required direct dependency is missing, or validation points outside the working set; state the gap and added scope first.
+- End each stage with a compact handoff recording the baseline commit, working set, key symbols and decisions, open questions, and validation outcome.
+
 ## Repository Rules
 
 - Each checkout has one source/build writer; use separate worktrees for concurrency.
