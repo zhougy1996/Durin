@@ -19,6 +19,7 @@ namespace Durin
 		auto Run() -> uint32 override
 		{
 			check(IsInRenderingThread());
+			FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::Graphics);
 			DURIN_DEBUG("Rendering thread started. ({}, id: {})", GetCurrentThread()->GetThreadName(), GetCurrentThread()->GetThreadId());
 			while (!bStopRequested.load(std::memory_order::relaxed))
 			{
