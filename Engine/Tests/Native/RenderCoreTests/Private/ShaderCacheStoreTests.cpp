@@ -26,6 +26,17 @@ namespace Durin
 			return std::filesystem::path(DURIN_TEST_WORK_DIR) / "ShaderCacheStore";
 		}
 
+		auto GetLongTestCacheRoot() -> std::filesystem::path
+		{
+			std::filesystem::path Root = std::filesystem::absolute(
+				std::filesystem::path(DURIN_TEST_WORK_DIR) / "LongShaderCache").lexically_normal();
+			for (size_t Index = 0; Root.native().size() <= 270; ++Index)
+			{
+				Root /= std::format("cache-segment-{:04}-abcdefgh", Index);
+			}
+			return Root;
+		}
+
 		auto EnsureTestMount() -> void
 		{
 			static std::once_flag Once;
@@ -42,6 +53,15 @@ namespace Durin
 					GTestVirtualRoot,
 					(Root / "Source").generic_string(),
 					(Root / "Cache").generic_string()
+				);
+
+				const std::filesystem::path LongRoot = GetLongTestCacheRoot();
+				std::filesystem::create_directories(LongRoot / "Source");
+				std::filesystem::create_directories(LongRoot / "Cache");
+				FShaderPaths::RegisterMountPoint(
+					"/ShaderCacheLongPaths/",
+					(LongRoot / "Source").generic_string(),
+					(LongRoot / "Cache").generic_string()
 				);
 			});
 		}
@@ -92,6 +112,9 @@ namespace Durin
 				std::filesystem::remove_all(GetTestCacheRoot() / "Cache", ErrorCode);
 				ASSERT_FALSE(ErrorCode);
 				std::filesystem::create_directories(GetTestCacheRoot() / "Cache");
+				std::filesystem::remove_all(GetLongTestCacheRoot() / "Cache", ErrorCode);
+				ASSERT_FALSE(ErrorCode);
+				std::filesystem::create_directories(GetLongTestCacheRoot() / "Cache");
 			}
 		};
 	}
@@ -109,6 +132,58 @@ namespace Durin
 		ASSERT_EQ(Loaded.CompiledShaders.size(), 1u);
 		EXPECT_EQ(Loaded.CompiledShaders.front().Hash, Expected.CompiledShaders.front().Hash);
 		EXPECT_EQ(*Loaded.CompiledShaders.front().Code, *Expected.CompiledShaders.front().Code);
+	}
+
+	TEST_F(FShaderCacheStoreTests, ArtifactsAndManifestRoundTripBeyondMaxPath)
+	{
+		FShaderCompileOptions Options = MakeOptions();
+		Options.VirtualShaderPath = "/ShaderCacheLongPaths/Test";
+		const FShaderVariantKey VariantKey = MakeVariantKey();
+		const FShaderCompilerOutput Expected = MakeCompiledOutput(Options);
+		FShaderCacheStore Store;
+
+		const std::filesystem::path BinaryPath = FShaderPaths::BinaryPath(
+			Options.VirtualShaderPath,
+			Options.EntryPoints.front(),
+			Options.Frequencies.front(),
+			VariantKey.Hex);
+		const std::filesystem::path ReflectionPath = FShaderPaths::ReflectionPath(
+			Options.VirtualShaderPath,
+			Options.EntryPoints.front(),
+			Options.Frequencies.front(),
+			VariantKey.Hex);
+		ASSERT_GT(BinaryPath.native().size(), 260);
+		ASSERT_GT(ReflectionPath.native().size(), 260);
+		ASSERT_TRUE(Store.Save(Options.VirtualShaderPath, Options, VariantKey, Expected));
+
+		FShaderCompilerOutput Loaded;
+		ASSERT_TRUE(Store.TryLoad(Options.VirtualShaderPath, Options, VariantKey, Loaded));
+		ASSERT_EQ(Loaded.CompiledShaders.size(), 1u);
+		EXPECT_EQ(Loaded.CompiledShaders.front().Hash, Expected.CompiledShaders.front().Hash);
+		EXPECT_EQ(*Loaded.CompiledShaders.front().Code, *Expected.CompiledShaders.front().Code);
+
+		FShaderDependencyKey DependencyKey;
+		ShaderCompileUtilities::BuildDependencyKey(
+			Options.VirtualShaderPath, {}, Options.CompilerEnvironment, DependencyKey);
+		FShaderMetaData MetaData;
+		MetaData.SourceTreeSignature = FXxHash128::FromString("abcdefabcdefabcdefabcdefabcdefab");
+		MetaData.Dependencies.push_back({
+			.NormalizedPath = (GetLongTestCacheRoot() / "Source" / "Test.slang").generic_string(),
+			.LastWriteTime = std::filesystem::file_time_type(std::filesystem::file_time_type::duration(1234)),
+			.FileSize = 42,
+			.ContentHash = FXxHash64::FromString("abcdefabcdefabcd")
+		});
+		const std::filesystem::path ManifestPath = FShaderPaths::MetaPath(
+			Options.VirtualShaderPath, DependencyKey.Hex);
+		ASSERT_GT(ManifestPath.native().size(), 260);
+		ASSERT_TRUE(Store.SaveMetaData(Options.VirtualShaderPath, DependencyKey, MetaData));
+
+		FShaderMetaData LoadedMetaData;
+		ASSERT_TRUE(Store.LoadMetaData(Options.VirtualShaderPath, DependencyKey, LoadedMetaData));
+		EXPECT_EQ(LoadedMetaData.SourceTreeSignature, MetaData.SourceTreeSignature);
+		ASSERT_EQ(LoadedMetaData.Dependencies.size(), 1u);
+		EXPECT_EQ(LoadedMetaData.Dependencies.front().NormalizedPath, MetaData.Dependencies.front().NormalizedPath);
+		EXPECT_EQ(LoadedMetaData.Dependencies.front().ContentHash, MetaData.Dependencies.front().ContentHash);
 	}
 
 	TEST_F(FShaderCacheStoreTests, RetentionPrunesOldVariantsAndPreservesNonVariantDirectories)

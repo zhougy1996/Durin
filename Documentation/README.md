@@ -14,6 +14,7 @@ not open the other rows or scan an entire directory.
 | Dependencies, bootstrap, or worktrees | [Third-party bootstrap](Development/Build/ThirdPartyBootstrap.md) |
 | Native tests | [Native tests](Development/Build/NativeTests.md) |
 | Workspace, project, module, or profile ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |
+| Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
 | Editor implementation or user workflow | Use a targeted search under `Editor/Systems/` or `Editor/Guides/` |

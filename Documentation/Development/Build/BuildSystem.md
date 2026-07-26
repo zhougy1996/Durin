@@ -19,6 +19,20 @@ Important helper APIs:
 - `add_durin_module(...)`
 - `add_durin_test(...)`
 
+## Windows Process Manifests
+
+`durin_target_enable_windows_long_paths(...)` applies the repository-owned
+Windows manifest to process images. `DurinLauncher` calls it directly, and
+`add_durin_test(...)` applies it to every native-test executable. Module DLLs do
+not carry this process capability.
+
+CMake attaches `CMake/Windows/DurinLongPathAware.manifest` as a target source so
+the MSVC manifest tool merges it into the final executable. A post-link check
+extracts the embedded resource and requires exactly one
+`longPathAware=true` declaration. Host policy is a separate prerequisite
+enforced by Setup and BuildTool; see
+[Build and Run](BuildAndRun.md).
+
 ## Generated Metadata Flow
 
 `add_durin_project(...)` invokes DurinHeaderTool, imports generated project metadata from `Engine/Intermediate/Build[-Identifier]/<Platform>/<Profile>/...`, resolves active profile-derived values, and then adds module subdirectories for the current project.
@@ -115,3 +129,4 @@ session defaults from a validated toolchain context.
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/Profiles.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
+- `Documentation/Runtime/Core/FileIO.md`

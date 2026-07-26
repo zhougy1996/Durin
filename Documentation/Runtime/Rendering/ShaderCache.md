@@ -60,7 +60,14 @@ A disk hit is published only when every requested artifact passes all checks:
 
 Any missing, corrupt, incompatible, or malformed record is an ordinary cache miss. Authored Slang source remains authoritative and recompilation repairs the cache.
 
-Writers create same-directory temporary files and atomically replace the target. Readers therefore observe either the prior complete file or the new complete file. Identical requests compile once per process; independent processes use atomic last-writer-wins publication.
+Writers use Core's shared atomic byte-publication API, which creates a
+fixed-length same-directory temporary name and atomically replaces the target.
+The temporary name does not grow with the destination path. Readers therefore
+observe either the prior complete file or the new complete file. Identical
+requests compile once per process; independent processes use atomic
+last-writer-wins publication. Binary, reflection, and dependency-manifest
+round trips are supported beyond the traditional Windows `MAX_PATH` boundary
+under the physical-path contract in [File I/O](../Core/FileIO.md).
 
 ## Lifetime and Retention
 
@@ -81,3 +88,4 @@ Cache schemas are intentionally strict and do not migrate old layouts. Schema, c
 - [Shader Cache Hardening Plan](../../Plans/Archive/2026-07/ShaderCacheHardening.md)
 - [Versioning](../Assets/Versioning.md)
 - [Native C++ Tests](../../Development/Build/NativeTests.md)
+- [File I/O](../Core/FileIO.md)

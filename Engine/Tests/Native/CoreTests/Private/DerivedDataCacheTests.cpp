@@ -11,6 +11,21 @@ namespace
 		if (Path.filename().empty()) Path = Path.parent_path();
 		return Path.lexically_normal();
 	}
+
+	auto PathLongerThan(
+		const std::filesystem::path& Root,
+		std::string_view FileName,
+		size_t MinimumLength
+	) -> std::filesystem::path
+	{
+		std::filesystem::path Parent = std::filesystem::absolute(Root).lexically_normal();
+		const std::filesystem::path FileNamePath(FileName);
+		for (size_t Index = 0; (Parent / FileNamePath).native().size() <= MinimumLength; ++Index)
+		{
+			Parent /= std::format("cache-segment-{:04}-abcdefgh", Index);
+		}
+		return Parent / FileNamePath;
+	}
 }
 
 TEST(FDerivedDataCacheTests, ResolvesProjectFallbackAndTestOverrideRoots)
@@ -102,4 +117,42 @@ TEST(FDerivedDataCacheTests, AtomicallyReplacesAnExistingCacheFile)
 	const std::vector<Durin::uint8> Bytes((std::istreambuf_iterator<char>(Stream)), std::istreambuf_iterator<char>());
 	EXPECT_EQ(Bytes, Second);
 	EXPECT_FALSE(std::filesystem::exists(Path.string() + ".tmp"));
+}
+
+TEST(FDerivedDataCacheTests, SerializedCacheRoundTripsBeyondMaxPath)
+{
+	const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "LongDerivedDataCache";
+	const std::filesystem::path Path = PathLongerThan(Root, "Index.bin", 300);
+	ASSERT_GT(Path.native().size(), 260);
+
+	Durin::DerivedDataCache::FWriter Writer;
+	Writer.WriteHeader({0x48434143, 7, 3});
+	Writer.WriteString("/Game/LongPath/Texture");
+	Writer.WriteBytes(std::array<Durin::uint8, 4>{3, 1, 4, 1});
+	const std::vector<Durin::uint8> Expected = Writer.TakeBytes();
+
+	std::string Error;
+	ASSERT_TRUE(Durin::DerivedDataCache::WriteFileAtomically(Path, Expected, &Error)) << Error;
+
+	std::vector<Durin::uint8> Stored;
+	{
+		std::ifstream Stream(Path, std::ios::binary);
+		ASSERT_TRUE(Stream.is_open());
+		Stored.assign(
+			std::istreambuf_iterator<char>(Stream),
+			std::istreambuf_iterator<char>());
+	}
+	Durin::DerivedDataCache::FReader Reader(Stored);
+	std::string Identity;
+	std::vector<Durin::uint8> Payload;
+	ASSERT_TRUE(Reader.ReadAndValidateHeader(0x48434143, 7, 3));
+	ASSERT_TRUE(Reader.ReadString(Identity));
+	ASSERT_TRUE(Reader.ReadBytes(Payload, 4, 4));
+	EXPECT_TRUE(Reader.IsAtEnd());
+	EXPECT_EQ(Identity, "/Game/LongPath/Texture");
+	EXPECT_EQ(Payload, (std::vector<Durin::uint8>{3, 1, 4, 1}));
+
+	std::error_code CleanupError;
+	std::filesystem::remove_all(Root, CleanupError);
+	EXPECT_FALSE(CleanupError);
 }

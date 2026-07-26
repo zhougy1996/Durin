@@ -60,7 +60,11 @@ source, but they are not content identity. DDC paths are derived from keys and
 must never be serialized into `.dasset`. Missing, incompatible, truncated, or
 corrupt objects are safe cache misses when rebuild inputs are available.
 
-DDC writes use a same-directory temporary file followed by atomic replacement.
+DDC writes use Core's shared atomic byte-publication API: a fixed-length
+same-directory temporary file is flushed and closed before replacement. The
+temporary name is independent of the destination name, and DDC round trips are
+supported beyond the traditional Windows `MAX_PATH` boundary under the
+[physical file I/O contract](../Core/FileIO.md).
 Readers validate magic, versions, declared sizes, allocation limits, structural
 invariants, and checksums before publishing data. A cache write failure does not
 invalidate a complete in-memory build result.

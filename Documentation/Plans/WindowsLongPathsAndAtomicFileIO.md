@@ -14,9 +14,11 @@ publication for DDC, shader-cache, and asset-package writes. CoreTests (121),
 RenderCoreTests (48), and AssetCoreTests (30) passed after the publication
 migration; the rebuilt CoreTests and DurinLauncher images passed embedded
 manifest verification. Stage 3 is in progress: Core coverage now crosses 300
-characters, covers the historical temporary-name regression, and diagnoses a
-256-character component, while long-root cache round trips and the full
-long-worktree end-to-end matrix remain.
+characters, covers the historical temporary-name regression, diagnoses a
+256-character component, and exercises DDC plus shader binary, reflection, and
+manifest round trips from dynamically constructed long roots. The lasting
+runtime and build contracts are published; the full long-worktree end-to-end
+matrix remains.
 
 ## Goal
 
@@ -91,8 +93,7 @@ length, while preserving portable behavior and actionable failure diagnostics.
   dynamically cross the traditional Windows total-path boundary.
 - Windows long-path behavior requires both a process manifest declaration and an
   enabled host policy; BuildTool enforces the latter before toolchain work.
-- Long-root cache round trips and full validation from a deliberately long
-  worktree remain open Stage 3 work.
+- Full validation from a deliberately long worktree remains open Stage 3 work.
 
 ## Stage 0 Decisions and Evidence
 
@@ -200,7 +201,7 @@ length, while preserving portable behavior and actionable failure diagnostics.
 
 - [x] Add tests that dynamically construct normalized absolute paths below,
   near, and above `MAX_PATH` without relying on checkout-root length.
-- [ ] Cover byte write/read, directory creation and traversal, metadata queries,
+- [x] Cover byte write/read, directory creation and traversal, metadata queries,
   atomic replacement, cleanup, and shader/DDC cache round trips.
 - [x] Include a regression where the destination fits but the historical
   destination-derived temporary name would exceed `MAX_PATH`.
@@ -208,7 +209,7 @@ length, while preserving portable behavior and actionable failure diagnostics.
   overlong component, and assert the latter fails with an actionable diagnostic.
 - [ ] Run the complete native-test preset, a full `all` build, and a
   hidden-window runtime smoke test from a deliberately long worktree path.
-- [ ] Move lasting manifest, host prerequisite, file-publication, and diagnostic
+- [x] Move lasting manifest, host prerequisite, file-publication, and diagnostic
   rules into the owning Development and Runtime documentation.
 - [ ] Record final evidence, archive this plan, and update plan indexes.
 
@@ -267,6 +268,7 @@ length, while preserving portable behavior and actionable failure diagnostics.
 - [Build and Run](../Development/Build/BuildAndRun.md)
 - [Build System](../Development/Build/BuildSystem.md)
 - [Native C++ Tests](../Development/Build/NativeTests.md)
+- [File I/O](../Runtime/Core/FileIO.md)
 - [Shader Cache Hardening](Archive/2026-07/ShaderCacheHardening.md)
 
 ## Related Code
