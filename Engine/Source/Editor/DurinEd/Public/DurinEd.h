@@ -5,3 +5,4 @@
 #include "Editor/ReflectedPropertyEditing.h"
 #include "Editor/EditorTransaction.h"
 #include "Thumbnail/AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnailCache.h"

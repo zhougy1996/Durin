@@ -3,6 +3,7 @@
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "Thumbnail/AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnailCache.h"
 
 namespace Durin
 {
@@ -110,6 +111,15 @@ namespace Durin
 				.Asset = MakePackage(Path, std::move(AssetClassName), 7, FileSize, 10),
 				.Priority = Priority,
 				.RequestSerial = RequestSerial};
+		}
+
+		auto MakeObjectStoreRoot(std::string_view Name) -> std::filesystem::path
+		{
+			const std::filesystem::path Root =
+				std::filesystem::path(DURIN_TEST_WORK_DIR) / "AssetThumbnailObjectStore" / Name;
+			std::filesystem::remove_all(Root);
+			std::filesystem::create_directories(Root);
+			return Root;
 		}
 	} // namespace
 
@@ -240,6 +250,65 @@ namespace Durin
 		EXPECT_GT(Budgets.CpuPixelBudgetBytes, 0u);
 		EXPECT_GT(Budgets.GpuTextureBudgetBytes, 0u);
 		EXPECT_GT(Budgets.DiskBudgetBytes, 0u);
+	}
+
+	TEST(FAssetThumbnailContractTests, ObjectStorePersistsAndRejectsUnsafeKeys)
+	{
+		const std::filesystem::path Root = MakeObjectStoreRoot("Persistence");
+		const std::vector<uint8> Payload = {1, 2, 3, 4, 5};
+		{
+			FAssetThumbnailObjectStore Store({
+				.CacheRoot = Root,
+				.ObjectExtension = ".bin"});
+			EXPECT_FALSE(Store.Store("../unsafe", Payload));
+			ASSERT_TRUE(Store.Store("material-key-01", Payload));
+		}
+		FAssetThumbnailObjectStore WarmStore({
+			.CacheRoot = Root,
+			.ObjectExtension = ".bin"});
+		std::vector<uint8> Loaded;
+		EXPECT_EQ(WarmStore.Load("material-key-01", Loaded), EAssetThumbnailObjectLoadResult::Hit);
+		EXPECT_EQ(Loaded, Payload);
+		EXPECT_EQ(WarmStore.GetStats().CacheHits, 1u);
+		EXPECT_EQ(WarmStore.Load("../unsafe", Loaded), EAssetThumbnailObjectLoadResult::Invalid);
+	}
+
+	TEST(FAssetThumbnailContractTests, ObjectStoreCleansMissingObjectsAndHonorsDiskBudget)
+	{
+		const std::filesystem::path Root = MakeObjectStoreRoot("Cleanup");
+		const std::vector<uint8> Payload(80, 7);
+		{
+			FAssetThumbnailObjectStore Store({
+				.CacheRoot = Root,
+				.DiskBudgetBytes = 100,
+				.ObjectExtension = ".bin"});
+			ASSERT_TRUE(Store.Store("object-key-01", Payload));
+			ASSERT_TRUE(Store.Store("object-key-02", Payload));
+			std::vector<uint8> Loaded;
+			EXPECT_EQ(Store.Load("object-key-01", Loaded), EAssetThumbnailObjectLoadResult::Miss);
+			EXPECT_EQ(Store.Load("object-key-02", Loaded), EAssetThumbnailObjectLoadResult::Hit);
+		}
+		for (const auto& Entry : std::filesystem::recursive_directory_iterator(Root / "Objects"))
+			if (Entry.path().extension() == ".bin") std::filesystem::remove(Entry.path());
+		FAssetThumbnailObjectStore MissingObjectStore({
+			.CacheRoot = Root,
+			.DiskBudgetBytes = 100,
+			.ObjectExtension = ".bin"});
+		EXPECT_GE(MissingObjectStore.GetStats().Regenerations, 1u);
+	}
+
+	TEST(FAssetThumbnailContractTests, BudgetSelectionEvictsOldestUnpinnedAllocations)
+	{
+		const std::vector<FAssetThumbnailBudgetEntry> Entries = {
+			{.Key = "visible", .Bytes = 60, .LastUsed = 1, .bPinned = true},
+			{.Key = "oldest", .Bytes = 40, .LastUsed = 2},
+			{.Key = "newest", .Bytes = 30, .LastUsed = 3},
+		};
+		EXPECT_EQ(SelectAssetThumbnailBudgetEvictions(Entries, 100),
+			std::vector<std::string>({"oldest"}));
+		EXPECT_EQ(SelectAssetThumbnailBudgetEvictions(Entries, 50),
+			(std::vector<std::string>{"oldest", "newest"}));
+		EXPECT_TRUE(SelectAssetThumbnailBudgetEvictions(Entries, 200).empty());
 	}
 
 	TEST(FAssetThumbnailContractTests, ProviderRegistryRejectsInvalidAndDuplicateRegistrations)

@@ -9,7 +9,7 @@ namespace Durin::DerivedDataCache
 	inline constexpr uint32 AssetRegistryMagic = 0x47455241; // AREG
 	inline constexpr uint32 AssetRegistrySchemaVersion = 1;
 	inline constexpr uint32 ThumbnailIndexMagic = 0x58444954; // TIDX
-	inline constexpr uint32 ThumbnailIndexSchemaVersion = 1;
+	inline constexpr uint32 ThumbnailIndexSchemaVersion = 2;
 
 	// Identifies the binary cache family, schema, payload format, and byte order.
 	struct FCacheHeader

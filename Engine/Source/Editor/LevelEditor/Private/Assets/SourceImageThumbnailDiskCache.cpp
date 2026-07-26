@@ -3,18 +3,17 @@
 #include "Hash/XxHash.h"
 #include "ImageDecoder.h"
 #include "Misc/DerivedDataCache.h"
-#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Thumbnail/AssetThumbnailCache.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr uint32 MaximumIndexEntries = 1'000'000;
 		constexpr uint64 MaximumEncodedObjectBytes = 16ull * 1024ull * 1024ull;
 
-		// Stores validated metadata for one encoded thumbnail cache object.
-		struct FIndexEntry
+		// Captures source-specific inputs used to derive a provider-neutral object key.
+		struct FSourceCacheKeyData
 		{
 			std::string Key;
 			std::string SourceIdentity;
@@ -24,8 +23,6 @@ namespace Durin
 			uint32 GeneratorVersion = 0;
 			uint32 ColorSpacePolicy = 0;
 			uint32 OutputEncodingVersion = 0;
-			uint64 EncodedBytes = 0;
-			uint64 LastAccess = 0;
 		};
 
 		auto IsContainedBy(const std::filesystem::path& Root, const std::filesystem::path& Candidate) -> bool
@@ -35,15 +32,6 @@ namespace Durin
 			for (const auto& Part : Relative)
 				if (Part == "..") return false;
 			return true;
-		}
-
-		auto IsResolvedContainedBy(const std::filesystem::path& Root, const std::filesystem::path& Candidate) -> bool
-		{
-			std::error_code Error;
-			const std::filesystem::path ResolvedRoot = std::filesystem::weakly_canonical(Root, Error);
-			if (Error) return false;
-			const std::filesystem::path ResolvedCandidate = std::filesystem::weakly_canonical(Candidate, Error);
-			return !Error && IsContainedBy(ResolvedRoot, ResolvedCandidate);
 		}
 
 		auto NormalizeSourceIdentity(const std::filesystem::path& PhysicalPath, const std::filesystem::path& OverrideRoot) -> std::string
@@ -158,10 +146,11 @@ namespace Durin
 			return true;
 		}
 
-		auto DecodeCachedPng(const std::filesystem::path& Path, uint32 MaximumDimension, FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool
+		auto DecodeCachedPng(std::span<const uint8> Bytes, uint32 MaximumDimension,
+			FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool
 		{
 			Asset::FDecodedImage Image;
-			if (!Asset::DecodeImageFromFile(Path.generic_string(), Image, OutError,
+			if (!Asset::DecodeImageFromMemory(Bytes, Image, OutError,
 				{MaximumEncodedObjectBytes, static_cast<uint64>(MaximumDimension) * MaximumDimension * 4}))
 				return false;
 			if (Image.Width == 0 || Image.Height == 0 || Image.Width > MaximumDimension || Image.Height > MaximumDimension)
@@ -182,7 +171,7 @@ namespace Durin
 			return true;
 		}
 
-		auto MakeKey(const FIndexEntry& Entry) -> std::string
+		auto MakeKey(const FSourceCacheKeyData& Entry) -> std::string
 		{
 			DerivedDataCache::FWriter Writer;
 			Writer.WriteString(Entry.SourceIdentity);
@@ -196,125 +185,24 @@ namespace Durin
 		}
 	} // namespace
 
-	// Owns the cache index, file paths, budget accounting, and synchronization.
+	// Owns source-specific key generation and delegates persistent storage and budget accounting.
 	struct FSourceImageThumbnailDiskCache::FImpl
 	{
 		explicit FImpl(FSourceImageThumbnailDiskCacheSettings InSettings)
 			: Settings(std::move(InSettings))
+			, ObjectStore({
+				.CacheRoot = Settings.CacheRoot,
+				.FormatVersion = Settings.OutputEncodingVersion,
+				.DiskBudgetBytes = Settings.DiskBudgetBytes,
+				.MaximumObjectBytes = MaximumEncodedObjectBytes,
+				.ObjectExtension = ".png"})
 		{
-			if (Settings.CacheRoot.empty()) Settings.CacheRoot = std::filesystem::path(FPaths::DerivedDataCacheDir()) / "Thumbnails";
-			Settings.CacheRoot = Settings.CacheRoot.lexically_normal();
-			LoadIndex();
-			bool bChanged = false;
-			for (auto It = Entries.begin(); It != Entries.end();)
-			{
-				std::error_code Error;
-				const std::filesystem::path Path = ObjectPath(It->first);
-				const uintmax_t Size = std::filesystem::file_size(Path, Error);
-				if (Error || Size != It->second.EncodedBytes || Size > MaximumEncodedObjectBytes || !IsResolvedContainedBy(Settings.CacheRoot, Path))
-				{
-					It = Entries.erase(It);
-					++Stats.Regenerations;
-					bChanged = true;
-				}
-				else
-					++It;
-			}
-			const size_t PreviousCount = Entries.size();
-			MaintainBudget();
-			if (bChanged || Entries.size() != PreviousCount) SaveIndex();
 		}
 
 		FSourceImageThumbnailDiskCacheSettings Settings;
-		std::unordered_map<std::string, FIndexEntry> Entries;
-		FSourceImageThumbnailDiskCacheStats Stats;
-		uint64 AccessCounter = 0;
+		FAssetThumbnailObjectStore ObjectStore;
+		uint64 SourceDecodes = 0;
 		mutable std::mutex Mutex;
-
-		auto IndexPath() const -> std::filesystem::path { return Settings.CacheRoot / "Index.bin"; }
-		auto ObjectPath(std::string_view Key) const -> std::filesystem::path
-		{
-			return Settings.CacheRoot / "Objects" / std::string(Key.substr(0, 2)) / (std::string(Key) + ".png");
-		}
-
-		auto LoadIndex() -> void
-		{
-			std::vector<uint8> Bytes;
-			std::error_code Error;
-			if (!std::filesystem::is_regular_file(IndexPath(), Error)
-				|| !FFileHelper::LoadFileToArray(Bytes, IndexPath().generic_string()))
-				return;
-			DerivedDataCache::FReader Reader(Bytes);
-			uint32 Count = 0;
-			if (!Reader.ReadAndValidateHeader(DerivedDataCache::ThumbnailIndexMagic, DerivedDataCache::ThumbnailIndexSchemaVersion,
-					Settings.OutputEncodingVersion)
-				|| !Reader.ReadU32(Count) || Count > MaximumIndexEntries)
-				return;
-			std::unordered_map<std::string, FIndexEntry> Loaded;
-			for (uint32 Index = 0; Index < Count; ++Index)
-			{
-				FIndexEntry Entry;
-				if (!Reader.ReadString(Entry.Key, 64) || !Reader.ReadString(Entry.SourceIdentity)
-					|| !Reader.ReadU64(Entry.SourceSize) || !Reader.ReadI64(Entry.SourceTimeTicks)
-					|| !Reader.ReadU32(Entry.MaximumDimension) || !Reader.ReadU32(Entry.GeneratorVersion)
-					|| !Reader.ReadU32(Entry.ColorSpacePolicy)
-					|| !Reader.ReadU32(Entry.OutputEncodingVersion) || !Reader.ReadU64(Entry.EncodedBytes)
-					|| !Reader.ReadU64(Entry.LastAccess) || Entry.Key != MakeKey(Entry) || !Loaded.emplace(Entry.Key, Entry).second)
-					return;
-				AccessCounter = std::max(AccessCounter, Entry.LastAccess);
-			}
-			if (Reader.IsAtEnd()) Entries = std::move(Loaded);
-		}
-
-		auto SaveIndex() -> void
-		{
-			std::vector<FIndexEntry> Sorted;
-			Sorted.reserve(Entries.size());
-			for (const auto& [Key, Entry] : Entries) Sorted.push_back(Entry);
-			std::ranges::sort(Sorted, {}, &FIndexEntry::Key);
-			DerivedDataCache::FWriter Writer;
-			Writer.WriteHeader({DerivedDataCache::ThumbnailIndexMagic, DerivedDataCache::ThumbnailIndexSchemaVersion, Settings.OutputEncodingVersion});
-			Writer.WriteU32(static_cast<uint32>(Sorted.size()));
-			for (const FIndexEntry& Entry : Sorted)
-			{
-				Writer.WriteString(Entry.Key);
-				Writer.WriteString(Entry.SourceIdentity);
-				Writer.WriteU64(Entry.SourceSize);
-				Writer.WriteI64(Entry.SourceTimeTicks);
-				Writer.WriteU32(Entry.MaximumDimension);
-				Writer.WriteU32(Entry.GeneratorVersion);
-				Writer.WriteU32(Entry.ColorSpacePolicy);
-				Writer.WriteU32(Entry.OutputEncodingVersion);
-				Writer.WriteU64(Entry.EncodedBytes);
-				Writer.WriteU64(Entry.LastAccess);
-			}
-			std::error_code Error;
-			std::filesystem::create_directories(Settings.CacheRoot, Error);
-			if (!Error) DerivedDataCache::WriteFileAtomically(IndexPath(), Writer.GetBytes());
-		}
-
-		auto RemoveObject(const FIndexEntry& Entry) -> void
-		{
-			const std::filesystem::path Path = ObjectPath(Entry.Key);
-			if (IsResolvedContainedBy(Settings.CacheRoot, Path))
-			{
-				std::error_code Error;
-				std::filesystem::remove(Path, Error);
-			}
-		}
-
-		auto MaintainBudget() -> void
-		{
-			uint64 TotalBytes = 0;
-			for (const auto& [Key, Entry] : Entries) TotalBytes += Entry.EncodedBytes;
-			while (TotalBytes > Settings.DiskBudgetBytes && !Entries.empty())
-			{
-				const auto Candidate = std::ranges::min_element(Entries, {}, [](const auto& Pair) { return Pair.second.LastAccess; });
-				TotalBytes -= Candidate->second.EncodedBytes;
-				RemoveObject(Candidate->second);
-				Entries.erase(Candidate);
-			}
-		}
 	};
 
 	FSourceImageThumbnailDiskCache::FSourceImageThumbnailDiskCache(FSourceImageThumbnailDiskCacheSettings Settings)
@@ -347,7 +235,7 @@ namespace Durin
 		const bool bFingerprintChanged = CurrentFileSize != FileSize || CurrentLastWriteTime != LastWriteTime;
 		const uintmax_t EffectiveFileSize = bFingerprintChanged ? CurrentFileSize : FileSize;
 		const std::filesystem::file_time_type& EffectiveLastWriteTime = bFingerprintChanged ? CurrentLastWriteTime : LastWriteTime;
-		FIndexEntry Desired{
+		FSourceCacheKeyData Desired{
 			.SourceIdentity = NormalizeSourceIdentity(std::filesystem::path(PhysicalPath), Impl->Settings.SourceIdentityRoot),
 			.SourceSize = static_cast<uint64>(EffectiveFileSize),
 			.SourceTimeTicks = DerivedDataCache::FileTimeToStableTicks(EffectiveLastWriteTime),
@@ -359,73 +247,35 @@ namespace Durin
 		Desired.Key = MakeKey(Desired);
 		if (!Desired.SourceIdentity.empty())
 		{
-			FIndexEntry CachedEntry;
-			bool bHasCachedEntry = false;
+			std::vector<uint8> EncodedBytes;
+			if (Impl->ObjectStore.Load(Desired.Key, EncodedBytes) == EAssetThumbnailObjectLoadResult::Hit)
 			{
-				std::lock_guard Lock(Impl->Mutex);
-				if (const auto It = Impl->Entries.find(Desired.Key); It != Impl->Entries.end())
-				{
-					CachedEntry = It->second;
-					bHasCachedEntry = true;
-				}
-			}
-			if (bHasCachedEntry)
-			{
-				const std::filesystem::path Path = Impl->ObjectPath(Desired.Key);
-				std::error_code Error;
-				const uintmax_t EncodedSize = std::filesystem::file_size(Path, Error);
-				if (!Error && EncodedSize == CachedEntry.EncodedBytes && EncodedSize <= MaximumEncodedObjectBytes
-					&& IsResolvedContainedBy(Impl->Settings.CacheRoot, Path)
-					&& DecodeCachedPng(Path, Impl->Settings.MaximumDimension, OutThumbnail, OutError))
-				{
-					std::lock_guard Lock(Impl->Mutex);
-					if (auto It = Impl->Entries.find(Desired.Key); It != Impl->Entries.end())
-					{
-						It->second.LastAccess = ++Impl->AccessCounter;
-						++Impl->Stats.CacheHits;
-						Impl->SaveIndex();
-						return true;
-					}
-				}
-				std::lock_guard Lock(Impl->Mutex);
-				if (auto It = Impl->Entries.find(Desired.Key); It != Impl->Entries.end())
-				{
-					Impl->RemoveObject(It->second);
-					Impl->Entries.erase(It);
-					++Impl->Stats.Regenerations;
-				}
+				if (DecodeCachedPng(EncodedBytes, Impl->Settings.MaximumDimension, OutThumbnail, OutError))
+					return true;
+				Impl->ObjectStore.Invalidate(Desired.Key);
 			}
 		}
 
 		{
 			std::lock_guard Lock(Impl->Mutex);
-			++Impl->Stats.SourceDecodes;
+			++Impl->SourceDecodes;
 		}
 		if (!DecodeSourceImageThumbnail(PhysicalPath, Impl->Settings.MaximumDimension, OutThumbnail, OutError)) return false;
 		if (Desired.SourceIdentity.empty()) return true;
 
 		std::vector<uint8> EncodedBytes;
 		if (!EncodeRgbaPng(OutThumbnail, EncodedBytes)) return true;
-		const std::filesystem::path ObjectPath = Impl->ObjectPath(Desired.Key);
-		std::error_code DirectoryError;
-		std::filesystem::create_directories(ObjectPath.parent_path(), DirectoryError);
-		if (DirectoryError || !IsResolvedContainedBy(Impl->Settings.CacheRoot, ObjectPath)) return true;
-		std::string CacheError;
-		if (!DerivedDataCache::WriteFileAtomically(ObjectPath, EncodedBytes, &CacheError)) return true;
-		Desired.EncodedBytes = EncodedBytes.size();
-		{
-			std::lock_guard Lock(Impl->Mutex);
-			Desired.LastAccess = ++Impl->AccessCounter;
-			Impl->Entries.insert_or_assign(Desired.Key, Desired);
-			Impl->MaintainBudget();
-			Impl->SaveIndex();
-		}
+		Impl->ObjectStore.Store(Desired.Key, EncodedBytes);
 		return true;
 	}
 
 	auto FSourceImageThumbnailDiskCache::GetStats() const -> FSourceImageThumbnailDiskCacheStats
 	{
+		const FAssetThumbnailObjectStoreStats StoreStats = Impl->ObjectStore.GetStats();
 		std::lock_guard Lock(Impl->Mutex);
-		return Impl->Stats;
+		return {
+			.CacheHits = StoreStats.CacheHits,
+			.SourceDecodes = Impl->SourceDecodes,
+			.Regenerations = StoreStats.Regenerations};
 	}
 } // namespace Durin

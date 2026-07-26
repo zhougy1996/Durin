@@ -8,6 +8,7 @@
 #include "MonaUIBackend.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Thumbnail/AssetThumbnailCache.h"
 #include "Threading/Task.h"
 
 namespace Durin
@@ -232,22 +233,22 @@ namespace Durin
 
 		auto EvictToBudget() -> void
 		{
-			auto EntryBytes = [](const FEntry& Entry) -> uint64 { return Entry.Texture ? static_cast<uint64>(Entry.Width) * Entry.Height * 4 : 0; };
-			uint64 TotalBytes = 0;
-			for (const auto& [Path, Entry] : Entries) TotalBytes += EntryBytes(Entry);
-			while (TotalBytes > ThumbnailMemoryBudget)
+			std::vector<FAssetThumbnailBudgetEntry> BudgetEntries;
+			BudgetEntries.reserve(Entries.size());
+			for (const auto& [Path, Entry] : Entries)
 			{
-				auto Candidate = Entries.end();
-				for (auto It = Entries.begin(); It != Entries.end(); ++It)
-				{
-					if (!It->second.Texture || It->second.bVisible) continue;
-					if (Candidate == Entries.end() || It->second.LastUsedFrame < Candidate->second.LastUsedFrame) Candidate = It;
-				}
-				if (Candidate == Entries.end()) break;
-				TotalBytes -= EntryBytes(Candidate->second);
-				UnregisterTexture(Candidate->second);
-				Entries.erase(Candidate);
+				BudgetEntries.push_back({
+					.Key = Path,
+					.Bytes = Entry.Texture ? static_cast<uint64>(Entry.Width) * Entry.Height * 4 : 0,
+					.LastUsed = Entry.LastUsedFrame,
+					.bPinned = Entry.bVisible});
 			}
+			for (const std::string& Key : SelectAssetThumbnailBudgetEvictions(BudgetEntries, ThumbnailMemoryBudget))
+				if (auto It = Entries.find(Key); It != Entries.end())
+				{
+					UnregisterTexture(It->second);
+					Entries.erase(It);
+				}
 		}
 	};
 

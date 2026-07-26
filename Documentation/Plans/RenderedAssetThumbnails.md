@@ -27,9 +27,11 @@ with monotonic generations and a bounded provider-neutral scheduler that
 captures requests, coalesces cache keys, promotes visible work, rejects stale
 serials, and cancels replaced or shutdown work. The existing source-image
 cache now exposes the public thumbnail state/view contract to Content Browser
-without changing its decode, upload, transparency, persistence, or eviction
-path. Extracting the shared object/index store and changing Content Browser
-requests from source paths to asset identities remain pending.
+without changing its decode, upload, transparency, or cache behavior.
+`DurinEd` also owns the reusable versioned object/index store, disk cleanup,
+and deterministic CPU/GPU LRU budget selection; the source-image adapter now
+uses those shared facilities. Changing Content Browser requests from source
+paths to asset identities remains pending.
 
 Texture2D assets and supported source-image files already use an
 asynchronous, persistent Content Browser thumbnail cache. Materials have an
@@ -271,7 +273,7 @@ introducing per-card live viewports or steady-state rendering work.
 
 - [x] Introduce the `DurinEd` thumbnail provider registry, scheduler, public
   request/view types, and provider-neutral cache identity.
-- [ ] Extract or adapt the persistent index/object store and CPU/GPU budget
+- [x] Extract or adapt the persistent index/object store and CPU/GPU budget
   logic from `FSourceImageThumbnailCache` for reuse by source and rendered
   providers.
 - [ ] Adapt Texture2D and supported source-image requests to the new service
