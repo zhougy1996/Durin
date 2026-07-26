@@ -71,6 +71,7 @@ namespace Durin
 	{
 		static constexpr uint32 SchemaVersion = 1;
 		static constexpr std::string_view SphereVirtualPath = "/Engine/Editor/MaterialPreview/Sphere";
+		static constexpr uint32 SphereFixtureVersion = 1;
 		static constexpr std::string_view OutputEncoding = "PNG";
 		static constexpr std::string_view WorkingColorSpace = "Linear-sRGB";
 		static constexpr std::string_view OutputColorSpace = "sRGB";

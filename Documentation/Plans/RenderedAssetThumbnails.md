@@ -6,18 +6,21 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stage 0 is in progress. The provider-neutral public request, immutable
+Stage 0 is complete. The provider-neutral public request, immutable
 generation input, state, view, cancellation, provider registration, output,
 visual-contract, budget, cache-key, and dependency-snapshot contracts now live
 in `DurinEd`. Focused native tests cover byte-stable key construction, field
 invalidation, dependency-order independence, cycle termination, missing and
 duplicate registry data, shared cancellation, and bounded defaults.
 
-Deterministic rendered Material/MaterialInstance fixtures and the shared native
-sphere acquisition API remain pending. The existing six-face directional cube
-fixture is available for the later rendered-output tests, but Stage 0 is not
-complete until the remaining fixtures and the static-mesh plan's shared sphere
-contract are ready.
+Versioned test factories now create deterministic Material, MaterialInstance,
+parent/texture dependency, invalid-instance, and six-face directional
+TextureCube assets at fixed virtual identities. The thumbnail and
+[Static Mesh Derived Data and Cooking](StaticMeshDerivedDataAndCooking.md)
+plans share one native sphere identity and acquisition contract. Implementing
+that native shared-mesh service remains owned by Stage 5 of the static-mesh
+plan and is a prerequisite for binding rendered-thumbnail preview scenes; no
+thumbnail path may fall back to transient source-model import.
 
 Texture2D assets and supported source-image files already use an
 asynchronous, persistent Content Browser thumbnail cache. Materials have an
@@ -99,6 +102,12 @@ introducing per-card live viewports or steady-state rendering work.
   `/Engine/Editor/MaterialPreview/Sphere` mesh selected by the
   [Static Mesh Derived Data and Cooking](StaticMeshDerivedDataAndCooking.md)
   plan. This plan does not create or import a second sphere fixture.
+- The shared editor preview-mesh acquisition boundary accepts the canonical
+  virtual identity and returns a retained native asset/render-data handle. The
+  service owns load coalescing and lifetime; Material Editor previews and
+  rendered-thumbnail scenes retain handles and release them at scene teardown.
+  Callers never receive a source-model path and never fall back to
+  `CreateTransientFromFile`.
 - The material camera, sphere transform, directional key light, fill/ambient
   contribution, exposure, neutral background, and post-process settings are
   fixed generator inputs. A deliberate visual-contract change increments the
@@ -234,9 +243,9 @@ introducing per-card live viewports or steady-state rendering work.
   cycle-guarded Asset Registry dependency-closure algorithm.
 - [x] Define queue, per-frame render, live-scene, CPU, GPU, and disk budgets with
   test overrides.
-- [ ] Create deterministic Material, MaterialInstance, parent/texture
+- [x] Create deterministic Material, MaterialInstance, parent/texture
   dependency, invalid-material, and six-face directional TextureCube fixtures.
-- [ ] Coordinate the sphere identity and acquisition API with Stage 5 of the
+- [x] Coordinate the sphere identity and acquisition API with Stage 5 of the
   Static Mesh Derived Data and Cooking plan; do not add a duplicate transient
   import path.
 

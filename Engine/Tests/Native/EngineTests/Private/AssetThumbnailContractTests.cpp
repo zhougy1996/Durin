@@ -47,7 +47,7 @@ namespace Durin
 				.GeneratorSchemaVersion = FRenderedAssetThumbnailVisualContract::SchemaVersion,
 				.Output = {},
 				.PreviewFixtureIdentity = std::string(FRenderedAssetThumbnailVisualContract::SphereVirtualPath),
-				.PreviewFixtureVersion = 1,
+				.PreviewFixtureVersion = FRenderedAssetThumbnailVisualContract::SphereFixtureVersion,
 				.ShaderContractVersion = 1,
 				.Dependencies = {
 					MakePackage("/ThumbnailTests/Textures/BaseColor", "DTexture2D", 5, 1024, 200),
@@ -170,6 +170,7 @@ namespace Durin
 		EXPECT_EQ(Visual.Output.Width, 256u);
 		EXPECT_EQ(FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
 			"/Engine/Editor/MaterialPreview/Sphere");
+		EXPECT_EQ(FRenderedAssetThumbnailVisualContract::SphereFixtureVersion, 1u);
 		EXPECT_EQ(FRenderedAssetThumbnailVisualContract::OutputEncoding, "PNG");
 		EXPECT_EQ(FRenderedAssetThumbnailVisualContract::OutputColorSpace, "sRGB");
 		EXPECT_TRUE(Visual.bOutputOpaque);

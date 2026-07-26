@@ -40,6 +40,7 @@ add_durin_test(EngineTests
 	Private/ConsoleRecordModelTests.cpp
 	Private/SourceImageThumbnailTests.cpp
 	Private/AssetThumbnailContractTests.cpp
+	Private/RenderedAssetThumbnailFixtureTests.cpp
 	Private/SplineTests.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Assets/SourceImageThumbnailDecoder.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Assets/SourceImageThumbnailDiskCache.cpp

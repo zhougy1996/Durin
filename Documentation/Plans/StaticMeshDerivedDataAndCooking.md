@@ -313,8 +313,14 @@ payloads that load without source files or Assimp.
 - [ ] Import sphere and box as `/Engine/Editor/MaterialPreview/Sphere` and
   `/Engine/Editor/MaterialPreview/Box`.
 - [ ] Move their authoritative model sources to engine `SourceAssets`.
+- [ ] Provide one editor preview-mesh acquisition service that accepts those
+  canonical virtual identities and returns retained native asset/render-data
+  handles. The service coalesces loads and owns lifetime until the last
+  Material Editor or rendered-thumbnail scene releases its handle.
 - [ ] Replace per-preview `CreateTransientFromFile` calls with shared asset or
   immutable render-data acquisition.
+- [ ] Keep source-model paths and transient-import fallback out of the
+  acquisition API so missing or invalid native fixtures fail explicitly.
 - [ ] Remove preview-owned mesh rooting and retain only ownership required for
   the preview scene, viewport, and light.
 - [ ] Preserve sphere/box switching, material-slot mapping, rotation, zoom, GC
