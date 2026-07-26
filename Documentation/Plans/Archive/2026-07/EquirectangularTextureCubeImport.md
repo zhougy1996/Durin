@@ -6,7 +6,7 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 through 3 and the automated portion of Stage 4 are complete.
+All stages and acceptance gates are complete as of 2026-07-26.
 `DTextureCube` now serializes an explicit
 source layout, package-relative panorama provenance, face-dimension override,
 exposure, and source dimensions. LDR and Radiance HDR panorama imports validate
@@ -32,12 +32,13 @@ retirement. The complete `all` target builds, and an eight-second
 `DurinEditor --hidden-window` smoke reaches successful editor initialization
 without Error, Fatal, VUID, or Vulkan Validation diagnostics.
 
-Representative visible checks with outdoor day, sunset, and indoor panoramas
-at multiple viewport aspect ratios remain pending because those sources are
-not repository fixtures and require an interactive review. Stage 4 therefore
-remains active and this plan is not archived. The first slice deliberately
-does not introduce floating-point texture assets, BC6H build output,
-image-based lighting, or runtime panorama sampling.
+User-confirmed visible checks with representative panoramas at multiple
+viewport aspect ratios passed on 2026-07-26. No axis swap, implicit flip,
+panorama-seam break, pole artifact, camera parallax, letterboxing issue, or
+foreground-occlusion regression was observed. Lasting contracts are recorded
+in the owning runtime documentation, and this completed plan is archived. The
+first slice deliberately does not introduce floating-point texture assets,
+BC6H build output, image-based lighting, or runtime panorama sampling.
 
 ## Goal
 
@@ -322,7 +323,7 @@ expanding into native HDR or IBL.
   `Documentation/Development/Build/BuildAndRun.md`.
 - [x] Complete a full build and hidden-window DurinEditor smoke run from one
   Agent Build Profile.
-- [ ] Perform visible checks with representative outdoor day, sunset, and
+- [x] Perform visible checks with representative outdoor day, sunset, and
   indoor panoramas at multiple viewport aspect ratios.
 - [x] Move lasting source-layout, projection, color, asset-lifecycle, and editor
   workflow contracts into the owning runtime/editor documentation.
@@ -367,9 +368,9 @@ expanding into native HDR or IBL.
   and preserve the last valid asset and render resource.
 - [x] CPU projection, color, asset lifecycle, editor workflow, Vulkan readback,
   and rendered-result tests pass.
-- [ ] The full build, Vulkan Validation run, hidden-window editor smoke, and
+- [x] The full build, Vulkan Validation run, hidden-window editor smoke, and
   representative visible checks pass.
-- [ ] Lasting contracts are recorded in the owning documentation and this plan
+- [x] Lasting contracts are recorded in the owning documentation and this plan
   is archived according to `Documentation/Plans/AGENTS.md`.
 
 ## Deferred Follow-ups
@@ -386,13 +387,13 @@ expanding into native HDR or IBL.
 
 ## Related Documentation
 
-- [Implementation Plan Documentation Guide](README.md)
-- [Texture Support Plan](TextureSupport.md)
-- [Cube Textures](../Runtime/Rendering/CubeTextures.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Archived SkyBoxComponent Plan](Archive/2026-07/SkyBoxComponent.md)
+- [Documentation Guide](../../../README.md)
+- [Texture Support Plan](../../TextureSupport.md)
+- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Archived SkyBoxComponent Plan](SkyBoxComponent.md)
 
 ## Related Code
 
