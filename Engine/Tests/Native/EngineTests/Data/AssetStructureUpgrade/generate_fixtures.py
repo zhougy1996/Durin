@@ -5,7 +5,7 @@ import struct
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[6]
 FIXTURE_ROOT = Path(__file__).resolve().parent
-LEGACY_SOURCE = REPOSITORY_ROOT / "Sandbox/Content/Levels/NewLevel.dasset"
+LEGACY_SOURCE = FIXTURE_ROOT / "LegacyStaticMeshLevel.dasset"
 MESH_SOURCE = REPOSITORY_ROOT / "Sandbox/Content/Models/Mesh_Teapot.dasset"
 MODEL_SOURCE = REPOSITORY_ROOT / "Sandbox/SourceAssets/Models/Models/Mesh_Teapot.obj"
 
@@ -17,7 +17,6 @@ def main() -> None:
     if legacy_bytes.count(actors_record) != 1:
         raise RuntimeError("Expected exactly one serialized Actors field.")
 
-    (FIXTURE_ROOT / "LegacyStaticMeshLevel.dasset").write_bytes(legacy_bytes)
     (FIXTURE_ROOT / "UnknownNewerLevel.dasset").write_bytes(
         legacy_bytes.replace(actors_record, future_record)
     )

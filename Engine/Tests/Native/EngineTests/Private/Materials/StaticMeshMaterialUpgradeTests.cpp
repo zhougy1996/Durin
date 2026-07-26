@@ -376,6 +376,21 @@ TEST(FStaticMeshMaterialUpgradeTests, CheckedInLegacyLevelReportsExpectedSafeCle
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
 }
 
+TEST(FStaticMeshMaterialUpgradeTests, SandboxDefaultLevelLoadsCleanly)
+{
+	PrepareCheckedInLevelFixture("CurrentSandboxLevel.dasset");
+
+	Durin::FAssetPath LevelPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/Levels/NewLevel", LevelPath));
+	Durin::DLevel* Level = nullptr;
+	Durin::Asset::FAssetLoadReport Report;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(LevelPath, Level, &Report));
+	ASSERT_NE(Level, nullptr);
+	EXPECT_FALSE(Report.HasCompatibilityIssues());
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+}
+
 TEST(FStaticMeshMaterialUpgradeTests, CheckedInUnknownNewerLevelRequiresExplicitDataLossConsent)
 {
 	PrepareCheckedInLevelFixture("UnknownNewerLevel.dasset");
