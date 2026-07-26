@@ -11,6 +11,8 @@ contract, distinguishes registered safe upgrades from unknown incompatible
 fields, and blocks normal saves that would discard compatibility-risk payloads.
 The Level Editor now keeps compatibility-affected loads pending until the user
 saves, opens without saving, explicitly accepts risky cleanup, or cancels.
+The pending state also keeps the upgrade modal open across startup window
+placement changes instead of relying on a one-frame popup request.
 Engine now migrates the removed static-mesh component material fields into
 GUID-keyed overrides, retaining excess assignments as explicit orphans.
 

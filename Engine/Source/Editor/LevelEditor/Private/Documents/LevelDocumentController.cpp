@@ -183,10 +183,14 @@ namespace Durin
 		switch (QueuedPopup)
 		{
 		case EQueuedPopup::UnsavedLevel: ImGui::OpenPopup("Unsaved Level"); break;
-		case EQueuedPopup::AssetStructureUpgrade: ImGui::OpenPopup("Asset Structure Upgrade Required"); break;
+		case EQueuedPopup::AssetStructureUpgrade: break;
 		case EQueuedPopup::None: break;
 		}
 		QueuedPopup = EQueuedPopup::None;
+		// Startup window placement may invalidate a popup opened during the first frame.
+		// Pending compatibility state is authoritative, so keep the modal available until resolved.
+		if (PendingLoadedLevel && !ImGui::IsPopupOpen("Asset Structure Upgrade Required"))
+			ImGui::OpenPopup("Asset Structure Upgrade Required");
 		DrawUnsavedLevelDialog();
 		DrawAssetStructureUpgradeDialog();
 	}
@@ -231,6 +235,10 @@ namespace Durin
 
 	auto FLevelDocumentController::DrawAssetStructureUpgradeDialog() -> void
 	{
+		ImGui::SetNextWindowPos(
+			ImGui::GetMainViewport()->GetCenter(),
+			ImGuiCond_Appearing,
+			ImVec2(0.5f, 0.5f));
 		ImGui::SetNextWindowSizeConstraints(
 			ImVec2(MonaImGui::ScaleUI(620.0f), MonaImGui::ScaleUI(480.0f)),
 			ImVec2(MonaImGui::ScaleUI(960.0f), MonaImGui::ScaleUI(760.0f)));
