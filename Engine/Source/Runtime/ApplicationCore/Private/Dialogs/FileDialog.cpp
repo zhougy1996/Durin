@@ -80,7 +80,7 @@ namespace Durin
 			const std::wstring InitialDirectory = StringUtils::Utf8ToWide(Request.InitialDirectory);
 			if (SUCCEEDED(::SHCreateItemFromParsingName(InitialDirectory.c_str(), nullptr, IID_PPV_ARGS(&InitialFolder))))
 			{
-				Dialog->SetDefaultFolder(InitialFolder);
+				Dialog->SetFolder(InitialFolder);
 				InitialFolder->Release();
 			}
 		}
@@ -166,7 +166,7 @@ namespace Durin
 			const std::wstring InitialDirectory = StringUtils::Utf8ToWide(Request.InitialDirectory);
 			if (SUCCEEDED(::SHCreateItemFromParsingName(InitialDirectory.c_str(), nullptr, IID_PPV_ARGS(&InitialFolder))))
 			{
-				Dialog->SetDefaultFolder(InitialFolder);
+				Dialog->SetFolder(InitialFolder);
 				InitialFolder->Release();
 			}
 		}

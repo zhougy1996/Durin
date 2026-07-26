@@ -168,6 +168,7 @@ namespace Durin
 			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
 			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
 			{"Targa", "*.tga"}, {"All Files", "*.*"}};
+		if (const FProjectInfo* Project = GetCurrentProject()) Request.InitialDirectory = Project->ProjectDir;
 		if (FacePathBuffers[Index][0] != '\0')
 			Request.InitialDirectory = std::filesystem::path(FacePathBuffers[Index].data()).parent_path().generic_string();
 		const FFileDialogResult Result = OpenFileDialog(Request);

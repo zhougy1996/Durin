@@ -182,6 +182,7 @@ namespace Durin
 			{"COLLADA", "*.dae"},
 			{"All Files", "*.*"}
 		};
+		if (const FProjectInfo* Project = GetCurrentProject()) Request.InitialDirectory = Project->ProjectDir;
 		if (SourcePathBuffer[0] != '\0') Request.InitialDirectory = std::filesystem::path(SourcePathBuffer.data()).parent_path().generic_string();
 
 		FFileDialogResult Result = OpenFileDialog(Request);

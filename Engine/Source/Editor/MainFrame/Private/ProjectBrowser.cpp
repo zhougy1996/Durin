@@ -2,6 +2,7 @@
 
 #include "Dialogs/FileDialog.h"
 #include "Icons/FontAwesomeIcons.h"
+#include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "MonaImGui.h"
 
@@ -326,6 +327,7 @@ namespace Durin
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Open a Durin Project";
 		Request.Filters = {{"Durin Project", "*.dproject"}};
+		Request.InitialDirectory = FPaths::RootDir();
 		const FFileDialogResult Result = OpenFileDialog(Request);
 		if (Result.Status == EFileDialogStatus::Selected) OpenProjectFile(Result.FilePath);
 		else if (Result.Status == EFileDialogStatus::Error) Error = Result.ErrorMessage;
