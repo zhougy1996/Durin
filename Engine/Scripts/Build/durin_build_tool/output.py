@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
+import threading
 from contextlib import contextmanager
 from time import perf_counter
 from typing import Iterator, Mapping, TextIO
@@ -19,6 +21,9 @@ from .config import (
     OutputMode,
     preset_build_directory,
 )
+
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+NINJA_PROGRESS_PATTERN = re.compile(r"^\[\d+/\d+(?:\s+[^\]]+)?\](?:\s|$)")
 
 
 class BuildOutput:
@@ -40,11 +45,16 @@ class BuildOutput:
             force_terminal = stdout_is_terminal and not no_color
         self.plain = no_color or not force_terminal
         self.output_mode = output_mode
-        self.compact = (
-            not output_is_terminal
-            if output_mode is OutputMode.AUTO
-            else output_mode is OutputMode.COMPACT
-        )
+        if output_mode is OutputMode.AUTO:
+            self.resolved_output_mode = (
+                OutputMode.PROGRESS if output_is_terminal else OutputMode.COMPACT
+            )
+        elif output_mode is OutputMode.PROGRESS and not output_is_terminal:
+            self.resolved_output_mode = OutputMode.COMPACT
+        else:
+            self.resolved_output_mode = output_mode
+        self.compact = self.resolved_output_mode is OutputMode.COMPACT
+        self.progress = self.resolved_output_mode is OutputMode.PROGRESS
         self.console = Console(
             file=stdout,
             force_terminal=False if self.plain else force_terminal,
@@ -59,34 +69,74 @@ class BuildOutput:
             highlight=False,
             soft_wrap=True,
         )
+        self._output_lock = threading.RLock()
+        self._progress_width = 0
 
     def flush(self) -> None:
+        with self._output_lock:
+            self.console.file.flush()
+            self.error_console.file.flush()
+
+    def _finish_progress(self) -> None:
+        if not self._progress_width:
+            return
+        self.console.file.write("\n")
         self.console.file.flush()
-        self.error_console.file.flush()
+        self._progress_width = 0
+
+    def finish_child_output(self) -> None:
+        with self._output_lock:
+            self._finish_progress()
 
     def info(self, message: str) -> None:
-        self.console.print(message)
-        self.flush()
+        with self._output_lock:
+            self._finish_progress()
+            self.console.print(message)
+            self.flush()
 
     def warning(self, message: str) -> None:
-        self.console.print(f"[yellow]warning[/yellow]  {message}")
-        self.flush()
+        with self._output_lock:
+            self._finish_progress()
+            self.console.print(f"[yellow]warning[/yellow]  {message}")
+            self.flush()
 
     def success(self, message: str) -> None:
-        self.console.print(f"[green]success[/green]  {message}")
-        self.flush()
+        with self._output_lock:
+            self._finish_progress()
+            self.console.print(f"[green]success[/green]  {message}")
+            self.flush()
 
     def cancelled(self, message: str) -> None:
-        self.console.print(f"[yellow]cancelled[/yellow]  {message}")
-        self.flush()
+        with self._output_lock:
+            self._finish_progress()
+            self.console.print(f"[yellow]cancelled[/yellow]  {message}")
+            self.flush()
 
     def command(self, command: str) -> None:
-        self.console.print(f"[dim]$ {command}[/dim]")
-        self.flush()
+        with self._output_lock:
+            self._finish_progress()
+            self.console.print(f"[dim]$ {command}[/dim]")
+            self.flush()
 
     def child_output(self, text: str) -> None:
-        self.console.file.write(text)
-        self.console.file.flush()
+        with self._output_lock:
+            clean = ANSI_ESCAPE_PATTERN.sub("", text.rstrip("\r\n"))
+            if self.progress and NINJA_PROGRESS_PATTERN.match(clean):
+                maximum_width = max(1, self.console.width - 1)
+                visible = clean
+                if len(visible) > maximum_width:
+                    visible = visible[: max(0, maximum_width - 1)] + "…"
+                if self.plain:
+                    erase = "\r" + (" " * self._progress_width) + "\r"
+                else:
+                    erase = "\r\x1b[2K"
+                self.console.file.write(erase + visible)
+                self.console.file.flush()
+                self._progress_width = len(visible)
+                return
+            self._finish_progress()
+            self.console.file.write(text)
+            self.console.file.flush()
 
     def context(self, context: BuildContext) -> None:
         rows: Mapping[str, object] = {
@@ -98,9 +148,13 @@ class BuildOutput:
             "CMake": context.cmake or "not required",
             "Parallel jobs": context.jobs or "not required",
             "Child output": (
-                f"auto ({'compact' if self.compact else 'full'})"
+                f"auto ({self.resolved_output_mode.value})"
                 if self.output_mode is OutputMode.AUTO
-                else self.output_mode.value
+                else (
+                    "progress (compact fallback)"
+                    if self.output_mode is OutputMode.PROGRESS and self.compact
+                    else self.output_mode.value
+                )
             ),
         }
         if self.plain:

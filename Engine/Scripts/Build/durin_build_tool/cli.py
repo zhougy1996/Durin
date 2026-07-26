@@ -89,7 +89,7 @@ OUTPUT_MODE = ArgumentSpec(
     {
         "choices": tuple(mode.value for mode in OutputMode),
         "default": OutputMode.AUTO.value,
-        "help": "child output mode: auto, compact, or full (default: auto)",
+        "help": "child output mode: auto, compact, progress, or full (default: auto)",
     },
 )
 FRESH = ArgumentSpec(

@@ -1002,6 +1002,7 @@ def run_command(
         ) from exc
     finally:
         reader.join()
+        output.finish_child_output()
         if process_job:
             process_job.close()
         prune_command_logs(log_path.parent)

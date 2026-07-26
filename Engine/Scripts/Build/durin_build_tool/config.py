@@ -71,6 +71,7 @@ class EnvironmentProvider(str, Enum):
 class OutputMode(str, Enum):
     AUTO = "auto"
     COMPACT = "compact"
+    PROGRESS = "progress"
     FULL = "full"
 
 

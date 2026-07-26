@@ -704,8 +704,10 @@ class CliTests(unittest.TestCase):
     def test_output_mode_is_available_before_or_after_command(self) -> None:
         before = build_cli.parse_args(["--output", "compact", "build"])
         after = build_cli.parse_args(["build", "--output", "full"])
+        progress = build_cli.parse_args(["build", "--output", "progress"])
         self.assertIs(before.output_mode, build_config.OutputMode.COMPACT)
         self.assertIs(after.output_mode, build_config.OutputMode.FULL)
+        self.assertIs(progress.output_mode, build_config.OutputMode.PROGRESS)
 
     def test_configure_fresh_option_is_explicit(self) -> None:
         self.assertFalse(build_cli.parse_args(["configure"]).fresh)
@@ -1335,6 +1337,7 @@ class OutputTests(unittest.TestCase):
         self.assertIn("\x1b[", stdout.getvalue())
         self.assertIn("success", stdout.getvalue())
         self.assertFalse(output.compact)
+        self.assertTrue(output.progress)
 
     def test_explicit_output_mode_overrides_terminal_detection(self) -> None:
         compact = BuildOutput(
@@ -1350,6 +1353,34 @@ class OutputTests(unittest.TestCase):
         )
         self.assertTrue(compact.compact)
         self.assertFalse(full.compact)
+        self.assertFalse(full.progress)
+
+    def test_progress_mode_falls_back_to_compact_without_terminal(self) -> None:
+        output = BuildOutput(
+            output_mode=build_config.OutputMode.PROGRESS,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        self.assertTrue(output.compact)
+        self.assertFalse(output.progress)
+
+    def test_progress_mode_replaces_ninja_status_and_streams_other_output(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(
+            plain=True,
+            output_mode=build_config.OutputMode.PROGRESS,
+            stdout=stdout,
+            stderr=io.StringIO(),
+            force_terminal=True,
+        )
+        output.child_output("[1/2] Building first.cpp\n")
+        output.child_output("[2/2] Linking result.dll\n")
+        output.child_output("compiler diagnostic\n")
+        text = stdout.getvalue()
+        self.assertIn("\r[1/2] Building first.cpp", text)
+        self.assertIn("\r[2/2] Linking result.dll", text)
+        self.assertNotIn("[1/2] Building first.cpp\n", text)
+        self.assertIn("[2/2] Linking result.dll\ncompiler diagnostic\n", text)
 
     def test_failure_summary_contains_command_exit_code_and_recovery(self) -> None:
         stderr = io.StringIO()

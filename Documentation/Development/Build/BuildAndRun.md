@@ -89,18 +89,23 @@ BuildTool separates its resolved context, execution stages, raw CMake/Ninja outp
 .\BuildTool build --target all --plain
 ```
 
-Child-process output has three modes, selected with `--output auto|compact|full`.
-The default `auto` mode streams complete child output in an interactive terminal
-and selects compact output when stdout is redirected or consumed by an Agent.
+Child-process output has four modes, selected with
+`--output auto|compact|progress|full`. The default `auto` mode selects progress
+output in an interactive terminal and compact output when stdout is redirected
+or consumed by an Agent. Progress mode updates routine Ninja `[n/total]` status
+in place while preserving other child output, compiler diagnostics, and the
+complete command log. When explicitly requested without an interactive terminal,
+progress mode falls back to compact output.
 Compact mode keeps stage boundaries, command lines, heartbeats, and final
 results, but suppresses routine CMake, Ninja, and successful GoogleTest lines.
 It writes the complete raw output under `Build/.agent-state/logs/`, reports the
 log path after each successful child command, and prints a bounded diagnostic
 excerpt plus the log path when a child fails. The newest 40 command logs are
-retained. Use `--output full` to stream all child output in a redirected
-environment, or `--output compact` to reduce output in an interactive terminal:
+retained. Use `--output full` to stream every child-output line, or
+`--output compact` to suppress routine child output in an interactive terminal:
 
 ```powershell
+.\BuildTool build --target all --output progress
 .\BuildTool build --target all --output compact
 .\BuildTool test --target CoreTests --output full
 ```
