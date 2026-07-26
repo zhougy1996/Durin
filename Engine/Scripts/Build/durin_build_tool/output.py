@@ -24,6 +24,18 @@ from .config import (
 
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 NINJA_PROGRESS_PATTERN = re.compile(r"^\[\d+/\d+(?:\s+[^\]]+)?\](?:\s|$)")
+RUNTIME_LOG_LEVEL_PATTERN = re.compile(
+    r"^\[\d{2}:\d{2}:\d{2}\]\[(trace|debug|info|warning|error|critical)\]",
+    re.IGNORECASE,
+)
+RUNTIME_LOG_LEVEL_STYLES = {
+    "trace": "white",
+    "debug": "cyan",
+    "info": "green",
+    "warning": "bold yellow",
+    "error": "bold red",
+    "critical": "bold white on red",
+}
 
 
 class BuildOutput:
@@ -118,7 +130,7 @@ class BuildOutput:
             self.console.print(f"[dim]$ {command}[/dim]")
             self.flush()
 
-    def child_output(self, text: str) -> None:
+    def child_output(self, text: str, *, colorize_log_levels: bool = False) -> None:
         with self._output_lock:
             clean = ANSI_ESCAPE_PATTERN.sub("", text.rstrip("\r\n"))
             if self.progress and NINJA_PROGRESS_PATTERN.match(clean):
@@ -135,6 +147,18 @@ class BuildOutput:
                 self._progress_width = len(visible)
                 return
             self._finish_progress()
+            if colorize_log_levels and not self.plain and "\x1b[" not in text:
+                match = RUNTIME_LOG_LEVEL_PATTERN.match(text)
+                if match is not None:
+                    rendered = Text(text)
+                    rendered.stylize(
+                        RUNTIME_LOG_LEVEL_STYLES[match.group(1).lower()],
+                        match.start(1),
+                        match.end(1),
+                    )
+                    self.console.print(rendered, end="")
+                    self.console.file.flush()
+                    return
             self.console.file.write(text)
             self.console.file.flush()
 

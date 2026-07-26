@@ -886,6 +886,7 @@ def run_command(
     *,
     environment: Mapping[str, str],
     output: BuildOutput,
+    colorize_log_levels: bool = False,
     recovery_required_on_interrupt: bool = True,
     interruption_message: str | None = None,
     timeout_seconds: int | None = None,
@@ -932,7 +933,7 @@ def run_command(
                         log.write(line)
                         transcript.add(line)
                         if not output.compact:
-                            output.child_output(line)
+                            output.child_output(line, colorize_log_levels=colorize_log_levels)
         except OSError as exc:
             reader_error.append(exc)
 
@@ -1445,6 +1446,7 @@ def run_application(context: BuildContext, output: BuildOutput) -> None:
             arguments,
             environment=os.environ,
             output=output,
+            colorize_log_levels=True,
             recovery_required_on_interrupt=False,
             wait_for_descendants=True,
             show_heartbeat=False,

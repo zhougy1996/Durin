@@ -1297,6 +1297,22 @@ class CliTests(unittest.TestCase):
         self.assertIn("  build ", help_text)
         self.assertNotIn("  /build ", help_text)
 
+    def test_shell_subcommand_help_keeps_session_open(self) -> None:
+        base = mock.Mock()
+        base.preset.name = "debug"
+        base.current_host = "windows"
+        help_stdout = io.StringIO()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_cli, "create_context", return_value=base), mock.patch.object(
+            build_cli, "show_status"
+        ), mock.patch("sys.stdout", help_stdout), mock.patch(
+            "builtins.input", side_effect=["build --help", "create --help", "exit"]
+        ) as prompt:
+            build_cli.run_shell(build_config.CommandRequest(build_config.Action.SHELL), output)
+        self.assertEqual(prompt.call_count, 3)
+        self.assertIn("usage: BuildTool build", help_stdout.getvalue())
+        self.assertIn("usage: BuildTool create", help_stdout.getvalue())
+
     def test_wrapper_uses_new_entrypoint_and_forwards_arguments(self) -> None:
         content = (REPO_ROOT / "BuildTool.bat").read_text(encoding="utf-8")
         self.assertIn('set "VSLANG=1033"', content)
@@ -2513,6 +2529,39 @@ class OutputTests(unittest.TestCase):
         self.assertNotIn("[1/2] Building first.cpp\n", text)
         self.assertIn("[2/2] Linking result.dll\ncompiler diagnostic\n", text)
 
+    def test_runtime_log_levels_are_colored_for_terminal_output(self) -> None:
+        stdout = io.StringIO()
+        with mock.patch.dict(os.environ, {}, clear=True):
+            output = BuildOutput(
+                stdout=stdout,
+                stderr=io.StringIO(),
+                force_terminal=True,
+                output_mode=build_config.OutputMode.FULL,
+            )
+            output.child_output(
+                "[12:34:56][warning]Runtime warning\n",
+                colorize_log_levels=True,
+            )
+        text = stdout.getvalue()
+        self.assertIn("\x1b[", text)
+        self.assertIn("warning", text)
+        self.assertIn("Runtime warning", text)
+
+    def test_runtime_log_level_coloring_respects_plain_output(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(
+            plain=True,
+            stdout=stdout,
+            stderr=io.StringIO(),
+            force_terminal=True,
+            output_mode=build_config.OutputMode.FULL,
+        )
+        output.child_output(
+            "[12:34:56][error]Runtime error\n",
+            colorize_log_levels=True,
+        )
+        self.assertNotIn("\x1b[", stdout.getvalue())
+
     def test_failure_summary_contains_command_exit_code_and_recovery(self) -> None:
         stderr = io.StringIO()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
@@ -2902,6 +2951,7 @@ class CoreTests(unittest.TestCase):
         )
         self.assertTrue(run.call_args.kwargs["wait_for_descendants"])
         self.assertFalse(run.call_args.kwargs["show_heartbeat"])
+        self.assertTrue(run.call_args.kwargs["colorize_log_levels"])
 
     def test_run_command_waits_for_windows_process_job(self) -> None:
         process = mock.Mock(pid=42, returncode=0)

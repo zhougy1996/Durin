@@ -1009,6 +1009,9 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                     child_output, paths, all_presets
                 ),
             )
+        except SystemExit as exc:
+            if exc.code not in {None, 0}:
+                raise
         except (BuildToolError, ValueError) as exc:
             error = exc if isinstance(exc, BuildToolError) else BuildToolError(f"Invalid command: {exc}")
             output.failure(
