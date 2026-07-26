@@ -1,13 +1,32 @@
 #include "Materials/MaterialInterface.h"
 
+#include "CoreGlobals.h"
 #include "Components/StaticMeshComponent.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
 #include "Materials/MaterialInstance.h"
 #include "Texture/Texture2D.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
+	namespace
+	{
+		auto CheckMaterialQueryThread() -> void
+		{
+			if (GIsGameThreadIdInitialized) CheckGameThread();
+		}
+
+		auto SortObjectHandles(std::vector<FObjectHandle>& Handles) -> void
+		{
+			std::ranges::sort(Handles, [](FObjectHandle Left, FObjectHandle Right) {
+				return Left.Index < Right.Index
+					|| (Left.Index == Right.Index && Left.Generation < Right.Generation);
+			});
+		}
+	}
+
 	DMaterialInterface::DMaterialInterface(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -55,6 +74,20 @@ namespace Durin
 	auto DMaterialInterface::GetParent() const -> DMaterialInterface*
 	{
 		return nullptr;
+	}
+
+	auto DMaterialInterface::IsDependent(const DMaterialInterface* TestDependency) const -> bool
+	{
+		CheckMaterialQueryThread();
+		if (!TestDependency) return false;
+
+		std::unordered_set<const DMaterialInterface*> Visited;
+		for (const DMaterialInterface* Material = this; Material != nullptr; Material = Material->GetParent())
+		{
+			if (!Visited.insert(Material).second) return false;
+			if (Material == TestDependency) return true;
+		}
+		return false;
 	}
 
 	auto DMaterialInterface::GetRenderData() const -> FMaterialRenderData
@@ -159,5 +192,45 @@ namespace Durin
 		if (!Instance) return;
 		const FObjectHandle Handle = MakeObjectHandle(Instance);
 		std::erase_if(DependentInstances, [Handle](FObjectHandle Candidate) { return Candidate.Index == Handle.Index && Candidate.Generation == Handle.Generation; });
+	}
+
+	auto GetLoadedDirectMaterialChildren(
+		const DMaterialInterface* Parent
+	) -> std::vector<FObjectHandle>
+	{
+		CheckMaterialQueryThread();
+		if (!IsValid(Parent)) return {};
+
+		std::vector<FObjectHandle> Result;
+		const std::vector<DObject*> Objects = GDObjectArray.Snapshot();
+		for (DObject* Object : Objects)
+		{
+			auto* Instance = Cast<DMaterialInstance>(Object);
+			if (!IsValid(Instance) || Instance->GetParent() != Parent) continue;
+			const FObjectHandle Handle = MakeObjectHandle(Instance);
+			if (!IsObjectHandleNull(Handle)) Result.push_back(Handle);
+		}
+		SortObjectHandles(Result);
+		return Result;
+	}
+
+	auto GetLoadedMaterialDependents(
+		const DMaterialInterface* Dependency
+	) -> std::vector<FObjectHandle>
+	{
+		CheckMaterialQueryThread();
+		if (!IsValid(Dependency)) return {};
+
+		std::vector<FObjectHandle> Result;
+		const std::vector<DObject*> Objects = GDObjectArray.Snapshot();
+		for (DObject* Object : Objects)
+		{
+			auto* Material = Cast<DMaterialInterface>(Object);
+			if (!IsValid(Material) || !Material->IsDependent(Dependency)) continue;
+			const FObjectHandle Handle = MakeObjectHandle(Material);
+			if (!IsObjectHandleNull(Handle)) Result.push_back(Handle);
+		}
+		SortObjectHandles(Result);
+		return Result;
 	}
 }

@@ -30,6 +30,8 @@ namespace Durin
 		ENGINE_API virtual auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool;
 		ENGINE_API virtual auto GetParent() const -> DMaterialInterface*;
 
+		// Tests the canonical Parent chain without relying on reverse registration state.
+		ENGINE_API auto IsDependent(const DMaterialInterface* TestDependency) const -> bool;
 		ENGINE_API auto GetRenderData() const -> FMaterialRenderData;
 		auto GetRenderStateVersion() const -> uint64 { return RenderStateVersion; }
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
@@ -51,4 +53,14 @@ namespace Durin
 		friend class DMaterialInstance;
 		friend class DStaticMeshComponent;
 	};
+
+	// Returns loaded material instances whose canonical Parent is exactly Parent.
+	ENGINE_API auto GetLoadedDirectMaterialChildren(
+		const DMaterialInterface* Parent
+	) -> std::vector<FObjectHandle>;
+
+	// Returns loaded materials whose canonical Parent chain contains Dependency, including itself.
+	ENGINE_API auto GetLoadedMaterialDependents(
+		const DMaterialInterface* Dependency
+	) -> std::vector<FObjectHandle>;
 }

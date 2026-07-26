@@ -6,7 +6,9 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Design is selected and implementation has not started.
+Stage 0 is complete. Material dependency semantics and loaded query APIs are
+implemented and validated by 4 focused dependency tests plus the existing 41
+material tests. Stage 1 is next.
 
 This plan replaces the unimplemented centralized object dependency index design
 recorded on 2026-07-26. The revised direction follows Unreal Engine's material
@@ -352,14 +354,14 @@ Current gaps:
 
 ### Stage 0: Material dependency semantics and loaded queries
 
-- [ ] Add iterative, cycle-guarded `DMaterialInterface::IsDependent()`.
-- [ ] Implement the base-material and material-instance dependency behavior from
+- [x] Add iterative, cycle-guarded `DMaterialInterface::IsDependent()`.
+- [x] Implement the base-material and material-instance dependency behavior from
   current canonical Parent storage.
-- [ ] Add loaded direct-child and transitive-dependent query helpers using one
+- [x] Add loaded direct-child and transitive-dependent query helpers using one
   `GDObjectArray.Snapshot()` and generation-safe result handles.
-- [ ] Sort result handles by index and generation.
-- [ ] Exclude invalid, garbage, pending-destruction, and wrong-class candidates.
-- [ ] Add Engine tests for self, direct, transitive, unrelated, null, corrupt
+- [x] Sort result handles by index and generation.
+- [x] Exclude invalid, garbage, pending-destruction, and wrong-class candidates.
+- [x] Add Engine tests for self, direct, transitive, unrelated, null, corrupt
   cycle guard, direct-child exclusion, deterministic ordering, and stale handle
   filtering.
 

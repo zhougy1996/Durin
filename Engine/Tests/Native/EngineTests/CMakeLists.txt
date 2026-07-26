@@ -6,6 +6,7 @@ add_durin_test(EngineTests
 	Private/Editor/ReflectedPropertyTransactionTests.cpp
 	Private/Editor/ReflectedPropertyContainerTests.cpp
 	Private/Materials/MaterialSchemaAndEditingTests.cpp
+	Private/Materials/MaterialDependencyTests.cpp
 	Private/Materials/MaterialInstanceTests.cpp
 	Private/Materials/MaterialRenderingTests.cpp
 	Private/Materials/StaticMeshMaterialTests.cpp
