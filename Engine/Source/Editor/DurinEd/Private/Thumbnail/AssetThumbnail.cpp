@@ -268,9 +268,7 @@ namespace Durin
 				OutError = "A newer thumbnail request is already active for this asset.";
 				return false;
 			}
-			if (Entry.CacheKey == CacheKey
-				&& Entry.State != EAssetThumbnailState::Invalid
-				&& Entry.State != EAssetThumbnailState::Failed)
+			if (Entry.CacheKey == CacheKey)
 			{
 				if (Request.RequestSerial == Entry.RequestSerial)
 				{

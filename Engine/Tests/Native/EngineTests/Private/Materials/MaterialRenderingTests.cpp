@@ -4,6 +4,7 @@
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/MaterialAssetThumbnail.h"
 
 TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 {
@@ -290,7 +291,7 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 	EXPECT_EQ(FindObjectByName(SecondLightName), nullptr);
 }
 
-TEST(FMaterialTests, RenderedThumbnailPreviewSceneRetainsSharedSphereAndCapturesOnce)
+TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
 {
 	InitializeDObjectSystem();
 	Durin::PathUtilities::InitDefaultMountPoints();
@@ -327,6 +328,9 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneRetainsSharedSphereAndCaptures
 	Contract.Output.Width = 64;
 	Contract.Output.Height = 64;
 	Durin::DStaticMesh* CaptureMesh = nullptr;
+	Durin::DMaterial* CaptureMaterial = nullptr;
+	Durin::DMaterialInstance* CaptureInstance = nullptr;
+	Durin::FAssetPath CaptureTexturePath;
 	{
 		Durin::FRenderedAssetThumbnailPreviewScenePool Pool(Contract);
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
@@ -335,24 +339,80 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneRetainsSharedSphereAndCaptures
 		ASSERT_NE(Sphere->GetRenderData(), nullptr);
 		CaptureMesh = Durin::DStaticMesh::CreateDebugTriangle();
 		ASSERT_NE(CaptureMesh, nullptr);
-		std::vector<Durin::FMaterialRenderUpdate> Materials;
-		for (Durin::uint32 SlotIndex = 0;
-			SlotIndex < CaptureMesh->GetRenderData()->MaterialSlots.size();
-			++SlotIndex)
-		{
-			Materials.push_back({
-				.SlotIndex = SlotIndex,
-				.RenderData = Durin::FMaterialRenderData{
-					.BaseColor = {0.8f, 0.15f, 0.05f, 1.0f}},
-				.MaterialVersion = 1,
-				.ComponentRevision = 1,
-				.DirtyFlags = Durin::EMaterialRenderDirtyFlags::ParameterValues,
-			});
-		}
-		auto Proxy = std::make_unique<Durin::FStaticMeshSceneProxy>(
-			CaptureMesh->GetRenderData(), std::move(Materials));
-		ASSERT_TRUE(Pool.SetPrimitive(std::move(Proxy), Durin::FMatrix(1.0), Error)) << Error;
-		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
+		CaptureMaterial = Durin::NewObject<Durin::DMaterial>(
+			nullptr, "RenderedThumbnailCaptureMaterial");
+		CaptureInstance = Durin::NewObject<Durin::DMaterialInstance>(
+			nullptr, "RenderedThumbnailCaptureInstance");
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(),
+			Durin::FVector3(0.8, 0.15, 0.05)));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::SpecularStrengthName(), 0.2f));
+		ASSERT_TRUE(CaptureInstance->SetParent(CaptureMaterial));
+		ASSERT_TRUE(CaptureInstance->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(),
+			Durin::FVector3(0.05, 0.2, 0.8)));
+		ASSERT_TRUE(CaptureInstance->SetScalarParameterValue(
+			Durin::MaterialParameters::SpecularStrengthName(), 0.8f));
+		const std::filesystem::path TextureMount =
+			std::filesystem::path(DURIN_TEST_WORK_DIR) / "MaterialThumbnailVulkan";
+		const std::filesystem::path TextureSource =
+			std::filesystem::path(DURIN_TEST_WORK_DIR) / "MaterialThumbnailVulkan.png";
+		std::filesystem::remove_all(TextureMount);
+		std::filesystem::create_directories(TextureMount);
+		WriteMaterialTextureFixture(TextureSource);
+		Durin::PathUtilities::RegisterMountPoint(
+			"/MaterialThumbnailVulkan/", TextureMount.generic_string() + "/");
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			"/MaterialThumbnailVulkan/T_Preview", CaptureTexturePath));
+		const Durin::FTexture2DImportResult TextureResult =
+			Durin::DTexture2D::ImportAsset(
+				TextureSource.generic_string(), CaptureTexturePath.ToString());
+		ASSERT_TRUE(TextureResult) << TextureResult.Message;
+		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
+			Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
+		Durin::FlushRenderingCommands();
+
+		auto Capture = [&](Durin::DMaterialInterface* Material, Durin::uint64 Revision) {
+			std::vector<Durin::uint8> Pixels;
+			std::unique_ptr<Durin::PrimitiveSceneProxy> Proxy =
+				Durin::CreateMaterialPreviewPrimitive(
+					CaptureMesh, Material, Revision, Error);
+			EXPECT_NE(Proxy, nullptr) << Error;
+			if (Proxy == nullptr) return Pixels;
+			EXPECT_TRUE(Pool.SetPrimitive(
+				std::move(Proxy), Durin::FMatrix(1.0), Error)) << Error;
+			EXPECT_TRUE(Pool.BeginCapture(Error)) << Error;
+			Durin::FlushRenderingCommands();
+			EXPECT_EQ(
+				Pool.PollCapture(Pixels, Error),
+				Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+			Pool.Reset();
+			return Pixels;
+		};
+
+		const std::vector<Durin::uint8> MaterialPixels =
+			Capture(CaptureMaterial, 1);
+		const std::vector<Durin::uint8> InstancePixels =
+			Capture(CaptureInstance, 2);
+		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
+			Durin::MaterialParameters::BaseColorTextureName(), nullptr));
+		const std::vector<Durin::uint8> UntexturedPixels =
+			Capture(CaptureMaterial, 3);
+		ASSERT_EQ(MaterialPixels.size(), 64u * 64u * 4u);
+		ASSERT_EQ(InstancePixels.size(), MaterialPixels.size());
+		ASSERT_EQ(UntexturedPixels.size(), MaterialPixels.size());
+		const size_t Corner = 0;
+		const size_t Center = (32u * 64u + 32u) * 4u;
+		const std::array CornerRgb = {
+			MaterialPixels[Corner], MaterialPixels[Corner + 1], MaterialPixels[Corner + 2]};
+		const std::array MaterialCenterRgb = {
+			MaterialPixels[Center], MaterialPixels[Center + 1], MaterialPixels[Center + 2]};
+		const std::array InstanceCenterRgb = {
+			InstancePixels[Center], InstancePixels[Center + 1], InstancePixels[Center + 2]};
+		EXPECT_NE(CornerRgb, MaterialCenterRgb);
+		EXPECT_NE(MaterialCenterRgb, InstanceCenterRgb);
+		EXPECT_NE(MaterialPixels, UntexturedPixels);
 
 		struct FEndRenderedThumbnailFrame
 		{
@@ -363,20 +423,6 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneRetainsSharedSphereAndCaptures
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			});
 		Durin::FlushRenderingCommands();
-
-		std::vector<Durin::uint8> Pixels;
-		EXPECT_EQ(
-			Pool.PollCapture(Pixels, Error),
-			Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
-		ASSERT_EQ(Pixels.size(), 64u * 64u * 4u);
-		const size_t Corner = 0;
-		const size_t Center = (32u * 64u + 32u) * 4u;
-		const std::array CornerRgb = {
-			Pixels[Corner], Pixels[Corner + 1], Pixels[Corner + 2]};
-		const std::array CenterRgb = {
-			Pixels[Center], Pixels[Center + 1], Pixels[Center + 2]};
-		EXPECT_NE(CornerRgb, CenterRgb);
-		Pool.Reset();
 	}
 
 	Durin::GEngine = nullptr;
@@ -384,6 +430,10 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneRetainsSharedSphereAndCaptures
 	CaptureMesh->GetRenderData()->ReleaseResources();
 	Renderer.ReleaseResources();
 	Durin::FlushRenderingCommands();
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureTexturePath));
+	Durin::FlushRenderingCommands();
+	Durin::MarkAsGarbage(CaptureInstance);
+	Durin::MarkAsGarbage(CaptureMaterial);
 	Durin::MarkAsGarbage(CaptureMesh);
 	PreloadedSphere = {};
 	Durin::CollectGarbage();

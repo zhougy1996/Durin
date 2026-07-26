@@ -73,6 +73,14 @@ namespace Durin
 		uint64 ResourceRevision = 0;
 	};
 
+	// Distinguishes a persistent warm hit from cold provider work without loading the asset.
+	struct FRenderedAssetThumbnailStartResult
+	{
+		std::optional<FRenderedAssetThumbnailJob> ColdJob;
+		std::optional<FAssetThumbnailScheduledJob> WarmJob;
+		std::vector<uint8> EncodedBytes;
+	};
+
 	// Coordinates bounded rendered-thumbnail transitions and persistent publication across owning threads.
 	class FRenderedAssetThumbnailPipeline
 	{
@@ -90,6 +98,8 @@ namespace Durin
 		DURINED_API auto BeginFrame() -> void;
 		// Returns cold work only; a persistent hit is published Ready without loading or rendering.
 		DURINED_API auto StartNext() -> std::optional<FRenderedAssetThumbnailJob>;
+		// Returns encoded warm-hit bytes to the UI upload path while preserving the cold-only convenience API.
+		DURINED_API auto StartNextDetailed() -> FRenderedAssetThumbnailStartResult;
 		DURINED_API auto CompleteLoad(
 			FRenderedAssetThumbnailJob& Job, uint64 AssetRevision, std::string_view Error = {}) -> bool;
 		// Leaves the job waiting when resources are not ready and consumes no render allowance.

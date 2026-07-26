@@ -10,7 +10,7 @@
 namespace Durin
 {
 	class FLevelEditorSessionSettings;
-	class FSourceImageThumbnailCache;
+	class FContentBrowserThumbnailCache;
 	struct FLevelEditorContext;
 
 	// Distinguishes folders, assets, and source files in the content browser.
@@ -49,6 +49,8 @@ namespace Durin
 		std::string ThumbnailSourcePath;
 		uintmax_t ThumbnailFileSize = 0;
 		std::filesystem::file_time_type ThumbnailLastWriteTime{};
+		uint32 ThumbnailPackageFormatVersion = 0;
+		int64 ThumbnailLastWriteTimeTicks = 0;
 		uintmax_t FileSize = 0;
 		std::filesystem::file_time_type LastWriteTime{};
 
@@ -175,6 +177,6 @@ namespace Durin
 		std::vector<std::pair<std::string, Asset::FAssetResult>> DeleteAnalysisErrors;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
-		std::unique_ptr<FSourceImageThumbnailCache> ThumbnailCache;
+		std::unique_ptr<FContentBrowserThumbnailCache> ThumbnailCache;
 	};
 } // namespace Durin

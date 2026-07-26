@@ -2,7 +2,7 @@
 
 Summary: Persistent Content Browser previews for materials, material instances, and cube textures.
 
-Last reviewed: 2026-07-26
+Last reviewed: 2026-07-27
 
 ## Current Status
 
@@ -40,15 +40,24 @@ atomic PNG output publication, deterministic counters, and one resettable
 offscreen preview-scene pool. The pool retains the shared native sphere,
 applies the versioned camera, light, background, and output contract, and
 performs one render-thread readback per cold capture. Focused tests exercise a
-real Vulkan offscreen capture and decode the persisted PNG output.
+real Vulkan offscreen capture and decode the persisted PNG output. Stage 3 is
+complete. `DurinEd` now registers exact Material and MaterialInstance
+providers, snapshots sorted transitive package dependencies, loads and
+validates resolved material state, waits for referenced texture resources, and
+binds the result through the same preview-primitive helper used by Material
+Editor. Content Browser routes source and rendered requests through one cache
+facade, uploads cold or persistent warm pixels to the UI backend, preserves
+stable failures without per-frame retry, and releases scene, material, and GPU
+state during cancellation or shutdown. Focused tests cover dependency
+invalidation, missing registry data, inheritance, local parameter and texture
+overrides, stable invalid-instance diagnostics, and Vulkan-rendered base-color,
+specular, texture-sampling, and instance differences.
 
 Texture2D assets and supported source-image files already use an
-asynchronous, persistent Content Browser thumbnail cache. Materials have an
-isolated live preview scene in the Material Editor, and TextureCube assets have
-runtime render resources and a defined sampling-orientation contract. The
-Content Browser does not yet request rendered thumbnails for Material,
-MaterialInstance, or TextureCube assets, and the existing source-image cache is
-not a provider-neutral rendered-thumbnail service.
+asynchronous, persistent Content Browser thumbnail cache. Material and
+MaterialInstance assets now use the shared rendered-thumbnail path. TextureCube
+assets have runtime render resources and a defined sampling-orientation
+contract, but Content Browser does not yet request their rendered thumbnails.
 
 ## Goal
 
@@ -235,21 +244,11 @@ introducing per-card live viewports or steady-state rendering work.
 
 ### Gaps
 
-- Thumbnail cache identity and requests are physical-source-image-specific
-  rather than provider-neutral.
-- Content Browser snapshot construction recognizes only Texture2D source
-  thumbnails and does not dispatch rendered asset classes.
-- The interactive material preview imports and roots preview meshes per
-  document; it is not a reusable fixed thumbnail renderer.
-- No editor thumbnail provider registry, rendered-job scheduler, shared
-  offscreen preview scene, capture/readback pipeline, or rendered-output key
-  exists.
 - No TextureCube reflective-sphere preview shader exists.
-- Material thumbnail invalidation has no deterministic transitive Asset
-  Registry dependency-key builder.
-- There is no rendered-thumbnail golden fixture or instrumentation for cache
-  hits, queue latency, render count, readback count, failure count, and
-  eviction.
+- TextureCube resource readiness and directional rendered-output coverage are
+  not connected to the provider-neutral service.
+- Mixed-grid interaction, large-directory performance, manual visual checks,
+  cache recovery, and final architecture handoff remain.
 
 ## Implementation Stages
 
@@ -326,17 +325,17 @@ introducing per-card live viewports or steady-state rendering work.
 
 ### Stage 3: Add Material and MaterialInstance thumbnails
 
-- [ ] Extract the fixed material preview setup needed by both the interactive
+- [x] Extract the fixed material preview setup needed by both the interactive
   Material Editor and thumbnail provider without coupling LevelEditor to the
   MaterialEditor module.
-- [ ] Register Material and MaterialInstance providers that load the requested
+- [x] Register Material and MaterialInstance providers that load the requested
   asset, resolve inherited values, wait for the matching render-resource
   revision, and bind it to the shared sphere.
-- [ ] Build keys from the material package plus its sorted transitive package
+- [x] Build keys from the material package plus its sorted transitive package
   dependency closure, including parent materials and referenced textures.
-- [ ] Preserve invalid, compiling/waiting, missing-dependency, failed-resource,
+- [x] Preserve invalid, compiling/waiting, missing-dependency, failed-resource,
   cancellation, garbage-collection, and module-shutdown diagnostics.
-- [ ] Add focused key/invalidation tests and rendered-image checks for base
+- [x] Add focused key/invalidation tests and rendered-image checks for base
   color, scalar/specular response, texture sampling, instance inheritance, and
   local override differences.
 

@@ -148,23 +148,34 @@ namespace Durin
 
 	auto FRenderedAssetThumbnailPipeline::StartNext() -> std::optional<FRenderedAssetThumbnailJob>
 	{
+		return StartNextDetailed().ColdJob;
+	}
+
+	auto FRenderedAssetThumbnailPipeline::StartNextDetailed()
+		-> FRenderedAssetThumbnailStartResult
+	{
+		FRenderedAssetThumbnailStartResult Result;
 		std::optional<FAssetThumbnailScheduledJob> ScheduledJob = Impl->Scheduler.TakeNext();
-		if (!ScheduledJob) return std::nullopt;
+		if (!ScheduledJob) return Result;
 		++Impl->Stats.Jobs;
 
-		std::vector<uint8> EncodedBytes;
 		const EAssetThumbnailObjectLoadResult LoadResult =
-			Impl->Store.Load(ScheduledJob->CacheKey, EncodedBytes);
+			Impl->Store.Load(ScheduledJob->CacheKey, Result.EncodedBytes);
 		if (LoadResult == EAssetThumbnailObjectLoadResult::Hit)
 		{
 			if (Impl->Scheduler.Transition(
 					*ScheduledJob, EAssetThumbnailState::Loading, EAssetThumbnailState::Ready))
+			{
 				++Impl->Stats.DiskHits;
-			return std::nullopt;
+				Result.WarmJob = std::move(*ScheduledJob);
+			}
+			return Result;
 		}
 
 		++Impl->Stats.Loads;
-		return FRenderedAssetThumbnailJob{.ScheduledJob = std::move(*ScheduledJob)};
+		Result.ColdJob = FRenderedAssetThumbnailJob{
+			.ScheduledJob = std::move(*ScheduledJob)};
+		return Result;
 	}
 
 	auto FRenderedAssetThumbnailPipeline::CompleteLoad(

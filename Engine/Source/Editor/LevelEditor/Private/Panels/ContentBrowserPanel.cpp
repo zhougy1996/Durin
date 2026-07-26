@@ -19,7 +19,7 @@
 #include "Math/Vector.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
-#include "Assets/SourceImageThumbnailCache.h"
+#include "Assets/ContentBrowserThumbnailCache.h"
 #include "Assets/SourceImageThumbnailDecoder.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -47,6 +47,20 @@ namespace Durin
 			std::string Name = Separator == std::string_view::npos ? std::string(QualifiedName) : std::string(QualifiedName.substr(Separator + 2));
 			if (Name.starts_with('D') && Name.size() > 1) Name.erase(Name.begin());
 			return Name;
+		}
+
+		auto MakeRenderedThumbnailFingerprint(const FContentBrowserItem& Item)
+			-> std::optional<FAssetThumbnailPackageFingerprint>
+		{
+			if (!Item.ThumbnailSourcePath.empty()) return std::nullopt;
+			FAssetPath Path;
+			if (!FAssetPath::TryCreate(Item.VirtualPath, Path)) return std::nullopt;
+			return FAssetThumbnailPackageFingerprint{
+				.VirtualPath = std::move(Path),
+				.AssetClassName = Item.AssetClassName,
+				.PackageFormatVersion = Item.ThumbnailPackageFormatVersion,
+				.FileSize = static_cast<uint64>(Item.ThumbnailFileSize),
+				.LastWriteTimeTicks = Item.ThumbnailLastWriteTimeTicks};
 		}
 
 		auto FindTextureSourceFile(const std::filesystem::path& PackagePath) -> std::filesystem::path
@@ -83,7 +97,7 @@ namespace Durin
 		, DirectoryTreeWidth(InSessionSettings.GetContentBrowserTreeWidth())
 	{
 		RefreshMountSnapshot();
-		ThumbnailCache = std::make_unique<FSourceImageThumbnailCache>();
+		ThumbnailCache = std::make_unique<FContentBrowserThumbnailCache>();
 		ViewMode = static_cast<EContentBrowserViewMode>(SessionSettings.GetContentBrowserViewMode());
 		bIconSizeLocked = SessionSettings.IsContentBrowserIconSizeLocked();
 		bShowSourceFiles = SessionSettings.GetContentBrowserShowSourceFiles();
@@ -266,6 +280,15 @@ namespace Durin
 					FileEc.clear();
 					Item.ThumbnailLastWriteTime = std::filesystem::last_write_time(ThumbnailPath, FileEc);
 				}
+			}
+			else if (Data.AssetClassName == DMaterial::StaticClass()->GetQualifiedName().ToString()
+				|| Data.AssetClassName
+					== DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
+			{
+				Item.ThumbnailIdentity = Item.VirtualPath;
+				Item.ThumbnailFileSize = Data.FileSize;
+				Item.ThumbnailPackageFormatVersion = Data.FormatVersion;
+				Item.ThumbnailLastWriteTimeTicks = Data.LastWriteTimeTicks;
 			}
 			ItemsSnapshot.push_back(std::move(Item));
 		}
@@ -746,9 +769,10 @@ namespace Durin
 					if (!Item.ThumbnailIdentity.empty())
 						ThumbnailCache->Request({
 							.Identity = Item.ThumbnailIdentity,
-							.PhysicalPath = Item.ThumbnailSourcePath,
-							.FileSize = Item.ThumbnailFileSize,
-							.LastWriteTime = Item.ThumbnailLastWriteTime,
+							.SourcePhysicalPath = Item.ThumbnailSourcePath,
+							.SourceFileSize = Item.ThumbnailFileSize,
+							.SourceLastWriteTime = Item.ThumbnailLastWriteTime,
+							.Asset = MakeRenderedThumbnailFingerprint(Item),
 							.Priority = Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd
 								? EAssetThumbnailPriority::Visible
 								: EAssetThumbnailPriority::Prefetch});

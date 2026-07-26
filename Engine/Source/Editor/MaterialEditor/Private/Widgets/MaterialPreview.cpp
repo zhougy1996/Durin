@@ -15,6 +15,7 @@
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "Thumbnail/MaterialAssetThumbnail.h"
 #include "Widgets/MViewport.h"
 
 namespace Durin
@@ -246,26 +247,6 @@ namespace Durin
 			return Cast<DStaticMesh>(Shape == EMaterialPreviewShape::Sphere ? SphereAsset.Get() : BoxAsset.Get());
 		}
 
-		auto MakeMaterialUpdates(DMaterialInterface* Material) -> std::vector<FMaterialRenderUpdate>
-		{
-			DStaticMesh* Mesh = GetSelectedMesh();
-			const FStaticMeshRenderData* RenderData = Mesh != nullptr ? Mesh->GetRenderData() : nullptr;
-			const uint32 SlotCount = RenderData != nullptr ? static_cast<uint32>(RenderData->MaterialSlots.size()) : 0;
-			std::vector<FMaterialRenderUpdate> Updates;
-			Updates.reserve(SlotCount);
-			for (uint32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
-			{
-				Updates.push_back({
-					.SlotIndex = SlotIndex,
-					.RenderData = Material != nullptr ? Material->GetRenderData() : FMaterialRenderData{},
-					.MaterialVersion = Material != nullptr ? Material->GetRenderStateVersion() : 0,
-					.ComponentRevision = MaterialRevision,
-					.DirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain,
-				});
-			}
-			return Updates;
-		}
-
 		auto UpdateScene(DMaterialInterface* Material) -> void
 		{
 			if (PreviewScene == nullptr || Material == nullptr) return;
@@ -274,9 +255,18 @@ namespace Durin
 			{
 				++MaterialRevision;
 				DStaticMesh* Mesh = GetSelectedMesh();
+				std::string Error;
+				std::unique_ptr<PrimitiveSceneProxy> Proxy =
+					CreateMaterialPreviewPrimitive(
+						Mesh, Material, MaterialRevision, Error);
+				if (Proxy == nullptr)
+				{
+					this->Error = std::format("Material preview unavailable: {}", Error);
+					return;
+				}
 				PreviewScene->AddOrReplacePrimitive(
 					PreviewPrimitiveId,
-					std::make_unique<FStaticMeshSceneProxy>(Mesh->GetRenderData(), MakeMaterialUpdates(Material)),
+					std::move(Proxy),
 					glm::mat4_cast(PreviewRotation));
 				CurrentMaterial = Material;
 				MaterialVersion = Version;
@@ -286,9 +276,18 @@ namespace Durin
 			if (Version == MaterialVersion) return;
 
 			++MaterialRevision;
-			for (FMaterialRenderUpdate& Update : MakeMaterialUpdates(Material))
+			const FStaticMeshRenderData* RenderData = GetSelectedMesh()->GetRenderData();
+			for (uint32 SlotIndex = 0;
+				RenderData != nullptr && SlotIndex < RenderData->MaterialSlots.size();
+				++SlotIndex)
 			{
-				Update.ComponentRevision = MaterialRevision;
+				FMaterialRenderUpdate Update{
+					.SlotIndex = SlotIndex,
+					.RenderData = Material->GetRenderData(),
+					.MaterialVersion = Material->GetRenderStateVersion(),
+					.ComponentRevision = MaterialRevision,
+					.DirtyFlags = EMaterialRenderDirtyFlags::ParameterValues
+						| EMaterialRenderDirtyFlags::ParentChain};
 				PreviewScene->UpdatePrimitiveMaterial(PreviewPrimitiveId, Update);
 			}
 			MaterialVersion = Version;
