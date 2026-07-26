@@ -12,3 +12,4 @@ These plans have an active execution path. Plan authoring and archival rules are
 | [Multithreading V1](MultithreadingV1.md) | Production-safe CPU task states, lifecycle, dependencies, cancellation, parallel loops, and async consumer handoff |
 | [Resource Dependency Updates](ResourceDependencyUpdates.md) | Forward material dependency queries, batched loaded-object scans, and registration-free render invalidation |
 | [Editor Icon Atlas](EditorIconAtlas.md) | Offline atlas pipeline for editor visualization icons |
+| [Windows Long Paths and Atomic File I/O](WindowsLongPathsAndAtomicFileIO.md) | Windows process long-path capability, Core-owned atomic publication, diagnostics, and long-worktree validation |
