@@ -6,11 +6,11 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 and 1 are complete. BuildTool now has a shared `create` command family,
-typed module/project creation requests, a cache-free descriptor contract,
-versioned disk templates, read-only workspace planning, and transactional
-filesystem writes with exact rollback. Stage 2 one-command module creation is
-the next delivery target.
+Stages 0 through 2 are complete. BuildTool now creates runtime and editor
+modules from versioned disk templates, updates project registration and
+enablement transactionally, validates the final workspace descriptor graph, and
+supports mutation-free dry runs. Stage 3 workspace-project creation is the next
+delivery target.
 
 ## Goal
 
@@ -224,20 +224,20 @@ Every direct command must have equivalent interactive-shell syntax.
 
 ### Stage 2: One-Command Module Creation
 
-- [ ] Implement runtime/editor path selection and default enablement.
-- [ ] Generate the module directory, `.dmodule`, `CMakeLists.txt`, minimal module
-  entry point, and API header.
-- [ ] Update `ModuleDirs` and the selected `BaseModules`/`ExtraModules` roots
+- [x] Implement runtime/editor path selection and default enablement.
+- [x] Generate the module directory, `.dmodule`, `CMakeLists.txt`, minimal module
+  entry point, API header, and self-PCH header when using the default PCH mode.
+- [x] Update `ModuleDirs` and the selected `BaseModules`/`ExtraModules` roots
   without reordering or duplicating existing entries.
-- [ ] Validate all dependency categories across project boundaries and preserve
+- [x] Validate all dependency categories across project boundaries and preserve
   their public/private and required/optional distinctions in the descriptor.
-- [ ] Add focused tests for default runtime/editor modules, static/shared
+- [x] Add focused tests for default runtime/editor modules, static/shared
   linkage, self PCH, explicit PCH, no enablement, multiple profiles, and every
   dependency category.
-- [ ] Run DurinHeaderTool preparation against generated module fixtures.
-- [ ] Configure and build representative generated runtime and editor modules
+- [x] Run DurinHeaderTool preparation against generated module fixtures.
+- [x] Configure and build representative generated runtime and editor modules
   through the documented BuildTool workflow.
-- [ ] Document module creation, option defaults, dry-run, and recovery behavior.
+- [x] Document module creation, option defaults, dry-run, and recovery behavior.
 
 #### Acceptance Gate
 

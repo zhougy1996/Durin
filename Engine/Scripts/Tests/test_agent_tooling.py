@@ -1432,6 +1432,10 @@ class ScaffoldingInfrastructureTests(unittest.TestCase):
                 "module/CMakeLists.txt.template",
                 {"MODULE_NAME": "Gameplay"},
             ),
+            "module/pch.h.template": renderer.render(
+                "module/pch.h.template",
+                {},
+            ),
             "project/descriptor.json.template": renderer.render(
                 "project/descriptor.json.template",
                 {"PROJECT_NAME": "MyGame"},
@@ -1574,6 +1578,219 @@ class ScaffoldingInfrastructureTests(unittest.TestCase):
                     (root,),
                     files=((root.parent / "outside.txt", b"no"),),
                 )
+
+
+class ModuleScaffoldingTests(unittest.TestCase):
+    @staticmethod
+    def write_json(path: Path, value: object) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+    @classmethod
+    def create_workspace(cls, root: Path) -> tuple[Path, Path]:
+        (root / "CMakeLists.txt").write_text(
+            "add_subdirectory(Engine)\nadd_subdirectory(Sandbox)\n",
+            encoding="utf-8",
+        )
+        engine = root / "Engine"
+        sandbox = root / "Sandbox"
+        engine_project = engine / "Engine.dproject"
+        sandbox_project = sandbox / "Sandbox.dproject"
+        cls.write_json(
+            engine_project,
+            {
+                "ProjectName": "Engine",
+                "ModuleDirs": {
+                    "Core": "Source/Runtime/Core",
+                    "AssetCore": "Source/Runtime/AssetCore",
+                    "DurinEd": "Source/Editor/DurinEd",
+                },
+                "BaseModules": ["Core"],
+                "ExtraModules": {
+                    "DurinEditor": {"Modules": ["DurinEd"]},
+                    "DurinGame": {"Modules": []},
+                },
+            },
+        )
+        cls.write_json(
+            engine / "Source" / "Runtime" / "Core" / "Core.dmodule",
+            {"ModuleName": "Core"},
+        )
+        cls.write_json(
+            engine / "Source" / "Runtime" / "AssetCore" / "AssetCore.dmodule",
+            {"ModuleName": "AssetCore", "PrivateDependencies": ["Core"]},
+        )
+        cls.write_json(
+            engine / "Source" / "Editor" / "DurinEd" / "DurinEd.dmodule",
+            {"ModuleName": "DurinEd", "PrivateDependencies": ["Core"]},
+        )
+        cls.write_json(
+            sandbox_project,
+            {
+                "ProjectName": "Sandbox",
+                "ModuleDirs": {"Sandbox": "Source/Runtime/Sandbox"},
+                "BaseModules": ["Sandbox"],
+                "ExtraModules": {
+                    "DurinEditor": {"Modules": []},
+                    "DurinGame": {"Modules": []},
+                },
+            },
+        )
+        cls.write_json(
+            sandbox / "Source" / "Runtime" / "Sandbox" / "Sandbox.dmodule",
+            {"ModuleName": "Sandbox", "PrivateDependencies": ["Core"]},
+        )
+        for module_name, module_root in (
+            ("Core", engine / "Source" / "Runtime" / "Core"),
+            ("AssetCore", engine / "Source" / "Runtime" / "AssetCore"),
+            ("DurinEd", engine / "Source" / "Editor" / "DurinEd"),
+            ("Sandbox", sandbox / "Source" / "Runtime" / "Sandbox"),
+        ):
+            (module_root / "CMakeLists.txt").write_text(
+                f"add_durin_module({module_name})\n",
+                encoding="utf-8",
+            )
+        (sandbox / "Source" / "Editor").mkdir(parents=True)
+        return engine_project, sandbox_project
+
+    @staticmethod
+    def snapshot(root: Path) -> dict[str, bytes]:
+        return {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+
+    def test_runtime_defaults_generate_complete_module_and_base_registration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, sandbox_project = self.create_workspace(root)
+            request = build_cli.parse_args(
+                [
+                    "create",
+                    "module",
+                    "Gameplay",
+                    "--project",
+                    "Sandbox/Sandbox.dproject",
+                    "--private-dependency",
+                    "Core",
+                ]
+            )
+            plan = build_scaffolding.plan_module_creation(request, root)
+            self.assertEqual(len(plan.operations), 9)
+            build_scaffolding.execute_plan(plan)
+
+            module_root = root / "Sandbox" / "Source" / "Runtime" / "Gameplay"
+            descriptor = json.loads((module_root / "Gameplay.dmodule").read_text(encoding="utf-8"))
+            project = json.loads(sandbox_project.read_text(encoding="utf-8"))
+            self.assertEqual(descriptor["LinkType"], "Shared")
+            self.assertEqual(descriptor["PCH"], "Self")
+            self.assertEqual(descriptor["PrivateDependencies"], ["Core"])
+            self.assertEqual(project["ModuleDirs"]["Gameplay"], "Source/Runtime/Gameplay")
+            self.assertEqual(project["BaseModules"], ["Sandbox", "Gameplay"])
+            self.assertTrue((module_root / "Private" / "GameplayModule.cpp").is_file())
+            self.assertTrue((module_root / "Private" / "PCH.Gameplay.h").is_file())
+            self.assertTrue((module_root / "Public" / "GameplayAPI.h").is_file())
+            self.assertIn(
+                "add_durin_module(Gameplay)",
+                (module_root / "CMakeLists.txt").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                build_descriptors.load_workspace_descriptors(root)
+                .find_module("Gameplay")
+                .owning_project,
+                "Sandbox",
+            )
+
+    def test_editor_overrides_preserve_all_dependency_categories_and_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, sandbox_project = self.create_workspace(root)
+            request = build_cli.parse_args(
+                [
+                    "create",
+                    "module",
+                    "SceneEditor",
+                    "--project",
+                    "Sandbox/Sandbox.dproject",
+                    "--kind",
+                    "editor",
+                    "--link",
+                    "static",
+                    "--pch",
+                    "SharedPCH_Core",
+                    "--private-dependency",
+                    "Core",
+                    "--public-dependency",
+                    "Sandbox",
+                    "--optional-private-dependency",
+                    "DurinEd",
+                    "--optional-public-dependency",
+                    "AssetCore",
+                    "--enable",
+                    "DurinEditor",
+                    "--enable",
+                    "DurinGame",
+                ]
+            )
+            build_scaffolding.execute_plan(
+                build_scaffolding.plan_module_creation(request, root)
+            )
+            module_root = root / "Sandbox" / "Source" / "Editor" / "SceneEditor"
+            descriptor = json.loads(
+                (module_root / "SceneEditor.dmodule").read_text(encoding="utf-8")
+            )
+            project = json.loads(sandbox_project.read_text(encoding="utf-8"))
+            self.assertEqual(descriptor["LinkType"], "Static")
+            self.assertEqual(descriptor["PCH"], "SharedPCH_Core")
+            self.assertFalse((module_root / "Private" / "PCH.SceneEditor.h").exists())
+            self.assertEqual(descriptor["PrivateDependencies"], ["Core"])
+            self.assertEqual(descriptor["PublicDependencies"], ["Sandbox"])
+            self.assertEqual(descriptor["OptionalPrivateDependencies"], ["DurinEd"])
+            self.assertEqual(descriptor["OptionalPublicDependencies"], ["AssetCore"])
+            self.assertEqual(
+                project["ExtraModules"]["DurinEditor"]["Modules"],
+                ["SceneEditor"],
+            )
+            self.assertEqual(
+                project["ExtraModules"]["DurinGame"]["Modules"],
+                ["SceneEditor"],
+            )
+            self.assertNotIn("SceneEditor", project["BaseModules"])
+
+    def test_none_enablement_dry_run_and_conflicts_leave_workspace_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_workspace(root)
+            request = build_cli.parse_args(
+                [
+                    "create",
+                    "module",
+                    "Utility",
+                    "--project",
+                    "Sandbox/Sandbox.dproject",
+                    "--enable",
+                    "none",
+                    "--dry-run",
+                    "--plain",
+                ]
+            )
+            before = self.snapshot(root)
+            stdout = io.StringIO()
+            build_cli.execute_create_request(
+                request,
+                BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()),
+                root=root,
+            )
+            self.assertEqual(self.snapshot(root), before)
+            self.assertIn("Source/Runtime/Utility/Utility.dmodule", stdout.getvalue())
+
+            conflict = root / "Sandbox" / "Source" / "Runtime" / "Utility"
+            conflict.mkdir()
+            before_conflict = self.snapshot(root)
+            with self.assertRaisesRegex(build_config.BuildToolError, "already exists"):
+                build_scaffolding.plan_module_creation(request, root)
+            self.assertEqual(self.snapshot(root), before_conflict)
 
 
 class WorktreeToolTests(unittest.TestCase):

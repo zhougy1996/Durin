@@ -368,6 +368,31 @@ TOOLCHAIN_ACTIONS = {
     Action.TEST,
 }
 CREATE_ACTIONS = {Action.CREATE_MODULE, Action.CREATE_PROJECT}
+
+
+def execute_create_request(
+    request: CommandRequest,
+    output: BuildOutput,
+    *,
+    root: Path = REPO_ROOT,
+) -> None:
+    if request.action is Action.CREATE_PROJECT:
+        raise BuildToolError(
+            "Project scaffolding is not available until implementation Stage 3."
+        )
+    from .scaffolding import execute_plan, plan_module_creation
+
+    plan = plan_module_creation(request, root)
+    if request.dry_run:
+        output.info(plan.format(plain=output.plain))
+        return
+    execute_plan(plan)
+    output.success(
+        f'Created module "{request.create_name}" in '
+        f'"{request.project_path}".'
+    )
+
+
 COMMAND_BY_ACTION = {spec.action: spec for spec in ALL_COMMAND_SPECS}
 SHELL_COMMANDS = {
     name: spec
@@ -908,12 +933,8 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                     child_output.info("No active BuildTool operation was found.")
                 continue
             if child_request.action in CREATE_ACTIONS:
-                from .descriptors import load_workspace_descriptors, validate_create_request
-
-                validate_create_request(child_request, load_workspace_descriptors(REPO_ROOT))
-                raise BuildToolError(
-                    "Scaffolding planning is not available until implementation Stage 1."
-                )
+                execute_create_request(child_request, child_output)
+                continue
             session_profile = request.profile or base.profile.name
             needs_independent_context = (
                 child_request.profile not in {"", session_profile}
@@ -990,12 +1011,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output.info("No active BuildTool operation was found.")
             return 0
         if request.action in CREATE_ACTIONS:
-            from .descriptors import load_workspace_descriptors, validate_create_request
-
-            validate_create_request(request, load_workspace_descriptors(REPO_ROOT))
-            raise BuildToolError(
-                "Scaffolding planning is not available until implementation Stage 1."
-            )
+            execute_create_request(request, output)
+            return 0
         prepare_tools = request.action in TOOLCHAIN_ACTIONS
         context = create_context(request, prepare_tools=prepare_tools)
         if request.action is Action.PRESETS:

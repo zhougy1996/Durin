@@ -34,6 +34,14 @@ Modules are the compilation and runtime loading units. They belong to a project,
 
 Most new gameplay or editor work should start as a module, not a new project.
 
+Use `BuildTool create module` to create and register one. The command writes the
+module beneath the owning project's `Source/Runtime` or `Source/Editor` root,
+adds its relative directory to `ModuleDirs`, and appends the selected enablement
+roots without reordering existing entries. Module names and CMake targets are
+case-insensitively unique across the workspace, and dependencies may cross
+project boundaries but must already exist. The full command syntax and defaults
+are documented in `Documentation/Development/Build/BuildAndRun.md`.
+
 ## Profiles
 
 Current profiles are `DurinEditor` and `DurinGame`.

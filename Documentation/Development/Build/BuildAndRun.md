@@ -223,6 +223,50 @@ or still deferred. `stop` stops an operation held by another BuildTool process.
 Use `help` for the complete command list. A leading slash remains accepted for
 compatibility but is not required.
 
+## Creating Modules
+
+Create a workspace module with one BuildTool command. The project descriptor
+may be relative to the workspace root or absolute:
+
+```powershell
+.\BuildTool create module Gameplay --project Sandbox\Sandbox.dproject --kind runtime --private-dependency Core --private-dependency Engine
+.\BuildTool create module SceneEditor --project Sandbox\Sandbox.dproject --kind editor --private-dependency DurinEd
+```
+
+Runtime modules are created under `Source/Runtime` and added to `BaseModules` by
+default. Editor modules are created under `Source/Editor` and added to
+`ExtraModules.DurinEditor.Modules`. Use `--enable none`, `--enable base`, or
+repeat `--enable <ProfileName>` to replace that default. Dependency options are
+repeatable:
+
+```text
+--public-dependency
+--private-dependency
+--optional-public-dependency
+--optional-private-dependency
+```
+
+Shared linkage and a self PCH are the defaults. `--link static` selects static
+linkage, while `--pch <Name>` selects an existing shared PCH. A self-PCH module
+also receives `Private/PCH.<ModuleName>.h`. The minimal generated entry point
+uses Core's module interface, so include `Core` directly or through a dependency
+whose public interface exposes Core.
+
+Preview the complete operation without creating directories, temporary files,
+or descriptor edits:
+
+```powershell
+.\BuildTool create module Gameplay --project Sandbox\Sandbox.dproject --private-dependency Core --dry-run --plain
+```
+
+Creation validates names, workspace-wide dependencies, profiles, paths, and
+CMake target collisions before writing. During mutation, new files and
+directories are tracked and the prior project descriptor is backed up. Any
+write or final descriptor-validation failure restores the original bytes and
+removes only paths created by that invocation. Repeating a successful request
+reports an existing-name or destination conflict instead of overwriting it.
+The same `create module` syntax is available in the interactive BuildTool shell.
+
 ## Clean And Purge
 
 `clean` invokes the CMake clean target for the selected preset. It removes outputs known to that generated build graph, but keeps the configured CMake tree and may leave copied runtime files or generated metadata that CMake does not own.

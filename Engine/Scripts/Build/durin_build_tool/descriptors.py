@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from .config import BuildToolError, CommandRequest, CreateKind
+from .config import BuildToolError, CommandRequest, CreateKind, ModuleKind
 
 
 DEPENDENCY_FIELDS = (
@@ -314,7 +314,13 @@ def validate_create_request(request: CommandRequest, workspace: WorkspaceDescrip
             raise BuildToolError(
                 f'Module "{request.create_name}" depends on missing module "{dependency}".'
             )
-    enablements = request.enablements or ()
+    enablements = request.enablements
+    if enablements is None:
+        enablements = (
+            ("base",)
+            if request.module_kind is ModuleKind.RUNTIME
+            else ("DurinEditor",)
+        )
     folded_enablements = [enablement.casefold() for enablement in enablements]
     if len(set(folded_enablements)) != len(folded_enablements):
         raise BuildToolError("Module enablement targets must not be repeated.")
