@@ -13,20 +13,19 @@ a strict deterministic DMSH codec, an atomic content-addressed object store, and
 an editor load path that can consume cached mesh data while source art is
 unavailable.
 
-The asset-wide pipeline is not yet complete. Texture2D has an earlier
-content-addressed TXDD cache, but its codec and object-store logic remain local
-to `Texture2D.cpp`, its load path requires the source file to exist before a
-cache hit can be used, and it has no cooked payload. TextureCube always decodes
-six source images or decodes and projects a panorama during `PostLoad`; it has
-no source-content identity, DDC object, or cooked path. The shared DBLK
-container, logical cooked-payload descriptors, cook manifest, runtime-only load
-mode, and importer-free runtime dependency graph are selected contracts but
-have no implementation.
+Stage 0 is complete. DBLK version 1, logical cooked-payload descriptors, the
+binary cook manifest, publication order, explicit package-load mode, TXPL
+version 1, texture and cube keys, source provenance, migration policy, and the
+runtime/editor module boundary are frozen below. Logical fixtures for DBLK,
+Texture2D, six-face TextureCube, panorama-derived TextureCube, and malformed
+inputs live beneath the owning native-test data directories and require no
+importer, compressor, RHI, or window.
 
-Stage 0 is next. It reconciles the already implemented mesh and Texture2D
-formats with one cross-asset cooking contract, freezes the missing texture and
-cube contracts, and records the editor/runtime module boundary before the
-shared DBLK and cooker work begins.
+The asset-wide pipeline is not yet implemented. Texture2D still uses its
+earlier private TXDD cache, TextureCube still rebuilds from source during
+`PostLoad`, and runtime targets still inherit source tooling. Stage 1 is next:
+implement the frozen AssetCore DBLK, descriptor, cook-publication, manifest,
+containment, and explicit cooked-load-mode contracts with focused tests.
 
 ## Goal
 
@@ -141,6 +140,378 @@ projection, or offline texture compressors.
   target platform/profile in the key.
 - A projection algorithm or cube orientation change increments the projection
   version even when the texture payload schema remains readable.
+
+## Frozen Cross-Asset Contracts
+
+All integers and IEEE-754 values in DBLK, TXPL, keys, and the cook manifest use
+little-endian byte order. Hashes name the exact byte range stated by the
+contract and use XXH3. Writers emit zero for reserved fields and padding;
+readers reject nonzero reserved fields or padding. Addition, multiplication,
+alignment, and narrowing are checked before allocation or I/O.
+
+### Target and compression identifiers
+
+The shared identifiers are stable serialized values:
+
+| Type | Value | Meaning |
+| --- | ---: | --- |
+| target platform | `0` | Invalid or unknown; never emitted |
+| target platform | `1` | Win64 |
+| target profile | `0` | Invalid or unknown; never emitted |
+| target profile | `1` | Game runtime feature profile |
+| target profile | `2` | Editor validation profile; not deployable as a game cook |
+| compression | `0` | None |
+| compression | `1` | Zstandard |
+
+DBLK version 1 writers emit `None`. A version 1 reader validates the structural
+rules for `Zstandard`, including a maximum uncompressed-to-stored ratio of
+`64:1`, but fails with `UnsupportedCompression` unless its build explicitly
+provides the shared Zstandard decoder. Texture payload descriptors always use
+`None`; BC bytes receive no second compression layer.
+
+### DBLK version 1
+
+DBLK version 1 begins with this 64-byte header:
+
+| Offset | Type | Field |
+| ---: | --- | --- |
+| 0 | `uint32` | magic `0x4B4C4244` (`DBLK` in file order) |
+| 4 | `uint32` | container version, `1` |
+| 8 | `uint32` | target platform |
+| 12 | `uint32` | target profile |
+| 16 | `uint32` | flags, zero in version 1 |
+| 20 | `uint32` | header size, exactly `64` |
+| 24 | `uint32` | payload count, `1..64` |
+| 28 | `uint32` | table-entry size, exactly `80` |
+| 32 | `uint64` | payload-table offset, exactly `64` |
+| 40 | `uint64` | complete stored file size |
+| 48 | `uint64` | XXH3-64 of the complete 80-byte-entry table |
+| 56 | `uint64` | reserved zero |
+
+Each 80-byte table entry is:
+
+| Offset | Type | Field |
+| ---: | --- | --- |
+| 0 | four `uint32` | `PayloadId` in `FGuid` A/B/C/D order |
+| 16 | `uint32` | flags; bit 0 is `Required`, all other bits reserved |
+| 20 | `uint32` | asset-payload schema version |
+| 24 | `uint32` | target platform |
+| 28 | `uint32` | target profile |
+| 32 | `uint32` | compression method |
+| 36 | `uint32` | required alignment |
+| 40 | `uint64` | absolute stored-data offset |
+| 48 | `uint64` | stored byte count |
+| 56 | `uint64` | uncompressed byte count |
+| 64 | two `uint64` | XXH3-128 of uncompressed bytes, low then high |
+
+Entries are strictly sorted by the unsigned A/B/C/D `PayloadId` tuple and IDs
+are unique. Alignment is a power of two in `[16, 4096]`. The first payload
+begins at or after the 16-byte-aligned end of the table; every payload meets
+its declared alignment. Ranges are ordered, nonoverlapping, and contained by
+the stored file size. Gaps and trailing alignment padding are zero. A
+`None` entry has equal stored and uncompressed sizes. Empty payloads are
+invalid.
+
+The maximum stored or uncompressed size of one payload is 8 GiB. The maximum
+complete container size is 64 GiB. Readers validate the table and every stored
+range before allocating or exposing any entry. They verify an entry's
+uncompressed hash after decompression and before publication. The table hash
+does not replace per-payload hashes.
+
+AssetCore does not assign semantics to an unreferenced payload ID. It validates
+all entries structurally, exposes a descriptor-selected entry by exact ID, and
+may ignore an otherwise valid unreferenced entry. An asset consumer fails on a
+missing descriptor-selected required payload. Unknown DBLK flags, location
+kinds, compression values, or descriptor mismatches fail closed.
+
+### Logical cooked-payload descriptor
+
+`FCookedPayloadDescriptor` is a reflected value in a cooked `.dasset`. Its
+fields and serialized widths are:
+
+| Field | Representation | Contract |
+| --- | --- | --- |
+| `PayloadId` | `FGuid` | Nonzero and unique within the package |
+| `LocationKind` | `uint32` enum | `0` invalid, `1` package companion |
+| `Offset` | `uint64` | Absolute DBLK offset and exact table-entry match |
+| `StoredSize` | `uint64` | Exact table-entry match |
+| `UncompressedSize` | `uint64` | Exact table-entry match |
+| `Alignment` | `uint32` | Exact table-entry match |
+| `PayloadHashLow/High` | two `uint64` | XXH3-128 of uncompressed bytes |
+| `PayloadSchemaVersion` | `uint32` | Asset-specific schema |
+| `TargetPlatform` | `uint32` | Shared identifier above |
+| `TargetProfile` | `uint32` | Shared identifier above |
+| `CompressionMethod` | `uint32` | Shared identifier above |
+
+All fields except the physical location kind are duplicated deliberately from
+the DBLK table. Resolution accepts the payload only when every duplicated field
+matches. The descriptor stores no filename, relative path, DDC key, or DDC
+object path. `PackageCompanion` replaces the cooked package's final `.dasset`
+suffix with `.dbulk`; a package name without that exact suffix is invalid.
+Future archive kinds may reinterpret physical location but do not change the
+descriptor-selected `PayloadId` or asset references.
+
+Asset-specific stable payload IDs are:
+
+| Asset payload | `PayloadId` |
+| --- | --- |
+| StaticMesh primary DMSH | `6d9f79b5-7b68-4d91-a42c-2a6063fcab16` |
+| Texture2D primary TXPL | `53aa6a89-dc49-401a-b409-adc498ac4f8b` |
+| TextureCube primary TXPL | `d52878ce-8f50-48c7-a3c7-ff846e2c4c5a` |
+
+### Cook mapping, publication, and manifest
+
+A cook context receives an explicit authored mount table, target platform,
+target profile, and cook root. It maps `/Engine/A/B` to
+`<CookRoot>/Engine/A/B.dasset` and `/Game/A/B` to
+`<CookRoot>/Game/A/B.dasset`; companion bulk replaces the suffix. The virtual
+path must already satisfy package normalization and the physical result must
+remain a lexical descendant of the cook root. Absolute paths, empty
+components, `.` or `..`, alternate separators in a component, device names,
+and DDC paths are rejected rather than sanitized.
+
+For a transaction, payloads are sorted by ID within each package and packages
+are sorted by normalized mount-relative UTF-8 path bytes. Publication order is:
+
+1. write, flush, close, reopen, and fully validate every temporary DBLK;
+2. atomically publish all DBLK companions in package order;
+3. write and validate temporary cooked packages, then atomically publish them
+   in package order;
+4. write and validate the complete temporary manifest and atomically publish
+   it last;
+5. after manifest success, remove only stale files named by the previous valid
+   manifest and absent from the new one, after resolving each beneath the exact
+   cook root.
+
+Temporary names are fixed-length random siblings independent of destination
+length. Any failure removes known temporary files. A DBLK or package already
+published before a later failure is left as harmless unreferenced output; the
+previous manifest remains the consistency boundary and is never edited in
+place. Cleanup never enumerates arbitrary files for deletion and never removes
+an output not owned by the previous manifest.
+
+The manifest is `CookManifest.bin`. Its 48-byte header is:
+
+| Offset | Type | Field |
+| ---: | --- | --- |
+| 0 | `uint32` | magic `0x464E4D43` (`CMNF` in file order) |
+| 4 | `uint32` | manifest version, `1` |
+| 8 | `uint32` | target platform |
+| 12 | `uint32` | target profile |
+| 16 | `uint32` | entry count |
+| 20 | `uint32` | header size, exactly `48` |
+| 24 | `uint64` | total record byte count |
+| 32 | `uint64` | XXH3-64 of all record bytes |
+| 40 | `uint64` | complete manifest file size |
+
+Records are sorted by raw normalized relative-path UTF-8 bytes and duplicate
+paths are invalid. Each record is `{uint8 kind, uint8 flags, uint16 reserved,
+uint32 path byte count, uint64 file byte count, uint64 hash low, uint64 hash
+high}`, followed immediately by path bytes without a terminator or padding.
+Kinds are `1` cooked package and `2` DBLK; flag bit 0 is `Required`. Version 1
+requires every record to be required. Hash is XXH3-128 of the complete
+published file. Paths use `/`, are relative to the cook root, and are limited
+to 1,024 UTF-8 bytes. Entry count is at most 1,000,000 and total record bytes
+are at most 256 MiB. The manifest lists every published cooked package and
+DBLK, but never lists itself, a source file, DDC object, or temporary file.
+
+### Explicit package mode
+
+`EPackageLoadMode` has stable values `0 AuthoredEditor` and `1 CookedRuntime`.
+The process host selects one mode explicitly while initializing AssetCore and
+provides the authored mount table or cooked root appropriate to it. Every
+package load receives the immutable process mode through its load context.
+Tests may construct an isolated load context of either mode but may not switch
+the global manager after its first package is loaded.
+
+`AuthoredEditor` resolves mounted authored packages, permits DDC and source
+rebuild policy in asset-specific editor code, and does not consume a neighboring
+DBLK unless a cook-validation test explicitly supplies a cooked context.
+`CookedRuntime` resolves packages only beneath the selected cook root, requires
+cooked descriptors for required native data, and forbids source and DDC
+fallback. Mode is never inferred from executable name, build configuration,
+package fields, source availability, DDC contents, or the existence of a
+neighboring `.dbulk`.
+
+## Frozen Texture Contracts
+
+### TXDD compatibility decision
+
+The existing private TXDD schema version 1 is documented exactly by
+`Texture2D.cpp`: a 16-byte Core cache header
+`{TXDD magic, schema 1, builder 1, 0x01020304}`, followed by payload XXH3-64,
+payload byte count, then `{uint8 EPixelFormat, uint32 mip count}` and, for each
+mip, `{uint32 width, uint32 height, uint32 row pitch, uint64 byte count, bytes}`.
+Its key hashes length-prefixed strings for `"DurinTexture2D"`, `"Win64"`, and
+the lowercase source hash plus the current settings fields.
+
+TXDD is deliberately replaced rather than promoted. It lacks dimension,
+slices, target profile, stable pixel-format IDs, explicit offsets, and
+builder/schema separation suitable for cooked data. Stage 3 treats every TXDD
+object as a disposable legacy miss, writes only TXPL objects through
+`FDerivedDataObjectStore`, and may remove TXDD only through bounded texture-DDC
+cleanup. No cooked package may contain or reference TXDD. A warm legacy object
+does not justify retaining a runtime TXDD reader because its source package
+remains authoritative during migration.
+
+### TXPL version 1
+
+TXPL is the shared native Texture2D and TextureCube platform payload. Its
+80-byte header is:
+
+| Offset | Type | Field |
+| ---: | --- | --- |
+| 0 | `uint32` | magic `0x4C505854` (`TXPL` in file order) |
+| 4 | `uint32` | payload schema version, `1` |
+| 8 | `uint32` | asset-specific builder version |
+| 12 | `uint32` | target platform |
+| 16 | `uint32` | target profile |
+| 20 | `uint32` | dimension: `1` Texture2D, `2` TextureCube |
+| 24 | `uint32` | stable texture pixel-format identifier |
+| 28 | `uint32` | array-slice count |
+| 32 | `uint32` | mip count per slice |
+| 36 | `uint32` | header size, exactly `80` |
+| 40 | `uint32` | subresource-record count |
+| 44 | `uint32` | subresource-record size, exactly `40` |
+| 48 | `uint64` | record-table offset, exactly `80` |
+| 56 | `uint64` | complete stored object size |
+| 64 | `uint64` | XXH3-64 of stored bytes `[80, stored size)` |
+| 72 | `uint64` | reserved zero |
+
+Stable pixel-format values are `1 BC1_UNORM`, `2 BC1_UNORM_SRGB`,
+`3 BC3_UNORM`, `4 BC3_UNORM_SRGB`, `5 BC5_UNORM`, `6 BC7_UNORM`, and
+`7 BC7_UNORM_SRGB`. They are translated explicitly to RHI `EPixelFormat`; the
+RHI enum's native numeric values are not serialized.
+
+Each 40-byte record is `{uint32 slice, uint32 mip, uint32 width, uint32 height,
+uint32 row pitch, uint32 reserved, uint64 offset, uint64 stored byte count}`.
+Records are slice-major and mip-minor with no omissions or duplicates. Texture2D
+has one slice; TextureCube has six in PositiveX, NegativeX, PositiveY,
+NegativeY, PositiveZ, NegativeZ order. Cube faces are square and every slice
+has identical format, dimensions, row pitches, stored counts, and a complete
+compatible mip chain.
+
+Subresource data begins at the next 16-byte boundary after the record table.
+Every data offset is 16-byte aligned; ranges are ordered, nonoverlapping, and
+contained by stored size. Gaps and trailing alignment padding are zero.
+`row pitch = max(1, ceil(width / 4)) * bytes per BC block`; stored bytes equal
+row pitch times `max(1, ceil(height / 4))`. BC1 uses 8-byte blocks; BC3, BC5,
+and BC7 use 16-byte blocks. Mip zero dimensions are nonzero and each following
+dimension is `max(1, previous / 2)` until the final required `1x1` mip.
+
+Maximum base dimension is 16,384 for Texture2D and 4,096 for TextureCube.
+Maximum mip count is 32, record count is at most 192, and complete stored data
+is at most 2 GiB. Readers reject unsupported magic, schema, builder policy,
+platform/profile, dimension, pixel format, counts, arithmetic, layout,
+checksum, ranges, padding, or trailing data before publishing detached platform
+data. Asset-specific build policy decides whether a readable builder version
+is acceptable; disk layout is controlled solely by schema version.
+
+Texture2D builder version is `2`: version 1 names the legacy TXDD builder and
+version 2 starts the shared TXPL/key contract even when resulting BC bytes are
+unchanged. TextureCube builder version is `1`. Cube projection version is `1`.
+TXPL schema version is `1` for both.
+
+### Canonical texture keys
+
+All source hashes below are the XXH3-128 of exact source bytes and are encoded
+as `uint64 HashLow` then `uint64 HashHigh`, never as text. The final object key
+is lowercase `XXH3-128(canonical key bytes)` rendered as 32 hex characters.
+Paths, timestamps, diagnostic dimensions, enum storage sizes, padding, and
+formatted strings are excluded.
+
+Texture2D key schema 1 emits:
+
+1. `uint32` key schema `1`, then asset kind `1`;
+2. source hash low and high;
+3. usage, sRGB, compression quality, and alpha-mip mode as four `uint8`;
+4. `uint32` maximum resolution;
+5. alpha-coverage threshold as canonical finite `float32` bits;
+6. `uint32` builder version, TXPL schema, target platform, and target profile.
+
+Six-face TextureCube key schema 1 emits:
+
+1. `uint32` key schema `1`, asset kind `2`, and source layout `0`;
+2. six source hashes, low then high for each, in the frozen face order;
+3. sRGB as `uint8`;
+4. `uint32` cube builder version, TXPL schema, projection version, target
+   platform, and target profile.
+
+Panorama TextureCube key schema 1 emits:
+
+1. `uint32` key schema `1`, asset kind `2`, and source layout `1`;
+2. panorama source hash low then high;
+3. `uint32` requested face dimension, where zero retains the documented
+   source-derived default;
+4. exposure EV as canonical finite `float32` bits and sRGB as `uint8`;
+5. `uint32` cube builder version, TXPL schema, projection version, target
+   platform, and target profile.
+
+NaN, infinity, negative zero, and values outside the authored validation range
+are rejected before key construction. Exposure and alpha-threshold validation
+therefore makes their ordinary IEEE bit representation canonical.
+Texture2D objects use
+`DerivedDataCache/Texture2D/Objects/<prefix>/<key>.bin`; TextureCube uses
+`DerivedDataCache/TextureCube/Objects/<prefix>/<key>.bin`.
+
+### Texture source provenance and migration
+
+`FTextureSourceFile` is `{SourcePath UTF-8 string, SourceContentHash two
+uint64}`. The path is forward-slash normalized, relative to project or engine
+root, and rooted beneath `SourceAssets/Textures`; the hash is XXH3-128 of exact
+bytes. An empty path requires a zero hash and means no source dependency.
+Absolute paths, backslashes, `.`/`..`, and paths outside the exact source root
+are invalid persistent metadata.
+
+`FTexture2DSourceImportData` contains one nonempty `FTextureSourceFile`,
+`DecoderId` UTF-8 string, and `uint32 DecoderVersion`. The first identity is
+`DurinImage` version `1`. `FTextureCubeSourceImportData` contains source layout,
+six `FTextureSourceFile` values in frozen face order, or one panorama source,
+plus `DecoderId`, `DecoderVersion`, and `uint32 ProjectionVersion`. Inactive
+layout fields must be empty. Face dimension, exposure, and sRGB remain ordinary
+authored build settings rather than duplicated provenance.
+
+Each provenance value is optional as a whole and may be stripped from a cooked
+package. New project imports copy beneath project
+`SourceAssets/Textures`; engine imports copy beneath
+`Engine/SourceAssets/Textures`. Name collisions use the importer transaction's
+deterministic disambiguation policy and persist the resulting normalized path.
+Moving a `.dasset` alone does not move shared source art. Explicit reimport or
+source relocation updates provenance only after source copy, hash, decode,
+build, and package mutation can commit transactionally.
+
+Legacy Texture2D package-adjacent `SourceFile` and TextureCube face/panorama
+filenames remain readable during Stages 3 through 5 and are never written by a
+new import after the owning migration lands. Each asset class removes its
+legacy resolver independently in Stage 6 only after all repository packages
+carry normalized provenance, an asset-registry scan is clean, editor repair and
+reimport use the new value, and compatibility tests deliberately reject the old
+form. Legacy paths and file metadata never enter the new canonical keys.
+
+### Module and target boundary
+
+The selected end-state modules are:
+
+| Owner | Responsibilities | Forbidden dependencies |
+| --- | --- | --- |
+| runtime `AssetCore` | `.dasset`, DDC object store, DBLK, descriptors, cook-root containment, manifest codec, package load context | Assimp, stb/source decoders, projection, BC encoders |
+| runtime `Engine` | DMSH and TXPL validation/decode, runtime mesh/texture data, transactional render-resource publication | Assimp, source decoders, projection, BC encoders |
+| editor `AssetImport` | Assimp adapter, encoded-image/HDR decoders, source copy and provenance repair | RHI resource construction |
+| editor `EngineAssetBuild` | mesh import conversion, Texture2D/cube mip generation, panorama projection, BC compression, DDC/cook adapters | runtime package-mode selection |
+
+`AssetImport` and `EngineAssetBuild` are enabled only by editor/cooker/test
+profiles that request authored-source work. The runtime `DurinGame` dependency
+closure contains neither module and does not deploy Assimp. `bc7enc_rdo`,
+`rgbcx`, and equivalent offline encoders link only to `EngineAssetBuild`.
+Asset-specific DMSH/TXPL codecs remain in runtime `Engine` because editor DDC,
+cooker validation, and cooked runtime loading share them. DBLK and manifest
+code remain asset-agnostic in runtime `AssetCore`.
+
+The current placement of Assimp and image decode in runtime AssetCore and
+texture build/projection/BC encoding in runtime Engine is migration debt, not
+an exception to this boundary. Stages 2, 4, and 5 move those implementations;
+Stage 6 adds a dependency-closure test that fails if the forbidden libraries or
+modules reappear.
 
 ## Inherited Frozen StaticMesh Contracts
 
@@ -432,26 +803,26 @@ time or an engine release number.
 
 ### Stage 0: Reconcile Cross-Asset Contracts and Fixtures
 
-- [ ] Freeze the DBLK header, payload-table byte encoding, alignment, checksum,
+- [x] Freeze the DBLK header, payload-table byte encoding, alignment, checksum,
   allocation limits, platform field, compression enum, and unknown-entry policy.
-- [ ] Freeze the logical cooked-payload descriptor serialization in `.dasset`,
+- [x] Freeze the logical cooked-payload descriptor serialization in `.dasset`,
   including stable `PayloadId`, location kind, sizes, hash, schema, target
   platform/profile, alignment, and compression.
-- [ ] Freeze deterministic cook-root mapping, package publication order,
+- [x] Freeze deterministic cook-root mapping, package publication order,
   manifest encoding, stale-output behavior, and failure cleanup.
-- [ ] Decide and document how authored versus cooked package mode is selected
+- [x] Decide and document how authored versus cooked package mode is selected
   without inferring mode from the existence of a neighboring file.
-- [ ] Extract the implemented Texture2D TXDD contract into a standalone texture
+- [x] Extract the implemented Texture2D TXDD contract into a standalone texture
   payload design and decide its deliberate compatibility or replacement path.
-- [ ] Freeze the shared Texture2D/TextureCube payload schema, canonical key
+- [x] Freeze the shared Texture2D/TextureCube payload schema, canonical key
   encodings, builder versions, projection version, limits, and exact face order.
-- [ ] Define optional Texture2D and TextureCube source-provenance values,
+- [x] Define optional Texture2D and TextureCube source-provenance values,
   `SourceAssets/Textures` placement, legacy package-adjacent compatibility, and
   removal criteria.
-- [ ] Freeze the module and target dependency boundary for Assimp, image
+- [x] Freeze the module and target dependency boundary for Assimp, image
   decoders, panorama projection, BC encoders, asset-specific codecs, and runtime
   render-data construction.
-- [ ] Add deterministic logical fixtures for DBLK, Texture2D, six-face
+- [x] Add deterministic logical fixtures for DBLK, Texture2D, six-face
   TextureCube, panorama-derived TextureCube, and malformed variants without
   invoking an importer, compressor, RHI, or window.
 
