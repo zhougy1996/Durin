@@ -205,13 +205,15 @@ The selected preset is session-local and does not modify `.agents/build-config.j
 
 ```text
 BuildTool> presets
-   1  Win64-Debug-DurinEditor
-   2  Win64-Debug-DurinEditor-Tests [default, current]
-   3  Win64-Debug-DurinGame
-   4  Win64-Release-DurinEditor
-   5  Win64-Release-DurinGame
-   6  Win64-Shipping-DurinGame
-Preset> 4
+   1  Win64-Debug-DurinEditor-Tests [default, current]
+   2  Win64-Debug-DurinEditor
+   3  Win64-Release-DurinEditor
+   4  Win64-Release-DurinEditor-Profiling
+   5  Win64-Debug-DurinGame
+   6  Win64-Release-DurinGame
+   7  Win64-Release-DurinGame-Profiling
+   8  Win64-Shipping-DurinGame
+Preset> 3
 BuildTool> preset
 CMake preset: "Win64-Release-DurinEditor"
 BuildTool> preset Win64-Debug-DurinGame

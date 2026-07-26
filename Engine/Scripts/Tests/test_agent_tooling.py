@@ -146,6 +146,22 @@ class BuildConfigTests(unittest.TestCase):
             self.assertIn(profile.default_preset, profile.presets)
             self.assertTrue(set(profile.presets).issubset(presets))
 
+    def test_repository_profile_orders_presets_for_interactive_selection(self) -> None:
+        profile = build_config.load_profiles()["windows-msvc-x64"]
+        self.assertEqual(
+            profile.presets,
+            (
+                "Win64-Debug-DurinEditor-Tests",
+                "Win64-Debug-DurinEditor",
+                "Win64-Release-DurinEditor",
+                "Win64-Release-DurinEditor-Profiling",
+                "Win64-Debug-DurinGame",
+                "Win64-Release-DurinGame",
+                "Win64-Release-DurinGame-Profiling",
+                "Win64-Shipping-DurinGame",
+            ),
+        )
+
     def test_profiling_presets_are_release_isolated_and_enable_tracy(self) -> None:
         presets = build_config.load_configure_presets()
         for runtime_variant in ("DurinEditor", "DurinGame"):
