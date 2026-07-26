@@ -1,0 +1,9 @@
+{
+    "ProjectName": "{{PROJECT_NAME}}",
+    "ModuleDirs": {
+        "{{PROJECT_NAME}}": "Source/Runtime/{{PROJECT_NAME}}"
+    },
+    "BaseModules": [
+        "{{PROJECT_NAME}}"
+    ]
+}

@@ -1,0 +1,9 @@
+#pragma once
+
+#include "HAL/Platform.h"
+
+#if defined({{MODULE_NAME_UPPER}}_EXPORTS)
+	#define {{MODULE_NAME_UPPER}}_API DLLEXPORT
+#else
+	#define {{MODULE_NAME_UPPER}}_API DLLIMPORT
+#endif

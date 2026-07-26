@@ -22,6 +22,7 @@ from durin_build_tool import cli as build_cli
 from durin_build_tool import config as build_config
 from durin_build_tool import core as build_core
 from durin_build_tool import descriptors as build_descriptors
+from durin_build_tool import scaffolding as build_scaffolding
 from durin_build_tool.output import BuildOutput
 
 from Engine.Scripts.Bootstrap import agent_config
@@ -1282,6 +1283,297 @@ class CliTests(unittest.TestCase):
                 link_type="symlink",
                 dry_run=False,
             )
+
+
+class ScaffoldingInfrastructureTests(unittest.TestCase):
+    @staticmethod
+    def write_project(path: Path, name: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"ProjectName": name, "ModuleDirs": {}, "BaseModules": []}, indent=4)
+            + "\n",
+            encoding="utf-8",
+        )
+
+    @classmethod
+    def create_discovery_workspace(cls, root: Path) -> None:
+        cls.write_project(root / "Engine" / "Engine.dproject", "Engine")
+        cls.write_project(root / "Sandbox" / "Sandbox.dproject", "Sandbox")
+        (root / "CMakeLists.txt").write_text(
+            "add_subdirectory(Engine)\nadd_subdirectory(\"Sandbox\")\n",
+            encoding="utf-8",
+        )
+        module_dir = root / "Engine" / "Source" / "Runtime" / "Core"
+        module_dir.mkdir(parents=True)
+        (module_dir / "CMakeLists.txt").write_text(
+            "add_durin_module(Core)\n",
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def snapshot(root: Path) -> tuple[tuple[str, ...], dict[str, bytes]]:
+        directories = tuple(
+            sorted(
+                path.relative_to(root).as_posix()
+                for path in root.rglob("*")
+                if path.is_dir()
+            )
+        )
+        files = {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        }
+        return directories, files
+
+    @staticmethod
+    def transaction_plan(root: Path) -> build_scaffolding.ScaffoldPlan:
+        generated = root / "Generated"
+        descriptor = generated / "Gameplay.dmodule"
+        root_cmake = root / "CMakeLists.txt"
+        return build_scaffolding.ordered_plan(
+            root,
+            (root,),
+            directories=(generated,),
+            files=(
+                (
+                    descriptor,
+                    b'{\n    "ModuleName": "Gameplay"\n}\n',
+                ),
+            ),
+            replacements=(
+                (
+                    root_cmake,
+                    root_cmake.read_bytes() + b"add_subdirectory(Generated)\n",
+                ),
+            ),
+        )
+
+    def test_workspace_discovery_cross_checks_root_cmake_and_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_discovery_workspace(root)
+            discovery = build_scaffolding.discover_workspace_projects(root)
+            self.assertEqual(
+                tuple(project.descriptor.name for project in discovery.projects),
+                ("Engine", "Sandbox"),
+            )
+            self.assertEqual(discovery.projects[1].cmake_registration, "Sandbox")
+            self.assertIn("Core", discovery.cmake_targets)
+            with self.assertRaisesRegex(build_config.BuildToolError, "CMake target"):
+                build_scaffolding.require_available_cmake_target("core", discovery)
+
+            (root / "CMakeLists.txt").write_text(
+                "add_subdirectory(Engine)\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(build_config.BuildToolError, "Sandbox.*exactly one"):
+                build_scaffolding.discover_workspace_projects(root)
+
+    def test_destination_checks_cover_containment_overlap_existing_and_case(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_discovery_workspace(root)
+            discovery = build_scaffolding.discover_workspace_projects(root)
+            with self.assertRaisesRegex(build_config.BuildToolError, "inside"):
+                build_scaffolding.validate_destination(
+                    root.parent / "Outside",
+                    discovery,
+                    label="Project destination",
+                )
+            with self.assertRaisesRegex(build_config.BuildToolError, "overlaps project"):
+                build_scaffolding.validate_destination(
+                    root / "Engine" / "Nested",
+                    discovery,
+                    label="Project destination",
+                )
+            existing = root / "Existing"
+            existing.mkdir()
+            with self.assertRaisesRegex(build_config.BuildToolError, "already exists"):
+                build_scaffolding.validate_destination(
+                    existing,
+                    discovery,
+                    label="Project destination",
+                )
+            case_path = root / "MixedCase"
+            case_path.mkdir()
+            with self.assertRaisesRegex(build_config.BuildToolError, "case-insensitive"):
+                build_scaffolding.validate_destination(
+                    root / "mixedcase",
+                    discovery,
+                    label="Project destination",
+                )
+
+    def test_templates_are_disk_assets_with_explicit_deterministic_variables(self) -> None:
+        renderer = build_scaffolding.TemplateRenderer()
+        module_variables = {
+            "MODULE_NAME": "Gameplay",
+            "LINK_TYPE": "Shared",
+            "PCH": "Self",
+            "PRIVATE_DEPENDENCIES": '["Core"]',
+            "PUBLIC_DEPENDENCIES": "[]",
+            "OPTIONAL_PRIVATE_DEPENDENCIES": "[]",
+            "OPTIONAL_PUBLIC_DEPENDENCIES": "[]",
+        }
+        first = renderer.render("module/descriptor.json.template", module_variables)
+        second = renderer.render("module/descriptor.json.template", module_variables)
+        self.assertEqual(first, second)
+        self.assertEqual(json.loads(first)["ModuleName"], "Gameplay")
+        rendered_templates = {
+            "module/entry_point.cpp.template": renderer.render(
+                "module/entry_point.cpp.template",
+                {"MODULE_NAME": "Gameplay"},
+            ),
+            "module/api.h.template": renderer.render(
+                "module/api.h.template",
+                {"MODULE_NAME_UPPER": "GAMEPLAY"},
+            ),
+            "module/CMakeLists.txt.template": renderer.render(
+                "module/CMakeLists.txt.template",
+                {"MODULE_NAME": "Gameplay"},
+            ),
+            "project/descriptor.json.template": renderer.render(
+                "project/descriptor.json.template",
+                {"PROJECT_NAME": "MyGame"},
+            ),
+            "project/CMakeLists.txt.template": renderer.render(
+                "project/CMakeLists.txt.template",
+                {"PROJECT_NAME": "MyGame"},
+            ),
+            "project/setup.cmake.template": renderer.render(
+                "project/setup.cmake.template",
+                {"PROJECT_NAME": "MyGame"},
+            ),
+        }
+        self.assertEqual(
+            json.loads(rendered_templates["project/descriptor.json.template"])["ProjectName"],
+            "MyGame",
+        )
+        for content in rendered_templates.values():
+            self.assertNotIn(b"{{", content)
+            self.assertNotIn(str(REPO_ROOT).encode(), content)
+        self.assertTrue(
+            (build_scaffolding.TEMPLATE_DIR / "module" / "descriptor.json.template").is_file()
+        )
+        with self.assertRaisesRegex(build_config.BuildToolError, "missing MODULE_NAME_UPPER"):
+            renderer.render("module/api.h.template", {"MODULE_NAME": "Gameplay"})
+        with self.assertRaisesRegex(build_config.BuildToolError, "unknown EXTRA"):
+            renderer.render(
+                "module/CMakeLists.txt.template",
+                {"MODULE_NAME": "Gameplay", "EXTRA": "value"},
+            )
+
+    def test_dry_run_format_is_stable_and_does_not_mutate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "CMakeLists.txt").write_bytes(b"add_subdirectory(Engine)\r\n")
+            before = self.snapshot(root)
+            plan = self.transaction_plan(root)
+            plain = plan.format(plain=True)
+            styled = plan.format(plain=False)
+            self.assertEqual(before, self.snapshot(root))
+            self.assertEqual(
+                plain,
+                "\n".join(
+                    (
+                        "Scaffolding plan (3 operations)",
+                        "  create directory: Generated",
+                        "  create file: Generated/Gameplay.dmodule",
+                        "  replace file: CMakeLists.txt",
+                    )
+                ),
+            )
+            self.assertEqual(styled.replace("[cyan]", "").replace("[/cyan]", ""), plain)
+
+    def test_transaction_success_preserves_unrelated_bytes_and_reparses_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "CMakeLists.txt").write_bytes(b"add_subdirectory(Engine)\r\n")
+            unrelated = root / "Unrelated.bin"
+            unrelated.write_bytes(b"\x00unchanged\r\n")
+            plan = self.transaction_plan(root)
+            build_scaffolding.execute_plan(plan)
+            self.assertEqual(unrelated.read_bytes(), b"\x00unchanged\r\n")
+            self.assertEqual(
+                (root / "Generated" / "Gameplay.dmodule").read_bytes(),
+                b'{\n    "ModuleName": "Gameplay"\n}\n',
+            )
+            self.assertEqual(
+                (root / "CMakeLists.txt").read_bytes(),
+                b"add_subdirectory(Engine)\r\nadd_subdirectory(Generated)\n",
+            )
+            self.assertFalse(
+                any(".backup." in path.name or ".write." in path.name for path in root.rglob("*"))
+            )
+
+    def test_every_injected_write_failure_rolls_back_exactly(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "CMakeLists.txt").write_bytes(b"add_subdirectory(Engine)\r\n")
+            boundaries: list[tuple[str, int, Path]] = []
+            build_scaffolding.execute_plan(
+                self.transaction_plan(root),
+                failure_injector=lambda phase, index, path: boundaries.append((phase, index, path)),
+            )
+        self.assertGreater(len(boundaries), 0)
+
+        for failing_boundary in range(1, len(boundaries) + 1):
+            with self.subTest(boundary=failing_boundary), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "CMakeLists.txt").write_bytes(b"add_subdirectory(Engine)\r\n")
+                unrelated = root / "Unrelated.bin"
+                unrelated.write_bytes(b"\xffkeep")
+                before = self.snapshot(root)
+
+                def fail_at_boundary(phase: str, index: int, path: Path) -> None:
+                    if index == failing_boundary:
+                        raise RuntimeError(f"injected at {phase}: {path}")
+
+                with self.assertRaisesRegex(RuntimeError, "injected"):
+                    build_scaffolding.execute_plan(
+                        self.transaction_plan(root),
+                        failure_injector=fail_at_boundary,
+                    )
+                self.assertEqual(self.snapshot(root), before)
+
+    def test_validation_failure_rolls_back_and_plan_rejects_outside_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "CMakeLists.txt").write_bytes(b"add_subdirectory(Engine)\n")
+            before = self.snapshot(root)
+            with self.assertRaisesRegex(build_config.BuildToolError, "unbalanced"):
+                build_scaffolding.ordered_plan(
+                    root,
+                    (root,),
+                    replacements=((root / "CMakeLists.txt", b"add_subdirectory(Engine\n"),),
+                )
+            self.assertEqual(self.snapshot(root), before)
+
+            def reject_final_state(plan: build_scaffolding.ScaffoldPlan) -> None:
+                raise build_config.BuildToolError("injected descriptor validation failure")
+
+            validation_plan = build_scaffolding.ordered_plan(
+                root,
+                (root,),
+                directories=(root / "Generated",),
+                files=(
+                    (
+                        root / "Generated" / "Gameplay.dmodule",
+                        b'{\n    "ModuleName": "Gameplay"\n}\n',
+                    ),
+                ),
+                validators=(reject_final_state,),
+            )
+            with self.assertRaisesRegex(build_config.BuildToolError, "validation failure"):
+                build_scaffolding.execute_plan(validation_plan)
+            self.assertEqual(self.snapshot(root), before)
+
+            with self.assertRaisesRegex(build_config.BuildToolError, "outside"):
+                build_scaffolding.ordered_plan(
+                    root,
+                    (root,),
+                    files=((root.parent / "outside.txt", b"no"),),
+                )
 
 
 class WorktreeToolTests(unittest.TestCase):

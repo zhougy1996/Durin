@@ -6,10 +6,11 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stage 0 is complete. BuildTool now has a shared `create` command family,
-typed module/project creation requests, and a cache-free descriptor contract
-validated against temporary Engine/Sandbox workspaces. Stage 1 read-only
-planning and transactional writes are the next delivery target.
+Stages 0 and 1 are complete. BuildTool now has a shared `create` command family,
+typed module/project creation requests, a cache-free descriptor contract,
+versioned disk templates, read-only workspace planning, and transactional
+filesystem writes with exact rollback. Stage 2 one-command module creation is
+the next delivery target.
 
 ## Goal
 
@@ -193,22 +194,22 @@ Every direct command must have equivalent interactive-shell syntax.
 
 ### Stage 1: Read-Only Planning and Transactional Writes
 
-- [ ] Implement workspace project discovery from top-level `.dproject` files and
+- [x] Implement workspace project discovery from top-level `.dproject` files and
   cross-check the owning project's root CMake registration without introducing
   a global registry file.
-- [ ] Implement path containment, case-insensitive collision, existing-file,
+- [x] Implement path containment, case-insensitive collision, existing-file,
   existing-CMake-target, and destination-overlap checks.
-- [ ] Add deterministic template rendering for module descriptors, module entry
+- [x] Add deterministic template rendering for module descriptors, module entry
   points, API headers, module CMake files, project descriptors, and project
   CMake setup.
-- [ ] Represent each operation as an ordered plan of directory creations, file
+- [x] Represent each operation as an ordered plan of directory creations, file
   creations, and exact existing-file replacements.
-- [ ] Implement stable human-readable dry-run output and `--plain` behavior.
-- [ ] Implement temporary-file replacement, backup/restore, created-path
+- [x] Implement stable human-readable dry-run output and `--plain` behavior.
+- [x] Implement temporary-file replacement, backup/restore, created-path
   tracking, and rollback on injected failures at every write boundary.
-- [ ] Reparse all affected descriptors and CMake registration edits before
+- [x] Reparse all affected descriptors and CMake registration edits before
   finalizing the transaction.
-- [ ] Add unit tests proving dry-run purity, byte preservation, rollback, and
+- [x] Add unit tests proving dry-run purity, byte preservation, rollback, and
   refusal to modify paths outside the allowed workspace/project roots.
 
 #### Acceptance Gate
