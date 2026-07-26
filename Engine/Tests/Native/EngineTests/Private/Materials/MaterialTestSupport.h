@@ -227,6 +227,7 @@ namespace
 		Durin::FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<Durin::FMaterialRenderData> Materials;
 		std::vector<Durin::uint64> MaterialVersions;
+		std::vector<Durin::EMaterialRenderDirtyFlags> MaterialDirtyFlags;
 		Durin::uint64 ComponentRevision = 0;
 	};
 
@@ -268,6 +269,7 @@ namespace
 			{
 				Snapshot.Materials.push_back(Snapshot.Proxy->GetMaterialRenderData(SlotIndex));
 				Snapshot.MaterialVersions.push_back(Snapshot.Proxy->GetMaterialVersion(SlotIndex));
+				Snapshot.MaterialDirtyFlags.push_back(Snapshot.Proxy->GetLastMaterialDirtyFlags(SlotIndex));
 			}
 		});
 		WaitForRenderingThread();

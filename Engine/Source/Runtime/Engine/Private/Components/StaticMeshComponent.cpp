@@ -258,18 +258,17 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMeshComponent::HandleMaterialRenderDataChanged(DMaterialInterface* ChangedMaterial, EMaterialRenderDirtyFlags DirtyFlags) -> void
+	auto DStaticMeshComponent::HandleMaterialRenderDataChanged(
+		uint32 SlotIndex,
+		EMaterialRenderDirtyFlags DirtyFlags
+	) -> void
 	{
-		const uint32 SlotCount = GetNumMaterials();
-		for (uint32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
-		{
-			if (GetMaterial(SlotIndex) != ChangedMaterial) continue;
-			// Component revisions order updates even when different slots refer to assets with unrelated versions.
-			++MaterialComponentRevision;
-			PendingMaterialSlotIndex = SlotIndex;
-			PendingMaterialDirtyFlags = DirtyFlags;
-			MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialData);
-		}
+		if (SlotIndex >= GetNumMaterials()) return;
+		// Component revisions order updates even when different slots refer to assets with unrelated versions.
+		++MaterialComponentRevision;
+		PendingMaterialSlotIndex = SlotIndex;
+		PendingMaterialDirtyFlags = DirtyFlags;
+		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialData);
 	}
 
 	auto DStaticMeshComponent::BindMaterial(DMaterialInterface* InMaterial) -> void

@@ -11,6 +11,7 @@ namespace Durin
 	class DMaterialInstance;
 	class DStaticMeshComponent;
 	class DTexture2D;
+	class FMaterialUpdateContext;
 
 	// Defines the shared parameter-resolution and render-update contract for materials.
 	DCLASS()
@@ -39,6 +40,11 @@ namespace Durin
 
 	protected:
 		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
+		// Adds this material to a caller-owned batch without flushing it.
+		ENGINE_API auto MarkRenderDataDirty(
+			FMaterialUpdateContext& Context,
+			EMaterialRenderDirtyFlags DirtyFlags
+		) -> void;
 
 	private:
 		auto AddBoundComponent(DStaticMeshComponent* Component) -> void;
@@ -52,6 +58,7 @@ namespace Durin
 
 		friend class DMaterialInstance;
 		friend class DStaticMeshComponent;
+		friend class FMaterialUpdateContext;
 	};
 
 	// Returns loaded material instances whose canonical Parent is exactly Parent.

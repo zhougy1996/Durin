@@ -51,7 +51,7 @@ namespace Durin
 
 	private:
 		auto BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags DirtyFlags, FMaterialRenderUpdate& OutUpdate) -> bool override;
-		auto HandleMaterialRenderDataChanged(DMaterialInterface* ChangedMaterial, EMaterialRenderDirtyFlags DirtyFlags) -> void;
+		auto HandleMaterialRenderDataChanged(uint32 SlotIndex, EMaterialRenderDirtyFlags DirtyFlags) -> void;
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
 		auto BindMaterial(DMaterialInterface* InMaterial) -> void;
 		auto UnbindMaterial(DMaterialInterface* InMaterial) -> void;
@@ -73,5 +73,6 @@ namespace Durin
 
 		friend class DMaterialInterface;
 		friend class DStaticMesh;
+		friend class FMaterialUpdateContext;
 	};
 }

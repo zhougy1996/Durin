@@ -6,9 +6,9 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stage 0 is complete. Material dependency semantics and loaded query APIs are
-implemented and validated by 4 focused dependency tests plus the existing 41
-material tests. Stage 1 is next.
+Stages 0 and 1 are complete. The batched material update context is validated by
+its focused batching test plus the 45 existing material dependency and rendering
+tests. Stage 2 is next.
 
 This plan replaces the unimplemented centralized object dependency index design
 recorded on 2026-07-26. The revised direction follows Unreal Engine's material
@@ -374,19 +374,19 @@ Current gaps:
 
 ### Stage 1: Batched material update context
 
-- [ ] Add `FMaterialUpdateContext` in Runtime Engine.
-- [ ] Implement root deduplication, dirty-flag merging, one loaded-object
+- [x] Add `FMaterialUpdateContext` in Runtime Engine.
+- [x] Implement root deduplication, dirty-flag merging, one loaded-object
   snapshot, and one affected-material closure computation per flush.
-- [ ] Mark indirect descendants with `ParentChain`.
-- [ ] Advance each affected material version exactly once per flush.
-- [ ] Scan loaded static-mesh components once and identify affected current
+- [x] Mark indirect descendants with `ParentChain`.
+- [x] Advance each affected material version exactly once per flush.
+- [x] Scan loaded static-mesh components once and identify affected current
   material slots from canonical state.
-- [ ] Preserve per-slot `FMaterialRenderUpdate` emission, component revision
+- [x] Preserve per-slot `FMaterialRenderUpdate` emission, component revision
   ordering, and stale render-command rejection.
-- [ ] Add explicit flush reentry protection and update diagnostics counters.
-- [ ] Route `MarkRenderDataDirty()` through a local immediate context while
+- [x] Add explicit flush reentry protection and update diagnostics counters.
+- [x] Route `MarkRenderDataDirty()` through a local immediate context while
   supporting an internal existing-context batch path.
-- [ ] Add tests for multiple roots, shared descendants, overlapping dirty flags,
+- [x] Add tests for multiple roots, shared descendants, overlapping dirty flags,
   duplicate slot assignments, one scan per batch, and no-op repeated Flush.
 
 #### Acceptance Gate

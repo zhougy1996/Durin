@@ -6,6 +6,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
 #include "Materials/MaterialInstance.h"
+#include "Materials/MaterialUpdateContext.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
 
@@ -146,21 +147,17 @@ namespace Durin
 
 	auto DMaterialInterface::MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void
 	{
-		if (DirtyFlags == EMaterialRenderDirtyFlags::None) return;
-		++RenderStateVersion;
+		FMaterialUpdateContext Context;
+		MarkRenderDataDirty(Context, DirtyFlags);
+		Context.Flush();
+	}
 
-		std::erase_if(BoundComponents, [this, DirtyFlags](FObjectHandle Handle) {
-			auto* Component = Cast<DStaticMeshComponent>(ResolveObjectHandle(Handle));
-			if (!IsValid(Component)) return true;
-			Component->HandleMaterialRenderDataChanged(this, DirtyFlags);
-			return false;
-		});
-		std::erase_if(DependentInstances, [DirtyFlags](FObjectHandle Handle) {
-			auto* Instance = Cast<DMaterialInstance>(ResolveObjectHandle(Handle));
-			if (!IsValid(Instance)) return true;
-			Instance->OnParentRenderDataDirty(DirtyFlags);
-			return false;
-		});
+	auto DMaterialInterface::MarkRenderDataDirty(
+		FMaterialUpdateContext& Context,
+		EMaterialRenderDirtyFlags DirtyFlags
+	) -> void
+	{
+		Context.AddMaterial(this, DirtyFlags);
 	}
 
 	auto DMaterialInterface::AddBoundComponent(DStaticMeshComponent* Component) -> void
