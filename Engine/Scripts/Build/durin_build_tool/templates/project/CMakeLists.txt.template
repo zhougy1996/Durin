@@ -1,2 +1,2 @@
-include(${CMAKE_CURRENT_SOURCE_DIR}/CMake/{{PROJECT_NAME}}Setup.cmake)
+include("${CMAKE_CURRENT_SOURCE_DIR}/CMake/{{PROJECT_NAME}}Setup.cmake")
 add_durin_project({{PROJECT_NAME}})

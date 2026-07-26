@@ -42,6 +42,15 @@ case-insensitively unique across the workspace, and dependencies may cross
 project boundaries but must already exist. The full command syntax and defaults
 are documented in `Documentation/Development/Build/BuildAndRun.md`.
 
+When a separate top-level owner is required, use
+`BuildTool create project <Name> --path <Path>`. In the current workflow the
+path must be a new direct child of the workspace root. The command creates the
+project descriptor and CMake entrypoints, `Configs/` and `Content/`, and a
+same-named runtime module enabled in `BaseModules`; it also adds the explicit
+root `add_subdirectory(...)` registration in the same transaction. Workspace
+project and initial module names remain case-insensitively unique. External,
+installed-engine, and nested project creation remain outside this workflow.
+
 ## Profiles
 
 Current profiles are `DurinEditor` and `DurinGame`.

@@ -6,11 +6,11 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 through 2 are complete. BuildTool now creates runtime and editor
-modules from versioned disk templates, updates project registration and
-enablement transactionally, validates the final workspace descriptor graph, and
-supports mutation-free dry runs. Stage 3 workspace-project creation is the next
-delivery target.
+Stages 0 through 3 are complete. BuildTool now creates runtime and editor
+modules and complete workspace-local projects from versioned disk templates,
+updates descriptor and root CMake registration transactionally, validates the
+final workspace descriptor graph, and supports mutation-free dry runs. Stage 4
+typed project launch and final integration is the next delivery target.
 
 ## Goal
 
@@ -252,21 +252,21 @@ Every direct command must have equivalent interactive-shell syntax.
 
 ### Stage 3: One-Command Workspace Project Creation
 
-- [ ] Implement workspace-contained project path validation and case-insensitive
+- [x] Implement workspace-contained project path validation and case-insensitive
   project-name uniqueness.
-- [ ] Generate `<ProjectName>.dproject`, `CMakeLists.txt`,
+- [x] Generate `<ProjectName>.dproject`, `CMakeLists.txt`,
   `CMake/<ProjectName>Setup.cmake`, `Configs/`, `Content/`, and the same-named
   runtime module through the Stage 2 scaffolding path.
-- [ ] Register the project once in the root `CMakeLists.txt` while preserving
+- [x] Register the project once in the root `CMakeLists.txt` while preserving
   existing project ordering and unrelated formatting.
-- [ ] Reject paths that are outside the workspace, contain an existing project,
+- [x] Reject paths that are outside the workspace, contain an existing project,
   overlap engine-owned roots, or cannot be expressed safely as a root CMake
   subdirectory.
-- [ ] Add project-level dry-run, rollback, duplicate-name, duplicate-path, root
+- [x] Add project-level dry-run, rollback, duplicate-name, duplicate-path, root
   CMake edit, and generated-module integration tests.
-- [ ] Configure and build a generated project in a disposable workspace fixture
+- [x] Configure and build a generated project in a disposable workspace fixture
   through BuildTool.
-- [ ] Document project creation and the workspace-local limitation.
+- [x] Document project creation and the workspace-local limitation.
 
 #### Acceptance Gate
 

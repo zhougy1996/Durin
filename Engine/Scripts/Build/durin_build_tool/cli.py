@@ -376,21 +376,27 @@ def execute_create_request(
     *,
     root: Path = REPO_ROOT,
 ) -> None:
-    if request.action is Action.CREATE_PROJECT:
-        raise BuildToolError(
-            "Project scaffolding is not available until implementation Stage 3."
-        )
-    from .scaffolding import execute_plan, plan_module_creation
+    from .scaffolding import execute_plan, plan_module_creation, plan_project_creation
 
-    plan = plan_module_creation(request, root)
+    plan = (
+        plan_project_creation(request, root)
+        if request.action is Action.CREATE_PROJECT
+        else plan_module_creation(request, root)
+    )
     if request.dry_run:
         output.info(plan.format(plain=output.plain))
         return
     execute_plan(plan)
-    output.success(
-        f'Created module "{request.create_name}" in '
-        f'"{request.project_path}".'
-    )
+    if request.action is Action.CREATE_PROJECT:
+        output.success(
+            f'Created project "{request.create_name}" at '
+            f'"{request.destination_path}".'
+        )
+    else:
+        output.success(
+            f'Created module "{request.create_name}" in '
+            f'"{request.project_path}".'
+        )
 
 
 COMMAND_BY_ACTION = {spec.action: spec for spec in ALL_COMMAND_SPECS}

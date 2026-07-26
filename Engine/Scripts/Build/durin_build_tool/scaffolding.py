@@ -32,11 +32,15 @@ from .descriptors import (
 TEMPLATE_DIR = PACKAGE_DIR / "templates"
 TEMPLATE_VARIABLE_PATTERN = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
 ADD_SUBDIRECTORY_PATTERN = re.compile(
-    r"(?im)^[ \t]*add_subdirectory[ \t]*\([ \t]*[\"']?([^\"') \t\r\n]+)"
+    r"(?im)^[ \t]*add_subdirectory[ \t]*\([ \t]*"
+    r"(?:\"([^\"]+)\"|'([^']+)'|([^)'\" \t\r\n]+))"
 )
 CMAKE_TARGET_PATTERN = re.compile(
     r"(?im)^[ \t]*(?:add_durin_module|add_library|add_executable)[ \t]*"
     r"\([ \t]*[\"']?([^\"') \t\r\n]+)"
+)
+ROOT_ADD_SUBDIRECTORY_LINE_PATTERN = re.compile(
+    r"(?im)^[ \t]*add_subdirectory[ \t]*\([^\r\n]*\)[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$)"
 )
 
 
@@ -79,7 +83,11 @@ def require_contained_path(path: Path, root: Path, *, label: str) -> Path:
 
 
 def _parse_cmake_values(pattern: re.Pattern[str], content: str) -> tuple[str, ...]:
-    return tuple(match.group(1).replace("\\", "/").rstrip("/") for match in pattern.finditer(content))
+    values = []
+    for match in pattern.finditer(content):
+        value = next(group for group in match.groups() if group is not None)
+        values.append(value.replace("\\", "/").rstrip("/"))
+    return tuple(values)
 
 
 def _check_balanced_cmake(content: str, path: Path) -> None:
@@ -542,6 +550,71 @@ def _canonical_enablements(
     )
 
 
+def _render_module_files(
+    module_name: str,
+    module_directory: Path,
+    template_renderer: TemplateRenderer,
+    *,
+    link_type: LinkType = LinkType.SHARED,
+    pch: str = "",
+    private_dependencies: Sequence[str] = (),
+    public_dependencies: Sequence[str] = (),
+    optional_private_dependencies: Sequence[str] = (),
+    optional_public_dependencies: Sequence[str] = (),
+) -> list[tuple[Path, bytes]]:
+    descriptor_variables = {
+        "MODULE_NAME": module_name,
+        "LINK_TYPE": "Static" if link_type is LinkType.STATIC else "Shared",
+        "PCH": pch or "Self",
+        "PRIVATE_DEPENDENCIES": json_template_value(list(private_dependencies)),
+        "PUBLIC_DEPENDENCIES": json_template_value(list(public_dependencies)),
+        "OPTIONAL_PRIVATE_DEPENDENCIES": json_template_value(
+            list(optional_private_dependencies)
+        ),
+        "OPTIONAL_PUBLIC_DEPENDENCIES": json_template_value(
+            list(optional_public_dependencies)
+        ),
+    }
+    generated_files = [
+        (
+            module_directory / f"{module_name}.dmodule",
+            template_renderer.render(
+                "module/descriptor.json.template",
+                descriptor_variables,
+            ),
+        ),
+        (
+            module_directory / "CMakeLists.txt",
+            template_renderer.render(
+                "module/CMakeLists.txt.template",
+                {"MODULE_NAME": module_name},
+            ),
+        ),
+        (
+            module_directory / "Private" / f"{module_name}Module.cpp",
+            template_renderer.render(
+                "module/entry_point.cpp.template",
+                {"MODULE_NAME": module_name},
+            ),
+        ),
+        (
+            module_directory / "Public" / f"{module_name}API.h",
+            template_renderer.render(
+                "module/api.h.template",
+                {"MODULE_NAME_UPPER": module_name.upper()},
+            ),
+        ),
+    ]
+    if (pch or "Self").casefold() == "self":
+        generated_files.append(
+            (
+                module_directory / "Private" / f"PCH.{module_name}.h",
+                template_renderer.render("module/pch.h.template", {}),
+            )
+        )
+    return generated_files
+
+
 def plan_module_creation(
     request: CommandRequest,
     root: Path,
@@ -588,19 +661,6 @@ def plan_module_creation(
 
     enablements = _canonical_enablements(request, workspace)
     template_renderer = renderer or TemplateRenderer()
-    descriptor_variables = {
-        "MODULE_NAME": request.create_name,
-        "LINK_TYPE": "Static" if request.link_type is LinkType.STATIC else "Shared",
-        "PCH": request.pch or "Self",
-        "PRIVATE_DEPENDENCIES": json_template_value(list(request.private_dependencies)),
-        "PUBLIC_DEPENDENCIES": json_template_value(list(request.public_dependencies)),
-        "OPTIONAL_PRIVATE_DEPENDENCIES": json_template_value(
-            list(request.optional_private_dependencies)
-        ),
-        "OPTIONAL_PUBLIC_DEPENDENCIES": json_template_value(
-            list(request.optional_public_dependencies)
-        ),
-    }
     relative_module_directory = module_directory.relative_to(workspace_project.root).as_posix()
     updated_project = _render_updated_project_descriptor(
         project,
@@ -608,43 +668,17 @@ def plan_module_creation(
         module_directory=relative_module_directory,
         enablements=enablements,
     )
-    generated_files = [
-        (
-            module_directory / f"{request.create_name}.dmodule",
-            template_renderer.render(
-                "module/descriptor.json.template",
-                descriptor_variables,
-            ),
-        ),
-        (
-            module_directory / "CMakeLists.txt",
-            template_renderer.render(
-                "module/CMakeLists.txt.template",
-                {"MODULE_NAME": request.create_name},
-            ),
-        ),
-        (
-            module_directory / "Private" / f"{request.create_name}Module.cpp",
-            template_renderer.render(
-                "module/entry_point.cpp.template",
-                {"MODULE_NAME": request.create_name},
-            ),
-        ),
-        (
-            module_directory / "Public" / f"{request.create_name}API.h",
-            template_renderer.render(
-                "module/api.h.template",
-                {"MODULE_NAME_UPPER": request.create_name.upper()},
-            ),
-        ),
-    ]
-    if (request.pch or "Self").casefold() == "self":
-        generated_files.append(
-            (
-                module_directory / "Private" / f"PCH.{request.create_name}.h",
-                template_renderer.render("module/pch.h.template", {}),
-            )
-        )
+    generated_files = _render_module_files(
+        request.create_name,
+        module_directory,
+        template_renderer,
+        link_type=request.link_type,
+        pch=request.pch,
+        private_dependencies=request.private_dependencies,
+        public_dependencies=request.public_dependencies,
+        optional_private_dependencies=request.optional_private_dependencies,
+        optional_public_dependencies=request.optional_public_dependencies,
+    )
 
     def validate_workspace_after_creation(_: ScaffoldPlan) -> None:
         load_workspace_descriptors(discovery.root, project_paths=project_paths)
@@ -670,6 +704,158 @@ def plan_module_creation(
         ),
         files=generated_files,
         replacements=((project.path, updated_project),),
+        validators=(validate_workspace_after_creation,),
+    )
+
+
+def _render_root_project_registration(
+    root_cmake: Path,
+    discovery: WorkspaceDiscovery,
+    project_directory_name: str,
+) -> bytes:
+    original = root_cmake.read_bytes()
+    text = original.decode("utf-8")
+    newline = "\r\n" if b"\r\n" in original else "\n"
+    registration = f'add_subdirectory("{project_directory_name}"){newline}'
+    matches = tuple(ROOT_ADD_SUBDIRECTORY_LINE_PATTERN.finditer(text))
+    if not matches:
+        raise BuildToolError(
+            f'Workspace root CMake file has no project add_subdirectory registration: "{root_cmake}".'
+        )
+
+    known_registrations = {
+        project.cmake_registration.casefold() for project in discovery.projects
+    }
+    insertion_match = None
+    for match in matches:
+        values = _parse_cmake_values(ADD_SUBDIRECTORY_PATTERN, match.group(0))
+        if values and values[0].casefold() in known_registrations:
+            insertion_match = match
+    if insertion_match is None:
+        raise BuildToolError(
+            f'Workspace root CMake project registrations could not be located: "{root_cmake}".'
+        )
+    separator = "" if insertion_match.group(0).endswith(("\n", "\r")) else newline
+    updated = (
+        text[: insertion_match.end()]
+        + separator
+        + registration
+        + text[insertion_match.end() :]
+    )
+    return updated.encode("utf-8")
+
+
+def plan_project_creation(
+    request: CommandRequest,
+    root: Path,
+    *,
+    renderer: TemplateRenderer | None = None,
+) -> ScaffoldPlan:
+    if request.create_kind is not CreateKind.PROJECT:
+        raise BuildToolError("Project scaffolding requires a create project request.")
+    if request.destination_path is None:
+        raise BuildToolError("create project requires --path <path>.")
+
+    discovery = discover_workspace_projects(root)
+    project_paths = tuple(project.descriptor.path for project in discovery.projects)
+    workspace = load_workspace_descriptors(discovery.root, project_paths=project_paths)
+    validate_create_request(request, workspace)
+    require_available_cmake_target(request.create_name, discovery)
+    destination = validate_destination(
+        request.destination_path,
+        discovery,
+        label="Project destination",
+    )
+    if destination.parent != discovery.root:
+        raise BuildToolError(
+            "Project destination must be a direct child of the workspace root so it can be "
+            f'registered safely: "{destination}".'
+        )
+    if any(character in destination.name for character in ('"', "\\", "$", ";", "\r", "\n")):
+        raise BuildToolError(
+            f'Project destination cannot be expressed safely in root CMake: "{destination}".'
+        )
+    root_registrations = _parse_cmake_values(
+        ADD_SUBDIRECTORY_PATTERN,
+        discovery.root_cmake.read_text(encoding="utf-8"),
+    )
+    if any(
+        registration.casefold() == destination.name.casefold()
+        for registration in root_registrations
+    ):
+        raise BuildToolError(
+            f'Project destination already has a root CMake registration: "{destination.name}".'
+        )
+
+    template_renderer = renderer or TemplateRenderer()
+    module_directory = destination / "Source" / "Runtime" / request.create_name
+    generated_files = [
+        (
+            destination / f"{request.create_name}.dproject",
+            template_renderer.render(
+                "project/descriptor.json.template",
+                {"PROJECT_NAME": request.create_name},
+            ),
+        ),
+        (
+            destination / "CMakeLists.txt",
+            template_renderer.render(
+                "project/CMakeLists.txt.template",
+                {"PROJECT_NAME": request.create_name},
+            ),
+        ),
+        (
+            destination / "CMake" / f"{request.create_name}Setup.cmake",
+            template_renderer.render(
+                "project/setup.cmake.template",
+                {"PROJECT_NAME": request.create_name},
+            ),
+        ),
+        *_render_module_files(
+            request.create_name,
+            module_directory,
+            template_renderer,
+            private_dependencies=("Core",),
+        ),
+    ]
+    updated_root_cmake = _render_root_project_registration(
+        discovery.root_cmake,
+        discovery,
+        destination.name,
+    )
+
+    def validate_workspace_after_creation(_: ScaffoldPlan) -> None:
+        updated_discovery = discover_workspace_projects(discovery.root)
+        updated_paths = tuple(
+            project.descriptor.path for project in updated_discovery.projects
+        )
+        updated_workspace = load_workspace_descriptors(
+            discovery.root,
+            project_paths=updated_paths,
+        )
+        project = updated_workspace.find_project(request.create_name)
+        module = updated_workspace.find_module(request.create_name)
+        if project is None or module is None or module.owning_project != project.name:
+            raise BuildToolError(
+                f'Generated project "{request.create_name}" failed final workspace validation.'
+            )
+
+    return ordered_plan(
+        discovery.root,
+        (discovery.root,),
+        directories=(
+            destination,
+            destination / "CMake",
+            destination / "Configs",
+            destination / "Content",
+            destination / "Source",
+            destination / "Source" / "Runtime",
+            module_directory,
+            module_directory / "Private",
+            module_directory / "Public",
+        ),
+        files=generated_files,
+        replacements=((discovery.root_cmake, updated_root_cmake),),
         validators=(validate_workspace_after_creation,),
     )
 

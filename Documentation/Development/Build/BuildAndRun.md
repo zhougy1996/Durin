@@ -267,6 +267,42 @@ removes only paths created by that invocation. Repeating a successful request
 reports an existing-name or destination conflict instead of overwriting it.
 The same `create module` syntax is available in the interactive BuildTool shell.
 
+## Creating Workspace Projects
+
+Create and register a workspace-local project with one command:
+
+```powershell
+.\BuildTool create project MyGame --path MyGame
+```
+
+The project path may be relative to the workspace root or an absolute path
+resolving to the same location. In the current workspace-local workflow, it
+must be a new direct child of the workspace root. Project names must be valid
+C++ identifiers and case-insensitively unique among projects, modules, and
+CMake targets.
+
+The command creates `MyGame.dproject`, the project `CMakeLists.txt`,
+`CMake/MyGameSetup.cmake`, empty `Configs/` and `Content/` roots, and a
+same-named runtime module under `Source/Runtime/MyGame`. The initial module is
+enabled in `BaseModules`, uses the self PCH and shared-linkage defaults, and
+depends privately on `Core`. BuildTool also appends one quoted
+`add_subdirectory(...)` registration after the existing workspace project
+registrations in the root `CMakeLists.txt`.
+
+Preview the complete operation without changing the workspace:
+
+```powershell
+.\BuildTool create project MyGame --path MyGame --dry-run --plain
+```
+
+Project creation validates containment, project/module/target name collisions,
+existing and overlapping destinations, and the root CMake registration before
+writing. The project tree and root CMake edit are one transaction: a failure
+restores the previous root file byte-for-byte and removes only paths created by
+that invocation. Installed-engine projects, external project roots, and nested
+workspace project paths are not supported by this command. The same syntax is
+available in the interactive BuildTool shell.
+
 ## Clean And Purge
 
 `clean` invokes the CMake clean target for the selected preset. It removes outputs known to that generated build graph, but keeps the configured CMake tree and may leave copied runtime files or generated metadata that CMake does not own.

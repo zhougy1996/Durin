@@ -1793,6 +1793,182 @@ class ModuleScaffoldingTests(unittest.TestCase):
             self.assertEqual(self.snapshot(root), before_conflict)
 
 
+class ProjectScaffoldingTests(unittest.TestCase):
+    @staticmethod
+    def snapshot(root: Path) -> tuple[tuple[str, ...], dict[str, bytes]]:
+        directories = tuple(
+            sorted(
+                path.relative_to(root).as_posix()
+                for path in root.rglob("*")
+                if path.is_dir()
+            )
+        )
+        files = {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+        return directories, files
+
+    def test_project_creation_generates_registered_project_and_initial_module(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ModuleScaffoldingTests.create_workspace(root)
+            (root / "CMakeLists.txt").write_bytes(
+                b"add_subdirectory(Engine)\r\nadd_subdirectory(Sandbox)"
+            )
+            request = build_cli.parse_args(
+                ["create", "project", "MyGame", "--path", "Games With Spaces"]
+            )
+            plan = build_scaffolding.plan_project_creation(request, root)
+            build_scaffolding.execute_plan(plan)
+
+            project_root = root / "Games With Spaces"
+            descriptor = json.loads(
+                (project_root / "MyGame.dproject").read_text(encoding="utf-8")
+            )
+            module = json.loads(
+                (
+                    project_root
+                    / "Source"
+                    / "Runtime"
+                    / "MyGame"
+                    / "MyGame.dmodule"
+                ).read_text(encoding="utf-8")
+            )
+            root_cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+            self.assertEqual(descriptor["ModuleDirs"], {"MyGame": "Source/Runtime/MyGame"})
+            self.assertEqual(descriptor["BaseModules"], ["MyGame"])
+            self.assertEqual(module["PrivateDependencies"], ["Core"])
+            self.assertTrue((project_root / "Configs").is_dir())
+            self.assertTrue((project_root / "Content").is_dir())
+            self.assertTrue((project_root / "CMake" / "MyGameSetup.cmake").is_file())
+            self.assertEqual(root_cmake.count('add_subdirectory("Games With Spaces")'), 1)
+            self.assertIn(
+                'add_subdirectory(Sandbox)\nadd_subdirectory("Games With Spaces")\n',
+                root_cmake.replace("\r\n", "\n"),
+            )
+            self.assertLess(
+                root_cmake.index("add_subdirectory(Sandbox)"),
+                root_cmake.index('add_subdirectory("Games With Spaces")'),
+            )
+            workspace = build_descriptors.load_workspace_descriptors(root)
+            self.assertEqual(workspace.find_module("MyGame").owning_project, "MyGame")
+
+    def test_project_dry_run_is_pure_and_direct_execution_reports_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ModuleScaffoldingTests.create_workspace(root)
+            request = build_cli.parse_args(
+                [
+                    "create",
+                    "project",
+                    "MyGame",
+                    "--path",
+                    "MyGame",
+                    "--dry-run",
+                    "--plain",
+                ]
+            )
+            before = self.snapshot(root)
+            stdout = io.StringIO()
+            build_cli.execute_create_request(
+                request,
+                BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()),
+                root=root,
+            )
+            self.assertEqual(self.snapshot(root), before)
+            self.assertIn("MyGame/MyGame.dproject", stdout.getvalue())
+            self.assertIn("replace file: CMakeLists.txt", stdout.getvalue())
+
+            create_request = build_cli.parse_args(
+                ["create", "project", "MyGame", "--path", "MyGame"]
+            )
+            stdout = io.StringIO()
+            build_cli.execute_create_request(
+                create_request,
+                BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()),
+                root=root,
+            )
+            self.assertIn('Created project "MyGame"', stdout.getvalue())
+
+    def test_project_creation_rejects_names_paths_and_unsafe_registration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ModuleScaffoldingTests.create_workspace(root)
+            invalid_requests = (
+                (
+                    ["create", "project", "Sandbox", "--path", "Another"],
+                    "already exists",
+                ),
+                (
+                    ["create", "project", "Core", "--path", "Another"],
+                    "Initial module name",
+                ),
+                (
+                    ["create", "project", "Nested", "--path", "Games/Nested"],
+                    "direct child",
+                ),
+                (
+                    ["create", "project", "InsideEngine", "--path", "Engine/Nested"],
+                    "overlaps project",
+                ),
+                (
+                    ["create", "project", "Unsafe", "--path", "Unsafe$Path"],
+                    "safely",
+                ),
+            )
+            for arguments, message in invalid_requests:
+                with self.subTest(arguments=arguments):
+                    before = self.snapshot(root)
+                    with self.assertRaisesRegex(build_config.BuildToolError, message):
+                        build_scaffolding.plan_project_creation(
+                            build_cli.parse_args(arguments),
+                            root,
+                        )
+                    self.assertEqual(self.snapshot(root), before)
+
+            outside = root.parent / "OutsideProject"
+            with self.assertRaisesRegex(build_config.BuildToolError, "inside"):
+                build_scaffolding.plan_project_creation(
+                    build_cli.parse_args(
+                        ["create", "project", "Outside", "--path", str(outside)]
+                    ),
+                    root,
+                )
+
+            with (root / "CMakeLists.txt").open("a", encoding="utf-8") as stream:
+                stream.write("add_subdirectory(Stale)\n")
+            with self.assertRaisesRegex(build_config.BuildToolError, "already has"):
+                build_scaffolding.plan_project_creation(
+                    build_cli.parse_args(
+                        ["create", "project", "StaleProject", "--path", "Stale"]
+                    ),
+                    root,
+                )
+
+    def test_project_creation_failure_restores_root_and_removes_project_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ModuleScaffoldingTests.create_workspace(root)
+            request = build_cli.parse_args(
+                ["create", "project", "MyGame", "--path", "MyGame"]
+            )
+            plan = build_scaffolding.plan_project_creation(request, root)
+            before = self.snapshot(root)
+
+            def fail_after_root_replacement(phase: str, index: int, path: Path) -> None:
+                if phase == "after-replace" and path == (root / "CMakeLists.txt").resolve():
+                    raise RuntimeError(f"injected project failure at {index}")
+
+            with self.assertRaisesRegex(RuntimeError, "injected project failure"):
+                build_scaffolding.execute_plan(
+                    plan,
+                    failure_injector=fail_after_root_replacement,
+                )
+            self.assertEqual(self.snapshot(root), before)
+
+
 class WorktreeToolTests(unittest.TestCase):
     def test_no_arguments_default_to_open(self) -> None:
         self.assertEqual(worktree_tool.parse_args([]).action, "open")
