@@ -6,10 +6,16 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Planning is complete and no implementation stage has started. The current
-StaticMesh, Texture2D, and TextureCube provenance remains rooted beneath the
-owning package's project or engine `SourceAssets` directory, and new imports
-still derive a destination source path from the runtime asset path.
+Stage 0 is complete. Executable package tests now freeze reflected `FName`
+text serialization and five DAST v2 legacy provenance fixtures cover project
+and engine StaticMesh, project Texture2D, and both TextureCube source layouts.
+The source-library descriptor, shared location, compatibility, failure, and
+schema-boundary contracts below are frozen for Stage 1 implementation.
+
+StaticMesh, Texture2D, and TextureCube runtime behavior is otherwise unchanged:
+provenance remains rooted beneath the owning package's project or engine
+`SourceAssets` directory, and new imports still derive a destination source path
+from the runtime asset path.
 
 This plan selects `SourceLibrary` as the user-facing and persisted concept.
 A source library is a logical collection of authoritative editor inputs;
@@ -257,6 +263,74 @@ retaining independent import settings and derived data.
   change derived-data keys when source bytes and semantic settings are
   unchanged.
 
+### Stage 0 contract freeze
+
+`FSourceLocation` is an Engine-owned reflected value because Core cannot depend
+on the reflection system. Core's registry APIs accept and return library name
+and relative path components without depending on the reflected type. The
+value has exactly these reflected members:
+
+```cpp
+DSTRUCT()
+struct FSourceLocation
+{
+    GENERATED_BODY()
+
+    DPROPERTY()
+    FName Library;
+
+    DPROPERTY()
+    std::string RelativePath;
+};
+```
+
+The empty invariant is executable as `{None, ""}` only. A dependency is present
+only when both fields are present and valid. Asset-specific provenance keeps
+source hashes and importer settings in its existing owner; `FSourceLocation`
+does not own a hash or import setting.
+
+The legacy compatibility inventory is:
+
+| Asset/layout | New location owner | Legacy compatibility carrier | Existing hash owner |
+| --- | --- | --- | --- |
+| StaticMesh | `FStaticMeshSourceImportData::SourceLocation` | `FStaticMeshSourceImportData::SourcePath` | `SourceContentHash` |
+| Texture2D | `FTextureSourceFile::SourceLocation` | `FTextureSourceFile::SourcePath` | `SourceContentHashLow/High` |
+| TextureCube six-face | Each face's `FTextureSourceFile::SourceLocation` | Each face's `FTextureSourceFile::SourcePath` | Each face's `SourceContentHashLow/High` |
+| TextureCube panorama | `Panorama.SourceLocation` | `Panorama.SourcePath` | `Panorama.SourceContentHashLow/High` |
+
+The repository package inventory at the freeze point is:
+
+| Package | Owner | Provenance |
+| --- | --- | --- |
+| `Engine/Content/Editor/MaterialPreview/Box.dasset` | Engine | StaticMesh |
+| `Engine/Content/Editor/MaterialPreview/Sphere.dasset` | Engine | StaticMesh |
+| `Sandbox/Content/Models/Mesh_Teapot.dasset` | Project | StaticMesh |
+| `Sandbox/Content/Textures/TEX_StoneHead.dasset` | Project | Texture2D |
+
+There is no repository-owned TextureCube package at the freeze point, so
+checked-in fixtures capture both cube layouts from the current importer.
+
+The `.dproject` member is an optional `SourceLibraries` array. Each entry is an
+object with exactly `Name` (required string), `Path` (required relative string),
+and `Writable` (required Boolean). Unknown entry members, wrong types, empty
+names or paths, absolute paths, duplicate/case-only names, built-in aliases,
+and canonically indistinguishable roots fail initialization. A missing valid
+root registers as unavailable. Definitions become immutable when active-project
+initialization publishes them; tests use a separate reset/setup seam.
+
+Core reports `UnknownLibrary`, `UnavailableLibrary`, `InvalidRelativePath`,
+`EscapedRoot`, `MissingFile`, and `IoFailure` distinctly. Descriptor errors are
+project-initialization errors rather than resolution results.
+
+DAST remains at format version 2 because named source libraries add reflected
+domain fields without changing the package envelope. During Stages 2 through 4,
+the legacy `SourcePath` members remain reflected compatibility carriers; a
+successful migration fills `SourceLocation`, verifies the persisted hash, and
+clears the carrier before save. Stage 5 removes the carrier declarations only
+after repository migration and fixture-backed rejection tests pass. That removal
+is the exact boundary after which old fields are ignored and a package with no
+valid `SourceLocation` is deliberately rejected as legacy provenance.
+
 ## Current Foundations and Gaps
 
 ### Foundations
@@ -296,19 +370,19 @@ retaining independent import settings and derived data.
 
 Dependencies: none.
 
-- [ ] Add focused tests proving reflected `FName` package serialization stores
+- [x] Add focused tests proving reflected `FName` package serialization stores
   text rather than process-local name-pool indices, preserves the registered
   display spelling, and compares differently cased spellings as one identity.
-- [ ] Inventory every reflected StaticMesh, Texture2D, and TextureCube source
+- [x] Inventory every reflected StaticMesh, Texture2D, and TextureCube source
   field and every repository-owned package that carries it.
-- [ ] Freeze the shared `FSourceLocation` representation, empty-value
+- [x] Freeze the shared `FSourceLocation` representation, empty-value
   invariant, source-hash ownership, and compatibility carrier for each existing
   reflected layout.
-- [ ] Freeze `.dproject` `SourceLibraries` parsing, built-in names, validation,
+- [x] Freeze `.dproject` `SourceLibraries` parsing, built-in names, validation,
   unavailable-root behavior, registration lifetime, and writable policy.
-- [ ] Create legacy package fixtures before changing serialization so migration
+- [x] Create legacy package fixtures before changing serialization so migration
   tests exercise real former bytes rather than newly generated equivalents.
-- [ ] Record the package-schema/version impact and the exact point at which old
+- [x] Record the package-schema/version impact and the exact point at which old
   fields become rejected.
 
 #### Acceptance Gate
