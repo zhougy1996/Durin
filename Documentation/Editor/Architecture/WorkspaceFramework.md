@@ -69,7 +69,7 @@ selection.
 
 ## Related Documentation
 
-- `Documentation/Editor/Systems/PlayInEditorArchitecture.md`
-- `Documentation/Editor/Systems/ReflectedPropertyEditing.md`
-- `Documentation/Editor/Systems/UIStyle.md`
+- `Documentation/Editor/Architecture/PlayInEditorArchitecture.md`
+- `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
+- `Documentation/Editor/Design/UIStyle.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`

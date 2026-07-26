@@ -141,8 +141,8 @@ Repository build and test commands must follow [Build And Run](../Development/Bu
 - [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
 - [Level System](../Runtime/World/LevelSystem.md)
 - [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Play In Editor Architecture](../Editor/Systems/PlayInEditorArchitecture.md)
-- [Reflected Property Editing](../Editor/Systems/ReflectedPropertyEditing.md)
+- [Play In Editor Architecture](../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
 
 ## Related Code
 

@@ -16,8 +16,10 @@ These instructions apply under `Documentation/`.
   operational guidance they govern.
 - `Runtime` contains currently implemented engine-runtime contracts and
   long-lived invariants, organized by subsystem.
-- `Editor/Systems` contains currently implemented editor contracts and
+- `Editor/Architecture` contains currently implemented editor contracts and
   long-lived invariants.
+- `Editor/Design` contains editor visual language, design tokens, layout,
+  interaction, and theme conventions.
 - `Editor/Guides` contains user-facing editor workflows.
 - `Workspace` contains workspace, project, module, and profile ownership
   boundaries that span development and runtime concerns.
@@ -27,9 +29,10 @@ These instructions apply under `Documentation/`.
   implementation path has been selected.
 
 Do not place implementation stages, open decisions, or future roadmaps in
-`Runtime`, `Editor/Systems`, or `Workspace`. After implementation, move lasting
-contracts into the owning domain. Keep informal research under the ignored
-`Documentation/Local/` directory or outside the repository.
+`Runtime`, `Editor/Architecture`, `Editor/Design`, or `Workspace`. After
+implementation, move lasting contracts into the owning domain. Keep informal
+research under the ignored `Documentation/Local/` directory or outside the
+repository.
 
 ## Maintenance
 

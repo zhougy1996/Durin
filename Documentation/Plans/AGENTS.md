@@ -65,8 +65,8 @@ Last reviewed: YYYY-MM-DD
 - Check off only work whose acceptance evidence exists.
 - Record a changed decision and rationale before continuing when implementation diverges from the plan.
 - Move long-lived implemented rules into the owning `Runtime`,
-  `Editor/Systems`, `Development`, or `Workspace` domain rather than leaving
-  the plan as a competing specification.
+  `Editor/Architecture`, `Editor/Design`, `Development`, or `Workspace` domain
+  rather than leaving the plan as a competing specification.
 - Run `python Documentation/Plans/list_plans.py --scope all --validate`
   whenever a plan is added, renamed, completed, archived, or removed. CI must
   run the same command so discovery metadata, titles, dates, archive placement,

@@ -54,6 +54,6 @@ project transitions and are cleared at explicit PIE lifecycle boundaries.
 ## Related Documentation
 
 - `Documentation/Editor/Guides/PlayInEditor.md`
-- `Documentation/Editor/Systems/ReflectedPropertyEditing.md`
+- `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Runtime/Rendering/ViewportRendering.md`

@@ -1,6 +1,9 @@
 # Editor UI Style
 
-Durin editor UI uses three layers of styling and persistence:
+This document defines the implemented visual-style, design-token, layout, and
+theme conventions for the Durin editor UI.
+
+The editor uses three layers of styling and persistence:
 
 - `MonaImGui` owns shared design metrics, global UI scaling, semantic colors, and reusable controls.
 - `Engine/Configs/DurinEditorTheme.*.yaml` owns ImGui and semantic theme colors only.

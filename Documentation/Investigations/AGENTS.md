@@ -8,9 +8,9 @@ These instructions apply to `Documentation/Investigations/`.
 - Keep issue documents diagnostic and evidence-based. They describe the current behavior, impact, and candidate direction; they are not implementation plans or adopted architecture.
 - Use `Documentation/Plans/` after scope, decisions, stages, and acceptance
   gates have been selected. Move lasting constraints to the owning
-  `Documentation/Runtime/`, `Documentation/Editor/Systems/`,
-  `Documentation/Development/`, or `Documentation/Workspace/` domain after
-  implementation stabilizes.
+  `Documentation/Runtime/`, `Documentation/Editor/Architecture/`,
+  `Documentation/Editor/Design/`, `Documentation/Development/`, or
+  `Documentation/Workspace/` domain after implementation stabilizes.
 
 ## Required Content
 

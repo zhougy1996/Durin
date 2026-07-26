@@ -53,7 +53,7 @@ The runtime lifecycle is:
 
 Editor-hosted runtime sessions follow the same world lifecycle but add isolation
 and restoration rules documented in
-`Documentation/Editor/Systems/PlayInEditorArchitecture.md`.
+`Documentation/Editor/Architecture/PlayInEditorArchitecture.md`.
 
 ## Logging Pipeline
 
@@ -130,7 +130,7 @@ Detailed viewport and composition contracts are documented in
 
 - `Documentation/Development/Build/BuildSystem.md`
 - `Documentation/Development/Build/Profiles.md`
-- `Documentation/Editor/Systems/PlayInEditorArchitecture.md`
-- `Documentation/Editor/Systems/WorkspaceFramework.md`
+- `Documentation/Editor/Architecture/PlayInEditorArchitecture.md`
+- `Documentation/Editor/Architecture/WorkspaceFramework.md`
 - `Documentation/Plans/MultithreadingV1.md`
 - `Documentation/Runtime/Rendering/ViewportRendering.md`

@@ -549,7 +549,7 @@ Build and test commands come from
 - `Documentation/Runtime/Assets/AssetPackages.md`
 - `Documentation/Runtime/Core/GarbageCollection.md`
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
-- `Documentation/Editor/Systems/ReflectedPropertyEditing.md`
+- `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`
