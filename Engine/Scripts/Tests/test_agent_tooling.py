@@ -701,6 +701,12 @@ class CliTests(unittest.TestCase):
         request = build_cli.parse_args(["configure", "--plain"])
         self.assertTrue(request.plain)
 
+    def test_output_mode_is_available_before_or_after_command(self) -> None:
+        before = build_cli.parse_args(["--output", "compact", "build"])
+        after = build_cli.parse_args(["build", "--output", "full"])
+        self.assertIs(before.output_mode, build_config.OutputMode.COMPACT)
+        self.assertIs(after.output_mode, build_config.OutputMode.FULL)
+
     def test_configure_fresh_option_is_explicit(self) -> None:
         self.assertFalse(build_cli.parse_args(["configure"]).fresh)
         self.assertTrue(build_cli.parse_args(["configure", "--fresh"]).fresh)
@@ -1319,13 +1325,31 @@ class OutputTests(unittest.TestCase):
     def test_non_tty_output_automatically_uses_plain_mode(self) -> None:
         output = BuildOutput(stdout=io.StringIO(), stderr=io.StringIO())
         self.assertTrue(output.plain)
+        self.assertTrue(output.compact)
 
     def test_rich_tty_output_contains_ansi_and_semantic_status(self) -> None:
         stdout = io.StringIO()
-        output = BuildOutput(stdout=stdout, stderr=io.StringIO(), force_terminal=True)
-        output.success("done")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            output = BuildOutput(stdout=stdout, stderr=io.StringIO(), force_terminal=True)
+            output.success("done")
         self.assertIn("\x1b[", stdout.getvalue())
         self.assertIn("success", stdout.getvalue())
+        self.assertFalse(output.compact)
+
+    def test_explicit_output_mode_overrides_terminal_detection(self) -> None:
+        compact = BuildOutput(
+            output_mode=build_config.OutputMode.COMPACT,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+            force_terminal=True,
+        )
+        full = BuildOutput(
+            output_mode=build_config.OutputMode.FULL,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        self.assertTrue(compact.compact)
+        self.assertFalse(full.compact)
 
     def test_failure_summary_contains_command_exit_code_and_recovery(self) -> None:
         stderr = io.StringIO()
@@ -1648,10 +1672,13 @@ class CoreTests(unittest.TestCase):
 
     def test_run_command_waits_for_windows_process_job(self) -> None:
         process = mock.Mock(pid=42, returncode=0)
+        process.stdout = io.StringIO()
         process.wait.return_value = 0
         process_job = mock.Mock()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
-        with mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            build_core, "command_log_path", return_value=Path(directory) / "command.log"
+        ), mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
             build_core,
             "WindowsProcessJob",
             return_value=process_job,
@@ -1668,12 +1695,15 @@ class CoreTests(unittest.TestCase):
 
     def test_interrupt_terminates_relaunched_windows_process_job(self) -> None:
         process = mock.Mock(pid=42, returncode=0)
+        process.stdout = io.StringIO()
         process.wait.return_value = 0
         process.poll.return_value = 0
         process_job = mock.Mock()
         process_job.wait.side_effect = KeyboardInterrupt
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
-        with mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            build_core, "command_log_path", return_value=Path(directory) / "command.log"
+        ), mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
             build_core,
             "WindowsProcessJob",
             return_value=process_job,
@@ -1714,6 +1744,39 @@ class CoreTests(unittest.TestCase):
         request = build_config.CommandRequest(build_config.Action.TEST, target="CoreTests")
         with self.assertRaisesRegex(build_config.BuildToolError, "does not enable BUILD_TESTING"):
             build_core.validate_request(request, self.make_preset(testing="OFF"))
+
+    def test_compact_native_test_enables_gtest_brief_output(self) -> None:
+        preset = self.make_preset()
+        context = build_config.BuildContext(
+            build_config.CommandRequest(
+                build_config.Action.TEST,
+                target="CoreTests",
+                test_filter="Core.*",
+            ),
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {"debug": preset},
+            preset,
+            "windows",
+            environment={},
+        )
+        output = BuildOutput(
+            plain=True,
+            output_mode=build_config.OutputMode.COMPACT,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            build_core,
+            "test_executable_path",
+            return_value=Path(directory) / "CoreTests.exe",
+        ) as executable_path, mock.patch.object(build_core, "run_command") as run:
+            executable_path.return_value.touch()
+            build_core.run_native_test(context, output)
+        self.assertEqual(
+            run.call_args.args[0],
+            [str(executable_path.return_value), "--gtest_filter=Core.*", "--gtest_brief=1"],
+        )
 
     def test_configure_preserves_cache_unless_fresh_is_requested(self) -> None:
         preset = self.make_preset()
@@ -1894,9 +1957,12 @@ class CoreTests(unittest.TestCase):
 
     def test_keyboard_interrupt_terminates_child_process_tree(self) -> None:
         process = mock.Mock()
+        process.stdout = io.StringIO()
         process.wait.side_effect = KeyboardInterrupt
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
-        with mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            build_core, "command_log_path", return_value=Path(directory) / "command.log"
+        ), mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
             build_core,
             "terminate_process_tree",
         ) as terminate:
@@ -1906,17 +1972,24 @@ class CoreTests(unittest.TestCase):
 
     def test_run_command_does_not_inherit_buildtool_handles(self) -> None:
         process = mock.Mock()
+        process.stdout = io.StringIO()
         process.wait.return_value = 0
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
-        with mock.patch.object(build_core.subprocess, "Popen", return_value=process) as popen:
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            build_core, "command_log_path", return_value=Path(directory) / "command.log"
+        ), mock.patch.object(build_core.subprocess, "Popen", return_value=process) as popen:
             build_core.run_command(["cmake", "--version"], environment={}, output=output)
         self.assertTrue(popen.call_args.kwargs["close_fds"])
+        self.assertIs(popen.call_args.kwargs["stdout"], build_core.subprocess.PIPE)
 
     def test_command_timeout_terminates_child_process_tree(self) -> None:
         process = mock.Mock()
+        process.stdout = io.StringIO("compiler.cpp(7): error C1234: broken\n")
         process.wait.side_effect = build_core.subprocess.TimeoutExpired(["CoreTests"], 0)
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
-        with mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            build_core, "command_log_path", return_value=Path(directory) / "command.log"
+        ), mock.patch.object(build_core.subprocess, "Popen", return_value=process), mock.patch.object(
             build_core,
             "terminate_process_tree",
         ) as terminate, self.assertRaisesRegex(build_config.BuildToolError, "timed out"):
@@ -1927,6 +2000,76 @@ class CoreTests(unittest.TestCase):
                 timeout_seconds=0.001,
             )
         terminate.assert_called_once_with(process)
+
+    def test_compact_command_output_is_logged_and_failure_is_summarized(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(
+            plain=True,
+            output_mode=build_config.OutputMode.COMPACT,
+            stdout=stdout,
+            stderr=io.StringIO(),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "command.log"
+            with mock.patch.object(build_core, "command_log_path", return_value=log_path):
+                with self.assertRaises(build_config.BuildToolError) as raised:
+                    build_core.run_command(
+                        [
+                            os.sys.executable,
+                            "-c",
+                            "print('noise'); print('source.cpp(9): error C1000: failed'); raise SystemExit(1)",
+                        ],
+                        environment=os.environ,
+                        output=output,
+                    )
+            self.assertIn("noise", log_path.read_text(encoding="utf-8"))
+        self.assertNotIn("\nnoise\n", stdout.getvalue())
+        self.assertIn("error C1000", raised.exception.output_excerpt)
+        self.assertEqual(raised.exception.log_path, log_path)
+
+    def test_full_command_output_streams_and_is_logged(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(
+            plain=True,
+            output_mode=build_config.OutputMode.FULL,
+            stdout=stdout,
+            stderr=io.StringIO(),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "command.log"
+            with mock.patch.object(build_core, "command_log_path", return_value=log_path):
+                build_core.run_command(
+                    [os.sys.executable, "-c", "print('visible child output')"],
+                    environment=os.environ,
+                    output=output,
+                )
+            self.assertIn("visible child output", log_path.read_text(encoding="utf-8"))
+        self.assertIn("visible child output", stdout.getvalue())
+
+    def test_compact_command_output_preserves_gtest_summary(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(
+            plain=True,
+            output_mode=build_config.OutputMode.COMPACT,
+            stdout=stdout,
+            stderr=io.StringIO(),
+        )
+        child_script = (
+            "print('[==========] 122 tests from 25 test suites ran. (100 ms total)'); "
+            "print('[  PASSED  ] 122 tests.')"
+        )
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            build_core,
+            "command_log_path",
+            return_value=Path(directory) / "command.log",
+        ):
+            build_core.run_command(
+                [os.sys.executable, "-c", child_script],
+                environment=os.environ,
+                output=output,
+            )
+        self.assertIn("122 tests from 25 test suites ran", stdout.getvalue())
+        self.assertIn("[  PASSED  ] 122 tests.", stdout.getvalue())
 
     def test_native_test_failure_does_not_leave_recovery_marker(self) -> None:
         preset = self.make_preset()

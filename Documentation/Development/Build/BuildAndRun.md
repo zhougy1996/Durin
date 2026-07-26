@@ -89,6 +89,27 @@ BuildTool separates its resolved context, execution stages, raw CMake/Ninja outp
 .\BuildTool build --target all --plain
 ```
 
+Child-process output has three modes, selected with `--output auto|compact|full`.
+The default `auto` mode streams complete child output in an interactive terminal
+and selects compact output when stdout is redirected or consumed by an Agent.
+Compact mode keeps stage boundaries, command lines, heartbeats, and final
+results, but suppresses routine CMake, Ninja, and successful GoogleTest lines.
+It writes the complete raw output under `Build/.agent-state/logs/`, reports the
+log path after each successful child command, and prints a bounded diagnostic
+excerpt plus the log path when a child fails. The newest 40 command logs are
+retained. Use `--output full` to stream all child output in a redirected
+environment, or `--output compact` to reduce output in an interactive terminal:
+
+```powershell
+.\BuildTool build --target all --output compact
+.\BuildTool test --target CoreTests --output full
+```
+
+Compact native-test runs also enable GoogleTest's brief output mode. Test
+failures and the final test summary remain in the captured output and failure
+excerpt; application or library messages are always preserved in the full log.
+`--plain` controls styling independently and does not select an output volume.
+
 While a build, configure, clean, or test child command is alive, BuildTool emits a short heartbeat every 30 seconds until the child produces a final result. This distinguishes a genuinely running operation from a completed command without requiring a second status or build invocation. The interactive `run` command suppresses this heartbeat because the runtime is expected to remain open until the user exits it.
 
 On Windows, the first toolchain-backed command captures and validates the Visual Studio environment. BuildTool caches that environment delta under `Build/.agent-state/` so later invocations avoid rerunning `VsDevCmd.bat` and the compiler language probe. The cache refreshes automatically when the setup script, its arguments, or `cl.exe` changes, while caller-provided environment values and `PATH` changes remain live.

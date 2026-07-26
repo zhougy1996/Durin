@@ -11,7 +11,14 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .config import Action, BuildContext, BuildToolError, CommandRequest, preset_build_directory
+from .config import (
+    Action,
+    BuildContext,
+    BuildToolError,
+    CommandRequest,
+    OutputMode,
+    preset_build_directory,
+)
 
 
 class BuildOutput:
@@ -19,6 +26,7 @@ class BuildOutput:
         self,
         *,
         plain: bool = False,
+        output_mode: OutputMode = OutputMode.AUTO,
         stdout: TextIO | None = None,
         stderr: TextIO | None = None,
         force_terminal: bool | None = None,
@@ -26,9 +34,17 @@ class BuildOutput:
         stdout = stdout or sys.stdout
         stderr = stderr or sys.stderr
         no_color = plain or "NO_COLOR" in os.environ
+        stdout_is_terminal = bool(getattr(stdout, "isatty", lambda: False)())
+        output_is_terminal = stdout_is_terminal if force_terminal is None else force_terminal
         if force_terminal is None:
-            force_terminal = bool(getattr(stdout, "isatty", lambda: False)()) and not no_color
+            force_terminal = stdout_is_terminal and not no_color
         self.plain = no_color or not force_terminal
+        self.output_mode = output_mode
+        self.compact = (
+            not output_is_terminal
+            if output_mode is OutputMode.AUTO
+            else output_mode is OutputMode.COMPACT
+        )
         self.console = Console(
             file=stdout,
             force_terminal=False if self.plain else force_terminal,
@@ -68,6 +84,10 @@ class BuildOutput:
         self.console.print(f"[dim]$ {command}[/dim]")
         self.flush()
 
+    def child_output(self, text: str) -> None:
+        self.console.file.write(text)
+        self.console.file.flush()
+
     def context(self, context: BuildContext) -> None:
         rows: Mapping[str, object] = {
             "Action": context.request.action.value,
@@ -77,6 +97,11 @@ class BuildOutput:
             "Build directory": preset_build_directory(context.preset),
             "CMake": context.cmake or "not required",
             "Parallel jobs": context.jobs or "not required",
+            "Child output": (
+                f"auto ({'compact' if self.compact else 'full'})"
+                if self.output_mode is OutputMode.AUTO
+                else self.output_mode.value
+            ),
         }
         if self.plain:
             self.console.print("Durin BuildTool")
@@ -141,6 +166,8 @@ class BuildOutput:
             details.append(("Command", " ".join(error.command)))
         if error.exit_code is not None:
             details.append(("Exit code", str(error.exit_code)))
+        if error.log_path is not None:
+            details.append(("Full output", str(error.log_path)))
         details.append(("Elapsed", f"{elapsed:.2f}s"))
         title = (
             f"{active_request.action.value.capitalize()} failed"
@@ -149,6 +176,9 @@ class BuildOutput:
         )
 
         if self.plain:
+            if error.output_excerpt:
+                self.error_console.print("---- Child output excerpt ----")
+                self.error_console.print(error.output_excerpt, markup=False)
             self.error_console.print(f"ERROR: {title}: {error}")
             for label, value in details:
                 self.error_console.print(f"  {label}: {value}")
@@ -157,6 +187,14 @@ class BuildOutput:
             self.flush()
             return
 
+        if error.output_excerpt:
+            self.error_console.print(
+                Panel(
+                    Text(error.output_excerpt),
+                    title="Child output excerpt",
+                    border_style="red",
+                )
+            )
         body = Text()
         body.append(str(error), style="bold red")
         for label, value in details:

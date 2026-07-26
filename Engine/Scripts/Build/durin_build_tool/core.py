@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import locale
 import os
+import re
 import shlex
 import shutil
 import signal
 import subprocess
 import tempfile
+import threading
+from collections import deque
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +45,67 @@ from .config import (
     select_profile,
 )
 from .output import BuildOutput
+
+
+COMMAND_LOG_LIMIT = 40
+COMMAND_EXCERPT_LINE_LIMIT = 60
+COMMAND_EXCERPT_CHARACTER_LIMIT = 24_000
+DIAGNOSTIC_PATTERN = re.compile(
+    r"(^FAILED:|fatal error|(?:^|[^a-z])error(?:[^a-z]|$)|"
+    r"\bLNK\d{4}\b|\bninja: build stopped\b|\bCMake Error\b|"
+    r"\[\s*FAILED\s*\]|assertion failed)",
+    re.IGNORECASE,
+)
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+TEST_SUMMARY_PATTERN = re.compile(r"^\[(?:=+|\s*PASSED\s*)\].*\btests?\b", re.IGNORECASE)
+
+
+class CommandTranscript:
+    def __init__(self) -> None:
+        self.tail: deque[str] = deque(maxlen=COMMAND_EXCERPT_LINE_LIMIT)
+        self.diagnostics: deque[str] = deque(maxlen=COMMAND_EXCERPT_LINE_LIMIT)
+
+    def add(self, text: str) -> None:
+        clean = ANSI_ESCAPE_PATTERN.sub("", text.rstrip("\r\n"))
+        if not clean:
+            return
+        self.tail.append(clean)
+        if DIAGNOSTIC_PATTERN.search(clean):
+            self.diagnostics.append(clean)
+
+    def excerpt(self) -> str:
+        lines: list[str] = []
+        seen: set[str] = set()
+        for line in (*self.diagnostics, *self.tail):
+            if line in seen:
+                continue
+            seen.add(line)
+            lines.append(line)
+        text = "\n".join(lines)
+        if len(text) <= COMMAND_EXCERPT_CHARACTER_LIMIT:
+            return text
+        return "... excerpt truncated ...\n" + text[-COMMAND_EXCERPT_CHARACTER_LIMIT:]
+
+    def success_summary(self) -> str:
+        return "\n".join(line for line in self.tail if TEST_SUMMARY_PATTERN.search(line))
+
+
+def command_log_path(command: Sequence[str], root: Path = STATE_DIR) -> Path:
+    log_directory = root / "logs"
+    log_directory.mkdir(parents=True, exist_ok=True)
+    executable = state_file_component(Path(command[0]).stem or "command")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    return log_directory / f"{timestamp}-{os.getpid()}-{executable}.log"
+
+
+def prune_command_logs(log_directory: Path, keep: int = COMMAND_LOG_LIMIT) -> None:
+    try:
+        logs = sorted(log_directory.glob("*.log"), key=lambda path: path.stat().st_mtime, reverse=True)
+        for path in logs[keep:]:
+            path.unlink(missing_ok=True)
+    except OSError:
+        # Log retention is best-effort and must not turn a successful build into a failure.
+        return
 
 
 def state_file_component(value: str) -> str:
@@ -829,6 +894,9 @@ def run_command(
 ) -> None:
     command_list = list(command)
     output.command(subprocess.list2cmdline(command_list))
+    log_path = command_log_path(command_list)
+    transcript = CommandTranscript()
+    reader_error: list[OSError] = []
     popen_options: dict[str, Any] = {}
     if os.name == "nt":
         popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -840,7 +908,12 @@ def run_command(
             command_list,
             cwd=REPO_ROOT,
             env=dict(environment),
+            stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            text=True,
+            encoding="mbcs" if os.name == "nt" else locale.getpreferredencoding(False),
+            errors="replace",
+            bufsize=1,
             close_fds=True,
             **popen_options,
         )
@@ -848,6 +921,21 @@ def run_command(
         if process_job:
             process_job.close()
         raise BuildToolError(f'Could not start command "{command_list[0]}": {exc}', command=command_list) from exc
+
+    def drain_output() -> None:
+        try:
+            with log_path.open("w", encoding="utf-8", newline="") as log:
+                if process.stdout is None:
+                    return
+                with process.stdout:
+                    for line in process.stdout:
+                        log.write(line)
+                        transcript.add(line)
+                        if not output.compact:
+                            output.child_output(line)
+        except OSError as exc:
+            reader_error.append(exc)
+
     if process_job:
         try:
             process_job.assign(process)
@@ -855,6 +943,8 @@ def run_command(
             terminate_process_tree(process)
             process_job.close()
             raise
+    reader = threading.Thread(target=drain_output, name="BuildToolOutputReader", daemon=True)
+    reader.start()
     try:
         started_at = perf_counter()
         deadline = perf_counter() + timeout_seconds if timeout_seconds else None
@@ -869,7 +959,7 @@ def run_command(
                     raise BuildToolError(
                         f'Command timed out after {timeout_seconds}s: "{command_list[0]}"',
                         command=command_list,
-                        recovery="Inspect the command output above, then rerun the same command.",
+                        recovery="Inspect the output excerpt or full log, then rerun the same command.",
                     )
                 wait_seconds = min(wait_seconds, remaining)
             try:
@@ -881,12 +971,25 @@ def run_command(
         if process_job:
             # Relaunched editors inherit job membership, so active membership reaches zero only after the final instance exits.
             process_job.wait()
+    except BuildToolError as exc:
+        reader.join()
+        if output.compact:
+            exc.output_excerpt = transcript.excerpt()
+        exc.log_path = log_path
+        raise
     except KeyboardInterrupt as exc:
         if process_job:
             process_job.terminate()
         terminate_process_tree(process)
+        reader.join()
+        excerpt = transcript.excerpt() if output.compact else ""
         if not recovery_required_on_interrupt:
-            raise BuildToolError(interruption_message or "Application run was interrupted.", command=command_list) from exc
+            raise BuildToolError(
+                interruption_message or "Application run was interrupted.",
+                command=command_list,
+                output_excerpt=excerpt,
+                log_path=log_path,
+            ) from exc
         raise BuildToolInterruptedError(
             interruption_message or "Durin BuildTool was interrupted.",
             command=command_list,
@@ -894,17 +997,33 @@ def run_command(
                 "Confirm that the old build process tree has exited, then run "
                 "rebuild --target all with the affected preset."
             ),
+            output_excerpt=excerpt,
+            log_path=log_path,
         ) from exc
     finally:
+        reader.join()
         if process_job:
             process_job.close()
+        prune_command_logs(log_path.parent)
+    if reader_error:
+        raise BuildToolError(
+            f'Could not capture command output in "{log_path}": {reader_error[0]}',
+            command=command_list,
+            log_path=log_path,
+        )
     if return_code != 0:
         raise BuildToolError(
             f'Command failed: "{command_list[0]}"',
             command=command_list,
             exit_code=return_code,
-            recovery="Inspect the command output above, fix the reported error, and rerun the same command.",
+            recovery="Inspect the output excerpt or full log, fix the reported error, and rerun the same command.",
+            output_excerpt=transcript.excerpt() if output.compact else "",
+            log_path=log_path,
         )
+    if output.compact:
+        if summary := transcript.success_summary():
+            output.info(summary)
+        output.info(f'Full output: "{log_path}"')
 
 
 def validate_target(target: str, *, action: Action) -> None:
@@ -1262,6 +1381,8 @@ def run_native_test(context: BuildContext, output: BuildOutput) -> None:
     command = [str(executable)]
     if request.test_filter:
         command.append(f"--gtest_filter={request.test_filter}")
+    if output.compact:
+        command.append("--gtest_brief=1")
     with output.stage("Test"):
         run_command(
             command,

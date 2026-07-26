@@ -19,6 +19,7 @@ from .config import (
     CMAKE_ENV_VARS,
     CommandRequest,
     JOBS_ENV_VAR,
+    OutputMode,
     preset_build_directory,
     preset_cache_string,
 )
@@ -82,6 +83,15 @@ PLAIN = ArgumentSpec(
     "plain",
     {"action": "store_true", "help": "disable colors and styled terminal output"},
 )
+OUTPUT_MODE = ArgumentSpec(
+    ("--output",),
+    "output_mode",
+    {
+        "choices": tuple(mode.value for mode in OutputMode),
+        "default": OutputMode.AUTO.value,
+        "help": "child output mode: auto, compact, or full (default: auto)",
+    },
+)
 FRESH = ArgumentSpec(
     ("--fresh",),
     "fresh",
@@ -125,8 +135,8 @@ RUN_ARGUMENTS = ArgumentSpec(
     },
 )
 
-CONTEXT_ARGUMENTS = (PROFILE, PRESET, PLAIN)
-TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN)
+CONTEXT_ARGUMENTS = (PROFILE, PRESET, PLAIN, OUTPUT_MODE)
+TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN, OUTPUT_MODE)
 COMMAND_SPECS = (
     CommandSpec(
         Action.SHELL,
@@ -380,6 +390,7 @@ NAMESPACE_FIELDS = {
     "yes": "yes",
     "fresh": "fresh",
     "plain": "plain",
+    "output_mode": "output_mode",
 }
 
 
@@ -393,6 +404,8 @@ def namespace_request(
     for namespace_name, request_name in NAMESPACE_FIELDS.items():
         if hasattr(args, namespace_name):
             value = getattr(args, namespace_name)
+            if request_name == "output_mode":
+                value = OutputMode(value)
             changes[request_name] = tuple(value) if request_name == "run_arguments" else value
     return replace(request, **changes)
 
@@ -657,9 +670,13 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
             child_request = parse_shell_request(parts, request, current_preset=current_preset)
             child_output = (
                 output
-                if child_request.plain == request.plain
+                if (
+                    child_request.plain == request.plain
+                    and child_request.output_mode == request.output_mode
+                )
                 else BuildOutput(
                     plain=child_request.plain,
+                    output_mode=child_request.output_mode,
                     stdout=output.console.file,
                     stderr=output.error_console.file,
                 )
@@ -735,7 +752,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     context: BuildContext | None = None
     try:
         request = parse_args(argv)
-        output = BuildOutput(plain=request.plain)
+        output = BuildOutput(plain=request.plain, output_mode=request.output_mode)
         if request.action is Action.SHELL:
             run_shell(request, output)
             return 0

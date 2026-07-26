@@ -70,7 +70,7 @@ Run BuildTool without arguments, or pass `shell`, to enter the interactive comma
 
 Inside the shell, use `/presets`, `/preset`, `/build`, `/rebuild`, `/test`, `/run`, `/status`, `/help`, and `/exit`. The selected preset is session-local. If a build or test operation is interrupted, do not resume with an incremental build. Wait for the previous process tree to exit, then run `rebuild --target all` for the affected preset.
 
-Use `--plain` when BuildTool output is redirected or consumed by tooling and ANSI styling is not wanted. BuildTool also selects plain output automatically for non-interactive terminals and when `NO_COLOR` is set.
+Use `--plain` when BuildTool output is redirected or consumed by tooling and ANSI styling is not wanted. BuildTool also selects plain output automatically for non-interactive terminals and when `NO_COLOR` is set. Child output defaults to `--output auto`: interactive terminals stream complete output, while redirected and Agent invocations show compact stage/results output and save complete logs under `Build/.agent-state/logs/`. Pass `--output full` or `--output compact` to override that selection.
 
 ## Git Worktrees
 

@@ -32,11 +32,15 @@ class BuildToolError(RuntimeError):
         command: list[str] | None = None,
         exit_code: int | None = None,
         recovery: str = "",
+        output_excerpt: str = "",
+        log_path: Path | None = None,
     ):
         super().__init__(message)
         self.command = command
         self.exit_code = exit_code
         self.recovery = recovery
+        self.output_excerpt = output_excerpt
+        self.log_path = log_path
 
 
 class BuildToolInterruptedError(BuildToolError):
@@ -62,6 +66,12 @@ class EnvironmentProvider(str, Enum):
     INHERIT = "inherit"
     SCRIPT = "script"
     VISUAL_STUDIO = "visual-studio"
+
+
+class OutputMode(str, Enum):
+    AUTO = "auto"
+    COMPACT = "compact"
+    FULL = "full"
 
 
 @dataclass(frozen=True)
@@ -119,6 +129,7 @@ class CommandRequest:
     yes: bool = False
     fresh: bool = False
     plain: bool = False
+    output_mode: OutputMode = OutputMode.AUTO
 
 
 @dataclass
