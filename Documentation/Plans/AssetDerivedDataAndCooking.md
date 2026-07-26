@@ -13,19 +13,23 @@ a strict deterministic DMSH codec, an atomic content-addressed object store, and
 an editor load path that can consume cached mesh data while source art is
 unavailable.
 
-Stage 0 is complete. DBLK version 1, logical cooked-payload descriptors, the
+Stages 0 and 1 are complete. DBLK version 1, logical cooked-payload descriptors, the
 binary cook manifest, publication order, explicit package-load mode, TXPL
 version 1, texture and cube keys, source provenance, migration policy, and the
 runtime/editor module boundary are frozen below. Logical fixtures for DBLK,
 Texture2D, six-face TextureCube, panorama-derived TextureCube, and malformed
 inputs live beneath the owning native-test data directories and require no
-importer, compressor, RHI, or window.
+importer, compressor, RHI, or window. AssetCore now implements deterministic
+DBLK and manifest codecs, reflected path-free descriptors, contained companion
+resolution, manifest-bounded cook publication and stale cleanup, and an
+explicit process package-load context. The complete 45-test AssetCoreTests
+suite passes with multi-payload, corruption, relocation, interruption, and
+cleanup coverage.
 
-The asset-wide pipeline is not yet implemented. Texture2D still uses its
-earlier private TXDD cache, TextureCube still rebuilds from source during
-`PostLoad`, and runtime targets still inherit source tooling. Stage 1 is next:
-implement the frozen AssetCore DBLK, descriptor, cook-publication, manifest,
-containment, and explicit cooked-load-mode contracts with focused tests.
+Asset consumers are not yet connected to the shared cook layer. Texture2D
+still uses its earlier private TXDD cache, TextureCube still rebuilds from
+source during `PostLoad`, and runtime targets still inherit source tooling.
+Stage 2 is next: make StaticMesh the first cooked DBLK consumer.
 
 ## Goal
 
@@ -837,21 +841,21 @@ time or an engine release number.
 
 Dependencies: Stage 0.
 
-- [ ] Implement AssetCore DBLK encode/decode with bounded structural validation,
+- [x] Implement AssetCore DBLK encode/decode with bounded structural validation,
   platform validation, per-payload hashes, and unknown-entry handling.
-- [ ] Implement reflected or package-native logical payload descriptors without
+- [x] Implement reflected or package-native logical payload descriptors without
   persisting physical companion paths.
-- [ ] Implement package-relative companion resolution beneath the selected cook
+- [x] Implement package-relative companion resolution beneath the selected cook
   root and reject traversal, DDC locations, authored source paths, and
   mismatched mounts.
-- [ ] Add a cook context that accumulates asset payloads, writes and validates a
+- [x] Add a cook context that accumulates asset payloads, writes and validates a
   temporary DBLK, publishes bulk before package metadata, and removes incomplete
   output on failure.
-- [ ] Add a deterministic manifest containing every cooked package and required
+- [x] Add a deterministic manifest containing every cooked package and required
   bulk companion, with manifest-driven stale-output cleanup.
-- [ ] Add an explicit cooked/runtime package-load mode that rejects source and
+- [x] Add an explicit cooked/runtime package-load mode that rejects source and
   DDC fallback.
-- [ ] Add AssetCore unit and integration tests for multi-payload containers,
+- [x] Add AssetCore unit and integration tests for multi-payload containers,
   deterministic bytes, relocation, path containment, missing files, wrong
   platform, corrupt tables and hashes, overlaps, truncation, excessive sizes,
   publication interruption, and cleanup.

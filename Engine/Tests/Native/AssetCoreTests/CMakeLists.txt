@@ -2,6 +2,7 @@ include(GoogleTest)
 
 add_durin_test(AssetCoreTests
 	Private/AssetImportTests.cpp
+	Private/CookedAssetTests.cpp
 	Private/DerivedDataObjectStoreTests.cpp
 	Private/ImageDecoderTests.cpp
 	Private/PackageTests.cpp

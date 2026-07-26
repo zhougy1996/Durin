@@ -4,6 +4,7 @@
 #include "CoreFwd.h"
 #include "Math/MathFwd.h"
 #include "AssetSystem.h"
+#include "CookedAsset.h"
 #include "ImageDecoder.h"
 
 #include <glm/mat4x4.hpp>

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
+#include "CookedAsset.h"
 #include "DObject/CoreDObject.h"
 
 namespace Durin::Asset
@@ -22,7 +23,8 @@ namespace Durin::Asset
 		InvalidObjectGraph,
 		UnsupportedProperty,
 		InvalidPackageType,
-		InUse
+		InUse,
+		ReadOnlyMode
 	};
 
 	// Returns an asset operation status with an optional diagnostic message.
@@ -67,6 +69,7 @@ namespace Durin::Asset
 	// Reads and validates only the package metadata needed by discovery. BytesRead is exposed
 	// so diagnostics and tests can verify that object payloads were not consumed.
 	ASSETCORE_API auto ReadAssetPackageHeader(std::string_view PhysicalPath, FAssetPackageHeader& OutHeader) -> FAssetResult;
+	ASSETCORE_API auto ValidateAssetPackageBytes(std::span<const uint8> Bytes) -> FAssetResult;
 
 	// Selects whether registry discovery may reuse its persistent snapshot.
 	enum class EAssetRegistryScanMode : uint8
@@ -167,6 +170,9 @@ namespace Durin::Asset
 		ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) const -> DPackage*;
 		ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
 		ASSETCORE_API auto Shutdown() -> void;
+		// Configuration is rejected after the first successful package load until shutdown.
+		ASSETCORE_API auto ConfigurePackageLoadContext(FPackageLoadContext InContext) -> FAssetResult;
+		auto GetPackageLoadContext() const -> const FPackageLoadContext& { return PackageLoadContext; }
 
 		auto GetRegistry() -> FAssetRegistry& { return Registry; }
 		auto GetRegistry() const -> const FAssetRegistry& { return Registry; }
@@ -187,6 +193,8 @@ namespace Durin::Asset
 		// Outermost loads commit TransactionPackages as one rollback boundary.
 		uint32 LoadDepth = 0;
 		std::vector<FAssetPath> TransactionPackages;
+		FPackageLoadContext PackageLoadContext;
+		bool bPackageLoadStarted = false;
 	};
 
 	template<typename T>
@@ -222,5 +230,7 @@ namespace Durin::Asset
 	ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) -> DPackage*;
 	ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
 	ASSETCORE_API auto ShutdownAssetManager() -> void;
+	ASSETCORE_API auto ConfigurePackageLoadContext(FPackageLoadContext Context) -> FAssetResult;
+	ASSETCORE_API auto GetPackageLoadContext() -> const FPackageLoadContext&;
 	ASSETCORE_API auto GetAssetRegistry() -> FAssetRegistry&;
 }

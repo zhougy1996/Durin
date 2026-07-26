@@ -165,6 +165,13 @@ namespace Durin::Asset
 
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
 		{
+			const FPackageLoadContext& Context = FAssetManager::Get().GetPackageLoadContext();
+			if (Context.Mode == EPackageLoadMode::CookedRuntime)
+			{
+				std::filesystem::path CookedPath;
+				if (!ResolveCookedPackagePath(Context.CookRoot, Path.GetView(), CookedPath)) return {};
+				return CookedPath.generic_string();
+			}
 			return FPaths::Resolve(Path.GetView()) + ".dasset";
 		}
 
@@ -765,6 +772,12 @@ namespace Durin::Asset
 		return {};
 	}
 
+	auto ValidateAssetPackageBytes(std::span<const uint8> Bytes) -> FAssetResult
+	{
+		FPackageFile File;
+		return ReadPackageFile(Bytes, File, false);
+	}
+
 	auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void
 	{
 		if (Class && Contributor) GetMoveContributors().insert_or_assign(Class, std::move(Contributor));
@@ -947,6 +960,8 @@ namespace Durin::Asset
 	auto FAssetManager::CreateAsset(const FAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
 	{
 		OutAsset = nullptr;
+		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset creation.");
 		if (!Path.IsValid() || !Class || !Class->ClassConstructor) return Error(EAssetError::InvalidPath, "Invalid asset path or class.");
 		if (LoadedPackages.contains(Path) || Registry.FindAsset(Path)) return Error(EAssetError::AlreadyExists, std::format("Asset {} already exists.", Path.ToString()));
 
@@ -971,6 +986,8 @@ namespace Durin::Asset
 
 	auto FAssetManager::SavePackage(DPackage* Package) -> FAssetResult
 	{
+		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit package saves.");
 		if (Package && !Package->IsAssetPackage()) return Error(EAssetError::InvalidPackageType, "Only asset packages can be saved.");
 		if (!Package || !Package->GetAsset()) return Error(EAssetError::InvalidObjectGraph, "Package has no main asset.");
 		FAssetPath Path;
@@ -1051,6 +1068,8 @@ namespace Durin::Asset
 
 	auto FAssetManager::MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult
 	{
+		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset moves.");
 		if (!OldPath.IsValid() || !NewPath.IsValid() || OldPath == NewPath) return Error(EAssetError::InvalidPath, "Asset move paths are invalid or identical.");
 		const FAssetData* SourceData = Registry.FindAsset(OldPath);
 		if (!SourceData) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", OldPath.ToString()));
@@ -1199,6 +1218,8 @@ namespace Durin::Asset
 
 	auto FAssetManager::DeleteAsset(const FAssetPath& Path) -> FAssetResult
 	{
+		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset deletion.");
 		FAssetDeleteAnalysis Analysis;
 		FAssetResult Result = AnalyzeAssetDeletion(Path, Analysis);
 		if (!Result) return Result;
@@ -1310,6 +1331,7 @@ namespace Durin::Asset
 				if (bDiscardedPackage) CollectGarbage();
 			}
 			TransactionPackages.clear();
+			if (Result) bPackageLoadStarted = true;
 		}
 		OutAsset = Result && Package ? Package->GetAsset() : nullptr;
 		return Result;
@@ -1324,6 +1346,7 @@ namespace Durin::Asset
 		}
 		std::vector<uint8> Bytes;
 		const std::string PhysicalPath = GetPhysicalPath(Path);
+		if (PhysicalPath.empty()) return Error(EAssetError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		FPackageFile File;
 		FAssetResult Result = ReadPackageFile(Bytes, File, false);
@@ -1469,12 +1492,24 @@ namespace Durin::Asset
 		LoadingPackages.clear();
 		TransactionPackages.clear();
 		LoadDepth = 0;
+		PackageLoadContext = {};
+		bPackageLoadStarted = false;
 		for (DPackage* Package : Packages)
 		{
 			RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 		}
 		CollectGarbage();
+	}
+
+	auto FAssetManager::ConfigurePackageLoadContext(FPackageLoadContext InContext) -> FAssetResult
+	{
+		std::string ValidationError;
+		if (!InContext.IsValid(&ValidationError)) return Error(EAssetError::InvalidPath, std::move(ValidationError));
+		if (bPackageLoadStarted || !LoadedPackages.empty() || !LoadingPackages.empty() || LoadDepth != 0)
+			return Error(EAssetError::InUse, "Package load context cannot change after package loading has begun.");
+		PackageLoadContext = std::move(InContext);
+		return {};
 	}
 
 	auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult { return FAssetManager::Get().LoadAsset(Path, OutAsset); }
@@ -1485,5 +1520,13 @@ namespace Durin::Asset
 	auto FindLoadedPackage(const FAssetPath& Path) -> DPackage* { return FAssetManager::Get().FindLoadedPackage(Path); }
 	auto UnloadPackage(const FAssetPath& Path) -> FAssetResult { return FAssetManager::Get().UnloadPackage(Path); }
 	auto ShutdownAssetManager() -> void { FAssetManager::Get().Shutdown(); }
+	auto ConfigurePackageLoadContext(FPackageLoadContext Context) -> FAssetResult
+	{
+		return FAssetManager::Get().ConfigurePackageLoadContext(std::move(Context));
+	}
+	auto GetPackageLoadContext() -> const FPackageLoadContext&
+	{
+		return FAssetManager::Get().GetPackageLoadContext();
+	}
 	auto GetAssetRegistry() -> FAssetRegistry& { return FAssetManager::Get().GetRegistry(); }
 }

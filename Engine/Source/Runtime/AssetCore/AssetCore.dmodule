@@ -5,5 +5,8 @@
     "PublicDependencies": [
 		"Core",
 		"CoreDObject"
+    ],
+    "ReflectHeaders": [
+        "Public/CookedAsset.h"
     ]
 }
