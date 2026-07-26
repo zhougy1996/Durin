@@ -1,5 +1,7 @@
 # Material Parameter Domain Refactor Plan
 
+Summary: Runtime-owned reflected material parameter domains and editor integration.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

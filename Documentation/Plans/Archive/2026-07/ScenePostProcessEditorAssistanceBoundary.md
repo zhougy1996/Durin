@@ -1,5 +1,7 @@
 # Scene Post-Processing and Editor Assistance Boundary Plan
 
+Summary: Renderer-phase boundaries between scene post-processing and editor assistance overlays.
+
 Last reviewed: 2026-07-23
 
 ## Current Status

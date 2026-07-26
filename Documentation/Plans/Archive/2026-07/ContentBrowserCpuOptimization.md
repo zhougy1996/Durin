@@ -1,5 +1,7 @@
 # Content Browser CPU Optimization Plan
 
+Summary: Bounded Content Browser refresh, drag/drop, and background CPU work.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

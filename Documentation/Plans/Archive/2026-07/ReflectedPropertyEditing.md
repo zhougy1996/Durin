@@ -1,5 +1,7 @@
 # Reflected Property Editing Simplification Plan
 
+Summary: Simplified reflected property editing contracts and editor dispatch.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

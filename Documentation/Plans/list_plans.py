@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""List and validate active implementation plans."""
+"""List and validate active or archived implementation plans."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ TITLE_PATTERN = re.compile(r"^# (?P<title>.+ Plan)$")
 SUMMARY_PATTERN = re.compile(r"^Summary: (?P<summary>.+)$")
 REVIEWED_PATTERN = re.compile(r"^Last reviewed: (?P<date>\d{4}-\d{2}-\d{2})$")
 REQUIRED_SECTION = "## Current Status"
-EXCLUDED_FILES = {"AGENTS.md", "README.md"}
+EXCLUDED_FILES = {"AGENTS.md"}
 
 
 @dataclass(frozen=True)
@@ -63,15 +63,35 @@ def parse_plan(path: Path) -> tuple[Plan | None, list[str]]:
     )
 
 
-def discover_plans(directory: Path) -> tuple[list[Plan], list[str]]:
+def discover_plans(
+    directory: Path,
+    *,
+    recursive: bool = False,
+    require_archive_month: bool = False,
+) -> tuple[list[Plan], list[str]]:
     plans: list[Plan] = []
     errors: list[str] = []
 
-    for path in sorted(directory.glob("*.md"), key=lambda item: item.name.casefold()):
+    candidates = directory.rglob("*.md") if recursive else directory.glob("*.md")
+    for path in sorted(candidates, key=lambda item: item.as_posix().casefold()):
         if path.name in EXCLUDED_FILES:
             continue
+        if require_archive_month:
+            month = path.parent.name
+            valid_month = re.fullmatch(r"\d{4}-\d{2}", month) is not None
+            if valid_month:
+                try:
+                    dt.datetime.strptime(month, "%Y-%m")
+                except ValueError:
+                    valid_month = False
+            if not valid_month:
+                errors.append(
+                    f"{path.relative_to(directory).as_posix()}: archived plan must "
+                    "be directly inside an Archive/YYYY-MM directory"
+                )
         plan, plan_errors = parse_plan(path)
-        errors.extend(f"{path.name}: {error}" for error in plan_errors)
+        display_path = path.relative_to(directory).as_posix()
+        errors.extend(f"{display_path}: {error}" for error in plan_errors)
         if plan is not None:
             plans.append(plan)
 
@@ -94,18 +114,34 @@ def markdown_cell(value: str) -> str:
     return value.replace("\\", "\\\\").replace("|", "\\|")
 
 
-def render_markdown(plans: list[Plan]) -> str:
+def render_markdown(plans: list[Plan], plans_directory: Path) -> str:
     lines = ["| Plan | Primary Scope |", "| --- | --- |"]
     for plan in plans:
         title = markdown_cell(plan.title)
         summary = markdown_cell(plan.summary)
-        lines.append(f"| [{title}]({plan.path.name}) | {summary} |")
+        link = plan.path.relative_to(plans_directory).as_posix()
+        lines.append(f"| [{title}]({link}) | {summary} |")
     return "\n".join(lines)
+
+
+def render_archive_markdown(plans: list[Plan], plans_directory: Path) -> str:
+    months = sorted({plan.path.parent.name for plan in plans}, reverse=True)
+    sections: list[str] = []
+    for month in months:
+        month_plans = [plan for plan in plans if plan.path.parent.name == month]
+        sections.append(f"## {month}\n\n{render_markdown(month_plans, plans_directory)}")
+    return "\n\n".join(sections)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate or validate the active implementation-plan index."
+        description="Generate or validate implementation-plan indexes."
+    )
+    parser.add_argument(
+        "--scope",
+        choices=("active", "archive", "all"),
+        default="active",
+        help="select plans to list or validate (default: active)",
     )
     parser.add_argument(
         "--validate",
@@ -118,20 +154,49 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     plans_directory = Path(__file__).resolve().parent
-    plans, errors = discover_plans(plans_directory)
+    active_plans, active_errors = discover_plans(plans_directory)
+    archive_plans, archive_errors = discover_plans(
+        plans_directory / "Archive",
+        recursive=True,
+        require_archive_month=True,
+    )
 
+    errors: list[str] = []
+    if args.scope in ("active", "all"):
+        errors.extend(active_errors)
+    if args.scope in ("archive", "all"):
+        errors.extend(f"Archive/{error}" for error in archive_errors)
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
         return 1
-    if not plans:
-        print("error: no active implementation plans found", file=sys.stderr)
+
+    selected_plans = active_plans if args.scope == "active" else archive_plans
+    if args.scope == "all":
+        selected_plans = active_plans + archive_plans
+    if not selected_plans:
+        print(f"error: no {args.scope} implementation plans found", file=sys.stderr)
         return 1
 
     if args.validate:
-        print(f"Validated {len(plans)} active implementation plans.")
+        if args.scope == "all":
+            print(
+                f"Validated {len(active_plans)} active and "
+                f"{len(archive_plans)} archived implementation plans."
+            )
+        else:
+            print(f"Validated {len(selected_plans)} {args.scope} implementation plans.")
+    elif args.scope == "active":
+        print(render_markdown(active_plans, plans_directory))
+    elif args.scope == "archive":
+        print(render_archive_markdown(archive_plans, plans_directory))
     else:
-        print(render_markdown(plans))
+        print(
+            "# Active Implementation Plans\n\n"
+            f"{render_markdown(active_plans, plans_directory)}\n\n"
+            "# Archived Implementation Plans\n\n"
+            f"{render_archive_markdown(archive_plans, plans_directory)}"
+        )
     return 0
 
 

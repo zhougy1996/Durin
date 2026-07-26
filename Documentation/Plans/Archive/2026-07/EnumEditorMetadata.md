@@ -1,5 +1,7 @@
 # Enum Editor Metadata Plan
 
+Summary: Reflected enum display metadata from generation through editor presentation.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

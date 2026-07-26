@@ -1,5 +1,7 @@
 # Asset Registry and Thumbnail Cache Plan
 
+Summary: Deterministic asset discovery and persistent asynchronous source-image thumbnail caching.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

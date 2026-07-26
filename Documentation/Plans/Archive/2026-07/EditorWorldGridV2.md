@@ -1,5 +1,7 @@
 # Editor World Grid V2 Plan
 
+Summary: Camera-stable procedural editor grid rendering and validation.
+
 Last reviewed: 2026-07-23
 
 ## Current Status

@@ -1,5 +1,7 @@
 # Logging Pipeline Hardening Plan
 
+Summary: Bounded structured log history, reliable completion, and sequence-cursor editor consumption.
+
 Last reviewed: 2026-07-24
 
 ## Current Status
@@ -362,7 +364,6 @@ Depends on Stages 1 through 4.
 
 ## Related Documentation
 
-- `Documentation/Plans/Archive/2026-07/README.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Editor/Guides/Console.md`
 - `Documentation/Development/Build/BuildAndRun.md`

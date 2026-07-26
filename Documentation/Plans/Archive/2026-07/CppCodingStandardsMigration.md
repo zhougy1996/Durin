@@ -1,5 +1,7 @@
 # C++ Coding Standards Migration Plan
 
+Summary: Repository-wide migration to the selected C++ coding standards.
+
 Last reviewed: 2026-07-25
 
 ## Current Status

@@ -17,8 +17,8 @@ not open the other rows or scan an entire directory.
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
 | Editor implementation or user workflow | Use a targeted search under `Editor/Systems/` or `Editor/Guides/` |
-| Active implementation plan | [Active plans](Plans/README.md) |
-| Named historical plan or required provenance | [Plan archive](Plans/Archive/README.md) |
+| Active implementation plan | Run `python Documentation/Plans/list_plans.py`, then open only the matching plan |
+| Named historical plan or required provenance | Run `python Documentation/Plans/list_plans.py --scope archive`, then open only the matching archived plan |
 | Verified unresolved engineering problem | [Open investigations](Investigations/README.md) |
 
 If no row matches, use `rg --files Documentation` or a targeted `rg` content

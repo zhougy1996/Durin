@@ -1,5 +1,7 @@
 # Static Mesh Material Slots Plan
 
+Summary: Authored static-mesh material slots, compatibility, serialization, and editor assignment.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

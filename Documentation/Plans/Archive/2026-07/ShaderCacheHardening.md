@@ -1,5 +1,7 @@
 # Shader Cache Hardening Plan
 
+Summary: Deterministic, recoverable shader-cache publication and validation.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

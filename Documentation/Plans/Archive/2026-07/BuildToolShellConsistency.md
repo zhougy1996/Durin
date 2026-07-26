@@ -1,5 +1,7 @@
 # BuildTool Shell Consistency Plan
 
+Summary: Consistent direct and interactive BuildTool commands with lazy toolchain initialization.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

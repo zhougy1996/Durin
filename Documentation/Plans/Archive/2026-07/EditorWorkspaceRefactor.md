@@ -1,5 +1,7 @@
 # Editor Workspace Refactor Plan
 
+Summary: Editor workspace, document, panel, command, and lifecycle ownership boundaries.
+
 Last reviewed: 2026-07-26
 
 ## Current Status

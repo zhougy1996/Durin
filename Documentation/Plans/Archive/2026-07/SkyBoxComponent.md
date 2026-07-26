@@ -1,5 +1,7 @@
 # SkyBoxComponent Plan
 
+Summary: Reflected skybox component ownership, cube-texture rendering, and editor workflow.
+
 Last reviewed: 2026-07-26
 
 ## Current Status
