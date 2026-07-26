@@ -67,7 +67,7 @@ namespace Durin
 #else
 			const uint64 ProcessId = static_cast<uint64>(getpid());
 #endif
-			return TargetPath.parent_path() / std::format("{}.tmp.{}.{:016x}", TargetPath.filename().generic_string(), ProcessId, Suffix);
+			return TargetPath.parent_path() / std::format(".tmp.{}.{:016x}", ProcessId, Suffix);
 		}
 
 		auto ReplaceFileAtomically(const std::filesystem::path& TemporaryPath, const std::filesystem::path& TargetPath) -> bool
