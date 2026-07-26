@@ -1035,6 +1035,38 @@ def validate_target(target: str, *, action: Action) -> None:
         raise BuildToolError(f'Build target contains unsupported characters: "{target}"')
 
 
+def normalize_run_request(
+    request: CommandRequest,
+    *,
+    root: Path = REPO_ROOT,
+) -> CommandRequest:
+    if request.action is not Action.RUN or request.project_path is None:
+        return request
+
+    project_path = request.project_path
+    if not project_path.is_absolute():
+        project_path = root / project_path
+    project_path = project_path.resolve()
+    if project_path.suffix.casefold() != ".dproject":
+        raise BuildToolError(
+            f'Project descriptor must use the .dproject extension: "{project_path}".'
+        )
+    if not project_path.is_file():
+        raise BuildToolError(f'Project descriptor was not found: "{project_path}".')
+
+    project_selectors = [
+        argument
+        for argument in request.run_arguments
+        if argument == "--project" or argument.startswith("--project=")
+    ]
+    if project_selectors:
+        raise BuildToolError(
+            "run accepts project selection either through --project or through "
+            "--args, but not both."
+        )
+    return replace(request, project_path=project_path)
+
+
 def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
     if request.action in {Action.BUILD, Action.TEST}:
         validate_target(request.target, action=request.action)
@@ -1053,6 +1085,7 @@ def create_context(
     *,
     prepare_tools: bool = True,
 ) -> BuildContext:
+    request = normalize_run_request(request)
     config = load_local_config()
     if request.environment_setup:
         config = config.with_environment_script(request.environment_setup)
@@ -1132,6 +1165,7 @@ def derive_context(
     base: BuildContext,
     request: CommandRequest,
 ) -> BuildContext:
+    request = normalize_run_request(request)
     preset = select_preset(base.profile, base.presets, requested=request.preset)
     validate_request(request, preset)
     return BuildContext(
@@ -1402,9 +1436,13 @@ def run_application(context: BuildContext, output: BuildOutput) -> None:
             f'Runtime executable was not found: "{executable}".',
             recovery="Build the complete runtime first with build --target all.",
         )
+    arguments = [str(executable)]
+    if context.request.project_path is not None:
+        arguments.append(f"--project={context.request.project_path}")
+    arguments.extend(context.request.run_arguments)
     with output.stage("Run"):
         run_command(
-            [str(executable), *context.request.run_arguments],
+            arguments,
             environment=os.environ,
             output=output,
             recovery_required_on_interrupt=False,

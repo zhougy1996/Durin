@@ -290,7 +290,21 @@ class CliTests(unittest.TestCase):
         purge = build_cli.parse_args(["purge", "--all-presets", "--yes"])
         self.assertTrue(purge.all_presets)
         self.assertTrue(purge.yes)
-        run = build_cli.parse_args(["run", "--preset", "game", "--args", "-log"])
+        run = build_cli.parse_args(
+            [
+                "run",
+                "--preset",
+                "game",
+                "--project",
+                r"Games\示例 Project\Example.dproject",
+                "--args",
+                "-log",
+            ]
+        )
+        self.assertEqual(
+            run.project_path,
+            Path(r"Games\示例 Project\Example.dproject"),
+        )
         self.assertEqual(run.run_arguments, ("-log",))
         test = build_cli.parse_args(
             ["test", "--target", "CoreTests", "--filter", "Core.*", "--timeout", "45"]
@@ -670,6 +684,25 @@ class CliTests(unittest.TestCase):
         open_runtime.assert_called_once()
         execute.assert_not_called()
 
+    def test_direct_run_does_not_prepare_the_toolchain(self) -> None:
+        context = mock.Mock()
+        with mock.patch.object(build_cli, "create_context", return_value=context) as create, mock.patch.object(
+            build_cli, "execute_context"
+        ) as execute:
+            self.assertEqual(
+                build_cli.main(
+                    [
+                        "run",
+                        "--project",
+                        r"Games\Example\Example.dproject",
+                        "--plain",
+                    ]
+                ),
+                0,
+            )
+        create.assert_called_once_with(mock.ANY, prepare_tools=False)
+        execute.assert_called_once()
+
     def test_plain_preset_listing_preserves_state_markers(self) -> None:
         context = mock.Mock()
         context.profile.presets = ("debug", "release")
@@ -876,8 +909,24 @@ class CliTests(unittest.TestCase):
                 ],
             ),
             (
-                ["run", "--preset", "debug", "--args", "--hidden-window"],
-                ["run", "--preset", "debug", "--args", "--hidden-window"],
+                [
+                    "run",
+                    "--preset",
+                    "debug",
+                    "--project",
+                    r"Games\示例 Project\Example.dproject",
+                    "--args",
+                    "--hidden-window",
+                ],
+                [
+                    "run",
+                    "--preset",
+                    "debug",
+                    "--project",
+                    r"Games\示例 Project\Example.dproject",
+                    "--args",
+                    "--hidden-window",
+                ],
             ),
         ]
         session = build_config.CommandRequest(build_config.Action.SHELL)
@@ -922,6 +971,23 @@ class CliTests(unittest.TestCase):
                     "--hidden-window",
                     "--project",
                     "Example",
+                ],
+            ),
+            (
+                [
+                    "run",
+                    "--project",
+                    r"Games\示例 Project\Example.dproject",
+                    "--hidden-window",
+                ],
+                [
+                    "run",
+                    "--preset",
+                    "debug",
+                    "--project",
+                    r"Games\示例 Project\Example.dproject",
+                    "--args",
+                    "--hidden-window",
                 ],
             ),
         ]
@@ -2540,6 +2606,58 @@ class CoreTests(unittest.TestCase):
             },
         )
 
+    def test_run_project_is_normalized_and_validated_without_toolchain_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            descriptor = root / "Games" / "示例 Project" / "Example.dproject"
+            descriptor.parent.mkdir(parents=True)
+            descriptor.write_text("{}", encoding="utf-8")
+            request = build_config.CommandRequest(
+                build_config.Action.RUN,
+                project_path=Path("Games") / "示例 Project" / "Example.dproject",
+                run_arguments=("--hidden-window", "argument with spaces"),
+            )
+            normalized = build_core.normalize_run_request(request, root=root)
+        self.assertEqual(normalized.project_path, descriptor.resolve())
+        self.assertEqual(normalized.run_arguments, request.run_arguments)
+
+    def test_run_project_rejects_missing_and_wrong_extension_descriptors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrong_extension = build_config.CommandRequest(
+                build_config.Action.RUN,
+                project_path=Path("Example.json"),
+            )
+            with self.assertRaisesRegex(build_config.BuildToolError, r"\.dproject extension"):
+                build_core.normalize_run_request(wrong_extension, root=root)
+
+            missing = build_config.CommandRequest(
+                build_config.Action.RUN,
+                project_path=Path("Missing.dproject"),
+            )
+            with self.assertRaisesRegex(build_config.BuildToolError, "was not found"):
+                build_core.normalize_run_request(missing, root=root)
+
+    def test_run_project_rejects_conflicting_runtime_project_selectors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            descriptor = Path(directory) / "Example.dproject"
+            descriptor.write_text("{}", encoding="utf-8")
+            for arguments in (
+                ("--project", "Other.dproject"),
+                ("--project=Other.dproject",),
+            ):
+                with self.subTest(arguments=arguments), self.assertRaisesRegex(
+                    build_config.BuildToolError,
+                    "either through --project or through --args",
+                ):
+                    build_core.normalize_run_request(
+                        build_config.CommandRequest(
+                            build_config.Action.RUN,
+                            project_path=descriptor,
+                            run_arguments=arguments,
+                        )
+                    )
+
     def test_environment_output_collapses_windows_case_duplicates(self) -> None:
         environment = build_core.parse_environment_output(
             "PATH=developer\nPath=parent\n",
@@ -2747,22 +2865,41 @@ class CoreTests(unittest.TestCase):
 
     def test_run_application_waits_for_relaunched_descendants(self) -> None:
         preset = self.make_preset()
-        context = build_config.BuildContext(
-            build_config.CommandRequest(build_config.Action.RUN),
-            build_config.LocalConfig(),
-            self.make_profile(),
-            {"debug": preset},
-            preset,
-            "windows",
-        )
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
-        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
-            build_core,
-            "runtime_executable_path",
-            return_value=Path(directory) / "DurinEditor.exe",
-        ) as runtime_path, mock.patch.object(build_core, "run_command") as run:
-            runtime_path.return_value.touch()
-            build_core.run_application(context, output)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "示例 Project" / "Example.dproject"
+            project.parent.mkdir()
+            project.touch()
+            context = build_config.BuildContext(
+                build_config.CommandRequest(
+                    build_config.Action.RUN,
+                    project_path=project.resolve(),
+                    run_arguments=("--hidden-window", "argument with spaces"),
+                ),
+                build_config.LocalConfig(),
+                self.make_profile(),
+                {"debug": preset},
+                preset,
+                "windows",
+            )
+            executable = root / "DurinEditor.exe"
+            executable.touch()
+            with mock.patch.object(
+                build_core,
+                "runtime_executable_path",
+                return_value=executable,
+            ), mock.patch.object(build_core, "run_command") as run:
+                build_core.run_application(context, output)
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                str(executable),
+                f"--project={project.resolve()}",
+                "--hidden-window",
+                "argument with spaces",
+            ],
+        )
         self.assertTrue(run.call_args.kwargs["wait_for_descendants"])
         self.assertFalse(run.call_args.kwargs["show_heartbeat"])
 

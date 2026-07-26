@@ -2,16 +2,17 @@
 
 Summary: Transactional BuildTool workflows for module creation, workspace project creation, descriptor/CMake registration, and typed project launch.
 
-Last reviewed: 2026-07-26
+Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stages 0 through 3 are complete. BuildTool now creates runtime and editor
+Stages 0 through 4 are complete. BuildTool now creates runtime and editor
 modules and complete workspace-local projects from versioned disk templates,
 updates descriptor and root CMake registration transactionally, validates the
 final workspace descriptor graph, supports project-contained custom module
-paths, and provides mutation-free dry runs. Stage 4 typed project launch and
-final integration is the next delivery target.
+paths, provides mutation-free dry runs, and launches an explicitly selected
+project through the typed `run --project` interface. The complete Agent tooling
+suite and native `all` builds pass.
 
 ## Goal
 
@@ -141,7 +142,10 @@ Every direct command must have equivalent interactive-shell syntax.
   initialization. Optional post-creation build validation is deferred; normal
   builds continue to use the repository BuildTool workflow.
 
-## Current Foundations and Gaps
+## Starting Foundations and Gaps
+
+This section records the baseline that existed before implementation began;
+the stages below supersede the listed gaps.
 
 - `Engine.dproject` and `Sandbox.dproject` already define `ModuleDirs`,
   `BaseModules`, and profile-specific `ExtraModules`, but authors currently edit
@@ -155,15 +159,15 @@ Every direct command must have equivalent interactive-shell syntax.
 - BuildTool already has a shared command specification, typed
   `CommandRequest`, direct/shell parity tests, lazy toolchain initialization,
   workspace-root resolution, and structured errors.
-- BuildTool currently has only a flat action parser. It needs a command-family
+- BuildTool originally had only a flat action parser. It needed a command-family
   representation that preserves generated help and direct/shell parity without
   special-casing `create` in two dispatch paths.
-- BuildTool has no reusable descriptor edit layer, filesystem transaction, or
+- BuildTool originally had no reusable descriptor edit layer, filesystem transaction, or
   template renderer.
 - Root workspace project registration is explicit in `CMakeLists.txt`; no
   generated registry or discovery manifest exists.
-- Runtime project selection already accepts `--project=<path>` and
-  `--project <path>`, while BuildTool `run` currently exposes only the untyped
+- Runtime project selection already accepted `--project=<path>` and
+  `--project <path>`, while BuildTool `run` exposed only the untyped
   `--args` remainder.
 - The editor already supports project browsing and relaunch, but it does not
   create project source/build structure.
@@ -285,19 +289,19 @@ Every direct command must have equivalent interactive-shell syntax.
 
 ### Stage 4: Typed Project Launch and Final Integration
 
-- [ ] Add `--project <descriptor>` to the shared direct/shell `run` command
+- [x] Add `--project <descriptor>` to the shared direct/shell `run` command
   model.
-- [ ] Normalize and validate the descriptor without initializing the toolchain,
+- [x] Normalize and validate the descriptor without initializing the toolchain,
   then forward one unambiguous launcher project argument.
-- [ ] Preserve arbitrary non-project launcher arguments after the typed project
+- [x] Preserve arbitrary non-project launcher arguments after the typed project
   argument and reject conflicting project selectors in `--args`.
-- [ ] Add direct/shell request parity, spaces/unicode path, missing descriptor,
+- [x] Add direct/shell request parity, spaces/unicode path, missing descriptor,
   wrong extension, conflicting selector, and process-command tests.
-- [ ] Exercise create-module, create-project, configure, build, and typed run as
+- [x] Exercise create-module, create-project, configure, build, and typed run as
   one Windows end-to-end workflow.
-- [ ] Run the complete Agent tooling suite and the full native `all` build using
+- [x] Run the complete Agent tooling suite and the full native `all` build using
   the repository BuildTool workflow.
-- [ ] Move lasting CLI behavior into BuildTool operational documentation and
+- [x] Move lasting CLI behavior into BuildTool operational documentation and
   lasting project/module ownership rules into workspace documentation.
 
 #### Acceptance Gate

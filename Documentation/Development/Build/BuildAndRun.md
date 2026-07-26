@@ -124,24 +124,39 @@ The registered Windows build environment defaults to `Win64-Debug-DurinEditor-Te
 ```powershell
 .\BuildTool build --target all
 .\BuildTool run
+.\BuildTool run --project Sandbox\Sandbox.dproject
 ```
 
 `run` launches the existing runtime executable selected by the preset, such as
 `DurinEditor.exe` or `DurinGame.exe`; it does not build implicitly. On Windows,
 BuildTool keeps relaunched runtime descendants in the same tracked process job,
 so opening another editor project does not return from `run` or release the
-checkout lock until the final editor instance exits. Pass runtime arguments after
-the final `--args` option:
+checkout lock until the final editor instance exits.
+
+Use `--project <descriptor>` to select an existing `.dproject` explicitly. A
+relative descriptor is resolved from the workspace root; an absolute path is
+also accepted, including projects outside the workspace. BuildTool rejects a
+missing file or another extension, normalizes the path to an absolute path, and
+passes one `--project=<absolute-path>` argument to the launcher. This validation
+does not initialize CMake, Visual Studio, or the compiler toolchain.
+
+Pass other runtime arguments after the final `--args` option. The typed project
+argument is always forwarded before them:
 
 ```powershell
-.\BuildTool run --preset Win64-Debug-DurinGame --args -ExampleArgument
+.\BuildTool run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject --args -ExampleArgument
 ```
+
+Do not repeat `--project` or `--project=...` after `--args` when the typed
+`--project` option is present; BuildTool rejects the two project selectors as
+ambiguous. Raw project selection after `--args` remains accepted for backwards
+compatibility when the typed option is absent.
 
 For unattended runtime smoke tests, pass `--hidden-window` to suppress every
 native application window, including secondary UI viewports:
 
 ```powershell
-.\BuildTool run --args --hidden-window
+.\BuildTool run --project Sandbox\Sandbox.dproject --args --hidden-window
 ```
 
 An interactive `BuildTool run` can be stopped with Ctrl+C; BuildTool terminates
@@ -199,7 +214,7 @@ BuildTool> configure --fresh
 BuildTool> build
 BuildTool> rebuild --target DurinLauncher
 BuildTool> test --target CoreTests --filter FJsonDocumentTests.* --timeout 300
-BuildTool> run --args --hidden-window
+BuildTool> run --project Sandbox\Sandbox.dproject --args --hidden-window
 BuildTool> open-runtime
 BuildTool> status
 BuildTool> stop
@@ -215,7 +230,10 @@ to target `all`. Shell commands accept the same named options as their direct
 forms. The compact forms `build <target>`, `rebuild <target>`, `test <target>
 [filter]`, and `run [arguments...]` remain accepted for compatibility, while help
 shows the canonical named syntax. `run` launches the current preset's existing
-runtime executable and returns to the shell when it exits. `open-runtime` opens
+runtime executable and returns to the shell when it exits. Its typed
+`--project <descriptor>` option follows the same normalization and conflict
+rules as the direct command; place it before compact runtime arguments.
+`open-runtime` opens
 the selected preset's existing runtime directory in the platform file manager.
 `status` reports the profile, preset, build directory, configuration, recovery
 state, and whether CMake, parallelism, and the toolchain environment are resolved

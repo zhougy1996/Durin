@@ -26,7 +26,13 @@ Typical workspace contents:
 
 Projects are top-level owners such as `Engine` or `Sandbox`. They typically own `.dproject`, `Source/`, `Configs/`, `Intermediate/`, and `Binaries/`.
 
-At runtime, launch a specific project with `--project=<path-to-project.dproject>`. The project root is the descriptor's parent directory, so projects may live outside the engine workspace. Its `ProjectName` supplies the virtual mount name and its `Content` directory supplies the physical mount.
+At runtime, launch a specific project with
+`BuildTool run --project <path-to-project.dproject>`. BuildTool accepts a
+workspace-relative or absolute existing descriptor and forwards its normalized
+absolute path through the launcher's `--project=<path>` contract. The project
+root is the descriptor's parent directory, so projects may live outside the
+engine workspace. Its `ProjectName` supplies the virtual mount name and its
+`Content` directory supplies the physical mount.
 
 CMake passes complete `.dproject` paths to DurinHeaderTool. Generated build metadata preserves the complete set of project descriptors needed to resolve cross-project module dependencies; there is no global project registry file.
 

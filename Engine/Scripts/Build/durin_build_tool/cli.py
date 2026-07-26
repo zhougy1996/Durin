@@ -149,6 +149,16 @@ RUN_ARGUMENTS = ArgumentSpec(
         "help": "arguments passed to the application; must be the final BuildTool option",
     },
 )
+RUN_PROJECT_PATH = ArgumentSpec(
+    ("--project",),
+    "project_path",
+    {
+        "type": Path,
+        "default": None,
+        "metavar": "DESCRIPTOR",
+        "help": "existing .dproject descriptor selected for launch",
+    },
+)
 CREATE_NAME = ArgumentSpec(
     ("create_name",),
     "create_name",
@@ -333,8 +343,8 @@ COMMAND_SPECS = (
     CommandSpec(
         Action.RUN,
         "run the selected preset's existing application",
-        "run [--args ...]",
-        CONTEXT_ARGUMENTS + (RUN_ARGUMENTS,),
+        "run [--project DESCRIPTOR] [--args ...]",
+        CONTEXT_ARGUMENTS + (RUN_PROJECT_PATH, RUN_ARGUMENTS),
         ("run_arguments",),
     ),
 )
