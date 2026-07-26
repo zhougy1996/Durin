@@ -40,6 +40,21 @@ namespace Durin
 			}
 			return {};
 		}
+
+		auto WouldCreateParentCycle(
+			const DMaterialInstance* Instance,
+			const DMaterialInterface* CandidateParent
+		) -> bool
+		{
+			std::unordered_set<const DMaterialInterface*> Visited;
+			for (const DMaterialInterface* Candidate = CandidateParent;
+				Candidate != nullptr;
+				Candidate = Candidate->GetParent())
+			{
+				if (Candidate == Instance || !Visited.insert(Candidate).second) return true;
+			}
+			return false;
+		}
 	}
 
 	DMaterialInstance::DMaterialInstance(const FObjectInitializer& ObjectInitializer)
@@ -49,13 +64,9 @@ namespace Durin
 
 	auto DMaterialInstance::SetParent(DMaterialInterface* InParent) -> bool
 	{
-		for (DMaterialInterface* Candidate = InParent; Candidate != nullptr; Candidate = Candidate->GetParent())
-		{
-			if (Candidate == this) return false;
-		}
+		if (WouldCreateParentCycle(this, InParent)) return false;
 		if (Parent == InParent) return true;
 		Parent = InParent;
-		ReconcileParentDependency();
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::ParameterValues);
 		return true;
@@ -79,13 +90,10 @@ namespace Durin
 			OutError = "Selected asset is not a material.";
 			return false;
 		}
-		for (DMaterialInterface* Candidate = CandidateParent; Candidate != nullptr; Candidate = Candidate->GetParent())
+		if (WouldCreateParentCycle(this, CandidateParent))
 		{
-			if (Candidate == this)
-			{
-				OutError = "A material instance cannot create a parent cycle.";
-				return false;
-			}
+			OutError = "A material instance cannot create a parent cycle.";
+			return false;
 		}
 		return true;
 	}
@@ -96,7 +104,6 @@ namespace Durin
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Parent")
 			&& (Event.Phase != EPropertyChangePhase::Committed || Event.Origin != EPropertyChangeOrigin::Edit))
 		{
-			ReconcileParentDependency();
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::ParameterValues);
 		}
 	}
@@ -274,14 +281,6 @@ namespace Durin
 		return true;
 	}
 
-	auto DMaterialInstance::BeginDestroy() -> void
-	{
-		if (RegisteredParent != nullptr) RegisteredParent->RemoveDependentInstance(this);
-		RegisteredParent = nullptr;
-		Parent = nullptr;
-		Super::BeginDestroy();
-	}
-
 	auto DMaterialInstance::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
@@ -301,28 +300,11 @@ namespace Durin
 				return false;
 			}
 		}
-		for (DMaterialInterface* Candidate = Parent.Get(); Candidate != nullptr; Candidate = Candidate->GetParent())
+		if (WouldCreateParentCycle(this, Parent.Get()))
 		{
-			if (Candidate == this)
-			{
-				OutError = "A material instance asset contains a parent cycle.";
-				return false;
-			}
+			OutError = "A material instance asset contains a parent cycle.";
+			return false;
 		}
-		ReconcileParentDependency();
 		return true;
-	}
-
-	auto DMaterialInstance::OnParentRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void
-	{
-		MarkRenderDataDirty(DirtyFlags | EMaterialRenderDirtyFlags::ParentChain);
-	}
-
-	auto DMaterialInstance::ReconcileParentDependency() -> void
-	{
-		if (RegisteredParent == Parent) return;
-		if (RegisteredParent != nullptr) RegisteredParent->RemoveDependentInstance(this);
-		RegisteredParent = Parent;
-		if (RegisteredParent != nullptr) RegisteredParent->AddDependentInstance(this);
 	}
 }

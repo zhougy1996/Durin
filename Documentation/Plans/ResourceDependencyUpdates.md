@@ -6,9 +6,9 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 and 1 are complete. The batched material update context is validated by
-its focused batching test plus the 45 existing material dependency and rendering
-tests. Stage 2 is next.
+Stages 0 through 2 are complete. Material Parent reverse registration is removed
+and the 47 material dependency, batching, transaction, rendering, asset, and
+lifetime tests pass. Stage 3 is next.
 
 This plan replaces the unimplemented centralized object dependency index design
 recorded on 2026-07-26. The revised direction follows Unreal Engine's material
@@ -398,17 +398,17 @@ Current gaps:
 
 ### Stage 2: Remove material reverse registration
 
-- [ ] Remove `DMaterialInterface::DependentInstances`.
-- [ ] Remove `DMaterialInstance::RegisteredParent`.
-- [ ] Remove Add/RemoveDependentInstance, ReconcileParentDependency, and
+- [x] Remove `DMaterialInterface::DependentInstances`.
+- [x] Remove `DMaterialInstance::RegisteredParent`.
+- [x] Remove Add/RemoveDependentInstance, ReconcileParentDependency, and
   OnParentRenderDataDirty.
-- [ ] Remove material Parent registration from setters, PostLoad, post-edit
+- [x] Remove material Parent registration from setters, PostLoad, post-edit
   hooks, and BeginDestroy.
-- [ ] Preserve Parent type checks, cycle rejection, override orphan behavior,
+- [x] Preserve Parent type checks, cycle rejection, override orphan behavior,
   package dirtying, and render invalidation.
-- [ ] Verify Parent changes through setter, PostLoad, Interactive Edit, Commit,
+- [x] Verify Parent changes through setter, PostLoad, Interactive Edit, Commit,
   Cancel, Undo, Redo, duplication, package unload, and GC.
-- [ ] Add tests proving transaction restoration updates rendering from current
+- [x] Add tests proving transaction restoration updates rendering from current
   Parent storage without retaining the previous Parent.
 
 #### Acceptance Gate

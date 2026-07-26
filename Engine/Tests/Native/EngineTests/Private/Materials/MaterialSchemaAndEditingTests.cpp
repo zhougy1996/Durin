@@ -399,3 +399,88 @@ TEST(FMaterialTests, ParentHookRejectsCyclesWithoutCreatingHistory)
 	Durin::MarkAsGarbage(First);
 	Durin::CollectGarbage();
 }
+
+TEST(FMaterialTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
+{
+	FRenderSceneHarness Harness;
+	auto* FirstParent = Durin::NewObject<Durin::DMaterial>(nullptr, "CanonicalFirstParent");
+	auto* SecondParent = Durin::NewObject<Durin::DMaterial>(nullptr, "CanonicalSecondParent");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CanonicalParentInstance");
+	FirstParent->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3));
+	SecondParent->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
+	ASSERT_TRUE(Instance->SetParent(FirstParent));
+
+	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "CanonicalParentComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(Instance);
+	Component->RegisterComponent();
+	const FSceneSnapshot Initial = CaptureScene(Harness.Scene);
+	ExpectColorNear(Initial.Material.BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+
+	Durin::FProperty* ParentProperty = Instance->GetClass()->FindPropertyByName("Parent");
+	ASSERT_NE(ParentProperty, nullptr);
+	Durin::FPropertyValueSnapshot Original;
+	Durin::FPropertyValueSnapshot Proposed;
+	ASSERT_TRUE(Durin::CapturePropertyValue(ParentProperty, Instance, 0, Original));
+	static_cast<Durin::FObjectProperty*>(ParentProperty)->SetObjectPropertyValue(Instance, SecondParent);
+	ASSERT_TRUE(Durin::CapturePropertyValue(ParentProperty, Instance, 0, Proposed));
+	ASSERT_TRUE(Durin::RestorePropertyValue(ParentProperty, Instance, 0, Original));
+
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyEditSession CancelledSession;
+	ASSERT_TRUE(CancelledSession.Begin(
+		Durin::FReflectedPropertyEditTarget::ForMember(Instance, ParentProperty),
+		"Edit Parent", nullptr, &Transactions));
+	ASSERT_EQ(CancelledSession.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_EQ(Instance->GetParent(), SecondParent);
+	const FSceneSnapshot Interactive = CaptureScene(Harness.Scene);
+	ExpectColorNear(Interactive.Material.BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+	ASSERT_EQ(CancelledSession.Cancel(), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_EQ(Instance->GetParent(), FirstParent);
+	const FSceneSnapshot Cancelled = CaptureScene(Harness.Scene);
+	ExpectColorNear(Cancelled.Material.BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+
+	Durin::FReflectedPropertyEditSession CommittedSession;
+	ASSERT_TRUE(CommittedSession.Begin(
+		Durin::FReflectedPropertyEditTarget::ForMember(Instance, ParentProperty),
+		"Edit Parent", nullptr, &Transactions));
+	ASSERT_EQ(CommittedSession.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
+	ASSERT_EQ(CommittedSession.Commit(), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_EQ(Instance->GetParent(), SecondParent);
+	const FSceneSnapshot Committed = CaptureScene(Harness.Scene);
+	ExpectColorNear(Committed.Material.BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Instance->GetParent(), FirstParent);
+	const FSceneSnapshot Undone = CaptureScene(Harness.Scene);
+	ExpectColorNear(Undone.Material.BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Instance->GetParent(), SecondParent);
+	const FSceneSnapshot Redone = CaptureScene(Harness.Scene);
+	ExpectColorNear(Redone.Material.BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+
+	FirstParent->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.9, 0.1, 0.2));
+	const FSceneSnapshot PreviousParentChanged = CaptureScene(Harness.Scene);
+	EXPECT_EQ(PreviousParentChanged.ComponentRevision, Redone.ComponentRevision);
+	ExpectColorNear(PreviousParentChanged.Material.BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+	SecondParent->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.8, 0.4));
+	const FSceneSnapshot CurrentParentChanged = CaptureScene(Harness.Scene);
+	EXPECT_GT(CurrentParentChanged.ComponentRevision, PreviousParentChanged.ComponentRevision);
+	ExpectColorNear(CurrentParentChanged.Material.BaseColor, Durin::FVector4f(0.2f, 0.8f, 0.4f, 1.0f));
+	Transactions.Clear();
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(SecondParent);
+	Durin::MarkAsGarbage(FirstParent);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}

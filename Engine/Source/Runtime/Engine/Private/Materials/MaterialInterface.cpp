@@ -141,7 +141,6 @@ namespace Durin
 	auto DMaterialInterface::BeginDestroy() -> void
 	{
 		BoundComponents.clear();
-		DependentInstances.clear();
 		Super::BeginDestroy();
 	}
 
@@ -174,21 +173,6 @@ namespace Durin
 		if (!Component) return;
 		const FObjectHandle Handle = MakeObjectHandle(Component);
 		std::erase_if(BoundComponents, [Handle](FObjectHandle Candidate) { return Candidate.Index == Handle.Index && Candidate.Generation == Handle.Generation; });
-	}
-
-	auto DMaterialInterface::AddDependentInstance(DMaterialInstance* Instance) -> void
-	{
-		if (!Instance) return;
-		const FObjectHandle Handle = MakeObjectHandle(Instance);
-		const auto Matches = [Handle](FObjectHandle Candidate) { return Candidate.Index == Handle.Index && Candidate.Generation == Handle.Generation; };
-		if (std::ranges::find_if(DependentInstances, Matches) == DependentInstances.end()) DependentInstances.push_back(Handle);
-	}
-
-	auto DMaterialInterface::RemoveDependentInstance(DMaterialInstance* Instance) -> void
-	{
-		if (!Instance) return;
-		const FObjectHandle Handle = MakeObjectHandle(Instance);
-		std::erase_if(DependentInstances, [Handle](FObjectHandle Candidate) { return Candidate.Index == Handle.Index && Candidate.Generation == Handle.Generation; });
 	}
 
 	auto GetLoadedDirectMaterialChildren(

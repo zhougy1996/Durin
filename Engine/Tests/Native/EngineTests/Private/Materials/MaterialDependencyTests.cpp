@@ -58,6 +58,7 @@ TEST(FMaterialDependencyTests, CorruptParentCycleTerminatesDependencyQueries)
 	Durin::DMaterial* Unrelated = Durin::NewObject<Durin::DMaterial>(nullptr, "CycleGuardUnrelated");
 	Durin::DMaterialInstance* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CycleGuardFirst");
 	Durin::DMaterialInstance* Second = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CycleGuardSecond");
+	Durin::DMaterialInstance* Third = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CycleGuardThird");
 	Durin::FProperty* ParentProperty = First->GetClass()->FindPropertyByName("Parent");
 	ASSERT_NE(ParentProperty, nullptr);
 	auto* ObjectParentProperty = static_cast<Durin::FObjectProperty*>(ParentProperty);
@@ -68,9 +69,17 @@ TEST(FMaterialDependencyTests, CorruptParentCycleTerminatesDependencyQueries)
 	EXPECT_TRUE(First->IsDependent(Second));
 	EXPECT_FALSE(First->IsDependent(Unrelated));
 	EXPECT_FALSE(Second->IsDependent(Unrelated));
+	EXPECT_FALSE(Third->SetParent(First));
+	EXPECT_EQ(Third->GetParent(), nullptr);
+	ObjectParentProperty->SetObjectPropertyValue(Third, First);
+	std::string Error;
+	EXPECT_FALSE(Third->PostLoad(Error));
+	EXPECT_EQ(Error, "A material instance asset contains a parent cycle.");
 
 	ObjectParentProperty->SetObjectPropertyValue(First, nullptr);
 	ObjectParentProperty->SetObjectPropertyValue(Second, nullptr);
+	ObjectParentProperty->SetObjectPropertyValue(Third, nullptr);
+	Durin::MarkAsGarbage(Third);
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Durin::MarkAsGarbage(Unrelated);

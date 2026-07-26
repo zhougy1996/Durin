@@ -49,14 +49,10 @@ namespace Durin
 	private:
 		auto AddBoundComponent(DStaticMeshComponent* Component) -> void;
 		auto RemoveBoundComponent(DStaticMeshComponent* Component) -> void;
-		auto AddDependentInstance(DMaterialInstance* Instance) -> void;
-		auto RemoveDependentInstance(DMaterialInstance* Instance) -> void;
 
 		uint64 RenderStateVersion = 1;
 		std::vector<FObjectHandle> BoundComponents;
-		std::vector<FObjectHandle> DependentInstances;
 
-		friend class DMaterialInstance;
 		friend class DStaticMeshComponent;
 		friend class FMaterialUpdateContext;
 	};

@@ -40,24 +40,15 @@ namespace Durin
 		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
-		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:
-		auto OnParentRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
-		auto ReconcileParentDependency() -> void;
-
 		DPROPERTY(Edit)
 		TObjectPtr<DMaterialInterface> Parent;
 
-		// Tracks the dependency edge currently installed for Parent.
-		TObjectPtr<DMaterialInterface> RegisteredParent;
-
 		DPROPERTY(Edit)
 		std::vector<FMaterialParameterOverride> ParameterOverrides;
-
-		friend class DMaterialInterface;
 	};
 }
