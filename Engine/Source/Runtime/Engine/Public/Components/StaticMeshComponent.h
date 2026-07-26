@@ -28,6 +28,7 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
+		ENGINE_API explicit DStaticMeshComponent(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto SetStaticMesh(DStaticMesh* InStaticMesh) -> void;
 		ENGINE_API auto GetStaticMesh() const -> DStaticMesh*;
 		ENGINE_API auto SetMaterial(DMaterialInterface* InMaterial) -> void;

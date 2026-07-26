@@ -1,5 +1,6 @@
 #include "Components/StaticMeshComponent.h"
 
+#include "AssetSystem.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Materials/MaterialInterface.h"
@@ -10,12 +11,160 @@ namespace Durin
 {
 	namespace
 	{
+		constexpr std::string_view LegacyMaterialFieldName = "Material";
+		constexpr std::string_view LegacyMaterialsFieldName = "Materials";
+
 		auto FindOverride(std::span<const FStaticMeshMaterialOverride> Overrides, const FGuid& SlotId)
 			-> const FStaticMeshMaterialOverride*
 		{
 			const auto It = std::ranges::find(Overrides, SlotId, &FStaticMeshMaterialOverride::SlotId);
 			return It == Overrides.end() ? nullptr : &*It;
 		}
+
+		auto FindLegacyField(
+			std::span<const Asset::FAssetLegacyField> Fields,
+			std::string_view Name,
+			DurinCodeGen::EPropertyGenFlags Kind,
+			std::string_view TypeSignature) -> const Asset::FAssetLegacyField*
+		{
+			const auto It = std::ranges::find_if(Fields, [=](const Asset::FAssetLegacyField& Field) {
+				return Field.DeclaringClass == "Durin::DStaticMeshComponent"
+					&& Field.Name == Name
+					&& Field.Kind == Kind
+					&& Field.TypeSignature == TypeSignature;
+			});
+			return It == Fields.end() ? nullptr : &*It;
+		}
+	}
+
+	DStaticMeshComponent::DStaticMeshComponent(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
+	{
+		static const bool RegisteredStructureUpgrader = [] {
+			Asset::RegisterAssetStructureUpgrader(
+				DStaticMeshComponent::StaticClass(),
+				"Engine.StaticMeshComponent.LegacyMaterials",
+				[](DObject* Object,
+					std::span<const Asset::FAssetLegacyField> Fields,
+					const Asset::FAssetMigrationContext& Context,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues) -> Asset::FAssetResult
+				{
+					auto* Component = Cast<DStaticMeshComponent>(Object);
+					if (Component == nullptr)
+						return {Asset::EAssetError::TypeMismatch, "Static-mesh material upgrader received an incompatible object."};
+
+					const Asset::FAssetLegacyField* MaterialField = FindLegacyField(
+						Fields,
+						LegacyMaterialFieldName,
+						DurinCodeGen::EPropertyGenFlags::Object,
+						"Object:Durin::DMaterialInterface:true");
+					const Asset::FAssetLegacyField* MaterialsField = FindLegacyField(
+						Fields,
+						LegacyMaterialsFieldName,
+						DurinCodeGen::EPropertyGenFlags::Array,
+						"Array<Object:Durin::DMaterialInterface:true>");
+					if (MaterialField == nullptr && MaterialsField == nullptr) return {};
+
+					DObject* SlotZeroFallbackObject = nullptr;
+					if (MaterialField != nullptr)
+					{
+						Asset::FAssetResult Result = Context.ReadObjectReference(*MaterialField, SlotZeroFallbackObject);
+						if (!Result) return Result;
+					}
+					std::vector<DObject*> LegacyObjects;
+					if (MaterialsField != nullptr)
+					{
+						Asset::FAssetResult Result = Context.ReadObjectReferenceArray(*MaterialsField, LegacyObjects);
+						if (!Result) return Result;
+					}
+
+					auto ResolveMaterial = [](DObject* Candidate, size_t Index, DMaterialInterface*& OutMaterial)
+						-> Asset::FAssetResult
+					{
+						OutMaterial = nullptr;
+						if (Candidate == nullptr) return {};
+						OutMaterial = Cast<DMaterialInterface>(Candidate);
+						if (OutMaterial == nullptr)
+							return {
+								Asset::EAssetError::TypeMismatch,
+								std::format("Legacy static-mesh material index {} references '{}', which is not a material.",
+									Index, Candidate->GetObjectPath())};
+						return {};
+					};
+
+					const size_t LegacyCount = std::max<size_t>(
+						LegacyObjects.size(),
+						SlotZeroFallbackObject != nullptr ? 1 : 0);
+					uint64 MappedCount = 0;
+					uint64 OrphanCount = 0;
+					std::vector<std::string> Changes;
+					std::unordered_set<FGuid> UsedIds;
+					for (const FStaticMeshMaterialOverride& Override : Component->MaterialOverrides)
+						UsedIds.insert(Override.SlotId);
+					for (size_t Index = 0; Index < LegacyCount; ++Index)
+					{
+						DObject* Candidate = Index < LegacyObjects.size()
+							? LegacyObjects[Index]
+							: SlotZeroFallbackObject;
+						DMaterialInterface* LegacyMaterial = nullptr;
+						Asset::FAssetResult Result = ResolveMaterial(Candidate, Index, LegacyMaterial);
+						if (!Result) return Result;
+						if (LegacyMaterial == nullptr) continue;
+
+						FGuid SlotId;
+						const FStaticMeshMaterialSlotDefinition* Slot = Component->StaticMesh != nullptr
+							? Component->StaticMesh->GetMaterialSlot(static_cast<uint32>(Index))
+							: nullptr;
+						if (Slot != nullptr)
+						{
+							SlotId = Slot->SlotId;
+							++MappedCount;
+							Changes.push_back(std::format(
+								"Mapped legacy index {} to slot '{}' ({}): {}.",
+								Index, Slot->Name.ToString(), SlotId.ToString(), LegacyMaterial->GetObjectPath()));
+						}
+						else
+						{
+							do SlotId = FGuid::NewGuid(); while (UsedIds.contains(SlotId));
+							++OrphanCount;
+							Changes.push_back(std::format(
+								"Retained legacy index {} as orphan slot {}: {}.",
+								Index, SlotId.ToString(), LegacyMaterial->GetObjectPath()));
+						}
+						if (UsedIds.insert(SlotId).second)
+							Component->MaterialOverrides.push_back({.SlotId = SlotId, .Material = LegacyMaterial});
+					}
+
+					std::vector<Asset::FAssetLegacyField> HandledFields;
+					if (MaterialField != nullptr) HandledFields.push_back(*MaterialField);
+					if (MaterialsField != nullptr) HandledFields.push_back(*MaterialsField);
+					std::string Summary;
+					if (Changes.empty())
+					{
+						Summary = "Removed empty legacy Material and Materials fields; no material assignments were migrated.";
+					}
+					else
+					{
+						Summary = std::format(
+							"Migrated {} material assignment(s) to current slots and retained {} orphan assignment(s). ",
+							MappedCount, OrphanCount);
+						for (const std::string& Change : Changes) Summary += Change + " ";
+						Summary.pop_back();
+					}
+					OutIssues.push_back({
+						.DeclaringClass = "Durin::DStaticMeshComponent",
+						.LegacyFields = std::move(HandledFields),
+						.Classification = Changes.empty()
+							? Asset::EAssetCompatibilityClassification::SafeCleanup
+							: Asset::EAssetCompatibilityClassification::Migrated,
+						.MigrationSummary = std::move(Summary),
+						.MigratedDataCount = MappedCount + OrphanCount,
+						.Risk = Asset::EAssetCompatibilityRisk::None});
+					return {};
+				});
+			return true;
+		}();
+		(void)RegisteredStructureUpgrader;
 	}
 
 	auto DStaticMeshComponent::SetStaticMesh(DStaticMesh* InStaticMesh) -> void

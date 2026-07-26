@@ -6,18 +6,20 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stages 1 and 2 are complete. AssetCore now has a structured load-report
+Stages 1 through 3 are complete. AssetCore now has a structured load-report
 contract, distinguishes registered safe upgrades from unknown incompatible
 fields, and blocks normal saves that would discard compatibility-risk payloads.
 The Level Editor now keeps compatibility-affected loads pending until the user
-saves, opens without saving, explicitly accepts risky cleanup, or cancels. The
-static-mesh component upgrader remains planned work.
+saves, opens without saving, explicitly accepts risky cleanup, or cancels.
+Engine now migrates the removed static-mesh component material fields into
+GUID-keyed overrides, retaining excess assignments as explicit orphans.
 
 Validation completed on 2026-07-27: all 49 AssetCore native tests passed,
 including structured safe-cleanup reporting, unknown-field protection, normal
-save rejection, and explicit data-loss consent. The complete `all` target built
-successfully after both the public AssetCore API changes and the pending Level
-Editor workflow.
+save rejection, and explicit data-loss consent. All 305 Engine native tests
+passed after the static-mesh material upgrader, including six focused upgrade
+tests and the real `/Game/Levels/NewLevel` fixture. The complete `all` target
+built successfully after each implemented stage.
 
 The reported `/Game/Levels/NewLevel` fixture contains empty legacy
 `DStaticMeshComponent::Material` and `Materials` values. Its expected outcome is
@@ -157,18 +159,18 @@ user chooses an outcome.
 
 ### Stage 3: Static-Mesh Component Material Upgrader
 
-- [ ] Register an Engine upgrader for the removed `Material` and `Materials`
+- [x] Register an Engine upgrader for the removed `Material` and `Materials`
   fields on `DStaticMeshComponent`.
-- [ ] Decode the legacy object reference and object-reference array through
+- [x] Decode the legacy object reference and object-reference array through
   AssetCore migration context helpers.
-- [ ] Map `Materials[index]` to the current static-mesh slot GUID.
-- [ ] Use `Material` only as the slot-zero fallback when the array lacks index
+- [x] Map `Materials[index]` to the current static-mesh slot GUID.
+- [x] Use `Material` only as the slot-zero fallback when the array lacks index
   zero.
-- [ ] Preserve non-null entries beyond the current slot count as explicit
+- [x] Preserve non-null entries beyond the current slot count as explicit
   orphan overrides with diagnostics.
-- [ ] Classify null `Material` plus empty `Materials` as one `SafeCleanup`
+- [x] Classify null `Material` plus empty `Materials` as one `SafeCleanup`
   issue with two fields and zero migrated values.
-- [ ] Report each mapped or orphaned value in the issue summary without
+- [x] Report each mapped or orphaned value in the issue summary without
   requiring reimport.
 
 #### Acceptance Gate

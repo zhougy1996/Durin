@@ -11,6 +11,7 @@ add_durin_test(EngineTests
 	Private/Materials/MaterialInstanceTests.cpp
 	Private/Materials/MaterialRenderingTests.cpp
 	Private/Materials/StaticMeshMaterialTests.cpp
+	Private/Materials/StaticMeshMaterialUpgradeTests.cpp
 	Private/Materials/StaticMeshUpdateTests.cpp
 	Private/StaticMeshDerivedDataContractTests.cpp
 	Private/StaticMeshDerivedDataCacheTests.cpp
@@ -114,6 +115,7 @@ durin_test_deploy_runtime_files(EngineTests assimp::assimp)
 durin_test_deploy_runtime_files(EngineTests Slang_Imported)
 durin_test_deploy_directory_to_data(EngineTests "${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport")
 durin_test_deploy_directory_to_data(EngineTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
+durin_test_deploy_files_to_data(EngineTests "${CMAKE_SOURCE_DIR}/Sandbox/Content/Levels/NewLevel.dasset;${CMAKE_SOURCE_DIR}/Sandbox/Content/Models/Mesh_Teapot.dasset;${CMAKE_SOURCE_DIR}/Sandbox/SourceAssets/Models/Models/Mesh_Teapot.obj")
 
 get_target_property(_durin_engine_tests_work_dir EngineTests DURIN_TEST_WORK_DIR)
 
