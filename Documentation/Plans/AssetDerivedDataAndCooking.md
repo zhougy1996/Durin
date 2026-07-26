@@ -45,7 +45,7 @@ cache-write failures retain the last complete live platform data. New imports
 store normalized project- or engine-relative provenance beneath
 `SourceAssets/Textures`; move and delete preserve potentially shared source art,
 repair/reimport is transactional, the Texture Editor reports provenance state,
-and legacy package-adjacent sources remain readable during migration. Its cook
+and legacy package-adjacent sources are rejected after repository migration. Its cook
 adapter reuses matching validated TXPL objects, emits descriptor-bearing
 source-free runtime packages plus DBLK companions, and cooked loads validate
 the complete target, descriptor, bulk, format, mip, and checksum chain before
@@ -63,7 +63,15 @@ Both import layouts, six-face and panorama reimport, move/delete behavior,
 deterministic cook publication, source-free cooked loading, and directional
 slice preservation are covered by focused tests. Runtime-only Engine builds
 compile the cube source pipeline out while retaining TXPL decode and render
-resource publication. Stage 6 is the remaining migration and handoff stage.
+resource publication.
+
+Stage 6 is complete. Material previews now acquire shared Sphere and Box
+StaticMesh assets by canonical `/Engine` identity, repository-owned packages
+use normalized SourceAssets provenance, and the three former colocated-source
+resolvers reject legacy metadata. DurinGame configuration enforces its
+forbidden import/build dependency closure, and the lasting storage, mesh,
+texture, cube, preview, cooking, load, and failure contracts now live in their
+owning documentation. The plan is complete.
 
 ## Goal
 
@@ -1014,21 +1022,21 @@ Dependencies: Stages 1, 3, and 4's proven texture payload reader.
 
 Dependencies: Stages 2, 4, and 5.
 
-- [ ] Import sphere and box as shared
+- [x] Import sphere and box as shared
   `/Engine/Editor/MaterialPreview/Sphere` and
   `/Engine/Editor/MaterialPreview/Box` StaticMesh assets whose authoring models
   live under engine `SourceAssets`.
-- [ ] Replace per-document transient OBJ import and manual rooting with a
+- [x] Replace per-document transient OBJ import and manual rooting with a
   retained acquisition service keyed only by canonical virtual asset identity.
-- [ ] Migrate repository-owned mesh and texture packages to normalized source
+- [x] Migrate repository-owned mesh and texture packages to normalized source
   provenance and run an asset-registry scan for legacy diagnostics.
-- [ ] Remove legacy colocated-source resolution separately for each asset class
+- [x] Remove legacy colocated-source resolution separately for each asset class
   only after its migration criteria and explicit rejection coverage pass.
-- [ ] Enforce runtime-only target dependency tests that exclude Assimp, source
+- [x] Enforce runtime-only target dependency tests that exclude Assimp, source
   image codecs, panorama projection, and offline texture compressors.
-- [ ] Move lasting DBLK, descriptor, DMSH, texture payload, key, provenance,
+- [x] Move lasting DBLK, descriptor, DMSH, texture payload, key, provenance,
   cooking, load, and failure contracts into their owning runtime documentation.
-- [ ] Run the repository's focused native suites, required full build,
+- [x] Run the repository's focused native suites, required full build,
   hidden-window editor smoke test, cooked-runtime smoke tests, and ignored-output
   inspection.
 

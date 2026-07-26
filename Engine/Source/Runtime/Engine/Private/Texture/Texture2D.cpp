@@ -37,18 +37,6 @@ namespace Durin
 			});
 		}
 
-		auto ResolveMountedFile(std::string_view VirtualPath) -> std::filesystem::path
-		{
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-			{
-				if (VirtualPath.starts_with(Mount.VirtualRoot))
-				{
-					return (std::filesystem::path(Mount.PhysicalPath) / std::string(VirtualPath.substr(Mount.VirtualRoot.size()))).lexically_normal();
-				}
-			}
-			return std::filesystem::path(VirtualPath).lexically_normal();
-		}
-
 		auto FindOwningMount(std::string_view VirtualPath) -> const PathUtilities::FMountPoint*
 		{
 			const auto& Mounts = PathUtilities::GetRegisteredMountPoints();
@@ -117,19 +105,6 @@ namespace Durin
 			return true;
 		}
 
-		auto ResolveTextureSource(std::string_view SourceFile, const std::filesystem::path& PackageFile) -> std::filesystem::path
-		{
-			const std::filesystem::path StoredPath(SourceFile);
-			if (!StoredPath.is_absolute() && !SourceFile.starts_with('/'))
-			{
-				return (PackageFile.parent_path() / StoredPath).lexically_normal();
-			}
-
-			const std::filesystem::path LegacyPath = ResolveMountedFile(SourceFile);
-			if (std::filesystem::is_regular_file(LegacyPath)) return LegacyPath;
-			return (PackageFile.parent_path() / StoredPath.filename()).lexically_normal();
-		}
-
 		auto ResolveTextureSource(
 			const DTexture2D& Texture,
 			std::filesystem::path& OutPath,
@@ -164,15 +139,8 @@ namespace Durin
 				OutError.clear();
 				return true;
 			}
-			if (Texture.GetSourceFile().empty())
-			{
-				OutError = "Texture asset has no source file.";
-				return false;
-			}
-			OutPath = ResolveTextureSource(Texture.GetSourceFile(),
-				ResolveMountedFile(Texture.GetPackage()->GetPackagePath()));
-			OutError.clear();
-			return true;
+			OutError = "Texture asset has no normalized SourceAssets provenance.";
+			return false;
 		}
 
 		auto HashTextureSource(
@@ -307,40 +275,14 @@ namespace Durin
 		, RenderResource(std::make_shared<FTexture2DRenderResource>())
 	{
 		static const bool RegisteredAssetContributors = [] {
-			Asset::RegisterAssetMoveContributor(DTexture2D::StaticClass(), [](DObject* Object, const FAssetPath& OldPath, const FAssetPath& NewPath, Asset::FAssetMoveContribution& Out) -> Asset::FAssetResult {
-				auto* Texture = Cast<DTexture2D>(Object);
-				if (Texture && Texture->GetSourceImportData().HasSource())
-				{
-					// Portable SourceAssets provenance is independent of package placement.
-					return {};
-				}
-				if (!Texture || Texture->SourceFile.empty()) return {};
-				const std::string Original = Texture->SourceFile;
-				const std::filesystem::path OldPackage = ResolveMountedFile(OldPath.ToString());
-				const std::filesystem::path NewPackage = ResolveMountedFile(NewPath.ToString());
-				const std::filesystem::path SourceName(Original);
-				const std::filesystem::path OldSource = SourceName.is_absolute() ? SourceName : OldPackage.parent_path() / SourceName;
-				const std::string NewFileName = OldPath.GetAssetName() == NewPath.GetAssetName()
-					? SourceName.filename().generic_string()
-					: std::string(NewPath.GetAssetName()) + SourceName.extension().generic_string();
-				const std::filesystem::path NewSource = NewPackage.parent_path() / NewFileName;
-				if (OldSource.lexically_normal() != NewSource.lexically_normal()) Out.Files.emplace_back(OldSource.lexically_normal(), NewSource.lexically_normal());
-				if (NewFileName != Original)
-				{
-					Out.Apply = [Texture, NewFileName] { Texture->SourceFile = NewFileName; };
-					Out.Rollback = [Texture, Original] { Texture->SourceFile = Original; };
-				}
+			Asset::RegisterAssetMoveContributor(DTexture2D::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
+				Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
+				// Portable SourceAssets provenance is independent of package placement.
 				return {};
 			});
-			Asset::RegisterAssetDeleteContributor(DTexture2D::StaticClass(), [](const Asset::FAssetData& Data,
-				const Asset::FAssetPackageInspection& Inspection, Asset::FAssetDeleteContribution& Out) -> Asset::FAssetResult {
-				// New portable sources may be shared and are removed only by an explicit source operation.
-				// Legacy packages have no SourceImportData payload and keep their colocated cleanup behavior.
-				if (Inspection.FindField("SourceImportData")) return {};
-				const Asset::FAssetPackageField* SourceField = Inspection.FindField("SourceFile");
-				std::string SourceFile;
-				if (!SourceField || !SourceField->TryReadString(SourceFile) || SourceFile.empty()) return {};
-				Out.Files.push_back(ResolveTextureSource(SourceFile, Data.PhysicalPath));
+			Asset::RegisterAssetDeleteContributor(DTexture2D::StaticClass(), [](const Asset::FAssetData&,
+				const Asset::FAssetPackageInspection&, Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
+				// Portable SourceAssets may be shared and require a separate, explicit source operation.
 				return {};
 			});
 			return true;
@@ -441,9 +383,11 @@ namespace Durin
 	auto DTexture2D::EnsureSourceData(std::string& OutError) -> bool
 	{
 		if (SourceData && SourceData->IsValid()) return true;
-		if (GetSourceFile().empty())
+		if (!SourceImportData.HasSource())
 		{
-			OutError = "Texture asset has no source file.";
+			OutError = SourceFile.empty()
+				? "Texture asset has no source file."
+				: "Legacy texture source metadata is unsupported. Reimport the asset to create normalized SourceAssets provenance.";
 			return false;
 		}
 		std::filesystem::path PhysicalPath;
@@ -659,17 +603,10 @@ namespace Durin
 		if (!SourceImportData.HasSource())
 		{
 			if (SourceFile.empty()) return {};
-			const std::filesystem::path PhysicalPath = ResolveTextureSource(
-				SourceFile, ResolveMountedFile(GetPackage()->GetPackagePath()));
-			const bool bExists = std::filesystem::is_regular_file(PhysicalPath);
 			return {
-				bExists ? ETextureSourceStatus::LegacyAvailable : ETextureSourceStatus::LegacyMissing,
-				PhysicalPath.generic_string(),
-				bExists
-					? "Texture uses legacy colocated source metadata and should be repaired or reimported."
-					: std::format(
-						"Legacy texture source is missing: {}. Use source-path repair to select its replacement.",
-						SourceFile)};
+				ETextureSourceStatus::Invalid,
+				{},
+				"Legacy texture source metadata is unsupported. Reimport the asset to create normalized SourceAssets provenance."};
 		}
 		std::filesystem::path PhysicalPath;
 		std::string Error;
@@ -796,9 +733,11 @@ namespace Durin
 		DerivedDataKey.clear();
 		DerivedDataDiagnostic = {};
 		bLoadedFromDerivedDataCache = false;
-		if (GetSourceFile().empty())
+		if (!SourceImportData.HasSource())
 		{
-			OutError = "Texture asset has no source file.";
+			OutError = SourceFile.empty()
+				? "Texture asset has no source file."
+				: "Legacy texture source metadata is unsupported. Reimport the asset to create normalized SourceAssets provenance.";
 			DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::SourceUnavailable;
 			DerivedDataDiagnostic.Message = OutError;
 			BuildStatus = ETextureBuildStatus::MissingSource;

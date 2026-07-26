@@ -430,18 +430,6 @@ namespace Durin
 		}
 #endif
 
-		auto ResolveMountedFile(std::string_view VirtualPath) -> std::filesystem::path
-		{
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-			{
-				if (VirtualPath.starts_with(Mount.VirtualRoot))
-				{
-					return (std::filesystem::path(Mount.PhysicalPath) / std::string(VirtualPath.substr(Mount.VirtualRoot.size()))).lexically_normal();
-				}
-			}
-			return std::filesystem::path(VirtualPath).lexically_normal();
-		}
-
 		auto FindOwningMount(std::string_view AssetPath) -> const PathUtilities::FMountPoint*
 		{
 			const auto& Mounts = PathUtilities::GetRegisteredMountPoints();
@@ -528,20 +516,6 @@ namespace Durin
 			}
 			OutPath = (GetMountOwnerRoot(*Mount) / Source.SourcePath).lexically_normal();
 			return true;
-		}
-
-		auto ResolveLegacyStaticMeshSource(const DStaticMesh& Mesh) -> std::filesystem::path
-		{
-			const std::filesystem::path StoredPath(Mesh.GetSourceFile());
-			const std::filesystem::path PackageFile = ResolveMountedFile(Mesh.GetPackage()->GetPackagePath());
-			if (!StoredPath.is_absolute() && !Mesh.GetSourceFile().starts_with('/'))
-			{
-				return (PackageFile.parent_path() / StoredPath).lexically_normal();
-			}
-
-			const std::filesystem::path LegacyPath = ResolveMountedFile(Mesh.GetSourceFile());
-			if (std::filesystem::is_regular_file(LegacyPath)) return LegacyPath;
-			return (PackageFile.parent_path() / StoredPath.filename()).lexically_normal();
 		}
 
 		auto HashStaticMeshSource(const std::filesystem::path& Path, std::string& OutHash, std::string& OutError) -> bool
@@ -732,7 +706,7 @@ namespace Durin
 		if (!InImportSettings.IsValid(&OutError)) return nullptr;
 
 		DStaticMesh* Mesh = NewObject<DStaticMesh>(Outer, ObjectName);
-		Mesh->ImportSettings = InImportSettings;
+		Mesh->SourceImportData.ImportSettings = InImportSettings;
 		if (Mesh->BuildRenderData(Input.generic_string(), OutError)) return Mesh;
 		MarkAsGarbage(Mesh);
 		return nullptr;
@@ -1012,15 +986,9 @@ namespace Durin
 			return true;
 		}
 
-		const bool bLegacySource = Diagnostic.Status == EStaticMeshSourceStatus::LegacyAvailable
-			|| Diagnostic.Status == EStaticMeshSourceStatus::LegacyMissing;
 		const FStaticMeshImportSettings& EffectiveSettings = GetImportSettings();
-		const std::string_view ImporterId = bLegacySource
-			? StaticMeshImporterId
-			: std::string_view(SourceImportData.ImporterId);
-		const uint32 ImporterVersion = bLegacySource
-			? StaticMeshAssimpImporterVersion
-			: SourceImportData.ImporterVersion;
+		const std::string_view ImporterId = SourceImportData.ImporterId;
+		const uint32 ImporterVersion = SourceImportData.ImporterVersion;
 
 		std::string CurrentSourceHash;
 		if (Diagnostic.IsAvailable())
@@ -1032,7 +1000,7 @@ namespace Durin
 				return false;
 			}
 		}
-		else if (!bLegacySource && IsCanonicalStaticMeshHash(SourceImportData.SourceContentHash))
+		else if (IsCanonicalStaticMeshHash(SourceImportData.SourceContentHash))
 		{
 			CurrentSourceHash = SourceImportData.SourceContentHash;
 		}
@@ -1057,7 +1025,6 @@ namespace Durin
 		EStaticMeshDerivedDataStatus CacheStatus = EStaticMeshDerivedDataStatus::Missing;
 		std::string CacheMessage;
 		const bool bSourceMetadataStale = Diagnostic.IsAvailable()
-			&& !bLegacySource
 			&& SourceImportData.SourceContentHash != CurrentSourceHash;
 		if (!bSourceMetadataStale && LoadStaticMeshDerivedData(
 			DerivedDataDiagnostic.Key, MaterialSlots, CachedRenderData, CacheStatus, CacheMessage))
@@ -1072,7 +1039,7 @@ namespace Durin
 					"Static-mesh source is unavailable, but cached key {} loaded successfully. Reimport and cache regeneration are unavailable.",
 					DerivedDataDiagnostic.Key);
 			if (!Diagnostic.IsAvailable()) DURIN_WARN("{}: {}", GetObjectPath(), DerivedDataDiagnostic.Message);
-			if (!bLegacySource && SourceImportData.SourceContentHash != CurrentSourceHash)
+			if (SourceImportData.SourceContentHash != CurrentSourceHash)
 			{
 				SourceImportData.SourceContentHash = CurrentSourceHash;
 				MarkPackageDirty();
@@ -1129,15 +1096,10 @@ namespace Durin
 		DerivedDataDiagnostic.Message = std::format(
 			"Rebuilt static mesh and stored DDC key {} after cache miss: {}",
 			DerivedDataDiagnostic.Key, CacheMessage);
-		if (!bLegacySource && SourceImportData.SourceContentHash != CurrentSourceHash)
+		if (SourceImportData.SourceContentHash != CurrentSourceHash)
 		{
 			SourceImportData.SourceContentHash = std::move(CurrentSourceHash);
 			MarkPackageDirty();
-		}
-		if (bLegacySource)
-		{
-			DURIN_WARN("Static mesh '{}' uses legacy source metadata '{}'; repair or reimport it to migrate into SourceAssets.",
-				GetObjectPath(), SourceFile);
 		}
 		OutError.clear();
 		return true;
@@ -1326,15 +1288,10 @@ namespace Durin
 			return {EStaticMeshSourceStatus::Available, PhysicalPath.generic_string(), {}};
 		}
 		if (SourceFile.empty()) return {};
-		const std::filesystem::path PhysicalPath = ResolveLegacyStaticMeshSource(*this);
-		const bool bExists = std::filesystem::is_regular_file(PhysicalPath);
 		return {
-			bExists ? EStaticMeshSourceStatus::LegacyAvailable : EStaticMeshSourceStatus::LegacyMissing,
-			PhysicalPath.generic_string(),
-			bExists
-				? "Static mesh uses legacy colocated source metadata and should be repaired or reimported."
-				: std::format("Legacy static mesh source is missing: {}. Use source-path repair to select its replacement.",
-					SourceFile)};
+			EStaticMeshSourceStatus::Invalid,
+			{},
+			"Legacy static-mesh source metadata is unsupported. Reimport the asset to create normalized SourceAssets provenance."};
 	}
 
 	auto DStaticMesh::RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool

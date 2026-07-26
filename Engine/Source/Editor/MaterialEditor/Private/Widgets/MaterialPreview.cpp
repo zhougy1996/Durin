@@ -1,5 +1,6 @@
 #include "Widgets/MaterialPreview.h"
 
+#include "Asset/EditorAssetRetention.h"
 #include "Client/ViewportClient.h"
 #include "Components/DirectionalLightComponent.h"
 #include "DObject/DObjectGlobals.h"
@@ -9,7 +10,6 @@
 #include "IRendererModule.h"
 #include "IScene.h"
 #include "Materials/MaterialInterface.h"
-#include "Misc/Paths.h"
 #include "Mona/SceneViewport.h"
 #include "MonaImGui.h"
 #include "RenderingThread.h"
@@ -27,6 +27,8 @@ namespace Durin
 		constexpr double PreviewMinDistance = 1.5;
 		constexpr double PreviewMaxDistance = 12.0;
 		constexpr double PreviewZoomScale = 0.85;
+		constexpr std::string_view PreviewSpherePath = "/Engine/Editor/MaterialPreview/Sphere";
+		constexpr std::string_view PreviewBoxPath = "/Engine/Editor/MaterialPreview/Box";
 
 		auto RotationFromForward(const FVector3& Direction) -> FQuat
 		{
@@ -121,16 +123,15 @@ namespace Durin
 			}
 
 			PreviewScene = GEngine->GetRendererModule()->CreateScene();
-			const std::string ContentRoot = FPaths::EngineContentDir() + "Editor/MaterialPreview/";
-			Sphere = DStaticMesh::CreateTransientFromFile(
-				ContentRoot + "Sphere.obj", GEngine, std::format("MaterialPreviewSphere_{}", PreviewId), Error);
-			if (Sphere == nullptr) return;
-			// FImpl is not reflected, so its TObjectPtr members are not GC ownership edges.
-			AddToRoot(Sphere.Get());
-			Box = DStaticMesh::CreateTransientFromFile(
-				ContentRoot + "Box.obj", GEngine, std::format("MaterialPreviewBox_{}", PreviewId), Error);
-			if (Box == nullptr) return;
-			AddToRoot(Box.Get());
+			FAssetPath SpherePath;
+			FAssetPath BoxPath;
+			if (!FAssetPath::TryCreate(PreviewSpherePath, SpherePath, &Error)
+				|| !FAssetPath::TryCreate(PreviewBoxPath, BoxPath, &Error)
+				|| !FEditorAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
+				|| !FEditorAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
+			{
+				return;
+			}
 
 			PreviewLight = NewObject<DDirectionalLightComponent>(GEngine, std::format("MaterialPreviewLight_{}", PreviewId));
 			AddToRoot(PreviewLight.Get());
@@ -159,8 +160,6 @@ namespace Durin
 				PreviewScene.reset();
 			}
 			RemoveFromRoot(PreviewLight.Get());
-			RemoveFromRoot(Box.Get());
-			RemoveFromRoot(Sphere.Get());
 		}
 
 		auto SetVisible(bool bInVisible) -> void
@@ -244,7 +243,7 @@ namespace Durin
 
 		auto GetSelectedMesh() const -> DStaticMesh*
 		{
-			return Shape == EMaterialPreviewShape::Sphere ? Sphere.Get() : Box.Get();
+			return Cast<DStaticMesh>(Shape == EMaterialPreviewShape::Sphere ? SphereAsset.Get() : BoxAsset.Get());
 		}
 
 		auto MakeMaterialUpdates(DMaterialInterface* Material) -> std::vector<FMaterialRenderUpdate>
@@ -299,8 +298,8 @@ namespace Durin
 		std::unique_ptr<FMaterialPreviewViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
 		std::shared_ptr<FSceneViewport> SceneViewport;
-		TObjectPtr<DStaticMesh> Sphere;
-		TObjectPtr<DStaticMesh> Box;
+		FRetainedEditorAsset SphereAsset;
+		FRetainedEditorAsset BoxAsset;
 		TObjectPtr<DDirectionalLightComponent> PreviewLight;
 		DMaterialInterface* CurrentMaterial = nullptr;
 		uint64 MaterialVersion = 0;

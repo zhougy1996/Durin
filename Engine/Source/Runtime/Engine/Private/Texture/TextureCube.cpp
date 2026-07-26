@@ -40,19 +40,6 @@ namespace Durin
 			return Index;
 		}
 
-		auto ResolveMountedFile(std::string_view VirtualPath) -> std::filesystem::path
-		{
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-			{
-				if (VirtualPath.starts_with(Mount.VirtualRoot))
-				{
-					return (std::filesystem::path(Mount.PhysicalPath) /
-						std::string(VirtualPath.substr(Mount.VirtualRoot.size()))).lexically_normal();
-				}
-			}
-			return std::filesystem::path(VirtualPath).lexically_normal();
-		}
-
 		auto FindOwningMount(std::string_view VirtualPath) -> const PathUtilities::FMountPoint*
 		{
 			const auto& Mounts = PathUtilities::GetRegisteredMountPoints();
@@ -140,18 +127,6 @@ namespace Durin
 				.SourceContentHashHigh = Hash.HashHigh};
 		}
 
-		auto ResolveCubeSource(std::string_view SourceFile, const std::filesystem::path& PackageFile) -> std::filesystem::path
-		{
-			const std::filesystem::path StoredPath(SourceFile);
-			if (!StoredPath.is_absolute() && !SourceFile.starts_with('/'))
-			{
-				return (PackageFile.parent_path() / StoredPath).lexically_normal();
-			}
-			const std::filesystem::path LegacyPath = ResolveMountedFile(SourceFile);
-			if (std::filesystem::is_regular_file(LegacyPath)) return LegacyPath;
-			return (PackageFile.parent_path() / StoredPath.filename()).lexically_normal();
-		}
-
 		auto ResolveCubeSource(const DTextureCube& Texture, ETextureCubeFace Face) -> std::filesystem::path
 		{
 			const FTextureCubeSourceImportData& Provenance = Texture.GetSourceImportData();
@@ -163,8 +138,7 @@ namespace Durin
 				if (Mount)
 					return (GetMountOwnerRoot(*Mount) / Provenance.GetFace(Face).SourcePath).lexically_normal();
 			}
-			return ResolveCubeSource(Texture.GetSourceFile(Face),
-				ResolveMountedFile(Texture.GetPackage()->GetPackagePath()));
+			return {};
 		}
 
 		auto ResolvePanoramaSource(const DTextureCube& Texture) -> std::filesystem::path
@@ -178,8 +152,7 @@ namespace Durin
 				if (Mount)
 					return (GetMountOwnerRoot(*Mount) / Provenance.Panorama.SourcePath).lexically_normal();
 			}
-			return ResolveCubeSource(Texture.GetPanoramaSourceFile(),
-				ResolveMountedFile(Texture.GetPackage()->GetPackagePath()));
+			return {};
 		}
 
 		auto ValidateCubeProvenance(const DTextureCube& Texture, std::string& OutError) -> bool
@@ -570,92 +543,14 @@ namespace Durin
 		, RenderResource(std::make_shared<FTextureCubeRenderResource>())
 	{
 		static const bool RegisteredAssetContributors = [] {
-			Asset::RegisterAssetMoveContributor(DTextureCube::StaticClass(), [](DObject* Object, const FAssetPath& OldPath,
-				const FAssetPath& NewPath, Asset::FAssetMoveContribution& Out) -> Asset::FAssetResult {
-				auto* Texture = Cast<DTextureCube>(Object);
-				if (!Texture) return {};
-				// Portable provenance may be shared by multiple assets and is independent
-				// from the package name. Moving the package must not move source art.
-				if (Texture->GetSourceImportData().HasSource()) return {};
-				const std::filesystem::path OldPackage = ResolveMountedFile(OldPath.ToString());
-				const std::filesystem::path NewPackage = ResolveMountedFile(NewPath.ToString());
-				if (Texture->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama)
-				{
-					const std::string Original = Texture->PanoramaSourceFile;
-					if (Original.empty()) return {};
-					const std::filesystem::path SourceName(Original);
-					const std::filesystem::path OldSource = SourceName.is_absolute()
-						? SourceName : OldPackage.parent_path() / SourceName;
-					const std::string Replacement = OldPath.GetAssetName() == NewPath.GetAssetName()
-						? SourceName.filename().generic_string()
-						: MakePanoramaSourceFileName(NewPath.GetAssetName(), SourceName.extension().generic_string());
-					const std::filesystem::path NewSource = NewPackage.parent_path() / Replacement;
-					if (OldSource.lexically_normal() != NewSource.lexically_normal())
-						Out.Files.emplace_back(OldSource.lexically_normal(), NewSource.lexically_normal());
-					if (Replacement != Original)
-					{
-						Out.Apply = [Texture, Replacement] { Texture->PanoramaSourceFile = Replacement; };
-						Out.Rollback = [Texture, Original] { Texture->PanoramaSourceFile = Original; };
-					}
-					return {};
-				}
-				if (Texture->GetSourceLayout() != ETextureCubeSourceLayout::SixFaces)
-					return {Asset::EAssetError::UnsupportedProperty, "Texture cube source layout is invalid."};
-				std::array<std::string, TextureCubeFaceCount> Originals;
-				std::array<std::string, TextureCubeFaceCount> Replacements;
-				for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-				{
-					const ETextureCubeFace Face = static_cast<ETextureCubeFace>(FaceIndex);
-					Originals[FaceIndex] = Texture->GetSourceFile(Face);
-					if (Originals[FaceIndex].empty()) continue;
-					const std::filesystem::path SourceName(Originals[FaceIndex]);
-					const std::filesystem::path OldSource = SourceName.is_absolute() ? SourceName : OldPackage.parent_path() / SourceName;
-					Replacements[FaceIndex] = OldPath.GetAssetName() == NewPath.GetAssetName()
-						? SourceName.filename().generic_string()
-						: MakeSourceFileName(NewPath.GetAssetName(), FaceIndex, SourceName.extension().generic_string());
-					const std::filesystem::path NewSource = NewPackage.parent_path() / Replacements[FaceIndex];
-					if (OldSource.lexically_normal() != NewSource.lexically_normal())
-						Out.Files.emplace_back(OldSource.lexically_normal(), NewSource.lexically_normal());
-				}
-				Out.Apply = [Texture, Replacements] {
-					for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-						Texture->GetMutableSourceFile(static_cast<ETextureCubeFace>(FaceIndex)) = Replacements[FaceIndex];
-				};
-				Out.Rollback = [Texture, Originals] {
-					for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-						Texture->GetMutableSourceFile(static_cast<ETextureCubeFace>(FaceIndex)) = Originals[FaceIndex];
-				};
+			Asset::RegisterAssetMoveContributor(DTextureCube::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
+				Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
+				// Portable SourceAssets provenance is independent of package placement.
 				return {};
 			});
-			Asset::RegisterAssetDeleteContributor(DTextureCube::StaticClass(), [](const Asset::FAssetData& Data,
-				const Asset::FAssetPackageInspection& Inspection, Asset::FAssetDeleteContribution& Out) -> Asset::FAssetResult {
-				const Asset::FAssetPackageField* LayoutField = Inspection.FindField("SourceLayout");
-				ETextureCubeSourceLayout Layout = ETextureCubeSourceLayout::SixFaces;
-				if (!LayoutField || !LayoutField->TryReadScalar(Layout))
-					return {Asset::EAssetError::CorruptFile, "Texture cube source layout is unavailable."};
-				const std::filesystem::path PackageFile(Data.PhysicalPath);
-				auto AddSource = [&](std::string_view FieldName) -> bool {
-					const Asset::FAssetPackageField* Field = Inspection.FindField(FieldName);
-					std::string SourceFile;
-					if (!Field || !Field->TryReadString(SourceFile)) return false;
-					if (SourceFile.empty()) return true;
-					Out.Files.push_back(ResolveCubeSource(SourceFile, PackageFile));
-					return true;
-				};
-				if (Layout == ETextureCubeSourceLayout::EquirectangularPanorama)
-				{
-					return AddSource("PanoramaSourceFile")
-						? Asset::FAssetResult{}
-						: Asset::FAssetResult{Asset::EAssetError::CorruptFile, "Texture cube panorama source is unavailable."};
-				}
-				if (Layout != ETextureCubeSourceLayout::SixFaces)
-					return {Asset::EAssetError::UnsupportedProperty, "Texture cube source layout is invalid."};
-				static constexpr std::array<std::string_view, TextureCubeFaceCount> SourceFields = {
-					"PositiveXSourceFile", "NegativeXSourceFile", "PositiveYSourceFile",
-					"NegativeYSourceFile", "PositiveZSourceFile", "NegativeZSourceFile"};
-				for (std::string_view FieldName : SourceFields)
-					if (!AddSource(FieldName))
-						return {Asset::EAssetError::CorruptFile, "A texture cube face source is unavailable."};
+			Asset::RegisterAssetDeleteContributor(DTextureCube::StaticClass(), [](const Asset::FAssetData&,
+				const Asset::FAssetPackageInspection&, Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
+				// Portable SourceAssets may be shared and require a separate, explicit source operation.
 				return {};
 			});
 			return true;
@@ -676,22 +571,8 @@ namespace Durin
 			const FTextureSourceFile& Source = SourceImportData.GetFace(Face);
 			if (Source.HasSource()) return Source.SourcePath;
 		}
-		switch (Face)
-		{
-		case ETextureCubeFace::PositiveX: return PositiveXSourceFile;
-		case ETextureCubeFace::NegativeX: return NegativeXSourceFile;
-		case ETextureCubeFace::PositiveY: return PositiveYSourceFile;
-		case ETextureCubeFace::NegativeY: return NegativeYSourceFile;
-		case ETextureCubeFace::PositiveZ: return PositiveZSourceFile;
-		case ETextureCubeFace::NegativeZ: return NegativeZSourceFile;
-		}
-		checkf(false, "Invalid cube face");
-		return PositiveXSourceFile;
-	}
-
-	auto DTextureCube::GetMutableSourceFile(ETextureCubeFace Face) -> std::string&
-	{
-		return const_cast<std::string&>(std::as_const(*this).GetSourceFile(Face));
+		static const std::string EmptySource;
+		return EmptySource;
 	}
 
 	auto DTextureCube::ResolvePanoramaSource() const -> std::filesystem::path
@@ -758,6 +639,16 @@ namespace Durin
 		DerivedDataKey.clear();
 		DerivedDataDiagnostic = {};
 		bLoadedFromDerivedDataCache = false;
+		if (!SourceImportData.HasSource())
+		{
+			OutError = "TextureCube has no normalized SourceAssets provenance; legacy source metadata is unsupported.";
+			BuildStatus = ETextureBuildStatus::MissingSource;
+			LastBuildError = OutError;
+			DerivedDataDiagnostic = {
+				.Status = ETextureDerivedDataStatus::Incompatible,
+				.Message = OutError};
+			return false;
+		}
 		if (SourceImportData.HasSource())
 		{
 			if (!MakeTextureCubeDerivedDataKey(*this, DerivedDataKey, OutError))
@@ -909,9 +800,7 @@ namespace Durin
 		DerivedDataDiagnostic = {
 			.Status = ETextureDerivedDataStatus::Rebuilt,
 			.Key = DerivedDataKey,
-			.Message = DerivedDataKey.empty()
-				? "Rebuilt legacy TextureCube source."
-				: std::format("Rebuilt TextureCube and stored DDC key {}.", DerivedDataKey),
+			.Message = std::format("Rebuilt TextureCube and stored DDC key {}.", DerivedDataKey),
 			.bSourceDecoderInvoked = true};
 		QueueRenderResourceBuild();
 		OutError.clear();

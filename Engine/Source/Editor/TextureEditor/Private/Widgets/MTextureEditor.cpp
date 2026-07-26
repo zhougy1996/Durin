@@ -416,13 +416,7 @@ namespace Durin
 			DrawInfoRow("Provenance", "Portable source missing");
 			break;
 		case ETextureSourceStatus::Invalid:
-			DrawInfoRow("Provenance", "Invalid portable source metadata");
-			break;
-		case ETextureSourceStatus::LegacyAvailable:
-			DrawInfoRow("Provenance", "Legacy colocated source");
-			break;
-		case ETextureSourceStatus::LegacyMissing:
-			DrawInfoRow("Provenance", "Legacy source missing");
+			DrawInfoRow("Provenance", "Invalid or unsupported source metadata");
 			break;
 		case ETextureSourceStatus::NoSource:
 			DrawInfoRow("Provenance", "No source dependency");

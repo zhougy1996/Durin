@@ -1,11 +1,12 @@
 # Texture System
 
-Durin's current texture path is an editor-oriented Texture2D pipeline with
-explicit source, platform, render-resource, editor, and material boundaries.
+Durin's Texture2D pipeline has explicit authored-source, derived platform,
+cooked-runtime, render-resource, editor, and material boundaries.
 
 ## Asset and Build Ownership
 
-- `DTexture2D` owns the copied source-file reference plus the reflected `Usage`,
+- `DTexture2D` owns optional normalized source provenance beneath project or
+  engine `SourceAssets/Textures` plus the reflected `Usage`,
   `bSRGB`, `MaxResolution`, `CompressionQuality`, `AlphaMipMode`, and
   `AlphaCoverageThreshold` build settings.
 - The package also retains the imported source-content hash, source file
@@ -56,20 +57,39 @@ includes the imported source-content hash, usage, explicit color-space choice,
 maximum resolution, compression quality, alpha-mip policy and threshold, target
 platform, and texture-builder version.
 
-`PostLoad` first requires the editor source file and compares its size and stable
-last-write time with the package fingerprint. An unchanged source can restore
+`PostLoad` first validates persisted source provenance and compares an available
+source's size and stable last-write time with the package fingerprint. An
+unchanged source can restore
 the checksummed, versioned platform payload without reopening or decoding the
-image. A changed fingerprint decodes the source, recomputes its content hash,
+image. If source is unavailable, the persisted exact content hash can still
+restore a matching warm object without invoking the decoder. A changed
+fingerprint decodes the source, recomputes its content hash,
 builds a new key and payload, and dirties the package so the new source identity
 can be saved. Missing, incompatible, corrupt, truncated, oversized, or invalid
 cache data is a non-fatal miss and rebuilds from source. Atomic cache persistence
 failure does not discard valid in-memory platform data.
 
 The DDC path is derived entirely from the key; `.dasset` never stores a cache
-file path or byte offset. Cooked source-free platform payloads and any future
-external `.dbulk` descriptor are not implemented by this editor cache. The
-selected cross-asset storage and cooked companion contract is documented in
+file path or byte offset. Texture payloads use TXPL schema 1, an 80-byte header,
+40-byte records, 16-byte aligned non-overlapping ranges, explicit BC format,
+dimension, mip and slice counts, target platform/profile, and XXH3-128
+checksums. Texture2D has exactly one slice and TextureCube has six ordered
+slices. The selected cross-asset storage and cooked companion contract is documented in
 [Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md).
+
+## Cooking and Runtime Loading
+
+Texture2D builder version 2 contributes its validated TXPL bytes under stable
+payload ID `53aa6a89-dc49-401a-b409-adc498ac4f8b`. Cook serializes runtime
+settings plus the logical descriptor, strips source provenance and editor
+fingerprints, and publishes TXPL inside the package DBLK companion.
+
+Cooked-runtime package mode accepts only Win64/Game, PackageCompanion, schema-1,
+uncompressed descriptors matching the DBLK entry. Decode validates every mip
+dimension, block row pitch, byte range, padding, format, checksum, and allocation
+limit before replacing live platform data. Missing or malformed bulk is a hard,
+asset-qualified load failure with no source decoder, DDC, or offline compressor
+fallback.
 
 ## Transactional Build-Setting Edits
 
@@ -147,8 +167,6 @@ copied source image rather than the built platform representation.
 
 ## Current Limitations
 
-- Texture2D has an editor derived-data cache, but there is no cooked platform
-  payload and runtime packages still require the source image to exist.
 - Build work is synchronous, every mip is fully resident, and there is no memory
   accounting or streaming.
 - The shipped material shader consumes only the base-color texture parameter.

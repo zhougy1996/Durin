@@ -116,6 +116,30 @@ they are not migrated.
 - Missing normals and tangents are generated deterministically. Missing vertex colors use linear white, so they do not change the material base color.
 - Each imported node-mesh instance becomes a section. Sections keep contiguous index ranges and reference a stable source material slot; source material assets are not created automatically.
 
+## Static Mesh Derived Data and Cooking
+
+StaticMesh source provenance is optional, normalized beneath project or engine
+`SourceAssets/Models`, and records exact source hash, Assimp importer version,
+and import axes. Legacy package-relative source fields are rejected. The
+canonical DDC key also includes builder version 1, DMSH schema 2, and target
+platform. A valid warm DDC object can load from persisted identity while source
+and Assimp are unavailable.
+
+DMSH schema 2 is a little-endian, checksummed chunk envelope for bounds,
+material-slot GUIDs, LOD metadata, sections, vertex streams, and index buffers.
+Readers bound all counts and ranges, reject invalid numeric data and indices,
+skip only optional unknown chunks, and publish render data only after complete
+validation. Cook uses stable payload ID
+`6d9f79b5-7b68-4d91-a42c-2a6063fcab16`, strips source/import metadata, and
+loads the DMSH payload only through the cooked package descriptor and DBLK
+companion.
+
+Material Preview acquires shared `/Engine/Editor/MaterialPreview/Sphere` and
+`/Engine/Editor/MaterialPreview/Box` StaticMesh assets through the canonical
+editor retention service. Multiple documents coalesce by virtual asset identity;
+preview creation performs no transient OBJ import, and retained handles provide
+the GC lifetime edge.
+
 ## Design Rules
 
 - Components and assets use `DMaterialInterface`; renderer code consumes only render data and shader maps.

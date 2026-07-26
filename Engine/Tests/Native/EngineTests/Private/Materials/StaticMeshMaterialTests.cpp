@@ -147,7 +147,7 @@ TEST(FMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSourceCanBeRe
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 }
 
-TEST(FMaterialTests, LegacyStaticMeshSourceMetadataStillLoads)
+TEST(FMaterialTests, LegacyStaticMeshSourceMetadataIsRejectedAfterMigration)
 {
 	InitializeDObjectSystem();
 	static const std::filesystem::path Root =
@@ -175,11 +175,11 @@ TEST(FMaterialTests, LegacyStaticMeshSourceMetadataStillLoads)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
-	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Mesh));
-	ASSERT_NE(Mesh->GetRenderData(), nullptr);
-	EXPECT_TRUE(Mesh->HasLegacySourceMetadata());
-	EXPECT_EQ(Mesh->InspectSource().Status, Durin::EStaticMeshSourceStatus::LegacyAvailable);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	Mesh = nullptr;
+	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(AssetPath, Mesh);
+	EXPECT_FALSE(LoadResult);
+	EXPECT_EQ(Mesh, nullptr);
+	EXPECT_NE(LoadResult.Message.find("Legacy static-mesh source metadata is unsupported"), std::string::npos);
 }
 
 TEST(FMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDefaults)

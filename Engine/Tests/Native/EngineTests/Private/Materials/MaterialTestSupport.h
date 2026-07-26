@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetSystem.h"
+#include "Asset/EditorAssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectArray.h"

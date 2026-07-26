@@ -148,9 +148,7 @@ namespace Durin
 		NoSource,
 		Available,
 		Missing,
-		Invalid,
-		LegacyAvailable,
-		LegacyMissing
+		Invalid
 	};
 
 	struct FTextureSourceDiagnostic
@@ -230,13 +228,9 @@ namespace Durin
 
 		auto GetSourceFile() const -> const std::string&
 		{
-			return SourceImportData.HasSource() ? SourceImportData.Source.SourcePath : SourceFile;
+			return SourceImportData.Source.SourcePath;
 		}
 		auto GetSourceImportData() const -> const FTexture2DSourceImportData& { return SourceImportData; }
-		auto HasLegacySourceMetadata() const -> bool
-		{
-			return !SourceFile.empty() && !SourceImportData.HasSource();
-		}
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
 		auto GetSourceContentHash() const -> const std::string& { return SourceContentHash; }
 		auto GetSourceWidth() const -> uint32 { return SourceWidth; }

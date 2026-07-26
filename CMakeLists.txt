@@ -35,6 +35,16 @@ include("${DURIN_CMAKE_DIR}/DurinWorkspaceSetup.cmake")
 add_subdirectory(Engine)
 add_subdirectory(Sandbox)
 
+if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
+	durin_assert_target_dependency_closure_excludes(DurinLauncher
+		AssetImport
+		EngineAssetBuild
+		assimp::assimp
+		bc7enc_rdo::bc7enc_rdo
+		rgbcx
+	)
+endif()
+
 durin_enforce_code_model_only_build()
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT DurinLauncher)

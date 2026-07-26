@@ -23,10 +23,9 @@ runtime content: moving or deleting the package does not implicitly move or
 delete potentially shared source art. Delete or reorganize source files only as
 an explicit source operation, then repair or reimport affected packages.
 
-Older packages that stored a package-relative filename or mounted Content path
-continue to load during the documented migration window. Repairing or
-reimporting such a package copies its source into `SourceAssets/Models` and
-replaces the legacy metadata.
+StaticMesh, Texture2D, and TextureCube packages that retain only the former
+package-relative or mounted Content source fields are rejected. Reimport them
+from the authoritative file to create normalized provenance before upgrading.
 
 ## Directory Convention
 

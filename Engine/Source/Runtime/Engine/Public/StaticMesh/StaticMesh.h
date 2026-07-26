@@ -81,9 +81,7 @@ namespace Durin
 		NoSource,
 		Available,
 		Missing,
-		Invalid,
-		LegacyAvailable,
-		LegacyMissing
+		Invalid
 	};
 
 	// Describes editor-facing source availability without making source data a runtime requirement.
@@ -95,7 +93,7 @@ namespace Durin
 
 		auto IsAvailable() const -> bool
 		{
-			return Status == EStaticMeshSourceStatus::Available || Status == EStaticMeshSourceStatus::LegacyAvailable;
+			return Status == EStaticMeshSourceStatus::Available;
 		}
 	};
 
@@ -170,13 +168,9 @@ namespace Durin
 		ENGINE_API ~DStaticMesh() override;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		ENGINE_API auto GetRenderData() -> FStaticMeshRenderData*;
-		auto GetSourceFile() const -> const std::string& { return SourceImportData.HasSource() ? SourceImportData.SourcePath : SourceFile; }
-		auto GetImportSettings() const -> const FStaticMeshImportSettings&
-		{
-			return SourceImportData.HasSource() ? SourceImportData.ImportSettings : ImportSettings;
-		}
+		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath; }
+		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return SourceImportData.ImportSettings; }
 		auto GetSourceImportData() const -> const FStaticMeshSourceImportData& { return SourceImportData; }
-		auto HasLegacySourceMetadata() const -> bool { return !SourceFile.empty() && !SourceImportData.HasSource(); }
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		auto GetMaterialSlots() const -> std::span<const FStaticMeshMaterialSlotDefinition> { return MaterialSlots; }
 		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*;
@@ -198,7 +192,7 @@ namespace Durin
 			bool bRetainDiagnosticSourceMetadata = false) -> bool;
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
-		// Editor preview geometry stays as ordinary source content; this creates only the transient runtime mesh.
+		// Creates unpackaged geometry for tests and runtime-generated content; editor previews use retained assets.
 		ENGINE_API static auto CreateTransientFromFile(
 			std::string_view FilePath,
 			DObject* Outer,
@@ -235,8 +229,8 @@ namespace Durin
 		DPROPERTY()
 		float NormalizedSize = 1.5f;
 
-		// Import settings are source metadata: PostLoad must rebuild with the same basis
-		// that was used when the asset package was first created.
+		// Retained only so packages with the removed legacy schema can be diagnosed
+		// and rejected without losing serialized field compatibility.
 		DPROPERTY()
 		FStaticMeshImportSettings ImportSettings;
 

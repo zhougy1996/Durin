@@ -86,8 +86,8 @@ numeric values:
 
 | Serialized value | Enumerator | Authoritative source |
 | ---: | --- | --- |
-| 0 | `SixFaces` | The existing six face-source properties |
-| 1 | `EquirectangularPanorama` | One panorama-source property |
+| 0 | `SixFaces` | Six ordered normalized source-provenance values |
+| 1 | `EquirectangularPanorama` | One normalized panorama provenance value |
 
 The property initializer is `SixFaces`. Packages written before the property
 existed therefore retain value 0 when deserialization leaves the missing
@@ -96,16 +96,30 @@ must not be inferred from nonempty source strings. Only the active layout owns
 source files; inactive-layout strings never participate in rebuild, move, or
 delete.
 
-Six-face imports retain the existing `<AssetName>_px`, `_nx`, `_py`, `_ny`,
-`_pz`, and `_nz` suffixes and their current extension behavior. A panorama
-import copies its authoritative source beside the package as
+Six-face imports retain the `<AssetName>_px`, `_nx`, `_py`, `_ny`, `_pz`, and
+`_nz` suffixes and their current extension behavior beneath the owning project
+or engine `SourceAssets/Textures`. A panorama
+import copies its authoritative source beneath the same source root as
 `<AssetName>_panorama<extension>`, where `extension` is the accepted source
-extension normalized to lowercase, including its leading period. Moving an
-asset between directories without renaming it preserves that filename.
-Renaming the asset changes only the `<AssetName>` portion. Move and rename
-contributors update the serialized relative filename only after all filesystem
-operations succeed and restore both file placement and the old string on
-rollback.
+extension normalized to lowercase, including its leading period. Provenance
+stores exact XXH3-128 source hashes plus decoder version 1 and projection
+version 1. Moving or deleting a package does not move or delete potentially
+shared source art. Legacy face and panorama filename fields are rejected.
+
+### Derived Data and Cooking
+
+TextureCube builder version 1 hashes layout, all six ordered face hashes or the
+panorama hash, face dimension, finite exposure (with negative zero rejected),
+sRGB, payload/projection versions, target platform, and profile. Warm objects
+live under `DerivedDataCache/TextureCube/Objects` and can load from persisted
+identity while source and projection tools are unavailable.
+
+Cube TXPL schema 1 uses the shared texture envelope with exactly six slices in
+the frozen `+X/-X/+Y/-Y/+Z/-Z` order. Every face must have identical square
+dimensions, mip count, format, row pitch, and bounded ranges. Cook publishes
+the payload under stable ID `d52878ce-8f50-48c7-a3c7-ff846e2c4c5a`, strips
+source provenance, and the cooked loader uses only the logical descriptor,
+DBLK companion, and transactional TXPL decoder.
 
 ### Projection Coordinates
 

@@ -8,7 +8,7 @@ merely whether a file contains binary bytes.
 
 | Class | Typical location | Suffix | Authoritative for | May be deleted locally |
 | --- | --- | --- | --- | --- |
-| Source input | `SourceAssets/` or a supported legacy import location | Source-specific | Reimport and rebuilding | No |
+| Source input | Project or engine `SourceAssets/` | Source-specific | Reimport and rebuilding | No |
 | Object package | Mounted `Content/` | `.dasset` | Asset identity and editable object state | No |
 | Derived data | `DerivedDataCache/` | `.bin` | Nothing; it accelerates editor and cook work | Yes |
 | Cooked package | `Cooked/<Platform>/...` | `.dasset` | Runtime object metadata for that cook | No |
@@ -35,8 +35,10 @@ project- or engine-relative paths; absolute workstation paths are invalid.
 
 The source input is authoritative for rebuilding but is not a runtime asset.
 New shared source art belongs under project or engine `SourceAssets`, which is
-versioned but not mounted as runtime Content. An asset type may temporarily
-support legacy colocated sources as an explicit migration rule.
+versioned but not mounted as runtime Content. StaticMesh, Texture2D, and
+TextureCube require normalized provenance beneath `SourceAssets/Models` or
+`SourceAssets/Textures`; their former package-adjacent source metadata is
+rejected rather than resolved.
 
 ## Derived Data Cache Objects
 
@@ -129,6 +131,30 @@ texture data is already compressed and must remain independently addressable by
 mip. Other payload types may select an explicit compression method when their
 codec and loading policy support it.
 
+### Implemented Container Contract
+
+`DBLK` version 1 uses explicit little-endian fields, a 64-byte header, 80-byte
+payload-table entries, and 16-byte default payload alignment. The header records
+target platform and profile, table offset and size, payload count, total file
+size, and an XXH3-128 checksum. Each entry records the stable payload GUID,
+flags, schema, location, compression, alignment, range, uncompressed size, and
+payload hash. Unknown required entries, duplicate identities, invalid enums,
+misaligned or overlapping ranges, overflow, trailing size disagreement, and
+checksum failure reject the complete container before payload publication.
+
+`FCookedPayloadDescriptor` serializes the same logical identity and compatibility
+fields but never a physical path. The implemented target identifiers are Win64
+platform `1`, Game profile `1`, and EditorValidation profile `2`;
+PackageCompanion location is `1`, no compression is `0`, and Zstandard is
+reserved as `1`.
+
+`CookManifest.bin` uses `CMNF` version 1. Entries are sorted by normalized
+cook-relative path and name every package and companion with kind, required
+flag, size, and XXH3-128 hash. `FCookContext` validates all packages and bulk
+containers in staging, publishes companions before their packages, publishes
+the manifest last, and removes stale outputs only from the previous valid
+manifest.
+
 ## Cook and Publication Rules
 
 Cooking must be deterministic for identical source bytes, settings, builder and
@@ -210,11 +236,12 @@ disposable while that build is running or installed.
 
 ## Current Implementation Status
 
-Authored `.dasset` packages and project-local DDC stores exist. Texture DDC
-objects already follow the `.bin`, content-addressed, versioned, checksummed,
-safe-miss rules above. The shared `.dbulk` container, cooked package
-descriptors, deployment manifest, and runtime-only load mode are selected
-contracts but are not yet implemented.
+The shared DDC object store, DBLK container, logical descriptors, deterministic
+cook publication, manifest, and explicit authored-editor/cooked-runtime package
+modes are implemented. StaticMesh uses DMSH schema 2; Texture2D and TextureCube
+use TXPL schema 1. Their cooked loaders validate the complete descriptor,
+container, target, payload schema, ranges, hash, and asset-specific structure
+transactionally, and never invoke source or DDC fallback.
 
 ## Related Documentation
 

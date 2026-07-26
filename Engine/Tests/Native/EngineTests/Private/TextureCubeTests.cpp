@@ -1,5 +1,6 @@
 #include "AssetSystem.h"
 #include "CookedAsset.h"
+#include "DObject/Property.h"
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -67,6 +68,27 @@ namespace
 		(void)bInitialized;
 		return Root;
 	}
+}
+
+TEST(FTextureCubeTests, LegacySourceMetadataIsRejectedAfterMigration)
+{
+	InitializeCubeMount();
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/Legacy", AssetPath));
+	Durin::DTextureCube* Texture = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Texture));
+	auto* SourceProperty = Texture->GetClass()->FindPropertyByName("PositiveXSourceFile");
+	ASSERT_NE(SourceProperty, nullptr);
+	*static_cast<std::string*>(SourceProperty->GetValuePtr(Texture)) = "Legacy_PositiveX.png";
+	Texture->MarkPackageDirty();
+	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+
+	Texture = nullptr;
+	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(AssetPath, Texture);
+	EXPECT_FALSE(LoadResult);
+	EXPECT_EQ(Texture, nullptr);
+	EXPECT_NE(LoadResult.Message.find("legacy source metadata is unsupported"), std::string::npos);
 }
 
 TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)

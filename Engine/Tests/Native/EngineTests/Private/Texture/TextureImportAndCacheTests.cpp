@@ -210,7 +210,7 @@ TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
 		/ "SourceAssets" / "Textures" / "Repair" / "Texture.tga"));
 }
 
-TEST(FTexture2DTests, LegacyPackageAdjacentSourceStillLoads)
+TEST(FTexture2DTests, LegacyPackageAdjacentSourceIsRejectedAfterMigration)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
@@ -231,13 +231,12 @@ TEST(FTexture2DTests, LegacyPackageAdjacentSourceStillLoads)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
-	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Texture));
-	ASSERT_NE(Texture, nullptr);
-	EXPECT_TRUE(Texture->HasLegacySourceMetadata());
-	EXPECT_EQ(Texture->InspectSource().Status, Durin::ETextureSourceStatus::LegacyAvailable);
-	ASSERT_NE(Texture->GetPlatformData(), nullptr);
-	EXPECT_TRUE(Texture->GetPlatformData()->IsValid());
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	Texture = nullptr;
+	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(AssetPath, Texture);
+	EXPECT_FALSE(LoadResult);
+	EXPECT_EQ(Texture, nullptr);
+	EXPECT_NE(LoadResult.Message.find("Legacy texture source metadata is unsupported"), std::string::npos)
+		<< LoadResult.Message;
 }
 
 TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)

@@ -119,9 +119,7 @@ namespace Durin
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
 		auto GetPanoramaSourceFile() const -> const std::string&
 		{
-			return SourceImportData.SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama
-				&& SourceImportData.Panorama.HasSource()
-				? SourceImportData.Panorama.SourcePath : PanoramaSourceFile;
+			return SourceImportData.Panorama.SourcePath;
 		}
 		auto GetSourceImportData() const -> const FTextureCubeSourceImportData& { return SourceImportData; }
 		auto GetPanoramaFaceDimension() const -> uint32 { return PanoramaFaceDimension; }
@@ -176,7 +174,6 @@ namespace Durin
 			std::string& OutError) -> bool;
 
 	private:
-		auto GetMutableSourceFile(ETextureCubeFace Face) -> std::string&;
 		auto ResolvePanoramaSource() const -> std::filesystem::path;
 		auto InvalidatePlatformData() -> void;
 		auto QueueRenderResourceBuild() -> void;

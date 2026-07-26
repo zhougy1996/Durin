@@ -212,15 +212,23 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteLODAndPackedAttributes)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, EngineMaterialPreviewMeshesLoadAsTransientGeometry)
+TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 {
 	InitializeDObjectSystem();
-	const std::string PreviewContent = Durin::FPaths::EngineContentDir() + "Editor/MaterialPreview/";
-	for (const std::string_view Name : {"Sphere", "Box"})
+	Durin::PathUtilities::InitDefaultMountPoints();
+	for (const std::string_view PathText : {
+		"/Engine/Editor/MaterialPreview/Sphere",
+		"/Engine/Editor/MaterialPreview/Box"})
 	{
+		Durin::FAssetPath Path;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(PathText, Path));
+		Durin::FRetainedEditorAsset First;
+		Durin::FRetainedEditorAsset Second;
 		std::string Error;
-		Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateTransientFromFile(
-			PreviewContent + std::string(Name) + ".obj", nullptr, std::format("TestMaterialPreview{}", Name), Error);
+		ASSERT_TRUE(Durin::FEditorAssetRetentionService::Acquire(Path, First, Error)) << Error;
+		ASSERT_TRUE(Durin::FEditorAssetRetentionService::Acquire(Path, Second, Error)) << Error;
+		EXPECT_EQ(First.Get(), Second.Get());
+		auto* Mesh = Durin::Cast<Durin::DStaticMesh>(First.Get());
 		ASSERT_NE(Mesh, nullptr) << Error;
 		const Durin::FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
 		ASSERT_NE(RenderData, nullptr);
@@ -230,32 +238,41 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesLoadAsTransientGeometry)
 		EXPECT_GT(LOD.Indices.size(), 12u);
 		EXPECT_EQ(LOD.NumTexCoords, 1u);
 		EXPECT_EQ(LOD.TexCoords[0].size(), LOD.Positions.size());
-		Durin::MarkAsGarbage(Mesh);
 	}
 	Durin::CollectGarbage();
+	EXPECT_EQ(Durin::FEditorAssetRetentionService::NumRetained(), 0u);
 }
 
-TEST(FMaterialTests, MaterialPreviewResourcesRemainAliveAcrossGarbageCollection)
+TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {
 	FMaterialPreviewHarness Harness;
+	Durin::PathUtilities::InitDefaultMountPoints();
 
-	constexpr Durin::uint64 PreviewId = 987654321;
-	const std::string SphereName = std::format("MaterialPreviewSphere_{}", PreviewId);
-	const std::string BoxName = std::format("MaterialPreviewBox_{}", PreviewId);
-	const std::string LightName = std::format("MaterialPreviewLight_{}", PreviewId);
+	constexpr Durin::uint64 FirstPreviewId = 987654321;
+	constexpr Durin::uint64 SecondPreviewId = 987654322;
+	const std::string FirstLightName = std::format("MaterialPreviewLight_{}", FirstPreviewId);
+	const std::string SecondLightName = std::format("MaterialPreviewLight_{}", SecondPreviewId);
 	{
-		Durin::FMaterialPreview Preview(PreviewId);
-		ASSERT_NE(FindObjectByName(SphereName), nullptr);
-		ASSERT_NE(FindObjectByName(BoxName), nullptr);
-		ASSERT_NE(FindObjectByName(LightName), nullptr);
+		Durin::FMaterialPreview FirstPreview(FirstPreviewId);
+		Durin::FMaterialPreview SecondPreview(SecondPreviewId);
+		ASSERT_EQ(Durin::FEditorAssetRetentionService::NumRetained(), 2u);
+		ASSERT_NE(FindObjectByName(FirstLightName), nullptr);
+		ASSERT_NE(FindObjectByName(SecondLightName), nullptr);
 
 		Durin::CollectGarbage();
-		auto* Sphere = Durin::Cast<Durin::DStaticMesh>(FindObjectByName(SphereName));
-		auto* Box = Durin::Cast<Durin::DStaticMesh>(FindObjectByName(BoxName));
-		auto* Light = Durin::Cast<Durin::DDirectionalLightComponent>(FindObjectByName(LightName));
+		Durin::FAssetPath SpherePath;
+		Durin::FAssetPath BoxPath;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Editor/MaterialPreview/Sphere", SpherePath));
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Editor/MaterialPreview/Box", BoxPath));
+		Durin::FRetainedEditorAsset SphereAsset;
+		Durin::FRetainedEditorAsset BoxAsset;
+		std::string Error;
+		ASSERT_TRUE(Durin::FEditorAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)) << Error;
+		ASSERT_TRUE(Durin::FEditorAssetRetentionService::Acquire(BoxPath, BoxAsset, Error)) << Error;
+		auto* Sphere = Durin::Cast<Durin::DStaticMesh>(SphereAsset.Get());
+		auto* Box = Durin::Cast<Durin::DStaticMesh>(BoxAsset.Get());
 		ASSERT_NE(Sphere, nullptr);
 		ASSERT_NE(Box, nullptr);
-		ASSERT_NE(Light, nullptr);
 		ASSERT_NE(Sphere->GetRenderData(), nullptr);
 		ASSERT_NE(Box->GetRenderData(), nullptr);
 		EXPECT_FALSE(Sphere->GetRenderData()->LODResources.empty());
@@ -263,7 +280,7 @@ TEST(FMaterialTests, MaterialPreviewResourcesRemainAliveAcrossGarbageCollection)
 	}
 
 	Durin::CollectGarbage();
-	EXPECT_EQ(FindObjectByName(SphereName), nullptr);
-	EXPECT_EQ(FindObjectByName(BoxName), nullptr);
-	EXPECT_EQ(FindObjectByName(LightName), nullptr);
+	EXPECT_EQ(Durin::FEditorAssetRetentionService::NumRetained(), 0u);
+	EXPECT_EQ(FindObjectByName(FirstLightName), nullptr);
+	EXPECT_EQ(FindObjectByName(SecondLightName), nullptr);
 }
