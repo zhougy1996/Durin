@@ -6,7 +6,8 @@ workflows do not require or link Tracy.
 
 ## Preparation And Presets
 
-Prepare the pinned Tracy `v0.13.1` source explicitly:
+Root `Setup.bat` prepares the pinned Tracy `v0.13.1` source by default. To
+prepare or repair Tracy without running the full setup flow:
 
 ```powershell
 Engine\Scripts\Bootstrap\Setup_tracy.bat

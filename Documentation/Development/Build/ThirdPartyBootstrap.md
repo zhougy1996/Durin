@@ -20,7 +20,7 @@ Common commands:
 .venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 ```
 
-For a fresh Windows clone, use the root `Setup.bat` instead of invoking this script directly. It creates `.venv` and installs `requirements.txt` before starting the third-party bootstrap.
+For a fresh Windows clone, use the root `Setup.bat` instead of invoking this script directly. It creates `.venv`, installs `requirements.txt`, and prepares test and development dependencies through the third-party bootstrap.
 
 ## Worktree Sharing
 
@@ -111,9 +111,13 @@ Third-party manifests live under `Engine/Scripts/Bootstrap/thirdparty/*.json` an
 - `--all` skips test-only dependencies unless `--with-tests` is supplied.
 - `--all` skips development-only dependencies unless `--with-development` is
   supplied. Explicit `--libs <name>` selection remains available.
+- `Bootstrap.bat`, and therefore the root `Setup.bat`, supplies
+  `--with-tests --with-development` so a fully prepared checkout includes both
+  dependency classes by default.
 - `googletest` is test-only.
-- Tracy `v0.13.1` is development-only and licensed under BSD-3-Clause. Prepare
-  it with `Engine/Scripts/Bootstrap/Setup_tracy.bat` only for profiling builds.
+- Tracy `v0.13.1` is development-only and licensed under BSD-3-Clause. Root
+  setup prepares it by default; use
+  `Engine/Scripts/Bootstrap/Setup_tracy.bat` to prepare or repair Tracy alone.
 - Vulkan Memory Allocator is supplied by the Vulkan SDK rather than this bootstrap. See `BuildAndRun.md` for the required SDK layout and the older-SDK fallback.
 - Main project configure and build still start from `CMakePresets.json`.
 - Legacy third-party assets can be inspected with `python Engine/Scripts/Bootstrap/cleanup_legacy_thirdparty.py --dry-run`.

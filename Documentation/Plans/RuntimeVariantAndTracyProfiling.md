@@ -21,6 +21,12 @@ Assimp and Slang DLLs to `Engine/Binaries/Win64/ThirdParty/Release/`. The
 profiling Editor launches successfully from its isolated runtime directory while
 resolving those shared DLLs; Tracy remains profiling-local.
 
+On 2026-07-27, default setup changed to include development-only dependencies.
+Durin checkouts are development environments, and preparing Tracy's pinned
+direct source adds little cost while making every checkout profiling-ready. Raw
+bootstrap selection still requires `--with-development`, and ordinary builds
+remain independent of Tracy after dependency preparation.
+
 The Editor capture recorded 233 frames and 2,307 zones over 5.11 seconds. The
 Game profiling executable completes initialization and remains running without a
 profiler, but attaching the matching Tracy v0.13.1 capture client currently
@@ -35,9 +41,10 @@ Replace the overloaded build term `profile` with `runtime variant` for
 workspace-wide `DurinEditor` and `DurinGame` selection, then introduce Tracy as
 an optional development dependency used by dedicated Release profiling presets.
 
-The normal Debug, Release, Shipping, setup, and worktree workflows must remain
-independent of Tracy. A developer who does not request profiling must not need
-the Tracy source tree, compile its client, deploy its runtime, or carry enabled
+The normal Debug, Release, Shipping, and worktree build workflows must remain
+independent of Tracy at configure, compile, link, and runtime. Root setup
+prepares the pinned Tracy source alongside the other development dependencies,
+but only profiling presets compile its client, deploy its runtime, or enable
 instrumentation.
 
 ## Scope
@@ -46,8 +53,8 @@ instrumentation.
   `DurinGame` to `runtime variant`.
 - Migrate CMake, DurinHeaderTool, BuildTool, generated metadata, cache paths,
   tests, diagnostics, and owning documentation to the new terminology.
-- Extend third-party bootstrap metadata so development-only dependencies are
-  excluded from default setup.
+- Extend third-party bootstrap metadata so development-only dependencies remain
+  distinguishable while repository setup includes them by default.
 - Pin and bootstrap the Tracy client source as a development-only direct-source
   dependency.
 - Add opt-in Release profiling presets for the editor and game runtime variants.
@@ -127,8 +134,9 @@ instrumentation.
   branch. The initial implementation target is `v0.13.1`; implementation must
   revalidate the tag, license, and CMake target names before landing.
 - The bootstrap manifest marks Tracy as development-only.
-- Default `Setup.bat` and bootstrap `--all` do not fetch development-only
-  dependencies.
+- Raw bootstrap `--all` does not fetch development-only dependencies unless
+  requested, while default `Setup.bat` opts into them for a fully prepared
+  development checkout.
 - Explicit `--libs tracy` preparation remains supported. A
   `--with-development` selector includes development-only manifests with
   `--all`, and a focused `Setup_tracy.bat` wrapper provides the normal Windows
@@ -264,8 +272,9 @@ Stage 0 inventory classified the migration surfaces as follows:
 
 - [x] Extend manifest validation with a boolean `development_only` field whose
   default is false.
-- [x] Exclude development-only manifests from `--all` unless
-  `--with-development` is supplied.
+- [x] Exclude development-only manifests from raw `--all` unless
+  `--with-development` is supplied, and include that selector in the default
+  repository setup wrapper.
 - [x] Preserve explicit `--libs <name>` behavior for development-only
   manifests.
 - [x] Add positive, negative, malformed-manifest, and selection-order tests for
@@ -279,8 +288,8 @@ Stage 0 inventory classified the migration surfaces as follows:
 #### Acceptance Gate
 
 - Manifest validation passes.
-- Default `--all` selection excludes Tracy, while `--libs tracy` and
-  `--all --with-development` select it.
+- Raw `--all` selection excludes Tracy, while default repository setup,
+  `--libs tracy`, and `--all --with-development` select it.
 - A clean disabled configure succeeds when the Tracy source directory is
   absent.
 - An enabled configure without Tracy fails with one actionable preparation
@@ -381,7 +390,7 @@ Stage 0 inventory classified the migration surfaces as follows:
   `runtime variant`.
 - No supported preset, BuildTool command, DHT command, generated schema, or
   current owning document requires the old profile terminology.
-- Tracy is pinned, license-accounted, and excluded from default setup.
+- Tracy is pinned, license-accounted, and included in default repository setup.
 - Ordinary builds neither require nor link Tracy.
 - Dedicated Release Profiling presets build and run with isolated outputs.
 - Shipping cannot enable Tracy.
