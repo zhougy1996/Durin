@@ -70,13 +70,17 @@ The test uploads and explicitly samples all three mip levels of known linear and
 sRGB RGBA8 textures plus builder-produced BC1, BC3, BC5, and BC7 payloads. GPU
 readback verifies mip selection, sRGB decode, compressed color channels, and
 compressed alpha independently of a swapchain or visible window.
-Stage 4 is now in progress. Texture2D packages retain the imported source-content
-hash and lightweight source fingerprint, while versioned, checksummed platform
-mip payloads are stored beneath the project Derived Data Cache. A warm
+The derived-data portion of Stage 4 is complete. Texture2D packages retain the
+imported source-content hash and lightweight source fingerprint, while
+versioned, checksummed platform mip payloads are stored beneath the project
+Derived Data Cache. A warm
 `PostLoad` validates the source fingerprint and restores platform data without
 opening or decoding the source image; changed sources, changed build settings,
 missing entries, and corrupt payloads become safe rebuilds. Cooked payload
-packaging remains open. The shared asset-data lifecycle now reserves `.bin` for
+packaging and the convergence of this early cache with the shared object-store
+model are now owned by the
+[Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md) plan. The shared
+asset-data lifecycle reserves `.bin` for
 unreferenced, rebuildable DDC objects and `.dbulk` for manifest-owned cooked
 payloads. The initial cooked layout uses one package-relative companion per
 `.dasset` while keeping payload references relocatable into a future archive.
@@ -185,7 +189,7 @@ inferred from the source filename.
   mip uploads and samples through Vulkan, while unsupported device formats fail
   before resource creation with an actionable Texture Editor diagnostic.
 
-### Stage 4: Versioned Derived Data and Cooked Payloads
+### Stage 4: Versioned Derived Data
 
 - [x] Define the shared authored, source, DDC, cooked package, and cooked bulk
   lifecycle rules, including `.bin` versus `.dbulk` semantics.
@@ -193,14 +197,16 @@ inferred from the source filename.
   decode the source image on every `PostLoad`.
 - [x] Define a derived-data key that includes the source content, build
   settings, target platform, and texture builder version.
-- [ ] Ensure cooked/runtime builds do not require the original PNG, JPEG, BMP,
-  or TGA file.
+- [x] Transfer shared object-store convergence, portable source provenance, and
+  cooked/runtime payload ownership to the
+  [Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md) plan.
 
 #### Acceptance Gate
 
 - Warm editor loads restore validated platform mip data without source decoding;
   source or setting changes and incompatible or corrupt cache objects rebuild
-  safely, and cooked runtime packages can load without source-image files.
+  safely. Source-independent DDC loading and cooked runtime acceptance are gates
+  of the owning asset-derived-data plan.
 
 ### Stage 5: Asynchronous Build and Material Readiness
 

@@ -16,9 +16,9 @@ duplicate registry data, shared cancellation, and bounded defaults.
 Versioned test factories now create deterministic Material, MaterialInstance,
 parent/texture dependency, invalid-instance, and six-face directional
 TextureCube assets at fixed virtual identities. The thumbnail and
-[Static Mesh Derived Data and Cooking](StaticMeshDerivedDataAndCooking.md)
+[Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
 plans share one native sphere identity and acquisition contract. Implementing
-that native shared-mesh service remains owned by Stage 5 of the static-mesh
+that native shared-mesh service remains owned by Stage 6 of the asset-derived-data
 plan and is a prerequisite for binding rendered-thumbnail preview scenes; no
 thumbnail path may fall back to transient source-model import.
 
@@ -38,7 +38,7 @@ in progress. `DurinEd` now owns the bounded rendered-generation coordinator,
 persistent warm-hit fast path, revision-safe asynchronous transition boundary,
 atomic encoded-output publication, and deterministic counters. Binding a real
 offscreen preview scene remains blocked on the shared native preview-mesh
-service owned by Stage 5 of the static-mesh plan; the thumbnail implementation
+service owned by Stage 6 of the asset-derived-data plan; the thumbnail implementation
 does not introduce the forbidden transient-import fallback.
 
 Texture2D assets and supported source-image files already use an
@@ -119,7 +119,7 @@ introducing per-card live viewports or steady-state rendering work.
   cached image and do not create new render keys.
 - Material and MaterialInstance thumbnails use the shared
   `/Engine/Editor/MaterialPreview/Sphere` mesh selected by the
-  [Static Mesh Derived Data and Cooking](StaticMeshDerivedDataAndCooking.md)
+  [Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
   plan. This plan does not create or import a second sphere fixture.
 - The shared editor preview-mesh acquisition boundary accepts the canonical
   virtual identity and returns a retained native asset/render-data handle. The
@@ -264,8 +264,8 @@ introducing per-card live viewports or steady-state rendering work.
   test overrides.
 - [x] Create deterministic Material, MaterialInstance, parent/texture
   dependency, invalid-material, and six-face directional TextureCube fixtures.
-- [x] Coordinate the sphere identity and acquisition API with Stage 5 of the
-  Static Mesh Derived Data and Cooking plan; do not add a duplicate transient
+- [x] Coordinate the sphere identity and acquisition API with Stage 6 of the
+  Asset Derived Data and Cooking plan; do not add a duplicate transient
   import path.
 
 #### Acceptance Gate
@@ -454,7 +454,7 @@ introducing per-card live viewports or steady-state rendering work.
 - [Active Implementation Plans](README.md)
 - [Material System](MaterialSystem.md)
 - [Texture Support](TextureSupport.md)
-- [Static Mesh Derived Data and Cooking](StaticMeshDerivedDataAndCooking.md)
+- [Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
 - [Resource Dependency Updates](Archive/2026-07/ResourceDependencyUpdates.md)
 - [Material System Runtime Contract](../Runtime/Rendering/MaterialSystem.md)
 - [Cube Textures](../Runtime/Rendering/CubeTextures.md)
