@@ -21,7 +21,8 @@ inline auto InitializeTextureImportMount() -> void
 	static const bool bInitialized = [] {
 		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports";
 		std::filesystem::remove_all(Root);
-		Durin::PathUtilities::RegisterMountPoint("/TextureImportTests/", Root.generic_string() + "/");
+		Durin::PathUtilities::RegisterMountPoint(
+			"/TextureImportTests/", (Root / "Content").generic_string() + "/");
 		return true;
 	}();
 	(void)bInitialized;

@@ -97,6 +97,66 @@ namespace Durin
 		bool bSourceDecoderInvoked = false;
 	};
 
+	// Identifies one portable editor source file without retaining a workstation path.
+	DSTRUCT()
+	struct FTextureSourceFile
+	{
+		GENERATED_BODY()
+
+		// Project- or engine-relative path beneath SourceAssets/Textures.
+		DPROPERTY()
+		std::string SourcePath;
+
+		DPROPERTY()
+		uint64 SourceContentHashLow = 0;
+
+		DPROPERTY()
+		uint64 SourceContentHashHigh = 0;
+
+		auto HasSource() const -> bool { return !SourcePath.empty(); }
+		auto HasContentHash() const -> bool
+		{
+			return SourceContentHashLow != 0 || SourceContentHashHigh != 0;
+		}
+		auto operator==(const FTextureSourceFile&) const -> bool = default;
+	};
+
+	// Stores optional Texture2D source provenance used only for editor rebuild and reimport.
+	DSTRUCT()
+	struct FTexture2DSourceImportData
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		FTextureSourceFile Source;
+
+		DPROPERTY()
+		std::string DecoderId;
+
+		DPROPERTY()
+		uint32 DecoderVersion = 0;
+
+		auto HasSource() const -> bool { return Source.HasSource(); }
+		auto operator==(const FTexture2DSourceImportData&) const -> bool = default;
+	};
+
+	enum class ETextureSourceStatus : uint8
+	{
+		NoSource,
+		Available,
+		Missing,
+		Invalid,
+		LegacyAvailable,
+		LegacyMissing
+	};
+
+	struct FTextureSourceDiagnostic
+	{
+		ETextureSourceStatus Status = ETextureSourceStatus::NoSource;
+		std::string PhysicalPath;
+		std::string Message;
+	};
+
 	// Owns decoded source pixels before platform-specific conversion.
 	struct FTextureSourceData
 	{
@@ -165,7 +225,15 @@ namespace Durin
 		ENGINE_API explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTexture2D() override;
 
-		auto GetSourceFile() const -> const std::string& { return SourceFile; }
+		auto GetSourceFile() const -> const std::string&
+		{
+			return SourceImportData.HasSource() ? SourceImportData.Source.SourcePath : SourceFile;
+		}
+		auto GetSourceImportData() const -> const FTexture2DSourceImportData& { return SourceImportData; }
+		auto HasLegacySourceMetadata() const -> bool
+		{
+			return !SourceFile.empty() && !SourceImportData.HasSource();
+		}
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
 		auto GetSourceContentHash() const -> const std::string& { return SourceContentHash; }
 		auto GetSourceWidth() const -> uint32 { return SourceWidth; }
@@ -194,6 +262,9 @@ namespace Durin
 		ENGINE_API auto SetAlphaCoverageThreshold(float InThreshold, std::string& OutError) -> bool;
 
 		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
+		ENGINE_API auto InspectSource() const -> FTextureSourceDiagnostic;
+		ENGINE_API auto ReimportSource(std::string_view FilePath, std::string& OutError) -> bool;
+		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
@@ -215,6 +286,9 @@ namespace Durin
 
 		DPROPERTY()
 		std::string SourceFile;
+
+		DPROPERTY()
+		FTexture2DSourceImportData SourceImportData;
 
 		// Imported content identity and lightweight diagnostics remain in the package
 		// so a warm derived-data load does not need to decode the source image.

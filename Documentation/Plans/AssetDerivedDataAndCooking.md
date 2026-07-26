@@ -37,14 +37,17 @@ Clean-cook, source/DDC isolation, missing bulk, wrong target/schema, corrupt
 payload, material-slot mismatch, and runtime render-data smoke coverage are in
 place. Stage 2 is complete.
 
-Stage 3 is in progress. Texture2D now uses the canonical key schema, strict TXPL
+Stage 3 is complete. Texture2D now uses the canonical key schema, strict TXPL
 version 1 codec, shared content-addressed object store, bounded cleanup, and
 shared cache diagnostics. Authored loads can consume persisted source identity
 when the source image is unavailable, and decode, rebuild, cache-read, and
-cache-write failures retain the last complete live platform data. Portable
-`SourceAssets/Textures` provenance and the related editor source operations
-remain before Stage 3 can close. TextureCube still rebuilds from source during
-`PostLoad`, and its source/build tooling remains migration work for Stage 5.
+cache-write failures retain the last complete live platform data. New imports
+store normalized project- or engine-relative provenance beneath
+`SourceAssets/Textures`; move and delete preserve potentially shared source art,
+repair/reimport is transactional, the Texture Editor reports provenance state,
+and legacy package-adjacent sources remain readable during migration.
+TextureCube still rebuilds from source during `PostLoad`, and its source/build
+tooling remains migration work for Stage 5.
 
 ## Goal
 
@@ -915,7 +918,7 @@ Dependencies: Stage 1 and the completed predecessor StaticMesh Stages 0–3.
 Dependencies: Stage 0; may proceed alongside Stage 2 after shared contracts are
 frozen, but has one source/build writer.
 
-- [ ] Add optional normalized Texture2D source provenance under project or
+- [x] Add optional normalized Texture2D source provenance under project or
   engine `SourceAssets/Textures`, retaining explicit legacy package-adjacent
   loading during migration.
 - [x] Extract the texture key builder and platform-payload codec from
@@ -929,7 +932,7 @@ frozen, but has one source/build writer.
   rebuild or edit that needs decoded pixels.
 - [x] Preserve valid live platform and render-resource data across decode,
   rebuild, cache-read, or cache-write failure.
-- [ ] Migrate import, move, delete, reimport, Texture Editor, thumbnails, and
+- [x] Migrate import, move, delete, reimport, Texture Editor, thumbnails, and
   focused tests to the new provenance without breaking legacy packages.
 
 #### Acceptance Gate

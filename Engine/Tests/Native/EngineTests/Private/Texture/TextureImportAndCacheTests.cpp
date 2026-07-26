@@ -50,7 +50,10 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_TRUE(Loaded->SourceHasTransparency());
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
 	EXPECT_EQ(Loaded->GetBuildRevision(), 1u);
-	EXPECT_EQ(Loaded->GetSourceFile(), "Transparent.png");
+	EXPECT_EQ(Loaded->GetSourceFile(), "SourceAssets/Textures/Transparent.png");
+	EXPECT_EQ(Loaded->GetSourceImportData().DecoderId, "DurinImage");
+	EXPECT_EQ(Loaded->GetSourceImportData().DecoderVersion, 1u);
+	EXPECT_TRUE(Loaded->GetSourceImportData().Source.HasContentHash());
 	EXPECT_TRUE(Loaded->IsSRGB());
 	EXPECT_EQ(Loaded->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
@@ -60,14 +63,20 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Renamed", RenamedPath));
 	ASSERT_TRUE(Durin::Asset::MoveAsset(AssetPath, RenamedPath));
 	const std::filesystem::path ImportRoot = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports";
-	EXPECT_FALSE(std::filesystem::exists(ImportRoot / "Transparent.png"));
-	EXPECT_TRUE(std::filesystem::is_regular_file(ImportRoot / "Renamed.png"));
+	const std::filesystem::path StoredSource =
+		ImportRoot / "SourceAssets" / "Textures" / "Transparent.png";
+	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
+	EXPECT_FALSE(std::filesystem::exists(ImportRoot / "Content" / "Transparent.png"));
 	ASSERT_TRUE(Durin::Asset::LoadAsset(RenamedPath, Loaded));
-	EXPECT_EQ(Loaded->GetSourceFile(), "Renamed.png");
+	EXPECT_EQ(Loaded->GetSourceFile(), "SourceAssets/Textures/Transparent.png");
+	EXPECT_EQ(Loaded->InspectSource().Status, Durin::ETextureSourceStatus::Available);
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
+	Durin::Asset::FAssetDeleteAnalysis DeleteAnalysis;
+	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(RenamedPath, DeleteAnalysis));
+	EXPECT_TRUE(DeleteAnalysis.CompanionFiles.empty());
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
-	EXPECT_FALSE(std::filesystem::exists(ImportRoot / "Renamed.png"));
+	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 }
 
 TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
@@ -133,7 +142,8 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
 	const std::filesystem::path CopiedSource =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureDerivedDataMount" / "Cached.png";
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureDerivedDataMount"
+		/ "SourceAssets" / "Textures" / "Cached.png";
 	WriteNpotTextureFixture(CopiedSource);
 	std::filesystem::last_write_time(CopiedSource,
 		std::filesystem::last_write_time(CopiedSource) + std::chrono::seconds(1));
@@ -151,6 +161,83 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+}
+
+TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
+{
+	InitializeDObjectSystem();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceRepairCache");
+	const std::filesystem::path Source =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceRepair.png";
+	WriteTextureFixture(Source);
+	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
+		Source.generic_string(), "/TextureImportTests/Repair/Texture");
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Result.Asset, nullptr);
+	const Durin::FTexturePlatformData OriginalPlatformData = *Result.Asset->GetPlatformData();
+
+	auto* SourceImportProperty = Result.Asset->GetClass()->FindPropertyByName("SourceImportData");
+	ASSERT_NE(SourceImportProperty, nullptr);
+	auto* SourceImportData = static_cast<Durin::FTexture2DSourceImportData*>(
+		SourceImportProperty->GetValuePtr(Result.Asset));
+	SourceImportData->Source.SourcePath = "../Outside.png";
+	EXPECT_EQ(Result.Asset->InspectSource().Status, Durin::ETextureSourceStatus::Invalid);
+
+	const std::filesystem::path Corrupt =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceRepairCorrupt.png";
+	{
+		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
+		Stream << "not an image";
+	}
+	std::string Error;
+	EXPECT_FALSE(Result.Asset->ReimportSource(Corrupt.generic_string(), Error));
+	ExpectPlatformDataEqual(*Result.Asset->GetPlatformData(), OriginalPlatformData);
+	EXPECT_EQ(Result.Asset->GetSourceImportData().Source.SourcePath, "../Outside.png");
+
+	const std::filesystem::path Replacement =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceRepairReplacement.tga";
+	WriteNpotTextureFixture(Replacement);
+	ASSERT_TRUE(Result.Asset->RepairSourcePath(Replacement.generic_string(), Error)) << Error;
+	EXPECT_EQ(Result.Asset->GetSourceImportData().Source.SourcePath,
+		"SourceAssets/Textures/Repair/Texture.tga");
+	EXPECT_EQ(Result.Asset->InspectSource().Status, Durin::ETextureSourceStatus::Available);
+	EXPECT_EQ(Result.Asset->GetSourceWidth(), 5u);
+	EXPECT_EQ(Result.Asset->GetSourceHeight(), 3u);
+	EXPECT_TRUE(Result.Asset->GetPackage()->IsDirty());
+	EXPECT_TRUE(std::filesystem::is_regular_file(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		/ "SourceAssets" / "Textures" / "Repair" / "Texture.tga"));
+}
+
+TEST(FTexture2DTests, LegacyPackageAdjacentSourceStillLoads)
+{
+	InitializeDObjectSystem();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "LegacyTextureSourceCache");
+	const std::filesystem::path LegacySource =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		/ "Content" / "Legacy.png";
+	WriteTextureFixture(LegacySource);
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Legacy", AssetPath));
+	Durin::DTexture2D* Texture = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Texture));
+	auto* SourceProperty = Texture->GetClass()->FindPropertyByName("SourceFile");
+	ASSERT_NE(SourceProperty, nullptr);
+	*static_cast<std::string*>(SourceProperty->GetValuePtr(Texture)) = "Legacy.png";
+	Texture->MarkPackageDirty();
+	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Texture));
+	ASSERT_NE(Texture, nullptr);
+	EXPECT_TRUE(Texture->HasLegacySourceMetadata());
+	EXPECT_EQ(Texture->InspectSource().Status, Durin::ETextureSourceStatus::LegacyAvailable);
+	ASSERT_NE(Texture->GetPlatformData(), nullptr);
+	EXPECT_TRUE(Texture->GetPlatformData()->IsValid());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 }
 
 TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)

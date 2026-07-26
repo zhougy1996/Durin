@@ -405,7 +405,29 @@ namespace Durin
 	{
 		ImGui::SeparatorText("Source");
 		if (!MonaImGui::PropertyEdit::BeginTable("TextureSourceData")) return;
-		DrawInfoRow("Source File", Texture->GetSourceFile());
+		DrawInfoRow("Source Path", Texture->GetSourceFile());
+		const FTextureSourceDiagnostic SourceDiagnostic = Texture->InspectSource();
+		switch (SourceDiagnostic.Status)
+		{
+		case ETextureSourceStatus::Available:
+			DrawInfoRow("Provenance", "Portable source available");
+			break;
+		case ETextureSourceStatus::Missing:
+			DrawInfoRow("Provenance", "Portable source missing");
+			break;
+		case ETextureSourceStatus::Invalid:
+			DrawInfoRow("Provenance", "Invalid portable source metadata");
+			break;
+		case ETextureSourceStatus::LegacyAvailable:
+			DrawInfoRow("Provenance", "Legacy colocated source");
+			break;
+		case ETextureSourceStatus::LegacyMissing:
+			DrawInfoRow("Provenance", "Legacy source missing");
+			break;
+		case ETextureSourceStatus::NoSource:
+			DrawInfoRow("Provenance", "No source dependency");
+			break;
+		}
 		if (const FTextureSourceData* Source = Texture->GetSourceData())
 		{
 			DrawInfoRow("Dimensions", FormatDimensions(Source->Width, Source->Height));
