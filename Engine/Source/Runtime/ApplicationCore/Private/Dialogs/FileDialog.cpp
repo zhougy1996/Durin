@@ -32,6 +32,22 @@ namespace Durin
 		{
 			return std::format("{} failed (HRESULT 0x{:08X}).", Operation, static_cast<uint32>(Result));
 		}
+
+		auto SetInitialFolder(IFileDialog* Dialog, std::string_view InitialDirectory) -> HRESULT
+		{
+			if (InitialDirectory.empty()) return S_OK;
+
+			std::wstring NativeDirectory = StringUtils::Utf8ToWide(InitialDirectory);
+			std::ranges::replace(NativeDirectory, L'/', L'\\');
+
+			IShellItem* InitialFolder = nullptr;
+			HRESULT Result = ::SHCreateItemFromParsingName(NativeDirectory.c_str(), nullptr, IID_PPV_ARGS(&InitialFolder));
+			if (FAILED(Result)) return Result;
+
+			Result = Dialog->SetFolder(InitialFolder);
+			InitialFolder->Release();
+			return Result;
+		}
 	}
 #endif
 
@@ -74,15 +90,11 @@ namespace Durin
 		}
 		if (!FilterSpecs.empty()) Dialog->SetFileTypes(static_cast<UINT>(FilterSpecs.size()), FilterSpecs.data());
 
-		IShellItem* InitialFolder = nullptr;
-		if (!Request.InitialDirectory.empty())
+		Result = SetInitialFolder(Dialog, Request.InitialDirectory);
+		if (FAILED(Result))
 		{
-			const std::wstring InitialDirectory = StringUtils::Utf8ToWide(Request.InitialDirectory);
-			if (SUCCEEDED(::SHCreateItemFromParsingName(InitialDirectory.c_str(), nullptr, IID_PPV_ARGS(&InitialFolder))))
-			{
-				Dialog->SetFolder(InitialFolder);
-				InitialFolder->Release();
-			}
+			Dialog->Release();
+			return {EFileDialogStatus::Error, {}, HResultMessage("Setting the initial file dialog folder", Result)};
 		}
 
 		Result = Dialog->Show(static_cast<HWND>(Request.ParentWindowHandle));
@@ -160,15 +172,11 @@ namespace Durin
 		if (!FilterSpecs.empty()) Dialog->SetFileTypes(static_cast<UINT>(FilterSpecs.size()), FilterSpecs.data());
 		Dialog->SetDefaultExtension(L"dasset");
 
-		IShellItem* InitialFolder = nullptr;
-		if (!Request.InitialDirectory.empty())
+		Result = SetInitialFolder(Dialog, Request.InitialDirectory);
+		if (FAILED(Result))
 		{
-			const std::wstring InitialDirectory = StringUtils::Utf8ToWide(Request.InitialDirectory);
-			if (SUCCEEDED(::SHCreateItemFromParsingName(InitialDirectory.c_str(), nullptr, IID_PPV_ARGS(&InitialFolder))))
-			{
-				Dialog->SetFolder(InitialFolder);
-				InitialFolder->Release();
-			}
+			Dialog->Release();
+			return {EFileDialogStatus::Error, {}, HResultMessage("Setting the initial file dialog folder", Result)};
 		}
 
 		Result = Dialog->Show(static_cast<HWND>(Request.ParentWindowHandle));
