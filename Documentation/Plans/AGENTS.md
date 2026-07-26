@@ -5,7 +5,9 @@ These instructions apply under `Documentation/Plans/`.
 ## Purpose and Reading Policy
 
 - Active plans turn selected decisions into executable stages and acceptance gates.
-- `README.md` indexes only active plans.
+- `README.md` is the stable entrypoint for active-plan discovery. Run
+  `python Documentation/Plans/list_active_plans.py` from the repository root to
+  generate the current compact index; do not scan or open every plan.
 - `Archive/README.md` is a stable navigation index containing only archive month
   links. Each `Archive/YYYY-MM/README.md` indexes the plans completed in that
   month.
@@ -20,6 +22,8 @@ New plans use this structure unless the topic requires additional sections:
 
 ```markdown
 # <Feature> Plan
+
+Summary: <One line describing the plan's primary scope.>
 
 Last reviewed: YYYY-MM-DD
 
@@ -43,6 +47,11 @@ Last reviewed: YYYY-MM-DD
 
 ## Writing Rules
 
+- Keep `Summary:` on one line directly below the title block. It is discovery
+  metadata, not a status report, and must remain useful after status changes.
+- Give every active plan a unique filename and title. Adding an active plan
+  normally adds only its own Markdown file; do not add a hand-maintained active
+  plan table or generated index to the repository.
 - Narrow scope before implementation. Goals, scope, and non-goals must be objectively distinguishable.
 - State selected ownership, thread, failure, format, and ordering decisions before stage tasks.
 - Put unresolved decisions in Stage 0 instead of presenting conflicting approaches as simultaneous work.
@@ -59,7 +68,11 @@ Last reviewed: YYYY-MM-DD
 - Move long-lived implemented rules into the owning `Runtime`,
   `Editor/Systems`, `Development`, or `Workspace` domain rather than leaving
   the plan as a competing specification.
-- Update `README.md` whenever an active plan is added, renamed, completed, or removed.
+- Run `python Documentation/Plans/list_active_plans.py --validate` whenever an
+  active plan is added, renamed, completed, or removed. CI must run the same
+  command so discovery metadata, titles, dates, and the required current-status
+  section cannot drift. The validator deliberately does not retrofit every
+  legacy plan to the current standard structure.
 
 ## Archive Workflow
 
@@ -69,10 +82,12 @@ When every required acceptance gate is satisfied:
 2. Move the plan to `Documentation/Plans/Archive/YYYY-MM/`, using the month of
    the archive completion date recorded in `Current Status`, without rewriting
    its historical body. Later maintenance does not move it to another month.
-3. Remove it from `Plans/README.md`, append its title and link to that month's
-   `README.md`, and add the month link to `Plans/Archive/README.md` if it is new.
+3. Append its title and link to that month's `README.md`, and add the month link
+   to `Plans/Archive/README.md` if it is new. Moving the file out of the active
+   directory removes it from the generated active index automatically.
 4. Repair direct links to the archived location.
-5. Confirm lasting behavior is documented in the owning domain.
+5. Confirm lasting behavior is documented in the owning domain and run the
+   active-plan validator.
 
 Keep an open monthly index deliberately lightweight: list archived plan links,
 but do not maintain a running plan count, per-plan outcome summaries, or a

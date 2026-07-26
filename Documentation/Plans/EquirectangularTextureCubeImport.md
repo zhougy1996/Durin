@@ -1,5 +1,7 @@
 # Equirectangular Texture Cube Import Plan
 
+Summary: Offline LDR and Radiance HDR panorama projection into rebuildable LDR TextureCube assets.
+
 Last reviewed: 2026-07-26
 
 ## Current Status

@@ -1,5 +1,7 @@
 # Actor Component System Plan
 
+Summary: Reflected actor/component ownership, lifecycle, world integration, transforms, scene registration, and serialization.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

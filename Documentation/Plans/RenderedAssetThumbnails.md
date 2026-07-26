@@ -1,5 +1,7 @@
 # Rendered Asset Thumbnails Plan
 
+Summary: Persistent Content Browser previews for materials, material instances, and cube textures.
+
 Last reviewed: 2026-07-26
 
 ## Current Status

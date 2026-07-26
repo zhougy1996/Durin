@@ -1,5 +1,7 @@
 # Texture Support Plan
 
+Summary: Texture2D assets, platform data, material sampling, and validation.
+
 Last reviewed: 2026-07-26
 
 ## Current Status

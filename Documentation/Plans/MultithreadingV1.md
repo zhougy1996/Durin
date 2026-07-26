@@ -1,5 +1,7 @@
 # Multithreading V1 Plan
 
+Summary: Production-safe CPU task states, lifecycle, dependencies, cancellation, parallel loops, and async consumer handoff.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

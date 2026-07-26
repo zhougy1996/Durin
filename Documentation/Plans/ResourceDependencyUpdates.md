@@ -1,5 +1,7 @@
 # Resource Dependency Updates Plan
 
+Summary: Forward material dependency queries, batched loaded-object scans, and registration-free render invalidation.
+
 Last reviewed: 2026-07-26
 
 ## Current Status

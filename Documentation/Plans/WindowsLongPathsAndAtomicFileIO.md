@@ -1,5 +1,7 @@
 # Windows Long Paths and Atomic File I/O Plan
 
+Summary: Windows process long-path capability, Core-owned atomic publication, diagnostics, and long-worktree validation.
+
 Last reviewed: 2026-07-26
 
 ## Current Status

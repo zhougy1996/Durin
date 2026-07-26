@@ -1,5 +1,7 @@
 # Material System Plan
 
+Summary: Material editing, surface models, shader maps, and runtime materials.
+
 Last reviewed: 2026-07-24
 
 ## Current Status

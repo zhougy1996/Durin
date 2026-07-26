@@ -1,5 +1,7 @@
 # Editor Icon Atlas Plan
 
+Summary: Offline atlas pipeline for editor visualization icons.
+
 Last reviewed: 2026-07-20
 
 ## Current Status

@@ -1,5 +1,7 @@
 # Project And Module Scaffolding Plan
 
+Summary: Transactional BuildTool workflows for module creation, workspace project creation, descriptor/CMake registration, and typed project launch.
+
 Last reviewed: 2026-07-26
 
 ## Current Status

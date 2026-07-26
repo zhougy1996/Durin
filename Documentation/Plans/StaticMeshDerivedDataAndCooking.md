@@ -1,5 +1,7 @@
 # Static Mesh Derived Data and Cooking Plan
 
+Summary: Source-model provenance, native mesh payloads, DDC caching, cooking, and shared material-preview assets.
+
 Last reviewed: 2026-07-26
 
 ## Current Status
