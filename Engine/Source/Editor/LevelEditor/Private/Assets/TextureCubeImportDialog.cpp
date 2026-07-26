@@ -48,10 +48,11 @@ namespace Durin
 		for (auto& Buffer : FacePathBuffers) Buffer.fill(0);
 		PanoramaPathBuffer.fill(0);
 		AssetPathBuffer.fill(0);
-		SourceLayout = ETextureCubeSourceLayout::SixFaces;
+		SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama;
 		PanoramaFaceDimension = 0;
+		PanoramaCustomFaceDimension = 0;
 		PanoramaExposureEV = 0.0f;
-		SourceValidationMessage = "Select all six face images to continue.";
+		SourceValidationMessage = "Select a 2:1 panorama to continue.";
 		ValidatedSourceWidth = 0;
 		ValidatedSourceHeight = 0;
 		ValidatedDimension = 0;
@@ -84,24 +85,19 @@ namespace Durin
 		ImGui::TextDisabled("Authoritative source images are copied beside the .dasset package.");
 		ImGui::Spacing();
 		ImGui::SeparatorText("Source");
-		const char* SourceMode = SourceLayout == ETextureCubeSourceLayout::SixFaces
-			? "Six Faces" : "Equirectangular Panorama";
-		if (ImGui::BeginCombo("Source mode", SourceMode))
+		ImGui::TextUnformatted("Source format");
+		if (ImGui::RadioButton("Panorama (2:1)",
+			SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama))
 		{
-			for (const ETextureCubeSourceLayout Layout :
-				{ETextureCubeSourceLayout::SixFaces, ETextureCubeSourceLayout::EquirectangularPanorama})
-			{
-				const char* Label = Layout == ETextureCubeSourceLayout::SixFaces
-					? "Six Faces" : "Equirectangular Panorama";
-				const bool bSelected = SourceLayout == Layout;
-				if (ImGui::Selectable(Label, bSelected))
-				{
-					SourceLayout = Layout;
-					RevalidateSources();
-				}
-				if (bSelected) ImGui::SetItemDefaultFocus();
-			}
-			ImGui::EndCombo();
+			SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama;
+			RevalidateSources();
+		}
+		ImGui::SameLine();
+		if (ImGui::RadioButton("Six face images",
+			SourceLayout == ETextureCubeSourceLayout::SixFaces))
+		{
+			SourceLayout = ETextureCubeSourceLayout::SixFaces;
+			RevalidateSources();
 		}
 
 		if (SourceLayout == ETextureCubeSourceLayout::SixFaces)
@@ -150,20 +146,47 @@ namespace Durin
 			if (ImGui::Button(FileName.c_str(), ImVec2(-FLT_MIN, 0.0f))) BrowsePanorama();
 			if (Path[0] != '\0' && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Path);
 
-			int FaceDimension = static_cast<int>(PanoramaFaceDimension);
-			if (ImGui::DragInt("Face dimension", &FaceDimension, 1.0f, 0, 4096,
-				"%d px", ImGuiSliderFlags_AlwaysClamp))
+			bool bAutomaticFaceDimension = PanoramaFaceDimension == 0;
+			if (ImGui::Checkbox("Automatic face size", &bAutomaticFaceDimension))
 			{
-				PanoramaFaceDimension = static_cast<uint32>(FaceDimension);
+				if (bAutomaticFaceDimension)
+				{
+					PanoramaFaceDimension = 0;
+				}
+				else
+				{
+					PanoramaCustomFaceDimension = PanoramaCustomFaceDimension > 0
+						? PanoramaCustomFaceDimension
+						: (bSourcesValid ? ValidatedDimension : 1024);
+					PanoramaFaceDimension = PanoramaCustomFaceDimension;
+				}
 				RevalidateSources();
 			}
-			ImGui::TextDisabled("0 (Auto) derives one quarter of the panorama width.");
+			if (bAutomaticFaceDimension)
+			{
+				if (bSourcesValid)
+					ImGui::TextDisabled("%u x %u px, derived from one quarter of the panorama width.",
+						ValidatedDimension, ValidatedDimension);
+				else
+					ImGui::TextDisabled("Derives the face size from one quarter of the panorama width.");
+			}
+			else
+			{
+				int FaceDimension = static_cast<int>(PanoramaFaceDimension);
+				if (ImGui::DragInt("Custom face size", &FaceDimension, 1.0f, 1, 4096,
+					"%d px", ImGuiSliderFlags_AlwaysClamp))
+				{
+					PanoramaFaceDimension = static_cast<uint32>(FaceDimension);
+					PanoramaCustomFaceDimension = PanoramaFaceDimension;
+				}
+				if (ImGui::IsItemDeactivatedAfterEdit()) RevalidateSources();
+			}
 
 			const bool bHDRSource = IsRadianceHDRPath(PanoramaPathBuffer.data());
 			ImGui::BeginDisabled(!bHDRSource);
-			if (ImGui::DragFloat("Exposure", &PanoramaExposureEV, 0.1f, -16.0f, 16.0f,
-				"%+.1f EV", ImGuiSliderFlags_AlwaysClamp))
-				RevalidateSources();
+			ImGui::DragFloat("Exposure", &PanoramaExposureEV, 0.1f, -16.0f, 16.0f,
+				"%+.1f EV", ImGuiSliderFlags_AlwaysClamp);
+			if (ImGui::IsItemDeactivatedAfterEdit()) RevalidateSources();
 			ImGui::EndDisabled();
 			if (!bHDRSource) ImGui::TextDisabled("Exposure applies only to Radiance HDR sources.");
 		}

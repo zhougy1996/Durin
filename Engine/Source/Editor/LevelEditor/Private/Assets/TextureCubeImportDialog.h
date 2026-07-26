@@ -32,8 +32,9 @@ namespace Durin
 		std::array<char, 512> PanoramaPathBuffer{};
 		std::array<char, 256> AssetPathBuffer{};
 		std::string SourceValidationMessage;
-		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
+		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama;
 		uint32 PanoramaFaceDimension = 0;
+		uint32 PanoramaCustomFaceDimension = 0;
 		float PanoramaExposureEV = 0.0f;
 		uint32 ValidatedSourceWidth = 0;
 		uint32 ValidatedSourceHeight = 0;
