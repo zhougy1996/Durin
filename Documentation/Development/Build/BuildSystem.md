@@ -93,6 +93,9 @@ separate worktrees when workflows need concurrent writers. Within one worktree,
 presets have distinct CMake `binaryDir` values, while final outputs are derived
 from the CMake configuration and preset role. Profiling uses the
 `Release-Profiling` output configuration; standard Release uses `Release`.
+Third-party runtime DLLs are role-independent and are deployed beneath
+`Binaries/<Platform>/ThirdParty/<CMakeConfig>/`, so standard Release and
+Release Profiling reuse the same copies.
 
 A preset's `binaryDir` isolates CMake, object, and Ninja state only—not DHT
 metadata. All presets in a worktree must still follow the single-writer workflow

@@ -36,6 +36,7 @@ set(DURIN_OUTPUT_CONFIG "$<CONFIG>")
 if(DURIN_PRESET_ROLE STREQUAL "Profiling")
 	string(APPEND DURIN_OUTPUT_CONFIG "-Profiling")
 endif()
+set(DURIN_THIRDPARTY_OUTPUT_CONFIG "$<CONFIG>")
 message(STATUS
 	"Durin build: runtime variant=${DURIN_RUNTIME_VARIANT}, "
 	"configuration=${CMAKE_BUILD_TYPE}, preset role=${DURIN_PRESET_ROLE}, "

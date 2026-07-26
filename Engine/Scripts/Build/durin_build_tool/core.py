@@ -1476,6 +1476,7 @@ def collect_purge_paths(
 ) -> list[Path]:
     paths: set[Path] = set()
     output_configs: set[str] = set()
+    third_party_configs: set[str] = set()
     intermediate_profiles: set[tuple[str, str, str]] = set()
     for preset in selected_presets:
         paths.add(require_purge_child(preset_build_directory(preset, root=root), root / "Build"))
@@ -1483,6 +1484,7 @@ def collect_purge_paths(
         if install_directory is not None:
             paths.add(require_purge_child(install_directory, root / "Install"))
         output_configs.add(preset_output_configuration(preset))
+        third_party_configs.add(preset_cache_string(preset, "CMAKE_BUILD_TYPE"))
         intermediate_profiles.add(
             (
                 "Build",
@@ -1496,6 +1498,13 @@ def collect_purge_paths(
             paths.add(
                 require_purge_child(
                     project_root / "Binaries" / profile.platform / output_config,
+                    project_root / "Binaries",
+                )
+            )
+        for third_party_config in third_party_configs:
+            paths.add(
+                require_purge_child(
+                    project_root / "Binaries" / profile.platform / "ThirdParty" / third_party_config,
                     project_root / "Binaries",
                 )
             )

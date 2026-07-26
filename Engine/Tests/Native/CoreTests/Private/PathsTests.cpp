@@ -22,6 +22,19 @@ TEST(FPathsTests, RootAndEngineMountAreWorkspaceRelative)
 	EXPECT_EQ(ResolvedEngine.lexically_normal(), (EngineDir / "Content/StaticMeshes/Test").lexically_normal());
 }
 
+TEST(FPathsTests, ThirdPartyRuntimeBinariesAreSharedByBuildConfiguration)
+{
+	std::filesystem::path EngineDir = Durin::FPaths::EngineDir();
+	if (EngineDir.filename().empty()) EngineDir = EngineDir.parent_path();
+	std::filesystem::path ThirdPartyDir =
+		std::filesystem::path(Durin::FPaths::EngineThirdPartyRuntimeBinariesDir()).lexically_normal();
+	if (ThirdPartyDir.filename().empty()) ThirdPartyDir = ThirdPartyDir.parent_path();
+
+	EXPECT_EQ(ThirdPartyDir.filename(), DURIN_BUILD_CONFIGURATION);
+	EXPECT_EQ(ThirdPartyDir.parent_path().filename(), "ThirdParty");
+	EXPECT_EQ(ThirdPartyDir.parent_path().parent_path().parent_path(), (EngineDir / "Binaries").lexically_normal());
+}
+
 TEST(FPathsTests, ExplicitProjectFileControlsProjectDirectoryAndMount)
 {
 	const std::filesystem::path ProjectDir = std::filesystem::path(DURIN_TEST_WORK_DIR) / "ExternalProject";

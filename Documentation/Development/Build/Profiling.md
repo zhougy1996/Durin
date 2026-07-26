@@ -27,7 +27,9 @@ Build them through BuildTool:
 Both use `CMAKE_BUILD_TYPE=Release`, set `DURIN_PRESET_ROLE=Profiling`, enable
 `DURIN_ENABLE_TRACY`, and write binaries beneath
 `Engine/Binaries/Win64/Release-Profiling/`. Shipping rejects Tracy during
-configuration.
+configuration. Their ordinary third-party runtime DLLs are shared with standard
+Release builds beneath `Engine/Binaries/Win64/ThirdParty/Release/`; the
+profiling-only Tracy runtime remains in the selected profiling runtime directory.
 
 The client is configured for on-demand, localhost-only capture. Capturing is
 optional at runtime. Use the profiler or capture tool from the matching upstream

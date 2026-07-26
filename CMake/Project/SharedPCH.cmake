@@ -9,6 +9,7 @@ function(durin_target_apply_runtime_variant_definitions target)
 		$<$<CONFIG:Shipping>:DURIN_BUILD_SHIPPING=1>
 		DURIN_WITH_EDITOR=${DURIN_WITH_EDITOR}
 		DURIN_WITH_TRACY=${DURIN_WITH_TRACY}
+		DURIN_BUILD_CONFIGURATION="$<CONFIG>"
 		DURIN_RUNTIME_VARIANT="${DURIN_RUNTIME_VARIANT}"
 	)
 endfunction()

@@ -374,17 +374,18 @@ Purge asks for explicit confirmation unless `--yes` is supplied: enter `PURGE` f
 .\BuildTool purge --all-presets --yes
 ```
 
-Preset build trees are isolated, but final binaries are shared by
-platform/configuration and DHT metadata is shared by platform/runtime variant.
-Purging one preset therefore also invalidates those shared outputs for other
+Preset build trees are isolated, third-party runtime DLLs are shared by
+platform/configuration, and DHT metadata is shared by platform/runtime variant.
+Purging one preset therefore also invalidates those shared artifacts for other
 presets using the same configuration or runtime variant. A subsequent build
 regenerates them normally.
 
 Purge only removes registered preset trees under `Build/` and `Install/`,
-project `Binaries/<Platform>/<Config>/` roots, and project
-`Intermediate/Build/<Platform>/<RuntimeVariant>/` roots. It
-intentionally preserves bootstrapped dependencies such as `Build/ThirdParty`
-and `Engine/External`.
+project `Binaries/<Platform>/<OutputConfig>/` roots, shared
+`Binaries/<Platform>/ThirdParty/<CMakeConfig>/` roots, and project
+`Intermediate/Build/<Platform>/<RuntimeVariant>/` roots. It intentionally
+preserves bootstrapped dependencies such as `Build/ThirdParty` and
+`Engine/External`.
 
 On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/durin_build_tool/__main__.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat`. BuildTool enforces `VSLANG=1033` after Visual Studio environment setup and verifies that MSVC actually emits English diagnostics. This keeps CMake's `/showIncludes` dependency prefix stable for both interactive terminals and Agent output pipes. If validation reports a localized prefix, add the English language pack through Visual Studio Installer. The next `configure`, `build`, or `test` refreshes any existing Ninja tree that does not already contain the English dependency prefix.
 
@@ -427,13 +428,14 @@ CMake, and Ninja have exited for the checkout.
 
 - Editor: `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`
 - Runtime launcher and modules: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/`
-- Third-party runtime DLLs: `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
+- Third-party runtime DLLs: `Engine/Binaries/<Platform>/ThirdParty/<Config>/`
 - Native tests: `Engine/Binaries/<Platform>/<Config>/Tests/<RuntimeVariant>/Bin/`
 
 The launcher target is `DurinLauncher`, while the executable name follows the
 active runtime variant. Runtime path discovery assumes the executable remains in
 this repository-relative layout. If editor startup reports a missing DLL, check
-the active runtime directory and the shared `ThirdParty` directory.
+the active runtime directory and the shared configuration-specific `ThirdParty`
+directory.
 
 DHT intermediate paths are described in `Documentation/Development/Build/BuildSystem.md` and
 `Documentation/Development/Build/RuntimeVariants.md`.

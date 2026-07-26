@@ -3492,6 +3492,7 @@ class CoreTests(unittest.TestCase):
             paths = set(build_core.collect_purge_paths(self.make_profile(), [self.make_preset()], root=root))
             self.assertIn(root / "Build/debug", paths)
             self.assertIn(root / "Engine/Binaries/Win64/Debug", paths)
+            self.assertIn(root / "Engine/Binaries/Win64/ThirdParty/Debug", paths)
             self.assertIn(root / "Engine/Intermediate/Build/Win64/DurinEditor", paths)
 
     def test_purge_rejects_checkout_root(self) -> None:

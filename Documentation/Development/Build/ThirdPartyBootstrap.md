@@ -51,7 +51,7 @@ Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` local to each work
 - Prebuilt packages: `Engine/External/Packages/<Library>`
 - Shared install: `Engine/External/Install/<Platform>/<Config>/<Library>`
 - Shared third-party build tree: `Build/ThirdParty/<Platform>-<Config>-<Library>`
-- Runtime deployment: `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
+- Runtime deployment: `Engine/Binaries/<Platform>/ThirdParty/<Config>/`
 
 `Shipping` main-project builds import shared-install third-party packages from the `Release` install tree.
 
@@ -87,7 +87,9 @@ Current examples: `spdlog`, `glfw`, `rapidyaml`, `assimp`
 
 ## Runtime DLL Notes
 
-- Use `Engine/Binaries/<Platform>/<Config>/ThirdParty/` for shared third-party runtime DLLs.
+- Use `Engine/Binaries/<Platform>/ThirdParty/<Config>/` for shared third-party
+  runtime DLLs. Preset roles such as Profiling share this directory with the
+  matching ordinary CMake configuration.
 - If a library is delay-loaded or path-sensitive on Windows, also copy it beside the consuming runtime binary.
 - `RenderCore` currently depends on Slang DLL deployment, and those DLLs may need to exist in both the shared third-party directory and the active runtime directory.
 

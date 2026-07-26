@@ -13,7 +13,13 @@ both Profiling builds, and an Editor capture have passed.
 The former generic build-identifier mechanism was removed after worktree-owned
 output trees became the repository's concurrency boundary. Profiling final
 outputs remain isolated by the existing `Profiling` preset role, while
-configuration-independent DHT metadata is shared by presets in one worktree.
+configuration-independent DHT metadata and configuration-matched third-party
+runtime DLLs are shared by presets in one worktree.
+
+Standard Release and Editor Release Profiling full builds now deploy identical
+Assimp and Slang DLLs to `Engine/Binaries/Win64/ThirdParty/Release/`. The
+profiling Editor launches successfully from its isolated runtime directory while
+resolving those shared DLLs; Tracy remains profiling-local.
 
 The Editor capture recorded 233 frames and 2,307 zones over 5.11 seconds. The
 Game profiling executable completes initialization and remains running without a
@@ -103,6 +109,10 @@ instrumentation.
 - The `Profiling` role derives the `Release-Profiling` final-output
   configuration directly. The removed generic identifier is not retained as a
   second output-naming mechanism.
+- Role-independent third-party runtime DLLs use
+  `Binaries/<Platform>/ThirdParty/<CMakeConfig>/`; Release and Release
+  Profiling share those files while Tracy remains in the profiling runtime
+  directory.
 - Each profiling preset sets `DURIN_ENABLE_TRACY=ON`.
 - Ordinary Debug and Release presets leave `DURIN_ENABLE_TRACY=OFF`.
 - Shipping configuration rejects `DURIN_ENABLE_TRACY=ON` during configure with
@@ -288,6 +298,8 @@ Stage 0 inventory classified the migration surfaces as follows:
   the runtime is deployed through existing third-party runtime mechanisms.
 - [x] Add editor and game Release Profiling presets with isolated CMake and
   final-output directories.
+- [x] Share role-independent third-party runtime DLLs by platform and CMake
+  configuration while keeping Tracy in the profiling runtime directory.
 - [x] Register both presets in the repository Agent Build Profile and extend
   BuildTool configuration tests.
 - [x] Ensure configure summaries and status output identify the runtime variant,
@@ -358,7 +370,7 @@ Stage 0 inventory classified the migration surfaces as follows:
 | Configure without Tracy source | Debug and Release succeed | Fails with an actionable bootstrap message |
 | CMake option | `DURIN_WITH_TRACY=0` | `DURIN_WITH_TRACY=1` |
 | Link/runtime graph | No Tracy library or deployed runtime | One shared Tracy client is linked and deployed |
-| Output isolation | Ordinary Release paths remain unchanged | The `Profiling` preset role isolates outputs |
+| Output isolation | Ordinary Release runtime paths remain unchanged | The `Profiling` role isolates Durin/Tracy outputs and shares configuration-matched third-party DLLs |
 | Shipping | Configures with Tracy disabled | Enabling Tracy is rejected |
 | CPU instrumentation | Macros are no-op and skip argument evaluation | Zones, frame marks, and thread names appear |
 | Runtime smoke | Editor and Game launch normally | Editor and Game connect, capture, and shut down normally |

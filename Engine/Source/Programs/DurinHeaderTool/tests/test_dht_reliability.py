@@ -599,6 +599,10 @@ class IntermediateLayoutTests(unittest.TestCase):
         expected_root = utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor"
         self.assertEqual(output_path, expected_root / "Engine.project.cmake")
         self.assertIn(expected_root.as_posix(), content)
+        self.assertIn(
+            "${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/ThirdParty/${DURIN_THIRDPARTY_OUTPUT_CONFIG}",
+            content,
+        )
 
     def test_cmake_commands_forward_shared_dht_context(self):
         workspace_root = ROOT.parents[3]
