@@ -4,7 +4,10 @@
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialAssetThumbnail.h"
+#include "Thumbnail/TextureCubeAssetThumbnail.h"
+#include "Texture/TextureCubeRenderResource.h"
 
 TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 {
@@ -328,14 +331,19 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Contract.Output.Width = 64;
 	Contract.Output.Height = 64;
 	Durin::DStaticMesh* CaptureMesh = nullptr;
+	Durin::DStaticMesh* CaptureSphere = nullptr;
 	Durin::DMaterial* CaptureMaterial = nullptr;
 	Durin::DMaterialInstance* CaptureInstance = nullptr;
+	Durin::DTextureCube* CaptureCube = nullptr;
+	std::shared_ptr<Durin::FTextureCubeRenderResource> CaptureCubeResource;
 	Durin::FAssetPath CaptureTexturePath;
+	Durin::FAssetPath CaptureCubePath;
 	{
 		Durin::FRenderedAssetThumbnailPreviewScenePool Pool(Contract);
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
 		Durin::DStaticMesh* Sphere = Pool.GetSphereMesh();
 		ASSERT_NE(Sphere, nullptr);
+		CaptureSphere = Sphere;
 		ASSERT_NE(Sphere->GetRenderData(), nullptr);
 		CaptureMesh = Durin::DStaticMesh::CreateDebugTriangle();
 		ASSERT_NE(CaptureMesh, nullptr);
@@ -399,6 +407,29 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::MaterialParameters::BaseColorTextureName(), nullptr));
 		const std::vector<Durin::uint8> UntexturedPixels =
 			Capture(CaptureMaterial, 3);
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			"/MaterialThumbnailVulkan/TC_Preview", CaptureCubePath));
+		const Durin::FTextureCubeImportResult CubeResult =
+			Durin::DTextureCube::ImportAsset(
+				Durin::Tests::GetRenderedThumbnailDirectionalCubeFaces(),
+				CaptureCubePath.ToString());
+		ASSERT_TRUE(CubeResult) << CubeResult.Message;
+		CaptureCube = CubeResult.Asset;
+		CaptureCubeResource = CaptureCube->GetRenderResource();
+		Durin::FlushRenderingCommands();
+		std::vector<Durin::uint8> CubePixels;
+		std::unique_ptr<Durin::PrimitiveSceneProxy> CubeProxy =
+			Durin::CreateTextureCubePreviewPrimitive(
+				Sphere, CubeResult.Asset, Error);
+		ASSERT_NE(CubeProxy, nullptr) << Error;
+		ASSERT_TRUE(Pool.SetPrimitive(
+			std::move(CubeProxy), Durin::FMatrix(1.0), Error)) << Error;
+		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
+		Durin::FlushRenderingCommands();
+		ASSERT_EQ(
+			Pool.PollCapture(CubePixels, Error),
+			Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+		Pool.Reset();
 		ASSERT_EQ(MaterialPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(InstancePixels.size(), MaterialPixels.size());
 		ASSERT_EQ(UntexturedPixels.size(), MaterialPixels.size());
@@ -413,6 +444,20 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		EXPECT_NE(CornerRgb, MaterialCenterRgb);
 		EXPECT_NE(MaterialCenterRgb, InstanceCenterRgb);
 		EXPECT_NE(MaterialPixels, UntexturedPixels);
+		ASSERT_EQ(CubePixels.size(), MaterialPixels.size());
+		const std::array CubeCenterRgb = {
+			CubePixels[Center], CubePixels[Center + 1], CubePixels[Center + 2]};
+		EXPECT_NE(CubeCenterRgb, CornerRgb);
+		EXPECT_NE(CubeCenterRgb, (std::array<Durin::uint8, 3>{0, 0, 0}));
+		std::unordered_set<Durin::uint32> CubeColors;
+		for (size_t Pixel = 0; Pixel < CubePixels.size(); Pixel += 4)
+		{
+			CubeColors.insert(
+				static_cast<Durin::uint32>(CubePixels[Pixel]) << 16
+				| static_cast<Durin::uint32>(CubePixels[Pixel + 1]) << 8
+				| CubePixels[Pixel + 2]);
+		}
+		EXPECT_GT(CubeColors.size(), 8u);
 
 		struct FEndRenderedThumbnailFrame
 		{
@@ -428,15 +473,31 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::GEngine = nullptr;
 	ASSERT_NE(CaptureMesh, nullptr);
 	CaptureMesh->GetRenderData()->ReleaseResources();
+	ASSERT_NE(CaptureSphere, nullptr);
+	CaptureSphere->GetRenderData()->ReleaseResources();
 	Renderer.ReleaseResources();
 	Durin::FlushRenderingCommands();
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureTexturePath));
+	CaptureCubeResource->QueueRelease(CaptureCube->GetBuildRevision() + 1);
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureCubePath));
 	Durin::FlushRenderingCommands();
+	Durin::MarkAsGarbage(CaptureCube);
 	Durin::MarkAsGarbage(CaptureInstance);
 	Durin::MarkAsGarbage(CaptureMaterial);
 	Durin::MarkAsGarbage(CaptureMesh);
 	PreloadedSphere = {};
 	Durin::CollectGarbage();
+	struct FRetireRenderedThumbnailCubeResource
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "RetireRenderedThumbnailCubeResource";
+		}
+	};
+	Durin::EnqueueRenderCommand<FRetireRenderedThumbnailCubeResource>(
+		[Resource = std::move(CaptureCubeResource)](
+			Durin::FRHICommandListImmediate&) {});
+	Durin::FlushRenderingCommands();
 	Renderer.ShutdownModule();
 	Durin::ShutdownRenderingThread();
 	// The native suite may create another RHI in the same process; force the

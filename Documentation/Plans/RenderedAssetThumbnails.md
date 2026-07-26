@@ -56,8 +56,15 @@ specular, texture-sampling, and instance differences.
 Texture2D assets and supported source-image files already use an
 asynchronous, persistent Content Browser thumbnail cache. Material and
 MaterialInstance assets now use the shared rendered-thumbnail path. TextureCube
-assets have runtime render resources and a defined sampling-orientation
-contract, but Content Browser does not yet request their rendered thumbnails.
+assets now register an exact-class provider through that same rendered path.
+Cold requests load the authored cube, wait for the exact ready build/resource
+revision, and render the retained shared sphere with the dedicated
+world-reflection cube shader; warm requests reuse the persistent PNG without
+loading or rebuilding the cube. Content Browser requests TextureCube package
+fingerprints alongside Material and MaterialInstance fingerprints. Focused
+tests cover provider identity and invalidation, missing registry data, retained
+resource ownership, non-fallback directional Vulkan output, renderer cleanup,
+and the shared cube face/orientation contract.
 
 ## Goal
 
@@ -351,16 +358,16 @@ introducing per-card live viewports or steady-state rendering work.
 
 ### Stage 4: Add TextureCube thumbnails
 
-- [ ] Implement and register the TextureCube provider using a dedicated
+- [x] Implement and register the TextureCube provider using a dedicated
   editor-only reflective-sphere preview shader and the shared sphere fixture.
-- [ ] Bind only a ready render-resource revision; handle unbuilt, rebuilding,
+- [x] Bind only a ready render-resource revision; handle unbuilt, rebuilding,
   unsupported, failed, deleted, and fallback-resource states explicitly.
-- [ ] Match the documented face order, row orientation, cube sampling, camera,
+- [x] Match the documented face order, row orientation, cube sampling, camera,
   reflection vector, sampler, and output color-space contracts.
-- [ ] Add directional-face rendered-image tests that detect face swaps, axis
+- [x] Add directional-face rendered-image tests that detect face swaps, axis
   inversion, horizontal/vertical flips, and accidental use of the black
   fallback cube.
-- [ ] Add warm-hit, rebuild-revision, corruption, cancellation, and resource
+- [x] Add warm-hit, rebuild-revision, corruption, cancellation, and resource
   lifetime tests.
 
 #### Acceptance Gate

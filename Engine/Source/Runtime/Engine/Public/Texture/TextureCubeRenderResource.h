@@ -25,6 +25,10 @@
 		ENGINE_API auto IsReady_RenderThread() const -> bool;
 		ENGINE_API auto GetAppliedRevision_RenderThread() const -> uint64;
 		ENGINE_API auto GetResourceState() const -> ERenderResourceState;
+		auto GetRequestedRevision() const -> uint64
+		{
+			return RequestedRevision.load(std::memory_order_acquire);
+		}
 		auto GetFailedRevision() const -> uint64 { return FailedRevision.load(std::memory_order_acquire); }
 		auto GetFailureReason() const -> ETextureRenderFailure { return FailureReason.load(std::memory_order_acquire); }
 

@@ -52,4 +52,12 @@ namespace Durin
 		MaterialVersions[Update.SlotIndex] = Update.MaterialVersion;
 		LastMaterialDirtyFlags[Update.SlotIndex] = Update.DirtyFlags;
 	}
+
+	FTextureCubePreviewSceneProxy::FTextureCubePreviewSceneProxy(
+		FStaticMeshRenderData* InRenderData,
+		std::shared_ptr<FTextureCubeRenderResource> InTextureResource)
+		: RenderData(InRenderData)
+		, TextureResource(std::move(InTextureResource))
+	{
+	}
 }

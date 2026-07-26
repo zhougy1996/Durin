@@ -100,6 +100,26 @@ namespace Durin
 			DURIN_DECLARE_SHADER(FStaticMeshFragmentShader, FShader, "/Engine/StaticMesh", EShaderFrequency::Fragment, "FragmentMain");
 		};
 
+		class FTextureCubeThumbnailVertexShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FTextureCubeThumbnailVertexShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FTextureCubeThumbnailVertexShader, FShader, "/Engine/TextureCubeThumbnail", EShaderFrequency::Vertex, "VertexMain");
+		};
+
+		class FTextureCubeThumbnailFragmentShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FTextureCubeThumbnailFragmentShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
+				DURIN_SHADER_PARAMETER_TEXTURE(CubeTexture);
+				DURIN_SHADER_PARAMETER_SAMPLER(CubeSampler);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FTextureCubeThumbnailFragmentShader, FShader, "/Engine/TextureCubeThumbnail", EShaderFrequency::Fragment, "FragmentMain");
+		};
+
 		class FGizmoVertexShader : public FShader
 		{
 		public:
@@ -214,6 +234,14 @@ namespace Durin
 			glm::mat4 LocalToWorld{1.0f};
 			glm::mat4 NormalToWorld{1.0f};
 			FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
+		};
+
+		struct FTextureCubeThumbnailTransformUniform
+		{
+			glm::mat4 LocalToClip{1.0f};
+			glm::mat4 LocalToWorld{1.0f};
+			glm::mat4 NormalToWorld{1.0f};
+			FVector4f ViewPosition{0.0f};
 		};
 
 		struct FStaticMeshLightingUniform
@@ -358,6 +386,17 @@ namespace Durin
 			bool bCreateAttempted = false;
 		};
 
+		struct FTextureCubeThumbnailRendererState
+		{
+			std::shared_ptr<FShaderMapBase> ShaderMap;
+			TShaderRef<FTextureCubeThumbnailVertexShader> VertexShader;
+			TShaderRef<FTextureCubeThumbnailFragmentShader> FragmentShader;
+			FVertexDeclarationRHIRef VertexDeclaration;
+			FGraphicsPipelineStateRHIRef PipelineState;
+			FSamplerRHIRef Sampler;
+			bool bCreateAttempted = false;
+		};
+
 		struct FSkyBoxRendererState
 		{
 			std::shared_ptr<FShaderMapBase> ShaderMap;
@@ -398,6 +437,7 @@ namespace Durin
 		};
 
 		FStaticMeshRendererState GStaticMeshState;
+		FTextureCubeThumbnailRendererState GTextureCubeThumbnailState;
 		FSkyBoxRendererState GSkyBoxState;
 		FPostProcessRendererState GPostProcessState;
 		FGizmoRendererState GGizmoState;
@@ -1019,6 +1059,104 @@ namespace Durin
 			GStaticMeshState.BaseColorSampler = RHICreateSampler(FRHISamplerDesc::LinearRepeat());
 		}
 
+		auto EnsureTextureCubeThumbnailPipeline() -> void
+		{
+			if (GTextureCubeThumbnailState.bCreateAttempted) return;
+			GTextureCubeThumbnailState.bCreateAttempted = true;
+
+			FShaderCompileOptions CompileOptions;
+			FShaderType& VertexShaderType = FTextureCubeThumbnailVertexShader::StaticType();
+			FShaderType& FragmentShaderType = FTextureCubeThumbnailFragmentShader::StaticType();
+			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
+			std::shared_ptr<FShaderMapBase> ShaderMap = std::make_shared<FShaderMapBase>();
+			std::string ErrorMessage;
+			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
+			{
+				DURIN_ERROR("Failed to initialize TextureCube thumbnail shader map: {}", ErrorMessage);
+				return;
+			}
+
+			auto* VertexShader = static_cast<FTextureCubeThumbnailVertexShader*>(
+				ShaderMap->GetShader(&VertexShaderType));
+			auto* FragmentShader = static_cast<FTextureCubeThumbnailFragmentShader*>(
+				ShaderMap->GetShader(&FragmentShaderType));
+			check(VertexShader);
+			check(FragmentShader);
+			GTextureCubeThumbnailState.ShaderMap = ShaderMap;
+			GTextureCubeThumbnailState.VertexShader =
+				TShaderRef<FTextureCubeThumbnailVertexShader>(VertexShader, ShaderMap.get());
+			GTextureCubeThumbnailState.FragmentShader =
+				TShaderRef<FTextureCubeThumbnailFragmentShader>(FragmentShader, ShaderMap.get());
+
+			FVertexDeclarationElementList VertexDeclElements;
+			constexpr uint32 VertexStride = sizeof(FVector3f);
+			VertexDeclElements[0] =
+				FVertexElement(0, 0, EVertexElementType::Float3, 0, VertexStride);
+			constexpr uint32 AttributeStride = sizeof(FStaticMeshPackedVertex);
+			VertexDeclElements[1] = FVertexElement(
+				1,
+				offsetof(FStaticMeshPackedVertex, Normal),
+				EVertexElementType::Short4N,
+				1,
+				AttributeStride);
+			VertexDeclElements[2] = FVertexElement(
+				1,
+				offsetof(FStaticMeshPackedVertex, Tangent),
+				EVertexElementType::Short4N,
+				2,
+				AttributeStride);
+			VertexDeclElements[3] = FVertexElement(
+				1,
+				offsetof(FStaticMeshPackedVertex, TexCoords),
+				EVertexElementType::Float2,
+				3,
+				AttributeStride);
+			VertexDeclElements[4] = FVertexElement(
+				1,
+				offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f),
+				EVertexElementType::Float2,
+				4,
+				AttributeStride);
+			VertexDeclElements[5] = FVertexElement(
+				1,
+				offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 2,
+				EVertexElementType::Float2,
+				5,
+				AttributeStride);
+			VertexDeclElements[6] = FVertexElement(
+				1,
+				offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 3,
+				EVertexElementType::Float2,
+				6,
+				AttributeStride);
+			VertexDeclElements[7] = FVertexElement(
+				1,
+				offsetof(FStaticMeshPackedVertex, Color),
+				EVertexElementType::UByte4N,
+				7,
+				AttributeStride);
+			GTextureCubeThumbnailState.VertexDeclaration =
+				GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
+
+			FGraphicsPipelineStateInitializer Initializer;
+			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
+			Initializer.BoundShaders.VertexShader =
+				GTextureCubeThumbnailState.VertexShader.GetRHIShader();
+			Initializer.BoundShaders.FragmentShader =
+				GTextureCubeThumbnailState.FragmentShader.GetRHIShader();
+			Initializer.VertexDeclaration = GTextureCubeThumbnailState.VertexDeclaration;
+			Initializer.bEnableAlphaBlend = false;
+			Initializer.bEnableDepthTest = true;
+			Initializer.bEnableDepthWrite = true;
+			Initializer.bEnableBackFaceCulling = false;
+			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
+			GTextureCubeThumbnailState.PipelineState =
+				GDynamicRHI->RHICreateGraphicsPipelineState(
+					"TextureCubeThumbnailPipeline", Initializer);
+			GTextureCubeThumbnailState.Sampler =
+				RHICreateSampler(FRHISamplerDesc::LinearClamp());
+		}
+
 		auto CreatePostProcessPipeline(
 			FName PipelineName,
 			FRHIShader* VertexShader,
@@ -1276,6 +1414,67 @@ namespace Durin
 			}
 		}
 
+		auto DrawTextureCubeThumbnailProxy(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& View,
+			const FTextureCubePreviewSceneProxy& Proxy) -> void
+		{
+			FStaticMeshRenderData* RenderData = Proxy.GetRenderData();
+			const std::shared_ptr<FTextureCubeRenderResource>& TextureResource =
+				Proxy.GetTextureResource();
+			if (RenderData == nullptr || RenderData->LODResources.empty()
+				|| !RenderData->IsReadyForRendering() || TextureResource == nullptr
+				|| !TextureResource->IsReady_RenderThread())
+				return;
+			FRHITexture* Texture = TextureResource->GetTextureRHI_RenderThread();
+			if (Texture == nullptr) return;
+
+			EnsureTextureCubeThumbnailPipeline();
+			if (GTextureCubeThumbnailState.PipelineState == nullptr
+				|| GTextureCubeThumbnailState.Sampler == nullptr
+				|| !GTextureCubeThumbnailState.VertexShader
+				|| !GTextureCubeThumbnailState.FragmentShader)
+				return;
+
+			const FStaticMeshLODResources& LOD = RenderData->LODResources[0];
+			FTextureCubeThumbnailTransformUniform Uniform;
+			Uniform.LocalToClip =
+				ToShaderMatrix(View.ViewProjectionMatrix * Proxy.GetLocalToWorld());
+			Uniform.LocalToWorld = ToShaderMatrix(Proxy.GetLocalToWorld());
+			Uniform.NormalToWorld =
+				ToShaderMatrix(glm::transpose(glm::inverse(Proxy.GetLocalToWorld())));
+			Uniform.ViewPosition = FVector4f(FVector3f(View.ViewLocation), 1.0f);
+			const FRHIUniformBufferRange UniformBuffer =
+				CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+
+			CommandList.SetGraphicsPipelineState(
+				*GTextureCubeThumbnailState.PipelineState);
+			FTextureCubeThumbnailVertexShader::FParameters VertexParameters;
+			VertexParameters.Transform = UniformBuffer;
+			SetShaderParameters(
+				CommandList, GTextureCubeThumbnailState.VertexShader, VertexParameters);
+			FTextureCubeThumbnailFragmentShader::FParameters FragmentParameters;
+			FragmentParameters.Transform = UniformBuffer;
+			FragmentParameters.CubeTexture = Texture;
+			FragmentParameters.CubeSampler = GTextureCubeThumbnailState.Sampler;
+			SetShaderParameters(
+				CommandList,
+				GTextureCubeThumbnailState.FragmentShader,
+				FragmentParameters);
+
+			CommandList.BindVertexBuffer(0, LOD.PositionVertexBufferRHI, 0);
+			CommandList.BindVertexBuffer(1, LOD.StaticMeshVertexBufferRHI, 0);
+			CommandList.BindIndexBuffer(LOD.IndexBufferRHI, 0);
+			for (const FStaticMeshSection& Section : LOD.Sections)
+			{
+				if (Section.IndexCount == 0
+					|| static_cast<uint64>(Section.FirstIndex) + Section.IndexCount
+						> LOD.Indices.size())
+					continue;
+				CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
+			}
+		}
+
 		auto DrawGizmoPrimitives(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bXRay, bool bPresentOutput) -> void
 		{
 			if (View.OverlayPrimitives.empty() || GGizmoState.VertexBuffer == nullptr || GGizmoState.IndexBuffer == nullptr) return;
@@ -1498,6 +1697,20 @@ namespace Durin
 				}
 			}
 		}
+
+		auto ForEachTextureCubeThumbnailProxy(
+			IScene* Scene,
+			const std::function<void(FTextureCubePreviewSceneProxy&)>& Function) -> void
+		{
+			auto* RendererScene = dynamic_cast<FScene*>(Scene);
+			if (RendererScene == nullptr) return;
+			for (PrimitiveSceneProxy* Proxy : RendererScene->GetPrimitiveSceneProxies())
+			{
+				if (auto* TextureCubeProxy =
+						dynamic_cast<FTextureCubePreviewSceneProxy*>(Proxy))
+					Function(*TextureCubeProxy);
+			}
+		}
 	}
 
 	auto GetDefaultTexture_RenderThread(EDefaultTexture Texture) -> FRHITexture*
@@ -1540,6 +1753,7 @@ namespace Durin
 		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)([](FRHICommandListImmediate&) {
 			GDefaultTextures = {};
 			GStaticMeshState.BaseColorSampler = nullptr;
+			GTextureCubeThumbnailState = {};
 			GSkyBoxState.Sampler = nullptr;
 			GOverlayIconState.Atlas = nullptr;
 			GOverlayIconState.AtlasSampler = nullptr;
@@ -1552,6 +1766,7 @@ namespace Durin
 				&& GDefaultTextures.BlackCube == nullptr,
 			"Renderer defaults must be released before the rendering thread stops");
 		GStaticMeshState = {};
+		GTextureCubeThumbnailState = {};
 		GSkyBoxState = {};
 		GGizmoState = {};
 		GOverlayLineState = {};
@@ -1636,6 +1851,11 @@ namespace Durin
 				RenderData->InitResources(CommandList);
 			}
 		});
+		ForEachTextureCubeThumbnailProxy(
+			Scene, [&CommandList](FTextureCubePreviewSceneProxy& Proxy) {
+				if (FStaticMeshRenderData* RenderData = Proxy.GetRenderData())
+					RenderData->InitResources(CommandList);
+			});
 	}
 
 	auto FRendererModule::RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void
@@ -1755,6 +1975,11 @@ namespace Durin
 				DrawStaticMeshProxy(CommandList, View, Light, RenderMode, RasterMode, Proxy);
 			}
 		});
+		ForEachTextureCubeThumbnailProxy(
+			Scene,
+			[&CommandList, &View](FTextureCubePreviewSceneProxy& Proxy) {
+				DrawTextureCubeThumbnailProxy(CommandList, View, Proxy);
+			});
 	}
 
 	auto FRendererModule::PrepareEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void

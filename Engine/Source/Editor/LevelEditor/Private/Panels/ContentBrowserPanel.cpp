@@ -283,7 +283,9 @@ namespace Durin
 			}
 			else if (Data.AssetClassName == DMaterial::StaticClass()->GetQualifiedName().ToString()
 				|| Data.AssetClassName
-					== DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
+					== DMaterialInstance::StaticClass()->GetQualifiedName().ToString()
+				|| Data.AssetClassName
+					== DTextureCube::StaticClass()->GetQualifiedName().ToString())
 			{
 				Item.ThumbnailIdentity = Item.VirtualPath;
 				Item.ThumbnailFileSize = Data.FileSize;

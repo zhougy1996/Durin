@@ -14,7 +14,10 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DRenderResource.h"
+#include "Texture/TextureCube.h"
+#include "Texture/TextureCubeRenderResource.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/TextureCubeAssetThumbnail.h"
 
 namespace Durin
 {
@@ -119,6 +122,65 @@ namespace Durin
 			Revision ^= Texture->GetBuildRevision() + 0x9e3779b97f4a7c15ull
 				+ (Revision << 6) + (Revision >> 2);
 			return Revision == 0 ? 1 : Revision;
+		}
+
+		auto GetTextureCubeResourceRevision(
+			DTextureCube* TextureCube,
+			bool& bOutReady,
+			std::string& OutError) -> uint64
+		{
+			bOutReady = false;
+			OutError.clear();
+			if (TextureCube == nullptr)
+			{
+				OutError = "The TextureCube asset is unavailable.";
+				return 0;
+			}
+			if (TextureCube->GetBuildStatus() != ETextureBuildStatus::Ready)
+			{
+				OutError = TextureCube->GetLastBuildError();
+				if (OutError.empty())
+				{
+					switch (TextureCube->GetBuildStatus())
+					{
+					case ETextureBuildStatus::Unbuilt:
+						OutError = "The TextureCube is not built.";
+						break;
+					case ETextureBuildStatus::MissingSource:
+						OutError = "The TextureCube source is missing.";
+						break;
+					case ETextureBuildStatus::UnsupportedFormat:
+						OutError = "The TextureCube format is unsupported.";
+						break;
+					default:
+						OutError = "The TextureCube build failed.";
+						break;
+					}
+				}
+				return 0;
+			}
+			const std::shared_ptr<FTextureCubeRenderResource>& Resource =
+				TextureCube->GetRenderResource();
+			if (Resource == nullptr)
+			{
+				OutError = "The TextureCube has no render resource.";
+				return 0;
+			}
+			const ERenderResourceState State = Resource->GetResourceState();
+			if (Resource->GetRequestedRevision() != TextureCube->GetBuildRevision())
+				return TextureCube->GetBuildRevision();
+			if (State == ERenderResourceState::Failed)
+			{
+				OutError = "The TextureCube render resource failed.";
+				return 0;
+			}
+			if (State == ERenderResourceState::Released)
+			{
+				OutError = "The TextureCube render resource was released.";
+				return 0;
+			}
+			bOutReady = State == ERenderResourceState::Ready;
+			return TextureCube->GetBuildRevision();
 		}
 
 		struct FMaterialThumbnailUploadResult
@@ -260,6 +322,7 @@ namespace Durin
 			std::make_shared<FMaterialThumbnailAsyncState>();
 		std::optional<FRenderedAssetThumbnailJob> ActiveJob;
 		DMaterialInterface* ActiveMaterial = nullptr;
+		DTextureCube* ActiveTextureCube = nullptr;
 		uint64 FrameNumber = 0;
 		bool bProvidersRegistered = false;
 
@@ -273,9 +336,11 @@ namespace Durin
 				DMaterial::StaticClass()->GetQualifiedName().ToString());
 			auto Instance = std::make_shared<FMaterialAssetThumbnailProvider>(
 				DMaterialInstance::StaticClass()->GetQualifiedName().ToString());
+			auto TextureCube = std::make_shared<FTextureCubeAssetThumbnailProvider>();
 			bProvidersRegistered =
 				Registry.Register(std::move(Material), Error)
-				&& Registry.Register(std::move(Instance), Error);
+				&& Registry.Register(std::move(Instance), Error)
+				&& Registry.Register(std::move(TextureCube), Error);
 		}
 
 		auto EnsureScene() -> bool
@@ -442,15 +507,20 @@ namespace Durin
 			ScenePool->Reset();
 			ActiveJob.reset();
 			ActiveMaterial = nullptr;
+			ActiveTextureCube = nullptr;
 		}
 
 		auto TryBeginCapture() -> void
 		{
-			if (!ActiveJob || ActiveMaterial == nullptr) return;
+			if (!ActiveJob || (ActiveMaterial == nullptr && ActiveTextureCube == nullptr))
+				return;
 			bool bResourcesReady = false;
 			std::string Error;
-			const uint64 ResourceRevision =
-				GetMaterialResourceRevision(ActiveMaterial, bResourcesReady, Error);
+			const uint64 ResourceRevision = ActiveTextureCube != nullptr
+				? GetTextureCubeResourceRevision(
+					ActiveTextureCube, bResourcesReady, Error)
+				: GetMaterialResourceRevision(
+					ActiveMaterial, bResourcesReady, Error);
 			if (!Error.empty())
 			{
 				Pipeline.BeginRender(
@@ -461,6 +531,7 @@ namespace Durin
 					Error);
 				ActiveJob.reset();
 				ActiveMaterial = nullptr;
+				ActiveTextureCube = nullptr;
 				return;
 			}
 			if (!Pipeline.BeginRender(
@@ -481,13 +552,18 @@ namespace Durin
 						: "The rendered-thumbnail scene is unavailable.");
 				ActiveJob.reset();
 				ActiveMaterial = nullptr;
+				ActiveTextureCube = nullptr;
 				return;
 			}
-			std::unique_ptr<PrimitiveSceneProxy> Proxy = CreateMaterialPreviewPrimitive(
-				ScenePool->GetSphereMesh(),
-				ActiveMaterial,
-				ActiveJob->ResourceRevision,
-				Error);
+			std::unique_ptr<PrimitiveSceneProxy> Proxy =
+				ActiveTextureCube != nullptr
+				? CreateTextureCubePreviewPrimitive(
+					ScenePool->GetSphereMesh(), ActiveTextureCube, Error)
+				: CreateMaterialPreviewPrimitive(
+					ScenePool->GetSphereMesh(),
+					ActiveMaterial,
+					ActiveJob->ResourceRevision,
+					Error);
 			if (Proxy == nullptr
 				|| !ScenePool->SetPrimitive(std::move(Proxy), FMatrix(1.0), Error)
 				|| !ScenePool->BeginCapture(Error))
@@ -500,6 +576,7 @@ namespace Durin
 				ScenePool->Reset();
 				ActiveJob.reset();
 				ActiveMaterial = nullptr;
+				ActiveTextureCube = nullptr;
 			}
 		}
 
@@ -516,11 +593,42 @@ namespace Durin
 			}
 			if (!Start.ColdJob) return;
 			ActiveJob = std::move(Start.ColdJob);
+			if (const auto CubeInput =
+					std::dynamic_pointer_cast<const FTextureCubeThumbnailGenerationInput>(
+						ActiveJob->ScheduledJob.GenerationRequest.Input))
+			{
+				DObject* Loaded = nullptr;
+				const Asset::FAssetResult Result =
+					Asset::LoadAsset(CubeInput->AssetPath, Loaded);
+				ActiveTextureCube = Result ? Cast<DTextureCube>(Loaded) : nullptr;
+				if (!Result || ActiveTextureCube == nullptr)
+				{
+					Pipeline.CompleteLoad(
+						*ActiveJob,
+						0,
+						Result.Message.empty()
+							? "The requested asset is not a TextureCube."
+							: Result.Message);
+					ActiveJob.reset();
+					ActiveTextureCube = nullptr;
+					return;
+				}
+				if (!Pipeline.CompleteLoad(
+						*ActiveJob, ActiveTextureCube->GetBuildRevision()))
+				{
+					ActiveJob.reset();
+					ActiveTextureCube = nullptr;
+					return;
+				}
+				TryBeginCapture();
+				return;
+			}
 			const auto Input = std::dynamic_pointer_cast<const FMaterialThumbnailGenerationInput>(
 				ActiveJob->ScheduledJob.GenerationRequest.Input);
 			if (Input == nullptr)
 			{
-				Pipeline.CompleteLoad(*ActiveJob, 0, "Material thumbnail input is invalid.");
+				Pipeline.CompleteLoad(
+					*ActiveJob, 0, "Rendered thumbnail input is invalid.");
 				ActiveJob.reset();
 				return;
 			}
@@ -668,6 +776,7 @@ namespace Durin
 		if (Impl->ActiveJob) Impl->Pipeline.Cancel(*Impl->ActiveJob);
 		Impl->ActiveJob.reset();
 		Impl->ActiveMaterial = nullptr;
+		Impl->ActiveTextureCube = nullptr;
 		if (Impl->ScenePool) Impl->ScenePool->Reset();
 		Impl->Scheduler.CancelAll();
 	}
