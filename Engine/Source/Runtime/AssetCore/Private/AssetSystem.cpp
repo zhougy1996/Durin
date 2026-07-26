@@ -164,6 +164,18 @@ namespace Durin::Asset
 			return Contributors;
 		}
 
+		struct FRegisteredStructureUpgrader
+		{
+			std::string HandlerId;
+			FAssetStructureUpgrader Upgrader;
+		};
+
+		auto GetStructureUpgraders() -> std::unordered_map<DClass*, FRegisteredStructureUpgrader>&
+		{
+			static std::unordered_map<DClass*, FRegisteredStructureUpgrader> Upgraders;
+			return Upgraders;
+		}
+
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
 		{
 			const FPackageLoadContext& Context = FAssetManager::Get().GetPackageLoadContext();
@@ -467,6 +479,34 @@ namespace Durin::Asset
 			default:
 				return Error(EAssetError::UnsupportedProperty, "Unsupported property kind.");
 			}
+		}
+
+		auto ReadObjectReferenceValue(
+			FByteReader& Reader,
+			std::span<DObject* const> Objects,
+			DObject*& OutObject) -> FAssetResult
+		{
+			OutObject = nullptr;
+			uint8 ReferenceKind = 0;
+			if (!Reader.Read(ReferenceKind)) return Error(EAssetError::CorruptFile, "Truncated object reference.");
+			if (ReferenceKind == 0) return {};
+			if (ReferenceKind == 1)
+			{
+				uint64 Id = 0;
+				if (!Reader.Read(Id) || Id == 0 || Id > Objects.size())
+					return Error(EAssetError::InvalidObjectGraph, "Invalid internal object reference.");
+				OutObject = Objects[static_cast<size_t>(Id - 1)];
+				return {};
+			}
+			if (ReferenceKind == 2)
+			{
+				std::string PathString;
+				FAssetPath Path;
+				if (!Reader.ReadString(PathString) || !FAssetPath::TryCreate(PathString, Path))
+					return Error(EAssetError::InvalidPath, "Invalid external object reference.");
+				return FAssetManager::Get().LoadAsset(Path, OutObject);
+			}
+			return Error(EAssetError::CorruptFile, "Unknown object reference kind.");
 		}
 
 		auto WritePackageFile(const FPackageFile& File, FByteWriter& Writer) -> void
@@ -897,6 +937,90 @@ namespace Durin::Asset
 		return {};
 	}
 
+	auto FAssetLoadReport::HasRiskItems() const -> bool
+	{
+		return std::ranges::any_of(CompatibilityIssues, [](const FAssetCompatibilityIssue& Issue) {
+			return Issue.Risk != EAssetCompatibilityRisk::None;
+		});
+	}
+
+	auto FAssetLoadReport::GetAffectedObjectCount() const -> uint64
+	{
+		std::unordered_set<std::string> ObjectPaths;
+		for (const FAssetCompatibilityIssue& Issue : CompatibilityIssues) ObjectPaths.insert(Issue.ObjectPath);
+		return static_cast<uint64>(ObjectPaths.size());
+	}
+
+	auto FAssetLoadReport::GetLegacyFieldCount() const -> uint64
+	{
+		uint64 Count = 0;
+		for (const FAssetCompatibilityIssue& Issue : CompatibilityIssues)
+			Count += static_cast<uint64>(Issue.LegacyFields.size());
+		return Count;
+	}
+
+	auto FAssetLoadReport::GetMigratedDataCount() const -> uint64
+	{
+		uint64 Count = 0;
+		for (const FAssetCompatibilityIssue& Issue : CompatibilityIssues) Count += Issue.MigratedDataCount;
+		return Count;
+	}
+
+	auto FAssetLoadReport::GetRiskItemCount() const -> uint64
+	{
+		return static_cast<uint64>(std::ranges::count_if(
+			CompatibilityIssues,
+			[](const FAssetCompatibilityIssue& Issue) {
+				return Issue.Risk != EAssetCompatibilityRisk::None;
+			}));
+	}
+
+	auto FAssetMigrationContext::ReadObjectReference(
+		const FAssetLegacyField& Field,
+		DObject*& OutObject) const -> FAssetResult
+	{
+		FByteReader Reader{Field.Payload};
+		FAssetResult Result = ReadObjectReferenceValue(Reader, Objects, OutObject);
+		if (Result && Reader.Offset != Field.Payload.size())
+			return Error(EAssetError::CorruptFile, "Object-reference payload has trailing bytes.");
+		return Result;
+	}
+
+	auto FAssetMigrationContext::ReadObjectReferenceArray(
+		const FAssetLegacyField& Field,
+		std::vector<DObject*>& OutObjects) const -> FAssetResult
+	{
+		OutObjects.clear();
+		FByteReader Reader{Field.Payload};
+		uint64 Count = 0;
+		if (!Reader.Read(Count) || Count > 10000000)
+			return Error(EAssetError::CorruptFile, "Invalid object-reference array payload.");
+		OutObjects.reserve(static_cast<size_t>(Count));
+		for (uint64 Index = 0; Index < Count; ++Index)
+		{
+			DObject* Object = nullptr;
+			FAssetResult Result = ReadObjectReferenceValue(Reader, Objects, Object);
+			if (!Result) return Result;
+			OutObjects.push_back(Object);
+		}
+		if (Reader.Offset != Field.Payload.size())
+			return Error(EAssetError::CorruptFile, "Object-reference array payload has trailing bytes.");
+		return {};
+	}
+
+	auto RegisterAssetStructureUpgrader(
+		DClass* Class,
+		std::string HandlerId,
+		FAssetStructureUpgrader Upgrader) -> void
+	{
+		if (!Class || HandlerId.empty() || !Upgrader) return;
+		GetStructureUpgraders().insert_or_assign(
+			Class,
+			FRegisteredStructureUpgrader{
+				.HandlerId = std::move(HandlerId),
+				.Upgrader = std::move(Upgrader)});
+	}
+
 	auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void
 	{
 		if (Class && Contributor) GetMoveContributors().insert_or_assign(Class, std::move(Contributor));
@@ -1103,10 +1227,16 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::SavePackage(DPackage* Package) -> FAssetResult
+	auto FAssetManager::SavePackage(
+		DPackage* Package,
+		const FAssetPackageSaveOptions& Options) -> FAssetResult
 	{
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit package saves.");
+		if (Package && CompatibilityRiskPackages.contains(Package) && !Options.bAllowCompatibilityDataLoss)
+			return Error(
+				EAssetError::UnsupportedProperty,
+				"The package contains unknown incompatible fields and cannot be saved without explicit data-loss consent.");
 		FAssetPath Path;
 		if (Package && Package->IsAssetPackage()
 			&& !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
@@ -1126,6 +1256,7 @@ namespace Durin::Asset
 			return Error(EAssetError::IoError, PublicationError.ToString());
 		}
 		Package->ClearDirty();
+		CompatibilityRiskPackages.erase(Package);
 		const auto LastWriteTime = std::filesystem::last_write_time(Destination);
 		Registry.AddOrUpdate(FAssetData{
 			.PackagePath = Path,
@@ -1362,13 +1493,17 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult
+	auto FAssetManager::LoadAsset(
+		const FAssetPath& Path,
+		DObject*& OutAsset,
+		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.Load");
+		if (OutReport) *OutReport = {.PackagePath = Path};
 		const bool bRootLoad = LoadDepth++ == 0;
 		if (bRootLoad) TransactionPackages.clear();
 		DPackage* Package = nullptr;
-		FAssetResult Result = LoadPackageInternal(Path, Package);
+		FAssetResult Result = LoadPackageInternal(Path, Package, OutReport);
 		--LoadDepth;
 		if (bRootLoad)
 		{
@@ -1395,7 +1530,10 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	auto FAssetManager::LoadPackageInternal(const FAssetPath& Path, DPackage*& OutPackage) -> FAssetResult
+	auto FAssetManager::LoadPackageInternal(
+		const FAssetPath& Path,
+		DPackage*& OutPackage,
+		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.LoadPackage");
 		if (auto It = LoadedPackages.find(Path); It != LoadedPackages.end())
@@ -1422,6 +1560,7 @@ namespace Durin::Asset
 		auto Rollback = [&]() {
 			LoadingPackages.erase(Path);
 			LoadedPackages.erase(Path);
+			CompatibilityRiskPackages.erase(Package);
 			RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 			CollectGarbage();
@@ -1454,22 +1593,26 @@ namespace Durin::Asset
 			if (!Result) { Rollback(); return Error(EAssetError::MissingDependency, Result.Message); }
 		}
 
-		bool bSkippedIncompatibleField = false;
+		Package->ClearDirty();
+		FAssetMigrationContext MigrationContext{Objects};
 		for (const FObjectRecord& Record : File.Objects)
 		{
 			DObject* Object = Objects[Record.Id - 1];
+			std::vector<FAssetLegacyField> LegacyFields;
 			for (const FFieldRecord& Field : Record.Fields)
 			{
 				DClass* DeclaringClass = FindClassByQualifiedName(Field.DeclaringClass);
-				if (!DeclaringClass || !Object->IsA(DeclaringClass)) continue;
-				FProperty* Property = DeclaringClass->FindPropertyByName(FName(Field.Name), false);
+				FProperty* Property = DeclaringClass && Object->IsA(DeclaringClass)
+					? DeclaringClass->FindPropertyByName(FName(Field.Name), false)
+					: nullptr;
 				if (!Property || Property->GetKind() != Field.Kind || GetTypeSignature(Property) != Field.TypeSignature)
 				{
-					DURIN_WARN(
-						"Asset package '{}' contains obsolete or incompatible field {}::{} on object '{}'; "
-						"the field was skipped. Resave the package to remove stale serialized data.",
-						Path.ToString(), Field.DeclaringClass, Field.Name, Object->GetObjectPath());
-					bSkippedIncompatibleField = true;
+					LegacyFields.push_back({
+						.DeclaringClass = Field.DeclaringClass,
+						.Name = Field.Name,
+						.Kind = Field.Kind,
+						.TypeSignature = Field.TypeSignature,
+						.Payload = Field.Payload});
 					continue;
 				}
 				FByteReader FieldReader{Field.Payload};
@@ -1480,12 +1623,69 @@ namespace Durin::Asset
 				}
 				if (FieldReader.Offset != Field.Payload.size()) { Rollback(); return Error(EAssetError::CorruptFile, "Property payload has trailing bytes."); }
 			}
+
+			if (LegacyFields.empty()) continue;
+			std::vector<FAssetCompatibilityIssue> ObjectIssues;
+			const FRegisteredStructureUpgrader* RegisteredUpgrader = nullptr;
+			for (DClass* Class = Object->GetClass(); Class; Class = Class->GetSuperClass())
+			{
+				auto It = GetStructureUpgraders().find(Class);
+				if (It == GetStructureUpgraders().end()) continue;
+				RegisteredUpgrader = &It->second;
+				break;
+			}
+			if (RegisteredUpgrader)
+			{
+				Result = RegisteredUpgrader->Upgrader(Object, LegacyFields, MigrationContext, ObjectIssues);
+				if (!Result) { Rollback(); return Result; }
+				for (FAssetCompatibilityIssue& Issue : ObjectIssues)
+				{
+					if (Issue.ObjectPath.empty()) Issue.ObjectPath = Object->GetObjectPath();
+					if (Issue.DeclaringClass.empty())
+						Issue.DeclaringClass = Object->GetClass()->GetQualifiedName().ToString();
+					if (Issue.HandlerId.empty()) Issue.HandlerId = RegisteredUpgrader->HandlerId;
+				}
+			}
+
+			auto WasHandled = [&ObjectIssues](const FAssetLegacyField& Field) {
+				return std::ranges::any_of(ObjectIssues, [&Field](const FAssetCompatibilityIssue& Issue) {
+					return std::ranges::any_of(Issue.LegacyFields, [&Field](const FAssetLegacyField& Handled) {
+						return Handled.DeclaringClass == Field.DeclaringClass
+							&& Handled.Name == Field.Name
+							&& Handled.TypeSignature == Field.TypeSignature;
+					});
+				});
+			};
+			std::unordered_map<std::string, std::vector<FAssetLegacyField>> UnknownByClass;
+			for (const FAssetLegacyField& Field : LegacyFields)
+			{
+				if (!WasHandled(Field)) UnknownByClass[Field.DeclaringClass].push_back(Field);
+			}
+			for (auto& [DeclaringClass, Fields] : UnknownByClass)
+			{
+				DURIN_WARN(
+					"Asset package '{}' contains unknown incompatible fields on object '{}'; "
+					"the fields were skipped and the package was not marked dirty.",
+					Path.ToString(), Object->GetObjectPath());
+				ObjectIssues.push_back({
+					.ObjectPath = Object->GetObjectPath(),
+					.DeclaringClass = std::move(DeclaringClass),
+					.LegacyFields = std::move(Fields),
+					.Classification = EAssetCompatibilityClassification::UnknownIncompatible,
+					.MigrationSummary = "No registered asset-structure upgrader recognizes these fields.",
+					.Risk = EAssetCompatibilityRisk::UnknownNewerSchema});
+			}
+			for (FAssetCompatibilityIssue& Issue : ObjectIssues)
+			{
+				if (Issue.Classification == EAssetCompatibilityClassification::SafeCleanup
+					|| Issue.Classification == EAssetCompatibilityClassification::Migrated)
+					Package->MarkDirty();
+				if (Issue.Risk != EAssetCompatibilityRisk::None)
+					CompatibilityRiskPackages.insert(Package);
+				if (OutReport) OutReport->CompatibilityIssues.push_back(std::move(Issue));
+			}
 		}
 
-		// PostLoad migrations and skipped stale fields deliberately leave the package
-		// dirty so the upgraded representation is offered for resave.
-		Package->ClearDirty();
-		if (bSkippedIncompatibleField) Package->MarkDirty();
 		for (auto It = Objects.rbegin(); It != Objects.rend(); ++It)
 		{
 			std::string PostLoadError;
@@ -1538,6 +1738,7 @@ namespace Durin::Asset
 		if (LoadingPackages.contains(Path) || IsPackageReferenced(It->second)) return Error(EAssetError::InUse, "Package is still referenced.");
 		DPackage* Package = It->second;
 		LoadedPackages.erase(It);
+		CompatibilityRiskPackages.erase(Package);
 		RemoveFromRoot(Package);
 		MarkObjectHierarchyAsGarbage(Package);
 		CollectGarbage();
@@ -1555,6 +1756,7 @@ namespace Durin::Asset
 		}
 		LoadedPackages.clear();
 		LoadingPackages.clear();
+		CompatibilityRiskPackages.clear();
 		TransactionPackages.clear();
 		LoadDepth = 0;
 		PackageLoadContext = {};
@@ -1577,8 +1779,19 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult { return FAssetManager::Get().LoadAsset(Path, OutAsset); }
-	auto SavePackage(DPackage* Package) -> FAssetResult { return FAssetManager::Get().SavePackage(Package); }
+	auto LoadAsset(
+		const FAssetPath& Path,
+		DObject*& OutAsset,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		return FAssetManager::Get().LoadAsset(Path, OutAsset, OutReport);
+	}
+	auto SavePackage(
+		DPackage* Package,
+		const FAssetPackageSaveOptions& Options) -> FAssetResult
+	{
+		return FAssetManager::Get().SavePackage(Package, Options);
+	}
 	auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult { return FAssetManager::Get().MoveAsset(OldPath, NewPath); }
 	auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult { return FAssetManager::Get().AnalyzeAssetDeletion(Path, OutAnalysis); }
 	auto DeleteAsset(const FAssetPath& Path) -> FAssetResult { return FAssetManager::Get().DeleteAsset(Path); }

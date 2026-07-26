@@ -292,7 +292,7 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	EXPECT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
 }
 
-TEST(FPackageAssetTests, ReportsAndOffersResaveForObsoleteFields)
+TEST(FPackageAssetTests, ReportsUnknownFieldsWithoutMarkingPackageDirty)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath Path;
@@ -312,21 +312,94 @@ TEST(FPackageAssetTests, ReportsAndOffersResaveForObsoleteFields)
 
 	testing::internal::CaptureStderr();
 	DPackageAssetForTest* Loaded = nullptr;
-	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(Path, Loaded);
+	Durin::Asset::FAssetLoadReport Report;
+	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(Path, Loaded, &Report);
 	const std::string Warning = testing::internal::GetCapturedStderr();
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->Value, 0);
-	EXPECT_TRUE(Loaded->GetPackage()->IsDirty());
-	EXPECT_NE(Warning.find("Tests::DPackageAssetForTest::Stale"), std::string::npos);
-	EXPECT_NE(Warning.find("on object '/TestAssets/ObsoleteField'"), std::string::npos);
-	EXPECT_NE(Warning.find("Resave the package"), std::string::npos);
-
-	ASSERT_TRUE(Durin::Asset::SavePackage(Loaded->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
-	EXPECT_EQ(Loaded->Value, 0);
+	ASSERT_EQ(Report.CompatibilityIssues.size(), 1u);
+	EXPECT_EQ(Report.PackagePath, Path);
+	EXPECT_EQ(Report.GetAffectedObjectCount(), 1u);
+	EXPECT_EQ(Report.GetLegacyFieldCount(), 1u);
+	EXPECT_EQ(Report.GetMigratedDataCount(), 0u);
+	EXPECT_EQ(Report.GetRiskItemCount(), 1u);
+	EXPECT_TRUE(Report.HasRiskItems());
+	const Durin::Asset::FAssetCompatibilityIssue& Issue = Report.CompatibilityIssues.front();
+	EXPECT_EQ(Issue.ObjectPath, "/TestAssets/ObsoleteField");
+	EXPECT_EQ(Issue.DeclaringClass, "Tests::DPackageAssetForTest");
+	EXPECT_EQ(Issue.Classification, Durin::Asset::EAssetCompatibilityClassification::UnknownIncompatible);
+	EXPECT_EQ(Issue.Risk, Durin::Asset::EAssetCompatibilityRisk::UnknownNewerSchema);
+	ASSERT_EQ(Issue.LegacyFields.size(), 1u);
+	EXPECT_EQ(Issue.LegacyFields.front().Name, "Stale");
+	EXPECT_NE(Warning.find("on object '/TestAssets/ObsoleteField'"), std::string::npos);
+	EXPECT_EQ(Warning.find("Resave the package"), std::string::npos);
+	EXPECT_EQ(
+		Durin::Asset::SavePackage(Loaded->GetPackage()).Error,
+		Durin::Asset::EAssetError::UnsupportedProperty);
+	EXPECT_TRUE(Durin::Asset::SavePackage(
+		Loaded->GetPackage(),
+		{.bAllowCompatibilityDataLoss = true}));
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, RegisteredSafeCleanupProducesStructuredReportAndDirtyPackage)
+{
+	InitializeAssetTests();
+	Durin::Asset::RegisterAssetStructureUpgrader(
+		DPackageAssetForTest::StaticClass(),
+		"Tests.SafeScalarCleanup",
+		[](Durin::DObject*, std::span<const Durin::Asset::FAssetLegacyField> Fields,
+			const Durin::Asset::FAssetMigrationContext&,
+			std::vector<Durin::Asset::FAssetCompatibilityIssue>& OutIssues) -> Durin::Asset::FAssetResult
+		{
+			const auto It = std::ranges::find(Fields, "Clean", &Durin::Asset::FAssetLegacyField::Name);
+			if (It == Fields.end()) return {};
+			Durin::int32 Value = 1;
+			if (It->Payload.size() != sizeof(Value)) return {Durin::Asset::EAssetError::CorruptFile, "Invalid legacy scalar."};
+			std::memcpy(&Value, It->Payload.data(), sizeof(Value));
+			if (Value != 0) return {};
+			OutIssues.push_back({
+				.DeclaringClass = It->DeclaringClass,
+				.LegacyFields = {*It},
+				.Classification = Durin::Asset::EAssetCompatibilityClassification::SafeCleanup,
+				.MigrationSummary = "Removed an empty legacy scalar.",
+				.Risk = Durin::Asset::EAssetCompatibilityRisk::None});
+			return {};
+		});
+
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SafeCleanup", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	const auto File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "SafeCleanup.dasset";
+	std::vector<Durin::uint8> Bytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
+	ASSERT_TRUE(RenameSerializedString(Bytes, "Value", "Clean"));
+	WriteTestBytes(File, Bytes);
+
+	DPackageAssetForTest* Loaded = nullptr;
+	Durin::Asset::FAssetLoadReport Report;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded, &Report));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_TRUE(Loaded->GetPackage()->IsDirty());
+	ASSERT_EQ(Report.CompatibilityIssues.size(), 1u);
+	EXPECT_FALSE(Report.HasRiskItems());
+	EXPECT_EQ(Report.GetLegacyFieldCount(), 1u);
+	EXPECT_EQ(Report.CompatibilityIssues.front().HandlerId, "Tests.SafeScalarCleanup");
+	EXPECT_EQ(
+		Report.CompatibilityIssues.front().Classification,
+		Durin::Asset::EAssetCompatibilityClassification::SafeCleanup);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Loaded->GetPackage()));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+	Report = {};
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded, &Report));
+	EXPECT_FALSE(Report.HasCompatibilityIssues());
+	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
