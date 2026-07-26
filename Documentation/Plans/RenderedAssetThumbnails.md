@@ -16,7 +16,7 @@ duplicate registry data, shared cancellation, and bounded defaults.
 Versioned test factories now create deterministic Material, MaterialInstance,
 parent/texture dependency, invalid-instance, and six-face directional
 TextureCube assets at fixed virtual identities. The thumbnail and
-[Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
+[Asset Derived Data and Cooking](Archive/2026-07/AssetDerivedDataAndCooking.md)
 plans share one native sphere identity and acquisition contract. Implementing
 that native shared-mesh service remains owned by Stage 6 of the asset-derived-data
 plan and is a prerequisite for binding rendered-thumbnail preview scenes; no
@@ -119,7 +119,7 @@ introducing per-card live viewports or steady-state rendering work.
   cached image and do not create new render keys.
 - Material and MaterialInstance thumbnails use the shared
   `/Engine/Editor/MaterialPreview/Sphere` mesh selected by the
-  [Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
+  [Asset Derived Data and Cooking](Archive/2026-07/AssetDerivedDataAndCooking.md)
   plan. This plan does not create or import a second sphere fixture.
 - The shared editor preview-mesh acquisition boundary accepts the canonical
   virtual identity and returns a retained native asset/render-data handle. The
@@ -454,7 +454,7 @@ introducing per-card live viewports or steady-state rendering work.
 - [Active Implementation Plans](README.md)
 - [Material System](MaterialSystem.md)
 - [Texture Support](TextureSupport.md)
-- [Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
+- [Asset Derived Data and Cooking](Archive/2026-07/AssetDerivedDataAndCooking.md)
 - [Resource Dependency Updates](Archive/2026-07/ResourceDependencyUpdates.md)
 - [Material System Runtime Contract](../Runtime/Rendering/MaterialSystem.md)
 - [Cube Textures](../Runtime/Rendering/CubeTextures.md)

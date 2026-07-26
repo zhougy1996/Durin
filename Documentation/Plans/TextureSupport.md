@@ -79,7 +79,7 @@ opening or decoding the source image; changed sources, changed build settings,
 missing entries, and corrupt payloads become safe rebuilds. Cooked payload
 packaging and the convergence of this early cache with the shared object-store
 model are now owned by the
-[Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md) plan. The shared
+[Asset Derived Data and Cooking](Archive/2026-07/AssetDerivedDataAndCooking.md) plan. The shared
 asset-data lifecycle reserves `.bin` for
 unreferenced, rebuildable DDC objects and `.dbulk` for manifest-owned cooked
 payloads. The initial cooked layout uses one package-relative companion per
@@ -199,7 +199,7 @@ inferred from the source filename.
   settings, target platform, and texture builder version.
 - [x] Transfer shared object-store convergence, portable source provenance, and
   cooked/runtime payload ownership to the
-  [Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md) plan.
+  [Asset Derived Data and Cooking](Archive/2026-07/AssetDerivedDataAndCooking.md) plan.
 
 #### Acceptance Gate
 

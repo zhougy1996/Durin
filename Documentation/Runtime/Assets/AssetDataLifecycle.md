@@ -249,4 +249,4 @@ transactionally, and never invoke source or DDC fallback.
 - [Texture System](../Rendering/TextureSystem.md)
 - [Content Version Control](../../Development/VersionControl/ContentVersionControl.md)
 - [Texture Support Plan](../../Plans/TextureSupport.md)
-- [Asset Derived Data and Cooking Plan](../../Plans/AssetDerivedDataAndCooking.md)
+- [Asset Derived Data and Cooking Plan](../../Plans/Archive/2026-07/AssetDerivedDataAndCooking.md)

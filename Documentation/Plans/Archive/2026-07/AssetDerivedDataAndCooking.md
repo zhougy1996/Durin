@@ -73,6 +73,13 @@ forbidden import/build dependency closure, and the lasting storage, mesh,
 texture, cube, preview, cooking, load, and failure contracts now live in their
 owning documentation. The plan is complete.
 
+Completed and archived on 2026-07-27 after all implementation stages,
+focused suites, full editor and runtime builds, hidden-editor and cooked-runtime
+smoke coverage, dependency-closure validation, and repository-output checks
+passed. The final repository-asset audit compared migrated authored metadata
+with its pre-migration form and restored the Sandbox teapot's original
+`-Z Forward / +X Right / +Y Up` import basis before archival.
+
 ## Goal
 
 Give StaticMesh, Texture2D, and TextureCube one coherent authored-source,
