@@ -1020,6 +1020,19 @@ class WorktreeToolTests(unittest.TestCase):
             ],
         )
 
+    def test_terminal_layout_selects_the_first_pane_before_the_fourth_split(self) -> None:
+        worktrees = [
+            worktree_tool.Worktree(Path(f"C:/repo-{index}"), f"branch-{index}")
+            for index in range(4)
+        ]
+        with mock.patch.object(worktree_tool, "environment_arguments", return_value=[]):
+            arguments = worktree_tool.terminal_arguments(worktrees)
+
+        fourth_split = arguments.index("move-focus")
+        self.assertEqual(arguments[fourth_split : fourth_split + 3], ["move-focus", "first", ";"])
+        self.assertEqual(arguments[fourth_split + 3 : fourth_split + 5], ["split-pane", "-H"])
+        self.assertNotIn("left", arguments)
+
     def test_add_prepares_without_calling_setup(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "feature"
