@@ -98,6 +98,28 @@ namespace Durin
 		}
 	};
 
+	enum class EStaticMeshDerivedDataStatus : uint8
+	{
+		None,
+		Hit,
+		Missing,
+		Corrupt,
+		Incompatible,
+		Rebuilt,
+		WriteFailure,
+		SourceUnavailableCached,
+		SourceUnavailable
+	};
+
+	// Describes the most recent native-payload cache decision for editor diagnostics.
+	struct FStaticMeshDerivedDataDiagnostic
+	{
+		EStaticMeshDerivedDataStatus Status = EStaticMeshDerivedDataStatus::None;
+		std::string Key;
+		std::string Message;
+		bool bSourceImporterInvoked = false;
+	};
+
 	// Reports the deterministic work performed by one static-mesh component scan.
 	struct FStaticMeshUpdateCounters
 	{
@@ -160,6 +182,7 @@ namespace Durin
 
 		ENGINE_API auto SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void;
 		ENGINE_API auto InspectSource() const -> FStaticMeshSourceDiagnostic;
+		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		// Copies a replacement source into the owning SourceAssets hierarchy and rebuilds the mesh.
 		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
@@ -180,6 +203,16 @@ namespace Durin
 
 	private:
 		auto BuildRenderData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
+		auto BuildRenderDataCandidate(
+			std::string_view PhysicalFilePath,
+			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
+			std::vector<FStaticMeshMaterialSlotDefinition>& OutMaterialSlots,
+			bool& bOutSlotMetadataChanged,
+			std::string& OutError) -> bool;
+		auto PublishRenderData(
+			std::unique_ptr<FStaticMeshRenderData> InRenderData,
+			std::vector<FStaticMeshMaterialSlotDefinition> InMaterialSlots,
+			bool bSlotMetadataChanged) -> void;
 		auto NotifyLoadedComponents() -> void;
 
 		DPROPERTY()
@@ -203,6 +236,7 @@ namespace Durin
 		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
+		FStaticMeshDerivedDataDiagnostic DerivedDataDiagnostic;
 	};
 
 	// Reports static-mesh import success and the created asset, when available.

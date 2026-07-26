@@ -188,7 +188,9 @@ namespace Durin
 				{
 					const size_t ExpectedCount = Channel < LOD.NumTexCoords ? VertexCount : 0;
 					if (LOD.TexCoords[Channel].size() != ExpectedCount)
-						return Fail(OutError, std::format("Static-mesh payload LOD {} UV-stream counts do not match.", LODIndex));
+						return Fail(OutError, std::format(
+							"Static-mesh payload LOD {} UV stream {} has {} values; expected {}.",
+							LODIndex, Channel, LOD.TexCoords[Channel].size(), ExpectedCount));
 				}
 				if (LOD.Colors.size() != (LOD.bHasVertexColors ? VertexCount : 0))
 					return Fail(OutError, std::format("Static-mesh payload LOD {} color-stream count does not match its flags.", LODIndex));
@@ -722,12 +724,13 @@ namespace Durin
 			LOD.Positions = SourceLOD.Positions;
 			LOD.Normals = SourceLOD.Normals;
 			LOD.Tangents = SourceLOD.Tangents;
-			LOD.TexCoords = SourceLOD.TexCoords;
-			LOD.Colors = SourceLOD.Colors;
 			LOD.Indices = SourceLOD.Indices;
 			LOD.LocalBounds = SourceLOD.LocalBounds;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
 			LOD.bHasVertexColors = SourceLOD.bHasVertexColors;
+			for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
+				LOD.TexCoords[Channel] = SourceLOD.TexCoords[Channel];
+			if (LOD.bHasVertexColors) LOD.Colors = SourceLOD.Colors;
 			LOD.Sections.reserve(SourceLOD.Sections.size());
 			for (const FStaticMeshSection& SourceSection : SourceLOD.Sections)
 			{
@@ -762,12 +765,20 @@ namespace Durin
 			LOD.Positions = SourceLOD.Positions;
 			LOD.Normals = SourceLOD.Normals;
 			LOD.Tangents = SourceLOD.Tangents;
-			LOD.TexCoords = SourceLOD.TexCoords;
-			LOD.Colors = SourceLOD.Colors;
 			LOD.Indices = SourceLOD.Indices;
 			LOD.LocalBounds = SourceLOD.LocalBounds;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
 			LOD.bHasVertexColors = SourceLOD.bHasVertexColors;
+			const size_t VertexCount = LOD.Positions.size();
+			for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
+			{
+				LOD.TexCoords[Channel] = Channel < LOD.NumTexCoords
+					? SourceLOD.TexCoords[Channel]
+					: std::vector<FVector2f>(VertexCount, FVector2f(0.0f));
+			}
+			LOD.Colors = LOD.bHasVertexColors
+				? SourceLOD.Colors
+				: std::vector<FVector4f>(VertexCount, FVector4f(1.0f));
 			LOD.Sections.reserve(SourceLOD.Sections.size());
 			for (const FStaticMeshPayloadSection& SourceSection : SourceLOD.Sections)
 			{

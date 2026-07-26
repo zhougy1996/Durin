@@ -6,12 +6,13 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 through 2 are complete and Stage 3 is next. Durin now has a strict,
-deterministic DMSH codec and optional relocatable source provenance, but
-`DStaticMesh::PostLoad` still imports accessible source files instead of
-consulting a persistent object cache. Material previews still create separate
-transient meshes directly from engine OBJ files, and no cooked-runtime path
-exists.
+Stages 0 through 3 are complete and Stage 4 is next. Durin now has a strict,
+deterministic DMSH codec, optional relocatable source provenance, and an atomic
+content-addressed static-mesh object store. `DStaticMesh::PostLoad` consumes
+valid cached payloads before source import, rebuilds safe misses transactionally,
+and can load cached data while source art is unavailable. Material previews
+still create separate transient meshes directly from engine OBJ files, and no
+cooked-runtime path exists.
 
 This plan selects the long-term source/import/derived/cooked boundaries and
 provides an implementation sequence. The shared asset-data lifecycle fixes
@@ -393,18 +394,18 @@ time or an engine release number.
 
 ### Stage 3: Add static-mesh derived-data caching
 
-- [ ] Add or reuse an `AssetCore` atomic content-addressed object-store API.
-- [ ] Implement the static-mesh key builder from source bytes, canonical
+- [x] Add or reuse an `AssetCore` atomic content-addressed object-store API.
+- [x] Implement the static-mesh key builder from source bytes, canonical
   settings, builder version, schema version, and target platform.
-- [ ] Read valid cache objects before invoking source import.
-- [ ] Write the encoded payload after a successful source build.
-- [ ] Treat missing, stale, corrupt, and incompatible objects as safe editor
+- [x] Read valid cache objects before invoking source import.
+- [x] Write the encoded payload after a successful source build.
+- [x] Treat missing, stale, corrupt, and incompatible objects as safe editor
   misses and rebuild when the source is available.
-- [ ] Preserve the last complete live render data when a rebuild or cache write
+- [x] Preserve the last complete live render data when a rebuild or cache write
   fails.
-- [ ] Add cache diagnostics for hit, miss reason, key, rebuild, write failure,
+- [x] Add cache diagnostics for hit, miss reason, key, rebuild, write failure,
   and source-unavailable-but-cached state.
-- [ ] Add bounded cleanup and disk-budget accounting for static-mesh objects.
+- [x] Add bounded cleanup and disk-budget accounting for static-mesh objects.
 
 #### Acceptance Gate
 

@@ -4,6 +4,7 @@
 
 #include "AssetCore.h"
 #include "AssetSystem.h"
+#include "DerivedDataObjectStore.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
@@ -12,6 +13,7 @@
 #include "Logging/LogMacros.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
 
@@ -33,7 +35,135 @@ namespace Durin
 		inline constexpr std::string_view StaticMeshImporterId = "Assimp";
 		inline constexpr std::string_view StaticMeshSourceRoot = "SourceAssets/Models";
 		inline constexpr std::string_view LegacySlotGuidDomain = "Durin.StaticMeshMaterialSlot.v1";
+		inline constexpr uint64 StaticMeshDerivedDataBudgetBytes = 8ull * 1024ull * 1024ull * 1024ull;
+		inline constexpr uint32 StaticMeshDerivedDataCleanupDeleteLimit = 16;
 		constexpr float VectorTolerance = 1.0e-10f;
+
+		auto GetStaticMeshObjectStore() -> Asset::FDerivedDataObjectStore
+		{
+			return Asset::FDerivedDataObjectStore(
+				"StaticMesh/Objects", MaximumStaticMeshPayloadBytes);
+		}
+
+		auto IsCanonicalStaticMeshHash(std::string_view Hash) -> bool
+		{
+			return Hash.size() == 32 && std::ranges::all_of(Hash, [](char Character) {
+				return Character >= '0' && Character <= '9'
+					|| Character >= 'a' && Character <= 'f';
+			});
+		}
+
+		auto MakeStaticMeshKey(
+			std::string_view SourceHash,
+			std::string_view ImporterId,
+			uint32 ImporterVersion,
+			const FStaticMeshImportSettings& ImportSettings,
+			std::string& OutKey,
+			std::string& OutError) -> bool
+		{
+			if (!IsCanonicalStaticMeshHash(SourceHash))
+			{
+				OutError = "Static mesh source content hash is missing or invalid.";
+				return false;
+			}
+			if (ImporterId.empty())
+			{
+				OutError = "Static mesh importer identity is missing.";
+				return false;
+			}
+			if (!ImportSettings.IsValid(&OutError)) return false;
+			OutKey = BuildStaticMeshDerivedDataKey({
+				.SourceContentHash = FXxHash128::FromString(SourceHash),
+				.ImporterId = std::string(ImporterId),
+				.ImporterVersion = ImporterVersion,
+				.ImportSettings = ImportSettings,
+				.TargetPlatform = EStaticMeshTargetPlatform::Win64});
+			return true;
+		}
+
+		auto RestoreStaticMeshRuntimeMetadata(
+			const std::vector<FStaticMeshMaterialSlotDefinition>& MaterialSlots,
+			FStaticMeshRenderData& RenderData,
+			std::string& OutError) -> bool
+		{
+			if (RenderData.MaterialSlots.size() != MaterialSlots.size())
+			{
+				OutError = "Cached static-mesh material slot count does not match asset metadata.";
+				return false;
+			}
+			for (size_t SlotIndex = 0; SlotIndex < MaterialSlots.size(); ++SlotIndex)
+			{
+				const FStaticMeshMaterialSlotDefinition& Definition = MaterialSlots[SlotIndex];
+				FStaticMeshMaterialSlot& Slot = RenderData.MaterialSlots[SlotIndex];
+				// Editable asset metadata is authoritative for stable slot identity. The
+				// cached payload contributes only the compatible slot ordering.
+				Slot.SlotId = Definition.SlotId;
+				Slot.Name = Definition.Name.ToString();
+				Slot.SourceMaterialIndex = Definition.SourceMaterialIndex;
+			}
+			for (size_t LODIndex = 0; LODIndex < RenderData.LODResources.size(); ++LODIndex)
+			{
+				auto& Sections = RenderData.LODResources[LODIndex].Sections;
+				for (size_t SectionIndex = 0; SectionIndex < Sections.size(); ++SectionIndex)
+					Sections[SectionIndex].Name = std::format("LOD{}_Section{}", LODIndex, SectionIndex);
+			}
+			return true;
+		}
+
+		auto LoadStaticMeshDerivedData(
+			std::string_view Key,
+			const std::vector<FStaticMeshMaterialSlotDefinition>& MaterialSlots,
+			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
+			EStaticMeshDerivedDataStatus& OutStatus,
+			std::string& OutMessage) -> bool
+		{
+			std::vector<uint8> Bytes;
+			const Asset::FDerivedDataObjectReadResult Read = GetStaticMeshObjectStore().Read(Key, Bytes);
+			if (!Read)
+			{
+				OutStatus = Read.Status == Asset::EDerivedDataObjectReadStatus::Missing
+					? EStaticMeshDerivedDataStatus::Missing
+					: EStaticMeshDerivedDataStatus::Corrupt;
+				OutMessage = Read.Message;
+				return false;
+			}
+
+			FStaticMeshPayloadData Payload;
+			std::string Error;
+			if (!DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Payload, Error)
+				|| !MakeStaticMeshRenderData(Payload, OutRenderData, Error)
+				|| !RestoreStaticMeshRuntimeMetadata(MaterialSlots, *OutRenderData, Error))
+			{
+				OutStatus = Error.find("unsupported") != std::string::npos
+					? EStaticMeshDerivedDataStatus::Incompatible
+					: EStaticMeshDerivedDataStatus::Corrupt;
+				OutMessage = std::move(Error);
+				return false;
+			}
+			OutStatus = EStaticMeshDerivedDataStatus::Hit;
+			OutMessage.clear();
+			return true;
+		}
+
+		auto StoreStaticMeshDerivedData(
+			std::string_view Key,
+			const FStaticMeshRenderData& RenderData,
+			std::string& OutError) -> bool
+		{
+			FStaticMeshPayloadData Payload;
+			std::vector<uint8> Bytes;
+			if (!MakeStaticMeshPayloadData(RenderData, Payload, OutError)
+				|| !EncodeStaticMeshPayload(Payload, EStaticMeshTargetPlatform::Win64, Bytes, OutError)
+				|| !GetStaticMeshObjectStore().Write(Key, Bytes, &OutError)) return false;
+
+			const Asset::FDerivedDataObjectCleanupResult Cleanup = GetStaticMeshObjectStore().CleanupToBudget(
+				StaticMeshDerivedDataBudgetBytes, StaticMeshDerivedDataCleanupDeleteLimit);
+			if (!Cleanup.Message.empty())
+			{
+				DURIN_WARN("Static-mesh DDC cleanup: {}", Cleanup.Message);
+			}
+			return true;
+		}
 
 		auto MakeGuidFromHash(const FXxHash128& Hash) -> FGuid
 		{
@@ -579,6 +709,34 @@ namespace Durin
 
 	auto DStaticMesh::BuildRenderData(std::string_view FilePath, std::string& OutError) -> bool
 	{
+		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
+		std::vector<FStaticMeshMaterialSlotDefinition> CandidateMaterialSlots;
+		bool bSlotMetadataChanged = false;
+		if (!BuildRenderDataCandidate(
+			FilePath, CandidateRenderData, CandidateMaterialSlots, bSlotMetadataChanged, OutError)) return false;
+		PublishRenderData(
+			std::move(CandidateRenderData), std::move(CandidateMaterialSlots), bSlotMetadataChanged);
+		return true;
+	}
+
+	auto DStaticMesh::PublishRenderData(
+		std::unique_ptr<FStaticMeshRenderData> InRenderData,
+		std::vector<FStaticMeshMaterialSlotDefinition> InMaterialSlots,
+		bool bSlotMetadataChanged) -> void
+	{
+		MaterialSlots = std::move(InMaterialSlots);
+		MaterialSlotsVersion = StaticMeshMaterialSlotsVersion;
+		SetRenderData(std::move(InRenderData));
+		if (bSlotMetadataChanged) MarkPackageDirty();
+	}
+
+	auto DStaticMesh::BuildRenderDataCandidate(
+		std::string_view FilePath,
+		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
+		std::vector<FStaticMeshMaterialSlotDefinition>& OutMaterialSlots,
+		bool& bOutSlotMetadataChanged,
+		std::string& OutError) -> bool
+	{
 		Asset::FImportedSceneData ImportedScene;
 		const FStaticMeshImportSettings& EffectiveImportSettings = GetImportSettings();
 		std::string ImportSettingsError;
@@ -794,41 +952,151 @@ namespace Durin
 		}
 		RenderData->RecalculateBounds();
 
-		MaterialSlots = std::move(ReconciledSlots);
-		MaterialSlotsVersion = StaticMeshMaterialSlotsVersion;
-		SetRenderData(std::move(RenderData));
-		if (bSlotMetadataChanged) MarkPackageDirty();
+		OutRenderData = std::move(RenderData);
+		OutMaterialSlots = std::move(ReconciledSlots);
+		bOutSlotMetadataChanged = bSlotMetadataChanged;
 		OutError.clear();
 		return true;
 	}
 
 	auto DStaticMesh::PostLoad(std::string& OutError) -> bool
 	{
+		DerivedDataDiagnostic = {};
 		const FStaticMeshSourceDiagnostic Diagnostic = InspectSource();
 		if (Diagnostic.Status == EStaticMeshSourceStatus::NoSource)
 		{
 			OutError.clear();
 			return true;
 		}
-		if (!Diagnostic.IsAvailable())
+
+		const bool bLegacySource = Diagnostic.Status == EStaticMeshSourceStatus::LegacyAvailable
+			|| Diagnostic.Status == EStaticMeshSourceStatus::LegacyMissing;
+		const FStaticMeshImportSettings& EffectiveSettings = GetImportSettings();
+		const std::string_view ImporterId = bLegacySource
+			? StaticMeshImporterId
+			: std::string_view(SourceImportData.ImporterId);
+		const uint32 ImporterVersion = bLegacySource
+			? StaticMeshAssimpImporterVersion
+			: SourceImportData.ImporterVersion;
+
+		std::string CurrentSourceHash;
+		if (Diagnostic.IsAvailable())
 		{
+			if (!HashStaticMeshSource(Diagnostic.ResolvedPath, CurrentSourceHash, OutError))
+			{
+				DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
+				DerivedDataDiagnostic.Message = OutError;
+				return false;
+			}
+		}
+		else if (!bLegacySource && IsCanonicalStaticMeshHash(SourceImportData.SourceContentHash))
+		{
+			CurrentSourceHash = SourceImportData.SourceContentHash;
+		}
+		else
+		{
+			DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
+			DerivedDataDiagnostic.Message = Diagnostic.Message;
 			OutError = Diagnostic.Message;
 			return false;
 		}
-		if (Diagnostic.Status == EStaticMeshSourceStatus::LegacyAvailable)
+
+		if (!MakeStaticMeshKey(
+			CurrentSourceHash, ImporterId, ImporterVersion, EffectiveSettings,
+			DerivedDataDiagnostic.Key, OutError))
 		{
-			DURIN_WARN("Static mesh '{}' uses legacy source metadata '{}'; repair or reimport it to migrate into SourceAssets.",
-				GetObjectPath(), SourceFile);
-			return BuildRenderData(Diagnostic.ResolvedPath, OutError);
+			DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::Incompatible;
+			DerivedDataDiagnostic.Message = OutError;
+			return false;
 		}
-		std::string CurrentSourceHash;
-		if (!HashStaticMeshSource(Diagnostic.ResolvedPath, CurrentSourceHash, OutError)) return false;
-		if (!BuildRenderData(Diagnostic.ResolvedPath, OutError)) return false;
-		if (SourceImportData.SourceContentHash != CurrentSourceHash)
+
+		std::unique_ptr<FStaticMeshRenderData> CachedRenderData;
+		EStaticMeshDerivedDataStatus CacheStatus = EStaticMeshDerivedDataStatus::Missing;
+		std::string CacheMessage;
+		const bool bSourceMetadataStale = Diagnostic.IsAvailable()
+			&& !bLegacySource
+			&& SourceImportData.SourceContentHash != CurrentSourceHash;
+		if (!bSourceMetadataStale && LoadStaticMeshDerivedData(
+			DerivedDataDiagnostic.Key, MaterialSlots, CachedRenderData, CacheStatus, CacheMessage))
+		{
+			SetRenderData(std::move(CachedRenderData));
+			DerivedDataDiagnostic.Status = Diagnostic.IsAvailable()
+				? EStaticMeshDerivedDataStatus::Hit
+				: EStaticMeshDerivedDataStatus::SourceUnavailableCached;
+			DerivedDataDiagnostic.Message = Diagnostic.IsAvailable()
+				? std::format("Static-mesh DDC hit for key {}.", DerivedDataDiagnostic.Key)
+				: std::format(
+					"Static-mesh source is unavailable, but cached key {} loaded successfully. Reimport and cache regeneration are unavailable.",
+					DerivedDataDiagnostic.Key);
+			if (!Diagnostic.IsAvailable()) DURIN_WARN("{}: {}", GetObjectPath(), DerivedDataDiagnostic.Message);
+			if (!bLegacySource && SourceImportData.SourceContentHash != CurrentSourceHash)
+			{
+				SourceImportData.SourceContentHash = CurrentSourceHash;
+				MarkPackageDirty();
+			}
+			OutError.clear();
+			return true;
+		}
+		if (bSourceMetadataStale)
+		{
+			CacheStatus = EStaticMeshDerivedDataStatus::Missing;
+			CacheMessage = "Source content changed; importer metadata reconciliation is required.";
+		}
+
+		DerivedDataDiagnostic.Status = CacheStatus;
+		DerivedDataDiagnostic.Message = std::format(
+			"Static-mesh DDC miss for key {}: {}", DerivedDataDiagnostic.Key, CacheMessage);
+		if (!Diagnostic.IsAvailable())
+		{
+			DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
+			DerivedDataDiagnostic.Message = std::format(
+				"{}. Cached payload was unavailable: {}", Diagnostic.Message, CacheMessage);
+			OutError = DerivedDataDiagnostic.Message;
+			return false;
+		}
+
+		DURIN_WARN("{} Rebuilding static mesh '{}' from source.", DerivedDataDiagnostic.Message, GetObjectPath());
+		DerivedDataDiagnostic.bSourceImporterInvoked = true;
+		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
+		std::vector<FStaticMeshMaterialSlotDefinition> CandidateMaterialSlots;
+		bool bSlotMetadataChanged = false;
+		if (!BuildRenderDataCandidate(
+			Diagnostic.ResolvedPath,
+			CandidateRenderData,
+			CandidateMaterialSlots,
+			bSlotMetadataChanged,
+			OutError))
+		{
+			DerivedDataDiagnostic.Message = std::format(
+				"Static-mesh rebuild failed for key {}: {}", DerivedDataDiagnostic.Key, OutError);
+			return false;
+		}
+		if (!StoreStaticMeshDerivedData(DerivedDataDiagnostic.Key, *CandidateRenderData, OutError))
+		{
+			DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::WriteFailure;
+			DerivedDataDiagnostic.Message = std::format(
+				"Static-mesh DDC write failed for key {}: {}", DerivedDataDiagnostic.Key, OutError);
+			OutError = DerivedDataDiagnostic.Message;
+			return false;
+		}
+
+		PublishRenderData(
+			std::move(CandidateRenderData), std::move(CandidateMaterialSlots), bSlotMetadataChanged);
+		DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::Rebuilt;
+		DerivedDataDiagnostic.Message = std::format(
+			"Rebuilt static mesh and stored DDC key {} after cache miss: {}",
+			DerivedDataDiagnostic.Key, CacheMessage);
+		if (!bLegacySource && SourceImportData.SourceContentHash != CurrentSourceHash)
 		{
 			SourceImportData.SourceContentHash = std::move(CurrentSourceHash);
 			MarkPackageDirty();
 		}
+		if (bLegacySource)
+		{
+			DURIN_WARN("Static mesh '{}' uses legacy source metadata '{}'; repair or reimport it to migrate into SourceAssets.",
+				GetObjectPath(), SourceFile);
+		}
+		OutError.clear();
 		return true;
 	}
 
@@ -911,13 +1179,39 @@ namespace Durin
 			.ImporterVersion = StaticMeshAssimpImporterVersion,
 			.ImportSettings = EffectiveSettings};
 		SourceFile.clear();
-		if (!BuildRenderData(Destination.generic_string(), OutError))
+		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
+		std::vector<FStaticMeshMaterialSlotDefinition> CandidateMaterialSlots;
+		bool bSlotMetadataChanged = false;
+		std::string DerivedDataKey;
+		const bool bBuilt = BuildRenderDataCandidate(
+			Destination.generic_string(),
+			CandidateRenderData,
+			CandidateMaterialSlots,
+			bSlotMetadataChanged,
+			OutError);
+		const bool bKeyBuilt = bBuilt && MakeStaticMeshKey(
+			SourceImportData.SourceContentHash,
+			SourceImportData.ImporterId,
+			SourceImportData.ImporterVersion,
+			SourceImportData.ImportSettings,
+			DerivedDataKey,
+			OutError);
+		const bool bCached = bKeyBuilt && StoreStaticMeshDerivedData(
+			DerivedDataKey, *CandidateRenderData, OutError);
+		if (!bCached)
 		{
 			SourceImportData = PreviousSource;
 			SourceFile = PreviousLegacySource;
 			ImportSettings = PreviousLegacySettings;
 			return false;
 		}
+		PublishRenderData(
+			std::move(CandidateRenderData), std::move(CandidateMaterialSlots), bSlotMetadataChanged);
+		DerivedDataDiagnostic = {
+			.Status = EStaticMeshDerivedDataStatus::Rebuilt,
+			.Key = std::move(DerivedDataKey),
+			.Message = "Repaired source, rebuilt static mesh, and populated the DDC.",
+			.bSourceImporterInvoked = true};
 		MarkPackageDirty();
 		return true;
 	}
@@ -972,11 +1266,35 @@ namespace Durin
 			.ImporterVersion = StaticMeshAssimpImporterVersion,
 			.ImportSettings = InImportSettings};
 		std::string BuildError;
-		if (!Mesh->BuildRenderData(Input.generic_string(), BuildError))
+		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
+		std::vector<FStaticMeshMaterialSlotDefinition> CandidateMaterialSlots;
+		bool bSlotMetadataChanged = false;
+		std::string DerivedDataKey;
+		if (!Mesh->BuildRenderDataCandidate(
+			Input.generic_string(),
+			CandidateRenderData,
+			CandidateMaterialSlots,
+			bSlotMetadataChanged,
+			BuildError)
+			|| !MakeStaticMeshKey(
+				Mesh->SourceImportData.SourceContentHash,
+				Mesh->SourceImportData.ImporterId,
+				Mesh->SourceImportData.ImporterVersion,
+				Mesh->SourceImportData.ImportSettings,
+				DerivedDataKey,
+				BuildError)
+			|| !StoreStaticMeshDerivedData(DerivedDataKey, *CandidateRenderData, BuildError))
 		{
 			Asset::UnloadPackage(ParsedAssetPath);
 			return {false, std::move(BuildError), nullptr};
 		}
+		Mesh->PublishRenderData(
+			std::move(CandidateRenderData), std::move(CandidateMaterialSlots), bSlotMetadataChanged);
+		Mesh->DerivedDataDiagnostic = {
+			.Status = EStaticMeshDerivedDataStatus::Rebuilt,
+			.Key = std::move(DerivedDataKey),
+			.Message = "Imported static mesh and populated the DDC.",
+			.bSourceImporterInvoked = true};
 
 		std::error_code Ec;
 		std::filesystem::create_directories(Destination.parent_path(), Ec);
