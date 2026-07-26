@@ -24,8 +24,8 @@ Build them through BuildTool:
 .\BuildTool build --preset Win64-Release-DurinGame-Profiling --target all
 ```
 
-Both use `CMAKE_BUILD_TYPE=Release`, set `DURIN_BUILD_IDENTIFIER=Profiling`,
-enable `DURIN_ENABLE_TRACY`, and write binaries beneath
+Both use `CMAKE_BUILD_TYPE=Release`, set `DURIN_PRESET_ROLE=Profiling`, enable
+`DURIN_ENABLE_TRACY`, and write binaries beneath
 `Engine/Binaries/Win64/Release-Profiling/`. Shipping rejects Tracy during
 configuration.
 

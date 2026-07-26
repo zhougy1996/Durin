@@ -455,8 +455,8 @@ def preset_install_directory(preset: ConfigurePreset, *, root: Path = REPO_ROOT)
 
 def preset_output_configuration(preset: ConfigurePreset) -> str:
     configuration = preset_cache_string(preset, "CMAKE_BUILD_TYPE")
-    identifier = preset_cache_string(preset, "DURIN_BUILD_IDENTIFIER", required=False)
-    return f"{configuration}-{identifier}" if identifier else configuration
+    preset_role = preset_cache_string(preset, "DURIN_PRESET_ROLE", required=False)
+    return f"{configuration}-Profiling" if preset_role == "Profiling" else configuration
 
 
 def resolve_cmake_command(

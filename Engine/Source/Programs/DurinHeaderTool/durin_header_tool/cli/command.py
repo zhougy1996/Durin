@@ -1,20 +1,7 @@
 import logging
 import sys
 import argparse
-import re
 from pathlib import Path
-
-
-_BUILD_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-
-
-def parse_build_identifier(value: str) -> str:
-    if value and not _BUILD_IDENTIFIER_PATTERN.fullmatch(value):
-        raise argparse.ArgumentTypeError(
-            "build identifier must start with an alphanumeric character and contain only "
-            "alphanumeric characters, '.', '_' or '-'"
-        )
-    return value
 
 
 def parse_worker_count(value: str) -> int:
@@ -32,12 +19,6 @@ def add_common_arguments(parser: argparse.ArgumentParser):
 
     parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux, MacOS).", default="Win64", choices=["Win64", "Linux", "MacOS"])
     parser.add_argument("--runtime-variant", help="The workspace runtime variant.", default="DurinEditor")
-    parser.add_argument(
-        "--build-identifier",
-        help="Optional identifier used to isolate generated build metadata.",
-        default="",
-        type=parse_build_identifier,
-    )
     parser.add_argument(
         "--tool-fingerprint",
         help="Fingerprint of the DHT implementation used to invalidate generated caches.",

@@ -150,11 +150,11 @@ def _generate_reflection_output_impl(module_name: str, header: str, symbols: dic
 
 
 def _generate_reflection_output_worker(args):
-    module_name, header, symbols, arch, runtime_variant, build_identifier = args
+    module_name, header, symbols, arch, runtime_variant = args
 
     from durin_header_tool.generators.module_reflection_files_generator import _generate_reflection_output_impl as worker_generate
 
-    initialize_worker_config(arch, runtime_variant, build_identifier)
+    initialize_worker_config(arch, runtime_variant)
 
     start_time = time.perf_counter()
     result = worker_generate(module_name, header, symbols)
@@ -208,7 +208,6 @@ def _write_reflection_files(
                 symbols,
                 configs.ARCH,
                 configs.RUNTIME_VARIANT,
-                configs.BUILD_IDENTIFIER,
             )
             for header in headers_to_regenerate
         ]

@@ -14,7 +14,6 @@ from .file_helper import (
 )
 from .output_lock import acquire_output_lock
 from .path_helper import (
-    get_intermediate_build_root_name,
     get_dht_tool_dir,
     get_dht_module_lock_file_path,
     get_dht_output_lock_dir,

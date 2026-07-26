@@ -159,11 +159,15 @@ class BuildConfigTests(unittest.TestCase):
                 runtime_variant,
             )
             self.assertEqual(
-                build_config.preset_cache_string(preset, "DURIN_BUILD_IDENTIFIER"),
+                build_config.preset_cache_string(preset, "DURIN_PRESET_ROLE"),
                 "Profiling",
             )
             self.assertTrue(
                 build_config.preset_cache_bool(preset, "DURIN_ENABLE_TRACY")
+            )
+            self.assertEqual(
+                build_config.preset_output_configuration(preset),
+                "Release-Profiling",
             )
 
     def test_fast_configure_is_code_model_only_and_not_buildtool_owned(self) -> None:
@@ -265,17 +269,22 @@ class BuildConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(build_config.BuildToolError, "Available presets"):
             build_config.select_preset(profile, presets, requested="missing")
 
-    def test_output_configuration_appends_build_identifier(self) -> None:
-        preset = build_config.ConfigurePreset(
+    def test_output_configuration_uses_preset_role(self) -> None:
+        standard = build_config.ConfigurePreset(
             "debug",
+            {"cacheVariables": {"CMAKE_BUILD_TYPE": "Debug"}},
+        )
+        profiling = build_config.ConfigurePreset(
+            "profiling",
             {
                 "cacheVariables": {
-                    "CMAKE_BUILD_TYPE": "Debug",
-                    "DURIN_BUILD_IDENTIFIER": "Agent",
+                    "CMAKE_BUILD_TYPE": "Release",
+                    "DURIN_PRESET_ROLE": "Profiling",
                 }
             },
         )
-        self.assertEqual(build_config.preset_output_configuration(preset), "Debug-Agent")
+        self.assertEqual(build_config.preset_output_configuration(standard), "Debug")
+        self.assertEqual(build_config.preset_output_configuration(profiling), "Release-Profiling")
 
     def test_explicit_cmake_path_takes_precedence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -2972,16 +2981,17 @@ class CoreTests(unittest.TestCase):
         self.assertIs(child.environment, environment)
         self.assertEqual(child.preset.name, "release")
 
-    def test_runtime_path_uses_profile_and_build_identifier(self) -> None:
+    def test_runtime_path_uses_runtime_variant_and_preset_role(self) -> None:
         preset = self.make_preset()
         values = dict(preset.values)
         cache = dict(values["cacheVariables"])
-        cache["DURIN_BUILD_IDENTIFIER"] = "Agent"
-        preset = build_config.ConfigurePreset("debug", {**values, "cacheVariables": cache})
+        cache["CMAKE_BUILD_TYPE"] = "Release"
+        cache["DURIN_PRESET_ROLE"] = "Profiling"
+        preset = build_config.ConfigurePreset("profiling", {**values, "cacheVariables": cache})
         path = build_core.runtime_executable_path(self.make_profile(), preset, root=Path("repo"))
         self.assertEqual(
             path,
-            Path("repo/Engine/Binaries/Win64/Debug-Agent/Runtime/DurinEditor/DurinEditor.exe"),
+            Path("repo/Engine/Binaries/Win64/Release-Profiling/Runtime/DurinEditor/DurinEditor.exe"),
         )
 
     def test_run_application_reports_how_to_build_missing_runtime(self) -> None:

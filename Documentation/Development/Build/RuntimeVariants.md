@@ -38,18 +38,13 @@ directories; their operational roles are documented in
 
 Profiling is also preset behavior rather than a runtime variant. The dedicated
 Release profiling presets keep `DurinEditor` or `DurinGame` as the runtime
-variant and use `DURIN_BUILD_IDENTIFIER=Profiling` for output isolation. See
+variant and use `DURIN_PRESET_ROLE=Profiling` for output isolation. See
 `Documentation/Development/Build/Profiling.md`.
 
-`DURIN_BUILD_IDENTIFIER` is optional workflow isolation, not a runtime variant
-or build configuration. Normal builds leave it empty. DurinHeaderTool emits
-configuration-independent metadata under
-`Engine/Intermediate/Build[-Identifier]/<Platform>/<RuntimeVariant>/`;
-identifier and locking details belong to
-`Documentation/Development/Build/BuildSystem.md`.
-
-Debug and Release presets for the same identifier and runtime variant
-intentionally share this metadata.
+DurinHeaderTool emits configuration-independent metadata under
+`Engine/Intermediate/Build/<Platform>/<RuntimeVariant>/`. Debug, Release, and
+Profiling presets for the same runtime variant intentionally share this
+metadata within a worktree.
 
 ## Derived Build Behavior
 
@@ -82,5 +77,5 @@ Minimum steps:
    relevant `.dproject` files when the module set should differ.
 3. Add matching presets in `CMakePresets.json`.
 4. Verify generated output under
-   `Engine/Intermediate/Build[-Identifier]/<Platform>/<RuntimeVariant>/`.
+   `Engine/Intermediate/Build/<Platform>/<RuntimeVariant>/`.
 5. Decide the `WithEditor` value and verify launcher naming, module naming, and config file naming.

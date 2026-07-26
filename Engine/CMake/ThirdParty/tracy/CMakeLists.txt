@@ -24,11 +24,7 @@ set(TRACY_STATIC OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS ON)
 add_subdirectory("${_durin_tracy_source_dir}" "${CMAKE_BINARY_DIR}/ThirdParty/tracy")
 
-set(_durin_tracy_output_config "$<CONFIG>")
-if(DURIN_BUILD_IDENTIFIER)
-	string(APPEND _durin_tracy_output_config "-${DURIN_BUILD_IDENTIFIER}")
-endif()
 set_target_properties(TracyClient PROPERTIES
 	RUNTIME_OUTPUT_DIRECTORY
-		"${DURIN_WORKSPACE_DIR}/Engine/Binaries/${DURIN_TARGET_PLATFORM}/${_durin_tracy_output_config}/Runtime/${DURIN_RUNTIME_VARIANT}"
+		"${DURIN_WORKSPACE_DIR}/Engine/Binaries/${DURIN_TARGET_PLATFORM}/${DURIN_OUTPUT_CONFIG}/Runtime/${DURIN_RUNTIME_VARIANT}"
 )

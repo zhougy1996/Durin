@@ -7,13 +7,12 @@ This document describes the reflection framework that is currently implemented i
 Durin reflection uses selected C++ headers as the source of truth. A module lists reflected headers in its `.dmodule` file under `ReflectHeaders`. During configure/build, DurinHeaderTool scans those headers and writes generated files under:
 
 ```text
-Engine/Intermediate/Build[-BuildIdentifier]/<Platform>/<Profile>/<Module>/DHT
+Engine/Intermediate/Build/<Platform>/<RuntimeVariant>/<Module>/DHT
 ```
 
 Generated files are atomically replaced. DHT serializes commands that use the
-same build identifier, platform, and runtime variant. Debug and Release share
-configuration-independent generated files, while identifier-specific workflows
-select independent intermediate roots.
+same platform and runtime variant. Debug, Release, and Profiling presets in one
+worktree share configuration-independent generated files.
 
 The current system supports:
 

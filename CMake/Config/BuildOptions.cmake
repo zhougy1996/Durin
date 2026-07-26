@@ -32,6 +32,10 @@ set_property(CACHE DURIN_PRESET_ROLE PROPERTY STRINGS Standard Profiling)
 if(NOT DURIN_PRESET_ROLE MATCHES "^(Standard|Profiling)$")
 	message(FATAL_ERROR "DURIN_PRESET_ROLE must be Standard or Profiling.")
 endif()
+set(DURIN_OUTPUT_CONFIG "$<CONFIG>")
+if(DURIN_PRESET_ROLE STREQUAL "Profiling")
+	string(APPEND DURIN_OUTPUT_CONFIG "-Profiling")
+endif()
 message(STATUS
 	"Durin build: runtime variant=${DURIN_RUNTIME_VARIANT}, "
 	"configuration=${CMAKE_BUILD_TYPE}, preset role=${DURIN_PRESET_ROLE}, "
@@ -85,13 +89,6 @@ function(durin_enforce_code_model_only_build)
 	)
 	_durin_attach_code_model_build_guard("${CMAKE_SOURCE_DIR}" "${_durin_guard_target}")
 endfunction()
-
-set(DURIN_BUILD_IDENTIFIER "" CACHE STRING "Optional identifier that isolates workflow-owned binary and intermediate outputs.")
-if(DURIN_BUILD_IDENTIFIER AND NOT DURIN_BUILD_IDENTIFIER MATCHES "^[A-Za-z0-9][A-Za-z0-9._-]*$")
-	message(FATAL_ERROR
-		"DURIN_BUILD_IDENTIFIER must start with an alphanumeric character and contain only alphanumeric characters, '.', '_' or '-'."
-	)
-endif()
 
 set(DURIN_DHT_WORKERS 4 CACHE STRING "Maximum parser workers used inside one DHT command (1-8).")
 if(NOT DURIN_DHT_WORKERS MATCHES "^[1-8]$")

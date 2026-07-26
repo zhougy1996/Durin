@@ -40,21 +40,13 @@ function(add_durin_project project_name)
 	project(${project_name})
 
 	set(DURIN_PROJECT_NAME "${project_name}" PARENT_SCOPE)
-	# DHT metadata is configuration-independent; the identifier isolates workflow ownership.
-	set(_durin_intermediate_build_root "Build")
-	if(DURIN_BUILD_IDENTIFIER)
-		string(APPEND _durin_intermediate_build_root "-${DURIN_BUILD_IDENTIFIER}")
-	endif()
-	set(_durin_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/${_durin_intermediate_build_root}/${DURIN_TARGET_PLATFORM}/${DURIN_RUNTIME_VARIANT}")
+	set(_durin_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/Build/${DURIN_TARGET_PLATFORM}/${DURIN_RUNTIME_VARIANT}")
 	set(_durin_project_cmake_file "${_durin_project_intermediate_build_dir}/${project_name}.project.cmake")
 	set(DURIN_DHT_CONTEXT_ARGS
 		-a ${DURIN_TARGET_PLATFORM}
 		--runtime-variant ${DURIN_RUNTIME_VARIANT}
 		--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}
 	)
-	if(DURIN_BUILD_IDENTIFIER)
-		list(APPEND DURIN_DHT_CONTEXT_ARGS --build-identifier ${DURIN_BUILD_IDENTIFIER})
-	endif()
 	execute_process(
 		COMMAND ${DHT_MAIN} prepare_project_build -p "${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject" ${DURIN_DHT_CONTEXT_ARGS}
 		RESULT_VARIABLE _durin_prepare_project_build_result

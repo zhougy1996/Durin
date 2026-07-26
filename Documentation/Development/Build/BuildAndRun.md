@@ -382,7 +382,7 @@ regenerates them normally.
 
 Purge only removes registered preset trees under `Build/` and `Install/`,
 project `Binaries/<Platform>/<Config>/` roots, and project
-`Intermediate/Build[-Identifier]/<Platform>/<RuntimeVariant>/` roots. It
+`Intermediate/Build/<Platform>/<RuntimeVariant>/` roots. It
 intentionally preserves bootstrapped dependencies such as `Build/ThirdParty`
 and `Engine/External`.
 
@@ -435,8 +435,7 @@ active runtime variant. Runtime path discovery assumes the executable remains in
 this repository-relative layout. If editor startup reports a missing DLL, check
 the active runtime directory and the shared `ThirdParty` directory.
 
-Build identifiers and DHT intermediate paths are described in
-`Documentation/Development/Build/BuildSystem.md` and
+DHT intermediate paths are described in `Documentation/Development/Build/BuildSystem.md` and
 `Documentation/Development/Build/RuntimeVariants.md`.
 The opt-in Release profiling workflow is documented in
 `Documentation/Development/Build/Profiling.md`.

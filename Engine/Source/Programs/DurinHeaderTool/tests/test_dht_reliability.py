@@ -492,33 +492,25 @@ class IntermediateLayoutTests(unittest.TestCase):
     def setUpClass(cls):
         configs.ARCH = "Win64"
         configs.RUNTIME_VARIANT = "DurinEditor"
-        configs.BUILD_IDENTIFIER = ""
         configs.TOOL_FINGERPRINT = ""
         configs.init_configs()
 
     def tearDown(self):
         configs.ARCH = "Win64"
         configs.RUNTIME_VARIANT = "DurinEditor"
-        configs.BUILD_IDENTIFIER = ""
         configs.TOOL_FINGERPRINT = ""
 
-    def test_empty_identifier_uses_shared_user_intermediate_path(self):
-        configs.BUILD_IDENTIFIER = ""
+    def test_intermediate_path_uses_platform_and_runtime_variant(self):
         self.assertEqual(
             utils.get_project_intermediate_build_dir("Engine"),
             utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor",
         )
 
-    def test_agent_identifier_uses_isolated_intermediate_path_and_locks(self):
-        configs.BUILD_IDENTIFIER = "Agent"
-        self.assertEqual(
-            utils.get_project_intermediate_build_dir("Engine"),
-            utils.get_project_intermediate_dir("Engine") / "Build-Agent" / "Win64" / "DurinEditor",
-        )
+    def test_locks_use_shared_intermediate_root(self):
         self.assertEqual(
             utils.get_dht_module_lock_file_path("Core"),
             utils.get_project_intermediate_dir("Engine")
-            / "Build-Agent"
+            / "Build"
             / ".dht-locks"
             / "Win64"
             / "DurinEditor"
@@ -526,12 +518,7 @@ class IntermediateLayoutTests(unittest.TestCase):
             / "Core.lock",
         )
 
-    def test_custom_identifier_selects_its_own_intermediate_root(self):
-        configs.BUILD_IDENTIFIER = "CI.2"
-        self.assertEqual(
-            utils.get_project_intermediate_build_dir("Engine"),
-            utils.get_project_intermediate_dir("Engine") / "Build-CI.2" / "Win64" / "DurinEditor",
-        )
+    def test_runtime_variant_lock_uses_shared_intermediate_root(self):
         self.assertEqual(
             utils.get_dht_runtime_variant_lock_file_path().name,
             "runtime-variant.lock",
@@ -574,12 +561,6 @@ class IntermediateLayoutTests(unittest.TestCase):
             utils.get_project_intermediate_dir("Engine") / "Build" / "Linux" / "DurinGame",
         )
 
-    def test_cli_allows_identifier_to_be_omitted(self):
-        parser = argparse.ArgumentParser()
-        add_common_arguments(parser)
-        args = parser.parse_args([])
-        self.assertEqual(args.build_identifier, "")
-
     def test_cli_accepts_tool_fingerprint(self):
         parser = argparse.ArgumentParser()
         add_common_arguments(parser)
@@ -602,39 +583,29 @@ class IntermediateLayoutTests(unittest.TestCase):
         self.assertEqual(resolve_worker_count(32, 8), 8)
         self.assertEqual(resolve_worker_count(32, 4), 4)
 
-    def test_cli_rejects_invalid_identifier(self):
-        parser = argparse.ArgumentParser()
-        add_common_arguments(parser)
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--build-identifier", "../Agent"])
-
-    def test_worker_receives_identifier(self):
+    def test_worker_receives_build_context(self):
         with mock.patch.object(configs, "init_configs") as init_configs:
-            initialize_worker_config("Win64", "DurinEditor", "Agent")
+            initialize_worker_config("Win64", "DurinEditor")
 
         self.assertEqual(configs.ARCH, "Win64")
         self.assertEqual(configs.RUNTIME_VARIANT, "DurinEditor")
-        self.assertEqual(configs.BUILD_IDENTIFIER, "Agent")
         init_configs.assert_called_once_with()
 
-    def test_generated_project_metadata_uses_identifier_path(self):
-        configs.BUILD_IDENTIFIER = "Agent"
+    def test_generated_project_metadata_uses_shared_build_path(self):
         with mock.patch.object(project_cmake_file_generator.utils, "generate_file") as generate_file:
             project_cmake_file_generator.generate_project_cmake_file("Engine")
 
         output_path, content = generate_file.call_args.args
-        expected_root = utils.get_project_intermediate_dir("Engine") / "Build-Agent" / "Win64" / "DurinEditor"
+        expected_root = utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor"
         self.assertEqual(output_path, expected_root / "Engine.project.cmake")
         self.assertIn(expected_root.as_posix(), content)
 
-    def test_cmake_commands_forward_build_identifier(self):
+    def test_cmake_commands_forward_shared_dht_context(self):
         workspace_root = ROOT.parents[3]
         project_setup = (workspace_root / "CMake" / "Project" / "ProjectSetup.cmake").read_text(encoding="utf-8")
         project_targets = (workspace_root / "CMake" / "Project" / "ProjectTargets.cmake").read_text(encoding="utf-8")
-        self.assertIn("list(APPEND DURIN_DHT_CONTEXT_ARGS --build-identifier ${DURIN_BUILD_IDENTIFIER})", project_setup)
         self.assertNotIn("--config ${CMAKE_BUILD_TYPE}", project_setup)
         self.assertEqual(project_targets.count("${DURIN_DHT_CONTEXT_ARGS}"), 2)
-        self.assertNotIn('--build-identifier "${DURIN_BUILD_IDENTIFIER}"', project_setup + project_targets)
 
     def test_generated_module_metadata_leaves_source_discovery_to_cmake(self):
         with mock.patch.object(module_cmake_file_generator.utils, "generate_file") as generate_file:

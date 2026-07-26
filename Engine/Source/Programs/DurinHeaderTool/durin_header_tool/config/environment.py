@@ -2,7 +2,6 @@ from pathlib import Path
 
 ARCH = "Win64"
 RUNTIME_VARIANT = "DurinEditor"
-BUILD_IDENTIFIER = ""
 TOOL_FINGERPRINT = ""
 
 DHT_ROOT_DIR = Path(__file__).resolve().parents[2]

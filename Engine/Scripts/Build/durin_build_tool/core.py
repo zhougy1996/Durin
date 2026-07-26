@@ -1482,11 +1482,10 @@ def collect_purge_paths(
         install_directory = preset_install_directory(preset, root=root)
         if install_directory is not None:
             paths.add(require_purge_child(install_directory, root / "Install"))
-        identifier = preset_cache_string(preset, "DURIN_BUILD_IDENTIFIER", required=False)
         output_configs.add(preset_output_configuration(preset))
         intermediate_profiles.add(
             (
-                f"Build-{identifier}" if identifier else "Build",
+                "Build",
                 profile.platform,
                 preset_cache_string(preset, "DURIN_RUNTIME_VARIANT"),
             )

@@ -210,7 +210,7 @@ Ninja toolchain must remain unchanged.
 
 ## Reproduction And Acceptance
 
-Use an isolated build identifier or preset for full-generation measurements;
+Use an isolated worktree or preset for full-generation measurements;
 do not delete shared DHT outputs from an active preset merely to force a
 benchmark. Capture:
 

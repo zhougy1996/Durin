@@ -96,7 +96,6 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
         "DURIN_RUNTIME_VARIANT": "DurinEditor",
-        "DURIN_BUILD_IDENTIFIER": "Profiling",
         "DURIN_PRESET_ROLE": "Profiling",
         "DURIN_ENABLE_TRACY": "ON",
         "BUILD_TESTING": "OFF"
@@ -110,7 +109,6 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
         "DURIN_RUNTIME_VARIANT": "DurinGame",
-        "DURIN_BUILD_IDENTIFIER": "Profiling",
         "DURIN_PRESET_ROLE": "Profiling",
         "DURIN_ENABLE_TRACY": "ON",
         "BUILD_TESTING": "OFF"

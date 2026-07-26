@@ -10,6 +10,11 @@ Implementation in progress. Stages 0-4 are implemented. Focused Python/native
 tests, ordinary Editor/Game configuration, ordinary Release/Shipping isolation,
 both Profiling builds, and an Editor capture have passed.
 
+The former generic build-identifier mechanism was removed after worktree-owned
+output trees became the repository's concurrency boundary. Profiling final
+outputs remain isolated by the existing `Profiling` preset role, while
+configuration-independent DHT metadata is shared by presets in one worktree.
+
 The Editor capture recorded 233 frames and 2,307 zones over 5.11 seconds. The
 Game profiling executable completes initialization and remains running without a
 profiler, but attaching the matching Tracy v0.13.1 capture client currently
@@ -73,7 +78,7 @@ instrumentation.
   `ExtraModules` is not renamed because it describes module enablement rather
   than the old profile concept.
 - Generated metadata paths use
-  `Intermediate/Build[-Identifier]/<Platform>/<RuntimeVariant>/`.
+  `Intermediate/Build/<Platform>/<RuntimeVariant>/`.
 - DHT serialized fields, command-line options, diagnostics, Python identifiers,
   and tests use `runtime_variant` or `RuntimeVariant` consistently.
 - The migration is repository-atomic. There is no permanent
@@ -92,8 +97,12 @@ instrumentation.
   - `Win64-Release-DurinEditor-Profiling`
   - `Win64-Release-DurinGame-Profiling`
 - Each profiling preset has its own CMake binary directory and sets
-  `DURIN_BUILD_IDENTIFIER=Profiling` so its final binaries and intermediate
-  metadata do not collide with ordinary Release workflows.
+  `DURIN_PRESET_ROLE=Profiling` so its final binaries do not collide with
+  ordinary Release workflows. Configuration-independent DHT metadata is shared
+  within the worktree.
+- The `Profiling` role derives the `Release-Profiling` final-output
+  configuration directly. The removed generic identifier is not retained as a
+  second output-naming mechanism.
 - Each profiling preset sets `DURIN_ENABLE_TRACY=ON`.
 - Ordinary Debug and Release presets leave `DURIN_ENABLE_TRACY=OFF`.
 - Shipping configuration rejects `DURIN_ENABLE_TRACY=ON` during configure with
@@ -152,8 +161,8 @@ Existing foundations:
 
 - `CMakePresets.json` already separates configuration, runtime selection, and
   isolated CMake build directories.
-- `DURIN_BUILD_IDENTIFIER` already isolates final binaries and generated
-  metadata for specialized workflows.
+- The preset role already distinguishes profiling behavior from standard
+  builds and can derive its isolated final-output configuration.
 - The third-party bootstrap already supports pinned git direct-source
   dependencies and explicit `--libs` selection.
 - Engine-specific third-party targets are registered from
@@ -277,8 +286,8 @@ Stage 0 inventory classified the migration surfaces as follows:
   localhost-only capture.
 - [x] Ensure every instrumented module links to the same shared client and that
   the runtime is deployed through existing third-party runtime mechanisms.
-- [x] Add editor and game Release Profiling presets with isolated binary and
-  final-output identifiers.
+- [x] Add editor and game Release Profiling presets with isolated CMake and
+  final-output directories.
 - [x] Register both presets in the repository Agent Build Profile and extend
   BuildTool configuration tests.
 - [x] Ensure configure summaries and status output identify the runtime variant,
@@ -349,7 +358,7 @@ Stage 0 inventory classified the migration surfaces as follows:
 | Configure without Tracy source | Debug and Release succeed | Fails with an actionable bootstrap message |
 | CMake option | `DURIN_WITH_TRACY=0` | `DURIN_WITH_TRACY=1` |
 | Link/runtime graph | No Tracy library or deployed runtime | One shared Tracy client is linked and deployed |
-| Output isolation | Ordinary Release paths remain unchanged | `Profiling` identifier isolates outputs |
+| Output isolation | Ordinary Release paths remain unchanged | The `Profiling` preset role isolates outputs |
 | Shipping | Configures with Tracy disabled | Enabling Tracy is rejected |
 | CPU instrumentation | Macros are no-op and skip argument evaluation | Zones, frame marks, and thread names appear |
 | Runtime smoke | Editor and Game launch normally | Editor and Game connect, capture, and shut down normally |
