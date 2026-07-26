@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "Assets/SourceImageThumbnailCache.h"
 #include "Assets/SourceImageThumbnailDecoder.h"
 #include "Assets/SourceImageThumbnailDiskCache.h"
 
@@ -53,6 +54,52 @@ namespace Durin
 		EXPECT_TRUE(IsSupportedSourceImageExtension(".tga"));
 		EXPECT_FALSE(IsSupportedSourceImageExtension(".gif"));
 		EXPECT_FALSE(IsSupportedSourceImageExtension(".dasset"));
+	}
+
+	TEST(FSourceImageThumbnailTests, PublicRequestsAndViewsUseItemIdentity)
+	{
+		FSourceImageThumbnailCache Cache;
+		Cache.BeginFrame();
+		const auto LastWriteTime = std::filesystem::file_time_type::clock::now();
+		Cache.Request({
+			.Identity = "/Game/Textures/Example",
+			.PhysicalPath = "C:/Project/Content/Textures/Example.png",
+			.FileSize = 128,
+			.LastWriteTime = LastWriteTime,
+			.Priority = EAssetThumbnailPriority::Visible});
+
+		const FAssetThumbnailView AssetView = Cache.Find("/Game/Textures/Example");
+		EXPECT_EQ(AssetView.State, EAssetThumbnailState::Queued);
+		EXPECT_EQ(AssetView.RequestSerial, 1u);
+		EXPECT_EQ(Cache.Find("C:/Project/Content/Textures/Example.png").State,
+			EAssetThumbnailState::NotRequested);
+
+		Cache.CancelPendingRequests();
+		const FAssetThumbnailView CancelledView = Cache.Find("/Game/Textures/Example");
+		EXPECT_EQ(CancelledView.State, EAssetThumbnailState::NotRequested);
+		EXPECT_GT(CancelledView.RequestSerial, AssetView.RequestSerial);
+	}
+
+	TEST(FSourceImageThumbnailTests, MultipleItemIdentitiesCoalesceOneSourceEntry)
+	{
+		FSourceImageThumbnailCache Cache;
+		Cache.BeginFrame();
+		const FSourceImageThumbnailRequest AssetRequest{
+			.Identity = "/Game/Textures/Shared",
+			.PhysicalPath = "C:/Project/Content/Textures/Shared.png",
+			.FileSize = 256,
+			.LastWriteTime = std::filesystem::file_time_type::clock::now()};
+		Cache.Request(AssetRequest);
+		FSourceImageThumbnailRequest SourceRequest = AssetRequest;
+		SourceRequest.Identity = "C:/Project/Content/Textures/Shared.png";
+		SourceRequest.Priority = EAssetThumbnailPriority::Visible;
+		Cache.Request(SourceRequest);
+
+		const FAssetThumbnailView AssetView = Cache.Find(AssetRequest.Identity);
+		const FAssetThumbnailView SourceView = Cache.Find(SourceRequest.Identity);
+		EXPECT_EQ(AssetView.State, EAssetThumbnailState::Queued);
+		EXPECT_EQ(SourceView.State, EAssetThumbnailState::Queued);
+		EXPECT_EQ(AssetView.RequestSerial, SourceView.RequestSerial);
 	}
 
 	TEST(FSourceImageThumbnailTests, DecodesTransparentPngAndPreservesAspectRatio)

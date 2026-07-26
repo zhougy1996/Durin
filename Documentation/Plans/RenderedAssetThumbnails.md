@@ -22,16 +22,19 @@ that native shared-mesh service remains owned by Stage 5 of the static-mesh
 plan and is a prerequisite for binding rendered-thumbnail preview scenes; no
 thumbnail path may fall back to transient source-model import.
 
-Stage 1 is in progress. `DurinEd` now owns an exact-class provider registry
+Stage 1 is complete. `DurinEd` now owns an exact-class provider registry
 with monotonic generations and a bounded provider-neutral scheduler that
 captures requests, coalesces cache keys, promotes visible work, rejects stale
 serials, and cancels replaced or shutdown work. The existing source-image
 cache now exposes the public thumbnail state/view contract to Content Browser
 without changing its decode, upload, transparency, or cache behavior.
 `DurinEd` also owns the reusable versioned object/index store, disk cleanup,
-and deterministic CPU/GPU LRU budget selection; the source-image adapter now
-uses those shared facilities. Changing Content Browser requests from source
-paths to asset identities remains pending.
+and deterministic CPU/GPU LRU budget selection; the source-image adapter uses
+those shared facilities and accepts item identities independently from its
+physical provider input. Texture2D cards now request and query by virtual asset
+identity, source-file cards use their normalized item identity, and aliases
+that share one physical source coalesce to one decode/upload entry. Stage 2 is
+next and will add the shared offscreen rendered-thumbnail pipeline.
 
 Texture2D assets and supported source-image files already use an
 asynchronous, persistent Content Browser thumbnail cache. Materials have an
@@ -276,12 +279,12 @@ introducing per-card live viewports or steady-state rendering work.
 - [x] Extract or adapt the persistent index/object store and CPU/GPU budget
   logic from `FSourceImageThumbnailCache` for reuse by source and rendered
   providers.
-- [ ] Adapt Texture2D and supported source-image requests to the new service
+- [x] Adapt Texture2D and supported source-image requests to the new service
   while preserving source fingerprints, transparency, warm disk hits,
   cancellation, visible-item priority, and error reporting.
-- [ ] Change Content Browser grid code to request by item identity and render a
+- [x] Change Content Browser grid code to request by item identity and render a
   provider-neutral result instead of branching on source-image paths.
-- [ ] Add registration, duplicate-provider, missing-provider, cancellation,
+- [x] Add registration, duplicate-provider, missing-provider, cancellation,
   stale-serial, corruption, and budget tests.
 
 #### Acceptance Gate

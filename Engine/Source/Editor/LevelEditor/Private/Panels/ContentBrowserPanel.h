@@ -45,7 +45,8 @@ namespace Durin
 		std::string PhysicalPath;
 		std::string AssetClassName;
 		std::string Extension;
-		std::string ThumbnailPhysicalPath;
+		std::string ThumbnailIdentity;
+		std::string ThumbnailSourcePath;
 		uintmax_t ThumbnailFileSize = 0;
 		std::filesystem::file_time_type ThumbnailLastWriteTime{};
 		uintmax_t FileSize = 0;

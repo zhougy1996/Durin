@@ -79,6 +79,7 @@ namespace Durin
 		};
 
 		std::unordered_map<std::string, FEntry> Entries;
+		std::unordered_map<std::string, std::string> IdentityToSource;
 		std::vector<FPendingRequest> PendingRequests;
 		std::vector<FDecodeResult> PendingUploads;
 		std::shared_ptr<FAsyncThumbnailState> AsyncState = std::make_shared<FAsyncThumbnailState>();
@@ -272,21 +273,35 @@ namespace Durin
 		Impl->SubmitUploads();
 	}
 
-	auto FSourceImageThumbnailCache::Request(std::string_view PhysicalPath, uintmax_t FileSize, const std::filesystem::file_time_type& LastWriteTime, bool bVisible) -> void
+	auto FSourceImageThumbnailCache::Request(const FSourceImageThumbnailRequest& Request) -> void
 	{
-		const std::string Key(PhysicalPath);
+		if (Request.Identity.empty() || Request.PhysicalPath.empty()) return;
+		const std::string Identity(Request.Identity);
+		const std::string Key(Request.PhysicalPath);
+		Impl->IdentityToSource.insert_or_assign(Identity, Key);
+
 		auto [It, bInserted] = Impl->Entries.try_emplace(Key);
 		FImpl::FEntry& Entry = It->second;
 		if (bInserted)
 		{
-			Entry.FileSize = FileSize;
-			Entry.LastWriteTime = LastWriteTime;
+			Entry.FileSize = Request.FileSize;
+			Entry.LastWriteTime = Request.LastWriteTime;
 		}
-		else if (Entry.FileSize != FileSize || Entry.LastWriteTime != LastWriteTime)
-			Impl->ResetEntry(Entry, FileSize, LastWriteTime);
+		else if (Entry.FileSize != Request.FileSize || Entry.LastWriteTime != Request.LastWriteTime)
+			Impl->ResetEntry(Entry, Request.FileSize, Request.LastWriteTime);
+		const bool bVisible = Request.Priority == EAssetThumbnailPriority::Visible;
 		Entry.bVisible |= bVisible;
 		Entry.LastUsedFrame = Impl->FrameNumber;
-		if (Entry.RequestedFrame == Impl->FrameNumber) return;
+		if (Entry.RequestedFrame == Impl->FrameNumber)
+		{
+			if (Entry.State == EAssetThumbnailState::Queued && bVisible)
+			{
+				const auto Pending = std::ranges::find_if(Impl->PendingRequests,
+					[&](const FImpl::FPendingRequest& PendingRequest) { return PendingRequest.PhysicalPath == Key; });
+				if (Pending != Impl->PendingRequests.end()) Pending->bVisible = true;
+			}
+			return;
+		}
 		Entry.RequestedFrame = Impl->FrameNumber;
 		if (Entry.State == EAssetThumbnailState::NotRequested)
 		{
@@ -308,9 +323,11 @@ namespace Durin
 		}
 	}
 
-	auto FSourceImageThumbnailCache::Find(std::string_view PhysicalPath) const -> FAssetThumbnailView
+	auto FSourceImageThumbnailCache::Find(std::string_view Identity) const -> FAssetThumbnailView
 	{
-		const auto It = Impl->Entries.find(std::string(PhysicalPath));
+		const auto IdentityIt = Impl->IdentityToSource.find(std::string(Identity));
+		if (IdentityIt == Impl->IdentityToSource.end()) return {};
+		const auto It = Impl->Entries.find(IdentityIt->second);
 		if (It == Impl->Entries.end()) return {};
 		const FImpl::FEntry& Entry = It->second;
 		return {
@@ -346,5 +363,6 @@ namespace Durin
 		CancelPendingRequests();
 		for (auto& [Path, Entry] : Impl->Entries) Impl->UnregisterTexture(Entry);
 		Impl->Entries.clear();
+		Impl->IdentityToSource.clear();
 	}
 } // namespace Durin

@@ -235,6 +235,13 @@ namespace Durin
 				Item.FileSize = Entry.file_size(FileEc);
 				FileEc.clear();
 				Item.LastWriteTime = Entry.last_write_time(FileEc);
+				if (IsSupportedSourceImageExtension(Item.Extension))
+				{
+					Item.ThumbnailIdentity = Item.PhysicalPath;
+					Item.ThumbnailSourcePath = Item.PhysicalPath;
+					Item.ThumbnailFileSize = Item.FileSize;
+					Item.ThumbnailLastWriteTime = Item.LastWriteTime;
+				}
 				ItemsSnapshot.push_back(std::move(Item));
 			}
 		}
@@ -252,7 +259,8 @@ namespace Durin
 				const std::filesystem::path ThumbnailPath = FindTextureSourceFile(Data.PhysicalPath);
 				if (!ThumbnailPath.empty())
 				{
-					Item.ThumbnailPhysicalPath = NormalizePath(ThumbnailPath.generic_string());
+					Item.ThumbnailIdentity = Item.VirtualPath;
+					Item.ThumbnailSourcePath = NormalizePath(ThumbnailPath.generic_string());
 					FileEc.clear();
 					Item.ThumbnailFileSize = std::filesystem::file_size(ThumbnailPath, FileEc);
 					FileEc.clear();
@@ -719,9 +727,15 @@ namespace Durin
 					const size_t Index = static_cast<size_t>(Row) * Columns + Column;
 					if (Index >= Items.size()) break;
 					const FContentBrowserItem& Item = Items[Index];
-					const std::string& ThumbnailPath = Item.ThumbnailPhysicalPath.empty() ? Item.PhysicalPath : Item.ThumbnailPhysicalPath;
-					if ((bShowSourceFiles && Item.Kind == EContentBrowserItemKind::SourceFile && IsSupportedSourceImageExtension(Item.Extension)) || !Item.ThumbnailPhysicalPath.empty())
-						ThumbnailCache->Request(ThumbnailPath, Item.ThumbnailPhysicalPath.empty() ? Item.FileSize : Item.ThumbnailFileSize, Item.ThumbnailPhysicalPath.empty() ? Item.LastWriteTime : Item.ThumbnailLastWriteTime, Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd);
+					if (!Item.ThumbnailIdentity.empty())
+						ThumbnailCache->Request({
+							.Identity = Item.ThumbnailIdentity,
+							.PhysicalPath = Item.ThumbnailSourcePath,
+							.FileSize = Item.ThumbnailFileSize,
+							.LastWriteTime = Item.ThumbnailLastWriteTime,
+							.Priority = Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd
+								? EAssetThumbnailPriority::Visible
+								: EAssetThumbnailPriority::Prefetch});
 				}
 
 			for (int32 Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
@@ -767,7 +781,7 @@ namespace Durin
 						if (bSelected) DrawList->AddRect(CardMin, CardMax, ImGui::GetColorU32(ImGuiCol_CheckMark), CardRounding, 0, MonaImGui::ScaleUI(1.0f));
 					}
 
-					const FAssetThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailPhysicalPath.empty() ? Item.PhysicalPath : Item.ThumbnailPhysicalPath);
+					const FAssetThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailIdentity);
 					bool bDrewThumbnail = false;
 					if (Thumbnail.State == EAssetThumbnailState::Ready && Thumbnail.Texture && Mona::GActiveUIBackend)
 					{
