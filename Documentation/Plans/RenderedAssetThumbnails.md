@@ -22,6 +22,15 @@ that native shared-mesh service remains owned by Stage 5 of the static-mesh
 plan and is a prerequisite for binding rendered-thumbnail preview scenes; no
 thumbnail path may fall back to transient source-model import.
 
+Stage 1 is in progress. `DurinEd` now owns an exact-class provider registry
+with monotonic generations and a bounded provider-neutral scheduler that
+captures requests, coalesces cache keys, promotes visible work, rejects stale
+serials, and cancels replaced or shutdown work. The existing source-image
+cache now exposes the public thumbnail state/view contract to Content Browser
+without changing its decode, upload, transparency, persistence, or eviction
+path. Extracting the shared object/index store and changing Content Browser
+requests from source paths to asset identities remain pending.
+
 Texture2D assets and supported source-image files already use an
 asynchronous, persistent Content Browser thumbnail cache. Materials have an
 isolated live preview scene in the Material Editor, and TextureCube assets have
@@ -260,7 +269,7 @@ introducing per-card live viewports or steady-state rendering work.
 
 ### Stage 1: Generalize the thumbnail service without regression
 
-- [ ] Introduce the `DurinEd` thumbnail provider registry, scheduler, public
+- [x] Introduce the `DurinEd` thumbnail provider registry, scheduler, public
   request/view types, and provider-neutral cache identity.
 - [ ] Extract or adapt the persistent index/object store and CPU/GPU budget
   logic from `FSourceImageThumbnailCache` for reuse by source and rendered

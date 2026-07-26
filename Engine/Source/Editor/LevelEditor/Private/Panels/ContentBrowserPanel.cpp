@@ -767,9 +767,9 @@ namespace Durin
 						if (bSelected) DrawList->AddRect(CardMin, CardMax, ImGui::GetColorU32(ImGuiCol_CheckMark), CardRounding, 0, MonaImGui::ScaleUI(1.0f));
 					}
 
-					const FSourceImageThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailPhysicalPath.empty() ? Item.PhysicalPath : Item.ThumbnailPhysicalPath);
+					const FAssetThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailPhysicalPath.empty() ? Item.PhysicalPath : Item.ThumbnailPhysicalPath);
 					bool bDrewThumbnail = false;
-					if (Thumbnail.State == ESourceImageThumbnailState::Ready && Thumbnail.Texture && Mona::GActiveUIBackend)
+					if (Thumbnail.State == EAssetThumbnailState::Ready && Thumbnail.Texture && Mona::GActiveUIBackend)
 					{
 						const float ThumbnailInset = MonaImGui::ScaleUI(6.0f);
 						const ImVec2 ImageAreaMin(TileStart.x + ThumbnailInset, TileStart.y + ThumbnailInset);
@@ -806,9 +806,9 @@ namespace Durin
 						const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(IconFontSize, FLT_MAX, 0.0f, ItemIcon(Item));
 						const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(0.0f, (IconAreaHeight - IconExtent.y) * 0.5f));
 						DrawList->AddText(ImGui::GetFont(), IconFontSize, IconPosition, MonaImGui::GetThemeColorU32(IconColorRole), ItemIcon(Item));
-						if (Thumbnail.State == ESourceImageThumbnailState::Queued || Thumbnail.State == ESourceImageThumbnailState::Decoding || Thumbnail.State == ESourceImageThumbnailState::Uploading)
+						if (Thumbnail.State == EAssetThumbnailState::Queued || Thumbnail.State == EAssetThumbnailState::Loading || Thumbnail.State == EAssetThumbnailState::Uploading)
 							DrawList->AddText(ImVec2(TileStart.x + TileSize.x - MonaImGui::ScaleUI(18.0f), TileStart.y + MonaImGui::ScaleUI(4.0f)), ImGui::GetColorU32(ImGuiCol_TextDisabled), "...");
-						else if (Thumbnail.State == ESourceImageThumbnailState::Failed)
+						else if (Thumbnail.State == EAssetThumbnailState::Failed)
 							DrawList->AddText(ImVec2(TileStart.x + TileSize.x - MonaImGui::ScaleUI(20.0f), TileStart.y + MonaImGui::ScaleUI(4.0f)), MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Warning), Icons::Warning);
 					}
 
@@ -846,11 +846,11 @@ namespace Durin
 							ImGui::SameLine();
 							ImGui::TextUnformatted(FormatFileTime(Item.LastWriteTime).c_str());
 						}
-						if (Thumbnail.State == ESourceImageThumbnailState::Failed && !Thumbnail.Error.empty())
+						if (Thumbnail.State == EAssetThumbnailState::Failed && !Thumbnail.Diagnostic.empty())
 						{
 							ImGui::TextDisabled("Preview");
 							ImGui::SameLine();
-							ImGui::TextWrapped("%s", Thumbnail.Error.c_str());
+							ImGui::TextWrapped("%s", Thumbnail.Diagnostic.c_str());
 						}
 						ImGui::TextDisabled(Item.VirtualPath.empty() ? "Path" : "Virtual Path");
 						ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);

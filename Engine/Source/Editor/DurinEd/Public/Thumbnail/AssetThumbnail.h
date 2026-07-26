@@ -193,6 +193,75 @@ namespace Durin
 			std::string& OutError) -> bool = 0;
 	};
 
+	// Retains one exact-class provider together with the generation captured at registration.
+	struct FAssetThumbnailProviderHandle
+	{
+		std::shared_ptr<IAssetThumbnailProvider> Provider;
+		uint64 Generation = 0;
+
+		explicit operator bool() const { return Provider != nullptr; }
+	};
+
+	// Owns exact-class provider registration and monotonically increasing provider generations.
+	class FAssetThumbnailProviderRegistry
+	{
+	public:
+		DURINED_API FAssetThumbnailProviderRegistry();
+		DURINED_API ~FAssetThumbnailProviderRegistry();
+
+		FAssetThumbnailProviderRegistry(const FAssetThumbnailProviderRegistry&) = delete;
+		FAssetThumbnailProviderRegistry& operator=(const FAssetThumbnailProviderRegistry&) = delete;
+
+		DURINED_API auto Register(
+			std::shared_ptr<IAssetThumbnailProvider> Provider,
+			std::string& OutError) -> bool;
+		DURINED_API auto Unregister(std::string_view AssetClassName, std::string& OutError) -> bool;
+		DURINED_API auto Find(std::string_view AssetClassName) const -> FAssetThumbnailProviderHandle;
+		DURINED_API auto Shutdown() -> void;
+		DURINED_API auto IsShuttingDown() const -> bool;
+		DURINED_API auto Num() const -> size_t;
+
+	private:
+		struct FImpl;
+		std::unique_ptr<FImpl> Impl;
+	};
+
+	// Transfers one captured, coalesced request from the provider-neutral queue to a generation backend.
+	struct FAssetThumbnailScheduledJob
+	{
+		std::string CacheKey;
+		EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch;
+		FAssetThumbnailGenerationRequest GenerationRequest;
+	};
+
+	struct FAssetThumbnailView;
+
+	// Captures exact-class provider requests, coalesces cache keys, and enforces queue ordering and bounds.
+	class FAssetThumbnailScheduler
+	{
+	public:
+		DURINED_API explicit FAssetThumbnailScheduler(
+			FAssetThumbnailProviderRegistry& Registry,
+			FAssetThumbnailBudgets Budgets = {});
+		DURINED_API ~FAssetThumbnailScheduler();
+
+		FAssetThumbnailScheduler(const FAssetThumbnailScheduler&) = delete;
+		FAssetThumbnailScheduler& operator=(const FAssetThumbnailScheduler&) = delete;
+
+		DURINED_API auto Request(const FAssetThumbnailRequest& Request, std::string& OutError) -> bool;
+		DURINED_API auto Find(const FAssetPath& AssetPath) const -> FAssetThumbnailView;
+		DURINED_API auto TakeNext() -> std::optional<FAssetThumbnailScheduledJob>;
+		DURINED_API auto Cancel(const FAssetPath& AssetPath) -> void;
+		DURINED_API auto CancelAll() -> void;
+		DURINED_API auto Shutdown() -> void;
+		DURINED_API auto NumQueued() const -> size_t;
+		DURINED_API auto IsShuttingDown() const -> bool;
+
+	private:
+		struct FImpl;
+		std::unique_ptr<FImpl> Impl;
+	};
+
 	// Exposes one service-owned result without transferring UI texture ownership.
 	struct FAssetThumbnailView
 	{

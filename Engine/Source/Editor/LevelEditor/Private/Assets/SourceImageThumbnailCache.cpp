@@ -56,7 +56,7 @@ namespace Durin
 		// Owns one thumbnail's state, texture, revision, and recency metadata.
 		struct FEntry
 		{
-			ESourceImageThumbnailState State = ESourceImageThumbnailState::NotRequested;
+			EAssetThumbnailState State = EAssetThumbnailState::NotRequested;
 			uintmax_t FileSize = 0;
 			std::filesystem::file_time_type LastWriteTime{};
 			uint64 Serial = 1;
@@ -94,7 +94,7 @@ namespace Durin
 		auto ResetEntry(FEntry& Entry, uintmax_t FileSize, const std::filesystem::file_time_type& LastWriteTime) -> void
 		{
 			UnregisterTexture(Entry);
-			Entry.State = ESourceImageThumbnailState::NotRequested;
+			Entry.State = EAssetThumbnailState::NotRequested;
 			Entry.FileSize = FileSize;
 			Entry.LastWriteTime = LastWriteTime;
 			++Entry.Serial;
@@ -114,12 +114,12 @@ namespace Durin
 			for (FUploadResult& Result : Results)
 			{
 				auto It = Entries.find(Result.PhysicalPath);
-				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != ESourceImageThumbnailState::Uploading)
+				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != EAssetThumbnailState::Uploading)
 					continue;
 				FEntry& Entry = It->second;
 				if (!Result.Texture || !Mona::GActiveUIBackend)
 				{
-					Entry.State = ESourceImageThumbnailState::Failed;
+					Entry.State = EAssetThumbnailState::Failed;
 					Entry.Error = "Unable to create the preview texture.";
 					continue;
 				}
@@ -128,7 +128,7 @@ namespace Durin
 				Entry.Width = Result.Width;
 				Entry.Height = Result.Height;
 				Entry.bHasTransparency = Result.bHasTransparency;
-				Entry.State = ESourceImageThumbnailState::Ready;
+				Entry.State = EAssetThumbnailState::Ready;
 				Entry.LastUsedFrame = FrameNumber;
 			}
 		}
@@ -144,11 +144,11 @@ namespace Durin
 			{
 				if (ActiveDecodeCount > 0) --ActiveDecodeCount;
 				auto It = Entries.find(Result.PhysicalPath);
-				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != ESourceImageThumbnailState::Decoding)
+				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != EAssetThumbnailState::Loading)
 					continue;
 				if (!Result.bSucceeded)
 				{
-					It->second.State = ESourceImageThumbnailState::Failed;
+					It->second.State = EAssetThumbnailState::Failed;
 					It->second.Error = std::move(Result.Error);
 					continue;
 				}
@@ -164,9 +164,9 @@ namespace Durin
 				FDecodeResult Result = std::move(PendingUploads.front());
 				PendingUploads.erase(PendingUploads.begin());
 				auto It = Entries.find(Result.PhysicalPath);
-				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != ESourceImageThumbnailState::Decoding)
+				if (It == Entries.end() || It->second.Serial != Result.Serial || It->second.State != EAssetThumbnailState::Loading)
 					continue;
-				It->second.State = ESourceImageThumbnailState::Uploading;
+				It->second.State = EAssetThumbnailState::Uploading;
 				const std::weak_ptr<FAsyncThumbnailState> WeakState = AsyncState;
 				const std::string PhysicalPath = std::move(Result.PhysicalPath);
 				const uint64 Serial = Result.Serial;
@@ -199,9 +199,9 @@ namespace Durin
 			{
 				if (ActiveDecodeCount >= MaximumConcurrentDecodes) break;
 				auto It = Entries.find(Request.PhysicalPath);
-				if (It == Entries.end() || It->second.State != ESourceImageThumbnailState::Queued) continue;
+				if (It == Entries.end() || It->second.State != EAssetThumbnailState::Queued) continue;
 				FEntry& Entry = It->second;
-				Entry.State = ESourceImageThumbnailState::Decoding;
+				Entry.State = EAssetThumbnailState::Loading;
 				const uint64 Serial = Entry.Serial;
 				const uintmax_t FileSize = Entry.FileSize;
 				const std::filesystem::file_time_type LastWriteTime = Entry.LastWriteTime;
@@ -223,7 +223,7 @@ namespace Durin
 					++ActiveDecodeCount;
 				else
 				{
-					Entry.State = ESourceImageThumbnailState::Failed;
+					Entry.State = EAssetThumbnailState::Failed;
 					Entry.Error = "The background task queue is unavailable.";
 				}
 			}
@@ -287,12 +287,12 @@ namespace Durin
 		Entry.LastUsedFrame = Impl->FrameNumber;
 		if (Entry.RequestedFrame == Impl->FrameNumber) return;
 		Entry.RequestedFrame = Impl->FrameNumber;
-		if (Entry.State == ESourceImageThumbnailState::NotRequested)
+		if (Entry.State == EAssetThumbnailState::NotRequested)
 		{
-			Entry.State = ESourceImageThumbnailState::Queued;
+			Entry.State = EAssetThumbnailState::Queued;
 			Impl->PendingRequests.push_back({Key, bVisible});
 		}
-		else if (Entry.State == ESourceImageThumbnailState::Queued && bVisible)
+		else if (Entry.State == EAssetThumbnailState::Queued && bVisible)
 		{
 			auto Pending = std::ranges::find_if(Impl->PendingRequests, [&](const FImpl::FPendingRequest& Request) { return Request.PhysicalPath == Key; });
 			if (Pending != Impl->PendingRequests.end())
@@ -300,19 +300,26 @@ namespace Durin
 			else
 				Impl->PendingRequests.push_back({Key, true});
 		}
-		else if (Entry.State == ESourceImageThumbnailState::Queued)
+		else if (Entry.State == EAssetThumbnailState::Queued)
 		{
 			const auto Pending = std::ranges::find_if(Impl->PendingRequests, [&](const FImpl::FPendingRequest& Request) { return Request.PhysicalPath == Key; });
 			if (Pending == Impl->PendingRequests.end()) Impl->PendingRequests.push_back({Key, false});
 		}
 	}
 
-	auto FSourceImageThumbnailCache::Find(std::string_view PhysicalPath) const -> FSourceImageThumbnailView
+	auto FSourceImageThumbnailCache::Find(std::string_view PhysicalPath) const -> FAssetThumbnailView
 	{
 		const auto It = Impl->Entries.find(std::string(PhysicalPath));
 		if (It == Impl->Entries.end()) return {};
 		const FImpl::FEntry& Entry = It->second;
-		return {Entry.State, Entry.Texture, Entry.Width, Entry.Height, Entry.bHasTransparency, Entry.Error};
+		return {
+			.State = Entry.State,
+			.Texture = Entry.Texture,
+			.Width = Entry.Width,
+			.Height = Entry.Height,
+			.bHasTransparency = Entry.bHasTransparency,
+			.Diagnostic = Entry.Error,
+			.RequestSerial = Entry.Serial};
 	}
 
 	auto FSourceImageThumbnailCache::EndFrame() -> void
@@ -326,9 +333,9 @@ namespace Durin
 		Impl->PendingRequests.clear();
 		Impl->PendingUploads.clear();
 		for (auto& [Path, Entry] : Impl->Entries)
-			if (Entry.State == ESourceImageThumbnailState::Queued || Entry.State == ESourceImageThumbnailState::Decoding || Entry.State == ESourceImageThumbnailState::Uploading)
+			if (Entry.State == EAssetThumbnailState::Queued || Entry.State == EAssetThumbnailState::Loading || Entry.State == EAssetThumbnailState::Uploading)
 			{
-				Entry.State = ESourceImageThumbnailState::NotRequested;
+				Entry.State = EAssetThumbnailState::NotRequested;
 				++Entry.Serial;
 			}
 	}

@@ -51,6 +51,44 @@ namespace Durin
 		}
 	} // namespace
 
+	struct FAssetThumbnailProviderRegistry::FImpl
+	{
+		struct FEntry
+		{
+			std::shared_ptr<IAssetThumbnailProvider> Provider;
+			uint64 Generation = 0;
+		};
+
+		std::unordered_map<std::string, FEntry> Providers;
+		uint64 NextGeneration = 1;
+		bool bShuttingDown = false;
+	};
+
+	struct FAssetThumbnailScheduler::FImpl
+	{
+		struct FEntry
+		{
+			std::string CacheKey;
+			EAssetThumbnailState State = EAssetThumbnailState::NotRequested;
+			FAssetThumbnailGenerationRequest GenerationRequest;
+			std::string Diagnostic;
+			uint64 RequestSerial = 0;
+		};
+
+		FAssetThumbnailProviderRegistry& Registry;
+		FAssetThumbnailBudgets Budgets;
+		std::unordered_map<std::string, FEntry> Entries;
+		std::vector<FAssetThumbnailScheduledJob> Queue;
+		bool bShuttingDown = false;
+
+		auto RemoveQueuedJob(std::string_view CacheKey) -> void
+		{
+			std::erase_if(Queue, [CacheKey](const FAssetThumbnailScheduledJob& Job) {
+				return Job.CacheKey == CacheKey;
+			});
+		}
+	};
+
 	FAssetThumbnailCancellation::FAssetThumbnailCancellation()
 		: State(std::make_shared<std::atomic<bool>>(false))
 	{
@@ -64,6 +102,294 @@ namespace Durin
 	auto FAssetThumbnailCancellation::IsCancelled() const -> bool
 	{
 		return State->load(std::memory_order_acquire);
+	}
+
+	FAssetThumbnailProviderRegistry::FAssetThumbnailProviderRegistry()
+		: Impl(std::make_unique<FImpl>())
+	{
+	}
+
+	FAssetThumbnailProviderRegistry::~FAssetThumbnailProviderRegistry()
+	{
+		Shutdown();
+	}
+
+	auto FAssetThumbnailProviderRegistry::Register(
+		std::shared_ptr<IAssetThumbnailProvider> Provider,
+		std::string& OutError
+	) -> bool
+	{
+		if (Impl->bShuttingDown)
+		{
+			OutError = "Thumbnail provider registration is closed during shutdown.";
+			return false;
+		}
+		if (!Provider)
+		{
+			OutError = "Cannot register a null thumbnail provider.";
+			return false;
+		}
+		const FAssetThumbnailProviderRegistration Registration = Provider->GetRegistration();
+		if (Registration.AssetClassName.empty() || Registration.ProviderName.empty()
+			|| Registration.GeneratorSchemaVersion == 0)
+		{
+			OutError = "Thumbnail providers require an asset class, provider name, and nonzero generator schema.";
+			return false;
+		}
+		if (Impl->Providers.contains(Registration.AssetClassName))
+		{
+			OutError = std::format(
+				"A thumbnail provider is already registered for asset class {}.",
+				Registration.AssetClassName);
+			return false;
+		}
+		Impl->Providers.emplace(
+			Registration.AssetClassName,
+			FImpl::FEntry{std::move(Provider), Impl->NextGeneration++});
+		OutError.clear();
+		return true;
+	}
+
+	auto FAssetThumbnailProviderRegistry::Unregister(
+		std::string_view AssetClassName,
+		std::string& OutError
+	) -> bool
+	{
+		const auto It = Impl->Providers.find(std::string(AssetClassName));
+		if (It == Impl->Providers.end())
+		{
+			OutError = std::format(
+				"No thumbnail provider is registered for asset class {}.",
+				AssetClassName);
+			return false;
+		}
+		Impl->Providers.erase(It);
+		OutError.clear();
+		return true;
+	}
+
+	auto FAssetThumbnailProviderRegistry::Find(
+		std::string_view AssetClassName
+	) const -> FAssetThumbnailProviderHandle
+	{
+		const auto It = Impl->Providers.find(std::string(AssetClassName));
+		if (It == Impl->Providers.end()) return {};
+		return {It->second.Provider, It->second.Generation};
+	}
+
+	auto FAssetThumbnailProviderRegistry::Shutdown() -> void
+	{
+		if (Impl->bShuttingDown) return;
+		Impl->bShuttingDown = true;
+		Impl->Providers.clear();
+	}
+
+	auto FAssetThumbnailProviderRegistry::IsShuttingDown() const -> bool
+	{
+		return Impl->bShuttingDown;
+	}
+
+	auto FAssetThumbnailProviderRegistry::Num() const -> size_t
+	{
+		return Impl->Providers.size();
+	}
+
+	FAssetThumbnailScheduler::FAssetThumbnailScheduler(
+		FAssetThumbnailProviderRegistry& Registry,
+		FAssetThumbnailBudgets Budgets
+	)
+		: Impl(std::make_unique<FImpl>(FImpl{
+			.Registry = Registry,
+			.Budgets = Budgets}))
+	{
+	}
+
+	FAssetThumbnailScheduler::~FAssetThumbnailScheduler()
+	{
+		Shutdown();
+	}
+
+	auto FAssetThumbnailScheduler::Request(
+		const FAssetThumbnailRequest& Request,
+		std::string& OutError
+	) -> bool
+	{
+		if (Impl->bShuttingDown)
+		{
+			OutError = "Thumbnail requests are closed during shutdown.";
+			return false;
+		}
+		const FAssetThumbnailProviderHandle Handle = Impl->Registry.Find(Request.Asset.AssetClassName);
+		if (!Handle)
+		{
+			OutError = std::format(
+				"No thumbnail provider is registered for asset class {}.",
+				Request.Asset.AssetClassName);
+			return false;
+		}
+
+		FAssetThumbnailGenerationRequest GenerationRequest;
+		if (!Handle.Provider->CaptureGenerationRequest(
+				Request,
+				Handle.Generation,
+				GenerationRequest,
+				OutError))
+		{
+			FImpl::FEntry& Entry = Impl->Entries[Request.Asset.VirtualPath.ToString()];
+			if (Request.RequestSerial >= Entry.GenerationRequest.RequestSerial)
+			{
+				Entry.GenerationRequest.Cancellation.Cancel();
+				Impl->RemoveQueuedJob(Entry.CacheKey);
+				Entry = {};
+				Entry.State = EAssetThumbnailState::Invalid;
+				Entry.GenerationRequest.RequestSerial = Request.RequestSerial;
+				Entry.Diagnostic = OutError.empty()
+					? "The thumbnail provider rejected the asset."
+					: OutError;
+				Entry.RequestSerial = Request.RequestSerial;
+			}
+			return false;
+		}
+
+		const FAssetThumbnailProviderRegistration Registration = Handle.Provider->GetRegistration();
+		GenerationRequest.KeyInput.Asset = Request.Asset;
+		GenerationRequest.KeyInput.ProviderName = Registration.ProviderName;
+		GenerationRequest.KeyInput.GeneratorSchemaVersion = Registration.GeneratorSchemaVersion;
+		GenerationRequest.ProviderGeneration = Handle.Generation;
+		GenerationRequest.RequestSerial = Request.RequestSerial;
+		const std::string CacheKey = BuildAssetThumbnailCacheKey(GenerationRequest.KeyInput);
+		const std::string AssetPath = Request.Asset.VirtualPath.ToString();
+		auto Existing = Impl->Entries.find(AssetPath);
+		if (Existing != Impl->Entries.end())
+		{
+			FImpl::FEntry& Entry = Existing->second;
+			if (Request.RequestSerial < Entry.RequestSerial)
+			{
+				OutError = "A newer thumbnail request is already active for this asset.";
+				return false;
+			}
+			if (Entry.CacheKey == CacheKey
+				&& Entry.State != EAssetThumbnailState::Invalid
+				&& Entry.State != EAssetThumbnailState::Failed)
+			{
+				if (Request.RequestSerial == Entry.RequestSerial)
+				{
+					if (Entry.State == EAssetThumbnailState::Queued
+						&& Request.Priority == EAssetThumbnailPriority::Visible)
+					{
+						for (FAssetThumbnailScheduledJob& Job : Impl->Queue)
+							if (Job.CacheKey == CacheKey)
+								Job.Priority = EAssetThumbnailPriority::Visible;
+					}
+					OutError.clear();
+					return true;
+				}
+				if (Entry.State == EAssetThumbnailState::Queued)
+				{
+					Entry.RequestSerial = Request.RequestSerial;
+					Entry.GenerationRequest.RequestSerial = Request.RequestSerial;
+					for (FAssetThumbnailScheduledJob& Job : Impl->Queue)
+					{
+						if (Job.CacheKey != CacheKey) continue;
+						Job.GenerationRequest.RequestSerial = Request.RequestSerial;
+						if (Request.Priority == EAssetThumbnailPriority::Visible)
+							Job.Priority = EAssetThumbnailPriority::Visible;
+					}
+					OutError.clear();
+					return true;
+				}
+			}
+			Entry.GenerationRequest.Cancellation.Cancel();
+			Impl->RemoveQueuedJob(Entry.CacheKey);
+			Impl->Entries.erase(Existing);
+		}
+
+		if (Impl->Queue.size() >= Impl->Budgets.MaximumQueuedJobs)
+		{
+			OutError = "The thumbnail request queue budget is exhausted.";
+			return false;
+		}
+
+		FImpl::FEntry Entry;
+		Entry.CacheKey = CacheKey;
+		Entry.State = EAssetThumbnailState::Queued;
+		Entry.GenerationRequest = GenerationRequest;
+		Entry.RequestSerial = Request.RequestSerial;
+		Impl->Entries.emplace(AssetPath, std::move(Entry));
+		Impl->Queue.push_back({
+			.CacheKey = CacheKey,
+			.Priority = Request.Priority,
+			.GenerationRequest = std::move(GenerationRequest)});
+		OutError.clear();
+		return true;
+	}
+
+	auto FAssetThumbnailScheduler::Find(const FAssetPath& AssetPath) const -> FAssetThumbnailView
+	{
+		const auto It = Impl->Entries.find(AssetPath.ToString());
+		if (It == Impl->Entries.end()) return {};
+		const FImpl::FEntry& Entry = It->second;
+		return {
+			.State = Entry.State,
+			.Diagnostic = Entry.Diagnostic,
+			.RequestSerial = Entry.RequestSerial};
+	}
+
+	auto FAssetThumbnailScheduler::TakeNext() -> std::optional<FAssetThumbnailScheduledJob>
+	{
+		if (Impl->bShuttingDown || Impl->Queue.empty()) return std::nullopt;
+		auto Selected = std::ranges::find(
+			Impl->Queue,
+			EAssetThumbnailPriority::Visible,
+			&FAssetThumbnailScheduledJob::Priority);
+		if (Selected == Impl->Queue.end()) Selected = Impl->Queue.begin();
+		FAssetThumbnailScheduledJob Job = std::move(*Selected);
+		Impl->Queue.erase(Selected);
+		const std::string AssetPath = Job.GenerationRequest.KeyInput.Asset.VirtualPath.ToString();
+		const auto Entry = Impl->Entries.find(AssetPath);
+		if (Entry == Impl->Entries.end() || Entry->second.CacheKey != Job.CacheKey
+			|| Entry->second.GenerationRequest.RequestSerial != Job.GenerationRequest.RequestSerial
+			|| Entry->second.GenerationRequest.ProviderGeneration != Job.GenerationRequest.ProviderGeneration)
+		{
+			Job.GenerationRequest.Cancellation.Cancel();
+			return TakeNext();
+		}
+		Entry->second.State = EAssetThumbnailState::Loading;
+		return Job;
+	}
+
+	auto FAssetThumbnailScheduler::Cancel(const FAssetPath& AssetPath) -> void
+	{
+		const auto It = Impl->Entries.find(AssetPath.ToString());
+		if (It == Impl->Entries.end()) return;
+		It->second.GenerationRequest.Cancellation.Cancel();
+		Impl->RemoveQueuedJob(It->second.CacheKey);
+		Impl->Entries.erase(It);
+	}
+
+	auto FAssetThumbnailScheduler::CancelAll() -> void
+	{
+		for (auto& [AssetPath, Entry] : Impl->Entries)
+			Entry.GenerationRequest.Cancellation.Cancel();
+		Impl->Queue.clear();
+		Impl->Entries.clear();
+	}
+
+	auto FAssetThumbnailScheduler::Shutdown() -> void
+	{
+		if (Impl->bShuttingDown) return;
+		Impl->bShuttingDown = true;
+		CancelAll();
+	}
+
+	auto FAssetThumbnailScheduler::NumQueued() const -> size_t
+	{
+		return Impl->Queue.size();
+	}
+
+	auto FAssetThumbnailScheduler::IsShuttingDown() const -> bool
+	{
+		return Impl->bShuttingDown;
 	}
 
 	auto BuildAssetThumbnailDependencyClosure(
