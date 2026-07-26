@@ -6,19 +6,24 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Active. Stages 0-2 are implemented and validated on 2026-07-26. The Windows
-host policy is a checked development prerequisite, `DurinLauncher` and every
-native-test executable receive one shared `longPathAware` manifest policy, and
-their final PE images are verified after linking. Core now owns atomic byte
-publication for DDC, shader-cache, and asset-package writes. CoreTests (121),
-RenderCoreTests (48), and AssetCoreTests (30) passed after the publication
-migration; the rebuilt CoreTests and DurinLauncher images passed embedded
-manifest verification. Stage 3 is in progress: Core coverage now crosses 300
-characters, covers the historical temporary-name regression, diagnoses a
-256-character component, and exercises DDC plus shader binary, reflection, and
-manifest round trips from dynamically constructed long roots. The lasting
-runtime and build contracts are published; the full long-worktree end-to-end
-matrix remains.
+Completed and archived on 2026-07-26. The Windows host policy is a checked
+development prerequisite, `DurinLauncher` and every native-test executable
+receive one shared `longPathAware` manifest policy, and their final PE images
+are verified after linking. Core owns atomic byte publication for DDC,
+shader-cache, and asset-package writes. Dynamic tests cross 300 characters,
+cover the historical temporary-name regression, diagnose a 256-character
+component, and exercise DDC plus shader binary, reflection, and manifest round
+trips from long roots.
+
+Final validation used the deliberately long worktree
+`G:\Workspace\DurinLab\long-path-validation\segment-0000-abcdefghijklmnop\durin`.
+The `all` target built successfully, and CoreTests (122), CoreDObjectTests (49),
+AssetCoreTests (30), EngineTests (225), RenderCoreTests (49), and VulkanRHITests
+(1) all passed there. The built editor remained alive for an eight-second
+hidden-window smoke test. An intentionally deeper approximately 150-character
+worktree root failed during CMake's compiler probe when its scratch object
+directory reached 245 characters; this records the documented CMake/MSVC
+third-party tool boundary rather than expanding the runtime path contract.
 
 ## Goal
 
@@ -207,11 +212,11 @@ length, while preserving portable behavior and actionable failure diagnostics.
   destination-derived temporary name would exceed `MAX_PATH`.
 - [x] Validate paths with long totals and ordinary components separately from an
   overlong component, and assert the latter fails with an actionable diagnostic.
-- [ ] Run the complete native-test preset, a full `all` build, and a
+- [x] Run the complete native-test preset, a full `all` build, and a
   hidden-window runtime smoke test from a deliberately long worktree path.
 - [x] Move lasting manifest, host prerequisite, file-publication, and diagnostic
   rules into the owning Development and Runtime documentation.
-- [ ] Record final evidence, archive this plan, and update plan indexes.
+- [x] Record final evidence, archive this plan, and update plan indexes.
 
 #### Acceptance Gate
 
