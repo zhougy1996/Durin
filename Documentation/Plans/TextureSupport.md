@@ -244,6 +244,9 @@ These features are intentionally outside the first Texture2D/material slice:
 - [x] Cube-map assets and static skybox sampling. See
   [Cube Textures](../Runtime/Rendering/CubeTextures.md) and
   [SkyBoxComponent](Archive/2026-07/SkyBoxComponent.md).
+- [ ] Equirectangular LDR and Radiance HDR panorama import into an LDR cube
+  asset. See
+  [Equirectangular Texture Cube Import](EquirectangularTextureCubeImport.md).
 - [ ] Texture arrays, cube-map arrays, and volume textures.
 - [ ] Virtual textures or sparse residency.
 - [ ] Runtime-generated and writable texture assets.
