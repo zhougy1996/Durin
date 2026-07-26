@@ -6,9 +6,9 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 through 2 are complete. Material Parent reverse registration is removed
-and the 47 material dependency, batching, transaction, rendering, asset, and
-lifetime tests pass. Stage 3 is next.
+Stages 0 through 3 are complete. Material and static-mesh reverse registration
+is removed, and the 50 material dependency, batching, transaction, rendering,
+asset, static-mesh scan, and lifetime tests pass. Stage 4 is next.
 
 This plan replaces the unimplemented centralized object dependency index design
 recorded on 2026-07-26. The revised direction follows Unreal Engine's material
@@ -419,21 +419,21 @@ Current gaps:
 
 ### Stage 3: Remove component binding registration
 
-- [ ] Replace material `BoundComponents` traversal with the material update
+- [x] Replace material `BoundComponents` traversal with the material update
   context's loaded-component scan.
-- [ ] Remove material Add/RemoveBoundComponent methods.
-- [ ] Remove `DStaticMeshComponent::BoundMaterials`, BindMaterial,
+- [x] Remove material Add/RemoveBoundComponent methods.
+- [x] Remove `DStaticMeshComponent::BoundMaterials`, BindMaterial,
   UnbindMaterial, and ReconcileMaterialBindings.
-- [ ] Replace static-mesh `BoundComponents` with the on-demand loaded-component
+- [x] Replace static-mesh `BoundComponents` with the on-demand loaded-component
   scan helper.
-- [ ] Remove static-mesh Add/RemoveBoundComponent methods.
-- [ ] Remove `DStaticMeshComponent::BoundStaticMesh` and
+- [x] Remove static-mesh Add/RemoveBoundComponent methods.
+- [x] Remove `DStaticMeshComponent::BoundStaticMesh` and
   ReconcileStaticMeshBinding.
-- [ ] Remove dependency unregister work from component, material, and mesh
+- [x] Remove dependency unregister work from component, material, and mesh
   BeginDestroy paths.
-- [ ] Preserve mesh replacement, slot default changes, override/reset/orphan
+- [x] Preserve mesh replacement, slot default changes, override/reset/orphan
   behavior, reimport invalidation, and scene-proxy replacement rules.
-- [ ] Add tests for component assignment changes, material use across multiple
+- [x] Add tests for component assignment changes, material use across multiple
   slots, static-mesh replacement, default changes, override changes, orphan
   removal, garbage filtering, and object-handle slot reuse during later scans.
 

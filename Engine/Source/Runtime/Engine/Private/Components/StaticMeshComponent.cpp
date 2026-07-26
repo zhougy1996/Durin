@@ -26,8 +26,6 @@ namespace Durin
 		}
 
 		StaticMesh = InStaticMesh;
-		ReconcileStaticMeshBinding();
-		ReconcileMaterialBindings();
 		++MaterialComponentRevision;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
@@ -70,7 +68,6 @@ namespace Durin
 			Override->Material = InMaterial;
 		}
 		else MaterialOverrides.push_back({.SlotId = SlotId, .Material = InMaterial});
-		ReconcileMaterialBindings();
 		++MaterialComponentRevision;
 		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
 		MarkPackageDirty();
@@ -89,7 +86,6 @@ namespace Durin
 		const size_t PreviousSize = MaterialOverrides.size();
 		std::erase_if(MaterialOverrides, [&SlotId](const FStaticMeshMaterialOverride& Override) { return Override.SlotId == SlotId; });
 		if (MaterialOverrides.size() == PreviousSize) return false;
-		ReconcileMaterialBindings();
 		++MaterialComponentRevision;
 		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
 		MarkPackageDirty();
@@ -129,10 +125,7 @@ namespace Durin
 	auto DStaticMeshComponent::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		if (!ValidateMaterialOverrides(MaterialOverrides, OutError)) return false;
-		ReconcileStaticMeshBinding();
-		ReconcileMaterialBindings();
-		return true;
+		return ValidateMaterialOverrides(MaterialOverrides, OutError);
 	}
 
 	auto DStaticMeshComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
@@ -187,14 +180,11 @@ namespace Durin
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("StaticMesh"))
 		{
-			ReconcileStaticMeshBinding();
-			ReconcileMaterialBindings();
 			++MaterialComponentRevision;
 			MarkRenderStateDirty();
 			return;
 		}
 		if (Name != FName("MaterialOverrides")) return;
-		ReconcileMaterialBindings();
 		++MaterialComponentRevision;
 		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
 		MarkRenderStateDirty();
@@ -229,19 +219,9 @@ namespace Durin
 		return std::make_unique<FStaticMeshSceneProxy>(RenderData, std::move(MaterialUpdates));
 	}
 
-	auto DStaticMeshComponent::BeginDestroy() -> void
-	{
-		if (BoundStaticMesh != nullptr) BoundStaticMesh->RemoveBoundComponent(this);
-		BoundStaticMesh = nullptr;
-		for (const TObjectPtr<DMaterialInterface>& SlotMaterial : BoundMaterials) UnbindMaterial(SlotMaterial.Get());
-		BoundMaterials.clear();
-		Super::BeginDestroy();
-	}
-
 	auto DStaticMeshComponent::HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void
 	{
-		if (ChangedMesh == nullptr || ChangedMesh != StaticMesh.Get() || ChangedMesh != BoundStaticMesh) return;
-		ReconcileMaterialBindings();
+		if (ChangedMesh == nullptr || ChangedMesh != StaticMesh.Get()) return;
 		++MaterialComponentRevision;
 		MarkRenderStateDirty();
 	}
@@ -269,51 +249,6 @@ namespace Durin
 		PendingMaterialSlotIndex = SlotIndex;
 		PendingMaterialDirtyFlags = DirtyFlags;
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialData);
-	}
-
-	auto DStaticMeshComponent::BindMaterial(DMaterialInterface* InMaterial) -> void
-	{
-		if (InMaterial != nullptr) InMaterial->AddBoundComponent(this);
-	}
-
-	auto DStaticMeshComponent::UnbindMaterial(DMaterialInterface* InMaterial) -> void
-	{
-		if (InMaterial != nullptr) InMaterial->RemoveBoundComponent(this);
-	}
-
-	auto DStaticMeshComponent::ReconcileStaticMeshBinding() -> void
-	{
-		DStaticMesh* CurrentMesh = StaticMesh.Get();
-		if (BoundStaticMesh == CurrentMesh) return;
-		if (BoundStaticMesh != nullptr) BoundStaticMesh->RemoveBoundComponent(this);
-		BoundStaticMesh = CurrentMesh;
-		if (BoundStaticMesh != nullptr) BoundStaticMesh->AddBoundComponent(this);
-	}
-
-	auto DStaticMeshComponent::ReconcileMaterialBindings() -> void
-	{
-		std::vector<TObjectPtr<DMaterialInterface>> ResolvedMaterials;
-		if (StaticMesh != nullptr)
-		{
-			for (const FStaticMeshMaterialSlotDefinition& Slot : StaticMesh->GetMaterialSlots())
-			{
-				DMaterialInterface* Resolved = GetMaterialBySlotId(Slot.SlotId);
-				if (Resolved != nullptr && std::ranges::none_of(ResolvedMaterials,
-					[Resolved](const TObjectPtr<DMaterialInterface>& Candidate) { return Candidate.Get() == Resolved; }))
-					ResolvedMaterials.push_back(Resolved);
-			}
-		}
-		for (const TObjectPtr<DMaterialInterface>& Previous : BoundMaterials)
-		{
-			if (Previous != nullptr && std::ranges::none_of(ResolvedMaterials, [&](const auto& Current) { return Current == Previous; }))
-				UnbindMaterial(Previous.Get());
-		}
-		for (const TObjectPtr<DMaterialInterface>& Current : ResolvedMaterials)
-		{
-			if (Current != nullptr && std::ranges::none_of(BoundMaterials, [&](const auto& Previous) { return Previous == Current; }))
-				BindMaterial(Current.Get());
-		}
-		BoundMaterials = std::move(ResolvedMaterials);
 	}
 
 	auto DStaticMeshComponent::ValidateMaterialOverrides(

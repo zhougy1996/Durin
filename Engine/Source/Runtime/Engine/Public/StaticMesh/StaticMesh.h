@@ -8,7 +8,6 @@
 namespace Durin
 {
 	class DMaterialInterface;
-	class DStaticMeshComponent;
 
 	// Selects a signed source axis when converting imported geometry to Durin space.
 	DENUM()
@@ -110,8 +109,7 @@ namespace Durin
 
 	private:
 		auto BuildRenderData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
-		auto AddBoundComponent(DStaticMeshComponent* Component) -> void;
-		auto RemoveBoundComponent(DStaticMeshComponent* Component) -> void;
+		auto NotifyLoadedComponents() -> void;
 
 		DPROPERTY()
 		std::string SourceFile;
@@ -131,9 +129,6 @@ namespace Durin
 		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
-		std::vector<DStaticMeshComponent*> BoundComponents;
-
-		friend class DStaticMeshComponent;
 	};
 
 	// Reports static-mesh import success and the created asset, when available.

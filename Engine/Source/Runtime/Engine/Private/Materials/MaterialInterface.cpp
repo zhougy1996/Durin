@@ -1,7 +1,6 @@
 #include "Materials/MaterialInterface.h"
 
 #include "CoreGlobals.h"
-#include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
@@ -138,12 +137,6 @@ namespace Durin
 		}
 	}
 
-	auto DMaterialInterface::BeginDestroy() -> void
-	{
-		BoundComponents.clear();
-		Super::BeginDestroy();
-	}
-
 	auto DMaterialInterface::MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void
 	{
 		FMaterialUpdateContext Context;
@@ -157,22 +150,6 @@ namespace Durin
 	) -> void
 	{
 		Context.AddMaterial(this, DirtyFlags);
-	}
-
-	auto DMaterialInterface::AddBoundComponent(DStaticMeshComponent* Component) -> void
-	{
-		if (!Component) return;
-		// Dependency edges must not keep assets or components alive; generations also make stale edges harmless after GC.
-		const FObjectHandle Handle = MakeObjectHandle(Component);
-		const auto Matches = [Handle](FObjectHandle Candidate) { return Candidate.Index == Handle.Index && Candidate.Generation == Handle.Generation; };
-		if (std::ranges::find_if(BoundComponents, Matches) == BoundComponents.end()) BoundComponents.push_back(Handle);
-	}
-
-	auto DMaterialInterface::RemoveBoundComponent(DStaticMeshComponent* Component) -> void
-	{
-		if (!Component) return;
-		const FObjectHandle Handle = MakeObjectHandle(Component);
-		std::erase_if(BoundComponents, [Handle](FObjectHandle Candidate) { return Candidate.Index == Handle.Index && Candidate.Generation == Handle.Generation; });
 	}
 
 	auto GetLoadedDirectMaterialChildren(

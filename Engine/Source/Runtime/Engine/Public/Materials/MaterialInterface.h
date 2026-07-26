@@ -9,7 +9,6 @@
 namespace Durin
 {
 	class DMaterialInstance;
-	class DStaticMeshComponent;
 	class DTexture2D;
 	class FMaterialUpdateContext;
 
@@ -36,7 +35,6 @@ namespace Durin
 		ENGINE_API auto GetRenderData() const -> FMaterialRenderData;
 		auto GetRenderStateVersion() const -> uint64 { return RenderStateVersion; }
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
-		ENGINE_API auto BeginDestroy() -> void override;
 
 	protected:
 		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
@@ -47,13 +45,8 @@ namespace Durin
 		) -> void;
 
 	private:
-		auto AddBoundComponent(DStaticMeshComponent* Component) -> void;
-		auto RemoveBoundComponent(DStaticMeshComponent* Component) -> void;
-
 		uint64 RenderStateVersion = 1;
-		std::vector<FObjectHandle> BoundComponents;
 
-		friend class DStaticMeshComponent;
 		friend class FMaterialUpdateContext;
 	};
 

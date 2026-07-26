@@ -4,6 +4,7 @@
 
 #include "AssetCore.h"
 #include "AssetSystem.h"
+#include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Hash/XxHash.h"
@@ -387,22 +388,29 @@ namespace Durin
 	{
 		if (InRenderData != nullptr) InRenderData->RecalculateBounds();
 		RenderData = std::move(InRenderData);
-		const std::vector<DStaticMeshComponent*> Components = BoundComponents;
-		for (DStaticMeshComponent* Component : Components)
+		NotifyLoadedComponents();
+	}
+
+	auto DStaticMesh::NotifyLoadedComponents() -> void
+	{
+		std::vector<FObjectHandle> ComponentHandles;
+		for (DObject* Object : GDObjectArray.Snapshot())
 		{
-			if (Component != nullptr) Component->HandleStaticMeshRenderDataChanged(this);
+			auto* Component = Cast<DStaticMeshComponent>(Object);
+			if (!IsValid(Component) || Component->GetStaticMesh() != this) continue;
+			const FObjectHandle Handle = MakeObjectHandle(Component);
+			if (!IsObjectHandleNull(Handle)) ComponentHandles.push_back(Handle);
 		}
-	}
-
-	auto DStaticMesh::AddBoundComponent(DStaticMeshComponent* Component) -> void
-	{
-		if (Component != nullptr && std::ranges::find(BoundComponents, Component) == BoundComponents.end())
-			BoundComponents.push_back(Component);
-	}
-
-	auto DStaticMesh::RemoveBoundComponent(DStaticMeshComponent* Component) -> void
-	{
-		std::erase(BoundComponents, Component);
+		std::ranges::sort(ComponentHandles, [](FObjectHandle Left, FObjectHandle Right) {
+			return Left.Index < Right.Index
+				|| (Left.Index == Right.Index && Left.Generation < Right.Generation);
+		});
+		for (FObjectHandle Handle : ComponentHandles)
+		{
+			auto* Component = Cast<DStaticMeshComponent>(ResolveObjectHandle(Handle));
+			if (!IsValid(Component) || Component->GetStaticMesh() != this) continue;
+			Component->HandleStaticMeshRenderDataChanged(this);
+		}
 	}
 
 	auto DStaticMesh::CreateDebugTriangle(DObject* Outer) -> DStaticMesh*
