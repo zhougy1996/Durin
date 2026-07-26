@@ -1549,7 +1549,30 @@ namespace Durin
 
 	auto FContentBrowserPanel::RequestDeleteSelection() -> void
 	{
-		if (!Selection.empty()) bDeletePopupRequested = true;
+		if (Selection.empty()) return;
+		AnalyzeDeleteSelection();
+		bDeletePopupRequested = true;
+	}
+
+	auto FContentBrowserPanel::AnalyzeDeleteSelection() -> void
+	{
+		DeleteAnalysis.clear();
+		DeleteAnalysisErrors.clear();
+		for (const FContentBrowserItem& Item : Items)
+		{
+			if (!Selection.contains(Item.StableId()) || Item.Kind != EContentBrowserItemKind::Asset) continue;
+			FAssetPath Path;
+			if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
+			{
+				DeleteAnalysisErrors.emplace_back(Item.StableId(),
+					Asset::FAssetResult{Asset::EAssetError::InvalidPath, "Asset path is invalid."});
+				continue;
+			}
+			Asset::FAssetDeleteAnalysis Analysis;
+			Asset::FAssetResult Result = Asset::AnalyzeAssetDeletion(Path, Analysis);
+			if (Result) DeleteAnalysis.emplace_back(Item.StableId(), std::move(Analysis));
+			else DeleteAnalysisErrors.emplace_back(Item.StableId(), std::move(Result));
+		}
 	}
 
 	auto FContentBrowserPanel::DeleteEmptyFolder(const FContentBrowserItem& Item) -> bool
@@ -1630,22 +1653,26 @@ namespace Durin
 			for (const FContentBrowserItem& Item : Items)
 			{
 				if (!Selection.contains(Item.StableId()) || Item.Kind != EContentBrowserItemKind::Asset) continue;
-				FAssetPath Path;
-				Asset::FAssetDeleteAnalysis Analysis;
-				if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
+				const auto ErrorIt = std::ranges::find(DeleteAnalysisErrors, Item.StableId(),
+					&std::pair<std::string, Asset::FAssetResult>::first);
+				if (ErrorIt != DeleteAnalysisErrors.end())
 				{
 					bBlocked = true;
-					ImGui::TextWrapped("%s has an invalid asset path.", Item.Name.c_str());
+					ImGui::TextWrapped("%s: %s", Item.Name.c_str(), ErrorIt->second.Message.c_str());
 					continue;
 				}
-
-				const Asset::FAssetResult Result = Asset::AnalyzeAssetDeletion(Path, Analysis);
-				if (!Result)
+				const auto AnalysisIt = std::ranges::find(DeleteAnalysis, Item.StableId(),
+					&std::pair<std::string, Asset::FAssetDeleteAnalysis>::first);
+				if (AnalysisIt == DeleteAnalysis.end())
 				{
 					bBlocked = true;
-					ImGui::TextWrapped("%s: %s", Item.Name.c_str(), Result.Message.c_str());
+					ImGui::TextWrapped("%s could not be analyzed.", Item.Name.c_str());
+					continue;
 				}
-				else if (Analysis.bLoading)
+				const Asset::FAssetDeleteAnalysis& Analysis = AnalysisIt->second;
+				if (!Analysis.Warning.empty())
+					ImGui::TextWrapped("%s: Warning: %s", Item.Name.c_str(), Analysis.Warning.c_str());
+				if (Analysis.bLoading)
 				{
 					bBlocked = true;
 					ImGui::TextWrapped("%s is currently loading. Try again when loading finishes.", Item.Name.c_str());

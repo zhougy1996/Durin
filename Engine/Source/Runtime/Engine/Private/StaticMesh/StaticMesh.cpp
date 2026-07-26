@@ -597,7 +597,8 @@ namespace Durin
 				return {};
 			});
 			Asset::RegisterAssetDeleteContributor(DStaticMesh::StaticClass(), [](
-				DObject*, Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
+				const Asset::FAssetData&, const Asset::FAssetPackageInspection&,
+				Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
 				// Portable SourceAssets may be shared and require a separate, explicit source operation.
 				return {};
 			});

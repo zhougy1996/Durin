@@ -83,6 +83,43 @@ namespace Durin::Asset
 		std::vector<uint8>& OutBytes,
 		const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult;
 
+	// Provides serialized main-asset fields without constructing objects or invoking PostLoad.
+	struct FAssetPackageField
+	{
+		std::string DeclaringClass;
+		std::string Name;
+		std::string TypeSignature;
+		std::vector<uint8> Payload;
+
+		ASSETCORE_API auto TryReadString(std::string& OutValue) const -> bool;
+
+		template<typename T>
+		auto TryReadScalar(T& OutValue) const -> bool
+		{
+			static_assert(std::is_trivially_copyable_v<T>);
+			if (Payload.size() != sizeof(T)) return false;
+			std::memcpy(&OutValue, Payload.data(), sizeof(T));
+			return true;
+		}
+	};
+
+	// Carries the main asset's serialized fields for lightweight tooling inspection.
+	struct FAssetPackageInspection
+	{
+		FAssetPackageHeader Header;
+		std::vector<FAssetPackageField> Fields;
+
+		auto FindField(std::string_view Name) const -> const FAssetPackageField*
+		{
+			const auto It = std::ranges::find(Fields, Name, &FAssetPackageField::Name);
+			return It == Fields.end() ? nullptr : &*It;
+		}
+	};
+
+	// Reads the complete serialized package into a field snapshot without resolving dependencies,
+	// constructing objects, or invoking PostLoad.
+	ASSETCORE_API auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult;
+
 	// Selects whether registry discovery may reuse its persistent snapshot.
 	enum class EAssetRegistryScanMode : uint8
 	{
@@ -125,6 +162,9 @@ namespace Durin::Asset
 		FAssetPath AssetPath;
 		std::vector<FAssetPath> DirectReferencers;
 		std::vector<std::filesystem::path> CompanionFiles;
+
+		// Non-fatal inspection failure; deletion remains available for the main package file.
+		std::string Warning;
 		bool bLoaded = false;
 		bool bLoading = false;
 
@@ -135,7 +175,7 @@ namespace Durin::Asset
 
 	using FAssetMoveContributor = std::function<FAssetResult(DObject*, const FAssetPath&, const FAssetPath&, FAssetMoveContribution&)>;
 	ASSETCORE_API auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void;
-	using FAssetDeleteContributor = std::function<FAssetResult(DObject*, FAssetDeleteContribution&)>;
+	using FAssetDeleteContributor = std::function<FAssetResult(const FAssetData&, const FAssetPackageInspection&, FAssetDeleteContribution&)>;
 	ASSETCORE_API auto RegisterAssetDeleteContributor(DClass* Class, FAssetDeleteContributor Contributor) -> void;
 
 	// Owns the discovered asset index and its persistent snapshot state.

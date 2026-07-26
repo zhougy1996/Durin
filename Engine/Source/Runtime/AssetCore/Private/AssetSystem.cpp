@@ -858,6 +858,44 @@ namespace Durin::Asset
 		return BuildPackageBytes(Package, OutBytes, nullptr, Options);
 	}
 
+	auto FAssetPackageField::TryReadString(std::string& OutValue) const -> bool
+	{
+		FByteReader Reader{Payload};
+		return Reader.ReadString(OutValue, MaximumPackageStringBytes) && Reader.Offset == Payload.size();
+	}
+
+	auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult
+	{
+		OutInspection = {};
+		std::vector<uint8> Bytes;
+		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
+			return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
+		FPackageFile File;
+		FAssetResult Result = ReadPackageFile(Bytes, File, false);
+		if (!Result) return Result;
+		if (File.Objects.empty()) return Error(EAssetError::InvalidObjectGraph, "Asset package has no main object.");
+		FByteReader HeaderReader{Bytes};
+		FPackageFile HeaderFile;
+		uint64 HeaderObjectCount = 0;
+		Result = ReadPackageHeader(HeaderReader, HeaderFile, HeaderObjectCount);
+		if (!Result) return Result;
+		OutInspection.Header.AssetClassName = std::move(HeaderFile.AssetClassName);
+		OutInspection.Header.FormatVersion = HeaderFile.FormatVersion;
+		OutInspection.Header.Dependencies = std::move(HeaderFile.Dependencies);
+		OutInspection.Header.ObjectCount = HeaderObjectCount;
+		OutInspection.Header.BytesRead = HeaderReader.Offset;
+		OutInspection.Fields.reserve(File.Objects.front().Fields.size());
+		for (FFieldRecord& Field : File.Objects.front().Fields)
+		{
+			OutInspection.Fields.push_back({
+				.DeclaringClass = std::move(Field.DeclaringClass),
+				.Name = std::move(Field.Name),
+				.TypeSignature = std::move(Field.TypeSignature),
+				.Payload = std::move(Field.Payload)});
+		}
+		return {};
+	}
+
 	auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void
 	{
 		if (Class && Contributor) GetMoveContributors().insert_or_assign(Class, std::move(Contributor));
@@ -1209,45 +1247,29 @@ namespace Durin::Asset
 		OutAnalysis.bLoaded = LoadedPackages.contains(Path);
 		OutAnalysis.bLoading = LoadingPackages.contains(Path);
 
-		DPackage* Package = nullptr;
-		const bool bTemporarilyLoaded = !OutAnalysis.bLoaded;
-		std::unordered_set<FAssetPath> PreviouslyLoaded;
-		if (bTemporarilyLoaded)
-			for (const auto& [LoadedPath, LoadedPackage] : LoadedPackages) PreviouslyLoaded.insert(LoadedPath);
-		DObject* LoadedAsset = nullptr;
-		FAssetResult Result = LoadAsset(Path, LoadedAsset);
-		Package = LoadedAsset ? LoadedAsset->GetPackage() : nullptr;
-		if (!Result) return Result;
-		if (Package && Package->GetAsset())
+		DClass* AssetClass = FindClassByQualifiedName(FName(Data->AssetClassName));
+		for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
 		{
-			for (DClass* Class = Package->GetAsset()->GetClass(); Class; Class = Class->GetSuperClass())
+			auto It = GetDeleteContributors().find(Class);
+			if (It == GetDeleteContributors().end()) continue;
+			FAssetPackageInspection Inspection;
+			FAssetResult InspectionResult = InspectAssetPackage(Data->PhysicalPath, Inspection);
+			if (!InspectionResult)
 			{
-				auto It = GetDeleteContributors().find(Class);
-				if (It == GetDeleteContributors().end()) continue;
-				FAssetDeleteContribution Contribution;
-				Result = It->second(Package->GetAsset(), Contribution);
-				if (Result) OutAnalysis.CompanionFiles = std::move(Contribution.Files);
+				OutAnalysis.Warning = std::format(
+					"Could not inspect companion files: {} Only the main asset file will be deleted.",
+					InspectionResult.Message);
 				break;
 			}
+			FAssetDeleteContribution Contribution;
+			FAssetResult ContributionResult = It->second(*Data, Inspection, Contribution);
+			if (ContributionResult) OutAnalysis.CompanionFiles = std::move(Contribution.Files);
+			else OutAnalysis.Warning = std::format(
+				"Could not determine companion files: {} Only the main asset file will be deleted.",
+				ContributionResult.Message);
+			break;
 		}
-		if (bTemporarilyLoaded)
-		{
-			FAssetResult UnloadResult = UnloadPackage(Path);
-			if (Result && !UnloadResult) Result = std::move(UnloadResult);
-			bool bMadeProgress = true;
-			while (bMadeProgress)
-			{
-				bMadeProgress = false;
-				std::vector<FAssetPath> TemporaryDependencies;
-				for (const auto& [LoadedPath, LoadedPackage] : LoadedPackages)
-					if (!PreviouslyLoaded.contains(LoadedPath)) TemporaryDependencies.push_back(LoadedPath);
-				for (const FAssetPath& TemporaryPath : TemporaryDependencies)
-				{
-					if (UnloadPackage(TemporaryPath)) bMadeProgress = true;
-				}
-			}
-		}
-		return Result;
+		return {};
 	}
 
 	auto FAssetManager::DeleteAsset(const FAssetPath& Path) -> FAssetResult

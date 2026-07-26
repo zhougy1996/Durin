@@ -127,6 +127,7 @@ namespace Durin
 		auto CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void;
 		auto FocusFolderInParent(std::string_view PhysicalDirectory) -> const FContentBrowserItem*;
 		auto RequestDeleteSelection() -> void;
+		auto AnalyzeDeleteSelection() -> void;
 		auto DeleteSelection() -> void;
 		auto DeleteEmptyFolder(const FContentBrowserItem& Item) -> bool;
 		auto ShowInExplorer(std::string_view PhysicalPath) const -> void;
@@ -170,6 +171,8 @@ namespace Durin
 		bool bFocusRename = false;
 		bool bRenameEditorHovered = false;
 		bool bDeletePopupRequested = false;
+		std::vector<std::pair<std::string, Asset::FAssetDeleteAnalysis>> DeleteAnalysis;
+		std::vector<std::pair<std::string, Asset::FAssetResult>> DeleteAnalysisErrors;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
 		std::unique_ptr<FSourceImageThumbnailCache> ThumbnailCache;

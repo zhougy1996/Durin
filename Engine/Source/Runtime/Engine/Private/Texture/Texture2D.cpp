@@ -33,18 +33,23 @@ namespace Durin
 			return std::filesystem::path(VirtualPath).lexically_normal();
 		}
 
-		auto ResolveTextureSource(const DTexture2D& Texture) -> std::filesystem::path
+		auto ResolveTextureSource(std::string_view SourceFile, const std::filesystem::path& PackageFile) -> std::filesystem::path
 		{
-			const std::filesystem::path StoredPath(Texture.GetSourceFile());
-			const std::filesystem::path PackageFile = ResolveMountedFile(Texture.GetPackage()->GetPackagePath());
-			if (!StoredPath.is_absolute() && !Texture.GetSourceFile().starts_with('/'))
+			const std::filesystem::path StoredPath(SourceFile);
+			if (!StoredPath.is_absolute() && !SourceFile.starts_with('/'))
 			{
 				return (PackageFile.parent_path() / StoredPath).lexically_normal();
 			}
 
-			const std::filesystem::path LegacyPath = ResolveMountedFile(Texture.GetSourceFile());
+			const std::filesystem::path LegacyPath = ResolveMountedFile(SourceFile);
 			if (std::filesystem::is_regular_file(LegacyPath)) return LegacyPath;
 			return (PackageFile.parent_path() / StoredPath.filename()).lexically_normal();
+		}
+
+		auto ResolveTextureSource(const DTexture2D& Texture) -> std::filesystem::path
+		{
+			return ResolveTextureSource(Texture.GetSourceFile(),
+				ResolveMountedFile(Texture.GetPackage()->GetPackagePath()));
 		}
 
 		auto MakeTextureDerivedDataKey(const DTexture2D& Texture) -> std::string
@@ -213,9 +218,12 @@ namespace Durin
 				}
 				return {};
 			});
-			Asset::RegisterAssetDeleteContributor(DTexture2D::StaticClass(), [](DObject* Object, Asset::FAssetDeleteContribution& Out) -> Asset::FAssetResult {
-				auto* Texture = Cast<DTexture2D>(Object);
-				if (Texture && !Texture->SourceFile.empty()) Out.Files.push_back(ResolveTextureSource(*Texture));
+			Asset::RegisterAssetDeleteContributor(DTexture2D::StaticClass(), [](const Asset::FAssetData& Data,
+				const Asset::FAssetPackageInspection& Inspection, Asset::FAssetDeleteContribution& Out) -> Asset::FAssetResult {
+				const Asset::FAssetPackageField* SourceField = Inspection.FindField("SourceFile");
+				std::string SourceFile;
+				if (!SourceField || !SourceField->TryReadString(SourceFile) || SourceFile.empty()) return {};
+				Out.Files.push_back(ResolveTextureSource(SourceFile, Data.PhysicalPath));
 				return {};
 			});
 			return true;

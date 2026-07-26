@@ -38,17 +38,22 @@ namespace Durin
 			return std::filesystem::path(VirtualPath).lexically_normal();
 		}
 
-		auto ResolveCubeSource(const DTextureCube& Texture, ETextureCubeFace Face) -> std::filesystem::path
+		auto ResolveCubeSource(std::string_view SourceFile, const std::filesystem::path& PackageFile) -> std::filesystem::path
 		{
-			const std::filesystem::path StoredPath(Texture.GetSourceFile(Face));
-			const std::filesystem::path PackageFile = ResolveMountedFile(Texture.GetPackage()->GetPackagePath());
-			if (!StoredPath.is_absolute() && !Texture.GetSourceFile(Face).starts_with('/'))
+			const std::filesystem::path StoredPath(SourceFile);
+			if (!StoredPath.is_absolute() && !SourceFile.starts_with('/'))
 			{
 				return (PackageFile.parent_path() / StoredPath).lexically_normal();
 			}
-			const std::filesystem::path LegacyPath = ResolveMountedFile(Texture.GetSourceFile(Face));
+			const std::filesystem::path LegacyPath = ResolveMountedFile(SourceFile);
 			if (std::filesystem::is_regular_file(LegacyPath)) return LegacyPath;
 			return (PackageFile.parent_path() / StoredPath.filename()).lexically_normal();
+		}
+
+		auto ResolveCubeSource(const DTextureCube& Texture, ETextureCubeFace Face) -> std::filesystem::path
+		{
+			return ResolveCubeSource(Texture.GetSourceFile(Face),
+				ResolveMountedFile(Texture.GetPackage()->GetPackagePath()));
 		}
 
 		auto MakePanoramaSourceFileName(std::string_view AssetName, std::string_view Extension) -> std::string
@@ -314,22 +319,35 @@ namespace Durin
 				};
 				return {};
 			});
-			Asset::RegisterAssetDeleteContributor(DTextureCube::StaticClass(), [](DObject* Object,
-				Asset::FAssetDeleteContribution& Out) -> Asset::FAssetResult {
-				auto* Texture = Cast<DTextureCube>(Object);
-				if (!Texture) return {};
-				if (Texture->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama)
+			Asset::RegisterAssetDeleteContributor(DTextureCube::StaticClass(), [](const Asset::FAssetData& Data,
+				const Asset::FAssetPackageInspection& Inspection, Asset::FAssetDeleteContribution& Out) -> Asset::FAssetResult {
+				const Asset::FAssetPackageField* LayoutField = Inspection.FindField("SourceLayout");
+				ETextureCubeSourceLayout Layout = ETextureCubeSourceLayout::SixFaces;
+				if (!LayoutField || !LayoutField->TryReadScalar(Layout))
+					return {Asset::EAssetError::CorruptFile, "Texture cube source layout is unavailable."};
+				const std::filesystem::path PackageFile(Data.PhysicalPath);
+				auto AddSource = [&](std::string_view FieldName) -> bool {
+					const Asset::FAssetPackageField* Field = Inspection.FindField(FieldName);
+					std::string SourceFile;
+					if (!Field || !Field->TryReadString(SourceFile)) return false;
+					if (SourceFile.empty()) return true;
+					Out.Files.push_back(ResolveCubeSource(SourceFile, PackageFile));
+					return true;
+				};
+				if (Layout == ETextureCubeSourceLayout::EquirectangularPanorama)
 				{
-					if (!Texture->PanoramaSourceFile.empty()) Out.Files.push_back(Texture->ResolvePanoramaSource());
-					return {};
+					return AddSource("PanoramaSourceFile")
+						? Asset::FAssetResult{}
+						: Asset::FAssetResult{Asset::EAssetError::CorruptFile, "Texture cube panorama source is unavailable."};
 				}
-				if (Texture->GetSourceLayout() != ETextureCubeSourceLayout::SixFaces)
+				if (Layout != ETextureCubeSourceLayout::SixFaces)
 					return {Asset::EAssetError::UnsupportedProperty, "Texture cube source layout is invalid."};
-				for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-				{
-					const ETextureCubeFace Face = static_cast<ETextureCubeFace>(FaceIndex);
-					if (!Texture->GetSourceFile(Face).empty()) Out.Files.push_back(ResolveCubeSource(*Texture, Face));
-				}
+				static constexpr std::array<std::string_view, TextureCubeFaceCount> SourceFields = {
+					"PositiveXSourceFile", "NegativeXSourceFile", "PositiveYSourceFile",
+					"NegativeYSourceFile", "PositiveZSourceFile", "NegativeZSourceFile"};
+				for (std::string_view FieldName : SourceFields)
+					if (!AddSource(FieldName))
+						return {Asset::EAssetError::CorruptFile, "A texture cube face source is unavailable."};
 				return {};
 			});
 			return true;
