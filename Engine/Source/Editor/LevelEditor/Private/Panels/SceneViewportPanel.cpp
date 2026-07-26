@@ -196,21 +196,50 @@ namespace Durin
 			DrawList->AddRectFilled(ImVec2(CenterX - IndicatorWidth * 0.5f, Bottom - MonaImGui::ScaleUI(2.0f)), ImVec2(CenterX + IndicatorWidth * 0.5f, Bottom), ImGui::GetColorU32(ImGuiCol_CheckMark), MonaImGui::ScaleUI(1.0f));
 		}
 
+		auto DrawToolbarButtonBackground(
+			ImDrawList* DrawList,
+			const ImVec2& Min,
+			const ImVec2& Max,
+			bool bSelected,
+			bool bButtonSurface,
+			bool bHovered,
+			bool bHeld,
+			ImDrawFlags Rounding = ImDrawFlags_RoundCornersAll
+		) -> void
+		{
+			ImGuiCol Background;
+			if (bSelected)
+			{
+				Background = bHeld ? ImGuiCol_HeaderActive : bHovered ? ImGuiCol_HeaderHovered : ImGuiCol_Header;
+			}
+			else if (bHeld)
+			{
+				Background = ImGuiCol_ButtonActive;
+			}
+			else if (bHovered)
+			{
+				Background = ImGuiCol_ButtonHovered;
+			}
+			else if (bButtonSurface)
+			{
+				Background = ImGuiCol_Button;
+			}
+			else
+			{
+				return;
+			}
+			DrawList->AddRectFilled(Min, Max, ImGui::GetColorU32(Background), ImGui::GetStyle().FrameRounding, Rounding);
+		}
+
 		auto DrawToolbarButton(const char* Id, const ImVec2& Position, const ImVec2& Size, const char* Label, EViewportToolbarIcon Icon, bool bSelected, const char* Tooltip, bool bButtonSurface = false, bool bSuccessIcon = false) -> bool
 		{
 			ImGui::SetCursorScreenPos(Position);
 			const bool bPressed = ImGui::InvisibleButton(Id, Size);
 			const bool bHovered = ImGui::IsItemHovered();
 			const bool bHeld = ImGui::IsItemActive();
-			const ImGuiStyle& Style = ImGui::GetStyle();
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
 			const ImVec2 Max(Position.x + Size.x, Position.y + Size.y);
-			if (bSelected || bButtonSurface || bHovered || bHeld)
-			{
-				const ImGuiCol Background = bSelected ? ImGuiCol_HeaderActive : bHeld ? ImGuiCol_ButtonActive :
-															bHovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button;
-				DrawList->AddRectFilled(Position, Max, ImGui::GetColorU32(Style.Colors[Background]), Style.FrameRounding);
-			}
+			DrawToolbarButtonBackground(DrawList, Position, Max, bSelected, bButtonSurface, bHovered, bHeld);
 
 			const ImU32 TextColor = ImGui::GetColorU32(bSelected || bButtonSurface || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 			// Play is an action, not a persistent selection: keep the standard button surface
@@ -373,36 +402,22 @@ namespace Durin
 
 		auto DrawSnapSplitButton(const ImVec2& Position, float PrimaryWidth, float SecondaryWidth, float Height, bool bEnabled, bool bPopupOpen) -> FSplitButtonResult
 		{
-			const ImGuiStyle& Style = ImGui::GetStyle();
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
 			const ImVec2 Max(Position.x + PrimaryWidth + SecondaryWidth, Position.y + Height);
-			if (bEnabled)
-			{
-				DrawList->AddRectFilled(Position, ImVec2(Position.x + PrimaryWidth, Max.y), ImGui::GetColorU32(ImGuiCol_HeaderActive), Style.FrameRounding, ImDrawFlags_RoundCornersLeft);
-			}
-			if (bPopupOpen)
-			{
-				DrawList->AddRectFilled(ImVec2(Position.x + PrimaryWidth, Position.y), Max, ImGui::GetColorU32(ImGuiCol_HeaderActive), Style.FrameRounding, ImDrawFlags_RoundCornersRight);
-			}
 
 			ImGui::SetCursorScreenPos(Position);
 			const bool bPrimaryPressed = ImGui::InvisibleButton("##SnapToggle", ImVec2(PrimaryWidth, Height));
 			const bool bPrimaryHovered = ImGui::IsItemHovered();
 			const bool bPrimaryHeld = ImGui::IsItemActive();
-			if (bPrimaryHovered || bPrimaryHeld)
-			{
-				DrawList->AddRectFilled(Position, ImVec2(Position.x + PrimaryWidth, Max.y), ImGui::GetColorU32(bPrimaryHeld ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), Style.FrameRounding, ImDrawFlags_RoundCornersLeft);
-			}
+			const ImVec2 PrimaryMax(Position.x + PrimaryWidth, Max.y);
 
 			const ImVec2 SecondaryPosition(Position.x + PrimaryWidth, Position.y);
 			ImGui::SetCursorScreenPos(SecondaryPosition);
 			const bool bSecondaryPressed = ImGui::InvisibleButton("##SnapSettingsButton", ImVec2(SecondaryWidth, Height));
 			const bool bSecondaryHovered = ImGui::IsItemHovered();
 			const bool bSecondaryHeld = ImGui::IsItemActive();
-			if (bSecondaryHovered || bSecondaryHeld)
-			{
-				DrawList->AddRectFilled(SecondaryPosition, Max, ImGui::GetColorU32(bSecondaryHeld ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), Style.FrameRounding, ImDrawFlags_RoundCornersRight);
-			}
+			DrawToolbarButtonBackground(DrawList, Position, PrimaryMax, bEnabled, false, bPrimaryHovered, bPrimaryHeld, ImDrawFlags_RoundCornersLeft);
+			DrawToolbarButtonBackground(DrawList, SecondaryPosition, Max, bPopupOpen, false, bSecondaryHovered, bSecondaryHeld, ImDrawFlags_RoundCornersRight);
 
 			DrawList->AddLine(ImVec2(SecondaryPosition.x, Position.y + MonaImGui::ScaleUI(5.0f)), ImVec2(SecondaryPosition.x, Max.y - MonaImGui::ScaleUI(5.0f)), ImGui::GetColorU32(ImGuiCol_Border));
 			const ImU32 TextColor = ImGui::GetColorU32(bEnabled || bPopupOpen || bPrimaryHovered || bSecondaryHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
