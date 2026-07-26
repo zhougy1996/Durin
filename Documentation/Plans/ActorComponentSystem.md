@@ -1,240 +1,157 @@
 # Actor Component System Plan
 
-Summary: Reflected actor/component ownership, lifecycle, world integration, transforms, scene registration, and serialization.
+Summary: Close the remaining reflection-model debt in the implemented actor/component runtime and archive the completed foundation.
 
-Last reviewed: 2026-07-24
+Last reviewed: 2026-07-26
 
 ## Current Status
 
-Planning baseline. The reflected actor/component type hierarchy exists, but ownership, lifecycle routing, world spawning, transform hierarchy, scene registration, and serialization still require implementation. Resolve the ownership decisions recorded below before work proceeds beyond the early lifecycle stages.
+Active, near completion. The original planning baseline is obsolete: actor/component ownership, lifecycle routing, world and level integration, transform hierarchies, primitive scene synchronization, persistence, Play In Editor isolation, and reflected editor workflows are implemented and covered by focused native tests.
+
+The remaining plan work is intentionally narrow. Core ACS type queries still use C++ RTTI in several actor, level, world, and component paths even though these objects participate in the `DObject` class system. Replace that compatibility debt with `Cast<T>()`, `IsA()`, and reflected exact-class comparison, validate the existing behavior, then archive this plan. New gameplay-framework features do not belong in this plan.
 
 ## Goal
 
-Grow the current reflected actor/component skeleton into a coherent runtime model whose construction, ownership, destruction, transforms, rendering registration, and persistence all follow the engine object system.
+Finish the actor/component foundation as one coherent `DObject`-based runtime model, remove the last parallel type-query path from its core APIs, and preserve the implemented runtime contracts in their owning documentation.
 
 ## Scope
 
-- Actor and component construction and ownership.
-- Lifecycle callbacks and destruction.
-- World spawn and ownership.
-- Scene-component transforms and primitive scene registration.
-- Serialization and editor-facing reflected metadata.
+- Reflected actor/component type queries in core ACS code.
+- Actor and component ownership invariants based on `Outer` plus reflected strong references.
+- Regression validation for lifecycle, world/level ownership, transforms, scene registration, persistence, and editor-facing component operations.
+- Plan completion and archival after the final acceptance gates pass.
 
 ## Non-Goals
 
-- A parallel object or RTTI system outside `DObject`.
-- Advanced gameplay frameworks, networking, or replication.
-- Renderer features unrelated to component registration.
+- Archetypes, class default objects, or a general default-subobject system.
+- Networking, replication, gameplay abilities, or a broader gameplay framework.
+- Multi-level streaming or multiple simultaneously active levels.
+- Replacing the current engine-owned main scene with a world scene subsystem.
+- Redesigning asset serialization, reflection, garbage collection, rendering, physics, or editor transactions.
 
-This document describes how to grow the current Actor-Component System from the existing `DObject` reflection foundation into a usable runtime model.
+## Design Decisions and Invariants
 
-## Current State
+- `DWorld` is a reflected runtime/editor session container; `DLevel` is the persistent scene asset and actor owner.
+- A level owns actors through reflected `TObjectPtr` storage and `Outer == Level`. An actor owns components through reflected `TObjectPtr` storage and `Outer == Actor`.
+- Default components are constructed by actor classes through `CreateDefaultComponent()` and `NewObject`. Runtime-added components are additionally tracked in `InstanceComponents`.
+- `MarkAsGarbage()` performs logical retirement; garbage collection owns physical destruction. Retiring an owned hierarchy follows the `Outer` index.
+- Component lifecycle preserves created → registered → initialized → play → uninitialized → unregistered → destroyed ordering; repeated register, unregister, and pending-kill routing remains safe.
+- An actor's root scene component is the source of its transform. Scene attachments are acyclic, preserve the selected attachment rule, and cannot cross active level boundaries.
+- `DPrimitiveComponent` owns stable primitive scene identity. The active engine scene receives proxy, transform, material, visibility, and removal updates.
+- Persistent level data stores authored ownership and relative state. Attachment children and world transforms are derived and rebuilt after load.
+- Core ACS type queries use the reflected class hierarchy. C++ RTTI is not a second actor/component type system.
 
-Durin already has the important reflection pieces needed for an Actor-Component System:
+## Current Foundations and Gaps
 
-- `DCLASS()` and `GENERATED_BODY()` generate `DClass` registration.
-- `NewObject<T>(Outer, Name)` constructs reflected `DObject` instances through `FObjectInitializer`.
-- `DObject::IsA()` and `Cast<T>()` use the reflected `DClass` hierarchy.
-- `AActor`, `DActorComponent`, `DSceneComponent`, `DPrimitiveComponent`, `DMeshComponent`, `DStaticMeshComponent`, and `AStaticMeshActor` are reflected by the `Engine` module.
+Implemented foundations:
 
-The ACS layer is still mostly a skeleton:
+- `DObject` construction, `Outer` access, reflected references, deferred physical destruction, hierarchy retirement, object duplication, and object-graph serialization.
+- Actor default and instance component ownership, unique naming, root-component validation, visibility, attachment, play, tick, and teardown.
+- Component owner binding, registration/initialization routing, play/tick routing, pending-kill cleanup, and garbage marking.
+- `DWorld` and `DLevel` ownership, spawn/destroy, primary-camera selection, level switching, play lifecycle, pause/single-step behavior, and transient PIE duplication.
+- Relative/world transforms, attachment rules, dirty propagation, cycle and cross-level rejection, post-load hierarchy repair, and destruction-safe detachment.
+- Primitive scene proxy registration, replacement, transform/material updates, visibility removal, and unregister removal.
+- Reflected level persistence, editor instance-component operations, property editing, hierarchy notifications, and PIE apply isolation.
 
-- `DWorld` is empty and does not own or tick actors.
-- `AActor` stores component arrays, but ownership and lifecycle routing are incomplete.
-- `DActorComponent` has registration flags and callbacks, but it does not derive its owner from `Outer`.
-- `CreateDefaultComponent()` uses raw `new`, while existing reflected objects should be created through `NewObject`.
-- Component destruction currently removes array references but does not have a unified object-system destroy path.
-- Scene and primitive registration are placeholders.
+Remaining gaps:
 
-## Design Direction
+- `AActor` component lookup templates use `typeid` and `dynamic_cast`.
+- Actor/component owner queries and several `DLevel`, `DWorld`, and scene-component paths use `dynamic_cast` despite reflected classes being available.
+- The plan has not yet recorded one final focused regression run against the implemented foundation.
 
-Build ACS around `DObject` instead of introducing a parallel object model.
+## Implementation Stages
 
-The minimum stable model should be:
+### Stage 0: Lock The Implemented Ownership Model
 
-```text
-DWorld
-  owns AActor instances
-    owns DActorComponent instances through Outer == Actor
-      DSceneComponent provides transform hierarchy
-      DPrimitiveComponent registers renderable state into IScene
-```
+- [x] Select `DWorld` as the session container and `DLevel` as the persistent actor-owning asset.
+- [x] Select reflected `TObjectPtr` fields for retention and `Outer` for structural containment and object paths.
+- [x] Select garbage marking plus collection for destruction instead of direct deletion.
+- [x] Separate constructor-created default components from editor/runtime instance components without introducing archetypes or CDOs.
+- [x] Use the root scene component as actor transform authority.
+- [x] Keep the active scene owned by the engine and synchronize primitives through stable scene IDs.
+- [x] Persist authored level/component state and rebuild derived attachment state after load.
 
-Reflection should be used for construction, type queries, and later editor/serialization hooks. Raw RTTI and raw allocation should be treated as temporary compatibility only.
+#### Acceptance Gate
 
-## Phase 1: Stabilize DObject Ownership And Construction
+- The selected contracts are implemented and described by the related runtime and editor documentation.
 
-Goal: make all Actor/Component instances follow one construction and ownership path.
+### Stage 1: Remove Core ACS C++ RTTI
 
-Implementation steps:
+Dependencies: Stage 0 and the existing `DClass` hierarchy.
 
-1. Add `DObject::GetOuter()` and related small accessors if needed by `Engine`.
-2. Decide and document object destruction semantics for `NewObject` instances.
-3. Route component retirement through `MarkAsGarbage()` and keep physical destruction private to GC.
-4. Replace `AActor::CreateDefaultComponent()` raw `new T(...)` usage with `NewObject<T>(this, Name)`.
-5. Update component find helpers to use `Cast<T>()` / `IsA()` instead of `dynamic_cast` and `typeid`.
-6. Add focused tests for `NewObject<AActor>`, `NewObject<DActorComponent>`, `Outer`, `Name`, `StaticClass`, and `Cast`.
+- [ ] Replace exact component lookup via `typeid` with exact `DClass` comparison.
+- [ ] Replace polymorphic component, actor, level, and world `dynamic_cast` queries in the core ACS path with `Cast<T>()` or `IsA()`.
+- [ ] Preserve null handling, subclass matching, editor-only hierarchy notifications, primary-camera selection, and cross-world validation.
+- [ ] Add or adjust focused tests only where the existing suite does not distinguish exact-class lookup from subclass lookup.
 
-Important current files:
+#### Acceptance Gate
+
+- Core actor/component, level, and world implementation files contain no `dynamic_cast` or `typeid` type queries.
+- Exact-class and subclass component lookup behavior remains distinct and covered.
+- Existing world, component, lifecycle, persistence, and editor-facing tests pass.
+
+### Stage 2: Validate And Archive
+
+Dependencies: Stage 1.
+
+- [ ] Run the focused `EngineTests` world/component test set through the repository `BuildTool`.
+- [ ] Run the plan validator for active and archived plans.
+- [ ] Record completion evidence in this section and `Current Status`.
+- [ ] Confirm lasting behavior remains in the owning runtime/editor documents, then archive this file under the completion month.
+
+#### Acceptance Gate
+
+- Focused native tests and plan validation pass.
+- No required implementation checklist remains open.
+- The archived plan links to the authoritative long-lived contracts rather than competing with them.
+
+## Validation Matrix
+
+| Area | Evidence |
+| --- | --- |
+| Reflected type queries | Exact and subclass component lookup tests; runtime-class spawn tests |
+| Ownership and destruction | `WorldLifetimeTests.cpp`, `WorldActorTests.cpp` |
+| Lifecycle and ticking | `WorldPlayTests.cpp` |
+| Transform hierarchy | `WorldComponentTests.cpp` |
+| Scene synchronization | primitive/material/skybox component tests plus rendering smoke when rendering code changes |
+| Persistence and duplication | level round-trip and PIE duplication tests in `WorldActorTests.cpp` and `WorldPlayTests.cpp` |
+| Editor-facing properties | reflected property container, edit-session, and transaction tests |
+| Plan integrity | `python Documentation/Plans/list_plans.py --scope all --validate` |
+
+Repository build and test commands must follow [Build And Run](../Development/Build/BuildAndRun.md) and [Native C++ Tests](../Development/Build/NativeTests.md).
+
+## Definition of Done
+
+- Core ACS uses the reflected class system for exact and polymorphic type queries.
+- The focused ownership, lifecycle, transform, persistence, and editor-facing regression suite passes.
+- Long-lived behavior is documented outside the plan in the owning runtime and editor domains.
+- This plan is marked complete and moved to `Documentation/Plans/Archive/YYYY-MM/`.
+
+## Deferred Follow-ups
+
+- Introduce archetype/CDO/default-subobject semantics only when reusable authored actor classes require them.
+- Add deferred actor destruction only when mutation during world iteration requires it.
+- Add component tick prerequisites or scheduling only with a concrete gameplay or multithreading requirement.
+- Treat sub-level streaming, networking, and replication as separate plans with their own ownership and lifecycle decisions.
+- Revisit world-specific scene ownership only if multiple concurrently rendered worlds require it.
+
+## Related Documentation
+
+- [Reflection System](../Runtime/Core/ReflectionSystem.md)
+- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
+- [Level System](../Runtime/World/LevelSystem.md)
+- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
+- [Play In Editor Architecture](../Editor/Systems/PlayInEditorArchitecture.md)
+- [Reflected Property Editing](../Editor/Systems/ReflectedPropertyEditing.md)
+
+## Related Code
 
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h`
-- `Engine/Source/Runtime/CoreDObject/Public/DObject/DObjectGlobals.h`
-- `Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectGlobals.cpp`
+- `Engine/Source/Runtime/CoreDObject/Public/DObject/ObjectLifecycle.h`
 - `Engine/Source/Runtime/Engine/Public/Engine/Actor.h`
-- `Engine/Source/Runtime/Engine/Private/Engine/Actor.cpp`
-
-Exit criteria:
-
-- Actors and components are never created with raw `new` in normal engine code.
-- Components can reliably discover their owning actor through object ownership.
-- Destroying an actor has one clear path for component teardown.
-
-## Phase 2: Complete Actor And Component Lifecycle
-
-Goal: make component callbacks happen in a predictable order.
-
-Recommended lifecycle:
-
-```text
-Create object
--> OnComponentCreated
--> RegisterComponent
--> OnRegister
--> InitializeComponent
--> runtime use
--> UninitializeComponent
--> OnUnregister
--> OnComponentDestroyed
--> object destruction
-```
-
-Implementation steps:
-
-1. Set `DActorComponent::OwnerActorPrivate` from `ObjectInitializer.Outer` when the outer is an `AActor`.
-2. Add `AActor::AddOwnedComponent(DActorComponent*)` and route all ownership changes through it.
-3. Split default components and runtime instance components only if both concepts are needed now; otherwise keep one owned list until editor archetypes/CDOs exist.
-4. Make `RegisterComponent()` idempotent and have it call `ExecuteRegisterEvents()`.
-5. Make `UnregisterComponent()` call `ExecuteUnregisterEvents()` instead of directly calling `OnUnregister()`.
-6. Ensure `DestroyComponent()` unregisters and uninitializes before removing ownership.
-7. Add `AActor` lifecycle methods such as `RegisterAllComponents()`, `UnregisterAllComponents()`, `InitializeComponents()`, and `DestroyActor()`.
-8. Define whether actor constructors are allowed to create default components immediately. For now, keep the existing `AStaticMeshActor` pattern, but make it use a helper that also records ownership.
-
-Exit criteria:
-
-- A component cannot be initialized unless it is registered and created.
-- Repeated register/unregister calls are safe.
-- Actor destruction reliably tears down all owned components once.
-
-## Phase 3: Implement World Ownership And Spawn
-
-Goal: introduce the runtime container that owns actors and drives their lifecycle.
-
-Implementation steps:
-
-1. Turn `DWorld` into a `DObject` or explicitly decide it remains a non-reflected engine service.
-2. Add actor storage to `DWorld`, initially as `std::vector<AActor*>`.
-3. Add `SpawnActor<T>(FName Name)` using `NewObject<T>(WorldOrLevelOuter, Name)`.
-4. Add `DestroyActor(AActor*)` with deferred destruction if destruction can happen during iteration.
-5. Add simple world lifecycle methods: `InitializeWorld()`, `BeginPlay()`, `Tick(float DeltaSeconds)`, `EndPlay()`, and `CleanupWorld()`.
-6. Add `AActor::Tick(float DeltaSeconds)` and optional component ticking behind explicit flags.
-7. Wire the selected `DWorld` into `DGameEngine` first, then editor world ownership later.
-
-Exit criteria:
-
-- A standalone game world can spawn and destroy `AStaticMeshActor`.
-- World cleanup leaves no registered actor components behind.
-- Tick order is documented and covered by tests or logging assertions.
-
-## Phase 4: Add Scene Component Transform Hierarchy
-
-Goal: make components spatially meaningful before integrating rendering deeply.
-
-Implementation steps:
-
-1. Expand `DSceneComponent` with relative transform, world transform, parent pointer, and child list.
-2. Add `SetupAttachment(DSceneComponent* Parent)` and `AttachToComponent(...)`.
-3. Make `AActor::SetRootComponent()` validate ownership and maintain root invariants.
-4. Add transform dirty propagation from parent to children.
-5. Add `UpdateComponentToWorld()` and call it during registration and transform changes.
-6. Decide whether actor transform is a proxy to root component transform or a separate property. Prefer root component as the source of truth for now.
-
-Exit criteria:
-
-- Root and child scene components produce stable world transforms.
-- Changing a parent transform updates child world transforms.
-- Reassigning the root component does not orphan owned components.
-
-## Phase 5: Register Primitive Components With The Scene
-
-Goal: connect ACS to the renderer-facing scene abstraction.
-
-Implementation steps:
-
-1. Give `DWorld` an `IScene*` or scene-owning render bridge.
-2. Let `DPrimitiveComponent::OnRegister()` call `Scene->AddPrimitive(this)`.
-3. Let `DPrimitiveComponent::OnUnregister()` call `Scene->RemovePrimitive(this)`.
-4. Let transform changes call `Scene->UpdatePrimitiveTransform(this)`.
-5. Move render-proxy creation ownership into `DPrimitiveComponent` or a dedicated render component layer.
-6. Keep renderer module dependencies one-way: `Engine` should talk to `IScene`, not concrete renderer internals.
-
-Exit criteria:
-
-- Registering a primitive component adds it to the active scene.
-- Unregistering or destroying it removes it from the active scene.
-- Moving it updates the renderer-facing transform path.
-
-## Phase 6: Add Serialization And Editor-Facing Metadata
-
-Goal: prepare ACS for project content and editor workflows.
-
-Implementation steps:
-
-1. Mark important Actor/Component fields with `DPROPERTY()` after the runtime property system supports the needed types.
-2. Reflect `RootComponent`, owned component references, scene transforms, and mesh/material references only after object reference lifetime is stable.
-3. Add object path or package concepts before saving object graphs.
-4. Add archetype/CDO/default-subobject concepts only after raw ACS lifecycle is proven.
-5. Build editor panels on reflection metadata rather than direct engine-private arrays.
-
-Exit criteria:
-
-- A simple actor with a static mesh component can be serialized and restored.
-- Editor UI can inspect reflected component properties.
-- Runtime defaults and instance overrides have separate, documented ownership.
-
-## Suggested Implementation Order
-
-Use small, verifiable slices:
-
-1. `DObject` accessors and destruction policy.
-2. Component owner binding from `Outer`.
-3. Actor component creation helper using `NewObject`.
-4. Component lifecycle idempotency.
-5. Actor lifecycle helpers.
-6. Minimal `DWorld::SpawnActor` / `DestroyActor`.
-7. Scene component transform hierarchy.
-8. Primitive scene registration.
-9. Serialization/editor metadata.
-
-This order keeps each step useful on its own and avoids building renderer/editor behavior on top of unstable ownership.
-
-## Verification Plan
-
-For each phase, prefer one native test plus one runtime smoke check.
-
-Recommended tests:
-
-- `CoreDObjectTests`: object construction, outer/name/class/cast behavior.
-- `Engine` or a new engine test target: actor spawn, component ownership, lifecycle callback order, destroy cleanup.
-- Rendering smoke: spawn `AStaticMeshActor`, register components, run `DurinEditor` or `DurinGame` long enough to validate scene registration.
-
-Use the root `BuildTool` workflow and native-test guidance rather than direct CMake commands. For UI or rendering-visible changes, complete the required full build and hidden-window `DurinEditor` smoke because component registration bugs often appear only when the scene and viewport are live.
-
-## Open Decisions
-
-Resolve these before implementing beyond Phase 2:
-
-- Should `DWorld` inherit from `DObject` now, or stay a plain engine class until packages/GC exist?
-- Should component arrays store raw pointers initially, or introduce a lightweight object handle before GC?
-- Should actor destruction be immediate, deferred until end-of-frame, or both?
-- Are default components needed before CDO/archetype support, or should the engine initially treat all components as owned runtime instances?
-- Where should `IScene` ownership live: `DWorld`, engine instance, viewport, or a dedicated scene subsystem?
+- `Engine/Source/Runtime/Engine/Public/Engine/Level.h`
+- `Engine/Source/Runtime/Engine/Public/Engine/World.h`
+- `Engine/Source/Runtime/Engine/Public/Components/ActorComponent.h`
+- `Engine/Source/Runtime/Engine/Public/Components/SceneComponent.h`
+- `Engine/Source/Runtime/Engine/Public/Components/PrimitiveComponent.h`
+- `Engine/Tests/Native/EngineTests/Private/World/`
