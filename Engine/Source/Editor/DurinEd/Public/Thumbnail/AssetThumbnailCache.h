@@ -19,6 +19,7 @@ namespace Durin
 	{
 		uint64 CacheHits = 0;
 		uint64 Regenerations = 0;
+		uint64 Evictions = 0;
 	};
 
 	enum class EAssetThumbnailObjectLoadResult : uint8

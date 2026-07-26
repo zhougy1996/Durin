@@ -34,7 +34,12 @@ those shared facilities and accepts item identities independently from its
 physical provider input. Texture2D cards now request and query by virtual asset
 identity, source-file cards use their normalized item identity, and aliases
 that share one physical source coalesce to one decode/upload entry. Stage 2 is
-next and will add the shared offscreen rendered-thumbnail pipeline.
+in progress. `DurinEd` now owns the bounded rendered-generation coordinator,
+persistent warm-hit fast path, revision-safe asynchronous transition boundary,
+atomic encoded-output publication, and deterministic counters. Binding a real
+offscreen preview scene remains blocked on the shared native preview-mesh
+service owned by Stage 5 of the static-mesh plan; the thumbnail implementation
+does not introduce the forbidden transient-import fallback.
 
 Texture2D assets and supported source-image files already use an
 asynchronous, persistent Content Browser thumbnail cache. Materials have an
@@ -296,7 +301,7 @@ introducing per-card live viewports or steady-state rendering work.
 
 ### Stage 2: Add the shared offscreen rendered-thumbnail pipeline
 
-- [ ] Implement the bounded generation state machine and its game-thread,
+- [x] Implement the bounded generation state machine and its game-thread,
   render-thread, and worker transitions.
 - [ ] Create one resettable offscreen preview-scene pool using the shared sphere
   asset, fixed output target, deterministic view, and editor-only assistance
@@ -304,9 +309,9 @@ introducing per-card live viewports or steady-state rendering work.
 - [ ] Render requested content, wait for required resource revisions, read back
   the final output once, encode it, and atomically publish its cache object and
   index entry.
-- [ ] Revalidate job key, provider generation, request serial, asset identity,
+- [x] Revalidate job key, provider generation, request serial, asset identity,
   and resource revision at every asynchronous completion boundary.
-- [ ] Add deterministic counters and test hooks for jobs, loads, waits, renders,
+- [x] Add deterministic counters and test hooks for jobs, loads, waits, renders,
   readbacks, disk hits, failures, retries, cancellations, and evictions.
 
 #### Acceptance Gate

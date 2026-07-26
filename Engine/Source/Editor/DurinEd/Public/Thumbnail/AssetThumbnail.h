@@ -168,6 +168,9 @@ namespace Durin
 		FAssetThumbnailCancellation Cancellation;
 		uint64 ProviderGeneration = 0;
 		uint64 RequestSerial = 0;
+		// Provider snapshots revalidated after asset loading and before every resource-dependent publication.
+		uint64 AssetRevision = 0;
+		uint64 ResourceRevision = 0;
 	};
 
 	// Describes one exact-class provider registration and its generator schema.
@@ -251,6 +254,14 @@ namespace Durin
 		DURINED_API auto Request(const FAssetThumbnailRequest& Request, std::string& OutError) -> bool;
 		DURINED_API auto Find(const FAssetPath& AssetPath) const -> FAssetThumbnailView;
 		DURINED_API auto TakeNext() -> std::optional<FAssetThumbnailScheduledJob>;
+		// Advances a captured job only while its key, provider generation, serial, identity, and revisions remain current.
+		DURINED_API auto Transition(
+			const FAssetThumbnailScheduledJob& Job,
+			EAssetThumbnailState ExpectedState,
+			EAssetThumbnailState NextState,
+			uint64 AssetRevision = 0,
+			uint64 ResourceRevision = 0,
+			std::string_view Diagnostic = {}) -> bool;
 		DURINED_API auto Cancel(const FAssetPath& AssetPath) -> void;
 		DURINED_API auto CancelAll() -> void;
 		DURINED_API auto Shutdown() -> void;

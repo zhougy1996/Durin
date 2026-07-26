@@ -358,6 +358,42 @@ namespace Durin
 		return Job;
 	}
 
+	auto FAssetThumbnailScheduler::Transition(
+		const FAssetThumbnailScheduledJob& Job,
+		EAssetThumbnailState ExpectedState,
+		EAssetThumbnailState NextState,
+		uint64 AssetRevision,
+		uint64 ResourceRevision,
+		std::string_view Diagnostic
+	) -> bool
+	{
+		if (Impl->bShuttingDown || Job.GenerationRequest.Cancellation.IsCancelled()) return false;
+		const std::string AssetPath = Job.GenerationRequest.KeyInput.Asset.VirtualPath.ToString();
+		const auto It = Impl->Entries.find(AssetPath);
+		if (It == Impl->Entries.end()) return false;
+		FImpl::FEntry& Entry = It->second;
+		const FAssetThumbnailProviderHandle CurrentProvider =
+			Impl->Registry.Find(Job.GenerationRequest.KeyInput.Asset.AssetClassName);
+		if (Entry.CacheKey != Job.CacheKey
+			|| Entry.State != ExpectedState
+			|| Entry.RequestSerial != Job.GenerationRequest.RequestSerial
+			|| Entry.GenerationRequest.ProviderGeneration != Job.GenerationRequest.ProviderGeneration
+			|| !CurrentProvider
+			|| CurrentProvider.Generation != Job.GenerationRequest.ProviderGeneration
+			|| Entry.GenerationRequest.KeyInput.Asset != Job.GenerationRequest.KeyInput.Asset
+			|| (Entry.GenerationRequest.AssetRevision != 0
+				&& Entry.GenerationRequest.AssetRevision != AssetRevision)
+			|| (Entry.GenerationRequest.ResourceRevision != 0
+				&& Entry.GenerationRequest.ResourceRevision != ResourceRevision))
+			return false;
+
+		if (AssetRevision != 0) Entry.GenerationRequest.AssetRevision = AssetRevision;
+		if (ResourceRevision != 0) Entry.GenerationRequest.ResourceRevision = ResourceRevision;
+		Entry.State = NextState;
+		Entry.Diagnostic = std::string(Diagnostic);
+		return true;
+	}
+
 	auto FAssetThumbnailScheduler::Cancel(const FAssetPath& AssetPath) -> void
 	{
 		const auto It = Impl->Entries.find(AssetPath.ToString());

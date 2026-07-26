@@ -4,6 +4,7 @@
 #include "Misc/Paths.h"
 #include "Thumbnail/AssetThumbnail.h"
 #include "Thumbnail/AssetThumbnailCache.h"
+#include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 
 namespace Durin
 {
@@ -284,6 +285,7 @@ namespace Durin
 				.ObjectExtension = ".bin"});
 			ASSERT_TRUE(Store.Store("object-key-01", Payload));
 			ASSERT_TRUE(Store.Store("object-key-02", Payload));
+			EXPECT_EQ(Store.GetStats().Evictions, 1u);
 			std::vector<uint8> Loaded;
 			EXPECT_EQ(Store.Load("object-key-01", Loaded), EAssetThumbnailObjectLoadResult::Miss);
 			EXPECT_EQ(Store.Load("object-key-02", Loaded), EAssetThumbnailObjectLoadResult::Hit);
@@ -534,5 +536,140 @@ namespace Durin
 		EXPECT_EQ(Scheduler.Find(Request.Asset.VirtualPath).State, EAssetThumbnailState::NotRequested);
 		EXPECT_FALSE(Scheduler.Request(Request, Error));
 		EXPECT_NE(Error.find("shutdown"), std::string::npos);
+	}
+
+	TEST(FAssetThumbnailContractTests, RenderedPipelinePublishesColdOutputAndServesWarmHit)
+	{
+		const std::filesystem::path Root = MakeObjectStoreRoot("RenderedPipelineWarmHit");
+		auto RunRequest = [&](uint64 Serial, bool bExpectWarmHit) {
+			FAssetThumbnailProviderRegistry Registry;
+			std::string Error;
+			auto Provider = std::make_shared<FTestThumbnailProvider>(FAssetThumbnailProviderRegistration{
+				.AssetClassName = "DMaterial",
+				.ProviderName = "Durin.MaterialThumbnail",
+				.GeneratorSchemaVersion = 1});
+			EXPECT_TRUE(Registry.Register(Provider, Error)) << Error;
+			FAssetThumbnailScheduler Scheduler(Registry);
+			FRenderedAssetThumbnailPipeline Pipeline(
+				Scheduler,
+				{.CacheRoot = Root, .ObjectExtension = ".bin"});
+			const FAssetThumbnailRequest Request =
+				MakeThumbnailRequest("/ThumbnailTests/PersistentMaterial", "DMaterial", Serial);
+			EXPECT_TRUE(Scheduler.Request(Request, Error)) << Error;
+			Pipeline.BeginFrame();
+			std::optional<FRenderedAssetThumbnailJob> Job = Pipeline.StartNext();
+			if (bExpectWarmHit)
+			{
+				EXPECT_FALSE(Job);
+				EXPECT_EQ(Scheduler.Find(Request.Asset.VirtualPath).State, EAssetThumbnailState::Ready);
+				const FRenderedAssetThumbnailPipelineStats Stats = Pipeline.GetStats();
+				EXPECT_EQ(Stats.DiskHits, 1u);
+				EXPECT_EQ(Stats.Loads, 0u);
+				EXPECT_EQ(Stats.Renders, 0u);
+				EXPECT_EQ(Stats.Readbacks, 0u);
+				return;
+			}
+
+			ASSERT_TRUE(Job);
+			ASSERT_TRUE(Pipeline.CompleteLoad(*Job, 10));
+			ASSERT_TRUE(Pipeline.BeginRender(*Job, true, 10, 20));
+			ASSERT_TRUE(Pipeline.CompleteRender(*Job, 10, 20));
+			ASSERT_TRUE(Pipeline.CompleteReadback(*Job, 10, 20));
+			const std::vector<uint8> Encoded = {1, 2, 3, 4};
+			ASSERT_TRUE(Pipeline.CompleteEncoding(*Job, 10, 20, Encoded));
+			EXPECT_EQ(Scheduler.Find(Request.Asset.VirtualPath).State, EAssetThumbnailState::Ready);
+			const FRenderedAssetThumbnailPipelineStats Stats = Pipeline.GetStats();
+			EXPECT_EQ(Stats.Jobs, 1u);
+			EXPECT_EQ(Stats.Loads, 1u);
+			EXPECT_EQ(Stats.Renders, 1u);
+			EXPECT_EQ(Stats.Readbacks, 1u);
+		};
+
+		RunRequest(1, false);
+		RunRequest(2, true);
+	}
+
+	TEST(FAssetThumbnailContractTests, RenderedPipelineBoundsRendersAndRejectsStaleCompletions)
+	{
+		FAssetThumbnailProviderRegistry Registry;
+		std::string Error;
+		auto Provider = std::make_shared<FTestThumbnailProvider>(FAssetThumbnailProviderRegistration{
+			.AssetClassName = "DMaterial",
+			.ProviderName = "Durin.MaterialThumbnail",
+			.GeneratorSchemaVersion = 1});
+		ASSERT_TRUE(Registry.Register(Provider, Error)) << Error;
+		FAssetThumbnailScheduler Scheduler(Registry);
+		FRenderedAssetThumbnailPipeline Pipeline(
+			Scheduler,
+			{.CacheRoot = MakeObjectStoreRoot("RenderedPipelineBounds"), .ObjectExtension = ".bin"});
+		const FAssetThumbnailRequest FirstRequest =
+			MakeThumbnailRequest("/ThumbnailTests/FirstRendered", "DMaterial", 1);
+		const FAssetThumbnailRequest SecondRequest =
+			MakeThumbnailRequest("/ThumbnailTests/SecondRendered", "DMaterial", 1);
+		ASSERT_TRUE(Scheduler.Request(FirstRequest, Error)) << Error;
+		ASSERT_TRUE(Scheduler.Request(SecondRequest, Error)) << Error;
+		Pipeline.BeginFrame();
+		std::optional<FRenderedAssetThumbnailJob> First = Pipeline.StartNext();
+		std::optional<FRenderedAssetThumbnailJob> Second = Pipeline.StartNext();
+		ASSERT_TRUE(First);
+		ASSERT_TRUE(Second);
+		ASSERT_TRUE(Pipeline.CompleteLoad(*First, 10));
+		ASSERT_TRUE(Pipeline.CompleteLoad(*Second, 11));
+		EXPECT_TRUE(Pipeline.BeginRender(*First, true, 10, 20));
+		EXPECT_FALSE(Pipeline.BeginRender(*Second, true, 11, 21));
+		EXPECT_EQ(Scheduler.Find(SecondRequest.Asset.VirtualPath).State,
+			EAssetThumbnailState::WaitingForResources);
+
+		Pipeline.BeginFrame();
+		EXPECT_TRUE(Pipeline.BeginRender(*Second, true, 11, 21));
+		EXPECT_FALSE(Pipeline.CompleteRender(*Second, 12, 21));
+		EXPECT_EQ(Scheduler.Find(SecondRequest.Asset.VirtualPath).State, EAssetThumbnailState::Rendering);
+		EXPECT_TRUE(Pipeline.CompleteRender(*Second, 11, 21));
+
+		const FAssetThumbnailRequest Replacement =
+			MakeThumbnailRequest("/ThumbnailTests/FirstRendered", "DMaterial", 2,
+				EAssetThumbnailPriority::Visible, 200);
+		ASSERT_TRUE(Scheduler.Request(Replacement, Error)) << Error;
+		EXPECT_FALSE(Pipeline.CompleteRender(*First, 10, 20));
+		EXPECT_TRUE(First->ScheduledJob.GenerationRequest.Cancellation.IsCancelled());
+	}
+
+	TEST(FAssetThumbnailContractTests, RenderedPipelineTracksWaitFailureCancellationAndRetry)
+	{
+		FAssetThumbnailProviderRegistry Registry;
+		std::string Error;
+		auto Provider = std::make_shared<FTestThumbnailProvider>(FAssetThumbnailProviderRegistration{
+			.AssetClassName = "DTextureCube",
+			.ProviderName = "Durin.TextureCubeThumbnail",
+			.GeneratorSchemaVersion = 1});
+		ASSERT_TRUE(Registry.Register(Provider, Error)) << Error;
+		FAssetThumbnailScheduler Scheduler(Registry);
+		FRenderedAssetThumbnailPipeline Pipeline(
+			Scheduler,
+			{.CacheRoot = MakeObjectStoreRoot("RenderedPipelineCounters"), .ObjectExtension = ".bin"});
+		const FAssetThumbnailRequest Request =
+			MakeThumbnailRequest("/ThumbnailTests/CounterCube", "DTextureCube", 1);
+		ASSERT_TRUE(Scheduler.Request(Request, Error)) << Error;
+		Pipeline.BeginFrame();
+		std::optional<FRenderedAssetThumbnailJob> Job = Pipeline.StartNext();
+		ASSERT_TRUE(Job);
+		ASSERT_TRUE(Pipeline.CompleteLoad(*Job, 30));
+		EXPECT_TRUE(Pipeline.BeginRender(*Job, false, 30, 0));
+		EXPECT_FALSE(Pipeline.BeginRender(*Job, true, 30, 0, "Cube build failed."));
+		EXPECT_EQ(Scheduler.Find(Request.Asset.VirtualPath).State, EAssetThumbnailState::Failed);
+
+		Pipeline.RecordRetry();
+		const FAssetThumbnailRequest CancelRequest =
+			MakeThumbnailRequest("/ThumbnailTests/CancelledCube", "DTextureCube", 1);
+		ASSERT_TRUE(Scheduler.Request(CancelRequest, Error)) << Error;
+		std::optional<FRenderedAssetThumbnailJob> Cancelled = Pipeline.StartNext();
+		ASSERT_TRUE(Cancelled);
+		Pipeline.Cancel(*Cancelled);
+
+		const FRenderedAssetThumbnailPipelineStats Stats = Pipeline.GetStats();
+		EXPECT_EQ(Stats.ResourceWaits, 1u);
+		EXPECT_EQ(Stats.Failures, 1u);
+		EXPECT_EQ(Stats.Retries, 1u);
+		EXPECT_EQ(Stats.Cancellations, 1u);
 	}
 } // namespace Durin

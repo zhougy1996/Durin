@@ -158,6 +158,7 @@ namespace Durin
 				TotalBytes -= Candidate->second.EncodedBytes;
 				RemoveObject(Candidate->second);
 				Entries.erase(Candidate);
+				++Stats.Evictions;
 			}
 		}
 	};
