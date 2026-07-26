@@ -1,0 +1,90 @@
+#include "WorldTestSupport.h"
+
+TEST(FWorldTests, DestroyAllActorsInvalidatesObjectPointers)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::TObjectPtr<Durin::AActor> Camera = World->SpawnActor<Durin::ACameraActor>("Camera");
+	Durin::TObjectPtr<Durin::AActor> Mesh = World->SpawnActor<Durin::AStaticMeshActor>("Mesh");
+	Durin::TObjectPtr<Durin::DActorComponent> CameraComponent = Camera->FindComponentByClass<Durin::DCameraComponent>();
+	Durin::TObjectPtr<Durin::DActorComponent> MeshComponent = Mesh->FindComponentByClass<Durin::DStaticMeshComponent>();
+
+	World->DestroyAllActors();
+
+	EXPECT_TRUE(World->GetActors().empty());
+	EXPECT_FALSE(Camera.IsValid());
+	EXPECT_FALSE(Mesh.IsValid());
+	EXPECT_FALSE(CameraComponent.IsValid());
+	EXPECT_FALSE(MeshComponent.IsValid());
+	EXPECT_NE(Camera.Get(), nullptr);
+	EXPECT_NE(CameraComponent.Get(), nullptr);
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+	EXPECT_EQ(Camera.Get(), nullptr);
+	EXPECT_EQ(Mesh.Get(), nullptr);
+	EXPECT_EQ(CameraComponent.Get(), nullptr);
+	EXPECT_EQ(MeshComponent.Get(), nullptr);
+}
+
+TEST(FWorldTests, DestroyingWorldCascadesToActorsAndComponents)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* Camera = World->SpawnActor<Durin::ACameraActor>("Camera");
+	Durin::TObjectPtr<Durin::DWorld> WorldPtr = World;
+	Durin::TObjectPtr<Durin::AActor> ActorPtr = Camera;
+	Durin::TObjectPtr<Durin::DActorComponent> ComponentPtr = Camera->GetCameraComponent();
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+
+	EXPECT_EQ(WorldPtr.Get(), nullptr);
+	EXPECT_EQ(ActorPtr.Get(), nullptr);
+	EXPECT_EQ(ComponentPtr.Get(), nullptr);
+}
+
+TEST(FEngineObjectTests, EngineAndWorldHaveReflectedOwnership)
+{
+	InitializeDObjectSystem();
+	Durin::DEngine* Engine = Durin::NewObject<Durin::DEngine>(nullptr, "TestEngine");
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(Engine, "MainWorld");
+	Durin::TObjectPtr<Durin::DEngine> EnginePtr = Engine;
+	Durin::TObjectPtr<Durin::DWorld> WorldPtr = World;
+
+	EXPECT_EQ(Engine->GetClass(), Durin::DEngine::StaticClass());
+	EXPECT_EQ(World->GetClass(), Durin::DWorld::StaticClass());
+	EXPECT_EQ(World->GetOuter(), Engine);
+
+	Durin::MarkObjectHierarchyAsGarbage(Engine);
+	EXPECT_FALSE(EnginePtr.IsValid());
+	EXPECT_FALSE(WorldPtr.IsValid());
+	Durin::CollectGarbage();
+	EXPECT_EQ(EnginePtr.Get(), nullptr);
+	EXPECT_EQ(WorldPtr.Get(), nullptr);
+}
+
+TEST(FEngineObjectTests, RootedEngineSurvivesGarbageCollection)
+{
+	InitializeDObjectSystem();
+	Durin::DEngine* Engine = Durin::NewObject<Durin::DEngine>(nullptr, "RootedEngine");
+	Durin::TObjectPtr<Durin::DEngine> EnginePtr = Engine;
+
+	Durin::AddToRoot(Engine);
+	Durin::CollectGarbage();
+	EXPECT_EQ(EnginePtr.Get(), Engine);
+
+	Durin::RemoveFromRoot(Engine);
+	Durin::CollectGarbage();
+	EXPECT_EQ(EnginePtr.Get(), nullptr);
+}
+
+TEST(FEngineObjectTests, GameEngineHasConcreteRuntimeClass)
+{
+	InitializeDObjectSystem();
+	Durin::DGameEngine* Engine = Durin::NewObject<Durin::DGameEngine>(nullptr, "GameEngine");
+
+	EXPECT_EQ(Engine->GetClass(), Durin::DGameEngine::StaticClass());
+	EXPECT_TRUE(Engine->IsA<Durin::DEngine>());
+
+	Durin::MarkObjectHierarchyAsGarbage(Engine);
+	Durin::CollectGarbage();
+}

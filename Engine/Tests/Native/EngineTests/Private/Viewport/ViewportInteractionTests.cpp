@@ -1,0 +1,268 @@
+#include "ViewportTestSupport.h"
+
+TEST(FLevelEditorViewportClientTests, PicksVisualizerForActorWithoutStaticMesh)
+{
+	InitializeDObjectSystem();
+	auto& Registry = Durin::FLevelEditorCustomizationRegistry::Get();
+	FCustomizationGuard Guard{Registry.RegisterComponentVisualizer(Durin::DCameraComponent::StaticClass(), std::make_shared<FTestComponentVisualizer>())};
+	ASSERT_TRUE(Guard.Handle);
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "VisualizerPickingWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "VisualizerPickingLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::FLevelEditorViewportClient Client;
+	Durin::ACameraActor* Camera = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Camera, nullptr);
+	Camera->GetCameraComponent()->SetWorldLocation(Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
+	EXPECT_EQ(Client.PickActor(Level, {400.0f, 300.0f}, {800.0f, 600.0f}), Camera);
+}
+
+TEST(FLevelEditorViewportClientTests, ResetsIndependentViewUnlessSavedStateExists)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "ViewportResetWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ViewportResetLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* Camera = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Camera, nullptr);
+	Camera->GetCameraComponent()->SetWorldLocation({100.0, 200.0, 300.0});
+	Durin::FLevelEditorViewportClient Client;
+	Client.InitializeForLevel(Level);
+	ExpectVectorNear(Client.GetCameraTransform().GetLocation(), Durin::FLevelViewportCameraState{}.Location);
+	Durin::FLevelViewportCameraState Saved;
+	Saved.Location = {8.0, 9.0, 10.0};
+	Saved.OrbitPivot = {1.0, 2.0, 3.0};
+	Client.InitializeForLevel(Level, &Saved);
+	ExpectVectorNear(Client.GetCameraTransform().GetLocation(), Saved.Location);
+}
+
+TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "GizmoWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "GizmoLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Selected");
+	ASSERT_NE(Actor, nullptr);
+	Durin::FLevelEditorContext Context;
+	Context.Synchronize(World);
+	Context.SelectActor(Actor);
+	Durin::FLevelEditorViewportClient Client;
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	Durin::FLevelEditorViewportInput Input;
+	Input.ViewportSize = {800.0f, 600.0f};
+	Client.GetTransformGizmo().Update(Context, View, Input, nullptr);
+
+	Durin::FSceneView TranslateView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, TranslateView));
+	EXPECT_GE(TranslateView.OverlayPrimitives.size(), 6u);
+	ASSERT_FALSE(TranslateView.OverlayPrimitives.empty());
+	ExpectVectorNear(Durin::FVector3(TranslateView.OverlayPrimitives.front().LocalToWorld[3]), Actor->GetActorTransform().Translation);
+	const Durin::FVector3 InitialLocation = Actor->GetActorTransform().Translation;
+	const Durin::FVector3 XHandlePoint = Durin::FVector3(TranslateView.OverlayPrimitives.front().LocalToWorld * Durin::FVector4(0.65, 0.0, 0.0, 1.0));
+	Durin::FVector2f CenterScreen;
+	Durin::FVector2f HandleScreen;
+	ASSERT_TRUE(Client.ProjectWorldToViewport(InitialLocation, {800.0f, 600.0f}, CenterScreen));
+	ASSERT_TRUE(Client.ProjectWorldToViewport(XHandlePoint, {800.0f, 600.0f}, HandleScreen));
+	Durin::FLevelEditorViewportInput DragInput;
+	DragInput.bFocused = true;
+	DragInput.bHovered = true;
+	DragInput.bLeftMousePressed = true;
+	DragInput.bLeftMouseDown = true;
+	DragInput.ViewportSize = {800.0f, 600.0f};
+	DragInput.MousePosition = HandleScreen;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, nullptr);
+	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
+	DragInput.bLeftMousePressed = false;
+	DragInput.MousePosition += glm::normalize(HandleScreen - CenterScreen) * 30.0f;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, nullptr);
+	EXPECT_GT(glm::length(Actor->GetActorTransform().Translation - InitialLocation), 0.001);
+	Durin::FSceneView DraggedView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, DraggedView));
+	ExpectVectorNear(Durin::FVector3(DraggedView.OverlayPrimitives.front().LocalToWorld[3]), Actor->GetActorTransform().Translation);
+	DragInput.bCancel = true;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, nullptr);
+	ExpectVectorNear(Actor->GetActorTransform().Translation, InitialLocation);
+
+	Durin::FEditorTransactionManager TransformTransactions;
+	DragInput.bCancel = false;
+	DragInput.bLeftMousePressed = true;
+	DragInput.bLeftMouseDown = true;
+	DragInput.MousePosition = HandleScreen;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
+	DragInput.bLeftMousePressed = false;
+	DragInput.MousePosition += glm::normalize(HandleScreen - CenterScreen) * 30.0f;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	DragInput.bLeftMouseDown = false;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	const std::vector<Durin::FEditorTransactionEvent> TransformEvents = TransformTransactions.ConsumeEvents();
+	ASSERT_EQ(TransformEvents.size(), 1);
+	EXPECT_EQ(TransformEvents.front().Description, "Translate 'Selected'");
+	EXPECT_NE(TransformEvents.front().Details.find("'Selected'"), std::string::npos);
+	EXPECT_NE(TransformEvents.front().Details.find("Location"), std::string::npos);
+	EXPECT_NE(TransformEvents.front().Details.find("Delta"), std::string::npos);
+
+	Client.GetTransformGizmo().SetMode(Durin::ETransformGizmoMode::Rotate);
+	Durin::FSceneView RotateView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, RotateView));
+	EXPECT_EQ(RotateView.OverlayPrimitives.size(), 3u);
+	Client.GetTransformGizmo().SetMode(Durin::ETransformGizmoMode::Scale);
+	EXPECT_EQ(Client.GetTransformGizmo().GetSpace(), Durin::ETransformGizmoSpace::World);
+	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::ETransformGizmoSpace::Local);
+	Client.GetTransformGizmo().SetSpace(Durin::ETransformGizmoSpace::Parent);
+	EXPECT_EQ(Client.GetTransformGizmo().GetSpace(), Durin::ETransformGizmoSpace::Parent);
+	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::ETransformGizmoSpace::Local);
+	Actor->GetRootComponent()->SetWorldRotation(glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up));
+	Client.GetTransformGizmo().Update(Context, RotateView, Input, nullptr);
+	Durin::FSceneView ScaleView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, ScaleView));
+	EXPECT_EQ(ScaleView.OverlayPrimitives.size(), 7u);
+	ASSERT_FALSE(ScaleView.OverlayPrimitives.empty());
+	ExpectVectorNear(glm::normalize(Durin::FVector3(ScaleView.OverlayPrimitives.front().LocalToWorld[0])), Durin::FVectorConstants::Right);
+	Client.GetTransformGizmo().SetMode(Durin::ETransformGizmoMode::Translate);
+	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::ETransformGizmoSpace::Parent);
+
+	Durin::ACameraActor* Parent = Level->SpawnActor<Durin::ACameraActor>("Parent");
+	ASSERT_NE(Parent, nullptr);
+	Actor->GetRootComponent()->SetWorldRotation(glm::identity<Durin::FQuat>());
+	Parent->GetRootComponent()->SetWorldRotation(glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up));
+	ASSERT_TRUE(Actor->AttachToActor(Parent, Durin::EAttachmentTransformRule::KeepWorld));
+	Client.GetTransformGizmo().Update(Context, ScaleView, Input, nullptr);
+	Durin::FSceneView ParentView;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, ParentView));
+	ASSERT_FALSE(ParentView.OverlayPrimitives.empty());
+	ExpectVectorNear(glm::normalize(Durin::FVector3(ParentView.OverlayPrimitives.front().LocalToWorld[0])), Durin::FVectorConstants::Right);
+}
+
+TEST(FLevelEditorViewportClientTests, BuildsComponentOrientedSelectionBounds)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "SelectionBoundsWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "SelectionBoundsLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(Level);
+	Durin::AStaticMeshActor* Actor = Level->SpawnActor<Durin::AStaticMeshActor>("SelectedMesh");
+	ASSERT_NE(Actor, nullptr);
+	Durin::DStaticMeshComponent* Component = Actor->GetStaticMeshComponent();
+	Component->SetStaticMesh(Mesh);
+	Component->SetWorldLocation({3.0, 4.0, 5.0});
+	Component->SetWorldRotation(glm::angleAxis(glm::radians(35.0), Durin::FVector3(0.0, 0.0, 1.0)));
+	Component->SetWorldScale3D({2.0, 0.5, 1.5});
+
+	std::vector<Durin::TObjectPtr<Durin::AActor>> Selection;
+	Selection.emplace_back(Actor);
+	Durin::FLevelEditorViewportClient Client;
+	Client.SetSelectedActors(Selection, Actor);
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	const auto It = std::ranges::find_if(View.OverlayPrimitives, [](const Durin::FViewOverlayPrimitive& Primitive) {
+		return Primitive.Shape == Durin::EViewOverlayShape::WireBox;
+	});
+	ASSERT_NE(It, View.OverlayPrimitives.end());
+	const Durin::FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
+	ASSERT_NE(RenderData, nullptr);
+	const Durin::FVector3 ActualMin = Durin::FVector3(It->LocalToWorld * Durin::FVector4(-0.5, -0.5, -0.5, 1.0));
+	const Durin::FVector3 ActualMax = Durin::FVector3(It->LocalToWorld * Durin::FVector4(0.5, 0.5, 0.5, 1.0));
+	const Durin::FMatrix LocalToWorld = Component->GetRenderMatrix();
+	ExpectVectorNear(ActualMin, Durin::FVector3(LocalToWorld * Durin::FVector4(RenderData->LocalBounds.Min, 1.0)));
+	ExpectVectorNear(ActualMax, Durin::FVector3(LocalToWorld * Durin::FVector4(RenderData->LocalBounds.Max, 1.0)));
+	EXPECT_FLOAT_EQ(It->Color.r, 1.0f);
+	EXPECT_FLOAT_EQ(It->Color.g, 0.72f);
+	EXPECT_FLOAT_EQ(It->Color.b, 0.19f);
+	EXPECT_FLOAT_EQ(It->Color.a, 1.0f);
+}
+
+TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHit)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PickingWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PickingLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::FLevelEditorViewportClient Client;
+	const Durin::FVector3 CameraLocation = Client.GetCameraTransform().GetLocation();
+	const Durin::FVector3 Forward = Client.GetCameraTransform().GetForwardVector();
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(Level);
+	Durin::AStaticMeshActor* NearActor = Level->SpawnActor<Durin::AStaticMeshActor>("Near");
+	Durin::AStaticMeshActor* FarActor = Level->SpawnActor<Durin::AStaticMeshActor>("Far");
+	ASSERT_NE(NearActor, nullptr);
+	ASSERT_NE(FarActor, nullptr);
+	NearActor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+	FarActor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+	NearActor->GetStaticMeshComponent()->SetWorldLocation(CameraLocation + Forward * 3.0);
+	FarActor->GetStaticMeshComponent()->SetWorldLocation(CameraLocation + Forward * 6.0);
+	NearActor->GetStaticMeshComponent()->SetWorldRotation(glm::angleAxis(glm::radians(20.0), Forward));
+	NearActor->GetStaticMeshComponent()->SetWorldScale3D({2.0, 0.5, 1.5});
+	EXPECT_EQ(Client.PickActor(Level, {400.0f, 300.0f}, {800.0f, 600.0f}), NearActor);
+	EXPECT_EQ(Client.PickActor(Level, {799.0f, 300.0f}, {800.0f, 600.0f}), nullptr);
+}
+
+TEST(FViewportSelectionTests, PrefersViewportClientAndFallsBackToPrimaryCamera)
+{
+	InitializeDObjectSystem();
+	FTestEngine Engine;
+	FTestViewportClient Client;
+	auto ClientViewport = std::make_shared<Durin::FSceneViewport>(&Client, std::shared_ptr<Durin::MViewport>{});
+	Engine.SetTestViewport(ClientViewport);
+	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {11.0, 12.0, 13.0});
+
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(&Engine, "ViewportTestWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ViewportTestLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(CameraActor, nullptr);
+	CameraActor->GetCameraComponent()->SetWorldLocation({7.0, 8.0, 9.0});
+	Engine.SetTestWorld(World);
+	Engine.SetTestViewport(nullptr);
+	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {7.0, 8.0, 9.0});
+}
+
+TEST(FViewportSelectionTests, ConstrainedCameraBuildsCenteredContentRect)
+{
+	InitializeDObjectSystem();
+	FTestEngine Engine;
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(&Engine, "ConstrainedViewportWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ConstrainedViewportLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(CameraActor, nullptr);
+	ASSERT_TRUE(Level->SetPrimaryCameraActor(CameraActor));
+	Engine.SetTestWorld(World);
+
+	Durin::FSceneView View = Engine.BuildMainSceneView(800, 600);
+	EXPECT_EQ(View.ViewportX, 0u);
+	EXPECT_EQ(View.ViewportY, 0u);
+	EXPECT_EQ(View.ViewportWidth, 800u);
+	EXPECT_EQ(View.ViewportHeight, 600u);
+
+	CameraActor->GetCameraComponent()->SetAspectRatio(Durin::ECameraAspectRatioMode::Ratio16By9, 16.0f / 9.0f);
+	View = Engine.BuildMainSceneView(800, 600);
+	EXPECT_EQ(View.ViewportX, 0u);
+	EXPECT_EQ(View.ViewportY, 75u);
+	EXPECT_EQ(View.ViewportWidth, 800u);
+	EXPECT_EQ(View.ViewportHeight, 450u);
+	EXPECT_FLOAT_EQ(View.AspectRatioConstraint, 16.0f / 9.0f);
+}
+
+TEST(FCameraPreviewViewportClientTests, BuildsViewFromAssignedCameraAndRejectsMissingCamera)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "CameraPreviewWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "CameraPreviewLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("PreviewCamera");
+	ASSERT_NE(CameraActor, nullptr);
+	CameraActor->GetCameraComponent()->SetWorldLocation({3.0, 4.0, 5.0});
+
+	Durin::FCameraPreviewViewportClient Client;
+	Durin::FSceneView View;
+	EXPECT_FALSE(Client.CalcSceneView(320, 180, View));
+	Client.SetCamera(CameraActor->GetCameraComponent());
+	ASSERT_TRUE(Client.CalcSceneView(320, 180, View));
+	EXPECT_EQ(View.ViewportWidth, 320u);
+	EXPECT_EQ(View.ViewportHeight, 180u);
+	ExpectVectorNear(View.ViewLocation, {3.0, 4.0, 5.0});
+	CameraActor->GetCameraComponent()->SetAspectRatio(Durin::ECameraAspectRatioMode::Ratio4By3, 4.0f / 3.0f);
+	ASSERT_TRUE(Client.CalcSceneView(320, 180, View));
+	EXPECT_NEAR(std::abs(View.ProjectionMatrix[2][1] / View.ProjectionMatrix[1][0]), 4.0f / 3.0f, 1.e-5f);
+}

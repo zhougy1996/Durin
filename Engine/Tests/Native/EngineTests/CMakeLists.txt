@@ -2,15 +2,31 @@ include(GoogleTest)
 
 add_durin_test(EngineTests
 	Private/ReflectedPropertyViewTests.cpp
-	Private/ReflectedPropertyEditingTests.cpp
-	Private/MaterialTests.cpp
+	Private/Editor/ReflectedPropertyEditSessionTests.cpp
+	Private/Editor/ReflectedPropertyTransactionTests.cpp
+	Private/Editor/ReflectedPropertyContainerTests.cpp
+	Private/Materials/MaterialSchemaAndEditingTests.cpp
+	Private/Materials/MaterialInstanceTests.cpp
+	Private/Materials/MaterialRenderingTests.cpp
+	Private/Materials/StaticMeshMaterialTests.cpp
 	Private/MaterialParameterPanelModelTests.cpp
 	Private/StaticMeshMaterialSlotDetailsTests.cpp
-	Private/TextureTests.cpp
+	Private/Texture/TextureImportAndCacheTests.cpp
+	Private/Texture/TextureBuildTests.cpp
+	Private/Texture/TextureFailureTests.cpp
 	Private/TextureCubeTests.cpp
-	Private/SkyBoxTests.cpp
-	Private/WorldTests.cpp
-	Private/ViewportTests.cpp
+	Private/SkyBox/SkyBoxRenderingTests.cpp
+	Private/SkyBox/SkyBoxComponentTests.cpp
+	Private/SkyBox/SkyBoxEditorTests.cpp
+	Private/SkyBox/SkyBoxVulkanTests.cpp
+	Private/World/WorldPlayTests.cpp
+	Private/World/WorldActorTests.cpp
+	Private/World/WorldComponentTests.cpp
+	Private/World/WorldLifetimeTests.cpp
+	Private/Viewport/ViewportFoundationTests.cpp
+	Private/Viewport/ViewportProjectionTests.cpp
+	Private/Viewport/ViewportCustomizationTests.cpp
+	Private/Viewport/ViewportInteractionTests.cpp
 	Private/EditorGridRenderingTests.cpp
 	Private/RendererEditorAssistanceTests.cpp
 	Private/RendererRenderTargetLayoutTests.cpp
@@ -43,6 +59,7 @@ add_durin_test(EngineTests
 )
 
 target_include_directories(EngineTests PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private

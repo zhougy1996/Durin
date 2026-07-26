@@ -1,0 +1,222 @@
+#include "SkyBoxTestSupport.h"
+
+TEST(FSkyBoxVulkanTests, SamplesEveryFaceAndMipWithoutParallaxAndPreservesOcclusion)
+{
+	InitializeSkyBoxAssetMount();
+	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	Durin::RHIInit();
+	ASSERT_NE(Durin::GDynamicRHI, nullptr);
+	Durin::InitRenderingThread();
+
+	Durin::FRendererModule Renderer;
+	Durin::FScene Scene;
+	struct FBeginSkyBoxValidationFrame
+	{
+		static constexpr auto GetName() -> const char* { return "BeginSkyBoxValidationFrame"; }
+	};
+	Durin::EnqueueRenderCommand<FBeginSkyBoxValidationFrame>([](Durin::FRHICommandListImmediate& CommandList) {
+		CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
+		Durin::GDynamicRHI->RHIBeginFrame();
+	});
+	Renderer.StartupModule();
+	Renderer.SetRenderMode(Durin::ERenderMode::Unlit);
+
+	Durin::FTextureCubeImportResult CubeResult = Durin::DTextureCube::ImportAsset(
+		GetSkyBoxConventionFaces(), "/SkyBoxAssetTests/VulkanCube");
+	ASSERT_TRUE(CubeResult) << CubeResult.Message;
+	auto CubeResource = CubeResult.Asset->GetRenderResource();
+	ASSERT_NE(CubeResource, nullptr);
+	auto PlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*CubeResult.Asset->GetPlatformData());
+	auto* OcclusionMesh = Durin::DStaticMesh::CreateDebugTriangle();
+	auto* OcclusionMaterial = Durin::NewObject<Durin::DMaterial>(nullptr, "SkyBoxOcclusionMaterial");
+	OcclusionMaterial->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), {1.0, 0.0, 0.0});
+	auto* OcclusionComponent = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SkyBoxOcclusionMesh");
+	OcclusionComponent->SetStaticMesh(OcclusionMesh);
+	OcclusionComponent->SetMaterial(OcclusionMaterial);
+	auto OcclusionProxy = std::make_shared<std::unique_ptr<Durin::PrimitiveSceneProxy>>(
+		OcclusionComponent->CreateSceneProxy());
+	ASSERT_NE(*OcclusionProxy, nullptr);
+
+	Durin::FSkyBoxSceneData SkyBox;
+	SkyBox.SceneId = Durin::FGuid(1, 0, 0, 0);
+	SkyBox.SelectionKey = "VulkanSky";
+	SkyBox.InstanceId = 1;
+	SkyBox.TextureResource = CubeResource;
+	SkyBox.Revision = 1;
+	Scene.AddOrReplaceSkyBox(SkyBox);
+
+	struct FEndSkyBoxValidationSetupFrame
+	{
+		static constexpr auto GetName() -> const char* { return "EndSkyBoxValidationSetupFrame"; }
+	};
+	Durin::EnqueueRenderCommand<FEndSkyBoxValidationSetupFrame>([](Durin::FRHICommandListImmediate& CommandList) {
+		Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+	});
+	Durin::FlushRenderingCommands();
+
+	struct FValidationResult
+	{
+		bool bSucceeded = true;
+		std::string Error;
+		std::array<std::vector<Durin::uint8>, Durin::TextureCubeFaceCount> PrincipalAxes;
+		std::vector<Durin::uint8> Translated;
+		std::vector<Durin::uint8> ComponentRotated;
+		std::vector<Durin::uint8> Letterboxed;
+		std::vector<Durin::uint8> Occluded;
+	};
+	auto Result = std::make_shared<FValidationResult>();
+
+	struct FRenderSkyBoxValidationFrame
+	{
+		static constexpr auto GetName() -> const char* { return "RenderSkyBoxValidationFrame"; }
+	};
+	Durin::EnqueueRenderCommand<FRenderSkyBoxValidationFrame>(
+		[&Renderer, &Scene, CubeResource, PlatformData, Result, OcclusionProxy]
+		(Durin::FRHICommandListImmediate& CommandList) {
+			Durin::GRenderFrameCounterRenderThread++;
+			Durin::GDynamicRHI->RHIBeginFrame();
+			struct FEndFrameGuard
+			{
+				Durin::FRHICommandListImmediate& CommandList;
+				~FEndFrameGuard() { Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList); }
+			} EndFrameGuard{CommandList};
+
+			Durin::FRHITexture* CubeTexture = CubeResource->GetTextureRHI_RenderThread();
+			if (CubeTexture == nullptr)
+			{
+				Result->bSucceeded = false;
+				Result->Error = "Cube render resource was not ready.";
+				return;
+			}
+			for (Durin::uint32 FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
+			{
+				for (Durin::uint32 MipIndex = 0; MipIndex < PlatformData->Faces[FaceIndex].Mips.size(); ++MipIndex)
+				{
+					std::vector<Durin::uint8> MipPixels;
+					if (!Durin::GDynamicRHI->RHIReadTexture2D(
+						CommandList, CubeTexture, MipIndex, FaceIndex, MipPixels)
+						|| MipPixels != PlatformData->Faces[FaceIndex].Mips[MipIndex].Pixels)
+					{
+						Result->bSucceeded = false;
+						Result->Error = std::format(
+							"Cube readback mismatch for face {} mip {}.", FaceIndex, MipIndex);
+						return;
+					}
+				}
+			}
+
+			Durin::FRHITextureCreateDesc ColorDesc = Durin::FRHITextureCreateDesc::Create2D(
+				"SkyBoxValidationColor", 17, 17, Durin::EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+					| Durin::ETextureCreateFlags::ShaderResource
+					| Durin::ETextureCreateFlags::CPUReadback);
+			Durin::FTextureRHIRef Color = Durin::GDynamicRHI->RHICreateTexture(CommandList, ColorDesc);
+			if (Color == nullptr)
+			{
+				Result->bSucceeded = false;
+				Result->Error = "Failed to create the validation output target.";
+				return;
+			}
+
+			auto Render = [&](const Durin::FSceneView& View, std::vector<Durin::uint8>& OutPixels) {
+				Renderer.RenderView(CommandList, &Scene, View, Color, false);
+				if (!Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Color, 0, 0, OutPixels))
+				{
+					Result->bSucceeded = false;
+					Result->Error = "Failed to read the validation render target.";
+					return false;
+				}
+				return true;
+			};
+
+			constexpr std::array<Durin::FVector3, Durin::TextureCubeFaceCount> Directions = {
+				Durin::FVector3(1.0, 0.0, 0.0),
+				Durin::FVector3(-1.0, 0.0, 0.0),
+				Durin::FVector3(0.0, 1.0, 0.0),
+				Durin::FVector3(0.0, -1.0, 0.0),
+				Durin::FVector3(0.0, 0.0, 1.0),
+				Durin::FVector3(0.0, 0.0, -1.0)
+			};
+			for (size_t FaceIndex = 0; FaceIndex < Directions.size(); ++FaceIndex)
+			{
+				if (!Render(MakePrincipalAxisView(Directions[FaceIndex], {}, 17, 17), Result->PrincipalAxes[FaceIndex])) return;
+			}
+			if (!Render(MakePrincipalAxisView(Directions[0], {19.0, -7.0, 4.0}, 17, 17), Result->Translated)) return;
+
+			Durin::FSkyBoxSceneData RotatedSky;
+			RotatedSky.SceneId = Durin::FGuid(1, 0, 0, 0);
+			RotatedSky.SelectionKey = "VulkanSky";
+			RotatedSky.InstanceId = 1;
+			RotatedSky.TextureResource = CubeResource;
+			RotatedSky.Rotation = glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up);
+			RotatedSky.Revision = 2;
+			Scene.AddOrReplaceSkyBox(RotatedSky);
+			if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->ComponentRotated)) return;
+
+			Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
+			LetterboxView.AspectRatioConstraint = 0.5f;
+			if (!Render(LetterboxView, Result->Letterboxed)) return;
+
+			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
+			RotatedSky.Revision = 3;
+			Scene.AddOrReplaceSkyBox(RotatedSky);
+			Durin::FMatrix OccluderTransform = glm::translate(
+				Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5));
+			OccluderTransform = glm::rotate(
+				OccluderTransform, glm::pi<double>(), Durin::FVectorConstants::Right);
+			Scene.AddOrReplacePrimitive(1, std::move(*OcclusionProxy), OccluderTransform);
+			Renderer.PrepareSceneResources(CommandList, &Scene);
+			Render(MakePrincipalAxisView(Directions[4], {}, 17, 17), Result->Occluded);
+		});
+	Durin::FlushRenderingCommands();
+
+	EXPECT_TRUE(Result->bSucceeded) << Result->Error;
+	if (Result->bSucceeded)
+	{
+		for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
+		{
+			SCOPED_TRACE(std::format("principal face {}", FaceIndex));
+			ExpectRgbNear(
+				Result->PrincipalAxes[FaceIndex],
+				17,
+				4,
+				4,
+				GetSourceColor(*CubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32),
+				8);
+		}
+		ExpectRgbMatch(Result->Translated, Result->PrincipalAxes[0], 17, 8, 8);
+		EXPECT_EQ(FindClosestCenterRgb(Result->ComponentRotated, Result->PrincipalAxes, 17), 3u);
+		ExpectRgbNear(Result->Letterboxed, 17, 1, 8, {0, 0, 0, 255}, 2);
+		EXPECT_EQ(FindClosestCenterRgb(Result->Letterboxed, Result->PrincipalAxes, 17), 3u);
+		ExpectRgbNear(Result->Occluded, 17, 8, 8, {255, 0, 0, 255}, 8);
+	}
+
+	Scene.Release();
+	Durin::FAssetPath CubePath;
+	if (Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/VulkanCube", CubePath))
+	{
+		EXPECT_TRUE(Durin::Asset::DeleteAsset(CubePath));
+	}
+	else
+	{
+		ADD_FAILURE() << "Failed to create the Vulkan cube cleanup path.";
+	}
+	Durin::MarkAsGarbage(OcclusionComponent);
+	Durin::MarkAsGarbage(OcclusionMesh);
+	Durin::MarkAsGarbage(OcclusionMaterial);
+	Durin::CollectGarbage();
+	SkyBox.TextureResource.reset();
+	Renderer.ReleaseResources();
+	struct FRetireSkyBoxValidationResource
+	{
+		static constexpr auto GetName() -> const char* { return "RetireSkyBoxValidationResource"; }
+	};
+	Durin::EnqueueRenderCommand<FRetireSkyBoxValidationResource>(
+		[Resource = std::move(CubeResource)](Durin::FRHICommandListImmediate&) {});
+	Durin::FlushRenderingCommands();
+	Renderer.SetRenderMode(Durin::ERenderMode::Lit);
+	Renderer.ShutdownModule();
+	Durin::ShutdownRenderingThread();
+	Durin::RHIExit();
+}
