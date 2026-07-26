@@ -169,6 +169,23 @@ namespace
 		Stream.write(reinterpret_cast<const char*>(Bytes.data()), static_cast<std::streamsize>(Bytes.size()));
 		ASSERT_TRUE(Stream.good());
 	}
+
+	auto RenameSerializedString(
+		std::vector<Durin::uint8>& Bytes,
+		std::string_view OldValue,
+		std::string_view NewValue
+	) -> bool
+	{
+		if (OldValue.size() != NewValue.size()) return false;
+		std::vector<Durin::uint8> Pattern(sizeof(Durin::uint64) + OldValue.size());
+		const Durin::uint64 Length = OldValue.size();
+		std::memcpy(Pattern.data(), &Length, sizeof(Length));
+		std::memcpy(Pattern.data() + sizeof(Length), OldValue.data(), OldValue.size());
+		const auto It = std::search(Bytes.begin(), Bytes.end(), Pattern.begin(), Pattern.end());
+		if (It == Bytes.end()) return false;
+		std::copy(NewValue.begin(), NewValue.end(), It + sizeof(Length));
+		return true;
+	}
 }
 
 TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
@@ -273,6 +290,44 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	EXPECT_EQ(Durin::Asset::FAssetManager::Get().FindLoadedPackage(Path), Loaded->GetPackage());
 
 	EXPECT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, ReportsAndOffersResaveForObsoleteFields)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/ObsoleteField", Path));
+
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Asset->Value = 42;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	const auto File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "ObsoleteField.dasset";
+	std::vector<Durin::uint8> Bytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
+	ASSERT_TRUE(RenameSerializedString(Bytes, "Value", "Stale"));
+	WriteTestBytes(File, Bytes);
+
+	testing::internal::CaptureStderr();
+	DPackageAssetForTest* Loaded = nullptr;
+	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(Path, Loaded);
+	const std::string Warning = testing::internal::GetCapturedStderr();
+	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->Value, 0);
+	EXPECT_TRUE(Loaded->GetPackage()->IsDirty());
+	EXPECT_NE(Warning.find("Tests::DPackageAssetForTest::Stale"), std::string::npos);
+	EXPECT_NE(Warning.find("on object '/TestAssets/ObsoleteField'"), std::string::npos);
+	EXPECT_NE(Warning.find("Resave the package"), std::string::npos);
+
+	ASSERT_TRUE(Durin::Asset::SavePackage(Loaded->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
+	EXPECT_EQ(Loaded->Value, 0);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FPackageAssetTests, RejectsInvalidPaths)

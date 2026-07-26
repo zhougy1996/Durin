@@ -1454,6 +1454,7 @@ namespace Durin::Asset
 			if (!Result) { Rollback(); return Error(EAssetError::MissingDependency, Result.Message); }
 		}
 
+		bool bSkippedIncompatibleField = false;
 		for (const FObjectRecord& Record : File.Objects)
 		{
 			DObject* Object = Objects[Record.Id - 1];
@@ -1464,7 +1465,11 @@ namespace Durin::Asset
 				FProperty* Property = DeclaringClass->FindPropertyByName(FName(Field.Name), false);
 				if (!Property || Property->GetKind() != Field.Kind || GetTypeSignature(Property) != Field.TypeSignature)
 				{
-					DURIN_WARN("Skipping incompatible asset field {}::{} in {}", Field.DeclaringClass, Field.Name, Path.ToString());
+					DURIN_WARN(
+						"Asset package '{}' contains obsolete or incompatible field {}::{} on object '{}'; "
+						"the field was skipped. Resave the package to remove stale serialized data.",
+						Path.ToString(), Field.DeclaringClass, Field.Name, Object->GetObjectPath());
+					bSkippedIncompatibleField = true;
 					continue;
 				}
 				FByteReader FieldReader{Field.Payload};
@@ -1477,9 +1482,10 @@ namespace Durin::Asset
 			}
 		}
 
-		// Deserialization itself is clean, while PostLoad migrations may deliberately
-		// dirty the package so the upgraded representation is offered for resave.
+		// PostLoad migrations and skipped stale fields deliberately leave the package
+		// dirty so the upgraded representation is offered for resave.
 		Package->ClearDirty();
+		if (bSkippedIncompatibleField) Package->MarkDirty();
 		for (auto It = Objects.rbegin(); It != Objects.rend(); ++It)
 		{
 			std::string PostLoadError;
