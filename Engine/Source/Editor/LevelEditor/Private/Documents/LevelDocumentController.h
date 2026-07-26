@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AssetSystem.h"
+
 namespace Durin
 {
 	class DLevel;
@@ -51,11 +53,19 @@ namespace Durin
 		enum class EQueuedPopup
 		{
 			None,
-			UnsavedLevel
+			UnsavedLevel,
+			AssetStructureUpgrade
 		};
 
-		auto ExecutePendingAction() -> bool;
-		auto OpenLevel(std::string_view Path) -> bool;
+		auto ExecutePendingAction() -> ELevelDocumentOpenResult;
+		auto OpenLevel(std::string_view Path) -> ELevelDocumentOpenResult;
+		auto DrawUnsavedLevelDialog() -> void;
+		auto DrawAssetStructureUpgradeDialog() -> void;
+		auto SaveAndActivatePendingLevel(bool bAllowCompatibilityDataLoss) -> bool;
+		auto ActivatePendingLevel() -> bool;
+		auto CancelPendingLevelOpen() -> void;
+		auto ResetPendingLevelState(bool bUnloadPackage) -> void;
+		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
 		auto ActivateLevel(DLevel* Level) -> bool;
 		auto SetError(std::string Message) const -> void;
 
@@ -70,5 +80,9 @@ namespace Durin
 		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::string PendingLevelPath;
+		DLevel* PendingLoadedLevel = nullptr;
+		Asset::FAssetLoadReport PendingLoadReport;
+		bool bPendingDocumentOpen = false;
+		bool bCompatibilityDataLossConfirmed = false;
 	};
 } // namespace Durin

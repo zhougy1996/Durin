@@ -6,15 +6,18 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stage 1 is complete. AssetCore now has a structured load-report contract,
-distinguishes registered safe upgrades from unknown incompatible fields, and
-blocks normal saves that would discard compatibility-risk payloads. The Level
-Editor workflow and the static-mesh component upgrader remain planned work.
+Stages 1 and 2 are complete. AssetCore now has a structured load-report
+contract, distinguishes registered safe upgrades from unknown incompatible
+fields, and blocks normal saves that would discard compatibility-risk payloads.
+The Level Editor now keeps compatibility-affected loads pending until the user
+saves, opens without saving, explicitly accepts risky cleanup, or cancels. The
+static-mesh component upgrader remains planned work.
 
 Validation completed on 2026-07-27: all 49 AssetCore native tests passed,
 including structured safe-cleanup reporting, unknown-field protection, normal
-save rejection, and explicit data-loss consent. The complete `all` target also
-built successfully with the public AssetCore API changes.
+save rejection, and explicit data-loss consent. The complete `all` target built
+successfully after both the public AssetCore API changes and the pending Level
+Editor workflow.
 
 The reported `/Game/Levels/NewLevel` fixture contains empty legacy
 `DStaticMeshComponent::Material` and `Materials` values. Its expected outcome is
@@ -128,19 +131,19 @@ user chooses an outcome.
 
 ### Stage 2: Pending Level Activation and Upgrade Modal
 
-- [ ] Extend `FLevelDocumentController` with a pending loaded level, package
+- [x] Extend `FLevelDocumentController` with a pending loaded level, package
   path, and load report.
-- [ ] Return `Deferred` while an upgrade decision is open and complete the
+- [x] Return `Deferred` while an upgrade decision is open and complete the
   document request only after activation or cancellation.
-- [ ] Draw a modal titled "Asset Structure Upgrade Required" with the package
+- [x] Draw a modal titled "Asset Structure Upgrade Required" with the package
   summary and expandable package/object/change rows.
-- [ ] Show old type, target structure, migration rule, original field names,
+- [x] Show old type, target structure, migration rule, original field names,
   classification, summary, and risk for each change.
-- [ ] Implement "Upgrade, Save and Open", "Open Without Saving", and "Cancel
+- [x] Implement "Upgrade, Save and Open", "Open Without Saving", and "Cancel
   Open" for reports without risk items.
-- [ ] Disable normal save for risk reports and provide a distinct explicit
+- [x] Disable normal save for risk reports and provide a distinct explicit
   risky-cleanup decision.
-- [ ] Unload the pending package on cancel or failed activation; retain it on
+- [x] Unload the pending package on cancel or failed activation; retain it on
   save failure so the user can retry or cancel.
 
 #### Acceptance Gate
