@@ -6,7 +6,7 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stage 0 is complete and Stage 1 is next. Durin currently imports every static-mesh source file during
+Stages 0 and 1 are complete and Stage 2 is next. Durin currently imports every static-mesh source file during
 `DStaticMesh::PostLoad`, and material previews create separate transient meshes
 directly from engine OBJ files. No static-mesh derived-data key, persistent
 platform payload, or cooked-runtime path exists.
@@ -348,18 +348,18 @@ time or an engine release number.
 
 ### Stage 1: Make source provenance optional and relocatable
 
-- [ ] Replace the required `SourceFile`/settings coupling with optional
+- [x] Replace the required `SourceFile`/settings coupling with optional
   `FStaticMeshSourceImportData` while retaining backward load compatibility.
-- [ ] Resolve new source paths only beneath project or engine `SourceAssets`.
-- [ ] Continue resolving legacy package-relative and mounted source paths during
+- [x] Resolve new source paths only beneath project or engine `SourceAssets`.
+- [x] Continue resolving legacy package-relative and mounted source paths during
   migration.
-- [ ] Update import to copy source models into the correct `SourceAssets/Models`
+- [x] Update import to copy source models into the correct `SourceAssets/Models`
   hierarchy while creating `.dasset` packages under Content.
-- [ ] Update asset move/delete contributors so moving a `.dasset` does not
+- [x] Update asset move/delete contributors so moving a `.dasset` does not
   accidentally relocate shared source art, and source deletion requires an
   explicit source operation.
-- [ ] Add editor diagnostics and source-path repair for missing or moved sources.
-- [ ] Update version-control documentation for the new directory boundary and
+- [x] Add editor diagnostics and source-path repair for missing or moved sources.
+- [x] Update version-control documentation for the new directory boundary and
   LFS policy.
 
 #### Acceptance Gate

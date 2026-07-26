@@ -17,7 +17,16 @@ not be treated like disposable DDC entries while that build is installed or
 running. See [Asset Data Lifecycle and Storage](../../Runtime/Assets/AssetDataLifecycle.md)
 for the `.dasset`, DDC `.bin`, and cooked `.dbulk` boundaries.
 
-Static-mesh `.dasset` files record the source model's filename relative to the package directory, while CPU and GPU render data is rebuilt from that colocated Content source. Commit and move the source model together with its `.dasset`; committing only the package does not produce a reproducible checkout. Older packages that stored a mounted `SourceMeshes` path can still load a colocated file with the same filename.
+Static-mesh `.dasset` files record portable source provenance rooted beneath
+`SourceAssets/Models`. The source model is authoring input rather than mounted
+runtime content: moving or deleting the package does not implicitly move or
+delete potentially shared source art. Delete or reorganize source files only as
+an explicit source operation, then repair or reimport affected packages.
+
+Older packages that stored a package-relative filename or mounted Content path
+continue to load during the documented migration window. Repairing or
+reimporting such a package copies its source into `SourceAssets/Models` and
+replaces the legacy metadata.
 
 ## Directory Convention
 
@@ -27,8 +36,10 @@ Projects should use a layout similar to:
 Content/
   Levels/           # Versioned .dasset packages
   Materials/        # Versioned .dasset packages
-  StaticMeshes/     # Versioned .dasset packages beside their LFS-backed source models
-  SourceAssets/     # Shared LFS-backed textures, audio, fonts, and other source data
+  StaticMeshes/     # Versioned .dasset packages; no source models are required here
+SourceAssets/
+  Models/           # Shared LFS-backed model authoring inputs; not content-mounted
+  Textures/         # Other shared authoring inputs as their pipelines migrate
 DerivedDataCache/   # Ignored, rebuildable
 Saved/              # Ignored, editor-local state
 Cooked/             # Ignored, distribution output
@@ -51,7 +62,7 @@ Before committing, use these checks:
 
 ```powershell
 git lfs ls-files
-git check-attr filter diff merge text -- Engine/Content/StaticMeshes/teapot.obj
+git check-attr filter diff merge text -- Engine/SourceAssets/Models/teapot.obj
 git status
 ```
 

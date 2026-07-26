@@ -131,10 +131,12 @@ namespace Durin
 
 		if (bAssetPathValid && bMountedDestination && bHasSource)
 		{
-			const std::string SourceFileName = std::string(ParsedAssetPath.GetAssetName()) + SourcePath.extension().generic_string();
 			ImGui::BeginChild("ImportOutputPreview", ImVec2(0.0f, MonaImGui::ScaleUI(58.0f)), ImGuiChildFlags_Borders);
 			ImGui::TextDisabled("Files to create");
-			ImGui::TextUnformatted(std::format("{}.dasset   +   {}", ParsedAssetPath.GetAssetName(), SourceFileName).c_str());
+			ImGui::TextUnformatted(std::format(
+				"Content/{}.dasset   +   SourceAssets/Models/{}{}",
+				ParsedAssetPath.GetAssetName(), ParsedAssetPath.GetAssetName(),
+				SourcePath.extension().generic_string()).c_str());
 			ImGui::EndChild();
 		}
 

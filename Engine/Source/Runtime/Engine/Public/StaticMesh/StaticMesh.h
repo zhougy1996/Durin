@@ -75,6 +75,29 @@ namespace Durin
 	struct FStaticMeshRenderData;
 	struct FStaticMeshImportResult;
 
+	enum class EStaticMeshSourceStatus : uint8
+	{
+		NoSource,
+		Available,
+		Missing,
+		Invalid,
+		LegacyAvailable,
+		LegacyMissing
+	};
+
+	// Describes editor-facing source availability without making source data a runtime requirement.
+	struct FStaticMeshSourceDiagnostic
+	{
+		EStaticMeshSourceStatus Status = EStaticMeshSourceStatus::NoSource;
+		std::string ResolvedPath;
+		std::string Message;
+
+		auto IsAvailable() const -> bool
+		{
+			return Status == EStaticMeshSourceStatus::Available || Status == EStaticMeshSourceStatus::LegacyAvailable;
+		}
+	};
+
 	// Reports the deterministic work performed by one static-mesh component scan.
 	struct FStaticMeshUpdateCounters
 	{
@@ -122,8 +145,13 @@ namespace Durin
 		ENGINE_API ~DStaticMesh() override;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		ENGINE_API auto GetRenderData() -> FStaticMeshRenderData*;
-		auto GetSourceFile() const -> const std::string& { return SourceFile; }
-		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return ImportSettings; }
+		auto GetSourceFile() const -> const std::string& { return SourceImportData.HasSource() ? SourceImportData.SourcePath : SourceFile; }
+		auto GetImportSettings() const -> const FStaticMeshImportSettings&
+		{
+			return SourceImportData.HasSource() ? SourceImportData.ImportSettings : ImportSettings;
+		}
+		auto GetSourceImportData() const -> const FStaticMeshSourceImportData& { return SourceImportData; }
+		auto HasLegacySourceMetadata() const -> bool { return !SourceFile.empty() && !SourceImportData.HasSource(); }
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		auto GetMaterialSlots() const -> std::span<const FStaticMeshMaterialSlotDefinition> { return MaterialSlots; }
 		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*;
@@ -131,6 +159,9 @@ namespace Durin
 		ENGINE_API auto FindMaterialSlot(FName Name) const -> const FStaticMeshMaterialSlotDefinition*;
 
 		ENGINE_API auto SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void;
+		ENGINE_API auto InspectSource() const -> FStaticMeshSourceDiagnostic;
+		// Copies a replacement source into the owning SourceAssets hierarchy and rebuilds the mesh.
+		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
@@ -153,6 +184,9 @@ namespace Durin
 
 		DPROPERTY()
 		std::string SourceFile;
+
+		DPROPERTY()
+		FStaticMeshSourceImportData SourceImportData;
 
 		DPROPERTY()
 		float NormalizedSize = 1.5f;
