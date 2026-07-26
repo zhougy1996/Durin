@@ -52,9 +52,18 @@ the complete target, descriptor, bulk, format, mip, and checksum chain before
 Vulkan resource publication. Runtime-only Engine builds exclude offline BC
 encoder linkage. Deterministic cook, source/DDC isolation, corrupt and
 incompatible input, all supported BC identifiers, NPOT/tail mip, and Vulkan
-upload/sample coverage are in place. TextureCube still rebuilds from source
-during `PostLoad`, and its source/build tooling remains migration work for
-Stage 5.
+upload/sample coverage are in place.
+
+Stage 5 is complete. Six-face and panorama TextureCube imports now persist
+portable source provenance and exact ordered source identities, use canonical
+cube keys and a dedicated bounded object store, and load warm TXPL objects
+without invoking source decoding or panorama projection. The shared TXPL codec
+supports the frozen six-slice face order with complete cross-face validation.
+Both import layouts, six-face and panorama reimport, move/delete behavior,
+deterministic cook publication, source-free cooked loading, and directional
+slice preservation are covered by focused tests. Runtime-only Engine builds
+compile the cube source pipeline out while retaining TXPL decode and render
+resource publication. Stage 6 is the remaining migration and handoff stage.
 
 ## Goal
 
@@ -977,21 +986,21 @@ Dependencies: Stages 1 and 3.
 
 Dependencies: Stages 1, 3, and 4's proven texture payload reader.
 
-- [ ] Persist optional source provenance for the ordered six-face layout and the
+- [x] Persist optional source provenance for the ordered six-face layout and the
   panorama layout, including exact source hashes and projection inputs.
-- [ ] Build canonical cube keys that distinguish every face and its order,
+- [x] Build canonical cube keys that distinguish every face and its order,
   source layout, panorama projection version, face dimension, canonical exposure
   bits, sRGB, builder/schema version, and target platform/profile.
-- [ ] Extend the shared texture payload codec to six compatible slices and
+- [x] Extend the shared texture payload codec to six compatible slices and
   validate face order, dimensions, format, mip progression, ranges, and total
   allocation before publication.
-- [ ] Add TextureCube DDC load, rebuild, diagnostics, object-store budgeting,
+- [x] Add TextureCube DDC load, rebuild, diagnostics, object-store budgeting,
   corruption recovery, and source-unavailable cache hits.
-- [ ] Add a TextureCube cook adapter and cooked loader with no six-image decode,
+- [x] Add a TextureCube cook adapter and cooked loader with no six-image decode,
   panorama decode, projection, or offline compression fallback.
-- [ ] Migrate six-face and panorama import, reimport, move/delete behavior,
+- [x] Migrate six-face and panorama import, reimport, move/delete behavior,
   thumbnails, skybox use, and focused tests to the new provenance and payload.
-- [ ] Add directional face fixtures and tests proving that DDC/cook round trips
+- [x] Add directional face fixtures and tests proving that DDC/cook round trips
   preserve the documented cube orientation.
 
 #### Acceptance Gate

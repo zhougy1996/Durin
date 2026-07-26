@@ -1,6 +1,7 @@
 #include "TextureTestSupport.h"
 
 #include "Texture/TextureDerivedData.h"
+#include "Texture/TextureCube.h"
 
 namespace
 {
@@ -27,6 +28,19 @@ namespace
 	{
 		for (Durin::uint32 Byte = 0; Byte < 4; ++Byte)
 			Bytes[Offset + Byte] = static_cast<Durin::uint8>(Value >> (Byte * 8));
+	}
+
+	auto MakeCubePlatformData() -> Durin::FTextureCubePlatformData
+	{
+		Durin::FTextureCubePlatformData Result;
+		Result.PixelFormat = Durin::EPixelFormat::BC3_UNORM_SRGB;
+		for (size_t FaceIndex = 0; FaceIndex < Result.Faces.size(); ++FaceIndex)
+		{
+			Result.Faces[FaceIndex] = MakePlatformData(Result.PixelFormat);
+			for (Durin::FTexture2DMipData& Mip : Result.Faces[FaceIndex].Mips)
+				std::ranges::fill(Mip.Pixels, static_cast<Durin::uint8>(FaceIndex + 1));
+		}
+		return Result;
 	}
 }
 
@@ -145,4 +159,84 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 		WrongRange, Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Existing, Error));
 	EXPECT_EQ(Existing.get(), ExistingAddress);
+}
+
+TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
+{
+	Durin::FTextureCubeDerivedDataKeyInput Input{
+		.SourceLayout = Durin::ETextureCubeDerivedDataSourceLayout::SixFaces,
+		.bSRGB = true,
+		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
+	for (size_t Index = 0; Index < Input.FaceContentHashes.size(); ++Index)
+		Input.FaceContentHashes[Index] = {Index + 1, Index + 101};
+	std::string Baseline;
+	std::string Error;
+	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Input, Baseline, Error)) << Error;
+	EXPECT_EQ(Baseline.size(), 32u);
+
+	auto Changed = Input;
+	std::swap(Changed.FaceContentHashes[0], Changed.FaceContentHashes[1]);
+	std::string Key;
+	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Changed, Key, Error)) << Error;
+	EXPECT_NE(Key, Baseline);
+	Changed = Input;
+	Changed.bSRGB = false;
+	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Changed, Key, Error)) << Error;
+	EXPECT_NE(Key, Baseline);
+	Changed = Input;
+	++Changed.ProjectionVersion;
+	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Changed, Key, Error)) << Error;
+	EXPECT_NE(Key, Baseline);
+
+	Changed = {};
+	Changed.SourceLayout = Durin::ETextureCubeDerivedDataSourceLayout::EquirectangularPanorama;
+	Changed.PanoramaContentHash = {7, 11};
+	Changed.FaceDimension = 512;
+	Changed.ExposureEV = 1.0f;
+	Changed.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64;
+	Changed.TargetProfile = Durin::Asset::ECookTargetProfile::Game;
+	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Changed, Baseline, Error)) << Error;
+	auto ChangedPanorama = Changed;
+	ChangedPanorama.FaceDimension = 256;
+	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Key, Error)) << Error;
+	EXPECT_NE(Key, Baseline);
+	ChangedPanorama = Changed;
+	ChangedPanorama.ExposureEV = 2.0f;
+	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Key, Error)) << Error;
+	EXPECT_NE(Key, Baseline);
+	ChangedPanorama = Changed;
+	ChangedPanorama.ExposureEV = -0.0f;
+	EXPECT_FALSE(Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Key, Error));
+}
+
+TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterministically)
+{
+	const Durin::FTextureCubePlatformData Expected = MakeCubePlatformData();
+	std::vector<Durin::uint8> First;
+	std::vector<Durin::uint8> Second;
+	std::string Error;
+	ASSERT_TRUE(Durin::EncodeTextureCubePayload(
+		Expected, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, First, Error)) << Error;
+	ASSERT_TRUE(Durin::EncodeTextureCubePayload(
+		Expected, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, Second, Error)) << Error;
+	EXPECT_EQ(First, Second);
+
+	std::unique_ptr<Durin::FTextureCubePlatformData> Actual;
+	ASSERT_TRUE(Durin::DecodeTextureCubePayload(
+		First, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, Actual, Error)) << Error;
+	ASSERT_NE(Actual, nullptr);
+	for (size_t FaceIndex = 0; FaceIndex < Expected.Faces.size(); ++FaceIndex)
+		ExpectPlatformDataEqual(Actual->Faces[FaceIndex], Expected.Faces[FaceIndex]);
+
+	auto WrongOrder = First;
+	WriteU32(WrongOrder, Durin::TexturePayloadHeaderSize, 1);
+	Durin::FTextureCubePlatformData* Existing = Actual.get();
+	EXPECT_FALSE(Durin::DecodeTextureCubePayload(
+		WrongOrder, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, Actual, Error));
+	EXPECT_EQ(Actual.get(), Existing);
 }

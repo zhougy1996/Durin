@@ -18,6 +18,50 @@ namespace Durin
 		EquirectangularPanorama DMETA(DisplayName = "Equirectangular Panorama"),
 	};
 
+	DSTRUCT()
+	struct FTextureCubeSourceImportData
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
+
+		DPROPERTY()
+		FTextureSourceFile PositiveX;
+
+		DPROPERTY()
+		FTextureSourceFile NegativeX;
+
+		DPROPERTY()
+		FTextureSourceFile PositiveY;
+
+		DPROPERTY()
+		FTextureSourceFile NegativeY;
+
+		DPROPERTY()
+		FTextureSourceFile PositiveZ;
+
+		DPROPERTY()
+		FTextureSourceFile NegativeZ;
+
+		DPROPERTY()
+		FTextureSourceFile Panorama;
+
+		DPROPERTY()
+		std::string DecoderId;
+
+		DPROPERTY()
+		uint32 DecoderVersion = 0;
+
+		DPROPERTY()
+		uint32 ProjectionVersion = 0;
+
+		ENGINE_API auto GetFace(ETextureCubeFace Face) const -> const FTextureSourceFile&;
+		ENGINE_API auto GetMutableFace(ETextureCubeFace Face) -> FTextureSourceFile&;
+		ENGINE_API auto HasSource() const -> bool;
+		auto operator==(const FTextureCubeSourceImportData&) const -> bool = default;
+	};
+
 	struct FTextureCubeSourceData
 	{
 		std::array<FTextureSourceData, TextureCubeFaceCount> Faces;
@@ -73,7 +117,13 @@ namespace Durin
 
 		ENGINE_API auto GetSourceFile(ETextureCubeFace Face) const -> const std::string&;
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
-		auto GetPanoramaSourceFile() const -> const std::string& { return PanoramaSourceFile; }
+		auto GetPanoramaSourceFile() const -> const std::string&
+		{
+			return SourceImportData.SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama
+				&& SourceImportData.Panorama.HasSource()
+				? SourceImportData.Panorama.SourcePath : PanoramaSourceFile;
+		}
+		auto GetSourceImportData() const -> const FTextureCubeSourceImportData& { return SourceImportData; }
 		auto GetPanoramaFaceDimension() const -> uint32 { return PanoramaFaceDimension; }
 		auto GetPanoramaExposureEV() const -> float { return PanoramaExposureEV; }
 		auto GetOriginalSourceWidth() const -> uint32 { return OriginalSourceWidth; }
@@ -83,6 +133,10 @@ namespace Durin
 		ENGINE_API auto GetBuiltPixelFormat() const -> EPixelFormat;
 		auto GetSourceData() const -> const FTextureCubeSourceData* { return SourceData.get(); }
 		auto GetPlatformData() const -> const FTextureCubePlatformData* { return PlatformData.get(); }
+		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
+		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
+		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
+		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetRenderResource() const -> const std::shared_ptr<FTextureCubeRenderResource>& { return RenderResource; }
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 		auto IsSRGB() const -> bool { return bSRGB; }
@@ -91,6 +145,11 @@ namespace Durin
 
 		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto AddToCook(
+			Asset::FCookContext& Context,
+			std::string_view VirtualPackagePath,
+			std::string& OutError,
+			bool bRetainDiagnosticSourceMetadata = false) -> bool;
 		ENGINE_API auto RefreshBuildStatus() -> void;
 
 		ENGINE_API static auto ImportAsset(
@@ -111,6 +170,10 @@ namespace Durin
 			std::string_view PanoramaFile,
 			const FTextureCubePanoramaImportSettings& Settings,
 			std::string& OutError) -> bool;
+		ENGINE_API auto ReimportSources(
+			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
+			const FTextureCubeImportSettings& Settings,
+			std::string& OutError) -> bool;
 
 	private:
 		auto GetMutableSourceFile(ETextureCubeFace Face) -> std::string&;
@@ -120,6 +183,9 @@ namespace Durin
 
 		DPROPERTY(DisplayName = "Source Layout")
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
+
+		DPROPERTY()
+		FTextureCubeSourceImportData SourceImportData;
 
 		DPROPERTY(DisplayName = "Positive X Source")
 		std::string PositiveXSourceFile;
@@ -157,12 +223,20 @@ namespace Durin
 		DPROPERTY()
 		bool bSRGB = true;
 
+		DPROPERTY()
+		Asset::FCookedPayloadDescriptor CookedPayload;
+
 		std::unique_ptr<FTextureCubeSourceData> SourceData;
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 		std::shared_ptr<FTextureCubeRenderResource> RenderResource;
+		std::string DerivedDataKey;
+		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
+		bool bLoadedFromDerivedDataCache = false;
 		uint64 BuildRevision = 0;
 		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;
 		std::string LastBuildError;
+
+		auto LoadCookedPlatformData(std::string& OutError) -> bool;
 	};
 
 	struct FTextureCubeImportResult
