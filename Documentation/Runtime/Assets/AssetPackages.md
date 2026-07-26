@@ -18,7 +18,18 @@ Compiled-in reflection metadata uses a separate `Cpp` package kind. Each reflect
 
 ## File Format
 
-The v2 binary header records the magic, format version, main asset class, dependencies, and object count. The asset path is derived from the mounted package filename, so moving a package within a content mount does not rewrite its payload. The registry reads only this header.
+Every authored or cooked `.dasset`, regardless of its main asset class, uses the
+same DAST object-package envelope. The v2 binary header records the `DAST`
+magic, format version, main asset class, dependencies, and object count. The
+asset path is derived from the mounted package filename, so moving a package
+within a content mount does not rewrite its payload. The registry reads only
+this header.
+
+Asset-specific magic values belong to external derived or cooked payloads, not
+to alternative `.dasset` envelopes. StaticMesh payloads use DMSH and texture
+payloads use TXPL. A cooked `.dbulk` uses the DBLK container format and may
+contain one of those asset-specific payloads; the cooked `.dasset` that
+references it still begins with DAST.
 
 Object records store object id, outer id, qualified class name, object name, and a field table. Fields are identified by declaring qualified class plus property name and include a recursive type signature and payload size. Missing fields retain constructor defaults. Unknown classes, invalid Outer hierarchies, malformed references, truncation, and unsupported versions fail the complete load.
 
@@ -55,10 +66,16 @@ Supported reflected payloads are numeric values, bool, strings, enums, `DStruct`
 ## Subsystem Boundary
 
 - `CoreDObject` owns `DPackage`, `FAssetPath`, object paths, qualified reflected class identities, and type-erased container access.
-- `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, structure-compatibility reports and upgrader registration, and existing source-file importers.
+- `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, structure-compatibility reports and upgrader registration, DDC storage, and cooked container/publication primitives.
+- `Engine` owns asset-specific source provenance, import/build policy, derived-data keys and codecs, and cook contributions.
+- Editor modules invoke the asset-specific import and reimport workflows.
 - `DLevel` objects are main assets inside packages; a `DWorld` remains a runtime/editor session container and activates one level at a time.
 
-Deferred work includes soft references, async loading, cooking, reimport, hot reload, redirects, and editor asset browsing.
+Asset-level cooking and deterministic cooked publication are implemented for
+StaticMesh, Texture2D, and TextureCube. Complete project discovery, editor or
+BuildTool packaging commands, and installable-build orchestration are not yet
+connected. Other deferred package-system work includes soft references, async
+loading, hot reload, redirects, and broader editor asset browsing.
 
 Package format versions are independent of the Durin engine release version. An engine release does not rewrite packages unless their own format or serialized schema requires a migration.
 
@@ -67,6 +84,13 @@ Package format versions are independent of the Durin engine release version. An 
 Durin stores asset discovery metadata and source-image thumbnails beneath `FPaths::DerivedDataCacheDir()`. The active project owns this directory; without a project, the engine directory is the fallback. It is ignored generated data, is never a content mount, and may be deleted in full while the editor is stopped. Mounted `Content` remains authoritative and repopulates both caches.
 
 Compiled shader manifests, SPIR-V, and reflection sidecars also live beneath `DerivedDataCache/Shaders/`. Their virtual shader mount namespace prevents engine, project, and extension shaders from colliding. Authored Slang sources remain authoritative and rebuild the shader cache after deletion.
+
+`StaticMesh/Objects/<key-prefix>/<key>.bin` stores DMSH render payloads built
+from exact source bytes, importer identity and version, semantic import
+settings, payload/builder versions, target platform, and target profile.
+StaticMesh import writes this object for immediate editor reuse. A safe miss can
+be rebuilt from source, and a cook can reuse the resulting render data without
+making runtime depend on the DDC path.
 
 `AssetRegistry/Registry.bin` is a versioned, deterministic snapshot keyed by virtual mount root and normalized mount-relative package path. Startup still enumerates mounted `.dasset` files once. Exact file-size and stable last-write-time matches reuse cached class, format-version, and dependency metadata without reading package headers; new or changed files use the bounded header reader, and missing files disappear from the freshly published live map. Full validation bypasses fingerprint reuse. Schema, package-format, serialization, or mount-manifest incompatibility and corrupt or missing snapshots cause a non-fatal rebuild. Successful mutations update the live registry and dirty the snapshot, which is atomically replaced after explicit reconciliation and during orderly asset-manager shutdown. The live registry exposes a monotonic process-local revision that advances only when its published asset metadata changes, allowing editor queries to cache derived views safely. Scan diagnostics expose elapsed milliseconds, enumeration/reuse/reparse/removal/failure counts, and package-header read attempts and bytes.
 

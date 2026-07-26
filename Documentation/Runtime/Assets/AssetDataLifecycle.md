@@ -40,6 +40,29 @@ TextureCube require normalized provenance beneath `SourceAssets/Models` or
 `SourceAssets/Textures`; their former package-adjacent source metadata is
 rejected rather than resolved.
 
+### Import-Time Build Policy
+
+Import is an editor authoring operation, not a cook. It creates or updates the
+authored `.dasset`, records portable source provenance, builds data required for
+immediate editor use, and populates the DDC. It does not create `Cooked/`
+packages, `.dbulk` companions, or `CookManifest.bin`.
+
+The current import behavior is:
+
+| Asset | Import-time build | Persistent outputs |
+| --- | --- | --- |
+| StaticMesh | Import geometry, build render data, and encode DMSH for the DDC | Authored `.dasset`, normalized source file, DDC `.bin` |
+| Texture2D | Decode source pixels, generate mips, select/compress the platform format, and encode TXPL for the DDC | Authored `.dasset`, normalized source file, DDC `.bin` |
+| TextureCube, six-face | Decode six sources, validate a common layout, generate/compress platform faces, and encode TXPL for the DDC | Authored `.dasset`, six normalized source files, DDC `.bin` |
+| TextureCube, panorama | Decode and project the panorama, generate/compress platform faces, and encode TXPL for the DDC | Authored `.dasset`, normalized panorama source, DDC `.bin` |
+| Assets without an external platform payload | Construct and save reflected authoring state | Authored `.dasset` |
+
+StaticMesh and texture import currently build the Win64 Game platform/profile
+variant eagerly so the editor has immediately usable render data. This is a
+platform build stored under rebuildable DDC ownership; it is not cooked
+publication. Cook may later validate and reuse equivalent payload bytes, but
+only an explicit cook places them under `Cooked/` ownership.
+
 ## Derived Data Cache Objects
 
 Generic content-addressed DDC objects use `.bin` and let their owning subsystem
@@ -242,6 +265,19 @@ modes are implemented. StaticMesh uses DMSH schema 2; Texture2D and TextureCube
 use TXPL schema 1. Their cooked loaders validate the complete descriptor,
 container, target, payload schema, ranges, hash, and asset-specific structure
 transactionally, and never invoke source or DDC fallback.
+
+StaticMesh, Texture2D, and TextureCube expose asset-level `AddToCook` operations
+for the Win64 Game target. Those operations can obtain or rebuild the required
+payload, add it to an `FCookContext`, serialize a cooked `.dasset` with logical
+payload descriptors, and publish the matching DBLK companion and manifest
+through that context.
+
+End-to-end packaging orchestration is not yet connected to an editor command or
+BuildTool action. There is currently no user-facing command that discovers an
+entire project cook set, invokes every asset contributor, and stages a complete
+installable build. Asset-level cook and publication behavior is exercised
+directly by native tests; its presence must not be interpreted as a completed
+packaging workflow or as import-time cooking.
 
 ## Related Documentation
 
