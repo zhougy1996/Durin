@@ -7,6 +7,11 @@ set "GIT_DIR_VALUE="
 set "GIT_DIR_ABS="
 set "EXIT_CODE=0"
 
+if /I "%~1"=="help" goto help
+if /I "%~1"=="--help" goto help
+if /I "%~1"=="-h" goto help
+if /I "%~1"=="/?" goto help
+
 if exist "%GIT_ENTRY%\" goto bootstrap
 if not exist "%GIT_ENTRY%" goto bootstrap
 
@@ -57,6 +62,18 @@ goto end
 echo Setup.bat only initializes the main checkout.
 echo Run WorktreeTool prepare from this linked worktree instead.
 set "EXIT_CODE=1"
+goto end
+
+:help
+echo Usage: Setup.bat [help]
+echo.
+echo Initializes the main checkout for building Durin.
+echo.
+echo Options:
+echo   help, -h, --help, /?  Show this help message and exit.
+echo.
+echo Linked worktrees must be initialized with WorktreeTool prepare.
+exit /b 0
 
 :end
 pause
