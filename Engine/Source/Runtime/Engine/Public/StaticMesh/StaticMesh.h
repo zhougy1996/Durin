@@ -44,6 +44,33 @@ namespace Durin
 		auto operator==(const FStaticMeshImportSettings&) const -> bool = default;
 	};
 
+	// Stores optional portable source provenance used only for editor rebuild and reimport.
+	DSTRUCT()
+	struct FStaticMeshSourceImportData
+	{
+		GENERATED_BODY()
+
+		// Empty means the asset has no source dependency; otherwise this is project- or engine-relative.
+		DPROPERTY()
+		std::string SourcePath;
+
+		// Lowercase XXH3-128 of the exact source bytes, or empty until legacy metadata is upgraded.
+		DPROPERTY()
+		std::string SourceContentHash;
+
+		DPROPERTY()
+		std::string ImporterId;
+
+		DPROPERTY()
+		uint32 ImporterVersion = 0;
+
+		DPROPERTY()
+		FStaticMeshImportSettings ImportSettings;
+
+		auto HasSource() const -> bool { return !SourcePath.empty(); }
+		auto operator==(const FStaticMeshSourceImportData&) const -> bool = default;
+	};
+
 	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
 	struct FStaticMeshImportResult;

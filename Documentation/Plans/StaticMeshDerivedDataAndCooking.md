@@ -6,16 +6,18 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stage 0 is in progress. Durin currently imports every static-mesh source file during
+Stage 0 is complete and Stage 1 is next. Durin currently imports every static-mesh source file during
 `DStaticMesh::PostLoad`, and material previews create separate transient meshes
 directly from engine OBJ files. No static-mesh derived-data key, persistent
 platform payload, or cooked-runtime path exists.
 
 This plan selects the long-term source/import/derived/cooked boundaries and
-provides an implementation sequence. The shared asset-data lifecycle now fixes
+provides an implementation sequence. The shared asset-data lifecycle fixes
 the loose `.dbulk` companion naming, package-relative lookup, logical payload
-descriptor, DDC separation, and future-archive boundary. Static-mesh-specific
-payload fields, fixtures, and source migration details remain to be frozen.
+descriptor, DDC separation, and future-archive boundary. Stage 0 freezes the
+static-mesh source-provenance value, DMSH schema, platform and builder
+identifiers, canonical key encoding, deterministic fixtures, and legacy-source
+migration window.
 
 ## Goal
 
@@ -52,6 +54,129 @@ payloads that load without source files or Assimp.
 - Deleting source models from version control.
 
 ## Design Decisions and Invariants
+
+## Frozen Stage 0 Contracts
+
+All integer and IEEE-754 floating-point fields below use little-endian byte
+order. Booleans and enums use their stated unsigned integer width. Writers emit
+zero for reserved fields and readers reject non-zero reserved fields. Byte
+offsets are from the start of the DMSH object.
+
+### Source import data
+
+`FStaticMeshSourceImportData` is an optional reflected value with these fields:
+
+| Field | Representation | Contract |
+| --- | --- | --- |
+| `SourcePath` | UTF-8 string | Empty means no source dependency. Otherwise forward-slash normalized, relative to project or engine root, and rooted beneath `SourceAssets/Models`. Absolute paths and `..` are invalid. |
+| `SourceContentHash` | 32 lowercase hex characters | XXH3-128 of the exact source bytes. Empty is accepted only while upgrading legacy package metadata. |
+| `ImporterId` | UTF-8 string | Stable case-sensitive implementation identity. The first importer uses `Assimp`. |
+| `ImporterVersion` | `uint32` | Changes whenever importer behavior can change the build result independently of settings. |
+| `ImportSettings` | three `uint8` enum values | Forward, right, and up axes, in that order, using `EStaticMeshImportAxis` values. |
+
+The value is absent when `SourcePath` is empty. Source metadata is editor
+provenance and may be stripped from cooked packages.
+
+### DMSH envelope and chunk table
+
+Schema version 1 uses a 64-byte header:
+
+| Offset | Type | Field |
+| ---: | --- | --- |
+| 0 | `uint32` | magic `0x48534D44` (`DMSH` in file order) |
+| 4 | `uint32` | payload schema version, currently `1` |
+| 8 | `uint32` | mesh-builder version, currently `1` |
+| 12 | `uint32` | target platform (`0` invalid/unknown, `1` Win64) |
+| 16 | `uint32` | payload flags; bit 0 means at least one chunk is compressed |
+| 20 | `uint32` | header size, exactly `64` |
+| 24 | `uint32` | chunk count, from `6` through `64` |
+| 28 | `uint32` | reserved zero |
+| 32 | `uint64` | chunk-table offset, exactly `64` |
+| 40 | `uint64` | sum of uncompressed chunk byte counts |
+| 48 | `uint64` | complete stored object size, including header, table, padding, and chunks |
+| 56 | `uint64` | XXH3-64 of stored bytes `[64, stored size)` |
+
+Each 32-byte chunk-table entry is `{uint32 type, uint32 flags, uint64 offset,
+uint64 stored size, uint64 uncompressed size}`. Bit 0 of flags is `Required`;
+bits 8 through 15 encode compression (`0` none, `1` Zstandard), and all other
+bits are reserved. Schema 1 writers use no compression. Readers reject an
+unsupported compression method, a compressed chunk ratio above `64:1`, or a
+payload whose declared total uncompressed size exceeds 8 GiB.
+
+The table immediately follows the header. Chunk data starts after the table,
+and every chunk offset is 16-byte aligned. Padding bytes are zero. Ranges must
+be ordered, non-overlapping, contained by the stored size, and arithmetically
+representable. Required chunks are `Bounds(1)`, `MaterialSlots(2)`, `LODs(3)`,
+`Sections(4)`, `VertexStreams(5)`, and `IndexBuffers(6)`, exactly once each.
+Unknown required chunks fail; unknown optional chunks may be skipped after
+their range and checksum are validated.
+
+The required chunk payloads are:
+
+- `Bounds`: six finite `float32` values, minimum XYZ then maximum XYZ.
+- `MaterialSlots`: `uint32 count`, followed by `count` GUIDs encoded as four
+  `uint32` values in `FGuid` A/B/C/D order. The limit is 4,096.
+- `LODs`: `uint32 count`, then one 40-byte record per LOD:
+  `{uint32 vertex count, uint32 index count, uint32 section count, uint8 UV
+  count, uint8 flags, uint16 reserved, float32 bounds[6]}`. Flags bit 0 means
+  vertex colors are present. Limits are eight LODs, 100,000,000 vertices,
+  300,000,000 indices, and 65,536 sections per LOD.
+- `Sections`: for each LOD, `uint32 count`, then 44-byte records containing five
+  `uint32` values (`first index`, `index count`, `minimum vertex`, `maximum
+  vertex`, `material slot`) followed by six finite bounds `float32` values.
+- `VertexStreams`: for each LOD, tightly packed structure-of-arrays in this
+  order: positions (`3 x float32`), normals (`3 x float32`), tangents (`4 x
+  float32`), each UV channel (`2 x float32`), then colors when present (`4 x
+  float32`). Every array has the LOD vertex count; no native padding is stored.
+- `IndexBuffers`: for each LOD, exactly the declared number of `uint32` indices.
+
+All bounds require minimum components not greater than maximum components.
+Positions, normals, tangents, UVs, colors, and bounds reject NaN and Infinity.
+Every index is less than the LOD vertex count. Every section is non-empty,
+contained by the index buffer, references valid vertices and a valid material
+slot, and section index ranges cover the LOD index buffer exactly without
+overlap. The mesh and every LOD contain non-empty geometry.
+
+Schema changes whenever a field, enum value, validation meaning, or byte layout
+changes. Readers fail closed on unsupported schemas. A builder-version change
+changes build semantics and the DDC key but does not change how an otherwise
+supported schema is decoded.
+
+### Derived-data key encoding
+
+`BuildStaticMeshDerivedDataKeyBytes` emits exactly:
+
+1. `uint32` key-schema version (`1`);
+2. source XXH3-128 as `uint64 HashLow`, then `uint64 HashHigh`;
+3. importer identity as `uint64 byte count` followed by unmodified UTF-8 bytes;
+4. `uint32` importer version;
+5. forward, right, and up axes as three `uint8` values;
+6. `uint32` mesh-builder version;
+7. `uint32` payload-schema version;
+8. `uint32` target-platform identifier.
+
+The object key is lowercase `XXH3-128(canonical bytes)` rendered as 32 hex
+characters. The source path, timestamps, diagnostics, host enum sizes, padding,
+and formatted strings are never key inputs. Objects use
+`DerivedDataCache/StaticMesh/Objects/<first-two-key-characters>/<key>.bin`.
+
+### Fixtures and migration window
+
+The canonical logical fixtures live at
+`Engine/Tests/Native/EngineTests/Data/StaticMeshDerivedData/README.md`. They
+freeze a one-section mesh and a multi-material mesh with four UV channels and
+vertex colors, plus the malformed payload derivations required by the Stage 2
+reader suite. Tests construct payload bytes from the listed values rather than
+checking in compiler- or platform-produced structure memory.
+
+Legacy `SourceFile` resolution remains enabled through Stages 1–5. It accepts
+only the existing package-relative and mounted-content forms, reports that the
+asset needs migration, and never writes those forms for a newly imported asset.
+Removal requires all repository-owned static-mesh packages to carry normalized
+`FStaticMeshSourceImportData`, a clean asset-registry scan with no legacy
+diagnostics, and explicit compatibility coverage that verifies the old form is
+rejected. Removal is a Stage 6 change and must not be inferred from elapsed
+time or an engine release number.
 
 ### Asset, source, and payload identity
 
@@ -201,18 +326,18 @@ payloads that load without source files or Assimp.
 
 ### Stage 0: Freeze contracts and fixtures
 
-- [ ] Define `FStaticMeshSourceImportData`, including optional normalized source
+- [x] Define `FStaticMeshSourceImportData`, including optional normalized source
   path, source content hash, importer identity/version, and import settings.
-- [ ] Define the `DMSH` header, chunk table, required chunks, numeric limits,
+- [x] Define the `DMSH` header, chunk table, required chunks, numeric limits,
   alignment, checksum, endianness, and schema-version policy.
-- [ ] Define the target-platform identifier and mesh-builder version ownership.
-- [ ] Define the exact derived-data key byte encoding; do not hash formatted
+- [x] Define the target-platform identifier and mesh-builder version ownership.
+- [x] Define the exact derived-data key byte encoding; do not hash formatted
   diagnostic strings or native struct memory.
 - [x] Define cooked `.dbulk` naming and package-relative lookup rules, including
   how a future archive replaces the loose companion.
-- [ ] Add small deterministic fixtures covering one section, multiple material
+- [x] Add small deterministic fixtures covering one section, multiple material
   slots, multiple UV channels, vertex colors, and malformed payloads.
-- [ ] Record the source-directory migration compatibility window and removal
+- [x] Record the source-directory migration compatibility window and removal
   criteria for legacy colocated source resolution.
 
 #### Acceptance Gate
