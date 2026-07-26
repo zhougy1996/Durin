@@ -4,31 +4,29 @@ These instructions apply to `Documentation/Investigations/`.
 
 ## Purpose
 
-- Record verified, unresolved engineering problems that are important enough to preserve across tasks.
-- Keep issue documents diagnostic and evidence-based. They describe the current behavior, impact, and candidate direction; they are not implementation plans or adopted architecture.
-- Use `Documentation/Plans/` after scope, decisions, stages, and acceptance
-  gates have been selected. Move lasting constraints to the owning
-  `Documentation/Runtime/`, `Documentation/Editor/Architecture/`,
-  `Documentation/Editor/Design/`, `Documentation/Development/`, or
-  `Documentation/Workspace/` domain after implementation stabilizes.
+- Preserve verified unresolved engineering problems across tasks. Describe
+  current behavior, impact, evidence, and candidate direction—not an
+  implementation plan or adopted architecture.
+- Once scope, decisions, stages, and gates are selected, use
+  `Documentation/Plans/`. After implementation stabilizes, move lasting
+  constraints to the owning documentation domain.
 
 ## Required Content
 
-- Give every issue a clear status and a `Last reviewed` date.
-- Separate verified findings from risks, assumptions, and recommendations.
+- Give every issue a status and `Last reviewed` date; separate verified
+  findings from risks, assumptions, and recommendations.
 - Link to the relevant architecture documentation and source files.
 - Rank independent findings by priority when an issue contains more than one problem.
-- Describe observable impact and the evidence that supports each finding. Avoid vague requests to "improve" or "optimize."
+- Describe observable impact and supporting evidence; avoid vague requests to
+  "improve" or "optimize."
 - Include validation gaps or reproduction guidance when the behavior is not already covered by tests.
 
 ## Maintenance
 
-- Update `README.md` whenever an issue document is added, renamed, resolved, or removed.
+- Update `README.md` when an issue is added, renamed, resolved, or removed.
 - When work begins, link the issue to its implementation plan or change. Do not duplicate the plan's stage checklist here.
-- Mark an investigation resolved only after the change and its validation have
-  landed. Record the resolving commit or replacement document, transfer lasting
-  rules to the owning domain, then remove the investigation document and its
-  open-index entry.
-- Do not create an Investigations archive or a resolved-investigations index.
-  Git and archived implementation plans preserve history.
+- Resolve only after the change and validation land: record the resolving commit
+  or replacement document, transfer lasting rules, then remove the issue and
+  open-index entry. Git and archived plans preserve history; create no
+  Investigations archive or resolved index.
 - Keep filenames descriptive and topic-based; do not encode transient priority or issue numbers in filenames.

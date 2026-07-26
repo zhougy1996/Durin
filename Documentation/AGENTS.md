@@ -4,39 +4,32 @@ These instructions apply under `Documentation/`.
 
 ## Reading Policy
 
-- Read only the files required by the current task.
-- Use `README.md` files as compact navigation, not as substitutes for topic documentation.
-- Discover files with `rg --files Documentation` and targeted content searches.
+- Read only task-required files. Use `README.md` for navigation, then read the
+  authoritative topic; discover with `rg --files Documentation` and targeted
+  searches.
 - Do not read archived plans unless the user names one, an active document requires its provenance, or historical reasoning is necessary.
 
 ## Document Boundaries
 
-- `Development` contains build, test, tooling, standards, dependency, and
-  version-control workflows. Build-system contracts belong beside the
-  operational guidance they govern.
-- `Runtime` contains currently implemented engine-runtime contracts and
-  long-lived invariants, organized by subsystem.
-- `Editor/Architecture` contains currently implemented editor contracts and
-  long-lived invariants.
-- `Editor/Design` contains editor visual language, design tokens, layout,
-  interaction, and theme conventions.
-- `Editor/Guides` contains user-facing editor workflows.
-- `Workspace` contains workspace, project, module, and profile ownership
-  boundaries that span development and runtime concerns.
-- `Plans` contains selected implementation paths, stages, and acceptance gates.
-- `Plans/Archive` preserves completed implementation decisions and validation evidence.
-- `Investigations` contains verified unresolved problems before an
-  implementation path has been selected.
+- `Development`: build, test, tooling, standards, dependency, and
+  version-control workflows; keep build contracts beside their operational
+  guidance.
+- `Runtime`: implemented engine-runtime contracts and long-lived invariants.
+- `Editor/Architecture`: implemented editor contracts and invariants.
+- `Editor/Design`: visual language, tokens, layout, interaction, and themes.
+- `Editor/Guides`: user-facing editor workflows.
+- `Workspace`: cross-cutting workspace, project, module, and profile ownership.
+- `Plans`: selected paths, stages, and acceptance gates; `Plans/Archive`
+  preserves completed decisions and evidence.
+- `Investigations`: verified unresolved problems without a selected path.
 
-Do not place implementation stages, open decisions, or future roadmaps in
-`Runtime`, `Editor/Architecture`, `Editor/Design`, or `Workspace`. After
-implementation, move lasting contracts into the owning domain. Keep informal
-research under the ignored `Documentation/Local/` directory or outside the
-repository.
+Keep stages, open decisions, and roadmaps out of contract domains. After
+implementation, move lasting contracts to their owning domain. Keep informal
+research in ignored `Documentation/Local/` or outside the repository.
 
 ## Maintenance
 
 - Prefer links to the authoritative topic document over duplicated guidance.
-- Update direct links when a document moves.
-- Keep navigation indexes scoped to their active directory; do not create a master file-by-file catalog.
+- Update direct links when documents move. Keep indexes local; do not create a
+  master file catalog.
 - Add a `Last reviewed` date where required by the nearest authoring rules.
