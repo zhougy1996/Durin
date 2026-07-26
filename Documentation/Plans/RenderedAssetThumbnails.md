@@ -6,7 +6,20 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Planned. Texture2D assets and supported source-image files already use an
+Stage 0 is in progress. The provider-neutral public request, immutable
+generation input, state, view, cancellation, provider registration, output,
+visual-contract, budget, cache-key, and dependency-snapshot contracts now live
+in `DurinEd`. Focused native tests cover byte-stable key construction, field
+invalidation, dependency-order independence, cycle termination, missing and
+duplicate registry data, shared cancellation, and bounded defaults.
+
+Deterministic rendered Material/MaterialInstance fixtures and the shared native
+sphere acquisition API remain pending. The existing six-face directional cube
+fixture is available for the later rendered-output tests, but Stage 0 is not
+complete until the remaining fixtures and the static-mesh plan's shared sphere
+contract are ready.
+
+Texture2D assets and supported source-image files already use an
 asynchronous, persistent Content Browser thumbnail cache. Materials have an
 isolated live preview scene in the Material Editor, and TextureCube assets have
 runtime render resources and a defined sampling-orientation contract. The
@@ -213,13 +226,13 @@ introducing per-card live viewports or steady-state rendering work.
 
 ### Stage 0: Freeze contracts, dependencies, and fixtures
 
-- [ ] Define provider registration, request, immutable generation input, state,
+- [x] Define provider registration, request, immutable generation input, state,
   result, cancellation, and shutdown contracts in `DurinEd`.
-- [ ] Fix output dimensions, color space, encoding, background, camera,
+- [x] Fix output dimensions, color space, encoding, background, camera,
   lighting, sphere transform, and TextureCube reflection-vector convention.
-- [ ] Define versioned rendered-thumbnail keys and the deterministic,
+- [x] Define versioned rendered-thumbnail keys and the deterministic,
   cycle-guarded Asset Registry dependency-closure algorithm.
-- [ ] Define queue, per-frame render, live-scene, CPU, GPU, and disk budgets with
+- [x] Define queue, per-frame render, live-scene, CPU, GPU, and disk budgets with
   test overrides.
 - [ ] Create deterministic Material, MaterialInstance, parent/texture
   dependency, invalid-material, and six-face directional TextureCube fixtures.
