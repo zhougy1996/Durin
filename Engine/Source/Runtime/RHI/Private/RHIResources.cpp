@@ -145,6 +145,28 @@ namespace Durin
 		return true;
 	}
 
+	auto ResolveTextureCubeFacePixelDirection(ETextureCubeFace Face, uint32 PixelX, uint32 PixelY,
+		uint32 FaceDimension, FVector3& OutDirection) -> bool
+	{
+		if (FaceDimension == 0 || PixelX >= FaceDimension || PixelY >= FaceDimension) return false;
+		const double A = 2.0 * (static_cast<double>(PixelX) + 0.5) / FaceDimension - 1.0;
+		const double B = 2.0 * (static_cast<double>(PixelY) + 0.5) / FaceDimension - 1.0;
+		switch (Face)
+		{
+		case ETextureCubeFace::PositiveX: OutDirection = FVector3(1.0, -B, -A); break;
+		case ETextureCubeFace::NegativeX: OutDirection = FVector3(-1.0, -B, A); break;
+		case ETextureCubeFace::PositiveY: OutDirection = FVector3(A, 1.0, B); break;
+		case ETextureCubeFace::NegativeY: OutDirection = FVector3(A, -1.0, -B); break;
+		case ETextureCubeFace::PositiveZ: OutDirection = FVector3(A, -B, 1.0); break;
+		case ETextureCubeFace::NegativeZ: OutDirection = FVector3(-A, -B, -1.0); break;
+		default: return false;
+		}
+		const double Length = glm::length(OutDirection);
+		if (!std::isfinite(Length) || Length <= 0.0) return false;
+		OutDirection /= Length;
+		return true;
+	}
+
 	// May use a multiple producer single consumer queue here if the contention is high, but currently we don't have that many threads creating resources, so a simple vector with mutex should be fine.
 	std::vector<FRHIResource*> PendingDeletes;
 	std::mutex PendingDeletesMutex;

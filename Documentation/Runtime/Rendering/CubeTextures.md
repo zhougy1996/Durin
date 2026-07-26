@@ -73,6 +73,172 @@ The six principal-axis cases all produce `(U, V) = (0.5, 0.5)` on the
 corresponding face. Directional test images use a distinct center color per
 face and labeled edge markers matching the source-orientation table.
 
+## Equirectangular Panorama Import
+
+An equirectangular panorama is an offline source layout for the existing LDR
+cube build path. It does not change runtime sampling or introduce a
+floating-point texture format.
+
+### Source Layout and Compatibility
+
+`DTextureCube` serializes an `ETextureCubeSourceLayout` value with these stable
+numeric values:
+
+| Serialized value | Enumerator | Authoritative source |
+| ---: | --- | --- |
+| 0 | `SixFaces` | The existing six face-source properties |
+| 1 | `EquirectangularPanorama` | One panorama-source property |
+
+The property initializer is `SixFaces`. Packages written before the property
+existed therefore retain value 0 when deserialization leaves the missing
+property at its initialized value. Unknown serialized values are invalid and
+must not be inferred from nonempty source strings. Only the active layout owns
+source files; inactive-layout strings never participate in rebuild, move, or
+delete.
+
+Six-face imports retain the existing `<AssetName>_px`, `_nx`, `_py`, `_ny`,
+`_pz`, and `_nz` suffixes and their current extension behavior. A panorama
+import copies its authoritative source beside the package as
+`<AssetName>_panorama<extension>`, where `extension` is the accepted source
+extension normalized to lowercase, including its leading period. Moving an
+asset between directories without renaming it preserves that filename.
+Renaming the asset changes only the `<AssetName>` portion. Move and rename
+contributors update the serialized relative filename only after all filesystem
+operations succeed and restore both file placement and the old string on
+rollback.
+
+### Projection Coordinates
+
+The decoded panorama has nonzero dimensions and must satisfy `Width ==
+2 * Height` using checked arithmetic. It uses normal top-left image origin.
+The horizontal center looks toward `+X`, moving right rotates toward `+Y`, and
+the top edge approaches `+Z`.
+
+For a normalized direction `D`:
+
+```text
+U = 0.5 + atan2(D.y, D.x) / (2 * pi)
+V = 0.5 - asin(clamp(D.z, -1, 1)) / pi
+```
+
+`U` is reduced to `[0, 1)` so the longitude seam wraps. `V` is clamped to
+`[0, 1]`. For a face of dimension `N`, pixel `(x, y)` uses
+`u = (x + 0.5) / N` and `v = (y + 0.5) / N`. With
+`a = 2 * u - 1` and `b = 2 * v - 1`, normalize the following vector to obtain
+the panorama sampling direction:
+
+| Face | Unnormalized direction |
+| --- | --- |
+| `+X` | `( 1, -b, -a)` |
+| `-X` | `(-1, -b,  a)` |
+| `+Y` | `( a,  1,  b)` |
+| `-Y` | `( a, -1, -b)` |
+| `+Z` | `( a, -b,  1)` |
+| `-Z` | `(-a, -b, -1)` |
+
+This table is the algebraic inverse of the direction-to-face ground truth
+above. Projectors must use the shared implementation of this inverse.
+
+For bilinear sampling, continuous texel coordinates are
+`X = U * Width - 0.5` and `Y = V * Height - 0.5`. Both horizontal tap indices
+wrap modulo `Width`; both vertical tap indices clamp to
+`[0, Height - 1]`. Fractional weights are computed before index wrap or clamp.
+This makes the seam continuous and extends the first and last source rows to
+the poles without an out-of-range read.
+
+The default face dimension is `max(1, floor(Width / 4))` using integer
+division. An explicit override is in `[1, 4096]`. It replaces only the output
+dimension and never changes coordinate or filtering behavior.
+
+### LDR Color
+
+PNG, JPEG, BMP, and TGA panorama RGB channels are sRGB encoded. Each bilinear
+tap is decoded to linear before interpolation:
+
+```text
+linear(c) = c / 12.92                              when c <= 0.04045
+linear(c) = ((c + 0.055) / 1.055) ^ 2.4           otherwise
+```
+
+Here `c` is the normalized encoded channel. Interpolated linear RGB is encoded
+with the inverse transfer:
+
+```text
+srgb(c) = 12.92 * c                                when c <= 0.0031308
+srgb(c) = 1.055 * c ^ (1 / 2.4) - 0.055           otherwise
+```
+
+Clamp encoded RGB to `[0, 1]` and quantize with
+`floor(value * 255 + 0.5)`. Alpha is linear, receives the same bilinear
+weights, is clamped and quantized by the same rule, and promotes the complete
+cube to BC3 when any projected byte is below 255.
+
+### Radiance HDR Color
+
+Radiance `.hdr` pixels decode to finite, nonnegative linear RGB float values
+and opaque alpha. Malformed input, a negative or nonfinite decoded channel, or
+a nonfinite exposure result fails the build before publication. Exposure is a
+finite EV value in `[-16, 16]` and is applied first:
+
+```text
+x = decodedLinear * exp2(EV)
+```
+
+Each exposed channel then uses the fixed ACES fitted filmic curve:
+
+```text
+filmic(x) = clamp(
+    (x * (2.51 * x + 0.03)) /
+    (x * (2.43 * x + 0.59) + 0.14),
+    0, 1)
+```
+
+The curve is evaluated independently per channel. Zero maps to zero. Input
+validation rejects negative and nonfinite values rather than silently
+clamping them. Values whose finite curve result exceeds one are clamped to
+one; there is no adjustable white point. The result is converted to sRGB and
+RGBA8 with the LDR encoding and quantization rule above.
+
+The following scalar cases are golden ground truth. Decimal intermediates are
+shown for review; the final byte is authoritative for tests and rebuilds.
+
+| Linear input | EV | Exposed | Filmic | sRGB | Byte |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0 | 0 | 0 | 0 | 0 |
+| 0.18 | 0 | 0.18 | 0.2668989204 | 0.5534575720 | 141 |
+| 0.18 | 2 | 0.72 | 0.7250070156 | 0.8677025342 | 221 |
+| 1 | 0 | 1 | 0.8037974684 | 0.9082304957 | 232 |
+| 4 | 0 | 4 | 0.9734171097 | 0.9882227102 | 252 |
+| 16 | 0 | 16 | 1 after clamp | 1 | 255 |
+
+### Import Allocation Limits
+
+All products below are checked in `uint64` before conversion to `size_t` or
+allocation. Failure clears the destination result.
+
+| Quantity | Checked formula | Limit |
+| --- | --- | ---: |
+| Encoded source | file byte count | 512 MiB |
+| Panorama pixels | `Width * Height` | 33,554,432 pixels |
+| LDR decode | `Width * Height * 4` | 128 MiB at the pixel limit |
+| HDR decode | `Width * Height * 3 * sizeof(float)` | 384 MiB at the pixel limit |
+| Projected RGBA8 cube | `6 * FaceDimension * FaceDimension * 4` | 384 MiB at dimension 4096 |
+
+Each source dimension must also be at most 16384. The exact 2:1 check, pixel
+limit, and byte checks occur before decoded or projected storage is allocated.
+Tests cover zero dimensions, ratio mismatch, values just above each limit,
+`uint32` dimension products that would overflow without promotion, and a face
+override of 4097.
+
+The analytical fixtures in
+`Engine/Tests/Native/EngineTests/Data/EquirectangularPanorama` are the executable
+color and orientation ground truth. `AnalyticalLDR.tga` uses paired longitude
+bands so all four equatorial principal axes are exact under bilinear sampling,
+constant pole rows, a wrapped seam pair, and deterministic 45-degree edge
+mixtures. `AnalyticalHDR.hdr` uses the same layout with exactly representable
+RGBE values below and above display range. Its accompanying README lists every
+source pixel.
+
 ## Validation Rules
 
 - Width and height must be equal and nonzero.

@@ -18,6 +18,26 @@ namespace Durin::Asset
 			Stream.write(reinterpret_cast<const char*>(Bytes.data()), static_cast<std::streamsize>(Bytes.size()));
 			return Path;
 		}
+
+		auto MakeOldRadianceFixture() -> std::vector<uint8>
+		{
+			constexpr std::string_view Header =
+				"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 2\n";
+			std::vector<uint8> Result(Header.begin(), Header.end());
+			Result.insert(Result.end(), {128, 64, 32, 131, 32, 64, 16, 130});
+			return Result;
+		}
+
+		auto MakeNewRadianceFixture() -> std::vector<uint8>
+		{
+			constexpr std::string_view Header =
+				"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 8\n";
+			std::vector<uint8> Result(Header.begin(), Header.end());
+			Result.insert(Result.end(), {2, 2, 0, 8});
+			for (uint8 Value : {32, 64, 128, 131})
+				Result.insert(Result.end(), {static_cast<uint8>(128 + 8), Value});
+			return Result;
+		}
 	} // namespace
 
 	TEST(FImageDecoderTests, RecognizesSupportedExtensionsCaseInsensitively)
@@ -28,7 +48,10 @@ namespace Durin::Asset
 		EXPECT_TRUE(IsSupportedImageExtension(".bmp"));
 		EXPECT_TRUE(IsSupportedImageExtension(".tga"));
 		EXPECT_FALSE(IsSupportedImageExtension(".gif"));
+		EXPECT_FALSE(IsSupportedImageExtension(".hdr"));
 		EXPECT_FALSE(IsSupportedImageExtension(".dasset"));
+		EXPECT_TRUE(IsRadianceHDRExtension(".HDR"));
+		EXPECT_FALSE(IsRadianceHDRExtension(".png"));
 	}
 
 	TEST(FImageDecoderTests, DecodesMemoryToUnscaledRgba8)
@@ -99,5 +122,57 @@ namespace Durin::Asset
 		EXPECT_FALSE(DecodeImageFromMemory(OversizedPng, Image, Error, Limits));
 		EXPECT_EQ(Error, "The decoded image is too large.");
 		EXPECT_TRUE(Image.Pixels.empty());
+	}
+
+	TEST(FImageDecoderTests, DecodesOldAndNewRadianceScanlinesToLinearFloat)
+	{
+		FDecodedFloatImage Image;
+		std::string Error;
+		const std::vector<uint8> OldFixture = MakeOldRadianceFixture();
+		ASSERT_TRUE(DecodeRadianceHDRFromMemory(OldFixture, Image, Error)) << Error;
+		ASSERT_EQ(Image.Pixels.size(), 6u);
+		EXPECT_EQ(Image.Width, 2u);
+		EXPECT_EQ(Image.Height, 1u);
+		EXPECT_FLOAT_EQ(Image.Pixels[0], 4.0f);
+		EXPECT_FLOAT_EQ(Image.Pixels[1], 2.0f);
+		EXPECT_FLOAT_EQ(Image.Pixels[2], 1.0f);
+		EXPECT_FLOAT_EQ(Image.Pixels[3], 0.5f);
+		EXPECT_FLOAT_EQ(Image.Pixels[4], 1.0f);
+		EXPECT_FLOAT_EQ(Image.Pixels[5], 0.25f);
+
+		const std::vector<uint8> NewFixture = MakeNewRadianceFixture();
+		ASSERT_TRUE(DecodeRadianceHDRFromMemory(NewFixture, Image, Error)) << Error;
+		ASSERT_EQ(Image.Pixels.size(), 24u);
+		for (size_t Pixel = 0; Pixel < 8; ++Pixel)
+		{
+			EXPECT_FLOAT_EQ(Image.Pixels[Pixel * 3], 1.0f);
+			EXPECT_FLOAT_EQ(Image.Pixels[Pixel * 3 + 1], 2.0f);
+			EXPECT_FLOAT_EQ(Image.Pixels[Pixel * 3 + 2], 4.0f);
+		}
+	}
+
+	TEST(FImageDecoderTests, RejectsMalformedTruncatedAndOversizedRadianceWithoutPartialOutput)
+	{
+		FDecodedFloatImage Image;
+		Image.Pixels = {1.0f};
+		Image.Width = 1;
+		std::string Error;
+		constexpr uint8 Corrupt[] = {1, 2, 3, 4};
+		EXPECT_FALSE(DecodeRadianceHDRFromMemory(Corrupt, Image, Error));
+		EXPECT_TRUE(Image.Pixels.empty());
+		EXPECT_NE(Error.find("signature"), std::string::npos);
+
+		std::vector<uint8> Truncated = MakeNewRadianceFixture();
+		Truncated.pop_back();
+		EXPECT_FALSE(DecodeRadianceHDRFromMemory(Truncated, Image, Error));
+		EXPECT_TRUE(Image.Pixels.empty());
+		EXPECT_NE(Error.find("truncated"), std::string::npos) << Error;
+
+		FRadianceHDRDecodeLimits Limits;
+		Limits.MaximumDecodedPixels = 1;
+		const std::vector<uint8> OldFixture = MakeOldRadianceFixture();
+		EXPECT_FALSE(DecodeRadianceHDRFromMemory(OldFixture, Image, Error, Limits));
+		EXPECT_TRUE(Image.Pixels.empty());
+		EXPECT_NE(Error.find("configured limit"), std::string::npos);
 	}
 } // namespace Durin::Asset

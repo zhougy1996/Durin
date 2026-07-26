@@ -483,6 +483,15 @@ namespace Durin
 		FVector2f& OutUv
 	) -> bool;
 
+	// Resolves a top-left-origin cube-face pixel center to its normalized Durin-space direction.
+	RHI_API auto ResolveTextureCubeFacePixelDirection(
+		ETextureCubeFace Face,
+		uint32 PixelX,
+		uint32 PixelY,
+		uint32 FaceDimension,
+		FVector3& OutDirection
+	) -> bool;
+
 	// Represents a backend texture created from an immutable texture descriptor.
 	class FRHITexture : public FRHIResource
 	{

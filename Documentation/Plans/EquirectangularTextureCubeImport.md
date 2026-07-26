@@ -6,16 +6,19 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Planning is complete and implementation has not started. The selected first
-slice imports one 2:1 equirectangular panorama into the existing
-`DTextureCube` asset and static-skybox path. LDR sources remain sRGB color;
-Radiance HDR sources are decoded in linear float, exposed and tone-mapped
-offline, then encoded into the existing RGBA8/BC1 or BC3 cube pipeline.
+Stages 0 and 1 are complete. The projection, color, compatibility, source
+naming, and allocation contracts are locked in the owning cube-texture
+documentation. AssetCore now provides bounded old/new-scanline Radiance HDR
+decode, RHI owns the shared cube-pixel direction inverse, and Engine projects
+LDR or HDR panoramas into validated six-face RGBA8 source data without asset
+mutation. Analytical fixtures cover axes, seam, poles, linear-space filtering,
+exposure, and the fixed ACES fitted curve.
 
+Validation evidence on `Win64-Debug-DurinEditor-Tests`: all 32 AssetCoreTests,
+all 51 RenderCoreTests, and the 10 equirectangular plus existing six-face cube
+tests pass. Stage 2, persistent panorama provenance in `DTextureCube`, is next.
 The first slice deliberately does not introduce floating-point texture assets,
-BC6H build output, image-based lighting, or runtime panorama sampling. Stage 0
-must lock the exact tone-mapping curve and golden numeric cases before asset or
-editor implementation begins.
+BC6H build output, image-based lighting, or runtime panorama sampling.
 
 ## Goal
 
@@ -156,21 +159,21 @@ This stage resolves the only intentionally open design detail—the exact fixed
 filmic curve—and turns the coordinate and source-layout decisions into
 executable ground truth.
 
-- [ ] Add the panorama coordinate convention, exact 2:1 requirement, default
+- [x] Add the panorama coordinate convention, exact 2:1 requirement, default
   face-size rule, and LDR/HDR color behavior to the cube-texture runtime
   documentation.
-- [ ] Select one fixed filmic tone-mapping curve and document its formula,
+- [x] Select one fixed filmic tone-mapping curve and document its formula,
   exposure order, negative/nonfinite handling, output clamp, and golden numeric
   examples.
-- [ ] Define the serialized source-layout enum and compatibility rule for
+- [x] Define the serialized source-layout enum and compatibility rule for
   packages that predate the enum.
-- [ ] Define authoritative source filenames for panorama imports and
+- [x] Define authoritative source filenames for panorama imports and
   rename/move behavior without changing existing six-face suffixes.
-- [ ] Add a small analytical equirectangular LDR fixture whose principal axes,
+- [x] Add a small analytical equirectangular LDR fixture whose principal axes,
   seam, poles, and face edges are unambiguous.
-- [ ] Add a small Radiance HDR fixture with known linear values above and below
+- [x] Add a small Radiance HDR fixture with known linear values above and below
   display range.
-- [ ] Define memory-limit cases and checked formulas for panorama pixels, six
+- [x] Define memory-limit cases and checked formulas for panorama pixels, six
   projected faces, and RGBA8/float byte counts.
 
 #### Acceptance Gate
@@ -188,20 +191,20 @@ executable ground truth.
 Depends on Stage 0. This stage produces validated CPU face data without creating
 or mutating an asset.
 
-- [ ] Add a bounded float-image result and Radiance HDR decode entry point under
+- [x] Add a bounded float-image result and Radiance HDR decode entry point under
   AssetCore, keeping the existing RGBA8 API and supported-extension behavior
   unchanged for other importers.
-- [ ] Validate Radiance headers, dimensions, scanline encoding, payload length,
+- [x] Validate Radiance headers, dimensions, scanline encoding, payload length,
   checked allocation, finite channels, and deterministic error messages.
-- [ ] Add a shared cube-face pixel-center-to-direction helper consistent with
+- [x] Add a shared cube-face pixel-center-to-direction helper consistent with
   `ResolveTextureCubeFaceUv` and the documented top-left row convention.
-- [ ] Implement horizontal-wrap/vertical-clamp bilinear equirectangular sampling.
-- [ ] Implement sRGB decode/resample/encode for LDR sources.
-- [ ] Implement linear HDR sampling, EV exposure, the Stage 0 filmic curve, and
+- [x] Implement horizontal-wrap/vertical-clamp bilinear equirectangular sampling.
+- [x] Implement sRGB decode/resample/encode for LDR sources.
+- [x] Implement linear HDR sampling, EV exposure, the Stage 0 filmic curve, and
   sRGB RGBA8 encoding.
-- [ ] Project all faces directly into `FTextureCubeSourceData`, including
+- [x] Project all faces directly into `FTextureCubeSourceData`, including
   transparency aggregation and explicit face-dimension validation.
-- [ ] Add focused unit tests for principal axes, all documented face edges,
+- [x] Add focused unit tests for principal axes, all documented face edges,
   seam wrapping, poles, LDR linear-space interpolation, HDR golden values,
   invalid inputs, and allocation limits.
 

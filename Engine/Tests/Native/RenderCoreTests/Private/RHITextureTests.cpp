@@ -121,4 +121,73 @@ namespace Durin
 		FVector2f Uv{};
 		EXPECT_FALSE(ResolveTextureCubeFaceUv(FVector3(0.0), Face, Uv));
 	}
+
+	TEST(FRHITextureTests, CubePixelDirectionsInvertTheDocumentedFaceConvention)
+	{
+		for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
+		{
+			const auto Face = static_cast<ETextureCubeFace>(FaceIndex);
+			for (uint32 Y : {0u, 1u, 2u})
+			{
+				for (uint32 X : {0u, 1u, 2u})
+				{
+					FVector3 Direction{};
+					ASSERT_TRUE(ResolveTextureCubeFacePixelDirection(Face, X, Y, 3, Direction));
+					EXPECT_NEAR(glm::length(Direction), 1.0, 1.e-12);
+
+					ETextureCubeFace ResolvedFace = ETextureCubeFace::PositiveX;
+					FVector2f Uv{};
+					ASSERT_TRUE(ResolveTextureCubeFaceUv(Direction, ResolvedFace, Uv));
+					EXPECT_EQ(ResolvedFace, Face);
+					EXPECT_NEAR(Uv.x, (static_cast<float>(X) + 0.5f) / 3.0f, 1.e-6f);
+					EXPECT_NEAR(Uv.y, (static_cast<float>(Y) + 0.5f) / 3.0f, 1.e-6f);
+				}
+			}
+		}
+
+		FVector3 Direction{};
+		EXPECT_FALSE(ResolveTextureCubeFacePixelDirection(ETextureCubeFace::PositiveX, 0, 0, 0, Direction));
+		EXPECT_FALSE(ResolveTextureCubeFacePixelDirection(ETextureCubeFace::PositiveX, 3, 0, 3, Direction));
+		EXPECT_FALSE(ResolveTextureCubeFacePixelDirection(static_cast<ETextureCubeFace>(TextureCubeFaceCount), 0, 0, 1, Direction));
+	}
+
+	TEST(FRHITextureTests, CubePixelDirectionsMatchEveryDocumentedFaceEdge)
+	{
+		struct FFaceEdges
+		{
+			ETextureCubeFace Face;
+			std::array<FVector3, 4> TopRightBottomLeft;
+		};
+		constexpr double Edge = 2.0 / 3.0;
+		const std::array Cases{
+			FFaceEdges{ETextureCubeFace::PositiveX, {
+				FVector3(1, Edge, 0), FVector3(1, 0, -Edge), FVector3(1, -Edge, 0), FVector3(1, 0, Edge)}},
+			FFaceEdges{ETextureCubeFace::NegativeX, {
+				FVector3(-1, Edge, 0), FVector3(-1, 0, Edge), FVector3(-1, -Edge, 0), FVector3(-1, 0, -Edge)}},
+			FFaceEdges{ETextureCubeFace::PositiveY, {
+				FVector3(0, 1, -Edge), FVector3(Edge, 1, 0), FVector3(0, 1, Edge), FVector3(-Edge, 1, 0)}},
+			FFaceEdges{ETextureCubeFace::NegativeY, {
+				FVector3(0, -1, Edge), FVector3(Edge, -1, 0), FVector3(0, -1, -Edge), FVector3(-Edge, -1, 0)}},
+			FFaceEdges{ETextureCubeFace::PositiveZ, {
+				FVector3(0, Edge, 1), FVector3(Edge, 0, 1), FVector3(0, -Edge, 1), FVector3(-Edge, 0, 1)}},
+			FFaceEdges{ETextureCubeFace::NegativeZ, {
+				FVector3(0, Edge, -1), FVector3(-Edge, 0, -1), FVector3(0, -Edge, -1), FVector3(Edge, 0, -1)}},
+		};
+		constexpr std::array<std::pair<uint32, uint32>, 4> EdgePixels = {
+			std::pair{1u, 0u}, std::pair{2u, 1u}, std::pair{1u, 2u}, std::pair{0u, 1u}};
+
+		for (const FFaceEdges& Case : Cases)
+		{
+			for (size_t EdgeIndex = 0; EdgeIndex < EdgePixels.size(); ++EdgeIndex)
+			{
+				FVector3 Direction{};
+				ASSERT_TRUE(ResolveTextureCubeFacePixelDirection(
+					Case.Face, EdgePixels[EdgeIndex].first, EdgePixels[EdgeIndex].second, 3, Direction));
+				const FVector3 Expected = glm::normalize(Case.TopRightBottomLeft[EdgeIndex]);
+				EXPECT_NEAR(Direction.x, Expected.x, 1.e-12);
+				EXPECT_NEAR(Direction.y, Expected.y, 1.e-12);
+				EXPECT_NEAR(Direction.z, Expected.z, 1.e-12);
+			}
+		}
+	}
 }

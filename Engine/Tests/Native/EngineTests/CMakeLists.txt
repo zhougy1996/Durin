@@ -20,6 +20,7 @@ add_durin_test(EngineTests
 	Private/Texture/TextureImportAndCacheTests.cpp
 	Private/Texture/TextureBuildTests.cpp
 	Private/Texture/TextureFailureTests.cpp
+	Private/Texture/EquirectangularTextureCubeTests.cpp
 	Private/TextureCubeTests.cpp
 	Private/SkyBox/SkyBoxRenderingTests.cpp
 	Private/SkyBox/SkyBoxComponentTests.cpp
