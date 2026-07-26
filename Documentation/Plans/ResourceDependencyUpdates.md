@@ -6,9 +6,11 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 through 3 are complete. Material and static-mesh reverse registration
-is removed, and the 50 material dependency, batching, transaction, rendering,
-asset, static-mesh scan, and lifetime tests pass. Stage 4 is next.
+Stages 0 through 4 are complete. Deterministic material and static-mesh scan
+diagnostics are available, the 50 material dependency, batching, transaction,
+rendering, asset, static-mesh scan, and lifetime tests pass, the complete
+`Win64-Debug-DurinEditor-Tests` profile builds, and its hidden-window editor
+smoke test passes. Stage 5 is next.
 
 This plan replaces the unimplemented centralized object dependency index design
 recorded on 2026-07-26. The revised direction follows Unreal Engine's material
@@ -446,18 +448,18 @@ Current gaps:
 
 ### Stage 4: Performance characterization and integrated validation
 
-- [ ] Add deterministic diagnostic access for the most recent material-context
+- [x] Add deterministic diagnostic access for the most recent material-context
   and static-mesh scan counters.
-- [ ] Create a focused test scene with multiple material inheritance depths,
+- [x] Create a focused test scene with multiple material inheritance depths,
   shared ancestors, components, and repeated slot assignments.
-- [ ] Verify that one batch takes one material/object snapshot and one component
+- [x] Verify that one batch takes one material/object snapshot and one component
   scan, independent of inheritance depth.
-- [ ] Compare update counts and render output before and after removing reverse
+- [x] Compare update counts and render output before and after removing reverse
   registration.
-- [ ] Run focused Engine and reflected-property transaction tests through the
+- [x] Run focused Engine and reflected-property transaction tests through the
   root build driver.
-- [ ] Run the complete registered profile build using repository instructions.
-- [ ] Run the required hidden-window `DurinEditor` smoke test and exercise Parent
+- [x] Run the complete registered profile build using repository instructions.
+- [x] Run the required hidden-window `DurinEditor` smoke test and exercise Parent
   editing, inherited parameters, assignments, Undo, and Redo.
 
 #### Acceptance Gate

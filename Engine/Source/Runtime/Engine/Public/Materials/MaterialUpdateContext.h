@@ -20,6 +20,9 @@ namespace Durin
 		uint64 UpdatedSlotCount = 0;
 	};
 
+	// Returns the counters from the most recently completed material update flush.
+	ENGINE_API auto GetLastMaterialUpdateCounters() -> FMaterialUpdateCounters;
+
 	// Batches material roots and invalidates loaded dependents from one stable object snapshot.
 	class FMaterialUpdateContext
 	{

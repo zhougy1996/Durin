@@ -13,6 +13,7 @@ namespace Durin
 	namespace
 	{
 		bool GIsFlushingMaterialUpdates = false;
+		FMaterialUpdateCounters GLastMaterialUpdateCounters;
 
 		auto HandlesEqual(FObjectHandle Left, FObjectHandle Right) -> bool
 		{
@@ -52,6 +53,12 @@ namespace Durin
 	}
 
 	FMaterialUpdateContext::FMaterialUpdateContext() = default;
+
+	auto GetLastMaterialUpdateCounters() -> FMaterialUpdateCounters
+	{
+		CheckMaterialUpdateThread();
+		return GLastMaterialUpdateCounters;
+	}
 
 	FMaterialUpdateContext::~FMaterialUpdateContext()
 	{
@@ -178,5 +185,6 @@ namespace Durin
 		}
 
 		ChangedRoots.clear();
+		GLastMaterialUpdateCounters = Counters;
 	}
 }

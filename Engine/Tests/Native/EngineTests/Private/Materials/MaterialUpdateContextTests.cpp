@@ -29,6 +29,12 @@ TEST(FMaterialUpdateContextTests, FlushMergesRootsAndScansLoadedComponentsOnce)
 	OtherComponent->SetStaticMesh(OtherMesh);
 	OtherComponent->SetMaterial(Unrelated);
 	OtherComponent->RegisterComponent();
+	auto* SharedComponent = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "BatchSharedComponent");
+	SharedComponent->SetStaticMesh(Mesh);
+	SharedComponent->SetMaterial(0, Sibling);
+	ASSERT_TRUE(SharedComponent->SetMaterialBySlotId(SecondSlot, Grandchild));
+	ASSERT_TRUE(SharedComponent->SetMaterialBySlotId(ThirdSlot, Unrelated));
+	SharedComponent->RegisterComponent();
 	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
 
 	const std::vector<Durin::DObject*> ObjectsBeforeFlush = Durin::GDObjectArray.Snapshot();
@@ -62,7 +68,15 @@ TEST(FMaterialUpdateContextTests, FlushMergesRootsAndScansLoadedComponentsOnce)
 	EXPECT_EQ(Counters.TestedMaterialCount, ExpectedMaterialCount);
 	EXPECT_EQ(Counters.AffectedMaterialCount, 4);
 	EXPECT_EQ(Counters.ScannedComponentCount, ExpectedComponentCount);
-	EXPECT_EQ(Counters.UpdatedSlotCount, 3);
+	EXPECT_EQ(Counters.UpdatedSlotCount, 5);
+	const Durin::FMaterialUpdateCounters LatestCounters = Durin::GetLastMaterialUpdateCounters();
+	EXPECT_EQ(LatestCounters.RootCount, Counters.RootCount);
+	EXPECT_EQ(LatestCounters.ObjectSnapshotCount, Counters.ObjectSnapshotCount);
+	EXPECT_EQ(LatestCounters.ScannedObjectCount, Counters.ScannedObjectCount);
+	EXPECT_EQ(LatestCounters.TestedMaterialCount, Counters.TestedMaterialCount);
+	EXPECT_EQ(LatestCounters.AffectedMaterialCount, Counters.AffectedMaterialCount);
+	EXPECT_EQ(LatestCounters.ScannedComponentCount, Counters.ScannedComponentCount);
+	EXPECT_EQ(LatestCounters.UpdatedSlotCount, Counters.UpdatedSlotCount);
 	EXPECT_EQ(Base->GetRenderStateVersion(), BaseVersion + 1);
 	EXPECT_EQ(Child->GetRenderStateVersion(), ChildVersion + 1);
 	EXPECT_EQ(Grandchild->GetRenderStateVersion(), GrandchildVersion + 1);
@@ -79,14 +93,17 @@ TEST(FMaterialUpdateContextTests, FlushMergesRootsAndScansLoadedComponentsOnce)
 	const Durin::EMaterialRenderDirtyFlags MergedFlags =
 		Durin::EMaterialRenderDirtyFlags::ParameterValues
 		| Durin::EMaterialRenderDirtyFlags::ParentChain;
-	EXPECT_TRUE(Durin::EnumHasAllFlags(Updated.MaterialDirtyFlags[0], MergedFlags));
-	EXPECT_TRUE(Durin::EnumHasAllFlags(Updated.MaterialDirtyFlags[1], MergedFlags));
-	EXPECT_TRUE(Durin::EnumHasAllFlags(Updated.MaterialDirtyFlags[2], MergedFlags));
+	for (Durin::EMaterialRenderDirtyFlags DirtyFlags : Updated.MaterialDirtyFlags)
+	{
+		EXPECT_TRUE(Durin::EnumHasAllFlags(DirtyFlags, MergedFlags));
+	}
 	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision + 3);
 
+	SharedComponent->UnregisterComponent();
 	OtherComponent->UnregisterComponent();
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
+	Durin::MarkAsGarbage(SharedComponent);
 	Durin::MarkAsGarbage(OtherComponent);
 	Durin::MarkAsGarbage(OtherMesh);
 	Durin::MarkAsGarbage(Component);

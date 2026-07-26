@@ -4,6 +4,7 @@
 
 #include "AssetCore.h"
 #include "AssetSystem.h"
+#include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -11,6 +12,7 @@
 #include "Logging/LogMacros.h"
 #include "Misc/Paths.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "Threading/RunnableThread.h"
 
 #include "RHICommandList.h"
 
@@ -18,6 +20,13 @@ namespace Durin
 {
 	namespace
 	{
+		FStaticMeshUpdateCounters GLastStaticMeshUpdateCounters;
+
+		auto CheckStaticMeshUpdateThread() -> void
+		{
+			if (GIsGameThreadIdInitialized) CheckGameThread();
+		}
+
 		inline constexpr uint32 StaticMeshMaterialSlotsVersion = 1;
 		inline constexpr std::string_view LegacySlotGuidDomain = "Durin.StaticMeshMaterialSlot.v1";
 		constexpr float VectorTolerance = 1.0e-10f;
@@ -357,6 +366,12 @@ namespace Durin
 
 	DStaticMesh::~DStaticMesh() = default;
 
+	auto GetLastStaticMeshUpdateCounters() -> FStaticMeshUpdateCounters
+	{
+		CheckStaticMeshUpdateThread();
+		return GLastStaticMeshUpdateCounters;
+	}
+
 	auto DStaticMesh::GetRenderData() const -> const FStaticMeshRenderData*
 	{
 		return RenderData.get();
@@ -393,13 +408,22 @@ namespace Durin
 
 	auto DStaticMesh::NotifyLoadedComponents() -> void
 	{
+		CheckStaticMeshUpdateThread();
+		FStaticMeshUpdateCounters Counters;
 		std::vector<FObjectHandle> ComponentHandles;
-		for (DObject* Object : GDObjectArray.Snapshot())
+		const std::vector<DObject*> Objects = GDObjectArray.Snapshot();
+		Counters.ObjectSnapshotCount = 1;
+		Counters.ScannedObjectCount = static_cast<uint64>(Objects.size());
+		for (DObject* Object : Objects)
 		{
 			auto* Component = Cast<DStaticMeshComponent>(Object);
-			if (!IsValid(Component) || Component->GetStaticMesh() != this) continue;
+			if (!IsValid(Component)) continue;
+			++Counters.ScannedComponentCount;
+			if (Component->GetStaticMesh() != this) continue;
 			const FObjectHandle Handle = MakeObjectHandle(Component);
-			if (!IsObjectHandleNull(Handle)) ComponentHandles.push_back(Handle);
+			if (IsObjectHandleNull(Handle)) continue;
+			ComponentHandles.push_back(Handle);
+			++Counters.MatchedComponentCount;
 		}
 		std::ranges::sort(ComponentHandles, [](FObjectHandle Left, FObjectHandle Right) {
 			return Left.Index < Right.Index
@@ -410,7 +434,9 @@ namespace Durin
 			auto* Component = Cast<DStaticMeshComponent>(ResolveObjectHandle(Handle));
 			if (!IsValid(Component) || Component->GetStaticMesh() != this) continue;
 			Component->HandleStaticMeshRenderDataChanged(this);
+			++Counters.UpdatedComponentCount;
 		}
+		GLastStaticMeshUpdateCounters = Counters;
 	}
 
 	auto DStaticMesh::CreateDebugTriangle(DObject* Outer) -> DStaticMesh*

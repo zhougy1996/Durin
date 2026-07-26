@@ -45,7 +45,19 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 	EXPECT_EQ(UnrelatedUpdate.Proxy, Initial.Proxy);
 
 	SetDefaultMaterial(FirstMesh, 0, Second);
+	const std::vector<Durin::DObject*> ObjectsBeforeUpdate = Durin::GDObjectArray.Snapshot();
+	const Durin::uint64 ExpectedComponentCount = static_cast<Durin::uint64>(std::ranges::count_if(
+		ObjectsBeforeUpdate,
+		[](Durin::DObject* Object) {
+			return Durin::IsValid(Durin::Cast<Durin::DStaticMeshComponent>(Object));
+		}));
 	FirstMesh->SetRenderData(CloneRenderData(FirstMesh));
+	const Durin::FStaticMeshUpdateCounters Counters = Durin::GetLastStaticMeshUpdateCounters();
+	EXPECT_EQ(Counters.ObjectSnapshotCount, 1);
+	EXPECT_EQ(Counters.ScannedObjectCount, ObjectsBeforeUpdate.size());
+	EXPECT_EQ(Counters.ScannedComponentCount, ExpectedComponentCount);
+	EXPECT_EQ(Counters.MatchedComponentCount, 1);
+	EXPECT_EQ(Counters.UpdatedComponentCount, 1);
 	const FMaterialSlotsSnapshot DefaultUpdate = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_NE(DefaultUpdate.Proxy, Initial.Proxy);
 	ExpectColorNear(DefaultUpdate.Materials[0].BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));

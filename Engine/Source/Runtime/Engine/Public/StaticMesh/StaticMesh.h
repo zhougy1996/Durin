@@ -48,6 +48,19 @@ namespace Durin
 	struct FStaticMeshRenderData;
 	struct FStaticMeshImportResult;
 
+	// Reports the deterministic work performed by one static-mesh component scan.
+	struct FStaticMeshUpdateCounters
+	{
+		uint64 ObjectSnapshotCount = 0;
+		uint64 ScannedObjectCount = 0;
+		uint64 ScannedComponentCount = 0;
+		uint64 MatchedComponentCount = 0;
+		uint64 UpdatedComponentCount = 0;
+	};
+
+	// Returns the counters from the most recently completed static-mesh component scan.
+	ENGINE_API auto GetLastStaticMeshUpdateCounters() -> FStaticMeshUpdateCounters;
+
 	// Preserves one material slot's stable identity and source-import provenance.
 	DSTRUCT()
 	struct FStaticMeshMaterialSlotDefinition
