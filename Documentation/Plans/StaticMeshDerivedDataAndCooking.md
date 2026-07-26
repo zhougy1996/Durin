@@ -6,10 +6,12 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Stages 0 and 1 are complete and Stage 2 is next. Durin currently imports every static-mesh source file during
-`DStaticMesh::PostLoad`, and material previews create separate transient meshes
-directly from engine OBJ files. No static-mesh derived-data key, persistent
-platform payload, or cooked-runtime path exists.
+Stages 0 through 2 are complete and Stage 3 is next. Durin now has a strict,
+deterministic DMSH codec and optional relocatable source provenance, but
+`DStaticMesh::PostLoad` still imports accessible source files instead of
+consulting a persistent object cache. Material previews still create separate
+transient meshes directly from engine OBJ files, and no cooked-runtime path
+exists.
 
 This plan selects the long-term source/import/derived/cooked boundaries and
 provides an implementation sequence. The shared asset-data lifecycle fixes
@@ -370,18 +372,18 @@ time or an engine release number.
 
 ### Stage 2: Implement the native static-mesh codec
 
-- [ ] Add explicit encode/decode structures independent of
+- [x] Add explicit encode/decode structures independent of
   `FStaticMeshRenderData` memory layout.
-- [ ] Encode and decode bounds, LOD metadata, vertex streams, index buffers,
+- [x] Encode and decode bounds, LOD metadata, vertex streams, index buffers,
   sections, and stable material-slot identifiers.
-- [ ] Validate magic, versions, platform, checksum, counts, offsets, overlaps,
+- [x] Validate magic, versions, platform, checksum, counts, offsets, overlaps,
   alignment, allocation limits, enum values, and cross-chunk references.
-- [ ] Reject NaN/Infinity positions and bounds, invalid indices, empty required
+- [x] Reject NaN/Infinity positions and bounds, invalid indices, empty required
   geometry, and sections outside index or vertex ranges.
-- [ ] Add deterministic round-trip tests against Stage 0 fixtures.
-- [ ] Add truncation, corruption, integer-overflow, decompression-bomb, unknown
+- [x] Add deterministic round-trip tests against Stage 0 fixtures.
+- [x] Add truncation, corruption, integer-overflow, decompression-bomb, unknown
   chunk, and unsupported-version tests.
-- [ ] Confirm encoding the same render data twice produces byte-identical output.
+- [x] Confirm encoding the same render data twice produces byte-identical output.
 
 #### Acceptance Gate
 

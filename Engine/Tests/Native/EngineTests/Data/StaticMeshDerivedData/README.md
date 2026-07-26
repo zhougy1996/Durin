@@ -4,6 +4,13 @@ These fixtures are the canonical logical inputs for DMSH schema version 1.
 Stage 2 encodes them into payload bytes and compares deterministic output.
 Coordinates, stream elements, slot ids, and ordering are exact.
 
+The schema-version-one Win64 encodings are frozen as:
+
+| Fixture | Stored bytes | XXH3-128 of complete object |
+| --- | ---: | --- |
+| `SingleSection` | 572 | `ad51dc11ff51b69375608a9877a64f3a` |
+| `MultiMaterialStreams` | 856 | `6c1e194288afa6d31ef945773b2c26b4` |
+
 ## `SingleSection`
 
 - Bounds: minimum `(0, 0, 0)`, maximum `(1, 1, 0)`.

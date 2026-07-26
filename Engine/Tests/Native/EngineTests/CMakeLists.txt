@@ -13,6 +13,7 @@ add_durin_test(EngineTests
 	Private/Materials/StaticMeshMaterialTests.cpp
 	Private/Materials/StaticMeshUpdateTests.cpp
 	Private/StaticMeshDerivedDataContractTests.cpp
+	Private/StaticMeshPayloadCodecTests.cpp
 	Private/MaterialParameterPanelModelTests.cpp
 	Private/StaticMeshMaterialSlotDetailsTests.cpp
 	Private/Texture/TextureImportAndCacheTests.cpp
