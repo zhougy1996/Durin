@@ -1252,6 +1252,17 @@ class WorktreeToolTests(unittest.TestCase):
 
 
 class SetupPreflightTests(unittest.TestCase):
+    def test_windows_long_paths_policy_error_is_actionable(self) -> None:
+        with mock.patch.object(setup_preflight, "read_windows_long_paths_enabled", return_value=False):
+            error = setup_preflight.check_windows_long_paths()
+        self.assertIn("LongPathsEnabled", error or "")
+        self.assertIn("Enable Win32 long paths", error or "")
+        self.assertIn("never changes machine policy", error or "")
+
+    def test_windows_long_paths_policy_accepts_enabled_host(self) -> None:
+        with mock.patch.object(setup_preflight, "read_windows_long_paths_enabled", return_value=True):
+            self.assertIsNone(setup_preflight.check_windows_long_paths())
+
     def test_cmake_minimum_version_is_checked(self) -> None:
         completed = subprocess.CompletedProcess(["cmake", "--version"], 0, "cmake version 3.23.5\n", "")
         with mock.patch.object(setup_preflight, "command_path", return_value="cmake"), mock.patch.object(
@@ -1364,6 +1375,24 @@ class OutputTests(unittest.TestCase):
 
 
 class CoreTests(unittest.TestCase):
+    def test_buildtool_rejects_missing_windows_long_paths_policy(self) -> None:
+        fake_winreg = mock.MagicMock(HKEY_LOCAL_MACHINE=object(), REG_DWORD=4)
+        fake_winreg.OpenKey.return_value.__enter__.return_value = object()
+        fake_winreg.QueryValueEx.return_value = (0, fake_winreg.REG_DWORD)
+        with mock.patch.object(build_core.os, "name", "nt"), mock.patch.dict(
+            os.sys.modules, {"winreg": fake_winreg}
+        ), self.assertRaisesRegex(build_config.BuildToolError, "LongPathsEnabled"):
+            build_core.require_windows_long_paths_enabled()
+
+    def test_buildtool_accepts_enabled_windows_long_paths_policy(self) -> None:
+        fake_winreg = mock.MagicMock(HKEY_LOCAL_MACHINE=object(), REG_DWORD=4)
+        fake_winreg.OpenKey.return_value.__enter__.return_value = object()
+        fake_winreg.QueryValueEx.return_value = (1, fake_winreg.REG_DWORD)
+        with mock.patch.object(build_core.os, "name", "nt"), mock.patch.dict(
+            os.sys.modules, {"winreg": fake_winreg}
+        ):
+            build_core.require_windows_long_paths_enabled()
+
     def make_profile(self) -> build_config.BuildProfile:
         return build_config.BuildProfile(
             "test-profile",

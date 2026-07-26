@@ -4,6 +4,7 @@ add_durin_test(CoreTests
 	Private/ConsoleCommandTests.cpp
 	Private/DelegateTests.cpp
 	Private/DerivedDataCacheTests.cpp
+	Private/FileHelperTests.cpp
 	Private/GuidTests.cpp
 	Private/JsonTests.cpp
 	Private/LexicalPathTests.cpp

@@ -6,11 +6,17 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-Active. The immediate shader-cache failure was mitigated by commit `4365c0d7`,
-which stopped temporary artifact names from repeating the complete destination
-filename. The repository does not yet embed a `longPathAware` manifest, has no
-declared `LongPathsEnabled` development prerequisite, and retains separate
-atomic-write implementations in Core and RenderCore.
+Active. Stages 0-2 are implemented and validated on 2026-07-26. The Windows
+host policy is a checked development prerequisite, `DurinLauncher` and every
+native-test executable receive one shared `longPathAware` manifest policy, and
+their final PE images are verified after linking. Core now owns atomic byte
+publication for DDC, shader-cache, and asset-package writes. CoreTests (121),
+RenderCoreTests (48), and AssetCoreTests (30) passed after the publication
+migration; the rebuilt CoreTests and DurinLauncher images passed embedded
+manifest verification. Stage 3 is in progress: Core coverage now crosses 300
+characters, covers the historical temporary-name regression, and diagnoses a
+256-character component, while long-root cache round trips and the full
+long-worktree end-to-end matrix remain.
 
 ## Goal
 
@@ -71,36 +77,65 @@ length, while preserving portable behavior and actionable failure diagnostics.
 
 ## Current Foundations and Gaps
 
-- `FFileHelper` already owns common byte-file reads and writes but does not own
-  atomic publication or structured filesystem diagnostics.
-- `DerivedDataCache::WriteFileAtomically` appends `.tmp` to the complete
-  destination and calls `MoveFileExW` directly on Windows.
-- `ShaderCacheStore` independently creates sibling temporary files and performs
-  atomic replacement. Commit `4365c0d7` shortened those temporary filenames,
-  resolving the observed worktree-sensitive shader test failure.
+- `FFileHelper` owns common byte-file reads, writes, atomic publication, and
+  structured publication diagnostics.
+- DerivedDataCache, ShaderCacheStore, and asset-package saves use the shared
+  Core publication path. Commit `4365c0d7` first shortened shader temporary
+  names; Stage 1 removed that private implementation.
 - `add_durin_test(...)` is the central constructor for native-test executables,
-  while `DurinLauncher` is created separately.
-- No repository-owned application manifest currently declares
-  `longPathAware`.
-- Native tests have isolated `DURIN_TEST_WORK_DIR` roots, but current path tests
-  do not dynamically cross the traditional Windows total-path boundary.
+  while `DurinLauncher` is created separately; both paths call the shared
+  long-path helper.
+- The shared manifest declares `longPathAware`, and final executable images are
+  checked after linking.
+- Native tests have isolated `DURIN_TEST_WORK_DIR` roots, and Core path tests
+  dynamically cross the traditional Windows total-path boundary.
 - Windows long-path behavior requires both a process manifest declaration and an
-  enabled host policy; the repository currently validates neither.
+  enabled host policy; BuildTool enforces the latter before toolchain work.
+- Long-root cache round trips and full validation from a deliberately long
+  worktree remain open Stage 3 work.
+
+## Stage 0 Decisions and Evidence
+
+- Repository-owned Windows executable targets are `DurinLauncher` plus
+  `CoreTests`, `CoreDObjectTests`, `AssetCoreTests`, `EngineTests`,
+  `RenderCoreTests`, and `VulkanRHITests`, all of which are constructed through
+  `add_durin_test(...)` except the launcher.
+- Direct native byte-publication implementations existed in
+  `DerivedDataCache::WriteFileAtomically`, `ShaderCacheStore`, and
+  `FAssetManager::SavePackage`. Asset move and delete staging are multi-file
+  rollback workflows rather than byte publication and remain AssetCore-owned.
+- `LongPathsEnabled=1` is a hard Windows development prerequisite. Setup and
+  BuildTool report the missing registry or Group Policy setting and never modify
+  it.
+- Supported Windows paths are normalized absolute local-drive paths on Windows
+  10 version 1607 or newer, with each component within the filesystem limit.
+  Relative paths beyond `MAX_PATH`, extended UNC paths, shell commands, build
+  tools, and independently launched third-party processes remain outside the
+  contract.
+- MSVC 14.44 `std::filesystem`, file streams, and the selected wide Win32
+  operations use the process opt-in. CoreTests demonstrate creation, byte I/O,
+  metadata, traversal, replacement, and cleanup above 300 characters on the
+  configured host; no extended-path adapter is required for the covered
+  operations.
+- `durin_target_enable_windows_long_paths(...)` attaches the shared manifest as
+  a target source. CMake's MSVC manifest flow merges and embeds it, and a
+  post-link verifier inspects the final PE. This avoids per-target declarations
+  and covers both the test constructor and the separate launcher.
 
 ## Implementation Stages
 
 ### Stage 0: Lock the Windows Capability Contract
 
-- [ ] Inventory every repository-owned Windows executable target and every
+- [x] Inventory every repository-owned Windows executable target and every
   direct atomic-replacement implementation.
-- [ ] Decide whether `LongPathsEnabled` is a hard Windows development
+- [x] Decide whether `LongPathsEnabled` is a hard Windows development
   prerequisite or a reported optional capability with conditional tests.
-- [ ] Verify the supported MSVC standard library and Win32 operations used by
+- [x] Verify the supported MSVC standard library and Win32 operations used by
   `std::filesystem`, streams, directory traversal, and atomic replacement under
   paths longer than `MAX_PATH`.
-- [ ] Select one manifest attachment mechanism that covers generated native-test
+- [x] Select one manifest attachment mechanism that covers generated native-test
   targets and the separately declared launcher without per-target duplication.
-- [ ] Record any unsupported path forms, Windows versions, or tool boundaries
+- [x] Record any unsupported path forms, Windows versions, or tool boundaries
   before implementation begins.
 
 #### Acceptance Gate
@@ -114,17 +149,19 @@ length, while preserving portable behavior and actionable failure diagnostics.
 
 ### Stage 1: Centralize Atomic File Publication in Core
 
-- [ ] Add a Core-owned byte publication API with same-directory fixed-length
+- [x] Add a Core-owned byte publication API with same-directory fixed-length
   temporary naming, atomic replacement, and best-effort cleanup.
-- [ ] Make temporary-name uniqueness safe for concurrent threads and separate
+- [x] Make temporary-name uniqueness safe for concurrent threads and separate
   processes without including the destination filename.
-- [ ] Return structured failure information sufficient to report operation,
+- [x] Return structured failure information sufficient to report operation,
   native error code, path length, and component length.
-- [ ] Migrate `DerivedDataCache::WriteFileAtomically` to the shared
+- [x] Migrate `DerivedDataCache::WriteFileAtomically` to the shared
   implementation while preserving its public compatibility contract.
-- [ ] Migrate shader binary, reflection, and dependency-manifest publication to
+- [x] Migrate shader binary, reflection, and dependency-manifest publication to
   the shared implementation and remove its private replacement logic.
-- [ ] Add Core unit tests for initial publication, replacement, concurrent
+- [x] Migrate asset-package byte publication to the shared implementation;
+  retain AssetCore's separate multi-file move and delete rollback workflows.
+- [x] Add Core unit tests for initial publication, replacement, concurrent
   writers, failed replacement cleanup, and destination preservation.
 
 #### Acceptance Gate
@@ -138,16 +175,16 @@ length, while preserving portable behavior and actionable failure diagnostics.
 
 ### Stage 2: Enable Long-Path-Aware Windows Processes
 
-- [ ] Add a repository-owned Windows application manifest containing
+- [x] Add a repository-owned Windows application manifest containing
   `longPathAware=true`.
-- [ ] Attach the manifest through the selected CMake helper to every native-test
+- [x] Attach the manifest through the selected CMake helper to every native-test
   executable and to `DurinLauncher`.
-- [ ] Add a configure-time or BuildTool preflight check for
+- [x] Add a configure-time or BuildTool preflight check for
   `LongPathsEnabled`, following the Stage 0 decision without changing machine
   state.
-- [ ] Report missing policy with the exact Windows setting, affected capability,
+- [x] Report missing policy with the exact Windows setting, affected capability,
   and remediation path.
-- [ ] Add build-level verification that the launcher and representative native
+- [x] Add build-level verification that the launcher and representative native
   test executables contain the embedded manifest declaration.
 
 #### Acceptance Gate
@@ -161,13 +198,13 @@ length, while preserving portable behavior and actionable failure diagnostics.
 
 ### Stage 3: Prove Long-Path Behavior and Publish the Contract
 
-- [ ] Add tests that dynamically construct normalized absolute paths below,
+- [x] Add tests that dynamically construct normalized absolute paths below,
   near, and above `MAX_PATH` without relying on checkout-root length.
 - [ ] Cover byte write/read, directory creation and traversal, metadata queries,
   atomic replacement, cleanup, and shader/DDC cache round trips.
-- [ ] Include a regression where the destination fits but the historical
+- [x] Include a regression where the destination fits but the historical
   destination-derived temporary name would exceed `MAX_PATH`.
-- [ ] Validate paths with long totals and ordinary components separately from an
+- [x] Validate paths with long totals and ordinary components separately from an
   overlong component, and assert the latter fails with an actionable diagnostic.
 - [ ] Run the complete native-test preset, a full `all` build, and a
   hidden-window runtime smoke test from a deliberately long worktree path.
@@ -241,7 +278,11 @@ length, while preserving portable behavior and actionable failure diagnostics.
 - `Engine/Source/Runtime/Core/Private/Misc/FileHelper.cpp`
 - `Engine/Source/Runtime/Core/Public/Misc/DerivedDataCache.h`
 - `Engine/Source/Runtime/Core/Private/Misc/DerivedDataCache.cpp`
+- `Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp`
 - `Engine/Source/Runtime/RenderCore/Private/Shader/ShaderCacheStore.cpp`
+- `Engine/Tests/Native/CoreTests/Private/FileHelperTests.cpp`
 - `Engine/Tests/Native/CoreTests/Private/DerivedDataCacheTests.cpp`
 - `Engine/Tests/Native/RenderCoreTests/Private/ShaderCacheStoreTests.cpp`
 - `Engine/Tests/Native/RenderCoreTests/Private/ShaderCompileServiceTests.cpp`
+- `CMake/Windows/DurinLongPathAware.manifest`
+- `Engine/Scripts/Build/verify_windows_manifest.py`

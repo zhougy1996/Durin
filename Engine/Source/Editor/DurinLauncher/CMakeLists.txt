@@ -1,6 +1,7 @@
 durin_module_log(${DURIN_PROJECT_NAME} "DurinLauncher")
 
 add_executable(DurinLauncher "Private/Hello.cpp")
+durin_target_enable_windows_long_paths(DurinLauncher)
 if(WIN32)
 	target_sources(DurinLauncher PRIVATE "Resources/DurinEditor.rc")
 endif()
@@ -25,5 +26,4 @@ add_custom_command(TARGET DurinLauncher POST_BUILD
     ${config_file} # destination file
     VERBATIM
 )
-
 

@@ -15,6 +15,8 @@ MINIMUM_PYTHON = (3, 10)
 MINIMUM_CMAKE = (3, 24)
 MINIMUM_MSVC_TOOLS = (14, 44)
 REPO_ROOT = Path(__file__).resolve().parents[3]
+LONG_PATHS_REGISTRY_KEY = r"SYSTEM\CurrentControlSet\Control\FileSystem"
+LONG_PATHS_REGISTRY_VALUE = "LongPathsEnabled"
 
 
 def command_path(command: str, environment: Mapping[str, str] | None = None) -> str | None:
@@ -190,6 +192,29 @@ def check_vulkan_sdk(environment: Mapping[str, str]) -> str | None:
     return None
 
 
+def read_windows_long_paths_enabled() -> bool:
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, LONG_PATHS_REGISTRY_KEY) as key:
+        value, value_type = winreg.QueryValueEx(key, LONG_PATHS_REGISTRY_VALUE)
+    return value_type == winreg.REG_DWORD and value == 1
+
+
+def check_windows_long_paths() -> str | None:
+    try:
+        enabled = read_windows_long_paths_enabled()
+    except OSError:
+        enabled = False
+    if enabled:
+        return None
+    return (
+        r"Windows long-path support is required. Set "
+        r"HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled (REG_DWORD) to 1 "
+        r"through Computer Configuration > Administrative Templates > System > Filesystem > "
+        r"Enable Win32 long paths, then restart Windows. Durin never changes machine policy automatically."
+    )
+
+
 def collect_errors() -> list[str]:
     errors: list[str] = []
     if sys.version_info < MINIMUM_PYTHON:
@@ -202,6 +227,8 @@ def collect_errors() -> list[str]:
         return errors
     if not command_path("git"):
         errors.append("Git was not found in PATH.")
+    if long_paths_error := check_windows_long_paths():
+        errors.append(long_paths_error)
     if cmake_error := check_cmake():
         errors.append(cmake_error)
 

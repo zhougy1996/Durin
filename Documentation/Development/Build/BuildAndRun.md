@@ -9,6 +9,12 @@ main checkout. Create linked worktrees with `WorktreeTool add`, or initialize an
 existing linked worktree with `WorktreeTool prepare`:
 
 - Python 3.10 or newer, including `venv`.
+- Windows 10 version 1607 or newer with **Enable Win32 long paths** enabled under
+  `Computer Configuration > Administrative Templates > System > Filesystem`.
+  This policy sets
+  `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled` to
+  `REG_DWORD 1`; restart Windows after changing it. Setup and BuildTool report a
+  missing policy but never change machine state.
 - Visual Studio 2022 or newer with the **Desktop development with C++** workload, x64 MSVC tools, a Windows SDK, and the English language pack.
 - MSVC Build Tools 14.44 or newer (Visual Studio 2022 17.14). Durin uses C++20 standard-library features including `std::format_string`, `std::format`, and `std::source_location`.
 - Git, CMake 3.24 or newer, and Ninja. The Ninja bundled with Visual Studio is accepted.

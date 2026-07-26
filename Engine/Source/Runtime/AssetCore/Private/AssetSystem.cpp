@@ -1026,23 +1026,14 @@ namespace Durin::Asset
 		FByteWriter Writer;
 		WritePackageFile(File, Writer);
 		const std::filesystem::path Destination(GetPhysicalPath(Path));
-		const std::filesystem::path Temporary = Destination.string() + ".tmp";
-		if (!FFileHelper::SaveArrayToFile(std::span{reinterpret_cast<const std::byte*>(Writer.Bytes.data()), Writer.Bytes.size()}, Temporary)) return Error(EAssetError::IoError, "Failed to write temporary asset file.");
-		std::error_code Ec;
-		std::filesystem::rename(Temporary, Destination, Ec);
-		if (Ec)
+		FFileHelper::FAtomicFileError PublicationError;
+		if (!FFileHelper::SaveArrayToFileAtomically(
+			std::span{reinterpret_cast<const std::byte*>(Writer.Bytes.data()), Writer.Bytes.size()},
+			Destination,
+			&PublicationError
+		))
 		{
-			const std::filesystem::path Backup = Destination.string() + ".bak";
-			std::filesystem::remove(Backup, Ec);
-			Ec.clear();
-			if (std::filesystem::exists(Destination)) std::filesystem::rename(Destination, Backup, Ec);
-			if (!Ec) std::filesystem::rename(Temporary, Destination, Ec);
-			if (Ec)
-			{
-				if (std::filesystem::exists(Backup)) std::filesystem::rename(Backup, Destination);
-				return Error(EAssetError::IoError, "Failed to replace asset file.");
-			}
-			std::filesystem::remove(Backup, Ec);
+			return Error(EAssetError::IoError, PublicationError.ToString());
 		}
 		Package->ClearDirty();
 		const auto LastWriteTime = std::filesystem::last_write_time(Destination);

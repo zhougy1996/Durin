@@ -2,10 +2,6 @@
 
 #include "Misc/FileHelper.h"
 
-#if PLATFORM_WINDOWS
-#include <Windows.h>
-#endif
-
 namespace Durin::DerivedDataCache
 {
 	namespace
@@ -107,28 +103,14 @@ namespace Durin::DerivedDataCache
 
 	auto WriteFileAtomically(const std::filesystem::path& Destination, std::span<const uint8> Bytes, std::string* OutError) -> bool
 	{
-		const std::filesystem::path Temporary = Destination.string() + ".tmp";
-		if (!FFileHelper::SaveArrayToFile(std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()}, Temporary))
+		FFileHelper::FAtomicFileError Error;
+		if (!FFileHelper::SaveArrayToFileAtomically(
+			std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()},
+			Destination,
+			&Error
+		))
 		{
-			if (OutError) *OutError = std::format("Failed to write temporary cache file {}.", Temporary.generic_string());
-			return false;
-		}
-
-		bool bReplaced = false;
-		std::string ReplacementError;
-#if PLATFORM_WINDOWS
-		bReplaced = MoveFileExW(Temporary.c_str(), Destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
-		if (!bReplaced) ReplacementError = std::system_category().message(static_cast<int>(GetLastError()));
-#else
-		std::error_code Error;
-		std::filesystem::rename(Temporary, Destination, Error);
-		bReplaced = !Error;
-		if (Error) ReplacementError = Error.message();
-#endif
-		if (!bReplaced)
-		{
-			std::filesystem::remove(Temporary);
-			if (OutError) *OutError = std::format("Failed to replace cache file {}: {}", Destination.generic_string(), ReplacementError);
+			if (OutError) *OutError = Error.ToString();
 			return false;
 		}
 		return true;

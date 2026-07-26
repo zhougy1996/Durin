@@ -958,9 +958,36 @@ def prepare_toolchain_context(context: BuildContext) -> None:
     prepare_command_context(context)
 
 
+def require_windows_long_paths_enabled() -> None:
+    if os.name != "nt":
+        return
+
+    import winreg
+
+    registry_key = r"SYSTEM\CurrentControlSet\Control\FileSystem"
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, registry_key) as key:
+            value, value_type = winreg.QueryValueEx(key, "LongPathsEnabled")
+        enabled = value_type == winreg.REG_DWORD and value == 1
+    except OSError:
+        enabled = False
+    if not enabled:
+        raise BuildToolError(
+            r"Windows long-path support is required, but "
+            r"HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled "
+            r"is missing or is not REG_DWORD 1.",
+            recovery=(
+                "Enable Computer Configuration > Administrative Templates > System > Filesystem > "
+                "Enable Win32 long paths, then restart Windows and rerun BuildTool. "
+                "BuildTool does not change machine policy."
+            ),
+        )
+
+
 def prepare_toolchain_environment(context: BuildContext) -> None:
     if context.environment is not None:
         return
+    require_windows_long_paths_enabled()
     environment = build_environment(
         context.profile,
         context.config.environment_setup,

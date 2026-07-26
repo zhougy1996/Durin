@@ -7,14 +7,7 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "Shader/ShaderPaths.h"
 
-#include <atomic>
 #include <unordered_set>
-
-#ifdef _WIN32
-#include "Windows/WindowsPlatform.h"
-#else
-#include <unistd.h>
-#endif
 
 namespace Durin
 {
@@ -58,60 +51,10 @@ namespace Durin
 			return true;
 		}
 
-		auto MakeTemporaryPath(const std::filesystem::path& TargetPath) -> std::filesystem::path
-		{
-			static std::atomic_uint64_t Counter = 0;
-			const uint64 Suffix = Counter.fetch_add(1, std::memory_order_relaxed);
-#ifdef _WIN32
-			const uint64 ProcessId = static_cast<uint64>(GetCurrentProcessId());
-#else
-			const uint64 ProcessId = static_cast<uint64>(getpid());
-#endif
-			return TargetPath.parent_path() / std::format(".tmp.{}.{:016x}", ProcessId, Suffix);
-		}
-
-		auto ReplaceFileAtomically(const std::filesystem::path& TemporaryPath, const std::filesystem::path& TargetPath) -> bool
-		{
-#ifdef _WIN32
-			if (!MoveFileExW(TemporaryPath.c_str(), TargetPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-			{
-				DURIN_WARN("Failed to atomically replace shader cache file {} (error {})", TargetPath.generic_string(), GetLastError());
-				return false;
-			}
-#else
-			std::error_code ErrorCode;
-			std::filesystem::rename(TemporaryPath, TargetPath, ErrorCode);
-			if (ErrorCode)
-			{
-				DURIN_WARN("Failed to atomically replace shader cache file {}: {}", TargetPath.generic_string(), ErrorCode.message());
-				return false;
-			}
-#endif
-			return true;
-		}
-
-		auto SaveBytesAtomically(std::span<const std::byte> Bytes, const std::filesystem::path& TargetPath) -> bool
-		{
-			const std::filesystem::path TemporaryPath = MakeTemporaryPath(TargetPath);
-			if (!FFileHelper::SaveArrayToFile(Bytes, TemporaryPath))
-			{
-				return false;
-			}
-
-			if (ReplaceFileAtomically(TemporaryPath, TargetPath))
-			{
-				return true;
-			}
-
-			std::error_code Ignored;
-			std::filesystem::remove(TemporaryPath, Ignored);
-			return false;
-		}
-
 		auto SaveJsonAtomically(FJsonDocument& Document, const std::filesystem::path& TargetPath) -> bool
 		{
 			const std::string JsonText = Document.ToString();
-			return !JsonText.empty() && SaveBytesAtomically(std::as_bytes(std::span(JsonText)), TargetPath);
+			return !JsonText.empty() && FFileHelper::SaveArrayToFileAtomically(std::as_bytes(std::span(JsonText)), TargetPath);
 		}
 
 		constexpr uint32 GSpirvMagicNumber = 0x07230203u;
@@ -561,7 +504,7 @@ namespace Durin
 				return false;
 			}
 
-			if (!SaveBytesAtomically(*CompiledShader.Code, CachePaths[EntryPointIndex]))
+			if (!FFileHelper::SaveArrayToFileAtomically(*CompiledShader.Code, CachePaths[EntryPointIndex]))
 			{
 				DURIN_WARN("Failed to write shader cache artifact: {}", CachePaths[EntryPointIndex]);
 				return false;

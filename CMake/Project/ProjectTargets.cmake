@@ -18,6 +18,24 @@ function(durin_target_force_include_pch target_name header_path)
 	endif()
 endfunction()
 
+function(durin_target_enable_windows_long_paths target_name)
+	if(NOT WIN32)
+		return()
+	endif()
+
+	find_program(DURIN_MANIFEST_TOOL NAMES mt REQUIRED)
+	set(_durin_long_path_manifest "${DURIN_WORKSPACE_DIR}/CMake/Windows/DurinLongPathAware.manifest")
+	target_sources(${target_name} PRIVATE "${_durin_long_path_manifest}")
+	add_custom_command(TARGET ${target_name} POST_BUILD
+		COMMAND "${Python_EXECUTABLE}"
+			"${DURIN_WORKSPACE_DIR}/Engine/Scripts/Build/verify_windows_manifest.py"
+			--executable "$<TARGET_FILE:${target_name}>"
+			--manifest-tool "${DURIN_MANIFEST_TOOL}"
+		COMMENT "Verifying long-path-aware manifest: ${target_name}"
+		VERBATIM
+	)
+endfunction()
+
 function(add_durin_module module_name)
 	durin_module_log(${DURIN_PROJECT_NAME} ${module_name})
 	durin_start("Module_${module_name}")
@@ -145,6 +163,7 @@ endfunction()
 
 function(add_durin_test target_name)
 	add_executable(${target_name} ${ARGN})
+	durin_target_enable_windows_long_paths(${target_name})
 
 	durin_target_apply_common_definitions(${target_name} ${target_name})
 
